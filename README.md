@@ -103,6 +103,10 @@ cargo build --release
 - CSP 策略限制脚本、插件和表单提交来源
 - 外部链接打开有 URL 验证和本地地址黑名单
 
+## 致谢
+
+本项目参考了 [Wxxy_network_auto_login](https://github.com/Senquan007/Wxxy_network_auto_login) 的 Portal 认证逻辑与网络检测方案。
+
 ## 许可证
 
 MIT License
