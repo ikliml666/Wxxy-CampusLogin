@@ -1,0 +1,320 @@
+use tauri::{AppHandle, Emitter, Manager, State, Window};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use parking_lot::Mutex;
+use crate::config::{get_data_dir, get_login_history_path};
+use super::state::{AppState, CommandResult};
+
+const AUTOSTART_REG_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+const AUTOSTART_REG_VALUE: &str = "CampusLogin";
+
+static LOGIN_HISTORY_LOCK: Mutex<()> = Mutex::new(());
+
+#[tauri::command]
+pub fn minimize_window(window: Window) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn close_window(window: Window, state: State<'_, AppState>) -> Result<(), String> {
+    let minimize_to_tray = state.config.load().minimize_to_tray;
+    if minimize_to_tray {
+        window.hide().map_err(|e| e.to_string())
+    } else {
+        state.is_quitting.store(true, Ordering::Release);
+        window.close().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub fn window_move(window: Window, delta_x: i32, delta_y: i32) -> Result<(), String> {
+    if delta_x.abs() > 5000 || delta_y.abs() > 5000 {
+        return Err("窗口移动距离超出合理范围".to_string());
+    }
+    let pos = window.outer_position().map_err(|e| e.to_string())?;
+    let new_x = pos.x + delta_x;
+    let new_y = pos.y + delta_y;
+
+    if let Ok(Some(monitor)) = window.primary_monitor().or_else(|_| window.current_monitor()) {
+        let screen = monitor.size();
+        let scale = monitor.scale_factor();
+        let screen_w = (screen.width as f64 / scale) as i32;
+        let screen_h = (screen.height as f64 / scale) as i32;
+        let min_visible = 50i32;
+        if new_x + min_visible < 0 || new_y + min_visible < 0
+            || new_x > screen_w - min_visible || new_y > screen_h - min_visible
+        {
+            return Err("窗口将移出屏幕范围".to_string());
+        }
+    }
+
+    window.set_position(tauri::Position::Physical(
+        tauri::PhysicalPosition::new(new_x, new_y)
+    )).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_external(url: String) -> Result<bool, String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("仅支持http/https 链接".to_string());
+    }
+    if url.len() > 2048 {
+        return Err("URL长度超出限制".to_string());
+    }
+    let parsed = url::Url::parse(&url).map_err(|e| format!("URL解析失败: {}", e))?;
+    if let Some(host) = parsed.host_str() {
+        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+            match ip {
+                std::net::IpAddr::V4(v4) if v4.is_loopback() || v4.is_link_local() || v4.is_private() => {
+                    return Err("不允许打开本地或内网地址".to_string());
+                }
+                std::net::IpAddr::V6(v6) if v6.is_loopback() => {
+                    return Err("不允许打开本地或内网地址".to_string());
+                }
+                _ => {}
+            }
+        } else if host == "localhost" {
+            return Err("不允许打开本地或内网地址".to_string());
+        }
+    }
+    if parsed.username() != "" || parsed.password().is_some() {
+        return Err("URL不允许包含用户名或密码".to_string());
+    }
+    open::that(&url).map(|_| true).map_err(|e| format!("打开链接失败: {}", e))
+}
+
+fn get_auto_launch_enabled() -> bool {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey(AUTOSTART_REG_KEY) {
+        if let Ok(val) = key.get_value::<String, _>(AUTOSTART_REG_VALUE) {
+            return !val.is_empty();
+        }
+    }
+    false
+}
+
+fn set_auto_launch_registry(enabled: bool, exe_path: &str) -> Result<(), String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey_with_flags(AUTOSTART_REG_KEY, KEY_SET_VALUE)
+        .map_err(|e| format!("打开注册表失败: {}", e))?;
+
+    if enabled {
+        let value = format!("\"{}\" --autostart", exe_path);
+        key.set_value(AUTOSTART_REG_VALUE, &value)
+            .map_err(|e| format!("写入注册表失败: {}", e))?;
+    } else {
+        let _ = key.delete_value(AUTOSTART_REG_VALUE);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_auto_launch() -> Result<serde_json::Value, String> {
+    let enabled = get_auto_launch_enabled();
+    Ok(serde_json::json!({ "enabled": enabled }))
+}
+
+#[tauri::command]
+pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let exe_path = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
+    let exe_str = exe_path.to_str().ok_or("程序路径无效")?;
+
+    let result = set_auto_launch_registry(enabled, exe_str);
+
+    match result {
+        Ok(_) => {
+            let config_clone = {
+                let current = state.config.load();
+                let mut cfg = current.as_ref().clone();
+                cfg.auto_launch = enabled;
+                state.config.store(Arc::new(cfg.clone()));
+                cfg
+            };
+            let _ = super::config_cmd::save_config_to_disk(&app_handle, &config_clone);
+            Ok(serde_json::json!({ "success": true, "message": if enabled { "已开启开机自启" } else { "已关闭开机自启" } }))
+        }
+        Err(e) => Ok(serde_json::json!({ "success": false, "message": format!("设置开机自启失败: {}", e) })),
+    }
+}
+
+#[tauri::command]
+pub fn get_notification_enabled(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.config.load().enable_notification)
+}
+
+#[tauri::command]
+pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_handle: AppHandle) -> Result<bool, String> {
+    {
+        let current = state.config.load();
+        let mut cfg = current.as_ref().clone();
+        cfg.enable_notification = enabled;
+        state.config.store(Arc::new(cfg.clone()));
+        let _ = super::config_cmd::save_config_to_disk(&app_handle, &cfg);
+    }
+    Ok(enabled)
+}
+
+pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str) {
+    let _ = app_handle.emit("system-notification", serde_json::json!({
+        "title": title,
+        "body": body,
+    }));
+
+    let title = title.to_string();
+    let body = body.to_string();
+    let app_h = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        use tauri_plugin_notification::NotificationExt;
+        match app_h.notification()
+            .builder()
+            .title(&title)
+            .body(&body)
+            .show()
+        {
+            Ok(_) => {}
+            Err(e) => crate::log_warn!("system", "系统通知发送失败: {}", e),
+        }
+    });
+}
+
+#[tauri::command]
+pub fn send_notification(title: String, body: String, app_handle: AppHandle) -> Result<bool, String> {
+    if title.is_empty() || title.len() > 256 {
+        return Err("通知标题长度需在1-256之间".to_string());
+    }
+    if body.len() > 1024 {
+        return Err("通知内容过长".to_string());
+    }
+    emit_notification(&app_handle, &title, &body);
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
+    let s = app_handle.state::<AppState>();
+    super::background::cancel_auto_exit_inner(&app_handle, &s)
+}
+
+pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
+    let _lock = LOGIN_HISTORY_LOCK.lock();
+    let data_dir = get_data_dir(app_handle);
+    let history_path = get_login_history_path(&data_dir);
+    let _ = std::fs::create_dir_all(&data_dir);
+
+    let mut history: Vec<serde_json::Value> = if history_path.exists() {
+        let content = std::fs::read_to_string(&history_path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    history.insert(0, serde_json::json!({
+        "time": now,
+        "success": success,
+        "message": message,
+        "adapter": adapter,
+        "user": user,
+        "type": login_type
+    }));
+
+    if history.len() > 100 {
+        history.truncate(100);
+    }
+
+    let json = serde_json::to_string_pretty(&history)
+        .map_err(|e| format!("序列化登录历史失败: {}", e))?;
+
+    std::fs::write(&history_path, &json)
+        .map_err(|e| format!("写入登录历史失败: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_logs(app_handle: AppHandle, lines: Option<usize>) -> Result<String, String> {
+    let n = lines.unwrap_or(200);
+    crate::logger::read_recent_logs(&app_handle, n)
+}
+
+#[tauri::command]
+pub fn clear_logs(app_handle: AppHandle) -> Result<bool, String> {
+    crate::logger::clear_logs(&app_handle)?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let config = state.config.load_full();
+    let mut display_config = (*config).clone();
+    if !display_config.password.is_empty() {
+        display_config.password = "***".to_string();
+    }
+
+    let notification_enabled = config.enable_notification;
+    let active_account = config.active_account.clone();
+    let cached_online_status = state.cached_online_status.load();
+    let cached_val = cached_online_status.as_ref().as_ref().cloned();
+
+    let app_h = app_handle.clone();
+    let (adapter_result, auto_launch_result, accounts_result) = tokio::join!(
+        tauri::async_runtime::spawn_blocking(|| {
+            let (adapters, details, disabled) = crate::network::get_all_adapters_cached().unwrap_or_default();
+            (adapters, details, disabled)
+        }),
+        tauri::async_runtime::spawn_blocking(get_auto_launch_enabled),
+        tauri::async_runtime::spawn_blocking({
+            let app_h = app_h.clone();
+            move || {
+                let data_dir = crate::config::get_data_dir(&app_h);
+                let accounts_dir = crate::config::get_accounts_dir(&data_dir);
+                let mut accounts: Vec<String> = Vec::new();
+                if accounts_dir.exists() {
+                    if let Ok(entries) = std::fs::read_dir(&accounts_dir) {
+                        for entry in entries.flatten() {
+                            if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
+                                if let Some(name) = entry.path().file_stem().and_then(|n| n.to_str()) {
+                                    accounts.push(name.to_string());
+                                }
+                            }
+                        }
+                    }
+                    accounts.sort();
+                }
+                accounts
+            }
+        }),
+    );
+
+    let (a, d, dd) = adapter_result.unwrap_or_default();
+    let al = auto_launch_result.unwrap_or(false);
+    let acc = accounts_result.unwrap_or_default();
+
+    let bg_status = cached_val.unwrap_or_else(|| serde_json::json!({
+        "isRunning": false,
+        "checkCount": 0,
+        "serverAvailable": false,
+        "online": false,
+        "adapterStatuses": [],
+    }));
+
+    Ok(serde_json::json!({
+        "config": display_config,
+        "adapters": a,
+        "adapterDetails": d,
+        "disabledAdapters": dd,
+        "autoLaunch": al,
+        "notificationEnabled": notification_enabled,
+        "backgroundStatus": bg_status,
+        "accounts": acc,
+        "activeAccount": active_account,
+    }))
+}

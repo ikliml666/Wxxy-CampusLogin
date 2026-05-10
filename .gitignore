@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+target/
+dist/
+release/
+output/
+app-output/
+app-v/
+tauri-release/
+
+# Environment files
+.env
+.env.test
+
+# IDE
+.trae/
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.pdb
+temp/
+
+# Runtime data
+config.json

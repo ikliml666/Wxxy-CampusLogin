@@ -1,0 +1,659 @@
+use serde::Serialize;
+use std::net::IpAddr;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::TlsConnector;
+use parking_lot::RwLock;
+
+lazy_static::lazy_static! {
+    static ref TLS_CONNECTOR: TlsConnector = {
+        let mut root_store = tokio_rustls::rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let provider = tokio_rustls::rustls::crypto::ring::default_provider();
+        let config = tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+            .with_safe_default_protocol_versions()
+            .expect("TLS protocol versions")
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        TlsConnector::from(Arc::new(config))
+    };
+
+    static ref DNS_CACHE: RwLock<std::collections::HashMap<String, (IpAddr, Instant)>> = RwLock::new(std::collections::HashMap::new());
+}
+
+const DNS_CACHE_TTL_SECS: u64 = 60;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpTimingResult {
+    pub url: String,
+    pub success: bool,
+    pub error: Option<String>,
+    pub dns_ms: i64,
+    pub tcp_ms: i64,
+    pub tls_ms: i64,
+    pub ttfb_ms: i64,
+    pub content_ms: i64,
+    pub total_ms: i64,
+    pub tls_version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsQueryResult {
+    pub server: String,
+    pub domain: String,
+    pub success: bool,
+    pub error: Option<String>,
+    pub udp_ms: i64,
+    pub tcp_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DohTimingResult {
+    pub server: String,
+    pub success: bool,
+    pub error: Option<String>,
+    pub dns_ms: i64,
+    pub tcp_ms: i64,
+    pub tls_ms: i64,
+    pub http_ms: i64,
+    pub total_ms: i64,
+    pub tls_version: String,
+    pub port: u16,
+}
+
+fn ms_from(start: Instant) -> i64 {
+    let us = start.elapsed().as_micros();
+    ((us + 500) / 1000).max(1) as i64
+}
+
+fn dns_cache_get(host: &str) -> Option<IpAddr> {
+    let cache = DNS_CACHE.read();
+    cache.get(host).and_then(|(ip, ts)| {
+        if ts.elapsed().as_secs() < DNS_CACHE_TTL_SECS {
+            Some(*ip)
+        } else {
+            None
+        }
+    })
+}
+
+fn dns_cache_put(host: &str, ip: IpAddr) {
+    let mut cache = DNS_CACHE.write();
+    let now = Instant::now();
+    cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
+    cache.insert(host.to_string(), (ip, Instant::now()));
+}
+
+pub async fn measure_https_timing(
+    host: &str,
+    port: u16,
+    bind_addr: Option<IpAddr>,
+    timeout: Duration,
+    skip_ttfb: bool,
+    skip_content: bool,
+) -> HttpTimingResult {
+    let url = format!("https://{}:{}/", host, port);
+    let mut result = HttpTimingResult {
+        url: url.clone(),
+        success: false,
+        error: None,
+        dns_ms: -1,
+        tcp_ms: -1,
+        tls_ms: -1,
+        ttfb_ms: -1,
+        content_ms: -1,
+        total_ms: -1,
+        tls_version: String::new(),
+    };
+
+    let overall_start = Instant::now();
+
+    // === Phase 1: DNS Resolution (with cache) ===
+    let dns_start = Instant::now();
+    let ip = if let Some(cached) = dns_cache_get(host) {
+        result.dns_ms = ms_from(dns_start);
+        cached
+    } else {
+        match resolve_host_uncached(host, timeout).await {
+            Ok(ip) => {
+                dns_cache_put(host, ip);
+                result.dns_ms = ms_from(dns_start);
+                ip
+            }
+            Err(e) => {
+                result.error = Some(format!("DNS解析失败: {}", e));
+                result.total_ms = ms_from(overall_start);
+                return result;
+            }
+        }
+    };
+
+    // === Phase 2: TCP Connection ===
+    let addr = std::net::SocketAddr::new(ip, port);
+    let tcp_start = Instant::now();
+    let tcp_stream = match bind_and_connect(addr, bind_addr, timeout).await {
+        Ok(s) => s,
+        Err(e) => {
+            result.error = Some(format!("TCP连接失败: {}", e));
+            result.total_ms = ms_from(overall_start);
+            return result;
+        }
+    };
+    result.tcp_ms = ms_from(tcp_start);
+
+    // === Phase 3: TLS Handshake (session resumption supported by rustls default) ===
+    let tls_start = Instant::now();
+    let (mut tls_stream, negotiated_version) = match do_tls_handshake(host, tcp_stream, timeout).await {
+        Ok(r) => r,
+        Err(e) => {
+            result.error = Some(format!("TLS握手失败: {}", e));
+            result.total_ms = ms_from(overall_start);
+            return result;
+        }
+    };
+    result.tls_ms = ms_from(tls_start);
+    result.tls_version = negotiated_version;
+
+    // === Phase 4: Send HTTP Request + TTFB + Content (optional) ===
+    if !skip_ttfb && !skip_content {
+        let request = format!(
+            "GET / HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+            host
+        );
+
+        let ttfb_start = Instant::now();
+        if let Err(e) = tls_stream.write_all(request.as_bytes()).await {
+            result.error = Some(format!("发送请求失败: {}", e));
+            result.total_ms = ms_from(overall_start);
+            return result;
+        }
+
+        let mut buf = vec![0u8; 8192];
+        let mut total_read = 0usize;
+        let mut first_byte_received = false;
+        let mut content_start = Instant::now();
+
+        loop {
+            match tokio::time::timeout(timeout, tls_stream.read(&mut buf)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => {
+                    if !first_byte_received {
+                        result.ttfb_ms = ms_from(ttfb_start);
+                        content_start = Instant::now();
+                        first_byte_received = true;
+                    }
+                    total_read += n;
+                    if total_read > 64 * 1024 {
+                        break;
+                    }
+                }
+                Ok(Err(e)) => {
+                    if !first_byte_received {
+                        result.error = Some(format!("读取响应失败: {}", e));
+                        result.total_ms = ms_from(overall_start);
+                        return result;
+                    }
+                    break;
+                }
+                Err(_) => {
+                    if !first_byte_received {
+                        result.error = Some("TTFB超时".to_string());
+                        result.total_ms = ms_from(overall_start);
+                        return result;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if first_byte_received {
+            result.content_ms = ms_from(content_start);
+        } else {
+            result.ttfb_ms = ms_from(ttfb_start);
+        }
+    } else if skip_ttfb && !skip_content {
+        let request = format!(
+            "GET / HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+            host
+        );
+
+        let content_start = Instant::now();
+        if let Err(e) = tls_stream.write_all(request.as_bytes()).await {
+            result.error = Some(format!("发送请求失败: {}", e));
+            result.total_ms = ms_from(overall_start);
+            return result;
+        }
+
+        let mut total_read = 0usize;
+        let mut buf = [0u8; 8192];
+        loop {
+            match tokio::time::timeout(timeout, tls_stream.read(&mut buf)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => {
+                    total_read += n;
+                    if total_read > 64 * 1024 {
+                        break;
+                    }
+                }
+                Ok(Err(_)) => break,
+                Err(_) => break,
+            }
+        }
+        result.ttfb_ms = -1;
+        result.content_ms = if total_read > 0 { ms_from(content_start) } else { -1 };
+    } else {
+        result.ttfb_ms = -1;
+        result.content_ms = -1;
+    }
+
+    result.total_ms = ms_from(overall_start);
+    result.success = true;
+    result
+}
+
+async fn resolve_host_uncached(host: &str, timeout: Duration) -> Result<IpAddr, String> {
+    let host = host.to_string();
+    tokio::time::timeout(timeout, async move {
+        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(format!("{}:443", host))
+            .await
+            .map_err(|e| format!("{}", e))?
+            .collect();
+        addrs
+            .first()
+            .map(|a| a.ip())
+            .ok_or_else(|| "无DNS结果".to_string())
+    })
+    .await
+    .map_err(|_| "DNS解析超时".to_string())?
+}
+
+async fn bind_and_connect(
+    addr: std::net::SocketAddr,
+    bind_addr: Option<IpAddr>,
+    timeout: Duration,
+) -> Result<TcpStream, String> {
+    let stream = if let Some(bind) = bind_addr {
+        let bind_addr = std::net::SocketAddr::new(bind, 0);
+        let socket = match addr {
+            std::net::SocketAddr::V4(_) => {
+                tokio::net::TcpSocket::new_v4().map_err(|e| format!("{}", e))?
+            }
+            std::net::SocketAddr::V6(_) => {
+                tokio::net::TcpSocket::new_v6().map_err(|e| format!("{}", e))?
+            }
+        };
+        socket.bind(bind_addr).map_err(|e| format!("绑定失败: {}", e))?;
+        tokio::time::timeout(timeout, socket.connect(addr))
+            .await
+            .map_err(|_| "TCP连接超时".to_string())?
+            .map_err(|e| format!("{}", e))?
+    } else {
+        tokio::time::timeout(timeout, TcpStream::connect(addr))
+            .await
+            .map_err(|_| "TCP连接超时".to_string())?
+            .map_err(|e| format!("{}", e))?
+    };
+    Ok(stream)
+}
+
+async fn do_tls_handshake(
+    host: &str,
+    tcp_stream: TcpStream,
+    timeout: Duration,
+) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String), String> {
+    let server_name = ServerName::try_from(host.to_string())
+        .map_err(|e| format!("无效主机名: {}", e))?;
+
+    let tls_stream = tokio::time::timeout(timeout, TLS_CONNECTOR.connect(server_name, tcp_stream))
+        .await
+        .map_err(|_| "TLS握手超时".to_string())?
+        .map_err(|e| format!("{}", e))?;
+
+    let version_str = {
+        let (_, connection) = tls_stream.get_ref();
+        let negotiated = connection.protocol_version();
+        match negotiated {
+            Some(tokio_rustls::rustls::ProtocolVersion::TLSv1_3) => "TLS 1.3".to_string(),
+            Some(tokio_rustls::rustls::ProtocolVersion::TLSv1_2) => "TLS 1.2".to_string(),
+            _ => format!("{:?}", negotiated),
+        }
+    };
+
+    Ok((tls_stream, version_str))
+}
+
+pub async fn measure_dns_query(
+    server_ip: &str,
+    domain: &str,
+    bind_addr: Option<IpAddr>,
+    timeout: Duration,
+) -> DnsQueryResult {
+    let query_domain = domain.to_string();
+
+    let mut result = DnsQueryResult {
+        server: server_ip.to_string(),
+        domain: domain.to_string(),
+        success: false,
+        error: None,
+        udp_ms: -1,
+        tcp_ms: -1,
+    };
+
+    let (udp_result, tcp_result) = tokio::join!(
+        udp_dns_lookup(server_ip, &query_domain, bind_addr, timeout),
+        tcp_dns_lookup(server_ip, &query_domain, bind_addr, timeout)
+    );
+    let (_, udp_ms) = udp_result;
+    let (_, tcp_ms) = tcp_result;
+
+    match udp_result {
+        (Ok(_), _) => { result.udp_ms = udp_ms; }
+        (Err(e), _) => { if tcp_ms < 0 { result.error = Some(format!("UDP查询失败: {}", e)); } }
+    }
+    match tcp_result {
+        (Ok(_), _) => { result.tcp_ms = tcp_ms; }
+        (Err(e), _) => { if result.udp_ms < 0 { result.error = Some(format!("TCP查询失败: {}", e)); } }
+    }
+
+    result.success = result.udp_ms >= 0 || result.tcp_ms >= 0;
+    result
+}
+
+async fn udp_dns_lookup(
+    server_ip: &str,
+    domain: &str,
+    bind_addr: Option<IpAddr>,
+    timeout: Duration,
+) -> (Result<(), String>, i64) {
+    use hickory_resolver::config::*;
+    use hickory_resolver::Resolver;
+
+    let start = Instant::now();
+    let ip: IpAddr = match server_ip.parse() {
+        Ok(ip) => ip,
+        Err(e) => return (Err(format!("{}", e)), -1),
+    };
+    let sock_addr = std::net::SocketAddr::new(ip, 53);
+    let bind = bind_addr.map(|a| std::net::SocketAddr::new(a, 0));
+
+    let mut resolver_config = ResolverConfig::new();
+    resolver_config.add_name_server(NameServerConfig {
+        socket_addr: sock_addr,
+        protocol: Protocol::Udp,
+        tls_dns_name: None,
+        trust_negative_responses: false,
+        bind_addr: bind,
+    });
+
+    let mut opts = ResolverOpts::default();
+    opts.try_tcp_on_error = false;
+    opts.timeout = timeout;
+    opts.attempts = 1;
+    opts.num_concurrent_reqs = 1;
+
+    let resolver = match Resolver::new(resolver_config, opts) {
+        Ok(r) => r,
+        Err(e) => return (Err(format!("创建解析器失败: {}", e)), -1),
+    };
+
+    let domain = domain.to_string();
+    match tokio::task::spawn_blocking(move || {
+        resolver.lookup_ip(&domain)
+            .map_err(|e| format!("{}", e))
+    }).await {
+        Ok(Ok(_)) => (Ok(()), ms_from(start)),
+        Ok(Err(e)) => (Err(e), ms_from(start)),
+        Err(e) => (Err(format!("任务执行失败: {}", e)), ms_from(start)),
+    }
+}
+
+async fn tcp_dns_lookup(
+    server_ip: &str,
+    domain: &str,
+    bind_addr: Option<IpAddr>,
+    timeout: Duration,
+) -> (Result<(), String>, i64) {
+    use hickory_resolver::config::*;
+    use hickory_resolver::Resolver;
+
+    let start = Instant::now();
+    let ip: IpAddr = match server_ip.parse() {
+        Ok(ip) => ip,
+        Err(e) => return (Err(format!("{}", e)), -1),
+    };
+    let sock_addr = std::net::SocketAddr::new(ip, 53);
+    let bind = bind_addr.map(|a| std::net::SocketAddr::new(a, 0));
+
+    let mut resolver_config = ResolverConfig::new();
+    resolver_config.add_name_server(NameServerConfig {
+        socket_addr: sock_addr,
+        protocol: Protocol::Tcp,
+        tls_dns_name: None,
+        trust_negative_responses: false,
+        bind_addr: bind,
+    });
+
+    let mut opts = ResolverOpts::default();
+    opts.try_tcp_on_error = false;
+    opts.timeout = timeout;
+    opts.attempts = 1;
+    opts.num_concurrent_reqs = 1;
+
+    let resolver = match Resolver::new(resolver_config, opts) {
+        Ok(r) => r,
+        Err(e) => return (Err(format!("创建解析器失败: {}", e)), -1),
+    };
+
+    let domain = domain.to_string();
+    match tokio::task::spawn_blocking(move || {
+        resolver.lookup_ip(&domain)
+            .map_err(|e| format!("{}", e))
+    }).await {
+        Ok(Ok(_)) => (Ok(()), ms_from(start)),
+        Ok(Err(e)) => (Err(e), ms_from(start)),
+        Err(e) => (Err(format!("任务执行失败: {}", e)), ms_from(start)),
+    }
+}
+
+pub async fn measure_doh_timing(
+    doh_server: &str,
+    doh_ip: &str,
+    query_domain: &str,
+    bind_addr: Option<IpAddr>,
+    timeout: Duration,
+    skip_http: bool,
+) -> DohTimingResult {
+    let query_domain = query_domain.to_string();
+
+    let mut result = DohTimingResult {
+        server: doh_server.to_string(),
+        success: false,
+        error: None,
+        dns_ms: -1,
+        tcp_ms: -1,
+        tls_ms: -1,
+        http_ms: -1,
+        total_ms: -1,
+        tls_version: String::new(),
+        port: 443,
+    };
+
+    let overall_start = Instant::now();
+
+    let dns_start = Instant::now();
+    let (ip, used_dns_resolve) = if !doh_ip.is_empty() {
+        match doh_ip.parse() {
+            Ok(ip) => (ip, false),
+            Err(_) => {
+                result.error = Some("DoH服务器IP无效".to_string());
+                return result;
+            }
+        }
+    } else {
+        match resolve_host_uncached(doh_server, timeout).await {
+            Ok(ip) => (ip, true),
+            Err(e) => {
+                result.error = Some(format!("DoH域名解析失败: {}", e));
+                return result;
+            }
+        }
+    };
+    result.dns_ms = ms_from(dns_start);
+    let dns_ms = result.dns_ms;
+
+    let https_result = do_doh_https(doh_server, ip, &query_domain, bind_addr, timeout, skip_http).await;
+    if https_result.success {
+        let mut r = https_result;
+        r.dns_ms = dns_ms;
+        r.total_ms = ms_from(overall_start);
+        return r;
+    }
+
+    result.tcp_ms = https_result.tcp_ms;
+    result.tls_ms = https_result.tls_ms;
+    result.http_ms = https_result.http_ms;
+    result.tls_version = https_result.tls_version;
+
+    if !used_dns_resolve {
+        let fallback_dns_start = Instant::now();
+        match resolve_host_uncached(doh_server, timeout).await {
+            Ok(dns_ip) => {
+                let fallback_dns_ms = ms_from(fallback_dns_start);
+                let fallback_result = do_doh_https(doh_server, dns_ip, &query_domain, bind_addr, timeout, skip_http).await;
+                if fallback_result.success {
+                    let mut r = fallback_result;
+                    r.dns_ms = fallback_dns_ms;
+                    r.total_ms = ms_from(overall_start);
+                    return r;
+                }
+            }
+            Err(_) => {}
+        }
+    }
+
+    result.error = Some("DoH请求失败(443不可达)".to_string());
+    let completed: i64 = [result.dns_ms, result.tcp_ms, result.tls_ms, result.http_ms]
+        .iter().filter(|&&x| x > 0).sum();
+    result.total_ms = if completed > 0 { completed } else { -1 };
+    result
+}
+
+async fn do_doh_https(
+    doh_server: &str,
+    doh_ip: IpAddr,
+    query_domain: &str,
+    bind_addr: Option<IpAddr>,
+    timeout: Duration,
+    skip_http: bool,
+) -> DohTimingResult {
+    let overall_start = Instant::now();
+    let mut result = DohTimingResult {
+        server: doh_server.to_string(),
+        success: false,
+        error: None,
+        dns_ms: 0,
+        tcp_ms: -1,
+        tls_ms: -1,
+        http_ms: -1,
+        total_ms: -1,
+        tls_version: String::new(),
+        port: 443,
+    };
+
+    let addr = std::net::SocketAddr::new(doh_ip, 443);
+    let tcp_start = Instant::now();
+    let tcp_stream = match bind_and_connect(addr, bind_addr, timeout).await {
+        Ok(s) => { result.tcp_ms = ms_from(tcp_start); s }
+        Err(e) => {
+            result.error = Some(format!("TCP连接失败: {}", e));
+            let completed: i64 = [result.tcp_ms, result.tls_ms, result.http_ms].iter().filter(|&&x| x > 0).sum();
+            result.total_ms = if completed > 0 { completed } else { -1 };
+            return result;
+        }
+    };
+
+    let tls_start = Instant::now();
+    let mut tls_stream = match do_tls_handshake(doh_server, tcp_stream, timeout).await {
+        Ok((stream, tls_ver)) => {
+            result.tls_ms = ms_from(tls_start);
+            result.tls_version = tls_ver;
+            stream
+        }
+        Err(e) => {
+            result.error = Some(format!("TLS握手失败: {}", e));
+            let completed: i64 = [result.tcp_ms, result.tls_ms, result.http_ms].iter().filter(|&&x| x > 0).sum();
+            result.total_ms = if completed > 0 { completed } else { -1 };
+            return result;
+        }
+    };
+
+    if skip_http {
+        result.http_ms = -1;
+        result.total_ms = ms_from(overall_start);
+        result.success = true;
+        return result;
+    }
+
+    let path = format!("/dns-query?name={}&type=A", query_domain);
+    let request = format!(
+        "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: application/dns-json\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n",
+        path, doh_server
+    );
+
+    let http_start = Instant::now();
+    if let Err(e) = tls_stream.write_all(request.as_bytes()).await {
+        result.error = Some(format!("发送请求失败: {}", e));
+        let completed: i64 = [result.tcp_ms, result.tls_ms, result.http_ms].iter().filter(|&&x| x > 0).sum();
+        result.total_ms = if completed > 0 { completed } else { -1 };
+        return result;
+    }
+
+    let mut buf = vec![0u8; 4096];
+    let mut total_read = 0usize;
+    let mut first_read = true;
+    loop {
+        match tokio::time::timeout(timeout, tls_stream.read(&mut buf)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                if first_read {
+                    result.http_ms = ms_from(http_start);
+                    first_read = false;
+                }
+                total_read += n;
+                if total_read > 64 * 1024 {
+                    break;
+                }
+            }
+            Ok(Err(e)) => {
+                if first_read {
+                    result.error = Some(format!("读取响应失败: {}", e));
+                }
+                break;
+            }
+            Err(_) => {
+                if first_read {
+                    result.error = Some("DoH响应超时".to_string());
+                    result.http_ms = ms_from(http_start);
+                }
+                break;
+            }
+        }
+    }
+    if !first_read {
+        result.total_ms = ms_from(overall_start);
+        result.success = true;
+    } else if result.error.is_none() {
+        result.error = Some("DoH响应为空".to_string());
+    }
+    if !result.success {
+        let completed: i64 = [result.tcp_ms, result.tls_ms, result.http_ms].iter().filter(|&&x| x > 0).sum();
+        result.total_ms = if completed > 0 { completed } else { -1 };
+    }
+    result
+}
