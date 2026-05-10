@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+package-lock.json
 
 # Build outputs
 target/
@@ -9,6 +10,9 @@ output/
 app-output/
 app-v/
 tauri-release/
+installer-build/
+release-build/
+archive/
 
 # Environment files
 .env
@@ -32,6 +36,8 @@ Desktop.ini
 *.tmp
 *.pdb
 temp/
+asar_check2/
+asar_restore/
 
 # Runtime data
 config.json
