@@ -1,7 +1,8 @@
 # Wxxy-CampusLogin
 
 无锡学院校园网登录助手 — 基于 Tauri 2 + React 19 的桌面应用
-![Uploading 986d77eb0b98b272.png…]()
+<img width="1438" height="1014" alt="986d77eb0b98b272" src="https://github.com/user-attachments/assets/341181ef-6cf1-47dc-acc2-b6e02fbe671b" />
+
 
 ## 功能特性
 
