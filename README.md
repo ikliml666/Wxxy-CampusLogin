@@ -4,6 +4,8 @@
 <img width="1438" height="1014" alt="986d77eb0b98b272" src="https://github.com/user-attachments/assets/341181ef-6cf1-47dc-acc2-b6e02fbe671b" />
 
 
+<br />
+
 ## 功能特性
 
 - **一键登录** — 自动检测网络适配器、DHCP 续租、智能重试
@@ -16,15 +18,15 @@
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 框架 | Tauri 2 |
-| 前端 | React 19 + TypeScript + Vite 6 |
+| 层级 | 技术                                 |
+| -- | ---------------------------------- |
+| 框架 | Tauri 2                            |
+| 前端 | React 19 + TypeScript + Vite 6     |
 | 样式 | TailwindCSS 3.4 + Framer Motion 12 |
-| 后端 | Rust + Tokio |
-| 网络 | reqwest 0.12 + tokio-rustls 0.26 |
-| 加密 | Windows DPAPI |
-| 平台 | Windows (Win32 API) |
+| 后端 | Rust + Tokio                       |
+| 网络 | reqwest 0.12 + tokio-rustls 0.26   |
+| 加密 | Windows DPAPI                      |
+| 平台 | Windows (Win32 API)                |
 
 ## 项目结构
 
@@ -107,7 +109,7 @@ cargo build --release
 
 ## 致谢
 
-本项目参考了 [Wxxy_network_auto_login](https://github.com/Senquan007/Wxxy_network_auto_login) 的 Portal 认证逻辑与网络检测方案。
+本项目参考了 [Wxxy\_network\_auto\_login](https://github.com/Senquan007/Wxxy_network_auto_login) 的 Portal 认证逻辑与网络检测方案。
 
 ## 许可证
 
