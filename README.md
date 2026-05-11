@@ -4,6 +4,10 @@
 <img width="1438" height="1014" alt="986d77eb0b98b272" src="https://github.com/user-attachments/assets/341181ef-6cf1-47dc-acc2-b6e02fbe671b" />
 
 
+![version](https://img.shields.io/badge/version-2.1.4-blue)
+![platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
+
 <br />
 
 ## 功能特性
@@ -15,6 +19,9 @@
 - **双适配器支持** — 有线 + 无线同时管理
 - **开机自启** — 静默启动、自动登录、登录后自动退出
 - **主题定制** — 6 种预设主题 + 自定义主题色 + 深浅模式
+- **系统托盘** — 最小化到托盘后台运行，支持托盘快速登录
+- **登录历史** — 记录每次登录的时间、结果和适配器信息
+- **系统通知** — 登录成功/失败时发送桌面通知
 
 ## 技术栈
 
@@ -32,11 +39,16 @@
 
 ```
 Wxxy-CampusLogin/
-├── .github/workflows/       # CI 配置
+├── assets/                  # 截图等资源
 ├── tauri-app/
 │   ├── frontend/            # React 前端
 │   │   ├── src/
 │   │   │   ├── components/  # UI 组件
+│   │   │   │   ├── dialogs/ # 对话框
+│   │   │   │   ├── layout/  # 布局组件
+│   │   │   │   ├── panels/  # 面板组件
+│   │   │   │   ├── shared/  # 共享组件
+│   │   │   │   └── ui/      # 基础 UI 组件
 │   │   │   ├── hooks/       # 状态管理 & IPC
 │   │   │   ├── lib/         # 工具函数
 │   │   │   ├── types/       # TypeScript 类型
@@ -45,8 +57,8 @@ Wxxy-CampusLogin/
 │   ├── src-tauri/           # Rust 后端
 │   │   ├── src/
 │   │   │   ├── commands/    # Tauri 命令
+│   │   │   ├── network/     # 网络模块（适配器/Portal/登录/质量/缓存）
 │   │   │   ├── config.rs    # 配置管理
-│   │   │   ├── network.rs   # 网络检测
 │   │   │   ├── crypto_utils.rs  # 加密工具
 │   │   │   ├── http_timing.rs   # HTTP 计时
 │   │   │   └── logger.rs    # 日志系统
@@ -106,6 +118,40 @@ cargo build --release
 - 前端显示密码为 `***`，不暴露明文
 - CSP 策略限制脚本、插件和表单提交来源
 - 外部链接打开有 URL 验证和本地地址黑名单
+- 登录频率限制防止滥用
+
+## 更新日志
+
+### v2.1.4
+
+**Bug 修复**
+- 修复登录成功后适配器缓存竞态问题
+- 修复 Portal 缓存锁释放时机导致并发数据不一致
+- 修复登录频率限制过严（1秒1次 → 3秒3次）
+- 修复 AC 认证失败时返回码与成功状态不一致
+- 修复自动退出倒计时延长后前端不知情
+- 修复前端初始化逻辑重复执行
+- 修复内网 DNS 测试被 IP 限制阻止
+
+**架构重构**
+- 拆分 network.rs（1400行）为 5 个职责清晰的子模块
+- 合并 AppState 16 个散列字段为 TaskFlags + NetworkStatus 分组
+- 合并前端三层 Context 为单一 AppStoreProvider
+
+**性能优化**
+- 优化编译参数 codegen-units（256 → 16），让 LTO 真正生效
+- 缩短适配器缓存 TTL（60s → 15s），提升 UI 响应性
+
+**安全改进**
+- 配置验证返回错误而非静默修正
+- 20 处错误忽略改为适当处理
+
+**代码清理**
+- 移除多处死代码和未使用类型
+
+### v2.1.3
+
+- 初始发布版本
 
 ## 致谢
 
