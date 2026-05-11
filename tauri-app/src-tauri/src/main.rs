@@ -32,6 +32,9 @@ fn main() {
     let handle = runtime.handle().clone();
     tauri::async_runtime::set(handle);
     run_app();
+    crate::logger::flush();
+    crate::logger::shutdown();
+    std::thread::sleep(std::time::Duration::from_millis(200));
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
 }
 
@@ -71,7 +74,9 @@ fn run_app() {
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
                 dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
             });
-            let _ = std::fs::create_dir_all(&data_dir);
+            if let Err(e) = std::fs::create_dir_all(&data_dir) {
+                crate::log_warn!("main", "创建数据目录失败: {}", e);
+            }
 
             let install_dir = std::env::current_exe()
                 .ok()
@@ -125,7 +130,13 @@ fn run_app() {
 
             let tray_icon = app.default_window_icon()
                 .cloned()
-                .unwrap_or_else(|| tauri::image::Image::from_path("icons/icon.ico").expect("tray icon"));
+                .or_else(|| {
+                    let icon_path = install_dir.join("icons").join("icon.ico");
+                    tauri::image::Image::from_path(&icon_path).ok()
+                })
+                .unwrap_or_else(|| {
+                    tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico")).expect("embedded tray icon")
+                });
 
             let _ = TrayIconBuilder::new()
                 .icon(tray_icon)
@@ -140,14 +151,14 @@ fn run_app() {
                         }
                         "quick-login" => {
                             let s = app.state::<AppState>();
-                            if s.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                            if s.tasks.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                                 let app_h = app.clone();
                                 tauri::async_runtime::spawn_blocking(move || {
                                     let s = app_h.state::<AppState>();
                                     struct QuickLoginGuard<'a>(&'a crate::commands::state::AppState);
                                     impl Drop for QuickLoginGuard<'_> {
                                         fn drop(&mut self) {
-                                            self.0.is_logging_in.store(false, Ordering::Release);
+                                            self.0.tasks.is_logging_in.store(false, Ordering::Release);
                                         }
                                     }
                                     let _guard = QuickLoginGuard(&s);
@@ -177,8 +188,8 @@ fn run_app() {
                         "quit" => {
                             let s = app.state::<AppState>();
                             s.is_quitting.store(true, Ordering::Release);
-                            s.background_running.store(false, Ordering::Release);
-                            s.latency_running.store(false, Ordering::Release);
+                            s.tasks.background_running.store(false, Ordering::Release);
+                            s.tasks.latency_running.store(false, Ordering::Release);
                             app.exit(0);
                         }
                         _ => {}
@@ -190,7 +201,7 @@ fn run_app() {
                         if button == tauri::tray::MouseButton::Left {
                             let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(true) {
+                                if window.is_visible().unwrap_or(false) {
                                     let _ = window.hide();
                                 } else {
                                     let _ = window.show();
@@ -218,8 +229,8 @@ fn run_app() {
                     let _ = window.hide();
                 } else {
                     s.is_quitting.store(true, Ordering::Release);
-                    s.background_running.store(false, Ordering::Release);
-                    s.latency_running.store(false, Ordering::Release);
+                    s.tasks.background_running.store(false, Ordering::Release);
+                    s.tasks.latency_running.store(false, Ordering::Release);
                 }
             }
         })
@@ -263,7 +274,11 @@ fn run_app() {
             commands::system::get_logs,
             commands::system::clear_logs,
             commands::system::get_init_data,
-        ]);
+    commands::updater::check_update,
+    commands::updater::download_update,
+    commands::updater::install_update,
+    commands::updater::get_mirror_urls,
+]);
 
     app.run(tauri::generate_context!()).unwrap_or_else(|e| {
         crate::log_error!("startup", "TAURI 运行错误: {}", e);

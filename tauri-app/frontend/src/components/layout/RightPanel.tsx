@@ -50,9 +50,10 @@ function getAdapterInfo(
 ): { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string } | null {
   if (adapterName && adapterName !== '自动检测') {
     const detail = adapterDetails.find(a => a.name === adapterName)
-    if (detail && detail.ip) return detail
+    if (detail) return detail
     const adapter = adapters.find(a => a.name === adapterName)
-    if (adapter && adapter.ip) return { name: adapter.name, ip: adapter.ip, wireless: adapter.wireless, subnetMask: '', gateway: '', dhcpServer: '' }
+    if (adapter) return { name: adapter.name, ip: adapter.ip, wireless: adapter.wireless, subnetMask: '', gateway: '', dhcpServer: '' }
+    return null
   }
   const wired = adapterDetails.find(a => !a.wireless && a.ip)
   if (wired) return wired
@@ -90,7 +91,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterD
     const dualEnabled = config?.dualAdapter && config?.adapter2 && config.adapter2 !== '自动检测'
     if (dualEnabled) {
       const secondary = getAdapterInfo(config.adapter2, adapterDetails, adapters)
-      if (secondary && secondary.ip) result.push(secondary)
+      if (secondary) result.push(secondary)
     }
     return result
   }, [adapterDetails, adapters, config])

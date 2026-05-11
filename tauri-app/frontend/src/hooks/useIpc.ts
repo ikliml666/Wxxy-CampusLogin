@@ -8,6 +8,26 @@ type AdapterDisabledWarningData = { name: string; message: string }
 type AutoExitCountdownData = { delay: number; shortcut: string }
 type SystemNotificationData = { title: string; body: string }
 
+export interface UpdateInfo {
+  has_update: boolean
+  latest_version: string
+  release_notes: string
+  assets: { name: string; url: string; size: number }[]
+}
+
+export interface DownloadProgress {
+  downloaded: number
+  total: number
+  speed: number
+  percent: number
+}
+
+export interface MirrorSource {
+  name: string
+  url: string
+  description: string
+}
+
 export interface TauriApi {
   getConfig: () => Promise<Partial<Config>>
   saveConfig: (config: Partial<Config>) => Promise<{ success: boolean; config?: Config; message?: string }>
@@ -53,6 +73,11 @@ export interface TauriApi {
   getLogs: (lines?: number) => Promise<string>
   clearLogs: () => Promise<boolean>
   getInitData: () => Promise<Record<string, any>>
+  checkUpdate: () => Promise<UpdateInfo>
+  downloadUpdate: (url: string) => Promise<string>
+  installUpdate: (filePath: string) => Promise<boolean>
+  getMirrorUrls: (githubUrl: string) => Promise<MirrorSource[]>
+  onDownloadProgress: (cb: (data: DownloadProgress) => void) => () => void
 }
 
 function createEventListener<T>(eventName: string): (cb: (data: T) => void) => () => void {
@@ -124,8 +149,38 @@ const tauriApi: TauriApi = {
   getLogs: (lines) => invoke<string>('get_logs', { lines }),
   clearLogs: () => invoke<boolean>('clear_logs'),
   getInitData: () => invoke<Record<string, any>>('get_init_data'),
+  checkUpdate: () => invoke<UpdateInfo>('check_update'),
+  downloadUpdate: (url) => invoke<string>('download_update', { url }),
+  installUpdate: (filePath) => invoke<boolean>('install_update', { filePath }),
+  getMirrorUrls: (githubUrl) => invoke<MirrorSource[]>('get_mirror_urls', { githubUrl }),
+  onDownloadProgress: createEventListener<DownloadProgress>('update-download-progress'),
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, baseDelay: number = 500): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (e) {
+      lastError = e
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 200
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+  }
+  throw lastError
+}
+
+const tauriApiWithRetry: TauriApi = {
+  ...tauriApi,
+  saveConfig: (config) => withRetry(() => tauriApi.saveConfig(config)),
+  doLogin: () => withRetry(() => tauriApi.doLogin()),
+  checkPortalStatus: (adapterIp) => withRetry(() => tauriApi.checkPortalStatus(adapterIp)),
+  getConfig: () => withRetry(() => tauriApi.getConfig()),
+  checkNetworkQuality: () => withRetry(() => tauriApi.checkNetworkQuality()),
 }
 
 export function useIpc(): TauriApi {
-  return tauriApi
+  return tauriApiWithRetry
 }

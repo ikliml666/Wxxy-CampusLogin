@@ -86,7 +86,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                 let data_dir = get_data_dir(&app_h_prev);
                 get_accounts_dir(&data_dir)
             };
-            let _ = std::fs::create_dir_all(&accounts_dir);
+            let _ = std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e));
             let account_path = accounts_dir.join(format!("{}.json", prev_name));
 
             let mut save_prev = if account_path.exists() {
@@ -134,9 +134,10 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
     }
 
     let app_h = app_handle.clone();
+    let password_for_encrypt = config.password.clone();
     let account_data = Config {
         user: config.user.clone(),
-        password: String::new(),
+        password: password_for_encrypt.clone(),
         operator: config.operator.clone(),
         adapter1: config.adapter1.clone(),
         adapter2: config.adapter2.clone(),
@@ -161,18 +162,35 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         skip_ttfb_in_latency: config.skip_ttfb_in_latency,
         skip_content_in_latency: config.skip_content_in_latency,
         portal_url: config.portal_url.clone(),
+        fixed_gateway: config.fixed_gateway.clone(),
     };
-    let password_for_encrypt = config.password.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let accounts_dir = {
             let data_dir = get_data_dir(&app_h);
             get_accounts_dir(&data_dir)
         };
-        let _ = std::fs::create_dir_all(&accounts_dir);
+        let _ = std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e));
 
         let account_path = accounts_dir.join(format!("{}.json", safe_name));
 
-        let mut save_account = account_data.clone();
+        let mut save_account = if account_path.exists() {
+            match std::fs::read_to_string(&account_path) {
+                Ok(content) => {
+                    let mut existing = serde_json::from_str::<Config>(&content).unwrap_or_default();
+                    existing.user = account_data.user.clone();
+                    existing.operator = account_data.operator.clone();
+                    existing.adapter1 = account_data.adapter1.clone();
+                    existing.adapter2 = account_data.adapter2.clone();
+                    existing.dual_adapter = account_data.dual_adapter;
+                    existing.active_account = account_data.active_account.clone();
+                    existing
+                }
+                Err(_) => account_data.clone(),
+            }
+        } else {
+            account_data.clone()
+        };
+
         if !password_for_encrypt.is_empty() {
             match crypto_utils::encrypt(&password_for_encrypt) {
                 Ok(encrypted) => {
@@ -180,6 +198,8 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                 }
                 Err(e) => return Err(format!("加密密码失败: {}", e)),
             }
+        } else {
+            save_account.password = String::new();
         }
 
         let json = serde_json::to_string_pretty(&save_account)
@@ -201,7 +221,9 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
     let _ = tauri::async_runtime::spawn_blocking(move || {
         let state = app_h_save.state::<AppState>();
         let config = state.config.load_full();
-        let _ = super::config_cmd::save_config_to_disk(&app_h_save, &config);
+        if let Err(e) = super::config_cmd::save_config_to_disk(&app_h_save, &config) {
+            crate::log_warn!("account", "切换账号后保存配置失败: {}", e);
+        }
     }).await;
 
     let updated_config = state.config.load();

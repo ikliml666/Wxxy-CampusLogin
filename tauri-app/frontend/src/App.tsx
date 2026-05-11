@@ -1,7 +1,9 @@
-import { useState, useCallback, lazy, Suspense } from 'react'
+import { useState, useCallback } from 'react'
 import { AnimatePresence, m } from 'framer-motion'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAppStore, AppStoreProvider } from '@/hooks/useAppStore'
+import { useAppInit } from '@/hooks/useAppStore'
 import { safeStorage } from '@/lib/utils'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/components/layout/StatusBar'
 import { DockNav } from '@/components/layout/DockNav'
@@ -9,15 +11,14 @@ import { RightPanel } from '@/components/layout/RightPanel'
 import { ToastContainer } from '@/components/layout/ToastContainer'
 import { AboutDialog, ThemeDialog, ConfirmDialog } from '@/components/dialogs/Dialogs'
 import { DashboardPanel } from '@/components/panels/DashboardPanel'
+import { AccountPanel } from '@/components/panels/AccountPanel'
+import { NetworkPanel } from '@/components/panels/NetworkPanel'
+import { MonitorPanel } from '@/components/panels/MonitorPanel'
+import { QualityPanel } from '@/components/panels/QualityPanel'
+import { SettingsPanel } from '@/components/panels/SettingsPanel'
+import { LogPanel } from '@/components/panels/LogPanel'
+import { SpeedTestPanel } from '@/components/panels/SpeedTestPanel'
 import { panelSwitchVariants } from '@/lib/animations'
-
-const AccountPanel = lazy(() => import('@/components/panels/AccountPanel').then(m => ({ default: m.AccountPanel })))
-const NetworkPanel = lazy(() => import('@/components/panels/NetworkPanel').then(m => ({ default: m.NetworkPanel })))
-const MonitorPanel = lazy(() => import('@/components/panels/MonitorPanel').then(m => ({ default: m.MonitorPanel })))
-const QualityPanel = lazy(() => import('@/components/panels/QualityPanel').then(m => ({ default: m.QualityPanel })))
-const SettingsPanel = lazy(() => import('@/components/panels/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
-const LogPanel = lazy(() => import('@/components/panels/LogPanel').then(m => ({ default: m.LogPanel })))
-const SpeedTestPanel = lazy(() => import('@/components/panels/SpeedTestPanel').then(m => ({ default: m.SpeedTestPanel })))
 
 const PANEL_TITLES: Record<string, { title: string; desc: string }> = {
   dashboard: { title: '总览', desc: '实时监控网络状态和登录验证服务' },
@@ -30,12 +31,15 @@ const PANEL_TITLES: Record<string, { title: string; desc: string }> = {
   log: { title: '系统日志', desc: '查看应用运行日志，定位问题' },
 }
 
-export default function App() {
+function AppInner() {
+  useAppInit()
   const store = useAppStore()
 
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [latestVersion, setLatestVersion] = useState<string>()
 
   const handleToggleLightMode = useCallback(() => {
     const next = !store.isLightMode
@@ -54,13 +58,6 @@ export default function App() {
     store.setNotificationEnabled(next)
     try { await store.api.setNotificationEnabled?.(next) } catch {}
   }, [store.notificationEnabled, store.setNotificationEnabled, store.api])
-
-  const handleTestNotification = useCallback(async () => {
-    const sent = await store.api.sendNotification?.('测试通知', '如果你能看到这条通知，说明通知系统工作正常！')
-    if (!sent) {
-      store.addToast('通知发送失败，请检查系统通知设置', 'error')
-    }
-  }, [store.api, store.addToast])
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
     store.setAutoLaunch(enabled)
@@ -301,6 +298,8 @@ export default function App() {
           onToggleLightMode={handleToggleLightMode}
           onMinimize={() => store.api.minimizeWindow?.()}
           onClose={() => store.api.closeWindow?.()}
+          updateAvailable={updateAvailable}
+          latestVersion={latestVersion}
         />
       </div>
 
@@ -332,9 +331,7 @@ export default function App() {
                 animate="animate"
                 exit="exit"
               >
-                <Suspense fallback={<div className="flex items-center justify-center py-12 text-muted-foreground text-sm">加载中...</div>}>
-                  {panelContent}
-                </Suspense>
+                {panelContent}
               </m.div>
             </AnimatePresence>
           </div>
@@ -365,8 +362,14 @@ export default function App() {
       <AboutDialog
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
-        notificationEnabled={store.notificationEnabled}
-        onToggleNotification={handleToggleNotification}
+        openExternal={(url) => store.api.openExternal?.(url)}
+        onUpdateAvailable={(hasUpdate, version) => {
+          setUpdateAvailable(hasUpdate)
+          if (version) setLatestVersion(version)
+          if (hasUpdate && version) {
+            store.api.sendNotification?.('发现新版本', `CampusLogin v${version} 已发布，请在关于页面查看详情`).catch(() => {})
+          }
+        }}
       />
 
       <ThemeDialog
@@ -386,5 +389,15 @@ export default function App() {
         onCancel={() => setConfirmDelete({ open: false, name: '' })}
       />
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppStoreProvider>
+        <AppInner />
+      </AppStoreProvider>
+    </ErrorBoundary>
   )
 }

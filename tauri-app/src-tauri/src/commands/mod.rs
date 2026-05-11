@@ -5,6 +5,7 @@ pub mod background;
 pub mod network_cmd;
 pub mod account;
 pub mod system;
+pub mod updater;
 
 pub use state::{AppState, CANCEL_EXIT_SHORTCUT};
 pub use config_cmd::load_config_from_disk_or_default;

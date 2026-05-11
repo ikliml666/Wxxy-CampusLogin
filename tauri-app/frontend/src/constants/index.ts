@@ -1,7 +1,7 @@
 import type { ThemeName } from '@/types'
 
 export const MAX_LOG_ENTRIES = 300
-export const APP_VERSION = '2.1.3'
+export const APP_VERSION = '2.1.4'
 export const APP_NAME = '校园网登录助手'
 
 export const ISP_OPTIONS = [

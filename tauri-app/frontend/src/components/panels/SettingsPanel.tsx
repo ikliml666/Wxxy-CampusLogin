@@ -398,6 +398,31 @@ export const SettingsPanel = memo(function SettingsPanel({
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
               />
             </div>
+            <Separator />
+            <div className="space-y-2">
+              <div className="space-y-0.5">
+                <Label htmlFor="fixed-gateway" className="text-sm font-medium">固定网关地址</Label>
+                <p className="text-[11px] text-muted-foreground">使用路由器时自动检测的网关可能是路由器地址，填写学校真实网关可确保延迟测试准确</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id="fixed-gateway"
+                  type="text"
+                  placeholder="如 10.2.127.254，留空则自动检测"
+                  value={config.fixedGateway || ''}
+                  onChange={e => onUpdateConfig({ fixedGateway: e.target.value })}
+                  className="flex-1 h-8 px-3 text-sm bg-muted/50 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
+                />
+                {config.fixedGateway && (
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
+                    onClick={() => onUpdateConfig({ fixedGateway: '' })}
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+            </div>
           </CardContent>
         </AnimatedCard>
       </m.div>

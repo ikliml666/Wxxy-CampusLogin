@@ -73,6 +73,7 @@ export function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs
               )}
               style={{
                 width: `${Math.max((seg.ms / barMax) * 100, 3)}%`,
+                transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
               }}
             />
           ))}

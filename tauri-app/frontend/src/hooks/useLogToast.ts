@@ -2,16 +2,14 @@ import { useState, useCallback, useRef } from 'react'
 import type { LogEntry, ToastMessage } from '@/types'
 import { MAX_LOG_ENTRIES } from '@/constants'
 
-let logIdCounter = 0
-let toastIdCounter = 0
-
 export function useLogStore() {
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const logIdCounterRef = useRef(0)
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     setLogs(prev => {
       const entry: LogEntry = {
-        id: String(++logIdCounter),
+        id: String(++logIdCounterRef.current),
         time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
         message,
         type,
@@ -31,9 +29,10 @@ export function useLogStore() {
 export function useToastStore() {
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const toastTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const toastIdCounterRef = useRef(0)
 
   const addToast = useCallback((title: string, type: ToastMessage['type'] = 'info', description?: string, duration = 4000) => {
-    const id = String(++toastIdCounter)
+    const id = String(++toastIdCounterRef.current)
     const toast: ToastMessage = { id, title, description, type, duration }
     setToasts(prev => [...prev, toast])
     const timer = setTimeout(() => {

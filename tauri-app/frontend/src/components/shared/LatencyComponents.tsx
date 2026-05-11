@@ -2,7 +2,7 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getLatencyLevel, type LatencyLevel } from '@/lib/latency'
 import { m } from 'framer-motion'
-import { useMemo } from 'react'
+import { useMemo, useRef, useEffect, useState } from 'react'
 import { AnimatedNumber } from './AnimatedNumber'
 
 const SIGNAL_CONFIG: Record<LatencyLevel, {
@@ -34,6 +34,15 @@ const DEFAULT_SIGNAL_CFG = { activeBars: 1, color: '#94a3b8', glow: 'rgba(148,16
 function SignalBars({ latency, loading, compact }: { latency: number; loading?: boolean; compact?: boolean }) {
   const level = getLatencyLevel(latency)
   const cfg = SIGNAL_CONFIG[level] ?? DEFAULT_SIGNAL_CFG
+  const prevActiveBars = useRef(cfg.activeBars)
+  const [barKey, setBarKey] = useState(0)
+
+  useEffect(() => {
+    if (prevActiveBars.current !== cfg.activeBars) {
+      setBarKey(k => k + 1)
+      prevActiveBars.current = cfg.activeBars
+    }
+  }, [cfg.activeBars])
 
   const dimColor = useMemo(() => {
     const hex = cfg.color
@@ -70,7 +79,7 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
           const isActive = i < cfg.activeBars
           const bh = compact ? spec.height * 0.8 : spec.height
           return (
-            <div key={i} className="relative flex flex-col items-center">
+            <div key={`${barKey}-${i}`} className="relative flex flex-col items-center">
               <m.div
                 className="rounded-t-[3px]"
                 style={{
@@ -78,9 +87,10 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
                   height: bh,
                   backgroundColor: isActive ? cfg.color : dimColor,
                   boxShadow: isActive ? `0 0 8px ${cfg.glow}, 0 1px 6px ${cfg.color}30` : 'none',
+                  transformOrigin: 'bottom',
                 }}
-                initial={{ scaleY: 0, originY: 1 }}
-                animate={{ scaleY: [0, 1.15, 0.92, 1.04, 1], originY: 1 }}
+                initial={{ scaleY: 0 }}
+                animate={{ scaleY: [0, 1.15, 0.92, 1.04, 1] }}
                 transition={{ type: 'spring', stiffness: 400, damping: 15, delay: spec.delay }}
               />
               {isActive && (
@@ -161,9 +171,10 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
               {cfg && (
                 <m.span
                   key={level}
-                  className={cn('ml-1', cfg.textClass)}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
+                  className={cn('ml-1 inline-block', cfg.textClass)}
+                  initial={{ opacity: 0, y: 6, scale: 0.8 }}
+                  animate={{ opacity: 1, y: 0, scale: [0.8, 1.1, 1] }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 20, mass: 0.5 }}
                 >
                   {cfg.label}
                 </m.span>
@@ -176,13 +187,12 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
               </div>
             ) : (
               <m.span
-                key={latency}
                 className={cn(
                   'text-lg font-bold tabular-nums tracking-tight mb-0.5',
                   cfg?.textClass ?? 'text-muted-foreground',
                 )}
                 initial={{ scale: 1.3, opacity: 0 }}
-                animate={{ scale: [1.3, 1.05, 1], opacity: [0, 1, 1] }}
+                animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: 'spring', stiffness: 500, damping: 25, mass: 0.6 }}
               >
                 {ok ? <AnimatedNumber value={latency} unit="ms" decimals={0} duration={0.45} /> : '--'}

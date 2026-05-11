@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { m, useReducedMotion } from 'framer-motion'
+import { m, useReducedMotion, useSpring, useMotionValue } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
 export interface AnimatedCardConfig {
@@ -37,6 +37,14 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
   ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, children, ...props }, ref) => {
     const prefersReducedMotion = useReducedMotion()
     const [isHovered, setIsHovered] = React.useState(false)
+    const [entryDone, setEntryDone] = React.useState(noEnterAnimation)
+    const cardRef = React.useRef<HTMLDivElement>(null)
+    const rafRef = React.useRef<number>(0)
+
+    const magneticX = useMotionValue(0)
+    const magneticY = useMotionValue(0)
+    const springX = useSpring(magneticX, { stiffness: 350, damping: 25, mass: 0.5 })
+    const springY = useSpring(magneticY, { stiffness: 350, damping: 25, mass: 0.5 })
 
     const config = React.useMemo(
       () => ({ ...DEFAULT_CONFIG, ...animationConfig }),
@@ -53,6 +61,30 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       [className]
     )
 
+    const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
+      if (noHover || prefersReducedMotion) return
+      const el = cardRef.current
+      if (!el) return
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = requestAnimationFrame(() => {
+        const rect = el.getBoundingClientRect()
+        const cx = rect.left + rect.width / 2
+        const cy = rect.top + rect.height / 2
+        const dx = (e.clientX - cx) / (rect.width / 2)
+        const dy = (e.clientY - cy) / (rect.height / 2)
+        const maxOffset = 5
+        magneticX.set(dx * maxOffset)
+        magneticY.set(dy * maxOffset)
+      })
+    }, [noHover, prefersReducedMotion, magneticX, magneticY])
+
+    const handleMouseLeave = React.useCallback(() => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      magneticX.set(0)
+      magneticY.set(0)
+      setIsHovered(false)
+    }, [magneticX, magneticY])
+
     if (prefersReducedMotion || noAnimation) {
       return (
         <div ref={ref} className={cardClassName} style={{ boxShadow: config.restShadow }} {...props}>
@@ -63,24 +95,36 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
 
     return (
       <m.div
-        className={cn('rounded-2xl', className)}
-        initial={noEnterAnimation ? false : { y: 30, opacity: 0, scale: 0.92 }}
-        animate={noEnterAnimation ? false : { y: 0, opacity: 1, scale: 1 }}
-        transition={noEnterAnimation ? undefined : { type: 'spring', stiffness: 260, damping: 18, mass: 1.1 }}
+        className={cn('rounded-2xl')}
+        initial={noEnterAnimation ? false : { opacity: 0, scale: 0.95 }}
+        animate={noEnterAnimation ? false : { opacity: 1, scale: 1 }}
+        transition={noEnterAnimation ? undefined : { type: 'spring', stiffness: 300, damping: 18, mass: 0.9 }}
         whileHover={noHover ? undefined : {
           y: config.y,
           scale: config.scale,
           boxShadow: config.shadow,
           transition: { type: 'spring', ...springConfig },
         }}
+        onAnimationComplete={() => setEntryDone(true)}
+        style={{
+          x: springX,
+          y: springY,
+          willChange: 'transform, opacity',
+          pointerEvents: entryDone ? undefined : 'none' as any,
+        }}
         onHoverStart={() => setIsHovered(true)}
         onHoverEnd={() => setIsHovered(false)}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       >
         <div
-          ref={ref}
+          ref={(node) => {
+            (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+            if (typeof ref === 'function') ref(node)
+            else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+          }}
           className={cn(
             'bg-white text-card-foreground rounded-2xl dark:bg-[#14161b] transition-shadow',
-            isHovered ? '' : ''
           )}
           style={{ boxShadow: isHovered ? config.shadow : config.restShadow }}
           {...props}

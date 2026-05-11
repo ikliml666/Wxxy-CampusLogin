@@ -57,6 +57,8 @@ pub struct Config {
     pub skip_content_in_latency: bool,
     #[serde(rename = "portalUrl", default = "default_portal_url")]
     pub portal_url: String,
+    #[serde(rename = "fixedGateway", default)]
+    pub fixed_gateway: String,
 }
 
 fn default_true() -> bool { true }
@@ -94,6 +96,7 @@ impl Default for Config {
             skip_ttfb_in_latency: true,
             skip_content_in_latency: true,
             portal_url: default_portal_url(),
+            fixed_gateway: String::new(),
         }
     }
 }
@@ -104,7 +107,9 @@ pub fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     });
 
     if !tauri_dir.exists() {
-        let _ = std::fs::create_dir_all(&tauri_dir);
+        if let Err(e) = std::fs::create_dir_all(&tauri_dir) {
+            crate::log_warn!("config", "创建Tauri数据目录失败: {}", e);
+        }
     }
 
     tauri_dir

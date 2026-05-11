@@ -1,6 +1,6 @@
 [package]
 name = "campus-login"
-version = "2.1.3"
+version = "2.1.4"
 description = "校园网登录助手"
 authors = ["you"]
 edition = "2021"
@@ -39,6 +39,8 @@ url = "2"
 surge-ping = "0.8"
 parking_lot = "0.12"
 arc-swap = "1"
+thiserror = "2"
+dashmap = "6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"
@@ -51,6 +53,6 @@ windows = { version = "0.58", features = [
 
 [profile.release]
 lto = "thin"
-codegen-units = 256
+codegen-units = 16
 opt-level = 3
 strip = true

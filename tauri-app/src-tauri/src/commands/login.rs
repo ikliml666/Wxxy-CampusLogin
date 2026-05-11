@@ -64,13 +64,15 @@ pub fn login_adapter_with_log(
                     "message": format!("{} 登录成功", adapter.name),
                     "type": "success"
                 }));
-                let _ = append_login_history(app_handle, true, message, &adapter.name, &config.user, "login");
+                let _ = append_login_history(app_handle, true, message, &adapter.name, &config.user, "login")
+                    .map_err(|e| crate::log_warn!("login", "记录登录历史失败: {}", e));
             } else {
                 let _ = app_handle.emit("login-log", serde_json::json!({
                     "message": format!("{} 登录失败: {}", adapter.name, message),
                     "type": "warning"
                 }));
-                let _ = append_login_history(app_handle, false, message, &adapter.name, &config.user, "login");
+                let _ = append_login_history(app_handle, false, message, &adapter.name, &config.user, "login")
+                    .map_err(|e| crate::log_warn!("login", "记录登录历史失败: {}", e));
             }
             Some(CommandResult {
                 success,
@@ -106,7 +108,7 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle) -> CommandResu
 
     let adapters = match get_adapters_cached() {
         Ok(a) => a,
-        Err(_) => match wait_for_adapter(10000, &state.is_quitting) {
+        Err(_) => match wait_for_adapter(10000, state.is_quitting.as_ref()) {
             Ok(a) => a,
             Err(e) => return CommandResult::err(&format!("获取适配器失败: {}", e)),
         },
@@ -122,7 +124,6 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle) -> CommandResu
     }
 
     let a1 = adapters.iter().find(|a| a.name == adapter1_name);
-    let _is_a1_wireless = a1.map(|a| a.wireless).unwrap_or(false);
 
     if config.dual_adapter {
         let (_, a2n) = crate::network::resolve_adapter_names(&adapters, &config);
@@ -144,8 +145,8 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle) -> CommandResu
 
                 let is_quitting = &state.is_quitting;
                 let (r1, r2) = std::thread::scope(|s| {
-                    let q1 = is_quitting;
-                    let q2 = is_quitting;
+                    let q1 = is_quitting.as_ref();
+                    let q2 = is_quitting.as_ref();
                     let t1 = s.spawn(move || login_adapter_with_log(&a1_clone, &*cfg1, &app_h1, q1));
                     let t2 = s.spawn(move || login_adapter_with_log(&a2_clone, &*cfg2, &app_h2, q2));
                     (t1.join().unwrap_or(None), t2.join().unwrap_or(None))
@@ -177,18 +178,18 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle) -> CommandResu
         _ => return CommandResult::err("未找到有效适配器"),
     };
 
-    login_adapter_with_log(a1_ref, &config, app_handle, &state.is_quitting)
+    login_adapter_with_log(a1_ref, &config, app_handle, state.is_quitting.as_ref())
         .unwrap_or_else(|| CommandResult::err("登录请求失败"))
 }
 
 #[tauri::command]
 pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     state.check_login_rate_limit()?;
-    if state.is_logging_in.swap(true, Ordering::Acquire) {
+    if state.tasks.is_logging_in.swap(true, Ordering::Acquire) {
         return Ok(CommandResult::err("登录正在进行中"));
     }
     state.auto_exit_cancelled.store(false, Ordering::Release);
-    state.has_logged_online.store(false, Ordering::Release);
+    state.network.has_logged_online.store(false, Ordering::Release);
     clear_adapter_cache();
 
     let result = {
@@ -198,7 +199,7 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle) -> Resu
             struct LoginGuard<'a>(&'a crate::commands::state::AppState);
             impl Drop for LoginGuard<'_> {
                 fn drop(&mut self) {
-                    self.0.is_logging_in.store(false, Ordering::Release);
+                    self.0.tasks.is_logging_in.store(false, Ordering::Release);
                 }
             }
             let _guard = LoginGuard(&s);
@@ -209,21 +210,14 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle) -> Resu
     };
 
     if result.success {
-        {
-            state.cached_online_status.store(Arc::new(None));
-            clear_adapter_cache();
-        }
+        state.network.cached_online_status.store(Arc::new(None));
+        clear_adapter_cache();
 
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(5000)).await;
-            clear_adapter_cache();
-        });
-
-        let app_h = app_handle.clone();
+        let app_h_bg = app_handle.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            let s = app_h.state::<AppState>();
-            super::background::run_background_check(&app_h, &s).await;
+            let s = app_h_bg.state::<AppState>();
+            super::background::run_background_check(&app_h_bg, &s).await;
         });
 
         let config = state.config.load_full();

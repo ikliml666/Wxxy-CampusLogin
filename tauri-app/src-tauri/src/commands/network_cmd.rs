@@ -11,7 +11,7 @@ use crate::network::{
 
 fn is_restricted_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_link_local() || v4.is_private(),
+        std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_link_local(),
         std::net::IpAddr::V6(v6) => v6.is_loopback(),
     }
 }
@@ -77,26 +77,26 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     if !state.config.load().enable_network_quality {
         return Ok(serde_json::json!({"quality": "disabled"}));
     }
-    if !state.is_quality_checking.swap(true, Ordering::Acquire) {
-        let (adapter_ip, adapter_name, skip_ttfb, skip_content) = {
+    if !state.tasks.is_quality_checking.swap(true, Ordering::Acquire) {
+        let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
             let config = state.config.load();
             let adapters = match get_adapters_cached() {
                 Ok(a) => a,
                 Err(_) => {
-                    state.is_quality_checking.store(false, Ordering::Release);
+                    state.tasks.is_quality_checking.store(false, Ordering::Release);
                     return Ok(empty_quality_json());
                 }
             };
             let (ip, name) = select_adapter(&adapters, &config);
-            (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency)
+            (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
         };
         if adapter_ip.is_empty() {
-            state.is_quality_checking.store(false, Ordering::Release);
+            state.tasks.is_quality_checking.store(false, Ordering::Release);
             return Ok(empty_quality_json());
         }
         atomic_guard!(QualityGuard, is_quality_checking);
         let _guard = QualityGuard(&state);
-        let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content).await;
+        let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.is_quitting.clone()).await;
         drop(_guard);
         Ok(serde_json::to_value(&result).unwrap_or_default())
     } else {
@@ -107,7 +107,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
 #[tauri::command]
 pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    if s.latency_running.swap(true, Ordering::Acquire) {
+    if s.tasks.latency_running.swap(true, Ordering::Acquire) {
         return Ok(CommandResult::ok_msg("延迟测试已在运行"));
     }
 
@@ -123,13 +123,13 @@ pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) ->
 
 #[tauri::command]
 pub fn stop_latency_test(state: State<'_, AppState>) -> Result<CommandResult, String> {
-    state.latency_running.store(false, Ordering::Release);
+    state.tasks.latency_running.store(false, Ordering::Release);
     Ok(CommandResult::ok_msg("延迟测试已停止"))
 }
 
 #[tauri::command]
 pub fn get_latency_test_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let running = state.latency_running.load(Ordering::Acquire);
+    let running = state.tasks.latency_running.load(Ordering::Acquire);
     let config = state.config.load();
     Ok(serde_json::json!({
         "enabled": config.enable_latency_test,

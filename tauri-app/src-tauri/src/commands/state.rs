@@ -7,15 +7,15 @@ use parking_lot::Mutex;
 
 pub const AUTO_EXIT_DELAY_MS: u64 = 10000;
 pub const CANCEL_EXIT_SHORTCUT: &str = "CommandOrControl+Shift+C";
-const LOGIN_RATE_LIMIT_SECS: u64 = 1;
-const LOGIN_RATE_LIMIT_MAX: u32 = 1;
+const LOGIN_RATE_LIMIT_SECS: u64 = 3;
+const LOGIN_RATE_LIMIT_MAX: u32 = 3;
 
 macro_rules! atomic_guard {
     ($name:ident, $field:ident) => {
         struct $name<'a>(&'a crate::commands::state::AppState);
         impl Drop for $name<'_> {
             fn drop(&mut self) {
-                self.0.$field.store(false, Ordering::Release);
+                self.0.tasks.$field.store(false, Ordering::Release);
             }
         }
     };
@@ -33,6 +33,9 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         crate::config::validate_username(&config.user)?;
     }
     if !config.password.is_empty() {
+        if config.password == "***" {
+            return Err("密码不能为\"***\"".to_string());
+        }
         crate::config::validate_password(&config.password)?;
     }
     if config.operator == "@ctcc" {
@@ -52,14 +55,14 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     }
     if !config.custom_theme_color.is_empty() {
         if !CUSTOM_COLOR_RE.is_match(&config.custom_theme_color) {
-            config.custom_theme_color = "#6366f1".to_string();
+            return Err("自定义主题颜色格式无效，需为#开头的6位十六进制色值".to_string());
         }
     }
     if config.default_panel.len() > 32 {
-        config.default_panel = String::new();
+        return Err("默认面板名称过长".to_string());
     }
     if config.theme_mode != "dark" && config.theme_mode != "light" {
-        config.theme_mode = "dark".to_string();
+        return Err("主题模式必须为\"dark\"或\"light\"".to_string());
     }
     config.background_check_interval = config.background_check_interval.clamp(10000, 3600000);
     config.latency_test_interval = config.latency_test_interval.clamp(10000, 3600000);
@@ -73,26 +76,29 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         Ok(parsed) => {
             let scheme = parsed.scheme();
             if scheme != "http" && scheme != "https" {
-                config.portal_url = "http://10.1.99.100:801".to_string();
+                return Err(format!("Portal地址协议不支持: {}，仅允许http/https", scheme));
             }
             if let Some(host) = parsed.host_str() {
                 if let Ok(ip) = host.parse::<std::net::IpAddr>() {
                     match ip {
-                        std::net::IpAddr::V4(v4) if v4.is_loopback() || v4.is_link_local() => {
-                            config.portal_url = "http://10.1.99.100:801".to_string();
+                        std::net::IpAddr::V4(v4) if v4.is_broadcast() || v4.is_multicast() => {
+                            return Err(format!("Portal地址IP无效: {}，不能为广播或组播地址", ip));
                         }
-                        std::net::IpAddr::V6(v6) if v6.is_loopback() => {
-                            config.portal_url = "http://10.1.99.100:801".to_string();
+                        std::net::IpAddr::V6(v6) if v6.is_multicast() => {
+                            return Err(format!("Portal地址IP无效: {}，不能为组播地址", ip));
                         }
                         _ => {}
                     }
-                } else if host == "localhost" {
-                    config.portal_url = "http://10.1.99.100:801".to_string();
                 }
             }
         }
-        Err(_) => {
-            config.portal_url = "http://10.1.99.100:801".to_string();
+        Err(e) => {
+            return Err(format!("Portal地址格式无效: {}", e));
+        }
+    }
+    if !config.fixed_gateway.is_empty() {
+        if config.fixed_gateway.parse::<std::net::IpAddr>().is_err() {
+            return Err(format!("固定网关地址无效: {}", config.fixed_gateway));
         }
     }
     Ok(config)
@@ -108,51 +114,62 @@ pub fn validate_account_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-pub struct AppState {
-    pub config: ArcSwap<Config>,
-
+pub struct TaskFlags {
     pub background_running: AtomicBool,
     pub latency_running: AtomicBool,
+    pub latency_generation: AtomicU32,
     pub is_checking: AtomicBool,
     pub is_logging_in: AtomicBool,
     pub is_quality_checking: AtomicBool,
-    pub is_quitting: AtomicBool,
+}
 
+pub struct NetworkStatus {
     pub server_available: AtomicBool,
     pub was_online: AtomicBool,
     pub has_logged_online: AtomicBool,
     pub background_check_count: AtomicU64,
     pub disconnect_reconnect_count: AtomicU32,
+    pub cached_online_status: ArcSwap<Option<serde_json::Value>>,
+    pub last_network_quality: ArcSwap<Option<String>>,
+}
 
+pub struct AppState {
+    pub config: ArcSwap<Config>,
+    pub tasks: TaskFlags,
+    pub network: NetworkStatus,
+    pub is_quitting: std::sync::Arc<AtomicBool>,
     pub auto_exit_deadline: Mutex<Option<Instant>>,
     pub auto_exit_cancelled: AtomicBool,
-    pub last_network_quality: ArcSwap<Option<String>>,
-    pub cached_online_status: ArcSwap<Option<serde_json::Value>>,
-    pub last_disabled_notification_epoch_ms: AtomicU64,
     pub login_timestamps: Mutex<Vec<Instant>>,
+    pub last_disabled_notification_epoch_ms: AtomicU64,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             config: ArcSwap::from(std::sync::Arc::new(Config::default())),
-            background_running: AtomicBool::new(false),
-            latency_running: AtomicBool::new(false),
-            is_checking: AtomicBool::new(false),
-            is_logging_in: AtomicBool::new(false),
-            is_quality_checking: AtomicBool::new(false),
-            is_quitting: AtomicBool::new(false),
-            server_available: AtomicBool::new(false),
-            was_online: AtomicBool::new(false),
-            has_logged_online: AtomicBool::new(false),
-            background_check_count: AtomicU64::new(0),
-            disconnect_reconnect_count: AtomicU32::new(0),
+            tasks: TaskFlags {
+                background_running: AtomicBool::new(false),
+                latency_running: AtomicBool::new(false),
+                latency_generation: AtomicU32::new(0),
+                is_checking: AtomicBool::new(false),
+                is_logging_in: AtomicBool::new(false),
+                is_quality_checking: AtomicBool::new(false),
+            },
+            network: NetworkStatus {
+                server_available: AtomicBool::new(false),
+                was_online: AtomicBool::new(false),
+                has_logged_online: AtomicBool::new(false),
+                background_check_count: AtomicU64::new(0),
+                disconnect_reconnect_count: AtomicU32::new(0),
+                cached_online_status: ArcSwap::from(std::sync::Arc::new(None)),
+                last_network_quality: ArcSwap::from(std::sync::Arc::new(None)),
+            },
+            is_quitting: std::sync::Arc::new(AtomicBool::new(false)),
             auto_exit_deadline: Mutex::new(None),
             auto_exit_cancelled: AtomicBool::new(false),
-            last_network_quality: ArcSwap::from(std::sync::Arc::new(None)),
-            cached_online_status: ArcSwap::from(std::sync::Arc::new(None)),
-            last_disabled_notification_epoch_ms: AtomicU64::new(0),
             login_timestamps: Mutex::new(Vec::new()),
+            last_disabled_notification_epoch_ms: AtomicU64::new(0),
         }
     }
 

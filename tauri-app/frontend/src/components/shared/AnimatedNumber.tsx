@@ -1,5 +1,4 @@
-import { useEffect, useRef } from 'react'
-import gsap from 'gsap'
+import { useEffect, useRef, useCallback } from 'react'
 
 interface AnimatedNumberProps {
   value: number
@@ -17,49 +16,52 @@ export function AnimatedNumber({
   duration = 0.6,
 }: AnimatedNumberProps) {
   const ref = useRef<HTMLSpanElement>(null)
-  const objRef = useRef({ val: value })
   const prevRef = useRef(value)
   const isFirstRender = useRef(true)
+  const rafRef = useRef<number>(0)
+
+  const animate = useCallback((from: number, to: number, dur: number) => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    const start = performance.now()
+    const durMs = dur * 1000
+
+    const tick = (now: number) => {
+      const elapsed = now - start
+      const t = Math.min(elapsed / durMs, 1)
+      const eased = 1 - Math.pow(1 - t, 3)
+      const current = from + (to - from) * eased
+      if (ref.current) {
+        ref.current.textContent = `${current.toFixed(decimals)}${unit}`
+      }
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        if (ref.current) {
+          ref.current.textContent = `${to.toFixed(decimals)}${unit}`
+        }
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }, [decimals, unit])
 
   useEffect(() => {
-    if (!ref.current) return
-
     if (isFirstRender.current) {
       isFirstRender.current = false
-      objRef.current.val = value
       prevRef.current = value
       if (ref.current) {
         ref.current.textContent = `${value.toFixed(decimals)}${unit}`
       }
       return
     }
+    animate(prevRef.current, value, duration)
+    prevRef.current = value
+  }, [value, unit, decimals, duration, animate])
 
-    const from = prevRef.current
-    const to = value
-    prevRef.current = to
-
-    objRef.current.val = from
-
-    gsap.to(objRef.current, {
-      val: to,
-      duration,
-      ease: 'power2.out',
-      onUpdate: () => {
-        if (ref.current) {
-          ref.current.textContent = `${objRef.current.val.toFixed(decimals)}${unit}`
-        }
-      },
-      onComplete: () => {
-        if (ref.current) {
-          ref.current.textContent = `${to.toFixed(decimals)}${unit}`
-        }
-      },
-    })
-
+  useEffect(() => {
     return () => {
-      gsap.killTweensOf(objRef.current)
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
-  }, [value, unit, decimals, duration])
+  }, [])
 
   return (
     <span

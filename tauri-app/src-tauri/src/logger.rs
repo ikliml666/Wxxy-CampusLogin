@@ -3,6 +3,7 @@ use std::io::{BufWriter, Write as IoWrite};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender, TryRecvError};
 use arc_swap::ArcSwap;
+use parking_lot::Mutex;
 use std::time::Instant;
 use chrono::Local;
 
@@ -30,10 +31,10 @@ impl LogLevel {
     }
 }
 
-#[allow(dead_code)]
-struct LogEntry {
-    level: LogLevel,
-    line: String,
+enum LogMessage {
+    Entry { #[allow(dead_code)] level: LogLevel, line: String },
+    Flush { ack: Sender<()> },
+    Shutdown,
 }
 
 struct LoggerState {
@@ -44,11 +45,14 @@ struct LoggerState {
 }
 
 lazy_static::lazy_static! {
-    static ref LOGGER_SENDER: ArcSwap<Option<Sender<LogEntry>>> = ArcSwap::from(std::sync::Arc::new(None));
+    static ref LOGGER_SENDER: ArcSwap<Option<Sender<LogMessage>>> = ArcSwap::from(std::sync::Arc::new(None));
+    static ref CLEAR_LOGS_MUTEX: Mutex<()> = Mutex::new(());
 }
 
 pub fn init_logger(log_dir: PathBuf) {
-    let _ = fs::create_dir_all(&log_dir);
+    if let Err(e) = fs::create_dir_all(&log_dir) {
+        eprintln!("创建日志目录失败: {}", e);
+    }
     let today = Local::now().format("%Y-%m-%d").to_string();
     let log_path = log_dir.join(format!("app-{}.log", today));
 
@@ -63,10 +67,13 @@ pub fn init_logger(log_dir: PathBuf) {
         eprintln!("[WARN] 无法打开日志文件: {:?}", log_path);
     }
 
-    let (sender, receiver) = channel::<LogEntry>();
+    let (sender, receiver) = channel::<LogMessage>();
 
     {
         let old = LOGGER_SENDER.swap(std::sync::Arc::new(Some(sender)));
+        if let Some(old_sender) = old.as_ref() {
+            let _ = old_sender.send(LogMessage::Shutdown);
+        }
         drop(old);
     }
 
@@ -85,15 +92,21 @@ pub fn init_logger(log_dir: PathBuf) {
         .expect("Failed to spawn logger thread");
 }
 
-fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<LogEntry>) {
-    let mut buffer: Vec<LogEntry> = Vec::with_capacity(64);
+fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<LogMessage>) {
+    let mut buffer: Vec<LogMessage> = Vec::with_capacity(64);
 
     loop {
         match receiver.recv_timeout(std::time::Duration::from_millis(FLUSH_INTERVAL_MS)) {
-            Ok(entry) => buffer.push(entry),
+            Ok(LogMessage::Shutdown) => {
+                drain_channel(&receiver, &mut buffer);
+                flush_messages(&mut state, &mut buffer);
+                let _ = state.current_writer.as_mut().map(|w| w.flush());
+                return;
+            }
+            Ok(msg) => buffer.push(msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 drain_channel(&receiver, &mut buffer);
-                flush_buffer(&mut state, &mut buffer);
+                flush_messages(&mut state, &mut buffer);
                 let _ = state.current_writer.as_mut().map(|w| w.flush());
                 return;
             }
@@ -103,16 +116,19 @@ fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<Log
         drain_channel(&receiver, &mut buffer);
 
         if !buffer.is_empty() {
-            flush_buffer(&mut state, &mut buffer);
+            flush_messages(&mut state, &mut buffer);
         }
     }
 }
 
-fn drain_channel(receiver: &std::sync::mpsc::Receiver<LogEntry>, buffer: &mut Vec<LogEntry>) {
+fn drain_channel(receiver: &std::sync::mpsc::Receiver<LogMessage>, buffer: &mut Vec<LogMessage>) {
     loop {
         match receiver.try_recv() {
-            Ok(entry) => {
-                buffer.push(entry);
+            Ok(msg) => {
+                match msg {
+                    LogMessage::Shutdown => {}
+                    _ => buffer.push(msg),
+                }
                 if buffer.len() >= CHANNEL_CAPACITY {
                     break;
                 }
@@ -123,7 +139,7 @@ fn drain_channel(receiver: &std::sync::mpsc::Receiver<LogEntry>, buffer: &mut Ve
     }
 }
 
-fn flush_buffer(state: &mut LoggerState, buffer: &mut Vec<LogEntry>) {
+fn flush_messages(state: &mut LoggerState, buffer: &mut Vec<LogMessage>) {
     if buffer.is_empty() {
         return;
     }
@@ -131,12 +147,25 @@ fn flush_buffer(state: &mut LoggerState, buffer: &mut Vec<LogEntry>) {
     rotate_if_needed(state);
 
     if let Some(ref mut writer) = state.current_writer {
-        for entry in buffer.drain(..) {
-            let _ = writer.write_all(entry.line.as_bytes());
+        for msg in buffer.drain(..) {
+            match msg {
+                LogMessage::Entry { line, .. } => {
+                    let _ = writer.write_all(line.as_bytes());
+                }
+                LogMessage::Flush { ack } => {
+                    let _ = writer.flush();
+                    let _ = ack.send(());
+                }
+                LogMessage::Shutdown => {}
+            }
         }
         let _ = writer.flush();
     } else {
-        buffer.clear();
+        for msg in buffer.drain(..) {
+            if let LogMessage::Flush { ack } = msg {
+                let _ = ack.send(());
+            }
+        }
     }
     state.last_flush = Instant::now();
 }
@@ -213,7 +242,7 @@ pub fn log(level: LogLevel, module: &str, message: &str) {
     }
 
     if let Some(sender) = LOGGER_SENDER.load().as_ref().clone() {
-        let _ = sender.send(LogEntry { level, line });
+        let _ = sender.send(LogMessage::Entry { level, line });
     }
 }
 
@@ -270,18 +299,45 @@ pub fn read_recent_logs(app_handle: &tauri::AppHandle, lines: usize) -> Result<S
     Ok(all_lines[start..].join("\n"))
 }
 
-pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
-    let log_dir = get_log_dir(app_handle);
+pub fn flush() {
+    let sender_arc = LOGGER_SENDER.load();
+    if let Some(sender) = sender_arc.as_ref() {
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
+        let _ = sender.send(LogMessage::Flush { ack: ack_tx });
+        let _ = ack_rx.recv_timeout(std::time::Duration::from_secs(5));
+    }
+}
 
-    let old_sender_existed = {
+pub fn shutdown() {
+    let old = LOGGER_SENDER.swap(std::sync::Arc::new(None));
+    if let Some(sender) = old.as_ref() {
+        let _ = sender.send(LogMessage::Shutdown);
+    }
+}
+
+pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let lock = CLEAR_LOGS_MUTEX.lock();
+
+    let old_sender: Option<std::sync::Arc<Option<Sender<LogMessage>>>> = {
         let old = LOGGER_SENDER.swap(std::sync::Arc::new(None));
-        old.as_ref().is_some()
+        if old.as_ref().is_some() {
+            Some(old)
+        } else {
+            None
+        }
     };
 
-    if old_sender_existed {
-        std::thread::sleep(std::time::Duration::from_millis(FLUSH_INTERVAL_MS as u64 + 500));
+    if let Some(ref arc_sender) = old_sender {
+        if let Some(sender) = arc_sender.as_ref() {
+            let _ = sender.send(LogMessage::Shutdown);
+        }
     }
 
+    if old_sender.is_some() {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    let log_dir = get_log_dir(app_handle);
     if log_dir.exists() {
         if let Ok(entries) = fs::read_dir(&log_dir) {
             for entry in entries.flatten() {
@@ -291,6 +347,8 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
     }
 
     init_logger(log_dir);
+
+    drop(lock);
 
     Ok(())
 }

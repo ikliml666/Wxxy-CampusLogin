@@ -33,7 +33,7 @@ const TOAST_ICON_COLORS = {
 
 export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
   return (
-    <div className="fixed top-14 left-4 z-[100] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed top-[84px] left-4 z-[100] flex flex-col gap-2 pointer-events-none">
       <AnimatePresence mode="popLayout">
         {toasts.map((toast) => {
           const Icon = TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] ?? Info

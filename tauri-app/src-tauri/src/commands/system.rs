@@ -137,7 +137,9 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
                 state.config.store(Arc::new(cfg.clone()));
                 cfg
             };
-            let _ = super::config_cmd::save_config_to_disk(&app_handle, &config_clone);
+            if let Err(e) = super::config_cmd::save_config_to_disk(&app_handle, &config_clone) {
+                return Ok(serde_json::json!({ "success": false, "message": format!("保存配置失败: {}", e) }));
+            }
             Ok(serde_json::json!({ "success": true, "message": if enabled { "已开启开机自启" } else { "已关闭开机自启" } }))
         }
         Err(e) => Ok(serde_json::json!({ "success": false, "message": format!("设置开机自启失败: {}", e) })),
@@ -156,7 +158,9 @@ pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_h
         let mut cfg = current.as_ref().clone();
         cfg.enable_notification = enabled;
         state.config.store(Arc::new(cfg.clone()));
-        let _ = super::config_cmd::save_config_to_disk(&app_handle, &cfg);
+        if let Err(e) = super::config_cmd::save_config_to_disk(&app_handle, &cfg) {
+            crate::log_warn!("system", "保存通知设置失败: {}", e);
+        }
     }
     Ok(enabled)
 }
@@ -206,7 +210,7 @@ pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str
     let _lock = LOGIN_HISTORY_LOCK.lock();
     let data_dir = get_data_dir(app_handle);
     let history_path = get_login_history_path(&data_dir);
-    let _ = std::fs::create_dir_all(&data_dir);
+    std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
 
     let mut history: Vec<serde_json::Value> = if history_path.exists() {
         let content = std::fs::read_to_string(&history_path).unwrap_or_default();
@@ -261,7 +265,7 @@ pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) ->
 
     let notification_enabled = config.enable_notification;
     let active_account = config.active_account.clone();
-    let cached_online_status = state.cached_online_status.load();
+    let cached_online_status = state.network.cached_online_status.load();
     let cached_val = cached_online_status.as_ref().as_ref().cloned();
 
     let app_h = app_handle.clone();

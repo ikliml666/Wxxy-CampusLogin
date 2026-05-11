@@ -11,6 +11,18 @@ interface RefreshButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const RefreshButton = React.forwardRef<HTMLButtonElement, RefreshButtonProps>(
   ({ isRefreshing, iconClassName, showCheck, className, children, ...props }, ref) => {
+    const prevRefreshing = React.useRef(isRefreshing)
+    const [shakeClass, setShakeClass] = React.useState('')
+
+    React.useEffect(() => {
+      if (prevRefreshing.current && !isRefreshing) {
+        setShakeClass('refresh-shake')
+        const timer = setTimeout(() => setShakeClass(''), 350)
+        return () => clearTimeout(timer)
+      }
+      prevRefreshing.current = isRefreshing
+    }, [isRefreshing])
+
     return (
       <button
         ref={ref}
@@ -18,6 +30,7 @@ const RefreshButton = React.forwardRef<HTMLButtonElement, RefreshButtonProps>(
           'p-1.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground',
           'transition-colors duration-200',
           isRefreshing && 'opacity-50 cursor-not-allowed',
+          shakeClass,
           className
         )}
         {...props}

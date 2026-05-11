@@ -10,9 +10,10 @@ fn load_config_from_disk(app_handle: &AppHandle) -> Result<Config, String> {
     let config_path = get_config_path(&data_dir);
 
     if !config_path.exists() {
-        let _ = std::fs::create_dir_all(&data_dir);
+        std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
         let default = Config::default();
-        let _ = std::fs::write(&config_path, serde_json::to_string_pretty(&default).unwrap_or_default());
+        std::fs::write(&config_path, serde_json::to_string_pretty(&default).unwrap_or_default())
+            .map_err(|e| format!("写入默认配置失败: {}", e))?;
         return Ok(default);
     }
 
@@ -45,7 +46,7 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     crate::log_debug!("config", "保存配置到磁盘");
     let data_dir = get_data_dir(app_handle);
     let config_path = get_config_path(&data_dir);
-    let _ = std::fs::create_dir_all(&data_dir);
+    std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
 
     let mut save_config = config.clone();
     if !save_config.password.is_empty() {
@@ -105,19 +106,18 @@ pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut 
 
     if !config_ref.enable_network_quality && old_enable_network_quality {
         let s = app_handle.state::<AppState>();
-        s.latency_running.store(false, Ordering::Release);
+        s.tasks.latency_generation.fetch_add(1, Ordering::Release);
+        s.tasks.latency_running.store(false, Ordering::Release);
     } else if !config_ref.enable_latency_test && old_latency_enabled {
         let s = app_handle.state::<AppState>();
-        s.latency_running.store(false, Ordering::Release);
+        s.tasks.latency_generation.fetch_add(1, Ordering::Release);
+        s.tasks.latency_running.store(false, Ordering::Release);
     } else if config_ref.enable_latency_test && config_ref.enable_network_quality && (config_ref.latency_test_interval != old_latency_interval || (!old_latency_enabled && config_ref.enable_latency_test)) {
         let s = app_handle.state::<AppState>();
-        if s.latency_running.load(Ordering::Acquire) {
-            s.latency_running.store(false, Ordering::Release);
-        }
-        if !s.latency_running.swap(true, Ordering::Acquire) {
-            let interval = if config_ref.latency_test_interval < 10000 { 30000 } else { config_ref.latency_test_interval };
-            super::background::spawn_latency_test_loop(&app_handle, interval);
-        }
+        s.tasks.latency_generation.fetch_add(1, Ordering::Release);
+        s.tasks.latency_running.store(true, Ordering::Release);
+        let interval = if config_ref.latency_test_interval < 10000 { 30000 } else { config_ref.latency_test_interval };
+        super::background::spawn_latency_test_loop(&app_handle, interval);
     }
 
     let mut display_config = state.config.load().as_ref().clone();

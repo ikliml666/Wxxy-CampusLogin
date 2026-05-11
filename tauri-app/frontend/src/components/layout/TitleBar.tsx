@@ -1,4 +1,4 @@
-import { Bell, BellOff, Palette, Info, Moon, Sun } from 'lucide-react'
+import { Bell, BellOff, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APP_VERSION } from '@/constants'
@@ -16,6 +16,8 @@ interface TitleBarProps {
   onToggleLightMode: () => void
   onMinimize: () => void
   onClose: () => void
+  updateAvailable?: boolean
+  latestVersion?: string
 }
 
 const MinimizeIcon = () => (
@@ -40,6 +42,8 @@ export const TitleBar = memo(function TitleBar({
   onToggleLightMode,
   onMinimize,
   onClose,
+  updateAvailable,
+  latestVersion,
 }: TitleBarProps) {
   const handleDragMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
@@ -79,6 +83,22 @@ export const TitleBar = memo(function TitleBar({
           >
             v{APP_VERSION}
           </span>
+          {updateAvailable && latestVersion && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-600 font-medium rounded-full hover:bg-emerald-500/20 transition-colors"
+                  onClick={onShowAbout}
+                >
+                  <ArrowUpCircle className="h-3 w-3" />
+                  v{latestVersion}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>发现新版本 v{latestVersion}，点击查看</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         <div className="flex items-center gap-1" data-tauri-drag-region="false">

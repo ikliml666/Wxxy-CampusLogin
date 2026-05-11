@@ -29,7 +29,7 @@ const ADAPTER_WATCH_INTERVAL: u64 = 15000;
 const MAX_DISCONNECT_RECONNECT: u32 = 3;
 
 fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Option<(String, String)> {
-    if state.is_checking.swap(true, Ordering::Acquire) || state.is_quitting.load(Ordering::Acquire) {
+    if state.tasks.is_checking.swap(true, Ordering::Acquire) || state.is_quitting.load(Ordering::Acquire) {
         return None;
     }
 
@@ -37,9 +37,9 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
     let _check_guard = CheckGuard(state);
 
     let config = state.config.load_full();
-    crate::log_debug!("background", "开始后台检测 #{}", state.background_check_count.load(Ordering::Relaxed) + 1);
+    crate::log_debug!("background", "开始后台检测 #{}", state.network.background_check_count.load(Ordering::Relaxed) + 1);
 
-    let check_count = state.background_check_count.fetch_add(1, Ordering::Relaxed) + 1;
+    let check_count = state.network.background_check_count.fetch_add(1, Ordering::Relaxed) + 1;
 
     let adapters = match get_adapters_cached() {
         Ok(a) if !a.is_empty() => a,
@@ -124,21 +124,21 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
     let reachable = status["reachable"].as_bool().unwrap_or(false);
     let login_available = status["loginAvailable"].as_bool().unwrap_or(false);
 
-    let prev_online = state.was_online.load(Ordering::Acquire);
+    let prev_online = state.network.was_online.load(Ordering::Acquire);
     if online != prev_online {
         crate::log_info!("background", "状态变更: {} → {} ({})", 
             if prev_online { "在线" } else { "离线" },
             if online { "在线" } else { "离线" },
             status["message"].as_str().unwrap_or(""));
-        state.was_online.store(online, Ordering::Release);
+        state.network.was_online.store(online, Ordering::Release);
     } else {
         crate::log_debug!("background", "检测结果: online={}, reachable={}, loginAvailable={}, checkCount={}", online, reachable, login_available, check_count);
     }
 
-    state.server_available.store(reachable, Ordering::Release);
+    state.network.server_available.store(reachable, Ordering::Release);
 
     if !online {
-        state.has_logged_online.store(false, Ordering::Release);
+        state.network.has_logged_online.store(false, Ordering::Release);
     }
 
     let mut secondary_online: Option<bool> = None;
@@ -183,20 +183,20 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
             "serverAvailable": reachable,
             "loginPreparationMode": config.auto_login_on_preparation,
             "checkCount": check_count,
-            "isRunning": state.background_running.load(Ordering::Acquire),
+            "isRunning": state.tasks.background_running.load(Ordering::Acquire),
             "interval": config.background_check_interval,
             "enabled": config.enable_background_check,
             "adapterStatuses": adapter_statuses,
             "online": any_online,
         });
-        state.cached_online_status.store(Arc::new(Some(cached_value)));
+        state.network.cached_online_status.store(Arc::new(Some(cached_value)));
     }
 
     let should_check_quality = online && a1.is_some() && config.enable_network_quality;
 
     if login_available && !online && config.auto_login_on_preparation {
         crate::log_info!("background", "触发自动登录: loginAvailable={}, online={}", login_available, online);
-        if state.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+        if state.tasks.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             atomic_guard!(LoginGuard, is_logging_in);
             let _login_guard = LoginGuard(state);
             let login_result = super::login::full_login_inner(state, app_handle);
@@ -207,7 +207,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
             }));
 
             if login_result.success {
-                state.has_logged_online.store(true, Ordering::Release);
+                state.network.has_logged_online.store(true, Ordering::Release);
                 if config.enable_notification {
                     emit_notification(app_handle, "自动登录成功", &login_result.message.unwrap_or_default());
                 }
@@ -219,26 +219,27 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
     let any_offline = (!online && a1.is_some()) || secondary_online == Some(false);
 
     if any_online {
-        state.was_online.store(true, Ordering::Release);
-        state.disconnect_reconnect_count.store(0, Ordering::Release);
+        state.network.was_online.store(true, Ordering::Release);
+        state.network.disconnect_reconnect_count.store(0, Ordering::Release);
     }
 
-    if state.was_online.load(Ordering::Acquire) && any_offline && reachable && login_available && config.auto_login_on_preparation {
-        let reconnect_count = state.disconnect_reconnect_count.fetch_add(1, Ordering::Relaxed) + 1;
+    if state.network.was_online.load(Ordering::Acquire) && any_offline && reachable && login_available && config.auto_login_on_preparation {
+        let reconnect_count = state.network.disconnect_reconnect_count.fetch_add(1, Ordering::Relaxed) + 1;
         if reconnect_count <= MAX_DISCONNECT_RECONNECT {
             let offline_adapter = if !online { &adapter1_name } else { &adapter2_name };
             emit_notification(app_handle, "检测到断线", &format!("{} 已离线，正在自动重连 ({}/{})", offline_adapter, reconnect_count, MAX_DISCONNECT_RECONNECT));
 
-            if state.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+            if state.tasks.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                 atomic_guard!(LoginGuard2, is_logging_in);
                 let _login_guard2 = LoginGuard2(state);
                 let reconnect_result = super::login::full_login_inner(state, app_handle);
 
                 if reconnect_result.success {
-                    state.disconnect_reconnect_count.store(0, Ordering::Release);
-                    state.was_online.store(true, Ordering::Release);
-                    state.has_logged_online.store(true, Ordering::Release);
-                    let _ = super::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect");
+                    state.network.disconnect_reconnect_count.store(0, Ordering::Release);
+                    state.network.was_online.store(true, Ordering::Release);
+                    state.network.has_logged_online.store(true, Ordering::Release);
+                    let _ = super::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect")
+                        .map_err(|e| crate::log_warn!("background", "记录重连历史失败: {}", e));
                     let _ = app_handle.emit("auto-login-result", serde_json::json!({
                         "success": true,
                         "message": format!("断线重连成功: {}", reconnect_result.message.unwrap_or_default()),
@@ -250,8 +251,8 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
         }
     }
 
-    if reachable && !state.has_logged_online.load(Ordering::Acquire) && online {
-        state.has_logged_online.store(true, Ordering::Release);
+    if reachable && !state.network.has_logged_online.load(Ordering::Acquire) && online {
+        state.network.has_logged_online.store(true, Ordering::Release);
         if state.config.load().auto_exit_on_online {
             start_auto_exit(app_handle, state);
         }
@@ -280,19 +281,17 @@ pub async fn run_background_check(app_handle: &AppHandle, _state: &AppState) {
 
     if let Some((adapter_name, adapter_ip)) = quality_info {
         let s = app_handle.state::<AppState>();
-        let (skip_ttfb, skip_content) = {
+        let (skip_ttfb, skip_content, fixed_gateway) = {
             let cfg = s.config.load();
-            (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency)
+            (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
         };
-        if s.is_quality_checking.swap(true, Ordering::Acquire) {
+        if s.tasks.is_quality_checking.swap(true, Ordering::Acquire) {
             return;
         }
         atomic_guard!(QualityGuard, is_quality_checking);
         let _guard = QualityGuard(&s);
-        let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content).await;
+        let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.is_quitting.clone()).await;
         drop(_guard);
-        let app_h = app_handle.clone();
-        let s = app_h.state::<AppState>();
         let enable_notification = s.config.load().enable_notification;
         let quality_val = serde_json::to_value(&quality).unwrap_or_default();
         let _ = app_handle.emit("network-quality-result", &quality_val);
@@ -304,7 +303,7 @@ fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, quali
     let current = quality["quality"].as_str().unwrap_or("unknown").to_string();
 
     let should_notify = {
-        let last_arc = state.last_network_quality.load();
+        let last_arc = state.network.last_network_quality.load();
         let last = last_arc.as_ref().as_ref();
         if !enable_notification {
             None
@@ -340,15 +339,16 @@ fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, quali
         }
     }
 
-    state.last_network_quality.store(Arc::new(Some(current)));
+    state.network.last_network_quality.store(Arc::new(Some(current)));
 }
 
 pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
     let should_start = {
         let deadline = state.auto_exit_deadline();
-        if state.auto_exit_cancelled.load(Ordering::Acquire) || deadline.is_some() {
+        if deadline.is_some() {
             false
         } else {
+            state.auto_exit_cancelled.store(false, Ordering::Release);
             state.set_auto_exit_deadline(Some(std::time::Instant::now() + Duration::from_millis(AUTO_EXIT_DELAY_MS)));
             true
         }
@@ -376,6 +376,10 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         let extended_delay = AUTO_EXIT_DELAY_MS * 3;
         state.set_auto_exit_deadline(Some(std::time::Instant::now() + Duration::from_millis(extended_delay)));
         crate::log_warn!("auto_exit", "快捷键注册失败，自动退出倒计时延长至{}秒", extended_delay / 1000);
+        let _ = app_handle.emit("auto-exit-countdown", serde_json::json!({
+            "delay": extended_delay,
+            "shortcut": "Ctrl+Shift+C",
+        }));
         emit_notification(app_handle, "快捷键注册失败", &format!("无法注册取消快捷键，{}秒后自动退出", extended_delay / 1000));
     }
 
@@ -433,7 +437,7 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
 }
 
 fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {
-    if state.background_running.swap(true, Ordering::Acquire) {
+    if state.tasks.background_running.swap(true, Ordering::Acquire) {
         return Ok(CommandResult::ok_msg("后台检测已在运行"));
     }
 
@@ -449,7 +453,9 @@ fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Res
         (interval, cfg)
     };
 
-    let _ = super::config_cmd::save_config_to_disk(app_handle, &cfg);
+    if let Err(e) = super::config_cmd::save_config_to_disk(app_handle, &cfg) {
+        crate::log_warn!("background", "保存后台检测配置失败: {}", e);
+    }
 
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
@@ -460,7 +466,7 @@ fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Res
         loop {
             interval_timer.tick().await;
             let s = app_h.state::<AppState>();
-            if !s.background_running.load(Ordering::Acquire) || s.is_quitting.load(Ordering::Acquire) {
+            if !s.tasks.background_running.load(Ordering::Acquire) || s.is_quitting.load(Ordering::Acquire) {
                 break;
             }
             run_background_check(&app_h, &s).await;
@@ -479,7 +485,7 @@ pub fn start_background_check(app_handle: AppHandle, _state: State<'_, AppState>
 #[tauri::command]
 pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    s.background_running.store(false, Ordering::Release);
+    s.tasks.background_running.store(false, Ordering::Release);
     let cfg = {
         let current = s.config.load();
         let mut cfg = current.as_ref().clone();
@@ -487,14 +493,16 @@ pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle)
         s.config.store(Arc::new(cfg.clone()));
         cfg
     };
-    let _ = super::config_cmd::save_config_to_disk(&app_handle, &cfg);
+    if let Err(e) = super::config_cmd::save_config_to_disk(&app_handle, &cfg) {
+        crate::log_warn!("background", "保存停止检测配置失败: {}", e);
+    }
     Ok(CommandResult::ok_msg("后台检测已停止"))
 }
 
 #[tauri::command]
 pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    if s.is_checking.load(Ordering::Acquire) {
+    if s.tasks.is_checking.load(Ordering::Acquire) {
         return Ok(CommandResult::err("检测正在进行中"));
     }
     let app_h = app_handle.clone();
@@ -509,12 +517,12 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
 pub async fn get_background_status(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     let state = app_handle.state::<AppState>();
     let config = state.config.load_full();
-    let running = state.background_running.load(Ordering::Acquire);
-    let count = state.background_check_count.load(Ordering::Relaxed);
-    let server_avail = state.server_available.load(Ordering::Acquire);
+    let running = state.tasks.background_running.load(Ordering::Acquire);
+    let count = state.network.background_check_count.load(Ordering::Relaxed);
+    let server_avail = state.network.server_available.load(Ordering::Acquire);
 
     let cached_adapter_statuses = {
-        let cached_arc = state.cached_online_status.load();
+        let cached_arc = state.network.cached_online_status.load();
         cached_arc.as_ref().as_ref().and_then(|v| v.get("adapterStatuses").cloned())
     };
 
@@ -565,7 +573,7 @@ pub async fn get_background_status(app_handle: AppHandle) -> Result<serde_json::
         "online": any_online,
     });
 
-    state.cached_online_status.store(Arc::new(Some(result.clone())));
+    state.network.cached_online_status.store(Arc::new(Some(result.clone())));
 
     Ok(result)
 }
@@ -585,6 +593,9 @@ pub fn start_adapter_watch(app_handle: &AppHandle) {
             if s.is_quitting.load(Ordering::Acquire) {
                 break;
             }
+
+            crate::network::cleanup_expired_http_clients();
+            crate::http_timing::cleanup_expired_dns_cache();
 
             let adapters_result = tauri::async_runtime::spawn_blocking(|| {
                 get_adapters_force()
@@ -654,12 +665,16 @@ pub fn start_adapter_watch(app_handle: &AppHandle) {
 
 pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
     let app_h = app_handle.clone();
+    let s = app_h.state::<AppState>();
+    let gen = s.tasks.latency_generation.fetch_add(1, Ordering::AcqRel) + 1;
     tauri::async_runtime::spawn(async move {
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
         loop {
             interval_timer.tick().await;
             let s = app_h.state::<AppState>();
-            if !s.latency_running.load(Ordering::Acquire) || s.is_quitting.load(Ordering::Acquire) {
+            if !s.tasks.latency_running.load(Ordering::Acquire)
+                || s.is_quitting.load(Ordering::Acquire)
+                || s.tasks.latency_generation.load(Ordering::Acquire) != gen {
                 break;
             }
             let (adapter_ip, adapter_name) = {
@@ -673,16 +688,16 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             if adapter_ip.is_empty() {
                 continue;
             }
-            let (skip_ttfb, skip_content) = {
+            let (skip_ttfb, skip_content, fixed_gateway) = {
                 let cfg = s.config.load();
-                (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency)
+                (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
             };
-            if s.is_quality_checking.swap(true, Ordering::Acquire) {
+            if s.tasks.is_quality_checking.swap(true, Ordering::Acquire) {
                 continue;
             }
             atomic_guard!(LatencyGuard, is_quality_checking);
             let _guard = LatencyGuard(&s);
-            let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content).await;
+            let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.is_quitting.clone()).await;
             drop(_guard);
             let quality_val = serde_json::to_value(&quality).unwrap_or_default();
             let _ = app_h.emit("network-quality-result", &quality_val);
@@ -706,7 +721,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         tokio::time::sleep(Duration::from_millis(1500)).await;
 
         let s = app_h.state::<AppState>();
-        if s.is_quitting.load(Ordering::Acquire) || s.has_logged_online.load(Ordering::Acquire) {
+        if s.is_quitting.load(Ordering::Acquire) || s.network.has_logged_online.load(Ordering::Acquire) {
             return;
         }
 
@@ -762,14 +777,14 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
             }
         }
 
-        if s.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+        if s.tasks.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             let app_h_login = app_h.clone();
             let login_result = tauri::async_runtime::spawn_blocking(move || {
                 let s = app_h_login.state::<AppState>();
                 struct AutoLoginGuard<'a>(&'a crate::commands::state::AppState);
                 impl Drop for AutoLoginGuard<'_> {
                     fn drop(&mut self) {
-                        self.0.is_logging_in.store(false, Ordering::Release);
+                        self.0.tasks.is_logging_in.store(false, Ordering::Release);
                     }
                 }
                 let _guard = AutoLoginGuard(&s);
@@ -784,7 +799,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
                 if login_result.success {
                     let s = app_h.state::<AppState>();
-                    s.has_logged_online.store(true, Ordering::Release);
+                    s.network.has_logged_online.store(true, Ordering::Release);
                     if config.enable_notification {
                         emit_notification(&app_h, "自动登录成功", &login_result.message.unwrap_or_default());
                     }
@@ -807,7 +822,9 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn(async move {
             let s = app_h.state::<AppState>();
-            let _ = start_background_check_inner(&app_h, &s);
+            if let Err(e) = start_background_check_inner(&app_h, &s) {
+                crate::log_warn!("background", "启动后台检测失败: {}", e);
+            }
         });
     }
 
@@ -815,7 +832,7 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn(async move {
             let s = app_h.state::<AppState>();
-            if !s.latency_running.swap(true, Ordering::Acquire) {
+            if !s.tasks.latency_running.swap(true, Ordering::Acquire) {
                 let interval = {
                     let c = s.config.load();
                     if c.latency_test_interval < 10000 { 30000 } else { c.latency_test_interval }

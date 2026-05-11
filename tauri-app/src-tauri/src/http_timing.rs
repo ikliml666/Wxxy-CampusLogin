@@ -13,11 +13,12 @@ lazy_static::lazy_static! {
         let mut root_store = tokio_rustls::rustls::RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let provider = tokio_rustls::rustls::crypto::ring::default_provider();
-        let config = tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+        let mut config = tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider))
             .with_safe_default_protocol_versions()
             .expect("TLS protocol versions")
             .with_root_certificates(root_store)
             .with_no_client_auth();
+        config.resumption = tokio_rustls::rustls::client::Resumption::in_memory_sessions(64);
         TlsConnector::from(Arc::new(config))
     };
 
@@ -88,6 +89,12 @@ fn dns_cache_put(host: &str, ip: IpAddr) {
     let now = Instant::now();
     cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
     cache.insert(host.to_string(), (ip, Instant::now()));
+}
+
+pub fn cleanup_expired_dns_cache() {
+    let mut cache = DNS_CACHE.write();
+    let now = Instant::now();
+    cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
 }
 
 pub async fn measure_https_timing(
