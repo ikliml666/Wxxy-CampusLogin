@@ -1,5 +1,4 @@
 use tauri::{AppHandle, Manager, State};
-use std::sync::atomic::Ordering;
 use crate::network::{
     Adapter, AdapterDetail, DisabledAdapter,
     get_adapters_cached, get_disabled_adapters_cached,
@@ -11,8 +10,8 @@ use crate::network::{
 
 fn is_restricted_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_link_local(),
-        std::net::IpAddr::V6(v6) => v6.is_loopback(),
+        std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local(),
     }
 }
 use crate::http_timing::{measure_https_timing, measure_dns_query, measure_doh_timing, HttpTimingResult, DnsQueryResult, DohTimingResult};
@@ -47,15 +46,23 @@ pub async fn get_adapter_details() -> Result<Vec<AdapterDetail>, String> {
 }
 
 #[tauri::command]
-pub async fn check_portal_status(adapter_ip: String) -> Result<serde_json::Value, String> {
+pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
     if adapter_ip.is_empty() {
         return Ok(serde_json::json!({
             "online": false,
             "message": "IP地址为空",
         }));
     }
+    let state = app_handle.state::<crate::commands::AppState>();
+    let config = state.config.load_full();
+    let user_account = if !config.operator.is_empty() && config.operator != "__default__" {
+        format!("{}@{}", config.user, config.operator)
+    } else {
+        config.user.clone()
+    };
+    let user_password = config.password.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let status = check_portal_full(&adapter_ip, None)?;
+        let status = check_portal_full(&adapter_ip, None, Some(&user_account), Some(&user_password))?;
         Ok(serde_json::json!({
             "online": status.online,
             "message": status.message,
@@ -77,37 +84,37 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     if !state.config.load().enable_network_quality {
         return Ok(serde_json::json!({"quality": "disabled"}));
     }
-    if !state.tasks.is_quality_checking.swap(true, Ordering::Acquire) {
-        let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
-            let config = state.config.load();
-            let adapters = match get_adapters_cached() {
-                Ok(a) => a,
-                Err(_) => {
-                    state.tasks.is_quality_checking.store(false, Ordering::Release);
-                    return Ok(empty_quality_json());
-                }
-            };
-            let (ip, name) = select_adapter(&adapters, &config);
-            (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
-        };
-        if adapter_ip.is_empty() {
-            state.tasks.is_quality_checking.store(false, Ordering::Release);
-            return Ok(empty_quality_json());
-        }
-        atomic_guard!(QualityGuard, is_quality_checking);
-        let _guard = QualityGuard(&state);
-        let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.is_quitting.clone()).await;
-        drop(_guard);
-        Ok(serde_json::to_value(&result).unwrap_or_default())
-    } else {
-        Ok(serde_json::json!({"quality": "busy"}))
+    let already_running = state.tasks.is_quality_checking.swap_acquire();
+    if already_running {
+        return Ok(serde_json::json!({"quality": "busy"}));
     }
+    let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
+        let config = state.config.load();
+        let adapters = match get_adapters_cached() {
+            Ok(a) => a,
+            Err(_) => {
+                state.tasks.is_quality_checking.force_release();
+                return Ok(empty_quality_json());
+            }
+        };
+        let (ip, name) = select_adapter(&adapters, &config);
+        (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
+    };
+    if adapter_ip.is_empty() {
+        state.tasks.is_quality_checking.force_release();
+        return Ok(empty_quality_json());
+    }
+    atomic_guard!(QualityGuard, is_quality_checking);
+    let _guard = QualityGuard(&state);
+    let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone()).await;
+    drop(_guard);
+    Ok(serde_json::to_value(&result).unwrap_or_default())
 }
 
 #[tauri::command]
 pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    if s.tasks.latency_running.swap(true, Ordering::Acquire) {
+    if s.tasks.latency_running.swap_acquire() {
         return Ok(CommandResult::ok_msg("延迟测试已在运行"));
     }
 
@@ -116,20 +123,21 @@ pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) ->
         if config.latency_test_interval < 10000 { 30000 } else { config.latency_test_interval }
     };
 
-    super::background::spawn_latency_test_loop(&app_handle, interval);
+    super::latency::spawn_latency_test_loop(&app_handle, interval);
 
     Ok(CommandResult::ok_msg("延迟测试已启动"))
 }
 
 #[tauri::command]
 pub fn stop_latency_test(state: State<'_, AppState>) -> Result<CommandResult, String> {
-    state.tasks.latency_running.store(false, Ordering::Release);
+    state.tasks.latency_running.force_release();
+    state.tasks.latency_cancel.load().cancel();
     Ok(CommandResult::ok_msg("延迟测试已停止"))
 }
 
 #[tauri::command]
 pub fn get_latency_test_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let running = state.tasks.latency_running.load(Ordering::Acquire);
+    let running = state.tasks.latency_running.is_active();
     let config = state.config.load();
     Ok(serde_json::json!({
         "enabled": config.enable_latency_test,
@@ -153,8 +161,6 @@ pub async fn http_timing_test(url: String) -> Result<HttpTimingResult, String> {
         if is_restricted_ip(&ip) {
             return Err("不允许测试内网地址".to_string());
         }
-    } else if host == "localhost" {
-        return Err("不允许测试内网地址".to_string());
     }
     let port = parsed.port().unwrap_or(443);
     let bind_addr: Option<std::net::IpAddr> = None;

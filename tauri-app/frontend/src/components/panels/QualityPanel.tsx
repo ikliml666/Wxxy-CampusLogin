@@ -205,104 +205,119 @@ export const QualityPanel = memo(function QualityPanel({ config, networkQuality,
         </AnimatedCard>
       </m.div>
 
-      {networkQuality && networkQuality.details && networkQuality.quality !== 'unknown' && (
-        <m.div variants={itemVariants}>
-          <AnimatedCard noEnterAnimation>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Search className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <CardTitle>测试详情</CardTitle>
-                  <CardDescription>各节点延迟检测结果</CardDescription>
-                </div>
-                <div className="ml-auto">
-                  <TooltipProvider delayDuration={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center hover:bg-muted transition-colors">
-                          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" className="max-w-[380px]">
-                        <div className="space-y-2 text-[11px]">
-                          <div>
-                            <span className="font-semibold text-foreground">TLS</span>
-                            <span className="text-muted-foreground ml-1">— 传输层安全协议，HTTPS连接的加密层。TLS 1.3是最新的快速握手版本，TLS 1.2是兼容回退版本。TLS延迟高可能表示服务器距离远或网络拥堵。</span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-foreground">TTFB（首字节时间）</span>
-                            <span className="text-muted-foreground ml-1">— 从发送HTTP请求到收到服务器第一个字节的耗时，反映服务器处理速度。百度约20-50ms，视频平台50-200ms。可在设置中跳过此检测。</span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-emerald-500">内容传输</span>
-                            <span className="text-muted-foreground ml-1">— 读取完整HTTP响应体的时间，受页面大小影响显著。可在设置中跳过以大幅降低检测耗时和延迟值。</span>
-                          </div>
-
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
+      <m.div variants={itemVariants}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Search className="h-5 w-5 text-primary" />
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <SegmentTabs
-                tabs={DETAIL_CATEGORIES.map(cat => ({
-                  key: cat.key,
-                  label: cat.label,
-                  icon: cat.icon,
-                  color: cat.color,
-                  bg: cat.bg,
-                }))}
-                activeKey={activeTab}
-                onTabChange={setActiveTab}
-              />
+              <div>
+                <CardTitle>测试详情</CardTitle>
+                <CardDescription>各节点延迟检测结果</CardDescription>
+              </div>
+              <div className="ml-auto">
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center hover:bg-muted transition-colors">
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="max-w-[380px]">
+                      <div className="space-y-2 text-[11px]">
+                        <div>
+                          <span className="font-semibold text-foreground">TLS</span>
+                          <span className="text-muted-foreground ml-1">— 传输层安全协议，HTTPS连接的加密层。TLS 1.3是最新的快速握手版本，TLS 1.2是兼容回退版本。TLS延迟高可能表示服务器距离远或网络拥堵。</span>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-foreground">TTFB（首字节时间）</span>
+                          <span className="text-muted-foreground ml-1">— 从发送HTTP请求到收到服务器第一个字节的耗时，反映服务器处理速度。百度约20-50ms，视频平台50-200ms。可在设置中跳过此检测。</span>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-emerald-500">内容传输</span>
+                          <span className="text-muted-foreground ml-1">— 读取完整HTTP响应体的时间，受页面大小影响显著。可在设置中跳过以大幅降低检测耗时和延迟值。</span>
+                        </div>
 
-              {DETAIL_CATEGORIES.map(cat => {
-                const items = cat.names
-                  .filter(name => details[name] !== undefined)
-                  .map(name => ({ name, ...details[name] }))
-                if (items.length === 0) return null
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SegmentTabs
+              tabs={DETAIL_CATEGORIES.map(cat => ({
+                key: cat.key,
+                label: cat.label,
+                icon: cat.icon,
+                color: cat.color,
+                bg: cat.bg,
+              }))}
+              activeKey={activeTab}
+              onTabChange={setActiveTab}
+            />
 
-                return (
-                  <TabContent key={cat.key} activeKey={activeTab}>
-                    {cat.key === activeTab && (
-                      <div className="space-y-2">
-                        {items.map(item => (
-                          <TooltipProvider key={item.name} delayDuration={200}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="px-3 py-2.5 rounded-xl bg-background/30 transition-colors duration-150 hover:bg-background/50 cursor-default">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[11px] font-medium">{item.name}</span>
-                                    <span className={cn(
-                                      'text-[11px] font-semibold tabular-nums',
-                                      item.latency >= 0 ? getLatencyColor(item.latency).text : 'text-rose-500'
-                                    )}>
-                                      {item.latency >= 0 ? <AnimatedNumber value={item.latency} decimals={0} duration={0.4} /> : '超时'}
-                                    </span>
-                                  </div>
-                                  {(item.dnsLatency !== undefined || item.udpLatency !== undefined) && item.latency >= 0 && (
-                                    <LatencyTimeline
-                                      totalMs={item.latency}
-                                      dnsMs={item.dnsLatency}
-                                      tcpMs={item.tcpLatency ?? -1}
-                                      tlsMs={item.tlsLatency ?? -1}
-                                      udpMs={item.udpLatency}
-                                      networkMs={item.networkLatency}
-                                      ttfbMs={item.ttfbLatency}
-                                      contentMs={item.contentLatency}
-                                    />
-                                  )}
-                                  {item.udpLatency !== undefined && item.udpLatency >= 0 && item.tcpLatency !== undefined && item.tcpLatency >= 0 && item.udpLatency > item.tcpLatency * 3 && (item.udpLatency - item.tcpLatency) >= 20 && (
-                                    <span className="text-[9px] text-amber-600 mt-0.5">⚠ UDP异常</span>
-                                  )}
+            {DETAIL_CATEGORIES.map(cat => {
+              const hasData = networkQuality?.details && networkQuality.quality !== 'unknown'
+              const items = cat.names
+                .map(name => {
+                  const detail = hasData ? details[name] : undefined
+                  return detail ? { name, ...detail } : { name, latency: -1, target: '', type: '' }
+                })
 
-
+              return (
+                <TabContent key={cat.key} activeKey={activeTab}>
+                  {cat.key === activeTab && (
+                    <div className="space-y-2">
+                      {items.map(item => (
+                        <TooltipProvider key={item.name} delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={cn(
+                                'px-3 py-2.5 rounded-xl transition-colors duration-150 cursor-default',
+                                item.latency >= 0 && hasData
+                                  ? 'bg-background/30 hover:bg-background/50'
+                                  : 'bg-muted/20'
+                              )}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={cn(
+                                    'text-[11px] font-medium',
+                                    !(item.latency >= 0 && hasData) && 'text-muted-foreground/60'
+                                  )}>{item.name}</span>
+                                  <span className={cn(
+                                    'text-[11px] font-semibold tabular-nums',
+                                    item.latency >= 0 && hasData ? getLatencyColor(item.latency).text : 'text-muted-foreground/40'
+                                  )}>
+                                    {item.latency >= 0 && hasData ? <AnimatedNumber value={item.latency} decimals={0} duration={0.4} /> : '--'}
+                                  </span>
                                 </div>
-                              </TooltipTrigger>
+                                {item.latency >= 0 && hasData && (item.dnsLatency !== undefined || item.udpLatency !== undefined) && (
+                                  <LatencyTimeline
+                                    totalMs={item.latency}
+                                    dnsMs={item.dnsLatency}
+                                    tcpMs={item.tcpLatency ?? -1}
+                                    tlsMs={item.tlsLatency ?? -1}
+                                    udpMs={item.udpLatency}
+                                    networkMs={item.networkLatency}
+                                    ttfbMs={item.ttfbLatency}
+                                    contentMs={item.contentLatency}
+                                  />
+                                )}
+                                {!hasData && (
+                                  <div className="flex h-2 rounded-full overflow-hidden bg-muted/40">
+                                    <div className="h-full w-full rounded-full bg-muted/30 animate-pulse" />
+                                  </div>
+                                )}
+                                {item.udpLatency !== undefined && item.udpLatency >= 0 && item.tcpLatency !== undefined && item.tcpLatency >= 0 && item.udpLatency > item.tcpLatency * 3 && (item.udpLatency - item.tcpLatency) >= 20 && (
+                                  <span className="text-[9px] text-amber-600 mt-0.5">⚠ UDP异常</span>
+                                )}
+
+
+                              </div>
+                            </TooltipTrigger>
+                            {hasData && item.target ? (
                               <TooltipContent side="top" className="max-w-[320px]">
                                 <div className="space-y-0.5 text-[11px]">
                                   <div className="flex gap-2">
@@ -332,27 +347,31 @@ export const QualityPanel = memo(function QualityPanel({ config, networkQuality,
 
                                 </div>
                               </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ))}
-                      </div>
-                    )}
-                  </TabContent>
-                )
-              })}
+                            ) : (
+                              <TooltipContent side="top">
+                                <p className="text-[11px] text-muted-foreground">尚未检测</p>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        </TooltipProvider>
+                      ))}
+                    </div>
+                  )}
+                </TabContent>
+              )
+            })}
 
-              {networkQuality.timestamp && (
-                <div className="flex items-center gap-1.5 pt-2">
-                  <Clock className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-[11px] text-muted-foreground">
-                    检测时间: {new Date(networkQuality.timestamp).toLocaleTimeString('zh-CN')}
-                  </span>
-                </div>
-              )}
-            </CardContent>
-          </AnimatedCard>
-        </m.div>
-      )}
+            {networkQuality?.timestamp && networkQuality.quality !== 'unknown' && (
+              <div className="flex items-center gap-1.5 pt-2">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[11px] text-muted-foreground">
+                  检测时间: {new Date(networkQuality.timestamp).toLocaleTimeString('zh-CN')}
+                </span>
+              </div>
+            )}
+          </CardContent>
+        </AnimatedCard>
+      </m.div>
     </m.div>
   )
 })

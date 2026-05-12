@@ -19,6 +19,5 @@ pub use login_request::do_login_with_retry;
 pub use quality::check_network_quality_async;
 
 pub use cache::{
-    update_portal_url, clear_adapter_cache,
-    cleanup_expired_http_clients,
+    update_portal_url, clear_adapter_cache, clear_portal_cache,
 };

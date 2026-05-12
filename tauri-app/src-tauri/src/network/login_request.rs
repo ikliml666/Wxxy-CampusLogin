@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use super::cache::{NET_CACHE, MAX_RESPONSE_SIZE, create_safe_http_client};
 
 lazy_static! {
-    static ref DR1003_RE: Regex = Regex::new(r"dr1003\((.+)\)").unwrap();
+    static ref DR1003_RE: Regex = Regex::new(r"dr1003\(\s*(\{.*?\})\s*\)").unwrap();
 }
 
 fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Option<&str>) -> Result<serde_json::Value, String> {
@@ -15,6 +15,12 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let user_account = format!("{}{}", validated_user, validated_operator);
     let portal_base = NET_CACHE.portal_url.load().clone();
     let base_url = format!("{}/eportal/portal/login", portal_base.trim_end_matches('/'));
+    let base_url = if base_url.contains(":801/") {
+        base_url
+    } else {
+        let base = portal_base.trim_end_matches('/');
+        format!("{}:801/eportal/portal/login", base)
+    };
     let callback = "dr1003";
     let v = if validated_operator.is_empty() { "3043" } else { "2098" };
     let query_params = format!(
@@ -35,10 +41,10 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
 
     let mut body = String::new();
     let mut limited = (&mut resp).take(MAX_RESPONSE_SIZE as u64);
-    let _ = limited.read_to_string(&mut body);
-    let _ = std::io::copy(&mut resp, &mut std::io::sink());
+    let _ = limited.read_to_string(&mut body); // [忽略错误] 读取失败时 body 为空，后续 parse 会返回 parse_error
+    let _ = std::io::copy(&mut resp, &mut std::io::sink()); // [忽略错误] 消费剩余响应体，丢弃即可
 
-    crate::log_debug!("login", "登录请求完成, URL: {}", safe_url);
+    crate::log_info!("login", "登录请求完成, URL: {}", safe_url);
 
     parse_login_result(&body)
 }
@@ -57,6 +63,10 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
                 return Ok(r.clone());
             }
             Ok(r) => {
+                let retryable = r.get("retryable").and_then(|v| v.as_bool()).unwrap_or(true);
+                if !retryable {
+                    return Ok(r);
+                }
                 last_result = Some(r);
             }
             Err(e) => {
@@ -65,7 +75,7 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
         }
 
         if attempt < max_retries {
-            let base_ms = 500u64 * 2u64.pow(attempt - 1);
+            let base_ms = 1500u64 * 2u64.pow(attempt - 1);
             let jitter = (rand::random::<f64>() * 300.0) as u64;
             std::thread::sleep(std::time::Duration::from_millis(base_ms + jitter));
         }
@@ -92,32 +102,32 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
 
             if result == 0 {
                 if msg.contains("已经在线") {
-                    Ok(serde_json::json!({ "code": "0", "message": msg, "success": true }))
+                    Ok(serde_json::json!({ "code": "0", "message": msg, "success": true, "retryable": false }))
                 } else if msg.contains("认证成功") {
-                    Ok(serde_json::json!({ "code": "0", "message": "登录成功", "success": true }))
+                    Ok(serde_json::json!({ "code": "0", "message": "登录成功", "success": true, "retryable": false }))
                 } else if msg.contains("AC认证失败") {
-                    Ok(serde_json::json!({ "code": "ac_auth_failed", "message": format!("认证失败：{}", msg), "success": false }))
+                    Ok(serde_json::json!({ "code": "ac_auth_failed", "message": format!("认证失败：{}", msg), "success": false, "retryable": false }))
                 } else {
-                    Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "登录成功" } else { msg }, "success": true }))
+                    Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "操作完成" } else { msg }, "success": false, "retryable": false }))
                 }
             } else if result == 1 {
-                if msg.contains("认证成功") {
-                    Ok(serde_json::json!({ "code": "0", "message": "登录成功", "success": true }))
-                } else {
-                    Ok(serde_json::json!({ "code": "1", "message": if msg.is_empty() { "认证失败" } else { msg }, "success": false }))
-                }
+                Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "Portal协议认证成功" } else { msg }, "success": true, "retryable": false }))
             } else if result == 2 {
-                Ok(serde_json::json!({ "code": "2", "message": if msg.is_empty() { "已在线（IP冲突或重复登录）" } else { msg }, "success": false }))
+                if msg.contains("已经在线") {
+                    Ok(serde_json::json!({ "code": "2", "message": if msg.is_empty() { "已在线" } else { msg }, "success": true, "retryable": false }))
+                } else {
+                    Ok(serde_json::json!({ "code": "2", "message": if msg.is_empty() { "已在线（IP冲突或重复登录）" } else { msg }, "success": false, "retryable": false }))
+                }
             } else if result == 3 {
-                Ok(serde_json::json!({ "code": "3", "message": if msg.is_empty() { "流量超限" } else { msg }, "success": false }))
+                Ok(serde_json::json!({ "code": "3", "message": if msg.is_empty() { "流量超限" } else { msg }, "success": false, "retryable": false }))
             } else if result == 4 {
-                Ok(serde_json::json!({ "code": "4", "message": if msg.is_empty() { "账号被禁用" } else { msg }, "success": false }))
+                Ok(serde_json::json!({ "code": "4", "message": if msg.is_empty() { "账号被禁用" } else { msg }, "success": false, "retryable": false }))
             } else {
-                Ok(serde_json::json!({ "code": format!("{}", result), "message": if msg.is_empty() { format!("未知响应码: {}", result) } else { msg.to_string() }, "success": false }))
+                Ok(serde_json::json!({ "code": format!("{}", result), "message": if msg.is_empty() { format!("未知响应码: {}", result) } else { msg.to_string() }, "success": false, "retryable": true }))
             }
         }
         Err(_) => {
-            Ok(serde_json::json!({ "code": "parse_error", "message": "无法解析登录响应", "success": false }))
+            Ok(serde_json::json!({ "code": "parse_error", "message": "无法解析登录响应", "success": false, "retryable": true }))
         }
     }
 }

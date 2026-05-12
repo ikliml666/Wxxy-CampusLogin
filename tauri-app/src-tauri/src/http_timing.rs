@@ -6,7 +6,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::TlsConnector;
-use parking_lot::RwLock;
 
 lazy_static::lazy_static! {
     static ref TLS_CONNECTOR: TlsConnector = {
@@ -18,14 +17,15 @@ lazy_static::lazy_static! {
             .expect("TLS protocol versions")
             .with_root_certificates(root_store)
             .with_no_client_auth();
-        config.resumption = tokio_rustls::rustls::client::Resumption::in_memory_sessions(64);
+        config.resumption = tokio_rustls::rustls::client::Resumption::disabled();
         TlsConnector::from(Arc::new(config))
     };
 
-    static ref DNS_CACHE: RwLock<std::collections::HashMap<String, (IpAddr, Instant)>> = RwLock::new(std::collections::HashMap::new());
+    static ref DNS_CACHE: dashmap::DashMap<String, (IpAddr, Instant)> = dashmap::DashMap::new();
 }
 
 const DNS_CACHE_TTL_SECS: u64 = 60;
+const DNS_CACHE_MAX_ENTRIES: usize = 64;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,27 +74,34 @@ fn ms_from(start: Instant) -> i64 {
 }
 
 fn dns_cache_get(host: &str) -> Option<IpAddr> {
-    let cache = DNS_CACHE.read();
-    cache.get(host).and_then(|(ip, ts)| {
-        if ts.elapsed().as_secs() < DNS_CACHE_TTL_SECS {
-            Some(*ip)
+    DNS_CACHE.get(host).and_then(|entry| {
+        if entry.value().1.elapsed().as_secs() < DNS_CACHE_TTL_SECS {
+            Some(entry.value().0)
         } else {
+            drop(entry);
+            DNS_CACHE.remove(host);
             None
         }
     })
 }
 
 fn dns_cache_put(host: &str, ip: IpAddr) {
-    let mut cache = DNS_CACHE.write();
+    DNS_CACHE.insert(host.to_string(), (ip, Instant::now()));
     let now = Instant::now();
-    cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
-    cache.insert(host.to_string(), (ip, Instant::now()));
+    DNS_CACHE.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
+    if DNS_CACHE.len() > DNS_CACHE_MAX_ENTRIES {
+        let oldest = DNS_CACHE.iter()
+            .min_by_key(|e| e.value().1)
+            .map(|e| e.key().clone());
+        if let Some(key) = oldest {
+            DNS_CACHE.remove(&key);
+        }
+    }
 }
 
 pub fn cleanup_expired_dns_cache() {
-    let mut cache = DNS_CACHE.write();
     let now = Instant::now();
-    cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
+    DNS_CACHE.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
 }
 
 pub async fn measure_https_timing(
@@ -224,36 +231,6 @@ pub async fn measure_https_timing(
         } else {
             result.ttfb_ms = ms_from(ttfb_start);
         }
-    } else if skip_ttfb && !skip_content {
-        let request = format!(
-            "GET / HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: */*\r\nConnection: close\r\n\r\n",
-            host
-        );
-
-        let content_start = Instant::now();
-        if let Err(e) = tls_stream.write_all(request.as_bytes()).await {
-            result.error = Some(format!("发送请求失败: {}", e));
-            result.total_ms = ms_from(overall_start);
-            return result;
-        }
-
-        let mut total_read = 0usize;
-        let mut buf = [0u8; 8192];
-        loop {
-            match tokio::time::timeout(timeout, tls_stream.read(&mut buf)).await {
-                Ok(Ok(0)) => break,
-                Ok(Ok(n)) => {
-                    total_read += n;
-                    if total_read > 64 * 1024 {
-                        break;
-                    }
-                }
-                Ok(Err(_)) => break,
-                Err(_) => break,
-            }
-        }
-        result.ttfb_ms = -1;
-        result.content_ms = if total_read > 0 { ms_from(content_start) } else { -1 };
     } else {
         result.ttfb_ms = -1;
         result.content_ms = -1;

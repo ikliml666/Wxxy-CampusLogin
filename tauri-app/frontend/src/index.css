@@ -256,6 +256,19 @@
     border-bottom-left-radius: 16px !important;
   }
 
+  .app-maximized.app-outer-square {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .app-maximized .surface-side-square {
+    border-bottom-right-radius: 0 !important;
+  }
+
+  .app-maximized .surface-main-square {
+    border-bottom-left-radius: 0 !important;
+  }
+
   .dynamic-bg {
     position: fixed;
     inset: 0;

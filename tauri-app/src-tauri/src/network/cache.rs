@@ -32,8 +32,6 @@ pub(crate) struct NetworkCache {
     pub adapter: ArcSwap<Option<AdapterCache>>,
     pub gateway: ArcSwap<Option<GatewayCacheEntry>>,
     pub portal: ArcSwap<Option<PortalCacheEntry>>,
-    pub portal_lock: parking_lot::Mutex<()>,
-    pub http_clients: dashmap::DashMap<String, (reqwest::blocking::Client, Instant)>,
     pub portal_url: ArcSwap<String>,
 }
 
@@ -43,9 +41,7 @@ impl NetworkCache {
             adapter: ArcSwap::from(Arc::new(None)),
             gateway: ArcSwap::from(Arc::new(None)),
             portal: ArcSwap::from(Arc::new(None)),
-            portal_lock: parking_lot::Mutex::new(()),
-            http_clients: dashmap::DashMap::new(),
-            portal_url: ArcSwap::from(Arc::new("http://10.1.99.100:801".to_string())),
+            portal_url: ArcSwap::from(Arc::new("http://10.1.99.100".to_string())),
         }
     }
 
@@ -59,9 +55,8 @@ impl NetworkCache {
         self.adapter.store(Arc::new(None));
     }
 
-    pub fn cleanup_expired_http_clients(&self) {
-        let now = Instant::now();
-        self.http_clients.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 300);
+    pub fn clear_portal_only(&self) {
+        self.portal.store(Arc::new(None));
     }
 }
 
@@ -83,8 +78,8 @@ pub fn clear_adapter_cache_only() {
     NET_CACHE.clear_adapter_only();
 }
 
-pub fn cleanup_expired_http_clients() {
-    NET_CACHE.cleanup_expired_http_clients();
+pub fn clear_portal_cache() {
+    NET_CACHE.clear_portal_only();
 }
 
 pub(crate) fn get_cached_adapters() -> Option<(Arc<Vec<Adapter>>, Arc<Vec<AdapterDetail>>, Arc<Vec<DisabledAdapter>>)> {
@@ -107,31 +102,7 @@ pub(crate) fn set_adapters_cache(adapters: Vec<Adapter>, details: Vec<AdapterDet
 }
 
 pub(crate) fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::blocking::Client, String> {
-    let timeout_secs = timeout.as_secs();
-    let cache_key = match local_addr {
-        Some(ip) => format!("{}:{}", ip, timeout_secs),
-        None => format!("default:{}", timeout_secs),
-    };
-
-    {
-        if let Some(entry) = NET_CACHE.http_clients.get(&cache_key) {
-            if entry.value().1.elapsed().as_secs() < 300 {
-                return Ok(entry.value().0.clone());
-            }
-        }
-    }
-
-    {
-        NET_CACHE.cleanup_expired_http_clients();
-        if let Some(entry) = NET_CACHE.http_clients.get(&cache_key) {
-            if entry.value().1.elapsed().as_secs() < 300 {
-                return Ok(entry.value().0.clone());
-            }
-        }
-        let client = build_http_client(timeout, local_addr)?;
-        NET_CACHE.http_clients.insert(cache_key, (client.clone(), Instant::now()));
-        Ok(client)
-    }
+    build_http_client(timeout, local_addr)
 }
 
 fn build_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::blocking::Client, String> {
@@ -141,8 +112,8 @@ fn build_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -
         .connect_timeout(std::time::Duration::from_secs(5))
         .no_proxy()
         .redirect(reqwest::redirect::Policy::limited(5))
-        .pool_max_idle_per_host(2)
-        .pool_idle_timeout(std::time::Duration::from_secs(30));
+        .pool_max_idle_per_host(4)
+        .pool_idle_timeout(std::time::Duration::from_secs(60));
 
     if let Some(ip) = local_addr {
         builder = builder.local_address(ip);
@@ -157,8 +128,8 @@ fn build_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::limited(5))
-                .pool_max_idle_per_host(2)
-                .pool_idle_timeout(std::time::Duration::from_secs(30));
+                .pool_max_idle_per_host(4)
+                .pool_idle_timeout(std::time::Duration::from_secs(60));
             if let Some(ip) = local_addr {
                 fallback = fallback.local_address(ip);
             }

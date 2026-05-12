@@ -4,6 +4,17 @@ use crate::config::{Config, get_data_dir, get_accounts_dir};
 use crate::crypto_utils;
 use super::state::{AppState, validate_account_name, validate_config};
 
+fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, content)
+        .map_err(|e| format!("写入临时文件失败: {}", e))?;
+    std::fs::rename(&tmp_path, path)
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path); // [忽略错误] 清理临时文件失败不影响主流程
+            format!("重命名临时文件失败: {}", e)
+        })
+}
+
 #[tauri::command]
 pub async fn list_accounts(app_handle: AppHandle) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -81,12 +92,12 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         let prev_adapter1 = config.adapter1.clone();
         let prev_adapter2 = config.adapter2.clone();
         let prev_dual_adapter = config.dual_adapter;
-        let prev_save_result = tauri::async_runtime::spawn_blocking(move || {
+        let prev_save_result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
             let accounts_dir = {
                 let data_dir = get_data_dir(&app_h_prev);
                 get_accounts_dir(&data_dir)
             };
-            let _ = std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e));
+            std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e))?;
             let account_path = accounts_dir.join(format!("{}.json", prev_name));
 
             let mut save_prev = if account_path.exists() {
@@ -96,7 +107,9 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                         if !existing.password.is_empty() {
                             match crypto_utils::decrypt(&existing.password) {
                                 Ok(decrypted) => { existing.password = decrypted; }
-                                Err(_) => { existing.password = String::new(); }
+                                Err(_) => {
+                                    crate::log_warn!("account", "旧账号密码解密失败，保留加密原文");
+                                }
                             }
                         }
                         existing
@@ -121,12 +134,13 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
             }
 
             if let Ok(json) = serde_json::to_string_pretty(&save_prev) {
-                if let Err(e) = std::fs::write(&account_path, &json) {
+                if let Err(e) = atomic_write(&account_path, &json) {
                     crate::log_error!("account", "保存旧账号文件失败: {}", e);
                 }
             } else {
                 crate::log_error!("account", "序列化旧账号配置失败");
             }
+            Ok(())
         }).await;
         if let Err(e) = prev_save_result {
             crate::log_warn!("account", "保存旧账号配置任务失败: {}", e);
@@ -137,7 +151,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
     let password_for_encrypt = config.password.clone();
     let account_data = Config {
         user: config.user.clone(),
-        password: password_for_encrypt.clone(),
+        password: String::new(),
         operator: config.operator.clone(),
         adapter1: config.adapter1.clone(),
         adapter2: config.adapter2.clone(),
@@ -169,7 +183,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
             let data_dir = get_data_dir(&app_h);
             get_accounts_dir(&data_dir)
         };
-        let _ = std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e));
+        std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e))?;
 
         let account_path = accounts_dir.join(format!("{}.json", safe_name));
 
@@ -205,7 +219,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         let json = serde_json::to_string_pretty(&save_account)
             .map_err(|e| format!("序列化账号配置失败: {}", e))?;
 
-        std::fs::write(&account_path, &json)
+        atomic_write(&account_path, &json)
             .map_err(|e| format!("写入账号配置失败: {}", e))?;
 
         Ok::<(), String>(())
@@ -218,13 +232,15 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
     }
 
     let app_h_save = app_handle.clone();
-    let _ = tauri::async_runtime::spawn_blocking(move || {
+    if let Err(e) = tauri::async_runtime::spawn_blocking(move || {
         let state = app_h_save.state::<AppState>();
         let config = state.config.load_full();
         if let Err(e) = super::config_cmd::save_config_to_disk(&app_h_save, &config) {
             crate::log_warn!("account", "切换账号后保存配置失败: {}", e);
         }
-    }).await;
+    }).await {
+        crate::log_warn!("account", "切换账号后保存配置任务失败: {}", e);
+    }
 
     let updated_config = state.config.load();
     let mut display_config = updated_config.as_ref().clone();

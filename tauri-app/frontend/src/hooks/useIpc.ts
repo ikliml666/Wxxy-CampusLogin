@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus } from '@/types'
 
-type BackgroundCheckEventData = BackgroundStatus & { timestamp?: number; checkCount?: number; secondaryOnline?: boolean | null; secondaryMessage?: string; message?: string; online?: boolean }
+type BackgroundCheckEventData = BackgroundStatus & { timestamp?: number; checkCount?: number; secondaryOnline?: boolean | null; secondaryMessage?: string; message?: string; online?: boolean; adapter1Name?: string; adapter2Name?: string }
 type AutoLoginEventData = { success: boolean; message: string; skipped?: boolean }
 type AdapterDisabledWarningData = { name: string; message: string }
 type AutoExitCountdownData = { delay: number; shortcut: string }
@@ -72,6 +72,8 @@ export interface TauriApi {
   showWindow: () => Promise<void>
   getLogs: (lines?: number) => Promise<string>
   clearLogs: () => Promise<boolean>
+  getDebugMode: () => Promise<boolean>
+  setDebugMode: (enabled: boolean) => Promise<boolean>
   getInitData: () => Promise<Record<string, any>>
   checkUpdate: () => Promise<UpdateInfo>
   downloadUpdate: (url: string) => Promise<string>
@@ -83,20 +85,17 @@ export interface TauriApi {
 function createEventListener<T>(eventName: string): (cb: (data: T) => void) => () => void {
   return (cb: (data: T) => void) => {
     let unlisten: UnlistenFn | null = null
-    let disposed = false
+    let cancelled = false
     listen<T>(eventName, (event) => {
-      if (!disposed) {
-        cb(event.payload)
-      }
+      cb(event.payload)
     }).then((fn) => {
-      if (disposed) {
-        fn()
-      } else {
-        unlisten = fn
+      unlisten = fn
+      if (cancelled) {
+        unlisten()
       }
     }).catch(() => {})
     return () => {
-      disposed = true
+      cancelled = true
       if (unlisten) {
         unlisten()
       }
@@ -148,6 +147,8 @@ const tauriApi: TauriApi = {
   showWindow: () => invoke<void>('show_window'),
   getLogs: (lines) => invoke<string>('get_logs', { lines }),
   clearLogs: () => invoke<boolean>('clear_logs'),
+  getDebugMode: () => invoke<boolean>('get_debug_mode'),
+  setDebugMode: (enabled) => invoke<boolean>('set_debug_mode', { enabled }),
   getInitData: () => invoke<Record<string, any>>('get_init_data'),
   checkUpdate: () => invoke<UpdateInfo>('check_update'),
   downloadUpdate: (url) => invoke<string>('download_update', { url }),
@@ -172,10 +173,9 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, baseDe
   throw lastError
 }
 
-const tauriApiWithRetry: TauriApi = {
+export const tauriApiWithRetry: TauriApi = {
   ...tauriApi,
   saveConfig: (config) => withRetry(() => tauriApi.saveConfig(config)),
-  doLogin: () => withRetry(() => tauriApi.doLogin()),
   checkPortalStatus: (adapterIp) => withRetry(() => tauriApi.checkPortalStatus(adapterIp)),
   getConfig: () => withRetry(() => tauriApi.getConfig()),
   checkNetworkQuality: () => withRetry(() => tauriApi.checkNetworkQuality()),

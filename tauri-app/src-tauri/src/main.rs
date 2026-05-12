@@ -17,12 +17,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 fn main() {
-    let worker_threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .max(4);
     let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(worker_threads)
         .enable_all()
         .build()
         .unwrap_or_else(|e| {
@@ -55,7 +50,7 @@ fn run_app() {
                             let app_h = app.clone();
                             tauri::async_runtime::spawn_blocking(move || {
                                 let s = app_h.state::<AppState>();
-                                let _ = commands::cancel_auto_exit_inner(&app_h, &s);
+                                let _ = commands::cancel_auto_exit_inner(&app_h, &s); // [忽略错误] 取消自动退出失败不影响快捷键处理
                             });
                         }
                     }
@@ -64,9 +59,9 @@ fn run_app() {
             .build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-                let _ = window.unminimize();
+                let _ = window.show();        // [忽略错误] 窗口可能尚未初始化完成
+                let _ = window.set_focus();   // [忽略错误] 窗口可能尚未初始化完成
+                let _ = window.unminimize();  // [忽略错误] 窗口可能尚未初始化完成
             }
         }))
         .manage(AppState::new())
@@ -93,6 +88,9 @@ fn run_app() {
                 let config = s.spawn(move || {
                     commands::load_config_from_disk_or_default(&app_handle)
                 });
+                s.spawn(|| {
+                    let _ = crate::network::get_adapters_cached(); // [忽略错误] 预热适配器缓存，失败不影响启动
+                });
                 config.join().unwrap_or_default()
             });
 
@@ -108,12 +106,12 @@ fn run_app() {
 
             if show_window {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                    let _ = window.show();      // [忽略错误] 窗口可能尚未初始化完成
+                    let _ = window.set_focus(); // [忽略错误] 窗口可能尚未初始化完成
                 }
             } else {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();
+                    let _ = window.hide();      // [忽略错误] 窗口可能尚未初始化完成
                 }
             }
 
@@ -138,32 +136,27 @@ fn run_app() {
                     tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico")).expect("embedded tray icon")
                 });
 
-            let _ = TrayIconBuilder::new()
+            let _ = TrayIconBuilder::new() // [忽略错误] 托盘图标创建失败不影响应用运行
                 .icon(tray_icon)
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
                         "show" => {
                             if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                                let _ = window.show();      // [忽略错误] 窗口可能已关闭
+                                let _ = window.set_focus(); // [忽略错误] 窗口可能已关闭
                             }
                         }
                         "quick-login" => {
                             let s = app.state::<AppState>();
-                            if s.tasks.is_logging_in.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                            if s.tasks.is_logging_in.try_acquire().is_some() {
                                 let app_h = app.clone();
                                 tauri::async_runtime::spawn_blocking(move || {
                                     let s = app_h.state::<AppState>();
-                                    struct QuickLoginGuard<'a>(&'a crate::commands::state::AppState);
-                                    impl Drop for QuickLoginGuard<'_> {
-                                        fn drop(&mut self) {
-                                            self.0.tasks.is_logging_in.store(false, Ordering::Release);
-                                        }
-                                    }
+                                    commands::state::atomic_guard!(QuickLoginGuard, is_logging_in);
                                     let _guard = QuickLoginGuard(&s);
                                     let result = commands::full_login_inner(&s, &app_h);
-                                    let _ = app_h.emit("auto-login-result", serde_json::json!({
+                                    let _ = app_h.emit("auto-login-result", serde_json::json!({ // [忽略错误] 前端可能未加载，emit 失败不影响登录逻辑
                                         "success": result.success,
                                         "message": result.message.clone().unwrap_or_default(),
                                     }));
@@ -187,9 +180,9 @@ fn run_app() {
                         }
                         "quit" => {
                             let s = app.state::<AppState>();
-                            s.is_quitting.store(true, Ordering::Release);
-                            s.tasks.background_running.store(false, Ordering::Release);
-                            s.tasks.latency_running.store(false, Ordering::Release);
+                            s.exit.is_quitting.store(true, Ordering::Release);
+                            s.tasks.background_running.force_release();
+                            s.tasks.latency_running.force_release();
                             app.exit(0);
                         }
                         _ => {}
@@ -202,10 +195,10 @@ fn run_app() {
                             let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
                                 if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
+                                    let _ = window.hide();    // [忽略错误] 窗口可能已关闭
                                 } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
+                                    let _ = window.show();    // [忽略错误] 窗口可能已关闭
+                                    let _ = window.set_focus(); // [忽略错误] 窗口可能已关闭
                                 }
                             }
                         }
@@ -226,11 +219,11 @@ fn run_app() {
                 let minimize_to_tray = s.config.load().minimize_to_tray;
                 if minimize_to_tray {
                     api.prevent_close();
-                    let _ = window.hide();
+                    let _ = window.hide(); // [忽略错误] 窗口可能已关闭
                 } else {
-                    s.is_quitting.store(true, Ordering::Release);
-                    s.tasks.background_running.store(false, Ordering::Release);
-                    s.tasks.latency_running.store(false, Ordering::Release);
+                    s.exit.is_quitting.store(true, Ordering::Release);
+                    s.tasks.background_running.force_release();
+                    s.tasks.latency_running.force_release();
                 }
             }
         })
@@ -278,6 +271,8 @@ fn run_app() {
     commands::updater::download_update,
     commands::updater::install_update,
     commands::updater::get_mirror_urls,
+            crate::logger::set_debug_mode,
+            crate::logger::get_debug_mode,
 ]);
 
     app.run(tauri::generate_context!()).unwrap_or_else(|e| {

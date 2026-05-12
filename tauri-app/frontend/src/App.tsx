@@ -1,7 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { AnimatePresence, m } from 'framer-motion'
-import { useAppStore, AppStoreProvider } from '@/hooks/useAppStore'
-import { useAppInit } from '@/hooks/useAppStore'
+import { useAppStore, useAppInit } from '@/hooks/useAppStore'
 import { safeStorage } from '@/lib/utils'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { TitleBar } from '@/components/layout/TitleBar'
@@ -19,6 +18,8 @@ import { SettingsPanel } from '@/components/panels/SettingsPanel'
 import { LogPanel } from '@/components/panels/LogPanel'
 import { SpeedTestPanel } from '@/components/panels/SpeedTestPanel'
 import { panelSwitchVariants } from '@/lib/animations'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { cn } from '@/lib/utils'
 
 const PANEL_TITLES: Record<string, { title: string; desc: string }> = {
   dashboard: { title: '总览', desc: '实时监控网络状态和登录验证服务' },
@@ -40,6 +41,26 @@ function AppInner() {
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [latestVersion, setLatestVersion] = useState<string>()
+  const [isMaximized, setIsMaximized] = useState(false)
+
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onResized(async () => {
+      try {
+        const maximized = await getCurrentWindow().isMaximized()
+        setIsMaximized(maximized)
+      } catch {}
+    })
+    getCurrentWindow().isMaximized().then(m => setIsMaximized(m)).catch(() => {})
+    return () => { unlisten.then(fn => fn()).catch(() => {}) }
+  }, [])
+
+  const handleToggleMaximize = useCallback(async () => {
+    try {
+      await getCurrentWindow().toggleMaximize()
+      const maximized = await getCurrentWindow().isMaximized()
+      setIsMaximized(maximized)
+    } catch {}
+  }, [])
 
   const handleToggleLightMode = useCallback(() => {
     const next = !store.isLightMode
@@ -172,7 +193,7 @@ function AppInner() {
   }, [store.api, store.updateConfig, store.setActiveAccount, store.addToast])
 
   const handleOpenPortal = useCallback(() => {
-    const portalUrl = store.config.portalUrl || 'http://10.1.99.100:801'
+    const portalUrl = store.config.portalUrl || 'http://10.1.99.100'
     store.api.openExternal?.(portalUrl)
   }, [store.api, store.config.portalUrl])
 
@@ -283,7 +304,7 @@ function AppInner() {
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal" style={{ background: 'var(--surface-main)' }}>
+    <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
       <div className="dynamic-bg" />
 
       <div className="animate-stagger-1">
@@ -297,6 +318,8 @@ function AppInner() {
           onShowAbout={() => setAboutOpen(true)}
           onToggleLightMode={handleToggleLightMode}
           onMinimize={() => store.api.minimizeWindow?.()}
+          onToggleMaximize={handleToggleMaximize}
+          isMaximized={isMaximized}
           onClose={() => store.api.closeWindow?.()}
           updateAvailable={updateAvailable}
           latestVersion={latestVersion}
@@ -317,7 +340,7 @@ function AppInner() {
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)' }}>
-          <div className="max-w-[560px] mx-auto">
+          <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
             <div className="animate-stagger-3 mb-6">
               <h1 className="text-xl font-semibold tracking-tight">{panelInfo.title}</h1>
               <p className="text-sm text-muted-foreground mt-1">{panelInfo.desc}</p>
@@ -395,9 +418,7 @@ function AppInner() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppStoreProvider>
-        <AppInner />
-      </AppStoreProvider>
+      <AppInner />
     </ErrorBoundary>
   )
 }

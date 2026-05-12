@@ -21,7 +21,7 @@ pub fn close_window(window: Window, state: State<'_, AppState>) -> Result<(), St
     if minimize_to_tray {
         window.hide().map_err(|e| e.to_string())
     } else {
-        state.is_quitting.store(true, Ordering::Release);
+        state.exit.is_quitting.store(true, Ordering::Release);
         window.close().map_err(|e| e.to_string())
     }
 }
@@ -32,24 +32,8 @@ pub fn window_move(window: Window, delta_x: i32, delta_y: i32) -> Result<(), Str
         return Err("窗口移动距离超出合理范围".to_string());
     }
     let pos = window.outer_position().map_err(|e| e.to_string())?;
-    let new_x = pos.x + delta_x;
-    let new_y = pos.y + delta_y;
-
-    if let Ok(Some(monitor)) = window.primary_monitor().or_else(|_| window.current_monitor()) {
-        let screen = monitor.size();
-        let scale = monitor.scale_factor();
-        let screen_w = (screen.width as f64 / scale) as i32;
-        let screen_h = (screen.height as f64 / scale) as i32;
-        let min_visible = 50i32;
-        if new_x + min_visible < 0 || new_y + min_visible < 0
-            || new_x > screen_w - min_visible || new_y > screen_h - min_visible
-        {
-            return Err("窗口将移出屏幕范围".to_string());
-        }
-    }
-
     window.set_position(tauri::Position::Physical(
-        tauri::PhysicalPosition::new(new_x, new_y)
+        tauri::PhysicalPosition::new(pos.x + delta_x, pos.y + delta_y)
     )).map_err(|e| e.to_string())
 }
 
@@ -62,21 +46,6 @@ pub fn open_external(url: String) -> Result<bool, String> {
         return Err("URL长度超出限制".to_string());
     }
     let parsed = url::Url::parse(&url).map_err(|e| format!("URL解析失败: {}", e))?;
-    if let Some(host) = parsed.host_str() {
-        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-            match ip {
-                std::net::IpAddr::V4(v4) if v4.is_loopback() || v4.is_link_local() || v4.is_private() => {
-                    return Err("不允许打开本地或内网地址".to_string());
-                }
-                std::net::IpAddr::V6(v6) if v6.is_loopback() => {
-                    return Err("不允许打开本地或内网地址".to_string());
-                }
-                _ => {}
-            }
-        } else if host == "localhost" {
-            return Err("不允许打开本地或内网地址".to_string());
-        }
-    }
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("URL不允许包含用户名或密码".to_string());
     }
@@ -109,7 +78,9 @@ fn set_auto_launch_registry(enabled: bool, exe_path: &str) -> Result<(), String>
         key.set_value(AUTOSTART_REG_VALUE, &value)
             .map_err(|e| format!("写入注册表失败: {}", e))?;
     } else {
-        let _ = key.delete_value(AUTOSTART_REG_VALUE);
+        if let Err(e) = key.delete_value(AUTOSTART_REG_VALUE) {
+            crate::log_warn!("system", "删除自启动注册表项失败: {}", e);
+        }
     }
 
     Ok(())
@@ -166,10 +137,12 @@ pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_h
 }
 
 pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str) {
-    let _ = app_handle.emit("system-notification", serde_json::json!({
+    if let Err(e) = app_handle.emit("system-notification", serde_json::json!({
         "title": title,
         "body": body,
-    }));
+    })) {
+        crate::log_warn!("system", "发送系统通知失败: {}", e);
+    }
 
     let title = title.to_string();
     let body = body.to_string();
@@ -203,7 +176,7 @@ pub fn send_notification(title: String, body: String, app_handle: AppHandle) -> 
 #[tauri::command]
 pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    super::background::cancel_auto_exit_inner(&app_handle, &s)
+    super::auto_exit::cancel_auto_exit_inner(&app_handle, &s)
 }
 
 pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
@@ -237,8 +210,14 @@ pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str
     let json = serde_json::to_string_pretty(&history)
         .map_err(|e| format!("序列化登录历史失败: {}", e))?;
 
-    std::fs::write(&history_path, &json)
-        .map_err(|e| format!("写入登录历史失败: {}", e))?;
+    let tmp_path = history_path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &json)
+        .map_err(|e| format!("写入临时登录历史失败: {}", e))?;
+    std::fs::rename(&tmp_path, &history_path)
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path); // [忽略错误] 清理临时文件失败不影响主流程
+            format!("重命名登录历史文件失败: {}", e)
+        })?;
 
     Ok(())
 }
@@ -302,13 +281,16 @@ pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) ->
     let al = auto_launch_result.unwrap_or(false);
     let acc = accounts_result.unwrap_or_default();
 
-    let bg_status = cached_val.unwrap_or_else(|| serde_json::json!({
-        "isRunning": false,
+    let mut bg_status = cached_val.unwrap_or_else(|| serde_json::json!({
+        "isRunning": state.tasks.background_running.is_active(),
         "checkCount": 0,
         "serverAvailable": false,
         "online": false,
         "adapterStatuses": [],
     }));
+    if let Some(obj) = bg_status.as_object_mut() {
+        obj.insert("isRunning".to_string(), serde_json::Value::Bool(state.tasks.background_running.is_active()));
+    }
 
     Ok(serde_json::json!({
         "config": display_config,

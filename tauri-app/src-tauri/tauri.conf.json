@@ -1,6 +1,6 @@
 {
   "productName": "校园网登录助手",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "identifier": "com.campus.login",
   "build": {
     "beforeDevCommand": "cd frontend && npm run dev",
@@ -16,8 +16,6 @@
         "height": 680,
         "minWidth": 800,
         "minHeight": 600,
-        "maxWidth": 1400,
-        "maxHeight": 900,
         "decorations": false,
         "transparent": true,
         "shadow": true,

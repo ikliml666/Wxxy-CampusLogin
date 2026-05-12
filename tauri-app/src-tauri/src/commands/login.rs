@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::network::{
     Adapter, get_adapters_cached, check_portal_full,
     do_login_with_retry,
-    clear_adapter_cache, select_adapter,
+    clear_portal_cache, select_adapter,
     wait_for_adapter,
 };
 use super::state::{AppState, CommandResult};
@@ -22,7 +22,7 @@ pub fn login_adapter_with_log(
         return None;
     }
 
-    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name)) {
+    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name), Some(&config.user), Some(&config.password)) {
         if sec_status.online {
             return Some(CommandResult {
                 success: true,
@@ -32,10 +32,12 @@ pub fn login_adapter_with_log(
         }
     }
 
-    let _ = app_handle.emit("login-log", serde_json::json!({
+    if let Err(e) = app_handle.emit("login-log", serde_json::json!({
         "message": format!("{} 正在登录...", adapter.name),
         "type": "info"
-    }));
+    })) {
+        crate::log_warn!("login", "发送登录日志失败: {}", e);
+    }
 
     match do_login_with_retry(&config.user, &config.password, &config.operator, Some(adapter.ip.as_str()), 3, is_quitting) {
         Ok(result) => {
@@ -43,12 +45,14 @@ pub fn login_adapter_with_log(
             let message = result.get("message").and_then(|v| v.as_str()).unwrap_or("");
             if !success && message.contains("无法解析登录响应") {
                 if !adapter.ip.is_empty() {
-                    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name)) {
+                    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name), Some(&config.user), Some(&config.password)) {
                         if sec_status.online {
-                            let _ = app_handle.emit("login-log", serde_json::json!({
+                            if let Err(e) = app_handle.emit("login-log", serde_json::json!({
                                 "message": format!("{} 已在线", adapter.name),
                                 "type": "success"
-                            }));
+                            })) {
+                                crate::log_warn!("login", "发送登录日志失败: {}", e);
+                            }
                             return Some(CommandResult {
                                 success: true,
                                 message: Some(format!("{} 已在线", adapter.name)),
@@ -60,19 +64,25 @@ pub fn login_adapter_with_log(
             }
             let display_msg = format!("{} {}", adapter.name, message);
             if success {
-                let _ = app_handle.emit("login-log", serde_json::json!({
+                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
                     "message": format!("{} 登录成功", adapter.name),
                     "type": "success"
-                }));
-                let _ = append_login_history(app_handle, true, message, &adapter.name, &config.user, "login")
-                    .map_err(|e| crate::log_warn!("login", "记录登录历史失败: {}", e));
+                })) {
+                    crate::log_warn!("login", "发送登录日志失败: {}", e);
+                }
+                if let Err(e) = append_login_history(app_handle, true, message, &adapter.name, &config.user, "login") {
+                    crate::log_warn!("login", "记录登录历史失败: {}", e);
+                }
             } else {
-                let _ = app_handle.emit("login-log", serde_json::json!({
+                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
                     "message": format!("{} 登录失败: {}", adapter.name, message),
                     "type": "warning"
-                }));
-                let _ = append_login_history(app_handle, false, message, &adapter.name, &config.user, "login")
-                    .map_err(|e| crate::log_warn!("login", "记录登录历史失败: {}", e));
+                })) {
+                    crate::log_warn!("login", "发送登录日志失败: {}", e);
+                }
+                if let Err(e) = append_login_history(app_handle, false, message, &adapter.name, &config.user, "login") {
+                    crate::log_warn!("login", "记录登录历史失败: {}", e);
+                }
             }
             Some(CommandResult {
                 success,
@@ -81,10 +91,12 @@ pub fn login_adapter_with_log(
             })
         }
         Err(e) => {
-            let _ = app_handle.emit("login-log", serde_json::json!({
+            if let Err(emit_err) = app_handle.emit("login-log", serde_json::json!({
                 "message": format!("{} 登录请求失败: {}", adapter.name, e),
                 "type": "error"
-            }));
+            })) {
+                crate::log_warn!("login", "发送登录日志失败: {}", emit_err);
+            }
             Some(CommandResult {
                 success: false,
                 message: Some(format!("{} 登录请求失败: {}", adapter.name, e)),
@@ -108,7 +120,7 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle) -> CommandResu
 
     let adapters = match get_adapters_cached() {
         Ok(a) => a,
-        Err(_) => match wait_for_adapter(10000, state.is_quitting.as_ref()) {
+        Err(_) => match wait_for_adapter(10000, state.exit.is_quitting.as_ref()) {
             Ok(a) => a,
             Err(e) => return CommandResult::err(&format!("获取适配器失败: {}", e)),
         },
@@ -143,7 +155,7 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle) -> CommandResu
                 let cfg2 = Arc::clone(&config);
                 let app_h2 = app_handle.clone();
 
-                let is_quitting = &state.is_quitting;
+                let is_quitting = &state.exit.is_quitting;
                 let (r1, r2) = std::thread::scope(|s| {
                     let q1 = is_quitting.as_ref();
                     let q2 = is_quitting.as_ref();
@@ -178,19 +190,19 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle) -> CommandResu
         _ => return CommandResult::err("未找到有效适配器"),
     };
 
-    login_adapter_with_log(a1_ref, &config, app_handle, state.is_quitting.as_ref())
+    login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
         .unwrap_or_else(|| CommandResult::err("登录请求失败"))
 }
 
 #[tauri::command]
 pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     state.check_login_rate_limit()?;
-    if state.tasks.is_logging_in.swap(true, Ordering::Acquire) {
+    if state.tasks.is_logging_in.swap_acquire() {
         return Ok(CommandResult::err("登录正在进行中"));
     }
-    state.auto_exit_cancelled.store(false, Ordering::Release);
+    state.exit.auto_exit_cancelled.store(false, Ordering::Release);
     state.network.has_logged_online.store(false, Ordering::Release);
-    clear_adapter_cache();
+    clear_portal_cache();
 
     let result = {
         let app_h = app_handle.clone();
@@ -199,19 +211,17 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle) -> Resu
             struct LoginGuard<'a>(&'a crate::commands::state::AppState);
             impl Drop for LoginGuard<'_> {
                 fn drop(&mut self) {
-                    self.0.tasks.is_logging_in.store(false, Ordering::Release);
+                    self.0.tasks.is_logging_in.force_release();
                 }
             }
             let _guard = LoginGuard(&s);
             full_login_inner(&s, &app_h)
-        }).await.map_err(|e| {
-            format!("登录任务失败: {}", e)
-        })?
+        }).await.map_err(|e| format!("登录任务失败: {}", e))?
     };
 
     if result.success {
         state.network.cached_online_status.store(Arc::new(None));
-        clear_adapter_cache();
+        clear_portal_cache();
 
         let app_h_bg = app_handle.clone();
         tauri::async_runtime::spawn(async move {
@@ -223,7 +233,7 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle) -> Resu
         let config = state.config.load_full();
         if config.auto_exit_after_login {
             let s = app_handle.state::<AppState>();
-            super::background::start_auto_exit(&app_handle, &s);
+            super::auto_exit::start_auto_exit(&app_handle, &s);
         }
     }
 

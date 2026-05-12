@@ -21,6 +21,8 @@ interface LogPanelProps {
   api: {
     getLogs: (lines?: number) => Promise<string>
     clearLogs: () => Promise<boolean>
+    getDebugMode: () => Promise<boolean>
+    setDebugMode: (enabled: boolean) => Promise<boolean>
   }
   addToast: (message: string, type: 'info' | 'success' | 'error' | 'warning', description?: string) => void
 }
@@ -72,6 +74,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [lineCount, setLineCount] = useState(200)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
   const [showLineSelector, setShowLineSelector] = useState(false)
+  const [debugMode, setDebugMode] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const lineSelectorRef = useRef<HTMLDivElement>(null)
@@ -91,6 +94,27 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   useEffect(() => {
     fetchLogs()
   }, [fetchLogs])
+
+  useEffect(() => {
+    api.getDebugMode().then(setDebugMode).catch(() => {})
+  }, [api])
+
+  useEffect(() => {
+    const timer = setInterval(fetchLogs, 5000)
+    return () => clearInterval(timer)
+  }, [fetchLogs])
+
+  const toggleDebugMode = useCallback(async () => {
+    try {
+      const next = !debugMode
+      await api.setDebugMode(next)
+      setDebugMode(next)
+      addToast(next ? '已开启调试日志' : '已关闭调试日志', 'info')
+      fetchLogs()
+    } catch {
+      addToast('切换调试模式失败', 'error')
+    }
+  }, [debugMode, api, addToast, fetchLogs])
 
   useEffect(() => {
     if (scrollRef.current && isAutoScrollRef.current) {
@@ -197,6 +221,15 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 >
                   <RefreshCw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
                   刷新
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn('h-7 text-[11px] gap-1 px-2', debugMode && 'bg-amber-500/10 text-amber-500 border-amber-500/30')}
+                  onClick={toggleDebugMode}
+                >
+                  <Bug className="h-3 w-3" />
+                  {debugMode ? '调试开' : '调试关'}
                 </Button>
                 <Button
                   variant="outline"

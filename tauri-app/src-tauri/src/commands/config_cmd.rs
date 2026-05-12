@@ -1,6 +1,5 @@
 use tauri::{AppHandle, Manager, State};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use crate::config::{Config, get_data_dir, get_config_path};
 use crate::crypto_utils;
 use super::state::{AppState, validate_config};
@@ -48,6 +47,8 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     let config_path = get_config_path(&data_dir);
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
 
+    let is_new_file = !config_path.exists();
+
     let mut save_config = config.clone();
     if !save_config.password.is_empty() {
         let encrypted = crypto_utils::encrypt(&save_config.password)?;
@@ -57,11 +58,66 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     let json = serde_json::to_string_pretty(&save_config)
         .map_err(|e| format!("序列化配置失败: {}", e))?;
 
-    std::fs::write(&config_path, &json)
-        .map_err(|e| format!("写入配置失败: {}", e))?;
+    let tmp_path = config_path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &json)
+        .map_err(|e| format!("写入临时配置文件失败: {}", e))?;
+    std::fs::rename(&tmp_path, &config_path)
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path);
+            format!("重命名配置文件失败: {}", e)
+        })?;
+
+    if is_new_file {
+        restrict_file_permissions(&config_path);
+    }
 
     Ok(())
 }
+
+#[cfg(target_os = "windows")]
+fn restrict_file_permissions(path: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    let path_str = match path.to_str() {
+        Some(s) => s,
+        None => {
+            crate::log_warn!("config", "文件路径包含非UTF-8字符，跳过权限设置");
+            return;
+        }
+    };
+
+    let username = match std::env::var("USERNAME") {
+        Ok(u) => u,
+        Err(_) => {
+            crate::log_warn!("config", "无法获取当前用户名，跳过权限设置");
+            return;
+        }
+    };
+
+    let grant_arg = format!("{}:(R,W,D)", username);
+
+    let output = match std::process::Command::new("icacls")
+        .arg(path_str)
+        .arg("/inheritance:r")
+        .arg("/grant:r")
+        .arg(&grant_arg)
+        .creation_flags(0x08000000)
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            crate::log_warn!("config", "执行icacls失败: {}", e);
+            return;
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        crate::log_warn!("config", "设置文件权限失败: {}", stderr.trim());
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn restrict_file_permissions(_path: &std::path::Path) {}
 
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
@@ -81,8 +137,6 @@ pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut 
             config.user = guard.user.clone();
         }
         if config.password == "***" {
-            config.password = guard.password.clone();
-        } else if config.password.is_empty() && !guard.password.is_empty() {
             config.password = guard.password.clone();
         }
         let old_vals = (guard.adapter1.clone(), guard.latency_test_interval, guard.enable_latency_test, guard.enable_network_quality);
@@ -106,18 +160,18 @@ pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut 
 
     if !config_ref.enable_network_quality && old_enable_network_quality {
         let s = app_handle.state::<AppState>();
-        s.tasks.latency_generation.fetch_add(1, Ordering::Release);
-        s.tasks.latency_running.store(false, Ordering::Release);
+        s.tasks.latency_cancel.load().cancel();
+        s.tasks.latency_running.force_release();
     } else if !config_ref.enable_latency_test && old_latency_enabled {
         let s = app_handle.state::<AppState>();
-        s.tasks.latency_generation.fetch_add(1, Ordering::Release);
-        s.tasks.latency_running.store(false, Ordering::Release);
+        s.tasks.latency_cancel.load().cancel();
+        s.tasks.latency_running.force_release();
     } else if config_ref.enable_latency_test && config_ref.enable_network_quality && (config_ref.latency_test_interval != old_latency_interval || (!old_latency_enabled && config_ref.enable_latency_test)) {
         let s = app_handle.state::<AppState>();
-        s.tasks.latency_generation.fetch_add(1, Ordering::Release);
-        s.tasks.latency_running.store(true, Ordering::Release);
+        s.tasks.latency_cancel.load().cancel();
+        s.tasks.latency_running.force_release();
         let interval = if config_ref.latency_test_interval < 10000 { 30000 } else { config_ref.latency_test_interval };
-        super::background::spawn_latency_test_loop(&app_handle, interval);
+        super::latency::spawn_latency_test_loop(&app_handle, interval);
     }
 
     let mut display_config = state.config.load().as_ref().clone();
@@ -134,8 +188,8 @@ pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut 
 #[tauri::command]
 pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
+        let _ = window.show();       // [忽略错误] 窗口可能已关闭或不可用
+        let _ = window.set_focus();  // [忽略错误] 窗口可能已关闭或不可用
     }
     Ok(())
 }

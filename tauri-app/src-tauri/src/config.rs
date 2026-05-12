@@ -64,7 +64,7 @@ pub struct Config {
 fn default_true() -> bool { true }
 
 fn default_portal_url() -> String {
-    "http://10.1.99.100:801".to_string()
+    "http://10.1.99.100".to_string()
 }
 
 impl Default for Config {
@@ -95,7 +95,7 @@ impl Default for Config {
             enable_network_quality: true,
             skip_ttfb_in_latency: true,
             skip_content_in_latency: true,
-            portal_url: default_portal_url(),
+            portal_url: "http://10.1.99.100".to_string(),
             fixed_gateway: String::new(),
         }
     }
@@ -123,7 +123,7 @@ pub fn get_accounts_dir(data_dir: &PathBuf) -> PathBuf {
     data_dir.join("accounts")
 }
 
-pub fn get_login_history_path(data_dir: &PathBuf) -> PathBuf {
+pub(crate) fn get_login_history_path(data_dir: &PathBuf) -> PathBuf {
     data_dir.join("login-history.json")
 }
 

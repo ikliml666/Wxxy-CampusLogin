@@ -17,6 +17,7 @@ pub struct UpdateInfo {
     pub latest_version: String,
     pub release_notes: String,
     pub assets: Vec<ReleaseAsset>,
+    pub sha256_checksum: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -82,11 +83,25 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
         })
         .unwrap_or_default();
 
+    let sha256_checksum = data["assets"]
+        .as_array()
+        .and_then(|arr| {
+            arr.iter().find_map(|a| {
+                let name = a["name"].as_str().unwrap_or("");
+                if name.ends_with(".sha256") || name.ends_with(".sha256sum") {
+                    a["browser_download_url"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+        });
+
     Ok(UpdateInfo {
         has_update,
         latest_version: latest_tag,
         release_notes,
         assets,
+        sha256_checksum,
     })
 }
 
@@ -119,8 +134,8 @@ pub async fn download_update(
     url: String,
     _state: State<'_, AppState>,
 ) -> Result<String, String> {
-    if !url.starts_with("https://") && !url.starts_with("http://") {
-        return Err("无效的下载链接".to_string());
+    if !url.starts_with("https://") {
+        return Err("仅允许HTTPS协议下载更新包".to_string());
     }
 
     let parsed = url::Url::parse(&url).map_err(|e| format!("URL解析失败: {}", e))?;
@@ -206,12 +221,14 @@ pub async fn download_update(
                         0.0
                     };
 
-                    let _ = app_handle.emit("update-download-progress", DownloadProgress {
+                    if let Err(e) = app_handle.emit("update-download-progress", DownloadProgress {
                         downloaded,
                         total: total_size,
                         speed,
                         percent,
-                    });
+                    }) {
+                        crate::log_warn!("updater", "发送下载进度失败: {}", e);
+                    }
 
                     last_emit = now;
                     last_downloaded = downloaded;
@@ -229,21 +246,89 @@ pub async fn download_update(
         .ok_or("文件路径转换失败")?
         .to_string();
 
-    let _ = app_handle.emit("update-download-progress", DownloadProgress {
+    if let Err(e) = app_handle.emit("update-download-progress", DownloadProgress {
         downloaded,
         total: downloaded,
         speed: 0,
         percent: 100.0,
-    });
+    }) {
+        crate::log_warn!("updater", "发送下载完成进度失败: {}", e);
+    }
 
     Ok(path_str)
 }
 
+pub async fn verify_download_sha256(file_path: &str, checksum_url: &str) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+
+    let resp = client.get(checksum_url).send().await
+        .map_err(|e| format!("获取校验和文件失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("获取校验和失败: HTTP {}", resp.status()));
+    }
+
+    let checksum_content = resp.text().await
+        .map_err(|e| format!("读取校验和内容失败: {}", e))?;
+
+    let expected_hash = checksum_content
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    if expected_hash.is_empty() || expected_hash.len() != 64 {
+        return Err("校验和格式无效".to_string());
+    }
+
+    let data = tokio::task::spawn_blocking({
+        let path = file_path.to_string();
+        move || std::fs::read(&path)
+    }).await
+    .map_err(|e| format!("读取文件任务失败: {}", e))?
+    .map_err(|e| format!("读取下载文件失败: {}", e))?;
+
+    use std::io::Write;
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.write_all(&data).map_err(|e| format!("计算哈希失败: {}", e))?;
+    let result = hasher.finalize();
+    let actual_hash = format!("{:x}", result);
+
+    Ok(actual_hash == expected_hash)
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InstallWarning {
+    pub can_install: bool,
+    pub warning: Option<String>,
+}
+
 #[tauri::command]
-pub fn install_update(file_path: String) -> Result<bool, String> {
+pub async fn install_update(file_path: String, checksum_url: Option<String>) -> Result<bool, String> {
     let path = std::path::Path::new(&file_path);
     if !path.exists() {
         return Err("安装包文件不存在".to_string());
+    }
+
+    if let Some(url) = checksum_url {
+        if !url.is_empty() {
+            match verify_download_sha256(&file_path, &url).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    let _ = std::fs::remove_file(&file_path);
+                    return Err("安装包校验失败：SHA256不匹配，文件可能被篡改".to_string());
+                }
+                Err(e) => crate::log_warn!("updater", "SHA256校验过程失败，继续安装: {}", e),
+            }
+        } else {
+            crate::log_warn!("updater", "未提供SHA256校验和，跳过校验");
+        }
+    } else {
+        crate::log_warn!("updater", "未提供SHA256校验和，跳过校验");
     }
 
     let temp_dir = std::env::temp_dir().join("campus-login-update");
@@ -262,14 +347,51 @@ pub fn install_update(file_path: String) -> Result<bool, String> {
         .to_lowercase();
 
     if ext == "exe" {
-        open::that(canonical_path).map(|_| true).map_err(|e| format!("启动安装程序失败: {}", e))
+        let result = open::that(canonical_path).map(|_| true).map_err(|e| format!("启动安装程序失败: {}", e));
+        if result.is_ok() {
+            let temp_dir = std::env::temp_dir().join("campus-login-update");
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                let _ = std::fs::remove_dir_all(&temp_dir);
+            });
+        }
+        result
     } else if ext == "msi" {
         let args = format!("/i \"{}\"", canonical_path.display());
-        std::process::Command::new("msiexec")
-            .args(args.split_whitespace())
-            .spawn()
-            .map(|_| true)
-            .map_err(|e| format!("启动MSI安装失败: {}", e))
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let result = std::process::Command::new("msiexec")
+                .args(args.split_whitespace())
+                .creation_flags(0x08000000)
+                .spawn()
+                .map(|_| true)
+                .map_err(|e| format!("启动MSI安装失败: {}", e));
+            if result.is_ok() {
+                let temp_dir = std::env::temp_dir().join("campus-login-update");
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    let _ = std::fs::remove_dir_all(&temp_dir);
+                });
+            }
+            result
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let result = std::process::Command::new("msiexec")
+                .args(args.split_whitespace())
+                .spawn()
+                .map(|_| true)
+                .map_err(|e| format!("启动MSI安装失败: {}", e));
+            if result.is_ok() {
+                let temp_dir = std::env::temp_dir().join("campus-login-update");
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    let _ = std::fs::remove_dir_all(&temp_dir);
+                });
+            }
+            result
+        }
     } else {
         Err(format!("不支持的安装包格式: {}", ext))
     }

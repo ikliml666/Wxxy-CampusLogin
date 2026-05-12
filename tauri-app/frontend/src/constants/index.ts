@@ -1,8 +1,38 @@
-import type { ThemeName } from '@/types'
+import type { ThemeName, Config } from '@/types'
 
 export const MAX_LOG_ENTRIES = 300
-export const APP_VERSION = '2.1.4'
+export const APP_VERSION = '2.1.5'
 export const APP_NAME = '校园网登录助手'
+
+export const DEFAULT_CONFIG: Config = {
+  user: '',
+  password: '',
+  operator: '',
+  adapter1: '自动检测',
+  adapter2: '',
+  dualAdapter: false,
+  autoLoginOnStart: true,
+  autoExitAfterLogin: true,
+  minimizeToTray: false,
+  hiddenStart: true,
+  autoLaunch: true,
+  enableBackgroundCheck: true,
+  backgroundCheckInterval: 60000,
+  autoLoginOnPreparation: true,
+  autoExitOnOnline: true,
+  themeMode: 'dark',
+  enableNotification: true,
+  activeAccount: '',
+  enableLatencyTest: false,
+  latencyTestInterval: 30000,
+  customThemeColor: '#6366f1',
+  defaultPanel: '',
+  enableNetworkQuality: true,
+  skipTtfbInLatency: true,
+  skipContentInLatency: true,
+  portalUrl: 'http://10.1.99.100',
+  fixedGateway: '',
+}
 
 export const ISP_OPTIONS = [
   { value: '__default__', label: '无锡学院' },

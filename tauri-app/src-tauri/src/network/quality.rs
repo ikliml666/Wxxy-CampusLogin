@@ -4,6 +4,8 @@ use serde::Serialize;
 
 use super::adapter::get_gateway_ip_cached;
 
+const MAX_CONCURRENT_QUALITY_TASKS: usize = 20;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkQualityResult {
@@ -176,10 +178,6 @@ pub async fn check_network_quality_async(adapter_name: &str, adapter_ip: &str, s
         }).await.unwrap_or(None)
     };
 
-    let gateway = gateway.filter(|gw| {
-        !gw.starts_with("192.168.")
-    });
-
     let gateway_str = gateway.as_deref().unwrap_or("");
 
     let bind_addr: Option<std::net::IpAddr> = if adapter_ip.is_empty() {
@@ -256,9 +254,15 @@ pub async fn check_network_quality_async(adapter_name: &str, adapter_ip: &str, s
         }, bind_addr });
     }
 
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_QUALITY_TASKS));
     let mut join_set = tokio::task::JoinSet::new();
     for ctx in tasks {
+        let permit = semaphore.clone();
         join_set.spawn(async move {
+            let _permit = permit.acquire().await.unwrap_or_else(|e| {
+                crate::log_warn!("quality", "获取并发许可失败: {}", e);
+                panic!("semaphore closed")
+            });
             match ctx.task {
                 LatencyTask::Gateway { name, target } => {
                     let (lat, lat_type) = tcp_then_icmp_latency(&target, &[80, 53], 800).await;

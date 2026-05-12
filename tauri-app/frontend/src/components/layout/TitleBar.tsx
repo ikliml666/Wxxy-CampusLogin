@@ -2,7 +2,7 @@ import { Bell, BellOff, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-r
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APP_VERSION } from '@/constants'
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 interface TitleBarProps {
@@ -15,7 +15,9 @@ interface TitleBarProps {
   onShowAbout: () => void
   onToggleLightMode: () => void
   onMinimize: () => void
+  onToggleMaximize: () => void
   onClose: () => void
+  isMaximized: boolean
   updateAvailable?: boolean
   latestVersion?: string
 }
@@ -23,6 +25,19 @@ interface TitleBarProps {
 const MinimizeIcon = () => (
   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
     <line x1="2" y1="5" x2="8" y2="5" />
+  </svg>
+)
+
+const MaximizeIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="2" width="6" height="6" rx="0.5" />
+  </svg>
+)
+
+const RestoreIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="1" width="6" height="6" rx="0.5" />
+    <path d="M3 3H2.5C2.22 3 2 3.22 2 3.5V8.5C2 8.78 2.22 9 2.5 9H7.5C7.78 9 8 8.78 8 8.5V8" />
   </svg>
 )
 
@@ -41,31 +56,41 @@ export const TitleBar = memo(function TitleBar({
   onShowAbout,
   onToggleLightMode,
   onMinimize,
+  onToggleMaximize,
   onClose,
+  isMaximized,
   updateAvailable,
   latestVersion,
 }: TitleBarProps) {
-  const handleDragMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const lastClickTimeRef = useRef(0)
+
+  const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
     const target = e.target as HTMLElement
     if (target.closest('button, a, input, select, textarea, [role="button"]')) return
+
+    const now = Date.now()
+    const elapsed = now - lastClickTimeRef.current
+    lastClickTimeRef.current = now
+
+    if (elapsed < 300) return
+
     getCurrentWindow().startDragging().catch(() => {})
   }, [])
 
-  const handleDoubleClick = useCallback(() => {
-    getCurrentWindow().toggleMaximize().catch(() => {})
-  }, [])
+  const handleTitleBarDoubleClick = useCallback(() => {
+    onToggleMaximize()
+  }, [onToggleMaximize])
 
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        data-tauri-drag-region
-        onMouseDown={handleDragMouseDown}
-        onDoubleClick={handleDoubleClick}
+        onMouseDown={handleTitleBarMouseDown}
+        onDoubleClick={handleTitleBarDoubleClick}
         className="flex items-center justify-between h-11 px-5 shrink-0 select-none z-50 surface-top-square"
         style={{ background: 'var(--surface-top)' }}
       >
-        <div className="flex items-center gap-3" data-tauri-drag-region>
+        <div className="flex items-center gap-3">
           <div
             className="w-7 h-7 bg-[#4f46e5] flex items-center justify-center rounded-full"
             style={{ boxShadow: '0 2px 8px rgba(79,70,229,0.3)' }}
@@ -76,10 +101,9 @@ export const TitleBar = memo(function TitleBar({
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <span className="text-sm font-semibold tracking-tight" data-tauri-drag-region>校园网登录助手</span>
+          <span className="text-sm font-semibold tracking-tight">校园网登录助手</span>
           <span
             className="text-[10px] px-2 py-0.5 bg-[#f3f4f6] text-muted-foreground font-medium rounded-full dark:bg-[#1f2128]"
-            data-tauri-drag-region
           >
             v{APP_VERSION}
           </span>
@@ -101,7 +125,7 @@ export const TitleBar = memo(function TitleBar({
           )}
         </div>
 
-        <div className="flex items-center gap-1" data-tauri-drag-region="false">
+        <div className="flex items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon-sm" className="h-7 w-7 rounded-full" onClick={onToggleLightMode}>
@@ -149,6 +173,19 @@ export const TitleBar = memo(function TitleBar({
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>最小化</p></TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                onClick={onToggleMaximize}
+                aria-label={isMaximized ? '还原' : '最大化'}
+              >
+                {isMaximized ? <RestoreIcon /> : <MaximizeIcon />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom"><p>{isMaximized ? '还原' : '最大化'}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>

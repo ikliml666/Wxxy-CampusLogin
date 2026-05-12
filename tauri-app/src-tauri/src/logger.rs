@@ -32,7 +32,7 @@ impl LogLevel {
 }
 
 enum LogMessage {
-    Entry { #[allow(dead_code)] level: LogLevel, line: String },
+    Entry { line: String },
     Flush { ack: Sender<()> },
     Shutdown,
 }
@@ -47,6 +47,8 @@ struct LoggerState {
 lazy_static::lazy_static! {
     static ref LOGGER_SENDER: ArcSwap<Option<Sender<LogMessage>>> = ArcSwap::from(std::sync::Arc::new(None));
     static ref CLEAR_LOGS_MUTEX: Mutex<()> = Mutex::new(());
+    static ref LOGGER_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
+    static ref MIN_LOG_LEVEL: ArcSwap<LogLevel> = ArcSwap::from(std::sync::Arc::new(LogLevel::Info));
 }
 
 pub fn init_logger(log_dir: PathBuf) {
@@ -72,7 +74,7 @@ pub fn init_logger(log_dir: PathBuf) {
     {
         let old = LOGGER_SENDER.swap(std::sync::Arc::new(Some(sender)));
         if let Some(old_sender) = old.as_ref() {
-            let _ = old_sender.send(LogMessage::Shutdown);
+            let _ = old_sender.send(LogMessage::Shutdown); // [忽略错误] 旧日志线程可能已退出
         }
         drop(old);
     }
@@ -84,12 +86,14 @@ pub fn init_logger(log_dir: PathBuf) {
         last_flush: Instant::now(),
     };
 
-    std::thread::Builder::new()
+    let handle = std::thread::Builder::new()
         .name("logger-worker".to_string())
         .spawn(move || {
             logger_worker(state, receiver);
         })
         .expect("Failed to spawn logger thread");
+
+    *LOGGER_THREAD.lock() = Some(handle);
 }
 
 fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<LogMessage>) {
@@ -100,14 +104,14 @@ fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<Log
             Ok(LogMessage::Shutdown) => {
                 drain_channel(&receiver, &mut buffer);
                 flush_messages(&mut state, &mut buffer);
-                let _ = state.current_writer.as_mut().map(|w| w.flush());
+                let _ = state.current_writer.as_mut().map(|w| w.flush()); // [忽略错误] 关闭时 flush 失败无法恢复
                 return;
             }
             Ok(msg) => buffer.push(msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 drain_channel(&receiver, &mut buffer);
                 flush_messages(&mut state, &mut buffer);
-                let _ = state.current_writer.as_mut().map(|w| w.flush());
+                let _ = state.current_writer.as_mut().map(|w| w.flush()); // [忽略错误] 通道断开时 flush 失败无法恢复
                 return;
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -150,20 +154,20 @@ fn flush_messages(state: &mut LoggerState, buffer: &mut Vec<LogMessage>) {
         for msg in buffer.drain(..) {
             match msg {
                 LogMessage::Entry { line, .. } => {
-                    let _ = writer.write_all(line.as_bytes());
+                    let _ = writer.write_all(line.as_bytes()); // [忽略错误] 日志写入失败无法恢复，继续处理下一条
                 }
                 LogMessage::Flush { ack } => {
-                    let _ = writer.flush();
-                    let _ = ack.send(());
+                    let _ = writer.flush(); // [忽略错误] flush 失败无法恢复
+                    let _ = ack.send(());   // [忽略错误] 通知方可能已超时放弃
                 }
                 LogMessage::Shutdown => {}
             }
         }
-        let _ = writer.flush();
+        let _ = writer.flush(); // [忽略错误] 批量写入后 flush 失败无法恢复
     } else {
         for msg in buffer.drain(..) {
             if let LogMessage::Flush { ack } = msg {
-                let _ = ack.send(());
+                let _ = ack.send(()); // [忽略错误] 无写入器时仍需回复 flush 请求
             }
         }
     }
@@ -195,9 +199,9 @@ fn rotate_if_needed(state: &mut LoggerState) {
                 if fs::rename(&current, &rotated).is_ok() {
                     cleanup_old_logs(&state.log_dir);
                 } else {
-                    crate::log_debug!("logger", "日志轮转rename失败，尝试直接截断");
+                    crate::log_warn!("logger", "日志轮转rename失败，尝试直接截断");
                     if let Ok(f) = OpenOptions::new().write(true).truncate(true).open(&current) {
-                        let _ = f;
+                        let _ = f; // [忽略错误] 截断后立即丢弃文件句柄，仅用于清空文件内容
                     }
                 }
 
@@ -228,12 +232,16 @@ fn cleanup_old_logs(log_dir: &PathBuf) {
             .collect();
         files.sort_by(|a, b| b.0.cmp(&a.0));
         for (_, path) in files.iter().skip(MAX_LOG_FILES) {
-            let _ = fs::remove_file(path);
+            let _ = fs::remove_file(path); // [忽略错误] 旧日志删除失败不影响新日志写入
         }
     }
 }
 
 pub fn log(level: LogLevel, module: &str, message: &str) {
+    if level < **MIN_LOG_LEVEL.load() {
+        return;
+    }
+
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let line = format!("[{}] [{}] [{}] {}\n", timestamp, level.as_str(), module, message);
 
@@ -242,8 +250,28 @@ pub fn log(level: LogLevel, module: &str, message: &str) {
     }
 
     if let Some(sender) = LOGGER_SENDER.load().as_ref().clone() {
-        let _ = sender.send(LogMessage::Entry { level, line });
+        let _ = sender.send(LogMessage::Entry { line }); // [忽略错误] 日志通道已满或已关闭，丢弃此条日志
     }
+}
+
+pub fn set_log_level(level: LogLevel) {
+    MIN_LOG_LEVEL.store(std::sync::Arc::new(level));
+}
+
+pub fn get_log_level() -> LogLevel {
+    (**MIN_LOG_LEVEL.load()).clone()
+}
+
+#[tauri::command]
+pub fn set_debug_mode(enabled: bool) -> Result<bool, String> {
+    let level = if enabled { LogLevel::Debug } else { LogLevel::Info };
+    set_log_level(level);
+    Ok(enabled)
+}
+
+#[tauri::command]
+pub fn get_debug_mode() -> Result<bool, String> {
+    Ok(get_log_level() == LogLevel::Debug)
 }
 
 #[macro_export]
@@ -274,11 +302,15 @@ macro_rules! log_error {
     };
 }
 
-pub fn get_log_dir(_app_handle: &tauri::AppHandle) -> PathBuf {
+pub fn get_log_dir(app_handle: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
     let install_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
+        .unwrap_or_else(|| {
+            app_handle.path().app_data_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+        });
     install_dir.join("logs")
 }
 
@@ -303,15 +335,15 @@ pub fn flush() {
     let sender_arc = LOGGER_SENDER.load();
     if let Some(sender) = sender_arc.as_ref() {
         let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
-        let _ = sender.send(LogMessage::Flush { ack: ack_tx });
-        let _ = ack_rx.recv_timeout(std::time::Duration::from_secs(5));
+        let _ = sender.send(LogMessage::Flush { ack: ack_tx }); // [忽略错误] 日志通道可能已关闭
+        let _ = ack_rx.recv_timeout(std::time::Duration::from_secs(5)); // [忽略错误] 等待 flush 超时，日志可能未完全落盘
     }
 }
 
 pub fn shutdown() {
     let old = LOGGER_SENDER.swap(std::sync::Arc::new(None));
     if let Some(sender) = old.as_ref() {
-        let _ = sender.send(LogMessage::Shutdown);
+        let _ = sender.send(LogMessage::Shutdown); // [忽略错误] 日志线程可能已退出
     }
 }
 
@@ -329,19 +361,22 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
 
     if let Some(ref arc_sender) = old_sender {
         if let Some(sender) = arc_sender.as_ref() {
-            let _ = sender.send(LogMessage::Shutdown);
+            let _ = sender.send(LogMessage::Shutdown); // [忽略错误] 旧日志线程可能已退出
         }
     }
 
     if old_sender.is_some() {
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        let mut thread_lock = LOGGER_THREAD.lock();
+        if let Some(handle) = thread_lock.take() {
+            let _ = handle.join(); // [忽略错误] 日志线程 join 失败（如已 panic）无法恢复
+        }
     }
 
     let log_dir = get_log_dir(app_handle);
     if log_dir.exists() {
         if let Ok(entries) = fs::read_dir(&log_dir) {
             for entry in entries.flatten() {
-                let _ = fs::remove_file(entry.path());
+                let _ = fs::remove_file(entry.path()); // [忽略错误] 清除日志文件失败不影响重新初始化
             }
         }
     }
