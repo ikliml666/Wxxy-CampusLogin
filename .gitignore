@@ -43,3 +43,7 @@ asar_restore/
 
 # Runtime data
 config.json
+
+# Release notes (not pushed to repo)
+RELEASE_*.md
+v*.*.*-更新日志.md
