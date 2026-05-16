@@ -2,12 +2,14 @@ import { useEffect, useRef } from 'react'
 import type { Config, PanelName, BackgroundStatus, NetworkQuality } from '@/types'
 import { useAppStore } from './useAppStore'
 import { safeStorage } from '@/lib/utils'
+import { mergeNetworkQuality } from '@/lib/latency'
 import { NAV_ITEMS, DEFAULT_CONFIG } from '@/constants'
 
 const VALID_PANELS: PanelName[] = NAV_ITEMS.map(item => item.id)
 
 export function useAppInit() {
   const lastAdapterOnlineRef = useRef<Map<string, boolean>>(new Map())
+  const lastOnlineLogTimeRef = useRef(0)
   const initDoneRef = useRef(false)
 
   useEffect(() => {
@@ -77,17 +79,41 @@ export function useAppInit() {
 
           store.getState().checkOnline(cfg, adps)
 
-          if (cfg.enableNetworkQuality !== false) {
-            api.checkNetworkQuality?.().then((q) => {
-              if (q) {
-                store.getState().setNetworkQuality((old: NetworkQuality | null) => {
-                  const next = !old || old.quality === 'unknown' ? q
-                    : { ...q, details: { ...old.details, ...q.details }, metrics: q.metrics ?? old.metrics }
-                  return next
-                })
+          const dnsPromise = (async () => {
+            if (store.getState().dnsDohStatus) return
+            try {
+              const status = await api.checkDnsDohStatus?.()
+              if (status) {
+                store.getState().setDnsDohStatus(status)
+                const RECOMMENDED_DNS = new Set(['223.5.5.5', '223.6.6.6', '1.12.12.12', '120.53.53.53'])
+                const hasRecommendedDns = status.adapters.some((a: any) => a.dnsServers.some((d: any) => RECOMMENDED_DNS.has(d.address)))
+                const dohNotEnabled = status.adapters.some((a: any) =>
+                  a.dnsServers.some((d: any) => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
+                )
+                if (!hasRecommendedDns) {
+                  store.getState().addLog('未使用推荐DNS，建议在「网络」面板点击「一键优化DNS」设置阿里+腾讯DNS', 'warning')
+                } else if (dohNotEnabled) {
+                  store.getState().addLog('DNS未启用DoH加密，建议在「网络」面板点击「一键优化DNS」启用，或在 Windows 设置 → 网络 → DNS 加密中手动开启', 'warning')
+                }
               }
-            }).catch(() => {})
-          }
+            } catch {}
+          })()
+
+          const qualityPromise = (async () => {
+            if (cfg.enableNetworkQuality !== false) {
+              try {
+                const q = await api.checkNetworkQuality?.()
+                if (q) {
+                  store.getState().setNetworkQuality((old: NetworkQuality | null) => {
+                    const next = mergeNetworkQuality(old, q)
+                    return next
+                  })
+                }
+              } catch {}
+            }
+          })()
+
+          Promise.all([dnsPromise, qualityPromise]).catch(() => {})
         }
       } catch (_) {
         store.setState({ config: DEFAULT_CONFIG })
@@ -120,7 +146,8 @@ export function useAppInit() {
       if (data) {
         const a1 = data.adapter1Name || ''
         const a2 = data.adapter2Name || ''
-        const shouldLogPrimary = (() => {
+
+        const primaryChanged = (() => {
           if (!data.message) return false
           const key = '__primary__'
           const prev = lastAdapterOnlineRef.current.get(key)
@@ -131,20 +158,44 @@ export function useAppInit() {
           }
           return false
         })()
-        if (shouldLogPrimary && data.message) {
-          const label = a1 ? `${a1}: ${data.message}` : data.message
-          store.getState().addLog(label, data.online ? 'success' : 'warning')
-        }
-        if (data.secondaryOnline !== null && data.secondaryOnline !== undefined && data.secondaryMessage) {
-          const key = `__secondary__`
+
+        const secondaryChanged = (() => {
+          if (data.secondaryOnline === null || data.secondaryOnline === undefined || !data.secondaryMessage) return false
+          const key = '__secondary__'
           const prev = lastAdapterOnlineRef.current.get(key)
           const curr = !!data.secondaryOnline
           if (prev !== curr) {
             lastAdapterOnlineRef.current.set(key, curr)
-            const label = a2 ? `${a2}: ${data.secondaryMessage}` : data.secondaryMessage
-            store.getState().addLog(label, data.secondaryOnline ? 'success' : 'warning')
+            return true
+          }
+          return false
+        })()
+
+        if (primaryChanged || secondaryChanged) {
+          const now = Date.now()
+          const onlineAdapters: string[] = []
+          const offlineAdapters: string[] = []
+
+          if (primaryChanged) {
+            if (data.online) onlineAdapters.push(a1)
+            else offlineAdapters.push(a1)
+          }
+          if (secondaryChanged) {
+            if (data.secondaryOnline) onlineAdapters.push(a2)
+            else offlineAdapters.push(a2)
+          }
+
+          if (onlineAdapters.length > 0) {
+            if (now - lastOnlineLogTimeRef.current >= 5000) {
+              store.getState().addLog(`已在线（${onlineAdapters.join('、')}）`, 'success')
+              lastOnlineLogTimeRef.current = now
+            }
+          }
+          if (offlineAdapters.length > 0) {
+            store.getState().addLog(`${offlineAdapters.join('、')}: 已离线`, 'warning')
           }
         }
+
         store.getState().setBgStatus((prev: BackgroundStatus) => ({
           ...prev,
           serverAvailable: data.serverAvailable ?? prev.serverAvailable,
@@ -161,7 +212,8 @@ export function useAppInit() {
     const unsub2 = api.onAutoLoginResult?.((result) => {
       if (!result) return
       if (result.skipped) {
-        store.getState().addLog(`已在线，跳过登录: ${result.message}`, 'info')
+        store.getState().addLog(result.message, 'success')
+        lastOnlineLogTimeRef.current = Date.now()
       } else if (result.success) {
         store.getState().addToast('自动登录成功', 'success', result.message)
       }
@@ -171,11 +223,9 @@ export function useAppInit() {
     const unsub3 = api.onAdaptersChanged?.((adps) => {
       if (adps) {
         store.setState({ adapters: adps })
-        lastAdapterOnlineRef.current.clear()
         api.getAdapterDetails?.().then(details => {
           if (details) store.setState({ adapterDetails: details })
         }).catch(() => {})
-        store.getState().addLog('网络适配器状态已更新', 'info')
       }
     }) ?? (() => {})
 
@@ -226,8 +276,7 @@ export function useAppInit() {
     const unsub6 = api.onNetworkQualityResult?.((data) => {
       if (data) {
         store.getState().setNetworkQuality((old: NetworkQuality | null) => {
-          const next = !old || old.quality === 'unknown' ? data
-            : { ...data, details: { ...old.details, ...data.details }, metrics: data.metrics ?? old.metrics }
+          const next = mergeNetworkQuality(old, data)
           handleQualityBadAlert(data, old)
           return next
         })
@@ -241,9 +290,20 @@ export function useAppInit() {
       }
     }) ?? (() => {})
 
+    const unsub8 = api.onUpdateAvailable?.((data) => {
+      if (data) {
+        store.getState().setUpdateAvailable(data.has_update)
+        if (data.latest_version) store.getState().setLatestVersion(data.latest_version)
+        if (data.release_notes) store.getState().setReleaseNotes(data.release_notes)
+        if (data.has_update && data.latest_version) {
+          store.getState().addLog(`发现新版本 v${data.latest_version}`, 'info')
+        }
+      }
+    }) ?? (() => {})
+
     return () => {
       unsub1(); unsub2(); unsub3(); unsub3b(); unsub3c(); unsub3d()
-      unsub4(); unsub5(); unsub6(); unsub7()
+      unsub4(); unsub5(); unsub6(); unsub7(); unsub8()
     }
   }, [])
 

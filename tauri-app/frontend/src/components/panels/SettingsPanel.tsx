@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Rocket, Check, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Wifi
+  Rocket, Check, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell
 } from 'lucide-react'
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/constants'
 import { cn } from '@/lib/utils'
@@ -284,59 +284,6 @@ export const SettingsPanel = memo(function SettingsPanel({
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Gauge className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>网络检测设置</CardTitle>
-                <CardDescription>配置网络延迟检测的计算方式</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="skip-ttfb" className="text-sm font-medium cursor-pointer">跳过TTFB检测</Label>
-                <p className="text-[11px] text-muted-foreground">不测量首字节时间，延迟值仅包含DNS+TCP+TLS握手时间</p>
-              </div>
-              <Switch
-                id="skip-ttfb"
-                checked={config.skipTtfbInLatency || false}
-                onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="skip-content" className="text-sm font-medium cursor-pointer">跳过内容传输</Label>
-                <p className="text-[11px] text-muted-foreground">不读取响应体内容，显著降低检测耗时和延迟值</p>
-              </div>
-              <Switch
-                id="skip-content"
-                checked={config.skipContentInLatency || false}
-                onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
-              />
-            </div>
-            <Separator />
-            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
-              <div className="flex items-start gap-2">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                <div className="text-[11px] text-muted-foreground space-y-1">
-                  <p><span className="font-medium text-foreground/80">TTFB（首字节时间）</span> — 从发送HTTP请求到收到服务器第一个字节的时间，反映服务器处理速度。启用后延迟值更低更稳定。</p>
-                  <p><span className="font-medium text-emerald-500">内容传输时间</span> — 读取完整HTTP响应体的时间，受页面大小影响大（百度约50ms、B站约200ms）。禁用后检测速度大幅提升。</p>
-                  <p><span className="font-medium text-pink-400">网络延迟</span> — 除去DNS/TCP/TLS/TTFB/内容传输之外的应用层额外开销。通常由TCP重传、排队延迟等造成。</p>
-                  <p><span className="font-medium text-foreground/80">推荐：</span>日常使用建议关闭两项以获得更快检测结果；需要精确分析服务器性能时开启。</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </m.div>
-
-      <m.div variants={itemVariants}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                 <Bell className="h-5 w-5 text-primary" />
               </div>
               <div>
@@ -366,11 +313,11 @@ export const SettingsPanel = memo(function SettingsPanel({
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Wifi className="h-5 w-5 text-primary" />
+                <Gauge className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <CardTitle>网络质量检测</CardTitle>
-                <CardDescription>配置网络延迟质量检测功能</CardDescription>
+                <CardDescription>配置网络延迟与质量检测功能</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -387,16 +334,43 @@ export const SettingsPanel = memo(function SettingsPanel({
               />
             </div>
             <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="quality-on-startup" className="text-sm font-medium cursor-pointer">启动时自动登录</Label>
-                <p className="text-[11px] text-muted-foreground">程序启动后若检测到需要登录则自动执行登录</p>
+            <div className="space-y-3">
+              <Label className="text-xs font-medium text-muted-foreground">延迟计算选项</Label>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="skip-ttfb" className="text-sm font-medium cursor-pointer">跳过TTFB检测</Label>
+                  <p className="text-[11px] text-muted-foreground">不测量首字节时间，延迟值仅包含DNS+TCP+TLS握手时间</p>
+                </div>
+                <Switch
+                  id="skip-ttfb"
+                  checked={config.skipTtfbInLatency || false}
+                  onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
+                />
               </div>
-              <Switch
-                id="quality-on-startup"
-                checked={config.autoLoginOnStart || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
-              />
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="skip-content" className="text-sm font-medium cursor-pointer">跳过内容传输</Label>
+                  <p className="text-[11px] text-muted-foreground">不读取响应体内容，显著降低检测耗时和延迟值</p>
+                </div>
+                <Switch
+                  id="skip-content"
+                  checked={config.skipContentInLatency || false}
+                  onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
+                />
+              </div>
+            </div>
+            <Separator />
+            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="text-[11px] text-muted-foreground space-y-1">
+                  <p><span className="font-medium text-foreground/80">TTFB（首字节时间）</span> — 从发送HTTP请求到收到服务器第一个字节的时间，反映服务器处理速度。启用后延迟值更低更稳定。</p>
+                  <p><span className="font-medium text-emerald-500">内容传输时间</span> — 读取完整HTTP响应体的时间，受页面大小影响大（百度约50ms、B站约200ms）。禁用后检测速度大幅提升。</p>
+                  <p><span className="font-medium text-pink-400">网络延迟</span> — 除去DNS/TCP/TLS/TTFB/内容传输之外的应用层额外开销。通常由TCP重传、排队延迟等造成。</p>
+                  <p><span className="font-medium text-foreground/80">推荐：</span>日常使用建议关闭两项以获得更快检测结果；需要精确分析服务器性能时开启。</p>
+                </div>
+              </div>
             </div>
             <Separator />
             <div className="space-y-2">

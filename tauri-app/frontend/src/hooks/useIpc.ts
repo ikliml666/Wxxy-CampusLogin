@@ -1,12 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus } from '@/types'
+import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus, DnsDohStatus } from '@/types'
 
 type BackgroundCheckEventData = BackgroundStatus & { timestamp?: number; checkCount?: number; secondaryOnline?: boolean | null; secondaryMessage?: string; message?: string; online?: boolean; adapter1Name?: string; adapter2Name?: string }
 type AutoLoginEventData = { success: boolean; message: string; skipped?: boolean }
 type AdapterDisabledWarningData = { name: string; message: string }
 type AutoExitCountdownData = { delay: number; shortcut: string }
 type SystemNotificationData = { title: string; body: string }
+type UpdateAvailableData = { has_update: boolean; latest_version: string; release_notes?: string }
 
 export interface UpdateInfo {
   has_update: boolean
@@ -36,7 +37,8 @@ export interface TauriApi {
   enableAdapter: (adapterName: string) => Promise<{ success: boolean; message: string }>
   getAdapterDetails: () => Promise<AdapterDetail[]>
   checkPortalStatus: (adapterIp: string) => Promise<{ online: boolean; message: string }>
-  doLogin: () => Promise<{ success: boolean; message: string; code?: string }>
+  doLogin: (adapterName?: string) => Promise<{ success: boolean; message: string; code?: string }>
+  doLogout: (adapterName?: string) => Promise<{ success: boolean; message: string; code?: string }>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -80,6 +82,9 @@ export interface TauriApi {
   installUpdate: (filePath: string) => Promise<boolean>
   getMirrorUrls: (githubUrl: string) => Promise<MirrorSource[]>
   onDownloadProgress: (cb: (data: DownloadProgress) => void) => () => void
+  onUpdateAvailable: (cb: (data: UpdateAvailableData) => void) => () => void
+  checkDnsDohStatus: () => Promise<DnsDohStatus>
+  setupDnsDoh: () => Promise<{ success: boolean; message: string }>
 }
 
 function createEventListener<T>(eventName: string): (cb: (data: T) => void) => () => void {
@@ -111,7 +116,8 @@ const tauriApi: TauriApi = {
   enableAdapter: (adapterName) => invoke<{ success: boolean; message: string }>('enable_adapter', { adapterName }),
   getAdapterDetails: () => invoke<AdapterDetail[]>('get_adapter_details'),
   checkPortalStatus: (adapterIp) => invoke<{ online: boolean; message: string }>('check_portal_status', { adapterIp }),
-  doLogin: () => invoke<{ success: boolean; message: string; code?: string }>('do_login'),
+  doLogin: (adapterName) => invoke<{ success: boolean; message: string; code?: string }>('do_login', { adapterName }),
+  doLogout: (adapterName) => invoke<{ success: boolean; message: string; code?: string }>('do_logout', { adapterName }),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),
@@ -155,6 +161,9 @@ const tauriApi: TauriApi = {
   installUpdate: (filePath) => invoke<boolean>('install_update', { filePath }),
   getMirrorUrls: (githubUrl) => invoke<MirrorSource[]>('get_mirror_urls', { githubUrl }),
   onDownloadProgress: createEventListener<DownloadProgress>('update-download-progress'),
+  onUpdateAvailable: createEventListener<UpdateAvailableData>('update-available'),
+  checkDnsDohStatus: () => invoke<DnsDohStatus>('check_dns_doh_status'),
+  setupDnsDoh: () => invoke<{ success: boolean; message: string }>('setup_dns_doh'),
 }
 
 async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, baseDelay: number = 500): Promise<T> {
@@ -177,7 +186,6 @@ export const tauriApiWithRetry: TauriApi = {
   ...tauriApi,
   saveConfig: (config) => withRetry(() => tauriApi.saveConfig(config)),
   checkPortalStatus: (adapterIp) => withRetry(() => tauriApi.checkPortalStatus(adapterIp)),
-  getConfig: () => withRetry(() => tauriApi.getConfig()),
   checkNetworkQuality: () => withRetry(() => tauriApi.checkNetworkQuality()),
 }
 

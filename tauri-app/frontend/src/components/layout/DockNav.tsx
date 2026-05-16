@@ -1,4 +1,4 @@
-import type { PanelName } from '@/types'
+import type { PanelName, Adapter } from '@/types'
 import {
   LayoutDashboard,
   UserCircle,
@@ -9,11 +9,14 @@ import {
   Settings,
   FileText,
   LogIn,
+  LogOut,
+  Cable,
+  Wifi as WifiIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/constants'
-import { m, useMotionValue, useSpring, useTransform } from 'framer-motion'
-import { memo, useRef, useCallback } from 'react'
+import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
+import { memo, useRef, useCallback, useState, useEffect } from 'react'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -94,15 +97,180 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX }: {
   )
 }
 
+interface AdapterMenuProps {
+  adapters: Adapter[]
+  onSelect: (adapterName: string) => void
+}
+
+function AdapterMenu({ adapters, onSelect }: AdapterMenuProps) {
+  const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
+
+  return (
+    <m.div
+      initial={{ opacity: 0, y: 8, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 6, scale: 0.95 }}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
+      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 min-w-[170px] py-1.5 rounded-xl shadow-xl pointer-events-auto z-[60]"
+      style={{ background: 'var(--surface-card, rgba(255,255,255,0.95))' }}
+    >
+      {activeAdapters.map(adapter => (
+        <button
+          key={adapter.name}
+          onClick={() => onSelect(adapter.name)}
+          className={cn(
+            'w-full flex items-center gap-2 px-3 py-1.5 text-[12px] font-medium transition-colors',
+            'hover:bg-accent text-foreground'
+          )}
+        >
+          {adapter.wireless ? (
+            <WifiIcon className="h-3.5 w-3.5 text-blue-500" />
+          ) : (
+            <Cable className="h-3.5 w-3.5 text-emerald-500" />
+          )}
+          <span className="truncate">{adapter.name}</span>
+          <span className="ml-auto text-[10px] text-muted-foreground truncate max-w-[60px]">{adapter.ip}</span>
+        </button>
+      ))}
+    </m.div>
+  )
+}
+
+function ActionButtonWithMenu({
+  label,
+  loadingLabel,
+  icon: Icon,
+  isLoading,
+  isDisabled,
+  adapters,
+  onAction,
+  variant,
+}: {
+  label: string
+  loadingLabel: string
+  icon: typeof LogIn
+  isLoading: boolean
+  isDisabled: boolean
+  adapters: Adapter[]
+  onAction: (adapterName?: string) => void
+  variant: 'primary' | 'outline'
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
+  const showMenu = activeAdapters.length > 1
+
+  const scheduleOpen = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = setTimeout(() => setMenuOpen(true), 500)
+  }, [])
+
+  const scheduleClose = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    closeTimerRef.current = setTimeout(() => setMenuOpen(false), 200)
+  }, [])
+
+  const cancelTimers = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+  }, [])
+
+  const handleSelect = useCallback((adapterName?: string) => {
+    setMenuOpen(false)
+    cancelTimers()
+    onAction(adapterName)
+  }, [onAction, cancelTimers])
+
+  const handleClick = useCallback(() => {
+    if (isLoading || isDisabled) return
+    setMenuOpen(false)
+    cancelTimers()
+    onAction()
+  }, [isLoading, isDisabled, onAction, cancelTimers])
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    }
+  }, [])
+
+  const isPrimary = variant === 'primary'
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={showMenu ? scheduleOpen : undefined}
+      onMouseLeave={showMenu ? scheduleClose : undefined}
+    >
+      <m.button
+        onClick={handleClick}
+        disabled={isLoading || isDisabled}
+        whileHover={{ y: -4, scale: 1.06 }}
+        whileTap={{ scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } }}
+        transition={{ type: 'spring', stiffness: 600, damping: 12, mass: 0.4 }}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
+          isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
+          isPrimary
+            ? 'text-white'
+            : 'text-muted-foreground bg-transparent border border-border/60 hover:border-foreground/30 hover:text-foreground'
+        )}
+        style={isPrimary ? {
+          background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+          boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
+          willChange: 'transform',
+        } : {
+          willChange: 'transform',
+        }}
+        aria-label={loadingLabel}
+      >
+        {isLoading ? (
+          <m.span
+            className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-current border-r-transparent"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+          />
+        ) : (
+          <Icon className="h-3.5 w-3.5" />
+        )}
+        <span>{isLoading ? loadingLabel : label}</span>
+      </m.button>
+
+      <AnimatePresence>
+        {menuOpen && showMenu && !isLoading && !isDisabled && (
+          <div
+            onMouseEnter={() => {
+              if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+            }}
+            onMouseLeave={scheduleClose}
+          >
+            <AdapterMenu
+              adapters={adapters}
+              onSelect={handleSelect}
+            />
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 interface DockNavProps {
   activePanel: PanelName
   onPanelChange: (panel: PanelName) => void
   enableNetworkQuality: boolean
   isLoggingIn: boolean
-  onLogin: () => void
+  isLoggingOut: boolean
+  adapters: Adapter[]
+  onLogin: (adapterName?: string) => void
+  onLogout: (adapterName?: string) => void
 }
 
-export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enableNetworkQuality, isLoggingIn, onLogin }: DockNavProps) {
+export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enableNetworkQuality, isLoggingIn, isLoggingOut, adapters, onLogin, onLogout }: DockNavProps) {
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const mouseX = useMotionValue(-1000)
 
@@ -141,34 +309,27 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
 
-        <m.button
-          onClick={onLogin}
-          disabled={isLoggingIn}
-          whileHover={{ y: -4, scale: 1.06 }}
-          whileTap={{ scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } }}
-          transition={{ type: 'spring', stiffness: 600, damping: 12, mass: 0.4 }}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] text-white shrink-0 btn-physical',
-            isLoggingIn ? 'opacity-80 cursor-wait' : 'cursor-pointer'
-          )}
-          style={{
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-            boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
-            willChange: 'transform',
-          }}
-          aria-label={isLoggingIn ? '登录中' : '登录校园网'}
-        >
-          {isLoggingIn ? (
-            <m.span
-              className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-current border-r-transparent"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-            />
-          ) : (
-            <LogIn className="h-3.5 w-3.5" />
-          )}
-          <span>{isLoggingIn ? '登录中' : '登录'}</span>
-        </m.button>
+        <ActionButtonWithMenu
+          label="注销"
+          loadingLabel="注销中"
+          icon={LogOut}
+          isLoading={isLoggingOut}
+          isDisabled={isLoggingIn}
+          adapters={adapters}
+          onAction={onLogout}
+          variant="outline"
+        />
+
+        <ActionButtonWithMenu
+          label="登录"
+          loadingLabel="登录中"
+          icon={LogIn}
+          isLoading={isLoggingIn}
+          isDisabled={isLoggingOut}
+          adapters={adapters}
+          onAction={onLogin}
+          variant="primary"
+        />
       </nav>
     </m.div>
   )

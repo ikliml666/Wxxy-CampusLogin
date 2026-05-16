@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Manager, State};
 use std::sync::Arc;
-use crate::config::{Config, get_data_dir, get_config_path};
+use crate::config::{Config, get_data_dir, get_config_path, atomic_write};
 use crate::crypto_utils;
 use super::state::{AppState, validate_config};
 
@@ -47,8 +47,6 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     let config_path = get_config_path(&data_dir);
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
 
-    let is_new_file = !config_path.exists();
-
     let mut save_config = config.clone();
     if !save_config.password.is_empty() {
         let encrypted = crypto_utils::encrypt(&save_config.password)?;
@@ -58,88 +56,27 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     let json = serde_json::to_string_pretty(&save_config)
         .map_err(|e| format!("序列化配置失败: {}", e))?;
 
-    let tmp_path = config_path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &json)
-        .map_err(|e| format!("写入临时配置文件失败: {}", e))?;
-    std::fs::rename(&tmp_path, &config_path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path);
-            format!("重命名配置文件失败: {}", e)
-        })?;
-
-    if is_new_file {
-        restrict_file_permissions(&config_path);
-    }
+    atomic_write(&config_path, &json)?;
 
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
-fn restrict_file_permissions(path: &std::path::Path) {
-    use std::os::windows::process::CommandExt;
-    let path_str = match path.to_str() {
-        Some(s) => s,
-        None => {
-            crate::log_warn!("config", "文件路径包含非UTF-8字符，跳过权限设置");
-            return;
-        }
-    };
-
-    let username = match std::env::var("USERNAME") {
-        Ok(u) => u,
-        Err(_) => {
-            crate::log_warn!("config", "无法获取当前用户名，跳过权限设置");
-            return;
-        }
-    };
-
-    let grant_arg = format!("{}:(R,W,D)", username);
-
-    let output = match std::process::Command::new("icacls")
-        .arg(path_str)
-        .arg("/inheritance:r")
-        .arg("/grant:r")
-        .arg(&grant_arg)
-        .creation_flags(0x08000000)
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            crate::log_warn!("config", "执行icacls失败: {}", e);
-            return;
-        }
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        crate::log_warn!("config", "设置文件权限失败: {}", stderr.trim());
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn restrict_file_permissions(_path: &std::path::Path) {}
-
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
-    let config = state.config.load();
-    let mut display_config = config.as_ref().clone();
-    if !display_config.password.is_empty() {
-        display_config.password = "***".to_string();
-    }
-    Ok(display_config)
+    Ok(state.config.load().masked_for_display())
 }
 
 #[tauri::command]
 pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut config: Config) -> Result<serde_json::Value, String> {
-    let (old_adapter1, old_latency_interval, old_latency_enabled, old_enable_network_quality) = {
+    let (old_latency_interval, old_latency_enabled, old_enable_network_quality) = {
         let guard = state.config.load_full();
         if config.user.is_empty() && !guard.user.is_empty() {
             config.user = guard.user.clone();
         }
-        if config.password == "***" {
+        if config.password == "***" || (config.password.is_empty() && !guard.password.is_empty()) {
             config.password = guard.password.clone();
         }
-        let old_vals = (guard.adapter1.clone(), guard.latency_test_interval, guard.enable_latency_test, guard.enable_network_quality);
+        let old_vals = (guard.latency_test_interval, guard.enable_latency_test, guard.enable_network_quality);
         drop(guard);
 
         let config = validate_config(config)?;
@@ -154,9 +91,6 @@ pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut 
     tauri::async_runtime::spawn_blocking(move || save_config_to_disk(&app_h, &config_clone)).await.map_err(|e| e.to_string())??;
 
     let config_ref = state.config.load();
-    if config_ref.adapter1 != old_adapter1 {
-        crate::network::clear_adapter_cache();
-    }
 
     if !config_ref.enable_network_quality && old_enable_network_quality {
         let s = app_handle.state::<AppState>();
@@ -174,10 +108,7 @@ pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut 
         super::latency::spawn_latency_test_loop(&app_handle, interval);
     }
 
-    let mut display_config = state.config.load().as_ref().clone();
-    if !display_config.password.is_empty() {
-        display_config.password = "***".to_string();
-    }
+    let display_config = state.config.load().masked_for_display();
 
     Ok(serde_json::json!({
         "success": true,

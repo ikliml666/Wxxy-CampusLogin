@@ -1,6 +1,7 @@
 import type { StatusState, NetworkQuality, NetworkQualityDetail } from '@/types'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Loader2, Server, Globe, ExternalLink, Zap, Activity, AlertTriangle, Search } from 'lucide-react'
+import { getLatencyColor } from '@/lib/latency'
+import { Loader2, Server, Globe, ExternalLink, Zap, Activity, AlertTriangle, Search, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { QUALITY_CONFIG } from '@/constants'
 import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
@@ -15,6 +16,7 @@ interface StatusBarProps {
   networkQuality: NetworkQuality | null
   enableNetworkQuality: boolean
   onOpenPortal: () => void
+  onOpenSelfService?: () => void
   onRefreshQuality?: () => void
   isRefreshing?: boolean
 }
@@ -39,13 +41,8 @@ function buildLatencyTooltip(label: string, latency: number, details?: Record<st
 }
 
 function getLatencyColorClass(latency: number) {
-  if (latency < 0) return 'text-rose-500 bg-rose-500/10'
-  if (latency <= 20) return 'text-emerald-600 bg-emerald-500/10'
-  if (latency <= 50) return 'text-sky-600 bg-sky-500/10'
-  if (latency <= 100) return 'text-blue-600 bg-blue-500/10'
-  if (latency <= 200) return 'text-amber-600 bg-amber-500/10'
-  if (latency <= 400) return 'text-orange-600 bg-orange-500/10'
-  return 'text-rose-600 bg-rose-500/10'
+  const c = getLatencyColor(latency)
+  return `${c.text} ${c.borderBg}`
 }
 
 const LatencyPill = memo(function LatencyPill({ label, latency, icon: Icon, details }: {
@@ -178,7 +175,7 @@ const QualityIndicator = memo(function QualityIndicator({ quality }: { quality: 
   )
 })
 
-export const StatusBar = memo(function StatusBar({ statusText, statusState, networkQuality, enableNetworkQuality, onOpenPortal, onRefreshQuality, isRefreshing }: StatusBarProps) {
+export const StatusBar = memo(function StatusBar({ statusText, statusState, networkQuality, enableNetworkQuality, onOpenPortal, onOpenSelfService, onRefreshQuality, isRefreshing }: StatusBarProps) {
   const gatewayLatency = extractGatewayLatency(networkQuality)
   const externalLatency = extractExternalLatency(networkQuality)
   const dnsLatency = networkQuality?.details?.['DNS解析']?.latency ?? -1
@@ -283,15 +280,38 @@ export const StatusBar = memo(function StatusBar({ statusText, statusState, netw
             </>
           )}
 
+          {onOpenSelfService && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <m.button
+                  onClick={onOpenSelfService}
+                  whileHover={{ scale: 1.12 }}
+                  whileTap={{ scale: 0.88 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                  className="p-1.5 rounded-xl hover:bg-violet-500/10 text-muted-foreground hover:text-violet-600 transition-colors btn-physical group"
+                  aria-label="用户自助服务"
+                >
+                  <HeadsetIcon className="h-3 w-3 transition-transform duration-300 group-hover:animate-icon-hover-wiggle" />
+                </m.button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>用户自助服务</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <m.button
                 onClick={onOpenPortal}
-                className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors btn-physical"
+                whileHover={{ scale: 1.12 }}
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                className="p-1.5 rounded-xl hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors btn-physical group"
                 aria-label="打开认证门户"
               >
-                <ExternalLink className="h-3 w-3" />
-              </button>
+                <ExternalLink className="h-3 w-3 transition-transform duration-300 group-hover:animate-icon-hover-flyout" />
+              </m.button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               <p>打开认证门户</p>

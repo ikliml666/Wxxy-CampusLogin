@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::network::{check_network_quality_async, get_adapters_cached};
-use super::state::{AppState, atomic_guard};
+use super::state::AppState;
 use super::system::emit_notification;
 
 pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, quality: &serde_json::Value, enable_notification: bool) {
@@ -90,8 +90,7 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             if s.tasks.is_quality_checking.swap_acquire() {
                 continue;
             }
-            atomic_guard!(LatencyGuard, is_quality_checking);
-            let _guard = LatencyGuard(&s);
+            let _guard = s.tasks.is_quality_checking.release_guard();
             let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
             drop(_guard);
             let quality_val = serde_json::to_value(&quality).unwrap_or_default();

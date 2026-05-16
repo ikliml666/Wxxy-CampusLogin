@@ -88,9 +88,6 @@ fn run_app() {
                 let config = s.spawn(move || {
                     commands::load_config_from_disk_or_default(&app_handle)
                 });
-                s.spawn(|| {
-                    let _ = crate::network::get_adapters_cached(); // [忽略错误] 预热适配器缓存，失败不影响启动
-                });
                 config.join().unwrap_or_default()
             });
 
@@ -148,35 +145,34 @@ fn run_app() {
                             }
                         }
                         "quick-login" => {
-                            let s = app.state::<AppState>();
-                            if s.tasks.is_logging_in.try_acquire().is_some() {
-                                let app_h = app.clone();
-                                tauri::async_runtime::spawn_blocking(move || {
-                                    let s = app_h.state::<AppState>();
-                                    commands::state::atomic_guard!(QuickLoginGuard, is_logging_in);
-                                    let _guard = QuickLoginGuard(&s);
-                                    let result = commands::full_login_inner(&s, &app_h);
-                                    let _ = app_h.emit("auto-login-result", serde_json::json!({ // [忽略错误] 前端可能未加载，emit 失败不影响登录逻辑
-                                        "success": result.success,
-                                        "message": result.message.clone().unwrap_or_default(),
-                                    }));
+                            let app_h = app.clone();
+                            tauri::async_runtime::spawn_blocking(move || {
+                                let s = app_h.state::<AppState>();
+                                let _guard = match s.tasks.is_logging_in.try_acquire() {
+                                    Some(g) => g,
+                                    None => return,
+                                };
+                                let result = commands::full_login_inner(&s, &app_h, None);
+                                let _ = app_h.emit("auto-login-result", serde_json::json!({
+                                    "success": result.success,
+                                    "message": result.message.clone().unwrap_or_default(),
+                                }));
 
-                                    if result.success {
-                                        let app_h2 = app_h.clone();
-                                        tauri::async_runtime::spawn(async move {
-                                            tokio::time::sleep(Duration::from_millis(500)).await;
-                                            let s = app_h2.state::<AppState>();
-                                            commands::run_background_check(&app_h2, &s).await;
-                                        });
+                                if result.success {
+                                    let app_h2 = app_h.clone();
+                                    tauri::async_runtime::spawn(async move {
+                                        tokio::time::sleep(Duration::from_millis(500)).await;
+                                        let s = app_h2.state::<AppState>();
+                                        commands::run_background_check(&app_h2, &s).await;
+                                    });
 
-                                        let auto_exit = s.config.load().auto_exit_after_login;
-                                        if auto_exit {
-                                            let s2 = app_h.state::<AppState>();
-                                            start_auto_exit(&app_h, &s2);
-                                        }
+                                    let auto_exit = s.config.load().auto_exit_after_login;
+                                    if auto_exit {
+                                        let s2 = app_h.state::<AppState>();
+                                        start_auto_exit(&app_h, &s2);
                                     }
-                                });
-                            }
+                                }
+                            });
                         }
                         "quit" => {
                             let s = app.state::<AppState>();
@@ -209,6 +205,7 @@ fn run_app() {
             let app_handle = app.handle().clone();
             let app_h = app_handle.clone();
             commands::start_adapter_watch(&app_h);
+            commands::start_update_check_loop(&app_h);
             commands::run_startup_tasks(&app_h);
 
             Ok(())
@@ -232,6 +229,7 @@ fn run_app() {
             commands::config_cmd::show_window,
             commands::config_cmd::save_config,
             commands::login::do_login,
+            commands::login::do_logout,
             commands::network_cmd::get_adapters,
             commands::network_cmd::get_adapter_details,
             commands::network_cmd::check_portal_status,
@@ -241,10 +239,9 @@ fn run_app() {
             commands::network_cmd::check_network_quality,
             commands::network_cmd::start_latency_test,
             commands::network_cmd::stop_latency_test,
-            commands::network_cmd::get_latency_test_status,
-            commands::network_cmd::http_timing_test,
-            commands::network_cmd::dns_query_test,
-            commands::network_cmd::doh_timing_test,
+            commands::network_cmd::check_dns_doh_status,
+            commands::network_cmd::enable_doh_for_dns,
+            commands::network_cmd::setup_dns_doh,
             commands::account::list_accounts,
             commands::account::switch_account,
             commands::account::save_current_as_account,

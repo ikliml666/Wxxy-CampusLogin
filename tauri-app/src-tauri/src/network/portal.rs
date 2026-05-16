@@ -1,7 +1,16 @@
-use std::io::Read;
-use std::sync::Arc;
+use super::cache::{PORTAL_URL, create_safe_http_client};
 
-use super::cache::{NET_CACHE, MAX_RESPONSE_SIZE, create_safe_http_client};
+fn safe_truncate(s: &str, max_len: usize) -> &str {
+    if s.len() <= max_len {
+        return s;
+    }
+    let boundary = s.char_indices()
+        .take_while(|(i, _)| *i < max_len)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    &s[..boundary]
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,28 +23,7 @@ pub struct PortalStatus {
 }
 
 pub fn check_portal_full(adapter_ip: &str, _adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>) -> Result<PortalStatus, String> {
-    {
-        let cache_arc = NET_CACHE.portal.load();
-        if let Some(entry) = cache_arc.as_ref() {
-            if entry.adapter_ip == adapter_ip && entry.time.elapsed().as_secs() < 8 {
-                return Ok(entry.status.clone());
-            }
-        }
-    }
-
-    let result = check_portal_full_inner(adapter_ip, _adapter_name, user_account, user_password);
-
-    match result {
-        Ok(status) => {
-            NET_CACHE.portal.store(Arc::new(Some(super::cache::PortalCacheEntry {
-                time: std::time::Instant::now(),
-                status: status.clone(),
-                adapter_ip: adapter_ip.to_string(),
-            })));
-            Ok(status)
-        }
-        Err(e) => Err(e),
-    }
+    check_portal_full_inner(adapter_ip, _adapter_name, user_account, user_password)
 }
 
 fn parse_dr1003_result(data: &str) -> Option<(i64, Option<i64>)> {
@@ -64,7 +52,7 @@ fn is_nat_private_ip(ip: &str) -> bool {
 }
 
 fn check_portal_full_inner(adapter_ip: &str, _adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>) -> Result<PortalStatus, String> {
-    let portal_url = NET_CACHE.portal_url.load().clone();
+    let portal_url = PORTAL_URL.load().clone();
     let local_addr = if !adapter_ip.is_empty() {
         adapter_ip.parse::<std::net::IpAddr>().ok()
     } else {
@@ -73,6 +61,11 @@ fn check_portal_full_inner(adapter_ip: &str, _adapter_name: Option<&str>, user_a
 
     let client = create_safe_http_client(std::time::Duration::from_secs(6), local_addr)?;
     let portal_base = portal_url.trim_end_matches('/');
+    let portal_base_with_port = if portal_base.contains(":801") {
+        portal_base.to_string()
+    } else {
+        format!("{}:801", portal_base)
+    };
     let account = user_account.unwrap_or("");
     let password = user_password.unwrap_or("");
 
@@ -82,14 +75,14 @@ fn check_portal_full_inner(adapter_ip: &str, _adapter_name: Option<&str>, user_a
     }
 
     let wlan_user_ip_param = if nat_ip { "" } else { adapter_ip };
-    let status_url = format!("{}:801/eportal/portal/login?callback=dr1003&login_method=1&user_account={}&user_password={}&wlan_user_ip={}&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v=3043&lang=zh",
-        portal_base,
+    let status_url = format!("{}/eportal/portal/login?callback=dr1003&login_method=1&user_account={}&user_password={}&wlan_user_ip={}&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v=3043&lang=zh",
+        portal_base_with_port,
         urlencoding::encode(account),
         urlencoding::encode(password),
         urlencoding::encode(wlan_user_ip_param)
     );
 
-    let mut resp = match client.get(&status_url).timeout(std::time::Duration::from_secs(5)).send() {
+    let resp = match client.get(&status_url).timeout(std::time::Duration::from_secs(5)).send() {
         Ok(r) => r,
         Err(e) => {
             crate::log_warn!("network", "Portal状态查询失败: {}", e);
@@ -103,10 +96,7 @@ fn check_portal_full_inner(adapter_ip: &str, _adapter_name: Option<&str>, user_a
         }
     };
 
-    let mut data = String::new();
-    let mut limited = (&mut resp).take(MAX_RESPONSE_SIZE as u64);
-    let _ = limited.read_to_string(&mut data);
-    let _ = std::io::copy(&mut resp, &mut std::io::sink());
+    let data = resp.text().unwrap_or_default();
 
     let dr1003_result = parse_dr1003_result(&data);
     let (online, login_available) = match dr1003_result {
@@ -131,7 +121,7 @@ fn check_portal_full_inner(adapter_ip: &str, _adapter_name: Option<&str>, user_a
                     }
                 }
                 None => {
-                    crate::log_warn!("network", "Portal页面备用检测也失败: {}", &data[..data.len().min(200)]);
+                    crate::log_warn!("network", "Portal页面备用检测也失败: {}", safe_truncate(&data, 200));
                     (false, true)
                 }
             }
@@ -173,7 +163,7 @@ fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> O
     } else if html.contains("用户登录") || html.contains("请输入") || html.contains("password") {
         Some(false)
     } else {
-        crate::log_info!("network", "Portal页面无法判断登录状态: {}", &html[..html.len().min(300)]);
+        crate::log_info!("network", "Portal页面无法判断登录状态: {}", safe_truncate(&html, 300));
         None
     }
 }

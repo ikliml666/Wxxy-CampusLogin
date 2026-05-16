@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import type { Config, PanelName, StatusState, Adapter, AdapterDetail, DisabledAdapter, BackgroundStatus, NetworkQuality, LogType, ThemeName, ToastMessage, LogEntry } from '@/types'
+import type { Config, PanelName, StatusState, Adapter, AdapterDetail, DisabledAdapter, BackgroundStatus, NetworkQuality, LogType, ThemeName, ToastMessage, LogEntry, DnsDohStatus } from '@/types'
 import { DEFAULT_CONFIG, MAX_LOG_ENTRIES, VALID_THEMES } from '@/constants'
-import { safeStorage } from '@/lib/utils'
+import { safeStorage, extractErrorMessage } from '@/lib/utils'
+import { mergeNetworkQuality } from '@/lib/latency'
 import { hexToHsl } from '@/lib/color'
 import { tauriApiWithRetry } from './useIpc'
 
@@ -13,7 +14,6 @@ let logIdCounter = 0
 let saveConfigTimer: ReturnType<typeof setTimeout> | null = null
 let saveConfigPending: Partial<Config> | null = null
 let checkOnlineEpoch = 0
-let isRefreshingQualityLock = false
 
 interface AppStore {
   config: Config
@@ -25,9 +25,12 @@ interface AppStore {
   activeAccount: string
   bgStatus: BackgroundStatus
   networkQuality: NetworkQuality | null
+  dnsDohStatus: DnsDohStatus | null
+  dnsChecking: boolean
   isLoggingIn: boolean
+  isLoggingOut: boolean
   isRefreshingQuality: boolean
-  passwordExplicitlyCleared: boolean
+  _qualityLock: boolean
   status: { text: string; state: StatusState }
   activePanel: PanelName
   notificationEnabled: boolean
@@ -37,6 +40,9 @@ interface AppStore {
   themeName: ThemeName
   isLightMode: boolean
   customThemeColor: string
+  updateAvailable: boolean
+  latestVersion: string
+  releaseNotes: string
   api: typeof api
 
   updateConfig: (partial: Partial<Config>) => void
@@ -49,6 +55,8 @@ interface AppStore {
   setActiveAccount: (a: string) => void
   setBgStatus: (s: BackgroundStatus | ((prev: BackgroundStatus) => BackgroundStatus)) => void
   setNetworkQuality: (q: NetworkQuality | null | ((prev: NetworkQuality | null) => NetworkQuality | null)) => void
+  setDnsDohStatus: (s: DnsDohStatus | null) => void
+  setDnsChecking: (v: boolean) => void
   setIsLoggingIn: (v: boolean) => void
   setStatus: (s: { text: string; state: StatusState }) => void
   setActivePanel: (p: PanelName) => void
@@ -65,7 +73,11 @@ interface AppStore {
   setIsLightMode: (v: boolean) => void
   initTheme: (cfg: Partial<Config>) => void
   setCustomThemeColor: (color: string) => void
-  doLogin: () => Promise<void>
+  setUpdateAvailable: (v: boolean) => void
+  setLatestVersion: (v: string) => void
+  setReleaseNotes: (v: string) => void
+  doLogin: (adapterName?: string) => Promise<void>
+  doLogout: (adapterName?: string) => Promise<void>
   checkOnline: (cfg?: Partial<Config>, adps?: Adapter[]) => Promise<void>
   refreshQuality: () => Promise<void>
 }
@@ -80,9 +92,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeAccount: '',
   bgStatus: { isRunning: false, checkCount: 0, serverAvailable: false, online: false, adapterStatuses: [] },
   networkQuality: null,
+  dnsDohStatus: null,
+  dnsChecking: false,
   isLoggingIn: false,
+  isLoggingOut: false,
   isRefreshingQuality: false,
-  passwordExplicitlyCleared: false,
+  _qualityLock: false,
   status: { text: '检测中...', state: 'loading' },
   activePanel: 'dashboard',
   notificationEnabled: true,
@@ -92,24 +107,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
   themeName: 'default',
   isLightMode: (() => { const lm = safeStorage.get('campus-light-mode'); return lm === '1' })(),
   customThemeColor: '#6366f1',
+  updateAvailable: false,
+  latestVersion: '',
+  releaseNotes: '',
   api,
 
   updateConfig: (partial) => {
-    const { config, syncPasswordSaved, saveConfigDirect, setCustomThemeColor } = get()
+    const { config, saveConfigDirect } = get()
     const sanitized = { ...partial }
-    let passwordCleared = get().passwordExplicitlyCleared
     if (sanitized.password === '***') {
-      syncPasswordSaved(true)
-      sanitized.password = ''
-    } else if (sanitized.password && sanitized.password !== '') {
-      syncPasswordSaved(false)
-      passwordCleared = false
-    } else if (sanitized.password === '' && config.password !== '') {
-      syncPasswordSaved(false)
-      passwordCleared = true
+      delete sanitized.password
     }
     const next = { ...config, ...sanitized }
-    set({ config: next, passwordExplicitlyCleared: passwordCleared })
+    const extraState: Record<string, unknown> = {}
+    if ('enableNotification' in sanitized) {
+      extraState.notificationEnabled = sanitized.enableNotification !== false
+    }
+    set({ config: next, ...extraState })
     saveConfigPending = next
     if (saveConfigTimer) clearTimeout(saveConfigTimer)
     saveConfigTimer = setTimeout(() => {
@@ -127,14 +141,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   saveConfigDirect: async (cfg) => {
     try {
       const saveData = { ...cfg }
-      if (get().passwordExplicitlyCleared) {
-        set({ passwordExplicitlyCleared: false })
-      } else if (get().passwordSaved && (!saveData.password || saveData.password === '')) {
-        saveData.password = '***'
+      if (get().passwordSaved && !saveData.password) {
+        delete saveData.password
       }
       await api.saveConfig(saveData)
     } catch (e: any) {
-      const errMsg = typeof e === 'string' ? e : (e?.message || String(e))
+      const errMsg = extractErrorMessage(e)
       get().addLog(`保存配置失败: ${errMsg}`, 'error')
     }
   },
@@ -146,6 +158,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setActiveAccount: (a) => set({ activeAccount: a }),
   setBgStatus: (s) => set(state => ({ bgStatus: typeof s === 'function' ? s(state.bgStatus) : s })),
   setNetworkQuality: (q) => set(state => ({ networkQuality: typeof q === 'function' ? q(state.networkQuality) : q })),
+  setDnsDohStatus: (s) => set({ dnsDohStatus: s }),
+  setDnsChecking: (v) => set({ dnsChecking: v }),
   setIsLoggingIn: (v) => set({ isLoggingIn: v }),
   setStatus: (s) => set({ status: s }),
   setActivePanel: (p) => set({ activePanel: p }),
@@ -231,28 +245,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setCustomThemeColor: (color) => set({ customThemeColor: color }),
 
-  doLogin: async () => {
+  setUpdateAvailable: (v) => set({ updateAvailable: v }),
+  setLatestVersion: (v) => set({ latestVersion: v }),
+  setReleaseNotes: (v) => set({ releaseNotes: v }),
+
+  doLogin: async (adapterName?: string) => {
     const s = get()
     if (s.isLoggingIn || !s.config) return
     const loginConfig = { ...s.config }
     set({ isLoggingIn: true })
+    const targetDesc = adapterName ? `${adapterName}` : '默认适配器'
     get().setStatus({ text: '正在登录...', state: 'loading' })
-    get().addLog('开始登录...', 'info')
+    get().addLog(`开始登录 (${targetDesc})...`, 'info')
     get().addToast('正在登录...', 'info')
 
     try {
       const saveData = { ...loginConfig }
-      if (s.passwordSaved && (!saveData.password || saveData.password === '')) {
-        saveData.password = '***'
+      if (s.passwordSaved && !saveData.password) {
+        delete saveData.password
       }
       await get().saveConfigDirect(saveData)
     } catch (e: any) {
-      const errMsg = typeof e === 'string' ? e : (e?.message || String(e))
+      const errMsg = extractErrorMessage(e)
       get().addLog(`保存配置失败: ${errMsg}，尝试使用已有配置登录`, 'warning')
     }
 
     try {
-      const result = await api.doLogin()
+      const result = await api.doLogin(adapterName)
       const cur = get()
       if (result?.success) {
         cur.setStatus({ text: '登录成功', state: 'online' })
@@ -276,6 +295,37 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     try { await get().checkOnline() } catch {}
     set({ isLoggingIn: false })
+  },
+
+  doLogout: async (adapterName?: string) => {
+    const s = get()
+    if (s.isLoggingOut || s.isLoggingIn) return
+    set({ isLoggingOut: true })
+    const targetDesc = adapterName ? `${adapterName}` : '全部适配器'
+    get().setStatus({ text: '正在注销...', state: 'loading' })
+    get().addLog(`开始注销 (${targetDesc})...`, 'info')
+    get().addToast('正在注销...', 'info')
+
+    try {
+      const result = await api.doLogout(adapterName)
+      const cur = get()
+      if (result?.success) {
+        cur.setStatus({ text: '已注销', state: 'offline' })
+        cur.addLog(result.message || '注销成功', 'success')
+        cur.addToast('注销成功', 'success', result.message)
+      } else {
+        cur.setStatus({ text: '注销失败', state: 'error' })
+        cur.addLog(result?.message || '注销失败', 'error')
+        cur.addToast('注销失败', 'error', result?.message)
+      }
+    } catch {
+      get().setStatus({ text: '注销异常', state: 'error' })
+      get().addLog('注销异常', 'error')
+      get().addToast('注销异常', 'error')
+    }
+
+    try { await get().checkOnline() } catch {}
+    set({ isLoggingOut: false })
   },
 
   checkOnline: async (cfg, adps) => {
@@ -321,23 +371,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   refreshQuality: async () => {
-    const { config } = get()
-    if (isRefreshingQualityLock) return
+    const { config, _qualityLock } = get()
+    if (_qualityLock) return
     if (config.enableNetworkQuality === false) return
-    isRefreshingQualityLock = true
+    set({ _qualityLock: true })
     set({ isRefreshingQuality: true })
     try {
       const q = await api.checkNetworkQuality?.()
       if (q) {
         set(s => ({
-          networkQuality: !s.networkQuality || s.networkQuality.quality === 'unknown' ? q
-            : { ...q, details: { ...s.networkQuality!.details, ...q.details }, metrics: q.metrics ?? s.networkQuality!.metrics }
+          networkQuality: mergeNetworkQuality(s.networkQuality, q)
         }))
       }
     } catch {} finally {
       setTimeout(() => {
-        isRefreshingQualityLock = false
-        set({ isRefreshingQuality: false })
+        set({ _qualityLock: false, isRefreshingQuality: false })
       }, 500)
     }
   },

@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/components/shared/RefreshButton'
-import { useState, useRef, useCallback, useEffect, memo, useMemo } from 'react'
+import { memo, useMemo } from 'react'
+import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { m } from 'framer-motion'
 import { containerVariants, itemVariants } from '@/lib/animations'
 
@@ -71,27 +72,9 @@ const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }:
 
 export const MonitorPanel = memo(function MonitorPanel({ config, bgStatus, onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
   const intervalSec = useMemo(() => (config.backgroundCheckInterval || 60000) / 1000, [config.backgroundCheckInterval])
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const mountedRef = useRef(true)
-  const refreshingLockRef = useRef(false)
-
-  useEffect(() => {
-    return () => { mountedRef.current = false }
-  }, [])
-
-  const handleTriggerCheck = useCallback(async () => {
-    if (refreshingLockRef.current) return
-    refreshingLockRef.current = true
-    setIsRefreshing(true)
-    try {
-      await onTriggerCheck()
-    } finally {
-      setTimeout(() => {
-        if (mountedRef.current) setIsRefreshing(false)
-        refreshingLockRef.current = false
-      }, 2000)
-    }
-  }, [onTriggerCheck])
+  const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
+    await onTriggerCheck()
+  }, 2000)
 
   return (
     <m.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">

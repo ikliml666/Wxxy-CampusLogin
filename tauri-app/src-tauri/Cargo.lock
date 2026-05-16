@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login"
-version = "2.1.5"
+version = "2.1.7"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -429,7 +429,6 @@ dependencies = [
  "lazy_static",
  "open",
  "parking_lot",
- "rand 0.8.6",
  "regex",
  "reqwest 0.12.28",
  "rustls-pki-types",

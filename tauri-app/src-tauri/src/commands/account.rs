@@ -1,44 +1,13 @@
 use tauri::{AppHandle, Manager, State};
 use std::sync::Arc;
-use crate::config::{Config, get_data_dir, get_accounts_dir};
+use crate::config::{Config, get_data_dir, get_accounts_dir, atomic_write, list_account_names};
 use crate::crypto_utils;
 use super::state::{AppState, validate_account_name, validate_config};
-
-fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, content)
-        .map_err(|e| format!("写入临时文件失败: {}", e))?;
-    std::fs::rename(&tmp_path, path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path); // [忽略错误] 清理临时文件失败不影响主流程
-            format!("重命名临时文件失败: {}", e)
-        })
-}
 
 #[tauri::command]
 pub async fn list_accounts(app_handle: AppHandle) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let data_dir = get_data_dir(&app_handle);
-        let accounts_dir = get_accounts_dir(&data_dir);
-
-        if !accounts_dir.exists() {
-            return Ok(vec![]);
-        }
-
-        let mut accounts = Vec::new();
-        let entries = std::fs::read_dir(&accounts_dir)
-            .map_err(|e| format!("读取账号目录失败: {}", e))?;
-
-        for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Some(name) = entry.path().file_stem().and_then(|n| n.to_str()) {
-                    accounts.push(name.to_string());
-                }
-            }
-        }
-
-        accounts.sort();
-        Ok(accounts)
+        Ok(list_account_names(&app_handle))
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -67,10 +36,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
     active.active_account = account_name.clone();
     state.config.store(Arc::new(active));
 
-    let mut display_config = config.clone();
-    if !display_config.password.is_empty() {
-        display_config.password = "***".to_string();
-    }
+    let display_config = config.masked_for_display();
     Ok(serde_json::json!({ "success": true, "config": display_config }))
 }
 
@@ -149,35 +115,9 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
 
     let app_h = app_handle.clone();
     let password_for_encrypt = config.password.clone();
-    let account_data = Config {
-        user: config.user.clone(),
-        password: String::new(),
-        operator: config.operator.clone(),
-        adapter1: config.adapter1.clone(),
-        adapter2: config.adapter2.clone(),
-        dual_adapter: config.dual_adapter,
-        active_account: account_name.clone(),
-        auto_login_on_start: config.auto_login_on_start,
-        auto_exit_after_login: config.auto_exit_after_login,
-        minimize_to_tray: config.minimize_to_tray,
-        hidden_start: config.hidden_start,
-        auto_launch: config.auto_launch,
-        enable_background_check: config.enable_background_check,
-        background_check_interval: config.background_check_interval,
-        auto_login_on_preparation: config.auto_login_on_preparation,
-        auto_exit_on_online: config.auto_exit_on_online,
-        theme_mode: config.theme_mode.clone(),
-        enable_notification: config.enable_notification,
-        enable_latency_test: config.enable_latency_test,
-        latency_test_interval: config.latency_test_interval,
-        custom_theme_color: config.custom_theme_color.clone(),
-        default_panel: config.default_panel.clone(),
-        enable_network_quality: config.enable_network_quality,
-        skip_ttfb_in_latency: config.skip_ttfb_in_latency,
-        skip_content_in_latency: config.skip_content_in_latency,
-        portal_url: config.portal_url.clone(),
-        fixed_gateway: config.fixed_gateway.clone(),
-    };
+    let mut account_data = (*config).clone();
+    account_data.password = String::new();
+    account_data.active_account = account_name.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let accounts_dir = {
             let data_dir = get_data_dir(&app_h);
@@ -242,11 +182,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         crate::log_warn!("account", "切换账号后保存配置任务失败: {}", e);
     }
 
-    let updated_config = state.config.load();
-    let mut display_config = updated_config.as_ref().clone();
-    if !display_config.password.is_empty() {
-        display_config.password = "***".to_string();
-    }
+    let display_config = state.config.load().masked_for_display();
 
     Ok(serde_json::json!({ "success": true, "activeAccount": account_name, "config": display_config }))
 }

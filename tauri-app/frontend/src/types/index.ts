@@ -74,7 +74,7 @@ export interface NetworkQualityDetail {
   contentLatency?: number
 }
 
-export interface NetworkQualityMetrics {
+interface NetworkQualityMetrics {
   totalElapsed: number
   tests: Record<string, { latency: number; type: string; elapsed: number }>
 }
@@ -116,4 +116,22 @@ export interface ToastMessage {
     label: string
     onClick: () => void
   }
+}
+
+interface DnsServerInfo {
+  address: string
+  dohAvailable: boolean
+  dohEnabled: boolean
+  dohTemplate: string
+}
+
+interface DnsAdapterInfo {
+  name: string
+  dnsServers: DnsServerInfo[]
+}
+
+export interface DnsDohStatus {
+  adapters: DnsAdapterInfo[]
+  dohSupported: boolean
+  autoDohEnabled: boolean
 }

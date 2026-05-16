@@ -3,13 +3,79 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::network::{
-    get_adapters_cached, get_adapters_force,
+    Adapter, get_adapters_cached, get_adapters_force,
     check_portal_full, check_network_quality_async,
 };
-use super::state::{AppState, CommandResult, atomic_guard};
+use super::state::{AppState, CommandResult};
 use super::auto_exit::start_auto_exit;
 use super::auto_login::{try_auto_login_on_preparation, try_disconnect_reconnect, run_auto_login_on_start};
 use super::latency::{notify_network_quality_change, spawn_latency_test_loop};
+
+enum PortalCheckResult {
+    Success {
+        online: bool,
+        message: String,
+        reachable: bool,
+        login_available: bool,
+    },
+    Error,
+    NotFound,
+}
+
+impl PortalCheckResult {
+    fn online(&self) -> bool {
+        match self {
+            PortalCheckResult::Success { online, .. } => *online,
+            _ => false,
+        }
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            PortalCheckResult::Success { message, .. } => message,
+            PortalCheckResult::Error => "检测失败",
+            PortalCheckResult::NotFound => "未找到主适配器",
+        }
+    }
+
+    fn reachable(&self) -> bool {
+        match self {
+            PortalCheckResult::Success { reachable, .. } => *reachable,
+            _ => false,
+        }
+    }
+
+    fn login_available(&self) -> bool {
+        match self {
+            PortalCheckResult::Success { login_available, .. } => *login_available,
+            _ => false,
+        }
+    }
+}
+
+fn check_adapter_portal(
+    adapter: &Adapter,
+    user_account: &str,
+    user_password: &str,
+    app_handle: &AppHandle,
+) -> PortalCheckResult {
+    match check_portal_full(&adapter.ip, Some(&adapter.name), Some(user_account), Some(user_password)) {
+        Ok(ps) => PortalCheckResult::Success {
+            online: ps.online,
+            message: ps.message,
+            reachable: ps.reachable,
+            login_available: ps.login_available,
+        },
+        Err(e) => {
+            crate::log_warn!("background", "{} Portal检测异常: {}", adapter.name, e);
+            let _ = app_handle.emit("login-log", serde_json::json!({
+                "message": format!("{} Portal检测异常: {}", adapter.name, e),
+                "type": "error"
+            }));
+            PortalCheckResult::Error
+        }
+    }
+}
 
 fn adapter_status_entry(name: &str, ip: &str, wireless: bool, online: bool, message: &str) -> serde_json::Value {
     serde_json::json!({
@@ -26,24 +92,116 @@ fn adapter_disconnected_entry(name: &str, wireless: bool) -> serde_json::Value {
     adapter_status_entry(name, "", wireless, false, "适配器未连接")
 }
 
+fn build_adapter_details(
+    adapter1_name: &str,
+    adapter1_message: &str,
+    adapter2_name: &str,
+    adapter2_message: Option<&str>,
+    dual_adapter: bool,
+) -> String {
+    let mut details = vec![format!("{}: {}", adapter1_name, adapter1_message)];
+    if let Some(msg) = adapter2_message {
+        if dual_adapter && !adapter2_name.is_empty() {
+            details.push(format!("{}: {}", adapter2_name, msg));
+        }
+    }
+    details.join(", ")
+}
+
+fn handle_status_change(
+    prev_online: bool,
+    current_online: bool,
+    reachable: bool,
+    login_available: bool,
+    adapter1_name: &str,
+    adapter1_message: &str,
+    adapter2_name: &str,
+    adapter2_message: Option<&str>,
+    config: &crate::config::Config,
+    app_handle: &AppHandle,
+) {
+    let adapter_details = build_adapter_details(
+        adapter1_name, adapter1_message,
+        adapter2_name, adapter2_message,
+        config.dual_adapter,
+    );
+
+    if current_online != prev_online {
+        crate::log_info!("background", "状态变更: {} → {} [{}]",
+            if prev_online { "在线" } else { "离线" },
+            if current_online { "在线" } else { "离线" },
+            adapter_details);
+
+        if !current_online && config.enable_notification {
+            super::system::emit_notification(app_handle, "网络状态变更", &adapter_details);
+        }
+    } else {
+        crate::log_debug!("background", "检测结果: online={}, reachable={}, loginAvailable={}, [{}]", current_online, reachable, login_available, adapter_details);
+    }
+}
+
+fn emit_background_check_result(
+    app_handle: &AppHandle,
+    online: bool,
+    reachable: bool,
+    login_available: bool,
+    message: &str,
+    adapter1_name: &str,
+    adapter2_name: &str,
+    secondary_online: Option<bool>,
+    secondary_message: &str,
+    dual_adapter: bool,
+) {
+    if let Err(e) = app_handle.emit("background-check-result", serde_json::json!({
+        "serverAvailable": reachable,
+        "loginAvailable": login_available,
+        "online": online,
+        "message": message,
+        "adapter1Name": adapter1_name,
+        "adapter2Name": if dual_adapter { adapter2_name } else { "" },
+        "secondaryOnline": secondary_online,
+        "secondaryMessage": secondary_message,
+        "timestamp": chrono::Utc::now().timestamp_millis(),
+        "checkCount": 0,
+    })) {
+        crate::log_warn!("background", "发送后台检测结果失败: {}", e);
+    }
+}
+
+fn update_network_state(
+    state: &AppState,
+    online: bool,
+    secondary_online: Option<bool>,
+    reachable: bool,
+    app_handle: &AppHandle,
+) {
+    state.network.server_available.store(reachable, Ordering::Release);
+
+    let any_online = online || secondary_online == Some(true);
+    state.network.was_online.store(any_online, Ordering::Release);
+    if any_online {
+        state.network.disconnect_reconnect_count.store(0, Ordering::Release);
+    }
+
+    if reachable && !state.network.has_logged_online.load(Ordering::Acquire) && online {
+        state.network.has_logged_online.store(true, Ordering::Release);
+        if state.config.load().auto_exit_on_online {
+            start_auto_exit(app_handle, state);
+        }
+    }
+}
+
 fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Option<(String, String)> {
     if state.tasks.is_checking.swap_acquire() || state.exit.is_quitting.load(Ordering::Acquire) {
         return None;
     }
 
-    atomic_guard!(CheckGuard, is_checking);
-    let _check_guard = CheckGuard(state);
+    let _check_guard = state.tasks.is_checking.release_guard();
 
     let config = state.config.load_full();
-    let user_account = if !config.operator.is_empty() && config.operator != "__default__" {
-        format!("{}@{}", config.user, config.operator)
-    } else {
-        config.user.clone()
-    };
+    let user_account = config.user_account_with_operator();
     let user_password = config.password.clone();
-    crate::log_debug!("background", "开始后台检测 #{}", state.network.background_check_count.load(Ordering::Relaxed) + 1);
-
-    let check_count = state.network.background_check_count.fetch_add(1, Ordering::Relaxed) + 1;
+    crate::log_debug!("background", "开始后台检测");
 
     let adapters = match get_adapters_cached() {
         Ok(a) if !a.is_empty() => a,
@@ -62,184 +220,38 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
         None
     };
 
-    let (status, secondary_result) = if let Some(adapter) = a1 {
-        let a1_ip = adapter.ip.clone();
-        let a1_name_clone = adapter1_name.clone();
-        if let Some(a2_ref) = a2 {
-            let a2_ip = a2_ref.ip.clone();
-            let a2_name = a2_ref.name.clone();
-            let primary_res = check_portal_full(&a1_ip, Some(&a1_name_clone), Some(&user_account), Some(&user_password));
-            let secondary_res = check_portal_full(&a2_ip, Some(&a2_name), Some(&user_account), Some(&user_password));
-            let status = match primary_res {
-                Ok(ps) => serde_json::json!({
-                    "online": ps.online,
-                    "message": ps.message,
-                    "reachable": ps.reachable,
-                    "loginAvailable": ps.login_available,
-                }),
-                Err(e) => {
-                    crate::log_warn!("background", "主适配器Portal检测异常: {}", e);
-                    let _ = app_handle.emit("login-log", serde_json::json!({
-                        "message": format!("{} Portal检测异常: {}", adapter1_name, e),
-                        "type": "error"
-                    }));
-                    serde_json::json!({
-                        "online": false,
-                        "message": "检测失败",
-                        "reachable": false,
-                        "loginAvailable": false,
-                    })
-                },
-            };
-            let sec = match secondary_res {
-                Ok(sec_status) => Some((sec_status.online, sec_status.message)),
-                Err(e) => {
-                    crate::log_warn!("background", "副适配器Portal检测异常: {}", e);
-                    let _ = app_handle.emit("login-log", serde_json::json!({
-                        "message": format!("{} Portal检测异常: {}", adapter2_name, e),
-                        "type": "error"
-                    }));
-                    None
-                },
-            };
-            (status, sec)
-        } else {
-            let primary_res = check_portal_full(&a1_ip, Some(&a1_name_clone), Some(&user_account), Some(&user_password));
-            let status = match primary_res {
-                Ok(ps) => serde_json::json!({
-                    "online": ps.online,
-                    "message": ps.message,
-                    "reachable": ps.reachable,
-                    "loginAvailable": ps.login_available,
-                }),
-                Err(e) => {
-                    crate::log_warn!("background", "主适配器Portal检测异常: {}", e);
-                    let _ = app_handle.emit("login-log", serde_json::json!({
-                        "message": format!("{} Portal检测异常: {}", adapter1_name, e),
-                        "type": "error"
-                    }));
-                    serde_json::json!({
-                        "online": false,
-                        "message": "检测失败",
-                        "reachable": false,
-                        "loginAvailable": false,
-                    })
-                },
-            };
-            (status, None)
-        }
-    } else {
-        (serde_json::json!({
-            "online": false,
-            "message": "未找到主适配器",
-            "reachable": false,
-            "loginAvailable": false,
-        }), None)
+    let primary_result = match a1 {
+        Some(adapter) => check_adapter_portal(adapter, &user_account, &user_password, app_handle),
+        None => PortalCheckResult::NotFound,
     };
 
-    let online = status["online"].as_bool().unwrap_or(false);
-    let reachable = status["reachable"].as_bool().unwrap_or(false);
-    let login_available = status["loginAvailable"].as_bool().unwrap_or(false);
-    let status_msg = status["message"].as_str().unwrap_or("");
+    let secondary_result = a2.map(|a| check_adapter_portal(a, &user_account, &user_password, app_handle));
+
+    let online = primary_result.online();
+    let reachable = primary_result.reachable();
+    let login_available = primary_result.login_available();
+    let message = primary_result.message();
     let prev_online = state.network.was_online.load(Ordering::Acquire);
 
-    let is_check_failure = status_msg == "网络检测失败";
-    if is_check_failure {
-        let failures = state.network.consecutive_check_failures.fetch_add(1, Ordering::Relaxed) + 1;
-        if failures < 2 {
-            crate::log_info!("background", "网络检测失败({}/2)，保留上次状态: {}", failures, if prev_online { "在线" } else { "离线" });
-            return None;
-        }
-    } else {
-        state.network.consecutive_check_failures.store(0, Ordering::Relaxed);
-    }
+    let (secondary_online, secondary_message) = match &secondary_result {
+        Some(PortalCheckResult::Success { online, message, .. }) => (Some(*online), message.clone()),
+        _ => (None, String::new()),
+    };
 
-    if online != prev_online {
-        let mut adapter_details = vec![format!("{}: {}", adapter1_name, status["message"].as_str().unwrap_or("未知"))];
-        if let Some((_sec_online, sec_msg)) = &secondary_result {
-            if config.dual_adapter && !adapter2_name.is_empty() {
-                adapter_details.push(format!("{}: {}", adapter2_name, sec_msg));
-            }
-        }
-        crate::log_info!("background", "状态变更: {} → {} [{}]",
-            if prev_online { "在线" } else { "离线" },
-            if online { "在线" } else { "离线" },
-            adapter_details.join(", "));
+    handle_status_change(
+        prev_online, online, reachable, login_available,
+        &adapter1_name, message,
+        &adapter2_name, secondary_result.as_ref().and_then(|r| {
+            if let PortalCheckResult::Success { message, .. } = r { Some(message.as_str()) } else { None }
+        }),
+        &config, app_handle,
+    );
 
-        if !online {
-            if config.enable_notification {
-                let log_msg = adapter_details.join(", ");
-                super::system::emit_notification(app_handle, "网络状态变更", &log_msg);
-            }
-        }
-    } else {
-        let mut adapter_details = vec![format!("{}: {}", adapter1_name, status["message"].as_str().unwrap_or("未知"))];
-        if let Some((_sec_online, sec_msg)) = &secondary_result {
-            if config.dual_adapter && !adapter2_name.is_empty() {
-                adapter_details.push(format!("{}: {}", adapter2_name, sec_msg));
-            }
-        }
-        crate::log_debug!("background", "检测结果: online={}, reachable={}, loginAvailable={}, [{}]", online, reachable, login_available, adapter_details.join(", "));
-    }
-
-    state.network.server_available.store(reachable, Ordering::Release);
-
-    let mut secondary_online: Option<bool> = None;
-    let mut secondary_message = String::new();
-
-    if let Some((sec_online, sec_msg)) = secondary_result {
-        secondary_online = Some(sec_online);
-        secondary_message = sec_msg;
-    }
-
-    if let Err(e) = app_handle.emit("background-check-result", serde_json::json!({
-        "serverAvailable": reachable,
-        "loginAvailable": login_available,
-        "online": online,
-        "message": status["message"].as_str().unwrap_or(""),
-        "adapter1Name": adapter1_name,
-        "adapter2Name": if config.dual_adapter { &adapter2_name } else { "" },
-        "secondaryOnline": secondary_online,
-        "secondaryMessage": secondary_message,
-        "timestamp": chrono::Utc::now().timestamp_millis(),
-        "checkCount": check_count,
-    })) {
-        crate::log_warn!("background", "发送后台检测结果失败: {}", e);
-    }
-
-    {
-        let mut adapter_statuses = Vec::new();
-        if let Some(a1_ref) = a1 {
-            adapter_statuses.push(adapter_status_entry(&adapter1_name, &a1_ref.ip, a1_ref.wireless, online, status["message"].as_str().unwrap_or("")));
-        } else if !adapter1_name.is_empty() {
-            adapter_statuses.push(adapter_disabled_entry(&adapter1_name));
-        }
-        if config.dual_adapter && !adapter2_name.is_empty() {
-            if let Some(a2_ref) = a2 {
-                if a2_ref.ip.is_empty() {
-                    adapter_statuses.push(adapter_disconnected_entry(&adapter2_name, a2_ref.wireless));
-                } else {
-                    adapter_statuses.push(adapter_status_entry(&adapter2_name, &a2_ref.ip, a2_ref.wireless, secondary_online.unwrap_or(false), &secondary_message));
-                }
-            } else {
-                adapter_statuses.push(adapter_disabled_entry(&adapter2_name));
-            }
-        }
-        let any_online = online || secondary_online == Some(true);
-        let cached_value = serde_json::json!({
-            "serverAvailable": reachable,
-            "loginPreparationMode": config.auto_login_on_preparation,
-            "checkCount": check_count,
-            "isRunning": state.tasks.background_running.is_active(),
-            "interval": config.background_check_interval,
-            "enabled": config.enable_background_check,
-            "adapterStatuses": adapter_statuses,
-            "online": any_online,
-        });
-        state.network.cached_online_status.store(Arc::new(Some(cached_value)));
-    }
-
-    let should_check_quality = online && a1.is_some() && config.enable_network_quality;
+    emit_background_check_result(
+        app_handle, online, reachable, login_available, message,
+        &adapter1_name, &adapter2_name,
+        secondary_online, &secondary_message, config.dual_adapter,
+    );
 
     try_auto_login_on_preparation(app_handle, state, login_available, online, &config);
 
@@ -249,20 +261,9 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState) -> Op
         reachable, login_available, &config,
     );
 
-    let any_online = online || secondary_online == Some(true);
-    state.network.was_online.store(any_online, Ordering::Release);
-    if any_online {
-        state.network.disconnect_reconnect_count.store(0, Ordering::Release);
-    }
+    update_network_state(state, online, secondary_online, reachable, app_handle);
 
-    if reachable && !state.network.has_logged_online.load(Ordering::Acquire) && online {
-        state.network.has_logged_online.store(true, Ordering::Release);
-        if state.config.load().auto_exit_on_online {
-            start_auto_exit(app_handle, state);
-        }
-    }
-
-    if should_check_quality {
+    if online && a1.is_some() && config.enable_network_quality {
         if let Some(a1_ref) = a1 {
             return Some((a1_ref.name.clone(), a1_ref.ip.clone()));
         }
@@ -287,11 +288,10 @@ pub async fn run_background_check(app_handle: &AppHandle, _state: &AppState) {
             let cfg = s.config.load();
             (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
         };
-        if s.tasks.is_quality_checking.swap_acquire() {
+        if s.tasks.is_quality_checking.try_acquire().is_none() {
             return;
         }
-        atomic_guard!(QualityGuard, is_quality_checking);
-        let _guard = QualityGuard(&s);
+        let _guard = s.tasks.is_quality_checking.release_guard();
         let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
         drop(_guard);
         let enable_notification = s.config.load().enable_notification;
@@ -385,17 +385,9 @@ pub async fn get_background_status(app_handle: AppHandle) -> Result<serde_json::
     let state = app_handle.state::<AppState>();
     let config = state.config.load_full();
     let running = state.tasks.background_running.is_active();
-    let count = state.network.background_check_count.load(Ordering::Relaxed);
     let server_avail = state.network.server_available.load(Ordering::Acquire);
 
-    let cached_adapter_statuses = {
-        let cached_arc = state.network.cached_online_status.load();
-        cached_arc.as_ref().as_ref().and_then(|v| v.get("adapterStatuses").cloned())
-    };
-
-    let adapter_statuses = if let Some(statuses) = cached_adapter_statuses {
-        statuses
-    } else {
+    let adapter_statuses = {
         let mut adapter_statuses = Vec::new();
 
         if let Ok(adapters) = get_adapters_cached() {
@@ -432,15 +424,13 @@ pub async fn get_background_status(app_handle: AppHandle) -> Result<serde_json::
     let result = serde_json::json!({
         "serverAvailable": server_avail,
         "loginPreparationMode": config.auto_login_on_preparation,
-        "checkCount": count,
+        "checkCount": 0,
         "isRunning": running,
         "interval": config.background_check_interval,
         "enabled": config.enable_background_check,
         "adapterStatuses": adapter_statuses,
         "online": any_online,
     });
-
-    state.network.cached_online_status.store(Arc::new(Some(result.clone())));
 
     Ok(result)
 }

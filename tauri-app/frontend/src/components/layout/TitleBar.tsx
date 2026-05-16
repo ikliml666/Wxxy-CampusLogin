@@ -1,9 +1,10 @@
 import { Bell, BellOff, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APP_VERSION } from '@/constants'
+import { cn } from '@/lib/utils'
 import { memo, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { m } from 'framer-motion'
 
 interface TitleBarProps {
   notificationEnabled: boolean
@@ -103,9 +104,16 @@ export const TitleBar = memo(function TitleBar({
           </div>
           <span className="text-sm font-semibold tracking-tight">校园网登录助手</span>
           <span
-            className="text-[10px] px-2 py-0.5 bg-[#f3f4f6] text-muted-foreground font-medium rounded-full dark:bg-[#1f2128]"
+            className={cn(
+              "relative text-[10px] px-2 py-0.5 bg-[#f3f4f6] text-muted-foreground font-medium rounded-full dark:bg-[#1f2128]",
+              updateAvailable && "cursor-pointer hover:bg-primary/10 hover:text-primary dark:hover:bg-primary/20 transition-colors"
+            )}
+            onClick={updateAvailable ? onShowAbout : undefined}
           >
             v{APP_VERSION}
+            {updateAvailable && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white dark:border-[#1f2128]" />
+            )}
           </span>
           {updateAvailable && latestVersion && (
             <Tooltip>
@@ -128,36 +136,72 @@ export const TitleBar = memo(function TitleBar({
         <div className="flex items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-7 w-7 rounded-full" onClick={onToggleLightMode}>
+              <m.button
+                onClick={onToggleLightMode}
+                whileHover={{ scale: 1.15, rotate: isLightMode ? 15 : -15 }}
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                aria-label={isLightMode ? '切换到深色模式' : '切换到浅色模式'}
+              >
                 {isLightMode ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-400" />}
-              </Button>
+              </m.button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>{isLightMode ? '切换到深色模式' : '切换到浅色模式'}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-7 w-7 rounded-full" onClick={onToggleNotification}>
-                {notificationEnabled ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5 text-muted-foreground" />}
-              </Button>
+              <m.button
+                onClick={onToggleNotification}
+                whileHover={{ scale: 1.15 }}
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                aria-label={notificationEnabled ? '通知已开启' : '通知已关闭'}
+              >
+                <m.div
+                  key={notificationEnabled ? 'on' : 'off'}
+                  initial={{ scale: 0.5, opacity: 0, rotate: -90 }}
+                  animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                  exit={{ scale: 0.5, opacity: 0, rotate: 90 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                >
+                  {notificationEnabled ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5 text-muted-foreground" />}
+                </m.div>
+              </m.button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>{notificationEnabled ? '通知已开启' : '通知已关闭'}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-7 w-7 rounded-full" onClick={onShowTheme}>
+              <m.button
+                onClick={onShowTheme}
+                whileHover={{ scale: 1.15, rotate: 20 }}
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                aria-label="主题设置"
+              >
                 <Palette className="h-3.5 w-3.5" />
-              </Button>
+              </m.button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>主题设置</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-7 w-7 rounded-full" onClick={onShowAbout}>
+              <m.button
+                onClick={onShowAbout}
+                whileHover={{ scale: 1.15 }}
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                aria-label="关于"
+              >
                 <Info className="h-3.5 w-3.5" />
-              </Button>
+              </m.button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>关于</p></TooltipContent>
           </Tooltip>

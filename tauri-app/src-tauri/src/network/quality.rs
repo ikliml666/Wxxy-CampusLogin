@@ -2,9 +2,7 @@ use std::time::Instant;
 use std::sync::Arc;
 use serde::Serialize;
 
-use super::adapter::get_gateway_ip_cached;
-
-const MAX_CONCURRENT_QUALITY_TASKS: usize = 20;
+use super::adapter::get_gateway_ip;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,8 +21,8 @@ enum LatencyTask {
     Gateway { name: String, target: String },
     Doh { name: String, doh_server: String, doh_ip: String, doh_host: String },
     Https { name: String, host: String },
-    DnsResolve { name: String, target: String },
     DnsServer { name: String, ip: String, domain: String },
+    SystemDns { name: String, domains: Vec<String> },
 }
 
 struct LatencyTaskCtx {
@@ -87,7 +85,7 @@ async fn ping_host_async(host: &str, timeout_ms: u32) -> Result<u64, String> {
     }
 }
 
-async fn check_tcp_latency_async(host: &str, port: u16, timeout_ms: u64) -> i64 {
+async fn check_tcp_latency_async(host: &str, port: u16, timeout_ms: u64, bind_addr: Option<std::net::IpAddr>) -> i64 {
     if host.is_empty() {
         return -1;
     }
@@ -97,10 +95,29 @@ async fn check_tcp_latency_async(host: &str, port: u16, timeout_ms: u64) -> i64 
         Ok(a) => a,
         Err(_) => return -1,
     };
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        tokio::net::TcpStream::connect(&target),
-    ).await {
+    let connect_result = if let Some(bind) = bind_addr {
+        let bind_sock = std::net::SocketAddr::new(bind, 0);
+        let socket = match target {
+            std::net::SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4(),
+            std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6(),
+        };
+        match socket {
+            Ok(s) => match s.bind(bind_sock) {
+                Ok(()) => tokio::time::timeout(
+                    std::time::Duration::from_millis(timeout_ms),
+                    s.connect(target),
+                ).await,
+                Err(_) => return -1,
+            },
+            Err(_) => return -1,
+        }
+    } else {
+        tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            tokio::net::TcpStream::connect(&target),
+        ).await
+    };
+    match connect_result {
         Ok(Ok(_)) => {
             let elapsed_us = start.elapsed().as_micros();
             ((elapsed_us + 500) / 1000).max(1) as i64
@@ -109,38 +126,13 @@ async fn check_tcp_latency_async(host: &str, port: u16, timeout_ms: u64) -> i64 
     }
 }
 
-async fn check_dns_latency_async(hostname: &str, timeout_ms: u64) -> i64 {
-    let start = Instant::now();
-    let addr = if hostname.contains(':') {
-        format!("[{}]:0", hostname)
-    } else {
-        format!("{}:0", hostname)
-    };
-    let lookup = tokio::net::lookup_host(&addr);
-    let result = tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        lookup,
-    ).await;
-    match result {
-        Ok(Ok(mut addrs)) => {
-            if addrs.next().is_some() {
-                let elapsed_us = start.elapsed().as_micros();
-                let elapsed = ((elapsed_us + 500) / 1000) as i64;
-                elapsed.max(1)
-            } else {
-                -1
-            }
-        }
-        _ => -1,
-    }
-}
-
-async fn tcp_then_icmp_latency(host: &str, ports: &[u16], tcp_timeout_ms: u64) -> (i64, &'static str) {
+async fn tcp_then_icmp_latency(host: &str, ports: &[u16], tcp_timeout_ms: u64, bind_addr: Option<std::net::IpAddr>) -> (i64, &'static str) {
     let mut tcp_tasks = tokio::task::JoinSet::new();
     for &port in ports {
         let h = host.to_string();
+        let ba = bind_addr;
         tcp_tasks.spawn(async move {
-            check_tcp_latency_async(&h, port, tcp_timeout_ms).await
+            check_tcp_latency_async(&h, port, tcp_timeout_ms, ba).await
         });
     }
     while let Some(res) = tcp_tasks.join_next().await {
@@ -165,6 +157,104 @@ async fn tcp_then_icmp_latency(host: &str, ports: &[u16], tcp_timeout_ms: u64) -
     }
 }
 
+async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) -> LatencyResult {
+    match ctx.task {
+        LatencyTask::Gateway { name, target } => {
+            let (lat, lat_type) = tcp_then_icmp_latency(&target, &[80, 53], 800, ctx.bind_addr).await;
+            LatencyResult { name, target, latency: lat, lat_type: lat_type.to_string(), is_external: false, dns_ms: -1, tcp_ms: -1, tls_ms: -1, udp_ms: -1, ttfb_ms: -1, content_ms: -1 }
+        }
+        LatencyTask::Doh { name, doh_server, doh_ip, doh_host } => {
+            let r = crate::http_timing::measure_doh_timing(&doh_server, &doh_ip, &doh_host, ctx.bind_addr, std::time::Duration::from_millis(2000), skip_ttfb).await;
+            let lat = if r.success { r.total_ms } else { -1 };
+            crate::http_timing::update_doh_server_latency(&doh_server, lat, r.success);
+            LatencyResult {
+                name,
+                target: format!("https://{}", doh_server),
+                latency: lat,
+                lat_type: "doh".to_string(),
+                is_external: true,
+                dns_ms: r.dns_ms,
+                tcp_ms: r.tcp_ms,
+                tls_ms: r.tls_ms,
+                udp_ms: -1,
+                ttfb_ms: r.http_ms,
+                content_ms: -1,
+            }
+        }
+        LatencyTask::Https { name, host } => {
+            let r = crate::http_timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
+            let lat = if r.success { r.total_ms } else { -1 };
+            LatencyResult {
+                name,
+                target: format!("https://{}", host),
+                latency: lat,
+                lat_type: "https".to_string(),
+                is_external: true,
+                dns_ms: r.dns_ms,
+                tcp_ms: r.tcp_ms,
+                tls_ms: r.tls_ms,
+                udp_ms: -1,
+                ttfb_ms: r.ttfb_ms,
+                content_ms: r.content_ms,
+            }
+        }
+        LatencyTask::DnsServer { name, ip, domain } => {
+            let r = crate::http_timing::measure_dns_query(&ip, &domain, ctx.bind_addr, std::time::Duration::from_millis(3000)).await;
+            let lat = match (r.udp_ms, r.tcp_ms) {
+                (u, t) if u >= 0 && t >= 0 => u.min(t),
+                (u, _) if u >= 0 => u,
+                (_, t) => t,
+            };
+            crate::http_timing::update_dns_server_latency(&ip, lat, r.success);
+            LatencyResult {
+                name,
+                target: format!("{}:53", ip),
+                latency: lat,
+                lat_type: "dns".to_string(),
+                is_external: true,
+                dns_ms: -1,
+                tcp_ms: r.tcp_ms,
+                tls_ms: -1,
+                udp_ms: r.udp_ms,
+                ttfb_ms: -1,
+                content_ms: -1,
+            }
+        }
+        LatencyTask::SystemDns { name, domains } => {
+            let mut latencies: Vec<i64> = Vec::new();
+            for domain in &domains {
+                let start = Instant::now();
+                let result = crate::http_timing::resolve_host_smart(domain, std::time::Duration::from_secs(3), ctx.bind_addr).await;
+                match result {
+                    Ok(_) => {
+                        let ms = start.elapsed().as_millis() as i64;
+                        latencies.push(ms.max(1));
+                    }
+                    Err(_) => {}
+                }
+            }
+            let lat = if latencies.is_empty() {
+                -1
+            } else {
+                latencies.iter().sum::<i64>() / latencies.len() as i64
+            };
+            LatencyResult {
+                name,
+                target: format!("{}个域名", domains.len()),
+                latency: lat,
+                lat_type: "system-dns".to_string(),
+                is_external: true,
+                dns_ms: -1,
+                tcp_ms: -1,
+                tls_ms: -1,
+                udp_ms: -1,
+                ttfb_ms: -1,
+                content_ms: -1,
+            }
+        }
+    }
+}
+
 pub async fn check_network_quality_async(adapter_name: &str, adapter_ip: &str, skip_ttfb: bool, skip_content: bool, fixed_gateway: &str, is_quitting: Arc<std::sync::atomic::AtomicBool>) -> NetworkQualityResult {
     let now = Instant::now();
 
@@ -174,7 +264,7 @@ pub async fn check_network_quality_async(adapter_name: &str, adapter_ip: &str, s
         tokio::task::spawn_blocking({
             let an = adapter_name.to_string();
             let ai = adapter_ip.to_string();
-            move || get_gateway_ip_cached(&an, &ai).ok()
+            move || get_gateway_ip(&an, &ai).ok()
         }).await.unwrap_or(None)
     };
 
@@ -186,10 +276,10 @@ pub async fn check_network_quality_async(adapter_name: &str, adapter_ip: &str, s
         adapter_ip.parse().ok()
     };
 
-    let mut tasks: Vec<LatencyTaskCtx> = Vec::new();
+    let mut phase1_tasks: Vec<LatencyTaskCtx> = Vec::new();
 
     if let Some(ref gw) = gateway {
-        tasks.push(LatencyTaskCtx {
+        phase1_tasks.push(LatencyTaskCtx {
             task: LatencyTask::Gateway {
                 name: "网关".to_string(),
                 target: gw.clone(),
@@ -198,39 +288,72 @@ pub async fn check_network_quality_async(adapter_name: &str, adapter_ip: &str, s
         });
     }
 
-    tasks.push(LatencyTaskCtx { task: LatencyTask::Doh {
+    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
+        name: "阿里DNS".to_string(),
+        ip: "223.5.5.5".to_string(),
+        domain: "www.baidu.com".to_string(),
+    }, bind_addr });
+    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
+        name: "腾讯DNS".to_string(),
+        ip: "1.12.12.12".to_string(),
+        domain: "www.baidu.com".to_string(),
+    }, bind_addr });
+    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
+        name: "信风DNS".to_string(),
+        ip: "114.114.114.114".to_string(),
+        domain: "www.baidu.com".to_string(),
+    }, bind_addr });
+
+    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::Doh {
         name: "阿里DoH".to_string(),
         doh_server: "dns.alidns.com".to_string(),
         doh_ip: "223.5.5.5".to_string(),
         doh_host: "baidu.com".to_string(),
     }, bind_addr });
-    tasks.push(LatencyTaskCtx { task: LatencyTask::Doh {
+    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::Doh {
         name: "腾讯DoH".to_string(),
         doh_server: "doh.pub".to_string(),
-        doh_ip: String::new(),
+        doh_ip: "1.12.12.12".to_string(),
         doh_host: "baidu.com".to_string(),
     }, bind_addr });
 
-    tasks.push(LatencyTaskCtx { task: LatencyTask::DnsResolve {
+    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::SystemDns {
         name: "DNS解析".to_string(),
-        target: "www.baidu.com".to_string(),
+        domains: vec![
+            "www.baidu.com".to_string(),
+            "www.bilibili.com".to_string(),
+            "www.jd.com".to_string(),
+            "cn.bing.com".to_string(),
+        ],
     }, bind_addr });
 
-    tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
-        name: "阿里DNS".to_string(),
-        ip: "223.5.5.5".to_string(),
-        domain: "www.baidu.com".to_string(),
-    }, bind_addr });
-    tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
-        name: "腾讯DNS".to_string(),
-        ip: "119.29.29.29".to_string(),
-        domain: "www.baidu.com".to_string(),
-    }, bind_addr });
-    tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
-        name: "信风DNS".to_string(),
-        ip: "114.114.114.114".to_string(),
-        domain: "www.baidu.com".to_string(),
-    }, bind_addr });
+    let mut phase1_set = tokio::task::JoinSet::new();
+    for ctx in phase1_tasks {
+        let st = skip_ttfb;
+        let sc = skip_content;
+        phase1_set.spawn(async move { execute_task(ctx, st, sc).await });
+    }
+
+    let mut phase1_results: Vec<LatencyResult> = Vec::new();
+    while let Some(res) = phase1_set.join_next().await {
+        if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+            phase1_set.abort_all();
+            break;
+        }
+        if let Ok(r) = res {
+            phase1_results.push(r);
+        }
+    }
+
+    if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+        return NetworkQualityResult {
+            gateway_latency: -1, external_latency: -1, average_external_latency: -1,
+            gateway: gateway_str.to_string(), quality: "unknown".to_string(),
+            timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+            details: serde_json::Value::Object(serde_json::Map::new()),
+            metrics: serde_json::json!({ "totalElapsed": now.elapsed().as_millis() }),
+        };
+    }
 
     let https_hosts: &[(&str, &str)] = &[
         ("百度", "www.baidu.com"),
@@ -247,105 +370,35 @@ pub async fn check_network_quality_async(adapter_name: &str, adapter_ip: &str, s
         ("抖音直播", "live.douyin.com"),
     ];
 
+    let mut phase2_set = tokio::task::JoinSet::new();
     for (name, host) in https_hosts {
-        tasks.push(LatencyTaskCtx { task: LatencyTask::Https {
-            name: name.to_string(),
-            host: host.to_string(),
-        }, bind_addr });
+        let ctx = LatencyTaskCtx {
+            task: LatencyTask::Https { name: name.to_string(), host: host.to_string() },
+            bind_addr,
+        };
+        let st = skip_ttfb;
+        let sc = skip_content;
+        phase2_set.spawn(async move { execute_task(ctx, st, sc).await });
     }
 
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_QUALITY_TASKS));
-    let mut join_set = tokio::task::JoinSet::new();
-    for ctx in tasks {
-        let permit = semaphore.clone();
-        join_set.spawn(async move {
-            let _permit = permit.acquire().await.unwrap_or_else(|e| {
-                crate::log_warn!("quality", "获取并发许可失败: {}", e);
-                panic!("semaphore closed")
-            });
-            match ctx.task {
-                LatencyTask::Gateway { name, target } => {
-                    let (lat, lat_type) = tcp_then_icmp_latency(&target, &[80, 53], 800).await;
-                    LatencyResult { name, target, latency: lat, lat_type: lat_type.to_string(), is_external: false, dns_ms: -1, tcp_ms: -1, tls_ms: -1, udp_ms: -1, ttfb_ms: -1, content_ms: -1 }
-                }
-                LatencyTask::Doh { name, doh_server, doh_ip, doh_host } => {
-                    let r = crate::http_timing::measure_doh_timing(&doh_server, &doh_ip, &doh_host, ctx.bind_addr, std::time::Duration::from_millis(2000), skip_ttfb).await;
-                    let lat = if r.success { r.total_ms } else { -1 };
-                    LatencyResult {
-                        name,
-                        target: format!("https://{}", doh_server),
-                        latency: lat,
-                        lat_type: "doh".to_string(),
-                        is_external: true,
-                        dns_ms: r.dns_ms,
-                        tcp_ms: r.tcp_ms,
-                        tls_ms: r.tls_ms,
-                        udp_ms: -1,
-                        ttfb_ms: r.http_ms,
-                        content_ms: -1,
-                    }
-                }
-                LatencyTask::Https { name, host } => {
-                    let r = crate::http_timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
-                    let lat = if r.success { r.total_ms } else { -1 };
-                    LatencyResult {
-                        name,
-                        target: format!("https://{}", host),
-                        latency: lat,
-                        lat_type: "https".to_string(),
-                        is_external: true,
-                        dns_ms: r.dns_ms,
-                        tcp_ms: r.tcp_ms,
-                        tls_ms: r.tls_ms,
-                        udp_ms: -1,
-                        ttfb_ms: r.ttfb_ms,
-                        content_ms: r.content_ms,
-                    }
-                }
-                LatencyTask::DnsResolve { name, target } => {
-                    let lat = check_dns_latency_async(&target, 800).await;
-                    LatencyResult { name, target, latency: lat, lat_type: "dns".to_string(), is_external: true, dns_ms: -1, tcp_ms: -1, tls_ms: -1, udp_ms: -1, ttfb_ms: -1, content_ms: -1 }
-                }
-                LatencyTask::DnsServer { name, ip, domain } => {
-                    let r = crate::http_timing::measure_dns_query(&ip, &domain, ctx.bind_addr, std::time::Duration::from_millis(1500)).await;
-                    let lat = match (r.udp_ms, r.tcp_ms) {
-                        (u, t) if u >= 0 && t >= 0 => u.min(t),
-                        (u, _) if u >= 0 => u,
-                        (_, t) => t,
-                    };
-                    LatencyResult {
-                        name,
-                        target: format!("{}:53", ip),
-                        latency: lat,
-                        lat_type: "dns".to_string(),
-                        is_external: true,
-                        dns_ms: -1,
-                        tcp_ms: r.tcp_ms,
-                        tls_ms: -1,
-                        udp_ms: r.udp_ms,
-                        ttfb_ms: -1,
-                        content_ms: -1,
-                    }
-                }
-            }
-        });
-    }
-
-    let mut results: Vec<LatencyResult> = Vec::new();
-    let mut gateway_latency: i64 = -1;
-    while let Some(res) = join_set.join_next().await {
+    let mut phase2_results: Vec<LatencyResult> = Vec::new();
+    while let Some(res) = phase2_set.join_next().await {
         if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-            join_set.abort_all();
+            phase2_set.abort_all();
             break;
         }
         if let Ok(r) = res {
-            results.push(r);
+            phase2_results.push(r);
         }
     }
+
+    let mut results: Vec<LatencyResult> = phase1_results;
+    results.extend(phase2_results);
 
     let mut details = serde_json::Map::new();
     let mut metrics = serde_json::Map::new();
     let mut external_values: Vec<i64> = Vec::new();
+    let mut gateway_latency: i64 = -1;
 
     for r in &results {
         if r.is_external && r.latency >= 0 {

@@ -71,6 +71,9 @@ export default {
         'shimmer': 'shimmer 2s linear infinite',
         'refresh-hover': 'refreshHover 0.5s ease-in-out',
         'refresh-spin': 'refreshSpin 0.8s linear infinite',
+        'icon-hover-rotate': 'iconHoverRotate 0.4s ease-in-out',
+        'icon-hover-wiggle': 'iconHoverWiggle 0.4s ease-in-out',
+        'icon-hover-flyout': 'iconHoverFlyout 0.5s ease-in-out',
         'status-flash': 'statusFlash 0.6s ease-out',
         'status-breathe': 'statusBreathe 2s ease-in-out infinite',
         'log-flash': 'logFlash 0.8s ease-out',
@@ -108,6 +111,20 @@ export default {
         refreshHover: {
           '0%': { transform: 'rotate(0deg)' },
           '100%': { transform: 'rotate(180deg)' },
+        },
+        iconHoverRotate: {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(180deg)' },
+        },
+        iconHoverWiggle: {
+          '0%, 100%': { transform: 'rotate(0deg)' },
+          '25%': { transform: 'rotate(-12deg)' },
+          '75%': { transform: 'rotate(12deg)' },
+        },
+        iconHoverFlyout: {
+          '0%': { transform: 'translate(0, 0) scale(1)', opacity: '1' },
+          '40%': { transform: 'translate(3px, -3px) scale(1.3)', opacity: '0.7' },
+          '100%': { transform: 'translate(0, 0) scale(1)', opacity: '1' },
         },
         refreshSpin: {
           '0%': { transform: 'rotate(0deg)' },

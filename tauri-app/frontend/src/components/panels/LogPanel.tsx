@@ -12,7 +12,7 @@ import {
   Bug,
   ChevronDown,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, extractErrorMessage } from '@/lib/utils'
 import { memo, useState, useCallback, useEffect, useRef } from 'react'
 import { m } from 'framer-motion'
 import { containerVariants, itemVariants } from '@/lib/animations'
@@ -85,7 +85,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       const result = await api.getLogs(lineCount)
       setRawLogs(result)
     } catch (e: any) {
-      addToast('获取日志失败', 'error', typeof e === 'string' ? e : e?.message || String(e))
+      addToast('获取日志失败', 'error', extractErrorMessage(e))
     } finally {
       setIsLoading(false)
     }
@@ -141,7 +141,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       setRawLogs('')
       addToast('日志已清空', 'success')
     } catch (e: any) {
-      addToast('清空日志失败', 'error', typeof e === 'string' ? e : e?.message || String(e))
+      addToast('清空日志失败', 'error', extractErrorMessage(e))
     } finally {
       setIsClearing(false)
     }

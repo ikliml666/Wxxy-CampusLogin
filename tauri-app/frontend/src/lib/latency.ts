@@ -19,7 +19,12 @@ export function getLatencyColor(latency: number) {
   const level = getLatencyLevel(latency)
   const cfg = QUALITY_CONFIG[level] ?? QUALITY_CONFIG.unknown
   if (!cfg) return { text: 'text-muted-foreground', bg: 'bg-muted', borderBg: 'bg-muted' }
-  return { text: cfg.color ?? 'text-muted-foreground', bg: cfg.bg ?? 'bg-muted', borderBg: (cfg.border ?? 'border-border').replace('border-', 'bg-') }
+  return { text: cfg.color ?? 'text-muted-foreground', bg: cfg.bg ?? 'bg-muted', borderBg: cfg.borderBg ?? 'bg-muted' }
+}
+
+export function mergeNetworkQuality(old: NetworkQuality | null, incoming: NetworkQuality): NetworkQuality {
+  if (!old || old.quality === 'unknown') return incoming
+  return { ...incoming, details: { ...old.details, ...incoming.details }, metrics: incoming.metrics ?? old.metrics }
 }
 
 export function extractGatewayLatency(nq: NetworkQuality | null): number {

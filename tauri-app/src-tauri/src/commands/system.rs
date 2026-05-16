@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use parking_lot::Mutex;
-use crate::config::{get_data_dir, get_login_history_path};
+use crate::config::{get_data_dir, get_login_history_path, atomic_write, list_account_names};
 use super::state::{AppState, CommandResult};
 
 const AUTOSTART_REG_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
@@ -144,6 +144,21 @@ pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str) {
         crate::log_warn!("system", "发送系统通知失败: {}", e);
     }
 
+    let enable_notification = {
+        let s = app_handle.state::<crate::commands::state::AppState>();
+        s.config.load().enable_notification
+    };
+    if !enable_notification {
+        return;
+    }
+
+    let is_focused = app_handle.get_webview_window("main")
+        .map(|w| w.is_focused().unwrap_or(false))
+        .unwrap_or(false);
+    if is_focused {
+        return;
+    }
+
     let title = title.to_string();
     let body = body.to_string();
     let app_h = app_handle.clone();
@@ -210,14 +225,7 @@ pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str
     let json = serde_json::to_string_pretty(&history)
         .map_err(|e| format!("序列化登录历史失败: {}", e))?;
 
-    let tmp_path = history_path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &json)
-        .map_err(|e| format!("写入临时登录历史失败: {}", e))?;
-    std::fs::rename(&tmp_path, &history_path)
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path); // [忽略错误] 清理临时文件失败不影响主流程
-            format!("重命名登录历史文件失败: {}", e)
-        })?;
+    atomic_write(&history_path, &json)?;
 
     Ok(())
 }
@@ -237,15 +245,10 @@ pub fn clear_logs(app_handle: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let config = state.config.load_full();
-    let mut display_config = (*config).clone();
-    if !display_config.password.is_empty() {
-        display_config.password = "***".to_string();
-    }
+    let display_config = config.masked_for_display();
 
     let notification_enabled = config.enable_notification;
     let active_account = config.active_account.clone();
-    let cached_online_status = state.network.cached_online_status.load();
-    let cached_val = cached_online_status.as_ref().as_ref().cloned();
 
     let app_h = app_handle.clone();
     let (adapter_result, auto_launch_result, accounts_result) = tokio::join!(
@@ -256,24 +259,7 @@ pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) ->
         tauri::async_runtime::spawn_blocking(get_auto_launch_enabled),
         tauri::async_runtime::spawn_blocking({
             let app_h = app_h.clone();
-            move || {
-                let data_dir = crate::config::get_data_dir(&app_h);
-                let accounts_dir = crate::config::get_accounts_dir(&data_dir);
-                let mut accounts: Vec<String> = Vec::new();
-                if accounts_dir.exists() {
-                    if let Ok(entries) = std::fs::read_dir(&accounts_dir) {
-                        for entry in entries.flatten() {
-                            if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
-                                if let Some(name) = entry.path().file_stem().and_then(|n| n.to_str()) {
-                                    accounts.push(name.to_string());
-                                }
-                            }
-                        }
-                    }
-                    accounts.sort();
-                }
-                accounts
-            }
+            move || list_account_names(&app_h)
         }),
     );
 
@@ -281,13 +267,13 @@ pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) ->
     let al = auto_launch_result.unwrap_or(false);
     let acc = accounts_result.unwrap_or_default();
 
-    let mut bg_status = cached_val.unwrap_or_else(|| serde_json::json!({
+    let mut bg_status = serde_json::json!({
         "isRunning": state.tasks.background_running.is_active(),
         "checkCount": 0,
         "serverAvailable": false,
         "online": false,
         "adapterStatuses": [],
-    }));
+    });
     if let Some(obj) = bg_status.as_object_mut() {
         obj.insert("isRunning".to_string(), serde_json::Value::Bool(state.tasks.background_running.is_active()));
     }

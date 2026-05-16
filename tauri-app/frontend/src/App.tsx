@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { AnimatePresence, m } from 'framer-motion'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
-import { safeStorage } from '@/lib/utils'
+import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/components/layout/StatusBar'
@@ -39,8 +39,6 @@ function AppInner() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
-  const [updateAvailable, setUpdateAvailable] = useState(false)
-  const [latestVersion, setLatestVersion] = useState<string>()
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
@@ -51,7 +49,7 @@ function AppInner() {
       } catch {}
     })
     getCurrentWindow().isMaximized().then(m => setIsMaximized(m)).catch(() => {})
-    return () => { unlisten.then(fn => fn()).catch(() => {}) }
+    return () => { unlisten.then(fn => fn()).catch(() => {}); useAppStore.getState().cleanupToasts() }
   }, [])
 
   const handleToggleMaximize = useCallback(async () => {
@@ -77,8 +75,9 @@ function AppInner() {
   const handleToggleNotification = useCallback(async () => {
     const next = !store.notificationEnabled
     store.setNotificationEnabled(next)
+    store.updateConfig({ enableNotification: next })
     try { await store.api.setNotificationEnabled?.(next) } catch {}
-  }, [store.notificationEnabled, store.setNotificationEnabled, store.api])
+  }, [store.notificationEnabled, store.setNotificationEnabled, store.updateConfig, store.api])
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
     store.setAutoLaunch(enabled)
@@ -158,7 +157,7 @@ function AppInner() {
       if (result?.activeAccount) store.setActiveAccount(result.activeAccount)
       store.addToast('账号已保存', 'success')
     } catch (e: any) {
-      const errMsg = typeof e === 'string' ? e : (e?.message || String(e))
+      const errMsg = extractErrorMessage(e)
       store.addToast('保存账号失败', 'error', errMsg)
     }
     const accs = await store.api.listAccounts?.() || []
@@ -187,7 +186,7 @@ function AppInner() {
       store.setActiveAccount(active || '')
       store.addToast('已切换账号', 'success')
     } catch (e: any) {
-      const errMsg = typeof e === 'string' ? e : (e?.message || String(e))
+      const errMsg = extractErrorMessage(e)
       store.addToast('切换账号失败', 'error', errMsg)
     }
   }, [store.api, store.updateConfig, store.setActiveAccount, store.addToast])
@@ -196,6 +195,10 @@ function AppInner() {
     const portalUrl = store.config.portalUrl || 'http://10.1.99.100'
     store.api.openExternal?.(portalUrl)
   }, [store.api, store.config.portalUrl])
+
+  const handleOpenSelfService = useCallback(() => {
+    store.api.openExternal?.('http://10.1.80.200:8080/Self/login/?302=LI')
+  }, [store.api])
 
   const handleClearLogs = useCallback(() => {
     store.setLogs([])
@@ -321,8 +324,8 @@ function AppInner() {
           onToggleMaximize={handleToggleMaximize}
           isMaximized={isMaximized}
           onClose={() => store.api.closeWindow?.()}
-          updateAvailable={updateAvailable}
-          latestVersion={latestVersion}
+          updateAvailable={store.updateAvailable}
+          latestVersion={store.latestVersion}
         />
       </div>
 
@@ -333,6 +336,7 @@ function AppInner() {
           networkQuality={store.networkQuality}
           enableNetworkQuality={store.config?.enableNetworkQuality !== false}
           onOpenPortal={handleOpenPortal}
+          onOpenSelfService={handleOpenSelfService}
           onRefreshQuality={store.refreshQuality}
           isRefreshing={store.isRefreshingQuality}
         />
@@ -377,7 +381,10 @@ function AppInner() {
         }}
         enableNetworkQuality={store.config?.enableNetworkQuality !== false}
         isLoggingIn={store.isLoggingIn}
+        isLoggingOut={store.isLoggingOut}
+        adapters={store.adapters}
         onLogin={store.doLogin}
+        onLogout={store.doLogout}
       />
 
       <ToastContainer toasts={store.toasts} onRemove={store.removeToast} />
@@ -386,9 +393,12 @@ function AppInner() {
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
         openExternal={(url) => store.api.openExternal?.(url)}
-        onUpdateAvailable={(hasUpdate, version) => {
-          setUpdateAvailable(hasUpdate)
-          if (version) setLatestVersion(version)
+        initialLatestVersion={store.latestVersion}
+        initialReleaseNotes={store.releaseNotes}
+        onUpdateAvailable={(hasUpdate, version, notes) => {
+          store.setUpdateAvailable(hasUpdate)
+          if (version) store.setLatestVersion(version)
+          if (notes) store.setReleaseNotes(notes)
           if (hasUpdate && version) {
             store.api.sendNotification?.('发现新版本', `CampusLogin v${version} 已发布，请在关于页面查看详情`).catch(() => {})
           }

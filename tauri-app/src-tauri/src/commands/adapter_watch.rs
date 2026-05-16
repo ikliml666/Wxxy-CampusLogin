@@ -51,15 +51,18 @@ pub fn start_adapter_watch(app_handle: &AppHandle) {
                             }
                             let should_notify = {
                                 let s = app_h.state::<AppState>();
-                                let elapsed = s.notification.disabled_notification_elapsed();
-                                match elapsed {
-                                    Some(d) => d >= Duration::from_secs(60),
-                                    None => true,
+                                let last_ms = s.last_disabled_notification_ms.load(Ordering::Relaxed);
+                                if last_ms == 0 {
+                                    true
+                                } else {
+                                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                                    now.as_millis() as u64 - last_ms >= 60000
                                 }
                             };
                             if should_notify {
                                 let s = app_h.state::<AppState>();
-                                s.notification.set_disabled_notification();
+                                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                                s.last_disabled_notification_ms.store(now.as_millis() as u64, Ordering::Relaxed);
                                 let config = {
                                     let c = s.config.load();
                                     (c.adapter1.clone(), c.adapter2.clone(), c.dual_adapter)
@@ -75,9 +78,10 @@ pub fn start_adapter_watch(app_handle: &AppHandle) {
                                 for da in &disabled {
                                     if !last_disabled.iter().any(|ld| ld.name == da.name) {
                                         if configured_names.iter().any(|n| *n == da.name) {
+                                            let message = format!("适配器{} 当前{}，请检查后重试", da.name, da.status);
                                             if let Err(e) = app_h.emit("adapter-disabled-warning", serde_json::json!({
                                                 "name": da.name,
-                                                "message": format!("适配器{} 当前已禁用，请启用后重试", da.name),
+                                                "message": message,
                                             })) {
                                                 crate::log_warn!("adapter_watch", "发送适配器禁用警告失败: {}", e);
                                             }

@@ -1,8 +1,10 @@
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use serde::{Deserialize, Serialize};
 use crate::commands::state::AppState;
+use std::sync::atomic::Ordering;
 
 const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
+const UPDATE_CHECK_INTERVAL_SECS: u64 = 86400;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReleaseAsset {
@@ -30,39 +32,7 @@ pub struct DownloadProgress {
 
 #[tauri::command]
 pub async fn check_update() -> Result<UpdateInfo, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-
-    let resp = client
-        .get(format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO))
-        .header("Accept", "application/vnd.github.v3+json")
-        .header("User-Agent", "CampusLogin-UpdateChecker")
-        .send()
-        .await
-        .map_err(|e| format!("请求GitHub API失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("GitHub API返回错误: {}", resp.status()));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析GitHub响应失败: {}", e))?;
-
-    let latest_tag = data["tag_name"]
-        .as_str()
-        .unwrap_or("")
-        .replace("v", "");
-
-    if latest_tag.is_empty() {
-        return Err("无法获取最新版本号".to_string());
-    }
-
-    let current = env!("CARGO_PKG_VERSION");
-    let has_update = compare_versions(current, &latest_tag);
+    let (has_update, latest_tag, data) = fetch_latest_release().await?;
 
     let release_notes = data["body"]
         .as_str()
@@ -301,10 +271,12 @@ pub async fn verify_download_sha256(file_path: &str, checksum_url: &str) -> Resu
     Ok(actual_hash == expected_hash)
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct InstallWarning {
-    pub can_install: bool,
-    pub warning: Option<String>,
+fn schedule_update_cleanup() {
+    let temp_dir = std::env::temp_dir().join("campus-login-update");
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    });
 }
 
 #[tauri::command]
@@ -349,11 +321,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
     if ext == "exe" {
         let result = open::that(canonical_path).map(|_| true).map_err(|e| format!("启动安装程序失败: {}", e));
         if result.is_ok() {
-            let temp_dir = std::env::temp_dir().join("campus-login-update");
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(30));
-                let _ = std::fs::remove_dir_all(&temp_dir);
-            });
+            schedule_update_cleanup();
         }
         result
     } else if ext == "msi" {
@@ -368,11 +336,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
                 .map(|_| true)
                 .map_err(|e| format!("启动MSI安装失败: {}", e));
             if result.is_ok() {
-                let temp_dir = std::env::temp_dir().join("campus-login-update");
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(30));
-                    let _ = std::fs::remove_dir_all(&temp_dir);
-                });
+                schedule_update_cleanup();
             }
             result
         }
@@ -384,11 +348,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
                 .map(|_| true)
                 .map_err(|e| format!("启动MSI安装失败: {}", e));
             if result.is_ok() {
-                let temp_dir = std::env::temp_dir().join("campus-login-update");
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(30));
-                    let _ = std::fs::remove_dir_all(&temp_dir);
-                });
+                schedule_update_cleanup();
             }
             result
         }
@@ -435,4 +395,113 @@ pub fn get_mirror_urls(github_url: String) -> Result<Vec<serde_json::Value>, Str
     ];
 
     Ok(mirrors)
+}
+
+pub fn start_update_check_loop(app_handle: &AppHandle) {
+    let app_h = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app_h.state::<AppState>();
+        let last_epoch = state.last_update_check_epoch_ms.load(Ordering::Acquire);
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let elapsed_secs = if last_epoch == 0 { UPDATE_CHECK_INTERVAL_SECS + 1 } else { (now_epoch - last_epoch) / 1000 };
+
+        if elapsed_secs >= UPDATE_CHECK_INTERVAL_SECS {
+            if let Ok(info) = check_update_inner().await {
+                if let Err(e) = app_h.emit("update-available", serde_json::json!({
+                    "has_update": info.has_update,
+                    "latest_version": info.latest_version,
+                    "release_notes": info.release_notes,
+                })) {
+                    crate::log_warn!("updater", "发送更新通知失败: {}", e);
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                state.last_update_check_epoch_ms.store(now, Ordering::Release);
+            }
+        }
+
+        let mut interval_timer = tokio::time::interval(std::time::Duration::from_secs(UPDATE_CHECK_INTERVAL_SECS));
+        interval_timer.tick().await;
+
+        loop {
+            interval_timer.tick().await;
+
+            if state.exit.is_quitting.load(Ordering::Acquire) {
+                break;
+            }
+
+            if let Ok(info) = check_update_inner().await {
+                if let Err(e) = app_h.emit("update-available", serde_json::json!({
+                    "has_update": info.has_update,
+                    "latest_version": info.latest_version,
+                    "release_notes": info.release_notes,
+                })) {
+                    crate::log_warn!("updater", "发送更新通知失败: {}", e);
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                state.last_update_check_epoch_ms.store(now, Ordering::Release);
+            }
+        }
+    });
+}
+
+async fn fetch_latest_release() -> Result<(bool, String, serde_json::Value), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+
+    let resp = client
+        .get(format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO))
+        .header("Accept", "application/vnd.github.v3+json")
+        .header("User-Agent", "CampusLogin-UpdateChecker")
+        .send()
+        .await
+        .map_err(|e| format!("请求GitHub API失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("GitHub API返回错误: {}", resp.status()));
+    }
+
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析GitHub响应失败: {}", e))?;
+
+    let latest_tag = data["tag_name"]
+        .as_str()
+        .unwrap_or("")
+        .replace("v", "");
+
+    if latest_tag.is_empty() {
+        return Err("无法获取最新版本号".to_string());
+    }
+
+    let current = env!("CARGO_PKG_VERSION");
+    let has_update = compare_versions(current, &latest_tag);
+
+    Ok((has_update, latest_tag, data))
+}
+
+async fn check_update_inner() -> Result<UpdateInfo, String> {
+    let (has_update, latest_tag, data) = fetch_latest_release().await?;
+    let release_notes = data["body"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    Ok(UpdateInfo {
+        has_update,
+        latest_version: latest_tag,
+        release_notes,
+        assets: vec![],
+        sha256_checksum: None,
+    })
 }

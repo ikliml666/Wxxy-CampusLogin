@@ -1,6 +1,6 @@
 [package]
 name = "campus-login"
-version = "2.1.5"
+version = "2.1.7"
 description = "校园网登录助手"
 authors = ["you"]
 edition = "2021"
@@ -28,7 +28,6 @@ tokio-rustls = { version = "0.26", features = ["ring"] }
 rustls-pki-types = "1"
 webpki-roots = "0.26"
 hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
-rand = "0.8"
 dirs = "6"
 lazy_static = "1.5"
 base64 = "0.22"
@@ -51,6 +50,9 @@ windows = { version = "0.58", features = [
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
     "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
 ] }
 
 [profile.release]

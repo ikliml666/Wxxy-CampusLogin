@@ -6,34 +6,31 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getRefreshIconClass } from '@/components/shared/RefreshButton'
 import {
-  Zap, Gauge, Server, Globe, RotateCcw, Radar,
+  Zap, Gauge, RotateCcw, Radar,
   RefreshCw, UserCircle, Check, X,
-  Plus, Activity, Settings2, Loader2
+  Plus, Activity, Settings2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getLatencyColor, extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
+import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
 import { m, Reorder } from 'framer-motion'
 import { containerVariants, itemVariants } from '@/lib/animations'
 import { QUALITY_CONFIG } from '@/constants'
 import { LatencyPair } from '@/components/shared/LatencyComponents'
 import { safeStorage } from '@/lib/utils'
+import { useAsyncLock } from '@/hooks/useAsyncLock'
 
-type CardId = 'quickActions' | 'accountManage' | 'networkQuality' | 'quickActionsMini' | 'accountManageMini' | 'networkQualityMini'
+type CardId = 'quickActions' | 'accountManage' | 'networkQuality'
 
 interface CardDef {
   id: CardId
   label: string
   icon: typeof Zap
-  half: boolean
 }
 
 const ALL_CARDS: CardDef[] = [
-  { id: 'quickActions', label: '快捷操作', icon: Zap, half: false },
-  { id: 'accountManage', label: '账号管理', icon: UserCircle, half: false },
-  { id: 'networkQuality', label: '网络质量', icon: Gauge, half: false },
-  { id: 'quickActionsMini', label: '快捷操作', icon: Zap, half: true },
-  { id: 'accountManageMini', label: '账号管理', icon: UserCircle, half: true },
-  { id: 'networkQualityMini', label: '网络质量', icon: Gauge, half: true },
+  { id: 'quickActions', label: '快捷操作', icon: Zap },
+  { id: 'accountManage', label: '账号管理', icon: UserCircle },
+  { id: 'networkQuality', label: '网络质量', icon: Gauge },
 ]
 
 const CARD_MAP = Object.fromEntries(ALL_CARDS.map(c => [c.id, c])) as Record<CardId, CardDef>
@@ -76,35 +73,15 @@ const QuickActionsCard = memo(function QuickActionsCard({ config, bgStatus, netw
   onDhcpRenew: () => Promise<void>; onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
   onUpdateConfig: (partial: Partial<Config>) => void; noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
-  const [isDhcpRenewing, setIsDhcpRenewing] = useState(false)
-  const dhcpLockRef = useRef(false)
-  const mountedRef = useRef(true)
-  useEffect(() => { return () => { mountedRef.current = false } }, [])
+  const [isDhcpRenewing, handleDhcpRenew] = useAsyncLock(async () => {
+    await onDhcpRenew()
+  }, 5000)
 
-  const handleDhcpRenew = useCallback(async () => {
-    if (dhcpLockRef.current) return
-    dhcpLockRef.current = true
-    setIsDhcpRenewing(true)
-    try { await onDhcpRenew() } finally {
-      setTimeout(() => { if (mountedRef.current) { dhcpLockRef.current = false; setIsDhcpRenewing(false) } }, 5000)
-    }
-  }, [onDhcpRenew])
-
-  const [isTogglingBgCheck, setIsTogglingBgCheck] = useState(false)
-  const bgCheckLockRef = useRef(false)
-
-  const handleToggleBgCheck = useCallback(async () => {
-    if (bgCheckLockRef.current) return
-    bgCheckLockRef.current = true
-    setIsTogglingBgCheck(true)
-    try {
-      const intervalSec = (config.backgroundCheckInterval || 60000) / 1000
-      if (onToggleBackgroundCheck) { await onToggleBackgroundCheck(!bgStatus.isRunning, intervalSec) }
-      else { onUpdateConfig({ enableBackgroundCheck: !config.enableBackgroundCheck }) }
-    } finally {
-      setTimeout(() => { if (mountedRef.current) { bgCheckLockRef.current = false; setIsTogglingBgCheck(false) } }, 1500)
-    }
-  }, [config.backgroundCheckInterval, config.enableBackgroundCheck, bgStatus.isRunning, onToggleBackgroundCheck, onUpdateConfig])
+  const [isTogglingBgCheck, handleToggleBgCheck] = useAsyncLock(async () => {
+    const intervalSec = (config.backgroundCheckInterval || 60000) / 1000
+    if (onToggleBackgroundCheck) { await onToggleBackgroundCheck(!bgStatus.isRunning, intervalSec) }
+    else { onUpdateConfig({ enableBackgroundCheck: !config.enableBackgroundCheck }) }
+  }, 1500)
 
   return (
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(['poor', 'bad'].includes(networkQuality?.quality ?? '') && 'border-glow-danger')}>
@@ -248,190 +225,6 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   )
 })
 
-const QuickActionsMiniCard = memo(function QuickActionsMiniCard({ config, bgStatus, onDhcpRenew, onToggleBackgroundCheck, onUpdateConfig, noAnimation, noEnterAnimation }: {
-  config: Config; bgStatus: { isRunning: boolean; checkCount: number }
-  onDhcpRenew: () => Promise<void>; onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
-  onUpdateConfig: (partial: Partial<Config>) => void; noAnimation?: boolean; noEnterAnimation?: boolean
-}) {
-  const [isDhcpRenewing, setIsDhcpRenewing] = useState(false)
-  const dhcpLockRef = useRef(false)
-  const mountedRef = useRef(true)
-  useEffect(() => { return () => { mountedRef.current = false } }, [])
-
-  const handleDhcpRenew = useCallback(async () => {
-    if (dhcpLockRef.current) return
-    dhcpLockRef.current = true
-    setIsDhcpRenewing(true)
-    try { await onDhcpRenew() } finally {
-      setTimeout(() => { if (mountedRef.current) { dhcpLockRef.current = false; setIsDhcpRenewing(false) } }, 5000)
-    }
-  }, [onDhcpRenew])
-
-  const [isTogglingBgCheck, setIsTogglingBgCheck] = useState(false)
-  const bgCheckLockRef = useRef(false)
-
-  const handleToggleBgCheck = useCallback(async () => {
-    if (bgCheckLockRef.current) return
-    bgCheckLockRef.current = true
-    setIsTogglingBgCheck(true)
-    try {
-      const intervalSec = (config.backgroundCheckInterval || 60000) / 1000
-      if (onToggleBackgroundCheck) { await onToggleBackgroundCheck(!bgStatus.isRunning, intervalSec) }
-      else { onUpdateConfig({ enableBackgroundCheck: !config.enableBackgroundCheck }) }
-    } finally {
-      setTimeout(() => { if (mountedRef.current) { bgCheckLockRef.current = false; setIsTogglingBgCheck(false) } }, 1500)
-    }
-  }, [config.backgroundCheckInterval, config.enableBackgroundCheck, bgStatus.isRunning, onToggleBackgroundCheck, onUpdateConfig])
-
-  return (
-    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className="h-full min-h-[160px]">
-      <CardContent className="p-4 h-full flex flex-col">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Zap className="h-4 w-4 text-primary" />
-          </div>
-          <span className="text-xs font-medium">快捷操作</span>
-        </div>
-        <div className="flex-1 flex flex-col gap-2">
-          <Button variant="outline" size="sm" className="h-9 text-[11px] justify-start gap-2" onClick={handleDhcpRenew} disabled={isDhcpRenewing}>
-            <RotateCcw className={cn('h-3.5 w-3.5 text-blue-500', isDhcpRenewing && 'animate-spin')} />
-            <span className="truncate">{isDhcpRenewing ? '续租中...' : 'DHCP续租'}</span>
-          </Button>
-          <Button variant="outline" size="sm" className={cn('h-9 text-[11px] justify-start gap-2', bgStatus.isRunning && 'border-emerald-500/30')} onClick={handleToggleBgCheck} disabled={isTogglingBgCheck}>
-            <Radar className={cn('h-3.5 w-3.5', bgStatus.isRunning ? 'text-emerald-500' : 'text-muted-foreground', isTogglingBgCheck && 'animate-pulse')} />
-            <span className="truncate">{isTogglingBgCheck ? '切换中...' : bgStatus.isRunning ? '关闭检测' : '开启检测'}</span>
-          </Button>
-        </div>
-      </CardContent>
-    </AnimatedCard>
-  )
-})
-
-const AccountManageMiniCard = memo(function AccountManageMiniCard({ accounts, activeAccount, onSwitchAccount, noAnimation, noEnterAnimation }: {
-  accounts: string[]; activeAccount: string; onSwitchAccount: (name: string) => Promise<any>; noAnimation?: boolean; noEnterAnimation?: boolean
-}) {
-  const [switchingTo, setSwitchingTo] = useState<string | null>(null)
-  const mountedRef = useRef(true)
-  useEffect(() => { return () => { mountedRef.current = false } }, [])
-
-  const others = useMemo(() => accounts.filter(a => a !== activeAccount), [accounts, activeAccount])
-
-  const handleSwitch = useCallback(async (name: string) => {
-    setSwitchingTo(name)
-    try { await onSwitchAccount(name) } finally {
-      setTimeout(() => { if (mountedRef.current) setSwitchingTo(null) }, 500)
-    }
-  }, [onSwitchAccount])
-
-  return (
-    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className="h-full min-h-[160px]">
-      <CardContent className="p-4 h-full flex flex-col">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <UserCircle className="h-4 w-4 text-primary" />
-          </div>
-          <span className="text-xs font-medium">账号管理</span>
-        </div>
-        <div className="flex-1 min-h-0">
-          {activeAccount ? (
-            <div className="flex items-center gap-1.5 mb-1.5 px-1.5 py-1 rounded-lg bg-primary/5">
-              <Check className="h-2.5 w-2.5 text-primary shrink-0" />
-              <span className="text-[10px] font-medium truncate">{activeAccount}</span>
-              <Badge variant="default" className="text-[8px] h-3 px-1 ml-auto shrink-0">当前</Badge>
-            </div>
-          ) : (
-            <div className="text-[10px] text-muted-foreground mb-1.5">未选择账号</div>
-          )}
-          {others.length > 0 ? (
-            <div className="space-y-1">
-              {others.slice(0, 2).map(name => (
-                <button key={name} onClick={() => handleSwitch(name)} disabled={switchingTo !== null}
-                  className="flex items-center justify-between w-full px-1.5 py-1 rounded-lg bg-muted/40 hover:bg-muted/70 transition-colors text-left disabled:opacity-50">
-                  <span className="text-[10px] text-muted-foreground truncate">{name}</span>
-                  {switchingTo === name ? <span className="text-[8px] text-primary shrink-0">切换中</span> : <span className="text-[8px] text-muted-foreground shrink-0">切换</span>}
-                </button>
-              ))}
-              {others.length > 2 && <span className="text-[9px] text-muted-foreground">+{others.length - 2} 个</span>}
-            </div>
-          ) : (
-            <div className="text-[10px] text-muted-foreground/50 text-center py-1">无其他账号</div>
-          )}
-        </div>
-      </CardContent>
-    </AnimatedCard>
-  )
-})
-
-const NetworkQualityMiniCard = memo(function NetworkQualityMiniCard({ networkQuality, isRefreshingQuality, onRefreshQuality, noAnimation, noEnterAnimation }: {
-  networkQuality: NetworkQuality | null; isRefreshingQuality: boolean; onRefreshQuality?: () => Promise<void>; noAnimation?: boolean; noEnterAnimation?: boolean
-}) {
-  const qualityConfig = useMemo(() => {
-    if (!networkQuality) return QUALITY_CONFIG.unknown
-    return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown
-  }, [networkQuality])
-
-  return (
-    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className="h-full min-h-[160px]">
-      <CardContent className="p-4 h-full flex flex-col">
-        <div className="flex items-center gap-2 mb-3">
-          <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', qualityConfig?.bg ?? 'bg-muted')}>
-            <Gauge className={cn('h-4 w-4', qualityConfig?.color ?? 'text-muted-foreground')} />
-          </div>
-          <span className="text-xs font-medium">网络质量</span>
-          <Badge variant="outline" className={cn('text-[9px] h-4 px-1.5 ml-auto', qualityConfig?.color ?? 'text-muted-foreground')}>
-            {qualityConfig?.label ?? '未知'}
-          </Badge>
-        </div>
-        <div className="flex-1 flex flex-col gap-2">
-          {networkQuality && networkQuality.quality !== 'unknown' ? (
-            <>
-              {(() => {
-                const gwLat = extractGatewayLatency(networkQuality)
-                const extLat = extractExternalLatency(networkQuality)
-                const gwColor = getLatencyColor(gwLat)
-                const extColor = getLatencyColor(extLat)
-                return (
-                  <>
-                    <div className={cn('flex items-center justify-between px-1.5 py-1 rounded-lg', gwColor.bg)}>
-                      <div className="flex items-center gap-1.5">
-                        <Server className="h-2.5 w-2.5 text-muted-foreground" />
-                        <span className="text-[10px] text-muted-foreground">内网</span>
-                      </div>
-                      <span className={cn('text-[11px] font-mono font-semibold', gwLat >= 0 ? gwColor.text : 'text-rose-500')}>
-                        {gwLat >= 0 ? `${gwLat}ms` : '超时'}
-                      </span>
-                    </div>
-                    <div className={cn('flex items-center justify-between px-1.5 py-1 rounded-lg', extColor.bg)}>
-                      <div className="flex items-center gap-1.5">
-                        <Globe className="h-2.5 w-2.5 text-muted-foreground" />
-                        <span className="text-[10px] text-muted-foreground">外网</span>
-                      </div>
-                      <span className={cn('text-[11px] font-mono font-semibold', extLat >= 0 ? extColor.text : 'text-rose-500')}>
-                        {extLat >= 0 ? `${extLat}ms` : '超时'}
-                      </span>
-                    </div>
-                  </>
-                )
-              })()}
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center gap-1.5">
-              <Loader2 className="h-3 w-3 animate-spin text-primary/50" />
-              <span className="text-[10px] text-muted-foreground">检测中...</span>
-            </div>
-          )}
-          {onRefreshQuality && (
-            <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1 w-full" onClick={onRefreshQuality} disabled={isRefreshingQuality}>
-              <RefreshCw className={getRefreshIconClass(isRefreshingQuality, 'h-2.5 w-2.5')} />
-              刷新
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </AnimatedCard>
-  )
-})
-
 function renderCard(id: CardId, props: DashboardPanelProps, editing: boolean) {
   const noAnim = editing
   const noEnter = !editing
@@ -442,12 +235,6 @@ function renderCard(id: CardId, props: DashboardPanelProps, editing: boolean) {
       return <AccountManageCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'networkQuality':
       return <NetworkQualityCard networkQuality={props.networkQuality} isRefreshingQuality={props.isRefreshingQuality} onRefreshQuality={props.onRefreshQuality} noAnimation={noAnim} noEnterAnimation={noEnter} />
-    case 'quickActionsMini':
-      return <QuickActionsMiniCard config={props.config} bgStatus={props.bgStatus} onDhcpRenew={props.onDhcpRenew} onToggleBackgroundCheck={props.onToggleBackgroundCheck} onUpdateConfig={props.onUpdateConfig} noAnimation={noAnim} noEnterAnimation={noEnter} />
-    case 'accountManageMini':
-      return <AccountManageMiniCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
-    case 'networkQualityMini':
-      return <NetworkQualityMiniCard networkQuality={props.networkQuality} isRefreshingQuality={props.isRefreshingQuality} onRefreshQuality={props.onRefreshQuality} noAnimation={noAnim} noEnterAnimation={noEnter} />
   }
 }
 
@@ -468,39 +255,17 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
   const availableCards = useMemo(() => {
     const base = ALL_CARDS.filter(c => !cards.includes(c.id))
     if (props.config.enableNetworkQuality === false) {
-      return base.filter(c => !c.id.startsWith('networkQuality'))
+      return base.filter(c => c.id !== 'networkQuality')
     }
     return base
   }, [cards, props.config.enableNetworkQuality])
 
   const visibleCards = useMemo(() => {
     if (props.config.enableNetworkQuality === false) {
-      return cards.filter(id => !id.startsWith('networkQuality'))
+      return cards.filter(id => id !== 'networkQuality')
     }
     return cards
   }, [cards, props.config.enableNetworkQuality])
-
-  const rows = useMemo(() => {
-    const source = visibleCards
-    const result: CardId[][] = []
-    let i = 0
-    while (i < source.length) {
-      const def = CARD_MAP[source[i]]
-      if (def.half) {
-        if (i + 1 < source.length && CARD_MAP[source[i + 1]].half) {
-          result.push([source[i], source[i + 1]])
-          i += 2
-        } else {
-          result.push([source[i]])
-          i += 1
-        }
-      } else {
-        result.push([source[i]])
-        i += 1
-      }
-    }
-    return result
-  }, [visibleCards])
 
   return (
     <div className="space-y-3">
@@ -525,7 +290,6 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/50 hover:bg-muted text-[11px] font-medium transition-colors">
                     <Icon className="h-3 w-3" />
                     {c.label}
-                    {c.half && <span className="text-[9px] text-muted-foreground">半宽</span>}
                   </button>
                 )
               })}
@@ -566,18 +330,11 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
         </Reorder.Group>
       ) : (
         <m.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-3">
-          {rows.map((row, rowIdx) => {
-            const isHalfRow = row.length === 2 || (row.length === 1 && CARD_MAP[row[0]].half)
-            return (
-              <div key={rowIdx} className={cn(isHalfRow && 'grid grid-cols-2 gap-3')}>
-                {row.map(id => (
-                  <m.div key={id} variants={itemVariants} className="relative group">
-                    {renderCard(id, props, editing)}
-                  </m.div>
-                ))}
-              </div>
-            )
-          })}
+          {visibleCards.map(id => (
+            <m.div key={id} variants={itemVariants} className="relative group">
+              {renderCard(id, props, editing)}
+            </m.div>
+          ))}
         </m.div>
       )}
 

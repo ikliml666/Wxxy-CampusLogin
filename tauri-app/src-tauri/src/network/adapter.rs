@@ -1,18 +1,18 @@
-use std::time::Instant;
-use std::sync::Arc;
 use regex::Regex;
 use serde::Serialize;
 use lazy_static::lazy_static;
-
-use super::cache::{NET_CACHE, CACHE_TTL_MS, get_cached_adapters, set_adapters_cache};
+use parking_lot::Mutex;
+use std::time::Instant;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
 lazy_static! {
-    pub(crate) static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|virtual|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|nat|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|(?:#|[*])\s*\d+$").unwrap();
-    static ref DEFAULT_GW_RE: Regex = Regex::new(r"(?i)default\s+gateway[:\s]+(\d+\.\d+\.\d+\.\d+)").unwrap();
+    pub(crate) static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|virtual|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|nat|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|(?:#|[*])\s*\d+$|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|tor|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp").unwrap();
+    static ref ADAPTER_CACHE: Mutex<Option<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant)>> = Mutex::new(None);
 }
+
+const ADAPTER_CACHE_TTL_SECS: u64 = 5;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +20,7 @@ pub struct Adapter {
     pub name: String,
     pub ip: String,
     pub wireless: bool,
+    pub guid: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,7 +49,7 @@ pub(crate) fn new_command(program: &str) -> std::process::Command {
     cmd
 }
 
-fn is_blacklisted(name: &str) -> bool {
+pub fn is_blacklisted(name: &str) -> bool {
     BL_REGEX.is_match(name)
 }
 
@@ -128,7 +129,7 @@ fn parse_adapter_addresses(
     if_type_ethernet: u32,
     if_type_wireless: u32,
 ) -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
-    use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, IfOperStatusDown};
+    use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, IfOperStatusNotPresent};
     use windows::Win32::Networking::WinSock::*;
 
     let mut adapters = Vec::new();
@@ -140,6 +141,23 @@ fn parse_adapter_addresses(
         let addr = unsafe { &*current };
 
         let name = unsafe { read_pwstr(addr.FriendlyName) };
+
+        let guid_raw = unsafe {
+            if addr.AdapterName.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(addr.AdapterName.0 as *const i8)
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        };
+        let guid = if guid_raw.starts_with('{') {
+            guid_raw
+        } else if !guid_raw.is_empty() {
+            format!("{{{}}}", guid_raw)
+        } else {
+            guid_raw
+        };
 
         let if_type = addr.IfType;
         if if_type != if_type_ethernet && if_type != if_type_wireless {
@@ -178,43 +196,46 @@ fn parse_adapter_addresses(
                 ip.clear();
             }
 
-            let mut gateway = String::new();
-            let mut ga = addr.FirstGatewayAddress;
-            while !ga.is_null() {
-                let g = unsafe { &*ga };
-                let sa = unsafe { &*g.Address.lpSockaddr };
-                if sa.sa_family == AF_INET {
-                    let sin = unsafe { &*(g.Address.lpSockaddr as *const SOCKADDR_IN) };
-                    gateway = unsafe { ipv4_from_in_addr(sin.sin_addr) };
-                    break;
-                }
-                ga = g.Next;
-            }
-
-            let mut dhcp_server = String::new();
-            let dhcp_sa = addr.Dhcpv4Server;
-            if !dhcp_sa.lpSockaddr.is_null() {
-                let sa = unsafe { &*dhcp_sa.lpSockaddr };
-                if sa.sa_family == AF_INET {
-                    let sin = unsafe { &*(dhcp_sa.lpSockaddr as *const SOCKADDR_IN) };
-                    dhcp_server = unsafe { ipv4_from_in_addr(sin.sin_addr) };
-                }
-            }
-
-            adapters.push(Adapter { name: name.clone(), ip: ip.clone(), wireless: is_wireless });
-            details.push(AdapterDetail {
-                name,
-                ip,
-                wireless: is_wireless,
-                subnet_mask: prefix_len_to_mask(prefix_len as u32),
-                gateway,
-                dhcp_server,
-            });
-        } else {
-            let status = if addr.OperStatus == IfOperStatusDown {
-                "未连接"
+            if ip.is_empty() {
             } else {
+                let mut gateway = String::new();
+                let mut ga = addr.FirstGatewayAddress;
+                while !ga.is_null() {
+                    let g = unsafe { &*ga };
+                    let sa = unsafe { &*g.Address.lpSockaddr };
+                    if sa.sa_family == AF_INET {
+                        let sin = unsafe { &*(g.Address.lpSockaddr as *const SOCKADDR_IN) };
+                        gateway = unsafe { ipv4_from_in_addr(sin.sin_addr) };
+                        break;
+                    }
+                    ga = g.Next;
+                }
+
+                let mut dhcp_server = String::new();
+                let dhcp_sa = addr.Dhcpv4Server;
+                if !dhcp_sa.lpSockaddr.is_null() {
+                    let sa = unsafe { &*dhcp_sa.lpSockaddr };
+                    if sa.sa_family == AF_INET {
+                        let sin = unsafe { &*(dhcp_sa.lpSockaddr as *const SOCKADDR_IN) };
+                        dhcp_server = unsafe { ipv4_from_in_addr(sin.sin_addr) };
+                    }
+                }
+
+                adapters.push(Adapter { name: name.clone(), ip: ip.clone(), wireless: is_wireless, guid: guid.clone() });
+                details.push(AdapterDetail {
+                    name,
+                    ip,
+                    wireless: is_wireless,
+                    subnet_mask: prefix_len_to_mask(prefix_len as u32),
+                    gateway,
+                    dhcp_server,
+                });
+            }
+        } else {
+            let status = if addr.OperStatus == IfOperStatusNotPresent {
                 "已禁用"
+            } else {
+                "未连接"
             };
             disabled.push(DisabledAdapter {
                 name,
@@ -258,40 +279,44 @@ unsafe fn ipv4_from_in_addr(addr: windows::Win32::Networking::WinSock::IN_ADDR) 
     std::net::Ipv4Addr::from(addr).to_string()
 }
 
-pub fn get_all_adapters_cached() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
-    if let Some((adapters, details, disabled)) = get_cached_adapters() {
-        return Ok(((*adapters).clone(), (*details).clone(), (*disabled).clone()));
+fn query_adapters_cached_inner() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
+    {
+        let cache = ADAPTER_CACHE.lock();
+        if let Some((adapters, details, disabled, ts)) = cache.as_ref() {
+            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                return Ok((adapters.clone(), details.clone(), disabled.clone()));
+            }
+        }
     }
-    let (adapters, details, disabled) = query_adapters_addresses()?;
-    set_adapters_cache(adapters.clone(), details.clone(), disabled.clone());
-    Ok((adapters, details, disabled))
+    let result = query_adapters_addresses()?;
+    {
+        let mut cache = ADAPTER_CACHE.lock();
+        *cache = Some((result.0.clone(), result.1.clone(), result.2.clone(), Instant::now()));
+    }
+    Ok(result)
+}
+
+pub fn get_all_adapters_cached() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
+    query_adapters_cached_inner()
 }
 
 pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
-    if let Some((adapters, _, _)) = get_cached_adapters() {
-        return Ok((*adapters).clone());
-    }
-    let (adapters, details, disabled) = query_adapters_addresses()?;
-    set_adapters_cache(adapters.clone(), details, disabled);
+    let (adapters, _, _) = query_adapters_cached_inner()?;
     Ok(adapters)
 }
 
 pub fn get_disabled_adapters_cached() -> Result<Vec<DisabledAdapter>, String> {
-    if let Some((_, _, disabled)) = get_cached_adapters() {
-        return Ok((*disabled).clone());
-    }
-    let (adapters, details, disabled) = query_adapters_addresses()?;
-    set_adapters_cache(adapters, details, disabled.clone());
+    let (_, _, disabled) = query_adapters_cached_inner()?;
     Ok(disabled)
 }
 
 pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
-    super::cache::clear_adapter_cache_only();
+    ADAPTER_CACHE.lock().take();
     get_adapters_cached()
 }
 
 pub fn get_disabled_adapters_force() -> Result<Vec<DisabledAdapter>, String> {
-    super::cache::clear_adapter_cache_only();
+    ADAPTER_CACHE.lock().take();
     get_disabled_adapters_cached()
 }
 
@@ -314,16 +339,11 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("启用适配器失败: {}", stderr.trim()));
     }
-    super::cache::clear_adapter_cache();
     Ok(())
 }
 
 pub fn get_adapter_details_cached() -> Result<Vec<AdapterDetail>, String> {
-    if let Some((_, details, _)) = get_cached_adapters() {
-        return Ok((*details).clone());
-    }
-    let (adapters, details, disabled) = query_adapters_addresses()?;
-    set_adapters_cache(adapters, details.clone(), disabled);
+    let (_, details, _) = query_adapters_cached_inner()?;
     Ok(details)
 }
 
@@ -367,72 +387,23 @@ pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (
     (String::new(), String::new())
 }
 
-pub fn get_gateway_ip_cached(adapter_name: &str, adapter_ip: &str) -> Result<String, String> {
-    {
-        let cache_arc = NET_CACHE.gateway.load();
-        if let Some(entry) = cache_arc.as_ref() {
-            if entry.adapter_name == adapter_name && entry.time.elapsed().as_millis() < CACHE_TTL_MS as u128 {
-                return Ok(entry.gateway.clone());
-            }
-        }
-    }
-
+pub fn get_gateway_ip(adapter_name: &str, adapter_ip: &str) -> Result<String, String> {
     if let Ok(details) = get_adapter_details_cached() {
         if let Some(d) = details.iter().find(|d| d.name == adapter_name) {
             if !d.gateway.is_empty() {
-                NET_CACHE.gateway.store(Arc::new(Some(super::cache::GatewayCacheEntry {
-                    time: Instant::now(),
-                    gateway: d.gateway.clone(),
-                    adapter_name: adapter_name.to_string(),
-                })));
                 return Ok(d.gateway.clone());
             }
         }
     }
 
-    let mut gateway = None;
-
     if !adapter_ip.is_empty() {
-        if let Ok(output) = new_command("cmd")
-            .args(["/C", "chcp 437 >nul & ipconfig"])
-            .output()
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let sections: Vec<&str> = stdout.split('\n').collect();
-            let mut in_section = false;
-            for line in &sections {
-                if line.contains(adapter_ip) { in_section = true; }
-                if in_section {
-                    if let Some(caps) = DEFAULT_GW_RE.captures(line) {
-                        gateway = Some(caps[1].to_string());
-                        break;
-                    }
-                }
-            }
-            if gateway.is_none() {
-                if let Some(caps) = DEFAULT_GW_RE.captures(&stdout) {
-                    gateway = Some(caps[1].to_string());
-                }
-            }
-        }
-    }
-
-    if gateway.is_none() && !adapter_ip.is_empty() {
         let parts: Vec<&str> = adapter_ip.split('.').collect();
         if parts.len() == 4 {
-            gateway = Some(format!("{}.{}.{}.1", parts[0], parts[1], parts[2]));
+            return Ok(format!("{}.{}.{}.1", parts[0], parts[1], parts[2]));
         }
     }
 
-    if let Some(ref gw) = gateway {
-        NET_CACHE.gateway.store(Arc::new(Some(super::cache::GatewayCacheEntry {
-            time: Instant::now(),
-            gateway: gw.clone(),
-            adapter_name: adapter_name.to_string(),
-        })));
-    }
-
-    gateway.ok_or_else(|| "未找到网关".to_string())
+    Err("未找到网关".to_string())
 }
 
 fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
@@ -462,12 +433,11 @@ pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
             "success": success
         }));
     }
-    super::cache::clear_adapter_cache();
     Ok(results)
 }
 
 pub fn wait_for_adapter(max_wait_ms: u64, is_quitting: &std::sync::atomic::AtomicBool) -> Result<Vec<Adapter>, String> {
-    let start = Instant::now();
+    let start = std::time::Instant::now();
     let mut delay_ms: u64 = 1000;
 
     while start.elapsed().as_millis() < max_wait_ms as u128 {

@@ -1,7 +1,7 @@
 import type { ThemeName, Config } from '@/types'
 
 export const MAX_LOG_ENTRIES = 300
-export const APP_VERSION = '2.1.5'
+export const APP_VERSION = '2.1.7'
 export const APP_NAME = '校园网登录助手'
 
 export const DEFAULT_CONFIG: Config = {
@@ -68,13 +68,13 @@ export const THEME_OPTIONS = [
 ] as const
 
 export const QUALITY_CONFIG = {
-  excellent: { label: '极速', color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: 'Zap' },
-  great:    { label: '优秀', color: 'text-sky-500',    bg: 'bg-sky-500/10',    border: 'border-sky-500/20',    icon: 'Zap' },
-  good:     { label: '良好', color: 'text-blue-500',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   icon: 'Activity' },
-  fair:     { label: '一般', color: 'text-amber-500',  bg: 'bg-amber-500/10',  border: 'border-amber-500/20',  icon: 'Activity' },
-  poor:     { label: '较慢', color: 'text-orange-500', bg: 'bg-orange-500/10', border: 'border-orange-500/20', icon: 'AlertTriangle' },
-  bad:      { label: '拥堵', color: 'text-rose-500',   bg: 'bg-rose-500/10',   border: 'border-rose-500/20',   icon: 'AlertTriangle' },
-  unknown:  { label: '未知', color: 'text-muted-foreground', bg: 'bg-muted', border: 'border-border', icon: 'HelpCircle' },
+  excellent: { label: '极速', color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', borderBg: 'bg-emerald-500/20', icon: 'Zap' },
+  great:    { label: '优秀', color: 'text-sky-500',    bg: 'bg-sky-500/10',    border: 'border-sky-500/20',    borderBg: 'bg-sky-500/20',    icon: 'Zap' },
+  good:     { label: '良好', color: 'text-blue-500',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   borderBg: 'bg-blue-500/20',   icon: 'Activity' },
+  fair:     { label: '一般', color: 'text-amber-500',  bg: 'bg-amber-500/10',  border: 'border-amber-500/20',  borderBg: 'bg-amber-500/20',  icon: 'Activity' },
+  poor:     { label: '较慢', color: 'text-orange-500', bg: 'bg-orange-500/10', border: 'border-orange-500/20', borderBg: 'bg-orange-500/20', icon: 'AlertTriangle' },
+  bad:      { label: '拥堵', color: 'text-rose-500',   bg: 'bg-rose-500/10',   border: 'border-rose-500/20',   borderBg: 'bg-rose-500/20',   icon: 'AlertTriangle' },
+  unknown:  { label: '未知', color: 'text-muted-foreground', bg: 'bg-muted', border: 'border-border', borderBg: 'bg-muted', icon: 'HelpCircle' },
 } as const
 
 export const VALID_THEMES: ThemeName[] = ['default', 'vibrant', 'forest', 'midnight', 'ocean', 'cherry', 'custom']

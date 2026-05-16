@@ -45,3 +45,4 @@ pub use login::full_login_inner;
 pub use background::{run_background_check, run_startup_tasks};
 pub use auto_exit::{start_auto_exit, cancel_auto_exit_inner};
 pub use adapter_watch::start_adapter_watch;
+pub use updater::start_update_check_loop;

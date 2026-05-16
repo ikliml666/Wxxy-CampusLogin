@@ -20,7 +20,9 @@ interface AboutDialogProps {
   open: boolean
   onClose: () => void
   openExternal?: (url: string) => void
-  onUpdateAvailable?: (hasUpdate: boolean, latestVersion?: string) => void
+  onUpdateAvailable?: (hasUpdate: boolean, latestVersion?: string, releaseNotes?: string) => void
+  initialLatestVersion?: string
+  initialReleaseNotes?: string
 }
 
 const GITHUB_REPO = 'ikliml666/Wxxy-CampusLogin'
@@ -40,7 +42,7 @@ function formatSpeed(bytesPerSec: number): string {
   return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`
 }
 
-export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvailable }: AboutDialogProps) {
+export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvailable, initialLatestVersion, initialReleaseNotes }: AboutDialogProps) {
   const api = useIpc()
   const [checking, setChecking] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
@@ -49,7 +51,19 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
   const [mirrors, setMirrors] = useState<MirrorSource[]>([])
   const [downloadError, setDownloadError] = useState('')
   const [downloadedFile, setDownloadedFile] = useState('')
+  const [checkError, setCheckError] = useState('')
   const unlistenRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    if (isOpen && initialLatestVersion && !updateInfo) {
+      setUpdateInfo({
+        has_update: true,
+        latest_version: initialLatestVersion,
+        release_notes: initialReleaseNotes || '',
+        assets: [],
+      })
+    }
+  }, [isOpen, initialLatestVersion, initialReleaseNotes, updateInfo])
 
   useEffect(() => {
     return () => {
@@ -60,15 +74,17 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
   const handleCheckUpdate = useCallback(async () => {
     setChecking(true)
     setUpdateInfo(null)
+    setCheckError('')
     setDownloadState('idle')
     try {
       const info = await api.checkUpdate()
       setUpdateInfo(info)
       if (onUpdateAvailable) {
-        onUpdateAvailable(info.has_update, info.latest_version)
+        onUpdateAvailable(info.has_update, info.latest_version, info.release_notes)
       }
-    } catch {
+    } catch (e: any) {
       setUpdateInfo(null)
+      setCheckError(e?.toString?.() || '检查更新失败，请检查网络连接')
     }
     setChecking(false)
   }, [api, onUpdateAvailable])
@@ -150,6 +166,22 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             校园网自动登录工具，支持双适配器同时在线、多账号管理、后台状态监控与断线重连、网络质量实时检测等功能。轻量高效，开箱即用。
           </p>
           <Separator />
+          <div>
+            <div className="text-xs font-medium text-muted-foreground mb-2">更新日志</div>
+            <div className="text-xs text-muted-foreground/80 space-y-1.5 max-h-40 overflow-y-auto bg-muted/20 rounded-lg p-3">
+              <div>
+                <span className="text-primary font-medium">v{APP_VERSION}</span>
+                <ul className="ml-3 mt-1 space-y-0.5 list-disc list-outside">
+                  <li>新增一键优化DNS：自动设置阿里DNS(首选)+腾讯DNS(备选)并启用DoH加密</li>
+                  <li>修复 DoH 检测：支持识别中国 DNS（阿里/腾讯）的 DoH 状态</li>
+                  <li>启动时自动检测 DNS 配置</li>
+                  <li>修复开机自启不自动登录：增加网络就绪等待和重试机制</li>
+                  <li>优化网络质量检测 HTTPS 超时时间</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <Separator />
           <div className="space-y-3">
             <Button
               variant="outline"
@@ -177,7 +209,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     updateInfo.has_update
                       ? <>发现新版本 <span className="font-semibold">v{updateInfo.latest_version}</span></>
                       : <span className="text-emerald-600">✓ 已是最新版本</span>
-                  ) : '检查更新'}
+                  ) : checkError ? <span className="text-destructive">{checkError}</span> : '检查更新'}
                 </span>
               </Button>
             </div>
@@ -185,37 +217,50 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             {updateInfo?.has_update && downloadState === 'idle' && (
               <div className="space-y-2">
                 {updateInfo.release_notes && (
-                  <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3 max-h-32 overflow-y-auto whitespace-pre-wrap">
-                    {updateInfo.release_notes.slice(0, 500)}
+                  <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                    {updateInfo.release_notes.slice(0, 800)}
+                    {updateInfo.release_notes.length > 800 && '...'}
                   </div>
                 )}
-                {windowsAsset && (
+                {windowsAsset ? (
+                  <>
+                    <Button
+                      variant="default"
+                      className="w-full justify-center gap-2 h-10"
+                      onClick={() => handleSelectAsset(windowsAsset.url)}
+                    >
+                      <Download className="h-4 w-4" />
+                      下载安装包 v{updateInfo.latest_version}
+                      <span className="text-[10px] opacity-70">({formatSize(windowsAsset.size)})</span>
+                    </Button>
+                    {otherAssets.length > 0 && (
+                      <div className="space-y-1">
+                        {otherAssets.map(a => (
+                          <Button
+                            key={a.name}
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-start gap-2 text-xs h-8"
+                            onClick={() => handleSelectAsset(a.url)}
+                          >
+                            <Download className="h-3 w-3" />
+                            {a.name}
+                            <span className="text-muted-foreground ml-auto">{formatSize(a.size)}</span>
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
                   <Button
                     variant="default"
                     className="w-full justify-center gap-2 h-10"
-                    onClick={() => handleSelectAsset(windowsAsset.url)}
+                    onClick={handleCheckUpdate}
+                    disabled={checking}
                   >
                     <Download className="h-4 w-4" />
-                    下载安装包 v{updateInfo.latest_version}
-                    <span className="text-[10px] opacity-70">({formatSize(windowsAsset.size)})</span>
+                    {checking ? '获取下载链接中...' : '获取下载链接'}
                   </Button>
-                )}
-                {otherAssets.length > 0 && (
-                  <div className="space-y-1">
-                    {otherAssets.map(a => (
-                      <Button
-                        key={a.name}
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start gap-2 text-xs h-8"
-                        onClick={() => handleSelectAsset(a.url)}
-                      >
-                        <Download className="h-3 w-3" />
-                        {a.name}
-                        <span className="text-muted-foreground ml-auto">{formatSize(a.size)}</span>
-                      </Button>
-                    ))}
-                  </div>
                 )}
               </div>
             )}
