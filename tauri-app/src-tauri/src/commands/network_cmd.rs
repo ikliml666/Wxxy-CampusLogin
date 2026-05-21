@@ -13,7 +13,7 @@ use crate::network::{
 use super::state::{AppState, CommandResult};
 
 #[cfg(target_os = "windows")]
-fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
+pub(crate) fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::core::PCWSTR;
 
@@ -97,9 +97,15 @@ pub async fn dhcp_renew_all() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn dhcp_release_renew() -> Result<serde_json::Value, String> {
+pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    let campus_gateway = {
+        let state = app_handle.state::<AppState>();
+        let config = state.config.load();
+        let gw = config.campus_gateway.clone();
+        if gw.is_empty() { crate::config::default_campus_gateway() } else { gw }
+    };
     tauri::async_runtime::spawn_blocking(move || {
-        let results = dhcp_release_renew_all()?;
+        let results = dhcp_release_renew_all(&campus_gateway)?;
         Ok(serde_json::json!({ "success": true, "results": results }))
     }).await.map_err(|e| e.to_string())?
 }

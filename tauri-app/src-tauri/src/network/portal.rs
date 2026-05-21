@@ -26,7 +26,7 @@ pub struct PortalStatus {
 
 /// 检测 Portal 状态。当传入凭据时，Portal 可能执行登录操作；
 /// 传入 None 则仅检测在线状态，不触发登录。
-pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>, operator: Option<&str>) -> Result<PortalStatus, String> {
+pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>, _operator: Option<&str>) -> Result<PortalStatus, String> {
     let t0 = std::time::Instant::now();
     let portal_url = PORTAL_URL.load().clone();
     let local_addr = if !adapter_ip.is_empty() {

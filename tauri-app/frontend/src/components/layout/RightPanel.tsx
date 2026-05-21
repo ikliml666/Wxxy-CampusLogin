@@ -47,12 +47,12 @@ function getAdapterInfo(
   adapterName: string | undefined,
   adapterDetails: AdapterDetail[],
   adapters: Adapter[]
-): { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string } | null {
+): { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string; mac: string } | null {
   if (adapterName && adapterName !== '自动检测') {
     const detail = adapterDetails.find(a => a.name === adapterName)
     if (detail) return detail
     const adapter = adapters.find(a => a.name === adapterName)
-    if (adapter) return { name: adapter.name, ip: adapter.ip, wireless: adapter.wireless, subnetMask: '', gateway: '', dhcpServer: '' }
+    if (adapter) return { name: adapter.name, ip: adapter.ip, wireless: adapter.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: '' }
     return null
   }
   const wired = adapterDetails.find(a => !a.wireless && a.ip)
@@ -60,9 +60,9 @@ function getAdapterInfo(
   const first = adapterDetails.find(a => a.ip)
   if (first) return first
   const fallbackWired = adapters.find(a => !a.wireless && a.ip)
-  if (fallbackWired) return { name: fallbackWired.name, ip: fallbackWired.ip, wireless: fallbackWired.wireless, subnetMask: '', gateway: '', dhcpServer: '' }
+  if (fallbackWired) return { name: fallbackWired.name, ip: fallbackWired.ip, wireless: fallbackWired.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: '' }
   const fallbackAny = adapters.find(a => a.ip)
-  if (fallbackAny) return { name: fallbackAny.name, ip: fallbackAny.ip, wireless: fallbackAny.wireless, subnetMask: '', gateway: '', dhcpServer: '' }
+  if (fallbackAny) return { name: fallbackAny.name, ip: fallbackAny.ip, wireless: fallbackAny.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: '' }
   return null
 }
 
@@ -91,7 +91,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterD
   }, [logs.length])
 
   const displayAdapters = useMemo(() => {
-    const result: { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string }[] = []
+    const result: { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string; mac: string }[] = []
     const primary = getAdapterInfo(config?.adapter1, adapterDetails, adapters)
     if (primary) result.push(primary)
     const dualEnabled = config?.dualAdapter && config?.adapter2 && config.adapter2 !== '自动检测'
@@ -238,6 +238,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterD
                       {adapter.subnetMask && (<><span className="text-muted-foreground">掩码</span><span className="font-mono text-right truncate">{adapter.subnetMask}</span></>)}
                       {adapter.gateway && (<><span className="text-muted-foreground">网关</span><span className="font-mono text-right truncate">{adapter.gateway}</span></>)}
                       {adapter.dhcpServer && (<><span className="text-muted-foreground">DHCP</span><span className="font-mono text-right truncate">{adapter.dhcpServer}</span></>)}
+                      {adapter.mac && (<><span className="text-muted-foreground">MAC</span><span className="font-mono text-right truncate text-[11px]">{adapter.mac}</span></>)}
                     </div>
                   </div>
                   )

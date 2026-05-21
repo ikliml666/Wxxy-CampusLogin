@@ -510,20 +510,203 @@ pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
     Ok(results)
 }
 
-pub fn dhcp_release_renew_all() -> Result<Vec<serde_json::Value>, String> {
+fn generate_random_mac() -> String {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let mut rng = unsafe { std::arch::x86_64::_rdtsc() };
+    rng = rng.wrapping_add(seed);
+    let b1 = ((rng >> 0) & 0xFF) as u8;
+    let b2 = ((rng >> 8) & 0xFF) as u8;
+    let b3 = ((rng >> 16) & 0xFF) as u8;
+    let b4 = ((rng >> 24) & 0xFF) as u8;
+    let b5 = ((rng >> 32) & 0xFF) as u8;
+    let b6 = ((rng >> 40) & 0xFF) as u8;
+    let first = (b1 & 0xFC) | 0x02;
+    format!("{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", first, b2, b3, b4, b5, b6)
+}
+
+#[cfg(target_os = "windows")]
+fn is_access_denied(e: &std::io::Error) -> bool {
+    e.raw_os_error() == Some(5)
+}
+
+#[cfg(target_os = "windows")]
+fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(), String> {
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS};
+    let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
+    let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
+    let class_key = hklm.open_subkey_with_flags(class_path, KEY_ALL_ACCESS)
+        .map_err(|e| {
+            if is_access_denied(&e) {
+                "修改MAC地址需要管理员权限，请以管理员身份运行应用".to_string()
+            } else {
+                format!("打开网卡注册表失败: {}", e)
+            }
+        })?;
+    for subkey_name in class_key.enum_keys().filter_map(|r| r.ok()) {
+        if let Ok(subkey) = class_key.open_subkey_with_flags(&subkey_name, KEY_ALL_ACCESS) {
+            if let Ok(instance_id) = subkey.get_value::<String, _>("NetCfgInstanceId") {
+                if instance_id.eq_ignore_ascii_case(adapter_guid) {
+                    subkey.set_value("NetworkAddress", &mac_no_dash)
+                        .map_err(|e| format!("写入NetworkAddress失败: {}", e))?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Err("未找到适配器注册表项".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS};
+    let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
+    let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
+    let class_key = hklm.open_subkey_with_flags(class_path, KEY_ALL_ACCESS)
+        .map_err(|e| {
+            if is_access_denied(&e) {
+                "清理MAC地址需要管理员权限".to_string()
+            } else {
+                format!("打开网卡注册表失败: {}", e)
+            }
+        })?;
+    for subkey_name in class_key.enum_keys().filter_map(|r| r.ok()) {
+        if let Ok(subkey) = class_key.open_subkey_with_flags(&subkey_name, KEY_ALL_ACCESS) {
+            if let Ok(instance_id) = subkey.get_value::<String, _>("NetCfgInstanceId") {
+                if instance_id.eq_ignore_ascii_case(adapter_guid) {
+                    let _ = subkey.delete_value("NetworkAddress");
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Err("未找到适配器注册表项".to_string())
+}
+
+fn netsh_disable(adapter_name: &str) -> bool {
+    new_command("netsh")
+        .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=disable"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn netsh_enable(adapter_name: &str) -> bool {
+    new_command("netsh")
+        .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=enable"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn is_access_denied_str(e: &str) -> bool {
+    e.contains("管理员权限") || e.contains("Access is denied")
+}
+
+fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> bool {
+    let script = format!(
+        "$guid='{}';$mac='{}';$name='{}';\
+         $path='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}';\
+         Get-ChildItem -Path $path | ForEach-Object {{\
+           $id=(Get-ItemProperty -Path $_.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
+           if($id -eq $guid){{\
+             Set-ItemProperty -Path $_.PSPath -Name NetworkAddress -Value $mac -Force;\
+             break\
+           }}\
+         }};\
+         netsh interface set interface name=$name admin=disable;\
+         Start-Sleep -Seconds 1;\
+         netsh interface set interface name=$name admin=enable;\
+         Start-Sleep -Seconds 2;\
+         ipconfig /renew $name;\
+         Start-Sleep -Seconds 1;\
+         Get-ChildItem -Path $path | ForEach-Object {{\
+           $id=(Get-ItemProperty -Path $_.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
+           if($id -eq $guid){{\
+             Remove-ItemProperty -Path $_.PSPath -Name NetworkAddress -Force -ErrorAction SilentlyContinue;\
+             break\
+           }}\
+         }}",
+        guid, mac_no_dash, adapter_name
+    );
+    match crate::commands::network_cmd::run_elevated("powershell", &format!("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
+        Ok(()) => {
+            for _ in 0..15 {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if let Ok(adapters) = crate::network::get_adapters_force() {
+                    if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+                        if !a.ip.is_empty() && a.ip != old_ip {
+                            return true;
+                        }
+                        if !a.ip.is_empty() {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        }
+        Err(e) => {
+            crate::log_warn!("adapter", "提权执行MAC修改失败: {}", e);
+            false
+        }
+    }
+}
+
+pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Value>, String> {
     let adapters = get_adapters_cached()?;
     if adapters.is_empty() { return Ok(vec![]); }
 
     let mut results = Vec::new();
     for adapter in &adapters {
-        let release_ok = dhcp_release(&adapter.name).unwrap_or(false);
-        let renew_ok = dhcp_renew(&adapter.name).unwrap_or(false);
+        if !adapter.ip.is_empty() && !is_same_subnet_18(&adapter.ip, campus_gateway) {
+            results.push(serde_json::json!({
+                "name": adapter.name,
+                "wireless": adapter.wireless,
+                "ip": adapter.ip,
+                "success": false,
+                "skipped": true,
+                "reason": "非校园网子网，跳过"
+            }));
+            continue;
+        }
+
+        let fake_mac = generate_random_mac();
+
+        let reg_ok = match set_mac_via_registry(&adapter.guid, &fake_mac) {
+            Ok(()) => true,
+            Err(e) if is_access_denied_str(&e) => {
+                try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip)
+            }
+            _ => false,
+        };
+
+        if !reg_ok {
+            let _ = dhcp_release(&adapter.name);
+            let _ = dhcp_renew(&adapter.name).unwrap_or(false);
+        } else {
+            let _ = dhcp_release(&adapter.name);
+            let disable_ok = netsh_disable(&adapter.name);
+            if disable_ok {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            let enable_ok = netsh_enable(&adapter.name);
+            if enable_ok {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            let _ = dhcp_renew(&adapter.name).unwrap_or(false);
+            let _ = remove_mac_from_registry(&adapter.guid);
+        }
+
         results.push(serde_json::json!({
             "name": adapter.name,
             "wireless": adapter.wireless,
-            "releaseOk": release_ok,
-            "renewOk": renew_ok,
-            "success": release_ok && renew_ok
+            "ip": adapter.ip,
+            "regOk": reg_ok,
+            "success": true,
+            "skipped": false
         }));
     }
     Ok(results)

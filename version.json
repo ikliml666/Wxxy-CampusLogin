@@ -1,0 +1,21 @@
+{
+  "version": "v2.2.0",
+  "notes": "## v2.2.0 更新日志\n\n### 新功能\n- 三级校园网智能检测\n- MAC伪装获取新IP\n- 右下角适配器MAC显示\n\n### Bug修复\n- 修复配置空字符串导致检测失效\n- 修复子网判断字节序错误\n- 修复更新检查GitHub API频率限制\n\n### 性能优化\n- 注册表直写替代PowerShell\n- DHCP操作链式响应",
+  "assets": [
+    {
+      "name": "campus-login_2.2.0_x64-setup.exe",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.0/campus-login_2.2.0_x64-setup.exe",
+      "size": 0
+    },
+    {
+      "name": "campus-login_2.2.0_x64_en-US.msi",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.0/campus-login_2.2.0_x64_en-US.msi",
+      "size": 0
+    },
+    {
+      "name": "campus-login_2.2.0_x64-setup.exe.sha256",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.0/campus-login_2.2.0_x64-setup.exe.sha256",
+      "size": 0
+    }
+  ]
+}

@@ -178,9 +178,44 @@ function AppInner() {
     }
   }, [store.api, store.updateConfig])
 
+  const refreshAdapterInfo = useCallback(async () => {
+    try {
+      const [adapters, details] = await Promise.all([
+        store.api.getAdapters?.().catch(() => undefined),
+        store.api.getAdapterDetails?.().catch(() => undefined),
+      ])
+      if (adapters) store.setState({ adapters })
+      if (details) store.setState({ adapterDetails: details })
+    } catch {}
+  }, [store.api])
+
   const handleDhcpRenew = useCallback(async () => {
     try { await store.api.dhcpRenewAll?.() } catch (e) { console.error('DHCP 续租失败:', e) }
-  }, [store.api])
+    await refreshAdapterInfo()
+    store.api.triggerBackgroundCheck?.().catch(() => {})
+  }, [store.api, refreshAdapterInfo])
+
+  const handleDhcpReleaseRenew = useCallback(async () => {
+    try {
+      const result = await store.api.dhcpReleaseRenew?.()
+      if (result?.results) {
+        const skipped = result.results.filter((r: any) => r.skipped)
+        const succeeded = result.results.filter((r: any) => r.success)
+        const failed = result.results.filter((r: any) => !r.success && !r.skipped)
+        if (succeeded.length > 0) {
+          store.addToast(`已获取新IP: ${succeeded.map((r: any) => r.name).join(', ')}`, 'success')
+        }
+        if (skipped.length > 0) {
+          store.addToast(`${skipped.map((r: any) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
+        }
+        if (failed.length > 0) {
+          store.addToast(`获取新IP失败: ${failed.map((r: any) => r.name).join(', ')}，可能需要管理员权限`, 'error')
+        }
+      }
+    } catch (e) { console.error('获取新IP失败:', e); store.addToast('获取新IP失败', 'error') }
+    await refreshAdapterInfo()
+    store.api.triggerBackgroundCheck?.().catch(() => {})
+  }, [store.api, store.addToast, refreshAdapterInfo])
 
   const handleAddAccount = useCallback(async (name: string) => {
     try {
@@ -272,8 +307,8 @@ function AppInner() {
           onUpdateConfig={store.updateConfig}
           onSwitchAccount={handleSwitchAccount}
           onDhcpRenew={handleDhcpRenew}
+          onDhcpReleaseRenew={handleDhcpReleaseRenew}
           onRefreshQuality={store.refreshQuality}
-          onToggleBackgroundCheck={handleToggleBackgroundCheck}
         />
       )
       break

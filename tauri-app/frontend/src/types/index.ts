@@ -203,6 +203,11 @@ export interface DhcpRenewResult {
   results: { name: string; success: boolean }[]
 }
 
+export interface DhcpReleaseRenewResult {
+  success: boolean
+  results: { name: string; wireless: boolean; ip: string; regOk: boolean; success: boolean; skipped: boolean; reason?: string }[]
+}
+
 export interface DnsSetupResult {
   success: boolean
   message: string

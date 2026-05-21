@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getRefreshIconClass } from '@/components/shared/RefreshButton'
 import {
-  Zap, Gauge, RotateCcw, Radar,
+  Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, Check, X,
   Plus, Activity, Settings2
 } from 'lucide-react'
@@ -63,25 +63,24 @@ interface DashboardPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
   onSwitchAccount: (name: string) => Promise<any>
   onDhcpRenew: () => Promise<void>
+  onDhcpReleaseRenew: () => Promise<void>
   onRefreshQuality?: () => Promise<void>
   onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
 }
 
-const QuickActionsCard = memo(function QuickActionsCard({ config, bgStatus, networkQuality, onDhcpRenew, onToggleBackgroundCheck, onUpdateConfig, noAnimation, noEnterAnimation }: {
+const QuickActionsCard = memo(function QuickActionsCard({ config, bgStatus, networkQuality, onDhcpRenew, onDhcpReleaseRenew, onUpdateConfig, noAnimation, noEnterAnimation }: {
   config: Config; bgStatus: { isRunning: boolean; checkCount: number }
   networkQuality: NetworkQuality | null
-  onDhcpRenew: () => Promise<void>; onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
+  onDhcpRenew: () => Promise<void>; onDhcpReleaseRenew: () => Promise<void>
   onUpdateConfig: (partial: Partial<Config>) => void; noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
   const [isDhcpRenewing, handleDhcpRenew] = useAsyncLock(async () => {
     await onDhcpRenew()
   }, 5000)
 
-  const [isTogglingBgCheck, handleToggleBgCheck] = useAsyncLock(async () => {
-    const intervalSec = (config.backgroundCheckInterval || 60000) / 1000
-    if (onToggleBackgroundCheck) { await onToggleBackgroundCheck(!bgStatus.isRunning, intervalSec) }
-    else { onUpdateConfig({ enableBackgroundCheck: !config.enableBackgroundCheck }) }
-  }, 1500)
+  const [isGettingNewIp, handleGetNewIp] = useAsyncLock(async () => {
+    await onDhcpReleaseRenew()
+  }, 0)
 
   return (
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(['poor', 'bad'].includes(networkQuality?.quality ?? '') && 'border-glow-danger')}>
@@ -104,16 +103,16 @@ const QuickActionsCard = memo(function QuickActionsCard({ config, bgStatus, netw
             </div>
             <div className="text-left">
               <div className="text-sm font-medium">DHCP续租</div>
-              <div className="text-[11px] text-muted-foreground">{isDhcpRenewing ? '执行中...' : '获取校园网IP地址'}</div>
+              <div className="text-[11px] text-muted-foreground">{isDhcpRenewing ? '执行中...' : '续租当前IP地址'}</div>
             </div>
           </Button>
-          <Button variant="outline" className="h-auto py-3 justify-start gap-3" onClick={handleToggleBgCheck} disabled={isTogglingBgCheck}>
-            <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', bgStatus.isRunning ? 'bg-emerald-500/10' : 'bg-muted')}>
-              <Radar className={cn('h-4 w-4', bgStatus.isRunning ? 'text-emerald-500' : 'text-muted-foreground', isTogglingBgCheck && 'animate-pulse')} />
+          <Button variant="outline" className="h-auto py-3 justify-start gap-3" onClick={handleGetNewIp} disabled={isGettingNewIp}>
+            <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+              <RefreshCw className={cn('h-4 w-4 text-amber-500', isGettingNewIp && 'animate-spin')} />
             </div>
             <div className="text-left">
-              <div className="text-sm font-medium">网络状态检测</div>
-              <div className="text-[11px] text-muted-foreground">{isTogglingBgCheck ? '切换中...' : bgStatus.isRunning ? '已启用' : '已禁用'}</div>
+              <div className="text-sm font-medium">获取新IP</div>
+              <div className="text-[11px] text-muted-foreground">{isGettingNewIp ? '获取中...' : '更换MAC获取新IP'}</div>
             </div>
           </Button>
         </div>
@@ -235,7 +234,7 @@ function renderCard(id: CardId, props: DashboardPanelProps, editing: boolean) {
   const noEnter = !editing
   switch (id) {
     case 'quickActions':
-      return <QuickActionsCard config={props.config} bgStatus={props.bgStatus} networkQuality={props.networkQuality} onDhcpRenew={props.onDhcpRenew} onToggleBackgroundCheck={props.onToggleBackgroundCheck} onUpdateConfig={props.onUpdateConfig} noAnimation={noAnim} noEnterAnimation={noEnter} />
+      return <QuickActionsCard config={props.config} bgStatus={props.bgStatus} networkQuality={props.networkQuality} onDhcpRenew={props.onDhcpRenew} onDhcpReleaseRenew={props.onDhcpReleaseRenew} onUpdateConfig={props.onUpdateConfig} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'accountManage':
       return <AccountManageCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'networkQuality':

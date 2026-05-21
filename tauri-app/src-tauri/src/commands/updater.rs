@@ -4,7 +4,9 @@ use crate::commands::state::AppState;
 use std::sync::atomic::Ordering;
 
 const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
-const UPDATE_CHECK_INTERVAL_SECS: u64 = 86400;
+const AUTO_CHECK_INTERVAL_SECS: u64 = 86400;
+const MANUAL_CHECK_COOLDOWN_SECS: u64 = 600;
+const VERSION_FILE_URL: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReleaseAsset {
@@ -31,8 +33,21 @@ pub struct DownloadProgress {
 }
 
 #[tauri::command]
-pub async fn check_update() -> Result<UpdateInfo, String> {
+pub async fn check_update(app_handle: AppHandle) -> Result<UpdateInfo, String> {
+    let state = app_handle.state::<AppState>();
+    let last_epoch = state.last_update_check_epoch_ms.load(Ordering::Acquire);
+    let now_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    if last_epoch > 0 && now_epoch - last_epoch < MANUAL_CHECK_COOLDOWN_SECS * 1000 {
+        let remaining = MANUAL_CHECK_COOLDOWN_SECS - (now_epoch - last_epoch) / 1000;
+        return Err(format!("检查过于频繁，请 {} 秒后重试", remaining));
+    }
+
     let (has_update, latest_tag, data) = fetch_latest_release().await?;
+
+    state.last_update_check_epoch_ms.store(now_epoch, Ordering::Release);
 
     let release_notes = data["body"]
         .as_str()
@@ -410,9 +425,9 @@ pub fn start_update_check_loop(app_handle: &AppHandle) {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        let elapsed_secs = if last_epoch == 0 { UPDATE_CHECK_INTERVAL_SECS + 1 } else { (now_epoch - last_epoch) / 1000 };
+        let elapsed_secs = if last_epoch == 0 { AUTO_CHECK_INTERVAL_SECS + 1 } else { (now_epoch - last_epoch) / 1000 };
 
-        if elapsed_secs >= UPDATE_CHECK_INTERVAL_SECS {
+        if elapsed_secs >= AUTO_CHECK_INTERVAL_SECS {
             if let Ok(info) = check_update_inner().await {
                 if let Err(e) = app_h.emit("update-available", serde_json::json!({
                     "has_update": info.has_update,
@@ -429,7 +444,7 @@ pub fn start_update_check_loop(app_handle: &AppHandle) {
             }
         }
 
-        let mut interval_timer = tokio::time::interval(std::time::Duration::from_secs(UPDATE_CHECK_INTERVAL_SECS));
+        let mut interval_timer = tokio::time::interval(std::time::Duration::from_secs(AUTO_CHECK_INTERVAL_SECS));
         interval_timer.tick().await;
 
         loop {
@@ -458,6 +473,60 @@ pub fn start_update_check_loop(app_handle: &AppHandle) {
 }
 
 async fn fetch_latest_release() -> Result<(bool, String, serde_json::Value), String> {
+    if let Ok(result) = fetch_version_via_raw().await {
+        return Ok(result);
+    }
+
+    fetch_via_github_api().await
+}
+
+async fn fetch_version_via_raw() -> Result<(bool, String, serde_json::Value), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+
+    let resp = client
+        .get(VERSION_FILE_URL)
+        .header("User-Agent", "CampusLogin-UpdateChecker")
+        .send()
+        .await
+        .map_err(|e| format!("获取version.json失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("version.json不可用: HTTP {}", resp.status()));
+    }
+
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析version.json失败: {}", e))?;
+
+    let latest_tag = data["version"]
+        .as_str()
+        .unwrap_or("")
+        .replace("v", "");
+
+    if latest_tag.is_empty() {
+        return Err("version.json中缺少版本号".to_string());
+    }
+
+    let current = env!("CARGO_PKG_VERSION");
+    let has_update = compare_versions(current, &latest_tag);
+
+    let body = data["notes"].as_str().unwrap_or("");
+    let enriched = serde_json::json!({
+        "tag_name": data["version"],
+        "body": body,
+        "html_url": format!("https://github.com/{}/releases/tag/v{}", GITHUB_REPO, latest_tag),
+        "assets": data.get("assets").cloned().unwrap_or(serde_json::json!([])),
+        "_source": "raw"
+    });
+
+    Ok((has_update, latest_tag, enriched))
+}
+
+async fn fetch_via_github_api() -> Result<(bool, String, serde_json::Value), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()

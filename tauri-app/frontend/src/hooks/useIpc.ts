@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus, DnsDohStatus, InitData, CommandResult, SaveConfigResult, EnableAdapterResult, PortalStatusResult, LoginResult, SwitchAccountResult, SaveAccountResult, DhcpRenewResult, DnsSetupResult, AutoLaunchResult, BackgroundCheckEventData, AutoLoginEventData, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource } from '@/types'
+import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus, DnsDohStatus, InitData, CommandResult, SaveConfigResult, EnableAdapterResult, PortalStatusResult, LoginResult, SwitchAccountResult, SaveAccountResult, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, AutoLaunchResult, BackgroundCheckEventData, AutoLoginEventData, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource } from '@/types'
 
 export interface TauriApi {
   getConfig: () => Promise<Partial<Config>>
@@ -30,6 +30,7 @@ export interface TauriApi {
   triggerBackgroundCheck: () => Promise<CommandResult>
   getBackgroundStatus: () => Promise<BackgroundStatus>
   dhcpRenewAll: () => Promise<DhcpRenewResult>
+  dhcpReleaseRenew: () => Promise<DhcpReleaseRenewResult>
   checkNetworkQuality: () => Promise<NetworkQuality>
   onNetworkQualityResult: (cb: (data: NetworkQuality) => void) => () => void
   startLatencyTest: () => Promise<CommandResult>
@@ -119,6 +120,7 @@ const tauriApi: TauriApi = {
   triggerBackgroundCheck: () => invoke<CommandResult>('trigger_background_check'),
   getBackgroundStatus: () => invoke<BackgroundStatus>('get_background_status'),
   dhcpRenewAll: () => invoke<DhcpRenewResult>('dhcp_renew_all'),
+  dhcpReleaseRenew: () => invoke<DhcpReleaseRenewResult>('dhcp_release_renew'),
   checkNetworkQuality: () => invoke<NetworkQuality>('check_network_quality'),
   onNetworkQualityResult: createEventListener<NetworkQuality>('network-quality-result'),
   startLatencyTest: () => invoke<CommandResult>('start_latency_test'),

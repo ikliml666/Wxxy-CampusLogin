@@ -1,6 +1,6 @@
 use super::cache::{PORTAL_URL, create_safe_http_client};
 
-fn random_v() -> String {
+pub fn random_v() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
     let v = 1000 + (seed % 9000);
