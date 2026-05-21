@@ -5,7 +5,7 @@ use crate::network::{
     Adapter, AdapterDetail, DisabledAdapter,
     get_adapters_cached, get_disabled_adapters_cached,
     enable_adapter as enable_adapter_inner, get_adapter_details_cached,
-    check_portal_full, dhcp_renew_wired_only,
+    check_portal_full, dhcp_renew_wired_only, dhcp_release_renew_all,
     select_adapter,
     check_network_quality_async,
 };
@@ -92,6 +92,14 @@ pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandl
 pub async fn dhcp_renew_all() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let results = dhcp_renew_wired_only()?;
+        Ok(serde_json::json!({ "success": true, "results": results }))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn dhcp_release_renew() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let results = dhcp_release_renew_all()?;
         Ok(serde_json::json!({ "success": true, "results": results }))
     }).await.map_err(|e| e.to_string())?
 }

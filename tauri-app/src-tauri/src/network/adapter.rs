@@ -480,6 +480,20 @@ fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     Ok(output.status.success())
 }
 
+fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
+    if adapter_name.is_empty() { return Err("适配器名称无效".to_string()); }
+    if adapter_name.len() > 128 { return Err("适配器名称过长".to_string()); }
+    let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
+    if adapter_name.chars().any(|c| forbidden.contains(&c)) {
+        return Err("适配器名称包含非法字符".to_string());
+    }
+    let output = new_command("ipconfig")
+        .args(["/release", adapter_name])
+        .output()
+        .map_err(|e| format!("DHCP释放失败: {}", e))?;
+    Ok(output.status.success())
+}
+
 pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
     let adapters = get_adapters_cached()?;
     let wired: Vec<&Adapter> = adapters.iter().filter(|a| !a.wireless).collect();
@@ -491,6 +505,25 @@ pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
         results.push(serde_json::json!({
             "name": adapter.name,
             "success": success
+        }));
+    }
+    Ok(results)
+}
+
+pub fn dhcp_release_renew_all() -> Result<Vec<serde_json::Value>, String> {
+    let adapters = get_adapters_cached()?;
+    if adapters.is_empty() { return Ok(vec![]); }
+
+    let mut results = Vec::new();
+    for adapter in &adapters {
+        let release_ok = dhcp_release(&adapter.name).unwrap_or(false);
+        let renew_ok = dhcp_renew(&adapter.name).unwrap_or(false);
+        results.push(serde_json::json!({
+            "name": adapter.name,
+            "wireless": adapter.wireless,
+            "releaseOk": release_ok,
+            "renewOk": renew_ok,
+            "success": release_ok && renew_ok
         }));
     }
     Ok(results)
