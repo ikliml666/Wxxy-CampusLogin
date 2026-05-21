@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+target/
+dist/
+release/
+output/
+app-output/
+app-v/
+tauri-release/
+installer-build/
+release-build/
+archive/
+
+# Tauri generated
+tauri-app/src-tauri/gen/
+
+# Environment files
+.env
+.env.test
+
+# IDE
+.trae/
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.pdb
+temp/
+asar_check2/
+asar_restore/
+
+# Runtime data
+config.json
+
+# Release notes (not pushed to repo)
+RELEASE_*.md
+v*.*.*-更新日志.md
+
+# Changelog (not pushed to repo)
+CHANGELOG.md
+
+# Build scripts
+tauri-app/build.ps1
+
+# Animation guide (internal doc)
+tauri-app/frontend/ANIMATION_GUIDE.md
+
+# tsbuildinfo
+*.tsbuildinfo

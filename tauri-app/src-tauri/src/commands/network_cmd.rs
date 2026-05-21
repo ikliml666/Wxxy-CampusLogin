@@ -1,0 +1,700 @@
+use tauri::{AppHandle, Manager, State};
+use std::os::windows::process::CommandExt;
+use std::sync::Arc;
+use crate::network::{
+    Adapter, AdapterDetail, DisabledAdapter,
+    get_adapters_cached, get_disabled_adapters_cached,
+    enable_adapter as enable_adapter_inner, get_adapter_details_cached,
+    check_portal_full, dhcp_renew_wired_only,
+    select_adapter,
+    check_network_quality_async,
+};
+
+use super::state::{AppState, CommandResult};
+
+#[cfg(target_os = "windows")]
+fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::core::PCWSTR;
+
+    let verb: Vec<u16> = "runas\0".encode_utf16().collect();
+    let file: Vec<u16> = format!("{}\0", cmd).encode_utf16().collect();
+    let params: Vec<u16> = format!("{}\0", args).encode_utf16().collect();
+
+    unsafe {
+        let result = ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            PCWSTR(params.as_ptr()),
+            None,
+            windows::Win32::UI::WindowsAndMessaging::SW_HIDE,
+        );
+        let val = result.0 as isize;
+        if val <= 32 {
+            return Err(format!("ShellExecuteW runas 失败，错误码: {}", val));
+        }
+    }
+    Ok(())
+}
+
+fn empty_quality_json() -> serde_json::Value {
+    serde_json::json!({ "gatewayLatency": -1, "externalLatency": -1, "gateway": "", "quality": "unknown", "timestamp": 0, "details": {}, "metrics": {} })
+}
+
+#[tauri::command]
+pub async fn get_adapters() -> Result<Vec<Adapter>, String> {
+    tauri::async_runtime::spawn_blocking(|| get_adapters_cached()).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_disabled_adapters() -> Result<Vec<DisabledAdapter>, String> {
+    tauri::async_runtime::spawn_blocking(|| get_disabled_adapters_cached()).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, String> {
+    if adapter_name.is_empty() {
+        return Err("适配器名称不能为空".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || enable_adapter_inner(&adapter_name)).await.map_err(|e| e.to_string())??;
+    Ok(CommandResult::ok_msg("适配器已启用"))
+}
+
+#[tauri::command]
+pub async fn get_adapter_details() -> Result<Vec<AdapterDetail>, String> {
+    tauri::async_runtime::spawn_blocking(|| get_adapter_details_cached()).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    if adapter_ip.is_empty() {
+        return Ok(serde_json::json!({
+            "online": false,
+            "message": "IP地址为空",
+        }));
+    }
+    let state = app_handle.state::<crate::commands::AppState>();
+    let config = state.config.load_full();
+    let user_account = config.user_account_with_operator();
+    let user_password = config.password.clone();
+    let operator = config.operator.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = check_portal_full(&adapter_ip, None, Some(&user_account), Some(&user_password), Some(&operator))?;
+        Ok(serde_json::json!({
+            "online": status.online,
+            "message": status.message,
+        }))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn dhcp_renew_all() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let results = dhcp_renew_wired_only()?;
+        Ok(serde_json::json!({ "success": true, "results": results }))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    let state = app_handle.state::<AppState>();
+    if !state.config.load().enable_network_quality {
+        return Ok(serde_json::json!({"quality": "disabled"}));
+    }
+    let already_running = state.tasks.is_quality_checking.swap_acquire();
+    if already_running {
+        return Ok(serde_json::json!({"quality": "busy"}));
+    }
+    let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
+        let config = state.config.load();
+        let adapters = match get_adapters_cached() {
+            Ok(a) => a,
+            Err(_) => {
+                state.tasks.is_quality_checking.force_release();
+                return Ok(empty_quality_json());
+            }
+        };
+        let (ip, name) = select_adapter(&adapters, &config);
+        (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
+    };
+    if adapter_ip.is_empty() {
+        state.tasks.is_quality_checking.force_release();
+        return Ok(empty_quality_json());
+    }
+    let _guard = state.tasks.is_quality_checking.release_guard();
+    let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone()).await;
+    drop(_guard);
+    serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {}", e))
+}
+
+#[tauri::command]
+pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
+    let s = app_handle.state::<AppState>();
+    if s.tasks.latency_running.swap_acquire() {
+        return Ok(CommandResult::ok_msg("延迟测试已在运行"));
+    }
+
+    let interval = {
+        let config = s.config.load();
+        if config.latency_test_interval < 10000 { 30000 } else { config.latency_test_interval }
+    };
+
+    super::latency::spawn_latency_test_loop(&app_handle, interval);
+
+    Ok(CommandResult::ok_msg("延迟测试已启动"))
+}
+
+#[tauri::command]
+pub fn stop_latency_test(state: State<'_, AppState>) -> Result<CommandResult, String> {
+    // 1. cancel 当前 token，通知正在运行的任务退出
+    state.tasks.latency_cancel.load().cancel();
+    // 2. 存储新 token，下次启动时使用干净的 token
+    state.tasks.latency_cancel.store(Arc::new(tokio_util::sync::CancellationToken::new()));
+    // 3. force_release 作为先决条件，确保锁状态清除
+    state.tasks.latency_running.force_release();
+    Ok(CommandResult::ok_msg("延迟测试已停止"))
+}
+
+#[cfg(target_os = "windows")]
+fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let net_key = hklm
+        .open_subkey(r"SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}")
+        .map_err(|e| format!("打开网络注册表失败: {}", e))?;
+
+    let tcpip_key = hklm
+        .open_subkey(r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces")
+        .map_err(|e| format!("打开TCP/IP注册表失败: {}", e))?;
+
+    fn should_filter_ip(ip: &str) -> bool {
+        let trimmed = ip.trim();
+        if trimmed.is_empty() { return true; }
+        let p: Vec<&str> = trimmed.split('.').collect();
+        if p.len() != 4 { return false; }
+        let o3: u8 = match p[3].parse::<u8>() { Ok(v) => v, Err(_) => return false };
+        let o0 = p[0];
+        if o3 == 0 || o3 == 255 { return true; }
+        if o0 == "127" { return true; }
+        if o0 == "169" {
+            if let Ok(o1) = p[1].parse::<u8>() {
+                if o1 == 254 { return true; }
+            }
+        }
+        if o0 == "198" {
+            if let Ok(o1) = p[1].parse::<u8>() {
+                if o1 == 18 || o1 == 19 { return true; }
+            }
+        }
+        false
+    }
+
+    fn parse_dns_list(raw: &str) -> Vec<String> {
+        raw.split(|c: char| c == ',' || c == ' ' || c == ';')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .filter(|s| !should_filter_ip(s))
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    fn check_doh_for_ips(dns_ips: &[String], _hklm: &winreg::RegKey) -> std::collections::HashMap<String, (bool, bool, String)> {
+        let mut netsh_doh: std::collections::HashMap<String, (bool, String)> = std::collections::HashMap::new();
+
+        let output = std::process::Command::new("netsh")
+            .args(["dns", "show", "encryption"])
+            .creation_flags(0x08000000)
+            .output();
+
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let mut current_ip: Option<String> = None;
+            let mut current_template: Option<String> = None;
+            let mut current_autoupgrade: bool = false;
+
+            for line in text.lines() {
+                let trimmed = line.trim();
+
+                if trimmed.starts_with('-') || trimmed.is_empty() {
+                    continue;
+                }
+
+                let ip_match = trimmed.split_whitespace()
+                    .find(|s| s.chars().all(|c| c.is_ascii_digit() || c == '.') && s.contains('.') && s.parse::<std::net::Ipv4Addr>().is_ok())
+                    .map(|s| s.to_string());
+
+                if let Some(ip) = ip_match {
+                    if let Some(old_ip) = current_ip.take() {
+                        let template = current_template.take().unwrap_or_default();
+                        netsh_doh.insert(old_ip, (current_autoupgrade, template));
+                        current_autoupgrade = false;
+                    }
+                    current_ip = Some(ip);
+                    continue;
+                }
+
+                if current_ip.is_none() { continue; }
+
+                if let Some(colon_pos) = trimmed.find(':') {
+                    let val = trimmed[colon_pos + 1..].trim();
+                    if val.starts_with("https://") {
+                        current_template = Some(val.to_string());
+                    } else if val.eq_ignore_ascii_case("yes") || val.eq_ignore_ascii_case("true")
+                        || val.eq_ignore_ascii_case("是") || val.contains("yes") || val.contains("是")
+                    {
+                        current_autoupgrade = true;
+                    }
+                }
+            }
+
+            if let Some(ip) = current_ip.take() {
+                let template = current_template.take().unwrap_or_default();
+                netsh_doh.insert(ip, (current_autoupgrade, template));
+            }
+        }
+
+        crate::log_debug!("doh", "netsh检测结果: {:?}", netsh_doh);
+
+        let builtin_doh: &[(&str, &str)] = &[
+            ("223.5.5.5", "https://dns.alidns.com/dns-query"),
+            ("223.6.6.6", "https://dns.alidns.com/dns-query"),
+            ("1.12.12.12", "https://doh.pub/dns-query"),
+            ("120.53.53.53", "https://doh.pub/dns-query"),
+        ];
+
+        let mut result: std::collections::HashMap<String, (bool, bool, String)> = std::collections::HashMap::new();
+        for dns in dns_ips {
+            let in_netsh = netsh_doh.get(dns);
+            let in_builtin = builtin_doh.iter().find(|(ip, _)| *ip == dns);
+
+            let (doh_available, doh_enabled, doh_template) = match (in_netsh, in_builtin) {
+                (Some((autoupgrade, template)), _) => {
+                    let tpl = if template.is_empty() {
+                        in_builtin.map(|(_, t)| t.to_string()).unwrap_or_default()
+                    } else {
+                        template.clone()
+                    };
+                    (true, *autoupgrade, tpl)
+                }
+                (None, Some((_, tpl))) => (true, false, tpl.to_string()),
+                (None, None) => (false, false, String::new()),
+            };
+
+            crate::log_debug!("doh", "{} available={} enabled={} template={}", dns, doh_available, doh_enabled, doh_template);
+            result.insert(dns.to_string(), (doh_available, doh_enabled, doh_template));
+        }
+
+        result
+    }
+
+    let mut adapters_result: Vec<serde_json::Value> = Vec::new();
+    let mut all_dns_ips: Vec<String> = Vec::new();
+    let mut adapter_dns_raw: Vec<(String, Vec<String>)> = Vec::new();
+
+    for guid_entry in net_key.enum_keys().flatten() {
+        let conn_path = format!(r"{}\Connection", guid_entry);
+        if let Ok(conn_key) = net_key.open_subkey(&conn_path) {
+            let name: String = conn_key.get_value("Name").unwrap_or_default();
+            if name.is_empty() { continue; }
+
+            if crate::network::is_blacklisted(&name) { continue; }
+
+            let pnp_id: String = conn_key.get_value("PnpInstanceID").unwrap_or_default();
+            if !pnp_id.is_empty() {
+                let d = pnp_id.to_lowercase();
+                if d.contains("vethernet") || d.contains("vpci") || d.contains("vmbus")
+                    || d.contains("tun") || d.contains("tap") || d.contains("wintun")
+                { continue; }
+            }
+
+            if let Ok(iface_key) = tcpip_key.open_subkey(&guid_entry) {
+                let ns: String = iface_key.get_value("NameServer").unwrap_or_default();
+                let dhcp_ns: String = iface_key.get_value("DhcpNameServer").unwrap_or_default();
+                let raw = if !ns.is_empty() { ns } else { dhcp_ns };
+                if raw.is_empty() { continue; }
+
+                let addrs = parse_dns_list(&raw);
+
+                crate::log_debug!("dns", "{} 原始:[{}] → [{:?}]", name, raw, addrs);
+
+                if addrs.is_empty() { continue; }
+
+                for ip in &addrs {
+                    if !all_dns_ips.contains(ip) {
+                        all_dns_ips.push(ip.clone());
+                    }
+                }
+
+                adapter_dns_raw.push((name, addrs));
+            }
+        }
+    }
+
+    let doh_map = check_doh_for_ips(&all_dns_ips, &hklm);
+    let any_doh_enabled = doh_map.values().any(|(_, enabled, _)| *enabled);
+
+    for (name, addrs) in adapter_dns_raw {
+        let mut dns_list: Vec<serde_json::Value> = Vec::new();
+        for dns in &addrs {
+            let (doh_available, doh_enabled, doh_template) = doh_map.get(dns)
+                .cloned()
+                .unwrap_or((false, false, String::new()));
+            dns_list.push(serde_json::json!({
+                "address": dns,
+                "dohAvailable": doh_available,
+                "dohEnabled": doh_enabled,
+                "dohTemplate": doh_template,
+            }));
+        }
+
+        adapters_result.push(serde_json::json!({
+            "name": name,
+            "dnsServers": dns_list,
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "adapters": adapters_result,
+        "dohSupported": true,
+        "autoDohEnabled": any_doh_enabled,
+    }))
+}
+
+#[tauri::command]
+pub async fn check_dns_doh_status() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(target_os = "windows")]
+        {
+            read_adapter_dns_from_registry()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(serde_json::json!({ "adapters": [], "dohSupported": false }))
+        }
+    }).await.map_err(|e| format!("检测DNS状态失败: {}", e))?
+}
+
+#[tauri::command]
+pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(not(target_os = "windows"))]
+        {
+            return Ok(serde_json::json!({ "success": false, "message": "仅支持Windows" }));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let doh_servers: &[(&str, &str)] = &[
+                ("223.5.5.5", "https://dns.alidns.com/dns-query"),
+                ("223.6.6.6", "https://dns.alidns.com/dns-query"),
+                ("1.12.12.12", "https://doh.pub/dns-query"),
+                ("120.53.53.53", "https://doh.pub/dns-query"),
+            ];
+
+            let mut added: Vec<String> = Vec::new();
+            let mut failed: Vec<String> = Vec::new();
+            let mut need_elevation = false;
+
+            for (ip, template) in doh_servers {
+                let output = std::process::Command::new("netsh")
+                    .args([
+                        "dns", "add", "encryption",
+                        &format!("server={}", ip),
+                        &format!("dohtemplate={}", template),
+                        "autoupgrade=yes",
+                        "udpfallback=yes",
+                    ])
+                    .creation_flags(0x08000000)
+                    .output();
+
+                match output {
+                    Ok(o) => {
+                        if o.status.success() {
+                            added.push(ip.to_string());
+                        } else {
+                            let err = String::from_utf8_lossy(&o.stderr);
+                            let combined = format!("{}{}", String::from_utf8_lossy(&o.stdout), err);
+                            if combined.contains("740") || combined.contains("\u{63d0}\u{5347}") || combined.contains("elevation") || combined.contains("\u{7ba1}\u{7406}\u{5458}") {
+                                need_elevation = true;
+                            }
+                            crate::log_debug!("doh", "netsh add encryption {} 失败: {}", ip, combined);
+                            failed.push(format!("{}: {}", ip, combined.trim()));
+                        }
+                    }
+                    Err(e) => {
+                        crate::log_debug!("doh", "netsh 执行失败: {}", e);
+                        failed.push(format!("{}: {}", ip, e));
+                    }
+                }
+            }
+
+            if need_elevation && added.is_empty() {
+                let mut netsh_cmds = String::new();
+                for (ip, template) in doh_servers {
+                    netsh_cmds.push_str(&format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes & ", ip, template));
+                }
+                netsh_cmds.push_str("ipconfig /flushdns");
+
+                match run_elevated("cmd", &format!("/c {}", netsh_cmds)) {
+                    Ok(()) => {
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        let mut verify_added: Vec<String> = Vec::new();
+                        for (ip, _) in doh_servers {
+                            let check = std::process::Command::new("netsh")
+                                .args(["dns", "show", "encryption", &format!("server={}", ip)])
+                                .creation_flags(0x08000000)
+                                .output();
+                            if let Ok(co) = check {
+                                let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));
+                                if out.contains("https://") {
+                                    verify_added.push(ip.to_string());
+                                }
+                            }
+                        }
+                        if !verify_added.is_empty() {
+                            return Ok(serde_json::json!({
+                                "success": true,
+                                "message": format!("已通过管理员权限为 {} 启用DoH", verify_added.join("、")),
+                                "added": verify_added,
+                                "failed": [],
+                            }));
+                        }
+                        return Ok(serde_json::json!({
+                            "success": false,
+                            "message": "管理员权限执行后DoH仍未注册成功".to_string(),
+                            "added": [],
+                            "failed": failed,
+                        }));
+                    }
+                    Err(e) => {
+                        return Ok(serde_json::json!({
+                            "success": false,
+                            "message": format!("需要管理员权限来注册DoH: {}", e),
+                            "added": [],
+                            "failed": failed,
+                        }));
+                    }
+                }
+            }
+
+            if !added.is_empty() {
+                let _ = std::process::Command::new("ipconfig")
+                    .args(["/flushdns"])
+                    .creation_flags(0x08000000)
+                    .output();
+                Ok(serde_json::json!({
+                    "success": true,
+                    "message": format!("已为 {} 启用DoH", added.join("、")),
+                    "added": added,
+                    "failed": failed,
+                }))
+            } else {
+                Ok(serde_json::json!({
+                    "success": false,
+                    "message": "启用DoH失败，可能需要管理员权限".to_string(),
+                    "added": added,
+                    "failed": failed,
+                }))
+            }
+        }
+    }).await.map_err(|e| format!("启用DoH失败: {}", e))?
+}
+
+#[tauri::command]
+pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(not(target_os = "windows"))]
+        {
+            return Ok(serde_json::json!({ "success": false, "message": "仅支持Windows" }));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let primary_dns = "223.5.5.5";
+            let secondary_dns = "1.12.12.12";
+
+            let adapters = crate::network::get_adapters_cached()
+                .unwrap_or_default();
+            let active: Vec<&Adapter> = adapters.iter()
+                .filter(|a| !a.ip.is_empty() && !a.name.contains("Virtual") && !a.name.contains("vEthernet") && !a.name.contains("Wintun") && !a.name.contains("TUN"))
+                .collect();
+
+            if active.is_empty() {
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "message": "未找到活跃的网络适配器".to_string(),
+                }));
+            }
+
+            let mut dns_success: Vec<String> = Vec::new();
+            let mut dns_fail: Vec<String> = Vec::new();
+
+            for adapter in &active {
+                let name = &adapter.name;
+                if name.is_empty() {
+                    return Err("适配器名称不能为空".to_string());
+                }
+                if name.len() > 128 {
+                    return Err("适配器名称过长".to_string());
+                }
+                let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
+                if name.chars().any(|c| forbidden.contains(&c)) {
+                    return Err("适配器名称包含非法字符".to_string());
+                }
+                let set_primary = std::process::Command::new("netsh")
+                    .args(["interface", "ip", "set", "dns", &format!("name=\"{}\"", name), "static", primary_dns, "primary"])
+                    .creation_flags(0x08000000)
+                    .output();
+
+                match set_primary {
+                    Ok(o) if o.status.success() => {
+                        let _ = std::process::Command::new("netsh")
+                            .args(["interface", "ip", "add", "dns", &format!("name=\"{}\"", name), secondary_dns, "index=2"])
+                            .creation_flags(0x08000000)
+                            .output();
+                        dns_success.push(name.clone());
+                    }
+                    Ok(o) => {
+                        let err = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+                        if err.contains("740") || err.contains("\u{63d0}\u{5347}") || err.contains("\u{7ba1}\u{7406}\u{5458}") {
+                            dns_fail.push(format!("{}: 需要管理员权限", name));
+                        } else {
+                            dns_fail.push(format!("{}: {}", name, err.trim()));
+                        }
+                    }
+                    Err(e) => {
+                        dns_fail.push(format!("{}: {}", name, e));
+                    }
+                }
+            }
+
+            let doh_servers: &[(&str, &str)] = &[
+                ("223.5.5.5", "https://dns.alidns.com/dns-query"),
+                ("223.6.6.6", "https://dns.alidns.com/dns-query"),
+                ("1.12.12.12", "https://doh.pub/dns-query"),
+                ("120.53.53.53", "https://doh.pub/dns-query"),
+            ];
+
+            let mut doh_added: Vec<String> = Vec::new();
+            let mut doh_failed: Vec<String> = Vec::new();
+            let mut need_elevation = false;
+
+            for (ip, template) in doh_servers {
+                let output = std::process::Command::new("netsh")
+                    .args(["dns", "add", "encryption", &format!("server={}", ip), &format!("dohtemplate={}", template), "autoupgrade=yes", "udpfallback=yes"])
+                    .creation_flags(0x08000000)
+                    .output();
+
+                match output {
+                    Ok(o) if o.status.success() => {
+                        doh_added.push(ip.to_string());
+                    }
+                    Ok(o) => {
+                        let combined = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+                        if combined.contains("740") || combined.contains("\u{63d0}\u{5347}") || combined.contains("\u{7ba1}\u{7406}\u{5458}") {
+                            need_elevation = true;
+                        }
+                        doh_failed.push(ip.to_string());
+                    }
+                    Err(_) => {
+                        doh_failed.push(ip.to_string());
+                    }
+                }
+            }
+
+            let _ = std::process::Command::new("ipconfig")
+                .args(["/flushdns"])
+                .creation_flags(0x08000000)
+                .output();
+
+            {
+                use winreg::enums::*;
+                use winreg::RegKey;
+                let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+                for adapter in &active {
+                    if let Ok(iface_key) = hklm.open_subkey(format!("SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{}", adapter.guid)) {
+                        if let Ok(ns) = iface_key.get_value::<String, _>("NameServer") {
+                            for dns_ip in ns.split(',').map(|s| s.trim()) {
+                                if dns_ip.is_empty() { continue; }
+                                let doh_path = format!(
+                                    "SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\{}\\DohInterfaceSettings\\Doh\\{}",
+                                    adapter.guid, dns_ip
+                                );
+                                if let Ok(key) = hklm.create_subkey(&doh_path) {
+                                    if let Err(e) = key.0.set_value("DohFlags", &1u64) {
+                                        crate::log_warn!("network", "设置DohFlags失败({}): {}", dns_ip, e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if need_elevation || dns_fail.iter().any(|m| m.contains("管理员")) {
+                let mut all_cmds = String::new();
+                for adapter in &active {
+                    all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" static {} primary & ", adapter.name, primary_dns));
+                    all_cmds.push_str(&format!("netsh interface ip add dns name=\"{}\" {} index=2 & ", adapter.name, secondary_dns));
+                    if !adapter.guid.is_empty() {
+                        for dns_ip in &[primary_dns, secondary_dns] {
+                            all_cmds.push_str(&format!(
+                                "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\{}\\DohInterfaceSettings\\Doh\\{}\" /v DohFlags /t REG_QWORD /d 1 /f & ",
+                                adapter.guid, dns_ip
+                            ));
+                        }
+                    }
+                }
+                for (ip, template) in doh_servers {
+                    all_cmds.push_str(&format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes & ", ip, template));
+                }
+                all_cmds.push_str("ipconfig /flushdns");
+
+                match run_elevated("cmd", &format!("/c {}", all_cmds)) {
+                    Ok(()) => {
+                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                        return Ok(serde_json::json!({
+                            "success": true,
+                            "message": "已通过管理员权限设置DNS并启用DoH".to_string(),
+                        }));
+                    }
+                    Err(e) => {
+                        return Ok(serde_json::json!({
+                            "success": false,
+                            "message": format!("需要管理员权限: {}", e),
+                        }));
+                    }
+                }
+            }
+
+            if !dns_success.is_empty() || !doh_added.is_empty() {
+                let mut parts = Vec::new();
+                if !dns_success.is_empty() {
+                    parts.push(format!("已为 {} 设置DNS({}+{})", dns_success.join("、"), primary_dns, secondary_dns));
+                }
+                if !doh_added.is_empty() {
+                    parts.push(format!("已注册{}个DoH模板", doh_added.len()));
+                }
+                if !doh_failed.is_empty() {
+                    parts.push(format!("{}个DoH模板注册失败（可能需要管理员权限）", doh_failed.len()));
+                }
+                return Ok(serde_json::json!({
+                    "success": doh_failed.is_empty(),
+                    "message": parts.join("，"),
+                    "dnsSuccess": dns_success,
+                    "dnsFailed": dns_fail,
+                    "dohAdded": doh_added,
+                    "dohFailed": doh_failed,
+                }));
+            }
+
+            Ok(serde_json::json!({
+                "success": false,
+                "message": "设置DNS失败".to_string(),
+                "dnsFailed": dns_fail,
+                "dohFailed": doh_failed,
+            }))
+        }
+    }).await.map_err(|e| format!("设置DNS+DoH失败: {}", e))?
+}
