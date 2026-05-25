@@ -103,18 +103,6 @@ export function FluidBackground() {
     >
       <div
         className={`absolute inset-0 gradient-shift ${isActive ? '' : 'anim-paused'}`}
-        style={{
-          background: `linear-gradient(
-            135deg,
-            hsl(210, 30%, 95%) 0%,
-            hsl(220, 25%, 94%) 25%,
-            hsl(250, 20%, 93%) 50%,
-            hsl(230, 22%, 94%) 75%,
-            hsl(215, 28%, 95%) 100%
-          )`,
-          animation: 'gradientShift 12s ease-in-out infinite',
-          backgroundSize: '400% 400%',
-        }}
       />
 
       {ORBS.map((orb, index) => (
@@ -147,6 +135,19 @@ export function FluidBackground() {
       />
 
       <style>{`
+        .gradient-shift {
+          background: linear-gradient(
+            135deg,
+            hsl(210, 30%, 95%) 0%,
+            hsl(220, 25%, 94%) 25%,
+            hsl(250, 20%, 93%) 50%,
+            hsl(230, 22%, 94%) 75%,
+            hsl(215, 28%, 95%) 100%
+          );
+          animation: gradientShift 12s ease-in-out infinite;
+          background-size: 400% 400%;
+        }
+
         @keyframes gradientShift {
           0%, 100% {
             background-position: 0% 50%;

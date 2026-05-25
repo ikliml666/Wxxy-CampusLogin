@@ -205,7 +205,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
 }
 
 #[tauri::command]
-pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Result<bool, String> {
+pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
     let safe_name = validate_account_name(&account_name)
         .map_err(|e| format!("删除失败: {}", e))?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -223,9 +223,9 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Resu
         if account_path.exists() {
             std::fs::remove_file(&account_path)
                 .map_err(|e| format!("删除账号失败: {}", e))?;
-            Ok(true)
+            Ok(serde_json::json!({ "success": true, "message": "账号已删除" }))
         } else {
-            Ok(false)
+            Ok(serde_json::json!({ "success": false, "message": "账号不存在" }))
         }
     }).await.map_err(|e| e.to_string())?
 }

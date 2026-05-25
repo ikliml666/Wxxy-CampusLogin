@@ -362,12 +362,18 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
             current_date: String::new(),
             last_flush: Instant::now(),
         };
-        let new_handle = std::thread::Builder::new()
+        let new_handle = match std::thread::Builder::new()
             .name("logger-worker".to_string())
             .spawn(move || {
                 logger_worker(new_state, new_receiver);
             })
-            .expect("Failed to spawn logger thread");
+        {
+            Ok(h) => h,
+            Err(e) => {
+                crate::log_warn!("logger", "无法创建日志线程: {}", e);
+                return false;
+            }
+        };
 
         let old = LOGGER_SENDER.swap(std::sync::Arc::new(Some(new_sender)));
         let old_handle = std::mem::replace(&mut *LOGGER_THREAD.lock(), Some(new_handle));

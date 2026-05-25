@@ -471,6 +471,16 @@ fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Res
     let app_h = app_handle.clone();
     let bg_cancel = state.tasks.bg_check_cancel.load().clone();
     tauri::async_runtime::spawn(async move {
+        {
+            let s = app_h.state::<AppState>();
+            let mut waited = 0u64;
+            while s.tasks.is_checking.is_active() && waited < 5000 {
+                drop(s);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                waited += 50;
+            }
+        }
+
         run_background_check(&app_h, bg_cancel.clone()).await;
 
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));

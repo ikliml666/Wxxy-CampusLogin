@@ -324,6 +324,10 @@ pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) ->
         "serverAvailable": server_avail,
         "online": was_online,
         "adapterStatuses": adapter_statuses,
+        "currentSsid": state.network.current_ssid.load().as_ref(),
+        "onCampusNetwork": state.network.on_campus_network.load(Ordering::Acquire),
+        "enableNetworkNameCheck": config.enable_network_name_check,
+        "requiredNetworkName": config.required_network_name,
     });
 
     let is_auto_start = std::env::args().any(|a| a == "--autostart");

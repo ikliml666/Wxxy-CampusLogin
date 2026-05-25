@@ -84,6 +84,8 @@ pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandl
         Ok(serde_json::json!({
             "online": status.online,
             "message": status.message,
+            "reachable": status.reachable,
+            "loginAvailable": status.login_available,
         }))
     }).await.map_err(|e| e.to_string())?
 }

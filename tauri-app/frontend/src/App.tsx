@@ -39,7 +39,6 @@ const PANEL_TITLES: Record<string, { title: string; desc: string }> = {
 function AppInner() {
   useAppInit()
   const store = useAppStore(useShallow((s) => ({
-    config: s.config,
     activePanel: s.activePanel,
     bgStatus: s.bgStatus,
     networkQuality: s.networkQuality,
@@ -77,6 +76,13 @@ function AppInner() {
     refreshQuality: s.refreshQuality,
   })))
 
+  const configUser = useAppStore((s) => s.config.user)
+  const configEnableNotification = useAppStore((s) => s.config.enableNotification)
+  const configEnableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality)
+  const configPortalUrl = useAppStore((s) => s.config.portalUrl)
+  const configAutoLaunch = useAppStore((s) => s.config.autoLaunch)
+  const config = useAppStore(useShallow((s) => s.config))
+
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
     useShallow((s) => ({
       logs: s.logs,
@@ -107,11 +113,11 @@ function AppInner() {
 
   useEffect(() => {
     const done = safeStorage.get('campus-onboarding-done')
-    if (!done && !store.config.user) {
+    if (!done && !configUser) {
       const timer = setTimeout(() => setOnboardingOpen(true), 800)
       return () => clearTimeout(timer)
     }
-  }, [store.config.user])
+  }, [configUser])
 
   const handleToggleMaximize = useCallback(async () => {
     try {
@@ -137,10 +143,10 @@ function AppInner() {
   }, [])
 
   const handleToggleNotification = useCallback(async () => {
-    const next = store.config.enableNotification !== false ? false : true
+    const next = configEnableNotification !== false ? false : true
     store.updateConfig({ enableNotification: next })
     try { await store.api.setNotificationEnabled?.(next) } catch (e) { console.error('设置通知状态失败:', e) }
-  }, [store.config.enableNotification, store.updateConfig, store.api])
+  }, [configEnableNotification, store.updateConfig, store.api])
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
     store.updateConfig({ autoLaunch: enabled })
@@ -184,8 +190,8 @@ function AppInner() {
         store.api.getAdapters?.().catch(() => undefined),
         store.api.getAdapterDetails?.().catch(() => undefined),
       ])
-      if (adapters) store.setState({ adapters })
-      if (details) store.setState({ adapterDetails: details })
+      if (adapters) useAppStore.setState({ adapters })
+      if (details) useAppStore.setState({ adapterDetails: details })
     } catch {}
   }, [store.api])
 
@@ -278,9 +284,9 @@ function AppInner() {
   }, [store.api, store.updateConfig, store.setActiveAccount, store.addToast])
 
   const handleOpenPortal = useCallback(() => {
-    const portalUrl = store.config.portalUrl || 'http://10.1.99.100'
+    const portalUrl = configPortalUrl || 'http://10.1.99.100'
     store.api.openExternal?.(portalUrl)
-  }, [store.api, store.config.portalUrl])
+  }, [store.api, configPortalUrl])
 
   const handleOpenSelfService = useCallback(() => {
     store.api.openExternal?.('http://10.1.80.200:8080/Self/login/?302=LI')
@@ -297,7 +303,7 @@ function AppInner() {
     case 'dashboard':
       panelContent = (
         <DashboardPanel
-          config={store.config}
+          config={config}
           accounts={store.accounts}
           activeAccount={store.activeAccount}
           networkQuality={store.networkQuality}
@@ -315,7 +321,7 @@ function AppInner() {
     case 'account':
       panelContent = (
         <AccountPanel
-          config={store.config}
+          config={config}
           adapters={store.adapters}
           accounts={store.accounts}
           activeAccount={store.activeAccount}
@@ -330,7 +336,7 @@ function AppInner() {
     case 'network':
       panelContent = (
         <NetworkPanel
-          config={store.config}
+          config={config}
           adapters={store.adapters}
           disabledAdapters={store.disabledAdapters}
           onUpdateConfig={store.updateConfig}
@@ -341,7 +347,7 @@ function AppInner() {
     case 'monitor':
       panelContent = (
         <MonitorPanel
-          config={store.config}
+          config={config}
           bgStatus={store.bgStatus}
           onUpdateConfig={store.updateConfig}
           onToggleBackgroundCheck={handleToggleBackgroundCheck}
@@ -350,9 +356,9 @@ function AppInner() {
       )
       break
     case 'quality':
-      panelContent = store.config?.enableNetworkQuality !== false ? (
+      panelContent = configEnableNetworkQuality !== false ? (
         <QualityPanel
-          config={store.config}
+          config={config}
           networkQuality={store.networkQuality}
           isRefreshingQuality={store.isRefreshingQuality}
           onUpdateConfig={store.updateConfig}
@@ -364,8 +370,8 @@ function AppInner() {
     case 'settings':
       panelContent = (
         <SettingsPanel
-          config={store.config}
-          autoLaunch={store.config.autoLaunch !== false}
+          config={config}
+          autoLaunch={configAutoLaunch !== false}
           isLightMode={store.isLightMode}
           themeName={store.themeName}
           onUpdateConfig={store.updateConfig}
@@ -399,7 +405,7 @@ function AppInner() {
 
       <div className="animate-stagger-1">
         <TitleBar
-          notificationEnabled={store.config.enableNotification !== false}
+          notificationEnabled={configEnableNotification !== false}
           isLightMode={store.isLightMode}
           networkOnline={store.bgStatus.online}
           networkQuality={store.networkQuality?.quality ?? 'unknown'}
@@ -421,7 +427,7 @@ function AppInner() {
           statusText={store.status.text}
           statusState={store.status.state}
           networkQuality={store.networkQuality}
-          enableNetworkQuality={store.config?.enableNetworkQuality !== false}
+          enableNetworkQuality={configEnableNetworkQuality !== false}
           onOpenPortal={handleOpenPortal}
           onOpenSelfService={handleOpenSelfService}
           onRefreshQuality={store.refreshQuality}
@@ -456,7 +462,7 @@ function AppInner() {
           onClearLogs={handleClearLogs}
           adapterDetails={store.adapterDetails}
           adapters={store.adapters}
-          config={store.config}
+          config={config}
         />
       </div>
 
@@ -466,7 +472,7 @@ function AppInner() {
           store.setActivePanel(p)
           safeStorage.set('campus-active-panel', p)
         }}
-        enableNetworkQuality={store.config?.enableNetworkQuality !== false}
+        enableNetworkQuality={configEnableNetworkQuality !== false}
         isLoggingIn={store.isLoggingIn}
         isLoggingOut={store.isLoggingOut}
         adapters={store.adapters}
@@ -512,7 +518,7 @@ function AppInner() {
       <OnboardingWizard
         open={onboardingOpen}
         onClose={() => setOnboardingOpen(false)}
-        config={store.config}
+        config={config}
         adapters={store.adapters}
         onUpdateConfig={(partial) => store.updateConfig(partial)}
         onLogin={() => store.doLogin()}

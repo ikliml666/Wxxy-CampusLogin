@@ -365,7 +365,6 @@ export function useAppInit() {
 
     return () => {
       mountedRef.current = false
-      initDoneRef.current = false
       unlisteners.forEach(fn => fn())
     }
   }, [])

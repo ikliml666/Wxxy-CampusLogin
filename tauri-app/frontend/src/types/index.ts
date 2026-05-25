@@ -165,9 +165,7 @@ export interface CommandResult {
   message?: string
 }
 
-export interface LoginResult extends CommandResult {
-  code?: string
-}
+export interface LoginResult extends CommandResult {}
 
 export interface SaveConfigResult {
   success: boolean
@@ -177,18 +175,25 @@ export interface SaveConfigResult {
 
 export interface EnableAdapterResult {
   success: boolean
-  message: string
+  message?: string
 }
 
 export interface PortalStatusResult {
   online: boolean
-  message: string
+  message?: string
+  reachable?: boolean
+  loginAvailable?: boolean
 }
 
 export interface SwitchAccountResult {
   success: boolean
   message?: string
   config?: Config
+}
+
+export interface DeleteAccountResult {
+  success: boolean
+  message?: string
 }
 
 export interface SaveAccountResult {

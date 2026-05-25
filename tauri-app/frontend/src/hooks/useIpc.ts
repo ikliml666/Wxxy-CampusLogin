@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus, DnsDohStatus, InitData, CommandResult, SaveConfigResult, EnableAdapterResult, PortalStatusResult, LoginResult, SwitchAccountResult, SaveAccountResult, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, AutoLaunchResult, BackgroundCheckEventData, AutoLoginEventData, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource } from '@/types'
+import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus, DnsDohStatus, InitData, CommandResult, SaveConfigResult, EnableAdapterResult, PortalStatusResult, LoginResult, SwitchAccountResult, SaveAccountResult, DeleteAccountResult, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, AutoLaunchResult, BackgroundCheckEventData, AutoLoginEventData, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource } from '@/types'
 
 export interface TauriApi {
   getConfig: () => Promise<Partial<Config>>
@@ -23,7 +23,7 @@ export interface TauriApi {
   listAccounts: () => Promise<string[]>
   switchAccount: (accountName: string) => Promise<SwitchAccountResult>
   saveCurrentAsAccount: (accountName: string) => Promise<SaveAccountResult>
-  deleteAccount: (accountName: string) => Promise<boolean>
+  deleteAccount: (accountName: string) => Promise<DeleteAccountResult>
   getActiveAccount: () => Promise<string>
   startBackgroundCheck: () => Promise<CommandResult>
   stopBackgroundCheck: () => Promise<CommandResult>
@@ -113,7 +113,7 @@ const tauriApi: TauriApi = {
   listAccounts: () => invoke<string[]>('list_accounts'),
   switchAccount: (accountName) => invoke<SwitchAccountResult>('switch_account', { accountName }),
   saveCurrentAsAccount: (accountName) => invoke<SaveAccountResult>('save_current_as_account', { accountName }),
-  deleteAccount: (accountName) => invoke<boolean>('delete_account', { accountName }),
+  deleteAccount: (accountName) => invoke<DeleteAccountResult>('delete_account', { accountName }),
   getActiveAccount: () => invoke<string>('get_active_account'),
   startBackgroundCheck: () => invoke<CommandResult>('start_background_check'),
   stopBackgroundCheck: () => invoke<CommandResult>('stop_background_check'),
@@ -133,7 +133,7 @@ const tauriApi: TauriApi = {
   sendNotification: (title, body) => invoke<boolean>('send_notification', { title, body }),
   cancelAutoExit: () => invoke<CommandResult>('cancel_auto_exit'),
   onAutoExitCountdown: createEventListener<AutoExitCountdownData>('auto-exit-countdown'),
-  onAutoExitCancelled: createEventListener<void>('auto-exit-cancelled'),
+  onAutoExitCancelled: createEventListener<Record<string, never>>('auto-exit-cancelled'),
   onSystemNotification: createEventListener<SystemNotificationData>('system-notification'),
   showWindow: () => invoke<void>('show_window'),
   getLogs: (lines) => invoke<string>('get_logs', { lines }),
