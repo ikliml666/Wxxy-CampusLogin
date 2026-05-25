@@ -606,32 +606,37 @@ fn is_access_denied_str(e: &str) -> bool {
 }
 
 fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
+    // 注意：Rust format! 中 {{ 和 }} 分别输出 { 和 }，用于PowerShell的花括号转义
+    // PowerShell脚本使用 foreach 语句而非 ForEach-Object，因为 break 在 ForEach-Object 中行为不可靠
     let script = format!(
-        "$guid='{}';$mac='{}';$name='{}';\
-         $path='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}';\
-         Get-ChildItem -Path $path | ForEach-Object {{\
-           $id=(Get-ItemProperty -Path $_.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
+        "$guid='{guid}';$mac='{mac}';$name='{name}';\
+         $regPath='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}';\
+         $found=$false;\
+         foreach($item in (Get-ChildItem -Path $regPath)){{\
+           $id=(Get-ItemProperty -Path $item.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
            if($id -eq $guid){{\
-             Set-ItemProperty -Path $_.PSPath -Name NetworkAddress -Value $mac -Force;\
+             Set-ItemProperty -Path $item.PSPath -Name NetworkAddress -Value $mac -Force;\
+             $found=$true;\
              break\
            }}\
          }};\
-         netsh interface set interface name=$name admin=disable;\
-         Start-Sleep -Seconds 1;\
-         netsh interface set interface name=$name admin=enable;\
+         if(-not $found){{ Write-Host 'ERROR:RegistryKeyNotFound'; exit 1 }};\
+         netsh interface set interface name=\"$name\" admin=disable;\
          Start-Sleep -Seconds 2;\
-         ipconfig /renew $name;\
-         Start-Sleep -Seconds 1;\
-         Get-ChildItem -Path $path | ForEach-Object {{\
-           $id=(Get-ItemProperty -Path $_.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
+         netsh interface set interface name=\"$name\" admin=enable;\
+         Start-Sleep -Seconds 3;\
+         ipconfig /renew \"$name\";\
+         Start-Sleep -Seconds 2;\
+         foreach($item in (Get-ChildItem -Path $regPath)){{\
+           $id=(Get-ItemProperty -Path $item.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
            if($id -eq $guid){{\
-             Remove-ItemProperty -Path $_.PSPath -Name NetworkAddress -Force -ErrorAction SilentlyContinue;\
+             Remove-ItemProperty -Path $item.PSPath -Name NetworkAddress -Force -ErrorAction SilentlyContinue;\
              break\
            }}\
          }}",
-        guid, mac_no_dash, adapter_name
+        guid = guid, mac = mac_no_dash, name = adapter_name
     );
-    crate::log_info!("adapter", "尝试提权修改MAC: adapter={}, guid={}", adapter_name, guid);
+    crate::log_info!("adapter", "尝试提权修改MAC: adapter={}, guid={}, mac={}", adapter_name, guid, mac_no_dash);
     match crate::commands::network_cmd::run_elevated("powershell", &format!("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
