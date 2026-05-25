@@ -605,7 +605,7 @@ fn is_access_denied_str(e: &str) -> bool {
     e.contains("管理员权限") || e.contains("Access is denied")
 }
 
-fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> bool {
+fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
     let script = format!(
         "$guid='{}';$mac='{}';$name='{}';\
          $path='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}';\
@@ -631,23 +631,27 @@ fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, ol
          }}",
         guid, mac_no_dash, adapter_name
     );
+    crate::log_info!("adapter", "尝试提权修改MAC: adapter={}, guid={}", adapter_name, guid);
     match crate::commands::network_cmd::run_elevated("powershell", &format!("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
         Ok(()) => {
-            for _ in 0..15 {
+            crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
+            for i in 0..20 {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 if let Ok(adapters) = crate::network::get_adapters_force() {
                     if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
                         if !a.ip.is_empty() && a.ip != old_ip {
-                            return true;
+                            crate::log_info!("adapter", "提权修改MAC成功: 新IP={}, 耗时{}s", a.ip, i + 1);
+                            return (true, None);
                         }
                     }
                 }
             }
-            false
+            crate::log_warn!("adapter", "提权修改MAC超时: 20秒内IP未变更");
+            (false, Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
         }
         Err(e) => {
             crate::log_warn!("adapter", "提权执行MAC修改失败: {}", e);
-            false
+            (false, Some(format!("提权失败: {}，请尝试以管理员身份运行应用", e)))
         }
     }
 }
@@ -672,22 +676,26 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
 
         let fake_mac = generate_random_mac();
 
-        let (reg_ok, elevated_done) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
-            Ok(()) => (true, false),
+        let (reg_ok, elevated_done, elevate_msg) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
+            Ok(()) => (true, false, None),
             Err(e) if is_access_denied_str(&e) => {
-                let ok = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
-                (ok, ok)
+                let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
+                (ok, ok, msg)
             }
-            _ => (false, false),
+            Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
         };
 
         let old_ip = adapter.ip.clone();
         let mut new_ip = old_ip.clone();
         let mut ip_changed = false;
+        let mut message: Option<String> = elevate_msg;
 
         if !reg_ok {
             let _ = dhcp_release(&adapter.name);
             let _ = dhcp_renew(&adapter.name);
+            if message.is_none() {
+                message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
+            }
         } else if elevated_done {
             // 提权脚本已完成全部操作（设MAC、禁用适配器、启用适配器、DHCP续租、删除MAC）
             // 仅验证IP是否变更
@@ -698,6 +706,9 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                         ip_changed = new_ip != old_ip;
                     }
                 }
+            }
+            if !ip_changed && message.is_none() {
+                message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
             }
         } else {
             // 非提权路径：需要手动执行适配器循环
@@ -723,6 +734,9 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 }
             }
             let _ = remove_mac_from_registry(&adapter.guid);
+            if !ip_changed && message.is_none() {
+                message = Some("MAC已修改但IP未变更，可能网卡驱动不支持MAC伪装或DHCP服务器分配了相同IP".to_string());
+            }
         }
 
         results.push(serde_json::json!({
@@ -731,7 +745,8 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
             "ip": new_ip,
             "regOk": reg_ok,
             "success": ip_changed,
-            "skipped": false
+            "skipped": false,
+            "message": message
         }));
     }
     Ok(results)

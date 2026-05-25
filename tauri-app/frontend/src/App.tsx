@@ -215,7 +215,11 @@ function AppInner() {
           store.addToast(`${skipped.map((r: any) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
         }
         if (failed.length > 0) {
-          store.addToast(`获取新IP失败: ${failed.map((r: any) => r.name).join(', ')}，可能需要管理员权限`, 'error')
+          const failedDetails = failed.map((r: any) => {
+            const detail = r.message ? `${r.name}: ${r.message}` : r.name
+            return detail
+          }).join('; ')
+          store.addToast(`获取新IP失败: ${failedDetails}`, 'error')
         }
       }
     } catch (e) { console.error('获取新IP失败:', e); store.addToast('获取新IP失败', 'error') }
