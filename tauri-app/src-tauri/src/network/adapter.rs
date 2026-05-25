@@ -238,7 +238,7 @@ fn parse_adapter_addresses(
 
         let mac = if addr.PhysicalAddressLength >= 6 {
             let bytes = unsafe { std::slice::from_raw_parts(addr.PhysicalAddress.as_ptr(), 6) };
-            format!("{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5])
+            format!("{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5])
         } else {
             String::new()
         };
@@ -640,9 +640,6 @@ fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, ol
                         if !a.ip.is_empty() && a.ip != old_ip {
                             return true;
                         }
-                        if !a.ip.is_empty() {
-                            return true;
-                        }
                     }
                 }
             }
@@ -683,29 +680,44 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
             _ => false,
         };
 
+        let old_ip = adapter.ip.clone();
+        let mut new_ip = old_ip.clone();
+        let mut ip_changed = false;
+
         if !reg_ok {
             let _ = dhcp_release(&adapter.name);
-            let _ = dhcp_renew(&adapter.name).unwrap_or(false);
+            let _ = dhcp_renew(&adapter.name);
         } else {
             let _ = dhcp_release(&adapter.name);
             let disable_ok = netsh_disable(&adapter.name);
             if disable_ok {
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                std::thread::sleep(std::time::Duration::from_millis(1000));
             }
             let enable_ok = netsh_enable(&adapter.name);
             if enable_ok {
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
-            let _ = dhcp_renew(&adapter.name).unwrap_or(false);
+            let renew_ok = dhcp_renew(&adapter.name).unwrap_or(false);
+            if renew_ok {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                if let Ok(refreshed) = get_adapters_force() {
+                    if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
+                        if !a.ip.is_empty() {
+                            new_ip = a.ip.clone();
+                            ip_changed = new_ip != old_ip;
+                        }
+                    }
+                }
+            }
             let _ = remove_mac_from_registry(&adapter.guid);
         }
 
         results.push(serde_json::json!({
             "name": adapter.name,
             "wireless": adapter.wireless,
-            "ip": adapter.ip,
+            "ip": new_ip,
             "regOk": reg_ok,
-            "success": true,
+            "success": ip_changed,
             "skipped": false
         }));
     }
