@@ -371,7 +371,7 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
             Ok(h) => h,
             Err(e) => {
                 crate::log_warn!("logger", "无法创建日志线程: {}", e);
-                return false;
+                return Err(format!("无法创建日志线程: {}", e));
             }
         };
 
