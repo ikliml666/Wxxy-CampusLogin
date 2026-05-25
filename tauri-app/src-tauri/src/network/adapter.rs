@@ -672,12 +672,13 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
 
         let fake_mac = generate_random_mac();
 
-        let reg_ok = match set_mac_via_registry(&adapter.guid, &fake_mac) {
-            Ok(()) => true,
+        let (reg_ok, elevated_done) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
+            Ok(()) => (true, false),
             Err(e) if is_access_denied_str(&e) => {
-                try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip)
+                let ok = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
+                (ok, ok)
             }
-            _ => false,
+            _ => (false, false),
         };
 
         let old_ip = adapter.ip.clone();
@@ -687,7 +688,19 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         if !reg_ok {
             let _ = dhcp_release(&adapter.name);
             let _ = dhcp_renew(&adapter.name);
+        } else if elevated_done {
+            // 提权脚本已完成全部操作（设MAC、禁用适配器、启用适配器、DHCP续租、删除MAC）
+            // 仅验证IP是否变更
+            if let Ok(refreshed) = get_adapters_force() {
+                if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
+                    if !a.ip.is_empty() {
+                        new_ip = a.ip.clone();
+                        ip_changed = new_ip != old_ip;
+                    }
+                }
+            }
         } else {
+            // 非提权路径：需要手动执行适配器循环
             let _ = dhcp_release(&adapter.name);
             let disable_ok = netsh_disable(&adapter.name);
             if disable_ok {
