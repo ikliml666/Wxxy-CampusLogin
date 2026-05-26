@@ -26,6 +26,39 @@ function initTheme() {
 
 initTheme()
 
+function setupCrashRecovery() {
+  let crashCount = 0
+  const MAX_CRASH_RELOADS = 3
+
+  const handler = () => {
+    crashCount++
+    if (crashCount <= MAX_CRASH_RELOADS) {
+      console.warn(`[CrashRecovery] 检测到渲染进程异常，尝试重载 (${crashCount}/${MAX_CRASH_RELOADS})`)
+      setTimeout(() => window.location.reload(), 1000)
+    } else {
+      console.error('[CrashRecovery] 重载次数超限，停止自动恢复')
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const root = document.getElementById('root')
+      if (root && !root.children.length) {
+        handler()
+      }
+    }
+  })
+
+  window.addEventListener('error', (e) => {
+    const msg = e.message || ''
+    if (msg.includes('GPU') || msg.includes('WebGL') || msg.includes('render') || msg.includes('SharedArrayBuffer')) {
+      console.error('[CrashRecovery] GPU/WebGL错误:', msg)
+    }
+  })
+}
+
+setupCrashRecovery()
+
 const AppWrapper = import.meta.env.DEV
   ? React.StrictMode
   : React.Fragment

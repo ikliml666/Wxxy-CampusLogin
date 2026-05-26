@@ -23,7 +23,9 @@
         "center": true,
         "visible": false,
         "url": "/",
-        "useHttpsScheme": false
+        "useHttpsScheme": false,
+        "browserExtensionsEnabled": false,
+        "additionalBrowserArgs": "--disable-features=CalculateNativeWinOcclusion,EnableDrDc"
       }
     ],
     "security": {

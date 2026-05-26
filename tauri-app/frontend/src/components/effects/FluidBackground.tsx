@@ -18,7 +18,7 @@ const ORBS: OrbConfig[] = [
     color: 'hsl(var(--primary) / 0.08)',
     x: ['-30%', '90%'],
     y: ['-20%', '70%'],
-    duration: 18000,
+    duration: 20000,
     delay: 0,
     opacity: 0.7,
   },
@@ -27,18 +27,9 @@ const ORBS: OrbConfig[] = [
     color: 'hsl(220, 20%, 92%)',
     x: ['70%', '-20%'],
     y: ['50%', '-30%'],
-    duration: 22000,
-    delay: 2000,
+    duration: 26000,
+    delay: 3000,
     opacity: 0.5,
-  },
-  {
-    size: 450,
-    color: 'hsl(260, 25%, 93%)',
-    x: ['20%', '80%'],
-    y: ['90%', '0%'],
-    duration: 25000,
-    delay: 4000,
-    opacity: 0.4,
   },
 ]
 
@@ -144,8 +135,8 @@ export function FluidBackground() {
             hsl(230, 22%, 94%) 75%,
             hsl(215, 28%, 95%) 100%
           );
-          animation: gradientShift 12s ease-in-out infinite;
-          background-size: 400% 400%;
+          animation: gradientShift 16s ease-in-out infinite;
+          background-size: 200% 200%;
         }
 
         @keyframes gradientShift {
