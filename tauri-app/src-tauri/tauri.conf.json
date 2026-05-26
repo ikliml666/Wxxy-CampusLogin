@@ -5,7 +5,7 @@
   "build": {
     "beforeDevCommand": "cd frontend && npm run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "cd frontend && npm run build && cd ../src-tauri && cargo build --release --bin campus-helper && copy /Y target\\release\\campus-helper.exe .",
+    "beforeBuildCommand": "cd frontend && npm run build",
     "frontendDist": "../frontend/dist"
   },
   "app": {
@@ -48,8 +48,7 @@
       },
       "nsis": {
         "installMode": "both",
-        "languages": ["SimpChinese", "English"],
-        "installerHooks": "./nsis-hooks.nsh"
+        "languages": ["SimpChinese", "English"]
       }
     }
   },

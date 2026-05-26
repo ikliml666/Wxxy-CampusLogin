@@ -639,54 +639,6 @@ pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
     false
 }
 
-#[derive(serde::Deserialize)]
-struct HelperResponse {
-    ok: bool,
-    msg: String,
-}
-
-pub fn try_service_mac_change(adapter_name: &str, guid: &str, mac: &str) -> Result<bool, String> {
-    let pipe_path = r"\\.\pipe\campus-login-mac";
-
-    let request = serde_json::json!({
-        "cmd": "set-mac",
-        "guid": guid,
-        "mac": mac,
-        "adapter_name": adapter_name,
-    });
-
-    let client = tokio::net::windows::named_pipe::ClientOptions::new()
-        .open(pipe_path)
-        .map_err(|e| format!("连接helper服务失败: {}", e))?;
-
-    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建运行时失败: {}", e))?;
-    rt.block_on(async {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let mut client = client;
-
-        let req_bytes = serde_json::to_vec(&request).map_err(|e| format!("序列化请求失败: {}", e))?;
-        client.write_all(&req_bytes).await.map_err(|e| format!("发送请求失败: {}", e))?;
-        client.flush().await.map_err(|e| format!("刷新失败: {}", e))?;
-
-        let mut buf = vec![0u8; 4096];
-        let n = client.read(&mut buf).await.map_err(|e| format!("读取响应失败: {}", e))?;
-        let resp: HelperResponse = serde_json::from_slice(&buf[..n])
-            .map_err(|e| format!("解析响应失败: {}", e))?;
-
-        if resp.ok {
-            Ok(true)
-        } else {
-            Err(resp.msg)
-        }
-    })
-}
-
-pub fn check_helper_service() -> bool {
-    tokio::net::windows::named_pipe::ClientOptions::new()
-        .open(r"\\.\pipe\campus-login-mac")
-        .is_ok()
-}
-
 fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
     // 注意：Rust format! 中 {{ 和 }} 分别输出 { 和 }，用于PowerShell的花括号转义
     // PowerShell脚本使用 foreach 语句而非 ForEach-Object，因为 break 在 ForEach-Object 中行为不可靠
@@ -760,15 +712,8 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         let (reg_ok, elevated_done, elevate_msg) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
             Ok(()) => (true, false, None),
             Err(e) if is_access_denied_str(&e) => {
-                if check_helper_service() {
-                    match try_service_mac_change(&adapter.name, &adapter.guid, &fake_mac) {
-                        Ok(_) => (true, true, None),
-                        Err(msg) => (false, false, Some(msg)),
-                    }
-                } else {
-                    let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
-                    (ok, ok, msg)
-                }
+                let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
+                (ok, ok, msg)
             }
             Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
         };
