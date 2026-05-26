@@ -605,6 +605,40 @@ fn is_access_denied_str(e: &str) -> bool {
     e.contains("管理员权限") || e.contains("Access is denied")
 }
 
+fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Option<String> {
+    let start = std::time::Instant::now();
+    let interval = std::time::Duration::from_millis(300);
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    while start.elapsed() < timeout {
+        std::thread::sleep(interval);
+        if let Ok(adapters) = get_adapters_force() {
+            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+                if !a.ip.is_empty() && a.ip != old_ip {
+                    return Some(a.ip.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
+    let start = std::time::Instant::now();
+    let interval = std::time::Duration::from_millis(300);
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    while start.elapsed() < timeout {
+        std::thread::sleep(interval);
+        if let Ok(adapters) = get_adapters_force() {
+            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+                if !a.ip.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
     // 注意：Rust format! 中 {{ 和 }} 分别输出 { 和 }，用于PowerShell的花括号转义
     // PowerShell脚本使用 foreach 语句而非 ForEach-Object，因为 break 在 ForEach-Object 中行为不可靠
@@ -640,19 +674,13 @@ fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, ol
     match crate::commands::network_cmd::run_elevated("powershell", &format!("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
-            for i in 0..20 {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                if let Ok(adapters) = crate::network::get_adapters_force() {
-                    if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
-                        if !a.ip.is_empty() && a.ip != old_ip {
-                            crate::log_info!("adapter", "提权修改MAC成功: 新IP={}, 耗时{}s", a.ip, i + 1);
-                            return (true, None);
-                        }
-                    }
-                }
+            if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 10_000) {
+                crate::log_info!("adapter", "提权修改MAC成功: 新IP={}", changed_ip);
+                (true, None)
+            } else {
+                crate::log_warn!("adapter", "提权修改MAC超时: 10秒内IP未变更");
+                (false, Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
             }
-            crate::log_warn!("adapter", "提权修改MAC超时: 20秒内IP未变更");
-            (false, Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
         }
         Err(e) => {
             crate::log_warn!("adapter", "提权执行MAC修改失败: {}", e);
@@ -716,20 +744,21 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
             }
         } else {
-            // 非提权路径：需要手动执行适配器循环
             let _ = dhcp_release(&adapter.name);
             let disable_ok = netsh_disable(&adapter.name);
             if disable_ok {
-                std::thread::sleep(std::time::Duration::from_millis(1000));
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
             let enable_ok = netsh_enable(&adapter.name);
             if enable_ok {
-                std::thread::sleep(std::time::Duration::from_secs(2));
+                poll_adapter_has_ip(&adapter.name, 3000);
             }
             let renew_ok = dhcp_renew(&adapter.name).unwrap_or(false);
             if renew_ok {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                if let Ok(refreshed) = get_adapters_force() {
+                if let Some(changed_ip) = poll_ip_change(&adapter.name, &old_ip, 5000) {
+                    new_ip = changed_ip;
+                    ip_changed = true;
+                } else if let Ok(refreshed) = get_adapters_force() {
                     if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
                         if !a.ip.is_empty() {
                             new_ip = a.ip.clone();
