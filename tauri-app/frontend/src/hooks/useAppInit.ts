@@ -371,6 +371,15 @@ export function useAppInit() {
 
   useEffect(() => {
     const { api } = useAppStore.getState()
+    const interval = setInterval(() => {
+      api.renderHeartbeat?.().catch(() => {})
+    }, 5000)
+    api.renderHeartbeat?.().catch(() => {})
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const { api } = useAppStore.getState()
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'C') {
         e.preventDefault()

@@ -34,6 +34,8 @@
     --surface-top: #ffffff;
     --surface-main: #f0f4f8;
     --surface-side: #f8fafc;
+
+    background-color: #f0f4f8;
   }
 
   .dark {
@@ -66,6 +68,8 @@
     --surface-top: #14161b;
     --surface-main: #0c0e12;
     --surface-side: #101216;
+
+    background-color: #0c0e12;
   }
 
   .theme-vibrant { --primary: 270 91% 65%; --primary-foreground: 0 0% 100%; --ring: 270 91% 65%; }
@@ -510,8 +514,8 @@
   }
 
   @keyframes windowReveal {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { transform: scale(0.98); opacity: 0.8; }
+    to { transform: scale(1); opacity: 1; }
   }
 
   .animate-window-reveal {

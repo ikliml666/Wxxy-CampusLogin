@@ -59,6 +59,7 @@ export interface TauriApi {
   onUpdateAvailable: (cb: (data: UpdateAvailableData) => void) => () => void
   checkDnsDohStatus: () => Promise<DnsDohStatus>
   setupDnsDoh: () => Promise<DnsSetupResult>
+  renderHeartbeat: () => Promise<void>
 }
 
 const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => () => void) => {
@@ -149,6 +150,7 @@ const tauriApi: TauriApi = {
   onUpdateAvailable: createEventListener<UpdateAvailableData>('update-available'),
   checkDnsDohStatus: () => invoke<DnsDohStatus>('check_dns_doh_status'),
   setupDnsDoh: () => invoke<DnsSetupResult>('setup_dns_doh'),
+  renderHeartbeat: () => invoke<void>('render_heartbeat'),
 }
 
 function isRetryableError(e: unknown): boolean {

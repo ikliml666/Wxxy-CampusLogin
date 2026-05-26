@@ -108,20 +108,6 @@ fn run_app(core_count: usize) {
             state.config.store(Arc::new(config.clone()));
             crate::network::update_portal_url(&config.portal_url);
 
-            let is_auto_start = std::env::args().any(|a| a == "--autostart");
-            let show_window = !(is_auto_start && config.hidden_start);
-
-            if show_window {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();      // [忽略错误] 窗口可能尚未初始化完成
-                    let _ = window.set_focus(); // [忽略错误] 窗口可能尚未初始化完成
-                }
-            } else {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();      // [忽略错误] 窗口可能尚未初始化完成
-                }
-            }
-
             let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app)?;
             let quick_login_item = MenuItemBuilder::with_id("quick-login", "快速登录").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
@@ -229,6 +215,53 @@ fn run_app(core_count: usize) {
             commands::start_update_check_loop(&app_h);
             commands::run_startup_tasks(&app_h);
 
+            {
+                let app_h = app.handle().clone();
+                let is_quitting = app_h.state::<AppState>().exit.is_quitting.clone();
+                std::thread::spawn(move || {
+                    let check_interval = std::time::Duration::from_secs(5);
+                    let crash_threshold_ms: u64 = 20_000;
+                    let mut consecutive_stale = 0u32;
+                    loop {
+                        std::thread::sleep(check_interval);
+                        if is_quitting.load(Ordering::Acquire) {
+                            break;
+                        }
+                        if let Some(window) = app_h.get_webview_window("main") {
+                            let is_visible = window.is_visible().unwrap_or(false);
+                            if !is_visible {
+                                consecutive_stale = 0;
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                        let s = app_h.state::<AppState>();
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let last = s.last_render_heartbeat_ms.load(Ordering::Acquire);
+                        if last == 0 {
+                            continue;
+                        }
+                        let elapsed = now.saturating_sub(last);
+                        if elapsed > crash_threshold_ms {
+                            consecutive_stale += 1;
+                            if consecutive_stale >= 3 {
+                                crate::log_warn!("heartbeat", "前端心跳丢失 {}ms，尝试重载WebView", elapsed);
+                                if let Some(window) = app_h.get_webview_window("main") {
+                                    let _ = window.eval("window.location.reload()");
+                                }
+                                consecutive_stale = 0;
+                            }
+                        } else {
+                            consecutive_stale = 0;
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -296,6 +329,7 @@ fn run_app(core_count: usize) {
             commands::system::get_logs,
             commands::system::clear_logs,
             commands::system::get_init_data,
+            commands::system::render_heartbeat,
     commands::updater::check_update,
     commands::updater::download_update,
     commands::updater::install_update,

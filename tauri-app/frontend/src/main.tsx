@@ -30,10 +30,10 @@ function setupCrashRecovery() {
   let crashCount = 0
   const MAX_CRASH_RELOADS = 3
 
-  const handler = () => {
+  const tryRecover = () => {
     crashCount++
     if (crashCount <= MAX_CRASH_RELOADS) {
-      console.warn(`[CrashRecovery] 检测到渲染进程异常，尝试重载 (${crashCount}/${MAX_CRASH_RELOADS})`)
+      console.warn(`[CrashRecovery] 检测到渲染异常，尝试重载 (${crashCount}/${MAX_CRASH_RELOADS})`)
       setTimeout(() => window.location.reload(), 1000)
     } else {
       console.error('[CrashRecovery] 重载次数超限，停止自动恢复')
@@ -44,17 +44,45 @@ function setupCrashRecovery() {
     if (document.visibilityState === 'visible') {
       const root = document.getElementById('root')
       if (root && !root.children.length) {
-        handler()
+        tryRecover()
       }
     }
   })
 
   window.addEventListener('error', (e) => {
     const msg = e.message || ''
-    if (msg.includes('GPU') || msg.includes('WebGL') || msg.includes('render') || msg.includes('SharedArrayBuffer')) {
+    if (msg.includes('GPU') || msg.includes('WebGL') || msg.includes('SharedArrayBuffer')) {
       console.error('[CrashRecovery] GPU/WebGL错误:', msg)
+      tryRecover()
     }
   })
+
+  let lastFrameTime = performance.now()
+  let isVisible = true
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      isVisible = true
+      lastFrameTime = performance.now()
+    } else {
+      isVisible = false
+    }
+  })
+
+  function rafLoop() {
+    lastFrameTime = performance.now()
+    requestAnimationFrame(rafLoop)
+  }
+  requestAnimationFrame(rafLoop)
+
+  setInterval(() => {
+    if (!isVisible) return
+    const elapsed = performance.now() - lastFrameTime
+    if (elapsed > 5000) {
+      console.error(`[CrashRecovery] 渲染心跳丢失 ${Math.round(elapsed)}ms，疑似GPU崩溃`)
+      tryRecover()
+    }
+  }, 2000)
 }
 
 setupCrashRecovery()

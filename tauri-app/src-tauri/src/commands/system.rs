@@ -349,3 +349,13 @@ pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) ->
         "cpuCores": cpu_cores,
     }))
 }
+
+#[tauri::command]
+pub fn render_heartbeat(state: State<'_, AppState>) -> Result<(), String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    state.last_render_heartbeat_ms.store(now, Ordering::Release);
+    Ok(())
+}

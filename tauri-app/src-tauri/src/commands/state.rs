@@ -208,6 +208,7 @@ pub struct AppState {
     pub exit: ExitState,
     pub last_update_check_epoch_ms: AtomicU64,
     pub last_disabled_notification_ms: AtomicU64,
+    pub last_render_heartbeat_ms: AtomicU64,
 }
 
 impl AppState {
@@ -246,6 +247,7 @@ impl AppState {
             },
             last_update_check_epoch_ms: AtomicU64::new(0),
             last_disabled_notification_ms: AtomicU64::new(0),
+            last_render_heartbeat_ms: AtomicU64::new(0),
         }
     }
 }
