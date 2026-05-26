@@ -1,5 +1,5 @@
 mod cache;
-mod adapter;
+pub mod adapter;
 mod portal;
 mod login_request;
 mod quality;

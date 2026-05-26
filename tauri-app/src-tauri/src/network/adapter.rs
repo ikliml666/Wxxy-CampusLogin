@@ -47,7 +47,7 @@ pub struct DisabledAdapter {
     pub description: String,
 }
 
-fn new_command(program: &str) -> std::process::Command {
+pub fn new_command(program: &str) -> std::process::Command {
     let mut cmd = std::process::Command::new(program);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
@@ -466,7 +466,7 @@ pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (
     (String::new(), String::new())
 }
 
-fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
+pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     if adapter_name.is_empty() { return Err("适配器名称无效".to_string()); }
     if adapter_name.len() > 128 { return Err("适配器名称过长".to_string()); }
     let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
@@ -480,7 +480,7 @@ fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     Ok(output.status.success())
 }
 
-fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
+pub fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
     if adapter_name.is_empty() { return Err("适配器名称无效".to_string()); }
     if adapter_name.len() > 128 { return Err("适配器名称过长".to_string()); }
     let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
@@ -533,7 +533,7 @@ fn is_access_denied(e: &std::io::Error) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(), String> {
+pub fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(), String> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS};
     let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
     let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -560,7 +560,7 @@ fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(), Str
 }
 
 #[cfg(target_os = "windows")]
-fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
+pub fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS};
     let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
     let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -585,7 +585,7 @@ fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
     Err("未找到适配器注册表项".to_string())
 }
 
-fn netsh_disable(adapter_name: &str) -> bool {
+pub fn netsh_disable(adapter_name: &str) -> bool {
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=disable"])
         .output()
@@ -593,7 +593,7 @@ fn netsh_disable(adapter_name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn netsh_enable(adapter_name: &str) -> bool {
+pub fn netsh_enable(adapter_name: &str) -> bool {
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=enable"])
         .output()
@@ -603,6 +603,40 @@ fn netsh_enable(adapter_name: &str) -> bool {
 
 fn is_access_denied_str(e: &str) -> bool {
     e.contains("管理员权限") || e.contains("Access is denied")
+}
+
+pub fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Option<String> {
+    let start = std::time::Instant::now();
+    let interval = std::time::Duration::from_millis(300);
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    while start.elapsed() < timeout {
+        std::thread::sleep(interval);
+        if let Ok(adapters) = get_adapters_force() {
+            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+                if !a.ip.is_empty() && a.ip != old_ip {
+                    return Some(a.ip.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
+    let start = std::time::Instant::now();
+    let interval = std::time::Duration::from_millis(300);
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    while start.elapsed() < timeout {
+        std::thread::sleep(interval);
+        if let Ok(adapters) = get_adapters_force() {
+            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+                if !a.ip.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
@@ -640,19 +674,13 @@ fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, ol
     match crate::commands::network_cmd::run_elevated("powershell", &format!("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
-            for i in 0..20 {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                if let Ok(adapters) = crate::network::get_adapters_force() {
-                    if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
-                        if !a.ip.is_empty() && a.ip != old_ip {
-                            crate::log_info!("adapter", "提权修改MAC成功: 新IP={}, 耗时{}s", a.ip, i + 1);
-                            return (true, None);
-                        }
-                    }
-                }
+            if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 10_000) {
+                crate::log_info!("adapter", "提权修改MAC成功: 新IP={}", changed_ip);
+                (true, None)
+            } else {
+                crate::log_warn!("adapter", "提权修改MAC超时: 10秒内IP未变更");
+                (false, Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
             }
-            crate::log_warn!("adapter", "提权修改MAC超时: 20秒内IP未变更");
-            (false, Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
         }
         Err(e) => {
             crate::log_warn!("adapter", "提权执行MAC修改失败: {}", e);
@@ -716,20 +744,21 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
             }
         } else {
-            // 非提权路径：需要手动执行适配器循环
             let _ = dhcp_release(&adapter.name);
             let disable_ok = netsh_disable(&adapter.name);
             if disable_ok {
-                std::thread::sleep(std::time::Duration::from_millis(1000));
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
             let enable_ok = netsh_enable(&adapter.name);
             if enable_ok {
-                std::thread::sleep(std::time::Duration::from_secs(2));
+                poll_adapter_has_ip(&adapter.name, 3000);
             }
             let renew_ok = dhcp_renew(&adapter.name).unwrap_or(false);
             if renew_ok {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                if let Ok(refreshed) = get_adapters_force() {
+                if let Some(changed_ip) = poll_ip_change(&adapter.name, &old_ip, 5000) {
+                    new_ip = changed_ip;
+                    ip_changed = true;
+                } else if let Ok(refreshed) = get_adapters_force() {
                     if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
                         if !a.ip.is_empty() {
                             new_ip = a.ip.clone();
