@@ -527,6 +527,14 @@ fn generate_random_mac() -> String {
     format!("{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", first, b2, b3, b4, b5, b6)
 }
 
+fn mac_with_dashes(mac: &str) -> String {
+    mac.as_bytes()
+        .chunks(2)
+        .filter_map(|c| std::str::from_utf8(c).ok())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 #[cfg(target_os = "windows")]
 fn is_access_denied(e: &std::io::Error) -> bool {
     e.raw_os_error() == Some(5)
@@ -559,6 +567,7 @@ pub fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(),
     Err("未找到适配器注册表项".to_string())
 }
 
+#[allow(dead_code)]
 fn find_adapter_registry_subkey(adapter_guid: &str) -> Option<String> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
     let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
@@ -656,38 +665,17 @@ pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
     false
 }
 
-fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
-    // 注意：Rust format! 中 {{ 和 }} 分别输出 { 和 }，用于PowerShell的花括号转义
-    // PowerShell脚本使用 foreach 语句而非 ForEach-Object，因为 break 在 ForEach-Object 中行为不可靠
+fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
+    let mac_dashed = mac_with_dashes(mac_no_dash);
     let script = format!(
-        "$guid='{guid}';$mac='{mac}';$name='{name}';\
-         $regPath='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}';\
-         $found=$false;\
-         foreach($item in (Get-ChildItem -Path $regPath -ErrorAction SilentlyContinue)){{\
-           $id=(Get-ItemProperty -Path $item.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
-           if($id -eq $guid){{\
-             Set-ItemProperty -Path $item.PSPath -Name NetworkAddress -Value $mac -Force;\
-             $found=$true;\
-             break\
-           }}\
-         }};\
-         if(-not $found){{ Write-Host 'ERROR:RegistryKeyNotFound'; exit 1 }};\
-         netsh interface set interface name=\"$name\" admin=disable;\
-         Start-Sleep -Seconds 2;\
-         netsh interface set interface name=\"$name\" admin=enable;\
-         Start-Sleep -Seconds 3;\
-         ipconfig /renew \"$name\";\
-         Start-Sleep -Seconds 2;\
-         foreach($item in (Get-ChildItem -Path $regPath -ErrorAction SilentlyContinue)){{\
-           $id=(Get-ItemProperty -Path $item.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
-           if($id -eq $guid){{\
-             Remove-ItemProperty -Path $item.PSPath -Name NetworkAddress -Force -ErrorAction SilentlyContinue;\
-             break\
-           }}\
-         }}",
-        guid = guid, mac = mac_no_dash, name = adapter_name
+        "$name='{name}';$mac='{mac}';\
+         Set-NetAdapter -Name $name -MacAddress $mac -Confirm:$false -ErrorAction Stop;\
+         ipconfig /release $name;\
+         Start-Sleep -Seconds 1;\
+         ipconfig /renew $name",
+        mac = mac_dashed, name = adapter_name
     );
-    crate::log_info!("adapter", "尝试提权修改MAC: adapter={}, guid={}, mac={}", adapter_name, guid, mac_no_dash);
+    crate::log_info!("adapter", "尝试提权修改MAC(Set-NetAdapter): adapter={}, mac={}", adapter_name, mac_dashed);
     match crate::commands::network_cmd::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
@@ -725,6 +713,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         }
 
         let fake_mac = generate_random_mac();
+        let mac_dashed = mac_with_dashes(&fake_mac);
 
         let (reg_ok, elevated_done, elevate_msg) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
             Ok(()) => {
@@ -732,24 +721,27 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 (true, false, None)
             }
             Err(e) if is_access_denied_str(&e) => {
-                crate::log_info!("adapter", "直写注册表权限不足，尝试COM提权: guid={}", adapter.guid);
-                let sub_key_path = find_adapter_registry_subkey(&adapter.guid);
-                if let Some(path) = sub_key_path {
-                    match crate::commands::network_cmd::set_registry_elevated(&path, "NetworkAddress", &fake_mac) {
-                        Ok(()) => {
-                            crate::log_info!("adapter", "COM提权写注册表成功: path={}", path);
-                            (true, false, None)
-                        }
-                        Err(com_err) => {
-                            crate::log_warn!("adapter", "COM提权失败: {}，降级到PowerShell", com_err);
-                            let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
-                            (ok, ok, msg)
+                crate::log_info!("adapter", "直写注册表权限不足，尝试COM ShellExec提权: guid={}", adapter.guid);
+                let ps_cmd = format!(
+                    "-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'\"",
+                    adapter.name, mac_dashed, adapter.name, adapter.name
+                );
+                match crate::commands::network_cmd::shell_exec_elevated("powershell", &ps_cmd, true) {
+                    Ok(()) => {
+                        crate::log_info!("adapter", "COM ShellExec提权成功，等待IP变更...");
+                        if let Some(changed_ip) = poll_ip_change(&adapter.name, &adapter.ip, 25_000) {
+                            crate::log_info!("adapter", "COM提权修改MAC成功: 新IP={}", changed_ip);
+                            (true, true, None)
+                        } else {
+                            crate::log_warn!("adapter", "COM提权修改MAC超时: 25秒内IP未变更");
+                            (true, true, Some("COM提权已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
                         }
                     }
-                } else {
-                    crate::log_warn!("adapter", "未找到适配器注册表子键，降级到PowerShell: guid={}", adapter.guid);
-                    let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
-                    (ok, ok, msg)
+                    Err(com_err) => {
+                        crate::log_warn!("adapter", "COM ShellExec失败: {}，降级到ShellExecuteW", com_err);
+                        let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
+                        (ok, ok, msg)
+                    }
                 }
             }
             Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
