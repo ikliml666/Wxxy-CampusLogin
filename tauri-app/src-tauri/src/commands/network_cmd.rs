@@ -275,27 +275,22 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     if !state.config.load().enable_network_quality {
         return Ok(serde_json::json!({"quality": "disabled"}));
     }
-    let already_running = state.tasks.is_quality_checking.swap_acquire();
-    if already_running {
-        return Ok(serde_json::json!({"quality": "busy"}));
-    }
+    let _guard = match state.tasks.is_quality_checking.acquire_guard() {
+        Some(g) => g,
+        None => return Ok(serde_json::json!({"quality": "busy"})),
+    };
     let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
         let config = state.config.load();
         let adapters = match get_adapters_cached() {
             Ok(a) => a,
-            Err(_) => {
-                state.tasks.is_quality_checking.force_release();
-                return Ok(empty_quality_json());
-            }
+            Err(_) => return Ok(empty_quality_json()),
         };
         let (ip, name) = select_adapter(&adapters, &config);
         (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
     };
     if adapter_ip.is_empty() {
-        state.tasks.is_quality_checking.force_release();
         return Ok(empty_quality_json());
     }
-    let _guard = state.tasks.is_quality_checking.release_guard();
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone()).await;
     drop(_guard);
     serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {}", e))

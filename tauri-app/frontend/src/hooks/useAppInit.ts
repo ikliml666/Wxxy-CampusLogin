@@ -4,7 +4,7 @@ import { useAppStore, flushPendingConfig, hasPendingConfig } from './useAppStore
 import { useLogToastStore } from './useLogToastStore'
 import { safeStorage } from '@/lib/utils'
 import { mergeNetworkQuality } from '@/lib/latency'
-import { NAV_ITEMS, DEFAULT_CONFIG } from '@/constants'
+import { NAV_ITEMS, DEFAULT_CONFIG, PASSWORD_MASK } from '@/constants'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 const VALID_PANELS: PanelName[] = NAV_ITEMS.map(item => item.id)
@@ -262,7 +262,7 @@ export function useAppInit() {
         if (!mountedRef.current) return
         if (initData) {
           const cfg = { ...DEFAULT_CONFIG, ...initData.config }
-          if (cfg.password === '***') {
+          if (cfg.password === PASSWORD_MASK) {
             store.getState().syncPasswordSaved(true)
             cfg.password = ''
           } else if (cfg.password && cfg.password !== '') {

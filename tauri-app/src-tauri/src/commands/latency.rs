@@ -87,25 +87,23 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
                 let cfg = s.config.load();
                 (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
             };
-            if s.tasks.is_quality_checking.swap_acquire() {
-                continue;
-            }
-            let _guard = s.tasks.is_quality_checking.release_guard();
-            let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
-            drop(_guard);
-            let quality_val = match serde_json::to_value(&quality) {
-                Ok(v) => v,
-                Err(e) => {
-                    crate::log_warn!("latency", "序列化网络质量结果失败: {}", e);
-                    continue;
+            if !s.tasks.is_quality_checking.swap_acquire() {
+                let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
+                s.tasks.is_quality_checking.force_release();
+                let quality_val = match serde_json::to_value(&quality) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        crate::log_warn!("latency", "序列化网络质量结果失败: {}", e);
+                        continue;
+                    }
+                };
+                if let Err(e) = app_h.emit("network-quality-result", &quality_val) {
+                    crate::log_warn!("latency", "发送网络质量结果失败: {}", e);
                 }
-            };
-            if let Err(e) = app_h.emit("network-quality-result", &quality_val) {
-                crate::log_warn!("latency", "发送网络质量结果失败: {}", e);
+                let s = app_h.state::<AppState>();
+                let enable_notification = s.config.load().enable_notification;
+                notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
             }
-            let s = app_h.state::<AppState>();
-            let enable_notification = s.config.load().enable_notification;
-            notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
         }
     });
 }

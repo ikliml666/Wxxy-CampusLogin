@@ -10,10 +10,10 @@ pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         let s = app_h.state::<AppState>();
-        if s.tasks.adapter_watch_running.swap_acquire() {
-            return;
-        }
-        let _guard = s.tasks.adapter_watch_running.release_guard();
+        let _guard = match s.tasks.adapter_watch_running.acquire_guard() {
+            Some(g) => g,
+            None => return,
+        };
         let mut last_adapters: Vec<Adapter> = Vec::new();
         let mut last_disabled: Vec<DisabledAdapter> = Vec::new();
         let mut interval_timer = tokio::time::interval(Duration::from_millis(ADAPTER_WATCH_INTERVAL));

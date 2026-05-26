@@ -17,7 +17,7 @@ import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
   Check, X, Eye, EyeOff
 } from 'lucide-react'
-import { ISP_OPTIONS } from '@/constants'
+import { ISP_OPTIONS, PASSWORD_MASK } from '@/constants'
 import { cn } from '@/lib/utils'
 import { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { m } from 'framer-motion'
@@ -117,7 +117,7 @@ export const AccountPanel = memo(function AccountPanel({
                   onBlur={() => {
                     setPasswordFocused(false)
                     if (passwordSaved && !config.password) return
-                    if (config.password && config.password !== '***') {
+                    if (config.password && config.password !== PASSWORD_MASK) {
                       onUpdateConfig({ password: config.password })
                     }
                   }}

@@ -4,6 +4,8 @@ use tauri::Manager;
 use regex::Regex;
 use lazy_static::lazy_static;
 
+pub const PASSWORD_MASK: &str = "***";
+
 lazy_static! {
     static ref USERNAME_RE: Regex = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
 }
@@ -149,7 +151,7 @@ impl Config {
     pub fn masked_for_display(&self) -> Config {
         let mut c = self.clone();
         if !c.password.is_empty() {
-            c.password = "***".to_string();
+            c.password = PASSWORD_MASK.to_string();
         }
         c
     }

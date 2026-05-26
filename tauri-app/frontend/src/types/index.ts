@@ -198,7 +198,7 @@ export interface DeleteAccountResult {
 
 export interface SaveAccountResult {
   success: boolean
-  activeAccount: string
+  activeAccount?: string
   config?: Config
   message?: string
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Config, PanelName, StatusState, Adapter, AdapterDetail, DisabledAdapter, BackgroundStatus, NetworkQuality, LogType, ThemeName, ToastMessage, LogEntry, DnsDohStatus } from '@/types'
-import { DEFAULT_CONFIG, VALID_THEMES } from '@/constants'
+import { DEFAULT_CONFIG, VALID_THEMES, PASSWORD_MASK } from '@/constants'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { hexToHsl } from '@/lib/color'
@@ -103,8 +103,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateConfig: (partial) => {
     const { config, saveConfigDirect } = get()
     const sanitized = { ...partial }
-    if (sanitized.password === '***') {
-      sanitized.password = undefined as any
+    if (sanitized.password === PASSWORD_MASK) {
+      delete (sanitized as Partial<Config>).password
     }
     const next = { ...config, ...sanitized }
     set({ config: next })
@@ -130,8 +130,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       // 合并完整配置，确保发送给后端的是完整的 Config 对象
       const fullConfig = { ...get().config, ...cfg }
-      if (fullConfig.password === '***') {
-        fullConfig.password = undefined as any
+      if (fullConfig.password === PASSWORD_MASK) {
+        delete fullConfig.password
       }
       await api.saveConfig(fullConfig)
     } catch (e: any) {
@@ -359,12 +359,12 @@ export function flushPendingConfig() {
     const pending = saveConfigPending
     saveConfigPending = null
     const sanitized = { ...pending }
-    if (sanitized.password === '***') {
-      sanitized.password = undefined as any
+    if (sanitized.password === PASSWORD_MASK) {
+      delete (sanitized as Partial<Config>).password
     }
     const fullConfig = { ...useAppStore.getState().config, ...sanitized }
-    if (fullConfig.password === '***') {
-      fullConfig.password = undefined as any
+    if (fullConfig.password === PASSWORD_MASK) {
+      delete fullConfig.password
     }
     const api = useAppStore.getState().api
     api?.saveConfig(fullConfig)?.catch?.(() => {})

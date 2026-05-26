@@ -16,10 +16,6 @@ pub struct TaskGuard<'a> {
     lock: &'a TaskLock,
 }
 
-pub struct TaskReleaseGuard<'a> {
-    lock: &'a TaskLock,
-}
-
 impl TaskLock {
     pub fn new() -> Self {
         Self { flag: AtomicBool::new(false) }
@@ -30,6 +26,14 @@ impl TaskLock {
             Some(TaskGuard { lock: self })
         } else {
             None
+        }
+    }
+
+    pub fn acquire_guard(&self) -> Option<TaskGuard<'_>> {
+        if self.flag.swap(true, Ordering::Acquire) {
+            None
+        } else {
+            Some(TaskGuard { lock: self })
         }
     }
 
@@ -44,19 +48,9 @@ impl TaskLock {
     pub fn swap_acquire(&self) -> bool {
         self.flag.swap(true, Ordering::Acquire)
     }
-
-    pub fn release_guard(&self) -> TaskReleaseGuard<'_> {
-        TaskReleaseGuard { lock: self }
-    }
 }
 
 impl Drop for TaskGuard<'_> {
-    fn drop(&mut self) {
-        self.lock.flag.store(false, Ordering::Release);
-    }
-}
-
-impl Drop for TaskReleaseGuard<'_> {
     fn drop(&mut self) {
         self.lock.flag.store(false, Ordering::Release);
     }
@@ -73,7 +67,7 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         crate::config::validate_username(&config.user)?;
     }
     if !config.password.is_empty() {
-        if config.password == "***" {
+        if config.password == crate::config::PASSWORD_MASK {
             return Err("密码不能为\"***\"".to_string());
         }
         crate::config::validate_password(&config.password)?;
@@ -267,5 +261,31 @@ impl CommandResult {
     }
     pub fn err(msg: &str) -> Self {
         Self { success: false, message: Some(msg.to_string()), data: None }
+    }
+}
+
+#[derive(Serialize)]
+pub struct AccountResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_account: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<Config>,
+}
+
+impl AccountResult {
+    pub fn ok(config: Config) -> Self {
+        Self { success: true, message: None, active_account: None, config: Some(config) }
+    }
+    pub fn ok_with_account(account: String, config: Config) -> Self {
+        Self { success: true, message: None, active_account: Some(account), config: Some(config) }
+    }
+    pub fn ok_msg(msg: &str) -> Self {
+        Self { success: true, message: Some(msg.to_string()), active_account: None, config: None }
+    }
+    pub fn err(msg: &str) -> Self {
+        Self { success: false, message: Some(msg.to_string()), active_account: None, config: None }
     }
 }

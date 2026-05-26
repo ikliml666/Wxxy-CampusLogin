@@ -2,7 +2,7 @@ use tauri::{AppHandle, Manager, State};
 use std::sync::Arc;
 use crate::config::{Config, get_data_dir, get_accounts_dir, atomic_write, list_account_names};
 use crate::crypto_utils;
-use super::state::{AppState, validate_account_name, validate_config};
+use super::state::{AppState, validate_account_name, validate_config, AccountResult};
 
 #[tauri::command]
 pub async fn list_accounts(app_handle: AppHandle) -> Result<Vec<String>, String> {
@@ -12,10 +12,10 @@ pub async fn list_accounts(app_handle: AppHandle) -> Result<Vec<String>, String>
 }
 
 #[tauri::command]
-pub async fn switch_account(account_name: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn switch_account(account_name: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<AccountResult, String> {
     let safe_name = match validate_account_name(&account_name) {
         Ok(n) => n,
-        Err(e) => return Ok(serde_json::json!({ "success": false, "message": e })),
+        Err(e) => return Ok(AccountResult::err(&e)),
     };
 
     let app_h = app_handle.clone();
@@ -25,7 +25,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
 
     let config = match account_config {
         Some(c) => c,
-        None => return Ok(serde_json::json!({ "success": false, "message": "账号不存在" })),
+        None => return Ok(AccountResult::err("账号不存在")),
     };
 
     let mut merged = state.config.load().as_ref().clone();
@@ -44,14 +44,14 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
     state.config.store(Arc::new(merged));
 
     let display_config = state.config.load().masked_for_display();
-    Ok(serde_json::json!({ "success": true, "config": display_config }))
+    Ok(AccountResult::ok(display_config))
 }
 
 #[tauri::command]
-pub async fn save_current_as_account(account_name: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn save_current_as_account(account_name: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<AccountResult, String> {
     let safe_name = match validate_account_name(&account_name) {
         Ok(n) => n,
-        Err(e) => return Ok(serde_json::json!({ "success": false, "message": e })),
+        Err(e) => return Ok(AccountResult::err(&e)),
     };
 
     let config = state.config.load_full();
@@ -201,11 +201,11 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
 
     let display_config = state.config.load().masked_for_display();
 
-    Ok(serde_json::json!({ "success": true, "activeAccount": account_name, "config": display_config }))
+    Ok(AccountResult::ok_with_account(account_name, display_config))
 }
 
 #[tauri::command]
-pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
+pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Result<AccountResult, String> {
     let safe_name = validate_account_name(&account_name)
         .map_err(|e| format!("删除失败: {}", e))?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -223,9 +223,9 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Resu
         if account_path.exists() {
             std::fs::remove_file(&account_path)
                 .map_err(|e| format!("删除账号失败: {}", e))?;
-            Ok(serde_json::json!({ "success": true, "message": "账号已删除" }))
+            Ok(AccountResult::ok_msg("账号已删除"))
         } else {
-            Ok(serde_json::json!({ "success": false, "message": "账号不存在" }))
+            Ok(AccountResult::err("账号不存在"))
         }
     }).await.map_err(|e| e.to_string())?
 }
