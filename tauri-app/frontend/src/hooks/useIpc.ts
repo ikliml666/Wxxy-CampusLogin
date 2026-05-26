@@ -59,6 +59,9 @@ export interface TauriApi {
   onUpdateAvailable: (cb: (data: UpdateAvailableData) => void) => () => void
   checkDnsDohStatus: () => Promise<DnsDohStatus>
   setupDnsDoh: () => Promise<DnsSetupResult>
+  checkHelperServiceStatus: () => Promise<{ running: boolean }>
+  installHelperService: () => Promise<{ success: boolean; message: string }>
+  uninstallHelperService: () => Promise<{ success: boolean; message: string }>
 }
 
 const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => () => void) => {
@@ -149,6 +152,9 @@ const tauriApi: TauriApi = {
   onUpdateAvailable: createEventListener<UpdateAvailableData>('update-available'),
   checkDnsDohStatus: () => invoke<DnsDohStatus>('check_dns_doh_status'),
   setupDnsDoh: () => invoke<DnsSetupResult>('setup_dns_doh'),
+  checkHelperServiceStatus: () => invoke<{ running: boolean }>('check_helper_service_status'),
+  installHelperService: () => invoke<{ success: boolean; message: string }>('install_helper_service'),
+  uninstallHelperService: () => invoke<{ success: boolean; message: string }>('uninstall_helper_service'),
 }
 
 function isRetryableError(e: unknown): boolean {

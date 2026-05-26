@@ -9,6 +9,10 @@ edition = "2021"
 name = "campus_login_lib"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "campus-helper"
+path = "src/bin/campus-helper.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -46,6 +50,7 @@ socket2 = { version = "0.5", features = ["all"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"
+windows-service = "0.8"
 windows = { version = "0.58", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",

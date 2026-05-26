@@ -47,7 +47,7 @@ pub struct DisabledAdapter {
     pub description: String,
 }
 
-fn new_command(program: &str) -> std::process::Command {
+pub fn new_command(program: &str) -> std::process::Command {
     let mut cmd = std::process::Command::new(program);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
@@ -466,7 +466,7 @@ pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (
     (String::new(), String::new())
 }
 
-fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
+pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     if adapter_name.is_empty() { return Err("适配器名称无效".to_string()); }
     if adapter_name.len() > 128 { return Err("适配器名称过长".to_string()); }
     let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
@@ -480,7 +480,7 @@ fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     Ok(output.status.success())
 }
 
-fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
+pub fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
     if adapter_name.is_empty() { return Err("适配器名称无效".to_string()); }
     if adapter_name.len() > 128 { return Err("适配器名称过长".to_string()); }
     let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
@@ -533,7 +533,7 @@ fn is_access_denied(e: &std::io::Error) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(), String> {
+pub fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(), String> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS};
     let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
     let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -560,7 +560,7 @@ fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(), Str
 }
 
 #[cfg(target_os = "windows")]
-fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
+pub fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS};
     let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
     let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -585,7 +585,7 @@ fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
     Err("未找到适配器注册表项".to_string())
 }
 
-fn netsh_disable(adapter_name: &str) -> bool {
+pub fn netsh_disable(adapter_name: &str) -> bool {
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=disable"])
         .output()
@@ -593,7 +593,7 @@ fn netsh_disable(adapter_name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn netsh_enable(adapter_name: &str) -> bool {
+pub fn netsh_enable(adapter_name: &str) -> bool {
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=enable"])
         .output()
@@ -605,7 +605,7 @@ fn is_access_denied_str(e: &str) -> bool {
     e.contains("管理员权限") || e.contains("Access is denied")
 }
 
-fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Option<String> {
+pub fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Option<String> {
     let start = std::time::Instant::now();
     let interval = std::time::Duration::from_millis(300);
     let timeout = std::time::Duration::from_millis(timeout_ms);
@@ -622,7 +622,7 @@ fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Option<S
     None
 }
 
-fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
+pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
     let start = std::time::Instant::now();
     let interval = std::time::Duration::from_millis(300);
     let timeout = std::time::Duration::from_millis(timeout_ms);
@@ -637,6 +637,54 @@ fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
         }
     }
     false
+}
+
+#[derive(serde::Deserialize)]
+struct HelperResponse {
+    ok: bool,
+    msg: String,
+}
+
+pub fn try_service_mac_change(adapter_name: &str, guid: &str, mac: &str) -> Result<bool, String> {
+    let pipe_path = r"\\.\pipe\campus-login-mac";
+
+    let request = serde_json::json!({
+        "cmd": "set-mac",
+        "guid": guid,
+        "mac": mac,
+        "adapter_name": adapter_name,
+    });
+
+    let client = tokio::net::windows::named_pipe::ClientOptions::new()
+        .open(pipe_path)
+        .map_err(|e| format!("连接helper服务失败: {}", e))?;
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建运行时失败: {}", e))?;
+    rt.block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut client = client;
+
+        let req_bytes = serde_json::to_vec(&request).map_err(|e| format!("序列化请求失败: {}", e))?;
+        client.write_all(&req_bytes).await.map_err(|e| format!("发送请求失败: {}", e))?;
+        client.flush().await.map_err(|e| format!("刷新失败: {}", e))?;
+
+        let mut buf = vec![0u8; 4096];
+        let n = client.read(&mut buf).await.map_err(|e| format!("读取响应失败: {}", e))?;
+        let resp: HelperResponse = serde_json::from_slice(&buf[..n])
+            .map_err(|e| format!("解析响应失败: {}", e))?;
+
+        if resp.ok {
+            Ok(true)
+        } else {
+            Err(resp.msg)
+        }
+    })
+}
+
+pub fn check_helper_service() -> bool {
+    tokio::net::windows::named_pipe::ClientOptions::new()
+        .open(r"\\.\pipe\campus-login-mac")
+        .is_ok()
 }
 
 fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
@@ -712,8 +760,15 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         let (reg_ok, elevated_done, elevate_msg) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
             Ok(()) => (true, false, None),
             Err(e) if is_access_denied_str(&e) => {
-                let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
-                (ok, ok, msg)
+                if check_helper_service() {
+                    match try_service_mac_change(&adapter.name, &adapter.guid, &fake_mac) {
+                        Ok(_) => (true, true, None),
+                        Err(msg) => (false, false, Some(msg)),
+                    }
+                } else {
+                    let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
+                    (ok, ok, msg)
+                }
             }
             Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
         };

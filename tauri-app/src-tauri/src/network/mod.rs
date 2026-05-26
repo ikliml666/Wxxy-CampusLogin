@@ -1,5 +1,5 @@
 mod cache;
-mod adapter;
+pub mod adapter;
 mod portal;
 mod login_request;
 mod quality;
@@ -13,6 +13,9 @@ pub use adapter::{
     is_blacklisted, check_gateway_reachable,
     is_same_subnet_18,
     get_connected_network_names,
+    set_mac_via_registry, remove_mac_from_registry,
+    dhcp_release, dhcp_renew, netsh_disable, netsh_enable,
+    poll_ip_change, poll_adapter_has_ip,
 };
 
 pub use portal::check_portal_full;

@@ -714,3 +714,52 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
         }
     }).await.map_err(|e| format!("设置DNS+DoH失败: {}", e))?
 }
+
+#[tauri::command]
+pub fn check_helper_service_status() -> Result<serde_json::Value, String> {
+    let running = crate::network::adapter::check_helper_service();
+    Ok(serde_json::json!({ "running": running }))
+}
+
+#[tauri::command]
+pub fn install_helper_service(_app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("获取可执行文件路径失败: {}", e))?;
+    let exe_dir = exe_dir.parent()
+        .ok_or("无法获取可执行文件目录")?;
+    let helper_path = exe_dir.join("campus-helper.exe");
+
+    if !helper_path.exists() {
+        return Ok(serde_json::json!({
+            "success": false,
+            "message": format!("helper程序不存在: {}", helper_path.display())
+        }));
+    }
+
+    let helper_path_str = helper_path.to_str()
+        .ok_or("helper路径编码错误")?;
+
+    let install_script = format!(
+        "sc create CampusLoginHelper binPath= \"{} --service\" start= demand DisplayName= \"Campus Login Helper\" & sc description CampusLoginHelper \"校园网登录助手MAC修改服务\" & sc start CampusLoginHelper",
+        helper_path_str
+    );
+
+    run_elevated("cmd", &format!("/c {}", install_script))?;
+
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    let running = crate::network::adapter::check_helper_service();
+    Ok(serde_json::json!({
+        "success": running,
+        "message": if running { "helper服务安装并启动成功" } else { "helper服务安装命令已执行，但服务未响应，请检查是否被安全软件拦截" }
+    }))
+}
+
+#[tauri::command]
+pub fn uninstall_helper_service() -> Result<serde_json::Value, String> {
+    run_elevated("cmd", "/c sc stop CampusLoginHelper & sc delete CampusLoginHelper")?;
+    Ok(serde_json::json!({
+        "success": true,
+        "message": "helper服务卸载命令已执行"
+    }))
+}
