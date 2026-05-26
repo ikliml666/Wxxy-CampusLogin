@@ -28,7 +28,7 @@ pub(crate) fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
             PCWSTR(file.as_ptr()),
             PCWSTR(params.as_ptr()),
             None,
-            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            windows::Win32::UI::WindowsAndMessaging::SW_HIDE,
         );
         let val = result.0 as isize;
         if val <= 32 {

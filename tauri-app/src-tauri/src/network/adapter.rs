@@ -688,14 +688,14 @@ fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, ol
         guid = guid, mac = mac_no_dash, name = adapter_name
     );
     crate::log_info!("adapter", "尝试提权修改MAC: adapter={}, guid={}, mac={}", adapter_name, guid, mac_no_dash);
-    match crate::commands::network_cmd::run_elevated("powershell", &format!("-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
+    match crate::commands::network_cmd::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
-            if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 10_000) {
+            if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 25_000) {
                 crate::log_info!("adapter", "提权修改MAC成功: 新IP={}", changed_ip);
                 (true, None)
             } else {
-                crate::log_warn!("adapter", "提权修改MAC超时: 10秒内IP未变更");
+                crate::log_warn!("adapter", "提权修改MAC超时: 25秒内IP未变更");
                 (false, Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
             }
         }
@@ -727,18 +727,27 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         let fake_mac = generate_random_mac();
 
         let (reg_ok, elevated_done, elevate_msg) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
-            Ok(()) => (true, false, None),
+            Ok(()) => {
+                crate::log_info!("adapter", "直写注册表成功: guid={}", adapter.guid);
+                (true, false, None)
+            }
             Err(e) if is_access_denied_str(&e) => {
+                crate::log_info!("adapter", "直写注册表权限不足，尝试COM提权: guid={}", adapter.guid);
                 let sub_key_path = find_adapter_registry_subkey(&adapter.guid);
                 if let Some(path) = sub_key_path {
                     match crate::commands::network_cmd::set_registry_elevated(&path, "NetworkAddress", &fake_mac) {
-                        Ok(()) => (true, false, None),
-                        Err(_) => {
+                        Ok(()) => {
+                            crate::log_info!("adapter", "COM提权写注册表成功: path={}", path);
+                            (true, false, None)
+                        }
+                        Err(com_err) => {
+                            crate::log_warn!("adapter", "COM提权失败: {}，降级到PowerShell", com_err);
                             let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
                             (ok, ok, msg)
                         }
                     }
                 } else {
+                    crate::log_warn!("adapter", "未找到适配器注册表子键，降级到PowerShell: guid={}", adapter.guid);
                     let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
                     (ok, ok, msg)
                 }
