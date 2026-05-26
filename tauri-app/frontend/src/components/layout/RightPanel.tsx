@@ -52,7 +52,7 @@ function getAdapterInfo(
     const detail = adapterDetails.find(a => a.name === adapterName)
     if (detail) return detail
     const adapter = adapters.find(a => a.name === adapterName)
-    if (adapter) return { name: adapter.name, ip: adapter.ip, wireless: adapter.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: '' }
+    if (adapter) return { name: adapter.name, ip: adapter.ip, wireless: adapter.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: adapter.mac }
     return null
   }
   const wired = adapterDetails.find(a => !a.wireless && a.ip)
@@ -60,9 +60,9 @@ function getAdapterInfo(
   const first = adapterDetails.find(a => a.ip)
   if (first) return first
   const fallbackWired = adapters.find(a => !a.wireless && a.ip)
-  if (fallbackWired) return { name: fallbackWired.name, ip: fallbackWired.ip, wireless: fallbackWired.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: '' }
+  if (fallbackWired) return { name: fallbackWired.name, ip: fallbackWired.ip, wireless: fallbackWired.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: fallbackWired.mac }
   const fallbackAny = adapters.find(a => a.ip)
-  if (fallbackAny) return { name: fallbackAny.name, ip: fallbackAny.ip, wireless: fallbackAny.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: '' }
+  if (fallbackAny) return { name: fallbackAny.name, ip: fallbackAny.ip, wireless: fallbackAny.wireless, subnetMask: '', gateway: '', dhcpServer: '', mac: fallbackAny.mac }
   return null
 }
 

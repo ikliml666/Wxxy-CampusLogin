@@ -612,7 +612,7 @@ fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, ol
         "$guid='{guid}';$mac='{mac}';$name='{name}';\
          $regPath='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}';\
          $found=$false;\
-         foreach($item in (Get-ChildItem -Path $regPath)){{\
+         foreach($item in (Get-ChildItem -Path $regPath -ErrorAction SilentlyContinue)){{\
            $id=(Get-ItemProperty -Path $item.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
            if($id -eq $guid){{\
              Set-ItemProperty -Path $item.PSPath -Name NetworkAddress -Value $mac -Force;\
@@ -627,7 +627,7 @@ fn try_elevated_mac_script(adapter_name: &str, guid: &str, mac_no_dash: &str, ol
          Start-Sleep -Seconds 3;\
          ipconfig /renew \"$name\";\
          Start-Sleep -Seconds 2;\
-         foreach($item in (Get-ChildItem -Path $regPath)){{\
+         foreach($item in (Get-ChildItem -Path $regPath -ErrorAction SilentlyContinue)){{\
            $id=(Get-ItemProperty -Path $item.PSPath -Name NetCfgInstanceId -ErrorAction SilentlyContinue).NetCfgInstanceId;\
            if($id -eq $guid){{\
              Remove-ItemProperty -Path $item.PSPath -Name NetworkAddress -Force -ErrorAction SilentlyContinue;\
