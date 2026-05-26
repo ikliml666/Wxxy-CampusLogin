@@ -4,6 +4,7 @@ version = "2.2.1"
 description = "校园网登录助手"
 authors = ["you"]
 edition = "2021"
+default-run = "campus-login"
 
 [lib]
 name = "campus_login_lib"
