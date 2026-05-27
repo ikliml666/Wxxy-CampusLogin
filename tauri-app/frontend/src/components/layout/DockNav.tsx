@@ -19,6 +19,9 @@ import { NAV_ITEMS } from '@/constants'
 import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'
+import { useGSAP } from '@gsap/react'
+
+gsap.registerPlugin(useGSAP)
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -115,11 +118,13 @@ interface AdapterMenuProps {
 
 function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: AdapterMenuProps) {
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
+  const menuRef = useRef<HTMLDivElement>(null)
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
   const effectiveSelected = selectedAdapter || defaultAdapter
 
   return (
     <div
+      ref={menuRef}
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
         background: 'hsl(var(--card) / 0.85)',
@@ -215,10 +220,32 @@ function ActionButtonWithMenu({
   const buttonRef = useRef<HTMLButtonElement>(null)
   const spinnerRef = useRef<HTMLSpanElement>(null)
   const prevLoadingRef = useRef(isLoading)
-  const ctxRef = useRef<gsap.Context | null>(null)
 
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const showMenu = activeAdapters.length >= 1
+
+  const { contextSafe } = useGSAP(() => {}, { scope: buttonRef })
+
+  const animateLoadingChange = contextSafe((loading: boolean) => {
+    if (!buttonRef.current) return
+    if (loading) {
+      gsap.killTweensOf(buttonRef.current)
+      const tl = gsap.timeline()
+      tl.to(buttonRef.current, { scale: 0.95, duration: 0.15, ease: 'power2.out', force3D: true })
+        .to(buttonRef.current, { scale: 1.02, duration: 0.1, ease: 'power2.inOut', force3D: true })
+        .to(buttonRef.current, { scale: 1, duration: 0.15, ease: 'power2.out', force3D: true })
+      if (spinnerRef.current) {
+        gsap.killTweensOf(spinnerRef.current)
+        gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
+      }
+    } else {
+      if (spinnerRef.current) {
+        gsap.killTweensOf(spinnerRef.current)
+      }
+      gsap.killTweensOf(buttonRef.current)
+      gsap.fromTo(buttonRef.current, { scale: 1 }, { scale: 1.08, duration: 0.2, ease: 'power2.out', yoyo: true, repeat: 1, force3D: true })
+    }
+  })
 
   const scheduleOpen = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
@@ -258,47 +285,11 @@ function ActionButtonWithMenu({
   }, [])
 
   useEffect(() => {
-    if (!buttonRef.current) return
     if (prevLoadingRef.current !== isLoading) {
-      if (ctxRef.current) {
-        ctxRef.current.revert()
-      }
-
-      const ctx = gsap.context(() => {
-        if (!buttonRef.current) return
-
-        if (isLoading) {
-          gsap.killTweensOf(buttonRef.current)
-          const tl = gsap.timeline()
-          tl.to(buttonRef.current, { scale: 0.95, duration: 0.15, ease: 'power2.out', force3D: true })
-            .to(buttonRef.current, { scale: 1.02, duration: 0.1, ease: 'power2.inOut', force3D: true })
-            .to(buttonRef.current, { scale: 1, duration: 0.15, ease: 'power2.out', force3D: true })
-          if (spinnerRef.current) {
-            gsap.killTweensOf(spinnerRef.current)
-            gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
-          }
-        } else {
-          if (spinnerRef.current) {
-            gsap.killTweensOf(spinnerRef.current)
-          }
-          gsap.killTweensOf(buttonRef.current)
-          gsap.fromTo(buttonRef.current, { scale: 1 }, { scale: 1.08, duration: 0.2, ease: 'power2.out', yoyo: true, repeat: 1, force3D: true })
-        }
-      }, buttonRef)
-
-      ctxRef.current = ctx
+      animateLoadingChange(isLoading)
       prevLoadingRef.current = isLoading
     }
-  }, [isLoading])
-
-  useEffect(() => {
-    return () => {
-      if (ctxRef.current) {
-        ctxRef.current.revert()
-        ctxRef.current = null
-      }
-    }
-  }, [])
+  }, [isLoading, animateLoadingChange])
 
   const isPrimary = variant === 'primary'
 
