@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { animate } from 'animejs'
+import { gsap } from 'gsap'
 
 interface AnimatedNumberProps {
   value: number
@@ -21,8 +21,8 @@ export function AnimatedNumber({
   const ref = useRef<HTMLSpanElement>(null)
   const prevRef = useRef(value)
   const isFirstRender = useRef(true)
-  const animationRef = useRef<ReturnType<typeof animate> | null>(null)
-  const visualAnimRef = useRef<ReturnType<typeof animate> | null>(null)
+  const valueTweenRef = useRef<gsap.core.Tween | null>(null)
+  const visualTlRef = useRef<gsap.core.Timeline | null>(null)
   const colorRef = useRef<string>('')
 
   useEffect(() => {
@@ -35,33 +35,54 @@ export function AnimatedNumber({
     if (!ref.current) return
 
     const obj = { value: from }
-    const startColor = colorRef.current || (ref.current ? getComputedStyle(ref.current).color : '')
 
-    if (animationRef.current) {
-      animationRef.current.pause()
+    if (valueTweenRef.current) {
+      valueTweenRef.current.kill()
+    }
+    if (visualTlRef.current) {
+      visualTlRef.current.kill()
     }
 
-    if (visualAnimRef.current) {
-      visualAnimRef.current.pause()
-    }
+    gsap.killTweensOf(ref.current)
 
-    animationRef.current = animate(obj, {
+    valueTweenRef.current = gsap.to(obj, {
       value: to,
-      duration: duration,
-      easing: 'easeOutQuad',
-      update: () => {
+      duration: duration / 1000,
+      ease: 'power2.out',
+      onUpdate: () => {
         if (ref.current) {
           ref.current.textContent = `${obj.value.toFixed(decimals)}${unit}`
         }
       },
     })
 
-    visualAnimRef.current = animate(ref.current, {
-      scale: [1, 1.12, 0.96, 1],
-      color: [startColor, highlightColor, highlightColor, startColor],
-      duration: duration * 0.8,
-      easing: 'easeOutElastic(1, .6)',
+    const tl = gsap.timeline()
+    tl.to(ref.current, {
+      scale: 1.12,
+      duration: (duration / 1000) * 0.3,
+      ease: 'power2.out',
+      force3D: true,
     })
+    .to(ref.current, {
+      scale: 0.96,
+      duration: (duration / 1000) * 0.2,
+      ease: 'power2.inOut',
+    })
+    .to(ref.current, {
+      scale: 1,
+      duration: (duration / 1000) * 0.3,
+      ease: 'elastic.out(1, 0.6)',
+    })
+
+    gsap.to(ref.current, {
+      color: highlightColor,
+      duration: (duration / 1000) * 0.3,
+      yoyo: true,
+      repeat: 1,
+      ease: 'power2.inOut',
+    })
+
+    visualTlRef.current = tl
   }, [decimals, unit, duration, highlightColor])
 
   useEffect(() => {
@@ -82,13 +103,13 @@ export function AnimatedNumber({
 
   useEffect(() => {
     return () => {
-      if (animationRef.current) {
-        animationRef.current.pause()
-        animationRef.current = null
+      if (valueTweenRef.current) {
+        valueTweenRef.current.kill()
+        valueTweenRef.current = null
       }
-      if (visualAnimRef.current) {
-        visualAnimRef.current.pause()
-        visualAnimRef.current = null
+      if (visualTlRef.current) {
+        visualTlRef.current.kill()
+        visualTlRef.current = null
       }
     }
   }, [])

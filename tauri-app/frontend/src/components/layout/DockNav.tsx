@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/constants'
 import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
-import { animate } from 'animejs'
+import { gsap } from 'gsap'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -119,39 +119,23 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
   const effectiveSelected = selectedAdapter || defaultAdapter
 
-  const menuAnimsRef = useRef<ReturnType<typeof animate>[]>([])
+  const menuTweensRef = useRef<(gsap.core.Tween | gsap.core.Timeline)[]>([])
 
   useEffect(() => {
     if (!menuRef.current) return
     const items = menuRef.current.querySelectorAll('.adapter-menu-item')
-    menuAnimsRef.current = []
-    menuAnimsRef.current.push(
-      animate(items, {
-        opacity: [0, 1],
-        translateX: [-12, 0],
-        duration: 400,
-        delay: (_: unknown, i: number) => i * 60,
-        ease: 'spring(1, 70, 12, 0)',
-      })
+    menuTweensRef.current = []
+    menuTweensRef.current.push(
+      gsap.fromTo(items, { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.4)', force3D: true })
     )
-    menuAnimsRef.current.push(
-      animate(menuRef.current, {
-        opacity: [0, 1],
-        scale: [0.88, 1],
-        translateY: [10, 0],
-        duration: 350,
-        ease: 'spring(1, 60, 10, 0)',
-      })
+    menuTweensRef.current.push(
+      gsap.fromTo(menuRef.current, { opacity: 0, scale: 0.88, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.35, ease: 'back.out(1.2)', force3D: true })
     )
     return () => {
-      menuAnimsRef.current.forEach(a => {
-        try {
-          if (a && typeof a.pause === 'function') {
-            a.pause()
-          }
-        } catch {}
+      menuTweensRef.current.forEach(t => {
+        if (t) t.kill()
       })
-      menuAnimsRef.current = []
+      menuTweensRef.current = []
     }
   }, [])
 
@@ -292,35 +276,25 @@ function ActionButtonWithMenu({
     }
   }, [])
 
-  const spinnerAnimRef = useRef<ReturnType<typeof animate> | null>(null)
+  const spinnerTweenRef = useRef<gsap.core.Tween | null>(null)
 
   useEffect(() => {
     if (!buttonRef.current) return
     if (prevLoadingRef.current !== isLoading) {
       if (isLoading) {
-        animate(buttonRef.current, {
-          scale: [1, 0.95, 1.02, 1],
-          duration: 400,
-          ease: 'spring(1, 80, 12, 0)',
-        })
+        const tl = gsap.timeline()
+        tl.to(buttonRef.current, { scale: 0.95, duration: 0.15, ease: 'power2.out', force3D: true })
+          .to(buttonRef.current, { scale: 1.02, duration: 0.1, ease: 'power2.inOut', force3D: true })
+          .to(buttonRef.current, { scale: 1, duration: 0.15, ease: 'power2.out', force3D: true })
         if (spinnerRef.current) {
-          spinnerAnimRef.current = animate(spinnerRef.current, {
-            rotate: 360,
-            duration: 800,
-            loop: true,
-            ease: 'linear',
-          })
+          spinnerTweenRef.current = gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
         }
       } else {
-        if (spinnerAnimRef.current) {
-          spinnerAnimRef.current.pause()
-          spinnerAnimRef.current = null
+        if (spinnerTweenRef.current) {
+          spinnerTweenRef.current.kill()
+          spinnerTweenRef.current = null
         }
-        animate(buttonRef.current, {
-          scale: [1, 1.08, 1],
-          duration: 500,
-          ease: 'spring(1, 60, 10, 0)',
-        })
+        gsap.fromTo(buttonRef.current, { scale: 1 }, { scale: 1.08, duration: 0.2, ease: 'power2.out', yoyo: true, repeat: 1, force3D: true })
       }
       prevLoadingRef.current = isLoading
     }
@@ -328,10 +302,9 @@ function ActionButtonWithMenu({
 
   useEffect(() => {
     return () => {
-      if (spinnerAnimRef.current) {
-        spinnerAnimRef.current.pause()
-        spinnerAnimRef.current.seek(spinnerAnimRef.current.duration)
-        spinnerAnimRef.current = null
+      if (spinnerTweenRef.current) {
+        spinnerTweenRef.current.kill()
+        spinnerTweenRef.current = null
       }
     }
   }, [])
