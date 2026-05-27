@@ -61,12 +61,6 @@ export default {
         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
       },
       animation: {
-        'fade-in': 'fadeIn 0.3s ease-out',
-        'slide-up': 'slideUp 0.4s ease-out',
-        'slide-down': 'slideDown 0.3s ease-out',
-        'scale-in': 'scaleIn 0.2s ease-out',
-        'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
-        'spin-slow': 'spin 3s linear infinite',
         'bounce-soft': 'bounceSoft 2s ease-in-out infinite',
         'shimmer': 'shimmer 2s linear infinite',
         'refresh-hover': 'refreshHover 0.5s ease-in-out',
@@ -74,32 +68,8 @@ export default {
         'icon-hover-rotate': 'iconHoverRotate 0.4s ease-in-out',
         'icon-hover-wiggle': 'iconHoverWiggle 0.4s ease-in-out',
         'icon-hover-flyout': 'iconHoverFlyout 0.5s ease-in-out',
-        'status-flash': 'statusFlash 0.6s ease-out',
-        'status-breathe': 'statusBreathe 2s ease-in-out infinite',
-        'log-flash': 'logFlash 0.8s ease-out',
-        'bg-shift': 'bgShift 20s ease-in-out infinite',
       },
       keyframes: {
-        fadeIn: {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        slideUp: {
-          '0%': { opacity: '0', transform: 'translateY(12px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        slideDown: {
-          '0%': { opacity: '0', transform: 'translateY(-8px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        scaleIn: {
-          '0%': { opacity: '0', transform: 'scale(0.95)' },
-          '100%': { opacity: '1', transform: 'scale(1)' },
-        },
-        pulseSoft: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.6' },
-        },
         bounceSoft: {
           '0%, 100%': { transform: 'translateY(0)' },
           '50%': { transform: 'translateY(-4px)' },
@@ -129,27 +99,6 @@ export default {
         refreshSpin: {
           '0%': { transform: 'rotate(0deg)' },
           '100%': { transform: 'rotate(360deg)' },
-        },
-        statusFlash: {
-          '0%': { filter: 'brightness(1)' },
-          '30%': { filter: 'brightness(1.5)' },
-          '60%': { filter: 'brightness(0.9)' },
-          '100%': { filter: 'brightness(1)' },
-        },
-        statusBreathe: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.6' },
-        },
-        logFlash: {
-          '0%': { backgroundColor: 'transparent' },
-          '20%': { backgroundColor: 'hsl(var(--primary) / 0.08)' },
-          '100%': { backgroundColor: 'transparent' },
-        },
-        bgShift: {
-          '0%, 100%': { transform: 'translate(0%, 0%) rotate(0deg)' },
-          '25%': { transform: 'translate(-5%, 3%) rotate(1deg)' },
-          '50%': { transform: 'translate(3%, -5%) rotate(-1deg)' },
-          '75%': { transform: 'translate(-3%, -2%) rotate(0.5deg)' },
         },
       },
       backdropBlur: {
