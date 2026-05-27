@@ -122,13 +122,6 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
   const effectiveSelected = selectedAdapter || defaultAdapter
 
-  useGSAP(() => {
-    if (!menuRef.current) return
-    const items = menuRef.current.querySelectorAll('.adapter-menu-item')
-    gsap.fromTo(items, { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.4)', force3D: true })
-    gsap.fromTo(menuRef.current, { opacity: 0, scale: 0.88, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.35, ease: 'back.out(1.2)', force3D: true })
-  }, { scope: menuRef })
-
   return (
     <div
       ref={menuRef}

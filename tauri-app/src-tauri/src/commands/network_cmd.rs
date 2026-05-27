@@ -13,6 +13,31 @@ use crate::network::{
 use super::state::{AppState, CommandResult};
 
 #[cfg(target_os = "windows")]
+pub fn is_admin() -> bool {
+    use windows::Win32::System::Threading::{OpenProcessToken, GetCurrentProcess};
+    use windows::Win32::Security::{TOKEN_QUERY, GetTokenInformation, TokenElevation};
+    use windows::Win32::Foundation::HANDLE;
+
+    unsafe {
+        let mut token: HANDLE = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation: u32 = 0;
+        let mut returned = 0u32;
+        let result = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut _),
+            std::mem::size_of::<u32>() as u32,
+            &mut returned,
+        );
+        let _ = windows::Win32::Foundation::CloseHandle(token);
+        result.is_ok() && elevation != 0
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::core::PCWSTR;
