@@ -7,6 +7,7 @@ import { AnimatedNumber } from '@/components/shared/AnimatedNumber'
 import { Loader2, Server, Globe, Search } from 'lucide-react'
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useGsapAnimations, capsuleHeartbeat, statusFlash } from '@/hooks/useGsapAnimation'
 
 interface NetworkQualityCapsuleProps {
   networkQuality: NetworkQuality | null
@@ -93,7 +94,10 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   const latencyTextColor = displayLatency >= 0 ? getLatencyColor(displayLatency).text : capsuleText
 
   const prevLatencyRef = useRef(displayLatency)
-  const [animClass, setAnimClass] = useState('')
+  const anim = useGsapAnimations({
+    heartbeat: capsuleHeartbeat,
+    flash: statusFlash,
+  })
 
   useEffect(() => {
     if (prevLatencyRef.current !== displayLatency && !isPending) {
@@ -102,15 +106,9 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
       const gotWorse = prevOk && displayLatency > prevLatencyRef.current * 1.5
 
       if (nowBad || gotWorse) {
-        setAnimClass('capsule-heartbeat')
-        const t = setTimeout(() => setAnimClass(''), 800)
-        prevLatencyRef.current = displayLatency
-        return () => clearTimeout(t)
+        anim.play('heartbeat')
       } else {
-        setAnimClass('status-flash')
-        const t = setTimeout(() => setAnimClass(''), 600)
-        prevLatencyRef.current = displayLatency
-        return () => clearTimeout(t)
+        anim.play('flash')
       }
     }
     prevLatencyRef.current = displayLatency
@@ -161,14 +159,15 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
         onMouseLeave={handleMouseLeave}
       >
         <m.div
+          ref={anim.ref}
           className={cn(
             'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] cursor-help select-none',
             capsuleText,
-            animClass,
           )}
           style={{
             background: capsuleBg,
             backdropFilter: 'blur(8px)',
+            isolation: 'isolate',
           }}
           whileHover={{ scale: 1.05 }}
           transition={{ type: 'spring', stiffness: 500, damping: 25 }}
@@ -193,7 +192,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
               transition={{ duration: 0.15, ease: [0.25, 0.8, 0.25, 1] }}
-              className="fixed z-[9999] min-w-[180px] rounded-xl bg-popover/95 backdrop-blur-md shadow-lg shadow-black/8 px-3 py-2"
+              className="fixed z-[9999] min-w-[180px] rounded-xl bg-popover/95 backdrop-blur-md isolate shadow-lg shadow-black/8 px-3 py-2"
               style={{
                 top: popupPos.top,
                 right: popupPos.right,

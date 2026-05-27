@@ -627,6 +627,7 @@ pub fn netsh_enable(adapter_name: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(dead_code)]
 fn is_access_denied_str(e: &str) -> bool {
     e.contains("管理员权限") || e.contains("Access is denied")
 }
@@ -715,36 +716,37 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         let fake_mac = generate_random_mac();
         let mac_dashed = mac_with_dashes(&fake_mac);
 
-        let (reg_ok, elevated_done, elevate_msg) = match set_mac_via_registry(&adapter.guid, &fake_mac) {
-            Ok(()) => {
-                crate::log_info!("adapter", "直写注册表成功: guid={}", adapter.guid);
-                (true, false, None)
+        let (reg_ok, elevated_done, elevate_msg) = if crate::commands::network_cmd::is_admin() {
+            match set_mac_via_registry(&adapter.guid, &fake_mac) {
+                Ok(()) => {
+                    crate::log_info!("adapter", "管理员直写注册表成功: guid={}", adapter.guid);
+                    (true, false, None)
+                }
+                Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
             }
-            Err(e) if is_access_denied_str(&e) => {
-                crate::log_info!("adapter", "直写注册表权限不足，尝试COM ShellExec提权: guid={}", adapter.guid);
-                let ps_cmd = format!(
-                    "-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'\"",
-                    adapter.name, mac_dashed, adapter.name, adapter.name
-                );
-                match crate::commands::network_cmd::shell_exec_elevated("powershell", &ps_cmd, true) {
-                    Ok(()) => {
-                        crate::log_info!("adapter", "COM ShellExec提权成功，等待IP变更...");
-                        if let Some(changed_ip) = poll_ip_change(&adapter.name, &adapter.ip, 25_000) {
-                            crate::log_info!("adapter", "COM提权修改MAC成功: 新IP={}", changed_ip);
-                            (true, true, None)
-                        } else {
-                            crate::log_warn!("adapter", "COM提权修改MAC超时: 25秒内IP未变更");
-                            (true, true, Some("COM提权已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
-                        }
-                    }
-                    Err(com_err) => {
-                        crate::log_warn!("adapter", "COM ShellExec失败: {}，降级到ShellExecuteW", com_err);
-                        let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
-                        (ok, ok, msg)
+        } else {
+            crate::log_info!("adapter", "非管理员运行，跳过注册表直写，直接COM ShellExec提权: guid={}", adapter.guid);
+            let ps_cmd = format!(
+                "-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'\"",
+                adapter.name, mac_dashed, adapter.name, adapter.name
+            );
+            match crate::commands::network_cmd::shell_exec_elevated("powershell", &ps_cmd, true) {
+                Ok(()) => {
+                    crate::log_info!("adapter", "COM ShellExec提权成功，等待IP变更...");
+                    if let Some(changed_ip) = poll_ip_change(&adapter.name, &adapter.ip, 25_000) {
+                        crate::log_info!("adapter", "COM提权修改MAC成功: 新IP={}", changed_ip);
+                        (true, true, None)
+                    } else {
+                        crate::log_warn!("adapter", "COM提权修改MAC超时: 25秒内IP未变更");
+                        (true, true, Some("COM提权已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
                     }
                 }
+                Err(com_err) => {
+                    crate::log_warn!("adapter", "COM ShellExec失败: {}，降级到ShellExecuteW", com_err);
+                    let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
+                    (ok, ok, msg)
+                }
             }
-            Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
         };
 
         let old_ip = adapter.ip.clone();

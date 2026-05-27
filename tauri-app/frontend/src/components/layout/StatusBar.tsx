@@ -2,10 +2,11 @@ import type { StatusState, NetworkQuality } from '@/types'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { memo, useRef, useEffect, useState } from 'react'
+import { memo, useRef, useEffect } from 'react'
 import { RefreshButton } from '@/components/shared/RefreshButton'
 import { NetworkQualityCapsule } from '@/components/shared/NetworkQualityCapsule'
 import { m } from 'framer-motion'
+import { useGsapAnimations, capsuleHeartbeat, capsuleRecover } from '@/hooks/useGsapAnimation'
 
 interface StatusBarProps {
   statusText: string
@@ -20,7 +21,10 @@ interface StatusBarProps {
 
 export const StatusBar = memo(function StatusBar({ statusText, statusState, networkQuality, enableNetworkQuality, onOpenPortal, onOpenSelfService, onRefreshQuality, isRefreshing }: StatusBarProps) {
   const prevStatusRef = useRef(statusState)
-  const [statusPulseClass, setStatusPulseClass] = useState('')
+  const anim = useGsapAnimations({
+    heartbeat: capsuleHeartbeat,
+    recover: capsuleRecover,
+  })
 
   useEffect(() => {
     if (prevStatusRef.current !== statusState) {
@@ -28,13 +32,9 @@ export const StatusBar = memo(function StatusBar({ statusText, statusState, netw
       prevStatusRef.current = statusState
 
       if (statusState === 'offline') {
-        setStatusPulseClass('capsule-heartbeat')
-        const t1 = setTimeout(() => setStatusPulseClass(''), 800)
-        return () => { clearTimeout(t1) }
+        anim.play('heartbeat')
       } else if (prev === 'offline' && statusState === 'online') {
-        setStatusPulseClass('capsule-recover')
-        const t1 = setTimeout(() => setStatusPulseClass(''), 500)
-        return () => { clearTimeout(t1) }
+        anim.play('recover')
       }
     }
   }, [statusState])
@@ -60,14 +60,15 @@ export const StatusBar = memo(function StatusBar({ statusText, statusState, netw
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+            ref={anim.ref}
             className={cn(
               'relative inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default',
               cfg.color,
-              statusPulseClass,
             )}
             style={{
               background: cfg.bg,
               backdropFilter: 'blur(8px)',
+              isolation: 'isolate',
             }}
           >
             <div className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot, statusState === 'loading' && 'animate-pulse')} />

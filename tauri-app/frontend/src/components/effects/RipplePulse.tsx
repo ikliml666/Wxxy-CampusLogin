@@ -1,7 +1,10 @@
-import { useEffect, useRef } from 'react'
-import { animate } from 'animejs'
+import { useRef, useEffect } from 'react'
+import { gsap } from 'gsap'
+import { useGSAP } from '@gsap/react'
 import { cn } from '@/lib/utils'
 import { useAnimationActive } from '@/hooks/usePageIdle'
+
+gsap.registerPlugin(useGSAP)
 
 interface RipplePulseProps {
   active: boolean
@@ -12,46 +15,40 @@ interface RipplePulseProps {
 
 export function RipplePulse({ active, color = 'currentColor', size = 24, className }: RipplePulseProps) {
   const containerRef = useRef<HTMLSpanElement>(null)
-  const animationsRef = useRef<ReturnType<typeof animate>[]>([])
+  const tlRef = useRef<gsap.core.Timeline | null>(null)
   const animActive = useAnimationActive()
 
-  useEffect(() => {
+  useGSAP(() => {
     if (!containerRef.current || !active) {
-      animationsRef.current.forEach(a => a.pause())
-      animationsRef.current = []
+      tlRef.current = null
       return
     }
 
     const ripples = containerRef.current.querySelectorAll('.ripple-ring')
-    animationsRef.current = []
+    const tl = gsap.timeline({ repeat: -1 })
 
     ripples.forEach((ring, i) => {
-      const anim = animate(ring, {
-        scale: [1, 3.5],
-        opacity: [0.6, 0],
-        duration: 2000,
-        delay: i * 700,
-        loop: true,
-        ease: 'easeOutSine',
-        autoplay: animActive,
-      })
-      animationsRef.current.push(anim)
+      tl.fromTo(ring,
+        { scale: 1, opacity: 0.6 },
+        { scale: 3.5, opacity: 0, duration: 2, ease: 'sine.out', force3D: true },
+        i * 0.7
+      )
     })
 
-    return () => {
-      animationsRef.current.forEach(a => a.pause())
-      animationsRef.current = []
+    tlRef.current = tl
+
+    if (!animActive) {
+      tl.pause()
     }
-  }, [active])
+  }, { scope: containerRef, dependencies: [active], revertOnUpdate: true })
 
   useEffect(() => {
-    animationsRef.current.forEach(anim => {
-      if (animActive) {
-        anim.play()
-      } else {
-        anim.pause()
-      }
-    })
+    if (!tlRef.current) return
+    if (animActive) {
+      tlRef.current.play()
+    } else {
+      tlRef.current.pause()
+    }
   }, [animActive])
 
   if (!active) return null

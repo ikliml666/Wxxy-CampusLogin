@@ -7,12 +7,11 @@ export const cardStaggerVariants = {
 }
 
 export const cardItemVariants = {
-  hidden: { opacity: 0, y: 24, scale: 0.94, filter: 'blur(4px)' },
+  hidden: { opacity: 0, y: 24, scale: 0.92 },
   visible: {
     opacity: 1,
     y: 0,
     scale: 1,
-    filter: 'blur(0px)',
     transition: { type: 'spring' as const, stiffness: 400, damping: 22, mass: 0.7 },
   },
 }

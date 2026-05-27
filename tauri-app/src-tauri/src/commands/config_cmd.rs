@@ -76,7 +76,7 @@ pub async fn save_config(state: State<'_, AppState>, app_handle: AppHandle, mut 
         if config.user.is_empty() && !guard.user.is_empty() {
             config.user = guard.user.clone();
         }
-        if config.password == "***" || (config.password.is_empty() && !guard.password.is_empty()) {
+        if config.password == crate::config::PASSWORD_MASK || (config.password.is_empty() && !guard.password.is_empty()) {
             config.password = guard.password.clone();
         }
         let old_vals = (guard.latency_test_interval, guard.enable_latency_test, guard.enable_network_quality);
