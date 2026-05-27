@@ -137,14 +137,15 @@ export function FluidBackground() {
           );
           animation: gradientShift 16s ease-in-out infinite;
           background-size: 200% 200%;
+          will-change: transform;
         }
 
         @keyframes gradientShift {
           0%, 100% {
-            background-position: 0% 50%;
+            transform: translateX(0);
           }
           50% {
-            background-position: 100% 50%;
+            transform: translateX(-50%);
           }
         }
 

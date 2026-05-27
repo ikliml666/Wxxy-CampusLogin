@@ -196,7 +196,8 @@
     border-radius: 18px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
-    contain: layout style;
+    isolation: isolate;
+    contain: layout style paint;
   }
 
   .glass-dock::before {
@@ -317,10 +318,10 @@
   }
 
   @keyframes statusFlash {
-    0% { filter: brightness(1); }
-    30% { filter: brightness(1.5); }
-    60% { filter: brightness(0.9); }
-    100% { filter: brightness(1); }
+    0% { opacity: 1; scale: 1; }
+    30% { opacity: 0.85; scale: 1.02; }
+    60% { opacity: 0.95; scale: 1; }
+    100% { opacity: 1; scale: 1; }
   }
 
   .status-breathe {
@@ -495,22 +496,48 @@
   }
 
   .card-glow-primary {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
-    transition: box-shadow 0.4s ease;
+    position: relative;
   }
 
-  .card-glow-primary.glowing {
+  .card-glow-primary::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
     box-shadow: 0 0 20px 2px hsl(var(--primary) / 0.15);
+    opacity: 0;
+    pointer-events: none;
+    will-change: opacity;
+    transition: opacity 0.4s ease;
+  }
+
+  .card-glow-primary.glowing::after {
+    opacity: 1;
   }
 
   .icon-hover-glow {
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-                filter 0.3s ease;
+    position: relative;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .icon-hover-glow::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    box-shadow: 0 0 6px hsl(var(--primary) / 0.4);
+    opacity: 0;
+    pointer-events: none;
+    will-change: opacity;
+    transition: opacity 0.3s ease;
   }
 
   .icon-hover-glow:hover {
     transform: scale(1.1);
-    filter: drop-shadow(0 0 6px hsl(var(--primary) / 0.4));
+  }
+
+  .icon-hover-glow:hover::after {
+    opacity: 1;
   }
 
   @keyframes windowReveal {
@@ -532,18 +559,29 @@
   .animate-stagger-3 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both !important; }
 
   @keyframes statusPulse {
-    0%, 100% { box-shadow: 0 0 0 0 currentColor; }
-    50% { box-shadow: 0 0 0 4px currentColor; }
+    0%, 100% { opacity: 0; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.15); }
   }
 
   .status-pulse {
+    position: relative;
     animation: statusPulse 1.5s ease-in-out 2 !important;
   }
 
+  .status-pulse::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    box-shadow: 0 0 0 4px currentColor;
+    pointer-events: none;
+    will-change: opacity, transform;
+  }
+
   @keyframes numberFlash {
-    0% { filter: brightness(1); }
-    30% { filter: brightness(1.6); }
-    100% { filter: brightness(1); }
+    0% { opacity: 1; scale: 1; }
+    30% { opacity: 0.8; scale: 1.05; }
+    100% { opacity: 1; scale: 1; }
   }
 
   .number-flash {
@@ -563,12 +601,23 @@
   }
 
   @keyframes borderGlowRed {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0); }
-    50% { box-shadow: 0 0 16px 2px rgba(244, 63, 94, 0.2); }
+    0%, 100% { opacity: 0; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.02); }
   }
 
   .border-glow-danger {
+    position: relative;
     animation: borderGlowRed 2s ease-in-out infinite !important;
+  }
+
+  .border-glow-danger::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    box-shadow: 0 0 16px 2px rgba(244, 63, 94, 0.2);
+    pointer-events: none;
+    will-change: opacity, transform;
   }
 
   @keyframes emptyBreathe {
@@ -653,27 +702,55 @@
                 margin 0.3s ease,
                 gap 0.3s ease;
   }
+
+  button:hover,
+  button:active {
+    will-change: transform;
+  }
 }
 
 @layer utilities {
   @keyframes capsuleHeartbeat {
-    0%   { transform: scale(1);    box-shadow: 0 0 0 0 currentColor; }
-    12%  { transform: scale(1.12); box-shadow: 0 0 16px 3px currentColor; }
-    24%  { transform: scale(0.97); box-shadow: 0 0 0 0 currentColor; }
-    36%  { transform: scale(1.08); box-shadow: 0 0 10px 2px currentColor; }
-    48%  { transform: scale(0.99); box-shadow: 0 0 0 0 currentColor; }
-    60%  { transform: scale(1.03); box-shadow: 0 0 0 0 currentColor; }
-    100% { transform: scale(1);    box-shadow: 0 0 0 0 currentColor; }
+    0%   { transform: scale(1); }
+    12%  { transform: scale(1.12); }
+    24%  { transform: scale(0.97); }
+    36%  { transform: scale(1.08); }
+    48%  { transform: scale(0.99); }
+    60%  { transform: scale(1.03); }
+    100% { transform: scale(1); }
+  }
+
+  @keyframes capsuleHeartbeatGlow {
+    0%   { opacity: 0; }
+    12%  { opacity: 1; }
+    24%  { opacity: 0; }
+    36%  { opacity: 1; }
+    48%  { opacity: 0; }
+    60%  { opacity: 0; }
+    100% { opacity: 0; }
   }
 
   .capsule-heartbeat {
+    position: relative;
     animation: capsuleHeartbeat 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
   }
 
+  .capsule-heartbeat::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    box-shadow: 0 0 16px 3px currentColor;
+    pointer-events: none;
+    will-change: opacity;
+    opacity: 0;
+    animation: capsuleHeartbeatGlow 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  }
+
   @keyframes capsuleRecover {
-    0%   { transform: scale(1.04); opacity: 0.85; filter: brightness(1.2); }
-    50%  { transform: scale(1.02); opacity: 0.95; filter: brightness(1.1); }
-    100% { transform: scale(1);    opacity: 1;   filter: brightness(1); }
+    0%   { transform: scale(1.06); opacity: 0.85; }
+    50%  { transform: scale(1.03); opacity: 0.95; }
+    100% { transform: scale(1);    opacity: 1; }
   }
 
   .capsule-recover {
@@ -691,8 +768,9 @@
   }
 
   .num-highlight {
-    transition: color 0.15s ease-out, filter 0.15s ease-out;
-    filter: brightness(1.4);
+    transition: color 0.15s ease-out;
+    font-weight: 600;
+    color: hsl(var(--primary));
   }
 
   @keyframes capsuleBreathe {
@@ -705,12 +783,23 @@
   }
 
   @keyframes capsuleGlowPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgb(var(--capsule-glow-rgb, 59 130 246) / 0); }
-    50%      { box-shadow: 0 0 12px 2px rgb(var(--capsule-glow-rgb, 59 130 246) / 0.15); }
+    0%, 100% { opacity: 0; transform: scale(1); }
+    50%      { opacity: 1; transform: scale(1.05); }
   }
 
   .capsule-glow-pulse {
+    position: relative;
     animation: capsuleGlowPulse 2s ease-in-out infinite !important;
+  }
+
+  .capsule-glow-pulse::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    box-shadow: 0 0 12px 2px rgb(var(--capsule-glow-rgb, 59 130 246) / 0.15);
+    pointer-events: none;
+    will-change: opacity, transform;
   }
 
   @keyframes statusRingExpand {

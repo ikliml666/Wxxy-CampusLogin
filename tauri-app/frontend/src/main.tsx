@@ -59,19 +59,24 @@ function setupCrashRecovery() {
 
   let lastFrameTime = performance.now()
   let isVisible = true
+  let rafId = 0
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       isVisible = true
       lastFrameTime = performance.now()
+      rafId = requestAnimationFrame(rafLoop)
     } else {
       isVisible = false
+      if (rafId) cancelAnimationFrame(rafId)
     }
   })
 
   function rafLoop() {
     lastFrameTime = performance.now()
-    requestAnimationFrame(rafLoop)
+    if (isVisible) {
+      rafId = requestAnimationFrame(rafLoop)
+    }
   }
   requestAnimationFrame(rafLoop)
 
