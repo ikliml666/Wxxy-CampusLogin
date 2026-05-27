@@ -12,9 +12,18 @@ lazy_static::lazy_static! {
         let mut root_store = tokio_rustls::rustls::RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let provider = tokio_rustls::rustls::crypto::ring::default_provider();
-        let mut config = tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+        let mut config = tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider.clone()))
             .with_safe_default_protocol_versions()
-            .expect("TLS protocol versions")
+            .unwrap_or_else(|e| {
+                eprintln!("TLS protocol versions fallback: {}", e);
+                // 降级到 TLS 1.2+1.3 默认版本
+                tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+                    .with_protocol_versions(&[
+                        &tokio_rustls::rustls::version::TLS13,
+                        &tokio_rustls::rustls::version::TLS12,
+                    ])
+                    .expect("TLS 1.2/1.3 protocol versions must be supported")
+            })
             .with_root_certificates(root_store)
             .with_no_client_auth();
         config.resumption = tokio_rustls::rustls::client::Resumption::default();

@@ -8,8 +8,8 @@ use std::time::Instant;
 use std::os::windows::process::CommandExt;
 
 lazy_static! {
-    static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|virtual|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|nat|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|tor|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp|本地连接").unwrap();
-    static ref HW_VENDOR_REGEX: Regex = Regex::new(r"(?i)realtek|intel|mediatek|qualcomm|marvell|broadcom|asix|ax88x|d.?link|tp.?link|netgear|atheros|killer|rivet|moship|jmicron|via|samsung|nvidia|lenovo|hp|dell|acer|asus|surface|apple|aquantia|chelsio|engenius|edimax|tenda|mercury|phicomms|zyxel|netis|toto|microchip|cypress|pericom|synopsys|tex.?instruments|maxlinear|silicon.labs|bhu|u-blox|quectel|fibocom|simcom|unisoc|spreadtrum|rockchip|allwinner|amlogic|Ralink|Atheros|Qualcomm Atheros|Broadcom|MELCO|RENESAS|SMSC|Attansic|Davicom|IC\+|VIA|SiS").unwrap();
+    static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|virtual|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|nat|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|tor|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp|本地连接").expect("BL_REGEX compilation failed");
+    static ref HW_VENDOR_REGEX: Regex = Regex::new(r"(?i)realtek|intel|mediatek|qualcomm|marvell|broadcom|asix|ax88x|d.?link|tp.?link|netgear|atheros|killer|rivet|moship|jmicron|via|samsung|nvidia|lenovo|hp|dell|acer|asus|surface|apple|aquantia|chelsio|engenius|edimax|tenda|mercury|phicomms|zyxel|netis|toto|microchip|cypress|pericom|synopsys|tex.?instruments|maxlinear|silicon.labs|bhu|u-blox|quectel|fibocom|simcom|unisoc|spreadtrum|rockchip|allwinner|amlogic|Ralink|Atheros|Qualcomm Atheros|Broadcom|MELCO|RENESAS|SMSC|Attansic|Davicom|IC\+|VIA|SiS").expect("HW_VENDOR_REGEX compilation failed");
     static ref ADAPTER_CACHE: Mutex<Option<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant)>> = Mutex::new(None);
 }
 
@@ -389,17 +389,16 @@ pub fn get_disabled_adapters_force() -> Result<Vec<DisabledAdapter>, String> {
     get_disabled_adapters_cached()
 }
 
+pub fn validate_adapter_name(name: &str) -> Result<(), String> {
+    if name.is_empty() { return Err("适配器名称不能为空".to_string()); }
+    if name.len() > 128 { return Err("适配器名称过长".to_string()); }
+    const FORBIDDEN: &[char] = &['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
+    if name.chars().any(|c| FORBIDDEN.contains(&c)) { return Err("适配器名称包含非法字符".to_string()); }
+    Ok(())
+}
+
 pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
-    if adapter_name.is_empty() {
-        return Err("适配器名称不能为空".to_string());
-    }
-    if adapter_name.len() > 128 {
-        return Err("适配器名称过长".to_string());
-    }
-    let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
-    if adapter_name.chars().any(|c| forbidden.contains(&c)) {
-        return Err("适配器名称包含非法字符".to_string());
-    }
+    validate_adapter_name(adapter_name)?;
     let output = new_command("netsh")
         .args(["interface", "set", "interface", adapter_name, "enable"])
         .output()
@@ -511,18 +510,20 @@ pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
 }
 
 fn generate_random_mac() -> String {
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64;
-    let mut rng = unsafe { std::arch::x86_64::_rdtsc() };
-    rng = rng.wrapping_add(seed);
-    let b1 = ((rng >> 0) & 0xFF) as u8;
-    let b2 = ((rng >> 8) & 0xFF) as u8;
-    let b3 = ((rng >> 16) & 0xFF) as u8;
-    let b4 = ((rng >> 24) & 0xFF) as u8;
-    let b5 = ((rng >> 32) & 0xFF) as u8;
-    let b6 = ((rng >> 40) & 0xFF) as u8;
+    // 使用简单的线性同余生成器替代 _rdtsc，避免平台依赖
+    let mut rng = seed;
+    let mut next = || { rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); rng };
+    let b1 = (next() & 0xFF) as u8;
+    let b2 = (next() & 0xFF) as u8;
+    let b3 = (next() & 0xFF) as u8;
+    let b4 = (next() & 0xFF) as u8;
+    let b5 = (next() & 0xFF) as u8;
+    let b6 = (next() & 0xFF) as u8;
     let first = (b1 & 0xFC) | 0x02;
     format!("{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", first, b2, b3, b4, b5, b6)
 }
@@ -612,6 +613,9 @@ pub fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
 }
 
 pub fn netsh_disable(adapter_name: &str) -> bool {
+    if validate_adapter_name(adapter_name).is_err() {
+        return false;
+    }
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=disable"])
         .output()
@@ -620,6 +624,9 @@ pub fn netsh_disable(adapter_name: &str) -> bool {
 }
 
 pub fn netsh_enable(adapter_name: &str) -> bool {
+    if validate_adapter_name(adapter_name).is_err() {
+        return false;
+    }
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=enable"])
         .output()

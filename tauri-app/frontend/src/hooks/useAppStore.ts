@@ -116,7 +116,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         const pending = saveConfigPending
         saveConfigPending = null
         saveConfigDirect(pending).catch((e) => {
-          console.error('配置保存失败:', e)
+          if (import.meta.env.DEV) console.error('配置保存失败:', e)
           get().addToast('配置保存失败，请重试', 'error')
         })
       }
@@ -336,7 +336,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }))
       }
     } catch(e) {
-      console.error('[refreshQuality]', e)
+      if (import.meta.env.DEV) console.error('[refreshQuality]', e)
     } finally {
       setTimeout(() => {
         _qualityLockFlag = false

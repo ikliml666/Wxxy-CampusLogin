@@ -57,8 +57,8 @@ impl Drop for TaskGuard<'_> {
 }
 
 lazy_static::lazy_static! {
-    static ref ACCOUNT_NAME_RE: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$").unwrap();
-    static ref CUSTOM_COLOR_RE: regex::Regex = regex::Regex::new(r"^#[0-9a-fA-F]{6}$").unwrap();
+    static ref ACCOUNT_NAME_RE: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$").expect("ACCOUNT_NAME_RE compilation failed");
+    static ref CUSTOM_COLOR_RE: regex::Regex = regex::Regex::new(r"^#[0-9a-fA-F]{6}$").expect("CUSTOM_COLOR_RE compilation failed");
 }
 
 pub fn validate_config(config: Config) -> Result<Config, String> {

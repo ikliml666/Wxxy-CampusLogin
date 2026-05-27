@@ -104,7 +104,7 @@ function AppInner() {
         const maximized = await getCurrentWindow().isMaximized()
         setIsMaximized(maximized)
       } catch (e) {
-        console.error('获取窗口最大化状态失败:', e)
+        if (import.meta.env.DEV) console.error('获取窗口最大化状态失败:', e)
       }
     })
     getCurrentWindow().isMaximized().then(m => setIsMaximized(m)).catch(() => {})
@@ -125,7 +125,7 @@ function AppInner() {
       const maximized = await getCurrentWindow().isMaximized()
       setIsMaximized(maximized)
     } catch (e) {
-      console.error('切换最大化失败:', e)
+      if (import.meta.env.DEV) console.error('切换最大化失败:', e)
     }
   }, [])
 
@@ -145,12 +145,12 @@ function AppInner() {
   const handleToggleNotification = useCallback(async () => {
     const next = configEnableNotification !== false ? false : true
     store.updateConfig({ enableNotification: next })
-    try { await store.api.setNotificationEnabled?.(next) } catch (e) { console.error('设置通知状态失败:', e) }
+    try { await store.api.setNotificationEnabled?.(next) } catch (e) { if (import.meta.env.DEV) console.error('设置通知状态失败:', e) }
   }, [configEnableNotification, store.updateConfig, store.api])
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
     store.updateConfig({ autoLaunch: enabled })
-    try { await store.api.setAutoLaunch?.(enabled) } catch (e) { console.error('设置开机自启失败:', e) }
+    try { await store.api.setAutoLaunch?.(enabled) } catch (e) { if (import.meta.env.DEV) console.error('设置开机自启失败:', e) }
   }, [store.updateConfig, store.api])
 
   const handleSetTheme = useCallback((name: string) => {
@@ -168,19 +168,19 @@ function AppInner() {
       store.updateConfig({ enableBackgroundCheck: enabled, backgroundCheckInterval: intervalSec * 1000 })
       store.setBgStatus(prev => ({ ...prev, isRunning: enabled }))
     } catch (e) {
-      console.error('切换后台检查失败:', e)
+      if (import.meta.env.DEV) console.error('切换后台检查失败:', e)
     }
   }, [store.api, store.updateConfig, store.setBgStatus])
 
   const handleTriggerCheck = useCallback(async () => {
-    try { await store.api.triggerBackgroundCheck?.() } catch (e) { console.error('触发后台检查失败:', e) }
+    try { await store.api.triggerBackgroundCheck?.() } catch (e) { if (import.meta.env.DEV) console.error('触发后台检查失败:', e) }
   }, [store.api])
 
   const handleToggleLatencyTest = useCallback(async (enabled: boolean, intervalSec: number) => {
     if (enabled) {
-      try { await store.api.startLatencyTest?.(); store.updateConfig({ enableLatencyTest: enabled, latencyTestInterval: intervalSec * 1000 }) } catch (e) { console.error('启动延迟测试失败:', e) }
+      try { await store.api.startLatencyTest?.(); store.updateConfig({ enableLatencyTest: enabled, latencyTestInterval: intervalSec * 1000 }) } catch (e) { if (import.meta.env.DEV) console.error('启动延迟测试失败:', e) }
     } else {
-      try { await store.api.stopLatencyTest?.(); store.updateConfig({ enableLatencyTest: enabled, latencyTestInterval: intervalSec * 1000 }) } catch (e) { console.error('停止延迟测试失败:', e) }
+      try { await store.api.stopLatencyTest?.(); store.updateConfig({ enableLatencyTest: enabled, latencyTestInterval: intervalSec * 1000 }) } catch (e) { if (import.meta.env.DEV) console.error('停止延迟测试失败:', e) }
     }
   }, [store.api, store.updateConfig])
 
@@ -196,7 +196,7 @@ function AppInner() {
   }, [store.api])
 
   const handleDhcpRenew = useCallback(async () => {
-    try { await store.api.dhcpRenewAll?.() } catch (e) { console.error('DHCP 续租失败:', e) }
+    try { await store.api.dhcpRenewAll?.() } catch (e) { if (import.meta.env.DEV) console.error('DHCP 续租失败:', e) }
     await refreshAdapterInfo()
     store.api.triggerBackgroundCheck?.().catch(() => {})
   }, [store.api, refreshAdapterInfo])
@@ -222,7 +222,7 @@ function AppInner() {
           store.addToast(`获取新IP失败: ${failedDetails}`, 'error')
         }
       }
-    } catch (e) { console.error('获取新IP失败:', e); store.addToast('获取新IP失败', 'error') }
+    } catch (e) { if (import.meta.env.DEV) console.error('获取新IP失败:', e); store.addToast('获取新IP失败', 'error') }
     await refreshAdapterInfo()
     store.api.triggerBackgroundCheck?.().catch(() => {})
   }, [store.api, store.addToast, refreshAdapterInfo])
@@ -245,7 +245,7 @@ function AppInner() {
       const accs = await store.api.listAccounts?.() || []
       store.setAccounts(accs)
     } catch (e) {
-      console.error('刷新账号列表失败:', e)
+      if (import.meta.env.DEV) console.error('刷新账号列表失败:', e)
     }
   }, [store.api, store.updateConfig, store.setActiveAccount, store.setAccounts, store.addToast])
 
@@ -262,7 +262,7 @@ function AppInner() {
       const accs = await store.api.listAccounts?.() || []
       store.setAccounts(accs)
     } catch (e) {
-      console.error('刷新账号列表失败:', e)
+      if (import.meta.env.DEV) console.error('刷新账号列表失败:', e)
     }
     setConfirmDelete({ open: false, name: '' })
   }, [store.api, store.setAccounts, store.addToast])

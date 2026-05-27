@@ -19,6 +19,10 @@ pub fn is_admin() -> bool {
     use windows::Win32::Foundation::HANDLE;
 
     unsafe {
+        // SAFETY: OpenProcessToken requires a valid process handle.
+        // GetCurrentProcess() always returns a pseudo-handle that is valid for the current process.
+        // We only read from the token (TOKEN_QUERY), never modify it.
+        // CloseHandle is called on the token before returning.
         let mut token: HANDLE = HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
             return false;
@@ -47,6 +51,9 @@ pub(crate) fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
     let params: Vec<u16> = format!("{}\0", args).encode_utf16().collect();
 
     unsafe {
+        // SAFETY: ShellExecuteW with "runas" verb launches a new process with elevated privileges.
+        // The verb, file, and params strings are null-terminated UTF-16 vectors that remain valid
+        // for the duration of the call. SW_HIDE prevents the elevated process window from showing.
         let result = ShellExecuteW(
             None,
             PCWSTR(verb.as_ptr()),
@@ -74,6 +81,13 @@ pub fn set_registry_elevated(
     use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
 
     unsafe {
+        // SAFETY: CoInitializeEx initializes the COM library for the current thread.
+        // We use COINIT_APARTMENTTHREADED for STA, which is required for the elevated COM moniker.
+        // The return value is intentionally ignored (S_OK or S_FALSE for re-initialization).
+        // co_get_object_raw uses the elevation moniker to obtain an elevated COM object.
+        // All wide strings (moniker, sub_key, value_name, value_data) are null-terminated
+        // UTF-16 vectors that remain valid for the duration of the COM calls.
+        // The COM object is released via vtbl.release() before returning.
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
         let moniker_name = "Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}";
@@ -135,6 +149,13 @@ pub fn shell_exec_elevated(
     use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
 
     unsafe {
+        // SAFETY: CoInitializeEx initializes the COM library for the current thread (STA mode).
+        // The return value is intentionally ignored as per COM re-initialization semantics.
+        // co_get_object_raw uses the elevation moniker to obtain an elevated COM object
+        // (ICMLuaUtil) for executing shell commands with admin privileges.
+        // All wide strings (moniker, file, params) are null-terminated UTF-16 vectors
+        // that remain valid for the duration of the COM calls.
+        // The COM object is released via vtbl.release() before returning.
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
         let moniker_name = "Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}";
@@ -193,6 +214,13 @@ unsafe fn co_get_object_raw(
     riid: *const std::ffi::c_void,
     ppv: *mut *mut std::ffi::c_void,
 ) -> i32 {
+    // SAFETY: This is a thin wrapper around the Windows CoGetObject FFI call.
+    // The caller is responsible for ensuring:
+    // - pszname points to a valid null-terminated UTF-16 string (the elevation moniker).
+    // - pbindoptions points to a valid BIND_OPTS structure with correct cbStruct.
+    // - riid points to a valid GUID identifying the requested interface.
+    // - ppv points to a valid pointer that will receive the COM object.
+    // All pointers must remain valid for the duration of the call.
     #[link(name = "ole32")]
     extern "system" {
         fn CoGetObject(
@@ -292,6 +320,13 @@ pub fn set_dns_via_api(
     };
 
     unsafe {
+        // SAFETY: SetInterfaceDnsSettings is a Win32 API that configures DNS settings for a network interface.
+        // - guid is a valid GUID parsed from a string (not from arbitrary memory).
+        // - The settings pointer is cast from a stack-allocated DNS_INTERFACE_SETTINGS3 struct,
+        //   which is a superset of DNS_INTERFACE_SETTINGS and compatible for the call.
+        // - All PWSTR fields in the struct point to null-terminated UTF-16 strings
+        //   (ns_wide, doh_templates_wide) that remain valid for the duration of the call.
+        // - The doh_props and doh_settings vectors are stable references within this scope.
         let result = SetInterfaceDnsSettings(
             guid,
             &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
@@ -363,6 +398,13 @@ pub fn set_doh_via_api(
     };
 
     unsafe {
+        // SAFETY: SetInterfaceDnsSettings is a Win32 API that configures DNS+DoH settings for a network interface.
+        // - guid is a valid GUID parsed from a string (not from arbitrary memory).
+        // - The settings pointer is cast from a stack-allocated DNS_INTERFACE_SETTINGS3 struct,
+        //   which is a superset of DNS_INTERFACE_SETTINGS and compatible for the call.
+        // - All PWSTR fields point to null-terminated UTF-16 strings that remain valid
+        //   for the duration of the call.
+        // - The doh_props and doh_settings vectors are stable references within this scope.
         let result = SetInterfaceDnsSettings(
             guid,
             &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
