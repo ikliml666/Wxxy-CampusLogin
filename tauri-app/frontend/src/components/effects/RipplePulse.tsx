@@ -1,10 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
-import { useGSAP } from '@gsap/react'
 import { cn } from '@/lib/utils'
 import { useAnimationActive } from '@/hooks/usePageIdle'
-
-gsap.registerPlugin(useGSAP)
 
 interface RipplePulseProps {
   active: boolean
@@ -18,29 +15,38 @@ export function RipplePulse({ active, color = 'currentColor', size = 24, classNa
   const tlRef = useRef<gsap.core.Timeline | null>(null)
   const animActive = useAnimationActive()
 
-  useGSAP(() => {
+  useEffect(() => {
     if (!containerRef.current || !active) {
-      tlRef.current = null
+      if (tlRef.current) {
+        tlRef.current.kill()
+        tlRef.current = null
+      }
       return
     }
 
-    const ripples = containerRef.current.querySelectorAll('.ripple-ring')
-    const tl = gsap.timeline({ repeat: -1 })
+    const ctx = gsap.context(() => {
+      if (!containerRef.current) return
 
-    ripples.forEach((ring, i) => {
-      tl.fromTo(ring,
-        { scale: 1, opacity: 0.6 },
-        { scale: 3.5, opacity: 0, duration: 2, ease: 'sine.out', force3D: true },
-        i * 0.7
-      )
-    })
+      const ripples = containerRef.current.querySelectorAll('.ripple-ring')
+      const tl = gsap.timeline({ repeat: -1 })
 
-    tlRef.current = tl
+      ripples.forEach((ring, i) => {
+        tl.fromTo(ring,
+          { scale: 1, opacity: 0.6 },
+          { scale: 3.5, opacity: 0, duration: 2, ease: 'sine.out', force3D: true },
+          i * 0.7
+        )
+      })
 
-    if (!animActive) {
-      tl.pause()
-    }
-  }, { scope: containerRef, dependencies: [active], revertOnUpdate: true })
+      tlRef.current = tl
+
+      if (!animActive) {
+        tl.pause()
+      }
+    }, containerRef)
+
+    return () => ctx.revert()
+  }, [active])
 
   useEffect(() => {
     if (!tlRef.current) return
