@@ -180,6 +180,105 @@ unsafe fn co_get_object_raw(
     CoGetObject(pszname, pbindoptions, riid, ppv)
 }
 
+#[cfg(target_os = "windows")]
+fn parse_guid(s: &str) -> Result<windows::core::GUID, String> {
+    let s = s.trim().trim_start_matches('{').trim_end_matches('}');
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 5 {
+        return Err(format!("GUID格式无效: {}", s));
+    }
+    let data1 = u32::from_str_radix(parts[0], 16).map_err(|e| format!("GUID data1解析失败: {}", e))?;
+    let data2 = u16::from_str_radix(parts[1], 16).map_err(|e| format!("GUID data2解析失败: {}", e))?;
+    let data3 = u16::from_str_radix(parts[2], 16).map_err(|e| format!("GUID data3解析失败: {}", e))?;
+    let data4_str = &parts[3..=4].join("");
+    if data4_str.len() != 16 {
+        return Err(format!("GUID data4长度无效: {}", data4_str));
+    }
+    let mut data4 = [0u8; 8];
+    for i in 0..8 {
+        data4[i] = u8::from_str_radix(&data4_str[i * 2..i * 2 + 2], 16)
+            .map_err(|e| format!("GUID data4[{}]解析失败: {}", i, e))?;
+    }
+    Ok(windows::core::GUID::from_values(data1, data2, data3, data4))
+}
+
+#[cfg(target_os = "windows")]
+pub fn set_dns_via_api(
+    adapter_guid: &str,
+    dns_servers: &[&str],
+    doh_templates: &[(&str, &str)],
+) -> Result<(), String> {
+    use windows::Win32::NetworkManagement::IpHelper::*;
+    use windows::core::PWSTR;
+
+    let guid = parse_guid(adapter_guid)?;
+
+    let ns_str: String = dns_servers.join(",");
+    let mut ns_wide: Vec<u16> = ns_str.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
+    let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
+    let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
+
+    for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
+        let mut tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
+        doh_templates_wide.push(tpl_wide);
+
+        let doh_setting = DNS_DOH_SERVER_SETTINGS {
+            Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
+            Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
+        };
+        doh_settings.push(doh_setting);
+
+        let prop = DNS_SERVER_PROPERTY {
+            Version: DNS_SERVER_PROPERTY_VERSION1,
+            ServerIndex: idx as u32,
+            Type: DNS_SERVER_PROPERTY_TYPE(1),
+            Property: DNS_SERVER_PROPERTY_TYPES {
+                DohSettings: &mut doh_settings[idx],
+            },
+        };
+        doh_props.push(prop);
+    }
+
+    let flags = if doh_props.is_empty() {
+        DNS_SETTING_NAMESERVER as u64
+    } else {
+        (DNS_SETTING_NAMESERVER | DNS_SETTING_DOH) as u64
+    };
+
+    let mut settings = DNS_INTERFACE_SETTINGS3 {
+        Version: DNS_INTERFACE_SETTINGS_VERSION3,
+        Flags: flags,
+        Domain: PWSTR::null(),
+        NameServer: PWSTR(ns_wide.as_mut_ptr()),
+        SearchList: PWSTR::null(),
+        RegistrationEnabled: 0,
+        RegisterAdapterName: 0,
+        EnableLLMNR: 0,
+        QueryAdapterName: 0,
+        ProfileNameServer: PWSTR::null(),
+        DisableUnconstrainedQueries: 0,
+        SupplementalSearchList: PWSTR::null(),
+        cServerProperties: doh_props.len() as u32,
+        ServerProperties: doh_props.as_mut_ptr(),
+        cProfileServerProperties: 0,
+        ProfileServerProperties: std::ptr::null_mut(),
+    };
+
+    unsafe {
+        let result = SetInterfaceDnsSettings(
+            guid,
+            &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
+        );
+        if result != 0 {
+            return Err(format!("SetInterfaceDnsSettings 失败: 错误码 {}", result.0));
+        }
+    }
+
+    Ok(())
+}
+
 #[repr(C)]
 struct ICMLuaUtilVtbl {
     _query_interface: usize,

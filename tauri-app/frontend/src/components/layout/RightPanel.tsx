@@ -105,7 +105,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterD
   return (
     <m.div
       className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square"
-      style={{ background: 'var(--surface-side)' }}
+      style={{ background: 'var(--surface-side)', contain: 'content' }}
       initial={{ opacity: 0, x: 60 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.9, delay: 0.35 }}
