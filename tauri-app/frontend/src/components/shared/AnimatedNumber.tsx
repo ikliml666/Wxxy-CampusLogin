@@ -1,5 +1,8 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { gsap } from 'gsap'
+import { useGSAP } from '@gsap/react'
+
+gsap.registerPlugin(useGSAP)
 
 interface AnimatedNumberProps {
   value: number
@@ -21,37 +24,25 @@ export function AnimatedNumber({
   const ref = useRef<HTMLSpanElement>(null)
   const prevRef = useRef(value)
   const isFirstRender = useRef(true)
-  const valueTweenRef = useRef<gsap.core.Tween | null>(null)
-  const visualTlRef = useRef<gsap.core.Timeline | null>(null)
-  const colorRef = useRef<string>('')
+  const objRef = useRef({ value })
 
-  useEffect(() => {
-    if (ref.current) {
-      colorRef.current = getComputedStyle(ref.current).color
-    }
-  }, [])
+  const { contextSafe } = useGSAP(() => {}, { scope: ref })
 
-  const animateValue = useCallback((from: number, to: number) => {
+  const animateValue = contextSafe((from: number, to: number) => {
     if (!ref.current) return
 
-    const obj = { value: from }
-
-    if (valueTweenRef.current) {
-      valueTweenRef.current.kill()
-    }
-    if (visualTlRef.current) {
-      visualTlRef.current.kill()
-    }
-
     gsap.killTweensOf(ref.current)
+    gsap.killTweensOf(objRef.current)
 
-    valueTweenRef.current = gsap.to(obj, {
+    objRef.current.value = from
+
+    gsap.to(objRef.current, {
       value: to,
       duration: duration / 1000,
       ease: 'power2.out',
       onUpdate: () => {
         if (ref.current) {
-          ref.current.textContent = `${obj.value.toFixed(decimals)}${unit}`
+          ref.current.textContent = `${objRef.current.value.toFixed(decimals)}${unit}`
         }
       },
     })
@@ -81,9 +72,7 @@ export function AnimatedNumber({
       repeat: 1,
       ease: 'power2.inOut',
     })
-
-    visualTlRef.current = tl
-  }, [decimals, unit, duration, highlightColor])
+  })
 
   useEffect(() => {
     if (isFirstRender.current) {
@@ -100,19 +89,6 @@ export function AnimatedNumber({
       prevRef.current = value
     }
   }, [value, decimals, unit, animateValue])
-
-  useEffect(() => {
-    return () => {
-      if (valueTweenRef.current) {
-        valueTweenRef.current.kill()
-        valueTweenRef.current = null
-      }
-      if (visualTlRef.current) {
-        visualTlRef.current.kill()
-        visualTlRef.current = null
-      }
-    }
-  }, [])
 
   return (
     <span

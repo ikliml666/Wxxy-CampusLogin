@@ -1,7 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
+import { useGSAP } from '@gsap/react'
 import { cn } from '@/lib/utils'
 import { useAnimationActive } from '@/hooks/usePageIdle'
+
+gsap.registerPlugin(useGSAP)
 
 interface RipplePulseProps {
   active: boolean
@@ -15,17 +18,10 @@ export function RipplePulse({ active, color = 'currentColor', size = 24, classNa
   const tlRef = useRef<gsap.core.Timeline | null>(null)
   const animActive = useAnimationActive()
 
-  useEffect(() => {
+  useGSAP(() => {
     if (!containerRef.current || !active) {
-      if (tlRef.current) {
-        tlRef.current.kill()
-        tlRef.current = null
-      }
+      tlRef.current = null
       return
-    }
-
-    if (tlRef.current) {
-      tlRef.current.kill()
     }
 
     const ripples = containerRef.current.querySelectorAll('.ripple-ring')
@@ -44,12 +40,7 @@ export function RipplePulse({ active, color = 'currentColor', size = 24, classNa
     if (!animActive) {
       tl.pause()
     }
-
-    return () => {
-      tl.kill()
-      tlRef.current = null
-    }
-  }, [active])
+  }, { scope: containerRef, dependencies: [active], revertOnUpdate: true })
 
   useEffect(() => {
     if (!tlRef.current) return

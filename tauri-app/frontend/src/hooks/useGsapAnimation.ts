@@ -1,43 +1,31 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useRef, useCallback } from 'react'
 import { gsap } from 'gsap'
+import { useGSAP } from '@gsap/react'
+
+gsap.registerPlugin(useGSAP)
 
 type AnimationFactory = (el: HTMLElement) => gsap.core.Tween | gsap.core.Timeline
 
 export function useGsapAnimations(factories: Record<string, AnimationFactory>) {
-  const elRef = useRef<HTMLElement | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const animRef = useRef<gsap.core.Tween | gsap.core.Timeline | null>(null)
   const factoriesRef = useRef(factories)
   factoriesRef.current = factories
 
-  const ref = useCallback((node: HTMLElement | null) => {
-    elRef.current = node
-    if (animRef.current) {
-      animRef.current.kill()
-      animRef.current = null
-    }
-  }, [])
+  const { contextSafe } = useGSAP(() => {}, { scope: containerRef })
 
-  const play = useCallback((name: string) => {
-    if (!elRef.current) return
+  const play = contextSafe((name: string) => {
+    if (!containerRef.current) return
     if (animRef.current) {
       animRef.current.kill()
     }
     const factory = factoriesRef.current[name]
     if (factory) {
-      animRef.current = factory(elRef.current)
+      animRef.current = factory(containerRef.current)
     }
-  }, [])
+  })
 
-  useEffect(() => {
-    return () => {
-      if (animRef.current) {
-        animRef.current.kill()
-        animRef.current = null
-      }
-    }
-  }, [])
-
-  return { ref, play }
+  return { ref: containerRef, play }
 }
 
 export function capsuleHeartbeat(el: HTMLElement): gsap.core.Timeline {

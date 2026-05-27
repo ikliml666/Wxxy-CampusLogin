@@ -1,6 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
+import { useGSAP } from '@gsap/react'
 import { useAnimationActive } from '@/hooks/usePageIdle'
+
+gsap.registerPlugin(useGSAP)
 
 interface OrbConfig {
   size: number
@@ -38,12 +41,8 @@ export function FluidBackground() {
   const tlRef = useRef<gsap.core.Timeline | null>(null)
   const isActive = useAnimationActive()
 
-  useEffect(() => {
+  useGSAP(() => {
     if (!containerRef.current) return
-
-    if (tlRef.current) {
-      tlRef.current.kill()
-    }
 
     const orbs = containerRef.current.querySelectorAll('.fluid-orb')
     const tl = gsap.timeline({ repeat: -1, yoyo: true })
@@ -64,12 +63,7 @@ export function FluidBackground() {
     if (!isActive) {
       tl.pause()
     }
-
-    return () => {
-      tl.kill()
-      tlRef.current = null
-    }
-  }, [])
+  }, { scope: containerRef })
 
   useEffect(() => {
     if (!tlRef.current) return
