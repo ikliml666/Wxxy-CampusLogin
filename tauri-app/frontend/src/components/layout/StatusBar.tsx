@@ -68,6 +68,7 @@ export const StatusBar = memo(function StatusBar({ statusText, statusState, netw
             style={{
               background: cfg.bg,
               backdropFilter: 'blur(8px)',
+              isolation: 'isolate',
             }}
           >
             <div className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot, statusState === 'loading' && 'animate-pulse')} />

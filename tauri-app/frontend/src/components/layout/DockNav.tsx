@@ -139,6 +139,8 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
         WebkitBackdropFilter: 'blur(28px) saturate(200%)',
         boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06), inset 0 0.5px 0 hsl(var(--card) / 0.8), inset 0 0 20px hsl(var(--card) / 0.1)',
         border: '1px solid hsl(var(--card) / 0.6)',
+        isolation: 'isolate',
+        contain: 'layout style paint',
       }}
     >
       <div

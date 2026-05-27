@@ -279,7 +279,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, disab
                     'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors',
                     'bg-white/60 hover:bg-white/80 text-foreground',
                     'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]',
-                    'backdrop-blur-sm',
+                    'backdrop-blur-sm isolate',
                     dnsChecking && 'opacity-70 cursor-wait'
                   )}
                 >

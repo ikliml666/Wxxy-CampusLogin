@@ -692,8 +692,10 @@
                 gap 0.3s ease;
   }
 
-  button:hover,
-  button:active {
+  .btn-physical:hover,
+  .btn-physical:active,
+  .btn-press:hover,
+  .btn-press:active {
     will-change: transform;
   }
 }
