@@ -18,10 +18,7 @@ import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/constants'
 import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
-import { gsap } from 'gsap'
-import { useGSAP } from '@gsap/react'
-
-gsap.registerPlugin(useGSAP)
+import { animate } from 'animejs'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -122,12 +119,41 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
   const effectiveSelected = selectedAdapter || defaultAdapter
 
-  useGSAP(() => {
+  const menuAnimsRef = useRef<ReturnType<typeof animate>[]>([])
+
+  useEffect(() => {
     if (!menuRef.current) return
     const items = menuRef.current.querySelectorAll('.adapter-menu-item')
-    gsap.fromTo(items, { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.4)', force3D: true })
-    gsap.fromTo(menuRef.current, { opacity: 0, scale: 0.88, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.35, ease: 'back.out(1.2)', force3D: true })
-  }, { scope: menuRef })
+    menuAnimsRef.current = []
+    menuAnimsRef.current.push(
+      animate(items, {
+        opacity: [0, 1],
+        translateX: [-12, 0],
+        duration: 400,
+        delay: (_: unknown, i: number) => i * 60,
+        ease: 'spring(1, 70, 12, 0)',
+      })
+    )
+    menuAnimsRef.current.push(
+      animate(menuRef.current, {
+        opacity: [0, 1],
+        scale: [0.88, 1],
+        translateY: [10, 0],
+        duration: 350,
+        ease: 'spring(1, 60, 10, 0)',
+      })
+    )
+    return () => {
+      menuAnimsRef.current.forEach(a => {
+        try {
+          if (a && typeof a.pause === 'function') {
+            a.pause()
+          }
+        } catch {}
+      })
+      menuAnimsRef.current = []
+    }
+  }, [])
 
   return (
     <div
@@ -139,8 +165,6 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
         WebkitBackdropFilter: 'blur(28px) saturate(200%)',
         boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06), inset 0 0.5px 0 hsl(var(--card) / 0.8), inset 0 0 20px hsl(var(--card) / 0.1)',
         border: '1px solid hsl(var(--card) / 0.6)',
-        isolation: 'isolate',
-        contain: 'layout style paint',
       }}
     >
       <div
@@ -231,29 +255,6 @@ function ActionButtonWithMenu({
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const showMenu = activeAdapters.length >= 1
 
-  const { contextSafe } = useGSAP(() => {}, { scope: buttonRef })
-
-  const animateLoadingChange = contextSafe((loading: boolean) => {
-    if (!buttonRef.current) return
-    if (loading) {
-      gsap.killTweensOf(buttonRef.current)
-      const tl = gsap.timeline()
-      tl.to(buttonRef.current, { scale: 0.95, duration: 0.15, ease: 'power2.out', force3D: true })
-        .to(buttonRef.current, { scale: 1.02, duration: 0.1, ease: 'power2.inOut', force3D: true })
-        .to(buttonRef.current, { scale: 1, duration: 0.15, ease: 'power2.out', force3D: true })
-      if (spinnerRef.current) {
-        gsap.killTweensOf(spinnerRef.current)
-        gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
-      }
-    } else {
-      if (spinnerRef.current) {
-        gsap.killTweensOf(spinnerRef.current)
-      }
-      gsap.killTweensOf(buttonRef.current)
-      gsap.fromTo(buttonRef.current, { scale: 1 }, { scale: 1.08, duration: 0.2, ease: 'power2.out', yoyo: true, repeat: 1, force3D: true })
-    }
-  })
-
   const scheduleOpen = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
@@ -291,12 +292,49 @@ function ActionButtonWithMenu({
     }
   }, [])
 
+  const spinnerAnimRef = useRef<ReturnType<typeof animate> | null>(null)
+
   useEffect(() => {
+    if (!buttonRef.current) return
     if (prevLoadingRef.current !== isLoading) {
-      animateLoadingChange(isLoading)
+      if (isLoading) {
+        animate(buttonRef.current, {
+          scale: [1, 0.95, 1.02, 1],
+          duration: 400,
+          ease: 'spring(1, 80, 12, 0)',
+        })
+        if (spinnerRef.current) {
+          spinnerAnimRef.current = animate(spinnerRef.current, {
+            rotate: 360,
+            duration: 800,
+            loop: true,
+            ease: 'linear',
+          })
+        }
+      } else {
+        if (spinnerAnimRef.current) {
+          spinnerAnimRef.current.pause()
+          spinnerAnimRef.current = null
+        }
+        animate(buttonRef.current, {
+          scale: [1, 1.08, 1],
+          duration: 500,
+          ease: 'spring(1, 60, 10, 0)',
+        })
+      }
       prevLoadingRef.current = isLoading
     }
-  }, [isLoading, animateLoadingChange])
+  }, [isLoading])
+
+  useEffect(() => {
+    return () => {
+      if (spinnerAnimRef.current) {
+        spinnerAnimRef.current.pause()
+        spinnerAnimRef.current.seek(spinnerAnimRef.current.duration)
+        spinnerAnimRef.current = null
+      }
+    }
+  }, [])
 
   const isPrimary = variant === 'primary'
 

@@ -1,9 +1,6 @@
-import { useRef, useEffect } from 'react'
-import { gsap } from 'gsap'
-import { useGSAP } from '@gsap/react'
+import { useEffect, useRef } from 'react'
+import { animate } from 'animejs'
 import { useAnimationActive } from '@/hooks/usePageIdle'
-
-gsap.registerPlugin(useGSAP)
 
 interface OrbConfig {
   size: number
@@ -38,40 +35,55 @@ const ORBS: OrbConfig[] = [
 
 export function FluidBackground() {
   const containerRef = useRef<HTMLDivElement>(null)
-  const tlRef = useRef<gsap.core.Timeline | null>(null)
+  const animationsRef = useRef<ReturnType<typeof animate>[]>([])
   const isActive = useAnimationActive()
 
-  useGSAP(() => {
+  useEffect(() => {
     if (!containerRef.current) return
 
+    // 先清理旧动画，防止对象累积
+    animationsRef.current.forEach(anim => {
+      try { anim.pause() } catch {}
+    })
+    animationsRef.current = []
+
     const orbs = containerRef.current.querySelectorAll('.fluid-orb')
-    const tl = gsap.timeline({ repeat: -1, yoyo: true })
 
     orbs.forEach((orb, index) => {
       const config = ORBS[index]
       if (!config) return
 
-      tl.fromTo(orb,
-        { x: config.x[0], y: config.y[0], scale: 0.8 },
-        { x: config.x[1], y: config.y[1], scale: 1.2, duration: config.duration / 1000, ease: 'sine.inOut', force3D: true },
-        config.delay / 1000
-      )
+      const anim = animate(orb, {
+        translateX: config.x,
+        translateY: config.y,
+        scale: [0.8, 1.2, 0.9, 1.1],
+        duration: config.duration,
+        delay: config.delay,
+        loop: true,
+        direction: 'alternate',
+        ease: 'easeInOutSine',
+        autoplay: isActive,
+      })
+
+      animationsRef.current.push(anim)
     })
 
-    tlRef.current = tl
-
-    if (!isActive) {
-      tl.pause()
+    return () => {
+      animationsRef.current.forEach(anim => {
+        try { anim.pause() } catch {}
+      })
+      animationsRef.current = []
     }
-  }, { scope: containerRef })
+  }, [])
 
   useEffect(() => {
-    if (!tlRef.current) return
-    if (isActive) {
-      tlRef.current.play()
-    } else {
-      tlRef.current.pause()
-    }
+    animationsRef.current.forEach(anim => {
+      if (isActive) {
+        anim.play()
+      } else {
+        anim.pause()
+      }
+    })
   }, [isActive])
 
   return (

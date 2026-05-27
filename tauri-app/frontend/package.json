@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@gsap/react": "^2.1.2",
     "@radix-ui/react-dialog": "^1.1.1",
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-select": "^2.1.1",
@@ -22,10 +21,10 @@
     "@tauri-apps/plugin-global-shortcut": "^2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-shell": "^2",
+    "animejs": "^4.4.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
-    "gsap": "^3.15.0",
     "lucide-react": "^0.446.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -1,10 +1,7 @@
-import { useRef, useEffect } from 'react'
-import { gsap } from 'gsap'
-import { useGSAP } from '@gsap/react'
+import { useEffect, useRef } from 'react'
+import { animate } from 'animejs'
 import { cn } from '@/lib/utils'
 import { useAnimationActive } from '@/hooks/usePageIdle'
-
-gsap.registerPlugin(useGSAP)
 
 interface RipplePulseProps {
   active: boolean
@@ -15,40 +12,46 @@ interface RipplePulseProps {
 
 export function RipplePulse({ active, color = 'currentColor', size = 24, className }: RipplePulseProps) {
   const containerRef = useRef<HTMLSpanElement>(null)
-  const tlRef = useRef<gsap.core.Timeline | null>(null)
+  const animationsRef = useRef<ReturnType<typeof animate>[]>([])
   const animActive = useAnimationActive()
 
-  useGSAP(() => {
+  useEffect(() => {
     if (!containerRef.current || !active) {
-      tlRef.current = null
+      animationsRef.current.forEach(a => a.pause())
+      animationsRef.current = []
       return
     }
 
     const ripples = containerRef.current.querySelectorAll('.ripple-ring')
-    const tl = gsap.timeline({ repeat: -1 })
+    animationsRef.current = []
 
     ripples.forEach((ring, i) => {
-      tl.fromTo(ring,
-        { scale: 1, opacity: 0.6 },
-        { scale: 3.5, opacity: 0, duration: 2, ease: 'sine.out', force3D: true },
-        i * 0.7
-      )
+      const anim = animate(ring, {
+        scale: [1, 3.5],
+        opacity: [0.6, 0],
+        duration: 2000,
+        delay: i * 700,
+        loop: true,
+        ease: 'easeOutSine',
+        autoplay: animActive,
+      })
+      animationsRef.current.push(anim)
     })
 
-    tlRef.current = tl
-
-    if (!animActive) {
-      tl.pause()
+    return () => {
+      animationsRef.current.forEach(a => a.pause())
+      animationsRef.current = []
     }
-  }, { scope: containerRef, dependencies: [active], revertOnUpdate: true })
+  }, [active])
 
   useEffect(() => {
-    if (!tlRef.current) return
-    if (animActive) {
-      tlRef.current.play()
-    } else {
-      tlRef.current.pause()
-    }
+    animationsRef.current.forEach(anim => {
+      if (animActive) {
+        anim.play()
+      } else {
+        anim.pause()
+      }
+    })
   }, [animActive])
 
   if (!active) return null
