@@ -604,6 +604,45 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
             }
 
             if need_elevation && added.is_empty() {
+                let mut ps_cmds: Vec<String> = Vec::new();
+                for (ip, template) in doh_servers {
+                    ps_cmds.push(format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes", ip, template));
+                }
+                ps_cmds.push("ipconfig /flushdns".to_string());
+                let ps_script = ps_cmds.join("; ");
+                let ps_args = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", ps_script);
+
+                crate::log_info!("dns", "尝试COM ShellExec提权注册DoH");
+                match shell_exec_elevated("powershell", &ps_args, true) {
+                    Ok(()) => {
+                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                        let mut verify_added: Vec<String> = Vec::new();
+                        for (ip, _) in doh_servers {
+                            let check = std::process::Command::new("netsh")
+                                .args(["dns", "show", "encryption", &format!("server={}", ip)])
+                                .creation_flags(0x08000000)
+                                .output();
+                            if let Ok(co) = check {
+                                let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));
+                                if out.contains("https://") {
+                                    verify_added.push(ip.to_string());
+                                }
+                            }
+                        }
+                        if !verify_added.is_empty() {
+                            return Ok(serde_json::json!({
+                                "success": true,
+                                "message": format!("已通过管理员权限为 {} 启用DoH", verify_added.join("、")),
+                                "added": verify_added,
+                                "failed": [],
+                            }));
+                        }
+                    }
+                    Err(com_err) => {
+                        crate::log_warn!("dns", "COM ShellExec提权失败: {}，降级到ShellExecuteW", com_err);
+                    }
+                }
+
                 let mut netsh_cmds = String::new();
                 for (ip, template) in doh_servers {
                     netsh_cmds.push_str(&format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes & ", ip, template));
@@ -612,7 +651,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
 
                 match run_elevated("cmd", &format!("/c {}", netsh_cmds)) {
                     Ok(()) => {
-                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        std::thread::sleep(std::time::Duration::from_millis(2500));
                         let mut verify_added: Vec<String> = Vec::new();
                         for (ip, _) in doh_servers {
                             let check = std::process::Command::new("netsh")
@@ -806,6 +845,55 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
             }
 
             if need_elevation || dns_fail.iter().any(|m| m.contains("管理员")) {
+                let mut ps_cmds: Vec<String> = Vec::new();
+                for adapter in &active {
+                    ps_cmds.push(format!("netsh interface ip set dns name=\"{}\" static {} primary", adapter.name, primary_dns));
+                    ps_cmds.push(format!("netsh interface ip add dns name=\"{}\" {} index=2", adapter.name, secondary_dns));
+                    if !adapter.guid.is_empty() {
+                        for dns_ip in &[primary_dns, secondary_dns] {
+                            ps_cmds.push(format!(
+                                "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\{}\\DohInterfaceSettings\\Doh\\{}\" /v DohFlags /t REG_QWORD /d 1 /f",
+                                adapter.guid, dns_ip
+                            ));
+                        }
+                    }
+                }
+                for (ip, template) in doh_servers {
+                    ps_cmds.push(format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes", ip, template));
+                }
+                ps_cmds.push("ipconfig /flushdns".to_string());
+                let ps_script = ps_cmds.join("; ");
+                let ps_args = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", ps_script);
+
+                crate::log_info!("dns", "尝试COM ShellExec提权设置DNS+DoH");
+                match shell_exec_elevated("powershell", &ps_args, true) {
+                    Ok(()) => {
+                        std::thread::sleep(std::time::Duration::from_millis(3000));
+                        let mut verify_dns_ok = false;
+                        for adapter in &active {
+                            let check = std::process::Command::new("netsh")
+                                .args(["interface", "ip", "show", "dns", &format!("name={}", adapter.name)])
+                                .creation_flags(0x08000000)
+                                .output();
+                            if let Ok(co) = check {
+                                let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));
+                                if out.contains(primary_dns) {
+                                    verify_dns_ok = true;
+                                }
+                            }
+                        }
+                        if verify_dns_ok {
+                            return Ok(serde_json::json!({
+                                "success": true,
+                                "message": "已通过管理员权限设置DNS并启用DoH".to_string(),
+                            }));
+                        }
+                    }
+                    Err(com_err) => {
+                        crate::log_warn!("dns", "COM ShellExec提权失败: {}，降级到ShellExecuteW", com_err);
+                    }
+                }
+
                 let mut all_cmds = String::new();
                 for adapter in &active {
                     all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" static {} primary & ", adapter.name, primary_dns));
@@ -826,7 +914,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
 
                 match run_elevated("cmd", &format!("/c {}", all_cmds)) {
                     Ok(()) => {
-                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                        std::thread::sleep(std::time::Duration::from_millis(3000));
                         return Ok(serde_json::json!({
                             "success": true,
                             "message": "已通过管理员权限设置DNS并启用DoH".to_string(),
