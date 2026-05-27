@@ -1,9 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
-import { useGSAP } from '@gsap/react'
 import { useAnimationActive } from '@/hooks/usePageIdle'
-
-gsap.registerPlugin(useGSAP)
 
 interface OrbConfig {
   size: number
@@ -41,29 +38,35 @@ export function FluidBackground() {
   const tlRef = useRef<gsap.core.Timeline | null>(null)
   const isActive = useAnimationActive()
 
-  useGSAP(() => {
+  useEffect(() => {
     if (!containerRef.current) return
 
-    const orbs = containerRef.current.querySelectorAll('.fluid-orb')
-    const tl = gsap.timeline({ repeat: -1, yoyo: true })
+    const ctx = gsap.context(() => {
+      if (!containerRef.current) return
 
-    orbs.forEach((orb, index) => {
-      const config = ORBS[index]
-      if (!config) return
+      const orbs = containerRef.current.querySelectorAll('.fluid-orb')
+      const tl = gsap.timeline({ repeat: -1, yoyo: true })
 
-      tl.fromTo(orb,
-        { x: config.x[0], y: config.y[0], scale: 0.8 },
-        { x: config.x[1], y: config.y[1], scale: 1.2, duration: config.duration / 1000, ease: 'sine.inOut', force3D: true },
-        config.delay / 1000
-      )
-    })
+      orbs.forEach((orb, index) => {
+        const config = ORBS[index]
+        if (!config) return
 
-    tlRef.current = tl
+        tl.fromTo(orb,
+          { x: config.x[0], y: config.y[0], scale: 0.8 },
+          { x: config.x[1], y: config.y[1], scale: 1.2, duration: config.duration / 1000, ease: 'sine.inOut', force3D: true },
+          config.delay / 1000
+        )
+      })
 
-    if (!isActive) {
-      tl.pause()
-    }
-  }, { scope: containerRef })
+      tlRef.current = tl
+
+      if (!isActive) {
+        tl.pause()
+      }
+    }, containerRef)
+
+    return () => ctx.revert()
+  }, [])
 
   useEffect(() => {
     if (!tlRef.current) return
