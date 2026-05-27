@@ -2,14 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import type { ThemeName } from '@/types'
 import { LazyMotion, domAnimation } from 'framer-motion'
-import { gsap } from 'gsap'
 import App from './App'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { safeStorage } from '@/lib/utils'
 import { VALID_THEMES } from '@/constants'
 import './index.css'
-
-gsap.defaults({ ease: 'power2.out' })
 
 function initTheme() {
   const root = document.documentElement
@@ -69,11 +66,9 @@ function setupCrashRecovery() {
       isVisible = true
       lastFrameTime = performance.now()
       rafId = requestAnimationFrame(rafLoop)
-      gsap.globalTimeline.resume()
     } else {
       isVisible = false
       if (rafId) cancelAnimationFrame(rafId)
-      gsap.globalTimeline.pause()
     }
   })
 

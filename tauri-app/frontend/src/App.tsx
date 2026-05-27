@@ -440,7 +440,7 @@ function AppInner() {
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
-        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'content' }}>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
             <div className="animate-stagger-3 mb-6">
               <h1 className="text-xl font-semibold tracking-tight">{panelInfo.title}</h1>
