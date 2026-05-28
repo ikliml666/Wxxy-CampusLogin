@@ -151,6 +151,8 @@ pub async fn download_update(
         .unwrap_or("update.exe")
         .to_string();
 
+const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
+
     let temp_dir = std::env::temp_dir().join("campus-login-update");
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
     let file_path = temp_dir.join(&filename);
@@ -172,6 +174,9 @@ pub async fn download_update(
     }
 
     let total_size = response.content_length().unwrap_or(0);
+    if total_size > MAX_DOWNLOAD_SIZE {
+        return Err(format!("文件过大({}MB)，超过大小限制({}MB)", total_size / 1024 / 1024, MAX_DOWNLOAD_SIZE / 1024 / 1024));
+    }
     let mut file = std::fs::File::create(&file_path)
         .map_err(|e| format!("创建临时文件失败: {}", e))?;
 
@@ -191,6 +196,12 @@ pub async fn download_update(
                 file.write_all(&data)
                     .map_err(|e| format!("写入文件失败: {}", e))?;
                 downloaded += data.len() as u64;
+
+                if downloaded > MAX_DOWNLOAD_SIZE {
+                    drop(file);
+                    let _ = std::fs::remove_file(&file_path);
+                    return Err(format!("下载文件超过大小限制({}MB)", MAX_DOWNLOAD_SIZE / 1024 / 1024));
+                }
 
                 let now = std::time::Instant::now();
                 let elapsed = now.duration_since(last_emit);

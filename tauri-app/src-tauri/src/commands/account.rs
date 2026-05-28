@@ -81,9 +81,9 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                         if !existing.password.is_empty() {
                             match crypto_utils::decrypt(&existing.password) {
                                 Ok(decrypted) => { existing.password = decrypted; }
-                                Err(_) => {
-                                    crate::log_warn!("account", "旧账号密码解密失败，清空密码");
-                                    existing.password = String::new();
+                                Err(e) => {
+                                    crate::log_error!("account", "旧账号密码解密失败: {}", e);
+                                    return Err("旧账号密码解密失败，请重新输入密码".to_string());
                                 }
                             }
                         }

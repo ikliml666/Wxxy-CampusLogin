@@ -262,7 +262,12 @@ export const MonitorPanel = memo(function MonitorPanel({ config, bgStatus, onUpd
                       type="text"
                       placeholder="10.2.127.254（默认）"
                       value={config.campusGateway || ''}
-                      onChange={e => onUpdateConfig({ campusGateway: e.target.value })}
+                      onChange={e => {
+                        const v = e.target.value
+                        if (!v || /^(\d{1,3}\.){0,3}\d{0,3}$/.test(v)) {
+                          onUpdateConfig({ campusGateway: v })
+                        }
+                      }}
                       className="h-8 text-sm"
                     />
                     <p className="text-[10px] text-muted-foreground">清空则使用默认网关 10.2.127.254，填写其他地址则按填写的检测</p>

@@ -1,5 +1,8 @@
 use super::cache::{PORTAL_URL, create_safe_http_client};
 
+const LOGOUT_PLACEHOLDER_ACCOUNT: &str = "drcom";
+const LOGOUT_PLACEHOLDER_PASSWORD: &str = "123";
+
 pub fn random_v() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
@@ -19,6 +22,8 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
         format!("{}:801/eportal/portal/login", portal_base.trim_end_matches('/'))
     };
     let callback = "dr1003";
+    // SECURITY NOTE: eportal JSONP协议要求GET请求，密码不可避免地出现在URL中。
+    // 这是协议层面的限制，非代码缺陷。如服务端支持POST应立即迁移。
     let query_params = format!(
         "callback={}&login_method=1&user_account={}&user_password={}&wlan_user_ip=&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v={}&lang=zh",
         urlencoding::encode(callback),
@@ -170,8 +175,10 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     crate::log_info!("logout", "步骤1: Radius注销开始: user={}, adapterIp={}", validated_user, wlan_user_ip);
 
     let logout_url = format!(
-        "{}/eportal/portal/logout?callback=dr1004&login_method=1&user_account=drcom&user_password=123&ac_logout=1&register_mode=1&wlan_user_ip={}&wlan_user_ipv6=&wlan_vlan_id=1&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&v={}&lang=zh",
+        "{}/eportal/portal/logout?callback=dr1003&login_method=1&user_account={}&user_password={}&ac_logout=1&register_mode=1&wlan_user_ip={}&wlan_user_ipv6=&wlan_vlan_id=1&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&v={}&lang=zh",
         portal_base_url,
+        LOGOUT_PLACEHOLDER_ACCOUNT,
+        LOGOUT_PLACEHOLDER_PASSWORD,
         urlencoding::encode(wlan_user_ip),
         random_v(),
     );

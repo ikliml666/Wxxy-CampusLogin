@@ -673,6 +673,10 @@ pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
     false
 }
 
+fn escape_ps_single_quote(s: &str) -> String {
+    s.replace("'", "''")
+}
+
 fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
     let mac_dashed = mac_with_dashes(mac_no_dash);
     let script = format!(
@@ -681,7 +685,7 @@ fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, o
          ipconfig /release $name;\
          Start-Sleep -Seconds 1;\
          ipconfig /renew $name",
-        mac = mac_dashed, name = adapter_name
+        mac = mac_dashed, name = escape_ps_single_quote(adapter_name)
     );
     crate::log_info!("adapter", "尝试提权修改MAC(Set-NetAdapter): adapter={}, mac={}", adapter_name, mac_dashed);
     match crate::commands::network_cmd::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
@@ -735,7 +739,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
             crate::log_info!("adapter", "非管理员运行，跳过注册表直写，直接COM ShellExec提权: guid={}", adapter.guid);
             let ps_cmd = format!(
                 "-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'\"",
-                adapter.name, mac_dashed, adapter.name, adapter.name
+                escape_ps_single_quote(&adapter.name), mac_dashed, escape_ps_single_quote(&adapter.name), escape_ps_single_quote(&adapter.name)
             );
             match crate::commands::network_cmd::shell_exec_elevated("powershell", &ps_cmd, true) {
                 Ok(()) => {
