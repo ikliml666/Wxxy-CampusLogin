@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 function usePageIdle() {
   const [isIdle, setIsIdle] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const IDLE_TIMEOUT = 30_000
+  const IDLE_TIMEOUT = 5_000
 
   const resetIdle = useCallback(() => {
     setIsIdle(false)

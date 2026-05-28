@@ -60,14 +60,13 @@ function setupCrashRecovery() {
     }
   })
 
-  let lastFrameTime = performance.now()
+  let lastHeartbeatTime = performance.now()
   let isVisible = true
-  let rafId = 0
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       isVisible = true
-      lastFrameTime = performance.now()
+      lastHeartbeatTime = performance.now()
       gsap.globalTimeline.resume()
     } else {
       isVisible = false
@@ -75,17 +74,14 @@ function setupCrashRecovery() {
     }
   })
 
-  function rafLoop() {
-    lastFrameTime = performance.now()
-    if (isVisible) {
-      rafId = requestAnimationFrame(rafLoop)
-    }
-  }
-  requestAnimationFrame(rafLoop)
+  setInterval(() => {
+    if (!isVisible) return
+    lastHeartbeatTime = performance.now()
+  }, 1000)
 
   setInterval(() => {
     if (!isVisible) return
-    const elapsed = performance.now() - lastFrameTime
+    const elapsed = performance.now() - lastHeartbeatTime
     if (elapsed > 5000) {
       if (import.meta.env.DEV) console.error(`[CrashRecovery] 渲染心跳丢失 ${Math.round(elapsed)}ms，疑似GPU崩溃`)
       tryRecover()

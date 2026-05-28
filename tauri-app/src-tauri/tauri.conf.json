@@ -24,8 +24,7 @@
         "visible": false,
         "url": "/",
         "useHttpsScheme": false,
-        "browserExtensionsEnabled": false,
-        "additionalBrowserArgs": "--disable-features=CalculateNativeWinOcclusion,EnableDrDc"
+        "browserExtensionsEnabled": false
       }
     ],
     "security": {

@@ -43,7 +43,58 @@ fn main() {
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
 }
 
+fn detect_gpu_adapter() -> &'static str {
+    use std::process::Command;
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile", "-NonInteractive", "-Command",
+            "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty AdapterCompatibility"
+        ])
+        .output();
+
+    if let Ok(out) = output {
+        let vendor = String::from_utf8_lossy(&out.stdout).to_lowercase();
+        if vendor.contains("nvidia") {
+            crate::log_info!("gpu", "检测到 NVIDIA GPU，启用硬件加速优化");
+            return "nvidia"
+        } else if vendor.contains("intel") {
+            crate::log_info!("gpu", "检测到 Intel 核显，启用硬件加速优化");
+            return "intel"
+        } else if vendor.contains("amd") || vendor.contains("advanced micro") || vendor.contains("ati") {
+            crate::log_info!("gpu", "检测到 AMD GPU，启用硬件加速优化");
+            return "amd"
+        }
+    }
+
+    crate::log_warn!("gpu", "未检测到已知 GPU 厂商，使用默认渲染配置");
+    "unknown"
+}
+
+fn build_browser_args() -> String {
+    let gpu = detect_gpu_adapter();
+    let mut args = String::from("--disable-features=EnableDrDc");
+
+    match gpu {
+        "nvidia" => {
+            args.push_str(" --enable-features=VaapiVideoDecoder,SkiaGraphite");
+        }
+        "intel" => {
+            args.push_str(" --enable-features=UseSkiaRenderer,SkiaGraphite");
+        }
+        "amd" => {
+            args.push_str(" --enable-features=UseSkiaRenderer,SkiaGraphite");
+        }
+        _ => {}
+    }
+
+    crate::log_info!("gpu", "WebView2 浏览器参数: {}", args);
+    args
+}
+
 fn run_app(core_count: usize) {
+    let browser_args = build_browser_args();
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", &browser_args);
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
