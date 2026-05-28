@@ -19,9 +19,6 @@ import { NAV_ITEMS } from '@/constants'
 import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'
-import { useGSAP } from '@gsap/react'
-
-gsap.registerPlugin(useGSAP)
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -73,10 +70,6 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       ref={setRef}
       onClick={() => onPanelChange(id)}
       style={{ y: lift, scale, zIndex: 10 }}
-      whileHover={{
-        scale: 1.15,
-        transition: { type: 'spring', stiffness: 400, damping: 25 },
-      }}
       whileTap={{
         scale: [1, 0.85, 1.08, 1],
         transition: { duration: 0.4, times: [0, 0.15, 0.6, 1] },
@@ -118,18 +111,16 @@ interface AdapterMenuProps {
 
 function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: AdapterMenuProps) {
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
-  const menuRef = useRef<HTMLDivElement>(null)
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
   const effectiveSelected = selectedAdapter || defaultAdapter
 
   return (
     <div
-      ref={menuRef}
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
         background: 'hsl(var(--card) / 0.85)',
-        backdropFilter: 'blur(28px) saturate(200%)',
-        WebkitBackdropFilter: 'blur(28px) saturate(200%)',
+        backdropFilter: 'blur(16px) saturate(150%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(150%)',
         boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06), inset 0 0.5px 0 hsl(var(--card) / 0.8), inset 0 0 20px hsl(var(--card) / 0.1)',
         border: '1px solid hsl(var(--card) / 0.6)',
         isolation: 'isolate',
@@ -219,33 +210,9 @@ function ActionButtonWithMenu({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const spinnerRef = useRef<HTMLSpanElement>(null)
-  const prevLoadingRef = useRef(isLoading)
 
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const showMenu = activeAdapters.length >= 1
-
-  const { contextSafe } = useGSAP(() => {}, { scope: buttonRef })
-
-  const animateLoadingChange = contextSafe((loading: boolean) => {
-    if (!buttonRef.current) return
-    if (loading) {
-      gsap.killTweensOf(buttonRef.current)
-      const tl = gsap.timeline()
-      tl.to(buttonRef.current, { scale: 0.95, duration: 0.15, ease: 'power2.out', force3D: true })
-        .to(buttonRef.current, { scale: 1.02, duration: 0.1, ease: 'power2.inOut', force3D: true })
-        .to(buttonRef.current, { scale: 1, duration: 0.15, ease: 'power2.out', force3D: true })
-      if (spinnerRef.current) {
-        gsap.killTweensOf(spinnerRef.current)
-        gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
-      }
-    } else {
-      if (spinnerRef.current) {
-        gsap.killTweensOf(spinnerRef.current)
-      }
-      gsap.killTweensOf(buttonRef.current)
-      gsap.fromTo(buttonRef.current, { scale: 1 }, { scale: 1.08, duration: 0.2, ease: 'power2.out', yoyo: true, repeat: 1, force3D: true })
-    }
-  })
 
   const scheduleOpen = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
@@ -285,11 +252,14 @@ function ActionButtonWithMenu({
   }, [])
 
   useEffect(() => {
-    if (prevLoadingRef.current !== isLoading) {
-      animateLoadingChange(isLoading)
-      prevLoadingRef.current = isLoading
+    if (!spinnerRef.current) return
+    if (isLoading) {
+      const ctx = gsap.context(() => {
+        gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
+      }, spinnerRef)
+      return () => ctx.revert()
     }
-  }, [isLoading, animateLoadingChange])
+  }, [isLoading])
 
   const isPrimary = variant === 'primary'
 
@@ -303,8 +273,9 @@ function ActionButtonWithMenu({
         ref={buttonRef}
         onClick={handleClick}
         disabled={isLoading || isDisabled}
-        whileHover={{ y: -4, scale: 1.06 }}
-        whileTap={{ scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } }}
+        animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
+        whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
+        whileTap={!isLoading ? { scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } } : undefined}
         transition={{ type: 'spring', stiffness: 600, damping: 12, mass: 0.4 }}
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
@@ -431,7 +402,8 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
 
         <m.div
           className="absolute bottom-[3px] h-[3px] rounded-full bg-primary"
-          animate={{ left: indicator.left, width: indicator.width }}
+          style={{ width: 20, originX: 0 }}
+          animate={{ x: indicator.left, scaleX: indicator.width / 20 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
         />
 

@@ -204,7 +204,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     try {
       await api.installUpdate(downloadedFile, updateInfo?.sha256_checksum)
     } catch (e) {
-      console.error('安装更新失败:', e)
+      if (import.meta.env.DEV) console.error('安装更新失败:', e)
     }
   }, [api, downloadedFile, updateInfo?.sha256_checksum])
 

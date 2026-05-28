@@ -126,7 +126,11 @@ fn run_app(core_count: usize) {
                     tauri::image::Image::from_path(&icon_path).ok()
                 })
                 .unwrap_or_else(|| {
-                    tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico")).expect("embedded tray icon")
+                    tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico"))
+                        .unwrap_or_else(|e| {
+                            crate::log_error!("main", "加载嵌入图标失败: {}, 使用空图标", e);
+                            tauri::image::Image::new(&[], 0, 0)
+                        })
                 });
 
             let _ = TrayIconBuilder::new() // [忽略错误] 托盘图标创建失败不影响应用运行

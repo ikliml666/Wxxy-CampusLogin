@@ -186,6 +186,14 @@ fn is_nat_private_ip(ip: &str) -> bool {
             }
         }
     }
+    // CGNAT: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
+    if let Some(rest) = ip.strip_prefix("100.") {
+        if let Some(second) = rest.split('.').next() {
+            if let Ok(o) = second.parse::<u8>() {
+                return (64..=127).contains(&o);
+            }
+        }
+    }
     false
 }
 

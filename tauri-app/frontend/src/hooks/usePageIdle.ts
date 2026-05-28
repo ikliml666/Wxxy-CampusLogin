@@ -25,6 +25,10 @@ function usePageIdle() {
     }
   }, [])
 
+  useEffect(() => {
+    document.body.classList.toggle('anim-idle', isIdle)
+  }, [isIdle])
+
   return isIdle
 }
 

@@ -36,10 +36,10 @@ function setupCrashRecovery() {
   const tryRecover = () => {
     crashCount++
     if (crashCount <= MAX_CRASH_RELOADS) {
-      console.warn(`[CrashRecovery] 检测到渲染异常，尝试重载 (${crashCount}/${MAX_CRASH_RELOADS})`)
+      if (import.meta.env.DEV) console.warn(`[CrashRecovery] 检测到渲染异常，尝试重载 (${crashCount}/${MAX_CRASH_RELOADS})`)
       setTimeout(() => window.location.reload(), 1000)
     } else {
-      console.error('[CrashRecovery] 重载次数超限，停止自动恢复')
+      if (import.meta.env.DEV) console.error('[CrashRecovery] 重载次数超限，停止自动恢复')
     }
   }
 
@@ -55,7 +55,7 @@ function setupCrashRecovery() {
   window.addEventListener('error', (e) => {
     const msg = e.message || ''
     if (msg.includes('GPU') || msg.includes('WebGL') || msg.includes('SharedArrayBuffer')) {
-      console.error('[CrashRecovery] GPU/WebGL错误:', msg)
+      if (import.meta.env.DEV) console.error('[CrashRecovery] GPU/WebGL错误:', msg)
       tryRecover()
     }
   })
@@ -87,7 +87,7 @@ function setupCrashRecovery() {
     if (!isVisible) return
     const elapsed = performance.now() - lastFrameTime
     if (elapsed > 5000) {
-      console.error(`[CrashRecovery] 渲染心跳丢失 ${Math.round(elapsed)}ms，疑似GPU崩溃`)
+      if (import.meta.env.DEV) console.error(`[CrashRecovery] 渲染心跳丢失 ${Math.round(elapsed)}ms，疑似GPU崩溃`)
       tryRecover()
     }
   }, 2000)

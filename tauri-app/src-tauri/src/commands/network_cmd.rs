@@ -19,6 +19,10 @@ pub fn is_admin() -> bool {
     use windows::Win32::Foundation::HANDLE;
 
     unsafe {
+        // SAFETY: OpenProcessToken requires a valid process handle.
+        // GetCurrentProcess() always returns a pseudo-handle that is valid for the current process.
+        // We only read from the token (TOKEN_QUERY), never modify it.
+        // CloseHandle is called on the token before returning.
         let mut token: HANDLE = HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
             return false;
@@ -50,6 +54,9 @@ const DOH_SERVERS: &[(&str, &str)] = &[
 ];
 
 #[cfg(target_os = "windows")]
+const DNS_PROPERTY_TYPE_DOH: i32 = 1;
+
+#[cfg(target_os = "windows")]
 pub(crate) fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::core::PCWSTR;
@@ -59,6 +66,9 @@ pub(crate) fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
     let params: Vec<u16> = format!("{}\0", args).encode_utf16().collect();
 
     unsafe {
+        // SAFETY: ShellExecuteW with "runas" verb launches a new process with elevated privileges.
+        // The verb, file, and params strings are null-terminated UTF-16 vectors that remain valid
+        // for the duration of the call. SW_HIDE prevents the elevated process window from showing.
         let result = ShellExecuteW(
             None,
             PCWSTR(verb.as_ptr()),
@@ -86,6 +96,13 @@ pub fn set_registry_elevated(
     use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
 
     unsafe {
+        // SAFETY: CoInitializeEx initializes the COM library for the current thread.
+        // We use COINIT_APARTMENTTHREADED for STA, which is required for the elevated COM moniker.
+        // The return value is intentionally ignored (S_OK or S_FALSE for re-initialization).
+        // co_get_object_raw uses the elevation moniker to obtain an elevated COM object.
+        // All wide strings (moniker, sub_key, value_name, value_data) are null-terminated
+        // UTF-16 vectors that remain valid for the duration of the COM calls.
+        // The COM object is released via vtbl.release() before returning.
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
         let moniker_name = "Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}";
@@ -137,6 +154,11 @@ pub fn set_registry_elevated(
     }
 }
 
+/// 通过 COM Elevation Moniker (ICMLuaUtil::ShellExec) 以管理员权限启动进程。
+///
+/// **注意**: ShellExec 是异步的——返回 Ok(()) 仅表示成功启动了提权进程，
+/// 不代表目标进程已执行完成或执行成功。调用者应通过后续状态检查
+/// （如验证DNS是否已设置、MAC是否已变更）来确认实际执行结果。
 #[cfg(target_os = "windows")]
 pub fn shell_exec_elevated(
     file: &str,
@@ -147,6 +169,13 @@ pub fn shell_exec_elevated(
     use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
 
     unsafe {
+        // SAFETY: CoInitializeEx initializes the COM library for the current thread (STA mode).
+        // The return value is intentionally ignored as per COM re-initialization semantics.
+        // co_get_object_raw uses the elevation moniker to obtain an elevated COM object
+        // (ICMLuaUtil) for executing shell commands with admin privileges.
+        // All wide strings (moniker, file, params) are null-terminated UTF-16 vectors
+        // that remain valid for the duration of the COM calls.
+        // The COM object is released via vtbl.release() before returning.
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
         let moniker_name = "Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}";
@@ -205,6 +234,13 @@ unsafe fn co_get_object_raw(
     riid: *const std::ffi::c_void,
     ppv: *mut *mut std::ffi::c_void,
 ) -> i32 {
+    // SAFETY: This is a thin wrapper around the Windows CoGetObject FFI call.
+    // The caller is responsible for ensuring:
+    // - pszname points to a valid null-terminated UTF-16 string (the elevation moniker).
+    // - pbindoptions points to a valid BIND_OPTS structure with correct cbStruct.
+    // - riid points to a valid GUID identifying the requested interface.
+    // - ppv points to a valid pointer that will receive the COM object.
+    // All pointers must remain valid for the duration of the call.
     #[link(name = "ole32")]
     extern "system" {
         fn CoGetObject(
@@ -240,10 +276,12 @@ fn parse_guid(s: &str) -> Result<windows::core::GUID, String> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn set_dns_via_api(
+fn set_dns_inner(
     adapter_guid: &str,
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
+    include_doh: bool,
+    err_label: &str,
 ) -> Result<(), String> {
     use windows::Win32::NetworkManagement::IpHelper::*;
     use windows::core::PWSTR;
@@ -270,7 +308,7 @@ pub fn set_dns_via_api(
         let prop = DNS_SERVER_PROPERTY {
             Version: DNS_SERVER_PROPERTY_VERSION1,
             ServerIndex: idx as u32,
-            Type: DNS_SERVER_PROPERTY_TYPE(1),
+            Type: DNS_SERVER_PROPERTY_TYPE(DNS_PROPERTY_TYPE_DOH),
             Property: DNS_SERVER_PROPERTY_TYPES {
                 DohSettings: &mut doh_settings[idx],
             },
@@ -278,10 +316,10 @@ pub fn set_dns_via_api(
         doh_props.push(prop);
     }
 
-    let flags = if doh_props.is_empty() {
-        DNS_SETTING_NAMESERVER as u64
-    } else {
+    let flags = if include_doh && !doh_props.is_empty() {
         (DNS_SETTING_NAMESERVER | DNS_SETTING_DOH) as u64
+    } else {
+        DNS_SETTING_NAMESERVER as u64
     };
 
     let settings = DNS_INTERFACE_SETTINGS3 {
@@ -304,16 +342,32 @@ pub fn set_dns_via_api(
     };
 
     unsafe {
+        // SAFETY: SetInterfaceDnsSettings is a Win32 API that configures DNS settings for a network interface.
+        // - guid is a valid GUID parsed from a string (not from arbitrary memory).
+        // - The settings pointer is cast from a stack-allocated DNS_INTERFACE_SETTINGS3 struct,
+        //   which is a superset of DNS_INTERFACE_SETTINGS and compatible for the call.
+        // - All PWSTR fields in the struct point to null-terminated UTF-16 strings
+        //   (ns_wide, doh_templates_wide) that remain valid for the duration of the call.
+        // - The doh_props and doh_settings vectors are stable references within this scope.
         let result = SetInterfaceDnsSettings(
             guid,
             &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
         );
         if result != windows::Win32::Foundation::WIN32_ERROR(0) {
-            return Err(format!("SetInterfaceDnsSettings 失败: 错误码 {}", result.0));
+            return Err(format!("SetInterfaceDnsSettings({}) 失败: 错误码 {}", err_label, result.0));
         }
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub fn set_dns_via_api(
+    adapter_guid: &str,
+    dns_servers: &[&str],
+    doh_templates: &[(&str, &str)],
+) -> Result<(), String> {
+    set_dns_inner(adapter_guid, dns_servers, doh_templates, true, "DNS+DoH")
 }
 
 #[cfg(target_os = "windows")]
@@ -322,69 +376,7 @@ pub fn set_doh_via_api(
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
 ) -> Result<(), String> {
-    use windows::Win32::NetworkManagement::IpHelper::*;
-    use windows::core::PWSTR;
-
-    let guid = parse_guid(adapter_guid)?;
-
-    let ns_str: String = dns_servers.join(",");
-    let mut ns_wide: Vec<u16> = ns_str.encode_utf16().chain(std::iter::once(0)).collect();
-
-    let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
-    let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
-    let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
-
-    for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
-        let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
-        doh_templates_wide.push(tpl_wide);
-
-        let doh_setting = DNS_DOH_SERVER_SETTINGS {
-            Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
-            Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
-        };
-        doh_settings.push(doh_setting);
-
-        let prop = DNS_SERVER_PROPERTY {
-            Version: DNS_SERVER_PROPERTY_VERSION1,
-            ServerIndex: idx as u32,
-            Type: DNS_SERVER_PROPERTY_TYPE(1),
-            Property: DNS_SERVER_PROPERTY_TYPES {
-                DohSettings: &mut doh_settings[idx],
-            },
-        };
-        doh_props.push(prop);
-    }
-
-    let settings = DNS_INTERFACE_SETTINGS3 {
-        Version: DNS_INTERFACE_SETTINGS_VERSION3,
-        Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_DOH) as u64,
-        Domain: PWSTR::null(),
-        NameServer: PWSTR(ns_wide.as_mut_ptr()),
-        SearchList: PWSTR::null(),
-        RegistrationEnabled: 0,
-        RegisterAdapterName: 0,
-        EnableLLMNR: 0,
-        QueryAdapterName: 0,
-        ProfileNameServer: PWSTR::null(),
-        DisableUnconstrainedQueries: 0,
-        SupplementalSearchList: PWSTR::null(),
-        cServerProperties: doh_props.len() as u32,
-        ServerProperties: doh_props.as_mut_ptr(),
-        cProfileServerProperties: 0,
-        ProfileServerProperties: std::ptr::null_mut(),
-    };
-
-    unsafe {
-        let result = SetInterfaceDnsSettings(
-            guid,
-            &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
-        );
-        if result != windows::Win32::Foundation::WIN32_ERROR(0) {
-            return Err(format!("SetInterfaceDnsSettings(DoH) 失败: 错误码 {}", result.0));
-        }
-    }
-
-    Ok(())
+    set_dns_inner(adapter_guid, dns_servers, doh_templates, true, "DoH")
 }
 
 #[repr(C)]
@@ -418,9 +410,7 @@ pub async fn get_disabled_adapters() -> Result<Vec<DisabledAdapter>, String> {
 
 #[tauri::command]
 pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, String> {
-    if adapter_name.is_empty() {
-        return Err("适配器名称不能为空".to_string());
-    }
+    crate::network::adapter::validate_adapter_name(&adapter_name)?;
     tauri::async_runtime::spawn_blocking(move || enable_adapter_inner(&adapter_name)).await.map_err(|e| e.to_string())??;
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
@@ -800,7 +790,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                 }
             }
 
-            crate::log_info!("doh", "非管理员运行，尝试netsh注册DoH");
+            crate::log_info!("doh", "Win32 API注册DoH未成功，尝试netsh降级");
             let mut added: Vec<String> = Vec::new();
             let mut failed: Vec<String> = Vec::new();
             let mut need_elevation = false;
@@ -957,7 +947,6 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
         }
         #[cfg(target_os = "windows")]
         {
-
             let adapters = crate::network::get_adapters_cached()
                 .unwrap_or_default();
             let active: Vec<&Adapter> = adapters.iter()

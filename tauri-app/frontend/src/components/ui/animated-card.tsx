@@ -111,7 +111,7 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         style={{
           x: isHovered ? springX : 0,
           y: isHovered ? springY : (noEnterAnimation ? 0 : undefined),
-          willChange: isHovered ? 'transform, box-shadow' : 'auto',
+          willChange: 'transform',
           pointerEvents: entryDone ? undefined : ('none' as any),
         }}
         onHoverStart={() => setIsHovered(true)}

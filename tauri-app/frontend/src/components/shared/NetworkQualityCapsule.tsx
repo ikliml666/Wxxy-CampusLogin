@@ -7,7 +7,6 @@ import { AnimatedNumber } from '@/components/shared/AnimatedNumber'
 import { Loader2, Server, Globe, Search } from 'lucide-react'
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { useGsapAnimations, capsuleHeartbeat, statusFlash } from '@/hooks/useGsapAnimation'
 
 interface NetworkQualityCapsuleProps {
   networkQuality: NetworkQuality | null
@@ -94,22 +93,16 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   const latencyTextColor = displayLatency >= 0 ? getLatencyColor(displayLatency).text : capsuleText
 
   const prevLatencyRef = useRef(displayLatency)
-  const anim = useGsapAnimations({
-    heartbeat: capsuleHeartbeat,
-    flash: statusFlash,
-  })
+  const [animKey, setAnimKey] = useState(0)
+  const [animType, setAnimType] = useState<'heartbeat' | 'flash' | null>(null)
 
   useEffect(() => {
     if (prevLatencyRef.current !== displayLatency && !isPending) {
       const prevOk = prevLatencyRef.current >= 0
       const nowBad = displayLatency > 200
       const gotWorse = prevOk && displayLatency > prevLatencyRef.current * 1.5
-
-      if (nowBad || gotWorse) {
-        anim.play('heartbeat')
-      } else {
-        anim.play('flash')
-      }
+      setAnimType(nowBad || gotWorse ? 'heartbeat' : 'flash')
+      setAnimKey(k => k + 1)
     }
     prevLatencyRef.current = displayLatency
   }, [displayLatency, isPending])
@@ -159,18 +152,24 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
         onMouseLeave={handleMouseLeave}
       >
         <m.div
-          ref={anim.ref}
+          key={animKey}
           className={cn(
             'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] cursor-help select-none',
             capsuleText,
           )}
           style={{
             background: capsuleBg,
-            backdropFilter: 'blur(8px)',
             isolation: 'isolate',
           }}
           whileHover={{ scale: 1.05 }}
           transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+          initial={animType === 'heartbeat' ? { scale: 1 } : animType === 'flash' ? { scale: 0.92, opacity: 0.6 } : false}
+          animate={animType === 'heartbeat'
+            ? { scale: [1, 1.06, 0.94, 1.03, 0.98, 1] }
+            : animType === 'flash'
+            ? { scale: [0.92, 1.04, 1], opacity: [0.6, 1] }
+            : undefined
+          }
         >
           <span className="font-sans text-[10px] font-medium">网络质量：{qualityLabel}</span>
           <span className="opacity-40">·</span>

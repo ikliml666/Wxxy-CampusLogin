@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 pub const PASSWORD_MASK: &str = "***";
 
 lazy_static! {
-    static ref USERNAME_RE: Regex = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
+    static ref USERNAME_RE: Regex = Regex::new(r"^[a-zA-Z0-9._-]+$").expect("USERNAME_RE compilation failed");
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +177,7 @@ pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String>
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
-    let _ = std::fs::remove_file(&tmp_path);
+    crate::log_warn!("config", "原子写入重命名失败，保留临时文件: {:?}", tmp_path);
     Err(format!("重命名临时文件失败（重试3次后）"))
 }
 

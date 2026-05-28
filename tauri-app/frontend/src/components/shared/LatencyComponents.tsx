@@ -97,7 +97,7 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
                     width: spec.width + 5,
                     height: 3,
                     backgroundColor: cfg.glow,
-                    filter: 'blur(2px)',
+                    boxShadow: `0 0 4px 2px ${cfg.glow}`,
                   }}
                   initial={{ opacity: 0, scaleX: 0 }}
                   animate={animActive ? {

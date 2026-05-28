@@ -205,12 +205,13 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterD
         <AnimatePresence>
           {adapterExpanded && (
             <m.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
+              initial={{ gridTemplateRows: '0fr', opacity: 0 }}
+              animate={{ gridTemplateRows: '1fr', opacity: 1 }}
+              exit={{ gridTemplateRows: '0fr', opacity: 0 }}
               transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-              className="overflow-hidden"
+              style={{ display: 'grid' }}
             >
+              <div className="overflow-hidden">
               <div className="px-4 pb-4">
                 {displayAdapters.length > 0 ? displayAdapters.map((adapter, idx) => {
                   const hasIp = adapter.ip && adapter.ip !== '0.0.0.0'
@@ -245,6 +246,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterD
                 }) : (
                   <div className="text-[12px] text-muted-foreground/50 text-center py-4">等待网络信息...</div>
                 )}
+              </div>
               </div>
             </m.div>
           )}

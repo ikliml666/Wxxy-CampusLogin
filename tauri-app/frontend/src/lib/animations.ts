@@ -31,19 +31,19 @@ export const panelSwitchVariants = {
 }
 
 export const logEntryVariants = {
-  initial: { opacity: 0, x: 30, height: 0, scaleY: 0 },
+  initial: { opacity: 0, x: 30, scaleY: 0, originY: 0 },
   animate: {
     opacity: 1,
     x: 0,
-    height: 'auto',
     scaleY: 1,
+    originY: 0,
     transition: { type: 'spring' as const, stiffness: 500, damping: 30 },
   },
   exit: {
     opacity: 0,
     x: -20,
-    height: 0,
     scaleY: 0,
+    originY: 0,
     transition: { duration: 0.2, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
   },
 }
