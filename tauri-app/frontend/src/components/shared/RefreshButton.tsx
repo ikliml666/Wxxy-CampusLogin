@@ -10,7 +10,7 @@ interface RefreshButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const RefreshButton = React.forwardRef<HTMLButtonElement, RefreshButtonProps>(
-  ({ isRefreshing, iconClassName, showCheck, className, children, ...props }, ref) => {
+  ({ isRefreshing, iconClassName, showCheck, className, children, 'aria-label': ariaLabel, ...props }, ref) => {
     const prevRefreshing = React.useRef(isRefreshing)
     const [shakeClass, setShakeClass] = React.useState('')
 
@@ -26,6 +26,7 @@ const RefreshButton = React.forwardRef<HTMLButtonElement, RefreshButtonProps>(
     return (
       <button
         ref={ref}
+        aria-label={ariaLabel ?? '刷新'}
         className={cn(
           'p-1.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground',
           'transition-colors duration-200',

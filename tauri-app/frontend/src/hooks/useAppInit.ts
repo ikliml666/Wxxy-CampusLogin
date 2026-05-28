@@ -39,7 +39,7 @@ export function useAppInit() {
         const msg = parts.length > 0 ? `延迟过高: ${parts.join('、')}` : '网络延迟异常'
         lt.getState().addToast('校园网可能出现问题', 'warning', msg)
         lt.getState().addLog(msg, 'warning')
-        api.sendNotification?.('校园网可能出现问题', msg).catch(() => {})
+        api.sendNotification?.('校园网可能出现问题', msg).catch((e) => { if (import.meta.env.DEV) console.error(e) })
       }
     }
 
@@ -158,7 +158,7 @@ export function useAppInit() {
         lt.getState().addLog(`自动登录失败: ${result.message}`, 'error')
         lt.getState().addToast('自动登录失败', 'error', result.message)
       }
-      store.getState().checkOnline().catch(() => {})
+      store.getState().checkOnline().catch((e) => { if (import.meta.env.DEV) console.error(e) })
     }) ?? (() => {})
     if (unsub2) unlisteners.push(unsub2)
 
@@ -171,7 +171,7 @@ export function useAppInit() {
         store.setState({ adapters: adps })
         api.getAdapterDetails?.().then(details => {
           if (details) store.setState({ adapterDetails: details })
-        }).catch(() => {})
+        }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
       }
     }) ?? (() => {})
     if (unsub3) unlisteners.push(unsub3)
@@ -283,7 +283,7 @@ export function useAppInit() {
           const isAutoStart = !!initData.isAutoStart
           const shouldHideWindow = isAutoStart && cfg.hiddenStart
           if (!shouldHideWindow) {
-            api.showWindow?.().catch(() => {})
+            api.showWindow?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
           }
 
           const adps = initData.adapters || []
@@ -336,7 +336,7 @@ export function useAppInit() {
                   lt.getState().addLog('DNS未启用DoH加密，建议在「网络」面板点击「一键优化DNS」启用，或在 Windows 设置 → 网络 → DNS 加密中手动开启', 'warning')
                 }
               }
-            } catch {}
+            } catch (e) { if (import.meta.env.DEV) console.error(e) }
           })()
 
           const qualityPromise = (async () => {
@@ -350,16 +350,16 @@ export function useAppInit() {
                     return next
                   })
                 }
-              } catch {}
+              } catch (e) { if (import.meta.env.DEV) console.error(e) }
             }
           })()
 
-          Promise.all([dnsPromise, qualityPromise]).catch(() => {})
+          Promise.all([dnsPromise, qualityPromise]).catch((e) => { if (import.meta.env.DEV) console.error(e) })
         }
       } catch (_) {
         if (!mountedRef.current) return
         store.setState({ config: DEFAULT_CONFIG })
-        api.showWindow?.().catch(() => {})
+        api.showWindow?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
       }
     })()
 
@@ -372,9 +372,9 @@ export function useAppInit() {
   useEffect(() => {
     const { api } = useAppStore.getState()
     const interval = setInterval(() => {
-      api.renderHeartbeat?.().catch(() => {})
+      api.renderHeartbeat?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
     }, 5000)
-    api.renderHeartbeat?.().catch(() => {})
+    api.renderHeartbeat?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
     return () => clearInterval(interval)
   }, [])
 
@@ -383,7 +383,7 @@ export function useAppInit() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'C') {
         e.preventDefault()
-        try { api.cancelAutoExit?.() } catch {}
+        try { api.cancelAutoExit?.() } catch (e) { if (import.meta.env.DEV) console.error(e) }
       }
     }
     window.addEventListener('keydown', handleKeyDown)

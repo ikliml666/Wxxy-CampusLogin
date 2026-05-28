@@ -11,6 +11,77 @@ use crate::network::{
 use super::state::{AppState, CommandResult};
 use super::system::append_login_history;
 
+fn adapter_action_with_log<F>(
+    adapter: &Adapter,
+    config: &Config,
+    app_handle: &AppHandle,
+    action_name: &str,
+    log_tag: &str,
+    action_type: &str,
+    do_action: F,
+) -> Option<CommandResult>
+where
+    F: FnOnce() -> Result<serde_json::Value, String>,
+{
+    if adapter.ip.is_empty() {
+        return None;
+    }
+
+    if let Err(e) = app_handle.emit("login-log", serde_json::json!({
+        "message": format!("{} 正在{}...", adapter.name, action_name),
+        "type": "info"
+    })) {
+        crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, e);
+    }
+
+    match do_action() {
+        Ok(result) => {
+            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            let message = result.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            let display_msg = format!("{} {}", adapter.name, message);
+            if success {
+                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
+                    "message": format!("{} {}成功", adapter.name, action_name),
+                    "type": "success"
+                })) {
+                    crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, e);
+                }
+                if let Err(e) = append_login_history(app_handle, true, message, &adapter.name, &config.user, action_type) {
+                    crate::log_warn!(log_tag, "记录{}历史失败: {}", action_name, e);
+                }
+            } else {
+                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
+                    "message": format!("{} {}失败: {}", adapter.name, action_name, message),
+                    "type": "warning"
+                })) {
+                    crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, e);
+                }
+                if let Err(e) = append_login_history(app_handle, false, message, &adapter.name, &config.user, action_type) {
+                    crate::log_warn!(log_tag, "记录{}历史失败: {}", action_name, e);
+                }
+            }
+            Some(CommandResult {
+                success,
+                message: Some(display_msg),
+                data: Some(result),
+            })
+        }
+        Err(e) => {
+            if let Err(emit_err) = app_handle.emit("login-log", serde_json::json!({
+                "message": format!("{} {}请求失败: {}", adapter.name, action_name, e),
+                "type": "error"
+            })) {
+                crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, emit_err);
+            }
+            Some(CommandResult {
+                success: false,
+                message: Some(format!("{} {}请求失败: {}", adapter.name, action_name, e)),
+                data: Some(serde_json::json!({ "code": "error", "message": e })),
+            })
+        }
+    }
+}
+
 pub fn login_adapter_with_log(
     adapter: &Adapter,
     config: &Config,
@@ -31,78 +102,45 @@ pub fn login_adapter_with_log(
         }
     }
 
-    if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-        "message": format!("{} 正在登录...", adapter.name),
-        "type": "info"
-    })) {
-        crate::log_warn!("login", "发送登录日志失败: {}", e);
-    }
+    let adapter_ip = adapter.ip.clone();
+    let adapter_name = adapter.name.clone();
+    let config_user = config.user.clone();
+    let config_password = config.password.clone();
+    let config_operator = config.operator.clone();
+    let is_quitting_ref = is_quitting;
 
-    match do_login_with_retry(&config.user, &config.password, &config.operator, Some(adapter.ip.as_str()), 3, is_quitting) {
-        Ok(result) => {
-            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-            let message = result.get("message").and_then(|v| v.as_str()).unwrap_or("");
-            if !success && message.contains("无法解析登录响应") {
-                if !adapter.ip.is_empty() {
-                    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name), None, None, Some(&config.operator)) {
+    let result = adapter_action_with_log(
+        adapter, config, app_handle,
+        "登录", "login", "login",
+        || do_login_with_retry(&config_user, &config_password, &config_operator, Some(adapter_ip.as_str()), 3, is_quitting_ref),
+    );
+
+    if let Some(ref cmd_result) = result {
+        if !cmd_result.success {
+            if let Some(ref data) = cmd_result.data {
+                let message = data.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                if message.contains("无法解析登录响应") {
+                    if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name), None, None, Some(&config_operator)) {
                         if sec_status.online {
                             if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                                "message": format!("{} 已在线", adapter.name),
+                                "message": format!("{} 已在线", adapter_name),
                                 "type": "success"
                             })) {
                                 crate::log_warn!("login", "发送登录日志失败: {}", e);
                             }
                             return Some(CommandResult {
                                 success: true,
-                                message: Some(format!("{} 已在线", adapter.name)),
+                                message: Some(format!("{} 已在线", adapter_name)),
                                 data: Some(serde_json::json!({ "code": "0" })),
                             });
                         }
                     }
                 }
             }
-            let display_msg = format!("{} {}", adapter.name, message);
-            if success {
-                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} 登录成功", adapter.name),
-                    "type": "success"
-                })) {
-                    crate::log_warn!("login", "发送登录日志失败: {}", e);
-                }
-                if let Err(e) = append_login_history(app_handle, true, message, &adapter.name, &config.user, "login") {
-                    crate::log_warn!("login", "记录登录历史失败: {}", e);
-                }
-            } else {
-                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} 登录失败: {}", adapter.name, message),
-                    "type": "warning"
-                })) {
-                    crate::log_warn!("login", "发送登录日志失败: {}", e);
-                }
-                if let Err(e) = append_login_history(app_handle, false, message, &adapter.name, &config.user, "login") {
-                    crate::log_warn!("login", "记录登录历史失败: {}", e);
-                }
-            }
-            Some(CommandResult {
-                success,
-                message: Some(display_msg),
-                data: Some(result),
-            })
-        }
-        Err(e) => {
-            if let Err(emit_err) = app_handle.emit("login-log", serde_json::json!({
-                "message": format!("{} 登录请求失败: {}", adapter.name, e),
-                "type": "error"
-            })) {
-                crate::log_warn!("login", "发送登录日志失败: {}", emit_err);
-            }
-            Some(CommandResult {
-                success: false,
-                message: Some(format!("{} 登录请求失败: {}", adapter.name, e)),
-                data: Some(serde_json::json!({ "code": "error", "message": e })),
-            })
         }
     }
+
+    result
 }
 
 pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult {
@@ -234,63 +272,16 @@ fn logout_adapter_with_log(
     app_handle: &AppHandle,
     is_quitting: &AtomicBool,
 ) -> Option<CommandResult> {
-    if adapter.ip.is_empty() {
-        return None;
-    }
+    let adapter_ip = adapter.ip.clone();
+    let adapter_if_index = adapter.if_index;
+    let adapter_mac = adapter.mac.clone();
+    let is_quitting_ref = is_quitting;
 
-    if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-        "message": format!("{} 正在注销...", adapter.name),
-        "type": "info"
-    })) {
-        crate::log_warn!("logout", "发送注销日志失败: {}", e);
-    }
-
-    match do_logout_with_retry(&config.user, Some(adapter.ip.as_str()), adapter.if_index, &adapter.mac, 2, is_quitting) {
-        Ok(result) => {
-            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-            let message = result.get("message").and_then(|v| v.as_str()).unwrap_or("");
-            let display_msg = format!("{} {}", adapter.name, message);
-            if success {
-                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} 注销成功", adapter.name),
-                    "type": "success"
-                })) {
-                    crate::log_warn!("logout", "发送注销日志失败: {}", e);
-                }
-                if let Err(e) = append_login_history(app_handle, true, message, &adapter.name, &config.user, "logout") {
-                    crate::log_warn!("logout", "记录注销历史失败: {}", e);
-                }
-            } else {
-                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} 注销失败: {}", adapter.name, message),
-                    "type": "warning"
-                })) {
-                    crate::log_warn!("logout", "发送注销日志失败: {}", e);
-                }
-                if let Err(e) = append_login_history(app_handle, false, message, &adapter.name, &config.user, "logout") {
-                    crate::log_warn!("logout", "记录注销历史失败: {}", e);
-                }
-            }
-            Some(CommandResult {
-                success,
-                message: Some(display_msg),
-                data: Some(result),
-            })
-        }
-        Err(e) => {
-            if let Err(emit_err) = app_handle.emit("login-log", serde_json::json!({
-                "message": format!("{} 注销请求失败: {}", adapter.name, e),
-                "type": "error"
-            })) {
-                crate::log_warn!("logout", "发送注销日志失败: {}", emit_err);
-            }
-            Some(CommandResult {
-                success: false,
-                message: Some(format!("{} 注销请求失败: {}", adapter.name, e)),
-                data: Some(serde_json::json!({ "code": "error", "message": e })),
-            })
-        }
-    }
+    adapter_action_with_log(
+        adapter, config, app_handle,
+        "注销", "logout", "logout",
+        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), adapter_if_index, &adapter_mac, 2, is_quitting_ref),
+    )
 }
 
 fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult {

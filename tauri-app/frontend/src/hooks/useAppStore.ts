@@ -131,7 +131,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // 合并完整配置，确保发送给后端的是完整的 Config 对象
       const fullConfig = { ...get().config, ...cfg }
       if (fullConfig.password === PASSWORD_MASK) {
-        delete fullConfig.password
+        fullConfig.password = ''
       }
       await api.saveConfig(fullConfig)
     } catch (e: any) {
@@ -360,11 +360,11 @@ export function flushPendingConfig() {
     saveConfigPending = null
     const sanitized = { ...pending }
     if (sanitized.password === PASSWORD_MASK) {
-      delete (sanitized as Partial<Config>).password
+      (sanitized as Partial<Config>).password = undefined
     }
     const fullConfig = { ...useAppStore.getState().config, ...sanitized }
     if (fullConfig.password === PASSWORD_MASK) {
-      delete fullConfig.password
+      fullConfig.password = ''
     }
     const api = useAppStore.getState().api
     api?.saveConfig(fullConfig)?.catch?.(() => {})

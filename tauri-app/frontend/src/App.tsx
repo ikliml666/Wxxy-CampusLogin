@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
-import type { ThemeName } from '@/types'
+import type { ThemeName, DhcpReleaseRenewResult } from '@/types'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/components/layout/StatusBar'
@@ -92,6 +92,7 @@ function AppInner() {
     }))
   )
 
+  const panelChangeLock = useRef(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
@@ -107,8 +108,8 @@ function AppInner() {
         if (import.meta.env.DEV) console.error('获取窗口最大化状态失败:', e)
       }
     })
-    getCurrentWindow().isMaximized().then(m => setIsMaximized(m)).catch(() => {})
-    return () => { unlisten.then(fn => fn()).catch(() => {}); useAppStore.getState().cleanupToasts() }
+    getCurrentWindow().isMaximized().then(m => setIsMaximized(m)).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+    return () => { unlisten.then(fn => fn()).catch((e) => { if (import.meta.env.DEV) console.error(e) }); useAppStore.getState().cleanupToasts() }
   }, [])
 
   useEffect(() => {
@@ -192,31 +193,32 @@ function AppInner() {
       ])
       if (adapters) useAppStore.setState({ adapters })
       if (details) useAppStore.setState({ adapterDetails: details })
-    } catch {}
+    } catch (e) { if (import.meta.env.DEV) console.error(e) }
   }, [store.api])
 
   const handleDhcpRenew = useCallback(async () => {
     try { await store.api.dhcpRenewAll?.() } catch (e) { if (import.meta.env.DEV) console.error('DHCP 续租失败:', e) }
     await refreshAdapterInfo()
-    store.api.triggerBackgroundCheck?.().catch(() => {})
+    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
   }, [store.api, refreshAdapterInfo])
 
   const handleDhcpReleaseRenew = useCallback(async () => {
+    type DhcpResultItem = DhcpReleaseRenewResult['results'][number]
     try {
       const result = await store.api.dhcpReleaseRenew?.()
       if (result?.results) {
-        const skipped = result.results.filter((r: any) => r.skipped)
-        const succeeded = result.results.filter((r: any) => r.success)
-        const failed = result.results.filter((r: any) => !r.success && !r.skipped)
+        const skipped = result.results.filter((r: DhcpResultItem) => r.skipped)
+        const succeeded = result.results.filter((r: DhcpResultItem) => r.success)
+        const failed = result.results.filter((r: DhcpResultItem) => !r.success && !r.skipped)
         if (succeeded.length > 0) {
-          store.addToast(`已获取新IP: ${succeeded.map((r: any) => r.name).join(', ')}`, 'success')
+          store.addToast(`已获取新IP: ${succeeded.map((r: DhcpResultItem) => r.name).join(', ')}`, 'success')
         }
         if (skipped.length > 0) {
-          store.addToast(`${skipped.map((r: any) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
+          store.addToast(`${skipped.map((r: DhcpResultItem) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
         }
         if (failed.length > 0) {
-          const failedDetails = failed.map((r: any) => {
-            const detail = r.message ? `${r.name}: ${r.message}` : r.name
+          const failedDetails = failed.map((r: DhcpResultItem) => {
+            const detail = r.reason ? `${r.name}: ${r.reason}` : r.name
             return detail
           }).join('; ')
           store.addToast(`获取新IP失败: ${failedDetails}`, 'error')
@@ -224,7 +226,7 @@ function AppInner() {
       }
     } catch (e) { if (import.meta.env.DEV) console.error('获取新IP失败:', e); store.addToast('获取新IP失败', 'error') }
     await refreshAdapterInfo()
-    store.api.triggerBackgroundCheck?.().catch(() => {})
+    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
   }, [store.api, store.addToast, refreshAdapterInfo])
 
   const handleAddAccount = useCallback(async (name: string) => {
@@ -447,13 +449,14 @@ function AppInner() {
               <p className="text-sm text-muted-foreground mt-1">{panelInfo.desc}</p>
             </div>
 
-            <AnimatePresence mode="wait">
+            <AnimatePresence mode="popLayout">
               <motion.div
                 key={store.activePanel}
                 variants={panelSwitchVariants}
                 initial="initial"
                 animate="animate"
                 exit="exit"
+                style={{ contain: 'content' }}
               >
                 <ErrorBoundary>{panelContent}</ErrorBoundary>
               </motion.div>
@@ -473,8 +476,11 @@ function AppInner() {
       <DockNav
         activePanel={store.activePanel}
         onPanelChange={(p) => {
+          if (panelChangeLock.current) return
+          panelChangeLock.current = true
           store.setActivePanel(p)
           safeStorage.set('campus-active-panel', p)
+          setTimeout(() => { panelChangeLock.current = false }, 300)
         }}
         enableNetworkQuality={configEnableNetworkQuality !== false}
         isLoggingIn={store.isLoggingIn}
@@ -497,7 +503,7 @@ function AppInner() {
           if (version) store.setLatestVersion(version)
           if (notes) store.setReleaseNotes(notes)
           if (hasUpdate && version) {
-            store.api.sendNotification?.('发现新版本', `CampusLogin v${version} 已发布，请在关于页面查看详情`).catch(() => {})
+            store.api.sendNotification?.('发现新版本', `CampusLogin v${version} 已发布，请在关于页面查看详情`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
           }
         }}
       />

@@ -17,16 +17,14 @@ export const cardItemVariants = {
 }
 
 export const panelSwitchVariants = {
-  initial: { opacity: 0, scale: 0.96 },
+  initial: { opacity: 0 },
   animate: {
     opacity: 1,
-    scale: 1,
-    transition: { type: 'spring' as const, stiffness: 400, damping: 25, mass: 0.8 },
+    transition: { duration: 0.15, ease: [0.25, 0.1, 0.25, 1] as [number, number, number, number] },
   },
   exit: {
     opacity: 0,
-    scale: 0.97,
-    transition: { duration: 0.12, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
+    transition: { duration: 0.08, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
   },
 }
 

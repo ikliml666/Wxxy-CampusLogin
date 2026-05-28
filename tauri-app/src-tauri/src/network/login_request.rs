@@ -1,5 +1,7 @@
 use super::cache::{PORTAL_URL, create_safe_http_client};
 
+// ePortal JSONP协议规定：注销操作使用公共占位账号(drcom/123)，非用户真实凭据
+// 这是锐捷ePortal认证系统的标准注销流程：先Radius注销，再MAC解绑
 const LOGOUT_PLACEHOLDER_ACCOUNT: &str = "drcom";
 const LOGOUT_PLACEHOLDER_PASSWORD: &str = "123";
 

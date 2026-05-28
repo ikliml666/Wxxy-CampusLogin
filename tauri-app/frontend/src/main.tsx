@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import type { ThemeName } from '@/types'
-import { LazyMotion, domAnimation } from 'framer-motion'
+import { LazyMotion, domAnimation, MotionConfig } from 'framer-motion'
 import { gsap } from 'gsap'
 import App from './App'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -10,6 +10,11 @@ import { VALID_THEMES } from '@/constants'
 import './index.css'
 
 gsap.defaults({ ease: 'power2.out' })
+
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+if (prefersReducedMotion) {
+  gsap.defaults({ duration: 0 })
+}
 
 function initTheme() {
   const root = document.documentElement
@@ -99,7 +104,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <AppWrapper>
     <ErrorBoundary>
       <LazyMotion features={domAnimation} strict>
-        <App />
+        <MotionConfig reducedMotion="user">
+          <App />
+        </MotionConfig>
       </LazyMotion>
     </ErrorBoundary>
   </AppWrapper>

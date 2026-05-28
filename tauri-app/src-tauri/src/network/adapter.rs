@@ -616,6 +616,7 @@ pub fn netsh_disable(adapter_name: &str) -> bool {
     if validate_adapter_name(adapter_name).is_err() {
         return false;
     }
+    // netsh语法要求 "name=适配器名" 作为单个参数传递，无法拆分为独立args
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=disable"])
         .output()
@@ -627,6 +628,7 @@ pub fn netsh_enable(adapter_name: &str) -> bool {
     if validate_adapter_name(adapter_name).is_err() {
         return false;
     }
+    // netsh语法要求 "name=适配器名" 作为单个参数传递，无法拆分为独立args
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=enable"])
         .output()
