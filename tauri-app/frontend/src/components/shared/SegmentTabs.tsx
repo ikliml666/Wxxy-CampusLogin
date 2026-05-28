@@ -17,7 +17,7 @@ interface SegmentTabsProps {
 
 export function SegmentTabs({ tabs, activeKey, onTabChange }: SegmentTabsProps) {
   return (
-    <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/40 backdrop-blur-sm isolate">
+    <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/40 backdrop-blur-sm">
       {tabs.map(tab => {
         const Icon = tab.icon
         const isActive = activeKey === tab.key

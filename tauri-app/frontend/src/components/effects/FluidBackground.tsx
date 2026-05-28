@@ -97,8 +97,8 @@ export function FluidBackground() {
       <div
         className="gradient-layer absolute"
         style={{
-          width: '200%',
-          height: '200%',
+          width: '150%',
+          height: '150%',
           left: 0,
           top: 0,
         }}

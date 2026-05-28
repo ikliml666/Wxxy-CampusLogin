@@ -191,7 +191,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
               transition={{ duration: 0.15, ease: [0.25, 0.8, 0.25, 1] }}
-              className="fixed z-[9999] min-w-[180px] rounded-xl bg-popover/95 backdrop-blur-md isolate shadow-lg shadow-black/8 px-3 py-2"
+              className="fixed z-[9999] min-w-[180px] rounded-xl bg-popover/95 backdrop-blur-md shadow-lg shadow-black/8 px-3 py-2"
               style={{
                 top: popupPos.top,
                 right: popupPos.right,
