@@ -53,7 +53,7 @@ const DOH_SERVERS: &[(&str, &str)] = &[
     ("120.53.53.53", "https://doh.pub/dns-query"),
 ];
 #[cfg(target_os = "windows")]
-const DNS_PROPERTY_TYPE_DOH: u32 = 1;
+const DNS_PROPERTY_TYPE_DOH: i32 = 1;
 
 #[cfg(target_os = "windows")]
 pub(crate) fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
@@ -750,14 +750,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
         }
         #[cfg(target_os = "windows")]
         {
-            let doh_servers: &[(&str, &str)] = &[
-                ("223.5.5.5", "https://dns.alidns.com/dns-query"),
-                ("223.6.6.6", "https://dns.alidns.com/dns-query"),
-                ("1.12.12.12", "https://doh.pub/dns-query"),
-                ("120.53.53.53", "https://doh.pub/dns-query"),
-            ];
-
-            let dns_ips: Vec<&str> = doh_servers.iter().map(|(ip, _)| *ip).collect();
+            let dns_ips: Vec<&str> = DOH_SERVERS.iter().map(|(ip, _)| *ip).collect();
 
             if is_admin() {
                 let adapters = crate::network::get_adapters_cached().unwrap_or_default();
@@ -769,7 +762,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                 let mut api_fail: Vec<String> = Vec::new();
 
                 for adapter in &active {
-                    match set_doh_via_api(&adapter.guid, &dns_ips, doh_servers) {
+                    match set_doh_via_api(&adapter.guid, &dns_ips, DOH_SERVERS) {
                         Ok(()) => {
                             crate::log_info!("doh", "Win32 API注册DoH成功: {}", adapter.name);
                             api_ok.push(adapter.name.clone());
@@ -801,7 +794,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
             let mut failed: Vec<String> = Vec::new();
             let mut need_elevation = false;
 
-            for (ip, template) in doh_servers {
+            for (ip, template) in DOH_SERVERS {
                 let output = std::process::Command::new("netsh")
                     .args([
                         "dns", "add", "encryption",
@@ -848,7 +841,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
 
             if need_elevation && added.is_empty() {
                 let mut ps_cmds: Vec<String> = Vec::new();
-                for (ip, template) in doh_servers {
+                for (ip, template) in DOH_SERVERS {
                     ps_cmds.push(format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes", ip, template));
                 }
                 ps_cmds.push("ipconfig /flushdns".to_string());
@@ -860,7 +853,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                     Ok(()) => {
                         std::thread::sleep(std::time::Duration::from_millis(2000));
                         let mut verify_added: Vec<String> = Vec::new();
-                        for (ip, _) in doh_servers {
+                        for (ip, _) in DOH_SERVERS {
                             let check = std::process::Command::new("netsh")
                                 .args(["dns", "show", "encryption", &format!("server={}", ip)])
                                 .creation_flags(0x08000000)
@@ -887,7 +880,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                 }
 
                 let mut netsh_cmds = String::new();
-                for (ip, template) in doh_servers {
+                for (ip, template) in DOH_SERVERS {
                     netsh_cmds.push_str(&format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes & ", ip, template));
                 }
                 netsh_cmds.push_str("ipconfig /flushdns");
@@ -896,7 +889,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                     Ok(()) => {
                         std::thread::sleep(std::time::Duration::from_millis(2500));
                         let mut verify_added: Vec<String> = Vec::new();
-                        for (ip, _) in doh_servers {
+                        for (ip, _) in DOH_SERVERS {
                             let check = std::process::Command::new("netsh")
                                 .args(["dns", "show", "encryption", &format!("server={}", ip)])
                                 .creation_flags(0x08000000)
@@ -953,16 +946,6 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
         }
         #[cfg(target_os = "windows")]
         {
-            let primary_dns = "223.5.5.5";
-            let secondary_dns = "1.12.12.12";
-
-            let doh_servers: &[(&str, &str)] = &[
-                ("223.5.5.5", "https://dns.alidns.com/dns-query"),
-                ("223.6.6.6", "https://dns.alidns.com/dns-query"),
-                ("1.12.12.12", "https://doh.pub/dns-query"),
-                ("120.53.53.53", "https://doh.pub/dns-query"),
-            ];
-
             let adapters = crate::network::get_adapters_cached()
                 .unwrap_or_default();
             let active: Vec<&Adapter> = adapters.iter()
@@ -981,8 +964,8 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 let mut api_fail: Vec<String> = Vec::new();
 
                 for adapter in &active {
-                    let dns_list: Vec<&str> = vec![primary_dns, secondary_dns];
-                    let doh_list: Vec<(&str, &str)> = doh_servers.to_vec();
+                    let dns_list: Vec<&str> = vec![PRIMARY_DNS, SECONDARY_DNS];
+                    let doh_list: Vec<(&str, &str)> = DOH_SERVERS.to_vec();
 
                     match set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
                         Ok(()) => {
@@ -1003,7 +986,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
 
                 if !api_success.is_empty() {
                     let mut parts = Vec::new();
-                    parts.push(format!("已为 {} 设置DNS({}+{})并启用DoH", api_success.join("、"), primary_dns, secondary_dns));
+                    parts.push(format!("已为 {} 设置DNS({}+{})并启用DoH", api_success.join("、"), PRIMARY_DNS, SECONDARY_DNS));
                     if !api_fail.is_empty() {
                         parts.push(format!("{}个适配器设置失败", api_fail.len()));
                     }
@@ -1012,7 +995,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                         "message": parts.join("，"),
                         "dnsSuccess": api_success,
                         "dnsFailed": api_fail,
-                        "dohAdded": doh_servers.iter().map(|(ip, _)| ip.to_string()).collect::<Vec<_>>(),
+                        "dohAdded": DOH_SERVERS.iter().map(|(ip, _)| ip.to_string()).collect::<Vec<_>>(),
                         "dohFailed": [],
                     }));
                 }
@@ -1029,10 +1012,10 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
             for adapter in &active {
                 ps_cmds.push(format!(
                     "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}','{}') -Confirm:$false",
-                    adapter.name, primary_dns, secondary_dns
+                    adapter.name, PRIMARY_DNS, SECONDARY_DNS
                 ));
             }
-            for (ip, template) in doh_servers {
+            for (ip, template) in DOH_SERVERS {
                 ps_cmds.push(format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes", ip, template));
             }
             ps_cmds.push("ipconfig /flushdns".to_string());
@@ -1050,7 +1033,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                             .output();
                         if let Ok(co) = check {
                             let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));
-                            if out.contains(primary_dns) {
+                            if out.contains(PRIMARY_DNS) {
                                 verify_ok = true;
                             }
                         }
@@ -1069,10 +1052,10 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
 
             let mut all_cmds = String::new();
             for adapter in &active {
-                all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" static {} primary & ", adapter.name, primary_dns));
-                all_cmds.push_str(&format!("netsh interface ip add dns name=\"{}\" {} index=2 & ", adapter.name, secondary_dns));
+                all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" static {} primary & ", adapter.name, PRIMARY_DNS));
+                all_cmds.push_str(&format!("netsh interface ip add dns name=\"{}\" {} index=2 & ", adapter.name, SECONDARY_DNS));
                 if !adapter.guid.is_empty() {
-                    for dns_ip in &[primary_dns, secondary_dns] {
+                    for dns_ip in &[PRIMARY_DNS, SECONDARY_DNS] {
                         all_cmds.push_str(&format!(
                             "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\{}\\DohInterfaceSettings\\Doh\\{}\" /v DohFlags /t REG_QWORD /d 1 /f & ",
                             adapter.guid, dns_ip
@@ -1080,7 +1063,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                     }
                 }
             }
-            for (ip, template) in doh_servers {
+            for (ip, template) in DOH_SERVERS {
                 all_cmds.push_str(&format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes & ", ip, template));
             }
             all_cmds.push_str("ipconfig /flushdns");
