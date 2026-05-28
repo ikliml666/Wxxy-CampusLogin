@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { m, useReducedMotion, useSpring, useMotionValue } from 'framer-motion'
+import { m, useReducedMotion } from 'framer-motion'
+import { gsap } from 'gsap'
 import { cn } from '@/lib/utils'
 
 export interface AnimatedCardConfig {
@@ -38,11 +39,20 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
     const [entryDone, setEntryDone] = React.useState(noEnterAnimation)
     const cardRef = React.useRef<HTMLDivElement>(null)
     const rafRef = React.useRef<number>(0)
+    const xToRef = React.useRef<ReturnType<typeof gsap.quickTo> | null>(null)
+    const yToRef = React.useRef<ReturnType<typeof gsap.quickTo> | null>(null)
 
-    const magneticX = useMotionValue(0)
-    const magneticY = useMotionValue(0)
-    const springX = useSpring(magneticX, { stiffness: 350, damping: 25, mass: 0.5 })
-    const springY = useSpring(magneticY, { stiffness: 350, damping: 25, mass: 0.5 })
+    React.useEffect(() => {
+      if (!cardRef.current || prefersReducedMotion) return
+      xToRef.current = gsap.quickTo(cardRef.current, 'x', { duration: 0.4, ease: 'power3.out' })
+      yToRef.current = gsap.quickTo(cardRef.current, 'y', { duration: 0.4, ease: 'power3.out' })
+      return () => {
+        xToRef.current?.(0)
+        yToRef.current?.(0)
+        xToRef.current = null
+        yToRef.current = null
+      }
+    }, [prefersReducedMotion])
 
     const config = React.useMemo(
       () => ({ ...DEFAULT_CONFIG, ...animationConfig }),
@@ -63,8 +73,8 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       if (noHover || prefersReducedMotion) return
       const target = e.target as HTMLElement
       if (target.closest('input, textarea, select, button, [role="button"], [data-no-magnetic]')) {
-        magneticX.set(0)
-        magneticY.set(0)
+        xToRef.current?.(0)
+        yToRef.current?.(0)
         return
       }
       const el = cardRef.current
@@ -77,17 +87,17 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         const dx = (e.clientX - cx) / (rect.width / 2)
         const dy = (e.clientY - cy) / (rect.height / 2)
         const maxOffset = 4
-        magneticX.set(dx * maxOffset)
-        magneticY.set(dy * maxOffset)
+        xToRef.current?.(dx * maxOffset)
+        yToRef.current?.(dy * maxOffset)
       })
-    }, [noHover, prefersReducedMotion, magneticX, magneticY])
+    }, [noHover, prefersReducedMotion])
 
     const handleMouseLeave = React.useCallback(() => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      magneticX.set(0)
-      magneticY.set(0)
+      xToRef.current?.(0)
+      yToRef.current?.(0)
       setIsHovered(false)
-    }, [magneticX, magneticY])
+    }, [])
 
     if (prefersReducedMotion || noAnimation) {
       return (
@@ -109,9 +119,6 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         }}
         onAnimationComplete={() => setEntryDone(true)}
         style={{
-          x: isHovered ? springX : 0,
-          y: isHovered ? springY : (noEnterAnimation ? 0 : undefined),
-          willChange: 'transform',
           pointerEvents: entryDone ? undefined : ('none' as any),
         }}
         onHoverStart={() => setIsHovered(true)}

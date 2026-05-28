@@ -1,6 +1,6 @@
 use super::cache::{PORTAL_URL, create_safe_http_client};
 
-fn safe_truncate(s: &str, max_len: usize) -> &str {
+pub fn safe_truncate(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         return s;
     }

@@ -189,12 +189,10 @@
   }
 
   .glass-dock {
-    background: rgba(255, 255, 255, 0.60);
-    backdrop-filter: blur(10px) saturate(160%);
-    -webkit-backdrop-filter: blur(10px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(240, 243, 248, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.5);
     border-radius: 18px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 0 20px rgba(255, 255, 255, 0.15);
     position: relative;
     isolation: isolate;
     contain: layout style;
@@ -237,9 +235,9 @@
   }
 
   .dark .glass-dock {
-    background: rgba(20, 22, 27, 0.65);
-    border-color: rgba(255, 255, 255, 0.06);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
+    background: rgba(14, 16, 20, 0.85);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18), inset 0 0 20px rgba(255, 255, 255, 0.02);
   }
 
   .dark .glass-dock::before {
@@ -496,7 +494,6 @@
     box-shadow: 0 0 20px 2px hsl(var(--primary) / 0.15);
     opacity: 0;
     pointer-events: none;
-    will-change: opacity;
     transition: opacity 0.4s ease;
   }
 
@@ -517,7 +514,6 @@
     box-shadow: 0 0 6px hsl(var(--primary) / 0.4);
     opacity: 0;
     pointer-events: none;
-    will-change: opacity;
     transition: opacity 0.3s ease;
   }
 
@@ -564,7 +560,6 @@
     border-radius: inherit;
     box-shadow: 0 0 0 4px currentColor;
     pointer-events: none;
-    will-change: opacity, transform;
   }
 
   @keyframes numberFlash {
@@ -682,6 +677,28 @@
   .log-left-bar {
     transition: opacity 0.2s ease, transform 0.2s ease;
     opacity: 0.5;
+  }
+
+  .gradient-layer {
+    background: linear-gradient(
+      135deg,
+      hsl(210, 30%, 95%) 0%,
+      hsl(220, 25%, 94%) 25%,
+      hsl(250, 20%, 93%) 50%,
+      hsl(230, 22%, 94%) 75%,
+      hsl(215, 28%, 95%) 100%
+    );
+  }
+
+  .dark .gradient-layer {
+    background: linear-gradient(
+      135deg,
+      hsl(220, 15%, 12%) 0%,
+      hsl(230, 18%, 10%) 25%,
+      hsl(260, 15%, 11%) 50%,
+      hsl(240, 16%, 10%) 75%,
+      hsl(225, 17%, 12%) 100%
+    );
   }
 
   .layout-smooth-resize {

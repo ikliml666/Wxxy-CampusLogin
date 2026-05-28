@@ -1,4 +1,4 @@
-﻿use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State};
 use std::os::windows::process::CommandExt;
 use std::sync::Arc;
 use crate::network::{

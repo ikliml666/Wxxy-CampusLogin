@@ -118,9 +118,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
     <div
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
-        background: 'hsl(var(--card) / 0.85)',
-        backdropFilter: 'blur(16px) saturate(150%)',
-        WebkitBackdropFilter: 'blur(16px) saturate(150%)',
+        background: 'hsl(var(--card) / 0.92)',
         boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06), inset 0 0.5px 0 hsl(var(--card) / 0.8), inset 0 0 20px hsl(var(--card) / 0.1)',
         border: '1px solid hsl(var(--card) / 0.6)',
         isolation: 'isolate',
@@ -401,7 +399,7 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
         ))}
 
         <m.div
-          className="absolute bottom-[3px] h-[3px] rounded-full bg-primary"
+          className="absolute bottom-[3px] left-0 h-[3px] rounded-full bg-primary"
           style={{ width: 20, originX: 0 }}
           animate={{ x: indicator.left, scaleX: indicator.width / 20 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}

@@ -73,7 +73,6 @@ export function RipplePulse({ active, color = 'currentColor', size = 24, classNa
             width: size,
             height: size,
             border: `2.5px solid ${color}`,
-            willChange: 'transform, opacity',
           }}
         />
       ))}

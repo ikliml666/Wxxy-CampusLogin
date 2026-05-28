@@ -33,6 +33,8 @@ const ORBS: OrbConfig[] = [
   },
 ]
 
+const GRADIENT_DURATION = 16
+
 export function FluidBackground() {
   const containerRef = useRef<HTMLDivElement>(null)
   const tlRef = useRef<gsap.core.Timeline | null>(null)
@@ -44,8 +46,17 @@ export function FluidBackground() {
     const ctx = gsap.context(() => {
       if (!containerRef.current) return
 
+      const gradientEl = containerRef.current.querySelector('.gradient-layer')
       const orbs = containerRef.current.querySelectorAll('.fluid-orb')
       const tl = gsap.timeline({ repeat: -1, yoyo: true })
+
+      if (gradientEl) {
+        tl.fromTo(gradientEl,
+          { xPercent: 0, yPercent: -25 },
+          { xPercent: -50, yPercent: -25, duration: GRADIENT_DURATION, ease: 'sine.inOut', force3D: true },
+          0
+        )
+      }
 
       orbs.forEach((orb, index) => {
         const config = ORBS[index]
@@ -81,10 +92,16 @@ export function FluidBackground() {
     <div
       ref={containerRef}
       className="fixed inset-0 z-0 overflow-hidden pointer-events-none"
-      style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}
+      style={{ background: 'var(--surface-main)', contain: 'strict' }}
     >
       <div
-        className={`absolute inset-0 gradient-shift ${isActive ? '' : 'anim-paused'}`}
+        className="gradient-layer absolute"
+        style={{
+          width: '200%',
+          height: '200%',
+          left: 0,
+          top: 0,
+        }}
       />
 
       {ORBS.map((orb, index) => (
@@ -98,7 +115,6 @@ export function FluidBackground() {
             opacity: orb.opacity,
             left: '10%',
             top: '10%',
-            willChange: 'transform',
           }}
         />
       ))}
@@ -115,45 +131,6 @@ export function FluidBackground() {
           )`,
         }}
       />
-
-      <style>{`
-        .gradient-shift {
-          background: linear-gradient(
-            135deg,
-            hsl(210, 30%, 95%) 0%,
-            hsl(220, 25%, 94%) 25%,
-            hsl(250, 20%, 93%) 50%,
-            hsl(230, 22%, 94%) 75%,
-            hsl(215, 28%, 95%) 100%
-          );
-          animation: gradientShift 16s ease-in-out infinite;
-          background-size: 200% 200%;
-        }
-
-        @keyframes gradientShift {
-          0%, 100% {
-            background-position: 0% 50%;
-          }
-          50% {
-            background-position: 100% 50%;
-          }
-        }
-
-        .anim-paused {
-          animation-play-state: paused !important;
-        }
-
-        .dark .gradient-shift {
-          background: linear-gradient(
-            135deg,
-            hsl(220, 15%, 12%) 0%,
-            hsl(230, 18%, 10%) 25%,
-            hsl(260, 15%, 11%) 50%,
-            hsl(240, 16%, 10%) 75%,
-            hsl(225, 17%, 12%) 100%
-          );
-        }
-      `}</style>
     </div>
   )
 }

@@ -4,7 +4,7 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 
 lazy_static::lazy_static! {
-    pub(crate) static ref PORTAL_URL: ArcSwap<String> = ArcSwap::from(Arc::new("http://10.1.99.100".to_string()));
+    pub(crate) static ref PORTAL_URL: ArcSwap<String> = ArcSwap::from(Arc::new(crate::config::default_portal_url()));
     static ref CLIENT_POOL: DashMap<String, reqwest::blocking::Client> = DashMap::new();
 }
 

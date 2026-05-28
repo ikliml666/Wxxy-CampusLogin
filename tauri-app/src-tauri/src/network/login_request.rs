@@ -182,7 +182,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     let body = resp.text().unwrap_or_default();
     let req_elapsed = t_req.elapsed();
 
-    crate::log_info!("logout", "步骤1完成({}ms): body={}", req_elapsed.as_millis(), &body[..body.len().min(500)]);
+    crate::log_info!("logout", "步骤1完成({}ms): body={}", req_elapsed.as_millis(), super::portal::safe_truncate(&body, 500));
 
     let logout_result = parse_logout_result(&body)?;
     let radius_ok = logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -212,7 +212,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     let body2 = resp2.text().unwrap_or_default();
     let req_elapsed2 = t_req2.elapsed();
 
-    crate::log_info!("logout", "步骤2完成({}ms): body={}", req_elapsed2.as_millis(), &body2[..body2.len().min(500)]);
+    crate::log_info!("logout", "步骤2完成({}ms): body={}", req_elapsed2.as_millis(), super::portal::safe_truncate(&body2, 500));
 
     let unbind_result = parse_logout_result(&body2)?;
     let unbind_ok = unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -274,7 +274,7 @@ pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, if_index: u32,
 }
 
 fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
-    crate::log_info!("logout", "parse_logout_result原始响应: {}", &response[..response.len().min(1000)]);
+    crate::log_info!("logout", "parse_logout_result原始响应: {}", super::portal::safe_truncate(response, 1000));
     let json_data = if let Some(start) = response.find('(') {
         let inner_start = start + 1;
         if let Some(inner_end) = response[inner_start..].rfind(')').map(|i| inner_start + i) {
@@ -308,7 +308,7 @@ fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
             }
         }
         Err(_) => {
-            crate::log_warn!("logout", "JSON解析失败, json_data={}", &json_data[..json_data.len().min(500)]);
+            crate::log_warn!("logout", "JSON解析失败, json_data={}", super::portal::safe_truncate(&json_data, 500));
             let is_html = response.trim_start().starts_with("<!") || response.trim_start().starts_with("<html") || response.trim_start().starts_with("<HTML");
             if is_html {
                 if response.contains("注销成功") || response.contains("下线成功") || response.contains("已下线") || response.contains("logout") {
@@ -319,7 +319,7 @@ fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
             } else if response.contains("注销成功") || response.contains("下线成功") || response.contains("已下线") || response.contains("解绑成功") {
                 Ok(serde_json::json!({ "code": "0", "message": "注销成功", "success": true, "retryable": false }))
             } else {
-                Ok(serde_json::json!({ "code": "parse_error", "message": format!("无法解析注销响应: {}", &response[..response.len().min(200)]), "success": false, "retryable": true }))
+                Ok(serde_json::json!({ "code": "parse_error", "message": format!("无法解析注销响应: {}", super::portal::safe_truncate(response, 200)), "success": false, "retryable": true }))
             }
         }
     }
