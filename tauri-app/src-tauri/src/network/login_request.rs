@@ -174,30 +174,6 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
 
-    crate::log_info!("logout", "步骤1: Radius注销开始: user={}, adapterIp={}", validated_user, wlan_user_ip);
-
-    let logout_url = format!(
-        "{}/eportal/portal/logout?callback=dr1003&login_method=1&user_account={}&user_password={}&ac_logout=1&register_mode=1&wlan_user_ip={}&wlan_user_ipv6=&wlan_vlan_id=1&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&v={}&lang=zh",
-        portal_base_url,
-        LOGOUT_PLACEHOLDER_ACCOUNT,
-        LOGOUT_PLACEHOLDER_PASSWORD,
-        urlencoding::encode(wlan_user_ip),
-        random_v(),
-    );
-
-    let t_req = std::time::Instant::now();
-    let resp = client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
-        .map_err(|e| format!("Radius注销请求失败: {}", e))?;
-    let body = resp.text().unwrap_or_default();
-    let req_elapsed = t_req.elapsed();
-
-    crate::log_info!("logout", "步骤1完成({}ms): body={}", req_elapsed.as_millis(), super::portal::safe_truncate(&body, 500));
-
-    let logout_result = parse_logout_result(&body)?;
-    let radius_ok = logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-
-    crate::log_info!("logout", "步骤2: MAC解绑开始: user={}", validated_user);
-
     let wlan_user_ip_int = adapter_ip.and_then(|ip| {
         let parts: Vec<u32> = ip.split('.').filter_map(|p| p.parse().ok()).collect();
         if parts.len() == 4 {
@@ -207,26 +183,59 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         }
     }).unwrap_or(0);
 
-    let unbind_url = format!(
-        "{}/eportal/portal/mac/unbind?callback=dr1002&user_account={}&wlan_user_mac=000000000000&wlan_user_ip={}&jsVersion=4.1.3&v={}&lang=zh",
-        portal_base_url,
-        urlencoding::encode(validated_user),
-        wlan_user_ip_int,
-        random_v(),
-    );
+    let mut any_radius_ok = false;
+    let mut any_unbind_ok = false;
 
-    let t_req2 = std::time::Instant::now();
-    let resp2 = client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
-        .map_err(|e| format!("MAC解绑请求失败: {}", e))?;
-    let body2 = resp2.text().unwrap_or_default();
-    let req_elapsed2 = t_req2.elapsed();
+    for round in 1..=2 {
+        crate::log_info!("logout", "第{}轮: MAC解绑: user={}", round, validated_user);
 
-    crate::log_info!("logout", "步骤2完成({}ms): body={}", req_elapsed2.as_millis(), super::portal::safe_truncate(&body2, 500));
+        let unbind_url = format!(
+            "{}/eportal/portal/mac/unbind?callback=dr100{}&user_account={}&wlan_user_mac=000000000000&wlan_user_ip={}&jsVersion=4.1.3&v={}&lang=zh",
+            portal_base_url,
+            round + 1,
+            urlencoding::encode(validated_user),
+            wlan_user_ip_int,
+            random_v(),
+        );
 
-    let unbind_result = parse_logout_result(&body2)?;
-    let unbind_ok = unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        let t_unbind = std::time::Instant::now();
+        let resp_unbind = client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
+            .map_err(|e| format!("第{}轮MAC解绑请求失败: {}", round, e))?;
+        let body_unbind = resp_unbind.text().unwrap_or_default();
+        crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), super::portal::safe_truncate(&body_unbind, 500));
 
-    let combined_msg = match (radius_ok, unbind_ok) {
+        let unbind_result = parse_logout_result(&body_unbind)?;
+        let unbind_ok = unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        if unbind_ok { any_unbind_ok = true; }
+
+        crate::log_info!("logout", "第{}轮: Radius注销: adapterIp={}", round, wlan_user_ip);
+
+        let logout_url = format!(
+            "{}/eportal/portal/logout?callback=dr100{}&login_method=1&user_account={}&user_password={}&ac_logout=1&register_mode=1&wlan_user_ip={}&wlan_user_ipv6=&wlan_vlan_id=1&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&v={}&lang=zh",
+            portal_base_url,
+            round + 3,
+            LOGOUT_PLACEHOLDER_ACCOUNT,
+            LOGOUT_PLACEHOLDER_PASSWORD,
+            urlencoding::encode(wlan_user_ip),
+            random_v(),
+        );
+
+        let t_logout = std::time::Instant::now();
+        let resp_logout = client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
+            .map_err(|e| format!("第{}轮Radius注销请求失败: {}", round, e))?;
+        let body_logout = resp_logout.text().unwrap_or_default();
+        crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), super::portal::safe_truncate(&body_logout, 500));
+
+        let logout_result = parse_logout_result(&body_logout)?;
+        let radius_ok = logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        if radius_ok { any_radius_ok = true; }
+
+        if round == 1 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
+
+    let combined_msg = match (any_radius_ok, any_unbind_ok) {
         (true, true) => "注销成功",
         (true, false) => "Radius注销成功，MAC解绑失败",
         (false, true) => "Radius注销失败，MAC解绑成功",
@@ -234,12 +243,10 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     };
 
     Ok(serde_json::json!({
-        "code": if radius_ok && unbind_ok { "0" } else { "1" },
+        "code": if any_radius_ok && any_unbind_ok { "0" } else { "1" },
         "message": combined_msg,
-        "success": radius_ok,
-        "retryable": !radius_ok,
-        "radius_logout": logout_result,
-        "mac_unbind": unbind_result,
+        "success": any_radius_ok,
+        "retryable": !any_radius_ok,
     }))
 }
 

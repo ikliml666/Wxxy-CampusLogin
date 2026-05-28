@@ -177,6 +177,7 @@ pub struct NetworkStatus {
     pub last_network_quality: ArcSwap<Option<String>>,
     pub current_ssid: ArcSwap<Option<String>>,
     pub on_campus_network: AtomicBool,
+    pub logout_protected_until: ArcSwap<std::time::Instant>,
 }
 
 pub struct ExitState {
@@ -233,6 +234,7 @@ impl AppState {
                 last_network_quality: ArcSwap::from(std::sync::Arc::new(None)),
                 current_ssid: ArcSwap::from(std::sync::Arc::new(None)),
                 on_campus_network: AtomicBool::new(false),
+                logout_protected_until: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now())),
             },
             exit: ExitState {
                 is_quitting: std::sync::Arc::new(AtomicBool::new(false)),

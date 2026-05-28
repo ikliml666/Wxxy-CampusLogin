@@ -8,7 +8,7 @@ use super::auto_exit::start_auto_exit;
 
 const MAX_DISCONNECT_RECONNECT: u32 = 3;
 const RECONNECT_REMINDER_INTERVAL: u32 = 10;
-const AUTO_LOGIN_COOLDOWN_SECS: u64 = 30;
+const AUTO_LOGIN_COOLDOWN_SECS: u64 = 60;
 
 pub fn try_auto_login_on_preparation(
     app_handle: &AppHandle,
@@ -22,6 +22,12 @@ pub fn try_auto_login_on_preparation(
     }
 
     if state.network.has_logged_online.load(Ordering::Acquire) {
+        return;
+    }
+
+    let protected_until = state.network.logout_protected_until.load();
+    if std::time::Instant::now() < **protected_until {
+        crate::log_debug!("background", "注销保护期内，跳过自动登录");
         return;
     }
 
@@ -76,6 +82,12 @@ pub fn try_disconnect_reconnect(
     let any_offline = (!online && a1.is_some()) || secondary_online == Some(false);
 
     if !state.network.any_adapter_online.load(Ordering::Acquire) || !any_offline || !reachable || !login_available || !config.auto_login_on_preparation {
+        return;
+    }
+
+    let protected_until = state.network.logout_protected_until.load();
+    if std::time::Instant::now() < **protected_until {
+        crate::log_debug!("background", "注销保护期内，跳过断线重连");
         return;
     }
 

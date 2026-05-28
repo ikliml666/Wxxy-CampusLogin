@@ -369,6 +369,34 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         .unwrap_or_else(|| CommandResult::err("注销请求失败"))
 }
 
+fn check_any_adapter_online(state: &AppState) -> bool {
+    let adapters = match get_adapters_cached() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let config = state.config.load_full();
+    let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+
+    let names: Vec<&str> = if config.dual_adapter && !a2_name.is_empty() {
+        vec![&a1_name, &a2_name]
+    } else {
+        vec![&a1_name]
+    };
+
+    for name in names {
+        let adapter = match adapters.iter().find(|a| a.name == name && !a.ip.is_empty()) {
+            Some(a) => a,
+            None => continue,
+        };
+        match check_portal_full(&adapter.ip, Some(&adapter.name), None, None, None) {
+            Ok(ps) if ps.online => return true,
+            _ => continue,
+        }
+    }
+
+    false
+}
+
 #[tauri::command]
 pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
     let result = {
@@ -380,7 +408,25 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
                 Some(g) => g,
                 None => return CommandResult::err("注销正在进行中，请稍后再试"),
             };
-            full_logout_inner(&s, &app_h, adapter.as_deref())
+
+            let result = full_logout_inner(&s, &app_h, adapter.as_deref());
+
+            if result.success {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                if check_any_adapter_online(&s) {
+                    let _ = app_h.emit("login-log", serde_json::json!({
+                        "message": "页面检测仍显示在线，注销可能未完全生效",
+                        "type": "warning"
+                    }));
+                } else {
+                    let _ = app_h.emit("login-log", serde_json::json!({
+                        "message": "注销成功（页面检测已确认离线）",
+                        "type": "success"
+                    }));
+                }
+            }
+
+            result
         }).await.map_err(|e| format!("注销任务失败: {}", e))?
     };
 
@@ -388,7 +434,10 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
         let s = app_handle.state::<AppState>();
         s.exit.auto_exit_cancelled.store(true, Ordering::Release);
         s.exit.set_deadline(None);
-        s.network.has_logged_online.store(false, Ordering::Release);
+        s.network.any_adapter_online.store(false, Ordering::Release);
+        s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
+        let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
     }
     Ok(result)
 }

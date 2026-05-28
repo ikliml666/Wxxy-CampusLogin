@@ -55,17 +55,14 @@ impl PortalCheckResult {
 
 fn check_adapter_portal(
     adapter: &Adapter,
-    user_account: &str,
-    user_password: &str,
-    operator: &str,
     app_handle: &AppHandle,
 ) -> PortalCheckResult {
-    match check_portal_full(&adapter.ip, Some(&adapter.name), Some(user_account), Some(user_password), Some(operator)) {
+    match check_portal_full(&adapter.ip, Some(&adapter.name), None, None, None) {
         Ok(ps) => {
             if ps.error_kind.as_deref() == Some("request_failed") {
-                crate::log_warn!("background", "{} Portal检测请求失败: {}", adapter.name, ps.message);
+                crate::log_warn!("background", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
                 let _ = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} Portal检测请求失败: {}", adapter.name, ps.message),
+                    "message": format!("{} Portal页面检测请求失败: {}", adapter.name, ps.message),
                     "type": "error"
                 }));
                 PortalCheckResult::Error
@@ -79,9 +76,9 @@ fn check_adapter_portal(
             }
         }
         Err(e) => {
-            crate::log_warn!("background", "{} Portal检测异常: {}", adapter.name, e);
+            crate::log_warn!("background", "{} Portal页面检测异常: {}", adapter.name, e);
             let _ = app_handle.emit("login-log", serde_json::json!({
-                "message": format!("{} Portal检测异常: {}", adapter.name, e),
+                "message": format!("{} Portal页面检测异常: {}", adapter.name, e),
                 "type": "error"
             }));
             PortalCheckResult::Error
@@ -198,6 +195,15 @@ fn update_network_state(
     state.network.server_available.store(reachable, Ordering::Release);
 
     let any_online = online || secondary_online == Some(true);
+
+    let protected_until = state.network.logout_protected_until.load();
+    let is_logout_protected = std::time::Instant::now() < **protected_until;
+
+    if is_logout_protected {
+        crate::log_debug!("background", "注销保护期内，跳过网络状态更新: any_online={}", any_online);
+        return;
+    }
+
     state.network.any_adapter_online.store(any_online, Ordering::Release);
     state.network.last_a1_online.store(online, Ordering::Release);
     if any_online {
@@ -277,9 +283,6 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     let t_total = std::time::Instant::now();
 
     let config = state.config.load_full();
-    let user_account = config.user_account_with_operator();
-    let user_password = config.password.clone();
-    let operator = config.operator.clone();
     crate::log_debug!("background", "开始后台检测 (dualAdapter={}, interval={}ms)",
         config.dual_adapter, config.background_check_interval);
 
@@ -330,23 +333,23 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     let (primary_result, secondary_result) = if config.dual_adapter {
         if let (Some(adapter1), Some(adapter2)) = (a1, a2) {
             std::thread::scope(|s| {
-                let h1 = s.spawn(|| check_adapter_portal(adapter1, &user_account, &user_password, &operator, app_handle));
-                let h2 = s.spawn(|| check_adapter_portal(adapter2, &user_account, &user_password, &operator, app_handle));
+                let h1 = s.spawn(|| check_adapter_portal(adapter1, app_handle));
+                let h2 = s.spawn(|| check_adapter_portal(adapter2, app_handle));
                 let r1 = h1.join().unwrap_or(PortalCheckResult::Error);
                 let r2 = h2.join().unwrap_or(PortalCheckResult::Error);
                 (r1, Some(r2))
             })
         } else {
             let primary = match a1 {
-                Some(adapter) => check_adapter_portal(adapter, &user_account, &user_password, &operator, app_handle),
+                Some(adapter) => check_adapter_portal(adapter, app_handle),
                 None => PortalCheckResult::NotFound,
             };
-            let secondary = a2.map(|a| check_adapter_portal(a, &user_account, &user_password, &operator, app_handle));
+            let secondary = a2.map(|a| check_adapter_portal(a, app_handle));
             (primary, secondary)
         }
     } else {
         let primary = match a1 {
-            Some(adapter) => check_adapter_portal(adapter, &user_account, &user_password, &operator, app_handle),
+            Some(adapter) => check_adapter_portal(adapter, app_handle),
             None => PortalCheckResult::NotFound,
         };
         (primary, None)
