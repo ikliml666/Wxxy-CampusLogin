@@ -6,7 +6,6 @@ import { memo, useRef, useEffect } from 'react'
 import { RefreshButton } from '@/components/shared/RefreshButton'
 import { NetworkQualityCapsule } from '@/components/shared/NetworkQualityCapsule'
 import { m } from 'framer-motion'
-import { useGsapAnimations, capsuleHeartbeat, capsuleRecover } from '@/hooks/useGsapAnimation'
 
 interface StatusBarProps {
   statusText: string
@@ -21,22 +20,10 @@ interface StatusBarProps {
 
 export const StatusBar = memo(function StatusBar({ statusText, statusState, networkQuality, enableNetworkQuality, onOpenPortal, onOpenSelfService, onRefreshQuality, isRefreshing }: StatusBarProps) {
   const prevStatusRef = useRef(statusState)
-  const anim = useGsapAnimations({
-    heartbeat: capsuleHeartbeat,
-    recover: capsuleRecover,
-  })
+  const wasOffline = prevStatusRef.current === 'offline' && statusState !== 'offline'
 
   useEffect(() => {
-    if (prevStatusRef.current !== statusState) {
-      const prev = prevStatusRef.current
-      prevStatusRef.current = statusState
-
-      if (statusState === 'offline') {
-        anim.play('heartbeat')
-      } else if (prev === 'offline' && statusState === 'online') {
-        anim.play('recover')
-      }
-    }
+    prevStatusRef.current = statusState
   }, [statusState])
 
   const statusConfig = {
@@ -57,10 +44,17 @@ export const StatusBar = memo(function StatusBar({ statusText, statusState, netw
         <div className="flex items-center gap-2.5">
           <m.div
             key={statusState}
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-            ref={anim.ref}
+            initial={wasOffline ? { scale: 1.06, opacity: 1 } : { scale: 0.9, opacity: 0 }}
+            animate={
+              statusState === 'offline'
+                ? { scale: [1, 1.06, 0.94, 1.03, 0.98, 1], opacity: 1 }
+                : { scale: 1, opacity: 1 }
+            }
+            transition={
+              statusState === 'offline'
+                ? { duration: 0.6, ease: 'easeInOut' }
+                : { type: 'spring', stiffness: 500, damping: 25 }
+            }
             className={cn(
               'relative inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default',
               cfg.color,

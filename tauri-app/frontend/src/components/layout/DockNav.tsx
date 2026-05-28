@@ -214,8 +214,6 @@ function ActionButtonWithMenu({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const spinnerRef = useRef<HTMLSpanElement>(null)
-  const prevLoadingRef = useRef(isLoading)
-  const ctxRef = useRef<gsap.Context | null>(null)
 
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const showMenu = activeAdapters.length >= 1
@@ -258,47 +256,14 @@ function ActionButtonWithMenu({
   }, [])
 
   useEffect(() => {
-    if (!buttonRef.current) return
-    if (prevLoadingRef.current !== isLoading) {
-      if (ctxRef.current) {
-        ctxRef.current.revert()
-      }
-
+    if (!spinnerRef.current) return
+    if (isLoading) {
       const ctx = gsap.context(() => {
-        if (!buttonRef.current) return
-
-        if (isLoading) {
-          gsap.killTweensOf(buttonRef.current)
-          const tl = gsap.timeline()
-          tl.to(buttonRef.current, { scale: 0.95, duration: 0.15, ease: 'power2.out', force3D: true })
-            .to(buttonRef.current, { scale: 1.02, duration: 0.1, ease: 'power2.inOut', force3D: true })
-            .to(buttonRef.current, { scale: 1, duration: 0.15, ease: 'power2.out', force3D: true })
-          if (spinnerRef.current) {
-            gsap.killTweensOf(spinnerRef.current)
-            gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
-          }
-        } else {
-          if (spinnerRef.current) {
-            gsap.killTweensOf(spinnerRef.current)
-          }
-          gsap.killTweensOf(buttonRef.current)
-          gsap.fromTo(buttonRef.current, { scale: 1 }, { scale: 1.08, duration: 0.2, ease: 'power2.out', yoyo: true, repeat: 1, force3D: true })
-        }
-      }, buttonRef)
-
-      ctxRef.current = ctx
-      prevLoadingRef.current = isLoading
+        gsap.to(spinnerRef.current, { rotation: 360, duration: 0.8, repeat: -1, ease: 'none', force3D: true })
+      }, spinnerRef)
+      return () => ctx.revert()
     }
   }, [isLoading])
-
-  useEffect(() => {
-    return () => {
-      if (ctxRef.current) {
-        ctxRef.current.revert()
-        ctxRef.current = null
-      }
-    }
-  }, [])
 
   const isPrimary = variant === 'primary'
 
@@ -312,8 +277,9 @@ function ActionButtonWithMenu({
         ref={buttonRef}
         onClick={handleClick}
         disabled={isLoading || isDisabled}
-        whileHover={{ y: -4, scale: 1.06 }}
-        whileTap={{ scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } }}
+        animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
+        whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
+        whileTap={!isLoading ? { scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } } : undefined}
         transition={{ type: 'spring', stiffness: 600, damping: 12, mass: 0.4 }}
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
@@ -440,7 +406,8 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
 
         <m.div
           className="absolute bottom-[3px] h-[3px] rounded-full bg-primary"
-          animate={{ left: indicator.left, width: indicator.width }}
+          style={{ width: 20, originX: 0 }}
+          animate={{ x: indicator.left, scaleX: indicator.width / 20 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
         />
 
