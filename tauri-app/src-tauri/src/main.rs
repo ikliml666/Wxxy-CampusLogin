@@ -45,11 +45,14 @@ fn main() {
 
 fn detect_gpu_adapter() -> &'static str {
     use std::process::Command;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let output = Command::new("powershell")
         .args([
             "-NoProfile", "-NonInteractive", "-Command",
             "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty AdapterCompatibility"
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(out) = output {

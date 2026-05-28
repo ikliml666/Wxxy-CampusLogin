@@ -84,10 +84,9 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
                   height: bh,
                   backgroundColor: isActive ? cfg.color : dimColor,
                   boxShadow: isActive ? `0 0 8px ${cfg.glow}, 0 1px 6px ${cfg.color}30` : 'none',
-                  transformOrigin: 'bottom',
                 }}
-                initial={{ scaleY: 0 }}
-                animate={{ scaleY: [0, 1.15, 0.92, 1.04, 1] }}
+                initial={{ scaleY: 0, originY: 1 }}
+                animate={{ scaleY: [0, 1.15, 0.92, 1.04, 1], originY: 1 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 15, delay: spec.delay }}
               />
               {isActive && (
@@ -162,7 +161,6 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
             <m.div
               key={side}
               className="flex flex-col items-center"
-              layout
             >
               <span className="text-[11px] font-medium text-muted-foreground mb-1">
                 {isGw ? '内网延迟' : '外网延迟'}
