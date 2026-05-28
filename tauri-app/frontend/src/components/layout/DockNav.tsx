@@ -70,10 +70,6 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       ref={setRef}
       onClick={() => onPanelChange(id)}
       style={{ y: lift, scale, zIndex: 10 }}
-      whileHover={{
-        scale: 1.15,
-        transition: { type: 'spring', stiffness: 400, damping: 25 },
-      }}
       whileTap={{
         scale: [1, 0.85, 1.08, 1],
         transition: { duration: 0.4, times: [0, 0.15, 0.6, 1] },
@@ -123,8 +119,8 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
         background: 'hsl(var(--card) / 0.85)',
-        backdropFilter: 'blur(28px) saturate(200%)',
-        WebkitBackdropFilter: 'blur(28px) saturate(200%)',
+        backdropFilter: 'blur(16px) saturate(150%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(150%)',
         boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06), inset 0 0.5px 0 hsl(var(--card) / 0.8), inset 0 0 20px hsl(var(--card) / 0.1)',
         border: '1px solid hsl(var(--card) / 0.6)',
         isolation: 'isolate',
