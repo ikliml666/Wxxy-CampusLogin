@@ -1,20 +1,20 @@
 {
-  "version": "v2.2.1",
-  "notes": "## v2.2.1 更新日志\n\n### Bug修复\n- 修复暗色模式下背景渐变失效\n- 修复React StrictMode下双重初始化\n- 修复后台检测stop/start竞态条件\n- 修复IPC类型不匹配和字段缺失\n- 修复日志系统线程创建panic风险\n\n### 性能优化\n- 拆分App组件config订阅，减少冗余重渲染\n\n### 类型安全\n- 修正LoginResult/EnableAdapterResult/PortalStatusResult类型定义\n- delete_account返回结构化结果替代布尔值\n- 补充get_init_data缺失的SSID和校园网状态字段",
+  "version": "v2.2.2",
+  "notes": "## v2.2.2 更新日志\n\n### 代码质量\n- 提取登录/注销公共逻辑，消除重复代码\n- 前端静默catch替换为DEV模式错误输出，改善调试体验\n- DHCP结果类型断言从any替换为具体类型，修复字段名错误\n- 修复delete操作符对非可选属性的TS2790错误\n\n### 可访问性\n- 添加prefers-reduced-motion支持（framer-motion + GSAP）\n- RefreshButton添加aria-label\n- Toast容器添加aria-live=\"polite\"和role=\"status\"\n- Toast关闭按钮添加aria-label\n\n### 文档\n- 为ePortal协议注销占位凭据(drcom/123)添加协议说明注释\n- 为netsh命令format!用法添加语法说明注释\n\n### 杂项\n- 同步根package.json版本号至2.2.1",
   "assets": [
     {
-      "name": "campus-login_2.2.1_x64-setup.exe",
-      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.1/campus-login_2.2.1_x64-setup.exe",
+      "name": "campus-login_2.2.2_x64-setup.exe",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.2/campus-login_2.2.2_x64-setup.exe",
       "size": 0
     },
     {
-      "name": "campus-login_2.2.1_x64_en-US.msi",
-      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.1/campus-login_2.2.1_x64_en-US.msi",
+      "name": "campus-login_2.2.2_x64_en-US.msi",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.2/campus-login_2.2.2_x64_en-US.msi",
       "size": 0
     },
     {
-      "name": "campus-login_2.2.1_x64-setup.exe.sha256",
-      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.1/campus-login_2.2.1_x64-setup.exe.sha256",
+      "name": "campus-login_2.2.2_x64-setup.exe.sha256",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.2/campus-login_2.2.2_x64-setup.exe.sha256",
       "size": 0
     }
   ]

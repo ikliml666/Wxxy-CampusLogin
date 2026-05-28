@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import { gsap } from 'gsap'
 
 type AnimationFactory = (el: HTMLElement) => gsap.core.Tween | gsap.core.Timeline
@@ -25,6 +25,15 @@ export function useGsapAnimations(factories: Record<string, AnimationFactory>) {
     const factory = factoriesRef.current[name]
     if (factory) {
       animRef.current = factory(elRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (animRef.current) {
+        animRef.current.kill()
+        animRef.current = null
+      }
     }
   }, [])
 

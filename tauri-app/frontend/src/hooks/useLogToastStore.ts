@@ -76,7 +76,7 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
     idsToDelete.forEach(id => toastTimers.delete(id))
   },
 
-  setLogs: (logs) => set({ logs }),
+  setLogs: (logs) => set({ logs: logs.length > MAX_LOG_ENTRIES ? logs.slice(-MAX_LOG_ENTRIES) : logs }),
 
   cleanupToasts: () => {
     toastTimers.forEach(t => clearTimeout(t))

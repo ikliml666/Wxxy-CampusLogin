@@ -40,13 +40,12 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
           return (
             <m.div
               key={toast.id}
-              layout
               initial={{ opacity: 0, scale: 0.85, x: -40, y: 10 }}
               animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
               exit={{ opacity: 0, scale: 0.85, x: -100, y: -10 }}
               transition={{ type: 'spring', stiffness: 400, damping: 25, mass: 0.8 }}
               className={cn(
-                'pointer-events-auto flex items-start gap-3 w-80 p-4 rounded-xl shadow-lg backdrop-blur-md',
+                'pointer-events-auto flex items-start gap-3 w-80 p-4 rounded-xl shadow-lg',
                 TOAST_STYLES[toast.type]
               )}
             >

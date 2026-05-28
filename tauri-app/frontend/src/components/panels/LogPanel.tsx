@@ -334,7 +334,6 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                         initial={enableAnimation ? "initial" : false}
                         animate={enableAnimation ? "animate" : undefined}
                         exit={enableAnimation ? "exit" : undefined}
-                        layout={enableAnimation}
                         className={cn(
                           'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
                           cfg.border,

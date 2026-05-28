@@ -2,17 +2,17 @@ export const cardStaggerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { staggerChildren: 0.08, delayChildren: 0.05 },
+    transition: { staggerChildren: 0.05, delayChildren: 0.03 },
   },
 }
 
 export const cardItemVariants = {
-  hidden: { opacity: 0, y: 24, scale: 0.92 },
+  hidden: { opacity: 0, y: 16, scale: 0.96 },
   visible: {
     opacity: 1,
     y: 0,
     scale: 1,
-    transition: { type: 'spring' as const, stiffness: 400, damping: 22, mass: 0.7 },
+    transition: { type: 'spring' as const, stiffness: 600, damping: 35, mass: 0.4 },
   },
 }
 

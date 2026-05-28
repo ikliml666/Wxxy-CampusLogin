@@ -148,7 +148,7 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
     <div className={cn(
       'rounded-2xl p-3',
       loading ? 'bg-primary/5 border border-primary/10 opacity-60' : 'bg-muted/30',
-    )}>
+    )} style={{ contain: 'content' }}>
       <div className="grid grid-cols-2 gap-3">
         {(['gateway', 'external'] as const).map(side => {
           const isGw = side === 'gateway'

@@ -56,7 +56,6 @@ interface TabContentProps {
 export function TabContent({ children }: TabContentProps) {
   return (
     <m.div
-      layout
       transition={{ duration: 0.2, ease: [0.25, 0.8, 0.25, 1] }}
     >
       <AnimatePresence mode="wait" initial={false}>

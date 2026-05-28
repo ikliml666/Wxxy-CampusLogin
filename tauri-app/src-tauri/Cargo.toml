@@ -46,6 +46,8 @@ socket2 = { version = "0.5", features = ["all"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"
+webview2-com-sys = "0.38"
+windows-core = "0.61"
 windows = { version = "0.58", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",

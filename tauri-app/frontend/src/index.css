@@ -194,7 +194,7 @@
     border-radius: 18px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
-    contain: layout style;
+    contain: strict;
   }
 
   .glass-dock::before {
@@ -464,7 +464,7 @@
   .card-hover-lift {
     transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
                 box-shadow 0.35s ease;
-    contain: layout style;
+    contain: content;
   }
 
   .card-hover-lift:hover {
@@ -705,7 +705,7 @@
                 padding 0.3s ease,
                 margin 0.3s ease,
                 gap 0.3s ease;
-    contain: layout style;
+    contain: content;
   }
 
 }

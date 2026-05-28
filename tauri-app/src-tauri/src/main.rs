@@ -75,17 +75,15 @@ fn detect_gpu_adapter() -> &'static str {
 
 fn build_browser_args() -> String {
     let gpu = detect_gpu_adapter();
-    let mut args = String::from("--disable-features=EnableDrDc");
+    let mut args = String::from("--disable-features=EnableDrDc --js-flags=--max-old-space-size=512 --renderer-process-limit=4 --enable-zero-copy --enable-native-gpu-memory-buffers --gpu-memory-buffer-size-mb=128 --use-angle=d3d11 --disable-gpu-memory-buffer-video-planes --num-raster-threads=4 --enable-features=SkiaGraphite");
 
     match gpu {
-        "nvidia" => {
-            args.push_str(" --enable-features=VaapiVideoDecoder,SkiaGraphite");
-        }
+        "nvidia" => {}
         "intel" => {
-            args.push_str(" --enable-features=UseSkiaRenderer,SkiaGraphite");
+            args.push_str(",UseSkiaRenderer");
         }
         "amd" => {
-            args.push_str(" --enable-features=UseSkiaRenderer,SkiaGraphite");
+            args.push_str(",UseSkiaRenderer");
         }
         _ => {}
     }
@@ -342,6 +340,31 @@ fn run_app(core_count: usize) {
                         s.tasks.latency_running.force_release();
                         s.tasks.adapter_watch_running.force_release();
                         app_h.exit(0);
+                    });
+                }
+            }
+
+            #[cfg(target_os = "windows")]
+            if let tauri::WindowEvent::Focused(focused) = event {
+                use windows_core::Interface;
+                use webview2_com_sys::Microsoft::Web::WebView2::Win32::{
+                    ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+                };
+                let level = if *focused {
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL.0)
+                } else {
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW.0)
+                };
+                if let Some(ww) = window.app_handle().get_webview_window("main") {
+                    let _ = ww.as_ref().with_webview(move |pw| {
+                        let controller = pw.controller();
+                        if let Ok(core_webview) = unsafe { controller.CoreWebView2() } {
+                            if let Ok(icw2_19) = core_webview.cast::<ICoreWebView2_19>() {
+                                let _ = unsafe { icw2_19.SetMemoryUsageTargetLevel(level) };
+                            }
+                        }
                     });
                 }
             }

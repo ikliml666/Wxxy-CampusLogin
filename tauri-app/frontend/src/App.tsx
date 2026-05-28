@@ -480,7 +480,7 @@ function AppInner() {
           panelChangeLock.current = true
           store.setActivePanel(p)
           safeStorage.set('campus-active-panel', p)
-          setTimeout(() => { panelChangeLock.current = false }, 300)
+          setTimeout(() => { panelChangeLock.current = false }, 500)
         }}
         enableNetworkQuality={configEnableNetworkQuality !== false}
         isLoggingIn={store.isLoggingIn}
