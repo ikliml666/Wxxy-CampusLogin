@@ -81,7 +81,7 @@ export function FluidBackground() {
     <div
       ref={containerRef}
       className="fixed inset-0 z-0 overflow-hidden pointer-events-none"
-      style={{ background: 'var(--surface-main)', contain: 'strict' }}
+      style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}
     >
       <div
         className={`absolute inset-0 gradient-shift ${isActive ? '' : 'anim-paused'}`}
@@ -98,7 +98,7 @@ export function FluidBackground() {
             opacity: orb.opacity,
             left: '10%',
             top: '10%',
-            willChange: isActive ? 'transform' : 'auto',
+            willChange: 'transform',
           }}
         />
       ))}

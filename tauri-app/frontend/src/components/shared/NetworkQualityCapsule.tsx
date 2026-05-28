@@ -159,7 +159,6 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
           )}
           style={{
             background: capsuleBg,
-            backdropFilter: 'blur(8px)',
             isolation: 'isolate',
           }}
           whileHover={{ scale: 1.05 }}

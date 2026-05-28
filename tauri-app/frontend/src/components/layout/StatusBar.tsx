@@ -61,7 +61,6 @@ export const StatusBar = memo(function StatusBar({ statusText, statusState, netw
             )}
             style={{
               background: cfg.bg,
-              backdropFilter: 'blur(8px)',
               isolation: 'isolate',
             }}
           >

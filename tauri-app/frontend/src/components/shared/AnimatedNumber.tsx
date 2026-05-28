@@ -34,12 +34,10 @@ export function AnimatedNumber({
     const ctx = gsap.context(() => {
       if (!ref.current) return
 
-      gsap.killTweensOf(ref.current)
-      gsap.killTweensOf(objRef.current)
-
       objRef.current.value = from
 
-      gsap.to(objRef.current, {
+      const tl = gsap.timeline()
+      tl.to(objRef.current, {
         value: to,
         duration: duration / 1000,
         ease: 'power2.out',
@@ -48,15 +46,13 @@ export function AnimatedNumber({
             ref.current.textContent = `${objRef.current.value.toFixed(decimals)}${unit}`
           }
         },
-      })
-
-      const tl = gsap.timeline()
-      tl.to(ref.current, {
+      }, 0)
+      .to(ref.current, {
         scale: 1.12,
         duration: (duration / 1000) * 0.3,
         ease: 'power2.out',
         force3D: true,
-      })
+      }, 0)
       .to(ref.current, {
         scale: 0.96,
         duration: (duration / 1000) * 0.2,
@@ -67,14 +63,13 @@ export function AnimatedNumber({
         duration: (duration / 1000) * 0.3,
         ease: 'elastic.out(1, 0.6)',
       })
-
-      gsap.to(ref.current, {
+      .to(ref.current, {
         color: highlightColor,
         duration: (duration / 1000) * 0.3,
         yoyo: true,
         repeat: 1,
         ease: 'power2.inOut',
-      })
+      }, 0)
     }, ref)
 
     ctxRef.current = ctx
