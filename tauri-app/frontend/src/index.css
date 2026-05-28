@@ -197,7 +197,7 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
     isolation: isolate;
-    contain: layout style paint;
+    contain: layout style;
   }
 
   .glass-dock::before {
