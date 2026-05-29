@@ -40,24 +40,13 @@ function AppInner() {
   useAppInit()
 
   const activePanel = useAppStore((s) => s.activePanel)
-  const isLightMode = useAppStore((s) => s.isLightMode)
-  const themeName = useAppStore((s) => s.themeName)
   const adapters = useAppStore((s) => s.adapters)
-  const adapterDetails = useAppStore((s) => s.adapterDetails)
   const accounts = useAppStore((s) => s.accounts)
   const activeAccount = useAppStore((s) => s.activeAccount)
-  const passwordSaved = useAppStore((s) => s.passwordSaved)
-  const disabledAdapters = useAppStore((s) => s.disabledAdapters)
-  const status = useAppStore((s) => s.status)
   const isLoggingIn = useAppStore((s) => s.isLoggingIn)
-  const isLoggingOut = useAppStore((s) => s.isLoggingOut)
-  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
-  const updateAvailable = useAppStore((s) => s.updateAvailable)
-  const latestVersion = useAppStore((s) => s.latestVersion)
-  const releaseNotes = useAppStore((s) => s.releaseNotes)
 
   const config = useAppStore(useShallow((s) => s.config))
-  const api = useAppStore((s) => s.api)
+  const api = useAppStore.getState().api
 
   const updateConfig = useAppStore((s) => s.updateConfig)
   const setActivePanel = useAppStore((s) => s.setActivePanel)
@@ -66,7 +55,6 @@ function AppInner() {
   const setReleaseNotes = useAppStore((s) => s.setReleaseNotes)
   const addToast = useAppStore((s) => s.addToast)
   const doLogin = useAppStore((s) => s.doLogin)
-  const doLogout = useAppStore((s) => s.doLogout)
   const refreshQuality = useAppStore((s) => s.refreshQuality)
 
   const { handleOpenPortal, handleOpenSelfService } = useAuth()
@@ -76,7 +64,6 @@ function AppInner() {
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
 
   const configEnableNotification = config.enableNotification
-  const configEnableNetworkQuality = config.enableNetworkQuality
   const configAutoLaunch = config.autoLaunch
 
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
@@ -140,8 +127,6 @@ function AppInner() {
           config={config}
           accounts={accounts}
           activeAccount={activeAccount}
-          isRefreshingQuality={isRefreshingQuality}
-          adapterDetails={adapterDetails}
           onUpdateConfig={updateConfig}
           onSwitchAccount={handleSwitchAccount}
           onDhcpRenew={handleDhcpRenew}
@@ -157,7 +142,6 @@ function AppInner() {
           adapters={adapters}
           accounts={accounts}
           activeAccount={activeAccount}
-          passwordSaved={passwordSaved}
           onUpdateConfig={updateConfig}
           onAddAccount={handleAddAccount}
           onDeleteAccount={(name) => setConfirmDelete({ open: true, name })}
@@ -170,7 +154,6 @@ function AppInner() {
         <NetworkPanel
           config={config}
           adapters={adapters}
-          disabledAdapters={disabledAdapters}
           onUpdateConfig={updateConfig}
           onEnableAdapter={api.enableAdapter}
         />
@@ -187,10 +170,9 @@ function AppInner() {
       )
       break
     case 'quality':
-      panelContent = configEnableNetworkQuality !== false ? (
+      panelContent = config.enableNetworkQuality !== false ? (
         <QualityPanel
           config={config}
-          isRefreshingQuality={isRefreshingQuality}
           onUpdateConfig={updateConfig}
           onRefreshQuality={refreshQuality}
           onToggleLatencyTest={handleToggleLatencyTest}
@@ -202,8 +184,6 @@ function AppInner() {
         <SettingsPanel
           config={config}
           autoLaunch={configAutoLaunch !== false}
-          isLightMode={isLightMode}
-          themeName={themeName}
           onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
           onToggleLightMode={handleToggleLightMode}
@@ -236,7 +216,6 @@ function AppInner() {
       <div className="animate-stagger-1">
         <TitleBar
           notificationEnabled={configEnableNotification !== false}
-          isLightMode={isLightMode}
           onToggleNotification={handleToggleNotification}
           onShowTheme={() => setThemeOpen(true)}
           onShowAbout={() => setAboutOpen(true)}
@@ -245,20 +224,13 @@ function AppInner() {
           onToggleMaximize={handleToggleMaximize}
           isMaximized={isMaximized}
           onClose={() => api.closeWindow?.()}
-          updateAvailable={updateAvailable}
-          latestVersion={latestVersion}
         />
       </div>
 
       <div className="animate-stagger-2">
         <StatusBar
-          statusText={status.text}
-          statusState={status.state}
-          enableNetworkQuality={configEnableNetworkQuality !== false}
           onOpenPortal={handleOpenPortal}
           onOpenSelfService={handleOpenSelfService}
-          onRefreshQuality={refreshQuality}
-          isRefreshing={isRefreshingQuality}
         />
       </div>
 
@@ -288,14 +260,10 @@ function AppInner() {
         <RightPanel
           logs={logs}
           onClearLogs={handleClearLogs}
-          adapterDetails={adapterDetails}
-          adapters={adapters}
-          config={config}
         />
       </div>
 
       <DockNav
-        activePanel={activePanel}
         onPanelChange={(p) => {
           if (panelChangeLock.current) return
           panelChangeLock.current = true
@@ -303,12 +271,6 @@ function AppInner() {
           safeStorage.set('campus-active-panel', p)
           setTimeout(() => { panelChangeLock.current = false }, 500)
         }}
-        enableNetworkQuality={configEnableNetworkQuality !== false}
-        isLoggingIn={isLoggingIn}
-        isLoggingOut={isLoggingOut}
-        adapters={adapters}
-        onLogin={doLogin}
-        onLogout={doLogout}
       />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
@@ -317,8 +279,8 @@ function AppInner() {
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
         openExternal={(url) => api.openExternal?.(url)}
-        initialLatestVersion={latestVersion}
-        initialReleaseNotes={releaseNotes}
+        initialLatestVersion={useAppStore.getState().latestVersion}
+        initialReleaseNotes={useAppStore.getState().releaseNotes}
         onUpdateAvailable={(hasUpdate, version, notes) => {
           setUpdateAvailable(hasUpdate)
           if (version) setLatestVersion(version)
@@ -332,8 +294,6 @@ function AppInner() {
       <ThemeDialog
         open={themeOpen}
         onClose={() => setThemeOpen(false)}
-        themeName={themeName}
-        isLightMode={isLightMode}
         onSetTheme={handleSetTheme}
         onToggleLightMode={handleToggleLightMode}
       />

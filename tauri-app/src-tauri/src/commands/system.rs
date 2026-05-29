@@ -62,7 +62,7 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
         let current = state.config.load();
         let mut cfg = current.as_ref().clone();
         cfg.auto_launch = enabled;
-        if let Err(e) = super::config_cmd::save_config_to_disk(&app_handle, &cfg) {
+        if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
             return Ok(serde_json::json!({ "success": false, "message": format!("保存配置失败: {}", e) }));
         }
         state.config.store(Arc::new(cfg));
@@ -94,7 +94,7 @@ pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_h
         let mut cfg = current.as_ref().clone();
         cfg.enable_notification = enabled;
         state.config.store(Arc::new(cfg.clone()));
-        if let Err(e) = super::config_cmd::save_config_to_disk(&app_handle, &cfg) {
+        if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
             crate::log_warn!("system", "保存通知设置失败: {}", e);
         }
     }
@@ -190,12 +190,14 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
 
     let version = env!("CARGO_PKG_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
+    let gpu_info = crate::platform::gpu::detect_gpu_info();
 
     Ok(serde_json::json!({
         "config": cfg,
         "accounts": accounts,
         "version": version,
         "autoLaunch": auto_launch,
+        "gpuInfo": gpu_info,
     }))
 }
 
@@ -209,9 +211,8 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
     }))
 }
 
-#[allow(dead_code)]
 #[tauri::command]
 pub fn get_gpu_info() -> Result<serde_json::Value, String> {
-    let gpu = crate::platform::gpu::detect_gpu_adapter();
-    Ok(serde_json::json!({ "gpu": gpu }))
+    let info = crate::platform::gpu::detect_gpu_info();
+    Ok(serde_json::to_value(info).unwrap_or(serde_json::json!({ "gpu": "unknown" })))
 }

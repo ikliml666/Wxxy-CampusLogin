@@ -14,17 +14,18 @@ import {
 import { THEME_OPTIONS } from '@/settings'
 import { cn } from '@/lib/utils'
 import type { ThemeName } from '@/shared'
+import { useAppStore } from '@/hooks/useAppStore'
 
 interface ThemeDialogProps {
   open: boolean
   onClose: () => void
-  themeName: string
-  isLightMode: boolean
   onSetTheme: (name: ThemeName) => void
   onToggleLightMode: () => void
 }
 
-export function ThemeDialog({ open, onClose, themeName, isLightMode, onSetTheme, onToggleLightMode }: ThemeDialogProps) {
+export function ThemeDialog({ open, onClose, onSetTheme, onToggleLightMode }: ThemeDialogProps) {
+  const themeName = useAppStore((s) => s.themeName)
+  const isLightMode = useAppStore((s) => s.isLightMode)
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">

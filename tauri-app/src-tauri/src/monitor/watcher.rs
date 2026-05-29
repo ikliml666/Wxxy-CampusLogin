@@ -468,7 +468,7 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
         (interval, cfg)
     };
 
-    if let Err(e) = crate::commands::config_cmd::save_config_to_disk(app_handle, &cfg) {
+    if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &cfg) {
         crate::log_warn!("background", "保存后台检测配置失败: {}", e);
     }
 

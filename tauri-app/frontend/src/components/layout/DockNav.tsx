@@ -20,6 +20,7 @@ import { NAV_ITEMS } from '@/shared'
 import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'
+import { useAppStore } from '@/hooks/useAppStore'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -330,26 +331,37 @@ function ActionButtonWithMenu({
 }
 
 interface DockNavProps {
-  activePanel: PanelName
   onPanelChange: (panel: PanelName) => void
-  enableNetworkQuality: boolean
-  isLoggingIn: boolean
-  isLoggingOut: boolean
-  adapters: Adapter[]
-  onLogin: (adapterName?: string) => void
-  onLogout: (adapterName?: string) => void
 }
 
-export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enableNetworkQuality, isLoggingIn, isLoggingOut, adapters, onLogin, onLogout }: DockNavProps) {
+export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
+  const activePanel = useAppStore((s) => s.activePanel)
+  const isLoggingIn = useAppStore((s) => s.isLoggingIn)
+  const isLoggingOut = useAppStore((s) => s.isLoggingOut)
+  const adapters = useAppStore((s) => s.adapters)
+  const enableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality !== false)
+  const doLogin = useAppStore((s) => s.doLogin)
+  const doLogout = useAppStore((s) => s.doLogout)
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const mouseX = useMotionValue(-1000)
   const itemRefs = useRef<Map<PanelName, HTMLButtonElement>>(new Map())
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
   const [mounted, setMounted] = useState(false)
 
+  const rafRef = useRef(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    mouseX.set(e.clientX)
+    if (rafRef.current) return
+    rafRef.current = requestAnimationFrame(() => {
+      mouseX.set(e.clientX)
+      rafRef.current = 0
+    })
   }, [mouseX])
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
 
   const handleMouseLeave = useCallback(() => {
     mouseX.set(-1000)
@@ -429,7 +441,7 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
           isLoading={isLoggingOut}
           isDisabled={isLoggingIn}
           adapters={adapters}
-          onAction={onLogout}
+          onAction={doLogout}
           variant="outline"
         />
 
@@ -440,7 +452,7 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
           isLoading={isLoggingIn}
           isDisabled={isLoggingOut}
           adapters={adapters}
-          onAction={onLogin}
+          onAction={doLogin}
           variant="primary"
         />
       </nav>

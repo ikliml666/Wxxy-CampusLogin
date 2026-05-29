@@ -1,4 +1,3 @@
-import type { StatusState } from '@/shared'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -9,17 +8,18 @@ import { m } from 'framer-motion'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface StatusBarProps {
-  statusText: string
-  statusState: StatusState
-  enableNetworkQuality: boolean
   onOpenPortal: () => void
   onOpenSelfService?: () => void
-  onRefreshQuality?: () => void
-  isRefreshing?: boolean
 }
 
-export const StatusBar = memo(function StatusBar({ statusText, statusState, enableNetworkQuality, onOpenPortal, onOpenSelfService, onRefreshQuality, isRefreshing }: StatusBarProps) {
+export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfService }: StatusBarProps) {
+  const status = useAppStore((s) => s.status)
+  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
+  const enableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality !== false)
+  const refreshQuality = useAppStore((s) => s.refreshQuality)
   const networkQuality = useAppStore((s) => s.networkQuality)
+  const statusText = status.text
+  const statusState = status.state
   const prevStatusRef = useRef(statusState)
   const wasOffline = prevStatusRef.current === 'offline' && statusState !== 'offline'
 
@@ -76,18 +76,18 @@ export const StatusBar = memo(function StatusBar({ statusText, statusState, enab
             <>
               <NetworkQualityCapsule networkQuality={networkQuality} />
 
-              {onRefreshQuality && (
+              {refreshQuality && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <RefreshButton
-                      onClick={onRefreshQuality}
-                      disabled={isRefreshing}
-                      isRefreshing={isRefreshing ?? false}
+                      onClick={refreshQuality}
+                      disabled={isRefreshingQuality}
+                      isRefreshing={isRefreshingQuality}
                       aria-label="刷新延迟检测"
                     />
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    <p>{isRefreshing ? '正在检测...' : '刷新延迟'}</p>
+                    <p>{isRefreshingQuality ? '正在检测...' : '刷新延迟'}</p>
                   </TooltipContent>
                 </Tooltip>
               )}

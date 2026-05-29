@@ -134,13 +134,27 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   useEffect(() => {
     if (!isHovered) return
     updatePopupPos()
-    const onScroll = () => updatePopupPos()
-    const onResize = () => updatePopupPos()
+    let rafId: number | null = null
+    const onScroll = () => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        updatePopupPos()
+        rafId = null
+      })
+    }
+    const onResize = () => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        updatePopupPos()
+        rafId = null
+      })
+    }
     window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onResize)
     return () => {
       window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onResize)
+      if (rafId !== null) cancelAnimationFrame(rafId)
     }
   }, [isHovered, updatePopupPos])
 

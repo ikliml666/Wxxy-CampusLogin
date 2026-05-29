@@ -18,7 +18,7 @@ import {
   Eye, EyeOff, Loader2, UserCircle, KeyRound
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings'
-import { APP_NAME } from '@/shared'
+import { APP_NAME, PASSWORD_MASK } from '@/shared'
 import { cn, safeStorage } from '@/lib/utils'
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
@@ -65,7 +65,7 @@ function StepIndicator({ current }: { current: number }) {
 export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
   const [step, setStep] = useState(0)
   const [username, setUsername] = useState(config.user || '')
-  const [password, setPassword] = useState(config.password || '')
+  const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
   const [operator, setOperator] = useState(config.operator || '__default__')
   const [adapter1, setAdapter1] = useState(config.adapter1 || '自动检测')
   const [showPassword, setShowPassword] = useState(false)
@@ -77,7 +77,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
     if (open && !prevOpenRef.current) {
       setStep(0)
       setUsername(config.user || '')
-      setPassword(config.password || '')
+      setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
       setOperator(config.operator || '__default__')
       setAdapter1(config.adapter1 || '自动检测')
       setLoginSuccess(false)
@@ -85,16 +85,20 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
     prevOpenRef.current = open
   }, [open, config.user, config.password, config.operator, config.adapter1])
 
-  const canProceedAccount = username.trim().length > 0 && password.trim().length > 0
+  const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
   const handleNext = useCallback(() => {
     if (step === 1) {
       if (!canProceedAccount) return false
-      onUpdateConfig({
+      const updateData: Partial<Config> = {
         user: username.trim(),
-        password: password.trim(),
         operator: operator === '__default__' ? '' : operator,
-      })
+      }
+      // 仅当用户输入了新密码时才更新 password 字段，避免空密码覆盖已保存的密码
+      if (password.trim()) {
+        updateData.password = password.trim()
+      }
+      onUpdateConfig(updateData)
     }
     if (step === 2) {
       onUpdateConfig({

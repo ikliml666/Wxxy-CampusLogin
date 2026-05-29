@@ -700,11 +700,8 @@
   }
 
   .layout-smooth-resize {
-    transition: width 0.35s ease,
-                height 0.35s ease,
-                padding 0.3s ease,
-                margin 0.3s ease,
-                gap 0.3s ease;
+    transition: gap 0.3s ease,
+                opacity 0.2s ease;
     contain: content;
   }
 
@@ -781,5 +778,48 @@
 
   .status-ring-expand.active::after {
     animation: statusRingExpand 0.6s ease-out forwards !important;
+  }
+
+  @keyframes signalBarEnter {
+    0% { transform: scaleY(0); }
+    40% { transform: scaleY(1.15); }
+    60% { transform: scaleY(0.92); }
+    80% { transform: scaleY(1.04); }
+    100% { transform: scaleY(1); }
+  }
+
+  @keyframes signalGlowPulse {
+    0% { opacity: 0; transform: scaleX(0); }
+    20% { opacity: 0.7; transform: scaleX(1.3); }
+    40% { opacity: 0.3; transform: scaleX(0.8); }
+    60% { opacity: 0.7; transform: scaleX(1.1); }
+    80% { opacity: 0.5; transform: scaleX(0.95); }
+    100% { opacity: 1; transform: scaleX(1); }
+  }
+
+  .signal-bar-enter {
+    animation: signalBarEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    will-change: transform;
+  }
+
+  .signal-glow-active {
+    animation: signalGlowPulse 2.5s ease-in-out infinite both;
+    will-change: transform, opacity;
+  }
+
+  .signal-glow-idle {
+    opacity: 0.5;
+    transform: scaleX(1);
+  }
+
+  .anim-idle .signal-glow-active {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .signal-glow-active,
+    .signal-bar-enter {
+      animation: none !important;
+    }
   }
 }

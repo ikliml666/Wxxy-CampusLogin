@@ -5,7 +5,7 @@ import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewRe
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult } from '@/settings'
-import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult } from '@/shared'
+import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult, GpuInfo } from '@/shared'
 
 export interface TauriApi {
   getConfig: () => Promise<Partial<Config>>
@@ -66,6 +66,7 @@ export interface TauriApi {
   checkDnsDohStatus: () => Promise<DnsDohStatus>
   setupDnsDoh: () => Promise<DnsSetupResult>
   renderHeartbeat: () => Promise<void>
+  getGpuInfo: () => Promise<GpuInfo>
 }
 
 const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => () => void) => {
@@ -158,6 +159,7 @@ const tauriApi: TauriApi = {
   checkDnsDohStatus: () => invoke<DnsDohStatus>('check_dns_doh_status'),
   setupDnsDoh: () => invoke<DnsSetupResult>('setup_dns_doh'),
   renderHeartbeat: () => invoke<void>('render_heartbeat'),
+  getGpuInfo: () => invoke<GpuInfo>('get_gpu_info'),
 }
 
 function isRetryableError(e: unknown): boolean {

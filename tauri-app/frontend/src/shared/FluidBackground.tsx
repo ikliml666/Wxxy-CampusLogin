@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
 import { useAnimationActive } from '@/hooks/usePageIdle'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface OrbConfig {
   size: number
@@ -39,6 +40,7 @@ export function FluidBackground() {
   const containerRef = useRef<HTMLDivElement>(null)
   const tlRef = useRef<gsap.core.Timeline | null>(null)
   const isActive = useAnimationActive()
+  const profile = useAnimationProfile()
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -53,7 +55,7 @@ export function FluidBackground() {
       if (gradientEl) {
         tl.fromTo(gradientEl,
           { xPercent: 0, yPercent: -25 },
-          { xPercent: -50, yPercent: -25, duration: GRADIENT_DURATION, ease: 'sine.inOut', force3D: true },
+          { xPercent: -50, yPercent: -25, duration: GRADIENT_DURATION * profile.orbDurationMultiplier, ease: 'sine.inOut', force3D: true },
           0
         )
       }
@@ -64,7 +66,7 @@ export function FluidBackground() {
 
         tl.fromTo(orb,
           { x: config.x[0], y: config.y[0], scale: 0.8 },
-          { x: config.x[1], y: config.y[1], scale: 1.2, duration: config.duration / 1000, ease: 'sine.inOut', force3D: true },
+          { x: config.x[1], y: config.y[1], scale: 1.2, duration: (config.duration / 1000) * profile.orbDurationMultiplier, ease: 'sine.inOut', force3D: true },
           config.delay / 1000
         )
       })
@@ -77,7 +79,7 @@ export function FluidBackground() {
     }, containerRef)
 
     return () => ctx.revert()
-  }, [])
+  }, [profile])
 
   useEffect(() => {
     if (!tlRef.current) return
@@ -97,10 +99,11 @@ export function FluidBackground() {
       <div
         className="gradient-layer absolute"
         style={{
-          width: '150%',
-          height: '150%',
+          width: `${profile.gradientScale * 100}%`,
+          height: `${profile.gradientScale * 100}%`,
           left: 0,
           top: 0,
+          willChange: profile.willChangeGradient ? 'transform' : undefined,
         }}
       />
 
@@ -115,6 +118,7 @@ export function FluidBackground() {
             opacity: orb.opacity,
             left: '10%',
             top: '10%',
+            willChange: profile.willChangeOrbs ? 'transform' : undefined,
           }}
         />
       ))}

@@ -67,7 +67,7 @@ const LINE_OPTIONS = [
   { value: 1000, label: '1000行' },
 ]
 
-const MAX_DISPLAY_LINES = 100
+const MAX_DISPLAY_LINES = 50
 
 export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
   const [rawLogs, setRawLogs] = useState('')
@@ -79,6 +79,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [debugMode, setDebugMode] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
+  const isVisibleRef = useRef(true)
   const lineSelectorRef = useRef<HTMLDivElement>(null)
   const fetchSeqRef = useRef(0)
   const mountedRef = useRef(true)
@@ -108,11 +109,24 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   }, [fetchLogs])
 
   useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { isVisibleRef.current = entry.isIntersecting },
+      { threshold: 0 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
     api.getDebugMode().then(v => { if (mountedRef.current) setDebugMode(v) }).catch(() => {})
   }, [api])
 
   useEffect(() => {
-    const timer = setInterval(fetchLogs, 5000)
+    const timer = setInterval(() => {
+      if (isVisibleRef.current) fetchLogs()
+    }, 5000)
     return () => clearInterval(timer)
   }, [fetchLogs])
 
@@ -337,51 +351,86 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                       仅显示最近{MAX_DISPLAY_LINES}条日志（共{filteredLines.length}条）
                     </div>
                   )}
-                  <AnimatePresence mode={displayedLines.length > 200 ? "wait" : "popLayout"} key={logsKey}>
+                  <AnimatePresence mode="popLayout" key={logsKey}>
                     {displayedLines.map((line) => {
                       const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
                       const Icon = cfg.icon
-                      const enableAnimation = displayedLines.length <= 200
-                    return (
-                      <m.div
-                        key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
-                        variants={enableAnimation ? logEntryVariants : undefined}
-                        initial={enableAnimation ? "initial" : false}
-                        animate={enableAnimation ? "animate" : undefined}
-                        exit={enableAnimation ? "exit" : undefined}
-                        className={cn(
-                          'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
-                          cfg.border,
-                          line.level === 'ERROR' && cfg.bg,
-                          'hover:bg-muted/40',
-                        )}
-                        whileHover={enableAnimation ? {
-                          paddingLeft: 18,
-                          transition: { duration: 0.2 },
-                        } : undefined}
-                      >
-                        <div
+                      const enableAnimation = displayedLines.length <= 30
+                      if (!enableAnimation) {
+                        return (
+                          <div
+                            key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
+                            className={cn(
+                              'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
+                              cfg.border,
+                              line.level === 'ERROR' && cfg.bg,
+                              'hover:bg-muted/40',
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                'log-left-bar absolute left-0 top-0 bottom-0 w-[3px] rounded-r opacity-0 group-hover:opacity-100',
+                                'transition-opacity duration-200',
+                                cfg.leftBar,
+                              )}
+                            />
+                            <Icon className={cn('h-3 w-3 shrink-0 mt-0.5', cfg.color)} />
+                            <span className="text-muted-foreground/50 shrink-0">{line.timestamp}</span>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'h-4 px-1 text-[9px] font-mono shrink-0 border-0',
+                                cfg.bg,
+                                cfg.color,
+                              )}
+                            >
+                              {line.level}
+                            </Badge>
+                            <span className="text-primary/60 shrink-0">[{line.module}]</span>
+                            <span className={cn('break-all', cfg.color)}>{line.message}</span>
+                          </div>
+                        )
+                      }
+                      return (
+                        <m.div
+                          key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
+                          variants={logEntryVariants}
+                          initial="initial"
+                          animate="animate"
+                          exit="exit"
                           className={cn(
-                            'log-left-bar absolute left-0 top-0 bottom-0 w-[3px] rounded-r opacity-0 group-hover:opacity-100',
-                            'transition-opacity duration-200',
-                            cfg.leftBar,
+                            'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
+                            cfg.border,
+                            line.level === 'ERROR' && cfg.bg,
+                            'hover:bg-muted/40',
                           )}
-                        />
-                        <Icon className={cn('h-3 w-3 shrink-0 mt-0.5', cfg.color)} />
-                        <span className="text-muted-foreground/50 shrink-0">{line.timestamp}</span>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            'h-4 px-1 text-[9px] font-mono shrink-0 border-0',
-                            cfg.bg,
-                            cfg.color,
-                          )}
+                          whileHover={{
+                            paddingLeft: 18,
+                            transition: { duration: 0.2 },
+                          }}
                         >
-                          {line.level}
-                        </Badge>
-                        <span className="text-primary/60 shrink-0">[{line.module}]</span>
-                        <span className={cn('break-all', cfg.color)}>{line.message}</span>
-                      </m.div>
+                          <div
+                            className={cn(
+                              'log-left-bar absolute left-0 top-0 bottom-0 w-[3px] rounded-r opacity-0 group-hover:opacity-100',
+                              'transition-opacity duration-200',
+                              cfg.leftBar,
+                            )}
+                          />
+                          <Icon className={cn('h-3 w-3 shrink-0 mt-0.5', cfg.color)} />
+                          <span className="text-muted-foreground/50 shrink-0">{line.timestamp}</span>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'h-4 px-1 text-[9px] font-mono shrink-0 border-0',
+                              cfg.bg,
+                              cfg.color,
+                            )}
+                          >
+                            {line.level}
+                          </Badge>
+                          <span className="text-primary/60 shrink-0">[{line.module}]</span>
+                          <span className={cn('break-all', cfg.color)}>{line.message}</span>
+                        </m.div>
                     )
                   })}
                 </AnimatePresence>

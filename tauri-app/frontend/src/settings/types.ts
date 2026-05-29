@@ -1,4 +1,4 @@
-import type { PanelName } from '@/shared/ui-types'
+import type { PanelName, GpuInfo } from '@/shared/ui-types'
 
 export interface Config {
   user: string
@@ -49,4 +49,5 @@ export interface InitData {
   isAutoStart: boolean
   autoLaunch: boolean
   notificationEnabled: boolean
+  gpuInfo?: GpuInfo
 }

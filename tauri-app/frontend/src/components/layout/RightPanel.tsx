@@ -1,6 +1,5 @@
 import type { LogEntry } from '@/shared'
 import type { AdapterDetail, Adapter } from '@/network'
-import type { Config } from '@/settings'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { ScrollText, CheckCircle2, AlertCircle, Info, AlertTriangle, Trash2, Wifi, Cable, ChevronDown, ChevronRight } from 'lucide-react'
@@ -8,13 +7,12 @@ import { cn } from '@/lib/utils'
 import { useRef, useEffect, useCallback, memo, useMemo, useState } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
 import { logEntryVariants } from '@/lib/animations'
+import { useAppStore } from '@/hooks/useAppStore'
+import { useShallow } from 'zustand/react/shallow'
 
 interface RightPanelProps {
   logs: LogEntry[]
   onClearLogs?: () => void
-  adapterDetails: AdapterDetail[]
-  adapters: Adapter[]
-  config: Config | null
 }
 
 const LOG_ICONS: Record<LogEntry['type'], typeof Info> = {
@@ -68,7 +66,10 @@ function getAdapterInfo(
   return null
 }
 
-export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterDetails, adapters, config }: RightPanelProps) {
+export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightPanelProps) {
+  const adapterDetails = useAppStore((s) => s.adapterDetails)
+  const adapters = useAppStore((s) => s.adapters)
+  const config = useAppStore(useShallow((s) => s.config))
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const prevLogCountRef = useRef(0)

@@ -132,24 +132,6 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     setChecking(false)
   }, [api, onUpdateAvailable])
 
-  const handleSelectAsset = useCallback(async (assetUrl: string) => {
-    setDownloadState('selecting')
-    setShowMirrorList(false)
-    setSelectedMirror(null)
-    try {
-      const mirrorList = await api.getMirrorUrls(assetUrl)
-      setMirrors(mirrorList)
-      // 自动选择第一个非 GitHub 源作为默认，否则选 GitHub
-      const preferred = mirrorList.find(m => m.name !== 'GitHub' && m.name !== 'GitHub 官方') || mirrorList[0]
-      if (preferred) {
-        setSelectedMirror(preferred.url)
-      }
-    } catch {
-      setMirrors([{ name: 'GitHub', url: assetUrl, description: '官方源' }])
-      setSelectedMirror(assetUrl)
-    }
-  }, [api])
-
   const handleDownload = useCallback(async (url: string) => {
     setDownloadState('downloading')
     setProgress(null)

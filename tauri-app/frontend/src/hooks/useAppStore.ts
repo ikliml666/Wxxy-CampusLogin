@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Config } from '@/settings'
-import type { PanelName, StatusState, ThemeName, LogType, ToastMessage, LogEntry } from '@/shared'
+import type { PanelName, StatusState, ThemeName, LogType, ToastMessage, LogEntry, GpuInfo } from '@/shared'
 import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus } from '@/network'
 import type { BackgroundStatus, NetworkQuality } from '@/monitor'
 import { DEFAULT_CONFIG, VALID_THEMES } from '@/settings'
@@ -42,6 +42,7 @@ interface AppStore {
   updateAvailable: boolean
   latestVersion: string
   releaseNotes: string
+  gpuInfo: GpuInfo | null
   api: typeof api
 
   updateConfig: (partial: Partial<Config>) => void
@@ -73,6 +74,7 @@ interface AppStore {
   setUpdateAvailable: (v: boolean) => void
   setLatestVersion: (v: string) => void
   setReleaseNotes: (v: string) => void
+  setGpuInfo: (info: GpuInfo) => void
   doLogin: (adapterName?: string) => Promise<boolean>
   doLogout: (adapterName?: string) => Promise<void>
   checkOnline: (cfg?: Partial<Config>, adps?: Adapter[]) => Promise<void>
@@ -102,17 +104,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateAvailable: false,
   latestVersion: '',
   releaseNotes: '',
+  gpuInfo: null,
   api,
 
   updateConfig: (partial) => {
     const { config, saveConfigDirect } = get()
+    // 先将 partial 合并到 config，保留 PASSWORD_MASK 在内存中
+    // （MASK 在 store 中表示"密码已保存但前端不可见"，后续 saveConfigDirect 会原样发送给后端）
+    const next = { ...config, ...partial }
+    set({ config: next })
+    // 累积所有变更字段，但过滤掉 MASK（MASK 不应作为变更字段发送，saveConfigDirect 会从 store 中取到 MASK）
     const sanitized = { ...partial }
     if (sanitized.password === PASSWORD_MASK) {
       delete (sanitized as Partial<Config>).password
     }
-    const next = { ...config, ...sanitized }
-    set({ config: next })
-    // 累积所有变更字段，而非替换为完整快照，确保防抖窗口内的多次修改都被保留
     saveConfigPending = saveConfigPending ? { ...saveConfigPending, ...sanitized } : { ...sanitized }
     if (saveConfigTimer) clearTimeout(saveConfigTimer)
     saveConfigTimer = setTimeout(() => {
@@ -133,10 +138,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   saveConfigDirect: async (cfg) => {
     try {
       // 合并完整配置，确保发送给后端的是完整的 Config 对象
+      // 保留 PASSWORD_MASK 原样发送，让后端识别 MASK 并保留原密码
       const fullConfig = { ...get().config, ...cfg }
-      if (fullConfig.password === PASSWORD_MASK) {
-        fullConfig.password = ''
-      }
       await api.saveConfig(fullConfig)
     } catch (e: any) {
       const errMsg = extractErrorMessage(e)
@@ -196,6 +199,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
   setLatestVersion: (v) => set({ latestVersion: v }),
   setReleaseNotes: (v) => set({ releaseNotes: v }),
+
+  setGpuInfo: (info) => set({ gpuInfo: info }),
 
   doLogin: async (adapterName?: string): Promise<boolean> => {
     const s = get()
@@ -382,12 +387,10 @@ export function flushPendingConfig() {
     saveConfigPending = null
     const sanitized = { ...pending }
     if (sanitized.password === PASSWORD_MASK) {
-      (sanitized as Partial<Config>).password = undefined
+      delete (sanitized as Partial<Config>).password
     }
+    // 保留 store 中的 PASSWORD_MASK 原样发送给后端，让后端识别并保留原密码
     const fullConfig = { ...useAppStore.getState().config, ...sanitized }
-    if (fullConfig.password === PASSWORD_MASK) {
-      fullConfig.password = ''
-    }
     const api = useAppStore.getState().api
     api?.saveConfig(fullConfig)?.catch?.(() => {})
   }
@@ -405,15 +408,12 @@ useAppStore.subscribe((state, prev) => {
   if (state.themeName !== prev.themeName || state.customThemeColor !== prev.customThemeColor || state.isLightMode !== prev.isLightMode) {
     const root = document.documentElement
     const themeClasses = ['theme-vibrant', 'theme-forest', 'theme-midnight', 'theme-ocean', 'theme-cherry', 'theme-custom']
-    themeClasses.forEach(cls => root.classList.remove(cls))
+    root.classList.remove(...themeClasses)
     if (state.themeName === 'custom') {
       root.classList.add('theme-custom')
       const hex = state.customThemeColor || '#6366f1'
       const hsl = hexToHsl(hex)
-      root.style.setProperty('--primary', `${hsl.h} ${hsl.s}% ${hsl.l}%`)
-      root.style.setProperty('--ring', `${hsl.h} ${hsl.s}% ${hsl.l}%`)
-      root.style.setProperty('--accent', `${hsl.h} ${Math.min(hsl.s, 33)}% ${state.isLightMode ? 94 : 17}%`)
-      root.style.setProperty('--accent-foreground', `${hsl.h} ${hsl.s}% ${state.isLightMode ? 20 : 85}%`)
+      root.style.cssText += `--primary:${hsl.h} ${hsl.s}% ${hsl.l}%;--ring:${hsl.h} ${hsl.s}% ${hsl.l}%;--accent:${hsl.h} ${Math.min(hsl.s, 33)}% ${state.isLightMode ? 94 : 17}%;--accent-foreground:${hsl.h} ${hsl.s}% ${state.isLightMode ? 20 : 85}%`
     } else {
       root.style.removeProperty('--primary')
       root.style.removeProperty('--ring')

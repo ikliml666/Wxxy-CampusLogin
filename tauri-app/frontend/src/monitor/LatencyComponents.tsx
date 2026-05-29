@@ -6,6 +6,7 @@ import { m } from 'framer-motion'
 import { useMemo, useRef, useEffect, useState } from 'react'
 import { AnimatedNumber } from '@/shared'
 import { useAnimationActive } from '@/hooks/usePageIdle'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 function getSignalCfg(level: string) {
   const qc = QUALITY_CONFIG[level as keyof typeof QUALITY_CONFIG] ?? QUALITY_CONFIG.unknown
@@ -33,6 +34,7 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
   const prevActiveBars = useRef(cfg.activeBars)
   const [barKey, setBarKey] = useState(0)
   const animActive = useAnimationActive()
+  const profile = useAnimationProfile()
 
   useEffect(() => {
     if (prevActiveBars.current !== cfg.activeBars) {
@@ -77,36 +79,32 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
           const bh = compact ? spec.height * 0.8 : spec.height
           return (
             <div key={`${barKey}-${i}`} className="relative flex flex-col items-center">
-              <m.div
-                className="rounded-t-[3px]"
+              <div
+                className="rounded-t-[3px] signal-bar-enter"
                 style={{
                   width: spec.width,
                   height: bh,
                   backgroundColor: isActive ? cfg.color : dimColor,
                   boxShadow: isActive ? `0 0 8px ${cfg.glow}, 0 1px 6px ${cfg.color}30` : 'none',
+                  transformOrigin: 'bottom',
+                  animationDelay: `${spec.delay}s`,
+                  willChange: profile.willChangeOrbs ? 'transform' : undefined,
                 }}
-                initial={{ scaleY: 0, originY: 1 }}
-                animate={{ scaleY: [0, 1.15, 0.92, 1.04, 1], originY: 1 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 15, delay: spec.delay }}
               />
               {isActive && (
-                <m.div
-                  className="absolute bottom-0 rounded-full"
+                <div
+                  className={cn(
+                    'absolute bottom-0 rounded-full',
+                    animActive ? 'signal-glow-active' : 'signal-glow-idle'
+                  )}
                   style={{
                     width: spec.width + 5,
                     height: 3,
                     backgroundColor: cfg.glow,
                     boxShadow: `0 0 4px 2px ${cfg.glow}`,
+                    animationDelay: animActive ? `${spec.delay + 0.4}s` : undefined,
+                    willChange: profile.willChangeOrbs ? 'transform, opacity' : undefined,
                   }}
-                  initial={{ opacity: 0, scaleX: 0 }}
-                  animate={animActive ? {
-                    opacity: [0, 0.7, 0.3, 0.7, 0.5, 1],
-                    scaleX: [0, 1.3, 0.8, 1.1, 0.95, 1],
-                  } : { opacity: 0.5, scaleX: 1 }}
-                  transition={animActive
-                    ? { delay: spec.delay + 0.4, duration: 2.5, repeat: Infinity, repeatType: 'loop' }
-                    : { duration: 0.3 }
-                  }
                 />
               )}
             </div>
@@ -114,17 +112,17 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
         })
       ) : (
         BAR_SPECS.map((spec, i) => (
-          <m.div
+          <div
             key={i}
-            className="rounded-t-[3px]"
+            className="rounded-t-[3px] signal-bar-enter"
             style={{
               height: compact ? spec.height * 0.8 : spec.height,
               width: spec.width,
               backgroundColor: dimColor,
+              transformOrigin: 'bottom',
+              animationDelay: `${spec.delay}s`,
+              willChange: profile.willChangeOrbs ? 'transform' : undefined,
             }}
-            initial={{ scaleY: 0, originY: 1 }}
-            animate={{ scaleY: 1, originY: 1 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 25, delay: spec.delay }}
           />
         ))
       )}
