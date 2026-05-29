@@ -1,4 +1,5 @@
-import type { Config, Adapter } from '@/types'
+import type { Config } from '@/settings'
+import type { Adapter } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,8 @@ import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
   Check, X, Eye, EyeOff
 } from 'lucide-react'
-import { ISP_OPTIONS, PASSWORD_MASK } from '@/constants'
+import { ISP_OPTIONS } from '@/settings'
+import { PASSWORD_MASK } from '@/shared'
 import { cn } from '@/lib/utils'
 import { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { m } from 'framer-motion'

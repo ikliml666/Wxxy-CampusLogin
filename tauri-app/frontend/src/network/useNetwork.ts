@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useShallow } from 'zustand/react/shallow'
-import type { DhcpReleaseRenewResult } from '@/types'
+import type { DhcpReleaseRenewResult } from '@/network'
 
 export function useNetwork() {
   const store = useAppStore(useShallow((s) => ({

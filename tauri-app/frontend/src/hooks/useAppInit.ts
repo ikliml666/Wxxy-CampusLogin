@@ -1,10 +1,13 @@
 import { useEffect, useRef } from 'react'
-import type { PanelName, BackgroundStatus, AdapterOnlineStatus, NetworkQuality, DnsAdapterInfo, LogType } from '@/types'
+import type { PanelName, LogType } from '@/shared'
+import type { BackgroundStatus, AdapterOnlineStatus, NetworkQuality } from '@/monitor'
+import type { DnsAdapterInfo } from '@/network'
 import { useAppStore, flushPendingConfig, hasPendingConfig } from './useAppStore'
 import { useLogToastStore } from './useLogToastStore'
 import { safeStorage } from '@/lib/utils'
 import { mergeNetworkQuality } from '@/lib/latency'
-import { NAV_ITEMS, DEFAULT_CONFIG, PASSWORD_MASK } from '@/constants'
+import { NAV_ITEMS, PASSWORD_MASK } from '@/shared'
+import { DEFAULT_CONFIG } from '@/settings'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 const VALID_PANELS: PanelName[] = NAV_ITEMS.map(item => item.id)

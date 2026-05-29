@@ -1,6 +1,6 @@
 import { Bell, BellOff, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { APP_VERSION } from '@/constants'
+import { APP_VERSION } from '@/shared'
 import { cn } from '@/lib/utils'
 import { memo, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'

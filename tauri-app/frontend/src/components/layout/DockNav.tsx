@@ -1,4 +1,5 @@
-import type { PanelName, Adapter } from '@/types'
+import type { PanelName } from '@/shared'
+import type { Adapter } from '@/network'
 import {
   LayoutDashboard,
   UserCircle,
@@ -15,7 +16,7 @@ import {
   Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { NAV_ITEMS } from '@/constants'
+import { NAV_ITEMS } from '@/shared'
 import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'

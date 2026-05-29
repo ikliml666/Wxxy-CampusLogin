@@ -1,7 +1,7 @@
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getLatencyLevel } from '@/lib/latency'
-import { QUALITY_CONFIG } from '@/constants'
+import { QUALITY_CONFIG } from '@/network'
 import { m } from 'framer-motion'
 import { useMemo, useRef, useEffect, useState } from 'react'
 import { AnimatedNumber } from '@/shared'

@@ -11,9 +11,9 @@ import {
 import {
   Check, Palette, Sparkles, Moon
 } from 'lucide-react'
-import { THEME_OPTIONS } from '@/constants'
+import { THEME_OPTIONS } from '@/settings'
 import { cn } from '@/lib/utils'
-import type { ThemeName } from '@/types'
+import type { ThemeName } from '@/shared'
 
 interface ThemeDialogProps {
   open: boolean

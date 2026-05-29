@@ -1,4 +1,5 @@
-import type { StatusState, NetworkQuality } from '@/types'
+import type { StatusState } from '@/shared'
+import type { NetworkQuality } from '@/monitor'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'

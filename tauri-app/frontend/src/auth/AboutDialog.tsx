@@ -12,11 +12,11 @@ import {
   ChevronDown, ChevronRight, XCircle, Package,
   Zap, Users, Wifi, Sparkles
 } from 'lucide-react'
-import { APP_NAME, APP_VERSION } from '@/constants'
+import { APP_NAME, APP_VERSION } from '@/shared'
 import { cn } from '@/lib/utils'
 import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import { useIpc } from '@/hooks/useIpc'
-import type { UpdateInfo, DownloadProgress, MirrorSource } from '@/types'
+import type { UpdateInfo, DownloadProgress, MirrorSource } from '@/shared'
 
 interface AboutDialogProps {
   open: boolean

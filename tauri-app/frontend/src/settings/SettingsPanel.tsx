@@ -1,4 +1,5 @@
-import type { Config, PanelName, ThemeName } from '@/types'
+import type { Config } from '@/settings'
+import type { PanelName, ThemeName } from '@/shared'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Switch } from '@/components/ui/switch'
@@ -7,7 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import {
   Rocket, Check, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass
 } from 'lucide-react'
-import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/constants'
+import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings'
 import { cn } from '@/lib/utils'
 import { memo, useMemo } from 'react'
 import { m } from 'framer-motion'

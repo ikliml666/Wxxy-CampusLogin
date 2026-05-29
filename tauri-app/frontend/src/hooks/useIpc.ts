@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { Config, Adapter, AdapterDetail, DisabledAdapter, NetworkQuality, BackgroundStatus, DnsDohStatus, InitData, CommandResult, SaveConfigResult, EnableAdapterResult, PortalStatusResult, LoginResult, SwitchAccountResult, SaveAccountResult, DeleteAccountResult, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, AutoLaunchResult, BackgroundCheckEventData, AutoLoginEventData, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource } from '@/types'
+import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
+import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
+import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
+import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult } from '@/account'
+import type { Config, InitData, AutoLaunchResult } from '@/settings'
+import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult } from '@/shared'
 
 export interface TauriApi {
   getConfig: () => Promise<Partial<Config>>

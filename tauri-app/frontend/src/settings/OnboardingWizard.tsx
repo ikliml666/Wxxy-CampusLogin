@@ -17,9 +17,11 @@ import {
   Check, ArrowRight, ArrowLeft, Wifi, Cable, Shield, Zap,
   Eye, EyeOff, Loader2, UserCircle, KeyRound
 } from 'lucide-react'
-import { APP_NAME, ISP_OPTIONS } from '@/constants'
+import { ISP_OPTIONS } from '@/settings'
+import { APP_NAME } from '@/shared'
 import { cn, safeStorage } from '@/lib/utils'
-import type { Config, Adapter } from '@/types'
+import type { Config } from '@/settings'
+import type { Adapter } from '@/network'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
 

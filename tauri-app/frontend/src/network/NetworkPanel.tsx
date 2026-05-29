@@ -1,4 +1,5 @@
-import type { Config, Adapter, DisabledAdapter } from '@/types'
+import type { Config } from '@/settings'
+import type { Adapter, DisabledAdapter } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'

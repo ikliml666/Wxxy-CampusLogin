@@ -1,12 +1,12 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import type { ThemeName } from '@/types'
+import type { ThemeName } from '@/shared'
 import { LazyMotion, domAnimation, MotionConfig } from 'framer-motion'
 import { gsap } from 'gsap'
 import App from './App'
 import { ErrorBoundary } from '@/shared'
 import { safeStorage } from '@/lib/utils'
-import { VALID_THEMES } from '@/constants'
+import { VALID_THEMES } from '@/settings'
 import './index.css'
 
 gsap.defaults({ ease: 'power2.out' })

@@ -1,5 +1,5 @@
 import { AnimatePresence, m } from 'framer-motion'
-import type { ToastMessage } from '@/types'
+import type { ToastMessage } from '@/shared'
 import { CheckCircle2, AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'

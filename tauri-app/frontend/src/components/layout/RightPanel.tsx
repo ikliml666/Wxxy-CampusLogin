@@ -1,4 +1,6 @@
-import type { LogEntry, AdapterDetail, Adapter, Config } from '@/types'
+import type { LogEntry } from '@/shared'
+import type { AdapterDetail, Adapter } from '@/network'
+import type { Config } from '@/settings'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { ScrollText, CheckCircle2, AlertCircle, Info, AlertTriangle, Trash2, Wifi, Cable, ChevronDown, ChevronRight } from 'lucide-react'

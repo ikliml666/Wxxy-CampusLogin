@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
-import type { ThemeName } from '@/types'
+import type { ThemeName } from '@/shared'
 
 export function useSettings() {
   const store = useAppStore(useShallow((s) => ({

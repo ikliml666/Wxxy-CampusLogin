@@ -1,4 +1,5 @@
-import type { Config, AdapterOnlineStatus } from '@/types'
+import type { Config } from '@/settings'
+import type { AdapterOnlineStatus } from '@/monitor'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
