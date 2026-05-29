@@ -15,6 +15,14 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     Ok(())
 }
 
+pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
+    let mut disk_config = config.clone();
+    if !disk_config.password.is_empty() && disk_config.password != crate::config::model::PASSWORD_MASK {
+        disk_config.password = crypto::encrypt(&disk_config.password)?;
+    }
+    save_config_to_disk(app_handle, &disk_config)
+}
+
 fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
     let data_dir = persist::get_data_dir(app_handle);
     let config_path = persist::get_config_path(&data_dir);
@@ -29,7 +37,10 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
     if !config.password.is_empty() && config.password != crate::config::model::PASSWORD_MASK {
         match crypto::decrypt(&config.password) {
             Ok(decrypted) => config.password = decrypted,
-            Err(_) => {}
+            Err(e) => {
+                crate::log_warn!("config", "密码解密失败: {}", e);
+                return Err(format!("密码解密失败，请重新输入密码: {}", e));
+            }
         }
     }
 
@@ -72,10 +83,7 @@ pub fn get_config(state: State<'_, AppState>) -> Result<CommandResult, String> {
 }
 
 #[tauri::command]
-pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config_json: String) -> Result<CommandResult, String> {
-    let config: Config = serde_json::from_str(&config_json)
-        .map_err(|e| format!("解析配置失败: {}", e))?;
-
+pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Config) -> Result<CommandResult, String> {
     let validated = match validate_config(config) {
         Ok(c) => c,
         Err(e) => return Ok(CommandResult::err(&format!("配置验证失败: {}", e))),
@@ -85,12 +93,10 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config_jso
     if config.password == crate::config::model::PASSWORD_MASK {
         let current = state.config.load();
         config.password = current.password.clone();
-    } else if !config.password.is_empty() {
-        config.password = crypto::encrypt(&config.password)?;
     }
 
     state.config.store(Arc::new(config.clone()));
-    save_config_to_disk(&app_handle, &config)?;
+    save_config_to_disk_encrypted(&app_handle, &config)?;
 
     Ok(CommandResult::ok())
 }
@@ -131,14 +137,17 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_j
     let mut config = validated;
     if !config.password.is_empty() && config.password != crate::config::model::PASSWORD_MASK {
         match crypto::decrypt(&config.password) {
-            Ok(_) => {}
-            Err(_) => {
-                config.password = crypto::encrypt(&config.password)?;
+            Ok(decrypted) => {
+                config.password = decrypted;
+            }
+            Err(e) => {
+                crate::log_warn!("config", "导入配置密码解密失败: {}", e);
+                return Ok(CommandResult::err(&format!("密码解密失败，请重新输入密码: {}", e)));
             }
         }
     }
 
     state.config.store(Arc::new(config.clone()));
-    save_config_to_disk(&app_handle, &config)?;
+    save_config_to_disk_encrypted(&app_handle, &config)?;
     Ok(CommandResult::ok())
 }

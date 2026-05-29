@@ -1,5 +1,3 @@
-import type { Config } from '@/settings'
-
 export type StatusState = 'loading' | 'online' | 'offline' | 'error'
 export type PanelName = 'dashboard' | 'account' | 'network' | 'monitor' | 'quality' | 'settings' | 'log' | 'speedtest'
 export type ThemeName = 'default' | 'vibrant' | 'forest' | 'midnight' | 'ocean' | 'cherry' | 'custom'
@@ -41,6 +39,6 @@ export interface SystemNotificationData {
 
 export interface SaveConfigResult {
   success: boolean
-  config?: Config
+  data?: Record<string, unknown>
   message?: string
 }

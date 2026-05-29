@@ -285,7 +285,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const epoch = ++checkOnlineEpoch
     try {
       const s = get()
-      const currentAdapters = adps || s.adapters
+      let currentAdapters = adps || s.adapters
       const currentConfig = cfg || s.config
       if (!currentConfig) return
 
@@ -297,6 +297,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
         const wired = currentAdapters.find(a => !a.wireless)
         const wireless = currentAdapters.find(a => a.wireless)
         adapterIp = (wired || wireless || currentAdapters[0]).ip
+      }
+
+      if (!adapterIp) {
+        try {
+          const freshAdapters = await api.getAdapters?.(true)
+          if (freshAdapters && freshAdapters.length > 0) {
+            currentAdapters = freshAdapters
+            set({ adapters: freshAdapters })
+            if (currentConfig.adapter1 && currentConfig.adapter1 !== '自动检测') {
+              const adapter = currentAdapters.find(a => a.name === currentConfig.adapter1)
+              if (adapter?.ip) adapterIp = adapter.ip
+            } else {
+              const wired = currentAdapters.find(a => !a.wireless)
+              const wireless = currentAdapters.find(a => a.wireless)
+              adapterIp = (wired || wireless || currentAdapters[0]).ip
+            }
+          }
+        } catch {}
       }
 
       if (!adapterIp) {

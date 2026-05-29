@@ -44,10 +44,9 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         validate_username(&config.user)?;
     }
     if !config.password.is_empty() {
-        if config.password == PASSWORD_MASK {
-            return Err("密码不能为\"***\"".to_string());
+        if config.password != PASSWORD_MASK {
+            validate_password(&config.password)?;
         }
-        validate_password(&config.password)?;
     }
     if config.operator == "@ctcc" {
         config.operator = "@telecom".to_string();

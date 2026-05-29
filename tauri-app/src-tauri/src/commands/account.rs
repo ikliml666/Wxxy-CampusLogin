@@ -40,7 +40,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
 
     let app_h2 = app_handle.clone();
     let merged_clone = merged.clone();
-    tauri::async_runtime::spawn_blocking(move || super::config_cmd::save_config_to_disk(&app_h2, &merged_clone)).await.map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || super::config_cmd::save_config_to_disk_encrypted(&app_h2, &merged_clone)).await.map_err(|e| e.to_string())??;
 
     state.config.store(Arc::new(merged));
 

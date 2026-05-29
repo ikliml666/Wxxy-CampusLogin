@@ -7,7 +7,8 @@ pub mod timing;
 pub use adapter::{
     Adapter, AdapterDetail, DisabledAdapter,
     get_adapters_cached, get_adapters_force, get_disabled_adapters_cached,
-    get_disabled_adapters_force, get_adapter_details_cached,
+    get_adapter_details_cached,
+    get_all_adapters_force,
     enable_adapter, resolve_adapter_names, select_adapter,
     wait_for_adapter, dhcp_renew_wired_only, dhcp_release_renew_all,
     is_blacklisted, check_gateway_reachable,

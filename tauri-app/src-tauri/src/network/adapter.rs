@@ -369,6 +369,11 @@ pub fn get_all_adapters_cached() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Ve
     query_adapters_cached_inner()
 }
 
+pub fn get_all_adapters_force() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
+    ADAPTER_CACHE.lock().take();
+    query_adapters_cached_inner()
+}
+
 pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
     let (adapters, _, _) = query_adapters_cached_inner()?;
     Ok(adapters)
@@ -384,6 +389,7 @@ pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
     get_adapters_cached()
 }
 
+#[allow(dead_code)]
 pub fn get_disabled_adapters_force() -> Result<Vec<DisabledAdapter>, String> {
     ADAPTER_CACHE.lock().take();
     get_disabled_adapters_cached()
@@ -801,7 +807,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
             "regOk": reg_ok,
             "success": ip_changed,
             "skipped": false,
-            "message": message
+            "reason": message
         }));
     }
     Ok(results)

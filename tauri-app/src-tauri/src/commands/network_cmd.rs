@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::os::windows::process::CommandExt;
 use crate::network::{
     Adapter, AdapterDetail, DisabledAdapter,
-    get_adapters_cached, get_disabled_adapters_cached,
+    get_adapters_cached, get_adapters_force, get_disabled_adapters_cached,
     enable_adapter as enable_adapter_inner, get_adapter_details_cached,
     dhcp_renew_wired_only, dhcp_release_renew_all,
     select_adapter,
@@ -19,8 +19,11 @@ fn empty_quality_json() -> serde_json::Value {
 }
 
 #[tauri::command]
-pub async fn get_adapters() -> Result<Vec<Adapter>, String> {
-    tauri::async_runtime::spawn_blocking(|| get_adapters_cached()).await.map_err(|e| e.to_string())?
+pub async fn get_adapters(force: Option<bool>) -> Result<Vec<Adapter>, String> {
+    let f = force.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || {
+        if f { get_adapters_force() } else { get_adapters_cached() }
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

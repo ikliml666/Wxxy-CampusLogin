@@ -191,6 +191,7 @@ impl CommandResult {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

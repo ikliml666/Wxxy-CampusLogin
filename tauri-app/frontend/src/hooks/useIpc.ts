@@ -10,7 +10,7 @@ import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, A
 export interface TauriApi {
   getConfig: () => Promise<Partial<Config>>
   saveConfig: (config: Partial<Config>) => Promise<SaveConfigResult>
-  getAdapters: () => Promise<Adapter[]>
+  getAdapters: (force?: boolean) => Promise<Adapter[]>
   getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
   getAdapterDetails: () => Promise<AdapterDetail[]>
@@ -22,6 +22,7 @@ export interface TauriApi {
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
   onAutoLoginResult: (cb: (data: AutoLoginEventData) => void) => () => void
   onAdaptersChanged: (cb: (data: Adapter[]) => void) => () => void
+  onAdapterDetailsChanged: (cb: (data: AdapterDetail[]) => void) => () => void
   onDisabledAdaptersChanged: (cb: (data: DisabledAdapter[]) => void) => () => void
   onAdapterDisabledWarning: (cb: (data: AdapterDisabledWarningData) => void) => () => void
   onLoginLog: (cb: (data: { message: string; type: string }) => void) => () => void
@@ -101,7 +102,7 @@ const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => 
 const tauriApi: TauriApi = {
   getConfig: () => invoke<Partial<Config>>('get_config'),
   saveConfig: (config) => invoke<SaveConfigResult>('save_config', { config }),
-  getAdapters: () => invoke<Adapter[]>('get_adapters'),
+  getAdapters: (force) => invoke<Adapter[]>('get_adapters', { force }),
   getDisabledAdapters: () => invoke<DisabledAdapter[]>('get_disabled_adapters'),
   enableAdapter: (adapterName) => invoke<EnableAdapterResult>('enable_adapter', { adapterName }),
   getAdapterDetails: () => invoke<AdapterDetail[]>('get_adapter_details'),
@@ -113,6 +114,7 @@ const tauriApi: TauriApi = {
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),
   onAutoLoginResult: createEventListener<AutoLoginEventData>('auto-login-result'),
   onAdaptersChanged: createEventListener<Adapter[]>('adapters-changed'),
+  onAdapterDetailsChanged: createEventListener<AdapterDetail[]>('adapter-details-changed'),
   onDisabledAdaptersChanged: createEventListener<DisabledAdapter[]>('disabled-adapters-changed'),
   onAdapterDisabledWarning: createEventListener<AdapterDisabledWarningData>('adapter-disabled-warning'),
   onLoginLog: createEventListener<{ message: string; type: string }>('login-log'),

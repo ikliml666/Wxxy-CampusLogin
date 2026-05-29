@@ -5,7 +5,7 @@ use crate::config::persist::{get_data_dir, get_accounts_dir, atomic_write, list_
 use crate::config::validate::validate_config;
 use super::crypto;
 use crate::infra::state::{AppState, validate_account_name, AccountResult};
-use crate::commands::config_cmd::save_config_to_disk;
+use crate::commands::config_cmd::save_config_to_disk_encrypted;
 
 #[allow(dead_code)]
 pub fn list_accounts_inner(app_handle: &AppHandle) -> Vec<String> {
@@ -67,7 +67,7 @@ pub fn switch_account_inner(app_handle: &AppHandle, account_name: &str) -> Resul
     merged.dual_adapter = config.dual_adapter;
     merged.active_account = account_name.to_string();
 
-    save_config_to_disk(app_handle, &merged)?;
+    save_config_to_disk_encrypted(app_handle, &merged)?;
 
     state.config.store(Arc::new(merged));
 
@@ -214,7 +214,7 @@ pub fn save_account_inner(app_handle: &AppHandle, account_name: &str) -> Result<
         state.config.store(Arc::new(cfg));
     }
 
-    if let Err(e) = save_config_to_disk(app_handle, &state.config.load_full()) {
+    if let Err(e) = save_config_to_disk_encrypted(app_handle, &state.config.load_full()) {
         crate::log_warn!("account", "切换账号后保存配置失败: {}", e);
     }
 

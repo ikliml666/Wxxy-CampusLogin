@@ -119,12 +119,15 @@ export function useAppInit() {
 
         store.getState().setBgStatus((prev: BackgroundStatus) => {
           const prevMap = new Map(prev.adapterStatuses.map(s => [s.name, s]))
+          const currentAdapters = store.getState().adapters
+          const adapterMap = new Map(currentAdapters.map(a => [a.name, a]))
           const buildStatus = (name: string, online: boolean | null | undefined, msg: string | null | undefined): AdapterOnlineStatus => {
             const existing = prevMap.get(name)
+            const adapterInfo = adapterMap.get(name)
             return {
               name,
-              ip: existing?.ip ?? '',
-              wireless: existing?.wireless ?? false,
+              ip: existing?.ip || adapterInfo?.ip || '',
+              wireless: adapterInfo?.wireless ?? existing?.wireless ?? false,
               online: !!online,
               message: (online ? (msg || '已在线') : (msg || '未在线')),
             }
@@ -170,14 +173,18 @@ export function useAppInit() {
       const now = Date.now()
       if (now - lastAdaptersChangedTimeRef.current < 500) return
       lastAdaptersChangedTimeRef.current = now
-      {
-        store.setState({ adapters: adps })
-        api.getAdapterDetails?.().then(details => {
-          if (details) store.setState({ adapterDetails: details })
-        }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+      store.setState({ adapters: adps })
+      const { status } = store.getState()
+      if (status.state === 'offline' || status.state === 'loading') {
+        store.getState().checkOnline(undefined, adps).catch((e) => { if (import.meta.env.DEV) console.error(e) })
       }
     }) ?? (() => {})
     if (unsub3) unlisteners.push(unsub3)
+
+    const unsub3a = api.onAdapterDetailsChanged?.((details) => {
+      if (details) store.setState({ adapterDetails: details })
+    }) ?? (() => {})
+    if (unsub3a) unlisteners.push(unsub3a)
 
     const unsub3b = api.onDisabledAdaptersChanged?.((disabled) => {
       if (disabled) store.setState({ disabledAdapters: disabled })
