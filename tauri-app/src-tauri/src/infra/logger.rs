@@ -74,7 +74,7 @@ pub fn init_logger(log_dir: PathBuf) {
     {
         let old = LOGGER_SENDER.swap(std::sync::Arc::new(Some(sender)));
         if let Some(old_sender) = old.as_ref() {
-            let _ = old_sender.send(LogMessage::Shutdown); // [忽略错误] 旧日志线程可能已退出
+            let _ = old_sender.send(LogMessage::Shutdown);
         }
         drop(old);
     }
@@ -104,14 +104,14 @@ fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<Log
             Ok(LogMessage::Shutdown) => {
                 drain_channel(&receiver, &mut buffer);
                 flush_messages(&mut state, &mut buffer);
-                let _ = state.current_writer.as_mut().map(|w| w.flush()); // [忽略错误] 关闭时 flush 失败无法恢复
+                let _ = state.current_writer.as_mut().map(|w| w.flush());
                 return;
             }
             Ok(msg) => buffer.push(msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 drain_channel(&receiver, &mut buffer);
                 flush_messages(&mut state, &mut buffer);
-                let _ = state.current_writer.as_mut().map(|w| w.flush()); // [忽略错误] 通道断开时 flush 失败无法恢复
+                let _ = state.current_writer.as_mut().map(|w| w.flush());
                 return;
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -154,20 +154,20 @@ fn flush_messages(state: &mut LoggerState, buffer: &mut Vec<LogMessage>) {
         for msg in buffer.drain(..) {
             match msg {
                 LogMessage::Entry { line, .. } => {
-                    let _ = writer.write_all(line.as_bytes()); // [忽略错误] 日志写入失败无法恢复，继续处理下一条
+                    let _ = writer.write_all(line.as_bytes());
                 }
                 LogMessage::Flush { ack } => {
-                    let _ = writer.flush(); // [忽略错误] flush 失败无法恢复
-                    let _ = ack.send(());   // [忽略错误] 通知方可能已超时放弃
+                    let _ = writer.flush();
+                    let _ = ack.send(());
                 }
                 LogMessage::Shutdown => {}
             }
         }
-        let _ = writer.flush(); // [忽略错误] 批量写入后 flush 失败无法恢复
+        let _ = writer.flush();
     } else {
         for msg in buffer.drain(..) {
             if let LogMessage::Flush { ack } = msg {
-                let _ = ack.send(()); // [忽略错误] 无写入器时仍需回复 flush 请求
+                let _ = ack.send(());
             }
         }
     }
@@ -201,7 +201,7 @@ fn rotate_if_needed(state: &mut LoggerState) {
                 } else {
                     crate::log_warn!("logger", "日志轮转rename失败，尝试直接截断");
                     if let Ok(f) = OpenOptions::new().write(true).truncate(true).open(&current) {
-                        let _ = f; // [忽略错误] 截断后立即丢弃文件句柄，仅用于清空文件内容
+                        let _ = f;
                     }
                 }
 
@@ -232,7 +232,7 @@ fn cleanup_old_logs(log_dir: &PathBuf) {
             .collect();
         files.sort_by(|a, b| b.0.cmp(&a.0));
         for (_, path) in files.iter().skip(MAX_LOG_FILES) {
-            let _ = fs::remove_file(path); // [忽略错误] 旧日志删除失败不影响新日志写入
+            let _ = fs::remove_file(path);
         }
     }
 }
@@ -277,28 +277,28 @@ pub fn get_debug_mode() -> Result<bool, String> {
 #[macro_export]
 macro_rules! log_debug {
     ($module:expr, $($arg:tt)*) => {
-        $crate::logger::log($crate::logger::LogLevel::Debug, $module, &format!($($arg)*))
+        $crate::infra::logger::log($crate::infra::logger::LogLevel::Debug, $module, &format!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! log_info {
     ($module:expr, $($arg:tt)*) => {
-        $crate::logger::log($crate::logger::LogLevel::Info, $module, &format!($($arg)*))
+        $crate::infra::logger::log($crate::infra::logger::LogLevel::Info, $module, &format!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! log_warn {
     ($module:expr, $($arg:tt)*) => {
-        $crate::logger::log($crate::logger::LogLevel::Warn, $module, &format!($($arg)*))
+        $crate::infra::logger::log($crate::infra::logger::LogLevel::Warn, $module, &format!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! log_error {
     ($module:expr, $($arg:tt)*) => {
-        $crate::logger::log($crate::logger::LogLevel::Error, $module, &format!($($arg)*))
+        $crate::infra::logger::log($crate::infra::logger::LogLevel::Error, $module, &format!($($arg)*))
     };
 }
 
@@ -335,8 +335,8 @@ pub fn flush() {
     let sender_arc = LOGGER_SENDER.load();
     if let Some(sender) = sender_arc.as_ref() {
         let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
-        let _ = sender.send(LogMessage::Flush { ack: ack_tx }); // [忽略错误] 日志通道可能已关闭
-        let _ = ack_rx.recv_timeout(std::time::Duration::from_secs(5)); // [忽略错误] 等待 flush 超时，日志可能未完全落盘
+        let _ = sender.send(LogMessage::Flush { ack: ack_tx });
+        let _ = ack_rx.recv_timeout(std::time::Duration::from_secs(5));
     }
 }
 

@@ -1,4 +1,4 @@
-use super::cache::{PORTAL_URL, create_safe_http_client};
+use crate::network::client::{PORTAL_URL, create_safe_http_client};
 
 pub fn safe_truncate(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
@@ -24,8 +24,6 @@ pub struct PortalStatus {
     pub error_kind: Option<String>,
 }
 
-/// 检测 Portal 状态。当传入凭据时，Portal 可能执行登录操作；
-/// 传入 None 则仅检测在线状态，不触发登录。
 pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>, _operator: Option<&str>) -> Result<PortalStatus, String> {
     let t0 = std::time::Instant::now();
     let portal_url = PORTAL_URL.load().clone();
@@ -44,7 +42,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
     let page_result = check_portal_page(&client, portal_base);
 
     match page_result {
-        Some(online) => {
+        PageCheckResult::Determined(online) => {
             let (online_val, login_available) = if online { (true, false) } else { (false, true) };
             let label = if online_val { "已在线".to_string() } else { "未登录".to_string() };
             crate::log_debug!("network", "Portal页面检测结果({}ms): adapter={}, ip={}, online={}, msg={}",
@@ -58,11 +56,11 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                 error_kind: None,
             })
         }
-        None => {
+        PageCheckResult::Unknown => {
             if account.is_empty() {
                 crate::log_debug!("network", "Portal页面检测无法判断且无凭据: adapter={}, ip={}", adapter_name.unwrap_or("unknown"), adapter_ip);
                 return Ok(PortalStatus {
-                    reachable: false,
+                    reachable: true,
                     login_available: true,
                     online: false,
                     message: "页面检测无法判断登录状态".to_string(),
@@ -89,7 +87,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                 urlencoding::encode(account),
                 urlencoding::encode(password),
                 urlencoding::encode(wlan_user_ip_param),
-                super::login_request::random_v()
+                crate::auth::protocol::random_v()
             );
 
             crate::log_debug!("network", "Portal API备用检测请求: adapter={}, ip={}",
@@ -158,6 +156,17 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                 error_kind: None,
             })
         }
+        PageCheckResult::Failed => {
+            crate::log_debug!("network", "Portal页面请求失败: adapter={}, ip={}", adapter_name.unwrap_or("unknown"), adapter_ip);
+            Ok(PortalStatus {
+                reachable: false,
+                login_available: false,
+                online: false,
+                message: "Portal页面请求失败".to_string(),
+                data_length: 0,
+                error_kind: Some("request_failed".to_string()),
+            })
+        }
     }
 }
 
@@ -186,7 +195,6 @@ fn is_nat_private_ip(ip: &str) -> bool {
             }
         }
     }
-    // CGNAT: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
     if let Some(rest) = ip.strip_prefix("100.") {
         if let Some(second) = rest.split('.').next() {
             if let Ok(o) = second.parse::<u8>() {
@@ -197,13 +205,19 @@ fn is_nat_private_ip(ip: &str) -> bool {
     false
 }
 
-fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> Option<bool> {
+enum PageCheckResult {
+    Determined(bool),
+    Unknown,
+    Failed,
+}
+
+fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> PageCheckResult {
     let page_url = format!("{}/", portal_base);
     let resp = match client.get(&page_url).timeout(std::time::Duration::from_secs(3)).send() {
         Ok(r) => r,
         Err(e) => {
             crate::log_warn!("network", "Portal页面请求失败: {}", e);
-            return None;
+            return PageCheckResult::Failed;
         }
     };
 
@@ -211,20 +225,30 @@ fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> O
         Ok(t) => t,
         Err(e) => {
             crate::log_warn!("network", "Portal页面读取失败: {}", e);
-            return None;
+            return PageCheckResult::Failed;
         }
     };
 
     crate::log_debug!("network", "Portal页面响应长度: {}", html.len());
 
-    if html.contains("注销页") || html.contains("注销") && html.contains("Dr.COM") {
-        crate::log_debug!("network", "Portal页面检测: 发现注销页标志，判定已在线");
-        return Some(true);
+    if html.contains("Dr.COMWebLoginID_1") {
+        crate::log_debug!("network", "Portal页面检测: 发现Dr.COMWebLoginID_1(注销页)，判定已在线");
+        return PageCheckResult::Determined(true);
     }
 
-    if html.contains("登录页") || (html.contains("Dr.COM") && html.contains("DDDDD")) {
-        crate::log_debug!("network", "Portal页面检测: 发现登录页标志，判定未登录");
-        return Some(false);
+    if html.contains("Dr.COMWebLoginID_0") || html.contains("Dr.COMWebLoginID_2") {
+        crate::log_debug!("network", "Portal页面检测: 发现Dr.COMWebLoginID_0/2(登录页)，判定未登录");
+        return PageCheckResult::Determined(false);
+    }
+
+    if html.contains("<title>注销页</title>") {
+        crate::log_debug!("network", "Portal页面检测: 发现注销页标题，判定已在线");
+        return PageCheckResult::Determined(true);
+    }
+
+    if html.contains("<title>登录页</title>") {
+        crate::log_debug!("network", "Portal页面检测: 发现登录页标题，判定未登录");
+        return PageCheckResult::Determined(false);
     }
 
     let has_uid = html.contains("uid='") && !html.contains("uid=''");
@@ -233,19 +257,9 @@ fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> O
 
     if has_uid || (has_v4ip && has_oltime) {
         crate::log_debug!("network", "Portal页面检测: 发现用户信息(uid/v4ip/oltime)，判定已在线");
-        return Some(true);
-    }
-
-    if html.contains("Dr.COMWebLoginID_1") {
-        crate::log_debug!("network", "Portal页面检测: 发现Dr.COMWebLoginID_1(注销页)，判定已在线");
-        return Some(true);
-    }
-
-    if html.contains("Dr.COMWebLoginID_0") || html.contains("Dr.COMWebLoginID_2") {
-        crate::log_debug!("network", "Portal页面检测: 发现Dr.COMWebLoginID_0/2(登录页)，判定未登录");
-        return Some(false);
+        return PageCheckResult::Determined(true);
     }
 
     crate::log_info!("network", "Portal页面无法判断登录状态: {}", safe_truncate(&html, 300));
-    None
+    PageCheckResult::Unknown
 }

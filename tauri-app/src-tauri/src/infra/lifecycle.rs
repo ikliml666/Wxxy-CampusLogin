@@ -1,8 +1,8 @@
 use tauri::{AppHandle, Emitter, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use super::state::{AppState, CommandResult, AUTO_EXIT_DELAY_MS, CANCEL_EXIT_SHORTCUT};
-use super::system::emit_notification;
+use crate::infra::state::{AppState, CommandResult, AUTO_EXIT_DELAY_MS, CANCEL_EXIT_SHORTCUT};
+use crate::infra::notification::emit_notification;
 
 pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
     let should_start = {
@@ -64,7 +64,7 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         }
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
         if app_h.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-            let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT); // [忽略错误] 快捷键注销失败不影响退出流程
+            let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
         }
         s.exit.is_quitting.store(true, Ordering::Release);
         app_h.exit(0);
@@ -83,7 +83,7 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
 
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     if app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-        let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT); // [忽略错误] 快捷键注销失败不影响取消流程
+        let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
     }
 
     emit_notification(app_handle, "已取消退出", "自动退出已取消，程序将继续运行");

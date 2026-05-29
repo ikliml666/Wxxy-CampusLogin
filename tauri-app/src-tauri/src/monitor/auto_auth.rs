@@ -1,10 +1,11 @@
 use tauri::{AppHandle, Emitter, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use crate::network::{get_adapters_force, check_portal_full};
-use super::state::{AppState, CommandResult};
-use super::system::emit_notification;
-use super::auto_exit::start_auto_exit;
+use crate::network::get_adapters_force;
+use crate::auth::portal::check_portal_full;
+use crate::infra::state::{AppState, CommandResult};
+use crate::infra::notification::emit_notification;
+use crate::infra::lifecycle::start_auto_exit;
 
 const MAX_DISCONNECT_RECONNECT: u32 = 3;
 const RECONNECT_REMINDER_INTERVAL: u32 = 10;
@@ -15,7 +16,7 @@ pub fn try_auto_login_on_preparation(
     state: &AppState,
     login_available: bool,
     online: bool,
-    config: &crate::config::Config,
+    config: &crate::config::model::Config,
 ) {
     if !login_available || online || !config.auto_login_on_preparation {
         return;
@@ -41,7 +42,7 @@ pub fn try_auto_login_on_preparation(
     if let Some(_login_guard) = state.tasks.is_logging_in.try_acquire() {
         let t0 = std::time::Instant::now();
         state.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
-        let login_result = super::login::full_login_inner(state, app_handle, None);
+        let login_result = crate::auth::session::full_login_inner(state, app_handle, None);
         let elapsed = t0.elapsed();
 
         crate::log_info!("auto_login", "自动登录完成: success={}, message={}, 耗时{}ms",
@@ -77,7 +78,7 @@ pub fn try_disconnect_reconnect(
     adapter2_name: &str,
     reachable: bool,
     login_available: bool,
-    config: &crate::config::Config,
+    config: &crate::config::model::Config,
 ) {
     let any_offline = (!online && a1.is_some()) || secondary_online == Some(false);
 
@@ -107,7 +108,7 @@ pub fn try_disconnect_reconnect(
         if let Some(_login_guard) = state.tasks.is_logging_in.try_acquire() {
             let t0 = std::time::Instant::now();
             state.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
-            let reconnect_result = super::login::full_login_inner(state, app_handle, None);
+            let reconnect_result = crate::auth::session::full_login_inner(state, app_handle, None);
             let elapsed = t0.elapsed();
 
             crate::log_info!("auto_login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
@@ -117,7 +118,7 @@ pub fn try_disconnect_reconnect(
                 state.network.disconnect_reconnect_count.store(0, Ordering::Release);
                 state.network.any_adapter_online.store(true, Ordering::Release);
                 state.network.has_logged_online.store(true, Ordering::Release);
-                if let Err(e) = super::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
+                if let Err(e) = crate::commands::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
                     crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
                 }
                 if let Err(e) = app_handle.emit("auto-login-result", serde_json::json!({
@@ -308,7 +309,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 None => return CommandResult::err("登录正在进行中"),
             };
             s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
-            super::login::full_login_inner(&s, &app_h_login, None)
+            crate::auth::session::full_login_inner(&s, &app_h_login, None)
         }).await;
 
         let login_elapsed = t_login.elapsed();

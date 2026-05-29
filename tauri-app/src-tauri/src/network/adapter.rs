@@ -364,6 +364,7 @@ fn query_adapters_cached_inner() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Ve
     Ok(result)
 }
 
+#[allow(dead_code)]
 pub fn get_all_adapters_cached() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
     query_adapters_cached_inner()
 }
@@ -666,7 +667,7 @@ fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, o
         mac = mac_dashed, name = escape_ps_single_quote(adapter_name)
     );
     crate::log_info!("adapter", "尝试提权修改MAC(Set-NetAdapter): adapter={}, mac={}", adapter_name, mac_dashed);
-    match crate::commands::network_cmd::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
+    match crate::platform::elevation::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
             if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 25_000) {
@@ -705,7 +706,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         let fake_mac = generate_random_mac();
         let mac_dashed = mac_with_dashes(&fake_mac);
 
-        let (reg_ok, elevated_done, elevate_msg) = if crate::commands::network_cmd::is_admin() {
+        let (reg_ok, elevated_done, elevate_msg) = if crate::platform::elevation::is_admin() {
             match set_mac_via_registry(&adapter.guid, &fake_mac) {
                 Ok(()) => {
                     crate::log_info!("adapter", "管理员直写注册表成功: guid={}", adapter.guid);
@@ -719,7 +720,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 "-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'\"",
                 escape_ps_single_quote(&adapter.name), mac_dashed, escape_ps_single_quote(&adapter.name), escape_ps_single_quote(&adapter.name)
             );
-            match crate::commands::network_cmd::shell_exec_elevated("powershell", &ps_cmd, true) {
+            match crate::platform::elevation::shell_exec_elevated("powershell", &ps_cmd, true) {
                 Ok(()) => {
                     crate::log_info!("adapter", "COM ShellExec提权成功，等待IP变更...");
                     if let Some(changed_ip) = poll_ip_change(&adapter.name, &adapter.ip, 25_000) {

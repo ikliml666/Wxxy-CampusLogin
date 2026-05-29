@@ -4,7 +4,7 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 
 lazy_static::lazy_static! {
-    pub(crate) static ref PORTAL_URL: ArcSwap<String> = ArcSwap::from(Arc::new(crate::config::default_portal_url()));
+    pub(crate) static ref PORTAL_URL: ArcSwap<String> = ArcSwap::from(Arc::new(crate::config::model::default_portal_url()));
     static ref CLIENT_POOL: DashMap<String, reqwest::blocking::Client> = DashMap::new();
 }
 
@@ -51,21 +51,18 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
 }
 
 pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::blocking::Client, String> {
-    // 先尝试 TLS 1.3 的池查找
     let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3);
     if let Some(entry) = CLIENT_POOL.get(&tls13_key) {
         crate::log_debug!("http", "客户端池命中: key={}", tls13_key);
         return Ok(entry.value().clone());
     }
 
-    // 再尝试 TLS 1.2 的池查找
     let tls12_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_2);
     if let Some(entry) = CLIENT_POOL.get(&tls12_key) {
         crate::log_debug!("http", "客户端池命中(TLS 1.2 fallback): key={}", tls12_key);
         return Ok(entry.value().clone());
     }
 
-    // 尝试构建 TLS 1.3 客户端，失败则降级到 TLS 1.2，并使用对应的 key
     let (client, actual_key) = match build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_3) {
         Ok(c) => {
             crate::log_info!("http", "客户端池新建: key={}, poolSize={}", tls13_key, CLIENT_POOL.len() + 1);

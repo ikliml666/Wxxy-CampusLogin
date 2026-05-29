@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::network::{check_network_quality_async, get_adapters_cached};
-use super::state::AppState;
-use super::system::emit_notification;
+use crate::infra::state::AppState;
+use crate::infra::notification::emit_notification;
 
 pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, quality: &serde_json::Value, enable_notification: bool) {
     let current = quality["quality"].as_str().unwrap_or("unknown").to_string();

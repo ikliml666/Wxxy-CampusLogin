@@ -165,9 +165,9 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             LatencyResult { name, target, latency: lat, lat_type: lat_type.to_string(), is_external: false, dns_ms: -1, tcp_ms: -1, tls_ms: -1, udp_ms: -1, ttfb_ms: -1, content_ms: -1 }
         }
         LatencyTask::Doh { name, doh_server, doh_ip, doh_host } => {
-            let r = crate::http_timing::measure_doh_timing(&doh_server, &doh_ip, &doh_host, ctx.bind_addr, std::time::Duration::from_millis(2000), skip_ttfb).await;
+            let r = crate::network::timing::measure_doh_timing(&doh_server, &doh_ip, &doh_host, ctx.bind_addr, std::time::Duration::from_millis(2000), skip_ttfb).await;
             let lat = if r.success { r.total_ms } else { -1 };
-            crate::http_timing::update_doh_server_latency(&doh_server, lat, r.success);
+            crate::network::dns::update_doh_server_latency(&doh_server, lat, r.success);
             LatencyResult {
                 name,
                 target: format!("https://{}", doh_server),
@@ -183,7 +183,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
         }
         LatencyTask::Https { name, host } => {
-            let r = crate::http_timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
+            let r = crate::network::timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
             let lat = if r.success { r.total_ms } else { -1 };
             LatencyResult {
                 name,
@@ -200,13 +200,13 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
         }
         LatencyTask::DnsServer { name, ip, domain } => {
-            let r = crate::http_timing::measure_dns_query(&ip, &domain, ctx.bind_addr, std::time::Duration::from_millis(3000)).await;
+            let r = crate::network::timing::measure_dns_query(&ip, &domain, ctx.bind_addr, std::time::Duration::from_millis(3000)).await;
             let lat = match (r.udp_ms, r.tcp_ms) {
                 (u, t) if u >= 0 && t >= 0 => t,
                 (_, t) if t >= 0 => t,
                 (u, _) => u,
             };
-            crate::http_timing::update_dns_server_latency(&ip, lat, r.success);
+            crate::network::dns::update_dns_server_latency(&ip, lat, r.success);
             LatencyResult {
                 name,
                 target: format!("{}:53", ip),
@@ -225,7 +225,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             let mut latencies: Vec<i64> = Vec::new();
             for domain in &domains {
                 let start = Instant::now();
-                let result = crate::http_timing::resolve_host_smart(domain, std::time::Duration::from_secs(3), ctx.bind_addr).await;
+                let result = crate::network::dns::resolve_host_smart(domain, std::time::Duration::from_secs(3), ctx.bind_addr).await;
                 match result {
                     Ok(_) => {
                         let ms = start.elapsed().as_millis() as i64;

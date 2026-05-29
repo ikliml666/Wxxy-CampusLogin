@@ -1,6 +1,5 @@
-use tauri::{AppHandle, Emitter, Manager, State};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+use std::sync::atomic::AtomicBool;
 use crate::config::model::Config;
 use crate::network::{
     Adapter, get_adapters_cached,
@@ -8,9 +7,9 @@ use crate::network::{
     wait_for_adapter,
 };
 use crate::auth::portal::check_portal_full;
-use crate::auth::protocol::do_logout_with_retry;
+use crate::auth::protocol::do_login_with_retry;
 use crate::infra::state::{AppState, CommandResult};
-use super::system::append_login_history;
+use crate::commands::system::append_login_history;
 
 fn adapter_action_with_log<F>(
     adapter: &Adapter,
@@ -83,35 +82,78 @@ where
     }
 }
 
-fn logout_adapter_with_log(
+pub fn login_adapter_with_log(
     adapter: &Adapter,
     config: &Config,
     app_handle: &AppHandle,
     is_quitting: &AtomicBool,
 ) -> Option<CommandResult> {
+    if adapter.ip.is_empty() {
+        return None;
+    }
+
+    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name), None, None, Some(&config.operator)) {
+        if sec_status.online {
+            return Some(CommandResult {
+                success: true,
+                message: Some(sec_status.message),
+                data: Some(serde_json::json!({ "code": "0" })),
+            });
+        }
+    }
+
     let adapter_ip = adapter.ip.clone();
-    let adapter_if_index = adapter.if_index;
-    let adapter_mac = adapter.mac.clone();
+    let adapter_name = adapter.name.clone();
+    let config_user = config.user.clone();
+    let config_password = config.password.clone();
+    let config_operator = config.operator.clone();
     let is_quitting_ref = is_quitting;
 
-    adapter_action_with_log(
+    let result = adapter_action_with_log(
         adapter, config, app_handle,
-        "注销", "logout", "logout",
-        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), adapter_if_index, &adapter_mac, 2, is_quitting_ref),
-    )
+        "登录", "login", "login",
+        || do_login_with_retry(&config_user, &config_password, &config_operator, Some(adapter_ip.as_str()), 3, is_quitting_ref),
+    );
+
+    if let Some(ref cmd_result) = result {
+        if !cmd_result.success {
+            if let Some(ref data) = cmd_result.data {
+                let message = data.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                if message.contains("无法解析登录响应") {
+                    if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name), None, None, Some(&config_operator)) {
+                        if sec_status.online {
+                            if let Err(e) = app_handle.emit("login-log", serde_json::json!({
+                                "message": format!("{} 已在线", adapter_name),
+                                "type": "success"
+                            })) {
+                                crate::log_warn!("login", "发送登录日志失败: {}", e);
+                            }
+                            return Some(CommandResult {
+                                success: true,
+                                message: Some(format!("{} 已在线", adapter_name)),
+                                data: Some(serde_json::json!({ "code": "0" })),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    result
 }
 
-fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult {
+pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult {
     let config = {
         let guard = state.config.load();
-        if guard.user.is_empty() {
-            crate::log_warn!("logout", "注销失败: 用户名为空");
-            return CommandResult::err("用户名为空，无法注销");
+        if guard.user.is_empty() || guard.password.is_empty() {
+            crate::log_warn!("login", "登录失败: 用户名或密码为空");
+            return CommandResult::err("用户名或密码为空");
         }
         guard.clone()
     };
 
-    crate::log_info!("logout", "开始注销, 用户: {}, 指定适配器: {:?}", config.user, adapter_name);
+    crate::log_info!("login", "开始登录, 用户: {}{}, 指定适配器: {:?}", config.user, config.operator, adapter_name);
 
     let adapters = match get_adapters_cached() {
         Ok(a) => a,
@@ -129,8 +171,8 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         let adapter = adapters.iter().find(|a| a.name == name && !a.ip.is_empty());
         match adapter {
             Some(a) => {
-                return logout_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
-                    .unwrap_or_else(|| CommandResult::err("注销请求失败"));
+                return login_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
+                    .unwrap_or_else(|| CommandResult::err("登录请求失败"));
             }
             None => return CommandResult::err(&format!("未找到适配器: {}", name)),
         }
@@ -153,8 +195,9 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
                     None => return CommandResult::err("未找到主适配器"),
                 };
 
-                let r1 = logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref());
-                let r2 = logout_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref());
+                let r1 = login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref());
+
+                let r2 = login_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref());
 
                 let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
                 let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);
@@ -182,115 +225,6 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         _ => return CommandResult::err("未找到有效适配器"),
     };
 
-    logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
-        .unwrap_or_else(|| CommandResult::err("注销请求失败"))
-}
-
-fn check_any_adapter_online(state: &AppState) -> bool {
-    let adapters = match get_adapters_cached() {
-        Ok(a) => a,
-        Err(_) => return false,
-    };
-    let config = state.config.load_full();
-    let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
-
-    let names: Vec<&str> = if config.dual_adapter && !a2_name.is_empty() {
-        vec![&a1_name, &a2_name]
-    } else {
-        vec![&a1_name]
-    };
-
-    for name in names {
-        let adapter = match adapters.iter().find(|a| a.name == name && !a.ip.is_empty()) {
-            Some(a) => a,
-            None => continue,
-        };
-        match check_portal_full(&adapter.ip, Some(&adapter.name), None, None, None) {
-            Ok(ps) if ps.online => return true,
-            _ => continue,
-        }
-    }
-
-    false
-}
-
-#[tauri::command]
-pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
-    state.exit.auto_exit_cancelled.store(false, Ordering::Release);
-
-    let result = {
-        let adapter = adapter_name.clone();
-        let app_h = app_handle.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let s = app_h.state::<AppState>();
-            let _guard = match s.tasks.is_logging_in.try_acquire() {
-                Some(g) => g,
-                None => return CommandResult::err("登录正在进行中"),
-            };
-            crate::auth::session::full_login_inner(&s, &app_h, adapter.as_deref())
-        }).await.map_err(|e| format!("登录任务失败: {}", e))?
-    };
-
-    if result.success {
-        let app_h_bg = app_handle.clone();
-        let config = state.config.load_full();
-        let auto_exit = config.auto_exit_after_login;
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let s = app_h_bg.state::<AppState>();
-            let cancel_token = s.tasks.bg_check_cancel.load().clone();
-            crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
-
-            if auto_exit {
-                crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);
-            }
-        });
-    }
-
-    Ok(result)
-}
-
-#[tauri::command]
-pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
-    let result = {
-        let adapter = adapter_name.clone();
-        let app_h = app_handle.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let s = app_h.state::<AppState>();
-            let _guard = match s.tasks.is_logging_out.try_acquire() {
-                Some(g) => g,
-                None => return CommandResult::err("注销正在进行中，请稍后再试"),
-            };
-
-            let result = full_logout_inner(&s, &app_h, adapter.as_deref());
-
-            if result.success {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                if check_any_adapter_online(&s) {
-                    let _ = app_h.emit("login-log", serde_json::json!({
-                        "message": "页面检测仍显示在线，注销可能未完全生效",
-                        "type": "warning"
-                    }));
-                } else {
-                    let _ = app_h.emit("login-log", serde_json::json!({
-                        "message": "注销成功（页面检测已确认离线）",
-                        "type": "success"
-                    }));
-                }
-            }
-
-            result
-        }).await.map_err(|e| format!("注销任务失败: {}", e))?
-    };
-
-    if result.success {
-        let s = app_handle.state::<AppState>();
-        s.exit.auto_exit_cancelled.store(true, Ordering::Release);
-        s.exit.set_deadline(None);
-        s.network.any_adapter_online.store(false, Ordering::Release);
-        s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
-        let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
-    }
-    Ok(result)
+    login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
+        .unwrap_or_else(|| CommandResult::err("登录请求失败"))
 }

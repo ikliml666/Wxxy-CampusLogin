@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use arc_swap::ArcSwap;
-use crate::config::Config;
+use crate::config::model::Config;
 use parking_lot::Mutex;
 
 pub const AUTO_EXIT_DELAY_MS: u64 = 10000;
@@ -58,88 +58,6 @@ impl Drop for TaskGuard<'_> {
 
 lazy_static::lazy_static! {
     static ref ACCOUNT_NAME_RE: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$").expect("ACCOUNT_NAME_RE compilation failed");
-    static ref CUSTOM_COLOR_RE: regex::Regex = regex::Regex::new(r"^#[0-9a-fA-F]{6}$").expect("CUSTOM_COLOR_RE compilation failed");
-}
-
-pub fn validate_config(config: Config) -> Result<Config, String> {
-    let mut config = config;
-    if !config.user.is_empty() {
-        crate::config::validate_username(&config.user)?;
-    }
-    if !config.password.is_empty() {
-        if config.password == crate::config::PASSWORD_MASK {
-            return Err("密码不能为\"***\"".to_string());
-        }
-        crate::config::validate_password(&config.password)?;
-    }
-    if config.operator == "@ctcc" {
-        config.operator = "@telecom".to_string();
-    } else if config.operator == "@cucc" {
-        config.operator = "@unicom".to_string();
-    }
-    config.operator = crate::config::validate_operator(&config.operator)?.to_string();
-    if !config.custom_theme_color.is_empty() {
-        if !CUSTOM_COLOR_RE.is_match(&config.custom_theme_color) {
-            return Err("自定义主题颜色格式无效，需为#开头的6位十六进制色值".to_string());
-        }
-    }
-    if config.theme_mode != "dark" && config.theme_mode != "light" && config.theme_mode != "system" {
-        return Err("主题模式必须为\"dark\"、\"light\"或\"system\"".to_string());
-    }
-    config.background_check_interval = config.background_check_interval.clamp(10000, 3600000);
-    config.latency_test_interval = config.latency_test_interval.clamp(10000, 3600000);
-    if config.portal_url == "http://10.1.99.100:801" {
-        config.portal_url = "http://10.1.99.100".to_string();
-    }
-    if config.portal_url.is_empty() {
-        config.portal_url = "http://10.1.99.100".to_string();
-    }
-    match url::Url::parse(&config.portal_url) {
-        Ok(parsed) => {
-            let scheme = parsed.scheme();
-            if scheme != "http" && scheme != "https" {
-                return Err(format!("Portal地址协议不支持: {}，仅允许http/https", scheme));
-            }
-            if let Some(host) = parsed.host_str() {
-                if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-                    match ip {
-                        std::net::IpAddr::V4(v4) => {
-                            if !v4.is_private() && !v4.is_loopback() {
-                                return Err("Portal地址仅允许内网IP或localhost".to_string());
-                            }
-                        }
-                        std::net::IpAddr::V6(v6) => {
-                            if !v6.is_loopback() {
-                                return Err("Portal地址仅允许内网IPv4或localhost".to_string());
-                            }
-                        }
-                    }
-                } else if host != "localhost" {
-                    return Err("Portal地址仅允许IP地址，不支持域名".to_string());
-                }
-            }
-        }
-        Err(e) => {
-            return Err(format!("Portal地址格式无效: {}", e));
-        }
-    }
-    if !config.fixed_gateway.is_empty() {
-        if config.fixed_gateway.parse::<std::net::IpAddr>().is_err() {
-            return Err(format!("固定网关地址无效: {}", config.fixed_gateway));
-        }
-    }
-    if config.campus_gateway.is_empty() {
-        config.campus_gateway = crate::config::default_campus_gateway();
-    }
-    if !config.campus_gateway.is_empty() {
-        if config.campus_gateway.parse::<std::net::IpAddr>().is_err() {
-            return Err(format!("校园网关地址无效: {}", config.campus_gateway));
-        }
-    }
-    if config.required_network_name.is_empty() {
-        config.required_network_name = crate::config::default_required_network_name();
-    }
-    Ok(config)
 }
 
 pub fn validate_account_name(name: &str) -> Result<String, String> {
@@ -258,8 +176,14 @@ pub struct CommandResult {
 }
 
 impl CommandResult {
+    pub fn ok() -> Self {
+        Self { success: true, message: None, data: None }
+    }
     pub fn ok_msg(msg: &str) -> Self {
         Self { success: true, message: Some(msg.to_string()), data: None }
+    }
+    pub fn ok_data(data: serde_json::Value) -> Self {
+        Self { success: true, message: None, data: Some(data) }
     }
     pub fn err(msg: &str) -> Self {
         Self { success: false, message: Some(msg.to_string()), data: None }

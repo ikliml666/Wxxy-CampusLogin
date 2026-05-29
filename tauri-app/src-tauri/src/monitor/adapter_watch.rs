@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::network::{Adapter, DisabledAdapter, get_adapters_force, get_disabled_adapters_force};
-use super::state::AppState;
+use crate::infra::state::AppState;
 
 const ADAPTER_WATCH_INTERVAL: u64 = 15000;
 
@@ -32,7 +32,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<
                 break;
             }
 
-            crate::http_timing::cleanup_expired_dns_cache();
+            crate::network::dns::cleanup_expired_dns_cache();
 
             let adapters_result = tauri::async_runtime::spawn_blocking(|| {
                 get_adapters_force()

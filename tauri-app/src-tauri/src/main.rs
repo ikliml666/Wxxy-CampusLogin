@@ -3,12 +3,15 @@
 mod commands;
 mod config;
 mod network;
-mod http_timing;
-mod crypto_utils;
-mod logger;
+mod auth;
+mod monitor;
+mod account;
+mod platform;
+mod update;
+mod infra;
 
-use commands::AppState;
-use commands::start_auto_exit;
+use infra::state::AppState;
+use infra::lifecycle::start_auto_exit;
 use tauri::{Manager, Emitter};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
@@ -37,63 +40,14 @@ fn main() {
     let handle = runtime.handle().clone();
     tauri::async_runtime::set(handle);
     run_app(core_count);
-    crate::logger::flush();
-    crate::logger::shutdown();
+    crate::infra::logger::flush();
+    crate::infra::logger::shutdown();
     std::thread::sleep(std::time::Duration::from_millis(200));
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
 }
 
-fn detect_gpu_adapter() -> &'static str {
-    use std::process::Command;
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile", "-NonInteractive", "-Command",
-            "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty AdapterCompatibility"
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
-
-    if let Ok(out) = output {
-        let vendor = String::from_utf8_lossy(&out.stdout).to_lowercase();
-        if vendor.contains("nvidia") {
-            crate::log_info!("gpu", "检测到 NVIDIA GPU，启用硬件加速优化");
-            return "nvidia"
-        } else if vendor.contains("intel") {
-            crate::log_info!("gpu", "检测到 Intel 核显，启用硬件加速优化");
-            return "intel"
-        } else if vendor.contains("amd") || vendor.contains("advanced micro") || vendor.contains("ati") {
-            crate::log_info!("gpu", "检测到 AMD GPU，启用硬件加速优化");
-            return "amd"
-        }
-    }
-
-    crate::log_warn!("gpu", "未检测到已知 GPU 厂商，使用默认渲染配置");
-    "unknown"
-}
-
-fn build_browser_args() -> String {
-    let gpu = detect_gpu_adapter();
-    let mut args = String::from("--disable-features=EnableDrDc --js-flags=--max-old-space-size=512 --renderer-process-limit=4 --enable-zero-copy --enable-native-gpu-memory-buffers --gpu-memory-buffer-size-mb=128 --use-angle=d3d11 --disable-gpu-memory-buffer-video-planes --num-raster-threads=4 --enable-features=SkiaGraphite");
-
-    match gpu {
-        "nvidia" => {}
-        "intel" => {
-            args.push_str(",UseSkiaRenderer");
-        }
-        "amd" => {
-            args.push_str(",UseSkiaRenderer");
-        }
-        _ => {}
-    }
-
-    crate::log_info!("gpu", "WebView2 浏览器参数: {}", args);
-    args
-}
-
 fn run_app(core_count: usize) {
-    let browser_args = build_browser_args();
+    let browser_args = platform::gpu::build_browser_args();
     std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", &browser_args);
 
     let app = tauri::Builder::default()
@@ -107,12 +61,12 @@ fn run_app(core_count: usize) {
             .with_handler(|app, shortcut, event| {
                 use tauri_plugin_global_shortcut::ShortcutState;
                 if event.state() == ShortcutState::Pressed {
-                    if let Ok(cancel_key) = commands::CANCEL_EXIT_SHORTCUT.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                    if let Ok(cancel_key) = infra::state::CANCEL_EXIT_SHORTCUT.parse::<tauri_plugin_global_shortcut::Shortcut>() {
                         if *shortcut == cancel_key {
                             let app_h = app.clone();
                             tauri::async_runtime::spawn_blocking(move || {
                                 let s = app_h.state::<AppState>();
-                                let _ = commands::cancel_auto_exit_inner(&app_h, &s); // [忽略错误] 取消自动退出失败不影响快捷键处理
+                                let _ = infra::lifecycle::cancel_auto_exit_inner(&app_h, &s); // [忽略错误] 取消自动退出失败不影响快捷键处理
                             });
                         }
                     }
@@ -144,11 +98,11 @@ fn run_app(core_count: usize) {
             let config = std::thread::scope(|s| {
                 let log_dir_clone = log_dir.clone();
                 s.spawn(move || {
-                    crate::logger::init_logger(log_dir_clone);
+                    crate::infra::logger::init_logger(log_dir_clone);
                 });
                 let app_handle = app.handle().clone();
                 let config = s.spawn(move || {
-                    commands::load_config_from_disk_or_default(&app_handle)
+                    commands::config_cmd::load_config_from_disk_or_default(&app_handle)
                 });
                 config.join().unwrap_or_default()
             });
@@ -205,7 +159,7 @@ fn run_app(core_count: usize) {
                                     Some(g) => g,
                                     None => return,
                                 };
-                                let result = commands::full_login_inner(&s, &app_h, None);
+                                let result = auth::session::full_login_inner(&s, &app_h, None);
                                 let _ = app_h.emit("auto-login-result", serde_json::json!({
                                     "success": result.success,
                                     "message": result.message.clone().unwrap_or_default(),
@@ -217,7 +171,7 @@ fn run_app(core_count: usize) {
                                         tokio::time::sleep(Duration::from_millis(500)).await;
                                         let s = app_h2.state::<AppState>();
                                         let cancel_token = s.tasks.bg_check_cancel.load().clone();
-                                        commands::run_background_check(&app_h2, cancel_token).await;
+                                        monitor::watcher::run_background_check(&app_h2, cancel_token).await;
                                     });
 
                                     let auto_exit = s.config.load().auto_exit_after_login;
@@ -267,9 +221,9 @@ fn run_app(core_count: usize) {
             let app_h = app_handle.clone();
             let s = app_h.state::<AppState>();
             let adapter_watch_cancel = s.tasks.adapter_watch_cancel.load().clone();
-            commands::start_adapter_watch(&app_h, adapter_watch_cancel);
-            commands::start_update_check_loop(&app_h);
-            commands::run_startup_tasks(&app_h);
+            monitor::adapter_watch::start_adapter_watch(&app_h, adapter_watch_cancel);
+            update::updater::start_update_check_loop(&app_h);
+            monitor::watcher::run_startup_tasks(&app_h);
 
             {
                 let app_h = app.handle().clone();
@@ -415,13 +369,13 @@ fn run_app(core_count: usize) {
     commands::updater::download_update,
     commands::updater::install_update,
     commands::updater::get_mirror_urls,
-            crate::logger::set_debug_mode,
-            crate::logger::get_debug_mode,
+            crate::infra::logger::set_debug_mode,
+            crate::infra::logger::get_debug_mode,
 ]);
 
     app.run(tauri::generate_context!()).unwrap_or_else(|e| {
         crate::log_error!("startup", "TAURI 运行错误: {}", e);
-        crate::logger::flush();
+        crate::infra::logger::flush();
         std::process::exit(1);
     });
 }

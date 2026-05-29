@@ -1,7 +1,5 @@
-use super::cache::{PORTAL_URL, create_safe_http_client};
+use crate::network::client::{PORTAL_URL, create_safe_http_client};
 
-// ePortal JSONP协议规定：注销操作使用公共占位账号(drcom/123)，非用户真实凭据
-// 这是锐捷ePortal认证系统的标准注销流程：先Radius注销，再MAC解绑
 const LOGOUT_PLACEHOLDER_ACCOUNT: &str = "drcom";
 const LOGOUT_PLACEHOLDER_PASSWORD: &str = "123";
 
@@ -13,9 +11,9 @@ pub fn random_v() -> String {
 }
 
 fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Option<&str>) -> Result<serde_json::Value, String> {
-    let validated_user = crate::config::validate_username(user).map_err(|e| e.to_string())?;
-    let validated_operator = crate::config::validate_operator(operator).map_err(|e| e.to_string())?;
-    crate::config::validate_password(password).map_err(|e| e.to_string())?;
+    let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
+    let validated_operator = crate::config::validate::validate_operator(operator).map_err(|e| e.to_string())?;
+    crate::config::validate::validate_password(password).map_err(|e| e.to_string())?;
     let user_account = format!("{}{}", validated_user, validated_operator);
     let portal_base = PORTAL_URL.load().clone();
     let base_url = if portal_base.contains(":801") {
@@ -24,8 +22,6 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
         format!("{}:801/eportal/portal/login", portal_base.trim_end_matches('/'))
     };
     let callback = "dr1003";
-    // SECURITY NOTE: eportal JSONP协议要求GET请求，密码不可避免地出现在URL中。
-    // 这是协议层面的限制，非代码缺陷。如服务端支持POST应立即迁移。
     let query_params = format!(
         "callback={}&login_method=1&user_account={}&user_password={}&wlan_user_ip=&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v={}&lang=zh",
         urlencoding::encode(callback),
@@ -162,7 +158,7 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
 }
 
 fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str) -> Result<serde_json::Value, String> {
-    let validated_user = crate::config::validate_username(user).map_err(|e| e.to_string())?;
+    let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
     let portal_base = PORTAL_URL.load().clone();
     let portal_base_url = if portal_base.contains(":801") {
         portal_base.trim_end_matches('/').to_string()
@@ -187,12 +183,15 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     let mut any_unbind_ok = false;
 
     for round in 1..=2 {
+        let unbind_cb = format!("dr100{}", round + 1);
+        let logout_cb = format!("dr100{}", round + 2);
+
         crate::log_info!("logout", "第{}轮: MAC解绑: user={}", round, validated_user);
 
         let unbind_url = format!(
-            "{}/eportal/portal/mac/unbind?callback=dr100{}&user_account={}&wlan_user_mac=000000000000&wlan_user_ip={}&jsVersion=4.1.3&v={}&lang=zh",
+            "{}/eportal/portal/mac/unbind?callback={}&user_account={}&wlan_user_mac=000000000000&wlan_user_ip={}&jsVersion=4.1.3&v={}&lang=zh",
             portal_base_url,
-            round + 1,
+            unbind_cb,
             urlencoding::encode(validated_user),
             wlan_user_ip_int,
             random_v(),
@@ -202,7 +201,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         let resp_unbind = client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
             .map_err(|e| format!("第{}轮MAC解绑请求失败: {}", round, e))?;
         let body_unbind = resp_unbind.text().unwrap_or_default();
-        crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), super::portal::safe_truncate(&body_unbind, 500));
+        crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
 
         let unbind_result = parse_logout_result(&body_unbind)?;
         let unbind_ok = unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -211,9 +210,9 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         crate::log_info!("logout", "第{}轮: Radius注销: adapterIp={}", round, wlan_user_ip);
 
         let logout_url = format!(
-            "{}/eportal/portal/logout?callback=dr100{}&login_method=1&user_account={}&user_password={}&ac_logout=1&register_mode=1&wlan_user_ip={}&wlan_user_ipv6=&wlan_vlan_id=1&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&v={}&lang=zh",
+            "{}/eportal/portal/logout?callback={}&login_method=1&user_account={}&user_password={}&ac_logout=1&register_mode=1&wlan_user_ip={}&wlan_user_ipv6=&wlan_vlan_id=1&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&v={}&lang=zh",
             portal_base_url,
-            round + 3,
+            logout_cb,
             LOGOUT_PLACEHOLDER_ACCOUNT,
             LOGOUT_PLACEHOLDER_PASSWORD,
             urlencoding::encode(wlan_user_ip),
@@ -224,14 +223,14 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         let resp_logout = client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
             .map_err(|e| format!("第{}轮Radius注销请求失败: {}", round, e))?;
         let body_logout = resp_logout.text().unwrap_or_default();
-        crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), super::portal::safe_truncate(&body_logout, 500));
+        crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_logout, 500));
 
         let logout_result = parse_logout_result(&body_logout)?;
         let radius_ok = logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
         if radius_ok { any_radius_ok = true; }
 
         if round == 1 {
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::thread::sleep(std::time::Duration::from_millis(1500));
         }
     }
 
@@ -290,7 +289,7 @@ pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, if_index: u32,
 }
 
 fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
-    crate::log_info!("logout", "parse_logout_result原始响应: {}", super::portal::safe_truncate(response, 1000));
+    crate::log_info!("logout", "parse_logout_result原始响应: {}", crate::auth::portal::safe_truncate(response, 1000));
     let json_data = if let Some(start) = response.find('(') {
         let inner_start = start + 1;
         if let Some(inner_end) = response[inner_start..].rfind(')').map(|i| inner_start + i) {
@@ -324,7 +323,7 @@ fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
             }
         }
         Err(_) => {
-            crate::log_warn!("logout", "JSON解析失败, json_data={}", super::portal::safe_truncate(&json_data, 500));
+            crate::log_warn!("logout", "JSON解析失败, json_data={}", crate::auth::portal::safe_truncate(&json_data, 500));
             let is_html = response.trim_start().starts_with("<!") || response.trim_start().starts_with("<html") || response.trim_start().starts_with("<HTML");
             if is_html {
                 if response.contains("注销成功") || response.contains("下线成功") || response.contains("已下线") || response.contains("logout") {
@@ -335,7 +334,7 @@ fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
             } else if response.contains("注销成功") || response.contains("下线成功") || response.contains("已下线") || response.contains("解绑成功") {
                 Ok(serde_json::json!({ "code": "0", "message": "注销成功", "success": true, "retryable": false }))
             } else {
-                Ok(serde_json::json!({ "code": "parse_error", "message": format!("无法解析注销响应: {}", super::portal::safe_truncate(response, 200)), "success": false, "retryable": true }))
+                Ok(serde_json::json!({ "code": "parse_error", "message": format!("无法解析注销响应: {}", crate::auth::portal::safe_truncate(response, 200)), "success": false, "retryable": true }))
             }
         }
     }
