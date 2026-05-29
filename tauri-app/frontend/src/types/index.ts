@@ -1,7 +1,0 @@
-export * from '@/auth/types'
-export * from '@/network/types'
-export * from '@/monitor/types'
-export * from '@/account/types'
-export * from '@/settings/types'
-export * from '@/shared/types'
-export * from '@/shared/ui-types'
