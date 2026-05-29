@@ -9,7 +9,6 @@ use std::os::windows::process::CommandExt;
 
 lazy_static! {
     static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|virtual|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|nat|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|tor|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp|本地连接").expect("BL_REGEX compilation failed");
-    static ref HW_VENDOR_REGEX: Regex = Regex::new(r"(?i)realtek|intel|mediatek|qualcomm|marvell|broadcom|asix|ax88x|d.?link|tp.?link|netgear|atheros|killer|rivet|moship|jmicron|via|samsung|nvidia|lenovo|hp|dell|acer|asus|surface|apple|aquantia|chelsio|engenius|edimax|tenda|mercury|phicomms|zyxel|netis|toto|microchip|cypress|pericom|synopsys|tex.?instruments|maxlinear|silicon.labs|bhu|u-blox|quectel|fibocom|simcom|unisoc|spreadtrum|rockchip|allwinner|amlogic|Ralink|Atheros|Qualcomm Atheros|Broadcom|MELCO|RENESAS|SMSC|Attansic|Davicom|IC\+|VIA|SiS").expect("HW_VENDOR_REGEX compilation failed");
     static ref ADAPTER_CACHE: Mutex<Option<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant)>> = Mutex::new(None);
 }
 
