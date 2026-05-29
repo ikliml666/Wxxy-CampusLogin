@@ -1,8 +1,6 @@
 pub mod adapter;
 pub mod client;
 pub mod dns;
-pub mod portal;
-pub mod login_request;
 pub mod quality;
 pub mod timing;
 
