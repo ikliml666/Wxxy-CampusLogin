@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { useAppStore } from './useAppStore'
+import { useAppStore } from '@/hooks/useAppStore'
 import { useShallow } from 'zustand/react/shallow'
 
 export function useMonitor() {
