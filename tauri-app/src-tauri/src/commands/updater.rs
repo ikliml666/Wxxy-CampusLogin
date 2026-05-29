@@ -1,28 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 use serde::{Deserialize, Serialize};
-use crate::commands::state::AppState;
+use crate::infra::state::AppState;
 use std::sync::atomic::Ordering;
-
-const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
-const AUTO_CHECK_INTERVAL_SECS: u64 = 86400;
-const MANUAL_CHECK_COOLDOWN_SECS: u64 = 600;
-const VERSION_FILE_URL: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ReleaseAsset {
-    pub name: String,
-    pub url: String,
-    pub size: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct UpdateInfo {
-    pub has_update: bool,
-    pub latest_version: String,
-    pub release_notes: String,
-    pub assets: Vec<ReleaseAsset>,
-    pub sha256_checksum: Option<String>,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DownloadProgress {
@@ -33,84 +12,27 @@ pub struct DownloadProgress {
 }
 
 #[tauri::command]
-pub async fn check_update(app_handle: AppHandle) -> Result<UpdateInfo, String> {
+pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let state = app_handle.state::<AppState>();
     let last_epoch = state.last_update_check_epoch_ms.load(Ordering::Acquire);
     let now_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    if last_epoch > 0 && now_epoch - last_epoch < MANUAL_CHECK_COOLDOWN_SECS * 1000 {
-        let remaining = MANUAL_CHECK_COOLDOWN_SECS - (now_epoch - last_epoch) / 1000;
-        return Err(format!("检查过于频繁，请 {} 秒后重试", remaining));
+    let elapsed_secs = if last_epoch == 0 { 0 } else { (now_epoch - last_epoch) / 1000 };
+
+    if elapsed_secs < 600 {
+        return Err(format!("请稍后再试（冷却 {} 秒）", 600 - elapsed_secs));
     }
 
-    let (has_update, latest_tag, data) = fetch_latest_release().await?;
+    let info = crate::update::updater::check_update_inner().await?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    state.last_update_check_epoch_ms.store(now, Ordering::Release);
 
-    state.last_update_check_epoch_ms.store(now_epoch, Ordering::Release);
-
-    let release_notes = data["body"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-
-    let assets = data["assets"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|a| {
-                    let name = a["name"].as_str()?.to_string();
-                    let url = a["browser_download_url"].as_str()?.to_string();
-                    let size = a["size"].as_u64().unwrap_or(0);
-                    Some(ReleaseAsset { name, url, size })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    let sha256_checksum = data["assets"]
-        .as_array()
-        .and_then(|arr| {
-            arr.iter().find_map(|a| {
-                let name = a["name"].as_str().unwrap_or("");
-                if name.ends_with(".sha256") || name.ends_with(".sha256sum") {
-                    a["browser_download_url"].as_str().map(|s| s.to_string())
-                } else {
-                    None
-                }
-            })
-        });
-
-    Ok(UpdateInfo {
-        has_update,
-        latest_version: latest_tag,
-        release_notes,
-        assets,
-        sha256_checksum,
-    })
-}
-
-fn compare_versions(current: &str, latest: &str) -> bool {
-    let cur: Vec<u32> = current
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
-    let lat: Vec<u32> = latest
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
-
-    for i in 0..3 {
-        let c = cur.get(i).copied().unwrap_or(0);
-        let l = lat.get(i).copied().unwrap_or(0);
-        if l > c {
-            return true;
-        }
-        if l < c {
-            return false;
-        }
-    }
-    false
+    Ok(serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {}", e))?)
 }
 
 #[tauri::command]
@@ -151,7 +73,7 @@ pub async fn download_update(
         .unwrap_or("update.exe")
         .to_string();
 
-const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
+    const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
 
     let temp_dir = std::env::temp_dir().join("campus-login-update");
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
@@ -175,8 +97,9 @@ const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
 
     let total_size = response.content_length().unwrap_or(0);
     if total_size > MAX_DOWNLOAD_SIZE {
-        return Err(format!("文件过大({}MB)，超过大小限制({}MB)", total_size / 1024 / 1024, MAX_DOWNLOAD_SIZE / 1024 / 1024));
+        return Err(format!("文件过大({}MB)，超过大小限制{}MB)", total_size / 1024 / 1024, MAX_DOWNLOAD_SIZE / 1024 / 1024));
     }
+
     let mut file = std::fs::File::create(&file_path)
         .map_err(|e| format!("创建临时文件失败: {}", e))?;
 
@@ -254,58 +177,6 @@ const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
     Ok(path_str)
 }
 
-pub async fn verify_download_sha256(file_path: &str, checksum_url: &str) -> Result<bool, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-
-    let resp = client.get(checksum_url).send().await
-        .map_err(|e| format!("获取校验和文件失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("获取校验和失败: HTTP {}", resp.status()));
-    }
-
-    let checksum_content = resp.text().await
-        .map_err(|e| format!("读取校验和内容失败: {}", e))?;
-
-    let expected_hash = checksum_content
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
-
-    if expected_hash.is_empty() || expected_hash.len() != 64 {
-        return Err("校验和格式无效".to_string());
-    }
-
-    let data = tokio::task::spawn_blocking({
-        let path = file_path.to_string();
-        move || std::fs::read(&path)
-    }).await
-    .map_err(|e| format!("读取文件任务失败: {}", e))?
-    .map_err(|e| format!("读取下载文件失败: {}", e))?;
-
-    use std::io::Write;
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.write_all(&data).map_err(|e| format!("计算哈希失败: {}", e))?;
-    let result = hasher.finalize();
-    let actual_hash = format!("{:x}", result);
-
-    Ok(actual_hash == expected_hash)
-}
-
-fn schedule_update_cleanup() {
-    let temp_dir = std::env::temp_dir().join("campus-login-update");
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(600));
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        crate::log_debug!("updater", "更新临时目录已清理");
-    });
-}
-
 #[tauri::command]
 pub async fn install_update(file_path: String, checksum_url: Option<String>) -> Result<bool, String> {
     let path = std::path::Path::new(&file_path);
@@ -315,7 +186,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
 
     if let Some(url) = checksum_url {
         if !url.is_empty() {
-            match verify_download_sha256(&file_path, &url).await {
+            match crate::update::updater::verify_download_sha256(&file_path, &url).await {
                 Ok(true) => {}
                 Ok(false) => {
                     let _ = std::fs::remove_file(&file_path);
@@ -351,7 +222,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
     if ext == "exe" {
         let result = open::that(canonical_path).map(|_| true).map_err(|e| format!("启动安装程序失败: {}", e));
         if result.is_ok() {
-            schedule_update_cleanup();
+            crate::update::updater::schedule_update_cleanup();
         }
         result
     } else if ext == "msi" {
@@ -365,7 +236,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
                 .map(|_| true)
                 .map_err(|e| format!("启动MSI安装失败: {}", e));
             if result.is_ok() {
-                schedule_update_cleanup();
+                crate::update::updater::schedule_update_cleanup();
             }
             result
         }
@@ -377,7 +248,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
                 .map(|_| true)
                 .map_err(|e| format!("启动MSI安装失败: {}", e));
             if result.is_ok() {
-                schedule_update_cleanup();
+                crate::update::updater::schedule_update_cleanup();
             }
             result
         }
@@ -428,168 +299,5 @@ pub fn get_mirror_urls(github_url: String) -> Result<Vec<serde_json::Value>, Str
 }
 
 pub fn start_update_check_loop(app_handle: &AppHandle) {
-    let app_h = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app_h.state::<AppState>();
-        let last_epoch = state.last_update_check_epoch_ms.load(Ordering::Acquire);
-        let now_epoch = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let elapsed_secs = if last_epoch == 0 { AUTO_CHECK_INTERVAL_SECS + 1 } else { (now_epoch - last_epoch) / 1000 };
-
-        if elapsed_secs >= AUTO_CHECK_INTERVAL_SECS {
-            if let Ok(info) = check_update_inner().await {
-                if let Err(e) = app_h.emit("update-available", serde_json::json!({
-                    "has_update": info.has_update,
-                    "latest_version": info.latest_version,
-                    "release_notes": info.release_notes,
-                })) {
-                    crate::log_warn!("updater", "发送更新通知失败: {}", e);
-                }
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                state.last_update_check_epoch_ms.store(now, Ordering::Release);
-            }
-        }
-
-        let mut interval_timer = tokio::time::interval(std::time::Duration::from_secs(AUTO_CHECK_INTERVAL_SECS));
-        interval_timer.tick().await;
-
-        loop {
-            interval_timer.tick().await;
-
-            if state.exit.is_quitting.load(Ordering::Acquire) {
-                break;
-            }
-
-            if let Ok(info) = check_update_inner().await {
-                if let Err(e) = app_h.emit("update-available", serde_json::json!({
-                    "has_update": info.has_update,
-                    "latest_version": info.latest_version,
-                    "release_notes": info.release_notes,
-                })) {
-                    crate::log_warn!("updater", "发送更新通知失败: {}", e);
-                }
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                state.last_update_check_epoch_ms.store(now, Ordering::Release);
-            }
-        }
-    });
-}
-
-async fn fetch_latest_release() -> Result<(bool, String, serde_json::Value), String> {
-    if let Ok(result) = fetch_version_via_raw().await {
-        return Ok(result);
-    }
-
-    fetch_via_github_api().await
-}
-
-async fn fetch_version_via_raw() -> Result<(bool, String, serde_json::Value), String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-
-    let resp = client
-        .get(VERSION_FILE_URL)
-        .header("User-Agent", "CampusLogin-UpdateChecker")
-        .send()
-        .await
-        .map_err(|e| format!("获取version.json失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("version.json不可用: HTTP {}", resp.status()));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析version.json失败: {}", e))?;
-
-    let latest_tag = data["version"]
-        .as_str()
-        .unwrap_or("")
-        .replace("v", "");
-
-    if latest_tag.is_empty() {
-        return Err("version.json中缺少版本号".to_string());
-    }
-
-    let current = env!("CARGO_PKG_VERSION");
-    let has_update = compare_versions(current, &latest_tag);
-
-    let body = data["notes"].as_str().unwrap_or("");
-    let enriched = serde_json::json!({
-        "tag_name": data["version"],
-        "body": body,
-        "html_url": format!("https://github.com/{}/releases/tag/v{}", GITHUB_REPO, latest_tag),
-        "assets": data.get("assets").cloned().unwrap_or(serde_json::json!([])),
-        "_source": "raw"
-    });
-
-    Ok((has_update, latest_tag, enriched))
-}
-
-async fn fetch_via_github_api() -> Result<(bool, String, serde_json::Value), String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-
-    let resp = client
-        .get(format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO))
-        .header("Accept", "application/vnd.github.v3+json")
-        .header("User-Agent", "CampusLogin-UpdateChecker")
-        .send()
-        .await
-        .map_err(|e| format!("请求GitHub API失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        if status.as_u16() == 403 {
-            return Err("GitHub API 请求频率受限，请稍后再试".to_string());
-        }
-        return Err(format!("GitHub API返回错误: {}", status));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析GitHub响应失败: {}", e))?;
-
-    let latest_tag = data["tag_name"]
-        .as_str()
-        .unwrap_or("")
-        .replace("v", "");
-
-    if latest_tag.is_empty() {
-        return Err("无法获取最新版本号".to_string());
-    }
-
-    let current = env!("CARGO_PKG_VERSION");
-    let has_update = compare_versions(current, &latest_tag);
-
-    Ok((has_update, latest_tag, data))
-}
-
-async fn check_update_inner() -> Result<UpdateInfo, String> {
-    let (has_update, latest_tag, data) = fetch_latest_release().await?;
-    let release_notes = data["body"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-    Ok(UpdateInfo {
-        has_update,
-        latest_version: latest_tag,
-        release_notes,
-        assets: vec![],
-        sha256_checksum: None,
-    })
+    crate::update::updater::start_update_check_loop(app_handle);
 }

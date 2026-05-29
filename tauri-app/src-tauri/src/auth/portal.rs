@@ -1,4 +1,4 @@
-use super::client::{PORTAL_URL, create_safe_http_client};
+use crate::network::client::{PORTAL_URL, create_safe_http_client};
 
 pub fn safe_truncate(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
@@ -24,8 +24,6 @@ pub struct PortalStatus {
     pub error_kind: Option<String>,
 }
 
-/// 检测 Portal 状态。当传入凭据时，Portal 可能执行登录操作；
-/// 传入 None 则仅检测在线状态，不触发登录。
 pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>, _operator: Option<&str>) -> Result<PortalStatus, String> {
     let t0 = std::time::Instant::now();
     let portal_url = PORTAL_URL.load().clone();
@@ -89,7 +87,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                 urlencoding::encode(account),
                 urlencoding::encode(password),
                 urlencoding::encode(wlan_user_ip_param),
-                super::login_request::random_v()
+                crate::auth::protocol::random_v()
             );
 
             crate::log_debug!("network", "Portal API备用检测请求: adapter={}, ip={}",
@@ -197,7 +195,6 @@ fn is_nat_private_ip(ip: &str) -> bool {
             }
         }
     }
-    // CGNAT: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
     if let Some(rest) = ip.strip_prefix("100.") {
         if let Some(second) = rest.split('.').next() {
             if let Ok(o) = second.parse::<u8>() {

@@ -1,14 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use tauri::Manager;
-use regex::Regex;
-use lazy_static::lazy_static;
 
 pub const PASSWORD_MASK: &str = "***";
-
-lazy_static! {
-    static ref USERNAME_RE: Regex = Regex::new(r"^[a-zA-Z0-9._-]+$").expect("USERNAME_RE compilation failed");
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -163,100 +155,4 @@ impl Config {
             self.user.clone()
         }
     }
-}
-
-pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, content)
-        .map_err(|e| format!("写入临时文件失败: {}", e))?;
-    for attempt in 0..3 {
-        if std::fs::rename(&tmp_path, path).is_ok() {
-            return Ok(());
-        }
-        if attempt < 2 {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-    }
-    crate::log_warn!("config", "原子写入重命名失败，保留临时文件: {:?}", tmp_path);
-    Err(format!("重命名临时文件失败（重试3次后）"))
-}
-
-pub fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
-    let tauri_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| {
-        dirs::data_dir().unwrap_or_else(|| PathBuf::from("."))
-    });
-
-    if !tauri_dir.exists() {
-        if let Err(e) = std::fs::create_dir_all(&tauri_dir) {
-            crate::log_warn!("config", "创建Tauri数据目录失败: {}", e);
-        }
-    }
-
-    tauri_dir
-}
-
-pub fn get_config_path(data_dir: &PathBuf) -> PathBuf {
-    data_dir.join("config.json")
-}
-
-pub fn get_accounts_dir(data_dir: &PathBuf) -> PathBuf {
-    data_dir.join("accounts")
-}
-
-pub fn list_account_names(app_handle: &tauri::AppHandle) -> Vec<String> {
-    let data_dir = get_data_dir(app_handle);
-    let accounts_dir = get_accounts_dir(&data_dir);
-
-    if !accounts_dir.exists() {
-        return vec![];
-    }
-
-    let mut accounts = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&accounts_dir) {
-        for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Some(name) = entry.path().file_stem().and_then(|n| n.to_str()) {
-                    accounts.push(name.to_string());
-                }
-            }
-        }
-    }
-
-    accounts.sort();
-    accounts
-}
-
-pub(crate) fn get_login_history_path(data_dir: &PathBuf) -> PathBuf {
-    data_dir.join("login-history.json")
-}
-
-pub fn validate_username(user: &str) -> Result<&str, String> {
-    if user.is_empty() {
-        return Err("用户名不能为空".to_string());
-    }
-    if user.len() > 64 {
-        return Err("用户名过长".to_string());
-    }
-    if !USERNAME_RE.is_match(user) {
-        return Err("用户名包含非法字符".to_string());
-    }
-    Ok(user)
-}
-
-pub fn validate_operator(op: &str) -> Result<&str, String> {
-    if ["", "@telecom", "@unicom", "@cmcc"].contains(&op) {
-        Ok(op)
-    } else {
-        Err(format!("运营商后缀无效: {}，可选：@telecom、@unicom、@cmcc", op))
-    }
-}
-
-pub fn validate_password(password: &str) -> Result<(), String> {
-    if password.is_empty() {
-        return Err("密码不能为空".to_string());
-    }
-    if password.len() > 128 {
-        return Err("密码过长".to_string());
-    }
-    Ok(())
 }

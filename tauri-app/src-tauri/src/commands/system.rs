@@ -1,14 +1,9 @@
-use tauri::{AppHandle, Emitter, Manager, State, Window};
+use tauri::{AppHandle, Manager, State, Window};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use parking_lot::Mutex;
-use crate::config::{get_data_dir, get_login_history_path, atomic_write, list_account_names};
-use super::state::{AppState, CommandResult};
-
-const AUTOSTART_REG_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
-const AUTOSTART_REG_VALUE: &str = "CampusLogin";
-
-static LOGIN_HISTORY_LOCK: Mutex<()> = Mutex::new(());
+use crate::infra::state::{AppState, CommandResult};
+use crate::infra::notification::emit_notification;
+use crate::platform::autostart;
 
 #[tauri::command]
 pub fn minimize_window(window: Window) -> Result<(), String> {
@@ -52,43 +47,9 @@ pub fn open_external(url: String) -> Result<bool, String> {
     open::that(&url).map(|_| true).map_err(|e| format!("打开链接失败: {}", e))
 }
 
-fn get_auto_launch_enabled() -> bool {
-    use winreg::enums::*;
-    use winreg::RegKey;
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok(key) = hkcu.open_subkey(AUTOSTART_REG_KEY) {
-        if let Ok(val) = key.get_value::<String, _>(AUTOSTART_REG_VALUE) {
-            return !val.is_empty();
-        }
-    }
-    false
-}
-
-fn set_auto_launch_registry(enabled: bool, exe_path: &str) -> Result<(), String> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = hkcu.open_subkey_with_flags(AUTOSTART_REG_KEY, KEY_SET_VALUE)
-        .map_err(|e| format!("打开注册表失败: {}", e))?;
-
-    if enabled {
-        let value = format!("\"{}\" --autostart", exe_path);
-        key.set_value(AUTOSTART_REG_VALUE, &value)
-            .map_err(|e| format!("写入注册表失败: {}", e))?;
-    } else {
-        if let Err(e) = key.delete_value(AUTOSTART_REG_VALUE) {
-            crate::log_warn!("system", "删除自启动注册表项失败: {}", e);
-        }
-    }
-
-    Ok(())
-}
-
 #[tauri::command]
 pub fn get_auto_launch() -> Result<serde_json::Value, String> {
-    let enabled = get_auto_launch_enabled();
+    let enabled = autostart::get_auto_launch_enabled();
     Ok(serde_json::json!({ "enabled": enabled }))
 }
 
@@ -97,7 +58,6 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
     let exe_path = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
     let exe_str = exe_path.to_str().ok_or("程序路径无效")?;
 
-    // 先写磁盘，确认成功后再更新内存状态
     {
         let current = state.config.load();
         let mut cfg = current.as_ref().clone();
@@ -105,11 +65,14 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
         if let Err(e) = super::config_cmd::save_config_to_disk(&app_handle, &cfg) {
             return Ok(serde_json::json!({ "success": false, "message": format!("保存配置失败: {}", e) }));
         }
-        // 磁盘写入成功后才更新内存
         state.config.store(Arc::new(cfg));
     }
 
-    let result = set_auto_launch_registry(enabled, exe_str);
+    let result = if enabled {
+        autostart::set_auto_start(exe_str)
+    } else {
+        autostart::remove_auto_start()
+    };
 
     match result {
         Ok(_) => {
@@ -138,46 +101,6 @@ pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_h
     Ok(enabled)
 }
 
-pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str) {
-    if let Err(e) = app_handle.emit("system-notification", serde_json::json!({
-        "title": title,
-        "body": body,
-    })) {
-        crate::log_warn!("system", "发送系统通知失败: {}", e);
-    }
-
-    let enable_notification = {
-        let s = app_handle.state::<crate::commands::state::AppState>();
-        s.config.load().enable_notification
-    };
-    if !enable_notification {
-        return;
-    }
-
-    let is_focused = app_handle.get_webview_window("main")
-        .map(|w| w.is_focused().unwrap_or(false))
-        .unwrap_or(false);
-    if is_focused {
-        return;
-    }
-
-    let title = title.to_string();
-    let body = body.to_string();
-    let app_h = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        use tauri_plugin_notification::NotificationExt;
-        match app_h.notification()
-            .builder()
-            .title(&title)
-            .body(&body)
-            .show()
-        {
-            Ok(_) => {}
-            Err(e) => crate::log_warn!("system", "系统通知发送失败: {}", e),
-        }
-    });
-}
-
 #[tauri::command]
 pub fn send_notification(title: String, body: String, app_handle: AppHandle) -> Result<bool, String> {
     if title.is_empty() || title.len() > 256 {
@@ -193,13 +116,12 @@ pub fn send_notification(title: String, body: String, app_handle: AppHandle) -> 
 #[tauri::command]
 pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    super::auto_exit::cancel_auto_exit_inner(&app_handle, &s)
+    crate::infra::lifecycle::cancel_auto_exit_inner(&app_handle, &s)
 }
 
 pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
-    let _lock = LOGIN_HISTORY_LOCK.lock();
-    let data_dir = get_data_dir(app_handle);
-    let history_path = get_login_history_path(&data_dir);
+    let data_dir = crate::config::persist::get_data_dir(app_handle);
+    let history_path = crate::config::persist::get_login_history_path(&data_dir);
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
 
     let mut history: Vec<serde_json::Value> = if history_path.exists() {
@@ -227,7 +149,7 @@ pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str
     let json = serde_json::to_string_pretty(&history)
         .map_err(|e| format!("序列化登录历史失败: {}", e))?;
 
-    atomic_write(&history_path, &json)?;
+    crate::config::persist::atomic_write(&history_path, &json)?;
 
     Ok(())
 }
@@ -235,127 +157,68 @@ pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str
 #[tauri::command]
 pub fn get_logs(app_handle: AppHandle, lines: Option<usize>) -> Result<String, String> {
     let n = lines.unwrap_or(200);
-    crate::logger::read_recent_logs(&app_handle, n)
+    crate::infra::logger::read_recent_logs(&app_handle, n)
 }
 
 #[tauri::command]
-pub fn clear_logs(app_handle: AppHandle) -> Result<bool, String> {
-    crate::logger::clear_logs(&app_handle)?;
-    Ok(true)
+pub fn clear_logs(app_handle: AppHandle) -> Result<CommandResult, String> {
+    crate::infra::logger::clear_logs(&app_handle)?;
+    Ok(CommandResult::ok())
 }
 
 #[tauri::command]
-pub async fn get_init_data(app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let config = state.config.load_full();
-    let display_config = config.masked_for_display();
+pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    let config = state.config.load();
+    let mut cfg = config.as_ref().clone();
+    cfg.password = crate::config::model::PASSWORD_MASK.to_string();
 
-    let notification_enabled = config.enable_notification;
-    let active_account = config.active_account.clone();
-
-    let app_h = app_handle.clone();
-    let (adapter_result, auto_launch_result, accounts_result) = tokio::join!(
-        tauri::async_runtime::spawn_blocking(|| {
-            let (adapters, details, disabled) = crate::network::get_all_adapters_cached().unwrap_or_default();
-            (adapters, details, disabled)
-        }),
-        tauri::async_runtime::spawn_blocking(get_auto_launch_enabled),
-        tauri::async_runtime::spawn_blocking({
-            let app_h = app_h.clone();
-            move || list_account_names(&app_h)
-        }),
-    );
-
-    let (a, d, dd) = adapter_result.unwrap_or_default();
-    let al = auto_launch_result.unwrap_or(false);
-    let acc = accounts_result.unwrap_or_default();
-
-    let was_online = state.network.any_adapter_online.load(Ordering::Acquire);
-    let server_avail = state.network.server_available.load(Ordering::Acquire);
-
-    let adapter_statuses = {
-        let mut statuses = Vec::new();
-        if let Ok(adapters) = crate::network::get_adapters_cached() {
-            let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
-            if let Some(a1) = adapters.iter().find(|a| a.name == adapter1_name) {
-                if a1.ip.is_empty() {
-                    statuses.push(serde_json::json!({
-                        "name": adapter1_name, "ip": "", "wireless": a1.wireless,
-                        "online": false, "message": "未连接"
-                    }));
-                } else {
-                    statuses.push(serde_json::json!({
-                        "name": adapter1_name, "ip": a1.ip, "wireless": a1.wireless,
-                        "online": was_online, "message": if was_online { "已在线" } else { "未在线" }
-                    }));
-                }
-            } else if !adapter1_name.is_empty() {
-                statuses.push(serde_json::json!({
-                    "name": adapter1_name, "ip": "", "wireless": false,
-                    "online": false, "message": "已禁用"
-                }));
-            }
-            if config.dual_adapter && !adapter2_name.is_empty() {
-                if let Some(a2) = adapters.iter().find(|a| a.name == adapter2_name) {
-                    if a2.ip.is_empty() {
-                        statuses.push(serde_json::json!({
-                            "name": adapter2_name, "ip": "", "wireless": a2.wireless,
-                            "online": false, "message": "未连接"
-                        }));
-                    } else {
-                        statuses.push(serde_json::json!({
-                            "name": adapter2_name, "ip": a2.ip, "wireless": a2.wireless,
-                            "online": was_online, "message": if was_online { "已在线" } else { "未在线" }
+    let data_dir = crate::config::persist::get_data_dir(&app_handle);
+    let accounts_dir = crate::config::persist::get_accounts_dir(&data_dir);
+    let mut accounts = Vec::new();
+    if accounts_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&accounts_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
+                let name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                if name.starts_with('.') { continue; }
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(account_config) = serde_json::from_str::<crate::config::model::Config>(&content) {
+                        accounts.push(serde_json::json!({
+                            "name": name,
+                            "user": account_config.user,
+                            "operator": account_config.operator,
                         }));
                     }
-                } else {
-                    statuses.push(serde_json::json!({
-                        "name": adapter2_name, "ip": "", "wireless": false,
-                        "online": false, "message": "已禁用"
-                    }));
                 }
             }
         }
-        serde_json::Value::Array(statuses)
-    };
+    }
+    accounts.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
 
-    let bg_status = serde_json::json!({
-        "isRunning": state.tasks.background_running.is_active(),
-        "checkCount": state.network.background_check_count.load(Ordering::Acquire),
-        "serverAvailable": server_avail,
-        "online": was_online,
-        "adapterStatuses": adapter_statuses,
-        "currentSsid": state.network.current_ssid.load().as_ref(),
-        "onCampusNetwork": state.network.on_campus_network.load(Ordering::Acquire),
-        "enableNetworkNameCheck": config.enable_network_name_check,
-        "requiredNetworkName": config.required_network_name,
-    });
-
-    let is_auto_start = std::env::args().any(|a| a == "--autostart");
-    let cpu_cores = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let version = env!("CARGO_PKG_VERSION").to_string();
+    let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
 
     Ok(serde_json::json!({
-        "config": display_config,
-        "adapters": a,
-        "adapterDetails": d,
-        "disabledAdapters": dd,
-        "autoLaunch": al,
-        "notificationEnabled": notification_enabled,
-        "backgroundStatus": bg_status,
-        "accounts": acc,
-        "activeAccount": active_account,
-        "isAutoStart": is_auto_start,
-        "cpuCores": cpu_cores,
+        "config": cfg,
+        "accounts": accounts,
+        "version": version,
+        "autoLaunch": auto_launch,
     }))
 }
 
 #[tauri::command]
-pub fn render_heartbeat(state: State<'_, AppState>) -> Result<(), String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    state.last_render_heartbeat_ms.store(now, Ordering::Release);
-    Ok(())
+pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let online = state.network.any_adapter_online.load(Ordering::Acquire);
+    let checking = state.tasks.is_checking.is_active();
+    Ok(serde_json::json!({
+        "online": online,
+        "checking": checking,
+    }))
+}
+
+#[tauri::command]
+pub fn get_gpu_info() -> Result<serde_json::Value, String> {
+    let gpu = crate::platform::gpu::detect_gpu_adapter();
+    Ok(serde_json::json!({ "gpu": gpu }))
 }

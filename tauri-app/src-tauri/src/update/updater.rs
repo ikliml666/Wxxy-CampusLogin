@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
-use crate::commands::state::AppState;
+use crate::infra::state::AppState;
 use std::sync::atomic::Ordering;
 
 const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";

@@ -1,20 +1,20 @@
 {
-  "version": "v2.2.2",
-  "notes": "## v2.2.2 更新日志\n\n### 代码质量\n- 提取登录/注销公共逻辑，消除重复代码\n- 前端静默catch替换为DEV模式错误输出，改善调试体验\n- DHCP结果类型断言从any替换为具体类型，修复字段名错误\n- 修复delete操作符对非可选属性的TS2790错误\n\n### 可访问性\n- 添加prefers-reduced-motion支持（framer-motion + GSAP）\n- RefreshButton添加aria-label\n- Toast容器添加aria-live=\"polite\"和role=\"status\"\n- Toast关闭按钮添加aria-label\n\n### 文档\n- 为ePortal协议注销占位凭据(drcom/123)添加协议说明注释\n- 为netsh命令format!用法添加语法说明注释\n\n### 杂项\n- 同步根package.json版本号至2.2.1",
+  "version": "v2.2.1",
+  "notes": "## v2.2.1 更新日志\n\n### 注销流程修复\n- 页面检测运算符优先级修复：`||`与`&&`优先级错误导致登录页被误判为已在线\n- 页面检测误匹配修复：移除DDDDD关键词检测，避免注销页被误判为登录页\n- 页面检测返回类型改进：Option<bool> → PageCheckResult枚举，精确区分请求失败与无法判断\n- reachable字段修复：页面获取成功但无法判断状态时reachable改为true\n- 注销流程对齐网页抓包：每轮MAC解绑(dr1002)→Radius注销(dr1003, drcom/123)，共2轮，轮间等待1.5秒\n- 移除注销成功后2秒等待，页面检测立即验证\n- 注销保护期60秒，期间跳过自动登录、断线重连、网络状态更新\n- 后台检测不传凭据，避免API备用检测触发意外登录\n\n### 代码质量\n- 提取登录/注销公共逻辑，消除重复代码\n- 前端静默catch替换为DEV模式错误输出，改善调试体验\n- DHCP结果类型断言从any替换为具体类型，修复字段名错误\n- 修复delete操作符对非可选属性的TS2790错误\n\n### 可访问性\n- 添加prefers-reduced-motion支持（framer-motion + GSAP）\n- RefreshButton添加aria-label\n- Toast容器添加aria-live=\"polite\"和role=\"status\"\n- Toast关闭按钮添加aria-label\n\n### 文档\n- 为ePortal协议注销占位凭据(drcom/123)添加协议说明注释\n- 为netsh命令format!用法添加语法说明注释\n\n### 杂项\n- 同步根package.json版本号至2.2.1",
   "assets": [
     {
-      "name": "campus-login_2.2.2_x64-setup.exe",
-      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.2/campus-login_2.2.2_x64-setup.exe",
+      "name": "campus-login_2.2.1_x64-setup.exe",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.1/campus-login_2.2.1_x64-setup.exe",
       "size": 0
     },
     {
-      "name": "campus-login_2.2.2_x64_en-US.msi",
-      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.2/campus-login_2.2.2_x64_en-US.msi",
+      "name": "campus-login_2.2.1_x64_en-US.msi",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.1/campus-login_2.2.1_x64_en-US.msi",
       "size": 0
     },
     {
-      "name": "campus-login_2.2.2_x64-setup.exe.sha256",
-      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.2/campus-login_2.2.2_x64-setup.exe.sha256",
+      "name": "campus-login_2.2.1_x64-setup.exe.sha256",
+      "browser_download_url": "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.2.1/campus-login_2.2.1_x64-setup.exe.sha256",
       "size": 0
     }
   ]
