@@ -217,15 +217,9 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle, state: 
 }
 
 #[tauri::command]
-pub fn get_active_account(state: State<'_, AppState>) -> Result<AccountResult, String> {
+pub fn get_active_account(state: State<'_, AppState>) -> Result<String, String> {
     let config = state.config.load();
-    let active = config.active_account.clone();
-    if active.is_empty() {
-        Ok(AccountResult::ok_msg("无活跃账号"))
-    } else {
-        let display_config = config.masked_for_display();
-        Ok(AccountResult::ok_with_account(active, display_config))
-    }
+    Ok(config.active_account.clone())
 }
 
 fn load_account_config_inner(app_handle: &AppHandle, account_name: &str) -> Result<Option<Config>, String> {

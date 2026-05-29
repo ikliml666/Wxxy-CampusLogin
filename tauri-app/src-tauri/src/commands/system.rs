@@ -181,20 +181,12 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
                 let name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                if name.starts_with('.') { continue; }
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(account_config) = serde_json::from_str::<crate::config::model::Config>(&content) {
-                        accounts.push(serde_json::json!({
-                            "name": name,
-                            "user": account_config.user,
-                            "operator": account_config.operator,
-                        }));
-                    }
-                }
+                if name.starts_with('.') || name.is_empty() { continue; }
+                accounts.push(name);
             }
         }
     }
-    accounts.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    accounts.sort();
 
     let version = env!("CARGO_PKG_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
