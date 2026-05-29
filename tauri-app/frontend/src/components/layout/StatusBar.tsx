@@ -3,8 +3,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { memo, useRef, useEffect } from 'react'
-import { RefreshButton } from '@/components/shared/RefreshButton'
-import { NetworkQualityCapsule } from '@/components/shared/NetworkQualityCapsule'
+import { RefreshButton } from '@/shared'
+import { NetworkQualityCapsule } from '@/monitor'
 import { m } from 'framer-motion'
 
 interface StatusBarProps {

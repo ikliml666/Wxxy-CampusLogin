@@ -1,3 +1,6 @@
 export { MonitorPanel } from './MonitorPanel'
 export { QualityPanel } from './QualityPanel'
 export { SpeedTestPanel } from './SpeedTestPanel'
+export { LatencyPair } from './LatencyComponents'
+export { LatencyTimeline } from './LatencyTimeline'
+export { NetworkQualityCapsule } from './NetworkQualityCapsule'

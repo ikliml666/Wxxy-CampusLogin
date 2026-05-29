@@ -4,7 +4,7 @@ import { getLatencyLevel } from '@/lib/latency'
 import { QUALITY_CONFIG } from '@/constants'
 import { m } from 'framer-motion'
 import { useMemo, useRef, useEffect, useState } from 'react'
-import { AnimatedNumber } from './AnimatedNumber'
+import { AnimatedNumber } from '@/shared'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 
 function getSignalCfg(level: string) {

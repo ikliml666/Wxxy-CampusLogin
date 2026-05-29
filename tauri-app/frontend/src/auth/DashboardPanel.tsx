@@ -4,7 +4,7 @@ import { CardContent, CardHeader, CardTitle, CardDescription } from '@/component
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { getRefreshIconClass } from '@/components/shared/RefreshButton'
+import { getRefreshIconClass } from '@/shared'
 import {
   Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, Check, X,
@@ -15,7 +15,7 @@ import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
 import { m, Reorder } from 'framer-motion'
 import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
 import { QUALITY_CONFIG } from '@/constants'
-import { LatencyPair } from '@/components/shared/LatencyComponents'
+import { LatencyPair } from '@/monitor'
 import { safeStorage } from '@/lib/utils'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 

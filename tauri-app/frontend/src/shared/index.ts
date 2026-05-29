@@ -1,1 +1,5 @@
 export { LogPanel } from './LogPanel'
+export { ConfirmDialog } from './ConfirmDialog'
+export { AnimatedNumber } from './AnimatedNumber'
+export { RefreshButton, getRefreshIconClass } from './RefreshButton'
+export { SegmentTabs, TabContent } from './SegmentTabs'
