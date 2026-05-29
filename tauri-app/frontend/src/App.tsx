@@ -1,10 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
+import { useAuth } from '@/hooks/useAuth'
+import { useMonitor } from '@/hooks/useMonitor'
+import { useNetwork } from '@/hooks/useNetwork'
+import { useAccount } from '@/hooks/useAccount'
+import { useSettings } from '@/hooks/useSettings'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
-import { safeStorage, extractErrorMessage } from '@/lib/utils'
-import type { ThemeName, DhcpReleaseRenewResult } from '@/types'
+import { safeStorage } from '@/lib/utils'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/components/layout/StatusBar'
@@ -59,12 +63,7 @@ function AppInner() {
     releaseNotes: s.releaseNotes,
     api: s.api,
     updateConfig: s.updateConfig,
-    setThemeName: s.setThemeName,
-    setIsLightMode: s.setIsLightMode,
     setActivePanel: s.setActivePanel,
-    setBgStatus: s.setBgStatus,
-    setAccounts: s.setAccounts,
-    setActiveAccount: s.setActiveAccount,
     setLogs: s.setLogs,
     setUpdateAvailable: s.setUpdateAvailable,
     setLatestVersion: s.setLatestVersion,
@@ -76,10 +75,15 @@ function AppInner() {
     refreshQuality: s.refreshQuality,
   })))
 
+  const { handleOpenPortal, handleOpenSelfService } = useAuth()
+  const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
+  const { handleDhcpRenew, handleDhcpReleaseRenew } = useNetwork()
+  const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
+  const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
+
   const configUser = useAppStore((s) => s.config.user)
   const configEnableNotification = useAppStore((s) => s.config.enableNotification)
   const configEnableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality)
-  const configPortalUrl = useAppStore((s) => s.config.portalUrl)
   const configAutoLaunch = useAppStore((s) => s.config.autoLaunch)
   const config = useAppStore(useShallow((s) => s.config))
 
@@ -129,174 +133,6 @@ function AppInner() {
       if (import.meta.env.DEV) console.error('切换最大化失败:', e)
     }
   }, [])
-
-  const handleToggleLightMode = useCallback(() => {
-    const current = useAppStore.getState().isLightMode
-    const next = !current
-    useAppStore.getState().setIsLightMode(next)
-    useAppStore.getState().updateConfig({ themeMode: next ? 'light' : 'dark' })
-    safeStorage.set('campus-light-mode', next ? '1' : '0')
-    if (next) {
-      document.documentElement.setAttribute('data-light', '1')
-    } else {
-      document.documentElement.removeAttribute('data-light')
-    }
-  }, [])
-
-  const handleToggleNotification = useCallback(async () => {
-    const next = configEnableNotification !== false ? false : true
-    store.updateConfig({ enableNotification: next })
-    try { await store.api.setNotificationEnabled?.(next) } catch (e) { if (import.meta.env.DEV) console.error('设置通知状态失败:', e) }
-  }, [configEnableNotification, store.updateConfig, store.api])
-
-  const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
-    store.updateConfig({ autoLaunch: enabled })
-    try { await store.api.setAutoLaunch?.(enabled) } catch (e) { if (import.meta.env.DEV) console.error('设置开机自启失败:', e) }
-  }, [store.updateConfig, store.api])
-
-  const handleSetTheme = useCallback((name: string) => {
-    store.setThemeName(name as ThemeName)
-    safeStorage.set('campus-theme', name)
-  }, [store.setThemeName])
-
-  const handleToggleBackgroundCheck = useCallback(async (enabled: boolean, intervalSec: number) => {
-    try {
-      if (enabled) {
-        await store.api.startBackgroundCheck?.()
-      } else {
-        await store.api.stopBackgroundCheck?.()
-      }
-      store.updateConfig({ enableBackgroundCheck: enabled, backgroundCheckInterval: intervalSec * 1000 })
-      store.setBgStatus(prev => ({ ...prev, isRunning: enabled }))
-    } catch (e) {
-      if (import.meta.env.DEV) console.error('切换后台检查失败:', e)
-    }
-  }, [store.api, store.updateConfig, store.setBgStatus])
-
-  const handleTriggerCheck = useCallback(async () => {
-    try { await store.api.triggerBackgroundCheck?.() } catch (e) { if (import.meta.env.DEV) console.error('触发后台检查失败:', e) }
-  }, [store.api])
-
-  const handleToggleLatencyTest = useCallback(async (enabled: boolean, intervalSec: number) => {
-    if (enabled) {
-      try { await store.api.startLatencyTest?.(); store.updateConfig({ enableLatencyTest: enabled, latencyTestInterval: intervalSec * 1000 }) } catch (e) { if (import.meta.env.DEV) console.error('启动延迟测试失败:', e) }
-    } else {
-      try { await store.api.stopLatencyTest?.(); store.updateConfig({ enableLatencyTest: enabled, latencyTestInterval: intervalSec * 1000 }) } catch (e) { if (import.meta.env.DEV) console.error('停止延迟测试失败:', e) }
-    }
-  }, [store.api, store.updateConfig])
-
-  const refreshAdapterInfo = useCallback(async () => {
-    try {
-      const [adapters, details] = await Promise.all([
-        store.api.getAdapters?.().catch(() => undefined),
-        store.api.getAdapterDetails?.().catch(() => undefined),
-      ])
-      if (adapters) useAppStore.setState({ adapters })
-      if (details) useAppStore.setState({ adapterDetails: details })
-    } catch (e) { if (import.meta.env.DEV) console.error(e) }
-  }, [store.api])
-
-  const handleDhcpRenew = useCallback(async () => {
-    try { await store.api.dhcpRenewAll?.() } catch (e) { if (import.meta.env.DEV) console.error('DHCP 续租失败:', e) }
-    await refreshAdapterInfo()
-    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
-  }, [store.api, refreshAdapterInfo])
-
-  const handleDhcpReleaseRenew = useCallback(async () => {
-    type DhcpResultItem = DhcpReleaseRenewResult['results'][number]
-    try {
-      const result = await store.api.dhcpReleaseRenew?.()
-      if (result?.results) {
-        const skipped = result.results.filter((r: DhcpResultItem) => r.skipped)
-        const succeeded = result.results.filter((r: DhcpResultItem) => r.success)
-        const failed = result.results.filter((r: DhcpResultItem) => !r.success && !r.skipped)
-        if (succeeded.length > 0) {
-          store.addToast(`已获取新IP: ${succeeded.map((r: DhcpResultItem) => r.name).join(', ')}`, 'success')
-        }
-        if (skipped.length > 0) {
-          store.addToast(`${skipped.map((r: DhcpResultItem) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
-        }
-        if (failed.length > 0) {
-          const failedDetails = failed.map((r: DhcpResultItem) => {
-            const detail = r.reason ? `${r.name}: ${r.reason}` : r.name
-            return detail
-          }).join('; ')
-          store.addToast(`获取新IP失败: ${failedDetails}`, 'error')
-        }
-      }
-    } catch (e) { if (import.meta.env.DEV) console.error('获取新IP失败:', e); store.addToast('获取新IP失败', 'error') }
-    await refreshAdapterInfo()
-    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
-  }, [store.api, store.addToast, refreshAdapterInfo])
-
-  const handleAddAccount = useCallback(async (name: string) => {
-    try {
-      const result = await store.api.saveCurrentAsAccount?.(name)
-      if (result?.success === false) {
-        store.addToast('保存账号失败', 'error', result.message || '未知错误')
-        return
-      }
-      if (result?.config) store.updateConfig(result.config)
-      if (result?.activeAccount) store.setActiveAccount(result.activeAccount)
-      store.addToast('账号已保存', 'success')
-    } catch (e: any) {
-      const errMsg = extractErrorMessage(e)
-      store.addToast('保存账号失败', 'error', errMsg)
-    }
-    try {
-      const accs = await store.api.listAccounts?.() || []
-      store.setAccounts(accs)
-    } catch (e) {
-      if (import.meta.env.DEV) console.error('刷新账号列表失败:', e)
-    }
-  }, [store.api, store.updateConfig, store.setActiveAccount, store.setAccounts, store.addToast])
-
-  const handleDeleteAccount = useCallback(async (name: string) => {
-    try {
-      await store.api.deleteAccount?.(name)
-    } catch (e) {
-      const errMsg = extractErrorMessage(e)
-      store.addToast('删除账号失败', 'error', errMsg)
-      setConfirmDelete({ open: false, name: '' })
-      return
-    }
-    try {
-      const accs = await store.api.listAccounts?.() || []
-      store.setAccounts(accs)
-    } catch (e) {
-      if (import.meta.env.DEV) console.error('刷新账号列表失败:', e)
-    }
-    setConfirmDelete({ open: false, name: '' })
-  }, [store.api, store.setAccounts, store.addToast])
-
-  const handleSwitchAccount = useCallback(async (name: string) => {
-    try {
-      const result = await store.api.switchAccount?.(name)
-      if (result?.success === false) {
-        store.addToast('切换账号失败', 'error', result.message || '未知错误')
-        return
-      }
-      const [cfg, active] = await Promise.all([
-        store.api.getConfig?.().catch(() => undefined),
-        store.api.getActiveAccount?.().catch(() => ''),
-      ])
-      if (cfg) store.updateConfig(cfg)
-      store.setActiveAccount(active || '')
-      store.addToast('已切换账号', 'success')
-    } catch (e: any) {
-      const errMsg = extractErrorMessage(e)
-      store.addToast('切换账号失败', 'error', errMsg)
-    }
-  }, [store.api, store.updateConfig, store.setActiveAccount, store.addToast])
-
-  const handleOpenPortal = useCallback(() => {
-    const portalUrl = configPortalUrl || 'http://10.1.99.100'
-    store.api.openExternal?.(portalUrl)
-  }, [store.api, configPortalUrl])
-
-  const handleOpenSelfService = useCallback(() => {
-    store.api.openExternal?.('http://10.1.80.200:8080/Self/login/?302=LI')
-  }, [store.api])
 
   const handleClearLogs = useCallback(() => {
     setLogs([])
@@ -521,7 +357,7 @@ function AppInner() {
         open={confirmDelete.open}
         title="删除账号"
         message={`确定要删除账号「${confirmDelete.name}」吗？此操作不可撤销。`}
-        onConfirm={() => handleDeleteAccount(confirmDelete.name)}
+        onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '' }) }}
         onCancel={() => setConfirmDelete({ open: false, name: '' })}
       />
 
