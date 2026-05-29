@@ -3,9 +3,10 @@
 mod commands;
 mod config;
 mod network;
-mod http_timing;
 mod crypto_utils;
 mod logger;
+mod platform;
+mod update;
 
 use commands::AppState;
 use commands::start_auto_exit;
