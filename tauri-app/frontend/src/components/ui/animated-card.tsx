@@ -1,13 +1,12 @@
 import * as React from 'react'
 import { m, useReducedMotion } from 'framer-motion'
-import { gsap } from 'gsap'
 import { cn } from '@/lib/utils'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 export interface AnimatedCardConfig {
   hoverY?: number
-  shadow?: string
-  restShadow?: string
+  glowColor?: string
+  glowIntensity?: number
   hoverScale?: number
   stiffness?: number
   damping?: number
@@ -15,11 +14,9 @@ export interface AnimatedCardConfig {
 }
 
 const DEFAULT_CONFIG: Required<AnimatedCardConfig> = {
-  hoverY: -4,
-  shadow:
-    '0 12px 32px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06)',
-  restShadow:
-    '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)',
+  hoverY: -3,
+  glowColor: 'rgba(59, 130, 246, 0.12)',
+  glowIntensity: 1,
   hoverScale: 1,
   stiffness: 300,
   damping: 20,
@@ -39,34 +36,6 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
     const profile = useAnimationProfile()
     const [isHovered, setIsHovered] = React.useState(false)
     const [entryDone, setEntryDone] = React.useState(noEnterAnimation)
-    const cardRef = React.useRef<HTMLDivElement>(null)
-    const rafRef = React.useRef<number>(0)
-    const rectCacheRef = React.useRef<DOMRect | null>(null)
-    const xToRef = React.useRef<ReturnType<typeof gsap.quickTo> | null>(null)
-    const yToRef = React.useRef<ReturnType<typeof gsap.quickTo> | null>(null)
-
-    React.useEffect(() => {
-      if (!cardRef.current || prefersReducedMotion) return
-      xToRef.current = gsap.quickTo(cardRef.current, 'x', { duration: profile.magneticDuration, ease: 'power3.out' })
-      yToRef.current = gsap.quickTo(cardRef.current, 'y', { duration: profile.magneticDuration, ease: 'power3.out' })
-      return () => {
-        xToRef.current?.(0)
-        yToRef.current?.(0)
-        xToRef.current = null
-        yToRef.current = null
-      }
-    }, [prefersReducedMotion, profile.magneticDuration])
-
-    React.useEffect(() => {
-      const el = cardRef.current
-      if (!el) return
-      rectCacheRef.current = el.getBoundingClientRect()
-      const ro = new ResizeObserver(() => {
-        rectCacheRef.current = el.getBoundingClientRect()
-      })
-      ro.observe(el)
-      return () => ro.disconnect()
-    }, [])
 
     const config = React.useMemo(
       () => ({ ...DEFAULT_CONFIG, ...animationConfig }),
@@ -78,45 +47,20 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       [profile.springStiffness, profile.springDamping, config.mass]
     )
 
+    const hoverY = noHover ? 0 : config.hoverY
+    const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
+    const glowShadow = isHovered && !noHover
+      ? `0 0 ${20 * config.glowIntensity}px ${config.glowColor}, 0 0 ${40 * config.glowIntensity}px ${config.glowColor.replace(/[\d.]+\)$/, '0.06)')}, 0 ${8}px ${24}px rgba(0,0,0,0.06)`
+      : restShadow
+
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
       [className]
     )
 
-    const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
-      if (noHover || prefersReducedMotion) return
-      const target = e.target as HTMLElement
-      if (target.closest('input, textarea, select, button, [role="button"], [data-no-magnetic]')) {
-        xToRef.current?.(0)
-        yToRef.current?.(0)
-        return
-      }
-      const el = cardRef.current
-      if (!el) return
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      rafRef.current = requestAnimationFrame(() => {
-        const rect = rectCacheRef.current ?? el.getBoundingClientRect()
-        if (!rectCacheRef.current) rectCacheRef.current = rect
-        const cx = rect.left + rect.width / 2
-        const cy = rect.top + rect.height / 2
-        const dx = (e.clientX - cx) / (rect.width / 2)
-        const dy = (e.clientY - cy) / (rect.height / 2)
-        const maxOffset = profile.magneticOffset
-        xToRef.current?.(dx * maxOffset)
-        yToRef.current?.(dy * maxOffset)
-      })
-    }, [noHover, prefersReducedMotion, profile.magneticOffset])
-
-    const handleMouseLeave = React.useCallback(() => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      xToRef.current?.(0)
-      yToRef.current?.(0)
-      setIsHovered(false)
-    }, [])
-
     if (prefersReducedMotion || noAnimation) {
       return (
-        <div ref={ref} className={cardClassName} style={{ boxShadow: config.restShadow }} {...props}>
+        <div ref={ref} className={cardClassName} style={{ boxShadow: restShadow }} {...props}>
           {children}
         </div>
       )
@@ -127,9 +71,9 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         className={cn('rounded-2xl')}
         initial={noEnterAnimation ? false : { opacity: 0, y: 20, scale: 0.97 }}
         animate={noEnterAnimation ? false : { opacity: 1, y: 0, scale: 1 }}
-        transition={noEnterAnimation ? undefined : { type: 'spring', stiffness: profile.springStiffness, damping: profile.springDamping, mass: 0.7 }}
+        transition={noEnterAnimation ? undefined : { type: 'spring', ...springConfig }}
         whileHover={noHover ? undefined : {
-          boxShadow: config.shadow,
+          y: hoverY,
           transition: { type: 'spring', ...springConfig },
         }}
         onAnimationComplete={() => setEntryDone(true)}
@@ -138,19 +82,13 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         }}
         onHoverStart={() => setIsHovered(true)}
         onHoverEnd={() => setIsHovered(false)}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
       >
         <div
-          ref={(node) => {
-            (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node
-            if (typeof ref === 'function') ref(node)
-            else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
-          }}
+          ref={ref}
           className={cn(
-            'bg-white text-card-foreground rounded-2xl dark:bg-[#14161b] transition-shadow duration-200',
+            'bg-white text-card-foreground rounded-2xl transition-shadow duration-300 dark:bg-[#14161b]',
           )}
-          style={{ boxShadow: isHovered ? config.shadow : config.restShadow }}
+          style={{ boxShadow: glowShadow }}
           {...props}
         >
           {children}
