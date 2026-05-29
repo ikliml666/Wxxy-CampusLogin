@@ -567,24 +567,6 @@ pub fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(),
     Err("未找到适配器注册表项".to_string())
 }
 
-#[allow(dead_code)]
-fn find_adapter_registry_subkey(adapter_guid: &str) -> Option<String> {
-    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
-    let class_path = r"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-    let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
-    let class_key = hklm.open_subkey_with_flags(class_path, KEY_READ).ok()?;
-    for subkey_name in class_key.enum_keys().filter_map(|r| r.ok()) {
-        if let Ok(subkey) = class_key.open_subkey_with_flags(&subkey_name, KEY_READ) {
-            if let Ok(instance_id) = subkey.get_value::<String, _>("NetCfgInstanceId") {
-                if instance_id.eq_ignore_ascii_case(adapter_guid) {
-                    return Some(format!(r"SYSTEM\CurrentControlSet\Control\Class\{{4D36E972-E325-11CE-BFC1-08002BE10318}}\{}", subkey_name));
-                }
-            }
-        }
-    }
-    None
-}
-
 #[cfg(target_os = "windows")]
 pub fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS};
