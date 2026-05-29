@@ -617,11 +617,6 @@ pub fn netsh_enable(adapter_name: &str) -> bool {
         .unwrap_or(false)
 }
 
-#[allow(dead_code)]
-fn is_access_denied_str(e: &str) -> bool {
-    e.contains("管理员权限") || e.contains("Access is denied")
-}
-
 pub fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Option<String> {
     let start = std::time::Instant::now();
     let interval = std::time::Duration::from_millis(300);
