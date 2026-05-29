@@ -67,6 +67,8 @@ const LINE_OPTIONS = [
   { value: 1000, label: '1000行' },
 ]
 
+const MAX_DISPLAY_LINES = 100
+
 export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
   const [rawLogs, setRawLogs] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -185,6 +187,13 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       ? parsedLines
       : parsedLines.filter(line => line.level === filterLevel),
     [parsedLines, filterLevel]
+  )
+
+  const displayedLines = useMemo(() =>
+    filteredLines.length > MAX_DISPLAY_LINES
+      ? filteredLines.slice(-MAX_DISPLAY_LINES)
+      : filteredLines,
+    [filteredLines]
   )
 
   const levelCounts = useMemo(() =>
@@ -314,7 +323,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               onScroll={handleScroll}
               className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto max-h-[420px] font-mono text-[12px] leading-relaxed"
             >
-              {filteredLines.length === 0 ? (
+              {displayedLines.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
                   <FileText className="h-8 w-8 mb-2 opacity-30" />
                   <p className="text-xs">
@@ -322,11 +331,17 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   </p>
                 </div>
               ) : (
-                <AnimatePresence mode={filteredLines.length > 200 ? "wait" : "popLayout"} key={logsKey}>
-                  {filteredLines.map((line) => {
-                    const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
-                    const Icon = cfg.icon
-                    const enableAnimation = filteredLines.length <= 200
+                <>
+                  {filteredLines.length > MAX_DISPLAY_LINES && (
+                    <div className="px-3 py-1.5 text-[11px] text-muted-foreground/60 text-center border-b border-border/30">
+                      仅显示最近{MAX_DISPLAY_LINES}条日志（共{filteredLines.length}条）
+                    </div>
+                  )}
+                  <AnimatePresence mode={displayedLines.length > 200 ? "wait" : "popLayout"} key={logsKey}>
+                    {displayedLines.map((line) => {
+                      const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
+                      const Icon = cfg.icon
+                      const enableAnimation = displayedLines.length <= 200
                     return (
                       <m.div
                         key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
@@ -370,6 +385,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     )
                   })}
                 </AnimatePresence>
+                </>
               )}
             </div>
           </CardContent>

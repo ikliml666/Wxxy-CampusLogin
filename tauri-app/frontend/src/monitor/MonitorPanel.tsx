@@ -13,12 +13,12 @@ import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared'
 import { memo, useMemo } from 'react'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
+import { useAppStore } from '@/hooks/useAppStore'
 import { m } from 'framer-motion'
 import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
 
 interface MonitorPanelProps {
   config: Config
-  bgStatus: { isRunning: boolean; checkCount: number; adapterStatuses: AdapterOnlineStatus[]; currentSsid?: string; onCampusNetwork?: boolean }
   onUpdateConfig: (partial: Partial<Config>) => void
   onToggleBackgroundCheck: (enabled: boolean, interval: number) => Promise<void>
   onTriggerCheck: () => Promise<void>
@@ -71,7 +71,8 @@ const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }:
   )
 })
 
-export const MonitorPanel = memo(function MonitorPanel({ config, bgStatus, onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
+export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
+  const bgStatus = useAppStore((s) => s.bgStatus)
   const intervalSec = useMemo(() => (config.backgroundCheckInterval || 60000) / 1000, [config.backgroundCheckInterval])
   const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
     await onTriggerCheck()

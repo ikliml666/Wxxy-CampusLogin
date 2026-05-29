@@ -5,12 +5,11 @@ import { cn } from '@/lib/utils'
 import { memo, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { m } from 'framer-motion'
+import { useAppStore } from '@/hooks/useAppStore'
 
 interface TitleBarProps {
   notificationEnabled: boolean
   isLightMode: boolean
-  networkOnline: boolean
-  networkQuality: 'excellent' | 'great' | 'good' | 'fair' | 'poor' | 'bad' | 'unknown'
   onToggleNotification: () => void
   onShowTheme: () => void
   onShowAbout: () => void
@@ -63,6 +62,8 @@ export const TitleBar = memo(function TitleBar({
   updateAvailable,
   latestVersion,
 }: TitleBarProps) {
+  const networkOnline = useAppStore((s) => s.bgStatus.online)
+  const networkQuality = useAppStore((s) => s.networkQuality?.quality ?? 'unknown')
   const lastClickTimeRef = useRef(0)
 
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

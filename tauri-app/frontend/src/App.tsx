@@ -38,38 +38,36 @@ const PANEL_TITLES: Record<string, { title: string; desc: string }> = {
 
 function AppInner() {
   useAppInit()
-  const store = useAppStore(useShallow((s) => ({
-    activePanel: s.activePanel,
-    bgStatus: s.bgStatus,
-    networkQuality: s.networkQuality,
-    isLoggingIn: s.isLoggingIn,
-    isLoggingOut: s.isLoggingOut,
-    isRefreshingQuality: s.isRefreshingQuality,
-    isLightMode: s.isLightMode,
-    themeName: s.themeName,
-    adapters: s.adapters,
-    adapterDetails: s.adapterDetails,
-    accounts: s.accounts,
-    activeAccount: s.activeAccount,
-    passwordSaved: s.passwordSaved,
-    disabledAdapters: s.disabledAdapters,
-    status: s.status,
-    updateAvailable: s.updateAvailable,
-    latestVersion: s.latestVersion,
-    releaseNotes: s.releaseNotes,
-    api: s.api,
-    updateConfig: s.updateConfig,
-    setActivePanel: s.setActivePanel,
-    setLogs: s.setLogs,
-    setUpdateAvailable: s.setUpdateAvailable,
-    setLatestVersion: s.setLatestVersion,
-    setReleaseNotes: s.setReleaseNotes,
-    addToast: s.addToast,
-    removeToast: s.removeToast,
-    doLogin: s.doLogin,
-    doLogout: s.doLogout,
-    refreshQuality: s.refreshQuality,
-  })))
+
+  const activePanel = useAppStore((s) => s.activePanel)
+  const isLightMode = useAppStore((s) => s.isLightMode)
+  const themeName = useAppStore((s) => s.themeName)
+  const adapters = useAppStore((s) => s.adapters)
+  const adapterDetails = useAppStore((s) => s.adapterDetails)
+  const accounts = useAppStore((s) => s.accounts)
+  const activeAccount = useAppStore((s) => s.activeAccount)
+  const passwordSaved = useAppStore((s) => s.passwordSaved)
+  const disabledAdapters = useAppStore((s) => s.disabledAdapters)
+  const status = useAppStore((s) => s.status)
+  const isLoggingIn = useAppStore((s) => s.isLoggingIn)
+  const isLoggingOut = useAppStore((s) => s.isLoggingOut)
+  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
+  const updateAvailable = useAppStore((s) => s.updateAvailable)
+  const latestVersion = useAppStore((s) => s.latestVersion)
+  const releaseNotes = useAppStore((s) => s.releaseNotes)
+
+  const config = useAppStore(useShallow((s) => s.config))
+  const api = useAppStore((s) => s.api)
+
+  const updateConfig = useAppStore((s) => s.updateConfig)
+  const setActivePanel = useAppStore((s) => s.setActivePanel)
+  const setUpdateAvailable = useAppStore((s) => s.setUpdateAvailable)
+  const setLatestVersion = useAppStore((s) => s.setLatestVersion)
+  const setReleaseNotes = useAppStore((s) => s.setReleaseNotes)
+  const addToast = useAppStore((s) => s.addToast)
+  const doLogin = useAppStore((s) => s.doLogin)
+  const doLogout = useAppStore((s) => s.doLogout)
+  const refreshQuality = useAppStore((s) => s.refreshQuality)
 
   const { handleOpenPortal, handleOpenSelfService } = useAuth()
   const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
@@ -77,11 +75,9 @@ function AppInner() {
   const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
 
-  const configUser = useAppStore((s) => s.config.user)
-  const configEnableNotification = useAppStore((s) => s.config.enableNotification)
-  const configEnableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality)
-  const configAutoLaunch = useAppStore((s) => s.config.autoLaunch)
-  const config = useAppStore(useShallow((s) => s.config))
+  const configEnableNotification = config.enableNotification
+  const configEnableNetworkQuality = config.enableNetworkQuality
+  const configAutoLaunch = config.autoLaunch
 
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
     useShallow((s) => ({
@@ -114,11 +110,11 @@ function AppInner() {
 
   useEffect(() => {
     const done = safeStorage.get('campus-onboarding-done')
-    if (!done && !configUser) {
+    if (!done && !config.user) {
       const timer = setTimeout(() => setOnboardingOpen(true), 800)
       return () => clearTimeout(timer)
     }
-  }, [configUser])
+  }, [config.user])
 
   const handleToggleMaximize = useCallback(async () => {
     try {
@@ -134,25 +130,23 @@ function AppInner() {
     setLogs([])
   }, [setLogs])
 
-  const panelInfo = PANEL_TITLES[store.activePanel] || PANEL_TITLES.dashboard
+  const panelInfo = PANEL_TITLES[activePanel] || PANEL_TITLES.dashboard
 
   let panelContent: React.ReactNode = null
-  switch (store.activePanel) {
+  switch (activePanel) {
     case 'dashboard':
       panelContent = (
         <DashboardPanel
           config={config}
-          accounts={store.accounts}
-          activeAccount={store.activeAccount}
-          networkQuality={store.networkQuality}
-          bgStatus={store.bgStatus}
-          isRefreshingQuality={store.isRefreshingQuality}
-          adapterDetails={store.adapterDetails}
-          onUpdateConfig={store.updateConfig}
+          accounts={accounts}
+          activeAccount={activeAccount}
+          isRefreshingQuality={isRefreshingQuality}
+          adapterDetails={adapterDetails}
+          onUpdateConfig={updateConfig}
           onSwitchAccount={handleSwitchAccount}
           onDhcpRenew={handleDhcpRenew}
           onDhcpReleaseRenew={handleDhcpReleaseRenew}
-          onRefreshQuality={store.refreshQuality}
+          onRefreshQuality={refreshQuality}
         />
       )
       break
@@ -160,11 +154,11 @@ function AppInner() {
       panelContent = (
         <AccountPanel
           config={config}
-          adapters={store.adapters}
-          accounts={store.accounts}
-          activeAccount={store.activeAccount}
-          passwordSaved={store.passwordSaved}
-          onUpdateConfig={store.updateConfig}
+          adapters={adapters}
+          accounts={accounts}
+          activeAccount={activeAccount}
+          passwordSaved={passwordSaved}
+          onUpdateConfig={updateConfig}
           onAddAccount={handleAddAccount}
           onDeleteAccount={(name) => setConfirmDelete({ open: true, name })}
           onSwitchAccount={handleSwitchAccount}
@@ -175,10 +169,10 @@ function AppInner() {
       panelContent = (
         <NetworkPanel
           config={config}
-          adapters={store.adapters}
-          disabledAdapters={store.disabledAdapters}
-          onUpdateConfig={store.updateConfig}
-          onEnableAdapter={store.api.enableAdapter}
+          adapters={adapters}
+          disabledAdapters={disabledAdapters}
+          onUpdateConfig={updateConfig}
+          onEnableAdapter={api.enableAdapter}
         />
       )
       break
@@ -186,8 +180,7 @@ function AppInner() {
       panelContent = (
         <MonitorPanel
           config={config}
-          bgStatus={store.bgStatus}
-          onUpdateConfig={store.updateConfig}
+          onUpdateConfig={updateConfig}
           onToggleBackgroundCheck={handleToggleBackgroundCheck}
           onTriggerCheck={handleTriggerCheck}
         />
@@ -197,10 +190,9 @@ function AppInner() {
       panelContent = configEnableNetworkQuality !== false ? (
         <QualityPanel
           config={config}
-          networkQuality={store.networkQuality}
-          isRefreshingQuality={store.isRefreshingQuality}
-          onUpdateConfig={store.updateConfig}
-          onRefreshQuality={store.refreshQuality}
+          isRefreshingQuality={isRefreshingQuality}
+          onUpdateConfig={updateConfig}
+          onRefreshQuality={refreshQuality}
           onToggleLatencyTest={handleToggleLatencyTest}
         />
       ) : null
@@ -210,9 +202,9 @@ function AppInner() {
         <SettingsPanel
           config={config}
           autoLaunch={configAutoLaunch !== false}
-          isLightMode={store.isLightMode}
-          themeName={store.themeName}
-          onUpdateConfig={store.updateConfig}
+          isLightMode={isLightMode}
+          themeName={themeName}
+          onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
           onToggleLightMode={handleToggleLightMode}
           onSetTheme={handleSetTheme}
@@ -223,15 +215,15 @@ function AppInner() {
     case 'log':
       panelContent = (
         <LogPanel
-          api={store.api}
-          addToast={store.addToast}
+          api={api}
+          addToast={addToast}
         />
       )
       break
     case 'speedtest':
       panelContent = (
         <SpeedTestPanel
-          openExternal={(url) => store.api.openExternal?.(url)}
+          openExternal={(url) => api.openExternal?.(url)}
         />
       )
       break
@@ -244,32 +236,29 @@ function AppInner() {
       <div className="animate-stagger-1">
         <TitleBar
           notificationEnabled={configEnableNotification !== false}
-          isLightMode={store.isLightMode}
-          networkOnline={store.bgStatus.online}
-          networkQuality={store.networkQuality?.quality ?? 'unknown'}
+          isLightMode={isLightMode}
           onToggleNotification={handleToggleNotification}
           onShowTheme={() => setThemeOpen(true)}
           onShowAbout={() => setAboutOpen(true)}
           onToggleLightMode={handleToggleLightMode}
-          onMinimize={() => store.api.minimizeWindow?.()}
+          onMinimize={() => api.minimizeWindow?.()}
           onToggleMaximize={handleToggleMaximize}
           isMaximized={isMaximized}
-          onClose={() => store.api.closeWindow?.()}
-          updateAvailable={store.updateAvailable}
-          latestVersion={store.latestVersion}
+          onClose={() => api.closeWindow?.()}
+          updateAvailable={updateAvailable}
+          latestVersion={latestVersion}
         />
       </div>
 
       <div className="animate-stagger-2">
         <StatusBar
-          statusText={store.status.text}
-          statusState={store.status.state}
-          networkQuality={store.networkQuality}
+          statusText={status.text}
+          statusState={status.state}
           enableNetworkQuality={configEnableNetworkQuality !== false}
           onOpenPortal={handleOpenPortal}
           onOpenSelfService={handleOpenSelfService}
-          onRefreshQuality={store.refreshQuality}
-          isRefreshing={store.isRefreshingQuality}
+          onRefreshQuality={refreshQuality}
+          isRefreshing={isRefreshingQuality}
         />
       </div>
 
@@ -283,7 +272,7 @@ function AppInner() {
 
             <AnimatePresence mode="popLayout">
               <motion.div
-                key={store.activePanel}
+                key={activePanel}
                 variants={panelSwitchVariants}
                 initial="initial"
                 animate="animate"
@@ -299,27 +288,27 @@ function AppInner() {
         <RightPanel
           logs={logs}
           onClearLogs={handleClearLogs}
-          adapterDetails={store.adapterDetails}
-          adapters={store.adapters}
+          adapterDetails={adapterDetails}
+          adapters={adapters}
           config={config}
         />
       </div>
 
       <DockNav
-        activePanel={store.activePanel}
+        activePanel={activePanel}
         onPanelChange={(p) => {
           if (panelChangeLock.current) return
           panelChangeLock.current = true
-          store.setActivePanel(p)
+          setActivePanel(p)
           safeStorage.set('campus-active-panel', p)
           setTimeout(() => { panelChangeLock.current = false }, 500)
         }}
         enableNetworkQuality={configEnableNetworkQuality !== false}
-        isLoggingIn={store.isLoggingIn}
-        isLoggingOut={store.isLoggingOut}
-        adapters={store.adapters}
-        onLogin={store.doLogin}
-        onLogout={store.doLogout}
+        isLoggingIn={isLoggingIn}
+        isLoggingOut={isLoggingOut}
+        adapters={adapters}
+        onLogin={doLogin}
+        onLogout={doLogout}
       />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
@@ -327,15 +316,15 @@ function AppInner() {
       <AboutDialog
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
-        openExternal={(url) => store.api.openExternal?.(url)}
-        initialLatestVersion={store.latestVersion}
-        initialReleaseNotes={store.releaseNotes}
+        openExternal={(url) => api.openExternal?.(url)}
+        initialLatestVersion={latestVersion}
+        initialReleaseNotes={releaseNotes}
         onUpdateAvailable={(hasUpdate, version, notes) => {
-          store.setUpdateAvailable(hasUpdate)
-          if (version) store.setLatestVersion(version)
-          if (notes) store.setReleaseNotes(notes)
+          setUpdateAvailable(hasUpdate)
+          if (version) setLatestVersion(version)
+          if (notes) setReleaseNotes(notes)
           if (hasUpdate && version) {
-            store.api.sendNotification?.('发现新版本', `CampusLogin v${version} 已发布，请在关于页面查看详情`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+            api.sendNotification?.('发现新版本', `CampusLogin v${version} 已发布，请在关于页面查看详情`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
           }
         }}
       />
@@ -343,8 +332,8 @@ function AppInner() {
       <ThemeDialog
         open={themeOpen}
         onClose={() => setThemeOpen(false)}
-        themeName={store.themeName}
-        isLightMode={store.isLightMode}
+        themeName={themeName}
+        isLightMode={isLightMode}
         onSetTheme={handleSetTheme}
         onToggleLightMode={handleToggleLightMode}
       />
@@ -361,10 +350,10 @@ function AppInner() {
         open={onboardingOpen}
         onClose={() => setOnboardingOpen(false)}
         config={config}
-        adapters={store.adapters}
-        onUpdateConfig={(partial) => store.updateConfig(partial)}
-        onLogin={() => store.doLogin()}
-        isLoggingIn={store.isLoggingIn}
+        adapters={adapters}
+        onUpdateConfig={(partial) => updateConfig(partial)}
+        onLogin={() => doLogin()}
+        isLoggingIn={isLoggingIn}
       />
     </div>
   )

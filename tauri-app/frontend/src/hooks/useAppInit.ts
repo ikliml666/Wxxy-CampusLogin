@@ -62,7 +62,7 @@ export function useAppInit() {
     const unsub1 = api.onBackgroundCheckResult?.((data) => {
       if (!data) return
       const now = Date.now()
-      if (now - lastBgCheckTimeRef.current < 500) return
+      if (now - lastBgCheckTimeRef.current < 1000) return
       lastBgCheckTimeRef.current = now
       {
         const a1 = data.adapter1Name || ''
@@ -236,7 +236,7 @@ export function useAppInit() {
     const unsub6 = api.onNetworkQualityResult?.((data) => {
       if (!data) return
       const now = Date.now()
-      if (now - lastNetworkQualityTimeRef.current < 500) return
+      if (now - lastNetworkQualityTimeRef.current < 1000) return
       lastNetworkQualityTimeRef.current = now
       {
         const prev = store.getState().networkQuality

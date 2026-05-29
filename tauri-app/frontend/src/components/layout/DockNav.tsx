@@ -47,16 +47,30 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
 }) {
   const Icon = ICON_MAP[icon]
   const ref = useRef<HTMLButtonElement>(null)
+  const rectCacheRef = useRef<number | null>(null)
+
+  const updateRectCache = useCallback(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      rectCacheRef.current = rect.left + rect.width / 2
+    }
+  }, [])
 
   const setRef = useCallback((el: HTMLButtonElement | null) => {
     (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
+    if (el) updateRectCache()
     onLayout?.(el)
-  }, [onLayout])
+  }, [onLayout, updateRectCache])
+
+  useLayoutEffect(() => {
+    updateRectCache()
+    window.addEventListener('resize', updateRectCache)
+    return () => window.removeEventListener('resize', updateRectCache)
+  }, [updateRectCache])
 
   const distance = useTransform(mouseX, (val: number) => {
-    if (!ref.current) return MAGNETIC_RANGE + 1
-    const rect = ref.current.getBoundingClientRect()
-    const center = rect.left + rect.width / 2
+    const center = rectCacheRef.current
+    if (center === null) return MAGNETIC_RANGE + 1
     return Math.abs(val - center)
   })
 

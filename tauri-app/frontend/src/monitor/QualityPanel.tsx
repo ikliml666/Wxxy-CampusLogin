@@ -19,6 +19,7 @@ import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type La
 import { useCallback, memo, useMemo, useState } from 'react'
 import { m, type Variants } from 'framer-motion'
 import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
+import { useAppStore } from '@/hooks/useAppStore'
 
 const tabContainerVariants: Variants = {
   animate: {
@@ -59,7 +60,6 @@ const tabItemVariants: Variants = {
 
 interface QualityPanelProps {
   config: Config
-  networkQuality: NetworkQuality | null
   isRefreshingQuality: boolean
   onUpdateConfig: (partial: Partial<Config>) => void
   onRefreshQuality?: () => Promise<void>
@@ -119,7 +119,8 @@ const DETAIL_CATEGORIES = [
   },
 ]
 
-export const QualityPanel = memo(function QualityPanel({ config, networkQuality, isRefreshingQuality, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
+export const QualityPanel = memo(function QualityPanel({ config, isRefreshingQuality, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
+  const networkQuality = useAppStore((s) => s.networkQuality)
   const qualityConfig = useMemo(() => {
     if (!networkQuality) return QUALITY_CONFIG.unknown
     return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown

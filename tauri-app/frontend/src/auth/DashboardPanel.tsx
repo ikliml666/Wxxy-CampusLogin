@@ -20,6 +20,7 @@ import { QUALITY_CONFIG } from '@/network'
 import { LatencyPair } from '@/monitor'
 import { safeStorage } from '@/lib/utils'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
+import { useAppStore } from '@/hooks/useAppStore'
 
 type CardId = 'quickActions' | 'accountManage' | 'networkQuality'
 
@@ -58,8 +59,6 @@ interface DashboardPanelProps {
   config: Config
   accounts: string[]
   activeAccount: string
-  networkQuality: NetworkQuality | null
-  bgStatus: { isRunning: boolean; checkCount: number }
   isRefreshingQuality: boolean
   adapterDetails: AdapterDetail[]
   onUpdateConfig: (partial: Partial<Config>) => void
@@ -231,22 +230,24 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   )
 })
 
-function renderCard(id: CardId, props: DashboardPanelProps, editing: boolean) {
+function renderCard(id: CardId, props: DashboardPanelProps, bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, editing: boolean) {
   const noAnim = editing
   const noEnter = !editing
   switch (id) {
     case 'quickActions':
-      return <QuickActionsCard config={props.config} bgStatus={props.bgStatus} networkQuality={props.networkQuality} onDhcpRenew={props.onDhcpRenew} onDhcpReleaseRenew={props.onDhcpReleaseRenew} onUpdateConfig={props.onUpdateConfig} noAnimation={noAnim} noEnterAnimation={noEnter} />
+      return <QuickActionsCard config={props.config} bgStatus={bgStatus} networkQuality={networkQuality} onDhcpRenew={props.onDhcpRenew} onDhcpReleaseRenew={props.onDhcpReleaseRenew} onUpdateConfig={props.onUpdateConfig} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'accountManage':
       return <AccountManageCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'networkQuality':
-      return <NetworkQualityCard networkQuality={props.networkQuality} isRefreshingQuality={props.isRefreshingQuality} onRefreshQuality={props.onRefreshQuality} noAnimation={noAnim} noEnterAnimation={noEnter} />
+      return <NetworkQualityCard networkQuality={networkQuality} isRefreshingQuality={props.isRefreshingQuality} onRefreshQuality={props.onRefreshQuality} noAnimation={noAnim} noEnterAnimation={noEnter} />
   }
 }
 
 export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanelProps) {
   const [cards, setCards] = useState<CardId[]>(loadLayout)
   const [editing, setEditing] = useState(false)
+  const bgStatus = useAppStore((s) => s.bgStatus)
+  const networkQuality = useAppStore((s) => s.networkQuality)
 
   useEffect(() => { saveLayout(cards) }, [cards])
 
@@ -323,7 +324,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
               className="relative group rounded-2xl cursor-grab active:cursor-grabbing select-none touch-none"
               whileDrag={{ scale: 1.02, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', zIndex: 50 }}
             >
-              {renderCard(id, props, editing)}
+              {renderCard(id, props, bgStatus, networkQuality, editing)}
               <div className="absolute inset-0 z-[5] rounded-2xl" />
               <div className="absolute -top-1.5 -right-1.5 z-10 flex items-center gap-0.5">
                 <button onClick={() => handleRemoveCard(id)}
@@ -338,7 +339,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
         <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-3">
           {visibleCards.map(id => (
             <m.div key={id} variants={cardItemVariants} className="relative group">
-              {renderCard(id, props, editing)}
+              {renderCard(id, props, bgStatus, networkQuality, editing)}
             </m.div>
           ))}
         </m.div>

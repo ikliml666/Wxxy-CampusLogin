@@ -1,5 +1,4 @@
 import type { StatusState } from '@/shared'
-import type { NetworkQuality } from '@/monitor'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -7,11 +6,11 @@ import { memo, useRef, useEffect } from 'react'
 import { RefreshButton } from '@/shared'
 import { NetworkQualityCapsule } from '@/monitor'
 import { m } from 'framer-motion'
+import { useAppStore } from '@/hooks/useAppStore'
 
 interface StatusBarProps {
   statusText: string
   statusState: StatusState
-  networkQuality: NetworkQuality | null
   enableNetworkQuality: boolean
   onOpenPortal: () => void
   onOpenSelfService?: () => void
@@ -19,7 +18,8 @@ interface StatusBarProps {
   isRefreshing?: boolean
 }
 
-export const StatusBar = memo(function StatusBar({ statusText, statusState, networkQuality, enableNetworkQuality, onOpenPortal, onOpenSelfService, onRefreshQuality, isRefreshing }: StatusBarProps) {
+export const StatusBar = memo(function StatusBar({ statusText, statusState, enableNetworkQuality, onOpenPortal, onOpenSelfService, onRefreshQuality, isRefreshing }: StatusBarProps) {
+  const networkQuality = useAppStore((s) => s.networkQuality)
   const prevStatusRef = useRef(statusState)
   const wasOffline = prevStatusRef.current === 'offline' && statusState !== 'offline'
 
