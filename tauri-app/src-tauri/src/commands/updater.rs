@@ -298,6 +298,7 @@ pub fn get_mirror_urls(github_url: String) -> Result<Vec<serde_json::Value>, Str
     Ok(mirrors)
 }
 
+#[allow(dead_code)]
 pub fn start_update_check_loop(app_handle: &AppHandle) {
     crate::update::updater::start_update_check_loop(app_handle);
 }

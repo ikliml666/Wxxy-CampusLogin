@@ -217,6 +217,7 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
     }))
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn get_gpu_info() -> Result<serde_json::Value, String> {
     let gpu = crate::platform::gpu::detect_gpu_adapter();

@@ -110,6 +110,7 @@ pub async fn get_background_status(app_handle: AppHandle) -> Result<serde_json::
     Ok(result)
 }
 
+#[allow(dead_code)]
 pub fn run_startup_tasks(app_handle: &AppHandle) {
     let s = app_handle.state::<AppState>();
     let config = s.config.load_full();

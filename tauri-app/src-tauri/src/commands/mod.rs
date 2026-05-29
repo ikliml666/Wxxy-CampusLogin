@@ -1,10 +1,5 @@
-pub mod state;
 pub mod login;
 pub mod background;
-pub mod auto_login;
-pub mod auto_exit;
-pub mod latency;
-pub mod adapter_watch;
 pub mod network_cmd;
 pub mod system;
 pub mod config_cmd;

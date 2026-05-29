@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 
 const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
 const AUTO_CHECK_INTERVAL_SECS: u64 = 86400;
+#[allow(dead_code)]
 const MANUAL_CHECK_COOLDOWN_SECS: u64 = 600;
 const VERSION_FILE_URL: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
 

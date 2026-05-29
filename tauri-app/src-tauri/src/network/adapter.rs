@@ -364,6 +364,7 @@ fn query_adapters_cached_inner() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Ve
     Ok(result)
 }
 
+#[allow(dead_code)]
 pub fn get_all_adapters_cached() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
     query_adapters_cached_inner()
 }

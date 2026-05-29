@@ -7,10 +7,12 @@ use super::crypto;
 use crate::infra::state::{AppState, validate_account_name, AccountResult};
 use crate::commands::config_cmd::save_config_to_disk;
 
+#[allow(dead_code)]
 pub fn list_accounts_inner(app_handle: &AppHandle) -> Vec<String> {
     list_account_names(app_handle)
 }
 
+#[allow(dead_code)]
 pub fn load_account_config(app_handle: &AppHandle, account_name: &str) -> Result<Option<Config>, String> {
     let data_dir = get_data_dir(app_handle);
     let accounts_dir = get_accounts_dir(&data_dir);
@@ -41,6 +43,7 @@ pub fn load_account_config(app_handle: &AppHandle, account_name: &str) -> Result
     Ok(Some(config))
 }
 
+#[allow(dead_code)]
 pub fn switch_account_inner(app_handle: &AppHandle, account_name: &str) -> Result<AccountResult, String> {
     let safe_name = match validate_account_name(account_name) {
         Ok(n) => n,
@@ -72,6 +75,7 @@ pub fn switch_account_inner(app_handle: &AppHandle, account_name: &str) -> Resul
     Ok(AccountResult::ok(display_config))
 }
 
+#[allow(dead_code)]
 pub fn save_account_inner(app_handle: &AppHandle, account_name: &str) -> Result<AccountResult, String> {
     let safe_name = match validate_account_name(account_name) {
         Ok(n) => n,
@@ -219,6 +223,7 @@ pub fn save_account_inner(app_handle: &AppHandle, account_name: &str) -> Result<
     Ok(AccountResult::ok_with_account(account_name.to_string(), display_config))
 }
 
+#[allow(dead_code)]
 pub fn delete_account_inner(app_handle: &AppHandle, account_name: &str) -> Result<AccountResult, String> {
     let safe_name = validate_account_name(account_name)
         .map_err(|e| format!("删除失败: {}", e))?;
@@ -243,6 +248,7 @@ pub fn delete_account_inner(app_handle: &AppHandle, account_name: &str) -> Resul
     }
 }
 
+#[allow(dead_code)]
 pub fn get_active_account_inner(state: &AppState) -> String {
     state.config.load().active_account.clone()
 }
