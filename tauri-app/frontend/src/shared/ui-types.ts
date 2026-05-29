@@ -1,4 +1,4 @@
-import type { Config } from './settings'
+import type { Config } from '@/settings'
 
 export type StatusState = 'loading' | 'online' | 'offline' | 'error'
 export type PanelName = 'dashboard' | 'account' | 'network' | 'monitor' | 'quality' | 'settings' | 'log' | 'speedtest'

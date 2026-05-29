@@ -1,5 +1,6 @@
-import { NAV_ITEMS } from './ui'
-import type { ThemeName, Config } from '@/types'
+import { NAV_ITEMS } from '@/shared/ui-constants'
+import type { ThemeName } from '@/shared/ui-types'
+import type { Config } from '@/settings/types'
 
 export const DEFAULT_CONFIG: Config = {
   user: '',

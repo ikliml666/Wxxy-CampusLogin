@@ -1,4 +1,4 @@
-import type { PanelName } from './ui'
+import type { PanelName } from '@/shared/ui-types'
 
 export interface Config {
   user: string
@@ -40,12 +40,12 @@ export interface AutoLaunchResult {
 
 export interface InitData {
   config: Partial<Config>
-  adapters: import('./network').Adapter[]
-  adapterDetails: import('./network').AdapterDetail[]
-  disabledAdapters: import('./network').DisabledAdapter[]
+  adapters: import('@/network').Adapter[]
+  adapterDetails: import('@/network').AdapterDetail[]
+  disabledAdapters: import('@/network').DisabledAdapter[]
   accounts: string[]
   activeAccount: string
-  backgroundStatus: import('./monitor').BackgroundStatus
+  backgroundStatus: import('@/monitor').BackgroundStatus
   isAutoStart: boolean
   autoLaunch: boolean
   notificationEnabled: boolean

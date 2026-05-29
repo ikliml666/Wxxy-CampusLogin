@@ -1,4 +1,4 @@
-import type { Config } from './settings'
+import type { Config } from '@/settings'
 
 export interface SwitchAccountResult {
   success: boolean

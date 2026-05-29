@@ -6,3 +6,5 @@ export { LatencyTimeline } from './LatencyTimeline'
 export { NetworkQualityCapsule } from './NetworkQualityCapsule'
 export { StatusBar } from './StatusBar'
 export { useMonitor } from './useMonitor'
+
+export * from './types'
