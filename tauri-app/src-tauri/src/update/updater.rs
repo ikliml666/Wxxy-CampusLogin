@@ -5,8 +5,6 @@ use std::sync::atomic::Ordering;
 
 const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
 const AUTO_CHECK_INTERVAL_SECS: u64 = 86400;
-#[allow(dead_code)]
-const MANUAL_CHECK_COOLDOWN_SECS: u64 = 600;
 const VERSION_FILE_URL: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -164,11 +162,11 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
     });
 }
 
-pub async fn fetch_latest_release() -> Result<(bool, String, serde_json::Value), String> {
+pub async fn fetch_latest_release() -> Result<(bool, String), String> {
     fetch_version_via_raw().await
 }
 
-async fn fetch_version_via_raw() -> Result<(bool, String, serde_json::Value), String> {
+async fn fetch_version_via_raw() -> Result<(bool, String), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -202,52 +200,37 @@ async fn fetch_version_via_raw() -> Result<(bool, String, serde_json::Value), St
     let current = env!("CARGO_PKG_VERSION");
     let has_update = compare_versions(current, &latest_tag);
 
-    let body = data["notes"].as_str().unwrap_or("");
-    let enriched = serde_json::json!({
-        "tag_name": data["version"],
-        "body": body,
-        "html_url": format!("https://github.com/{}/releases/tag/v{}", GITHUB_REPO, latest_tag),
-        "assets": data.get("assets").cloned().unwrap_or(serde_json::json!([])),
-        "_source": "raw"
-    });
-
-    Ok((has_update, latest_tag, enriched))
+    Ok((has_update, latest_tag))
 }
 
 
 
 pub async fn check_update_inner() -> Result<UpdateInfo, String> {
-    let (has_update, latest_tag, data) = fetch_latest_release().await?;
-    let release_notes = data["body"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let (has_update, latest_tag) = fetch_latest_release().await?;
 
-    let assets: Vec<ReleaseAsset> = data.get("assets")
-        .and_then(|a| a.as_array())
-        .map(|arr| {
-            arr.iter().filter_map(|item| {
-                let name = item["name"].as_str().unwrap_or("").to_string();
-                let url = item["browser_download_url"].as_str().unwrap_or("").to_string();
-                let size = item["size"].as_u64().unwrap_or(0);
-                if !name.is_empty() && !url.is_empty() {
-                    Some(ReleaseAsset { name, url, size })
-                } else {
-                    None
-                }
-            }).collect()
-        })
-        .unwrap_or_default();
-
-    let sha256_checksum = assets.iter()
-        .find(|a| a.name.ends_with(".sha256"))
-        .map(|a| a.url.clone());
+    let exe_name = format!("campus-login_{}_x64-setup.exe", latest_tag);
+    let exe_url = format!(
+        "https://github.com/{}/releases/download/v{}/{}",
+        GITHUB_REPO, latest_tag, exe_name
+    );
+    let sha256_url = format!("{}.sha256", exe_url);
 
     Ok(UpdateInfo {
         has_update,
         latest_version: latest_tag,
-        release_notes,
-        assets,
-        sha256_checksum,
+        release_notes: String::new(),
+        assets: vec![
+            ReleaseAsset {
+                name: exe_name.clone(),
+                url: exe_url,
+                size: 0,
+            },
+            ReleaseAsset {
+                name: format!("{}.sha256", exe_name),
+                url: sha256_url.clone(),
+                size: 0,
+            },
+        ],
+        sha256_checksum: Some(sha256_url),
     })
 }
