@@ -310,6 +310,7 @@ function AppInner() {
         openExternal={(url) => api.openExternal?.(url)}
         initialLatestVersion={useAppStore.getState().latestVersion}
         initialReleaseNotes={useAppStore.getState().releaseNotes}
+        initialUpdateAvailable={useAppStore.getState().updateAvailable}
         onUpdateAvailable={(hasUpdate, version, notes) => {
           setUpdateAvailable(hasUpdate)
           if (version) setLatestVersion(version)

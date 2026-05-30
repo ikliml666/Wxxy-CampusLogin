@@ -25,6 +25,7 @@ interface AboutDialogProps {
   onUpdateAvailable?: (hasUpdate: boolean, latestVersion?: string, releaseNotes?: string) => void
   initialLatestVersion?: string
   initialReleaseNotes?: string
+  initialUpdateAvailable?: boolean
 }
 
 const GITHUB_REPO = 'ikliml666/Wxxy-CampusLogin'
@@ -64,7 +65,7 @@ function renderInlineMarkdown(text: string): ReactNode {
   })
 }
 
-export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvailable, initialLatestVersion, initialReleaseNotes }: AboutDialogProps) {
+export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvailable, initialLatestVersion, initialReleaseNotes, initialUpdateAvailable }: AboutDialogProps) {
   const api = useIpc()
   const [checking, setChecking] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
@@ -82,33 +83,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
   // 自动检查更新标记：避免每次打开对话框都重复检查
   const autoCheckedRef = useRef(false)
 
-  // 从 props 初始化 updateInfo
-  useEffect(() => {
-    if (isOpen && initialLatestVersion && !updateInfo && !checking) {
-      setUpdateInfo({
-        has_update: false,
-        latest_version: initialLatestVersion,
-        release_notes: initialReleaseNotes || '',
-        assets: [],
-      })
-    }
-  }, [isOpen, initialLatestVersion, initialReleaseNotes, updateInfo, checking])
-
-  // 自动检查更新：对话框首次打开时触发
-  useEffect(() => {
-    if (isOpen && !autoCheckedRef.current) {
-      autoCheckedRef.current = true
-      handleCheckUpdate()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
-
-  // 清理下载进度监听器
-  useEffect(() => {
-    return () => {
-      unlistenRef.current?.()
-    }
-  }, [])
+  const hasCachedResult = !!(initialLatestVersion)
 
   const handleCheckUpdate = useCallback(async () => {
     setChecking(true)
@@ -131,6 +106,32 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     }
     setChecking(false)
   }, [api, onUpdateAvailable])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (hasCachedResult && !updateInfo) {
+      setUpdateInfo({
+        has_update: !!initialUpdateAvailable,
+        latest_version: initialLatestVersion,
+        release_notes: initialReleaseNotes || '',
+        assets: [],
+      })
+      autoCheckedRef.current = true
+    }
+  }, [isOpen, hasCachedResult, initialLatestVersion, initialReleaseNotes, updateInfo, initialUpdateAvailable])
+
+  useEffect(() => {
+    if (isOpen && !autoCheckedRef.current) {
+      autoCheckedRef.current = true
+      handleCheckUpdate()
+    }
+  }, [isOpen, handleCheckUpdate])
+
+  useEffect(() => {
+    return () => {
+      unlistenRef.current?.()
+    }
+  }, [])
 
   const handleDownload = useCallback(async (url: string) => {
     setDownloadState('downloading')
