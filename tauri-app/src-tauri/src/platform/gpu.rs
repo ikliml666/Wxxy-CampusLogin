@@ -247,6 +247,7 @@ pub fn detect_gpu_info() -> &'static GpuInfo {
     GPU_CACHE.get_or_init(detect_gpu_info_inner)
 }
 
+#[allow(dead_code)]
 pub fn detect_gpu_adapter() -> &'static str {
     let info = detect_gpu_info();
     let v = info.vendor.to_lowercase();
