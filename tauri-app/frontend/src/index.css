@@ -899,6 +899,69 @@
     will-change: transform;
   }
 
+  .titlebar-icon-btn {
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    will-change: transform;
+  }
+  .titlebar-icon-btn:hover {
+    transform: scale(1.15) rotate(var(--hover-rotate, 0deg));
+  }
+  .titlebar-icon-btn:active {
+    transform: scale(0.88);
+    transition-duration: 0.1s;
+  }
+
+  @keyframes iconSpinIn {
+    from { opacity: 0; transform: scale(0.5) rotate(-90deg); }
+    to { opacity: 1; transform: scale(1) rotate(0deg); }
+  }
+  .icon-spin-in {
+    animation: iconSpinIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes statusEnter {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  @keyframes statusEnterFromOffline {
+    from { transform: scale(1.06); opacity: 1; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  @keyframes statusOfflineShake {
+    0% { transform: scale(1); }
+    17% { transform: scale(1.06); }
+    33% { transform: scale(0.94); }
+    50% { transform: scale(1.03); }
+    67% { transform: scale(0.98); }
+    83% { transform: scale(1); }
+    100% { transform: scale(1); }
+  }
+  .status-enter {
+    animation: statusEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .status-enter-from-offline {
+    animation: statusEnterFromOffline 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .status-offline-shake {
+    animation: statusOfflineShake 0.6s ease-in-out both;
+  }
+
+  @keyframes labelBounceIn {
+    0% { opacity: 0; transform: translateY(6px) scale(0.8); }
+    60% { opacity: 1; transform: translateY(0) scale(1.1); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .label-bounce-in {
+    animation: labelBounceIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes numScaleIn {
+    from { transform: scale(1.3); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  .num-scale-in {
+    animation: numScaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
 }
 
 @layer utilities {
@@ -1062,7 +1125,13 @@
     .ripple-effect,
     .fluid-gradient-anim,
     .fluid-orb1-anim,
-    .fluid-orb2-anim {
+    .fluid-orb2-anim,
+    .icon-spin-in,
+    .status-enter,
+    .status-enter-from-offline,
+    .status-offline-shake,
+    .label-bounce-in,
+    .num-scale-in {
       animation: none !important;
     }
     .list-item-interactive:hover {
@@ -1072,6 +1141,7 @@
     .btn-physical,
     .btn-press,
     .icon-hover-glow,
+    .titlebar-icon-btn,
     .fluid-gradient-anim,
     .fluid-orb1-anim,
     .fluid-orb2-anim {

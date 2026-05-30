@@ -4,7 +4,6 @@ import { APP_VERSION } from '@/shared'
 import { cn } from '@/lib/utils'
 import { memo, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { m } from 'framer-motion'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface TitleBarProps {
@@ -132,72 +131,59 @@ export const TitleBar = memo(function TitleBar({
         <div className="flex items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <m.button
+              <button
                 onClick={onToggleLightMode}
-                whileHover={{ scale: 1.15, rotate: isLightMode ? 15 : -15 }}
-                whileTap={{ scale: 0.88 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
+                style={{ '--hover-rotate': isLightMode ? '15deg' : '-15deg' } as React.CSSProperties}
                 aria-label={isLightMode ? '切换到深色模式' : '切换到浅色模式'}
               >
                 {isLightMode ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-400" />}
-              </m.button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>{isLightMode ? '切换到深色模式' : '切换到浅色模式'}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <m.button
+              <button
                 onClick={onToggleNotification}
-                whileHover={{ scale: 1.15 }}
-                whileTap={{ scale: 0.88 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
                 aria-label={notificationEnabled ? '通知已开启' : '通知已关闭'}
               >
-                <m.div
+                <div
                   key={notificationEnabled ? 'on' : 'off'}
-                  initial={{ scale: 0.5, opacity: 0, rotate: -90 }}
-                  animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                  exit={{ scale: 0.5, opacity: 0, rotate: 90 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                  className="icon-spin-in"
                 >
                   {notificationEnabled ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5 text-muted-foreground" />}
-                </m.div>
-              </m.button>
+                </div>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>{notificationEnabled ? '通知已开启' : '通知已关闭'}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <m.button
+              <button
                 onClick={onShowTheme}
-                whileHover={{ scale: 1.15, rotate: 20 }}
-                whileTap={{ scale: 0.88 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
+                style={{ '--hover-rotate': '20deg' } as React.CSSProperties}
                 aria-label="主题设置"
               >
                 <Palette className="h-3.5 w-3.5" />
-              </m.button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>主题设置</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <m.button
+              <button
                 onClick={onShowAbout}
-                whileHover={{ scale: 1.15 }}
-                whileTap={{ scale: 0.88 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
                 aria-label="关于"
               >
                 <Info className="h-3.5 w-3.5" />
-              </m.button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>关于</p></TooltipContent>
           </Tooltip>

@@ -2,7 +2,6 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getLatencyLevel } from '@/lib/latency'
 import { QUALITY_CONFIG } from '@/network'
-import { m } from 'framer-motion'
 import { useMemo, useRef, useEffect, useState } from 'react'
 import { AnimatedNumber } from '@/shared'
 import { useAnimationActive } from '@/hooks/usePageIdle'
@@ -156,22 +155,19 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
           const level = isGw ? gwLevel : extLevel
 
           return (
-            <m.div
+            <div
               key={side}
               className="flex flex-col items-center"
             >
               <span className="text-[11px] font-medium text-muted-foreground mb-1">
                 {isGw ? '内网延迟' : '外网延迟'}
                 {cfg && (
-                  <m.span
+                  <span
                     key={level}
-                    className={cn('ml-1 inline-block', cfg.textClass)}
-                    initial={{ opacity: 0, y: 6, scale: 0.8 }}
-                    animate={{ opacity: 1, y: 0, scale: [0.8, 1.1, 1] }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 20, mass: 0.5 }}
+                    className={cn('ml-1 inline-block label-bounce-in', cfg.textClass)}
                   >
                     {cfg.label}
-                  </m.span>
+                  </span>
                 )}
               </span>
 
@@ -180,21 +176,19 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
                   <Loader2 className="h-3 w-3 animate-spin text-primary/60" />
                 </div>
               ) : (
-                <m.span
+                <span
+                  key={`${side}-num`}
                   className={cn(
-                    'text-lg font-bold tabular-nums tracking-tight mb-0.5',
+                    'text-lg font-bold tabular-nums tracking-tight mb-0.5 num-scale-in',
                     cfg?.textClass ?? 'text-muted-foreground',
                   )}
-                  initial={{ scale: 1.3, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 25, mass: 0.6 }}
                 >
                   {ok ? <AnimatedNumber value={latency} unit="ms" decimals={0} duration={0.45} /> : '--'}
-                </m.span>
+                </span>
               )}
 
               <SignalBars latency={latency} loading={loading} compact />
-            </m.div>
+            </div>
           )
         })}
       </div>

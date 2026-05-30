@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import { memo, useRef, useEffect } from 'react'
 import { RefreshButton } from '@/shared'
 import { NetworkQualityCapsule } from '@/monitor'
-import { m } from 'framer-motion'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface StatusBarProps {
@@ -43,22 +42,16 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
         style={{ background: 'var(--surface-top)' }}
       >
         <div className="flex items-center gap-2.5">
-          <m.div
+          <div
             key={statusState}
-            initial={wasOffline ? { scale: 1.06, opacity: 1 } : { scale: 0.9, opacity: 0 }}
-            animate={
-              statusState === 'offline'
-                ? { scale: [1, 1.06, 0.94, 1.03, 0.98, 1], opacity: 1 }
-                : { scale: 1, opacity: 1 }
-            }
-            transition={
-              statusState === 'offline'
-                ? { duration: 0.6, ease: 'easeInOut' }
-                : { type: 'spring', stiffness: 500, damping: 25 }
-            }
             className={cn(
               'relative inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default',
               cfg.color,
+              statusState === 'offline'
+                ? 'status-offline-shake'
+                : wasOffline
+                  ? 'status-enter-from-offline'
+                  : 'status-enter'
             )}
             style={{
               background: cfg.bg,
@@ -68,7 +61,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
             <div className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot, statusState === 'loading' && 'animate-pulse')} />
             {statusState === 'loading' && <Loader2 className="h-3 w-3 animate-spin" />}
             <span>{statusText}</span>
-          </m.div>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -96,36 +89,30 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
 
           {onOpenSelfService && (
             <Tooltip>
-              <TooltipTrigger asChild>
-                <m.button
-                  onClick={onOpenSelfService}
-                  whileHover={{ scale: 1.12 }}
-                  whileTap={{ scale: 0.88 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                  className="p-1.5 rounded-xl hover:bg-violet-500/10 text-muted-foreground hover:text-violet-600 transition-colors btn-physical group"
-                  aria-label="用户自助服务"
-                >
-                  <HeadsetIcon className="h-3 w-3 transition-transform duration-300 group-hover:animate-icon-hover-wiggle" />
-                </m.button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>用户自助服务</p>
-              </TooltipContent>
-            </Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onOpenSelfService}
+                    className="p-1.5 rounded-xl hover:bg-violet-500/10 text-muted-foreground hover:text-violet-600 transition-colors btn-physical group"
+                    aria-label="用户自助服务"
+                  >
+                    <HeadsetIcon className="h-3 w-3 transition-transform duration-300 group-hover:animate-icon-hover-wiggle" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>用户自助服务</p>
+                </TooltipContent>
+              </Tooltip>
           )}
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <m.button
+              <button
                 onClick={onOpenPortal}
-                whileHover={{ scale: 1.12 }}
-                whileTap={{ scale: 0.88 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
                 className="p-1.5 rounded-xl hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors btn-physical group"
                 aria-label="打开认证门户"
               >
                 <ExternalLink className="h-3 w-3 transition-transform duration-300 group-hover:animate-icon-hover-flyout" />
-              </m.button>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               <p>打开认证门户</p>

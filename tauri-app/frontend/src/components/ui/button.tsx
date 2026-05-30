@@ -1,7 +1,6 @@
 import * as React from 'react'
 import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { m } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useRipple } from '@/hooks/useRipple'
 
@@ -95,22 +94,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const ripple = useRipple()
 
     return (
-      <m.button
-        className={cn(buttonVariants({ variant, size, className }))}
+      <button
+        className={cn(buttonVariants({ variant, size, className }), 'btn-press')}
         ref={(node) => {
           ripple.ref(node)
           if (typeof ref === 'function') ref(node)
           else if (ref) (ref as React.MutableRefObject<HTMLButtonElement | null>).current = node
         }}
         disabled={props.disabled || isLoading}
-        whileTap={{
-          scale: 0.92,
-          transition: { type: 'spring', stiffness: 300, damping: 20 },
-        }}
-        style={{
-          position: 'relative',
-          overflow: 'hidden',
-        }}
         onMouseDown={ripple.createRipple}
         onMouseMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect()
@@ -121,12 +112,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         }}
         {...motionProps}
       >
-        <span
-          className="pointer-events-none absolute inset-0 opacity-0 hover:opacity-100 transition-opacity duration-300"
-          style={{
-            background: 'radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255,255,255,0.15) 0%, transparent 60%)',
-          }}
-        />
         {isLoading ? (
           <>
             <svg
@@ -154,7 +139,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ) : (
           children
         )}
-      </m.button>
+      </button>
     )
   }
 )
