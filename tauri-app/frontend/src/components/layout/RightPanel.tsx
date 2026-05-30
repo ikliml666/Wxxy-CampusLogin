@@ -87,12 +87,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
       const entries = container.querySelectorAll('.log-entry-hover')
       if (entries.length > 0) {
         await new Promise<void>((resolve) => {
-          let resolved = false
-          const done = () => {
-            if (resolved) return
-            resolved = true
-            resolve()
-          }
           const ctx = gsap.context(() => {
             gsap.to(entries, {
               autoAlpha: 0,
@@ -102,14 +96,12 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
               stagger: { each: 0.015, from: 'start', amount: Math.min(entries.length * 0.015, 0.3) },
               duration: 0.2,
               ease: 'power2.in',
-              force3D: true,
-              onComplete: done,
+              onComplete: () => {
+                ctx.revert()
+                resolve()
+              },
             })
           }, container)
-          setTimeout(() => {
-            ctx.revert()
-            done()
-          }, 1000)
         })
       }
     }
@@ -274,13 +266,12 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
         <AnimatePresence>
           {adapterExpanded && (
             <m.div
-              initial={{ gridTemplateRows: '0fr', opacity: 0 }}
-              animate={{ gridTemplateRows: '1fr', opacity: 1 }}
-              exit={{ gridTemplateRows: '0fr', opacity: 0 }}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-              style={{ display: 'grid' }}
+              style={{ overflow: 'hidden' }}
             >
-              <div className="overflow-hidden">
               <div className="px-4 pb-4">
                 {displayAdapters.length > 0 ? displayAdapters.map((adapter, idx) => {
                   const hasIp = adapter.ip && adapter.ip !== '0.0.0.0'
@@ -315,7 +306,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                 }) : (
                   <div className="text-[12px] text-muted-foreground/50 text-center py-4">等待网络信息...</div>
                 )}
-              </div>
               </div>
             </m.div>
           )}

@@ -51,6 +51,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
   const ref = useRef<HTMLButtonElement>(null)
   const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
+  const rectRef = useRef<{ center: number }>({ center: -999 })
 
   const setRef = useCallback((el: HTMLButtonElement | null) => {
     (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
@@ -75,9 +76,15 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
     const btn = ref.current
     if (!btn || !scaleQuickRef.current || !liftQuickRef.current) return
 
-    const unsub = mouseX.on('change', (val: number) => {
+    const updateRect = () => {
       const rect = btn.getBoundingClientRect()
-      const center = rect.left + rect.width / 2
+      rectRef.current.center = rect.left + rect.width / 2
+    }
+    updateRect()
+    window.addEventListener('resize', updateRect)
+
+    const unsub = mouseX.on('change', (val: number) => {
+      const center = rectRef.current.center
       const distance = Math.abs(val - center)
 
       if (distance < MAGNETIC_RANGE) {
@@ -92,7 +99,10 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       }
     })
 
-    return () => unsub()
+    return () => {
+      window.removeEventListener('resize', updateRect)
+      unsub()
+    }
   }, [mouseX])
 
   return (
@@ -313,7 +323,7 @@ function ActionButtonWithMenu({
         animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
         whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
         whileTap={!isLoading ? { scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } } : undefined}
-        transition={{ type: 'spring', stiffness: 600, damping: 12, mass: 0.4 }}
+        transition={{ type: 'spring', stiffness: 600, damping: 22, mass: 0.5 }}
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
           isLoading ? 'opacity-80 cursor-wait btn-loading-pulse' : 'cursor-pointer',

@@ -721,7 +721,7 @@
   .panel-content {
     content-visibility: auto;
     contain-intrinsic-size: auto 500px;
-    contain: strict;
+    contain: layout style paint;
   }
 
   @keyframes cardEnter {
@@ -856,7 +856,6 @@
       transparent 100%
     );
     animation: shimmerSweep 1.5s ease-in-out infinite;
-    will-change: transform;
   }
 
   @keyframes loadingPulseScale {

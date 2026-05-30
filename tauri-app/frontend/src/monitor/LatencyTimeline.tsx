@@ -1,3 +1,4 @@
+import React, { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { getLatencyColor, getLatencyLevel } from '@/lib/latency'
@@ -13,6 +14,8 @@ interface LatencyTimelineProps {
   contentMs?: number
   className?: string
 }
+
+interface TimelineSegment { ms: number; label: string; desc: string; color: string; dot: string }
 
 const SEGMENT_INFO: Record<string, { label: string; desc: string; color: string; dot: string }> = {
   UDP: { label: 'UDP', desc: 'UDP DNS查询时间', color: 'bg-sky-400', dot: 'bg-sky-400' },
@@ -33,40 +36,45 @@ const LEVEL_BAR_COLOR: Record<string, { bar: string; dot: string }> = {
   bad:       { bar: 'bg-rose-500',    dot: 'bg-rose-500' },
 }
 
-export function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs, ttfbMs, contentMs, className }: LatencyTimelineProps) {
-  const segments = []
+export const LatencyTimeline = React.memo(function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs, ttfbMs, contentMs, className }: LatencyTimelineProps) {
+  const segments = useMemo(() => {
+    const segs: TimelineSegment[] = []
 
-  if (udpMs !== undefined && udpMs > 0) {
-    const info = SEGMENT_INFO['UDP']
-    segments.push({ ms: udpMs, ...info })
-  }
-  if (dnsMs !== undefined && dnsMs > 0) {
-    const info = SEGMENT_INFO['DNS']
-    segments.push({ ms: dnsMs, ...info })
-  }
-  if (tcpMs !== undefined && tcpMs > 0) {
-    const info = SEGMENT_INFO['TCP']
-    segments.push({ ms: tcpMs, ...info })
-  }
-  if (tlsMs !== undefined && tlsMs > 0) {
-    const info = SEGMENT_INFO['TLS']
-    segments.push({ ms: tlsMs, ...info })
-  }
-  if (ttfbMs !== undefined && ttfbMs > 0) {
-    const info = SEGMENT_INFO['TTFB']
-    segments.push({ ms: ttfbMs, ...info })
-  }
-  if (contentMs !== undefined && contentMs > 0) {
-    const info = SEGMENT_INFO['内容']
-    segments.push({ ms: contentMs, ...info })
-  }
-  if (networkMs !== undefined && networkMs > 0) {
-    const info = SEGMENT_INFO['网络']
-    segments.push({ ms: networkMs, ...info })
-  }
+    if (udpMs !== undefined && udpMs > 0) {
+      const info = SEGMENT_INFO['UDP']
+      segs.push({ ms: udpMs, ...info })
+    }
+    if (dnsMs !== undefined && dnsMs > 0) {
+      const info = SEGMENT_INFO['DNS']
+      segs.push({ ms: dnsMs, ...info })
+    }
+    if (tcpMs !== undefined && tcpMs > 0) {
+      const info = SEGMENT_INFO['TCP']
+      segs.push({ ms: tcpMs, ...info })
+    }
+    if (tlsMs !== undefined && tlsMs > 0) {
+      const info = SEGMENT_INFO['TLS']
+      segs.push({ ms: tlsMs, ...info })
+    }
+    if (ttfbMs !== undefined && ttfbMs > 0) {
+      const info = SEGMENT_INFO['TTFB']
+      segs.push({ ms: ttfbMs, ...info })
+    }
+    if (contentMs !== undefined && contentMs > 0) {
+      const info = SEGMENT_INFO['内容']
+      segs.push({ ms: contentMs, ...info })
+    }
+    if (networkMs !== undefined && networkMs > 0) {
+      const info = SEGMENT_INFO['网络']
+      segs.push({ ms: networkMs, ...info })
+    }
 
-  const hasSegments = segments.length > 0
-  const barTotal = hasSegments ? segments.reduce((sum, s) => sum + s.ms, 0) : totalMs
+    const total = segs.reduce((sum, seg) => sum + seg.ms, 0)
+    return { segs, total }
+  }, [dnsMs, tcpMs, tlsMs, udpMs, networkMs, ttfbMs, contentMs])
+
+  const hasSegments = segments.segs.length > 0
+  const barTotal = hasSegments ? segments.total : totalMs
   const barMax = Math.max(barTotal, 1)
 
   const level = getLatencyLevel(totalMs)
@@ -78,18 +86,20 @@ export function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs
       <div className={cn('space-y-1.5', className)}>
         <div className="flex h-2 rounded-full overflow-hidden bg-muted/60">
           {hasSegments ? (
-            segments.map((seg, i) => (
+            segments.segs.map((seg, i) => (
               <div
                 key={seg.label}
                 className={cn(
                   'h-full',
                   seg.color,
                   i === 0 && 'rounded-l-full',
-                  i === segments.length - 1 && 'rounded-r-full',
+                  i === segments.segs.length - 1 && 'rounded-r-full',
                 )}
                 style={{
                   width: `${Math.max((seg.ms / barMax) * 100, 3)}%`,
-                  transition: 'width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  transform: `scaleX(${Math.max((seg.ms / barMax), 0.03)})`,
+                  transformOrigin: 'left center',
+                  transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 }}
               />
             ))
@@ -105,7 +115,7 @@ export function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {hasSegments ? (
-            segments.map(seg => (
+            segments.segs.map(seg => (
               <Tooltip key={seg.label}>
                 <TooltipTrigger asChild>
                   <div className="flex items-center gap-1 cursor-help">
@@ -133,4 +143,4 @@ export function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs
       </div>
     </TooltipProvider>
   )
-}
+})

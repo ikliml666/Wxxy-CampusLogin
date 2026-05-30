@@ -55,6 +55,10 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
 
     const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
       if (!tiltEnabled || !xQuick.current || !yQuick.current) return
+      const el = e.currentTarget as HTMLElement
+      if (el.style.willChange !== 'transform') {
+        el.style.willChange = 'transform'
+      }
       const rect = e.currentTarget.getBoundingClientRect()
       const x = (e.clientX - rect.left) / rect.width - 0.5
       const y = (e.clientY - rect.top) / rect.height - 0.5
@@ -66,6 +70,10 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       if (!xQuick.current || !yQuick.current) return
       xQuick.current(0)
       yQuick.current(0)
+      gsap.delayedCall(0.4, () => {
+        const el = cardRef.current
+        if (el) el.style.willChange = ''
+      })
     }, [])
 
     const config = React.useMemo(
@@ -124,7 +132,6 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
           style={{
             boxShadow: glowShadow,
             transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
-            willChange: tiltEnabled ? 'transform' : undefined,
           }}
           {...props}
         >

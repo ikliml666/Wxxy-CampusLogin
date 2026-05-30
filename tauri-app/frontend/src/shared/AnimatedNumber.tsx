@@ -27,6 +27,7 @@ export function AnimatedNumber({
   const objRef = useRef({ value })
   const valueQuickToRef = useRef<gsap.QuickToFunc | null>(null)
   const scaleQuickToRef = useRef<gsap.QuickToFunc | null>(null)
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!ref.current) return
@@ -46,6 +47,7 @@ export function AnimatedNumber({
       force3D: true,
     })
     return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
       valueQuickToRef.current = null
       scaleQuickToRef.current = null
     }
@@ -73,8 +75,9 @@ export function AnimatedNumber({
       objRef.current.value = prevRef.current
       valueQuickToRef.current(value)
       scaleQuickToRef.current(1.08)
-      setTimeout(() => {
+      resetTimerRef.current = setTimeout(() => {
         scaleQuickToRef.current?.(1)
+        resetTimerRef.current = null
       }, resolvedDuration * 0.2)
 
       prevRef.current = value
