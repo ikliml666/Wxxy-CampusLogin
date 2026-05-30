@@ -163,23 +163,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   }, [showLineSelector])
 
   const [logsKey, setLogsKey] = useState(0)
-
-  const handleClear = useCallback(async () => {
-    setIsClearing(true)
-    try {
-      await new Promise<void>(resolve => setTimeout(resolve, 400))
-      await api.clearLogs()
-      if (!mountedRef.current) return
-      setRawLogs('')
-      setLogsKey(prev => prev + 1)
-      addToast('日志已清空', 'success')
-    } catch (e: any) {
-      if (!mountedRef.current) return
-      addToast('清空日志失败', 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setIsClearing(false)
-    }
-  }, [api, addToast])
+  const [isExiting, setIsExiting] = useState(false)
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
@@ -209,6 +193,28 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       : filteredLines,
     [filteredLines]
   )
+
+  const handleClear = useCallback(async () => {
+    if (displayedLines.length === 0) return
+    setIsExiting(true)
+    await new Promise<void>(resolve => setTimeout(resolve, 350))
+    setIsClearing(true)
+    try {
+      await api.clearLogs()
+      if (!mountedRef.current) return
+      setRawLogs('')
+      setLogsKey(prev => prev + 1)
+      addToast('日志已清空', 'success')
+    } catch (e: any) {
+      if (!mountedRef.current) return
+      addToast('清空日志失败', 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) {
+        setIsClearing(false)
+        setIsExiting(false)
+      }
+    }
+  }, [api, addToast, displayedLines.length])
 
   const levelCounts = useMemo(() =>
     parsedLines.reduce((acc, line) => {
@@ -286,7 +292,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   size="sm"
                   className="h-7 text-[11px] gap-1 px-2 text-destructive hover:text-destructive"
                   onClick={handleClear}
-                  disabled={isClearing || parsedLines.length === 0}
+                  disabled={isClearing || isExiting || parsedLines.length === 0}
                 >
                   <Trash2 className="h-3 w-3" />
                   清空
@@ -352,14 +358,21 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     </div>
                   )}
                   <AnimatePresence mode="popLayout" key={logsKey}>
-                    {displayedLines.map((line) => {
+                    {displayedLines.map((line, index) => {
                       const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
                       const Icon = cfg.icon
                       const enableAnimation = displayedLines.length <= 30
+                      const exitDelay = isExiting ? Math.min(index * 0.02, 0.3) : 0
                       if (!enableAnimation) {
                         return (
-                          <div
+                          <m.div
                             key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
+                            variants={logEntryVariants}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            custom={isExiting}
+                            transition={isExiting ? { duration: 0.25, delay: exitDelay, ease: [0.4, 0, 1, 1] } : undefined}
                             className={cn(
                               'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
                               cfg.border,
@@ -388,7 +401,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                             </Badge>
                             <span className="text-primary/60 shrink-0">[{line.module}]</span>
                             <span className={cn('break-all', cfg.color)}>{line.message}</span>
-                          </div>
+                          </m.div>
                         )
                       }
                       return (
@@ -398,6 +411,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                           initial="initial"
                           animate="animate"
                           exit="exit"
+                          custom={isExiting}
+                          transition={isExiting ? { duration: 0.25, delay: exitDelay, ease: [0.4, 0, 1, 1] } : undefined}
                           className={cn(
                             'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
                             cfg.border,
