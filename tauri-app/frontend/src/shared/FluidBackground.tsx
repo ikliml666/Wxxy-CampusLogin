@@ -26,7 +26,7 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
         (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el
         innerRef?.(el)
       }}
-      className="fixed inset-0 z-0 overflow-hidden pointer-events-none fluid-paused"
+      className="absolute inset-0 z-0 overflow-hidden pointer-events-none fluid-paused"
       style={{ background: 'var(--surface-main)', contain: 'strict' }}
     >
       <div
