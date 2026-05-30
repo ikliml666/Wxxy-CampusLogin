@@ -14,9 +14,8 @@ import {
 } from '@/components/ui/select'
 import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useState, useCallback, memo, useRef, useEffect } from 'react'
+import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { m } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
 import { useIpc } from '@/hooks/useIpc'
 import { useAppStore } from '@/hooks/useAppStore'
 
@@ -98,8 +97,8 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
   }
 
   return (
-    <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-4">
-      <m.div variants={cardItemVariants}>
+    <div className="space-y-4">
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -165,9 +164,9 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
             )}
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -254,9 +253,9 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -382,7 +381,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
             )}
           </CardContent>
         </AnimatedCard>
-      </m.div>
-    </m.div>
+      </div>
+    </div>
   )
 })

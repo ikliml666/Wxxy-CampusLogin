@@ -10,9 +10,7 @@ import {
 } from 'lucide-react'
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings'
 import { cn } from '@/lib/utils'
-import { memo, useMemo } from 'react'
-import { m } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
+import React, { memo, useMemo } from 'react'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface SettingsPanelProps {
@@ -45,8 +43,8 @@ export const SettingsPanel = memo(function SettingsPanel({
   const customColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
 
   return (
-    <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-4">
-      <m.div variants={cardItemVariants}>
+    <div className="space-y-4">
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -150,9 +148,9 @@ export const SettingsPanel = memo(function SettingsPanel({
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -279,9 +277,9 @@ export const SettingsPanel = memo(function SettingsPanel({
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -308,9 +306,9 @@ export const SettingsPanel = memo(function SettingsPanel({
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -401,10 +399,10 @@ export const SettingsPanel = memo(function SettingsPanel({
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
       {onShowOnboarding && (
-        <m.div variants={cardItemVariants}>
+        <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
           <AnimatedCard noEnterAnimation>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
@@ -430,8 +428,8 @@ export const SettingsPanel = memo(function SettingsPanel({
               </button>
             </CardContent>
           </AnimatedCard>
-        </m.div>
+        </div>
       )}
-    </m.div>
+    </div>
   )
 })

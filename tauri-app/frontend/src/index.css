@@ -471,7 +471,7 @@
   }
 
   .card-hover-lift:hover {
-    transform: translateY(-6px) scale(1.02);
+    transform: translateY(var(--hover-y, -4px));
     box-shadow: 0 12px 32px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
   }
 
@@ -480,7 +480,7 @@
   }
 
   .card-hover-lift:active {
-    transform: translateY(-2px) scale(0.98);
+    transform: translateY(calc(var(--hover-y, -4px) * 0.3)) scale(0.98);
     transition-duration: 0.1s;
   }
 
@@ -713,6 +713,75 @@
     content-visibility: auto;
     contain-intrinsic-size: auto 500px;
     contain: layout style;
+  }
+
+  @keyframes cardEnter {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .card-enter {
+    animation: cardEnter 0.35s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    animation-delay: calc(var(--stagger-i, 0) * 0.05s);
+    will-change: transform, opacity;
+  }
+
+  @keyframes dialogOverlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes dialogOverlayOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes dialogContentIn {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  @keyframes dialogContentOut {
+    from {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.97) translateY(3px);
+    }
+  }
+
+  .dialog-overlay-enter {
+    animation: dialogOverlayIn 0.2s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    will-change: opacity;
+  }
+
+  .dialog-overlay-exit {
+    animation: dialogOverlayOut 0.15s cubic-bezier(0.4, 0, 1, 1) both;
+    will-change: opacity;
+  }
+
+  .dialog-content-enter {
+    animation: dialogContentIn 0.25s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    will-change: transform, opacity;
+  }
+
+  .dialog-content-exit {
+    animation: dialogContentOut 0.15s cubic-bezier(0.4, 0, 1, 1) both;
+    will-change: transform, opacity;
   }
 
   @keyframes rippleExpand {

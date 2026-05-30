@@ -21,9 +21,7 @@ import {
 import { ISP_OPTIONS } from '@/settings'
 import { PASSWORD_MASK } from '@/shared'
 import { cn } from '@/lib/utils'
-import { useState, useCallback, memo, useRef, useEffect } from 'react'
-import { m } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
+import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface AccountPanelProps {
@@ -79,8 +77,8 @@ export const AccountPanel = memo(function AccountPanel({
   }, [activeAccount, onSwitchAccount])
 
   return (
-    <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-4">
-      <m.div variants={cardItemVariants}>
+    <div className="space-y-4">
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -178,9 +176,9 @@ export const AccountPanel = memo(function AccountPanel({
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -281,9 +279,9 @@ export const AccountPanel = memo(function AccountPanel({
             )}
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardContent className="pt-5 space-y-4">
             <div className="flex items-center justify-between">
@@ -311,7 +309,7 @@ export const AccountPanel = memo(function AccountPanel({
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
-    </m.div>
+      </div>
+    </div>
   )
 })

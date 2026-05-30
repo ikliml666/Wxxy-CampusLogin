@@ -57,14 +57,14 @@ export function getPanelDirection(from: string, to: string): number {
 export const panelSlideVariants = {
   initial: (direction: number) => ({
     opacity: 0,
-    x: direction > 0 ? 80 : -80,
-    scale: 0.96,
+    x: direction > 0 ? 60 : -60,
+    scale: 0.97,
   }),
   animate: {
     opacity: 1,
     x: 0,
     scale: 1,
-    transition: { type: 'spring' as const, stiffness: 300, damping: 28, mass: 0.6 },
+    transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as [number, number, number, number] },
   },
   exit: (direction: number) => ({
     opacity: 0,

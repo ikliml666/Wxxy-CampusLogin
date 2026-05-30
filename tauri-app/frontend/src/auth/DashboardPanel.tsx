@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react'
+import React, { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react'
 import type { Config } from '@/settings'
 import type { NetworkQuality } from '@/monitor'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -13,8 +13,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
-import { m, Reorder } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
+import { Reorder } from 'framer-motion'
 import { QUALITY_CONFIG } from '@/network'
 import { LatencyPair } from '@/monitor'
 import { safeStorage } from '@/lib/utils'
@@ -333,13 +332,13 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
           ))}
         </Reorder.Group>
       ) : (
-        <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-3">
-          {visibleCards.map(id => (
-            <m.div key={id} variants={cardItemVariants} className="relative group">
+        <div className="space-y-3">
+          {visibleCards.map((id, idx) => (
+            <div key={id} className="card-enter relative group" style={{ '--stagger-i': idx } as React.CSSProperties}>
               {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing)}
-            </m.div>
+            </div>
           ))}
-        </m.div>
+        </div>
       )}
 
       {visibleCards.length === 0 && (

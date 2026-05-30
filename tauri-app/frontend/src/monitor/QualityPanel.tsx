@@ -15,9 +15,8 @@ import { AnimatedNumber } from '@/shared'
 import { LatencyTimeline } from '@/monitor'
 
 import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type LatencyType } from '@/lib/latency'
-import { useCallback, memo, useMemo, useState } from 'react'
+import React, { useCallback, memo, useMemo, useState } from 'react'
 import { m, type Variants } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
 import { useAppStore } from '@/hooks/useAppStore'
 
 const cardItemVariantsNoY: Variants = {
@@ -171,8 +170,8 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
   const effectiveExternalLatency = extractExternalLatency(networkQuality)
 
   return (
-    <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-4">
-      <m.div variants={cardItemVariants} className="group">
+    <div className="space-y-4">
+      <div className="card-enter group" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation className={cn(['poor', 'bad'].includes(networkQuality?.quality ?? '') && 'border-glow-danger')}>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -224,9 +223,9 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
             )}
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -273,7 +272,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
       <m.div variants={cardItemVariantsNoY}>
         <AnimatedCard noEnterAnimation>
@@ -439,6 +438,6 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
           </CardContent>
         </AnimatedCard>
       </m.div>
-    </m.div>
+    </div>
   )
 })

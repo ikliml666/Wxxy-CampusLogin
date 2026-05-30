@@ -1,5 +1,4 @@
 import * as React from 'react'
-import { m, useReducedMotion } from 'framer-motion'
 import gsap from 'gsap'
 import { cn } from '@/lib/utils'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
@@ -28,16 +27,15 @@ export interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> 
   noAnimation?: boolean
   noEnterAnimation?: boolean
   enableTilt?: boolean
+  staggerIndex?: number
 }
 
 export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
-  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, enableTilt, children, ...props }, ref) => {
-    const prefersReducedMotion = useReducedMotion()
+  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, enableTilt, staggerIndex, children, ...props }, ref) => {
     const profile = useAnimationProfile()
     const [isHovered, setIsHovered] = React.useState(false)
-    const [entryDone, setEntryDone] = React.useState(noEnterAnimation)
 
-    const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !prefersReducedMotion && !noAnimation
+    const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !noAnimation
     const cardRef = React.useRef<HTMLDivElement>(null)
     const xQuick = React.useRef<gsap.QuickToFunc | null>(null)
     const yQuick = React.useRef<gsap.QuickToFunc | null>(null)
@@ -75,25 +73,22 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       [animationConfig]
     )
 
-    const springConfig = React.useMemo(
-      () => ({ stiffness: profile.springStiffness, damping: profile.springDamping, mass: config.mass }),
-      [profile.springStiffness, profile.springDamping, config.mass]
-    )
-
     const hoverY = noHover ? 0 : config.hoverY
     const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
-  const glowShadow = React.useMemo(() => {
-    return isHovered && !noHover
-      ? `0 0 ${10 * config.glowIntensity}px hsl(var(--primary) / 0.35), 0 0 ${30 * config.glowIntensity}px hsl(var(--primary) / 0.15), 0 0 ${60 * config.glowIntensity}px hsl(var(--primary) / 0.06), 0 ${12}px ${36}px rgba(0,0,0,0.08), inset 0 0 0 1px hsl(var(--primary) / 0.12)`
-      : restShadow
-  }, [isHovered, noHover, config.glowIntensity, restShadow])
+    const glowShadow = React.useMemo(() => {
+      return isHovered && !noHover
+        ? `0 0 ${10 * config.glowIntensity}px hsl(var(--primary) / 0.35), 0 0 ${30 * config.glowIntensity}px hsl(var(--primary) / 0.15), 0 0 ${60 * config.glowIntensity}px hsl(var(--primary) / 0.06), 0 ${12}px ${36}px rgba(0,0,0,0.08), inset 0 0 0 1px hsl(var(--primary) / 0.12)`
+        : restShadow
+    }, [isHovered, noHover, config.glowIntensity, restShadow])
 
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
       [className]
     )
 
-    if (prefersReducedMotion || noAnimation) {
+    const showEntryAnim = !noEnterAnimation && !noAnimation && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    if (noAnimation) {
       return (
         <div ref={ref} className={cardClassName} style={{ boxShadow: restShadow }} {...props}>
           {children}
@@ -102,22 +97,18 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
     }
 
     return (
-      <m.div
-        className={cn('rounded-2xl')}
-        initial={noEnterAnimation ? false : { opacity: 0, y: 12 }}
-        animate={noEnterAnimation ? false : { opacity: 1, y: 0 }}
-        transition={noEnterAnimation ? undefined : { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
-        whileHover={noHover ? undefined : {
-          y: hoverY,
-          transition: { type: 'spring', ...springConfig },
-        }}
-        onAnimationComplete={() => setEntryDone(true)}
+      <div
+        className={cn(
+          'rounded-2xl card-hover-lift',
+          showEntryAnim && 'card-enter',
+        )}
         style={{
-          pointerEvents: entryDone ? undefined : ('none' as any),
+          '--stagger-i': staggerIndex ?? 0,
+          '--hover-y': `${hoverY}px`,
           perspective: tiltEnabled ? 800 : undefined,
-        }}
-        onHoverStart={() => setIsHovered(true)}
-        onHoverEnd={() => { setIsHovered(false); handleMouseLeave() }}
+        } as React.CSSProperties}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => { setIsHovered(false); handleMouseLeave() }}
         onMouseMove={handleMouseMove}
       >
         <div
@@ -128,6 +119,7 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
           }}
           className={cn(
             'bg-white text-card-foreground rounded-2xl transition-shadow duration-300 dark:bg-[#14161b]',
+            cardClassName,
           )}
           style={{
             boxShadow: glowShadow,
@@ -138,7 +130,7 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         >
           {children}
         </div>
-      </m.div>
+      </div>
     )
   }
 )

@@ -2,7 +2,6 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { m } from 'framer-motion'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 const Dialog = DialogPrimitive.Root
@@ -15,21 +14,14 @@ const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => {
   const profile = useAnimationProfile()
   return (
-    <m.div
+    <DialogPrimitive.Overlay
       ref={ref}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
       className={cn(
-        'fixed inset-0 z-50 bg-black/60',
+        'fixed inset-0 z-50 bg-black/60 dialog-overlay-enter',
+        profile.enableBackdropBlur && 'backdrop-blur-[4px]',
         className
       )}
-      style={Object.assign(
-        { willChange: 'opacity' },
-        profile.enableBackdropBlur ? { backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' } : {}
-      )}
-      {...(props as Record<string, unknown>)}
+      {...props}
     />
   )
 })
@@ -42,17 +34,7 @@ const DialogContent = React.forwardRef<
   <DialogPortal>
     <DialogOverlay />
     <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-      <m.div
-        initial={{ opacity: 0, scale: 0.96, y: 6 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 3 }}
-        transition={{
-          duration: 0.25,
-          ease: [0.25, 0.1, 0.25, 1],
-        }}
-        className="grid gap-4 pointer-events-auto justify-self-center"
-        style={{ willChange: 'transform, opacity' }}
-      >
+      <div className="dialog-content-enter pointer-events-auto justify-self-center">
         <DialogPrimitive.Content
           ref={ref}
           className={cn(
@@ -69,7 +51,7 @@ const DialogContent = React.forwardRef<
             </DialogPrimitive.Close>
           )}
         </DialogPrimitive.Content>
-      </m.div>
+      </div>
     </div>
   </DialogPortal>
 ))

@@ -14,9 +14,9 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
-import { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants, logEntryVariants } from '@/lib/animations'
+import { logEntryVariants } from '@/lib/animations'
 
 interface LogPanelProps {
   api: {
@@ -249,8 +249,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   )
 
   return (
-    <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-4">
-      <m.div variants={cardItemVariants}>
+    <div className="space-y-4">
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -469,7 +469,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
-    </m.div>
+      </div>
+    </div>
   )
 })

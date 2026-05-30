@@ -11,11 +11,9 @@ import { Input } from '@/components/ui/input'
 import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared'
-import { memo, useMemo } from 'react'
+import React, { memo, useMemo } from 'react'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useAppStore } from '@/hooks/useAppStore'
-import { m } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
 
 interface MonitorPanelProps {
   config: Config
@@ -79,8 +77,8 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
   }, 2000)
 
   return (
-    <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-4">
-      <m.div variants={cardItemVariants}>
+    <div className="space-y-4">
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -161,9 +159,9 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
             )}
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -300,7 +298,7 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
-    </m.div>
+      </div>
+    </div>
   )
 })

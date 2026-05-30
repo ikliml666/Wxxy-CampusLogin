@@ -12,9 +12,7 @@ import {
   ArrowUpRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { memo, useCallback } from 'react'
-import { m } from 'framer-motion'
-import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
+import React, { memo, useCallback } from 'react'
 
 interface SpeedTestSite {
   name: string
@@ -113,8 +111,8 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
   }, [openExternal])
 
   return (
-    <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-4">
-      <m.div variants={cardItemVariants}>
+    <div className="space-y-4">
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -133,13 +131,13 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
             </p>
           </CardContent>
         </AnimatedCard>
-      </m.div>
+      </div>
 
-      {SITE_CATEGORIES.map(category => {
+      {SITE_CATEGORIES.map((category, catIdx) => {
         const sites = SPEED_TEST_SITES.filter(s => s.category === category)
         if (sites.length === 0) return null
         return (
-          <m.div key={category} variants={cardItemVariants}>
+          <div key={category} className="card-enter" style={{ '--stagger-i': catIdx + 1 } as React.CSSProperties}>
             <AnimatedCard noEnterAnimation>
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
@@ -180,11 +178,11 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
                 })}
               </CardContent>
             </AnimatedCard>
-          </m.div>
+          </div>
         )
       })}
 
-      <m.div variants={cardItemVariants}>
+      <div className="card-enter" style={{ '--stagger-i': SITE_CATEGORIES.length + 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardContent className="pt-4">
             <div className="text-[11px] text-muted-foreground/60 space-y-1">
@@ -193,7 +191,7 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
             </div>
           </CardContent>
         </AnimatedCard>
-      </m.div>
-    </m.div>
+      </div>
+    </div>
   )
 })
