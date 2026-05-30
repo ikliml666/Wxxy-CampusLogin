@@ -6,7 +6,6 @@ import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 export interface AnimatedCardConfig {
   hoverY?: number
-  glowColor?: string
   glowIntensity?: number
   hoverScale?: number
   stiffness?: number
@@ -16,7 +15,6 @@ export interface AnimatedCardConfig {
 
 const DEFAULT_CONFIG: Required<AnimatedCardConfig> = {
   hoverY: -4,
-  glowColor: 'hsl(239 84% 67%)',
   glowIntensity: 1,
   hoverScale: 1,
   stiffness: 300,
@@ -84,9 +82,8 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
 
     const hoverY = noHover ? 0 : config.hoverY
     const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
-    const gc = config.glowColor
     const glowShadow = isHovered && !noHover
-      ? `0 0 ${10 * config.glowIntensity}px ${gc.replace(')', ' / 0.4)')}, 0 0 ${30 * config.glowIntensity}px ${gc.replace(')', ' / 0.2)')}, 0 0 ${60 * config.glowIntensity}px ${gc.replace(')', ' / 0.1)')}, 0 ${12}px ${36}px rgba(0,0,0,0.1), inset 0 0 0 1px ${gc.replace(')', ' / 0.15)')}`
+      ? `0 0 ${10 * config.glowIntensity}px hsl(var(--primary) / 0.35), 0 0 ${30 * config.glowIntensity}px hsl(var(--primary) / 0.15), 0 0 ${60 * config.glowIntensity}px hsl(var(--primary) / 0.06), 0 ${12}px ${36}px rgba(0,0,0,0.08), inset 0 0 0 1px hsl(var(--primary) / 0.12)`
       : restShadow
 
     const cardClassName = React.useMemo(

@@ -86,11 +86,15 @@ function AppInner() {
   const profile = useAnimationProfile()
   const prevPanelRef = useRef(activePanel)
   const [slideDirection, setSlideDirection] = useState(1)
+  const [isTransitioning, setIsTransitioning] = useState(false)
 
   useEffect(() => {
     if (prevPanelRef.current !== activePanel) {
       setSlideDirection(getPanelDirection(prevPanelRef.current, activePanel))
       prevPanelRef.current = activePanel
+      setIsTransitioning(true)
+      const timer = setTimeout(() => setIsTransitioning(false), 400)
+      return () => clearTimeout(timer)
     }
   }, [activePanel])
 
@@ -223,7 +227,7 @@ function AppInner() {
 
   return (
     <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
-      <FluidBackground />
+      <FluidBackground paused={isTransitioning} />
 
       <div className="animate-stagger-1">
         <TitleBar
@@ -250,8 +254,20 @@ function AppInner() {
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'content' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
             <div className="animate-stagger-3 mb-6">
-              <m.h1 layoutId="panel-title" className="text-xl font-semibold tracking-tight">{panelInfo.title}</m.h1>
-              <m.p layoutId="panel-desc" className="text-sm text-muted-foreground mt-1">{panelInfo.desc}</m.p>
+              <m.h1
+                key={`title-${activePanel}`}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                className="text-xl font-semibold tracking-tight"
+              >{panelInfo.title}</m.h1>
+              <m.p
+                key={`desc-${activePanel}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.15, delay: 0.05 }}
+                className="text-sm text-muted-foreground mt-1"
+              >{panelInfo.desc}</m.p>
             </div>
 
             <AnimatePresence mode="popLayout" custom={slideDirection}>

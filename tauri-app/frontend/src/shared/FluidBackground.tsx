@@ -36,7 +36,11 @@ const ORBS: OrbConfig[] = [
 
 const GRADIENT_DURATION = 16
 
-export function FluidBackground() {
+interface FluidBackgroundProps {
+  paused?: boolean
+}
+
+export function FluidBackground({ paused }: FluidBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const tlRef = useRef<gsap.core.Timeline | null>(null)
   const isActive = useAnimationActive()
@@ -83,12 +87,12 @@ export function FluidBackground() {
 
   useEffect(() => {
     if (!tlRef.current) return
-    if (isActive) {
-      tlRef.current.play()
-    } else {
+    if (paused || !isActive) {
       tlRef.current.pause()
+    } else {
+      tlRef.current.play()
     }
-  }, [isActive])
+  }, [paused, isActive])
 
   return (
     <div
