@@ -20,6 +20,17 @@ import { m, type Variants } from 'framer-motion'
 import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
 import { useAppStore } from '@/hooks/useAppStore'
 
+const cardItemVariantsNoY: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      duration: 0.3,
+      ease: [0.25, 0.8, 0.25, 1],
+    },
+  },
+}
+
 const tabContainerVariants: Variants = {
   animate: {
     transition: {
@@ -264,7 +275,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
         </AnimatedCard>
       </m.div>
 
-      <m.div variants={cardItemVariants}>
+      <m.div variants={cardItemVariantsNoY}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">

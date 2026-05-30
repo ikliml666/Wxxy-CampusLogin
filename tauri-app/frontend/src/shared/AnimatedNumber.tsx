@@ -109,7 +109,6 @@ export function AnimatedNumber({
       style={{
         fontVariantNumeric: 'tabular-nums',
         display: 'inline-block',
-        willChange: profile.willChangeGradient ? 'transform, opacity' : undefined,
       }}
     >
       {value.toFixed(decimals)}{unit}

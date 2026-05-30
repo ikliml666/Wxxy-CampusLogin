@@ -36,31 +36,36 @@ const DialogContent = React.forwardRef<
 >(({ className, children, showClose = true, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
-    <m.div
-      initial={{ opacity: 0, scale: 0.92, y: 8 }}
-      animate={{ opacity: 1, scale: [0.92, 1.02, 1], y: 0 }}
-      exit={{ opacity: 0, scale: 0.95, y: 4 }}
-      transition={{
-        duration: 0.35,
-        ease: [0.34, 1.56, 0.64, 1],
-        scale: { duration: 0.4, times: [0, 0.7, 1], ease: [0.34, 1.56, 0.64, 1] },
-      }}
-      className="fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 bg-background p-6 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_30px_rgba(0,0,0,0.12)] rounded-2xl"
-    >
-      <DialogPrimitive.Content
-        ref={ref}
-        className={cn('outline-none', className)}
-        {...props}
+    <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+      <m.div
+        initial={{ opacity: 0, scale: 0.92, y: 8 }}
+        animate={{ opacity: 1, scale: [0.92, 1.02, 1], y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 4 }}
+        transition={{
+          duration: 0.35,
+          ease: [0.34, 1.56, 0.64, 1],
+          scale: { duration: 0.4, times: [0, 0.7, 1], ease: [0.34, 1.56, 0.64, 1] },
+        }}
+        className="grid gap-4 pointer-events-auto justify-self-center"
       >
-        {children}
-        {showClose && (
-          <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-            <X className="h-4 w-4" />
-            <span className="sr-only">关闭</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
-    </m.div>
+        <DialogPrimitive.Content
+          ref={ref}
+          className={cn(
+            'outline-none relative bg-background p-6 rounded-2xl shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_30px_rgba(0,0,0,0.12)]',
+            className
+          )}
+          {...props}
+        >
+          {children}
+          {showClose && (
+            <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+              <X className="h-4 w-4" />
+              <span className="sr-only">关闭</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </m.div>
+    </div>
   </DialogPortal>
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName

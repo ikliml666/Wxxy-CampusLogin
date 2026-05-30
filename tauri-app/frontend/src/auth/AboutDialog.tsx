@@ -217,7 +217,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-3xl p-0 gap-0 overflow-hidden rounded-2xl border-0 shadow-xl">
+      <DialogContent className="max-w-[740px] p-0 gap-0 overflow-hidden rounded-2xl border-0 shadow-none">
         {/* 隐藏的 header，仅用于无障碍访问 */}
         <DialogHeader className="sr-only">
           <DialogTitle>关于</DialogTitle>
@@ -225,14 +225,14 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
         </DialogHeader>
 
         <div className="flex h-[520px]">
-          {/* ===== 左侧栏 (35%) - 应用信息 ===== */}
-          <div className="w-[35%] bg-white dark:bg-card flex flex-col p-6 overflow-y-auto overflow-x-hidden shrink-0">
+          {/* ===== 左侧栏 - 应用信息 ===== */}
+          <div className="w-[320px] bg-white flex flex-col p-6 overflow-y-auto overflow-x-hidden shrink-0">
             {/* 顶部: 图标 + 标题 + 版本 */}
             <div className="flex flex-col items-center text-center">
               <img
                 src="/128x128.png"
                 alt={APP_NAME}
-                className="w-14 h-14 rounded-2xl shadow-sm mb-2.5"
+                className="w-12 h-12 rounded-2xl shadow-sm mb-2"
                 draggable={false}
               />
               <div className="text-lg font-bold tracking-tight">{APP_NAME}</div>
@@ -255,7 +255,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             <Button
               variant="outline"
               className={cn(
-                'w-full justify-center gap-2 h-8 text-xs mt-4',
+                'w-full justify-center gap-2 h-[34px] text-xs mt-4 rounded-lg',
                 updateInfo && !updateInfo.has_update && 'border-emerald-300 bg-emerald-50/50 text-emerald-600 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400',
                 updateInfo?.has_update && 'border-violet-300 bg-violet-50/50 text-violet-600 dark:border-violet-700 dark:bg-violet-950/20 dark:text-violet-400'
               )}
@@ -322,7 +322,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
           </div>
 
           {/* ===== 右侧栏 (65%) - 更新仪表盘 ===== */}
-          <div className="flex-1 bg-[#F8F9FA] dark:bg-background/50 flex flex-col p-6 min-h-0 relative">
+          <div className="flex-1 bg-[#F8F9FA] flex flex-col p-6 min-h-0 relative">
 
             {/* ------ idle + 无更新：已是最新版 ------ */}
             {downloadState === 'idle' && !updateInfo?.has_update && (
@@ -337,12 +337,12 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       <p className="text-sm text-muted-foreground">v{APP_VERSION}</p>
                     </div>
                     {/* 核心优势卡片 */}
-                    <div className="grid grid-cols-3 gap-3 w-full max-w-sm mt-2">
+                    <div className="grid grid-cols-3 gap-2.5 w-full max-w-[260px] mt-2">
                       {CORE_FEATURES.map((feat) => (
-                        <div key={feat.title} className="bg-white dark:bg-card rounded-xl p-3 text-center shadow-sm border border-gray-100 dark:border-border/50">
-                          <feat.icon className="h-5 w-5 text-violet-500 mx-auto mb-1.5" />
-                          <div className="text-xs font-medium">{feat.title}</div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{feat.desc}</div>
+                        <div key={feat.title} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
+                          <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
+                          <div className="text-[11px] font-medium leading-tight">{feat.title}</div>
+                          <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{feat.desc}</div>
                         </div>
                       ))}
                     </div>
@@ -476,11 +476,11 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 {/* 无功能亮点时用核心优势卡片填充 */}
                 {featureHighlights.length === 0 && (
                   <div className="mt-1">
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-3 gap-2.5">
                       {CORE_FEATURES.map((feat) => (
-                        <div key={feat.title} className="bg-white dark:bg-card rounded-xl p-3 text-center shadow-sm border border-gray-100 dark:border-border/50">
+                        <div key={feat.title} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
                           <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
-                          <div className="text-[11px] font-medium">{feat.title}</div>
+                          <div className="text-[11px] font-medium leading-tight">{feat.title}</div>
                         </div>
                       ))}
                     </div>

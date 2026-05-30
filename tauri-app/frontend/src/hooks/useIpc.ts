@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
 import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
@@ -134,7 +135,20 @@ const tauriApi: TauriApi = {
   onNetworkQualityResult: createEventListener<NetworkQuality>('network-quality-result'),
   startLatencyTest: () => invoke<CommandResult>('start_latency_test'),
   stopLatencyTest: () => invoke<CommandResult>('stop_latency_test'),
-  openExternal: (url) => invoke<boolean>('open_external', { url }),
+  openExternal: async (url: string) => {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return false
+    if (url.length > 2048) return false
+    try { new URL(url) } catch { return false }
+    try {
+      await shellOpen(url)
+      return true
+    } catch {
+      try {
+        await invoke<boolean>('open_external', { url })
+        return true
+      } catch { return false }
+    }
+  },
   getAutoLaunch: () => invoke<{ enabled: boolean }>('get_auto_launch'),
   setAutoLaunch: (enabled) => invoke<AutoLaunchResult>('set_auto_launch', { enabled }),
   getNotificationEnabled: () => invoke<boolean>('get_notification_enabled'),

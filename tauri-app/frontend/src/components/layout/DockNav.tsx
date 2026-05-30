@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared'
-import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
+import { m, useMotionValue, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'
 import { useAppStore } from '@/hooks/useAppStore'
@@ -65,24 +65,37 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
   const scaleVal = useTransform(distance, [0, MAGNETIC_RANGE], [MAX_SCALE, 1], { clamp: true })
   const liftVal = useTransform(distance, [0, MAGNETIC_RANGE], [MAX_LIFT, 0], { clamp: true })
 
-  const scale = useSpring(scaleVal, { stiffness: 500, damping: 28, mass: 0.5 })
-  const lift = useSpring(liftVal, { stiffness: 500, damping: 28, mass: 0.5 })
+  useEffect(() => {
+    const btn = ref.current
+    if (!btn) return
+
+    const unsubScale = scaleVal.on('change', (v) => {
+      btn.style.setProperty('--dock-scale', String(v))
+      btn.style.transform = `scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))`
+    })
+    const unsubLift = liftVal.on('change', (v) => {
+      btn.style.setProperty('--dock-lift', `${v}px`)
+      btn.style.transform = `scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))`
+    })
+
+    return () => { unsubScale(); unsubLift() }
+  }, [scaleVal, liftVal])
 
   return (
-    <m.button
+    <button
       ref={setRef}
       onClick={() => onPanelChange(id)}
-      style={{ y: lift, scale, zIndex: 10 }}
-      whileTap={{
-        scale: [1, 0.85, 1.08, 1],
-        transition: { duration: 0.4, times: [0, 0.15, 0.6, 1] },
-      }}
       className={cn(
         'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl select-none group transition-colors duration-200',
         isActive
           ? 'text-primary bg-primary/10'
           : 'text-muted-foreground hover:text-foreground'
       )}
+      style={{
+        transform: 'scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))',
+        transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s, background-color 0.2s',
+        zIndex: 10,
+      }}
       aria-label={label}
     >
       {isActive && (
@@ -100,7 +113,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       >
         {label}
       </span>
-    </m.button>
+    </button>
   )
 }
 

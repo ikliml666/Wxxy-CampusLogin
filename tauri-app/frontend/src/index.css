@@ -92,21 +92,15 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    border-radius: 16px;
+    background: var(--surface-main);
     overflow: hidden;
     font-size: 15px;
-  }
-
-  .log-line {
-    transform: translateZ(0);
-    backface-visibility: hidden;
   }
 
   body {
     @apply text-foreground font-sans;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-    background: transparent;
-    border-radius: 16px;
+    background: var(--surface-main);
     overflow: hidden;
   }
 
@@ -200,7 +194,6 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
     contain: layout style;
-    will-change: transform;
   }
 
   .glass-dock::before {
@@ -317,8 +310,7 @@
   }
 
   .status-breathe {
-    animation: statusBreathe 2s ease-in-out infinite !important;
-    will-change: opacity;
+    animation: statusBreathe 4s ease-in-out infinite !important;
   }
 
   @keyframes statusBreathe {
@@ -342,7 +334,6 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
-    will-change: transform;
   }
 
   .btn-physical::before {
@@ -381,7 +372,6 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
-    will-change: transform;
   }
 
   .btn-press::before {
@@ -425,7 +415,6 @@
       inset 0 0 0 rgba(0,0,0,0),
       inset 0 0 0 rgba(255,255,255,0);
     transition: box-shadow 0.3s ease, transform 0.15s ease-out, background-color 0.2s ease;
-    will-change: transform;
   }
 
   .soft-btn:hover {
@@ -474,8 +463,7 @@
   .card-hover-lift {
     transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
                 box-shadow 0.35s ease;
-    contain: content;
-    will-change: transform;
+    contain: layout style;
   }
 
   .card-hover-lift:hover {
@@ -514,7 +502,6 @@
   .icon-hover-glow {
     position: relative;
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    will-change: transform;
   }
 
   .icon-hover-glow::after {
@@ -562,7 +549,6 @@
   .status-pulse {
     position: relative;
     animation: statusPulse 1.5s ease-in-out 2 !important;
-    will-change: transform, opacity;
   }
 
   .status-pulse::after {
@@ -593,8 +579,7 @@
   }
 
   .animate-heartbeat {
-    animation: heartbeat 1.5s ease-in-out infinite !important;
-    will-change: transform;
+    animation: heartbeat 3s ease-in-out infinite !important;
   }
 
   @keyframes borderGlowRed {
@@ -604,8 +589,7 @@
 
   .border-glow-danger {
     position: relative;
-    animation: borderGlowRed 2s ease-in-out infinite !important;
-    will-change: transform, opacity;
+    animation: borderGlowRed 4s ease-in-out infinite !important;
   }
 
   .border-glow-danger::after {
@@ -623,8 +607,7 @@
   }
 
   .animate-empty-breathe {
-    animation: emptyBreathe 3s ease-in-out infinite !important;
-    will-change: transform, opacity;
+    animation: emptyBreathe 6s ease-in-out infinite !important;
   }
 
   @keyframes checkFlash {
@@ -676,7 +659,6 @@
 
   .log-entry-hover {
     transition: background-color 0.2s ease, transform 0.2s ease;
-    will-change: transform;
   }
 
   .log-entry-hover:hover {
@@ -692,7 +674,6 @@
   .log-left-bar {
     transition: opacity 0.2s ease, transform 0.2s ease;
     opacity: 0.5;
-    will-change: transform, opacity;
   }
 
   .gradient-layer {
@@ -720,7 +701,12 @@
   .layout-smooth-resize {
     transition: gap 0.3s ease,
                 opacity 0.2s ease;
-    contain: content;
+    contain: layout style;
+  }
+
+  .panel-content {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 500px;
   }
 
   @keyframes rippleExpand {
@@ -735,7 +721,6 @@
     transform: scale(0);
     animation: rippleExpand 0.6s ease-out forwards;
     pointer-events: none;
-    will-change: transform, opacity;
   }
 
   input[type="text"]:focus,
@@ -783,6 +768,33 @@
     pointer-events: none;
   }
 
+  @keyframes fluidGradientShift {
+    from { transform: translate3d(0%, -25%, 0); }
+    to { transform: translate3d(-50%, -25%, 0); }
+  }
+
+  .fluid-gradient-anim {
+    animation: fluidGradientShift 24s ease-in-out infinite alternate;
+  }
+
+  @keyframes fluidOrb1Move {
+    from { transform: translate3d(-30%, -20%, 0) scale3d(0.8, 0.8, 1); }
+    to { transform: translate3d(90%, 70%, 0) scale3d(1.2, 1.2, 1); }
+  }
+
+  .fluid-orb1-anim {
+    animation: fluidOrb1Move 30s ease-in-out infinite alternate;
+  }
+
+  @keyframes fluidOrb2Move {
+    from { transform: translate3d(70%, 50%, 0) scale3d(0.8, 0.8, 1); }
+    to { transform: translate3d(-20%, -30%, 0) scale3d(1.2, 1.2, 1); }
+  }
+
+  .fluid-orb2-anim {
+    animation: fluidOrb2Move 40s ease-in-out infinite alternate;
+  }
+
 }
 
 @layer utilities {
@@ -795,7 +807,17 @@
   .anim-idle .skeleton-shimmer,
   .anim-idle .btn-loading-pulse::after,
   .anim-idle .animate-pulse,
-  .anim-idle .animate-spin {
+  .anim-idle .animate-spin,
+  .anim-idle .fluid-gradient-anim,
+  .anim-idle .fluid-orb1-anim,
+  .anim-idle .fluid-orb2-anim,
+  .anim-idle .signal-glow-active {
+    animation-play-state: paused !important;
+  }
+
+  .fluid-paused .fluid-gradient-anim,
+  .fluid-paused .fluid-orb1-anim,
+  .fluid-paused .fluid-orb2-anim {
     animation-play-state: paused !important;
   }
 
@@ -821,8 +843,7 @@
   }
 
   .capsule-breathe {
-    animation: capsuleBreathe 3.5s ease-in-out infinite !important;
-    will-change: transform, opacity;
+    animation: capsuleBreathe 6s ease-in-out infinite !important;
   }
 
   @keyframes capsuleGlowPulse {
@@ -832,8 +853,7 @@
 
   .capsule-glow-pulse {
     position: relative;
-    animation: capsuleGlowPulse 2s ease-in-out infinite !important;
-    will-change: transform, opacity;
+    animation: capsuleGlowPulse 4s ease-in-out infinite !important;
   }
 
   .capsule-glow-pulse::after {
@@ -843,6 +863,14 @@
     border-radius: inherit;
     box-shadow: 0 0 12px 2px rgb(var(--capsule-glow-rgb, 59 130 246) / 0.15);
     pointer-events: none;
+  }
+
+  .capsule-hover-wrap {
+    display: inline-flex;
+    transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+  .capsule-hover-wrap:hover {
+    transform: scale(1.05);
   }
 
   @keyframes statusRingExpand {
@@ -858,7 +886,6 @@
     border: 2px solid currentColor;
     opacity: 0;
     pointer-events: none;
-    will-change: transform, opacity;
   }
 
   .status-ring-expand.active::after {
@@ -884,12 +911,10 @@
 
   .signal-bar-enter {
     animation: signalBarEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-    will-change: transform;
   }
 
   .signal-glow-active {
-    animation: signalGlowPulse 2.5s ease-in-out infinite both;
-    will-change: transform, opacity;
+    animation: signalGlowPulse 5s ease-in-out infinite both;
   }
 
   .signal-glow-idle {
@@ -897,14 +922,9 @@
     transform: scaleX(1);
   }
 
-  .anim-idle .signal-glow-active {
-    animation-play-state: paused;
-  }
-
   .list-item-interactive {
     position: relative;
     transition: transform 0.2s ease, background-color 0.2s ease;
-    will-change: transform;
   }
 
   .list-item-interactive:hover {
@@ -923,7 +943,6 @@
     opacity: 0;
     transform: scaleY(0);
     transition: opacity 0.2s ease, transform 0.2s ease;
-    will-change: transform, opacity;
   }
 
   .list-item-interactive:hover::before {
@@ -936,7 +955,10 @@
     .signal-bar-enter,
     .skeleton-shimmer,
     .btn-loading-pulse,
-    .ripple-effect {
+    .ripple-effect,
+    .fluid-gradient-anim,
+    .fluid-orb1-anim,
+    .fluid-orb2-anim {
       animation: none !important;
     }
     .list-item-interactive:hover {

@@ -130,7 +130,6 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
           style={{
             boxShadow: glowShadow,
             transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
-            willChange: isHovered ? 'box-shadow, transform' : undefined,
           }}
           {...props}
         >
