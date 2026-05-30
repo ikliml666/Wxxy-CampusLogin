@@ -1,31 +1,13 @@
 use tauri::{AppHandle, Emitter, Manager, State};
-use serde::{Deserialize, Serialize};
 use crate::infra::state::AppState;
+use crate::update::updater::DownloadProgress;
 use std::sync::atomic::Ordering;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DownloadProgress {
-    pub downloaded: u64,
-    pub total: u64,
-    pub speed: u64,
-    pub percent: f64,
-}
 
 #[tauri::command]
 pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let state = app_handle.state::<AppState>();
-    let last_epoch = state.last_update_check_epoch_ms.load(Ordering::Acquire);
-    let now_epoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let elapsed_secs = if last_epoch == 0 { 0 } else { (now_epoch - last_epoch) / 1000 };
-
-    if elapsed_secs < 600 {
-        return Err(format!("请稍后再试（冷却 {} 秒）", 600 - elapsed_secs));
-    }
-
     let info = crate::update::updater::check_update_inner().await?;
+
+    let state = app_handle.state::<AppState>();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

@@ -165,11 +165,7 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
 }
 
 pub async fn fetch_latest_release() -> Result<(bool, String, serde_json::Value), String> {
-    if let Ok(result) = fetch_version_via_raw().await {
-        return Ok(result);
-    }
-
-    fetch_via_github_api().await
+    fetch_version_via_raw().await
 }
 
 async fn fetch_version_via_raw() -> Result<(bool, String, serde_json::Value), String> {
@@ -218,47 +214,7 @@ async fn fetch_version_via_raw() -> Result<(bool, String, serde_json::Value), St
     Ok((has_update, latest_tag, enriched))
 }
 
-async fn fetch_via_github_api() -> Result<(bool, String, serde_json::Value), String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
 
-    let resp = client
-        .get(format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO))
-        .header("Accept", "application/vnd.github.v3+json")
-        .header("User-Agent", "CampusLogin-UpdateChecker")
-        .send()
-        .await
-        .map_err(|e| format!("请求GitHub API失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        if status.as_u16() == 403 {
-            return Err("GitHub API 请求频率受限，请稍后再试".to_string());
-        }
-        return Err(format!("GitHub API返回错误: {}", status));
-    }
-
-    let data: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析GitHub响应失败: {}", e))?;
-
-    let latest_tag = data["tag_name"]
-        .as_str()
-        .unwrap_or("")
-        .replace("v", "");
-
-    if latest_tag.is_empty() {
-        return Err("无法获取最新版本号".to_string());
-    }
-
-    let current = env!("CARGO_PKG_VERSION");
-    let has_update = compare_versions(current, &latest_tag);
-
-    Ok((has_update, latest_tag, data))
-}
 
 pub async fn check_update_inner() -> Result<UpdateInfo, String> {
     let (has_update, latest_tag, data) = fetch_latest_release().await?;
@@ -266,11 +222,32 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
         .as_str()
         .unwrap_or("")
         .to_string();
+
+    let assets: Vec<ReleaseAsset> = data.get("assets")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter().filter_map(|item| {
+                let name = item["name"].as_str().unwrap_or("").to_string();
+                let url = item["browser_download_url"].as_str().unwrap_or("").to_string();
+                let size = item["size"].as_u64().unwrap_or(0);
+                if !name.is_empty() && !url.is_empty() {
+                    Some(ReleaseAsset { name, url, size })
+                } else {
+                    None
+                }
+            }).collect()
+        })
+        .unwrap_or_default();
+
+    let sha256_checksum = assets.iter()
+        .find(|a| a.name.ends_with(".sha256"))
+        .map(|a| a.url.clone());
+
     Ok(UpdateInfo {
         has_update,
         latest_version: latest_tag,
         release_notes,
-        assets: vec![],
-        sha256_checksum: None,
+        assets,
+        sha256_checksum,
     })
 }
