@@ -18,6 +18,7 @@ export interface AnimationProfile {
   enableGpuCompositing: boolean
   enablePageSlide: boolean
   enableTilt: boolean
+  enableBackdropBlur: boolean
 }
 
 const INTEL_LOW_IGPU: AnimationProfile = {
@@ -36,6 +37,7 @@ const INTEL_LOW_IGPU: AnimationProfile = {
   enableGpuCompositing: false,
   enablePageSlide: false,
   enableTilt: false,
+  enableBackdropBlur: false,
 }
 
 const INTEL_FULL: AnimationProfile = {
@@ -54,6 +56,7 @@ const INTEL_FULL: AnimationProfile = {
   enableGpuCompositing: true,
   enablePageSlide: true,
   enableTilt: false,
+  enableBackdropBlur: true,
 }
 
 const AMD_LOW_IGPU: AnimationProfile = {
@@ -72,6 +75,7 @@ const AMD_LOW_IGPU: AnimationProfile = {
   enableGpuCompositing: true,
   enablePageSlide: false,
   enableTilt: false,
+  enableBackdropBlur: false,
 }
 
 const AMD_FULL: AnimationProfile = {
@@ -90,6 +94,7 @@ const AMD_FULL: AnimationProfile = {
   enableGpuCompositing: true,
   enablePageSlide: true,
   enableTilt: true,
+  enableBackdropBlur: true,
 }
 
 const NVIDIA_FULL: AnimationProfile = {
@@ -108,6 +113,7 @@ const NVIDIA_FULL: AnimationProfile = {
   enableGpuCompositing: true,
   enablePageSlide: true,
   enableTilt: true,
+  enableBackdropBlur: true,
 }
 
 const DEFAULT_PROFILE: AnimationProfile = INTEL_FULL

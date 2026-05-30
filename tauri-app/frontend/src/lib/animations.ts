@@ -65,12 +65,12 @@ export const panelSlideVariants = {
     opacity: 1,
     x: 0,
     scale: 1,
-    transition: { type: 'spring' as const, stiffness: 400, damping: 30, mass: 0.8 },
+    transition: { type: 'spring' as const, stiffness: 300, damping: 28, mass: 0.6 },
   },
   exit: (direction: number) => ({
     opacity: 0,
     x: direction > 0 ? -20 : 20,
-    transition: { duration: 0.1, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
+    transition: { duration: 0.12, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
   }),
 }
 

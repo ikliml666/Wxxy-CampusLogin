@@ -193,7 +193,7 @@
     border-radius: 18px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
-    contain: layout style;
+    contain: layout style paint;
   }
 
   .glass-dock::before {
@@ -334,6 +334,7 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
+    will-change: transform;
   }
 
   .btn-physical::before {
@@ -372,6 +373,7 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
+    will-change: transform;
   }
 
   .btn-press::before {
@@ -464,6 +466,7 @@
     transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
                 box-shadow 0.35s ease;
     contain: layout style;
+    will-change: transform;
   }
 
   .card-hover-lift:hover {
@@ -502,6 +505,7 @@
   .icon-hover-glow {
     position: relative;
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    will-change: transform;
   }
 
   .icon-hover-glow::after {
@@ -707,6 +711,7 @@
   .panel-content {
     content-visibility: auto;
     contain-intrinsic-size: auto 500px;
+    contain: content;
   }
 
   @keyframes rippleExpand {
@@ -775,6 +780,7 @@
 
   .fluid-gradient-anim {
     animation: fluidGradientShift 24s ease-in-out infinite alternate;
+    will-change: transform;
   }
 
   @keyframes fluidOrb1Move {
@@ -784,6 +790,7 @@
 
   .fluid-orb1-anim {
     animation: fluidOrb1Move 30s ease-in-out infinite alternate;
+    will-change: transform;
   }
 
   @keyframes fluidOrb2Move {
@@ -793,6 +800,7 @@
 
   .fluid-orb2-anim {
     animation: fluidOrb2Move 40s ease-in-out infinite alternate;
+    will-change: transform;
   }
 
 }
@@ -963,6 +971,15 @@
     }
     .list-item-interactive:hover {
       transform: none;
+    }
+    .card-hover-lift,
+    .btn-physical,
+    .btn-press,
+    .icon-hover-glow,
+    .fluid-gradient-anim,
+    .fluid-orb1-anim,
+    .fluid-orb2-anim {
+      will-change: auto !important;
     }
   }
 }

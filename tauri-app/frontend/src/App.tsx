@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { AnimatePresence, motion, m } from 'framer-motion'
+import { AnimatePresence, m } from 'framer-motion'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
 import { useAuth } from '@/auth'
 import { useMonitor } from '@/monitor'
@@ -270,8 +270,8 @@ function AppInner() {
               >{panelInfo.desc}</m.p>
             </div>
 
-            <AnimatePresence mode="popLayout" custom={slideDirection}>
-              <motion.div
+            <AnimatePresence mode="wait" custom={slideDirection}>
+              <m.div
                 key={activePanel}
                 custom={slideDirection}
                 variants={profile.enablePageSlide ? panelSlideVariants : panelFadeOnlyVariants}
@@ -279,9 +279,10 @@ function AppInner() {
                 animate="animate"
                 exit="exit"
                 className="panel-content"
+                style={{ contain: 'content' }}
               >
                 <ErrorBoundary>{panelContent}</ErrorBoundary>
-              </motion.div>
+              </m.div>
             </AnimatePresence>
           </div>
         </main>

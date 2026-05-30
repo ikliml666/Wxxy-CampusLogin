@@ -3,6 +3,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { m } from 'framer-motion'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 const Dialog = DialogPrimitive.Root
 
@@ -13,21 +14,24 @@ const DialogClose = DialogPrimitive.Close
 const DialogOverlay = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
-  <m.div
-    ref={ref}
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-    className={cn(
-      'fixed inset-0 z-50 bg-black/60',
-      className
-    )}
-    style={{ backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
-    {...(props as Record<string, unknown>)}
-  />
-))
+>(({ className, ...props }, ref) => {
+  const profile = useAnimationProfile()
+  return (
+    <m.div
+      ref={ref}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+      className={cn(
+        'fixed inset-0 z-50 bg-black/60',
+        className
+      )}
+      style={profile.enableBackdropBlur ? { backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' } : undefined}
+      {...(props as Record<string, unknown>)}
+    />
+  )
+})
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const DialogContent = React.forwardRef<

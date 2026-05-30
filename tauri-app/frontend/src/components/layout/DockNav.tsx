@@ -69,16 +69,26 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
     const btn = ref.current
     if (!btn) return
 
+    let rafId = 0
+    const updateTransform = () => {
+      rafId = 0
+      btn.style.transform = `scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))`
+    }
+
     const unsubScale = scaleVal.on('change', (v) => {
       btn.style.setProperty('--dock-scale', String(v))
-      btn.style.transform = `scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))`
+      if (!rafId) rafId = requestAnimationFrame(updateTransform)
     })
     const unsubLift = liftVal.on('change', (v) => {
       btn.style.setProperty('--dock-lift', `${v}px`)
-      btn.style.transform = `scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))`
+      if (!rafId) rafId = requestAnimationFrame(updateTransform)
     })
 
-    return () => { unsubScale(); unsubLift() }
+    return () => {
+      unsubScale()
+      unsubLift()
+      if (rafId) cancelAnimationFrame(rafId)
+    }
   }, [scaleVal, liftVal])
 
   return (

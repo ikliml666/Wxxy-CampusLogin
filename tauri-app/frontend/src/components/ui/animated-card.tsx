@@ -82,9 +82,11 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
 
     const hoverY = noHover ? 0 : config.hoverY
     const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
-    const glowShadow = isHovered && !noHover
+  const glowShadow = React.useMemo(() => {
+    return isHovered && !noHover
       ? `0 0 ${10 * config.glowIntensity}px hsl(var(--primary) / 0.35), 0 0 ${30 * config.glowIntensity}px hsl(var(--primary) / 0.15), 0 0 ${60 * config.glowIntensity}px hsl(var(--primary) / 0.06), 0 ${12}px ${36}px rgba(0,0,0,0.08), inset 0 0 0 1px hsl(var(--primary) / 0.12)`
       : restShadow
+  }, [isHovered, noHover, config.glowIntensity, restShadow])
 
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
@@ -130,6 +132,7 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
           style={{
             boxShadow: glowShadow,
             transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
+            willChange: tiltEnabled ? 'transform' : undefined,
           }}
           {...props}
         >

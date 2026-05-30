@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface FluidBackgroundProps {
@@ -8,12 +8,18 @@ interface FluidBackgroundProps {
 export function FluidBackground({ paused }: FluidBackgroundProps) {
   const profile = useAnimationProfile()
   const containerRef = useRef<HTMLDivElement>(null)
+  const [animReady, setAnimReady] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAnimReady(true), 300)
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return
     const el = containerRef.current
-    el.classList.toggle('fluid-paused', !!paused)
-  }, [paused])
+    el.classList.toggle('fluid-paused', !!paused || !animReady)
+  }, [paused, animReady])
 
   const gradientDuration = 24 * profile.orbDurationMultiplier
   const orb1Duration = 30 * profile.orbDurationMultiplier
@@ -33,6 +39,7 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           left: 0,
           top: 0,
           animationDuration: `${gradientDuration}s`,
+          willChange: 'transform',
         }}
       />
 
@@ -46,6 +53,7 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           left: '10%',
           top: '10%',
           animationDuration: `${orb1Duration}s`,
+          willChange: 'transform',
         }}
       />
 
@@ -60,6 +68,7 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           top: '10%',
           animationDuration: `${orb2Duration}s`,
           animationDelay: '3s',
+          willChange: 'transform',
         }}
       />
 

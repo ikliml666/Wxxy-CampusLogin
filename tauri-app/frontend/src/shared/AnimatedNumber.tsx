@@ -59,16 +59,8 @@ export function AnimatedNumber({
       }, 0)
       .to(ref.current, {
         keyframes: [
-          { scale: 1.1, duration: (resolvedDuration / 1000) * 0.25, ease: 'power2.out' },
-          { scale: 0.97, duration: (resolvedDuration / 1000) * 0.15, ease: 'power2.inOut' },
-          { scale: 1, duration: (resolvedDuration / 1000) * 0.3, ease: 'elastic.out(1, 0.6)' },
-        ],
-        force3D: true,
-      }, 0)
-      .to(ref.current, {
-        keyframes: [
-          { opacity: 0.6, duration: (resolvedDuration / 1000) * 0.2, ease: 'power2.in' },
-          { opacity: 1, duration: (resolvedDuration / 1000) * 0.3, ease: 'power2.out' },
+          { scale: 1.08, duration: (resolvedDuration / 1000) * 0.2, ease: 'power2.out' },
+          { scale: 1, duration: (resolvedDuration / 1000) * 0.35, ease: 'elastic.out(1, 0.6)' },
         ],
         force3D: true,
       }, 0)

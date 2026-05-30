@@ -40,7 +40,6 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
           return (
             <m.div
               key={`toast-${toast.id}`}
-              layout
               initial={{ opacity: 0, x: -100, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, scale: 1, transition: { type: 'spring', stiffness: 400, damping: 25, mass: 0.8 } }}
               exit={{ opacity: 0, x: -80, scale: 0.9, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
