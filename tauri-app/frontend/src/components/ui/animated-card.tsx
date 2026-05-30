@@ -107,7 +107,7 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
     return (
       <div
         className={cn(
-          'rounded-2xl card-hover-lift',
+          'rounded-2xl',
           showEntryAnim && 'card-enter',
         )}
         style={{

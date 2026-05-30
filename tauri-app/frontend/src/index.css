@@ -470,26 +470,6 @@
       inset -2px -2px 4px rgba(255,255,255,0.04);
   }
 
-  .card-hover-lift {
-    transition: transform 0.25s ease-out,
-                box-shadow 0.25s ease-out;
-    contain: layout style;
-  }
-
-  .card-hover-lift:hover {
-    transform: translateY(var(--hover-y, -4px));
-    box-shadow: 0 12px 32px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
-  }
-
-  .dark .card-hover-lift:hover {
-    box-shadow: 0 12px 32px rgba(0,0,0,0.20), 0 4px 12px rgba(0,0,0,0.10);
-  }
-
-  .card-hover-lift:active {
-    transform: translateY(calc(var(--hover-y, -4px) * 0.3)) scale(0.98);
-    transition-duration: 0.1s;
-  }
-
   .card-glow-primary {
     position: relative;
   }
@@ -533,7 +513,7 @@
     opacity: 1;
   }
 
-  .btn-physical:hover, .btn-press:hover, .card-hover-lift:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover {
+  .btn-physical:hover, .btn-press:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover {
     will-change: transform;
   }
 
@@ -1144,7 +1124,6 @@
     .list-item-interactive:hover {
       transform: none;
     }
-    .card-hover-lift,
     .btn-physical,
     .btn-press,
     .icon-hover-glow,
