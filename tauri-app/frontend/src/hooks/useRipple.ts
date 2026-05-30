@@ -23,11 +23,13 @@ export function useRipple() {
     ripple.style.left = `${x}px`
     ripple.style.top = `${y}px`
 
-    el.appendChild(ripple)
-
+    const controller = new AbortController()
     ripple.addEventListener('animationend', () => {
       ripple.remove()
-    })
+      controller.abort()
+    }, { signal: controller.signal })
+
+    el.appendChild(ripple)
   }, [])
 
   return { ref: setRef, createRipple }

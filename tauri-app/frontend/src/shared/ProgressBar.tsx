@@ -26,21 +26,22 @@ export const ProgressBar = memo(function ProgressBar({
     const progress = Math.min(Math.max(value / max, 0), 1)
     const prevProgress = Math.min(Math.max(prevValueRef.current / max, 0), 1)
 
-    if (progress !== prevProgress) {
-      const ctx = gsap.context(() => {
-        gsap.fromTo(barRef.current,
-          { scaleX: prevProgress },
-          {
-            scaleX: progress,
-            duration: 0.8,
-            ease: 'elastic.out(1, 0.6)',
-            force3D: true,
-          }
-        )
-      }, barRef)
-      prevValueRef.current = value
-      return () => ctx.revert()
-    }
+    if (progress === prevProgress) return
+
+    const ctx = gsap.context(() => {
+      gsap.fromTo(barRef.current,
+        { scaleX: prevProgress },
+        {
+          scaleX: progress,
+          duration: 0.8,
+          ease: 'elastic.out(1, 0.6)',
+          force3D: true,
+        }
+      )
+    }, barRef)
+
+    prevValueRef.current = value
+    return () => ctx.revert()
   }, [value, max, animated])
 
   const progress = Math.min(Math.max(value / max, 0), 1)

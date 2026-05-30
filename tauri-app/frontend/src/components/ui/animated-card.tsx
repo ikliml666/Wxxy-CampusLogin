@@ -46,9 +46,12 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
 
     React.useEffect(() => {
       if (!tiltEnabled || !cardRef.current) return
-      xQuick.current = gsap.quickTo(cardRef.current, 'rotateY', { duration: 0.4, ease: 'power2.out' })
-      yQuick.current = gsap.quickTo(cardRef.current, 'rotateX', { duration: 0.4, ease: 'power2.out' })
+      const el = cardRef.current
+      xQuick.current = gsap.quickTo(el, 'rotateY', { duration: 0.4, ease: 'power2.out' })
+      yQuick.current = gsap.quickTo(el, 'rotateX', { duration: 0.4, ease: 'power2.out' })
       return () => {
+        gsap.killTweensOf(el, 'rotateY')
+        gsap.killTweensOf(el, 'rotateX')
         xQuick.current = null
         yQuick.current = null
       }

@@ -2,7 +2,7 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { m, AnimatePresence } from 'framer-motion'
+import { m } from 'framer-motion'
 
 const Dialog = DialogPrimitive.Root
 
@@ -35,9 +35,7 @@ const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { showClose?: boolean }
 >(({ className, children, showClose = true, ...props }, ref) => (
   <DialogPortal>
-    <AnimatePresence>
-      <DialogOverlay />
-    </AnimatePresence>
+    <DialogOverlay />
     <m.div
       initial={{ opacity: 0, scale: 0.92, y: 8 }}
       animate={{ opacity: 1, scale: [0.92, 1.02, 1], y: 0 }}
