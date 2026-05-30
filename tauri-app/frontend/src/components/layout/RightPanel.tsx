@@ -144,7 +144,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightP
   return (
     <div
       className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square"
-      style={{ opacity: 0, background: 'var(--surface-side)' }}
+      style={{ background: 'var(--surface-side)' }}
     >
       <AnimatedCard noHover noAnimation className="mx-2 mt-3 mb-1.5 flex flex-col flex-1 min-h-0 rounded-2xl">
         <div className="flex items-center justify-between px-4 py-3 shrink-0">

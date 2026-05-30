@@ -422,7 +422,7 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
   return (
     <div
       className="fixed bottom-5 z-50 flex justify-center pointer-events-none"
-      style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))', opacity: 0 }}
+      style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
     >
       <nav
         className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
