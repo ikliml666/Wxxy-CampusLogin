@@ -250,7 +250,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 
     let mut adapters_result: Vec<serde_json::Value> = Vec::new();
     let mut all_dns_ips: Vec<String> = Vec::new();
-    let mut adapter_dns_raw: Vec<(String, Vec<String>)> = Vec::new();
+    let mut adapter_dns_raw: Vec<(String, String, Vec<String>)> = Vec::new();
 
     for guid_entry in net_key.enum_keys().flatten() {
         let conn_path = format!(r"{}\Connection", guid_entry);
@@ -270,10 +270,18 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 
             if let Ok(iface_key) = tcpip_key.open_subkey(&guid_entry) {
                 let ns: String = iface_key.get_value("NameServer").unwrap_or_default();
-                if ns.is_empty() { continue; }
+                let dhcp_ns: String = iface_key.get_value("DhcpNameServer").unwrap_or_default();
 
-                let addrs = parse_dns_list(&ns);
-                crate::log_debug!("dns", "{} 手动DNS:[{}] → [{:?}]", name, ns, addrs);
+                let (source, raw) = if !ns.is_empty() {
+                    ("manual", ns)
+                } else if !dhcp_ns.is_empty() {
+                    ("dhcp", dhcp_ns)
+                } else {
+                    continue;
+                };
+
+                let addrs = parse_dns_list(&raw);
+                crate::log_debug!("dns", "{} source={} raw:[{}] → [{:?}]", name, source, raw, addrs);
 
                 if addrs.is_empty() { continue; }
 
@@ -283,7 +291,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
                     }
                 }
 
-                adapter_dns_raw.push((name, addrs));
+                adapter_dns_raw.push((name, source.to_string(), addrs));
             }
         }
     }
@@ -291,7 +299,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
     let doh_map = check_doh_for_ips(&all_dns_ips, &hklm);
     let any_doh_enabled = doh_map.values().any(|(_, enabled, _)| *enabled);
 
-    for (name, addrs) in adapter_dns_raw {
+    for (name, source, addrs) in adapter_dns_raw {
         let mut dns_list: Vec<serde_json::Value> = Vec::new();
         for dns in &addrs {
             let (doh_available, doh_enabled, doh_template) = doh_map.get(dns)
@@ -307,6 +315,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 
         adapters_result.push(serde_json::json!({
             "name": name,
+            "dnsSource": source,
             "dnsServers": dns_list,
         }));
     }

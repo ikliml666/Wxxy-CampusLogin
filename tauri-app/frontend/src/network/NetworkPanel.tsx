@@ -86,9 +86,9 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
     }
   }, [ipc])
 
-  const getDnsQuality = (adapter: { dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[] }, autoDohEnabled: boolean) => {
+  const getDnsQuality = (adapter: { dnsSource?: string; dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[] }, autoDohEnabled: boolean) => {
     const servers = adapter.dnsServers || []
-    if (servers.length === 0) return { level: 'none', label: '未配置DNS' }
+    if (servers.length === 0 || adapter.dnsSource === 'dhcp') return { level: 'none', label: '未配置DNS' }
     const hasRecommended = servers.some(s => RECOMMENDED_DNS.has(s.address))
     const dohActive = autoDohEnabled || servers.filter(s => RECOMMENDED_DNS.has(s.address)).every(s => s.dohEnabled)
     if (hasRecommended && dohActive) return { level: 'excellent', label: '已使用推荐DNS+DoH' }
