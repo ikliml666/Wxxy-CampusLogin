@@ -253,20 +253,14 @@ function AppInner() {
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
             <div className="animate-stagger-3 mb-6">
-              <m.h1
+              <h1
                 key={`title-${activePanel}`}
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
-                className="text-xl font-semibold tracking-tight"
-              >{panelInfo.title}</m.h1>
-              <m.p
+                className="text-xl font-semibold tracking-tight transition-opacity duration-200"
+              >{panelInfo.title}</h1>
+              <p
                 key={`desc-${activePanel}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.15, delay: 0.05 }}
-                className="text-sm text-muted-foreground mt-1"
-              >{panelInfo.desc}</m.p>
+                className="text-sm text-muted-foreground mt-1 transition-opacity duration-150"
+              >{panelInfo.desc}</p>
             </div>
 
             <AnimatePresence mode="wait" custom={slideDirection}>

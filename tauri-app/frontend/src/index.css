@@ -363,7 +363,7 @@
   }
 
   .btn-physical:not(:active) {
-    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transition: transform 0.25s ease-out,
                 box-shadow 0.2s ease,
                 background-color 0.15s ease;
   }
@@ -394,7 +394,7 @@
   .btn-press:hover {
     transform: scale(1.03);
     box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.08) inset;
-    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transition: transform 0.2s ease-out,
                 box-shadow 0.2s ease,
                 background-color 0.15s ease;
   }
@@ -405,7 +405,7 @@
   }
 
   .btn-press:not(:active) {
-    transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transition: transform 0.25s ease-out,
                 box-shadow 0.2s ease,
                 background-color 0.15s ease;
   }
@@ -464,8 +464,8 @@
   }
 
   .card-hover-lift {
-    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
-                box-shadow 0.35s ease;
+    transition: transform 0.25s ease-out,
+                box-shadow 0.25s ease-out;
     contain: layout style;
     will-change: transform;
   }
@@ -534,17 +534,17 @@
   }
 
   .animate-window-reveal {
-    animation: windowReveal 0.5s ease-out both !important;
+    animation: windowReveal 0.3s ease-out both !important;
   }
 
   @keyframes staggerSlideUp {
-    from { opacity: 0; transform: translateY(24px); }
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .animate-stagger-1 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both !important; }
-  .animate-stagger-2 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.18s both !important; }
-  .animate-stagger-3 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both !important; }
+  .animate-stagger-1 { animation: staggerSlideUp 0.3s ease-out 0.04s both !important; }
+  .animate-stagger-2 { animation: staggerSlideUp 0.3s ease-out 0.1s both !important; }
+  .animate-stagger-3 { animation: staggerSlideUp 0.3s ease-out 0.16s both !important; }
 
   @keyframes statusPulse {
     0%, 100% { opacity: 0; transform: scale(1); }
