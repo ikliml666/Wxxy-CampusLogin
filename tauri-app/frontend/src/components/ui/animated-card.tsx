@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 export interface AnimatedCardConfig {
-  hoverY?: number
   glowIntensity?: number
   hoverScale?: number
   stiffness?: number
@@ -13,7 +12,6 @@ export interface AnimatedCardConfig {
 }
 
 const DEFAULT_CONFIG: Required<AnimatedCardConfig> = {
-  hoverY: -4,
   glowIntensity: 1,
   hoverScale: 1,
   stiffness: 300,
@@ -26,14 +24,17 @@ export interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> 
   noHover?: boolean
   noAnimation?: boolean
   noEnterAnimation?: boolean
+  noRipple?: boolean
   enableTilt?: boolean
   staggerIndex?: number
 }
 
 export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
-  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, enableTilt, staggerIndex, children, ...props }, ref) => {
+  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, noRipple = false, enableTilt, staggerIndex, children, ...props }, ref) => {
     const profile = useAnimationProfile()
     const [isHovered, setIsHovered] = React.useState(false)
+    const [rippleStyle, setRippleStyle] = React.useState<React.CSSProperties>({})
+    const rippleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !noAnimation
     const cardRef = React.useRef<HTMLDivElement>(null)
@@ -76,12 +77,35 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       })
     }, [])
 
+    const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
+      if (noRipple || noAnimation || noHover) return
+      const el = e.currentTarget as HTMLElement
+      const rect = el.getBoundingClientRect()
+      const x = ((e.clientX - rect.left) / rect.width) * 100
+      const y = ((e.clientY - rect.top) / rect.height) * 100
+      setRippleStyle({
+        '--ripple-x': `${x}%`,
+        '--ripple-y': `${y}%`,
+      } as React.CSSProperties)
+      el.classList.add('ripple-active')
+      if (rippleTimerRef.current) clearTimeout(rippleTimerRef.current)
+      rippleTimerRef.current = setTimeout(() => {
+        el.classList.remove('ripple-active')
+        rippleTimerRef.current = null
+      }, 400)
+    }, [noRipple, noAnimation, noHover])
+
+    React.useEffect(() => {
+      return () => {
+        if (rippleTimerRef.current) clearTimeout(rippleTimerRef.current)
+      }
+    }, [])
+
     const config = React.useMemo(
       () => ({ ...DEFAULT_CONFIG, ...animationConfig }),
       [animationConfig]
     )
 
-    const hoverY = noHover ? 0 : config.hoverY
     const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
     const glowShadow = React.useMemo(() => {
       return isHovered && !noHover
@@ -107,14 +131,15 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
     return (
       <div
         className={cn(
-          'rounded-2xl',
+          'rounded-2xl animated-card-interactive',
           showEntryAnim && 'card-enter',
         )}
         style={{
           '--stagger-i': staggerIndex ?? 0,
-          '--hover-y': `${hoverY}px`,
           perspective: tiltEnabled ? 800 : undefined,
+          ...rippleStyle,
         } as React.CSSProperties}
+        onMouseDown={handleMouseDown}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => { setIsHovered(false); handleMouseLeave() }}
         onMouseMove={handleMouseMove}
