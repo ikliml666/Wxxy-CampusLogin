@@ -171,7 +171,6 @@ function AppInner() {
           config={config}
           adapters={adapters}
           onUpdateConfig={updateConfig}
-          onEnableAdapter={api.enableAdapter}
         />
       )
       break

@@ -66,11 +66,10 @@ interface DashboardPanelProps {
   onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
 }
 
-const QuickActionsCard = memo(function QuickActionsCard({ config: _config, bgStatus: _bgStatus, networkQuality, onDhcpRenew, onDhcpReleaseRenew, onUpdateConfig: _onUpdateConfig, noAnimation, noEnterAnimation }: {
-  config: Config; bgStatus: { isRunning: boolean; checkCount: number }
+const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcpRenew, onDhcpReleaseRenew, noAnimation, noEnterAnimation }: {
   networkQuality: NetworkQuality | null
   onDhcpRenew: () => Promise<void>; onDhcpReleaseRenew: () => Promise<void>
-  onUpdateConfig: (partial: Partial<Config>) => void; noAnimation?: boolean; noEnterAnimation?: boolean
+  noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
   const [isDhcpRenewing, handleDhcpRenew] = useAsyncLock(async () => {
     await onDhcpRenew()
@@ -232,7 +231,7 @@ function renderCard(id: CardId, props: DashboardPanelProps, bgStatus: { isRunnin
   const noEnter = !editing
   switch (id) {
     case 'quickActions':
-      return <QuickActionsCard config={props.config} bgStatus={bgStatus} networkQuality={networkQuality} onDhcpRenew={props.onDhcpRenew} onDhcpReleaseRenew={props.onDhcpReleaseRenew} onUpdateConfig={props.onUpdateConfig} noAnimation={noAnim} noEnterAnimation={noEnter} />
+      return <QuickActionsCard networkQuality={networkQuality} onDhcpRenew={props.onDhcpRenew} onDhcpReleaseRenew={props.onDhcpReleaseRenew} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'accountManage':
       return <AccountManageCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'networkQuality':

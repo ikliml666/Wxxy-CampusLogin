@@ -48,16 +48,11 @@ export default defineConfig({
     rollupOptions: {
       maxParallelFileOps: 8,
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-motion': ['framer-motion'],
-          'vendor-gsap': ['gsap'],
-          'vendor-radix': [
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-select',
-            '@radix-ui/react-tooltip',
-            '@radix-ui/react-switch',
-          ],
+        manualChunks(id) {
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'vendor-react'
+          if (id.includes('node_modules/framer-motion/')) return 'vendor-motion'
+          if (id.includes('node_modules/gsap/')) return 'vendor-gsap'
+          if (id.includes('node_modules/@radix-ui/')) return 'vendor-radix'
         },
       },
     },

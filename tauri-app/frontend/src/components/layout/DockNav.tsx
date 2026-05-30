@@ -132,7 +132,6 @@ interface AdapterMenuProps {
   selectedAdapter?: string
   onSelect: (adapterName: string) => void
   actionLabel: string
-  actionIcon: typeof LogIn
 }
 
 function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: AdapterMenuProps) {
@@ -344,7 +343,6 @@ function ActionButtonWithMenu({
             selectedAdapter={selectedAdapter}
             onSelect={handleSelect}
             actionLabel={label}
-            actionIcon={ActionIcon}
           />
         )}
       </AnimatePresence>

@@ -8,7 +8,7 @@ import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult } from
 import type { Config, InitData, AutoLaunchResult } from '@/settings'
 import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult, GpuInfo } from '@/shared'
 
-export interface TauriApi {
+interface TauriApi {
   getConfig: () => Promise<Partial<Config>>
   saveConfig: (config: Partial<Config>) => Promise<SaveConfigResult>
   getAdapters: (force?: boolean) => Promise<Adapter[]>

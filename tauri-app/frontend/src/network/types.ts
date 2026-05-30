@@ -23,7 +23,7 @@ export interface AdapterDetail {
   ifIndex: number
 }
 
-export interface DnsServerInfo {
+interface DnsServerInfo {
   address: string
   dohAvailable: boolean
   dohEnabled: boolean

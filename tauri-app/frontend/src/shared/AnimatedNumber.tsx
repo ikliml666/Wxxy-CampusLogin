@@ -9,7 +9,6 @@ interface AnimatedNumberProps {
   decimals?: number
   className?: string
   duration?: number
-  highlightColor?: string
 }
 
 export function AnimatedNumber({
@@ -18,7 +17,6 @@ export function AnimatedNumber({
   decimals = 0,
   className = '',
   duration,
-  highlightColor: _highlightColor = 'var(--primary)',
 }: AnimatedNumberProps) {
   const profile = useAnimationProfile()
   const animActive = useAnimationActive()

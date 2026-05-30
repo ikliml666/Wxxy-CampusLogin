@@ -24,7 +24,6 @@ interface NetworkPanelProps {
   config: Config
   adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
-  onEnableAdapter: (name: string) => void
 }
 
 const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6'])

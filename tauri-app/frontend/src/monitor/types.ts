@@ -29,7 +29,7 @@ export type BackgroundCheckEventData = BackgroundStatus & {
   adapter2Name?: string
 }
 
-export interface NetworkQualityDetail {
+interface NetworkQualityDetail {
   target: string
   latency: number
   type: string

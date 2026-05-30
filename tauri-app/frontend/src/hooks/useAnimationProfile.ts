@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useAppStore } from './useAppStore'
 
-export interface AnimationProfile {
+interface AnimationProfile {
   gradientScale: number
   willChangeOrbs: boolean
   willChangeGradient: boolean

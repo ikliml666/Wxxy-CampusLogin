@@ -1,7 +1,7 @@
 import type { NetworkQuality } from '@/monitor'
 import { QUALITY_CONFIG } from '@/network'
 
-export type LatencyLevel = 'excellent' | 'great' | 'good' | 'fair' | 'poor' | 'bad'
+type LatencyLevel = 'excellent' | 'great' | 'good' | 'fair' | 'poor' | 'bad'
 export type LatencyType = 'gateway' | 'external'
 
 export function getLatencyLevel(latency: number): LatencyLevel {

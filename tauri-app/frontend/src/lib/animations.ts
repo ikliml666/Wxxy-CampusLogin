@@ -16,7 +16,7 @@ export const cardItemVariants = {
   },
 }
 
-export const panelSwitchVariants = {
+const panelSwitchVariants = {
   initial: { opacity: 0 },
   animate: {
     opacity: 1,
@@ -46,7 +46,7 @@ export const logEntryVariants = {
   },
 }
 
-export const PANEL_ORDER = ['dashboard', 'account', 'network', 'monitor', 'quality', 'speedtest', 'settings', 'log'] as const
+const PANEL_ORDER = ['dashboard', 'account', 'network', 'monitor', 'quality', 'speedtest', 'settings', 'log'] as const
 
 export function getPanelDirection(from: string, to: string): number {
   const fromIdx = PANEL_ORDER.indexOf(from as any)

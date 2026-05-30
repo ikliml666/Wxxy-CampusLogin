@@ -48,16 +48,12 @@ interface AppStore {
   updateConfig: (partial: Partial<Config>) => void
   syncPasswordSaved: (saved: boolean) => void
   saveConfigDirect: (cfg: Partial<Config>) => Promise<void>
-  setAdapters: (a: Adapter[]) => void
-  setDisabledAdapters: (a: DisabledAdapter[]) => void
-  setAdapterDetails: (a: AdapterDetail[]) => void
   setAccounts: (a: string[]) => void
   setActiveAccount: (a: string) => void
   setBgStatus: (s: BackgroundStatus | ((prev: BackgroundStatus) => BackgroundStatus)) => void
   setNetworkQuality: (q: NetworkQuality | null | ((prev: NetworkQuality | null) => NetworkQuality | null)) => void
   setDnsDohStatus: (s: DnsDohStatus | null) => void
   setDnsChecking: (v: boolean) => void
-  setIsLoggingIn: (v: boolean) => void
   setStatus: (s: { text: string; state: StatusState }) => void
   setActivePanel: (p: PanelName) => void
   addLog: (message: string, type?: LogType) => void
@@ -147,16 +143,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  setAdapters: (a) => set({ adapters: a }),
-  setDisabledAdapters: (a) => set({ disabledAdapters: a }),
-  setAdapterDetails: (a) => set({ adapterDetails: a }),
   setAccounts: (a) => set({ accounts: a }),
   setActiveAccount: (a) => set({ activeAccount: a }),
   setBgStatus: (s) => set(state => ({ bgStatus: typeof s === 'function' ? s(state.bgStatus) : s })),
   setNetworkQuality: (q) => set(state => ({ networkQuality: typeof q === 'function' ? q(state.networkQuality) : q })),
   setDnsDohStatus: (s) => set({ dnsDohStatus: s }),
   setDnsChecking: (v) => set({ dnsChecking: v }),
-  setIsLoggingIn: (v) => set({ isLoggingIn: v }),
   setStatus: (s) => set({ status: s }),
   setActivePanel: (p) => set({ activePanel: p }),
 
