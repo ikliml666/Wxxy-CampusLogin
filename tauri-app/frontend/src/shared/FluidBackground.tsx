@@ -3,9 +3,10 @@ import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface FluidBackgroundProps {
   paused?: boolean
+  innerRef?: (el: HTMLDivElement | null) => void
 }
 
-export function FluidBackground({ paused }: FluidBackgroundProps) {
+export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
   const profile = useAnimationProfile()
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -21,7 +22,10 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
 
   return (
     <div
-      ref={containerRef}
+      ref={(el) => {
+        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+        innerRef?.(el)
+      }}
       className="fixed inset-0 z-0 overflow-hidden pointer-events-none fluid-paused"
       style={{ background: 'var(--surface-main)', contain: 'strict' }}
     >

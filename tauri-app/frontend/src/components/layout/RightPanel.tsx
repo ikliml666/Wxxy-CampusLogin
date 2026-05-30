@@ -86,6 +86,12 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightP
       const entries = container.querySelectorAll('.log-entry-hover')
       if (entries.length > 0) {
         await new Promise<void>((resolve) => {
+          let resolved = false
+          const done = () => {
+            if (resolved) return
+            resolved = true
+            resolve()
+          }
           const ctx = gsap.context(() => {
             gsap.to(entries, {
               autoAlpha: 0,
@@ -96,12 +102,12 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightP
               duration: 0.2,
               ease: 'power2.in',
               force3D: true,
-              onComplete: resolve,
+              onComplete: done,
             })
           }, container)
           setTimeout(() => {
             ctx.revert()
-            resolve()
+            done()
           }, 1000)
         })
       }
