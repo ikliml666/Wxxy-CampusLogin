@@ -16,7 +16,7 @@ export const cardItemVariants = {
   },
 }
 
-const panelSwitchVariants = {
+export const panelSwitchVariants = {
   initial: { opacity: 0 },
   animate: {
     opacity: 1,

@@ -278,7 +278,7 @@ function AppInner() {
                 animate="animate"
                 exit="exit"
                 className="panel-content"
-                style={{ contain: 'content' }}
+                style={{ contain: 'layout style' }}
               >
                 <ErrorBoundary>{panelContent}</ErrorBoundary>
               </m.div>

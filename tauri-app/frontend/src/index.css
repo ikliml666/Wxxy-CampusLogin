@@ -193,7 +193,8 @@
     border-radius: 18px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
-    contain: layout style paint;
+    contain: layout style;
+    overflow: visible;
   }
 
   .glass-dock::before {
@@ -711,7 +712,7 @@
   .panel-content {
     content-visibility: auto;
     contain-intrinsic-size: auto 500px;
-    contain: content;
+    contain: layout style;
   }
 
   @keyframes rippleExpand {

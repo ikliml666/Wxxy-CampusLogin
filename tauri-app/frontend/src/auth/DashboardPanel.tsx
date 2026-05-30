@@ -226,7 +226,7 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   )
 })
 
-function renderCard(id: CardId, props: DashboardPanelProps, bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, isRefreshingQuality: boolean, editing: boolean) {
+function renderCard(id: CardId, props: DashboardPanelProps, _bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, isRefreshingQuality: boolean, editing: boolean) {
   const noAnim = editing
   const noEnter = !editing
   switch (id) {

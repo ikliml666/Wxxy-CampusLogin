@@ -9,8 +9,6 @@ const Dialog = DialogPrimitive.Root
 
 const DialogPortal = DialogPrimitive.Portal
 
-const DialogClose = DialogPrimitive.Close
-
 const DialogOverlay = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
