@@ -2,7 +2,7 @@
 
 无锡学院校园网登录助手 — 基于 Tauri 2 + React 19 的桌面应用
 
-<img width="1438" height="1014" alt="screenshot" src="https://github.com/user-attachments/assets/341181ef-6cf1-47dc-acc2-b6e02fbe671b" />
+<img alt="screenshot" src="assets/6fc2535cc0c5f709.png" />
 
 ![version](https://img.shields.io/badge/version-2.2.1-blue)
 ![platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)
