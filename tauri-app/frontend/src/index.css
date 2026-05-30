@@ -471,8 +471,7 @@
   }
 
   .animated-card-interactive {
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-                border-color 0.3s ease;
+    transition: border-color 0.3s ease;
     border: 1px solid transparent;
     position: relative;
     overflow: hidden;
@@ -480,13 +479,7 @@
   }
 
   .animated-card-interactive:hover {
-    transform: scale(1.01);
     border-color: hsl(var(--primary) / 0.3);
-  }
-
-  .animated-card-interactive:active {
-    transform: scale(0.98);
-    transition-duration: 0.1s;
   }
 
   .animated-card-interactive:focus-visible {
@@ -518,22 +511,6 @@
     100% { width: 600px; height: 600px; opacity: 0; transform: translate(-50%, -50%) scale(1); }
   }
 
-  .animated-card-interactive::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 1;
-    border-radius: inherit;
-    background: radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.6) 0%, transparent 50%);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  .animated-card-interactive:hover::after {
-    opacity: 1;
-  }
-
   .dark .animated-card-interactive:hover {
     border-color: hsl(var(--primary) / 0.5);
   }
@@ -542,25 +519,12 @@
     background: rgba(255, 255, 255, 0.08);
   }
 
-  .dark .animated-card-interactive::after {
-    background: radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.04) 0%, transparent 50%);
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .animated-card-interactive {
       transition: none;
     }
-    .animated-card-interactive:hover {
-      transform: none;
-    }
-    .animated-card-interactive:active {
-      transform: none;
-    }
     .animated-card-interactive.ripple-active::before {
       animation: none;
-    }
-    .animated-card-interactive::after {
-      transition: none;
     }
   }
 
