@@ -194,13 +194,16 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
                 if current_ip.is_none() { continue; }
 
                 if let Some(colon_pos) = trimmed.find(':') {
+                    let field_name = trimmed[..colon_pos].trim().to_ascii_lowercase();
                     let val = trimmed[colon_pos + 1..].trim();
                     if val.starts_with("https://") {
                         current_template = Some(val.to_string());
-                    } else if val.eq_ignore_ascii_case("yes") || val.eq_ignore_ascii_case("true")
-                        || val.eq_ignore_ascii_case("是") || val.contains("yes") || val.contains("是")
-                    {
-                        current_autoupgrade = true;
+                    } else if field_name.contains("autoupgrade") || field_name.contains("自动升级") {
+                        if val.eq_ignore_ascii_case("yes") || val.eq_ignore_ascii_case("true")
+                            || val.eq_ignore_ascii_case("是") || val.contains("yes") || val.contains("是")
+                        {
+                            current_autoupgrade = true;
+                        }
                     }
                 }
             }
