@@ -263,13 +263,13 @@
 
   .app-outer-square {
     border-radius: 16px !important;
-    isolation: isolate;
-    box-shadow: inset 0 0 0 1px var(--surface-main), 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
     overflow: hidden;
+    isolation: isolate;
   }
 
   .dark .app-outer-square {
-    box-shadow: inset 0 0 0 1px var(--surface-main), 0 8px 40px rgba(0,0,0,0.30), 0 2px 8px rgba(0,0,0,0.15);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.30), 0 2px 8px rgba(0,0,0,0.15);
   }
 
   .surface-top-square {
@@ -282,11 +282,6 @@
 
   .surface-main-square {
     border-bottom-left-radius: 16px !important;
-  }
-
-  .startup-hidden {
-    opacity: 0 !important;
-    pointer-events: none;
   }
 
   .app-maximized.app-outer-square {
@@ -890,8 +885,6 @@
 
   .fluid-gradient-anim {
     animation: fluidGradientShift 24s ease-in-out infinite alternate;
-    will-change: transform;
-    backface-visibility: hidden;
   }
 
   @keyframes fluidOrb1Move {
@@ -901,8 +894,6 @@
 
   .fluid-orb1-anim {
     animation: fluidOrb1Move 30s ease-in-out infinite alternate;
-    will-change: transform;
-    backface-visibility: hidden;
   }
 
   @keyframes fluidOrb2Move {
@@ -912,8 +903,6 @@
 
   .fluid-orb2-anim {
     animation: fluidOrb2Move 40s ease-in-out infinite alternate;
-    will-change: transform;
-    backface-visibility: hidden;
   }
 
   .titlebar-icon-btn {

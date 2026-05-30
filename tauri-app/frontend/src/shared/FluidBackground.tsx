@@ -27,7 +27,7 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
         innerRef?.(el)
       }}
       className="fixed inset-0 z-0 overflow-hidden pointer-events-none fluid-paused"
-      style={{ background: 'var(--surface-main)', contain: 'strict' }}
+      style={{ background: 'var(--surface-main)' }}
     >
       <div
         className="gradient-layer absolute fluid-gradient-anim"
@@ -37,8 +37,6 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
           left: 0,
           top: 0,
           animationDuration: `${gradientDuration}s`,
-          willChange: 'transform',
-          backfaceVisibility: 'hidden',
         }}
       />
       <div
@@ -51,9 +49,6 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
           left: '10%',
           top: '10%',
           animationDuration: `${orb1Duration}s`,
-          willChange: 'transform',
-          backfaceVisibility: 'hidden',
-          contain: 'strict',
         }}
       />
       <div
@@ -67,9 +62,6 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
           top: '10%',
           animationDuration: `${orb2Duration}s`,
           animationDelay: '3s',
-          willChange: 'transform',
-          backfaceVisibility: 'hidden',
-          contain: 'strict',
         }}
       />
       <div

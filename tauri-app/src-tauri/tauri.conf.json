@@ -18,7 +18,6 @@
         "minHeight": 600,
         "decorations": false,
         "transparent": true,
-        "backgroundColor": [240, 244, 248, 255],
         "shadow": true,
         "resizable": true,
         "center": true,
