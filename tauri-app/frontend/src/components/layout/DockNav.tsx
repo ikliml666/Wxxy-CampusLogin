@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared'
-import { m, useMotionValue, useTransform, AnimatePresence } from 'framer-motion'
+import { m, useMotionValue, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'
 import { useAppStore } from '@/hooks/useAppStore'
@@ -49,47 +49,50 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
 }) {
   const Icon = ICON_MAP[icon]
   const ref = useRef<HTMLButtonElement>(null)
+  const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
+  const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
 
   const setRef = useCallback((el: HTMLButtonElement | null) => {
     (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
     onLayout?.(el)
   }, [onLayout])
 
-  const distance = useTransform(mouseX, (val: number) => {
-    if (!ref.current) return MAGNETIC_RANGE + 1
-    const rect = ref.current.getBoundingClientRect()
-    const center = rect.left + rect.width / 2
-    return Math.abs(val - center)
-  })
-
-  const scaleVal = useTransform(distance, [0, MAGNETIC_RANGE], [MAX_SCALE, 1], { clamp: true })
-  const liftVal = useTransform(distance, [0, MAGNETIC_RANGE], [MAX_LIFT, 0], { clamp: true })
-
   useEffect(() => {
     const btn = ref.current
     if (!btn) return
 
-    let rafId = 0
-    const updateTransform = () => {
-      rafId = 0
-      btn.style.transform = `scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))`
-    }
-
-    const unsubScale = scaleVal.on('change', (v) => {
-      btn.style.setProperty('--dock-scale', String(v))
-      if (!rafId) rafId = requestAnimationFrame(updateTransform)
-    })
-    const unsubLift = liftVal.on('change', (v) => {
-      btn.style.setProperty('--dock-lift', `${v}px`)
-      if (!rafId) rafId = requestAnimationFrame(updateTransform)
-    })
+    scaleQuickRef.current = gsap.quickTo(btn, 'scale', { duration: 0.25, ease: 'power2.out', force3D: true })
+    liftQuickRef.current = gsap.quickTo(btn, 'y', { duration: 0.25, ease: 'power2.out', force3D: true })
 
     return () => {
-      unsubScale()
-      unsubLift()
-      if (rafId) cancelAnimationFrame(rafId)
+      scaleQuickRef.current = null
+      liftQuickRef.current = null
     }
-  }, [scaleVal, liftVal])
+  }, [])
+
+  useEffect(() => {
+    const btn = ref.current
+    if (!btn || !scaleQuickRef.current || !liftQuickRef.current) return
+
+    const unsub = mouseX.on('change', (val: number) => {
+      const rect = btn.getBoundingClientRect()
+      const center = rect.left + rect.width / 2
+      const distance = Math.abs(val - center)
+
+      if (distance < MAGNETIC_RANGE) {
+        const progress = 1 - distance / MAGNETIC_RANGE
+        const scale = 1 + (MAX_SCALE - 1) * progress
+        const lift = MAX_LIFT * progress
+        scaleQuickRef.current?.(scale)
+        liftQuickRef.current?.(lift)
+      } else {
+        scaleQuickRef.current?.(1)
+        liftQuickRef.current?.(0)
+      }
+    })
+
+    return () => unsub()
+  }, [mouseX])
 
   return (
     <button
@@ -102,8 +105,6 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
           : 'text-muted-foreground hover:text-foreground'
       )}
       style={{
-        transform: 'scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))',
-        transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s, background-color 0.2s',
         zIndex: 10,
       }}
       aria-label={label}
@@ -369,21 +370,10 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
   const [mounted, setMounted] = useState(false)
 
-  const rafRef = useRef(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!animActive) return
-    if (rafRef.current) return
-    rafRef.current = requestAnimationFrame(() => {
-      mouseX.set(e.clientX)
-      rafRef.current = 0
-    })
+    mouseX.set(e.clientX)
   }, [mouseX, animActive])
-
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    }
-  }, [])
 
   const handleMouseLeave = useCallback(() => {
     mouseX.set(-1000)

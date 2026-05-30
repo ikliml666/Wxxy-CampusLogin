@@ -85,15 +85,11 @@ function AppInner() {
   const profile = useAnimationProfile()
   const prevPanelRef = useRef(activePanel)
   const [slideDirection, setSlideDirection] = useState(1)
-  const [isTransitioning, setIsTransitioning] = useState(false)
 
   useEffect(() => {
     if (prevPanelRef.current !== activePanel) {
       setSlideDirection(getPanelDirection(prevPanelRef.current, activePanel))
       prevPanelRef.current = activePanel
-      setIsTransitioning(true)
-      const timer = setTimeout(() => setIsTransitioning(false), 400)
-      return () => clearTimeout(timer)
     }
   }, [activePanel])
 
@@ -225,7 +221,7 @@ function AppInner() {
 
   return (
     <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
-      <FluidBackground paused={isTransitioning} />
+      <FluidBackground />
 
       <div className="animate-stagger-1">
         <TitleBar

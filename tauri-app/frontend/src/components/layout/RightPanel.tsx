@@ -183,7 +183,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightP
               <ScrollText className="h-8 w-8 mb-2 animate-empty-breathe" />
               <p className="text-[11px]">暂无日志记录</p>
             </div>
-          ) : logs.length > 200 ? (
+          ) : logs.length > 50 ? (
             <div className="space-y-1">
               {logs.map((log, idx) => {
                 const Icon = LOG_ICONS[log.type]
@@ -194,7 +194,8 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightP
                     className={cn(
                       'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover',
                       LOG_BG_COLORS[log.type],
-                      isLatest && 'log-entry-flash'
+                      isLatest && 'log-entry-flash',
+                      isLatest && 'card-enter'
                     )}
                   >
                     <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type])} />

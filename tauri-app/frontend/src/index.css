@@ -193,7 +193,7 @@
     border-radius: 18px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
-    contain: layout style;
+    contain: layout style paint;
     overflow: visible;
   }
 
@@ -320,13 +320,21 @@
   }
 
   .log-entry-flash {
-    animation: logFlash 0.8s ease-out !important;
+    position: relative;
   }
-
+  .log-entry-flash::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: hsl(var(--primary) / 0.08);
+    animation: logFlash 0.8s ease-out;
+    pointer-events: none;
+  }
   @keyframes logFlash {
-    0% { background-color: transparent; }
-    20% { background-color: hsl(var(--primary) / 0.08); }
-    100% { background-color: transparent; }
+    0% { opacity: 0; }
+    20% { opacity: 1; }
+    100% { opacity: 0; }
   }
 
   .btn-physical {
@@ -335,7 +343,6 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
-    will-change: transform;
   }
 
   .btn-physical::before {
@@ -374,7 +381,6 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
-    will-change: transform;
   }
 
   .btn-press::before {
@@ -467,7 +473,6 @@
     transition: transform 0.25s ease-out,
                 box-shadow 0.25s ease-out;
     contain: layout style;
-    will-change: transform;
   }
 
   .card-hover-lift:hover {
@@ -506,7 +511,6 @@
   .icon-hover-glow {
     position: relative;
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    will-change: transform;
   }
 
   .icon-hover-glow::after {
@@ -526,6 +530,10 @@
 
   .icon-hover-glow:hover::after {
     opacity: 1;
+  }
+
+  .btn-physical:hover, .btn-press:hover, .card-hover-lift:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover {
+    will-change: transform;
   }
 
   @keyframes windowReveal {
@@ -712,7 +720,7 @@
   .panel-content {
     content-visibility: auto;
     contain-intrinsic-size: auto 500px;
-    contain: layout style;
+    contain: strict;
   }
 
   @keyframes cardEnter {
@@ -729,7 +737,6 @@
   .card-enter {
     animation: cardEnter 0.35s cubic-bezier(0.25, 0.1, 0.25, 1) both;
     animation-delay: calc(var(--stagger-i, 0) * 0.05s);
-    will-change: transform, opacity;
   }
 
   @keyframes panelSlideIn {
@@ -750,12 +757,10 @@
 
   .panel-slide-in {
     animation: panelSlideIn 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) both;
-    will-change: transform, opacity;
   }
 
   .panel-fade-in {
     animation: panelFadeIn 0.15s cubic-bezier(0.25, 0.1, 0.25, 1) both;
-    will-change: opacity;
   }
 
   @keyframes dialogOverlayIn {
@@ -792,22 +797,18 @@
 
   .dialog-overlay-enter {
     animation: dialogOverlayIn 0.15s ease-out both;
-    will-change: opacity;
   }
 
   .dialog-overlay-exit {
     animation: dialogOverlayOut 0.1s ease-in both;
-    will-change: opacity;
   }
 
   .dialog-content-enter {
     animation: dialogContentIn 0.2s ease-out both;
-    will-change: transform, opacity;
   }
 
   .dialog-content-exit {
     animation: dialogContentOut 0.1s ease-in both;
-    will-change: transform, opacity;
   }
 
   @keyframes rippleExpand {
@@ -835,24 +836,31 @@
   }
 
   @keyframes shimmerSweep {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
   }
 
   .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .skeleton-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
     background: linear-gradient(
       90deg,
-      hsl(var(--muted)) 25%,
-      hsl(var(--accent)) 50%,
-      hsl(var(--muted)) 75%
+      transparent 0%,
+      hsl(var(--accent) / 0.6) 50%,
+      transparent 100%
     );
-    background-size: 200% 100%;
     animation: shimmerSweep 1.5s ease-in-out infinite;
+    will-change: transform;
   }
 
   @keyframes loadingPulseScale {
     0%, 100% { opacity: 0; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.05); }
+    50% { opacity: 0.6; transform: scale(1.08); }
   }
 
   .btn-loading-pulse {
@@ -864,7 +872,7 @@
     position: absolute;
     inset: -6px;
     border-radius: inherit;
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.3);
+    border: 2px solid hsl(var(--primary) / 0.3);
     animation: loadingPulseScale 1.2s ease-in-out infinite;
     pointer-events: none;
   }
@@ -877,6 +885,7 @@
   .fluid-gradient-anim {
     animation: fluidGradientShift 24s ease-in-out infinite alternate;
     will-change: transform;
+    backface-visibility: hidden;
   }
 
   @keyframes fluidOrb1Move {
@@ -887,6 +896,7 @@
   .fluid-orb1-anim {
     animation: fluidOrb1Move 30s ease-in-out infinite alternate;
     will-change: transform;
+    backface-visibility: hidden;
   }
 
   @keyframes fluidOrb2Move {
@@ -897,11 +907,11 @@
   .fluid-orb2-anim {
     animation: fluidOrb2Move 40s ease-in-out infinite alternate;
     will-change: transform;
+    backface-visibility: hidden;
   }
 
   .titlebar-icon-btn {
     transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-    will-change: transform;
   }
   .titlebar-icon-btn:hover {
     transform: scale(1.15) rotate(var(--hover-rotate, 0deg));
@@ -1121,7 +1131,10 @@
     .signal-glow-active,
     .signal-bar-enter,
     .skeleton-shimmer,
+    .skeleton-shimmer::after,
     .btn-loading-pulse,
+    .btn-loading-pulse::after,
+    .log-entry-flash::after,
     .ripple-effect,
     .fluid-gradient-anim,
     .fluid-orb1-anim,
