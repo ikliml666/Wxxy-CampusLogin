@@ -69,9 +69,8 @@ export const panelSlideVariants = {
   },
   exit: (direction: number) => ({
     opacity: 0,
-    x: direction > 0 ? -40 : 40,
-    scale: 0.98,
-    transition: { duration: 0.15, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
+    x: direction > 0 ? -20 : 20,
+    transition: { duration: 0.1, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
   }),
 }
 

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { gsap } from 'gsap'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useAnimationActive } from '@/hooks/usePageIdle'
 
 interface AnimatedNumberProps {
   value: number
@@ -20,6 +21,7 @@ export function AnimatedNumber({
   highlightColor: _highlightColor = 'var(--primary)',
 }: AnimatedNumberProps) {
   const profile = useAnimationProfile()
+  const animActive = useAnimationActive()
   const resolvedDuration = duration ?? profile.numberDuration
   const ref = useRef<HTMLSpanElement>(null)
   const prevRef = useRef(value)
@@ -29,6 +31,11 @@ export function AnimatedNumber({
 
   const animateValue = useCallback((from: number, to: number) => {
     if (!ref.current) return
+
+    if (!animActive) {
+      ref.current.textContent = `${to.toFixed(decimals)}${unit}`
+      return
+    }
 
     if (ctxRef.current) {
       ctxRef.current.revert()
@@ -68,7 +75,7 @@ export function AnimatedNumber({
     }, ref)
 
     ctxRef.current = ctx
-  }, [decimals, unit, resolvedDuration])
+  }, [decimals, unit, resolvedDuration, animActive])
 
   useEffect(() => {
     if (isFirstRender.current) {

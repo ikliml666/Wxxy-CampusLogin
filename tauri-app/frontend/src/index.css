@@ -328,7 +328,6 @@
 
   .log-entry-flash {
     animation: logFlash 0.8s ease-out !important;
-    will-change: background-color;
   }
 
   @keyframes logFlash {
@@ -343,7 +342,7 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
-    will-change: transform, box-shadow;
+    will-change: transform;
   }
 
   .btn-physical::before {
@@ -382,7 +381,7 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
-    will-change: transform, box-shadow;
+    will-change: transform;
   }
 
   .btn-press::before {
@@ -426,7 +425,7 @@
       inset 0 0 0 rgba(0,0,0,0),
       inset 0 0 0 rgba(255,255,255,0);
     transition: box-shadow 0.3s ease, transform 0.15s ease-out, background-color 0.2s ease;
-    will-change: transform, box-shadow;
+    will-change: transform;
   }
 
   .soft-btn:hover {
@@ -476,7 +475,7 @@
     transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
                 box-shadow 0.35s ease;
     contain: content;
-    will-change: transform, box-shadow;
+    will-change: transform;
   }
 
   .card-hover-lift:hover {
@@ -544,7 +543,6 @@
 
   .animate-window-reveal {
     animation: windowReveal 0.5s ease-out both !important;
-    will-change: transform, opacity;
   }
 
   @keyframes staggerSlideUp {
@@ -552,9 +550,9 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .animate-stagger-1 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both !important; will-change: transform, opacity; }
-  .animate-stagger-2 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.18s both !important; will-change: transform, opacity; }
-  .animate-stagger-3 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both !important; will-change: transform, opacity; }
+  .animate-stagger-1 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both !important; }
+  .animate-stagger-2 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.18s both !important; }
+  .animate-stagger-3 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both !important; }
 
   @keyframes statusPulse {
     0%, 100% { opacity: 0; transform: scale(1); }
@@ -584,7 +582,6 @@
 
   .number-flash {
     animation: numberFlash 0.4s ease-out !important;
-    will-change: transform, opacity;
   }
 
   @keyframes heartbeat {
@@ -638,7 +635,6 @@
 
   .animate-check-flash {
     animation: checkFlash 0.5s ease-out forwards !important;
-    will-change: transform, opacity;
   }
 
   @keyframes badgePulse {
@@ -651,7 +647,6 @@
 
   .badge-pulse {
     animation: badgePulse 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-    will-change: transform;
   }
 
   @keyframes refreshShake {
@@ -665,7 +660,6 @@
 
   .refresh-shake {
     animation: refreshShake 0.35s ease-out !important;
-    will-change: transform;
   }
 
   @keyframes barElastic {
@@ -678,7 +672,6 @@
   .bar-elastic {
     animation: barElastic 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
     transform-origin: bottom;
-    will-change: transform;
   }
 
   .log-entry-hover {
@@ -769,17 +762,25 @@
     );
     background-size: 200% 100%;
     animation: shimmerSweep 1.5s ease-in-out infinite;
-    will-change: background-position;
   }
 
-  @keyframes loadingPulse {
-    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.3); }
-    50% { box-shadow: 0 0 0 6px hsl(var(--primary) / 0); }
+  @keyframes loadingPulseScale {
+    0%, 100% { opacity: 0; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.05); }
   }
 
   .btn-loading-pulse {
-    animation: loadingPulse 1.2s ease-in-out infinite !important;
-    will-change: box-shadow;
+    position: relative;
+    overflow: visible;
+  }
+  .btn-loading-pulse::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: inherit;
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.3);
+    animation: loadingPulseScale 1.2s ease-in-out infinite;
+    pointer-events: none;
   }
 
 }
@@ -790,7 +791,11 @@
   .anim-idle .capsule-breathe,
   .anim-idle .capsule-glow-pulse,
   .anim-idle .animate-heartbeat,
-  .anim-idle .border-glow-danger {
+  .anim-idle .border-glow-danger,
+  .anim-idle .skeleton-shimmer,
+  .anim-idle .btn-loading-pulse::after,
+  .anim-idle .animate-pulse,
+  .anim-idle .animate-spin {
     animation-play-state: paused !important;
   }
 
@@ -802,7 +807,6 @@
 
   .num-bounce {
     animation: numBounce 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-    will-change: transform;
   }
 
   .num-highlight {

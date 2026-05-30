@@ -21,6 +21,7 @@ import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'fra
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'
 import { useAppStore } from '@/hooks/useAppStore'
+import { useAnimationActive } from '@/hooks/usePageIdle'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -341,6 +342,7 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
   const doLogin = useAppStore((s) => s.doLogin)
   const doLogout = useAppStore((s) => s.doLogout)
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
+  const animActive = useAnimationActive()
   const mouseX = useMotionValue(-1000)
   const itemRefs = useRef<Map<PanelName, HTMLButtonElement>>(new Map())
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
@@ -348,12 +350,13 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
 
   const rafRef = useRef(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!animActive) return
     if (rafRef.current) return
     rafRef.current = requestAnimationFrame(() => {
       mouseX.set(e.clientX)
       rafRef.current = 0
     })
-  }, [mouseX])
+  }, [mouseX, animActive])
 
   useEffect(() => {
     return () => {
@@ -364,6 +367,10 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
   const handleMouseLeave = useCallback(() => {
     mouseX.set(-1000)
   }, [mouseX])
+
+  useEffect(() => {
+    if (!animActive) mouseX.set(-1000)
+  }, [animActive, mouseX])
 
   const handleItemLayout = useCallback((id: PanelName) => (el: HTMLButtonElement | null) => {
     if (el) {
