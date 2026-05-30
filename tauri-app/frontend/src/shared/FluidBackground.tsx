@@ -27,7 +27,7 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
         innerRef?.(el)
       }}
       className="fixed inset-0 z-0 overflow-hidden pointer-events-none fluid-paused"
-      style={{ background: 'var(--surface-main)' }}
+      style={{ background: 'var(--surface-main)', contain: 'paint' }}
     >
       <div
         className="gradient-layer absolute fluid-gradient-anim"
