@@ -270,13 +270,10 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 
             if let Ok(iface_key) = tcpip_key.open_subkey(&guid_entry) {
                 let ns: String = iface_key.get_value("NameServer").unwrap_or_default();
-                let dhcp_ns: String = iface_key.get_value("DhcpNameServer").unwrap_or_default();
-                let raw = if !ns.is_empty() { ns } else { dhcp_ns };
-                if raw.is_empty() { continue; }
+                if ns.is_empty() { continue; }
 
-                let addrs = parse_dns_list(&raw);
-
-                crate::log_debug!("dns", "{} 原始:[{}] → [{:?}]", name, raw, addrs);
+                let addrs = parse_dns_list(&ns);
+                crate::log_debug!("dns", "{} 手动DNS:[{}] → [{:?}]", name, ns, addrs);
 
                 if addrs.is_empty() { continue; }
 
