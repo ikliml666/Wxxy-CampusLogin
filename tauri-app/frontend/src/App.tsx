@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, m } from 'framer-motion'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
 import { useAuth } from '@/auth'
 import { useMonitor } from '@/monitor'
@@ -21,7 +21,8 @@ import { AccountPanel } from '@/account'
 import { NetworkPanel } from '@/network'
 import { MonitorPanel, QualityPanel, SpeedTestPanel } from '@/monitor'
 import { SettingsPanel } from '@/settings'
-import { panelSwitchVariants } from '@/lib/animations'
+import { panelSlideVariants, panelFadeOnlyVariants, getPanelDirection } from '@/lib/animations'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 
@@ -81,6 +82,17 @@ function AppInner() {
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
+
+  const profile = useAnimationProfile()
+  const prevPanelRef = useRef(activePanel)
+  const [slideDirection, setSlideDirection] = useState(1)
+
+  useEffect(() => {
+    if (prevPanelRef.current !== activePanel) {
+      setSlideDirection(getPanelDirection(prevPanelRef.current, activePanel))
+      prevPanelRef.current = activePanel
+    }
+  }, [activePanel])
 
   useEffect(() => {
     const unlisten = getCurrentWindow().onResized(async () => {
@@ -238,14 +250,15 @@ function AppInner() {
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'content' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
             <div className="animate-stagger-3 mb-6">
-              <h1 className="text-xl font-semibold tracking-tight">{panelInfo.title}</h1>
-              <p className="text-sm text-muted-foreground mt-1">{panelInfo.desc}</p>
+              <m.h1 layoutId="panel-title" className="text-xl font-semibold tracking-tight">{panelInfo.title}</m.h1>
+              <m.p layoutId="panel-desc" className="text-sm text-muted-foreground mt-1">{panelInfo.desc}</m.p>
             </div>
 
-            <AnimatePresence mode="popLayout">
+            <AnimatePresence mode="popLayout" custom={slideDirection}>
               <motion.div
                 key={activePanel}
-                variants={panelSwitchVariants}
+                custom={slideDirection}
+                variants={profile.enablePageSlide ? panelSlideVariants : panelFadeOnlyVariants}
                 initial="initial"
                 animate="animate"
                 exit="exit"

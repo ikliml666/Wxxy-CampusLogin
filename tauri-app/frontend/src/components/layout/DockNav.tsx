@@ -131,7 +131,11 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
   const effectiveSelected = selectedAdapter || defaultAdapter
 
   return (
-    <div
+    <m.div
+      initial={{ opacity: 0, scaleY: 0.85, y: 8 }}
+      animate={{ opacity: 1, scaleY: 1, y: 0 }}
+      exit={{ opacity: 0, scaleY: 0.9, y: 4 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 28, mass: 0.6 }}
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
         background: 'hsl(var(--card) / 0.92)',
@@ -139,6 +143,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
         border: '1px solid hsl(var(--card) / 0.6)',
         isolation: 'isolate',
         contain: 'layout style',
+        transformOrigin: 'bottom right',
       }}
     >
       <div
@@ -158,9 +163,15 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
       <div className="px-3 py-1.5">
         <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - 选择适配器</span>
       </div>
-      {activeAdapters.map(adapter => {
+      {activeAdapters.map((adapter, index) => {
         const isSelected = effectiveSelected === adapter.name
         return (
+          <m.div
+            key={adapter.name}
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.03, duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+          >
           <button
             key={adapter.name}
             onClick={() => onSelect(adapter.name)}
@@ -193,9 +204,10 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
               </div>
             )}
           </button>
+          </m.div>
         )
       })}
-    </div>
+    </m.div>
   )
 }
 
@@ -293,7 +305,7 @@ function ActionButtonWithMenu({
         transition={{ type: 'spring', stiffness: 600, damping: 12, mass: 0.4 }}
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
-          isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
+          isLoading ? 'opacity-80 cursor-wait btn-loading-pulse' : 'cursor-pointer',
           isPrimary
             ? 'text-white'
             : 'text-muted-foreground bg-transparent border border-border/60 hover:border-foreground/30 hover:text-foreground'

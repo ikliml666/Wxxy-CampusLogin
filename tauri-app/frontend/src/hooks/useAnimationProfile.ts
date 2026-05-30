@@ -11,10 +11,13 @@ export interface AnimationProfile {
   numberDuration: number
   springStiffness: number
   springDamping: number
+  mass?: number
   powerPreference: 'low-power' | 'high-performance'
   orbDurationMultiplier: number
   prefersCssAnimation: boolean
   enableGpuCompositing: boolean
+  enablePageSlide: boolean
+  enableTilt: boolean
 }
 
 const INTEL_LOW_IGPU: AnimationProfile = {
@@ -31,6 +34,8 @@ const INTEL_LOW_IGPU: AnimationProfile = {
   orbDurationMultiplier: 0.75,
   prefersCssAnimation: true,
   enableGpuCompositing: false,
+  enablePageSlide: false,
+  enableTilt: false,
 }
 
 const INTEL_FULL: AnimationProfile = {
@@ -47,6 +52,8 @@ const INTEL_FULL: AnimationProfile = {
   orbDurationMultiplier: 1.0,
   prefersCssAnimation: true,
   enableGpuCompositing: true,
+  enablePageSlide: true,
+  enableTilt: false,
 }
 
 const AMD_LOW_IGPU: AnimationProfile = {
@@ -63,6 +70,8 @@ const AMD_LOW_IGPU: AnimationProfile = {
   orbDurationMultiplier: 0.8,
   prefersCssAnimation: false,
   enableGpuCompositing: true,
+  enablePageSlide: false,
+  enableTilt: false,
 }
 
 const AMD_FULL: AnimationProfile = {
@@ -79,6 +88,8 @@ const AMD_FULL: AnimationProfile = {
   orbDurationMultiplier: 1.0,
   prefersCssAnimation: false,
   enableGpuCompositing: true,
+  enablePageSlide: true,
+  enableTilt: true,
 }
 
 const NVIDIA_FULL: AnimationProfile = {
@@ -95,6 +106,8 @@ const NVIDIA_FULL: AnimationProfile = {
   orbDurationMultiplier: 1.0,
   prefersCssAnimation: false,
   enableGpuCompositing: true,
+  enablePageSlide: true,
+  enableTilt: true,
 }
 
 const DEFAULT_PROFILE: AnimationProfile = INTEL_FULL

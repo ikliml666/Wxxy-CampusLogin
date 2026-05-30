@@ -227,7 +227,7 @@ export const AccountPanel = memo(function AccountPanel({
                         'flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors duration-200',
                         isActive
                           ? 'bg-primary/8 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
-                          : 'hover:bg-accent/60'
+                          : 'hover:bg-accent/60 list-item-interactive'
                       )}
                     >
                       <div className="flex items-center gap-3">

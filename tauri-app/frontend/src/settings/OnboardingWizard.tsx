@@ -42,13 +42,22 @@ function StepIndicator({ current }: { current: number }) {
     <div className="flex items-center justify-center gap-2 py-3">
       {STEP_TITLES.map((_, i) => (
         <div key={i} className="flex items-center gap-2">
-          <div className={cn(
-            'w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium transition-all duration-300',
-            i <= current
-              ? 'bg-primary text-primary-foreground shadow-sm'
-              : 'bg-muted text-muted-foreground'
-          )}>
-            {i < current ? <Check className="h-3.5 w-3.5" /> : i + 1}
+          <div className="relative w-7 h-7 flex items-center justify-center">
+            {i === current && (
+              <m.div
+                layoutId="step-indicator"
+                className="absolute inset-0 rounded-full bg-primary shadow-sm"
+                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+              />
+            )}
+            <span className={cn(
+              'relative z-10 text-[11px] font-medium transition-colors duration-300',
+              i <= current
+                ? 'text-primary-foreground'
+                : 'text-muted-foreground'
+            )}>
+              {i < current ? <Check className="h-3.5 w-3.5" /> : i + 1}
+            </span>
           </div>
           {i < STEP_TITLES.length - 1 && (
             <div className={cn(
@@ -155,9 +164,9 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
   }
 
   const slideVariants = {
-    enter: (dir: number) => ({ x: dir > 0 ? 40 : -40, opacity: 0 }),
-    center: { x: 0, opacity: 1 },
-    exit: (dir: number) => ({ x: dir > 0 ? -40 : 40, opacity: 0 }),
+    enter: (dir: number) => ({ x: dir > 0 ? 60 : -60, opacity: 0, scale: 0.96 }),
+    center: { x: 0, opacity: 1, scale: 1 },
+    exit: (dir: number) => ({ x: dir > 0 ? -30 : 30, opacity: 0, scale: 0.98 }),
   }
 
   return (
@@ -173,7 +182,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.25, ease: 'easeInOut' }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
             className="px-6 pb-6"
           >
             {step === 0 && (

@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { m, useReducedMotion } from 'framer-motion'
+import gsap from 'gsap'
 import { cn } from '@/lib/utils'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
@@ -28,14 +29,45 @@ export interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> 
   noHover?: boolean
   noAnimation?: boolean
   noEnterAnimation?: boolean
+  enableTilt?: boolean
 }
 
 export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
-  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, children, ...props }, ref) => {
+  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, enableTilt, children, ...props }, ref) => {
     const prefersReducedMotion = useReducedMotion()
     const profile = useAnimationProfile()
     const [isHovered, setIsHovered] = React.useState(false)
     const [entryDone, setEntryDone] = React.useState(noEnterAnimation)
+
+    const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !prefersReducedMotion && !noAnimation
+    const cardRef = React.useRef<HTMLDivElement>(null)
+    const xQuick = React.useRef<gsap.QuickToFunc | null>(null)
+    const yQuick = React.useRef<gsap.QuickToFunc | null>(null)
+
+    React.useEffect(() => {
+      if (!tiltEnabled || !cardRef.current) return
+      xQuick.current = gsap.quickTo(cardRef.current, 'rotateY', { duration: 0.4, ease: 'power2.out' })
+      yQuick.current = gsap.quickTo(cardRef.current, 'rotateX', { duration: 0.4, ease: 'power2.out' })
+      return () => {
+        xQuick.current = null
+        yQuick.current = null
+      }
+    }, [tiltEnabled])
+
+    const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
+      if (!tiltEnabled || !xQuick.current || !yQuick.current) return
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = (e.clientX - rect.left) / rect.width - 0.5
+      const y = (e.clientY - rect.top) / rect.height - 0.5
+      xQuick.current(x * 8)
+      yQuick.current(-y * 8)
+    }, [tiltEnabled])
+
+    const handleMouseLeave = React.useCallback(() => {
+      if (!xQuick.current || !yQuick.current) return
+      xQuick.current(0)
+      yQuick.current(0)
+    }, [])
 
     const config = React.useMemo(
       () => ({ ...DEFAULT_CONFIG, ...animationConfig }),
@@ -79,16 +111,25 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         onAnimationComplete={() => setEntryDone(true)}
         style={{
           pointerEvents: entryDone ? undefined : ('none' as any),
+          perspective: tiltEnabled ? 800 : undefined,
         }}
         onHoverStart={() => setIsHovered(true)}
-        onHoverEnd={() => setIsHovered(false)}
+        onHoverEnd={() => { setIsHovered(false); handleMouseLeave() }}
+        onMouseMove={handleMouseMove}
       >
         <div
-          ref={ref}
+          ref={(node) => {
+            (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+            if (typeof ref === 'function') ref(node)
+            else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+          }}
           className={cn(
             'bg-white text-card-foreground rounded-2xl transition-shadow duration-300 dark:bg-[#14161b]',
           )}
-          style={{ boxShadow: glowShadow }}
+          style={{
+            boxShadow: glowShadow,
+            transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
+          }}
           {...props}
         >
           {children}

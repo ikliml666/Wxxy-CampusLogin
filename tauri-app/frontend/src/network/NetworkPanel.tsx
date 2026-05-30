@@ -129,7 +129,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       'flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200',
                       a.name === config.adapter1
                         ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
-                        : 'bg-muted/30 hover:bg-muted/50'
+                        : 'bg-muted/30 hover:bg-muted/50 list-item-interactive'
                     )}
                   >
                     <div className="flex items-center gap-3">

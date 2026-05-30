@@ -3,6 +3,7 @@ import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { m } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { useRipple } from '@/hooks/useRipple'
 
 const buttonVariants = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
@@ -91,10 +92,16 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       onAnimationIteration, onAnimationIterationCapture,
       ...motionProps } = props as Record<string, unknown>
 
+    const ripple = useRipple()
+
     return (
       <m.button
         className={cn(buttonVariants({ variant, size, className }))}
-        ref={ref}
+        ref={(node) => {
+          ripple.ref(node)
+          if (typeof ref === 'function') ref(node)
+          else if (ref) (ref as React.MutableRefObject<HTMLButtonElement | null>).current = node
+        }}
         disabled={props.disabled || isLoading}
         whileTap={{
           scale: 0.92,
@@ -104,6 +111,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           position: 'relative',
           overflow: 'hidden',
         }}
+        onMouseDown={ripple.createRipple}
         onMouseMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect()
           const x = ((e.clientX - rect.left) / rect.width) * 100
