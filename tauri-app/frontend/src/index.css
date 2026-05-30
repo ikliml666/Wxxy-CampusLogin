@@ -97,6 +97,11 @@
     font-size: 15px;
   }
 
+  .log-line {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+
   body {
     @apply text-foreground font-sans;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";

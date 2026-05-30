@@ -16,7 +16,7 @@ export interface AnimatedCardConfig {
 
 const DEFAULT_CONFIG: Required<AnimatedCardConfig> = {
   hoverY: -4,
-  glowColor: 'rgba(99, 102, 241, 0.25)',
+  glowColor: 'hsl(239 84% 67%)',
   glowIntensity: 1,
   hoverScale: 1,
   stiffness: 300,
@@ -84,8 +84,9 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
 
     const hoverY = noHover ? 0 : config.hoverY
     const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
+    const gc = config.glowColor
     const glowShadow = isHovered && !noHover
-      ? `0 0 ${30 * config.glowIntensity}px ${config.glowColor}, 0 0 ${60 * config.glowIntensity}px ${config.glowColor.replace(/[\d.]+\)$/, '0.1)')}, 0 ${12}px ${36}px rgba(0,0,0,0.1), inset 0 0 0 1px ${config.glowColor.replace(/[\d.]+\)$/, '0.15)')}`
+      ? `0 0 ${10 * config.glowIntensity}px ${gc.replace(')', ' / 0.4)')}, 0 0 ${30 * config.glowIntensity}px ${gc.replace(')', ' / 0.2)')}, 0 0 ${60 * config.glowIntensity}px ${gc.replace(')', ' / 0.1)')}, 0 ${12}px ${36}px rgba(0,0,0,0.1), inset 0 0 0 1px ${gc.replace(')', ' / 0.15)')}`
       : restShadow
 
     const cardClassName = React.useMemo(
@@ -132,6 +133,7 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
           style={{
             boxShadow: glowShadow,
             transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
+            willChange: isHovered ? 'box-shadow, transform' : undefined,
           }}
           {...props}
         >

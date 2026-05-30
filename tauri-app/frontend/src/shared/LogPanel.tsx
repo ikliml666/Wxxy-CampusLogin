@@ -2,6 +2,7 @@ import { CardContent, CardHeader, CardTitle, CardDescription } from '@/component
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import gsap from 'gsap'
 import {
   FileText,
   RefreshCw,
