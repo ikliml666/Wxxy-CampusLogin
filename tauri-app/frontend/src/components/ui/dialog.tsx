@@ -2,7 +2,6 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 const Dialog = DialogPrimitive.Root
 
@@ -11,20 +10,16 @@ const DialogPortal = DialogPrimitive.Portal
 const DialogOverlay = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => {
-  const profile = useAnimationProfile()
-  return (
-    <DialogPrimitive.Overlay
-      ref={ref}
-      className={cn(
-        'fixed inset-0 z-50 bg-black/60 dialog-overlay-enter',
-        profile.enableBackdropBlur && 'backdrop-blur-[4px]',
-        className
-      )}
-      {...props}
-    />
-  )
-})
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      'fixed inset-0 z-50 bg-black/60 dialog-overlay-enter',
+      className
+    )}
+    {...props}
+  />
+))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const DialogContent = React.forwardRef<
@@ -38,7 +33,7 @@ const DialogContent = React.forwardRef<
         <DialogPrimitive.Content
           ref={ref}
           className={cn(
-            'outline-none relative bg-background p-6 rounded-2xl shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_30px_rgba(0,0,0,0.12)]',
+            'outline-none relative bg-background p-6 rounded-2xl shadow-lg',
             className
           )}
           {...props}

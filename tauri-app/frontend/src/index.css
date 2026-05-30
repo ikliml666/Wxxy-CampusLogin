@@ -791,22 +791,22 @@
   }
 
   .dialog-overlay-enter {
-    animation: dialogOverlayIn 0.2s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    animation: dialogOverlayIn 0.15s ease-out both;
     will-change: opacity;
   }
 
   .dialog-overlay-exit {
-    animation: dialogOverlayOut 0.15s cubic-bezier(0.4, 0, 1, 1) both;
+    animation: dialogOverlayOut 0.1s ease-in both;
     will-change: opacity;
   }
 
   .dialog-content-enter {
-    animation: dialogContentIn 0.25s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    animation: dialogContentIn 0.2s ease-out both;
     will-change: transform, opacity;
   }
 
   .dialog-content-exit {
-    animation: dialogContentOut 0.15s cubic-bezier(0.4, 0, 1, 1) both;
+    animation: dialogContentOut 0.1s ease-in both;
     will-change: transform, opacity;
   }
 
