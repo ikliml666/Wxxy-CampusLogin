@@ -15,8 +15,8 @@ export function useAuth() {
 
   const configPortalUrl = useAppStore((s) => s.config.portalUrl)
 
-  const handleOpenPortal = useCallback((portalUrl?: string) => {
-    const url = portalUrl || configPortalUrl || 'http://10.1.99.100'
+  const handleOpenPortal = useCallback(() => {
+    const url = configPortalUrl || 'http://10.1.99.100'
     store.api.openExternal?.(url)
   }, [store.api, configPortalUrl])
 
