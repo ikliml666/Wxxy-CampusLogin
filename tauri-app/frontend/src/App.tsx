@@ -22,6 +22,7 @@ import { MonitorPanel, QualityPanel, SpeedTestPanel } from '@/monitor'
 import { SettingsPanel } from '@/settings'
 import { getPanelDirection } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useStartupBoost } from '@/hooks/useStartupBoost'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 
@@ -83,6 +84,7 @@ function AppInner() {
   const [isMaximized, setIsMaximized] = useState(false)
 
   const profile = useAnimationProfile()
+  const { setRef, runStartupSequence } = useStartupBoost()
   const prevPanelRef = useRef(activePanel)
   const [slideDirection, setSlideDirection] = useState(1)
 
@@ -92,6 +94,15 @@ function AppInner() {
       prevPanelRef.current = activePanel
     }
   }, [activePanel])
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        runStartupSequence()
+      })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [runStartupSequence])
 
   useEffect(() => {
     const unlisten = getCurrentWindow().onResized(async () => {
@@ -220,10 +231,12 @@ function AppInner() {
   }
 
   return (
-    <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
-      <FluidBackground />
+    <div ref={setRef('window')} className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
+      <div ref={setRef('fluidBg')}>
+        <FluidBackground />
+      </div>
 
-      <div className="animate-stagger-1">
+      <div ref={setRef('titleBar')}>
         <TitleBar
           notificationEnabled={configEnableNotification !== false}
           onToggleNotification={handleToggleNotification}
@@ -237,7 +250,7 @@ function AppInner() {
         />
       </div>
 
-      <div className="animate-stagger-2">
+      <div ref={setRef('statusBar')}>
         <StatusBar
           onOpenPortal={handleOpenPortal}
           onOpenSelfService={handleOpenSelfService}
@@ -247,7 +260,7 @@ function AppInner() {
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
-            <div className="animate-stagger-3 mb-6">
+            <div ref={setRef('title')} className="mb-6">
               <h1
                 key={`title-${activePanel}`}
                 className="text-xl font-semibold tracking-tight transition-opacity duration-200"
@@ -268,21 +281,25 @@ function AppInner() {
           </div>
         </main>
 
-        <RightPanel
-          logs={logs}
-          onClearLogs={handleClearLogs}
-        />
+        <div ref={setRef('rightPanel')}>
+          <RightPanel
+            logs={logs}
+            onClearLogs={handleClearLogs}
+          />
+        </div>
       </div>
 
-      <DockNav
-        onPanelChange={(p) => {
-          if (panelChangeLock.current) return
-          panelChangeLock.current = true
-          setActivePanel(p)
-          safeStorage.set('campus-active-panel', p)
-          setTimeout(() => { panelChangeLock.current = false }, 500)
-        }}
-      />
+      <div ref={setRef('dockNav')}>
+        <DockNav
+          onPanelChange={(p) => {
+            if (panelChangeLock.current) return
+            panelChangeLock.current = true
+            setActivePanel(p)
+            safeStorage.set('campus-active-panel', p)
+            setTimeout(() => { panelChangeLock.current = false }, 500)
+          }}
+        />
+      </div>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
 

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect } from 'react'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface FluidBackgroundProps {
@@ -8,18 +8,12 @@ interface FluidBackgroundProps {
 export function FluidBackground({ paused }: FluidBackgroundProps) {
   const profile = useAnimationProfile()
   const containerRef = useRef<HTMLDivElement>(null)
-  const [animReady, setAnimReady] = useState(false)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setAnimReady(true), 100)
-    return () => clearTimeout(timer)
-  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return
     const el = containerRef.current
-    el.classList.toggle('fluid-paused', !!paused || !animReady)
-  }, [paused, animReady])
+    el.classList.toggle('fluid-paused', !!paused)
+  }, [paused])
 
   const gradientDuration = 24 * profile.orbDurationMultiplier
   const orb1Duration = 30 * profile.orbDurationMultiplier
@@ -28,7 +22,7 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-0 overflow-hidden pointer-events-none"
+      className="fixed inset-0 z-0 overflow-hidden pointer-events-none fluid-paused"
       style={{ background: 'var(--surface-main)', contain: 'strict' }}
     >
       <div
@@ -43,7 +37,6 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           backfaceVisibility: 'hidden',
         }}
       />
-
       <div
         className="fluid-orb absolute rounded-full fluid-orb1-anim"
         style={{
@@ -59,7 +52,6 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           contain: 'strict',
         }}
       />
-
       <div
         className="fluid-orb absolute rounded-full fluid-orb2-anim"
         style={{
@@ -76,17 +68,10 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           contain: 'strict',
         }}
       />
-
       <div
         className="absolute inset-0"
         style={{
-          background: `linear-gradient(
-            180deg,
-            var(--surface-top) 0%,
-            transparent 15%,
-            transparent 85%,
-            var(--surface-side) 100%
-          )`,
+          background: `linear-gradient(180deg, var(--surface-top) 0%, transparent 15%, transparent 85%, var(--surface-side) 100%)`,
         }}
       />
     </div>

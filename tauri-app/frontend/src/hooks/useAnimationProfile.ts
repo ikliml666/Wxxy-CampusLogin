@@ -19,6 +19,8 @@ interface AnimationProfile {
   enablePageSlide: boolean
   enableTilt: boolean
   enableBackdropBlur: boolean
+  startupBoost: boolean
+  startupStaggerDelay: number
 }
 
 const INTEL_LOW_IGPU: AnimationProfile = {
@@ -38,6 +40,8 @@ const INTEL_LOW_IGPU: AnimationProfile = {
   enablePageSlide: false,
   enableTilt: false,
   enableBackdropBlur: false,
+  startupBoost: false,
+  startupStaggerDelay: 0.02,
 }
 
 const INTEL_FULL: AnimationProfile = {
@@ -57,6 +61,8 @@ const INTEL_FULL: AnimationProfile = {
   enablePageSlide: true,
   enableTilt: false,
   enableBackdropBlur: true,
+  startupBoost: true,
+  startupStaggerDelay: 0.04,
 }
 
 const AMD_LOW_IGPU: AnimationProfile = {
@@ -76,6 +82,8 @@ const AMD_LOW_IGPU: AnimationProfile = {
   enablePageSlide: false,
   enableTilt: false,
   enableBackdropBlur: false,
+  startupBoost: false,
+  startupStaggerDelay: 0.02,
 }
 
 const AMD_FULL: AnimationProfile = {
@@ -95,6 +103,8 @@ const AMD_FULL: AnimationProfile = {
   enablePageSlide: true,
   enableTilt: true,
   enableBackdropBlur: true,
+  startupBoost: true,
+  startupStaggerDelay: 0.04,
 }
 
 const NVIDIA_FULL: AnimationProfile = {
@@ -114,6 +124,8 @@ const NVIDIA_FULL: AnimationProfile = {
   enablePageSlide: true,
   enableTilt: true,
   enableBackdropBlur: true,
+  startupBoost: true,
+  startupStaggerDelay: 0.05,
 }
 
 const DEFAULT_PROFILE: AnimationProfile = INTEL_FULL

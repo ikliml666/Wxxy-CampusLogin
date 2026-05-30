@@ -370,6 +370,11 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
   const [mounted, setMounted] = useState(false)
 
+  useEffect(() => {
+    const timer = setTimeout(() => setMounted(true), 800)
+    return () => clearTimeout(timer)
+  }, [])
+
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!animActive) return
     mouseX.set(e.clientX)
@@ -415,13 +420,9 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
   }, [activePanel, mounted])
 
   return (
-    <m.div
+    <div
       className="fixed bottom-5 z-50 flex justify-center pointer-events-none"
-      style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
-      initial={{ opacity: 0, y: 50, scale: 0.8 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 14, mass: 1.2, delay: 0.6 }}
-      onAnimationComplete={() => setMounted(true)}
+      style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))', opacity: 0 }}
     >
       <nav
         className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
@@ -472,6 +473,6 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
           variant="primary"
         />
       </nav>
-    </m.div>
+    </div>
   )
 })
