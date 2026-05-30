@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { AnimatePresence, m } from 'framer-motion'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
 import { useAuth } from '@/auth'
 import { useMonitor } from '@/monitor'
@@ -21,7 +20,7 @@ import { AccountPanel } from '@/account'
 import { NetworkPanel } from '@/network'
 import { MonitorPanel, QualityPanel, SpeedTestPanel } from '@/monitor'
 import { SettingsPanel } from '@/settings'
-import { panelSlideVariants, panelFadeOnlyVariants, getPanelDirection } from '@/lib/animations'
+import { getPanelDirection } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
@@ -263,20 +262,13 @@ function AppInner() {
               >{panelInfo.desc}</p>
             </div>
 
-            <AnimatePresence mode="wait" custom={slideDirection}>
-              <m.div
-                key={activePanel}
-                custom={slideDirection}
-                variants={profile.enablePageSlide ? panelSlideVariants : panelFadeOnlyVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="panel-content"
-                style={{ contain: 'layout style' }}
-              >
-                <ErrorBoundary>{panelContent}</ErrorBoundary>
-              </m.div>
-            </AnimatePresence>
+            <div
+              key={activePanel}
+              className={cn('panel-content', profile.enablePageSlide ? 'panel-slide-in' : 'panel-fade-in')}
+              style={{ contain: 'layout style', '--slide-dir': slideDirection } as React.CSSProperties}
+            >
+              <ErrorBoundary>{panelContent}</ErrorBoundary>
+            </div>
           </div>
         </main>
 

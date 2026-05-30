@@ -732,6 +732,32 @@
     will-change: transform, opacity;
   }
 
+  @keyframes panelSlideIn {
+    from {
+      opacity: 0;
+      transform: translateX(calc(var(--slide-dir, 1) * 60px)) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  @keyframes panelFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .panel-slide-in {
+    animation: panelSlideIn 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    will-change: transform, opacity;
+  }
+
+  .panel-fade-in {
+    animation: panelFadeIn 0.15s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    will-change: opacity;
+  }
+
   @keyframes dialogOverlayIn {
     from { opacity: 0; }
     to { opacity: 1; }
