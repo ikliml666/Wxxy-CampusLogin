@@ -39,7 +39,7 @@ Wxxy-CampusLogin/
 ├── tauri-app/
 │   ├── package.json                 # 根层依赖
 │   ├── frontend/                    # React 前端
-│   │   ├── package.json             # 前端依赖 (含 zustand ^5.0, framer-motion ^12, animejs ^4)
+│   │   ├── package.json             # 前端依赖 (含 zustand ^5.0, framer-motion ^12, gsap ^3)
 │   │   ├── vite.config.ts           # Vite 构建配置
 │   │   ├── tailwind.config.js       # Tailwind CSS 配置
 │   │   ├── tsconfig.json            # TypeScript 配置

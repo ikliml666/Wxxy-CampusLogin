@@ -4,7 +4,7 @@
 
 <img width="1438" height="1014" alt="screenshot" src="https://github.com/user-attachments/assets/341181ef-6cf1-47dc-acc2-b6e02fbe671b" />
 
-![version](https://img.shields.io/badge/version-2.2.0-blue)
+![version](https://img.shields.io/badge/version-2.2.1-blue)
 ![platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -32,7 +32,7 @@
 |------|------|
 | 框架 | Tauri 2 |
 | 前端 | React 19 + TypeScript + Vite 6 |
-| 样式 | TailwindCSS 3.4 + Framer Motion 12 |
+| 样式 | TailwindCSS 3.4 + Framer Motion 12 + GSAP 3 |
 | 后端 | Rust + Tokio |
 | 网络 | reqwest 0.12 + tokio-rustls 0.26 + hickory-resolver 0.24 |
 | 加密 | Windows DPAPI |
