@@ -284,6 +284,11 @@
     border-bottom-left-radius: 16px !important;
   }
 
+  .startup-hidden {
+    opacity: 0 !important;
+    pointer-events: none;
+  }
+
   .app-maximized.app-outer-square {
     border-radius: 0 !important;
     box-shadow: none !important;

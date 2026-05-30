@@ -11,7 +11,7 @@ interface StartupRefs {
   fluidBg: HTMLDivElement | null
 }
 
-const TRANSFORM_KEYS = ['titleBar', 'statusBar', 'title', 'dockNav', 'rightPanel'] as const
+const ANIM_KEYS = ['titleBar', 'statusBar', 'title', 'dockNav', 'rightPanel'] as const
 
 export function useStartupBoost() {
   const profile = useAnimationProfile()
@@ -32,27 +32,40 @@ export function useStartupBoost() {
 
   const warmUpGpuLayers = useCallback(() => {
     if (!profile.startupBoost) return
-    const elements = TRANSFORM_KEYS.map(k => refs.current[k]).filter(Boolean) as HTMLElement[]
-    elements.forEach(el => {
-      el.style.willChange = 'transform, opacity'
-      el.style.backfaceVisibility = 'hidden'
+    ANIM_KEYS.forEach(k => {
+      const el = refs.current[k]
+      if (el) {
+        el.style.willChange = 'transform, opacity'
+        el.style.backfaceVisibility = 'hidden'
+      }
     })
   }, [profile.startupBoost])
 
   const coolDownGpuLayers = useCallback(() => {
     if (!profile.startupBoost) return
-    const elements = TRANSFORM_KEYS.map(k => refs.current[k]).filter(Boolean) as HTMLElement[]
-    elements.forEach(el => {
-      el.style.willChange = ''
-      el.style.backfaceVisibility = ''
-    })
-    TRANSFORM_KEYS.forEach(k => {
+    ANIM_KEYS.forEach(k => {
       const el = refs.current[k]
       if (el) {
+        el.style.willChange = ''
+        el.style.backfaceVisibility = ''
         el.style.transform = ''
+        el.classList.remove('startup-hidden')
       }
     })
   }, [profile.startupBoost])
+
+  const ensureVisible = useCallback(() => {
+    ANIM_KEYS.forEach(k => {
+      const el = refs.current[k]
+      if (el) {
+        el.style.opacity = '1'
+        el.style.transform = ''
+        el.classList.remove('startup-hidden')
+      }
+    })
+    const fb = refs.current.fluidBg
+    if (fb) fb.classList.remove('fluid-paused')
+  }, [])
 
   const runStartupSequence = useCallback(() => {
     if (boostedRef.current) return
@@ -63,57 +76,62 @@ export function useStartupBoost() {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     if (reducedMotion) {
-      const allEls = TRANSFORM_KEYS.map(k => r[k]).filter(Boolean) as HTMLElement[]
-      gsap.set(allEls, { opacity: 1, y: 0, scale: 1, x: 0 })
-      if (r.fluidBg) {
-        r.fluidBg.classList.remove('fluid-paused')
-      }
+      ensureVisible()
       coolDownGpuLayers()
       return
     }
 
+    ANIM_KEYS.forEach(k => {
+      const el = r[k]
+      if (el) el.classList.add('startup-hidden')
+    })
+
     warmUpGpuLayers()
+
+    if (r.titleBar) gsap.set(r.titleBar, { y: 12 })
+    if (r.statusBar) gsap.set(r.statusBar, { y: 12 })
+    if (r.title) gsap.set(r.title, { y: 12 })
+    if (r.rightPanel) gsap.set(r.rightPanel, { x: 60 })
+    if (r.dockNav) gsap.set(r.dockNav, { y: 50, scale: 0.8 })
 
     const tl = gsap.timeline({
       defaults: { ease: 'power2.out', force3D: true },
-      onComplete: coolDownGpuLayers,
+      onComplete: () => {
+        ensureVisible()
+        coolDownGpuLayers()
+      },
     })
 
     if (r.titleBar) {
-      tl.fromTo(r.titleBar,
-        { opacity: 0, y: 12 },
+      tl.to(r.titleBar,
         { opacity: 1, y: 0, duration: 0.3 },
         stagger * 1
       )
     }
 
     if (r.statusBar) {
-      tl.fromTo(r.statusBar,
-        { opacity: 0, y: 12 },
+      tl.to(r.statusBar,
         { opacity: 1, y: 0, duration: 0.3 },
         stagger * 2.5
       )
     }
 
     if (r.title) {
-      tl.fromTo(r.title,
-        { opacity: 0, y: 12 },
+      tl.to(r.title,
         { opacity: 1, y: 0, duration: 0.3 },
         stagger * 4
       )
     }
 
     if (r.rightPanel) {
-      tl.fromTo(r.rightPanel,
-        { opacity: 0, x: 60 },
+      tl.to(r.rightPanel,
         { opacity: 1, x: 0, duration: 0.5, ease: 'power2.out' },
         0.35
       )
     }
 
     if (r.dockNav) {
-      tl.fromTo(r.dockNav,
-        { opacity: 0, y: 50, scale: 0.8 },
+      tl.to(r.dockNav,
         { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.4)' },
         0.6
       )
@@ -122,11 +140,13 @@ export function useStartupBoost() {
     if (r.fluidBg) {
       tl.call(() => {
         r.fluidBg!.classList.remove('fluid-paused')
-      }, [], 0.1)
+      }, [], 0.05)
     }
 
     timelineRef.current = tl
-  }, [profile, warmUpGpuLayers, coolDownGpuLayers])
+
+    setTimeout(ensureVisible, 2000)
+  }, [profile, warmUpGpuLayers, coolDownGpuLayers, ensureVisible])
 
   useEffect(() => {
     return () => {
