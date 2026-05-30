@@ -212,6 +212,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               stagger: { each: 0.02, from: 'start', amount: Math.min(entries.length * 0.02, 0.4) },
               duration: 0.25,
               ease: 'power2.in',
+              force3D: true,
               onComplete: resolve,
             })
           }, container)
@@ -434,7 +435,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                             'hover:bg-muted/40',
                           )}
                           whileHover={{
-                            paddingLeft: 18,
+                            x: 6,
                             transition: { duration: 0.2 },
                           }}
                         >

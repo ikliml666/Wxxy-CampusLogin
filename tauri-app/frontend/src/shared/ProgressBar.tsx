@@ -57,6 +57,7 @@ export const ProgressBar = memo(function ProgressBar({
         style={{
           transform: animated ? undefined : `scaleX(${progress})`,
           width: animated ? '100%' : `${progress * 100}%`,
+          willChange: animated ? 'transform' : undefined,
         }}
       />
     </div>

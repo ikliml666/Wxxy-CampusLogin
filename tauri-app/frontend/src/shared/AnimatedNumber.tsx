@@ -63,6 +63,7 @@ export function AnimatedNumber({
           { opacity: 0.6, duration: (resolvedDuration / 1000) * 0.2, ease: 'power2.in' },
           { opacity: 1, duration: (resolvedDuration / 1000) * 0.3, ease: 'power2.out' },
         ],
+        force3D: true,
       }, 0)
     }, ref)
 

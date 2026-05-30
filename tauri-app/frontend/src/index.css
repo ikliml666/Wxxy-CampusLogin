@@ -200,6 +200,7 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     position: relative;
     contain: layout style;
+    will-change: transform;
   }
 
   .glass-dock::before {
@@ -317,6 +318,7 @@
 
   .status-breathe {
     animation: statusBreathe 2s ease-in-out infinite !important;
+    will-change: opacity;
   }
 
   @keyframes statusBreathe {
@@ -326,6 +328,7 @@
 
   .log-entry-flash {
     animation: logFlash 0.8s ease-out !important;
+    will-change: background-color;
   }
 
   @keyframes logFlash {
@@ -340,6 +343,7 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
+    will-change: transform, box-shadow;
   }
 
   .btn-physical::before {
@@ -378,6 +382,7 @@
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
+    will-change: transform, box-shadow;
   }
 
   .btn-press::before {
@@ -421,6 +426,7 @@
       inset 0 0 0 rgba(0,0,0,0),
       inset 0 0 0 rgba(255,255,255,0);
     transition: box-shadow 0.3s ease, transform 0.15s ease-out, background-color 0.2s ease;
+    will-change: transform, box-shadow;
   }
 
   .soft-btn:hover {
@@ -470,6 +476,7 @@
     transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
                 box-shadow 0.35s ease;
     contain: content;
+    will-change: transform, box-shadow;
   }
 
   .card-hover-lift:hover {
@@ -508,6 +515,7 @@
   .icon-hover-glow {
     position: relative;
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    will-change: transform;
   }
 
   .icon-hover-glow::after {
@@ -536,6 +544,7 @@
 
   .animate-window-reveal {
     animation: windowReveal 0.5s ease-out both !important;
+    will-change: transform, opacity;
   }
 
   @keyframes staggerSlideUp {
@@ -543,9 +552,9 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .animate-stagger-1 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both !important; }
-  .animate-stagger-2 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.18s both !important; }
-  .animate-stagger-3 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both !important; }
+  .animate-stagger-1 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both !important; will-change: transform, opacity; }
+  .animate-stagger-2 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.18s both !important; will-change: transform, opacity; }
+  .animate-stagger-3 { animation: staggerSlideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both !important; will-change: transform, opacity; }
 
   @keyframes statusPulse {
     0%, 100% { opacity: 0; transform: scale(1); }
@@ -555,6 +564,7 @@
   .status-pulse {
     position: relative;
     animation: statusPulse 1.5s ease-in-out 2 !important;
+    will-change: transform, opacity;
   }
 
   .status-pulse::after {
@@ -574,6 +584,7 @@
 
   .number-flash {
     animation: numberFlash 0.4s ease-out !important;
+    will-change: transform, opacity;
   }
 
   @keyframes heartbeat {
@@ -586,6 +597,7 @@
 
   .animate-heartbeat {
     animation: heartbeat 1.5s ease-in-out infinite !important;
+    will-change: transform;
   }
 
   @keyframes borderGlowRed {
@@ -596,6 +608,7 @@
   .border-glow-danger {
     position: relative;
     animation: borderGlowRed 2s ease-in-out infinite !important;
+    will-change: transform, opacity;
   }
 
   .border-glow-danger::after {
@@ -614,6 +627,7 @@
 
   .animate-empty-breathe {
     animation: emptyBreathe 3s ease-in-out infinite !important;
+    will-change: transform, opacity;
   }
 
   @keyframes checkFlash {
@@ -624,6 +638,7 @@
 
   .animate-check-flash {
     animation: checkFlash 0.5s ease-out forwards !important;
+    will-change: transform, opacity;
   }
 
   @keyframes badgePulse {
@@ -636,6 +651,7 @@
 
   .badge-pulse {
     animation: badgePulse 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+    will-change: transform;
   }
 
   @keyframes refreshShake {
@@ -649,6 +665,7 @@
 
   .refresh-shake {
     animation: refreshShake 0.35s ease-out !important;
+    will-change: transform;
   }
 
   @keyframes barElastic {
@@ -661,10 +678,12 @@
   .bar-elastic {
     animation: barElastic 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
     transform-origin: bottom;
+    will-change: transform;
   }
 
   .log-entry-hover {
     transition: background-color 0.2s ease, transform 0.2s ease;
+    will-change: transform;
   }
 
   .log-entry-hover:hover {
@@ -680,6 +699,7 @@
   .log-left-bar {
     transition: opacity 0.2s ease, transform 0.2s ease;
     opacity: 0.5;
+    will-change: transform, opacity;
   }
 
   .gradient-layer {
@@ -722,6 +742,7 @@
     transform: scale(0);
     animation: rippleExpand 0.6s ease-out forwards;
     pointer-events: none;
+    will-change: transform, opacity;
   }
 
   input[type="text"]:focus,
@@ -748,6 +769,7 @@
     );
     background-size: 200% 100%;
     animation: shimmerSweep 1.5s ease-in-out infinite;
+    will-change: background-position;
   }
 
   @keyframes loadingPulse {
@@ -757,6 +779,7 @@
 
   .btn-loading-pulse {
     animation: loadingPulse 1.2s ease-in-out infinite !important;
+    will-change: box-shadow;
   }
 
 }
@@ -779,6 +802,7 @@
 
   .num-bounce {
     animation: numBounce 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+    will-change: transform;
   }
 
   .num-highlight {
@@ -794,6 +818,7 @@
 
   .capsule-breathe {
     animation: capsuleBreathe 3.5s ease-in-out infinite !important;
+    will-change: transform, opacity;
   }
 
   @keyframes capsuleGlowPulse {
@@ -804,6 +829,7 @@
   .capsule-glow-pulse {
     position: relative;
     animation: capsuleGlowPulse 2s ease-in-out infinite !important;
+    will-change: transform, opacity;
   }
 
   .capsule-glow-pulse::after {
@@ -828,6 +854,7 @@
     border: 2px solid currentColor;
     opacity: 0;
     pointer-events: none;
+    will-change: transform, opacity;
   }
 
   .status-ring-expand.active::after {
@@ -873,6 +900,7 @@
   .list-item-interactive {
     position: relative;
     transition: transform 0.2s ease, background-color 0.2s ease;
+    will-change: transform;
   }
 
   .list-item-interactive:hover {
@@ -891,6 +919,7 @@
     opacity: 0;
     transform: scaleY(0);
     transition: opacity 0.2s ease, transform 0.2s ease;
+    will-change: transform, opacity;
   }
 
   .list-item-interactive:hover::before {
