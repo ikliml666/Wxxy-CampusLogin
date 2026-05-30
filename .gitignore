@@ -51,6 +51,9 @@ v*.*.*-更新日志.md
 # Changelog (not pushed to repo)
 CHANGELOG.md
 
+# Internal documents (not pushed to repo)
+ersikDocumentstrae_projects1
+
 # Build scripts
 tauri-app/build.ps1
 
