@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m } from 'framer-motion'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
 import { useAuth } from '@/auth'
 import { useMonitor } from '@/monitor'
@@ -21,7 +21,8 @@ import { AccountPanel } from '@/account'
 import { NetworkPanel } from '@/network'
 import { MonitorPanel, QualityPanel, SpeedTestPanel } from '@/monitor'
 import { SettingsPanel } from '@/settings'
-import { panelSwitchVariants } from '@/lib/animations'
+import { panelSlideVariants, panelFadeOnlyVariants, getPanelDirection } from '@/lib/animations'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 
@@ -40,24 +41,13 @@ function AppInner() {
   useAppInit()
 
   const activePanel = useAppStore((s) => s.activePanel)
-  const isLightMode = useAppStore((s) => s.isLightMode)
-  const themeName = useAppStore((s) => s.themeName)
   const adapters = useAppStore((s) => s.adapters)
-  const adapterDetails = useAppStore((s) => s.adapterDetails)
   const accounts = useAppStore((s) => s.accounts)
   const activeAccount = useAppStore((s) => s.activeAccount)
-  const passwordSaved = useAppStore((s) => s.passwordSaved)
-  const disabledAdapters = useAppStore((s) => s.disabledAdapters)
-  const status = useAppStore((s) => s.status)
   const isLoggingIn = useAppStore((s) => s.isLoggingIn)
-  const isLoggingOut = useAppStore((s) => s.isLoggingOut)
-  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
-  const updateAvailable = useAppStore((s) => s.updateAvailable)
-  const latestVersion = useAppStore((s) => s.latestVersion)
-  const releaseNotes = useAppStore((s) => s.releaseNotes)
 
   const config = useAppStore(useShallow((s) => s.config))
-  const api = useAppStore((s) => s.api)
+  const api = useAppStore.getState().api
 
   const updateConfig = useAppStore((s) => s.updateConfig)
   const setActivePanel = useAppStore((s) => s.setActivePanel)
@@ -66,7 +56,6 @@ function AppInner() {
   const setReleaseNotes = useAppStore((s) => s.setReleaseNotes)
   const addToast = useAppStore((s) => s.addToast)
   const doLogin = useAppStore((s) => s.doLogin)
-  const doLogout = useAppStore((s) => s.doLogout)
   const refreshQuality = useAppStore((s) => s.refreshQuality)
 
   const { handleOpenPortal, handleOpenSelfService } = useAuth()
@@ -76,7 +65,6 @@ function AppInner() {
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
 
   const configEnableNotification = config.enableNotification
-  const configEnableNetworkQuality = config.enableNetworkQuality
   const configAutoLaunch = config.autoLaunch
 
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
@@ -94,6 +82,21 @@ function AppInner() {
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
+
+  const profile = useAnimationProfile()
+  const prevPanelRef = useRef(activePanel)
+  const [slideDirection, setSlideDirection] = useState(1)
+  const [isTransitioning, setIsTransitioning] = useState(false)
+
+  useEffect(() => {
+    if (prevPanelRef.current !== activePanel) {
+      setSlideDirection(getPanelDirection(prevPanelRef.current, activePanel))
+      prevPanelRef.current = activePanel
+      setIsTransitioning(true)
+      const timer = setTimeout(() => setIsTransitioning(false), 400)
+      return () => clearTimeout(timer)
+    }
+  }, [activePanel])
 
   useEffect(() => {
     const unlisten = getCurrentWindow().onResized(async () => {
@@ -140,8 +143,6 @@ function AppInner() {
           config={config}
           accounts={accounts}
           activeAccount={activeAccount}
-          isRefreshingQuality={isRefreshingQuality}
-          adapterDetails={adapterDetails}
           onUpdateConfig={updateConfig}
           onSwitchAccount={handleSwitchAccount}
           onDhcpRenew={handleDhcpRenew}
@@ -157,7 +158,6 @@ function AppInner() {
           adapters={adapters}
           accounts={accounts}
           activeAccount={activeAccount}
-          passwordSaved={passwordSaved}
           onUpdateConfig={updateConfig}
           onAddAccount={handleAddAccount}
           onDeleteAccount={(name) => setConfirmDelete({ open: true, name })}
@@ -170,7 +170,6 @@ function AppInner() {
         <NetworkPanel
           config={config}
           adapters={adapters}
-          disabledAdapters={disabledAdapters}
           onUpdateConfig={updateConfig}
           onEnableAdapter={api.enableAdapter}
         />
@@ -187,10 +186,9 @@ function AppInner() {
       )
       break
     case 'quality':
-      panelContent = configEnableNetworkQuality !== false ? (
+      panelContent = config.enableNetworkQuality !== false ? (
         <QualityPanel
           config={config}
-          isRefreshingQuality={isRefreshingQuality}
           onUpdateConfig={updateConfig}
           onRefreshQuality={refreshQuality}
           onToggleLatencyTest={handleToggleLatencyTest}
@@ -202,8 +200,6 @@ function AppInner() {
         <SettingsPanel
           config={config}
           autoLaunch={configAutoLaunch !== false}
-          isLightMode={isLightMode}
-          themeName={themeName}
           onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
           onToggleLightMode={handleToggleLightMode}
@@ -231,12 +227,11 @@ function AppInner() {
 
   return (
     <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
-      <FluidBackground />
+      <FluidBackground paused={isTransitioning} />
 
       <div className="animate-stagger-1">
         <TitleBar
           notificationEnabled={configEnableNotification !== false}
-          isLightMode={isLightMode}
           onToggleNotification={handleToggleNotification}
           onShowTheme={() => setThemeOpen(true)}
           onShowAbout={() => setAboutOpen(true)}
@@ -245,42 +240,49 @@ function AppInner() {
           onToggleMaximize={handleToggleMaximize}
           isMaximized={isMaximized}
           onClose={() => api.closeWindow?.()}
-          updateAvailable={updateAvailable}
-          latestVersion={latestVersion}
         />
       </div>
 
       <div className="animate-stagger-2">
         <StatusBar
-          statusText={status.text}
-          statusState={status.state}
-          enableNetworkQuality={configEnableNetworkQuality !== false}
           onOpenPortal={handleOpenPortal}
           onOpenSelfService={handleOpenSelfService}
-          onRefreshQuality={refreshQuality}
-          isRefreshing={isRefreshingQuality}
         />
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
-        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'content' }}>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
             <div className="animate-stagger-3 mb-6">
-              <h1 className="text-xl font-semibold tracking-tight">{panelInfo.title}</h1>
-              <p className="text-sm text-muted-foreground mt-1">{panelInfo.desc}</p>
+              <m.h1
+                key={`title-${activePanel}`}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                className="text-xl font-semibold tracking-tight"
+              >{panelInfo.title}</m.h1>
+              <m.p
+                key={`desc-${activePanel}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.15, delay: 0.05 }}
+                className="text-sm text-muted-foreground mt-1"
+              >{panelInfo.desc}</m.p>
             </div>
 
-            <AnimatePresence mode="popLayout">
-              <motion.div
+            <AnimatePresence mode="wait" custom={slideDirection}>
+              <m.div
                 key={activePanel}
-                variants={panelSwitchVariants}
+                custom={slideDirection}
+                variants={profile.enablePageSlide ? panelSlideVariants : panelFadeOnlyVariants}
                 initial="initial"
                 animate="animate"
                 exit="exit"
+                className="panel-content"
                 style={{ contain: 'content' }}
               >
                 <ErrorBoundary>{panelContent}</ErrorBoundary>
-              </motion.div>
+              </m.div>
             </AnimatePresence>
           </div>
         </main>
@@ -288,14 +290,10 @@ function AppInner() {
         <RightPanel
           logs={logs}
           onClearLogs={handleClearLogs}
-          adapterDetails={adapterDetails}
-          adapters={adapters}
-          config={config}
         />
       </div>
 
       <DockNav
-        activePanel={activePanel}
         onPanelChange={(p) => {
           if (panelChangeLock.current) return
           panelChangeLock.current = true
@@ -303,12 +301,6 @@ function AppInner() {
           safeStorage.set('campus-active-panel', p)
           setTimeout(() => { panelChangeLock.current = false }, 500)
         }}
-        enableNetworkQuality={configEnableNetworkQuality !== false}
-        isLoggingIn={isLoggingIn}
-        isLoggingOut={isLoggingOut}
-        adapters={adapters}
-        onLogin={doLogin}
-        onLogout={doLogout}
       />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
@@ -317,8 +309,8 @@ function AppInner() {
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
         openExternal={(url) => api.openExternal?.(url)}
-        initialLatestVersion={latestVersion}
-        initialReleaseNotes={releaseNotes}
+        initialLatestVersion={useAppStore.getState().latestVersion}
+        initialReleaseNotes={useAppStore.getState().releaseNotes}
         onUpdateAvailable={(hasUpdate, version, notes) => {
           setUpdateAvailable(hasUpdate)
           if (version) setLatestVersion(version)
@@ -332,8 +324,6 @@ function AppInner() {
       <ThemeDialog
         open={themeOpen}
         onClose={() => setThemeOpen(false)}
-        themeName={themeName}
-        isLightMode={isLightMode}
         onSetTheme={handleSetTheme}
         onToggleLightMode={handleToggleLightMode}
       />

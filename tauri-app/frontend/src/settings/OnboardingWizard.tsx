@@ -18,7 +18,7 @@ import {
   Eye, EyeOff, Loader2, UserCircle, KeyRound
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings'
-import { APP_NAME } from '@/shared'
+import { APP_NAME, PASSWORD_MASK } from '@/shared'
 import { cn, safeStorage } from '@/lib/utils'
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
@@ -42,13 +42,22 @@ function StepIndicator({ current }: { current: number }) {
     <div className="flex items-center justify-center gap-2 py-3">
       {STEP_TITLES.map((_, i) => (
         <div key={i} className="flex items-center gap-2">
-          <div className={cn(
-            'w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-medium transition-all duration-300',
-            i <= current
-              ? 'bg-primary text-primary-foreground shadow-sm'
-              : 'bg-muted text-muted-foreground'
-          )}>
-            {i < current ? <Check className="h-3.5 w-3.5" /> : i + 1}
+          <div className="relative w-7 h-7 flex items-center justify-center">
+            {i === current && (
+              <m.div
+                layoutId="step-indicator"
+                className="absolute inset-0 rounded-full bg-primary shadow-sm"
+                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+              />
+            )}
+            <span className={cn(
+              'relative z-10 text-[11px] font-medium transition-colors duration-300',
+              i <= current
+                ? 'text-primary-foreground'
+                : 'text-muted-foreground'
+            )}>
+              {i < current ? <Check className="h-3.5 w-3.5" /> : i + 1}
+            </span>
           </div>
           {i < STEP_TITLES.length - 1 && (
             <div className={cn(
@@ -65,7 +74,7 @@ function StepIndicator({ current }: { current: number }) {
 export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
   const [step, setStep] = useState(0)
   const [username, setUsername] = useState(config.user || '')
-  const [password, setPassword] = useState(config.password || '')
+  const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
   const [operator, setOperator] = useState(config.operator || '__default__')
   const [adapter1, setAdapter1] = useState(config.adapter1 || '自动检测')
   const [showPassword, setShowPassword] = useState(false)
@@ -77,7 +86,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
     if (open && !prevOpenRef.current) {
       setStep(0)
       setUsername(config.user || '')
-      setPassword(config.password || '')
+      setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
       setOperator(config.operator || '__default__')
       setAdapter1(config.adapter1 || '自动检测')
       setLoginSuccess(false)
@@ -85,16 +94,20 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
     prevOpenRef.current = open
   }, [open, config.user, config.password, config.operator, config.adapter1])
 
-  const canProceedAccount = username.trim().length > 0 && password.trim().length > 0
+  const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
   const handleNext = useCallback(() => {
     if (step === 1) {
       if (!canProceedAccount) return false
-      onUpdateConfig({
+      const updateData: Partial<Config> = {
         user: username.trim(),
-        password: password.trim(),
         operator: operator === '__default__' ? '' : operator,
-      })
+      }
+      // 仅当用户输入了新密码时才更新 password 字段，避免空密码覆盖已保存的密码
+      if (password.trim()) {
+        updateData.password = password.trim()
+      }
+      onUpdateConfig(updateData)
     }
     if (step === 2) {
       onUpdateConfig({
@@ -151,9 +164,9 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
   }
 
   const slideVariants = {
-    enter: (dir: number) => ({ x: dir > 0 ? 40 : -40, opacity: 0 }),
-    center: { x: 0, opacity: 1 },
-    exit: (dir: number) => ({ x: dir > 0 ? -40 : 40, opacity: 0 }),
+    enter: (dir: number) => ({ x: dir > 0 ? 60 : -60, opacity: 0, scale: 0.96 }),
+    center: { x: 0, opacity: 1, scale: 1 },
+    exit: (dir: number) => ({ x: dir > 0 ? -30 : 30, opacity: 0, scale: 0.98 }),
   }
 
   return (
@@ -169,7 +182,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.25, ease: 'easeInOut' }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
             className="px-6 pb-6"
           >
             {step === 0 && (

@@ -5,6 +5,8 @@ import { MAX_LOG_ENTRIES } from '@/shared'
 const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let toastIdCounter = 0
 let logIdCounter = 0
+let logBuffer: LogEntry[] = []
+let logFlushTimer: ReturnType<typeof setTimeout> | null = null
 
 interface LogToastStore {
   logs: LogEntry[]
@@ -30,11 +32,20 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
       message,
       type,
     }
-    set(state => ({
-      logs: state.logs.length >= MAX_LOG_ENTRIES
-        ? [...state.logs.slice(-(MAX_LOG_ENTRIES - 1)), entry]
-        : [...state.logs, entry]
-    }))
+    logBuffer.push(entry)
+    if (!logFlushTimer) {
+      logFlushTimer = setTimeout(() => {
+        const batch = logBuffer.slice()
+        logBuffer = []
+        logFlushTimer = null
+        set(state => {
+          const next = state.logs.length + batch.length >= MAX_LOG_ENTRIES
+            ? [...state.logs.slice(-(MAX_LOG_ENTRIES - batch.length)), ...batch]
+            : [...state.logs, ...batch]
+          return { logs: next }
+        })
+      }, 100)
+    }
   },
 
   addToast: (title, type = 'info', description, duration = 4000) => {

@@ -1,5 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { gsap } from 'gsap'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useAnimationActive } from '@/hooks/usePageIdle'
 
 interface AnimatedNumberProps {
   value: number
@@ -15,9 +17,12 @@ export function AnimatedNumber({
   unit = 'ms',
   decimals = 0,
   className = '',
-  duration = 600,
-  highlightColor = 'var(--primary)',
+  duration,
+  highlightColor: _highlightColor = 'var(--primary)',
 }: AnimatedNumberProps) {
+  const profile = useAnimationProfile()
+  const animActive = useAnimationActive()
+  const resolvedDuration = duration ?? profile.numberDuration
   const ref = useRef<HTMLSpanElement>(null)
   const prevRef = useRef(value)
   const isFirstRender = useRef(true)
@@ -26,6 +31,11 @@ export function AnimatedNumber({
 
   const animateValue = useCallback((from: number, to: number) => {
     if (!ref.current) return
+
+    if (!animActive) {
+      ref.current.textContent = `${to.toFixed(decimals)}${unit}`
+      return
+    }
 
     if (ctxRef.current) {
       ctxRef.current.revert()
@@ -39,7 +49,7 @@ export function AnimatedNumber({
       const tl = gsap.timeline()
       tl.to(objRef.current, {
         value: to,
-        duration: duration / 1000,
+        duration: resolvedDuration / 1000,
         ease: 'power2.out',
         onUpdate: () => {
           if (ref.current) {
@@ -48,32 +58,16 @@ export function AnimatedNumber({
         },
       }, 0)
       .to(ref.current, {
-        scale: 1.12,
-        duration: (duration / 1000) * 0.3,
-        ease: 'power2.out',
+        keyframes: [
+          { scale: 1.08, duration: (resolvedDuration / 1000) * 0.2, ease: 'power2.out' },
+          { scale: 1, duration: (resolvedDuration / 1000) * 0.35, ease: 'elastic.out(1, 0.6)' },
+        ],
         force3D: true,
-      }, 0)
-      .to(ref.current, {
-        scale: 0.96,
-        duration: (duration / 1000) * 0.2,
-        ease: 'power2.inOut',
-      })
-      .to(ref.current, {
-        scale: 1,
-        duration: (duration / 1000) * 0.3,
-        ease: 'elastic.out(1, 0.6)',
-      })
-      .to(ref.current, {
-        color: highlightColor,
-        duration: (duration / 1000) * 0.3,
-        yoyo: true,
-        repeat: 1,
-        ease: 'power2.inOut',
       }, 0)
     }, ref)
 
     ctxRef.current = ctx
-  }, [decimals, unit, duration, highlightColor])
+  }, [decimals, unit, resolvedDuration, animActive])
 
   useEffect(() => {
     if (isFirstRender.current) {

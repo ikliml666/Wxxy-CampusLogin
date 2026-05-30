@@ -25,7 +25,7 @@ pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle)
         s.config.store(Arc::new(cfg.clone()));
         cfg
     };
-    if let Err(e) = super::config_cmd::save_config_to_disk(&app_handle, &cfg) {
+    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
         crate::log_warn!("background", "保存停止检测配置失败: {}", e);
     }
     Ok(CommandResult::ok_msg("后台检测已停止"))

@@ -17,9 +17,11 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared'
-import { m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
+import { m, useMotionValue, useTransform, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { gsap } from 'gsap'
+import { useAppStore } from '@/hooks/useAppStore'
+import { useAnimationActive } from '@/hooks/usePageIdle'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -47,54 +49,63 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
 }) {
   const Icon = ICON_MAP[icon]
   const ref = useRef<HTMLButtonElement>(null)
-  const rectCacheRef = useRef<number | null>(null)
-
-  const updateRectCache = useCallback(() => {
-    if (ref.current) {
-      const rect = ref.current.getBoundingClientRect()
-      rectCacheRef.current = rect.left + rect.width / 2
-    }
-  }, [])
 
   const setRef = useCallback((el: HTMLButtonElement | null) => {
     (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
-    if (el) updateRectCache()
     onLayout?.(el)
-  }, [onLayout, updateRectCache])
-
-  useLayoutEffect(() => {
-    updateRectCache()
-    window.addEventListener('resize', updateRectCache)
-    return () => window.removeEventListener('resize', updateRectCache)
-  }, [updateRectCache])
+  }, [onLayout])
 
   const distance = useTransform(mouseX, (val: number) => {
-    const center = rectCacheRef.current
-    if (center === null) return MAGNETIC_RANGE + 1
+    if (!ref.current) return MAGNETIC_RANGE + 1
+    const rect = ref.current.getBoundingClientRect()
+    const center = rect.left + rect.width / 2
     return Math.abs(val - center)
   })
 
   const scaleVal = useTransform(distance, [0, MAGNETIC_RANGE], [MAX_SCALE, 1], { clamp: true })
   const liftVal = useTransform(distance, [0, MAGNETIC_RANGE], [MAX_LIFT, 0], { clamp: true })
 
-  const scale = useSpring(scaleVal, { stiffness: 500, damping: 28, mass: 0.5 })
-  const lift = useSpring(liftVal, { stiffness: 500, damping: 28, mass: 0.5 })
+  useEffect(() => {
+    const btn = ref.current
+    if (!btn) return
+
+    let rafId = 0
+    const updateTransform = () => {
+      rafId = 0
+      btn.style.transform = `scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))`
+    }
+
+    const unsubScale = scaleVal.on('change', (v) => {
+      btn.style.setProperty('--dock-scale', String(v))
+      if (!rafId) rafId = requestAnimationFrame(updateTransform)
+    })
+    const unsubLift = liftVal.on('change', (v) => {
+      btn.style.setProperty('--dock-lift', `${v}px`)
+      if (!rafId) rafId = requestAnimationFrame(updateTransform)
+    })
+
+    return () => {
+      unsubScale()
+      unsubLift()
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [scaleVal, liftVal])
 
   return (
-    <m.button
+    <button
       ref={setRef}
       onClick={() => onPanelChange(id)}
-      style={{ y: lift, scale, zIndex: 10 }}
-      whileTap={{
-        scale: [1, 0.85, 1.08, 1],
-        transition: { duration: 0.4, times: [0, 0.15, 0.6, 1] },
-      }}
       className={cn(
         'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl select-none group transition-colors duration-200',
         isActive
           ? 'text-primary bg-primary/10'
           : 'text-muted-foreground hover:text-foreground'
       )}
+      style={{
+        transform: 'scale(var(--dock-scale, 1)) translateY(var(--dock-lift, 0px))',
+        transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s, background-color 0.2s',
+        zIndex: 10,
+      }}
       aria-label={label}
     >
       {isActive && (
@@ -112,7 +123,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       >
         {label}
       </span>
-    </m.button>
+    </button>
   )
 }
 
@@ -130,7 +141,11 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
   const effectiveSelected = selectedAdapter || defaultAdapter
 
   return (
-    <div
+    <m.div
+      initial={{ opacity: 0, scaleY: 0.85, y: 8 }}
+      animate={{ opacity: 1, scaleY: 1, y: 0 }}
+      exit={{ opacity: 0, scaleY: 0.9, y: 4 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 28, mass: 0.6 }}
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
         background: 'hsl(var(--card) / 0.92)',
@@ -138,6 +153,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
         border: '1px solid hsl(var(--card) / 0.6)',
         isolation: 'isolate',
         contain: 'layout style',
+        transformOrigin: 'bottom right',
       }}
     >
       <div
@@ -157,9 +173,15 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
       <div className="px-3 py-1.5">
         <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - 选择适配器</span>
       </div>
-      {activeAdapters.map(adapter => {
+      {activeAdapters.map((adapter, index) => {
         const isSelected = effectiveSelected === adapter.name
         return (
+          <m.div
+            key={adapter.name}
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.03, duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+          >
           <button
             key={adapter.name}
             onClick={() => onSelect(adapter.name)}
@@ -192,9 +214,10 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
               </div>
             )}
           </button>
+          </m.div>
         )
       })}
-    </div>
+    </m.div>
   )
 }
 
@@ -292,7 +315,7 @@ function ActionButtonWithMenu({
         transition={{ type: 'spring', stiffness: 600, damping: 12, mass: 0.4 }}
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
-          isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
+          isLoading ? 'opacity-80 cursor-wait btn-loading-pulse' : 'cursor-pointer',
           isPrimary
             ? 'text-white'
             : 'text-muted-foreground bg-transparent border border-border/60 hover:border-foreground/30 hover:text-foreground'
@@ -330,30 +353,47 @@ function ActionButtonWithMenu({
 }
 
 interface DockNavProps {
-  activePanel: PanelName
   onPanelChange: (panel: PanelName) => void
-  enableNetworkQuality: boolean
-  isLoggingIn: boolean
-  isLoggingOut: boolean
-  adapters: Adapter[]
-  onLogin: (adapterName?: string) => void
-  onLogout: (adapterName?: string) => void
 }
 
-export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enableNetworkQuality, isLoggingIn, isLoggingOut, adapters, onLogin, onLogout }: DockNavProps) {
+export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
+  const activePanel = useAppStore((s) => s.activePanel)
+  const isLoggingIn = useAppStore((s) => s.isLoggingIn)
+  const isLoggingOut = useAppStore((s) => s.isLoggingOut)
+  const adapters = useAppStore((s) => s.adapters)
+  const enableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality !== false)
+  const doLogin = useAppStore((s) => s.doLogin)
+  const doLogout = useAppStore((s) => s.doLogout)
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
+  const animActive = useAnimationActive()
   const mouseX = useMotionValue(-1000)
   const itemRefs = useRef<Map<PanelName, HTMLButtonElement>>(new Map())
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
   const [mounted, setMounted] = useState(false)
 
+  const rafRef = useRef(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    mouseX.set(e.clientX)
-  }, [mouseX])
+    if (!animActive) return
+    if (rafRef.current) return
+    rafRef.current = requestAnimationFrame(() => {
+      mouseX.set(e.clientX)
+      rafRef.current = 0
+    })
+  }, [mouseX, animActive])
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
 
   const handleMouseLeave = useCallback(() => {
     mouseX.set(-1000)
   }, [mouseX])
+
+  useEffect(() => {
+    if (!animActive) mouseX.set(-1000)
+  }, [animActive, mouseX])
 
   const handleItemLayout = useCallback((id: PanelName) => (el: HTMLButtonElement | null) => {
     if (el) {
@@ -429,7 +469,7 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
           isLoading={isLoggingOut}
           isDisabled={isLoggingIn}
           adapters={adapters}
-          onAction={onLogout}
+          onAction={doLogout}
           variant="outline"
         />
 
@@ -440,7 +480,7 @@ export const DockNav = memo(function DockNav({ activePanel, onPanelChange, enabl
           isLoading={isLoggingIn}
           isDisabled={isLoggingOut}
           adapters={adapters}
-          onAction={onLogin}
+          onAction={doLogin}
           variant="primary"
         />
       </nav>

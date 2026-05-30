@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react'
 import type { Config } from '@/settings'
 import type { NetworkQuality } from '@/monitor'
-import type { AdapterDetail } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
@@ -59,8 +58,6 @@ interface DashboardPanelProps {
   config: Config
   accounts: string[]
   activeAccount: string
-  isRefreshingQuality: boolean
-  adapterDetails: AdapterDetail[]
   onUpdateConfig: (partial: Partial<Config>) => void
   onSwitchAccount: (name: string) => Promise<any>
   onDhcpRenew: () => Promise<void>
@@ -69,7 +66,7 @@ interface DashboardPanelProps {
   onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
 }
 
-const QuickActionsCard = memo(function QuickActionsCard({ config, bgStatus, networkQuality, onDhcpRenew, onDhcpReleaseRenew, onUpdateConfig, noAnimation, noEnterAnimation }: {
+const QuickActionsCard = memo(function QuickActionsCard({ config: _config, bgStatus: _bgStatus, networkQuality, onDhcpRenew, onDhcpReleaseRenew, onUpdateConfig: _onUpdateConfig, noAnimation, noEnterAnimation }: {
   config: Config; bgStatus: { isRunning: boolean; checkCount: number }
   networkQuality: NetworkQuality | null
   onDhcpRenew: () => Promise<void>; onDhcpReleaseRenew: () => Promise<void>
@@ -230,7 +227,7 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   )
 })
 
-function renderCard(id: CardId, props: DashboardPanelProps, bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, editing: boolean) {
+function renderCard(id: CardId, props: DashboardPanelProps, bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, isRefreshingQuality: boolean, editing: boolean) {
   const noAnim = editing
   const noEnter = !editing
   switch (id) {
@@ -239,7 +236,7 @@ function renderCard(id: CardId, props: DashboardPanelProps, bgStatus: { isRunnin
     case 'accountManage':
       return <AccountManageCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'networkQuality':
-      return <NetworkQualityCard networkQuality={networkQuality} isRefreshingQuality={props.isRefreshingQuality} onRefreshQuality={props.onRefreshQuality} noAnimation={noAnim} noEnterAnimation={noEnter} />
+      return <NetworkQualityCard networkQuality={networkQuality} isRefreshingQuality={isRefreshingQuality} onRefreshQuality={props.onRefreshQuality} noAnimation={noAnim} noEnterAnimation={noEnter} />
   }
 }
 
@@ -248,6 +245,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
   const [editing, setEditing] = useState(false)
   const bgStatus = useAppStore((s) => s.bgStatus)
   const networkQuality = useAppStore((s) => s.networkQuality)
+  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
 
   useEffect(() => { saveLayout(cards) }, [cards])
 
@@ -324,7 +322,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
               className="relative group rounded-2xl cursor-grab active:cursor-grabbing select-none touch-none"
               whileDrag={{ scale: 1.02, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', zIndex: 50 }}
             >
-              {renderCard(id, props, bgStatus, networkQuality, editing)}
+              {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing)}
               <div className="absolute inset-0 z-[5] rounded-2xl" />
               <div className="absolute -top-1.5 -right-1.5 z-10 flex items-center gap-0.5">
                 <button onClick={() => handleRemoveCard(id)}
@@ -339,7 +337,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
         <m.div variants={cardStaggerVariants} initial="hidden" animate="visible" className="space-y-3">
           {visibleCards.map(id => (
             <m.div key={id} variants={cardItemVariants} className="relative group">
-              {renderCard(id, props, bgStatus, networkQuality, editing)}
+              {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing)}
             </m.div>
           ))}
         </m.div>

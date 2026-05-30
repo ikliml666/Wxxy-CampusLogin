@@ -1,5 +1,5 @@
 import type { Config } from '@/settings'
-import type { Adapter, DisabledAdapter } from '@/network'
+import type { Adapter } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
@@ -23,7 +23,6 @@ import { useAppStore } from '@/hooks/useAppStore'
 interface NetworkPanelProps {
   config: Config
   adapters: Adapter[]
-  disabledAdapters: DisabledAdapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
   onEnableAdapter: (name: string) => void
 }
@@ -32,7 +31,8 @@ const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6'])
 const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53'])
 const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
-export const NetworkPanel = memo(function NetworkPanel({ config, adapters, disabledAdapters, onUpdateConfig }: NetworkPanelProps) {
+export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpdateConfig }: NetworkPanelProps) {
+  const disabledAdapters = useAppStore((s) => s.disabledAdapters)
   const [dohEnabling, setDohEnabling] = useState(false)
   const ipc = useIpc()
   const mountedRef = useRef(true)
@@ -129,7 +129,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, disab
                       'flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200',
                       a.name === config.adapter1
                         ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
-                        : 'bg-muted/30 hover:bg-muted/50'
+                        : 'bg-muted/30 hover:bg-muted/50 list-item-interactive'
                     )}
                   >
                     <div className="flex items-center gap-3">

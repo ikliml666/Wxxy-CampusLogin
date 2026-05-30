@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>关于 - 校园网登录助手</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #e8eaed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+    z-index: 50;
+  }
+
+  .dialog-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 51;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .dialog-body {
+    width: 780px;
+    height: 520px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #fff;
+    display: flex;
+    pointer-events: auto;
+    box-shadow: none;
+  }
+
+  /* 左侧栏 */
+  .left-panel {
+    width: 35%;
+    min-width: 273px;
+    background: #fff;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .app-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    object-fit: cover;
+    margin-bottom: 10px;
+  }
+
+  .app-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #1a1a2e;
+    text-align: center;
+  }
+
+  .app-version {
+    font-size: 14px;
+    color: #8b8b9e;
+    text-align: center;
+    margin-top: 2px;
+  }
+
+  .app-desc {
+    font-size: 12px;
+    color: #8b8b9e;
+    text-align: center;
+    line-height: 1.6;
+    margin-top: 12px;
+  }
+
+  .check-btn {
+    width: 100%;
+    justify-content: center;
+    gap: 8px;
+    height: 32px;
+    font-size: 12px;
+    margin-top: 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1.5px solid #86efac;
+    background: rgba(236,253,245,0.5);
+    color: #059669;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    font-family: inherit;
+  }
+  .check-btn:hover { background: rgba(209,250,229,0.6); }
+
+  .github-link {
+    margin-top: auto;
+    padding-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #8b8b9e;
+    cursor: pointer;
+    transition: color 0.15s;
+    border: none;
+    background: none;
+    font-family: inherit;
+  }
+  .github-link:hover { color: #7c3aed; }
+
+  /* 右侧栏 */
+  .right-panel {
+    flex: 1;
+    background: #F8F9FA;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    min-width: 0;
+    position: relative;
+  }
+
+  .close-btn {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: #8b8b9e;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .close-btn:hover { background: #f0f0f3; color: #333; }
+
+  .status-circle {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .status-check { color: #10b981; width: 32px; height: 32px; }
+
+  .status-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #059669;
+  }
+  .status-version {
+    font-size: 14px;
+    color: #8b8b9e;
+    margin-top: -8px;
+  }
+
+  /* 特性卡片 */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    width: 100%;
+    max-width: 280px;
+    margin-top: 8px;
+  }
+
+  .feature-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 12px;
+    text-align: center;
+    border: 1px solid #f0f0f3;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .feature-icon {
+    width: 20px;
+    height: 20px;
+    color: #7c3aed;
+    margin: 0 auto 6px;
+  }
+  .feature-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: #1a1a2e;
+  }
+  .feature-desc {
+    font-size: 10px;
+    color: #8b8b9e;
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+
+<div class="dialog-overlay"></div>
+<div class="dialog-wrap">
+  <div class="dialog-body">
+
+    <!-- 左侧栏 -->
+    <div class="left-panel">
+      <div style="display:flex;flex-direction:column;align-items:center;text-align:center;">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect rx='28' width='128' height='128' fill='%232d3047'/%3E%3Ccircle cx='64' cy='56' r='26' stroke='%23818cf8' stroke-width='2.5' fill='none'/%3E%3Ccircle cx='64' cy='56' r='4' fill='%23818cf8'/%3E%3Cellipse cx='64' cy='56' rx='26' ry='8' stroke='%23818cf8' stroke-width='1.5' fill='none' transform='rotate(60 64 56)'/%3E%3Cellipse cx='64' cy='56' rx='26' ry='8' stroke='%23818cf8' stroke-width='1.5' fill='none' transform='rotate(-60 64 56)'/%3E%3C/svg%3E" class="app-icon" alt="icon" />
+        <div class="app-title">校园网登录助手</div>
+        <div class="app-version">v2.2.1</div>
+      </div>
+      <p class="app-desc">校园网自动登录助手<br/>支持多适配器与自动重连</p>
+      <button class="check-btn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        已是最新版本
+      </button>
+      <button class="github-link">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        GitHub 仓库
+      </button>
+    </div>
+
+    <!-- 右侧栏 -->
+    <div class="right-panel">
+      <button class="close-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+        <div class="status-circle">
+          <svg class="status-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="status-title">已是最新版本</div>
+        <div class="status-version">v2.2.1</div>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <div class="feature-title">双适配器支持</div>
+          <div class="feature-desc">兼容多种校园网认证方式</div>
+        </div>
+        <div class="feature-card">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          <div class="feature-title">多账号管理</div>
+          <div class="feature-desc">轻松切换与保存多个账号</div>
+        </div>
+        <div class="feature-card">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+          <div class="feature-title">自动重连</div>
+          <div class="feature-desc">断网后自动恢复连接</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

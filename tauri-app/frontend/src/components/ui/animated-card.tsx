@@ -1,12 +1,12 @@
 import * as React from 'react'
 import { m, useReducedMotion } from 'framer-motion'
-import { gsap } from 'gsap'
+import gsap from 'gsap'
 import { cn } from '@/lib/utils'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 export interface AnimatedCardConfig {
   hoverY?: number
-  shadow?: string
-  restShadow?: string
+  glowIntensity?: number
   hoverScale?: number
   stiffness?: number
   damping?: number
@@ -15,10 +15,7 @@ export interface AnimatedCardConfig {
 
 const DEFAULT_CONFIG: Required<AnimatedCardConfig> = {
   hoverY: -4,
-  shadow:
-    '0 12px 32px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06)',
-  restShadow:
-    '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)',
+  glowIntensity: 1,
   hoverScale: 1,
   stiffness: 300,
   damping: 20,
@@ -30,29 +27,48 @@ export interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> 
   noHover?: boolean
   noAnimation?: boolean
   noEnterAnimation?: boolean
+  enableTilt?: boolean
 }
 
 export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
-  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, children, ...props }, ref) => {
+  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, enableTilt, children, ...props }, ref) => {
     const prefersReducedMotion = useReducedMotion()
+    const profile = useAnimationProfile()
     const [isHovered, setIsHovered] = React.useState(false)
     const [entryDone, setEntryDone] = React.useState(noEnterAnimation)
+
+    const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !prefersReducedMotion && !noAnimation
     const cardRef = React.useRef<HTMLDivElement>(null)
-    const rafRef = React.useRef<number>(0)
-    const xToRef = React.useRef<ReturnType<typeof gsap.quickTo> | null>(null)
-    const yToRef = React.useRef<ReturnType<typeof gsap.quickTo> | null>(null)
+    const xQuick = React.useRef<gsap.QuickToFunc | null>(null)
+    const yQuick = React.useRef<gsap.QuickToFunc | null>(null)
 
     React.useEffect(() => {
-      if (!cardRef.current || prefersReducedMotion) return
-      xToRef.current = gsap.quickTo(cardRef.current, 'x', { duration: 0.4, ease: 'power3.out' })
-      yToRef.current = gsap.quickTo(cardRef.current, 'y', { duration: 0.4, ease: 'power3.out' })
+      if (!tiltEnabled || !cardRef.current) return
+      const el = cardRef.current
+      xQuick.current = gsap.quickTo(el, 'rotateY', { duration: 0.4, ease: 'power2.out', force3D: true })
+      yQuick.current = gsap.quickTo(el, 'rotateX', { duration: 0.4, ease: 'power2.out', force3D: true })
       return () => {
-        xToRef.current?.(0)
-        yToRef.current?.(0)
-        xToRef.current = null
-        yToRef.current = null
+        gsap.killTweensOf(el, 'rotateY')
+        gsap.killTweensOf(el, 'rotateX')
+        xQuick.current = null
+        yQuick.current = null
       }
-    }, [prefersReducedMotion])
+    }, [tiltEnabled])
+
+    const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
+      if (!tiltEnabled || !xQuick.current || !yQuick.current) return
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = (e.clientX - rect.left) / rect.width - 0.5
+      const y = (e.clientY - rect.top) / rect.height - 0.5
+      xQuick.current(x * 8)
+      yQuick.current(-y * 8)
+    }, [tiltEnabled])
+
+    const handleMouseLeave = React.useCallback(() => {
+      if (!xQuick.current || !yQuick.current) return
+      xQuick.current(0)
+      yQuick.current(0)
+    }, [])
 
     const config = React.useMemo(
       () => ({ ...DEFAULT_CONFIG, ...animationConfig }),
@@ -60,48 +76,26 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
     )
 
     const springConfig = React.useMemo(
-      () => ({ stiffness: config.stiffness, damping: config.damping, mass: config.mass }),
-      [config.stiffness, config.damping, config.mass]
+      () => ({ stiffness: profile.springStiffness, damping: profile.springDamping, mass: config.mass }),
+      [profile.springStiffness, profile.springDamping, config.mass]
     )
+
+    const hoverY = noHover ? 0 : config.hoverY
+    const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
+  const glowShadow = React.useMemo(() => {
+    return isHovered && !noHover
+      ? `0 0 ${10 * config.glowIntensity}px hsl(var(--primary) / 0.35), 0 0 ${30 * config.glowIntensity}px hsl(var(--primary) / 0.15), 0 0 ${60 * config.glowIntensity}px hsl(var(--primary) / 0.06), 0 ${12}px ${36}px rgba(0,0,0,0.08), inset 0 0 0 1px hsl(var(--primary) / 0.12)`
+      : restShadow
+  }, [isHovered, noHover, config.glowIntensity, restShadow])
 
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
       [className]
     )
 
-    const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
-      if (noHover || prefersReducedMotion) return
-      const target = e.target as HTMLElement
-      if (target.closest('input, textarea, select, button, [role="button"], [data-no-magnetic]')) {
-        xToRef.current?.(0)
-        yToRef.current?.(0)
-        return
-      }
-      const el = cardRef.current
-      if (!el) return
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      rafRef.current = requestAnimationFrame(() => {
-        const rect = el.getBoundingClientRect()
-        const cx = rect.left + rect.width / 2
-        const cy = rect.top + rect.height / 2
-        const dx = (e.clientX - cx) / (rect.width / 2)
-        const dy = (e.clientY - cy) / (rect.height / 2)
-        const maxOffset = 4
-        xToRef.current?.(dx * maxOffset)
-        yToRef.current?.(dy * maxOffset)
-      })
-    }, [noHover, prefersReducedMotion])
-
-    const handleMouseLeave = React.useCallback(() => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      xToRef.current?.(0)
-      yToRef.current?.(0)
-      setIsHovered(false)
-    }, [])
-
     if (prefersReducedMotion || noAnimation) {
       return (
-        <div ref={ref} className={cardClassName} style={{ boxShadow: config.restShadow }} {...props}>
+        <div ref={ref} className={cardClassName} style={{ boxShadow: restShadow }} {...props}>
           {children}
         </div>
       )
@@ -112,19 +106,19 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
         className={cn('rounded-2xl')}
         initial={noEnterAnimation ? false : { opacity: 0, y: 20, scale: 0.97 }}
         animate={noEnterAnimation ? false : { opacity: 1, y: 0, scale: 1 }}
-        transition={noEnterAnimation ? undefined : { type: 'spring', stiffness: 400, damping: 22, mass: 0.7 }}
+        transition={noEnterAnimation ? undefined : { type: 'spring', ...springConfig }}
         whileHover={noHover ? undefined : {
-          boxShadow: config.shadow,
+          y: hoverY,
           transition: { type: 'spring', ...springConfig },
         }}
         onAnimationComplete={() => setEntryDone(true)}
         style={{
           pointerEvents: entryDone ? undefined : ('none' as any),
+          perspective: tiltEnabled ? 800 : undefined,
         }}
         onHoverStart={() => setIsHovered(true)}
-        onHoverEnd={() => setIsHovered(false)}
+        onHoverEnd={() => { setIsHovered(false); handleMouseLeave() }}
         onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
       >
         <div
           ref={(node) => {
@@ -133,9 +127,13 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
             else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
           }}
           className={cn(
-            'bg-white text-card-foreground rounded-2xl dark:bg-[#14161b] transition-shadow duration-200',
+            'bg-white text-card-foreground rounded-2xl transition-shadow duration-300 dark:bg-[#14161b]',
           )}
-          style={{ boxShadow: isHovered ? config.shadow : config.restShadow }}
+          style={{
+            boxShadow: glowShadow,
+            transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
+            willChange: tiltEnabled ? 'transform' : undefined,
+          }}
           {...props}
         >
           {children}

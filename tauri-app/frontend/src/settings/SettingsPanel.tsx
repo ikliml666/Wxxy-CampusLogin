@@ -13,12 +13,11 @@ import { cn } from '@/lib/utils'
 import { memo, useMemo } from 'react'
 import { m } from 'framer-motion'
 import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
+import { useAppStore } from '@/hooks/useAppStore'
 
 interface SettingsPanelProps {
   config: Config
   autoLaunch: boolean
-  isLightMode: boolean
-  themeName: ThemeName
   onUpdateConfig: (partial: Partial<Config>) => void
   onSetAutoLaunch: (enabled: boolean) => Promise<void>
   onToggleLightMode: () => void
@@ -35,14 +34,14 @@ const PRESET_COLORS = [
 export const SettingsPanel = memo(function SettingsPanel({
   config,
   autoLaunch,
-  isLightMode,
-  themeName,
   onUpdateConfig,
   onSetAutoLaunch,
   onToggleLightMode,
   onSetTheme,
   onShowOnboarding,
 }: SettingsPanelProps) {
+  const isLightMode = useAppStore((s) => s.isLightMode)
+  const themeName = useAppStore((s) => s.themeName)
   const customColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
 
   return (

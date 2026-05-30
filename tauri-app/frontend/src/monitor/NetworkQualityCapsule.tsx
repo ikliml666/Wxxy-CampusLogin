@@ -134,13 +134,27 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   useEffect(() => {
     if (!isHovered) return
     updatePopupPos()
-    const onScroll = () => updatePopupPos()
-    const onResize = () => updatePopupPos()
+    let rafId: number | null = null
+    const onScroll = () => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        updatePopupPos()
+        rafId = null
+      })
+    }
+    const onResize = () => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        updatePopupPos()
+        rafId = null
+      })
+    }
     window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onResize)
     return () => {
       window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onResize)
+      if (rafId !== null) cancelAnimationFrame(rafId)
     }
   }, [isHovered, updatePopupPos])
 
@@ -150,6 +164,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
         ref={capsuleRef}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        className="capsule-hover-wrap"
       >
         <m.div
           key={animKey}
@@ -161,8 +176,6 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
             background: capsuleBg,
             isolation: 'isolate',
           }}
-          whileHover={{ scale: 1.05 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 25 }}
           initial={animType === 'heartbeat' ? { scale: 1 } : animType === 'flash' ? { scale: 0.92, opacity: 0.6 } : false}
           animate={animType === 'heartbeat'
             ? { scale: [1, 1.06, 0.94, 1.03, 0.98, 1] }
@@ -170,6 +183,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
             ? { scale: [0.92, 1.04, 1], opacity: [0.6, 1] }
             : undefined
           }
+          transition={{ duration: 0.35, ease: [0.25, 0.8, 0.25, 1] }}
         >
           <span className="font-sans text-[10px] font-medium">网络质量：{qualityLabel}</span>
           <span className="opacity-40">·</span>

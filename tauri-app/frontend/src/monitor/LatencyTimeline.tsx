@@ -82,23 +82,23 @@ export function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs
               <div
                 key={seg.label}
                 className={cn(
-                  'h-full transition-all duration-500',
+                  'h-full',
                   seg.color,
                   i === 0 && 'rounded-l-full',
                   i === segments.length - 1 && 'rounded-r-full',
                 )}
                 style={{
                   width: `${Math.max((seg.ms / barMax) * 100, 3)}%`,
-                  transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  transition: 'width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 }}
               />
             ))
           ) : (
             <div
-              className={cn('h-full rounded-full transition-all duration-500', levelColor.bar)}
+              className={cn('h-full rounded-full', levelColor.bar)}
               style={{
                 width: '100%',
-                transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+                transition: 'width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
               }}
             />
           )}

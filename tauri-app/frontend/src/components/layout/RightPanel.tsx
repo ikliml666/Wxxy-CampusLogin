@@ -1,20 +1,19 @@
 import type { LogEntry } from '@/shared'
 import type { AdapterDetail, Adapter } from '@/network'
-import type { Config } from '@/settings'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { ScrollText, CheckCircle2, AlertCircle, Info, AlertTriangle, Trash2, Wifi, Cable, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRef, useEffect, useCallback, memo, useMemo, useState } from 'react'
+import gsap from 'gsap'
 import { m, AnimatePresence } from 'framer-motion'
 import { logEntryVariants } from '@/lib/animations'
+import { useAppStore } from '@/hooks/useAppStore'
+import { useShallow } from 'zustand/react/shallow'
 
 interface RightPanelProps {
   logs: LogEntry[]
   onClearLogs?: () => void
-  adapterDetails: AdapterDetail[]
-  adapters: Adapter[]
-  config: Config | null
 }
 
 const LOG_ICONS: Record<LogEntry['type'], typeof Info> = {
@@ -68,11 +67,49 @@ function getAdapterInfo(
   return null
 }
 
-export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterDetails, adapters, config }: RightPanelProps) {
+export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightPanelProps) {
+  const adapterDetails = useAppStore((s) => s.adapterDetails)
+  const adapters = useAppStore((s) => s.adapters)
+  const config = useAppStore(useShallow((s) => s.config))
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const prevLogCountRef = useRef(0)
   const [adapterExpanded, setAdapterExpanded] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
+
+  const handleClearWithAnimation = useCallback(async () => {
+    if (isClearing || !onClearLogs) return
+    setIsClearing(true)
+
+    const container = scrollRef.current
+    if (container) {
+      const entries = container.querySelectorAll('.log-entry-hover')
+      if (entries.length > 0) {
+        await new Promise<void>((resolve) => {
+          const ctx = gsap.context(() => {
+            gsap.to(entries, {
+              autoAlpha: 0,
+              x: -20,
+              scaleY: 0,
+              transformOrigin: 'left center',
+              stagger: { each: 0.015, from: 'start', amount: Math.min(entries.length * 0.015, 0.3) },
+              duration: 0.2,
+              ease: 'power2.in',
+              force3D: true,
+              onComplete: resolve,
+            })
+          }, container)
+          setTimeout(() => {
+            ctx.revert()
+            resolve()
+          }, 1000)
+        })
+      }
+    }
+
+    onClearLogs()
+    setIsClearing(false)
+  }, [isClearing, onClearLogs])
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
@@ -130,7 +167,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, adapterD
             )}
           </div>
           {onClearLogs && logs.length > 0 && (
-            <Button variant="ghost" size="icon-sm" className="h-6 w-6 text-muted-foreground hover:text-destructive btn-physical" onClick={onClearLogs} aria-label="清空日志">
+            <Button variant="ghost" size="icon-sm" className="h-6 w-6 text-muted-foreground hover:text-destructive btn-physical" onClick={handleClearWithAnimation} disabled={isClearing} aria-label="清空日志">
               <Trash2 className="h-3 w-3" />
             </Button>
           )}

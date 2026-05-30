@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { PanelName, LogType } from '@/shared'
+import type { PanelName, LogType, GpuInfo, GpuTier } from '@/shared'
 import type { BackgroundStatus, AdapterOnlineStatus, NetworkQuality } from '@/monitor'
 import type { DnsAdapterInfo } from '@/network'
 import { useAppStore, flushPendingConfig, hasPendingConfig } from './useAppStore'
@@ -9,6 +9,76 @@ import { mergeNetworkQuality } from '@/lib/latency'
 import { NAV_ITEMS, PASSWORD_MASK } from '@/shared'
 import { DEFAULT_CONFIG } from '@/settings'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+
+function getWebGlRenderer(): { vendor: string; renderer: string } | null {
+  try {
+    const c = document.createElement('canvas')
+    const gl = c.getContext('webgl') as WebGLRenderingContext | null
+      || c.getContext('experimental-webgl') as WebGLRenderingContext | null
+    if (!gl) return null
+    const ext = gl.getExtension('WEBGL_debug_renderer_info')
+    if (!ext) return null
+    const vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || ''
+    const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || ''
+    return { vendor, renderer }
+  } catch {
+    return null
+  }
+}
+
+function parseWebGlGpu(renderer: string): { vendor: string; model: string } | null {
+  const match = renderer.match(/ANGLE\s*\(([^,]+),\s*([^,]+)/)
+  if (!match) return null
+  return { vendor: match[1].trim(), model: match[2].trim() }
+}
+
+function classifyTierFromWebGl(vendor: string, model: string): GpuTier {
+  const v = vendor.toLowerCase()
+  const m = model.toLowerCase()
+  if (v.includes('nvidia')) return 'discrete'
+  if (v.includes('intel')) {
+    if (m.includes('arc')) return 'discrete'
+    if (m.includes('iris') && m.includes('xe')) return 'mid-igpu'
+    if (m.includes('uhd graphics 770') || m.includes('uhd graphics 768')
+      || m.includes('uhd graphics 765') || m.includes('uhd graphics 750')
+      || m.includes('uhd graphics 730')) return 'mid-igpu'
+    if (m.includes('uhd graphics') || m.includes('hd graphics')) return 'low-igpu'
+    return 'low-igpu'
+  }
+  if (v.includes('amd') || v.includes('advanced micro') || v.includes('ati')) {
+    if (m.includes(' rx ') || m.includes(' pro ') || m.includes('radeon pro') || m.includes('radeon rx')) return 'discrete'
+    if (m.includes('780m') || m.includes('760m') || m.includes('880m') || m.includes('890m')) return 'high-igpu'
+    if (m.includes('680m') || m.includes('660m')) return 'mid-igpu'
+    if (m.includes('radeon graphics')) return 'mid-igpu'
+    if (m.includes('vega')) return 'low-igpu'
+    return 'mid-igpu'
+  }
+  return 'unknown'
+}
+
+function correctGpuInfoWithWebGl(wmiInfo: GpuInfo): GpuInfo {
+  const webgl = getWebGlRenderer()
+  if (!webgl) return wmiInfo
+  const parsed = parseWebGlGpu(webgl.renderer)
+  if (!parsed) return wmiInfo
+  const wmiVendor = wmiInfo.vendor.toLowerCase()
+  const webglVendor = parsed.vendor.toLowerCase()
+  if (wmiVendor !== webglVendor && (wmiVendor.includes('nvidia') || wmiVendor.includes('amd'))) {
+    if (!webglVendor.includes(wmiVendor)) {
+      const tier = classifyTierFromWebGl(parsed.vendor, parsed.model)
+      const isIntegrated = tier === 'low-igpu' || tier === 'mid-igpu' || tier === 'high-igpu'
+      return {
+        vendor: parsed.vendor,
+        model: parsed.model,
+        vram_mb: 0,
+        is_integrated: isIntegrated,
+        tier,
+        gpu_preference: wmiInfo.gpu_preference,
+      }
+    }
+  }
+  return wmiInfo
+}
 
 const VALID_PANELS: PanelName[] = NAV_ITEMS.map(item => item.id)
 
@@ -274,7 +344,6 @@ export function useAppInit() {
           const cfg = { ...DEFAULT_CONFIG, ...initData.config }
           if (cfg.password === PASSWORD_MASK) {
             store.getState().syncPasswordSaved(true)
-            cfg.password = ''
           } else if (cfg.password && cfg.password !== '') {
             store.getState().syncPasswordSaved(false)
           }
@@ -325,6 +394,18 @@ export function useAppInit() {
           if (active) store.setState({ activeAccount: active })
 
           store.getState().checkOnline(cfg, adps)
+
+          if (initData.gpuInfo) {
+            const corrected = correctGpuInfoWithWebGl(initData.gpuInfo)
+            store.getState().setGpuInfo(corrected)
+          } else {
+            api.getGpuInfo?.().then((info) => {
+              if (info && mountedRef.current) {
+                const corrected = correctGpuInfoWithWebGl(info)
+                store.getState().setGpuInfo(corrected)
+              }
+            }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+          }
 
           const dnsPromise = (async () => {
             if (store.getState().dnsDohStatus) return
@@ -381,11 +462,17 @@ export function useAppInit() {
 
   useEffect(() => {
     const { api } = useAppStore.getState()
+    let paused = document.hidden
+    const onVisChange = () => { paused = document.hidden }
+    document.addEventListener('visibilitychange', onVisChange)
     const interval = setInterval(() => {
-      api.renderHeartbeat?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
+      if (!paused) api.renderHeartbeat?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
     }, 5000)
     api.renderHeartbeat?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
-    return () => clearInterval(interval)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisChange)
+      clearInterval(interval)
+    }
   }, [])
 
   useEffect(() => {

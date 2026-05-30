@@ -9,7 +9,6 @@ import { useAppStore } from '@/hooks/useAppStore'
 
 interface TitleBarProps {
   notificationEnabled: boolean
-  isLightMode: boolean
   onToggleNotification: () => void
   onShowTheme: () => void
   onShowAbout: () => void
@@ -18,8 +17,6 @@ interface TitleBarProps {
   onToggleMaximize: () => void
   onClose: () => void
   isMaximized: boolean
-  updateAvailable?: boolean
-  latestVersion?: string
 }
 
 const MinimizeIcon = () => (
@@ -50,7 +47,6 @@ const CloseIcon = () => (
 
 export const TitleBar = memo(function TitleBar({
   notificationEnabled,
-  isLightMode,
   onToggleNotification,
   onShowTheme,
   onShowAbout,
@@ -59,11 +55,10 @@ export const TitleBar = memo(function TitleBar({
   onToggleMaximize,
   onClose,
   isMaximized,
-  updateAvailable,
-  latestVersion,
 }: TitleBarProps) {
-  const networkOnline = useAppStore((s) => s.bgStatus.online)
-  const networkQuality = useAppStore((s) => s.networkQuality?.quality ?? 'unknown')
+  const isLightMode = useAppStore((s) => s.isLightMode)
+  const updateAvailable = useAppStore((s) => s.updateAvailable)
+  const latestVersion = useAppStore((s) => s.latestVersion)
   const lastClickTimeRef = useRef(0)
 
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

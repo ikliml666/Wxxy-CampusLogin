@@ -24,13 +24,13 @@ import { cn } from '@/lib/utils'
 import { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { m } from 'framer-motion'
 import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
+import { useAppStore } from '@/hooks/useAppStore'
 
 interface AccountPanelProps {
   config: Config
   adapters: Adapter[]
   accounts: string[]
   activeAccount: string
-  passwordSaved: boolean
   onUpdateConfig: (partial: Partial<Config>) => void
   onAddAccount: (name: string) => Promise<void>
   onDeleteAccount: (name: string) => void
@@ -42,12 +42,12 @@ export const AccountPanel = memo(function AccountPanel({
   adapters,
   accounts,
   activeAccount,
-  passwordSaved,
   onUpdateConfig,
   onAddAccount,
   onDeleteAccount,
   onSwitchAccount,
 }: AccountPanelProps) {
+  const passwordSaved = useAppStore((s) => s.passwordSaved)
   const [newAccountName, setNewAccountName] = useState('')
   const [showAddInput, setShowAddInput] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -59,9 +59,9 @@ export const AccountPanel = memo(function AccountPanel({
   }, [])
 
   const displayPassword = (() => {
-    if (passwordFocused) return config.password || ''
-    if (passwordSaved && (!config.password || config.password === '')) return '••••••••'
-    return config.password || ''
+    if (passwordFocused) return config.password === PASSWORD_MASK ? '' : (config.password || '')
+    if (passwordSaved && (!config.password || config.password === PASSWORD_MASK)) return '••••••••'
+    return config.password === PASSWORD_MASK ? '' : (config.password || '')
   })()
 
   const handleAddAccount = async () => {
@@ -118,7 +118,13 @@ export const AccountPanel = memo(function AccountPanel({
                   onFocus={() => setPasswordFocused(true)}
                   onBlur={() => {
                     setPasswordFocused(false)
-                    if (passwordSaved && !config.password) return
+                    // 密码已保存且用户未输入新密码时，恢复 MASK 并跳过发送
+                    if (passwordSaved && (!config.password || config.password === PASSWORD_MASK)) {
+                      if (config.password !== PASSWORD_MASK) {
+                        onUpdateConfig({ password: PASSWORD_MASK })
+                      }
+                      return
+                    }
                     if (config.password && config.password !== PASSWORD_MASK) {
                       onUpdateConfig({ password: config.password })
                     }
@@ -221,7 +227,7 @@ export const AccountPanel = memo(function AccountPanel({
                         'flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors duration-200',
                         isActive
                           ? 'bg-primary/8 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
-                          : 'hover:bg-accent/60'
+                          : 'hover:bg-accent/60 list-item-interactive'
                       )}
                     >
                       <div className="flex items-center gap-3">

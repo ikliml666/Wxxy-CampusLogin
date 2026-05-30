@@ -1,5 +1,4 @@
 import type { Config } from '@/settings'
-import type { NetworkQuality } from '@/monitor'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
@@ -20,6 +19,17 @@ import { useCallback, memo, useMemo, useState } from 'react'
 import { m, type Variants } from 'framer-motion'
 import { cardStaggerVariants, cardItemVariants } from '@/lib/animations'
 import { useAppStore } from '@/hooks/useAppStore'
+
+const cardItemVariantsNoY: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      duration: 0.3,
+      ease: [0.25, 0.8, 0.25, 1],
+    },
+  },
+}
 
 const tabContainerVariants: Variants = {
   animate: {
@@ -60,7 +70,6 @@ const tabItemVariants: Variants = {
 
 interface QualityPanelProps {
   config: Config
-  isRefreshingQuality: boolean
   onUpdateConfig: (partial: Partial<Config>) => void
   onRefreshQuality?: () => Promise<void>
   onToggleLatencyTest?: (enabled: boolean, intervalSec: number) => Promise<void>
@@ -119,8 +128,9 @@ const DETAIL_CATEGORIES = [
   },
 ]
 
-export const QualityPanel = memo(function QualityPanel({ config, isRefreshingQuality, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
+export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
   const networkQuality = useAppStore((s) => s.networkQuality)
+  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
   const qualityConfig = useMemo(() => {
     if (!networkQuality) return QUALITY_CONFIG.unknown
     return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown
@@ -265,7 +275,7 @@ export const QualityPanel = memo(function QualityPanel({ config, isRefreshingQua
         </AnimatedCard>
       </m.div>
 
-      <m.div variants={cardItemVariants}>
+      <m.div variants={cardItemVariantsNoY}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -320,6 +330,7 @@ export const QualityPanel = memo(function QualityPanel({ config, isRefreshingQua
             />
 
             <TabContent>
+              <TooltipProvider delayDuration={200}>
               <m.div
                 key={activeTab}
                 custom={tabDirection}
@@ -331,7 +342,6 @@ export const QualityPanel = memo(function QualityPanel({ config, isRefreshingQua
               >
                 {activeItems.map(item => (
                   <m.div key={item.name} variants={tabItemVariants}>
-                  <TooltipProvider delayDuration={200}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className={cn(
@@ -412,10 +422,10 @@ export const QualityPanel = memo(function QualityPanel({ config, isRefreshingQua
                         </TooltipContent>
                       )}
                     </Tooltip>
-                  </TooltipProvider>
                   </m.div>
                 ))}
               </m.div>
+              </TooltipProvider>
             </TabContent>
 
             {networkQuality?.timestamp && networkQuality.quality !== 'unknown' && (

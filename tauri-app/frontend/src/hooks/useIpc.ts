@@ -1,11 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
 import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult } from '@/settings'
-import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult } from '@/shared'
+import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult, GpuInfo } from '@/shared'
 
 export interface TauriApi {
   getConfig: () => Promise<Partial<Config>>
@@ -66,6 +67,7 @@ export interface TauriApi {
   checkDnsDohStatus: () => Promise<DnsDohStatus>
   setupDnsDoh: () => Promise<DnsSetupResult>
   renderHeartbeat: () => Promise<void>
+  getGpuInfo: () => Promise<GpuInfo>
 }
 
 const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => () => void) => {
@@ -133,7 +135,24 @@ const tauriApi: TauriApi = {
   onNetworkQualityResult: createEventListener<NetworkQuality>('network-quality-result'),
   startLatencyTest: () => invoke<CommandResult>('start_latency_test'),
   stopLatencyTest: () => invoke<CommandResult>('stop_latency_test'),
-  openExternal: (url) => invoke<boolean>('open_external', { url }),
+  openExternal: async (url: string) => {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) { console.warn('[openExternal] 非http协议:', url); return false }
+    if (url.length > 2048) return false
+    try { new URL(url) } catch (e) { console.warn('[openExternal] URL解析失败:', url, e); return false }
+    try {
+      const result = await invoke<boolean>('open_external', { url })
+      return result
+    } catch (invokeErr) {
+      console.warn('[openExternal] invoke失败,尝试shell插件:', invokeErr)
+      try {
+        await shellOpen(url)
+        return true
+      } catch (shellErr) {
+        console.error('[openExternal] 全部失败, url:', url, 'invokeErr:', invokeErr, 'shellErr:', shellErr)
+        return false
+      }
+    }
+  },
   getAutoLaunch: () => invoke<{ enabled: boolean }>('get_auto_launch'),
   setAutoLaunch: (enabled) => invoke<AutoLaunchResult>('set_auto_launch', { enabled }),
   getNotificationEnabled: () => invoke<boolean>('get_notification_enabled'),
@@ -158,6 +177,7 @@ const tauriApi: TauriApi = {
   checkDnsDohStatus: () => invoke<DnsDohStatus>('check_dns_doh_status'),
   setupDnsDoh: () => invoke<DnsSetupResult>('setup_dns_doh'),
   renderHeartbeat: () => invoke<void>('render_heartbeat'),
+  getGpuInfo: () => invoke<GpuInfo>('get_gpu_info'),
 }
 
 function isRetryableError(e: unknown): boolean {
