@@ -218,7 +218,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[740px] p-0 gap-0 overflow-hidden rounded-2xl border-0 shadow-none">
+      <DialogContent className="w-[90vw] max-w-[1200px] p-0 gap-0 overflow-hidden rounded-2xl border-0 shadow-none">
         {/* 隐藏的 header，仅用于无障碍访问 */}
         <DialogHeader className="sr-only">
           <DialogTitle>关于</DialogTitle>

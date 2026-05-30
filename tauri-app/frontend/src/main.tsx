@@ -10,6 +10,7 @@ import { VALID_THEMES } from '@/settings'
 import './index.css'
 
 gsap.defaults({ ease: 'power2.out' })
+gsap.ticker.fps(60)
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 if (prefersReducedMotion) {
