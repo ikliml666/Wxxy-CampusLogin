@@ -3,7 +3,6 @@ import { gsap } from 'gsap'
 import { useAnimationProfile } from './useAnimationProfile'
 
 interface StartupRefs {
-  window: HTMLDivElement | null
   titleBar: HTMLDivElement | null
   statusBar: HTMLDivElement | null
   title: HTMLDivElement | null
@@ -12,10 +11,11 @@ interface StartupRefs {
   fluidBg: HTMLDivElement | null
 }
 
+const TRANSFORM_KEYS = ['titleBar', 'statusBar', 'title', 'dockNav', 'rightPanel'] as const
+
 export function useStartupBoost() {
   const profile = useAnimationProfile()
   const refs = useRef<StartupRefs>({
-    window: null,
     titleBar: null,
     statusBar: null,
     title: null,
@@ -32,7 +32,7 @@ export function useStartupBoost() {
 
   const warmUpGpuLayers = useCallback(() => {
     if (!profile.startupBoost) return
-    const elements = Object.values(refs.current).filter(Boolean) as HTMLElement[]
+    const elements = TRANSFORM_KEYS.map(k => refs.current[k]).filter(Boolean) as HTMLElement[]
     elements.forEach(el => {
       el.style.willChange = 'transform, opacity'
       el.style.backfaceVisibility = 'hidden'
@@ -41,10 +41,16 @@ export function useStartupBoost() {
 
   const coolDownGpuLayers = useCallback(() => {
     if (!profile.startupBoost) return
-    const elements = Object.values(refs.current).filter(Boolean) as HTMLElement[]
+    const elements = TRANSFORM_KEYS.map(k => refs.current[k]).filter(Boolean) as HTMLElement[]
     elements.forEach(el => {
       el.style.willChange = ''
       el.style.backfaceVisibility = ''
+    })
+    TRANSFORM_KEYS.forEach(k => {
+      const el = refs.current[k]
+      if (el) {
+        el.style.transform = ''
+      }
     })
   }, [profile.startupBoost])
 
@@ -57,7 +63,7 @@ export function useStartupBoost() {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     if (reducedMotion) {
-      const allEls = [r.window, r.titleBar, r.statusBar, r.title, r.dockNav, r.rightPanel].filter(Boolean) as HTMLElement[]
+      const allEls = TRANSFORM_KEYS.map(k => r[k]).filter(Boolean) as HTMLElement[]
       gsap.set(allEls, { opacity: 1, y: 0, scale: 1, x: 0 })
       if (r.fluidBg) {
         r.fluidBg.classList.remove('fluid-paused')
@@ -72,14 +78,6 @@ export function useStartupBoost() {
       defaults: { ease: 'power2.out', force3D: true },
       onComplete: coolDownGpuLayers,
     })
-
-    if (r.window) {
-      tl.fromTo(r.window,
-        { opacity: 0 },
-        { opacity: 1, duration: 0.3 },
-        0
-      )
-    }
 
     if (r.titleBar) {
       tl.fromTo(r.titleBar,

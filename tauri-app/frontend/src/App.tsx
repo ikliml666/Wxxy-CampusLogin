@@ -231,7 +231,7 @@ function AppInner() {
   }
 
   return (
-    <div ref={setRef('window')} className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
+    <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
       <FluidBackground innerRef={setRef('fluidBg')} />
 
       <div ref={setRef('titleBar')}>
