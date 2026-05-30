@@ -75,8 +75,8 @@ export function useStartupBoost() {
 
     if (r.window) {
       tl.fromTo(r.window,
-        { opacity: 0.8, scale: 0.98 },
-        { opacity: 1, scale: 1, duration: 0.3 },
+        { opacity: 0 },
+        { opacity: 1, duration: 0.3 },
         0
       )
     }

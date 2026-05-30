@@ -279,25 +279,23 @@ function AppInner() {
           </div>
         </main>
 
-        <div ref={setRef('rightPanel')}>
-          <RightPanel
-            logs={logs}
-            onClearLogs={handleClearLogs}
-          />
-        </div>
-      </div>
-
-      <div ref={setRef('dockNav')}>
-        <DockNav
-          onPanelChange={(p) => {
-            if (panelChangeLock.current) return
-            panelChangeLock.current = true
-            setActivePanel(p)
-            safeStorage.set('campus-active-panel', p)
-            setTimeout(() => { panelChangeLock.current = false }, 500)
-          }}
+        <RightPanel
+          logs={logs}
+          onClearLogs={handleClearLogs}
+          outerRef={setRef('rightPanel')}
         />
       </div>
+
+      <DockNav
+        outerRef={setRef('dockNav')}
+        onPanelChange={(p) => {
+          if (panelChangeLock.current) return
+          panelChangeLock.current = true
+          setActivePanel(p)
+          safeStorage.set('campus-active-panel', p)
+          setTimeout(() => { panelChangeLock.current = false }, 500)
+        }}
+      />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
 

@@ -354,9 +354,10 @@ function ActionButtonWithMenu({
 
 interface DockNavProps {
   onPanelChange: (panel: PanelName) => void
+  outerRef?: (el: HTMLDivElement | null) => void
 }
 
-export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
+export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNavProps) {
   const activePanel = useAppStore((s) => s.activePanel)
   const isLoggingIn = useAppStore((s) => s.isLoggingIn)
   const isLoggingOut = useAppStore((s) => s.isLoggingOut)
@@ -422,6 +423,7 @@ export const DockNav = memo(function DockNav({ onPanelChange }: DockNavProps) {
 
   return (
     <div
+      ref={outerRef}
       className="fixed bottom-5 z-50 flex justify-center pointer-events-none"
       style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
     >

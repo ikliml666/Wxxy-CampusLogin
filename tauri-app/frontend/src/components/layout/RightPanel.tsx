@@ -14,6 +14,7 @@ import { useShallow } from 'zustand/react/shallow'
 interface RightPanelProps {
   logs: LogEntry[]
   onClearLogs?: () => void
+  outerRef?: (el: HTMLDivElement | null) => void
 }
 
 const LOG_ICONS: Record<LogEntry['type'], typeof Info> = {
@@ -67,7 +68,7 @@ function getAdapterInfo(
   return null
 }
 
-export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightPanelProps) {
+export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef }: RightPanelProps) {
   const adapterDetails = useAppStore((s) => s.adapterDetails)
   const adapters = useAppStore((s) => s.adapters)
   const config = useAppStore(useShallow((s) => s.config))
@@ -149,6 +150,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs }: RightP
 
   return (
     <div
+      ref={outerRef}
       className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square"
       style={{ background: 'var(--surface-side)' }}
     >
