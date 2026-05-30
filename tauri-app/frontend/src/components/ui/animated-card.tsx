@@ -104,9 +104,9 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
     return (
       <m.div
         className={cn('rounded-2xl')}
-        initial={noEnterAnimation ? false : { opacity: 0, y: 20, scale: 0.97 }}
-        animate={noEnterAnimation ? false : { opacity: 1, y: 0, scale: 1 }}
-        transition={noEnterAnimation ? undefined : { type: 'spring', ...springConfig }}
+        initial={noEnterAnimation ? false : { opacity: 0, y: 12 }}
+        animate={noEnterAnimation ? false : { opacity: 1, y: 0 }}
+        transition={noEnterAnimation ? undefined : { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
         whileHover={noHover ? undefined : {
           y: hoverY,
           transition: { type: 'spring', ...springConfig },

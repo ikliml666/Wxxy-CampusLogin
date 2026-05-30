@@ -25,7 +25,10 @@ const DialogOverlay = React.forwardRef<
         'fixed inset-0 z-50 bg-black/60',
         className
       )}
-      style={profile.enableBackdropBlur ? { backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' } : undefined}
+      style={Object.assign(
+        { willChange: 'opacity' },
+        profile.enableBackdropBlur ? { backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' } : {}
+      )}
       {...(props as Record<string, unknown>)}
     />
   )
@@ -40,15 +43,15 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
       <m.div
-        initial={{ opacity: 0, scale: 0.92, y: 8 }}
-        animate={{ opacity: 1, scale: [0.92, 1.02, 1], y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 4 }}
+        initial={{ opacity: 0, scale: 0.96, y: 6 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 3 }}
         transition={{
-          duration: 0.35,
-          ease: [0.34, 1.56, 0.64, 1],
-          scale: { duration: 0.4, times: [0, 0.7, 1], ease: [0.34, 1.56, 0.64, 1] },
+          duration: 0.25,
+          ease: [0.25, 0.1, 0.25, 1],
         }}
         className="grid gap-4 pointer-events-auto justify-self-center"
+        style={{ willChange: 'transform, opacity' }}
       >
         <DialogPrimitive.Content
           ref={ref}
