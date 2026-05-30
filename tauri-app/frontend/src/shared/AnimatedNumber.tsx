@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect } from 'react'
 import { gsap } from 'gsap'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useAnimationActive } from '@/hooks/usePageIdle'
@@ -25,47 +25,31 @@ export function AnimatedNumber({
   const prevRef = useRef(value)
   const isFirstRender = useRef(true)
   const objRef = useRef({ value })
-  const ctxRef = useRef<gsap.Context | null>(null)
+  const valueQuickToRef = useRef<gsap.QuickToFunc | null>(null)
+  const scaleQuickToRef = useRef<gsap.QuickToFunc | null>(null)
 
-  const animateValue = useCallback((from: number, to: number) => {
+  useEffect(() => {
     if (!ref.current) return
-
-    if (!animActive) {
-      ref.current.textContent = `${to.toFixed(decimals)}${unit}`
-      return
+    const el = ref.current
+    valueQuickToRef.current = gsap.quickTo(objRef.current, 'value', {
+      duration: resolvedDuration / 1000,
+      ease: 'power2.out',
+      onUpdate: () => {
+        if (ref.current) {
+          ref.current.textContent = `${objRef.current.value.toFixed(decimals)}${unit}`
+        }
+      },
+    })
+    scaleQuickToRef.current = gsap.quickTo(el, 'scale', {
+      duration: resolvedDuration / 1000 * 0.55,
+      ease: 'elastic.out(1, 0.6)',
+      force3D: true,
+    })
+    return () => {
+      valueQuickToRef.current = null
+      scaleQuickToRef.current = null
     }
-
-    if (ctxRef.current) {
-      ctxRef.current.revert()
-    }
-
-    const ctx = gsap.context(() => {
-      if (!ref.current) return
-
-      objRef.current.value = from
-
-      const tl = gsap.timeline()
-      tl.to(objRef.current, {
-        value: to,
-        duration: resolvedDuration / 1000,
-        ease: 'power2.out',
-        onUpdate: () => {
-          if (ref.current) {
-            ref.current.textContent = `${objRef.current.value.toFixed(decimals)}${unit}`
-          }
-        },
-      }, 0)
-      .to(ref.current, {
-        keyframes: [
-          { scale: 1.08, duration: (resolvedDuration / 1000) * 0.2, ease: 'power2.out' },
-          { scale: 1, duration: (resolvedDuration / 1000) * 0.35, ease: 'elastic.out(1, 0.6)' },
-        ],
-        force3D: true,
-      }, 0)
-    }, ref)
-
-    ctxRef.current = ctx
-  }, [decimals, unit, resolvedDuration, animActive])
+  }, [decimals, unit, resolvedDuration])
 
   useEffect(() => {
     if (isFirstRender.current) {
@@ -78,19 +62,24 @@ export function AnimatedNumber({
     }
 
     if (prevRef.current !== value) {
-      animateValue(prevRef.current, value)
+      if (!animActive || !valueQuickToRef.current || !scaleQuickToRef.current) {
+        if (ref.current) {
+          ref.current.textContent = `${value.toFixed(decimals)}${unit}`
+        }
+        prevRef.current = value
+        return
+      }
+
+      objRef.current.value = prevRef.current
+      valueQuickToRef.current(value)
+      scaleQuickToRef.current(1.08)
+      setTimeout(() => {
+        scaleQuickToRef.current?.(1)
+      }, resolvedDuration * 0.2)
+
       prevRef.current = value
     }
-  }, [value, decimals, unit, animateValue])
-
-  useEffect(() => {
-    return () => {
-      if (ctxRef.current) {
-        ctxRef.current.revert()
-        ctxRef.current = null
-      }
-    }
-  }, [])
+  }, [value, decimals, unit, resolvedDuration, animActive])
 
   return (
     <span

@@ -11,7 +11,7 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
   const [animReady, setAnimReady] = useState(false)
 
   useEffect(() => {
-    const timer = setTimeout(() => setAnimReady(true), 300)
+    const timer = setTimeout(() => setAnimReady(true), 100)
     return () => clearTimeout(timer)
   }, [])
 
@@ -40,6 +40,7 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           top: 0,
           animationDuration: `${gradientDuration}s`,
           willChange: 'transform',
+          backfaceVisibility: 'hidden',
         }}
       />
 
@@ -54,6 +55,8 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           top: '10%',
           animationDuration: `${orb1Duration}s`,
           willChange: 'transform',
+          backfaceVisibility: 'hidden',
+          contain: 'strict',
         }}
       />
 
@@ -69,6 +72,8 @@ export function FluidBackground({ paused }: FluidBackgroundProps) {
           animationDuration: `${orb2Duration}s`,
           animationDelay: '3s',
           willChange: 'transform',
+          backfaceVisibility: 'hidden',
+          contain: 'strict',
         }}
       />
 
