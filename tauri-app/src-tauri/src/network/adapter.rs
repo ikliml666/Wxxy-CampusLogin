@@ -973,7 +973,7 @@ pub fn ensure_ethernet_ip_for_login(
             if name.is_empty() {
                 return None;
             }
-            let adapter = adapters.iter().find(|a| &a.name == *name)?;
+            let adapter = adapters.iter().find(|a| a.name == **name)?;
             if !adapter.wireless && adapter.ip.is_empty() {
                 Some(name.to_string())
             } else {
@@ -1010,7 +1010,7 @@ pub fn ensure_ethernet_ip_for_login(
         if got_ip {
             let ip = get_adapters_force()
                 .ok()
-                .and_then(|list| list.iter().find(|a| &a.name == name).map(|a| a.ip.clone()))
+                .and_then(|list| list.iter().find(|a| a.name == *name).map(|a| a.ip.clone()))
                 .unwrap_or_default();
             let _ = app_handle.emit("login-log", serde_json::json!({
                 "message": format!("以太网 {} DHCP续租成功，IP: {}", name, ip),
