@@ -876,22 +876,6 @@ pub fn get_wired_network_profile() -> Result<Option<String>, String> {
     Ok(None)
 }
 
-pub fn get_connected_network_names() -> Vec<String> {
-    let mut names = Vec::new();
-
-    if let Ok(Some(ssid)) = get_wireless_ssid() {
-        names.push(ssid);
-    }
-
-    if let Ok(Some(profile)) = get_wired_network_profile() {
-        if !names.contains(&profile) {
-            names.push(profile);
-        }
-    }
-
-    names
-}
-
 pub fn check_gateway_reachable(gateway: &str) -> bool {
     if gateway.is_empty() {
         return false;
