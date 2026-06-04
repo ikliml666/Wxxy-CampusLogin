@@ -70,9 +70,12 @@ fn is_virtual_description(desc: &str) -> bool {
 
 #[cfg(target_os = "windows")]
 fn is_visible_in_ncpa(guid: &str) -> bool {
-    // 严格 fail-closed：注册表信息缺失 → 视为不可见
-    // 依据用户规则"只有 Win11 高级网络设置可见的网卡才能使用"
-    // 注册表是 OS 对"是否在 ncpa.cpl/INetConnectionManager 中显示"的权威判据
+    // 判断网卡是否在 Win11 高级网络设置 / ncpa.cpl 中可见
+    // 注册表路径：HKLM\SYSTEM\CurrentControlSet\Control\Network\{4D36E972-...}\{GUID}\Connection
+    // ShowInNetworkConnections 值：
+    //   = 0 → 隐藏（不可见）
+    //   = 1 或不存在 → 可见（Windows 默认行为：值不存在时显示）
+    // 键路径不存在 → 不可见（异常驱动，无 Connection 子键）
     if guid.is_empty() {
         return false;
     }
@@ -82,12 +85,14 @@ fn is_visible_in_ncpa(guid: &str) -> bool {
     );
     match winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(key_path) {
         Ok(key) => {
+            // 键路径存在：读取 ShowInNetworkConnections
+            // 值不存在时默认可见（与 Windows 行为一致）
             match key.get_value::<u32, _>("ShowInNetworkConnections") {
                 Ok(val) => val != 0,
-                Err(_) => false,
+                Err(_) => true,  // 值不存在 → Windows 默认显示
             }
         }
-        Err(_) => false,
+        Err(_) => false,  // 键路径不存在 → 异常驱动，不可见
     }
 }
 
