@@ -21,8 +21,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   const campusWifi = useAppStore((s) => s.bgStatus.campusWifi)
   const campusWired = useAppStore((s) => s.bgStatus.campusWired)
   const onCampusNetwork = useAppStore((s) => s.bgStatus.onCampusNetwork)
-  const a1OnCampus = useAppStore((s) => s.bgStatus.a1OnCampus)
-  const a2OnCampus = useAppStore((s) => s.bgStatus.a2OnCampus)
+  const adapterStatuses = useAppStore((s) => s.bgStatus.adapterStatuses) ?? []
   const statusText = status.text
   const statusState = status.state
   const prevStatusRef = useRef(statusState)
@@ -41,31 +40,33 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
     const a1Name = config?.adapter1 && config.adapter1 !== '自动检测' ? config.adapter1 : null
     const a2Name = config?.dualAdapter && config?.adapter2 && config.adapter2 !== '自动检测' ? config.adapter2 : null
 
-    const entries: { name: string; onCampus: boolean }[] = []
+    // 与 AdapterStatusCard 同源：使用 bgStatus.adapterStatuses 的 online 字段（来自 data.online/secondaryOnline）
+    // 之前用 a1OnCampus/a2OnCampus（来自 check_campus_network）导致"已在线"与卡片"未在线"撕裂
+    const entries: { name: string; online: boolean }[] = []
 
     if (a1Name) {
-      const onCampus = a1OnCampus ?? false
-      entries.push({ name: a1Name, onCampus })
+      const online = adapterStatuses.find(s => s.name === a1Name)?.online ?? false
+      entries.push({ name: a1Name, online })
     }
     if (a2Name && a2Name !== a1Name) {
-      const onCampus = a2OnCampus ?? false
-      entries.push({ name: a2Name, onCampus })
+      const online = adapterStatuses.find(s => s.name === a2Name)?.online ?? false
+      entries.push({ name: a2Name, online })
     }
 
     if (entries.length === 0) {
       return { displayText: onCampusNetwork ? '网络适配器已在线' : '网络适配器未在线', campusTooltip: null }
     }
 
-    const allOnline = entries.every(e => e.onCampus)
-    const allOffline = entries.every(e => !e.onCampus)
+    const allOnline = entries.every(e => e.online)
+    const allOffline = entries.every(e => !e.online)
 
     let text: string
     if (allOnline) {
       text = `${entries.map(e => e.name).join(', ')} 已在线`
     } else if (allOffline) {
-      text = `${entries.map(e => e.name).join(', ')} 未连接校园网`
+      text = `${entries.map(e => e.name).join(', ')} 未在线`
     } else {
-      text = entries.map(e => `${e.name}${e.onCampus ? '已在线' : '未连接校园网'}`).join(', ')
+      text = entries.map(e => `${e.name}${e.online ? '已在线' : '未在线'}`).join(', ')
     }
 
     const tooltipParts: string[] = []
@@ -73,7 +74,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
     if (campusWired) tooltipParts.push(campusWired.message)
 
     return { displayText: text, campusTooltip: tooltipParts.length > 0 ? tooltipParts.join('\n') : null }
-  }, [statusText, statusState, config, campusWifi, campusWired, onCampusNetwork, a1OnCampus, a2OnCampus])
+  }, [statusText, statusState, config, campusWifi, campusWired, onCampusNetwork, adapterStatuses])
 
   const statusConfig = {
     online: { color: 'text-emerald-500', dot: 'bg-emerald-500', bg: 'rgba(16, 185, 129, 0.12)' },

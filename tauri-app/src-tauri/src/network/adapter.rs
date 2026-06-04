@@ -11,7 +11,11 @@ use crate::config::model::Config;
 use std::os::windows::process::CommandExt;
 
 lazy_static! {
-    static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|virtual|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|nat|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|tor|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp|本地连接").expect("BL_REGEX compilation failed");
+    // 名称/描述黑名单：作为 is_visible_in_ncpa 的纵深防御层
+    // 规则：nat/tor/virtual 加 \b 词边界，避免误伤 "Native/Intel NAT Offload/Toronto/Tornado" 等合法名
+    //      中文补全：覆盖 "虚拟/伪/假/测试/模拟/隧道"，避免漏过滤中文命名的虚拟网卡
+    //      保留 "本地连接"：用户特定业务规则（Win11 高级网络设置不可见，强制排除）
+    static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|\bvirtual\b|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|\bnat\b|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|\btor\b|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp|本地连接|虚拟|伪|假|测试|模拟|隧道").expect("BL_REGEX compilation failed");
     static ref ADAPTER_CACHE: Mutex<Option<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant)>> = Mutex::new(None);
 }
 
@@ -66,8 +70,11 @@ fn is_virtual_description(desc: &str) -> bool {
 
 #[cfg(target_os = "windows")]
 fn is_visible_in_ncpa(guid: &str) -> bool {
+    // 严格 fail-closed：注册表信息缺失 → 视为不可见
+    // 依据用户规则"只有 Win11 高级网络设置可见的网卡才能使用"
+    // 注册表是 OS 对"是否在 ncpa.cpl/INetConnectionManager 中显示"的权威判据
     if guid.is_empty() {
-        return true;
+        return false;
     }
     let key_path = format!(
         "SYSTEM\\CurrentControlSet\\Control\\Network\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}\\{}\\Connection",
@@ -77,10 +84,10 @@ fn is_visible_in_ncpa(guid: &str) -> bool {
         Ok(key) => {
             match key.get_value::<u32, _>("ShowInNetworkConnections") {
                 Ok(val) => val != 0,
-                Err(_) => true,
+                Err(_) => false,
             }
         }
-        Err(_) => true,
+        Err(_) => false,
     }
 }
 
@@ -425,15 +432,29 @@ pub fn get_adapter_details_cached() -> Result<Vec<AdapterDetail>, String> {
 }
 
 pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
-    let adapter1 = if config.adapter1.is_empty() || config.adapter1 == "自动检测" {
+    // 自动检测：优先选有线网卡，其次任意有 IP 的网卡，最后任意第一个
+    let auto_detect_a1 = || -> String {
         adapters.iter()
             .find(|a| !a.wireless && !a.ip.is_empty())
             .or_else(|| adapters.iter().find(|a| !a.ip.is_empty()))
             .or_else(|| adapters.first())
             .map(|a| a.name.clone())
             .unwrap_or_default()
-    } else {
+    };
+
+    let adapter1 = if config.adapter1.is_empty() || config.adapter1 == "自动检测" {
+        auto_detect_a1()
+    } else if adapters.iter().any(|a| a.name == config.adapter1) {
         config.adapter1.clone()
+    } else {
+        // 配置名不在过滤后的可见列表中：降级到自动检测
+        // 防止用户在 pre-1709 Win10 上配置"本地连接"等已被黑名单过滤的网卡后静默选错
+        crate::log_warn!(
+            "network",
+            "配置中的 adapter1 '{}' 不在当前可见适配器列表中，降级到自动检测",
+            config.adapter1
+        );
+        auto_detect_a1()
     };
 
     let adapter2 = if config.dual_adapter {
@@ -444,8 +465,20 @@ pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Confi
                 .or_else(|| adapters.iter().find(|a| a.name != adapter1))
                 .map(|a| a.name.clone())
                 .unwrap_or_default()
-        } else {
+        } else if adapters.iter().any(|a| a.name == config.adapter2) {
             config.adapter2.clone()
+        } else {
+            crate::log_warn!(
+                "network",
+                "配置中的 adapter2 '{}' 不在当前可见适配器列表中，降级到自动检测",
+                config.adapter2
+            );
+            adapters.iter()
+                .find(|a| a.name != adapter1 && !a.wireless && !a.ip.is_empty())
+                .or_else(|| adapters.iter().find(|a| a.name != adapter1 && !a.ip.is_empty()))
+                .or_else(|| adapters.iter().find(|a| a.name != adapter1))
+                .map(|a| a.name.clone())
+                .unwrap_or_default()
         }
     } else {
         String::new()
@@ -1006,5 +1039,158 @@ pub fn ensure_ethernet_ip_for_login(
                 "type": "warning"
             }));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // === is_blacklisted 词边界回归测试 ===
+    // 防止 nat/tor/virtual 误伤 "Native/National/Toronto" 等合法物理网卡名
+    #[test]
+    fn blacklist_word_boundary_does_not_match_legit_nics() {
+        // 包含 "nat" 但不是独立的 nat 单词
+        assert!(!is_blacklisted("Intel Native Ethernet Adapter"));
+        assert!(!is_blacklisted("National Semiconductor NIC"));
+        assert!(!is_blacklisted("NATO Secure Adapter"));
+        assert!(!is_blacklisted("Native Ethernet"));
+
+        // 包含 "tor" 但不是独立的 tor 单词
+        assert!(!is_blacklisted("Toronto Office Ethernet"));
+        assert!(!is_blacklisted("Tornado Net Bridge"));
+        assert!(!is_blacklisted("Vector Network"));
+        assert!(!is_blacklisted("Mentor Lab Network"));
+
+        // 包含 "virtual" 但不是独立的 virtual 单词
+        // "Tutorial" 中含 "tut" 不会命中；"Active virtualized" 才会命中
+        // 真实物理网卡几乎不会用 "Virtualization" 单独成词，所以应安全
+        assert!(!is_blacklisted("Tutorial Lab NIC"));
+    }
+
+    #[test]
+    fn blacklist_word_boundary_still_matches_known_virtuals() {
+        // nat 独立词
+        assert!(is_blacklisted("NAT Network"));
+        assert!(is_blacklisted("nat"));
+        assert!(is_blacklisted("My NAT Adapter"));
+
+        // tor 独立词
+        assert!(is_blacklisted("tor"));
+        assert!(is_blacklisted("Tor Service"));
+
+        // virtual 独立词
+        assert!(is_blacklisted("Virtual Ethernet"));
+        assert!(is_blacklisted("Hyper-V Virtual NIC"));
+    }
+
+    // === 中文虚拟网卡补全回归测试 ===
+    #[test]
+    fn blacklist_chinese_virtual_keywords() {
+        assert!(is_blacklisted("虚拟网卡"));
+        assert!(is_blacklisted("伪 VPN"));
+        assert!(is_blacklisted("假测试网卡"));
+        assert!(is_blacklisted("测试虚拟连接"));
+        assert!(is_blacklisted("模拟网络"));
+        assert!(is_blacklisted("IPv6 隧道"));
+
+        // "本地连接" 仍应被命中（用户特定业务规则）
+        assert!(is_blacklisted("本地连接"));
+        assert!(is_blacklisted("本地连接 2"));
+    }
+
+    #[test]
+    fn blacklist_does_not_match_legit_chinese_nics() {
+        // 中文真实网卡名应不被命中
+        assert!(!is_blacklisted("以太网"));
+        assert!(!is_blacklisted("WLAN"));
+        assert!(!is_blacklisted("校园网认证"));
+    }
+
+    // === resolve_adapter_names else 分支降级测试 ===
+    fn make_test_config(adapter1: &str, dual: bool, adapter2: &str) -> crate::config::Config {
+        crate::config::Config {
+            user: String::new(),
+            password: String::new(),
+            operator: String::new(),
+            adapter1: adapter1.to_string(),
+            adapter2: adapter2.to_string(),
+            dual_adapter: dual,
+            auto_login_on_start: false,
+            auto_exit_after_login: false,
+            minimize_to_tray: false,
+            hidden_start: false,
+            auto_launch: false,
+            enable_background_check: false,
+            background_check_interval: 60,
+            auto_login_on_preparation: false,
+            auto_exit_on_online: false,
+            theme_mode: "light".to_string(),
+            enable_notification: false,
+            active_account: String::new(),
+            enable_latency_test: false,
+            latency_test_interval: 300,
+            custom_theme_color: String::new(),
+            default_panel: "login".to_string(),
+            enable_network_quality: false,
+            skip_ttfb_in_latency: true,
+            skip_content_in_latency: true,
+            portal_url: String::new(),
+            fixed_gateway: String::new(),
+            required_network_name: String::new(),
+            enable_network_name_check: false,
+            campus_gateway: String::new(),
+        }
+    }
+
+    fn make_test_adapter(name: &str, wireless: bool, ip: &str) -> Adapter {
+        Adapter {
+            name: name.to_string(),
+            ip: ip.to_string(),
+            wireless,
+            guid: format!("{{{}}}", name),
+            mac: String::new(),
+            if_index: 1,
+        }
+    }
+
+    #[test]
+    fn resolve_adapter_names_falls_back_when_config_name_missing() {
+        // 配置中写了"本地连接"，但该网卡已被黑名单过滤
+        // resolve_adapter_names 必须降级到自动检测，不能静默返回"本地连接"
+        let adapters = vec![
+            make_test_adapter("以太网", false, "10.2.0.1"),
+            make_test_adapter("WLAN", true, ""),
+        ];
+        let config = make_test_config("本地连接", false, "");
+        let (a1, a2) = resolve_adapter_names(&adapters, &config);
+        // 降级到自动检测：选有线有 IP 的"以太网"
+        assert_eq!(a1, "以太网");
+        assert_eq!(a2, "");
+    }
+
+    #[test]
+    fn resolve_adapter_names_uses_config_when_present() {
+        // 配置名存在于过滤后列表中 → 直接使用
+        let adapters = vec![
+            make_test_adapter("以太网", false, "10.2.0.1"),
+            make_test_adapter("WLAN", true, "10.2.0.2"),
+        ];
+        let config = make_test_config("WLAN", true, "以太网");
+        let (a1, a2) = resolve_adapter_names(&adapters, &config);
+        assert_eq!(a1, "WLAN");
+        assert_eq!(a2, "以太网");
+    }
+
+    #[test]
+    fn resolve_adapter_names_auto_detect_prefers_wired_with_ip() {
+        // 配置为"自动检测" → 优先选有线有 IP
+        let adapters = vec![
+            make_test_adapter("WLAN", true, "10.2.0.2"),
+            make_test_adapter("以太网", false, "10.2.0.1"),
+        ];
+        let config = make_test_config("自动检测", false, "");
+        let (a1, _) = resolve_adapter_names(&adapters, &config);
+        assert_eq!(a1, "以太网");
     }
 }

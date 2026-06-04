@@ -203,7 +203,10 @@ export function useAppInit() {
             const matchedCampusMsg = isWireless ? campusWifi?.message : campusWired?.message
             return {
               name,
-              ip: existing?.ip || adapterInfo?.ip || '',
+              // 优先使用实时 adapterInfo（来自 store.adapters 的最新数据）
+              // 当 IP 变化或丢失时立即反映；只在实时数据缺失时回退到 existing
+              // 之前用 existing?.ip || adapterInfo?.ip 会"粘住"旧值（含空字符串）
+              ip: adapterInfo?.ip ?? existing?.ip ?? '',
               wireless: isWireless,
               online: !!online,
               message: online ? (msg || '已在线') : (msg || perAdapterCampusMsg || matchedCampusMsg || (isWireless ? 'WiFi 未连接校园网' : '有线网络未连接校园网')),

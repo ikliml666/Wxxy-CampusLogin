@@ -364,7 +364,9 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                             }
                         }
                     }
-                    if !found {
+                    // 仅当至少一个 WiFi 网卡拥有合法 IP 时，才信任网关可达性
+                    // 否则可达性可能来自其他类型网卡（如有线），错误归因到 WiFi
+                    if !found && wifi_adapters.iter().any(|a| !a.ip.is_empty()) {
                         let gateway_ok = check_gateway(campus_gw, &mut gateway_checked);
                         if gateway_ok {
                             found = true;
@@ -409,7 +411,9 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                             }
                         }
                     }
-                    if !found {
+                    // 仅当至少一个有线网卡拥有合法 IP 时，才信任网关可达性
+                    // 否则可达性可能来自其他类型网卡（如 WiFi），错误归因到有线
+                    if !found && wired_adapters.iter().any(|a| !a.ip.is_empty()) {
                         let gateway_ok = check_gateway(campus_gw, &mut gateway_checked);
                         if gateway_ok {
                             found = true;
