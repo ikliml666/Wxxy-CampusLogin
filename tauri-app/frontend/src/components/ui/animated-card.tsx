@@ -11,14 +11,6 @@ export interface AnimatedCardConfig {
   mass?: number
 }
 
-const DEFAULT_CONFIG: Required<AnimatedCardConfig> = {
-  glowIntensity: 1,
-  hoverScale: 1,
-  stiffness: 300,
-  damping: 20,
-  mass: 0.8,
-}
-
 export interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> {
   animationConfig?: AnimatedCardConfig
   noHover?: boolean
@@ -44,8 +36,8 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
     React.useEffect(() => {
       if (!tiltEnabled || !cardRef.current) return
       const el = cardRef.current
-      xQuick.current = gsap.quickTo(el, 'rotateY', { duration: 0.4, ease: 'power2.out', force3D: true })
-      yQuick.current = gsap.quickTo(el, 'rotateX', { duration: 0.4, ease: 'power2.out', force3D: true })
+      xQuick.current = gsap.quickTo(el, 'rotateY', { duration: 0.35, ease: 'expo.out', force3D: true })
+      yQuick.current = gsap.quickTo(el, 'rotateX', { duration: 0.35, ease: 'expo.out', force3D: true })
       return () => {
         gsap.killTweensOf(el, 'rotateY')
         gsap.killTweensOf(el, 'rotateX')
@@ -99,17 +91,12 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       }
     }, [])
 
-    const config = React.useMemo(
-      () => ({ ...DEFAULT_CONFIG, ...animationConfig }),
-      [animationConfig]
-    )
-
-    // 发光层 shadow - 静态计算，通过 CSS opacity 控制可见性，避免 box-shadow 过渡触发 paint
-    // Apple 风格：微妙精致的光晕，不过度夸张
+    // hover 层 shadow - 静态计算，通过 CSS opacity 控制可见性，避免 box-shadow 过渡触发 paint
+    // Apple 风格：仅微弱投影提升层次感，不发光
     const glowShadow = React.useMemo(() => {
       if (noHover) return ''
-      return `0 0 ${8 * config.glowIntensity}px hsl(var(--primary) / 0.25), 0 0 ${20 * config.glowIntensity}px hsl(var(--primary) / 0.1), 0 ${8}px ${24}px rgba(0,0,0,0.06), inset 0 0 0 1px hsl(var(--primary) / 0.1)`
-    }, [noHover, config.glowIntensity])
+      return `0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)`
+    }, [noHover])
 
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),

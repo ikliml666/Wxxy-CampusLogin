@@ -477,13 +477,17 @@
     border-radius: inherit;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     will-change: opacity;
     z-index: -1;
   }
 
   .card-glow-wrapper:hover .card-glow-layer {
     opacity: 1;
+  }
+
+  .dark .card-glow-layer {
+    box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.12) !important;
   }
 
   .animated-card-interactive {
@@ -496,7 +500,7 @@
   }
 
   .animated-card-interactive:hover {
-    border-color: hsl(var(--primary) / 0.3);
+    border-color: rgba(0, 0, 0, 0.06);
   }
 
   .animated-card-interactive:focus-visible {
@@ -529,7 +533,7 @@
   }
 
   .dark .animated-card-interactive:hover {
-    border-color: hsl(var(--primary) / 0.5);
+    border-color: rgba(255, 255, 255, 0.06);
   }
 
   .dark .animated-card-interactive::before {

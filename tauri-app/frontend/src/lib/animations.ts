@@ -20,28 +20,24 @@ export const panelSwitchVariants = {
   initial: { opacity: 0 },
   animate: {
     opacity: 1,
-    transition: { duration: 0.15, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
+    transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
   },
   exit: {
     opacity: 0,
-    transition: { duration: 0.08, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
+    transition: { duration: 0.12, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
   },
 }
 
 export const logEntryVariants = {
-  initial: { opacity: 0, x: 30, scaleY: 0, originY: 0 },
+  initial: { opacity: 0, x: 20 },
   animate: {
     opacity: 1,
     x: 0,
-    scaleY: 1,
-    originY: 0,
-    transition: { type: 'spring' as const, stiffness: 500, damping: 30 },
+    transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
   },
   exit: {
     opacity: 0,
-    x: -20,
-    scaleY: 0,
-    originY: 0,
+    x: -16,
     transition: { duration: 0.15, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
   },
 }
@@ -69,8 +65,9 @@ export const panelSlideVariants = {
   },
   exit: (direction: number) => ({
     opacity: 0,
-    x: direction > 0 ? -20 : 20,
-    transition: { duration: 0.12, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
+    x: direction > 0 ? -25 : 25,
+    scale: 0.99,
+    transition: { duration: 0.18, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
   }),
 }
 

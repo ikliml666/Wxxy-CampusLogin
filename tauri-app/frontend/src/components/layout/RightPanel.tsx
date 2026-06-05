@@ -105,12 +105,10 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           const ctx = gsap.context(() => {
             gsap.to(entries, {
               autoAlpha: 0,
-              x: -20,
-              scaleY: 0,
-              transformOrigin: 'left center',
-              stagger: { each: 0.015, from: 'start', amount: Math.min(entries.length * 0.015, 0.3) },
-              duration: 0.2,
-              ease: 'power2.in',
+              x: -16,
+              stagger: { each: 0.01, from: 'start', amount: Math.min(entries.length * 0.01, 0.2) },
+              duration: 0.15,
+              ease: 'expo.out',
               onComplete: () => {
                 ctx.revert()
                 resolve()
@@ -201,9 +199,9 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
               <m.span
                 key={logs.length}
                 className="text-[11px] px-1.5 py-0.5 rounded-full bg-accent text-muted-foreground"
-                initial={{ scale: 1.3 }}
-                animate={{ scale: 1 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                initial={{ scale: 1.2, opacity: 0.5 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               >
                 {logs.length}
               </m.span>
@@ -342,7 +340,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
               style={{ overflow: 'hidden' }}
             >
               <div className="px-4 pb-4">
