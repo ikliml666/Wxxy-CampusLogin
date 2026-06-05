@@ -10,8 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getRefreshIconClass, RefreshButton } from '@/shared'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { getRefreshIconClass } from '@/shared'
 import React, { memo, useMemo } from 'react'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useAppStore } from '@/hooks/useAppStore'
@@ -72,8 +71,6 @@ const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }:
 
 export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
   const bgStatus = useAppStore((s) => s.bgStatus)
-  const isRefreshingAdapters = useAppStore((s) => s.isRefreshingAdapters)
-  const refreshAdapters = useAppStore((s) => s.refreshAdapters)
   const intervalSec = useMemo(() => (config.backgroundCheckInterval || 60000) / 1000, [config.backgroundCheckInterval])
   const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
     await onTriggerCheck()
@@ -152,25 +149,8 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
             {(bgStatus.adapterStatuses ?? []).length > 0 && (
               <div className="space-y-2 pt-2">
                 <Separator />
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2 pt-1">
                   <span className="text-xs font-medium text-muted-foreground">适配器在线状态</span>
-                  <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <RefreshButton
-                          onClick={refreshAdapters}
-                          disabled={isRefreshingAdapters}
-                          isRefreshing={isRefreshingAdapters}
-                          aria-label="刷新适配器"
-                          className="h-6 w-6 p-1"
-                          iconClassName="h-3 w-3"
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent side="left">
-                        <p>{isRefreshingAdapters ? '正在刷新...' : '刷新适配器信息'}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </div>
                 {(bgStatus.adapterStatuses ?? []).map((s) => (
                   <AdapterStatusCard key={s.name} status={s} isPrimary={s.name === config.adapter1} />
