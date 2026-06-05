@@ -89,12 +89,15 @@
 
 - **缓动曲线革命**: 全局缓动从 `power2.out` / `ease` 统一升级为 `expo.out` (`cubic-bezier(0.16, 1, 0.3, 1)`)，退出动画使用 `ease-in` (`cubic-bezier(0.7, 0, 0.84, 0)`)
 - **入场动画**: 卡片入场添加 `scale(0.98)` 微缩放，stagger 间隔 0.04s，时长 0.4s
-- **面板切换**: slide 位移 50px + scale(0.98)，fade 添加 scale(0.99) 微缩放
+- **面板切换**: CSS 动画改为 Framer Motion `AnimatePresence mode="wait"`，支持完整 exit 动画；slide 位移 50px + scale(0.98)，fade 添加 scale(0.99) 微缩放
 - **按钮交互**: hover/active scale 变化幅度减小（1.03/0.97 for physical, 1.02/0.96 for press），Apple 缓动曲线
 - **TitleBar 图标**: hover scale 1.08 + expo.out 缓动（原 1.15 + 弹簧弹跳），active scale 0.95
 - **窗口控制按钮**: 新增 `.titlebar-win-btn` 类，hover scale 1.1 + active scale 0.92
 - **Dock 磁性效果**: quickTo 缓动改为 expo.out，duration 0.35s
 - **数字动画**: AnimatedNumber valueQuickTo / scaleQuickTo 统一使用 expo.out
+- **卡片 hover 阴影**: 移除丑陋的多层发光+inset边框，改为微弱投影提升层次感；hover 边框从 primary 发光色改为中性色
+- **全部 spring 改 tween**: DockNav 活跃指示器、DockItem 活跃背景、ActionButton、AdapterMenu、日志条目、日志计数 badge、适配器展开/收起全部从 spring 物理模拟改为 expo.out tween，消除卡顿
+- **scaleY 布局属性消除**: 日志条目和适配器菜单的 `scaleY` 改为 `scale`，避免触发 reflow
 
 ### 滚动体验
 
