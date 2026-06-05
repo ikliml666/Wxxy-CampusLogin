@@ -18,6 +18,7 @@ let saveConfigPending: Partial<Config> | null = null
 let checkOnlineEpoch = 0
 let _qualityLockFlag = false
 let _checkOnlineLockFlag = false
+let _adapterLockFlag = false
 
 interface AppStore {
   config: Config
@@ -34,6 +35,7 @@ interface AppStore {
   isLoggingIn: boolean
   isLoggingOut: boolean
   isRefreshingQuality: boolean
+  isRefreshingAdapters: boolean
   status: { text: string; state: StatusState }
   activePanel: PanelName
   themeName: ThemeName
@@ -76,6 +78,7 @@ interface AppStore {
   doLogout: (adapterName?: string) => Promise<void>
   checkOnline: (cfg?: Partial<Config>, adps?: Adapter[]) => Promise<void>
   refreshQuality: () => Promise<void>
+  refreshAdapters: () => Promise<void>
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -93,6 +96,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isLoggingIn: false,
   isLoggingOut: false,
   isRefreshingQuality: false,
+  isRefreshingAdapters: false,
   status: { text: '检测中...', state: 'loading' },
   activePanel: 'dashboard',
   themeName: 'default',
@@ -432,6 +436,28 @@ export const useAppStore = create<AppStore>((set, get) => ({
       setTimeout(() => {
         _qualityLockFlag = false
         set({ isRefreshingQuality: false })
+      }, 500)
+    }
+  },
+
+  refreshAdapters: async () => {
+    if (_adapterLockFlag) return
+    _adapterLockFlag = true
+    set({ isRefreshingAdapters: true })
+    try {
+      const [adapters, details] = await Promise.all([
+        api.getAdapters?.(true).catch(() => undefined),
+        api.getAdapterDetails?.().catch(() => undefined),
+      ])
+      if (adapters) set({ adapters })
+      if (details) set({ adapterDetails: details })
+      api.triggerBackgroundCheck?.().catch(() => {})
+    } catch(e) {
+      if (import.meta.env.DEV) console.error('[refreshAdapters]', e)
+    } finally {
+      setTimeout(() => {
+        _adapterLockFlag = false
+        set({ isRefreshingAdapters: false })
       }, 500)
     }
   },
