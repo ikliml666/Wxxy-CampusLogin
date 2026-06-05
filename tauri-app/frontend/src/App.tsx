@@ -8,6 +8,7 @@ import { useSettings } from '@/settings'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
+import { AnimatePresence, m } from 'framer-motion'
 import { ErrorBoundary, ToastContainer, FluidBackground, ConfirmDialog, LogPanel } from '@/shared'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/monitor'
@@ -20,7 +21,7 @@ import { AccountPanel } from '@/account'
 import { NetworkPanel } from '@/network'
 import { MonitorPanel, QualityPanel, SpeedTestPanel } from '@/monitor'
 import { SettingsPanel } from '@/settings'
-import { getPanelDirection } from '@/lib/animations'
+import { getPanelDirection, panelSlideVariants, panelFadeOnlyVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -269,13 +270,20 @@ function AppInner() {
               >{panelInfo.desc}</p>
             </div>
 
-            <div
-              key={activePanel}
-              className={cn('panel-content', profile.enablePageSlide ? 'panel-slide-in' : 'panel-fade-in')}
-              style={{ contain: 'layout style', '--slide-dir': slideDirection } as React.CSSProperties}
-            >
-              <ErrorBoundary>{panelContent}</ErrorBoundary>
-            </div>
+            <AnimatePresence mode="wait" custom={slideDirection}>
+              <m.div
+                key={activePanel}
+                custom={slideDirection}
+                variants={profile.enablePageSlide ? panelSlideVariants : panelFadeOnlyVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="panel-content"
+                style={{ contain: 'layout style' } as React.CSSProperties}
+              >
+                <ErrorBoundary>{panelContent}</ErrorBoundary>
+              </m.div>
+            </AnimatePresence>
           </div>
         </main>
 

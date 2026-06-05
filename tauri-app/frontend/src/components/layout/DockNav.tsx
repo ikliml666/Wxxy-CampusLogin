@@ -123,9 +123,9 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       {isActive && (
         <m.div
           className="absolute inset-0 rounded-xl bg-primary/8"
-          initial={{ opacity: 0, scale: 0.9 }}
+          initial={{ opacity: 0, scale: 0.92 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         />
       )}
       <Icon className="h-[18px] w-[18px]" />
@@ -153,10 +153,10 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
 
   return (
     <m.div
-      initial={{ opacity: 0, scaleY: 0.85, y: 8 }}
-      animate={{ opacity: 1, scaleY: 1, y: 0 }}
-      exit={{ opacity: 0, scaleY: 0.9, y: 4 }}
-      transition={{ type: 'spring', stiffness: 500, damping: 28, mass: 0.6 }}
+      initial={{ opacity: 0, scale: 0.95, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97, y: 4 }}
+      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
         background: 'hsl(var(--card) / 0.92)',
@@ -322,8 +322,8 @@ function ActionButtonWithMenu({
         disabled={isLoading || isDisabled}
         animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
         whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
-        whileTap={!isLoading ? { scale: [1, 0.85, 1.08, 1], transition: { duration: 0.45, times: [0, 0.15, 0.6, 1] } } : undefined}
-        transition={{ type: 'spring', stiffness: 600, damping: 22, mass: 0.5 }}
+        whileTap={!isLoading ? { scale: 0.95 } : undefined}
+        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
           isLoading ? 'opacity-80 cursor-wait btn-loading-pulse' : 'cursor-pointer',
@@ -459,7 +459,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           className="absolute bottom-[3px] left-0 h-[3px] rounded-full bg-primary"
           style={{ width: 20, originX: 0 }}
           animate={{ x: indicator.left, scaleX: indicator.width / 20 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
         />
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
