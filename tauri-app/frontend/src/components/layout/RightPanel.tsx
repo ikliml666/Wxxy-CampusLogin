@@ -10,6 +10,13 @@ import { m, AnimatePresence } from 'framer-motion'
 import { logEntryVariants } from '@/lib/animations'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useShallow } from 'zustand/react/shallow'
+import { RefreshButton } from '@/shared'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+
+// 虚拟化相关常量
+const VIRTUAL_ITEM_HEIGHT = 30 // 单条日志估算高度（px）
+const VIRTUAL_BUFFER = 5 // 可视区域上下缓冲条数
+const VIRTUAL_THRESHOLD = 50 // 超过此数量启用虚拟化
 
 interface RightPanelProps {
   logs: LogEntry[]
@@ -72,11 +79,18 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   const adapterDetails = useAppStore((s) => s.adapterDetails)
   const adapters = useAppStore((s) => s.adapters)
   const config = useAppStore(useShallow((s) => s.config))
+  const isRefreshingAdapters = useAppStore((s) => s.isRefreshingAdapters)
+  const refreshAdapters = useAppStore((s) => s.refreshAdapters)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const prevLogCountRef = useRef(0)
   const [adapterExpanded, setAdapterExpanded] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
+
+  // 虚拟化：追踪可视区域的起始索引
+  const [virtualStart, setVirtualStart] = useState(0)
+
+  const isVirtualMode = logs.length > VIRTUAL_THRESHOLD
 
   const handleClearWithAnimation = useCallback(async () => {
     if (isClearing || !onClearLogs) return
@@ -114,7 +128,13 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
     if (!scrollRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
     isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
-  }, [])
+
+    // 虚拟化模式下更新可视区域起始索引
+    if (isVirtualMode) {
+      const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_ITEM_HEIGHT) - VIRTUAL_BUFFER)
+      setVirtualStart(startIndex)
+    }
+  }, [isVirtualMode])
 
   useEffect(() => {
     if (scrollRef.current && isAutoScrollRef.current) {
@@ -139,6 +159,20 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
     }
     return result
   }, [adapterDetails, adapters, config])
+
+  // 虚拟化：计算可见条目的索引范围和样式
+  const virtualRange = useMemo(() => {
+    if (!isVirtualMode) return null
+    const containerHeight = scrollRef.current?.clientHeight ?? 400
+    const visibleCount = Math.ceil(containerHeight / VIRTUAL_ITEM_HEIGHT) + VIRTUAL_BUFFER * 2
+    const endIndex = Math.min(logs.length, virtualStart + visibleCount)
+    return {
+      start: virtualStart,
+      end: endIndex,
+      totalHeight: logs.length * VIRTUAL_ITEM_HEIGHT,
+      offsetY: virtualStart * VIRTUAL_ITEM_HEIGHT,
+    }
+  }, [isVirtualMode, virtualStart, logs.length])
 
   return (
     <div
@@ -173,39 +207,49 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className={cn('overflow-y-auto px-4 pb-3 space-y-1 min-h-0', logs.length > 0 ? 'flex-1' : '')}
+          className={cn('overflow-y-auto px-4 pb-3 min-h-0', logs.length > 0 ? 'flex-1' : '')}
+          style={{
+            overscrollBehavior: 'contain',
+            willChange: 'transform',
+          }}
         >
           {logs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-muted-foreground/40">
               <ScrollText className="h-8 w-8 mb-2 animate-empty-breathe" />
               <p className="text-[11px]">暂无日志记录</p>
             </div>
-          ) : logs.length > 50 ? (
-            <div className="space-y-1">
-              {logs.map((log, idx) => {
-                const Icon = LOG_ICONS[log.type]
-                const isLatest = isNewLog && idx === logs.length - 1
-                return (
-                  <div
-                    key={log.id}
-                    className={cn(
-                      'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover',
-                      LOG_BG_COLORS[log.type],
-                      isLatest && 'log-entry-flash',
-                      isLatest && 'card-enter'
-                    )}
-                  >
-                    <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type])} />
-                    <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-muted-foreground/50 font-mono">{log.time}</span>
-                      <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
+          ) : isVirtualMode && virtualRange ? (
+            /* 虚拟化模式：只渲染可视区域内的条目 */
+            <div style={{ height: virtualRange.totalHeight, position: 'relative' }}>
+              <div style={{ position: 'absolute', top: virtualRange.offsetY, left: 0, right: 0 }}>
+                {logs.slice(virtualRange.start, virtualRange.end).map((log, i) => {
+                  const idx = virtualRange.start + i
+                  const Icon = LOG_ICONS[log.type]
+                  const isLatest = isNewLog && idx === logs.length - 1
+                  return (
+                    <div
+                      key={log.id}
+                      className={cn(
+                        'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover',
+                        LOG_BG_COLORS[log.type],
+                        isLatest && 'log-entry-flash',
+                        isLatest && 'card-enter'
+                      )}
+                      style={{ height: VIRTUAL_ITEM_HEIGHT }}
+                    >
+                      <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type])} />
+                      <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                        <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           ) : (
+            <div className="space-y-1">
             <AnimatePresence initial={false}>
               {logs.map((log, idx) => {
                 const Icon = LOG_ICONS[log.type]
@@ -233,6 +277,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                 )
               })}
             </AnimatePresence>
+            </div>
           )}
         </div>
       </AnimatedCard>
@@ -245,8 +290,25 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <Cable className="h-3.5 w-3.5" />
             <span>网络适配器</span>
-            <span className="ml-auto">
+            <span className="ml-auto flex items-center gap-0.5">
               {adapterExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <RefreshButton
+                      onClick={(e) => { e.stopPropagation(); refreshAdapters() }}
+                      disabled={isRefreshingAdapters}
+                      isRefreshing={isRefreshingAdapters}
+                      aria-label="刷新适配器"
+                      className="h-6 w-6 p-1"
+                      iconClassName="h-2.5 w-2.5"
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    <p>{isRefreshingAdapters ? '正在刷新...' : '刷新适配器'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </span>
           </div>
           {!adapterExpanded && displayAdapters.length > 0 && (

@@ -18,8 +18,6 @@ import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { m } from 'framer-motion'
 import { useIpc } from '@/hooks/useIpc'
 import { useAppStore } from '@/hooks/useAppStore'
-import { RefreshButton } from '@/shared'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface NetworkPanelProps {
   config: Config
@@ -33,8 +31,6 @@ const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
 export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpdateConfig }: NetworkPanelProps) {
   const disabledAdapters = useAppStore((s) => s.disabledAdapters)
-  const isRefreshingAdapters = useAppStore((s) => s.isRefreshingAdapters)
-  const refreshAdapters = useAppStore((s) => s.refreshAdapters)
   const [dohEnabling, setDohEnabling] = useState(false)
   const ipc = useIpc()
   const mountedRef = useRef(true)
@@ -105,35 +101,16 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Router className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <CardTitle>网络适配器</CardTitle>
-                  <CardDescription>
-                    检测到 {adapters.length} 个已连接{disabledAdapters.length > 0 ? `，${disabledAdapters.length} 个未连接/已禁用` : ''}
-                  </CardDescription>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Router className="h-5 w-5 text-primary" />
               </div>
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <RefreshButton
-                      onClick={refreshAdapters}
-                      disabled={isRefreshingAdapters}
-                      isRefreshing={isRefreshingAdapters}
-                      aria-label="刷新适配器"
-                      className="h-8 w-8 p-2"
-                      iconClassName="h-3.5 w-3.5"
-                    />
-                  </TooltipTrigger>
-                  <TooltipContent side="left">
-                    <p>{isRefreshingAdapters ? '正在刷新...' : '刷新适配器信息'}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <div>
+                <CardTitle>网络适配器</CardTitle>
+                <CardDescription>
+                  检测到 {adapters.length} 个已连接{disabledAdapters.length > 0 ? `，${disabledAdapters.length} 个未连接/已禁用` : ''}
+                </CardDescription>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
