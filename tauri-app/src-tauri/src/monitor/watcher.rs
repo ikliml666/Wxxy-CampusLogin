@@ -523,9 +523,9 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             adapter_campus_status(&adapter2_name, &adapters, &campus_result).map(|s| s.on_campus)
         } else { None };
         emit_background_check_result(
-            app_handle, state, false, false, false, &campus_result.message,
+            app_handle, state, false, false, false, a1_campus.as_deref().unwrap_or(&campus_result.message),
             &adapter1_name, &adapter2_name,
-            None, "", config.dual_adapter, &config, &campus_result,
+            None, a2_campus.as_deref().unwrap_or(""), config.dual_adapter, &config, &campus_result,
             a1_campus.as_deref(), a2_campus.as_deref(),
             a1_on_campus, a2_on_campus,
         );

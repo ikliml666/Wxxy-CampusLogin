@@ -155,7 +155,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
 
   const details = useMemo(() => networkQuality?.details ?? {}, [networkQuality?.details])
 
-  const hasData = !!(networkQuality?.details) && networkQuality.quality !== 'unknown'
+  const hasData = !!(networkQuality?.details)
 
   const activeItems = useMemo(() => {
     const cat = DETAIL_CATEGORIES.find(c => c.key === activeTab)

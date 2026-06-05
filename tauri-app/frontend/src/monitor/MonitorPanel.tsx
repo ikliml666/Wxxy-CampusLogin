@@ -233,7 +233,7 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                     <Wifi className="h-4 w-4 text-violet-500" />
                   </div>
                   <div>
-                    <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">启用校园网名称检测</Label>
+                    <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">启用校园网环境验证</Label>
                     <p className="text-[11px] text-muted-foreground mt-0.5">仅当检测到指定校园Wi-Fi或网关时才进行认证</p>
                   </div>
                 </div>
