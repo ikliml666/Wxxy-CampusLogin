@@ -73,54 +73,54 @@ export function useStartupBoost() {
     warmUpGpuLayers()
 
     const tl = gsap.timeline({
-      defaults: { ease: 'power2.out' },
+      defaults: { ease: 'expo.out' },
       onComplete: coolDownGpuLayers,
     })
 
     if (r.titleBar) {
       tl.fromTo(r.titleBar,
-        { opacity: 0, y: 12 },
-        { opacity: 1, y: 0, duration: 0.3, force3D: true },
+        { opacity: 0, y: 14 },
+        { opacity: 1, y: 0, duration: 0.5, force3D: true },
         stagger * 1
       )
     }
 
     if (r.statusBar) {
       tl.fromTo(r.statusBar,
-        { opacity: 0, y: 12 },
-        { opacity: 1, y: 0, duration: 0.3, force3D: true },
-        stagger * 2.5
+        { opacity: 0, y: 14 },
+        { opacity: 1, y: 0, duration: 0.5, force3D: true },
+        stagger * 3
       )
     }
 
     if (r.title) {
       tl.fromTo(r.title,
-        { opacity: 0, y: 12 },
-        { opacity: 1, y: 0, duration: 0.3, force3D: true },
-        stagger * 4
+        { opacity: 0, y: 14 },
+        { opacity: 1, y: 0, duration: 0.5, force3D: true },
+        stagger * 5
       )
     }
 
     if (r.rightPanel) {
       tl.fromTo(r.rightPanel,
-        { opacity: 0, x: 60 },
-        { opacity: 1, x: 0, duration: 0.5, ease: 'power2.out', force3D: true },
-        0.35
+        { opacity: 0, x: 50 },
+        { opacity: 1, x: 0, duration: 0.6, ease: 'expo.out', force3D: true },
+        0.3
       )
     }
 
     if (r.dockNav) {
       tl.fromTo(r.dockNav,
-        { opacity: 0, y: 50, scale: 0.8 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.4)', force3D: true },
-        0.6
+        { opacity: 0, y: 40, scale: 0.85 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)', force3D: true },
+        0.5
       )
     }
 
     if (r.fluidBg) {
       tl.call(() => {
         r.fluidBg!.classList.remove('fluid-paused')
-      }, [], 0.1)
+      }, [], 0.8)
     }
 
     timelineRef.current = tl

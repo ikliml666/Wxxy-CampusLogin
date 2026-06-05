@@ -34,7 +34,7 @@ export function AnimatedNumber({
     const el = ref.current
     valueQuickToRef.current = gsap.quickTo(objRef.current, 'value', {
       duration: resolvedDuration / 1000,
-      ease: 'power2.out',
+      ease: 'expo.out',
       onUpdate: () => {
         if (ref.current) {
           ref.current.textContent = `${objRef.current.value.toFixed(decimals)}${unit}`
@@ -43,7 +43,7 @@ export function AnimatedNumber({
     })
     scaleQuickToRef.current = gsap.quickTo(el, 'scale', {
       duration: resolvedDuration / 1000 * 0.55,
-      ease: 'elastic.out(1, 0.6)',
+      ease: 'expo.out',
       force3D: true,
     })
     return () => {

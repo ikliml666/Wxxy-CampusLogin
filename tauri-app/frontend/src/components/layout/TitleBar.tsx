@@ -191,7 +191,7 @@ export const TitleBar = memo(function TitleBar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
                 onClick={onMinimize}
                 aria-label="最小化"
               >
@@ -204,7 +204,7 @@ export const TitleBar = memo(function TitleBar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
                 onClick={onToggleMaximize}
                 aria-label={isMaximized ? '还原' : '最大化'}
               >
@@ -217,7 +217,7 @@ export const TitleBar = memo(function TitleBar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors titlebar-win-btn"
                 onClick={onClose}
                 aria-label="关闭"
               >

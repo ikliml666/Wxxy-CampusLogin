@@ -29,11 +29,11 @@ export interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> 
   staggerIndex?: number
 }
 
-export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
+const REST_SHADOW = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
+
+export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, AnimatedCardProps>(
   ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, noRipple = false, enableTilt, staggerIndex, children, ...props }, ref) => {
     const profile = useAnimationProfile()
-    const [isHovered, setIsHovered] = React.useState(false)
-    const [rippleStyle, setRippleStyle] = React.useState<React.CSSProperties>({})
     const rippleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !noAnimation
@@ -83,10 +83,8 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       const rect = el.getBoundingClientRect()
       const x = ((e.clientX - rect.left) / rect.width) * 100
       const y = ((e.clientY - rect.top) / rect.height) * 100
-      setRippleStyle({
-        '--ripple-x': `${x}%`,
-        '--ripple-y': `${y}%`,
-      } as React.CSSProperties)
+      el.style.setProperty('--ripple-x', `${x}%`)
+      el.style.setProperty('--ripple-y', `${y}%`)
       el.classList.add('ripple-active')
       if (rippleTimerRef.current) clearTimeout(rippleTimerRef.current)
       rippleTimerRef.current = setTimeout(() => {
@@ -106,12 +104,12 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
       [animationConfig]
     )
 
-    const restShadow = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
+    // 发光层 shadow - 静态计算，通过 CSS opacity 控制可见性，避免 box-shadow 过渡触发 paint
+    // Apple 风格：微妙精致的光晕，不过度夸张
     const glowShadow = React.useMemo(() => {
-      return isHovered && !noHover
-        ? `0 0 ${10 * config.glowIntensity}px hsl(var(--primary) / 0.35), 0 0 ${30 * config.glowIntensity}px hsl(var(--primary) / 0.15), 0 0 ${60 * config.glowIntensity}px hsl(var(--primary) / 0.06), 0 ${12}px ${36}px rgba(0,0,0,0.08), inset 0 0 0 1px hsl(var(--primary) / 0.12)`
-        : restShadow
-    }, [isHovered, noHover, config.glowIntensity, restShadow])
+      if (noHover) return ''
+      return `0 0 ${8 * config.glowIntensity}px hsl(var(--primary) / 0.25), 0 0 ${20 * config.glowIntensity}px hsl(var(--primary) / 0.1), 0 ${8}px ${24}px rgba(0,0,0,0.06), inset 0 0 0 1px hsl(var(--primary) / 0.1)`
+    }, [noHover, config.glowIntensity])
 
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
@@ -122,48 +120,54 @@ export const AnimatedCard = React.forwardRef<HTMLDivElement, AnimatedCardProps>(
 
     if (noAnimation) {
       return (
-        <div ref={ref} className={cardClassName} style={{ boxShadow: restShadow }} {...props}>
+        <div ref={ref} className={cardClassName} style={{ boxShadow: REST_SHADOW }} {...props}>
           {children}
         </div>
       )
     }
 
+    const showGlow = !noHover && !noAnimation
+
     return (
-      <div
-        className={cn(
-          'rounded-2xl animated-card-interactive',
-          showEntryAnim && 'card-enter',
+      <div className={showGlow ? 'card-glow-wrapper' : undefined}>
+        {/* 发光层 - 独立于 overflow:hidden 之外，仅 opacity 过渡（合成层操作，零 paint） */}
+        {showGlow && (
+          <div
+            className="card-glow-layer"
+            style={{ boxShadow: glowShadow }}
+          />
         )}
-        style={{
-          '--stagger-i': staggerIndex ?? 0,
-          perspective: tiltEnabled ? 800 : undefined,
-          ...rippleStyle,
-        } as React.CSSProperties}
-        onMouseDown={handleMouseDown}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => { setIsHovered(false); handleMouseLeave() }}
-        onMouseMove={handleMouseMove}
-      >
         <div
-          ref={(node) => {
-            (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node
-            if (typeof ref === 'function') ref(node)
-            else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
-          }}
           className={cn(
-            'bg-white text-card-foreground rounded-2xl transition-shadow duration-300 dark:bg-[#14161b]',
-            cardClassName,
+            'rounded-2xl animated-card-interactive',
+            showEntryAnim && 'card-enter',
           )}
           style={{
-            boxShadow: glowShadow,
-            transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
-          }}
-          {...props}
+            '--stagger-i': staggerIndex ?? 0,
+            perspective: tiltEnabled ? 800 : undefined,
+          } as React.CSSProperties}
+          onMouseDown={handleMouseDown}
+          onMouseLeave={handleMouseLeave}
+          onMouseMove={handleMouseMove}
         >
-          {children}
+          <div
+            ref={(node) => {
+              (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+              if (typeof ref === 'function') ref(node)
+              else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+            }}
+            className={cardClassName}
+            style={{
+              boxShadow: REST_SHADOW,
+              transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
+            }}
+            {...props}
+          >
+            {children}
+          </div>
         </div>
       </div>
     )
   }
-)
+))
 AnimatedCard.displayName = 'AnimatedCard'

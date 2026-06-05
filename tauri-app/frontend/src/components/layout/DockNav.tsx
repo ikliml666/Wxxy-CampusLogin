@@ -62,8 +62,8 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
     const btn = ref.current
     if (!btn) return
 
-    scaleQuickRef.current = gsap.quickTo(btn, 'scale', { duration: 0.25, ease: 'power2.out', force3D: true })
-    liftQuickRef.current = gsap.quickTo(btn, 'y', { duration: 0.25, ease: 'power2.out', force3D: true })
+    scaleQuickRef.current = gsap.quickTo(btn, 'scale', { duration: 0.35, ease: 'expo.out', force3D: true })
+    liftQuickRef.current = gsap.quickTo(btn, 'y', { duration: 0.35, ease: 'expo.out', force3D: true })
 
     return () => {
       gsap.killTweensOf(btn)

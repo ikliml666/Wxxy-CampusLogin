@@ -9,7 +9,9 @@ import { safeStorage } from '@/lib/utils'
 import { VALID_THEMES } from '@/settings'
 import './index.css'
 
-gsap.defaults({ ease: 'power2.out' })
+gsap.defaults({ ease: 'expo.out', force3D: true })
+gsap.config({ autoSleep: 60, nullTargetWarn: false })
+gsap.ticker.lagSmoothing(500, 33)
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 if (prefersReducedMotion) {

@@ -24,7 +24,7 @@ interface AnimationProfile {
 }
 
 const INTEL_LOW_IGPU: AnimationProfile = {
-  gradientScale: 1.1,
+  gradientScale: 1.05,
   willChangeOrbs: false,
   willChangeGradient: false,
   prefersContainStrict: true,
@@ -33,19 +33,19 @@ const INTEL_LOW_IGPU: AnimationProfile = {
   numberDuration: 400,
   springStiffness: 250,
   springDamping: 24,
-  powerPreference: 'low-power',
-  orbDurationMultiplier: 0.75,
+  powerPreference: 'high-performance',
+  orbDurationMultiplier: 1.2,
   prefersCssAnimation: true,
-  enableGpuCompositing: false,
+  enableGpuCompositing: true,
   enablePageSlide: false,
   enableTilt: false,
   enableBackdropBlur: false,
-  startupBoost: false,
+  startupBoost: true,
   startupStaggerDelay: 0.02,
 }
 
 const INTEL_FULL: AnimationProfile = {
-  gradientScale: 1.2,
+  gradientScale: 1.1,
   willChangeOrbs: true,
   willChangeGradient: true,
   prefersContainStrict: false,
@@ -54,12 +54,12 @@ const INTEL_FULL: AnimationProfile = {
   numberDuration: 600,
   springStiffness: 400,
   springDamping: 20,
-  powerPreference: 'low-power',
+  powerPreference: 'high-performance',
   orbDurationMultiplier: 1.0,
   prefersCssAnimation: true,
   enableGpuCompositing: true,
   enablePageSlide: true,
-  enableTilt: false,
+  enableTilt: true,
   enableBackdropBlur: true,
   startupBoost: true,
   startupStaggerDelay: 0.04,

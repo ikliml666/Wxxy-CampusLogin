@@ -282,6 +282,8 @@
 
   .surface-main-square {
     border-bottom-left-radius: 16px !important;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
   }
 
   .app-maximized.app-outer-square {
@@ -339,8 +341,7 @@
   }
 
   .btn-physical {
-    transition: transform 0.1s ease-out,
-                box-shadow 0.2s ease,
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
@@ -361,24 +362,22 @@
   }
 
   .btn-physical:hover {
-    transform: scale(1.05);
+    transform: scale(1.03);
     box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 0 0 1px rgba(255,255,255,0.1) inset;
   }
 
   .btn-physical:active {
-    transform: scale(0.9);
+    transform: scale(0.97);
     transition-duration: 0.1s;
   }
 
   .btn-physical:not(:active) {
-    transition: transform 0.25s ease-out,
-                box-shadow 0.2s ease,
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.15s ease;
   }
 
   .btn-press {
-    transition: transform 0.1s ease-out,
-                box-shadow 0.2s ease,
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.15s ease;
     position: relative;
     overflow: hidden;
@@ -399,21 +398,19 @@
   }
 
   .btn-press:hover {
-    transform: scale(1.03);
+    transform: scale(1.02);
     box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.08) inset;
-    transition: transform 0.2s ease-out,
-                box-shadow 0.2s ease,
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.15s ease;
   }
 
   .btn-press:active {
-    transform: scale(0.88);
+    transform: scale(0.96);
     transition-duration: 0.08s;
   }
 
   .btn-press:not(:active) {
-    transition: transform 0.25s ease-out,
-                box-shadow 0.2s ease,
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.15s ease;
   }
 
@@ -424,7 +421,7 @@
       -4px -4px 8px rgba(255,255,255,0.7),
       inset 0 0 0 rgba(0,0,0,0),
       inset 0 0 0 rgba(255,255,255,0);
-    transition: box-shadow 0.3s ease, transform 0.15s ease-out, background-color 0.2s ease;
+    transition: transform 0.15s ease-out, background-color 0.2s ease;
   }
 
   .soft-btn:hover {
@@ -470,12 +467,32 @@
       inset -2px -2px 4px rgba(255,255,255,0.04);
   }
 
+  .card-glow-wrapper {
+    position: relative;
+  }
+
+  .card-glow-layer {
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity;
+    z-index: -1;
+  }
+
+  .card-glow-wrapper:hover .card-glow-layer {
+    opacity: 1;
+  }
+
   .animated-card-interactive {
     transition: border-color 0.3s ease;
     border: 1px solid transparent;
     position: relative;
     overflow: hidden;
     isolation: isolate;
+    contain: layout style paint;
   }
 
   .animated-card-interactive:hover {
@@ -571,7 +588,7 @@
     opacity: 1;
   }
 
-  .btn-physical:hover, .btn-press:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover {
+  .btn-physical:hover, .btn-press:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover, .titlebar-win-btn:hover {
     will-change: transform;
   }
 
@@ -585,13 +602,13 @@
   }
 
   @keyframes staggerSlideUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(14px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
 
-  .animate-stagger-1 { animation: staggerSlideUp 0.3s ease-out 0.04s both !important; }
-  .animate-stagger-2 { animation: staggerSlideUp 0.3s ease-out 0.1s both !important; }
-  .animate-stagger-3 { animation: staggerSlideUp 0.3s ease-out 0.16s both !important; }
+  .animate-stagger-1 { animation: staggerSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.04s both !important; }
+  .animate-stagger-2 { animation: staggerSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both !important; }
+  .animate-stagger-3 { animation: staggerSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both !important; }
 
   @keyframes statusPulse {
     0%, 100% { opacity: 0; transform: scale(1); }
@@ -753,35 +770,35 @@
   .layout-smooth-resize {
     transition: gap 0.3s ease,
                 opacity 0.2s ease;
-    contain: layout style;
+    contain: layout style paint;
   }
 
   .panel-content {
     content-visibility: auto;
-    contain-intrinsic-size: auto 500px;
+    contain-intrinsic-size: auto 300px;
     contain: layout style paint;
   }
 
   @keyframes cardEnter {
     from {
       opacity: 0;
-      transform: translateY(12px);
+      transform: translateY(16px) scale(0.98);
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateY(0) scale(1);
     }
   }
 
   .card-enter {
-    animation: cardEnter 0.35s cubic-bezier(0.25, 0.1, 0.25, 1) both;
-    animation-delay: calc(var(--stagger-i, 0) * 0.05s);
+    animation: cardEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--stagger-i, 0) * 0.04s);
   }
 
   @keyframes panelSlideIn {
     from {
       opacity: 0;
-      transform: translateX(calc(var(--slide-dir, 1) * 60px)) scale(0.97);
+      transform: translateX(calc(var(--slide-dir, 1) * 50px)) scale(0.98);
     }
     to {
       opacity: 1;
@@ -790,16 +807,16 @@
   }
 
   @keyframes panelFadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { opacity: 0; transform: scale(0.99); }
+    to { opacity: 1; transform: scale(1); }
   }
 
   .panel-slide-in {
-    animation: panelSlideIn 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    animation: panelSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .panel-fade-in {
-    animation: panelFadeIn 0.15s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    animation: panelFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   @keyframes dialogOverlayIn {
@@ -815,7 +832,7 @@
   @keyframes dialogContentIn {
     from {
       opacity: 0;
-      transform: scale(0.96) translateY(6px);
+      transform: scale(0.96) translateY(8px);
     }
     to {
       opacity: 1;
@@ -830,24 +847,24 @@
     }
     to {
       opacity: 0;
-      transform: scale(0.97) translateY(3px);
+      transform: scale(0.97) translateY(4px);
     }
   }
 
   .dialog-overlay-enter {
-    animation: dialogOverlayIn 0.15s ease-out both;
+    animation: dialogOverlayIn 0.2s ease-out both;
   }
 
   .dialog-overlay-exit {
-    animation: dialogOverlayOut 0.1s ease-in both;
+    animation: dialogOverlayOut 0.12s ease-in both;
   }
 
   .dialog-content-enter {
-    animation: dialogContentIn 0.2s ease-out both;
+    animation: dialogContentIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .dialog-content-exit {
-    animation: dialogContentOut 0.1s ease-in both;
+    animation: dialogContentOut 0.12s cubic-bezier(0.7, 0, 0.84, 0) both;
   }
 
   @keyframes rippleExpand {
@@ -916,41 +933,57 @@
   }
 
   @keyframes fluidGradientShift {
-    from { transform: translate3d(0%, -25%, 0); }
-    to { transform: translate3d(-50%, -25%, 0); }
+    from { transform: translate3d(0%, -20%, 0); }
+    to { transform: translate3d(-30%, -20%, 0); }
   }
 
   .fluid-gradient-anim {
     animation: fluidGradientShift 24s ease-in-out infinite alternate;
+    will-change: transform;
   }
 
   @keyframes fluidOrb1Move {
-    from { transform: translate3d(-30%, -20%, 0) scale3d(0.8, 0.8, 1); }
-    to { transform: translate3d(90%, 70%, 0) scale3d(1.2, 1.2, 1); }
+    from { transform: translate3d(-20%, -15%, 0) scale3d(0.85, 0.85, 1); }
+    to { transform: translate3d(60%, 50%, 0) scale3d(1.15, 1.15, 1); }
   }
 
   .fluid-orb1-anim {
     animation: fluidOrb1Move 30s ease-in-out infinite alternate;
+    will-change: transform;
   }
 
   @keyframes fluidOrb2Move {
-    from { transform: translate3d(70%, 50%, 0) scale3d(0.8, 0.8, 1); }
-    to { transform: translate3d(-20%, -30%, 0) scale3d(1.2, 1.2, 1); }
+    from { transform: translate3d(50%, 35%, 0) scale3d(0.85, 0.85, 1); }
+    to { transform: translate3d(-15%, -20%, 0) scale3d(1.15, 1.15, 1); }
   }
 
   .fluid-orb2-anim {
     animation: fluidOrb2Move 40s ease-in-out infinite alternate;
+    will-change: transform;
   }
 
   .titlebar-icon-btn {
-    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.2s ease;
   }
   .titlebar-icon-btn:hover {
-    transform: scale(1.15) rotate(var(--hover-rotate, 0deg));
+    transform: scale(1.08) rotate(var(--hover-rotate, 0deg));
   }
   .titlebar-icon-btn:active {
-    transform: scale(0.88);
+    transform: scale(0.95);
     transition-duration: 0.1s;
+  }
+
+  .titlebar-win-btn {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease;
+  }
+  .titlebar-win-btn:hover {
+    transform: scale(1.1);
+  }
+  .titlebar-win-btn:active {
+    transform: scale(0.92);
+    transition-duration: 0.08s;
   }
 
   @keyframes iconSpinIn {
@@ -1186,6 +1219,7 @@
     .btn-press,
     .icon-hover-glow,
     .titlebar-icon-btn,
+    .titlebar-win-btn,
     .fluid-gradient-anim,
     .fluid-orb1-anim,
     .fluid-orb2-anim {

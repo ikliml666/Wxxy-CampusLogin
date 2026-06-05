@@ -234,7 +234,7 @@ function AppInner() {
     <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
       <FluidBackground innerRef={setRef('fluidBg')} />
 
-      <div ref={setRef('titleBar')} className="relative z-[1]">
+      <div ref={setRef('titleBar')} className="relative z-[1]" style={{ contain: 'layout style paint' }}>
         <TitleBar
           notificationEnabled={configEnableNotification !== false}
           onToggleNotification={handleToggleNotification}
@@ -248,7 +248,7 @@ function AppInner() {
         />
       </div>
 
-      <div ref={setRef('statusBar')} className="relative z-[1]">
+      <div ref={setRef('statusBar')} className="relative z-[1]" style={{ contain: 'layout style paint' }}>
         <StatusBar
           onOpenPortal={handleOpenPortal}
           onOpenSelfService={handleOpenSelfService}
@@ -256,7 +256,7 @@ function AppInner() {
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
-        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style' }}>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
             <div ref={setRef('title')} className="mb-6 relative z-[1]">
               <h1

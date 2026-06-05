@@ -270,13 +270,15 @@ pub fn build_browser_args() -> String {
 
     if vendor.contains("nvidia") {
         args.push_str(" --use-angle=d3d12");
-        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc");
+        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc,RawDraw");
     } else if vendor.contains("intel") {
         args.push_str(" --use-angle=d3d11");
-        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer");
+        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc,RawDraw");
+        args.push_str(" --enable-gpu-rasterization");
     } else if vendor.contains("amd") || vendor.contains("advanced micro") || vendor.contains("ati") {
         args.push_str(" --use-angle=d3d11");
-        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer");
+        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc,RawDraw");
+        args.push_str(" --enable-gpu-rasterization");
     } else {
         args.push_str(" --use-angle=d3d11");
         args.push_str(" --disable-features=EnableDrDc");

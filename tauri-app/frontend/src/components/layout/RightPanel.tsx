@@ -89,6 +89,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
   // 虚拟化：追踪可视区域的起始索引
   const [virtualStart, setVirtualStart] = useState(0)
+  const rafRef = useRef<number>(0)
 
   const isVirtualMode = logs.length > VIRTUAL_THRESHOLD
 
@@ -129,12 +130,23 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
     isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
 
-    // 虚拟化模式下更新可视区域起始索引
+    // 虚拟化模式下用 RAF 节流更新可视区域起始索引，避免每次 scroll 都触发 re-render
     if (isVirtualMode) {
-      const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_ITEM_HEIGHT) - VIRTUAL_BUFFER)
-      setVirtualStart(startIndex)
+      if (rafRef.current) return
+      rafRef.current = requestAnimationFrame(() => {
+        const st = scrollRef.current?.scrollTop ?? 0
+        const startIndex = Math.max(0, Math.floor(st / VIRTUAL_ITEM_HEIGHT) - VIRTUAL_BUFFER)
+        setVirtualStart(startIndex)
+        rafRef.current = 0
+      })
     }
   }, [isVirtualMode])
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (scrollRef.current && isAutoScrollRef.current) {
@@ -210,7 +222,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           className={cn('overflow-y-auto px-4 pb-3 min-h-0', logs.length > 0 ? 'flex-1' : '')}
           style={{
             overscrollBehavior: 'contain',
-            willChange: 'transform',
           }}
         >
           {logs.length === 0 ? (
