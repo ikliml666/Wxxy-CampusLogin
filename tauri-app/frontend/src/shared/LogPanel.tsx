@@ -203,37 +203,56 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     if (displayedLines.length === 0 || isClearing) return
     setIsClearing(true)
 
-    // 用 GSAP 对当前可见的 DOM 元素做一条一条删除动画
+    // 用 GSAP 对当前可视区域内的 DOM 元素做一条一条删除动画
     const container = scrollRef.current
     if (container) {
-      const entries = container.querySelectorAll('.log-line')
-      if (entries.length > 0) {
-        const ctx = gsap.context(() => {
-          gsap.to(entries, {
-            autoAlpha: 0,
-            x: 50,
-            scaleX: 0.8,
-            stagger: { each: 0.3, from: 'start' },
-            duration: 0.4,
-            ease: 'back.out(1.2)',
-            force3D: true,
-            onComplete: () => {
-              ctx.revert()
-              api.clearLogs().then(() => {
-                if (!mountedRef.current) return
-                setRawLogs('')
-                setLogsKey(prev => prev + 1)
-                addToast('日志已清空', 'success')
-                setIsClearing(false)
-              }).catch((e: unknown) => {
-                if (!mountedRef.current) return
-                addToast('清空日志失败', 'error', extractErrorMessage(e))
-                setIsClearing(false)
-              })
-            },
-          })
-        }, container)
-        return
+      const allEntries = container.querySelectorAll('.log-line')
+      if (allEntries.length > 0) {
+        // 只筛选当前视口内可见的条目
+        const containerRect = container.getBoundingClientRect()
+        const visibleEntries: Element[] = []
+        allEntries.forEach(el => {
+          const rect = el.getBoundingClientRect()
+          if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+            visibleEntries.push(el)
+          }
+        })
+
+        // 对不可见的条目直接隐藏
+        const hiddenEntries = Array.from(allEntries).filter(el => !visibleEntries.includes(el))
+        if (hiddenEntries.length > 0) {
+          gsap.set(hiddenEntries, { autoAlpha: 0 })
+        }
+
+        // 对可见的条目做一条一条删除动画
+        if (visibleEntries.length > 0) {
+          const ctx = gsap.context(() => {
+            gsap.to(visibleEntries, {
+              autoAlpha: 0,
+              x: 50,
+              scaleX: 0.8,
+              stagger: { each: 0.3, from: 'start' },
+              duration: 0.4,
+              ease: 'back.out(1.2)',
+              force3D: true,
+              onComplete: () => {
+                ctx.revert()
+                api.clearLogs().then(() => {
+                  if (!mountedRef.current) return
+                  setRawLogs('')
+                  setLogsKey(prev => prev + 1)
+                  addToast('日志已清空', 'success')
+                  setIsClearing(false)
+                }).catch((e: unknown) => {
+                  if (!mountedRef.current) return
+                  addToast('清空日志失败', 'error', extractErrorMessage(e))
+                  setIsClearing(false)
+                })
+              },
+            })
+          }, container)
+          return
+        }
       }
     }
 
