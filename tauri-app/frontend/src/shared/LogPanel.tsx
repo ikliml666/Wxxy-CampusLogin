@@ -213,7 +213,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
             autoAlpha: 0,
             x: 50,
             scaleX: 0.8,
-            stagger: { each: 0.03, from: 'start' },
+            stagger: { each: 0.3, from: 'start' },
             duration: 0.4,
             ease: 'back.out(1.2)',
             force3D: true,
