@@ -101,7 +101,6 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
     Ok(CommandResult::ok())
 }
 
-#[allow(dead_code)]
 #[tauri::command]
 pub fn reset_config(state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     let default_config = Config::default();
@@ -110,7 +109,6 @@ pub fn reset_config(state: State<'_, AppState>, app_handle: AppHandle) -> Result
     Ok(CommandResult::ok())
 }
 
-#[allow(dead_code)]
 #[tauri::command]
 pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     let data_dir = persist::get_data_dir(&app_handle);
@@ -123,7 +121,6 @@ pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Resu
     Ok(CommandResult::ok_data(serde_json::json!({ "content": content })))
 }
 
-#[allow(dead_code)]
 #[tauri::command]
 pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_json: String) -> Result<CommandResult, String> {
     let config: Config = serde_json::from_str(&config_json)

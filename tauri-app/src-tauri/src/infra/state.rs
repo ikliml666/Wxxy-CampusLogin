@@ -5,7 +5,7 @@ use arc_swap::ArcSwap;
 use crate::config::model::Config;
 use parking_lot::Mutex;
 
-pub const AUTO_EXIT_DELAY_MS: u64 = 10000;
+pub const AUTO_EXIT_DELAY_MS: u64 = 20000;
 pub const CANCEL_EXIT_SHORTCUT: &str = "CommandOrControl+Shift+C";
 
 pub struct TaskLock {
@@ -102,6 +102,7 @@ pub struct ExitState {
     pub is_quitting: std::sync::Arc<AtomicBool>,
     pub auto_exit_deadline: Mutex<Option<std::time::Instant>>,
     pub auto_exit_cancelled: AtomicBool,
+    pub campus_exit_started: AtomicBool,
 }
 
 impl ExitState {
@@ -120,6 +121,7 @@ pub struct AppState {
     pub network: NetworkStatus,
     pub exit: ExitState,
     pub last_update_check_epoch_ms: AtomicU64,
+    pub update_notified: AtomicBool,
     pub last_disabled_notification_ms: AtomicU64,
     pub last_render_heartbeat_ms: AtomicU64,
 }
@@ -158,8 +160,10 @@ impl AppState {
                 is_quitting: std::sync::Arc::new(AtomicBool::new(false)),
                 auto_exit_deadline: Mutex::new(None),
                 auto_exit_cancelled: AtomicBool::new(false),
+                campus_exit_started: AtomicBool::new(false),
             },
             last_update_check_epoch_ms: AtomicU64::new(0),
+            update_notified: AtomicBool::new(false),
             last_disabled_notification_ms: AtomicU64::new(0),
             last_render_heartbeat_ms: AtomicU64::new(0),
         }
@@ -225,9 +229,6 @@ impl AccountResult {
     }
     pub fn ok_with_account(account: String, config: Config) -> Self {
         Self { success: true, message: None, active_account: Some(account), config: Some(config) }
-    }
-    pub fn ok_msg(msg: &str) -> Self {
-        Self { success: true, message: Some(msg.to_string()), active_account: None, config: None }
     }
     pub fn err(msg: &str) -> Self {
         Self { success: false, message: Some(msg.to_string()), active_account: None, config: None }

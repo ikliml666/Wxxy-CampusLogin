@@ -6,7 +6,7 @@ export interface AdapterOnlineStatus {
   message: string
 }
 
-export interface ConnectionCampusStatus {
+interface ConnectionCampusStatus {
   onCampus: boolean
   name: string | null
   message: string

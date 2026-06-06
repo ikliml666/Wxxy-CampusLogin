@@ -3,7 +3,7 @@ import gsap from 'gsap'
 import { cn } from '@/lib/utils'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
-export interface AnimatedCardConfig {
+interface AnimatedCardConfig {
   glowIntensity?: number
   hoverScale?: number
   stiffness?: number
@@ -11,7 +11,7 @@ export interface AnimatedCardConfig {
   mass?: number
 }
 
-export interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> {
+interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> {
   animationConfig?: AnimatedCardConfig
   noHover?: boolean
   noAnimation?: boolean
@@ -113,7 +113,7 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       )
     }
 
-    const showGlow = !noHover && !noAnimation
+    const showGlow = false
 
     return (
       <div className={showGlow ? 'card-glow-wrapper' : undefined}>

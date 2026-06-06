@@ -247,21 +247,6 @@ pub fn detect_gpu_info() -> &'static GpuInfo {
     GPU_CACHE.get_or_init(detect_gpu_info_inner)
 }
 
-#[allow(dead_code)]
-pub fn detect_gpu_adapter() -> &'static str {
-    let info = detect_gpu_info();
-    let v = info.vendor.to_lowercase();
-    if v.contains("nvidia") {
-        "nvidia"
-    } else if v.contains("intel") {
-        "intel"
-    } else if v.contains("amd") || v.contains("advanced micro") || v.contains("ati") {
-        "amd"
-    } else {
-        "unknown"
-    }
-}
-
 pub fn build_browser_args() -> String {
     let gpu_info = detect_gpu_info();
     let vendor = gpu_info.vendor.to_lowercase();
@@ -287,4 +272,31 @@ pub fn build_browser_args() -> String {
 
     crate::log_info!("gpu", "WebView2 浏览器参数: {}", args);
     args
+}
+
+pub fn detect_display_refresh_rate() -> u32 {
+    use windows::Win32::Graphics::Gdi::{
+        EnumDisplaySettingsW, ENUM_CURRENT_SETTINGS, DEVMODEW,
+    };
+    use windows::core::PCWSTR;
+
+    let mut devmode = DEVMODEW::default();
+    devmode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+
+    let result = unsafe {
+        EnumDisplaySettingsW(
+            PCWSTR::null(),
+            ENUM_CURRENT_SETTINGS,
+            &mut devmode,
+        )
+    };
+
+    if result.as_bool() {
+        let freq = devmode.dmDisplayFrequency;
+        crate::log_info!("gpu", "检测到显示器刷新率: {}Hz", freq);
+        freq
+    } else {
+        crate::log_warn!("gpu", "检测显示器刷新率失败，将使用默认值");
+        0
+    }
 }

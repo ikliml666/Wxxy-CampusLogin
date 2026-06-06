@@ -2,6 +2,20 @@
 
 ## v2.2.2 - 2026-06-06
 
+### 死代码清理
+
+- **Rust: 删除 account::manager 模块**: 整个模块（6个函数）被 commands/account.rs 内联逻辑替代，零调用者
+- **Rust: 删除 network/adapter.rs 3个函数**: `has_media_sub_type`、`get_all_adapters_cached`、`get_disabled_adapters_force` 均无调用者
+- **Rust: 删除 platform/gpu.rs detect_gpu_adapter**: 实际使用 `detect_gpu_info`，此函数从未被调用
+- **Rust: 删除 commands/updater.rs start_update_check_loop**: 冗余包装函数，main.rs 直接调用底层实现
+- **Rust: 删除 AccountResult::ok_msg**: 从未被调用
+- **Rust: 注册 reset_config/export_config/import_config**: 移除 `#[allow(dead_code)]` 并注册到 main.rs invoke_handler，待前端接入
+- **Rust: 清除全部 `#[allow(dead_code)]` 标注**: 14处全部移除，cargo check 零警告
+- **前端: 删除 animations.ts 9个废弃导出**: 5个工厂函数 + 4个预构建常量，消费者已迁移到新变体
+- **前端: 降级 ConnectionCampusStatus/AnimatedCardConfig/AnimatedCardProps 为模块内部类型**: 移除 export 关键字
+- **前端: 删除 auth/constants.ts 空模块**: 文件仅含 `export {}`
+- **CSS: 删除 dynamic-bg/bgShift/card-glow-primary/panel-slide-in/panel-fade-in/skeleton-shimmer/shimmerSweep**: 无 TSX 引用的死样式
+
 ### 前端动画优化
 
 - **面板切换动画 Apple 风格重构**: 移除 `AnimatePresence` 面板切换时的 opacity 淡入淡出效果（导致视觉模糊），改用 `createPanelAppleVariants`（y 轴弹性位移 + spring 缓动），切换干脆利落无半透明过渡期

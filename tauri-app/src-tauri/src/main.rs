@@ -66,7 +66,9 @@ fn run_app(core_count: usize) {
                             let app_h = app.clone();
                             tauri::async_runtime::spawn_blocking(move || {
                                 let s = app_h.state::<AppState>();
-                                let _ = infra::lifecycle::cancel_auto_exit_inner(&app_h, &s); // [忽略错误] 取消自动退出失败不影响快捷键处理
+                                // 统一取消：同时取消自动退出和校园网退出
+                                let _ = infra::lifecycle::cancel_auto_exit_inner(&app_h, &s);
+                                infra::lifecycle::cancel_campus_exit_with_notification(&app_h, &s);
                             });
                         }
                     }
@@ -328,6 +330,9 @@ fn run_app(core_count: usize) {
             commands::config_cmd::get_config,
             commands::config_cmd::show_window,
             commands::config_cmd::save_config,
+            commands::config_cmd::reset_config,
+            commands::config_cmd::export_config,
+            commands::config_cmd::import_config,
             commands::login::do_login,
             commands::login::do_logout,
             commands::network_cmd::get_adapters,
