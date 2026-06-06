@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useAppStore, useAppInit } from '@/hooks/useAppStore'
 import { useAuth } from '@/auth'
 import { useMonitor } from '@/monitor'
@@ -21,7 +21,7 @@ import { AccountPanel } from '@/account'
 import { NetworkPanel } from '@/network'
 import { MonitorPanel, QualityPanel, SpeedTestPanel } from '@/monitor'
 import { SettingsPanel } from '@/settings'
-import { getPanelDirection, panelSlideVariants, panelFadeOnlyVariants } from '@/lib/animations'
+import { getPanelDirection, createPanelAppleVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -85,6 +85,7 @@ function AppInner() {
   const [isMaximized, setIsMaximized] = useState(false)
 
   const profile = useAnimationProfile()
+  const panelVariants = useMemo(() => createPanelAppleVariants(profile.easing), [profile.easing])
   const { setRef, runStartupSequence } = useStartupBoost()
   const prevPanelRef = useRef(activePanel)
   const [slideDirection, setSlideDirection] = useState(1)
@@ -274,12 +275,12 @@ function AppInner() {
               <m.div
                 key={activePanel}
                 custom={slideDirection}
-                variants={profile.enablePageSlide ? panelSlideVariants : panelFadeOnlyVariants}
+                variants={panelVariants}
                 initial="initial"
                 animate="animate"
                 exit="exit"
                 className="panel-content"
-                style={{ contain: 'layout style' } as React.CSSProperties}
+                style={{ contain: 'layout style paint', willChange: 'transform', transform: 'translateZ(0)' } as React.CSSProperties}
               >
                 <ErrorBoundary>{panelContent}</ErrorBoundary>
               </m.div>
