@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import gsap from 'gsap'
 import { m, AnimatePresence } from 'framer-motion'
 import { createLogEntryVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
@@ -76,8 +77,6 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [rawLogs, setRawLogs] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
-  const [clearingCount, setClearingCount] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [lineCount, setLineCount] = useState(200)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
   const [showLineSelector, setShowLineSelector] = useState(false)
@@ -92,7 +91,6 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   useEffect(() => {
     return () => {
       mountedRef.current = false
-      if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [])
 
@@ -194,44 +192,63 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     [parsedLines, filterLevel]
   )
 
-  const displayedLines = useMemo(() => {
-    const base = filteredLines.length > MAX_DISPLAY_LINES
+  const displayedLines = useMemo(() =>
+    filteredLines.length > MAX_DISPLAY_LINES
       ? filteredLines.slice(-MAX_DISPLAY_LINES)
-      : filteredLines
-    return isClearing ? base.slice(clearingCount) : base
-  }, [filteredLines, isClearing, clearingCount])
+      : filteredLines,
+    [filteredLines]
+  )
 
   const handleClear = useCallback(() => {
     if (displayedLines.length === 0 || isClearing) return
     setIsClearing(true)
-    // 逐条移除数据，让 AnimatePresence exit 动画自然触发
-    const lines = [...displayedLines]
-    let i = 0
-    const removeNext = () => {
-      if (!mountedRef.current) return
-      if (i < lines.length) {
-        setClearingCount(lines.length - i)
-        i++
-        timerRef.current = setTimeout(removeNext, 30)
-      } else {
-        // 所有条目已移除，执行实际清空
-        api.clearLogs().then(() => {
-          if (!mountedRef.current) return
-          setRawLogs('')
-          setLogsKey(prev => prev + 1)
-          addToast('日志已清空', 'success')
-        }).catch((e: unknown) => {
-          if (!mountedRef.current) return
-          addToast('清空日志失败', 'error', extractErrorMessage(e))
-        }).finally(() => {
-          if (mountedRef.current) {
-            setIsClearing(false)
-            setClearingCount(0)
-          }
-        })
+
+    // 用 GSAP 对当前可见的 DOM 元素做一条一条删除动画
+    const container = scrollRef.current
+    if (container) {
+      const entries = container.querySelectorAll('.log-line')
+      if (entries.length > 0) {
+        const ctx = gsap.context(() => {
+          gsap.to(entries, {
+            autoAlpha: 0,
+            x: 50,
+            scaleX: 0.8,
+            stagger: { each: 0.03, from: 'start' },
+            duration: 0.4,
+            ease: 'back.out(1.2)',
+            force3D: true,
+            onComplete: () => {
+              ctx.revert()
+              api.clearLogs().then(() => {
+                if (!mountedRef.current) return
+                setRawLogs('')
+                setLogsKey(prev => prev + 1)
+                addToast('日志已清空', 'success')
+                setIsClearing(false)
+              }).catch((e: unknown) => {
+                if (!mountedRef.current) return
+                addToast('清空日志失败', 'error', extractErrorMessage(e))
+                setIsClearing(false)
+              })
+            },
+          })
+        }, container)
+        return
       }
     }
-    removeNext()
+
+    // fallback: 无 DOM 元素时直接清空
+    api.clearLogs().then(() => {
+      if (!mountedRef.current) return
+      setRawLogs('')
+      setLogsKey(prev => prev + 1)
+      addToast('日志已清空', 'success')
+    }).catch((e: unknown) => {
+      if (!mountedRef.current) return
+      addToast('清空日志失败', 'error', extractErrorMessage(e))
+    }).finally(() => {
+      if (mountedRef.current) setIsClearing(false)
+    })
   }, [displayedLines, isClearing, api, addToast])
 
   const levelCounts = useMemo(() =>
@@ -376,7 +393,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     </div>
                   )}
                   <AnimatePresence mode="popLayout" key={logsKey}>
-                    {displayedLines.map((line, idx) => {
+                    {displayedLines.map((line) => {
                       const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
                       const Icon = cfg.icon
                       const enableAnimation = displayedLines.length <= 30
@@ -418,7 +435,6 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                       return (
                         <m.div
                           key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
-                          custom={idx}
                           variants={logVariants}
                           initial="initial"
                           animate="animate"

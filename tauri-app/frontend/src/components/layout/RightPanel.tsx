@@ -89,8 +89,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   const prevLogCountRef = useRef(0)
   const [adapterExpanded, setAdapterExpanded] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
-  const [clearingCount, setClearingCount] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 虚拟化：追踪可视区域的起始索引
   const [virtualStart, setVirtualStart] = useState(0)
@@ -100,55 +98,37 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
   const handleClearWithAnimation = useCallback(() => {
     if (isClearing || !onClearLogs || logs.length === 0) return
-
-    // 虚拟化模式下用 GSAP 直接操作 DOM（因为虚拟化不使用 m.div）
-    if (isVirtualMode) {
-      setIsClearing(true)
-      const container = scrollRef.current
-      if (container) {
-        const entries = container.querySelectorAll('.log-entry-hover')
-        if (entries.length > 0) {
-          const ctx = gsap.context(() => {
-            gsap.to(entries, {
-              autoAlpha: 0,
-              x: 50,
-              scaleX: 0.8,
-              stagger: { each: 0.03, from: 'start' },
-              duration: 0.4,
-              ease: 'expo.out',
-              force3D: true,
-              onComplete: () => {
-                ctx.revert()
-                onClearLogs()
-                setIsClearing(false)
-              },
-            })
-          }, container)
-          return
-        }
-      }
-      onClearLogs()
-      setIsClearing(false)
-      return
-    }
-
-    // 非虚拟化模式：逐条移除，让 AnimatePresence exit 动画自然触发
     setIsClearing(true)
-    const total = logs.length
-    let removed = 0
-    const removeNext = () => {
-      if (removed < total) {
-        removed++
-        setClearingCount(removed)
-        timerRef.current = setTimeout(removeNext, 30)
-      } else {
-        onClearLogs()
-        setIsClearing(false)
-        setClearingCount(0)
+
+    // 统一用 GSAP 对当前可见的 DOM 元素做一条一条删除动画
+    const container = scrollRef.current
+    if (container) {
+      const entries = container.querySelectorAll('.log-entry-hover')
+      if (entries.length > 0) {
+        const ctx = gsap.context(() => {
+          gsap.to(entries, {
+            autoAlpha: 0,
+            x: 50,
+            scaleX: 0.8,
+            stagger: { each: 0.03, from: 'start' },
+            duration: 0.4,
+            ease: 'back.out(1.2)',
+            force3D: true,
+            onComplete: () => {
+              ctx.revert()
+              onClearLogs()
+              setIsClearing(false)
+            },
+          })
+        }, container)
+        return
       }
     }
-    removeNext()
-  }, [isClearing, onClearLogs, logs.length, isVirtualMode])
+
+    // fallback: 无 DOM 元素时直接清空
+    onClearLogs()
+    setIsClearing(false)
+  }, [isClearing, onClearLogs, logs.length])
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
@@ -170,7 +150,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   useEffect(() => {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [])
 
@@ -288,16 +267,15 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           ) : (
             <div className="space-y-1">
             <AnimatePresence initial={false}>
-              {logs.slice(isClearing ? clearingCount : 0).map((log, idx) => {
+              {logs.map((log, idx) => {
                 const Icon = LOG_ICONS[log.type]
                 const isLatest = isNewLog && idx === logs.length - 1
                 return (
                   <m.div
                     key={log.id}
-                    custom={idx}
-                    animate="animate"
                     variants={logVariants}
                     initial="initial"
+                    animate="animate"
                     exit="exit"
                     className={cn(
                       'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover',

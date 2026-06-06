@@ -44,16 +44,11 @@ export function createLogEntryVariants(easing: EasingConfig) {
       x: 0,
       transition: { duration: 0.3, ease: easing.snappy as [number, number, number, number] },
     },
-    exit: (index: number) => ({
+    exit: {
       opacity: 0,
-      x: 50,
-      scaleX: 0.8,
-      transition: {
-        x: { type: 'spring' as const, stiffness: 280, damping: 22, mass: 0.7, delay: index * 0.03 },
-        opacity: { duration: 0.25, delay: index * 0.03 },
-        scaleX: { duration: 0.25, delay: index * 0.03 },
-      },
-    }),
+      x: -16,
+      transition: { duration: 0.15, ease: easing.exit as [number, number, number, number] },
+    },
   }
 }
 
