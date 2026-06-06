@@ -46,6 +46,7 @@ interface AppStore {
   releaseNotes: string
   gpuInfo: GpuInfo | null
   refreshRate: number
+  language: string
   api: typeof api
 
   updateConfig: (partial: Partial<Config>) => void
@@ -75,6 +76,7 @@ interface AppStore {
   setLatestVersion: (v: string) => void
   setReleaseNotes: (v: string) => void
   setGpuInfo: (info: GpuInfo) => void
+  setLanguage: (lang: string) => void
   doLogin: (adapterName?: string) => Promise<boolean>
   doLogout: (adapterName?: string) => Promise<void>
   checkOnline: (cfg?: Partial<Config>, adps?: Adapter[]) => Promise<void>
@@ -108,6 +110,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   releaseNotes: '',
   gpuInfo: null,
   refreshRate: 0,
+  language: localStorage.getItem('app-language') || 'zh',
   api,
 
   updateConfig: (partial) => {
@@ -209,6 +212,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setReleaseNotes: (v) => set({ releaseNotes: v }),
 
   setGpuInfo: (info) => set({ gpuInfo: info }),
+
+  setLanguage: (lang) => {
+    set({ language: lang })
+    localStorage.setItem('app-language', lang)
+    import('i18next').then(({ default: i18n }) => {
+      i18n.changeLanguage(lang)
+    })
+  },
 
   doLogin: async (adapterName?: string): Promise<boolean> => {
     const s = get()
