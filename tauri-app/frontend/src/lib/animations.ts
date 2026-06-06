@@ -49,6 +49,16 @@ export function createLogEntryVariants(easing: EasingConfig) {
       x: -16,
       transition: { duration: 0.15, ease: easing.exit as [number, number, number, number] },
     },
+    clear: (index: number) => ({
+      x: 50,
+      opacity: 0,
+      scaleX: 0.8,
+      transition: {
+        x: { type: 'spring' as const, stiffness: 280, damping: 22, mass: 0.7 },
+        opacity: { duration: 0.25, delay: index * 0.03 },
+        scaleX: { duration: 0.25, delay: index * 0.03 },
+      },
+    }),
   }
 }
 
@@ -118,20 +128,4 @@ export function createPanelAppleVariants(easing: EasingConfig) {
 
 export const panelAppleVariants = createPanelAppleVariants(EASING_60HZ)
 
-export function createLogClearVariants(_easing: EasingConfig) {
-  return {
-    clear: {
-      x: 50,
-      opacity: 0,
-      scaleX: 0.8,
-      transition: {
-        type: 'spring' as const,
-        stiffness: 280,
-        damping: 22,
-        mass: 0.7,
-      },
-    },
-  }
-}
 
-export const logClearVariants = createLogClearVariants(EASING_60HZ)

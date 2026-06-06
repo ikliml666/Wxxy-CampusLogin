@@ -15,7 +15,7 @@ import {
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
-import { createLogEntryVariants, createLogClearVariants } from '@/lib/animations'
+import { createLogEntryVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface LogPanelProps {
@@ -73,7 +73,6 @@ const MAX_DISPLAY_LINES = 50
 export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
   const profile = useAnimationProfile()
   const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
-  const clearVariants = useMemo(() => createLogClearVariants(profile.easing), [profile.easing])
   const [rawLogs, setRawLogs] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
@@ -204,6 +203,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
 
   useEffect(() => {
     if (!isClearing) return
+    const maxDelay = Math.min(displayedLines.length * 30 + 400, 2000)
     const t = setTimeout(async () => {
       try {
         await api.clearLogs()
@@ -219,7 +219,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
           setIsClearing(false)
         }
       }
-    }, 600)
+    }, maxDelay)
     return () => clearTimeout(t)
   }, [isClearing, api, addToast])
 
@@ -365,7 +365,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     </div>
                   )}
                   <AnimatePresence mode="popLayout" key={logsKey}>
-                    {displayedLines.map((line) => {
+                    {displayedLines.map((line, idx) => {
                       const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
                       const Icon = cfg.icon
                       const enableAnimation = displayedLines.length <= 30
@@ -407,7 +407,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                       return (
                         <m.div
                           key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
-                          variants={isClearing ? clearVariants : logVariants}
+                          custom={idx}
+                          variants={logVariants}
                           initial="initial"
                           animate={isClearing ? 'clear' : 'animate'}
                           exit="exit"

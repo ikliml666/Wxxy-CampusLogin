@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button'
 import { ScrollText, CheckCircle2, AlertCircle, Info, AlertTriangle, Trash2, Wifi, Cable, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRef, useEffect, useCallback, memo, useMemo, useState } from 'react'
+import gsap from 'gsap'
 import { m, AnimatePresence } from 'framer-motion'
-import { createLogEntryVariants, createLogClearVariants } from '@/lib/animations'
+import { createLogEntryVariants } from '@/lib/animations'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useShallow } from 'zustand/react/shallow'
@@ -78,7 +79,6 @@ function getAdapterInfo(
 export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef }: RightPanelProps) {
   const profile = useAnimationProfile()
   const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
-  const clearVariants = useMemo(() => createLogClearVariants(profile.easing), [profile.easing])
   const adapterDetails = useAppStore((s) => s.adapterDetails)
   const adapters = useAppStore((s) => s.adapters)
   const config = useAppStore(useShallow((s) => s.config))
@@ -98,17 +98,51 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
   const handleClearWithAnimation = useCallback(() => {
     if (isClearing || !onClearLogs || logs.length === 0) return
+
+    // 虚拟化模式下用 GSAP 直接操作 DOM（因为虚拟化不使用 m.div）
+    if (isVirtualMode) {
+      setIsClearing(true)
+      const container = scrollRef.current
+      if (container) {
+        const entries = container.querySelectorAll('.log-entry-hover')
+        if (entries.length > 0) {
+          const ctx = gsap.context(() => {
+            gsap.to(entries, {
+              autoAlpha: 0,
+              x: 50,
+              scaleX: 0.8,
+              stagger: { each: 0.03, from: 'start' },
+              duration: 0.4,
+              ease: 'expo.out',
+              force3D: true,
+              onComplete: () => {
+                ctx.revert()
+                onClearLogs()
+                setIsClearing(false)
+              },
+            })
+          }, container)
+          return
+        }
+      }
+      onClearLogs()
+      setIsClearing(false)
+      return
+    }
+
+    // 非虚拟化模式：用 Framer Motion variants 触发
     setIsClearing(true)
-  }, [isClearing, onClearLogs, logs.length])
+  }, [isClearing, onClearLogs, logs.length, isVirtualMode])
 
   useEffect(() => {
-    if (!isClearing) return
+    if (!isClearing || isVirtualMode) return
+    const maxDelay = Math.min(logs.length * 30 + 400, 2000)
     const t = setTimeout(() => {
       onClearLogs?.()
       setIsClearing(false)
-    }, 500)
+    }, maxDelay)
     return () => clearTimeout(t)
-  }, [isClearing, onClearLogs])
+  }, [isClearing, onClearLogs, isVirtualMode, logs.length])
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
@@ -253,8 +287,9 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                 return (
                   <m.div
                     key={log.id}
+                    custom={idx}
                     animate={isClearing ? 'clear' : 'animate'}
-                    variants={isClearing ? clearVariants : logVariants}
+                    variants={logVariants}
                     initial="initial"
                     exit="exit"
                     className={cn(
