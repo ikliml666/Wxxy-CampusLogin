@@ -117,3 +117,21 @@ export function createPanelAppleVariants(easing: EasingConfig) {
 }
 
 export const panelAppleVariants = createPanelAppleVariants(EASING_60HZ)
+
+export function createLogClearVariants(_easing: EasingConfig) {
+  return {
+    clear: {
+      x: 50,
+      opacity: 0,
+      scaleX: 0.8,
+      transition: {
+        type: 'spring' as const,
+        stiffness: 280,
+        damping: 22,
+        mass: 0.7,
+      },
+    },
+  }
+}
+
+export const logClearVariants = createLogClearVariants(EASING_60HZ)
