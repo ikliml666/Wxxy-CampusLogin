@@ -76,6 +76,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [rawLogs, setRawLogs] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
+  const [clearingCount, setClearingCount] = useState(0)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [lineCount, setLineCount] = useState(200)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
   const [showLineSelector, setShowLineSelector] = useState(false)
@@ -88,7 +90,10 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const mountedRef = useRef(true)
 
   useEffect(() => {
-    return () => { mountedRef.current = false }
+    return () => {
+      mountedRef.current = false
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
   }, [])
 
   const fetchLogs = useCallback(async () => {
@@ -189,39 +194,45 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     [parsedLines, filterLevel]
   )
 
-  const displayedLines = useMemo(() =>
-    filteredLines.length > MAX_DISPLAY_LINES
+  const displayedLines = useMemo(() => {
+    const base = filteredLines.length > MAX_DISPLAY_LINES
       ? filteredLines.slice(-MAX_DISPLAY_LINES)
-      : filteredLines,
-    [filteredLines]
-  )
+      : filteredLines
+    return isClearing ? base.slice(clearingCount) : base
+  }, [filteredLines, isClearing, clearingCount])
 
   const handleClear = useCallback(() => {
     if (displayedLines.length === 0 || isClearing) return
     setIsClearing(true)
-  }, [displayedLines.length, isClearing])
-
-  useEffect(() => {
-    if (!isClearing) return
-    const maxDelay = Math.min(displayedLines.length * 30 + 400, 2000)
-    const t = setTimeout(async () => {
-      try {
-        await api.clearLogs()
-        if (!mountedRef.current) return
-        setRawLogs('')
-        setLogsKey(prev => prev + 1)
-        addToast('日志已清空', 'success')
-      } catch (e: unknown) {
-        if (!mountedRef.current) return
-        addToast('清空日志失败', 'error', extractErrorMessage(e))
-      } finally {
-        if (mountedRef.current) {
-          setIsClearing(false)
-        }
+    // 逐条移除数据，让 AnimatePresence exit 动画自然触发
+    const lines = [...displayedLines]
+    let i = 0
+    const removeNext = () => {
+      if (!mountedRef.current) return
+      if (i < lines.length) {
+        setClearingCount(lines.length - i)
+        i++
+        timerRef.current = setTimeout(removeNext, 30)
+      } else {
+        // 所有条目已移除，执行实际清空
+        api.clearLogs().then(() => {
+          if (!mountedRef.current) return
+          setRawLogs('')
+          setLogsKey(prev => prev + 1)
+          addToast('日志已清空', 'success')
+        }).catch((e: unknown) => {
+          if (!mountedRef.current) return
+          addToast('清空日志失败', 'error', extractErrorMessage(e))
+        }).finally(() => {
+          if (mountedRef.current) {
+            setIsClearing(false)
+            setClearingCount(0)
+          }
+        })
       }
-    }, maxDelay)
-    return () => clearTimeout(t)
-  }, [isClearing, api, addToast])
+    }
+    removeNext()
+  }, [displayedLines, isClearing, api, addToast])
 
   const levelCounts = useMemo(() =>
     parsedLines.reduce((acc, line) => {
@@ -410,7 +421,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                           custom={idx}
                           variants={logVariants}
                           initial="initial"
-                          animate={isClearing ? 'clear' : 'animate'}
+                          animate="animate"
                           exit="exit"
                           className={cn(
                             'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',

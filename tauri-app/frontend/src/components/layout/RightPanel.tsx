@@ -89,6 +89,8 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   const prevLogCountRef = useRef(0)
   const [adapterExpanded, setAdapterExpanded] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
+  const [clearingCount, setClearingCount] = useState(0)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 虚拟化：追踪可视区域的起始索引
   const [virtualStart, setVirtualStart] = useState(0)
@@ -130,19 +132,23 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
       return
     }
 
-    // 非虚拟化模式：用 Framer Motion variants 触发
+    // 非虚拟化模式：逐条移除，让 AnimatePresence exit 动画自然触发
     setIsClearing(true)
+    const total = logs.length
+    let removed = 0
+    const removeNext = () => {
+      if (removed < total) {
+        removed++
+        setClearingCount(removed)
+        timerRef.current = setTimeout(removeNext, 30)
+      } else {
+        onClearLogs()
+        setIsClearing(false)
+        setClearingCount(0)
+      }
+    }
+    removeNext()
   }, [isClearing, onClearLogs, logs.length, isVirtualMode])
-
-  useEffect(() => {
-    if (!isClearing || isVirtualMode) return
-    const maxDelay = Math.min(logs.length * 30 + 400, 2000)
-    const t = setTimeout(() => {
-      onClearLogs?.()
-      setIsClearing(false)
-    }, maxDelay)
-    return () => clearTimeout(t)
-  }, [isClearing, onClearLogs, isVirtualMode, logs.length])
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
@@ -164,6 +170,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   useEffect(() => {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [])
 
@@ -281,14 +288,14 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           ) : (
             <div className="space-y-1">
             <AnimatePresence initial={false}>
-              {logs.map((log, idx) => {
+              {logs.slice(isClearing ? clearingCount : 0).map((log, idx) => {
                 const Icon = LOG_ICONS[log.type]
                 const isLatest = isNewLog && idx === logs.length - 1
                 return (
                   <m.div
                     key={log.id}
                     custom={idx}
-                    animate={isClearing ? 'clear' : 'animate'}
+                    animate="animate"
                     variants={logVariants}
                     initial="initial"
                     exit="exit"
