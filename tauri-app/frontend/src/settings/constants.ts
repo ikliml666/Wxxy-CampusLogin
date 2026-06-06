@@ -37,10 +37,10 @@ export const DEFAULT_CONFIG: Config = {
 }
 
 export const ISP_OPTIONS = [
-  { value: '__default__', label: '无锡学院' },
-  { value: '@telecom', label: '中国电信' },
-  { value: '@unicom', label: '中国联通' },
-  { value: '@cmcc', label: '中国移动' },
+  { value: '__default__', label: '无锡学院', labelKey: 'settings.isp.wxxy' },
+  { value: '@telecom', label: '中国电信', labelKey: 'settings.isp.telecom' },
+  { value: '@unicom', label: '中国联通', labelKey: 'settings.isp.unicom' },
+  { value: '@cmcc', label: '中国移动', labelKey: 'settings.isp.cmcc' },
 ] as const
 
 export const THEME_OPTIONS = [
