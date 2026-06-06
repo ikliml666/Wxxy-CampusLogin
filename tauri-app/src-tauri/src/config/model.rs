@@ -60,6 +60,8 @@ pub struct Config {
     pub enable_network_name_check: bool,
     #[serde(rename = "campusGateway", default = "default_campus_gateway", deserialize_with = "deserialize_campus_gateway")]
     pub campus_gateway: String,
+    #[serde(rename = "campusExitOnFail", default = "default_true")]
+    pub campus_exit_on_fail: bool,
 }
 
 fn deserialize_non_empty_or<'de, D>(deserializer: D, default_fn: fn() -> String) -> Result<String, D::Error>
@@ -117,14 +119,14 @@ impl Default for Config {
             hidden_start: true,
             auto_launch: true,
             enable_background_check: true,
-            background_check_interval: 60000,
+            background_check_interval: 15000,
             auto_login_on_preparation: true,
             auto_exit_on_online: true,
             theme_mode: "dark".to_string(),
             enable_notification: true,
             active_account: String::new(),
             enable_latency_test: false,
-            latency_test_interval: 30000,
+            latency_test_interval: 60000,
             custom_theme_color: "#6366f1".to_string(),
             default_panel: String::new(),
             enable_network_quality: true,
@@ -135,6 +137,7 @@ impl Default for Config {
             required_network_name: "i-wxxy".to_string(),
             enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
+            campus_exit_on_fail: true,
         }
     }
 }

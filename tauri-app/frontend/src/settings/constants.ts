@@ -15,14 +15,14 @@ export const DEFAULT_CONFIG: Config = {
   hiddenStart: true,
   autoLaunch: true,
   enableBackgroundCheck: true,
-  backgroundCheckInterval: 60000,
+  backgroundCheckInterval: 15000,
   autoLoginOnPreparation: true,
   autoExitOnOnline: true,
   themeMode: 'dark',
   enableNotification: true,
   activeAccount: '',
   enableLatencyTest: false,
-  latencyTestInterval: 30000,
+  latencyTestInterval: 60000,
   customThemeColor: '#6366f1',
   defaultPanel: '',
   enableNetworkQuality: true,
@@ -33,6 +33,7 @@ export const DEFAULT_CONFIG: Config = {
   requiredNetworkName: 'i-wxxy',
   enableNetworkNameCheck: true,
   campusGateway: '10.2.127.254',
+  campusExitOnFail: true,
 }
 
 export const ISP_OPTIONS = [

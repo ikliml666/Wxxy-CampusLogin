@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 use crate::infra::state::AppState;
+use crate::infra::notification::emit_notification;
 use std::sync::atomic::Ordering;
 
 const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
@@ -126,6 +127,10 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
                 })) {
                     crate::log_warn!("updater", "发送更新通知失败: {}", e);
                 }
+                // 检测到新版本时推送系统通知（仅通知一次，重启后重置）
+                if info.has_update && state.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                    emit_notification(&app_h, "发现新版本", &format!("新版本 v{} 可用，请在关于页面查看", info.latest_version));
+                }
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -151,6 +156,10 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
                     "release_notes": info.release_notes,
                 })) {
                     crate::log_warn!("updater", "发送更新通知失败: {}", e);
+                }
+                // 检测到新版本时推送系统通知（仅通知一次，重启后重置）
+                if info.has_update && state.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                    emit_notification(&app_h, "发现新版本", &format!("新版本 v{} 可用，请在关于页面查看", info.latest_version));
                 }
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

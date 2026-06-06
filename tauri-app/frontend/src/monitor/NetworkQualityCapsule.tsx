@@ -7,6 +7,7 @@ import { AnimatedNumber } from '@/shared'
 import { Loader2, Server, Globe, Search } from 'lucide-react'
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface NetworkQualityCapsuleProps {
   networkQuality: NetworkQuality | null
@@ -53,6 +54,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const capsuleRef = useRef<HTMLDivElement>(null)
   const [popupPos, setPopupPos] = useState<{ top: number; right: number } | null>(null)
+  const profile = useAnimationProfile()
 
   const gatewayLatency = useMemo(() => extractGatewayLatency(networkQuality), [networkQuality])
   const externalLatency = useMemo(() => extractExternalLatency(networkQuality), [networkQuality])
@@ -183,7 +185,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
             ? { scale: [0.92, 1.04, 1], opacity: [0.6, 1] }
             : undefined
           }
-          transition={{ duration: 0.35, ease: [0.25, 0.8, 0.25, 1] }}
+          transition={{ duration: 0.35, ease: profile.easing.smooth as [number, number, number, number] }}
         >
           <span className="font-sans text-[10px] font-medium">网络质量：{qualityLabel}</span>
           <span className="opacity-40">·</span>
@@ -204,7 +206,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
-              transition={{ duration: 0.15, ease: [0.25, 0.8, 0.25, 1] }}
+              transition={{ duration: 0.15, ease: profile.easing.smooth as [number, number, number, number] }}
               className="fixed z-[9999] min-w-[180px] rounded-xl bg-popover/95 shadow-lg shadow-black/8 px-3 py-2"
               style={{
                 top: popupPos.top,

@@ -68,6 +68,8 @@ interface TauriApi {
   cancelAutoExit: () => Promise<CommandResult>
   onAutoExitCountdown: (cb: (data: AutoExitCountdownData) => void) => () => void
   onAutoExitCancelled: (cb: () => void) => () => void
+  onCampusExitCountdown: (cb: (data: { minimizeDelay: number; exitDelay: number }) => void) => () => void
+  onCampusExitCancelled: (cb: () => void) => () => void
   onSystemNotification: (cb: (data: SystemNotificationData) => void) => () => void
   onConfigChanged: (cb: (data: { config: Config }) => void) => () => void
   showWindow: () => Promise<void>
@@ -180,6 +182,8 @@ const tauriApi: TauriApi = {
   cancelAutoExit: () => invoke<CommandResult>('cancel_auto_exit'),
   onAutoExitCountdown: createEventListener<AutoExitCountdownData>('auto-exit-countdown'),
   onAutoExitCancelled: createEventListener<Record<string, never>>('auto-exit-cancelled'),
+  onCampusExitCountdown: createEventListener<{ minimizeDelay: number; exitDelay: number }>('campus-exit-countdown'),
+  onCampusExitCancelled: createEventListener<Record<string, never>>('campus-exit-cancelled'),
   onSystemNotification: createEventListener<SystemNotificationData>('system-notification'),
   onConfigChanged: createEventListener<{ config: Config }>('config-changed'),
   showWindow: () => invoke<void>('show_window'),

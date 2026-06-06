@@ -18,54 +18,8 @@ import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type La
 import React, { useCallback, memo, useMemo, useState } from 'react'
 import { m, type Variants } from 'framer-motion'
 import { useAppStore } from '@/hooks/useAppStore'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
-const cardItemVariantsNoY: Variants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      duration: 0.3,
-      ease: [0.25, 0.8, 0.25, 1],
-    },
-  },
-}
-
-const tabContainerVariants: Variants = {
-  animate: {
-    transition: {
-      staggerChildren: 0.035,
-    },
-  },
-  exit: {
-    transition: {
-      staggerChildren: 0.025,
-      staggerDirection: -1,
-    },
-  },
-}
-
-const tabItemVariants: Variants = {
-  initial: (direction: number) => ({
-    opacity: 0,
-    x: direction > 0 ? 30 : -30,
-  }),
-  animate: {
-    opacity: 1,
-    x: 0,
-    transition: {
-      duration: 0.18,
-      ease: [0.25, 0.8, 0.25, 1],
-    },
-  },
-  exit: (direction: number) => ({
-    opacity: 0,
-    x: direction > 0 ? -30 : 30,
-    transition: {
-      duration: 0.12,
-      ease: [0.25, 0.8, 0.25, 1],
-    },
-  }),
-}
 
 interface QualityPanelProps {
   config: Config
@@ -130,6 +84,55 @@ const DETAIL_CATEGORIES = [
 export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
   const networkQuality = useAppStore((s) => s.networkQuality)
   const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
+  const profile = useAnimationProfile()
+
+  const cardItemVariantsNoY: Variants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        duration: 0.3,
+        ease: profile.easing.smooth as [number, number, number, number],
+      },
+    },
+  }
+
+  const tabContainerVariants: Variants = {
+    animate: {
+      transition: {
+        staggerChildren: 0.035,
+      },
+    },
+    exit: {
+      transition: {
+        staggerChildren: 0.025,
+        staggerDirection: -1,
+      },
+    },
+  }
+
+  const tabItemVariants: Variants = {
+    initial: (direction: number) => ({
+      opacity: 0,
+      x: direction > 0 ? 30 : -30,
+    }),
+    animate: {
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: 0.18,
+        ease: profile.easing.smooth as [number, number, number, number],
+      },
+    },
+    exit: (direction: number) => ({
+      opacity: 0,
+      x: direction > 0 ? -30 : 30,
+      transition: {
+        duration: 0.12,
+        ease: profile.easing.smooth as [number, number, number, number],
+      },
+    }),
+  }
   const qualityConfig = useMemo(() => {
     if (!networkQuality) return QUALITY_CONFIG.unknown
     return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown

@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn } from 'lucide-react'
+import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, PowerOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared'
 import React, { memo, useMemo } from 'react'
@@ -233,7 +233,7 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                     <Wifi className="h-4 w-4 text-violet-500" />
                   </div>
                   <div>
-                    <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">启用校园网环境验证</Label>
+                    <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">校园网环境验证</Label>
                     <p className="text-[11px] text-muted-foreground mt-0.5">仅当检测到指定校园Wi-Fi或网关时才进行认证</p>
                   </div>
                 </div>
@@ -278,6 +278,23 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                     <p className="text-[10px] text-muted-foreground">② /18 子网检测 → 适配器 IP 与校园网关是否在同一 /18 网段</p>
                     <p className="text-[10px] text-muted-foreground">③ 网关 Ping 检测 → 校园网关是否可达（默认 10.2.127.254）</p>
                     <p className="text-[10px] text-muted-foreground">①②③任一满足即判定在校园网</p>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center">
+                        <PowerOff className="h-3.5 w-3.5 text-rose-500" />
+                      </div>
+                      <div>
+                        <Label htmlFor="campus-exit-on-fail" className="text-sm font-medium cursor-pointer">非校园网自动退出</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">非校园网络时 30s 后最小化托盘，再 30s 后强制退出（Ctrl+Shift+C 取消）</p>
+                      </div>
+                    </div>
+                    <Switch
+                      id="campus-exit-on-fail"
+                      checked={config.campusExitOnFail ?? true}
+                      onCheckedChange={checked => onUpdateConfig({ campusExitOnFail: checked })}
+                    />
                   </div>
                   <div className="flex items-center gap-2 pt-1">
                     {bgStatus.currentSsid ? (

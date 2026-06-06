@@ -45,6 +45,7 @@ interface AppStore {
   latestVersion: string
   releaseNotes: string
   gpuInfo: GpuInfo | null
+  refreshRate: number
   api: typeof api
 
   updateConfig: (partial: Partial<Config>) => void
@@ -106,6 +107,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   latestVersion: '',
   releaseNotes: '',
   gpuInfo: null,
+  refreshRate: 0,
   api,
 
   updateConfig: (partial) => {

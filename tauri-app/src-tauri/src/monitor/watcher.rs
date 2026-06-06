@@ -8,6 +8,7 @@ use crate::network::{
 };
 use crate::auth::portal::check_portal_full;
 use crate::infra::state::{AppState, CommandResult};
+use crate::infra::lifecycle::{start_campus_exit, cancel_campus_exit};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -529,9 +530,14 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             a1_campus.as_deref(), a2_campus.as_deref(),
             a1_on_campus, a2_on_campus,
         );
+        // 校园网验证不通过：触发最小化+退出流程
+        start_campus_exit(app_handle, state);
         crate::log_debug!("background", "后台检测周期完成(校园网检测未通过), 总耗时{}ms", t_total.elapsed().as_millis());
         return None;
     }
+
+    // 校园网验证通过：取消之前的退出流程（如果有的话）
+    cancel_campus_exit(state);
 
     if cancel_token.is_cancelled() {
         return None;
@@ -698,7 +704,7 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
         let cfg = state.update_config(|cfg| {
             cfg.enable_background_check = true;
             if cfg.background_check_interval < 10000 {
-                cfg.background_check_interval = 60000;
+                cfg.background_check_interval = 15000;
             }
         });
         let interval = cfg.background_check_interval;

@@ -110,7 +110,10 @@ pub fn send_notification(title: String, body: String, app_handle: AppHandle) -> 
 #[tauri::command]
 pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    crate::infra::lifecycle::cancel_auto_exit_inner(&app_handle, &s)
+    // 统一取消：同时取消自动退出和校园网退出
+    let result = crate::infra::lifecycle::cancel_auto_exit_inner(&app_handle, &s);
+    crate::infra::lifecycle::cancel_campus_exit_with_notification(&app_handle, &s);
+    result
 }
 
 pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
@@ -185,6 +188,7 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     let version = env!("CARGO_PKG_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
     let gpu_info = crate::platform::gpu::detect_gpu_info();
+    let refresh_rate = crate::platform::gpu::detect_display_refresh_rate();
 
     let adapters = crate::network::get_adapters_cached().unwrap_or_default();
     let adapter_details = crate::network::get_adapter_details_cached().unwrap_or_default();
@@ -202,6 +206,7 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
         "version": version,
         "autoLaunch": auto_launch,
         "gpuInfo": gpu_info,
+        "refreshRate": refresh_rate,
         "adapters": adapters,
         "adapterDetails": adapter_details,
         "disabledAdapters": disabled_adapters,

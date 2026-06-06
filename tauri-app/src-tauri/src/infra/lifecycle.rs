@@ -4,6 +4,120 @@ use std::time::Duration;
 use crate::infra::state::{AppState, CommandResult, AUTO_EXIT_DELAY_MS, CANCEL_EXIT_SHORTCUT};
 use crate::infra::notification::emit_notification;
 
+/// 校园网验证不通过时的退出延迟（毫秒）
+const CAMPUS_MINIMIZE_DELAY_MS: u64 = 30000;
+const CAMPUS_EXIT_DELAY_MS: u64 = 60000;
+
+/// 校园网验证不通过时：30s后最小化到托盘，再30s后强制退出
+/// 受 config.campus_exit_on_fail 控制；关闭时仅记录日志不触发退出
+pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
+    let config = state.config.load();
+    if !config.campus_exit_on_fail {
+        crate::log_info!("campus_exit", "校园网验证未通过，但 campus_exit_on_fail 已关闭，跳过最小化+退出流程");
+        return;
+    }
+
+    // 使用 CAS 防止重复触发
+    if state.exit.campus_exit_started.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        return;
+    }
+
+    crate::log_info!("campus_exit", "校园网验证未通过，{}秒后最小化到托盘，{}秒后退出",
+        CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000);
+
+    if let Err(e) = app_handle.emit("campus-exit-countdown", serde_json::json!({
+        "minimizeDelay": CAMPUS_MINIMIZE_DELAY_MS,
+        "exitDelay": CAMPUS_EXIT_DELAY_MS,
+    })) {
+        crate::log_warn!("campus_exit", "发送校园网退出倒计时事件失败: {}", e);
+    }
+
+    emit_notification(app_handle, "非校园网络", &format!("{}秒后最小化，{}秒后退出，按 Ctrl+Shift+C 可取消", CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000));
+
+    // 注册统一取消快捷键（与自动退出共用 Ctrl+Shift+C）
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    if !app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+        if app_handle.global_shortcut().register(CANCEL_EXIT_SHORTCUT).is_err() {
+            crate::log_warn!("campus_exit", "快捷键注册失败，请通过界面取消退出");
+        }
+    }
+
+    let app_h = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        // 阶段1：等待30秒后最小化到托盘
+        tokio::time::sleep(Duration::from_millis(CAMPUS_MINIMIZE_DELAY_MS)).await;
+
+        let s = app_h.state::<AppState>();
+        if s.exit.is_quitting.load(Ordering::Acquire) || !s.exit.campus_exit_started.load(Ordering::Acquire) {
+            return;
+        }
+
+        if let Some(window) = app_h.get_webview_window("main") {
+            let _ = window.hide();
+            crate::log_info!("campus_exit", "已最小化到托盘");
+        }
+
+        // 阶段2：再等30秒后强制退出
+        tokio::time::sleep(Duration::from_millis(CAMPUS_EXIT_DELAY_MS - CAMPUS_MINIMIZE_DELAY_MS)).await;
+
+        let s = app_h.state::<AppState>();
+        if !s.exit.campus_exit_started.load(Ordering::Acquire) {
+            return;
+        }
+
+        crate::log_info!("campus_exit", "校园网验证退出流程完成，正在退出");
+
+        // 注销快捷键（如果自动退出未在运行）
+        {
+            let auto_exit_active = s.exit.auto_exit_deadline.lock().is_some();
+            if !auto_exit_active {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                if app_h.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+                    let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
+                }
+            }
+        }
+
+        s.exit.is_quitting.store(true, Ordering::Release);
+        s.tasks.bg_check_cancel.load().cancel();
+        s.tasks.latency_cancel.load().cancel();
+        s.tasks.adapter_watch_cancel.load().cancel();
+        app_h.exit(0);
+    });
+}
+
+/// 取消校园网退出流程（当重新检测到校园网时调用，或通过快捷键取消）
+pub fn cancel_campus_exit(state: &AppState) {
+    if state.exit.campus_exit_started.swap(false, Ordering::AcqRel) {
+        crate::log_info!("campus_exit", "校园网退出流程已取消");
+    }
+}
+
+/// 通过快捷键统一取消校园网退出（含通知和快捷键注销）
+pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppState) {
+    let was_active = state.exit.campus_exit_started.swap(false, Ordering::AcqRel);
+    if !was_active {
+        return;
+    }
+
+    crate::log_info!("campus_exit", "校园网退出流程已取消（快捷键）");
+
+    // 如果自动退出也未在运行，注销快捷键
+    let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
+    if !auto_exit_active {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        if app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+            let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
+        }
+    }
+
+    emit_notification(app_handle, "已取消退出", "校园网退出已取消，程序将继续运行");
+
+    if let Err(e) = app_handle.emit("campus-exit-cancelled", serde_json::json!({})) {
+        crate::log_warn!("campus_exit", "发送取消校园网退出事件失败: {}", e);
+    }
+}
+
 pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
     let should_start = {
         let mut guard = state.exit.auto_exit_deadline.lock();

@@ -22,6 +22,7 @@ import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 
 import { gsap } from 'gsap'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationActive } from '@/hooks/usePageIdle'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -49,6 +50,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
 }) {
   const Icon = ICON_MAP[icon]
   const ref = useRef<HTMLButtonElement>(null)
+  const profile = useAnimationProfile()
   const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const rectRef = useRef<{ center: number }>({ center: -999 })
@@ -125,7 +127,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
           className="absolute inset-0 rounded-xl bg-primary/8"
           initial={{ opacity: 0, scale: 0.92 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
         />
       )}
       <Icon className="h-[18px] w-[18px]" />
@@ -149,6 +151,7 @@ interface AdapterMenuProps {
 function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: AdapterMenuProps) {
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
+  const profile = useAnimationProfile()
   const effectiveSelected = selectedAdapter || defaultAdapter
 
   return (
@@ -156,7 +159,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
       initial={{ opacity: 0, scale: 0.95, y: 8 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97, y: 4 }}
-      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
       className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
       style={{
         background: 'hsl(var(--card) / 0.92)',
@@ -191,7 +194,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
             key={adapter.name}
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.03, duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            transition={{ delay: index * 0.03, duration: 0.25, ease: profile.easing.snappy as [number, number, number, number] }}
           >
           <button
             key={adapter.name}
@@ -252,6 +255,7 @@ function ActionButtonWithMenu({
   variant: 'primary' | 'outline'
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const profile = useAnimationProfile()
   const [selectedAdapter, setSelectedAdapter] = useState<string | undefined>(undefined)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -323,7 +327,7 @@ function ActionButtonWithMenu({
         animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
         whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
         whileTap={!isLoading ? { scale: 0.95 } : undefined}
-        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
         className={cn(
           'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
           isLoading ? 'opacity-80 cursor-wait btn-loading-pulse' : 'cursor-pointer',
@@ -377,6 +381,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const doLogout = useAppStore((s) => s.doLogout)
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const animActive = useAnimationActive()
+  const profile = useAnimationProfile()
   const mouseX = useMotionValue(-1000)
   const itemRefs = useRef<Map<PanelName, HTMLButtonElement>>(new Map())
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
@@ -459,7 +464,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           className="absolute bottom-[3px] left-0 h-[3px] rounded-full bg-primary"
           style={{ width: 20, originX: 0 }}
           animate={{ x: indicator.left, scaleX: indicator.width / 20 }}
-          transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
         />
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />

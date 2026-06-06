@@ -5,7 +5,7 @@ use crate::network::get_adapters_force;
 use crate::auth::portal::check_portal_full;
 use crate::infra::state::{AppState, CommandResult};
 use crate::infra::notification::emit_notification;
-use crate::infra::lifecycle::start_auto_exit;
+use crate::infra::lifecycle::{start_auto_exit, start_campus_exit};
 
 const MAX_DISCONNECT_RECONNECT: u32 = 3;
 const RECONNECT_REMINDER_INTERVAL: u32 = 10;
@@ -232,6 +232,8 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     "message": campus_result.message,
                     "skipped": true,
                 }));
+                // 校园网验证不通过：触发最小化+退出流程
+                start_campus_exit(&app_h, &s);
                 return;
             }
 

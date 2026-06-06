@@ -31,6 +31,7 @@ export interface Config {
   requiredNetworkName: string
   enableNetworkNameCheck: boolean
   campusGateway: string
+  campusExitOnFail: boolean
 }
 
 export interface AutoLaunchResult {
@@ -50,4 +51,5 @@ export interface InitData {
   autoLaunch: boolean
   notificationEnabled: boolean
   gpuInfo?: GpuInfo
+  refreshRate?: number
 }

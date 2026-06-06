@@ -332,6 +332,34 @@ export function useAppInit() {
     }) ?? (() => {})
     if (unsub5) unlisteners.push(unsub5)
 
+    const unsubCampusExit = api.onCampusExitCountdown?.((data) => {
+      if (!mountedRef.current) return
+      if (data) {
+        lt.getState().addLog(`非校园网络，${Math.ceil(data.minimizeDelay / 1000)}秒后最小化，${Math.ceil(data.exitDelay / 1000)}秒后退出，按 Ctrl+Shift+C 取消`, 'warning')
+        lt.getState().addToastWithAction({
+          id: `campus-exit-cancel-${Date.now()}`,
+          title: '非校园网络',
+          description: `${Math.ceil(data.minimizeDelay / 1000)}秒后最小化，${Math.ceil(data.exitDelay / 1000)}秒后退出，点击取消`,
+          type: 'warning',
+          duration: data.exitDelay,
+          action: {
+            label: '取消退出',
+            onClick: () => {
+              api.cancelAutoExit()
+            },
+          },
+        })
+      }
+    }) ?? (() => {})
+    if (unsubCampusExit) unlisteners.push(unsubCampusExit)
+
+    const unsubCampusExitCancelled = api.onCampusExitCancelled?.(() => {
+      lt.getState().addLog('已取消校园网退出', 'success')
+      lt.getState().addToast('已取消校园网退出', 'success')
+      lt.getState().removeToastsByPrefix('campus-exit-cancel-')
+    }) ?? (() => {})
+    if (unsubCampusExitCancelled) unlisteners.push(unsubCampusExitCancelled)
+
     const unsub6 = api.onNetworkQualityResult?.((data) => {
       if (!data) return
       const now = Date.now()
@@ -457,6 +485,10 @@ export function useAppInit() {
                 store.getState().setGpuInfo(corrected)
               }
             }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+          }
+
+          if (initData.refreshRate) {
+            store.setState({ refreshRate: initData.refreshRate })
           }
 
           const dnsPromise = (async () => {
