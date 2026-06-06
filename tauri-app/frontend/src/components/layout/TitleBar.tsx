@@ -1,10 +1,11 @@
-import { Bell, BellOff, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
+import { Bell, BellOff, Globe, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APP_VERSION } from '@/shared'
 import { cn } from '@/lib/utils'
 import { memo, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '@/hooks/useAppStore'
+import { useTranslation } from 'react-i18next'
 
 interface TitleBarProps {
   notificationEnabled: boolean
@@ -55,9 +56,12 @@ export const TitleBar = memo(function TitleBar({
   onClose,
   isMaximized,
 }: TitleBarProps) {
+  const { t } = useTranslation()
   const isLightMode = useAppStore((s) => s.isLightMode)
   const updateAvailable = useAppStore((s) => s.updateAvailable)
   const latestVersion = useAppStore((s) => s.latestVersion)
+  const language = useAppStore((s) => s.language)
+  const setLanguage = useAppStore((s) => s.setLanguage)
   const lastClickTimeRef = useRef(0)
 
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -97,7 +101,7 @@ export const TitleBar = memo(function TitleBar({
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <span className="text-sm font-semibold tracking-tight">校园网登录助手</span>
+          <span className="text-sm font-semibold tracking-tight">{t('nav.appName')}</span>
           <span
             className={cn(
               "relative text-[10px] px-2 py-0.5 bg-[#f3f4f6] text-muted-foreground font-medium rounded-full dark:bg-[#1f2128]",
@@ -122,7 +126,7 @@ export const TitleBar = memo(function TitleBar({
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <p>发现新版本 v{latestVersion}，点击查看</p>
+                <p>{t('titlebar.newVersion', { version: latestVersion })}</p>
               </TooltipContent>
             </Tooltip>
           )}
@@ -135,12 +139,27 @@ export const TitleBar = memo(function TitleBar({
                 onClick={onToggleLightMode}
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
                 style={{ '--hover-rotate': isLightMode ? '15deg' : '-15deg' } as React.CSSProperties}
-                aria-label={isLightMode ? '切换到深色模式' : '切换到浅色模式'}
+                aria-label={isLightMode ? t('titlebar.switchToDark') : t('titlebar.switchToLight')}
               >
                 {isLightMode ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-400" />}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom"><p>{isLightMode ? '切换到深色模式' : '切换到浅色模式'}</p></TooltipContent>
+            <TooltipContent side="bottom"><p>{isLightMode ? t('titlebar.switchToDark') : t('titlebar.switchToLight')}</p></TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
+                aria-label={t('titlebar.switchLanguage')}
+              >
+                <Globe className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{language === 'zh' ? t('titlebar.english') : t('titlebar.chinese')}</p>
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -148,7 +167,7 @@ export const TitleBar = memo(function TitleBar({
               <button
                 onClick={onToggleNotification}
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
-                aria-label={notificationEnabled ? '通知已开启' : '通知已关闭'}
+                aria-label={notificationEnabled ? t('titlebar.notificationOn') : t('titlebar.notificationOff')}
               >
                 <div
                   key={notificationEnabled ? 'on' : 'off'}
@@ -158,7 +177,7 @@ export const TitleBar = memo(function TitleBar({
                 </div>
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom"><p>{notificationEnabled ? '通知已开启' : '通知已关闭'}</p></TooltipContent>
+            <TooltipContent side="bottom"><p>{notificationEnabled ? t('titlebar.notificationOn') : t('titlebar.notificationOff')}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -167,12 +186,12 @@ export const TitleBar = memo(function TitleBar({
                 onClick={onShowTheme}
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
                 style={{ '--hover-rotate': '20deg' } as React.CSSProperties}
-                aria-label="主题设置"
+                aria-label={t('titlebar.themeSettings')}
               >
                 <Palette className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom"><p>主题设置</p></TooltipContent>
+            <TooltipContent side="bottom"><p>{t('titlebar.themeSettings')}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -180,12 +199,12 @@ export const TitleBar = memo(function TitleBar({
               <button
                 onClick={onShowAbout}
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
-                aria-label="关于"
+                aria-label={t('titlebar.about')}
               >
                 <Info className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom"><p>关于</p></TooltipContent>
+            <TooltipContent side="bottom"><p>{t('titlebar.about')}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -193,12 +212,12 @@ export const TitleBar = memo(function TitleBar({
               <button
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
                 onClick={onMinimize}
-                aria-label="最小化"
+                aria-label={t('titlebar.minimize')}
               >
                 <MinimizeIcon />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom"><p>最小化</p></TooltipContent>
+            <TooltipContent side="bottom"><p>{t('titlebar.minimize')}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -206,12 +225,12 @@ export const TitleBar = memo(function TitleBar({
               <button
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
                 onClick={onToggleMaximize}
-                aria-label={isMaximized ? '还原' : '最大化'}
+                aria-label={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}
               >
                 {isMaximized ? <RestoreIcon /> : <MaximizeIcon />}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom"><p>{isMaximized ? '还原' : '最大化'}</p></TooltipContent>
+            <TooltipContent side="bottom"><p>{isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -219,12 +238,12 @@ export const TitleBar = memo(function TitleBar({
               <button
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors titlebar-win-btn"
                 onClick={onClose}
-                aria-label="关闭"
+                aria-label={t('titlebar.exit')}
               >
                 <CloseIcon />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom"><p>退出</p></TooltipContent>
+            <TooltipContent side="bottom"><p>{t('titlebar.exit')}</p></TooltipContent>
           </Tooltip>
         </div>
       </div>
