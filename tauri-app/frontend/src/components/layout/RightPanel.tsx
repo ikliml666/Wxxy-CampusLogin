@@ -7,8 +7,9 @@ import { cn } from '@/lib/utils'
 import { useRef, useEffect, useCallback, memo, useMemo, useState } from 'react'
 import gsap from 'gsap'
 import { m, AnimatePresence } from 'framer-motion'
-import { logEntryVariants } from '@/lib/animations'
+import { createLogEntryVariants, createLogClearVariants } from '@/lib/animations'
 import { useAppStore } from '@/hooks/useAppStore'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useShallow } from 'zustand/react/shallow'
 import { RefreshButton } from '@/shared'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -76,6 +77,9 @@ function getAdapterInfo(
 }
 
 export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef }: RightPanelProps) {
+  const profile = useAnimationProfile()
+  const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
+  const clearVariants = useMemo(() => createLogClearVariants(profile.easing), [profile.easing])
   const adapterDetails = useAppStore((s) => s.adapterDetails)
   const adapters = useAppStore((s) => s.adapters)
   const config = useAppStore(useShallow((s) => s.config))
@@ -93,34 +97,18 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
   const isVirtualMode = logs.length > VIRTUAL_THRESHOLD
 
-  const handleClearWithAnimation = useCallback(async () => {
-    if (isClearing || !onClearLogs) return
+  const handleClearWithAnimation = useCallback(() => {
+    if (isClearing || !onClearLogs || logs.length === 0) return
     setIsClearing(true)
+  }, [isClearing, onClearLogs, logs.length])
 
-    const container = scrollRef.current
-    if (container) {
-      const entries = container.querySelectorAll('.log-entry-hover')
-      if (entries.length > 0) {
-        await new Promise<void>((resolve) => {
-          const ctx = gsap.context(() => {
-            gsap.to(entries, {
-              autoAlpha: 0,
-              x: -16,
-              stagger: { each: 0.01, from: 'start', amount: Math.min(entries.length * 0.01, 0.2) },
-              duration: 0.15,
-              ease: 'expo.out',
-              onComplete: () => {
-                ctx.revert()
-                resolve()
-              },
-            })
-          }, container)
-        })
-      }
-    }
-
-    onClearLogs()
-    setIsClearing(false)
+  useEffect(() => {
+    if (!isClearing) return
+    const t = setTimeout(() => {
+      onClearLogs?.()
+      setIsClearing(false)
+    }, 500)
+    return () => clearTimeout(t)
   }, [isClearing, onClearLogs])
 
   const handleScroll = useCallback(() => {
@@ -201,7 +189,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                 className="text-[11px] px-1.5 py-0.5 rounded-full bg-accent text-muted-foreground"
                 initial={{ scale: 1.2, opacity: 0.5 }}
                 animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
               >
                 {logs.length}
               </m.span>
@@ -266,9 +254,9 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                 return (
                   <m.div
                     key={log.id}
-                    variants={logEntryVariants}
+                    animate={isClearing ? 'clear' : 'animate'}
+                    variants={isClearing ? clearVariants : logVariants}
                     initial="initial"
-                    animate="animate"
                     exit="exit"
                     className={cn(
                       'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover',
@@ -293,14 +281,19 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
       <AnimatedCard noHover noAnimation className="mx-2 mt-1.5 mb-3 rounded-2xl">
         <div
-          className="px-4 py-3 shrink-0 cursor-pointer select-none hover:bg-accent/50 rounded-t-2xl transition-colors"
-          onClick={() => setAdapterExpanded(v => !v)}
+          className="px-4 py-3 shrink-0 select-none rounded-t-2xl"
         >
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <Cable className="h-3.5 w-3.5" />
             <span>网络适配器</span>
             <span className="ml-auto flex items-center gap-0.5">
-              {adapterExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <button
+                onClick={() => setAdapterExpanded(v => !v)}
+                className="flex items-center justify-center h-6 w-6 rounded-lg cursor-pointer hover:bg-accent/60 transition-colors"
+                aria-label={adapterExpanded ? '收起适配器详情' : '展开适配器详情'}
+              >
+                {adapterExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              </button>
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -340,7 +333,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
               style={{ overflow: 'hidden' }}
             >
               <div className="px-4 pb-4">
