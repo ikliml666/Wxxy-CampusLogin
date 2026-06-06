@@ -97,9 +97,7 @@ export const LatencyTimeline = React.memo(function LatencyTimeline({ totalMs, dn
                 )}
                 style={{
                   width: `${Math.max((seg.ms / barMax) * 100, 3)}%`,
-                  transform: `scaleX(${Math.max((seg.ms / barMax), 0.03)})`,
-                  transformOrigin: 'left center',
-                  transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  transition: 'width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 }}
               />
             ))
