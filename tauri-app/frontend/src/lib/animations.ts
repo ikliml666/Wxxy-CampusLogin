@@ -1,45 +1,55 @@
-export const cardStaggerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.04, delayChildren: 0.02 },
-  },
+import type { EasingConfig } from './easing-config'
+import { EASING_60HZ } from './easing-config'
+
+export function createCardStaggerVariants(_easing: EasingConfig) {
+  return {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: 0.08, delayChildren: 0.05 },
+    },
+  }
 }
 
-export const cardItemVariants = {
-  hidden: { opacity: 0, y: 16, scale: 0.98 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
-  },
+export function createCardItemVariants(easing: EasingConfig) {
+  return {
+    hidden: { opacity: 0, y: 16 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.5, ease: easing.smooth as [number, number, number, number] },
+    },
+  }
 }
 
-export const panelSwitchVariants = {
-  initial: { opacity: 0 },
-  animate: {
-    opacity: 1,
-    transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
-  },
-  exit: {
-    opacity: 0,
-    transition: { duration: 0.12, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
-  },
+export function createPanelSwitchVariants(easing: EasingConfig) {
+  return {
+    initial: { opacity: 0 },
+    animate: {
+      opacity: 1,
+      transition: { duration: 0.25, ease: easing.enter as [number, number, number, number] },
+    },
+    exit: {
+      opacity: 0,
+      transition: { duration: 0.15, ease: easing.exit as [number, number, number, number] },
+    },
+  }
 }
 
-export const logEntryVariants = {
-  initial: { opacity: 0, x: 20 },
-  animate: {
-    opacity: 1,
-    x: 0,
-    transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
-  },
-  exit: {
-    opacity: 0,
-    x: -16,
-    transition: { duration: 0.15, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
-  },
+export function createLogEntryVariants(easing: EasingConfig) {
+  return {
+    initial: { opacity: 0, x: 20 },
+    animate: {
+      opacity: 1,
+      x: 0,
+      transition: { duration: 0.3, ease: easing.snappy as [number, number, number, number] },
+    },
+    exit: {
+      opacity: 0,
+      x: -16,
+      transition: { duration: 0.15, ease: easing.exit as [number, number, number, number] },
+    },
+  }
 }
 
 const PANEL_ORDER = ['dashboard', 'account', 'network', 'monitor', 'quality', 'speedtest', 'settings', 'log'] as const
@@ -51,35 +61,60 @@ export function getPanelDirection(from: string, to: string): number {
   return toIdx > fromIdx ? 1 : -1
 }
 
-export const panelSlideVariants = {
-  initial: (direction: number) => ({
-    opacity: 0,
-    x: direction > 0 ? 50 : -50,
-    scale: 0.98,
-  }),
-  animate: {
-    opacity: 1,
-    x: 0,
-    scale: 1,
-    transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
-  },
-  exit: (direction: number) => ({
-    opacity: 0,
-    x: direction > 0 ? -25 : 25,
-    scale: 0.99,
-    transition: { duration: 0.18, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
-  }),
+export function createPanelSlideVariants(easing: EasingConfig) {
+  return {
+    initial: (direction: number) => ({
+      opacity: 0,
+      x: direction > 0 ? 50 : -50,
+    }),
+    animate: {
+      opacity: 1,
+      x: 0,
+      transition: { duration: 0.45, ease: easing.enter as [number, number, number, number] },
+    },
+    exit: (direction: number) => ({
+      opacity: 0,
+      x: direction > 0 ? -25 : 25,
+      transition: { duration: 0.22, ease: easing.exit as [number, number, number, number] },
+    }),
+  }
 }
 
-export const panelFadeOnlyVariants = {
-  initial: { opacity: 0, scale: 0.99 },
-  animate: {
-    opacity: 1,
-    scale: 1,
-    transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] },
-  },
-  exit: {
-    opacity: 0,
-    transition: { duration: 0.08, ease: [0.7, 0, 0.84, 0] as [number, number, number, number] },
-  },
+export function createPanelFadeOnlyVariants(easing: EasingConfig) {
+  return {
+    initial: { opacity: 0 },
+    animate: {
+      opacity: 1,
+      transition: { duration: 0.25, ease: easing.enter as [number, number, number, number] },
+    },
+    exit: {
+      opacity: 0,
+      transition: { duration: 0.12, ease: easing.exit as [number, number, number, number] },
+    },
+  }
 }
+
+// 默认导出（使用 60Hz 缓动，向后兼容）
+export const cardStaggerVariants = createCardStaggerVariants(EASING_60HZ)
+export const cardItemVariants = createCardItemVariants(EASING_60HZ)
+export const panelSwitchVariants = createPanelSwitchVariants(EASING_60HZ)
+export const logEntryVariants = createLogEntryVariants(EASING_60HZ)
+export const panelSlideVariants = createPanelSlideVariants(EASING_60HZ)
+export const panelFadeOnlyVariants = createPanelFadeOnlyVariants(EASING_60HZ)
+
+export function createPanelAppleVariants(easing: EasingConfig) {
+  return {
+    initial: { y: 12 },
+    animate: {
+      y: 0,
+      transition: { type: 'spring' as const, stiffness: 300, damping: 24, mass: 0.8 },
+    },
+    exit: {
+      y: -4,
+      scale: 0.99,
+      transition: { duration: 0.08, ease: easing.exit as [number, number, number, number] },
+    },
+  }
+}
+
+export const panelAppleVariants = createPanelAppleVariants(EASING_60HZ)
