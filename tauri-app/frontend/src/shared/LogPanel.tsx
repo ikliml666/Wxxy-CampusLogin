@@ -2,7 +2,6 @@ import { CardContent, CardHeader, CardTitle, CardDescription } from '@/component
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import gsap from 'gsap'
 import {
   FileText,
   RefreshCw,
@@ -16,7 +15,8 @@ import {
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
-import { logEntryVariants } from '@/lib/animations'
+import { createLogEntryVariants, createLogClearVariants } from '@/lib/animations'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface LogPanelProps {
   api: {
@@ -71,6 +71,9 @@ const LINE_OPTIONS = [
 const MAX_DISPLAY_LINES = 50
 
 export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
+  const profile = useAnimationProfile()
+  const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
+  const clearVariants = useMemo(() => createLogClearVariants(profile.easing), [profile.easing])
   const [rawLogs, setRawLogs] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
@@ -194,51 +197,31 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     [filteredLines]
   )
 
-  const handleClear = useCallback(async () => {
-    if (displayedLines.length === 0) return
+  const handleClear = useCallback(() => {
+    if (displayedLines.length === 0 || isClearing) return
     setIsClearing(true)
+  }, [displayedLines.length, isClearing])
 
-    const container = scrollRef.current
-    if (container) {
-      const entries = container.querySelectorAll('.log-line')
-      if (entries.length > 0) {
-        await new Promise<void>((resolve) => {
-          const ctx = gsap.context(() => {
-            gsap.to(entries, {
-              autoAlpha: 0,
-              x: -30,
-              scaleY: 0,
-              transformOrigin: 'left center',
-              stagger: { each: 0.02, from: 'start', amount: Math.min(entries.length * 0.02, 0.4) },
-              duration: 0.25,
-              ease: 'power2.in',
-              force3D: true,
-              onComplete: resolve,
-            })
-          }, container)
-          setTimeout(() => {
-            ctx.revert()
-            resolve()
-          }, 1500)
-        })
+  useEffect(() => {
+    if (!isClearing) return
+    const t = setTimeout(async () => {
+      try {
+        await api.clearLogs()
+        if (!mountedRef.current) return
+        setRawLogs('')
+        setLogsKey(prev => prev + 1)
+        addToast('日志已清空', 'success')
+      } catch (e: unknown) {
+        if (!mountedRef.current) return
+        addToast('清空日志失败', 'error', extractErrorMessage(e))
+      } finally {
+        if (mountedRef.current) {
+          setIsClearing(false)
+        }
       }
-    }
-
-    try {
-      await api.clearLogs()
-      if (!mountedRef.current) return
-      setRawLogs('')
-      setLogsKey(prev => prev + 1)
-      addToast('日志已清空', 'success')
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      addToast('清空日志失败', 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) {
-        setIsClearing(false)
-      }
-    }
-  }, [api, addToast, displayedLines.length])
+    }, 600)
+    return () => clearTimeout(t)
+  }, [isClearing, api, addToast])
 
   const levelCounts = useMemo(() =>
     parsedLines.reduce((acc, line) => {
@@ -424,9 +407,9 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                       return (
                         <m.div
                           key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
-                          variants={logEntryVariants}
+                          variants={isClearing ? clearVariants : logVariants}
                           initial="initial"
-                          animate="animate"
+                          animate={isClearing ? 'clear' : 'animate'}
                           exit="exit"
                           className={cn(
                             'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
