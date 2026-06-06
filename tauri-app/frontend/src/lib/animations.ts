@@ -99,8 +99,7 @@ export const cardStaggerVariants = createCardStaggerVariants(EASING_60HZ)
 export const cardItemVariants = createCardItemVariants(EASING_60HZ)
 export const panelSwitchVariants = createPanelSwitchVariants(EASING_60HZ)
 export const logEntryVariants = createLogEntryVariants(EASING_60HZ)
-export const panelSlideVariants = createPanelSlideVariants(EASING_60HZ)
-export const panelFadeOnlyVariants = createPanelFadeOnlyVariants(EASING_60HZ)
+
 
 export function createPanelAppleVariants(easing: EasingConfig) {
   return {
