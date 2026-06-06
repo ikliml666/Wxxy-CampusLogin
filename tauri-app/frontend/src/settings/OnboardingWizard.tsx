@@ -40,7 +40,6 @@ interface OnboardingWizardProps {
 const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.networkAdapter', 'onboarding.setupComplete'] as const
 
 function StepIndicator({ current }: { current: number }) {
-  const { t } = useTranslation()
   return (
     <div className="flex items-center justify-center gap-2 py-3">
       {STEP_TITLE_KEYS.map((_, i) => (

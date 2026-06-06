@@ -15,6 +15,7 @@ import {
 import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
 import { useIpc } from '@/hooks/useIpc'
 import { useAppStore } from '@/hooks/useAppStore'
@@ -30,6 +31,7 @@ const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53'])
 const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
 export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpdateConfig }: NetworkPanelProps) {
+  const { t } = useTranslation()
   const disabledAdapters = useAppStore((s) => s.disabledAdapters)
   const [dohEnabling, setDohEnabling] = useState(false)
   const ipc = useIpc()
@@ -53,9 +55,9 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
           a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
         )
         if (!hasRecommendedDns) {
-          useAppStore.getState().addLog('未使用推荐DNS，建议手动设置阿里(223.5.5.5)+腾讯(1.12.12.12)DNS', 'warning')
+          useAppStore.getState().addLog(t('network.dnsNotRecommended'), 'warning')
         } else if (dohNotEnabled) {
-          useAppStore.getState().addLog('DNS未启用DoH加密，建议在 Windows 设置 → 网络 → DNS 加密中手动开启', 'warning')
+          useAppStore.getState().addLog(t('network.dnsDohNotEnabled'), 'warning')
         }
       }
     } catch {
@@ -71,16 +73,16 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
       const result = await ipc.setupDnsDoh()
       if (!mountedRef.current) return
       if (result.success) {
-        useAppStore.getState().addToast('DNS优化成功', 'success', result.message)
+        useAppStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
         const status = await ipc.checkDnsDohStatus()
         if (!mountedRef.current) return
         useAppStore.getState().setDnsDohStatus(status)
       } else {
-        useAppStore.getState().addToast('DNS优化失败', 'error', result.message)
+        useAppStore.getState().addToast(t('network.dnsOptFailed'), 'error', result.message)
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return
-      useAppStore.getState().addToast('DNS优化失败', 'error', extractErrorMessage(e))
+      useAppStore.getState().addToast(t('network.dnsOptFailed'), 'error', extractErrorMessage(e))
     } finally {
       if (mountedRef.current) setDohEnabling(false)
     }
@@ -88,12 +90,12 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
 
   const getDnsQuality = (adapter: { dnsSource?: string; dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[] }, autoDohEnabled: boolean) => {
     const servers = adapter.dnsServers || []
-    if (servers.length === 0 || adapter.dnsSource === 'dhcp') return { level: 'none', label: '未配置DNS' }
+    if (servers.length === 0 || adapter.dnsSource === 'dhcp') return { level: 'none', label: t('network.dnsNotConfigured') }
     const hasRecommended = servers.some(s => RECOMMENDED_DNS.has(s.address))
     const dohActive = autoDohEnabled || servers.filter(s => RECOMMENDED_DNS.has(s.address)).every(s => s.dohEnabled)
-    if (hasRecommended && dohActive) return { level: 'excellent', label: '已使用推荐DNS+DoH' }
-    if (hasRecommended) return { level: 'good', label: '已使用推荐DNS，未启用DoH' }
-    return { level: 'basic', label: '未使用推荐DNS' }
+    if (hasRecommended && dohActive) return { level: 'excellent', label: t('network.dnsRecommendedWithDoh') }
+    if (hasRecommended) return { level: 'good', label: t('network.dnsRecommendedNoDoh') }
+    return { level: 'basic', label: t('network.dnsNotRecommendedShort') }
   }
 
   return (
@@ -106,9 +108,9 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                 <Router className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>网络适配器</CardTitle>
+                <CardTitle>{t('network.networkAdapters')}</CardTitle>
                 <CardDescription>
-                  检测到 {adapters.length} 个已连接{disabledAdapters.length > 0 ? `，${disabledAdapters.length} 个未连接/已禁用` : ''}
+                  {disabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: disabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
                 </CardDescription>
               </div>
             </div>
@@ -117,8 +119,8 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
             {adapters.length === 0 && disabledAdapters.length === 0 ? (
               <div className="text-center py-8">
                 <Wifi className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">未检测到网络适配器</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">请检查网络连接状态</p>
+                <p className="text-sm text-muted-foreground">{t('network.noAdapters')}</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">{t('network.noAdaptersTip')}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -143,17 +145,17 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       </div>
                       <div>
                         <div className="text-sm font-medium">{a.name}</div>
-                        <div className="text-xs text-muted-foreground font-mono">{a.ip || '未获取IP'}</div>
+                        <div className="text-xs text-muted-foreground font-mono">{a.ip || t('network.noIp')}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {a.name === config.adapter1 && (
                         <Badge variant="outline" size="sm" className="border-primary/30 text-primary">
-                          主适配器
+                          {t('network.primary')}
                         </Badge>
                       )}
                       <Badge variant="secondary" size="sm">
-                        {a.wireless ? '无线' : '有线'}
+                        {a.wireless ? t('network.wireless') : t('network.wired')}
                       </Badge>
                     </div>
                   </div>
@@ -174,24 +176,24 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                 <Network className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>适配器设置</CardTitle>
-                <CardDescription>配置主备网络适配器</CardDescription>
+                <CardTitle>{t('network.adapterSettings')}</CardTitle>
+                <CardDescription>{t('network.adapterSettingsDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">主适配器</Label>
+                <Label className="text-xs font-medium text-muted-foreground">{t('network.primaryAdapter')}</Label>
                 <Select
                   value={config.adapter1 || '自动检测'}
                   onValueChange={(value) => onUpdateConfig({ adapter1: value })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="选择主适配器" />
+                    <SelectValue placeholder={t('network.selectPrimaryAdapter')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="自动检测">自动检测</SelectItem>
+                    <SelectItem value="自动检测">{t('network.autoDetect')}</SelectItem>
                     {adapters.filter(a => a.ip).map(a => (
                       <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                     ))}
@@ -199,7 +201,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       <>
                         <SelectSeparator />
                         {adapters.filter(a => !a.ip).map(a => (
-                          <SelectItem key={a.name} value={a.name}>{a.name}（未获取IP）</SelectItem>
+                          <SelectItem key={a.name} value={a.name}>{a.name}{t('network.noIpSuffix')}</SelectItem>
                         ))}
                       </>
                     )}
@@ -207,7 +209,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       <SelectSeparator />
                     )}
                     {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === '已禁用'}>
+                      <SelectItem key={a.name} value={a.name} disabled={a.status === t('network.disabledSuffix')}>
                         {a.name}（{a.status}）
                       </SelectItem>
                     ))}
@@ -215,7 +217,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">备用适配器</Label>
+                <Label className="text-xs font-medium text-muted-foreground">{t('network.backupAdapter')}</Label>
                 <Select
                   value={config.adapter2 || '__none__'}
                   onValueChange={(value) => {
@@ -224,10 +226,10 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="选择备用适配器" />
+                    <SelectValue placeholder={t('network.selectBackupAdapter')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">无</SelectItem>
+                    <SelectItem value="__none__">{t('common.none')}</SelectItem>
                     {adapters.filter(a => a.ip).map(a => (
                       <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                     ))}
@@ -235,7 +237,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       <>
                         <SelectSeparator />
                         {adapters.filter(a => !a.ip).map(a => (
-                          <SelectItem key={a.name} value={a.name}>{a.name}（未获取IP）</SelectItem>
+                          <SelectItem key={a.name} value={a.name}>{a.name}{t('network.noIpSuffix')}</SelectItem>
                         ))}
                       </>
                     )}
@@ -243,7 +245,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       <SelectSeparator />
                     )}
                     {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === '已禁用'}>
+                      <SelectItem key={a.name} value={a.name} disabled={a.status === t('network.disabledSuffix')}>
                         {a.name}（{a.status}）
                       </SelectItem>
                     ))}
@@ -264,8 +266,8 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                   <Shield className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <CardTitle>DNS优化</CardTitle>
-                  <CardDescription>推荐使用阿里DNS + 腾讯DNS，并启用DoH加密</CardDescription>
+                  <CardTitle>{t('network.dnsOptimization')}</CardTitle>
+                <CardDescription>{t('network.dnsOptimizationDesc')}</CardDescription>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -283,7 +285,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                   )}
                 >
                   {dnsChecking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Shield className="h-3 w-3 text-muted-foreground" />}
-                  {dnsChecking ? '检测中...' : '检测DNS'}
+                  {dnsChecking ? t('network.checkingDns') : t('network.checkDns')}
                 </m.button>
                 <m.button
                   whileHover={{ scale: 1.05 }}
@@ -301,7 +303,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                   }}
                 >
                   {dohEnabling ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                  {dohEnabling ? '设置中...' : '一键优化'}
+                  {dohEnabling ? t('network.settingUp') : t('network.oneClickOptimize')}
                 </m.button>
               </div>
             </div>
@@ -310,20 +312,20 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
             {!dnsStatus && !dnsChecking && (
               <div className="text-center py-6">
                 <Shield className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">点击"检测DNS"查看当前DNS配置</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">推荐: 223.5.5.5(阿里) + 1.12.12.12(腾讯)</p>
+                <p className="text-sm text-muted-foreground">{t('network.clickToCheckDns')}</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">{t('network.recommendedDnsTip')}</p>
               </div>
             )}
             {dnsChecking && !dnsStatus && (
               <div className="text-center py-6">
                 <Loader2 className="h-8 w-8 text-primary/40 mx-auto mb-2 animate-spin" />
-                <p className="text-sm text-muted-foreground">正在检测DNS配置...</p>
+                <p className="text-sm text-muted-foreground">{t('network.detectingDns')}</p>
               </div>
             )}
             {dnsStatus && (
               <div className="space-y-3">
                 {dnsStatus.adapters.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">未检测到活动网络适配器</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">{t('network.noActiveAdapters')}</p>
                 )}
                 {dnsStatus.adapters.map((adapter) => {
                   const quality = getDnsQuality(adapter, dnsStatus.autoDohEnabled)
@@ -334,8 +336,8 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                           <span className="text-sm font-medium">{adapter.name}</span>
                           {quality.level === 'excellent' && <Badge variant="outline" size="sm" className="border-green-500/30 text-green-600">DNS+DoH</Badge>}
                           {quality.level === 'good' && <Badge variant="outline" size="sm" className="border-blue-500/30 text-blue-600">DNS</Badge>}
-                          {quality.level === 'basic' && <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">待优化</Badge>}
-                          {quality.level === 'none' && <Badge variant="outline" size="sm" className="border-red-500/30 text-red-600">未配置</Badge>}
+                          {quality.level === 'basic' && <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">{t('network.pendingOptimization')}</Badge>}
+                          {quality.level === 'none' && <Badge variant="outline" size="sm" className="border-red-500/30 text-red-600">{t('network.notConfigured')}</Badge>}
                         </div>
                       </div>
                       <div className="space-y-1">
@@ -346,7 +348,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                             </span>
                             {RECOMMENDED_DNS.has(dns.address) && (
                               <span className="text-muted-foreground/60">
-                                {ALI_DNS.has(dns.address) ? '阿里' : '腾讯'}
+                                {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
                               </span>
                             )}
                             {dns.dohEnabled ? (
@@ -360,12 +362,12 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                               <span className="text-muted-foreground/40 truncate max-w-[180px]">{dns.dohTemplate}</span>
                             )}
                             {!dns.dohEnabled && dns.dohAvailable && (
-                              <span className="text-amber-500/60">可启用DoH</span>
+                              <span className="text-amber-500/60">{t('network.dohAvailable')}</span>
                             )}
                           </div>
                         ))}
                         {adapter.dnsServers.length === 0 && (
-                          <p className="text-xs text-muted-foreground/60">未配置DNS服务器（使用DHCP自动获取）</p>
+                          <p className="text-xs text-muted-foreground/60">{t('network.noDnsServers')}</p>
                         )}
                       </div>
                     </div>
@@ -374,7 +376,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                 {!dnsStatus.dohSupported && (
                   <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                    <span className="text-xs text-amber-600">当前系统不支持DoH配置（需要Windows 11或Windows Server 2022+），仍可设置推荐DNS服务器</span>
+                    <span className="text-xs text-amber-600">{t('network.dohNotSupported')}</span>
                   </div>
                 )}
               </div>

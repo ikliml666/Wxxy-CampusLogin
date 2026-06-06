@@ -243,6 +243,9 @@
     "poor": "Slow",
     "bad": "Congested",
     "detecting": "Detecting",
+    "unknown": "Unknown",
+    "disabled": "Disabled",
+    "busy": "Detecting",
     "tlsExplanation": "TLS",
     "tlsExplanationDetail": "— Transport Layer Security protocol, the encryption layer for HTTPS connections. TLS 1.3 is the latest fast handshake version, TLS 1.2 is the fallback version. High TLS latency may indicate distant servers or network congestion.",
     "ttfbExplanation": "TTFB (Time to First Byte)",
@@ -336,7 +339,13 @@
     "clear": "Clear",
     "onboardingGuide": "Beginner's Guide",
     "onboardingGuideDesc": "Revisit the first-time setup wizard",
-    "openOnboardingGuide": "Open Beginner's Guide"
+    "openOnboardingGuide": "Open Beginner's Guide",
+    "isp": {
+      "wxxy": "Wuxi University",
+      "telecom": "China Telecom",
+      "unicom": "China Unicom",
+      "cmcc": "China Mobile"
+    }
   },
   "log": {
     "systemLog": "System Logs",

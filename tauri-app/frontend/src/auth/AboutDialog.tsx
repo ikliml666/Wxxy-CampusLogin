@@ -16,6 +16,7 @@ import { APP_NAME, APP_VERSION } from '@/shared'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import { useIpc } from '@/hooks/useIpc'
+import { useTranslation } from 'react-i18next'
 import type { UpdateInfo, DownloadProgress, MirrorSource } from '@/shared'
 
 interface AboutDialogProps {
@@ -32,15 +33,15 @@ const GITHUB_REPO = 'ikliml666/Wxxy-CampusLogin'
 
 type DownloadState = 'idle' | 'selecting' | 'downloading' | 'done' | 'error'
 
-// 核心优势数据（无更新时展示）
+// 核心优势数据（无更新时展示）- 使用 i18n key
 const CORE_FEATURES = [
-  { icon: Zap, title: '双适配器支持', desc: '兼容多种校园网认证方式' },
-  { icon: Users, title: '多账号管理', desc: '轻松切换与保存多个账号' },
-  { icon: Wifi, title: '自动重连', desc: '断网后自动恢复连接' },
+  { icon: Zap, titleKey: 'about.dualAdapterSupport', descKey: 'about.dualAdapterSupportDesc' },
+  { icon: Users, titleKey: 'about.multiAccountManage', descKey: 'about.multiAccountManageDesc' },
+  { icon: Wifi, titleKey: 'about.autoReconnect', descKey: 'about.autoReconnectDesc' },
 ]
 
 function formatSize(bytes: number): string {
-  if (bytes === 0) return '未知'
+  if (bytes === 0) return '' // 未知大小不显示
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
@@ -67,6 +68,7 @@ function renderInlineMarkdown(text: string): ReactNode {
 
 export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvailable, initialLatestVersion, initialReleaseNotes, initialUpdateAvailable }: AboutDialogProps) {
   const api = useIpc()
+  const { t } = useTranslation()
   const [checking, setChecking] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
   const [downloadState, setDownloadState] = useState<DownloadState>('idle')
@@ -97,11 +99,11 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     } catch (e: unknown) {
       const msg = extractErrorMessage(e)
       if (msg.includes('403') || msg.includes('频率受限')) {
-        setCheckError('GitHub API 访问受限，请稍后重试')
+        setCheckError(t('about.githubApiLimited'))
       } else if (msg.includes('404')) {
-        setCheckError('未找到更新信息')
+        setCheckError(t('about.updateNotFound'))
       } else {
-        setCheckError(msg || '检查更新失败，请检查网络连接')
+        setCheckError(msg || t('about.checkFailed'))
       }
     }
     setChecking(false)
@@ -176,7 +178,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
         await handleDownload(preferred.url)
       }
     } catch {
-      setMirrors([{ name: 'GitHub', url: assetUrl, description: '官方源' }])
+      setMirrors([{ name: 'GitHub', url: assetUrl, description: t('about.officialSource') }])
       setSelectedMirror(assetUrl)
       await handleDownload(assetUrl)
     }
@@ -221,8 +223,8 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
       <DialogContent className="w-[90vw] max-w-[1200px] p-0 gap-0 overflow-hidden rounded-2xl border-0 shadow-none">
         {/* 隐藏的 header，仅用于无障碍访问 */}
         <DialogHeader className="sr-only">
-          <DialogTitle>关于</DialogTitle>
-          <DialogDescription>查看应用信息和检查更新</DialogDescription>
+          <DialogTitle>{t('about.aboutTitle')}</DialogTitle>
+          <DialogDescription>{t('about.aboutDesc')}</DialogDescription>
         </DialogHeader>
 
         <div className="flex h-[520px]">
@@ -249,7 +251,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
 
             {/* 简短描述 */}
             <p className="text-xs text-muted-foreground text-center mt-3 leading-relaxed">
-              校园网自动登录助手<br />支持多适配器与自动重连
+              {t('about.appDesc')}<br />{t('about.appDescSub')}
             </p>
 
             {/* 检查更新按钮 */}
@@ -264,9 +266,9 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               disabled={checking || downloadState === 'downloading'}
             >
               <RefreshCw className={cn('h-3 w-3 shrink-0', checking && 'animate-spin')} />
-              {checking ? '检查中...' : updateInfo ? (
-                updateInfo.has_update ? '发现新版本' : '已是最新版本'
-              ) : checkError ? '检查失败，重试' : '检查更新'}
+              {checking ? t('about.checking') : updateInfo ? (
+                updateInfo.has_update ? t('about.newVersionFound') : t('about.alreadyLatest')
+              ) : checkError ? t('about.checkFailedRetry') : t('about.checkUpdate')}
             </Button>
 
             {/* 更新日志 - 折叠收起（默认闭合） */}
@@ -277,7 +279,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 w-full"
                 >
                   <ChevronRight className={cn('h-3 w-3 transition-transform', showReleaseNotes && 'rotate-90')} />
-                  更新日志
+                  {t('about.releaseNotes')}
                 </button>
                 {showReleaseNotes && (
                   <div className="text-xs text-muted-foreground/80 bg-gray-50 dark:bg-muted/20 rounded-lg p-3 mt-2 max-h-[180px] overflow-y-auto overflow-x-auto leading-relaxed break-words [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_ul]:space-y-0.5 [&_li]:list-disc [&_li]:ml-4 [&_table]:w-full [&_th]:text-left [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_tr]:border-b [&_tr]:border-border/30 [&_p]:break-words [&_code]:break-all">
@@ -317,7 +319,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
               >
                 <ExternalLink className="h-3 w-3" />
-                GitHub 仓库
+                {t('about.githubRepo')}
               </button>
             </div>
           </div>
@@ -334,16 +336,16 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center">
                         <Check className="h-8 w-8 text-emerald-500" />
                       </div>
-                      <p className="text-base font-semibold text-emerald-600 dark:text-emerald-400">已是最新版本</p>
+                      <p className="text-base font-semibold text-emerald-600 dark:text-emerald-400">{t('about.alreadyLatest')}</p>
                       <p className="text-sm text-muted-foreground">v{APP_VERSION}</p>
                     </div>
                     {/* 核心优势卡片 */}
                     <div className="grid grid-cols-3 gap-2.5 w-full max-w-[260px] mt-2">
                       {CORE_FEATURES.map((feat) => (
-                        <div key={feat.title} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
+                        <div key={feat.titleKey} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
                           <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
-                          <div className="text-[11px] font-medium leading-tight">{feat.title}</div>
-                          <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{feat.desc}</div>
+                          <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
+                          <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{t(feat.descKey)}</div>
                         </div>
                       ))}
                     </div>
@@ -355,7 +357,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     </div>
                     <p className="text-sm text-rose-500 text-center max-w-xs">{checkError}</p>
                     <Button variant="outline" size="sm" className="text-xs" onClick={handleCheckUpdate} disabled={checking}>
-                      重试
+                      {t('common.retry')}
                     </Button>
                   </>
                 ) : (
@@ -364,7 +366,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       <Package className="h-8 w-8 text-muted-foreground/30" />
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {checking ? '正在检查更新...' : '等待检查更新'}
+                      {checking ? t('about.checkingUpdate') : t('about.waitingForCheck')}
                     </p>
                   </>
                 )}
@@ -387,7 +389,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   disabled={checking}
                 >
                   <Download className="h-5 w-5" />
-                  一键下载 v{updateInfo.latest_version}
+                  {t('about.oneClickDownload', { version: updateInfo.latest_version })}
                 </Button>
 
                 {/* 切换下载源入口 + 悬浮下拉面板 */}
@@ -409,14 +411,14 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                         }
                       } catch {
                         if (mirrors.length === 0) {
-                          setMirrors([{ name: 'GitHub', url: defaultAssetUrl, description: '官方源' }])
+                          setMirrors([{ name: 'GitHub', url: defaultAssetUrl, description: t('about.officialSource') }])
                           if (!selectedMirror) setSelectedMirror(defaultAssetUrl)
                         }
                       }
                       setShowMirrorList(true)
                     }}
                   >
-                    下载慢？点击切换下载源
+                    {t('about.switchDownloadSource')}
                     <ChevronDown className={cn('h-3 w-3 transition-transform', showMirrorList && 'rotate-180')} />
                   </button>
 
@@ -459,7 +461,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   <div className="mt-1">
                     <div className="flex items-center gap-1.5 mb-2">
                       <Sparkles className="h-3.5 w-3.5 text-violet-500" />
-                      <span className="text-xs font-semibold text-foreground">新功能亮点</span>
+                      <span className="text-xs font-semibold text-foreground">{t('about.newFeatureHighlights')}</span>
                     </div>
                     <div className="bg-white dark:bg-card rounded-xl border border-gray-100 dark:border-border/50 divide-y divide-gray-50 dark:divide-border/30">
                       {featureHighlights.map((item, i) => (
@@ -479,9 +481,9 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   <div className="mt-1">
                     <div className="grid grid-cols-3 gap-2.5">
                       {CORE_FEATURES.map((feat) => (
-                        <div key={feat.title} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
+                        <div key={feat.titleKey} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
                           <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
-                          <div className="text-[11px] font-medium leading-tight">{feat.title}</div>
+                          <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
                         </div>
                       ))}
                     </div>
@@ -494,7 +496,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             {downloadState === 'selecting' && (
               <div className="flex-1 flex flex-col items-center justify-center gap-3">
                 <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
-                <p className="text-sm text-muted-foreground">正在准备下载...</p>
+                <p className="text-sm text-muted-foreground">{t('about.preparingDownload')}</p>
               </div>
             )}
 
@@ -504,7 +506,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-5 w-5 animate-spin text-violet-500" />
-                    <span className="text-sm font-medium">正在下载...</span>
+                    <span className="text-sm font-medium">{t('about.downloading')}</span>
                   </div>
                   <div className="space-y-2">
                     <div className="h-2.5 bg-gray-200 dark:bg-muted rounded-full overflow-hidden">
@@ -514,12 +516,12 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       />
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>{progress ? `${formatSize(progress.downloaded)} / ${formatSize(progress.total)}` : '准备中...'}</span>
+                      <span>{progress ? `${formatSize(progress.downloaded)} / ${formatSize(progress.total)}` : t('about.preparing')}</span>
                       <span className="font-medium text-foreground">{progress?.percent.toFixed(1) ?? 0}%</span>
                     </div>
                     {progress && progress.speed > 0 && (
                       <div className="text-xs text-muted-foreground">
-                        速度: {formatSpeed(progress.speed)}
+                        {t('about.speed', { speed: formatSpeed(progress.speed) })}
                       </div>
                     )}
                   </div>
@@ -533,17 +535,17 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 <div className="space-y-4">
                   <div className="flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400">
                     <Check className="h-6 w-6" />
-                    <span className="text-base font-medium">下载完成</span>
+                    <span className="text-base font-medium">{t('about.downloadComplete')}</span>
                   </div>
                   <Button
                     className="h-14 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold text-base justify-center gap-2.5 shadow-md shadow-emerald-500/20 transition-all"
                     onClick={handleInstall}
                   >
                     <Package className="h-5 w-5" />
-                    安装更新
+                    {t('about.installUpdate')}
                   </Button>
                   <p className="text-[11px] text-muted-foreground text-center">
-                    点击安装后将启动安装程序，当前应用可能需要关闭
+                    {t('about.installNote')}
                   </p>
                 </div>
               </div>
@@ -555,7 +557,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 <div className="space-y-4">
                   <div className="flex items-center justify-center gap-2 text-rose-500">
                     <XCircle className="h-5 w-5" />
-                    <span className="text-sm font-medium">下载失败</span>
+                    <span className="text-sm font-medium">{t('about.downloadFailed')}</span>
                   </div>
                   <div className="text-xs text-rose-500 bg-rose-50 dark:bg-rose-950/20 rounded-xl p-3">
                     {downloadError}
@@ -571,7 +573,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       }
                     }}
                   >
-                    重试下载
+                    {t('about.retryDownload')}
                   </Button>
                 </div>
               </div>
@@ -586,7 +588,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   className="text-xs text-muted-foreground"
                   onClick={() => { setDownloadState('idle'); setShowMirrorList(false) }}
                 >
-                  返回
+                  {t('about.return')}
                 </Button>
               </div>
             )}

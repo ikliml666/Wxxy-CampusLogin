@@ -243,6 +243,9 @@
     "poor": "较慢",
     "bad": "拥堵",
     "detecting": "检测中",
+    "unknown": "未知",
+    "disabled": "已禁用",
+    "busy": "检测中",
     "tlsExplanation": "TLS",
     "tlsExplanationDetail": "— 传输层安全协议，HTTPS连接的加密层。TLS 1.3是最新的快速握手版本，TLS 1.2是兼容回退版本。TLS延迟高可能表示服务器距离远或网络拥堵。",
     "ttfbExplanation": "TTFB（首字节时间）",
@@ -336,7 +339,13 @@
     "clear": "清除",
     "onboardingGuide": "新手指引",
     "onboardingGuideDesc": "重新查看首次使用向导",
-    "openOnboardingGuide": "打开新手指引"
+    "openOnboardingGuide": "打开新手指引",
+    "isp": {
+      "wxxy": "无锡学院",
+      "telecom": "中国电信",
+      "unicom": "中国联通",
+      "cmcc": "中国移动"
+    }
   },
   "log": {
     "systemLog": "系统日志",

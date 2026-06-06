@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import gsap from 'gsap'
 import { m, AnimatePresence } from 'framer-motion'
 import { createLogEntryVariants } from '@/lib/animations'
@@ -39,13 +40,13 @@ interface ParsedLogLine {
   raw: string
 }
 
-const DEFAULT_LEVEL_CONFIG = { icon: Info, color: 'text-muted-foreground', bg: 'bg-muted', border: 'border-l-muted-foreground', leftBar: 'bg-muted-foreground', label: '未知' }
+const DEFAULT_LEVEL_CONFIG = { icon: Info, color: 'text-muted-foreground', bg: 'bg-muted', border: 'border-l-muted-foreground', leftBar: 'bg-muted-foreground', labelKey: 'common.unknown' }
 
-const LEVEL_CONFIG: Record<LogLevel, { icon: typeof Info; color: string; bg: string; border: string; leftBar: string; label: string }> = {
-  DEBUG: { icon: Bug, color: 'text-slate-400', bg: 'bg-slate-500/8', border: 'border-l-slate-400', leftBar: 'bg-slate-400', label: '调试' },
-  INFO: { icon: Info, color: 'text-sky-500', bg: 'bg-sky-500/8', border: 'border-l-sky-400', leftBar: 'bg-sky-400', label: '信息' },
-  WARN: { icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-l-amber-500', leftBar: 'bg-amber-500', label: '警告' },
-  ERROR: { icon: AlertCircle, color: 'text-destructive', bg: 'bg-destructive/10', border: 'border-l-rose-500', leftBar: 'bg-rose-500', label: '错误' },
+const LEVEL_CONFIG: Record<LogLevel, { icon: typeof Info; color: string; bg: string; border: string; leftBar: string; labelKey: string }> = {
+  DEBUG: { icon: Bug, color: 'text-slate-400', bg: 'bg-slate-500/8', border: 'border-l-slate-400', leftBar: 'bg-slate-400', labelKey: 'log.debug' },
+  INFO: { icon: Info, color: 'text-sky-500', bg: 'bg-sky-500/8', border: 'border-l-sky-400', leftBar: 'bg-sky-400', labelKey: 'common.info' },
+  WARN: { icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-l-amber-500', leftBar: 'bg-amber-500', labelKey: 'common.warning' },
+  ERROR: { icon: AlertCircle, color: 'text-destructive', bg: 'bg-destructive/10', border: 'border-l-rose-500', leftBar: 'bg-rose-500', labelKey: 'common.error' },
 }
 
 const LOG_LINE_REGEX = /^\[(.+?)\]\s*\[(DEBUG|INFO|WARN|ERROR)\]\s*\[(.+?)\]\s*(.+)$/
@@ -63,16 +64,17 @@ function parseLogLine(line: string): ParsedLogLine | null {
 }
 
 const LINE_OPTIONS = [
-  { value: 100, label: '100行' },
-  { value: 200, label: '200行' },
-  { value: 500, label: '500行' },
-  { value: 1000, label: '1000行' },
+  { value: 100, labelKey: 'log.lines100' },
+  { value: 200, labelKey: 'log.lines200' },
+  { value: 500, labelKey: 'log.lines500' },
+  { value: 1000, labelKey: 'log.lines1000' },
 ]
 
 const MAX_DISPLAY_LINES = 50
 
 export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
   const profile = useAnimationProfile()
+  const { t } = useTranslation()
   const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
   const [rawLogs, setRawLogs] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -103,7 +105,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       setRawLogs(result)
     } catch (e: unknown) {
       if (seq !== fetchSeqRef.current || !mountedRef.current) return
-      addToast('获取日志失败', 'error', extractErrorMessage(e))
+      addToast(t('log.fetchLogFailed'), 'error', extractErrorMessage(e))
     } finally {
       if (seq !== fetchSeqRef.current || !mountedRef.current) return
       setIsLoading(false)
@@ -142,11 +144,11 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       await api.setDebugMode(next)
       if (!mountedRef.current) return
       setDebugMode(next)
-      addToast(next ? '已开启调试日志' : '已关闭调试日志', 'info')
+      addToast(next ? t('log.debugEnabled') : t('log.debugDisabled'), 'info')
       fetchLogs()
     } catch {
       if (!mountedRef.current) return
-      addToast('切换调试模式失败', 'error')
+      addToast(t('log.debugToggleFailed'), 'error')
     }
   }, [debugMode, api, addToast, fetchLogs])
 
@@ -241,11 +243,11 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   if (!mountedRef.current) return
                   setRawLogs('')
                   setLogsKey(prev => prev + 1)
-                  addToast('日志已清空', 'success')
+                  addToast(t('log.logCleared'), 'success')
                   setIsClearing(false)
                 }).catch((e: unknown) => {
                   if (!mountedRef.current) return
-                  addToast('清空日志失败', 'error', extractErrorMessage(e))
+                  addToast(t('log.clearLogFailed'), 'error', extractErrorMessage(e))
                   setIsClearing(false)
                 })
               },
@@ -288,8 +290,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <FileText className="h-5 w-5 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <CardTitle>系统日志</CardTitle>
-                <CardDescription>查看应用运行日志，定位问题</CardDescription>
+                <CardTitle>{t('log.systemLog')}</CardTitle>
+                <CardDescription>{t('log.systemLogDesc')}</CardDescription>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <div className="relative" ref={lineSelectorRef}>
@@ -299,7 +301,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     className="h-7 text-[11px] gap-1 px-2"
                     onClick={() => setShowLineSelector(!showLineSelector)}
                   >
-                    {LINE_OPTIONS.find(o => o.value === lineCount)?.label}
+                    {t(LINE_OPTIONS.find(o => o.value === lineCount)?.labelKey || 'log.lines200')}
                     <ChevronDown className="h-3 w-3" />
                   </Button>
                   {showLineSelector && (
@@ -316,7 +318,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                             lineCount === opt.value ? 'text-primary font-medium' : 'text-foreground'
                           )}
                         >
-                          {opt.label}
+                          {t(opt.labelKey)}
                         </button>
                       ))}
                     </div>
@@ -330,7 +332,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   disabled={isLoading}
                 >
                   <RefreshCw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
-                  刷新
+                  {t('common.refresh')}
                 </Button>
                 <Button
                   variant="outline"
@@ -339,7 +341,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   onClick={toggleDebugMode}
                 >
                   <Bug className="h-3 w-3" />
-                  {debugMode ? '调试开' : '调试关'}
+                  {debugMode ? t('log.debugOn') : t('log.debugOff')}
                 </Button>
                 <Button
                   variant="outline"
@@ -349,7 +351,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   disabled={isClearing || parsedLines.length === 0}
                 >
                   <Trash2 className="h-3 w-3" />
-                  清空
+                  {t('common.clear')}
                 </Button>
               </div>
             </div>
@@ -365,7 +367,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     : 'text-muted-foreground hover:bg-accent'
                 )}
               >
-                全部
+                {t('log.all')}
                 {parsedLines.length > 0 && (
                   <span className="ml-1 opacity-60">{parsedLines.length}</span>
                 )}
@@ -385,7 +387,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     )}
                   >
                     <cfg.icon className="h-3 w-3" />
-                    {cfg.label}
+                    {t(cfg.labelKey)}
                     {count > 0 && <span className="opacity-60">{count}</span>}
                   </button>
                 )
@@ -401,14 +403,14 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
                   <FileText className="h-8 w-8 mb-2 opacity-30" />
                   <p className="text-xs">
-                    {parsedLines.length === 0 ? '暂无日志记录' : '当前筛选条件下无日志'}
+                    {parsedLines.length === 0 ? t('log.noLogs') : t('log.noFilteredLogs')}
                   </p>
                 </div>
               ) : (
                 <>
                   {filteredLines.length > MAX_DISPLAY_LINES && (
                     <div className="px-3 py-1.5 text-[11px] text-muted-foreground/60 text-center border-b border-border/30">
-                      仅显示最近{MAX_DISPLAY_LINES}条日志（共{filteredLines.length}条）
+                      {t('log.showRecentLogs', { max: MAX_DISPLAY_LINES, total: filteredLines.length })}
                     </div>
                   )}
                   <AnimatePresence mode="popLayout" key={logsKey}>

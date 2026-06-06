@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { AnimatedNumber } from '@/shared'
 import { Loader2, Server, Globe, Search } from 'lucide-react'
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
@@ -50,6 +51,7 @@ function getQualityCapsuleBg(quality: string): string {
 }
 
 export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ networkQuality }: NetworkQualityCapsuleProps) {
+  const { t } = useTranslation()
   const [isHovered, setIsHovered] = useState(false)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const capsuleRef = useRef<HTMLDivElement>(null)
@@ -69,16 +71,16 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   const externalSub = useMemo(() => {
     if (!networkQuality) return undefined
     const avg = networkQuality.averageExternalLatency
-    if (avg !== undefined && avg >= 0) return '修剪均值延迟'
-    if (networkQuality.externalLatency >= 0) return '中位数延迟'
+    if (avg !== undefined && avg >= 0) return t('quality.trimmedMeanLatency')
+    if (networkQuality.externalLatency >= 0) return t('quality.medianLatency')
     return undefined
-  }, [networkQuality])
+  }, [networkQuality, t])
 
   const dnsSub = useMemo(() => {
     const detail = networkQuality?.details?.['DNS解析']
     if (!detail) return undefined
-    return detail.target ? `→ ${detail.target}` : '系统DNS解析'
-  }, [networkQuality?.details?.['DNS解析']])
+    return detail.target ? `→ ${detail.target}` : t('quality.systemDnsResolution')
+  }, [networkQuality?.details?.['DNS解析'], t])
 
   const displayLatency = useMemo(() => {
     if (externalLatency >= 0) return externalLatency
@@ -89,7 +91,8 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
 
   const quality = networkQuality?.quality ?? 'unknown'
   const isPending = displayLatency < 0
-  const qualityLabel = (QUALITY_CONFIG[quality] ?? QUALITY_CONFIG.unknown)?.label ?? '未知'
+  const qualityConfigEntry = (QUALITY_CONFIG[quality] ?? QUALITY_CONFIG.unknown)
+  const qualityLabel = t(qualityConfigEntry.labelKey)
   const capsuleBg = getQualityCapsuleBg(quality)
   const capsuleText = (QUALITY_CONFIG[quality] ?? QUALITY_CONFIG.unknown)?.color ?? 'text-muted-foreground'
   const latencyTextColor = displayLatency >= 0 ? getLatencyColor(displayLatency).text : capsuleText
@@ -187,7 +190,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
           }
           transition={{ duration: 0.35, ease: profile.easing.smooth as [number, number, number, number] }}
         >
-          <span className="font-sans text-[10px] font-medium">网络质量：{qualityLabel}</span>
+          <span className="font-sans text-[10px] font-medium">{t('quality.networkQualityLabel', { label: qualityLabel })}</span>
           <span className="opacity-40">·</span>
           {isPending ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -216,11 +219,11 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
               onMouseLeave={handleMouseLeave}
             >
               <div className="text-[10px] text-muted-foreground/60 font-medium mb-1 pb-1 border-b border-border/30">
-                延迟详情
+                {t('quality.latencyDetails')}
               </div>
-              <LatencyRow icon={Server} label="内网延迟" sub={gatewaySub} latency={gatewayLatency} />
-              <LatencyRow icon={Globe} label="外网延迟" sub={externalSub} latency={externalLatency} />
-              <LatencyRow icon={Search} label="DNS解析延迟" sub={dnsSub} latency={dnsLatency} />
+              <LatencyRow icon={Server} label={t('quality.internalLatency')} sub={gatewaySub} latency={gatewayLatency} />
+              <LatencyRow icon={Globe} label={t('quality.externalLatency')} sub={externalSub} latency={externalLatency} />
+              <LatencyRow icon={Search} label={t('quality.dnsResolutionLatency')} sub={dnsSub} latency={dnsLatency} />
             </m.div>
           )}
         </AnimatePresence>,

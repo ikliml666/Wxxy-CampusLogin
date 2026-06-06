@@ -2,6 +2,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { memo, useRef, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { RefreshButton } from '@/shared'
 import { NetworkQualityCapsule } from '@/monitor'
 import { useAppStore } from '@/hooks/useAppStore'
@@ -12,6 +13,7 @@ interface StatusBarProps {
 }
 
 export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfService }: StatusBarProps) {
+  const { t } = useTranslation()
   const status = useAppStore((s) => s.status)
   const config = useAppStore((s) => s.config)
   const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
@@ -54,7 +56,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
     }
 
     if (entries.length === 0) {
-      return { displayText: onCampusNetwork ? '网络适配器已在线' : '网络适配器未在线', campusTooltip: null }
+      return { displayText: onCampusNetwork ? t('auth.networkAdapterOnline') : t('auth.networkAdapterOffline'), campusTooltip: null }
     }
 
     const allOnline = entries.every(e => e.online)
@@ -62,11 +64,11 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
 
     let text: string
     if (allOnline) {
-      text = `${entries.map(e => e.name).join(', ')} 已在线`
+      text = `${entries.map(e => e.name).join(', ')} ${t('auth.online')}`
     } else if (allOffline) {
-      text = `${entries.map(e => e.name).join(', ')} 未在线`
+      text = `${entries.map(e => e.name).join(', ')} ${t('auth.offline')}`
     } else {
-      text = entries.map(e => `${e.name}${e.online ? '已在线' : '未在线'}`).join(', ')
+      text = entries.map(e => `${e.name}${e.online ? t('auth.online') : t('auth.offline')}`).join(', ')
     }
 
     const tooltipParts: string[] = []
@@ -74,7 +76,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
     if (campusWired) tooltipParts.push(campusWired.message)
 
     return { displayText: text, campusTooltip: tooltipParts.length > 0 ? tooltipParts.join('\n') : null }
-  }, [statusText, statusState, config, campusWifi, campusWired, onCampusNetwork, adapterStatuses])
+  }, [statusText, statusState, config, campusWifi, campusWired, onCampusNetwork, adapterStatuses, t])
 
   const statusConfig = {
     online: { color: 'text-emerald-500', dot: 'bg-emerald-500', bg: 'rgba(16, 185, 129, 0.12)' },
@@ -137,11 +139,11 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
                       onClick={refreshQuality}
                       disabled={isRefreshingQuality}
                       isRefreshing={isRefreshingQuality}
-                      aria-label="刷新延迟检测"
+                      aria-label={t('statusbar.refreshLatencyTest')}
                     />
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    <p>{isRefreshingQuality ? '正在检测...' : '刷新延迟'}</p>
+                    <p>{isRefreshingQuality ? t('statusbar.detecting') : t('statusbar.refreshLatency')}</p>
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -154,13 +156,13 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
                   <button
                     onClick={onOpenSelfService}
                     className="p-1.5 rounded-xl hover:bg-violet-500/10 text-muted-foreground hover:text-violet-600 transition-colors btn-physical group"
-                    aria-label="用户自助服务"
+                    aria-label={t('statusbar.selfService')}
                   >
                     <HeadsetIcon className="h-3 w-3 transition-transform duration-300 group-hover:animate-icon-hover-wiggle" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>用户自助服务</p>
+                  <p>{t('statusbar.selfService')}</p>
                 </TooltipContent>
               </Tooltip>
           )}
@@ -170,13 +172,13 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
               <button
                 onClick={onOpenPortal}
                 className="p-1.5 rounded-xl hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors btn-physical group"
-                aria-label="打开认证门户"
+                aria-label={t('statusbar.openPortal')}
               >
                 <ExternalLink className="h-3 w-3 transition-transform duration-300 group-hover:animate-icon-hover-flyout" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>打开认证门户</p>
+              <p>{t('statusbar.openPortal')}</p>
             </TooltipContent>
           </Tooltip>
         </div>

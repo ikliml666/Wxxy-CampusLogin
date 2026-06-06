@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { getLatencyLevel } from '@/lib/latency'
 import { QUALITY_CONFIG } from '@/network'
 import { useMemo, useRef, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AnimatedNumber } from '@/shared'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
@@ -14,6 +15,7 @@ function getSignalCfg(level: string) {
     color: qc.hex,
     glow: qc.glow,
     label: qc.label,
+    labelKey: qc.labelKey,
     textClass: qc.color,
     bgClass: qc.bg,
   }
@@ -134,6 +136,7 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
   externalLatency: number
   loading?: boolean
 }) {
+  const { t } = useTranslation()
   const gwLevel = getLatencyLevel(gatewayLatency)
   const extLevel = getLatencyLevel(externalLatency)
   const gwCfg = loading ? undefined : getSignalCfg(gwLevel)
@@ -160,13 +163,13 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
               className="flex flex-col items-center"
             >
               <span className="text-[11px] font-medium text-muted-foreground mb-1">
-                {isGw ? '内网延迟' : '外网延迟'}
+                {isGw ? t('quality.internalLatency') : t('quality.externalLatency')}
                 {cfg && (
                   <span
                     key={level}
                     className={cn('ml-1 inline-block label-bounce-in', cfg.textClass)}
                   >
-                    {cfg.label}
+                    {t(cfg.labelKey)}
                   </span>
                 )}
               </span>
