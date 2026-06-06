@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.2.2 - 2026-06-06
+
+### 前端动画优化
+
+- **面板切换动画 Apple 风格重构**: 移除 `AnimatePresence` 面板切换时的 opacity 淡入淡出效果（导致视觉模糊），改用 `createPanelAppleVariants`（y 轴弹性位移 + spring 缓动），切换干脆利落无半透明过渡期
+- **面板切换 GPU 加速**: 面板容器添加 `will-change: transform` + `transform: translateZ(0)` 强制 GPU 合成层，确保动画流畅
+- **动画特效分级移除**: `useAnimationProfile` 移除 LOW_PROFILE/HIGH_PROFILE 分级和 GPU 检测逻辑，始终返回全高动画配置
+- **日志删除动画 Apple Finder 风格**: 系统日志面板和右侧运行日志面板的清空动画改为 GSAP 驱动，从第一条开始向右滑出（x:50）+ 水平压缩（scaleX:0.8）+ 弹性缓动（back.out），stagger 间隔 0.2s 实现一条一条删除效果
+- **日志删除视口优化**: 系统日志面板清空时只对当前可视区域内的条目做删除动画，不可见的条目立即隐藏，避免条目过多时动画时间过长
+- **进度条填充修复**: `LatencyTimeline` 分段进度条移除多余的 `scaleX` 变换（与 `width` 叠加导致实际宽度被缩小），修复进度条中间出现空白的问题
+
 ## v2.2.2 - 2026-06-01
 
 ### 安全修复
@@ -49,6 +60,7 @@
 
 - **BL_REGEX 词边界修复**: 黑名单正则添加 `\b` 词边界，避免误伤 Native/National/Toronto/Tornado/Vector/Mentor 等合法网卡名；新增中文黑名单补充（虚拟/伪/假/测试/模拟/隧道）
 - **is_visible_in_ncpa 注册表默认可见**: `ShowInNetworkConnections` 值不存在时默认可见（与 Windows 行为一致），修复 fail-closed 策略导致大量实体网卡被过滤的问题
+- **is_visible_in_ncpa Class subkey 交叉验证**: 新增 `class_subkey_has_matching_guid` 注册表检查，遍历 `HKLM\...\Control\Class\{4D36E972-...}` 下所有 subkey，查找 `NetCfgInstanceId` 匹配当前 GUID 的条目。真实物理网卡一定有对应 class subkey，幽灵虚拟副本（如 Wi-Fi Direct Virtual Adapter 创建的 WLAN 2/3/4/5）虽然 `Connection` 子键存在但 class subkey 中无匹配条目，从而被过滤。此方案不依赖名称模式，不会误伤多物理网卡场景
 - **resolve_adapter_names 配置名验证与降级**: 配置的适配器名不在可见列表时降级到自动检测并输出 `log_warn!`，避免静默选错网卡
 
 ### 登录流程修复
@@ -70,9 +82,17 @@
 - **校园网检测未通过路径使用 per-adapter 消息**: `watcher.rs` 中 `emit_background_check_result` 的 `message` 参数从全局合并的 `campus_result.message` 改为 `a1_campus/a2_campus`，修复以太网卡显示 WLAN 信息
 - **网络质量详情 hasData 判定放宽**: `QualityPanel.tsx` 中 `hasData` 从 `!!(details) && quality !== 'unknown'` 改为 `!!(details)`，修复 quality='unknown' 但 details 存在时错误降级为无数据状态
 
+### 功能改进
+
+- **统一取消退出快捷键 Ctrl+Shift+C**: 校园网验证不通过退出与登录成功后退出共用同一快捷键 Ctrl+Shift+C，按一次同时取消所有退出流程；前端取消按钮也统一取消两种退出
+- **新版本系统通知**: 后台检测到新版本时通过 `emit_notification` 推送系统托盘通知（仅通知一次，重启后重置），受"启用系统通知"设置管理
+- **campus_exit_on_fail 配置开关**: 新增 `campusExitOnFail` 配置字段（默认 true），允许用户关闭"非校园网自动退出"功能；前端"校园网环境验证"卡片内添加开关
+
 ### 界面改进
 
 - **"启用校园网名称检测"重命名**: 改为"启用校园网环境验证"，更准确反映功能包含的三级检测逻辑（SSID 名称匹配 → /18 子网匹配 → 网关 ping）
+- **"验证不通过时最小化+退出"重命名**: 改为"非校园网自动退出"，描述中添加 Ctrl+Shift+C 取消提示
+- **校园网退出取消按钮**: 非校园网退出倒计时 Toast 添加"取消退出"按钮，支持前端点击取消
 - **网络适配器卡片添加刷新按钮**: RightPanel 底部"网络适配器"紧凑卡片标题行新增 `RefreshButton`（箭头右侧），点击后强制刷新适配器列表（`getAdapters(true)`）+ 适配器详情 + 触发后台检测更新在线状态；按钮使用 `stopPropagation` 避免触发卡片展开/收起
 
 ### 性能优化
@@ -114,6 +134,14 @@
 ### 涉及文件
 
 - `src-tauri/src/platform/gpu.rs` - WebView2 GPU 加速参数
+- `src-tauri/src/network/adapter.rs` - 适配器过滤：Class subkey 交叉验证、幽灵虚拟副本过滤
+- `src-tauri/src/infra/lifecycle.rs` - 统一取消退出快捷键、校园网退出注册/注销快捷键
+- `src-tauri/src/infra/state.rs` - update_notified 原子标记、campus_exit_started 原子标志
+- `src-tauri/src/infra/notification.rs` - 通知推送（无变更，新版本通知复用）
+- `src-tauri/src/update/updater.rs` - 新版本检测推送系统通知
+- `src-tauri/src/commands/system.rs` - cancel_auto_exit 统一取消校园网退出
+- `src-tauri/src/config/model.rs` - campus_exit_on_fail 配置字段
+- `src-tauri/src/main.rs` - 全局快捷键处理器同时取消两种退出
 - `frontend/src/index.css` - CSS 动画、缓动、合成层优化
 - `frontend/src/App.tsx` - 滚动容器优化
 - `frontend/src/main.tsx` - GSAP 全局配置
@@ -125,6 +153,10 @@
 - `frontend/src/hooks/useAnimationProfile.ts` - Intel 核显配置调优
 - `frontend/src/lib/animations.ts` - Framer Motion variants Apple 缓动
 - `frontend/src/shared/AnimatedNumber.tsx` - 数字动画缓动升级
+- `frontend/src/hooks/useAppInit.ts` - 校园网退出取消按钮、campus-exit-cancelled 事件监听
+- `frontend/src/hooks/useIpc.ts` - onCampusExitCancelled 接口与实现
+- `frontend/src/monitor/MonitorPanel.tsx` - "非校园网自动退出"重命名与开关
+- `frontend/src/settings/types.ts` - campusExitOnFail 前端类型
+- `frontend/src/settings/constants.ts` - campusExitOnFail 默认值
 - `frontend/src/hooks/useAppStore.ts` - refreshAdapters 方法与 isRefreshingAdapters 状态
 - `frontend/src/network/NetworkPanel.tsx` - 适配器选择面板（清理残留引用）
-- `frontend/src/monitor/MonitorPanel.tsx` - 监控面板（清理残留引用）
