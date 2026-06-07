@@ -300,6 +300,7 @@
   }
 
   .log-entry-flash {
+    will-change: opacity;
     position: relative;
   }
   .log-entry-flash::after {
@@ -560,6 +561,7 @@
   }
 
   .animate-window-reveal {
+    will-change: opacity;
     animation: windowReveal 0.3s ease-out both !important;
   }
 
@@ -568,9 +570,9 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .animate-stagger-1 { animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.05s both !important; }
-  .animate-stagger-2 { animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.13s both !important; }
-  .animate-stagger-3 { animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.21s both !important; }
+  .animate-stagger-1 { will-change: transform, opacity; animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.05s both !important; }
+  .animate-stagger-2 { will-change: transform, opacity; animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.13s both !important; }
+  .animate-stagger-3 { will-change: transform, opacity; animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.21s both !important; }
 
 
   @keyframes numberFlash {
@@ -580,6 +582,7 @@
   }
 
   .number-flash {
+    will-change: transform, opacity;
     animation: numberFlash 0.4s ease-out !important;
   }
 
@@ -591,6 +594,7 @@
   }
 
   .animate-check-flash {
+    will-change: transform, opacity;
     animation: checkFlash 0.5s ease-out forwards !important;
   }
 
@@ -603,6 +607,7 @@
   }
 
   .badge-pulse {
+    will-change: transform;
     animation: badgePulse 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
   }
 
@@ -616,6 +621,7 @@
   }
 
   .refresh-shake {
+    will-change: transform;
     animation: refreshShake 0.35s ease-out !important;
   }
 
@@ -627,6 +633,8 @@
   }
 
   .bar-elastic {
+    will-change: transform;
+    contain: paint;
     animation: barElastic 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
     transform-origin: bottom;
   }
@@ -696,6 +704,7 @@
   }
 
   .card-enter {
+    will-change: transform, opacity;
     animation: cardEnter 0.5s cubic-bezier(0.33, 1, 0.68, 1) both;
     animation-delay: calc(var(--stagger-i, 0) * 0.08s);
   }
@@ -733,6 +742,8 @@
   }
 
   .dialog-overlay-enter {
+    will-change: opacity;
+    contain: paint;
     animation: dialogOverlayIn 0.2s ease-out both;
   }
 
@@ -741,6 +752,8 @@
   }
 
   .dialog-content-enter {
+    will-change: transform, opacity;
+    contain: paint;
     animation: dialogContentIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
@@ -754,6 +767,8 @@
   }
 
   .ripple-effect {
+    will-change: transform, opacity;
+    contain: paint;
     position: absolute;
     border-radius: 50%;
     background: hsl(var(--primary) / 0.2);
@@ -803,6 +818,7 @@
     to { opacity: 1; transform: scale(1) rotate(0deg); }
   }
   .icon-spin-in {
+    will-change: transform, opacity;
     animation: iconSpinIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
@@ -824,12 +840,14 @@
     100% { transform: scale(1); }
   }
   .status-enter {
+    will-change: transform, opacity;
     animation: statusEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
   .status-enter-from-offline {
     animation: statusEnterFromOffline 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
   .status-offline-shake {
+    will-change: transform;
     animation: statusOfflineShake 0.6s ease-in-out both;
   }
 
@@ -839,6 +857,7 @@
     100% { opacity: 1; transform: translateY(0) scale(1); }
   }
   .label-bounce-in {
+    will-change: transform, opacity;
     animation: labelBounceIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
@@ -847,6 +866,7 @@
     to { transform: scale(1); opacity: 1; }
   }
   .num-scale-in {
+    will-change: transform;
     animation: numScaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 }
@@ -864,6 +884,7 @@
   }
 
   .num-bounce {
+    will-change: transform;
     animation: numBounce 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
   }
 
@@ -884,6 +905,10 @@
   @keyframes statusRingExpand {
     0%   { transform: scale(1);   opacity: 0.6; }
     100% { transform: scale(2.5); opacity: 0; }
+  }
+
+  .status-ring-expand {
+    will-change: transform, opacity;
   }
 
   .status-ring-expand::after {
@@ -909,6 +934,8 @@
   }
 
   .signal-bar-enter {
+    will-change: transform;
+    contain: paint;
     animation: signalBarEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
