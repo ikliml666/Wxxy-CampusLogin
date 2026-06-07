@@ -236,7 +236,7 @@ function AppInner() {
 
   return (
     <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
-      <FluidBackground innerRef={setRef('fluidBg')} />
+      <FluidBackground />
 
       <div ref={setRef('titleBar')} className="relative z-[1]" style={{ contain: 'layout style paint' }}>
         <TitleBar

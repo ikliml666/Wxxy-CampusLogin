@@ -8,7 +8,6 @@ interface StartupRefs {
   title: HTMLDivElement | null
   dockNav: HTMLDivElement | null
   rightPanel: HTMLDivElement | null
-  fluidBg: HTMLDivElement | null
 }
 
 const TRANSFORM_KEYS = ['titleBar', 'statusBar', 'title', 'dockNav', 'rightPanel'] as const
@@ -21,7 +20,6 @@ export function useStartupBoost() {
     title: null,
     dockNav: null,
     rightPanel: null,
-    fluidBg: null,
   })
   const timelineRef = useRef<gsap.core.Timeline | null>(null)
   const boostedRef = useRef(false)
@@ -63,9 +61,6 @@ export function useStartupBoost() {
     if (reducedMotion) {
       const allEls = TRANSFORM_KEYS.map(k => r[k]).filter(Boolean) as HTMLElement[]
       gsap.set(allEls, { opacity: 1, y: 0, scale: 1, x: 0 })
-      if (r.fluidBg) {
-        r.fluidBg.classList.remove('fluid-paused')
-      }
       coolDownGpuLayers()
       return
     }
@@ -115,12 +110,6 @@ export function useStartupBoost() {
         { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)', force3D: true },
         0.5
       )
-    }
-
-    if (r.fluidBg) {
-      tl.call(() => {
-        r.fluidBg!.classList.remove('fluid-paused')
-      }, [], 0.8)
     }
 
     timelineRef.current = tl

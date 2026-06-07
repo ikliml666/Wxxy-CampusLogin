@@ -886,44 +886,6 @@
     animation-play-state: paused !important;
   }
 
-  /* FluidBackground CSS animations - run on GPU compositor thread, zero JS overhead */
-  .fluid-paused .fluid-gradient-anim,
-  .fluid-paused .fluid-orb1-anim,
-  .fluid-paused .fluid-orb2-anim {
-    animation-play-state: paused !important;
-  }
-
-  @keyframes fluidGradient {
-    0%   { transform: translate3d(0%, -20%, 0); }
-    100% { transform: translate3d(-30%, -20%, 0); }
-  }
-  .fluid-gradient-anim {
-    will-change: transform;
-    contain: strict;
-    animation: fluidGradient 36s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
-  }
-
-  @keyframes fluidOrb1 {
-    0%   { transform: translate3d(-20%, -15%, 0) scale3d(0.85, 0.85, 1); }
-    100% { transform: translate3d(60%, 50%, 0) scale3d(1.15, 1.15, 1); }
-  }
-  .fluid-orb1-anim {
-    will-change: transform;
-    contain: strict;
-    animation: fluidOrb1 45s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
-  }
-
-  @keyframes fluidOrb2 {
-    0%   { transform: translate3d(50%, 35%, 0) scale3d(0.85, 0.85, 1); }
-    100% { transform: translate3d(-15%, -20%, 0) scale3d(1.15, 1.15, 1); }
-  }
-  .fluid-orb2-anim {
-    will-change: transform;
-    contain: strict;
-    animation: fluidOrb2 60s cubic-bezier(0.42, 0, 0.58, 1) infinite alternate;
-    animation-delay: 3s;
-  }
-
   @keyframes numBounce {
     0%   { transform: scale(1);    }
     40%  { transform: scale(1.12); }
