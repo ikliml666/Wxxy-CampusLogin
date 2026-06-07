@@ -15,9 +15,9 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
   const orb2Ref = useRef<HTMLDivElement>(null)
   const tweensRef = useRef<gsap.core.Tween[]>([])
 
-  const gradientDuration = 24 * profile.orbDurationMultiplier
-  const orb1Duration = 30 * profile.orbDurationMultiplier
-  const orb2Duration = 40 * profile.orbDurationMultiplier
+  const gradientDuration = 36 * profile.orbDurationMultiplier
+  const orb1Duration = 45 * profile.orbDurationMultiplier
+  const orb2Duration = 60 * profile.orbDurationMultiplier
 
   // 统一暂停/恢复控制
   const setTweensPaused = useCallback((shouldPause: boolean) => {
@@ -54,6 +54,7 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
         repeat: -1,
         yoyo: true,
         force3D: true,
+        lazy: true,
       },
     )
 
@@ -70,6 +71,7 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
         repeat: -1,
         yoyo: true,
         force3D: true,
+        lazy: true,
       },
     )
 
@@ -86,6 +88,7 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
         repeat: -1,
         yoyo: true,
         force3D: true,
+        lazy: true,
         delay: 3,
       },
     )
