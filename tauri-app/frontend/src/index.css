@@ -554,8 +554,14 @@
     opacity: 1;
   }
 
-  .btn-physical:hover, .btn-press:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover, .titlebar-win-btn:hover {
+  /* will-change 提前设置，避免 hover 时才触发合成层创建 */
+  .btn-physical, .btn-press, .soft-btn, .animated-card-interactive,
+  .icon-hover-glow, .titlebar-icon-btn, .titlebar-win-btn {
     will-change: transform;
+  }
+
+  .btn-physical:hover, .btn-press:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover, .titlebar-win-btn:hover {
+    /* will-change 已提前到基础选择器 */
   }
 
   @keyframes windowReveal {

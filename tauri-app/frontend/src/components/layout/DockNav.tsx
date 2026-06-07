@@ -55,6 +55,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
   const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const rectRef = useRef<{ center: number }>({ center: -999 })
+  const lastValRef = useRef<number>(-1000)
 
   const setRef = useCallback((el: HTMLButtonElement | null) => {
     (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
@@ -87,6 +88,10 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
     window.addEventListener('resize', updateRect)
 
     const unsub = mouseX.on('change', (val: number) => {
+      // 阈值过滤：值变化小于2px时跳过，减少不必要的GSAP调用
+      if (Math.abs(val - lastValRef.current) < 2) return
+      lastValRef.current = val
+
       const center = rectRef.current.center
       const distance = Math.abs(val - center)
 
