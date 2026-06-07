@@ -251,7 +251,7 @@ pub fn build_browser_args() -> String {
     let gpu_info = detect_gpu_info();
     let vendor = gpu_info.vendor.to_lowercase();
 
-    let mut args = String::from("--js-flags=--max-old-space-size=512 --renderer-process-limit=8 --enable-zero-copy --enable-native-gpu-memory-buffers --gpu-memory-buffer-size-mb=128 --num-raster-threads=4");
+    let mut args = String::from("--js-flags=--max-old-space-size=512 --renderer-process-limit=8 --enable-zero-copy --enable-native-gpu-memory-buffers --gpu-memory-buffer-size-mb=128 --num-raster-threads=4 --disable-gpu-vsync");
 
     if vendor.contains("nvidia") {
         args.push_str(" --use-angle=d3d12");
