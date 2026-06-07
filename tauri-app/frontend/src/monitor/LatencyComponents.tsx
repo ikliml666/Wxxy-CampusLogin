@@ -2,11 +2,12 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getLatencyLevel } from '@/lib/latency'
 import { QUALITY_CONFIG } from '@/network'
-import { useMemo, useRef, useEffect, useState } from 'react'
+import { useMemo, useRef, useEffect, useState, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatedNumber } from '@/shared'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import gsap from 'gsap'
 
 function getSignalCfg(level: string) {
   const qc = QUALITY_CONFIG[level as keyof typeof QUALITY_CONFIG] ?? QUALITY_CONFIG.unknown
@@ -28,6 +29,69 @@ const BAR_SPECS = [
   { height: 48, width: 8, delay: 0.18 },
   { height: 54, width: 9, delay: 0.24 },
 ]
+
+// GSAP 驱动的信号发光点，替代 CSS signal-glow-active
+const SignalGlowDot = memo(function SignalGlowDot({
+  width,
+  glow,
+  animActive,
+  delay,
+  willChangeTransform,
+}: {
+  width: number
+  glow: string
+  animActive: boolean
+  delay: number
+  willChangeTransform: boolean | undefined
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !animActive) return
+
+    gsap.set(el, { opacity: 0, scaleX: 0, force3D: true })
+
+    const tl = gsap.timeline({ delay, repeat: -1, repeatDelay: 0 })
+    tl.to(el, { opacity: 0.7, scaleX: 1.3, duration: 1, ease: 'sine.inOut' })
+      .to(el, { opacity: 0.3, scaleX: 0.8, duration: 1, ease: 'sine.inOut' })
+      .to(el, { opacity: 0.7, scaleX: 1.1, duration: 1, ease: 'sine.inOut' })
+      .to(el, { opacity: 0.5, scaleX: 0.95, duration: 1, ease: 'sine.inOut' })
+      .to(el, { opacity: 1, scaleX: 1, duration: 1, ease: 'sine.inOut' })
+
+    return () => {
+      tl.kill()
+    }
+  }, [animActive, delay])
+
+  if (!animActive) {
+    return (
+      <div
+        className="absolute bottom-0 rounded-full signal-glow-idle"
+        style={{
+          width: width + 5,
+          height: 3,
+          backgroundColor: glow,
+          boxShadow: `0 0 4px 2px ${glow}`,
+        }}
+      />
+    )
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="absolute bottom-0 rounded-full"
+      style={{
+        width: width + 5,
+        height: 3,
+        backgroundColor: glow,
+        boxShadow: `0 0 4px 2px ${glow}`,
+        willChange: willChangeTransform ? 'transform, opacity' : undefined,
+      }}
+    />
+  )
+})
 
 function SignalBars({ latency, loading, compact }: { latency: number; loading?: boolean; compact?: boolean }) {
   const level = getLatencyLevel(latency)
@@ -93,19 +157,12 @@ function SignalBars({ latency, loading, compact }: { latency: number; loading?: 
                 }}
               />
               {isActive && (
-                <div
-                  className={cn(
-                    'absolute bottom-0 rounded-full',
-                    animActive ? 'signal-glow-active' : 'signal-glow-idle'
-                  )}
-                  style={{
-                    width: spec.width + 5,
-                    height: 3,
-                    backgroundColor: cfg.glow,
-                    boxShadow: `0 0 4px 2px ${cfg.glow}`,
-                    animationDelay: animActive ? `${spec.delay + 0.4}s` : undefined,
-                    willChange: profile.willChangeOrbs ? 'transform, opacity' : undefined,
-                  }}
+                <SignalGlowDot
+                  width={spec.width}
+                  glow={cfg.glow}
+                  animActive={animActive}
+                  delay={spec.delay + 0.4}
+                  willChangeTransform={profile.willChangeOrbs}
                 />
               )}
             </div>

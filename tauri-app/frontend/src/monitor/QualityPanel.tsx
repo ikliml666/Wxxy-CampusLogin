@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 import { m, type Variants } from 'framer-motion'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 
 
 interface QualityPanelProps {
@@ -87,6 +88,8 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
   const networkQuality = useAppStore((s) => s.networkQuality)
   const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
   const profile = useAnimationProfile()
+  const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
+  const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })
 
   const cardItemVariantsNoY: Variants = {
     hidden: { opacity: 0 },
@@ -177,7 +180,15 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
   return (
     <div className="space-y-4">
       <div className="card-enter group" style={{ '--stagger-i': 0 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className={cn(['poor', 'bad'].includes(networkQuality?.quality ?? '') && 'border-glow-danger')}>
+        <div className="relative">
+          {isPoorQuality && (
+            <div
+              ref={dangerGlowRef}
+              className="absolute inset-[-4px] rounded-[inherit] pointer-events-none"
+              style={{ boxShadow: '0 0 16px 2px rgba(244, 63, 94, 0.2)' }}
+            />
+          )}
+          <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className={cn('w-10 h-10 rounded-full flex items-center justify-center', qualityConfig?.bg ?? 'bg-muted')}>
@@ -228,6 +239,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
             )}
           </CardContent>
         </AnimatedCard>
+        </div>
       </div>
 
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>

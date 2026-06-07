@@ -73,6 +73,9 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
   noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
   const { t } = useTranslation()
+  const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
+  const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })
+
   const [isDhcpRenewing, handleDhcpRenew] = useAsyncLock(async () => {
     await onDhcpRenew()
   }, 5000)
@@ -82,7 +85,14 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
   }, 0)
 
   return (
-    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(['poor', 'bad'].includes(networkQuality?.quality ?? '') && 'border-glow-danger')}>
+    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(isPoorQuality && 'relative overflow-visible')}>
+      {isPoorQuality && (
+        <div
+          ref={dangerGlowRef}
+          className="absolute inset-[-4px] rounded-[inherit] pointer-events-none"
+          style={{ boxShadow: '0 0 16px 2px rgba(244, 63, 94, 0.2)' }}
+        />
+      )}
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
