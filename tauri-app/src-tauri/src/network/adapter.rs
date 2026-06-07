@@ -869,6 +869,122 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
     Ok(results)
 }
 
+pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Result<serde_json::Value, String> {
+    let adapters = get_adapters_cached()?;
+    let adapter = adapters.iter().find(|a| a.name == adapter_name)
+        .ok_or_else(|| format!("未找到适配器: {}", adapter_name))?;
+
+    if !adapter.ip.is_empty() && !is_same_subnet_18(&adapter.ip, campus_gateway) {
+        return Ok(serde_json::json!({
+            "name": adapter.name,
+            "wireless": adapter.wireless,
+            "ip": adapter.ip,
+            "success": false,
+            "skipped": true,
+            "reason": "非校园网子网，跳过"
+        }));
+    }
+
+    let fake_mac = generate_random_mac();
+    let mac_dashed = mac_with_dashes(&fake_mac);
+
+    let (reg_ok, elevated_done, elevate_msg) = if crate::platform::elevation::is_admin() {
+        match set_mac_via_registry(&adapter.guid, &fake_mac) {
+            Ok(()) => {
+                crate::log_info!("adapter", "管理员直写注册表成功: guid={}", adapter.guid);
+                (true, false, None)
+            }
+            Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
+        }
+    } else {
+        crate::log_info!("adapter", "非管理员运行，跳过注册表直写，直接COM ShellExec提权: guid={}", adapter.guid);
+        let ps_cmd = format!(
+            "-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'\"",
+            escape_ps_single_quote(&adapter.name), mac_dashed, escape_ps_single_quote(&adapter.name), escape_ps_single_quote(&adapter.name)
+        );
+        match crate::platform::elevation::shell_exec_elevated("powershell", &ps_cmd, true) {
+            Ok(()) => {
+                crate::log_info!("adapter", "COM ShellExec提权成功，等待IP变更...");
+                if let Some(changed_ip) = poll_ip_change(&adapter.name, &adapter.ip, 25_000) {
+                    crate::log_info!("adapter", "COM提权修改MAC成功: 新IP={}", changed_ip);
+                    (true, true, None)
+                } else {
+                    crate::log_warn!("adapter", "COM提权修改MAC超时: 25秒内IP未变更");
+                    (true, true, Some("COM提权已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
+                }
+            }
+            Err(com_err) => {
+                crate::log_warn!("adapter", "COM ShellExec失败: {}，降级到ShellExecuteW", com_err);
+                let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, &fake_mac, &adapter.ip);
+                (ok, ok, msg)
+            }
+        }
+    };
+
+    let old_ip = adapter.ip.clone();
+    let mut new_ip = old_ip.clone();
+    let mut ip_changed = false;
+    let mut message: Option<String> = elevate_msg;
+
+    if !reg_ok {
+        let _ = dhcp_release(&adapter.name);
+        let _ = dhcp_renew(&adapter.name);
+        if message.is_none() {
+            message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
+        }
+    } else if elevated_done {
+        if let Ok(refreshed) = get_adapters_force() {
+            if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
+                if !a.ip.is_empty() {
+                    new_ip = a.ip.clone();
+                    ip_changed = new_ip != old_ip;
+                }
+            }
+        }
+        if !ip_changed && message.is_none() {
+            message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
+        }
+    } else {
+        let _ = dhcp_release(&adapter.name);
+        let disable_ok = netsh_disable(&adapter.name);
+        if disable_ok {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        let enable_ok = netsh_enable(&adapter.name);
+        if enable_ok {
+            poll_adapter_has_ip(&adapter.name, 3000);
+        }
+        let renew_ok = dhcp_renew(&adapter.name).unwrap_or(false);
+        if renew_ok {
+            if let Some(changed_ip) = poll_ip_change(&adapter.name, &old_ip, 5000) {
+                new_ip = changed_ip;
+                ip_changed = true;
+            } else if let Ok(refreshed) = get_adapters_force() {
+                if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
+                    if !a.ip.is_empty() {
+                        new_ip = a.ip.clone();
+                        ip_changed = new_ip != old_ip;
+                    }
+                }
+            }
+        }
+        let _ = remove_mac_from_registry(&adapter.guid);
+        if !ip_changed && message.is_none() {
+            message = Some("MAC已修改但IP未变更，可能网卡驱动不支持MAC伪装或DHCP服务器分配了相同IP".to_string());
+        }
+    }
+
+    Ok(serde_json::json!({
+        "name": adapter.name,
+        "wireless": adapter.wireless,
+        "ip": new_ip,
+        "regOk": reg_ok,
+        "success": ip_changed,
+        "skipped": false,
+        "reason": message
+    }))
+}
+
 pub fn get_wireless_ssid() -> Result<Option<String>, String> {
     let output = new_command("netsh")
         .args(["wlan", "show", "interfaces"])

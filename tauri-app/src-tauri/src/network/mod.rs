@@ -10,7 +10,7 @@ pub use adapter::{
     get_adapter_details_cached,
     get_all_adapters_force,
     enable_adapter, resolve_adapter_names, select_adapter,
-    wait_for_adapter, dhcp_renew_wired_only, dhcp_release_renew_all,
+    wait_for_adapter, dhcp_renew_wired_only, dhcp_release_renew_all, dhcp_release_renew_single,
     ensure_ethernet_ip_for_login,
     is_blacklisted, check_gateway_reachable,
     is_same_subnet_18,

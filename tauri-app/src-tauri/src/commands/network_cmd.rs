@@ -6,7 +6,7 @@ use crate::network::{
     Adapter, AdapterDetail, DisabledAdapter,
     get_adapters_cached, get_adapters_force, get_disabled_adapters_cached,
     enable_adapter as enable_adapter_inner, get_adapter_details_cached,
-    dhcp_renew_wired_only, dhcp_release_renew_all,
+    dhcp_renew_wired_only, dhcp_release_renew_all, dhcp_release_renew_single,
     select_adapter,
     check_network_quality_async,
 };
@@ -112,6 +112,20 @@ pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Val
     tauri::async_runtime::spawn_blocking(move || {
         let results = dhcp_release_renew_all(&campus_gateway)?;
         Ok(serde_json::json!({ "success": true, "results": results }))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn dhcp_release_renew_adapter(adapter_name: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    crate::network::adapter::validate_adapter_name(&adapter_name)?;
+    let campus_gateway = {
+        let state = app_handle.state::<AppState>();
+        let config = state.config.load();
+        let gw = config.campus_gateway.clone();
+        if gw.is_empty() { crate::config::model::default_campus_gateway() } else { gw }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        dhcp_release_renew_single(&adapter_name, &campus_gateway)
     }).await.map_err(|e| e.to_string())?
 }
 

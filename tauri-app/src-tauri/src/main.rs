@@ -343,6 +343,7 @@ fn run_app(core_count: usize) {
             commands::network_cmd::enable_adapter,
             commands::network_cmd::dhcp_renew_all,
             commands::network_cmd::dhcp_release_renew,
+            commands::network_cmd::dhcp_release_renew_adapter,
             commands::network_cmd::check_network_quality,
             commands::network_cmd::start_latency_test,
             commands::network_cmd::stop_latency_test,
