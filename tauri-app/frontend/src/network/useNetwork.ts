@@ -60,10 +60,39 @@ export function useNetwork() {
     store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
   }, [store.api, store.addToast, refreshAdapterInfo])
 
+  const handleDhcpReleaseRenewAdapter = useCallback(async (adapterName: string) => {
+    type DhcpResultItem = DhcpReleaseRenewResult['results'][number]
+    try {
+      const result = await store.api.dhcpReleaseRenewAdapter?.(adapterName)
+      if (result) {
+        const results = 'results' in result && Array.isArray(result.results) ? result.results : [result]
+        const succeeded = results.filter((r: DhcpResultItem) => r.success)
+        const skipped = results.filter((r: DhcpResultItem) => r.skipped)
+        const failed = results.filter((r: DhcpResultItem) => !r.success && !r.skipped)
+        if (succeeded.length > 0) {
+          store.addToast(`已获取新IP: ${succeeded.map((r: DhcpResultItem) => r.name).join(', ')}`, 'success')
+        }
+        if (skipped.length > 0) {
+          store.addToast(`${skipped.map((r: DhcpResultItem) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
+        }
+        if (failed.length > 0) {
+          const failedDetails = failed.map((r: DhcpResultItem) => {
+            const detail = r.reason ? `${r.name}: ${r.reason}` : r.name
+            return detail
+          }).join('; ')
+          store.addToast(`获取新IP失败: ${failedDetails}`, 'error')
+        }
+      }
+    } catch (e) { if (import.meta.env.DEV) console.error('获取新IP失败:', e); store.addToast('获取新IP失败', 'error') }
+    await refreshAdapterInfo()
+    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
+  }, [store.api, store.addToast, refreshAdapterInfo])
+
   return {
     ...store,
     refreshAdapterInfo,
     handleDhcpRenew,
     handleDhcpReleaseRenew,
+    handleDhcpReleaseRenewAdapter,
   }
 }
