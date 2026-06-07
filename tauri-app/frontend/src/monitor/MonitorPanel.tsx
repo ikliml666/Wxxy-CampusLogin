@@ -85,21 +85,21 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <div className={cn(
-                  'w-10 h-10 rounded-full flex items-center justify-center',
+                  'w-10 h-10 rounded-full flex items-center justify-center shrink-0',
                   bgStatus.isRunning ? 'bg-emerald-500/10' : 'bg-muted'
                 )}>
                   <Radar className={cn('h-5 w-5', bgStatus.isRunning ? 'text-emerald-500 animate-pulse' : 'text-muted-foreground')} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <CardTitle>{t('monitor.networkStatusDetection')}</CardTitle>
                   <CardDescription>
                     {bgStatus.isRunning ? t('monitor.detectionRunning') : t('monitor.detectionStopped')}
                   </CardDescription>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <Badge variant={bgStatus.isRunning ? 'success' : 'secondary'} className="text-[10px] h-[20px]">
                   <Clock className="h-2.5 w-2.5 mr-1" />
                   {bgStatus.checkCount > 9999 ? `${(bgStatus.checkCount / 1000).toFixed(1)}k` : bgStatus.checkCount} {t('common.times')}
@@ -179,11 +179,11 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <Rocket className="h-4 w-4 text-primary" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <Label htmlFor="bg-auto" className="text-sm font-medium cursor-pointer">{t('monitor.autoStartDetection')}</Label>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.autoStartDetectionDesc')}</p>
                 </div>
@@ -192,15 +192,16 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                 id="bg-auto"
                 checked={config.enableBackgroundCheck || false}
                 onCheckedChange={checked => onUpdateConfig({ enableBackgroundCheck: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
                   <DoorOpen className="h-4 w-4 text-amber-500" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('monitor.autoExitWhenOnline')}</Label>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.autoExitWhenOnlineDesc')}</p>
                 </div>
@@ -209,15 +210,16 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                 id="auto-exit-online"
                 checked={config.autoExitOnOnline || false}
                 onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
                   <LogIn className="h-4 w-4 text-blue-500" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.autoLoginWhenReadyDesc')}</p>
                 </div>
@@ -226,16 +228,17 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                 id="auto-login-ready"
                 checked={config.autoLoginOnPreparation || false}
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
                     <Wifi className="h-4 w-4 text-violet-500" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">{t('monitor.campusNetworkVerification')}</Label>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.campusNetworkVerificationDesc')}</p>
                   </div>
@@ -244,6 +247,7 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                   id="network-name-check"
                   checked={config.enableNetworkNameCheck || false}
                   onCheckedChange={checked => onUpdateConfig({ enableNetworkNameCheck: checked })}
+                  className="shrink-0"
                 />
               </div>
               {config.enableNetworkNameCheck && (
@@ -284,11 +288,11 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                   </div>
                   <Separator className="my-2" />
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
                         <PowerOff className="h-3.5 w-3.5 text-rose-500" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="campus-exit-on-fail" className="text-sm font-medium cursor-pointer">{t('monitor.autoExitNonCampus')}</Label>
                         <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.autoExitNonCampusDesc')}</p>
                       </div>
@@ -297,6 +301,7 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                       id="campus-exit-on-fail"
                       checked={config.campusExitOnFail ?? true}
                       onCheckedChange={checked => onUpdateConfig({ campusExitOnFail: checked })}
+                      className="shrink-0"
                     />
                   </div>
                   <div className="flex items-center gap-2 pt-1">

@@ -90,7 +90,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className="flex items-center justify-between h-9 px-4 shrink-0 text-xs z-10 surface-top-square"
+        className="flex items-center justify-between min-h-9 px-4 shrink-0 text-xs z-10 surface-top-square"
         style={{ background: 'var(--surface-top)' }}
       >
         <div className="flex items-center gap-2.5">
@@ -114,7 +114,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
               >
                 <div className={cn('w-2 h-2 rounded-full shrink-0', cfg.dot, statusState === 'loading' && 'animate-pulse')} />
                 {statusState === 'loading' && <Loader2 className="h-3 w-3 animate-spin" />}
-                <span>{displayText}</span>
+                <span className="truncate max-w-[200px]">{displayText}</span>
               </div>
             </TooltipTrigger>
             {campusTooltip && (

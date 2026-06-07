@@ -31,18 +31,18 @@ const PRESET_COLORS = [
 ]
 
 const PRESET_COLOR_NAMES: Record<string, string> = {
-  '#3b82f6': '蓝色',
-  '#6366f1': '靛蓝色',
-  '#8b5cf6': '紫罗兰色',
-  '#a855f7': '紫色',
-  '#ec4899': '粉色',
-  '#f43f5e': '玫红色',
-  '#ef4444': '红色',
-  '#f97316': '橙色',
-  '#eab308': '黄色',
-  '#22c55e': '绿色',
-  '#14b8a6': '青绿色',
-  '#06b6d4': '天蓝色',
+  '#3b82f6': 'settings.colorBlue',
+  '#6366f1': 'settings.colorIndigo',
+  '#8b5cf6': 'settings.colorViolet',
+  '#a855f7': 'settings.colorPurple',
+  '#ec4899': 'settings.colorPink',
+  '#f43f5e': 'settings.colorRose',
+  '#ef4444': 'settings.colorRed',
+  '#f97316': 'settings.colorOrange',
+  '#eab308': 'settings.colorYellow',
+  '#22c55e': 'settings.colorGreen',
+  '#14b8a6': 'settings.colorTeal',
+  '#06b6d4': 'settings.colorCyan',
 }
 
 export const SettingsPanel = memo(function SettingsPanel({
@@ -77,7 +77,7 @@ export const SettingsPanel = memo(function SettingsPanel({
           <CardContent className="space-y-5">
             <div className="space-y-3">
               <Label className="text-xs font-medium text-muted-foreground">{t('settings.colorScheme')}</Label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {THEME_OPTIONS.map(theme => {
                   const isActive = themeName === theme.id
                   const displayColor = theme.id === 'custom' ? customColor : theme.color
@@ -139,7 +139,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                           <button
                             key={c}
                             onClick={() => onUpdateConfig({ customThemeColor: c })}
-                            aria-label={PRESET_COLOR_NAMES[c] || c}
+                            aria-label={t(PRESET_COLOR_NAMES[c] || c)}
                             className={cn(
                               'w-7 h-7 rounded-lg border-2 transition-transform hover:scale-110',
                               customColor === c ? 'border-foreground scale-110' : 'border-transparent'
@@ -156,14 +156,14 @@ export const SettingsPanel = memo(function SettingsPanel({
 
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label className="text-sm font-medium cursor-pointer flex items-center gap-2">
                   {isLightMode ? <Sparkles className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-400" />}
                   {isLightMode ? t('settings.lightMode') : t('settings.darkMode')}
                 </Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.switchTheme')}</p>
               </div>
-              <Switch checked={isLightMode} onCheckedChange={onToggleLightMode} />
+              <Switch checked={isLightMode} onCheckedChange={onToggleLightMode} className="shrink-0" />
             </div>
           </CardContent>
         </AnimatedCard>
@@ -184,7 +184,7 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-launch" className="text-sm font-medium cursor-pointer">{t('settings.autoLaunch')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.autoLaunchDesc')}</p>
               </div>
@@ -192,11 +192,12 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="auto-launch"
                 checked={autoLaunch}
                 onCheckedChange={checked => onSetAutoLaunch(checked)}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-login-startup" className="text-sm font-medium cursor-pointer">{t('settings.autoLoginCampus')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.autoLoginCampusDesc')}</p>
               </div>
@@ -204,11 +205,12 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="auto-login-startup"
                 checked={config.autoLoginOnStart || false}
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-exit-login" className="text-sm font-medium cursor-pointer">{t('settings.autoExitAfterLogin')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.autoExitAfterLoginDesc')}</p>
               </div>
@@ -216,11 +218,12 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="auto-exit-login"
                 checked={config.autoExitAfterLogin || false}
                 onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
               </div>
@@ -228,11 +231,12 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="auto-exit-online"
                 checked={config.autoExitOnOnline || false}
                 onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="hidden-start" className="text-sm font-medium cursor-pointer">{t('settings.silentStart')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.silentStartDesc')}</p>
               </div>
@@ -240,11 +244,12 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="hidden-start"
                 checked={config.hiddenStart || false}
                 onCheckedChange={checked => onUpdateConfig({ hiddenStart: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="minimize-tray" className="text-sm font-medium cursor-pointer">{t('settings.minimizeToTray')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.minimizeToTrayDesc')}</p>
               </div>
@@ -252,6 +257,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="minimize-tray"
                 checked={config.minimizeToTray !== false}
                 onCheckedChange={checked => onUpdateConfig({ minimizeToTray: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
@@ -261,7 +267,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                 <Label className="text-sm font-medium">{t('settings.defaultPanel')}</Label>
               </div>
               <p className="text-[11px] text-muted-foreground">{t('settings.defaultPanelDesc')}</p>
-              <div className="grid grid-cols-3 gap-1.5 mt-2">
+              <div className="grid grid-cols-2 gap-1.5 mt-2">
                 <button
                   onClick={() => onUpdateConfig({ defaultPanel: '' })}
                   aria-pressed={!config.defaultPanel}
@@ -315,7 +321,7 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="enable-notification" className="text-sm font-medium cursor-pointer">{t('settings.enableNotification')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.enableNotificationDesc')}</p>
               </div>
@@ -323,6 +329,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="enable-notification"
                 checked={config.enableNotification !== false}
                 onCheckedChange={checked => onUpdateConfig({ enableNotification: checked })}
+                className="shrink-0"
               />
             </div>
           </CardContent>
@@ -344,7 +351,7 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="enable-quality" className="text-sm font-medium cursor-pointer">{t('settings.enableQualityDetection')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.enableQualityDetectionDesc')}</p>
               </div>
@@ -352,13 +359,14 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="enable-quality"
                 checked={config.enableNetworkQuality !== false}
                 onCheckedChange={checked => onUpdateConfig({ enableNetworkQuality: checked })}
+                className="shrink-0"
               />
             </div>
             <Separator />
             <div className="space-y-3">
               <Label className="text-xs font-medium text-muted-foreground">{t('settings.latencyCalcOptions')}</Label>
               <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
+                <div className="space-y-0.5 min-w-0">
                   <Label htmlFor="skip-ttfb" className="text-sm font-medium cursor-pointer">{t('settings.skipTtfb')}</Label>
                   <p className="text-[11px] text-muted-foreground">{t('settings.skipTtfbDesc')}</p>
                 </div>
@@ -366,11 +374,12 @@ export const SettingsPanel = memo(function SettingsPanel({
                   id="skip-ttfb"
                   checked={config.skipTtfbInLatency || false}
                   onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
+                  className="shrink-0"
                 />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
+                <div className="space-y-0.5 min-w-0">
                   <Label htmlFor="skip-content" className="text-sm font-medium cursor-pointer">{t('settings.skipContent')}</Label>
                   <p className="text-[11px] text-muted-foreground">{t('settings.skipContentDesc')}</p>
                 </div>
@@ -378,6 +387,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                   id="skip-content"
                   checked={config.skipContentInLatency || false}
                   onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
+                  className="shrink-0"
                 />
               </div>
             </div>

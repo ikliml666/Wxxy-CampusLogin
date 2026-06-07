@@ -439,7 +439,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               ref={scrollRef}
               onScroll={handleScroll}
               role="log"
-              aria-label="日志列表"
+              aria-label={t('log.systemLog')}
               className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto max-h-[420px] font-mono text-[12px] leading-relaxed"
             >
               {displayedLines.length === 0 ? (

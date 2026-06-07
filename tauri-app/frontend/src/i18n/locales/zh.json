@@ -337,6 +337,18 @@
     "fixedGatewayDesc": "清空则使用默认网关 10.2.127.254，填写其他地址则按填写的检测",
     "fixedGatewayPlaceholder": "10.2.127.254（默认）",
     "clear": "清除",
+    "colorBlue": "蓝色",
+    "colorIndigo": "靛蓝色",
+    "colorViolet": "紫罗兰色",
+    "colorPurple": "紫色",
+    "colorPink": "粉色",
+    "colorRose": "玫红色",
+    "colorRed": "红色",
+    "colorOrange": "橙色",
+    "colorYellow": "黄色",
+    "colorGreen": "绿色",
+    "colorTeal": "青绿色",
+    "colorCyan": "天蓝色",
     "onboardingGuide": "新手指引",
     "onboardingGuideDesc": "重新查看首次使用向导",
     "openOnboardingGuide": "打开新手指引",
@@ -535,5 +547,23 @@
     "heartbeatLost": "[CrashRecovery] 渲染心跳丢失 {{elapsed}}ms，疑似GPU崩溃",
     "maximizeCheckFailed": "获取窗口最大化状态失败:",
     "toggleMaximizeFailed": "切换最大化失败:"
+  },
+  "rightPanel": {
+    "runtimeLog": "运行日志",
+    "networkAdapter": "网络适配器",
+    "clearLog": "清空日志",
+    "noLogs": "暂无日志记录",
+    "collapseAdapter": "收起适配器详情",
+    "expandAdapter": "展开适配器详情",
+    "refreshAdapter": "刷新适配器",
+    "refreshing": "正在刷新...",
+    "primary": "主",
+    "secondary": "副",
+    "mask": "掩码",
+    "gateway": "网关",
+    "waitingNetwork": "等待网络信息..."
+  },
+  "dock": {
+    "selectAdapter": "选择适配器"
   }
 }

@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared'
 import { m, useMotionValue, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationActive } from '@/hooks/usePageIdle'
@@ -156,6 +157,7 @@ interface AdapterMenuProps {
 }
 
 function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: AdapterMenuProps) {
+  const { t } = useTranslation()
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
   const profile = useAnimationProfile()
@@ -192,7 +194,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
         }}
       />
       <div className="px-3 py-1.5">
-        <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - 选择适配器</span>
+        <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - {t('dock.selectAdapter')}</span>
       </div>
       {activeAdapters.map((adapter, index) => {
         const isSelected = effectiveSelected === adapter.name
@@ -338,7 +340,7 @@ function ActionButtonWithMenu({
         whileTap={!isLoading ? { scale: 0.95 } : undefined}
         transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
         className={cn(
-          'relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical overflow-visible',
+          'relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] min-w-0 btn-physical overflow-visible',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
           isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
           isPrimary
@@ -390,6 +392,7 @@ interface DockNavProps {
 }
 
 export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNavProps) {
+  const { t } = useTranslation()
   const activePanel = useAppStore((s) => s.activePanel)
   const isLoggingIn = useAppStore((s) => s.isLoggingIn)
   const isLoggingOut = useAppStore((s) => s.isLoggingOut)
@@ -466,15 +469,15 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
       style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
     >
       <nav
-        className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
+        className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto overflow-x-auto"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
-        {visibleItems.map(({ id, label, icon }) => (
+        {visibleItems.map(({ id, labelKey, icon }) => (
           <DockItem
             key={id}
             id={id}
-            label={label}
+            label={t(labelKey)}
             icon={icon}
             isActive={activePanel === id}
             onPanelChange={onPanelChange}
@@ -493,8 +496,8 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
 
         <ActionButtonWithMenu
-          label="注销"
-          loadingLabel="注销中"
+          label={t('auth.logout')}
+          loadingLabel={t('auth.loggingOut')}
           icon={LogOut}
           isLoading={isLoggingOut}
           isDisabled={isLoggingIn}
@@ -504,8 +507,8 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
         />
 
         <ActionButtonWithMenu
-          label="登录"
-          loadingLabel="登录中"
+          label={t('auth.login')}
+          loadingLabel={t('auth.loggingIn')}
           icon={LogIn}
           isLoading={isLoggingIn}
           isDisabled={isLoggingOut}

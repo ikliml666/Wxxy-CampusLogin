@@ -101,7 +101,7 @@ export const TitleBar = memo(function TitleBar({
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <span className="text-sm font-semibold tracking-tight">{t('nav.appName')}</span>
+          <span className="text-sm font-semibold tracking-tight">{t('titlebar.appName')}</span>
           {updateAvailable ? (
             <button
               className="relative text-[10px] px-2 py-0.5 bg-[#f3f4f6] text-muted-foreground font-medium rounded-full dark:bg-[#1f2128] cursor-pointer hover:bg-primary/10 hover:text-primary dark:hover:bg-primary/20 transition-colors"

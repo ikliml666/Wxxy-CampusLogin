@@ -337,6 +337,18 @@
     "fixedGatewayDesc": "Leave empty to use default gateway 10.2.127.254, or enter a custom address",
     "fixedGatewayPlaceholder": "10.2.127.254 (default)",
     "clear": "Clear",
+    "colorBlue": "Blue",
+    "colorIndigo": "Indigo",
+    "colorViolet": "Violet",
+    "colorPurple": "Purple",
+    "colorPink": "Pink",
+    "colorRose": "Rose",
+    "colorRed": "Red",
+    "colorOrange": "Orange",
+    "colorYellow": "Yellow",
+    "colorGreen": "Green",
+    "colorTeal": "Teal",
+    "colorCyan": "Cyan",
     "onboardingGuide": "Beginner's Guide",
     "onboardingGuideDesc": "Revisit the first-time setup wizard",
     "openOnboardingGuide": "Open Beginner's Guide",
@@ -535,5 +547,23 @@
     "heartbeatLost": "[CrashRecovery] Render heartbeat lost for {{elapsed}}ms, possible GPU crash",
     "maximizeCheckFailed": "Failed to get window maximize state:",
     "toggleMaximizeFailed": "Failed to toggle maximize:"
+  },
+  "rightPanel": {
+    "runtimeLog": "Runtime Log",
+    "networkAdapter": "Network Adapter",
+    "clearLog": "Clear Log",
+    "noLogs": "No log entries",
+    "collapseAdapter": "Collapse adapter details",
+    "expandAdapter": "Expand adapter details",
+    "refreshAdapter": "Refresh Adapter",
+    "refreshing": "Refreshing...",
+    "primary": "Pri",
+    "secondary": "Sec",
+    "mask": "Mask",
+    "gateway": "Gateway",
+    "waitingNetwork": "Waiting for network..."
+  },
+  "dock": {
+    "selectAdapter": "Select Adapter"
   }
 }

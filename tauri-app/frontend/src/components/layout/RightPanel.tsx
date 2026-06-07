@@ -14,6 +14,7 @@ import { useBreatheAnimation } from '@/hooks/useBreatheAnimation'
 import { useShallow } from 'zustand/react/shallow'
 import { RefreshButton } from '@/shared'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useTranslation } from 'react-i18next'
 
 // 虚拟化相关常量
 const VIRTUAL_ITEM_HEIGHT = 30 // 单条日志估算高度（px）
@@ -78,6 +79,7 @@ function getAdapterInfo(
 }
 
 export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef }: RightPanelProps) {
+  const { t } = useTranslation()
   const profile = useAnimationProfile()
   const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
   const emptyBreatheRef = useBreatheAnimation({ minOpacity: 0.2, maxOpacity: 0.4, minScale: 1, maxScale: 1.05, minRotation: 3, maxRotation: 0, duration: 6 })
@@ -204,7 +206,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
         <div className="flex items-center justify-between px-4 py-3 shrink-0">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <ScrollText className="h-3.5 w-3.5" />
-            <span>运行日志</span>
+            <span>{t('rightPanel.runtimeLog')}</span>
             {logs.length > 0 && (
               <m.span
                 key={logs.length}
@@ -218,7 +220,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
             )}
           </div>
           {onClearLogs && logs.length > 0 && (
-            <Button variant="ghost" size="icon-sm" className="h-6 w-6 text-muted-foreground hover:text-destructive btn-physical" onClick={handleClearWithAnimation} disabled={isClearing} aria-label="清空日志">
+            <Button variant="ghost" size="icon-sm" className="h-6 w-6 text-muted-foreground hover:text-destructive btn-physical" onClick={handleClearWithAnimation} disabled={isClearing} aria-label={t('rightPanel.clearLog')}>
               <Trash2 className="h-3 w-3" />
             </Button>
           )}
@@ -237,7 +239,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
               <div ref={emptyBreatheRef}>
                 <ScrollText className="h-8 w-8 mb-2" />
               </div>
-              <p className="text-[11px]">暂无日志记录</p>
+              <p className="text-[11px]">{t('rightPanel.noLogs')}</p>
             </div>
           ) : isVirtualMode && virtualRange ? (
             /* 虚拟化模式：只渲染可视区域内的条目 */
@@ -309,12 +311,12 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
         >
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <Cable className="h-3.5 w-3.5" />
-            <span>网络适配器</span>
+            <span>{t('rightPanel.networkAdapter')}</span>
             <span className="ml-auto flex items-center gap-0.5">
               <button
                 onClick={() => setAdapterExpanded(v => !v)}
                 className="flex items-center justify-center h-6 w-6 rounded-lg cursor-pointer hover:bg-accent/60 transition-colors"
-                aria-label={adapterExpanded ? '收起适配器详情' : '展开适配器详情'}
+                aria-label={adapterExpanded ? t('rightPanel.collapseAdapter') : t('rightPanel.expandAdapter')}
               >
                 {adapterExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               </button>
@@ -325,13 +327,13 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                       onClick={(e) => { e.stopPropagation(); refreshAdapters() }}
                       disabled={isRefreshingAdapters}
                       isRefreshing={isRefreshingAdapters}
-                      aria-label="刷新适配器"
+                      aria-label={t('rightPanel.refreshAdapter')}
                       className="h-6 w-6 p-1"
                       iconClassName="h-2.5 w-2.5"
                     />
                   </TooltipTrigger>
                   <TooltipContent side="left">
-                    <p>{isRefreshingAdapters ? '正在刷新...' : '刷新适配器'}</p>
+                    <p>{isRefreshingAdapters ? t('rightPanel.refreshing') : t('rightPanel.refreshAdapter')}</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -377,22 +379,22 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                       <span className="text-[12px] font-medium truncate flex-1 min-w-0">{adapter.name}</span>
                       {displayAdapters.length > 1 && (
                         <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full shrink-0', idx === 0 ? 'bg-primary/10 text-primary/80' : 'bg-muted text-muted-foreground/60')}>
-                          {idx === 0 ? '主' : '副'}
+                          {idx === 0 ? t('rightPanel.primary') : t('rightPanel.secondary')}
                         </span>
                       )}
                     </div>
                     <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12px] pl-5">
                       <span className="text-muted-foreground">IP</span>
                       <span className="font-mono text-right truncate">{adapter.ip}</span>
-                      {adapter.subnetMask && (<><span className="text-muted-foreground">掩码</span><span className="font-mono text-right truncate">{adapter.subnetMask}</span></>)}
-                      {adapter.gateway && (<><span className="text-muted-foreground">网关</span><span className="font-mono text-right truncate">{adapter.gateway}</span></>)}
+                      {adapter.subnetMask && (<><span className="text-muted-foreground">{t('rightPanel.mask')}</span><span className="font-mono text-right truncate">{adapter.subnetMask}</span></>)}
+                      {adapter.gateway && (<><span className="text-muted-foreground">{t('rightPanel.gateway')}</span><span className="font-mono text-right truncate">{adapter.gateway}</span></>)}
                       {adapter.dhcpServer && (<><span className="text-muted-foreground">DHCP</span><span className="font-mono text-right truncate">{adapter.dhcpServer}</span></>)}
                       {adapter.mac && (<><span className="text-muted-foreground">MAC</span><span className="font-mono text-right truncate text-[11px]">{adapter.mac}</span></>)}
                     </div>
                   </div>
                   )
                 }) : (
-                  <div className="text-[12px] text-muted-foreground/50 text-center py-4">等待网络信息...</div>
+                  <div className="text-[12px] text-muted-foreground/50 text-center py-4">{t('rightPanel.waitingNetwork')}</div>
                 )}
               </div>
             </m.div>

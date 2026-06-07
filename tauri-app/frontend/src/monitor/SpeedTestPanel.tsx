@@ -163,7 +163,7 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
                             <span className="text-sm font-medium">{t(site.nameKey)}</span>
                             <ArrowUpRight className="h-3 w-3 text-muted-foreground/40" />
                           </div>
-                          <p className="text-[11px] text-muted-foreground truncate">{t(site.descKey)}</p>
+                          <p className="text-[11px] text-muted-foreground line-clamp-2">{t(site.descKey)}</p>
                         </div>
                         <Button
                           variant="outline"
