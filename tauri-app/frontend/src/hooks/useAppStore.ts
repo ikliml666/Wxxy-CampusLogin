@@ -217,9 +217,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setLanguage: (lang) => {
     set({ language: lang })
     localStorage.setItem('app-language', lang)
-    import('i18next').then(({ default: i18n }) => {
-      i18n.changeLanguage(lang)
-    })
+    i18next.changeLanguage(lang)
   },
 
   doLogin: async (adapterName?: string): Promise<boolean> => {
