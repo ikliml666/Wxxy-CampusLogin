@@ -23,6 +23,7 @@ import { gsap } from 'gsap'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { usePulseAnimation } from '@/hooks/usePulseAnimation'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -261,6 +262,7 @@ function ActionButtonWithMenu({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const spinnerRef = useRef<HTMLSpanElement>(null)
+  const loadingPulseRef = usePulseAnimation({ type: 'loadingPulse' })
 
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const showMenu = activeAdapters.length >= 1
@@ -329,8 +331,8 @@ function ActionButtonWithMenu({
         whileTap={!isLoading ? { scale: 0.95 } : undefined}
         transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
         className={cn(
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
-          isLoading ? 'opacity-80 cursor-wait btn-loading-pulse' : 'cursor-pointer',
+          'relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical overflow-visible',
+          isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
           isPrimary
             ? 'text-white'
             : 'text-muted-foreground bg-transparent border border-border/60 hover:border-foreground/30 hover:text-foreground'
@@ -341,6 +343,13 @@ function ActionButtonWithMenu({
         } : {}}
         aria-label={loadingLabel}
       >
+        {isLoading && (
+          <div
+            ref={loadingPulseRef}
+            className="absolute -inset-1.5 rounded-xl border-2 border-primary/30 pointer-events-none"
+            style={{ opacity: 0 }}
+          />
+        )}
         {isLoading ? (
           <span
             ref={spinnerRef}
