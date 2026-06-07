@@ -695,7 +695,7 @@
   @keyframes cardEnter {
     from {
       opacity: 0;
-      transform: translateY(16px);
+      transform: translateY(10px);
     }
     to {
       opacity: 1;
@@ -705,8 +705,8 @@
 
   .card-enter {
     will-change: transform, opacity;
-    animation: cardEnter 0.5s cubic-bezier(0.33, 1, 0.68, 1) both;
-    animation-delay: calc(var(--stagger-i, 0) * 0.08s);
+    animation: cardEnter 0.35s cubic-bezier(0.33, 1, 0.68, 1) both;
+    animation-delay: calc(var(--stagger-i, 0) * 0.05s);
   }
 
   @keyframes dialogOverlayIn {

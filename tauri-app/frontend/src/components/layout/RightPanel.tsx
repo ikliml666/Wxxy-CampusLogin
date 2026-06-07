@@ -134,19 +134,20 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
-    isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
+    // RAF-throttle all scroll handling to avoid layout thrashing
+    if (rafRef.current) return
+    rafRef.current = requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (!el) { rafRef.current = 0; return }
+      const { scrollTop, scrollHeight, clientHeight } = el
+      isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
 
-    // 虚拟化模式下用 RAF 节流更新可视区域起始索引，避免每次 scroll 都触发 re-render
-    if (isVirtualMode) {
-      if (rafRef.current) return
-      rafRef.current = requestAnimationFrame(() => {
-        const st = scrollRef.current?.scrollTop ?? 0
-        const startIndex = Math.max(0, Math.floor(st / VIRTUAL_ITEM_HEIGHT) - VIRTUAL_BUFFER)
+      if (isVirtualMode) {
+        const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_ITEM_HEIGHT) - VIRTUAL_BUFFER)
         setVirtualStart(startIndex)
-        rafRef.current = 0
-      })
-    }
+      }
+      rafRef.current = 0
+    })
   }, [isVirtualMode])
 
   useEffect(() => {

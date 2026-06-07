@@ -30,13 +30,15 @@ export const logEntryVariants = createLogEntryVariants(EASING_60HZ)
 
 export function createPanelAppleVariants(easing: EasingConfig) {
   return {
-    initial: { y: 12 },
+    initial: { y: 8, opacity: 0.9 },
     animate: {
       y: 0,
-      transition: { type: 'spring' as const, stiffness: 300, damping: 24, mass: 0.8 },
+      opacity: 1,
+      transition: { type: 'spring' as const, stiffness: 400, damping: 32, mass: 0.6 },
     },
     exit: {
       y: -4,
+      opacity: 0.9,
       scale: 0.99,
       transition: { duration: 0.08, ease: easing.exit as [number, number, number, number] },
     },
