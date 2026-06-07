@@ -1,4 +1,4 @@
-import { Bell, BellOff, Globe, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
+import { Bell, BellOff, Languages, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APP_VERSION } from '@/shared'
 import { cn } from '@/lib/utils'
@@ -154,11 +154,11 @@ export const TitleBar = memo(function TitleBar({
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-icon-btn"
                 aria-label={t('titlebar.switchLanguage')}
               >
-                <Globe className="h-3.5 w-3.5" />
+                <Languages className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>{language === 'zh' ? t('titlebar.english') : t('titlebar.chinese')}</p>
+              <p>{language === 'zh' ? 'English' : '中文'}</p>
             </TooltipContent>
           </Tooltip>
 

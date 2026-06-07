@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   Check, ArrowRight, ArrowLeft, Wifi, Cable, Shield, Zap,
-  Eye, EyeOff, Loader2, UserCircle, KeyRound, Globe
+  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/hooks/useAppStore'
@@ -344,7 +344,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
               onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-full hover:bg-accent"
             >
-              <Globe className="h-3.5 w-3.5" />
+              <Languages className="h-3.5 w-3.5" />
               {language === 'zh' ? 'English' : '中文'}
             </button>
           </div>
