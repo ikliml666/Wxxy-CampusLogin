@@ -1,6 +1,7 @@
 import { useRef, useEffect, useMemo, useCallback } from 'react'
 import { gsap } from 'gsap'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useAnimationActive } from '@/hooks/usePageIdle'
 
 interface FluidBackgroundProps {
   paused?: boolean
@@ -9,6 +10,7 @@ interface FluidBackgroundProps {
 
 export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
   const profile = useAnimationProfile()
+  const animActive = useAnimationActive()
   const containerRef = useRef<HTMLDivElement>(null)
   const gradientRef = useRef<HTMLDivElement>(null)
   const orb1Ref = useRef<HTMLDivElement>(null)
@@ -105,10 +107,10 @@ export function FluidBackground({ paused, innerRef }: FluidBackgroundProps) {
     }
   }, [initAnimations])
 
-  // 监听 paused prop 变化
+  // 监听 paused prop 变化（含空闲暂停）
   useEffect(() => {
-    setTweensPaused(!!paused)
-  }, [paused, setTweensPaused])
+    setTweensPaused(!!paused || !animActive)
+  }, [paused, animActive, setTweensPaused])
 
   // 监听容器上 fluid-paused 类的变化（由 useStartupBoost 控制）
   useEffect(() => {

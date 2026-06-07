@@ -13,6 +13,7 @@ import './i18n'
 gsap.defaults({ ease: 'expo.out', force3D: true })
 gsap.config({ autoSleep: 60, nullTargetWarn: false })
 gsap.ticker.lagSmoothing(500, 33)
+gsap.ticker.fps(30)
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 if (prefersReducedMotion) {

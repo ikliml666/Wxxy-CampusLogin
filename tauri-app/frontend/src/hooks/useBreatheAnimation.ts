@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
+import { useAnimationActive } from './usePageIdle'
 
 interface BreatheOptions {
   minOpacity?: number
@@ -13,6 +14,8 @@ interface BreatheOptions {
 
 export function useBreatheAnimation(options: BreatheOptions = {}) {
   const ref = useRef<HTMLDivElement>(null)
+  const animActive = useAnimationActive()
+  const tweenRef = useRef<gsap.core.Tween | null>(null)
   const {
     minOpacity = 0.6,
     maxOpacity = 1,
@@ -40,11 +43,24 @@ export function useBreatheAnimation(options: BreatheOptions = {}) {
       repeat: -1,
       force3D: true,
     })
+    tweenRef.current = tween
 
     return () => {
       tween.kill()
+      tweenRef.current = null
     }
   }, [minOpacity, maxOpacity, duration, minScale, maxScale, minRotation, maxRotation])
+
+  // 空闲时暂停，活跃时恢复
+  useEffect(() => {
+    const tween = tweenRef.current
+    if (!tween) return
+    if (animActive) {
+      tween.resume()
+    } else {
+      tween.pause()
+    }
+  }, [animActive])
 
   return ref
 }
