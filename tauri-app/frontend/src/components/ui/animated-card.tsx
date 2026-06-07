@@ -32,6 +32,7 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
     const cardRef = React.useRef<HTMLDivElement>(null)
     const xQuick = React.useRef<gsap.QuickToFunc | null>(null)
     const yQuick = React.useRef<gsap.QuickToFunc | null>(null)
+    const tiltRafRef = React.useRef<number>(0)
 
     React.useEffect(() => {
       if (!tiltEnabled || !cardRef.current) return
@@ -48,15 +49,19 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
 
     const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
       if (!tiltEnabled || !xQuick.current || !yQuick.current) return
-      const el = e.currentTarget as HTMLElement
-      if (el.style.willChange !== 'transform') {
-        el.style.willChange = 'transform'
-      }
-      const rect = e.currentTarget.getBoundingClientRect()
-      const x = (e.clientX - rect.left) / rect.width - 0.5
-      const y = (e.clientY - rect.top) / rect.height - 0.5
-      xQuick.current(x * 8)
-      yQuick.current(-y * 8)
+      // RAF-throttle: only update once per frame
+      cancelAnimationFrame(tiltRafRef.current)
+      tiltRafRef.current = requestAnimationFrame(() => {
+        const el = e.currentTarget as HTMLElement
+        if (el.style.willChange !== 'transform') {
+          el.style.willChange = 'transform'
+        }
+        const rect = el.getBoundingClientRect()
+        const x = (e.clientX - rect.left) / rect.width - 0.5
+        const y = (e.clientY - rect.top) / rect.height - 0.5
+        xQuick.current?.(x * 8)
+        yQuick.current?.(-y * 8)
+      })
     }, [tiltEnabled])
 
     const handleMouseLeave = React.useCallback(() => {

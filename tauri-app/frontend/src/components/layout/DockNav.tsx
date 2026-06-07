@@ -401,9 +401,14 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
     return () => clearTimeout(timer)
   }, [])
 
+  const rafRef = useRef<number>(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!animActive) return
-    mouseX.set(e.clientX)
+    // RAF-throttle: only update once per frame
+    cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => {
+      mouseX.set(e.clientX)
+    })
   }, [mouseX, animActive])
 
   const handleMouseLeave = useCallback(() => {

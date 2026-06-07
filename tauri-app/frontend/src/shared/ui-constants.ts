@@ -1,5 +1,5 @@
 export const MAX_LOG_ENTRIES = 300
-export const APP_VERSION = '2.2.2'
+export const APP_VERSION = '2.2.3'
 export const APP_NAME = '校园网登录助手'
 export const PASSWORD_MASK = '***'
 
