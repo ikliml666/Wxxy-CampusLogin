@@ -88,6 +88,8 @@ interface TauriApi {
   setupDnsDoh: () => Promise<DnsSetupResult>
   renderHeartbeat: () => Promise<{ online: boolean; checking: boolean }>
   getGpuInfo: () => Promise<GpuInfo>
+  getLogRetentionDays: () => Promise<number>
+  setLogRetentionDays: (days: number) => Promise<void>
 }
 
 const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => () => void) => {
@@ -202,6 +204,8 @@ const tauriApi: TauriApi = {
   setupDnsDoh: () => invoke<DnsSetupResult>('setup_dns_doh'),
   renderHeartbeat: () => invoke<{ online: boolean; checking: boolean }>('render_heartbeat'),
   getGpuInfo: () => invoke<GpuInfo>('get_gpu_info'),
+  getLogRetentionDays: () => invoke<number>('get_log_retention_days'),
+  setLogRetentionDays: (days) => invoke('set_log_retention_days', { days }),
 }
 
 function isRetryableError(e: unknown): boolean {

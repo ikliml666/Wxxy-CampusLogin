@@ -366,7 +366,15 @@
     "lines100": "100 lines",
     "lines200": "200 lines",
     "lines500": "500 lines",
-    "lines1000": "1000 lines"
+    "lines1000": "1000 lines",
+    "retention": {
+      "label": "Retention",
+      "3days": "3 Days",
+      "7days": "7 Days",
+      "14days": "14 Days",
+      "30days": "30 Days",
+      "permanent": "Permanent"
+    }
   },
   "onboarding": {
     "welcome": "Welcome",

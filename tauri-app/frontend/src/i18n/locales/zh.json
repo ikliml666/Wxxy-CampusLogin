@@ -366,7 +366,15 @@
     "lines100": "100行",
     "lines200": "200行",
     "lines500": "500行",
-    "lines1000": "1000行"
+    "lines1000": "1000行",
+    "retention": {
+      "label": "日志保留",
+      "3days": "3天",
+      "7days": "7天",
+      "14days": "14天",
+      "30days": "30天",
+      "permanent": "永久"
+    }
   },
   "onboarding": {
     "welcome": "欢迎",

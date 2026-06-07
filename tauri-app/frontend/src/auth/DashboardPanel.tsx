@@ -20,6 +20,7 @@ import { LatencyPair } from '@/monitor'
 import { safeStorage } from '@/lib/utils'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useAppStore } from '@/hooks/useAppStore'
+import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 
 type CardId = 'quickActions' | 'accountManage' | 'networkQuality'
 

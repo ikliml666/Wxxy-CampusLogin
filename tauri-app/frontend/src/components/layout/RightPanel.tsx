@@ -10,6 +10,7 @@ import { m, AnimatePresence } from 'framer-motion'
 import { createLogEntryVariants } from '@/lib/animations'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useBreatheAnimation } from '@/hooks/useBreatheAnimation'
 import { useShallow } from 'zustand/react/shallow'
 import { RefreshButton } from '@/shared'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -79,6 +80,7 @@ function getAdapterInfo(
 export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef }: RightPanelProps) {
   const profile = useAnimationProfile()
   const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
+  const emptyBreatheRef = useBreatheAnimation({ minOpacity: 0.2, maxOpacity: 0.4, minScale: 1, maxScale: 1.05, minRotation: 3, maxRotation: 0, duration: 6 })
   const adapterDetails = useAppStore((s) => s.adapterDetails)
   const adapters = useAppStore((s) => s.adapters)
   const config = useAppStore(useShallow((s) => s.config))
@@ -231,7 +233,9 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
         >
           {logs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-muted-foreground/40">
-              <ScrollText className="h-8 w-8 mb-2 animate-empty-breathe" />
+              <div ref={emptyBreatheRef}>
+                <ScrollText className="h-8 w-8 mb-2" />
+              </div>
               <p className="text-[11px]">暂无日志记录</p>
             </div>
           ) : isVirtualMode && virtualRange ? (

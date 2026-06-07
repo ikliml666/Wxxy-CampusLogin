@@ -2,6 +2,7 @@ import { CardContent, CardHeader, CardTitle, CardDescription } from '@/component
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   FileText,
   RefreshCw,
@@ -26,6 +27,8 @@ interface LogPanelProps {
     clearLogs: () => Promise<boolean>
     getDebugMode: () => Promise<boolean>
     setDebugMode: (enabled: boolean) => Promise<boolean>
+    getLogRetentionDays?: () => Promise<number>
+    setLogRetentionDays?: (days: number) => Promise<void>
   }
   addToast: (message: string, type: 'info' | 'success' | 'error' | 'warning', description?: string) => void
 }
@@ -83,6 +86,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
   const [showLineSelector, setShowLineSelector] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
+  const [retentionDays, setRetentionDays] = useState(7)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const isVisibleRef = useRef(true)
@@ -132,6 +136,12 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   }, [api])
 
   useEffect(() => {
+    api.getLogRetentionDays?.().then((days) => {
+      if (days !== undefined) setRetentionDays(days)
+    }).catch(() => {})
+  }, [api])
+
+  useEffect(() => {
     const timer = setInterval(() => {
       if (isVisibleRef.current) fetchLogs()
     }, 5000)
@@ -151,6 +161,13 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       addToast(t('log.debugToggleFailed'), 'error')
     }
   }, [debugMode, api, addToast, fetchLogs])
+
+  const handleRetentionChange = useCallback(async (days: number) => {
+    setRetentionDays(days)
+    try {
+      await api.setLogRetentionDays?.(days)
+    } catch {}
+  }, [api])
 
   useEffect(() => {
     if (scrollRef.current && isAutoScrollRef.current) {
@@ -324,6 +341,21 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     </div>
                   )}
                 </div>
+                <Select
+                  value={String(retentionDays)}
+                  onValueChange={(v) => handleRetentionChange(Number(v))}
+                >
+                  <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">{t('log.retention.3days')}</SelectItem>
+                    <SelectItem value="7">{t('log.retention.7days')}</SelectItem>
+                    <SelectItem value="14">{t('log.retention.14days')}</SelectItem>
+                    <SelectItem value="30">{t('log.retention.30days')}</SelectItem>
+                    <SelectItem value="0">{t('log.retention.permanent')}</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   size="sm"
