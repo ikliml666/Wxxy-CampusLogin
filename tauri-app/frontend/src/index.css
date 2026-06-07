@@ -525,6 +525,9 @@
     .animated-card-interactive.ripple-active::before {
       animation: none;
     }
+    .animate-spin {
+      animation: none !important;
+    }
   }
 
   .icon-hover-glow {

@@ -216,8 +216,12 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                 </div>
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label className={cn("text-xs font-medium", !username.trim() && "text-destructive")}>{t('onboarding.usernameRequired')}</Label>
+                    <Label htmlFor="username" className={cn("text-xs font-medium", !username.trim() && "text-destructive")}>{t('onboarding.usernameRequired')}</Label>
                     <Input
+                      id="username"
+                      name="username"
+                      autoComplete="username"
+                      spellCheck={false}
                       value={username}
                       onChange={e => setUsername(e.target.value)}
                       placeholder={t('onboarding.usernamePlaceholder')}
@@ -230,9 +234,12 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label className={cn("text-xs font-medium", !password.trim() && "text-destructive")}>{t('onboarding.passwordRequired')}</Label>
+                    <Label htmlFor="password" className={cn("text-xs font-medium", !password.trim() && "text-destructive")}>{t('onboarding.passwordRequired')}</Label>
                     <div className="relative">
                       <Input
+                        id="password"
+                        name="password"
+                        autoComplete="current-password"
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={e => setPassword(e.target.value)}
@@ -369,7 +376,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                 onClick={() => { if (handleNext()) advance(step + 1) }}
                 disabled={step === 1 && !canProceedAccount}
                 className={cn(
-                  "gap-1.5 min-w-[100px] transition-all duration-200",
+                  "gap-1.5 min-w-[100px] transition-[background-color,color,box-shadow,transform] duration-200",
                   step === 1 && !canProceedAccount && "opacity-50 cursor-not-allowed"
                 )}
               >

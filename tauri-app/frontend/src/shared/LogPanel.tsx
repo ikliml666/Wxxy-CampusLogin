@@ -14,6 +14,7 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import gsap from 'gsap'
@@ -87,6 +88,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [showLineSelector, setShowLineSelector] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [retentionDays, setRetentionDays] = useState(7)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const isVisibleRef = useRef(true)
@@ -220,6 +222,11 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
 
   const handleClear = useCallback(() => {
     if (displayedLines.length === 0 || isClearing) return
+    setShowClearConfirm(true)
+  }, [displayedLines.length, isClearing])
+
+  const handleClearConfirm = useCallback(() => {
+    setShowClearConfirm(false)
     setIsClearing(true)
 
     // 用 GSAP 对当前可视区域内的 DOM 元素做一条一条删除动画
@@ -280,14 +287,14 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       if (!mountedRef.current) return
       setRawLogs('')
       setLogsKey(prev => prev + 1)
-      addToast('日志已清空', 'success')
+      addToast(t('log.logCleared'), 'success')
     }).catch((e: unknown) => {
       if (!mountedRef.current) return
-      addToast('清空日志失败', 'error', extractErrorMessage(e))
+      addToast(t('log.clearLogFailed'), 'error', extractErrorMessage(e))
     }).finally(() => {
       if (mountedRef.current) setIsClearing(false)
     })
-  }, [displayedLines, isClearing, api, addToast])
+  }, [api, addToast])
 
   const levelCounts = useMemo(() =>
     parsedLines.reduce((acc, line) => {
@@ -392,6 +399,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
             <div className="flex items-center gap-1.5 flex-wrap">
               <button
                 onClick={() => setFilterLevel('ALL')}
+                aria-pressed={filterLevel === 'ALL'}
                 className={cn(
                   'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors',
                   filterLevel === 'ALL'
@@ -411,6 +419,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   <button
                     key={level}
                     onClick={() => setFilterLevel(level)}
+                    aria-pressed={filterLevel === level}
                     className={cn(
                       'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors flex items-center gap-1',
                       filterLevel === level
@@ -429,6 +438,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
             <div
               ref={scrollRef}
               onScroll={handleScroll}
+              role="log"
+              aria-label="日志列表"
               className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto max-h-[420px] font-mono text-[12px] leading-relaxed"
             >
               {displayedLines.length === 0 ? (
@@ -534,6 +545,13 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
           </CardContent>
         </AnimatedCard>
       </div>
+      <ConfirmDialog
+        open={showClearConfirm}
+        title={t('log.clearLogTitle')}
+        message={t('log.clearLogMessage')}
+        onConfirm={handleClearConfirm}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   )
 })

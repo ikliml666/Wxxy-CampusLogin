@@ -30,6 +30,21 @@ const PRESET_COLORS = [
   '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
 ]
 
+const PRESET_COLOR_NAMES: Record<string, string> = {
+  '#3b82f6': '蓝色',
+  '#6366f1': '靛蓝色',
+  '#8b5cf6': '紫罗兰色',
+  '#a855f7': '紫色',
+  '#ec4899': '粉色',
+  '#f43f5e': '玫红色',
+  '#ef4444': '红色',
+  '#f97316': '橙色',
+  '#eab308': '黄色',
+  '#22c55e': '绿色',
+  '#14b8a6': '青绿色',
+  '#06b6d4': '天蓝色',
+}
+
 export const SettingsPanel = memo(function SettingsPanel({
   config,
   autoLaunch,
@@ -70,8 +85,9 @@ export const SettingsPanel = memo(function SettingsPanel({
                     <button
                       key={theme.id}
                       onClick={() => onSetTheme(theme.id)}
+                      aria-pressed={isActive}
                       className={cn(
-                        'flex flex-col items-center gap-2 px-2 py-2.5 rounded-xl text-xs transition-all duration-200',
+                        'flex flex-col items-center gap-2 px-2 py-2.5 rounded-xl text-xs transition-[background-color,color,box-shadow,transform] duration-200',
                         isActive
                           ? 'bg-primary/5 text-primary shadow-[0_0_0_1.5px_rgba(59,130,246,0.15)]'
                           : 'hover:bg-accent text-foreground'
@@ -123,6 +139,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                           <button
                             key={c}
                             onClick={() => onUpdateConfig({ customThemeColor: c })}
+                            aria-label={PRESET_COLOR_NAMES[c] || c}
                             className={cn(
                               'w-7 h-7 rounded-lg border-2 transition-transform hover:scale-110',
                               customColor === c ? 'border-foreground scale-110' : 'border-transparent'
@@ -247,6 +264,7 @@ export const SettingsPanel = memo(function SettingsPanel({
               <div className="grid grid-cols-3 gap-1.5 mt-2">
                 <button
                   onClick={() => onUpdateConfig({ defaultPanel: '' })}
+                  aria-pressed={!config.defaultPanel}
                   className={cn(
                     'px-2.5 py-2 rounded-lg text-xs font-medium transition-colors duration-200',
                     !config.defaultPanel
@@ -263,6 +281,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                     <button
                       key={opt.value}
                       onClick={() => onUpdateConfig({ defaultPanel: opt.value as PanelName })}
+                      aria-pressed={isActive}
                       className={cn(
                         'px-2.5 py-2 rounded-lg text-xs font-medium transition-colors duration-200',
                         isActive
@@ -421,7 +440,7 @@ export const SettingsPanel = memo(function SettingsPanel({
               <button
                 onClick={onShowOnboarding}
                 className={cn(
-                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
+                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
                   'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
                 )}
               >

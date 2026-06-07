@@ -276,7 +276,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               <div className="mt-3">
                 <button
                   onClick={() => setShowReleaseNotes(!showReleaseNotes)}
-                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 w-full"
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                 >
                   <ChevronRight className={cn('h-3 w-3 transition-transform', showReleaseNotes && 'rotate-90')} />
                   {t('about.releaseNotes')}
@@ -316,7 +316,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             <div className="mt-auto pt-4">
               <button
                 onClick={openGithub}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-600 dark:hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
               >
                 <ExternalLink className="h-3 w-3" />
                 {t('about.githubRepo')}
@@ -378,7 +378,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               <div className="flex-1 flex flex-col gap-4">
                 {/* 一键下载按钮 */}
                 <Button
-                  className="h-14 w-full rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-600 hover:to-purple-600 text-white font-semibold text-base justify-center gap-2.5 shadow-md shadow-violet-500/20 transition-all"
+                  className="h-14 w-full rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-600 hover:to-purple-600 text-white font-semibold text-base justify-center gap-2.5 shadow-md shadow-violet-500/20 transition-[background-color,color,box-shadow,transform]"
                   onClick={() => {
                     if (selectedMirror) {
                       handleDownload(selectedMirror)
@@ -395,7 +395,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 {/* 切换下载源入口 + 悬浮下拉面板 */}
                 <div className="relative">
                   <button
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                     onClick={async () => {
                       if (showMirrorList) {
                         setShowMirrorList(false)
@@ -538,7 +538,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     <span className="text-base font-medium">{t('about.downloadComplete')}</span>
                   </div>
                   <Button
-                    className="h-14 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold text-base justify-center gap-2.5 shadow-md shadow-emerald-500/20 transition-all"
+                    className="h-14 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold text-base justify-center gap-2.5 shadow-md shadow-emerald-500/20 transition-[background-color,color,box-shadow,transform]"
                     onClick={handleInstall}
                   >
                     <Package className="h-5 w-5" />

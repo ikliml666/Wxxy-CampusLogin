@@ -114,6 +114,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       onClick={() => onPanelChange(id)}
       className={cn(
         'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl select-none group transition-colors duration-200',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
         isActive
           ? 'text-primary bg-primary/10'
           : 'text-muted-foreground hover:text-foreground'
@@ -131,9 +132,9 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
           transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
         />
       )}
-      <Icon className="h-[18px] w-[18px]" />
+      <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
       <span
-        className="absolute -top-9 left-1/2 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap pointer-events-none bg-white shadow-lg dark:bg-[#1e2028] opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-100 delay-[250ms]"
+        className="absolute -top-9 left-1/2 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap pointer-events-none bg-white shadow-lg dark:bg-[#1e2028] opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-visible:opacity-100 group-focus-visible:translate-y-0 transition-all duration-100 delay-[250ms]"
         style={{ transform: 'translateX(-50%)' }}
       >
         {label}
@@ -202,6 +203,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
             onClick={() => onSelect(adapter.name)}
             className={cn(
               'adapter-menu-item relative w-full flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium transition-all duration-200 rounded-xl',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
               isSelected
                 ? 'bg-primary/10 text-primary shadow-sm'
                 : 'hover:bg-muted/60 text-foreground'
@@ -214,9 +216,9 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
                 : adapter.wireless ? 'bg-blue-500/10' : 'bg-emerald-500/10'
             )}>
               {adapter.wireless ? (
-                <WifiIcon className={cn('h-3.5 w-3.5', isSelected ? 'text-blue-600' : 'text-blue-500')} />
+                <WifiIcon className={cn('h-3.5 w-3.5', isSelected ? 'text-blue-600' : 'text-blue-500')} aria-hidden="true" />
               ) : (
-                <Cable className={cn('h-3.5 w-3.5', isSelected ? 'text-emerald-600' : 'text-emerald-500')} />
+                <Cable className={cn('h-3.5 w-3.5', isSelected ? 'text-emerald-600' : 'text-emerald-500')} aria-hidden="true" />
               )}
             </div>
             <div className="flex flex-col items-start min-w-0">
@@ -225,7 +227,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
             </div>
             {isSelected && (
               <div className="ml-auto w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
-                <Check className="h-3 w-3 text-white" strokeWidth={3} />
+                <Check className="h-3 w-3 text-white" strokeWidth={3} aria-hidden="true" />
               </div>
             )}
           </button>
@@ -332,6 +334,7 @@ function ActionButtonWithMenu({
         transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
         className={cn(
           'relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical overflow-visible',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
           isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
           isPrimary
             ? 'text-white'
@@ -354,9 +357,10 @@ function ActionButtonWithMenu({
           <span
             ref={spinnerRef}
             className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-current border-r-transparent"
+            aria-hidden="true"
           />
         ) : (
-          <ActionIcon className="h-3.5 w-3.5" />
+          <ActionIcon className="h-3.5 w-3.5" aria-hidden="true" />
         )}
         <span>{isLoading ? loadingLabel : label}</span>
       </m.button>

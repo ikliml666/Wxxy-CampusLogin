@@ -219,7 +219,7 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
           <div className="ml-auto flex items-center gap-2">
             <Badge variant="outline" className={cn(qualityConfig?.color ?? 'text-muted-foreground')}>{t(qualityConfig?.labelKey ?? 'common.unknown')}</Badge>
             {onRefreshQuality && (
-              <Button variant="ghost" size="icon-sm" className="rounded-xl" onClick={onRefreshQuality} disabled={isRefreshingQuality}>
+              <Button variant="ghost" size="icon-sm" className="rounded-xl" onClick={onRefreshQuality} disabled={isRefreshingQuality} aria-label={t('dashboard.networkQuality')}>
                 <RefreshCw className={getRefreshIconClass(isRefreshingQuality, 'h-3.5 w-3.5')} />
               </Button>
             )}
@@ -339,7 +339,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
               {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing)}
               <div className="absolute inset-0 z-[5] rounded-2xl" />
               <div className="absolute -top-1.5 -right-1.5 z-10 flex items-center gap-0.5">
-                <button onClick={() => handleRemoveCard(id)}
+                <button onClick={() => handleRemoveCard(id)} aria-label={t('common.delete')}
                   className="w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80 transition-colors shadow-sm">
                   <X className="h-3 w-3" />
                 </button>

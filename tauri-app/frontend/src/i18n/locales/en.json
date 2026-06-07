@@ -359,6 +359,8 @@
     "fetchLogFailed": "Failed to fetch logs",
     "logCleared": "Logs cleared",
     "clearLogFailed": "Failed to clear logs",
+    "clearLogTitle": "Clear Logs",
+    "clearLogMessage": "Are you sure you want to clear all logs? This action cannot be undone.",
     "all": "All",
     "noLogs": "No Log Records",
     "noFilteredLogs": "No logs matching current filter",
