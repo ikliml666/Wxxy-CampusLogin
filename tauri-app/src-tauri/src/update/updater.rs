@@ -8,6 +8,14 @@ const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
 const AUTO_CHECK_INTERVAL_SECS: u64 = 86400;
 const VERSION_FILE_URL: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
 
+/// version.json 镜像源列表（GitHub 原始源失败时按顺序降级）
+const VERSION_MIRRORS: &[&str] = &[
+    "https://ghfast.top/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
+    "https://ghproxy.net/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
+    "https://gh.llkk.cc/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
+];
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReleaseAsset {
     pub name: String,
@@ -172,17 +180,36 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
 }
 
 pub async fn fetch_latest_release() -> Result<(bool, String), String> {
-    fetch_version_via_raw().await
+    // 先尝试 GitHub 原始源
+    match fetch_version_from_url(VERSION_FILE_URL).await {
+        Ok(result) => Ok(result),
+        Err(github_err) => {
+            crate::log_info!("updater", "GitHub源检查失败: {}，尝试镜像源降级...", github_err);
+            // 降级到镜像源
+            for mirror_url in VERSION_MIRRORS {
+                match fetch_version_from_url(mirror_url).await {
+                    Ok(result) => {
+                        crate::log_info!("updater", "镜像源 {} 检查成功", mirror_url);
+                        return Ok(result);
+                    }
+                    Err(mirror_err) => {
+                        crate::log_debug!("updater", "镜像源 {} 失败: {}", mirror_url, mirror_err);
+                    }
+                }
+            }
+            Err(format!("GitHub源及所有镜像源均失败（GitHub: {}）", github_err))
+        }
+    }
 }
 
-async fn fetch_version_via_raw() -> Result<(bool, String), String> {
+async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
 
     let resp = client
-        .get(VERSION_FILE_URL)
+        .get(url)
         .header("User-Agent", "CampusLogin-UpdateChecker")
         .send()
         .await

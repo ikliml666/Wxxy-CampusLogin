@@ -72,16 +72,16 @@
     background-color: #0c0e12;
   }
 
-  .theme-vibrant { --primary: 270 91% 65%; --primary-foreground: 0 0% 100%; --ring: 270 91% 65%; }
-  .theme-vibrant.dark { --primary: 270 91% 72%; }
-  .theme-forest { --primary: 142 71% 45%; --primary-foreground: 0 0% 100%; --ring: 142 71% 45%; }
-  .theme-forest.dark { --primary: 142 71% 52%; }
-  .theme-midnight { --primary: 25 95% 53%; --primary-foreground: 0 0% 100%; --ring: 25 95% 53%; }
-  .theme-midnight.dark { --primary: 25 95% 60%; }
-  .theme-ocean { --primary: 187 92% 41%; --primary-foreground: 0 0% 100%; --ring: 187 92% 41%; }
-  .theme-ocean.dark { --primary: 187 92% 50%; }
-  .theme-cherry { --primary: 350 89% 60%; --primary-foreground: 0 0% 100%; --ring: 350 89% 60%; }
-  .theme-cherry.dark { --primary: 350 89% 67%; }
+  .theme-vibrant { --primary: 270 91% 65%; --primary-foreground: 0 0% 100%; --ring: 270 91% 65%; --accent: 270 33% 94%; --accent-foreground: 270 91% 20%; }
+  .theme-vibrant.dark { --primary: 270 91% 72%; --accent: 270 33% 17%; --accent-foreground: 270 91% 85%; }
+  .theme-forest { --primary: 142 71% 45%; --primary-foreground: 0 0% 100%; --ring: 142 71% 45%; --accent: 142 33% 94%; --accent-foreground: 142 71% 20%; }
+  .theme-forest.dark { --primary: 142 71% 52%; --accent: 142 33% 17%; --accent-foreground: 142 71% 85%; }
+  .theme-midnight { --primary: 25 95% 53%; --primary-foreground: 0 0% 100%; --ring: 25 95% 53%; --accent: 25 33% 94%; --accent-foreground: 25 95% 20%; }
+  .theme-midnight.dark { --primary: 25 95% 60%; --accent: 25 33% 17%; --accent-foreground: 25 95% 85%; }
+  .theme-ocean { --primary: 187 92% 41%; --primary-foreground: 0 0% 100%; --ring: 187 92% 41%; --accent: 187 33% 94%; --accent-foreground: 187 92% 20%; }
+  .theme-ocean.dark { --primary: 187 92% 50%; --accent: 187 33% 17%; --accent-foreground: 187 92% 85%; }
+  .theme-cherry { --primary: 350 89% 60%; --primary-foreground: 0 0% 100%; --ring: 350 89% 60%; --accent: 350 33% 94%; --accent-foreground: 350 89% 20%; }
+  .theme-cherry.dark { --primary: 350 89% 67%; --accent: 350 33% 17%; --accent-foreground: 350 89% 85%; }
 
   * {
     border-color: transparent;

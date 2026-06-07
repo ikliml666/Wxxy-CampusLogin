@@ -80,3 +80,5 @@
 - 语言切换图标从 Globe 替换为 Languages，更直观表示语言切换功能
 - 中文下语言切换按钮 tooltip 显示目标语言自身文字而非翻译文本
 - LogPanel 硬编码中文"日志已清空""清空日志失败"替换为 i18n 调用
+- 修复预设主题（vibrant/forest/midnight/ocean/cherry）缺少 --accent 和 --accent-foreground CSS 变量，导致非自定义配色下按钮 hover 背景交互效果丢失
+- 修复检查更新时 GitHub 源失败后未自动降级到镜像源的问题，添加 ghfast.top/gh-proxy.com/ghproxy.net/gh.llkk.cc 四个镜像源按顺序降级重试

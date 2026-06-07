@@ -25,6 +25,8 @@
 - **主题定制** — 6 种预设主题 + 自定义主题色 + 深浅模式
 - **系统托盘** — 最小化到托盘后台运行，支持托盘快速登录
 - **用户自助服务** — 一键打开校园网自助服务系统，查看流量使用等
+- **中英语言切换** — 标题栏一键切换，默认中文，支持英文
+- **日志自动清理** — 可选保存时间（3/7/14/30天+永久），后端定时清理过期日志
 
 ## 技术栈
 
@@ -37,6 +39,7 @@
 | 网络 | reqwest 0.12 + tokio-rustls 0.26 + hickory-resolver 0.24 |
 | 加密 | Windows DPAPI |
 | 平台 | Windows (Win32 API) |
+| 国际化 | react-i18next + i18next-browser-languagedetector |
 
 ## 项目结构
 
@@ -53,6 +56,8 @@ Wxxy-CampusLogin/
 │   │   │   │   ├── shared/  # 共享组件
 │   │   │   │   └── ui/      # 基础 UI 组件
 │   │   │   ├── hooks/       # 状态管理 & IPC
+│   │   │   ├── i18n/        # 国际化
+│   │   │   │   └── locales/ # 语言文件（zh.json / en.json）
 │   │   │   ├── lib/         # 工具函数
 │   │   │   ├── types/       # TypeScript 类型
 │   │   │   └── constants/   # 常量
@@ -64,7 +69,7 @@ Wxxy-CampusLogin/
 │       │   ├── config.rs    # 配置管理
 │       │   ├── crypto_utils.rs  # 加密工具
 │       │   ├── http_timing.rs   # HTTP 计时 & DNS 智能解析
-│       │   └── logger.rs    # 日志系统
+│       │   └── logger.rs    # 日志系统 & 日志保留清理
 │       ├── icons/           # 应用图标
 │       ├── Cargo.toml
 │       └── tauri.conf.json
