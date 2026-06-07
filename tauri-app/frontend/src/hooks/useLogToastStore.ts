@@ -28,7 +28,7 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
   addLog: (message, type = 'info') => {
     const entry: LogEntry = {
       id: String(++logIdCounter),
-      time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+      time: new Date().toLocaleTimeString(undefined, { hour12: false }),
       message,
       type,
     }

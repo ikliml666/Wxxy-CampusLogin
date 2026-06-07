@@ -19,10 +19,12 @@ import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared'
 import { m, useMotionValue, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { usePulseAnimation } from '@/hooks/usePulseAnimation'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -54,6 +56,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
   const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const rectRef = useRef<{ center: number }>({ center: -999 })
+  const lastValRef = useRef<number>(-1000)
 
   const setRef = useCallback((el: HTMLButtonElement | null) => {
     (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
@@ -86,6 +89,10 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
     window.addEventListener('resize', updateRect)
 
     const unsub = mouseX.on('change', (val: number) => {
+      // 阈值过滤：值变化小于2px时跳过，减少不必要的GSAP调用
+      if (Math.abs(val - lastValRef.current) < 2) return
+      lastValRef.current = val
+
       const center = rectRef.current.center
       const distance = Math.abs(val - center)
 
@@ -113,6 +120,7 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       onClick={() => onPanelChange(id)}
       className={cn(
         'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl select-none group transition-colors duration-200',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
         isActive
           ? 'text-primary bg-primary/10'
           : 'text-muted-foreground hover:text-foreground'
@@ -130,9 +138,9 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
           transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
         />
       )}
-      <Icon className="h-[18px] w-[18px]" />
+      <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
       <span
-        className="absolute -top-9 left-1/2 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap pointer-events-none bg-white shadow-lg dark:bg-[#1e2028] opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-100 delay-[250ms]"
+        className="absolute -top-9 left-1/2 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap pointer-events-none bg-white shadow-lg dark:bg-[#1e2028] opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-visible:opacity-100 group-focus-visible:translate-y-0 transition-all duration-100 delay-[250ms]"
         style={{ transform: 'translateX(-50%)' }}
       >
         {label}
@@ -149,6 +157,7 @@ interface AdapterMenuProps {
 }
 
 function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: AdapterMenuProps) {
+  const { t } = useTranslation()
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
   const profile = useAnimationProfile()
@@ -185,7 +194,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
         }}
       />
       <div className="px-3 py-1.5">
-        <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - 选择适配器</span>
+        <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - {t('dock.selectAdapter')}</span>
       </div>
       {activeAdapters.map((adapter, index) => {
         const isSelected = effectiveSelected === adapter.name
@@ -201,6 +210,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
             onClick={() => onSelect(adapter.name)}
             className={cn(
               'adapter-menu-item relative w-full flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium transition-all duration-200 rounded-xl',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
               isSelected
                 ? 'bg-primary/10 text-primary shadow-sm'
                 : 'hover:bg-muted/60 text-foreground'
@@ -213,9 +223,9 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
                 : adapter.wireless ? 'bg-blue-500/10' : 'bg-emerald-500/10'
             )}>
               {adapter.wireless ? (
-                <WifiIcon className={cn('h-3.5 w-3.5', isSelected ? 'text-blue-600' : 'text-blue-500')} />
+                <WifiIcon className={cn('h-3.5 w-3.5', isSelected ? 'text-blue-600' : 'text-blue-500')} aria-hidden="true" />
               ) : (
-                <Cable className={cn('h-3.5 w-3.5', isSelected ? 'text-emerald-600' : 'text-emerald-500')} />
+                <Cable className={cn('h-3.5 w-3.5', isSelected ? 'text-emerald-600' : 'text-emerald-500')} aria-hidden="true" />
               )}
             </div>
             <div className="flex flex-col items-start min-w-0">
@@ -224,7 +234,7 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
             </div>
             {isSelected && (
               <div className="ml-auto w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
-                <Check className="h-3 w-3 text-white" strokeWidth={3} />
+                <Check className="h-3 w-3 text-white" strokeWidth={3} aria-hidden="true" />
               </div>
             )}
           </button>
@@ -261,6 +271,7 @@ function ActionButtonWithMenu({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const spinnerRef = useRef<HTMLSpanElement>(null)
+  const loadingPulseRef = usePulseAnimation({ type: 'loadingPulse' })
 
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const showMenu = activeAdapters.length >= 1
@@ -329,8 +340,9 @@ function ActionButtonWithMenu({
         whileTap={!isLoading ? { scale: 0.95 } : undefined}
         transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
         className={cn(
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] shrink-0 btn-physical',
-          isLoading ? 'opacity-80 cursor-wait btn-loading-pulse' : 'cursor-pointer',
+          'relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] min-w-0 btn-physical overflow-visible',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+          isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
           isPrimary
             ? 'text-white'
             : 'text-muted-foreground bg-transparent border border-border/60 hover:border-foreground/30 hover:text-foreground'
@@ -341,13 +353,21 @@ function ActionButtonWithMenu({
         } : {}}
         aria-label={loadingLabel}
       >
+        {isLoading && (
+          <div
+            ref={loadingPulseRef}
+            className="absolute -inset-1.5 rounded-xl border-2 border-primary/30 pointer-events-none"
+            style={{ opacity: 0 }}
+          />
+        )}
         {isLoading ? (
           <span
             ref={spinnerRef}
             className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-current border-r-transparent"
+            aria-hidden="true"
           />
         ) : (
-          <ActionIcon className="h-3.5 w-3.5" />
+          <ActionIcon className="h-3.5 w-3.5" aria-hidden="true" />
         )}
         <span>{isLoading ? loadingLabel : label}</span>
       </m.button>
@@ -372,6 +392,7 @@ interface DockNavProps {
 }
 
 export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNavProps) {
+  const { t } = useTranslation()
   const activePanel = useAppStore((s) => s.activePanel)
   const isLoggingIn = useAppStore((s) => s.isLoggingIn)
   const isLoggingOut = useAppStore((s) => s.isLoggingOut)
@@ -392,9 +413,14 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
     return () => clearTimeout(timer)
   }, [])
 
+  const rafRef = useRef<number>(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!animActive) return
-    mouseX.set(e.clientX)
+    // RAF-throttle: only update once per frame
+    cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => {
+      mouseX.set(e.clientX)
+    })
   }, [mouseX, animActive])
 
   const handleMouseLeave = useCallback(() => {
@@ -443,15 +469,15 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
       style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
     >
       <nav
-        className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
+        className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto overflow-x-auto"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
-        {visibleItems.map(({ id, label, icon }) => (
+        {visibleItems.map(({ id, labelKey, icon }) => (
           <DockItem
             key={id}
             id={id}
-            label={label}
+            label={t(labelKey)}
             icon={icon}
             isActive={activePanel === id}
             onPanelChange={onPanelChange}
@@ -470,8 +496,8 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
 
         <ActionButtonWithMenu
-          label="注销"
-          loadingLabel="注销中"
+          label={t('auth.logout')}
+          loadingLabel={t('auth.loggingOut')}
           icon={LogOut}
           isLoading={isLoggingOut}
           isDisabled={isLoggingIn}
@@ -481,8 +507,8 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
         />
 
         <ActionButtonWithMenu
-          label="登录"
-          loadingLabel="登录中"
+          label={t('auth.login')}
+          loadingLabel={t('auth.loggingIn')}
           icon={LogIn}
           isLoading={isLoggingIn}
           isDisabled={isLoggingOut}

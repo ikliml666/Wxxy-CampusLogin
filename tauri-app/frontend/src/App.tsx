@@ -26,20 +26,22 @@ import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
+import { useTranslation } from 'react-i18next'
 
-const PANEL_TITLES: Record<string, { title: string; desc: string }> = {
-  dashboard: { title: '总览', desc: '实时监控网络状态和登录验证服务' },
-  account: { title: '账号管理', desc: '管理自动登录设置和通知选项' },
-  network: { title: '网络适配器', desc: '查看和配置网络适配器' },
-  monitor: { title: '网络状态检测', desc: '检测网络登录状态和可登录性' },
-  quality: { title: '网络质量', desc: '实时监测网络延迟和质量' },
-  speedtest: { title: '网络测速', desc: '测试下载速度、抖动和丢包率' },
-  settings: { title: '系统设置', desc: '调整应用外观和启动行为' },
-  log: { title: '系统日志', desc: '查看应用运行日志，定位问题' },
+const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
+  dashboard: { titleKey: 'panel.dashboard', descKey: 'panel.dashboardDesc' },
+  account: { titleKey: 'panel.account', descKey: 'panel.accountDesc' },
+  network: { titleKey: 'panel.network', descKey: 'panel.networkDesc' },
+  monitor: { titleKey: 'panel.monitor', descKey: 'panel.monitorDesc' },
+  quality: { titleKey: 'panel.quality', descKey: 'panel.qualityDesc' },
+  speedtest: { titleKey: 'panel.speedtest', descKey: 'panel.speedtestDesc' },
+  settings: { titleKey: 'panel.settings', descKey: 'panel.settingsDesc' },
+  log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
 
 function AppInner() {
   useAppInit()
+  const { t } = useTranslation()
 
   const activePanel = useAppStore((s) => s.activePanel)
   const adapters = useAppStore((s) => s.adapters)
@@ -234,7 +236,7 @@ function AppInner() {
 
   return (
     <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
-      <FluidBackground innerRef={setRef('fluidBg')} />
+      <FluidBackground />
 
       <div ref={setRef('titleBar')} className="relative z-[1]" style={{ contain: 'layout style paint' }}>
         <TitleBar
@@ -259,16 +261,16 @@ function AppInner() {
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
-          <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
+          <div className={cn("mx-auto", isMaximized ? "max-w-[1100px]" : "max-w-[720px]")}>
             <div ref={setRef('title')} className="mb-6 relative z-[1]">
               <h1
                 key={`title-${activePanel}`}
                 className="text-xl font-semibold tracking-tight transition-opacity duration-200"
-              >{panelInfo.title}</h1>
+              >{t(panelInfo.titleKey)}</h1>
               <p
                 key={`desc-${activePanel}`}
                 className="text-sm text-muted-foreground mt-1 transition-opacity duration-150"
-              >{panelInfo.desc}</p>
+              >{t(panelInfo.descKey)}</p>
             </div>
 
             <AnimatePresence mode="wait" custom={slideDirection}>
@@ -320,7 +322,7 @@ function AppInner() {
           if (version) setLatestVersion(version)
           if (notes) setReleaseNotes(notes)
           if (hasUpdate && version) {
-            api.sendNotification?.('发现新版本', `CampusLogin v${version} 已发布，请在关于页面查看详情`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+            api.sendNotification?.(t('about.newVersionFound'), `CampusLogin v${version} ${t('about.newVersionFound')}`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
           }
         }}
       />
@@ -334,8 +336,8 @@ function AppInner() {
 
       <ConfirmDialog
         open={confirmDelete.open}
-        title="删除账号"
-        message={`确定要删除账号「${confirmDelete.name}」吗？此操作不可撤销。`}
+        title={t('account.deleteAccountTitle')}
+        message={t('account.deleteAccountMessage', { name: confirmDelete.name })}
         onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '' }) }}
         onCancel={() => setConfirmDelete({ open: false, name: '' })}
       />

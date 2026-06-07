@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Config } from '@/settings'
 import type { NetworkQuality } from '@/monitor'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -19,6 +20,7 @@ import { LatencyPair } from '@/monitor'
 import { safeStorage } from '@/lib/utils'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useAppStore } from '@/hooks/useAppStore'
+import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 
 type CardId = 'quickActions' | 'accountManage' | 'networkQuality'
 
@@ -29,9 +31,9 @@ interface CardDef {
 }
 
 const ALL_CARDS: CardDef[] = [
-  { id: 'quickActions', label: '快捷操作', icon: Zap },
-  { id: 'accountManage', label: '账号管理', icon: UserCircle },
-  { id: 'networkQuality', label: '网络质量', icon: Gauge },
+  { id: 'quickActions', label: 'dashboard.quickActions', icon: Zap },
+  { id: 'accountManage', label: 'dashboard.accountManage', icon: UserCircle },
+  { id: 'networkQuality', label: 'dashboard.networkQuality', icon: Gauge },
 ]
 
 const CARD_MAP = Object.fromEntries(ALL_CARDS.map(c => [c.id, c])) as Record<CardId, CardDef>
@@ -70,6 +72,10 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
   onDhcpRenew: () => Promise<void>; onDhcpReleaseRenew: () => Promise<void>
   noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
+  const { t } = useTranslation()
+  const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
+  const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })
+
   const [isDhcpRenewing, handleDhcpRenew] = useAsyncLock(async () => {
     await onDhcpRenew()
   }, 5000)
@@ -79,15 +85,22 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
   }, 0)
 
   return (
-    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(['poor', 'bad'].includes(networkQuality?.quality ?? '') && 'border-glow-danger')}>
+    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(isPoorQuality && 'relative overflow-visible')}>
+      {isPoorQuality && (
+        <div
+          ref={dangerGlowRef}
+          className="absolute inset-[-4px] rounded-[inherit] pointer-events-none"
+          style={{ boxShadow: '0 0 16px 2px rgba(244, 63, 94, 0.2)' }}
+        />
+      )}
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
             <Zap className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>快捷操作</CardTitle>
-            <CardDescription>常用功能一键执行</CardDescription>
+            <CardTitle>{t('dashboard.quickActions')}</CardTitle>
+            <CardDescription>{t('dashboard.quickActionsDesc')}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -98,8 +111,8 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
               <RotateCcw className={cn('h-4 w-4 text-blue-500', isDhcpRenewing && 'animate-spin')} />
             </div>
             <div className="text-left">
-              <div className="text-sm font-medium">DHCP续租</div>
-              <div className="text-[11px] text-muted-foreground">{isDhcpRenewing ? '执行中...' : '续租当前IP地址'}</div>
+              <div className="text-sm font-medium">{t('dashboard.dhcpRenew')}</div>
+              <div className="text-[11px] text-muted-foreground">{isDhcpRenewing ? t('dashboard.dhcpRenewing') : t('dashboard.dhcpRenewDesc')}</div>
             </div>
           </Button>
           <Button variant="outline" className="h-auto py-3 justify-start gap-3" onClick={handleGetNewIp} disabled={isGettingNewIp}>
@@ -107,8 +120,8 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
               <RefreshCw className={cn('h-4 w-4 text-amber-500', isGettingNewIp && 'animate-spin')} />
             </div>
             <div className="text-left">
-              <div className="text-sm font-medium">获取新IP</div>
-              <div className="text-[11px] text-muted-foreground">{isGettingNewIp ? '获取中...' : '更换MAC获取新IP'}</div>
+              <div className="text-sm font-medium">{t('dashboard.getNewIp')}</div>
+              <div className="text-[11px] text-muted-foreground">{isGettingNewIp ? t('dashboard.gettingNewIp') : t('dashboard.getNewIpDesc')}</div>
             </div>
           </Button>
         </div>
@@ -120,6 +133,7 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
 const AccountManageCard = memo(function AccountManageCard({ accounts, activeAccount, onSwitchAccount, noAnimation, noEnterAnimation }: {
   accounts: string[]; activeAccount: string; onSwitchAccount: (name: string) => Promise<any>; noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
+  const { t } = useTranslation()
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -147,8 +161,8 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
             <UserCircle className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <CardTitle>账号管理</CardTitle>
-            <CardDescription>切换登录账号</CardDescription>
+            <CardTitle>{t('dashboard.accountManage')}</CardTitle>
+            <CardDescription>{t('dashboard.accountManageDesc')}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -161,7 +175,7 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
               </div>
               <span className="text-sm font-medium font-sans">{activeAccount}</span>
             </div>
-            <Badge variant="default" className="text-[10px] h-5">当前</Badge>
+            <Badge variant="default" className="text-[10px] h-5">{t('dashboard.current')}</Badge>
           </div>
         )}
         {otherAccounts.length > 0 && otherAccounts.map(name => (
@@ -173,10 +187,10 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
               </div>
               <span className="text-sm font-sans text-muted-foreground">{name}</span>
             </div>
-            {switchingAccount === name ? <span className="text-[10px] text-primary">切换中...</span> : <span className="text-[10px] text-muted-foreground">点击切换</span>}
+            {switchingAccount === name ? <span className="text-[10px] text-primary">{t('dashboard.switching')}</span> : <span className="text-[10px] text-muted-foreground">{t('dashboard.clickToSwitch')}</span>}
           </button>
         ))}
-        {accounts.length === 0 && <div className="text-center py-3 text-xs text-muted-foreground">暂无保存的账号</div>}
+        {accounts.length === 0 && <div className="text-center py-3 text-xs text-muted-foreground">{t('dashboard.noSavedAccounts')}</div>}
       </CardContent>
     </AnimatedCard>
   )
@@ -185,6 +199,7 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
 const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, isRefreshingQuality, onRefreshQuality, noAnimation, noEnterAnimation }: {
   networkQuality: NetworkQuality | null; isRefreshingQuality: boolean; onRefreshQuality?: () => Promise<void>; noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
+  const { t } = useTranslation()
   const qualityConfig = useMemo(() => {
     if (!networkQuality) return QUALITY_CONFIG.unknown
     return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown
@@ -198,13 +213,13 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
             <Gauge className={cn('h-5 w-5', qualityConfig?.color ?? 'text-muted-foreground')} />
           </div>
           <div>
-            <CardTitle>网络质量</CardTitle>
-            <CardDescription>实时网络延迟监测</CardDescription>
+            <CardTitle>{t('dashboard.networkQuality')}</CardTitle>
+            <CardDescription>{t('dashboard.networkQualityDesc')}</CardDescription>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Badge variant="outline" className={cn(qualityConfig?.color ?? 'text-muted-foreground')}>{qualityConfig?.label ?? '未知'}</Badge>
+            <Badge variant="outline" className={cn(qualityConfig?.color ?? 'text-muted-foreground')}>{t(qualityConfig?.labelKey ?? 'common.unknown')}</Badge>
             {onRefreshQuality && (
-              <Button variant="ghost" size="icon-sm" className="rounded-xl" onClick={onRefreshQuality} disabled={isRefreshingQuality}>
+              <Button variant="ghost" size="icon-sm" className="rounded-xl" onClick={onRefreshQuality} disabled={isRefreshingQuality} aria-label={t('dashboard.networkQuality')}>
                 <RefreshCw className={getRefreshIconClass(isRefreshingQuality, 'h-3.5 w-3.5')} />
               </Button>
             )}
@@ -239,6 +254,7 @@ function renderCard(id: CardId, props: DashboardPanelProps, _bgStatus: { isRunni
 }
 
 export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanelProps) {
+  const { t } = useTranslation()
   const [cards, setCards] = useState<CardId[]>(loadLayout)
   const [editing, setEditing] = useState(false)
   const bgStatus = useAppStore((s) => s.bgStatus)
@@ -274,7 +290,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
     <div className="space-y-3">
       <div className="flex items-center justify-end">
         <Button variant="ghost" size="sm" className="h-7 text-[11px] gap-1.5" onClick={() => setEditing(!editing)}>
-          {editing ? <><X className="h-3 w-3" />完成</> : <><Settings2 className="h-3 w-3" />编辑</>}
+          {editing ? <><X className="h-3 w-3" />{t('common.done')}</> : <><Settings2 className="h-3 w-3" />{t('common.edit')}</>}
         </Button>
       </div>
 
@@ -283,7 +299,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
           <CardContent className="p-3">
             <div className="flex items-center gap-1.5 mb-2">
               <Plus className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">添加卡片</span>
+              <span className="text-[11px] text-muted-foreground">{t('dashboard.addCard')}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {availableCards.map(c => {
@@ -292,7 +308,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
                   <button key={c.id} onClick={() => handleAddCard(c.id)}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/50 hover:bg-muted text-[11px] font-medium transition-colors">
                     <Icon className="h-3 w-3" />
-                    {c.label}
+                    {t(c.label)}
                   </button>
                 )
               })}
@@ -323,7 +339,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
               {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing)}
               <div className="absolute inset-0 z-[5] rounded-2xl" />
               <div className="absolute -top-1.5 -right-1.5 z-10 flex items-center gap-0.5">
-                <button onClick={() => handleRemoveCard(id)}
+                <button onClick={() => handleRemoveCard(id)} aria-label={t('common.delete')}
                   className="w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80 transition-colors shadow-sm">
                   <X className="h-3 w-3" />
                 </button>
@@ -344,8 +360,8 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
       {visibleCards.length === 0 && (
         <div className="text-center py-10 text-muted-foreground">
           <Activity className="h-8 w-8 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">暂无卡片</p>
-          <p className="text-xs mt-1">点击上方"编辑"添加卡片</p>
+          <p className="text-sm">{t('dashboard.noCards')}</p>
+          <p className="text-xs mt-1">{t('dashboard.noCardsTip')}</p>
         </div>
       )}
     </div>

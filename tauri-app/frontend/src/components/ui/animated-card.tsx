@@ -32,13 +32,20 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
     const cardRef = React.useRef<HTMLDivElement>(null)
     const xQuick = React.useRef<gsap.QuickToFunc | null>(null)
     const yQuick = React.useRef<gsap.QuickToFunc | null>(null)
+    const tiltRafRef = React.useRef<number>(0)
+    const rectCacheRef = React.useRef<DOMRect | null>(null)
 
     React.useEffect(() => {
       if (!tiltEnabled || !cardRef.current) return
       const el = cardRef.current
       xQuick.current = gsap.quickTo(el, 'rotateY', { duration: 0.35, ease: 'expo.out', force3D: true })
       yQuick.current = gsap.quickTo(el, 'rotateX', { duration: 0.35, ease: 'expo.out', force3D: true })
+      // Invalidate rect cache on resize
+      const ro = new ResizeObserver(() => { rectCacheRef.current = null })
+      ro.observe(el)
       return () => {
+        ro.disconnect()
+        rectCacheRef.current = null
         gsap.killTweensOf(el, 'rotateY')
         gsap.killTweensOf(el, 'rotateX')
         xQuick.current = null
@@ -48,15 +55,24 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
 
     const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
       if (!tiltEnabled || !xQuick.current || !yQuick.current) return
-      const el = e.currentTarget as HTMLElement
-      if (el.style.willChange !== 'transform') {
-        el.style.willChange = 'transform'
-      }
-      const rect = e.currentTarget.getBoundingClientRect()
-      const x = (e.clientX - rect.left) / rect.width - 0.5
-      const y = (e.clientY - rect.top) / rect.height - 0.5
-      xQuick.current(x * 8)
-      yQuick.current(-y * 8)
+      // RAF-throttle: only update once per frame
+      cancelAnimationFrame(tiltRafRef.current)
+      tiltRafRef.current = requestAnimationFrame(() => {
+        const el = e.currentTarget as HTMLElement
+        if (el.style.willChange !== 'transform') {
+          el.style.willChange = 'transform'
+        }
+        // Use cached rect to avoid forced synchronous layout
+        let rect = rectCacheRef.current
+        if (!rect) {
+          rect = el.getBoundingClientRect()
+          rectCacheRef.current = rect
+        }
+        const x = (e.clientX - rect.left) / rect.width - 0.5
+        const y = (e.clientY - rect.top) / rect.height - 0.5
+        xQuick.current?.(x * 8)
+        yQuick.current?.(-y * 8)
+      })
     }, [tiltEnabled])
 
     const handleMouseLeave = React.useCallback(() => {

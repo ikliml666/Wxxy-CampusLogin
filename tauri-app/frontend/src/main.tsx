@@ -8,9 +8,10 @@ import { ErrorBoundary } from '@/shared'
 import { safeStorage } from '@/lib/utils'
 import { VALID_THEMES } from '@/settings'
 import './index.css'
+import './i18n'
 
 gsap.defaults({ ease: 'expo.out', force3D: true })
-gsap.config({ autoSleep: 60, nullTargetWarn: false })
+gsap.config({ autoSleep: 5, nullTargetWarn: false })
 gsap.ticker.lagSmoothing(500, 33)
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches

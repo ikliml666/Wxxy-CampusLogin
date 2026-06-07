@@ -115,5 +115,8 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if config.required_network_name.is_empty() {
         config.required_network_name = default_required_network_name();
     }
+    if config.log_retention_days > 365 {
+        config.log_retention_days = 7;
+    }
     Ok(config)
 }

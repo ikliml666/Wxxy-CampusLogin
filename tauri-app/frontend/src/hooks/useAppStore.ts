@@ -10,6 +10,7 @@ import { mergeNetworkQuality } from '@/lib/latency'
 import { hexToHsl } from '@/lib/color'
 import { tauriApiWithRetry } from './useIpc'
 import { useLogToastStore } from './useLogToastStore'
+import i18next from 'i18next'
 
 const api = tauriApiWithRetry
 
@@ -46,6 +47,7 @@ interface AppStore {
   releaseNotes: string
   gpuInfo: GpuInfo | null
   refreshRate: number
+  language: string
   api: typeof api
 
   updateConfig: (partial: Partial<Config>) => void
@@ -75,6 +77,7 @@ interface AppStore {
   setLatestVersion: (v: string) => void
   setReleaseNotes: (v: string) => void
   setGpuInfo: (info: GpuInfo) => void
+  setLanguage: (lang: string) => void
   doLogin: (adapterName?: string) => Promise<boolean>
   doLogout: (adapterName?: string) => Promise<void>
   checkOnline: (cfg?: Partial<Config>, adps?: Adapter[]) => Promise<void>
@@ -98,7 +101,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isLoggingOut: false,
   isRefreshingQuality: false,
   isRefreshingAdapters: false,
-  status: { text: '检测中...', state: 'loading' },
+  status: { text: i18next.t('auth.checking'), state: 'loading' },
   activePanel: 'dashboard',
   themeName: 'default',
   isLightMode: (() => { const lm = safeStorage.get('campus-light-mode'); return lm === '1' })(),
@@ -108,6 +111,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   releaseNotes: '',
   gpuInfo: null,
   refreshRate: 0,
+  language: localStorage.getItem('app-language') || 'zh',
   api,
 
   updateConfig: (partial) => {
@@ -131,7 +135,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         saveConfigPending = null
         saveConfigDirect(pending).catch((e) => {
           if (import.meta.env.DEV) console.error('配置保存失败:', e)
-          get().addToast('配置保存失败，请重试', 'error')
+          get().addToast(i18next.t('auth.configSaveFailed'), 'error')
         })
       }
     }, 500)
@@ -155,7 +159,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       await api.saveConfig(fullConfig)
     } catch (e: unknown) {
       const errMsg = extractErrorMessage(e)
-      get().addLog(`保存配置失败: ${errMsg}`, 'error')
+      get().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }), 'error')
     }
   },
 
@@ -210,21 +214,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setGpuInfo: (info) => set({ gpuInfo: info }),
 
+  setLanguage: (lang) => {
+    set({ language: lang })
+    localStorage.setItem('app-language', lang)
+    i18next.changeLanguage(lang)
+  },
+
   doLogin: async (adapterName?: string): Promise<boolean> => {
     const s = get()
     if (s.isLoggingIn || s.isLoggingOut || !s.config) return false
     const loginConfig = { ...s.config }
     set({ isLoggingIn: true })
-    const targetDesc = adapterName ? `${adapterName}` : '默认适配器'
-    get().setStatus({ text: '正在登录...', state: 'loading' })
+    const targetDesc = adapterName ? `${adapterName}` : i18next.t('auth.defaultAdapter')
+    get().setStatus({ text: i18next.t('auth.loggingInToast'), state: 'loading' })
     get().addLog(`开始登录 (${targetDesc})...`, 'info')
-    get().addToast('正在登录...', 'info')
+    get().addToast(i18next.t('auth.loggingInToast'), 'info')
 
     try {
       await get().saveConfigDirect(loginConfig)
     } catch (e: unknown) {
       const errMsg = extractErrorMessage(e)
-      get().addLog(`保存配置失败: ${errMsg}，尝试使用已有配置登录`, 'warning')
+      get().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }) + '，尝试使用已有配置登录', 'warning')
     }
 
     let success = false
@@ -232,27 +242,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const result = await api.doLogin(adapterName)
       const cur = get()
       if (result?.success) {
-        cur.setStatus({ text: '登录成功', state: 'online' })
-        cur.addLog(result.message || '登录成功', 'success')
-        cur.addToast('登录成功', 'success', result.message)
+        cur.setStatus({ text: i18next.t('auth.loginSuccess'), state: 'online' })
+        cur.addLog(result.message || i18next.t('auth.loginSuccess'), 'success')
+        cur.addToast(i18next.t('auth.loginSuccess'), 'success', result.message)
         success = true
       } else {
-        cur.setStatus({ text: '登录失败', state: 'offline' })
-        cur.addLog(result?.message || '登录失败', 'error')
-        cur.addToast('登录失败', 'error', result?.message)
+        cur.setStatus({ text: i18next.t('auth.loginFailed'), state: 'offline' })
+        cur.addLog(result?.message || i18next.t('auth.loginFailed'), 'error')
+        cur.addToast(i18next.t('auth.loginFailed'), 'error', result?.message)
       }
       if (get().config.enableNetworkQuality !== false) {
         api.checkNetworkQuality?.().then((q) => {
           if (q) get().setNetworkQuality((old: NetworkQuality | null) => mergeNetworkQuality(old, q))
         }).catch((e) => {
-          get().addLog(`登录后网络质量检测失败: ${extractErrorMessage(e)}`, 'warning')
+          get().addLog(i18next.t('auth.loginAfterQualityCheckFailed', { msg: extractErrorMessage(e) }), 'warning')
         })
       }
     } catch (e) {
       const msg = extractErrorMessage(e)
-      get().setStatus({ text: '登录异常', state: 'error' })
+      get().setStatus({ text: i18next.t('auth.loginError'), state: 'error' })
       get().addLog(`登录异常: ${msg}`, 'error')
-      get().addToast('登录异常', 'error', msg)
+      get().addToast(i18next.t('auth.loginError'), 'error', msg)
     }
 
     try { await get().checkOnline() } catch {}
@@ -264,28 +274,28 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const s = get()
     if (s.isLoggingOut || s.isLoggingIn) return
     set({ isLoggingOut: true })
-    const targetDesc = adapterName ? `${adapterName}` : '全部适配器'
-    get().setStatus({ text: '正在注销...', state: 'loading' })
+    const targetDesc = adapterName ? `${adapterName}` : i18next.t('auth.allAdapters')
+    get().setStatus({ text: i18next.t('auth.loggingOutToast'), state: 'loading' })
     get().addLog(`开始注销 (${targetDesc})...`, 'info')
-    get().addToast('正在注销...', 'info')
+    get().addToast(i18next.t('auth.loggingOutToast'), 'info')
 
     try {
       const result = await api.doLogout(adapterName)
       const cur = get()
       if (result?.success) {
-        cur.setStatus({ text: '已注销', state: 'offline' })
-        cur.addLog(result.message || '注销成功', 'success')
-        cur.addToast('注销成功', 'success', result.message)
+        cur.setStatus({ text: i18next.t('auth.logoutSuccess'), state: 'offline' })
+        cur.addLog(result.message || i18next.t('auth.logoutSuccess'), 'success')
+        cur.addToast(i18next.t('auth.logoutSuccess'), 'success', result.message)
       } else {
-        cur.setStatus({ text: '注销失败', state: 'error' })
-        cur.addLog(result?.message || '注销失败', 'error')
-        cur.addToast('注销失败', 'error', result?.message)
+        cur.setStatus({ text: i18next.t('auth.logoutFailed'), state: 'error' })
+        cur.addLog(result?.message || i18next.t('auth.logoutFailed'), 'error')
+        cur.addToast(i18next.t('auth.logoutFailed'), 'error', result?.message)
       }
     } catch (e) {
       const msg = extractErrorMessage(e)
-      get().setStatus({ text: '注销异常', state: 'error' })
+      get().setStatus({ text: i18next.t('auth.logoutError'), state: 'error' })
       get().addLog(`注销异常: ${msg}`, 'error')
-      get().addToast('注销异常', 'error', msg)
+      get().addToast(i18next.t('auth.logoutError'), 'error', msg)
     }
 
     try { await get().checkOnline() } catch {}
@@ -334,7 +344,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
                 }
               }
             })
-            get().setStatus({ text: campusStatus.campusMessage || '未连接校园网', state: 'offline' })
+            get().setStatus({ text: campusStatus.campusMessage || i18next.t('auth.notOnCampus'), state: 'offline' })
             return
           }
           if (campusStatus) {
@@ -394,7 +404,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       if (!adapterIp) {
         if (epoch !== checkOnlineEpoch) return
-        get().setStatus({ text: '未检测到网络', state: 'offline' })
+        get().setStatus({ text: i18next.t('auth.noNetwork'), state: 'offline' })
         return
       }
 
@@ -408,11 +418,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
           if (prevState !== newState && portalStatus.message) {
             addLog(portalStatus.message, portalStatus.online ? 'success' : 'warning')
           }
-          get().setStatus({ text: portalStatus.message || '未知状态', state: newState })
+          get().setStatus({ text: portalStatus.message || i18next.t('auth.unknownStatus'), state: newState })
         }
       } catch {
         if (epoch !== checkOnlineEpoch) return
-        get().setStatus({ text: '未登录', state: 'offline' })
+        get().setStatus({ text: i18next.t('auth.notLoggedIn'), state: 'offline' })
       }
     } finally {
       setTimeout(() => { _checkOnlineLockFlag = false }, 500)

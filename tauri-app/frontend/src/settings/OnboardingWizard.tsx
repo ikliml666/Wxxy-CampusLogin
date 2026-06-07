@@ -15,8 +15,10 @@ import {
 } from '@/components/ui/dialog'
 import {
   Check, ArrowRight, ArrowLeft, Wifi, Cable, Shield, Zap,
-  Eye, EyeOff, Loader2, UserCircle, KeyRound
+  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { useAppStore } from '@/hooks/useAppStore'
 import { ISP_OPTIONS } from '@/settings'
 import { APP_NAME, PASSWORD_MASK } from '@/shared'
 import { cn, safeStorage } from '@/lib/utils'
@@ -35,12 +37,12 @@ interface OnboardingWizardProps {
   isLoggingIn: boolean
 }
 
-const STEP_TITLES = ['欢迎', '账号信息', '网络适配器', '完成设置']
+const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.networkAdapter', 'onboarding.setupComplete'] as const
 
 function StepIndicator({ current }: { current: number }) {
   return (
     <div className="flex items-center justify-center gap-2 py-3">
-      {STEP_TITLES.map((_, i) => (
+      {STEP_TITLE_KEYS.map((_, i) => (
         <div key={i} className="flex items-center gap-2">
           <div className="relative w-7 h-7 flex items-center justify-center">
             {i === current && (
@@ -59,7 +61,7 @@ function StepIndicator({ current }: { current: number }) {
               {i < current ? <Check className="h-3.5 w-3.5" /> : i + 1}
             </span>
           </div>
-          {i < STEP_TITLES.length - 1 && (
+          {i < STEP_TITLE_KEYS.length - 1 && (
             <div className={cn(
               'w-8 h-[2px] transition-colors duration-300',
               i < current ? 'bg-primary' : 'bg-muted'
@@ -72,6 +74,9 @@ function StepIndicator({ current }: { current: number }) {
 }
 
 export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
+  const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
+  const setLanguage = useAppStore((s) => s.setLanguage)
   const [step, setStep] = useState(0)
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
@@ -191,14 +196,14 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                   <Zap className="h-10 w-10 text-white" />
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-xl font-bold">欢迎使用{APP_NAME}</h2>
+                  <h2 className="text-xl font-bold">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</h2>
                   <p className="text-sm text-muted-foreground leading-relaxed max-w-[340px]">
-                    校园网自动登录工具，只需简单配置即可实现开机自动认证、断线重连。让我们花一分钟完成初始设置。
+                    {t('onboarding.welcomeDesc')}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground/70 bg-muted/30 px-3 py-2 rounded-lg">
                   <Shield className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                  您的账号信息将使用 Windows DPAPI 加密保存在本地
+                  {t('onboarding.securityNote')}
                 </div>
               </div>
             )}
@@ -206,38 +211,45 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
             {step === 1 && (
               <div className="space-y-4 py-2">
                 <div className="space-y-1.5">
-                  <h3 className="text-base font-semibold">填写登录信息</h3>
-                  <p className="text-xs text-muted-foreground">请输入您的校园网认证账号和密码</p>
+                  <h3 className="text-base font-semibold">{t('onboarding.fillLoginInfo')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('onboarding.fillLoginInfoDesc')}</p>
                 </div>
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label className={cn("text-xs font-medium", !username.trim() && "text-destructive")}>用户名 *</Label>
+                    <Label htmlFor="username" className={cn("text-xs font-medium", !username.trim() && "text-destructive")}>{t('onboarding.usernameRequired')}</Label>
                     <Input
+                      id="username"
+                      name="username"
+                      autoComplete="username"
+                      spellCheck={false}
                       value={username}
                       onChange={e => setUsername(e.target.value)}
-                      placeholder="请输入校园网学号"
+                      placeholder={t('onboarding.usernamePlaceholder')}
                       autoFocus
                       icon={<UserCircle className="h-4 w-4" />}
                       className={cn(!username.trim() && "border-destructive/50 focus-visible:ring-destructive/30")}
                     />
                     {!username.trim() && (
-                      <p className="text-xs text-destructive/80">请输入用户名</p>
+                      <p className="text-xs text-destructive/80">{t('onboarding.usernameRequiredError')}</p>
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label className={cn("text-xs font-medium", !password.trim() && "text-destructive")}>密码 *</Label>
+                    <Label htmlFor="password" className={cn("text-xs font-medium", !password.trim() && "text-destructive")}>{t('onboarding.passwordRequired')}</Label>
                     <div className="relative">
                       <Input
+                        id="password"
+                        name="password"
+                        autoComplete="current-password"
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={e => setPassword(e.target.value)}
-                        placeholder="请输入校园网密码"
+                        placeholder={t('onboarding.passwordPlaceholder')}
                         icon={<KeyRound className="h-4 w-4" />}
                         className={cn("[&::-ms-reveal]:hidden pr-10", !password.trim() && "border-destructive/50 focus-visible:ring-destructive/30")}
                       />
                       <button
                         type="button"
-                        aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                        aria-label={showPassword ? t('onboarding.hidePassword') : t('onboarding.showPassword')}
                         onClick={() => setShowPassword(!showPassword)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                       >
@@ -245,14 +257,14 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                       </button>
                     </div>
                     {!password.trim() && (
-                      <p className="text-xs text-destructive/80">请输入密码</p>
+                      <p className="text-xs text-destructive/80">{t('onboarding.passwordRequiredError')}</p>
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">运营商</Label>
+                    <Label className="text-xs font-medium">{t('onboarding.operatorOptional')}</Label>
                     <Select value={operator} onValueChange={setOperator}>
                       <SelectTrigger>
-                        <SelectValue placeholder="选择运营商（可选）" />
+                        <SelectValue placeholder={t('onboarding.selectOperatorOptional')} />
                       </SelectTrigger>
                       <SelectContent>
                         {ISP_OPTIONS.map(o => (
@@ -268,18 +280,18 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
             {step === 2 && (
               <div className="space-y-4 py-2">
                 <div className="space-y-1.5">
-                  <h3 className="text-base font-semibold">选择网络适配器</h3>
-                  <p className="text-xs text-muted-foreground">选择用于登录校园网的网卡，通常选"自动检测"即可</p>
+                  <h3 className="text-base font-semibold">{t('onboarding.selectNetworkAdapter')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('onboarding.selectNetworkAdapterDesc')}</p>
                 </div>
                 <div className="space-y-2">
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">主适配器</Label>
+                    <Label className="text-xs font-medium">{t('onboarding.primaryAdapter')}</Label>
                     <Select value={adapter1} onValueChange={setAdapter1}>
                       <SelectTrigger>
-                        <SelectValue placeholder="选择适配器" />
+                        <SelectValue placeholder={t('onboarding.selectAdapter')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="自动检测">自动检测</SelectItem>
+                        <SelectItem value="自动检测">{t('onboarding.autoDetect')}</SelectItem>
                         {adapters.map(a => (
                           <SelectItem key={a.name} value={a.name}>
                             <span className="flex items-center gap-2">
@@ -294,7 +306,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                   {adapters.length === 0 && (
                     <div className="text-xs text-amber-600 bg-amber-500/10 rounded-lg p-3 flex items-start gap-2">
                       <Wifi className="h-4 w-4 mt-0.5 shrink-0" />
-                      未检测到已连接的适配器，请确保已连接校园网（插上网线或连接WiFi）
+                      {t('onboarding.noConnectedAdapters')}
                     </div>
                   )}
                 </div>
@@ -304,27 +316,27 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
             {step === 3 && (
               <div className="space-y-4 py-2">
                 <div className="space-y-1.5">
-                  <h3 className="text-base font-semibold">准备就绪</h3>
-                  <p className="text-xs text-muted-foreground">以下信息已配置完成，点击按钮开始首次登录</p>
+                  <h3 className="text-base font-semibold">{t('onboarding.ready')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('onboarding.readyDesc')}</p>
                 </div>
                 <div className="bg-muted/30 rounded-xl p-4 space-y-2.5">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">用户名</span>
+                    <span className="text-muted-foreground">{t('onboarding.username')}</span>
                     <span className="font-medium">{username || '-'}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">密码</span>
+                    <span className="text-muted-foreground">{t('onboarding.password')}</span>
                     <span className="font-mono">{password ? '••••••••' : '-'}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">运营商</span>
-                    <span className="font-medium">{ISP_OPTIONS.find(o => o.value === operator)?.label || '默认'}</span>
+                    <span className="text-muted-foreground">{t('onboarding.operatorOptional')}</span>
+                    <span className="font-medium">{ISP_OPTIONS.find(o => o.value === operator)?.label || t('onboarding.default')}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">适配器</span>
+                    <span className="text-muted-foreground">{t('onboarding.adapter')}</span>
                     <span className="font-medium">{adapter1}</span>
                   </div>
                 </div>
@@ -333,16 +345,28 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
           </m.div>
         </AnimatePresence>
 
+        {step === 0 && (
+          <div className="flex justify-center mb-4">
+            <button
+              onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-full hover:bg-accent"
+            >
+              <Languages className="h-3.5 w-3.5" />
+              {language === 'zh' ? 'English' : '中文'}
+            </button>
+          </div>
+        )}
+
         <div className="px-6 pb-6 flex items-center justify-between">
           <div>
             {step > 0 && step < 3 && (
               <Button variant="ghost" size="sm" onClick={() => advance(step - 1)} className="gap-1.5">
-                <ArrowLeft className="h-3.5 w-3.5" /> 上一步
+                <ArrowLeft className="h-3.5 w-3.5" /> {t('onboarding.previous')}
               </Button>
             )}
             {step === 0 && (
               <Button variant="ghost" size="sm" onClick={handleSkip} className="text-muted-foreground hover:text-foreground">
-                跳过
+                {t('onboarding.skip')}
               </Button>
             )}
           </div>
@@ -352,14 +376,14 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                 onClick={() => { if (handleNext()) advance(step + 1) }}
                 disabled={step === 1 && !canProceedAccount}
                 className={cn(
-                  "gap-1.5 min-w-[100px] transition-all duration-200",
+                  "gap-1.5 min-w-[100px] transition-[background-color,color,box-shadow,transform] duration-200",
                   step === 1 && !canProceedAccount && "opacity-50 cursor-not-allowed"
                 )}
               >
                 {step === 1 && !canProceedAccount ? (
-                  <>请填写完整 <ArrowRight className="h-3.5 w-3.5" /></>
+                  <>{t('onboarding.pleaseComplete')} <ArrowRight className="h-3.5 w-3.5" /></>
                 ) : (
-                  <>下一步 <ArrowRight className="h-3.5 w-3.5" /></>
+                  <>{t('onboarding.next')} <ArrowRight className="h-3.5 w-3.5" /></>
                 )}
               </Button>
             )}
@@ -371,18 +395,18 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
               >
                 {isLoggingIn ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> 登录中...
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}
                   </>
                 ) : (
                   <>
-                    <Zap className="h-4 w-4" /> 开始登录
+                    <Zap className="h-4 w-4" /> {t('onboarding.startLogin')}
                   </>
                 )}
               </Button>
             )}
             {step === 3 && loginSuccess && (
               <div className="flex items-center gap-2 text-emerald-600 font-medium">
-                <Check className="h-4 w-4" /> 登录成功！
+                <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
               </div>
             )}
           </div>
@@ -396,15 +420,15 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
               <Shield className="h-6 w-6 text-amber-500" />
             </div>
             <div className="space-y-1.5">
-              <h3 className="text-base font-semibold">跳过初始设置？</h3>
-              <p className="text-sm text-muted-foreground">跳过后可在设置页面重新打开引导，但需要手动配置登录信息</p>
+              <h3 className="text-base font-semibold">{t('onboarding.skipSetup')}</h3>
+              <p className="text-sm text-muted-foreground">{t('onboarding.skipSetupDesc')}</p>
             </div>
             <div className="flex items-center gap-3 w-full">
               <Button variant="outline" className="flex-1" onClick={() => setShowCloseConfirm(false)}>
-                继续设置
+                {t('onboarding.continueSetup')}
               </Button>
               <Button variant="destructive" className="flex-1" onClick={() => { setShowCloseConfirm(false); handleSkip() }}>
-                跳过
+                {t('onboarding.skip')}
               </Button>
             </div>
           </div>

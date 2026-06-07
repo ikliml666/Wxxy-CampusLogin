@@ -22,6 +22,7 @@ import { ISP_OPTIONS } from '@/settings'
 import { PASSWORD_MASK } from '@/shared'
 import { cn } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface AccountPanelProps {
@@ -45,6 +46,7 @@ export const AccountPanel = memo(function AccountPanel({
   onDeleteAccount,
   onSwitchAccount,
 }: AccountPanelProps) {
+  const { t } = useTranslation()
   const passwordSaved = useAppStore((s) => s.passwordSaved)
   const [newAccountName, setNewAccountName] = useState('')
   const [showAddInput, setShowAddInput] = useState(false)
@@ -86,27 +88,27 @@ export const AccountPanel = memo(function AccountPanel({
                 <KeyRound className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>登录信息</CardTitle>
+                <CardTitle>{t('account.loginInfo')}</CardTitle>
                 <CardDescription>
-                  {activeAccount ? `当前账号：${activeAccount}` : '配置校园网认证账号'}
+                  {activeAccount ? t('account.currentAccount', { name: activeAccount }) : t('account.loginInfoDesc')}
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">用户名</Label>
+              <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('account.username')}</Label>
               <Input
                 id="username"
                 type="text"
                 value={config.user || ''}
                 onChange={e => onUpdateConfig({ user: e.target.value })}
-                placeholder="校园网账号"
+                placeholder={t('account.usernamePlaceholder')}
                 icon={<UserCircle className="h-4 w-4" />}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">密码</Label>
+              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('account.password')}</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -127,7 +129,7 @@ export const AccountPanel = memo(function AccountPanel({
                       onUpdateConfig({ password: config.password })
                     }
                   }}
-                  placeholder={passwordSaved ? '密码已保存，留空则保持原密码' : '校园网密码'}
+                  placeholder={passwordSaved ? t('account.passwordSavedPlaceholder') : t('account.passwordPlaceholder')}
                   icon={<KeyRound className="h-4 w-4" />}
                   className="[&::-ms-reveal]:hidden pr-10"
                 />
@@ -135,39 +137,39 @@ export const AccountPanel = memo(function AccountPanel({
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                  aria-label={showPassword ? t('account.hidePassword') : t('account.showPassword')}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">运营商</Label>
+              <Label className="text-xs font-medium text-muted-foreground">{t('account.operator')}</Label>
               <Select
                 value={config.operator || '__default__'}
                 onValueChange={(value) => onUpdateConfig({ operator: value === '__default__' ? '' : value })}
               >
-                <SelectTrigger aria-label="选择运营商">
-                  <SelectValue placeholder="选择运营商" />
+                <SelectTrigger aria-label={t('account.selectOperator')}>
+                  <SelectValue placeholder={t('account.selectOperator')} />
                 </SelectTrigger>
                 <SelectContent>
                   {ISP_OPTIONS.map(o => (
-                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">主适配器</Label>
+              <Label className="text-xs font-medium text-muted-foreground">{t('account.primaryAdapter')}</Label>
               <Select
                 value={config.adapter1 || '自动检测'}
                 onValueChange={(value) => onUpdateConfig({ adapter1: value })}
               >
-                <SelectTrigger aria-label="选择主适配器">
-                  <SelectValue placeholder="选择适配器" />
+                <SelectTrigger aria-label={t('account.selectPrimaryAdapter')}>
+                  <SelectValue placeholder={t('account.selectPrimaryAdapter')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="自动检测">自动检测</SelectItem>
+                  <SelectItem value="自动检测">{t('network.autoDetect')}</SelectItem>
                   {adapters.map(a => (
                     <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                   ))}
@@ -187,20 +189,20 @@ export const AccountPanel = memo(function AccountPanel({
                   <UserCircle className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <CardTitle>账号管理</CardTitle>
-                  <CardDescription>切换或管理保存的登录配置</CardDescription>
+                  <CardTitle>{t('account.accountManage')}</CardTitle>
+                <CardDescription>{t('account.accountManageDesc')}</CardDescription>
                 </div>
               </div>
               {!showAddInput ? (
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddInput(true)}>
-                  <Plus className="h-3.5 w-3.5" /> 添加
+                  <Plus className="h-3.5 w-3.5" /> {t('account.addAccount')}
                 </Button>
               ) : (
                 <div className="flex items-center gap-2">
                   <Input
                     value={newAccountName}
                     onChange={e => setNewAccountName(e.target.value)}
-                    placeholder="账号名称"
+                    placeholder={t('account.accountName')}
                     className="w-32 h-8 text-xs"
                     onKeyDown={e => e.key === 'Enter' && handleAddAccount()}
                     autoFocus
@@ -239,7 +241,7 @@ export const AccountPanel = memo(function AccountPanel({
                           <span className="font-medium">{name}</span>
                           {isActive && (
                             <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                              当前使用
+                              {t('account.currentInUse')}
                             </span>
                           )}
                         </div>
@@ -251,7 +253,7 @@ export const AccountPanel = memo(function AccountPanel({
                             size="icon-sm"
                             className="rounded-lg"
                             onClick={() => handleSwitchAccount(name)}
-                            aria-label="切换账号"
+                            aria-label={t('account.switchAccount')}
                           >
                             <ArrowRightLeft className="h-3.5 w-3.5" />
                           </Button>
@@ -261,7 +263,7 @@ export const AccountPanel = memo(function AccountPanel({
                           size="icon-sm"
                           className="rounded-lg hover:text-destructive hover:bg-destructive/10"
                           onClick={() => onDeleteAccount(name)}
-                          aria-label="删除账号"
+                          aria-label={t('account.deleteAccount')}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -273,8 +275,8 @@ export const AccountPanel = memo(function AccountPanel({
             ) : (
               <div className="text-center py-8">
                 <UserCircle className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">暂无保存的账号</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">点击上方按钮添加账号配置</p>
+                <p className="text-sm text-muted-foreground">{t('account.noSavedAccounts')}</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">{t('account.noSavedAccountsTip')}</p>
               </div>
             )}
           </CardContent>
@@ -286,8 +288,8 @@ export const AccountPanel = memo(function AccountPanel({
           <CardContent className="pt-5 space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">自动登录校园网</Label>
-                <p className="text-[11px] text-muted-foreground">程序启动后自动执行认证登录</p>
+                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
               </div>
               <Switch
                 id="auto-login"
@@ -298,8 +300,8 @@ export const AccountPanel = memo(function AccountPanel({
             <Separator />
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">登录成功后退出</Label>
-                <p className="text-[11px] text-muted-foreground">认证通过后自动关闭本程序</p>
+                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">{t('account.autoExitAfterLogin')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoExitAfterLoginDesc')}</p>
               </div>
               <Switch
                 id="auto-exit"

@@ -1,6 +1,6 @@
 {
   "productName": "校园网登录助手",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "identifier": "com.campus.login",
   "build": {
     "beforeDevCommand": "cd frontend && npm run dev",
@@ -12,12 +12,12 @@
     "windows": [
       {
         "title": "校园网登录助手",
-        "width": 960,
+        "width": 1080,
         "height": 680,
         "minWidth": 800,
         "minHeight": 600,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "shadow": true,
         "resizable": true,
         "center": true,

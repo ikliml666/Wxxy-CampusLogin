@@ -16,9 +16,11 @@ import { LatencyTimeline } from '@/monitor'
 
 import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type LatencyType } from '@/lib/latency'
 import React, { useCallback, memo, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { m, type Variants } from 'framer-motion'
 import { useAppStore } from '@/hooks/useAppStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 
 
 interface QualityPanelProps {
@@ -31,7 +33,7 @@ interface QualityPanelProps {
 const DETAIL_CATEGORIES = [
   {
     key: 'gateway',
-    label: '网关',
+    labelKey: 'quality.gateway',
     icon: Router,
     names: ['网关'],
     type: 'gateway' as LatencyType,
@@ -41,7 +43,7 @@ const DETAIL_CATEGORIES = [
   },
   {
     key: 'dns',
-    label: 'DNS服务器',
+    labelKey: 'quality.dnsServer',
     icon: Globe2,
     names: ['阿里DoH', '腾讯DoH', '阿里DNS', '腾讯DNS', '信风DNS', 'DNS解析'],
     type: 'external' as LatencyType,
@@ -51,7 +53,7 @@ const DETAIL_CATEGORIES = [
   },
   {
     key: 'http',
-    label: '网站测试',
+    labelKey: 'quality.websiteTest',
     icon: MonitorSmartphone,
     names: ['百度', '京东', '必应', '12306'],
     type: 'external' as LatencyType,
@@ -61,7 +63,7 @@ const DETAIL_CATEGORIES = [
   },
   {
     key: 'stream',
-    label: '视频平台',
+    labelKey: 'quality.videoPlatform',
     icon: Tv,
     names: ['哔哩哔哩', '抖音', '哔哩哔哩直播', '抖音直播'],
     type: 'external' as LatencyType,
@@ -71,7 +73,7 @@ const DETAIL_CATEGORIES = [
   },
   {
     key: 'game',
-    label: '游戏服务器',
+    labelKey: 'quality.gameServer',
     icon: Gamepad2,
     names: ['英雄联盟', '原神', '绝地求生', '永劫无间'],
     type: 'external' as LatencyType,
@@ -82,9 +84,12 @@ const DETAIL_CATEGORIES = [
 ]
 
 export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
+  const { t } = useTranslation()
   const networkQuality = useAppStore((s) => s.networkQuality)
   const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
   const profile = useAnimationProfile()
+  const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
+  const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })
 
   const cardItemVariantsNoY: Variants = {
     hidden: { opacity: 0 },
@@ -175,19 +180,27 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
   return (
     <div className="space-y-4">
       <div className="card-enter group" style={{ '--stagger-i': 0 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className={cn(['poor', 'bad'].includes(networkQuality?.quality ?? '') && 'border-glow-danger')}>
+        <div className="relative">
+          {isPoorQuality && (
+            <div
+              ref={dangerGlowRef}
+              className="absolute inset-[-4px] rounded-[inherit] pointer-events-none"
+              style={{ boxShadow: '0 0 16px 2px rgba(244, 63, 94, 0.2)' }}
+            />
+          )}
+          <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className={cn('w-10 h-10 rounded-full flex items-center justify-center', qualityConfig?.bg ?? 'bg-muted')}>
                 <Gauge className={cn('h-5 w-5', qualityConfig?.color ?? 'text-muted-foreground')} />
               </div>
               <div>
-                <CardTitle>网络质量</CardTitle>
-                <CardDescription>实时网络延迟监测</CardDescription>
+                <CardTitle>{t('quality.networkQuality')}</CardTitle>
+                <CardDescription>{t('quality.realtimeLatencyMonitor')}</CardDescription>
               </div>
               <div className="ml-auto flex items-center gap-2">
                 <Badge variant="outline" className={cn(qualityConfig?.bg ?? 'bg-muted', qualityConfig?.color ?? 'text-muted-foreground', qualityConfig?.border ?? 'border-border')}>
-                  {qualityConfig?.label ?? '未知'}
+                  {t(qualityConfig?.labelKey ?? 'common.unknown')}
                 </Badge>
                 {onRefreshQuality && (
                   <TooltipProvider delayDuration={300}>
@@ -205,8 +218,8 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
                         {networkQuality && networkQuality.metrics
-                          ? <p>检测总耗时: {networkQuality.metrics.totalElapsed}ms</p>
-                          : <p>刷新网络质量检测</p>
+                          ? <p>{t('quality.totalElapsed', { time: networkQuality.metrics.totalElapsed })}</p>
+                          : <p>{t('quality.refreshQualityTest')}</p>
                         }
                       </TooltipContent>
                     </Tooltip>
@@ -226,6 +239,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
             )}
           </CardContent>
         </AnimatedCard>
+        </div>
       </div>
 
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
@@ -236,8 +250,8 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                 <Clock className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>定时测试</CardTitle>
-                <CardDescription>自动周期性检测网络延迟</CardDescription>
+                <CardTitle>{t('quality.scheduledTest')}</CardTitle>
+                <CardDescription>{t('quality.scheduledTestDesc')}</CardDescription>
               </div>
               <div className="ml-auto">
                 <Button
@@ -248,14 +262,14 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                   disabled={!onToggleLatencyTest}
                 >
                   {config.enableLatencyTest ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                  {config.enableLatencyTest ? '停止' : '启动'}
+                  {config.enableLatencyTest ? t('monitor.stop') : t('monitor.start')}
                 </Button>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground shrink-0">测试间隔</span>
+              <span className="text-xs text-muted-foreground shrink-0">{t('quality.testInterval')}</span>
               <div className="flex items-center">
                 <Input
                   type="number"
@@ -265,11 +279,11 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                   onChange={e => onUpdateConfig({ latencyTestInterval: Math.max(10, parseInt(e.target.value) || 30) * 1000 })}
                   className="w-16 h-8 text-center font-mono tabular-nums"
                 />
-                <span className="text-xs text-muted-foreground ml-1.5">秒</span>
+                <span className="text-xs text-muted-foreground ml-1.5">{t('common.seconds')}</span>
               </div>
               {config.enableLatencyTest && (
                 <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/20">
-                  运行中
+                  {t('monitor.running')}
                 </Badge>
               )}
             </div>
@@ -285,8 +299,8 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                 <Search className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>测试详情</CardTitle>
-                <CardDescription>各节点延迟检测结果</CardDescription>
+                <CardTitle>{t('quality.testDetails')}</CardTitle>
+                <CardDescription>{t('quality.testDetailsDesc')}</CardDescription>
               </div>
               <div className="ml-auto">
                 <TooltipProvider delayDuration={200}>
@@ -299,16 +313,16 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                     <TooltipContent side="left" className="max-w-[380px]">
                       <div className="space-y-2 text-[11px]">
                         <div>
-                          <span className="font-semibold text-foreground">TLS</span>
-                          <span className="text-muted-foreground ml-1">— 传输层安全协议，HTTPS连接的加密层。TLS 1.3是最新的快速握手版本，TLS 1.2是兼容回退版本。TLS延迟高可能表示服务器距离远或网络拥堵。</span>
+                          <span className="font-semibold text-foreground">{t('quality.tlsExplanation')}</span>
+                          <span className="text-muted-foreground ml-1">{t('quality.tlsExplanationDetail')}</span>
                         </div>
                         <div>
-                          <span className="font-semibold text-foreground">TTFB（首字节时间）</span>
-                          <span className="text-muted-foreground ml-1">— 从发送HTTP请求到收到服务器第一个字节的耗时，反映服务器处理速度。百度约20-50ms，视频平台50-200ms。可在设置中跳过此检测。</span>
+                          <span className="font-semibold text-foreground">{t('quality.ttfbExplanation')}</span>
+                          <span className="text-muted-foreground ml-1">{t('quality.ttfbExplanationDetail')}</span>
                         </div>
                         <div>
-                          <span className="font-semibold text-emerald-500">内容传输</span>
-                          <span className="text-muted-foreground ml-1">— 读取完整HTTP响应体的时间，受页面大小影响显著。可在设置中跳过以大幅降低检测耗时和延迟值。</span>
+                          <span className="font-semibold text-emerald-500">{t('quality.contentTransferExplanation')}</span>
+                          <span className="text-muted-foreground ml-1">{t('quality.contentTransferExplanationDetail')}</span>
                         </div>
 
                       </div>
@@ -322,7 +336,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
             <SegmentTabs
               tabs={DETAIL_CATEGORIES.map(cat => ({
                 key: cat.key,
-                label: cat.label,
+                label: t(cat.labelKey),
                 icon: cat.icon,
                 color: cat.color,
                 bg: cat.bg,
@@ -382,7 +396,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                             </div>
                           )}
                           {item.udpLatency !== undefined && item.udpLatency >= 0 && item.tcpLatency !== undefined && item.tcpLatency >= 0 && item.udpLatency > item.tcpLatency * 3 && (item.udpLatency - item.tcpLatency) >= 20 && (
-                            <span className="text-[9px] text-amber-600 mt-0.5">⚠ UDP异常</span>
+                            <span className="text-[9px] text-amber-600 mt-0.5">⚠ {t('quality.udpAbnormal')}</span>
                           )}
 
 
@@ -392,27 +406,27 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                         <TooltipContent side="top" className="max-w-[320px]">
                           <div className="space-y-0.5 text-[11px]">
                             <div className="flex gap-2">
-                              <span className="text-muted-foreground">目标:</span>
+                              <span className="text-muted-foreground">{t('quality.target')}:</span>
                               <span className="font-mono text-foreground/80 break-all">{item.target}</span>
                             </div>
                             <div className="flex gap-2">
-                              <span className="text-muted-foreground">类型:</span>
+                              <span className="text-muted-foreground">{t('quality.type')}:</span>
                               <span className="text-foreground/80">{item.type}</span>
                             </div>
                             {item.udpLatency !== undefined && (
                               <div className="flex gap-2">
                                 <span className="text-muted-foreground">UDP:</span>
-                                <span className="text-foreground/80">{item.udpLatency >= 0 ? `${item.udpLatency}ms` : '超时'}</span>
+                                <span className="text-foreground/80">{item.udpLatency >= 0 ? `${item.udpLatency}ms` : t('quality.timeout')}</span>
                               </div>
                             )}
                             {item.tcpLatency !== undefined && (item.type === 'dns' || item.udpLatency !== undefined) && (
                               <div className="flex gap-2">
                                 <span className="text-muted-foreground">TCP:</span>
-                                <span className="text-foreground/80">{item.tcpLatency >= 0 ? `${item.tcpLatency}ms` : '超时'}</span>
+                                <span className="text-foreground/80">{item.tcpLatency >= 0 ? `${item.tcpLatency}ms` : t('quality.timeout')}</span>
                               </div>
                             )}
                             {item.udpLatency !== undefined && item.udpLatency >= 0 && item.tcpLatency !== undefined && item.tcpLatency >= 0 && item.udpLatency > item.tcpLatency * 3 && (
-                              <div className="text-amber-600 mt-1">⚠ UDP延迟远高于TCP，可能被QoS限速，建议启用DoH</div>
+                              <div className="text-amber-600 mt-1">⚠ {t('quality.udpHighLatencyWarning')}</div>
                             )}
 
 
@@ -420,7 +434,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                         </TooltipContent>
                       ) : (
                         <TooltipContent side="top">
-                          <p className="text-[11px] text-muted-foreground">尚未检测</p>
+                          <p className="text-[11px] text-muted-foreground">{t('quality.notYetTested')}</p>
                         </TooltipContent>
                       )}
                     </Tooltip>
@@ -434,7 +448,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
               <div className="flex items-center gap-1.5 pt-2">
                 <Clock className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[11px] text-muted-foreground">
-                  检测时间: {new Date(networkQuality.timestamp).toLocaleTimeString('zh-CN')}
+                  {t('quality.detectionTime')}: {new Date(networkQuality.timestamp).toLocaleTimeString('zh-CN')}
                 </span>
               </div>
             )}

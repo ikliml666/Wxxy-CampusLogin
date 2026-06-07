@@ -93,6 +93,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     const ripple = useRipple()
 
+    // RAF 节流 + 位置去抖用 ref
+    const rafRef = React.useRef<number>(0)
+    const lastPosRef = React.useRef<{ x: number; y: number }>({ x: -999, y: -999 })
+
     return (
       <button
         className={cn(buttonVariants({ variant, size, className }), 'btn-press')}
@@ -104,11 +108,26 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={props.disabled || isLoading}
         onMouseDown={ripple.createRipple}
         onMouseMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect()
-          const x = ((e.clientX - rect.left) / rect.width) * 100
-          const y = ((e.clientY - rect.top) / rect.height) * 100
-          e.currentTarget.style.setProperty('--mouse-x', `${x}%`)
-          e.currentTarget.style.setProperty('--mouse-y', `${y}%`)
+          const currentX = e.clientX
+          const currentY = e.clientY
+          const last = lastPosRef.current
+
+          // 位置去抖：位移小于3px则跳过
+          if (Math.abs(currentX - last.x) < 3 && Math.abs(currentY - last.y) < 3) return
+
+          // 更新上次位置（像素坐标）
+          lastPosRef.current = { x: currentX, y: currentY }
+
+          // RAF 节流：同一帧内只执行一次 DOM 读写
+          if (rafRef.current) cancelAnimationFrame(rafRef.current)
+          rafRef.current = requestAnimationFrame(() => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const px = ((currentX - rect.left) / rect.width) * 100
+            const py = ((currentY - rect.top) / rect.height) * 100
+            e.currentTarget.style.setProperty('--mouse-x', `${px}%`)
+            e.currentTarget.style.setProperty('--mouse-y', `${py}%`)
+            rafRef.current = 0
+          })
         }}
         {...motionProps}
       >

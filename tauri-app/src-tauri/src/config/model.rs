@@ -62,6 +62,8 @@ pub struct Config {
     pub campus_gateway: String,
     #[serde(rename = "campusExitOnFail", default = "default_true")]
     pub campus_exit_on_fail: bool,
+    #[serde(rename = "logRetentionDays", default)]
+    pub log_retention_days: u32,
 }
 
 fn deserialize_non_empty_or<'de, D>(deserializer: D, default_fn: fn() -> String) -> Result<String, D::Error>
@@ -138,6 +140,7 @@ impl Default for Config {
             enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
             campus_exit_on_fail: true,
+            log_retention_days: 7,
         }
     }
 }

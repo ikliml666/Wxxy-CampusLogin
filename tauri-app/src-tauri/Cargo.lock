@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login"
-version = "2.2.2"
+version = "2.2.3"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
