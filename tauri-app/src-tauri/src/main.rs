@@ -373,6 +373,8 @@ fn run_app(core_count: usize) {
             commands::system::get_init_data,
             commands::system::render_heartbeat,
             commands::system::get_gpu_info,
+            commands::system::set_log_retention_days,
+            commands::system::get_log_retention_days,
             commands::updater::check_update,
     commands::updater::download_update,
     commands::updater::install_update,

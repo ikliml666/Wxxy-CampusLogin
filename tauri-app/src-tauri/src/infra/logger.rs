@@ -1,7 +1,8 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write as IoWrite};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Sender, TryRecvError};
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 use std::time::Instant;
@@ -11,6 +12,16 @@ const MAX_LOG_SIZE: u64 = 5 * 1024 * 1024;
 const MAX_LOG_FILES: usize = 5;
 const FLUSH_INTERVAL_MS: u64 = 2000;
 const CHANNEL_CAPACITY: usize = 1024;
+
+static LOG_RETENTION_DAYS: AtomicU32 = AtomicU32::new(7);
+
+pub fn set_log_retention_days(days: u32) {
+    LOG_RETENTION_DAYS.store(days, AtomicOrdering::Relaxed);
+}
+
+pub fn get_log_retention_days() -> u32 {
+    LOG_RETENTION_DAYS.load(AtomicOrdering::Relaxed)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
@@ -98,6 +109,8 @@ pub fn init_logger(log_dir: PathBuf) {
 
 fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<LogMessage>) {
     let mut buffer: Vec<LogMessage> = Vec::with_capacity(64);
+    let mut last_cleanup = std::time::Instant::now();
+    const CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3600);
 
     loop {
         match receiver.recv_timeout(std::time::Duration::from_millis(FLUSH_INTERVAL_MS)) {
@@ -114,7 +127,13 @@ fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<Log
                 let _ = state.current_writer.as_mut().map(|w| w.flush());
                 return;
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if last_cleanup.elapsed() >= CLEANUP_INTERVAL {
+                    let retention_days = get_log_retention_days();
+                    cleanup_old_logs_by_time(&state.log_dir, retention_days);
+                    last_cleanup = std::time::Instant::now();
+                }
+            }
         }
 
         drain_channel(&receiver, &mut buffer);
@@ -233,6 +252,25 @@ fn cleanup_old_logs(log_dir: &PathBuf) {
         files.sort_by(|a, b| b.0.cmp(&a.0));
         for (_, path) in files.iter().skip(MAX_LOG_FILES) {
             let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn cleanup_old_logs_by_time(log_dir: &Path, retention_days: u32) {
+    if retention_days == 0 {
+        return; // 永久保留
+    }
+    let cutoff = std::time::SystemTime::now()
+        - std::time::Duration::from_secs(retention_days as u64 * 86400);
+    if let Ok(entries) = fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    if modified < cutoff {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
         }
     }
 }

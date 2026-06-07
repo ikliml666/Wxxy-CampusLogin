@@ -232,3 +232,14 @@ pub fn get_gpu_info() -> Result<serde_json::Value, String> {
     let info = crate::platform::gpu::detect_gpu_info();
     Ok(serde_json::to_value(info).unwrap_or(serde_json::json!({ "gpu": "unknown" })))
 }
+
+#[tauri::command]
+pub fn set_log_retention_days(days: u32) -> Result<(), String> {
+    crate::infra::logger::set_log_retention_days(days);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_log_retention_days() -> u32 {
+    crate::infra::logger::get_log_retention_days()
+}
