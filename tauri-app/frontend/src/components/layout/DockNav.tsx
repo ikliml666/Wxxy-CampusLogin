@@ -469,7 +469,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
       style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
     >
       <nav
-        className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto overflow-x-auto"
+        className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
