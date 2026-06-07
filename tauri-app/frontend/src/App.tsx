@@ -261,7 +261,7 @@ function AppInner() {
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
-          <div className={cn("mx-auto", isMaximized ? "max-w-[960px]" : "max-w-[560px]")}>
+          <div className={cn("mx-auto", isMaximized ? "max-w-[1100px]" : "max-w-[720px]")}>
             <div ref={setRef('title')} className="mb-6 relative z-[1]">
               <h1
                 key={`title-${activePanel}`}
