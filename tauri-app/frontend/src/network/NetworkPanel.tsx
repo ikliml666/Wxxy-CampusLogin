@@ -161,7 +161,13 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
               </div>
             ) : (
               <div className="space-y-2">
-                {adapters.map((a) => (
+                {[...adapters].sort((a, b) => {
+                  if (a.name === config.adapter1) return -1
+                  if (b.name === config.adapter1) return 1
+                  if (a.name === config.adapter2 && config.dualAdapter) return -1
+                  if (b.name === config.adapter2 && config.dualAdapter) return 1
+                  return 0
+                }).map((a) => (
                   <div key={a.name} className={cn(
                       'flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200',
                       a.name === config.adapter1
@@ -201,9 +207,9 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       </Badge>
                       {a.ip && (
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          className="h-7 text-[11px] gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                          className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
                           onClick={() => handleGetNewIpForAdapter(a.name)}
                           disabled={gettingNewIpAdapter === a.name}
                         >
