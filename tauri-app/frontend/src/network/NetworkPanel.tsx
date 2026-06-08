@@ -4,6 +4,7 @@ import { CardContent, CardHeader, CardTitle, CardDescription } from '@/component
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -12,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -34,6 +35,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
   const { t } = useTranslation()
   const disabledAdapters = useAppStore((s) => s.disabledAdapters)
   const [dohEnabling, setDohEnabling] = useState(false)
+  const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const ipc = useIpc()
   const mountedRef = useRef(true)
 
@@ -87,6 +89,41 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
       if (mountedRef.current) setDohEnabling(false)
     }
   }, [ipc])
+
+  const handleGetNewIpForAdapter = useCallback(async (adapterName: string) => {
+    setGettingNewIpAdapter(adapterName)
+    try {
+      const result = await ipc.dhcpReleaseRenewAdapter?.(adapterName)
+      if (result) {
+        const results = 'results' in result && Array.isArray(result.results) ? result.results : [result]
+        const succeeded = results.filter((r: any) => r.success)
+        const skipped = results.filter((r: any) => r.skipped)
+        const failed = results.filter((r: any) => !r.success && !r.skipped)
+        if (succeeded.length > 0) {
+          useAppStore.getState().addToast(`已获取新IP: ${succeeded.map((r: any) => r.name).join(', ')}`, 'success')
+        }
+        if (skipped.length > 0) {
+          useAppStore.getState().addToast(`${skipped.map((r: any) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
+        }
+        if (failed.length > 0) {
+          const failedDetails = failed.map((r: any) => r.reason ? `${r.name}: ${r.reason}` : r.name).join('; ')
+          useAppStore.getState().addToast(`获取新IP失败: ${failedDetails}`, 'error')
+        }
+      }
+    } catch (e) {
+      useAppStore.getState().addToast('获取新IP失败', 'error')
+    } finally {
+      if (mountedRef.current) setGettingNewIpAdapter(null)
+    }
+    try {
+      const [newAdapters, newDetails] = await Promise.all([
+        ipc.getAdapters?.().catch(() => undefined),
+        ipc.getAdapterDetails?.().catch(() => undefined),
+      ])
+      if (newAdapters) useAppStore.setState({ adapters: newAdapters })
+      if (newDetails) useAppStore.setState({ adapterDetails: newDetails })
+    } catch {}
+  }, [ipc, mountedRef])
 
   const getDnsQuality = (adapter: { dnsSource?: string; dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[] }, autoDohEnabled: boolean) => {
     const servers = adapter.dnsServers || []
@@ -154,9 +191,26 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                           {t('network.primary')}
                         </Badge>
                       )}
+                      {a.name === config.adapter2 && config.dualAdapter && (
+                        <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">
+                          {t('network.secondary')}
+                        </Badge>
+                      )}
                       <Badge variant="secondary" size="sm">
                         {a.wireless ? t('network.wireless') : t('network.wired')}
                       </Badge>
+                      {a.ip && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[11px] gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                          onClick={() => handleGetNewIpForAdapter(a.name)}
+                          disabled={gettingNewIpAdapter === a.name}
+                        >
+                          <RefreshCw className={cn('h-3 w-3', gettingNewIpAdapter === a.name && 'animate-spin')} />
+                          {gettingNewIpAdapter === a.name ? t('dashboard.gettingNewIp') : t('network.getNewIp')}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}

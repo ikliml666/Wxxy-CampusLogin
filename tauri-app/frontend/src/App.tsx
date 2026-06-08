@@ -63,7 +63,7 @@ function AppInner() {
 
   const { handleOpenPortal, handleOpenSelfService } = useAuth()
   const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
-  const { handleDhcpRenew, handleDhcpReleaseRenew } = useNetwork()
+  const { handleDhcpRenew, handleDhcpReleaseRenew, handleDhcpReleaseRenewAdapter } = useNetwork()
   const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
 
@@ -157,6 +157,7 @@ function AppInner() {
           onSwitchAccount={handleSwitchAccount}
           onDhcpRenew={handleDhcpRenew}
           onDhcpReleaseRenew={handleDhcpReleaseRenew}
+          onDhcpReleaseRenewAdapter={handleDhcpReleaseRenewAdapter}
           onRefreshQuality={refreshQuality}
         />
       )

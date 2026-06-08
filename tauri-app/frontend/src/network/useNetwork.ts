@@ -65,7 +65,7 @@ export function useNetwork() {
     try {
       const result = await store.api.dhcpReleaseRenewAdapter?.(adapterName)
       if (result) {
-        const results = 'results' in result && Array.isArray(result.results) ? result.results : [result]
+        const results: DhcpResultItem[] = 'results' in result && Array.isArray(result.results) ? result.results : [result as any]
         const succeeded = results.filter((r: DhcpResultItem) => r.success)
         const skipped = results.filter((r: DhcpResultItem) => r.skipped)
         const failed = results.filter((r: DhcpResultItem) => !r.success && !r.skipped)
