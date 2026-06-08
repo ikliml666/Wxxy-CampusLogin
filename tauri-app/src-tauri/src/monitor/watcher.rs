@@ -530,8 +530,14 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             a1_campus.as_deref(), a2_campus.as_deref(),
             a1_on_campus, a2_on_campus,
         );
-        // 校园网验证不通过：触发最小化+退出流程
-        start_campus_exit(app_handle, state);
+        // 如果配置的适配器均无IP（完全无网络），跳过退出，等待网络恢复
+        let no_configured_ip = a1.is_none() && a2.is_none();
+        if no_configured_ip {
+            crate::log_info!("background", "配置的适配器均无IP地址，跳过校园网退出，等待网络恢复");
+        } else {
+            // 校园网验证不通过：触发最小化+退出流程
+            start_campus_exit(app_handle, state);
+        }
         crate::log_debug!("background", "后台检测周期完成(校园网检测未通过), 总耗时{}ms", t_total.elapsed().as_millis());
         return None;
     }
