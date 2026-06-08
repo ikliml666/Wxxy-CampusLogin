@@ -606,7 +606,7 @@ enum PortalCheckResult {
 | `update_network_state()` | 独立网络状态更新逻辑 |
 | `adapter_status_entry()` / `adapter_disabled_entry()` / `adapter_disconnected_entry()` | 适配器状态条目构建 |
 
-**校园网检测集成**: 后台检测中集成三级校园网检测（网络名称→/18子网→网关Ping），检测结果包含 `currentSsid` 和 `onCampusNetwork` 字段
+**校园网检测集成**: 后台检测中集成三级校园网检测（网络名称→/18子网→网关Ping），检测结果包含 `currentSsid` 和 `onCampusNetwork` 字段。**无网络保护**：当配置的适配器均无IP时（完全无网络连接），跳过校园网退出流程，等待网络恢复后重新检测，避免误判"非校园网"触发退出
 
 **量化改进**:
 
@@ -624,7 +624,7 @@ enum PortalCheckResult {
 |------|------|
 | `try_auto_login_on_preparation()` | 准备阶段自动登录 (30秒冷却)，`has_logged_online` 为 true 时跳过 |
 | `try_disconnect_reconnect()` | 断线重连 (最多3次 + 间隔提醒) |
-| `run_auto_login_on_start()` | 启动时自动登录 (1.5s延迟 + Portal预检) |
+| `run_auto_login_on_start()` | 启动时自动登录 (1.5s延迟 + Portal预检 + 无网络保护：配置适配器无IP时跳过校园网退出) |
 
 ### 4.10 自动退出模块 — `commands/auto_exit.rs`
 
@@ -984,4 +984,4 @@ panic = "abort"
 
 ---
 
-*文档版本: v2.2.4 | 基于代码版本: CampusLogin v2.2.4 | 更新日期: 2026-06-07*
+*文档版本: v2.2.4 | 基于代码版本: CampusLogin v2.2.4 | 更新日期: 2026-06-08*
