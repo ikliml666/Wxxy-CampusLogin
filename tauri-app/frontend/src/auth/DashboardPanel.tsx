@@ -10,12 +10,14 @@ import { getRefreshIconClass } from '@/shared'
 import {
   Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, Check, X,
-  Plus, Activity, Settings2
+  Plus, Activity, Settings2,
+  Wifi, Cable
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
-import { Reorder } from 'framer-motion'
+import { Reorder, m, AnimatePresence } from 'framer-motion'
 import { QUALITY_CONFIG } from '@/network'
+import type { Adapter } from '@/network'
 import { LatencyPair } from '@/monitor'
 import { safeStorage } from '@/lib/utils'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
@@ -63,26 +65,63 @@ interface DashboardPanelProps {
   onSwitchAccount: (name: string) => Promise<any>
   onDhcpRenew: () => Promise<void>
   onDhcpReleaseRenew: () => Promise<void>
+  onDhcpReleaseRenewAdapter: (adapterName: string) => Promise<void>
   onRefreshQuality?: () => Promise<void>
   onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
 }
 
-const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcpRenew, onDhcpReleaseRenew, noAnimation, noEnterAnimation }: {
+const QuickActionsCard = memo(function QuickActionsCard({
+  networkQuality,
+  onDhcpRenew,
+  onDhcpReleaseRenew,
+  onDhcpReleaseRenewAdapter,
+  config,
+  adapters,
+  noAnimation,
+  noEnterAnimation,
+}: {
   networkQuality: NetworkQuality | null
-  onDhcpRenew: () => Promise<void>; onDhcpReleaseRenew: () => Promise<void>
-  noAnimation?: boolean; noEnterAnimation?: boolean
+  onDhcpRenew: () => Promise<void>
+  onDhcpReleaseRenew: () => Promise<void>
+  onDhcpReleaseRenewAdapter: (adapterName: string) => Promise<void>
+  config: Config
+  adapters: Adapter[]
+  noAnimation?: boolean
+  noEnterAnimation?: boolean
 }) {
   const { t } = useTranslation()
   const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
   const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })
+  const isDualAdapter = config.dualAdapter && !!config.adapter2
+  const [adapterMenuOpen, setAdapterMenuOpen] = useState(false)
+  const menuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [isDhcpRenewing, handleDhcpRenew] = useAsyncLock(async () => {
     await onDhcpRenew()
   }, 5000)
 
-  const [isGettingNewIp, handleGetNewIp] = useAsyncLock(async () => {
+  const [isGettingNewIpAll, handleGetNewIp] = useAsyncLock(async () => {
     await onDhcpReleaseRenew()
   }, 0)
+
+  const [isGettingNewIpForAdapter, handleGetNewIpForAdapter] = useAsyncLock(async (adapterName: string) => {
+    await onDhcpReleaseRenewAdapter(adapterName)
+  }, 0)
+
+  const isGettingNewIp = isGettingNewIpAll || isGettingNewIpForAdapter
+
+  const handleMenuOpen = useCallback(() => {
+    if (menuCloseTimerRef.current) clearTimeout(menuCloseTimerRef.current)
+    setAdapterMenuOpen(true)
+  }, [])
+
+  const handleMenuClose = useCallback(() => {
+    menuCloseTimerRef.current = setTimeout(() => setAdapterMenuOpen(false), 200)
+  }, [])
+
+  // Find the primary adapter's wireless status for icon
+  const primaryAdapter = adapters.find(a => a.name === config.adapter1)
+  const secondaryAdapter = adapters.find(a => a.name === config.adapter2)
 
   return (
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(isPoorQuality && 'relative overflow-visible')}>
@@ -115,15 +154,76 @@ const QuickActionsCard = memo(function QuickActionsCard({ networkQuality, onDhcp
               <div className="text-[11px] text-muted-foreground">{isDhcpRenewing ? t('dashboard.dhcpRenewing') : t('dashboard.dhcpRenewDesc')}</div>
             </div>
           </Button>
-          <Button variant="outline" className="h-auto py-3 justify-start gap-3" onClick={handleGetNewIp} disabled={isGettingNewIp}>
-            <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
-              <RefreshCw className={cn('h-4 w-4 text-amber-500', isGettingNewIp && 'animate-spin')} />
-            </div>
-            <div className="text-left">
-              <div className="text-sm font-medium">{t('dashboard.getNewIp')}</div>
-              <div className="text-[11px] text-muted-foreground">{isGettingNewIp ? t('dashboard.gettingNewIp') : t('dashboard.getNewIpDesc')}</div>
-            </div>
-          </Button>
+          <div className="relative">
+            <Button variant="outline" className="h-auto py-3 justify-start gap-3 w-full"
+              onClick={isDualAdapter ? undefined : handleGetNewIp}
+              disabled={isGettingNewIp}
+              {...(isDualAdapter ? {
+                onMouseEnter: handleMenuOpen,
+                onMouseLeave: handleMenuClose,
+              } : {})}
+            >
+              <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+                <RefreshCw className={cn('h-4 w-4 text-amber-500', isGettingNewIp && 'animate-spin')} />
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-medium">{t('dashboard.getNewIpPrimary')}</div>
+                <div className="text-[11px] text-muted-foreground">{isGettingNewIp ? t('dashboard.gettingNewIp') : t('dashboard.getNewIpDesc')}</div>
+              </div>
+            </Button>
+            <AnimatePresence>
+              {adapterMenuOpen && isDualAdapter && (
+                <m.div
+                  initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.97, y: 2 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute top-full left-0 mt-1 min-w-[200px] py-2 px-1.5 rounded-2xl z-[60]"
+                  style={{
+                    background: 'hsl(var(--card) / 0.95)',
+                    boxShadow: '0 8px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
+                    border: '1px solid hsl(var(--border) / 0.5)',
+                  }}
+                  onMouseEnter={() => {
+                    if (menuCloseTimerRef.current) clearTimeout(menuCloseTimerRef.current)
+                  }}
+                  onMouseLeave={handleMenuClose}
+                >
+                  <div className="px-3 py-1.5">
+                    <span className="text-[11px] font-medium text-muted-foreground">{t('dashboard.selectAdapterForNewIp')}</span>
+                  </div>
+                  {config.adapter1 && (
+                    <button
+                      onClick={() => { setAdapterMenuOpen(false); handleGetNewIpForAdapter(config.adapter1) }}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium hover:bg-muted/60 rounded-xl transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        {primaryAdapter?.wireless ? <Wifi className="h-3.5 w-3.5 text-primary" /> : <Cable className="h-3.5 w-3.5 text-primary" />}
+                      </div>
+                      <div className="flex flex-col items-start">
+                        <span className="truncate">{config.adapter1}</span>
+                        <span className="text-[10px] text-muted-foreground">{t('network.primary')}</span>
+                      </div>
+                    </button>
+                  )}
+                  {config.adapter2 && (
+                    <button
+                      onClick={() => { setAdapterMenuOpen(false); handleGetNewIpForAdapter(config.adapter2) }}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium hover:bg-muted/60 rounded-xl transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                        {secondaryAdapter?.wireless ? <Wifi className="h-3.5 w-3.5 text-amber-500" /> : <Cable className="h-3.5 w-3.5 text-amber-500" />}
+                      </div>
+                      <div className="flex flex-col items-start">
+                        <span className="truncate">{config.adapter2}</span>
+                        <span className="text-[10px] text-muted-foreground">{t('network.secondary')}</span>
+                      </div>
+                    </button>
+                  )}
+                </m.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </CardContent>
     </AnimatedCard>
@@ -240,12 +340,21 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   )
 })
 
-function renderCard(id: CardId, props: DashboardPanelProps, _bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, isRefreshingQuality: boolean, editing: boolean) {
+function renderCard(id: CardId, props: DashboardPanelProps, _bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, isRefreshingQuality: boolean, editing: boolean, adapters: Adapter[]) {
   const noAnim = editing
   const noEnter = !editing
   switch (id) {
     case 'quickActions':
-      return <QuickActionsCard networkQuality={networkQuality} onDhcpRenew={props.onDhcpRenew} onDhcpReleaseRenew={props.onDhcpReleaseRenew} noAnimation={noAnim} noEnterAnimation={noEnter} />
+      return <QuickActionsCard
+        networkQuality={networkQuality}
+        onDhcpRenew={props.onDhcpRenew}
+        onDhcpReleaseRenew={props.onDhcpReleaseRenew}
+        onDhcpReleaseRenewAdapter={props.onDhcpReleaseRenewAdapter}
+        config={props.config}
+        adapters={adapters}
+        noAnimation={noAnim}
+        noEnterAnimation={noEnter}
+      />
     case 'accountManage':
       return <AccountManageCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'networkQuality':
@@ -260,6 +369,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
   const bgStatus = useAppStore((s) => s.bgStatus)
   const networkQuality = useAppStore((s) => s.networkQuality)
   const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
+  const adapters = useAppStore((s) => s.adapters)
 
   useEffect(() => { saveLayout(cards) }, [cards])
 
@@ -336,7 +446,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
               className="relative group rounded-2xl cursor-grab active:cursor-grabbing select-none touch-none"
               whileDrag={{ scale: 1.02, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', zIndex: 50 }}
             >
-              {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing)}
+              {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing, adapters)}
               <div className="absolute inset-0 z-[5] rounded-2xl" />
               <div className="absolute -top-1.5 -right-1.5 z-10 flex items-center gap-0.5">
                 <button onClick={() => handleRemoveCard(id)} aria-label={t('common.delete')}
@@ -351,7 +461,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
         <div className="space-y-3">
           {visibleCards.map((id, idx) => (
             <div key={id} className="card-enter relative group" style={{ '--stagger-i': idx } as React.CSSProperties}>
-              {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing)}
+              {renderCard(id, props, bgStatus, networkQuality, isRefreshingQuality, editing, adapters)}
             </div>
           ))}
         </div>

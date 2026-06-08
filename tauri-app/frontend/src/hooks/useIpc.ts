@@ -55,6 +55,7 @@ interface TauriApi {
   getBackgroundStatus: () => Promise<BackgroundStatus>
   dhcpRenewAll: () => Promise<DhcpRenewResult>
   dhcpReleaseRenew: () => Promise<DhcpReleaseRenewResult>
+  dhcpReleaseRenewAdapter: (adapterName: string) => Promise<DhcpReleaseRenewResult>
   checkNetworkQuality: () => Promise<NetworkQuality>
   onNetworkQualityResult: (cb: (data: NetworkQuality) => void) => () => void
   startLatencyTest: () => Promise<CommandResult>
@@ -154,6 +155,7 @@ const tauriApi: TauriApi = {
   getBackgroundStatus: () => invoke<BackgroundStatus>('get_background_status'),
   dhcpRenewAll: () => invoke<DhcpRenewResult>('dhcp_renew_all'),
   dhcpReleaseRenew: () => invoke<DhcpReleaseRenewResult>('dhcp_release_renew'),
+  dhcpReleaseRenewAdapter: (adapterName) => invoke<DhcpReleaseRenewResult>('dhcp_release_renew_adapter', { adapterName }),
   checkNetworkQuality: () => invoke<NetworkQuality>('check_network_quality'),
   onNetworkQualityResult: createEventListener<NetworkQuality>('network-quality-result'),
   startLatencyTest: () => invoke<CommandResult>('start_latency_test'),

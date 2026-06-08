@@ -1,6 +1,6 @@
 # CampusLogin 校园网登录助手 — Code Wiki
 
-> **版本**: v2.2.3 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
+> **版本**: v2.2.4 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64)
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
 
@@ -164,7 +164,7 @@ Wxxy-CampusLogin/
 └─────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Commands 模块依赖关系 (v2.2.3)
+### 3.2 Commands 模块依赖关系 (v2.2.4)
 
 ```
 // [架构说明] commands 模块间耦合关系
@@ -765,7 +765,7 @@ fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
 
 ## 六、IPC 通信完整清单
 
-### 6.1 请求-响应命令 (v2.2.3: 32个)
+### 6.1 请求-响应命令 (v2.2.4: 32个)
 
 | 命令名 | 说明 |
 |--------|------|
@@ -984,4 +984,4 @@ panic = "abort"
 
 ---
 
-*文档版本: v2.2.3 | 基于代码版本: CampusLogin v2.2.3 | 更新日期: 2026-06-07*
+*文档版本: v2.2.4 | 基于代码版本: CampusLogin v2.2.4 | 更新日期: 2026-06-07*
