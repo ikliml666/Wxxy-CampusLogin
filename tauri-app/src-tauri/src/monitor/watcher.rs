@@ -2,6 +2,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use serde::Serialize;
+use chrono::Timelike;
 use crate::network::{
     Adapter, get_adapters_cached, get_adapters_force,
     check_network_quality_async,
@@ -507,9 +508,25 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
         None
     };
 
-    let campus_result = check_campus_network(&config, &adapters);
+    let campus_result = if config.campus_check_start_minutes > 0 && (chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16) < config.campus_check_start_minutes {
+        let hour = config.campus_check_start_minutes / 60;
+        let minute = config.campus_check_start_minutes % 60;
+        crate::log_info!("background", "校园网检测静默期（当前时间早于{}:{:02}），跳过校园网环境验证", hour, minute);
+        cancel_campus_exit(state);
+        CampusCheckResult {
+            wifi: None,
+            wired: None,
+            on_campus: true,
+            current_ssid: None,
+            message: format!("校园网检测静默期（早于{}:{:02}），跳过验证", hour, minute),
+        }
+    } else {
+        check_campus_network(&config, &adapters)
+    };
     state.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid.clone()));
-    state.network.on_campus_network.store(campus_result.on_campus, Ordering::Release);
+    if config.campus_check_start_minutes == 0 || (chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16) >= config.campus_check_start_minutes {
+        state.network.on_campus_network.store(campus_result.on_campus, Ordering::Release);
+    }
 
     if config.enable_network_name_check && !campus_result.on_campus {
         crate::log_debug!("background", "校园网检测未通过: {}", campus_result.message);

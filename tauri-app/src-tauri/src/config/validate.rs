@@ -118,5 +118,11 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if config.log_retention_days > 365 {
         config.log_retention_days = 7;
     }
+    // 兼容旧配置：旧字段 campusCheckStartHour 值为 0-23 的小时值
+    // 如果值 < 24 且不是 0（0 表示禁用，保持不变），视为小时值并转为分钟
+    if config.campus_check_start_minutes > 0 && config.campus_check_start_minutes < 24 {
+        config.campus_check_start_minutes *= 60;
+    }
+    config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
     Ok(config)
 }

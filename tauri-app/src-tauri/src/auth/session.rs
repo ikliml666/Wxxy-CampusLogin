@@ -4,7 +4,6 @@ use crate::config::model::Config;
 use crate::network::{
     Adapter, get_adapters_cached,
     ensure_ethernet_ip_for_login,
-    select_adapter,
     wait_for_adapter,
 };
 use crate::auth::portal::check_portal_full;
@@ -181,52 +180,43 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
         }
     }
 
-    let (adapter1_ip, adapter1_name) = select_adapter(&adapters, &config);
-    if adapter1_ip.is_empty() {
+    let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+
+    let a1 = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty());
+    if a1.is_none() {
         return CommandResult::err("未找到有效IP地址的适配器");
     }
 
-    let a1 = adapters.iter().find(|a| a.name == adapter1_name);
+    if config.dual_adapter && !adapter2_name.is_empty() && adapter2_name != adapter1_name {
+        let a2 = adapters.iter().find(|a| a.name == adapter2_name && !a.ip.is_empty());
+        if let Some(a2_ref) = a2 {
+            let a1_ref = a1.unwrap();
 
-    if config.dual_adapter {
-        let (_, a2n) = crate::network::resolve_adapter_names(&adapters, &config);
-        if !a2n.is_empty() {
-            let a2 = adapters.iter().find(|a| a.name == a2n && !a.ip.is_empty());
-            if let Some(a2_ref) = a2 {
-                let a1_ref = match a1.or_else(|| adapters.iter().find(|a| a.name == adapter1_name)) {
-                    Some(a) => a,
-                    None => return CommandResult::err("未找到主适配器"),
-                };
+            let r1 = login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref());
 
-                let r1 = login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref());
+            let r2 = login_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref());
 
-                let r2 = login_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref());
+            let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
+            let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);
 
-                let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
-                let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);
+            let a1_msg = r1.and_then(|r| r.message).unwrap_or_default();
+            let a2_msg = r2.and_then(|r| r.message).unwrap_or_default();
 
-                let a1_msg = r1.and_then(|r| r.message).unwrap_or_default();
-                let a2_msg = r2.and_then(|r| r.message).unwrap_or_default();
+            let combined_msg = if !a1_msg.is_empty() && !a2_msg.is_empty() {
+                format!("{}, {}", a1_msg, a2_msg)
+            } else {
+                format!("{}{}", a1_msg, a2_msg)
+            };
 
-                let combined_msg = if !a1_msg.is_empty() && !a2_msg.is_empty() {
-                    format!("{}, {}", a1_msg, a2_msg)
-                } else {
-                    format!("{}{}", a1_msg, a2_msg)
-                };
-
-                return CommandResult {
-                    success: a1_success || a2_success,
-                    message: Some(combined_msg),
-                    data: Some(serde_json::json!({ "code": if a1_success || a2_success { "0" } else { "1" } })),
-                };
-            }
+            return CommandResult {
+                success: a1_success || a2_success,
+                message: Some(combined_msg),
+                data: Some(serde_json::json!({ "code": if a1_success || a2_success { "0" } else { "1" } })),
+            };
         }
     }
 
-    let a1_ref = match a1 {
-        Some(a) if !a.ip.is_empty() => a,
-        _ => return CommandResult::err("未找到有效适配器"),
-    };
+    let a1_ref = a1.unwrap();
 
     login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
         .unwrap_or_else(|| CommandResult::err("登录请求失败"))

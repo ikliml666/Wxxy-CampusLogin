@@ -1,6 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use chrono::Timelike;
 use crate::network::get_adapters_force;
 use crate::auth::portal::check_portal_full;
 use crate::infra::state::{AppState, CommandResult};
@@ -209,46 +210,55 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
         if config.enable_network_name_check {
-            let campus_result = tauri::async_runtime::spawn_blocking({
-                let cfg = config.clone();
-                let adps = adapters.clone();
-                move || crate::monitor::watcher::check_campus_network(&cfg, &adps)
-            }).await.unwrap_or_else(|e| {
-                crate::log_warn!("auto_login", "校园网检测异常: {}", e);
-                crate::monitor::watcher::CampusCheckResult {
-                    wifi: None,
-                    wired: None,
-                    on_campus: false,
-                    current_ssid: None,
-                    message: format!("校园网检测异常: {}", e),
-                }
-            });
+            let skip_campus = config.campus_check_start_minutes > 0 && (chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16) < config.campus_check_start_minutes;
 
-            if !campus_result.on_campus {
-                crate::log_info!("auto_login", "开机自启: 校园网检测未通过，跳过自动登录 - {}", campus_result.message);
+            if skip_campus {
+                let hour = config.campus_check_start_minutes / 60;
+                let minute = config.campus_check_start_minutes % 60;
+                crate::log_info!("auto_login", "开机自启: 校园网检测静默期（当前时间早于{}:{:02}），跳过校园网环境验证", hour, minute);
+                s.network.on_campus_network.store(true, std::sync::atomic::Ordering::Release);
+            } else {
+                let campus_result = tauri::async_runtime::spawn_blocking({
+                    let cfg = config.clone();
+                    let adps = adapters.clone();
+                    move || crate::monitor::watcher::check_campus_network(&cfg, &adps)
+                }).await.unwrap_or_else(|e| {
+                    crate::log_warn!("auto_login", "校园网检测异常: {}", e);
+                    crate::monitor::watcher::CampusCheckResult {
+                        wifi: None,
+                        wired: None,
+                        on_campus: false,
+                        current_ssid: None,
+                        message: format!("校园网检测异常: {}", e),
+                    }
+                });
+
+                if !campus_result.on_campus {
+                    crate::log_info!("auto_login", "开机自启: 校园网检测未通过，跳过自动登录 - {}", campus_result.message);
+                    s.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid));
+                    s.network.on_campus_network.store(campus_result.on_campus, std::sync::atomic::Ordering::Release);
+                    let _ = app_h.emit("auto-login-result", serde_json::json!({
+                        "success": false,
+                        "message": campus_result.message,
+                        "skipped": true,
+                    }));
+                    // 如果配置的适配器均无IP（完全无网络），跳过退出，等待网络恢复
+                    let a1_has_ip = adapters.iter().any(|a| a.name == adapter1_name && !a.ip.is_empty());
+                    let a2_has_ip = config.dual_adapter && !adapter2_name.is_empty()
+                        && adapters.iter().any(|a| a.name == adapter2_name && !a.ip.is_empty());
+                    if !a1_has_ip && !a2_has_ip {
+                        crate::log_info!("auto_login", "配置的适配器均无IP地址，跳过校园网退出，等待网络恢复");
+                    } else {
+                        // 校园网验证不通过：触发最小化+退出流程
+                        start_campus_exit(&app_h, &s);
+                    }
+                    return;
+                }
+
                 s.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid));
-                s.network.on_campus_network.store(campus_result.on_campus, std::sync::atomic::Ordering::Release);
-                let _ = app_h.emit("auto-login-result", serde_json::json!({
-                    "success": false,
-                    "message": campus_result.message,
-                    "skipped": true,
-                }));
-                // 如果配置的适配器均无IP（完全无网络），跳过退出，等待网络恢复
-                let a1_has_ip = adapters.iter().any(|a| a.name == adapter1_name && !a.ip.is_empty());
-                let a2_has_ip = config.dual_adapter && !adapter2_name.is_empty()
-                    && adapters.iter().any(|a| a.name == adapter2_name && !a.ip.is_empty());
-                if !a1_has_ip && !a2_has_ip {
-                    crate::log_info!("auto_login", "配置的适配器均无IP地址，跳过校园网退出，等待网络恢复");
-                } else {
-                    // 校园网验证不通过：触发最小化+退出流程
-                    start_campus_exit(&app_h, &s);
-                }
-                return;
+                s.network.on_campus_network.store(true, std::sync::atomic::Ordering::Release);
+                crate::log_info!("auto_login", "开机自启: 校园网检测通过 - {}", campus_result.message);
             }
-
-            s.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid));
-            s.network.on_campus_network.store(true, std::sync::atomic::Ordering::Release);
-            crate::log_info!("auto_login", "开机自启: 校园网检测通过 - {}", campus_result.message);
         }
 
         let user_account = config.user_account_with_operator();

@@ -62,6 +62,8 @@ pub struct Config {
     pub campus_gateway: String,
     #[serde(rename = "campusExitOnFail", default = "default_true")]
     pub campus_exit_on_fail: bool,
+    #[serde(rename = "campusCheckStartMinutes", alias = "campusCheckStartHour", default = "default_campus_check_start_minutes")]
+    pub campus_check_start_minutes: u16,
     #[serde(rename = "logRetentionDays", default)]
     pub log_retention_days: u32,
 }
@@ -93,6 +95,8 @@ where
 }
 
 fn default_true() -> bool { true }
+
+fn default_campus_check_start_minutes() -> u16 { 480 }
 
 pub fn default_portal_url() -> String {
     "http://10.1.99.100".to_string()
@@ -140,6 +144,7 @@ impl Default for Config {
             enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
             campus_exit_on_fail: true,
+            campus_check_start_minutes: 480,
             log_retention_days: 7,
         }
     }

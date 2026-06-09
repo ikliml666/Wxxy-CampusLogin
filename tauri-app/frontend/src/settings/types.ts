@@ -32,6 +32,7 @@ export interface Config {
   enableNetworkNameCheck: boolean
   campusGateway: string
   campusExitOnFail: boolean
+  campusCheckStartMinutes: number
 }
 
 export interface AutoLaunchResult {

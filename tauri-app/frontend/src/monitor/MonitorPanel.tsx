@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, PowerOff } from 'lucide-react'
+import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, PowerOff, AlarmClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared'
 import React, { memo, useMemo } from 'react'
@@ -302,6 +302,35 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                       checked={config.campusExitOnFail ?? true}
                       onCheckedChange={checked => onUpdateConfig({ campusExitOnFail: checked })}
                       className="shrink-0"
+                    />
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
+                        <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckStartTime')}</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusCheckStartTimeDesc')}</p>
+                      </div>
+                    </div>
+                    <Input
+                      id="campus-check-start-time"
+                      type="time"
+                      value={(() => {
+                        const m = config.campusCheckStartMinutes ?? 480
+                        const h = Math.floor(m / 60)
+                        const min = m % 60
+                        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+                      })()}
+                      onChange={e => {
+                        const [h, min] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(min)) {
+                          onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                        }
+                      }}
+                      className="w-28 h-7 text-sm font-mono"
                     />
                   </div>
                   <div className="flex items-center gap-2 pt-1">
