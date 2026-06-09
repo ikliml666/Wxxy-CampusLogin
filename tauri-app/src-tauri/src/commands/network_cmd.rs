@@ -421,14 +421,40 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                     let dns_list: Vec<&str> = vec![dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS];
                     let doh_list: Vec<(&str, &str)> = dns_config::DOH_SERVERS.to_vec();
 
-                    match dns_config::set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
-                        Ok(()) => {
-                            crate::log_info!("dns", "Win32 API设置DNS+DoH成功: {}", adapter.name);
-                            api_success.push(adapter.name.clone());
+                    if adapter.wireless {
+                        // WiFi: 先清除适配器级 DNS，再设置配置文件级 DNS
+                        if let Err(e) = dns_config::clear_adapter_dns_via_api(&adapter.guid) {
+                            crate::log_warn!("dns", "清除适配器级DNS失败: {} - {}", adapter.name, e);
                         }
-                        Err(e) => {
-                            crate::log_warn!("dns", "Win32 API设置DNS失败: {} - {}", adapter.name, e);
-                            api_fail.push(format!("{}: {}", adapter.name, e));
+                        match dns_config::set_profile_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
+                            Ok(()) => {
+                                crate::log_info!("dns", "配置文件级DNS+DoH设置成功: {}", adapter.name);
+                                api_success.push(adapter.name.clone());
+                            }
+                            Err(e) => {
+                                crate::log_warn!("dns", "配置文件级DNS设置失败: {} - {}, 降级到适配器级", adapter.name, e);
+                                match dns_config::set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
+                                    Ok(()) => {
+                                        crate::log_info!("dns", "降级适配器级DNS+DoH成功: {}", adapter.name);
+                                        api_success.push(adapter.name.clone());
+                                    }
+                                    Err(e2) => {
+                                        crate::log_warn!("dns", "适配器级DNS也失败: {} - {}", adapter.name, e2);
+                                        api_fail.push(format!("{}: {}", adapter.name, e2));
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        match dns_config::set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
+                            Ok(()) => {
+                                crate::log_info!("dns", "Win32 API设置DNS+DoH成功: {}", adapter.name);
+                                api_success.push(adapter.name.clone());
+                            }
+                            Err(e) => {
+                                crate::log_warn!("dns", "Win32 API设置DNS失败: {} - {}", adapter.name, e);
+                                api_fail.push(format!("{}: {}", adapter.name, e));
+                            }
                         }
                     }
                 }
@@ -464,10 +490,24 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
             crate::log_info!("dns", "非管理员运行，使用COM ShellExec提权设置DNS+DoH");
             let mut ps_cmds: Vec<String> = Vec::new();
             for adapter in &active {
-                ps_cmds.push(format!(
-                    "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}','{}') -Confirm:$false",
-                    crate::network::adapter::escape_ps_single_quote(&adapter.name), dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
-                ));
+                if adapter.wireless {
+                    // WiFi: 清除适配器级 DNS，设置 ProfileNameServer
+                    ps_cmds.push(format!(
+                        "netsh interface ip set dns name='{}' dhcp",
+                        crate::network::adapter::escape_ps_single_quote(&adapter.name)
+                    ));
+                    if !adapter.guid.is_empty() {
+                        ps_cmds.push(format!(
+                            "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{}' -Name 'ProfileNameServer' -Value '{},{}'",
+                            adapter.guid, dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
+                        ));
+                    }
+                } else {
+                    ps_cmds.push(format!(
+                        "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}','{}') -Confirm:$false",
+                        crate::network::adapter::escape_ps_single_quote(&adapter.name), dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
+                    ));
+                }
             }
             for (ip, template) in dns_config::DOH_SERVERS {
                 ps_cmds.push(format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes", ip, template));
@@ -506,14 +546,25 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
 
             let mut all_cmds = String::new();
             for adapter in &active {
-                all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" static {} primary & ", adapter.name, dns_config::PRIMARY_DNS));
-                all_cmds.push_str(&format!("netsh interface ip add dns name=\"{}\" {} index=2 & ", adapter.name, dns_config::SECONDARY_DNS));
-                if !adapter.guid.is_empty() {
-                    for dns_ip in &[dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS] {
+                if adapter.wireless {
+                    // WiFi: 清除适配器级 DNS，设置 ProfileNameServer
+                    all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" dhcp & ", adapter.name));
+                    if !adapter.guid.is_empty() {
                         all_cmds.push_str(&format!(
-                            "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\{}\\DohInterfaceSettings\\Doh\\{}\" /v DohFlags /t REG_QWORD /d 1 /f & ",
-                            adapter.guid, dns_ip
+                            "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{}\" /v ProfileNameServer /t REG_SZ /d \"{},{}\" /f & ",
+                            adapter.guid, dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
                         ));
+                    }
+                } else {
+                    all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" static {} primary & ", adapter.name, dns_config::PRIMARY_DNS));
+                    all_cmds.push_str(&format!("netsh interface ip add dns name=\"{}\" {} index=2 & ", adapter.name, dns_config::SECONDARY_DNS));
+                    if !adapter.guid.is_empty() {
+                        for dns_ip in &[dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS] {
+                            all_cmds.push_str(&format!(
+                                "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\{}\\DohInterfaceSettings\\Doh\\{}\" /v DohFlags /t REG_QWORD /d 1 /f & ",
+                                adapter.guid, dns_ip
+                            ));
+                        }
                     }
                 }
             }

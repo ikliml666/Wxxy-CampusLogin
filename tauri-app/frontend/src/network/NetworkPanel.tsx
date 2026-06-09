@@ -125,14 +125,25 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
     } catch {}
   }, [ipc, mountedRef])
 
-  const getDnsQuality = (adapter: { dnsSource?: string; dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[] }, autoDohEnabled: boolean) => {
+  const getDnsQuality = (
+    adapter: {
+      dnsSource?: string;
+      dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
+      profileDnsServers?: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
+      adapterDnsOverridesProfile?: boolean;
+    },
+    autoDohEnabled: boolean
+  ) => {
     const servers = adapter.dnsServers || []
-    if (servers.length === 0 || adapter.dnsSource === 'dhcp') return { level: 'none', label: t('network.dnsNotConfigured') }
-    const hasRecommended = servers.some(s => RECOMMENDED_DNS.has(s.address))
-    const dohActive = autoDohEnabled || servers.filter(s => RECOMMENDED_DNS.has(s.address)).every(s => s.dohEnabled)
-    if (hasRecommended && dohActive) return { level: 'excellent', label: t('network.dnsRecommendedWithDoh') }
-    if (hasRecommended) return { level: 'good', label: t('network.dnsRecommendedNoDoh') }
-    return { level: 'basic', label: t('network.dnsNotRecommendedShort') }
+    const profileServers = adapter.profileDnsServers || []
+    const effectiveServers = adapter.adapterDnsOverridesProfile ? servers : (servers.length > 0 ? servers : profileServers)
+
+    if (effectiveServers.length === 0 || adapter.dnsSource === 'dhcp') return { level: 'none' as const, label: t('network.dnsNotConfigured') }
+    const hasRecommended = effectiveServers.some(s => RECOMMENDED_DNS.has(s.address))
+    const dohActive = autoDohEnabled || effectiveServers.filter(s => RECOMMENDED_DNS.has(s.address)).every(s => s.dohEnabled)
+    if (hasRecommended && dohActive) return { level: 'excellent' as const, label: t('network.dnsRecommendedWithDoh') }
+    if (hasRecommended) return { level: 'good' as const, label: t('network.dnsRecommendedNoDoh') }
+    return { level: 'basic' as const, label: t('network.dnsNotRecommendedShort') }
   }
 
   return (
@@ -398,6 +409,12 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                           {quality.level === 'good' && <Badge variant="outline" size="sm" className="border-blue-500/30 text-blue-600">DNS</Badge>}
                           {quality.level === 'basic' && <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">{t('network.pendingOptimization')}</Badge>}
                           {quality.level === 'none' && <Badge variant="outline" size="sm" className="border-red-500/30 text-red-600">{t('network.notConfigured')}</Badge>}
+                          {adapter.dnsSource === 'profile' && (
+                            <Badge variant="outline" size="sm" className="border-purple-500/30 text-purple-600">{t('network.perProfileDns')}</Badge>
+                          )}
+                          {adapter.dnsSource === 'manual' && (
+                            <Badge variant="outline" size="sm" className="border-blue-500/30 text-blue-600">{t('network.perAdapterDns')}</Badge>
+                          )}
                         </div>
                       </div>
                       <div className="space-y-1">
@@ -428,6 +445,38 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                         ))}
                         {adapter.dnsServers.length === 0 && (
                           <p className="text-xs text-muted-foreground/60">{t('network.noDnsServers')}</p>
+                        )}
+                        {/* 适配器级 DNS 覆盖配置文件级 DNS 警告 */}
+                        {adapter.adapterDnsOverridesProfile && adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
+                          <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                            <span className="text-xs text-amber-600">{t('network.adapterDnsOverridesProfileTip')}</span>
+                          </div>
+                        )}
+                        {/* 配置文件级 DNS */}
+                        {adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
+                          <div className="space-y-1 mt-1 pt-1 border-t border-border/30">
+                            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">{t('network.profileDns')}</span>
+                            {adapter.profileDnsServers.map((dns) => (
+                              <div key={dns.address} className="flex items-center gap-2 text-xs">
+                                <span className={cn("font-mono", RECOMMENDED_DNS.has(dns.address) ? "text-green-600" : "text-muted-foreground")}>
+                                  {dns.address}
+                                </span>
+                                {RECOMMENDED_DNS.has(dns.address) && (
+                                  <span className="text-muted-foreground/60">
+                                    {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
+                                  </span>
+                                )}
+                                {dns.dohEnabled ? (
+                                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                ) : dns.dohAvailable ? (
+                                  <XCircle className="h-3 w-3 text-amber-400" />
+                                ) : (
+                                  <XCircle className="h-3 w-3 text-muted-foreground/30" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>
