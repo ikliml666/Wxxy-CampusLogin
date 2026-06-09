@@ -166,7 +166,13 @@
     "noDnsServers": "No DNS servers configured (using DHCP auto)",
     "dohNotSupported": "DoH configuration not supported on this system (requires Windows 11 or Windows Server 2022+). You can still set recommended DNS servers",
     "pendingOptimization": "Needs Optimization",
-    "notConfigured": "Not Configured"
+    "notConfigured": "Not Configured",
+    "profileDns": "Profile DNS",
+    "adapterDns": "Adapter DNS",
+    "adapterDnsOverridesProfile": "Adapter-level DNS overrides Profile-level DNS",
+    "adapterDnsOverridesProfileTip": "Adapter-level DNS has higher priority, profile-level DNS won't take effect. Consider clearing adapter-level DNS.",
+    "perProfileDns": "Per-Profile",
+    "perAdapterDns": "Per-Adapter"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",
@@ -208,7 +214,9 @@
     "ssidNotObtained": "Network Name Not Obtained",
     "connectedToCampus": "Connected to Campus Network",
     "notCampusNetwork": "Non-campus Network",
-    "primary": "Pri"
+    "primary": "Pri",
+    "campusCheckStartTime": "Campus Check Start Time",
+    "campusCheckStartTimeDesc": "No campus detection before this time to avoid off-campus triggers"
   },
   "quality": {
     "networkQuality": "Network Quality",

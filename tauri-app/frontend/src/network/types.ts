@@ -33,7 +33,10 @@ interface DnsServerInfo {
 
 export interface DnsAdapterInfo {
   name: string
+  dnsSource: string
   dnsServers: DnsServerInfo[]
+  profileDnsServers: DnsServerInfo[]
+  adapterDnsOverridesProfile: boolean
 }
 
 export interface DnsDohStatus {

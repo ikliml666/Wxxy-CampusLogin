@@ -34,6 +34,7 @@ export const DEFAULT_CONFIG: Config = {
   enableNetworkNameCheck: true,
   campusGateway: '10.2.127.254',
   campusExitOnFail: true,
+  campusCheckStartMinutes: 480,
 }
 
 export const ISP_OPTIONS = [

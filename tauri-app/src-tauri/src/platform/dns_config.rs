@@ -110,6 +110,131 @@ pub fn set_doh_via_api(
     set_dns_inner(adapter_guid, dns_servers, doh_templates, true, "DoH")
 }
 
+/// 设置按配置文件（per-profile）的 DNS + DoH
+/// 仅对当前 WiFi 配置文件生效，切换 WiFi 后自动切换 DNS
+#[cfg(target_os = "windows")]
+pub fn set_profile_dns_via_api(
+    adapter_guid: &str,
+    dns_servers: &[&str],
+    doh_templates: &[(&str, &str)],
+) -> Result<(), String> {
+    use windows::Win32::NetworkManagement::IpHelper::*;
+    use windows::core::PWSTR;
+
+    const DNS_SETTING_PROFILE_NAMESERVER: u64 = 0x0200;
+    const DNS_SETTING_DOH_PROFILE: u64 = 0x2000;
+
+    let guid = crate::platform::elevation::parse_guid(adapter_guid)?;
+
+    let ns_str: String = dns_servers.join(",");
+    let mut ns_wide: Vec<u16> = ns_str.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
+    let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
+    let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
+
+    for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
+        let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
+        doh_templates_wide.push(tpl_wide);
+
+        let doh_setting = DNS_DOH_SERVER_SETTINGS {
+            Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
+            Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
+        };
+        doh_settings.push(doh_setting);
+
+        let prop = DNS_SERVER_PROPERTY {
+            Version: DNS_SERVER_PROPERTY_VERSION1,
+            ServerIndex: idx as u32,
+            Type: DNS_SERVER_PROPERTY_TYPE(DNS_PROPERTY_TYPE_DOH),
+            Property: DNS_SERVER_PROPERTY_TYPES {
+                DohSettings: &mut doh_settings[idx],
+            },
+        };
+        doh_props.push(prop);
+    }
+
+    let flags = if !doh_props.is_empty() {
+        (DNS_SETTING_PROFILE_NAMESERVER | DNS_SETTING_DOH_PROFILE) as u64
+    } else {
+        DNS_SETTING_PROFILE_NAMESERVER as u64
+    };
+
+    let settings = DNS_INTERFACE_SETTINGS3 {
+        Version: DNS_INTERFACE_SETTINGS_VERSION3,
+        Flags: flags,
+        Domain: PWSTR::null(),
+        NameServer: PWSTR::null(),
+        SearchList: PWSTR::null(),
+        RegistrationEnabled: 0,
+        RegisterAdapterName: 0,
+        EnableLLMNR: 0,
+        QueryAdapterName: 0,
+        ProfileNameServer: PWSTR(ns_wide.as_mut_ptr()),
+        DisableUnconstrainedQueries: 0,
+        SupplementalSearchList: PWSTR::null(),
+        cServerProperties: doh_props.len() as u32,
+        ServerProperties: doh_props.as_mut_ptr(),
+        cProfileServerProperties: 0,
+        ProfileServerProperties: std::ptr::null_mut(),
+    };
+
+    unsafe {
+        let result = SetInterfaceDnsSettings(
+            guid,
+            &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
+        );
+        if result != windows::Win32::Foundation::WIN32_ERROR(0) {
+            return Err(format!("SetInterfaceDnsSettings(ProfileDNS) 失败: 错误码 {}", result.0));
+        }
+    }
+
+    Ok(())
+}
+
+/// 清除适配器级 DNS 设置（NameServer），使配置文件级 DNS 生效
+#[cfg(target_os = "windows")]
+pub fn clear_adapter_dns_via_api(adapter_guid: &str) -> Result<(), String> {
+    use windows::Win32::NetworkManagement::IpHelper::*;
+    use windows::core::PWSTR;
+
+    let guid = crate::platform::elevation::parse_guid(adapter_guid)?;
+
+    // 设置 NameServer 为空字符串，清除适配器级 DNS
+    let mut empty_ns: Vec<u16> = [0u16].to_vec();
+
+    let settings = DNS_INTERFACE_SETTINGS3 {
+        Version: DNS_INTERFACE_SETTINGS_VERSION3,
+        Flags: DNS_SETTING_NAMESERVER as u64,
+        Domain: PWSTR::null(),
+        NameServer: PWSTR(empty_ns.as_mut_ptr()),
+        SearchList: PWSTR::null(),
+        RegistrationEnabled: 0,
+        RegisterAdapterName: 0,
+        EnableLLMNR: 0,
+        QueryAdapterName: 0,
+        ProfileNameServer: PWSTR::null(),
+        DisableUnconstrainedQueries: 0,
+        SupplementalSearchList: PWSTR::null(),
+        cServerProperties: 0,
+        ServerProperties: std::ptr::null_mut(),
+        cProfileServerProperties: 0,
+        ProfileServerProperties: std::ptr::null_mut(),
+    };
+
+    unsafe {
+        let result = SetInterfaceDnsSettings(
+            guid,
+            &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
+        );
+        if result != windows::Win32::Foundation::WIN32_ERROR(0) {
+            return Err(format!("清除适配器级DNS失败: 错误码 {}", result.0));
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
     use winreg::enums::*;
@@ -250,7 +375,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 
     let mut adapters_result: Vec<serde_json::Value> = Vec::new();
     let mut all_dns_ips: Vec<String> = Vec::new();
-    let mut adapter_dns_raw: Vec<(String, String, Vec<String>)> = Vec::new();
+    let mut adapter_dns_raw: Vec<(String, String, Vec<String>, Option<Vec<String>>)> = Vec::new();
 
     for guid_entry in net_key.enum_keys().flatten() {
         let conn_path = format!(r"{}\Connection", guid_entry);
@@ -271,9 +396,12 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
             if let Ok(iface_key) = tcpip_key.open_subkey(&guid_entry) {
                 let ns: String = iface_key.get_value("NameServer").unwrap_or_default();
                 let dhcp_ns: String = iface_key.get_value("DhcpNameServer").unwrap_or_default();
+                let profile_ns: String = iface_key.get_value("ProfileNameServer").unwrap_or_default();
 
                 let (source, raw) = if !ns.is_empty() {
                     ("manual", ns)
+                } else if !profile_ns.is_empty() {
+                    ("profile", profile_ns.clone())
                 } else if !dhcp_ns.is_empty() {
                     ("dhcp", dhcp_ns)
                 } else {
@@ -291,7 +419,13 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
                     }
                 }
 
-                adapter_dns_raw.push((name, source.to_string(), addrs));
+                let profile_addrs = if !profile_ns.is_empty() && source != "profile" {
+                    let parsed = parse_dns_list(&profile_ns);
+                    if parsed.is_empty() { None } else { Some(parsed) }
+                } else {
+                    None
+                };
+                adapter_dns_raw.push((name, source.to_string(), addrs, profile_addrs));
             }
         }
     }
@@ -299,7 +433,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
     let doh_map = check_doh_for_ips(&all_dns_ips, &hklm);
     let any_doh_enabled = doh_map.values().any(|(_, enabled, _)| *enabled);
 
-    for (name, source, addrs) in adapter_dns_raw {
+    for (name, source, addrs, profile_addrs) in adapter_dns_raw {
         let mut dns_list: Vec<serde_json::Value> = Vec::new();
         for dns in &addrs {
             let (doh_available, doh_enabled, doh_template) = doh_map.get(dns)
@@ -313,10 +447,28 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
             }));
         }
 
+        let profile_dns_list: Vec<serde_json::Value> = if let Some(ref p_addrs) = profile_addrs {
+            p_addrs.iter().map(|dns| {
+                let (doh_available, doh_enabled, doh_template) = doh_map.get(dns)
+                    .cloned()
+                    .unwrap_or((false, false, String::new()));
+                serde_json::json!({
+                    "address": dns,
+                    "dohAvailable": doh_available,
+                    "dohEnabled": doh_enabled,
+                    "dohTemplate": doh_template,
+                })
+            }).collect()
+        } else {
+            vec![]
+        };
+
         adapters_result.push(serde_json::json!({
             "name": name,
             "dnsSource": source,
             "dnsServers": dns_list,
+            "profileDnsServers": profile_dns_list,
+            "adapterDnsOverridesProfile": source == "manual" && !profile_addrs.is_none(),
         }));
     }
 

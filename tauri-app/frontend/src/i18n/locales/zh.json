@@ -166,7 +166,13 @@
     "noDnsServers": "未配置DNS服务器（使用DHCP自动获取）",
     "dohNotSupported": "当前系统不支持DoH配置（需要Windows 11或Windows Server 2022+），仍可设置推荐DNS服务器",
     "pendingOptimization": "待优化",
-    "notConfigured": "未配置"
+    "notConfigured": "未配置",
+    "profileDns": "配置文件DNS",
+    "adapterDns": "适配器DNS",
+    "adapterDnsOverridesProfile": "适配器级DNS已覆盖配置文件级DNS",
+    "adapterDnsOverridesProfileTip": "适配器级DNS优先级更高，配置文件级DNS不会生效。建议清除适配器级DNS。",
+    "perProfileDns": "按配置文件",
+    "perAdapterDns": "按适配器"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",
@@ -208,7 +214,9 @@
     "ssidNotObtained": "未获取网络名",
     "connectedToCampus": "已连接校园网",
     "notCampusNetwork": "非校园网络",
-    "primary": "主"
+    "primary": "主",
+    "campusCheckStartTime": "校园网检测开始时间",
+    "campusCheckStartTimeDesc": "在此时间之前不执行校园网检测，避免非在校时段误触发"
   },
   "quality": {
     "networkQuality": "网络质量",
