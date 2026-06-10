@@ -440,7 +440,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               onScroll={handleScroll}
               role="log"
               aria-label={t('log.systemLog')}
-              className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto max-h-[420px] font-mono text-[12px] leading-relaxed"
+              className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto max-h-[420px] font-mono text-[12px]"
             >
               {displayedLines.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
@@ -466,7 +466,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                           <div
                             key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
                             className={cn(
-                              'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
+                              'log-line relative flex items-start gap-2 px-3 py-2.5 min-h-[38px] border-l-2 cursor-default group',
                               cfg.border,
                               line.level === 'ERROR' && cfg.bg,
                               'hover:bg-muted/40',
@@ -492,7 +492,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                               {line.level}
                             </Badge>
                             <span className="text-primary/60 shrink-0">[{line.module}]</span>
-                            <span className={cn('break-all', cfg.color)}>{line.message}</span>
+                            <span className={cn('break-words leading-snug', cfg.color)}>{line.message}</span>
                           </div>
                         )
                       }
@@ -504,7 +504,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                           animate="animate"
                           exit="exit"
                           className={cn(
-                            'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
+                            'log-line relative flex items-start gap-2 px-3 py-2.5 min-h-[38px] border-l-2 cursor-default group',
                             cfg.border,
                             line.level === 'ERROR' && cfg.bg,
                             'hover:bg-muted/40',
@@ -534,7 +534,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                             {line.level}
                           </Badge>
                           <span className="text-primary/60 shrink-0">[{line.module}]</span>
-                          <span className={cn('break-all', cfg.color)}>{line.message}</span>
+                          <span className={cn('break-words leading-snug', cfg.color)}>{line.message}</span>
                         </m.div>
                     )
                   })}
