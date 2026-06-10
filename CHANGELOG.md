@@ -12,6 +12,7 @@
 ### 修复
 
 - **双适配器模式下 WLAN 被登录/注销两次**：`full_login_inner` / `full_logout_inner` 中 `select_adapter` 与 `resolve_adapter_names` 在以太网无 IP 时返回不一致的适配器名，导致 WLAN 同时作为 adapter1 和 adapter2 被重复操作。现已统一使用 `resolve_adapter_names` 并添加同名去重守卫。
+- **运行日志条目文字重叠**：日志较多时，长消息换行后与下一条日志内容重叠混在一起。现已增加每行最小高度 (`min-h-[38px]`)、加大内边距 (`py-2.5`)、将文本换行策略从 `break-all` 改为 `break-words leading-snug`，确保每条日志有独立的视觉边界。
 
 ### 兼容性
 
