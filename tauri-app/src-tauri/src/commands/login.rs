@@ -206,6 +206,10 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
         s.exit.auto_exit_cancelled.store(true, Ordering::Release);
         s.exit.set_deadline(None);
         s.network.any_adapter_online.store(false, Ordering::Release);
+        s.network.last_a1_online.store(false, Ordering::Release);
+        s.network.last_a2_online.store(false, Ordering::Release);
+        s.network.has_logged_online.store(false, Ordering::Release);
+        s.network.disconnect_reconnect_count.store(0, Ordering::Release);
         s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
         let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
         s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));

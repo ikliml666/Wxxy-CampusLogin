@@ -193,14 +193,25 @@ fn emit_background_check_result(
     let is_running = state.tasks.background_running.is_active();
     let ssid_val = state.network.current_ssid.load();
     let on_campus_val = state.network.on_campus_network.load(Ordering::Acquire);
+
+    // 注销保护期内，强制 online=false，避免 Portal 延迟导致前端误判为在线
+    let protected_until = state.network.logout_protected_until.load();
+    let is_logout_protected = std::time::Instant::now() < **protected_until;
+    let (effective_online, effective_secondary_online) = if is_logout_protected {
+        crate::log_debug!("background", "注销保护期内，emit 事件强制 online=false");
+        (false, Some(false))
+    } else {
+        (online, secondary_online)
+    };
+
     if let Err(e) = app_handle.emit("background-check-result", serde_json::json!({
         "serverAvailable": reachable,
         "loginAvailable": login_available,
-        "online": online,
+        "online": effective_online,
         "message": message,
         "adapter1Name": adapter1_name,
         "adapter2Name": if dual_adapter { adapter2_name } else { "" },
-        "secondaryOnline": secondary_online,
+        "secondaryOnline": effective_secondary_online,
         "secondaryMessage": secondary_message,
         "timestamp": chrono::Utc::now().timestamp_millis(),
         "checkCount": check_count,

@@ -78,6 +78,17 @@ pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandl
         }));
     }
     let state = app_handle.state::<crate::infra::state::AppState>();
+
+    // 注销保护期内，直接返回离线状态，避免 Portal 服务器延迟导致误判为在线
+    let protected_until = state.network.logout_protected_until.load();
+    if std::time::Instant::now() < **protected_until {
+        crate::log_debug!("portal", "注销保护期内，check_portal_status 返回离线");
+        return Ok(serde_json::json!({
+            "online": false,
+            "message": "已注销",
+        }));
+    }
+
     let config = state.config.load_full();
     let user_account = config.user_account_with_operator();
     let user_password = config.password.clone();

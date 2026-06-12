@@ -13,6 +13,10 @@
 
 - **双适配器模式下 WLAN 被登录/注销两次**：`full_login_inner` / `full_logout_inner` 中 `select_adapter` 与 `resolve_adapter_names` 在以太网无 IP 时返回不一致的适配器名，导致 WLAN 同时作为 adapter1 和 adapter2 被重复操作。现已统一使用 `resolve_adapter_names` 并添加同名去重守卫。
 - **运行日志条目文字重叠**：日志较多时，长消息换行后与下一条日志内容重叠混在一起。现已增加每行最小高度 (`min-h-[38px]`)、加大内边距 (`py-2.5`)、将文本换行策略从 `break-all` 改为 `break-words leading-snug`，确保每条日志有独立的视觉边界。
+- **注销后仍显示在线**：注销成功后前端仍显示在线状态（后台连接时间已为0）。根因是注销保护期 (`logout_protected_until`) 只保护了后端 `update_network_state` 的原子变量更新，但未保护 `emit_background_check_result` 事件发送和 `check_portal_status` API，Portal 服务器端状态延迟导致前端误判。三处修复：
+  - 注销后重置 `last_a1_online`/`last_a2_online`/`has_logged_online`/`disconnect_reconnect_count`（此前仅重置 `any_adapter_online`）
+  - `check_portal_status` 命令在注销保护期内直接返回 `{ online: false }`，不再请求 Portal 服务器
+  - `emit_background_check_result` 在注销保护期内强制 `online=false`，避免前端收到 `online: true` 事件
 
 ### 兼容性
 
