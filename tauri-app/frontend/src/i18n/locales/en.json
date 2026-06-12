@@ -393,6 +393,9 @@
     "lines200": "200 lines",
     "lines500": "500 lines",
     "lines1000": "1000 lines",
+    "searchPlaceholder": "Search logs...",
+    "allModules": "All Modules",
+    "noSearchResults": "No matching logs found",
     "retention": {
       "label": "Retention",
       "3days": "3 Days",

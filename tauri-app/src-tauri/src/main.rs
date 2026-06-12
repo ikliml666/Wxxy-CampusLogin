@@ -110,6 +110,7 @@ fn run_app(core_count: usize) {
             });
 
             crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
+            crate::log_info!("app", "应用启动, 版本: v{}", env!("CARGO_PKG_VERSION"));
 
             let state = app.state::<AppState>();
 
@@ -199,6 +200,7 @@ fn run_app(core_count: usize) {
                                 s.tasks.background_running.force_release();
                                 s.tasks.latency_running.force_release();
                                 s.tasks.adapter_watch_running.force_release();
+                                crate::log_info!("app", "应用退出");
                                 app_h.exit(0);
                             });
                         }
@@ -296,6 +298,7 @@ fn run_app(core_count: usize) {
                         s.tasks.background_running.force_release();
                         s.tasks.latency_running.force_release();
                         s.tasks.adapter_watch_running.force_release();
+                        crate::log_info!("app", "应用退出");
                         app_h.exit(0);
                     });
                 }

@@ -73,9 +73,13 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
 
     match result {
         Ok(_) => {
+            crate::log_info!("system", "开机自启已{}", if enabled { "开启" } else { "关闭" });
             Ok(serde_json::json!({ "success": true, "message": if enabled { "已开启开机自启" } else { "已关闭开机自启" } }))
         }
-        Err(e) => Ok(serde_json::json!({ "success": false, "message": format!("设置开机自启失败: {}", e) })),
+        Err(e) => {
+            crate::log_error!("system", "设置开机自启失败: {}", e);
+            Ok(serde_json::json!({ "success": false, "message": format!("设置开机自启失败: {}", e) }))
+        }
     }
 }
 
@@ -92,6 +96,7 @@ pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_h
     if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
         crate::log_warn!("system", "保存通知设置失败: {}", e);
     }
+    crate::log_info!("system", "通知已{}", if enabled { "开启" } else { "关闭" });
     Ok(enabled)
 }
 

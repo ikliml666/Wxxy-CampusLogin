@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 
 #[tauri::command]
 pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    crate::log_info!("updater", "手动检查更新");
     let info = crate::update::updater::check_update_inner().await?;
 
     let state = app_handle.state::<AppState>();
@@ -23,6 +24,7 @@ pub async fn download_update(
     url: String,
     _state: State<'_, AppState>,
 ) -> Result<String, String> {
+    crate::log_info!("updater", "开始下载更新: {}", url);
     if !url.starts_with("https://") {
         return Err("仅允许HTTPS协议下载更新包".to_string());
     }
@@ -156,6 +158,7 @@ pub async fn download_update(
         crate::log_warn!("updater", "发送下载完成进度失败: {}", e);
     }
 
+    crate::log_info!("updater", "更新下载完成: {}", path_str);
     Ok(path_str)
 }
 

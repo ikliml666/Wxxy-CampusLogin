@@ -393,6 +393,9 @@
     "lines200": "200行",
     "lines500": "500行",
     "lines1000": "1000行",
+    "searchPlaceholder": "搜索日志...",
+    "allModules": "全部模块",
+    "noSearchResults": "未找到匹配的日志",
     "retention": {
       "label": "日志保留",
       "3days": "3天",

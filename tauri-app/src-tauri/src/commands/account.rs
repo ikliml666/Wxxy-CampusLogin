@@ -18,6 +18,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
         Ok(n) => n,
         Err(e) => return Ok(AccountResult::err(&e)),
     };
+    let safe_name_log = safe_name.clone();
 
     let app_h = app_handle.clone();
     let account_config = tauri::async_runtime::spawn_blocking(move || {
@@ -43,6 +44,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
     tauri::async_runtime::spawn_blocking(move || super::config_cmd::save_config_to_disk_encrypted(&app_h2, &merged_clone)).await.map_err(|e| e.to_string())??;
 
     state.config.store(Arc::new(merged));
+    crate::log_info!("account", "切换账号: {} (用户: {})", safe_name_log, config.user);
 
     let display_config = state.config.load().masked_for_display();
     Ok(AccountResult::ok(display_config))
@@ -185,6 +187,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
     state.config.store(Arc::new(new_config));
 
     let display_config = state.config.load().masked_for_display();
+    crate::log_info!("account", "保存账号: {}", account_name);
     Ok(AccountResult::ok_with_account(account_name, display_config))
 }
 
@@ -204,6 +207,7 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle, state: 
             return Err("账号不存在".to_string());
         }
         std::fs::remove_file(&account_path).map_err(|e| format!("删除账号失败: {}", e))?;
+        crate::log_info!("account", "删除账号: {}", name);
         Ok(())
     }).await.map_err(|e| e.to_string())??;
 

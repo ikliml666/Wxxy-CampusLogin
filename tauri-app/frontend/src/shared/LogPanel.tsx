@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   Bug,
   ChevronDown,
+  Search,
+  X,
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
@@ -74,7 +76,7 @@ const LINE_OPTIONS = [
   { value: 1000, labelKey: 'log.lines1000' },
 ]
 
-const MAX_DISPLAY_LINES = 50
+const MAX_DISPLAY_LINES = 200
 
 export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
   const profile = useAnimationProfile()
@@ -85,6 +87,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [isClearing, setIsClearing] = useState(false)
   const [lineCount, setLineCount] = useState(200)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
+  const [searchText, setSearchText] = useState('')
+  const [filterModule, setFilterModule] = useState<string>('ALL')
   const [showLineSelector, setShowLineSelector] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [retentionDays, setRetentionDays] = useState(7)
@@ -206,12 +210,36 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     [rawLogs]
   )
 
-  const filteredLines = useMemo(() =>
-    filterLevel === 'ALL'
-      ? parsedLines
-      : parsedLines.filter(line => line.level === filterLevel),
-    [parsedLines, filterLevel]
-  )
+  const availableModules = useMemo(() => {
+    const modules = new Set(parsedLines.map(line => line.module))
+    return Array.from(modules).sort()
+  }, [parsedLines])
+
+  const filteredLines = useMemo(() => {
+    let result = parsedLines
+
+    // 级别筛选
+    if (filterLevel !== 'ALL') {
+      result = result.filter(line => line.level === filterLevel)
+    }
+
+    // 模块筛选
+    if (filterModule !== 'ALL') {
+      result = result.filter(line => line.module === filterModule)
+    }
+
+    // 搜索筛选
+    if (searchText.trim()) {
+      const keyword = searchText.trim().toLowerCase()
+      result = result.filter(line =>
+        line.message.toLowerCase().includes(keyword) ||
+        line.module.toLowerCase().includes(keyword) ||
+        line.timestamp.includes(searchText.trim())
+      )
+    }
+
+    return result
+  }, [parsedLines, filterLevel, filterModule, searchText])
 
   const displayedLines = useMemo(() =>
     filteredLines.length > MAX_DISPLAY_LINES
@@ -396,6 +424,37 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder={t('log.searchPlaceholder')}
+                  className="w-full h-7 pl-7 pr-7 text-[11px] rounded-md border border-border bg-background/80 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+                {searchText && (
+                  <button
+                    onClick={() => setSearchText('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              <Select value={filterModule} onValueChange={setFilterModule}>
+                <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">{t('log.allModules')}</SelectItem>
+                  {availableModules.map(mod => (
+                    <SelectItem key={mod} value={mod}>{mod}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <button
                 onClick={() => setFilterLevel('ALL')}
@@ -446,7 +505,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
                   <FileText className="h-8 w-8 mb-2 opacity-30" />
                   <p className="text-xs">
-                    {parsedLines.length === 0 ? t('log.noLogs') : t('log.noFilteredLogs')}
+                    {parsedLines.length === 0 ? t('log.noLogs') : 
+                     searchText.trim() ? t('log.noSearchResults') : t('log.noFilteredLogs')}
                   </p>
                 </div>
               ) : (
@@ -466,7 +526,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                           <div
                             key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
                             className={cn(
-                              'log-line relative flex items-start gap-2 px-3 py-2.5 min-h-[38px] border-l-2 cursor-default group',
+                              'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
                               cfg.border,
                               line.level === 'ERROR' && cfg.bg,
                               'hover:bg-muted/40',
@@ -492,7 +552,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                               {line.level}
                             </Badge>
                             <span className="text-primary/60 shrink-0">[{line.module}]</span>
-                            <span className={cn('break-words leading-snug', cfg.color)}>{line.message}</span>
+                            <span className={cn('break-words leading-normal whitespace-pre-wrap', cfg.color)}>{line.message}</span>
                           </div>
                         )
                       }
@@ -504,7 +564,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                           animate="animate"
                           exit="exit"
                           className={cn(
-                            'log-line relative flex items-start gap-2 px-3 py-2.5 min-h-[38px] border-l-2 cursor-default group',
+                            'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
                             cfg.border,
                             line.level === 'ERROR' && cfg.bg,
                             'hover:bg-muted/40',
@@ -534,7 +594,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                             {line.level}
                           </Badge>
                           <span className="text-primary/60 shrink-0">[{line.module}]</span>
-                          <span className={cn('break-words leading-snug', cfg.color)}>{line.message}</span>
+                          <span className={cn('break-words leading-normal whitespace-pre-wrap', cfg.color)}>{line.message}</span>
                         </m.div>
                     )
                   })}

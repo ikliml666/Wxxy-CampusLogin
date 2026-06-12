@@ -143,13 +143,17 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
             let s = app_h.state::<AppState>();
             let _guard = match s.tasks.is_logging_in.try_acquire() {
                 Some(g) => g,
-                None => return CommandResult::err("登录正在进行中"),
+                None => {
+                    crate::log_warn!("login", "登录被拒绝：已有登录任务在进行");
+                    return CommandResult::err("登录正在进行中");
+                }
             };
             crate::auth::session::full_login_inner(&s, &app_h, adapter.as_deref())
         }).await.map_err(|e| format!("登录任务失败: {}", e))?
     };
 
     if result.success {
+        crate::log_info!("login", "登录成功");
         let app_h_bg = app_handle.clone();
         let config = state.config.load_full();
         let auto_exit = config.auto_exit_after_login;
@@ -177,7 +181,10 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             let s = app_h.state::<AppState>();
             let _guard = match s.tasks.is_logging_out.try_acquire() {
                 Some(g) => g,
-                None => return CommandResult::err("注销正在进行中，请稍后再试"),
+                None => {
+                    crate::log_warn!("logout", "注销被拒绝：已有注销任务在进行");
+                    return CommandResult::err("注销正在进行中，请稍后再试");
+                }
             };
 
             let result = full_logout_inner(&s, &app_h, adapter.as_deref());
@@ -202,6 +209,7 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
     };
 
     if result.success {
+        crate::log_info!("logout", "注销成功，已重置网络状态，60秒注销保护期开始");
         let s = app_handle.state::<AppState>();
         s.exit.auto_exit_cancelled.store(true, Ordering::Release);
         s.exit.set_deadline(None);

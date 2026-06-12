@@ -37,8 +37,11 @@ pub async fn get_disabled_adapters() -> Result<Vec<DisabledAdapter>, String> {
 
 #[tauri::command]
 pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, String> {
+    crate::log_info!("network", "启用适配器: {}", adapter_name);
     crate::network::adapter::validate_adapter_name(&adapter_name)?;
+    let adapter_name_log = adapter_name.clone();
     tauri::async_runtime::spawn_blocking(move || enable_adapter_inner(&adapter_name)).await.map_err(|e| e.to_string())??;
+    crate::log_info!("network", "适配器启用成功: {}", adapter_name_log);
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
 
@@ -106,14 +109,20 @@ pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandl
 
 #[tauri::command]
 pub async fn dhcp_renew_all() -> Result<serde_json::Value, String> {
+    crate::log_info!("network", "开始DHCP续租");
     tauri::async_runtime::spawn_blocking(move || {
-        let results = dhcp_renew_wired_only()?;
+        let results = dhcp_renew_wired_only().map_err(|e| {
+            crate::log_error!("network", "DHCP续租失败: {}", e);
+            e
+        })?;
+        crate::log_info!("network", "DHCP续租完成");
         Ok(serde_json::json!({ "success": true, "results": results }))
     }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    crate::log_info!("network", "开始DHCP续租");
     let campus_gateway = {
         let state = app_handle.state::<AppState>();
         let config = state.config.load();
@@ -121,13 +130,18 @@ pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Val
         if gw.is_empty() { crate::config::model::default_campus_gateway() } else { gw }
     };
     tauri::async_runtime::spawn_blocking(move || {
-        let results = dhcp_release_renew_all(&campus_gateway)?;
+        let results = dhcp_release_renew_all(&campus_gateway).map_err(|e| {
+            crate::log_error!("network", "DHCP续租失败: {}", e);
+            e
+        })?;
+        crate::log_info!("network", "DHCP续租完成");
         Ok(serde_json::json!({ "success": true, "results": results }))
     }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn dhcp_release_renew_adapter(adapter_name: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    crate::log_info!("network", "开始DHCP续租");
     crate::network::adapter::validate_adapter_name(&adapter_name)?;
     let campus_gateway = {
         let state = app_handle.state::<AppState>();
@@ -137,11 +151,15 @@ pub async fn dhcp_release_renew_adapter(adapter_name: String, app_handle: AppHan
     };
     tauri::async_runtime::spawn_blocking(move || {
         dhcp_release_renew_single(&adapter_name, &campus_gateway)
-    }).await.map_err(|e| e.to_string())?
+    }).await.map_err(|e| {
+        crate::log_error!("network", "DHCP续租失败: {}", e);
+        e.to_string()
+    })?
 }
 
 #[tauri::command]
 pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    crate::log_info!("network", "开始网络质量检测");
     let state = app_handle.state::<AppState>();
     if !state.config.load().enable_network_quality {
         return Ok(empty_quality_json_with_quality("disabled"));
@@ -164,6 +182,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     }
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone()).await;
     drop(_guard);
+    crate::log_info!("network", "网络质量检测完成");
     serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {}", e))
 }
 
@@ -194,6 +213,7 @@ pub fn stop_latency_test(state: State<'_, AppState>) -> Result<CommandResult, St
 
 #[tauri::command]
 pub async fn check_dns_doh_status() -> Result<serde_json::Value, String> {
+    crate::log_debug!("dns", "检测DNS/DoH状态");
     tauri::async_runtime::spawn_blocking(|| {
         #[cfg(target_os = "windows")]
         {
@@ -404,6 +424,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
+    crate::log_info!("dns", "开始一键设置DNS+DoH");
     tauri::async_runtime::spawn_blocking(|| {
         #[cfg(not(target_os = "windows"))]
         {

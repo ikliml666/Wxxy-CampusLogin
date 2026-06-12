@@ -86,7 +86,10 @@ pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
 pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Config) -> Result<CommandResult, String> {
     let validated = match validate_config(config) {
         Ok(c) => c,
-        Err(e) => return Ok(CommandResult::err(&format!("配置验证失败: {}", e))),
+        Err(e) => {
+            crate::log_warn!("config", "配置验证失败: {}", e);
+            return Ok(CommandResult::err(&format!("配置验证失败: {}", e)));
+        }
     };
 
     let mut config = validated;
@@ -97,12 +100,14 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
 
     state.config.store(Arc::new(config.clone()));
     save_config_to_disk_encrypted(&app_handle, &config)?;
+    crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
 
     Ok(CommandResult::ok())
 }
 
 #[tauri::command]
 pub fn reset_config(state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
+    crate::log_info!("config", "重置配置为默认值");
     let default_config = Config::default();
     state.config.store(Arc::new(default_config.clone()));
     save_config_to_disk(&app_handle, &default_config)?;
@@ -118,6 +123,7 @@ pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Resu
     }
     let content = std::fs::read_to_string(&config_path)
         .map_err(|e| format!("读取配置文件失败: {}", e))?;
+    crate::log_info!("config", "导出配置成功");
     Ok(CommandResult::ok_data(serde_json::json!({ "content": content })))
 }
 
@@ -146,5 +152,6 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_j
 
     state.config.store(Arc::new(config.clone()));
     save_config_to_disk_encrypted(&app_handle, &config)?;
+    crate::log_info!("config", "导入配置成功, 用户: {}", config.user);
     Ok(CommandResult::ok())
 }
