@@ -273,7 +273,8 @@
   }
 
   .surface-top-square {
-    border-radius: 0 !important;
+    border-top-left-radius: 16px !important;
+    border-top-right-radius: 16px !important;
   }
 
   .surface-side-square {
@@ -289,6 +290,11 @@
   .app-maximized.app-outer-square {
     border-radius: 0 !important;
     box-shadow: none !important;
+  }
+
+  .app-maximized .surface-top-square {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
   }
 
   .app-maximized .surface-side-square {

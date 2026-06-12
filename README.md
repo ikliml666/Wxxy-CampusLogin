@@ -4,7 +4,7 @@
 
 <img alt="screenshot" src="assets/6fc2535cc0c5f709.png" />
 
-![version](https://img.shields.io/badge/version-2.2.4-blue)
+![version](https://img.shields.io/badge/version-2.2.5-blue)
 ![platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
