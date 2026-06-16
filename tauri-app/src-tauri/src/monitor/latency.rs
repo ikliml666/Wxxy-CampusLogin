@@ -88,7 +88,7 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             // 检查冷却时间，防止短时间内重复执行质量检测
             const QUALITY_CHECK_COOLDOWN_SECS: u64 = 15;
             let last_time = s.network.last_quality_check_time.load();
-            if std::time::Instant::now().duration_since(**last_time) < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
+            if std::time::Instant::now().saturating_duration_since(**last_time) < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
                 continue; // 冷却期内跳过本轮
             }
             let (skip_ttfb, skip_content, fixed_gateway) = {

@@ -157,7 +157,10 @@ impl AppState {
                 current_ssid: ArcSwap::from(std::sync::Arc::new(None)),
                 on_campus_network: AtomicBool::new(false),
                 logout_protected_until: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now())),
-                last_quality_check_time: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now() - std::time::Duration::from_secs(3600))),
+                last_quality_check_time: ArcSwap::from(std::sync::Arc::new(
+                    std::time::Instant::now().checked_sub(std::time::Duration::from_secs(3600))
+                        .unwrap_or_else(std::time::Instant::now)
+                )),
                 portal_failure_count: AtomicU32::new(0),
             },
             exit: ExitState {

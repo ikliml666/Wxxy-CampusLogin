@@ -103,7 +103,7 @@ pub(crate) fn dns_cache_get(host: &str) -> Option<IpAddr> {
 pub(crate) fn dns_cache_put(host: &str, ip: IpAddr) {
     DNS_CACHE.insert(host.to_string(), (ip, Instant::now()));
     let now = Instant::now();
-    DNS_CACHE.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
+    DNS_CACHE.retain(|_, (_, ts)| now.saturating_duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
     while DNS_CACHE.len() > DNS_CACHE_MAX_ENTRIES {
         let oldest = DNS_CACHE.iter()
             .min_by_key(|e| e.value().1)
@@ -118,7 +118,7 @@ pub(crate) fn dns_cache_put(host: &str, ip: IpAddr) {
 
 pub fn cleanup_expired_dns_cache() {
     let now = Instant::now();
-    DNS_CACHE.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
+    DNS_CACHE.retain(|_, (_, ts)| now.saturating_duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
 }
 
 pub(crate) async fn resolve_host_uncached_with_bind(

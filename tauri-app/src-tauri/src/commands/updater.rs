@@ -111,7 +111,7 @@ pub async fn download_update(
                 }
 
                 let now = std::time::Instant::now();
-                let elapsed = now.duration_since(last_emit);
+                let elapsed = now.saturating_duration_since(last_emit);
                 if elapsed.as_millis() >= 200 || (total_size > 0 && downloaded == total_size) {
                     let speed = if elapsed.as_secs_f64() > 0.0 {
                         ((downloaded - last_downloaded) as f64 / elapsed.as_secs_f64()) as u64
