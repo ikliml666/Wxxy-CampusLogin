@@ -1,6 +1,7 @@
 use std::time::Instant;
 use std::sync::Arc;
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +29,7 @@ struct LatencyTaskCtx {
     bind_addr: Option<std::net::IpAddr>,
 }
 
+#[derive(Clone)]
 struct LatencyResult {
     name: String,
     target: String,
@@ -276,7 +278,124 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
     }
 }
 
-pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, skip_ttfb: bool, skip_content: bool, fixed_gateway: &str, is_quitting: Arc<std::sync::atomic::AtomicBool>) -> NetworkQualityResult {
+fn get_latency_level(latency: i64) -> usize {
+    if latency < 0 { return 5; }
+    if latency <= 20 { return 0; }
+    if latency <= 50 { return 1; }
+    if latency <= 100 { return 2; }
+    if latency <= 200 { return 3; }
+    if latency <= 400 { return 4; }
+    5
+}
+
+fn build_quality_result(results: &[LatencyResult], gateway_str: &str, start: Instant) -> NetworkQualityResult {
+    let mut details = serde_json::Map::new();
+    let mut metrics = serde_json::Map::new();
+    let mut external_values: Vec<i64> = Vec::new();
+    let mut gateway_latency: i64 = -1;
+
+    for r in results {
+        if r.is_external && r.latency >= 0 {
+            external_values.push(r.latency);
+        }
+        if r.name == "网关" {
+            gateway_latency = r.latency;
+        }
+        let mut detail_json = serde_json::json!({
+            "target": r.target, "latency": r.latency, "type": r.lat_type
+        });
+        if r.dns_ms >= 0 {
+            detail_json["dnsLatency"] = serde_json::json!(r.dns_ms);
+            detail_json["tcpLatency"] = serde_json::json!(r.tcp_ms);
+            detail_json["tlsLatency"] = serde_json::json!(r.tls_ms);
+            let segments = r.dns_ms.max(0) + r.tcp_ms.max(0) + r.tls_ms.max(0);
+            if r.latency > segments {
+                detail_json["networkLatency"] = serde_json::json!(r.latency - segments);
+            }
+        }
+        if r.udp_ms >= 0 && r.lat_type == "dns" {
+            detail_json["udpLatency"] = serde_json::json!(r.udp_ms);
+        }
+        if r.tcp_ms >= 0 && r.lat_type == "dns" {
+            detail_json["tcpLatency"] = serde_json::json!(r.tcp_ms);
+        }
+        if r.ttfb_ms >= 0 {
+            detail_json["ttfbLatency"] = serde_json::json!(r.ttfb_ms);
+        }
+        if r.content_ms >= 0 {
+            detail_json["contentLatency"] = serde_json::json!(r.content_ms);
+        }
+        details.insert(r.name.clone(), detail_json);
+        metrics.insert(r.name.clone(), serde_json::json!({
+            "latency": r.latency, "type": r.lat_type, "elapsed": start.elapsed().as_millis()
+        }));
+    }
+
+    let (external_latency, average_external_latency) = if !external_values.is_empty() {
+        let mut sorted = external_values.clone();
+        sorted.sort();
+        let mid = sorted.len() / 2;
+        let med = if sorted.len() % 2 != 0 {
+            sorted[mid]
+        } else {
+            (sorted[mid - 1] + sorted[mid]) / 2
+        };
+        let trimmed = if sorted.len() >= 4 {
+            let trim = (sorted.len() as f64 * 0.15).ceil() as usize;
+            let trim = trim.min(sorted.len() / 2);
+            sorted[trim..sorted.len() - trim].to_vec()
+        } else if sorted.len() >= 3 {
+            let mut v = sorted.clone();
+            v.remove(0);
+            v.remove(v.len() - 1);
+            v
+        } else {
+            sorted.clone()
+        };
+        let avg = if !trimmed.is_empty() {
+            trimmed.iter().sum::<i64>() / trimmed.len() as i64
+        } else {
+            sorted.iter().sum::<i64>() / sorted.len() as i64
+        };
+        (med.max(1), avg.max(1))
+    } else {
+        (-1, -1)
+    };
+
+    const LEVEL_NAMES: [&str; 6] = ["excellent", "great", "good", "fair", "poor", "bad"];
+
+    let quality = if gateway_latency >= 0 && external_latency >= 0 {
+        let level = std::cmp::max(get_latency_level(gateway_latency), get_latency_level(external_latency));
+        LEVEL_NAMES.get(level).unwrap_or(&"unknown").to_string()
+    } else if gateway_latency >= 0 {
+        LEVEL_NAMES.get(get_latency_level(gateway_latency)).unwrap_or(&"unknown").to_string()
+    } else if external_latency >= 0 {
+        LEVEL_NAMES.get(get_latency_level(external_latency)).unwrap_or(&"unknown").to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    let total_elapsed = start.elapsed().as_millis() as u64;
+
+    NetworkQualityResult {
+        gateway_latency,
+        external_latency,
+        average_external_latency,
+        gateway: gateway_str.to_string(),
+        quality,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+        details: serde_json::Value::Object(details),
+        metrics: serde_json::json!({
+            "totalElapsed": total_elapsed,
+            "tests": serde_json::Value::Object(metrics),
+        }),
+    }
+}
+
+pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, skip_ttfb: bool, skip_content: bool, fixed_gateway: &str, is_quitting: Arc<std::sync::atomic::AtomicBool>, app_handle: Option<&AppHandle>) -> NetworkQualityResult {
     let now = Instant::now();
 
     let gateway = if !fixed_gateway.is_empty() {
@@ -372,6 +491,18 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         };
     }
 
+    // 增量推送：Phase 1 完成后立即 emit，让前端先显示网关+DNS+DoH结果
+    if let Some(ah) = app_handle {
+        let partial = build_quality_result(&phase1_results, gateway_str, now);
+        if let Ok(val) = serde_json::to_value(&partial) {
+            if let Err(e) = ah.emit("network-quality-result", &val) {
+                crate::log_warn!("quality", "[增量推送] Phase 1 emit 失败: {}", e);
+            } else {
+                crate::log_info!("quality", "[增量推送] Phase 1 emit 成功, details数={}", phase1_results.len());
+            }
+        }
+    }
+
     let https_hosts: &[(&str, &str)] = &[
         ("百度", "www.baidu.com"),
         ("京东", "www.jd.com"),
@@ -413,107 +544,25 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
                 phase2_results.push(r);
             }
         }
+        // 增量推送：每批 HTTPS 完成后 emit 累计结果
+        if let Some(ah) = app_handle {
+            let mut cumulative = phase1_results.clone();
+            cumulative.extend(phase2_results.iter().cloned());
+            let partial = build_quality_result(&cumulative, gateway_str, now);
+            if let Ok(val) = serde_json::to_value(&partial) {
+                if let Err(e) = ah.emit("network-quality-result", &val) {
+                    crate::log_warn!("quality", "[增量推送] HTTPS 批次 emit 失败: {}", e);
+                } else {
+                    crate::log_info!("quality", "[增量推送] HTTPS 批次 emit 成功, 累计结果数={}, 耗时{}ms", cumulative.len(), now.elapsed().as_millis());
+                }
+            }
+        }
     }
 
     let mut results: Vec<LatencyResult> = phase1_results;
     results.extend(phase2_results);
 
-    let mut details = serde_json::Map::new();
-    let mut metrics = serde_json::Map::new();
-    let mut external_values: Vec<i64> = Vec::new();
-    let mut gateway_latency: i64 = -1;
-
-    for r in &results {
-        if r.is_external && r.latency >= 0 {
-            external_values.push(r.latency);
-        }
-        if r.name == "网关" {
-            gateway_latency = r.latency;
-        }
-        let mut detail_json = serde_json::json!({
-            "target": r.target, "latency": r.latency, "type": r.lat_type
-        });
-        if r.dns_ms >= 0 {
-            detail_json["dnsLatency"] = serde_json::json!(r.dns_ms);
-            detail_json["tcpLatency"] = serde_json::json!(r.tcp_ms);
-            detail_json["tlsLatency"] = serde_json::json!(r.tls_ms);
-            let segments = r.dns_ms.max(0) + r.tcp_ms.max(0) + r.tls_ms.max(0);
-            if r.latency > segments {
-                detail_json["networkLatency"] = serde_json::json!(r.latency - segments);
-            }
-        }
-        if r.udp_ms >= 0 && r.lat_type == "dns" {
-            detail_json["udpLatency"] = serde_json::json!(r.udp_ms);
-        }
-        if r.tcp_ms >= 0 && r.lat_type == "dns" {
-            detail_json["tcpLatency"] = serde_json::json!(r.tcp_ms);
-        }
-        if r.ttfb_ms >= 0 {
-            detail_json["ttfbLatency"] = serde_json::json!(r.ttfb_ms);
-        }
-        if r.content_ms >= 0 {
-            detail_json["contentLatency"] = serde_json::json!(r.content_ms);
-        }
-        details.insert(r.name.clone(), detail_json);
-        metrics.insert(r.name.clone(), serde_json::json!({
-            "latency": r.latency, "type": r.lat_type, "elapsed": now.elapsed().as_millis()
-        }));
-    }
-
-    let (external_latency, average_external_latency) = if !external_values.is_empty() {
-        let mut sorted = external_values.clone();
-        sorted.sort();
-        let mid = sorted.len() / 2;
-        let med = if sorted.len() % 2 != 0 {
-            sorted[mid]
-        } else {
-            (sorted[mid - 1] + sorted[mid]) / 2
-        };
-        let trimmed = if sorted.len() >= 4 {
-            let trim = (sorted.len() as f64 * 0.15).ceil() as usize;
-            let trim = trim.min(sorted.len() / 2);
-            sorted[trim..sorted.len() - trim].to_vec()
-        } else if sorted.len() >= 3 {
-            let mut v = sorted.clone();
-            v.remove(0);
-            v.remove(v.len() - 1);
-            v
-        } else {
-            sorted.clone()
-        };
-        let avg = if !trimmed.is_empty() {
-            trimmed.iter().sum::<i64>() / trimmed.len() as i64
-        } else {
-            sorted.iter().sum::<i64>() / sorted.len() as i64
-        };
-        (med.max(1), avg.max(1))
-    } else {
-        (-1, -1)
-    };
-
-    fn get_latency_level(latency: i64) -> usize {
-        if latency < 0 { return 5; }
-        if latency <= 20 { return 0; }
-        if latency <= 50 { return 1; }
-        if latency <= 100 { return 2; }
-        if latency <= 200 { return 3; }
-        if latency <= 400 { return 4; }
-        5
-    }
-    let level_names = ["excellent", "great", "good", "fair", "poor", "bad"];
-
-    let quality = if gateway_latency >= 0 && external_latency >= 0 {
-        let level = std::cmp::max(get_latency_level(gateway_latency), get_latency_level(external_latency));
-        level_names.get(level).unwrap_or(&"unknown").to_string()
-    } else if gateway_latency >= 0 {
-        level_names.get(get_latency_level(gateway_latency)).unwrap_or(&"unknown").to_string()
-    } else if external_latency >= 0 {
-        level_names.get(get_latency_level(external_latency)).unwrap_or(&"unknown").to_string()
-    } else {
-        "unknown".to_string()
-    };
-
-    let total_elapsed = now.elapsed().as_millis() as u64;
+    let result = build_quality_result(&results, gateway_str, now);
 
     // 汇总：统计失败数量
     let failed_count = results.iter().filter(|r| r.latency < 0).count();
@@ -522,23 +571,8 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         let failed_names: Vec<&str> = results.iter().filter(|r| r.latency < 0).map(|r| r.name.as_str()).collect();
         crate::log_warn!("quality", "网络质量检测完成: {}/{}项测试失败 [{}]", failed_count, total_count, failed_names.join(", "));
     } else {
-        crate::log_info!("quality", "网络质量检测完成: 全部{}项测试成功, 耗时{}ms", total_count, total_elapsed);
+        crate::log_info!("quality", "网络质量检测完成: 全部{}项测试成功, 耗时{}ms", total_count, now.elapsed().as_millis());
     }
 
-    NetworkQualityResult {
-        gateway_latency,
-        external_latency,
-        average_external_latency,
-        gateway: gateway_str.to_string(),
-        quality,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64,
-        details: serde_json::Value::Object(details),
-        metrics: serde_json::json!({
-            "totalElapsed": total_elapsed,
-            "tests": serde_json::Value::Object(metrics),
-        }),
-    }
+    result
 }

@@ -89,7 +89,6 @@ export function useAppInit() {
   const mountedRef = useRef(true)
   const lastBgCheckTimeRef = useRef(0)
   const lastAdaptersChangedTimeRef = useRef(0)
-  const lastNetworkQualityTimeRef = useRef(0)
 
   useEffect(() => {
     if (initDoneRef.current) return
@@ -362,9 +361,6 @@ export function useAppInit() {
 
     const unsub6 = api.onNetworkQualityResult?.((data) => {
       if (!data || !mountedRef.current) return
-      const now = Date.now()
-      if (now - lastNetworkQualityTimeRef.current < 500) return
-      lastNetworkQualityTimeRef.current = now
       const prev = store.getState().networkQuality
       handleQualityBadAlert(data, prev)
       store.getState().setNetworkQuality(mergeNetworkQuality(prev, data))
