@@ -14,8 +14,10 @@ pub const DOH_SERVERS: &[(&str, &str)] = &[
 const DNS_PROPERTY_TYPE_DOH: i32 = 1;
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 const DNS_SETTING_PROFILE_NAMESERVER: u64 = 0x0200;
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 const DNS_SETTING_DOH_PROFILE: u64 = 0x2000;
 
 #[cfg(target_os = "windows")]
