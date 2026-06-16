@@ -409,6 +409,8 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
     });
 
     let mut first_error: Option<String> = None;
+    let mut doh_failed = 0u32;
+    let mut dns_failed = false;
     while let Some(res) = set.join_next().await {
         match res {
             Ok(Ok(ip)) => {
@@ -417,6 +419,11 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
                 return Ok(ip);
             }
             Ok(Err(e)) => {
+                if e.contains("DoH") {
+                    doh_failed += 1;
+                } else {
+                    dns_failed = true;
+                }
                 if first_error.is_none() {
                     first_error = Some(e);
                 }
@@ -429,5 +436,13 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
         }
     }
 
-    Err(first_error.unwrap_or_else(|| "DNS解析失败: 所有方式均不可用".to_string()))
+    let summary = if doh_failed > 0 && dns_failed {
+        format!("DNS解析失败: DoH({}个失败)+传统DNS均不可用 - {}", doh_failed, first_error.unwrap_or_default())
+    } else if doh_failed > 0 {
+        format!("DNS解析失败: DoH({}个失败) - {}", doh_failed, first_error.unwrap_or_default())
+    } else {
+        format!("DNS解析失败: 传统DNS不可用 - {}", first_error.unwrap_or_default())
+    };
+
+    Err(summary)
 }

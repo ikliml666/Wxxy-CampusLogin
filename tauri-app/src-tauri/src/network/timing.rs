@@ -116,7 +116,16 @@ pub async fn measure_https_timing(
                 ip
             }
             Err(e) => {
-                result.error = Some(format!("DNS解析失败: {}", e));
+                let detail = if e.contains("DoH") {
+                    format!("DNS解析失败(DoH+传统DNS均不可用): {}", e)
+                } else if e.contains("超时") || e.contains("timeout") {
+                    format!("DNS解析超时: {}", e)
+                } else if e.contains("劫持") || e.contains("hijack") {
+                    format!("DNS可能被劫持: {}", e)
+                } else {
+                    format!("DNS解析失败: {}", e)
+                };
+                result.error = Some(detail);
                 result.total_ms = ms_from(overall_start);
                 return result;
             }
