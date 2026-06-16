@@ -387,25 +387,31 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         ("抖音直播", "live.douyin.com"),
     ];
 
-    let mut phase2_set = tokio::task::JoinSet::new();
-    for (name, host) in https_hosts {
-        let ctx = LatencyTaskCtx {
-            task: LatencyTask::Https { name: name.to_string(), host: host.to_string() },
-            bind_addr,
-        };
-        let st = skip_ttfb;
-        let sc = skip_content;
-        phase2_set.spawn(async move { execute_task(ctx, st, sc).await });
-    }
-
+    // HTTPS 测试分批并发：每批最多 4 个，减少校园网环境下并发 TLS 握手竞争带宽导致延迟叠加
+    const HTTPS_BATCH_SIZE: usize = 4;
     let mut phase2_results: Vec<LatencyResult> = Vec::new();
-    while let Some(res) = phase2_set.join_next().await {
+    for batch in https_hosts.chunks(HTTPS_BATCH_SIZE) {
         if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-            phase2_set.abort_all();
             break;
         }
-        if let Ok(r) = res {
-            phase2_results.push(r);
+        let mut batch_set = tokio::task::JoinSet::new();
+        for (name, host) in batch {
+            let ctx = LatencyTaskCtx {
+                task: LatencyTask::Https { name: name.to_string(), host: host.to_string() },
+                bind_addr,
+            };
+            let st = skip_ttfb;
+            let sc = skip_content;
+            batch_set.spawn(async move { execute_task(ctx, st, sc).await });
+        }
+        while let Some(res) = batch_set.join_next().await {
+            if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+                batch_set.abort_all();
+                break;
+            }
+            if let Ok(r) = res {
+                phase2_results.push(r);
+            }
         }
     }
 
