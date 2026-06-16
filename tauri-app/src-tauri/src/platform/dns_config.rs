@@ -126,9 +126,6 @@ pub fn set_profile_dns_via_api(
     use windows::Win32::NetworkManagement::IpHelper::*;
     use windows::core::PWSTR;
 
-    const DNS_SETTING_PROFILE_NAMESERVER: u64 = 0x0200;
-    const DNS_SETTING_DOH_PROFILE: u64 = 0x2000;
-
     let guid = crate::platform::elevation::parse_guid(adapter_guid)?;
 
     let ns_str: String = dns_servers.join(",");
@@ -240,123 +237,8 @@ pub fn clear_adapter_dns_via_api(adapter_guid: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
-pub fn set_profile_dns_via_api(
-    adapter_guid: &str,
-    dns_servers: &[&str],
-    doh_templates: &[(&str, &str)],
-) -> Result<(), String> {
-    use windows::Win32::NetworkManagement::IpHelper::*;
-    use windows::core::PWSTR;
 
-    let guid = crate::platform::elevation::parse_guid(adapter_guid)?;
 
-    let ns_str: String = dns_servers.join(",");
-    let mut ns_wide: Vec<u16> = ns_str.encode_utf16().chain(std::iter::once(0)).collect();
-
-    let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
-    let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
-    let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
-
-    for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
-        let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
-        doh_templates_wide.push(tpl_wide);
-
-        let doh_setting = DNS_DOH_SERVER_SETTINGS {
-            Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
-            Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
-        };
-        doh_settings.push(doh_setting);
-
-        let prop = DNS_SERVER_PROPERTY {
-            Version: DNS_SERVER_PROPERTY_VERSION1,
-            ServerIndex: idx as u32,
-            Type: DNS_SERVER_PROPERTY_TYPE(DNS_PROPERTY_TYPE_DOH),
-            Property: DNS_SERVER_PROPERTY_TYPES {
-                DohSettings: &mut doh_settings[idx],
-            },
-        };
-        doh_props.push(prop);
-    }
-
-    let flags = if !doh_props.is_empty() {
-        (DNS_SETTING_PROFILE_NAMESERVER | DNS_SETTING_DOH_PROFILE) as u64
-    } else {
-        DNS_SETTING_PROFILE_NAMESERVER as u64
-    };
-
-    let settings = DNS_INTERFACE_SETTINGS3 {
-        Version: DNS_INTERFACE_SETTINGS_VERSION3,
-        Flags: flags,
-        Domain: PWSTR::null(),
-        NameServer: PWSTR::null(),
-        SearchList: PWSTR::null(),
-        RegistrationEnabled: 0,
-        RegisterAdapterName: 0,
-        EnableLLMNR: 0,
-        QueryAdapterName: 0,
-        ProfileNameServer: PWSTR(ns_wide.as_mut_ptr()),
-        DisableUnconstrainedQueries: 0,
-        SupplementalSearchList: PWSTR::null(),
-        cServerProperties: doh_props.len() as u32,
-        ServerProperties: doh_props.as_mut_ptr(),
-        cProfileServerProperties: 0,
-        ProfileServerProperties: std::ptr::null_mut(),
-    };
-
-    unsafe {
-        let result = SetInterfaceDnsSettings(
-            guid,
-            &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
-        );
-        if result != windows::Win32::Foundation::WIN32_ERROR(0) {
-            return Err(format!("SetInterfaceDnsSettings(ProfileDNS) 失败: 错误码 {}", result.0));
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-pub fn clear_adapter_dns_via_api(adapter_guid: &str) -> Result<(), String> {
-    use windows::Win32::NetworkManagement::IpHelper::*;
-    use windows::core::PWSTR;
-
-    let guid = crate::platform::elevation::parse_guid(adapter_guid)?;
-
-    let mut empty_ns: Vec<u16> = [0u16].to_vec();
-
-    let settings = DNS_INTERFACE_SETTINGS3 {
-        Version: DNS_INTERFACE_SETTINGS_VERSION3,
-        Flags: DNS_SETTING_NAMESERVER as u64,
-        Domain: PWSTR::null(),
-        NameServer: PWSTR(empty_ns.as_mut_ptr()),
-        SearchList: PWSTR::null(),
-        RegistrationEnabled: 0,
-        RegisterAdapterName: 0,
-        EnableLLMNR: 0,
-        QueryAdapterName: 0,
-        ProfileNameServer: PWSTR::null(),
-        DisableUnconstrainedQueries: 0,
-        SupplementalSearchList: PWSTR::null(),
-        cServerProperties: 0,
-        ServerProperties: std::ptr::null_mut(),
-        cProfileServerProperties: 0,
-        ProfileServerProperties: std::ptr::null_mut(),
-    };
-
-    unsafe {
-        let result = SetInterfaceDnsSettings(
-            guid,
-            &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
-        );
-        if result != windows::Win32::Foundation::WIN32_ERROR(0) {
-            return Err(format!("清除适配器级DNS失败: 错误码 {}", result.0));
-        }
-    }
-
-    Ok(())
-}
 
 #[cfg(target_os = "windows")]
 pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
