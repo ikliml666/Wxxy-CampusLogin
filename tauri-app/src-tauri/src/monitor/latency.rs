@@ -61,8 +61,8 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
     };
     let _ = s.tasks.latency_running.swap_acquire();
     tauri::async_runtime::spawn(async move {
-        // 启动后延迟5秒再开始延迟测试循环，避免网络未稳定时HTTPS测试延迟异常
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        // 启动后延迟3秒再开始延迟测试循环，避免网络未稳定时HTTPS测试延迟异常
+        tokio::time::sleep(Duration::from_secs(3)).await;
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
         loop {
             tokio::select! {
