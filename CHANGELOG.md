@@ -34,6 +34,7 @@
 - **Portal 请求失败容错机制**：后台检测连续 3 次 Portal 页面请求失败（`error sending request for url`）时，自动触发 DHCP 续租重置 MAC 地址并重新获取 IP，避免因 MAC 绑定过期导致持续无法认证。成功后重置计数器。
 - **网络质量检测失败日志**：各测试项（网关/DNS/DoH/HTTPS/系统DNS）失败时输出警告日志，包含具体失败原因；检测完成后输出汇总统计（失败数/总数/失败项名称），方便排查网络问题。
 - **网络质量检测启动延迟**：程序启动后延迟 1 秒再执行网络质量检测（后端延迟测试循环），避免网络未稳定时 HTTPS 测试延迟异常。
+- **GPU 检测改用 DXGI API**：将 PowerShell `Get-CimInstance Win32_VideoController` 替换为 Win32 DXGI `CreateDXGIFactory1` + `EnumAdapters1`，避免 PowerShell 进程启动开销（1~3秒），显著加快应用启动速度。
 
 ### 兼容性
 

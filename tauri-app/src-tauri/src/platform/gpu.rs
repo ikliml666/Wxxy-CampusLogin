@@ -102,9 +102,10 @@ fn read_gpu_preference() -> u8 {
 }
 
 fn detect_gpu_info_inner() -> GpuInfo {
-    use std::process::Command;
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory1, IDXGIFactory1, IDXGIAdapter1,
+        DXGI_ADAPTER_DESC1, DXGI_ADAPTER_FLAG_SOFTWARE,
+    };
 
     let gpu_preference = read_gpu_preference();
     crate::log_info!("gpu", "Windows GPU 偏好设置: {} ({})", gpu_preference, match gpu_preference {
@@ -113,14 +114,6 @@ fn detect_gpu_info_inner() -> GpuInfo {
         2 => "高性能(独显)",
         _ => "未知",
     });
-
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile", "-NonInteractive", "-Command",
-            "@(Get-CimInstance Win32_VideoController | Select-Object Name, AdapterCompatibility, AdapterRAM) | ConvertTo-Json -Compress"
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
 
     let fallback = GpuInfo {
         vendor: "unknown".to_string(),
@@ -131,112 +124,105 @@ fn detect_gpu_info_inner() -> GpuInfo {
         gpu_preference,
     };
 
-    let out = match output {
-        Ok(o) => o,
-        Err(_) => {
-            crate::log_warn!("gpu", "PowerShell 执行失败，使用默认GPU配置");
+    let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
+        Ok(f) => f,
+        Err(e) => {
+            crate::log_warn!("gpu", "CreateDXGIFactory1 失败: {}, 使用默认GPU配置", e);
             return fallback;
         }
     };
 
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    if stdout.trim().is_empty() {
-        crate::log_warn!("gpu", "GPU 查询结果为空，使用默认GPU配置");
-        return fallback;
-    }
+    let mut best_integrated: Option<(String, String, u64)> = None;
+    let mut best_nvidia: Option<(String, String, u64)> = None;
+    let mut best_amd_discrete: Option<(String, String, u64)> = None;
+    let mut best_other: Option<(String, String, u64)> = None;
 
-    let gpus: Vec<serde_json::Value> = if stdout.trim().starts_with('[') {
-        serde_json::from_str(&stdout).unwrap_or_default()
-    } else {
-        let single: serde_json::Value = match serde_json::from_str(&stdout) {
-            Ok(v) => v,
-            Err(_) => {
-                crate::log_warn!("gpu", "GPU JSON 解析失败，使用默认GPU配置");
-                return fallback;
-            }
+    for i in 0.. {
+        let adapter: IDXGIAdapter1 = match unsafe { factory.EnumAdapters1(i) } {
+            Ok(a) => a,
+            Err(_) => break,
         };
-        vec![single]
-    };
 
-    let mut best_integrated: Option<&serde_json::Value> = None;
-    let mut best_nvidia: Option<&serde_json::Value> = None;
-    let mut best_amd_discrete: Option<&serde_json::Value> = None;
-    let mut best_other: Option<&serde_json::Value> = None;
+        let desc: DXGI_ADAPTER_DESC1 = match unsafe { adapter.GetDesc1() } {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
 
-    for gpu in &gpus {
-        let vendor = gpu.get("AdapterCompatibility")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        let name = gpu.get("Name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
+        // 跳过软件适配器
+        if (desc.Flags as i32) & DXGI_ADAPTER_FLAG_SOFTWARE.0 != 0 {
+            continue;
+        }
 
-        if vendor.contains("nvidia") {
+        let vendor_id = desc.VendorId;
+        let model = String::from_utf16_lossy(&desc.Description)
+            .trim_end_matches('\0')
+            .to_string();
+        let vram_bytes = desc.DedicatedVideoMemory as u64;
+        let vram_mb = vram_bytes / (1024 * 1024);
+
+        // 通过 Vendor ID 识别厂商
+        let vendor = match vendor_id {
+            0x10DE => "NVIDIA".to_string(),
+            0x8086 => "Intel".to_string(),
+            0x1002 | 0x1022 => "AMD".to_string(),
+            _ => format!("Unknown({:#06X})", vendor_id),
+        };
+
+        let vendor_lower = vendor.to_lowercase();
+        let model_lower = model.to_lowercase();
+
+        if vendor_lower.contains("nvidia") {
             if best_nvidia.is_none() {
-                best_nvidia = Some(gpu);
+                best_nvidia = Some((vendor, model, vram_mb));
             }
-        } else if vendor.contains("amd") || vendor.contains("advanced micro") || vendor.contains("ati") {
-            if name.contains(" rx ") || name.contains(" pro ") || name.contains("radeon pro") || name.contains("radeon rx") {
+        } else if vendor_lower.contains("amd") {
+            if model_lower.contains(" rx ") || model_lower.contains(" pro ") || model_lower.contains("radeon pro") || model_lower.contains("radeon rx") {
                 if best_amd_discrete.is_none() {
-                    best_amd_discrete = Some(gpu);
+                    best_amd_discrete = Some((vendor, model, vram_mb));
                 }
             } else {
-                if best_integrated.is_none() && !name.contains(" rx ") {
-                    best_integrated = Some(gpu);
+                if best_integrated.is_none() && !model_lower.contains(" rx ") {
+                    best_integrated = Some((vendor.clone(), model.clone(), vram_mb));
                 }
                 if best_other.is_none() {
-                    best_other = Some(gpu);
+                    best_other = Some((vendor, model, vram_mb));
                 }
             }
-        } else if vendor.contains("intel") {
+        } else if vendor_lower.contains("intel") {
             if best_integrated.is_none() {
-                best_integrated = Some(gpu);
+                best_integrated = Some((vendor.clone(), model.clone(), vram_mb));
             }
             if best_other.is_none() {
-                best_other = Some(gpu);
+                best_other = Some((vendor, model, vram_mb));
             }
         } else if best_other.is_none() {
-            best_other = Some(gpu);
+            best_other = Some((vendor, model, vram_mb));
         }
     }
 
     let selected = match gpu_preference {
-        1 => best_integrated.or(best_other).or(best_nvidia).or(best_amd_discrete),
-        2 => best_nvidia.or(best_amd_discrete).or(best_other).or(best_integrated),
-        _ => best_nvidia.or(best_amd_discrete).or(best_other).or(best_integrated),
+        1 => best_integrated.as_ref().or(best_other.as_ref()).or(best_nvidia.as_ref()).or(best_amd_discrete.as_ref()),
+        2 => best_nvidia.as_ref().or(best_amd_discrete.as_ref()).or(best_other.as_ref()).or(best_integrated.as_ref()),
+        _ => best_nvidia.as_ref().or(best_amd_discrete.as_ref()).or(best_other.as_ref()).or(best_integrated.as_ref()),
     };
 
-    let gpu_data = match selected {
-        Some(g) => g,
+    let (vendor, model, vram_mb) = match selected {
+        Some(s) => s,
         None => {
             crate::log_warn!("gpu", "未检测到已知 GPU 厂商，使用默认渲染配置");
             return fallback;
         }
     };
 
-    let vendor = gpu_data.get("AdapterCompatibility")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-    let model = gpu_data.get("Name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-    let vram_bytes = gpu_data.get("AdapterRAM")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let vram_mb = vram_bytes / (1024 * 1024);
-    let tier = determine_tier(&vendor, &model, vram_mb);
+    let tier = determine_tier(vendor, model, *vram_mb);
     let is_integrated = is_integrated_tier(&tier);
 
     crate::log_info!("gpu", "检测到 GPU: {} {} ({}MB, {}, 偏好={})", vendor, model, vram_mb, tier, gpu_preference);
 
     GpuInfo {
-        vendor,
-        model,
-        vram_mb,
+        vendor: vendor.clone(),
+        model: model.clone(),
+        vram_mb: *vram_mb,
         is_integrated,
         tier,
         gpu_preference,
