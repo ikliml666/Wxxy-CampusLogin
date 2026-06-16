@@ -90,7 +90,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className="flex items-center justify-between min-h-9 px-4 shrink-0 text-xs z-10 surface-top-square"
+        className="flex items-center justify-between min-h-9 px-4 shrink-0 text-xs z-10"
         style={{ background: 'var(--surface-top)' }}
       >
         <div className="flex items-center gap-2.5">

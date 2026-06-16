@@ -272,10 +272,9 @@
     box-shadow: 0 8px 40px rgba(0,0,0,0.30), 0 2px 8px rgba(0,0,0,0.15);
   }
 
-  /* 标题栏/状态栏：顶部两角圆角，用自己的背景色填满父容器裁剪区域 */
+  /* surface-top-square 已废弃：标题栏/状态栏不再需要独立圆角，由外层容器 overflow:hidden 统一裁剪 */
   .surface-top-square {
-    border-top-left-radius: 16px !important;
-    border-top-right-radius: 16px !important;
+    /* 保留空类以避免运行时报错，无样式 */
   }
 
   .surface-side-square {
@@ -293,12 +292,7 @@
     box-shadow: none !important;
   }
 
-  /* .surface-top-square 不再需要独立圆角，无需归零规则 */
-
-  .app-maximized .surface-top-square {
-    border-top-left-radius: 0 !important;
-    border-top-right-radius: 0 !important;
-  }
+  /* .surface-top-square 已废弃，无需归零规则 */
 
   .app-maximized .surface-side-square {
     border-bottom-right-radius: 0 !important;

@@ -15,10 +15,10 @@
 - **运行日志条目文字重叠**：日志较多时，长消息换行后与下一条日志内容重叠混在一起。现已移除固定最小高度限制（`min-h-[38px]`），改为由内容自适应高度；行高从 `leading-snug`(1.375) 提升到 `leading-normal`(1.5)；消息文本增加 `whitespace-pre-wrap` 保留原始换行，确保每条日志有独立的视觉边界。
 - **界面标题栏显示版本号仍为 v2.2.4**：`ui-constants.ts`、`about-preview.html`（两处）、`README.md` 中残留的旧版本号未同步更新，现已全部修正为 v2.2.5。
 - **标题栏顶部圆角漏出底层背景色**：外层容器 `.app-outer-square` 四角 16px 圆角，但标题栏 `.surface-top-square` 的圆角为 0，导致窗口左上角/右上角露出底部容器颜色。现已将 `.surface-top-square` 改为 `border-top-left/right-radius: 16px` 与外层对齐，并补充最大化状态下归零规则。
-- **标题栏圆角区域背景色泄漏**：外层容器 `.app-outer-square` 设置 `overflow: hidden` + `border-radius: 16px` 裁剪子元素时，圆角空隙显示父元素自身的 `var(--surface-main)` 背景色，而 TitleBar/StatusBar 使用 `var(--surface-top)` 背景色导致视觉断层。同时 `FluidBackground` 组件使用 `position: fixed`（相对于视口定位）在 WebView 中不受父容器裁剪约束。现已：
-  - 将 `FluidBackground` 从 `fixed` 改为 `absolute` 定位，确保被外层容器正确裁剪
-  - 保留 `.surface-top-square` 的 `border-top-left/right-radius: 16px`，让 TitleBar/StatusBar 自身背景色填满圆角区域
-  - 保留最大化状态下的归零规则
+- **标题栏不应有独立圆角**：标题栏/状态栏的 `.surface-top-square` 类错误地设置了 `border-top-left/right-radius: 16px`，导致视觉异常。外层容器 `.app-outer-square` 已有 `overflow: hidden` + `border-radius: 16px` 会统一裁剪所有子元素，子元素无需单独设置圆角。同时 `FluidBackground` 使用 `position: fixed` 在 WebView 中可能穿透父容器裁剪区域。现已：
+  - 将 `FluidBackground` 从 `fixed` 改为 `absolute` 定位
+  - 移除 TitleBar/StatusBar 的 `surface-top-square` 类名（不再需要独立圆角）
+  - 清空 `.surface-top-square` 样式定义和最大化归零规则
 - **注销后仍显示在线**：注销成功后前端仍显示在线状态（后台连接时间已为0）。根因是注销保护期 (`logout_protected_until`) 只保护了后端 `update_network_state` 的原子变量更新，但未保护 `emit_background_check_result` 事件发送和 `check_portal_status` API，Portal 服务器端状态延迟导致前端误判。三处修复：
   - 注销后重置 `last_a1_online`/`last_a2_online`/`has_logged_online`/`disconnect_reconnect_count`（此前仅重置 `any_adapter_online`）
   - `check_portal_status` 命令在注销保护期内直接返回 `{ online: false }`，不再请求 Portal 服务器

@@ -86,7 +86,7 @@ export const TitleBar = memo(function TitleBar({
       <div
         onMouseDown={handleTitleBarMouseDown}
         onDoubleClick={handleTitleBarDoubleClick}
-        className="flex items-center justify-between h-11 px-5 shrink-0 select-none z-50 surface-top-square"
+        className="flex items-center justify-between h-11 px-5 shrink-0 select-none z-50"
         style={{ background: 'var(--surface-top)' }}
       >
         <div className="flex items-center gap-3">
