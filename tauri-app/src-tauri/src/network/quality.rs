@@ -162,11 +162,17 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
     match ctx.task {
         LatencyTask::Gateway { name, target } => {
             let (lat, lat_type) = tcp_then_icmp_latency(&target, &[80, 53], 800, ctx.bind_addr).await;
+            if lat < 0 {
+                crate::log_warn!("quality", "网关测试失败 [{}]: {} (TCP和ICMP均不可达)", name, target);
+            }
             LatencyResult { name, target, latency: lat, lat_type: lat_type.to_string(), is_external: false, dns_ms: -1, tcp_ms: -1, tls_ms: -1, udp_ms: -1, ttfb_ms: -1, content_ms: -1 }
         }
         LatencyTask::Doh { name, doh_server, doh_ip, doh_host } => {
             let r = crate::network::timing::measure_doh_timing(&doh_server, &doh_ip, &doh_host, ctx.bind_addr, std::time::Duration::from_millis(2000), skip_ttfb).await;
             let lat = if r.success { r.total_ms } else { -1 };
+            if !r.success {
+                crate::log_warn!("quality", "DoH测试失败 [{}]: {} - {}", name, doh_server, r.error.as_deref().unwrap_or("未知错误"));
+            }
             crate::network::dns::update_doh_server_latency(&doh_server, lat, r.success);
             LatencyResult {
                 name,
@@ -185,6 +191,9 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
         LatencyTask::Https { name, host } => {
             let r = crate::network::timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
             let lat = if r.success { r.total_ms } else { -1 };
+            if !r.success {
+                crate::log_warn!("quality", "HTTPS测试失败 [{}]: {} - {}", name, r.url, r.error.as_deref().unwrap_or("未知错误"));
+            }
             LatencyResult {
                 name,
                 target: format!("https://{}", host),
@@ -206,6 +215,9 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
                 (_, t) if t >= 0 => t,
                 (u, _) => u,
             };
+            if !r.success {
+                crate::log_warn!("quality", "DNS服务器测试失败 [{}]: {}:{} - {}", name, ip, domain, r.error.as_deref().unwrap_or("未知错误"));
+            }
             crate::network::dns::update_dns_server_latency(&ip, lat, r.success);
             LatencyResult {
                 name,
@@ -223,6 +235,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
         }
         LatencyTask::SystemDns { name, domains } => {
             let mut latencies: Vec<i64> = Vec::new();
+            let mut failed_domains: Vec<String> = Vec::new();
             for domain in &domains {
                 let start = Instant::now();
                 let result = crate::network::dns::resolve_host_smart(domain, std::time::Duration::from_secs(3), ctx.bind_addr).await;
@@ -231,7 +244,9 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
                         let ms = start.elapsed().as_millis() as i64;
                         latencies.push(ms.max(1));
                     }
-                    Err(_) => {}
+                    Err(_) => {
+                        failed_domains.push(domain.clone());
+                    }
                 }
             }
             let lat = if latencies.is_empty() {
@@ -239,6 +254,9 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             } else {
                 latencies.iter().sum::<i64>() / latencies.len() as i64
             };
+            if !failed_domains.is_empty() {
+                crate::log_warn!("quality", "系统DNS测试失败 [{}]: {}/{}个域名解析失败 [{}]", name, failed_domains.len(), domains.len(), failed_domains.join(", "));
+            }
             LatencyResult {
                 name,
                 target: format!("{}个域名", domains.len()),
@@ -488,6 +506,16 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     };
 
     let total_elapsed = now.elapsed().as_millis() as u64;
+
+    // 汇总：统计失败数量
+    let failed_count = results.iter().filter(|r| r.latency < 0).count();
+    let total_count = results.len();
+    if failed_count > 0 {
+        let failed_names: Vec<&str> = results.iter().filter(|r| r.latency < 0).map(|r| r.name.as_str()).collect();
+        crate::log_warn!("quality", "网络质量检测完成: {}/{}项测试失败 [{}]", failed_count, total_count, failed_names.join(", "));
+    } else {
+        crate::log_info!("quality", "网络质量检测完成: 全部{}项测试成功, 耗时{}ms", total_count, total_elapsed);
+    }
 
     NetworkQualityResult {
         gateway_latency,
