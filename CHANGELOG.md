@@ -23,8 +23,7 @@
 - **重复日志堆积**：连续相同内容的日志不断新增条目，占用大量空间。现已实现日志去重：新日志与上一条 message+type 完全相同时，仅更新时间戳，不新增条目。
 - **注销单个适配器时另一个也被标记离线**：双适配器模式下，注销适配器1后适配器2的在线状态也被错误重置为离线。根因是 `do_logout` 成功后无条件重置 `any_adapter_online`/`last_a1_online`/`last_a2_online` 全部为 false。现已区分全量/单适配器注销：仅重置对应适配器的在线标志，保留另一个适配器的状态。
 - **HTTPS 网站测试全部不可用**：网络质量检测中 HTTPS 测试绑定特定网卡 IP 后，校园网环境下主适配器路由表可能没有外网默认路由，导致 TCP 连接超时。现已将 HTTPS 测试改为不绑定适配器（`bind_addr: None`），让系统路由表决定出口网卡。同时 DNS 解析失败时输出分类详情（DoH 失败/传统 DNS 失败/超时），方便排查根因。
-- **HTTPS 测试 DNS 缓存污染**：Phase 1 的 SystemDns 测试通过校园网适配器解析域名后写入全局缓存，Phase 2 的 HTTPS 测试（不绑定适配器）直接使用缓存中的校园网专属 IP，导致 TCP 连接失败。现已在不绑定适配器时跳过 DNS 缓存，强制重新解析。
-- **DNS 解析返回 IPv6 导致连接失败**：校园网 IPv6 通常不可用，但 DNS 解析可能优先返回 IPv6 地址。现已优先选择 IPv4 地址，无 IPv4 时才回退到 IPv6。
+- **HTTPS 测试 DNS 缓存利用**：HTTPS 测试（不绑定适配器）与 Phase 1 的 SystemDns 共享 DNS 缓存，避免重复解析增加延迟。同时 DNS 解析优先返回 IPv4 地址，避免校园网 IPv6 不可达导致连接失败。
 - **启动后多次触发网络质量检测**：前端 qualityPromise、后端 latency loop、后端 background check 三个触发源在启动时同时竞争，导致短时间内重复检测、延迟数据不稳定。现已移除前端 qualityPromise（由后端统一管理），并增加 15 秒冷却时间机制，所有触发路径执行前检查冷却时间。
 - **网络质量变差双重系统通知**：前端 `sendNotification` 和后端 `emit_notification` 对同一事件各发一次通知。现已移除前端重复通知，由后端统一发送系统通知。
 - **重新安装后前端黑屏**：窗口配置为 `visible: false`，`showWindow` 依赖脆弱的初始化链路，任何环节异常都导致窗口永远隐藏。现已增加 Rust 端 5 秒保底 showWindow 机制；`localStorage` 直接访问替换为 `safeStorage`（异常保护+内存回退）；`i18next.t()` 从 Store 创建时移出改为静态字符串；catch 块中 showWindow 不受组件卸载状态影响。
