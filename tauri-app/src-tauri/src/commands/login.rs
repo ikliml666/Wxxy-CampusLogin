@@ -213,9 +213,26 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
         let s = app_handle.state::<AppState>();
         s.exit.auto_exit_cancelled.store(true, Ordering::Release);
         s.exit.set_deadline(None);
-        s.network.any_adapter_online.store(false, Ordering::Release);
-        s.network.last_a1_online.store(false, Ordering::Release);
-        s.network.last_a2_online.store(false, Ordering::Release);
+
+        // 只有在注销全部适配器（未指定 adapter_name）时，才重置 all online 标志
+        if adapter_name.is_none() {
+            s.network.any_adapter_online.store(false, Ordering::Release);
+            s.network.last_a1_online.store(false, Ordering::Release);
+            s.network.last_a2_online.store(false, Ordering::Release);
+        } else {
+            // 单个适配器注销：只重置对应适配器的标志
+            let cfg = s.config.load_full();
+            let target_name = adapter_name.as_deref().unwrap();
+            if target_name == cfg.adapter1 {
+                s.network.last_a1_online.store(false, Ordering::Release);
+            } else if cfg.dual_adapter && target_name == cfg.adapter2 {
+                s.network.last_a2_online.store(false, Ordering::Release);
+            }
+            // 重新计算 any_adapter_online：如果另一个适配器仍在线则保持 true
+            let a1 = s.network.last_a1_online.load(Ordering::Acquire);
+            let a2 = s.network.last_a2_online.load(Ordering::Acquire);
+            s.network.any_adapter_online.store(a1 || a2, Ordering::Release);
+        }
         s.network.has_logged_online.store(false, Ordering::Release);
         s.network.disconnect_reconnect_count.store(0, Ordering::Release);
         s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));

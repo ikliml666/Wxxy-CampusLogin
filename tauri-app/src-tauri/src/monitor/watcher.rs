@@ -39,7 +39,9 @@ enum PortalCheckResult {
         reachable: bool,
         login_available: bool,
     },
-    Error,
+    Error {
+        is_request_failed: bool,
+    },
     NotFound,
 }
 
@@ -54,7 +56,7 @@ impl PortalCheckResult {
     fn message(&self) -> &str {
         match self {
             PortalCheckResult::Success { message, .. } => message,
-            PortalCheckResult::Error => "检测失败",
+            PortalCheckResult::Error { .. } => "检测失败",
             PortalCheckResult::NotFound => "未找到主适配器",
         }
     }
@@ -86,7 +88,7 @@ fn check_adapter_portal(
                     "message": format!("{} Portal页面检测请求失败: {}", adapter.name, ps.message),
                     "type": "error"
                 }));
-                PortalCheckResult::Error
+                PortalCheckResult::Error { is_request_failed: true }
             } else {
                 PortalCheckResult::Success {
                     online: ps.online,
@@ -102,7 +104,7 @@ fn check_adapter_portal(
                 "message": format!("{} Portal页面检测异常: {}", adapter.name, e),
                 "type": "error"
             }));
-            PortalCheckResult::Error
+            PortalCheckResult::Error { is_request_failed: false }
         }
     }
 }
@@ -583,8 +585,8 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             std::thread::scope(|s| {
                 let h1 = s.spawn(|| check_adapter_portal(adapter1, app_handle));
                 let h2 = s.spawn(|| check_adapter_portal(adapter2, app_handle));
-                let r1 = h1.join().unwrap_or(PortalCheckResult::Error);
-                let r2 = h2.join().unwrap_or(PortalCheckResult::Error);
+                let r1 = h1.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
+                let r2 = h2.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
                 (r1, Some(r2))
             })
         } else {
@@ -604,6 +606,53 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     };
 
     let portal_elapsed = t_portal.elapsed();
+
+    // Portal 请求失败容错：累加失败计数，连续3次 request_failed 时触发 MAC 重置
+    let primary_is_request_failed = matches!(&primary_result, PortalCheckResult::Error { is_request_failed: true });
+    let secondary_is_request_failed = secondary_result.as_ref().map_or(false, |r| matches!(r, PortalCheckResult::Error { is_request_failed: true }));
+    let any_request_failed = primary_is_request_failed || secondary_is_request_failed;
+
+    if any_request_failed {
+        let prev_count = state.network.portal_failure_count.fetch_add(1, Ordering::AcqRel);
+        let new_count = prev_count + 1;
+        crate::log_info!("background", "Portal请求失败计数: {}/3 (主={}, 副={})", new_count, primary_is_request_failed, secondary_is_request_failed);
+        if new_count >= 3 {
+            crate::log_warn!("background", "连续{}次Portal请求失败，触发MAC重置+DHCP续租", new_count);
+            let _ = app_handle.emit("login-log", serde_json::json!({
+                "message": "连续3次 Portal 请求失败，正在重置MAC并重新获取IP...",
+                "type": "warning"
+            }));
+            // 获取 campus_gateway 用于 dhcp_release_renew_all 的子网过滤
+            let campus_gw = &config.campus_gateway;
+            match crate::network::dhcp_release_renew_all(campus_gw) {
+                Ok(results) => {
+                    for r in &results {
+                        let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let name = r.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        if skipped {
+                            crate::log_debug!("background", "MAC重置跳过非校园网适配器: {}", name);
+                        } else if success {
+                            crate::log_info!("background", "MAC重置成功: {}", name);
+                        } else {
+                            crate::log_warn!("background", "MAC重置失败: {}", name);
+                        }
+                    }
+                }
+                Err(e) => {
+                    crate::log_error!("background", "MAC重置+DHCP续租失败: {}", e);
+                }
+            }
+            // 重置计数器
+            state.network.portal_failure_count.store(0, Ordering::Release);
+        }
+    } else if matches!(&primary_result, PortalCheckResult::Success { .. }) {
+        // 连续成功时重置计数器
+        let prev = state.network.portal_failure_count.swap(0, Ordering::AcqRel);
+        if prev > 0 {
+            crate::log_debug!("background", "Portal检测恢复正常，重置失败计数(原值={})", prev);
+        }
+    }
 
     let primary_online = primary_result.online();
     let reachable = primary_result.reachable();
