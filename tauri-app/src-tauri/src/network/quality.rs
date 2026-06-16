@@ -189,15 +189,9 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
         }
         LatencyTask::Https { name, host } => {
-            let mut r = crate::network::timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
-            // bind_addr 回退：绑定网卡失败时，尝试不绑定重试一次
-            if !r.success && ctx.bind_addr.is_some() {
-                crate::log_debug!("quality", "HTTPS测试 [{}] 绑定网卡失败，尝试不绑定重试: {}", name, r.error.as_deref().unwrap_or("未知错误"));
-                r = crate::network::timing::measure_https_timing(&host, 443, None, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
-                if r.success {
-                    crate::log_info!("quality", "HTTPS测试 [{}] 不绑定网卡重试成功", name);
-                }
-            }
+            // HTTPS 测试不绑定适配器：校园网环境下绑定主适配器 IP 可能导致 TCP 连接外网超时
+            // （主适配器路由表可能没有外网默认路由），让系统路由表决定出口网卡
+            let r = crate::network::timing::measure_https_timing(&host, 443, None, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
             let lat = if r.success { r.total_ms } else { -1 };
             if !r.success {
                 crate::log_warn!("quality", "HTTPS测试失败 [{}]: {} - {}", name, r.url, r.error.as_deref().unwrap_or("未知错误"));
