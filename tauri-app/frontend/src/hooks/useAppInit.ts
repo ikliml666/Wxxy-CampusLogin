@@ -517,6 +517,9 @@ export function useAppInit() {
           const qualityPromise = (async () => {
             if (cfg.enableNetworkQuality !== false) {
               try {
+                // 启动后延迟10秒再执行网络质量检测，避免网络未稳定时HTTPS测试延迟异常
+                await new Promise<void>(r => setTimeout(r, 10000))
+                if (!mountedRef.current) return
                 const q = await api.checkNetworkQuality?.()
                 if (q) {
                   if (!mountedRef.current) return
