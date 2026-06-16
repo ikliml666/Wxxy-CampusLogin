@@ -27,7 +27,7 @@
 - **启动后多次触发网络质量检测**：前端 qualityPromise、后端 latency loop、后端 background check 三个触发源在启动时同时竞争，导致短时间内重复检测、延迟数据不稳定。现已移除前端 qualityPromise（由后端统一管理），并增加 15 秒冷却时间机制，所有触发路径执行前检查冷却时间。
 - **网络质量变差双重系统通知**：前端 `sendNotification` 和后端 `emit_notification` 对同一事件各发一次通知。现已移除前端重复通知，由后端统一发送系统通知。
 - **HTTPS 检测 TLS 握手延迟过高**：网络质量检测 Phase 2 中 12 个 HTTPS 主机全部并发发起全新 TLS 握手，校园网高 RTT 环境下并发连接竞争带宽导致 TLS 延迟叠加超过 300ms。现已改为每批 4 个分批并发，减少带宽竞争，首批 TLS 延迟显著降低。
-- **重新安装后前端黑屏**：窗口配置为 `visible: false`，`showWindow` 依赖脆弱的初始化链路，任何环节异常都导致窗口永远隐藏。现已增加 Rust 端 5 秒保底 showWindow 机制；`localStorage` 直接访问替换为 `safeStorage`（异常保护+内存回退）；`i18next.t()` 从 Store 创建时移出改为静态字符串；catch 块中 showWindow 不受组件卸载状态影响。
+- **重新安装后前端黑屏**：窗口配置为 `visible: false`，`showWindow` 依赖脆弱的初始化链路，任何环节异常都导致窗口永远隐藏。现已增加 Rust 端保底 showWindow 机制（3秒首次检查+最多3次重试，每次间隔3秒）；`single_instance` 回调增加窗口未创建时的延迟重试；`localStorage` 直接访问替换为 `safeStorage`（异常保护+内存回退）；`i18next.t()` 从 Store 创建时移出改为静态字符串；catch 块中 showWindow 不受组件卸载状态影响。
 
 ### 新增
 

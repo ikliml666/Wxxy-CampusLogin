@@ -80,6 +80,16 @@ fn run_app(core_count: usize) {
                 let _ = window.show();        // [忽略错误] 窗口可能尚未初始化完成
                 let _ = window.set_focus();   // [忽略错误] 窗口可能尚未初始化完成
                 let _ = window.unminimize();  // [忽略错误] 窗口可能尚未初始化完成
+            } else {
+                // 窗口可能尚未创建（NSIS安装器自动启动时可能出现此情况），延迟重试
+                let app_h = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    if let Some(window) = app_h.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                });
             }
         }))
         .manage(AppState::new())
@@ -277,17 +287,23 @@ fn run_app(core_count: usize) {
                 });
             }
 
-            // 保底机制：5秒后检查窗口是否可见，不可见则强制显示
-            // 防止前端初始化异常导致窗口永远隐藏（黑屏）
+            // 保底机制：3秒后检查窗口是否可见，不可见则强制显示并重试
+            // 防止前端初始化异常或NSIS安装器自动启动时WebView2初始化时序问题导致窗口永远隐藏（黑屏）
             let app_h_safety = app.handle().clone();
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                if let Some(window) = app_h_safety.get_webview_window("main") {
-                    let is_visible = window.is_visible().unwrap_or(false);
-                    if !is_visible {
-                        crate::log_warn!("startup", "窗口5秒后仍不可见，强制显示");
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                for attempt in 1..=3 {
+                    if let Some(window) = app_h_safety.get_webview_window("main") {
+                        let is_visible = window.is_visible().unwrap_or(false);
+                        if is_visible {
+                            return;
+                        }
+                        crate::log_warn!("startup", "窗口{}秒后仍不可见，第{}次强制显示", 3 * attempt, attempt);
                         let _ = window.show();
                         let _ = window.set_focus();
+                    }
+                    if attempt < 3 {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
                     }
                 }
             });
