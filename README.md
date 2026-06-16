@@ -65,11 +65,14 @@ Wxxy-CampusLogin/
 │   └── src-tauri/           # Rust 后端
 │       ├── src/
 │       │   ├── commands/    # Tauri 命令（模块化拆分）
-│       │   ├── network/     # 网络模块（适配器/Portal/登录/注销/质量/缓存）
-│       │   ├── config.rs    # 配置管理
-│       │   ├── crypto_utils.rs  # 加密工具
-│       │   ├── http_timing.rs   # HTTP 计时 & DNS 智能解析
-│       │   └── logger.rs    # 日志系统 & 日志保留清理
+│       │   ├── network/     # 网络模块（适配器/DNS/质量检测/缓存/HTTP计时）
+│       │   ├── config/      # 配置管理（model/persist/validate）
+│       │   ├── auth/        # 认证模块（Portal检测/登录注销协议/会话管理）
+│       │   ├── account/     # 账号模块（多账号管理 + crypto.rs DPAPI加密）
+│       │   ├── monitor/     # 监控模块（后台巡检/自动登录/延迟测试/适配器监控）
+│       │   ├── infra/       # 基础设施（状态管理/日志系统/生命周期/通知）
+│       │   ├── platform/    # 平台交互（DNS配置/UAC提权/GPU检测/开机自启）
+│       │   └── update/      # 更新模块（检查/下载/安装/SHA256校验）
 │       ├── icons/           # 应用图标
 │       ├── Cargo.toml
 │       └── tauri.conf.json
