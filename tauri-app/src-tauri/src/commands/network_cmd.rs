@@ -540,10 +540,12 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                         crate::network::adapter::escape_ps_single_quote(&adapter.name)
                     ));
                     // 设置 ProfileNameServer（通过注册表）
-                    ps_cmds.push(format!(
-                        "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{}' -Name 'ProfileNameServer' -Value '{},{}'",
-                        adapter.guid, dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
-                    ));
+                    if !adapter.guid.is_empty() {
+                        ps_cmds.push(format!(
+                            "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{}' -Name 'ProfileNameServer' -Value '{},{}'",
+                            adapter.guid, dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
+                        ));
+                    }
                 } else {
                     ps_cmds.push(format!(
                         "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}','{}') -Confirm:$false",

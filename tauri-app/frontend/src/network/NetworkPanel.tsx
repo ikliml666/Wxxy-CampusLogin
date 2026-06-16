@@ -127,10 +127,10 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
 
   const getDnsQuality = (
     adapter: {
-      dnsSource?: string
-      dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[]
-      profileDnsServers?: { address: string; dohAvailable: boolean; dohEnabled: boolean }[]
-      adapterDnsOverridesProfile?: boolean
+      dnsSource?: string;
+      dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
+      profileDnsServers?: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
+      adapterDnsOverridesProfile?: boolean;
     },
     autoDohEnabled: boolean
   ) => {
