@@ -99,7 +99,7 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
                 Some(g) => g,
                 None => continue,
             };
-            let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
+            let quality = check_network_quality_async(Some(&app_h), &adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
             // 更新冷却时间
             s.network.last_quality_check_time.store(Arc::new(std::time::Instant::now()));
             drop(_guard);

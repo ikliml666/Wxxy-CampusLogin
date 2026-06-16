@@ -186,7 +186,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     if adapter_ip.is_empty() {
         return Ok(empty_quality_json());
     }
-    let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone()).await;
+    let result = check_network_quality_async(Some(&app_handle), &adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone()).await;
     // 更新冷却时间
     state.network.last_quality_check_time.store(std::sync::Arc::new(std::time::Instant::now()));
     drop(_guard);
