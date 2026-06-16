@@ -16,11 +16,6 @@ import { RefreshButton } from '@/shared'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from 'react-i18next'
 
-// 虚拟化相关常量
-const VIRTUAL_ITEM_HEIGHT = 30 // 单条日志估算高度（px）
-const VIRTUAL_BUFFER = 5 // 可视区域上下缓冲条数
-const VIRTUAL_THRESHOLD = 50 // 超过此数量启用虚拟化
-
 interface RightPanelProps {
   logs: LogEntry[]
   onClearLogs?: () => void
@@ -94,12 +89,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   const [adapterExpanded, setAdapterExpanded] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
 
-  // 虚拟化：追踪可视区域的起始索引
-  const [virtualStart, setVirtualStart] = useState(0)
-  const rafRef = useRef<number>(0)
-
-  const isVirtualMode = logs.length > VIRTUAL_THRESHOLD
-
   const handleClearWithAnimation = useCallback(() => {
     if (isClearing || !onClearLogs || logs.length === 0) return
     setIsClearing(true)
@@ -136,27 +125,10 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return
-    // RAF-throttle all scroll handling to avoid layout thrashing
-    if (rafRef.current) return
-    rafRef.current = requestAnimationFrame(() => {
-      const el = scrollRef.current
-      if (!el) { rafRef.current = 0; return }
-      const { scrollTop, scrollHeight, clientHeight } = el
-      isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
-
-      if (isVirtualMode) {
-        const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_ITEM_HEIGHT) - VIRTUAL_BUFFER)
-        setVirtualStart(startIndex)
-      }
-      rafRef.current = 0
-    })
-  }, [isVirtualMode])
-
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    }
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+    isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
   }, [])
+
 
   useEffect(() => {
     if (scrollRef.current && isAutoScrollRef.current) {
@@ -181,20 +153,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
     }
     return result
   }, [adapterDetails, adapters, config])
-
-  // 虚拟化：计算可见条目的索引范围和样式
-  const virtualRange = useMemo(() => {
-    if (!isVirtualMode) return null
-    const containerHeight = scrollRef.current?.clientHeight ?? 400
-    const visibleCount = Math.ceil(containerHeight / VIRTUAL_ITEM_HEIGHT) + VIRTUAL_BUFFER * 2
-    const endIndex = Math.min(logs.length, virtualStart + visibleCount)
-    return {
-      start: virtualStart,
-      end: endIndex,
-      totalHeight: logs.length * VIRTUAL_ITEM_HEIGHT,
-      offsetY: virtualStart * VIRTUAL_ITEM_HEIGHT,
-    }
-  }, [isVirtualMode, virtualStart, logs.length])
 
   return (
     <div
@@ -241,36 +199,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
               </div>
               <p className="text-[11px]">{t('rightPanel.noLogs')}</p>
             </div>
-          ) : isVirtualMode && virtualRange ? (
-            /* 虚拟化模式：只渲染可视区域内的条目 */
-            <div style={{ height: virtualRange.totalHeight, position: 'relative' }}>
-              <div style={{ position: 'absolute', top: virtualRange.offsetY, left: 0, right: 0 }}>
-                {logs.slice(virtualRange.start, virtualRange.end).map((log, i) => {
-                  const idx = virtualRange.start + i
-                  const Icon = LOG_ICONS[log.type]
-                  const isLatest = isNewLog && idx === logs.length - 1
-                  return (
-                    <div
-                      key={log.id}
-                      className={cn(
-                        'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover',
-                        LOG_BG_COLORS[log.type],
-                        isLatest && 'log-entry-flash',
-                        isLatest && 'card-enter'
-                      )}
-                      style={{ height: VIRTUAL_ITEM_HEIGHT }}
-                    >
-                      <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type])} />
-                      <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-muted-foreground/50 font-mono">{log.time}</span>
-                        <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
           ) : (
             <div className="space-y-1">
             <AnimatePresence initial={false}>
@@ -285,7 +213,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                     animate="animate"
                     exit="exit"
                     className={cn(
-                      'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover',
+                      'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover flex-shrink-0',
                       LOG_BG_COLORS[log.type],
                       isLatest && 'log-entry-flash'
                     )}

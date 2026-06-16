@@ -5,8 +5,6 @@ import { MAX_LOG_ENTRIES } from '@/shared'
 const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let toastIdCounter = 0
 let logIdCounter = 0
-let logBuffer: LogEntry[] = []
-let logFlushTimer: ReturnType<typeof setTimeout> | null = null
 
 interface LogToastStore {
   logs: LogEntry[]
@@ -26,26 +24,22 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
   toasts: [],
 
   addLog: (message, type = 'info') => {
-    const entry: LogEntry = {
-      id: String(++logIdCounter),
-      time: new Date().toLocaleTimeString(undefined, { hour12: false }),
-      message,
-      type,
-    }
-    logBuffer.push(entry)
-    if (!logFlushTimer) {
-      logFlushTimer = setTimeout(() => {
-        const batch = logBuffer.slice()
-        logBuffer = []
-        logFlushTimer = null
-        set(state => {
-          const next = state.logs.length + batch.length >= MAX_LOG_ENTRIES
-            ? [...state.logs.slice(-(MAX_LOG_ENTRIES - batch.length)), ...batch]
-            : [...state.logs, ...batch]
-          return { logs: next }
-        })
-      }, 100)
-    }
+    const time = new Date().toLocaleTimeString(undefined, { hour12: false })
+    set(state => {
+      const last = state.logs[state.logs.length - 1]
+      // 去重：如果最后一条日志的消息内容和类型完全相同，只更新时间戳
+      if (last && last.message === message && last.type === type) {
+        const updated = [...state.logs]
+        updated[updated.length - 1] = { ...last, time }
+        return { logs: updated }
+      }
+      // 不同内容：追加新条目
+      const newEntry: LogEntry = { id: String(++logIdCounter), time, message, type }
+      const next = state.logs.length + 1 >= MAX_LOG_ENTRIES
+        ? [...state.logs.slice(-(MAX_LOG_ENTRIES - 1)), newEntry]
+        : [...state.logs, newEntry]
+      return { logs: next }
+    })
   },
 
   addToast: (title, type = 'info', description, duration = 4000) => {
