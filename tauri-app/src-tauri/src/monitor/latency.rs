@@ -61,8 +61,8 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
     };
     let _ = s.tasks.latency_running.swap_acquire();
     tauri::async_runtime::spawn(async move {
-        // 启动后延迟3秒再开始延迟测试循环，避免网络未稳定时HTTPS测试延迟异常
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        // 启动后延迟1秒再开始延迟测试循环，避免网络未稳定时HTTPS测试延迟异常
+    tokio::time::sleep(Duration::from_secs(1)).await;
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
         loop {
             tokio::select! {
@@ -99,7 +99,7 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
                 Some(g) => g,
                 None => continue,
             };
-            let quality = check_network_quality_async(Some(&app_h), &adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
+            let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
             // 更新冷却时间
             s.network.last_quality_check_time.store(Arc::new(std::time::Instant::now()));
             drop(_guard);

@@ -361,15 +361,13 @@ export function useAppInit() {
     if (unsubCampusExitCancelled) unlisteners.push(unsubCampusExitCancelled)
 
     const unsub6 = api.onNetworkQualityResult?.((data) => {
-      if (!data) return
+      if (!data || !mountedRef.current) return
       const now = Date.now()
-      if (now - lastNetworkQualityTimeRef.current < 1000) return
+      if (now - lastNetworkQualityTimeRef.current < 500) return
       lastNetworkQualityTimeRef.current = now
-      {
-        const prev = store.getState().networkQuality
-        handleQualityBadAlert(data, prev)
-        store.getState().setNetworkQuality(mergeNetworkQuality(prev, data))
-      }
+      const prev = store.getState().networkQuality
+      handleQualityBadAlert(data, prev)
+      store.getState().setNetworkQuality(mergeNetworkQuality(prev, data))
     }) ?? (() => {})
     if (unsub6) unlisteners.push(unsub6)
 

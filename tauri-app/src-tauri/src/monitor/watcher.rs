@@ -767,7 +767,7 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
             Some(g) => g,
             None => return,
         };
-        let quality = check_network_quality_async(Some(app_handle), &adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
+        let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
         // 更新冷却时间
         s.network.last_quality_check_time.store(std::sync::Arc::new(std::time::Instant::now()));
         drop(_quality_guard);
