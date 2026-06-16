@@ -277,6 +277,21 @@ fn run_app(core_count: usize) {
                 });
             }
 
+            // 保底机制：5秒后检查窗口是否可见，不可见则强制显示
+            // 防止前端初始化异常导致窗口永远隐藏（黑屏）
+            let app_h_safety = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                if let Some(window) = app_h_safety.get_webview_window("main") {
+                    let is_visible = window.is_visible().unwrap_or(false);
+                    if !is_visible {
+                        crate::log_warn!("startup", "窗口5秒后仍不可见，强制显示");
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {

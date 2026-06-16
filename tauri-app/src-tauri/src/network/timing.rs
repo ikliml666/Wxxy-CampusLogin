@@ -105,7 +105,30 @@ pub async fn measure_https_timing(
     let http_timeout = Duration::from_secs(5);
 
     let dns_start = Instant::now();
-    let ip = if let Some(cached) = super::dns::dns_cache_get(host) {
+    let ip = if bind_addr.is_none() {
+        // 不绑定适配器时跳过缓存，避免使用其他适配器解析的校园网专属 IP
+        match super::dns::resolve_host_smart(host, dns_timeout, None).await {
+            Ok(ip) => {
+                super::dns::dns_cache_put(host, ip);
+                result.dns_ms = ms_from(dns_start);
+                ip
+            }
+            Err(e) => {
+                let detail = if e.contains("DoH") {
+                    format!("DNS解析失败(DoH+传统DNS均不可用): {}", e)
+                } else if e.contains("超时") || e.contains("timeout") {
+                    format!("DNS解析超时: {}", e)
+                } else if e.contains("劫持") || e.contains("hijack") {
+                    format!("DNS可能被劫持: {}", e)
+                } else {
+                    format!("DNS解析失败: {}", e)
+                };
+                result.error = Some(detail);
+                result.total_ms = ms_from(overall_start);
+                return result;
+            }
+        }
+    } else if let Some(cached) = super::dns::dns_cache_get(host) {
         result.dns_ms = ms_from(dns_start);
         cached
     } else {

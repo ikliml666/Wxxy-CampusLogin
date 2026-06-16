@@ -85,27 +85,37 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             if adapter_ip.is_empty() {
                 continue;
             }
+            // 检查冷却时间，防止短时间内重复执行质量检测
+            const QUALITY_CHECK_COOLDOWN_SECS: u64 = 15;
+            let last_time = s.network.last_quality_check_time.load();
+            if std::time::Instant::now().duration_since(**last_time) < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
+                continue; // 冷却期内跳过本轮
+            }
             let (skip_ttfb, skip_content, fixed_gateway) = {
                 let cfg = s.config.load();
                 (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
             };
-            if !s.tasks.is_quality_checking.swap_acquire() {
-                let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
-                s.tasks.is_quality_checking.force_release();
-                let quality_val = match serde_json::to_value(&quality) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        crate::log_warn!("latency", "序列化网络质量结果失败: {}", e);
-                        continue;
-                    }
-                };
-                if let Err(e) = app_h.emit("network-quality-result", &quality_val) {
-                    crate::log_warn!("latency", "发送网络质量结果失败: {}", e);
+            let _guard = match s.tasks.is_quality_checking.try_acquire() {
+                Some(g) => g,
+                None => continue,
+            };
+            let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
+            // 更新冷却时间
+            s.network.last_quality_check_time.store(Arc::new(std::time::Instant::now()));
+            drop(_guard);
+            let quality_val = match serde_json::to_value(&quality) {
+                Ok(v) => v,
+                Err(e) => {
+                    crate::log_warn!("latency", "序列化网络质量结果失败: {}", e);
+                    continue;
                 }
-                let s = app_h.state::<AppState>();
-                let enable_notification = s.config.load().enable_notification;
-                notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
+            };
+            if let Err(e) = app_h.emit("network-quality-result", &quality_val) {
+                crate::log_warn!("latency", "发送网络质量结果失败: {}", e);
             }
+            let s = app_h.state::<AppState>();
+            let enable_notification = s.config.load().enable_notification;
+            notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
         }
     });
 }

@@ -753,6 +753,12 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
 
     if let Some((adapter_name, adapter_ip)) = quality_info {
         let s = app_handle.state::<AppState>();
+        // 检查冷却时间，防止短时间内重复执行质量检测
+        const QUALITY_CHECK_COOLDOWN_SECS: u64 = 15;
+        let last_time = s.network.last_quality_check_time.load();
+        if std::time::Instant::now().duration_since(**last_time) < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
+            return; // 冷却期内跳过质量检测
+        }
         let (skip_ttfb, skip_content, fixed_gateway) = {
             let cfg = s.config.load();
             (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
@@ -762,6 +768,8 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
             None => return,
         };
         let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone()).await;
+        // 更新冷却时间
+        s.network.last_quality_check_time.store(std::sync::Arc::new(std::time::Instant::now()));
         drop(_quality_guard);
         let enable_notification = s.config.load().enable_notification;
         let quality_val = match serde_json::to_value(&quality) {

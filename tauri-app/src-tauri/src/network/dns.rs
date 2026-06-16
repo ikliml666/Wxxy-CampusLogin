@@ -156,7 +156,9 @@ pub(crate) async fn resolve_host_uncached_with_bind(
 
         match resolver.lookup_ip(&host) {
             Ok(response) => {
-                response.iter().next()
+                response.iter()
+                    .find(|ip| ip.is_ipv4())
+                    .or_else(|| response.iter().next())
                     .ok_or_else(|| "无DNS结果".to_string())
             }
             Err(_) => {
@@ -173,7 +175,9 @@ pub(crate) async fn resolve_host_uncached_with_bind(
                 sys_resolver.lookup_ip(&host)
                     .map_err(|e| format!("{}", e))
                     .and_then(|response| {
-                        response.iter().next()
+                        response.iter()
+                            .find(|ip| ip.is_ipv4())
+                            .or_else(|| response.iter().next())
                             .ok_or_else(|| "系统DNS无结果".to_string())
                     })
             }

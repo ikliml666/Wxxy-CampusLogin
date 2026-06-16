@@ -14,7 +14,7 @@ i18n
       en: { translation: en },
     },
     fallbackLng: 'zh',
-    lng: localStorage.getItem('app-language') || undefined,
+    lng: (() => { try { return localStorage.getItem('app-language') || undefined } catch { return undefined } })(),
     detection: {
       order: ['localStorage', 'navigator'],
       lookupLocalStorage: 'app-language',

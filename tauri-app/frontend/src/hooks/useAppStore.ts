@@ -101,7 +101,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isLoggingOut: false,
   isRefreshingQuality: false,
   isRefreshingAdapters: false,
-  status: { text: i18next.t('auth.checking'), state: 'loading' },
+  status: { text: '正在检测...', state: 'loading' },
   activePanel: 'dashboard',
   themeName: 'default',
   isLightMode: (() => { const lm = safeStorage.get('campus-light-mode'); return lm === '1' })(),
@@ -111,7 +111,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   releaseNotes: '',
   gpuInfo: null,
   refreshRate: 0,
-  language: localStorage.getItem('app-language') || 'zh',
+  language: safeStorage.get('app-language') || 'zh',
   api,
 
   updateConfig: (partial) => {
@@ -216,7 +216,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setLanguage: (lang) => {
     set({ language: lang })
-    localStorage.setItem('app-language', lang)
+    safeStorage.set('app-language', lang)
     i18next.changeLanguage(lang)
   },
 

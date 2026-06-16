@@ -112,7 +112,7 @@ export function useAppInit() {
         const msg = parts.length > 0 ? `延迟过高: ${parts.join('、')}` : '网络延迟异常'
         lt.getState().addToast('校园网可能出现问题', 'warning', msg)
         lt.getState().addLog(msg, 'warning')
-        api.sendNotification?.('校园网可能出现问题', msg).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+        // 系统通知由后端 notify_network_quality_change 统一发送，前端不再重复调用 api.sendNotification
       }
     }
 
@@ -514,30 +514,17 @@ export function useAppInit() {
             } catch (e) { if (import.meta.env.DEV) console.error(e) }
           })()
 
-          const qualityPromise = (async () => {
-            if (cfg.enableNetworkQuality !== false) {
-              try {
-                // 启动后延迟10秒再执行网络质量检测，避免网络未稳定时HTTPS测试延迟异常
-                await new Promise<void>(r => setTimeout(r, 10000))
-                if (!mountedRef.current) return
-                const q = await api.checkNetworkQuality?.()
-                if (q) {
-                  if (!mountedRef.current) return
-                  store.getState().setNetworkQuality((old: NetworkQuality | null) => {
-                    const next = mergeNetworkQuality(old, q)
-                    return next
-                  })
-                }
-              } catch (e) { if (import.meta.env.DEV) console.error(e) }
-            }
-          })()
+          // 网络质量检测由后端 latency loop 统一管理（启动10秒后自动执行首次检测）
+          // 前端不再主动调用 checkNetworkQuality，避免与后端重复触发
+          const qualityPromise = Promise.resolve()
 
-          Promise.all([dnsPromise, qualityPromise]).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+          dnsPromise.catch((e) => { if (import.meta.env.DEV) console.error(e) })
         }
       } catch (_) {
+        // showWindow 不受 mountedRef 影响，窗口显示是应用级别的操作
+        api.showWindow?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
         if (!mountedRef.current) return
         store.setState({ config: DEFAULT_CONFIG })
-        api.showWindow?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
       }
     })()
 
