@@ -61,6 +61,7 @@ async fn ping_host_async(host: &str, timeout_ms: u32) -> Result<u64, String> {
     };
 
     let timeout = std::time::Duration::from_millis(timeout_ms as u64);
+    let deadline = std::time::Instant::now() + timeout;
     let mut total_ms = 0u64;
     let mut success_count = 0u32;
 
@@ -69,7 +70,9 @@ async fn ping_host_async(host: &str, timeout_ms: u32) -> Result<u64, String> {
     pinger.timeout(timeout);
 
     for seq in 0..3u16 {
-        match tokio::time::timeout(timeout, pinger.ping(PingSequence(seq), &[])).await {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now()).unwrap_or_default();
+        if remaining.is_zero() { break; }
+        match tokio::time::timeout(remaining, pinger.ping(PingSequence(seq), &[])).await {
             Ok(Ok((_, duration))) => {
                 if seq > 0 {
                     total_ms += duration.as_millis() as u64;

@@ -357,8 +357,8 @@ pub async fn measure_doh_timing(
     };
 
     let overall_start = Instant::now();
-    let connect_timeout = Duration::from_secs(5);
-    let http_timeout = Duration::from_secs(5);
+    let connect_timeout = std::cmp::min(timeout, Duration::from_secs(5));
+    let http_timeout = std::cmp::min(timeout, Duration::from_secs(5));
 
     let dns_start = Instant::now();
     let (ip, used_dns_resolve) = if !doh_ip.is_empty() {
