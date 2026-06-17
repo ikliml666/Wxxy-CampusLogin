@@ -125,6 +125,16 @@ pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Resu
     }
     let content = std::fs::read_to_string(&config_path)
         .map_err(|e| format!("读取配置文件失败: {}", e))?;
+    // 脱敏：将密码字段替换为占位符，防止导出文件包含可还原的加密密码
+    let content = match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(mut json) => {
+            if let Some(obj) = json.as_object_mut() {
+                obj.insert("password".to_string(), serde_json::json!(crate::config::model::PASSWORD_MASK));
+            }
+            serde_json::to_string(&json).unwrap_or(content)
+        }
+        Err(_) => content,
+    };
     crate::log_info!("config", "导出配置成功");
     Ok(CommandResult::ok_data(serde_json::json!({ "content": content })))
 }
