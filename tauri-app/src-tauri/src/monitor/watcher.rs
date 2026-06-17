@@ -83,7 +83,7 @@ fn check_adapter_portal(
     match check_portal_full(&adapter.ip, Some(&adapter.name), None, None, None) {
         Ok(ps) => {
             if ps.error_kind.as_deref() == Some("request_failed") {
-                crate::log_warn!("background", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
+                crate::log_warn!("network", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
                 let _ = app_handle.emit("login-log", serde_json::json!({
                     "message": format!("{} Portal页面检测请求失败: {}", adapter.name, ps.message),
                     "type": "error"
