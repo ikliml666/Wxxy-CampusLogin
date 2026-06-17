@@ -168,10 +168,11 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
         Some(g) => g,
         None => return Ok(empty_quality_json_with_quality("busy")),
     };
-    // 检查冷却时间，防止短时间内重复执行质量检测
-    const QUALITY_CHECK_COOLDOWN_SECS: u64 = 15;
+    // 检查冷却时间，防止短时间内重复执行质量检测（首次检测不限制）
+    const QUALITY_CHECK_COOLDOWN_SECS: u64 = 10;
     let last_time = state.network.last_quality_check_time.load();
-    if std::time::Instant::now().saturating_duration_since(**last_time) < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
+    let elapsed = std::time::Instant::now().saturating_duration_since(**last_time);
+    if elapsed > std::time::Duration::ZERO && elapsed < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
         return Ok(empty_quality_json_with_quality("cooldown"));
     }
     let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {

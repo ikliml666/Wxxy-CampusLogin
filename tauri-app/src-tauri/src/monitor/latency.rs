@@ -61,8 +61,6 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
     };
     let _ = s.tasks.latency_running.swap_acquire();
     tauri::async_runtime::spawn(async move {
-        // 启动后延迟1秒再开始延迟测试循环，避免网络未稳定时HTTPS测试延迟异常
-    tokio::time::sleep(Duration::from_secs(1)).await;
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
         loop {
             tokio::select! {
@@ -85,10 +83,13 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             if adapter_ip.is_empty() {
                 continue;
             }
-            // 检查冷却时间，防止短时间内重复执行质量检测
-            const QUALITY_CHECK_COOLDOWN_SECS: u64 = 15;
+            // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            // 检查冷却时间，防止短时间内重复执行质量检测（首次检测不限制）
+            const QUALITY_CHECK_COOLDOWN_SECS: u64 = 10;
             let last_time = s.network.last_quality_check_time.load();
-            if std::time::Instant::now().saturating_duration_since(**last_time) < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
+            let elapsed = std::time::Instant::now().saturating_duration_since(**last_time);
+            if elapsed > std::time::Duration::ZERO && elapsed < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
                 continue; // 冷却期内跳过本轮
             }
             let (skip_ttfb, skip_content, fixed_gateway) = {
