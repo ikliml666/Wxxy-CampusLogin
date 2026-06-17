@@ -510,7 +510,6 @@ export function useAppInit() {
 
           // 网络质量检测由后端 latency loop 统一管理（启动10秒后自动执行首次检测）
           // 前端不再主动调用 checkNetworkQuality，避免与后端重复触发
-          const qualityPromise = Promise.resolve()
 
           dnsPromise.catch((e) => { if (import.meta.env.DEV) console.error(e) })
         }

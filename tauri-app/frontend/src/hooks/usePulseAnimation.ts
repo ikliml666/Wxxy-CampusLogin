@@ -4,7 +4,6 @@ import { useAnimationActive } from './usePageIdle'
 
 interface PulseOptions {
   type: 'heartbeat' | 'statusPulse' | 'loadingPulse'
-  duration?: number
 }
 
 /**
@@ -17,7 +16,7 @@ export function usePulseAnimation(options: PulseOptions) {
   const ref = useRef<HTMLDivElement>(null)
   const animActive = useAnimationActive()
   const timelineRef = useRef<gsap.core.Timeline | null>(null)
-  const { type, duration } = options
+  const { type } = options
 
   useEffect(() => {
     const el = ref.current
@@ -58,7 +57,7 @@ export function usePulseAnimation(options: PulseOptions) {
       timeline?.kill()
       timelineRef.current = null
     }
-  }, [type, duration])
+  }, [type])
 
   // 空闲时暂停，活跃时恢复
   useEffect(() => {

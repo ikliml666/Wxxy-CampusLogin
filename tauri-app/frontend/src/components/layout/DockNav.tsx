@@ -415,13 +415,14 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
 
   const rafRef = useRef<number>(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!animActive) return
+    // economy 档禁用磁吸，省 RAF + GSAP quickTo 调用
+    if (!animActive || profile.tier === 'economy') return
     // RAF-throttle: only update once per frame
     cancelAnimationFrame(rafRef.current)
     rafRef.current = requestAnimationFrame(() => {
       mouseX.set(e.clientX)
     })
-  }, [mouseX, animActive])
+  }, [mouseX, animActive, profile.tier])
 
   const handleMouseLeave = useCallback(() => {
     mouseX.set(-1000)
@@ -490,7 +491,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           className="absolute bottom-[3px] left-0 h-[3px] rounded-full bg-primary"
           style={{ width: 20, originX: 0 }}
           animate={{ x: indicator.left, scaleX: indicator.width / 20 }}
-          transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
+          transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
         />
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />

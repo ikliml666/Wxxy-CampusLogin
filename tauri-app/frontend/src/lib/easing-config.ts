@@ -11,7 +11,7 @@ export interface EasingConfig {
 export const EASING_60HZ: EasingConfig = {
   enter: [0.16, 1, 0.3, 1],
   exit: [0.7, 0, 0.84, 0],
-  smooth: [0.33, 1, 0.68, 1],
+  smooth: [0.32, 1, 0.72, 1],
   snappy: [0.2, 0.8, 0.2, 1],
   overshoot: [0.34, 1.56, 0.64, 1],
 }
@@ -19,7 +19,7 @@ export const EASING_60HZ: EasingConfig = {
 export const EASING_120HZ: EasingConfig = {
   enter: [0.12, 1, 0.24, 1],
   exit: [0.6, 0, 0.8, 0],
-  smooth: [0.28, 1, 0.56, 1],
+  smooth: [0.28, 1, 0.6, 1],
   snappy: [0.18, 0.8, 0.18, 1],
   overshoot: [0.34, 1.4, 0.64, 1],
 }

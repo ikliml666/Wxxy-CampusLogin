@@ -1,4 +1,4 @@
-﻿﻿# Changelog
+﻿﻿﻿# Changelog
 
 ## v2.2.6
 
@@ -81,3 +81,16 @@
 - **密码脱敏**：登录失败错误消息追加 `password` 脱敏，防止重定向 URL 泄漏密码
 - **注销重复请求**：`do_logout` 复用 `check_any_adapter_online` 结果，消除重复 HTTP 请求
 - **MAC 种子碰撞**：`generate_random_mac` 用 `AtomicU64` 计数器混合时间戳，避免同纳秒并发调用生成相同 MAC
+
+### 前端动画优化升级
+
+- **动态分级降级**：`useAnimationProfile` 基于现有 `gpuInfo.tier`（low-igpu/mid-igpu/high-igpu/discrete/unknown）+ `refreshRate` + `prefers-reduced-motion` 动态分 high/standard/economy 三档，复用现有 GPU 探测零新增开销。economy 档（low-igpu 或 reduced-motion）自动降级 willChangeOrbs/enableTilt/startupBoost/numberDuration
+- **启动序列降级**：`useStartupBoost` economy 档跳过入场动画序列直接落终态，省去多元素 GSAP timeline
+- **Dock 磁吸降级**：`DockNav` economy 档跳过磁吸 RAF + GSAP quickTo 调用，降低低端设备主线程占用
+- **死代码清理**：移除 `useAnimationProfile` 的 4 个死配置字段（gradientScale/willChangeGradient/orbDurationMultiplier/prefersContainStrict）；移除 `usePulseAnimation` 未使用的 duration 参数；移除 `AnimatedCard` 的 showGlow 死分支及孤儿 glowShadow；移除 index.css 的 card-glow-wrapper/layer 死代码
+- **Dock 指示器物理感**：DockNav indicator 从 expo-out tween 改为 spring（stiffness:500/damping:34/mass:0.8），贴合 Apple Dock 物理弹性
+- **预存类型错误修复**：移除 `useAppInit` 中未使用的 qualityPromise 残留变量，tsc --noEmit 干净通过
+- **面板转场 spring 调优**：`createPanelAppleVariants` stiffness:400/damping:32/mass:0.6（dampingRatio≈1.03 过阻尼硬着陆）调为 320/24/0.7（dampingRatio≈0.80），贴合 Apple HIG 推荐 0.7-0.9 自然轻微弹性区间
+- **缓动曲线微调**：`easing-config` smooth 末段控制点微调（60Hz 0.68→0.72，120Hz 0.56→0.6），让"慢出"减速段更长更顺滑，enter/exit/overshoot 保持不变
+- **卡片 hover 抬升反馈**：`.animated-card-interactive:hover` 加 `transform: translateY(-2px)` 微抬（transform 合成层操作零 paint），配 `transition: transform 0.2s`，Apple 卡片风格；未加 shadow 过渡以避免触发 paint
+- **启动序列收尾紧凑**：`useStartupBoost` dockNav 入场 duration 0.7→0.6，ease `back.out(1.4)`→`back.out(1.2)`（弹性收敛），起始 0.5→0.45，总时长 1.2s→1.05s

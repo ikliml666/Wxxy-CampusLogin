@@ -107,13 +107,6 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       }
     }, [])
 
-    // hover 层 shadow - 静态计算，通过 CSS opacity 控制可见性，避免 box-shadow 过渡触发 paint
-    // Apple 风格：仅微弱投影提升层次感，不发光
-    const glowShadow = React.useMemo(() => {
-      if (noHover) return ''
-      return `0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)`
-    }, [noHover])
-
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
       [className]
@@ -129,45 +122,34 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       )
     }
 
-    const showGlow = false
-
     return (
-      <div className={showGlow ? 'card-glow-wrapper' : undefined}>
-        {/* 发光层 - 独立于 overflow:hidden 之外，仅 opacity 过渡（合成层操作，零 paint） */}
-        {showGlow && (
-          <div
-            className="card-glow-layer"
-            style={{ boxShadow: glowShadow }}
-          />
+      <div
+        className={cn(
+          'rounded-2xl animated-card-interactive',
+          showEntryAnim && 'card-enter',
         )}
+        style={{
+          '--stagger-i': staggerIndex ?? 0,
+          perspective: tiltEnabled ? 800 : undefined,
+        } as React.CSSProperties}
+        onMouseDown={handleMouseDown}
+        onMouseLeave={handleMouseLeave}
+        onMouseMove={handleMouseMove}
+      >
         <div
-          className={cn(
-            'rounded-2xl animated-card-interactive',
-            showEntryAnim && 'card-enter',
-          )}
+          ref={(node) => {
+            (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+            if (typeof ref === 'function') ref(node)
+            else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+          }}
+          className={cardClassName}
           style={{
-            '--stagger-i': staggerIndex ?? 0,
-            perspective: tiltEnabled ? 800 : undefined,
-          } as React.CSSProperties}
-          onMouseDown={handleMouseDown}
-          onMouseLeave={handleMouseLeave}
-          onMouseMove={handleMouseMove}
+            boxShadow: REST_SHADOW,
+            transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
+          }}
+          {...props}
         >
-          <div
-            ref={(node) => {
-              (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = node
-              if (typeof ref === 'function') ref(node)
-              else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
-            }}
-            className={cardClassName}
-            style={{
-              boxShadow: REST_SHADOW,
-              transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
-            }}
-            {...props}
-          >
-            {children}
-          </div>
+          {children}
         </div>
       </div>
     )

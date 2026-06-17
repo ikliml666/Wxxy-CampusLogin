@@ -57,8 +57,10 @@ export function useStartupBoost() {
     const r = refs.current
     const stagger = profile.startupStaggerDelay
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // economy 档（startupBoost=false）与 reduced-motion 一并跳过入场动画，直接落到终态
+    const skipAnimation = reducedMotion || !profile.startupBoost
 
-    if (reducedMotion) {
+    if (skipAnimation) {
       const allEls = TRANSFORM_KEYS.map(k => r[k]).filter(Boolean) as HTMLElement[]
       gsap.set(allEls, { opacity: 1, y: 0, scale: 1, x: 0 })
       coolDownGpuLayers()
@@ -107,8 +109,8 @@ export function useStartupBoost() {
     if (r.dockNav) {
       tl.fromTo(r.dockNav,
         { opacity: 0, y: 40, scale: 0.85 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'back.out(1.4)', force3D: true },
-        0.5
+        { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.2)', force3D: true },
+        0.45
       )
     }
 

@@ -34,7 +34,8 @@ export function createPanelAppleVariants(easing: EasingConfig) {
     animate: {
       y: 0,
       opacity: 1,
-      transition: { type: 'spring' as const, stiffness: 400, damping: 32, mass: 0.6 },
+      // dampingRatio ≈ 0.80（Apple HIG 推荐 0.7-0.9 自然轻微弹性区间）
+      transition: { type: 'spring' as const, stiffness: 320, damping: 24, mass: 0.7 },
     },
     exit: {
       y: -4,

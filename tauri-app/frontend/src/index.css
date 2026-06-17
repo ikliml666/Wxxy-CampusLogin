@@ -451,31 +451,8 @@
       inset -2px -2px 4px rgba(255,255,255,0.04);
   }
 
-  .card-glow-wrapper {
-    position: relative;
-  }
-
-  .card-glow-layer {
-    position: absolute;
-    inset: -4px;
-    border-radius: inherit;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    will-change: opacity;
-    z-index: -1;
-  }
-
-  .card-glow-wrapper:hover .card-glow-layer {
-    opacity: 1;
-  }
-
-  .dark .card-glow-layer {
-    box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.12) !important;
-  }
-
   .animated-card-interactive {
-    transition: border-color 0.3s ease;
+    transition: border-color 0.3s ease, transform 0.2s cubic-bezier(0.33, 1, 0.68, 1);
     border: 1px solid transparent;
     position: relative;
     overflow: hidden;
@@ -485,6 +462,7 @@
 
   .animated-card-interactive:hover {
     border-color: rgba(0, 0, 0, 0.06);
+    transform: translateY(-2px);
   }
 
   .animated-card-interactive:focus-visible {
