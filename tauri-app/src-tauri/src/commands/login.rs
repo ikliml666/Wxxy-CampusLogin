@@ -213,13 +213,15 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
     };
 
     if result.success {
-        crate::log_info!("logout", "注销成功，已重置网络状态，60秒注销保护期开始");
         let s = app_handle.state::<AppState>();
-        s.exit.auto_exit_cancelled.store(true, Ordering::Release);
-        s.exit.set_deadline(None);
 
         if adapter_name.is_none() {
-            // 全量注销：复用闭包内 check_any_adapter_online 的检测结果设置标志，避免重复 HTTP 请求
+            // 全量注销：重置所有全局标志 + 取消自动退出 + 60秒注销保护期
+            crate::log_info!("logout", "全量注销成功，已重置网络状态，60秒注销保护期开始");
+            s.exit.auto_exit_cancelled.store(true, Ordering::Release);
+            s.exit.set_deadline(None);
+
+            // 复用闭包内 check_any_adapter_online 的检测结果设置标志，避免重复 HTTP 请求
             let any_online = any_online_after_logout.unwrap_or(false);
             s.network.any_adapter_online.store(any_online, Ordering::Release);
             // 全量注销后逐适配器检测真实在线状态，避免误清零失败适配器的标志
@@ -243,8 +245,16 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             } else {
                 s.network.last_a2_online.store(false, Ordering::Release);
             }
+
+            // 全量注销专属：重置登录/重连状态 + 注销保护期
+            s.network.has_logged_online.store(false, Ordering::Release);
+            s.network.disconnect_reconnect_count.store(0, Ordering::Release);
+            s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
+            let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
         } else {
-            // 单个适配器注销：只重置对应适配器的标志
+            // 单适配器注销：仅重置对应适配器标志，重新计算 any_adapter_online，其余全局标志保持不变
+            crate::log_info!("logout", "单适配器注销成功: {:?}", adapter_name);
             let cfg = s.config.load_full();
             let target_name = adapter_name.as_deref().unwrap();
             if target_name == cfg.adapter1 {
@@ -257,11 +267,6 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             let a2 = s.network.last_a2_online.load(Ordering::Acquire);
             s.network.any_adapter_online.store(a1 || a2, Ordering::Release);
         }
-        s.network.has_logged_online.store(false, Ordering::Release);
-        s.network.disconnect_reconnect_count.store(0, Ordering::Release);
-        s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
-        let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
     }
     Ok(result)
 }
