@@ -214,11 +214,31 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
         s.exit.auto_exit_cancelled.store(true, Ordering::Release);
         s.exit.set_deadline(None);
 
-        // 只有在注销全部适配器（未指定 adapter_name）时，才重置 all online 标志
         if adapter_name.is_none() {
-            s.network.any_adapter_online.store(false, Ordering::Release);
-            s.network.last_a1_online.store(false, Ordering::Release);
-            s.network.last_a2_online.store(false, Ordering::Release);
+            // 全量注销：复用 check_any_adapter_online 的实际检测结果设置标志
+            let any_online = check_any_adapter_online(&s);
+            s.network.any_adapter_online.store(any_online, Ordering::Release);
+            // 全量注销后逐适配器检测真实在线状态，避免误清零失败适配器的标志
+            let adapters = match get_adapters_cached() {
+                Ok(a) => a,
+                Err(_) => Vec::new(),
+            };
+            let cfg = s.config.load_full();
+            let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &cfg);
+            let a1_online = adapters.iter().find(|a| a.name == a1_name && !a.ip.is_empty())
+                .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None, None)
+                    .map(|ps| ps.online).unwrap_or(false))
+                .unwrap_or(false);
+            s.network.last_a1_online.store(a1_online, Ordering::Release);
+            if cfg.dual_adapter && !a2_name.is_empty() {
+                let a2_online = adapters.iter().find(|a| a.name == a2_name && !a.ip.is_empty())
+                    .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None, None)
+                        .map(|ps| ps.online).unwrap_or(false))
+                    .unwrap_or(false);
+                s.network.last_a2_online.store(a2_online, Ordering::Release);
+            } else {
+                s.network.last_a2_online.store(false, Ordering::Release);
+            }
         } else {
             // 单个适配器注销：只重置对应适配器的标志
             let cfg = s.config.load_full();

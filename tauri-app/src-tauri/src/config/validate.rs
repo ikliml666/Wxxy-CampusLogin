@@ -118,10 +118,15 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if config.log_retention_days > 365 {
         config.log_retention_days = 7;
     }
-    // 兼容旧配置：旧字段 campusCheckStartHour 值为 0-23 的小时值
-    // 如果值 < 24 且不是 0（0 表示禁用，保持不变），视为小时值并转为分钟
-    if config.campus_check_start_minutes > 0 && config.campus_check_start_minutes < 24 {
-        config.campus_check_start_minutes *= 60;
+    // 配置版本迁移：config_version < 2 为旧版，campus_check_start_minutes 可能是旧字段 campusCheckStartHour 的小时值（通过 alias 反序列化）
+    // config_version >= 2 为新版，campus_check_start_minutes 直接是分钟值
+    if config.config_version < 2 {
+        // 旧配置：值 > 0 且 < 24 视为小时值，转为分钟
+        if config.campus_check_start_minutes > 0 && config.campus_check_start_minutes < 24 {
+            config.campus_check_start_minutes *= 60;
+        }
+        // 迁移完成，升级配置版本
+        config.config_version = 2;
     }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
     Ok(config)

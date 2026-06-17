@@ -20,6 +20,12 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 fn main() {
+    // 注册 panic hook：panic=abort 时 hook 仍会执行，确保日志 flush
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("panic: {}", info);
+        crate::infra::logger::flush();
+    }));
+
     let core_count = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(2);
@@ -107,17 +113,12 @@ fn run_app(core_count: usize) {
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
             let log_dir = install_dir.join("logs");
 
-            let config = std::thread::scope(|s| {
-                let log_dir_clone = log_dir.clone();
-                s.spawn(move || {
-                    crate::infra::logger::init_logger(log_dir_clone);
-                });
+            let config = {
+                // 先完成 logger 初始化，再加载 config，避免 config 加载日志丢失
+                crate::infra::logger::init_logger(log_dir.clone());
                 let app_handle = app.handle().clone();
-                let config = s.spawn(move || {
-                    commands::config_cmd::load_config_from_disk_or_default(&app_handle)
-                });
-                config.join().unwrap_or_default()
-            });
+                commands::config_cmd::load_config_from_disk_or_default(&app_handle)
+            };
 
             crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
             crate::log_info!("app", "应用启动, 版本: v{}", env!("CARGO_PKG_VERSION"));

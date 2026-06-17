@@ -99,6 +99,15 @@ pub fn try_disconnect_reconnect(
         return;
     }
 
+    // 先尝试获取登录锁，成功后再增加重连计数，避免锁获取失败但计数器已增加
+    let login_guard = match state.tasks.is_logging_in.try_acquire() {
+        Some(g) => g,
+        None => {
+            crate::log_debug!("auto_login", "断线重连：登录锁被占用，跳过本次");
+            return;
+        }
+    };
+
     let reconnect_count = state.network.disconnect_reconnect_count.fetch_add(1, Ordering::Relaxed) + 1;
     if reconnect_count <= MAX_DISCONNECT_RECONNECT {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
@@ -107,32 +116,32 @@ pub fn try_disconnect_reconnect(
         crate::log_info!("auto_login", "断线重连 [{}/{}]: 离线适配器={}, online={}, secondaryOnline={}",
             reconnect_count, MAX_DISCONNECT_RECONNECT, offline_adapter, online, secondary_online.unwrap_or(true));
 
-        if let Some(_login_guard) = state.tasks.is_logging_in.try_acquire() {
-            let t0 = std::time::Instant::now();
-            state.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
-            let reconnect_result = crate::auth::session::full_login_inner(state, app_handle, None);
-            let elapsed = t0.elapsed();
+        let _login_guard = login_guard;
+        let t0 = std::time::Instant::now();
+        state.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
+        let reconnect_result = crate::auth::session::full_login_inner(state, app_handle, None);
+        let elapsed = t0.elapsed();
 
-            crate::log_info!("auto_login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
-                reconnect_count, MAX_DISCONNECT_RECONNECT, reconnect_result.success, elapsed.as_millis());
+        crate::log_info!("auto_login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
+            reconnect_count, MAX_DISCONNECT_RECONNECT, reconnect_result.success, elapsed.as_millis());
 
-            if reconnect_result.success {
-                state.network.disconnect_reconnect_count.store(0, Ordering::Release);
-                state.network.any_adapter_online.store(true, Ordering::Release);
-                state.network.has_logged_online.store(true, Ordering::Release);
-                if let Err(e) = crate::commands::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
-                    crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
-                }
-                if let Err(e) = app_handle.emit("auto-login-result", serde_json::json!({
-                    "success": true,
-                    "message": format!("断线重连成功: {}", reconnect_result.message.unwrap_or_default()),
-                    "skipped": false,
-                })) {
-                    crate::log_warn!("auto_login", "发送重连结果失败: {}", e);
-                }
+        if reconnect_result.success {
+            state.network.disconnect_reconnect_count.store(0, Ordering::Release);
+            state.network.any_adapter_online.store(true, Ordering::Release);
+            state.network.has_logged_online.store(true, Ordering::Release);
+            if let Err(e) = crate::commands::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
+                crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
+            }
+            if let Err(e) = app_handle.emit("auto-login-result", serde_json::json!({
+                "success": true,
+                "message": format!("断线重连成功: {}", reconnect_result.message.unwrap_or_default()),
+                "skipped": false,
+            })) {
+                crate::log_warn!("auto_login", "发送重连结果失败: {}", e);
             }
         }
     } else if reconnect_count == MAX_DISCONNECT_RECONNECT + 1 {
+        // 锁已获取但重连次数超限，释放锁（drop login_guard）并记录
         crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", MAX_DISCONNECT_RECONNECT);
         emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录");
     } else if reconnect_count > MAX_DISCONNECT_RECONNECT + 1 && (reconnect_count - MAX_DISCONNECT_RECONNECT) % RECONNECT_REMINDER_INTERVAL == 0 {

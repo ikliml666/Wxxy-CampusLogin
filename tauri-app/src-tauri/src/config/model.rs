@@ -52,7 +52,7 @@ pub struct Config {
     pub skip_content_in_latency: bool,
     #[serde(rename = "portalUrl", default = "default_portal_url")]
     pub portal_url: String,
-    #[serde(rename = "fixedGateway", default)]
+    #[serde(rename = "fixedGateway", default = "default_fixed_gateway")]
     pub fixed_gateway: String,
     #[serde(rename = "requiredNetworkName", default = "default_required_network_name", deserialize_with = "deserialize_required_network_name")]
     pub required_network_name: String,
@@ -64,8 +64,10 @@ pub struct Config {
     pub campus_exit_on_fail: bool,
     #[serde(rename = "campusCheckStartMinutes", alias = "campusCheckStartHour", default = "default_campus_check_start_minutes")]
     pub campus_check_start_minutes: u16,
-    #[serde(rename = "logRetentionDays", default)]
+    #[serde(rename = "logRetentionDays", default = "default_log_retention_days")]
     pub log_retention_days: u32,
+    #[serde(rename = "configVersion", default)]
+    pub config_version: u32,
 }
 
 fn deserialize_non_empty_or<'de, D>(deserializer: D, default_fn: fn() -> String) -> Result<String, D::Error>
@@ -97,6 +99,12 @@ where
 fn default_true() -> bool { true }
 
 fn default_campus_check_start_minutes() -> u16 { 480 }
+
+pub fn default_fixed_gateway() -> String {
+    "10.2.127.254".to_string()
+}
+
+pub fn default_log_retention_days() -> u32 { 7 }
 
 pub fn default_portal_url() -> String {
     "http://10.1.99.100".to_string()
@@ -146,6 +154,7 @@ impl Default for Config {
             campus_exit_on_fail: true,
             campus_check_start_minutes: 480,
             log_retention_days: 7,
+            config_version: 2,
         }
     }
 }

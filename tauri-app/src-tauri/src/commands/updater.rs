@@ -169,9 +169,26 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
         return Err("安装包文件不存在".to_string());
     }
 
+    // 路径校验必须在 SHA256 校验之前，避免校验失败时删除非临时目录的文件
+    let temp_dir = std::env::temp_dir().join("campus-login-update");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
+
+    let canonical_path = path.canonicalize().map_err(|e| format!("无法解析文件路径: {}", e))?;
+    let allowed_dir = temp_dir.canonicalize().map_err(|_| "无法解析临时目录路径".to_string())?;
+    if !canonical_path.starts_with(&allowed_dir) {
+        return Err("安装包路径不在允许的临时目录中".to_string());
+    }
+
     if let Some(url) = checksum_url {
         if !url.is_empty() {
-            match crate::update::updater::verify_download_sha256(&file_path, &url).await {
+            // checksum_url 可能是 JSON 数组字符串（多镜像 URL）或单个 URL
+            let sha256_urls: Vec<String> = if url.starts_with('[') {
+                serde_json::from_str(&url).unwrap_or_else(|_| vec![url])
+            } else {
+                vec![url]
+            };
+
+            match crate::update::updater::verify_download_sha256(&file_path, &sha256_urls).await {
                 Ok(true) => {}
                 Ok(false) => {
                     let _ = std::fs::remove_file(&file_path);
@@ -187,15 +204,6 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
         }
     } else {
         return Err("未提供SHA256校验和，安装已阻止".to_string());
-    }
-
-    let temp_dir = std::env::temp_dir().join("campus-login-update");
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
-
-    let canonical_path = path.canonicalize().map_err(|e| format!("无法解析文件路径: {}", e))?;
-    let allowed_dir = temp_dir.canonicalize().map_err(|_| "无法解析临时目录路径".to_string())?;
-    if !canonical_path.starts_with(&allowed_dir) {
-        return Err("安装包路径不在允许的临时目录中".to_string());
     }
 
     let ext = canonical_path

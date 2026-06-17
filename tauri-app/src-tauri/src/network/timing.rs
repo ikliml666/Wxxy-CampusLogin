@@ -156,7 +156,7 @@ pub async fn measure_https_timing(
     result.tls_ms = ms_from(tls_start);
     result.tls_version = negotiated_version;
 
-    if !skip_ttfb && !skip_content {
+    if !skip_ttfb {
         let request = format!(
             "GET / HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: */*\r\nConnection: close\r\n\r\n",
             host
@@ -175,6 +175,10 @@ pub async fn measure_https_timing(
         let mut content_start = Instant::now();
 
         loop {
+            // skip_content=true 时，收到第一个字节后即可停止
+            if skip_content && first_byte_received {
+                break;
+            }
             match tokio::time::timeout(http_timeout, tls_stream.read(&mut buf)).await {
                 Ok(Ok(0)) => break,
                 Ok(Ok(n)) => {
@@ -182,6 +186,9 @@ pub async fn measure_https_timing(
                         result.ttfb_ms = ms_from(ttfb_start);
                         content_start = Instant::now();
                         first_byte_received = true;
+                        if skip_content {
+                            break;
+                        }
                     }
                     total_read += n;
                     if total_read > 64 * 1024 {

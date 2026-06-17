@@ -55,17 +55,41 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     parse_login_result(&body)
 }
 
-pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_ip: Option<&str>, _max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
-    if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-        return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
+pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_ip: Option<&str>, max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
+    let mut last_result: Option<serde_json::Value> = None;
+
+    for attempt in 1..=max_retries {
+        if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
+        }
+
+        crate::log_debug!("login", "登录尝试 [{}/{}]", attempt, max_retries);
+
+        match do_login_request(user, password, operator, adapter_ip) {
+            Ok(r) => {
+                let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                let retryable = r.get("retryable").and_then(|v| v.as_bool()).unwrap_or(true);
+                if success || !retryable {
+                    return Ok(r);
+                }
+                last_result = Some(r);
+            }
+            Err(e) => {
+                last_result = Some(serde_json::json!({ "code": "error", "message": e, "success": false, "retryable": true }));
+            }
+        }
+
+        if attempt < max_retries {
+            for _ in 0..20 {
+                if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+                    return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
     }
 
-    crate::log_debug!("login", "登录尝试 [1/1]");
-
-    match do_login_request(user, password, operator, adapter_ip) {
-        Ok(r) => Ok(r),
-        Err(e) => Ok(serde_json::json!({ "code": "error", "message": e, "success": false })),
-    }
+    Ok(last_result.unwrap_or_else(|| serde_json::json!({ "code": "max_retries", "message": "多次重试后仍失败", "success": false })))
 }
 
 fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
@@ -207,7 +231,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     };
 
     Ok(serde_json::json!({
-        "code": if any_radius_ok && any_unbind_ok { "0" } else { "1" },
+        "code": if any_radius_ok { "0" } else { "1" },
         "message": combined_msg,
         "success": any_radius_ok,
         "retryable": !any_radius_ok,

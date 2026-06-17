@@ -30,20 +30,19 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
         None => return Ok(AccountResult::err("账号不存在")),
     };
 
-    let mut merged = state.config.load().as_ref().clone();
-    merged.user = config.user.clone();
-    merged.password = config.password.clone();
-    merged.operator = config.operator.clone();
-    merged.adapter1 = config.adapter1.clone();
-    merged.adapter2 = config.adapter2.clone();
-    merged.dual_adapter = config.dual_adapter;
-    merged.active_account = account_name.clone();
+    let merged = state.update_config(|c| {
+        c.user = config.user.clone();
+        c.password = config.password.clone();
+        c.operator = config.operator.clone();
+        c.adapter1 = config.adapter1.clone();
+        c.adapter2 = config.adapter2.clone();
+        c.dual_adapter = config.dual_adapter;
+        c.active_account = account_name.clone();
+    });
 
     let app_h2 = app_handle.clone();
-    let merged_clone = merged.clone();
-    tauri::async_runtime::spawn_blocking(move || super::config_cmd::save_config_to_disk_encrypted(&app_h2, &merged_clone)).await.map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || super::config_cmd::save_config_to_disk_encrypted(&app_h2, &merged)).await.map_err(|e| e.to_string())??;
 
-    state.config.store(Arc::new(merged));
     crate::log_info!("account", "切换账号: {} (用户: {})", safe_name_log, config.user);
 
     let display_config = state.config.load().masked_for_display();
@@ -81,15 +80,8 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                     Ok(content) => {
                         let mut existing = serde_json::from_str::<Config>(&content)
                             .map_err(|e| format!("账号配置文件解析失败(可能已损坏): {}", e))?;
-                        if !existing.password.is_empty() {
-                            match crypto::decrypt(&existing.password) {
-                                Ok(decrypted) => { existing.password = decrypted; }
-                                Err(e) => {
-                                    crate::log_error!("account", "旧账号密码解密失败: {}", e);
-                                    return Err("旧账号密码解密失败，请重新输入密码".to_string());
-                                }
-                            }
-                        }
+                        // 保留旧账号的非登录字段（主题等），登录字段一律用当前配置覆盖
+                        existing.password = String::new();
                         existing
                     }
                     Err(e) => {
@@ -213,9 +205,9 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle, state: 
 
     let current_config = state.config.load();
     if current_config.active_account == account_name {
-        let mut cfg = current_config.as_ref().clone();
-        cfg.active_account = String::new();
-        state.config.store(Arc::new(cfg));
+        state.update_config(|c| {
+            c.active_account = String::new();
+        });
     }
 
     let display_config = state.config.load().masked_for_display();

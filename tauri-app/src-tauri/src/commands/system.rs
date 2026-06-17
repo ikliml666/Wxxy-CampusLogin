@@ -57,14 +57,7 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
     let exe_path = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
     let exe_str = exe_path.to_str().ok_or("程序路径无效")?;
 
-    let cfg = state.update_config(|cfg| {
-        cfg.auto_launch = enabled;
-    });
-
-    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
-        return Ok(serde_json::json!({ "success": false, "message": format!("保存配置失败: {}", e) }));
-    }
-
+    // 先执行注册表操作，成功后再更新配置，避免注册表失败但配置已改导致状态矛盾
     let result = if enabled {
         autostart::set_auto_start(exe_str)
     } else {
@@ -73,6 +66,12 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
 
     match result {
         Ok(_) => {
+            let cfg = state.update_config(|cfg| {
+                cfg.auto_launch = enabled;
+            });
+            if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+                crate::log_warn!("system", "保存自启配置失败: {}", e);
+            }
             crate::log_info!("system", "开机自启已{}", if enabled { "开启" } else { "关闭" });
             Ok(serde_json::json!({ "success": true, "message": if enabled { "已开启开机自启" } else { "已关闭开机自启" } }))
         }

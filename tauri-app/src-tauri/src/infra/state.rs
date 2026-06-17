@@ -104,6 +104,7 @@ pub struct ExitState {
     pub auto_exit_deadline: Mutex<Option<std::time::Instant>>,
     pub auto_exit_cancelled: AtomicBool,
     pub campus_exit_started: AtomicBool,
+    pub campus_exit_deadline: Mutex<Option<std::time::Instant>>,
 }
 
 impl ExitState {
@@ -113,6 +114,14 @@ impl ExitState {
 
     pub fn set_deadline(&self, deadline: Option<std::time::Instant>) {
         *self.auto_exit_deadline.lock() = deadline;
+    }
+
+    pub fn campus_exit_deadline(&self) -> Option<std::time::Instant> {
+        *self.campus_exit_deadline.lock()
+    }
+
+    pub fn set_campus_exit_deadline(&self, deadline: Option<std::time::Instant>) {
+        *self.campus_exit_deadline.lock() = deadline;
     }
 }
 
@@ -163,6 +172,7 @@ impl AppState {
                 auto_exit_deadline: Mutex::new(None),
                 auto_exit_cancelled: AtomicBool::new(false),
                 campus_exit_started: AtomicBool::new(false),
+                campus_exit_deadline: Mutex::new(None),
             },
             last_update_check_epoch_ms: AtomicU64::new(0),
             update_notified: AtomicBool::new(false),

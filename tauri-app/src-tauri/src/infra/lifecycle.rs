@@ -22,6 +22,10 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         return;
     }
 
+    // 设置 deadline 用于二次校验，防止取消后重触发导致旧任务提前退出
+    let deadline = std::time::Instant::now() + Duration::from_millis(CAMPUS_EXIT_DELAY_MS);
+    state.exit.set_campus_exit_deadline(Some(deadline));
+
     crate::log_info!("campus_exit", "校园网验证未通过，{}秒后最小化到托盘，{}秒后退出",
         CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000);
 
@@ -48,7 +52,9 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         tokio::time::sleep(Duration::from_millis(CAMPUS_MINIMIZE_DELAY_MS)).await;
 
         let s = app_h.state::<AppState>();
-        if s.exit.is_quitting.load(Ordering::Acquire) || !s.exit.campus_exit_started.load(Ordering::Acquire) {
+        // 用 deadline 做二次校验：若 deadline 已被清除（取消）或已变更（重触发），则退出
+        let current_deadline = s.exit.campus_exit_deadline();
+        if s.exit.is_quitting.load(Ordering::Acquire) || current_deadline.is_none() {
             return;
         }
 
@@ -61,8 +67,16 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         tokio::time::sleep(Duration::from_millis(CAMPUS_EXIT_DELAY_MS - CAMPUS_MINIMIZE_DELAY_MS)).await;
 
         let s = app_h.state::<AppState>();
-        if !s.exit.campus_exit_started.load(Ordering::Acquire) {
-            return;
+        // 用 deadline 做最终校验：必须存在且已到期，且未被取消
+        let current_deadline = s.exit.campus_exit_deadline();
+        match current_deadline {
+            Some(d) if std::time::Instant::now() >= d => {
+                // deadline 匹配，继续退出
+            }
+            _ => {
+                // deadline 已被清除（取消）或未到期（被新任务替换），退出
+                return;
+            }
         }
 
         crate::log_info!("campus_exit", "校园网验证退出流程完成，正在退出");
@@ -89,6 +103,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
 /// 取消校园网退出流程（当重新检测到校园网时调用，或通过快捷键取消）
 pub fn cancel_campus_exit(state: &AppState) {
     if state.exit.campus_exit_started.swap(false, Ordering::AcqRel) {
+        state.exit.set_campus_exit_deadline(None);
         crate::log_info!("campus_exit", "校园网退出流程已取消");
     }
 }
@@ -99,6 +114,7 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
     if !was_active {
         return;
     }
+    state.exit.set_campus_exit_deadline(None);
 
     crate::log_info!("campus_exit", "校园网退出流程已取消（快捷键）");
 

@@ -255,11 +255,7 @@ fn parse_adapter_addresses(
         }
 
         let is_up = addr.OperStatus == IfOperStatusUp;
-        // 已禁用（NotPresent）的适配器不进入列表，其他状态（包括"未连接"）都保留
-        if addr.OperStatus == IfOperStatusNotPresent {
-            current = addr.Next;
-            continue;
-        }
+        // NotPresent（已禁用）适配器不跳过，进入 else 分支加入 disabled 列表
 
         if !is_visible_in_ncpa(&guid) {
             current = addr.Next;
@@ -685,7 +681,6 @@ pub fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Opti
     let interval = std::time::Duration::from_millis(300);
     let timeout = std::time::Duration::from_millis(timeout_ms);
     while start.elapsed() < timeout {
-        std::thread::sleep(interval);
         if let Ok(adapters) = get_adapters_force() {
             if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
                 if !a.ip.is_empty() && a.ip != old_ip {
@@ -693,6 +688,7 @@ pub fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Opti
                 }
             }
         }
+        std::thread::sleep(interval);
     }
     None
 }
@@ -702,7 +698,6 @@ pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
     let interval = std::time::Duration::from_millis(300);
     let timeout = std::time::Duration::from_millis(timeout_ms);
     while start.elapsed() < timeout {
-        std::thread::sleep(interval);
         if let Ok(adapters) = get_adapters_force() {
             if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
                 if !a.ip.is_empty() {
@@ -710,6 +705,7 @@ pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
                 }
             }
         }
+        std::thread::sleep(interval);
     }
     false
 }
@@ -1096,6 +1092,11 @@ pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &
     let start = std::time::Instant::now();
     let interval = std::time::Duration::from_millis(100);
     let timeout = std::time::Duration::from_millis(timeout_ms);
+    // 记录初始 IP，只有 IP 变为非空且与初始值不同时才认为续租成功
+    let initial_ip = get_adapters_force()
+        .ok()
+        .and_then(|list| list.iter().find(|a| a.name == adapter_name).map(|a| a.ip.clone()))
+        .unwrap_or_default();
     while start.elapsed() < timeout {
         if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
             return false;
@@ -1103,7 +1104,7 @@ pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &
         std::thread::sleep(interval);
         if let Ok(adapters) = get_adapters_force() {
             if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
-                if !a.ip.is_empty() {
+                if !a.ip.is_empty() && a.ip != initial_ip {
                     return true;
                 }
             }

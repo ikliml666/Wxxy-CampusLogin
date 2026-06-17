@@ -41,14 +41,19 @@ pub struct DownloadProgress {
 }
 
 pub fn compare_versions(current: &str, latest: &str) -> bool {
-    let cur: Vec<u32> = current
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
-    let lat: Vec<u32> = latest
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    let parse_version = |s: &str| -> Vec<u32> {
+        s.trim_start_matches('v')
+            .split('.')
+            .take(3)
+            .map(|seg| {
+                // 提取段中的数字部分（处理 "2-beta" 等后缀），解析失败按 0
+                let digits: String = seg.chars().take_while(|c| c.is_ascii_digit()).collect();
+                digits.parse::<u32>().unwrap_or(0)
+            })
+            .collect()
+    };
+    let cur = parse_version(current);
+    let lat = parse_version(latest);
 
     for i in 0..3 {
         let c = cur.get(i).copied().unwrap_or(0);
@@ -63,21 +68,46 @@ pub fn compare_versions(current: &str, latest: &str) -> bool {
     false
 }
 
-pub async fn verify_download_sha256(file_path: &str, checksum_url: &str) -> Result<bool, String> {
+pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -> Result<bool, String> {
+    if checksum_urls.is_empty() {
+        return Err("未提供校验和URL".to_string());
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
 
-    let resp = client.get(checksum_url).send().await
-        .map_err(|e| format!("获取校验和文件失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("获取校验和失败: HTTP {}", resp.status()));
-    }
-
-    let checksum_content = resp.text().await
-        .map_err(|e| format!("读取校验和内容失败: {}", e))?;
+    // 按顺序尝试所有 URL（GitHub 原始源 + 镜像源），任一成功即用
+    let mut last_err = String::new();
+    let checksum_content = {
+        let mut content: Option<String> = None;
+        for url in checksum_urls {
+            match client.get(url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.text().await {
+                        Ok(text) => {
+                            content = Some(text);
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = format!("读取校验和内容失败: {}", e);
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    last_err = format!("HTTP {}", resp.status());
+                }
+                Err(e) => {
+                    last_err = format!("获取校验和文件失败: {}", e);
+                }
+            }
+        }
+        match content {
+            Some(c) => c,
+            None => return Err(format!("所有校验和源均失败（最后错误: {}）", last_err)),
+        }
+    };
 
     let expected_hash = checksum_content
         .split_whitespace()
@@ -126,57 +156,54 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
             .as_millis() as u64;
         let elapsed_secs = if last_epoch == 0 { AUTO_CHECK_INTERVAL_SECS + 1 } else { (now_epoch - last_epoch) / 1000 };
 
+        // 首次检查：若距上次检查超过间隔则立即检查
         if elapsed_secs >= AUTO_CHECK_INTERVAL_SECS {
-            if let Ok(info) = check_update_inner().await {
-                if let Err(e) = app_h.emit("update-available", serde_json::json!({
-                    "has_update": info.has_update,
-                    "latest_version": info.latest_version,
-                    "release_notes": info.release_notes,
-                })) {
-                    crate::log_warn!("updater", "发送更新通知失败: {}", e);
-                }
-                // 检测到新版本时推送系统通知（仅通知一次，重启后重置）
-                if info.has_update && state.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                    emit_notification(&app_h, "发现新版本", &format!("新版本 v{} 可用，请在关于页面查看", info.latest_version));
-                }
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                state.last_update_check_epoch_ms.store(now, Ordering::Release);
-            }
+            do_update_check(&app_h, &state).await;
         }
 
-        let mut interval_timer = tokio::time::interval(std::time::Duration::from_secs(AUTO_CHECK_INTERVAL_SECS));
-        interval_timer.tick().await;
+        // 计算到下次检查的剩余时间，避免频繁重启导致检查被持续推迟
+        let remaining_secs = if elapsed_secs < AUTO_CHECK_INTERVAL_SECS {
+            AUTO_CHECK_INTERVAL_SECS - elapsed_secs
+        } else {
+            AUTO_CHECK_INTERVAL_SECS
+        };
+        tokio::time::sleep(std::time::Duration::from_secs(remaining_secs)).await;
 
+        // 后续固定间隔检查
         loop {
-            interval_timer.tick().await;
-
             if state.exit.is_quitting.load(Ordering::Acquire) {
                 break;
             }
-
-            if let Ok(info) = check_update_inner().await {
-                if let Err(e) = app_h.emit("update-available", serde_json::json!({
-                    "has_update": info.has_update,
-                    "latest_version": info.latest_version,
-                    "release_notes": info.release_notes,
-                })) {
-                    crate::log_warn!("updater", "发送更新通知失败: {}", e);
-                }
-                // 检测到新版本时推送系统通知（仅通知一次，重启后重置）
-                if info.has_update && state.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                    emit_notification(&app_h, "发现新版本", &format!("新版本 v{} 可用，请在关于页面查看", info.latest_version));
-                }
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                state.last_update_check_epoch_ms.store(now, Ordering::Release);
-            }
+            do_update_check(&app_h, &state).await;
+            tokio::time::sleep(std::time::Duration::from_secs(AUTO_CHECK_INTERVAL_SECS)).await;
         }
     });
+}
+
+/// 执行一次更新检查并发送通知
+async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
+    match check_update_inner().await {
+        Ok(info) => {
+            if let Err(e) = app_h.emit("update-available", serde_json::json!({
+                "has_update": info.has_update,
+                "latest_version": info.latest_version,
+                "release_notes": info.release_notes,
+            })) {
+                crate::log_warn!("updater", "发送更新通知失败: {}", e);
+            }
+            if info.has_update && state.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                emit_notification(app_h, "发现新版本", &format!("新版本 v{} 可用，请在关于页面查看", info.latest_version));
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            state.last_update_check_epoch_ms.store(now, Ordering::Release);
+        }
+        Err(e) => {
+            crate::log_warn!("updater", "更新检查失败: {}", e);
+        }
+    }
 }
 
 pub async fn fetch_latest_release() -> Result<(bool, String), String> {
@@ -227,7 +254,8 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
     let latest_tag = data["version"]
         .as_str()
         .unwrap_or("")
-        .replace("v", "");
+        .trim_start_matches('v')
+        .to_string();
 
     if latest_tag.is_empty() {
         return Err("version.json中缺少版本号".to_string());
@@ -245,11 +273,23 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
     let (has_update, latest_tag) = fetch_latest_release().await?;
 
     let exe_name = format!("campus-login_{}_x64-setup.exe", latest_tag);
-    let exe_url = format!(
+    let github_exe_url = format!(
         "https://github.com/{}/releases/download/v{}/{}",
         GITHUB_REPO, latest_tag, exe_name
     );
-    let sha256_url = format!("{}.sha256", exe_url);
+    // 为 SHA256 校验文件生成 GitHub 原始源 + 镜像源 URL 列表
+    let sha256_urls: Vec<String> = {
+        let mut urls = vec![format!("{}.sha256", github_exe_url)];
+        for mirror_prefix in &[
+            "https://ghfast.top/",
+            "https://gh-proxy.com/",
+            "https://ghproxy.net/",
+            "https://gh.llkk.cc/",
+        ] {
+            urls.push(format!("{}{}.sha256", mirror_prefix, github_exe_url));
+        }
+        urls
+    };
 
     Ok(UpdateInfo {
         has_update,
@@ -258,15 +298,15 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
         assets: vec![
             ReleaseAsset {
                 name: exe_name.clone(),
-                url: exe_url,
+                url: github_exe_url,
                 size: 0,
             },
             ReleaseAsset {
                 name: format!("{}.sha256", exe_name),
-                url: sha256_url.clone(),
+                url: sha256_urls.first().cloned().unwrap_or_default(),
                 size: 0,
             },
         ],
-        sha256_checksum: Some(sha256_url),
+        sha256_checksum: Some(serde_json::to_string(&sha256_urls).unwrap_or_default()),
     })
 }
