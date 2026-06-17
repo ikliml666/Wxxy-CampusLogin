@@ -101,8 +101,8 @@ pub(crate) fn dns_cache_get(host: &str) -> Option<IpAddr> {
 }
 
 pub(crate) fn dns_cache_put(host: &str, ip: IpAddr) {
-    DNS_CACHE.insert(host.to_string(), (ip, Instant::now()));
     let now = Instant::now();
+    DNS_CACHE.insert(host.to_string(), (ip, now));
     DNS_CACHE.retain(|_, (_, ts)| now.saturating_duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
     while DNS_CACHE.len() > DNS_CACHE_MAX_ENTRIES {
         let oldest = DNS_CACHE.iter()
@@ -298,7 +298,7 @@ pub(crate) fn parse_dns_response_wire(data: &[u8]) -> Result<Vec<IpAddr>, String
 pub(crate) fn skip_dns_name(data: &[u8], mut pos: usize) -> Result<usize, String> {
     let mut jumped = false;
     let mut after_jump_pos: usize = 0;
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::with_capacity(8);
     loop {
         if pos >= data.len() { return Err("DNS名称解析越界".to_string()); }
         let len = data[pos];

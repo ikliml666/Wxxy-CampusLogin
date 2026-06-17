@@ -294,11 +294,15 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 let ua1 = user_account.clone();
                 let up1 = user_password.clone();
                 let op1 = operator.clone();
-                let r1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua1), Some(&up1), Some(&op1))).await;
                 let ua2 = user_account.clone();
                 let up2 = user_password.clone();
                 let op2 = operator.clone();
-                let r2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name), Some(&ua2), Some(&up2), Some(&op2))).await;
+                // 双适配器并行 Portal 检测：先 spawn 两个 handle，再分别 await
+                // 原 spawn->await->spawn->await 串行，改为并行可显著缩短双适配器检测耗时
+                let h1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua1), Some(&up1), Some(&op1)));
+                let h2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name), Some(&ua2), Some(&up2), Some(&op2)));
+                let r1 = h1.await;
+                let r2 = h2.await;
                 (r1, Some(r2))
             } else {
                 let ua = user_account.clone();

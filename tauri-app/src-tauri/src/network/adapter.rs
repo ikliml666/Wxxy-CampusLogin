@@ -411,6 +411,29 @@ pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
     Ok(adapters)
 }
 
+/// 异步版本的 get_adapters_cached，供 async 上下文调用。
+///
+/// 快速路径：缓存命中时仅 Mutex lock + clone（非阻塞），直接返回，避免 spawn_blocking 开销。
+/// 慢路径：缓存未命中时，通过 spawn_blocking 把阻塞的 Win32 GetAdaptersAddresses 调用
+///        转移到阻塞线程池，避免阻塞 async 运行时。
+/// 注意：spawn_blocking 内部会再次调用 get_adapters_cached，其内部 query_adapters_cached_inner
+///       会二次检查缓存（可能已被其他线程填充），命中即返回，未命中才真正调用 Win32。
+pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
+    // 快速路径：缓存命中直接返回（仅 Mutex lock + clone，非阻塞）
+    {
+        let cache = ADAPTER_CACHE.lock();
+        if let Some((adapters, _details, _disabled, ts)) = cache.as_ref() {
+            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                return Ok(adapters.clone());
+            }
+        }
+    }
+    // 慢路径：缓存未命中，spawn_blocking 执行阻塞的 Win32 GetAdaptersAddresses 调用
+    tokio::task::spawn_blocking(get_adapters_cached)
+        .await
+        .map_err(|e| format!("适配器查询任务失败: {}", e))?
+}
+
 pub fn get_disabled_adapters_cached() -> Result<Vec<DisabledAdapter>, String> {
     let (_, _, disabled) = query_adapters_cached_inner()?;
     Ok(disabled)

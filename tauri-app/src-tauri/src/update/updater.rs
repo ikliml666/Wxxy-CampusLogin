@@ -119,19 +119,27 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
         return Err("校验和格式无效".to_string());
     }
 
-    let data = tokio::task::spawn_blocking({
-        let path = file_path.to_string();
-        move || std::fs::read(&path)
-    }).await
-    .map_err(|e| format!("读取文件任务失败: {}", e))?
-    .map_err(|e| format!("读取下载文件失败: {}", e))?;
-
-    use std::io::Write;
+    // 分块流式读取并计算 SHA256，避免一次性 std::fs::read 大文件（如 50MB+ 安装包）造成内存峰值
+    // 仍在 spawn_blocking 内执行，不阻塞 async 线程；64KB buffer 使内存占用恒定
     use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.write_all(&data).map_err(|e| format!("计算哈希失败: {}", e))?;
-    let result = hasher.finalize();
-    let actual_hash = format!("{:x}", result);
+    let actual_hash = tokio::task::spawn_blocking({
+        let path = file_path.to_string();
+        move || -> Result<String, String> {
+            use std::io::Read;
+            let mut file = std::fs::File::open(&path)
+                .map_err(|e| format!("打开下载文件失败: {}", e))?;
+            let mut hasher = sha2::Sha256::new();
+            let mut buf = [0u8; 65536]; // 64KB buffer
+            loop {
+                let n = file.read(&mut buf)
+                    .map_err(|e| format!("读取下载文件失败: {}", e))?;
+                if n == 0 { break; }
+                hasher.update(&buf[..n]);
+            }
+            Ok(format!("{:x}", hasher.finalize()))
+        }
+    }).await
+    .map_err(|e| format!("计算哈希任务失败: {}", e))??;
 
     Ok(actual_hash == expected_hash)
 }

@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use crate::network::{check_network_quality_async, get_adapters_cached};
+use crate::network::{check_network_quality_async, get_adapters_cached_async};
 use crate::infra::state::AppState;
 use crate::infra::notification::emit_notification;
 
@@ -78,7 +78,7 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             }
             let (adapter_ip, adapter_name) = {
                 let config = s.config.load();
-                let adapters = match get_adapters_cached() {
+                let adapters = match get_adapters_cached_async().await {
                     Ok(a) => a,
                     Err(_) => continue,
                 };
