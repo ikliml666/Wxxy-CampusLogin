@@ -4,7 +4,9 @@
 
 ### 修复
 
-- **网络质量首次检测被跳过**：`last_quality_check_time` 初始化为 `Instant::now()`，导致首次检测时 elapsed≈0 被冷却期拦截，需等待 15s 才有结果。现已移除冷却机制（`is_quality_checking` TaskLock 已足够防止并发重复检测），首次检测可立即执行。
+- **网络质量首次检测延迟过长**：两个问题叠加导致首次检测需等待 15s 才有结果：
+  - `last_quality_check_time` 初始化为 `Instant::now()`，导致首次检测被冷却期拦截。现已移除冷却机制（`is_quality_checking` TaskLock 已足够防止并发重复检测）
+  - latency loop 使用 `tokio::time::interval`，首次 tick 需等一个完整周期（10-60s）。现已改为首次检测立即执行，跳过 interval 等待
 
 ### 改进
 

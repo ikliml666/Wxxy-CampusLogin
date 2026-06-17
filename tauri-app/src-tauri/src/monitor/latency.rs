@@ -62,11 +62,15 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
     let _ = s.tasks.latency_running.swap_acquire();
     tauri::async_runtime::spawn(async move {
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
+        let mut first_run = true;
         loop {
-            tokio::select! {
-                _ = interval_timer.tick() => {}
-                _ = cancel.cancelled() => break,
+            if !first_run {
+                tokio::select! {
+                    _ = interval_timer.tick() => {}
+                    _ = cancel.cancelled() => break,
+                }
             }
+            first_run = false;
             let s = app_h.state::<AppState>();
             if !s.tasks.latency_running.is_active()
                 || s.exit.is_quitting.load(Ordering::Acquire) {
