@@ -381,7 +381,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
 
                 match elevation::run_elevated("cmd", &format!("/c {}", netsh_cmds)) {
                     Ok(()) => {
-                        std::thread::sleep(std::time::Duration::from_millis(2500));
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
                         let mut verify_added: Vec<String> = Vec::new();
                         for (ip, _) in dns_config::DOH_SERVERS {
                             let check = std::process::Command::new("netsh")
@@ -563,7 +563,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
 
             match elevation::shell_exec_elevated("powershell", &ps_args, true) {
                 Ok(()) => {
-                    std::thread::sleep(std::time::Duration::from_millis(2000));
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
                     let mut verify_ok = false;
                     for adapter in &active {
                         let check = std::process::Command::new("netsh")
@@ -620,7 +620,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
 
             match elevation::run_elevated("cmd", &format!("/c {}", all_cmds)) {
                 Ok(()) => {
-                    std::thread::sleep(std::time::Duration::from_millis(3000));
+                    std::thread::sleep(std::time::Duration::from_millis(2000));
                     return Ok(serde_json::json!({
                         "success": true,
                         "message": "已通过管理员权限设置DNS并启用DoH".to_string(),

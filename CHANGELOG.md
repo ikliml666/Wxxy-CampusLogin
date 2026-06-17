@@ -40,10 +40,11 @@
 
 ### 兼容性
 
-- 旧配置文件中的 `campusCheckStartHour` 字段（小时值 0-23）通过 serde alias 自动读取，validate 层自动 ×60 转换为分钟值，无需手动迁移。
-
-### 改进
-
+- 旧配置文件中的 `campusCheckStartHour` 字段（小时值 0-23）通过 serde alias 自动读取，validate
+- **DNS/DoH 设置等待时间优化**：三处 `ShellExecuteW` 提权后的 sleep 时间温和缩减，减少用户等待感：
+  - DoH 启用后验证等待：2.5s → 1.5s
+  - DNS+DoH 设置后验证等待（PowerShell 路径）：2s → 1.5s
+  - DNS+DoH 设置后等待生效（cmd 路径）：3s → 2s
 - **WLAN DNS 按配置文件设置 (Per-Profile DNS)**：WiFi 适配器的 DNS 设置从适配器级（全局/所有 WiFi 共享）改为配置文件级（per-profile，仅对当前 WiFi 生效），解决两个问题：
   - 手动关闭全局 DNS 设置后无法检测到 WLAN 的 DNS 状态
   - 无法为每个 WiFi 单独设置不同的 DNS 服务器
