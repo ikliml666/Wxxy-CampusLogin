@@ -1,6 +1,6 @@
 {
   "name": "campus-login-frontend",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "private": true,
   "type": "module",
   "scripts": {
