@@ -36,7 +36,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
         c.adapter1 = config.adapter1.clone();
         c.adapter2 = config.adapter2.clone();
         c.dual_adapter = config.dual_adapter;
-        c.active_account = account_name.clone();
+        c.active_account = safe_name_log.clone();
     });
 
     let app_h2 = app_handle.clone();

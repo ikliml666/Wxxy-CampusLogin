@@ -93,7 +93,8 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
     };
 
     let mut config = validated;
-    if config.password == crate::config::model::PASSWORD_MASK {
+    // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
+    if config.password.is_empty() || config.password == crate::config::model::PASSWORD_MASK {
         let current = state.config.load();
         config.password = current.password.clone();
     }
@@ -138,7 +139,11 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_j
     };
 
     let mut config = validated;
-    if !config.password.is_empty() && config.password != crate::config::model::PASSWORD_MASK {
+    // mask 占位符：保留当前密码，避免 "***" 被原样写入磁盘导致密码永久卡死
+    if config.password == crate::config::model::PASSWORD_MASK {
+        let current = state.config.load();
+        config.password = current.password.clone();
+    } else if !config.password.is_empty() {
         match crypto::decrypt(&config.password) {
             Ok(decrypted) => {
                 config.password = decrypted;
