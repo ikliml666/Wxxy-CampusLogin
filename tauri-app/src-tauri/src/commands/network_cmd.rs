@@ -297,7 +297,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                             added.push(ip.to_string());
                         } else {
                             let combined = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
-                            if combined.contains("740") || combined.contains("\u{63d0}\u{5347}") || combined.contains("elevation") || combined.contains("\u{7ba1}\u{7406}\u{5458}") {
+                            if combined.contains("740") || combined.contains("elevation") || combined.contains("elevated") || combined.contains("\u{63d0}\u{5347}") || combined.contains("\u{7ba1}\u{7406}\u{5458}") {
                                 need_elevation = true;
                             }
                             crate::log_debug!("doh", "netsh add encryption {} 失败: {}", ip, combined);
