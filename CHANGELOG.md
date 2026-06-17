@@ -61,3 +61,23 @@
   - DoH 启用后验证等待：2.5s → 1.5s
   - DNS+DoH 设置后验证等待（PowerShell 路径）：2s → 1.5s
   - DNS+DoH 设置后等待生效（cmd 路径）：3s → 2s
+
+### 代码审查修复（9 项）
+
+**严重问题：**
+
+- **配置更新竞态**：`save_current_as_account` 改用 `update_config` CAS 循环，避免覆盖并发配置修改（与 `switch/delete_account` 修复一致）
+- **重连锁泄漏**：`try_disconnect_reconnect` 重连超限时提前 `drop(login_guard)`，允许用户手动登录
+- **快捷键 TOCTOU 竞态**：`lifecycle.rs` 3 处快捷键注销逻辑加注释记录竞态（窗口极小，仅影响快捷键可用性，不影响退出流程正确性）
+
+**可中断性：**
+
+- **错峰登录可中断**：适配器2 的 1s sleep 拆分为 10×100ms 循环检查 `is_quitting`，退出时不再发起登录
+- **更新检查可中断**：24h sleep 拆分为 5s 步进循环检查 `is_quitting`，退出响应从最长 24h 降至 5s
+- **panic hook 快速退出**：新增 `flush_quick()`（500ms 超时），panic hook 改用，避免 panic=abort 模式下阻塞 5s
+
+**边界优化：**
+
+- **密码脱敏**：登录失败错误消息追加 `password` 脱敏，防止重定向 URL 泄漏密码
+- **注销重复请求**：`do_logout` 复用 `check_any_adapter_online` 结果，消除重复 HTTP 请求
+- **MAC 种子碰撞**：`generate_random_mac` 用 `AtomicU64` 计数器混合时间戳，避免同纳秒并发调用生成相同 MAC
