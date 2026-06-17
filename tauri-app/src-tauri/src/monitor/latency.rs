@@ -85,13 +85,6 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             }
             // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
             tokio::time::sleep(Duration::from_secs(1)).await;
-            // 检查冷却时间，防止短时间内重复执行质量检测（首次检测不限制）
-            const QUALITY_CHECK_COOLDOWN_SECS: u64 = 10;
-            let last_time = s.network.last_quality_check_time.load();
-            let elapsed = std::time::Instant::now().saturating_duration_since(**last_time);
-            if elapsed > std::time::Duration::ZERO && elapsed < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
-                continue; // 冷却期内跳过本轮
-            }
             let (skip_ttfb, skip_content, fixed_gateway) = {
                 let cfg = s.config.load();
                 (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
@@ -101,8 +94,6 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
                 None => continue,
             };
             let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(&app_h)).await;
-            // 更新冷却时间
-            s.network.last_quality_check_time.store(Arc::new(std::time::Instant::now()));
             drop(_guard);
             let quality_val = match serde_json::to_value(&quality) {
                 Ok(v) => v,

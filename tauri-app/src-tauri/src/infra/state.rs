@@ -96,7 +96,6 @@ pub struct NetworkStatus {
     pub current_ssid: ArcSwap<Option<String>>,
     pub on_campus_network: AtomicBool,
     pub logout_protected_until: ArcSwap<std::time::Instant>,
-    pub last_quality_check_time: ArcSwap<std::time::Instant>,
     pub portal_failure_count: AtomicU32,
 }
 
@@ -157,7 +156,6 @@ impl AppState {
                 current_ssid: ArcSwap::from(std::sync::Arc::new(None)),
                 on_campus_network: AtomicBool::new(false),
                 logout_protected_until: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now())),
-                last_quality_check_time: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now())),
                 portal_failure_count: AtomicU32::new(0),
             },
             exit: ExitState {

@@ -168,13 +168,6 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
         Some(g) => g,
         None => return Ok(empty_quality_json_with_quality("busy")),
     };
-    // 检查冷却时间，防止短时间内重复执行质量检测（首次检测不限制）
-    const QUALITY_CHECK_COOLDOWN_SECS: u64 = 10;
-    let last_time = state.network.last_quality_check_time.load();
-    let elapsed = std::time::Instant::now().saturating_duration_since(**last_time);
-    if elapsed > std::time::Duration::ZERO && elapsed < std::time::Duration::from_secs(QUALITY_CHECK_COOLDOWN_SECS) {
-        return Ok(empty_quality_json_with_quality("cooldown"));
-    }
     let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
         let config = state.config.load();
         let adapters = match get_adapters_cached() {
@@ -188,8 +181,6 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
         return Ok(empty_quality_json());
     }
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None).await;
-    // 更新冷却时间
-    state.network.last_quality_check_time.store(std::sync::Arc::new(std::time::Instant::now()));
     drop(_guard);
     crate::log_info!("network", "网络质量检测完成");
     serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {}", e))
