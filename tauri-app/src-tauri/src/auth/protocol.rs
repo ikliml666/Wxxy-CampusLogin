@@ -227,6 +227,10 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
+            // 退出标志被设置时跳过 round 2，避免阻塞应用退出
+            if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+                break;
+            }
         }
     }
 

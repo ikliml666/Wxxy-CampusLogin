@@ -45,33 +45,22 @@ pub fn update_doh_server_latency(server: &str, latency_ms: i64, success: bool) {
 }
 
 pub(crate) fn get_best_dns_servers() -> Vec<String> {
-    let scored: Vec<_> = DNS_SERVER_SCORES.iter()
+    let mut scored: Vec<(String, i64)> = DNS_SERVER_SCORES.iter()
         .filter(|e| e.value().success && e.value().last_tested.elapsed().as_secs() < 600)
+        .map(|e| (e.key().clone(), e.value().latency_ms))
         .collect();
 
     if scored.is_empty() {
         return DNS_FALLBACK_SERVERS.iter().map(|s| s.to_string()).collect();
     }
 
-    let mut servers: Vec<_> = scored.iter()
-        .map(|e| (e.key().clone(), e.value().latency_ms))
-        .collect();
-    servers.sort_by_key(|(_, lat)| *lat);
-    servers.into_iter().map(|(ip, _)| ip).collect()
+    scored.sort_by_key(|(_, lat)| *lat);
+    scored.into_iter().map(|(ip, _)| ip).collect()
 }
 
 pub(crate) fn get_best_doh_servers() -> Vec<(String, String)> {
-    let scored: Vec<_> = DOH_SERVER_SCORES.iter()
+    let mut scored: Vec<(String, i64, String)> = DOH_SERVER_SCORES.iter()
         .filter(|e| e.value().success && e.value().last_tested.elapsed().as_secs() < 600)
-        .collect();
-
-    if scored.is_empty() {
-        return DOH_FALLBACK_SERVERS.iter()
-            .map(|(s, ip)| (s.to_string(), ip.to_string()))
-            .collect();
-    }
-
-    let mut servers: Vec<_> = scored.iter()
         .map(|e| {
             let fallback_ip = DOH_FALLBACK_SERVERS.iter()
                 .find(|(name, _)| *name == e.key())
@@ -80,8 +69,15 @@ pub(crate) fn get_best_doh_servers() -> Vec<(String, String)> {
             (e.key().clone(), e.value().latency_ms, fallback_ip)
         })
         .collect();
-    servers.sort_by_key(|(_, lat, _)| *lat);
-    servers.into_iter().map(|(name, _, ip)| (name, ip)).collect()
+
+    if scored.is_empty() {
+        return DOH_FALLBACK_SERVERS.iter()
+            .map(|(s, ip)| (s.to_string(), ip.to_string()))
+            .collect();
+    }
+
+    scored.sort_by_key(|(_, lat, _)| *lat);
+    scored.into_iter().map(|(name, _, ip)| (name, ip)).collect()
 }
 
 const DNS_CACHE_TTL_SECS: u64 = 60;

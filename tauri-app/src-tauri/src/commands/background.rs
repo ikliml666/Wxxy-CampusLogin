@@ -35,7 +35,7 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
         return Ok(CommandResult::err("检测正在进行中"));
     }
     let app_h = app_handle.clone();
-    let manual_cancel = std::sync::Arc::new(tokio_util::sync::CancellationToken::new());
+    let manual_cancel = s.tasks.bg_check_cancel.load().clone();
     tauri::async_runtime::spawn(async move {
         watcher::run_background_check(&app_h, manual_cancel).await;
     });
