@@ -2,7 +2,7 @@
 
 ## v2.2.6
 
-### 逻辑修复（21 项）
+### 逻辑修复（22 项）
 
 - **登录重试**：`do_login_with_retry` 实现真实重试循环（原忽略 `max_retries`），可重试错误 2s 间隔重试
 - **注销状态**：logout code 字段对齐成功语义；双适配器部分注销改用 `check_portal_full` 检测实际在线状态，不再错误清除在线标志
@@ -20,6 +20,7 @@
 - **switch/delete_account**：使用 `state.update_config` CAS 循环；移除 `save_current_as_account` 中无用的旧密码解密
 - **serde 默认值**：新增 `default_fixed_gateway()`/`default_log_retention_days()` 函数，对齐 serde 默认值与 `Default` impl
 - **panic hook**：`main()` 起始注册 panic hook，确保 panic 时日志刷新；Logger 初始化和配置加载从并行改为串行
+- **双适配器登录间隔**：双适配器串行登录间隔 1s，避免同时登录触发校园网系统封禁
 
 ### Bug 修复（22 项）
 
@@ -40,9 +41,8 @@
 - **download_update**：所有错误路径清理临时文件
 - **main.rs**：合并 `app_handle` clone 为单行
 
-### 性能优化（7 项）
+### 性能优化（6 项）
 
-- **双适配器并行登录**：`session.rs` 用 `std::thread::scope` 并行执行双适配器登录（原串行，零新依赖）
 - **并行 Portal 检测**：`auto_auth.rs` 先 spawn 两个 handle 再 await，真正并行检测（原伪并行）
 - **异步适配器枚举**：新增 `get_adapters_cached_async`，仅缓存未命中时 `spawn_blocking`，避免阻塞 tokio worker
 - **流式 SHA256**：`verify_download_sha256` 分块流式读（64KB buf），避免整文件读入内存
