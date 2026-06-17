@@ -149,6 +149,8 @@ fn check_any_adapter_online(state: &AppState) -> bool {
 #[tauri::command]
 pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
     state.exit.auto_exit_cancelled.store(false, Ordering::Release);
+    // 取消可能残留的自动退出倒计时，避免重新登录后被旧倒计时强制退出
+    state.exit.set_deadline(None);
 
     let result = {
         let adapter = adapter_name.clone();

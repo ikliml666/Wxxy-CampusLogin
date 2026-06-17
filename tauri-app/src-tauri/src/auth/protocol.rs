@@ -120,7 +120,11 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
                     Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "操作完成" } else { msg }, "success": true, "retryable": false }))
                 }
             } else if result == 1 {
-                Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "Portal协议认证成功" } else { msg }, "success": true, "retryable": false }))
+                if msg.contains("非法") || msg.contains("失败") || msg.contains("错误") || msg.contains("拒绝") {
+                    Ok(serde_json::json!({ "code": "1", "message": msg, "success": false, "retryable": false }))
+                } else {
+                    Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "Portal协议认证成功" } else { msg }, "success": true, "retryable": false }))
+                }
             } else if result == 2 {
                 if msg.contains("已经在线") {
                     Ok(serde_json::json!({ "code": "2", "message": if msg.is_empty() { "已在线" } else { msg }, "success": true, "retryable": false }))

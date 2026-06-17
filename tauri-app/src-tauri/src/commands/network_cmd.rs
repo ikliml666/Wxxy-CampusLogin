@@ -580,6 +580,16 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 }
             }
 
+            // 校验适配器名称不含 cmd 元字符，防止命令注入
+            for adapter in &active {
+                if adapter.name.chars().any(|c| matches!(c, '"' | '&' | '|' | '<' | '>' | '^' | '%')) {
+                    return Ok(serde_json::json!({
+                        "success": false,
+                        "message": format!("适配器名称含特殊字符，无法通过cmd设置DNS: {}", adapter.name)
+                    }));
+                }
+            }
+
             let mut all_cmds = String::new();
             for adapter in &active {
                 if adapter.wireless {

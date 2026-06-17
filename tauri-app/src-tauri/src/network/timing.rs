@@ -516,7 +516,7 @@ async fn do_doh_https(
             Err(_) => {
                 if first_read {
                     result.error = Some("DoH响应超时".to_string());
-                    result.http_ms = ms_from(http_start);
+                    result.http_ms = -1;
                 }
                 break;
             }

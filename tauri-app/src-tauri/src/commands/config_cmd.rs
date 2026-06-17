@@ -131,9 +131,15 @@ pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Resu
             if let Some(obj) = json.as_object_mut() {
                 obj.insert("password".to_string(), serde_json::json!(crate::config::model::PASSWORD_MASK));
             }
-            serde_json::to_string(&json).unwrap_or(content)
+            serde_json::to_string(&json).unwrap_or_else(|_| {
+                crate::log_warn!("config", "脱敏后序列化失败，返回空配置");
+                "{}".to_string()
+            })
         }
-        Err(_) => content,
+        Err(_) => {
+            crate::log_warn!("config", "配置文件JSON格式异常，拒绝导出");
+            return Ok(CommandResult::err("配置文件格式异常，无法脱敏导出"));
+        }
     };
     crate::log_info!("config", "导出配置成功");
     Ok(CommandResult::ok_data(serde_json::json!({ "content": content })))
