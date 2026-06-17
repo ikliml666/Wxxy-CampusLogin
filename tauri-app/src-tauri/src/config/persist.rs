@@ -2,7 +2,14 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
-    let tmp_path = path.with_extension("json.tmp");
+    // 临时文件名带纳秒时间戳，避免并发保存时互相覆盖
+    let tmp_path = path.with_extension(format!(
+        "json.tmp.{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
     std::fs::write(&tmp_path, content)
         .map_err(|e| format!("写入临时文件失败: {}", e))?;
     for attempt in 0..3 {

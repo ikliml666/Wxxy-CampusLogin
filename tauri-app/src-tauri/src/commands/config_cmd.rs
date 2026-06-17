@@ -38,8 +38,9 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
         match crypto::decrypt(&config.password) {
             Ok(decrypted) => config.password = decrypted,
             Err(e) => {
-                crate::log_warn!("config", "密码解密失败: {}", e);
-                return Err(format!("密码解密失败，请重新输入密码: {}", e));
+                // 解密失败时仅清空密码，保留其他配置，避免全量配置丢失
+                crate::log_warn!("config", "密码解密失败，清除密码保留其他配置: {}", e);
+                config.password = String::new();
             }
         }
     }
@@ -139,8 +140,8 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_j
     };
 
     let mut config = validated;
-    // mask 占位符：保留当前密码，避免 "***" 被原样写入磁盘导致密码永久卡死
-    if config.password == crate::config::model::PASSWORD_MASK {
+    // mask 占位符或空密码：保留当前密码，避免密码被清空
+    if config.password.is_empty() || config.password == crate::config::model::PASSWORD_MASK {
         let current = state.config.load();
         config.password = current.password.clone();
     } else if !config.password.is_empty() {
