@@ -217,7 +217,9 @@ pub async fn measure_https_timing(
         if first_byte_received {
             result.content_ms = ms_from(content_start);
         } else {
-            result.ttfb_ms = ms_from(ttfb_start);
+            // 未收到任何字节（Ok(0) 直接结束），不应记录 TTFB
+            result.ttfb_ms = -1;
+            result.content_ms = -1;
         }
     } else {
         result.ttfb_ms = -1;

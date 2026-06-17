@@ -124,7 +124,7 @@ pub fn cleanup_expired_dns_cache() {
 pub(crate) async fn resolve_host_uncached_with_bind(
     host: &str,
     timeout: Duration,
-    _bind_addr: Option<IpAddr>,
+    bind_addr: Option<IpAddr>,
 ) -> Result<IpAddr, String> {
     let host = host.to_string();
     let result = tokio::task::spawn_blocking(move || {
@@ -140,7 +140,7 @@ pub(crate) async fn resolve_host_uncached_with_bind(
                     protocol: Protocol::Udp,
                     tls_dns_name: None,
                     trust_negative_responses: false,
-                    bind_addr: None,
+                    bind_addr: bind_addr.map(|ip| std::net::SocketAddr::new(ip, 0)),
                 });
             }
         }
@@ -374,13 +374,22 @@ pub(crate) async fn resolve_via_doh(
     let header_end = response.windows(4)
         .position(|w| w == b"\r\n\r\n")
         .ok_or("DoH响应格式无效: 无HTTP头分隔")?;
+
+    // 校验HTTP状态行（必须 200），防止 4xx/5xx 响应体被当作 DNS 报文解析
+    let status_line_end = response.iter().position(|&b| b == b'\r').unwrap_or(header_end);
+    let status_line = std::str::from_utf8(&response[..status_line_end]).unwrap_or("");
+    if status_line.split_whitespace().nth(1) != Some("200") {
+        return Err(format!("DoH响应状态异常: {}", status_line.trim()));
+    }
+
     let body = &response[header_end + 4..];
 
     if body.is_empty() {
         return Err("DoH响应体为空".to_string());
     }
 
-    let ips = parse_dns_response_wire(body)?;
+    let ips = parse_dns_response_wire(body)
+        .map_err(|e| format!("DoH解析响应失败: {}", e))?;
     ips.into_iter().next()
         .ok_or_else(|| "DoH响应无有效A记录".to_string())
 }
@@ -391,7 +400,7 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
     }
 
     let doh_servers = get_best_doh_servers();
-    let doh_timeout = Duration::from_secs(3);
+    let doh_timeout = std::cmp::min(timeout, Duration::from_secs(3));
 
     let mut set = tokio::task::JoinSet::new();
 
