@@ -192,10 +192,20 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
         if let Some(a2_ref) = a2 {
             let a1_ref = a1.unwrap();
 
-            // 双适配器串行登录，间隔 1s 避免同时登录触发系统封禁
-            let r1 = login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref());
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let r2 = login_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref());
+            // 双适配器错峰并行登录：适配器2延迟1s启动，避免同时登录触发系统封禁
+            // thread::scope 安全借用栈数据；panic 降级为 None
+            let (r1, r2) = std::thread::scope(|s| {
+                let h1 = s.spawn(|| {
+                    login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
+                });
+                let h2 = s.spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    login_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref())
+                });
+                let r1 = h1.join().unwrap_or_else(|_| None);
+                let r2 = h2.join().unwrap_or_else(|_| None);
+                (r1, r2)
+            });
 
             let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
             let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);

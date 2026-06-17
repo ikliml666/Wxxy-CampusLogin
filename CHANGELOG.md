@@ -1,8 +1,8 @@
-﻿# Changelog
+﻿﻿# Changelog
 
 ## v2.2.6
 
-### 逻辑修复（22 项）
+### 逻辑修复（21 项）
 
 - **登录重试**：`do_login_with_retry` 实现真实重试循环（原忽略 `max_retries`），可重试错误 2s 间隔重试
 - **注销状态**：logout code 字段对齐成功语义；双适配器部分注销改用 `check_portal_full` 检测实际在线状态，不再错误清除在线标志
@@ -41,8 +41,9 @@
 - **download_update**：所有错误路径清理临时文件
 - **main.rs**：合并 `app_handle` clone 为单行
 
-### 性能优化（6 项）
+### 性能优化（7 项）
 
+- **双适配器错峰并行登录**：`session.rs` 用 `std::thread::scope` 并行执行，适配器2延迟1s启动，避免同时登录触发系统封禁（零新依赖）
 - **并行 Portal 检测**：`auto_auth.rs` 先 spawn 两个 handle 再 await，真正并行检测（原伪并行）
 - **异步适配器枚举**：新增 `get_adapters_cached_async`，仅缓存未命中时 `spawn_blocking`，避免阻塞 tokio worker
 - **流式 SHA256**：`verify_download_sha256` 分块流式读（64KB buf），避免整文件读入内存
