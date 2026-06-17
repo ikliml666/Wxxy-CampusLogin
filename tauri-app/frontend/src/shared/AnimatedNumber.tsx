@@ -27,7 +27,7 @@ export function AnimatedNumber({
   const objRef = useRef({ value })
   const valueQuickToRef = useRef<gsap.QuickToFunc | null>(null)
   const scaleQuickToRef = useRef<gsap.QuickToFunc | null>(null)
-  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resetTimerRef = useRef<gsap.core.Tween | null>(null)
 
   useEffect(() => {
     if (!ref.current) return
@@ -47,7 +47,7 @@ export function AnimatedNumber({
       force3D: true,
     })
     return () => {
-      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+      if (resetTimerRef.current) { resetTimerRef.current.kill(); resetTimerRef.current = null }
       valueQuickToRef.current = null
       scaleQuickToRef.current = null
     }
@@ -74,11 +74,14 @@ export function AnimatedNumber({
 
       objRef.current.value = prevRef.current
       valueQuickToRef.current(value)
-      scaleQuickToRef.current(1.08)
-      resetTimerRef.current = setTimeout(() => {
-        scaleQuickToRef.current?.(1)
-        resetTimerRef.current = null
-      }, resolvedDuration * 0.2)
+      // economy 档禁用 scale 弹跳，仅做数字滚动（降级一致性）
+      if (profile.tier !== 'economy') {
+        scaleQuickToRef.current(1.08)
+        resetTimerRef.current = gsap.delayedCall(resolvedDuration * 0.2 / 1000, () => {
+          scaleQuickToRef.current?.(1)
+          resetTimerRef.current = null
+        })
+      }
 
       prevRef.current = value
     }

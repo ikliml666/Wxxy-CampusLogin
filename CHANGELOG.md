@@ -94,3 +94,7 @@
 - **缓动曲线微调**：`easing-config` smooth 末段控制点微调（60Hz 0.68→0.72，120Hz 0.56→0.6），让"慢出"减速段更长更顺滑，enter/exit/overshoot 保持不变
 - **卡片 hover 抬升反馈**：`.animated-card-interactive:hover` 加 `transform: translateY(-2px)` 微抬（transform 合成层操作零 paint），配 `transition: transform 0.2s`，Apple 卡片风格；未加 shadow 过渡以避免触发 paint
 - **启动序列收尾紧凑**：`useStartupBoost` dockNav 入场 duration 0.7→0.6，ease `back.out(1.4)`→`back.out(1.2)`（弹性收敛），起始 0.5→0.45，总时长 1.2s→1.05s
+- **Toast 动画接入降级**：`ToastContainer` 接入 `useAnimationProfile`，economy 档入场由 spring 改为 tween（duration:0.2 + snappy），图标 economy 档去掉 rotate 旋转入场；移除图标 delay:0.1s 让图标与 toast 同步入场
+- **Log 清空动画动态 stagger**：`LogPanel` 清空日志的 GSAP stagger each 由固定 0.2 改为动态（>8 条 0.05 / >4 条 0.1 / 否则 0.2），避免可见条目多时清空等待过久
+- **AnimatedNumber 时序统一**：scale 重置由 `setTimeout` 改为 `gsap.delayedCall`，与 `gsap.quickTo` 共享 GSAP 时钟；economy 档禁用 scale 弹跳仅做数字滚动（降级一致性）
+- **Onboarding 指示器 spring 微调**：`OnboardingWizard` StepIndicator spring damping 30→36（dampingRatio 0.67→0.80），减少过弹，贴合 Apple 区间

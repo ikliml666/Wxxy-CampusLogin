@@ -49,7 +49,7 @@ function StepIndicator({ current }: { current: number }) {
               <m.div
                 layoutId="step-indicator"
                 className="absolute inset-0 rounded-full bg-primary shadow-sm"
-                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 36, mass: 1 }}
               />
             )}
             <span className={cn(

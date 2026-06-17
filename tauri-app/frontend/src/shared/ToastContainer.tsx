@@ -4,6 +4,7 @@ import { CheckCircle2, AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { memo } from 'react'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 
 interface ToastContainerProps {
   toasts: ToastMessage[]
@@ -32,6 +33,12 @@ const TOAST_ICON_COLORS = {
 }
 
 export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
+  const profile = useAnimationProfile()
+  const isEconomy = profile.tier === 'economy'
+  const enterTransition = isEconomy
+    ? { duration: 0.2, ease: profile.easing.snappy as [number, number, number, number] }
+    : { type: 'spring' as const, stiffness: 400, damping: 25, mass: 0.8 }
+
   return (
     <div className="fixed top-[84px] left-4 z-[100] flex flex-col gap-2 pointer-events-none" aria-live="polite" role="status">
       <AnimatePresence mode="popLayout">
@@ -41,7 +48,7 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
             <m.div
               key={`toast-${toast.id}`}
               initial={{ opacity: 0, x: -100, scale: 0.9 }}
-              animate={{ opacity: 1, x: 0, scale: 1, transition: { type: 'spring', stiffness: 400, damping: 25, mass: 0.8 } }}
+              animate={{ opacity: 1, x: 0, scale: 1, transition: enterTransition }}
               exit={{ opacity: 0, x: -80, scale: 0.9, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
               className={cn(
                 'pointer-events-auto flex items-start gap-3 w-80 p-4 rounded-xl',
@@ -50,9 +57,11 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
               )}
             >
               <m.div
-                initial={{ rotate: -20, scale: 0.5 }}
+                initial={{ rotate: isEconomy ? 0 : -20, scale: 0.5 }}
                 animate={{ rotate: 0, scale: 1 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 20, delay: 0.1 }}
+                transition={isEconomy
+                  ? { duration: 0.2, ease: profile.easing.snappy as [number, number, number, number] }
+                  : { type: 'spring' as const, stiffness: 500, damping: 20 }}
               >
                 <Icon className={cn('h-5 w-5 shrink-0 mt-0.5', TOAST_ICON_COLORS[toast.type])} />
               </m.div>

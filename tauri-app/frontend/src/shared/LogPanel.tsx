@@ -280,12 +280,14 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
 
         // 对可见的条目做一条一条删除动画
         if (visibleEntries.length > 0) {
+          // 动态 stagger：条目越多间隔越短，总时长封顶避免清空等待过久
+          const staggerEach = visibleEntries.length > 8 ? 0.05 : visibleEntries.length > 4 ? 0.1 : 0.2
           const ctx = gsap.context(() => {
             gsap.to(visibleEntries, {
               autoAlpha: 0,
               x: 50,
               scaleX: 0.8,
-              stagger: { each: 0.2, from: 'start' },
+              stagger: { each: staggerEach, from: 'start' },
               duration: 0.4,
               ease: 'back.out(1.2)',
               force3D: true,
