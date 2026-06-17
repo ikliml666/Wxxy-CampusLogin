@@ -44,11 +44,15 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         Ok(a) => a,
         Err(_) => match wait_for_adapter(10000, state.exit.is_quitting.as_ref()) {
             Ok(a) => a,
-            Err(e) => return CommandResult::err(&format!("获取适配器失败: {}", e)),
+            Err(e) => {
+                crate::log_warn!("logout", "获取适配器失败: {}", e);
+                return CommandResult::err(&format!("获取适配器失败: {}", e));
+            }
         },
     };
 
     if adapters.is_empty() {
+        crate::log_warn!("logout", "未找到可用网络适配器");
         return CommandResult::err("未找到可用网络适配器");
     }
 
@@ -57,9 +61,15 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         match adapter {
             Some(a) => {
                 return logout_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
-                    .unwrap_or_else(|| CommandResult::err("注销请求失败"));
+                    .unwrap_or_else(|| {
+                        crate::log_warn!("logout", "注销请求失败");
+                        CommandResult::err("注销请求失败")
+                    });
             }
-            None => return CommandResult::err(&format!("未找到适配器: {}", name)),
+            None => {
+                crate::log_warn!("logout", "未找到适配器: {}", name);
+                return CommandResult::err(&format!("未找到适配器: {}", name));
+            }
         }
     }
 
@@ -67,6 +77,7 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
 
     let a1 = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty());
     if a1.is_none() {
+        crate::log_warn!("logout", "未找到有效IP地址的适配器");
         return CommandResult::err("未找到有效IP地址的适配器");
     }
 
@@ -101,7 +112,10 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
     let a1_ref = a1.unwrap();
 
     logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
-        .unwrap_or_else(|| CommandResult::err("注销请求失败"))
+        .unwrap_or_else(|| {
+            crate::log_warn!("logout", "注销请求失败");
+            CommandResult::err("注销请求失败")
+        })
 }
 
 fn check_any_adapter_online(state: &AppState) -> bool {
@@ -160,10 +174,14 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
             let s = app_h_bg.state::<AppState>();
+            // 退出流程已开始时不再执行后台检查或触发自动退出
+            if s.exit.is_quitting.load(Ordering::Acquire) {
+                return;
+            }
             let cancel_token = s.tasks.bg_check_cancel.load().clone();
             crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
 
-            if auto_exit {
+            if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {
                 crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);
             }
         });
