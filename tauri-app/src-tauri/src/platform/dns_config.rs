@@ -39,6 +39,8 @@ fn set_dns_inner(
     let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
     let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
     let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
+    doh_settings.reserve(doh_templates.len());
+    doh_props.reserve(doh_templates.len());
 
     for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
         let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
@@ -136,6 +138,8 @@ pub fn set_profile_dns_via_api(
     let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
     let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
     let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
+    doh_settings.reserve(doh_templates.len());
+    doh_props.reserve(doh_templates.len());
 
     for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
         let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();

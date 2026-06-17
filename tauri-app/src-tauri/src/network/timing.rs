@@ -308,13 +308,23 @@ pub async fn measure_dns_query(
     let (_, udp_ms) = udp_result;
     let (_, tcp_ms) = tcp_result;
 
+    let mut udp_err: Option<String> = None;
+    let mut tcp_err: Option<String> = None;
     match udp_result {
         (Ok(_), _) => { result.udp_ms = udp_ms; }
-        (Err(e), _) => { if tcp_ms < 0 { result.error = Some(format!("UDP查询失败: {}", e)); } }
+        (Err(e), _) => { udp_err = Some(format!("{}", e)); }
     }
     match tcp_result {
         (Ok(_), _) => { result.tcp_ms = tcp_ms; }
-        (Err(e), _) => { if result.udp_ms < 0 { result.error = Some(format!("TCP查询失败: {}", e)); } }
+        (Err(e), _) => { tcp_err = Some(format!("{}", e)); }
+    }
+    if result.udp_ms < 0 && result.tcp_ms < 0 {
+        result.error = match (udp_err, tcp_err) {
+            (Some(u), Some(t)) => Some(format!("UDP: {} | TCP: {}", u, t)),
+            (Some(u), None) => Some(format!("UDP: {}", u)),
+            (None, Some(t)) => Some(format!("TCP: {}", t)),
+            (None, None) => None,
+        };
     }
 
     result.success = result.udp_ms >= 0 || result.tcp_ms >= 0;

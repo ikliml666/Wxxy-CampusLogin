@@ -164,7 +164,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     if !state.config.load().enable_network_quality {
         return Ok(empty_quality_json_with_quality("disabled"));
     }
-    let _guard = match state.tasks.is_quality_checking.acquire_guard() {
+    let _guard = match state.tasks.is_quality_checking.try_acquire() {
         Some(g) => g,
         None => return Ok(empty_quality_json_with_quality("busy")),
     };

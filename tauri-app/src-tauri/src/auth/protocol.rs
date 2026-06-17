@@ -159,15 +159,6 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
 
-    let wlan_user_ip_int = adapter_ip.and_then(|ip| {
-        let parts: Vec<u32> = ip.split('.').filter_map(|p| p.parse().ok()).collect();
-        if parts.len() == 4 {
-            Some((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3])
-        } else {
-            None
-        }
-    }).unwrap_or(0);
-
     let mut any_radius_ok = false;
     let mut any_unbind_ok = false;
 
@@ -182,7 +173,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
             portal_base_url,
             unbind_cb,
             urlencoding::encode(validated_user),
-            wlan_user_ip_int,
+            urlencoding::encode(wlan_user_ip),
             random_v(),
         );
 

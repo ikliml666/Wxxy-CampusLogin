@@ -100,6 +100,7 @@ mod dpapi {
         }
 
         if output.pb_data.is_null() || output.cb_data == 0 {
+            unsafe { LocalFree(output.pb_data as *mut std::ffi::c_void) };
             return Err("DPAPI解密返回空数据".to_string());
         }
         let decrypted = unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize).to_vec() };

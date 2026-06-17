@@ -104,7 +104,13 @@ pub fn init_logger(log_dir: PathBuf) {
         })
         .expect("Failed to spawn logger thread");
 
-    *LOGGER_THREAD.lock() = Some(handle);
+    {
+        let mut thread_lock = LOGGER_THREAD.lock();
+        if let Some(old_handle) = thread_lock.take() {
+            let _ = old_handle.join();
+        }
+        *thread_lock = Some(handle);
+    }
 }
 
 fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<LogMessage>) {
@@ -239,14 +245,15 @@ fn rotate_if_needed(state: &mut LoggerState) {
 
 fn cleanup_old_logs(log_dir: &PathBuf) {
     if let Ok(entries) = fs::read_dir(log_dir) {
-        let mut files: Vec<(String, PathBuf)> = entries
+        let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
             .flatten()
             .filter(|e| {
                 e.path().extension().and_then(|e| e.to_str()) == Some("log")
             })
             .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().to_string();
-                Some((name, e.path()))
+                let path = e.path();
+                let modified = e.metadata().ok()?.modified().ok()?;
+                Some((modified, path))
             })
             .collect();
         files.sort_by(|a, b| b.0.cmp(&a.0));
@@ -392,6 +399,16 @@ pub fn shutdown() {
 pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
     let lock = CLEAR_LOGS_MUTEX.lock();
 
+    // 先删除日志文件，再 swap 新 sender，避免新线程创建当天日志文件导致 Windows 下无法删除
+    let log_dir = get_log_dir(app_handle);
+    if log_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&log_dir) {
+            for entry in entries.flatten() {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
     let (old_sender, old_thread): (Option<std::sync::Arc<Option<Sender<LogMessage>>>>, Option<std::thread::JoinHandle<()>>) = {
         let (new_sender, new_receiver) = channel::<LogMessage>();
         let new_state = LoggerState {
@@ -426,15 +443,6 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
 
     if let Some(handle) = old_thread {
         let _ = handle.join();
-    }
-
-    let log_dir = get_log_dir(app_handle);
-    if log_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&log_dir) {
-            for entry in entries.flatten() {
-                let _ = fs::remove_file(entry.path());
-            }
-        }
     }
 
     drop(lock);

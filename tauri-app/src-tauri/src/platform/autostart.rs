@@ -37,9 +37,9 @@ pub fn remove_auto_start() -> Result<(), String> {
     let key = hkcu.open_subkey_with_flags(AUTOSTART_REG_KEY, KEY_SET_VALUE)
         .map_err(|e| format!("打开注册表失败: {}", e))?;
 
-    if let Err(e) = key.delete_value(AUTOSTART_REG_VALUE) {
-        crate::log_warn!("system", "删除自启动注册表项失败: {}", e);
+    match key.delete_value(AUTOSTART_REG_VALUE) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("删除自启动注册表项失败: {}", e)),
     }
-
-    Ok(())
 }

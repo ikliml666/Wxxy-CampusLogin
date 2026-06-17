@@ -39,8 +39,14 @@ pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<
             }).await;
 
             if let Ok(Ok((adapters, details, disabled))) = result {
-                let adapters_changed = adapters.len() != last_adapters.len()
-                    || adapters.iter().zip(last_adapters.iter()).any(|(a, b)| a.name != b.name || a.ip != b.ip);
+                let adapters_changed = {
+                    let mut sorted_current: Vec<&Adapter> = adapters.iter().collect();
+                    let mut sorted_last: Vec<&Adapter> = last_adapters.iter().collect();
+                    sorted_current.sort_by(|a, b| a.name.cmp(&b.name));
+                    sorted_last.sort_by(|a, b| a.name.cmp(&b.name));
+                    sorted_current.len() != sorted_last.len()
+                        || sorted_current.iter().zip(sorted_last.iter()).any(|(a, b)| a.name != b.name || a.ip != b.ip)
+                };
 
                 let disabled_changed = disabled.len() != last_disabled.len()
                     || disabled.iter().zip(last_disabled.iter()).any(|(a, b)| a.name != b.name || a.status != b.status);
@@ -77,7 +83,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<
                             true
                         } else {
                             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                            now.as_millis() as u64 - last_ms >= 60000
+                            (now.as_millis() as u64).saturating_sub(last_ms) >= 60000
                         }
                     };
                     if should_notify {

@@ -101,10 +101,19 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
 }
 
 /// 取消校园网退出流程（当重新检测到校园网时调用，或通过快捷键取消）
-pub fn cancel_campus_exit(state: &AppState) {
+pub fn cancel_campus_exit(app_handle: &AppHandle, state: &AppState) {
     if state.exit.campus_exit_started.swap(false, Ordering::AcqRel) {
         state.exit.set_campus_exit_deadline(None);
         crate::log_info!("campus_exit", "校园网退出流程已取消");
+
+        // 如果自动退出也未在运行，注销快捷键
+        let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
+        if !auto_exit_active {
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            if app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+                let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
+            }
+        }
     }
 }
 

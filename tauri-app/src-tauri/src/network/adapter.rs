@@ -994,7 +994,7 @@ pub fn get_wireless_ssid() -> Result<Option<String>, String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("SSID") {
+        if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
             let after = trimmed;
             if let Some(colon) = after.find(':') {
                 let ssid = after[colon + 1..].trim();

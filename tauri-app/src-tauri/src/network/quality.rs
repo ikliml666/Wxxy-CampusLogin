@@ -409,7 +409,13 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     let bind_addr: Option<std::net::IpAddr> = if adapter_ip.is_empty() {
         None
     } else {
-        adapter_ip.parse().ok()
+        match adapter_ip.parse() {
+            Ok(addr) => Some(addr),
+            Err(_) => {
+                crate::log_warn!("quality", "适配器IP解析失败: {}", adapter_ip);
+                None
+            }
+        }
     };
 
     let mut phase1_tasks: Vec<LatencyTaskCtx> = Vec::new();

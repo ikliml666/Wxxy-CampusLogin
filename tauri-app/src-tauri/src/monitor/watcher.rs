@@ -525,7 +525,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
         let hour = config.campus_check_start_minutes / 60;
         let minute = config.campus_check_start_minutes % 60;
         crate::log_info!("background", "校园网检测静默期（当前时间早于{}:{:02}），跳过校园网环境验证", hour, minute);
-        cancel_campus_exit(state);
+        cancel_campus_exit(app_handle, state);
         CampusCheckResult {
             wifi: None,
             wired: None,
@@ -573,7 +573,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     }
 
     // 校园网验证通过：取消之前的退出流程（如果有的话）
-    cancel_campus_exit(state);
+    cancel_campus_exit(app_handle, state);
 
     if cancel_token.is_cancelled() {
         return None;
@@ -817,6 +817,7 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
         run_background_check(&app_h, bg_cancel.clone()).await;
 
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
+        interval_timer.tick().await;
         loop {
             tokio::select! {
                 _ = interval_timer.tick() => {}

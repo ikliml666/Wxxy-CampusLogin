@@ -6,12 +6,5 @@ opt-level = 0
 debug = 1
 incremental = true
 
-[profile.release]
-lto = "thin"
-codegen-units = 256
-strip = true
-opt-level = 3
-panic = "abort"
-
 [profile.dev.package."*"]
 opt-level = 2

@@ -126,8 +126,26 @@ pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
 
     let mut history: Vec<serde_json::Value> = if history_path.exists() {
-        let content = std::fs::read_to_string(&history_path).unwrap_or_default();
-        serde_json::from_str(&content).unwrap_or_default()
+        let content = match std::fs::read_to_string(&history_path) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::log_warn!("system", "读取登录历史失败，备份后重置: {}", e);
+                let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                String::new()
+            }
+        };
+        if content.is_empty() {
+            vec![]
+        } else {
+            match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(e) => {
+                    crate::log_warn!("system", "解析登录历史失败，备份后重置: {}", e);
+                    let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                    vec![]
+                }
+            }
+        }
     } else {
         vec![]
     };

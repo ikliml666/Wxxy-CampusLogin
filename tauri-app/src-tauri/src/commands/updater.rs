@@ -93,15 +93,20 @@ pub async fn download_update(
 
     use std::io::Write;
     loop {
-        let chunk = response
-            .chunk()
-            .await
-            .map_err(|e| format!("读取数据失败: {}", e))?;
+        let chunk = match response.chunk().await {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = std::fs::remove_file(&file_path);
+                return Err(format!("读取数据失败: {}", e));
+            }
+        };
 
         match chunk {
             Some(data) => {
-                file.write_all(&data)
-                    .map_err(|e| format!("写入文件失败: {}", e))?;
+                if let Err(e) = file.write_all(&data) {
+                    let _ = std::fs::remove_file(&file_path);
+                    return Err(format!("写入文件失败: {}", e));
+                }
                 downloaded += data.len() as u64;
 
                 if downloaded > MAX_DOWNLOAD_SIZE {
@@ -141,13 +146,19 @@ pub async fn download_update(
         }
     }
 
-    file.flush().map_err(|e| format!("刷新文件失败: {}", e))?;
+    if let Err(e) = file.flush() {
+        let _ = std::fs::remove_file(&file_path);
+        return Err(format!("刷新文件失败: {}", e));
+    }
     drop(file);
 
-    let path_str = file_path
-        .to_str()
-        .ok_or("文件路径转换失败")?
-        .to_string();
+    let path_str = match file_path.to_str() {
+        Some(s) => s.to_string(),
+        None => {
+            let _ = std::fs::remove_file(&file_path);
+            return Err("文件路径转换失败".to_string());
+        }
+    };
 
     if let Err(e) = app_handle.emit("update-download-progress", DownloadProgress {
         downloaded,

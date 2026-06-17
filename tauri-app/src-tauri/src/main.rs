@@ -233,8 +233,7 @@ fn run_app(core_count: usize) {
                 })
                 .build(app);
 
-            let app_handle = app.handle().clone();
-            let app_h = app_handle.clone();
+            let app_h = app.handle().clone();
             let s = app_h.state::<AppState>();
             let adapter_watch_cancel = s.tasks.adapter_watch_cancel.load().clone();
             monitor::adapter_watch::start_adapter_watch(&app_h, adapter_watch_cancel);

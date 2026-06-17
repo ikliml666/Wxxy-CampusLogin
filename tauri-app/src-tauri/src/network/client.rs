@@ -14,10 +14,10 @@ pub fn update_portal_url(url: &str) {
     }
 }
 
-fn client_pool_key(local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version) -> String {
+fn client_pool_key(local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, timeout: std::time::Duration) -> String {
     match local_addr {
-        Some(ip) => format!("{}:{:?}", ip, min_tls),
-        None => format!("none:{:?}", min_tls),
+        Some(ip) => format!("{}:{:?}:{}", ip, min_tls, timeout.as_millis()),
+        None => format!("none:{:?}:{}", min_tls, timeout.as_millis()),
     }
 }
 
@@ -51,13 +51,13 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
 }
 
 pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::blocking::Client, String> {
-    let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3);
+    let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout);
     if let Some(entry) = CLIENT_POOL.get(&tls13_key) {
         crate::log_debug!("http", "客户端池命中: key={}", tls13_key);
         return Ok(entry.value().clone());
     }
 
-    let tls12_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_2);
+    let tls12_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_2, timeout);
     if let Some(entry) = CLIENT_POOL.get(&tls12_key) {
         crate::log_debug!("http", "客户端池命中(TLS 1.2 fallback): key={}", tls12_key);
         return Ok(entry.value().clone());
