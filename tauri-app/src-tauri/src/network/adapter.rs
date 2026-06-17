@@ -581,7 +581,13 @@ pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
 
     let mut results = Vec::new();
     for adapter in wired {
-        let success = dhcp_renew(&adapter.name).unwrap_or(false);
+        let success = match dhcp_renew(&adapter.name) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::log_warn!("adapter", "DHCP续租失败({}): {}", adapter.name, e);
+                false
+            }
+        };
         results.push(serde_json::json!({
             "name": adapter.name,
             "success": success
@@ -670,7 +676,9 @@ pub fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
         if let Ok(subkey) = class_key.open_subkey_with_flags(&subkey_name, KEY_ALL_ACCESS) {
             if let Ok(instance_id) = subkey.get_value::<String, _>("NetCfgInstanceId") {
                 if instance_id.eq_ignore_ascii_case(adapter_guid) {
-                    let _ = subkey.delete_value("NetworkAddress");
+                    if let Err(e) = subkey.delete_value("NetworkAddress") {
+                        crate::log_warn!("adapter", "清理MAC地址注册表项失败(guid={}): {}", adapter_guid, e);
+                    }
                     return Ok(());
                 }
             }
@@ -771,6 +779,9 @@ fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, o
 }
 
 pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Value>, String> {
+    if campus_gateway.is_empty() {
+        return Err("校园网网关为空，无法判断子网".to_string());
+    }
     let adapters = get_adapters_cached()?;
     if adapters.is_empty() { return Ok(vec![]); }
 
@@ -830,8 +841,12 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
         let mut message: Option<String> = elevate_msg;
 
         if !reg_ok {
-            let _ = dhcp_release(&adapter.name);
-            let _ = dhcp_renew(&adapter.name);
+            if let Err(e) = dhcp_release(&adapter.name) {
+                crate::log_warn!("adapter", "DHCP释放失败({}): {}", adapter.name, e);
+            }
+            if let Err(e) = dhcp_renew(&adapter.name) {
+                crate::log_warn!("adapter", "DHCP续租失败({}): {}", adapter.name, e);
+            }
             if message.is_none() {
                 message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
             }
@@ -850,7 +865,9 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
             }
         } else {
-            let _ = dhcp_release(&adapter.name);
+            if let Err(e) = dhcp_release(&adapter.name) {
+                crate::log_warn!("adapter", "DHCP释放失败({}): {}", adapter.name, e);
+            }
             let disable_ok = netsh_disable(&adapter.name);
             if disable_ok {
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -859,7 +876,13 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
             if enable_ok {
                 poll_adapter_has_ip(&adapter.name, 3000);
             }
-            let renew_ok = dhcp_renew(&adapter.name).unwrap_or(false);
+            let renew_ok = match dhcp_renew(&adapter.name) {
+                Ok(s) => s,
+                Err(e) => {
+                    crate::log_warn!("adapter", "DHCP续租失败({}): {}", adapter.name, e);
+                    false
+                }
+            };
             if renew_ok {
                 if let Some(changed_ip) = poll_ip_change(&adapter.name, &old_ip, 5000) {
                     new_ip = changed_ip;
@@ -873,7 +896,9 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                     }
                 }
             }
-            let _ = remove_mac_from_registry(&adapter.guid);
+            if let Err(e) = remove_mac_from_registry(&adapter.guid) {
+                crate::log_warn!("adapter", "清理MAC注册表失败({}): {}", adapter.guid, e);
+            }
             if !ip_changed && message.is_none() {
                 message = Some("MAC已修改但IP未变更，可能网卡驱动不支持MAC伪装或DHCP服务器分配了相同IP".to_string());
             }

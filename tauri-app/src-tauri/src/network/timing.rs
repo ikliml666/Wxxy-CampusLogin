@@ -407,7 +407,9 @@ pub async fn measure_doh_timing(
                     return r;
                 }
             }
-            Err(_) => {}
+            Err(e) => {
+                crate::log_warn!("timing", "DoH回退DNS解析失败: {}", e);
+            }
         }
     }
 
