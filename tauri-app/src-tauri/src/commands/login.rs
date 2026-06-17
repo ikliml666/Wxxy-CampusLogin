@@ -174,7 +174,7 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
 
 #[tauri::command]
 pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
-    let result = {
+    let (result, any_online_after_logout) = {
         let adapter = adapter_name.clone();
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn_blocking(move || {
@@ -183,15 +183,16 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
                 Some(g) => g,
                 None => {
                     crate::log_warn!("logout", "注销被拒绝：已有注销任务在进行");
-                    return CommandResult::err("注销正在进行中，请稍后再试");
+                    return (CommandResult::err("注销正在进行中，请稍后再试"), None);
                 }
             };
 
             let result = full_logout_inner(&s, &app_h, adapter.as_deref());
 
-            if result.success {
+            let any_online_after_logout = if result.success {
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                if check_any_adapter_online(&s) {
+                let online = check_any_adapter_online(&s);
+                if online {
                     let _ = app_h.emit("login-log", serde_json::json!({
                         "message": "页面检测仍显示在线，注销可能未完全生效",
                         "type": "warning"
@@ -202,9 +203,12 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
                         "type": "success"
                     }));
                 }
-            }
+                Some(online)
+            } else {
+                None
+            };
 
-            result
+            (result, any_online_after_logout)
         }).await.map_err(|e| format!("注销任务失败: {}", e))?
     };
 
@@ -215,8 +219,8 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
         s.exit.set_deadline(None);
 
         if adapter_name.is_none() {
-            // 全量注销：复用 check_any_adapter_online 的实际检测结果设置标志
-            let any_online = check_any_adapter_online(&s);
+            // 全量注销：复用闭包内 check_any_adapter_online 的检测结果设置标志，避免重复 HTTP 请求
+            let any_online = any_online_after_logout.unwrap_or(false);
             s.network.any_adapter_online.store(any_online, Ordering::Release);
             // 全量注销后逐适配器检测真实在线状态，避免误清零失败适配器的标志
             let adapters = match get_adapters_cached() {

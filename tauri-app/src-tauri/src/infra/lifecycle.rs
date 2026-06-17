@@ -83,6 +83,9 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
 
         // 注销快捷键（如果自动退出未在运行）
         {
+            // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
+            // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
+            // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
             let auto_exit_active = s.exit.auto_exit_deadline.lock().is_some();
             if !auto_exit_active {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -107,6 +110,9 @@ pub fn cancel_campus_exit(app_handle: &AppHandle, state: &AppState) {
         crate::log_info!("campus_exit", "校园网退出流程已取消");
 
         // 如果自动退出也未在运行，注销快捷键
+        // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
+        // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
+        // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
         let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
         if !auto_exit_active {
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -128,6 +134,9 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
     crate::log_info!("campus_exit", "校园网退出流程已取消（快捷键）");
 
     // 如果自动退出也未在运行，注销快捷键
+    // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
+    // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
+    // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
     let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
     if !auto_exit_active {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;

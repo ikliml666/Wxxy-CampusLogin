@@ -140,12 +140,15 @@ pub fn try_disconnect_reconnect(
                 crate::log_warn!("auto_login", "发送重连结果失败: {}", e);
             }
         }
-    } else if reconnect_count == MAX_DISCONNECT_RECONNECT + 1 {
-        // 锁已获取但重连次数超限，释放锁（drop login_guard）并记录
-        crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", MAX_DISCONNECT_RECONNECT);
-        emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录");
-    } else if reconnect_count > MAX_DISCONNECT_RECONNECT + 1 && (reconnect_count - MAX_DISCONNECT_RECONNECT) % RECONNECT_REMINDER_INTERVAL == 0 {
-        emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
+    } else {
+        // 超限：重连次数已达上限，释放登录锁，避免阻塞用户手动登录
+        drop(login_guard);
+        if reconnect_count == MAX_DISCONNECT_RECONNECT + 1 {
+            crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", MAX_DISCONNECT_RECONNECT);
+            emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录");
+        } else if reconnect_count > MAX_DISCONNECT_RECONNECT + 1 && (reconnect_count - MAX_DISCONNECT_RECONNECT) % RECONNECT_REMINDER_INTERVAL == 0 {
+            emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
+        }
     }
 }
 

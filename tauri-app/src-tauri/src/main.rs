@@ -21,9 +21,10 @@ use std::time::Duration;
 
 fn main() {
     // 注册 panic hook：panic=abort 时 hook 仍会执行，确保日志 flush
+    // 使用 flush_quick（500ms 超时）避免 panic=abort 模式下阻塞进程终止 5s
     std::panic::set_hook(Box::new(|info| {
         eprintln!("panic: {}", info);
-        crate::infra::logger::flush();
+        crate::infra::logger::flush_quick();
     }));
 
     let core_count = std::thread::available_parallelism()

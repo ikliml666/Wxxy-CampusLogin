@@ -175,7 +175,17 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
         } else {
             AUTO_CHECK_INTERVAL_SECS
         };
-        tokio::time::sleep(std::time::Duration::from_secs(remaining_secs)).await;
+        // 拆分为 5s 步进循环，每次检查 is_quitting，避免 24h sleep 期间无法响应退出
+        let mut elapsed = 0u64;
+        let step = 5u64;
+        while elapsed < remaining_secs {
+            let wait = std::cmp::min(step, remaining_secs - elapsed);
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            elapsed += wait;
+            if state.exit.is_quitting.load(Ordering::Acquire) {
+                break;
+            }
+        }
 
         // 后续固定间隔检查
         loop {

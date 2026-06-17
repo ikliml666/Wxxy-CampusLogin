@@ -385,6 +385,16 @@ pub fn flush() {
     }
 }
 
+/// panic hook 专用 flush：超时缩短为 500ms，避免 panic=abort 模式下阻塞进程终止 5s
+pub fn flush_quick() {
+    let sender_arc = LOGGER_SENDER.load();
+    if let Some(sender) = sender_arc.as_ref() {
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
+        let _ = sender.send(LogMessage::Flush { ack: ack_tx });
+        let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(500));
+    }
+}
+
 pub fn shutdown() {
     let old = LOGGER_SENDER.swap(std::sync::Arc::new(None));
     if let Some(sender) = old.as_ref() {

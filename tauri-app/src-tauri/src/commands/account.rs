@@ -1,5 +1,4 @@
 use tauri::{AppHandle, State};
-use std::sync::Arc;
 use crate::config::model::Config;
 use crate::config::persist;
 use crate::account::crypto;
@@ -174,9 +173,9 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         Ok::<(), String>(())
     }).await.map_err(|e| e.to_string())??;
 
-    let mut new_config = (*config).clone();
-    new_config.active_account = account_name.clone();
-    state.config.store(Arc::new(new_config));
+    state.update_config(|c| {
+        c.active_account = account_name.clone();
+    });
 
     let display_config = state.config.load().masked_for_display();
     crate::log_info!("account", "保存账号: {}", account_name);

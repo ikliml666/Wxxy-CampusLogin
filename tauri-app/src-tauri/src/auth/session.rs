@@ -199,7 +199,13 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
                     login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
                 });
                 let h2 = s.spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    // sleep 拆分为 10×100ms 循环，每次检查 is_quitting，确保退出时适配器2不再发起登录
+                    for _ in 0..10 {
+                        if state.exit.is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+                            return None;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
                     login_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref())
                 });
                 let r1 = h1.join().unwrap_or_else(|_| None);

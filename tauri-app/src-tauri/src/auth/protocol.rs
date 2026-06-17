@@ -40,7 +40,7 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
     let t_req = std::time::Instant::now();
     let resp = client.get(&url).timeout(std::time::Duration::from_secs(15)).send()
-        .map_err(|e| format!("登录请求失败: {}", e.to_string().replace(&url, &safe_url)))?;
+        .map_err(|e| format!("登录请求失败: {}", e.to_string().replace(&url, &safe_url).replace(password, "***")))?;
 
     let status_code = resp.status();
     if resp.content_length().map_or(false, |len| len > 1024 * 1024) {

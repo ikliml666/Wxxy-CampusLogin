@@ -590,12 +590,16 @@ pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
     Ok(results)
 }
 
+static MAC_SEED_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn generate_random_mac() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
+    let counter = MAC_SEED_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64;
+    let seed = time.wrapping_add(counter.wrapping_mul(0x9E3779B97F4A7C15)); // 黄金比例混合
     // 使用简单的线性同余生成器替代 _rdtsc，避免平台依赖
     let mut rng = seed;
     let mut next = || { rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); rng };
