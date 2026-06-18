@@ -181,7 +181,7 @@ fn parse_dr1003_result(data: &str) -> Option<(i64, Option<i64>)> {
     Some((result_val, ret_code))
 }
 
-fn is_nat_private_ip(ip: &str) -> bool {
+pub(crate) fn is_nat_private_ip(ip: &str) -> bool {
     if ip.starts_with("10.") {
         return true;
     }

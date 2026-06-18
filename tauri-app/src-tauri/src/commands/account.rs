@@ -36,7 +36,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
         c.adapter1 = config.adapter1.clone();
         c.adapter2 = config.adapter2.clone();
         c.dual_adapter = config.dual_adapter;
-        c.active_account = account_name.clone();
+        c.active_account = safe_name_log.clone();
     });
 
     let app_h2 = app_handle.clone();
@@ -109,17 +109,16 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                 }
             }
 
-            if let Ok(json) = serde_json::to_string_pretty(&save_prev) {
-                if let Err(e) = persist::atomic_write(&account_path, &json) {
-                    crate::log_error!("account", "保存旧账号文件失败: {}", e);
-                }
-            } else {
-                crate::log_error!("account", "序列化旧账号配置失败");
-            }
+            let json = serde_json::to_string_pretty(&save_prev)
+                .map_err(|e| format!("序列化旧账号配置失败: {}", e))?;
+            persist::atomic_write(&account_path, &json)
+                .map_err(|e| format!("保存旧账号文件失败: {}", e))?;
             Ok(())
         }).await;
-        if let Err(e) = prev_save_result {
-            crate::log_warn!("account", "保存旧账号配置任务失败: {}", e);
+        match prev_save_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => crate::log_warn!("account", "保存旧账号配置失败: {}", e),
+            Err(e) => crate::log_warn!("account", "保存旧账号配置任务失败: {}", e),
         }
     }
 

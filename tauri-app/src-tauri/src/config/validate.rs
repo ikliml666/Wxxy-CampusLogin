@@ -64,10 +64,7 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     }
     config.background_check_interval = config.background_check_interval.clamp(10000, 3600000);
     config.latency_test_interval = config.latency_test_interval.clamp(10000, 3600000);
-    if config.portal_url == "http://10.1.99.100:801" {
-        config.portal_url = "http://10.1.99.100".to_string();
-    }
-    if config.portal_url.is_empty() {
+    if config.portal_url == "http://10.1.99.100:801" || config.portal_url.is_empty() {
         config.portal_url = "http://10.1.99.100".to_string();
     }
     match url::Url::parse(&config.portal_url) {

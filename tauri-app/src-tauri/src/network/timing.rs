@@ -217,7 +217,9 @@ pub async fn measure_https_timing(
         if first_byte_received {
             result.content_ms = ms_from(content_start);
         } else {
-            result.ttfb_ms = ms_from(ttfb_start);
+            // 未收到任何字节（Ok(0) 直接结束），不应记录 TTFB
+            result.ttfb_ms = -1;
+            result.content_ms = -1;
         }
     } else {
         result.ttfb_ms = -1;
@@ -355,8 +357,8 @@ pub async fn measure_doh_timing(
     };
 
     let overall_start = Instant::now();
-    let connect_timeout = Duration::from_secs(5);
-    let http_timeout = Duration::from_secs(5);
+    let connect_timeout = std::cmp::min(timeout, Duration::from_secs(5));
+    let http_timeout = std::cmp::min(timeout, Duration::from_secs(5));
 
     let dns_start = Instant::now();
     let (ip, used_dns_resolve) = if !doh_ip.is_empty() {
@@ -405,7 +407,9 @@ pub async fn measure_doh_timing(
                     return r;
                 }
             }
-            Err(_) => {}
+            Err(e) => {
+                crate::log_warn!("timing", "DoH回退DNS解析失败: {}", e);
+            }
         }
     }
 
@@ -514,7 +518,7 @@ async fn do_doh_https(
             Err(_) => {
                 if first_read {
                     result.error = Some("DoH响应超时".to_string());
-                    result.http_ms = ms_from(http_start);
+                    result.http_ms = -1;
                 }
                 break;
             }

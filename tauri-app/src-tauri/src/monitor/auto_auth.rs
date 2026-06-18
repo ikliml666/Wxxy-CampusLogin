@@ -29,24 +29,24 @@ pub fn try_auto_login_on_preparation(
 
     let protected_until = state.network.logout_protected_until.load();
     if std::time::Instant::now() < **protected_until {
-        crate::log_debug!("background", "注销保护期内，跳过自动登录");
+        crate::log_debug!("auto_login", "注销保护期内，跳过自动登录");
         return;
     }
 
     let last_attempt = state.network.last_auto_login_attempt.load();
     if last_attempt.elapsed().as_secs() < AUTO_LOGIN_COOLDOWN_SECS {
-        crate::log_debug!("background", "自动登录冷却中（{}秒内不重复），跳过", AUTO_LOGIN_COOLDOWN_SECS);
+        crate::log_debug!("auto_login", "自动登录冷却中（{}秒内不重复），跳过", AUTO_LOGIN_COOLDOWN_SECS);
         return;
     }
 
-    crate::log_info!("background", "触发自动登录: loginAvailable={}, online={}", login_available, online);
+    crate::log_info!("auto_login", "触发自动登录: loginAvailable={}, online={}", login_available, online);
     if let Some(_login_guard) = state.tasks.is_logging_in.try_acquire() {
         let t0 = std::time::Instant::now();
         state.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
         let login_result = crate::auth::session::full_login_inner(state, app_handle, None);
         let elapsed = t0.elapsed();
 
-        crate::log_info!("auto_login", "自动登录完成: success={}, message={}, 耗时{}ms",
+        crate::log_info!("login", "自动登录完成: success={}, message={}, 耗时{}ms",
             login_result.success,
             login_result.message.clone().unwrap_or_else(|| "无消息".to_string()),
             elapsed.as_millis());
@@ -90,7 +90,7 @@ pub fn try_disconnect_reconnect(
 
     let protected_until = state.network.logout_protected_until.load();
     if std::time::Instant::now() < **protected_until {
-        crate::log_debug!("background", "注销保护期内，跳过断线重连");
+        crate::log_debug!("auto_login", "注销保护期内，跳过断线重连");
         return;
     }
 
@@ -122,7 +122,7 @@ pub fn try_disconnect_reconnect(
         let reconnect_result = crate::auth::session::full_login_inner(state, app_handle, None);
         let elapsed = t0.elapsed();
 
-        crate::log_info!("auto_login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
+        crate::log_info!("login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
             reconnect_count, MAX_DISCONNECT_RECONNECT, reconnect_result.success, elapsed.as_millis());
 
         if reconnect_result.success {
@@ -146,7 +146,7 @@ pub fn try_disconnect_reconnect(
         if reconnect_count == MAX_DISCONNECT_RECONNECT + 1 {
             crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", MAX_DISCONNECT_RECONNECT);
             emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录");
-        } else if reconnect_count > MAX_DISCONNECT_RECONNECT + 1 && (reconnect_count - MAX_DISCONNECT_RECONNECT) % RECONNECT_REMINDER_INTERVAL == 0 {
+        } else if reconnect_count > MAX_DISCONNECT_RECONNECT + 1 && (reconnect_count - MAX_DISCONNECT_RECONNECT - 1) % RECONNECT_REMINDER_INTERVAL == 0 {
             emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
         }
     }
@@ -385,7 +385,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         let login_elapsed = t_login.elapsed();
 
         if let Ok(login_result) = login_result {
-            crate::log_info!("auto_login", "开机自启登录结果: success={}, message={}, 耗时{}ms",
+            crate::log_info!("login", "开机自启登录结果: success={}, message={}, 耗时{}ms",
                 login_result.success,
                 login_result.message.clone().unwrap_or_else(|| "无".to_string()),
                 login_elapsed.as_millis());

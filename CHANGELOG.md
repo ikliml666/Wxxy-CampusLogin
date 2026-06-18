@@ -1,4 +1,92 @@
-﻿﻿﻿# Changelog
+﻿﻿﻿﻿# Changelog
+
+## v2.2.7
+
+### 高风险 Bug 修复（26 项）
+
+**域 A 密码账号（3 项）：**
+- 密码兜底逻辑修复，避免空密码覆盖已有密码
+- 账号名一致性校验，防止账号切换后名称不同步
+- 密码加密/解密错误路径补齐
+
+**域 B 注销协议（5 项）：**
+- `parse_logout_result` 错误关键词排除，避免注销失败误判成功
+- `do_logout_request` 两步注销协议状态重置修复
+- MAC 解绑 URL 参数编码修复
+- 注销请求超时与重试逻辑对齐
+- `full_logout_inner` 5 个错误返回路径补齐日志
+
+**域 C 后台监控（4 项）：**
+- 后台检测状态标志位正确性修复
+- 断线重连计数器竞态修复
+- 适配器在线状态检测逻辑修复
+- 自动登录冷却期/保护期判断修复
+
+**域 D DNS/DoH（5 项）：**
+- `resolve_host_uncached_with_bind` 的 `bind_addr` 参数接入 NameServerConfig
+- `doh_timeout` 改为 `min(timeout, 3s)` 避免超时过长
+- DoH HTTP 响应增加状态码 200 校验
+- `parse_dns_response_wire` 错误加 "DoH" 前缀
+- `measure_https_timing` 的 `Ok(0)` 未收到字节时 TTFB 记 -1
+
+**域 E 生命周期日志（5 项）：**
+- `start_auto_exit` 入口检查 `auto_exit_cancelled` 标志位
+- 退出路径补齐三个 CancellationToken 取消（bg_check/latency/adapter_watch）
+- `do_login` 后台 spawn 增加 `is_quitting` 检查
+- `full_logout_inner` 5 个错误返回路径补齐 `log_warn!`
+- 8 处日志标签统一（background→auto_login/network 等）
+
+**域 F 配置管理（4 项）：**
+- `load_config_from_file` 解密失败时仅清空密码保留其他配置
+- `import_config` 补齐空密码判断
+- `atomic_write` 临时文件名加纳秒时间戳避免并发覆盖
+- `export_config` 导出脱敏，兜底路径拒绝导出防密码泄漏
+
+### 中风险修复（20 项）
+
+**安全与正确性（6 项）：**
+- cmd 路径适配器名命令注入防护（校验元字符 `"&|><^%`）
+- `export_config` 兜底路径拒绝导出而非返回原始内容
+- `parse_login_result` result==1 排除错误关键词
+- `do_login` 入口取消残留 auto_exit 倒计时
+- DoH timing `http_ms` 超时记 -1 而非误记耗时
+- `validate_account_name` 用字符数而非字节长度（支持中文账号名）
+
+**错误处理（6 项）：**
+- `remove_mac_from_registry` delete_value 错误补齐日志
+- DHCP 释放/续租错误静默忽略补齐日志（5 处）
+- `dhcp_release_renew_all` 入口校验 campus_gateway 为空
+- 保存旧账号配置错误传播而非吞掉
+- spawn_blocking 内层 Result 处理而非丢弃
+- DoH 回退 DNS 解析失败补齐日志
+
+**性能与并发（8 项）：**
+- HTTPS/DoH 时序测量子超时从 timeout 派生而非硬编码 5s
+- `ping_host_async` 用整体超时包裹循环避免 3 倍超时
+- HTTP 客户端池追加容量上限清理（32 条）避免无界增长
+- `get_best_dns/doh_servers` 迭代时立即 clone 避免 RefMulti 长期持锁
+- `do_logout_request` 内层 break 后增加外层 break 避免阻塞退出
+- `trigger_background_check` 复用共享 bg_check_cancel token
+- `spawn_latency_test_loop` 循环退出后用 `Arc::ptr_eq` 检查并 `force_release`
+- `check_any_adapter_online` 返回 `AdapterOnlineStatus` 结构体，复用检测结果避免重复 Portal 检测
+
+### 死代码清理与简化（12 项）
+
+**死代码清理（6 项）：**
+- 删除 `ICMLuaUtilVtbl.set_registry_string_value` 死字段
+- 删除 `is_virtual_description` 函数，复用 `is_blacklisted`
+- 简化 `execute_task` DnsServer 分支 match 为单行
+- `builtin_doh` 复用 `DOH_SERVERS` 常量避免重复定义
+- `dhcp_renew`/`dhcp_release` 复用 `validate_adapter_name` 消除重复校验
+- `dns_config` 常量 `allow(dead_code)` 加注释说明条件编译误报
+
+**简化合并（6 项）：**
+- 合并 `empty_quality_json` 和 `empty_quality_json_with_quality` 为单函数
+- 合并 `gpu.rs` Intel/AMD 分支（代码完全相同）
+- 移除 `validate.rs` campus_gateway 冗余空值检查
+- 合并 `validate.rs` 两个 portal_url 条件为 `||`
+- 移除 `login.rs` `is_quitting_ref` 多余别名
+- 移除 `network_cmd.rs` `check_network_quality` 中无收益的显式 drop
 
 ## v2.2.6
 

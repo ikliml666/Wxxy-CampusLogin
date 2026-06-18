@@ -14,11 +14,7 @@ use crate::infra::state::{AppState, CommandResult};
 use crate::platform::elevation;
 use crate::platform::dns_config;
 
-fn empty_quality_json() -> serde_json::Value {
-    serde_json::json!({ "gatewayLatency": -1, "externalLatency": -1, "averageExternalLatency": -1, "gateway": "", "quality": "unknown", "timestamp": 0, "details": {}, "metrics": {} })
-}
-
-fn empty_quality_json_with_quality(quality: &str) -> serde_json::Value {
+fn empty_quality_json(quality: &str) -> serde_json::Value {
     serde_json::json!({ "gatewayLatency": -1, "externalLatency": -1, "averageExternalLatency": -1, "gateway": "", "quality": quality, "timestamp": 0, "details": {}, "metrics": {} })
 }
 
@@ -162,26 +158,25 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     crate::log_info!("network", "开始网络质量检测");
     let state = app_handle.state::<AppState>();
     if !state.config.load().enable_network_quality {
-        return Ok(empty_quality_json_with_quality("disabled"));
+        return Ok(empty_quality_json("disabled"));
     }
     let _guard = match state.tasks.is_quality_checking.try_acquire() {
         Some(g) => g,
-        None => return Ok(empty_quality_json_with_quality("busy")),
+        None => return Ok(empty_quality_json("busy")),
     };
     let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
         let config = state.config.load();
         let adapters = match get_adapters_cached() {
             Ok(a) => a,
-            Err(_) => return Ok(empty_quality_json()),
+            Err(_) => return Ok(empty_quality_json("unknown")),
         };
         let (ip, name) = select_adapter(&adapters, &config);
         (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
     };
     if adapter_ip.is_empty() {
-        return Ok(empty_quality_json());
+        return Ok(empty_quality_json("unknown"));
     }
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None).await;
-    drop(_guard);
     crate::log_info!("network", "网络质量检测完成");
     serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {}", e))
 }
@@ -297,7 +292,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                             added.push(ip.to_string());
                         } else {
                             let combined = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
-                            if combined.contains("740") || combined.contains("\u{63d0}\u{5347}") || combined.contains("elevation") || combined.contains("\u{7ba1}\u{7406}\u{5458}") {
+                            if combined.contains("740") || combined.contains("elevation") || combined.contains("elevated") || combined.contains("\u{63d0}\u{5347}") || combined.contains("\u{7ba1}\u{7406}\u{5458}") {
                                 need_elevation = true;
                             }
                             crate::log_debug!("doh", "netsh add encryption {} 失败: {}", ip, combined);
@@ -577,6 +572,16 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 }
                 Err(com_err) => {
                     crate::log_warn!("dns", "COM ShellExec提权失败: {}，降级到ShellExecuteW", com_err);
+                }
+            }
+
+            // 校验适配器名称不含 cmd 元字符，防止命令注入
+            for adapter in &active {
+                if adapter.name.chars().any(|c| matches!(c, '"' | '&' | '|' | '<' | '>' | '^' | '%')) {
+                    return Ok(serde_json::json!({
+                        "success": false,
+                        "message": format!("适配器名称含特殊字符，无法通过cmd设置DNS: {}", adapter.name)
+                    }));
                 }
             }
 

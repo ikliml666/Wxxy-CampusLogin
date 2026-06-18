@@ -19,12 +19,11 @@ fn logout_adapter_with_log(
     let adapter_ip = adapter.ip.clone();
     let adapter_if_index = adapter.if_index;
     let adapter_mac = adapter.mac.clone();
-    let is_quitting_ref = is_quitting;
 
     crate::auth::session::adapter_action_with_log(
         adapter, config, app_handle,
         "注销", "logout", "logout",
-        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), adapter_if_index, &adapter_mac, 2, is_quitting_ref),
+        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), adapter_if_index, &adapter_mac, 2, is_quitting),
     )
 }
 
@@ -44,11 +43,15 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         Ok(a) => a,
         Err(_) => match wait_for_adapter(10000, state.exit.is_quitting.as_ref()) {
             Ok(a) => a,
-            Err(e) => return CommandResult::err(&format!("获取适配器失败: {}", e)),
+            Err(e) => {
+                crate::log_warn!("logout", "获取适配器失败: {}", e);
+                return CommandResult::err(&format!("获取适配器失败: {}", e));
+            }
         },
     };
 
     if adapters.is_empty() {
+        crate::log_warn!("logout", "未找到可用网络适配器");
         return CommandResult::err("未找到可用网络适配器");
     }
 
@@ -57,9 +60,15 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         match adapter {
             Some(a) => {
                 return logout_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
-                    .unwrap_or_else(|| CommandResult::err("注销请求失败"));
+                    .unwrap_or_else(|| {
+                        crate::log_warn!("logout", "注销请求失败");
+                        CommandResult::err("注销请求失败")
+                    });
             }
-            None => return CommandResult::err(&format!("未找到适配器: {}", name)),
+            None => {
+                crate::log_warn!("logout", "未找到适配器: {}", name);
+                return CommandResult::err(&format!("未找到适配器: {}", name));
+            }
         }
     }
 
@@ -67,6 +76,7 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
 
     let a1 = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty());
     if a1.is_none() {
+        crate::log_warn!("logout", "未找到有效IP地址的适配器");
         return CommandResult::err("未找到有效IP地址的适配器");
     }
 
@@ -101,40 +111,52 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
     let a1_ref = a1.unwrap();
 
     logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
-        .unwrap_or_else(|| CommandResult::err("注销请求失败"))
+        .unwrap_or_else(|| {
+            crate::log_warn!("logout", "注销请求失败");
+            CommandResult::err("注销请求失败")
+        })
 }
 
-fn check_any_adapter_online(state: &AppState) -> bool {
+struct AdapterOnlineStatus {
+    any_online: bool,
+    a1_online: bool,
+    a2_online: bool,
+}
+
+fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
     let adapters = match get_adapters_cached() {
         Ok(a) => a,
-        Err(_) => return false,
+        Err(_) => return AdapterOnlineStatus { any_online: false, a1_online: false, a2_online: false },
     };
     let config = state.config.load_full();
     let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
-    let names: Vec<&str> = if config.dual_adapter && !a2_name.is_empty() {
-        vec![&a1_name, &a2_name]
-    } else {
-        vec![&a1_name]
+    let check_one = |name: &str| -> bool {
+        adapters.iter().find(|a| a.name == name && !a.ip.is_empty())
+            .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None, None)
+                .map(|ps| ps.online).unwrap_or(false))
+            .unwrap_or(false)
     };
 
-    for name in names {
-        let adapter = match adapters.iter().find(|a| a.name == name && !a.ip.is_empty()) {
-            Some(a) => a,
-            None => continue,
-        };
-        match check_portal_full(&adapter.ip, Some(&adapter.name), None, None, None) {
-            Ok(ps) if ps.online => return true,
-            _ => continue,
-        }
-    }
+    let a1_online = check_one(&a1_name);
+    let a2_online = if config.dual_adapter && !a2_name.is_empty() {
+        check_one(&a2_name)
+    } else {
+        false
+    };
 
-    false
+    AdapterOnlineStatus {
+        any_online: a1_online || a2_online,
+        a1_online,
+        a2_online,
+    }
 }
 
 #[tauri::command]
 pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
     state.exit.auto_exit_cancelled.store(false, Ordering::Release);
+    // 取消可能残留的自动退出倒计时，避免重新登录后被旧倒计时强制退出
+    state.exit.set_deadline(None);
 
     let result = {
         let adapter = adapter_name.clone();
@@ -160,10 +182,14 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
             let s = app_h_bg.state::<AppState>();
+            // 退出流程已开始时不再执行后台检查或触发自动退出
+            if s.exit.is_quitting.load(Ordering::Acquire) {
+                return;
+            }
             let cancel_token = s.tasks.bg_check_cancel.load().clone();
             crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
 
-            if auto_exit {
+            if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {
                 crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);
             }
         });
@@ -191,8 +217,8 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
 
             let any_online_after_logout = if result.success {
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                let online = check_any_adapter_online(&s);
-                if online {
+                let status = check_any_adapter_online(&s);
+                if status.any_online {
                     let _ = app_h.emit("login-log", serde_json::json!({
                         "message": "页面检测仍显示在线，注销可能未完全生效",
                         "type": "warning"
@@ -203,7 +229,7 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
                         "type": "success"
                     }));
                 }
-                Some(online)
+                Some(status)
             } else {
                 None
             };
@@ -213,38 +239,36 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
     };
 
     if result.success {
-        crate::log_info!("logout", "注销成功，已重置网络状态，60秒注销保护期开始");
         let s = app_handle.state::<AppState>();
-        s.exit.auto_exit_cancelled.store(true, Ordering::Release);
-        s.exit.set_deadline(None);
 
         if adapter_name.is_none() {
-            // 全量注销：复用闭包内 check_any_adapter_online 的检测结果设置标志，避免重复 HTTP 请求
-            let any_online = any_online_after_logout.unwrap_or(false);
-            s.network.any_adapter_online.store(any_online, Ordering::Release);
-            // 全量注销后逐适配器检测真实在线状态，避免误清零失败适配器的标志
-            let adapters = match get_adapters_cached() {
-                Ok(a) => a,
-                Err(_) => Vec::new(),
-            };
+            // 全量注销：重置所有全局标志 + 取消自动退出 + 60秒注销保护期
+            crate::log_info!("logout", "全量注销成功，已重置网络状态，60秒注销保护期开始");
+            s.exit.auto_exit_cancelled.store(true, Ordering::Release);
+            s.exit.set_deadline(None);
+
+            // 复用闭包内 check_any_adapter_online 的逐适配器检测结果，避免重复 HTTP 请求
+            let status = any_online_after_logout.unwrap_or(AdapterOnlineStatus {
+                any_online: false, a1_online: false, a2_online: false,
+            });
+            s.network.any_adapter_online.store(status.any_online, Ordering::Release);
+            s.network.last_a1_online.store(status.a1_online, Ordering::Release);
             let cfg = s.config.load_full();
-            let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &cfg);
-            let a1_online = adapters.iter().find(|a| a.name == a1_name && !a.ip.is_empty())
-                .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None, None)
-                    .map(|ps| ps.online).unwrap_or(false))
-                .unwrap_or(false);
-            s.network.last_a1_online.store(a1_online, Ordering::Release);
-            if cfg.dual_adapter && !a2_name.is_empty() {
-                let a2_online = adapters.iter().find(|a| a.name == a2_name && !a.ip.is_empty())
-                    .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None, None)
-                        .map(|ps| ps.online).unwrap_or(false))
-                    .unwrap_or(false);
-                s.network.last_a2_online.store(a2_online, Ordering::Release);
+            if cfg.dual_adapter {
+                s.network.last_a2_online.store(status.a2_online, Ordering::Release);
             } else {
                 s.network.last_a2_online.store(false, Ordering::Release);
             }
+
+            // 全量注销专属：重置登录/重连状态 + 注销保护期
+            s.network.has_logged_online.store(false, Ordering::Release);
+            s.network.disconnect_reconnect_count.store(0, Ordering::Release);
+            s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
+            let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
         } else {
-            // 单个适配器注销：只重置对应适配器的标志
+            // 单适配器注销：仅重置对应适配器标志，重新计算 any_adapter_online，其余全局标志保持不变
+            crate::log_info!("logout", "单适配器注销成功: {:?}", adapter_name);
             let cfg = s.config.load_full();
             let target_name = adapter_name.as_deref().unwrap();
             if target_name == cfg.adapter1 {
@@ -257,11 +281,6 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             let a2 = s.network.last_a2_online.load(Ordering::Acquire);
             s.network.any_adapter_online.store(a1 || a2, Ordering::Release);
         }
-        s.network.has_logged_online.store(false, Ordering::Release);
-        s.network.disconnect_reconnect_count.store(0, Ordering::Release);
-        s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
-        let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
     }
     Ok(result)
 }

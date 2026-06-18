@@ -38,8 +38,9 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
         match crypto::decrypt(&config.password) {
             Ok(decrypted) => config.password = decrypted,
             Err(e) => {
-                crate::log_warn!("config", "密码解密失败: {}", e);
-                return Err(format!("密码解密失败，请重新输入密码: {}", e));
+                // 解密失败时仅清空密码，保留其他配置，避免全量配置丢失
+                crate::log_warn!("config", "密码解密失败，清除密码保留其他配置: {}", e);
+                config.password = String::new();
             }
         }
     }
@@ -93,7 +94,8 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
     };
 
     let mut config = validated;
-    if config.password == crate::config::model::PASSWORD_MASK {
+    // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
+    if config.password.is_empty() || config.password == crate::config::model::PASSWORD_MASK {
         let current = state.config.load();
         config.password = current.password.clone();
     }
@@ -123,6 +125,22 @@ pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Resu
     }
     let content = std::fs::read_to_string(&config_path)
         .map_err(|e| format!("读取配置文件失败: {}", e))?;
+    // 脱敏：将密码字段替换为占位符，防止导出文件包含可还原的加密密码
+    let content = match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(mut json) => {
+            if let Some(obj) = json.as_object_mut() {
+                obj.insert("password".to_string(), serde_json::json!(crate::config::model::PASSWORD_MASK));
+            }
+            serde_json::to_string(&json).unwrap_or_else(|_| {
+                crate::log_warn!("config", "脱敏后序列化失败，返回空配置");
+                "{}".to_string()
+            })
+        }
+        Err(_) => {
+            crate::log_warn!("config", "配置文件JSON格式异常，拒绝导出");
+            return Ok(CommandResult::err("配置文件格式异常，无法脱敏导出"));
+        }
+    };
     crate::log_info!("config", "导出配置成功");
     Ok(CommandResult::ok_data(serde_json::json!({ "content": content })))
 }
@@ -138,7 +156,11 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_j
     };
 
     let mut config = validated;
-    if !config.password.is_empty() && config.password != crate::config::model::PASSWORD_MASK {
+    // mask 占位符或空密码：保留当前密码，避免密码被清空
+    if config.password.is_empty() || config.password == crate::config::model::PASSWORD_MASK {
+        let current = state.config.load();
+        config.password = current.password.clone();
+    } else if !config.password.is_empty() {
         match crypto::decrypt(&config.password) {
             Ok(decrypted) => {
                 config.password = decrypted;

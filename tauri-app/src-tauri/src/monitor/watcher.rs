@@ -83,7 +83,7 @@ fn check_adapter_portal(
     match check_portal_full(&adapter.ip, Some(&adapter.name), None, None, None) {
         Ok(ps) => {
             if ps.error_kind.as_deref() == Some("request_failed") {
-                crate::log_warn!("background", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
+                crate::log_warn!("network", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
                 let _ = app_handle.emit("login-log", serde_json::json!({
                     "message": format!("{} Portal页面检测请求失败: {}", adapter.name, ps.message),
                     "type": "error"
@@ -537,9 +537,8 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
         check_campus_network(&config, &adapters)
     };
     state.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid.clone()));
-    if config.campus_check_start_minutes == 0 || (chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16) >= config.campus_check_start_minutes {
-        state.network.on_campus_network.store(campus_result.on_campus, Ordering::Release);
-    }
+    // 始终更新 on_campus_network（静默期内 campus_result.on_campus=true，确保 emit 字段一致）
+    state.network.on_campus_network.store(campus_result.on_campus, Ordering::Release);
 
     if config.enable_network_name_check && !campus_result.on_campus {
         crate::log_debug!("background", "校园网检测未通过: {}", campus_result.message);
@@ -646,11 +645,15 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             // 重置计数器
             state.network.portal_failure_count.store(0, Ordering::Release);
         }
-    } else if matches!(&primary_result, PortalCheckResult::Success { .. }) {
-        // 连续成功时重置计数器
-        let prev = state.network.portal_failure_count.swap(0, Ordering::AcqRel);
-        if prev > 0 {
-            crate::log_debug!("background", "Portal检测恢复正常，重置失败计数(原值={})", prev);
+    } else {
+        // 任一适配器 Success 即重置计数器（包括主适配器 NotFound 但副适配器 Success 的情况）
+        let any_success = matches!(&primary_result, PortalCheckResult::Success { .. })
+            || secondary_result.as_ref().map_or(false, |r| matches!(r, PortalCheckResult::Success { .. }));
+        if any_success {
+            let prev = state.network.portal_failure_count.swap(0, Ordering::AcqRel);
+            if prev > 0 {
+                crate::log_debug!("background", "Portal检测恢复正常，重置失败计数(原值={})", prev);
+            }
         }
     }
 

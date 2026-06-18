@@ -61,6 +61,7 @@ async fn ping_host_async(host: &str, timeout_ms: u32) -> Result<u64, String> {
     };
 
     let timeout = std::time::Duration::from_millis(timeout_ms as u64);
+    let deadline = std::time::Instant::now() + timeout;
     let mut total_ms = 0u64;
     let mut success_count = 0u32;
 
@@ -69,7 +70,9 @@ async fn ping_host_async(host: &str, timeout_ms: u32) -> Result<u64, String> {
     pinger.timeout(timeout);
 
     for seq in 0..3u16 {
-        match tokio::time::timeout(timeout, pinger.ping(PingSequence(seq), &[])).await {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now()).unwrap_or_default();
+        if remaining.is_zero() { break; }
+        match tokio::time::timeout(remaining, pinger.ping(PingSequence(seq), &[])).await {
             Ok(Ok((_, duration))) => {
                 if seq > 0 {
                     total_ms += duration.as_millis() as u64;
@@ -214,11 +217,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
         }
         LatencyTask::DnsServer { name, ip, domain } => {
             let r = crate::network::timing::measure_dns_query(&ip, &domain, ctx.bind_addr, std::time::Duration::from_millis(3000)).await;
-            let lat = match (r.udp_ms, r.tcp_ms) {
-                (u, t) if u >= 0 && t >= 0 => t,
-                (_, t) if t >= 0 => t,
-                (u, _) => u,
-            };
+            let lat = if r.tcp_ms >= 0 { r.tcp_ms } else { r.udp_ms };
             if !r.success {
                 crate::log_warn!("quality", "DNS服务器测试失败 [{}]: {}:{} - {}", name, ip, domain, r.error.as_deref().unwrap_or("未知错误"));
             }

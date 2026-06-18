@@ -120,7 +120,11 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
                     Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "操作完成" } else { msg }, "success": true, "retryable": false }))
                 }
             } else if result == 1 {
-                Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "Portal协议认证成功" } else { msg }, "success": true, "retryable": false }))
+                if msg.contains("非法") || msg.contains("失败") || msg.contains("错误") || msg.contains("拒绝") {
+                    Ok(serde_json::json!({ "code": "1", "message": msg, "success": false, "retryable": false }))
+                } else {
+                    Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "Portal协议认证成功" } else { msg }, "success": true, "retryable": false }))
+                }
             } else if result == 2 {
                 if msg.contains("已经在线") {
                     Ok(serde_json::json!({ "code": "2", "message": if msg.is_empty() { "已在线" } else { msg }, "success": true, "retryable": false }))
@@ -146,7 +150,7 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
     }
 }
 
-fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str) -> Result<serde_json::Value, String> {
+fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
     let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
     let portal_base = PORTAL_URL.load().clone();
     let portal_base_url = if portal_base.contains(":801") {
@@ -155,7 +159,13 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         format!("{}:801", portal_base.trim_end_matches('/'))
     };
 
-    let wlan_user_ip = adapter_ip.unwrap_or("");
+    // NAT 内网 IP 检测：NAT 环境下不发送 wlan_user_ip（与 portal.rs 行为一致）
+    let adapter_ip_str = adapter_ip.unwrap_or("");
+    let nat_ip = crate::auth::portal::is_nat_private_ip(adapter_ip_str);
+    let wlan_user_ip = if nat_ip { "" } else { adapter_ip_str };
+    if nat_ip {
+        crate::log_info!("logout", "检测到NAT内网IP({}), 不发送wlan_user_ip", adapter_ip_str);
+    }
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
 
@@ -210,7 +220,17 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         if radius_ok { any_radius_ok = true; }
 
         if round == 1 {
-            std::thread::sleep(std::time::Duration::from_millis(1500));
+            // 可中断等待 1.5s（15×100ms，每次检查退出标志）
+            for _ in 0..15 {
+                if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            // 退出标志被设置时跳过 round 2，避免阻塞应用退出
+            if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+                break;
+            }
         }
     }
 
@@ -237,7 +257,7 @@ pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, if_index: u32,
             return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
         }
 
-        let result = do_logout_request(user, adapter_ip, if_index, mac);
+        let result = do_logout_request(user, adapter_ip, if_index, mac, is_quitting);
         match result {
             Ok(ref r) if r.get("success").and_then(|v| v.as_bool()).unwrap_or(false) => {
                 return Ok(r.clone());
@@ -297,7 +317,12 @@ fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
                     Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "操作完成" } else { msg }, "success": true, "retryable": false }))
                 }
             } else if result == 1 {
-                Ok(serde_json::json!({ "code": "1", "message": if msg.is_empty() { "注销成功" } else { msg }, "success": true, "retryable": false }))
+                // result=1 表示 Radius 注销成功，但仍需排除错误关键词（与 result=0 一致）
+                if msg.contains("非法") || msg.contains("失败") || msg.contains("错误") || msg.contains("拒绝") {
+                    Ok(serde_json::json!({ "code": "1", "message": msg, "success": false, "retryable": false }))
+                } else {
+                    Ok(serde_json::json!({ "code": "1", "message": if msg.is_empty() { "注销成功" } else { msg }, "success": true, "retryable": false }))
+                }
             } else {
                 Ok(serde_json::json!({ "code": format!("{}", result), "message": if msg.is_empty() { format!("注销失败，响应码: {}", result) } else { msg.to_string() }, "success": false, "retryable": true }))
             }

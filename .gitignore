@@ -62,5 +62,8 @@ tauri-app/src-tauri/campus-helper.exe
 # Animation guide (internal doc)
 tauri-app/frontend/ANIMATION_GUIDE.md
 
+# Code wiki (internal doc)
+CODE_WIKI.md
+
 # tsbuildinfo
 *.tsbuildinfo

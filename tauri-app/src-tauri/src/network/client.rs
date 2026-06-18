@@ -77,5 +77,16 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
     };
 
     CLIENT_POOL.entry(actual_key).or_insert_with(|| client.clone());
+    // 容量上限清理，避免无界增长（与 dns.rs DNS_CACHE 模式一致）
+    const CLIENT_POOL_MAX_ENTRIES: usize = 32;
+    while CLIENT_POOL.len() > CLIENT_POOL_MAX_ENTRIES {
+        if let Some(entry) = CLIENT_POOL.iter().next() {
+            let key = entry.key().clone();
+            drop(entry);
+            CLIENT_POOL.remove(&key);
+        } else {
+            break;
+        }
+    }
     Ok(client)
 }

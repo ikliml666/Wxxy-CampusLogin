@@ -243,11 +243,7 @@ pub fn build_browser_args() -> String {
         args.push_str(" --use-angle=d3d12");
         args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc");
         args.push_str(" --enable-gpu-rasterization");
-    } else if vendor.contains("intel") {
-        args.push_str(" --use-angle=d3d11");
-        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc");
-        args.push_str(" --enable-gpu-rasterization");
-    } else if vendor.contains("amd") || vendor.contains("advanced micro") || vendor.contains("ati") {
+    } else if vendor.contains("intel") || vendor.contains("amd") || vendor.contains("advanced micro") || vendor.contains("ati") {
         args.push_str(" --use-angle=d3d11");
         args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc");
         args.push_str(" --enable-gpu-rasterization");

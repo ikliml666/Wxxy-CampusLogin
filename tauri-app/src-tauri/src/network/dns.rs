@@ -45,33 +45,22 @@ pub fn update_doh_server_latency(server: &str, latency_ms: i64, success: bool) {
 }
 
 pub(crate) fn get_best_dns_servers() -> Vec<String> {
-    let scored: Vec<_> = DNS_SERVER_SCORES.iter()
+    let mut scored: Vec<(String, i64)> = DNS_SERVER_SCORES.iter()
         .filter(|e| e.value().success && e.value().last_tested.elapsed().as_secs() < 600)
+        .map(|e| (e.key().clone(), e.value().latency_ms))
         .collect();
 
     if scored.is_empty() {
         return DNS_FALLBACK_SERVERS.iter().map(|s| s.to_string()).collect();
     }
 
-    let mut servers: Vec<_> = scored.iter()
-        .map(|e| (e.key().clone(), e.value().latency_ms))
-        .collect();
-    servers.sort_by_key(|(_, lat)| *lat);
-    servers.into_iter().map(|(ip, _)| ip).collect()
+    scored.sort_by_key(|(_, lat)| *lat);
+    scored.into_iter().map(|(ip, _)| ip).collect()
 }
 
 pub(crate) fn get_best_doh_servers() -> Vec<(String, String)> {
-    let scored: Vec<_> = DOH_SERVER_SCORES.iter()
+    let mut scored: Vec<(String, i64, String)> = DOH_SERVER_SCORES.iter()
         .filter(|e| e.value().success && e.value().last_tested.elapsed().as_secs() < 600)
-        .collect();
-
-    if scored.is_empty() {
-        return DOH_FALLBACK_SERVERS.iter()
-            .map(|(s, ip)| (s.to_string(), ip.to_string()))
-            .collect();
-    }
-
-    let mut servers: Vec<_> = scored.iter()
         .map(|e| {
             let fallback_ip = DOH_FALLBACK_SERVERS.iter()
                 .find(|(name, _)| *name == e.key())
@@ -80,8 +69,15 @@ pub(crate) fn get_best_doh_servers() -> Vec<(String, String)> {
             (e.key().clone(), e.value().latency_ms, fallback_ip)
         })
         .collect();
-    servers.sort_by_key(|(_, lat, _)| *lat);
-    servers.into_iter().map(|(name, _, ip)| (name, ip)).collect()
+
+    if scored.is_empty() {
+        return DOH_FALLBACK_SERVERS.iter()
+            .map(|(s, ip)| (s.to_string(), ip.to_string()))
+            .collect();
+    }
+
+    scored.sort_by_key(|(_, lat, _)| *lat);
+    scored.into_iter().map(|(name, _, ip)| (name, ip)).collect()
 }
 
 const DNS_CACHE_TTL_SECS: u64 = 60;
@@ -124,7 +120,7 @@ pub fn cleanup_expired_dns_cache() {
 pub(crate) async fn resolve_host_uncached_with_bind(
     host: &str,
     timeout: Duration,
-    _bind_addr: Option<IpAddr>,
+    bind_addr: Option<IpAddr>,
 ) -> Result<IpAddr, String> {
     let host = host.to_string();
     let result = tokio::task::spawn_blocking(move || {
@@ -140,7 +136,7 @@ pub(crate) async fn resolve_host_uncached_with_bind(
                     protocol: Protocol::Udp,
                     tls_dns_name: None,
                     trust_negative_responses: false,
-                    bind_addr: None,
+                    bind_addr: bind_addr.map(|ip| std::net::SocketAddr::new(ip, 0)),
                 });
             }
         }
@@ -374,13 +370,22 @@ pub(crate) async fn resolve_via_doh(
     let header_end = response.windows(4)
         .position(|w| w == b"\r\n\r\n")
         .ok_or("DoH响应格式无效: 无HTTP头分隔")?;
+
+    // 校验HTTP状态行（必须 200），防止 4xx/5xx 响应体被当作 DNS 报文解析
+    let status_line_end = response.iter().position(|&b| b == b'\r').unwrap_or(header_end);
+    let status_line = std::str::from_utf8(&response[..status_line_end]).unwrap_or("");
+    if status_line.split_whitespace().nth(1) != Some("200") {
+        return Err(format!("DoH响应状态异常: {}", status_line.trim()));
+    }
+
     let body = &response[header_end + 4..];
 
     if body.is_empty() {
         return Err("DoH响应体为空".to_string());
     }
 
-    let ips = parse_dns_response_wire(body)?;
+    let ips = parse_dns_response_wire(body)
+        .map_err(|e| format!("DoH解析响应失败: {}", e))?;
     ips.into_iter().next()
         .ok_or_else(|| "DoH响应无有效A记录".to_string())
 }
@@ -391,7 +396,7 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
     }
 
     let doh_servers = get_best_doh_servers();
-    let doh_timeout = Duration::from_secs(3);
+    let doh_timeout = std::cmp::min(timeout, Duration::from_secs(3));
 
     let mut set = tokio::task::JoinSet::new();
 

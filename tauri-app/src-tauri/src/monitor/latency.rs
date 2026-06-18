@@ -53,13 +53,12 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
     let app_h = app_handle.clone();
     let s = app_h.state::<AppState>();
     s.tasks.latency_cancel.load().cancel();
-    let cancel = {
-        let new_token = tokio_util::sync::CancellationToken::new();
-        let cloned = new_token.clone();
-        s.tasks.latency_cancel.store(Arc::new(new_token));
-        cloned
+    let (cancel, cancel_arc) = {
+        let new_token = Arc::new(tokio_util::sync::CancellationToken::new());
+        let cloned = (*new_token).clone();
+        s.tasks.latency_cancel.store(new_token.clone());
+        (cloned, new_token)
     };
-    let _ = s.tasks.latency_running.swap_acquire();
     tauri::async_runtime::spawn(async move {
         let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
         let mut first_run = true;
@@ -112,6 +111,12 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
             let s = app_h.state::<AppState>();
             let enable_notification = s.config.load().enable_notification;
             notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
+        }
+        // 循环退出后：仅当当前 token 仍属于本循环时才释放 flag，避免误清新循环的 flag
+        let s = app_h.state::<AppState>();
+        let current = s.tasks.latency_cancel.load();
+        if Arc::ptr_eq(&cancel_arc, &*current) {
+            s.tasks.latency_running.force_release();
         }
     });
 }

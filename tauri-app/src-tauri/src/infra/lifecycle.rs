@@ -153,6 +153,11 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
 }
 
 pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
+    // 用户已取消自动退出时不再重新触发，直到下次 do_login 重置标志
+    if state.exit.auto_exit_cancelled.load(Ordering::Acquire) {
+        crate::log_info!("auto_exit", "自动退出已被用户取消，跳过重新触发");
+        return;
+    }
     let should_start = {
         let mut guard = state.exit.auto_exit_deadline.lock();
         if guard.is_some() {

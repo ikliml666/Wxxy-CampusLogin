@@ -61,7 +61,7 @@ lazy_static::lazy_static! {
 }
 
 pub fn validate_account_name(name: &str) -> Result<String, String> {
-    if name.is_empty() || name.len() > 32 {
+    if name.is_empty() || name.chars().count() > 32 {
         return Err("账号名称长度需在1-32之间".to_string());
     }
     if !ACCOUNT_NAME_RE.is_match(name) {
