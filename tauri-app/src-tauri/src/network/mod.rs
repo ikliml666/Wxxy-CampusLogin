@@ -12,7 +12,7 @@ pub use adapter::{
     enable_adapter, resolve_adapter_names, select_adapter,
     wait_for_adapter, dhcp_renew_wired_only, dhcp_release_renew_all, dhcp_release_renew_single,
     ensure_ethernet_ip_for_login,
-    is_blacklisted, check_gateway_reachable,
+    is_blacklisted, check_gateway_reachable, check_gateway_reachable_from,
     is_same_subnet_18,
     get_wireless_ssid,
     get_wired_network_profile,

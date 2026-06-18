@@ -612,54 +612,109 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     let any_request_failed = primary_is_request_failed || secondary_is_request_failed;
 
     if any_request_failed {
-        // 网关可达性前置检查：网关不可达（校园网断网/维护）时 MAC 切换无意义，不计数
+        // 按适配器分别检查网关可达性：每个适配器从自己的 IP 绑定 ping 网关
         let campus_gw = &config.campus_gateway;
-        if !crate::network::check_gateway_reachable(campus_gw) {
-            crate::log_info!("background", "Portal请求失败但网关[{}]不可达，跳过MAC重置计数（校园网断网/维护）", campus_gw);
-            let prev = state.network.portal_failure_count.swap(0, Ordering::AcqRel);
-            if prev > 0 {
-                crate::log_debug!("background", "网关不可达，重置失败计数(原值={})", prev);
-            }
-        } else {
-            let prev_count = state.network.portal_failure_count.fetch_add(1, Ordering::AcqRel);
-            let new_count = prev_count + 1;
-            crate::log_info!("background", "Portal请求失败计数: {}/5 (主={}, 副={}, 网关可达)", new_count, primary_is_request_failed, secondary_is_request_failed);
-            if new_count >= 5 {
-                crate::log_warn!("background", "连续{}次Portal请求失败(网关可达)，触发MAC重置+DHCP续租", new_count);
-                let _ = app_handle.emit("login-log", serde_json::json!({
-                    "message": "连续5次 Portal 请求失败，正在重置MAC并重新获取IP...",
-                    "type": "warning"
-                }));
-                match crate::network::dhcp_release_renew_all(campus_gw) {
-                    Ok(results) => {
-                        for r in &results {
-                            let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
-                            let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                            let name = r.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                            if skipped {
-                                crate::log_debug!("background", "MAC重置跳过非校园网适配器: {}", name);
-                            } else if success {
-                                crate::log_info!("background", "MAC重置成功: {}", name);
-                            } else {
-                                crate::log_warn!("background", "MAC重置失败: {}", name);
+        let a1_ip = a1.map(|a| a.ip.as_str());
+        let a2_ip = a2.map(|a| a.ip.as_str());
+
+        // 适配器1 失败处理
+        if primary_is_request_failed {
+            let gw_reachable = crate::network::check_gateway_reachable_from(campus_gw, a1_ip);
+            if !gw_reachable {
+                crate::log_info!("background", "适配器1 Portal失败但网关[{}]从[{}]不可达，跳过计数（校园网断网/维护）", campus_gw, a1_ip.unwrap_or(""));
+                let prev = state.network.a1_auth_failure_count.swap(0, Ordering::AcqRel);
+                if prev > 0 {
+                    crate::log_debug!("background", "适配器1 网关不可达，重置失败计数(原值={})", prev);
+                }
+            } else {
+                let prev_count = state.network.a1_auth_failure_count.fetch_add(1, Ordering::AcqRel);
+                let new_count = prev_count + 1;
+                crate::log_info!("background", "适配器1 Portal失败计数: {}/5 (网关可达)", new_count);
+                if new_count >= 5 {
+                    crate::log_warn!("background", "适配器1 连续{}次Portal失败(网关可达)，触发该适配器MAC重置", new_count);
+                    let _ = app_handle.emit("login-log", serde_json::json!({
+                        "message": "适配器1 连续5次 Portal 请求失败，正在重置该适配器MAC...",
+                        "type": "warning"
+                    }));
+                    if let Some(a1_ref) = a1 {
+                        match crate::network::dhcp_release_renew_single(&a1_ref.name, campus_gw) {
+                            Ok(r) => {
+                                let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+                                let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                                if skipped {
+                                    crate::log_debug!("background", "适配器1 MAC重置跳过(非校园网子网)");
+                                } else if success {
+                                    crate::log_info!("background", "适配器1 MAC重置成功");
+                                } else {
+                                    crate::log_warn!("background", "适配器1 MAC重置失败");
+                                }
+                            }
+                            Err(e) => {
+                                crate::log_error!("background", "适配器1 MAC重置失败: {}", e);
                             }
                         }
                     }
-                    Err(e) => {
-                        crate::log_error!("background", "MAC重置+DHCP续租失败: {}", e);
-                    }
+                    state.network.a1_auth_failure_count.store(0, Ordering::Release);
                 }
-                state.network.portal_failure_count.store(0, Ordering::Release);
+            }
+        }
+
+        // 适配器2 失败处理
+        if secondary_is_request_failed {
+            let gw_reachable = crate::network::check_gateway_reachable_from(campus_gw, a2_ip);
+            if !gw_reachable {
+                crate::log_info!("background", "适配器2 Portal失败但网关[{}]从[{}]不可达，跳过计数（校园网断网/维护）", campus_gw, a2_ip.unwrap_or(""));
+                let prev = state.network.a2_auth_failure_count.swap(0, Ordering::AcqRel);
+                if prev > 0 {
+                    crate::log_debug!("background", "适配器2 网关不可达，重置失败计数(原值={})", prev);
+                }
+            } else {
+                let prev_count = state.network.a2_auth_failure_count.fetch_add(1, Ordering::AcqRel);
+                let new_count = prev_count + 1;
+                crate::log_info!("background", "适配器2 Portal失败计数: {}/5 (网关可达)", new_count);
+                if new_count >= 5 {
+                    crate::log_warn!("background", "适配器2 连续{}次Portal失败(网关可达)，触发该适配器MAC重置", new_count);
+                    let _ = app_handle.emit("login-log", serde_json::json!({
+                        "message": "适配器2 连续5次 Portal 请求失败，正在重置该适配器MAC...",
+                        "type": "warning"
+                    }));
+                    if let Some(a2_ref) = a2 {
+                        match crate::network::dhcp_release_renew_single(&a2_ref.name, campus_gw) {
+                            Ok(r) => {
+                                let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+                                let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                                if skipped {
+                                    crate::log_debug!("background", "适配器2 MAC重置跳过(非校园网子网)");
+                                } else if success {
+                                    crate::log_info!("background", "适配器2 MAC重置成功");
+                                } else {
+                                    crate::log_warn!("background", "适配器2 MAC重置失败");
+                                }
+                            }
+                            Err(e) => {
+                                crate::log_error!("background", "适配器2 MAC重置失败: {}", e);
+                            }
+                        }
+                    }
+                    state.network.a2_auth_failure_count.store(0, Ordering::Release);
+                }
             }
         }
     } else {
-        // 任一适配器 Success 即重置计数器（包括主适配器 NotFound 但副适配器 Success 的情况）
-        let any_success = matches!(&primary_result, PortalCheckResult::Success { .. })
-            || secondary_result.as_ref().map_or(false, |r| matches!(r, PortalCheckResult::Success { .. }));
-        if any_success {
-            let prev = state.network.portal_failure_count.swap(0, Ordering::AcqRel);
+        // 任一适配器 Success 即重置对应计数器
+        let primary_success = matches!(&primary_result, PortalCheckResult::Success { .. });
+        let secondary_success = secondary_result.as_ref().map_or(false, |r| matches!(r, PortalCheckResult::Success { .. }));
+
+        if primary_success {
+            let prev = state.network.a1_auth_failure_count.swap(0, Ordering::AcqRel);
             if prev > 0 {
-                crate::log_debug!("background", "Portal检测恢复正常，重置失败计数(原值={})", prev);
+                crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev);
+            }
+        }
+        if secondary_success {
+            let prev = state.network.a2_auth_failure_count.swap(0, Ordering::AcqRel);
+            if prev > 0 {
+                crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev);
             }
         }
     }
