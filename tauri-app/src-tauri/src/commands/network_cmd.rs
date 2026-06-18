@@ -28,7 +28,7 @@ pub async fn get_adapters(force: Option<bool>) -> Result<Vec<Adapter>, String> {
 
 #[tauri::command]
 pub async fn get_disabled_adapters() -> Result<Vec<DisabledAdapter>, String> {
-    tauri::async_runtime::spawn_blocking(|| get_disabled_adapters_cached()).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(get_disabled_adapters_cached).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -43,7 +43,7 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
 
 #[tauri::command]
 pub async fn get_adapter_details() -> Result<Vec<AdapterDetail>, String> {
-    tauri::async_runtime::spawn_blocking(|| get_adapter_details_cached()).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(get_adapter_details_cached).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -617,16 +617,16 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
             match elevation::run_elevated("cmd", &format!("/c {}", all_cmds)) {
                 Ok(()) => {
                     std::thread::sleep(std::time::Duration::from_millis(2000));
-                    return Ok(serde_json::json!({
+                    Ok(serde_json::json!({
                         "success": true,
                         "message": "已通过管理员权限设置DNS并启用DoH".to_string(),
-                    }));
+                    }))
                 }
                 Err(e) => {
-                    return Ok(serde_json::json!({
+                    Ok(serde_json::json!({
                         "success": false,
                         "message": format!("需要管理员权限: {}", e),
-                    }));
+                    }))
                 }
             }
         }

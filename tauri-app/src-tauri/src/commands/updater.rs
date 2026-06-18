@@ -15,7 +15,7 @@ pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) ->
         .as_millis() as u64;
     state.last_update_check_epoch_ms.store(now, Ordering::Release);
 
-    Ok(serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {}", e))?)
+    serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {}", e))
 }
 
 #[tauri::command]
@@ -53,7 +53,7 @@ pub async fn download_update(
 
     let filename = parsed
         .path_segments()
-        .and_then(|seg| seg.last())
+        .and_then(|mut seg| seg.next_back())
         .unwrap_or("update.exe")
         .to_string();
 

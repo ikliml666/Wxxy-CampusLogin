@@ -22,7 +22,7 @@ pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String>
     }
     crate::log_warn!("config", "原子写入重命名失败，保留临时文件: {:?}", tmp_path);
     let _ = std::fs::remove_file(&tmp_path);
-    Err(format!("重命名临时文件失败（重试3次后）"))
+    Err("重命名临时文件失败（重试3次后）".to_string())
 }
 
 pub fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {

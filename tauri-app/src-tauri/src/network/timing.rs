@@ -328,11 +328,11 @@ pub async fn measure_dns_query(
     let mut tcp_err: Option<String> = None;
     match udp_result {
         (Ok(_), _) => { result.udp_ms = udp_ms; }
-        (Err(e), _) => { udp_err = Some(format!("{}", e)); }
+        (Err(e), _) => { udp_err = Some(e.to_string()); }
     }
     match tcp_result {
         (Ok(_), _) => { result.tcp_ms = tcp_ms; }
-        (Err(e), _) => { tcp_err = Some(format!("{}", e)); }
+        (Err(e), _) => { tcp_err = Some(e.to_string()); }
     }
     if result.udp_ms < 0 && result.tcp_ms < 0 {
         result.error = match (udp_err, tcp_err) {

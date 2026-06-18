@@ -304,7 +304,7 @@ pub fn set_log_level(level: LogLevel) {
 }
 
 pub fn get_log_level() -> LogLevel {
-    (**MIN_LOG_LEVEL.load()).clone()
+    **MIN_LOG_LEVEL.load()
 }
 
 #[tauri::command]
@@ -441,7 +441,7 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
         };
 
         let old = LOGGER_SENDER.swap(std::sync::Arc::new(Some(new_sender)));
-        let old_handle = std::mem::replace(&mut *LOGGER_THREAD.lock(), Some(new_handle));
+        let old_handle = (*LOGGER_THREAD.lock()).replace(new_handle);
         (if old.as_ref().is_some() { Some(old) } else { None }, old_handle)
     };
 

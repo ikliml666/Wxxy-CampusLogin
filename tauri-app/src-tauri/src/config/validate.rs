@@ -43,10 +43,8 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if !config.user.is_empty() {
         validate_username(&config.user)?;
     }
-    if !config.password.is_empty() {
-        if config.password != PASSWORD_MASK {
-            validate_password(&config.password)?;
-        }
+    if !config.password.is_empty() && config.password != PASSWORD_MASK {
+        validate_password(&config.password)?;
     }
     if config.operator == "@ctcc" {
         config.operator = "@telecom".to_string();
@@ -54,10 +52,8 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         config.operator = "@unicom".to_string();
     }
     config.operator = validate_operator(&config.operator)?.to_string();
-    if !config.custom_theme_color.is_empty() {
-        if !CUSTOM_COLOR_RE.is_match(&config.custom_theme_color) {
-            return Err("自定义主题颜色格式无效，需为#开头的6位十六进制色值".to_string());
-        }
+    if !config.custom_theme_color.is_empty() && !CUSTOM_COLOR_RE.is_match(&config.custom_theme_color) {
+        return Err("自定义主题颜色格式无效，需为#开头的6位十六进制色值".to_string());
     }
     if config.theme_mode != "dark" && config.theme_mode != "light" && config.theme_mode != "system" {
         return Err("主题模式必须为\"dark\"、\"light\"或\"system\"".to_string());
@@ -96,18 +92,14 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
             return Err(format!("Portal地址格式无效: {}", e));
         }
     }
-    if !config.fixed_gateway.is_empty() {
-        if config.fixed_gateway.parse::<std::net::IpAddr>().is_err() {
-            return Err(format!("固定网关地址无效: {}", config.fixed_gateway));
-        }
+    if !config.fixed_gateway.is_empty() && config.fixed_gateway.parse::<std::net::IpAddr>().is_err() {
+        return Err(format!("固定网关地址无效: {}", config.fixed_gateway));
     }
     if config.campus_gateway.is_empty() {
         config.campus_gateway = default_campus_gateway();
     }
-    if !config.campus_gateway.is_empty() {
-        if config.campus_gateway.parse::<std::net::IpAddr>().is_err() {
-            return Err(format!("校园网关地址无效: {}", config.campus_gateway));
-        }
+    if !config.campus_gateway.is_empty() && config.campus_gateway.parse::<std::net::IpAddr>().is_err() {
+        return Err(format!("校园网关地址无效: {}", config.campus_gateway));
     }
     if config.required_network_name.is_empty() {
         config.required_network_name = default_required_network_name();

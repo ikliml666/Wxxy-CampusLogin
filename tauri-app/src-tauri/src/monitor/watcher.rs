@@ -449,8 +449,8 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         }
     };
 
-    let on_campus = wifi_status.as_ref().map_or(false, |s| s.on_campus)
-        || wired_status.as_ref().map_or(false, |s| s.on_campus);
+    let on_campus = wifi_status.as_ref().map(|s| s.on_campus).unwrap_or(false)
+        || wired_status.as_ref().map(|s| s.on_campus).unwrap_or(false);
 
     let message = if on_campus {
         let mut parts = Vec::new();
@@ -488,10 +488,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
         return None;
     }
-    let _check_guard = match state.tasks.is_checking.try_acquire() {
-        Some(guard) => guard,
-        None => return None,
-    };
+    let _check_guard = state.tasks.is_checking.try_acquire()?;
     let t_total = std::time::Instant::now();
 
     let config = state.config.load_full();
@@ -608,7 +605,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
 
     // Portal 请求失败容错：累加失败计数，连续3次 request_failed 时触发 MAC 重置
     let primary_is_request_failed = matches!(&primary_result, PortalCheckResult::Error { is_request_failed: true });
-    let secondary_is_request_failed = secondary_result.as_ref().map_or(false, |r| matches!(r, PortalCheckResult::Error { is_request_failed: true }));
+    let secondary_is_request_failed = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Error { is_request_failed: true })).unwrap_or(false);
     let any_request_failed = primary_is_request_failed || secondary_is_request_failed;
 
     if any_request_failed {
@@ -703,7 +700,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     } else {
         // 任一适配器 Success 即重置对应计数器
         let primary_success = matches!(&primary_result, PortalCheckResult::Success { .. });
-        let secondary_success = secondary_result.as_ref().map_or(false, |r| matches!(r, PortalCheckResult::Success { .. }));
+        let secondary_success = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Success { .. })).unwrap_or(false);
 
         if primary_success {
             let prev = state.network.a1_auth_failure_count.swap(0, Ordering::AcqRel);
@@ -737,7 +734,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     crate::log_debug!("background", "Portal检测完成({}ms): 主[{}]={}/{} |副={:?}",
         portal_elapsed.as_millis(),
         adapter1_name,
-        if online { "online" } else { if reachable { "offline" } else { "unreachable" } },
+        if online { "online" } else if reachable { "offline" } else { "unreachable" },
         message,
         secondary_result.as_ref().map(|r| format!("{}/{}", if r.online() {"online"} else {r.message()}, r.reachable())));
 

@@ -111,7 +111,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
             };
 
             let status_code = resp.status();
-            if resp.content_length().map_or(false, |len| len > 1024 * 1024) {
+            if resp.content_length().map(|len| len > 1024 * 1024).unwrap_or(false) {
                 return Ok(PortalStatus {
                     reachable: false,
                     online: false,

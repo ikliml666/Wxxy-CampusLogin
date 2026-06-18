@@ -103,15 +103,13 @@ pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<
                             vec![]
                         };
                         for da in &disabled {
-                            if !last_disabled.iter().any(|ld| ld.name == da.name) {
-                                if configured_names.iter().any(|n| *n == da.name) {
-                                    let message = format!("适配器{} 当前{}，请检查后重试", da.name, da.status);
-                                    if let Err(e) = app_h.emit("adapter-disabled-warning", serde_json::json!({
-                                        "name": da.name,
-                                        "message": message,
-                                    })) {
-                                        crate::log_warn!("adapter_watch", "发送适配器禁用警告失败: {}", e);
-                                    }
+                            if !last_disabled.iter().any(|ld| ld.name == da.name) && configured_names.iter().any(|n| *n == da.name) {
+                                let message = format!("适配器{} 当前{}，请检查后重试", da.name, da.status);
+                                if let Err(e) = app_h.emit("adapter-disabled-warning", serde_json::json!({
+                                    "name": da.name,
+                                    "message": message,
+                                })) {
+                                    crate::log_warn!("adapter_watch", "发送适配器禁用警告失败: {}", e);
                                 }
                             }
                         }

@@ -43,7 +43,7 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
         .map_err(|e| format!("登录请求失败: {}", e.to_string().replace(&url, &safe_url).replace(password, "***")))?;
 
     let status_code = resp.status();
-    if resp.content_length().map_or(false, |len| len > 1024 * 1024) {
+    if resp.content_length().map(|len| len > 1024 * 1024).unwrap_or(false) {
         return Err("登录响应体过大".to_string());
     }
     let body = resp.text().unwrap_or_default();

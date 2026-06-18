@@ -42,10 +42,10 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
 
     // 注册统一取消快捷键（与自动退出共用 Ctrl+Shift+C）
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    if !app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-        if app_handle.global_shortcut().register(CANCEL_EXIT_SHORTCUT).is_err() {
-            crate::log_warn!("campus_exit", "快捷键注册失败，请通过界面取消退出");
-        }
+    if !app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT)
+        && app_handle.global_shortcut().register(CANCEL_EXIT_SHORTCUT).is_err()
+    {
+        crate::log_warn!("campus_exit", "快捷键注册失败，请通过界面取消退出");
     }
 
     let app_h = app_handle.clone();
