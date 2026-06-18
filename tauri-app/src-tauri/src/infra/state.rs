@@ -97,6 +97,8 @@ pub struct NetworkStatus {
     pub on_campus_network: AtomicBool,
     pub logout_protected_until: ArcSwap<std::time::Instant>,
     pub portal_failure_count: AtomicU32,
+    pub a1_auth_failure_count: AtomicU32,
+    pub a2_auth_failure_count: AtomicU32,
 }
 
 pub struct ExitState {
@@ -166,6 +168,8 @@ impl AppState {
                 on_campus_network: AtomicBool::new(false),
                 logout_protected_until: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now())),
                 portal_failure_count: AtomicU32::new(0),
+                a1_auth_failure_count: AtomicU32::new(0),
+                a2_auth_failure_count: AtomicU32::new(0),
             },
             exit: ExitState {
                 is_quitting: std::sync::Arc::new(AtomicBool::new(false)),

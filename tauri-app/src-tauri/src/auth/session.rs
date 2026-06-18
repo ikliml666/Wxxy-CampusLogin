@@ -11,7 +11,7 @@ use crate::auth::protocol::do_login_with_retry;
 use crate::infra::state::{AppState, CommandResult};
 use crate::commands::system::append_login_history;
 
-/// 登录认证失败计数：连续3次认证失败触发 MAC 重置
+/// 登录认证失败计数：连续5次认证失败触发 MAC 重置
 /// 仅认证失败码（ac_auth_failed/1/4）递增计数；网络错误不计数；成功重置计数
 fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_result: &CommandResult, campus_gw: &str) {
     let code = cmd_result.data.as_ref()
@@ -35,12 +35,12 @@ fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_resul
 
     let prev_count = state.network.portal_failure_count.fetch_add(1, Ordering::AcqRel);
     let new_count = prev_count + 1;
-    crate::log_info!("login", "认证失败计数: {}/3 (code={})", new_count, code);
+    crate::log_info!("login", "认证失败计数: {}/5 (code={})", new_count, code);
 
-    if new_count >= 3 {
+    if new_count >= 5 {
         crate::log_warn!("login", "连续{}次认证失败，触发MAC重置+DHCP续租", new_count);
         let _ = app_handle.emit("login-log", serde_json::json!({
-            "message": "连续3次认证失败，正在重置MAC并重新获取IP...",
+            "message": "连续5次认证失败，正在重置MAC并重新获取IP...",
             "type": "warning"
         }));
         match crate::network::dhcp_release_renew_all(campus_gw) {
@@ -63,6 +63,90 @@ fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_resul
             }
         }
         state.network.portal_failure_count.store(0, Ordering::Release);
+    }
+}
+
+/// 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器的 MAC 重置
+fn update_dual_adapter_auth_failure(
+    state: &AppState,
+    app_handle: &AppHandle,
+    r1: &Option<CommandResult>,
+    r2: &Option<CommandResult>,
+    a1_name: &str,
+    a2_name: &str,
+    campus_gw: &str,
+) {
+    // 适配器1处理
+    handle_single_adapter_failure(
+        state, app_handle, r1, a1_name, campus_gw,
+        &state.network.a1_auth_failure_count,
+    );
+    // 适配器2处理
+    handle_single_adapter_failure(
+        state, app_handle, r2, a2_name, campus_gw,
+        &state.network.a2_auth_failure_count,
+    );
+}
+
+/// 处理单个适配器的认证失败计数与 MAC 重置
+fn handle_single_adapter_failure(
+    state: &AppState,
+    app_handle: &AppHandle,
+    result: &Option<CommandResult>,
+    adapter_name: &str,
+    campus_gw: &str,
+    counter: &std::sync::atomic::AtomicU32,
+) {
+    let _ = state; // state 暂未在单适配器分支使用，保留参数以备扩展
+    let code = result.as_ref()
+        .and_then(|r| r.data.as_ref())
+        .and_then(|d| d.get("code"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let success = result.as_ref().map(|r| r.success).unwrap_or(false);
+
+    if success {
+        let prev = counter.swap(0, Ordering::AcqRel);
+        if prev > 0 {
+            crate::log_debug!("login", "{} 登录成功，重置认证失败计数(原值={})", adapter_name, prev);
+        }
+        return;
+    }
+
+    // 认证失败码：ac_auth_failed(AC认证失败), 1(非法/失败/拒绝), 4(账号禁用)
+    let is_auth_failure = matches!(code, "ac_auth_failed" | "1" | "4");
+    if !is_auth_failure {
+        return;
+    }
+
+    let prev_count = counter.fetch_add(1, Ordering::AcqRel);
+    let new_count = prev_count + 1;
+    crate::log_info!("login", "{} 认证失败计数: {}/5 (code={})", adapter_name, new_count, code);
+
+    if new_count >= 5 {
+        crate::log_warn!("login", "{} 连续{}次认证失败，触发该适配器MAC重置", adapter_name, new_count);
+        let _ = app_handle.emit("login-log", serde_json::json!({
+            "message": format!("{} 连续5次认证失败，正在重置该适配器MAC...", adapter_name),
+            "type": "warning"
+        }));
+        match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {
+            Ok(r) => {
+                let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+                let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                if skipped {
+                    crate::log_debug!("login", "{} MAC重置跳过(非校园网子网)", adapter_name);
+                } else if success {
+                    crate::log_info!("login", "{} MAC重置成功", adapter_name);
+                } else {
+                    crate::log_warn!("login", "{} MAC重置失败", adapter_name);
+                }
+            }
+            Err(e) => {
+                crate::log_error!("login", "{} MAC重置失败: {}", adapter_name, e);
+            }
+        }
+        counter.store(0, Ordering::Release);
     }
 }
 
@@ -273,8 +357,8 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
             let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
             let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);
 
-            let a1_msg = r1.and_then(|r| r.message).unwrap_or_default();
-            let a2_msg = r2.and_then(|r| r.message).unwrap_or_default();
+            let a1_msg = r1.as_ref().and_then(|r| r.message.clone()).unwrap_or_default();
+            let a2_msg = r2.as_ref().and_then(|r| r.message.clone()).unwrap_or_default();
 
             let combined_msg = if !a1_msg.is_empty() && !a2_msg.is_empty() {
                 format!("{}, {}", a1_msg, a2_msg)
@@ -287,7 +371,11 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
                 message: Some(combined_msg),
                 data: Some(serde_json::json!({ "code": if a1_success || a2_success { "0" } else { "1" } })),
             };
-            update_auth_failure_count(state, app_handle, &result, &config.campus_gateway);
+            // 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器 MAC 重置
+            update_dual_adapter_auth_failure(
+                state, app_handle, &r1, &r2,
+                &adapter1_name, &adapter2_name, &config.campus_gateway,
+            );
             return result;
         }
     }
