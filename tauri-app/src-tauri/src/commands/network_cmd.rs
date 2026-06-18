@@ -14,11 +14,7 @@ use crate::infra::state::{AppState, CommandResult};
 use crate::platform::elevation;
 use crate::platform::dns_config;
 
-fn empty_quality_json() -> serde_json::Value {
-    serde_json::json!({ "gatewayLatency": -1, "externalLatency": -1, "averageExternalLatency": -1, "gateway": "", "quality": "unknown", "timestamp": 0, "details": {}, "metrics": {} })
-}
-
-fn empty_quality_json_with_quality(quality: &str) -> serde_json::Value {
+fn empty_quality_json(quality: &str) -> serde_json::Value {
     serde_json::json!({ "gatewayLatency": -1, "externalLatency": -1, "averageExternalLatency": -1, "gateway": "", "quality": quality, "timestamp": 0, "details": {}, "metrics": {} })
 }
 
@@ -162,26 +158,25 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     crate::log_info!("network", "开始网络质量检测");
     let state = app_handle.state::<AppState>();
     if !state.config.load().enable_network_quality {
-        return Ok(empty_quality_json_with_quality("disabled"));
+        return Ok(empty_quality_json("disabled"));
     }
     let _guard = match state.tasks.is_quality_checking.try_acquire() {
         Some(g) => g,
-        None => return Ok(empty_quality_json_with_quality("busy")),
+        None => return Ok(empty_quality_json("busy")),
     };
     let (adapter_ip, adapter_name, skip_ttfb, skip_content, fixed_gateway) = {
         let config = state.config.load();
         let adapters = match get_adapters_cached() {
             Ok(a) => a,
-            Err(_) => return Ok(empty_quality_json()),
+            Err(_) => return Ok(empty_quality_json("unknown")),
         };
         let (ip, name) = select_adapter(&adapters, &config);
         (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
     };
     if adapter_ip.is_empty() {
-        return Ok(empty_quality_json());
+        return Ok(empty_quality_json("unknown"));
     }
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None).await;
-    drop(_guard);
     crate::log_info!("network", "网络质量检测完成");
     serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {}", e))
 }

@@ -19,12 +19,11 @@ fn logout_adapter_with_log(
     let adapter_ip = adapter.ip.clone();
     let adapter_if_index = adapter.if_index;
     let adapter_mac = adapter.mac.clone();
-    let is_quitting_ref = is_quitting;
 
     crate::auth::session::adapter_action_with_log(
         adapter, config, app_handle,
         "注销", "logout", "logout",
-        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), adapter_if_index, &adapter_mac, 2, is_quitting_ref),
+        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), adapter_if_index, &adapter_mac, 2, is_quitting),
     )
 }
 
