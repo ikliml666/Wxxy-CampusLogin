@@ -66,10 +66,6 @@ pub fn is_blacklisted(name: &str) -> bool {
     BL_REGEX.is_match(name)
 }
 
-fn is_virtual_description(desc: &str) -> bool {
-    BL_REGEX.is_match(desc)
-}
-
 #[cfg(target_os = "windows")]
 fn is_visible_in_ncpa(guid: &str) -> bool {
     // 判断网卡是否在 Win11 高级网络设置 / ncpa.cpl 中可见
@@ -264,7 +260,7 @@ fn parse_adapter_addresses(
 
         let description = unsafe { read_pwstr(addr.Description) };
 
-        if is_blacklisted(&name) || is_virtual_description(&description) {
+        if is_blacklisted(&name) || is_blacklisted(&description) {
             current = addr.Next;
             continue;
         }
@@ -547,12 +543,7 @@ pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (
 }
 
 pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
-    if adapter_name.is_empty() { return Err("适配器名称无效".to_string()); }
-    if adapter_name.len() > 128 { return Err("适配器名称过长".to_string()); }
-    let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
-    if adapter_name.chars().any(|c| forbidden.contains(&c)) {
-        return Err("适配器名称包含非法字符".to_string());
-    }
+    validate_adapter_name(adapter_name)?;
     let output = new_command("ipconfig")
         .args(["/renew", adapter_name])
         .output()
@@ -561,12 +552,7 @@ pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
 }
 
 pub fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
-    if adapter_name.is_empty() { return Err("适配器名称无效".to_string()); }
-    if adapter_name.len() > 128 { return Err("适配器名称过长".to_string()); }
-    let forbidden = ['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
-    if adapter_name.chars().any(|c| forbidden.contains(&c)) {
-        return Err("适配器名称包含非法字符".to_string());
-    }
+    validate_adapter_name(adapter_name)?;
     let output = new_command("ipconfig")
         .args(["/release", adapter_name])
         .output()

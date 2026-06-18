@@ -217,11 +217,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
         }
         LatencyTask::DnsServer { name, ip, domain } => {
             let r = crate::network::timing::measure_dns_query(&ip, &domain, ctx.bind_addr, std::time::Duration::from_millis(3000)).await;
-            let lat = match (r.udp_ms, r.tcp_ms) {
-                (u, t) if u >= 0 && t >= 0 => t,
-                (_, t) if t >= 0 => t,
-                (u, _) => u,
-            };
+            let lat = if r.tcp_ms >= 0 { r.tcp_ms } else { r.udp_ms };
             if !r.success {
                 crate::log_warn!("quality", "DNS服务器测试失败 [{}]: {}:{} - {}", name, ip, domain, r.error.as_deref().unwrap_or("未知错误"));
             }

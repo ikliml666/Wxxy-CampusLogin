@@ -14,10 +14,10 @@ pub const DOH_SERVERS: &[(&str, &str)] = &[
 const DNS_PROPERTY_TYPE_DOH: i32 = 1;
 
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
+#[allow(dead_code)] // 在 set_profile_dns_via_api 中使用，编译器因条件编译误报
 const DNS_SETTING_PROFILE_NAMESERVER: u64 = 0x0200;
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
+#[allow(dead_code)] // 在 set_profile_dns_via_api 中使用，编译器因条件编译误报
 const DNS_SETTING_DOH_PROFILE: u64 = 0x2000;
 
 #[cfg(target_os = "windows")]
@@ -352,12 +352,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 
         crate::log_debug!("doh", "netsh检测结果: {:?}", netsh_doh);
 
-        let builtin_doh: &[(&str, &str)] = &[
-            ("223.5.5.5", "https://dns.alidns.com/dns-query"),
-            ("223.6.6.6", "https://dns.alidns.com/dns-query"),
-            ("1.12.12.12", "https://doh.pub/dns-query"),
-            ("120.53.53.53", "https://doh.pub/dns-query"),
-        ];
+        let builtin_doh: &[(&str, &str)] = DOH_SERVERS;
 
         let mut result: std::collections::HashMap<String, (bool, bool, String)> = std::collections::HashMap::new();
         for dns in dns_ips {

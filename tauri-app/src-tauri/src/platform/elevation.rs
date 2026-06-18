@@ -163,5 +163,4 @@ struct ICMLuaUtilVtbl {
     _method5: usize,
     _method6: usize,
     shell_exec: unsafe extern "system" fn(*mut std::ffi::c_void, *const u16, *const u16, *const u16, u32, u32) -> windows::core::HRESULT,
-    set_registry_string_value: unsafe extern "system" fn(*mut std::ffi::c_void, isize, *const u16, *const u16, *const u16) -> windows::core::HRESULT,
 }
