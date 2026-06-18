@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use std::sync::Arc;
 use crate::config::model::Config;
 use crate::config::persist;
-use crate::config::validate::validate_config;
+use crate::config::validate::{validate_config, validate_config_lenient};
 use crate::account::crypto;
 use crate::infra::state::{AppState, CommandResult};
 
@@ -50,15 +50,7 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
 
 pub fn load_config_from_disk_or_default(app_handle: &AppHandle) -> Config {
     match load_config_from_file(app_handle) {
-        Ok(config) => {
-            match validate_config(config) {
-                Ok(validated) => validated,
-                Err(e) => {
-                    crate::log_warn!("config", "配置验证失败: {}", e);
-                    Config::default()
-                }
-            }
-        }
+        Ok(config) => validate_config_lenient(config),
         Err(e) => {
             crate::log_warn!("config", "加载配置失败: {}，使用默认配置", e);
             Config::default()
