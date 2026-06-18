@@ -112,8 +112,9 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if config.required_network_name.is_empty() {
         config.required_network_name = default_required_network_name();
     }
+    // 0 表示永久保留（见 logger.rs cleanup_old_logs_by_time），仅限制上限，不重置为默认值
     if config.log_retention_days > 365 {
-        config.log_retention_days = 7;
+        config.log_retention_days = 365;
     }
     // 配置版本迁移：config_version < 2 为旧版，campus_check_start_minutes 可能是旧字段 campusCheckStartHour 的小时值（通过 alias 反序列化）
     // config_version >= 2 为新版，campus_check_start_minutes 直接是分钟值

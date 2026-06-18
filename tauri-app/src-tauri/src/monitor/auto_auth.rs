@@ -230,20 +230,19 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 crate::log_info!("auto_login", "开机自启: 校园网检测静默期（当前时间早于{}:{:02}），跳过校园网环境验证", hour, minute);
                 s.network.on_campus_network.store(true, std::sync::atomic::Ordering::Release);
             } else {
-                let campus_result = tauri::async_runtime::spawn_blocking({
+                // 校园网检测任务异常（panic 或被取消）时不能误判为"不在校园网"，
+                // 否则会触发 start_campus_exit 将用户错误踢出。此处直接跳过本次检测。
+                let campus_result = match tauri::async_runtime::spawn_blocking({
                     let cfg = config.clone();
                     let adps = adapters.clone();
                     move || crate::monitor::watcher::check_campus_network(&cfg, &adps)
-                }).await.unwrap_or_else(|e| {
-                    crate::log_warn!("auto_login", "校园网检测异常: {}", e);
-                    crate::monitor::watcher::CampusCheckResult {
-                        wifi: None,
-                        wired: None,
-                        on_campus: false,
-                        current_ssid: None,
-                        message: format!("校园网检测异常: {}", e),
+                }).await {
+                    Ok(result) => result,
+                    Err(e) => {
+                        crate::log_error!("auto_login", "校园网检测任务异常，跳过本次检测以避免误触发退出: {}", e);
+                        return;
                     }
-                });
+                };
 
                 if !campus_result.on_campus {
                     crate::log_info!("auto_login", "开机自启: 校园网检测未通过，跳过自动登录 - {}", campus_result.message);

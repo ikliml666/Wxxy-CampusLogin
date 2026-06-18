@@ -77,7 +77,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
             }
 
             let wlan_user_ip_param = if nat_ip { "" } else { adapter_ip };
-            let portal_base_with_port = if portal_base.contains(":801") {
+            let portal_base_with_port = if portal_base.contains(":801/") || portal_base.ends_with(":801") {
                 portal_base.to_string()
             } else {
                 format!("{}:801", portal_base)
@@ -99,10 +99,11 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                 Err(e) => {
                     crate::log_warn!("network", "Portal API备用检测失败({}ms): {}", t_req.elapsed().as_millis(), e);
                     return Ok(PortalStatus {
-                        reachable: false,
-                        login_available: false,
+                        // 页面检测已确认 Portal 可达（Unknown 仅表示无法判断登录态），API 失败不应推翻页面可达性
+                        reachable: true,
+                        login_available: true,
                         online: false,
-                        message: "网络检测失败".to_string(),
+                        message: "Portal 页面可达，API 检测失败".to_string(),
                         data_length: 0,
                         error_kind: Some("request_failed".to_string()),
                     });
@@ -134,6 +135,8 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                         Some(2) => (true, false),
                         _ => (false, true),
                     },
+                    // result=2 表示已经在线，与 protocol.rs 中 parse_login_result 的语义保持一致
+                    2 => (true, false),
                     _ => (false, true),
                 },
                 None => {

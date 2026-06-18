@@ -99,10 +99,9 @@ pub async fn measure_https_timing(
     };
 
     let overall_start = Instant::now();
-    let dns_timeout = timeout;
-    let tcp_timeout = Duration::from_secs(5);
-    let tls_timeout = Duration::from_secs(5);
-    let http_timeout = Duration::from_secs(5);
+    // 使用单一整体 deadline，各阶段从剩余时间分配预算，避免独立累加导致总耗时远超入参 timeout
+    let deadline = overall_start + timeout;
+    let dns_timeout = timeout / 3;
 
     let dns_start = Instant::now();
     let ip = if let Some(cached) = super::dns::dns_cache_get(host) {
@@ -134,6 +133,11 @@ pub async fn measure_https_timing(
 
     let addr = std::net::SocketAddr::new(ip, port);
     let tcp_start = Instant::now();
+    // TCP 阶段从整体 deadline 剩余时间分配，且不超过 timeout/3
+    let tcp_timeout = std::cmp::min(
+        deadline.saturating_duration_since(Instant::now()),
+        timeout / 3,
+    );
     let tcp_stream = match bind_and_connect(addr, bind_addr, tcp_timeout).await {
         Ok(s) => s,
         Err(e) => {
@@ -145,6 +149,11 @@ pub async fn measure_https_timing(
     result.tcp_ms = ms_from(tcp_start);
 
     let tls_start = Instant::now();
+    // TLS 阶段从整体 deadline 剩余时间分配，且不超过 timeout/3
+    let tls_timeout = std::cmp::min(
+        deadline.saturating_duration_since(Instant::now()),
+        timeout / 3,
+    );
     let (mut tls_stream, negotiated_version) = match do_tls_handshake(host, tcp_stream, tls_timeout).await {
         Ok(r) => r,
         Err(e) => {
@@ -179,6 +188,11 @@ pub async fn measure_https_timing(
             if skip_content && first_byte_received {
                 break;
             }
+            // 每次读取从整体 deadline 剩余时间分配预算，且不超过 timeout/3，避免累加超时
+            let http_timeout = std::cmp::min(
+                deadline.saturating_duration_since(Instant::now()),
+                timeout / 3,
+            );
             match tokio::time::timeout(http_timeout, tls_stream.read(&mut buf)).await {
                 Ok(Ok(0)) => break,
                 Ok(Ok(n)) => {

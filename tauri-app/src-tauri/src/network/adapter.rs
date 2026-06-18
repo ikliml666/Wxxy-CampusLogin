@@ -837,8 +837,8 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
             }
         } else if elevated_done {
-            // 提权脚本已完成全部操作（设MAC、禁用适配器、启用适配器、DHCP续租、删除MAC）
-            // 仅验证IP是否变更
+            // 提权脚本通过 Set-NetAdapter 修改了 MAC（写入注册表 NetworkAddress 键值，跨重启持久化）
+            // 脚本本身未清理注册表，这里补做清理
             if let Ok(refreshed) = get_adapters_force() {
                 if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
                     if !a.ip.is_empty() {
@@ -846,6 +846,9 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                         ip_changed = new_ip != old_ip;
                     }
                 }
+            }
+            if let Err(e) = remove_mac_from_registry(&adapter.guid) {
+                crate::log_warn!("adapter", "清理MAC注册表失败({}): {}", adapter.guid, e);
             }
             if !ip_changed && message.is_none() {
                 message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
@@ -967,6 +970,8 @@ pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Re
             message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
         }
     } else if elevated_done {
+        // 提权脚本通过 Set-NetAdapter 修改了 MAC（写入注册表 NetworkAddress 键值，跨重启持久化）
+        // 脚本本身未清理注册表，这里补做清理
         if let Ok(refreshed) = get_adapters_force() {
             if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
                 if !a.ip.is_empty() {
@@ -975,6 +980,7 @@ pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Re
                 }
             }
         }
+        let _ = remove_mac_from_registry(&adapter.guid);
         if !ip_changed && message.is_none() {
             message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
         }

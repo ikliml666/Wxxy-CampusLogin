@@ -16,7 +16,7 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     crate::config::validate::validate_password(password).map_err(|e| e.to_string())?;
     let user_account = format!("{}{}", validated_user, validated_operator);
     let portal_base = PORTAL_URL.load().clone();
-    let base_url = if portal_base.contains(":801") {
+    let base_url = if portal_base.contains(":801/") || portal_base.ends_with(":801") {
         format!("{}/eportal/portal/login", portal_base.trim_end_matches('/'))
     } else {
         format!("{}:801/eportal/portal/login", portal_base.trim_end_matches('/'))
@@ -117,7 +117,8 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
                 } else if msg.contains("AC认证失败") {
                     Ok(serde_json::json!({ "code": "ac_auth_failed", "message": format!("认证失败：{}", msg), "success": false, "retryable": false }))
                 } else {
-                    Ok(serde_json::json!({ "code": "0", "message": if msg.is_empty() { "操作完成" } else { msg }, "success": true, "retryable": false }))
+                    // 未知 msg 视为失败，避免把“账号过期”“余额不足”等真实业务失败误报为登录成功
+                    Ok(serde_json::json!({ "code": "unknown_failure", "message": if msg.is_empty() { "未识别的登录响应" } else { msg }, "success": false, "retryable": false }))
                 }
             } else if result == 1 {
                 if msg.contains("非法") || msg.contains("失败") || msg.contains("错误") || msg.contains("拒绝") {
@@ -153,7 +154,7 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
 fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
     let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
     let portal_base = PORTAL_URL.load().clone();
-    let portal_base_url = if portal_base.contains(":801") {
+    let portal_base_url = if portal_base.contains(":801/") || portal_base.ends_with(":801") {
         portal_base.trim_end_matches('/').to_string()
     } else {
         format!("{}:801", portal_base.trim_end_matches('/'))

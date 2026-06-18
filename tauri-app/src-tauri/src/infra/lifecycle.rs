@@ -17,14 +17,16 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         return;
     }
 
+    // 先设置 deadline，再 CAS 设置标志位，避免 CAS 成功后、set_deadline 前
+    // 被 cancel_campus_exit 清除 deadline 导致状态不一致
+    // （campus_exit_started==false 但 deadline 仍存在）
+    let deadline = std::time::Instant::now() + Duration::from_millis(CAMPUS_EXIT_DELAY_MS);
+    state.exit.set_campus_exit_deadline(Some(deadline));
+
     // 使用 CAS 防止重复触发
     if state.exit.campus_exit_started.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         return;
     }
-
-    // 设置 deadline 用于二次校验，防止取消后重触发导致旧任务提前退出
-    let deadline = std::time::Instant::now() + Duration::from_millis(CAMPUS_EXIT_DELAY_MS);
-    state.exit.set_campus_exit_deadline(Some(deadline));
 
     crate::log_info!("campus_exit", "校园网验证未通过，{}秒后最小化到托盘，{}秒后退出",
         CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000);
@@ -216,10 +218,14 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
             }
         }
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        if app_h.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+        // 仅在校园网退出未启动时注销快捷键，避免影响校园网退出的取消能力
+        if !s.exit.campus_exit_started.load(Ordering::Acquire) && app_h.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
             let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
         }
         s.exit.is_quitting.store(true, Ordering::Release);
+        s.tasks.bg_check_cancel.load().cancel();
+        s.tasks.latency_cancel.load().cancel();
+        s.tasks.adapter_watch_cancel.load().cancel();
         app_h.exit(0);
     });
 }
@@ -235,7 +241,8 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
     state.exit.auto_exit_cancelled.store(true, Ordering::Release);
 
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    if app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+    // 仅在校园网退出未启动时注销快捷键，避免影响校园网退出的取消能力
+    if !state.exit.campus_exit_started.load(Ordering::Acquire) && app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
         let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
     }
 
