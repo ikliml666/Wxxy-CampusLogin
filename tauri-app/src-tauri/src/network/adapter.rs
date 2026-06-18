@@ -1387,6 +1387,7 @@ mod tests {
             campus_exit_on_fail: true,
             campus_check_start_minutes: 480,
             log_retention_days: 7,
+            config_version: 2,
         }
     }
 
