@@ -623,11 +623,11 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
         } else {
             let prev_count = state.network.portal_failure_count.fetch_add(1, Ordering::AcqRel);
             let new_count = prev_count + 1;
-            crate::log_info!("background", "Portal请求失败计数: {}/3 (主={}, 副={}, 网关可达)", new_count, primary_is_request_failed, secondary_is_request_failed);
-            if new_count >= 3 {
+            crate::log_info!("background", "Portal请求失败计数: {}/5 (主={}, 副={}, 网关可达)", new_count, primary_is_request_failed, secondary_is_request_failed);
+            if new_count >= 5 {
                 crate::log_warn!("background", "连续{}次Portal请求失败(网关可达)，触发MAC重置+DHCP续租", new_count);
                 let _ = app_handle.emit("login-log", serde_json::json!({
-                    "message": "连续3次 Portal 请求失败，正在重置MAC并重新获取IP...",
+                    "message": "连续5次 Portal 请求失败，正在重置MAC并重新获取IP...",
                     "type": "warning"
                 }));
                 match crate::network::dhcp_release_renew_all(campus_gw) {
