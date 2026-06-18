@@ -1,5 +1,5 @@
 use tauri::{AppHandle, Emitter};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::config::model::Config;
 use crate::network::{
     Adapter, get_adapters_cached,
@@ -10,6 +10,61 @@ use crate::auth::portal::check_portal_full;
 use crate::auth::protocol::do_login_with_retry;
 use crate::infra::state::{AppState, CommandResult};
 use crate::commands::system::append_login_history;
+
+/// 登录认证失败计数：连续3次认证失败触发 MAC 重置
+/// 仅认证失败码（ac_auth_failed/1/4）递增计数；网络错误不计数；成功重置计数
+fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_result: &CommandResult, campus_gw: &str) {
+    let code = cmd_result.data.as_ref()
+        .and_then(|d| d.get("code"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if cmd_result.success {
+        let prev = state.network.portal_failure_count.swap(0, Ordering::AcqRel);
+        if prev > 0 {
+            crate::log_debug!("login", "登录成功，重置认证失败计数(原值={})", prev);
+        }
+        return;
+    }
+
+    // 认证失败码：ac_auth_failed(AC认证失败), 1(非法/失败/拒绝), 4(账号禁用)
+    let is_auth_failure = matches!(code, "ac_auth_failed" | "1" | "4");
+    if !is_auth_failure {
+        return;
+    }
+
+    let prev_count = state.network.portal_failure_count.fetch_add(1, Ordering::AcqRel);
+    let new_count = prev_count + 1;
+    crate::log_info!("login", "认证失败计数: {}/3 (code={})", new_count, code);
+
+    if new_count >= 3 {
+        crate::log_warn!("login", "连续{}次认证失败，触发MAC重置+DHCP续租", new_count);
+        let _ = app_handle.emit("login-log", serde_json::json!({
+            "message": "连续3次认证失败，正在重置MAC并重新获取IP...",
+            "type": "warning"
+        }));
+        match crate::network::dhcp_release_renew_all(campus_gw) {
+            Ok(results) => {
+                for r in &results {
+                    let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let name = r.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    if skipped {
+                        crate::log_debug!("login", "MAC重置跳过非校园网适配器: {}", name);
+                    } else if success {
+                        crate::log_info!("login", "MAC重置成功: {}", name);
+                    } else {
+                        crate::log_warn!("login", "MAC重置失败: {}", name);
+                    }
+                }
+            }
+            Err(e) => {
+                crate::log_error!("login", "MAC重置+DHCP续租失败: {}", e);
+            }
+        }
+        state.network.portal_failure_count.store(0, Ordering::Release);
+    }
+}
 
 pub fn adapter_action_with_log<F>(
     adapter: &Adapter,
@@ -173,8 +228,10 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
         let adapter = adapters.iter().find(|a| a.name == name && !a.ip.is_empty());
         match adapter {
             Some(a) => {
-                return login_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
+                let result = login_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
                     .unwrap_or_else(|| CommandResult::err("登录请求失败"));
+                update_auth_failure_count(state, app_handle, &result, &config.campus_gateway);
+                return result;
             }
             None => return CommandResult::err(&format!("未找到适配器: {}", name)),
         }
@@ -225,16 +282,20 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
                 format!("{}{}", a1_msg, a2_msg)
             };
 
-            return CommandResult {
+            let result = CommandResult {
                 success: a1_success || a2_success,
                 message: Some(combined_msg),
                 data: Some(serde_json::json!({ "code": if a1_success || a2_success { "0" } else { "1" } })),
             };
+            update_auth_failure_count(state, app_handle, &result, &config.campus_gateway);
+            return result;
         }
     }
 
     let a1_ref = a1.unwrap();
 
-    login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
-        .unwrap_or_else(|| CommandResult::err("登录请求失败"))
+    let result = login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
+        .unwrap_or_else(|| CommandResult::err("登录请求失败"));
+    update_auth_failure_count(state, app_handle, &result, &config.campus_gateway);
+    result
 }
