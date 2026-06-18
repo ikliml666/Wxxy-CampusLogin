@@ -1080,13 +1080,24 @@ pub fn get_wired_network_profile() -> Result<Option<String>, String> {
 }
 
 pub fn check_gateway_reachable(gateway: &str) -> bool {
+    check_gateway_reachable_from(gateway, None)
+}
+
+/// 从指定源 IP 检查网关可达性（Windows ping -S 参数绑定源地址）
+/// source_ip 为 None 或无效时回退到系统默认路由
+pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> bool {
     if gateway.is_empty() {
         return false;
     }
-    let output = new_command("ping")
-        .args(["-n", "1", "-w", "2000", gateway])
-        .output();
-    match output {
+    let mut cmd = new_command("ping");
+    cmd.args(["-n", "1", "-w", "2000"]);
+    if let Some(src) = source_ip {
+        if !src.is_empty() && src.parse::<std::net::IpAddr>().is_ok() {
+            cmd.args(["-S", src]);
+        }
+    }
+    cmd.arg(gateway);
+    match cmd.output() {
         Ok(o) => o.status.success(),
         Err(_) => false,
     }
