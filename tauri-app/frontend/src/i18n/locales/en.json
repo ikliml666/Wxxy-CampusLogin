@@ -138,6 +138,16 @@
     "autoDetect": "Auto Detect",
     "noIpSuffix": "(No IP)",
     "disabledSuffix": "Disabled",
+    "status": {
+      "disabled": "Disabled",
+      "disconnected": "Disconnected",
+      "enabledNoIp": "Enabled (No IP)",
+      "connected": "Connected"
+    },
+    "enable": "Enable",
+    "enabling": "Enabling...",
+    "adapterEnabled": "{{name}} enabled",
+    "adapterEnableFailed": "Failed to enable {{name}}",
     "getNewIp": "Get New IP",
     "secondary": "Secondary",
     "secondaryAdapter": "Secondary Adapter",

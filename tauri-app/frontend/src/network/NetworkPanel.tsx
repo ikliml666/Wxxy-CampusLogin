@@ -36,6 +36,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
   const disabledAdapters = useAppStore((s) => s.disabledAdapters)
   const [dohEnabling, setDohEnabling] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
+  const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
   const ipc = useIpc()
   const mountedRef = useRef(true)
 
@@ -124,6 +125,35 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
       if (newDetails) useAppStore.setState({ adapterDetails: newDetails })
     } catch {}
   }, [ipc, mountedRef])
+
+  const handleEnableAdapter = useCallback(async (adapterName: string) => {
+    setEnablingAdapter(adapterName)
+    try {
+      const result = await ipc.enableAdapter?.(adapterName)
+      if (!mountedRef.current) return
+      if (result?.success) {
+        useAppStore.getState().addToast(t('network.adapterEnabled', { name: adapterName }), 'success', result.message)
+      } else {
+        useAppStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', result?.message)
+      }
+    } catch (e: unknown) {
+      if (!mountedRef.current) return
+      useAppStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) setEnablingAdapter(null)
+    }
+    // 刷新适配器列表（启用后状态变化，需更新 adapters + disabledAdapters + details）
+    try {
+      const [newAdapters, newDetails, newDisabled] = await Promise.all([
+        ipc.getAdapters?.(true).catch(() => undefined),
+        ipc.getAdapterDetails?.().catch(() => undefined),
+        ipc.getDisabledAdapters?.().catch(() => undefined),
+      ])
+      if (newAdapters) useAppStore.setState({ adapters: newAdapters })
+      if (newDetails) useAppStore.setState({ adapterDetails: newDetails })
+      if (newDisabled) useAppStore.setState({ disabledAdapters: newDisabled })
+    } catch {}
+  }, [ipc, mountedRef, t])
 
   const getDnsQuality = (
     adapter: {
@@ -216,6 +246,31 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       <Badge variant="secondary" size="sm">
                         {a.wireless ? t('network.wireless') : t('network.wired')}
                       </Badge>
+                      {a.status && a.status !== 'connected' && (
+                        <Badge variant="outline" size="sm" className={cn(
+                          a.status === 'disabled' && 'border-red-500/30 text-red-600',
+                          a.status === 'disconnected' && 'border-gray-500/30 text-gray-500',
+                          a.status === 'enabledNoIp' && 'border-amber-500/30 text-amber-600',
+                        )}>
+                          {t(`network.status.${a.status}`)}
+                        </Badge>
+                      )}
+                      {a.status === 'disabled' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] gap-1 border-green-500/30 text-green-600 hover:text-green-700 hover:bg-green-500/10 hover:border-green-500/50"
+                          onClick={() => handleEnableAdapter(a.name)}
+                          disabled={enablingAdapter === a.name}
+                        >
+                          {enablingAdapter === a.name ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Shield className="h-3 w-3" />
+                          )}
+                          {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
+                        </Button>
+                      )}
                       {a.ip && (
                         <Button
                           variant="outline"

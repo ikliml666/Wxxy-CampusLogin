@@ -138,6 +138,16 @@
     "autoDetect": "自动检测",
     "noIpSuffix": "（未获取IP）",
     "disabledSuffix": "已禁用",
+    "status": {
+      "disabled": "已禁用",
+      "disconnected": "未连接",
+      "enabledNoIp": "未禁用无IP",
+      "connected": "已连接"
+    },
+    "enable": "启用",
+    "enabling": "启用中...",
+    "adapterEnabled": "{{name}} 已启用",
+    "adapterEnableFailed": "启用 {{name}} 失败",
     "getNewIp": "获取新IP",
     "secondary": "副适配器",
     "secondaryAdapter": "副适配器",

@@ -1,3 +1,5 @@
+export type AdapterStatus = 'disabled' | 'disconnected' | 'enabledNoIp' | 'connected'
+
 export interface Adapter {
   name: string
   ip: string
@@ -5,6 +7,7 @@ export interface Adapter {
   guid?: string
   mac: string
   ifIndex: number
+  status: AdapterStatus
 }
 
 export interface DisabledAdapter {
@@ -22,6 +25,7 @@ export interface AdapterDetail {
   dhcpServer: string
   mac: string
   ifIndex: number
+  status: AdapterStatus
 }
 
 export interface DnsServerInfo {
