@@ -87,7 +87,10 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
                 continue;
             }
             // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                _ = cancel.cancelled() => break,
+            }
             let (skip_ttfb, skip_content, fixed_gateway) = {
                 let cfg = s.config.load();
                 (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
