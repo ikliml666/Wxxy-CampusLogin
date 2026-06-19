@@ -237,18 +237,24 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
         }
         LatencyTask::SystemDns { name, domains } => {
+            // 并发解析所有域名，避免断网时串行超时导致首屏延迟膨胀（4域名串行可达12s）
+            let mut set = tokio::task::JoinSet::new();
+            for domain in domains.iter().cloned() {
+                let bind_addr = ctx.bind_addr;
+                set.spawn(async move {
+                    let start = Instant::now();
+                    let ok = crate::network::dns::resolve_host_smart(&domain, std::time::Duration::from_secs(3), bind_addr).await.is_ok();
+                    (domain, ok, start.elapsed().as_millis() as i64)
+                });
+            }
             let mut latencies: Vec<i64> = Vec::new();
             let mut failed_domains: Vec<String> = Vec::new();
-            for domain in &domains {
-                let start = Instant::now();
-                let result = crate::network::dns::resolve_host_smart(domain, std::time::Duration::from_secs(3), ctx.bind_addr).await;
-                match result {
-                    Ok(_) => {
-                        let ms = start.elapsed().as_millis() as i64;
-                        latencies.push(ms.max(1));
-                    }
-                    Err(_) => {
-                        failed_domains.push(domain.clone());
+            while let Some(res) = set.join_next().await {
+                if let Ok((domain, ok, elapsed)) = res {
+                    if ok {
+                        latencies.push(elapsed.max(1));
+                    } else {
+                        failed_domains.push(domain);
                     }
                 }
             }
