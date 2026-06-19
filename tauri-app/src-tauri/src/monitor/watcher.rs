@@ -784,13 +784,17 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
 
     try_auto_login_on_preparation(app_handle, state, login_available, online, &config);
 
-    try_disconnect_reconnect(
+    let reconnected = try_disconnect_reconnect(
         app_handle, state, online, secondary_online,
         a1, &adapter1_name, &adapter2_name,
         reachable, login_available, &config,
     );
 
-    update_network_state(state, online, secondary_online, reachable, app_handle);
+    // 重连成功时状态已在 try_disconnect_reconnect 内设置，
+    // 跳过 update_network_state 避免用重连前旧 Portal 结果覆盖 any_adapter_online
+    if !reconnected {
+        update_network_state(state, online, secondary_online, reachable, app_handle);
+    }
 
     crate::log_debug!("background", "后台检测周期完成, 总耗时{}ms", t_total.elapsed().as_millis());
 

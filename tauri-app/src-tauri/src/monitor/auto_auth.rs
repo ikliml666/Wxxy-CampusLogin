@@ -81,22 +81,22 @@ pub fn try_disconnect_reconnect(
     reachable: bool,
     login_available: bool,
     config: &crate::config::model::Config,
-) {
+) -> bool {
     let any_offline = (!online && a1.is_some()) || secondary_online == Some(false);
 
     if !state.network.any_adapter_online.load(Ordering::Acquire) || !any_offline || !reachable || !login_available || !config.auto_login_on_preparation {
-        return;
+        return false;
     }
 
     let protected_until = state.network.logout_protected_until.load();
     if std::time::Instant::now() < **protected_until {
         crate::log_debug!("auto_login", "注销保护期内，跳过断线重连");
-        return;
+        return false;
     }
 
     let last_attempt = state.network.last_auto_login_attempt.load();
     if last_attempt.elapsed().as_secs() < AUTO_LOGIN_COOLDOWN_SECS {
-        return;
+        return false;
     }
 
     // 先尝试获取登录锁，成功后再增加重连计数，避免锁获取失败但计数器已增加
@@ -104,7 +104,7 @@ pub fn try_disconnect_reconnect(
         Some(g) => g,
         None => {
             crate::log_debug!("auto_login", "断线重连：登录锁被占用，跳过本次");
-            return;
+            return false;
         }
     };
 
@@ -150,6 +150,7 @@ pub fn try_disconnect_reconnect(
             emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
         }
     }
+    false
 }
 
 pub fn run_auto_login_on_start(app_handle: &AppHandle) {
