@@ -342,6 +342,10 @@ fn parse_adapter_addresses(
             let mut ua = addr.FirstUnicastAddress;
             while !ua.is_null() {
                 let u = unsafe { &*ua };
+                if u.Address.lpSockaddr.is_null() {
+                    ua = unsafe { (*ua).Next };
+                    continue;
+                }
                 let sa = unsafe { &*u.Address.lpSockaddr };
                 if sa.sa_family == AF_INET {
                     let sin = unsafe { &*(u.Address.lpSockaddr as *const SOCKADDR_IN) };
@@ -364,6 +368,10 @@ fn parse_adapter_addresses(
             let mut ga = addr.FirstGatewayAddress;
             while !ga.is_null() {
                 let g = unsafe { &*ga };
+                if g.Address.lpSockaddr.is_null() {
+                    ga = unsafe { (*ga).Next };
+                    continue;
+                }
                 let sa = unsafe { &*g.Address.lpSockaddr };
                 if sa.sa_family == AF_INET {
                     let sin = unsafe { &*(g.Address.lpSockaddr as *const SOCKADDR_IN) };
