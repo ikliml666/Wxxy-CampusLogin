@@ -241,6 +241,13 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
 
 #[tauri::command]
 pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    // 更新前端心跳时间戳，供 main.rs 心跳监控线程检测 WebView 崩溃后自动重载
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    state.last_render_heartbeat_ms.store(now_ms, Ordering::Release);
+
     let online = state.network.any_adapter_online.load(Ordering::Acquire);
     let checking = state.tasks.is_checking.is_active();
     Ok(serde_json::json!({
