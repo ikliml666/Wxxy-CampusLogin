@@ -323,10 +323,10 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                     {adapters.filter(a => a.ip).map(a => (
                       <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                     ))}
-                    {adapters.some(a => !a.ip) && (
+                    {adapters.some(a => !a.ip && a.status !== 'disabled') && (
                       <>
                         <SelectSeparator />
-                        {adapters.filter(a => !a.ip).map(a => (
+                        {adapters.filter(a => !a.ip && a.status !== 'disabled').map(a => (
                           <SelectItem key={a.name} value={a.name}>{a.name}{t('network.noIpSuffix')}</SelectItem>
                         ))}
                       </>
@@ -359,10 +359,10 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                     {adapters.filter(a => a.ip).map(a => (
                       <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                     ))}
-                    {adapters.some(a => !a.ip) && (
+                    {adapters.some(a => !a.ip && a.status !== 'disabled') && (
                       <>
                         <SelectSeparator />
-                        {adapters.filter(a => !a.ip).map(a => (
+                        {adapters.filter(a => !a.ip && a.status !== 'disabled').map(a => (
                           <SelectItem key={a.name} value={a.name}>{a.name}{t('network.noIpSuffix')}</SelectItem>
                         ))}
                       </>
