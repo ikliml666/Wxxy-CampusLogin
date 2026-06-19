@@ -346,7 +346,11 @@ pub(crate) async fn resolve_via_doh(
     let mut response = Vec::new();
     let mut buf = vec![0u8; 4096];
     loop {
-        match tokio::time::timeout(timeout, tls_stream.read(&mut buf)).await {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err("DoH读取超时".into());
+        }
+        match tokio::time::timeout(remaining, tls_stream.read(&mut buf)).await {
             Ok(Ok(0)) => break,
             Ok(Ok(n)) => {
                 response.extend_from_slice(&buf[..n]);
