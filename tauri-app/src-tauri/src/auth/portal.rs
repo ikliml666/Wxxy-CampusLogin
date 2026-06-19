@@ -77,11 +77,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
             }
 
             let wlan_user_ip_param = if nat_ip { "" } else { adapter_ip };
-            let portal_base_with_port = if portal_base.contains(":801/") || portal_base.ends_with(":801") {
-                portal_base.to_string()
-            } else {
-                format!("{}:801", portal_base)
-            };
+            let portal_base_with_port = ensure_portal_port(portal_base);
             let status_url = format!("{}/eportal/portal/login?callback=dr1003&login_method=1&user_account={}&user_password={}&wlan_user_ip={}&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v={}&lang=zh",
                 portal_base_with_port,
                 urlencoding::encode(account),
