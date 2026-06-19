@@ -267,8 +267,15 @@ fn cleanup_old_logs_by_time(log_dir: &Path, retention_days: u32) {
     if retention_days == 0 {
         return; // 永久保留
     }
-    let cutoff = std::time::SystemTime::now()
-        - std::time::Duration::from_secs(retention_days as u64 * 86400);
+    let cutoff = match std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(retention_days as u64 * 86400))
+    {
+        Some(c) => c,
+        None => {
+            crate::log_warn!("logger", "日志保留天数 {} 过大，跳过清理", retention_days);
+            return;
+        }
+    };
     if let Ok(entries) = fs::read_dir(log_dir) {
         for entry in entries.flatten() {
             if let Ok(metadata) = entry.metadata() {
