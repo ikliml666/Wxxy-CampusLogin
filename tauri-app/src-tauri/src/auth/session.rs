@@ -308,6 +308,13 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
 
     ensure_ethernet_ip_for_login(app_handle, &adapters, &config, state.exit.is_quitting.as_ref());
 
+    // DHCP 续租可能改变了适配器 IP，绕过缓存重新获取，
+    // 避免后续 find 仍用续租前的旧快照（IP 为空）导致登录失败
+    let adapters = match crate::network::get_adapters_force() {
+        Ok(a) => a,
+        Err(_) => adapters,
+    };
+
     if let Some(name) = adapter_name {
         let adapter = adapters.iter().find(|a| a.name == name && !a.ip.is_empty());
         match adapter {
