@@ -65,8 +65,5 @@ tauri-app/frontend/ANIMATION_GUIDE.md
 # Code wiki (internal doc)
 CODE_WIKI.md
 
-# Changelog (not pushed to repo)
-CHANGELOG.md
-
 # tsbuildinfo
 *.tsbuildinfo
