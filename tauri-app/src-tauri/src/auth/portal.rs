@@ -1,5 +1,20 @@
 use crate::network::client::{PORTAL_URL, create_safe_http_client};
 
+/// 确保 Portal 地址包含 :801 端口，正确处理带路径的 URL
+/// 原 format!("{}:801", base) 在 base 含路径时会把端口拼到路径后产生非法 URL
+pub fn ensure_portal_port(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    match url::Url::parse(trimmed) {
+        Ok(mut u) => {
+            if u.port().is_none() {
+                let _ = u.set_port(Some(801));
+            }
+            u.as_str().trim_end_matches('/').to_string()
+        }
+        Err(_) => format!("{}:801", trimmed),
+    }
+}
+
 pub fn safe_truncate(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         return s;

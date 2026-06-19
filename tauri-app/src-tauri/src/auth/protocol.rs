@@ -16,11 +16,7 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     crate::config::validate::validate_password(password).map_err(|e| e.to_string())?;
     let user_account = format!("{}{}", validated_user, validated_operator);
     let portal_base = PORTAL_URL.load().clone();
-    let base_url = if portal_base.contains(":801/") || portal_base.ends_with(":801") {
-        format!("{}/eportal/portal/login", portal_base.trim_end_matches('/'))
-    } else {
-        format!("{}:801/eportal/portal/login", portal_base.trim_end_matches('/'))
-    };
+    let base_url = format!("{}/eportal/portal/login", crate::auth::portal::ensure_portal_port(&portal_base));
     let callback = "dr1003";
     let query_params = format!(
         "callback={}&login_method=1&user_account={}&user_password={}&wlan_user_ip=&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v={}&lang=zh",
@@ -154,7 +150,7 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
 fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
     let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
     let portal_base = PORTAL_URL.load().clone();
-    let portal_base_url = crate::auth::portal::ensure_portal_port(portal_base);
+    let portal_base_url = crate::auth::portal::ensure_portal_port(&portal_base);
 
     // NAT 内网 IP 检测：NAT 环境下不发送 wlan_user_ip（与 portal.rs 行为一致）
     let adapter_ip_str = adapter_ip.unwrap_or("");

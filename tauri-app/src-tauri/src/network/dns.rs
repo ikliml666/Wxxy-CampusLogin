@@ -325,11 +325,13 @@ pub(crate) async fn resolve_via_doh(
 ) -> Result<IpAddr, String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    let deadline = std::time::Instant::now() + timeout;
     let addr = std::net::SocketAddr::new(doh_ip, 443);
     let tcp_stream = super::timing::bind_and_connect(addr, bind_addr, timeout).await
         .map_err(|e| format!("DoH TCP连接失败: {}", e))?;
 
-    let (mut tls_stream, _) = super::timing::do_tls_handshake(doh_server, tcp_stream, timeout).await
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    let (mut tls_stream, _) = super::timing::do_tls_handshake(doh_server, tcp_stream, remaining).await
         .map_err(|e| format!("DoH TLS握手失败: {}", e))?;
 
     let query_wire = build_dns_query_wire(domain, 1);
