@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# Changelog
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# Changelog
 
 ## v2.2.7
 
@@ -236,8 +236,8 @@
 - 新增 `AdapterStatus` 枚举（Disabled/Disconnected/EnabledNoIp/Connected），基于 IF_OPER_STATUS 严格四分类
 - `Adapter` 和 `AdapterDetail` 结构体新增 `status` 字段；保留 `DisabledAdapter` 兼容旧 API
 - 四分类语义（基于 Microsoft 官方文档调研）：
-  - Disabled: OperStatus NotPresent（管理员禁用或硬件缺失）
-  - Disconnected: OperStatus Down / LowerLayerDown / Dormant / Unknown / Testing（线缆未插或接口未就绪，Down 在 Windows 实际语义是"媒体断开/未认证"不是管理员禁用）
+  - Disabled: OperStatus NotPresent 且注册表 ConfigFlags & 0x1 == 1（管理员在设备管理器中手动禁用）
+  - Disconnected: OperStatus Down / LowerLayerDown / Dormant / Unknown / Testing，或 NotPresent 但未手动禁用（USB 网卡未连接/硬件缺失/驱动未加载）
   - EnabledNoIp: OperStatus Up 但无有效 IP（含 169.254 APIPA 清空后，DHCP 失败）
   - Connected: OperStatus Up 且有有效 IP
 - WLAN 和以太网都覆盖（现有 IfType 过滤已确保两类网卡进入分类流程）

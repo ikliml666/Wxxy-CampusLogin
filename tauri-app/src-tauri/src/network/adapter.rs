@@ -162,6 +162,36 @@ fn class_subkey_has_matching_guid(guid: &str) -> bool {
     false
 }
 
+/// 判断适配器是否被管理员在设备管理器中手动禁用
+/// 读 Class subkey 的 ConfigFlags，CONFIGFLAG_DISABLED (0x1) 表示手动禁用
+/// 用于区分 NotPresent 状态下的"管理员禁用"vs"硬件缺失(USB未连接)"
+#[cfg(target_os = "windows")]
+fn is_admin_disabled_via_registry(guid: &str) -> bool {
+    if guid.is_empty() {
+        return false;
+    }
+    let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
+    let class_path = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
+    let class_key = match hklm.open_subkey(class_path) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    for sub in class_key.enum_keys().filter_map(|n| n.ok()) {
+        if let Ok(sub_key) = class_key.open_subkey(&sub) {
+            if let Ok(net_cfg_id) = sub_key.get_value::<String, _>("NetCfgInstanceId") {
+                if net_cfg_id == guid {
+                    // 找到匹配条目，读 ConfigFlags
+                    if let Ok(flags) = sub_key.get_value::<u32, _>("ConfigFlags") {
+                        return flags & 0x1 != 0;  // CONFIGFLAG_DISABLED
+                    }
+                    return false;  // ConfigFlags 不存在，视为未禁用
+                }
+            }
+        }
+    }
+    false
+}
+
 
 
 fn prefix_len_to_mask(len: u32) -> String {
@@ -361,8 +391,14 @@ fn parse_adapter_addresses(
                 AdapterStatus::Connected
             }
         } else if oper_status == IfOperStatusNotPresent {
-            // NotPresent = 管理员禁用或硬件缺失（Windows 实测为管理员禁用）
-            AdapterStatus::Disabled
+            // NotPresent 可能是管理员禁用或硬件缺失(USB未连接)
+            // 用 ConfigFlags 区分：CONFIGFLAG_DISABLED (0x1) 才是管理员禁用
+            if is_admin_disabled_via_registry(&guid) {
+                AdapterStatus::Disabled
+            } else {
+                // USB 网卡未连接 / 硬件缺失 / 驱动未加载
+                AdapterStatus::Disconnected
+            }
         } else {
             // Down / LowerLayerDown / Dormant / Unknown / Testing 归为未连接
             // Down 在 Windows 上实际语义是"接口未就绪"（媒体断开/未认证），不是管理员禁用
