@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# Changelog
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# Changelog
 
 ## v2.2.7
 
@@ -255,3 +255,18 @@
 - `NetworkPanel.tsx` 加状态 badge（已禁用红色/未连接灰色/未禁用无IP黄色）+ 启用按钮（调 enableAdapter）
 - 启用后刷新 adapters + disabledAdapters + adapterDetails 三个数据源
 - i18n zh/en 补 status/enable/enabling/adapterEnabled/adapterEnableFailed 翻译
+
+**分类逻辑修正（commit adc6404）：**
+- `IfOperStatusDown` 从 Disabled 改归为 Disconnected（Down 在 Windows 实际语义是"接口未就绪/媒体断开"，不是管理员禁用）
+- 只有 `IfOperStatusNotPresent` 才归为 Disabled
+
+**下拉框去重（commit 9e0e5d5）：**
+- 主/副适配器下拉框中，Disabled 状态适配器不再在"无IP"列表重复显示
+- `adapters.filter(!a.ip)` 加 `a.status !== 'disabled'` 条件
+
+**管理员禁用 vs USB 未连接严格区分（commit 4d89a53）：**
+- 新增 `is_admin_disabled_via_registry(guid)` 函数，读注册表 Class subkey 的 `ConfigFlags`
+- `CONFIGFLAG_DISABLED (0x1)` 才是管理员在设备管理器中手动禁用
+- NotPresent + ConfigFlags&0x1==1 → Disabled（管理员禁用）
+- NotPresent + 其他 → Disconnected（USB 网卡未连接/硬件缺失/驱动未加载）
+- 修复 USB 网卡未连接时错误显示"已禁用"的问题
