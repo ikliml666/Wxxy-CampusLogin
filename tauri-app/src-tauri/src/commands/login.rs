@@ -85,8 +85,15 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
         if let Some(a2_ref) = a2 {
             let a1_ref = a1.unwrap();
 
-            let r1 = logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref());
-            let r2 = logout_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref());
+            // 双适配器注销并行，适配器2延迟1s错峰（与登录侧策略一致）
+            let (r1, r2) = std::thread::scope(|s| {
+                let h1 = s.spawn(|| logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref()));
+                let h2 = s.spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    logout_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref())
+                });
+                (h1.join().ok().flatten(), h2.join().ok().flatten())
+            });
 
             let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
             let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);
