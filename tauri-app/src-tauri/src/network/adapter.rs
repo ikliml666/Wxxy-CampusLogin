@@ -23,6 +23,31 @@ lazy_static! {
 
 const ADAPTER_CACHE_TTL_SECS: u64 = 5;
 
+/// 适配器状态四分类（基于 IF_OPER_STATUS 枚举 + IP 是否为空）
+/// - Disabled: 已禁用（OperStatus Down 或 NotPresent，管理员禁用或硬件缺失）
+/// - Disconnected: 未连接（OperStatus LowerLayerDown 或 Dormant，线缆未插或等待外部事件）
+/// - EnabledNoIp: 未禁用无IP（OperStatus Up 但无有效 IP，含 169.254 APIPA 清空后）
+/// - Connected: 已连接（OperStatus Up 且有有效 IP）
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AdapterStatus {
+    Disabled,
+    Disconnected,
+    EnabledNoIp,
+    Connected,
+}
+
+impl AdapterStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AdapterStatus::Disabled => "已禁用",
+            AdapterStatus::Disconnected => "未连接",
+            AdapterStatus::EnabledNoIp => "未禁用无IP",
+            AdapterStatus::Connected => "已连接",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Adapter {
@@ -32,6 +57,7 @@ pub struct Adapter {
     pub guid: String,
     pub mac: String,
     pub if_index: u32,
+    pub status: AdapterStatus,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -45,6 +71,7 @@ pub struct AdapterDetail {
     pub dhcp_server: String,
     pub mac: String,
     pub if_index: u32,
+    pub status: AdapterStatus,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -209,7 +236,9 @@ fn parse_adapter_addresses(
     if_type_ethernet: u32,
     if_type_wireless: u32,
 ) -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
-    use windows::Win32::NetworkManagement::Ndis::{IfOperStatusUp, IfOperStatusNotPresent};
+    use windows::Win32::NetworkManagement::Ndis::{
+        IfOperStatusUp, IfOperStatusDown, IfOperStatusNotPresent,
+    };
     use windows::Win32::Networking::WinSock::*;
 
     let mut adapters = Vec::new();
@@ -275,10 +304,11 @@ fn parse_adapter_addresses(
             String::new()
         };
 
+        let oper_status = addr.OperStatus;
+        // 计算 IP / prefix_len（仅 is_up 时尝试拿，否则保持空）
+        let mut ip = String::new();
+        let mut prefix_len: u8 = 0;
         if is_up {
-            let mut ip = String::new();
-            let mut prefix_len: u8 = 0;
-
             let mut ua = addr.FirstUnicastAddress;
             while !ua.is_null() {
                 let u = unsafe { &*ua };
@@ -291,12 +321,16 @@ fn parse_adapter_addresses(
                 }
                 ua = u.Next;
             }
-
+            // 169.254 APIPA 视为无 IP（DHCP 失败的自配地址）
             if ip.starts_with("169.254.") {
                 ip.clear();
             }
+        }
 
-            let mut gateway = String::new();
+        // 网关 / DHCP 服务器（仅 is_up 时查询，否则保持空）
+        let mut gateway = String::new();
+        let mut dhcp_server = String::new();
+        if is_up {
             let mut ga = addr.FirstGatewayAddress;
             while !ga.is_null() {
                 let g = unsafe { &*ga };
@@ -309,7 +343,6 @@ fn parse_adapter_addresses(
                 ga = g.Next;
             }
 
-            let mut dhcp_server = String::new();
             let dhcp_sa = addr.Dhcpv4Server;
             if !dhcp_sa.lpSockaddr.is_null() {
                 let sa = unsafe { &*dhcp_sa.lpSockaddr };
@@ -318,9 +351,37 @@ fn parse_adapter_addresses(
                     dhcp_server = unsafe { ipv4_from_in_addr(sin.sin_addr) };
                 }
             }
+        }
 
-            adapters.push(Adapter { name: name.clone(), ip: ip.clone(), wireless: is_wireless, guid: guid.clone(), mac: mac.clone(), if_index });
-            if !ip.is_empty() {
+        // 严格四分类判定
+        let status = if is_up {
+            if ip.is_empty() {
+                AdapterStatus::EnabledNoIp
+            } else {
+                AdapterStatus::Connected
+            }
+        } else if oper_status == IfOperStatusDown || oper_status == IfOperStatusNotPresent {
+            AdapterStatus::Disabled
+        } else {
+            // LowerLayerDown / Dormant / Unknown / Testing 等状态归为未连接
+            AdapterStatus::Disconnected
+        };
+
+        // 所有适配器都推入 adapters 列表（带状态，便于前端统一展示和启用操作）
+        adapters.push(Adapter {
+            name: name.clone(),
+            ip: ip.clone(),
+            wireless: is_wireless,
+            guid: guid.clone(),
+            mac: mac.clone(),
+            if_index,
+            status,
+        });
+
+        // 仅 Connected 状态推入 details（保留原有契约：details 仅含已连接且有 IP 的）
+        // 仅 Disabled 状态推入 disabled（保留 DisabledAdapter 兼容旧 API）
+        match status {
+            AdapterStatus::Connected => {
                 details.push(AdapterDetail {
                     name,
                     ip,
@@ -330,19 +391,17 @@ fn parse_adapter_addresses(
                     dhcp_server,
                     mac,
                     if_index,
+                    status,
                 });
             }
-        } else {
-            // 未连接/已禁用的适配器也加入 adapters 列表（IP 为空），使其可被配置选择
-            adapters.push(Adapter { name: name.clone(), ip: String::new(), wireless: is_wireless, guid: guid.clone(), mac: mac.clone(), if_index });
-            // 只有"已禁用"（NotPresent）才进入 disabled 列表
-            if addr.OperStatus == IfOperStatusNotPresent {
+            AdapterStatus::Disabled => {
                 disabled.push(DisabledAdapter {
                     name,
-                    status: "已禁用".to_string(),
+                    status: status.as_str().to_string(),
                     description,
                 });
             }
+            _ => {}
         }
 
         current = addr.Next;
@@ -1392,6 +1451,11 @@ mod tests {
     }
 
     fn make_test_adapter(name: &str, wireless: bool, ip: &str) -> Adapter {
+        let status = if ip.is_empty() {
+            AdapterStatus::EnabledNoIp
+        } else {
+            AdapterStatus::Connected
+        };
         Adapter {
             name: name.to_string(),
             ip: ip.to_string(),
@@ -1399,6 +1463,7 @@ mod tests {
             guid: format!("{{{}}}", name),
             mac: String::new(),
             if_index: 1,
+            status,
         }
     }
 
