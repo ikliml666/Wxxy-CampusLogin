@@ -217,6 +217,10 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         if radius_ok { any_radius_ok = true; }
 
         if round == 1 {
+            // 第1轮已全部成功则跳过第2轮，避免多发无谓请求
+            if any_radius_ok && any_unbind_ok {
+                break;
+            }
             // 可中断等待 1.5s（15×100ms，每次检查退出标志）
             for _ in 0..15 {
                 if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
