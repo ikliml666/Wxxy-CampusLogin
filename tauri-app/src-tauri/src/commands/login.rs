@@ -176,6 +176,10 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
 
     if result.success {
         crate::log_info!("login", "登录成功");
+        // 手动登录成功后解除注销保护期，避免后台检测强制 online=false 覆盖登录状态
+        // 保护期仅用于阻止注销后自动登录立即触发，手动登录不受影响
+        state.network.logout_protected_until.store(std::sync::Arc::new(std::time::Instant::now()));
+        crate::log_debug!("login", "已解除注销保护期");
         let app_h_bg = app_handle.clone();
         let config = state.config.load_full();
         let auto_exit = config.auto_exit_after_login;
