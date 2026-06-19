@@ -155,7 +155,9 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
             account_data.clone()
         };
 
-        if !password_for_encrypt.is_empty() {
+        if password_for_encrypt.is_empty() {
+            save_account.password = String::new();
+        } else {
             match crypto::encrypt(&password_for_encrypt) {
                 Ok(encrypted) => { save_account.password = encrypted; }
                 Err(e) => {
