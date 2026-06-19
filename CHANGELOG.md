@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿# Changelog
+﻿﻿﻿﻿﻿﻿﻿﻿﻿# Changelog
 
 ## v2.2.7
 
@@ -225,3 +225,33 @@
 
 **测试修复（commit 9df4044）：**
 - 补全 `make_test_config` 缺失的 `config_version` 字段（pre-existing bug，Config 结构体新增字段后未同步更新 test helper，导致 `cargo check --tests` 失败）
+
+### 后端维护第三轮（适配器状态四分类 + 启用功能 + 版本号修复）
+
+**版本号残留修复（commit ea107d5）：**
+- 前端 `ui-constants.ts` APP_VERSION + `about-preview.html` app-version/status-version 共 3 处 2.2.5 → 2.2.7
+- 用户反馈"打开程序显示 v2.2.5"，定位到前端硬编码残留（后端 Cargo.toml/tauri.conf.json/package.json 已是 2.2.7）
+
+**适配器状态四分类（commit f4e0527）：**
+- 新增 `AdapterStatus` 枚举（Disabled/Disconnected/EnabledNoIp/Connected），基于 IF_OPER_STATUS 严格四分类
+- `Adapter` 和 `AdapterDetail` 结构体新增 `status` 字段；保留 `DisabledAdapter` 兼容旧 API
+- 四分类语义（基于 Microsoft 官方文档调研）：
+  - Disabled: OperStatus Down 或 NotPresent（管理员禁用或硬件缺失）
+  - Disconnected: OperStatus LowerLayerDown / Dormant / Unknown / Testing（线缆未插或等待外部事件）
+  - EnabledNoIp: OperStatus Up 但无有效 IP（含 169.254 APIPA 清空后，DHCP 失败）
+  - Connected: OperStatus Up 且有有效 IP
+- WLAN 和以太网都覆盖（现有 IfType 过滤已确保两类网卡进入分类流程）
+- 同步修复 `make_test_adapter` 测试 helper
+
+**enable_adapter 增强（commit 1b6b2da）：**
+- 管理员直写 netsh；非管理员 COM 静默提权（shell_exec_elevated，不弹 UAC）
+- COM 失败降级 ShellExecuteW runas（弹 UAC）
+- 启用后强制清 ADAPTER_CACHE，让下次查询拿到最新状态
+- netsh stderr 为空时返回友好中文提示
+- 复用项目现有提权流程（is_admin + shell_exec_elevated + run_elevated）
+
+**前端 UI 接入（commit 00f58dc）：**
+- `types.ts` 加 AdapterStatus 类型 + Adapter/AdapterDetail.status 字段
+- `NetworkPanel.tsx` 加状态 badge（已禁用红色/未连接灰色/未禁用无IP黄色）+ 启用按钮（调 enableAdapter）
+- 启用后刷新 adapters + disabledAdapters + adapterDetails 三个数据源
+- i18n zh/en 补 status/enable/enabling/adapterEnabled/adapterEnableFailed 翻译
