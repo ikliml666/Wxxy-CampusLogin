@@ -271,19 +271,20 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
             s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
         } else {
-            // 单适配器注销：仅重置对应适配器标志，重新计算 any_adapter_online，其余全局标志保持不变
+            // 单适配器注销：复用 check_any_adapter_online 的逐适配器检测结果重置状态
+            // 避免用原始配置名（自动检测时为空/"自动检测"）比较导致状态残留
             crate::log_info!("logout", "单适配器注销成功: {:?}", adapter_name);
+            let status = any_online_after_logout.unwrap_or(AdapterOnlineStatus {
+                any_online: false, a1_online: false, a2_online: false,
+            });
+            s.network.last_a1_online.store(status.a1_online, Ordering::Release);
             let cfg = s.config.load_full();
-            let target_name = adapter_name.as_deref().unwrap();
-            if target_name == cfg.adapter1 {
-                s.network.last_a1_online.store(false, Ordering::Release);
-            } else if cfg.dual_adapter && target_name == cfg.adapter2 {
+            if cfg.dual_adapter {
+                s.network.last_a2_online.store(status.a2_online, Ordering::Release);
+            } else {
                 s.network.last_a2_online.store(false, Ordering::Release);
             }
-            // 重新计算 any_adapter_online：如果另一个适配器仍在线则保持 true
-            let a1 = s.network.last_a1_online.load(Ordering::Acquire);
-            let a2 = s.network.last_a2_online.load(Ordering::Acquire);
-            s.network.any_adapter_online.store(a1 || a2, Ordering::Release);
+            s.network.any_adapter_online.store(status.any_online, Ordering::Release);
         }
     }
     Ok(result)
