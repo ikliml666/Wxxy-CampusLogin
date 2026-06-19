@@ -4,7 +4,7 @@
 
 <img alt="screenshot" src="assets/6fc2535cc0c5f709.png" />
 
-![version](https://img.shields.io/badge/version-2.2.6-blue)
+![version](https://img.shields.io/badge/version-2.2.7-blue)
 ![platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -22,11 +22,14 @@
 - **多账号管理** — DPAPI 加密存储、快速切换
 - **双适配器支持** — 有线 + 无线同时管理，Dock 栏适配器选择菜单
 - **开机自启** — 静默启动、自动登录、登录后自动退出
-- **主题定制** — 6 种预设主题 + 自定义主题色 + 深浅模式
+- **主题定制** — 7 种预设主题 + 自定义主题色 + 深浅模式
 - **系统托盘** — 最小化到托盘后台运行，支持托盘快速登录
 - **用户自助服务** — 一键打开校园网自助服务系统，查看流量使用等
 - **中英语言切换** — 标题栏一键切换，默认中文，支持英文
 - **日志自动清理** — 可选保存时间（3/7/14/30天+永久），后端定时清理过期日志
+- **适配器状态四分类** — Disabled/Disconnected/EnabledNoIp/Connected，管理员禁用与硬件缺失严格区分
+- **GPU 动画分级** — 基于 GPU 型号 + 刷新率自动分档（high/standard/economy），低配设备自动降级
+- **配置版本迁移** — config_version 字段级降级，单字段无效时仅回退该字段，避免全量配置丢失
 
 ## 技术栈
 
@@ -50,17 +53,18 @@ Wxxy-CampusLogin/
 │   ├── frontend/            # React 前端
 │   │   ├── src/
 │   │   │   ├── components/  # UI 组件
-│   │   │   │   ├── dialogs/ # 对话框
-│   │   │   │   ├── layout/  # 布局组件（标题栏/状态栏/导航栏）
-│   │   │   │   ├── panels/  # 面板组件
-│   │   │   │   ├── shared/  # 共享组件
-│   │   │   │   └── ui/      # 基础 UI 组件
+│   │   │   │   └── layout/  # 布局组件（标题栏/状态栏/Dock导航/右侧面板）
+│   │   │   ├── auth/        # 认证面板
+│   │   │   ├── account/     # 账号面板
+│   │   │   ├── network/     # 网络面板
+│   │   │   ├── monitor/     # 监控面板（状态/质量/延迟/测速）
+│   │   │   ├── settings/    # 设置面板
+│   │   │   ├── shared/      # 共享组件（日志/错误边界/Toast/动画数字等）
 │   │   │   ├── hooks/       # 状态管理 & IPC
 │   │   │   ├── i18n/        # 国际化
 │   │   │   │   └── locales/ # 语言文件（zh.json / en.json）
 │   │   │   ├── lib/         # 工具函数
-│   │   │   ├── types/       # TypeScript 类型
-│   │   │   └── constants/   # 常量
+│   │   │   └── App.tsx      # 根组件
 │   │   └── package.json
 │   └── src-tauri/           # Rust 后端
 │       ├── src/
@@ -70,7 +74,7 @@ Wxxy-CampusLogin/
 │       │   ├── auth/        # 认证模块（Portal检测/登录注销协议/会话管理）
 │       │   ├── account/     # 账号模块（多账号管理 + crypto.rs DPAPI加密）
 │       │   ├── monitor/     # 监控模块（后台巡检/自动登录/延迟测试/适配器监控）
-│       │   ├── infra/       # 基础设施（状态管理/日志系统/生命周期/通知）
+│       │   ├── infra/       # 基础设施（状态管理/日志系统/自动退出生命周期/通知）
 │       │   ├── platform/    # 平台交互（DNS配置/UAC提权/GPU检测/开机自启）
 │       │   └── update/      # 更新模块（检查/下载/安装/SHA256校验）
 │       ├── icons/           # 应用图标
@@ -122,6 +126,8 @@ cargo build --release
 - DoH 解析使用 RFC 8484 wire format
 - 更新安装包 SHA256 完整性校验，校验缺失时拒绝安装
 - 适配器名称校验防止命令注入
+- 配置导出自动脱敏密码，兜底路径拒绝导出防密码泄漏
+- 账号名校验防止路径遍历攻击
 
 ## 致谢
 
