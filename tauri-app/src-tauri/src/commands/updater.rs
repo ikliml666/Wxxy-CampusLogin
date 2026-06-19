@@ -64,7 +64,8 @@ pub async fn download_update(
     let file_path = temp_dir.join(&filename);
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(1800))
         .build()
         .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
 
