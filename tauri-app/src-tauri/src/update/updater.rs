@@ -193,7 +193,15 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
                 break;
             }
             do_update_check(&app_h, &state).await;
-            tokio::time::sleep(std::time::Duration::from_secs(AUTO_CHECK_INTERVAL_SECS)).await;
+            // 拆分为 5s 步进等待，避免 24h sleep 期间无法响应退出
+            let mut waited = 0u64;
+            while waited < AUTO_CHECK_INTERVAL_SECS {
+                if state.exit.is_quitting.load(Ordering::Acquire) {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                waited += 5;
+            }
         }
     });
 }
