@@ -237,7 +237,7 @@ fn parse_adapter_addresses(
     if_type_wireless: u32,
 ) -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
     use windows::Win32::NetworkManagement::Ndis::{
-        IfOperStatusUp, IfOperStatusDown, IfOperStatusNotPresent,
+        IfOperStatusUp, IfOperStatusNotPresent,
     };
     use windows::Win32::Networking::WinSock::*;
 
@@ -360,10 +360,12 @@ fn parse_adapter_addresses(
             } else {
                 AdapterStatus::Connected
             }
-        } else if oper_status == IfOperStatusDown || oper_status == IfOperStatusNotPresent {
+        } else if oper_status == IfOperStatusNotPresent {
+            // NotPresent = 管理员禁用或硬件缺失（Windows 实测为管理员禁用）
             AdapterStatus::Disabled
         } else {
-            // LowerLayerDown / Dormant / Unknown / Testing 等状态归为未连接
+            // Down / LowerLayerDown / Dormant / Unknown / Testing 归为未连接
+            // Down 在 Windows 上实际语义是"接口未就绪"（媒体断开/未认证），不是管理员禁用
             AdapterStatus::Disconnected
         };
 
