@@ -509,14 +509,47 @@ pub fn validate_adapter_name(name: &str) -> Result<(), String> {
 
 pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
     validate_adapter_name(adapter_name)?;
-    let output = new_command("netsh")
-        .args(["interface", "set", "interface", adapter_name, "enable"])
-        .output()
-        .map_err(|e| format!("启用适配器失败: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("启用适配器失败: {}", stderr.trim()));
+
+    // netsh 命令行参数（适配器名含空格时需双引号包裹）
+    let netsh_args = format!("interface set interface \"{}\" enable", adapter_name);
+
+    if crate::platform::elevation::is_admin() {
+        // 管理员：直接执行 netsh
+        crate::log_info!("adapter", "管理员直写启用适配器: {}", adapter_name);
+        let output = new_command("netsh")
+            .args(["interface", "set", "interface", adapter_name, "enable"])
+            .output()
+            .map_err(|e| format!("启用适配器失败: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr_trimmed = stderr.trim();
+            return Err(if stderr_trimmed.is_empty() {
+                "启用适配器失败：netsh 返回非零退出码但未输出错误信息".to_string()
+            } else {
+                format!("启用适配器失败: {}", stderr_trimmed)
+            });
+        }
+    } else {
+        // 非管理员：COM 静默提权执行 netsh（不弹 UAC）
+        crate::log_info!("adapter", "非管理员运行，COM ShellExec 提权启用适配器: {}", adapter_name);
+        match crate::platform::elevation::shell_exec_elevated("netsh", &netsh_args, true) {
+            Ok(()) => {
+                crate::log_info!("adapter", "COM ShellExec 提权启用适配器成功: {}", adapter_name);
+            }
+            Err(com_err) => {
+                // COM 失败：降级 ShellExecuteW runas（会弹 UAC）
+                crate::log_warn!("adapter", "COM ShellExec 失败: {}，降级到 ShellExecuteW runas", com_err);
+                crate::platform::elevation::run_elevated("netsh", &netsh_args)
+                    .map_err(|e| format!("提权启用适配器失败（COM 和 UAC 均失败）: COM错误={}; UAC错误={}", com_err, e))?;
+                crate::log_info!("adapter", "ShellExecuteW runas 启用适配器成功: {}", adapter_name);
+            }
+        }
     }
+
+    // 启用后强制清缓存，让下次查询拿到最新状态
+    ADAPTER_CACHE.lock().take();
+    crate::log_info!("adapter", "已清空适配器缓存");
+
     Ok(())
 }
 
