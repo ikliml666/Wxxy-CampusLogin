@@ -334,13 +334,16 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                     />
                   </div>
                   <div className="flex items-center gap-2 pt-1">
-                    {bgStatus.currentSsid ? (
-                      <Badge variant="outline" className="text-[10px]">
-                        {t('monitor.currentSsid', { ssid: bgStatus.currentSsid })}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px] text-muted-foreground">{t('monitor.ssidNotObtained')}</Badge>
-                    )}
+                    {(() => {
+                      if (bgStatus.currentSsid) {
+                        return <Badge variant="outline" className="text-[10px]">{t('monitor.currentSsid', { ssid: bgStatus.currentSsid })}</Badge>
+                      }
+                      const primary = (bgStatus.adapterStatuses ?? []).find(a => a.online)
+                      if (primary && !primary.wireless) {
+                        return <Badge variant="outline" className="text-[10px]">{t('network.wired')}</Badge>
+                      }
+                      return <Badge variant="outline" className="text-[10px] text-muted-foreground">{t('monitor.ssidNotObtained')}</Badge>
+                    })()}
                     {bgStatus.onCampusNetwork !== undefined && (
                       <Badge variant={bgStatus.onCampusNetwork ? 'success' : 'destructive'} className="text-[10px]">
                         {bgStatus.onCampusNetwork ? t('monitor.connectedToCampus') : t('monitor.notCampusNetwork')}

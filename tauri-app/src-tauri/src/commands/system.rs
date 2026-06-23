@@ -207,7 +207,7 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     }
     accounts.sort();
 
-    let version = env!("CARGO_PKG_VERSION").to_string();
+    let version = env!("APP_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
     let gpu_info = crate::platform::gpu::detect_gpu_info();
     let refresh_rate = crate::platform::gpu::detect_display_refresh_rate();

@@ -122,7 +122,7 @@ fn run_app(core_count: usize) {
             };
 
             crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
-            crate::log_info!("app", "应用启动, 版本: v{}", env!("CARGO_PKG_VERSION"));
+            crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
 
             let state = app.state::<AppState>();
 

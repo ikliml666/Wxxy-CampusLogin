@@ -1,12 +1,13 @@
 {
   "name": "campus-login-frontend",
-  "version": "2.2.7",
+  "version": "2.2.8",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clean": "node -e \"const fs=require('fs');const p=require('path');for(const d of ['dist','node_modules/.vite']){const fp=p.join(process.cwd(),d);try{fs.rmSync(fp,{recursive:true,force:true});console.log('已清理:',d)}catch(e){console.log('跳过:',d)}}\""
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.1",

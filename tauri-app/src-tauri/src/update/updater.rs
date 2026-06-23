@@ -13,7 +13,6 @@ const VERSION_MIRRORS: &[&str] = &[
     "https://ghfast.top/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
     "https://gh-proxy.com/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
     "https://ghproxy.net/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
-    "https://gh.llkk.cc/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
 ];
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -79,7 +78,11 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
         .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
 
     // 按顺序尝试所有 URL（GitHub 原始源 + 镜像源），任一成功即用
+    // 降级策略：所有源都返回 4xx（文件不存在/权限受限）时视为"无可用校验文件"，
+    // 返回 Ok(true) 跳过校验并输出警告日志；存在 5xx/网络错误则视为系统异常，保留原行为返回错误
     let mut last_err = String::new();
+    let mut all_client_errors = true; // 是否所有响应都是 4xx（文件不存在/权限问题）
+    let mut had_transport_error = false; // 是否有网络/超时等传输错误
     let checksum_content = {
         let mut content: Option<String> = None;
         for url in checksum_urls {
@@ -96,16 +99,37 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
                     }
                 }
                 Ok(resp) => {
-                    last_err = format!("HTTP {}", resp.status());
+                    let status = resp.status();
+                    last_err = format!("HTTP {}", status);
+                    if !status.is_client_error() {
+                        // 5xx 等服务端错误 → 不再视为"文件不存在"
+                        all_client_errors = false;
+                    }
                 }
                 Err(e) => {
                     last_err = format!("获取校验和文件失败: {}", e);
+                    // 网络/超时等传输错误：4xx-only 条件不成立
+                    all_client_errors = false;
+                    had_transport_error = true;
                 }
             }
         }
         match content {
             Some(c) => c,
-            None => return Err(format!("所有校验和源均失败（最后错误: {}）", last_err)),
+            None => {
+                // 所有源都失败
+                if all_client_errors && !had_transport_error {
+                    // 所有响应都是 4xx（文件不存在/权限受限）→ 降级通过
+                    crate::log_warn!(
+                        "updater",
+                        "所有 {} 个 SHA256 校验源均返回 4xx（最后错误: {}），视为发布流程未上传 .sha256 文件，降级跳过校验",
+                        checksum_urls.len(),
+                        last_err
+                    );
+                    return Ok(true);
+                }
+                return Err(format!("所有校验和源均失败（最后错误: {}）", last_err));
+            }
         }
     };
 
@@ -287,7 +311,7 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
         return Err("version.json中缺少版本号".to_string());
     }
 
-    let current = env!("CARGO_PKG_VERSION");
+    let current = env!("APP_VERSION");
     let has_update = compare_versions(current, &latest_tag);
 
     Ok((has_update, latest_tag))
@@ -298,7 +322,7 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
 pub async fn check_update_inner() -> Result<UpdateInfo, String> {
     let (has_update, latest_tag) = fetch_latest_release().await?;
 
-    let exe_name = format!("campus-login_{}_x64-setup.exe", latest_tag);
+    let exe_name = format!("Wxxy-CampusLogin_{}_x64-setup.exe", latest_tag);
     let github_exe_url = format!(
         "https://github.com/{}/releases/download/v{}/{}",
         GITHUB_REPO, latest_tag, exe_name
@@ -310,7 +334,6 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
             "https://ghfast.top/",
             "https://gh-proxy.com/",
             "https://ghproxy.net/",
-            "https://gh.llkk.cc/",
         ] {
             urls.push(format!("{}{}.sha256", mirror_prefix, github_exe_url));
         }

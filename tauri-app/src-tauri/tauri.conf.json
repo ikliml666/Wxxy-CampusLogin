@@ -1,6 +1,6 @@
 {
   "productName": "校园网登录助手",
-  "version": "2.2.7",
+  "version": "2.2.8",
   "identifier": "com.campus.login",
   "build": {
     "beforeDevCommand": "cd frontend && npm run dev",

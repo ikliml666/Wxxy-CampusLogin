@@ -13,9 +13,10 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
+import { Switch } from '@/components/ui/switch'
 import {
   Check, ArrowRight, ArrowLeft, Wifi, Cable, Shield, Zap,
-  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages
+  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/hooks/useAppStore'
@@ -27,13 +28,15 @@ import type { Adapter } from '@/network'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
 
+const AUTO_DETECT_SENTINEL = '自动检测'
+
 interface OnboardingWizardProps {
   open: boolean
   onClose: () => void
   config: Config
   adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
-  onLogin: () => Promise<boolean>
+  onLogin: (adapterName?: string) => Promise<boolean>
   isLoggingIn: boolean
 }
 
@@ -44,11 +47,16 @@ function StepIndicator({ current }: { current: number }) {
     <div className="flex items-center justify-center gap-2 py-3">
       {STEP_TITLE_KEYS.map((_, i) => (
         <div key={i} className="flex items-center gap-2">
-          <div className="relative w-7 h-7 flex items-center justify-center">
+          <div className={cn(
+            "relative w-7 h-7 flex items-center justify-center rounded-full transition-colors duration-300",
+            i < current && "bg-primary",
+            i === current && "bg-primary",
+            i > current && "bg-muted"
+          )}>
             {i === current && (
               <m.div
                 layoutId="step-indicator"
-                className="absolute inset-0 rounded-full bg-primary shadow-sm"
+                className="absolute inset-0 rounded-full ring-2 ring-primary/30"
                 transition={{ type: 'spring', stiffness: 500, damping: 36, mass: 1 }}
               />
             )}
@@ -63,8 +71,8 @@ function StepIndicator({ current }: { current: number }) {
           </div>
           {i < STEP_TITLE_KEYS.length - 1 && (
             <div className={cn(
-              'w-8 h-[2px] transition-colors duration-300',
-              i < current ? 'bg-primary' : 'bg-muted'
+              'w-9 h-[2.5px] rounded-full transition-all duration-300',
+              i < current ? 'bg-primary' : 'bg-muted-foreground/20'
             )} />
           )}
         </div>
@@ -81,7 +89,9 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
   const [operator, setOperator] = useState(config.operator || '__default__')
-  const [adapter1, setAdapter1] = useState(config.adapter1 || '自动检测')
+  const [adapter1, setAdapter1] = useState(config.adapter1 || AUTO_DETECT_SENTINEL)
+  const [adapter2, setAdapter2] = useState(config.adapter2 || AUTO_DETECT_SENTINEL)
+  const [dualAdapter, setDualAdapter] = useState(!!config.dualAdapter)
   const [showPassword, setShowPassword] = useState(false)
   const [loginSuccess, setLoginSuccess] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
@@ -93,11 +103,13 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
       setUsername(config.user || '')
       setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
       setOperator(config.operator || '__default__')
-      setAdapter1(config.adapter1 || '自动检测')
+      setAdapter1(config.adapter1 || AUTO_DETECT_SENTINEL)
+      setAdapter2(config.adapter2 || AUTO_DETECT_SENTINEL)
+      setDualAdapter(!!config.dualAdapter)
       setLoginSuccess(false)
     }
     prevOpenRef.current = open
-  }, [open, config.user, config.password, config.operator, config.adapter1])
+  }, [open, config.user, config.password, config.operator, config.adapter1, config.adapter2, config.dualAdapter])
 
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
@@ -116,18 +128,24 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
     }
     if (step === 2) {
       onUpdateConfig({
-        adapter1: adapter1 === '自动检测' ? '' : adapter1,
+        adapter1: adapter1 === AUTO_DETECT_SENTINEL ? '' : adapter1,
+        adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_SENTINEL ? '' : adapter2) : '',
+        dualAdapter,
       })
     }
     return true
-  }, [step, username, password, operator, adapter1, canProceedAccount, onUpdateConfig])
+  }, [step, username, password, operator, adapter1, adapter2, dualAdapter, canProceedAccount, onUpdateConfig])
+
+  const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleSkip = useCallback(() => {
+    if (finishTimerRef.current) {
+      clearTimeout(finishTimerRef.current)
+      finishTimerRef.current = null
+    }
     safeStorage.set('campus-onboarding-done', '1')
     onClose()
   }, [onClose])
-
-  const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     return () => {
@@ -136,14 +154,19 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
   }, [])
 
   const handleLoginAndFinish = useCallback(async () => {
-    onUpdateConfig({
+    const updateData: Record<string, string | boolean> = {
       user: username.trim(),
-      password: password.trim(),
       operator: operator === '__default__' ? '' : operator,
-      adapter1: adapter1 === '自动检测' ? '' : adapter1,
-    })
+      adapter1: adapter1 === AUTO_DETECT_SENTINEL ? '' : adapter1,
+      adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_SENTINEL ? '' : adapter2) : '',
+      dualAdapter,
+    }
+    if (password.trim()) {
+      updateData.password = password.trim()
+    }
+    onUpdateConfig(updateData as unknown as Record<string, string>)
     try {
-      const success = await onLogin()
+      const success = await onLogin(adapter1 === AUTO_DETECT_SENTINEL ? undefined : adapter1)
       if (success) {
         setLoginSuccess(true)
         if (finishTimerRef.current) {
@@ -159,7 +182,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
     } catch {
       setLoginSuccess(false)
     }
-  }, [username, password, operator, adapter1, onUpdateConfig, onLogin, onClose])
+  }, [username, password, operator, adapter1, adapter2, dualAdapter, onUpdateConfig, onLogin, onClose])
 
   const direction = useRef(1)
 
@@ -169,14 +192,14 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
   }
 
   const slideVariants = {
-    enter: (dir: number) => ({ x: dir > 0 ? 60 : -60, opacity: 0, scale: 0.96 }),
-    center: { x: 0, opacity: 1, scale: 1 },
-    exit: (dir: number) => ({ x: dir > 0 ? -30 : 30, opacity: 0, scale: 0.98 }),
+    enter: (dir: number) => ({ x: dir > 0 ? 30 : -30, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({ x: dir > 0 ? -15 : 15, opacity: 0 }),
   }
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setShowCloseConfirm(true) }}>
-      <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden" onPointerDownOutside={(e) => e.preventDefault()}>
+      <DialogContent className="w-[520px] h-[520px] p-0 overflow-hidden flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
         <StepIndicator current={step} />
 
         <AnimatePresence mode="wait" custom={direction.current}>
@@ -187,21 +210,24 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ type: 'spring', stiffness: 400, damping: 30, mass: 0.8 }}
-            className="px-6 pb-6"
+            transition={{ type: 'tween', duration: 0.2, ease: 'easeOut' }}
+            className="px-6 pb-6 overflow-y-auto flex-1"
           >
             {step === 0 && (
               <div className="flex flex-col items-center text-center space-y-5 py-4">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg">
-                  <Zap className="h-10 w-10 text-white" />
+                <div className="relative">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 blur-xl opacity-30 animate-pulse" />
+                  <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 via-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                    <Zap className="h-10 w-10 text-white" strokeWidth={2.5} />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-xl font-bold">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</h2>
+                  <h2 className="text-xl font-bold tracking-tight">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</h2>
                   <p className="text-sm text-muted-foreground leading-relaxed max-w-[340px]">
                     {t('onboarding.welcomeDesc')}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground/70 bg-muted/30 px-3 py-2 rounded-lg">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground/80 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/40 dark:border-emerald-800/30 px-3 py-2 rounded-lg">
                   <Shield className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                   {t('onboarding.securityNote')}
                 </div>
@@ -268,7 +294,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                       </SelectTrigger>
                       <SelectContent>
                         {ISP_OPTIONS.map(o => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -283,7 +309,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                   <h3 className="text-base font-semibold">{t('onboarding.selectNetworkAdapter')}</h3>
                   <p className="text-xs text-muted-foreground">{t('onboarding.selectNetworkAdapterDesc')}</p>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium">{t('onboarding.primaryAdapter')}</Label>
                     <Select value={adapter1} onValueChange={setAdapter1}>
@@ -291,7 +317,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                         <SelectValue placeholder={t('onboarding.selectAdapter')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="自动检测">{t('onboarding.autoDetect')}</SelectItem>
+                        <SelectItem value={AUTO_DETECT_SENTINEL}>{t('onboarding.autoDetect')}</SelectItem>
                         {adapters.map(a => (
                           <SelectItem key={a.name} value={a.name}>
                             <span className="flex items-center gap-2">
@@ -303,6 +329,48 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {/* 启用双适配器开关 */}
+                  <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-md bg-violet-500/10 flex items-center justify-center shrink-0">
+                        <Network className="h-3.5 w-3.5 text-violet-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium leading-tight">{t('onboarding.enableDualAdapter')}</div>
+                        <div className="text-[11px] text-muted-foreground leading-snug">{t('onboarding.enableDualAdapterDesc')}</div>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={dualAdapter}
+                      onCheckedChange={setDualAdapter}
+                      className="shrink-0 ml-2"
+                    />
+                  </div>
+
+                  {/* 副适配器下拉：开关开启时显示 */}
+                  {dualAdapter && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">{t('onboarding.secondaryAdapter')}</Label>
+                      <Select value={adapter2} onValueChange={setAdapter2}>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('onboarding.selectSecondaryAdapter')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={AUTO_DETECT_SENTINEL}>{t('onboarding.autoDetect')}</SelectItem>
+                          {adapters.filter(a => a.name !== adapter1).map(a => (
+                            <SelectItem key={a.name} value={a.name}>
+                              <span className="flex items-center gap-2">
+                                {a.wireless ? <Wifi className="h-3 w-3 text-blue-500" /> : <Cable className="h-3 w-3 text-emerald-500" />}
+                                {a.name}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
                   {adapters.length === 0 && (
                     <div className="text-xs text-amber-600 bg-amber-500/10 rounded-lg p-3 flex items-start gap-2">
                       <Wifi className="h-4 w-4 mt-0.5 shrink-0" />
@@ -314,31 +382,63 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
             )}
 
             {step === 3 && (
-              <div className="space-y-4 py-2">
-                <div className="space-y-1.5">
-                  <h3 className="text-base font-semibold">{t('onboarding.ready')}</h3>
-                  <p className="text-xs text-muted-foreground">{t('onboarding.readyDesc')}</p>
+              <div className="flex flex-col h-full">
+                <div className="flex flex-col items-center text-center space-y-3 pt-2 pb-4">
+                  <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center ring-4 ring-emerald-100/60 dark:ring-emerald-900/30">
+                    <Check className="h-7 w-7 text-emerald-500" strokeWidth={2.5} />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-semibold">{t('onboarding.ready')}</h3>
+                    <p className="text-xs text-muted-foreground">{t('onboarding.readyDesc')}</p>
+                  </div>
                 </div>
-                <div className="bg-muted/30 rounded-xl p-4 space-y-2.5">
+                <div className="rounded-xl border border-border/60 bg-gradient-to-b from-muted/30 to-muted/10 p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{t('onboarding.username')}</span>
-                    <span className="font-medium">{username || '-'}</span>
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <UserCircle className="h-3.5 w-3.5" />{t('onboarding.username')}
+                    </span>
+                    <span className="font-medium truncate ml-2 max-w-[200px]">{username || '-'}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{t('onboarding.password')}</span>
-                    <span className="font-mono">{password ? '••••••••' : '-'}</span>
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <KeyRound className="h-3.5 w-3.5" />{t('onboarding.password')}
+                    </span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                      {password ? '••••••••' : <span className="text-muted-foreground">-</span>}
+                    </span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{t('onboarding.operatorOptional')}</span>
-                    <span className="font-medium">{ISP_OPTIONS.find(o => o.value === operator)?.label || t('onboarding.default')}</span>
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5" />{t('onboarding.operatorOptional')}
+                    </span>
+                    <span className="font-medium truncate ml-2 max-w-[200px]">
+                      {t(ISP_OPTIONS.find(o => o.value === operator)?.labelKey ?? 'onboarding.default')}
+                    </span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{t('onboarding.adapter')}</span>
-                    <span className="font-medium">{adapter1}</span>
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <Cable className="h-3.5 w-3.5" />{t('onboarding.primaryAdapter')}
+                    </span>
+                    <span className="font-medium truncate ml-2 max-w-[200px]">
+                      {adapter1 === AUTO_DETECT_SENTINEL ? t('onboarding.autoDetect') : adapter1}
+                    </span>
                   </div>
+                  {dualAdapter && (
+                    <>
+                      <Separator />
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground flex items-center gap-1.5">
+                          <Network className="h-3.5 w-3.5" />{t('onboarding.secondaryAdapter')}
+                        </span>
+                        <span className="font-medium truncate ml-2 max-w-[200px]">
+                          {adapter2 === AUTO_DETECT_SENTINEL ? t('onboarding.autoDetect') : adapter2}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -359,7 +459,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
 
         <div className="px-6 pb-6 flex items-center justify-between">
           <div>
-            {step > 0 && step < 3 && (
+            {(step > 0) && (
               <Button variant="ghost" size="sm" onClick={() => advance(step - 1)} className="gap-1.5">
                 <ArrowLeft className="h-3.5 w-3.5" /> {t('onboarding.previous')}
               </Button>

@@ -40,7 +40,6 @@ pub async fn download_update(
         "gh-proxy.com",
         "gh-proxy.org",
         "ghproxy.net",
-        "gh.llkk.cc",
         "gh.ddlc.top",
         "ghproxy.homeboyc.cn",
         "githubproxy.cc",
@@ -291,11 +290,6 @@ pub fn get_mirror_urls(github_url: String) -> Result<Vec<serde_json::Value>, Str
         serde_json::json!({
             "name": "ghproxy.net",
             "url": format!("https://ghproxy.net/{}", encoded),
-            "description": "国内加速镜像"
-        }),
-        serde_json::json!({
-            "name": "gh.llkk.cc",
-            "url": format!("https://gh.llkk.cc/{}", encoded),
             "description": "国内加速镜像"
         }),
     ];

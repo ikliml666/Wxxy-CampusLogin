@@ -504,7 +504,8 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
 
     // 增量推送：Phase 1 完成后立即 emit，让前端先显示网关+DNS+DoH结果
     if let Some(ah) = app_handle {
-        let partial = build_quality_result(&phase1_results, gateway_str, now);
+        let mut partial = build_quality_result(&phase1_results, gateway_str, now);
+        partial.quality = "busy".to_string();
         if let Ok(val) = serde_json::to_value(&partial) {
             if let Err(e) = ah.emit("network-quality-result", &val) {
                 crate::log_warn!("quality", "[增量推送] Phase 1 emit 失败: {}", e);
@@ -559,7 +560,8 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         if let Some(ah) = app_handle {
             let mut cumulative = phase1_results.clone();
             cumulative.extend(phase2_results.iter().cloned());
-            let partial = build_quality_result(&cumulative, gateway_str, now);
+            let mut partial = build_quality_result(&cumulative, gateway_str, now);
+            partial.quality = "busy".to_string();
             if let Ok(val) = serde_json::to_value(&partial) {
                 if let Err(e) = ah.emit("network-quality-result", &val) {
                     crate::log_warn!("quality", "[增量推送] HTTPS 批次 emit 失败: {}", e);

@@ -1461,4 +1461,119 @@ panic = "abort"
 
 ---
 
-*文档版本: v2.2.7 | 基于代码版本: CampusLogin v2.2.7 | 更新日期: 2026-06-20*
+## 十一、版本号管理
+
+### 设计目标
+
+应用内存在多处版本号引用（Tauri 配置 / Rust 代码 / 前端常量 / 发布资源 / 文档），传统做法是手动同步每个位置，易遗漏导致发布包版本错乱。本项目通过 **build.rs 自动注入** + **权威源** 设计，实现"只改一处 + 编译期自动同步"。
+
+### 权威源与流向
+
+```
+[tauri.conf.json]  (用户编辑的唯一位置)
+       │
+       │  build.rs 读取 → cargo:rustc-env=APP_VERSION
+       ▼
+[Rust 编译期 env!("APP_VERSION")]
+       │   main.rs / updater.rs / commands/system.rs 共 3 处
+       ▼
+   应用运行时的版本号
+```
+
+**权威源**：`tauri-app/src-tauri/tauri.conf.json` 的 `"version"` 字段。
+
+**Cargo.toml 的 version 字段**：cargo 强制要求存在，**必须与 tauri.conf.json 保持一致**（否则 tauri 编译会发出 `Version mismatch` 警告），由发布流程手动同步。
+
+### build.rs 注入机制
+
+`tauri-app/src-tauri/build.rs` 的核心逻辑：
+
+```rust
+// 1. 保留 Tauri 原有构建
+tauri_build::build();
+
+// 2. 从 tauri.conf.json 提取 version，注入编译期环境变量
+let conf_path = Path::new("tauri.conf.json");
+let content = fs::read_to_string(conf_path)?;
+let version = content.lines()
+    .find_map(|line| {
+        let t = line.trim();
+        if t.starts_with("\"version\"") {
+            Some(t.split(':').nth(1)?.trim()
+                .trim_end_matches(',').trim_matches('"').to_string())
+        } else { None }
+    })?;
+
+println!("cargo:rerun-if-changed=tauri.conf.json");
+println!("cargo:rustc-env=APP_VERSION={}", version);
+```
+
+**关键设计**：
+- 不用 `serde_json` 解析（避免引入额外 build-dependency），手写简单字符串提取 `"version"` 字段
+- `cargo:rerun-if-changed=tauri.conf.json`：仅当配置文件变化时重新编译，避免无关修改触发全量重编
+- `cargo:rustc-env=APP_VERSION=...`：将版本号暴露为编译期常量，Rust 代码用 `env!("APP_VERSION")` 引用（编译期宏，零运行时开销）
+
+### 升级版本号的完整流程
+
+发布新版本时（以 v2.2.9 为例）：
+
+1. **编辑唯一权威源** — 修改 `tauri-app/src-tauri/tauri.conf.json` 的 `"version"` 字段为 `"2.2.9"`
+2. **手动同步 Cargo.toml** — 修改 `tauri-app/src-tauri/Cargo.toml` 的 `version = "2.2.7"` 为 `"2.2.9"`（cargo 强制要求）
+3. **同步发布标记** — 修改仓库根 `version.json` 的 `"version": "v2.2.7"` 为 `"v2.2.9"`（带 v 前缀，是 GitHub release tag 的格式）
+4. **同步前端 package.json** — 两个 `package.json` 的 `"version"` 字段（npm 规范要求，无 v 前缀）
+5. **同步前端常量** — `tauri-app/frontend/src/shared/ui-constants.ts` 的 `APP_VERSION`（保持当前架构，不改为环境变量注入）
+6. **同步静态预览** — `tauri-app/frontend/about-preview.html` 的 `app-version` 和 `status-version` 两个 div
+7. **同步徽章** — `README.md` 的 `version-2.2.7` 徽章
+8. **同步测试脚本** — `scripts/test-update-download.ps1` 的 `$VERSION` 变量
+9. **同步文档** — `CODE_WIKI.md` 顶部版本号 + 底部元信息
+
+> ⚠️ **Cargo.lock 中的 version**：由 cargo 自动更新，下次 `cargo build` 时自动重写。
+
+> ⚠️ **升级检查清单**：建议在发布前对照以下 5 个**必须保持一致**的位置：
+> 1. `tauri-app/src-tauri/tauri.conf.json` → `"version": "2.2.8"`
+> 2. `tauri-app/src-tauri/Cargo.toml` → `version = "2.2.8"`
+> 3. `tauri-app/frontend/src/shared/ui-constants.ts` → `APP_VERSION = '2.2.8'`
+> 4. `tauri-app/package.json` + `tauri-app/frontend/package.json` → `"version": "2.2.8"`
+> 5. 根 `version.json` → `"version": "v2.2.8"`（带 v 是发布 tag 格式）
+
+### 后端代码引用方式
+
+```rust
+// main.rs:125 启动日志
+crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
+
+// updater.rs:314 更新检查
+let current = env!("APP_VERSION");
+let has_update = compare_versions(current, &latest_tag);
+
+// commands/system.rs:210 系统信息接口
+let version = env!("APP_VERSION").to_string();
+```
+
+### 前端版本号来源（双轨）
+
+| 来源 | 用途 | 修改方式 |
+|---|---|---|
+| `tauri.conf.json` → `__APP_VERSION__` 编译时注入 | vite.config.ts 注入到前端构建产物 | 自动随 tauri.conf.json 同步 |
+| `ui-constants.ts` `APP_VERSION` 常量 | 代码内直接 import | 手动同步 |
+
+前端 `vite.config.ts` 已从 `tauriConf.version` 动态读取并通过 `__APP_VERSION__` 注入：
+
+```typescript
+// vite.config.ts
+const appVersion = tauriConf.version || '0.0.0'
+define: {
+  __APP_VERSION__: JSON.stringify(appVersion),
+}
+```
+
+> 注：`ui-constants.ts` 的 `APP_VERSION` 保留硬编码是为了在非 Tauri 环境（如纯前端 Storybook / 单元测试 mock）下也能取到合理默认值。**升级时务必同步两处**。
+
+### 版本号格式约定
+
+- **semver 格式（不带 v）**：`Cargo.toml` / `tauri.conf.json` / `package.json` × 2 / `ui-constants.ts` / `about-preview.html` 静态部分 → `2.2.8`
+- **发布 tag 格式（带 v）**：`version.json` / 后端日志（`v{}`）/ README 徽章（`version-2.2.8` 不带 v，但后端启动日志带 v）
+
+---
+
+*文档版本: v2.2.8 | 基于代码版本: CampusLogin v2.2.8 | 更新日期: 2026-06-23*

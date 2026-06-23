@@ -46,6 +46,8 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
 
   const dnsStatus = useAppStore(s => s.dnsDohStatus)
   const dnsChecking = useAppStore(s => s.dnsChecking)
+  const refreshAdapters = useAppStore(s => s.refreshAdapters)
+  const isRefreshingAdapters = useAppStore(s => s.isRefreshingAdapters)
 
   const handleCheckDns = useCallback(async () => {
     useAppStore.getState().setDnsChecking(true)
@@ -271,7 +273,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                           {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
                         </Button>
                       )}
-                      {a.ip && (
+                      {a.ip ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -281,6 +283,17 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                         >
                           <RefreshCw className={cn('h-3 w-3', gettingNewIpAdapter === a.name && 'animate-spin')} />
                           {gettingNewIpAdapter === a.name ? t('dashboard.gettingNewIp') : t('network.getNewIp')}
+                        </Button>
+                      ) : a.status === 'enabledNoIp' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
+                          onClick={() => refreshAdapters()}
+                          disabled={isRefreshingAdapters}
+                        >
+                          <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
+                          {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
                         </Button>
                       )}
                     </div>

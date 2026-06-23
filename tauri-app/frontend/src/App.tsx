@@ -349,7 +349,7 @@ function AppInner() {
         config={config}
         adapters={adapters}
         onUpdateConfig={(partial) => updateConfig(partial)}
-        onLogin={() => doLogin()}
+        onLogin={(adapterName) => doLogin(adapterName)}
         isLoggingIn={isLoggingIn}
       />
     </div>

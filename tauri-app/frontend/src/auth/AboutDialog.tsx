@@ -258,7 +258,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             <Button
               variant="outline"
               className={cn(
-                'w-full justify-center gap-2 h-[34px] text-xs mt-4 rounded-lg',
+                'w-full justify-center gap-2 h-[34px] text-xs mt-auto mb-3 rounded-lg',
                 updateInfo && !updateInfo.has_update && 'border-emerald-300 bg-emerald-50/50 text-emerald-600 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400',
                 updateInfo?.has_update && 'border-violet-300 bg-violet-50/50 text-violet-600 dark:border-violet-700 dark:bg-violet-950/20 dark:text-violet-400'
               )}

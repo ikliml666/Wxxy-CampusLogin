@@ -424,7 +424,7 @@ fn parse_adapter_addresses(
             status,
         });
 
-        // 仅 Connected 状态推入 details（保留原有契约：details 仅含已连接且有 IP 的）
+        // Connected 和 EnabledNoIp 状态推入 details（EnabledNoIp 保留 dhcp_server 供诊断）
         // 仅 Disabled 状态推入 disabled（保留 DisabledAdapter 兼容旧 API）
         match status {
             AdapterStatus::Connected => {
@@ -433,6 +433,19 @@ fn parse_adapter_addresses(
                     ip,
                     wireless: is_wireless,
                     subnet_mask: prefix_len_to_mask(prefix_len as u32),
+                    gateway,
+                    dhcp_server,
+                    mac,
+                    if_index,
+                    status,
+                });
+            }
+            AdapterStatus::EnabledNoIp => {
+                details.push(AdapterDetail {
+                    name,
+                    ip: String::new(),
+                    wireless: is_wireless,
+                    subnet_mask: String::new(),
                     gateway,
                     dhcp_server,
                     mac,
