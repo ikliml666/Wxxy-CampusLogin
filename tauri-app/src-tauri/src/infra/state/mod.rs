@@ -10,6 +10,7 @@ use crate::config::model::Config;
 use store::ConfigStore;
 use network::NetworkState;
 use exit::ExitStateStore;
+use crate::infra::task_manager::BackgroundTaskManager;
 
 pub const AUTO_EXIT_DELAY_MS: u64 = 20000;
 pub const CANCEL_EXIT_SHORTCUT: &str = "CommandOrControl+Shift+C";
@@ -92,6 +93,7 @@ pub struct TaskFlags {
 pub struct AppState {
     pub config: ConfigStore,
     pub tasks: TaskFlags,
+    pub task_manager: BackgroundTaskManager,
     pub network: NetworkState,
     pub exit: ExitStateStore,
     pub last_update_check_epoch_ms: AtomicU64,
@@ -116,6 +118,7 @@ impl AppState {
                 is_logging_out: TaskLock::new(),
                 is_quality_checking: TaskLock::new(),
             },
+            task_manager: BackgroundTaskManager::new(),
             network: NetworkState::new(),
             exit: ExitStateStore::new(),
             last_update_check_epoch_ms: AtomicU64::new(0),
