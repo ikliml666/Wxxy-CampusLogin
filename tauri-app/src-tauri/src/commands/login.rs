@@ -1,4 +1,5 @@
 use tauri::{AppHandle, Manager, State};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use crate::config::model::Config;
@@ -207,7 +208,9 @@ pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
         if s.exit.is_quitting.load(Ordering::Acquire) {
             return;
         }
-        let cancel_token = s.tasks.bg_check_cancel.load().clone();
+        let cancel_token = s.task_manager
+            .cancel_token("background_check")
+            .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
         crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
 
         if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {

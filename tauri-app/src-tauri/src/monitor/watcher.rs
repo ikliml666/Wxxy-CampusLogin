@@ -196,7 +196,7 @@ fn emit_background_check_result(
 ) {
     let check_count = state.network.load().background_check_count + 1;
     state.network.increment_background_check_count();
-    let is_running = state.tasks.background_running.is_active();
+    let is_running = state.task_manager.is_running("background_check");
     let ssid_val = state.network.load().current_ssid.clone();
     let on_campus_val = state.network.load().on_campus_network;
 
@@ -857,10 +857,6 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
 }
 
 pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {
-    if state.tasks.background_running.swap_acquire() {
-        return Ok(CommandResult::ok_msg("后台检测已在运行"));
-    }
-
     let (interval, cfg) = {
         let cfg = state.config.update(|cfg| {
             cfg.enable_background_check = true;
@@ -872,47 +868,48 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
         (interval, cfg)
     };
 
+    let app_h = app_handle.clone();
+    state.task_manager.spawn("background_check", move |cancel_token| {
+        async move {
+            {
+                let mut waited = 0u64;
+                while waited < 5000 {
+                    let s = app_h.state::<AppState>();
+                    if !s.tasks.is_checking.is_active() {
+                        break;
+                    }
+                    drop(s);
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_millis(50)) => { waited += 50; }
+                        _ = cancel_token.cancelled() => { break; }
+                    }
+                }
+            }
+
+            run_background_check(&app_h, cancel_token.clone()).await;
+
+            let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
+            interval_timer.tick().await;
+            loop {
+                tokio::select! {
+                    _ = interval_timer.tick() => {}
+                    _ = cancel_token.cancelled() => {
+                        crate::log_debug!("background", "后台检测收到取消信号，退出循环");
+                        break;
+                    }
+                }
+                let s = app_h.state::<AppState>();
+                if !s.task_manager.is_running("background_check") || s.exit.is_quitting.load(Ordering::Acquire) {
+                    break;
+                }
+                run_background_check(&app_h, cancel_token.clone()).await;
+            }
+        }
+    })?;
+
     if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &cfg) {
         crate::log_warn!("background", "保存后台检测配置失败: {}", e);
     }
-
-    let app_h = app_handle.clone();
-    let bg_cancel = state.tasks.bg_check_cancel.load().clone();
-    tauri::async_runtime::spawn(async move {
-        {
-            let mut waited = 0u64;
-            while waited < 5000 {
-                let s = app_h.state::<AppState>();
-                if !s.tasks.is_checking.is_active() {
-                    break;
-                }
-                drop(s);
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(50)) => { waited += 50; }
-                    _ = bg_cancel.cancelled() => { break; }
-                }
-            }
-        }
-
-        run_background_check(&app_h, bg_cancel.clone()).await;
-
-        let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
-        interval_timer.tick().await;
-        loop {
-            tokio::select! {
-                _ = interval_timer.tick() => {}
-                _ = bg_cancel.cancelled() => {
-                    crate::log_debug!("background", "后台检测收到取消信号，退出循环");
-                    break;
-                }
-            }
-            let s = app_h.state::<AppState>();
-            if !s.tasks.background_running.is_active() || s.exit.is_quitting.load(Ordering::Acquire) {
-                break;
-            }
-            run_background_check(&app_h, bg_cancel.clone()).await;
-        }
-    });
 
     Ok(CommandResult::ok_msg("后台检测已启动"))
 }

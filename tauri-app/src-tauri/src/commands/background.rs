@@ -13,9 +13,7 @@ pub fn start_background_check(app_handle: AppHandle, state: State<'_, AppState>)
 #[tauri::command]
 pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    s.tasks.bg_check_cancel.load().cancel();
-    s.tasks.bg_check_cancel.store(Arc::new(tokio_util::sync::CancellationToken::new()));
-    s.tasks.background_running.force_release();
+    s.task_manager.cancel("background_check");
     let cfg = s.config.update(|cfg| {
         cfg.enable_background_check = false;
     });
@@ -35,7 +33,9 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
         return Ok(CommandResult::err("检测正在进行中"));
     }
     let app_h = app_handle.clone();
-    let manual_cancel = s.tasks.bg_check_cancel.load().clone();
+    let manual_cancel = s.task_manager
+        .cancel_token("background_check")
+        .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
     tauri::async_runtime::spawn(async move {
         watcher::run_background_check(&app_h, manual_cancel).await;
     });
@@ -44,7 +44,7 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
 
 pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) -> serde_json::Value {
     let config = state.config.load_full();
-    let running = state.tasks.background_running.is_active();
+    let running = state.task_manager.is_running("background_check");
     let server_avail = state.network.load().server_available;
 
     let adapter_statuses = {

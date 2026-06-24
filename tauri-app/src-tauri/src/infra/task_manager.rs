@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 /// 后台任务句柄，仅暴露取消令牌。
 #[derive(Clone)]
 pub struct TaskHandle {
-    pub cancel_token: CancellationToken,
+    pub cancel_token: Arc<CancellationToken>,
 }
 
 /// 统一管理周期性后台任务的生命周期。
@@ -36,14 +36,14 @@ impl BackgroundTaskManager {
 
         let cancel_token = Arc::new(CancellationToken::new());
         let handle = TaskHandle {
-            cancel_token: (*cancel_token).clone(),
+            cancel_token: cancel_token.clone(),
         };
         tasks.insert(name.to_string(), handle);
         drop(tasks);
 
         let inner = self.inner.clone();
         let name = name.to_string();
-        let future = build_future(cancel_token);
+        let future = build_future(cancel_token.clone());
         tauri::async_runtime::spawn(async move {
             future.await;
             inner.lock().remove(&name);
@@ -64,7 +64,7 @@ impl BackgroundTaskManager {
 
         let cancel_token = Arc::new(CancellationToken::new());
         let handle = TaskHandle {
-            cancel_token: (*cancel_token).clone(),
+            cancel_token: cancel_token.clone(),
         };
         tasks.insert(name.to_string(), handle);
         drop(tasks);
@@ -72,7 +72,7 @@ impl BackgroundTaskManager {
         let inner = self.inner.clone();
         let name = name.to_string();
         std::thread::spawn(move || {
-            f(cancel_token);
+            f(cancel_token.clone());
             inner.lock().remove(&name);
         });
 
@@ -109,7 +109,7 @@ impl BackgroundTaskManager {
     }
 
     /// 获取任务的取消令牌。任务不存在时返回 `None`。
-    pub fn cancel_token(&self, name: &str) -> Option<CancellationToken> {
+    pub fn cancel_token(&self, name: &str) -> Option<Arc<CancellationToken>> {
         self.inner.lock().get(name).map(|h| h.cancel_token.clone())
     }
 }

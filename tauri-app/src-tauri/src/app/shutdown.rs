@@ -8,7 +8,7 @@ use crate::infra::state::AppState;
 /// 取消所有后台任务，释放运行标志，然后退出进程。
 pub fn graceful_exit(app_handle: &AppHandle, state: &AppState) {
     state.exit.is_quitting.store(true, Ordering::Release);
-    state.tasks.bg_check_cancel.load().cancel();
+    state.task_manager.cancel("background_check");
     state.tasks.latency_cancel.load().cancel();
     state.tasks.adapter_watch_cancel.load().cancel();
 
@@ -17,7 +17,6 @@ pub fn graceful_exit(app_handle: &AppHandle, state: &AppState) {
         // 短暂等待后台任务响应取消
         tokio::time::sleep(Duration::from_millis(200)).await;
         let s = app_h.state::<AppState>();
-        s.tasks.background_running.force_release();
         s.tasks.latency_running.force_release();
         s.tasks.adapter_watch_running.force_release();
         crate::log_info!("app", "应用退出");

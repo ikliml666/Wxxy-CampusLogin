@@ -100,7 +100,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         }
 
         s.exit.is_quitting.store(true, Ordering::Release);
-        s.tasks.bg_check_cancel.load().cancel();
+        s.task_manager.cancel("background_check");
         s.tasks.latency_cancel.load().cancel();
         s.tasks.adapter_watch_cancel.load().cancel();
         app_h.exit(0);
@@ -225,7 +225,7 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
             let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
         }
         s.exit.is_quitting.store(true, Ordering::Release);
-        s.tasks.bg_check_cancel.load().cancel();
+        s.task_manager.cancel("background_check");
         s.tasks.latency_cancel.load().cancel();
         s.tasks.adapter_watch_cancel.load().cancel();
         app_h.exit(0);
