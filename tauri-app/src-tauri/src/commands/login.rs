@@ -183,31 +183,37 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
     };
 
     if result.success {
-        crate::log_info!("login", "登录成功");
-        // 手动登录成功后解除注销保护期，避免后台检测强制 online=false 覆盖登录状态
-        // 保护期仅用于阻止注销后自动登录立即触发，手动登录不受影响
-        state.network.logout_protected_until.store(std::sync::Arc::new(std::time::Instant::now()));
-        crate::log_debug!("login", "已解除注销保护期");
-        let app_h_bg = app_handle.clone();
-        let config = state.config.load_full();
-        let auto_exit = config.auto_exit_after_login;
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let s = app_h_bg.state::<AppState>();
-            // 退出流程已开始时不再执行后台检查或触发自动退出
-            if s.exit.is_quitting.load(Ordering::Acquire) {
-                return;
-            }
-            let cancel_token = s.tasks.bg_check_cancel.load().clone();
-            crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
-
-            if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {
-                crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);
-            }
-        });
+        post_login_handler(&app_handle, &state);
     }
 
     Ok(result)
+}
+
+/// 登录成功后的公共后处理：解除注销保护期、延迟后台检测、按需触发自动退出。
+pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
+    crate::log_info!("login", "登录成功");
+    // 手动/快速登录成功后解除注销保护期，避免后台检测强制 online=false 覆盖登录状态
+    // 保护期仅用于阻止注销后自动登录立即触发，手动登录不受影响
+    state.network.logout_protected_until.store(std::sync::Arc::new(std::time::Instant::now()));
+    crate::log_debug!("login", "已解除注销保护期");
+
+    let app_h_bg = app_handle.clone();
+    let config = state.config.load_full();
+    let auto_exit = config.auto_exit_after_login;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let s = app_h_bg.state::<AppState>();
+        // 退出流程已开始时不再执行后台检查或触发自动退出
+        if s.exit.is_quitting.load(Ordering::Acquire) {
+            return;
+        }
+        let cancel_token = s.tasks.bg_check_cancel.load().clone();
+        crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
+
+        if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {
+            crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);
+        }
+    });
 }
 
 #[tauri::command]
