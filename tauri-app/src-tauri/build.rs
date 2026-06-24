@@ -34,5 +34,5 @@ fn main() {
     // 仅当 tauri.conf.json 变化时重新编译（避免无关修改触发）
     println!("cargo:rerun-if-changed=tauri.conf.json");
     // 注入到 Rust 编译期：env!("APP_VERSION") 即可读取
-    println!("cargo:rustc-env=APP_VERSION={}", version);
+    println!("cargo:rustc-env=APP_VERSION={version}");
 }

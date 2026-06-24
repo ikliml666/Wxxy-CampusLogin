@@ -203,6 +203,59 @@ impl AppState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_lock_acquire_and_release() {
+        let lock = TaskLock::new();
+        assert!(!lock.is_active());
+        let guard = lock.try_acquire().unwrap();
+        assert!(lock.is_active());
+        drop(guard);
+        assert!(!lock.is_active());
+    }
+
+    #[test]
+    fn task_lock_rejects_second_acquire() {
+        let lock = TaskLock::new();
+        let _guard = lock.try_acquire().unwrap();
+        assert!(lock.try_acquire().is_none());
+    }
+
+    #[test]
+    fn task_lock_force_release_allows_reacquire() {
+        let lock = TaskLock::new();
+        let _guard = lock.try_acquire().unwrap();
+        lock.force_release();
+        assert!(!lock.is_active());
+        assert!(lock.try_acquire().is_some());
+    }
+
+    #[test]
+    fn task_lock_guard_releases_on_drop() {
+        let lock = TaskLock::new();
+        {
+            let _guard = lock.try_acquire();
+            assert!(lock.is_active());
+        }
+        assert!(!lock.is_active());
+    }
+
+    #[test]
+    fn validate_account_name_accepts_valid() {
+        assert!(validate_account_name("user_123").is_ok());
+        assert!(validate_account_name("用户名").is_ok());
+    }
+
+    #[test]
+    fn validate_account_name_rejects_invalid() {
+        assert!(validate_account_name("").is_err());
+        assert!(validate_account_name("user@name").is_err());
+    }
+}
+
 #[derive(Serialize)]
 pub struct CommandResult {
     pub success: bool,

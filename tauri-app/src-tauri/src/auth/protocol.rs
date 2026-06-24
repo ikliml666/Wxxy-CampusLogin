@@ -341,3 +341,105 @@ fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_login_result_success() {
+        let response = r#"dr1003({"result":0,"msg":"认证成功"})"#;
+        let result = parse_login_result(response).unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "0");
+        assert_eq!(result["message"], "登录成功");
+    }
+
+    #[test]
+    fn parse_login_result_already_online() {
+        let response = r#"dr1003({"result":0,"msg":"用户已经在线"})"#;
+        let result = parse_login_result(response).unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "0");
+    }
+
+    #[test]
+    fn parse_login_result_auth_failed() {
+        let response = r#"dr1003({"result":0,"msg":"AC认证失败"})"#;
+        let result = parse_login_result(response).unwrap();
+        assert!(!result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "ac_auth_failed");
+    }
+
+    #[test]
+    fn parse_login_result_illegal() {
+        let response = r#"dr1003({"result":1,"msg":"非法用户"})"#;
+        let result = parse_login_result(response).unwrap();
+        assert!(!result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "1");
+    }
+
+    #[test]
+    fn parse_login_result_disabled() {
+        let response = r#"dr1003({"result":4,"msg":"账号被禁用"})"#;
+        let result = parse_login_result(response).unwrap();
+        assert!(!result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "4");
+    }
+
+    #[test]
+    fn parse_login_result_html_parse_error() {
+        let response = "<!DOCTYPE html><html>error</html>";
+        let result = parse_login_result(response).unwrap();
+        assert!(!result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "parse_error");
+    }
+
+    #[test]
+    fn parse_logout_result_success() {
+        let response = r#"dr1002({"result":0,"msg":"解绑终端MAC成功"})"#;
+        let result = parse_logout_result(response).unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "0");
+    }
+
+    #[test]
+    fn parse_logout_result_no_online_device() {
+        let response = r#"dr1002({"result":0,"msg":"获取用户在线信息数据为空"})"#;
+        let result = parse_logout_result(response).unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["message"], "当前无在线设备");
+    }
+
+    #[test]
+    fn parse_logout_result_radius_success() {
+        let response = r#"dr1003({"result":1,"msg":"下线成功"})"#;
+        let result = parse_logout_result(response).unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["code"], "1");
+    }
+
+    #[test]
+    fn parse_logout_result_html_success() {
+        let response = "<html>注销成功</html>";
+        let result = parse_logout_result(response).unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["message"], "注销成功");
+    }
+
+    #[test]
+    fn do_login_with_retry_respects_quit_flag() {
+        let quitting = std::sync::atomic::AtomicBool::new(true);
+        let result = do_login_with_retry("user", "pass", "", Some("10.0.0.1"), 3, &quitting).unwrap();
+        assert!(!result["success"].as_bool().unwrap());
+        assert_eq!(result["message"], "应用正在退出");
+    }
+
+    #[test]
+    fn do_logout_with_retry_respects_quit_flag() {
+        let quitting = std::sync::atomic::AtomicBool::new(true);
+        let result = do_logout_with_retry("user", Some("10.0.0.1"), 0, "00:00:00:00:00:00", 3, &quitting).unwrap();
+        assert!(!result["success"].as_bool().unwrap());
+        assert_eq!(result["message"], "应用正在退出");
+    }
+}
