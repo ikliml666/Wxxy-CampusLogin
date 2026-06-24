@@ -278,6 +278,40 @@ impl CommandResult {
     pub fn err(msg: &str) -> Self {
         Self { success: false, message: Some(msg.to_string()), data: None }
     }
+    #[allow(dead_code)]
+    pub fn from_json_result(value: serde_json::Value) -> Self {
+        let success = value.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        let message = value.get("message").and_then(|v| v.as_str()).map(|s| s.to_string());
+        Self { success, message, data: Some(value) }
+    }
+}
+
+#[cfg(test)]
+mod command_result_tests {
+    use super::CommandResult;
+
+    #[test]
+    fn from_json_result_extracts_success_and_message() {
+        let value = serde_json::json!({
+            "success": true,
+            "message": "login ok",
+            "code": "0"
+        });
+        let result = CommandResult::from_json_result(value);
+        assert!(result.success);
+        assert_eq!(result.message, Some("login ok".to_string()));
+        assert!(result.data.is_some());
+    }
+
+    #[test]
+    fn from_json_result_defaults_to_failure_without_success_field() {
+        let value = serde_json::json!({
+            "message": "no success field"
+        });
+        let result = CommandResult::from_json_result(value);
+        assert!(!result.success);
+        assert_eq!(result.message, Some("no success field".to_string()));
+    }
 }
 
 #[derive(Serialize)]

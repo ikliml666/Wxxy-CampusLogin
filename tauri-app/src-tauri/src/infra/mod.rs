@@ -3,3 +3,4 @@ pub mod logger;
 pub mod notification;
 pub mod lifecycle;
 pub mod events;
+pub mod command_context;

@@ -1,4 +1,5 @@
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+use crate::infra::command_context::AppHandleExt;
 use std::sync::Arc;
 use crate::config::model::Config;
 use crate::config::persist;
@@ -11,7 +12,7 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     let config_path = persist::get_config_path(&data_dir);
     let json = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {}", e))?;
     persist::atomic_write(&config_path, &json)?;
-    let _ = app_handle.emit("config-changed", serde_json::json!({}));
+    let _ = app_handle.notify_config_changed_empty();
     Ok(())
 }
 

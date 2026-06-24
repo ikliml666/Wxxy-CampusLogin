@@ -1,4 +1,5 @@
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+use crate::infra::command_context::AppHandleExt;
 use crate::infra::state::AppState;
 use crate::update::updater::DownloadProgress;
 use std::sync::atomic::Ordering;
@@ -129,7 +130,7 @@ pub async fn download_update(
                         0.0
                     };
 
-                    if let Err(e) = app_handle.emit("update-download-progress", DownloadProgress {
+                    if let Err(e) = app_handle.notify_update_download_progress(DownloadProgress {
                         downloaded,
                         total: total_size,
                         speed,
@@ -160,7 +161,7 @@ pub async fn download_update(
         }
     };
 
-    if let Err(e) = app_handle.emit("update-download-progress", DownloadProgress {
+    if let Err(e) = app_handle.notify_update_download_progress(DownloadProgress {
         downloaded,
         total: downloaded,
         speed: 0,

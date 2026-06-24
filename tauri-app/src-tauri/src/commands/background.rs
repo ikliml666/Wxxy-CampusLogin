@@ -1,13 +1,14 @@
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+use crate::infra::command_context::{AppHandleExt, CommandContext};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use crate::infra::state::{AppState, CommandResult};
 use crate::monitor::watcher;
 
 #[tauri::command]
-pub fn start_background_check(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
-    let s = app_handle.state::<AppState>();
-    watcher::start_background_check_inner(&app_handle, &s)
+pub fn start_background_check(app_handle: AppHandle, state: State<'_, AppState>) -> Result<CommandResult, String> {
+    let ctx = CommandContext::new(&app_handle, &state);
+    watcher::start_background_check_inner(ctx.app, ctx.state)
 }
 
 #[tauri::command]
@@ -24,7 +25,7 @@ pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle)
     }
     let mut emit_cfg = (*cfg).clone();
     emit_cfg.password = crate::config::model::PASSWORD_MASK.to_string();
-    let _ = app_handle.emit("config-changed", serde_json::json!({ "config": emit_cfg }));
+    let _ = app_handle.notify_config_changed(&emit_cfg);
     Ok(CommandResult::ok_msg("后台检测已停止"))
 }
 
