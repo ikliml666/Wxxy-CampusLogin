@@ -6,39 +6,35 @@ use crate::infra::state::AppState;
 
 const ADAPTER_WATCH_INTERVAL: u64 = 15000;
 
-pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) {
+pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        let s = app_h.state::<AppState>();
-        let _guard = match s.tasks.adapter_watch_running.acquire_guard() {
-            Some(g) => g,
-            None => return,
-        };
-        let mut last_adapters: Vec<Adapter> = Vec::new();
-        let mut last_disabled: Vec<DisabledAdapter> = Vec::new();
-        let mut interval_timer = tokio::time::interval(Duration::from_millis(ADAPTER_WATCH_INTERVAL));
-        interval_timer.tick().await;
+    app_handle.state::<AppState>().task_manager.spawn("adapter_watch", move |cancel_token| {
+        async move {
+            let mut last_adapters: Vec<Adapter> = Vec::new();
+            let mut last_disabled: Vec<DisabledAdapter> = Vec::new();
+            let mut interval_timer = tokio::time::interval(Duration::from_millis(ADAPTER_WATCH_INTERVAL));
+            interval_timer.tick().await;
 
-        loop {
-            tokio::select! {
-                _ = interval_timer.tick() => {}
-                _ = cancel_token.cancelled() => {
+            loop {
+                tokio::select! {
+                    _ = interval_timer.tick() => {}
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                }
+
+                let s = app_h.state::<AppState>();
+                if s.exit.is_quitting.load(Ordering::Acquire) {
                     break;
                 }
-            }
 
-            let s = app_h.state::<AppState>();
-            if s.exit.is_quitting.load(Ordering::Acquire) {
-                break;
-            }
+                crate::network::dns::cleanup_expired_dns_cache();
 
-            crate::network::dns::cleanup_expired_dns_cache();
+                let result = tauri::async_runtime::spawn_blocking(|| {
+                    get_all_adapters_force()
+                }).await;
 
-            let result = tauri::async_runtime::spawn_blocking(|| {
-                get_all_adapters_force()
-            }).await;
-
-            if let Ok(Ok((adapters, details, disabled))) = result {
+                if let Ok(Ok((adapters, details, disabled))) = result {
                 let adapters_changed = {
                     let mut sorted_current: Vec<&Adapter> = adapters.iter().collect();
                     let mut sorted_last: Vec<&Adapter> = last_adapters.iter().collect();
@@ -118,7 +114,8 @@ pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<
 
                 last_adapters = adapters;
                 last_disabled = disabled;
+                }
             }
         }
-    });
+    })
 }

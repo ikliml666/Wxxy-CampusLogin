@@ -4,8 +4,6 @@ pub mod exit;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use arc_swap::ArcSwap;
 use crate::config::model::Config;
 use store::ConfigStore;
 use network::NetworkState;
@@ -36,24 +34,8 @@ impl TaskLock {
         }
     }
 
-    pub fn acquire_guard(&self) -> Option<TaskGuard<'_>> {
-        if self.flag.swap(true, Ordering::Acquire) {
-            None
-        } else {
-            Some(TaskGuard { lock: self })
-        }
-    }
-
     pub fn is_active(&self) -> bool {
         self.flag.load(Ordering::Acquire)
-    }
-
-    pub fn force_release(&self) {
-        self.flag.store(false, Ordering::Release);
-    }
-
-    pub fn swap_acquire(&self) -> bool {
-        self.flag.swap(true, Ordering::Acquire)
     }
 }
 
@@ -78,12 +60,6 @@ pub fn validate_account_name(name: &str) -> Result<String, String> {
 }
 
 pub struct TaskFlags {
-    pub background_running: TaskLock,
-    pub bg_check_cancel: ArcSwap<tokio_util::sync::CancellationToken>,
-    pub latency_running: TaskLock,
-    pub latency_cancel: ArcSwap<tokio_util::sync::CancellationToken>,
-    pub adapter_watch_running: TaskLock,
-    pub adapter_watch_cancel: ArcSwap<tokio_util::sync::CancellationToken>,
     pub is_checking: TaskLock,
     pub is_logging_in: TaskLock,
     pub is_logging_out: TaskLock,
@@ -107,12 +83,6 @@ impl AppState {
         Self {
             config: ConfigStore::new(Config::default()),
             tasks: TaskFlags {
-                background_running: TaskLock::new(),
-                bg_check_cancel: ArcSwap::from(Arc::new(tokio_util::sync::CancellationToken::new())),
-                latency_running: TaskLock::new(),
-                latency_cancel: ArcSwap::from(Arc::new(tokio_util::sync::CancellationToken::new())),
-                adapter_watch_running: TaskLock::new(),
-                adapter_watch_cancel: ArcSwap::from(Arc::new(tokio_util::sync::CancellationToken::new())),
                 is_checking: TaskLock::new(),
                 is_logging_in: TaskLock::new(),
                 is_logging_out: TaskLock::new(),

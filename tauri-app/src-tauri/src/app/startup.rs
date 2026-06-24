@@ -162,9 +162,9 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     crate::app::tray::build_tray(app.handle(), &install_dir)?;
 
     let app_h = app.handle().clone();
-    let s = app_h.state::<AppState>();
-    let adapter_watch_cancel = s.tasks.adapter_watch_cancel.load().clone();
-    crate::monitor::adapter_watch::start_adapter_watch(&app_h, adapter_watch_cancel);
+    if let Err(e) = crate::monitor::adapter_watch::start_adapter_watch(&app_h) {
+        crate::log_warn!("startup", "启动适配器监听失败: {}", e);
+    }
     crate::update::updater::start_update_check_loop(&app_h);
     crate::monitor::watcher::run_startup_tasks(&app_h);
 
