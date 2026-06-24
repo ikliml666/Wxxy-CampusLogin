@@ -8,6 +8,7 @@ use crate::network::{
     check_network_quality_async,
 };
 use crate::auth::portal::check_portal_full;
+use crate::infra::events::EventBus;
 use crate::infra::state::{AppState, CommandResult};
 use crate::infra::lifecycle::{start_campus_exit, cancel_campus_exit};
 
@@ -84,10 +85,11 @@ fn check_adapter_portal(
         Ok(ps) => {
             if ps.error_kind.as_deref() == Some("request_failed") {
                 crate::log_warn!("network", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
-                let _ = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} Portal页面检测请求失败: {}", adapter.name, ps.message),
-                    "type": "error"
-                }));
+                let event_bus = EventBus::new(app_handle);
+                let _ = event_bus.emit_login_log(
+                    &format!("{} Portal页面检测请求失败: {}", adapter.name, ps.message),
+                    "error",
+                );
                 PortalCheckResult::Error { is_request_failed: true }
             } else {
                 PortalCheckResult::Success {
@@ -100,10 +102,11 @@ fn check_adapter_portal(
         }
         Err(e) => {
             crate::log_warn!("background", "{} Portal页面检测异常: {}", adapter.name, e);
-            let _ = app_handle.emit("login-log", serde_json::json!({
-                "message": format!("{} Portal页面检测异常: {}", adapter.name, e),
-                "type": "error"
-            }));
+            let event_bus = EventBus::new(app_handle);
+            let _ = event_bus.emit_login_log(
+                &format!("{} Portal页面检测异常: {}", adapter.name, e),
+                "error",
+            );
             PortalCheckResult::Error { is_request_failed: false }
         }
     }
@@ -629,10 +632,11 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
                 crate::log_info!("background", "适配器1 Portal失败计数: {}/5 (网关可达)", new_count);
                 if new_count >= 5 {
                     crate::log_warn!("background", "适配器1 连续{}次Portal失败(网关可达)，触发该适配器MAC重置", new_count);
-                    let _ = app_handle.emit("login-log", serde_json::json!({
-                        "message": "适配器1 连续5次 Portal 请求失败，正在重置该适配器MAC...",
-                        "type": "warning"
-                    }));
+                    let event_bus = EventBus::new(app_handle);
+                    let _ = event_bus.emit_login_log(
+                        "适配器1 连续5次 Portal 请求失败，正在重置该适配器MAC...",
+                        "warning",
+                    );
                     if let Some(a1_ref) = a1 {
                         match crate::network::dhcp_release_renew_single(&a1_ref.name, campus_gw) {
                             Ok(r) => {
@@ -671,10 +675,11 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
                 crate::log_info!("background", "适配器2 Portal失败计数: {}/5 (网关可达)", new_count);
                 if new_count >= 5 {
                     crate::log_warn!("background", "适配器2 连续{}次Portal失败(网关可达)，触发该适配器MAC重置", new_count);
-                    let _ = app_handle.emit("login-log", serde_json::json!({
-                        "message": "适配器2 连续5次 Portal 请求失败，正在重置该适配器MAC...",
-                        "type": "warning"
-                    }));
+                    let event_bus = EventBus::new(app_handle);
+                    let _ = event_bus.emit_login_log(
+                        "适配器2 连续5次 Portal 请求失败，正在重置该适配器MAC...",
+                        "warning",
+                    );
                     if let Some(a2_ref) = a2 {
                         match crate::network::dhcp_release_renew_single(&a2_ref.name, campus_gw) {
                             Ok(r) => {

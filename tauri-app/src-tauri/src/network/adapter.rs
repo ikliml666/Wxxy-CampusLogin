@@ -4,8 +4,9 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::time::Instant;
 use std::sync::atomic::AtomicBool;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use crate::config::model::Config;
+use crate::infra::events::EventBus;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -1351,10 +1352,11 @@ pub fn ensure_ethernet_ip_for_login(
             return;
         }
 
-        let _ = app_handle.emit("login-log", serde_json::json!({
-            "message": format!("检测到以太网 {} 已连接但未获取IP，正在尝试DHCP续租...", name),
-            "type": "info"
-        }));
+        let event_bus = EventBus::new(app_handle);
+        let _ = event_bus.emit_login_log(
+            &format!("检测到以太网 {} 已连接但未获取IP，正在尝试DHCP续租...", name),
+            "info",
+        );
 
         let child = new_command("ipconfig")
             .args(["/renew", name])
@@ -1372,15 +1374,17 @@ pub fn ensure_ethernet_ip_for_login(
                 .ok()
                 .and_then(|list| list.iter().find(|a| a.name == *name).map(|a| a.ip.clone()))
                 .unwrap_or_default();
-            let _ = app_handle.emit("login-log", serde_json::json!({
-                "message": format!("以太网 {} DHCP续租成功，IP: {}", name, ip),
-                "type": "success"
-            }));
+            let event_bus = EventBus::new(app_handle);
+            let _ = event_bus.emit_login_log(
+                &format!("以太网 {} DHCP续租成功，IP: {}", name, ip),
+                "success",
+            );
         } else {
-            let _ = app_handle.emit("login-log", serde_json::json!({
-                "message": format!("以太网 {} DHCP续租超时仍未获得IP，跳过该网卡", name),
-                "type": "warning"
-            }));
+            let event_bus = EventBus::new(app_handle);
+            let _ = event_bus.emit_login_log(
+                &format!("以太网 {} DHCP续租超时仍未获得IP，跳过该网卡", name),
+                "warning",
+            );
         }
     }
 }

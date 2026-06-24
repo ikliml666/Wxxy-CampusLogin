@@ -1,7 +1,8 @@
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use crate::config::model::Config;
+use crate::infra::events::EventBus;
 use crate::network::{
     Adapter, get_adapters_cached,
     wait_for_adapter,
@@ -230,15 +231,17 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 let status = check_any_adapter_online(&s);
                 if status.any_online {
-                    let _ = app_h.emit("login-log", serde_json::json!({
-                        "message": "页面检测仍显示在线，注销可能未完全生效",
-                        "type": "warning"
-                    }));
+                    let event_bus = EventBus::new(&app_h);
+                    let _ = event_bus.emit_login_log(
+                        "页面检测仍显示在线，注销可能未完全生效",
+                        "warning",
+                    );
                 } else {
-                    let _ = app_h.emit("login-log", serde_json::json!({
-                        "message": "注销成功（页面检测已确认离线）",
-                        "type": "success"
-                    }));
+                    let event_bus = EventBus::new(&app_h);
+                    let _ = event_bus.emit_login_log(
+                        "注销成功（页面检测已确认离线）",
+                        "success",
+                    );
                 }
                 Some(status)
             } else {

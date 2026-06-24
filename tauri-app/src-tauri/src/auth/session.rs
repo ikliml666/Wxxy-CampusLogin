@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::config::model::Config;
 use crate::network::{
@@ -8,6 +8,7 @@ use crate::network::{
 };
 use crate::auth::portal::check_portal_full;
 use crate::auth::protocol::do_login_with_retry;
+use crate::infra::events::EventBus;
 use crate::infra::state::{AppState, CommandResult};
 use crate::commands::system::append_login_history;
 
@@ -39,10 +40,8 @@ fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_resul
 
     if new_count >= 5 {
         crate::log_warn!("login", "连续{}次认证失败，触发MAC重置+DHCP续租", new_count);
-        let _ = app_handle.emit("login-log", serde_json::json!({
-            "message": "连续5次认证失败，正在重置MAC并重新获取IP...",
-            "type": "warning"
-        }));
+        let event_bus = EventBus::new(app_handle);
+        let _ = event_bus.emit_login_log("连续5次认证失败，正在重置MAC并重新获取IP...", "warning");
         match crate::network::dhcp_release_renew_all(campus_gw) {
             Ok(results) => {
                 for r in &results {
@@ -126,10 +125,11 @@ fn handle_single_adapter_failure(
 
     if new_count >= 5 {
         crate::log_warn!("login", "{} 连续{}次认证失败，触发该适配器MAC重置", adapter_name, new_count);
-        let _ = app_handle.emit("login-log", serde_json::json!({
-            "message": format!("{} 连续5次认证失败，正在重置该适配器MAC...", adapter_name),
-            "type": "warning"
-        }));
+        let event_bus = EventBus::new(app_handle);
+        let _ = event_bus.emit_login_log(
+            &format!("{} 连续5次认证失败，正在重置该适配器MAC...", adapter_name),
+            "warning",
+        );
         match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {
             Ok(r) => {
                 let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -166,10 +166,8 @@ where
         return None;
     }
 
-    if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-        "message": format!("{} 正在{}...", adapter.name, action_name),
-        "type": "info"
-    })) {
+    let event_bus = EventBus::new(app_handle);
+    if let Err(e) = event_bus.emit_login_log(&format!("{} 正在{}...", adapter.name, action_name), "info") {
         crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, e);
     }
 
@@ -179,20 +177,17 @@ where
             let message = result.get("message").and_then(|v| v.as_str()).unwrap_or("");
             let display_msg = format!("{} {}", adapter.name, message);
             if success {
-                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} {}成功", adapter.name, action_name),
-                    "type": "success"
-                })) {
+                if let Err(e) = event_bus.emit_login_log(&format!("{} {}成功", adapter.name, action_name), "success") {
                     crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, e);
                 }
                 if let Err(e) = append_login_history(app_handle, true, message, &adapter.name, &config.user, action_type) {
                     crate::log_warn!(log_tag, "记录{}历史失败: {}", action_name, e);
                 }
             } else {
-                if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                    "message": format!("{} {}失败: {}", adapter.name, action_name, message),
-                    "type": "warning"
-                })) {
+                if let Err(e) = event_bus.emit_login_log(
+                    &format!("{} {}失败: {}", adapter.name, action_name, message),
+                    "warning",
+                ) {
                     crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, e);
                 }
                 if let Err(e) = append_login_history(app_handle, false, message, &adapter.name, &config.user, action_type) {
@@ -206,10 +201,10 @@ where
             })
         }
         Err(e) => {
-            if let Err(emit_err) = app_handle.emit("login-log", serde_json::json!({
-                "message": format!("{} {}请求失败: {}", adapter.name, action_name, e),
-                "type": "error"
-            })) {
+            if let Err(emit_err) = event_bus.emit_login_log(
+                &format!("{} {}请求失败: {}", adapter.name, action_name, e),
+                "error",
+            ) {
                 crate::log_warn!(log_tag, "发送{}日志失败: {}", action_name, emit_err);
             }
             Some(CommandResult {
@@ -261,10 +256,8 @@ pub fn login_adapter_with_log(
                 if message.contains("无法解析登录响应") {
                     if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name), None, None, Some(&config_operator)) {
                         if sec_status.online {
-                            if let Err(e) = app_handle.emit("login-log", serde_json::json!({
-                                "message": format!("{} 已在线", adapter_name),
-                                "type": "success"
-                            })) {
+                            let event_bus = EventBus::new(app_handle);
+                            if let Err(e) = event_bus.emit_login_log(&format!("{} 已在线", adapter_name), "success") {
                                 crate::log_warn!("login", "发送登录日志失败: {}", e);
                             }
                             return Some(CommandResult {
