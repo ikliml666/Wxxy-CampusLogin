@@ -932,13 +932,11 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn(async move {
             let s = app_h.state::<AppState>();
-            if !s.tasks.latency_running.swap_acquire() {
-                let interval = {
-                    let c = s.config.load();
-                    if c.latency_test_interval < 10000 { 30000 } else { c.latency_test_interval }
-                };
-                spawn_latency_test_loop(&app_h, interval);
-            }
+            let interval = {
+                let c = s.config.load();
+                if c.latency_test_interval < 10000 { 30000 } else { c.latency_test_interval }
+            };
+            let _ = spawn_latency_test_loop(&app_h, interval);
         });
     }
 

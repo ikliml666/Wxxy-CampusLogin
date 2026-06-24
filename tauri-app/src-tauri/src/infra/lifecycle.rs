@@ -101,7 +101,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
 
         s.exit.is_quitting.store(true, Ordering::Release);
         s.task_manager.cancel("background_check");
-        s.tasks.latency_cancel.load().cancel();
+        s.task_manager.cancel("latency_test");
         s.tasks.adapter_watch_cancel.load().cancel();
         app_h.exit(0);
     });
@@ -226,7 +226,7 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         }
         s.exit.is_quitting.store(true, Ordering::Release);
         s.task_manager.cancel("background_check");
-        s.tasks.latency_cancel.load().cancel();
+        s.task_manager.cancel("latency_test");
         s.tasks.adapter_watch_cancel.load().cancel();
         app_h.exit(0);
     });

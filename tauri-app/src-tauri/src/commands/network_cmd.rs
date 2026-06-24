@@ -1,5 +1,4 @@
 use tauri::{AppHandle, Manager, State};
-use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use crate::network::{
@@ -184,25 +183,21 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
 #[tauri::command]
 pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
     let s = app_handle.state::<AppState>();
-    if s.tasks.latency_running.swap_acquire() {
-        return Ok(CommandResult::ok_msg("延迟测试已在运行"));
-    }
-
     let interval = {
         let config = s.config.load();
         if config.latency_test_interval < 10000 { 30000 } else { config.latency_test_interval }
     };
 
-    crate::monitor::latency::spawn_latency_test_loop(&app_handle, interval);
+    if crate::monitor::latency::spawn_latency_test_loop(&app_handle, interval).is_err() {
+        return Ok(CommandResult::ok_msg("延迟测试已在运行"));
+    }
 
     Ok(CommandResult::ok_msg("延迟测试已启动"))
 }
 
 #[tauri::command]
 pub fn stop_latency_test(state: State<'_, AppState>) -> Result<CommandResult, String> {
-    state.tasks.latency_cancel.load().cancel();
-    state.tasks.latency_cancel.store(Arc::new(tokio_util::sync::CancellationToken::new()));
-    state.tasks.latency_running.force_release();
+    state.task_manager.cancel("latency_test");
     Ok(CommandResult::ok_msg("延迟测试已停止"))
 }
 

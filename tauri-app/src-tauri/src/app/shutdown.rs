@@ -9,7 +9,7 @@ use crate::infra::state::AppState;
 pub fn graceful_exit(app_handle: &AppHandle, state: &AppState) {
     state.exit.is_quitting.store(true, Ordering::Release);
     state.task_manager.cancel("background_check");
-    state.tasks.latency_cancel.load().cancel();
+    state.task_manager.cancel("latency_test");
     state.tasks.adapter_watch_cancel.load().cancel();
 
     let app_h = app_handle.clone();
@@ -17,7 +17,6 @@ pub fn graceful_exit(app_handle: &AppHandle, state: &AppState) {
         // 短暂等待后台任务响应取消
         tokio::time::sleep(Duration::from_millis(200)).await;
         let s = app_h.state::<AppState>();
-        s.tasks.latency_running.force_release();
         s.tasks.adapter_watch_running.force_release();
         crate::log_info!("app", "应用退出");
         app_h.exit(0);

@@ -1,5 +1,4 @@
 use tauri::{AppHandle, Emitter, Manager};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::network::{check_network_quality_async, get_adapters_cached_async};
@@ -49,77 +48,65 @@ pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, q
     state.network.update(|s| s.last_network_quality = Some(current.clone()));
 }
 
-pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {
+pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<(), String> {
     let app_h = app_handle.clone();
-    let s = app_h.state::<AppState>();
-    s.tasks.latency_cancel.load().cancel();
-    let (cancel, cancel_arc) = {
-        let new_token = Arc::new(tokio_util::sync::CancellationToken::new());
-        let cloned = (*new_token).clone();
-        s.tasks.latency_cancel.store(new_token.clone());
-        (cloned, new_token)
-    };
-    tauri::async_runtime::spawn(async move {
-        let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
-        let mut first_run = true;
-        loop {
-            if !first_run {
-                tokio::select! {
-                    _ = interval_timer.tick() => {}
-                    _ = cancel.cancelled() => break,
+    app_handle.state::<AppState>().task_manager.spawn("latency_test", move |cancel_token| {
+        async move {
+            let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
+            let mut first_run = true;
+            loop {
+                if !first_run {
+                    tokio::select! {
+                        _ = interval_timer.tick() => {}
+                        _ = cancel_token.cancelled() => break,
+                    }
                 }
-            }
-            first_run = false;
-            let s = app_h.state::<AppState>();
-            if !s.tasks.latency_running.is_active()
-                || s.exit.is_quitting.load(Ordering::Acquire) {
-                break;
-            }
-            let (adapter_ip, adapter_name) = {
-                let config = s.config.load();
-                let adapters = match get_adapters_cached_async().await {
-                    Ok(a) => a,
-                    Err(_) => continue,
+                first_run = false;
+                let s = app_h.state::<AppState>();
+                if !s.task_manager.is_running("latency_test")
+                    || s.exit.is_quitting.load(Ordering::Acquire) {
+                    break;
+                }
+                let (adapter_ip, adapter_name) = {
+                    let config = s.config.load();
+                    let adapters = match get_adapters_cached_async().await {
+                        Ok(a) => a,
+                        Err(_) => continue,
+                    };
+                    crate::network::select_adapter(&adapters, &config)
                 };
-                crate::network::select_adapter(&adapters, &config)
-            };
-            if adapter_ip.is_empty() {
-                continue;
-            }
-            // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-                _ = cancel.cancelled() => break,
-            }
-            let (skip_ttfb, skip_content, fixed_gateway) = {
-                let cfg = s.config.load();
-                (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
-            };
-            let _guard = match s.tasks.is_quality_checking.try_acquire() {
-                Some(g) => g,
-                None => continue,
-            };
-            let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(&app_h)).await;
-            drop(_guard);
-            let quality_val = match serde_json::to_value(&quality) {
-                Ok(v) => v,
-                Err(e) => {
-                    crate::log_warn!("latency", "序列化网络质量结果失败: {}", e);
+                if adapter_ip.is_empty() {
                     continue;
                 }
-            };
-            if let Err(e) = app_h.emit("network-quality-result", &quality_val) {
-                crate::log_warn!("latency", "发送网络质量结果失败: {}", e);
+                // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                    _ = cancel_token.cancelled() => break,
+                }
+                let (skip_ttfb, skip_content, fixed_gateway) = {
+                    let cfg = s.config.load();
+                    (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
+                };
+                let _guard = match s.tasks.is_quality_checking.try_acquire() {
+                    Some(g) => g,
+                    None => continue,
+                };
+                let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(&app_h)).await;
+                drop(_guard);
+                let quality_val = match serde_json::to_value(&quality) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        crate::log_warn!("latency", "序列化网络质量结果失败: {}", e);
+                        continue;
+                    }
+                };
+                if let Err(e) = app_h.emit("network-quality-result", &quality_val) {
+                    crate::log_warn!("latency", "发送网络质量结果失败: {}", e);
+                }
+                let s = app_h.state::<AppState>();
+                let enable_notification = s.config.load().enable_notification;
+                notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
             }
-            let s = app_h.state::<AppState>();
-            let enable_notification = s.config.load().enable_notification;
-            notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
         }
-        // 循环退出后：仅当当前 token 仍属于本循环时才释放 flag，避免误清新循环的 flag
-        let s = app_h.state::<AppState>();
-        let current = s.tasks.latency_cancel.load();
-        if Arc::ptr_eq(&cancel_arc, &*current) {
-            s.tasks.latency_running.force_release();
-        }
-    });
+    })
 }
