@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
 use crate::infra::state::AppState;
 
@@ -157,7 +156,7 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
 
     let state = app.state::<AppState>();
 
-    state.config.store(Arc::new(config.clone()));
+    state.config.store(config.clone());
     crate::network::update_portal_url(&config.portal_url);
 
     crate::app::tray::build_tray(app.handle(), &install_dir)?;

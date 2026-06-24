@@ -194,7 +194,7 @@ pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
     crate::log_info!("login", "登录成功");
     // 手动/快速登录成功后解除注销保护期，避免后台检测强制 online=false 覆盖登录状态
     // 保护期仅用于阻止注销后自动登录立即触发，手动登录不受影响
-    state.network.logout_protected_until.store(std::sync::Arc::new(std::time::Instant::now()));
+    state.network.update(|s| s.logout_protected_until = std::time::Instant::now());
     crate::log_debug!("login", "已解除注销保护期");
 
     let app_h_bg = app_handle.clone();
@@ -271,21 +271,25 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             let status = any_online_after_logout.unwrap_or(AdapterOnlineStatus {
                 any_online: false, a1_online: false, a2_online: false,
             });
-            s.network.any_adapter_online.store(status.any_online, Ordering::Release);
-            s.network.last_a1_online.store(status.a1_online, Ordering::Release);
+            s.network.update(|n| {
+                n.any_adapter_online = status.any_online;
+                n.last_a1_online = status.a1_online;
+            });
             let cfg = s.config.load_full();
             if cfg.dual_adapter {
-                s.network.last_a2_online.store(status.a2_online, Ordering::Release);
+                s.network.update(|n| n.last_a2_online = status.a2_online);
             } else {
-                s.network.last_a2_online.store(false, Ordering::Release);
+                s.network.update(|n| n.last_a2_online = false);
             }
 
             // 全量注销专属：重置登录/重连状态 + 注销保护期
-            s.network.has_logged_online.store(false, Ordering::Release);
-            s.network.disconnect_reconnect_count.store(0, Ordering::Release);
-            s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
             let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-            s.network.logout_protected_until.store(std::sync::Arc::new(protected_until));
+            s.network.update(|n| {
+                n.has_logged_online = false;
+                n.disconnect_reconnect_count = 0;
+                n.last_auto_login_attempt = std::time::Instant::now();
+                n.logout_protected_until = protected_until;
+            });
         } else {
             // 单适配器注销：复用 check_any_adapter_online 的逐适配器检测结果重置状态
             // 避免用原始配置名（自动检测时为空/"自动检测"）比较导致状态残留
@@ -293,14 +297,16 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             let status = any_online_after_logout.unwrap_or(AdapterOnlineStatus {
                 any_online: false, a1_online: false, a2_online: false,
             });
-            s.network.last_a1_online.store(status.a1_online, Ordering::Release);
             let cfg = s.config.load_full();
-            if cfg.dual_adapter {
-                s.network.last_a2_online.store(status.a2_online, Ordering::Release);
-            } else {
-                s.network.last_a2_online.store(false, Ordering::Release);
-            }
-            s.network.any_adapter_online.store(status.any_online, Ordering::Release);
+            s.network.update(|n| {
+                n.last_a1_online = status.a1_online;
+                if cfg.dual_adapter {
+                    n.last_a2_online = status.a2_online;
+                } else {
+                    n.last_a2_online = false;
+                }
+                n.any_adapter_online = status.any_online;
+            });
         }
     }
     Ok(result)

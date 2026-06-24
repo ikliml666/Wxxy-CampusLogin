@@ -1,5 +1,5 @@
 use tauri::AppHandle;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use crate::config::model::Config;
 use crate::network::{
     Adapter, get_adapters_cached,
@@ -21,8 +21,9 @@ fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_resul
         .unwrap_or("");
 
     if cmd_result.success {
-        let prev = state.network.portal_failure_count.swap(0, Ordering::AcqRel);
+        let prev = state.network.load().portal_failure_count;
         if prev > 0 {
+            state.network.update(|s| s.portal_failure_count = 0);
             crate::log_debug!("login", "登录成功，重置认证失败计数(原值={})", prev);
         }
         return;
@@ -34,7 +35,8 @@ fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_resul
         return;
     }
 
-    let prev_count = state.network.portal_failure_count.fetch_add(1, Ordering::AcqRel);
+    let prev_count = state.network.load().portal_failure_count;
+    state.network.increment_portal_failure_count();
     let new_count = prev_count + 1;
     crate::log_info!("login", "认证失败计数: {}/5 (code={})", new_count, code);
 
@@ -61,8 +63,40 @@ fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_resul
                 crate::log_error!("login", "MAC重置+DHCP续租失败: {}", e);
             }
         }
-        state.network.portal_failure_count.store(0, Ordering::Release);
+        state.network.update(|s| s.portal_failure_count = 0);
     }
+}
+
+#[derive(Clone, Copy)]
+enum AdapterFailureCounter {
+    A1,
+    A2,
+}
+
+fn get_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) -> u32 {
+    let snap = state.network.load();
+    match counter {
+        AdapterFailureCounter::A1 => snap.a1_auth_failure_count,
+        AdapterFailureCounter::A2 => snap.a2_auth_failure_count,
+    }
+}
+
+fn set_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter, value: u32) {
+    state.network.update(|s| {
+        match counter {
+            AdapterFailureCounter::A1 => s.a1_auth_failure_count = value,
+            AdapterFailureCounter::A2 => s.a2_auth_failure_count = value,
+        }
+    });
+}
+
+fn increment_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) {
+    state.network.update(|s| {
+        match counter {
+            AdapterFailureCounter::A1 => s.a1_auth_failure_count += 1,
+            AdapterFailureCounter::A2 => s.a2_auth_failure_count += 1,
+        }
+    });
 }
 
 /// 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器的 MAC 重置
@@ -78,12 +112,12 @@ fn update_dual_adapter_auth_failure(
     // 适配器1处理
     handle_single_adapter_failure(
         state, app_handle, r1, a1_name, campus_gw,
-        &state.network.a1_auth_failure_count,
+        AdapterFailureCounter::A1,
     );
     // 适配器2处理
     handle_single_adapter_failure(
         state, app_handle, r2, a2_name, campus_gw,
-        &state.network.a2_auth_failure_count,
+        AdapterFailureCounter::A2,
     );
 }
 
@@ -94,7 +128,7 @@ fn handle_single_adapter_failure(
     result: &Option<CommandResult>,
     adapter_name: &str,
     campus_gw: &str,
-    counter: &std::sync::atomic::AtomicU32,
+    counter: AdapterFailureCounter,
 ) {
     let _ = state; // state 暂未在单适配器分支使用，保留参数以备扩展
     let code = result.as_ref()
@@ -106,8 +140,9 @@ fn handle_single_adapter_failure(
     let success = result.as_ref().map(|r| r.success).unwrap_or(false);
 
     if success {
-        let prev = counter.swap(0, Ordering::AcqRel);
+        let prev = get_adapter_failure_count(state, counter);
         if prev > 0 {
+            set_adapter_failure_count(state, counter, 0);
             crate::log_debug!("login", "{} 登录成功，重置认证失败计数(原值={})", adapter_name, prev);
         }
         return;
@@ -119,7 +154,8 @@ fn handle_single_adapter_failure(
         return;
     }
 
-    let prev_count = counter.fetch_add(1, Ordering::AcqRel);
+    let prev_count = get_adapter_failure_count(state, counter);
+    increment_adapter_failure_count(state, counter);
     let new_count = prev_count + 1;
     crate::log_info!("login", "{} 认证失败计数: {}/5 (code={})", adapter_name, new_count, code);
 
@@ -146,7 +182,7 @@ fn handle_single_adapter_failure(
                 crate::log_error!("login", "{} MAC重置失败: {}", adapter_name, e);
             }
         }
-        counter.store(0, Ordering::Release);
+        set_adapter_failure_count(state, counter, 0);
     }
 }
 

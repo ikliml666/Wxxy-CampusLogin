@@ -10,8 +10,8 @@ pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, q
     let current = quality["quality"].as_str().unwrap_or("unknown").to_string();
 
     let should_notify = {
-        let last_arc = state.network.last_network_quality.load();
-        let last = last_arc.as_ref().as_ref();
+        let last_arc = state.network.load().last_network_quality.clone();
+        let last = last_arc.as_ref();
         if !enable_notification {
             None
         } else if let Some(last_q) = last {
@@ -46,7 +46,7 @@ pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, q
         }
     }
 
-    state.network.last_network_quality.store(Arc::new(Some(current)));
+    state.network.update(|s| s.last_network_quality = Some(current.clone()));
 }
 
 pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) {

@@ -1,9 +1,15 @@
+pub mod store;
+pub mod network;
+pub mod exit;
+
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use arc_swap::ArcSwap;
 use crate::config::model::Config;
-use parking_lot::Mutex;
+use store::ConfigStore;
+use network::NetworkState;
+use exit::ExitStateStore;
 
 pub const AUTO_EXIT_DELAY_MS: u64 = 20000;
 pub const CANCEL_EXIT_SHORTCUT: &str = "CommandOrControl+Shift+C";
@@ -83,55 +89,11 @@ pub struct TaskFlags {
     pub is_quality_checking: TaskLock,
 }
 
-pub struct NetworkStatus {
-    pub server_available: AtomicBool,
-    pub any_adapter_online: AtomicBool,
-    pub last_a1_online: AtomicBool,
-    pub last_a2_online: AtomicBool,
-    pub has_logged_online: AtomicBool,
-    pub disconnect_reconnect_count: AtomicU32,
-    pub background_check_count: AtomicU32,
-    pub last_auto_login_attempt: ArcSwap<std::time::Instant>,
-    pub last_network_quality: ArcSwap<Option<String>>,
-    pub current_ssid: ArcSwap<Option<String>>,
-    pub on_campus_network: AtomicBool,
-    pub logout_protected_until: ArcSwap<std::time::Instant>,
-    pub portal_failure_count: AtomicU32,
-    pub a1_auth_failure_count: AtomicU32,
-    pub a2_auth_failure_count: AtomicU32,
-}
-
-pub struct ExitState {
-    pub is_quitting: std::sync::Arc<AtomicBool>,
-    pub auto_exit_deadline: Mutex<Option<std::time::Instant>>,
-    pub auto_exit_cancelled: AtomicBool,
-    pub campus_exit_started: AtomicBool,
-    pub campus_exit_deadline: Mutex<Option<std::time::Instant>>,
-}
-
-impl ExitState {
-    pub fn deadline(&self) -> Option<std::time::Instant> {
-        *self.auto_exit_deadline.lock()
-    }
-
-    pub fn set_deadline(&self, deadline: Option<std::time::Instant>) {
-        *self.auto_exit_deadline.lock() = deadline;
-    }
-
-    pub fn campus_exit_deadline(&self) -> Option<std::time::Instant> {
-        *self.campus_exit_deadline.lock()
-    }
-
-    pub fn set_campus_exit_deadline(&self, deadline: Option<std::time::Instant>) {
-        *self.campus_exit_deadline.lock() = deadline;
-    }
-}
-
 pub struct AppState {
-    pub config: ArcSwap<Config>,
+    pub config: ConfigStore,
     pub tasks: TaskFlags,
-    pub network: NetworkStatus,
-    pub exit: ExitState,
+    pub network: NetworkState,
+    pub exit: ExitStateStore,
     pub last_update_check_epoch_ms: AtomicU64,
     pub update_notified: AtomicBool,
     pub last_disabled_notification_ms: AtomicU64,
@@ -141,7 +103,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            config: ArcSwap::from(std::sync::Arc::new(Config::default())),
+            config: ConfigStore::new(Config::default()),
             tasks: TaskFlags {
                 background_running: TaskLock::new(),
                 bg_check_cancel: ArcSwap::from(Arc::new(tokio_util::sync::CancellationToken::new())),
@@ -154,51 +116,12 @@ impl AppState {
                 is_logging_out: TaskLock::new(),
                 is_quality_checking: TaskLock::new(),
             },
-            network: NetworkStatus {
-                server_available: AtomicBool::new(false),
-                any_adapter_online: AtomicBool::new(false),
-                last_a1_online: AtomicBool::new(false),
-                last_a2_online: AtomicBool::new(false),
-                has_logged_online: AtomicBool::new(false),
-                disconnect_reconnect_count: AtomicU32::new(0),
-                background_check_count: AtomicU32::new(0),
-                last_auto_login_attempt: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now())),
-                last_network_quality: ArcSwap::from(std::sync::Arc::new(None)),
-                current_ssid: ArcSwap::from(std::sync::Arc::new(None)),
-                on_campus_network: AtomicBool::new(false),
-                logout_protected_until: ArcSwap::from(std::sync::Arc::new(std::time::Instant::now())),
-                portal_failure_count: AtomicU32::new(0),
-                a1_auth_failure_count: AtomicU32::new(0),
-                a2_auth_failure_count: AtomicU32::new(0),
-            },
-            exit: ExitState {
-                is_quitting: std::sync::Arc::new(AtomicBool::new(false)),
-                auto_exit_deadline: Mutex::new(None),
-                auto_exit_cancelled: AtomicBool::new(false),
-                campus_exit_started: AtomicBool::new(false),
-                campus_exit_deadline: Mutex::new(None),
-            },
+            network: NetworkState::new(),
+            exit: ExitStateStore::new(),
             last_update_check_epoch_ms: AtomicU64::new(0),
             update_notified: AtomicBool::new(false),
             last_disabled_notification_ms: AtomicU64::new(0),
             last_render_heartbeat_ms: AtomicU64::new(0),
-        }
-    }
-
-    /// 使用 CAS 实现原子更新配置，避免 TOCTOU 竞态条件
-    pub fn update_config<F>(&self, f: F) -> Arc<Config>
-    where
-        F: Fn(&mut Config),
-    {
-        loop {
-            let current = self.config.load_full();
-            let mut new_cfg = (*current).clone();
-            f(&mut new_cfg);
-            let new_arc = Arc::new(new_cfg);
-            let prev = self.config.compare_and_swap(&current, new_arc);
-            if Arc::ptr_eq(&current, &prev) {
-                return self.config.load_full();
-            }
         }
     }
 }

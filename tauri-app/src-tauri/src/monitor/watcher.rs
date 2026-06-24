@@ -194,14 +194,15 @@ fn emit_background_check_result(
     a1_on_campus: Option<bool>,
     a2_on_campus: Option<bool>,
 ) {
-    let check_count = state.network.background_check_count.fetch_add(1, Ordering::AcqRel) + 1;
+    let check_count = state.network.load().background_check_count + 1;
+    state.network.increment_background_check_count();
     let is_running = state.tasks.background_running.is_active();
-    let ssid_val = state.network.current_ssid.load();
-    let on_campus_val = state.network.on_campus_network.load(Ordering::Acquire);
+    let ssid_val = state.network.load().current_ssid.clone();
+    let on_campus_val = state.network.load().on_campus_network;
 
     // 注销保护期内，强制 online=false，避免 Portal 延迟导致前端误判为在线
-    let protected_until = state.network.logout_protected_until.load();
-    let is_logout_protected = std::time::Instant::now() < **protected_until;
+    let protected_until = state.network.load().logout_protected_until;
+    let is_logout_protected = std::time::Instant::now() < protected_until;
     let (effective_online, effective_secondary_online) = if is_logout_protected {
         crate::log_debug!("background", "注销保护期内，emit 事件强制 online=false");
         (false, Some(false))
@@ -254,26 +255,26 @@ fn update_network_state(
     reachable: bool,
     app_handle: &AppHandle,
 ) {
-    state.network.server_available.store(reachable, Ordering::Release);
+    state.network.update(|s| s.server_available = reachable);
 
     let any_online = online || secondary_online == Some(true);
 
-    let protected_until = state.network.logout_protected_until.load();
-    let is_logout_protected = std::time::Instant::now() < **protected_until;
+    let protected_until = state.network.load().logout_protected_until;
+    let is_logout_protected = std::time::Instant::now() < protected_until;
 
     if is_logout_protected {
         crate::log_debug!("background", "注销保护期内，跳过网络状态更新: any_online={}", any_online);
         return;
     }
 
-    state.network.any_adapter_online.store(any_online, Ordering::Release);
-    state.network.last_a1_online.store(online, Ordering::Release);
+    state.network.update(|s| s.any_adapter_online = any_online);
+    state.network.update(|s| s.last_a1_online = online);
     if any_online {
-        state.network.disconnect_reconnect_count.store(0, Ordering::Release);
+        state.network.update(|s| s.disconnect_reconnect_count = 0);
     }
 
-    if reachable && !state.network.has_logged_online.load(Ordering::Acquire) && online {
-        state.network.has_logged_online.store(true, Ordering::Release);
+    if reachable && !state.network.load().has_logged_online && online {
+        state.network.update(|s| s.has_logged_online = true);
         if state.config.load().auto_exit_on_online {
             start_auto_exit(app_handle, state);
         }
@@ -536,14 +537,14 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     } else {
         check_campus_network(&config, &adapters)
     };
-    state.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid.clone()));
+    state.network.update(|s| s.current_ssid = campus_result.current_ssid.clone());
     // 始终更新 on_campus_network（静默期内 campus_result.on_campus=true，确保 emit 字段一致）
-    state.network.on_campus_network.store(campus_result.on_campus, Ordering::Release);
+    state.network.update(|s| s.on_campus_network = campus_result.on_campus);
 
     if config.enable_network_name_check && !campus_result.on_campus {
         crate::log_debug!("background", "校园网检测未通过: {}", campus_result.message);
-        state.network.any_adapter_online.store(false, Ordering::Release);
-        state.network.last_a1_online.store(false, Ordering::Release);
+        state.network.update(|s| s.any_adapter_online = false);
+        state.network.update(|s| s.last_a1_online = false);
         let a1_campus = adapter_campus_message(&adapter1_name, &adapters, &campus_result);
         let a2_campus = if config.dual_adapter && !adapter2_name.is_empty() {
             adapter_campus_message(&adapter2_name, &adapters, &campus_result)
@@ -622,12 +623,14 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             let gw_reachable = crate::network::check_gateway_reachable_from(campus_gw, a1_ip);
             if !gw_reachable {
                 crate::log_info!("background", "适配器1 Portal失败但网关[{}]从[{}]不可达，跳过计数（校园网断网/维护）", campus_gw, a1_ip.unwrap_or(""));
-                let prev = state.network.a1_auth_failure_count.swap(0, Ordering::AcqRel);
+                let prev = state.network.load().a1_auth_failure_count;
+                state.network.update(|s| s.a1_auth_failure_count = 0);
                 if prev > 0 {
                     crate::log_debug!("background", "适配器1 网关不可达，重置失败计数(原值={})", prev);
                 }
             } else {
-                let prev_count = state.network.a1_auth_failure_count.fetch_add(1, Ordering::AcqRel);
+                let prev_count = state.network.load().a1_auth_failure_count;
+                state.network.increment_a1_auth_failure_count();
                 let new_count = prev_count + 1;
                 crate::log_info!("background", "适配器1 Portal失败计数: {}/5 (网关可达)", new_count);
                 if new_count >= 5 {
@@ -655,7 +658,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
                             }
                         }
                     }
-                    state.network.a1_auth_failure_count.store(0, Ordering::Release);
+                    state.network.update(|s| s.a1_auth_failure_count = 0);
                 }
             }
         }
@@ -665,12 +668,14 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             let gw_reachable = crate::network::check_gateway_reachable_from(campus_gw, a2_ip);
             if !gw_reachable {
                 crate::log_info!("background", "适配器2 Portal失败但网关[{}]从[{}]不可达，跳过计数（校园网断网/维护）", campus_gw, a2_ip.unwrap_or(""));
-                let prev = state.network.a2_auth_failure_count.swap(0, Ordering::AcqRel);
+                let prev = state.network.load().a2_auth_failure_count;
+                state.network.update(|s| s.a2_auth_failure_count = 0);
                 if prev > 0 {
                     crate::log_debug!("background", "适配器2 网关不可达，重置失败计数(原值={})", prev);
                 }
             } else {
-                let prev_count = state.network.a2_auth_failure_count.fetch_add(1, Ordering::AcqRel);
+                let prev_count = state.network.load().a2_auth_failure_count;
+                state.network.increment_a2_auth_failure_count();
                 let new_count = prev_count + 1;
                 crate::log_info!("background", "适配器2 Portal失败计数: {}/5 (网关可达)", new_count);
                 if new_count >= 5 {
@@ -698,7 +703,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
                             }
                         }
                     }
-                    state.network.a2_auth_failure_count.store(0, Ordering::Release);
+                    state.network.update(|s| s.a2_auth_failure_count = 0);
                 }
             }
         }
@@ -708,13 +713,15 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
         let secondary_success = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Success { .. })).unwrap_or(false);
 
         if primary_success {
-            let prev = state.network.a1_auth_failure_count.swap(0, Ordering::AcqRel);
+            let prev = state.network.load().a1_auth_failure_count;
+            state.network.update(|s| s.a1_auth_failure_count = 0);
             if prev > 0 {
                 crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev);
             }
         }
         if secondary_success {
-            let prev = state.network.a2_auth_failure_count.swap(0, Ordering::AcqRel);
+            let prev = state.network.load().a2_auth_failure_count;
+            state.network.update(|s| s.a2_auth_failure_count = 0);
             if prev > 0 {
                 crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev);
             }
@@ -734,7 +741,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     };
     let online = if a1_has_ip { primary_online } else { false };
 
-    let prev_online = state.network.any_adapter_online.load(Ordering::Acquire);
+    let prev_online = state.network.load().any_adapter_online;
 
     crate::log_debug!("background", "Portal检测完成({}ms): 主[{}]={}/{} |副={:?}",
         portal_elapsed.as_millis(),
@@ -761,7 +768,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
         }
     };
 
-    state.network.last_a2_online.store(secondary_online == Some(true), Ordering::Release);
+    state.network.update(|s| s.last_a2_online = secondary_online == Some(true));
 
     handle_status_change(
         prev_online, online, reachable, login_available,
@@ -855,7 +862,7 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
     }
 
     let (interval, cfg) = {
-        let cfg = state.update_config(|cfg| {
+        let cfg = state.config.update(|cfg| {
             cfg.enable_background_check = true;
             if cfg.background_check_interval < 10000 {
                 cfg.background_check_interval = 15000;

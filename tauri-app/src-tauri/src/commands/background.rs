@@ -1,7 +1,6 @@
 use tauri::{AppHandle, Manager, State};
 use crate::infra::command_context::{AppHandleExt, CommandContext};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use crate::infra::state::{AppState, CommandResult};
 use crate::monitor::watcher;
 
@@ -17,7 +16,7 @@ pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle)
     s.tasks.bg_check_cancel.load().cancel();
     s.tasks.bg_check_cancel.store(Arc::new(tokio_util::sync::CancellationToken::new()));
     s.tasks.background_running.force_release();
-    let cfg = s.update_config(|cfg| {
+    let cfg = s.config.update(|cfg| {
         cfg.enable_background_check = false;
     });
     if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
@@ -46,11 +45,11 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
 pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) -> serde_json::Value {
     let config = state.config.load_full();
     let running = state.tasks.background_running.is_active();
-    let server_avail = state.network.server_available.load(Ordering::Acquire);
+    let server_avail = state.network.load().server_available;
 
     let adapter_statuses = {
         let mut adapter_statuses = Vec::new();
-        let a1_online = state.network.last_a1_online.load(Ordering::Acquire);
+        let a1_online = state.network.load().last_a1_online;
 
         if let Ok(adapters) = crate::network::get_adapters_cached() {
             let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
@@ -66,7 +65,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
             }
 
             if config.dual_adapter && !adapter2_name.is_empty() {
-                let a2_online_state = state.network.last_a2_online.load(Ordering::Acquire);
+                let a2_online_state = state.network.load().last_a2_online;
                 if let Some(a2) = adapters.iter().find(|a| a.name == adapter2_name) {
                     if a2.ip.is_empty() {
                         adapter_statuses.push(watcher::adapter_disconnected_entry(&adapter2_name, a2.wireless));
@@ -84,9 +83,9 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
 
     let any_online = adapter_statuses.as_array().map(|arr| arr.iter().any(|s| s["online"].as_bool().unwrap_or(false))).unwrap_or(false);
 
-    let check_count = state.network.background_check_count.load(Ordering::Acquire);
-    let current_ssid = state.network.current_ssid.load();
-    let on_campus = state.network.on_campus_network.load(Ordering::Acquire);
+    let check_count = state.network.load().background_check_count;
+    let current_ssid = state.network.load().current_ssid.clone();
+    let on_campus = state.network.load().on_campus_network;
 
     serde_json::json!({
         "serverAvailable": server_avail,

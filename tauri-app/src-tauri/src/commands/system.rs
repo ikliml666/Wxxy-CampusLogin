@@ -66,7 +66,7 @@ pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, Ap
 
     match result {
         Ok(_) => {
-            let cfg = state.update_config(|cfg| {
+            let cfg = state.config.update(|cfg| {
                 cfg.auto_launch = enabled;
             });
             if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
@@ -89,7 +89,7 @@ pub fn get_notification_enabled(state: State<'_, AppState>) -> Result<bool, Stri
 
 #[tauri::command]
 pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_handle: AppHandle) -> Result<bool, String> {
-    let cfg = state.update_config(|cfg| {
+    let cfg = state.config.update(|cfg| {
         cfg.enable_notification = enabled;
     });
     if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
@@ -248,7 +248,7 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
         .unwrap_or(0);
     state.last_render_heartbeat_ms.store(now_ms, Ordering::Release);
 
-    let online = state.network.any_adapter_online.load(Ordering::Acquire);
+    let online = state.network.load().any_adapter_online;
     let checking = state.tasks.is_checking.is_active();
     Ok(serde_json::json!({
         "online": online,

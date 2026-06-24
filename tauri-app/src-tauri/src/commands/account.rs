@@ -29,7 +29,7 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
         None => return Ok(AccountResult::err("账号不存在")),
     };
 
-    let merged = state.update_config(|c| {
+    let merged = state.config.update(|c| {
         c.user = config.user.clone();
         c.password = config.password.clone();
         c.operator = config.operator.clone();
@@ -174,7 +174,7 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         Ok::<(), String>(())
     }).await.map_err(|e| e.to_string())??;
 
-    state.update_config(|c| {
+    state.config.update(|c| {
         c.active_account = account_name.clone();
     });
 
@@ -205,7 +205,7 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle, state: 
 
     let current_config = state.config.load();
     if current_config.active_account == account_name {
-        state.update_config(|c| {
+        state.config.update(|c| {
             c.active_account = String::new();
         });
     }

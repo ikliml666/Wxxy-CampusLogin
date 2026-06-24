@@ -1,6 +1,5 @@
 use tauri::{AppHandle, Manager, State};
 use crate::infra::command_context::AppHandleExt;
-use std::sync::Arc;
 use crate::config::model::Config;
 use crate::config::persist;
 use crate::config::validate::{validate_config, validate_config_lenient};
@@ -93,7 +92,7 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
         config.password = current.password.clone();
     }
 
-    state.config.store(Arc::new(config.clone()));
+    state.config.store(config.clone());
     save_config_to_disk_encrypted(&app_handle, &config)?;
     crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
 
@@ -104,7 +103,7 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
 pub fn reset_config(state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     crate::log_info!("config", "重置配置为默认值");
     let default_config = Config::default();
-    state.config.store(Arc::new(default_config.clone()));
+    state.config.store(default_config.clone());
     save_config_to_disk(&app_handle, &default_config)?;
     Ok(CommandResult::ok())
 }
@@ -165,7 +164,7 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_j
         }
     }
 
-    state.config.store(Arc::new(config.clone()));
+    state.config.store(config.clone());
     save_config_to_disk_encrypted(&app_handle, &config)?;
     crate::log_info!("config", "导入配置成功, 用户: {}", config.user);
     Ok(CommandResult::ok())

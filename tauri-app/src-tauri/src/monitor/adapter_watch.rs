@@ -71,7 +71,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle, cancel_token: std::sync::Arc<
                     });
                     if adapter_recovered {
                         let s = app_h.state::<AppState>();
-                        if !s.network.any_adapter_online.load(Ordering::Acquire) {
+                        if !s.network.load().any_adapter_online {
                             crate::log_info!("adapter_watch", "适配器从禁用恢复，触发重新检测");
                             let _ = crate::monitor::watcher::start_background_check_inner(&app_h, &s);
                         }

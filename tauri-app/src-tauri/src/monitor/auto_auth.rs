@@ -23,17 +23,17 @@ pub fn try_auto_login_on_preparation(
         return;
     }
 
-    if state.network.has_logged_online.load(Ordering::Acquire) {
+    if state.network.load().has_logged_online {
         return;
     }
 
-    let protected_until = state.network.logout_protected_until.load();
-    if std::time::Instant::now() < **protected_until {
+    let protected_until = state.network.load().logout_protected_until;
+    if std::time::Instant::now() < protected_until {
         crate::log_debug!("auto_login", "注销保护期内，跳过自动登录");
         return;
     }
 
-    let last_attempt = state.network.last_auto_login_attempt.load();
+    let last_attempt = state.network.load().last_auto_login_attempt;
     if last_attempt.elapsed().as_secs() < AUTO_LOGIN_COOLDOWN_SECS {
         crate::log_debug!("auto_login", "自动登录冷却中（{}秒内不重复），跳过", AUTO_LOGIN_COOLDOWN_SECS);
         return;
@@ -42,7 +42,7 @@ pub fn try_auto_login_on_preparation(
     crate::log_info!("auto_login", "触发自动登录: loginAvailable={}, online={}", login_available, online);
     if let Some(_login_guard) = state.tasks.is_logging_in.try_acquire() {
         let t0 = std::time::Instant::now();
-        state.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
+        state.network.update(|s| s.last_auto_login_attempt = std::time::Instant::now());
         let login_result = crate::auth::session::full_login_inner(state, app_handle, None);
         let elapsed = t0.elapsed();
 
@@ -60,7 +60,7 @@ pub fn try_auto_login_on_preparation(
         }
 
         if login_result.success {
-            state.network.has_logged_online.store(true, Ordering::Release);
+            state.network.update(|s| s.has_logged_online = true);
             if config.enable_notification {
                 emit_notification(app_handle, "自动登录成功", &login_result.message.unwrap_or_default());
             }
@@ -84,17 +84,17 @@ pub fn try_disconnect_reconnect(
 ) -> bool {
     let any_offline = (!online && a1.is_some()) || secondary_online == Some(false);
 
-    if !state.network.any_adapter_online.load(Ordering::Acquire) || !any_offline || !reachable || !login_available || !config.auto_login_on_preparation {
+    if !state.network.load().any_adapter_online || !any_offline || !reachable || !login_available || !config.auto_login_on_preparation {
         return false;
     }
 
-    let protected_until = state.network.logout_protected_until.load();
-    if std::time::Instant::now() < **protected_until {
+    let protected_until = state.network.load().logout_protected_until;
+    if std::time::Instant::now() < protected_until {
         crate::log_debug!("auto_login", "注销保护期内，跳过断线重连");
         return false;
     }
 
-    let last_attempt = state.network.last_auto_login_attempt.load();
+    let last_attempt = state.network.load().last_auto_login_attempt;
     if last_attempt.elapsed().as_secs() < AUTO_LOGIN_COOLDOWN_SECS {
         return false;
     }
@@ -108,7 +108,8 @@ pub fn try_disconnect_reconnect(
         }
     };
 
-    let reconnect_count = state.network.disconnect_reconnect_count.fetch_add(1, Ordering::Relaxed) + 1;
+    let reconnect_count = state.network.load().disconnect_reconnect_count + 1;
+    state.network.increment_disconnect_reconnect_count();
     if reconnect_count <= MAX_DISCONNECT_RECONNECT {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
         emit_notification(app_handle, "检测到断线", &format!("{} 已离线，正在自动重连 ({}/{})", offline_adapter, reconnect_count, MAX_DISCONNECT_RECONNECT));
@@ -118,7 +119,7 @@ pub fn try_disconnect_reconnect(
 
         let _login_guard = login_guard;
         let t0 = std::time::Instant::now();
-        state.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
+        state.network.update(|s| s.last_auto_login_attempt = std::time::Instant::now());
         let reconnect_result = crate::auth::session::full_login_inner(state, app_handle, None);
         let elapsed = t0.elapsed();
 
@@ -126,9 +127,9 @@ pub fn try_disconnect_reconnect(
             reconnect_count, MAX_DISCONNECT_RECONNECT, reconnect_result.success, elapsed.as_millis());
 
         if reconnect_result.success {
-            state.network.disconnect_reconnect_count.store(0, Ordering::Release);
-            state.network.any_adapter_online.store(true, Ordering::Release);
-            state.network.has_logged_online.store(true, Ordering::Release);
+            state.network.update(|s| s.disconnect_reconnect_count = 0);
+            state.network.update(|s| s.any_adapter_online = true);
+            state.network.update(|s| s.has_logged_online = true);
             if let Err(e) = crate::commands::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
                 crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
             }
@@ -172,7 +173,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         tokio::time::sleep(Duration::from_millis(initial_delay)).await;
 
         let s = app_h.state::<AppState>();
-        if s.exit.is_quitting.load(Ordering::Acquire) || s.network.has_logged_online.load(Ordering::Acquire) {
+        if s.exit.is_quitting.load(Ordering::Acquire) || s.network.load().has_logged_online {
             return;
         }
 
@@ -229,7 +230,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 let hour = config.campus_check_start_minutes / 60;
                 let minute = config.campus_check_start_minutes % 60;
                 crate::log_info!("auto_login", "开机自启: 校园网检测静默期（当前时间早于{}:{:02}），跳过校园网环境验证", hour, minute);
-                s.network.on_campus_network.store(true, std::sync::atomic::Ordering::Release);
+                s.network.update(|s| s.on_campus_network = true);
             } else {
                 // 校园网检测任务异常（panic 或被取消）时不能误判为"不在校园网"，
                 // 否则会触发 start_campus_exit 将用户错误踢出。此处直接跳过本次检测。
@@ -247,8 +248,8 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
                 if !campus_result.on_campus {
                     crate::log_info!("auto_login", "开机自启: 校园网检测未通过，跳过自动登录 - {}", campus_result.message);
-                    s.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid));
-                    s.network.on_campus_network.store(campus_result.on_campus, std::sync::atomic::Ordering::Release);
+                    s.network.update(|s| s.current_ssid = campus_result.current_ssid.clone());
+                    s.network.update(|s| s.on_campus_network = campus_result.on_campus);
                     let _ = app_h.emit("auto-login-result", serde_json::json!({
                         "success": false,
                         "message": campus_result.message,
@@ -267,8 +268,8 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     return;
                 }
 
-                s.network.current_ssid.store(std::sync::Arc::new(campus_result.current_ssid));
-                s.network.on_campus_network.store(true, std::sync::atomic::Ordering::Release);
+                s.network.update(|s| s.current_ssid = campus_result.current_ssid.clone());
+                s.network.update(|s| s.on_campus_network = true);
                 crate::log_info!("auto_login", "开机自启: 校园网检测通过 - {}", campus_result.message);
             }
         }
@@ -343,8 +344,8 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     };
                     let msg = format!("已在线（{}）", adapter_names.join("、"));
 
-                    s.network.any_adapter_online.store(true, Ordering::Release);
-                    s.network.has_logged_online.store(true, Ordering::Release);
+                    s.network.update(|s| s.any_adapter_online = true);
+                    s.network.update(|s| s.has_logged_online = true);
 
                     crate::log_info!("auto_login", "已在线，跳过登录: 适配器=[{}]", adapter_names.join(", "));
 
@@ -371,14 +372,14 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         let app_h_login = app_h.clone();
         let login_result = tauri::async_runtime::spawn_blocking(move || {
             let s = app_h_login.state::<AppState>();
-            if s.network.has_logged_online.load(Ordering::Acquire) {
+            if s.network.load().has_logged_online {
                 return CommandResult { success: true, message: Some("已在线，跳过登录".to_string()), data: None };
             }
             let _guard = match s.tasks.is_logging_in.try_acquire() {
                 Some(g) => g,
                 None => return CommandResult::err("登录正在进行中"),
             };
-            s.network.last_auto_login_attempt.store(std::sync::Arc::new(std::time::Instant::now()));
+            s.network.update(|s| s.last_auto_login_attempt = std::time::Instant::now());
             crate::auth::session::full_login_inner(&s, &app_h_login, None)
         }).await;
 
@@ -400,7 +401,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
             if login_result.success {
                 let s = app_h.state::<AppState>();
-                s.network.has_logged_online.store(true, Ordering::Release);
+                s.network.update(|s| s.has_logged_online = true);
                 if config.enable_notification {
                     emit_notification(&app_h, "自动登录成功", &login_result.message.unwrap_or_default());
                 }
