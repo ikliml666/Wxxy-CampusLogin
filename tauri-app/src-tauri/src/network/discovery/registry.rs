@@ -119,17 +119,20 @@ fn build_class_subkey_cache() -> HashMap<String, ClassSubkeyEntry> {
 
 /// 刷新 class subkey 缓存。可在适配器缓存刷新时调用，保证注册表变化后缓存更新。
 pub fn refresh_class_subkey_cache() {
-    *CLASS_SUBKEY_CACHE.write() = Some(build_class_subkey_cache());
+    let new_cache = build_class_subkey_cache();
+    *CLASS_SUBKEY_CACHE.write() = Some(new_cache);
 }
 
 /// 双重检查锁定：首次访问时自动构建缓存，后续直接查询。
+/// build 在锁外执行（注册表遍历是慢 I/O），仅用锁做 swap。
 fn ensure_cache_initialized() {
     if CLASS_SUBKEY_CACHE.read().is_some() {
         return;
     }
+    let new_cache = build_class_subkey_cache();
     let mut cache = CLASS_SUBKEY_CACHE.write();
     if cache.is_none() {
-        *cache = Some(build_class_subkey_cache());
+        *cache = Some(new_cache);
     }
 }
 
