@@ -1,7 +1,8 @@
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::infra::state::{AppState, CommandResult, AUTO_EXIT_DELAY_MS, CANCEL_EXIT_SHORTCUT};
+use crate::infra::events::EventBus;
 use crate::infra::notification::emit_notification;
 
 /// 校园网验证不通过时的退出延迟（毫秒）
@@ -33,10 +34,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
     crate::log_info!("campus_exit", "校园网验证未通过，{}秒后最小化到托盘，{}秒后退出",
         CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000);
 
-    if let Err(e) = app_handle.emit("campus-exit-countdown", serde_json::json!({
-        "minimizeDelay": CAMPUS_MINIMIZE_DELAY_MS,
-        "exitDelay": CAMPUS_EXIT_DELAY_MS,
-    })) {
+    if let Err(e) = EventBus::new(app_handle).emit_campus_exit_countdown(CAMPUS_MINIMIZE_DELAY_MS, CAMPUS_EXIT_DELAY_MS) {
         crate::log_warn!("campus_exit", "发送校园网退出倒计时事件失败: {}", e);
     }
 
@@ -147,7 +145,7 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
 
     emit_notification(app_handle, "已取消退出", "校园网退出已取消，程序将继续运行");
 
-    if let Err(e) = app_handle.emit("campus-exit-cancelled", serde_json::json!({})) {
+    if let Err(e) = EventBus::new(app_handle).emit_campus_exit_cancelled() {
         crate::log_warn!("campus_exit", "发送取消校园网退出事件失败: {}", e);
     }
 }
@@ -173,10 +171,7 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         return;
     }
 
-    if let Err(e) = app_handle.emit("auto-exit-countdown", serde_json::json!({
-        "delay": AUTO_EXIT_DELAY_MS,
-        "shortcut": "Ctrl+Shift+C",
-    })) {
+    if let Err(e) = EventBus::new(app_handle).emit_auto_exit_countdown(AUTO_EXIT_DELAY_MS, "Ctrl+Shift+C") {
         crate::log_warn!("auto_exit", "发送退出倒计时事件失败: {}", e);
     }
 
@@ -242,7 +237,7 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
 
     emit_notification(app_handle, "已取消退出", "自动退出已取消，程序将继续运行");
 
-    if let Err(e) = app_handle.emit("auto-exit-cancelled", serde_json::json!({})) {
+    if let Err(e) = EventBus::new(app_handle).emit_auto_exit_cancelled() {
         crate::log_warn!("auto_exit", "发送取消自动退出事件失败: {}", e);
     }
 

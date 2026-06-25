@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use crate::infra::state::AppState;
+use crate::infra::events::EventBus;
 use crate::infra::notification::emit_notification;
 use std::sync::atomic::Ordering;
 
@@ -234,11 +235,11 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
 async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
     match check_update_inner().await {
         Ok(info) => {
-            if let Err(e) = app_h.emit("update-available", serde_json::json!({
-                "has_update": info.has_update,
-                "latest_version": info.latest_version,
-                "release_notes": info.release_notes,
-            })) {
+            if let Err(e) = EventBus::new(app_h).emit_update_available(
+                info.has_update,
+                &info.latest_version,
+                &info.release_notes,
+            ) {
                 crate::log_warn!("updater", "发送更新通知失败: {}", e);
             }
             if info.has_update && state.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {

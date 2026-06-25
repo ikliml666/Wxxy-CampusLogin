@@ -1,7 +1,8 @@
 use std::time::Instant;
 use std::sync::Arc;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
+use crate::infra::events::EventBus;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -507,7 +508,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         let mut partial = build_quality_result(&phase1_results, gateway_str, now);
         partial.quality = "busy".to_string();
         if let Ok(val) = serde_json::to_value(&partial) {
-            if let Err(e) = ah.emit("network-quality-result", &val) {
+            if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
                 crate::log_warn!("quality", "[增量推送] Phase 1 emit 失败: {}", e);
             } else {
                 crate::log_info!("quality", "[增量推送] Phase 1 emit 成功, details数={}", phase1_results.len());
@@ -563,7 +564,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
             let mut partial = build_quality_result(&cumulative, gateway_str, now);
             partial.quality = "busy".to_string();
             if let Ok(val) = serde_json::to_value(&partial) {
-                if let Err(e) = ah.emit("network-quality-result", &val) {
+                if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
                     crate::log_warn!("quality", "[增量推送] HTTPS 批次 emit 失败: {}", e);
                 } else {
                     crate::log_info!("quality", "[增量推送] HTTPS 批次 emit 成功, 累计结果数={}, 耗时{}ms", cumulative.len(), now.elapsed().as_millis());

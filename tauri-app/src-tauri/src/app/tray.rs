@@ -1,8 +1,9 @@
 use std::path::Path;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use crate::infra::state::AppState;
+use crate::infra::events::EventBus;
 
 /// 构建并注册托盘图标与菜单
 pub fn build_tray(app: &tauri::AppHandle, install_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -61,11 +62,11 @@ fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                     None => return,
                 };
                 let result = crate::auth::service::full_login(&s, &app_h, None);
-                let _ = app_h.emit("auto-login-result", serde_json::json!({
-                    "success": result.success,
-                    "message": result.message.clone().unwrap_or_default(),
-                    "skipped": false,
-                }));
+                let _ = EventBus::new(&app_h).emit_auto_login_result(
+                    result.success,
+                    &result.message.clone().unwrap_or_default(),
+                    false,
+                );
 
                 if result.success {
                     crate::commands::login::post_login_handler(&app_h, &s);

@@ -1,8 +1,9 @@
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::network::{Adapter, DisabledAdapter, get_all_adapters_force};
 use crate::infra::state::AppState;
+use crate::infra::events::EventBus;
 
 const ADAPTER_WATCH_INTERVAL: u64 = 15000;
 
@@ -48,18 +49,18 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                     || disabled.iter().zip(last_disabled.iter()).any(|(a, b)| a.name != b.name || a.status != b.status);
 
                 if adapters_changed {
-                    if let Err(e) = app_h.emit("adapters-changed", &adapters) {
+                    if let Err(e) = EventBus::new(&app_h).emit_adapters_changed(&adapters) {
                         crate::log_warn!("adapter_watch", "发送适配器变更事件失败: {}", e);
                     }
                     if !details.is_empty() {
-                        if let Err(e) = app_h.emit("adapter-details-changed", &details) {
+                        if let Err(e) = EventBus::new(&app_h).emit_adapter_details_changed(&details) {
                             crate::log_warn!("adapter_watch", "发送适配器详情变更事件失败: {}", e);
                         }
                     }
                 }
 
                 if disabled_changed {
-                    if let Err(e) = app_h.emit("disabled-adapters-changed", &disabled) {
+                    if let Err(e) = EventBus::new(&app_h).emit_disabled_adapters_changed(&disabled) {
                         crate::log_warn!("adapter_watch", "发送禁用适配器变更事件失败: {}", e);
                     }
                     let adapter_recovered = last_disabled.iter().any(|ld| {
@@ -101,10 +102,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                         for da in &disabled {
                             if !last_disabled.iter().any(|ld| ld.name == da.name) && configured_names.iter().any(|n| *n == da.name) {
                                 let message = format!("适配器{} 当前{}，请检查后重试", da.name, da.status);
-                                if let Err(e) = app_h.emit("adapter-disabled-warning", serde_json::json!({
-                                    "name": da.name,
-                                    "message": message,
-                                })) {
+                                if let Err(e) = EventBus::new(&app_h).emit_adapter_disabled_warning(&da.name, &message) {
                                     crate::log_warn!("adapter_watch", "发送适配器禁用警告失败: {}", e);
                                 }
                             }

@@ -45,6 +45,59 @@ impl<'a> EventBus<'a> {
         self.emit("network-quality-result", payload)
     }
 
+    /// 更新可用通知事件
+    pub fn emit_update_available(&self, has_update: bool, latest_version: &str, release_notes: &str) -> Result<(), String> {
+        self.emit("update-available", serde_json::json!({
+            "has_update": has_update,
+            "latest_version": latest_version,
+            "release_notes": release_notes,
+        }))
+    }
+
+    /// 适配器详情变更事件
+    pub fn emit_adapter_details_changed<S: Serialize + Clone>(&self, details: S) -> Result<(), String> {
+        self.emit("adapter-details-changed", details)
+    }
+
+    /// 禁用适配器列表变更事件
+    pub fn emit_disabled_adapters_changed<S: Serialize + Clone>(&self, disabled: S) -> Result<(), String> {
+        self.emit("disabled-adapters-changed", disabled)
+    }
+
+    /// 适配器禁用警告事件
+    pub fn emit_adapter_disabled_warning(&self, name: &str, message: &str) -> Result<(), String> {
+        self.emit("adapter-disabled-warning", serde_json::json!({
+            "name": name,
+            "message": message,
+        }))
+    }
+
+    /// 校园网退出倒计时事件
+    pub fn emit_campus_exit_countdown(&self, minimize_delay: u64, exit_delay: u64) -> Result<(), String> {
+        self.emit("campus-exit-countdown", serde_json::json!({
+            "minimizeDelay": minimize_delay,
+            "exitDelay": exit_delay,
+        }))
+    }
+
+    /// 校园网退出取消事件
+    pub fn emit_campus_exit_cancelled(&self) -> Result<(), String> {
+        self.emit("campus-exit-cancelled", serde_json::json!({}))
+    }
+
+    /// 自动退出倒计时事件
+    pub fn emit_auto_exit_countdown(&self, delay: u64, shortcut: &str) -> Result<(), String> {
+        self.emit("auto-exit-countdown", serde_json::json!({
+            "delay": delay,
+            "shortcut": shortcut,
+        }))
+    }
+
+    /// 自动退出取消事件
+    pub fn emit_auto_exit_cancelled(&self) -> Result<(), String> {
+        self.emit("auto-exit-cancelled", serde_json::json!({}))
+    }
+
     /// 配置变更事件（无 payload 简略版）
     pub fn emit_config_changed_empty(&self) -> Result<(), String> {
         self.emit("config-changed", serde_json::json!({}))
