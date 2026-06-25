@@ -48,9 +48,9 @@ impl<'a> EventBus<'a> {
     /// 更新可用通知事件
     pub fn emit_update_available(&self, has_update: bool, latest_version: &str, release_notes: &str) -> Result<(), String> {
         self.emit("update-available", serde_json::json!({
-            "has_update": has_update,
-            "latest_version": latest_version,
-            "release_notes": release_notes,
+            "hasUpdate": has_update,
+            "latestVersion": latest_version,
+            "releaseNotes": release_notes,
         }))
     }
 

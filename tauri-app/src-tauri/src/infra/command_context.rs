@@ -42,6 +42,7 @@ pub trait AppHandleExt {
     fn notify_adapter_changed<A: Serialize + Clone>(&self, adapters: A) -> Result<(), String>;
     #[allow(dead_code)]
     fn notify_background_result<P: Serialize + Clone>(&self, payload: P) -> Result<(), String>;
+    #[allow(dead_code)]
     fn notify_config_changed_empty(&self) -> Result<(), String>;
     fn notify_config_changed<C: Serialize + Clone>(&self, config: C) -> Result<(), String>;
     fn notify_update_download_progress<P: Serialize + Clone>(&self, progress: P) -> Result<(), String>;

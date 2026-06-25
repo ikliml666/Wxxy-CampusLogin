@@ -24,6 +24,7 @@ pub struct ReleaseAsset {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     pub has_update: bool,
     pub latest_version: String,

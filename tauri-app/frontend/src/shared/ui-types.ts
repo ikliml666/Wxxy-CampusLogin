@@ -49,6 +49,6 @@ export interface SystemNotificationData {
 
 export interface SaveConfigResult {
   success: boolean
-  data?: Record<string, unknown>
   message?: string
+  data?: Record<string, unknown>
 }

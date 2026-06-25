@@ -1,15 +1,15 @@
 export interface UpdateAvailableData {
-  has_update: boolean
-  latest_version: string
-  release_notes?: string
+  hasUpdate: boolean
+  latestVersion: string
+  releaseNotes?: string
 }
 
 export interface UpdateInfo {
-  has_update: boolean
-  latest_version: string
-  release_notes: string
+  hasUpdate: boolean
+  latestVersion: string
+  releaseNotes: string
   assets: { name: string; url: string; size: number }[]
-  sha256_checksum?: string
+  sha256Checksum?: string
 }
 
 export interface DownloadProgress {

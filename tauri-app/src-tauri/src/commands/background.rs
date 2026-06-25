@@ -1,5 +1,5 @@
 use tauri::{AppHandle, State};
-use crate::infra::command_context::{AppHandleExt, CommandContext};
+use crate::infra::command_context::CommandContext;
 use std::sync::Arc;
 use crate::infra::state::{AppState, CommandResult};
 use crate::monitor::watcher;
@@ -20,9 +20,7 @@ pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle)
     if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
         crate::log_warn!("background", "保存停止检测配置失败: {}", e);
     }
-    let mut emit_cfg = (*cfg).clone();
-    emit_cfg.password = crate::config::model::PASSWORD_MASK.to_string();
-    let _ = app_handle.notify_config_changed(&emit_cfg);
+    // config-changed 事件已由 save_config_to_disk_encrypted → save_config_to_disk 统一发射
     Ok(CommandResult::ok_msg("后台检测已停止"))
 }
 

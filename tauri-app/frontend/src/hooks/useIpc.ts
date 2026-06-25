@@ -26,7 +26,7 @@ interface CampusStatusResult {
 
 interface TauriApi {
   getConfig: () => Promise<Config>
-  saveConfig: (config: Partial<Config>) => Promise<SaveConfigResult>
+  saveConfig: (config: Config) => Promise<SaveConfigResult>
   getAdapters: (force?: boolean) => Promise<Adapter[]>
   getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
@@ -207,7 +207,7 @@ const tauriApi: TauriApi = {
   renderHeartbeat: () => invoke<{ online: boolean; checking: boolean }>('render_heartbeat'),
   getGpuInfo: () => invoke<GpuInfo>('get_gpu_info'),
   getLogRetentionDays: () => invoke<number>('get_log_retention_days'),
-  setLogRetentionDays: (days) => invoke('set_log_retention_days', { days }),
+  setLogRetentionDays: (days) => invoke<void>('set_log_retention_days', { days }),
 }
 
 function isRetryableError(e: unknown): boolean {

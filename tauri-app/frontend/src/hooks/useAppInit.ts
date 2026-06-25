@@ -379,11 +379,11 @@ export function useAppInit() {
     const unsub8 = api.onUpdateAvailable?.((data) => {
       if (!mountedRef.current) return
       if (data) {
-        store.getState().setUpdateAvailable(data.has_update)
-        if (data.latest_version) store.getState().setLatestVersion(data.latest_version)
-        if (data.release_notes) store.getState().setReleaseNotes(data.release_notes)
-        if (data.has_update && data.latest_version) {
-          lt.getState().addLog(`发现新版本 v${data.latest_version}`, 'info')
+        store.getState().setUpdateAvailable(data.hasUpdate)
+        if (data.latestVersion) store.getState().setLatestVersion(data.latestVersion)
+        if (data.releaseNotes) store.getState().setReleaseNotes(data.releaseNotes)
+        if (data.hasUpdate && data.latestVersion) {
+          lt.getState().addLog(`发现新版本 v${data.latestVersion}`, 'info')
         }
       }
     }) ?? (() => {})

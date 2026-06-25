@@ -11,7 +11,14 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     let config_path = persist::get_config_path(&data_dir);
     let json = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {e}"))?;
     persist::atomic_write(&config_path, &json)?;
-    let _ = app_handle.notify_config_changed_empty();
+
+    // 统一发射 config-changed 事件：必须 mask 密码后再发射，避免泄露加密后的真实密码
+    // 所有调用方（save_config/switch_account/set_auto_launch 等）都通过此路径统一通知前端
+    let mut emit_cfg = config.clone();
+    if !emit_cfg.password.is_empty() {
+        emit_cfg.password = crate::config::model::PASSWORD_MASK.to_string();
+    }
+    let _ = app_handle.notify_config_changed(&emit_cfg);
     Ok(())
 }
 

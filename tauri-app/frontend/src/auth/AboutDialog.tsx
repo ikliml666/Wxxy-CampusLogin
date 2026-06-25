@@ -94,7 +94,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
       const info = await api.checkUpdate()
       setUpdateInfo(info)
       if (onUpdateAvailable) {
-        onUpdateAvailable(info.has_update, info.latest_version, info.release_notes)
+        onUpdateAvailable(info.hasUpdate, info.latestVersion, info.releaseNotes)
       }
     } catch (e: unknown) {
       const msg = extractErrorMessage(e)
@@ -113,9 +113,9 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     if (!isOpen) return
     if (hasCachedResult && !updateInfo) {
       setUpdateInfo({
-        has_update: !!initialUpdateAvailable,
-        latest_version: initialLatestVersion,
-        release_notes: initialReleaseNotes || '',
+        hasUpdate: !!initialUpdateAvailable,
+        latestVersion: initialLatestVersion,
+        releaseNotes: initialReleaseNotes || '',
         assets: [],
       })
       autoCheckedRef.current = true
@@ -187,11 +187,11 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
   const handleInstall = useCallback(async () => {
     if (!downloadedFile) return
     try {
-      await api.installUpdate(downloadedFile, updateInfo?.sha256_checksum)
+      await api.installUpdate(downloadedFile, updateInfo?.sha256Checksum)
     } catch (e) {
       if (import.meta.env.DEV) console.error('安装更新失败:', e)
     }
-  }, [api, downloadedFile, updateInfo?.sha256_checksum])
+  }, [api, downloadedFile, updateInfo?.sha256Checksum])
 
   const openGithub = useCallback(() => {
     openExternal?.(`https://github.com/${GITHUB_REPO}`)
@@ -203,8 +203,8 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
 
   // 从 release_notes 提取功能亮点（前 5 条列表项）
   const featureHighlights = useMemo(() => {
-    if (!updateInfo?.release_notes) return []
-    const lines = updateInfo.release_notes.split('\n')
+    if (!updateInfo?.releaseNotes) return []
+    const lines = updateInfo.releaseNotes.split('\n')
     const items: string[] = []
     for (const line of lines) {
       const trimmed = line.trim()
@@ -213,10 +213,10 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
       }
     }
     return items
-  }, [updateInfo?.release_notes])
+  }, [updateInfo?.releaseNotes])
 
   // 默认 asset URL
-  const defaultAssetUrl = windowsAsset?.url || `https://github.com/${GITHUB_REPO}/releases/latest/download/${updateInfo?.latest_version ? `CampusLogin_${updateInfo.latest_version}_x64-setup.exe` : 'CampusLogin_x64-setup.exe'}`
+  const defaultAssetUrl = windowsAsset?.url || `https://github.com/${GITHUB_REPO}/releases/latest/download/${updateInfo?.latestVersion ? `CampusLogin_${updateInfo.latestVersion}_x64-setup.exe` : 'CampusLogin_x64-setup.exe'}`
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -241,9 +241,9 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               <div className="text-lg font-bold tracking-tight">{APP_NAME}</div>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="text-sm text-muted-foreground">v{APP_VERSION}</span>
-                {updateInfo?.has_update && (
+                {updateInfo?.hasUpdate && (
                   <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400 border border-violet-300/60 dark:border-violet-700/40 rounded-full px-1.5 py-px leading-4 bg-violet-50 dark:bg-violet-950/30">
-                    v{updateInfo.latest_version}
+                    v{updateInfo.latestVersion}
                   </span>
                 )}
               </div>
@@ -259,20 +259,20 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               variant="outline"
               className={cn(
                 'w-full justify-center gap-2 h-[34px] text-xs mt-auto mb-3 rounded-lg',
-                updateInfo && !updateInfo.has_update && 'border-emerald-300 bg-emerald-50/50 text-emerald-600 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400',
-                updateInfo?.has_update && 'border-violet-300 bg-violet-50/50 text-violet-600 dark:border-violet-700 dark:bg-violet-950/20 dark:text-violet-400'
+                updateInfo && !updateInfo.hasUpdate && 'border-emerald-300 bg-emerald-50/50 text-emerald-600 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400',
+                updateInfo?.hasUpdate && 'border-violet-300 bg-violet-50/50 text-violet-600 dark:border-violet-700 dark:bg-violet-950/20 dark:text-violet-400'
               )}
               onClick={handleCheckUpdate}
               disabled={checking || downloadState === 'downloading'}
             >
               <RefreshCw className={cn('h-3 w-3 shrink-0', checking && 'animate-spin')} />
               {checking ? t('about.checking') : updateInfo ? (
-                updateInfo.has_update ? t('about.newVersionFound') : t('about.alreadyLatest')
+                updateInfo.hasUpdate ? t('about.newVersionFound') : t('about.alreadyLatest')
               ) : checkError ? t('about.checkFailedRetry') : t('about.checkUpdate')}
             </Button>
 
             {/* 更新日志 - 折叠收起（默认闭合） */}
-            {updateInfo?.has_update && updateInfo?.release_notes ? (
+            {updateInfo?.hasUpdate && updateInfo?.releaseNotes ? (
               <div className="mt-3">
                 <button
                   onClick={() => setShowReleaseNotes(!showReleaseNotes)}
@@ -283,7 +283,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 </button>
                 {showReleaseNotes && (
                   <div className="text-xs text-muted-foreground/80 bg-gray-50 dark:bg-muted/20 rounded-lg p-3 mt-2 max-h-[180px] overflow-y-auto overflow-x-auto leading-relaxed break-words [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_ul]:space-y-0.5 [&_li]:list-disc [&_li]:ml-4 [&_table]:w-full [&_th]:text-left [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_tr]:border-b [&_tr]:border-border/30 [&_p]:break-words [&_code]:break-all">
-                    {updateInfo.release_notes.split('\n').map((line, i) => {
+                    {updateInfo.releaseNotes.split('\n').map((line, i) => {
                       const trimmed = line.trim()
                       if (!trimmed) return <br key={i} />
                       if (trimmed.startsWith('# ')) return <h3 key={i} className="break-words">{trimmed.slice(2)}</h3>
@@ -328,7 +328,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
           <div className="flex-1 bg-[#F8F9FA] flex flex-col p-6 min-h-0 relative">
 
             {/* ------ idle + 无更新：已是最新版 ------ */}
-            {downloadState === 'idle' && !updateInfo?.has_update && (
+            {downloadState === 'idle' && !updateInfo?.hasUpdate && (
               <div className="flex-1 flex flex-col items-center justify-center gap-5">
                 {updateInfo ? (
                   <>
@@ -374,7 +374,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             )}
 
             {/* ------ idle + 有更新：下载按钮 + 镜像下拉 + 功能亮点 ------ */}
-            {downloadState === 'idle' && updateInfo?.has_update && (
+            {downloadState === 'idle' && updateInfo?.hasUpdate && (
               <div className="flex-1 flex flex-col gap-4">
                 {/* 一键下载按钮 */}
                 <Button
@@ -389,7 +389,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   disabled={checking}
                 >
                   <Download className="h-5 w-5" />
-                  {t('about.oneClickDownload', { version: updateInfo.latest_version })}
+                  {t('about.oneClickDownload', { version: updateInfo.latestVersion })}
                 </Button>
 
                 {/* 切换下载源入口 + 悬浮下拉面板 */}
