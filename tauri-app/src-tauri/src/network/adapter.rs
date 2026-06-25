@@ -1,8 +1,8 @@
-//! 适配器选择、子网/SSID 工具
+//! 适配器选择工具
 //!
-//! 本模块保留 adapter.rs 的历史职责（适配器选择、子网/SSID），
+//! 本模块保留 adapter.rs 的历史职责（适配器选择、登录前以太网 IP 检查），
 //! 适配器发现已迁移到 `network::discovery`，缓存访问已迁移到 `network::adapter_cache`，
-//! DHCP/MAC 重置已迁移到 `network::dhcp`。
+//! DHCP/MAC 重置已迁移到 `network::dhcp`，子网/SSID/网关已迁移到 `network::subnet`。
 
 use std::sync::atomic::AtomicBool;
 use tauri::AppHandle;
@@ -31,6 +31,13 @@ pub use crate::network::dhcp::{
     netsh_disable, netsh_enable,
     poll_ip_change, poll_adapter_has_ip,
     escape_ps_single_quote,
+};
+
+// 从 subnet re-export 子网/SSID/网关相关函数，保持外部调用方不变
+pub use crate::network::subnet::{
+    get_wireless_ssid, get_wired_network_profile,
+    check_gateway_reachable, check_gateway_reachable_from,
+    is_same_subnet_18,
 };
 
 pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
@@ -105,101 +112,6 @@ pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (
     }
 
     (String::new(), String::new())
-}
-
-pub fn get_wireless_ssid() -> Result<Option<String>, String> {
-    let output = new_command("netsh")
-        .args(["wlan", "show", "interfaces"])
-        .output()
-        .map_err(|e| format!("获取无线网络信息失败: {e}"))?;
-
-    if !output.status.success() {
-        return Ok(None);
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
-            let after = trimmed;
-            if let Some(colon) = after.find(':') {
-                let ssid = after[colon + 1..].trim();
-                if !ssid.is_empty()
-                    && !ssid.contains("不在")
-                    && !ssid.contains("not connected")
-                    && !ssid.contains("disconnected")
-                {
-                    return Ok(Some(ssid.to_string()));
-                }
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-pub fn get_wired_network_profile() -> Result<Option<String>, String> {
-    let output = new_command("netsh")
-        .args(["lan", "show", "interfaces"])
-        .output()
-        .map_err(|e| format!("获取有线网络信息失败: {e}"))?;
-
-    if !output.status.success() {
-        return Ok(None);
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        let is_profile_line = trimmed.to_lowercase().contains("profile")
-            || trimmed.contains("配置文件")
-            || trimmed.contains("設定檔");
-        if is_profile_line {
-            if let Some(colon) = trimmed.find(':') {
-                let name = trimmed[colon + 1..].trim();
-                if !name.is_empty() {
-                    return Ok(Some(name.to_string()));
-                }
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-pub fn check_gateway_reachable(gateway: &str) -> bool {
-    check_gateway_reachable_from(gateway, None)
-}
-
-pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> bool {
-    if gateway.is_empty() {
-        return false;
-    }
-    let mut cmd = new_command("ping");
-    cmd.args(["-n", "1", "-w", "2000"]);
-    if let Some(src) = source_ip {
-        if !src.is_empty() && src.parse::<std::net::IpAddr>().is_ok() {
-            cmd.args(["-S", src]);
-        }
-    }
-    cmd.arg(gateway);
-    match cmd.output() {
-        Ok(o) => o.status.success(),
-        Err(_) => false,
-    }
-}
-
-pub fn is_same_subnet_18(ip_str: &str, gateway_str: &str) -> bool {
-    let ip: u32 = match ip_str.parse::<std::net::Ipv4Addr>() {
-        Ok(addr) => u32::from(addr),
-        Err(_) => return false,
-    };
-    let gw: u32 = match gateway_str.parse::<std::net::Ipv4Addr>() {
-        Ok(addr) => u32::from(addr),
-        Err(_) => return false,
-    };
-    let mask: u32 = 0xFFFF_C000;
-    (ip & mask) == (gw & mask)
 }
 
 pub fn ensure_ethernet_ip_for_login(

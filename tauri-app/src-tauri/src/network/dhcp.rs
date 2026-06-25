@@ -6,7 +6,7 @@
 use crate::network::adapter_cache::{
     get_adapters_cached, get_adapters_force, validate_adapter_name,
 };
-use crate::network::adapter::is_same_subnet_18;
+use crate::network::subnet::is_same_subnet_18;
 use crate::network::discovery::{Adapter, new_command};
 
 pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {

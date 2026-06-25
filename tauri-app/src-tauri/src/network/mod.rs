@@ -5,6 +5,7 @@ pub mod dhcp;
 pub mod discovery;
 pub mod dns;
 pub mod quality;
+pub mod subnet;
 pub mod timing;
 
 pub use adapter::{
