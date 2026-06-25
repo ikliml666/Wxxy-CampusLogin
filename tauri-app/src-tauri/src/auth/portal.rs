@@ -1,5 +1,24 @@
 use crate::network::client::{PORTAL_URL, create_safe_http_client};
 
+/// 在同步上下文中运行 async HTTP future。
+///
+/// 优先使用当前 Tokio runtime handle（Handle::block_on 会设置 reactor guard，
+/// 使 reqwest future 能正常注册 IO 事件）。
+/// 如果当前线程无 runtime 上下文（如测试线程），fallback 到 tauri 全局 runtime。
+///
+/// 背景：b4d8e82 将 reqwest::blocking 迁移到异步 reqwest + block_on，但
+/// std::thread::scope 子线程无 Tokio reactor 上下文，导致 panic
+/// "there is no reactor running"。此函数 + watcher.rs 的 Handle::enter() 修复该问题。
+///
+/// 注意：不能在 async worker 线程上直接调用（Handle::block_on 会 panic）。
+/// 所有调用者必须通过 spawn_blocking 或在同步线程中调用。
+fn block_on_http<F: std::future::Future>(future: F) -> F::Output {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle.block_on(future),
+        Err(_) => tauri::async_runtime::block_on(future),
+    }
+}
+
 /// 确保 Portal 地址包含 :801 端口，正确处理带路径的 URL
 /// 原 format!("{}:801", base) 在 base 含路径时会把端口拼到路径后产生非法 URL
 pub fn ensure_portal_port(base: &str) -> String {
@@ -105,7 +124,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                 adapter_name.unwrap_or("unknown"), adapter_ip);
 
             let t_req = std::time::Instant::now();
-            let resp = match tauri::async_runtime::block_on(
+            let resp = match block_on_http(
                 client.get(&status_url).timeout(std::time::Duration::from_secs(3)).send()
             ) {
                 Ok(r) => r,
@@ -134,7 +153,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                     error_kind: Some("response_too_large".to_string()),
                 });
             }
-            let data = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
+            let data = block_on_http(resp.text()).unwrap_or_default();
             let req_elapsed = t_req.elapsed();
 
             crate::log_debug!("network", "Portal API备用检测响应: 状态码={:?}, bodyLen={}, 耗时{}ms",
@@ -229,7 +248,7 @@ enum PageCheckResult {
 
 fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckResult {
     let page_url = format!("{portal_base}/");
-    let resp = match tauri::async_runtime::block_on(
+    let resp = match block_on_http(
         client.get(&page_url).timeout(std::time::Duration::from_secs(3)).send()
     ) {
         Ok(r) => r,
@@ -239,7 +258,7 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
         }
     };
 
-    let html = match tauri::async_runtime::block_on(resp.text()) {
+    let html = match block_on_http(resp.text()) {
         Ok(t) => t,
         Err(e) => {
             crate::log_warn!("network", "Portal页面读取失败: {}", e);

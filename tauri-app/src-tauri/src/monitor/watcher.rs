@@ -105,11 +105,24 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     let t_portal = std::time::Instant::now();
     let (primary_result, secondary_result) = if config.dual_adapter {
         if let (Some(adapter1), Some(adapter2)) = (a1, a2) {
+            // 获取 Tokio runtime handle 传入 scope 子线程：
+            // spawn_blocking 线程中 Handle::current() 可用，但 std::thread::scope 子线程
+            // 无 Tokio 上下文，check_portal_full 中的 block_on 会因找不到 reactor 而 panic。
+            // 在子线程中 enter() 设置上下文，使 Handle::current().block_on() 能正确工作。
+            let runtime_handle = tokio::runtime::Handle::current();
             std::thread::scope(|s| {
-                let h1 = s.spawn(|| check_adapter_portal(adapter1, app_handle));
-                let h2 = s.spawn(|| check_adapter_portal(adapter2, app_handle));
-                let r1 = h1.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
-                let r2 = h2.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
+                let h1 = runtime_handle.clone();
+                let h2 = runtime_handle.clone();
+                let t1 = s.spawn(move || {
+                    let _guard = h1.enter();
+                    check_adapter_portal(adapter1, app_handle)
+                });
+                let t2 = s.spawn(move || {
+                    let _guard = h2.enter();
+                    check_adapter_portal(adapter2, app_handle)
+                });
+                let r1 = t1.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
+                let r2 = t2.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
                 (r1, Some(r2))
             })
         } else {
@@ -358,6 +371,7 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
 }
 
 pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {
+    crate::log_info!("background", "start_background_check_inner 入口");
     let (interval, cfg) = {
         let cfg = state.config.update(|cfg| {
             cfg.enable_background_check = true;
@@ -368,10 +382,12 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
         let interval = cfg.background_check_interval;
         (interval, cfg)
     };
+    crate::log_info!("background", "start_background_check_inner: interval={}ms, 即将 spawn background_check 任务", interval);
 
     let app_h = app_handle.clone();
     state.task_manager.spawn("background_check", move |cancel_token| {
         async move {
+            crate::log_info!("background", "background_check 任务实际启动");
             {
                 let mut waited = 0u64;
                 while waited < 5000 {
@@ -384,8 +400,12 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                         _ = cancel_token.cancelled() => { break; }
                     }
                 }
+                if waited >= 5000 {
+                    crate::log_warn!("background", "background_check: 等待 is_checking 释放超时(5000ms)，继续执行");
+                }
             }
 
+            crate::log_info!("background", "background_check: 等待完成，开始首次 run_background_check");
             run_background_check(&app_h, cancel_token.clone()).await;
 
             let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
@@ -418,9 +438,13 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
     let s = CommandContext::from_app(app_handle);
     let config = s.config.load_full();
 
+    crate::log_info!("startup", "run_startup_tasks 入口: enableBackgroundCheck={}, enableNetworkQuality={}, enableLatencyTest={}, autoLoginOnStart={}",
+        config.enable_background_check, config.enable_network_quality, config.enable_latency_test, config.auto_login_on_start);
+
     if config.enable_background_check {
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn(async move {
+            crate::log_info!("startup", "[task] background_check spawn 开始");
             let s = app_h.state::<AppState>();
             if let Err(e) = start_background_check_inner(&app_h, &s) {
                 crate::log_warn!("background", "启动后台检测失败: {}", e);
@@ -431,6 +455,7 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
     if config.enable_network_quality && config.enable_latency_test {
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn(async move {
+            crate::log_info!("startup", "[task] latency_test spawn 开始");
             let s = app_h.state::<AppState>();
             let interval = {
                 let c = s.config.load();
@@ -442,6 +467,7 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
 
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
+        crate::log_info!("startup", "[task] auto_login_on_start spawn 开始");
         run_auto_login_on_start(&app_h);
     });
 }
