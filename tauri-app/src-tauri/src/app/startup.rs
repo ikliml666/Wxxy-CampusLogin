@@ -149,16 +149,13 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
     crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
 
-    crate::log_info!("startup", "[step 1/6] 加载配置 + 初始化 state");
     let state = CommandContext::from_app(app.handle());
 
     state.config.store(config.clone());
     crate::network::update_portal_url(&config.portal_url);
 
-    crate::log_info!("startup", "[step 2/6] 构建托盘");
     crate::app::tray::build_tray(app.handle(), &install_dir)?;
 
-    crate::log_info!("startup", "[step 3/6] 启动适配器监听 + 缓存刷新");
     let app_h = app.handle().clone();
     if let Err(e) = crate::monitor::adapter_watch::start_adapter_watch(&app_h) {
         crate::log_warn!("startup", "启动适配器监听失败: {}", e);
@@ -167,16 +164,11 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
         crate::log_warn!("startup", "启动适配器缓存后台刷新失败: {}", e);
     }
 
-    crate::log_info!("startup", "[step 4/6] 启动更新检查循环");
     crate::update::updater::start_update_check_loop(&app_h);
 
-    crate::log_info!("startup", "[step 5/6] 运行启动任务（后台检测/延迟测试/自动登录）");
     crate::monitor::watcher::run_startup_tasks(&app_h);
 
-    crate::log_info!("startup", "[step 6/6] 启动心跳 + 窗口安全线程");
     crate::app::heartbeat::spawn_heartbeat_thread(app_h.clone());
     crate::app::heartbeat::spawn_window_safety_thread(app_h);
-
-    crate::log_info!("startup", "setup_app 全部完成");
     Ok(())
 }

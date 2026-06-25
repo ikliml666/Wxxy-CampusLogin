@@ -371,7 +371,6 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
 }
 
 pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {
-    crate::log_info!("background", "start_background_check_inner 入口");
     let (interval, cfg) = {
         let cfg = state.config.update(|cfg| {
             cfg.enable_background_check = true;
@@ -382,12 +381,10 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
         let interval = cfg.background_check_interval;
         (interval, cfg)
     };
-    crate::log_info!("background", "start_background_check_inner: interval={}ms, 即将 spawn background_check 任务", interval);
 
     let app_h = app_handle.clone();
     state.task_manager.spawn("background_check", move |cancel_token| {
         async move {
-            crate::log_info!("background", "background_check 任务实际启动");
             {
                 let mut waited = 0u64;
                 while waited < 5000 {
@@ -400,12 +397,8 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                         _ = cancel_token.cancelled() => { break; }
                     }
                 }
-                if waited >= 5000 {
-                    crate::log_warn!("background", "background_check: 等待 is_checking 释放超时(5000ms)，继续执行");
-                }
             }
 
-            crate::log_info!("background", "background_check: 等待完成，开始首次 run_background_check");
             run_background_check(&app_h, cancel_token.clone()).await;
 
             let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
@@ -438,13 +431,9 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
     let s = CommandContext::from_app(app_handle);
     let config = s.config.load_full();
 
-    crate::log_info!("startup", "run_startup_tasks 入口: enableBackgroundCheck={}, enableNetworkQuality={}, enableLatencyTest={}, autoLoginOnStart={}",
-        config.enable_background_check, config.enable_network_quality, config.enable_latency_test, config.auto_login_on_start);
-
     if config.enable_background_check {
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn(async move {
-            crate::log_info!("startup", "[task] background_check spawn 开始");
             let s = app_h.state::<AppState>();
             if let Err(e) = start_background_check_inner(&app_h, &s) {
                 crate::log_warn!("background", "启动后台检测失败: {}", e);
@@ -455,7 +444,6 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
     if config.enable_network_quality && config.enable_latency_test {
         let app_h = app_handle.clone();
         tauri::async_runtime::spawn(async move {
-            crate::log_info!("startup", "[task] latency_test spawn 开始");
             let s = app_h.state::<AppState>();
             let interval = {
                 let c = s.config.load();
@@ -467,7 +455,6 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
 
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
-        crate::log_info!("startup", "[task] auto_login_on_start spawn 开始");
         run_auto_login_on_start(&app_h);
     });
 }
