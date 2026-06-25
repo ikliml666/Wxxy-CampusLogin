@@ -1,13 +1,15 @@
 //! DHCP 续租、MAC 重置、netsh 接口控制
 //!
 //! 从 `adapter.rs` 迁移，隔离 PowerShell 调用。
-//! PowerShell 参数化（`-EncodedCommand`）将在 T4.4.2 完成。
+//! T4.4.2: PowerShell 命令通过 -EncodedCommand Base64 参数化，消除注入风险。
+//! T4.4.3 决策记录：评估 Win32 API（DeviceIoControl + OID_802_3_CURRENT_ADDRESS）替代 PowerShell，
+//!   结论：需引入 unsafe 代码和驱动依赖，收益不抵成本，暂不实施，保留 PowerShell 方案。
 
 use crate::network::adapter_cache::{
     get_adapters_cached, get_adapters_force, validate_adapter_name,
 };
 use crate::network::subnet::is_same_subnet_18;
-use crate::network::discovery::{Adapter, new_command};
+use crate::network::discovery::{is_blacklisted, Adapter, new_command};
 
 pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     validate_adapter_name(adapter_name)?;
@@ -199,6 +201,14 @@ pub fn escape_ps_single_quote(s: &str) -> String {
     s.replace("'", "''")
 }
 
+/// 将 PowerShell 脚本编码为 -EncodedCommand 参数（UTF-16LE Base64）。
+/// 消除引号转义和命令注入风险，适配器名/MAC 均通过脚本变量传递。
+fn encode_ps_command(script: &str) -> String {
+    use base64::Engine as _;
+    let utf16le: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    base64::engine::general_purpose::STANDARD.encode(&utf16le)
+}
+
 fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
     let mac_dashed = mac_with_dashes(mac_no_dash);
     let script = format!(
@@ -210,7 +220,8 @@ fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, o
         mac = mac_dashed, name = escape_ps_single_quote(adapter_name)
     );
     crate::log_info!("adapter", "尝试提权修改MAC(Set-NetAdapter): adapter={}, mac={}", adapter_name, mac_dashed);
-    match crate::platform::elevation::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{script}\"")) {
+    let encoded = encode_ps_command(&script);
+    match crate::platform::elevation::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}")) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
             if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 25_000) {
@@ -240,10 +251,12 @@ fn try_modify_mac(adapter: &Adapter, fake_mac: &str, mac_dashed: &str) -> (bool,
         }
     } else {
         crate::log_info!("adapter", "非管理员运行，跳过注册表直写，直接COM ShellExec提权: guid={}", adapter.guid);
-        let ps_cmd = format!(
-            "-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'\"",
+        let script = format!(
+            "Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'",
             escape_ps_single_quote(&adapter.name), mac_dashed, escape_ps_single_quote(&adapter.name), escape_ps_single_quote(&adapter.name)
         );
+        let encoded = encode_ps_command(&script);
+        let ps_cmd = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}");
         match crate::platform::elevation::shell_exec_elevated("powershell", &ps_cmd, true) {
             Ok(()) => {
                 crate::log_info!("adapter", "COM ShellExec提权成功，等待IP变更...");
@@ -266,6 +279,17 @@ fn try_modify_mac(adapter: &Adapter, fake_mac: &str, mac_dashed: &str) -> (bool,
 
 /// 对单个适配器执行 MAC 修改 + DHCP 释放/续租流程，返回结果 JSON
 fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json::Value {
+    // T4.4.1: 虚拟适配器白名单过滤，跳过虚拟/软件网卡避免误操作
+    if is_blacklisted(&adapter.name) {
+        return serde_json::json!({
+            "name": adapter.name,
+            "wireless": adapter.wireless,
+            "ip": adapter.ip,
+            "success": false,
+            "skipped": true,
+            "reason": "虚拟适配器，跳过 MAC 重置"
+        });
+    }
     if !adapter.ip.is_empty() && !is_same_subnet_18(&adapter.ip, campus_gateway) {
         return serde_json::json!({
             "name": adapter.name,
@@ -381,4 +405,51 @@ pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Re
     let adapter = adapters.iter().find(|a| a.name == adapter_name)
         .ok_or_else(|| format!("未找到适配器: {adapter_name}"))?;
     Ok(renew_adapter_with_mac(adapter, campus_gateway))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_ps_command_produces_valid_utf16le_base64() {
+        let script = "Write-Host 'hello'";
+        let encoded = encode_ps_command(script);
+        // 解码 Base64
+        use base64::Engine as _;
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&encoded).unwrap();
+        // 解码 UTF-16LE
+        let utf16: Vec<u16> = decoded.chunks(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        let original: Vec<u16> = script.encode_utf16().collect();
+        assert_eq!(utf16, original);
+    }
+
+    #[test]
+    fn encode_ps_command_elimimates_injection_chars() {
+        // 验证编码后不含原始特殊字符（引号、分号等），消除注入风险
+        let script = "Set-NetAdapter -Name 'test;rm -rf /' -Confirm:$false";
+        let encoded = encode_ps_command(script);
+        assert!(!encoded.contains('\''), "编码后不应包含单引号");
+        assert!(!encoded.contains(';'), "编码后不应包含分号");
+        assert!(!encoded.contains("test"), "编码后不应包含原始文本");
+    }
+
+    #[test]
+    fn blacklist_filters_known_virtual_adapters() {
+        // T4.4.1: 验证虚拟适配器会被白名单过滤
+        assert!(is_blacklisted("Virtual Ethernet"));
+        assert!(is_blacklisted("Hyper-V Virtual NIC"));
+        assert!(is_blacklisted("NAT Network"));
+        assert!(is_blacklisted("虚拟网卡"));
+    }
+
+    #[test]
+    fn blacklist_preserves_physical_adapters() {
+        // T4.4.1: 验证物理网卡不会被误过滤
+        assert!(!is_blacklisted("以太网"));
+        assert!(!is_blacklisted("WLAN"));
+        assert!(!is_blacklisted("Intel Ethernet Adapter"));
+    }
 }
