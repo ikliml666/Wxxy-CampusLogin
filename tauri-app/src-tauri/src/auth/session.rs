@@ -200,46 +200,25 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
             let a1_ref = a1.unwrap();
 
             // 双适配器错峰并行登录：适配器2延迟1s启动，避免同时登录触发系统封禁
-            // thread::scope 安全借用栈数据；panic 降级为 None
-            let (r1, r2) = std::thread::scope(|s| {
-                let h1 = s.spawn(|| {
-                    login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
-                });
-                let h2 = s.spawn(|| {
-                    // sleep 拆分为 10×100ms 循环，每次检查 is_quitting，确保退出时适配器2不再发起登录
-                    for _ in 0..10 {
-                        if state.exit.is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-                            return None;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                    login_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref())
-                });
-                let r1 = h1.join().unwrap_or_else(|_| None);
-                let r2 = h2.join().unwrap_or_else(|_| None);
-                (r1, r2)
-            });
+            // 使用 DualAdapterExecutor 统一并发执行与结果合并
+            let a1_clone = a1_ref.clone();
+            let a2_clone = a2_ref.clone();
+            let config_clone1 = config.clone();
+            let config_clone2 = config.clone();
+            let app_h1 = app_handle.clone();
+            let app_h2 = app_handle.clone();
+            let is_quitting1 = state.exit.is_quitting.clone();
+            let is_quitting2 = state.exit.is_quitting.clone();
+            let dual_result = crate::auth::dual_adapter_executor::execute_dual(
+                Box::new(move || login_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
+                Box::new(move || login_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
+                state.exit.is_quitting.clone(),
+            );
 
-            let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
-            let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);
-
-            let a1_msg = r1.as_ref().and_then(|r| r.message.clone()).unwrap_or_default();
-            let a2_msg = r2.as_ref().and_then(|r| r.message.clone()).unwrap_or_default();
-
-            let combined_msg = if !a1_msg.is_empty() && !a2_msg.is_empty() {
-                format!("{}, {}", a1_msg, a2_msg)
-            } else {
-                format!("{}{}", a1_msg, a2_msg)
-            };
-
-            let result = CommandResult {
-                success: a1_success || a2_success,
-                message: Some(combined_msg),
-                data: Some(serde_json::json!({ "code": if a1_success || a2_success { "0" } else { "1" } })),
-            };
+            let result = dual_result.build_command_result();
             // 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器 MAC 重置
             update_dual_adapter_auth_failure(
-                state, app_handle, &r1, &r2,
+                state, app_handle, &dual_result.primary, &dual_result.secondary,
                 &adapter1_name, &adapter2_name, &config.campus_gateway,
             );
             return result;

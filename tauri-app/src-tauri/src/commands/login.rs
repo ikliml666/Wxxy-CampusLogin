@@ -90,32 +90,22 @@ fn full_logout_inner(state: &AppState, app_handle: &AppHandle, adapter_name: Opt
             let a1_ref = a1.unwrap();
 
             // 双适配器注销并行，适配器2延迟1s错峰（与登录侧策略一致）
-            let (r1, r2) = std::thread::scope(|s| {
-                let h1 = s.spawn(|| logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref()));
-                let h2 = s.spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    logout_adapter_with_log(a2_ref, &config, app_handle, state.exit.is_quitting.as_ref())
-                });
-                (h1.join().ok().flatten(), h2.join().ok().flatten())
-            });
+            // 使用 DualAdapterExecutor 统一并发执行与结果合并，修复原 logout 不可中断 bug
+            let a1_clone = a1_ref.clone();
+            let a2_clone = a2_ref.clone();
+            let config_clone1 = config.clone();
+            let config_clone2 = config.clone();
+            let app_h1 = app_handle.clone();
+            let app_h2 = app_handle.clone();
+            let is_quitting1 = state.exit.is_quitting.clone();
+            let is_quitting2 = state.exit.is_quitting.clone();
+            let dual_result = crate::auth::dual_adapter_executor::execute_dual(
+                Box::new(move || logout_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
+                Box::new(move || logout_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
+                state.exit.is_quitting.clone(),
+            );
 
-            let a1_success = r1.as_ref().map(|r| r.success).unwrap_or(false);
-            let a2_success = r2.as_ref().map(|r| r.success).unwrap_or(false);
-
-            let a1_msg = r1.and_then(|r| r.message).unwrap_or_default();
-            let a2_msg = r2.and_then(|r| r.message).unwrap_or_default();
-
-            let combined_msg = if !a1_msg.is_empty() && !a2_msg.is_empty() {
-                format!("{}, {}", a1_msg, a2_msg)
-            } else {
-                format!("{}{}", a1_msg, a2_msg)
-            };
-
-            return CommandResult {
-                success: a1_success || a2_success,
-                message: Some(combined_msg),
-                data: Some(serde_json::json!({ "code": if a1_success || a2_success { "0" } else { "1" } })),
-            };
+            return dual_result.build_command_result();
         }
     }
 
