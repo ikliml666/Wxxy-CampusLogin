@@ -146,7 +146,9 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
 
     let config = {
         // 先完成 logger 初始化，再加载 config，避免 config 加载日志丢失
-        crate::infra::logger::init_logger(log_dir.clone());
+        if let Err(e) = crate::infra::logger::init_logger(log_dir.clone()) {
+            eprintln!("Logger 初始化失败: {e}");
+        }
         let app_handle = app.handle().clone();
         crate::commands::config_cmd::load_config_from_disk_or_default(&app_handle)
     };

@@ -62,7 +62,7 @@ lazy_static::lazy_static! {
     static ref MIN_LOG_LEVEL: ArcSwap<LogLevel> = ArcSwap::from(std::sync::Arc::new(LogLevel::Info));
 }
 
-pub fn init_logger(log_dir: PathBuf) {
+pub fn init_logger(log_dir: PathBuf) -> Result<(), String> {
     if let Err(e) = fs::create_dir_all(&log_dir) {
         eprintln!("创建日志目录失败: {e}");
     }
@@ -102,7 +102,7 @@ pub fn init_logger(log_dir: PathBuf) {
         .spawn(move || {
             logger_worker(state, receiver);
         })
-        .expect("Failed to spawn logger thread");
+        .map_err(|e| format!("Failed to spawn logger thread: {e}"))?;
 
     {
         let mut thread_lock = LOGGER_THREAD.lock();
@@ -111,6 +111,8 @@ pub fn init_logger(log_dir: PathBuf) {
         }
         *thread_lock = Some(handle);
     }
+
+    Ok(())
 }
 
 fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<LogMessage>) {
