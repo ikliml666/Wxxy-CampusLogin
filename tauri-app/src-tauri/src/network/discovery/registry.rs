@@ -7,6 +7,10 @@
 //!
 //! 仅 Windows 平台编译（依赖 `winreg` crate）。
 
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
+use std::collections::HashMap;
+
 #[cfg(test)]
 mod tests {
     // === class_subkey_has_matching_guid 集成测试（需在真实 Windows 环境下运行） ===
@@ -79,26 +83,66 @@ pub fn is_visible_in_ncpa(guid: &str) -> bool {
     class_subkey_has_matching_guid(guid)
 }
 
-pub fn class_subkey_has_matching_guid(guid: &str) -> bool {
-    if guid.is_empty() {
-        return false;
-    }
+/// Class subkey 缓存条目：记录 NetCfgInstanceId 是否存在及 ConfigFlags 值
+struct ClassSubkeyEntry {
+    exists: bool,
+    config_flags: Option<u32>,
+}
+
+lazy_static! {
+    /// guid（小写） → Class subkey 条目映射。None 表示未初始化。
+    static ref CLASS_SUBKEY_CACHE: RwLock<Option<HashMap<String, ClassSubkeyEntry>>> = RwLock::new(None);
+}
+
+/// 遍历注册表 Class 子键，构建 guid → entry 映射。
+fn build_class_subkey_cache() -> HashMap<String, ClassSubkeyEntry> {
+    let mut cache = HashMap::new();
     let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
     let class_path = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
     let class_key = match hklm.open_subkey(class_path) {
         Ok(k) => k,
-        Err(_) => return false,
+        Err(_) => return cache,
     };
     for subkey_name in class_key.enum_keys().filter_map(|r| r.ok()) {
         if let Ok(subkey) = class_key.open_subkey(&subkey_name) {
             if let Ok(instance_id) = subkey.get_value::<String, _>("NetCfgInstanceId") {
-                if instance_id.eq_ignore_ascii_case(guid) {
-                    return true;
-                }
+                let config_flags = subkey.get_value::<u32, _>("ConfigFlags").ok();
+                cache.insert(instance_id.to_lowercase(), ClassSubkeyEntry {
+                    exists: true,
+                    config_flags,
+                });
             }
         }
     }
-    false
+    cache
+}
+
+/// 刷新 class subkey 缓存。可在适配器缓存刷新时调用，保证注册表变化后缓存更新。
+pub fn refresh_class_subkey_cache() {
+    *CLASS_SUBKEY_CACHE.write() = Some(build_class_subkey_cache());
+}
+
+/// 双重检查锁定：首次访问时自动构建缓存，后续直接查询。
+fn ensure_cache_initialized() {
+    if CLASS_SUBKEY_CACHE.read().is_some() {
+        return;
+    }
+    let mut cache = CLASS_SUBKEY_CACHE.write();
+    if cache.is_none() {
+        *cache = Some(build_class_subkey_cache());
+    }
+}
+
+pub fn class_subkey_has_matching_guid(guid: &str) -> bool {
+    if guid.is_empty() {
+        return false;
+    }
+    ensure_cache_initialized();
+    CLASS_SUBKEY_CACHE.read()
+        .as_ref()
+        .and_then(|c| c.get(&guid.to_lowercase()))
+        .map(|e| e.exists)
+        .unwrap_or(false)
 }
 
 /// 用于区分 NotPresent 状态下的"管理员禁用"vs"硬件缺失(USB未连接)"
@@ -106,24 +150,11 @@ pub fn is_admin_disabled_via_registry(guid: &str) -> bool {
     if guid.is_empty() {
         return false;
     }
-    let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-    let class_path = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-    let class_key = match hklm.open_subkey(class_path) {
-        Ok(k) => k,
-        Err(_) => return false,
-    };
-    for sub in class_key.enum_keys().filter_map(|n| n.ok()) {
-        if let Ok(sub_key) = class_key.open_subkey(&sub) {
-            if let Ok(net_cfg_id) = sub_key.get_value::<String, _>("NetCfgInstanceId") {
-                if net_cfg_id == guid {
-                    // 找到匹配条目，读 ConfigFlags
-                    if let Ok(flags) = sub_key.get_value::<u32, _>("ConfigFlags") {
-                        return flags & 0x1 != 0;  // CONFIGFLAG_DISABLED
-                    }
-                    return false;  // ConfigFlags 不存在，视为未禁用
-                }
-            }
-        }
-    }
-    false
+    ensure_cache_initialized();
+    CLASS_SUBKEY_CACHE.read()
+        .as_ref()
+        .and_then(|c| c.get(&guid.to_lowercase()))
+        .and_then(|e| e.config_flags)
+        .map(|f| f & 0x1 != 0)  // CONFIGFLAG_DISABLED
+        .unwrap_or(false)
 }

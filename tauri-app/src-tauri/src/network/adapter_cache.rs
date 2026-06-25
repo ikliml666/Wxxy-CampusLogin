@@ -132,6 +132,9 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
 
     // 启用后强制清缓存，让下次查询拿到最新状态
     ADAPTER_CACHE.write().take();
+    // 同步刷新注册表缓存，避免 is_admin_disabled_via_registry 返回过时结果
+    #[cfg(target_os = "windows")]
+    crate::network::discovery::registry::refresh_class_subkey_cache();
     crate::log_info!("adapter", "已清空适配器缓存");
 
     Ok(())
@@ -181,4 +184,45 @@ pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &
         }
     }
     false
+}
+
+/// 适配器缓存后台刷新间隔（秒）。
+/// 略短于 TTL（5 秒），保证缓存始终新鲜。
+const CACHE_REFRESH_INTERVAL_SECS: u64 = 4;
+
+/// 启动适配器缓存后台刷新任务。
+///
+/// 每 4 秒主动刷新一次适配器缓存，保证缓存始终新鲜，避免调用方在缓存过期后同步等待。
+/// 刷新失败时记录日志并保留旧缓存，避免缓存雪崩。
+/// 通过 BackgroundTaskManager 统一管理生命周期，shutdown 时自动取消。
+pub fn start_cache_refresh_task(
+    task_manager: &crate::infra::task_manager::BackgroundTaskManager,
+) -> Result<(), String> {
+    task_manager.spawn("adapter_cache_refresh", |cancel_token| async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(CACHE_REFRESH_INTERVAL_SECS));
+        interval.tick().await; // 跳过第一次立即触发
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    // 在 spawn_blocking 中执行阻塞的 Win32 GetAdaptersAddresses 调用
+                    let result = tokio::task::spawn_blocking(query_adapters_cached_inner).await;
+                    match result {
+                        Ok(Ok(_)) => {
+                            crate::log_debug!("adapter", "后台刷新适配器缓存成功");
+                        }
+                        Ok(Err(e)) => {
+                            crate::log_warn!("adapter", "后台刷新适配器缓存失败（保留旧缓存）: {}", e);
+                        }
+                        Err(e) => {
+                            crate::log_warn!("adapter", "后台刷新任务 join 异常: {}", e);
+                        }
+                    }
+                }
+                _ = cancel_token.cancelled() => {
+                    crate::log_info!("adapter", "适配器缓存后台刷新任务已停止");
+                    break;
+                }
+            }
+        }
+    })
 }
