@@ -115,12 +115,12 @@ pub fn login_adapter_with_log(
                     if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name), None, None, Some(&config_operator)) {
                         if sec_status.online {
                             let event_bus = EventBus::new(app_handle);
-                            if let Err(e) = event_bus.emit_login_log(&format!("{} 已在线", adapter_name), "success") {
+                            if let Err(e) = event_bus.emit_login_log(&format!("{adapter_name} 已在线"), "success") {
                                 crate::log_warn!("login", "发送登录日志失败: {}", e);
                             }
                             return Some(CommandResult {
                                 success: true,
-                                message: Some(format!("{} 已在线", adapter_name)),
+                                message: Some(format!("{adapter_name} 已在线")),
                                 data: Some(serde_json::json!({ "code": "0" })),
                             });
                         }

@@ -152,7 +152,7 @@ fn handle_single_adapter_failure(
         crate::log_warn!("login", "{} 连续{}次认证失败，触发该适配器MAC重置", adapter_name, new_count);
         let event_bus = EventBus::new(app_handle);
         let _ = event_bus.emit_login_log(
-            &format!("{} 连续5次认证失败，正在重置该适配器MAC...", adapter_name),
+            &format!("{adapter_name} 连续5次认证失败，正在重置该适配器MAC..."),
             "warning",
         );
         match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {

@@ -11,7 +11,7 @@ pub fn ensure_portal_port(base: &str) -> String {
             }
             u.as_str().trim_end_matches('/').to_string()
         }
-        Err(_) => format!("{}:801", trimmed),
+        Err(_) => format!("{trimmed}:801"),
     }
 }
 
@@ -268,7 +268,7 @@ enum PageCheckResult {
 }
 
 fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> PageCheckResult {
-    let page_url = format!("{}/", portal_base);
+    let page_url = format!("{portal_base}/");
     let resp = match client.get(&page_url).timeout(std::time::Duration::from_secs(3)).send() {
         Ok(r) => r,
         Err(e) => {

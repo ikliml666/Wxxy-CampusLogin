@@ -7,14 +7,14 @@ pub fn random_v() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
     let v = 1000 + (seed % 9000);
-    format!("{}", v)
+    format!("{v}")
 }
 
 fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Option<&str>) -> Result<serde_json::Value, String> {
     let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
     let validated_operator = crate::config::validate::validate_operator(operator).map_err(|e| e.to_string())?;
     crate::config::validate::validate_password(password).map_err(|e| e.to_string())?;
-    let user_account = format!("{}{}", validated_user, validated_operator);
+    let user_account = format!("{validated_user}{validated_operator}");
     let portal_base = PORTAL_URL.load().clone();
     let base_url = format!("{}/eportal/portal/login", crate::auth::portal::ensure_portal_port(&portal_base));
     let callback = "dr1003";
@@ -25,8 +25,8 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
         urlencoding::encode(password),
         random_v(),
     );
-    let url = format!("{}?{}", base_url, query_params);
-    let safe_url = format!("{}?***", base_url);
+    let url = format!("{base_url}?{query_params}");
+    let safe_url = format!("{base_url}?***");
 
     crate::log_info!("login", "登录请求开始: user={}, operator={}, adapterIp={}",
         validated_user, validated_operator, adapter_ip.unwrap_or("default"));
@@ -133,7 +133,7 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
             } else if result == 4 {
                 Ok(serde_json::json!({ "code": "4", "message": if msg.is_empty() { "账号被禁用" } else { msg }, "success": false, "retryable": false }))
             } else {
-                Ok(serde_json::json!({ "code": format!("{}", result), "message": if msg.is_empty() { format!("未知响应码: {}", result) } else { msg.to_string() }, "success": false, "retryable": true }))
+                Ok(serde_json::json!({ "code": format!("{}", result), "message": if msg.is_empty() { format!("未知响应码: {result}") } else { msg.to_string() }, "success": false, "retryable": true }))
             }
         }
         Err(_) => {
@@ -182,7 +182,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
 
         let t_unbind = std::time::Instant::now();
         let resp_unbind = client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
-            .map_err(|e| format!("第{}轮MAC解绑请求失败: {}", round, e))?;
+            .map_err(|e| format!("第{round}轮MAC解绑请求失败: {e}"))?;
         let body_unbind = resp_unbind.text().unwrap_or_default();
         crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
 
@@ -204,7 +204,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
 
         let t_logout = std::time::Instant::now();
         let resp_logout = client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
-            .map_err(|e| format!("第{}轮Radius注销请求失败: {}", round, e))?;
+            .map_err(|e| format!("第{round}轮Radius注销请求失败: {e}"))?;
         let body_logout = resp_logout.text().unwrap_or_default();
         crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_logout, 500));
 
@@ -321,7 +321,7 @@ fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
                     Ok(serde_json::json!({ "code": "1", "message": if msg.is_empty() { "注销成功" } else { msg }, "success": true, "retryable": false }))
                 }
             } else {
-                Ok(serde_json::json!({ "code": format!("{}", result), "message": if msg.is_empty() { format!("注销失败，响应码: {}", result) } else { msg.to_string() }, "success": false, "retryable": true }))
+                Ok(serde_json::json!({ "code": format!("{}", result), "message": if msg.is_empty() { format!("注销失败，响应码: {result}") } else { msg.to_string() }, "success": false, "retryable": true }))
             }
         }
         Err(_) => {

@@ -24,9 +24,9 @@ impl DualAdapterResult {
             .and_then(|r| r.message.clone())
             .unwrap_or_default();
         let combined_msg = if !a1_msg.is_empty() && !a2_msg.is_empty() {
-            format!("{}, {}", a1_msg, a2_msg)
+            format!("{a1_msg}, {a2_msg}")
         } else {
-            format!("{}{}", a1_msg, a2_msg)
+            format!("{a1_msg}{a2_msg}")
         };
         let success = self.success();
         CommandResult {

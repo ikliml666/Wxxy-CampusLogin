@@ -30,7 +30,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         Ok(a) => a,
         Err(_) => match wait_for_adapter(10000, state.exit.is_quitting.as_ref()) {
             Ok(a) => a,
-            Err(e) => return CommandResult::err(&format!("获取适配器失败: {}", e)),
+            Err(e) => return CommandResult::err(&format!("获取适配器失败: {e}")),
         },
     };
 
@@ -56,7 +56,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
                 update_auth_failure_count(state, app_handle, &result, &config.campus_gateway);
                 return result;
             }
-            None => return CommandResult::err(&format!("未找到适配器: {}", name)),
+            None => return CommandResult::err(&format!("未找到适配器: {name}")),
         }
     }
 
@@ -141,7 +141,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
             Ok(a) => a,
             Err(e) => {
                 crate::log_warn!("logout", "获取适配器失败: {}", e);
-                return CommandResult::err(&format!("获取适配器失败: {}", e));
+                return CommandResult::err(&format!("获取适配器失败: {e}"));
             }
         },
     };
@@ -163,7 +163,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
             }
             None => {
                 crate::log_warn!("logout", "未找到适配器: {}", name);
-                return CommandResult::err(&format!("未找到适配器: {}", name));
+                return CommandResult::err(&format!("未找到适配器: {name}"));
             }
         }
     }
