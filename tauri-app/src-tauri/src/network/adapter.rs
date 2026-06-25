@@ -629,7 +629,7 @@ pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Confi
             .unwrap_or_default()
     };
 
-    let adapter1 = if config.adapter1.is_empty() || config.adapter1 == "自动检测" {
+    let adapter1 = if config.adapter1.is_empty() || config.adapter1 == crate::config::model::AUTO_DETECT_ADAPTER {
         auto_detect_a1()
     } else if adapters.iter().any(|a| a.name == config.adapter1) {
         config.adapter1.clone()
@@ -645,7 +645,7 @@ pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Confi
     };
 
     let adapter2 = if config.dual_adapter {
-        if config.adapter2.is_empty() || config.adapter2 == "自动检测" {
+        if config.adapter2.is_empty() || config.adapter2 == crate::config::model::AUTO_DETECT_ADAPTER {
             adapters.iter()
                 .find(|a| a.name != adapter1 && !a.wireless && !a.ip.is_empty())
                 .or_else(|| adapters.iter().find(|a| a.name != adapter1 && !a.ip.is_empty()))

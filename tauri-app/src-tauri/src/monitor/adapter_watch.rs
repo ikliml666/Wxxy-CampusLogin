@@ -91,9 +91,9 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                             (c.adapter1.clone(), c.adapter2.clone(), c.dual_adapter)
                         };
                         let (adapter1, adapter2, dual_adapter) = config;
-                        let configured_names: Vec<&str> = if dual_adapter && !adapter2.is_empty() && adapter2.as_str() != "自动检测" {
+                        let configured_names: Vec<&str> = if dual_adapter && !adapter2.is_empty() && adapter2.as_str() != crate::config::model::AUTO_DETECT_ADAPTER {
                             vec![&adapter1, &adapter2]
-                        } else if !adapter1.is_empty() && adapter1.as_str() != "自动检测" {
+                        } else if !adapter1.is_empty() && adapter1.as_str() != crate::config::model::AUTO_DETECT_ADAPTER {
                             vec![&adapter1]
                         } else {
                             vec![]

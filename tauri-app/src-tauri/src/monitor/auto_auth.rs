@@ -43,7 +43,7 @@ pub fn try_auto_login_on_preparation(
     if let Some(_login_guard) = state.tasks.is_logging_in.try_acquire() {
         let t0 = std::time::Instant::now();
         state.network.update(|s| s.last_auto_login_attempt = std::time::Instant::now());
-        let login_result = crate::auth::session::full_login_inner(state, app_handle, None);
+        let login_result = crate::auth::service::full_login(state, app_handle, None);
         let elapsed = t0.elapsed();
 
         crate::log_info!("login", "自动登录完成: success={}, message={}, 耗时{}ms",
@@ -120,7 +120,7 @@ pub fn try_disconnect_reconnect(
         let _login_guard = login_guard;
         let t0 = std::time::Instant::now();
         state.network.update(|s| s.last_auto_login_attempt = std::time::Instant::now());
-        let reconnect_result = crate::auth::session::full_login_inner(state, app_handle, None);
+        let reconnect_result = crate::auth::service::full_login(state, app_handle, None);
         let elapsed = t0.elapsed();
 
         crate::log_info!("login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
@@ -380,7 +380,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 None => return CommandResult::err("登录正在进行中"),
             };
             s.network.update(|s| s.last_auto_login_attempt = std::time::Instant::now());
-            crate::auth::session::full_login_inner(&s, &app_h_login, None)
+            crate::auth::service::full_login(&s, &app_h_login, None)
         }).await;
 
         let login_elapsed = t_login.elapsed();

@@ -60,7 +60,7 @@ fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                     Some(g) => g,
                     None => return,
                 };
-                let result = crate::auth::session::full_login_inner(&s, &app_h, None);
+                let result = crate::auth::service::full_login(&s, &app_h, None);
                 let _ = app_h.emit("auto-login-result", serde_json::json!({
                     "success": result.success,
                     "message": result.message.clone().unwrap_or_default(),

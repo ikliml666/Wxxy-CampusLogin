@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const PASSWORD_MASK: &str = "***";
+pub const AUTO_DETECT_ADAPTER: &str = "自动检测";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -124,7 +125,7 @@ impl Default for Config {
             user: String::new(),
             password: String::new(),
             operator: String::new(),
-            adapter1: "自动检测".to_string(),
+            adapter1: AUTO_DETECT_ADAPTER.to_string(),
             adapter2: String::new(),
             dual_adapter: false,
             auto_login_on_start: true,
