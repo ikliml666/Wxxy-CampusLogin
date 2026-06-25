@@ -26,23 +26,9 @@ impl<'a> EventBus<'a> {
         }))
     }
 
-    /// 自动登录/后台登录结果事件
-    pub fn emit_auto_login_result(&self, success: bool, message: &str, skipped: bool) -> Result<(), String> {
-        self.emit("auto-login-result", serde_json::json!({
-            "success": success,
-            "message": message,
-            "skipped": skipped,
-        }))
-    }
-
     /// 后台检测综合结果事件
     pub fn emit_background_check_result<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
         self.emit("background-check-result", payload)
-    }
-
-    /// 网络质量检测结果事件
-    pub fn emit_network_quality_result<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
-        self.emit("network-quality-result", payload)
     }
 
     /// 配置变更事件（无 payload 简略版）
@@ -60,42 +46,6 @@ impl<'a> EventBus<'a> {
         self.emit("adapters-changed", adapters)
     }
 
-    pub fn emit_adapter_details_changed<S: Serialize + Clone>(&self, details: S) -> Result<(), String> {
-        self.emit("adapter-details-changed", details)
-    }
-
-    pub fn emit_disabled_adapters_changed<S: Serialize + Clone>(&self, disabled: S) -> Result<(), String> {
-        self.emit("disabled-adapters-changed", disabled)
-    }
-
-    pub fn emit_adapter_disabled_warning<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
-        self.emit("adapter-disabled-warning", payload)
-    }
-
-    /// 校园网退出倒计时/取消事件
-    pub fn emit_campus_exit_countdown(&self, minimize_delay_ms: u64, exit_delay_ms: u64) -> Result<(), String> {
-        self.emit("campus-exit-countdown", serde_json::json!({
-            "minimizeDelay": minimize_delay_ms,
-            "exitDelay": exit_delay_ms,
-        }))
-    }
-
-    pub fn emit_campus_exit_cancelled(&self) -> Result<(), String> {
-        self.emit("campus-exit-cancelled", serde_json::json!({}))
-    }
-
-    /// 自动退出倒计时/取消事件
-    pub fn emit_auto_exit_countdown(&self, delay_ms: u64, shortcut: &str) -> Result<(), String> {
-        self.emit("auto-exit-countdown", serde_json::json!({
-            "delay": delay_ms,
-            "shortcut": shortcut,
-        }))
-    }
-
-    pub fn emit_auto_exit_cancelled(&self) -> Result<(), String> {
-        self.emit("auto-exit-cancelled", serde_json::json!({}))
-    }
-
     /// 系统通知事件
     pub fn emit_system_notification(&self, title: &str, body: &str) -> Result<(), String> {
         self.emit("system-notification", serde_json::json!({
@@ -105,10 +55,6 @@ impl<'a> EventBus<'a> {
     }
 
     /// 更新相关事件
-    pub fn emit_update_available<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
-        self.emit("update-available", payload)
-    }
-
     pub fn emit_update_download_progress<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
         self.emit("update-download-progress", payload)
     }

@@ -6,7 +6,6 @@ use tokio_util::sync::CancellationToken;
 
 enum TaskJoinHandle {
     Async(tauri::async_runtime::JoinHandle<()>),
-    Blocking(std::thread::JoinHandle<()>),
 }
 
 /// 后台任务句柄，仅暴露取消令牌。
@@ -62,33 +61,6 @@ impl BackgroundTaskManager {
         Ok(())
     }
 
-    /// 注册并启动一个阻塞型后台任务（运行在新线程中）。任务结束时会自动从管理器中移除。
-    pub fn spawn_blocking<F>(&self, name: &str, f: F) -> Result<(), String>
-    where
-        F: FnOnce(Arc<CancellationToken>) + Send + 'static,
-    {
-        let inner = self.inner.clone();
-        let mut tasks = self.inner.lock();
-        if tasks.contains_key(name) {
-            return Err(format!("任务 {name} 已在运行"));
-        }
-
-        let cancel_token = Arc::new(CancellationToken::new());
-        let cancel_token_for_thread = cancel_token.clone();
-        let name_owned = name.to_string();
-        let join_handle = std::thread::spawn(move || {
-            f(cancel_token_for_thread);
-            inner.lock().remove(&name_owned);
-        });
-        let handle = TaskHandle {
-            cancel_token,
-            join_handle: TaskJoinHandle::Blocking(join_handle),
-        };
-        tasks.insert(name.to_string(), handle);
-
-        Ok(())
-    }
-
     /// 取消指定任务并移除其句柄。返回是否成功找到并取消。
     pub fn cancel(&self, name: &str) -> bool {
         let mut tasks = self.inner.lock();
@@ -101,6 +73,7 @@ impl BackgroundTaskManager {
     }
 
     /// 取消所有已注册任务并清空管理器，但不等待任务结束。
+    #[allow(dead_code)]
     pub fn cancel_all(&self) {
         let handles: Vec<TaskHandle> = {
             let mut tasks = self.inner.lock();
@@ -121,10 +94,8 @@ impl BackgroundTaskManager {
             handle.cancel_token.cancel();
         }
         for handle in handles {
-            match handle.join_handle {
-                TaskJoinHandle::Async(jh) => { let _ = jh.await; }
-                TaskJoinHandle::Blocking(jh) => { let _ = jh.join(); }
-            }
+            let TaskJoinHandle::Async(jh) = handle.join_handle;
+            let _ = jh.await;
         }
     }
 

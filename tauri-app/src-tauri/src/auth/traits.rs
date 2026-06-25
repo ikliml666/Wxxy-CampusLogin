@@ -8,6 +8,7 @@ use crate::network::Adapter;
 /// Phase 1 中先定义 trait 边界，为 Phase 3/5 的依赖注入与单元测试提供接口。
 /// 默认实现仍调用 `crate::auth::portal::check_portal_full`，保持业务逻辑不变。
 pub trait PortalChecker: Send + Sync {
+    #[allow(dead_code)]
     fn check_portal_full(
         &self,
         adapter_ip: &str,
@@ -22,6 +23,7 @@ pub trait PortalChecker: Send + Sync {
 ///
 /// 将登录/注销的协议调用抽象为 trait，便于 Phase 3 注入 mock 并测试登录/注销路径。
 pub trait ProtocolClient: Send + Sync {
+    #[allow(dead_code)]
     fn do_login_with_retry(
         &self,
         user: &str,
@@ -32,6 +34,7 @@ pub trait ProtocolClient: Send + Sync {
         is_quitting: &AtomicBool,
     ) -> Result<serde_json::Value, String>;
 
+    #[allow(dead_code)]
     fn do_logout_with_retry(
         &self,
         user: &str,

@@ -11,25 +11,20 @@ use crate::infra::events::EventBus;
 
 // 从 discovery re-export 公共类型与函数，保持外部调用方不变
 pub use crate::network::discovery::{
-    Adapter, AdapterDetail, AdapterStatus, DisabledAdapter,
+    Adapter, AdapterDetail, DisabledAdapter,
     is_blacklisted, new_command,
 };
 
 // 从 adapter_cache re-export 缓存访问 API，保持外部调用方不变
 pub use crate::network::adapter_cache::{
-    get_adapters_cached, get_adapters_cached_async, get_adapters_force,
-    get_disabled_adapters_cached, get_adapter_details_cached,
-    get_all_adapters_force, enable_adapter, wait_for_adapter,
+    get_adapters_force,
     validate_adapter_name, poll_adapter_ip_quick,
 };
 
 // 从 dhcp re-export DHCP/MAC 相关函数，保持外部调用方不变
 pub use crate::network::dhcp::{
-    dhcp_renew, dhcp_release, dhcp_renew_wired_only,
+    dhcp_renew_wired_only,
     dhcp_release_renew_all, dhcp_release_renew_single,
-    set_mac_via_registry, remove_mac_from_registry,
-    netsh_disable, netsh_enable,
-    poll_ip_change, poll_adapter_has_ip,
     escape_ps_single_quote,
 };
 
@@ -186,6 +181,7 @@ pub fn ensure_ethernet_ip_for_login(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::discovery::AdapterStatus;
 
     fn make_test_config(adapter1: &str, dual: bool, adapter2: &str) -> crate::config::Config {
         crate::config::Config {
