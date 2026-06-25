@@ -71,8 +71,7 @@ pub fn spawn_window_safety_thread(app_handle: AppHandle) {
                     return;
                 }
                 crate::log_warn!("startup", "窗口{}秒后仍不可见，第{}次强制显示", 3 * attempt, attempt);
-                let _ = window.show();
-                let _ = window.set_focus();
+                crate::app::window::show_and_focus_main(&app_handle);
             }
             if attempt < 3 {
                 tokio::select! {

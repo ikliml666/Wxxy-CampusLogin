@@ -1,6 +1,4 @@
 use tauri::{AppHandle, Manager, State};
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 use crate::network::{
     Adapter, AdapterDetail, DisabledAdapter,
     get_adapters_cached, get_adapters_force, get_disabled_adapters_cached,
@@ -230,7 +228,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
             if elevation::is_admin() {
                 let adapters = crate::network::get_adapters_cached().unwrap_or_default();
                 let active: Vec<&Adapter> = adapters.iter()
-                    .filter(|a| !a.ip.is_empty() && !a.name.contains("Virtual") && !a.name.contains("vEthernet"))
+                    .filter(|a| !a.ip.is_empty() && !crate::network::is_blacklisted(&a.name))
                     .collect();
 
                 let mut api_ok: Vec<String> = Vec::new();
@@ -249,9 +247,8 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                     }
                 }
 
-                let _ = std::process::Command::new("ipconfig")
+                let _ = crate::network::adapter::new_command("ipconfig")
                     .args(["/flushdns"])
-                    .creation_flags(0x08000000)
                     .output();
 
                 if !api_ok.is_empty() {
@@ -270,7 +267,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
             let mut need_elevation = false;
 
             for (ip, template) in dns_config::DOH_SERVERS {
-                let output = std::process::Command::new("netsh")
+                let output = crate::network::adapter::new_command("netsh")
                     .args([
                         "dns", "add", "encryption",
                         &format!("server={ip}"),
@@ -278,7 +275,6 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                         "autoupgrade=yes",
                         "udpfallback=yes",
                     ])
-                    .creation_flags(0x08000000)
                     .output();
 
                 match output {
@@ -302,9 +298,8 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
             }
 
             if !added.is_empty() {
-                let _ = std::process::Command::new("ipconfig")
+                let _ = crate::network::adapter::new_command("ipconfig")
                     .args(["/flushdns"])
-                    .creation_flags(0x08000000)
                     .output();
                 return Ok(serde_json::json!({
                     "success": true,
@@ -329,9 +324,8 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                         std::thread::sleep(std::time::Duration::from_millis(2000));
                         let mut verify_added: Vec<String> = Vec::new();
                         for (ip, _) in dns_config::DOH_SERVERS {
-                            let check = std::process::Command::new("netsh")
+                            let check = crate::network::adapter::new_command("netsh")
                                 .args(["dns", "show", "encryption", &format!("server={ip}")])
-                                .creation_flags(0x08000000)
                                 .output();
                             if let Ok(co) = check {
                                 let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));
@@ -365,9 +359,8 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                         std::thread::sleep(std::time::Duration::from_millis(1500));
                         let mut verify_added: Vec<String> = Vec::new();
                         for (ip, _) in dns_config::DOH_SERVERS {
-                            let check = std::process::Command::new("netsh")
+                            let check = crate::network::adapter::new_command("netsh")
                                 .args(["dns", "show", "encryption", &format!("server={ip}")])
-                                .creation_flags(0x08000000)
                                 .output();
                             if let Ok(co) = check {
                                 let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));
@@ -425,7 +418,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
             let adapters = crate::network::get_adapters_cached()
                 .unwrap_or_default();
             let active: Vec<&Adapter> = adapters.iter()
-                .filter(|a| !a.ip.is_empty() && !a.name.contains("Virtual") && !a.name.contains("vEthernet") && !a.name.contains("Wintun") && !a.name.contains("TUN"))
+                .filter(|a| !a.ip.is_empty() && !crate::network::is_blacklisted(&a.name))
                 .collect();
 
             if active.is_empty() {
@@ -484,9 +477,8 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                     }
                 }
 
-                let _ = std::process::Command::new("ipconfig")
+                let _ = crate::network::adapter::new_command("ipconfig")
                     .args(["/flushdns"])
-                    .creation_flags(0x08000000)
                     .output();
 
                 if !api_success.is_empty() {
@@ -547,9 +539,8 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                     std::thread::sleep(std::time::Duration::from_millis(1500));
                     let mut verify_ok = false;
                     for adapter in &active {
-                        let check = std::process::Command::new("netsh")
+                        let check = crate::network::adapter::new_command("netsh")
                             .args(["interface", "ip", "show", "dns", &format!("name={}", adapter.name)])
-                            .creation_flags(0x08000000)
                             .output();
                         if let Ok(co) = check {
                             let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));

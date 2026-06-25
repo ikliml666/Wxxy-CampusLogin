@@ -48,10 +48,7 @@ pub fn build_tray(app: &tauri::AppHandle, install_dir: &Path) -> Result<(), Box<
 fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
         "show" => {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();      // [忽略错误] 窗口可能已关闭
-                let _ = window.set_focus(); // [忽略错误] 窗口可能已关闭
-            }
+            crate::app::window::show_and_focus_main(app);
         }
         "quick-login" => {
             let app_h = app.clone();
@@ -86,11 +83,7 @@ fn handle_tray_icon_event(tray: &tauri::tray::TrayIcon, event: TrayIconEvent) {
     if let TrayIconEvent::Click { button, .. } = event {
         if button == tauri::tray::MouseButton::Left {
             let app = tray.app_handle();
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-                let _ = window.unminimize();
-            }
+            crate::app::window::show_and_focus_main(app);
         }
     }
 }

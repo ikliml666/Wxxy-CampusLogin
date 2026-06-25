@@ -30,7 +30,7 @@ fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
     };
 
     let a1_online = check_one(&a1_name);
-    let a2_online = if config.dual_adapter && !a2_name.is_empty() {
+    let a2_online = if crate::network::is_secondary_adapter_enabled(&config, &a2_name) {
         check_one(&a2_name)
     } else {
         false

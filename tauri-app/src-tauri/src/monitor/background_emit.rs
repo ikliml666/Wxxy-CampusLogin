@@ -28,11 +28,11 @@ pub(super) fn build_adapter_details(
     adapter1_message: &str,
     adapter2_name: &str,
     adapter2_message: Option<&str>,
-    dual_adapter: bool,
+    config: &crate::config::model::Config,
 ) -> String {
     let mut details = vec![format!("{}: {}", adapter1_name, adapter1_message)];
     if let Some(msg) = adapter2_message {
-        if dual_adapter && !adapter2_name.is_empty() {
+        if crate::network::is_secondary_adapter_enabled(config, adapter2_name) {
             details.push(format!("{adapter2_name}: {msg}"));
         }
     }
@@ -55,7 +55,7 @@ pub(super) fn handle_status_change(
     let adapter_details = build_adapter_details(
         adapter1_name, adapter1_message,
         adapter2_name, adapter2_message,
-        config.dual_adapter,
+        config,
     );
 
     if current_online != prev_online {

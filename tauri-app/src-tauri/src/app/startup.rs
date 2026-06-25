@@ -36,18 +36,15 @@ pub fn run(core_count: usize) {
             })
             .build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();        // [忽略错误] 窗口可能尚未初始化完成
-                let _ = window.set_focus();   // [忽略错误] 窗口可能尚未初始化完成
-                let _ = window.unminimize();  // [忽略错误] 窗口可能尚未初始化完成
+            if app.get_webview_window("main").is_some() {
+                crate::app::window::show_and_focus_main(app);
             } else {
                 // 窗口可能尚未创建（NSIS安装器自动启动时可能出现此情况），延迟重试
                 let app_h = app.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    if let Some(window) = app_h.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                    if app_h.get_webview_window("main").is_some() {
+                        crate::app::window::show_and_focus_main(&app_h);
                     }
                 });
             }

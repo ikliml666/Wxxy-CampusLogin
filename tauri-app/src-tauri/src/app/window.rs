@@ -35,3 +35,13 @@ pub fn handle_window_focus_event(window: &Window, event: &WindowEvent) {
 /// 非 Windows 平台为空实现
 #[cfg(not(target_os = "windows"))]
 pub fn handle_window_focus_event(_window: &tauri::WebviewWindow, _event: &WindowEvent) {}
+
+/// 显示并聚焦主窗口。窗口不存在或操作失败时静默忽略。
+/// 包含 unminimize 操作（对已显示窗口是 no-op，确保统一入口）。
+pub fn show_and_focus_main<M: tauri::Manager<tauri::Wry>>(app: &M) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.unminimize();
+    }
+}

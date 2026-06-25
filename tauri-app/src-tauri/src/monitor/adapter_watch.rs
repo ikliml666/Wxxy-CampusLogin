@@ -87,15 +87,13 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                         let s = app_h.state::<AppState>();
                         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                         s.last_disabled_notification_ms.store(now.as_millis() as u64, Ordering::Relaxed);
-                        let config = {
-                            let c = s.config.load();
-                            (c.adapter1.clone(), c.adapter2.clone(), c.dual_adapter)
-                        };
-                        let (adapter1, adapter2, dual_adapter) = config;
-                        let configured_names: Vec<&str> = if dual_adapter && !adapter2.is_empty() && adapter2.as_str() != crate::config::model::AUTO_DETECT_ADAPTER {
-                            vec![&adapter1, &adapter2]
+                        let c = s.config.load();
+                        let adapter1 = &c.adapter1;
+                        let adapter2 = &c.adapter2;
+                        let configured_names: Vec<&str> = if crate::network::is_secondary_adapter_enabled(&c, adapter2) && adapter2.as_str() != crate::config::model::AUTO_DETECT_ADAPTER {
+                            vec![adapter1, adapter2]
                         } else if !adapter1.is_empty() && adapter1.as_str() != crate::config::model::AUTO_DETECT_ADAPTER {
-                            vec![&adapter1]
+                            vec![adapter1]
                         } else {
                             vec![]
                         };

@@ -64,7 +64,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
                 adapter_statuses.push(watcher::adapter_disabled_entry(&adapter1_name));
             }
 
-            if config.dual_adapter && !adapter2_name.is_empty() {
+            if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
                 let a2_online_state = state.network.load().last_a2_online;
                 if let Some(a2) = crate::network::find_by_name(&adapters, &adapter2_name) {
                     if a2.ip.is_empty() {

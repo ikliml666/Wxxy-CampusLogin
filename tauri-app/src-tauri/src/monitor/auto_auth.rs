@@ -247,7 +247,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     let _ = EventBus::new(&app_h).emit_auto_login_result(false, &campus_result.message, true);
                     // 如果配置的适配器均无IP（完全无网络），跳过退出，等待网络恢复
                     let a1_has_ip = adapters.iter().any(|a| a.name == adapter1_name && !a.ip.is_empty());
-                    let a2_has_ip = config.dual_adapter && !adapter2_name.is_empty()
+                    let a2_has_ip = crate::network::is_secondary_adapter_enabled(&config, &adapter2_name)
                         && adapters.iter().any(|a| a.name == adapter2_name && !a.ip.is_empty());
                     if !a1_has_ip && !a2_has_ip {
                         crate::log_info!("auto_login", "配置的适配器均无IP地址，跳过校园网退出，等待网络恢复");

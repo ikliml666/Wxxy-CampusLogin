@@ -61,6 +61,13 @@ pub fn find_dual_adapters<'a>(
     (a1, a2)
 }
 
+/// 副适配器是否启用：dual_adapter 开关为 true 且 adapter2 名称非空。
+/// 注意：仅判断"启用"语义，不判断 adapter2 是否与 adapter1 不同、是否为 AUTO_DETECT。
+/// 调用方如需额外条件（如 != adapter1_name、!= AUTO_DETECT_ADAPTER），请在返回值上附加。
+pub fn is_secondary_adapter_enabled(config: &crate::config::Config, adapter2_name: &str) -> bool {
+    config.dual_adapter && !adapter2_name.is_empty()
+}
+
 pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
     // 自动检测：优先选有线网卡，其次任意有 IP 的网卡，最后任意第一个
     let auto_detect_a1 = || -> String {

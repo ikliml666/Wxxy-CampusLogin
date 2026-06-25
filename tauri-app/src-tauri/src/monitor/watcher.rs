@@ -68,11 +68,11 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
         state.network.update(|s| s.any_adapter_online = false);
         state.network.update(|s| s.last_a1_online = false);
         let a1_campus = adapter_campus_message(&adapter1_name, &adapters, &campus_result);
-        let a2_campus = if config.dual_adapter && !adapter2_name.is_empty() {
+        let a2_campus = if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
             adapter_campus_message(&adapter2_name, &adapters, &campus_result)
         } else { None };
         let a1_on_campus = adapter_campus_status(&adapter1_name, &adapters, &campus_result).map(|s| s.on_campus);
-        let a2_on_campus = if config.dual_adapter && !adapter2_name.is_empty() {
+        let a2_on_campus = if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
             adapter_campus_status(&adapter2_name, &adapters, &campus_result).map(|s| s.on_campus)
         } else { None };
         emit_background_check_result(
@@ -276,13 +276,13 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     let (secondary_online, secondary_message) = match &secondary_result {
         Some(PortalCheckResult::Success { online, message: msg, .. }) => (Some(*online), msg.clone()),
         _ => {
-            if config.dual_adapter && !adapter2_name.is_empty() && !a2_has_ip {
+            if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) && !a2_has_ip {
                 let msg = adapter_campus_message(&adapter2_name, &adapters, &campus_result);
                 match msg {
                     Some(ref m) => (Some(false), m.clone()),
                     None => (None, String::new()),
                 }
-            } else if config.dual_adapter && !adapter2_name.is_empty() && a2_has_ip {
+            } else if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) && a2_has_ip {
                 (None, secondary_result.as_ref().map(|r| r.message().to_string()).unwrap_or_default())
             } else {
                 (None, String::new())
@@ -300,11 +300,11 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
     );
 
     let a1_campus = adapter_campus_message(&adapter1_name, &adapters, &campus_result);
-    let a2_campus = if config.dual_adapter && !adapter2_name.is_empty() {
+    let a2_campus = if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
         adapter_campus_message(&adapter2_name, &adapters, &campus_result)
     } else { None };
     let a1_on_campus = adapter_campus_status(&adapter1_name, &adapters, &campus_result).map(|s| s.on_campus);
-    let a2_on_campus = if config.dual_adapter && !adapter2_name.is_empty() {
+    let a2_on_campus = if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
         adapter_campus_status(&adapter2_name, &adapters, &campus_result).map(|s| s.on_campus)
     } else { None };
 

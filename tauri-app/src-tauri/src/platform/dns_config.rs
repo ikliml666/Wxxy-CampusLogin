@@ -292,12 +292,10 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
     }
 
     fn check_doh_for_ips(dns_ips: &[String], _hklm: &winreg::RegKey) -> std::collections::HashMap<String, (bool, bool, String)> {
-        use std::os::windows::process::CommandExt;
         let mut netsh_doh: std::collections::HashMap<String, (bool, String)> = std::collections::HashMap::new();
 
-        let output = std::process::Command::new("netsh")
+        let output = crate::network::adapter::new_command("netsh")
             .args(["dns", "show", "encryption"])
-            .creation_flags(0x08000000)
             .output();
 
         if let Ok(out) = output {

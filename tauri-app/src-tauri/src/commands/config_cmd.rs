@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use crate::infra::command_context::AppHandleExt;
 use crate::config::model::Config;
 use crate::config::persist;
@@ -60,10 +60,7 @@ pub fn load_config_from_disk_or_default(app_handle: &AppHandle) -> Config {
 
 #[tauri::command]
 pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    crate::app::window::show_and_focus_main(&app_handle);
     Ok(())
 }
 
