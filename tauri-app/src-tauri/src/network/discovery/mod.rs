@@ -13,6 +13,9 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+#[cfg(target_os = "windows")]
+pub mod registry;
+
 pub(crate) type AdapterQueryResult = Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String>;
 
 lazy_static! {
