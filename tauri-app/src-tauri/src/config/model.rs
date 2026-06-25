@@ -67,6 +67,10 @@ pub struct Config {
     pub campus_check_start_minutes: u16,
     #[serde(rename = "logRetentionDays", default = "default_log_retention_days")]
     pub log_retention_days: u32,
+    #[serde(rename = "maxDisconnectReconnect", default = "default_max_disconnect_reconnect")]
+    pub max_disconnect_reconnect: u32,
+    #[serde(rename = "autoLoginCooldownSecs", default = "default_auto_login_cooldown_secs")]
+    pub auto_login_cooldown_secs: u64,
     #[serde(rename = "configVersion", default)]
     pub config_version: u32,
 }
@@ -106,6 +110,10 @@ pub fn default_fixed_gateway() -> String {
 }
 
 pub fn default_log_retention_days() -> u32 { 7 }
+
+fn default_max_disconnect_reconnect() -> u32 { 3 }
+
+fn default_auto_login_cooldown_secs() -> u64 { 60 }
 
 pub fn default_portal_url() -> String {
     "http://10.1.99.100".to_string()
@@ -155,6 +163,8 @@ impl Default for Config {
             campus_exit_on_fail: true,
             campus_check_start_minutes: 480,
             log_retention_days: 7,
+            max_disconnect_reconnect: 3,
+            auto_login_cooldown_secs: 60,
             config_version: 2,
         }
     }
@@ -175,5 +185,39 @@ impl Config {
         } else {
             self.user.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_reconnect_and_cooldown_config() {
+        let config = Config::default();
+        assert_eq!(config.max_disconnect_reconnect, 3);
+        assert_eq!(config.auto_login_cooldown_secs, 60);
+    }
+
+    #[test]
+    fn serde_missing_reconnect_field_uses_default() {
+        // 从默认 Config 序列化的 JSON 中删除新字段，验证反序列化时回退到默认值
+        let mut json = serde_json::to_value(&Config::default()).unwrap();
+        let obj = json.as_object_mut().unwrap();
+        obj.remove("maxDisconnectReconnect");
+        obj.remove("autoLoginCooldownSecs");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.max_disconnect_reconnect, 3);
+        assert_eq!(config.auto_login_cooldown_secs, 60);
+    }
+
+    #[test]
+    fn serde_custom_reconnect_config() {
+        let mut json = serde_json::to_value(&Config::default()).unwrap();
+        json["maxDisconnectReconnect"] = serde_json::json!(5);
+        json["autoLoginCooldownSecs"] = serde_json::json!(120);
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.max_disconnect_reconnect, 5);
+        assert_eq!(config.auto_login_cooldown_secs, 120);
     }
 }

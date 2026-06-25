@@ -8,9 +8,7 @@ use crate::infra::state::{AppState, CommandResult};
 use crate::infra::notification::emit_notification;
 use crate::infra::lifecycle::{start_auto_exit, start_campus_exit};
 
-const MAX_DISCONNECT_RECONNECT: u32 = 3;
 const RECONNECT_REMINDER_INTERVAL: u32 = 10;
-const AUTO_LOGIN_COOLDOWN_SECS: u64 = 60;
 
 pub fn try_auto_login_on_preparation(
     app_handle: &AppHandle,
@@ -34,8 +32,8 @@ pub fn try_auto_login_on_preparation(
     }
 
     let last_attempt = state.network.load().last_auto_login_attempt;
-    if last_attempt.elapsed().as_secs() < AUTO_LOGIN_COOLDOWN_SECS {
-        crate::log_debug!("auto_login", "自动登录冷却中（{}秒内不重复），跳过", AUTO_LOGIN_COOLDOWN_SECS);
+    if last_attempt.elapsed().as_secs() < config.auto_login_cooldown_secs {
+        crate::log_debug!("auto_login", "自动登录冷却中（{}秒内不重复），跳过", config.auto_login_cooldown_secs);
         return;
     }
 
@@ -96,7 +94,7 @@ pub fn try_disconnect_reconnect(
     }
 
     let last_attempt = state.network.load().last_auto_login_attempt;
-    if last_attempt.elapsed().as_secs() < AUTO_LOGIN_COOLDOWN_SECS {
+    if last_attempt.elapsed().as_secs() < config.auto_login_cooldown_secs {
         return false;
     }
 
@@ -111,12 +109,12 @@ pub fn try_disconnect_reconnect(
 
     let reconnect_count = state.network.load().disconnect_reconnect_count + 1;
     state.network.increment_disconnect_reconnect_count();
-    if reconnect_count <= MAX_DISCONNECT_RECONNECT {
+    if reconnect_count <= config.max_disconnect_reconnect {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
-        emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{MAX_DISCONNECT_RECONNECT})"));
+        emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect));
 
         crate::log_info!("auto_login", "断线重连 [{}/{}]: 离线适配器={}, online={}, secondaryOnline={}",
-            reconnect_count, MAX_DISCONNECT_RECONNECT, offline_adapter, online, secondary_online.unwrap_or(true));
+            reconnect_count, config.max_disconnect_reconnect, offline_adapter, online, secondary_online.unwrap_or(true));
 
         let _login_guard = login_guard;
         let t0 = std::time::Instant::now();
@@ -125,7 +123,7 @@ pub fn try_disconnect_reconnect(
         let elapsed = t0.elapsed();
 
         crate::log_info!("login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
-            reconnect_count, MAX_DISCONNECT_RECONNECT, reconnect_result.success, elapsed.as_millis());
+            reconnect_count, config.max_disconnect_reconnect, reconnect_result.success, elapsed.as_millis());
 
         if reconnect_result.success {
             state.network.update(|s| s.disconnect_reconnect_count = 0);
@@ -145,10 +143,10 @@ pub fn try_disconnect_reconnect(
     } else {
         // 超限：重连次数已达上限，释放登录锁，避免阻塞用户手动登录
         drop(login_guard);
-        if reconnect_count == MAX_DISCONNECT_RECONNECT + 1 {
-            crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", MAX_DISCONNECT_RECONNECT);
+        if reconnect_count == config.max_disconnect_reconnect + 1 {
+            crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", config.max_disconnect_reconnect);
             emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录");
-        } else if reconnect_count > MAX_DISCONNECT_RECONNECT + 1 && (reconnect_count - MAX_DISCONNECT_RECONNECT - 1) % RECONNECT_REMINDER_INTERVAL == 0 {
+        } else if reconnect_count > config.max_disconnect_reconnect + 1 && (reconnect_count - config.max_disconnect_reconnect - 1) % RECONNECT_REMINDER_INTERVAL == 0 {
             emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
         }
     }
