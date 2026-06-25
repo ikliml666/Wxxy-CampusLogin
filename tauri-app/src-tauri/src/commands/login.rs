@@ -11,6 +11,7 @@ use crate::network::{
 use crate::auth::portal::check_portal_full;
 use crate::auth::protocol::do_logout_with_retry;
 use crate::auth::traits::{AdapterResolver, DefaultAdapterResolver};
+use crate::auth::failure_tracker;
 use crate::infra::state::{AppState, CommandResult};
 
 fn logout_adapter_with_log(
@@ -270,6 +271,7 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             crate::log_info!("logout", "全量注销成功，已重置网络状态，60秒注销保护期开始");
             s.exit.auto_exit_cancelled.store(true, Ordering::Release);
             s.exit.set_deadline(None);
+            failure_tracker::reset_all(&s);
 
             // 复用闭包内 check_any_adapter_online 的逐适配器检测结果，避免重复 HTTP 请求
             let status = any_online_after_logout.unwrap_or(AdapterOnlineStatus {
