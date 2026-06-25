@@ -1,4 +1,5 @@
 use tauri::{AppHandle, Manager, Window, WindowEvent};
+use crate::infra::command_context::CommandContext;
 use crate::infra::state::AppState;
 
 /// 应用优雅退出
@@ -20,7 +21,7 @@ pub fn handle_window_close_event(window: &Window, event: &WindowEvent) {
         return;
     };
 
-    let s = window.state::<AppState>();
+    let s = CommandContext::from_app(window.app_handle());
     let minimize_to_tray = s.config.load().minimize_to_tray;
     if minimize_to_tray {
         api.prevent_close();

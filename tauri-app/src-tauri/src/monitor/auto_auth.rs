@@ -5,6 +5,7 @@ use chrono::Timelike;
 use crate::network::get_adapters_force;
 use crate::auth::portal::check_portal_full;
 use crate::infra::state::{AppState, CommandResult};
+use crate::infra::command_context::CommandContext;
 use crate::infra::events::EventBus;
 use crate::infra::notification::emit_notification;
 use crate::infra::lifecycle::{start_auto_exit, start_campus_exit};
@@ -152,7 +153,7 @@ pub fn try_disconnect_reconnect(
 }
 
 pub fn run_auto_login_on_start(app_handle: &AppHandle) {
-    let s = app_handle.state::<AppState>();
+    let s = CommandContext::from_app(app_handle);
     let config = s.config.load_full();
 
     if !config.auto_login_on_start {

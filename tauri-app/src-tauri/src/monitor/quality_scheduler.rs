@@ -1,12 +1,12 @@
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use crate::network::check_network_quality_async;
+use crate::infra::command_context::CommandContext;
 use crate::infra::events::EventBus;
-use crate::infra::state::AppState;
 use super::latency::notify_network_quality_change;
 
 /// 执行网络质量检测并 emit 结果
 pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str) {
-    let s = app_handle.state::<AppState>();
+    let s = CommandContext::from_app(app_handle);
     let (skip_ttfb, skip_content, fixed_gateway) = {
         let cfg = s.config.load();
         (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())

@@ -1,5 +1,5 @@
-use tauri::{AppHandle, Manager, State};
-use crate::infra::command_context::AppHandleExt;
+use tauri::{AppHandle, State};
+use crate::infra::command_context::{AppHandleExt, CommandContext};
 use crate::infra::state::AppState;
 use crate::update::updater::DownloadProgress;
 use std::sync::atomic::Ordering;
@@ -9,7 +9,7 @@ pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) ->
     crate::log_info!("updater", "手动检查更新");
     let info = crate::update::updater::check_update_inner().await?;
 
-    let state = app_handle.state::<AppState>();
+    let state = CommandContext::from_app(&app_handle);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

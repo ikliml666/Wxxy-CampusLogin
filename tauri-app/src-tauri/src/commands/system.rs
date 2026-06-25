@@ -1,5 +1,6 @@
-use tauri::{AppHandle, Manager, State, Window};
+use tauri::{AppHandle, State, Window};
 use std::sync::atomic::Ordering;
+use crate::infra::command_context::CommandContext;
 use crate::infra::state::{AppState, CommandResult};
 use crate::infra::notification::emit_notification;
 use crate::platform::autostart;
@@ -113,7 +114,7 @@ pub fn send_notification(title: String, body: String, app_handle: AppHandle) -> 
 
 #[tauri::command]
 pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
-    let s = app_handle.state::<AppState>();
+    let s = CommandContext::from_app(&app_handle);
     // 统一取消：同时取消自动退出和校园网退出
     let result = crate::infra::lifecycle::cancel_auto_exit_inner(&app_handle, &s);
     crate::infra::lifecycle::cancel_campus_exit_with_notification(&app_handle, &s);

@@ -7,6 +7,7 @@ use crate::network::{
     select_adapter,
     check_network_quality_async,
 };
+use crate::infra::command_context::CommandContext;
 use crate::infra::state::{AppState, CommandResult};
 use crate::platform::elevation;
 use crate::platform::dns_config;
@@ -117,7 +118,7 @@ pub async fn dhcp_renew_all() -> Result<serde_json::Value, String> {
 pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     crate::log_info!("network", "开始DHCP续租");
     let campus_gateway = {
-        let state = app_handle.state::<AppState>();
+        let state = CommandContext::from_app(&app_handle);
         let config = state.config.load();
         let gw = config.campus_gateway.clone();
         if gw.is_empty() { crate::config::model::default_campus_gateway() } else { gw }
@@ -137,7 +138,7 @@ pub async fn dhcp_release_renew_adapter(adapter_name: String, app_handle: AppHan
     crate::log_info!("network", "开始DHCP续租");
     crate::network::adapter::validate_adapter_name(&adapter_name)?;
     let campus_gateway = {
-        let state = app_handle.state::<AppState>();
+        let state = CommandContext::from_app(&app_handle);
         let config = state.config.load();
         let gw = config.campus_gateway.clone();
         if gw.is_empty() { crate::config::model::default_campus_gateway() } else { gw }
@@ -153,7 +154,7 @@ pub async fn dhcp_release_renew_adapter(adapter_name: String, app_handle: AppHan
 #[tauri::command]
 pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     crate::log_info!("network", "开始网络质量检测");
-    let state = app_handle.state::<AppState>();
+    let state = CommandContext::from_app(&app_handle);
     if !state.config.load().enable_network_quality {
         return Ok(empty_quality_json("disabled"));
     }
@@ -180,7 +181,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
 
 #[tauri::command]
 pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
-    let s = app_handle.state::<AppState>();
+    let s = CommandContext::from_app(&app_handle);
     let interval = {
         let config = s.config.load();
         if config.latency_test_interval < 10000 { 30000 } else { config.latency_test_interval }

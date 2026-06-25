@@ -2,6 +2,7 @@ use std::path::Path;
 use tauri::{AppHandle, Manager};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use crate::infra::command_context::CommandContext;
 use crate::infra::state::AppState;
 use crate::infra::events::EventBus;
 
@@ -71,7 +72,7 @@ fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             });
         }
         "quit" => {
-            let s = app.state::<AppState>();
+            let s = CommandContext::from_app(app);
             crate::app::shutdown::graceful_exit(app, &s);
         }
         _ => {}

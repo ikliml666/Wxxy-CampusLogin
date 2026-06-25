@@ -6,6 +6,7 @@ use crate::infra::events::EventBus;
 use crate::network::get_adapters_cached;
 use crate::auth::portal::check_portal_full;
 use crate::auth::failure_tracker;
+use crate::infra::command_context::CommandContext;
 use crate::infra::state::{AppState, CommandResult};
 
 struct AdapterOnlineStatus {
@@ -144,7 +145,7 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
     };
 
     if result.success {
-        let s = app_handle.state::<AppState>();
+        let s = CommandContext::from_app(&app_handle);
 
         if adapter_name.is_none() {
             // 全量注销：重置所有全局标志 + 取消自动退出 + 60秒注销保护期

@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use chrono::Timelike;
 use crate::network::{get_adapters_cached, get_adapters_force};
+use crate::infra::command_context::CommandContext;
 use crate::infra::events::EventBus;
 use crate::infra::state::{AppState, CommandResult};
 use crate::infra::lifecycle::{start_campus_exit, cancel_campus_exit};
@@ -414,7 +415,7 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
 }
 
 pub fn run_startup_tasks(app_handle: &AppHandle) {
-    let s = app_handle.state::<AppState>();
+    let s = CommandContext::from_app(app_handle);
     let config = s.config.load_full();
 
     if config.enable_background_check {

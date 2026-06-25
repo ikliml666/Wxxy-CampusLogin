@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 
@@ -16,6 +16,20 @@ impl<'a> CommandContext<'a> {
     pub fn new(app: &'a AppHandle, state: &'a AppState) -> Self {
         Self { app, state }
     }
+
+    /// 从 AppHandle 便捷构造（自动获取 state 引用）。
+    /// 注意：返回的 CommandContext 借用了 app_handle 的生命周期。
+    pub fn from_app(app: &'a AppHandle) -> Self {
+        let state = app.state::<AppState>();
+        Self { app, state: state.inner() }
+    }
+}
+
+/// 让 CommandContext 可以直接访问 AppState 的字段/方法
+/// 如 `ctx.config` 等同于 `ctx.state.config`
+impl<'a> std::ops::Deref for CommandContext<'a> {
+    type Target = AppState;
+    fn deref(&self) -> &Self::Target { self.state }
 }
 
 /// AppHandle 扩展 trait

@@ -1,4 +1,5 @@
 use tauri::{Manager, WindowEvent};
+use crate::infra::command_context::CommandContext;
 use crate::infra::state::AppState;
 
 /// 构建 Tokio runtime
@@ -153,7 +154,7 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
     crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
 
-    let state = app.state::<AppState>();
+    let state = CommandContext::from_app(app.handle());
 
     state.config.store(config.clone());
     crate::network::update_portal_url(&config.portal_url);

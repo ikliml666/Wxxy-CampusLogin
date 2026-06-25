@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use crate::infra::command_context::{AppHandleExt, CommandContext};
 use std::sync::Arc;
 use crate::infra::state::{AppState, CommandResult};
@@ -12,7 +12,7 @@ pub fn start_background_check(app_handle: AppHandle, state: State<'_, AppState>)
 
 #[tauri::command]
 pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
-    let s = app_handle.state::<AppState>();
+    let s = CommandContext::from_app(&app_handle);
     s.task_manager.cancel("background_check");
     let cfg = s.config.update(|cfg| {
         cfg.enable_background_check = false;
@@ -28,7 +28,7 @@ pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle)
 
 #[tauri::command]
 pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
-    let s = app_handle.state::<AppState>();
+    let s = CommandContext::from_app(&app_handle);
     if s.tasks.is_checking.is_active() {
         return Ok(CommandResult::err("检测正在进行中"));
     }
@@ -111,7 +111,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
 
 #[tauri::command]
 pub async fn get_background_status(app_handle: AppHandle) -> Result<serde_json::Value, String> {
-    let state = app_handle.state::<AppState>();
+    let state = CommandContext::from_app(&app_handle);
     Ok(get_background_status_value(&state, &app_handle))
 }
 
