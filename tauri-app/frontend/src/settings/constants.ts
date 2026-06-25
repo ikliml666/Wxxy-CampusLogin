@@ -35,6 +35,8 @@ export const DEFAULT_CONFIG: Config = {
   campusGateway: '10.2.127.254',
   campusExitOnFail: true,
   campusCheckStartMinutes: 480,
+  maxDisconnectReconnect: 3,
+  autoLoginCooldownSecs: 60,
 }
 
 export const ISP_OPTIONS = [

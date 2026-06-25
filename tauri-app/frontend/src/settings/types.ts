@@ -33,6 +33,8 @@ export interface Config {
   campusGateway: string
   campusExitOnFail: boolean
   campusCheckStartMinutes: number
+  maxDisconnectReconnect: number
+  autoLoginCooldownSecs: number
 }
 
 export interface AutoLaunchResult {
