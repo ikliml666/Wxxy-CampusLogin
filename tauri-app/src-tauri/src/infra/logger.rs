@@ -426,7 +426,8 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
         }
     }
 
-    let (old_sender, old_thread): (Option<std::sync::Arc<Option<Sender<LogMessage>>>>, Option<std::thread::JoinHandle<()>>) = {
+    type OldLoggerHandle = (Option<std::sync::Arc<Option<Sender<LogMessage>>>>, Option<std::thread::JoinHandle<()>>);
+    let (old_sender, old_thread): OldLoggerHandle = {
         let (new_sender, new_receiver) = channel::<LogMessage>();
         let new_state = LoggerState {
             log_dir: get_log_dir(app_handle),

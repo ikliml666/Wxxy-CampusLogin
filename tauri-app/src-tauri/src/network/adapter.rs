@@ -11,6 +11,9 @@ use crate::infra::events::EventBus;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+type AdapterQueryResult = Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String>;
+type AdapterCacheEntry = (Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant);
+
 lazy_static! {
     // 名称/描述黑名单：作为 is_visible_in_ncpa 的纵深防御层
     // 规则：nat/tor/virtual 加 \b 词边界，避免误伤 "Native/Intel NAT Offload/Toronto/Tornado" 等合法名
@@ -19,7 +22,7 @@ lazy_static! {
     // 注意：WLAN/以太网的具体可见性判断已移到 is_visible_in_ncpa（注册表检查），
     //      避免按名称误伤多物理网卡场景（如 2 块真实无线网卡可能都叫 "WLAN"）
     static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|\bvirtual\b|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|\bnat\b|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|\btor\b|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp|本地连接|虚拟|伪|假|测试|模拟|隧道").expect("BL_REGEX compilation failed");
-    static ref ADAPTER_CACHE: Mutex<Option<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant)>> = Mutex::new(None);
+    static ref ADAPTER_CACHE: Mutex<Option<AdapterCacheEntry>> = Mutex::new(None);
 }
 
 const ADAPTER_CACHE_TTL_SECS: u64 = 5;
@@ -207,7 +210,7 @@ fn prefix_len_to_mask(len: u32) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn query_adapters_addresses() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
+fn query_adapters_addresses() -> AdapterQueryResult {
     use windows::Win32::NetworkManagement::IpHelper::*;
     use windows::Win32::Networking::WinSock::*;
 
@@ -265,7 +268,7 @@ fn parse_adapter_addresses(
     ptr: *mut windows::Win32::NetworkManagement::IpHelper::IP_ADAPTER_ADDRESSES_LH,
     if_type_ethernet: u32,
     if_type_wireless: u32,
-) -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
+) -> AdapterQueryResult {
     use windows::Win32::NetworkManagement::Ndis::{
         IfOperStatusUp, IfOperStatusNotPresent,
     };
@@ -498,7 +501,7 @@ unsafe fn ipv4_from_in_addr(addr: windows::Win32::Networking::WinSock::IN_ADDR) 
     std::net::Ipv4Addr::from(addr).to_string()
 }
 
-fn query_adapters_cached_inner() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
+fn query_adapters_cached_inner() -> AdapterQueryResult {
     {
         let cache = ADAPTER_CACHE.lock();
         if let Some((adapters, details, disabled, ts)) = cache.as_ref() {
@@ -515,7 +518,7 @@ fn query_adapters_cached_inner() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Ve
     Ok(result)
 }
 
-pub fn get_all_adapters_force() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String> {
+pub fn get_all_adapters_force() -> AdapterQueryResult {
     ADAPTER_CACHE.lock().take();
     query_adapters_cached_inner()
 }

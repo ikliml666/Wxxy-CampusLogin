@@ -380,7 +380,8 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 
     let mut adapters_result: Vec<serde_json::Value> = Vec::new();
     let mut all_dns_ips: Vec<String> = Vec::new();
-    let mut adapter_dns_raw: Vec<(String, String, Vec<String>, Option<Vec<String>>)> = Vec::new();
+    type AdapterDnsRaw = (String, String, Vec<String>, Option<Vec<String>>);
+    let mut adapter_dns_raw: Vec<AdapterDnsRaw> = Vec::new();
 
     for guid_entry in net_key.enum_keys().flatten() {
         let conn_path = format!(r"{guid_entry}\Connection");
