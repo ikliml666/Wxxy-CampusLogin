@@ -99,11 +99,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
             }
         }
 
-        s.exit.is_quitting.store(true, Ordering::Release);
-        s.task_manager.cancel("background_check");
-        s.task_manager.cancel("latency_test");
-        s.task_manager.cancel("adapter_watch");
-        app_h.exit(0);
+        shutdown_and_exit(&app_h, &s).await;
     });
 }
 
@@ -224,11 +220,7 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         if !s.exit.campus_exit_started.load(Ordering::Acquire) && app_h.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
             let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
         }
-        s.exit.is_quitting.store(true, Ordering::Release);
-        s.task_manager.cancel("background_check");
-        s.task_manager.cancel("latency_test");
-        s.task_manager.cancel("adapter_watch");
-        app_h.exit(0);
+        shutdown_and_exit(&app_h, &s).await;
     });
 }
 
@@ -251,8 +243,18 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
     emit_notification(app_handle, "已取消退出", "自动退出已取消，程序将继续运行");
 
     if let Err(e) = app_handle.emit("auto-exit-cancelled", serde_json::json!({})) {
-        crate::log_warn!("auto_exit", "发送取消退出事件失败: {}", e);
+        crate::log_warn!("auto_exit", "发送取消自动退出事件失败: {}", e);
     }
 
     Ok(CommandResult::ok_msg("自动退出已取消"))
+}
+
+/// 统一的后台任务清理与进程退出。
+///
+/// 设置退出标志、通过 BackgroundTaskManager 取消并等待所有后台任务结束，然后退出进程。
+pub async fn shutdown_and_exit(app_handle: &AppHandle, state: &AppState) {
+    state.exit.is_quitting.store(true, Ordering::Release);
+    state.task_manager.shutdown().await;
+    crate::log_info!("lifecycle", "后台任务已清理，执行退出");
+    app_handle.exit(0);
 }

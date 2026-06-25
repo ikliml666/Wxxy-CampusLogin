@@ -4,10 +4,15 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
 
+enum TaskJoinHandle {
+    Async(tauri::async_runtime::JoinHandle<()>),
+    Blocking(std::thread::JoinHandle<()>),
+}
+
 /// 后台任务句柄，仅暴露取消令牌。
-#[derive(Clone)]
 pub struct TaskHandle {
     pub cancel_token: Arc<CancellationToken>,
+    join_handle: TaskJoinHandle,
 }
 
 /// 统一管理周期性后台任务的生命周期。
@@ -29,25 +34,24 @@ impl BackgroundTaskManager {
         F: FnOnce(Arc<CancellationToken>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
+        let inner = self.inner.clone();
         let mut tasks = self.inner.lock();
         if tasks.contains_key(name) {
             return Err(format!("任务 {} 已在运行", name));
         }
 
         let cancel_token = Arc::new(CancellationToken::new());
+        let name_owned = name.to_string();
+        let future = build_future(cancel_token.clone());
+        let join_handle = tauri::async_runtime::spawn(async move {
+            future.await;
+            inner.lock().remove(&name_owned);
+        });
         let handle = TaskHandle {
             cancel_token: cancel_token.clone(),
+            join_handle: TaskJoinHandle::Async(join_handle),
         };
         tasks.insert(name.to_string(), handle);
-        drop(tasks);
-
-        let inner = self.inner.clone();
-        let name = name.to_string();
-        let future = build_future(cancel_token.clone());
-        tauri::async_runtime::spawn(async move {
-            future.await;
-            inner.lock().remove(&name);
-        });
 
         Ok(())
     }
@@ -57,24 +61,24 @@ impl BackgroundTaskManager {
     where
         F: FnOnce(Arc<CancellationToken>) + Send + 'static,
     {
+        let inner = self.inner.clone();
         let mut tasks = self.inner.lock();
         if tasks.contains_key(name) {
             return Err(format!("任务 {} 已在运行", name));
         }
 
         let cancel_token = Arc::new(CancellationToken::new());
+        let cancel_token_for_thread = cancel_token.clone();
+        let name_owned = name.to_string();
+        let join_handle = std::thread::spawn(move || {
+            f(cancel_token_for_thread);
+            inner.lock().remove(&name_owned);
+        });
         let handle = TaskHandle {
-            cancel_token: cancel_token.clone(),
+            cancel_token,
+            join_handle: TaskJoinHandle::Blocking(join_handle),
         };
         tasks.insert(name.to_string(), handle);
-        drop(tasks);
-
-        let inner = self.inner.clone();
-        let name = name.to_string();
-        std::thread::spawn(move || {
-            f(cancel_token.clone());
-            inner.lock().remove(&name);
-        });
 
         Ok(())
     }
@@ -90,16 +94,31 @@ impl BackgroundTaskManager {
         }
     }
 
-    /// 取消所有已注册任务并清空管理器。
+    /// 取消所有已注册任务并清空管理器，但不等待任务结束。
     pub fn cancel_all(&self) {
         let handles: Vec<TaskHandle> = {
             let mut tasks = self.inner.lock();
-            let values = tasks.values().cloned().collect();
-            tasks.clear();
-            values
+            tasks.drain().map(|(_, v)| v).collect()
         };
         for handle in handles {
             handle.cancel_token.cancel();
+        }
+    }
+
+    /// 取消所有已注册任务并等待它们全部结束。
+    pub async fn shutdown(&self) {
+        let handles: Vec<TaskHandle> = {
+            let mut tasks = self.inner.lock();
+            tasks.drain().map(|(_, v)| v).collect()
+        };
+        for handle in &handles {
+            handle.cancel_token.cancel();
+        }
+        for handle in handles {
+            match handle.join_handle {
+                TaskJoinHandle::Async(jh) => { let _ = jh.await; }
+                TaskJoinHandle::Blocking(jh) => { let _ = jh.join(); }
+            }
         }
     }
 
@@ -148,5 +167,16 @@ mod tests {
         manager.cancel_all();
         assert!(!manager.is_running("a"));
         assert!(!manager.is_running("b"));
+    }
+
+    #[test]
+    fn task_manager_shutdown_waits_for_tasks() {
+        let manager = BackgroundTaskManager::new();
+        manager.spawn("test", |cancel| async move {
+            cancel.cancelled().await;
+        }).unwrap();
+        assert!(manager.is_running("test"));
+        tauri::async_runtime::block_on(manager.shutdown());
+        assert!(!manager.is_running("test"));
     }
 }
