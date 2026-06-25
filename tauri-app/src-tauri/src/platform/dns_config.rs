@@ -254,11 +254,11 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let net_key = hklm
         .open_subkey(r"SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}")
-        .map_err(|e| format!("打开网络注册表失败: {}", e))?;
+        .map_err(|e| format!("打开网络注册表失败: {e}"))?;
 
     let tcpip_key = hklm
         .open_subkey(r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces")
-        .map_err(|e| format!("打开TCP/IP注册表失败: {}", e))?;
+        .map_err(|e| format!("打开TCP/IP注册表失败: {e}"))?;
 
     fn should_filter_ip(ip: &str) -> bool {
         let trimmed = ip.trim();
@@ -383,7 +383,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
     let mut adapter_dns_raw: Vec<(String, String, Vec<String>, Option<Vec<String>>)> = Vec::new();
 
     for guid_entry in net_key.enum_keys().flatten() {
-        let conn_path = format!(r"{}\Connection", guid_entry);
+        let conn_path = format!(r"{guid_entry}\Connection");
         if let Ok(conn_key) = net_key.open_subkey(&conn_path) {
             let name: String = conn_key.get_value("Name").unwrap_or_default();
             if name.is_empty() { continue; }

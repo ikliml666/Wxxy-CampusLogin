@@ -112,7 +112,7 @@ pub fn try_disconnect_reconnect(
     state.network.increment_disconnect_reconnect_count();
     if reconnect_count <= MAX_DISCONNECT_RECONNECT {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
-        emit_notification(app_handle, "检测到断线", &format!("{} 已离线，正在自动重连 ({}/{})", offline_adapter, reconnect_count, MAX_DISCONNECT_RECONNECT));
+        emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{MAX_DISCONNECT_RECONNECT})"));
 
         crate::log_info!("auto_login", "断线重连 [{}/{}]: 离线适配器={}, online={}, secondaryOnline={}",
             reconnect_count, MAX_DISCONNECT_RECONNECT, offline_adapter, online, secondary_online.unwrap_or(true));
@@ -325,8 +325,8 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     portal_elapsed.as_millis(),
                     sec_res.as_ref().map(|r| match r {
                         Ok(Ok(s)) => format!("online={}, msg={}", s.online, s.message),
-                        Ok(Err(e)) => format!("err={}", e),
-                        Err(e) => format!("join_err={}", e),
+                        Ok(Err(e)) => format!("err={e}"),
+                        Err(e) => format!("join_err={e}"),
                     }));
 
                 if portal_status.online {

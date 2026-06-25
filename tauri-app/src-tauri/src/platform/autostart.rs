@@ -20,11 +20,11 @@ pub fn set_auto_start(exe_path: &str) -> Result<(), String> {
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = hkcu.open_subkey_with_flags(AUTOSTART_REG_KEY, KEY_SET_VALUE)
-        .map_err(|e| format!("打开注册表失败: {}", e))?;
+        .map_err(|e| format!("打开注册表失败: {e}"))?;
 
-    let value = format!("\"{}\" --autostart", exe_path);
+    let value = format!("\"{exe_path}\" --autostart");
     key.set_value(AUTOSTART_REG_VALUE, &value)
-        .map_err(|e| format!("写入注册表失败: {}", e))?;
+        .map_err(|e| format!("写入注册表失败: {e}"))?;
 
     Ok(())
 }
@@ -35,11 +35,11 @@ pub fn remove_auto_start() -> Result<(), String> {
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = hkcu.open_subkey_with_flags(AUTOSTART_REG_KEY, KEY_SET_VALUE)
-        .map_err(|e| format!("打开注册表失败: {}", e))?;
+        .map_err(|e| format!("打开注册表失败: {e}"))?;
 
     match key.delete_value(AUTOSTART_REG_VALUE) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("删除自启动注册表项失败: {}", e)),
+        Err(e) => Err(format!("删除自启动注册表项失败: {e}")),
     }
 }

@@ -29,8 +29,8 @@ pub fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
     use windows::core::PCWSTR;
 
     let verb: Vec<u16> = "runas\0".encode_utf16().collect();
-    let file: Vec<u16> = format!("{}\0", cmd).encode_utf16().collect();
-    let params: Vec<u16> = format!("{}\0", args).encode_utf16().collect();
+    let file: Vec<u16> = format!("{cmd}\0").encode_utf16().collect();
+    let params: Vec<u16> = format!("{args}\0").encode_utf16().collect();
 
     unsafe {
         let result = ShellExecuteW(
@@ -43,7 +43,7 @@ pub fn run_elevated(cmd: &str, args: &str) -> Result<(), String> {
         );
         let val = result.0 as isize;
         if val <= 32 {
-            return Err(format!("ShellExecuteW runas 失败，错误码: {}", val));
+            return Err(format!("ShellExecuteW runas 失败，错误码: {val}"));
         }
     }
     Ok(())
@@ -102,7 +102,7 @@ pub fn shell_exec_elevated(
         ((*vtbl).release)(p_unknown);
 
         if result.is_err() {
-            return Err(format!("ShellExec 失败: {:?}", result));
+            return Err(format!("ShellExec 失败: {result:?}"));
         }
 
         Ok(())
@@ -134,19 +134,19 @@ pub(crate) fn parse_guid(s: &str) -> Result<windows::core::GUID, String> {
     let s = s.trim().trim_start_matches('{').trim_end_matches('}');
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 5 {
-        return Err(format!("GUID格式无效: {}", s));
+        return Err(format!("GUID格式无效: {s}"));
     }
-    let data1 = u32::from_str_radix(parts[0], 16).map_err(|e| format!("GUID data1解析失败: {}", e))?;
-    let data2 = u16::from_str_radix(parts[1], 16).map_err(|e| format!("GUID data2解析失败: {}", e))?;
-    let data3 = u16::from_str_radix(parts[2], 16).map_err(|e| format!("GUID data3解析失败: {}", e))?;
+    let data1 = u32::from_str_radix(parts[0], 16).map_err(|e| format!("GUID data1解析失败: {e}"))?;
+    let data2 = u16::from_str_radix(parts[1], 16).map_err(|e| format!("GUID data2解析失败: {e}"))?;
+    let data3 = u16::from_str_radix(parts[2], 16).map_err(|e| format!("GUID data3解析失败: {e}"))?;
     let data4_str = &parts[3..=4].join("");
     if data4_str.len() != 16 {
-        return Err(format!("GUID data4长度无效: {}", data4_str));
+        return Err(format!("GUID data4长度无效: {data4_str}"));
     }
     let mut data4 = [0u8; 8];
     for i in 0..8 {
         data4[i] = u8::from_str_radix(&data4_str[i * 2..i * 2 + 2], 16)
-            .map_err(|e| format!("GUID data4[{}]解析失败: {}", i, e))?;
+            .map_err(|e| format!("GUID data4[{i}]解析失败: {e}"))?;
     }
     Ok(windows::core::GUID::from_values(data1, data2, data3, data4))
 }

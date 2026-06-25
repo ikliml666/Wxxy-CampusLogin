@@ -165,7 +165,7 @@ fn detect_gpu_info_inner() -> GpuInfo {
             0x10DE => "NVIDIA".to_string(),
             0x8086 => "Intel".to_string(),
             0x1002 | 0x1022 => "AMD".to_string(),
-            _ => format!("Unknown({:#06X})", vendor_id),
+            _ => format!("Unknown({vendor_id:#06X})"),
         };
 
         let vendor_lower = vendor.to_lowercase();

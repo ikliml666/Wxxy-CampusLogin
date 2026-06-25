@@ -137,7 +137,7 @@ fn build_adapter_details(
     let mut details = vec![format!("{}: {}", adapter1_name, adapter1_message)];
     if let Some(msg) = adapter2_message {
         if dual_adapter && !adapter2_name.is_empty() {
-            details.push(format!("{}: {}", adapter2_name, msg));
+            details.push(format!("{adapter2_name}: {msg}"));
         }
     }
     details.join(", ")
@@ -331,7 +331,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                 Some(ConnectionCampusStatus {
                     on_campus: true,
                     name: Some(ssid.clone()),
-                    message: format!("已连接到校园WiFi({})", ssid),
+                    message: format!("已连接到校园WiFi({ssid})"),
                 })
             }
             Some(ssid) => {
@@ -344,7 +344,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                         crate::log_info!("campus", "[校园网检测] WiFi SSID不匹配，尝试子网检查: adapter={}, ip={}, /18匹配={}", a.name, a.ip, same_subnet);
                         if same_subnet {
                             found = true;
-                            msg = format!("WiFi\"{}\"名称不匹配但与网关在同一/18网段", ssid);
+                            msg = format!("WiFi\"{ssid}\"名称不匹配但与网关在同一/18网段");
                             break;
                         }
                     }
@@ -353,7 +353,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                     let gateway_ok = check_gateway(campus_gw, &mut gateway_checked);
                     if gateway_ok {
                         found = true;
-                        msg = format!("WiFi\"{}\"名称不匹配但网关{}可达", ssid, campus_gw);
+                        msg = format!("WiFi\"{ssid}\"名称不匹配但网关{campus_gw}可达");
                     }
                 }
                 if found {
@@ -362,7 +362,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                     Some(ConnectionCampusStatus {
                         on_campus: false,
                         name: Some(ssid.clone()),
-                        message: format!("当前WiFi\"{}\"非校园网络", ssid),
+                        message: format!("当前WiFi\"{ssid}\"非校园网络"),
                     })
                 }
             }
@@ -389,7 +389,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                         let gateway_ok = check_gateway(campus_gw, &mut gateway_checked);
                         if gateway_ok {
                             found = true;
-                            msg = format!("WiFi通过网关{}连接校园网", campus_gw);
+                            msg = format!("WiFi通过网关{campus_gw}连接校园网");
                         }
                     }
                     if found {
@@ -413,7 +413,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                     Some(ConnectionCampusStatus {
                         on_campus: true,
                         name: Some(profile.clone()),
-                        message: format!("已连接到校园有线网络({})", profile),
+                        message: format!("已连接到校园有线网络({profile})"),
                     })
                 }
                 _ => {
@@ -436,14 +436,14 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                         let gateway_ok = check_gateway(campus_gw, &mut gateway_checked);
                         if gateway_ok {
                             found = true;
-                            msg = format!("有线通过网关{}连接校园网", campus_gw);
+                            msg = format!("有线通过网关{campus_gw}连接校园网");
                         }
                     }
                     if found {
                         Some(ConnectionCampusStatus { on_campus: true, name: wired_profile.clone(), message: msg })
                     } else {
                         let fail_msg = match &wired_profile {
-                            Some(p) => format!("当前有线网络\"{}\"非校园网络", p),
+                            Some(p) => format!("当前有线网络\"{p}\"非校园网络"),
                             None => "有线网络未连接校园网".to_string(),
                         };
                         Some(ConnectionCampusStatus { on_campus: false, name: wired_profile.clone(), message: fail_msg })
@@ -532,7 +532,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
             wired: None,
             on_campus: true,
             current_ssid: None,
-            message: format!("校园网检测静默期（早于{}:{:02}），跳过验证", hour, minute),
+            message: format!("校园网检测静默期（早于{hour}:{minute:02}），跳过验证"),
         }
     } else {
         check_campus_network(&config, &adapters)
