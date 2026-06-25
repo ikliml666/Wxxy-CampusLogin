@@ -35,6 +35,8 @@ export interface Config {
   campusCheckStartMinutes: number
   maxDisconnectReconnect: number
   autoLoginCooldownSecs: number
+  logRetentionDays: number
+  configVersion: number
 }
 
 export interface AutoLaunchResult {
@@ -44,6 +46,7 @@ export interface AutoLaunchResult {
 
 export interface InitData {
   config: Partial<Config>
+  version: string
   adapters: import('@/network').Adapter[]
   adapterDetails: import('@/network').AdapterDetail[]
   disabledAdapters: import('@/network').DisabledAdapter[]

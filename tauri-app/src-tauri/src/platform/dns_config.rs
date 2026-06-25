@@ -111,6 +111,7 @@ pub fn set_dns_via_api(
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 pub fn set_doh_via_api(
     adapter_guid: &str,
     dns_servers: &[&str],

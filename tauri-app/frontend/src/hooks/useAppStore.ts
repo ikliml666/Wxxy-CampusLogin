@@ -93,7 +93,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   adapterDetails: [],
   accounts: [],
   activeAccount: '',
-  bgStatus: { isRunning: false, checkCount: 0, serverAvailable: false, online: false, adapterStatuses: [] },
+  bgStatus: { isRunning: false, checkCount: 0, serverAvailable: false, online: false, adapterStatuses: [], currentSsid: null },
   networkQuality: null,
   dnsDohStatus: null,
   dnsChecking: false,

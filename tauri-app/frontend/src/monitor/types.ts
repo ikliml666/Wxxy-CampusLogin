@@ -18,7 +18,7 @@ export interface BackgroundStatus {
   serverAvailable: boolean
   online: boolean
   adapterStatuses?: AdapterOnlineStatus[]
-  currentSsid?: string
+  currentSsid: string | null
   onCampusNetwork?: boolean
   enableNetworkNameCheck?: boolean
   requiredNetworkName?: string

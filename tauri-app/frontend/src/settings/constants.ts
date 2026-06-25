@@ -37,6 +37,8 @@ export const DEFAULT_CONFIG: Config = {
   campusCheckStartMinutes: 480,
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
+  logRetentionDays: 7,
+  configVersion: 2,
 }
 
 export const ISP_OPTIONS = [

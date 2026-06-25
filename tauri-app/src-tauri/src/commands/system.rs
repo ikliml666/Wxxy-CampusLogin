@@ -22,17 +22,6 @@ pub fn close_window(window: Window, state: State<'_, AppState>) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn window_move(window: Window, delta_x: i32, delta_y: i32) -> Result<(), String> {
-    if delta_x.abs() > 5000 || delta_y.abs() > 5000 {
-        return Err("窗口移动距离超出合理范围".to_string());
-    }
-    let pos = window.outer_position().map_err(|e| e.to_string())?;
-    window.set_position(tauri::Position::Physical(
-        tauri::PhysicalPosition::new(pos.x + delta_x, pos.y + delta_y)
-    )).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub fn open_external(url: String) -> Result<bool, String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("仅支持http/https 链接".to_string());

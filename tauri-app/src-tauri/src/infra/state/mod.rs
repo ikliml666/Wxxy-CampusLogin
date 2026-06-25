@@ -186,6 +186,7 @@ impl CommandResult {
     pub fn ok_msg(msg: &str) -> Self {
         Self { success: true, message: Some(msg.to_string()), data: None }
     }
+    #[allow(dead_code)]
     pub fn ok_data(data: serde_json::Value) -> Self {
         Self { success: true, message: None, data: Some(data) }
     }
