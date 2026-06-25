@@ -171,9 +171,11 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
 
 pub fn schedule_update_cleanup() {
     let temp_dir = std::env::temp_dir().join("campus-login-update");
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(600));
-        let _ = std::fs::remove_dir_all(&temp_dir);
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            std::fs::remove_dir_all(&temp_dir)
+        }).await;
         crate::log_debug!("updater", "更新临时目录已清理");
     });
 }

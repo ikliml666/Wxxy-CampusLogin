@@ -43,8 +43,8 @@ pub fn run(core_count: usize) {
             } else {
                 // 窗口可能尚未创建（NSIS安装器自动启动时可能出现此情况），延迟重试
                 let app_h = app.clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(2));
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     if let Some(window) = app_h.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();

@@ -58,8 +58,12 @@ pub fn spawn_heartbeat_thread(app_handle: AppHandle) {
 ///
 /// 启动 3 秒后检查窗口是否可见，不可见则强制显示，防止 WebView2 初始化时序问题导致黑屏。
 pub fn spawn_window_safety_thread(app_handle: AppHandle) {
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(3));
+    let task_manager = app_handle.state::<AppState>().task_manager.clone();
+    if let Err(e) = task_manager.spawn("window_safety", move |cancel_token| async move {
+        tokio::select! {
+            _ = cancel_token.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {}
+        }
         for attempt in 1..=3 {
             if let Some(window) = app_handle.get_webview_window("main") {
                 let is_visible = window.is_visible().unwrap_or(false);
@@ -71,8 +75,13 @@ pub fn spawn_window_safety_thread(app_handle: AppHandle) {
                 let _ = window.set_focus();
             }
             if attempt < 3 {
-                std::thread::sleep(Duration::from_secs(3));
+                tokio::select! {
+                    _ = cancel_token.cancelled() => return,
+                    _ = tokio::time::sleep(Duration::from_secs(3)) => {}
+                }
             }
         }
-    });
+    }) {
+        crate::log_warn!("heartbeat", "启动窗口兜底任务失败: {}", e);
+    }
 }
