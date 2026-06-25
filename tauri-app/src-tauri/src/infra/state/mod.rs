@@ -37,6 +37,12 @@ impl TaskLock {
     pub fn is_active(&self) -> bool {
         self.flag.load(Ordering::Acquire)
     }
+
+    /// 强制释放锁，仅供测试使用。
+    #[cfg(test)]
+    pub fn force_release(&self) {
+        self.flag.store(false, Ordering::Release);
+    }
 }
 
 impl Drop for TaskGuard<'_> {
