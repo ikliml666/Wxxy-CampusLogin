@@ -8,6 +8,7 @@ use crate::network::{
 };
 use crate::auth::portal::check_portal_full;
 use crate::auth::protocol::do_login_with_retry;
+use crate::auth::traits::{AdapterResolver, DefaultAdapterResolver};
 use crate::infra::events::EventBus;
 use crate::infra::state::{AppState, CommandResult};
 use crate::commands::system::append_login_history;
@@ -357,7 +358,7 @@ pub fn full_login_inner(state: &AppState, app_handle: &AppHandle, adapter_name: 
         }
     }
 
-    let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+    let (adapter1_name, adapter2_name) = DefaultAdapterResolver.resolve_adapter_names(&adapters, &config);
 
     let a1 = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty());
     if a1.is_none() {
