@@ -5,6 +5,7 @@ use crate::network::{
     Adapter, get_adapters_cached,
     ensure_ethernet_ip_for_login,
     wait_for_adapter,
+    find_with_valid_ip, find_dual_adapters,
 };
 use crate::auth::protocol::do_logout_with_retry;
 use crate::auth::traits::{AdapterResolver, DefaultAdapterResolver};
@@ -48,7 +49,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
     };
 
     if let Some(name) = adapter_name {
-        let adapter = adapters.iter().find(|a| a.name == name && !a.ip.is_empty());
+        let adapter = find_with_valid_ip(&adapters, name);
         match adapter {
             Some(a) => {
                 let result = login_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
@@ -62,40 +63,38 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
 
     let (adapter1_name, adapter2_name) = DefaultAdapterResolver.resolve_adapter_names(&adapters, &config);
 
-    let a1 = match adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty()) {
+    let (a1_opt, a2_opt) = find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
+    let a1 = match a1_opt {
         Some(a) => a,
         None => return CommandResult::err("未找到有效IP地址的适配器"),
     };
 
-    if config.dual_adapter && !adapter2_name.is_empty() && adapter2_name != adapter1_name {
-        let a2 = adapters.iter().find(|a| a.name == adapter2_name && !a.ip.is_empty());
-        if let Some(a2_ref) = a2 {
-            let a1_ref = a1;
+    if let Some(a2_ref) = a2_opt {
+        let a1_ref = a1;
 
-            // 双适配器错峰并行登录：适配器2延迟1s启动，避免同时登录触发系统封禁
-            // 使用 DualAdapterExecutor 统一并发执行与结果合并
-            let a1_clone = a1_ref.clone();
-            let a2_clone = a2_ref.clone();
-            let config_clone1 = config.clone();
-            let config_clone2 = config.clone();
-            let app_h1 = app_handle.clone();
-            let app_h2 = app_handle.clone();
-            let is_quitting1 = state.exit.is_quitting.clone();
-            let is_quitting2 = state.exit.is_quitting.clone();
-            let dual_result = crate::auth::dual_adapter_executor::execute_dual(
-                Box::new(move || login_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
-                Box::new(move || login_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
-                state.exit.is_quitting.clone(),
-            );
+        // 双适配器错峰并行登录：适配器2延迟1s启动，避免同时登录触发系统封禁
+        // 使用 DualAdapterExecutor 统一并发执行与结果合并
+        let a1_clone = a1_ref.clone();
+        let a2_clone = a2_ref.clone();
+        let config_clone1 = config.clone();
+        let config_clone2 = config.clone();
+        let app_h1 = app_handle.clone();
+        let app_h2 = app_handle.clone();
+        let is_quitting1 = state.exit.is_quitting.clone();
+        let is_quitting2 = state.exit.is_quitting.clone();
+        let dual_result = crate::auth::dual_adapter_executor::execute_dual(
+            Box::new(move || login_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
+            Box::new(move || login_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
+            state.exit.is_quitting.clone(),
+        );
 
-            let result = dual_result.build_command_result();
-            // 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器 MAC 重置
-            update_dual_adapter_auth_failure(
-                state, app_handle, &dual_result.primary, &dual_result.secondary,
-                &adapter1_name, &adapter2_name, &config.campus_gateway,
-            );
-            return result;
-        }
+        let result = dual_result.build_command_result();
+        // 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器 MAC 重置
+        update_dual_adapter_auth_failure(
+            state, app_handle, &dual_result.primary, &dual_result.secondary,
+            &adapter1_name, &adapter2_name, &config.campus_gateway,
+        );
+        return result;
     }
 
     let a1_ref = a1;
@@ -152,7 +151,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
     }
 
     if let Some(name) = adapter_name {
-        let adapter = adapters.iter().find(|a| a.name == name && !a.ip.is_empty());
+        let adapter = find_with_valid_ip(&adapters, name);
         match adapter {
             Some(a) => {
                 return logout_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
@@ -170,7 +169,8 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
 
     let (adapter1_name, adapter2_name) = DefaultAdapterResolver.resolve_adapter_names(&adapters, &config);
 
-    let a1 = match adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty()) {
+    let (a1_opt, a2_opt) = find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
+    let a1 = match a1_opt {
         Some(a) => a,
         None => {
             crate::log_warn!("logout", "未找到有效IP地址的适配器");
@@ -178,29 +178,26 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
         }
     };
 
-    if config.dual_adapter && !adapter2_name.is_empty() && adapter2_name != adapter1_name {
-        let a2 = adapters.iter().find(|a| a.name == adapter2_name && !a.ip.is_empty());
-        if let Some(a2_ref) = a2 {
-            let a1_ref = a1;
+    if let Some(a2_ref) = a2_opt {
+        let a1_ref = a1;
 
-            // 双适配器注销并行，适配器2延迟1s错峰（与登录侧策略一致）
-            // 使用 DualAdapterExecutor 统一并发执行与结果合并，修复原 logout 不可中断 bug
-            let a1_clone = a1_ref.clone();
-            let a2_clone = a2_ref.clone();
-            let config_clone1 = config.clone();
-            let config_clone2 = config.clone();
-            let app_h1 = app_handle.clone();
-            let app_h2 = app_handle.clone();
-            let is_quitting1 = state.exit.is_quitting.clone();
-            let is_quitting2 = state.exit.is_quitting.clone();
-            let dual_result = crate::auth::dual_adapter_executor::execute_dual(
-                Box::new(move || logout_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
-                Box::new(move || logout_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
-                state.exit.is_quitting.clone(),
-            );
+        // 双适配器注销并行，适配器2延迟1s错峰（与登录侧策略一致）
+        // 使用 DualAdapterExecutor 统一并发执行与结果合并，修复原 logout 不可中断 bug
+        let a1_clone = a1_ref.clone();
+        let a2_clone = a2_ref.clone();
+        let config_clone1 = config.clone();
+        let config_clone2 = config.clone();
+        let app_h1 = app_handle.clone();
+        let app_h2 = app_handle.clone();
+        let is_quitting1 = state.exit.is_quitting.clone();
+        let is_quitting2 = state.exit.is_quitting.clone();
+        let dual_result = crate::auth::dual_adapter_executor::execute_dual(
+            Box::new(move || logout_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
+            Box::new(move || logout_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
+            state.exit.is_quitting.clone(),
+        );
 
-            return dual_result.build_command_result();
-        }
+        return dual_result.build_command_result();
     }
 
     let a1_ref = a1;

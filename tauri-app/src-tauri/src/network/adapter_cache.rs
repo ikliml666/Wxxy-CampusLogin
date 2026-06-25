@@ -176,7 +176,7 @@ pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &
         }
         std::thread::sleep(interval);
         if let Ok(adapters) = get_adapters_force() {
-            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+            if let Some(a) = crate::network::find_by_name(&adapters, adapter_name) {
                 if !a.ip.is_empty() && a.ip != initial_ip {
                     return true;
                 }

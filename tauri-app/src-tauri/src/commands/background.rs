@@ -54,7 +54,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
         if let Ok(adapters) = crate::network::get_adapters_cached() {
             let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
-            if let Some(a1) = adapters.iter().find(|a| a.name == adapter1_name) {
+            if let Some(a1) = crate::network::find_by_name(&adapters, &adapter1_name) {
                 if a1.ip.is_empty() {
                     adapter_statuses.push(watcher::adapter_disconnected_entry(&adapter1_name, a1.wireless));
                 } else {
@@ -66,7 +66,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
 
             if config.dual_adapter && !adapter2_name.is_empty() {
                 let a2_online_state = state.network.load().last_a2_online;
-                if let Some(a2) = adapters.iter().find(|a| a.name == adapter2_name) {
+                if let Some(a2) = crate::network::find_by_name(&adapters, &adapter2_name) {
                     if a2.ip.is_empty() {
                         adapter_statuses.push(watcher::adapter_disconnected_entry(&adapter2_name, a2.wireless));
                     } else {

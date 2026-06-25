@@ -42,12 +42,7 @@ fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cance
 
     let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
-    let a1 = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty());
-    let a2 = if config.dual_adapter && !adapter2_name.is_empty() {
-        adapters.iter().find(|a| a.name == adapter2_name && !a.ip.is_empty())
-    } else {
-        None
-    };
+    let (a1, a2) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
 
     let campus_result = if config.campus_check_start_minutes > 0 && (chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16) < config.campus_check_start_minutes {
         let hour = config.campus_check_start_minutes / 60;

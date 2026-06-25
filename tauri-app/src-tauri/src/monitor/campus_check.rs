@@ -20,7 +20,7 @@ pub struct CampusCheckResult {
 }
 
 pub(super) fn adapter_campus_status<'a>(adapter_name: &str, adapters: &'a [Adapter], campus_result: &'a CampusCheckResult) -> Option<&'a ConnectionCampusStatus> {
-    let info = adapters.iter().find(|a| a.name == adapter_name)?;
+    let info = crate::network::find_by_name(adapters, adapter_name)?;
     let is_wireless = info.wireless;
     let status = if is_wireless { &campus_result.wifi } else { &campus_result.wired };
     status.as_ref()

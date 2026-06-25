@@ -169,7 +169,7 @@ pub fn poll_ip_change(adapter_name: &str, old_ip: &str, timeout_ms: u64) -> Opti
     let timeout = std::time::Duration::from_millis(timeout_ms);
     while start.elapsed() < timeout {
         if let Ok(adapters) = get_adapters_force() {
-            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+            if let Some(a) = crate::network::find_by_name(&adapters, adapter_name) {
                 if !a.ip.is_empty() && a.ip != old_ip {
                     return Some(a.ip.clone());
                 }
@@ -186,7 +186,7 @@ pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
     let timeout = std::time::Duration::from_millis(timeout_ms);
     while start.elapsed() < timeout {
         if let Ok(adapters) = get_adapters_force() {
-            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
+            if let Some(a) = crate::network::find_by_name(&adapters, adapter_name) {
                 if !a.ip.is_empty() {
                     return true;
                 }
@@ -322,7 +322,7 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
         }
     } else if elevated_done {
         if let Ok(refreshed) = get_adapters_force() {
-            if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
+            if let Some(a) = crate::network::find_by_name(&refreshed, &adapter.name) {
                 if !a.ip.is_empty() {
                     new_ip = a.ip.clone();
                     ip_changed = new_ip != old_ip;
@@ -359,7 +359,7 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
                 new_ip = changed_ip;
                 ip_changed = true;
             } else if let Ok(refreshed) = get_adapters_force() {
-                if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
+                if let Some(a) = crate::network::find_by_name(&refreshed, &adapter.name) {
                     if !a.ip.is_empty() {
                         new_ip = a.ip.clone();
                         ip_changed = new_ip != old_ip;
@@ -402,7 +402,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
 
 pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Result<serde_json::Value, String> {
     let adapters = get_adapters_cached()?;
-    let adapter = adapters.iter().find(|a| a.name == adapter_name)
+    let adapter = crate::network::find_by_name(&adapters, adapter_name)
         .ok_or_else(|| format!("未找到适配器: {adapter_name}"))?;
     Ok(renew_adapter_with_mac(adapter, campus_gateway))
 }

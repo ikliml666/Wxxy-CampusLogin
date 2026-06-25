@@ -268,15 +268,12 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         let user_password = config.password.clone();
         let operator = config.operator.clone();
 
-        if let Some(a1) = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty()) {
+        let (a1_found, a2_ref) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
+        if let Some(a1) = a1_found {
             let ip1 = a1.ip.clone();
             let name1 = a1.name.clone();
             let ip1_for_log = ip1.clone();
-            let a2_opt = if config.dual_adapter && !adapter2_name.is_empty() {
-                adapters.iter().find(|a| a.name == adapter2_name && !a.ip.is_empty()).cloned()
-            } else {
-                None
-            };
+            let a2_opt = a2_ref.cloned();
 
             let mut name2_opt = None;
             let name1_for_msg = name1.clone();

@@ -35,6 +35,32 @@ pub use crate::network::subnet::{
     is_same_subnet_18,
 };
 
+/// 按名称查找适配器
+pub fn find_by_name<'a>(adapters: &'a [Adapter], name: &str) -> Option<&'a Adapter> {
+    adapters.iter().find(|a| a.name == name)
+}
+
+/// 按名称查找具有有效 IP 的适配器
+pub fn find_with_valid_ip<'a>(adapters: &'a [Adapter], name: &str) -> Option<&'a Adapter> {
+    adapters.iter().find(|a| a.name == name && !a.ip.is_empty())
+}
+
+/// 查找双适配器（a1, a2），a2 仅在 dual_adapter 且名称非空且与 a1 不同时查找
+pub fn find_dual_adapters<'a>(
+    adapters: &'a [Adapter],
+    config: &crate::config::Config,
+    adapter1_name: &str,
+    adapter2_name: &str,
+) -> (Option<&'a Adapter>, Option<&'a Adapter>) {
+    let a1 = find_with_valid_ip(adapters, adapter1_name);
+    let a2 = if config.dual_adapter && !adapter2_name.is_empty() && adapter2_name != adapter1_name {
+        find_with_valid_ip(adapters, adapter2_name)
+    } else {
+        None
+    };
+    (a1, a2)
+}
+
 pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
     // 自动检测：优先选有线网卡，其次任意有 IP 的网卡，最后任意第一个
     let auto_detect_a1 = || -> String {
@@ -93,7 +119,7 @@ pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (
     if adapters.is_empty() { return (String::new(), String::new()); }
 
     if !config.adapter1.is_empty() && config.adapter1 != "自动检测" {
-        if let Some(a) = adapters.iter().find(|a| a.name == config.adapter1 && !a.ip.is_empty()) {
+        if let Some(a) = find_with_valid_ip(adapters, &config.adapter1) {
             return (a.ip.clone(), a.name.clone());
         }
     }
@@ -123,7 +149,7 @@ pub fn ensure_ethernet_ip_for_login(
             if name.is_empty() {
                 return None;
             }
-            let adapter = adapters.iter().find(|a| a.name == **name)?;
+            let adapter = find_by_name(adapters, name)?;
             if !adapter.wireless && adapter.ip.is_empty() {
                 Some(name.to_string())
             } else {

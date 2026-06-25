@@ -23,7 +23,7 @@ fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
     let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
     let check_one = |name: &str| -> bool {
-        adapters.iter().find(|a| a.name == name && !a.ip.is_empty())
+        crate::network::find_with_valid_ip(&adapters, name)
             .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None, None)
                 .map(|ps| ps.online).unwrap_or(false))
             .unwrap_or(false)

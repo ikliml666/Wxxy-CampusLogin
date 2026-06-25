@@ -17,6 +17,7 @@ pub use adapter::{
     is_same_subnet_18,
     get_wireless_ssid,
     get_wired_network_profile,
+    find_by_name, find_with_valid_ip, find_dual_adapters,
 };
 
 pub use adapter_cache::{
