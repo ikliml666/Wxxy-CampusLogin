@@ -1,149 +1,26 @@
-//! 适配器缓存、DHCP/MAC 重置、子网/SSID 工具
+//! 适配器选择、DHCP/MAC 重置、子网/SSID 工具
 //!
-//! 本模块保留 adapter.rs 的历史职责（缓存访问、DHCP/MAC、子网/SSID），
-//! 适配器发现与注册表检查已迁移到 `network::discovery`。
+//! 本模块保留 adapter.rs 的历史职责（适配器选择、DHCP/MAC、子网/SSID），
+//! 适配器发现已迁移到 `network::discovery`，缓存访问已迁移到 `network::adapter_cache`。
 
-use lazy_static::lazy_static;
-use parking_lot::Mutex;
-use std::time::Instant;
 use std::sync::atomic::AtomicBool;
 use tauri::AppHandle;
 use crate::config::model::Config;
 use crate::infra::events::EventBus;
 
-// 从 discovery 模块 re-export 公共类型与函数，保持外部调用方不变
+// 从 discovery re-export 公共类型与函数，保持外部调用方不变
 pub use crate::network::discovery::{
     Adapter, AdapterDetail, AdapterStatus, DisabledAdapter,
     is_blacklisted, new_command,
 };
 
-/// 缓存条目：(adapters, details, disabled, timestamp)
-type AdapterCacheEntry = (Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant);
-
-lazy_static! {
-    static ref ADAPTER_CACHE: Mutex<Option<AdapterCacheEntry>> = Mutex::new(None);
-}
-
-const ADAPTER_CACHE_TTL_SECS: u64 = 5;
-
-fn query_adapters_cached_inner() -> crate::network::discovery::AdapterQueryResult {
-    {
-        let cache = ADAPTER_CACHE.lock();
-        if let Some((adapters, details, disabled, ts)) = cache.as_ref() {
-            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok((adapters.clone(), details.clone(), disabled.clone()));
-            }
-        }
-    }
-    let result = crate::network::discovery::query_adapters_addresses()?;
-    {
-        let mut cache = ADAPTER_CACHE.lock();
-        *cache = Some((result.0.clone(), result.1.clone(), result.2.clone(), Instant::now()));
-    }
-    Ok(result)
-}
-
-pub fn get_all_adapters_force() -> crate::network::discovery::AdapterQueryResult {
-    ADAPTER_CACHE.lock().take();
-    query_adapters_cached_inner()
-}
-
-pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
-    let (adapters, _, _) = query_adapters_cached_inner()?;
-    Ok(adapters)
-}
-
-/// 异步版本的 get_adapters_cached，供 async 上下文调用。
-///
-/// 快速路径：缓存命中时仅 Mutex lock + clone（非阻塞），直接返回，避免 spawn_blocking 开销。
-/// 慢路径：缓存未命中时，通过 spawn_blocking 把阻塞的 Win32 GetAdaptersAddresses 调用
-///        转移到阻塞线程池，避免阻塞 async 运行时。
-/// 注意：spawn_blocking 内部会再次调用 get_adapters_cached，其内部 query_adapters_cached_inner
-///       会二次检查缓存（可能已被其他线程填充），命中即返回，未命中才真正调用 Win32。
-pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
-    // 快速路径：缓存命中直接返回（仅 Mutex lock + clone，非阻塞）
-    {
-        let cache = ADAPTER_CACHE.lock();
-        if let Some((adapters, _details, _disabled, ts)) = cache.as_ref() {
-            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok(adapters.clone());
-            }
-        }
-    }
-    // 慢路径：缓存未命中，spawn_blocking 执行阻塞的 Win32 GetAdaptersAddresses 调用
-    tokio::task::spawn_blocking(get_adapters_cached)
-        .await
-        .map_err(|e| format!("适配器查询任务失败: {e}"))?
-}
-
-pub fn get_disabled_adapters_cached() -> Result<Vec<DisabledAdapter>, String> {
-    let (_, _, disabled) = query_adapters_cached_inner()?;
-    Ok(disabled)
-}
-
-pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
-    ADAPTER_CACHE.lock().take();
-    get_adapters_cached()
-}
-
-pub fn validate_adapter_name(name: &str) -> Result<(), String> {
-    if name.is_empty() { return Err("适配器名称不能为空".to_string()); }
-    if name.len() > 128 { return Err("适配器名称过长".to_string()); }
-    const FORBIDDEN: &[char] = &['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
-    if name.chars().any(|c| FORBIDDEN.contains(&c)) { return Err("适配器名称包含非法字符".to_string()); }
-    Ok(())
-}
-
-pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
-    validate_adapter_name(adapter_name)?;
-
-    // netsh 命令行参数（适配器名含空格时需双引号包裹）
-    let netsh_args = format!("interface set interface \"{adapter_name}\" enable");
-
-    if crate::platform::elevation::is_admin() {
-        // 管理员：直接执行 netsh
-        crate::log_info!("adapter", "管理员直写启用适配器: {}", adapter_name);
-        let output = new_command("netsh")
-            .args(["interface", "set", "interface", adapter_name, "enable"])
-            .output()
-            .map_err(|e| format!("启用适配器失败: {e}"))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr_trimmed = stderr.trim();
-            return Err(if stderr_trimmed.is_empty() {
-                "启用适配器失败：netsh 返回非零退出码但未输出错误信息".to_string()
-            } else {
-                format!("启用适配器失败: {stderr_trimmed}")
-            });
-        }
-    } else {
-        // 非管理员：COM 静默提权执行 netsh（不弹 UAC）
-        crate::log_info!("adapter", "非管理员运行，COM ShellExec 提权启用适配器: {}", adapter_name);
-        match crate::platform::elevation::shell_exec_elevated("netsh", &netsh_args, true) {
-            Ok(()) => {
-                crate::log_info!("adapter", "COM ShellExec 提权启用适配器成功: {}", adapter_name);
-            }
-            Err(com_err) => {
-                // COM 失败：降级 ShellExecuteW runas（会弹 UAC）
-                crate::log_warn!("adapter", "COM ShellExec 失败: {}，降级到 ShellExecuteW runas", com_err);
-                crate::platform::elevation::run_elevated("netsh", &netsh_args)
-                    .map_err(|e| format!("提权启用适配器失败（COM 和 UAC 均失败）: COM错误={com_err}; UAC错误={e}"))?;
-                crate::log_info!("adapter", "ShellExecuteW runas 启用适配器成功: {}", adapter_name);
-            }
-        }
-    }
-
-    // 启用后强制清缓存，让下次查询拿到最新状态
-    ADAPTER_CACHE.lock().take();
-    crate::log_info!("adapter", "已清空适配器缓存");
-
-    Ok(())
-}
-
-pub fn get_adapter_details_cached() -> Result<Vec<AdapterDetail>, String> {
-    let (_, details, _) = query_adapters_cached_inner()?;
-    Ok(details)
-}
+// 从 adapter_cache re-export 缓存访问 API，保持外部调用方不变
+pub use crate::network::adapter_cache::{
+    get_adapters_cached, get_adapters_cached_async, get_adapters_force,
+    get_disabled_adapters_cached, get_adapter_details_cached,
+    get_all_adapters_force, enable_adapter, wait_for_adapter,
+    validate_adapter_name, poll_adapter_ip_quick,
+};
 
 pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
     // 自动检测：优先选有线网卡，其次任意有 IP 的网卡，最后任意第一个
@@ -161,8 +38,6 @@ pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Confi
     } else if adapters.iter().any(|a| a.name == config.adapter1) {
         config.adapter1.clone()
     } else {
-        // 配置名不在过滤后的可见列表中：降级到自动检测
-        // 防止用户在 pre-1709 Win10 上配置"本地连接"等已被黑名单过滤的网卡后静默选错
         crate::log_warn!(
             "network",
             "配置中的 adapter1 '{}' 不在当前可见适配器列表中，降级到自动检测",
@@ -270,8 +145,7 @@ fn generate_random_mac() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64;
-    let seed = time.wrapping_add(counter.wrapping_mul(0x9E3779B97F4A7C15)); // 黄金比例混合
-    // 使用简单的线性同余生成器替代 _rdtsc，避免平台依赖
+    let seed = time.wrapping_add(counter.wrapping_mul(0x9E3779B97F4A7C15));
     let mut rng = seed;
     let mut next = || { rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); rng };
     let b1 = (next() & 0xFF) as u8;
@@ -356,7 +230,6 @@ pub fn netsh_disable(adapter_name: &str) -> bool {
     if validate_adapter_name(adapter_name).is_err() {
         return false;
     }
-    // netsh语法要求 "name=适配器名" 作为单个参数传递，无法拆分为独立args
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={adapter_name}"), "admin=disable"])
         .output()
@@ -368,7 +241,6 @@ pub fn netsh_enable(adapter_name: &str) -> bool {
     if validate_adapter_name(adapter_name).is_err() {
         return false;
     }
-    // netsh语法要求 "name=适配器名" 作为单个参数传递，无法拆分为独立args
     new_command("netsh")
         .args(["interface", "set", "interface", &format!("name={adapter_name}"), "admin=enable"])
         .output()
@@ -516,8 +388,6 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                 message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
             }
         } else if elevated_done {
-            // 提权脚本通过 Set-NetAdapter 修改了 MAC（写入注册表 NetworkAddress 键值，跨重启持久化）
-            // 脚本本身未清理注册表，这里补做清理
             if let Ok(refreshed) = get_adapters_force() {
                 if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
                     if !a.ip.is_empty() {
@@ -766,8 +636,6 @@ pub fn check_gateway_reachable(gateway: &str) -> bool {
     check_gateway_reachable_from(gateway, None)
 }
 
-/// 从指定源 IP 检查网关可达性（Windows ping -S 参数绑定源地址）
-/// source_ip 为 None 或无效时回退到系统默认路由
 pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> bool {
     if gateway.is_empty() {
         return false;
@@ -797,52 +665,6 @@ pub fn is_same_subnet_18(ip_str: &str, gateway_str: &str) -> bool {
     };
     let mask: u32 = 0xFFFF_C000;
     (ip & mask) == (gw & mask)
-}
-
-pub fn wait_for_adapter(max_wait_ms: u64, is_quitting: &std::sync::atomic::AtomicBool) -> Result<Vec<Adapter>, String> {
-    let start = std::time::Instant::now();
-    let mut delay_ms: u64 = 1000;
-
-    while start.elapsed().as_millis() < max_wait_ms as u128 {
-        if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-            return Ok(vec![]);
-        }
-
-        let adapters = get_adapters_force()?;
-        if !adapters.is_empty() {
-            return Ok(adapters);
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-        delay_ms = (delay_ms * 2).min(5000);
-    }
-
-    get_adapters_cached()
-}
-
-pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &AtomicBool) -> bool {
-    let start = std::time::Instant::now();
-    let interval = std::time::Duration::from_millis(100);
-    let timeout = std::time::Duration::from_millis(timeout_ms);
-    // 记录初始 IP，只有 IP 变为非空且与初始值不同时才认为续租成功
-    let initial_ip = get_adapters_force()
-        .ok()
-        .and_then(|list| list.iter().find(|a| a.name == adapter_name).map(|a| a.ip.clone()))
-        .unwrap_or_default();
-    while start.elapsed() < timeout {
-        if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-            return false;
-        }
-        std::thread::sleep(interval);
-        if let Ok(adapters) = get_adapters_force() {
-            if let Some(a) = adapters.iter().find(|a| a.name == adapter_name) {
-                if !a.ip.is_empty() && a.ip != initial_ip {
-                    return true;
-                }
-            }
-        }
-    }
-    false
 }
 
 pub fn ensure_ethernet_ip_for_login(
@@ -918,7 +740,6 @@ pub fn ensure_ethernet_ip_for_login(
 mod tests {
     use super::*;
 
-    // === resolve_adapter_names else 分支降级测试 ===
     fn make_test_config(adapter1: &str, dual: bool, adapter2: &str) -> crate::config::Config {
         crate::config::Config {
             user: String::new(),
@@ -977,22 +798,18 @@ mod tests {
 
     #[test]
     fn resolve_adapter_names_falls_back_when_config_name_missing() {
-        // 配置中写了"本地连接"，但该网卡已被黑名单过滤
-        // resolve_adapter_names 必须降级到自动检测，不能静默返回"本地连接"
         let adapters = vec![
             make_test_adapter("以太网", false, "10.2.0.1"),
             make_test_adapter("WLAN", true, ""),
         ];
         let config = make_test_config("本地连接", false, "");
         let (a1, a2) = resolve_adapter_names(&adapters, &config);
-        // 降级到自动检测：选有线有 IP 的"以太网"
         assert_eq!(a1, "以太网");
         assert_eq!(a2, "");
     }
 
     #[test]
     fn resolve_adapter_names_uses_config_when_present() {
-        // 配置名存在于过滤后列表中 → 直接使用
         let adapters = vec![
             make_test_adapter("以太网", false, "10.2.0.1"),
             make_test_adapter("WLAN", true, "10.2.0.2"),
@@ -1005,7 +822,6 @@ mod tests {
 
     #[test]
     fn resolve_adapter_names_auto_detect_prefers_wired_with_ip() {
-        // 配置为"自动检测" → 优先选有线有 IP
         let adapters = vec![
             make_test_adapter("WLAN", true, "10.2.0.2"),
             make_test_adapter("以太网", false, "10.2.0.1"),
