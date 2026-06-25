@@ -1,9 +1,10 @@
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use crate::network::{check_network_quality_async, get_adapters_cached_async};
+use crate::network::get_adapters_cached_async;
 use crate::infra::state::AppState;
 use crate::infra::notification::emit_notification;
+use super::quality_scheduler::run_quality_check;
 
 pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, quality: &serde_json::Value, enable_notification: bool) {
     let current = quality["quality"].as_str().unwrap_or("unknown").to_string();
@@ -83,29 +84,8 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<
                     _ = tokio::time::sleep(Duration::from_secs(1)) => {}
                     _ = cancel_token.cancelled() => break,
                 }
-                let (skip_ttfb, skip_content, fixed_gateway) = {
-                    let cfg = s.config.load();
-                    (cfg.skip_ttfb_in_latency, cfg.skip_content_in_latency, cfg.fixed_gateway.clone())
-                };
-                let _guard = match s.tasks.is_quality_checking.try_acquire() {
-                    Some(g) => g,
-                    None => continue,
-                };
-                let quality = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(&app_h)).await;
-                drop(_guard);
-                let quality_val = match serde_json::to_value(&quality) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        crate::log_warn!("latency", "序列化网络质量结果失败: {}", e);
-                        continue;
-                    }
-                };
-                if let Err(e) = app_h.emit("network-quality-result", &quality_val) {
-                    crate::log_warn!("latency", "发送网络质量结果失败: {}", e);
-                }
-                let s = app_h.state::<AppState>();
-                let enable_notification = s.config.load().enable_notification;
-                notify_network_quality_change(&app_h, &s, &quality_val, enable_notification);
+                // 调用统一的 quality_scheduler 执行检测（含 semaphore 互斥、emit、通知）
+                run_quality_check(&app_h, &adapter_name, &adapter_ip).await;
             }
         }
     })
