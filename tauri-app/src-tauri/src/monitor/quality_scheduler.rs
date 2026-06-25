@@ -1,5 +1,6 @@
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use crate::network::check_network_quality_async;
+use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use super::latency::notify_network_quality_change;
 
@@ -24,7 +25,7 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
             return;
         }
     };
-    if let Err(e) = app_handle.emit("network-quality-result", &quality_val) {
+    if let Err(e) = EventBus::new(app_handle).emit_network_quality_result(&quality_val) {
         crate::log_warn!("background", "发送网络质量结果失败: {}", e);
     }
     notify_network_quality_change(app_handle, &s, &quality_val, enable_notification);

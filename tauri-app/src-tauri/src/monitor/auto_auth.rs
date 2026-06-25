@@ -1,10 +1,11 @@
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use chrono::Timelike;
 use crate::network::get_adapters_force;
 use crate::auth::portal::check_portal_full;
 use crate::infra::state::{AppState, CommandResult};
+use crate::infra::events::EventBus;
 use crate::infra::notification::emit_notification;
 use crate::infra::lifecycle::{start_auto_exit, start_campus_exit};
 
@@ -49,11 +50,11 @@ pub fn try_auto_login_on_preparation(
             login_result.message.clone().unwrap_or_else(|| "无消息".to_string()),
             elapsed.as_millis());
 
-        if let Err(e) = app_handle.emit("auto-login-result", serde_json::json!({
-            "success": login_result.success,
-            "message": login_result.message.clone().unwrap_or_default(),
-            "skipped": false,
-        })) {
+        if let Err(e) = EventBus::new(app_handle).emit_auto_login_result(
+            login_result.success,
+            &login_result.message.clone().unwrap_or_default(),
+            false,
+        ) {
             crate::log_warn!("auto_login", "发送自动登录结果失败: {}", e);
         }
 
@@ -132,11 +133,8 @@ pub fn try_disconnect_reconnect(
             if let Err(e) = crate::commands::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
                 crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
             }
-            if let Err(e) = app_handle.emit("auto-login-result", serde_json::json!({
-                "success": true,
-                "message": format!("断线重连成功: {}", reconnect_result.message.unwrap_or_default()),
-                "skipped": false,
-            })) {
+            let reconnect_msg = format!("断线重连成功: {}", reconnect_result.message.unwrap_or_default());
+            if let Err(e) = EventBus::new(app_handle).emit_auto_login_result(true, &reconnect_msg, false) {
                 crate::log_warn!("auto_login", "发送重连结果失败: {}", e);
             }
         }
@@ -183,10 +181,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
             Ok(Ok(a)) => a,
             _ => {
                 crate::log_error!("auto_login", "获取适配器列表失败，终止开机自启登录");
-                if let Err(e) = app_h.emit("auto-login-result", serde_json::json!({
-                    "success": false,
-                    "message": "获取适配器列表失败，终止开机自启登录",
-                })) {
+                if let Err(e) = EventBus::new(&app_h).emit_auto_login_result(false, "获取适配器列表失败，终止开机自启登录", false) {
                     crate::log_warn!("auto_login", "发送启动登录失败事件失败: {}", e);
                 }
                 return;
@@ -249,11 +244,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     crate::log_info!("auto_login", "开机自启: 校园网检测未通过，跳过自动登录 - {}", campus_result.message);
                     s.network.update(|s| s.current_ssid = campus_result.current_ssid.clone());
                     s.network.update(|s| s.on_campus_network = campus_result.on_campus);
-                    let _ = app_h.emit("auto-login-result", serde_json::json!({
-                        "success": false,
-                        "message": campus_result.message,
-                        "skipped": true,
-                    }));
+                    let _ = EventBus::new(&app_h).emit_auto_login_result(false, &campus_result.message, true);
                     // 如果配置的适配器均无IP（完全无网络），跳过退出，等待网络恢复
                     let a1_has_ip = adapters.iter().any(|a| a.name == adapter1_name && !a.ip.is_empty());
                     let a2_has_ip = config.dual_adapter && !adapter2_name.is_empty()
@@ -348,11 +339,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
                     crate::log_info!("auto_login", "已在线，跳过登录: 适配器=[{}]", adapter_names.join(", "));
 
-                    let _ = app_h.emit("auto-login-result", serde_json::json!({
-                        "success": true,
-                        "message": msg,
-                        "skipped": true,
-                    })).map_err(|e| crate::log_warn!("auto_login", "发送跳过登录结果失败: {}", e));
+                    let _ = EventBus::new(&app_h).emit_auto_login_result(true, &msg, true).map_err(|e| crate::log_warn!("auto_login", "发送跳过登录结果失败: {}", e));
                     return;
                 }
             } else {
@@ -390,11 +377,11 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 login_result.message.clone().unwrap_or_else(|| "无".to_string()),
                 login_elapsed.as_millis());
 
-            if let Err(e) = app_h.emit("auto-login-result", serde_json::json!({
-                "success": login_result.success,
-                "message": login_result.message.clone().unwrap_or_default(),
-                "skipped": false,
-            })) {
+            if let Err(e) = EventBus::new(&app_h).emit_auto_login_result(
+                login_result.success,
+                &login_result.message.clone().unwrap_or_default(),
+                false,
+            ) {
                 crate::log_warn!("auto_login", "发送自动登录结果失败: {}", e);
             }
 

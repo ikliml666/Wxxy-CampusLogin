@@ -62,15 +62,15 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
 
     let (adapter1_name, adapter2_name) = DefaultAdapterResolver.resolve_adapter_names(&adapters, &config);
 
-    let a1 = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty());
-    if a1.is_none() {
-        return CommandResult::err("未找到有效IP地址的适配器");
-    }
+    let a1 = match adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty()) {
+        Some(a) => a,
+        None => return CommandResult::err("未找到有效IP地址的适配器"),
+    };
 
     if config.dual_adapter && !adapter2_name.is_empty() && adapter2_name != adapter1_name {
         let a2 = adapters.iter().find(|a| a.name == adapter2_name && !a.ip.is_empty());
         if let Some(a2_ref) = a2 {
-            let a1_ref = a1.unwrap();
+            let a1_ref = a1;
 
             // 双适配器错峰并行登录：适配器2延迟1s启动，避免同时登录触发系统封禁
             // 使用 DualAdapterExecutor 统一并发执行与结果合并
@@ -98,7 +98,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         }
     }
 
-    let a1_ref = a1.unwrap();
+    let a1_ref = a1;
 
     let result = login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
         .unwrap_or_else(|| CommandResult::err("登录请求失败"));
@@ -170,16 +170,18 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
 
     let (adapter1_name, adapter2_name) = DefaultAdapterResolver.resolve_adapter_names(&adapters, &config);
 
-    let a1 = adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty());
-    if a1.is_none() {
-        crate::log_warn!("logout", "未找到有效IP地址的适配器");
-        return CommandResult::err("未找到有效IP地址的适配器");
-    }
+    let a1 = match adapters.iter().find(|a| a.name == adapter1_name && !a.ip.is_empty()) {
+        Some(a) => a,
+        None => {
+            crate::log_warn!("logout", "未找到有效IP地址的适配器");
+            return CommandResult::err("未找到有效IP地址的适配器");
+        }
+    };
 
     if config.dual_adapter && !adapter2_name.is_empty() && adapter2_name != adapter1_name {
         let a2 = adapters.iter().find(|a| a.name == adapter2_name && !a.ip.is_empty());
         if let Some(a2_ref) = a2 {
-            let a1_ref = a1.unwrap();
+            let a1_ref = a1;
 
             // 双适配器注销并行，适配器2延迟1s错峰（与登录侧策略一致）
             // 使用 DualAdapterExecutor 统一并发执行与结果合并，修复原 logout 不可中断 bug
@@ -201,7 +203,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
         }
     }
 
-    let a1_ref = a1.unwrap();
+    let a1_ref = a1;
 
     logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
         .unwrap_or_else(|| {

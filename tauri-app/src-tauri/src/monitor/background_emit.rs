@@ -2,7 +2,8 @@
 //!
 //! 从 watcher.rs 拆分，集中管理 background_check 结果的构造、事件发射与网络状态更新。
 
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
+use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use crate::infra::lifecycle::start_auto_exit;
 use super::campus_check::CampusCheckResult;
@@ -107,7 +108,7 @@ pub(super) fn emit_background_check_result(
         (online, secondary_online)
     };
 
-    if let Err(e) = app_handle.emit("background-check-result", serde_json::json!({
+    if let Err(e) = EventBus::new(app_handle).emit_background_check_result(serde_json::json!({
         "serverAvailable": reachable,
         "loginAvailable": login_available,
         "online": effective_online,

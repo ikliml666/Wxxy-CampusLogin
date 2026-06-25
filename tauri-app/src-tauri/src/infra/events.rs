@@ -31,6 +31,20 @@ impl<'a> EventBus<'a> {
         self.emit("background-check-result", payload)
     }
 
+    /// 自动登录/断线重连结果事件
+    pub fn emit_auto_login_result(&self, success: bool, message: &str, skipped: bool) -> Result<(), String> {
+        self.emit("auto-login-result", serde_json::json!({
+            "success": success,
+            "message": message,
+            "skipped": skipped,
+        }))
+    }
+
+    /// 网络质量检测结果事件
+    pub fn emit_network_quality_result<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
+        self.emit("network-quality-result", payload)
+    }
+
     /// 配置变更事件（无 payload 简略版）
     pub fn emit_config_changed_empty(&self) -> Result<(), String> {
         self.emit("config-changed", serde_json::json!({}))

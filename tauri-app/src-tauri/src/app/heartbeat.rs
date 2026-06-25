@@ -7,15 +7,15 @@ use crate::infra::state::AppState;
 ///
 /// 检测前端是否定期发送心跳，若长时间未收到则尝试重载 WebView。
 pub fn spawn_heartbeat_thread(app_handle: AppHandle) {
-    let is_quitting = app_handle.state::<AppState>().exit.is_quitting.clone();
-    std::thread::spawn(move || {
+    let task_manager = app_handle.state::<AppState>().task_manager.clone();
+    if let Err(e) = task_manager.spawn("heartbeat", move |cancel_token| async move {
         let check_interval = Duration::from_secs(5);
         let crash_threshold_ms: u64 = 20_000;
         let mut consecutive_stale = 0u32;
         loop {
-            std::thread::sleep(check_interval);
-            if is_quitting.load(Ordering::Acquire) {
-                break;
+            tokio::select! {
+                _ = cancel_token.cancelled() => break,
+                _ = tokio::time::sleep(check_interval) => {}
             }
             if let Some(window) = app_handle.get_webview_window("main") {
                 let is_visible = window.is_visible().unwrap_or(false);
@@ -49,7 +49,9 @@ pub fn spawn_heartbeat_thread(app_handle: AppHandle) {
                 consecutive_stale = 0;
             }
         }
-    });
+    }) {
+        crate::log_warn!("heartbeat", "启动心跳任务失败: {}", e);
+    }
 }
 
 /// 窗口兜底显示线程
