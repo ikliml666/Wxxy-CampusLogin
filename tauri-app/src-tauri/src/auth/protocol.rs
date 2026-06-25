@@ -35,14 +35,15 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
 
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
     let t_req = std::time::Instant::now();
-    let resp = client.get(&url).timeout(std::time::Duration::from_secs(15)).send()
-        .map_err(|e| format!("登录请求失败: {}", e.to_string().replace(&url, &safe_url).replace(password, "***")))?;
+    let resp = tauri::async_runtime::block_on(
+        client.get(&url).timeout(std::time::Duration::from_secs(15)).send()
+    ).map_err(|e| format!("登录请求失败: {}", e.to_string().replace(&url, &safe_url).replace(password, "***")))?;
 
     let status_code = resp.status();
     if resp.content_length().map(|len| len > 1024 * 1024).unwrap_or(false) {
         return Err("登录响应体过大".to_string());
     }
-    let body = resp.text().unwrap_or_default();
+    let body = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
     let req_elapsed = t_req.elapsed();
 
     crate::log_info!("login", "登录请求完成({}ms): URL={}, status={:?}, bodyLen={}",
@@ -181,9 +182,10 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         );
 
         let t_unbind = std::time::Instant::now();
-        let resp_unbind = client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
-            .map_err(|e| format!("第{round}轮MAC解绑请求失败: {e}"))?;
-        let body_unbind = resp_unbind.text().unwrap_or_default();
+        let resp_unbind = tauri::async_runtime::block_on(
+            client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
+        ).map_err(|e| format!("第{round}轮MAC解绑请求失败: {e}"))?;
+        let body_unbind = tauri::async_runtime::block_on(resp_unbind.text()).unwrap_or_default();
         crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
 
         let unbind_result = parse_logout_result(&body_unbind)?;
@@ -203,9 +205,10 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
         );
 
         let t_logout = std::time::Instant::now();
-        let resp_logout = client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
-            .map_err(|e| format!("第{round}轮Radius注销请求失败: {e}"))?;
-        let body_logout = resp_logout.text().unwrap_or_default();
+        let resp_logout = tauri::async_runtime::block_on(
+            client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
+        ).map_err(|e| format!("第{round}轮Radius注销请求失败: {e}"))?;
+        let body_logout = tauri::async_runtime::block_on(resp_logout.text()).unwrap_or_default();
         crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_logout, 500));
 
         let logout_result = parse_logout_result(&body_logout)?;

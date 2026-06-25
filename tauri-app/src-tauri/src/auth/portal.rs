@@ -105,7 +105,9 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                 adapter_name.unwrap_or("unknown"), adapter_ip);
 
             let t_req = std::time::Instant::now();
-            let resp = match client.get(&status_url).timeout(std::time::Duration::from_secs(3)).send() {
+            let resp = match tauri::async_runtime::block_on(
+                client.get(&status_url).timeout(std::time::Duration::from_secs(3)).send()
+            ) {
                 Ok(r) => r,
                 Err(e) => {
                     crate::log_warn!("network", "Portal API备用检测失败({}ms): {}", t_req.elapsed().as_millis(), e);
@@ -132,7 +134,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
                     error_kind: Some("response_too_large".to_string()),
                 });
             }
-            let data = resp.text().unwrap_or_default();
+            let data = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
             let req_elapsed = t_req.elapsed();
 
             crate::log_debug!("network", "Portal API备用检测响应: 状态码={:?}, bodyLen={}, 耗时{}ms",
@@ -267,9 +269,11 @@ enum PageCheckResult {
     Failed,
 }
 
-fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> PageCheckResult {
+fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckResult {
     let page_url = format!("{portal_base}/");
-    let resp = match client.get(&page_url).timeout(std::time::Duration::from_secs(3)).send() {
+    let resp = match tauri::async_runtime::block_on(
+        client.get(&page_url).timeout(std::time::Duration::from_secs(3)).send()
+    ) {
         Ok(r) => r,
         Err(e) => {
             crate::log_warn!("network", "Portal页面请求失败: {}", e);
@@ -277,7 +281,7 @@ fn check_portal_page(client: &reqwest::blocking::Client, portal_base: &str) -> P
         }
     };
 
-    let html = match resp.text() {
+    let html = match tauri::async_runtime::block_on(resp.text()) {
         Ok(t) => t,
         Err(e) => {
             crate::log_warn!("network", "Portal页面读取失败: {}", e);

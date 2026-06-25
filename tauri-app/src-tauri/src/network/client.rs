@@ -5,7 +5,7 @@ use dashmap::DashMap;
 
 lazy_static::lazy_static! {
     pub(crate) static ref PORTAL_URL: ArcSwap<String> = ArcSwap::from(Arc::new(crate::config::model::default_portal_url()));
-    static ref CLIENT_POOL: DashMap<String, reqwest::blocking::Client> = DashMap::new();
+    static ref CLIENT_POOL: DashMap<String, reqwest::Client> = DashMap::new();
 }
 
 pub fn update_portal_url(url: &str) {
@@ -21,7 +21,7 @@ fn client_pool_key(local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, t
     }
 }
 
-fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version) -> Result<reqwest::blocking::Client, String> {
+fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version) -> Result<reqwest::Client, String> {
     let mut default_headers = reqwest::header::HeaderMap::new();
     default_headers.insert(
         reqwest::header::CACHE_CONTROL,
@@ -32,7 +32,7 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
         reqwest::header::HeaderValue::from_static("no-cache"),
     );
 
-    let mut builder = reqwest::blocking::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .min_tls_version(min_tls)
         .timeout(timeout)
         .connect_timeout(std::time::Duration::from_secs(3))
@@ -50,7 +50,7 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
     builder.build().map_err(|e| format!("创建HTTP客户端失败: {e}"))
 }
 
-pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::blocking::Client, String> {
+pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {
     let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout);
     if let Some(entry) = CLIENT_POOL.get(&tls13_key) {
         crate::log_debug!("http", "客户端池命中: key={}", tls13_key);
