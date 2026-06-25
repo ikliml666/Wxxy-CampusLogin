@@ -143,6 +143,7 @@ fn build_adapter_details(
     details.join(", ")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_status_change(
     prev_online: bool,
     current_online: bool,
@@ -175,6 +176,7 @@ fn handle_status_change(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_background_check_result(
     app_handle: &AppHandle,
     state: &AppState,
@@ -878,7 +880,6 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                     if !s.tasks.is_checking.is_active() {
                         break;
                     }
-                    drop(s);
                     tokio::select! {
                         _ = tokio::time::sleep(Duration::from_millis(50)) => { waited += 50; }
                         _ = cancel_token.cancelled() => { break; }

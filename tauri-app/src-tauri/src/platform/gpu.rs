@@ -263,8 +263,10 @@ pub fn detect_display_refresh_rate() -> u32 {
     };
     use windows::core::PCWSTR;
 
-    let mut devmode = DEVMODEW::default();
-    devmode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+    let mut devmode = DEVMODEW {
+        dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
 
     let result = unsafe {
         EnumDisplaySettingsW(

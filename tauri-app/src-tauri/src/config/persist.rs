@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
@@ -39,11 +39,11 @@ pub fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     tauri_dir
 }
 
-pub fn get_config_path(data_dir: &PathBuf) -> PathBuf {
+pub fn get_config_path(data_dir: &Path) -> PathBuf {
     data_dir.join("config.json")
 }
 
-pub fn get_accounts_dir(data_dir: &PathBuf) -> PathBuf {
+pub fn get_accounts_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("accounts")
 }
 
@@ -70,6 +70,6 @@ pub fn list_account_names(app_handle: &tauri::AppHandle) -> Vec<String> {
     accounts
 }
 
-pub fn get_login_history_path(data_dir: &PathBuf) -> PathBuf {
+pub fn get_login_history_path(data_dir: &Path) -> PathBuf {
     data_dir.join("login-history.json")
 }

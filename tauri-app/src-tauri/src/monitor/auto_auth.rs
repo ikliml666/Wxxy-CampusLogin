@@ -70,6 +70,7 @@ pub fn try_auto_login_on_preparation(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn try_disconnect_reconnect(
     app_handle: &AppHandle,
     state: &AppState,
