@@ -21,6 +21,12 @@ pub struct BackgroundTaskManager {
     inner: Arc<Mutex<HashMap<String, TaskHandle>>>,
 }
 
+impl Default for BackgroundTaskManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BackgroundTaskManager {
     pub fn new() -> Self {
         Self {
@@ -37,7 +43,7 @@ impl BackgroundTaskManager {
         let inner = self.inner.clone();
         let mut tasks = self.inner.lock();
         if tasks.contains_key(name) {
-            return Err(format!("任务 {} 已在运行", name));
+            return Err(format!("任务 {name} 已在运行"));
         }
 
         let cancel_token = Arc::new(CancellationToken::new());
@@ -64,7 +70,7 @@ impl BackgroundTaskManager {
         let inner = self.inner.clone();
         let mut tasks = self.inner.lock();
         if tasks.contains_key(name) {
-            return Err(format!("任务 {} 已在运行", name));
+            return Err(format!("任务 {name} 已在运行"));
         }
 
         let cancel_token = Arc::new(CancellationToken::new());

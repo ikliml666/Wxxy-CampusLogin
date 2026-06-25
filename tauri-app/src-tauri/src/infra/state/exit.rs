@@ -12,6 +12,12 @@ pub struct ExitStateStore {
     pub campus_exit_deadline: Mutex<Option<Instant>>,
 }
 
+impl Default for ExitStateStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExitStateStore {
     pub fn new() -> Self {
         Self {

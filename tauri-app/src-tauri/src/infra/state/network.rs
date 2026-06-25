@@ -50,6 +50,12 @@ pub struct NetworkState {
     snapshot: ArcSwap<NetworkSnapshot>,
 }
 
+impl Default for NetworkState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetworkState {
     pub fn new() -> Self {
         Self {

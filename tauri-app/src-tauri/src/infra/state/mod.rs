@@ -21,6 +21,12 @@ pub struct TaskGuard<'a> {
     lock: &'a TaskLock,
 }
 
+impl Default for TaskLock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskLock {
     pub fn new() -> Self {
         Self { flag: AtomicBool::new(false) }
@@ -82,6 +88,12 @@ pub struct AppState {
     pub update_notified: AtomicBool,
     pub last_disabled_notification_ms: AtomicU64,
     pub last_render_heartbeat_ms: AtomicU64,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AppState {

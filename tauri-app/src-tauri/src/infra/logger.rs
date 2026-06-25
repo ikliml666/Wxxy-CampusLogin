@@ -64,10 +64,10 @@ lazy_static::lazy_static! {
 
 pub fn init_logger(log_dir: PathBuf) {
     if let Err(e) = fs::create_dir_all(&log_dir) {
-        eprintln!("创建日志目录失败: {}", e);
+        eprintln!("创建日志目录失败: {e}");
     }
     let today = Local::now().format("%Y-%m-%d").to_string();
-    let log_path = log_dir.join(format!("app-{}.log", today));
+    let log_path = log_dir.join(format!("app-{today}.log"));
 
     let writer = OpenOptions::new()
         .create(true)
@@ -77,7 +77,7 @@ pub fn init_logger(log_dir: PathBuf) {
         .map(BufWriter::new);
 
     if writer.is_none() {
-        eprintln!("[WARN] 无法打开日志文件: {:?}", log_path);
+        eprintln!("[WARN] 无法打开日志文件: {log_path:?}");
     }
 
     let (sender, receiver) = channel::<LogMessage>();
@@ -203,7 +203,7 @@ fn rotate_if_needed(state: &mut LoggerState) {
     let today = Local::now().format("%Y-%m-%d").to_string();
     if today != state.current_date {
         state.current_date = today.clone();
-        let log_path = state.log_dir.join(format!("app-{}.log", today));
+        let log_path = state.log_dir.join(format!("app-{today}.log"));
         state.current_writer = OpenOptions::new()
             .create(true)
             .append(true)
@@ -219,7 +219,7 @@ fn rotate_if_needed(state: &mut LoggerState) {
         if let Ok(meta) = file.metadata() {
             if meta.len() > MAX_LOG_SIZE {
                 let timestamp = Local::now().format("%Y%m%d%H%M%S");
-                let rotated = state.log_dir.join(format!("app-{}.log", timestamp));
+                let rotated = state.log_dir.join(format!("app-{timestamp}.log"));
                 let current = state.log_dir.join(format!("app-{}.log", state.current_date));
                 if fs::rename(&current, &rotated).is_ok() {
                     cleanup_old_logs(&state.log_dir);
@@ -299,10 +299,10 @@ pub fn log(level: LogLevel, module: &str, message: &str) {
 
     if let Some(sender) = LOGGER_SENDER.load().as_ref().clone() {
         if sender.send(LogMessage::Entry { line: line.clone() }).is_err() && level >= LogLevel::Warn {
-            eprint!("{}", line);
+            eprint!("{line}");
         }
     } else if level >= LogLevel::Warn {
-        eprint!("{}", line);
+        eprint!("{line}");
     }
 }
 
@@ -369,14 +369,14 @@ pub fn get_log_dir(app_handle: &tauri::AppHandle) -> PathBuf {
 pub fn read_recent_logs(app_handle: &tauri::AppHandle, lines: usize) -> Result<String, String> {
     let log_dir = get_log_dir(app_handle);
     let today = Local::now().format("%Y-%m-%d").to_string();
-    let log_path = log_dir.join(format!("app-{}.log", today));
+    let log_path = log_dir.join(format!("app-{today}.log"));
 
     if !log_path.exists() {
         return Ok(String::new());
     }
 
     let content = fs::read_to_string(&log_path)
-        .map_err(|e| format!("读取日志失败: {}", e))?;
+        .map_err(|e| format!("读取日志失败: {e}"))?;
 
     let all_lines: Vec<&str> = content.lines().collect();
     let start = all_lines.len().saturating_sub(lines);
@@ -443,7 +443,7 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
             Ok(h) => h,
             Err(e) => {
                 crate::log_warn!("logger", "无法创建日志线程: {}", e);
-                return Err(format!("无法创建日志线程: {}", e));
+                return Err(format!("无法创建日志线程: {e}"));
             }
         };
 
