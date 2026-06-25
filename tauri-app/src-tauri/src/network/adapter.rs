@@ -1,5 +1,8 @@
-use regex::Regex;
-use serde::Serialize;
+//! 适配器缓存、DHCP/MAC 重置、子网/SSID 工具
+//!
+//! 本模块保留 adapter.rs 的历史职责（缓存访问、DHCP/MAC、子网/SSID），
+//! 适配器发现与注册表检查已迁移到 `network::discovery`。
+
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::time::Instant;
@@ -8,500 +11,22 @@ use tauri::AppHandle;
 use crate::config::model::Config;
 use crate::infra::events::EventBus;
 
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+// 从 discovery 模块 re-export 公共类型与函数，保持外部调用方不变
+pub use crate::network::discovery::{
+    Adapter, AdapterDetail, AdapterStatus, DisabledAdapter,
+    is_blacklisted, new_command,
+};
 
-type AdapterQueryResult = Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String>;
+/// 缓存条目：(adapters, details, disabled, timestamp)
 type AdapterCacheEntry = (Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant);
 
 lazy_static! {
-    // 名称/描述黑名单：作为 is_visible_in_ncpa 的纵深防御层
-    // 规则：nat/tor/virtual 加 \b 词边界，避免误伤 "Native/Intel NAT Offload/Toronto/Tornado" 等合法名
-    //      中文补全：覆盖 "虚拟/伪/假/测试/模拟/隧道"，避免漏过滤中文命名的虚拟网卡
-    //      保留 "本地连接"：用户特定业务规则（Win11 高级网络设置不可见，强制排除）
-    // 注意：WLAN/以太网的具体可见性判断已移到 is_visible_in_ncpa（注册表检查），
-    //      避免按名称误伤多物理网卡场景（如 2 块真实无线网卡可能都叫 "WLAN"）
-    static ref BL_REGEX: Regex = Regex::new(r"(?i)hyper-v|\bvirtual\b|vmware|veth|docker|wsl|loopback|tunnel|isatap|6to4|teredo|bluetooth|vpn|hamachi|zerotier|tailscale|wireguard|vEthernet|HNS|\bnat\b|filter.?driver|packet.?driver|npcap|qos|packet.?scheduler|wfp|lightweight.?filter|kernel.?debug|clash|v2ray|xray|sing-box|shadowsocks|ss-local|hysteria|trojan|naiveproxy|mihomo|surge|quantumult|loon|stash|surfboard|netch|proxifier|privoxy|\btor\b|i2p|tun2socks|tap-|tun0|wg0|utun|clash\.tun|clash\.tap|meta\.tun|sing\.tun|cloudflare.?warp|warp|本地连接|虚拟|伪|假|测试|模拟|隧道").expect("BL_REGEX compilation failed");
     static ref ADAPTER_CACHE: Mutex<Option<AdapterCacheEntry>> = Mutex::new(None);
 }
 
 const ADAPTER_CACHE_TTL_SECS: u64 = 5;
 
-/// 适配器状态四分类（基于 IF_OPER_STATUS 枚举 + IP 是否为空）
-/// - Disabled: 已禁用（OperStatus Down 或 NotPresent，管理员禁用或硬件缺失）
-/// - Disconnected: 未连接（OperStatus LowerLayerDown 或 Dormant，线缆未插或等待外部事件）
-/// - EnabledNoIp: 未禁用无IP（OperStatus Up 但无有效 IP，含 169.254 APIPA 清空后）
-/// - Connected: 已连接（OperStatus Up 且有有效 IP）
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum AdapterStatus {
-    Disabled,
-    Disconnected,
-    EnabledNoIp,
-    Connected,
-}
-
-impl AdapterStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AdapterStatus::Disabled => "已禁用",
-            AdapterStatus::Disconnected => "未连接",
-            AdapterStatus::EnabledNoIp => "未禁用无IP",
-            AdapterStatus::Connected => "已连接",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Adapter {
-    pub name: String,
-    pub ip: String,
-    pub wireless: bool,
-    pub guid: String,
-    pub mac: String,
-    pub if_index: u32,
-    pub status: AdapterStatus,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AdapterDetail {
-    pub name: String,
-    pub ip: String,
-    pub wireless: bool,
-    pub subnet_mask: String,
-    pub gateway: String,
-    pub dhcp_server: String,
-    pub mac: String,
-    pub if_index: u32,
-    pub status: AdapterStatus,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DisabledAdapter {
-    pub name: String,
-    pub status: String,
-    pub description: String,
-}
-
-pub fn new_command(program: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new(program);
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
-    cmd
-}
-
-pub fn is_blacklisted(name: &str) -> bool {
-    BL_REGEX.is_match(name)
-}
-
-#[cfg(target_os = "windows")]
-fn is_visible_in_ncpa(guid: &str) -> bool {
-    // 判断网卡是否在 Win11 高级网络设置 / ncpa.cpl 中可见
-    // 严格按注册表 PnP 设备树检测，避免按名称误伤多物理网卡场景
-    //
-    // 注册表 1：HKLM\...\Control\Network\{4D36E972-...}\{GUID}\Connection\ShowInNetworkConnections
-    //   = 0 → 用户/系统标记为隐藏
-    //   = 1 或不存在 → Windows 默认显示
-    //
-    // 注册表 2：HKLM\SYSTEM\CurrentControlSet\Enum\<Enumerator>\<InstanceId>
-    //   PnP 设备树中必须存在该 GUID 对应的实例，否则为"幽灵虚拟副本"（如 Wi-Fi Direct Virtual Adapter
-    //   创建的多个 WLAN 2/3/4/5，这些在网络栈可见但 PnP 树中已被清理）
-    //
-    // 决策：注册表 1 + 2 都通过才视为可见
-    //   - ShowInNetworkConnections 显式隐藏 → 不可见
-    //   - PnP 树中找不到 InstanceId → 幽灵副本 → 不可见
-    //   - 其他 → 可见
-    if guid.is_empty() {
-        return false;
-    }
-    // 注册表 1 检查：Connection 子键的 ShowInNetworkConnections
-    let key_path = format!(
-        "SYSTEM\\CurrentControlSet\\Control\\Network\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}\\{guid}\\Connection"
-    );
-    let show_in_ncpa = match winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(&key_path) {
-        Ok(key) => {
-            match key.get_value::<u32, _>("ShowInNetworkConnections") {
-                Ok(val) => val != 0,
-                Err(_) => true,
-            }
-        }
-        Err(_) => true,  // Connection 子键缺失 → 视为可见，由 PnP 树检查把关
-    };
-    if !show_in_ncpa {
-        return false;
-    }
-    // 注册表 2 检查：Class subkey 交叉验证
-    // 真实物理网卡一定在 HKLM\...\Control\Class\{4D36E972-...}\<XXXX> 中有对应条目
-    // （NetCfgInstanceId = 当前 GUID）
-    // 幽灵虚拟副本（Wi-Fi Direct Virtual 多份副本）虽然 Connection 子键存在，
-    // 但 Class subkey 中没有对应条目
-    class_subkey_has_matching_guid(guid)
-}
-
-#[cfg(target_os = "windows")]
-fn class_subkey_has_matching_guid(guid: &str) -> bool {
-    if guid.is_empty() {
-        return false;
-    }
-    let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-    let class_path = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-    let class_key = match hklm.open_subkey(class_path) {
-        Ok(k) => k,
-        Err(_) => return false,
-    };
-    // 遍历 class subkey（0000-9999），查找 NetCfgInstanceId 匹配当前 GUID 的条目
-    for sub in class_key.enum_keys().filter_map(|n| n.ok()) {
-        if let Ok(sub_key) = class_key.open_subkey(&sub) {
-            if let Ok(net_cfg_id) = sub_key.get_value::<String, _>("NetCfgInstanceId") {
-                if net_cfg_id == guid {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-/// 判断适配器是否被管理员在设备管理器中手动禁用
-/// 读 Class subkey 的 ConfigFlags，CONFIGFLAG_DISABLED (0x1) 表示手动禁用
-/// 用于区分 NotPresent 状态下的"管理员禁用"vs"硬件缺失(USB未连接)"
-#[cfg(target_os = "windows")]
-fn is_admin_disabled_via_registry(guid: &str) -> bool {
-    if guid.is_empty() {
-        return false;
-    }
-    let hklm = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-    let class_path = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-    let class_key = match hklm.open_subkey(class_path) {
-        Ok(k) => k,
-        Err(_) => return false,
-    };
-    for sub in class_key.enum_keys().filter_map(|n| n.ok()) {
-        if let Ok(sub_key) = class_key.open_subkey(&sub) {
-            if let Ok(net_cfg_id) = sub_key.get_value::<String, _>("NetCfgInstanceId") {
-                if net_cfg_id == guid {
-                    // 找到匹配条目，读 ConfigFlags
-                    if let Ok(flags) = sub_key.get_value::<u32, _>("ConfigFlags") {
-                        return flags & 0x1 != 0;  // CONFIGFLAG_DISABLED
-                    }
-                    return false;  // ConfigFlags 不存在，视为未禁用
-                }
-            }
-        }
-    }
-    false
-}
-
-
-
-fn prefix_len_to_mask(len: u32) -> String {
-    if len > 32 { return String::new(); }
-    let mask: u32 = if len == 0 { 0 } else { !0u32 << (32 - len) };
-    format!(
-        "{}.{}.{}.{}",
-        (mask >> 24) & 0xFF,
-        (mask >> 16) & 0xFF,
-        (mask >> 8) & 0xFF,
-        mask & 0xFF,
-    )
-}
-
-#[cfg(target_os = "windows")]
-fn query_adapters_addresses() -> AdapterQueryResult {
-    use windows::Win32::NetworkManagement::IpHelper::*;
-    use windows::Win32::Networking::WinSock::*;
-
-    const GAA_FLAGS: GET_ADAPTERS_ADDRESSES_FLAGS = GET_ADAPTERS_ADDRESSES_FLAGS(0x0080 | 0x0100);
-    const IF_TYPE_ETHERNET_CSMACD: u32 = 6;
-    const IF_TYPE_IEEE80211: u32 = 71;
-
-    let mut size: u32 = 0;
-    unsafe {
-        GetAdaptersAddresses(AF_INET.0 as u32, GAA_FLAGS, None, None, &mut size);
-    };
-
-    if size == 0 {
-        return Ok((vec![], vec![], vec![]));
-    }
-
-    let max_retries = 3;
-    for attempt in 0..max_retries {
-        let buffer_size = if attempt == 0 { size as usize } else { (size as usize) + 4096 };
-        let mut buffer = vec![0u8; buffer_size];
-        let ptr = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
-        let mut actual_size = buffer_size as u32;
-
-        let result = unsafe {
-            GetAdaptersAddresses(AF_INET.0 as u32, GAA_FLAGS, None, Some(ptr), &mut actual_size)
-        };
-
-        if result == 0 {
-            return parse_adapter_addresses(ptr, IF_TYPE_ETHERNET_CSMACD, IF_TYPE_IEEE80211);
-        }
-
-        if result == 111 || actual_size as usize > buffer_size {
-            size = actual_size;
-            if attempt < max_retries - 1 {
-                continue;
-            }
-            return Err(format!("GetAdaptersAddresses buffer too small after {max_retries} retries"));
-        }
-
-        if attempt < max_retries - 1 {
-            unsafe {
-                GetAdaptersAddresses(AF_INET.0 as u32, GAA_FLAGS, None, None, &mut size);
-            }
-            continue;
-        }
-
-        return Err(format!("GetAdaptersAddresses failed: {result}"));
-    }
-
-    Ok((vec![], vec![], vec![]))
-}
-
-#[cfg(target_os = "windows")]
-fn parse_adapter_addresses(
-    ptr: *mut windows::Win32::NetworkManagement::IpHelper::IP_ADAPTER_ADDRESSES_LH,
-    if_type_ethernet: u32,
-    if_type_wireless: u32,
-) -> AdapterQueryResult {
-    use windows::Win32::NetworkManagement::Ndis::{
-        IfOperStatusUp, IfOperStatusNotPresent,
-    };
-    use windows::Win32::Networking::WinSock::*;
-
-    let mut adapters = Vec::new();
-    let mut details = Vec::new();
-    let mut disabled = Vec::new();
-
-    let mut current = ptr;
-    while !current.is_null() {
-        let addr = unsafe { &*current };
-
-        let name = unsafe { read_pwstr(addr.FriendlyName) };
-
-        let guid_raw = unsafe {
-            if addr.AdapterName.is_null() {
-                String::new()
-            } else {
-                std::ffi::CStr::from_ptr(addr.AdapterName.0 as *const i8)
-                    .to_string_lossy()
-                    .into_owned()
-            }
-        };
-        let guid = if guid_raw.starts_with('{') {
-            guid_raw
-        } else if !guid_raw.is_empty() {
-            format!("{{{guid_raw}}}")
-        } else {
-            guid_raw
-        };
-
-        let if_type = addr.IfType;
-        if if_type != if_type_ethernet && if_type != if_type_wireless {
-            current = addr.Next;
-            continue;
-        }
-
-        if addr.PhysicalAddressLength == 0 {
-            current = addr.Next;
-            continue;
-        }
-
-        let is_up = addr.OperStatus == IfOperStatusUp;
-        // NotPresent（已禁用）适配器不跳过，进入 else 分支加入 disabled 列表
-
-        if !is_visible_in_ncpa(&guid) {
-            current = addr.Next;
-            continue;
-        }
-
-        let description = unsafe { read_pwstr(addr.Description) };
-
-        if is_blacklisted(&name) || is_blacklisted(&description) {
-            current = addr.Next;
-            continue;
-        }
-
-        let is_wireless = if_type == if_type_wireless;
-        let if_index = unsafe { addr.Anonymous1.Anonymous.IfIndex };
-
-        let mac = if addr.PhysicalAddressLength >= 6 {
-            let bytes = unsafe { std::slice::from_raw_parts(addr.PhysicalAddress.as_ptr(), 6) };
-            format!("{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5])
-        } else {
-            String::new()
-        };
-
-        let oper_status = addr.OperStatus;
-        // 计算 IP / prefix_len（仅 is_up 时尝试拿，否则保持空）
-        let mut ip = String::new();
-        let mut prefix_len: u8 = 0;
-        if is_up {
-            let mut ua = addr.FirstUnicastAddress;
-            while !ua.is_null() {
-                let u = unsafe { &*ua };
-                if u.Address.lpSockaddr.is_null() {
-                    ua = unsafe { (*ua).Next };
-                    continue;
-                }
-                let sa = unsafe { &*u.Address.lpSockaddr };
-                if sa.sa_family == AF_INET {
-                    let sin = unsafe { &*(u.Address.lpSockaddr as *const SOCKADDR_IN) };
-                    ip = unsafe { ipv4_from_in_addr(sin.sin_addr) };
-                    prefix_len = u.OnLinkPrefixLength;
-                    break;
-                }
-                ua = u.Next;
-            }
-            // 169.254 APIPA 视为无 IP（DHCP 失败的自配地址）
-            if ip.starts_with("169.254.") {
-                ip.clear();
-            }
-        }
-
-        // 网关 / DHCP 服务器（仅 is_up 时查询，否则保持空）
-        let mut gateway = String::new();
-        let mut dhcp_server = String::new();
-        if is_up {
-            let mut ga = addr.FirstGatewayAddress;
-            while !ga.is_null() {
-                let g = unsafe { &*ga };
-                if g.Address.lpSockaddr.is_null() {
-                    ga = unsafe { (*ga).Next };
-                    continue;
-                }
-                let sa = unsafe { &*g.Address.lpSockaddr };
-                if sa.sa_family == AF_INET {
-                    let sin = unsafe { &*(g.Address.lpSockaddr as *const SOCKADDR_IN) };
-                    gateway = unsafe { ipv4_from_in_addr(sin.sin_addr) };
-                    break;
-                }
-                ga = g.Next;
-            }
-
-            let dhcp_sa = addr.Dhcpv4Server;
-            if !dhcp_sa.lpSockaddr.is_null() {
-                let sa = unsafe { &*dhcp_sa.lpSockaddr };
-                if sa.sa_family == AF_INET {
-                    let sin = unsafe { &*(dhcp_sa.lpSockaddr as *const SOCKADDR_IN) };
-                    dhcp_server = unsafe { ipv4_from_in_addr(sin.sin_addr) };
-                }
-            }
-        }
-
-        // 严格四分类判定
-        let status = if is_up {
-            if ip.is_empty() {
-                AdapterStatus::EnabledNoIp
-            } else {
-                AdapterStatus::Connected
-            }
-        } else if oper_status == IfOperStatusNotPresent {
-            // NotPresent 可能是管理员禁用或硬件缺失(USB未连接)
-            // 用 ConfigFlags 区分：CONFIGFLAG_DISABLED (0x1) 才是管理员禁用
-            if is_admin_disabled_via_registry(&guid) {
-                AdapterStatus::Disabled
-            } else {
-                // USB 网卡未连接 / 硬件缺失 / 驱动未加载
-                AdapterStatus::Disconnected
-            }
-        } else {
-            // Down / LowerLayerDown / Dormant / Unknown / Testing 归为未连接
-            // Down 在 Windows 上实际语义是"接口未就绪"（媒体断开/未认证），不是管理员禁用
-            AdapterStatus::Disconnected
-        };
-
-        // 所有适配器都推入 adapters 列表（带状态，便于前端统一展示和启用操作）
-        adapters.push(Adapter {
-            name: name.clone(),
-            ip: ip.clone(),
-            wireless: is_wireless,
-            guid: guid.clone(),
-            mac: mac.clone(),
-            if_index,
-            status,
-        });
-
-        // Connected 和 EnabledNoIp 状态推入 details（EnabledNoIp 保留 dhcp_server 供诊断）
-        // 仅 Disabled 状态推入 disabled（保留 DisabledAdapter 兼容旧 API）
-        match status {
-            AdapterStatus::Connected => {
-                details.push(AdapterDetail {
-                    name,
-                    ip,
-                    wireless: is_wireless,
-                    subnet_mask: prefix_len_to_mask(prefix_len as u32),
-                    gateway,
-                    dhcp_server,
-                    mac,
-                    if_index,
-                    status,
-                });
-            }
-            AdapterStatus::EnabledNoIp => {
-                details.push(AdapterDetail {
-                    name,
-                    ip: String::new(),
-                    wireless: is_wireless,
-                    subnet_mask: String::new(),
-                    gateway,
-                    dhcp_server,
-                    mac,
-                    if_index,
-                    status,
-                });
-            }
-            AdapterStatus::Disabled => {
-                disabled.push(DisabledAdapter {
-                    name,
-                    status: status.as_str().to_string(),
-                    description,
-                });
-            }
-            _ => {}
-        }
-
-        current = addr.Next;
-    }
-
-    Ok((adapters, details, disabled))
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn read_pwstr(ptr: windows::core::PWSTR) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    let pcwstr = windows::core::PCWSTR(ptr.0 as *const u16);
-    pcwstr.to_string().unwrap_or_else(|_| {
-        let mut len = 0;
-        let max_len = 4096;
-        while len < max_len && *ptr.0.add(len) != 0 {
-            len += 1;
-        }
-        if len == max_len {
-            crate::log_warn!("network", "read_pwstr: 适配器名称超过{}个UTF-16单元，跳过该适配器", max_len);
-            return String::new();
-        }
-        if len == 0 {
-            return String::new();
-        }
-        let slice = std::slice::from_raw_parts(ptr.0, len);
-        String::from_utf16_lossy(slice)
-    })
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn ipv4_from_in_addr(addr: windows::Win32::Networking::WinSock::IN_ADDR) -> String {
-    std::net::Ipv4Addr::from(addr).to_string()
-}
-
-fn query_adapters_cached_inner() -> AdapterQueryResult {
+fn query_adapters_cached_inner() -> crate::network::discovery::AdapterQueryResult {
     {
         let cache = ADAPTER_CACHE.lock();
         if let Some((adapters, details, disabled, ts)) = cache.as_ref() {
@@ -510,7 +35,7 @@ fn query_adapters_cached_inner() -> AdapterQueryResult {
             }
         }
     }
-    let result = query_adapters_addresses()?;
+    let result = crate::network::discovery::query_adapters_addresses()?;
     {
         let mut cache = ADAPTER_CACHE.lock();
         *cache = Some((result.0.clone(), result.1.clone(), result.2.clone(), Instant::now()));
@@ -518,7 +43,7 @@ fn query_adapters_cached_inner() -> AdapterQueryResult {
     Ok(result)
 }
 
-pub fn get_all_adapters_force() -> AdapterQueryResult {
+pub fn get_all_adapters_force() -> crate::network::discovery::AdapterQueryResult {
     ADAPTER_CACHE.lock().take();
     query_adapters_cached_inner()
 }
@@ -1124,8 +649,6 @@ pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Re
             message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
         }
     } else if elevated_done {
-        // 提权脚本通过 Set-NetAdapter 修改了 MAC（写入注册表 NetworkAddress 键值，跨重启持久化）
-        // 脚本本身未清理注册表，这里补做清理
         if let Ok(refreshed) = get_adapters_force() {
             if let Some(a) = refreshed.iter().find(|a| a.name == adapter.name) {
                 if !a.ip.is_empty() {
@@ -1395,119 +918,6 @@ pub fn ensure_ethernet_ip_for_login(
 mod tests {
     use super::*;
 
-    // === is_blacklisted 词边界回归测试 ===
-    // 防止 nat/tor/virtual 误伤 "Native/National/Toronto" 等合法物理网卡名
-    #[test]
-    fn blacklist_word_boundary_does_not_match_legit_nics() {
-        // 包含 "nat" 但不是独立的 nat 单词
-        assert!(!is_blacklisted("Intel Native Ethernet Adapter"));
-        assert!(!is_blacklisted("National Semiconductor NIC"));
-        assert!(!is_blacklisted("NATO Secure Adapter"));
-        assert!(!is_blacklisted("Native Ethernet"));
-
-        // 包含 "tor" 但不是独立的 tor 单词
-        assert!(!is_blacklisted("Toronto Office Ethernet"));
-        assert!(!is_blacklisted("Tornado Net Bridge"));
-        assert!(!is_blacklisted("Vector Network"));
-        assert!(!is_blacklisted("Mentor Lab Network"));
-
-        // 包含 "virtual" 但不是独立的 virtual 单词
-        // "Tutorial" 中含 "tut" 不会命中；"Active virtualized" 才会命中
-        // 真实物理网卡几乎不会用 "Virtualization" 单独成词，所以应安全
-        assert!(!is_blacklisted("Tutorial Lab NIC"));
-    }
-
-    #[test]
-    fn blacklist_word_boundary_still_matches_known_virtuals() {
-        // nat 独立词
-        assert!(is_blacklisted("NAT Network"));
-        assert!(is_blacklisted("nat"));
-        assert!(is_blacklisted("My NAT Adapter"));
-
-        // tor 独立词
-        assert!(is_blacklisted("tor"));
-        assert!(is_blacklisted("Tor Service"));
-
-        // virtual 独立词
-        assert!(is_blacklisted("Virtual Ethernet"));
-        assert!(is_blacklisted("Hyper-V Virtual NIC"));
-    }
-
-    // === 中文虚拟网卡补全回归测试 ===
-    #[test]
-    fn blacklist_chinese_virtual_keywords() {
-        assert!(is_blacklisted("虚拟网卡"));
-        assert!(is_blacklisted("伪 VPN"));
-        assert!(is_blacklisted("假测试网卡"));
-        assert!(is_blacklisted("测试虚拟连接"));
-        assert!(is_blacklisted("模拟网络"));
-        assert!(is_blacklisted("IPv6 隧道"));
-
-        // "本地连接" 仍应被命中（用户特定业务规则）
-        assert!(is_blacklisted("本地连接"));
-        assert!(is_blacklisted("本地连接 2"));
-    }
-
-    #[test]
-    fn blacklist_does_not_match_legit_chinese_nics() {
-        // 中文真实网卡名应不被命中
-        assert!(!is_blacklisted("以太网"));
-        assert!(!is_blacklisted("WLAN"));
-        assert!(!is_blacklisted("校园网认证"));
-    }
-
-    // === 真实物理 WLAN/以太网过滤决策：完全交给 is_visible_in_ncpa（注册表检测） ===
-    // 见 is_visible_in_ncpa 实现：基于 HKLM\SYSTEM\CurrentControlSet\Control\Network
-    //                             {4D36E972-...}\{GUID}\Connection 注册表判断，
-    //                             + HKLM\SYSTEM\CurrentControlSet\Enum\<Enumerator>\{GUID}
-    //                             的 PnP 设备树双重检查
-    //                             完全不依赖名称模式，不会误伤多物理网卡场景
-    //
-    // 关键场景：用户系统有 2 块物理 Wi-Fi 网卡（Intel BE200 + Realtek），
-    //          真实命名可能是 "WLAN" 和 "WLAN 2"（或 "Wi-Fi" 和 "WLAN"）
-    //          这种情况下"按名称 wlan\s+[2-9]\d* 过滤"会误伤第二块真实网卡
-    //          而 PnP 设备树检查会保留所有真实网卡（每块都有 PnP Enum 实例）
-    //          同时过滤 Wi-Fi Direct Virtual Adapter 创建的 WLAN 2/3/4/5 幽灵副本
-    //          （这些在网络栈可见但 PnP Enum 中无对应实例）
-
-    // === class_subkey_has_matching_guid 集成测试（需在真实 Windows 环境下运行） ===
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn class_subkey_check_empty_guid_returns_false() {
-        assert!(!class_subkey_has_matching_guid(""));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn class_subkey_check_nonexistent_guid_returns_false() {
-        assert!(!class_subkey_has_matching_guid("{00000000-0000-0000-0000-000000000000}"));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn class_subkey_check_real_wlan_guid_returns_true() {
-        // 真实 WLAN：class 0002 的 NetCfgInstanceId = {86B8D1AD-...}
-        let result = class_subkey_has_matching_guid("{86B8D1AD-30C8-479C-B7B2-846BD1C590FF}");
-        if !result {
-            eprintln!("[SKIP] 当前环境无真实 WLAN class subkey");
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn class_subkey_check_ghost_wlan_guids_return_false() {
-        // 幽灵虚拟副本：NetCfgInstanceId 在 class subkey 中无匹配
-        let ghost_guids = [
-            "{DA918853-570D-45C6-8AE1-A841D9A0D978}",  // WLAN 2
-            "{C1CE50FF-65E7-46BD-9106-4E00A7C49AB6}",  // WLAN 3
-            "{723CE6A0-D1BD-45F0-86C7-1FECE96D18ED}",  // WLAN 4
-            "{DADC7A44-5EBF-4DED-BC80-EB66136A8BB0}",  // WLAN 5
-        ];
-        for guid in ghost_guids {
-            assert!(!class_subkey_has_matching_guid(guid), "幽灵 GUID {} 应返回 false", guid);
-        }
-    }
-
     // === resolve_adapter_names else 分支降级测试 ===
     fn make_test_config(adapter1: &str, dual: bool, adapter2: &str) -> crate::config::Config {
         crate::config::Config {
@@ -1558,7 +968,7 @@ mod tests {
             name: name.to_string(),
             ip: ip.to_string(),
             wireless,
-            guid: format!("{{{}}}", name),
+            guid: format!("{{{name}}}"),
             mac: String::new(),
             if_index: 1,
             status,

@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod client;
+pub mod discovery;
 pub mod dns;
 pub mod quality;
 pub mod timing;
