@@ -4,7 +4,7 @@
 //! 缓存优化（读写锁、后台刷新）将在 T4.3 实施。
 
 use lazy_static::lazy_static;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use std::time::Instant;
 use std::sync::atomic::AtomicBool;
 use crate::network::discovery::{
@@ -15,14 +15,14 @@ use crate::network::discovery::{
 type AdapterCacheEntry = (Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant);
 
 lazy_static! {
-    static ref ADAPTER_CACHE: Mutex<Option<AdapterCacheEntry>> = Mutex::new(None);
+    static ref ADAPTER_CACHE: RwLock<Option<AdapterCacheEntry>> = RwLock::new(None);
 }
 
 const ADAPTER_CACHE_TTL_SECS: u64 = 5;
 
 fn query_adapters_cached_inner() -> AdapterQueryResult {
     {
-        let cache = ADAPTER_CACHE.lock();
+        let cache = ADAPTER_CACHE.read();
         if let Some((adapters, details, disabled, ts)) = cache.as_ref() {
             if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
                 return Ok((adapters.clone(), details.clone(), disabled.clone()));
@@ -31,14 +31,14 @@ fn query_adapters_cached_inner() -> AdapterQueryResult {
     }
     let result = crate::network::discovery::query_adapters_addresses()?;
     {
-        let mut cache = ADAPTER_CACHE.lock();
+        let mut cache = ADAPTER_CACHE.write();
         *cache = Some((result.0.clone(), result.1.clone(), result.2.clone(), Instant::now()));
     }
     Ok(result)
 }
 
 pub fn get_all_adapters_force() -> AdapterQueryResult {
-    ADAPTER_CACHE.lock().take();
+    ADAPTER_CACHE.write().take();
     query_adapters_cached_inner()
 }
 
@@ -55,7 +55,7 @@ pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
 pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
     // 快速路径：缓存命中直接返回（仅 Mutex lock + clone，非阻塞）
     {
-        let cache = ADAPTER_CACHE.lock();
+        let cache = ADAPTER_CACHE.read();
         if let Some((adapters, _details, _disabled, ts)) = cache.as_ref() {
             if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
                 return Ok(adapters.clone());
@@ -74,7 +74,7 @@ pub fn get_disabled_adapters_cached() -> Result<Vec<DisabledAdapter>, String> {
 }
 
 pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
-    ADAPTER_CACHE.lock().take();
+    ADAPTER_CACHE.write().take();
     get_adapters_cached()
 }
 
@@ -131,7 +131,7 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
     }
 
     // 启用后强制清缓存，让下次查询拿到最新状态
-    ADAPTER_CACHE.lock().take();
+    ADAPTER_CACHE.write().take();
     crate::log_info!("adapter", "已清空适配器缓存");
 
     Ok(())
