@@ -15,7 +15,7 @@ lazy_static::lazy_static! {
         let mut config = tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider.clone()))
             .with_safe_default_protocol_versions()
             .unwrap_or_else(|e| {
-                eprintln!("TLS protocol versions fallback: {}", e);
+                eprintln!("TLS protocol versions fallback: {e}");
                 tokio_rustls::rustls::ClientConfig::builder_with_provider(Arc::new(provider))
                     .with_protocol_versions(&[
                         &tokio_rustls::rustls::version::TLS13,
@@ -84,7 +84,7 @@ pub async fn measure_https_timing(
     skip_ttfb: bool,
     skip_content: bool,
 ) -> HttpTimingResult {
-    let url = format!("https://{}:{}/", host, port);
+    let url = format!("https://{host}:{port}/");
     let mut result = HttpTimingResult {
         url: url.clone(),
         success: false,
@@ -116,13 +116,13 @@ pub async fn measure_https_timing(
             }
             Err(e) => {
                 let detail = if e.contains("DoH") {
-                    format!("DNS解析失败(DoH+传统DNS均不可用): {}", e)
+                    format!("DNS解析失败(DoH+传统DNS均不可用): {e}")
                 } else if e.contains("超时") || e.contains("timeout") {
-                    format!("DNS解析超时: {}", e)
+                    format!("DNS解析超时: {e}")
                 } else if e.contains("劫持") || e.contains("hijack") {
-                    format!("DNS可能被劫持: {}", e)
+                    format!("DNS可能被劫持: {e}")
                 } else {
-                    format!("DNS解析失败: {}", e)
+                    format!("DNS解析失败: {e}")
                 };
                 result.error = Some(detail);
                 result.total_ms = ms_from(overall_start);
@@ -141,7 +141,7 @@ pub async fn measure_https_timing(
     let tcp_stream = match bind_and_connect(addr, bind_addr, tcp_timeout).await {
         Ok(s) => s,
         Err(e) => {
-            result.error = Some(format!("TCP连接失败: {}", e));
+            result.error = Some(format!("TCP连接失败: {e}"));
             result.total_ms = ms_from(overall_start);
             return result;
         }
@@ -157,7 +157,7 @@ pub async fn measure_https_timing(
     let (mut tls_stream, negotiated_version) = match do_tls_handshake(host, tcp_stream, tls_timeout).await {
         Ok(r) => r,
         Err(e) => {
-            result.error = Some(format!("TLS握手失败: {}", e));
+            result.error = Some(format!("TLS握手失败: {e}"));
             result.total_ms = ms_from(overall_start);
             return result;
         }
@@ -167,13 +167,12 @@ pub async fn measure_https_timing(
 
     if !skip_ttfb {
         let request = format!(
-            "GET / HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: */*\r\nConnection: close\r\n\r\n",
-            host
+            "GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: */*\r\nConnection: close\r\n\r\n"
         );
 
         let ttfb_start = Instant::now();
         if let Err(e) = tls_stream.write_all(request.as_bytes()).await {
-            result.error = Some(format!("发送请求失败: {}", e));
+            result.error = Some(format!("发送请求失败: {e}"));
             result.total_ms = ms_from(overall_start);
             return result;
         }
@@ -211,7 +210,7 @@ pub async fn measure_https_timing(
                 }
                 Ok(Err(e)) => {
                     if !first_byte_received {
-                        result.error = Some(format!("读取响应失败: {}", e));
+                        result.error = Some(format!("读取响应失败: {e}"));
                         result.total_ms = ms_from(overall_start);
                         return result;
                     }
@@ -254,22 +253,22 @@ pub(crate) async fn bind_and_connect(
         let bind_addr = std::net::SocketAddr::new(bind, 0);
         let socket = match addr {
             std::net::SocketAddr::V4(_) => {
-                tokio::net::TcpSocket::new_v4().map_err(|e| format!("{}", e))?
+                tokio::net::TcpSocket::new_v4().map_err(|e| format!("{e}"))?
             }
             std::net::SocketAddr::V6(_) => {
-                tokio::net::TcpSocket::new_v6().map_err(|e| format!("{}", e))?
+                tokio::net::TcpSocket::new_v6().map_err(|e| format!("{e}"))?
             }
         };
-        socket.bind(bind_addr).map_err(|e| format!("绑定失败: {}", e))?;
+        socket.bind(bind_addr).map_err(|e| format!("绑定失败: {e}"))?;
         tokio::time::timeout(timeout, socket.connect(addr))
             .await
             .map_err(|_| "TCP连接超时".to_string())?
-            .map_err(|e| format!("{}", e))?
+            .map_err(|e| format!("{e}"))?
     } else {
         tokio::time::timeout(timeout, TcpStream::connect(addr))
             .await
             .map_err(|_| "TCP连接超时".to_string())?
-            .map_err(|e| format!("{}", e))?
+            .map_err(|e| format!("{e}"))?
     };
     Ok(stream)
 }
@@ -280,12 +279,12 @@ pub(crate) async fn do_tls_handshake(
     timeout: Duration,
 ) -> Result<(tokio_rustls::client::TlsStream<TcpStream>, String), String> {
     let server_name = ServerName::try_from(host.to_string())
-        .map_err(|e| format!("无效主机名: {}", e))?;
+        .map_err(|e| format!("无效主机名: {e}"))?;
 
     let tls_stream = tokio::time::timeout(timeout, TLS_CONNECTOR.connect(server_name, tcp_stream))
         .await
         .map_err(|_| "TLS握手超时".to_string())?
-        .map_err(|e| format!("{}", e))?;
+        .map_err(|e| format!("{e}"))?;
 
     let version_str = {
         let (_, connection) = tls_stream.get_ref();
@@ -293,7 +292,7 @@ pub(crate) async fn do_tls_handshake(
         match negotiated {
             Some(tokio_rustls::rustls::ProtocolVersion::TLSv1_3) => "TLS 1.3".to_string(),
             Some(tokio_rustls::rustls::ProtocolVersion::TLSv1_2) => "TLS 1.2".to_string(),
-            _ => format!("{:?}", negotiated),
+            _ => format!("{negotiated:?}"),
         }
     };
 
@@ -336,9 +335,9 @@ pub async fn measure_dns_query(
     }
     if result.udp_ms < 0 && result.tcp_ms < 0 {
         result.error = match (udp_err, tcp_err) {
-            (Some(u), Some(t)) => Some(format!("UDP: {} | TCP: {}", u, t)),
-            (Some(u), None) => Some(format!("UDP: {}", u)),
-            (None, Some(t)) => Some(format!("TCP: {}", t)),
+            (Some(u), Some(t)) => Some(format!("UDP: {u} | TCP: {t}")),
+            (Some(u), None) => Some(format!("UDP: {u}")),
+            (None, Some(t)) => Some(format!("TCP: {t}")),
             (None, None) => None,
         };
     }
@@ -387,7 +386,7 @@ pub async fn measure_doh_timing(
         match super::dns::resolve_host_uncached_with_bind(doh_server, timeout, bind_addr).await {
             Ok(ip) => (ip, true),
             Err(e) => {
-                result.error = Some(format!("DoH域名解析失败: {}", e));
+                result.error = Some(format!("DoH域名解析失败: {e}"));
                 return result;
             }
         }
@@ -462,7 +461,7 @@ async fn do_doh_https(
     let tcp_stream = match bind_and_connect(addr, bind_addr, connect_timeout).await {
         Ok(s) => { result.tcp_ms = ms_from(tcp_start); s }
         Err(e) => {
-            result.error = Some(format!("TCP连接失败: {}", e));
+            result.error = Some(format!("TCP连接失败: {e}"));
             let completed: i64 = [result.tcp_ms, result.tls_ms, result.http_ms].iter().filter(|&&x| x > 0).sum();
             result.total_ms = if completed > 0 { completed } else { -1 };
             return result;
@@ -477,7 +476,7 @@ async fn do_doh_https(
             stream
         }
         Err(e) => {
-            result.error = Some(format!("TLS握手失败: {}", e));
+            result.error = Some(format!("TLS握手失败: {e}"));
             let completed: i64 = [result.tcp_ms, result.tls_ms, result.http_ms].iter().filter(|&&x| x > 0).sum();
             result.total_ms = if completed > 0 { completed } else { -1 };
             return result;
@@ -493,15 +492,14 @@ async fn do_doh_https(
 
     let query_wire = super::dns::build_dns_query_wire(query_domain, 1);
     let dns_param = super::dns::base64url_encode_no_pad(&query_wire);
-    let path = format!("/dns-query?dns={}", dns_param);
+    let path = format!("/dns-query?dns={dns_param}");
     let request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: application/dns-message\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n",
-        path, doh_server
+        "GET {path} HTTP/1.1\r\nHost: {doh_server}\r\nAccept: application/dns-message\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
     );
 
     let http_start = Instant::now();
     if let Err(e) = tls_stream.write_all(request.as_bytes()).await {
-        result.error = Some(format!("发送请求失败: {}", e));
+        result.error = Some(format!("发送请求失败: {e}"));
         let completed: i64 = [result.tcp_ms, result.tls_ms, result.http_ms].iter().filter(|&&x| x > 0).sum();
         result.total_ms = if completed > 0 { completed } else { -1 };
         return result;
@@ -525,7 +523,7 @@ async fn do_doh_https(
             }
             Ok(Err(e)) => {
                 if first_read {
-                    result.error = Some(format!("读取响应失败: {}", e));
+                    result.error = Some(format!("读取响应失败: {e}"));
                 }
                 break;
             }

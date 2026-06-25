@@ -50,14 +50,14 @@ async fn ping_host_async(host: &str, timeout_ms: u32) -> Result<u64, String> {
     use surge_ping::PingIdentifier;
     use surge_ping::PingSequence;
 
-    let addr: std::net::IpAddr = host.parse().map_err(|_| format!("无效的主机地址: {}", host))?;
+    let addr: std::net::IpAddr = host.parse().map_err(|_| format!("无效的主机地址: {host}"))?;
     let config = match addr {
         std::net::IpAddr::V4(_) => surge_ping::Config::default(),
         std::net::IpAddr::V6(_) => surge_ping::Config::builder().kind(ICMP::V6).build(),
     };
     let client = match Client::new(&config) {
         Ok(c) => c,
-        Err(e) => return Err(format!("创建ping客户端失败: {}", e)),
+        Err(e) => return Err(format!("创建ping客户端失败: {e}")),
     };
 
     let timeout = std::time::Duration::from_millis(timeout_ms as u64);
@@ -97,7 +97,7 @@ async fn check_tcp_latency_async(host: &str, port: u16, timeout_ms: u64, bind_ad
     }
     let timeout_ms = timeout_ms.clamp(100, 30000);
     let start = Instant::now();
-    let target = match format!("{}:{}", host, port).parse::<std::net::SocketAddr>() {
+    let target = match format!("{host}:{port}").parse::<std::net::SocketAddr>() {
         Ok(a) => a,
         Err(_) => return -1,
     };
@@ -181,7 +181,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             crate::network::dns::update_doh_server_latency(&doh_server, lat, r.success);
             LatencyResult {
                 name,
-                target: format!("https://{}", doh_server),
+                target: format!("https://{doh_server}"),
                 latency: lat,
                 lat_type: "doh".to_string(),
                 is_external: true,
@@ -203,7 +203,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
             LatencyResult {
                 name,
-                target: format!("https://{}", host),
+                target: format!("https://{host}"),
                 latency: lat,
                 lat_type: "https".to_string(),
                 is_external: true,
@@ -224,7 +224,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             crate::network::dns::update_dns_server_latency(&ip, lat, r.success);
             LatencyResult {
                 name,
-                target: format!("{}:53", ip),
+                target: format!("{ip}:53"),
                 latency: lat,
                 lat_type: "dns".to_string(),
                 is_external: true,

@@ -47,7 +47,7 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
         builder = builder.local_address(ip);
     }
 
-    builder.build().map_err(|e| format!("创建HTTP客户端失败: {}", e))
+    builder.build().map_err(|e| format!("创建HTTP客户端失败: {e}"))
 }
 
 pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::blocking::Client, String> {
@@ -71,7 +71,7 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
         Err(_) => {
             crate::log_info!("http", "客户端池新建(TLS 1.2 fallback): key={}, poolSize={}", tls12_key, CLIENT_POOL.len() + 1);
             let c = build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_2)
-                .map_err(|e| format!("TLS 1.3/1.2 客户端均构建失败: {}", e))?;
+                .map_err(|e| format!("TLS 1.3/1.2 客户端均构建失败: {e}"))?;
             (c, tls12_key)
         }
     };

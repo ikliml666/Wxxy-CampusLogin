@@ -116,8 +116,7 @@ fn is_visible_in_ncpa(guid: &str) -> bool {
     }
     // 注册表 1 检查：Connection 子键的 ShowInNetworkConnections
     let key_path = format!(
-        "SYSTEM\\CurrentControlSet\\Control\\Network\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}\\{}\\Connection",
-        guid
+        "SYSTEM\\CurrentControlSet\\Control\\Network\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}\\{guid}\\Connection"
     );
     let show_in_ncpa = match winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(&key_path) {
         Ok(key) => {
@@ -245,7 +244,7 @@ fn query_adapters_addresses() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<D
             if attempt < max_retries - 1 {
                 continue;
             }
-            return Err(format!("GetAdaptersAddresses buffer too small after {} retries", max_retries));
+            return Err(format!("GetAdaptersAddresses buffer too small after {max_retries} retries"));
         }
 
         if attempt < max_retries - 1 {
@@ -255,7 +254,7 @@ fn query_adapters_addresses() -> Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<D
             continue;
         }
 
-        return Err(format!("GetAdaptersAddresses failed: {}", result));
+        return Err(format!("GetAdaptersAddresses failed: {result}"));
     }
 
     Ok((vec![], vec![], vec![]))
@@ -294,7 +293,7 @@ fn parse_adapter_addresses(
         let guid = if guid_raw.starts_with('{') {
             guid_raw
         } else if !guid_raw.is_empty() {
-            format!("{{{}}}", guid_raw)
+            format!("{{{guid_raw}}}")
         } else {
             guid_raw
         };
@@ -546,7 +545,7 @@ pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
     // 慢路径：缓存未命中，spawn_blocking 执行阻塞的 Win32 GetAdaptersAddresses 调用
     tokio::task::spawn_blocking(get_adapters_cached)
         .await
-        .map_err(|e| format!("适配器查询任务失败: {}", e))?
+        .map_err(|e| format!("适配器查询任务失败: {e}"))?
 }
 
 pub fn get_disabled_adapters_cached() -> Result<Vec<DisabledAdapter>, String> {
@@ -571,7 +570,7 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
     validate_adapter_name(adapter_name)?;
 
     // netsh 命令行参数（适配器名含空格时需双引号包裹）
-    let netsh_args = format!("interface set interface \"{}\" enable", adapter_name);
+    let netsh_args = format!("interface set interface \"{adapter_name}\" enable");
 
     if crate::platform::elevation::is_admin() {
         // 管理员：直接执行 netsh
@@ -579,14 +578,14 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
         let output = new_command("netsh")
             .args(["interface", "set", "interface", adapter_name, "enable"])
             .output()
-            .map_err(|e| format!("启用适配器失败: {}", e))?;
+            .map_err(|e| format!("启用适配器失败: {e}"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stderr_trimmed = stderr.trim();
             return Err(if stderr_trimmed.is_empty() {
                 "启用适配器失败：netsh 返回非零退出码但未输出错误信息".to_string()
             } else {
-                format!("启用适配器失败: {}", stderr_trimmed)
+                format!("启用适配器失败: {stderr_trimmed}")
             });
         }
     } else {
@@ -600,7 +599,7 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
                 // COM 失败：降级 ShellExecuteW runas（会弹 UAC）
                 crate::log_warn!("adapter", "COM ShellExec 失败: {}，降级到 ShellExecuteW runas", com_err);
                 crate::platform::elevation::run_elevated("netsh", &netsh_args)
-                    .map_err(|e| format!("提权启用适配器失败（COM 和 UAC 均失败）: COM错误={}; UAC错误={}", com_err, e))?;
+                    .map_err(|e| format!("提权启用适配器失败（COM 和 UAC 均失败）: COM错误={com_err}; UAC错误={e}"))?;
                 crate::log_info!("adapter", "ShellExecuteW runas 启用适配器成功: {}", adapter_name);
             }
         }
@@ -699,7 +698,7 @@ pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     let output = new_command("ipconfig")
         .args(["/renew", adapter_name])
         .output()
-        .map_err(|e| format!("DHCP续租失败: {}", e))?;
+        .map_err(|e| format!("DHCP续租失败: {e}"))?;
     Ok(output.status.success())
 }
 
@@ -708,7 +707,7 @@ pub fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
     let output = new_command("ipconfig")
         .args(["/release", adapter_name])
         .output()
-        .map_err(|e| format!("DHCP释放失败: {}", e))?;
+        .map_err(|e| format!("DHCP释放失败: {e}"))?;
     Ok(output.status.success())
 }
 
@@ -754,7 +753,7 @@ fn generate_random_mac() -> String {
     let b5 = (next() & 0xFF) as u8;
     let b6 = (next() & 0xFF) as u8;
     let first = (b1 & 0xFC) | 0x02;
-    format!("{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", first, b2, b3, b4, b5, b6)
+    format!("{first:02X}{b2:02X}{b3:02X}{b4:02X}{b5:02X}{b6:02X}")
 }
 
 fn mac_with_dashes(mac: &str) -> String {
@@ -780,7 +779,7 @@ pub fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(),
             if is_access_denied(&e) {
                 "修改MAC地址需要管理员权限，请以管理员身份运行应用".to_string()
             } else {
-                format!("打开网卡注册表失败: {}", e)
+                format!("打开网卡注册表失败: {e}")
             }
         })?;
     for subkey_name in class_key.enum_keys().filter_map(|r| r.ok()) {
@@ -788,7 +787,7 @@ pub fn set_mac_via_registry(adapter_guid: &str, mac_no_dash: &str) -> Result<(),
             if let Ok(instance_id) = subkey.get_value::<String, _>("NetCfgInstanceId") {
                 if instance_id.eq_ignore_ascii_case(adapter_guid) {
                     subkey.set_value("NetworkAddress", &mac_no_dash)
-                        .map_err(|e| format!("写入NetworkAddress失败: {}", e))?;
+                        .map_err(|e| format!("写入NetworkAddress失败: {e}"))?;
                     return Ok(());
                 }
             }
@@ -807,7 +806,7 @@ pub fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
             if is_access_denied(&e) {
                 "清理MAC地址需要管理员权限".to_string()
             } else {
-                format!("打开网卡注册表失败: {}", e)
+                format!("打开网卡注册表失败: {e}")
             }
         })?;
     for subkey_name in class_key.enum_keys().filter_map(|r| r.ok()) {
@@ -831,7 +830,7 @@ pub fn netsh_disable(adapter_name: &str) -> bool {
     }
     // netsh语法要求 "name=适配器名" 作为单个参数传递，无法拆分为独立args
     new_command("netsh")
-        .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=disable"])
+        .args(["interface", "set", "interface", &format!("name={adapter_name}"), "admin=disable"])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -843,7 +842,7 @@ pub fn netsh_enable(adapter_name: &str) -> bool {
     }
     // netsh语法要求 "name=适配器名" 作为单个参数传递，无法拆分为独立args
     new_command("netsh")
-        .args(["interface", "set", "interface", &format!("name={}", adapter_name), "admin=enable"])
+        .args(["interface", "set", "interface", &format!("name={adapter_name}"), "admin=enable"])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -898,7 +897,7 @@ fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, o
         mac = mac_dashed, name = escape_ps_single_quote(adapter_name)
     );
     crate::log_info!("adapter", "尝试提权修改MAC(Set-NetAdapter): adapter={}, mac={}", adapter_name, mac_dashed);
-    match crate::platform::elevation::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", script)) {
+    match crate::platform::elevation::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{script}\"")) {
         Ok(()) => {
             crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
             if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 25_000) {
@@ -911,7 +910,7 @@ fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, o
         }
         Err(e) => {
             crate::log_warn!("adapter", "提权执行MAC修改失败: {}", e);
-            (false, Some(format!("提权失败: {}，请尝试以管理员身份运行应用", e)))
+            (false, Some(format!("提权失败: {e}，请尝试以管理员身份运行应用")))
         }
     }
 }
@@ -946,7 +945,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
                     crate::log_info!("adapter", "管理员直写注册表成功: guid={}", adapter.guid);
                     (true, false, None)
                 }
-                Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
+                Err(e) => (false, false, Some(format!("MAC地址修改失败: {e}"))),
             }
         } else {
             crate::log_info!("adapter", "非管理员运行，跳过注册表直写，直接COM ShellExec提权: guid={}", adapter.guid);
@@ -1061,7 +1060,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Va
 pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Result<serde_json::Value, String> {
     let adapters = get_adapters_cached()?;
     let adapter = adapters.iter().find(|a| a.name == adapter_name)
-        .ok_or_else(|| format!("未找到适配器: {}", adapter_name))?;
+        .ok_or_else(|| format!("未找到适配器: {adapter_name}"))?;
 
     if !adapter.ip.is_empty() && !is_same_subnet_18(&adapter.ip, campus_gateway) {
         return Ok(serde_json::json!({
@@ -1083,7 +1082,7 @@ pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Re
                 crate::log_info!("adapter", "管理员直写注册表成功: guid={}", adapter.guid);
                 (true, false, None)
             }
-            Err(e) => (false, false, Some(format!("MAC地址修改失败: {}", e))),
+            Err(e) => (false, false, Some(format!("MAC地址修改失败: {e}"))),
         }
     } else {
         crate::log_info!("adapter", "非管理员运行，跳过注册表直写，直接COM ShellExec提权: guid={}", adapter.guid);
@@ -1181,7 +1180,7 @@ pub fn get_wireless_ssid() -> Result<Option<String>, String> {
     let output = new_command("netsh")
         .args(["wlan", "show", "interfaces"])
         .output()
-        .map_err(|e| format!("获取无线网络信息失败: {}", e))?;
+        .map_err(|e| format!("获取无线网络信息失败: {e}"))?;
 
     if !output.status.success() {
         return Ok(None);
@@ -1212,7 +1211,7 @@ pub fn get_wired_network_profile() -> Result<Option<String>, String> {
     let output = new_command("netsh")
         .args(["lan", "show", "interfaces"])
         .output()
-        .map_err(|e| format!("获取有线网络信息失败: {}", e))?;
+        .map_err(|e| format!("获取有线网络信息失败: {e}"))?;
 
     if !output.status.success() {
         return Ok(None);
@@ -1354,7 +1353,7 @@ pub fn ensure_ethernet_ip_for_login(
 
         let event_bus = EventBus::new(app_handle);
         let _ = event_bus.emit_login_log(
-            &format!("检测到以太网 {} 已连接但未获取IP，正在尝试DHCP续租...", name),
+            &format!("检测到以太网 {name} 已连接但未获取IP，正在尝试DHCP续租..."),
             "info",
         );
 
@@ -1376,13 +1375,13 @@ pub fn ensure_ethernet_ip_for_login(
                 .unwrap_or_default();
             let event_bus = EventBus::new(app_handle);
             let _ = event_bus.emit_login_log(
-                &format!("以太网 {} DHCP续租成功，IP: {}", name, ip),
+                &format!("以太网 {name} DHCP续租成功，IP: {ip}"),
                 "success",
             );
         } else {
             let event_bus = EventBus::new(app_handle);
             let _ = event_bus.emit_login_log(
-                &format!("以太网 {} DHCP续租超时仍未获得IP，跳过该网卡", name),
+                &format!("以太网 {name} DHCP续租超时仍未获得IP，跳过该网卡"),
                 "warning",
             );
         }

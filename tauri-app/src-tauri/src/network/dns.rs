@@ -148,7 +148,7 @@ pub(crate) async fn resolve_host_uncached_with_bind(
         opts.num_concurrent_reqs = servers.len().min(3);
 
         let resolver = Resolver::new(config, opts)
-            .map_err(|e| format!("创建解析器失败: {}", e))?;
+            .map_err(|e| format!("创建解析器失败: {e}"))?;
 
         match resolver.lookup_ip(&host) {
             Ok(response) => {
@@ -166,10 +166,10 @@ pub(crate) async fn resolve_host_uncached_with_bind(
                 sys_opts.num_concurrent_reqs = 2;
 
                 let sys_resolver = Resolver::new(sys_config, sys_opts)
-                    .map_err(|e| format!("创建系统解析器失败: {}", e))?;
+                    .map_err(|e| format!("创建系统解析器失败: {e}"))?;
 
                 sys_resolver.lookup_ip(&host)
-                    .map_err(|e| format!("{}", e))
+                    .map_err(|e| format!("{e}"))
                     .and_then(|response| {
                         response.iter()
                             .find(|ip| ip.is_ipv4())
@@ -183,7 +183,7 @@ pub(crate) async fn resolve_host_uncached_with_bind(
     match result {
         Ok(Ok(ip)) => Ok(ip),
         Ok(Err(e)) => Err(e),
-        Err(e) => Err(format!("解析任务失败: {}", e)),
+        Err(e) => Err(format!("解析任务失败: {e}")),
     }
 }
 
@@ -200,7 +200,7 @@ pub(crate) async fn dns_lookup(
     let start = Instant::now();
     let ip: IpAddr = match server_ip.parse() {
         Ok(ip) => ip,
-        Err(e) => return (Err(format!("{}", e)), -1),
+        Err(e) => return (Err(format!("{e}")), -1),
     };
     let sock_addr = std::net::SocketAddr::new(ip, 53);
     let bind = bind_addr.map(|a| std::net::SocketAddr::new(a, 0));
@@ -222,17 +222,17 @@ pub(crate) async fn dns_lookup(
 
     let resolver = match Resolver::new(resolver_config, opts) {
         Ok(r) => r,
-        Err(e) => return (Err(format!("创建解析器失败: {}", e)), -1),
+        Err(e) => return (Err(format!("创建解析器失败: {e}")), -1),
     };
 
     let domain = domain.to_string();
     match tokio::task::spawn_blocking(move || {
         resolver.lookup_ip(&domain)
-            .map_err(|e| format!("{}", e))
+            .map_err(|e| format!("{e}"))
     }).await {
         Ok(Ok(_)) => (Ok(()), ((start.elapsed().as_micros() + 500) / 1000).max(1) as i64),
         Ok(Err(e)) => (Err(e), ((start.elapsed().as_micros() + 500) / 1000).max(1) as i64),
-        Err(e) => (Err(format!("任务执行失败: {}", e)), ((start.elapsed().as_micros() + 500) / 1000).max(1) as i64),
+        Err(e) => (Err(format!("任务执行失败: {e}")), ((start.elapsed().as_micros() + 500) / 1000).max(1) as i64),
     }
 }
 
@@ -328,22 +328,21 @@ pub(crate) async fn resolve_via_doh(
     let deadline = std::time::Instant::now() + timeout;
     let addr = std::net::SocketAddr::new(doh_ip, 443);
     let tcp_stream = super::timing::bind_and_connect(addr, bind_addr, timeout).await
-        .map_err(|e| format!("DoH TCP连接失败: {}", e))?;
+        .map_err(|e| format!("DoH TCP连接失败: {e}"))?;
 
     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
     let (mut tls_stream, _) = super::timing::do_tls_handshake(doh_server, tcp_stream, remaining).await
-        .map_err(|e| format!("DoH TLS握手失败: {}", e))?;
+        .map_err(|e| format!("DoH TLS握手失败: {e}"))?;
 
     let query_wire = build_dns_query_wire(domain, 1);
     let dns_param = base64url_encode_no_pad(&query_wire);
-    let path = format!("/dns-query?dns={}", dns_param);
+    let path = format!("/dns-query?dns={dns_param}");
     let request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: application/dns-message\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n",
-        path, doh_server
+        "GET {path} HTTP/1.1\r\nHost: {doh_server}\r\nAccept: application/dns-message\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
     );
 
     tls_stream.write_all(request.as_bytes()).await
-        .map_err(|e| format!("DoH发送请求失败: {}", e))?;
+        .map_err(|e| format!("DoH发送请求失败: {e}"))?;
 
     let mut response = Vec::new();
     let mut buf = vec![0u8; 4096];
@@ -360,7 +359,7 @@ pub(crate) async fn resolve_via_doh(
             }
             Ok(Err(e)) => {
                 if response.is_empty() {
-                    return Err(format!("DoH读取响应失败: {}", e));
+                    return Err(format!("DoH读取响应失败: {e}"));
                 }
                 break;
             }
@@ -391,7 +390,7 @@ pub(crate) async fn resolve_via_doh(
     }
 
     let ips = parse_dns_response_wire(body)
-        .map_err(|e| format!("DoH解析响应失败: {}", e))?;
+        .map_err(|e| format!("DoH解析响应失败: {e}"))?;
     ips.into_iter().next()
         .ok_or_else(|| "DoH响应无有效A记录".to_string())
 }
@@ -445,7 +444,7 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
             }
             Err(e) => {
                 if first_error.is_none() {
-                    first_error = Some(format!("任务失败: {}", e));
+                    first_error = Some(format!("任务失败: {e}"));
                 }
             }
         }
