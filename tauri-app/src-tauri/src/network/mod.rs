@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod adapter_cache;
 pub mod client;
+pub mod dhcp;
 pub mod discovery;
 pub mod dns;
 pub mod quality;
