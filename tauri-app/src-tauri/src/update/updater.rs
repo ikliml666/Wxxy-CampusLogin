@@ -75,7 +75,7 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+        .map_err(|e| format!("创建HTTP客户端失败: {e}"))?;
 
     // 按顺序尝试所有 URL（GitHub 原始源 + 镜像源），任一成功即用
     // 降级策略：所有源都返回 4xx（文件不存在/权限受限）时视为"无可用校验文件"，
@@ -94,20 +94,20 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
                             break;
                         }
                         Err(e) => {
-                            last_err = format!("读取校验和内容失败: {}", e);
+                            last_err = format!("读取校验和内容失败: {e}");
                         }
                     }
                 }
                 Ok(resp) => {
                     let status = resp.status();
-                    last_err = format!("HTTP {}", status);
+                    last_err = format!("HTTP {status}");
                     if !status.is_client_error() {
                         // 5xx 等服务端错误 → 不再视为"文件不存在"
                         all_client_errors = false;
                     }
                 }
                 Err(e) => {
-                    last_err = format!("获取校验和文件失败: {}", e);
+                    last_err = format!("获取校验和文件失败: {e}");
                     // 网络/超时等传输错误：4xx-only 条件不成立
                     all_client_errors = false;
                     had_transport_error = true;
@@ -128,7 +128,7 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
                     );
                     return Ok(true);
                 }
-                return Err(format!("所有校验和源均失败（最后错误: {}）", last_err));
+                return Err(format!("所有校验和源均失败（最后错误: {last_err}）"));
             }
         }
     };
@@ -151,19 +151,19 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
         move || -> Result<String, String> {
             use std::io::Read;
             let mut file = std::fs::File::open(&path)
-                .map_err(|e| format!("打开下载文件失败: {}", e))?;
+                .map_err(|e| format!("打开下载文件失败: {e}"))?;
             let mut hasher = sha2::Sha256::new();
             let mut buf = [0u8; 65536]; // 64KB buffer
             loop {
                 let n = file.read(&mut buf)
-                    .map_err(|e| format!("读取下载文件失败: {}", e))?;
+                    .map_err(|e| format!("读取下载文件失败: {e}"))?;
                 if n == 0 { break; }
                 hasher.update(&buf[..n]);
             }
             Ok(format!("{:x}", hasher.finalize()))
         }
     }).await
-    .map_err(|e| format!("计算哈希任务失败: {}", e))??;
+    .map_err(|e| format!("计算哈希任务失败: {e}"))??;
 
     Ok(actual_hash == expected_hash)
 }
@@ -274,7 +274,7 @@ pub async fn fetch_latest_release() -> Result<(bool, String), String> {
                     }
                 }
             }
-            Err(format!("GitHub源及所有镜像源均失败（GitHub: {}）", github_err))
+            Err(format!("GitHub源及所有镜像源均失败（GitHub: {github_err}）"))
         }
     }
 }
@@ -283,14 +283,14 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+        .map_err(|e| format!("创建HTTP客户端失败: {e}"))?;
 
     let resp = client
         .get(url)
         .header("User-Agent", "CampusLogin-UpdateChecker")
         .send()
         .await
-        .map_err(|e| format!("获取version.json失败: {}", e))?;
+        .map_err(|e| format!("获取version.json失败: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("version.json不可用: HTTP {}", resp.status()));
@@ -299,7 +299,7 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
     let data: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("解析version.json失败: {}", e))?;
+        .map_err(|e| format!("解析version.json失败: {e}"))?;
 
     let latest_tag = data["version"]
         .as_str()
@@ -322,10 +322,9 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
 pub async fn check_update_inner() -> Result<UpdateInfo, String> {
     let (has_update, latest_tag) = fetch_latest_release().await?;
 
-    let exe_name = format!("Wxxy-CampusLogin_{}_x64-setup.exe", latest_tag);
+    let exe_name = format!("Wxxy-CampusLogin_{latest_tag}_x64-setup.exe");
     let github_exe_url = format!(
-        "https://github.com/{}/releases/download/v{}/{}",
-        GITHUB_REPO, latest_tag, exe_name
+        "https://github.com/{GITHUB_REPO}/releases/download/v{latest_tag}/{exe_name}"
     );
     // 为 SHA256 校验文件生成 GitHub 原始源 + 镜像源 URL 列表
     let sha256_urls: Vec<String> = {
@@ -335,7 +334,7 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
             "https://gh-proxy.com/",
             "https://ghproxy.net/",
         ] {
-            urls.push(format!("{}{}.sha256", mirror_prefix, github_exe_url));
+            urls.push(format!("{mirror_prefix}{github_exe_url}.sha256"));
         }
         urls
     };
@@ -351,7 +350,7 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
                 size: 0,
             },
             ReleaseAsset {
-                name: format!("{}.sha256", exe_name),
+                name: format!("{exe_name}.sha256"),
                 url: sha256_urls.first().cloned().unwrap_or_default(),
                 size: 0,
             },

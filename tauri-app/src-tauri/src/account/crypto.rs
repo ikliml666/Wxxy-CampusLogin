@@ -122,7 +122,7 @@ pub fn encrypt(plaintext: &str) -> Result<String, String> {
 #[cfg(target_os = "windows")]
 pub fn decrypt(encrypted_base64: &str) -> Result<String, String> {
     let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encrypted_base64)
-        .map_err(|e| format!("Base64解码失败: {}", e))?;
+        .map_err(|e| format!("Base64解码失败: {e}"))?;
     let decrypted = dpapi::decrypt(&data)?;
-    String::from_utf8(decrypted).map_err(|e| format!("UTF8转换失败: {}", e))
+    String::from_utf8(decrypted).map_err(|e| format!("UTF8转换失败: {e}"))
 }

@@ -24,7 +24,7 @@ pub fn validate_operator(op: &str) -> Result<&str, String> {
     if ["", "@telecom", "@unicom", "@cmcc"].contains(&op) {
         Ok(op)
     } else {
-        Err(format!("运营商后缀无效: {}，可选：@telecom、@unicom、@cmcc", op))
+        Err(format!("运营商后缀无效: {op}，可选：@telecom、@unicom、@cmcc"))
     }
 }
 
@@ -44,7 +44,7 @@ fn validate_portal_url(url: &str) -> Result<(), String> {
         Ok(parsed) => {
             let scheme = parsed.scheme();
             if scheme != "http" && scheme != "https" {
-                return Err(format!("Portal地址协议不支持: {}，仅允许http/https", scheme));
+                return Err(format!("Portal地址协议不支持: {scheme}，仅允许http/https"));
             }
             if let Some(host) = parsed.host_str() {
                 if let Ok(ip) = host.parse::<std::net::IpAddr>() {
@@ -66,7 +66,7 @@ fn validate_portal_url(url: &str) -> Result<(), String> {
             }
             Ok(())
         }
-        Err(e) => Err(format!("Portal地址格式无效: {}", e)),
+        Err(e) => Err(format!("Portal地址格式无效: {e}")),
     }
 }
 

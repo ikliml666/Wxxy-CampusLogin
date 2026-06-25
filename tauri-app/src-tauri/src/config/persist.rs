@@ -11,7 +11,7 @@ pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String>
             .unwrap_or(0)
     ));
     std::fs::write(&tmp_path, content)
-        .map_err(|e| format!("写入临时文件失败: {}", e))?;
+        .map_err(|e| format!("写入临时文件失败: {e}"))?;
     for attempt in 0..3 {
         if std::fs::rename(&tmp_path, path).is_ok() {
             return Ok(());
