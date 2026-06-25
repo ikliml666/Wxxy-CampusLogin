@@ -198,7 +198,7 @@ mod tests {
                 message: None,
                 data: Some(serde_json::json!({ "code": code })),
             };
-            assert!(is_auth_failure(&result), "code {} should be auth failure", code);
+            assert!(is_auth_failure(&result), "code {code} should be auth failure");
         }
     }
 

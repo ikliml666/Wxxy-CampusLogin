@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn serde_missing_reconnect_field_uses_default() {
         // 从默认 Config 序列化的 JSON 中删除新字段，验证反序列化时回退到默认值
-        let mut json = serde_json::to_value(&Config::default()).unwrap();
+        let mut json = serde_json::to_value(Config::default()).unwrap();
         let obj = json.as_object_mut().unwrap();
         obj.remove("maxDisconnectReconnect");
         obj.remove("autoLoginCooldownSecs");
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn serde_custom_reconnect_config() {
-        let mut json = serde_json::to_value(&Config::default()).unwrap();
+        let mut json = serde_json::to_value(Config::default()).unwrap();
         json["maxDisconnectReconnect"] = serde_json::json!(5);
         json["autoLoginCooldownSecs"] = serde_json::json!(120);
         let config: Config = serde_json::from_value(json).unwrap();

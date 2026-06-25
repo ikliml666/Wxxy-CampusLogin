@@ -43,7 +43,7 @@ mod tests {
             "{DADC7A44-5EBF-4DED-BC80-EB66136A8BB0}",  // WLAN 5
         ];
         for guid in ghost_guids {
-            assert!(!super::class_subkey_has_matching_guid(guid), "幽灵 GUID {} 应返回 false", guid);
+            assert!(!super::class_subkey_has_matching_guid(guid), "幽灵 GUID {guid} 应返回 false");
         }
     }
 }

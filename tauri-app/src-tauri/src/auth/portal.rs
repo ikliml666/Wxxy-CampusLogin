@@ -221,48 +221,6 @@ pub(crate) fn is_nat_private_ip(ip: &str) -> bool {
     false
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ensure_portal_port_adds_default_port() {
-        assert_eq!(ensure_portal_port("http://10.0.0.1"), "http://10.0.0.1:801");
-    }
-
-    #[test]
-    fn ensure_portal_port_preserves_existing_port() {
-        assert_eq!(ensure_portal_port("http://10.0.0.1:8080"), "http://10.0.0.1:8080");
-    }
-
-    #[test]
-    fn ensure_portal_port_handles_trailing_slash() {
-        assert_eq!(ensure_portal_port("http://10.0.0.1/"), "http://10.0.0.1:801");
-    }
-
-    #[test]
-    fn is_nat_private_ip_recognizes_class_a() {
-        assert!(is_nat_private_ip("10.1.2.3"));
-    }
-
-    #[test]
-    fn is_nat_private_ip_recognizes_class_b() {
-        assert!(is_nat_private_ip("172.16.0.1"));
-        assert!(is_nat_private_ip("172.31.255.255"));
-        assert!(!is_nat_private_ip("172.32.0.1"));
-    }
-
-    #[test]
-    fn is_nat_private_ip_recognizes_class_c() {
-        assert!(is_nat_private_ip("192.168.1.1"));
-    }
-
-    #[test]
-    fn is_nat_private_ip_rejects_public_ip() {
-        assert!(!is_nat_private_ip("8.8.8.8"));
-    }
-}
-
 enum PageCheckResult {
     Determined(bool),
     Unknown,
@@ -322,4 +280,46 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
 
     crate::log_info!("network", "Portal页面无法判断登录状态: {}", safe_truncate(&html, 300));
     PageCheckResult::Unknown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_portal_port_adds_default_port() {
+        assert_eq!(ensure_portal_port("http://10.0.0.1"), "http://10.0.0.1:801");
+    }
+
+    #[test]
+    fn ensure_portal_port_preserves_existing_port() {
+        assert_eq!(ensure_portal_port("http://10.0.0.1:8080"), "http://10.0.0.1:8080");
+    }
+
+    #[test]
+    fn ensure_portal_port_handles_trailing_slash() {
+        assert_eq!(ensure_portal_port("http://10.0.0.1/"), "http://10.0.0.1:801");
+    }
+
+    #[test]
+    fn is_nat_private_ip_recognizes_class_a() {
+        assert!(is_nat_private_ip("10.1.2.3"));
+    }
+
+    #[test]
+    fn is_nat_private_ip_recognizes_class_b() {
+        assert!(is_nat_private_ip("172.16.0.1"));
+        assert!(is_nat_private_ip("172.31.255.255"));
+        assert!(!is_nat_private_ip("172.32.0.1"));
+    }
+
+    #[test]
+    fn is_nat_private_ip_recognizes_class_c() {
+        assert!(is_nat_private_ip("192.168.1.1"));
+    }
+
+    #[test]
+    fn is_nat_private_ip_rejects_public_ip() {
+        assert!(!is_nat_private_ip("8.8.8.8"));
+    }
 }
