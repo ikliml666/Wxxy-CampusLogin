@@ -16,7 +16,7 @@ pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) ->
         .as_millis() as u64;
     state.last_update_check_epoch_ms.store(now, Ordering::Release);
 
-    serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {}", e))
+    serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {e}"))
 }
 
 #[tauri::command]
@@ -30,7 +30,7 @@ pub async fn download_update(
         return Err("仅允许HTTPS协议下载更新包".to_string());
     }
 
-    let parsed = url::Url::parse(&url).map_err(|e| format!("URL解析失败: {}", e))?;
+    let parsed = url::Url::parse(&url).map_err(|e| format!("URL解析失败: {e}"))?;
     let host = parsed.host_str().unwrap_or("");
     let allowed_hosts = [
         "github.com",
@@ -47,8 +47,8 @@ pub async fn download_update(
         "ghproxylist.com",
         "moeyy.cn",
     ];
-    if !allowed_hosts.iter().any(|h| host == *h || host.ends_with(&format!(".{}", h))) {
-        return Err(format!("不允许从该域名下载: {}", host));
+    if !allowed_hosts.iter().any(|h| host == *h || host.ends_with(&format!(".{h}"))) {
+        return Err(format!("不允许从该域名下载: {host}"));
     }
 
     let filename = parsed
@@ -60,21 +60,21 @@ pub async fn download_update(
     const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
 
     let temp_dir = std::env::temp_dir().join("campus-login-update");
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
     let file_path = temp_dir.join(&filename);
 
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(30))
         .timeout(std::time::Duration::from_secs(1800))
         .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+        .map_err(|e| format!("创建HTTP客户端失败: {e}"))?;
 
     let mut response = client
         .get(&url)
         .header("User-Agent", "CampusLogin-Updater")
         .send()
         .await
-        .map_err(|e| format!("下载请求失败: {}", e))?;
+        .map_err(|e| format!("下载请求失败: {e}"))?;
 
     if !response.status().is_success() {
         return Err(format!("下载失败: HTTP {}", response.status()));
@@ -86,7 +86,7 @@ pub async fn download_update(
     }
 
     let mut file = std::fs::File::create(&file_path)
-        .map_err(|e| format!("创建临时文件失败: {}", e))?;
+        .map_err(|e| format!("创建临时文件失败: {e}"))?;
 
     let mut downloaded: u64 = 0;
     let mut last_emit = std::time::Instant::now();
@@ -98,7 +98,7 @@ pub async fn download_update(
             Ok(c) => c,
             Err(e) => {
                 let _ = std::fs::remove_file(&file_path);
-                return Err(format!("读取数据失败: {}", e));
+                return Err(format!("读取数据失败: {e}"));
             }
         };
 
@@ -106,7 +106,7 @@ pub async fn download_update(
             Some(data) => {
                 if let Err(e) = file.write_all(&data) {
                     let _ = std::fs::remove_file(&file_path);
-                    return Err(format!("写入文件失败: {}", e));
+                    return Err(format!("写入文件失败: {e}"));
                 }
                 downloaded += data.len() as u64;
 
@@ -149,7 +149,7 @@ pub async fn download_update(
 
     if let Err(e) = file.flush() {
         let _ = std::fs::remove_file(&file_path);
-        return Err(format!("刷新文件失败: {}", e));
+        return Err(format!("刷新文件失败: {e}"));
     }
     drop(file);
 
@@ -183,9 +183,9 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
 
     // 路径校验必须在 SHA256 校验之前，避免校验失败时删除非临时目录的文件
     let temp_dir = std::env::temp_dir().join("campus-login-update");
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
 
-    let canonical_path = path.canonicalize().map_err(|e| format!("无法解析文件路径: {}", e))?;
+    let canonical_path = path.canonicalize().map_err(|e| format!("无法解析文件路径: {e}"))?;
     let allowed_dir = temp_dir.canonicalize().map_err(|_| "无法解析临时目录路径".to_string())?;
     if !canonical_path.starts_with(&allowed_dir) {
         return Err("安装包路径不在允许的临时目录中".to_string());
@@ -208,7 +208,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
                 }
                 Err(e) => {
                     let _ = std::fs::remove_file(&file_path);
-                    return Err(format!("SHA256校验过程失败，安装已阻止: {}", e));
+                    return Err(format!("SHA256校验过程失败，安装已阻止: {e}"));
                 }
             }
         } else {
@@ -225,7 +225,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
         .to_lowercase();
 
     if ext == "exe" {
-        let result = open::that(canonical_path).map(|_| true).map_err(|e| format!("启动安装程序失败: {}", e));
+        let result = open::that(canonical_path).map(|_| true).map_err(|e| format!("启动安装程序失败: {e}"));
         if result.is_ok() {
             crate::update::updater::schedule_update_cleanup();
         }
@@ -235,11 +235,11 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
         {
             use std::os::windows::process::CommandExt;
             let result = std::process::Command::new("msiexec")
-                .raw_arg(&format!("/i \"{}\"", canonical_path.display()))
+                .raw_arg(format!("/i \"{}\"", canonical_path.display()))
                 .creation_flags(0x08000000)
                 .spawn()
                 .map(|_| true)
-                .map_err(|e| format!("启动MSI安装失败: {}", e));
+                .map_err(|e| format!("启动MSI安装失败: {e}"));
             if result.is_ok() {
                 crate::update::updater::schedule_update_cleanup();
             }
@@ -258,7 +258,7 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
             result
         }
     } else {
-        Err(format!("不支持的安装包格式: {}", ext))
+        Err(format!("不支持的安装包格式: {ext}"))
     }
 }
 

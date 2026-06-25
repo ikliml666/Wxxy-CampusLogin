@@ -62,7 +62,7 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
                 }
             };
             crate::auth::service::full_login(&s, &app_h, adapter.as_deref())
-        }).await.map_err(|e| format!("登录任务失败: {}", e))?
+        }).await.map_err(|e| format!("登录任务失败: {e}"))?
     };
 
     if result.success {
@@ -140,7 +140,7 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             };
 
             (result, any_online_after_logout)
-        }).await.map_err(|e| format!("注销任务失败: {}", e))?
+        }).await.map_err(|e| format!("注销任务失败: {e}"))?
     };
 
     if result.success {

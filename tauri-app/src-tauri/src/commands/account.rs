@@ -71,14 +71,14 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                 let data_dir = persist::get_data_dir(&app_h_prev);
                 persist::get_accounts_dir(&data_dir)
             };
-            std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e))?;
-            let account_path = accounts_dir.join(format!("{}.json", prev_name));
+            std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {e}"))?;
+            let account_path = accounts_dir.join(format!("{prev_name}.json"));
 
             let mut save_prev = if account_path.exists() {
                 match std::fs::read_to_string(&account_path) {
                     Ok(content) => {
                         let mut existing = serde_json::from_str::<Config>(&content)
-                            .map_err(|e| format!("账号配置文件解析失败(可能已损坏): {}", e))?;
+                            .map_err(|e| format!("账号配置文件解析失败(可能已损坏): {e}"))?;
                         // 保留旧账号的非登录字段（主题等），登录字段一律用当前配置覆盖
                         existing.password = String::new();
                         existing
@@ -104,15 +104,15 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                     Ok(encrypted) => { save_prev.password = encrypted; }
                     Err(e) => {
                         crate::log_error!("account", "密码加密失败: {}", e);
-                        return Err(format!("密码加密失败: {}", e));
+                        return Err(format!("密码加密失败: {e}"));
                     }
                 }
             }
 
             let json = serde_json::to_string_pretty(&save_prev)
-                .map_err(|e| format!("序列化旧账号配置失败: {}", e))?;
+                .map_err(|e| format!("序列化旧账号配置失败: {e}"))?;
             persist::atomic_write(&account_path, &json)
-                .map_err(|e| format!("保存旧账号文件失败: {}", e))?;
+                .map_err(|e| format!("保存旧账号文件失败: {e}"))?;
             Ok(())
         }).await;
         match prev_save_result {
@@ -132,15 +132,15 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
             let data_dir = persist::get_data_dir(&app_h);
             persist::get_accounts_dir(&data_dir)
         };
-        std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {}", e))?;
+        std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {e}"))?;
 
-        let account_path = accounts_dir.join(format!("{}.json", safe_name));
+        let account_path = accounts_dir.join(format!("{safe_name}.json"));
 
         let mut save_account = if account_path.exists() {
             match std::fs::read_to_string(&account_path) {
                 Ok(content) => {
                     let mut existing = serde_json::from_str::<Config>(&content)
-                        .map_err(|e| format!("账号配置文件解析失败(可能已损坏): {}", e))?;
+                        .map_err(|e| format!("账号配置文件解析失败(可能已损坏): {e}"))?;
                     existing.user = account_data.user.clone();
                     existing.operator = account_data.operator.clone();
                     existing.adapter1 = account_data.adapter1.clone();
@@ -162,13 +162,13 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
                 Ok(encrypted) => { save_account.password = encrypted; }
                 Err(e) => {
                     crate::log_error!("account", "密码加密失败: {}", e);
-                    return Err(format!("密码加密失败: {}", e));
+                    return Err(format!("密码加密失败: {e}"));
                 }
             }
         }
 
         let json = serde_json::to_string_pretty(&save_account)
-            .map_err(|e| format!("序列化账号配置失败: {}", e))?;
+            .map_err(|e| format!("序列化账号配置失败: {e}"))?;
         persist::atomic_write(&account_path, &json)?;
 
         Ok::<(), String>(())
@@ -194,11 +194,11 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle, state: 
             let data_dir = persist::get_data_dir(&app_h);
             persist::get_accounts_dir(&data_dir)
         };
-        let account_path = accounts_dir.join(format!("{}.json", name));
+        let account_path = accounts_dir.join(format!("{name}.json"));
         if !account_path.exists() {
             return Err("账号不存在".to_string());
         }
-        std::fs::remove_file(&account_path).map_err(|e| format!("删除账号失败: {}", e))?;
+        std::fs::remove_file(&account_path).map_err(|e| format!("删除账号失败: {e}"))?;
         crate::log_info!("account", "删除账号: {}", name);
         Ok(())
     }).await.map_err(|e| e.to_string())??;
@@ -223,16 +223,16 @@ pub fn get_active_account(state: State<'_, AppState>) -> Result<String, String> 
 fn load_account_config_inner(app_handle: &AppHandle, account_name: &str) -> Result<Option<Config>, String> {
     let data_dir = persist::get_data_dir(app_handle);
     let accounts_dir = persist::get_accounts_dir(&data_dir);
-    let account_path = accounts_dir.join(format!("{}.json", account_name));
+    let account_path = accounts_dir.join(format!("{account_name}.json"));
 
     if !account_path.exists() {
         return Ok(None);
     }
 
     let content = std::fs::read_to_string(&account_path)
-        .map_err(|e| format!("读取账号配置失败: {}", e))?;
+        .map_err(|e| format!("读取账号配置失败: {e}"))?;
     let mut config: Config = serde_json::from_str(&content)
-        .map_err(|e| format!("解析账号配置失败: {}", e))?;
+        .map_err(|e| format!("解析账号配置失败: {e}"))?;
 
     if !config.password.is_empty() {
         match crypto::decrypt(&config.password) {

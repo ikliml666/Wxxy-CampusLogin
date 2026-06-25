@@ -177,7 +177,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     }
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None).await;
     crate::log_info!("network", "网络质量检测完成");
-    serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {}", e))
+    serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {e}"))
 }
 
 #[tauri::command]
@@ -213,7 +213,7 @@ pub async fn check_dns_doh_status() -> Result<serde_json::Value, String> {
         {
             Ok(serde_json::json!({ "adapters": [], "dohSupported": false }))
         }
-    }).await.map_err(|e| format!("检测DNS状态失败: {}", e))?
+    }).await.map_err(|e| format!("检测DNS状态失败: {e}"))?
 }
 
 #[tauri::command]
@@ -273,8 +273,8 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                 let output = std::process::Command::new("netsh")
                     .args([
                         "dns", "add", "encryption",
-                        &format!("server={}", ip),
-                        &format!("dohtemplate={}", template),
+                        &format!("server={ip}"),
+                        &format!("dohtemplate={template}"),
                         "autoupgrade=yes",
                         "udpfallback=yes",
                     ])
@@ -296,7 +296,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                     }
                     Err(e) => {
                         crate::log_debug!("doh", "netsh 执行失败: {}", e);
-                        failed.push(format!("{}: {}", ip, e));
+                        failed.push(format!("{ip}: {e}"));
                     }
                 }
             }
@@ -317,11 +317,11 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
             if need_elevation && added.is_empty() {
                 let mut ps_cmds: Vec<String> = Vec::new();
                 for (ip, template) in dns_config::DOH_SERVERS {
-                    ps_cmds.push(format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes", ip, template));
+                    ps_cmds.push(format!("netsh dns add encryption server={ip} dohtemplate={template} autoupgrade=yes udpfallback=yes"));
                 }
                 ps_cmds.push("ipconfig /flushdns".to_string());
                 let ps_script = ps_cmds.join("; ");
-                let ps_args = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", ps_script);
+                let ps_args = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{ps_script}\"");
 
                 crate::log_info!("doh", "尝试COM ShellExec提权注册DoH");
                 match elevation::shell_exec_elevated("powershell", &ps_args, true) {
@@ -330,7 +330,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                         let mut verify_added: Vec<String> = Vec::new();
                         for (ip, _) in dns_config::DOH_SERVERS {
                             let check = std::process::Command::new("netsh")
-                                .args(["dns", "show", "encryption", &format!("server={}", ip)])
+                                .args(["dns", "show", "encryption", &format!("server={ip}")])
                                 .creation_flags(0x08000000)
                                 .output();
                             if let Ok(co) = check {
@@ -356,17 +356,17 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
 
                 let mut netsh_cmds = String::new();
                 for (ip, template) in dns_config::DOH_SERVERS {
-                    netsh_cmds.push_str(&format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes & ", ip, template));
+                    netsh_cmds.push_str(&format!("netsh dns add encryption server={ip} dohtemplate={template} autoupgrade=yes udpfallback=yes & "));
                 }
                 netsh_cmds.push_str("ipconfig /flushdns");
 
-                match elevation::run_elevated("cmd", &format!("/c {}", netsh_cmds)) {
+                match elevation::run_elevated("cmd", &format!("/c {netsh_cmds}")) {
                     Ok(()) => {
                         std::thread::sleep(std::time::Duration::from_millis(1500));
                         let mut verify_added: Vec<String> = Vec::new();
                         for (ip, _) in dns_config::DOH_SERVERS {
                             let check = std::process::Command::new("netsh")
-                                .args(["dns", "show", "encryption", &format!("server={}", ip)])
+                                .args(["dns", "show", "encryption", &format!("server={ip}")])
                                 .creation_flags(0x08000000)
                                 .output();
                             if let Ok(co) = check {
@@ -409,7 +409,7 @@ pub async fn enable_doh_for_dns() -> Result<serde_json::Value, String> {
                 "failed": failed,
             }))
         }
-    }).await.map_err(|e| format!("启用DoH失败: {}", e))?
+    }).await.map_err(|e| format!("启用DoH失败: {e}"))?
 }
 
 #[tauri::command]
@@ -536,11 +536,11 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 }
             }
             for (ip, template) in dns_config::DOH_SERVERS {
-                ps_cmds.push(format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes", ip, template));
+                ps_cmds.push(format!("netsh dns add encryption server={ip} dohtemplate={template} autoupgrade=yes udpfallback=yes"));
             }
             ps_cmds.push("ipconfig /flushdns".to_string());
             let ps_script = ps_cmds.join("; ");
-            let ps_args = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{}\"", ps_script);
+            let ps_args = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{ps_script}\"");
 
             match elevation::shell_exec_elevated("powershell", &ps_args, true) {
                 Ok(()) => {
@@ -605,11 +605,11 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 }
             }
             for (ip, template) in dns_config::DOH_SERVERS {
-                all_cmds.push_str(&format!("netsh dns add encryption server={} dohtemplate={} autoupgrade=yes udpfallback=yes & ", ip, template));
+                all_cmds.push_str(&format!("netsh dns add encryption server={ip} dohtemplate={template} autoupgrade=yes udpfallback=yes & "));
             }
             all_cmds.push_str("ipconfig /flushdns");
 
-            match elevation::run_elevated("cmd", &format!("/c {}", all_cmds)) {
+            match elevation::run_elevated("cmd", &format!("/c {all_cmds}")) {
                 Ok(()) => {
                     std::thread::sleep(std::time::Duration::from_millis(2000));
                     Ok(serde_json::json!({
@@ -625,5 +625,5 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 }
             }
         }
-    }).await.map_err(|e| format!("设置DNS+DoH失败: {}", e))?
+    }).await.map_err(|e| format!("设置DNS+DoH失败: {e}"))?
 }

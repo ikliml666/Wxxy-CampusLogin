@@ -9,7 +9,7 @@ use crate::infra::state::{AppState, CommandResult};
 pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
     let data_dir = persist::get_data_dir(app_handle);
     let config_path = persist::get_config_path(&data_dir);
-    let json = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {}", e))?;
+    let json = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {e}"))?;
     persist::atomic_write(&config_path, &json)?;
     let _ = app_handle.notify_config_changed_empty();
     Ok(())
@@ -30,9 +30,9 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
         return Ok(Config::default());
     }
     let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("读取配置文件失败: {}", e))?;
+        .map_err(|e| format!("读取配置文件失败: {e}"))?;
     let mut config: Config = serde_json::from_str(&content)
-        .map_err(|e| format!("解析配置文件失败: {}", e))?;
+        .map_err(|e| format!("解析配置文件失败: {e}"))?;
 
     if !config.password.is_empty() && config.password != crate::config::model::PASSWORD_MASK {
         match crypto::decrypt(&config.password) {
@@ -81,7 +81,7 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
         Ok(c) => c,
         Err(e) => {
             crate::log_warn!("config", "配置验证失败: {}", e);
-            return Ok(CommandResult::err(&format!("配置验证失败: {}", e)));
+            return Ok(CommandResult::err(&format!("配置验证失败: {e}")));
         }
     };
 
@@ -116,7 +116,7 @@ pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Resu
         return Ok(CommandResult::err("配置文件不存在"));
     }
     let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("读取配置文件失败: {}", e))?;
+        .map_err(|e| format!("读取配置文件失败: {e}"))?;
     // 脱敏：将密码字段替换为占位符，防止导出文件包含可还原的加密密码
     let content = match serde_json::from_str::<serde_json::Value>(&content) {
         Ok(mut json) => {
@@ -140,11 +140,11 @@ pub fn export_config(_state: State<'_, AppState>, app_handle: AppHandle) -> Resu
 #[tauri::command]
 pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_json: String) -> Result<CommandResult, String> {
     let config: Config = serde_json::from_str(&config_json)
-        .map_err(|e| format!("解析配置失败: {}", e))?;
+        .map_err(|e| format!("解析配置失败: {e}"))?;
 
     let validated = match validate_config(config) {
         Ok(c) => c,
-        Err(e) => return Ok(CommandResult::err(&format!("配置验证失败: {}", e))),
+        Err(e) => return Ok(CommandResult::err(&format!("配置验证失败: {e}"))),
     };
 
     let mut config = validated;
@@ -159,7 +159,7 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, config_j
             }
             Err(e) => {
                 crate::log_warn!("config", "导入配置密码解密失败: {}", e);
-                return Ok(CommandResult::err(&format!("密码解密失败，请重新输入密码: {}", e)));
+                return Ok(CommandResult::err(&format!("密码解密失败，请重新输入密码: {e}")));
             }
         }
     }

@@ -39,11 +39,11 @@ pub fn open_external(url: String) -> Result<bool, String> {
     if url.len() > 2048 {
         return Err("URL长度超出限制".to_string());
     }
-    let parsed = url::Url::parse(&url).map_err(|e| format!("URL解析失败: {}", e))?;
+    let parsed = url::Url::parse(&url).map_err(|e| format!("URL解析失败: {e}"))?;
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("URL不允许包含用户名或密码".to_string());
     }
-    open::that(&url).map(|_| true).map_err(|e| format!("打开链接失败: {}", e))
+    open::that(&url).map(|_| true).map_err(|e| format!("打开链接失败: {e}"))
 }
 
 #[tauri::command]
@@ -54,7 +54,7 @@ pub fn get_auto_launch() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let exe_path = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
+    let exe_path = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {e}"))?;
     let exe_str = exe_path.to_str().ok_or("程序路径无效")?;
 
     // 先执行注册表操作，成功后再更新配置，避免注册表失败但配置已改导致状态矛盾
@@ -123,7 +123,7 @@ pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> R
 pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
     let data_dir = crate::config::persist::get_data_dir(app_handle);
     let history_path = crate::config::persist::get_login_history_path(&data_dir);
-    std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
+    std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
 
     let mut history: Vec<serde_json::Value> = if history_path.exists() {
         let content = match std::fs::read_to_string(&history_path) {
@@ -166,7 +166,7 @@ pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str
     }
 
     let json = serde_json::to_string_pretty(&history)
-        .map_err(|e| format!("序列化登录历史失败: {}", e))?;
+        .map_err(|e| format!("序列化登录历史失败: {e}"))?;
 
     crate::config::persist::atomic_write(&history_path, &json)?;
 
