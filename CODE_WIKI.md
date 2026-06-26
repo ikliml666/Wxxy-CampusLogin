@@ -45,11 +45,14 @@ Wxxy-CampusLogin/
 │   │   ├── package.json             # 前端依赖 (含 zustand ^5.0, framer-motion ^12)
 │   │   ├── vite.config.ts           # Vite 构建配置
 │   │   ├── tailwind.config.js       # Tailwind CSS 配置
+│   │   ├── postcss.config.js        # PostCSS 配置
 │   │   ├── tsconfig.json            # TypeScript 配置
 │   │   ├── index.html               # HTML 入口
+│   │   ├── public/                  # 静态资源 (图标 PNG)
 │   │   └── src/
 │   │       ├── main.tsx             # React 入口
 │   │       ├── App.tsx              # 根组件
+│   │       ├── vite-env.d.ts        # Vite 环境类型声明
 │   │       ├── index.css            # 全局样式
 │   │       ├── hooks/               # 自定义 Hooks (12个)
 │   │       │   ├── useAppStore.ts   # 统一状态管理 (zustand) + 密码处理
@@ -182,7 +185,7 @@ Wxxy-CampusLogin/
 │           │   ├── logger.rs        # 日志系统 (文件+通道+调试模式切换+日志保留天数清理)
 │           │   ├── lifecycle.rs     # 自动退出控制 + 校园网退出流程
 │           │   ├── notification.rs  # 通知封装 (emit_notification)
-│           │   ├── events.rs        # 事件总线 EventBus (16 个 emit_xxx 方法)
+│           │   ├── events.rs        # 事件总线 EventBus (17 个 emit_xxx 方法)
 │           │   ├── command_context.rs # 命令上下文 CommandContext::from_app
 │           │   └── task_manager.rs  # 后台任务管理器 BackgroundTaskManager (cancel token 统一管理)
 │           ├── monitor/             # 监控模块
@@ -223,6 +226,9 @@ Wxxy-CampusLogin/
 │               └── updater.rs       # 更新命令 (委托 update 模块)
 ├── CODE_WIKI.md                     # 本文档
 ├── README.md                        # 项目说明
+├── version.json                     # 版本号配置
+├── backend-modular-evaluation-report.md  # 后端模块化评估报告
+├── backend-refactor-implementation-plan.md # 后端重构实施计划
 └── .gitignore
 ```
 
@@ -254,9 +260,9 @@ Wxxy-CampusLogin/
 │  │    ├─→ monitor/latency.rs  (质量通知/延迟循环)   │ │
 │  │    └─→ monitor/adapter_watch.rs (适配器监控,可取消) │ │
 │  │  app/ — 应用生命周期 (startup/tray/window/shortcut/heartbeat/shutdown) │ │
-│  │  auth/ — 认证模块 (8个子模块: session/protocol/portal/service/traits/failure_tracker/dual_adapter_executor) │ │
+│  │  auth/ — 认证模块 (7个子模块: session/protocol/portal/service/traits/failure_tracker/dual_adapter_executor) │ │
 │  │  auth/portal.rs — Portal 检测 (block_on_http 同步-异步桥接) │ │
-│  │  network/ — 网络检测/延迟测试/质量检测 (9个子模块 + discovery/ 子目录) │ │
+│  │  network/ — 网络检测/延迟测试/质量检测 (8个业务子模块 + discovery/ 子目录含 registry/windows) │ │
 │  │  network/timing.rs — DNS智能解析/DoH/评分系统     │ │
 │  │  platform/dns_config.rs — DNS/DoH 检测与设置      │ │
 │  │  account/ — 多账号管理 + DPAPI加密                │ │
@@ -267,7 +273,8 @@ Wxxy-CampusLogin/
 │  Win32 API — 适配器查询(GetAdaptersAddresses)        │
 │  ShellExecuteW — UAC 提权 (替代 PowerShell)          │
 │  WebView2 COM — 内存管理 (ICoreWebView2_19.SetMemoryUsageTargetLevel) │
-│  DXGI — 显示器刷新率检测 (EnumDisplaySettingsW)      │
+│  DXGI — GPU 信息检测 (CreateDXGIFactory1/IDXGIAdapter1) │
+│  Win32 GDI — 显示器刷新率检测 (EnumDisplaySettingsW)   │
 │  winreg — 注册表读写 (DNS/DoH 配置)                  │
 │  reqwest — HTTP 请求 (TLS 1.3强制+1.2回退)          │
 │  hickory-resolver — 传统 DNS 解析                    │
@@ -292,18 +299,23 @@ Wxxy-CampusLogin/
 //       │
 //       └──→ infra/lifecycle
 //
-//  commands/login ──→ auth/session ──→ auth/protocol (两步注销)
-//                  └──→ auth/portal (Portal 检测)
-//                  └──→ infra/notification (emit_notification)
+//  commands/login ──→ auth/service (full_login/full_logout 统一入口)
+//                  │     └──→ auth/session ──→ auth/protocol (两步注销)
+//                  │                          └──→ auth/portal (Portal 检测)
+//                  ├──→ infra/events (EventBus emit_login_log)
+//                  ├──→ infra/lifecycle (start_auto_exit)
+//                  └──→ monitor/watcher (run_background_check)
 //
 //  infra/lifecycle ──→ infra/notification (emit_notification)
 //
-//  monitor/adapter_watch ─ (无跨模块调用，仅依赖 state + network)
-//                          CancellationToken 可退出
+//  monitor/adapter_watch ──→ infra/events (EventBus 适配器变更事件)
+//                          + 依赖 state + network, CancellationToken 可退出
 //
-//  commands/network_cmd ──→ network (适配器/质量检测)
-//                       └──→ network/timing (DNS/DoH 测试)
-//                       └──→ platform/dns_config (DNS/DoH 读写)
+//  commands/network_cmd ──→ network (适配器/DHCP/质量检测)
+//                       ├──→ monitor/watcher (check_campus_network)
+//                       ├──→ monitor/latency (spawn_latency_test_loop)
+//                       ├──→ auth/portal (check_portal_full)
+//                       ├──→ platform/dns_config (DNS/DoH 读写)
 //                       └──→ platform/elevation (UAC 提权)
 //
 //  耦合问题：
@@ -327,7 +339,7 @@ Wxxy-CampusLogin/
                                          ↓
                               #[tauri::command] Rust函数
                                          ↓
-                              AppState (ConfigStore + TaskFlags + BackgroundTaskManager + NetworkState + ExitStateStore)
+                              AppState (ConfigStore + TaskFlags + BackgroundTaskManager + NetworkState + ExitStateStore + 4个原子辅助字段: last_update_check_epoch_ms/update_notified/last_disabled_notification_ms/last_render_heartbeat_ms)
                                          ↓
                               Win32 API / HTTP / 注册表 / 文件系统
                                          ↓
