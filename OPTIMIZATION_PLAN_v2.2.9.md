@@ -1,12 +1,12 @@
 # CampusLogin v2.2.9 优化计划书
 
-> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（扩大范围至第一波+T4/T5+T7/T8/T9 架构优化）
-> **范围**: 第一波（T1/T2/T3 + T6 版本号同步）+ 用户追批 T4/T5 + 用户追批 T7/T8/T9 架构优化
+> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（扩大范围至第一波+T4/T5+T7/T8/T9+T10 架构优化）
+> **范围**: 第一波（T1/T2/T3 + T6 版本号同步）+ 用户追批 T4/T5 + 用户追批 T7/T8/T9 架构优化 + 用户追批 T10 adapter.rs re-export 扁平化
 > **依据**: 基于 CODE_WIKI.md v2.2.8 + 实际源码逐行调研确认
 >
-> **审批记录**: 用户 2026-06-26 批准。第一波先执行；用户追批 T4/T5 后续执行；用户再追批 T7/T8/T9 架构优化并入 v2.2.9。
+> **审批记录**: 用户 2026-06-26 批准。第一波先执行；用户追批 T4/T5 后续执行；用户再追批 T7/T8/T9 架构优化并入 v2.2.9；T1-T9 完成后用户再追批 T10（#5 adapter.rs 扁平化）并入 v2.2.9。
 >
-> **执行状态**: ✅ 已完成（2026-06-26）
+> **执行状态**: ✅ 已完成（2026-06-26，含 T10 与代码审查验证）
 > - [x] T1 atomic_write 日志文案修正 → `config/persist.rs:23`
 > - [x] T2 `__APP_VERSION__` 死代码清理 → `frontend/vite.config.ts`（移除注入+孤儿链）
 > - [x] T3 get_init_data 复用 list_account_names → `config/persist.rs` + `commands/system.rs`
@@ -16,8 +16,10 @@
 > - [x] T7 P0 抽取 portal_failure.rs 统一适配器失败处理 → `monitor/portal_failure.rs`（新建）+ `auth/failure_tracker.rs`（三个 helper 改 pub(crate)）+ `monitor/watcher.rs`（86 行重复 → 14 行调用）
 > - [x] T8 CLIENT_POOL 改造为真 LRU + TTL → `network/client.rs`（DashMap 元组 + min_by_key + TTL 600s）
 > - [x] T9 P2 拆分 monitor/watcher.rs 大文件 → `monitor/background_check.rs`（新建）+ `monitor/background_task.rs`（新建）+ `monitor/watcher.rs`（460 行 → 47 行 re-export 门面）
-> - [x] CHANGELOG.md v2.2.9 条目写入（含 T4/T5 + T7/T8/T9）
+> - [x] T10 adapter.rs re-export 扁平化 → `network/adapter.rs`（删 4 组 pub use 中转层）+ `network/mod.rs`（拆分按源模块 re-export）+ `platform/dns_config.rs` + `commands/network_cmd.rs`（7 处 Pattern A 调用点路径迁移）
+> - [x] CHANGELOG.md v2.2.9 条目写入（含 T4/T5 + T7/T8/T9 + T10）
 > - 诊断验证：cargo check 通过 0 错误（T7/T8/T9 改动文件）；Grep 验证外部 `watcher::X` 13 处调用点 re-export 完整零破坏
+> - 代码审查：Senior-Code-Reviewer-1/2 两轮审查均 Approved；T7/T8/T9 发现 1 Medium + 4 Low（已修 3 项）；T10 发现 2 Low（验证为非真实问题，详见 T10 章节）
 
 ---
 
@@ -243,6 +245,45 @@
 
 ---
 
+### T10 — adapter.rs re-export 扁平化（用户追批 #5）
+
+**问题**: `network/adapter.rs` 作为中转层，从 discovery/adapter_cache/dhcp/subnet 中转 re-export 18 个符号（4 组 `pub use`），与文件头注释"职责已迁移"语义冲突。原评估"链路过长"不成立（最深仅 2 层），但"代理中转"角色确实与文件定位不符。
+
+**变更**:
+- 文件1: `tauri-app/src-tauri/src/network/adapter.rs`
+  - 删除 L12-36 的 4 组 `pub use`（discovery/adapter_cache/dhcp/subnet 中转层，共 18 个符号）
+  - 补充 2 个私有 use（`discovery::{Adapter, new_command}` + `adapter_cache::{get_adapters_force, poll_adapter_ip_quick}`）覆盖 `ensure_ethernet_ip_for_login` 内部裸调用
+  - 保留 7 个原生 pub fn（find_by_name / find_with_valid_ip / find_dual_adapters / is_secondary_adapter_enabled / resolve_adapter_names / select_adapter / ensure_ethernet_ip_for_login）
+- 文件2: `tauri-app/src-tauri/src/network/mod.rs`
+  - 原 `pub use adapter::{...}`（19 个符号）拆分为按源模块 re-export（discovery/dhcp/subnet + adapter 原生）
+  - 清理拆分过程中产生的 `escape_ps_single_quote` orphan re-export（调用点已迁移至 dhcp 直接路径，按 karpathy "清理自己产生的 orphan" 准则）
+- 文件3: `tauri-app/src-tauri/src/platform/dns_config.rs`
+  - L298 Pattern A 调用路径迁移：`crate::network::adapter::new_command` → `crate::network::discovery::new_command`
+- 文件4: `tauri-app/src-tauri/src/commands/network_cmd.rs`
+  - 6 处 Pattern A 调用路径迁移（L35/139 validate_adapter_name→adapter_cache、L292/354 new_command→discovery、L326/338 escape_ps_single_quote→dhcp）
+
+**外部调用点零破坏验证**:
+- Pattern A（7 处直接经 adapter 模块）: 全部迁移至源模块直接路径
+- Pattern B（13+ 处经 mod.rs 根级 re-export）: 零改动，通过新拆分的 `pub use discovery/dhcp/subnet::{...}` 解析
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误 0 新 warning
+- [x] 19/19 符号有新 re-export 路径
+- [x] 7/7 Pattern A + 13+ Pattern B 调用点全部验证
+- [x] `escape_ps_single_quote` orphan 清理（karpathy: 清理自己产生的 orphan）
+- [x] adapter.rs 2 个私有 use 覆盖全部内部裸调用
+
+**风险**: 低（re-export 扁平化，调用点路径迁移但语义不变）| **回滚**: git revert
+
+**代码审查**（Senior-Code-Reviewer-2，2026-06-26）:
+- 审查结论: **Approved**（可合并），6/6 审查重点通过
+- 发现 2 Low 非阻塞问题，**验证均为非真实问题**:
+  - Low-1（commit message 描述）: 验证为**语义歧义非描述错误**。T10 commit message 说"清理 mod.rs 中 escape_ps_single_quote orphan re-export"，描述的是拆分过程中产生的 orphan 清理动作（准确），但读者可能误解为"清理原本就有的 re-export"。审查员基于"原 mod.rs 的 `pub use adapter::{...}` 从未包含 escape_ps_single_quote"判断，但 commit message 描述的是动作（过程中产生→清理）而非状态（原本就有→移除）。
+  - Low-2（trailing whitespace）: 验证为**误报**。Grep 搜索 ` +$` 和 `[ \t]+$` 双重无匹配；`git log -1 4dd9ced --check` 无 trailing whitespace 警告。network_cmd.rs L35/L139 不存在 trailing whitespace。
+- 处理决策: 用户选择"接受验证，更新计划书"，不 amend T10 commit。Low-1/Low-2 均基于不完整的执行上下文，T10 commit 无需任何代码修正。
+
+---
+
 ## 三、执行顺序与依赖
 
 ```
@@ -323,14 +364,14 @@ CHANGELOG.md v2.2.9 记录
 | 优化点 | 推迟原因 | 建议版本 |
 |--------|----------|----------|
 | #9 watcher.rs 事件总线解耦（EventBus Phase 2 trait 抽象） | 高风险大工作量，调研结论：EventBus 已是 Phase 1 封装，mpsc 收益边际化，推迟 | v2.4.0 |
-| #5 adapter.rs re-export 扁平化 | 收益低 | 视情况 |
 | #10 emit_notification 收口 | 不成立（已收口） | 不做 |
 
 > 历史搁置已完成的项：
 > - #6 P0 适配器1/2 失败处理去重 → T7 已完成（v2.2.9）
 > - #6 P2 watcher.rs 大文件拆分 → T9 已完成（v2.2.9）
 > - #8 CLIENT_POOL LRU/TTL → T8 已完成（v2.2.9）
+> - #5 adapter.rs re-export 扁平化 → T10 已完成（v2.2.9，用户追批）
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T9 全部任务）*
+*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证）*
