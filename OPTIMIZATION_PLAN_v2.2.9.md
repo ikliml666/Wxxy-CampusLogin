@@ -31,6 +31,7 @@
 > - [x] T16 内联 NotificationService 到 emit_notification 函数（第三波） → `infra/notification.rs`（删除 struct + impl + 测试，notify 逻辑内联，11 处调用点零破坏）；commit `9bbe66f`（1 file, +34 -69）；cargo check 0 错误 0 warning
 > - [x] 文档同步：CODE_WIKI.md 删除已清理的 increment_a1/a2 方法签名（commit `8a5f052`）
 > - [x] T15 简化 TaskJoinHandle 单变体枚举为 JoinHandle 类型（第四波） → `infra/task_manager.rs`（删除枚举 + 字段改类型 + 2 处使用点简化）；commit `a93aaa1`（1 file, +3 -7）；cargo check 0 错误 0 warning
+> - [x] T21 useIpc openExternal 4 处 console 加 DEV 守卫（第五波） → `frontend/src/hooks/useIpc.ts`（L164/L166/L171/L176 统一加 `if (import.meta.env.DEV)` 守卫，与 L110 createEventListener 一致）；commit `4d21c0f`（1 file, +4 -4）；tsc --noEmit 0 错误
 
 ---
 
@@ -500,4 +501,4 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化）*
+*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性）*
