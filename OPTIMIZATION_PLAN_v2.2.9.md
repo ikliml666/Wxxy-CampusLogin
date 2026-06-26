@@ -28,6 +28,8 @@
 > - [x] T20 跳过：HIGH_PROFILE.easing 死字段需类型重构为 `Omit<AnimationProfile,'easing'>`，非纯死代码删除
 > - [x] 级联 orphan 清理：T12 删除 notify_config_changed_empty 后 events.rs 的 emit_config_changed_empty 变为 unused，按 karpathy "Clean up only your own mess" 准则一并清理
 > - 第二波验证：cargo check 通过 0 错误 0 warning；前端 `npx tsc --noEmit` 通过 0 类型错误；commit `84148b3`（6 files changed, 98 deletions(-)）
+> - [x] T16 内联 NotificationService 到 emit_notification 函数（第三波） → `infra/notification.rs`（删除 struct + impl + 测试，notify 逻辑内联，11 处调用点零破坏）；commit `9bbe66f`（1 file, +34 -69）；cargo check 0 错误 0 warning
+> - [x] 文档同步：CODE_WIKI.md 删除已清理的 increment_a1/a2 方法签名（commit `8a5f052`）
 
 ---
 
@@ -497,4 +499,4 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证，commit `84148b3`）*
+*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步）*
