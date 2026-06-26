@@ -1,6 +1,6 @@
 # CampusLogin 校园网登录助手 — Code Wiki
 
-> **版本**: v2.2.8 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
+> **版本**: v2.2.9 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64)
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
 
@@ -1856,4 +1856,4 @@ define: {
 
 ---
 
-*文档版本: v2.2.8 | 基于代码版本: CampusLogin v2.2.8 | 更新日期: 2026-06-26*
+*文档版本: v2.2.9 | 基于代码版本: CampusLogin v2.2.9 | 更新日期: 2026-06-26*

@@ -1,6 +1,6 @@
 [package]
 name = "campus-login"
-version = "2.2.8"
+version = "2.2.9"
 description = "校园网登录助手"
 authors = ["you"]
 edition = "2021"
