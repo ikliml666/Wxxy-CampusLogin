@@ -72,18 +72,6 @@ impl BackgroundTaskManager {
         }
     }
 
-    /// 取消所有已注册任务并清空管理器，但不等待任务结束。
-    #[allow(dead_code)]
-    pub fn cancel_all(&self) {
-        let handles: Vec<TaskHandle> = {
-            let mut tasks = self.inner.lock();
-            tasks.drain().map(|(_, v)| v).collect()
-        };
-        for handle in handles {
-            handle.cancel_token.cancel();
-        }
-    }
-
     /// 取消所有已注册任务并等待它们全部结束。
     pub async fn shutdown(&self) {
         let handles: Vec<TaskHandle> = {
@@ -134,16 +122,6 @@ mod tests {
         assert!(manager.cancel("test"));
         // 取消后任务会很快退出，但这里不 sleep，仅验证 remove 行为
         assert!(!manager.is_running("test"));
-    }
-
-    #[test]
-    fn task_manager_cancel_all_clears_all() {
-        let manager = BackgroundTaskManager::new();
-        manager.spawn("a", |cancel| async move { cancel.cancelled().await; }).unwrap();
-        manager.spawn("b", |cancel| async move { cancel.cancelled().await; }).unwrap();
-        manager.cancel_all();
-        assert!(!manager.is_running("a"));
-        assert!(!manager.is_running("b"));
     }
 
     #[test]

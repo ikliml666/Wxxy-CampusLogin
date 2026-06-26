@@ -103,14 +103,6 @@ impl NetworkState {
     pub fn increment_portal_failure_count(&self) {
         self.increment(|s| s.portal_failure_count += 1);
     }
-
-    pub fn increment_a1_auth_failure_count(&self) {
-        self.increment(|s| s.a1_auth_failure_count += 1);
-    }
-
-    pub fn increment_a2_auth_failure_count(&self) {
-        self.increment(|s| s.a2_auth_failure_count += 1);
-    }
 }
 
 #[cfg(test)]

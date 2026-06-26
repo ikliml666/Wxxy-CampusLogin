@@ -1,5 +1,4 @@
 interface FluidBackgroundProps {
-  paused?: boolean
   innerRef?: (el: HTMLDivElement | null) => void
 }
 

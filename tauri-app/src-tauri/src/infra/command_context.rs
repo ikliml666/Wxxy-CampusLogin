@@ -36,35 +36,11 @@ impl<'a> std::ops::Deref for CommandContext<'a> {
 ///
 /// 封装常用事件发射方法，所有实现均委托给 `EventBus`，保持事件名/payload 与重构前一致。
 pub trait AppHandleExt {
-    #[allow(dead_code)]
-    fn notify_login_log(&self, message: &str, log_type: &str) -> Result<(), String>;
-    #[allow(dead_code)]
-    fn notify_adapter_changed<A: Serialize + Clone>(&self, adapters: A) -> Result<(), String>;
-    #[allow(dead_code)]
-    fn notify_background_result<P: Serialize + Clone>(&self, payload: P) -> Result<(), String>;
-    #[allow(dead_code)]
-    fn notify_config_changed_empty(&self) -> Result<(), String>;
     fn notify_config_changed<C: Serialize + Clone>(&self, config: C) -> Result<(), String>;
     fn notify_update_download_progress<P: Serialize + Clone>(&self, progress: P) -> Result<(), String>;
 }
 
 impl AppHandleExt for AppHandle {
-    fn notify_login_log(&self, message: &str, log_type: &str) -> Result<(), String> {
-        EventBus::new(self).emit_login_log(message, log_type)
-    }
-
-    fn notify_adapter_changed<A: Serialize + Clone>(&self, adapters: A) -> Result<(), String> {
-        EventBus::new(self).emit_adapters_changed(adapters)
-    }
-
-    fn notify_background_result<P: Serialize + Clone>(&self, payload: P) -> Result<(), String> {
-        EventBus::new(self).emit_background_check_result(payload)
-    }
-
-    fn notify_config_changed_empty(&self) -> Result<(), String> {
-        EventBus::new(self).emit_config_changed_empty()
-    }
-
     fn notify_config_changed<C: Serialize + Clone>(&self, config: C) -> Result<(), String> {
         EventBus::new(self).emit_config_changed(config)
     }

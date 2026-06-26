@@ -98,11 +98,6 @@ impl<'a> EventBus<'a> {
         self.emit("auto-exit-cancelled", serde_json::json!({}))
     }
 
-    /// 配置变更事件（无 payload 简略版）
-    pub fn emit_config_changed_empty(&self) -> Result<(), String> {
-        self.emit("config-changed", serde_json::json!({}))
-    }
-
     /// 配置变更事件（含完整配置对象）
     pub fn emit_config_changed<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
         self.emit("config-changed", payload)
