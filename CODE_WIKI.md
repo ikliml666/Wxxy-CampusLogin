@@ -478,8 +478,6 @@ impl NetworkState {
     pub fn increment_background_check_count(&self);
     pub fn increment_disconnect_reconnect_count(&self);
     pub fn increment_portal_failure_count(&self);
-    pub fn increment_a1_auth_failure_count(&self);
-    pub fn increment_a2_auth_failure_count(&self);
 }
 ```
 
