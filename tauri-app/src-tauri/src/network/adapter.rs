@@ -8,32 +8,9 @@ use std::sync::atomic::AtomicBool;
 use tauri::AppHandle;
 use crate::config::model::Config;
 use crate::infra::events::EventBus;
-
-// 从 discovery re-export 公共类型与函数，保持外部调用方不变
-pub use crate::network::discovery::{
-    Adapter, AdapterDetail, DisabledAdapter,
-    is_blacklisted, new_command,
-};
-
-// 从 adapter_cache re-export 缓存访问 API，保持外部调用方不变
-pub use crate::network::adapter_cache::{
-    get_adapters_force,
-    validate_adapter_name, poll_adapter_ip_quick,
-};
-
-// 从 dhcp re-export DHCP/MAC 相关函数，保持外部调用方不变
-pub use crate::network::dhcp::{
-    dhcp_renew_wired_only,
-    dhcp_release_renew_all, dhcp_release_renew_single,
-    escape_ps_single_quote,
-};
-
-// 从 subnet re-export 子网/SSID/网关相关函数，保持外部调用方不变
-pub use crate::network::subnet::{
-    get_wireless_ssid, get_wired_network_profile,
-    check_gateway_reachable, check_gateway_reachable_from,
-    is_same_subnet_18,
-};
+// ensure_ethernet_ip_for_login 内部裸调用所需（原为 pub use 兼容层，现已扁平化到源模块）
+use crate::network::discovery::{Adapter, new_command};
+use crate::network::adapter_cache::{get_adapters_force, poll_adapter_ip_quick};
 
 /// 按名称查找适配器
 pub fn find_by_name<'a>(adapters: &'a [Adapter], name: &str) -> Option<&'a Adapter> {

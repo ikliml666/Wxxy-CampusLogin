@@ -8,15 +8,24 @@ pub mod quality;
 pub mod subnet;
 pub mod timing;
 
-pub use adapter::{
+// 从源模块直接 re-export（消除 adapter.rs 中转层，与职责迁移后的结构对齐）
+pub use discovery::{
     Adapter, AdapterDetail, DisabledAdapter,
-    resolve_adapter_names, select_adapter,
+    is_blacklisted,
+};
+pub use dhcp::{
     dhcp_renew_wired_only, dhcp_release_renew_all, dhcp_release_renew_single,
-    ensure_ethernet_ip_for_login,
-    is_blacklisted, check_gateway_reachable, check_gateway_reachable_from,
+};
+pub use subnet::{
+    check_gateway_reachable, check_gateway_reachable_from,
     is_same_subnet_18,
-    get_wireless_ssid,
-    get_wired_network_profile,
+    get_wireless_ssid, get_wired_network_profile,
+};
+
+// adapter.rs 原生符号（适配器选择职责）
+pub use adapter::{
+    resolve_adapter_names, select_adapter,
+    ensure_ethernet_ip_for_login,
     find_by_name, find_with_valid_ip, find_dual_adapters,
     is_secondary_adapter_enabled,
 };

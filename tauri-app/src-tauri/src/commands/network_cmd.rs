@@ -32,7 +32,7 @@ pub async fn get_disabled_adapters() -> Result<Vec<DisabledAdapter>, String> {
 #[tauri::command]
 pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, String> {
     crate::log_info!("network", "启用适配器: {}", adapter_name);
-    crate::network::adapter::validate_adapter_name(&adapter_name)?;
+    crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
     let adapter_name_log = adapter_name.clone();
     tauri::async_runtime::spawn_blocking(move || enable_adapter_inner(&adapter_name)).await.map_err(|e| e.to_string())??;
     crate::log_info!("network", "适配器启用成功: {}", adapter_name_log);
@@ -136,7 +136,7 @@ pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Val
 #[tauri::command]
 pub async fn dhcp_release_renew_adapter(adapter_name: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
     crate::log_info!("network", "开始DHCP续租");
-    crate::network::adapter::validate_adapter_name(&adapter_name)?;
+    crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
     let campus_gateway = {
         let state = CommandContext::from_app(&app_handle);
         let config = state.config.load();
@@ -289,7 +289,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                     }
                 }
 
-                let _ = crate::network::adapter::new_command("ipconfig")
+                let _ = crate::network::discovery::new_command("ipconfig")
                     .args(["/flushdns"])
                     .output();
 
@@ -323,7 +323,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                     // WiFi: 清除适配器级 DNS，设置配置文件级 DNS
                     ps_cmds.push(format!(
                         "netsh interface ip set dns name='{}' dhcp",
-                        crate::network::adapter::escape_ps_single_quote(&adapter.name)
+                        crate::network::dhcp::escape_ps_single_quote(&adapter.name)
                     ));
                     // 设置 ProfileNameServer（通过注册表）
                     if !adapter.guid.is_empty() {
@@ -335,7 +335,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 } else {
                     ps_cmds.push(format!(
                         "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}','{}') -Confirm:$false",
-                        crate::network::adapter::escape_ps_single_quote(&adapter.name), dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
+                        crate::network::dhcp::escape_ps_single_quote(&adapter.name), dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
                     ));
                 }
             }
@@ -351,7 +351,7 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                     std::thread::sleep(std::time::Duration::from_millis(1500));
                     let mut verify_ok = false;
                     for adapter in &active {
-                        let check = crate::network::adapter::new_command("netsh")
+                        let check = crate::network::discovery::new_command("netsh")
                             .args(["interface", "ip", "show", "dns", &format!("name={}", adapter.name)])
                             .output();
                         if let Ok(co) = check {
