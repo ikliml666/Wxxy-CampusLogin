@@ -1138,7 +1138,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 **system.rs** — 系统功能命令，`get_init_data` 手动遍历 accounts 目录获取账号列表（与 `list_account_names()` 逻辑重复，未复用），新增返回字段 `gpuInfo`/`refreshRate`；新增 `append_login_history()` 登录历史记录（最多100条）
 
-**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验缺失时拒绝安装，MSI 安装使用 `raw_arg` 支持含空格路径，403 返回中文友好提示
+**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验源 4xx 缺失时降级跳过并告警（哈希不匹配/传输错误时拒绝安装），MSI 安装使用 `raw_arg` 支持含空格路径，403 返回中文友好提示
 
 ---
 
@@ -1683,12 +1683,13 @@ App.tsx
 | TLS 1.3 强制 | HTTP 客户端默认 TLS 1.3，回退 TLS 1.2 |
 | DoH 安全 | RFC 8484 wire format，兼容主流 DNS 服务商 |
 | CSP 策略 | 限制脚本、插件和表单提交来源 |
-| 外部链接验证 | URL 验证 + 本地地址黑名单 |
-| 登录频率限制 | 防止滥用 |
+| 外部链接验证 | http/https 前缀 + `url::Url::parse` + 长度限制(2048) + 用户名/密码字段检查 (commands/system.rs::open_external) |
+| 认证失败计数 | auth/failure_tracker.rs 连续 5 次 auth_failure 触发 MAC 重置 + DHCP 续租 (MAX_FAILURES=5)；并发互斥靠 TaskLock |
+| 账号名称校验 | infra/state/mod.rs::validate_account_name 正则白名单 `^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$` + 长度 1-32，防路径遍历 |
 | panic=abort | 编译选项减小二进制体积，避免信息泄露 |
-| force_release 防死锁 | 退出场景强制释放任务锁 |
-| SHA256 更新校验 | 安装包完整性校验，校验缺失时拒绝安装 |
-| 适配器名称校验 | 禁止 `&\|;` 等元字符，防止命令注入 |
+| TaskGuard RAII 防死锁 | TaskGuard::Drop 自动释放任务锁；`force_release` 标注 `#[cfg(test)]` 仅供测试 |
+| SHA256 更新校验 | 校验源 4xx 缺失时降级跳过并告警 (updater.rs:122-132)；校验文件存在且哈希不匹配/传输错误时拒绝安装 |
+| 适配器名称校验 | network/adapter_cache.rs::validate_adapter_name (经 adapter.rs re-export)，禁止 `&\|;\`$()<>\"'\n\r\0` 等元字符，防命令注入 |
 
 ---
 
@@ -1698,22 +1699,22 @@ App.tsx
 |--------|------|------|
 | PowerShell 消除 | ShellExecuteW 替代 PowerShell UAC 提权 | 200-500ms → 1ms |
 | GPU 检测改用 DXGI | `CreateDXGIFactory1` + `EnumAdapters1` 替代 PowerShell | 1~3s → 50~200ms |
-| DNS 设置优化 | netsh + ShellExecuteW 替代 PowerShell | 1-3s → 100-300ms |
-| DNS 注册表检测 | winreg 替代 PowerShell | 10x+ 速度提升 |
-| 适配器 TTL 缓存 | 5秒 TTL，避免频繁调用 Win32 API | 减少 API 调用 |
+| DNS 设置优化 | `SetInterfaceDnsSettings` Win32 API + COM 提权 (`shell_exec_elevated`) 替代 PowerShell (dns_config.rs) | 1-3s → 100-300ms |
+| DNS 注册表检测 | winreg 替代 PowerShell (read_adapter_dns_from_registry 中用 `netsh dns show encryption` 读取) | 10x+ 速度提升 |
+| 适配器 TTL 缓存 | 5秒 TTL + 4秒后台主动刷新 (adapter_cache.rs::start_cache_refresh_task, CACHE_REFRESH_INTERVAL_SECS=4) | 减少 API 调用，保证缓存新鲜 |
 | codegen-units=1 | LTO 跨单元优化 | +2~5% 性能 |
 | panic=abort | 编译选项 | 体积↓5~10% |
 | 登录重试可中断 | 每100ms检查退出标志 | 退出延迟 2s → 100ms |
 | 前端选择性订阅 | useShallow 减少不必要重渲染 | UI 响应更流畅 |
 | 高频事件节流 | 500ms 时间戳节流 | 防止 UI 频繁更新 |
 | FluidBackground CSS动画移除 | 3个大型渐变层动画完全移除 | GPU进程CPU占用显著降低 |
-| GSAP动画迁移 | 12个CSS动画迁移至GSAP，启用force3D+lazy+autoSleep | GPU合成层加速，空闲自动暂停 |
+| GSAP动画迁移 | 约 12 个 CSS 动画迁移至 GSAP，全局配置 `gsap.defaults({force3D:true})` + `gsap.config({autoSleep:5})` + `gsap.ticker.lagSmoothing(500,33)` (main.tsx:13-15) | GPU合成层加速，空闲自动暂停 |
 | RAF节流+位置去抖 | Button/DockNav/AnimatedCard鼠标事件节流 | 减少无效getBoundingClientRect调用 |
-| transition-all替换 | 10处替换为显式属性列表 | 减少不必要的属性过渡计算 |
+| transition-all替换 | 10 处替换为显式属性列表（剩余 4 处 AboutDialog/OnboardingWizard/DockNav×2 为有意保留） | 减少不必要的属性过渡计算 |
 | WebView2 内存管理 | 前台 NORMAL/后台 LOW (ICoreWebView2_19.SetMemoryUsageTargetLevel) | 后台内存占用显著降低 |
 | GPU 动态浏览器参数 | build_browser_args 根据 GPU 厂商设置 ANGLE 后端/SkiaGraphite/DrDc | 渲染兼容性和性能优化 |
-| Tokio 线程池动态配置 | 根据 CPU 核心数配置 worker_threads(2-8)/max_blocking_threads(8-64) | 资源利用更合理 |
-| CAS 原子配置更新 | update_config CAS 原子更新避免 TOCTOU 竞态 | 配置一致性保证 |
+| Tokio 线程池动态配置 | 根据 CPU 核心数配置 worker_threads(2-8)/max_blocking_threads(8-64) (app/startup.rs::build_runtime) | 资源利用更合理 |
+| CAS 原子配置更新 | `ConfigStore::update` CAS 原子更新 (compare_and_swap 循环) 避免 TOCTOU 竞态 (infra/state/store.rs:35-49) | 配置一致性保证 |
 | 流式 SHA256 校验 | 分块流式读取计算 SHA256，64KB buffer | 大文件校验内存占用降低 |
 
 ---
@@ -1764,18 +1765,29 @@ tauri_build::build();
 
 // 2. 从 tauri.conf.json 提取 version，注入编译期环境变量
 let conf_path = Path::new("tauri.conf.json");
-let content = fs::read_to_string(conf_path)?;
-let version = content.lines()
+if !conf_path.exists() {
+    panic!("tauri.conf.json not found in src-tauri directory");
+}
+let content = fs::read_to_string(conf_path).expect("Failed to read tauri.conf.json");
+let version = content
+    .lines()
     .find_map(|line| {
-        let t = line.trim();
-        if t.starts_with("\"version\"") {
-            Some(t.split(':').nth(1)?.trim()
-                .trim_end_matches(',').trim_matches('"').to_string())
-        } else { None }
-    })?;
+        let trimmed = line.trim();
+        if trimmed.starts_with("\"version\"") {
+            let value_part = trimmed.split(':').nth(1)?;
+            let value = value_part
+                .trim()
+                .trim_end_matches(',')
+                .trim_matches('"');
+            Some(value.to_string())
+        } else {
+            None
+        }
+    })
+    .expect("tauri.conf.json missing 'version' field");
 
 println!("cargo:rerun-if-changed=tauri.conf.json");
-println!("cargo:rustc-env=APP_VERSION={}", version);
+println!("cargo:rustc-env=APP_VERSION={version}");
 ```
 
 **关键设计**：
@@ -1792,10 +1804,9 @@ println!("cargo:rustc-env=APP_VERSION={}", version);
 3. **同步发布标记** — 修改仓库根 `version.json` 的 `"version": "v2.2.8"` 为 `"v2.2.9"`（带 v 前缀，是 GitHub release tag 的格式）
 4. **同步前端 package.json** — 两个 `package.json` 的 `"version"` 字段（npm 规范要求，无 v 前缀）
 5. **同步前端常量** — `tauri-app/frontend/src/shared/ui-constants.ts` 的 `APP_VERSION`（保持当前架构，不改为环境变量注入）
-6. **同步静态预览** — `tauri-app/frontend/about-preview.html` 的 `app-version` 和 `status-version` 两个 div
+6. **同步静态预览** — `tauri-app/frontend/about-preview.html` 的 `app-version` 和 `status-version` 两个 div（**注意**：此处带 `v` 前缀，如 `v2.2.8`）
 7. **同步徽章** — `README.md` 的 `version-2.2.8` 徽章
-8. **同步测试脚本** — `scripts/test-update-download.ps1` 的 `$VERSION` 变量
-9. **同步文档** — `CODE_WIKI.md` 顶部版本号 + 底部元信息
+8. **同步文档** — `CODE_WIKI.md` 顶部版本号 + 底部元信息
 
 > ⚠️ **Cargo.lock 中的 version**：由 cargo 自动更新，下次 `cargo build` 时自动重写。
 
@@ -1809,40 +1820,39 @@ println!("cargo:rustc-env=APP_VERSION={}", version);
 ### 后端代码引用方式
 
 ```rust
-// main.rs:125 启动日志
+// app/startup.rs:150 启动日志
 crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
 
-// updater.rs:314 更新检查
+// update/updater.rs:318 更新检查
 let current = env!("APP_VERSION");
 let has_update = compare_versions(current, &latest_tag);
 
-// commands/system.rs:210 系统信息接口
+// commands/system.rs:200 系统信息接口
 let version = env!("APP_VERSION").to_string();
 ```
 
-### 前端版本号来源（双轨）
+### 前端版本号来源（单轨）
 
 | 来源 | 用途 | 修改方式 |
 |---|---|---|
-| `tauri.conf.json` → `__APP_VERSION__` 编译时注入 | vite.config.ts 注入到前端构建产物 | 自动随 tauri.conf.json 同步 |
 | `ui-constants.ts` `APP_VERSION` 常量 | 代码内直接 import | 手动同步 |
 
-前端 `vite.config.ts` 已从 `tauriConf.version` 动态读取并通过 `__APP_VERSION__` 注入：
+前端 `vite.config.ts` 中虽保留了 `__APP_VERSION__` 注入逻辑（从 `tauriConf.version` 动态读取并通过 `define` 注入），但全前端目录**0 处引用**该常量，属历史遗留死代码：
 
 ```typescript
-// vite.config.ts
+// vite.config.ts:19 (历史遗留，无消费者)
 const appVersion = tauriConf.version || '0.0.0'
 define: {
   __APP_VERSION__: JSON.stringify(appVersion),
 }
 ```
 
-> 注：`ui-constants.ts` 的 `APP_VERSION` 保留硬编码是为了在非 Tauri 环境（如纯前端 Storybook / 单元测试 mock）下也能取到合理默认值。**升级时务必同步两处**。
+> 注：`ui-constants.ts` 的 `APP_VERSION` 保留硬编码是为了在非 Tauri 环境（如纯前端 Storybook / 单元测试 mock）下也能取到合理默认值。**升级时仅需同步 `ui-constants.ts` 一处**。
 
 ### 版本号格式约定
 
-- **semver 格式（不带 v）**：`Cargo.toml` / `tauri.conf.json` / `package.json` × 2 / `ui-constants.ts` / `about-preview.html` 静态部分 → `2.2.8`
-- **发布 tag 格式（带 v）**：`version.json` / 后端日志（`v{}`）/ README 徽章（`version-2.2.8` 不带 v，但后端启动日志带 v）
+- **semver 格式（不带 v）**：`Cargo.toml` / `tauri.conf.json` / `package.json` × 2 / `ui-constants.ts` → `2.2.8`
+- **发布 tag 格式（带 v）**：`version.json` / 后端日志（`v{}`）/ `about-preview.html` 的 `app-version` 和 `status-version` div（`v2.2.8`）/ README 徽章（`version-2.2.8` 不带 v，但后端启动日志带 v）
 
 ---
 
