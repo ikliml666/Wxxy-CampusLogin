@@ -1,18 +1,20 @@
 # CampusLogin v2.2.9 优化计划书
 
-> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（缩小范围）
-> **范围**: 仅第一波（3 个代码优化点 T1/T2/T3 + 8 处版本号同步 T6）
+> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（扩大范围至第一波+T4/T5）
+> **范围**: 第一波（T1/T2/T3 + T6 版本号同步）+ 用户追批 T4/T5
 > **依据**: 基于 CODE_WIKI.md v2.2.8 + 实际源码逐行调研确认
 >
-> **审批记录**: 用户 2026-06-26 批准，缩小到仅第一波。T4（traits.rs 清理）/T5（节流 trailing）搁置到后续版本。
+> **审批记录**: 用户 2026-06-26 批准。第一波先执行；用户追批 T4/T5 后续执行。
 >
 > **执行状态**: ✅ 已完成（2026-06-26）
 > - [x] T1 atomic_write 日志文案修正 → `config/persist.rs:23`
 > - [x] T2 `__APP_VERSION__` 死代码清理 → `frontend/vite.config.ts`（移除注入+孤儿链）
 > - [x] T3 get_init_data 复用 list_account_names → `config/persist.rs` + `commands/system.rs`
+> - [x] T4 auth/traits.rs 过度抽象清理 → `auth/traits.rs` + `auth/service.rs:11`（删除 trait 与 Mock，保留 struct 加 inherent method）
+> - [x] T5 onAdaptersChanged 节流补 trailing → `hooks/useAppInit.ts:92,264-289,538-545`（leading+trailing + cleanup 清理）
 > - [x] T6 版本号同步 → 9 处文件全部更新至 2.2.9
-> - [x] CHANGELOG.md v2.2.9 条目写入
-> - 诊断验证：3 个改动文件 0 错误
+> - [x] CHANGELOG.md v2.2.9 条目写入（含 T4/T5）
+> - 诊断验证：5 个改动文件 0 错误
 
 ---
 
@@ -32,13 +34,13 @@
 | T6 | 版本号同步至 2.2.9 | 流程 | 低 | 小 | 8 处文件（见第四节） |
 
 **搁置项**（本版不做，记录待后续评估）：
-- T4/#4 `auth/traits.rs` AdapterResolver trait 过度抽象（中风险，用户决定本版搁置）
-- T5/#7 `onAdaptersChanged` 节流补 trailing（中风险，用户决定本版搁置）
 - #5 `adapter.rs` re-export 链路过长（收益低）
 - #6 watcher.rs 338 行拆分 + 适配器1/2 失败处理重复（中工作量，推迟）
 - #8 CLIENT_POOL 无 TTL/LRU 淘汰（中工作量，推迟）
 - #9 watcher.rs 事件总线解耦（高风险大工作量，独立版本处理）
 - #10 `emit_notification` 调用点收口（不成立，已收口）
+
+> 历史搁置：T4 与 T5 在用户追批后已纳入 v2.2.9 范围并完成。
 
 ---
 
