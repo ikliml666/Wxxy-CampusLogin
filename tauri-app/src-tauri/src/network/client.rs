@@ -1,12 +1,18 @@
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Instant;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 
 lazy_static::lazy_static! {
     pub(crate) static ref PORTAL_URL: ArcSwap<String> = ArcSwap::from(Arc::new(crate::config::model::default_portal_url()));
-    static ref CLIENT_POOL: DashMap<String, reqwest::Client> = DashMap::new();
+    static ref CLIENT_POOL: DashMap<String, (reqwest::Client, Instant)> = DashMap::new();
 }
+
+/// 客户端池 TTL（秒），与 dns.rs DNS_CACHE_TTL_SECS 对齐
+const CLIENT_POOL_TTL_SECS: u64 = 600;
+/// 客户端池最大容量
+const CLIENT_POOL_MAX_ENTRIES: usize = 32;
 
 pub fn update_portal_url(url: &str) {
     if !url.is_empty() {
@@ -50,17 +56,30 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
     builder.build().map_err(|e| format!("创建HTTP客户端失败: {e}"))
 }
 
+/// 命中检查：返回 Some(client) 表示有效命中；返回 None 表示未命中或已过期清除
+fn client_pool_get(key: &str, label: &str) -> Option<reqwest::Client> {
+    let entry = CLIENT_POOL.get(key)?;
+    let (client, instant) = entry.value();
+    if instant.elapsed().as_secs() < CLIENT_POOL_TTL_SECS {
+        crate::log_debug!("http", "客户端池命中{}: key={}", label, key);
+        Some(client.clone())
+    } else {
+        drop(entry);
+        CLIENT_POOL.remove(key);
+        crate::log_debug!("http", "客户端池TTL过期清除{}: key={}", label, key);
+        None
+    }
+}
+
 pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {
     let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout);
-    if let Some(entry) = CLIENT_POOL.get(&tls13_key) {
-        crate::log_debug!("http", "客户端池命中: key={}", tls13_key);
-        return Ok(entry.value().clone());
+    if let Some(client) = client_pool_get(&tls13_key, "") {
+        return Ok(client);
     }
 
     let tls12_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_2, timeout);
-    if let Some(entry) = CLIENT_POOL.get(&tls12_key) {
-        crate::log_debug!("http", "客户端池命中(TLS 1.2 fallback): key={}", tls12_key);
-        return Ok(entry.value().clone());
+    if let Some(client) = client_pool_get(&tls12_key, "(TLS 1.2 fallback)") {
+        return Ok(client);
     }
 
     let (client, actual_key) = match build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_3) {
@@ -76,11 +95,10 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
         }
     };
 
-    CLIENT_POOL.entry(actual_key).or_insert_with(|| client.clone());
-    // 容量上限清理，避免无界增长（与 dns.rs DNS_CACHE 模式一致）
-    const CLIENT_POOL_MAX_ENTRIES: usize = 32;
+    CLIENT_POOL.entry(actual_key).or_insert_with(|| (client.clone(), Instant::now()));
+    // 容量上限清理：按 Instant 找最旧条目剔除（真 LRU，与 dns.rs DNS_CACHE 模式一致）
     while CLIENT_POOL.len() > CLIENT_POOL_MAX_ENTRIES {
-        if let Some(entry) = CLIENT_POOL.iter().next() {
+        if let Some(entry) = CLIENT_POOL.iter().min_by_key(|e| e.value().1) {
             let key = entry.key().clone();
             drop(entry);
             CLIENT_POOL.remove(&key);
