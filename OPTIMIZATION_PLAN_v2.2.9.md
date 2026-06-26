@@ -1,12 +1,12 @@
 # CampusLogin v2.2.9 优化计划书
 
-> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（扩大范围至第一波+T4/T5+T7/T8/T9+T10 架构优化）
-> **范围**: 第一波（T1/T2/T3 + T6 版本号同步）+ 用户追批 T4/T5 + 用户追批 T7/T8/T9 架构优化 + 用户追批 T10 adapter.rs re-export 扁平化
-> **依据**: 基于 CODE_WIKI.md v2.2.8 + 实际源码逐行调研确认
+> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（扩大范围至第一波+T4/T5+T7/T8/T9+T10 架构优化+T11-T19 死代码清理）
+> **范围**: 第一波（T1/T2/T3 + T6 版本号同步）+ 用户追批 T4/T5 + 用户追批 T7/T8/T9 架构优化 + 用户追批 T10 adapter.rs re-export 扁平化 + 用户追批 T11-T19 死代码清理（第二波）
+> **依据**: 基于 CODE_WIKI.md v2.2.8 + 实际源码逐行调研确认 + 第二波 subagent 调研 45 候选点筛 6 项纯死代码
 >
-> **审批记录**: 用户 2026-06-26 批准。第一波先执行；用户追批 T4/T5 后续执行；用户再追批 T7/T8/T9 架构优化并入 v2.2.9；T1-T9 完成后用户再追批 T10（#5 adapter.rs 扁平化）并入 v2.2.9。
+> **审批记录**: 用户 2026-06-26 批准。第一波先执行；用户追批 T4/T5 后续执行；用户再追批 T7/T8/T9 架构优化并入 v2.2.9；T1-T9 完成后用户再追批 T10（#5 adapter.rs 扁平化）并入 v2.2.9；T1-T10 完成后用户选择"继续识别优化点"，subagent 调研返回 45 候选点，用户选择"仅 6 项纯死代码清理（低风险）"。
 >
-> **执行状态**: ✅ 已完成（2026-06-26，含 T10 与代码审查验证）
+> **执行状态**: ✅ 已完成（2026-06-26，含 T10 与代码审查验证 + T11-T19 死代码清理与验证）
 > - [x] T1 atomic_write 日志文案修正 → `config/persist.rs:23`
 > - [x] T2 `__APP_VERSION__` 死代码清理 → `frontend/vite.config.ts`（移除注入+孤儿链）
 > - [x] T3 get_init_data 复用 list_account_names → `config/persist.rs` + `commands/system.rs`
@@ -20,6 +20,14 @@
 > - [x] CHANGELOG.md v2.2.9 条目写入（含 T4/T5 + T7/T8/T9 + T10）
 > - 诊断验证：cargo check 通过 0 错误（T7/T8/T9 改动文件）；Grep 验证外部 `watcher::X` 13 处调用点 re-export 完整零破坏
 > - 代码审查：Senior-Code-Reviewer-1/2 两轮审查均 Approved；T7/T8/T9 发现 1 Medium + 4 Low（已修 3 项）；T10 发现 2 Low（验证为非真实问题，详见 T10 章节）
+> - [x] T11 删除 network.rs 无调用方的 a1/a2 auth 失败计数方法 → `infra/state/network.rs`（保留 increment helper，经 Grep 验证被 3 个其他方法使用）
+> - [x] T12 删除 AppHandleExt trait 的 4 个未使用 notify_* 方法 → `infra/command_context.rs`（保留 notify_config_changed/notify_update_download_progress）
+> - [x] T13 删除 CommandResult 的 ok_data/from_json_result + 测试模块 → `infra/state/mod.rs`（保留 ok/ok_msg/err）
+> - [x] T14 删除 BackgroundTaskManager::cancel_all + 测试 → `infra/task_manager.rs`（保留 shutdown/cancel/is_running）
+> - [x] T19 删除 FluidBackground paused prop → `frontend/src/shared/FluidBackground.tsx`（Grep 确认唯一调用方不传 paused）
+> - [x] T20 跳过：HIGH_PROFILE.easing 死字段需类型重构为 `Omit<AnimationProfile,'easing'>`，非纯死代码删除
+> - [x] 级联 orphan 清理：T12 删除 notify_config_changed_empty 后 events.rs 的 emit_config_changed_empty 变为 unused，按 karpathy "Clean up only your own mess" 准则一并清理
+> - 第二波验证：cargo check 通过 0 错误 0 warning；前端 `npx tsc --noEmit` 通过 0 类型错误；commit `84148b3`（6 files changed, 98 deletions(-)）
 
 ---
 
@@ -284,6 +292,121 @@
 
 ---
 
+## 第二波：死代码清理（T11-T19）
+
+> **触发**: T1-T10 完成后用户选择"继续识别优化点"，派出 2 个并行 search subagent（后端+前端）调研，返回 45 个候选优化点。按 karpathy "Think Before Coding" 准则逐一验证，筛出 6 项纯死代码（删除即可，无类型/调用点副作用）。用户确认"仅 6 项纯死代码"范围，T20 因需类型重构跳过。
+>
+> **执行原则**: karpathy "Surgical Changes"（只动必须动的）+ "Clean up only your own mess"（清理自己产生的级联 orphan）。
+>
+> **提交**: commit `84148b3` `refactor: 清理 5 项死代码及级联 orphan（T11-T19）`，6 files changed, 98 deletions(-), 0 additions。
+
+### T11 — 删除 network.rs a1/a2 auth 失败计数方法
+
+**问题**: `infra/state/network.rs` 中 `increment_a1_auth_failure_count`/`increment_a2_auth_failure_count` 无任何调用方（auth 失败计数已由 `auth/failure_tracker.rs` 的 `AdapterFailureCounter` 枚举 + `pub(crate)` helper 统一管理，T7 已收口）。
+
+**变更**:
+- 文件: `tauri-app/src-tauri/src/infra/state/network.rs`
+- 删除 `increment_a1_auth_failure_count` 和 `increment_a2_auth_failure_count` 两个方法
+- **保留** `increment` 私有 helper（subagent A1 报告称其"仅被这两个死方法调用"为误报，经 Grep 验证被 `increment_background_check_count`/`increment_disconnect_reconnect_count`/`increment_portal_failure_count` 使用）
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误
+- [x] Grep 验证 `increment_a1_auth_failure_count`/`increment_a2_auth_failure_count` 全局 0 调用方
+
+**风险**: 极低（纯删除未引用代码）| **回滚**: git revert
+
+---
+
+### T12 — 删除 AppHandleExt trait 的 4 个未使用方法
+
+**问题**: `infra/command_context.rs` 中 `AppHandleExt` trait 的 `notify_login_log`/`notify_adapter_changed`/`notify_background_result`/`notify_config_changed_empty` 4 个方法标注 `#[allow(dead_code)]` 且无任何调用方（前端事件由 EventBus 直接 emit，不经 trait 中转）。
+
+**变更**:
+- 文件: `tauri-app/src-tauri/src/infra/command_context.rs`
+- 删除上述 4 个方法的 trait 声明 + impl 块
+- **保留** `notify_config_changed`（command_context.rs:45 有生产调用）和 `notify_update_download_progress`（有生产调用）
+- **副作用**: EventBus 中的 `emit_config_changed_empty`（events.rs:102）变为 unused → 见级联 orphan 清理
+
+**验收标准**:
+- [x] `cargo check` 通过（初始 1 warning，级联 orphan 清理后 0 warning）
+- [x] Grep 验证 4 个方法名全局 0 调用方
+
+**风险**: 低（删除 `#[allow(dead_code)]` 标注的死方法）| **回滚**: git revert
+
+---
+
+### T13 — 删除 CommandResult 的 ok_data/from_json_result + 测试模块
+
+**问题**: `infra/state/mod.rs` 中 `CommandResult::ok_data`/`from_json_result` 两个方法无任何调用方（生产代码使用 `ok`/`ok_msg`/`err`），`command_result_tests` 测试模块仅测试这两个死方法。
+
+**变更**:
+- 文件: `tauri-app/src-tauri/src/infra/state/mod.rs`
+- 删除 `ok_data` 方法 + `from_json_result` 方法 + `command_result_tests` 测试模块（2 个测试用例）
+- **保留** `ok`/`ok_msg`/`err` 方法
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误
+- [x] Grep 验证 `ok_data`/`from_json_result` 全局 0 调用方
+
+**风险**: 低（删除未引用方法及其测试）| **回滚**: git revert
+
+---
+
+### T14 — 删除 BackgroundTaskManager::cancel_all + 测试
+
+**问题**: `infra/task_manager.rs` 中 `BackgroundTaskManager::cancel_all` 方法无任何调用方（任务取消走 `cancel` 单任务 + `shutdown` 全量关闭）。
+
+**变更**:
+- 文件: `tauri-app/src-tauri/src/infra/task_manager.rs`
+- 删除 `cancel_all` 方法 + `task_manager_cancel_all_clears_all_all` 测试
+- **保留** `shutdown`/`cancel`/`is_running`/`cancel_token` 方法和其他 3 个测试
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误
+- [x] Grep 验证 `cancel_all` 全局 0 调用方
+
+**风险**: 低（删除未引用方法及其测试）| **回滚**: git revert
+
+---
+
+### T19 — 删除 FluidBackground paused prop
+
+**问题**: `frontend/src/shared/FluidBackground.tsx` 的 `FluidBackgroundProps` interface 含 `paused?: boolean` 字段，但唯一调用方 `App.tsx:240` 不传递该 prop（组件实现也未消费 `paused`）。
+
+**变更**:
+- 文件: `tauri-app/frontend/src/shared/FluidBackground.tsx`
+- 从 `FluidBackgroundProps` interface 删除 `paused?: boolean` 字段
+
+**验收标准**:
+- [x] `npx tsc --noEmit` 通过 0 类型错误
+- [x] Grep 验证 `App.tsx` 调用方不传 `paused`
+
+**风险**: 极低（删除未传递且未消费的 prop）| **回滚**: git revert
+
+---
+
+### T20 — 跳过：HIGH_PROFILE.easing 死字段
+
+**问题**: `frontend/src/hooks/useAnimationProfile.ts` 中 `HIGH_PROFILE.easing` 字段在 `useMemo` 中被 `easing: getEasingConfig(effectiveRefreshRate)` 覆盖，基线值恒不生效。
+
+**评估**: 删除该字段需将 `HIGH_PROFILE` 类型从 `AnimationProfile` 改为 `Omit<AnimationProfile, 'easing'>`（因 `easing` 是 `AnimationProfile` 的必需字段），属于类型重构而非纯死代码删除，超出本轮"仅 6 项纯死代码"范围。
+
+**决策**: 跳过，记录待后续评估。按 karpathy "Surgical Changes" 准则，不做超范围改动。
+
+---
+
+### 级联 orphan 清理 — emit_config_changed_empty
+
+**问题**: T12 删除 `notify_config_changed_empty` 后，`infra/events.rs:102` 的 `EventBus::emit_config_changed_empty` 方法变为 unused（cargo check 报 `warning: method emit_config_changed_empty is never used`）。
+
+**处理**: 按 karpathy "Clean up only your own mess" 准则，删除 `emit_config_changed_empty` 方法（events.rs L101-104，含注释）。Grep 验证全局仅 events.rs 定义、无其他调用方。保留 `emit_config_changed`（带 payload 版本，command_context.rs:45 有生产调用）。
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误 0 warning
+- [x] Grep 验证 `emit_config_changed_empty` 全局 0 命中
+
+---
+
 ## 三、执行顺序与依赖
 
 ```
@@ -374,4 +497,4 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证）*
+*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证，commit `84148b3`）*
