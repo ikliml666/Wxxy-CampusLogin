@@ -1149,7 +1149,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 ### 5.1 状态管理 — `hooks/useAppStore.ts`
 
 - 基于 zustand ^5.0 的全局状态管理
-- 密码处理：`password === '***'` 时直接 `delete` 密码字段，三层防护过滤后端返回的遮蔽值
+- 密码处理：`password === '***'` 时直接 `delete` 密码字段，两层防护过滤后端返回的遮蔽值（updateConfig 保留 pending 真密码 + flushPendingConfig delete MASK）
 - 注销状态：`isLoggingOut` + `doLogout` action
 - 登录/注销均支持 `adapterName` 可选参数
 - `checkOnline` 使用 epoch 计数器防竞态 + 并发锁(`_checkOnlineLockFlag`)，包含完整校园网检测逻辑（campusWifi/campusWired/a1OnCampus/a2OnCampus 等）
@@ -1185,7 +1185,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `onDownloadProgress` | 下载进度 |
 | `onConfigChanged` | 配置变更 |
 
-**API 清单**:
+**API 清单** (部分清单，实际 `TauriApi` interface 定义 50+ 个 API，以下为核心 API):
 
 | API | 说明 |
 |-----|------|
@@ -1228,7 +1228,8 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 - **前端心跳**: 每5秒调用 `renderHeartbeat`
 - **Ctrl+Shift+C 快捷键**: 前端也注册
 - **DNS 初始化检查**
-- **崩溃恢复** (`setupCrashRecovery`): 最多3次自动重载，GPU/WebGL/SharedArrayBuffer 错误触发重载，渲染心跳检测5秒无心跳视为GPU崩溃，页面可见性变化时暂停/恢复 GSAP globalTimeline
+
+> **崩溃恢复说明**: `setupCrashRecovery`（含 GPU/WebGL/SharedArrayBuffer 错误重载、5秒心跳 GPU 崩溃检测、页面可见性暂停/恢复 GSAP globalTimeline）定义在 `main.tsx`，见 5.11
 
 ### 5.4 业务域模块
 
@@ -1236,7 +1237,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 | 文件 | 说明 |
 |------|------|
-| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到localStorage |
+| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage |
 | `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染 |
 | `useAuth.ts` | 认证逻辑 Hook |
 | `types.ts` | 认证类型定义 (PortalStatusResult, CommandResult, LoginResult) |
@@ -1255,7 +1256,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 | 文件 | 说明 |
 |------|------|
-| `MonitorPanel.tsx` | 监控面板，3卡片(网络状态检测/适配器在线状态/验证设置)+校园网验证配置 |
+| `MonitorPanel.tsx` | 监控面板，2卡片(网络状态检测含适配器在线状态分区/验证设置)+校园网验证配置 |
 | `QualityPanel.tsx` | 网络质量面板，3卡片(质量概览+LatencyPair/定时测试/测试详情5分类Tab)，质量差时红色发光 |
 | `SpeedTestPanel.tsx` | 速度测试面板，8个预设网站分3类(综合/教育网/轻量)，PanelName包含'speedtest' |
 | `StatusBar.tsx` | 状态栏，在线(绿)/离线(红)/加载(蓝)指示器+校园网状态Tooltip+质量胶囊+刷新延迟+自助服务+Portal入口 |
@@ -1273,7 +1274,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `NetworkPanel.tsx` | 3个卡片（网络适配器列表含状态四分类/适配器设置/DNS优化），适配器启用/单适配器获取新IP |
 | `useNetwork.ts` | 网络逻辑 Hook |
 | `constants.ts` | 网络常量 (QUALITY_CONFIG: 9级质量配置含labelKey/color/bg/border/borderBg/icon/hex/activeBars/glow) |
-| `types.ts` | 网络类型定义 (AdapterStatus四分类: disabled/disconnected/enabledNoIp/connected, Adapter, DnsDohStatus, DnsServerInfo 等 10 个类型) |
+| `types.ts` | 网络类型定义 (AdapterStatus四分类: disabled/disconnected/enabledNoIp/connected, Adapter, DnsDohStatus, DnsServerInfo 等 11 个类型) |
 | `index.ts` | 模块导出 |
 
 **NetworkPanel.tsx**:
@@ -1289,12 +1290,12 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 | 文件 | 说明 |
 |------|------|
-| `SettingsPanel.tsx` | 设置面板，4卡片(外观/启动设置/通知/质量检测)+7种主题+12色预设+取色器+亮暗模式 |
+| `SettingsPanel.tsx` | 设置面板，5卡片(外观/启动设置/通知/质量检测/引导向导)+7种主题+12色预设+取色器+亮暗模式 |
 | `ThemeDialog.tsx` | 主题对话框，2列布局+亮暗模式切换 |
 | `OnboardingWizard.tsx` | 4步引导向导(欢迎→账号→适配器→完成)，Framer Motion滑动转场，含语言切换，完成后自动登录 |
 | `useSettings.ts` | 设置逻辑 Hook |
 | `constants.ts` | 设置常量 (DEFAULT_CONFIG/ISP_OPTIONS(4种)/THEME_OPTIONS(7种)/VALID_THEMES/DEFAULT_PANEL_OPTIONS) |
-| `types.ts` | 设置类型定义 (Config(35字段,不含logRetentionDays/configVersion), AutoLaunchResult, InitData) |
+| `types.ts` | 设置类型定义 (Config(36字段含logRetentionDays/configVersion，排除后业务字段34个), AutoLaunchResult, InitData) |
 | `index.ts` | 模块导出 |
 
 ### 5.5 共享组件 — `shared/`
@@ -1306,7 +1307,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `ConfirmDialog.tsx` | 确认对话框 |
 | `FluidBackground.tsx` | 简单背景层，使用CSS变量 `--surface-main` |
 | `AnimatedNumber.tsx` | 动画数字，GSAP quickTo驱动，支持unit/decimals/duration，economy档禁用scale弹跳 |
-| `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果 |
+| `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮 |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
@@ -1318,7 +1319,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 | 文件 | 说明 |
 |------|------|
-| `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 200ms延迟关闭)，GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流 |
+| `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流 |
 | `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画 |
 | `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
 
@@ -1333,7 +1334,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 ### 5.8 国际化 — i18n/
 
 - 基于 react-i18next + i18next-browser-languagedetector
-- 翻译文件按 namespace 分组：nav, titlebar, dock, auth, settings, monitor, log, rightPanel, about, common, onboarding
+- 翻译文件按 JSON 顶级 key 分组（单一 "translation" namespace，共22个）：nav, titlebar, dock, auth, account, settings, monitor, network, quality, speedtest, statusbar, dashboard, log, rightPanel, about, common, onboarding, confirmDialog, isp, panel, themeDialog, crashRecovery
 - 非组件中使用 `import i18next from 'i18next'` + `i18next.t()` 而非 useTranslation hook
 - 常量文件（NAV_ITEMS、ISP_OPTIONS、THEME_OPTIONS、QUALITY_CONFIG）添加 labelKey 字段，运行时通过 t(labelKey) 翻译
 - 默认语言中文，i18n 仍使用 `localStorage`（非 safeStorage），仅 `useAppStore.setLanguage` 使用 `safeStorage`
@@ -1342,7 +1343,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 | Hook | 说明 |
 |------|------|
-| `useAnimationProfile.ts` | 动画配置，AnimationTier(high/standard/economy) + AnimationProfile 17字段，economy档禁用willChangeOrbs/enableTilt/startupBoost |
+| `useAnimationProfile.ts` | 动画配置，AnimationTier(high/standard/economy) + AnimationProfile 18字段，economy档禁用willChangeOrbs/enableTilt/startupBoost |
 | `useAsyncLock.ts` | 异步锁，`useAsyncLock<T>(fn, cooldownMs=1500)` 防止并发调用 |
 | `useBreatheAnimation.ts` | 呼吸动画，GSAP yoyo循环，支持opacity/scale/rotation，空闲时暂停 |
 | `useGlowAnimation.ts` | 发光动画，GSAP yoyo循环，opacity+scale，空闲时暂停 |
@@ -1364,12 +1365,44 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 ### 5.11 入口点 — `main.tsx`
 
-- **GSAP 全局配置**: `expo.out` 默认缓动, `force3D: true`, `autoSleep: 5`, `lagSmoothing(500, 33)`
+- **GSAP 全局配置**: `expo.out` 默认缓动, `force3D: true`, `autoSleep: 5`, `lagSmoothing(500, 33)`, `nullTargetWarn: false`
 - **prefers-reduced-motion**: GSAP duration 设为 0
 - **主题初始化**: `initTheme()` — 从 localStorage 恢复亮暗模式 + 主题类
-- **崩溃恢复** (`setupCrashRecovery`): 最多3次自动重载，GPU/WebGL/SharedArrayBuffer 错误触发重载
-- **渲染链**: `ErrorBoundary` > `LazyMotion(domAnimation)` > `MotionConfig(reducedMotion="user")` > `App`
+- **崩溃恢复** (`setupCrashRecovery`): 最多3次自动重载，GPU/WebGL/SharedArrayBuffer 错误触发重载，渲染心跳5秒无响应视为GPU崩溃触发重载，页面可见性变化时暂停/恢复 GSAP globalTimeline
+- **渲染链**: `ErrorBoundary` > `LazyMotion(domAnimation, strict)` > `MotionConfig(reducedMotion="user")` > `App`
 - **开发模式**: 使用 `React.StrictMode`
+
+### 5.12 基础 UI 组件 — `components/ui/`
+
+shadcn/ui 风格的基础组件，被各面板广泛引用：
+
+| 文件 | 说明 |
+|------|------|
+| `animated-card.tsx` | 动画卡片，支持 noEnterAnimation 属性，被各面板 AnimatedCard 引用 |
+| `badge.tsx` | 徽章组件 |
+| `button.tsx` | 按钮组件（多 variant/size） |
+| `card.tsx` | 卡片基础组件（CardHeader/CardTitle/CardDescription/CardContent） |
+| `dialog.tsx` | 对话框组件（Radix UI Dialog 封装） |
+| `input.tsx` | 输入框组件 |
+| `label.tsx` | 标签组件 |
+| `select.tsx` | 下拉选择组件 |
+| `separator.tsx` | 分隔线组件 |
+| `switch.tsx` | 开关组件 |
+| `tooltip.tsx` | 提示框组件（Radix UI Tooltip 封装） |
+
+### 5.13 主应用组件 — `App.tsx`
+
+应用主组件（~360 行），编排所有业务模块：
+
+- **面板路由**: 基于 `activePanel` switch 渲染 8 个面板（dashboard/account/auth(network)/monitor/quality/speedtest/network/settings）
+- **PANEL_TITLES**: 面板标题 i18n key 映射表（titleKey/descKey）
+- **初始化**: 调用 `useAppInit()` + 5 个业务 Hook（useAuth/useMonitor/useNetwork/useAccount/useSettings）
+- **启动加速**: `useStartupBoost` 编排 5 元素入场动画（titleBar/statusBar/title/rightPanel/dockNav）
+- **面板转场**: `AnimatePresence mode="wait"` + `panelVariants`（createPanelAppleVariants）+ slideDirection
+- **窗口监听**: `getCurrentWindow().onResized` 监听窗口大小变化
+- **引导向导**: 首次启动检测（`safeStorage.get('campus-onboarding-done')`），未完成则弹出 OnboardingWizard
+- **ErrorBoundary 嵌套**: 外层 ErrorBoundary（L361）+ 面板内容 ErrorBoundary（L288）+ main.tsx ErrorBoundary
+- **useLogToastStore**: 独立 zustand store 用于 Toast 管理
 
 ---
 
