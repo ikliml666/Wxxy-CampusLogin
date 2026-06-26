@@ -1484,23 +1484,24 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| `tauri` | 2 | 应用框架 |
+| `tauri-build` | 2 (build-dependencies, features=[]) | Tauri 构建工具 ([build-dependencies]) |
+| `tauri` | 2 (features: tray-icon, image-png, image-ico) | 应用框架 |
 | `tauri-plugin-*` | 2 | shell/notification/autostart/global-shortcut/single-instance |
-| `serde` / `serde_json` | 1 | 序列化 |
+| `serde` / `serde_json` | 1 (serde: derive) | 序列化 |
 | `tokio` | 1 (rt-multi-thread, time, net, macros, io-util) | 异步运行时 |
 | `tokio-util` | 0.7 (rt) | CancellationToken |
-| `reqwest` | 0.12 (json, http2, rustls-tls, charset) | HTTP客户端 |
-| `tokio-rustls` | 0.26 | TLS 连接 (DoH) |
+| `reqwest` | 0.12 (default-features=false; json, http2, rustls-tls, charset) | HTTP客户端 |
+| `tokio-rustls` | 0.26 (features: ring) | TLS 连接 (DoH) |
 | `rustls-pki-types` | 1 | TLS 类型 |
 | `webpki-roots` | 0.26 | TLS 根证书 |
 | `hickory-resolver` | 0.24 (tokio-runtime) | DNS 解析 |
 | `dashmap` | 6 | 并发 HashMap (DNS 评分/缓存) |
 | `parking_lot` | 0.12 | 高性能同步原语 |
 | `arc-swap` | 1 | 原子引用交换 |
-| `windows` | 0.58 | Win32 API (含 Shell/UI/Threading/Graphics/Dxgi) |
-| `webview2-com-sys` | 0.38 | WebView2 COM 接口 (ICoreWebView2_19 内存管理) |
-| `windows-core` | 0.61 | Windows COM 核心类型 |
-| `winreg` | 0.52 | Windows 注册表读写 |
+| `windows` | 0.58 (features: 13项 — IpHelper/Ndis/WinSock/Foundation/Security/Shell/WindowsAndMessaging/Threading/Com/Ole/Variant/Gdi/Dxgi) | Win32 API |
+| `webview2-com-sys` | 0.38 (Windows 目标) | WebView2 COM 接口 (ICoreWebView2_19 内存管理) |
+| `windows-core` | 0.61 (Windows 目标) | Windows COM 核心类型 |
+| `winreg` | 0.52 (Windows 目标) | Windows 注册表读写 |
 | `surge-ping` | 0.8 | ICMP ping |
 | `sha2` | 0.10 | SHA-256 校验 (更新安装包完整性验证) |
 | `urlencoding` | 2 | URL 编码 |
@@ -1512,61 +1513,98 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | `chrono` | 0.4 | 时间处理 |
 | `open` | 5 | 打开外部链接 |
 
-### 7.2 前端依赖
+### 7.2 前端依赖 (frontend/package.json)
+
+**运行时依赖 (dependencies, 21 项)**:
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| `react` / `react-dom` | 19 | UI框架 |
+| `react` / `react-dom` | ^19.0.0 | UI框架 |
 | `@tauri-apps/api` | ^2 | Tauri前端API |
+| `@tauri-apps/plugin-shell` | ^2 | Tauri Shell 插件前端绑定 |
 | `framer-motion` | ^12.38.0 | 动画 |
-| `react-i18next` | ^17 | 国际化 |
-| `i18next-browser-languagedetector` | ^8 | 语言自动检测 |
+| `react-i18next` | ^17.0.8 | 国际化 React 绑定 |
+| `i18next-browser-languagedetector` | ^8.2.1 | 语言自动检测 |
 | `i18next` | ^26.3.1 | i18n 核心 |
-| `lucide-react` | ^0.446 | 图标 |
+| `lucide-react` | ^0.446.0 | 图标 |
 | `zustand` | ^5.0.13 | 状态管理 |
-| `gsap` | ^3.15.0 | 高性能动画 (frontend package.json) |
-| `tailwindcss` | ^3.4 | CSS框架 |
-| `vite` | ^6 | 构建 |
-| `typescript` | ^5.5 | 类型系统 |
-| Radix UI primitives | 各版本 | 无障碍UI |
+| `gsap` | ^3.15.0 | 高性能动画 |
+| `class-variance-authority` | ^0.7.0 | 组件变体样式 (CVA) |
+| `clsx` | ^2.1.1 | className 合并工具 |
+| `tailwind-merge` | ^2.5.0 | Tailwind class 冲突合并 |
+| Radix UI primitives (7 项) | ^1.1.x ~ ^2.1.x | 无障碍UI (dialog/label/select/separator/slot/switch/tooltip) |
+
+**开发依赖 (devDependencies, 8 项)**:
+
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| `@types/react` / `@types/react-dom` | ^19.0.0 | React 类型定义 |
+| `@vitejs/plugin-react` | ^4.3.0 | Vite React 插件 |
+| `vite` | ^6.0.0 | 构建工具 |
+| `typescript` | ^5.5.0 | 类型系统 |
+| `tailwindcss` | ^3.4.10 | CSS 框架 |
+| `postcss` | ^8.4.40 | CSS 后处理器 |
+| `autoprefixer` | ^10.4.20 | 自动添加浏览器前缀 |
 
 ### 7.3 依赖关系图
 
 ```
-main.rs
-  ├── lib.rs (Tauri库入口)
-  └── commands/mod.rs
-        ├── config_cmd.rs ← config/, account/crypto.rs, infra/state/
-        ├── login.rs ← auth/session.rs, auth/portal.rs, auth/protocol.rs, infra/state/
-        │   [do_login + do_logout (两步注销), adapter_name 可选参数]
-        ├── background.rs (命令入口，委托 monitor::watcher)
-        ├── network_cmd.rs ← network/*, infra/state/, network/timing.rs, platform/dns_config.rs, platform/elevation.rs
-        │   [check_dns_doh_status / setup_dns_doh / run_elevated]
-        ├── account.rs ← config/, account/crypto.rs, infra/state/, config_cmd.rs
-        ├── system.rs ← config/, network/*, infra/state/, platform/dns_config.rs
-        └── updater.rs ← update/updater.rs
+main.rs (二进制入口)
+  └── lib.rs (库入口) → app/startup.rs::run()
+        │   [build_runtime: Tokio multi-thread, worker=clamp(2,8), max_blocking=clamp(8,64)]
+        │   [WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ← platform/gpu.rs::build_browser_args]
+        │   [plugin 注册: shell/notification/autostart/global-shortcut/single-instance]
+        │   [setup_app: panic hook + 命令注册 + 状态管理 + 托盘 + 心跳 + 校园网检测]
+        │
+        └── commands/mod.rs
+              ├── config_cmd.rs ← config/, account/crypto.rs, infra/state/, infra/logger.rs [set_debug_mode]
+              ├── login.rs ← auth/service.rs, infra/events.rs, infra/lifecycle.rs, monitor/watcher.rs
+              │   [do_login + do_logout (两步注销), adapter_name 可选参数]
+              ├── background.rs (命令入口，委托 monitor::watcher)
+              ├── network_cmd.rs ← network/*, infra/state/, platform/dns_config.rs, platform/elevation.rs, monitor/watcher.rs, monitor/latency.rs, auth/portal.rs
+              │   [check_dns_doh_status / setup_dns_doh / check_campus_status / check_portal_status / start_latency_test]
+              ├── account.rs ← config/, account/crypto.rs, infra/state/, config_cmd.rs
+              ├── system.rs ← config/, network/*, infra/state/, platform/dns_config.rs
+              └── updater.rs ← update/updater.rs
+
+app/ (应用生命周期模块)
+  ├── mod.rs (重导出)
+  ├── startup.rs — run/build_runtime/setup_app (入口 + 命令注册 + panic hook)
+  ├── tray.rs — 系统托盘 (菜单/事件处理)
+  ├── window.rs — 窗口管理 (最小化/关闭/显示/show_and_focus_main)
+  ├── shortcut.rs — 全局快捷键 (Ctrl+Shift+C 取消自动退出)
+  ├── heartbeat.rs — 渲染进程心跳检测
+  └── shutdown.rs — 关机/退出流程 (shutdown_and_exit 统一入口)
 
 infra/
+  ├── mod.rs (重导出)
   ├── state/ ← config/model.rs, arc-swap, parking_lot, tokio-util (子目录重构自 state.rs)
-  │   ├── mod.rs     [TaskLock/TaskFlags/AppState/CommandResult/AccountResult]
+  │   ├── mod.rs     [TaskLock/TaskFlags/AppState (9 字段) /CommandResult/AccountResult]
   │   ├── store.rs   [ConfigStore: ArcSwap<Config> CAS 更新]
   │   ├── network.rs [NetworkState + NetworkSnapshot: ArcSwap 快照 CAS 读写]
   │   └── exit.rs    [ExitStateStore]
   ├── task_manager.rs — BackgroundTaskManager (cancel token 统一管理)
-  ├── logger.rs — 日志系统 (flush_quick: panic hook 专用 500ms 超时 flush; cleanup_old_logs_by_time: retention_days==0 时永久保留)
+  ├── logger.rs — 日志系统 (flush_quick: panic hook 专用 500ms 超时 flush; cleanup_old_logs_by_time: retention_days==0 时永久保留; set_debug_mode/get_debug_mode)
   ├── lifecycle.rs ← infra/state/, infra/notification.rs
   │   [start_auto_exit / cancel_auto_exit_inner / start_campus_exit / shutdown_and_exit]
-  └── notification.rs — emit_notification 封装
+  ├── notification.rs — emit_notification 封装
+  ├── events.rs — EventBus (17 个 emit_xxx 方法, emit_login_log/emit_network_quality/...)
+  └── command_context.rs — CommandContext::from_app (统一访问 ConfigStore/TaskFlags/NetworkState/ExitStateStore)
 
 monitor/
+  ├── mod.rs (重导出)
   ├── watcher.rs (调度器, PortalCheckResult 职责分离, 校园网检测, Handle::enter 上下文修复)
-  │   ├── auto_auth.rs ← infra/state/, auth/session.rs, infra/notification.rs, infra/lifecycle.rs
-  │   ├── latency.rs ← infra/state/, network/*, infra/notification.rs
-  │   └── adapter_watch.rs ← infra/state/, CancellationToken
-  └── mod.rs (重导出)
+  ├── auto_auth.rs ← infra/state/, auth/session.rs, infra/notification.rs, infra/lifecycle.rs
+  ├── latency.rs ← infra/state/, network/*, infra/notification.rs [spawn_latency_test_loop]
+  ├── adapter_watch.rs ← infra/state/, infra/events.rs, CancellationToken
+  ├── campus_check.rs — 校园网检测 (从 watcher 拆分)
+  ├── portal_check.rs — Portal 检测 (check_adapter_portal 并行检测)
+  ├── quality_scheduler.rs — 质量检测调度器
+  └── background_emit.rs — 后台事件推送
 
-auth/
-  ├── portal.rs ← network/client.rs, reqwest, url [random_v]
+auth/ (7 个子模块)
+  ├── mod.rs (重导出)
+  ├── portal.rs ← network/client.rs, reqwest, url [random_v, block_on_http 同步-异步桥接]
   ├── protocol.rs ← network/client.rs, reqwest, urlencoding, regex [random_v]
   │   [两步注销: 2轮循环 MAC解绑+Radius注销, callback 动态生成 dr100{round+1}/dr100{round+2}]
   ├── session.rs ← auth/portal.rs, auth/protocol.rs, network/adapter.rs
@@ -1577,21 +1615,29 @@ auth/
   ├── failure_tracker.rs ← infra/state/ [is_auth_failure / update_auth_failure_count / reset_all]
   └── dual_adapter_executor.rs — execute_dual 双适配器并行执行
 
-network/
+network/ (8 个业务子模块 + discovery/ 子目录)
   ├── mod.rs (重导出)
-  ├── client.rs ← arc-swap, lazy_static, dashmap, reqwest [TLS 1.3]
-  ├── adapter.rs ← client.rs, windows, regex [TTL 5s 缓存]
+  ├── client.rs ← arc-swap, lazy_static, dashmap, reqwest [TLS 1.3+回退, PORTAL_URL/CLIENT_POOL]
+  ├── adapter.rs ← client.rs, windows, regex [TTL 5s 缓存, validate_adapter_name]
   │   [校园网检测: 网络名称/子网/网关Ping]
-  ├── dns.rs — DNS 缓存管理
+  ├── adapter_cache.rs — 适配器查询缓存 (force/cached 双模式)
+  ├── dhcp.rs — DHCP 操作 (release/renew, dhcp_renew_wired_only)
+  ├── subnet.rs — 子网判定 (/18 校园网子网匹配)
+  ├── dns.rs — DNS 缓存管理 + DoH解析 + 智能解析策略
   ├── timing.rs
   │   ├── DNS_SERVER_SCORES / DOH_SERVER_SCORES (dashmap 评分表)
   │   ├── resolve_host_smart (三级智能解析)
   │   ├── resolve_via_doh (RFC 8484 wire format)
   │   └── measure_https_timing / measure_dns_query / measure_doh_timing
-  └── quality.rs ← adapter.rs, client.rs, surge-ping, tokio-rustls, timing.rs, tauri::AppHandle
-      [两阶段检测: DNS/DoH → HTTPS(分批并发) + 增量推送]
+  ├── quality.rs ← adapter.rs, client.rs, surge-ping, tokio-rustls, timing.rs, tauri::AppHandle
+  │   [两阶段检测: DNS/DoH → HTTPS(分批并发) + 增量推送]
+  └── discovery/ (适配器发现子模块)
+      ├── mod.rs (重导出)
+      ├── registry.rs — 注册表遍历 (CLASS_SUBKEY_CACHE 懒加载+锁优化)
+      └── windows.rs — Windows 特定发现逻辑
 
 platform/
+  ├── mod.rs (重导出)
   ├── dns_config.rs ← platform/elevation.rs, winreg
   │   [set_profile_dns_via_api / set_dns_via_api / set_doh_via_api / clear_adapter_dns_via_api]
   ├── elevation.rs — ShellExecuteW UAC 提权 + GUID 解析 + COM ShellExecuteW 提权 (shell_exec_elevated)
@@ -1602,9 +1648,10 @@ platform/
   └── autostart.rs — 开机自启
 
 config/
-  ├── model.rs — Config 结构体 + Default
+  ├── mod.rs (重导出)
+  ├── model.rs — Config 结构体 + Default + user_account_with_operator + default_campus_gateway
   ├── persist.rs — atomic_write + list_account_names
-  └── validate.rs — 校验逻辑
+  └── validate.rs — 校验逻辑 (枚举值/正则/URL/Portal URL 迁移/校园网关校验)
 
 account/
   ├── mod.rs — 多账号管理命令
