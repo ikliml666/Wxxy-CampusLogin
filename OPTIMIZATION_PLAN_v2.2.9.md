@@ -14,7 +14,7 @@
 > - [x] T5 onAdaptersChanged 节流补 trailing → `hooks/useAppInit.ts:92,264-289,538-545`（leading+trailing + cleanup 清理）
 > - [x] T6 版本号同步 → 9 处文件全部更新至 2.2.9
 > - [x] T7 P0 抽取 portal_failure.rs 统一适配器失败处理 → `monitor/portal_failure.rs`（新建）+ `auth/failure_tracker.rs`（三个 helper 改 pub(crate)）+ `monitor/watcher.rs`（86 行重复 → 14 行调用）
-> - [x] T8 CLIENT_POOL 改造为真 LRU + TTL → `network/client.rs`（DashMap 元组 + min_by_key + TTL 600s）
+> - [x] T8 CLIENT_POOL 改造为 FIFO-style 淘汰 + TTL → `network/client.rs`（DashMap 元组 + min_by_key + TTL 600s）
 > - [x] T9 P2 拆分 monitor/watcher.rs 大文件 → `monitor/background_check.rs`（新建）+ `monitor/background_task.rs`（新建）+ `monitor/watcher.rs`（460 行 → 47 行 re-export 门面）
 > - [x] T10 adapter.rs re-export 扁平化 → `network/adapter.rs`（删 4 组 pub use 中转层）+ `network/mod.rs`（拆分按源模块 re-export）+ `platform/dns_config.rs` + `commands/network_cmd.rs`（7 处 Pattern A 调用点路径迁移）
 > - [x] CHANGELOG.md v2.2.9 条目写入（含 T4/T5 + T7/T8/T9 + T10）
@@ -187,7 +187,7 @@
 
 ---
 
-### T8 — CLIENT_POOL 改造为真 LRU + TTL
+### T8 — CLIENT_POOL 改造为 FIFO-style 淘汰 + TTL
 
 **问题**: `network/client.rs` 的 `CLIENT_POOL` 原为 `DashMap<String, reqwest::Client>`，无 TTL，容量上限剔除使用 `iter().next()` 近随机策略，与 `network/dns.rs` 的 `DNS_CACHE`（`DashMap<String, (Value, Instant)>` + TTL + min_by_key）模式不一致。近随机剔除可能回收活跃客户端，导致后续请求重新构建客户端（TLS 握手开销）。
 
@@ -196,7 +196,7 @@
   - `CLIENT_POOL` 类型：`DashMap<String, reqwest::Client>` → `DashMap<String, (reqwest::Client, Instant)>`
   - 模块级新增常量：`const CLIENT_POOL_TTL_SECS: u64 = 600;`（与 dns.rs `DNS_CACHE_TTL_SECS` 对齐）+ `const CLIENT_POOL_MAX_ENTRIES: usize = 32;`（原函数内 const 提到模块级）
   - 新增 `fn client_pool_get(key, label) -> Option<reqwest::Client>`：封装 TTL 检查，过期时 `remove` 并返回 None
-  - 容量上限剔除：`iter().next()`（近随机）→ `iter().min_by_key(|e| e.value().1)`（按 Instant 找最旧，真 LRU）
+  - 容量上限剔除：`iter().next()`（近随机）→ `iter().min_by_key(|e| e.value().1)`（按 Instant 找最旧，FIFO-style 按创建时间淘汰）
   - insert：`or_insert_with(|| client.clone())` → `or_insert_with(|| (client.clone(), Instant::now()))`
 
 **验收标准**:
