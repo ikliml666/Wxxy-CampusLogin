@@ -8,7 +8,7 @@ use crate::network::{
     find_with_valid_ip, find_dual_adapters,
 };
 use crate::auth::protocol::do_logout_with_retry;
-use crate::auth::traits::{AdapterResolver, DefaultAdapterResolver};
+use crate::auth::traits::DefaultAdapterResolver;
 use crate::infra::state::{AppState, CommandResult};
 use crate::auth::session::{login_adapter_with_log, adapter_action_with_log};
 use crate::auth::failure_tracker::{
