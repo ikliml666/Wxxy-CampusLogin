@@ -1,6 +1,6 @@
 # CampusLogin 校园网登录助手 — Code Wiki
 
-> **版本**: v2.2.7 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
+> **版本**: v2.2.8 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64)
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
 
@@ -150,29 +150,51 @@ Wxxy-CampusLogin/
 │           │   ├── mod.rs           # 重导出
 │           │   ├── client.rs        # 缓存基础设施 (NET_CACHE/CLIENT_POOL/HTTP客户端/TLS 1.3+回退)
 │           │   ├── adapter.rs       # 适配器查询/Win32 API/DHCP/网关/TTL缓存/校园网检测/AdapterStatus四分类
+│           │   ├── adapter_cache.rs # 适配器查询缓存 (force/cached 双模式)
+│           │   ├── dhcp.rs          # DHCP 操作 (release/renew)
+│           │   ├── subnet.rs        # 子网判定 (/18 校园网子网匹配)
 │           │   ├── dns.rs           # DNS 缓存管理 + DoH解析 + 智能解析策略
 │           │   ├── timing.rs        # HTTP计时 + DNS智能解析 + DoH + 评分系统
 │           │   ├── quality.rs       # 网络质量并发延迟测试 (两阶段检测+增量推送)
+│           │   └── discovery/       # 适配器发现子模块
+│           │       ├── mod.rs       # 重导出
+│           │       ├── registry.rs  # 注册表遍历 (CLASS_SUBKEY_CACHE 懒加载+锁优化)
+│           │       └── windows.rs   # Windows 特定发现逻辑
 │           ├── auth/                # 认证模块
 │           │   ├── mod.rs           # 重导出
-│           │   ├── portal.rs        # Portal认证状态检测 (random_v)
+│           │   ├── portal.rs        # Portal认证状态检测 (random_v + block_on_http 同步-异步桥接)
 │           │   ├── protocol.rs      # 登录/两步注销/重试/响应解析 (random_v)
-│           │   └── session.rs       # 登录/注销会话管理 (full_login_inner/full_logout_inner/认证失败计数+MAC重置)
+│           │   ├── session.rs       # 登录/注销会话管理 (full_login_inner/full_logout_inner/认证失败计数+MAC重置)
+│           │   ├── service.rs       # 认证服务编排 (full_login/full_logout 统一入口)
+│           │   ├── traits.rs        # AdapterResolver trait 抽象 (主/副适配器名称解析)
+│           │   ├── failure_tracker.rs # 认证失败计数跟踪
+│           │   └── dual_adapter_executor.rs # 双适配器并行执行器
 │           ├── account/             # 账号模块
 │           │   ├── mod.rs           # 多账号管理命令
 │           │   └── crypto.rs        # 加密工具 (Windows DPAPI)
 │           ├── infra/               # 基础设施模块
 │           │   ├── mod.rs           # 重导出
-│           │   ├── state.rs         # 全局状态 (TaskLock/分层AppState/CancellationToken)
+│           │   ├── state/           # 全局状态子模块 (重构自 state.rs)
+│           │   │   ├── mod.rs       # TaskLock/TaskGuard/TaskFlags/AppState/CommandResult/AccountResult
+│           │   │   ├── store.rs     # ConfigStore (封装 ArcSwap<Config>)
+│           │   │   ├── network.rs   # NetworkState + NetworkSnapshot (CAS 快照更新)
+│           │   │   └── exit.rs      # ExitStateStore
 │           │   ├── logger.rs        # 日志系统 (文件+通道+调试模式切换+日志保留天数清理)
 │           │   ├── lifecycle.rs     # 自动退出控制 + 校园网退出流程
-│           │   └── notification.rs  # 通知封装 (emit_notification)
+│           │   ├── notification.rs  # 通知封装 (emit_notification)
+│           │   ├── events.rs        # 事件总线 EventBus (16 个 emit_xxx 方法)
+│           │   ├── command_context.rs # 命令上下文 CommandContext::from_app
+│           │   └── task_manager.rs  # 后台任务管理器 BackgroundTaskManager (cancel token 统一管理)
 │           ├── monitor/             # 监控模块
 │           │   ├── mod.rs           # 重导出
-│           │   ├── watcher.rs       # 后台检测调度器 (PortalCheckResult 职责分离/校园网检测/Portal容错)
+│           │   ├── watcher.rs       # 后台检测调度器 (PortalCheckResult 职责分离/校园网检测/Portal容错/Handle::enter 上下文修复)
 │           │   ├── auto_auth.rs     # 自动登录/断线重连
 │           │   ├── latency.rs       # 网络质量通知+延迟测试循环
-│           │   └── adapter_watch.rs # 适配器状态监控 (CancellationToken可退出)
+│           │   ├── adapter_watch.rs # 适配器状态监控 (CancellationToken可退出)
+│           │   ├── campus_check.rs  # 校园网检测 (从 watcher 拆分)
+│           │   ├── portal_check.rs  # Portal 检测 (check_adapter_portal 并行检测)
+│           │   ├── quality_scheduler.rs # 质量检测调度器
+│           │   └── background_emit.rs   # 后台事件推送
 │           ├── platform/            # 平台交互模块
 │           │   ├── mod.rs           # 重导出
 │           │   ├── dns_config.rs    # DNS/DoH 配置文件设置 (per-profile/适配器级/DoH API)
@@ -182,6 +204,14 @@ Wxxy-CampusLogin/
 │           ├── update/              # 更新模块
 │           │   ├── mod.rs           # 重导出
 │           │   └── updater.rs       # 更新检查/下载/安装 (SHA256校验)
+│           ├── app/                 # 应用生命周期模块
+│           │   ├── mod.rs           # 重导出
+│           │   ├── startup.rs       # 应用启动 (setup_app + 命令注册 + panic hook)
+│           │   ├── tray.rs          # 系统托盘 (菜单/事件处理)
+│           │   ├── window.rs        # 窗口管理 (最小化/关闭/显示)
+│           │   ├── shortcut.rs      # 全局快捷键 (Ctrl+Shift+C 取消自动退出)
+│           │   ├── heartbeat.rs     # 渲染进程心跳检测
+│           │   └── shutdown.rs      # 关机/退出流程 (shutdown_and_exit 统一入口)
 │           └── commands/            # Tauri 命令 (模块化拆分)
 │               ├── mod.rs           # 命令模块声明与架构文档
 │               ├── config_cmd.rs    # 配置相关命令 (空密码兜底)
@@ -223,10 +253,10 @@ Wxxy-CampusLogin/
 │  │    ├─→ infra/lifecycle.rs  (自动退出倒计时+校园网退出) │ │
 │  │    ├─→ monitor/latency.rs  (质量通知/延迟循环)   │ │
 │  │    └─→ monitor/adapter_watch.rs (适配器监控,可取消) │ │
-│  │  auth/session.rs — 登录/注销会话管理              │ │
-│  │  auth/protocol.rs — 登录/两步注销协议             │ │
-│  │  auth/portal.rs — Portal 检测                    │ │
-│  │  network/ — 网络检测/延迟测试/两步注销 (6个子模块) │ │
+│  │  app/ — 应用生命周期 (startup/tray/window/shortcut/heartbeat/shutdown) │ │
+│  │  auth/ — 认证模块 (8个子模块: session/protocol/portal/service/traits/failure_tracker/dual_adapter_executor) │ │
+│  │  auth/portal.rs — Portal 检测 (block_on_http 同步-异步桥接) │ │
+│  │  network/ — 网络检测/延迟测试/质量检测 (9个子模块 + discovery/ 子目录) │ │
 │  │  network/timing.rs — DNS智能解析/DoH/评分系统     │ │
 │  │  platform/dns_config.rs — DNS/DoH 检测与设置      │ │
 │  │  account/ — 多账号管理 + DPAPI加密                │ │
@@ -240,7 +270,6 @@ Wxxy-CampusLogin/
 │  DXGI — 显示器刷新率检测 (EnumDisplaySettingsW)      │
 │  winreg — 注册表读写 (DNS/DoH 配置)                  │
 │  reqwest — HTTP 请求 (TLS 1.3强制+1.2回退)          │
-│  socket2 — IP_UNICAST_IF 网卡绑定                    │
 │  hickory-resolver — 传统 DNS 解析                    │
 │  tokio-rustls — DoH TLS 连接 (RFC 8484)             │
 │  tokio — 异步运行时                                  │
@@ -248,7 +277,7 @@ Wxxy-CampusLogin/
 └─────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Commands 模块依赖关系 (v2.2.7)
+### 3.2 Commands 模块依赖关系 (v2.2.8)
 
 ```
 // [架构说明] 模块间耦合关系
@@ -285,8 +314,8 @@ Wxxy-CampusLogin/
 //    3. emit_notification 被 auto_auth/lifecycle/latency 三处调用，是事实上的共享工具，
 //       但定义在 infra/notification 模块中，语义上更清晰
 //
-// 所有模块通过 AppState 共享状态（见 infra/state.rs），状态一致性依赖原子操作和 ArcSwap 保证
-// 后台任务通过 CancellationToken 响应退出信号，避免退出挂起
+// 所有模块通过 AppState 共享状态（见 infra/state/ 子目录），状态一致性依赖原子操作和 ArcSwap 保证
+// 后台任务通过 BackgroundTaskManager 统一管理 cancel token，响应退出信号避免退出挂起
 ```
 
 ### 3.3 数据流
@@ -298,7 +327,7 @@ Wxxy-CampusLogin/
                                          ↓
                               #[tauri::command] Rust函数
                                          ↓
-                              AppState (TaskLock + NetworkStatus + ExitState)
+                              AppState (ConfigStore + TaskFlags + BackgroundTaskManager + NetworkState + ExitStateStore)
                                          ↓
                               Win32 API / HTTP / 注册表 / 文件系统
                                          ↓
@@ -324,7 +353,7 @@ Wxxy-CampusLogin/
    - `tauri-plugin-global-shortcut` — 全局快捷键 (Ctrl+Shift+C 取消自动退出)
    - `tauri-plugin-single-instance` — 单实例锁
 2. **Tokio 线程池配置**: 根据 CPU 核心数动态配置 `worker_threads(2-8)` 和 `max_blocking_threads(8-64)`
-3. **panic hook**: `flush_quick`（500ms超时）确保日志 flush
+3. **panic hook**: `log_error!` 写入日志文件 + `flush_quick`（500ms超时）确保日志落盘 + `eprintln` 兜底（release 模式 `windows_subsystem=windows` 不可见但保留）
 4. **Setup 钩子**:
    - 创建数据目录
    - 加载配置 (含密码DPAPI解密)
@@ -337,97 +366,173 @@ Wxxy-CampusLogin/
 6. **GPU 动态浏览器参数**: `build_browser_args()` 根据 GPU 厂商动态设置 WebView2 参数（ANGLE 后端/SkiaGraphite/DrDc）
 7. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭，退出时使用 `force_release()` 清理任务标志
 8. **退出流程**: cancel token → 短暂等待后台任务响应 → force_release 兜底 → `exit(0)`，窗口关闭与托盘退出行为统一
-9. **命令注册**: 42个 `#[tauri::command]` 函数
+9. **命令注册**: 50个 `#[tauri::command]` 函数
 
-### 4.2 全局状态 — `infra/state.rs`
+### 4.2 全局状态 — `infra/state/` 子目录
 
-#### TaskLock 并发原语抽象
+本模块已从单文件 `state.rs` 重构为 `state/` 子目录，按职责拆分为 4 个文件：
+
+| 文件 | 职责 |
+|------|------|
+| `mod.rs` | 模块入口与公共类型：`TaskLock`/`TaskGuard`/`TaskFlags`/`AppState`/`CommandResult`/`AccountResult`，以及常量 `AUTO_EXIT_DELAY_MS`/`CANCEL_EXIT_SHORTCUT` 和函数 `validate_account_name` |
+| `store.rs` | `ConfigStore`：封装 `ArcSwap<Config>`，提供 CAS 原子更新 |
+| `network.rs` | `NetworkState` + `NetworkSnapshot`：基于 `ArcSwap<NetworkSnapshot>` 的 CAS 快照更新 |
+| `exit.rs` | `ExitStateStore`：封装应用退出相关状态与截止时间 |
+
+#### TaskLock / TaskGuard 并发原语
 
 ```rust
 pub struct TaskLock { flag: AtomicBool }
-
 pub struct TaskGuard<'a> { lock: &'a TaskLock }
 
 impl TaskLock {
     pub fn new() -> Self { ... }
-    pub fn try_acquire(&self) -> Option<TaskGuard<'_>> { ... }
-    pub fn acquire_guard(&self) -> Option<TaskGuard<'_>> { ... }
+    pub fn try_acquire(&self) -> Option<TaskGuard<'_>> { ... }  // CAS 抢占锁
     pub fn is_active(&self) -> bool { ... }
-    pub fn force_release(&self) { ... }
-    pub fn swap_acquire(&self) -> bool { ... }
+    #[cfg(test)]
+    pub fn force_release(&self) { ... }  // 仅供测试使用
 }
+
+impl Drop for TaskGuard<'_> { /* RAII 自动释放锁 */ }
 ```
 
-#### 分层 AppState 结构体
+**说明**：`TaskGuard` 通过 RAII 在 `Drop` 时自动释放锁；`force_release` 标注 `#[cfg(test)]`，仅在测试编译中可用。原 `acquire_guard`/`swap_acquire` 方法已在重构中移除。
+
+#### TaskFlags 任务标志
 
 ```rust
 pub struct TaskFlags {
-    pub background_running: TaskLock,
-    pub bg_check_cancel: ArcSwap<CancellationToken>,
-    pub latency_running: TaskLock,
-    pub latency_cancel: ArcSwap<CancellationToken>,
-    pub adapter_watch_running: TaskLock,
-    pub adapter_watch_cancel: ArcSwap<CancellationToken>,
     pub is_checking: TaskLock,
     pub is_logging_in: TaskLock,
     pub is_logging_out: TaskLock,
     pub is_quality_checking: TaskLock,
 }
+```
 
-pub struct NetworkStatus {
-    pub server_available: AtomicBool,
-    pub any_adapter_online: AtomicBool,      // 原 was_online，重命名以明确语义
-    pub last_a1_online: AtomicBool,          // 主适配器在线状态
-    pub last_a2_online: AtomicBool,          // 副适配器在线状态
-    pub has_logged_online: AtomicBool,
-    pub disconnect_reconnect_count: AtomicU32,
-    pub background_check_count: AtomicU32,
-    pub last_auto_login_attempt: ArcSwap<Instant>,
-    pub last_network_quality: ArcSwap<Option<String>>,
-    pub current_ssid: ArcSwap<Option<String>>,
-    pub on_campus_network: AtomicBool,
-    pub logout_protected_until: ArcSwap<Instant>,  // 注销保护期截止时间，60秒内阻止在线状态更新
-    pub portal_failure_count: AtomicU32,           // Portal 请求连续失败计数，>=5 触发 DHCP 续租重置 MAC
-    pub a1_auth_failure_count: AtomicU32,          // 适配器1 Portal认证连续失败计数
-    pub a2_auth_failure_count: AtomicU32,          // 适配器2 Portal认证连续失败计数
+**说明**：仅 4 个 `TaskLock` 字段，对应四类互斥任务。重构后已移除 `ArcSwap<CancellationToken>` 取消令牌字段（迁移至 `task_manager: BackgroundTaskManager` 统一管理）。
+
+#### ConfigStore 配置存储（store.rs）
+
+```rust
+pub struct ConfigStore { inner: ArcSwap<Config> }
+
+impl ConfigStore {
+    pub fn new(config: Config) -> Self { ... }
+    pub fn load(&self) -> Arc<Config> { ... }           // 加载不可变快照
+    pub fn load_full(&self) -> Arc<Config> { ... }      // 兼容旧名别名
+    pub fn store(&self, config: Config) -> Arc<Config> { ... }  // 直接替换
+    pub fn update<F>(&self, f: F) -> Arc<Config>        // CAS 循环原子更新，避免 TOCTOU 竞态
+    where F: Fn(&mut Config) { ... }
+}
+```
+
+**说明**：`AppState.config` 由裸 `ArcSwap<Config>` 升级为 `ConfigStore`，CAS 更新逻辑内聚到此结构。原 `AppState::update_config` 方法迁移为 `ConfigStore::update`。
+
+#### NetworkState + NetworkSnapshot 网络状态（network.rs）
+
+```rust
+#[derive(Clone)]
+pub struct NetworkSnapshot {
+    pub server_available: bool,
+    pub any_adapter_online: bool,
+    pub last_a1_online: bool,
+    pub last_a2_online: bool,
+    pub has_logged_online: bool,
+    pub disconnect_reconnect_count: u32,
+    pub background_check_count: u32,
+    pub last_auto_login_attempt: Instant,
+    pub last_network_quality: Option<String>,
+    pub current_ssid: Option<String>,
+    pub on_campus_network: bool,
+    pub logout_protected_until: Instant,   // 注销保护期截止时间，60秒内阻止在线状态更新
+    pub portal_failure_count: u32,         // Portal 请求连续失败计数，>=5 触发 DHCP 续租重置 MAC
+    pub a1_auth_failure_count: u32,        // 适配器1 Portal认证连续失败计数
+    pub a2_auth_failure_count: u32,        // 适配器2 Portal认证连续失败计数
 }
 
-pub struct ExitState {
+pub struct NetworkState { snapshot: ArcSwap<NetworkSnapshot> }
+
+impl NetworkState {
+    pub fn new() -> Self { ... }
+    pub fn load(&self) -> Arc<NetworkSnapshot> { ... }   // 加载一致性快照
+    pub fn update<F>(&self, f: F) where F: FnMut(&mut NetworkSnapshot) { ... }  // CAS 循环更新
+    // 计数器自增便捷方法（内部走 update CAS）：
+    pub fn increment_background_check_count(&self);
+    pub fn increment_disconnect_reconnect_count(&self);
+    pub fn increment_portal_failure_count(&self);
+    pub fn increment_a1_auth_failure_count(&self);
+    pub fn increment_a2_auth_failure_count(&self);
+}
+```
+
+**说明**：重构关键点——网络状态由原先分散的 15+ 个 `AtomicBool`/`AtomicU32`/`ArcSwap<...>` 字段（旧 `NetworkStatus`）整合为单一 `NetworkSnapshot` 结构体，再通过 `ArcSwap<NetworkSnapshot>` 提供整体原子快照读写。读端一次 `load()` 获得一致性视图，写端通过 `update` CAS 循环避免竞态。
+
+#### ExitStateStore 退出状态（exit.rs）
+
+```rust
+pub struct ExitStateStore {
     pub is_quitting: Arc<AtomicBool>,
     pub auto_exit_deadline: Mutex<Option<Instant>>,
     pub auto_exit_cancelled: AtomicBool,
     pub campus_exit_started: AtomicBool,
-    pub campus_exit_deadline: Mutex<Option<std::time::Instant>>,  // 校园网退出倒计时截止时间
+    pub campus_exit_deadline: Mutex<Option<Instant>>,   // 校园网退出倒计时截止时间
 }
 
-impl ExitState {
-    pub fn deadline(&self) -> Option<Instant> { ... }             // auto_exit_deadline 的 getter
-    pub fn set_deadline(&self, d: Option<Instant>) { ... }        // auto_exit_deadline 的 setter
-    pub fn campus_exit_deadline(&self) -> Option<std::time::Instant> { ... }  // campus_exit_deadline 的 getter
-    pub fn set_campus_exit_deadline(&self, d: Option<std::time::Instant>) { ... }  // campus_exit_deadline 的 setter
+impl ExitStateStore {
+    pub fn new() -> Self { ... }
+    pub fn deadline(&self) -> Option<Instant> { ... }                    // auto_exit_deadline getter
+    pub fn set_deadline(&self, deadline: Option<Instant>) { ... }        // auto_exit_deadline setter
+    pub fn campus_exit_deadline(&self) -> Option<Instant> { ... }        // campus_exit_deadline getter
+    pub fn set_campus_exit_deadline(&self, deadline: Option<Instant>) { ... } // campus_exit_deadline setter
 }
+```
 
+**说明**：原 `ExitState` 重命名为 `ExitStateStore`，与 `ConfigStore`/`NetworkState` 命名风格一致。`is_quitting` 使用 `Arc<AtomicBool>` 以便跨线程共享克隆。
+
+#### AppState 顶层状态
+
+```rust
 pub struct AppState {
-    pub config: ArcSwap<Config>,
-    pub tasks: TaskFlags,
-    pub network: NetworkStatus,
-    pub exit: ExitState,
+    pub config: ConfigStore,                       // 配置存储（封装 ArcSwap<Config>）
+    pub tasks: TaskFlags,                          // 4 个互斥任务锁
+    pub task_manager: BackgroundTaskManager,       // 后台任务统一管理（含取消能力）
+    pub network: NetworkState,                     // 网络状态快照存储
+    pub exit: ExitStateStore,                      // 退出状态存储
     pub last_update_check_epoch_ms: AtomicU64,
     pub update_notified: AtomicBool,
     pub last_disabled_notification_ms: AtomicU64,
     pub last_render_heartbeat_ms: AtomicU64,
 }
+```
 
-impl AppState {
-    pub fn update_config<F>(&self, f: F) -> Arc<Config> { ... }   // CAS 原子更新配置，避免 TOCTOU 竞态
+**说明**：相比旧版，`config`/`network`/`exit` 三个字段均升级为对应的 Store/State 封装类型；新增 `task_manager: BackgroundTaskManager` 字段，承接原 `TaskFlags` 中迁移出去的取消令牌职责。`AppState` 不再直接持有 `update_config` 方法，配置 CAS 更新改走 `state.config.update(...)`。
+
+#### CommandResult / AccountResult 返回类型
+
+```rust
+#[derive(Serialize)]
+pub struct CommandResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,    // 原 String，改为 Option<String>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
-// 通用命令返回类型
-struct CommandResult { success: bool, message: String, data: Option<serde_json::Value> }
-
-// 账号操作返回类型
-struct AccountResult { success: bool, message: String, active_account: Option<String>, config: Option<Config> }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,    // 原 String，改为 Option<String>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_account: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<Config>,
+}
 ```
+
+**说明**：`message` 字段由 `String` 改为 `Option<String>` 并标注 `skip_serializing_if`，序列化时无消息则省略字段。`AccountResult` 标注 `rename_all = "camelCase"` 匹配前端命名约定。
 
 **关键常量**:
 
@@ -442,11 +547,11 @@ struct AccountResult { success: bool, message: String, active_account: Option<St
 |------|------|
 | `validate_config()` | 校验配置字段 (枚举值/正则/URL)，含 Portal URL 迁移、校园网关校验、空值回填 (位于 config/validate.rs) |
 | `validate_config_lenient()` | 宽松验证，逐字段降级，无效字段回退默认值并记录警告。用于加载磁盘配置，避免单个字段无效导致全量配置丢失 (位于 config/validate.rs) |
-| `validate_account_name()` | 校验账号名 (1-32字符, 字母数字下划线中文连字符) |
+| `validate_account_name()` | 校验账号名 (1-32字符, 字母数字下划线中文连字符) (位于 state/mod.rs) |
 
 ### 4.3 配置管理 — `config/`
 
-**`Config` 结构体** (30个字段):
+**`Config` 结构体** (36个字段):
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -482,6 +587,8 @@ struct AccountResult { success: bool, message: String, active_account: Option<St
 | `campusGateway` | String | `"10.2.127.254"` | 校园网关地址 (空字符串回填默认值) |
 | `campusExitOnFail` | bool | true | 校园网验证失败时是否触发退出 |
 | `campusCheckStartMinutes` | u16 | 480 | 校园网检测静默期截止时间（分钟数，480=8:00），支持旧字段名 `campusCheckStartHour` 反序列化 |
+| `maxDisconnectReconnect` | u32 | 3 | 断线重连最大次数 |
+| `autoLoginCooldownSecs` | u64 | 60 | 自动登录冷却秒数 |
 | `logRetentionDays` | u32 | 7 | 日志保留天数 |
 | `configVersion` | u32 | 2 | 配置版本号 |
 
@@ -542,6 +649,7 @@ struct NetworkCache {
 - **适配器可见性双重验证**:
   - `is_visible_in_ncpa()` — 注册表双重检查：`ShowInNetworkConnections` + Class subkey PnP 设备树交叉验证，过滤幽灵虚拟副本
   - `is_admin_disabled_via_registry()` — `ConfigFlags 0x1` 检测管理员禁用，区分"管理员禁用"vs"硬件缺失(USB未连接)"
+  - **`ensure_cache_initialized` 锁优化**（位于 `network/discovery/registry.rs`）：`CLASS_SUBKEY_CACHE` 懒加载初始化采用双重检查锁定，`build_class_subkey_cache()`（注册表遍历，慢 I/O）在锁外执行，仅用写锁做 swap，避免阻塞读锁请求（`class_subkey_has_matching_guid`/`is_admin_disabled_via_registry`）。`refresh_class_subkey_cache` 同样采用锁外构建模式。
 - **校园网检测**:
   - `get_connected_network_names()` — 获取当前连接的网络名称 (Wi-Fi SSID + 以太网配置文件)
   - `check_gateway_reachable()` — Ping 检测网关可达性
@@ -554,6 +662,7 @@ struct NetworkCache {
 - v 参数使用 `random_v()` 随机生成
 - NAT 内网 IP 检测，NAT 环境下不发送 `wlan_user_ip`
 - `PortalStatus` 新增 `error_kind` 字段区分"请求失败"与"Portal不可达"
+- **`block_on_http` helper**：同步-异步桥接函数，用于在同步上下文（如 `std::thread::scope` 子线程）中执行 async reqwest 请求。优先使用 `Handle::try_current()` → `handle.block_on(future)`（设置 reactor guard），失败 fallback 到 `tauri::async_runtime::block_on(future)`。背景：b4d8e82 将 `reqwest::blocking` 迁移到异步 reqwest，但 `std::thread::scope` 子线程无 Tokio reactor 上下文导致 panic "there is no reactor running"。**约束**：不能在 async worker 线程上直接调用（`Handle::block_on` 会 panic），所有调用者必须通过 `spawn_blocking` 或在同步线程中调用。
 
 #### 4.5.4 登录/注销请求 — `auth/protocol.rs`
 
@@ -816,6 +925,20 @@ struct ConnectionCampusStatus {
 | `update_network_state()` | 独立网络状态更新逻辑 |
 | `adapter_status_entry()` / `adapter_disabled_entry()` / `adapter_disconnected_entry()` | 适配器状态条目构建 |
 | `check_campus_network()` | WiFi/有线分别检测校园网状态 |
+
+**Handle::enter 上下文修复** (v2.2.7 修复): 双适配器并行 Portal 检测使用 `std::thread::scope` 启动子线程，但子线程无 Tokio reactor 上下文，导致 `check_portal_full` 中的 `block_on_http`（`Handle::try_current().block_on()`）panic "there is no reactor running"。修复方式：在 `run_background_check_blocking` 中通过 `tokio::runtime::Handle::current()` 取得当前 runtime handle，子线程入口处调用 `let _guard = h.enter();` 设置 Tokio 上下文，使 `Handle::current().block_on()` 能正确工作。`_guard` 在子线程退出时 RAII 释放。
+
+```rust
+let runtime_handle = tokio::runtime::Handle::current();
+std::thread::scope(|s| {
+    let h1 = runtime_handle.clone();
+    let t1 = s.spawn(move || {
+        let _guard = h1.enter();           // 设置 Tokio 上下文
+        check_adapter_portal(adapter1, app_handle)
+    });
+    // ...
+});
+```
 
 **校园网检测集成**: 后台检测中集成三级校园网检测（网络名称→/18子网→网关Ping），检测结果包含 `currentSsid` 和 `onCampusNetwork` 字段。**无网络保护**：当配置的适配器均无IP时（完全无网络连接），跳过校园网退出流程，等待网络恢复后重新检测，避免误判"非校园网"触发退出
 
@@ -1122,7 +1245,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮 |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个面板含speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult 等) |
-| `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.2.7'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项) |
+| `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.2.8'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项) |
 | `index.ts` | 模块导出 |
 
 ### 5.6 布局组件 — `components/layout/`
@@ -1186,7 +1309,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 ## 六、IPC 通信完整清单
 
-### 6.1 请求-响应命令 (v2.2.7: 42个)
+### 6.1 请求-响应命令 (v2.2.8: 50个)
 
 | 命令名 | 说明 |
 |--------|------|
@@ -1205,7 +1328,6 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `start_latency_test` | 启动延迟测试 |
 | `stop_latency_test` | 停止延迟测试 |
 | `check_dns_doh_status` | 检测 DNS/DoH 状态 |
-| `enable_doh_for_dns` | 启用 DoH |
 | `setup_dns_doh` | 一键设置 DNS + DoH |
 | `list_accounts` | 列出账号 |
 | `switch_account` | 切换账号 |
@@ -1220,7 +1342,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `get_notification_enabled` / `set_notification_enabled` | 通知开关 |
 | `send_notification` | 发送通知（前端仅更新场景调用，网络质量通知由后端统一发送） |
 | `cancel_auto_exit` | 取消自动退出 |
-| `minimize_window` / `close_window` / `window_move` | 窗口控制 |
+| `minimize_window` / `close_window` | 窗口控制 |
 | `open_external` | 打开外部链接 |
 | `get_logs` / `clear_logs` | 日志管理 |
 | `get_init_data` | 初始化数据 |
@@ -1228,9 +1350,6 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `set_debug_mode` / `get_debug_mode` | 调试模式 |
 | `get_log_retention_days` | 获取日志保留天数 |
 | `set_log_retention_days` | 设置日志保留天数 |
-| `reset_config` | 重置配置 |
-| `export_config` | 导出配置 |
-| `import_config` | 导入配置 |
 | `check_campus_status` | 检测校园网状态 |
 | `dhcp_release_renew` | DHCP 释放续租 |
 | `dhcp_release_renew_adapter` | 指定适配器 DHCP 释放续租 |
@@ -1271,7 +1390,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `serde` / `serde_json` | 1 | 序列化 |
 | `tokio` | 1 (rt-multi-thread, time, net, macros, io-util) | 异步运行时 |
 | `tokio-util` | 0.7 (rt) | CancellationToken |
-| `reqwest` | 0.12 (json, blocking, http2, rustls-tls, charset) | HTTP客户端 |
+| `reqwest` | 0.12 (json, http2, rustls-tls, charset) | HTTP客户端 |
 | `tokio-rustls` | 0.26 | TLS 连接 (DoH) |
 | `rustls-pki-types` | 1 | TLS 类型 |
 | `webpki-roots` | 0.26 | TLS 根证书 |
@@ -1285,7 +1404,6 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `winreg` | 0.52 | Windows 注册表读写 |
 | `surge-ping` | 0.8 | ICMP ping |
 | `sha2` | 0.10 | SHA-256 校验 (更新安装包完整性验证) |
-| `socket2` | 0.5 | IP_UNICAST_IF 网卡绑定 (多网卡流量控制) |
 | `urlencoding` | 2 | URL 编码 |
 | `regex` | 1 | 正则表达式 |
 | `url` | 2 | URL 解析验证 |
@@ -1294,7 +1412,6 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `base64` | 0.22 | Base64 编解码 |
 | `chrono` | 0.4 | 时间处理 |
 | `open` | 5 | 打开外部链接 |
-| `thiserror` | 2 | 错误类型 |
 
 ### 7.2 前端依赖
 
@@ -1308,7 +1425,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `i18next` | ^26.3.1 | i18n 核心 |
 | `lucide-react` | ^0.446 | 图标 |
 | `zustand` | ^5.0.13 | 状态管理 |
-| `gsap` | ^3.15.0 | 高性能动画 (根 package.json) |
+| `gsap` | ^3.15.0 | 高性能动画 (frontend package.json) |
 | `tailwindcss` | ^3.4 | CSS框架 |
 | `vite` | ^6 | 构建 |
 | `typescript` | ^5.5 | 类型系统 |
@@ -1518,12 +1635,12 @@ println!("cargo:rustc-env=APP_VERSION={}", version);
 发布新版本时（以 v2.2.9 为例）：
 
 1. **编辑唯一权威源** — 修改 `tauri-app/src-tauri/tauri.conf.json` 的 `"version"` 字段为 `"2.2.9"`
-2. **手动同步 Cargo.toml** — 修改 `tauri-app/src-tauri/Cargo.toml` 的 `version = "2.2.7"` 为 `"2.2.9"`（cargo 强制要求）
-3. **同步发布标记** — 修改仓库根 `version.json` 的 `"version": "v2.2.7"` 为 `"v2.2.9"`（带 v 前缀，是 GitHub release tag 的格式）
+2. **手动同步 Cargo.toml** — 修改 `tauri-app/src-tauri/Cargo.toml` 的 `version = "2.2.8"` 为 `"2.2.9"`（cargo 强制要求）
+3. **同步发布标记** — 修改仓库根 `version.json` 的 `"version": "v2.2.8"` 为 `"v2.2.9"`（带 v 前缀，是 GitHub release tag 的格式）
 4. **同步前端 package.json** — 两个 `package.json` 的 `"version"` 字段（npm 规范要求，无 v 前缀）
 5. **同步前端常量** — `tauri-app/frontend/src/shared/ui-constants.ts` 的 `APP_VERSION`（保持当前架构，不改为环境变量注入）
 6. **同步静态预览** — `tauri-app/frontend/about-preview.html` 的 `app-version` 和 `status-version` 两个 div
-7. **同步徽章** — `README.md` 的 `version-2.2.7` 徽章
+7. **同步徽章** — `README.md` 的 `version-2.2.8` 徽章
 8. **同步测试脚本** — `scripts/test-update-download.ps1` 的 `$VERSION` 变量
 9. **同步文档** — `CODE_WIKI.md` 顶部版本号 + 底部元信息
 
@@ -1576,4 +1693,4 @@ define: {
 
 ---
 
-*文档版本: v2.2.8 | 基于代码版本: CampusLogin v2.2.8 | 更新日期: 2026-06-23*
+*文档版本: v2.2.8 | 基于代码版本: CampusLogin v2.2.8 | 更新日期: 2026-06-26*
