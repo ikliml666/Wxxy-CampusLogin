@@ -24,7 +24,7 @@ pub fn is_auth_failure(result: &CommandResult) -> bool {
     AUTH_FAILURE_CODES.contains(&code)
 }
 
-fn get_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) -> u32 {
+pub(crate) fn get_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) -> u32 {
     let snap = state.network.load();
     match counter {
         AdapterFailureCounter::A1 => snap.a1_auth_failure_count,
@@ -32,7 +32,7 @@ fn get_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) -
     }
 }
 
-fn set_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter, value: u32) {
+pub(crate) fn set_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter, value: u32) {
     state.network.update(|s| {
         match counter {
             AdapterFailureCounter::A1 => s.a1_auth_failure_count = value,
@@ -41,7 +41,7 @@ fn set_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter, v
     });
 }
 
-fn increment_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) {
+pub(crate) fn increment_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) {
     state.network.update(|s| {
         match counter {
             AdapterFailureCounter::A1 => s.a1_auth_failure_count += 1,

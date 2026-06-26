@@ -1,10 +1,10 @@
 # CampusLogin v2.2.9 优化计划书
 
-> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（扩大范围至第一波+T4/T5）
-> **范围**: 第一波（T1/T2/T3 + T6 版本号同步）+ 用户追批 T4/T5
+> **版本**: v2.2.9 | **创建日期**: 2026-06-26 | **状态**: 已审批（扩大范围至第一波+T4/T5+T7/T8/T9 架构优化）
+> **范围**: 第一波（T1/T2/T3 + T6 版本号同步）+ 用户追批 T4/T5 + 用户追批 T7/T8/T9 架构优化
 > **依据**: 基于 CODE_WIKI.md v2.2.8 + 实际源码逐行调研确认
 >
-> **审批记录**: 用户 2026-06-26 批准。第一波先执行；用户追批 T4/T5 后续执行。
+> **审批记录**: 用户 2026-06-26 批准。第一波先执行；用户追批 T4/T5 后续执行；用户再追批 T7/T8/T9 架构优化并入 v2.2.9。
 >
 > **执行状态**: ✅ 已完成（2026-06-26）
 > - [x] T1 atomic_write 日志文案修正 → `config/persist.rs:23`
@@ -13,8 +13,11 @@
 > - [x] T4 auth/traits.rs 过度抽象清理 → `auth/traits.rs` + `auth/service.rs:11`（删除 trait 与 Mock，保留 struct 加 inherent method）
 > - [x] T5 onAdaptersChanged 节流补 trailing → `hooks/useAppInit.ts:92,264-289,538-545`（leading+trailing + cleanup 清理）
 > - [x] T6 版本号同步 → 9 处文件全部更新至 2.2.9
-> - [x] CHANGELOG.md v2.2.9 条目写入（含 T4/T5）
-> - 诊断验证：5 个改动文件 0 错误
+> - [x] T7 P0 抽取 portal_failure.rs 统一适配器失败处理 → `monitor/portal_failure.rs`（新建）+ `auth/failure_tracker.rs`（三个 helper 改 pub(crate)）+ `monitor/watcher.rs`（86 行重复 → 14 行调用）
+> - [x] T8 CLIENT_POOL 改造为真 LRU + TTL → `network/client.rs`（DashMap 元组 + min_by_key + TTL 600s）
+> - [x] T9 P2 拆分 monitor/watcher.rs 大文件 → `monitor/background_check.rs`（新建）+ `monitor/background_task.rs`（新建）+ `monitor/watcher.rs`（460 行 → 47 行 re-export 门面）
+> - [x] CHANGELOG.md v2.2.9 条目写入（含 T4/T5 + T7/T8/T9）
+> - 诊断验证：cargo check 通过 0 错误（T7/T8/T9 改动文件）；Grep 验证外部 `watcher::X` 13 处调用点 re-export 完整零破坏
 
 ---
 
@@ -158,6 +161,88 @@
 
 ---
 
+### T7 P0 — 抽取 Portal 失败处理为统一函数
+
+**问题**: `monitor/watcher.rs` 中适配器1/2 的 Portal 请求失败处理逻辑各 43 行重复（仅变量名与字面量差异），共 86 行重复代码。`auth/failure_tracker.rs` 已有 `AdapterFailureCounter` 枚举与三个私有 helper（get/set/increment_adapter_failure_count）可复用，但 helper 为私有无法跨模块调用。
+
+**变更**:
+- 文件1: `tauri-app/src-tauri/src/auth/failure_tracker.rs`
+  - 将 `get_adapter_failure_count` / `set_adapter_failure_count` / `increment_adapter_failure_count` 三个 `fn` 改为 `pub(crate) fn`
+- 文件2: `tauri-app/src-tauri/src/monitor/portal_failure.rs`（新建）
+  - 实现 `pub fn handle_portal_request_failure(state, app_handle, adapter_ref, adapter_ip, campus_gw, counter, adapter_label)` 统一函数
+  - 内部逻辑：网关不可达时跳过计数并重置（避免校园网断网期误重置 MAC）；连续 5 次失败时 emit warning + `dhcp_release_renew_single` + 重置计数
+- 文件3: `tauri-app/src-tauri/src/monitor/watcher.rs`
+  - 适配器1/2 失败处理块（各 43 行）替换为 14 行 `handle_portal_request_failure` 调用
+- 文件4: `tauri-app/src-tauri/src/monitor/mod.rs`
+  - 注册 `pub mod portal_failure;`
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误
+- [x] watcher.rs 86 行重复收敛为 14 行调用
+- [x] `failure_tracker.rs` 三个 helper 改为 `pub(crate)`，外部模块仍无法访问（仅 crate 内可见）
+
+**风险**: 低（行为等价重构，调用语法不变）| **回滚**: git revert
+
+---
+
+### T8 — CLIENT_POOL 改造为真 LRU + TTL
+
+**问题**: `network/client.rs` 的 `CLIENT_POOL` 原为 `DashMap<String, reqwest::Client>`，无 TTL，容量上限剔除使用 `iter().next()` 近随机策略，与 `network/dns.rs` 的 `DNS_CACHE`（`DashMap<String, (Value, Instant)>` + TTL + min_by_key）模式不一致。近随机剔除可能回收活跃客户端，导致后续请求重新构建客户端（TLS 握手开销）。
+
+**变更**:
+- 文件: `tauri-app/src-tauri/src/network/client.rs`
+  - `CLIENT_POOL` 类型：`DashMap<String, reqwest::Client>` → `DashMap<String, (reqwest::Client, Instant)>`
+  - 模块级新增常量：`const CLIENT_POOL_TTL_SECS: u64 = 600;`（与 dns.rs `DNS_CACHE_TTL_SECS` 对齐）+ `const CLIENT_POOL_MAX_ENTRIES: usize = 32;`（原函数内 const 提到模块级）
+  - 新增 `fn client_pool_get(key, label) -> Option<reqwest::Client>`：封装 TTL 检查，过期时 `remove` 并返回 None
+  - 容量上限剔除：`iter().next()`（近随机）→ `iter().min_by_key(|e| e.value().1)`（按 Instant 找最旧，真 LRU）
+  - insert：`or_insert_with(|| client.clone())` → `or_insert_with(|| (client.clone(), Instant::now()))`
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误
+- [x] Grep 验证 `iter().next()` 近随机剔除已替换为 `min_by_key`
+- [x] TTL 600s 与 dns.rs 对齐
+- [x] 命中路径检查 `elapsed < TTL`，过期条目被 `remove`
+
+**风险**: 中（并发容器改动，但模式与 dns.rs 已验证模式一致）| **回滚**: git revert
+
+---
+
+### T9 P2 — 拆分 monitor/watcher.rs 大文件
+
+**问题**: `monitor/watcher.rs` 原 460 行，包含后台检测主体（`run_background_check_blocking` ~337 行 + `run_background_check` ~14 行）、任务生命周期管理（`start_background_check_inner` ~56 行）、启动任务（`run_startup_tasks`）、re-export 门面等多重职责。单文件过大不利维护与定位。
+
+**变更**:
+- 文件1: `tauri-app/src-tauri/src/monitor/background_check.rs`（新建）
+  - 迁移 `pub(crate) fn run_background_check_blocking`（~337 行，含 `std::thread::scope + runtime_handle.enter()` 并发块整段保留）
+  - 迁移 `pub async fn run_background_check`（~14 行）
+  - 内部调用 `handle_portal_request_failure`（T7 产出）
+- 文件2: `tauri-app/src-tauri/src/monitor/background_task.rs`（新建）
+  - 迁移 `pub fn start_background_check_inner`（~56 行，任务生命周期管理）
+- 文件3: `tauri-app/src-tauri/src/monitor/watcher.rs`（重写为门面）
+  - 收敛为 47 行：re-export 门面（`pub use` background_check/background_task/campus_check/background_emit）+ 保留 `run_startup_tasks`（避免引入 app → monitor 反向依赖）
+- 文件4: `tauri-app/src-tauri/src/monitor/mod.rs`
+  - 注册 `pub mod background_check;` + `pub mod background_task;`
+
+**外部调用点零破坏验证**（13 处 `watcher::X` 调用通过 re-export 门面解析）:
+- `commands/background.rs:10` `watcher::start_background_check_inner` → background_task.rs
+- `commands/background.rs:38` `watcher::run_background_check` → background_check.rs
+- `commands/background.rs:57,59,62,69,71,74` `watcher::adapter_*_entry` → background_emit.rs
+- `commands/login.rs:97` `watcher::run_background_check` → background_check.rs
+- `commands/network_cmd.rs:55` `watcher::check_campus_network` → campus_check.rs
+- `app/startup.rs:169` `watcher::run_startup_tasks` → watcher.rs 自身保留
+- `monitor/auto_auth.rs:235` `watcher::check_campus_network` → campus_check.rs
+- `monitor/mod.rs:14` `pub use watcher::start_background_check_inner as trigger_background_check` → background_task.rs
+
+**验收标准**:
+- [x] `cargo check` 通过 0 错误
+- [x] Grep 验证 13 处外部 `watcher::X` 调用点 re-export 完整零破坏
+- [x] watcher.rs 从 460 行收敛为 47 行门面
+- [x] `std::thread::scope + runtime_handle.enter()` 并发块整段保留（未拆散）
+
+**风险**: 中（大文件拆分，但通过 re-export 门面保证外部调用零破坏）| **回滚**: git revert
+
+---
+
 ## 三、执行顺序与依赖
 
 ```
@@ -237,12 +322,15 @@ CHANGELOG.md v2.2.9 记录
 
 | 优化点 | 推迟原因 | 建议版本 |
 |--------|----------|----------|
-| #6 watcher.rs 338 行拆分 | 中工作量，需配套回归测试 | v2.3.0 |
-| #8 CLIENT_POOL LRU/TTL | 中工作量，并发容器改动需验证 | v2.3.0 |
-| #9 watcher.rs 事件总线解耦 | 高风险大工作量，需充分回归 | v2.4.0 |
+| #9 watcher.rs 事件总线解耦（EventBus Phase 2 trait 抽象） | 高风险大工作量，调研结论：EventBus 已是 Phase 1 封装，mpsc 收益边际化，推迟 | v2.4.0 |
 | #5 adapter.rs re-export 扁平化 | 收益低 | 视情况 |
 | #10 emit_notification 收口 | 不成立（已收口） | 不做 |
 
+> 历史搁置已完成的项：
+> - #6 P0 适配器1/2 失败处理去重 → T7 已完成（v2.2.9）
+> - #6 P2 watcher.rs 大文件拆分 → T9 已完成（v2.2.9）
+> - #8 CLIENT_POOL LRU/TTL → T8 已完成（v2.2.9）
+
 ---
 
-*计划书状态: 待用户审批 → 审批通过后进入执行阶段*
+*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T9 全部任务）*
