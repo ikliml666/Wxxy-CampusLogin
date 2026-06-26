@@ -4,14 +4,10 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
 
-enum TaskJoinHandle {
-    Async(tauri::async_runtime::JoinHandle<()>),
-}
-
 /// 后台任务句柄，仅暴露取消令牌。
 pub struct TaskHandle {
     pub cancel_token: Arc<CancellationToken>,
-    join_handle: TaskJoinHandle,
+    join_handle: tauri::async_runtime::JoinHandle<()>,
 }
 
 /// 统一管理周期性后台任务的生命周期。
@@ -54,7 +50,7 @@ impl BackgroundTaskManager {
         });
         let handle = TaskHandle {
             cancel_token: cancel_token.clone(),
-            join_handle: TaskJoinHandle::Async(join_handle),
+            join_handle,
         };
         tasks.insert(name.to_string(), handle);
 
@@ -82,7 +78,7 @@ impl BackgroundTaskManager {
             handle.cancel_token.cancel();
         }
         for handle in handles {
-            let TaskJoinHandle::Async(jh) = handle.join_handle;
+            let jh = handle.join_handle;
             let _ = jh.await;
         }
     }
