@@ -89,6 +89,7 @@ export function useAppInit() {
   const mountedRef = useRef(true)
   const lastBgCheckTimeRef = useRef(0)
   const lastAdaptersChangedTimeRef = useRef(0)
+  const adaptersChangedTrailingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (initDoneRef.current) return
@@ -263,13 +264,26 @@ export function useAppInit() {
     const unsub3 = api.onAdaptersChanged?.((adps) => {
       if (!mountedRef.current) return
       if (!adps) return
+      const applyAdapters = (next: typeof adps) => {
+        store.setState({ adapters: next })
+        const { status } = store.getState()
+        if (status.state === 'offline' || status.state === 'loading') {
+          store.getState().checkOnline(undefined, next).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+        }
+      }
       const now = Date.now()
-      if (now - lastAdaptersChangedTimeRef.current < 500) return
-      lastAdaptersChangedTimeRef.current = now
-      store.setState({ adapters: adps })
-      const { status } = store.getState()
-      if (status.state === 'offline' || status.state === 'loading') {
-        store.getState().checkOnline(undefined, adps).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+      if (now - lastAdaptersChangedTimeRef.current >= 500) {
+        lastAdaptersChangedTimeRef.current = now
+        applyAdapters(adps)
+      } else {
+        if (adaptersChangedTrailingTimerRef.current) clearTimeout(adaptersChangedTrailingTimerRef.current)
+        const fireAt = lastAdaptersChangedTimeRef.current + 500
+        const delay = Math.max(0, fireAt - Date.now())
+        adaptersChangedTrailingTimerRef.current = setTimeout(() => {
+          adaptersChangedTrailingTimerRef.current = null
+          lastAdaptersChangedTimeRef.current = Date.now()
+          applyAdapters(adps)
+        }, delay)
       }
     }) ?? (() => {})
     if (unsub3) unlisteners.push(unsub3)
@@ -524,6 +538,10 @@ export function useAppInit() {
     return () => {
       mountedRef.current = false
       unlisteners.forEach(fn => fn())
+      if (adaptersChangedTrailingTimerRef.current) {
+        clearTimeout(adaptersChangedTrailingTimerRef.current)
+        adaptersChangedTrailingTimerRef.current = null
+      }
     }
   }, [])
 
