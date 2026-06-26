@@ -20,7 +20,7 @@ pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String>
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
-    crate::log_warn!("config", "原子写入重命名失败，保留临时文件: {:?}", tmp_path);
+    crate::log_warn!("config", "原子写入重命名失败，已清理临时文件: {:?}", tmp_path);
     let _ = std::fs::remove_file(&tmp_path);
     Err("重命名临时文件失败（重试3次后）".to_string())
 }
@@ -60,6 +60,10 @@ pub fn list_account_names(app_handle: &tauri::AppHandle) -> Vec<String> {
         for entry in entries.flatten() {
             if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
                 if let Some(name) = entry.path().file_stem().and_then(|n| n.to_str()) {
+                    // 过滤隐藏文件（. 前缀）和空名，与 get_init_data 行为对齐
+                    if name.starts_with('.') || name.is_empty() {
+                        continue;
+                    }
                     accounts.push(name.to_string());
                 }
             }

@@ -181,21 +181,7 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     let mut cfg = config.as_ref().clone();
     cfg.password = crate::config::model::PASSWORD_MASK.to_string();
 
-    let data_dir = crate::config::persist::get_data_dir(&app_handle);
-    let accounts_dir = crate::config::persist::get_accounts_dir(&data_dir);
-    let mut accounts = Vec::new();
-    if accounts_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&accounts_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
-                let name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                if name.starts_with('.') || name.is_empty() { continue; }
-                accounts.push(name);
-            }
-        }
-    }
-    accounts.sort();
+    let accounts = crate::config::persist::list_account_names(&app_handle);
 
     let version = env!("APP_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
