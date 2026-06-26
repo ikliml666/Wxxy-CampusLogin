@@ -501,4 +501,59 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性）*
+## 八、第三/四/五波简化重构代码审查记录
+
+**审查范围**: T16（commit `9bbe66f`）+ T15（commit `a93aaa1`）+ T21（commit `4d21c0f`）三波简化重构
+**审查员**: Senior-Code-Reviewer-1（2026-06-26）
+**审查方案**: Q1-B（对话+落盘）/ Q2-B（要点+级联扫描）/ Q3-B（YAGNI 横向对比）/ Q4-B（调用方追溯）
+**完整报告**: [REVIEW_v2.2.9_wave3-5.md](./REVIEW_v2.2.9_wave3-5.md)
+
+### 审查结论
+
+| Commit | 任务 | 结论 | 净变更 | 验证状态 |
+|--------|------|------|--------|----------|
+| `9bbe66f` | T16 内联 NotificationService | **Approved** | +34 -69 | cargo check 0 错误 0 warning |
+| `a93aaa1` | T15 简化 TaskJoinHandle 单变体枚举 | **Approved** | +3 -7 | cargo check 0 错误 0 warning |
+| `4d21c0f` | T21 useIpc openExternal console DEV 守卫 | **Approved** | +4 -4 | tsc --noEmit 0 错误 |
+
+**无 High/Medium 问题，无 Changes Requested 项。**
+
+### 关键事实核验（独立 git 验证）
+
+- **T16 真死代码**: 父 commit `8a5f052` 中 `NotificationService` 全部引用仅 5 处，**全部在 notification.rs 内部**（struct/impl/注释/wrapper/测试），外部 0 残留；当前仓 `NotificationService` .rs 代码 **0 残留**，`infra/mod.rs:3` 仅 `pub mod notification;` 无 `pub use` 孤儿
+- **T15 真单变体**: 父 commit `780e734` 中 `TaskJoinHandle` 全部引用仅 4 处（def/field/spawn 构造/shutdown 解构），**确为单变体，无 match arms 遗漏**；`TaskHandle` 仅在 task_manager.rs 内部构造，外部走 BackgroundTaskManager 公共 API；3 个现有测试均不引用已删符号；当前仓 `TaskJoinHandle` .rs 代码 **0 残留**
+- **T21 调用方追溯（Q4-B）**: openExternal 6 个调用方（App.tsx:232,317 / useAuth.ts:20,24 / AboutDialog.tsx:197 / SpeedTestPanel.tsx:112）**全部 fire-and-forget，无任何 catch 块依赖日志排错**，生产去除日志零影响
+
+### YAGNI 横向对比（Q3-B）— 强正向发现
+
+全仓 src-tauri 共 6 个枚举，**全部多变体**（最少 2 变体）：
+
+| 文件 | 枚举 | 变体数 |
+|------|------|--------|
+| `network/quality.rs` | `enum LatencyTask` | 3 |
+| `infra/logger.rs` | `enum LogMessage` | 3 |
+| `auth/portal.rs` | `enum PageCheckResult` | 3 |
+| `auth/failure_tracker.rs` | `pub enum AdapterFailureCounter` | 2 |
+| `infra/logger.rs` | `pub enum LogLevel` | 4+ |
+| `network/discovery/mod.rs` | `pub enum AdapterStatus` | 4+ |
+
+**不存在任何 pre-existing 单变体枚举**。`TaskJoinHandle` 是全仓唯一异类，T15 消除不一致，与项目既有风格完全对齐 → YAGNI 原则正确应用。
+
+### 问题列表（非阻塞）
+
+| Commit | # | Severity | 位置 | 问题 | 处理决策 |
+|--------|---|----------|------|------|----------|
+| T16 | 1 | Info | commit message | "11 处外部调用点"与实际 14 处不符（多算了 background_emit.rs 全限定调用 + updater.rs + auto_auth.rs:390） | 函数签名未变，零破坏结论不受影响，不 amend commit |
+| T16 | 2 | Low | `infra/notification.rs` | `emit_notification` 无单元测试覆盖（pre-existing，非 T16 引入） | 按 karpathy "Surgical Changes" 不超范围补，留作后续单独评估 |
+| T21 | 1 | Low | `frontend/src/shared/ErrorBoundary.tsx:25` | pre-existing：`console.error` 未加 DEV 守卫（非 T21 引入） | 留作后续单独评估（需评估渲染崩溃是否有诊断价值） |
+
+### 整体亮点
+
+1. 三个 commit 均严格遵循 karpathy "Surgical Changes" — 每行改动可逐行追溯到任务声明
+2. YAGNI 应用精准（T15）— 横向对比发现全仓无单变体枚举先例，T15 是消除不一致而非引入不一致
+3. 事实核验独立性强 — 未盲信 commit 描述，通过父 commit `git grep` 独立验证（发现 11 处 vs 14 处的轻微出入）
+4. 级联清理意识强 — T16 主动核验 mod.rs 无 pub use 孤儿；T15 核验外部无直接构造 TaskHandle；T21 核验无调用方依赖日志
+
+---
+
+*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved）*
