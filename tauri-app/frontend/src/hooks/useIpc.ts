@@ -161,19 +161,19 @@ const tauriApi: TauriApi = {
   startLatencyTest: () => invoke<CommandResult>('start_latency_test'),
   stopLatencyTest: () => invoke<CommandResult>('stop_latency_test'),
   openExternal: async (url: string) => {
-    if (!url.startsWith('http://') && !url.startsWith('https://')) { console.warn('[openExternal] 非http协议:', url); return false }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) { if (import.meta.env.DEV) console.warn('[openExternal] 非http协议:', url); return false }
     if (url.length > 2048) return false
-    try { new URL(url) } catch (e) { console.warn('[openExternal] URL解析失败:', url, e); return false }
+    try { new URL(url) } catch (e) { if (import.meta.env.DEV) console.warn('[openExternal] URL解析失败:', url, e); return false }
     try {
       const result = await invoke<boolean>('open_external', { url })
       return result
     } catch (invokeErr) {
-      console.warn('[openExternal] invoke失败,尝试shell插件:', invokeErr)
+      if (import.meta.env.DEV) console.warn('[openExternal] invoke失败,尝试shell插件:', invokeErr)
       try {
         await shellOpen(url)
         return true
       } catch (shellErr) {
-        console.error('[openExternal] 全部失败, url:', url, 'invokeErr:', invokeErr, 'shellErr:', shellErr)
+        if (import.meta.env.DEV) console.error('[openExternal] 全部失败, url:', url, 'invokeErr:', invokeErr, 'shellErr:', shellErr)
         return false
       }
     }
