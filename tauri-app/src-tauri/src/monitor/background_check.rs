@@ -139,7 +139,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let portal_elapsed = t_portal.elapsed();
 
-    // Portal 请求失败容错：累加失败计数，连续3次 request_failed 时触发 MAC 重置
+    // Portal 请求失败容错：累加失败计数，连续5次 request_failed 时触发 MAC 重置（阈值见 portal_failure.rs::PORTAL_REQUEST_FAILURE_THRESHOLD）
     let primary_is_request_failed = matches!(&primary_result, PortalCheckResult::Error { is_request_failed: true });
     let secondary_is_request_failed = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Error { is_request_failed: true })).unwrap_or(false);
     let any_request_failed = primary_is_request_failed || secondary_is_request_failed;

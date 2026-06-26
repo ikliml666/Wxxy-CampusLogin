@@ -73,7 +73,7 @@ fn client_pool_get(key: &str, label: &str) -> Option<reqwest::Client> {
 
 pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {
     let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout);
-    if let Some(client) = client_pool_get(&tls13_key, "") {
+    if let Some(client) = client_pool_get(&tls13_key, "(TLS 1.3)") {
         return Ok(client);
     }
 
@@ -96,7 +96,7 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
     };
 
     CLIENT_POOL.entry(actual_key).or_insert_with(|| (client.clone(), Instant::now()));
-    // 容量上限清理：按 Instant 找最旧条目剔除（真 LRU，与 dns.rs DNS_CACHE 模式一致）
+    // 容量上限清理：按 Instant 找最旧条目剔除（FIFO-style 按创建时间淘汰，与 dns.rs DNS_CACHE 模式一致）
     while CLIENT_POOL.len() > CLIENT_POOL_MAX_ENTRIES {
         if let Some(entry) = CLIENT_POOL.iter().min_by_key(|e| e.value().1) {
             let key = entry.key().clone();
