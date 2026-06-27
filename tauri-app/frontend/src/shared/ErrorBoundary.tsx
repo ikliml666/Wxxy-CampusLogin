@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('[ErrorBoundary] 渲染错误:', error, errorInfo)
+    if (import.meta.env.DEV) console.error('[ErrorBoundary] 渲染错误:', error, errorInfo)
   }
 
   render() {

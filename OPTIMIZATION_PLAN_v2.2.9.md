@@ -543,9 +543,9 @@ CHANGELOG.md v2.2.9 记录
 
 | Commit | # | Severity | 位置 | 问题 | 处理决策 |
 |--------|---|----------|------|------|----------|
-| T16 | 1 | Info | commit message | "11 处外部调用点"与实际 14 处不符（多算了 background_emit.rs 全限定调用 + updater.rs + auto_auth.rs:390） | 函数签名未变，零破坏结论不受影响，不 amend commit |
-| T16 | 2 | Low | `infra/notification.rs` | `emit_notification` 无单元测试覆盖（pre-existing，非 T16 引入） | 按 karpathy "Surgical Changes" 不超范围补，留作后续单独评估 |
-| T21 | 1 | Low | `frontend/src/shared/ErrorBoundary.tsx:25` | pre-existing：`console.error` 未加 DEV 守卫（非 T21 引入） | 留作后续单独评估（需评估渲染崩溃是否有诊断价值） |
+| T16 | 1 | Info | commit message | "11 处外部调用点"与实际 14 处不符（多算了 background_emit.rs 全限定调用 + updater.rs + auto_auth.rs:390） | ✅ 已修复：CHANGELOG L32 计数改为 14 处；commit message 不 amend（函数签名未变，零破坏结论不受影响） |
+| T16 | 2 | Low | `infra/notification.rs` | `emit_notification` 无单元测试覆盖（pre-existing，非 T16 引入） | ⏸️ 跳过：mock AppHandle + EventBus + AppState + notification plugin 成本高，按 karpathy "Simplicity First" 不值得，留作后续单独评估 |
+| T21 | 1 | Low | `frontend/src/shared/ErrorBoundary.tsx:25` | pre-existing：`console.error` 未加 DEV 守卫（非 T21 引入） | ✅ 已修复：加 `if (import.meta.env.DEV)` 守卫，与 T21 一致；tradeoff 为生产环境渲染崩溃失去完整 stack 诊断（需依赖 UI error.message 排错，未来可引入 tauri log plugin 替代） |
 
 ### 整体亮点
 
@@ -556,4 +556,4 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved）*
+*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复）*
