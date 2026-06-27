@@ -6,9 +6,9 @@ use crate::network::{
     ensure_ethernet_ip_for_login,
     wait_for_adapter,
     find_with_valid_ip, find_dual_adapters,
+    resolve_adapter_names,
 };
 use crate::auth::protocol::do_logout_with_retry;
-use crate::auth::traits::DefaultAdapterResolver;
 use crate::infra::state::{AppState, CommandResult};
 use crate::auth::session::{login_adapter_with_log, adapter_action_with_log};
 use crate::auth::failure_tracker::{
@@ -61,7 +61,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         }
     }
 
-    let (adapter1_name, adapter2_name) = DefaultAdapterResolver.resolve_adapter_names(&adapters, &config);
+    let (adapter1_name, adapter2_name) = resolve_adapter_names(&adapters, &config);
 
     let (a1_opt, a2_opt) = find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
     let a1 = match a1_opt {
@@ -167,7 +167,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
         }
     }
 
-    let (adapter1_name, adapter2_name) = DefaultAdapterResolver.resolve_adapter_names(&adapters, &config);
+    let (adapter1_name, adapter2_name) = resolve_adapter_names(&adapters, &config);
 
     let (a1_opt, a2_opt) = find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
     let a1 = match a1_opt {

@@ -18,7 +18,7 @@ import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
-import { useIpc } from '@/hooks/useIpc'
+import { tauriApiWithRetry } from '@/hooks/useIpc'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface NetworkPanelProps {
@@ -37,7 +37,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
   const [dohEnabling, setDohEnabling] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
-  const ipc = useIpc()
+  const ipc = tauriApiWithRetry
   const mountedRef = useRef(true)
 
   useEffect(() => {

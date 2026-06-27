@@ -246,7 +246,3 @@ export const tauriApiWithRetry: TauriApi = {
   checkPortalStatus: (adapterIp) => withRetry(() => tauriApi.checkPortalStatus(adapterIp)),
   checkNetworkQuality: () => withRetry(() => tauriApi.checkNetworkQuality()),
 }
-
-export function useIpc(): TauriApi {
-  return tauriApiWithRetry
-}

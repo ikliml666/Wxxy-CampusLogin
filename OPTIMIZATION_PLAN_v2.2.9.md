@@ -33,6 +33,9 @@
 > - [x] T15 简化 TaskJoinHandle 单变体枚举为 JoinHandle 类型（第四波） → `infra/task_manager.rs`（删除枚举 + 字段改类型 + 2 处使用点简化）；commit `a93aaa1`（1 file, +3 -7）；cargo check 0 错误 0 warning
 > - [x] T21 useIpc openExternal 4 处 console 加 DEV 守卫（第五波） → `frontend/src/hooks/useIpc.ts`（L164/L166/L171/L176 统一加 `if (import.meta.env.DEV)` 守卫，与 L110 createEventListener 一致）；commit `4d21c0f`（1 file, +4 -4）；tsc --noEmit 0 错误
 > - [x] 第六波 1 文件纯简化 12 项（后端 6 + 前端 6） → B1 set_doh_via_api 死代码 / B3 reqwest Client helper / B4 unregister shortcut helper / B5 trigger_background_check 中转 / B7 ServerScore 合并 / B8 migrate_operator+normalize_portal_url helper；F1 logEntryVariants 删除 / F2 AnimationTier 去 export / F3 DnsServerInfo 去 export / F5 QualityPanel useMemo / F6 OnboardingWizard slideVariants 模块级 / F7 App.tsx 箭头函数简化；12 files changed, 净 -22 行；cargo check 0 错误 0 warning；tsc --noEmit 0 错误
+> - [x] 第六波审查 Info-1 修复 → `frontend/src/lib/easing-config.ts:11` 去除 `EASING_60HZ` 冗余 export（外部 0 引用）；commit `b6340bd`；tsc --noEmit 0 错误
+> - [x] 第六波审查 Info-2 评估 → `monitor/watcher.rs:9` re-export 保留不成立（审查员遗漏 `commands/background.rs:10` 调用点，删除需跨 2 文件且破坏门面统一性）
+> - [x] 第七波 3 文件边界项简化 2 项（B2 + F4） → B2 删除 DefaultAdapterResolver zero-sized struct + traits.rs 文件 + service.rs 2 处调用改为直接调用 resolve_adapter_names；F4 删除 useIpc() 伪 hook + AboutDialog/NetworkPanel 改为直接 import tauriApiWithRetry；B6 跳过（extension trait 是惯用法）；cargo check 0 错误；tsc --noEmit 0 错误
 
 ---
 
@@ -687,4 +690,4 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-27，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项 + 第六波简化重构代码审查 Approved + 第六波审查 Info-1 修复 EASING_60HZ 去 export + Info-2 评估不成立保留门面 re-export）*
+*计划书状态: 已审批并全部执行完成（2026-06-27，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项 + 第六波简化重构代码审查 Approved + 第六波审查 Info-1 修复 EASING_60HZ 去 export + Info-2 评估不成立保留门面 re-export + 第七波 3 文件边界项简化 2 项 B2 DefaultAdapterResolver + F4 useIpc 伪 hook，B6 跳过）*
