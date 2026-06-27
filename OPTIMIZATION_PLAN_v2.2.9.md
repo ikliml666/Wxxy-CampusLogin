@@ -557,4 +557,134 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-26，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项）*
+## 九、第六波简化重构代码审查记录
+
+### 9.1 审查范围
+
+- **审查对象**：commit `e414dc0`（HEAD → main），第六波 1 文件纯简化 12 项
+- **审查范围**：13 个文件 +81 -105（12 项代码 + 1 项计划书同步）
+- **审查员**：Senior-Code-Reviewer-A
+- **审查日期**：2026-06-27
+- **审查报告**：`REVIEW_v2.2.9_wave6.md`
+
+### 9.2 审查方案
+
+沿用第三/四/五波方案：
+- **Q1-B** 对话 + 落盘：审查结论在对话中给出，同时落盘到 `REVIEW_v2.2.9_wave6.md`
+- **Q2-B** 要点 + 级联扫描：每项独立验证，并对删除/合并符号做全仓 grep，确认无遗留 orphan 引用
+- **Q3-B** YAGNI 验证：横向对比同类抽象（B3/B4/B8 三个 helper 提取）是否过度抽象
+- **Q4-B** 调用方追溯：对改签名的函数（B4 helper）、改 re-export 的符号（B5 `trigger_background_check`）、提取的 helper（B3/B8）做全仓 grep 调用方零破坏验证
+
+### 9.3 审查结论表
+
+| # | 项 | 类型 | 结论 | 理由摘要 |
+| - | - | - | - | - |
+| 1 | B1 | 删除死代码 | **Approved** | `set_doh_via_api` 全仓 grep 仅 1 处文档残留，代码 0 调用；`#[allow(dead_code)]` 标记印证死代码身份 |
+| 2 | B3 | 提取 helper | **Approved** | helper 5 行极小，消除 2 处完全相同的 builder 链；调用 2 处（line 84/291）验证一致；行为等价 |
+| 3 | B4 | 提取 helper | **Approved** | helper 消除 5 处重复（line 92/110/129/200/217）；行为等价性核验通过；`should_unregister` 反转参数语义清晰 |
+| 4 | B5 | re-export 改路径 | **Approved** | `monitor/adapter_watch.rs:73` 调用方仍能解析；`watcher.rs:9` 保留兼容 re-export 不破坏 |
+| 5 | B7 | 合并 struct | **Approved** | `DnsServerScore`/`DohServerScore` 字段完全相同（latency_ms/success/last_tested），合并为 `ServerScore` 行为等价；2 个 lazy_static 仍各自独立 |
+| 6 | B8 | 提取 helper | **Approved** | `migrate_operator`/`normalize_portal_url` 各调用 2 处（validate_config + validate_config_lenient），消除 2 套完全重复逻辑 |
+| 7 | F1 | 删除未使用 + 级联 import | **Approved** | `logEntryVariants` 全仓 0 代码引用；`EASING_60HZ` 在 animations.ts 0 残留，easing-config.ts 内部第 28 行仍使用（不级联） |
+| 8 | F2 | 去除 export | **Approved** | `AnimationTier` 外部 0 引用，仅 useAnimationProfile.ts 内部 3 处使用 |
+| 9 | F3 | 去除 export | **Approved** | `DnsServerInfo` 外部 0 引用，仅 network/types.ts 内部 3 处使用 |
+| 10 | F5 | 提模块级 + useMemo | **Approved** | `tabContainerVariants` 无依赖提模块级合理；`cardItemVariantsNoY`/`tabItemVariants` 用 `useMemo` 包裹 `[profile.easing.smooth]` 依赖；hooks 顺序无违规 |
+| 11 | F6 | 提模块级常量 | **Approved** | `slideVariants` 完全静态（不依赖任何 props/state），提模块级零风险；framer-motion 函数式 variants 行为与位置无关 |
+| 12 | F7 | 简化回调 | **Approved** | `updateConfig` 签名 `(partial: Partial<Config>) => void` 与 prop 类型完全匹配；`doLogin` 签名 `(adapterName?: string) => Promise<boolean>` 完全匹配；Zustand store 引用稳定，直接传递反而避免每次渲染创建新闭包 |
+| - | **整体** | - | **Approved（可合并）** | 12 项全部通过；零行为破坏；零级联 orphan；改动 surgical；YAGNI 横向对比无过度抽象 |
+
+### 9.4 关键事实核验记录
+
+#### 9.4.1 死代码核验（B1）
+- `set_doh_via_api` 全仓 grep 仅 1 处文档残留（OPTIMIZATION_PLAN 第 35 行），代码 0 调用方
+- 函数自带 `#[allow(dead_code)]` 标记，开发者已明示死代码身份
+
+#### 9.4.2 ServerScore 合并核验（B7）
+- `DnsServerScore`/`DohServerScore` 代码 0 残留（仅 OPTIMIZATION_PLAN 文档行）
+- `ServerScore` 使用点 5 处（lazy_static ×2 + struct 定义 ×1 + insert ×2）
+- 两个 DashMap 仍各自独立（key 空间不冲突），仅类型定义合一，行为完全等价
+
+#### 9.4.3 build_short_timeout_http_client 调用方核验（B3）
+- 定义点 1（updater.rs:72）+ 调用点 2（updater.rs:84/291）
+- 与计划中"消除 2 处重复"完全一致
+- 原两处内联代码完全相同，helper 提取后逐字符一致
+
+#### 9.4.4 try_unregister_cancel_exit_shortcut 调用方核验（B4）
+- 定义点 1（lifecycle.rs:229）+ 调用点 5（lifecycle.rs:92/110/129/200/217）
+- 与计划中"消除 5 处重复"完全一致
+- 行为等价性核验：`should_unregister = !auto_exit_active` / `!campus_exit_active`，helper 内 `if !should_unregister { return; }` 等价于原 `if !auto_exit_active` 守卫
+
+#### 9.4.5 trigger_background_check re-export 路径核验（B5）
+- mod.rs re-export 调用方 1（adapter_watch.rs:73 通过 `crate::monitor::trigger_background_check` 调用）
+- `commands/background.rs:28` 是独立的 `#[tauri::command]`，与 re-export 是不同符号
+- `useIpc.ts:154` invoke 的是 Tauri command，与 re-export 无关
+- B5 改动零破坏
+
+#### 9.4.6 migrate_operator + normalize_portal_url 调用方核验（B8）
+- `migrate_operator`：定义 1（validate.rs:73）+ 调用 2（validate.rs:95/158）✅
+- `normalize_portal_url`：定义 1（validate.rs:81）+ 调用 2（validate.rs:105/174）✅
+- 行为等价性：仅传递方式从 ownership mutate 改为 `&mut` 引用，行为完全一致
+
+#### 9.4.7 logEntryVariants + EASING_60HZ 级联核验（F1）
+- `logEntryVariants` 代码 0 残留（仅 OPTIMIZATION_PLAN 文档行）
+- `EASING_60HZ` 在 animations.ts 0 残留（easing-config.ts 内部仍使用，不级联）
+- F1 级联删除 import 正确
+
+#### 9.4.8 AnimationTier 去 export 核验（F2）
+- 外部 import 引用计数 0 ✅
+- 仅 useAnimationProfile.ts 内部 3 处使用
+
+#### 9.4.9 DnsServerInfo 去 export 核验（F3）
+- 外部 import 引用计数 0 ✅
+- 仅 network/types.ts 内部 3 处使用
+
+#### 9.4.10 F7 签名匹配核验
+- `updateConfig`：参数类型 `Partial<Config>` 完全匹配 ✅
+- `doLogin`：参数 `adapterName?: string`（可选）与返回 `Promise<boolean>` 完全匹配 ✅
+- Zustand store 方法引用稳定，直接传递比 `(x) => f(x)` 包裹更稳定（避免每次渲染创建新闭包导致子组件 memo 失效）
+
+### 9.5 YAGNI 横向对比
+
+| 项 | 抽象规模 | 调用次数 | 是否过度抽象 | 备注 |
+| - | - | - | - | - |
+| B3 `build_short_timeout_http_client` | 5 行 helper | 2 次 | 否 | DRY 收益明确；helper 极小，无新概念引入 |
+| B4 `try_unregister_cancel_exit_shortcut` | 8 行 helper（含文档） | 5 次 | 否 | DRY 收益显著；`should_unregister` 反转参数消除外层 if，减少嵌套 |
+| B8 `migrate_operator` | 7 行 helper | 2 次 | 否 | 消除 2 套完全相同 if-else 链 |
+| B8 `normalize_portal_url` | 4 行 helper | 2 次 | 否 | 消除 2 套相同 if 链 |
+| B7 `ServerScore` 合并 | -7 行 | 2 个使用点 | 否 | 两 struct 字段完全相同，合并是结构性简化而非新增抽象 |
+
+**横向结论**：5 个 helper 提取/合并均符合 DRY 原则，未引入"为单一调用方准备的抽象"（每个 helper 至少 2 次调用），未引入新概念债，YAGNI 通过。
+
+### 9.6 问题列表
+
+| 级别 | 项 | 位置 | 描述 | 处理决策 |
+| - | - | - | - | - |
+| Info | F1 级联观察 | `lib/easing-config.ts:11` | F1 删除 `animations.ts` 中 `EASING_60HZ` import 后，`easing-config.ts` 的 `export const EASING_60HZ` 的 `export` 关键字从外部已无引用方（仅本文件第 28 行内部使用），可考虑后续去掉 `export`，但不影响本次合并 | ⏸️ 跳过（不阻塞，留作后续 YAGNI 清理候选） |
+| Info | B5 附加观察 | `monitor/watcher.rs:9` | `watcher.rs:9` 仍保留 `pub use super::background_task::start_background_check_inner;` 兼容性 re-export。既然 `mod.rs` 已直接从 `background_task` re-export，`watcher.rs` 的 re-export 看起来冗余，但本次审查范围仅 B5，不强制清理 | ⏸️ 跳过（不阻塞，留作后续清理候选） |
+
+无 Low/Medium/High 级问题。
+
+### 9.7 整体亮点
+
+1. **行为等价性把控严格**：B4 helper 通过 `should_unregister` 参数反转，保留了原代码"auto_exit_active 为 true 时不注销"的语义；5 处调用点的 `!auto_exit_active` / `!campus_exit_active` 转换完全准确，无逻辑漂移
+2. **surgical changes 落实到位**：F1 删除 `logEntryVariants` 时级联删除 `EASING_60HZ` import，但未顺手删除 `easing-config.ts` 中已无外部引用的 `export`（保留 surgical 原则，留作后续清理）；F2/F3 去 export 同样未越界
+3. **DRY 提取有度**：B3/B4/B8 三个 helper 均满足"≥2 次调用"门槛，未出现"为单次调用提取抽象"的过度抽象
+4. **类型安全**：F7 简化回调前已确认 `updateConfig` / `doLogin` 签名与 prop 类型完全匹配，且 Zustand store 引用稳定，简化反而提升 memo 友好性
+5. **性能优化**：F5 将静态 `tabContainerVariants` 提模块级、依赖 `profile.easing.smooth` 的 variants 包 `useMemo`，避免每次渲染重新构造对象触发 framer-motion 不必要更新；hooks 顺序合规
+6. **YAGNI 标尺清晰**：B7 合并 `DnsServerScore`/`DohServerScore` 为 `ServerScore` 时未引入新概念（字段完全相同），是结构性消除而非新增抽象，符合 YAGNI
+7. **死代码标记与删除一致**：B1 删除 `set_doh_via_api` 时，原函数已带 `#[allow(dead_code)]` 标记，开发者已明示死代码身份，删除决策有据可查
+
+### 9.8 整体结论
+
+**Approved（可合并）**。第六波 12 项简化重构全部通过审查：
+
+- **零行为破坏**：所有 helper 提取、struct 合并、re-export 改路径、callback 简化均经行为等价性核验
+- **零级联 orphan**：`set_doh_via_api` / `DnsServerScore` / `DohServerScore` / `logEntryVariants` / `EASING_60HZ`（在 animations.ts 中）/ `AnimationTier`（外部）/ `DnsServerInfo`（外部）全仓 grep 验证 0 代码残留
+- **YAGNI 通过**：5 个 helper 提取/合并横向对比无过度抽象
+- **Surgical Changes**：13 个文件改动均直接对应 12 项任务，无越界改动
+
+两个 Info 级观察（easing-config.ts 的 export / watcher.rs 的冗余 re-export）作为后续小步清理候选，不阻塞本次合并。
+
+---
+
+*计划书状态: 已审批并全部执行完成（2026-06-27，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项 + 第六波简化重构代码审查 Approved）*
