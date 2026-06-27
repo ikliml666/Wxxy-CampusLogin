@@ -8,7 +8,7 @@ export interface EasingConfig {
   overshoot: [number, number, number, number]  // 弹性效果
 }
 
-export const EASING_60HZ: EasingConfig = {
+const EASING_60HZ: EasingConfig = {
   enter: [0.16, 1, 0.3, 1],
   exit: [0.7, 0, 0.84, 0],
   smooth: [0.32, 1, 0.72, 1],
