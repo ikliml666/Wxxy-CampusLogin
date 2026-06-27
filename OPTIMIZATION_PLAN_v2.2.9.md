@@ -740,7 +740,7 @@ CHANGELOG.md v2.2.9 记录
 
 | 级别 | 项 | 位置 | 描述 | 处理决策 |
 | - | - | - | - | - |
-| Info | useIpc.ts 文件名保留 | `frontend/src/hooks/useIpc.ts` | F4 删除 `useIpc()` 函数后，文件名仍为 `useIpc.ts`（已不 export `useIpc` 函数，但日志串 `[useIpc]` 仍与文件名一致，非 bug）。可在后续波次重命名为 `tauriApi.ts`，需同步改 3 处 import 路径 | ⏸️ 跳过（不阻塞，留作后续清理候选） |
+| Info | useIpc.ts 文件名保留 | `frontend/src/hooks/useIpc.ts` | F4 删除 `useIpc()` 函数后，文件名仍为 `useIpc.ts`（已不 export `useIpc` 函数，但日志串 `[useIpc]` 仍与文件名一致，非 bug）。可在后续波次重命名为 `tauriApi.ts`，需同步改 3 处 import 路径 | ✅ 已修复：`git mv useIpc.ts tauriApi.ts`（保留 git 历史）+ 3 处 import 路径同步（AboutDialog/useAppStore/NetworkPanel）+ 1 处日志串 `[useIpc]` → `[tauriApi]`；tsc --noEmit 0 错误 |
 
 无 Low/Medium/High 级问题。
 

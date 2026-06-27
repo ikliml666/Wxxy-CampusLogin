@@ -18,7 +18,7 @@ import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
-import { tauriApiWithRetry } from '@/hooks/useIpc'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useAppStore } from '@/hooks/useAppStore'
 
 interface NetworkPanelProps {

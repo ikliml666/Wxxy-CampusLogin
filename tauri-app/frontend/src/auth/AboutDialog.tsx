@@ -15,7 +15,7 @@ import {
 import { APP_NAME, APP_VERSION } from '@/shared'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
-import { tauriApiWithRetry } from '@/hooks/useIpc'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useTranslation } from 'react-i18next'
 import type { UpdateInfo, DownloadProgress, MirrorSource } from '@/shared'
 

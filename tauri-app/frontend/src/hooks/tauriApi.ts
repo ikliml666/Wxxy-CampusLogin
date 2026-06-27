@@ -107,7 +107,7 @@ const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => 
       }
       return fn
     }).catch((err) => {
-      if (import.meta.env.DEV) console.error(`[useIpc] Failed to register listener (${eventName}):`, err)
+      if (import.meta.env.DEV) console.error(`[tauriApi] Failed to register listener (${eventName}):`, err)
       return null
     })
 

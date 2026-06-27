@@ -8,7 +8,7 @@ import { PASSWORD_MASK } from '@/shared'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { hexToHsl } from '@/lib/color'
-import { tauriApiWithRetry } from './useIpc'
+import { tauriApiWithRetry } from './tauriApi'
 import { useLogToastStore } from './useLogToastStore'
 import i18next from 'i18next'
 
