@@ -28,7 +28,7 @@ export interface AdapterDetail {
   status: AdapterStatus
 }
 
-export interface DnsServerInfo {
+interface DnsServerInfo {
   address: string
   dohAvailable: boolean
   dohEnabled: boolean

@@ -83,6 +83,20 @@ const DETAIL_CATEGORIES = [
   },
 ]
 
+const tabContainerVariants: Variants = {
+  animate: {
+    transition: {
+      staggerChildren: 0.035,
+    },
+  },
+  exit: {
+    transition: {
+      staggerChildren: 0.025,
+      staggerDirection: -1,
+    },
+  },
+}
+
 export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
   const { t } = useTranslation()
   const networkQuality = useAppStore((s) => s.networkQuality)
@@ -91,7 +105,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
   const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
   const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })
 
-  const cardItemVariantsNoY: Variants = {
+  const cardItemVariantsNoY = useMemo<Variants>(() => ({
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
@@ -100,23 +114,9 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
         ease: profile.easing.smooth as [number, number, number, number],
       },
     },
-  }
+  }), [profile.easing.smooth])
 
-  const tabContainerVariants: Variants = {
-    animate: {
-      transition: {
-        staggerChildren: 0.035,
-      },
-    },
-    exit: {
-      transition: {
-        staggerChildren: 0.025,
-        staggerDirection: -1,
-      },
-    },
-  }
-
-  const tabItemVariants: Variants = {
+  const tabItemVariants = useMemo<Variants>(() => ({
     initial: (direction: number) => ({
       opacity: 0,
       x: direction > 0 ? 30 : -30,
@@ -137,7 +137,7 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
         ease: profile.easing.smooth as [number, number, number, number],
       },
     }),
-  }
+  }), [profile.easing.smooth])
   const qualityConfig = useMemo(() => {
     if (!networkQuality) return QUALITY_CONFIG.unknown
     return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown

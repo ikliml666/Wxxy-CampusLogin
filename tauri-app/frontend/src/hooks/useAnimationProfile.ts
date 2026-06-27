@@ -4,7 +4,7 @@ import type { EasingConfig } from '@/lib/easing-config'
 import { getEasingConfig } from '@/lib/easing-config'
 import type { GpuTier } from '@/shared'
 
-export type AnimationTier = 'high' | 'standard' | 'economy'
+type AnimationTier = 'high' | 'standard' | 'economy'
 
 interface AnimationProfile {
   tier: AnimationTier

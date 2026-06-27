@@ -69,15 +69,19 @@ pub fn compare_versions(current: &str, latest: &str) -> bool {
     false
 }
 
+fn build_short_timeout_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {e}"))
+}
+
 pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -> Result<bool, String> {
     if checksum_urls.is_empty() {
         return Err("未提供校验和URL".to_string());
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {e}"))?;
+    let client = build_short_timeout_http_client()?;
 
     // 按顺序尝试所有 URL（GitHub 原始源 + 镜像源），任一成功即用
     // 降级策略：所有源都返回 4xx（文件不存在/权限受限）时视为"无可用校验文件"，
@@ -284,10 +288,7 @@ pub async fn fetch_latest_release() -> Result<(bool, String), String> {
 }
 
 async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {e}"))?;
+    let client = build_short_timeout_http_client()?;
 
     let resp = client
         .get(url)

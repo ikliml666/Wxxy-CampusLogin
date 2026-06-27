@@ -1,5 +1,4 @@
 import type { EasingConfig } from './easing-config'
-import { EASING_60HZ } from './easing-config'
 
 export function createLogEntryVariants(easing: EasingConfig) {
   return {
@@ -25,8 +24,6 @@ export function getPanelDirection(from: string, to: string): number {
   if (fromIdx === -1 || toIdx === -1) return 1
   return toIdx > fromIdx ? 1 : -1
 }
-
-export const logEntryVariants = createLogEntryVariants(EASING_60HZ)
 
 export function createPanelAppleVariants(easing: EasingConfig) {
   return {

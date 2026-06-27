@@ -89,12 +89,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
             // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
             // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
             let auto_exit_active = s.exit.auto_exit_deadline.lock().is_some();
-            if !auto_exit_active {
-                use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                if app_h.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-                    let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
-                }
-            }
+            try_unregister_cancel_exit_shortcut(&app_h, !auto_exit_active);
         }
 
         shutdown_and_exit(&app_h, &s).await;
@@ -112,12 +107,7 @@ pub fn cancel_campus_exit(app_handle: &AppHandle, state: &AppState) {
         // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
         // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
         let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
-        if !auto_exit_active {
-            use tauri_plugin_global_shortcut::GlobalShortcutExt;
-            if app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-                let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
-            }
-        }
+        try_unregister_cancel_exit_shortcut(app_handle, !auto_exit_active);
     }
 }
 
@@ -136,12 +126,7 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
     // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
     // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
     let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
-    if !auto_exit_active {
-        use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        if app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-            let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
-        }
-    }
+    try_unregister_cancel_exit_shortcut(app_handle, !auto_exit_active);
 
     emit_notification(app_handle, "已取消退出", "校园网退出已取消，程序将继续运行");
 
@@ -210,11 +195,9 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
                 return;
             }
         }
-        use tauri_plugin_global_shortcut::GlobalShortcutExt;
         // 仅在校园网退出未启动时注销快捷键，避免影响校园网退出的取消能力
-        if !s.exit.campus_exit_started.load(Ordering::Acquire) && app_h.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-            let _ = app_h.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
-        }
+        let campus_exit_active = s.exit.campus_exit_started.load(Ordering::Acquire);
+        try_unregister_cancel_exit_shortcut(&app_h, !campus_exit_active);
         shutdown_and_exit(&app_h, &s).await;
     });
 }
@@ -229,11 +212,9 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
     }
     state.exit.auto_exit_cancelled.store(true, Ordering::Release);
 
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
     // 仅在校园网退出未启动时注销快捷键，避免影响校园网退出的取消能力
-    if !state.exit.campus_exit_started.load(Ordering::Acquire) && app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-        let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
-    }
+    let campus_exit_active = state.exit.campus_exit_started.load(Ordering::Acquire);
+    try_unregister_cancel_exit_shortcut(app_handle, !campus_exit_active);
 
     emit_notification(app_handle, "已取消退出", "自动退出已取消，程序将继续运行");
 
@@ -242,6 +223,17 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
     }
 
     Ok(CommandResult::ok_msg("自动退出已取消"))
+}
+
+/// 仅在 should_unregister 为 true 且快捷键已注册时，注销 CANCEL_EXIT_SHORTCUT
+fn try_unregister_cancel_exit_shortcut(app_handle: &AppHandle, should_unregister: bool) {
+    if !should_unregister {
+        return;
+    }
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    if app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+        let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
+    }
 }
 
 /// 统一的后台任务清理与进程退出。

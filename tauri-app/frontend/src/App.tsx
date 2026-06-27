@@ -348,8 +348,8 @@ function AppInner() {
         onClose={() => setOnboardingOpen(false)}
         config={config}
         adapters={adapters}
-        onUpdateConfig={(partial) => updateConfig(partial)}
-        onLogin={(adapterName) => doLogin(adapterName)}
+        onUpdateConfig={updateConfig}
+        onLogin={doLogin}
         isLoggingIn={isLoggingIn}
       />
     </div>

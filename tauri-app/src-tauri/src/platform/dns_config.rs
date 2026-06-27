@@ -110,16 +110,6 @@ pub fn set_dns_via_api(
     set_dns_inner(adapter_guid, dns_servers, doh_templates, true, "DNS+DoH")
 }
 
-#[cfg(target_os = "windows")]
-#[allow(dead_code)]
-pub fn set_doh_via_api(
-    adapter_guid: &str,
-    dns_servers: &[&str],
-    doh_templates: &[(&str, &str)],
-) -> Result<(), String> {
-    set_dns_inner(adapter_guid, dns_servers, doh_templates, true, "DoH")
-}
-
 /// 设置按配置文件（per-profile）的 DNS + DoH
 /// 仅对当前 WiFi 配置文件生效，切换 WiFi 后自动切换 DNS
 #[cfg(target_os = "windows")]

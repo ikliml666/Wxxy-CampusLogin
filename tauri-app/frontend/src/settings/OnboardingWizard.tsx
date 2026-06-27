@@ -42,6 +42,12 @@ interface OnboardingWizardProps {
 
 const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.networkAdapter', 'onboarding.setupComplete'] as const
 
+const slideVariants = {
+  enter: (dir: number) => ({ x: dir > 0 ? 30 : -30, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (dir: number) => ({ x: dir > 0 ? -15 : 15, opacity: 0 }),
+}
+
 function StepIndicator({ current }: { current: number }) {
   return (
     <div className="flex items-center justify-center gap-2 py-3">
@@ -189,12 +195,6 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
   const advance = (nextStep: number) => {
     direction.current = nextStep > step ? 1 : -1
     setStep(nextStep)
-  }
-
-  const slideVariants = {
-    enter: (dir: number) => ({ x: dir > 0 ? 30 : -30, opacity: 0 }),
-    center: { x: 0, opacity: 1 },
-    exit: (dir: number) => ({ x: dir > 0 ? -15 : 15, opacity: 0 }),
   }
 
   return (

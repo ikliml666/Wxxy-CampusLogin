@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 lazy_static::lazy_static! {
     static ref DNS_CACHE: dashmap::DashMap<String, (IpAddr, Instant)> = dashmap::DashMap::new();
 
-    static ref DNS_SERVER_SCORES: dashmap::DashMap<String, DnsServerScore> = dashmap::DashMap::new();
-    static ref DOH_SERVER_SCORES: dashmap::DashMap<String, DohServerScore> = dashmap::DashMap::new();
+    static ref DNS_SERVER_SCORES: dashmap::DashMap<String, ServerScore> = dashmap::DashMap::new();
+    static ref DOH_SERVER_SCORES: dashmap::DashMap<String, ServerScore> = dashmap::DashMap::new();
 }
 
 const DNS_FALLBACK_SERVERS: &[&str] = &["223.5.5.5", "1.12.12.12", "114.114.114.114"];
@@ -15,21 +15,14 @@ const DOH_FALLBACK_SERVERS: &[(&str, &str)] = &[
 ];
 
 #[derive(Clone)]
-struct DnsServerScore {
-    latency_ms: i64,
-    success: bool,
-    last_tested: Instant,
-}
-
-#[derive(Clone)]
-struct DohServerScore {
+struct ServerScore {
     latency_ms: i64,
     success: bool,
     last_tested: Instant,
 }
 
 pub fn update_dns_server_latency(ip: &str, latency_ms: i64, success: bool) {
-    DNS_SERVER_SCORES.insert(ip.to_string(), DnsServerScore {
+    DNS_SERVER_SCORES.insert(ip.to_string(), ServerScore {
         latency_ms,
         success,
         last_tested: Instant::now(),
@@ -37,7 +30,7 @@ pub fn update_dns_server_latency(ip: &str, latency_ms: i64, success: bool) {
 }
 
 pub fn update_doh_server_latency(server: &str, latency_ms: i64, success: bool) {
-    DOH_SERVER_SCORES.insert(server.to_string(), DohServerScore {
+    DOH_SERVER_SCORES.insert(server.to_string(), ServerScore {
         latency_ms,
         success,
         last_tested: Instant::now(),

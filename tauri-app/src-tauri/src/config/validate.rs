@@ -70,6 +70,20 @@ fn validate_portal_url(url: &str) -> Result<(), String> {
     }
 }
 
+fn migrate_operator(op: &mut String) {
+    if *op == "@ctcc" {
+        *op = "@telecom".to_string();
+    } else if *op == "@cucc" {
+        *op = "@unicom".to_string();
+    }
+}
+
+fn normalize_portal_url(url: &mut String) {
+    if *url == "http://10.1.99.100:801" || url.is_empty() {
+        *url = "http://10.1.99.100".to_string();
+    }
+}
+
 pub fn validate_config(config: Config) -> Result<Config, String> {
     let mut config = config;
     if !config.user.is_empty() {
@@ -78,11 +92,7 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if !config.password.is_empty() && config.password != PASSWORD_MASK {
         validate_password(&config.password)?;
     }
-    if config.operator == "@ctcc" {
-        config.operator = "@telecom".to_string();
-    } else if config.operator == "@cucc" {
-        config.operator = "@unicom".to_string();
-    }
+    migrate_operator(&mut config.operator);
     config.operator = validate_operator(&config.operator)?.to_string();
     if !config.custom_theme_color.is_empty() && !CUSTOM_COLOR_RE.is_match(&config.custom_theme_color) {
         return Err("自定义主题颜色格式无效，需为#开头的6位十六进制色值".to_string());
@@ -92,9 +102,7 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     }
     config.background_check_interval = config.background_check_interval.clamp(10000, 3600000);
     config.latency_test_interval = config.latency_test_interval.clamp(10000, 3600000);
-    if config.portal_url == "http://10.1.99.100:801" || config.portal_url.is_empty() {
-        config.portal_url = "http://10.1.99.100".to_string();
-    }
+    normalize_portal_url(&mut config.portal_url);
     validate_portal_url(&config.portal_url)?;
     if !config.fixed_gateway.is_empty() && config.fixed_gateway.parse::<std::net::IpAddr>().is_err() {
         return Err(format!("固定网关地址无效: {}", config.fixed_gateway));
@@ -147,11 +155,7 @@ pub fn validate_config_lenient(mut config: Config) -> Config {
         }
     }
     // operator 迁移
-    if config.operator == "@ctcc" {
-        config.operator = "@telecom".to_string();
-    } else if config.operator == "@cucc" {
-        config.operator = "@unicom".to_string();
-    }
+    migrate_operator(&mut config.operator);
     if let Err(e) = validate_operator(&config.operator) {
         crate::log_warn!("config", "运营商后缀无效，回退默认: {}", e);
         config.operator = defaults.operator;
@@ -167,9 +171,7 @@ pub fn validate_config_lenient(mut config: Config) -> Config {
         config.theme_mode = defaults.theme_mode;
     }
     // portal_url 规范化 + 校验
-    if config.portal_url == "http://10.1.99.100:801" || config.portal_url.is_empty() {
-        config.portal_url = "http://10.1.99.100".to_string();
-    }
+    normalize_portal_url(&mut config.portal_url);
     if let Err(e) = validate_portal_url(&config.portal_url) {
         crate::log_warn!("config", "Portal地址无效({})，回退默认: {}", config.portal_url, e);
         config.portal_url = defaults.portal_url;
