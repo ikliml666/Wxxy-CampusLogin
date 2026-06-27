@@ -690,4 +690,79 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-27，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项 + 第六波简化重构代码审查 Approved + 第六波审查 Info-1 修复 EASING_60HZ 去 export + Info-2 评估不成立保留门面 re-export + 第七波 3 文件边界项简化 2 项 B2 DefaultAdapterResolver + F4 useIpc 伪 hook，B6 跳过）*
+## 十、第七波简化重构代码审查记录
+
+### 10.1 审查范围
+
+- **审查对象**：commit `e0dded0`（HEAD → main），第七波 3 文件边界项简化 2 项
+- **审查范围**：7 个文件 +11 -26（含 1 文档 + 删除 traits.rs）
+- **审查员**：Senior-Code-Reviewer-A
+- **审查日期**：2026-06-27
+- **审查报告**：`REVIEW_v2.2.9_wave7.md`
+
+### 10.2 审查方案
+
+沿用第三/四/五/六波方案：
+- **Q1-B** 对话 + 落盘：审查结论在对话中给出，同时落盘到 `REVIEW_v2.2.9_wave7.md`
+- **Q2-B** 要点 + 级联扫描：每项独立验证，并对删除符号做全仓 grep，确认无遗留 orphan 引用
+- **Q3-B** YAGNI 验证：横向对比，确认过度抽象判断成立
+- **Q4-B** 调用方追溯：对改 import 的文件做全仓 grep 调用方零破坏验证
+
+### 10.3 审查结论表
+
+| # | 项 | 类型 | 结论 | 理由摘要 |
+| - | - | - | - | - |
+| 1 | B2 | 删除 zero-sized struct | **Approved** | zero-sized struct + 纯转发，T4 清理 trait 后无存在理由；级联 0 orphan；行为等价 |
+| 2 | F4 | 删除伪 hook | **Approved** | 伪 hook（`use*` 前缀但不调任何 React hook），纯返回模块级常量；0 orphan；行为等价 |
+| - | **整体** | - | **Approved（可合并）** | 全部 surgical，YAGNI 成立，无级联破坏 |
+
+### 10.4 关键事实核验记录
+
+#### 10.4.1 B2 DefaultAdapterResolver 删除核验
+- `DefaultAdapterResolver` 代码层 0 匹配（仅文档残留 7 处）
+- `auth::traits` 全仓 0 匹配；`traits` 在 auth/ 目录 0 匹配
+- `resolve_adapter_names` 已在 `network/mod.rs:27` re-export，定义于 `adapter.rs:48`
+- 签名一致：旧 `(&self, &[Adapter], &Config) -> (String, String)` → 新 `(&[Adapter], &Config) -> (String, String)`（仅少 `&self`）
+- 全仓 5 处生产调用方 + 4 处测试，本波仅改 service.rs:64 与 service.rs:170；其余 4 处生产调用方（login.rs/background.rs/background_check.rs/auto_auth.rs）本就直连，零破坏
+
+#### 10.4.2 F4 useIpc() 伪 hook 删除核验
+- `useIpc(` 函数调用在 frontend/src 0 匹配
+- `tauriApiWithRetry` 已在 useIpc.ts:243 export，类型 `TauriApi` 与原 `useIpc()` 返回类型一致
+- useAppStore.ts:11 本就直连 `tauriApiWithRetry`，未受影响（佐证模式已存在）
+- 剩余 `useIpc` 匹配均为文件名路径引用或日志串 `[useIpc]`（line 110，与文件名一致，非 bug）
+
+### 10.5 YAGNI 验证
+
+- **B2**: `DefaultAdapterResolver` 无状态、无多态（T4 已清 trait）、无副作用、无 mock 需求、无复杂逻辑封装、仅 service.rs 单点使用。过度抽象判断**成立**。
+- **F4**: `useIpc()` 不调任何 React hook、无 per-component 行为、无依赖注入点、`use*` 前缀误导、仅 2 处使用。伪 hook 判断**成立**。
+
+### 10.6 问题列表
+
+| 级别 | 项 | 位置 | 描述 | 处理决策 |
+| - | - | - | - | - |
+| Info | useIpc.ts 文件名保留 | `frontend/src/hooks/useIpc.ts` | F4 删除 `useIpc()` 函数后，文件名仍为 `useIpc.ts`（已不 export `useIpc` 函数，但日志串 `[useIpc]` 仍与文件名一致，非 bug）。可在后续波次重命名为 `tauriApi.ts`，需同步改 3 处 import 路径 | ⏸️ 跳过（不阻塞，留作后续清理候选） |
+
+无 Low/Medium/High 级问题。
+
+### 10.7 整体亮点
+
+1. **Surgical precision**：每行改动可追溯到 B2/F4，无 collateral edit
+2. **级联清理彻底**：删文件 + 模块声明 + import + 调用点原子完成，0 orphan
+3. **与既定模式对齐**：B2 后 service.rs 与其余 4 处生产调用方统一直连；F4 后 AboutDialog/NetworkPanel 与 useAppStore.ts 统一直连 `tauriApiWithRetry`，消除双轨
+4. **行为等价性有保证**：zero-sized struct 与 pass-through function 均无状态/副作用
+5. **B6 决策合理**：extension trait 是 Rust 惯用法，跳过体现"非过度抽象不清理"的克制
+
+### 10.8 整体结论
+
+**Approved（可合并）**。第七波 2 项简化重构全部通过审查：
+
+- **零行为破坏**：B2 签名仅少 `&self`，F4 返回值类型一致
+- **零级联 orphan**：`DefaultAdapterResolver` / `auth::traits` / `useIpc(` 全仓 grep 验证 0 代码残留
+- **YAGNI 通过**：过度抽象判断成立（zero-sized struct + 伪 hook）
+- **Surgical Changes**：6 个代码文件改动均直接对应 B2/F4，无越界改动
+
+一个 Info 级观察（useIpc.ts 文件名保留）作为后续小步清理候选，不阻塞本次合并。
+
+---
+
+*计划书状态: 已审批并全部执行完成（2026-06-27，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项 + 第六波简化重构代码审查 Approved + 第六波审查 Info-1 修复 EASING_60HZ 去 export + Info-2 评估不成立保留门面 re-export + 第七波 3 文件边界项简化 2 项 B2 DefaultAdapterResolver + F4 useIpc 伪 hook，B6 跳过 + 第七波简化重构代码审查 Approved）*
