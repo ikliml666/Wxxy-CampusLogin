@@ -659,8 +659,8 @@ CHANGELOG.md v2.2.9 记录
 
 | 级别 | 项 | 位置 | 描述 | 处理决策 |
 | - | - | - | - | - |
-| Info | F1 级联观察 | `lib/easing-config.ts:11` | F1 删除 `animations.ts` 中 `EASING_60HZ` import 后，`easing-config.ts` 的 `export const EASING_60HZ` 的 `export` 关键字从外部已无引用方（仅本文件第 28 行内部使用），可考虑后续去掉 `export`，但不影响本次合并 | ⏸️ 跳过（不阻塞，留作后续 YAGNI 清理候选） |
-| Info | B5 附加观察 | `monitor/watcher.rs:9` | `watcher.rs:9` 仍保留 `pub use super::background_task::start_background_check_inner;` 兼容性 re-export。既然 `mod.rs` 已直接从 `background_task` re-export，`watcher.rs` 的 re-export 看起来冗余，但本次审查范围仅 B5，不强制清理 | ⏸️ 跳过（不阻塞，留作后续清理候选） |
+| Info | F1 级联观察 | `lib/easing-config.ts:11` | F1 删除 `animations.ts` 中 `EASING_60HZ` import 后，`easing-config.ts` 的 `export const EASING_60HZ` 的 `export` 关键字从外部已无引用方（仅本文件第 28 行内部使用），可考虑后续去掉 `export`，但不影响本次合并 | ✅ 已修复（commit `b6340bd`）：去除 `export` 关键字，`tsc --noEmit` 0 错误 |
+| Info | B5 附加观察 | `monitor/watcher.rs:9` | `watcher.rs:9` 仍保留 `pub use super::background_task::start_background_check_inner;` 兼容性 re-export。既然 `mod.rs` 已直接从 `background_task` re-export，`watcher.rs` 的 re-export 看起来冗余，但本次审查范围仅 B5，不强制清理 | ⏸️ 不成立：主上下文独立 Grep 核验发现 `commands/background.rs:10` 仍通过 `watcher::start_background_check_inner` 调用（审查员 4.5 节核验遗漏此调用点）。删除需同步改 `commands/background.rs:5+10` 跨 2 文件，且破坏 watcher.rs 门面统一性（watcher.rs:11 注释明示"保持外部 watcher::X 调用路径不变"）。按 karpathy "Surgical Changes" + "Simplicity First" 保留门面 re-export 不动 |
 
 无 Low/Medium/High 级问题。
 
@@ -687,4 +687,4 @@ CHANGELOG.md v2.2.9 记录
 
 ---
 
-*计划书状态: 已审批并全部执行完成（2026-06-27，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项 + 第六波简化重构代码审查 Approved）*
+*计划书状态: 已审批并全部执行完成（2026-06-27，含 T1-T10 全部任务 + 两轮代码审查验证 + T11-T19 第二波死代码清理与验证 + T16 第三波 NotificationService 内联 + CODE_WIKI 文档同步 + T15 第四波 TaskJoinHandle 单变体枚举简化 + T21 第五波 useIpc console DEV 守卫一致性 + 第三/四/五波简化重构代码审查 Approved + 审查遗留 T16-1/T21-1 修复 + 第六波 1 文件纯简化 12 项 + 第六波简化重构代码审查 Approved + 第六波审查 Info-1 修复 EASING_60HZ 去 export + Info-2 评估不成立保留门面 re-export）*
