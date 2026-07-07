@@ -63,7 +63,7 @@ pub fn handle_portal_request_failure(
     );
     let event_bus = EventBus::new(app_handle);
     let _ = event_bus.emit_login_log(
-        &format!("{} 连续{}次 Portal 请求失败，正在重置该适配器MAC...", adapter_label, PORTAL_REQUEST_FAILURE_THRESHOLD),
+        &format!("{adapter_label} 连续{PORTAL_REQUEST_FAILURE_THRESHOLD}次 Portal 请求失败，正在重置该适配器MAC..."),
         "warning",
     );
 
