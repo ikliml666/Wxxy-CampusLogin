@@ -1,20 +1,30 @@
 import { useCallback } from 'react'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import type { DhcpReleaseRenewResult } from '@/network'
 
 export function useNetwork() {
-  const store = useAppStore(useShallow((s) => ({
+  const adapterStore = useAdapterStore(useShallow((s) => ({
     adapters: s.adapters,
     disabledAdapters: s.disabledAdapters,
     adapterDetails: s.adapterDetails,
+  })))
+  const qualityStore = useQualityStore(useShallow((s) => ({
     dnsDohStatus: s.dnsDohStatus,
     dnsChecking: s.dnsChecking,
     setDnsDohStatus: s.setDnsDohStatus,
     setDnsChecking: s.setDnsChecking,
+  })))
+  const configStore = useConfigStore(useShallow((s) => ({
     api: s.api,
+  })))
+  const logToastStore = useLogToastStore(useShallow((s) => ({
     addToast: s.addToast,
   })))
+  const store = { ...adapterStore, ...qualityStore, ...configStore, ...logToastStore }
 
   const refreshAdapterInfo = useCallback(async () => {
     try {
@@ -22,8 +32,8 @@ export function useNetwork() {
         store.api.getAdapters?.().catch(() => undefined),
         store.api.getAdapterDetails?.().catch(() => undefined),
       ])
-      if (adapters) useAppStore.setState({ adapters })
-      if (details) useAppStore.setState({ adapterDetails: details })
+      if (adapters) useAdapterStore.setState({ adapters })
+      if (details) useAdapterStore.setState({ adapterDetails: details })
     } catch (e) { if (import.meta.env.DEV) console.error(e) }
   }, [store.api])
 

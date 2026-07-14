@@ -14,7 +14,7 @@ import { getRefreshIconClass } from '@/shared'
 import React, { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
 
 interface MonitorPanelProps {
   config: Config
@@ -73,7 +73,7 @@ const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }:
 
 export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
   const { t } = useTranslation()
-  const bgStatus = useAppStore((s) => s.bgStatus)
+  const bgStatus = useAuthStore((s) => s.bgStatus)
   const intervalSec = useMemo(() => (config.backgroundCheckInterval || 60000) / 1000, [config.backgroundCheckInterval])
   const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
     await onTriggerCheck()

@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react'
 import type { PanelName } from '@/shared'
 import type { DnsAdapterInfo } from '@/network'
-import { useAppStore } from './useAppStore'
+import { useConfigStore } from './useConfigStore'
+import { useAdapterStore } from './useAdapterStore'
+import { useAuthStore } from './useAuthStore'
+import { useQualityStore } from './useQualityStore'
+import { useThemeStore } from './useThemeStore'
 import { useLogToastStore } from './useLogToastStore'
 import { safeStorage } from '@/lib/utils'
 import { NAV_ITEMS, PASSWORD_MASK } from '@/shared'
@@ -19,9 +23,8 @@ export function useInitialDataLoad() {
     if (initDoneRef.current) return
     initDoneRef.current = true
 
-    const store = useAppStore
     const lt = useLogToastStore
-    const { api } = store.getState()
+    const { api } = useConfigStore.getState()
 
     ;(async () => {
       try {
@@ -30,19 +33,19 @@ export function useInitialDataLoad() {
         if (initData) {
           const cfg = { ...DEFAULT_CONFIG, ...initData.config }
           if (cfg.password === PASSWORD_MASK) {
-            store.getState().syncPasswordSaved(true)
+            useConfigStore.getState().syncPasswordSaved(true)
           } else if (cfg.password && cfg.password !== '') {
-            store.getState().syncPasswordSaved(false)
+            useConfigStore.getState().syncPasswordSaved(false)
           }
-          store.setState({ config: cfg })
+          useConfigStore.setState({ config: cfg })
 
-          store.getState().initTheme(cfg)
+          useThemeStore.getState().initTheme(cfg)
 
           const savedPanel = safeStorage.get('campus-active-panel') as PanelName | null
-          if (savedPanel && VALID_PANELS.includes(savedPanel) && !cfg.defaultPanel) store.getState().setActivePanel(savedPanel)
+          if (savedPanel && VALID_PANELS.includes(savedPanel) && !cfg.defaultPanel) useAdapterStore.getState().setActivePanel(savedPanel)
 
           if (cfg.defaultPanel) {
-            store.getState().setActivePanel(cfg.defaultPanel as PanelName)
+            useAdapterStore.getState().setActivePanel(cfg.defaultPanel as PanelName)
             safeStorage.set('campus-active-panel', cfg.defaultPanel)
           }
 
@@ -54,20 +57,20 @@ export function useInitialDataLoad() {
 
           const adps = initData.adapters || []
           if (adps.length > 0) {
-            store.setState({ adapters: adps })
+            useAdapterStore.setState({ adapters: adps })
           } else {
             api.getAdapters?.(false).then((freshAdps) => {
               if (freshAdps && freshAdps.length > 0 && mountedRef.current) {
-                store.setState({ adapters: freshAdps })
+                useAdapterStore.setState({ adapters: freshAdps })
               }
             }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
           }
 
           const bgResult = initData.backgroundStatus
           if (bgResult) {
-            store.setState({
+            useAuthStore.setState({
               bgStatus: {
-                ...store.getState().bgStatus,
+                ...useAuthStore.getState().bgStatus,
                 ...bgResult,
                 isRunning: bgResult.isRunning ?? false,
                 checkCount: bgResult.checkCount ?? 0,
@@ -79,45 +82,45 @@ export function useInitialDataLoad() {
           }
 
           const details = initData.adapterDetails || []
-          if (details.length > 0) store.setState({ adapterDetails: details })
+          if (details.length > 0) useAdapterStore.setState({ adapterDetails: details })
 
           api.getDisabledAdapters?.().then((disabled) => {
             if (disabled && disabled.length > 0 && mountedRef.current) {
-              store.setState({ disabledAdapters: disabled })
+              useAdapterStore.setState({ disabledAdapters: disabled })
             }
           }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
 
           const accs = initData.accounts || []
-          if (accs.length > 0) store.setState({ accounts: accs })
+          if (accs.length > 0) useConfigStore.setState({ accounts: accs })
 
           const active = initData.activeAccount || ''
-          if (active) store.setState({ activeAccount: active })
+          if (active) useConfigStore.setState({ activeAccount: active })
 
-          store.getState().checkOnline(cfg, adps)
+          useAuthStore.getState().checkOnline(cfg, adps)
 
           if (initData.gpuInfo) {
             const corrected = correctGpuInfo(initData.gpuInfo)
-            store.getState().setGpuInfo(corrected)
+            useQualityStore.getState().setGpuInfo(corrected)
           } else {
             api.getGpuInfo?.().then((info) => {
               if (info && mountedRef.current) {
                 const corrected = correctGpuInfo(info)
-                store.getState().setGpuInfo(corrected)
+                useQualityStore.getState().setGpuInfo(corrected)
               }
             }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
           }
 
           if (initData.refreshRate) {
-            store.setState({ refreshRate: initData.refreshRate })
+            useQualityStore.setState({ refreshRate: initData.refreshRate })
           }
 
           const dnsPromise = (async () => {
-            if (store.getState().dnsDohStatus) return
+            if (useQualityStore.getState().dnsDohStatus) return
             try {
               const status = await api.checkDnsDohStatus?.()
               if (status) {
                 if (!mountedRef.current) return
-                store.getState().setDnsDohStatus(status)
+                useQualityStore.getState().setDnsDohStatus(status)
                 const RECOMMENDED_DNS = new Set(['223.5.5.5', '223.6.6.6', '1.12.12.12', '120.53.53.53'])
                 const hasRecommendedDns = status.adapters.some((a: DnsAdapterInfo) => a.dnsServers.some((d) => RECOMMENDED_DNS.has(d.address)))
                 const dohNotEnabled = status.adapters.some((a: DnsAdapterInfo) =>
@@ -143,7 +146,7 @@ export function useInitialDataLoad() {
         // showWindow 不受 mountedRef 影响，窗口显示是应用级别的操作
         api.showWindow?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
         if (!mountedRef.current) return
-        store.setState({ config: DEFAULT_CONFIG })
+        useConfigStore.setState({ config: DEFAULT_CONFIG })
       }
     })()
 

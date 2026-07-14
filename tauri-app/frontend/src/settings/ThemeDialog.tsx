@@ -14,7 +14,7 @@ import {
 import { THEME_OPTIONS } from '@/settings'
 import { cn } from '@/lib/utils'
 import type { ThemeName } from '@/shared'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useThemeStore } from '@/hooks/useThemeStore'
 import { useTranslation } from 'react-i18next'
 
 interface ThemeDialogProps {
@@ -25,8 +25,8 @@ interface ThemeDialogProps {
 }
 
 export function ThemeDialog({ open, onClose, onSetTheme, onToggleLightMode }: ThemeDialogProps) {
-  const themeName = useAppStore((s) => s.themeName)
-  const isLightMode = useAppStore((s) => s.isLightMode)
+  const themeName = useThemeStore((s) => s.themeName)
+  const isLightMode = useThemeStore((s) => s.isLightMode)
   const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onClose}>

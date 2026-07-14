@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useAppStore } from './useAppStore'
+import { useQualityStore } from './useQualityStore'
 import type { EasingConfig } from '@/lib/easing-config'
 import { getEasingConfig } from '@/lib/easing-config'
 import type { GpuTier } from '@/shared'
@@ -66,8 +66,8 @@ function resolveTier(gpuTier: GpuTier | undefined, reducedMotion: boolean): Anim
 }
 
 export function useAnimationProfile(): AnimationProfile {
-  const refreshRate = useAppStore((s) => s.refreshRate)
-  const gpuInfo = useAppStore((s) => s.gpuInfo)
+  const refreshRate = useQualityStore((s) => s.refreshRate)
+  const gpuInfo = useQualityStore((s) => s.gpuInfo)
 
   return useMemo(() => {
     const effectiveRefreshRate = refreshRate > 0 ? refreshRate : 120

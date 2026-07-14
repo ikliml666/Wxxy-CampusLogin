@@ -23,7 +23,7 @@ import { PASSWORD_MASK } from '@/shared'
 import { cn } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
 
 interface AccountPanelProps {
   config: Config
@@ -47,7 +47,7 @@ export const AccountPanel = memo(function AccountPanel({
   onSwitchAccount,
 }: AccountPanelProps) {
   const { t } = useTranslation()
-  const passwordSaved = useAppStore((s) => s.passwordSaved)
+  const passwordSaved = useConfigStore((s) => s.passwordSaved)
   const [newAccountName, setNewAccountName] = useState('')
   const [showAddInput, setShowAddInput] = useState(false)
   const [showPassword, setShowPassword] = useState(false)

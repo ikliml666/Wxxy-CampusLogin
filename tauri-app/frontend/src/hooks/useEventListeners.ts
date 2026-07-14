@@ -1,7 +1,10 @@
 import { useEffect, useRef } from 'react'
 import type { LogType } from '@/shared'
 import type { BackgroundStatus, AdapterOnlineStatus, NetworkQuality } from '@/monitor'
-import { useAppStore, flushPendingConfig, hasPendingConfig } from './useAppStore'
+import { useConfigStore, flushPendingConfig, hasPendingConfig } from './useConfigStore'
+import { useAdapterStore } from './useAdapterStore'
+import { useAuthStore } from './useAuthStore'
+import { useQualityStore } from './useQualityStore'
 import { useLogToastStore } from './useLogToastStore'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -15,9 +18,8 @@ export function useEventListeners() {
   const mountedRef = useRef(true)
 
   useEffect(() => {
-    const store = useAppStore
     const lt = useLogToastStore
-    const { api } = store.getState()
+    const { api } = useConfigStore.getState()
     const unlisteners: Array<() => void> = []
 
     const handleQualityBadAlert = (filtered: NetworkQuality, prev: NetworkQuality | null) => {
@@ -108,9 +110,9 @@ export function useEventListeners() {
           }
         }
 
-        store.getState().setBgStatus((prev: BackgroundStatus) => {
+        useAuthStore.getState().setBgStatus((prev: BackgroundStatus) => {
           const prevMap = new Map((prev.adapterStatuses ?? []).map(s => [s.name, s]))
-          const currentAdapters = store.getState().adapters
+          const currentAdapters = useAdapterStore.getState().adapters
           const adapterMap = new Map(currentAdapters.map(a => [a.name, a]))
           const campusWifi = data.campusWifi !== undefined ? data.campusWifi : prev.campusWifi
           const campusWired = data.campusWired !== undefined ? data.campusWired : prev.campusWired
@@ -159,7 +161,7 @@ export function useEventListeners() {
           const statusText = anyOnline
             ? (data.online ? data.message : data.secondaryMessage || data.message)
             : data.message
-          store.getState().setStatus({ text: statusText, state: anyOnline ? 'online' : 'offline' })
+          useAuthStore.getState().setStatus({ text: statusText, state: anyOnline ? 'online' : 'offline' })
         }
       }
     }) ?? (() => {})
@@ -177,7 +179,7 @@ export function useEventListeners() {
         lt.getState().addLog(`自动登录失败: ${result.message}`, 'error')
         lt.getState().addToast('自动登录失败', 'error', result.message)
       }
-      store.getState().checkOnline().catch((e) => { if (import.meta.env.DEV) console.error(e) })
+      useAuthStore.getState().checkOnline().catch((e) => { if (import.meta.env.DEV) console.error(e) })
     }) ?? (() => {})
     if (unsub2) unlisteners.push(unsub2)
 
@@ -185,10 +187,10 @@ export function useEventListeners() {
       if (!mountedRef.current) return
       if (!adps) return
       const applyAdapters = (next: typeof adps) => {
-        store.setState({ adapters: next })
-        const { status } = store.getState()
+        useAdapterStore.setState({ adapters: next })
+        const { status } = useAuthStore.getState()
         if (status.state === 'offline' || status.state === 'loading') {
-          store.getState().checkOnline(undefined, next).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+          useAuthStore.getState().checkOnline(undefined, next).catch((e) => { if (import.meta.env.DEV) console.error(e) })
         }
       }
       const now = Date.now()
@@ -210,13 +212,13 @@ export function useEventListeners() {
 
     const unsub3a = api.onAdapterDetailsChanged?.((details) => {
       if (!mountedRef.current) return
-      if (details) store.setState({ adapterDetails: details })
+      if (details) useAdapterStore.setState({ adapterDetails: details })
     }) ?? (() => {})
     if (unsub3a) unlisteners.push(unsub3a)
 
     const unsub3b = api.onDisabledAdaptersChanged?.((disabled) => {
       if (!mountedRef.current) return
-      if (disabled) store.setState({ disabledAdapters: disabled })
+      if (disabled) useAdapterStore.setState({ disabledAdapters: disabled })
     }) ?? (() => {})
     if (unsub3b) unlisteners.push(unsub3b)
 
@@ -295,9 +297,9 @@ export function useEventListeners() {
 
     const unsub6 = api.onNetworkQualityResult?.((data) => {
       if (!data || !mountedRef.current) return
-      const prev = store.getState().networkQuality
+      const prev = useQualityStore.getState().networkQuality
       handleQualityBadAlert(data, prev)
-      store.getState().setNetworkQuality(mergeNetworkQuality(prev, data))
+      useQualityStore.getState().setNetworkQuality(mergeNetworkQuality(prev, data))
     }) ?? (() => {})
     if (unsub6) unlisteners.push(unsub6)
 
@@ -313,9 +315,9 @@ export function useEventListeners() {
     const unsub8 = api.onUpdateAvailable?.((data) => {
       if (!mountedRef.current) return
       if (data) {
-        store.getState().setUpdateAvailable(data.hasUpdate)
-        if (data.latestVersion) store.getState().setLatestVersion(data.latestVersion)
-        if (data.releaseNotes) store.getState().setReleaseNotes(data.releaseNotes)
+        useQualityStore.getState().setUpdateAvailable(data.hasUpdate)
+        if (data.latestVersion) useQualityStore.getState().setLatestVersion(data.latestVersion)
+        if (data.releaseNotes) useQualityStore.getState().setReleaseNotes(data.releaseNotes)
         if (data.hasUpdate && data.latestVersion) {
           lt.getState().addLog(`发现新版本 v${data.latestVersion}`, 'info')
         }
@@ -326,7 +328,7 @@ export function useEventListeners() {
     const unsub9 = api.onConfigChanged?.((data) => {
       if (!mountedRef.current) return
       if (data?.config) {
-        store.getState().updateConfigLocal(data.config)
+        useConfigStore.getState().updateConfigLocal(data.config)
       }
     }) ?? (() => {})
     if (unsub9) unlisteners.push(unsub9)

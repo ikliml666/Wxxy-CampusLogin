@@ -1,18 +1,22 @@
 import { useCallback } from 'react'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import { extractErrorMessage } from '@/lib/utils'
 
 export function useAccount() {
-  const store = useAppStore(useShallow((s) => ({
+  const configStore = useConfigStore(useShallow((s) => ({
     accounts: s.accounts,
     activeAccount: s.activeAccount,
     setAccounts: s.setAccounts,
     setActiveAccount: s.setActiveAccount,
     api: s.api,
     updateConfig: s.updateConfig,
+  })))
+  const logToastStore = useLogToastStore(useShallow((s) => ({
     addToast: s.addToast,
   })))
+  const store = { ...configStore, ...logToastStore }
 
   const handleAddAccount = useCallback(async (name: string) => {
     try {

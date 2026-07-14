@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
-import { useAppStore } from './useAppStore'
+import { useConfigStore } from './useConfigStore'
 
 export function useHeartbeat() {
   useEffect(() => {
-    const { api } = useAppStore.getState()
+    const { api } = useConfigStore.getState()
     let paused = document.hidden
     const onVisChange = () => { paused = document.hidden }
     document.addEventListener('visibilitychange', onVisChange)

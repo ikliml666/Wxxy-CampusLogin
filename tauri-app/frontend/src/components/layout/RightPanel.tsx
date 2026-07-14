@@ -8,7 +8,8 @@ import { useRef, useEffect, useCallback, memo, useMemo, useState } from 'react'
 import gsap from 'gsap'
 import { m, AnimatePresence } from 'framer-motion'
 import { createLogEntryVariants } from '@/lib/animations'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useBreatheAnimation } from '@/hooks/useBreatheAnimation'
 import { useShallow } from 'zustand/react/shallow'
@@ -84,11 +85,11 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   const profile = useAnimationProfile()
   const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
   const emptyBreatheRef = useBreatheAnimation({ minOpacity: 0.2, maxOpacity: 0.4, minScale: 1, maxScale: 1.05, minRotation: 3, maxRotation: 0, duration: 6 })
-  const adapterDetails = useAppStore((s) => s.adapterDetails)
-  const adapters = useAppStore((s) => s.adapters)
-  const config = useAppStore(useShallow((s) => s.config))
-  const isRefreshingAdapters = useAppStore((s) => s.isRefreshingAdapters)
-  const refreshAdapters = useAppStore((s) => s.refreshAdapters)
+  const adapterDetails = useAdapterStore((s) => s.adapterDetails)
+  const adapters = useAdapterStore((s) => s.adapters)
+  const config = useConfigStore(useShallow((s) => s.config))
+  const isRefreshingAdapters = useAdapterStore((s) => s.isRefreshingAdapters)
+  const refreshAdapters = useAdapterStore((s) => s.refreshAdapters)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const prevLogCountRef = useRef(0)

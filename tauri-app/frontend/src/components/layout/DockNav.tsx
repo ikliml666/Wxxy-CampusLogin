@@ -21,7 +21,9 @@ import { m, useMotionValue, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { usePulseAnimation } from '@/hooks/usePulseAnimation'
@@ -393,13 +395,13 @@ interface DockNavProps {
 
 export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNavProps) {
   const { t } = useTranslation()
-  const activePanel = useAppStore((s) => s.activePanel)
-  const isLoggingIn = useAppStore((s) => s.isLoggingIn)
-  const isLoggingOut = useAppStore((s) => s.isLoggingOut)
-  const adapters = useAppStore((s) => s.adapters)
-  const enableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality !== false)
-  const doLogin = useAppStore((s) => s.doLogin)
-  const doLogout = useAppStore((s) => s.doLogout)
+  const activePanel = useAdapterStore((s) => s.activePanel)
+  const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
+  const isLoggingOut = useAuthStore((s) => s.isLoggingOut)
+  const adapters = useAdapterStore((s) => s.adapters)
+  const enableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality !== false)
+  const doLogin = useAuthStore((s) => s.doLogin)
+  const doLogout = useAuthStore((s) => s.doLogout)
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const animActive = useAnimationActive()
   const profile = useAnimationProfile()

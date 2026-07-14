@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
-import { useAppStore } from './useAppStore'
+import { useConfigStore } from './useConfigStore'
 
 export function useGlobalShortcut() {
   useEffect(() => {
-    const { api } = useAppStore.getState()
+    const { api } = useConfigStore.getState()
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'C') {
         e.preventDefault()
