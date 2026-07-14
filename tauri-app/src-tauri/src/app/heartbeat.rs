@@ -31,7 +31,7 @@ pub fn spawn_heartbeat_thread(app_handle: AppHandle) {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
-            let last = s.last_render_heartbeat_ms.load(Ordering::Acquire);
+            let last = s.update_stats.last_render_heartbeat_ms.load(Ordering::Acquire);
             if last == 0 {
                 continue;
             }

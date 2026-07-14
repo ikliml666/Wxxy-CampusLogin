@@ -14,7 +14,7 @@ pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) ->
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    state.last_update_check_epoch_ms.store(now, Ordering::Release);
+    state.update_stats.last_update_check_epoch_ms.store(now, Ordering::Release);
 
     serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {e}"))
 }

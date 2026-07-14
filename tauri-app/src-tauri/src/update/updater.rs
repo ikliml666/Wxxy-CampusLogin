@@ -190,7 +190,7 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
     let task_manager = app_handle.state::<AppState>().task_manager.clone();
     if let Err(e) = task_manager.spawn("update_check_loop", move |_cancel| async move {
         let state = app_h.state::<AppState>();
-        let last_epoch = state.last_update_check_epoch_ms.load(Ordering::Acquire);
+        let last_epoch = state.update_stats.last_update_check_epoch_ms.load(Ordering::Acquire);
         let now_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -252,14 +252,14 @@ async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
             ) {
                 crate::log_warn!("updater", "发送更新通知失败: {}", e);
             }
-            if info.has_update && state.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+            if info.has_update && state.update_stats.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                 emit_notification(app_h, "发现新版本", &format!("新版本 v{} 可用，请在关于页面查看", info.latest_version));
             }
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
-            state.last_update_check_epoch_ms.store(now, Ordering::Release);
+            state.update_stats.last_update_check_epoch_ms.store(now, Ordering::Release);
         }
         Err(e) => {
             crate::log_warn!("updater", "更新检查失败: {}", e);

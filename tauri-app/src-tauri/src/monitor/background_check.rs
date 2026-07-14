@@ -131,8 +131,8 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
                 let h1 = tauri::async_runtime::spawn_blocking(move || check_adapter_portal(&a1_owned, &app_h1));
                 let h2 = tauri::async_runtime::spawn_blocking(move || check_adapter_portal(&a2_owned, &app_h2));
                 let (r1, r2) = tokio::join!(h1, h2);
-                let r1 = r1.unwrap_or_else(|_| PortalCheckResult::Error { is_request_failed: false });
-                let r2 = r2.unwrap_or_else(|_| PortalCheckResult::Error { is_request_failed: false });
+                let r1 = r1.unwrap_or(PortalCheckResult::Error { is_request_failed: false });
+                let r2 = r2.unwrap_or(PortalCheckResult::Error { is_request_failed: false });
                 (r1, Some(r2))
             })
         } else {

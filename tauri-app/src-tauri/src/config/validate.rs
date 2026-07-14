@@ -204,6 +204,7 @@ pub fn validate_config_lenient(mut config: Config) -> Config {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

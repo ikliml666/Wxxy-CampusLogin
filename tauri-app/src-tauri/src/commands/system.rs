@@ -174,7 +174,7 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    state.last_render_heartbeat_ms.store(now_ms, Ordering::Release);
+    state.update_stats.last_render_heartbeat_ms.store(now_ms, Ordering::Release);
 
     let online = state.network.load().any_adapter_online;
     let checking = state.tasks.is_checking.is_active();

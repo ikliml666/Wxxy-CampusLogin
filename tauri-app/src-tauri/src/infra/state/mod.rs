@@ -78,16 +78,41 @@ pub struct TaskFlags {
     pub is_quality_checking: TaskLock,
 }
 
+/// 更新与通知相关统计字段
+///
+/// 将原 AppState 顶层的 4 个原子标志合并为语义内聚的子结构体。
+/// 所有字段保持原有原子语义（Acquire/Release/Relaxed ordering）。
+pub struct UpdateStats {
+    pub last_update_check_epoch_ms: AtomicU64,
+    pub update_notified: AtomicBool,
+    pub last_disabled_notification_ms: AtomicU64,
+    pub last_render_heartbeat_ms: AtomicU64,
+}
+
+impl Default for UpdateStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UpdateStats {
+    pub fn new() -> Self {
+        Self {
+            last_update_check_epoch_ms: AtomicU64::new(0),
+            update_notified: AtomicBool::new(false),
+            last_disabled_notification_ms: AtomicU64::new(0),
+            last_render_heartbeat_ms: AtomicU64::new(0),
+        }
+    }
+}
+
 pub struct AppState {
     pub config: ConfigStore,
     pub tasks: TaskFlags,
     pub task_manager: BackgroundTaskManager,
     pub network: NetworkState,
     pub exit: ExitStateStore,
-    pub last_update_check_epoch_ms: AtomicU64,
-    pub update_notified: AtomicBool,
-    pub last_disabled_notification_ms: AtomicU64,
-    pub last_render_heartbeat_ms: AtomicU64,
+    pub update_stats: UpdateStats,
 }
 
 impl Default for AppState {
@@ -109,10 +134,7 @@ impl AppState {
             task_manager: BackgroundTaskManager::new(),
             network: NetworkState::new(),
             exit: ExitStateStore::new(),
-            last_update_check_epoch_ms: AtomicU64::new(0),
-            update_notified: AtomicBool::new(false),
-            last_disabled_notification_ms: AtomicU64::new(0),
-            last_render_heartbeat_ms: AtomicU64::new(0),
+            update_stats: UpdateStats::new(),
         }
     }
 }
