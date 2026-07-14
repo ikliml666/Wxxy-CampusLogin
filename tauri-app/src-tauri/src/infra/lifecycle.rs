@@ -91,12 +91,11 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         crate::log_info!("campus_exit", "校园网验证退出流程完成，正在退出");
 
         // 注销快捷键（如果自动退出未在运行）
+        // 持有锁覆盖 check-then-act，消除 TOCTOU 竞态：
+        // is_none() 检查与 unregister 在同一锁临界区内完成，防止 start_auto_exit 在间隙注册快捷键
         {
-            // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
-            // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
-            // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
-            let auto_exit_active = s.exit.auto_exit_deadline.lock().is_some();
-            try_unregister_cancel_exit_shortcut(&app_h, !auto_exit_active);
+            let guard = s.exit.auto_exit_deadline.lock();
+            try_unregister_cancel_exit_shortcut(&app_h, guard.is_none());
         }
 
         // 在调用 shutdown_and_exit 前 detach 自己，避免 shutdown 等待自己导致死锁
@@ -114,11 +113,12 @@ pub fn cancel_campus_exit(app_handle: &AppHandle, state: &AppState) {
         crate::log_info!("campus_exit", "校园网退出流程已取消");
 
         // 如果自动退出也未在运行，注销快捷键
-        // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
-        // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
-        // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
-        let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
-        try_unregister_cancel_exit_shortcut(app_handle, !auto_exit_active);
+        // 持有锁覆盖 check-then-act，消除 TOCTOU 竞态：
+        // is_none() 检查与 unregister 在同一锁临界区内完成，防止 start_auto_exit 在间隙注册快捷键
+        {
+            let guard = state.exit.auto_exit_deadline.lock();
+            try_unregister_cancel_exit_shortcut(app_handle, guard.is_none());
+        }
     }
 }
 
@@ -133,11 +133,12 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
     crate::log_info!("campus_exit", "校园网退出流程已取消（快捷键）");
 
     // 如果自动退出也未在运行，注销快捷键
-    // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
-    // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
-    // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
-    let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
-    try_unregister_cancel_exit_shortcut(app_handle, !auto_exit_active);
+    // 持有锁覆盖 check-then-act，消除 TOCTOU 竞态：
+    // is_none() 检查与 unregister 在同一锁临界区内完成，防止 start_auto_exit 在间隙注册快捷键
+    {
+        let guard = state.exit.auto_exit_deadline.lock();
+        try_unregister_cancel_exit_shortcut(app_handle, guard.is_none());
+    }
 
     emit_notification(app_handle, "已取消退出", "校园网退出已取消，程序将继续运行");
 

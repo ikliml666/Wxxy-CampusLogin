@@ -8,7 +8,7 @@ use crate::auth::failure_tracker::AdapterFailureCounter;
 use super::auto_auth::{try_auto_login_on_preparation, try_disconnect_reconnect};
 use super::campus_check::{CampusCheckResult, adapter_campus_status, adapter_campus_message, check_campus_network};
 use super::portal_check::{PortalCheckResult, check_adapter_portal};
-use super::portal_failure::handle_portal_request_failure;
+use crate::auth::failure_tracker::handle_portal_request_failure;
 use super::quality_scheduler::run_quality_check;
 use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, BackgroundCheckResult};
 
@@ -57,17 +57,19 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         check_campus_network(&config, &adapters)
     };
     // 始终更新 on_campus_network（静默期内 campus_result.on_campus=true，确保 emit 字段一致）
+    // 合并条件分支内的 any_adapter_online/last_a1_online 重置，减少 CAS 循环次数
+    let campus_check_failed = config.enable_network_name_check && !campus_result.on_campus;
     state.network.update(|s| {
         s.current_ssid = campus_result.current_ssid.clone();
         s.on_campus_network = campus_result.on_campus;
-    });
-
-    if config.enable_network_name_check && !campus_result.on_campus {
-        crate::log_debug!("background", "校园网检测未通过: {}", campus_result.message);
-        state.network.update(|s| {
+        if campus_check_failed {
             s.any_adapter_online = false;
             s.last_a1_online = false;
-        });
+        }
+    });
+
+    if campus_check_failed {
+        crate::log_debug!("background", "校园网检测未通过: {}", campus_result.message);
         let a1_campus = adapter_campus_message(&adapter1_name, &adapters, &campus_result);
         let a2_campus = if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
             adapter_campus_message(&adapter2_name, &adapters, &campus_result)
@@ -153,7 +155,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let portal_elapsed = t_portal.elapsed();
 
-    // Portal 请求失败容错：累加失败计数，连续5次 request_failed 时触发 MAC 重置（阈值见 portal_failure.rs::PORTAL_REQUEST_FAILURE_THRESHOLD）
+    // Portal 请求失败容错：累加失败计数，连续5次 request_failed 时触发 MAC 重置（阈值见 failure_tracker.rs::PORTAL_REQUEST_FAILURE_THRESHOLD）
     let primary_is_request_failed = matches!(&primary_result, PortalCheckResult::Error { is_request_failed: true });
     let secondary_is_request_failed = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Error { is_request_failed: true })).unwrap_or(false);
     let any_request_failed = primary_is_request_failed || secondary_is_request_failed;
@@ -184,18 +186,24 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         let primary_success = matches!(&primary_result, PortalCheckResult::Success { .. });
         let secondary_success = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Success { .. })).unwrap_or(false);
 
-        if primary_success {
-            let prev = state.network.load().a1_auth_failure_count;
-            state.network.update(|s| s.a1_auth_failure_count = 0);
-            if prev > 0 {
-                crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev);
+        // 合并 a1/a2 失败计数重置为单次 update，减少 CAS 循环次数
+        if primary_success || secondary_success {
+            let snap = state.network.load();
+            let prev_a1 = snap.a1_auth_failure_count;
+            let prev_a2 = snap.a2_auth_failure_count;
+            state.network.update(|s| {
+                if primary_success {
+                    s.a1_auth_failure_count = 0;
+                }
+                if secondary_success {
+                    s.a2_auth_failure_count = 0;
+                }
+            });
+            if primary_success && prev_a1 > 0 {
+                crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev_a1);
             }
-        }
-        if secondary_success {
-            let prev = state.network.load().a2_auth_failure_count;
-            state.network.update(|s| s.a2_auth_failure_count = 0);
-            if prev > 0 {
-                crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev);
+            if secondary_success && prev_a2 > 0 {
+                crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev_a2);
             }
         }
     }

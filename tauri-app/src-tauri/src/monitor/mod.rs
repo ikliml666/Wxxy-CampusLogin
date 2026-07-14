@@ -4,7 +4,6 @@ pub mod latency;
 pub mod adapter_watch;
 pub mod campus_check;
 pub mod portal_check;
-pub mod portal_failure;
 pub mod quality_scheduler;
 pub mod background_emit;
 pub mod background_check;
