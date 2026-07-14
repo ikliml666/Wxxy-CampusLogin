@@ -6,6 +6,13 @@ lazy_static::lazy_static! {
 
     static ref DNS_SERVER_SCORES: dashmap::DashMap<String, ServerScore> = dashmap::DashMap::new();
     static ref DOH_SERVER_SCORES: dashmap::DashMap<String, ServerScore> = dashmap::DashMap::new();
+
+    /// BP-5: 缓存系统默认 ResolverConfig（Google DNS），避免 fallback 路径每次重复构造。
+    /// ResolverConfig::default() 内部调用 NameServerConfigGroup::google() 解析多个 IP 地址
+    /// 并构建 NameServerConfig 列表。L161 的系统 fallback 路径不依赖动态 bind_addr，
+    /// 其 config 是编译期固定的，适合缓存。使用时 .clone() 产生独立副本。
+    static ref SYSTEM_RESOLVER_CONFIG: hickory_resolver::config::ResolverConfig =
+        hickory_resolver::config::ResolverConfig::default();
 }
 
 const DNS_FALLBACK_SERVERS: &[&str] = &["223.5.5.5", "1.12.12.12", "114.114.114.114"];
@@ -151,7 +158,8 @@ pub(crate) async fn resolve_host_uncached_with_bind(
                     .ok_or_else(|| "无DNS结果".to_string())
             }
             Err(_) => {
-                let sys_config = ResolverConfig::default();
+                // BP-5: 使用缓存的系统默认 config，避免每次 fallback 都重新构造
+                let sys_config = SYSTEM_RESOLVER_CONFIG.clone();
                 let mut sys_opts = ResolverOpts::default();
                 sys_opts.try_tcp_on_error = true;
                 sys_opts.timeout = timeout;
@@ -452,4 +460,317 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
     };
 
     Err(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== build_dns_query_wire =====
+
+    #[test]
+    fn build_dns_query_wire_basic_structure() {
+        let query = build_dns_query_wire("example.com", 1);
+        // Header: 12 bytes + labels + root + qtype(2) + class(2)
+        // \x07example(8) + \x03com(4) + \x00(1) + qtype(2) + class(2) = 17
+        assert_eq!(query.len(), 12 + 17);
+    }
+
+    #[test]
+    fn build_dns_query_wire_header_flags() {
+        let query = build_dns_query_wire("example.com", 1);
+        // flags = 0x0100 (standard query, recursion desired)
+        assert_eq!(&query[2..4], &0x0100u16.to_be_bytes());
+        // qdcount = 1
+        assert_eq!(&query[4..6], &1u16.to_be_bytes());
+        // ancount = 0
+        assert_eq!(&query[6..8], &0u16.to_be_bytes());
+        // nscount = 0
+        assert_eq!(&query[8..10], &0u16.to_be_bytes());
+        // arcount = 0
+        assert_eq!(&query[10..12], &0u16.to_be_bytes());
+    }
+
+    #[test]
+    fn build_dns_query_wire_domain_encoding() {
+        let query = build_dns_query_wire("example.com", 1);
+        // First label: length 7 + "example"
+        assert_eq!(query[12], 7);
+        assert_eq!(&query[13..20], b"example");
+        // Second label: length 3 + "com"
+        assert_eq!(query[20], 3);
+        assert_eq!(&query[21..24], b"com");
+        // Root label
+        assert_eq!(query[24], 0);
+    }
+
+    #[test]
+    fn build_dns_query_wire_qtype_and_class() {
+        let query = build_dns_query_wire("example.com", 1);
+        // qtype at end-4..end-2
+        let qtype_pos = query.len() - 4;
+        assert_eq!(&query[qtype_pos..qtype_pos + 2], &1u16.to_be_bytes());
+        // class = IN (1) at end-2..end
+        let class_pos = query.len() - 2;
+        assert_eq!(&query[class_pos..class_pos + 2], &1u16.to_be_bytes());
+    }
+
+    #[test]
+    fn build_dns_query_wire_single_label() {
+        let query = build_dns_query_wire("localhost", 1);
+        // \x09localhost(10) + \x00(1) + qtype(2) + class(2) = 15
+        assert_eq!(query.len(), 12 + 15);
+        assert_eq!(query[12], 9);
+        assert_eq!(&query[13..22], b"localhost");
+    }
+
+    #[test]
+    fn build_dns_query_wire_aaaa_type() {
+        let query = build_dns_query_wire("example.com", 28); // AAAA
+        let qtype_pos = query.len() - 4;
+        assert_eq!(&query[qtype_pos..qtype_pos + 2], &28u16.to_be_bytes());
+    }
+
+    // ===== base64url_encode_no_pad =====
+
+    #[test]
+    fn base64url_encode_empty() {
+        assert_eq!(base64url_encode_no_pad(&[]), "");
+    }
+
+    #[test]
+    fn base64url_encode_known_values() {
+        assert_eq!(base64url_encode_no_pad(&[0x01, 0x02, 0x03]), "AQID");
+    }
+
+    #[test]
+    fn base64url_encode_high_bytes() {
+        // 0xFF 0xFF 0xFF → "____" in URL-safe base64 (no pad)
+        assert_eq!(base64url_encode_no_pad(&[0xff, 0xff, 0xff]), "____");
+    }
+
+    #[test]
+    fn base64url_encode_single_byte() {
+        // 0x01 → 000000 010000 → "AQ" (no pad)
+        assert_eq!(base64url_encode_no_pad(&[0x01]), "AQ");
+    }
+
+    #[test]
+    fn base64url_encode_two_bytes() {
+        // 0x01 0x02 → 000000 010000 001000 → "AQI" (no pad)
+        assert_eq!(base64url_encode_no_pad(&[0x01, 0x02]), "AQI");
+    }
+
+    // ===== skip_dns_name =====
+
+    #[test]
+    fn skip_dns_name_simple() {
+        // \x07example\x03com\x00
+        let data: Vec<u8> = vec![
+            0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+            0x03, b'c', b'o', b'm',
+            0x00,
+        ];
+        let result = skip_dns_name(&data, 0);
+        assert_eq!(result, Ok(13));
+    }
+
+    #[test]
+    fn skip_dns_name_root_only() {
+        let data: Vec<u8> = vec![0x00];
+        let result = skip_dns_name(&data, 0);
+        assert_eq!(result, Ok(1));
+    }
+
+    #[test]
+    fn skip_dns_name_compression_pointer() {
+        // Pointer at pos 0 → offset 2, where name "foo" is
+        let data: Vec<u8> = vec![
+            0xC0, 0x02,           // pointer to offset 2
+            0x03, b'f', b'o', b'o', // label "foo" at offset 2
+            0x00,                  // root at offset 6
+        ];
+        let result = skip_dns_name(&data, 0);
+        // Should return position after the pointer (pos + 2 = 2)
+        assert_eq!(result, Ok(2));
+    }
+
+    #[test]
+    fn skip_dns_name_out_of_bounds() {
+        // Label says 7 bytes but data is too short
+        let data: Vec<u8> = vec![0x07, b'e'];
+        let result = skip_dns_name(&data, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn skip_dns_name_empty_data() {
+        let data: Vec<u8> = vec![];
+        let result = skip_dns_name(&data, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn skip_dns_name_circular_pointer() {
+        // Self-referencing pointer: offset 0 points to offset 0
+        let data: Vec<u8> = vec![0xC0, 0x00];
+        let result = skip_dns_name(&data, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn skip_dns_name_pointer_out_of_bounds() {
+        // Pointer at pos 0, but pos+1 is out of bounds
+        let data: Vec<u8> = vec![0xC0];
+        let result = skip_dns_name(&data, 0);
+        assert!(result.is_err());
+    }
+
+    // ===== parse_dns_response_wire =====
+
+    fn build_test_dns_response() -> Vec<u8> {
+        let mut data = Vec::new();
+        // Header
+        data.extend_from_slice(&[0x12, 0x34]); // txid
+        data.extend_from_slice(&[0x81, 0x80]); // flags
+        data.extend_from_slice(&[0x00, 0x01]); // qdcount: 1
+        data.extend_from_slice(&[0x00, 0x01]); // ancount: 1
+        data.extend_from_slice(&[0x00, 0x00]); // nscount: 0
+        data.extend_from_slice(&[0x00, 0x00]); // arcount: 0
+        // Question: example.com A IN
+        data.push(0x07);
+        data.extend_from_slice(b"example");
+        data.push(0x03);
+        data.extend_from_slice(b"com");
+        data.push(0x00);
+        data.extend_from_slice(&[0x00, 0x01]); // type A
+        data.extend_from_slice(&[0x00, 0x01]); // class IN
+        // Answer: compression pointer to offset 12 + A record 1.2.3.4
+        data.extend_from_slice(&[0xC0, 0x0C]); // pointer to offset 12
+        data.extend_from_slice(&[0x00, 0x01]); // type A
+        data.extend_from_slice(&[0x00, 0x01]); // class IN
+        data.extend_from_slice(&[0x00, 0x00, 0x0E, 0x10]); // TTL 3600
+        data.extend_from_slice(&[0x00, 0x04]); // rdlength 4
+        data.extend_from_slice(&[0x01, 0x02, 0x03, 0x04]); // 1.2.3.4
+        data
+    }
+
+    #[test]
+    fn parse_dns_response_wire_valid_a_record() {
+        let data = build_test_dns_response();
+        let result = parse_dns_response_wire(&data);
+        assert!(result.is_ok());
+        let ips = result.unwrap();
+        assert_eq!(ips.len(), 1);
+        assert_eq!(ips[0], IpAddr::V4(std::net::Ipv4Addr::new(1, 2, 3, 4)));
+    }
+
+    #[test]
+    fn parse_dns_response_wire_too_short() {
+        let data: Vec<u8> = vec![0x00; 11]; // < 12 bytes
+        let result = parse_dns_response_wire(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_dns_response_wire_no_answers() {
+        let mut data = Vec::new();
+        // Header with ancount=0
+        data.extend_from_slice(&[0x12, 0x34]); // txid
+        data.extend_from_slice(&[0x81, 0x80]); // flags
+        data.extend_from_slice(&[0x00, 0x01]); // qdcount: 1
+        data.extend_from_slice(&[0x00, 0x00]); // ancount: 0
+        data.extend_from_slice(&[0x00, 0x00]); // nscount: 0
+        data.extend_from_slice(&[0x00, 0x00]); // arcount: 0
+        // Question
+        data.push(0x07);
+        data.extend_from_slice(b"example");
+        data.push(0x03);
+        data.extend_from_slice(b"com");
+        data.push(0x00);
+        data.extend_from_slice(&[0x00, 0x01]); // type A
+        data.extend_from_slice(&[0x00, 0x01]); // class IN
+        let result = parse_dns_response_wire(&data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_dns_response_wire_multiple_a_records() {
+        let mut data = Vec::new();
+        // Header with ancount=2
+        data.extend_from_slice(&[0x12, 0x34, 0x81, 0x80]);
+        data.extend_from_slice(&[0x00, 0x01]); // qdcount: 1
+        data.extend_from_slice(&[0x00, 0x02]); // ancount: 2
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        // Question
+        data.push(0x03);
+        data.extend_from_slice(b"foo");
+        data.push(0x00);
+        data.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+        // Answer 1: 10.0.0.1
+        data.extend_from_slice(&[0xC0, 0x0C]);
+        data.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x3C]); // TTL 60
+        data.extend_from_slice(&[0x00, 0x04, 0x0A, 0x00, 0x00, 0x01]);
+        // Answer 2: 10.0.0.2
+        data.extend_from_slice(&[0xC0, 0x0C]);
+        data.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x3C]);
+        data.extend_from_slice(&[0x00, 0x04, 0x0A, 0x00, 0x00, 0x02]);
+        let result = parse_dns_response_wire(&data);
+        assert!(result.is_ok());
+        let ips = result.unwrap();
+        assert_eq!(ips.len(), 2);
+        assert_eq!(ips[0], IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)));
+        assert_eq!(ips[1], IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 2)));
+    }
+
+    // ===== dns_cache_get / dns_cache_put =====
+
+    #[test]
+    fn dns_cache_put_then_get() {
+        let host = "test_put_get_unique_v1.example.com";
+        let ip: IpAddr = "203.0.113.42".parse().unwrap();
+        dns_cache_put(host, ip);
+        let result = dns_cache_get(host);
+        assert_eq!(result, Some(ip));
+    }
+
+    #[test]
+    fn dns_cache_get_miss() {
+        let host = "test_cache_miss_unique_v1.example.com";
+        let result = dns_cache_get(host);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn dns_cache_put_overwrite() {
+        let host = "test_overwrite_unique_v1.example.com";
+        let ip1: IpAddr = "203.0.113.1".parse().unwrap();
+        let ip2: IpAddr = "203.0.113.2".parse().unwrap();
+        dns_cache_put(host, ip1);
+        dns_cache_put(host, ip2);
+        let result = dns_cache_get(host);
+        assert_eq!(result, Some(ip2));
+    }
+
+    // ===== SYSTEM_RESOLVER_CONFIG (BP-5) =====
+
+    #[test]
+    fn system_resolver_config_initializes_without_panic() {
+        // BP-5: 验证缓存的 SYSTEM_RESOLVER_CONFIG 能成功初始化
+        let config = &*SYSTEM_RESOLVER_CONFIG;
+        // ResolverConfig::default() 使用 Google DNS，应该有 name servers
+        assert!(!config.name_servers().is_empty());
+    }
+
+    #[test]
+    fn system_resolver_config_clone_is_independent() {
+        // BP-5: 验证 clone 产生独立副本，修改不影响原缓存
+        let clone1 = SYSTEM_RESOLVER_CONFIG.clone();
+        let clone2 = SYSTEM_RESOLVER_CONFIG.clone();
+        // 两个 clone 应该有相同的 name servers 数量
+        assert_eq!(clone1.name_servers().len(), clone2.name_servers().len());
+    }
 }

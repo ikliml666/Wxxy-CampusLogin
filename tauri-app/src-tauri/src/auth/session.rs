@@ -6,7 +6,7 @@ use crate::auth::portal::check_portal_full;
 use crate::auth::protocol::do_login_with_retry;
 use crate::infra::events::EventBus;
 use crate::infra::state::CommandResult;
-use crate::commands::system::append_login_history;
+use crate::config::persist::append_login_history;
 
 pub fn adapter_action_with_log<F>(
     adapter: &Adapter,

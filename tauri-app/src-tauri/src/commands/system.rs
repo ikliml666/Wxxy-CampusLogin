@@ -110,57 +110,9 @@ pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> R
     result
 }
 
+#[allow(dead_code)]
 pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
-    let data_dir = crate::config::persist::get_data_dir(app_handle);
-    let history_path = crate::config::persist::get_login_history_path(&data_dir);
-    std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
-
-    let mut history: Vec<serde_json::Value> = if history_path.exists() {
-        let content = match std::fs::read_to_string(&history_path) {
-            Ok(c) => c,
-            Err(e) => {
-                crate::log_warn!("system", "读取登录历史失败，备份后重置: {}", e);
-                let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
-                String::new()
-            }
-        };
-        if content.is_empty() {
-            vec![]
-        } else {
-            match serde_json::from_str(&content) {
-                Ok(v) => v,
-                Err(e) => {
-                    crate::log_warn!("system", "解析登录历史失败，备份后重置: {}", e);
-                    let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
-                    vec![]
-                }
-            }
-        }
-    } else {
-        vec![]
-    };
-
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-    history.insert(0, serde_json::json!({
-        "time": now,
-        "success": success,
-        "message": message,
-        "adapter": adapter,
-        "user": user,
-        "type": login_type
-    }));
-
-    if history.len() > 100 {
-        history.truncate(100);
-    }
-
-    let json = serde_json::to_string_pretty(&history)
-        .map_err(|e| format!("序列化登录历史失败: {e}"))?;
-
-    crate::config::persist::atomic_write(&history_path, &json)?;
-
-    Ok(())
+    crate::config::persist::append_login_history(app_handle, success, message, adapter, user, login_type)
 }
 
 #[tauri::command]

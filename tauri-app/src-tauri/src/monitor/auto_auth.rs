@@ -137,7 +137,7 @@ pub fn try_disconnect_reconnect(
                 s.any_adapter_online = true;
                 s.has_logged_online = true;
             });
-            if let Err(e) = crate::commands::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
+            if let Err(e) = crate::config::persist::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
                 crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
             }
             let reconnect_msg = format!("断线重连成功: {}", reconnect_result.message.unwrap_or_default());

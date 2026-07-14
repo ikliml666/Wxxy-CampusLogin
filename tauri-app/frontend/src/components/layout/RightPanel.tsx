@@ -50,6 +50,12 @@ const LOG_BAR_COLORS: Record<LogEntry['type'], string> = {
   warning: 'bg-amber-500',
 }
 
+// FP-4: 日志条数超过阈值时降级，旧条目用普通 div 替代 m.div，
+// 避免 MAX_LOG_ENTRIES=300 上限下大量 framer-motion 组件 reconciliation。
+// 与 shared/LogPanel.tsx 中 "displayedLines.length <= 30 才启用动画" 的策略保持一致。
+const RIGHT_PANEL_ANIM_THRESHOLD = 50
+const RIGHT_PANEL_ANIM_KEEP_COUNT = 30
+
 function getAdapterInfo(
   adapterName: string | undefined,
   adapterDetails: AdapterDetail[],
@@ -154,6 +160,19 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
     return result
   }, [adapterDetails, adapters, config])
 
+  // FP-4: 日志分片。logs.length > 50 时，前段用普通 div 渲染（无进出场动画），
+  // 最近 30 条保留 m.div + AnimatePresence 动画。降低 300 条日志频繁追加时的 reconciliation 成本。
+  const { staticLogs, animLogs, staticCount } = useMemo(() => {
+    const enableAnim = logs.length <= RIGHT_PANEL_ANIM_THRESHOLD
+    const animCount = enableAnim ? logs.length : RIGHT_PANEL_ANIM_KEEP_COUNT
+    const staticCount = logs.length - animCount
+    return {
+      staticLogs: staticCount > 0 ? logs.slice(0, staticCount) : [],
+      animLogs: enableAnim ? logs : logs.slice(staticCount),
+      staticCount,
+    }
+  }, [logs])
+
   return (
     <div
       ref={outerRef}
@@ -201,9 +220,29 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
             </div>
           ) : (
             <div className="space-y-1">
+            {staticLogs.map((log) => {
+              const Icon = LOG_ICONS[log.type]
+              return (
+                <div
+                  key={log.id}
+                  className={cn(
+                    'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover flex-shrink-0',
+                    LOG_BG_COLORS[log.type],
+                  )}
+                >
+                  <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type])} />
+                  <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                    <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
+                  </div>
+                </div>
+              )
+            })}
             <AnimatePresence initial={false}>
-              {logs.map((log, idx) => {
+              {animLogs.map((log, i) => {
                 const Icon = LOG_ICONS[log.type]
+                const idx = staticCount + i
                 const isLatest = isNewLog && idx === logs.length - 1
                 return (
                   <m.div

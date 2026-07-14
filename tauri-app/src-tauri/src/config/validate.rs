@@ -202,3 +202,463 @@ pub fn validate_config_lenient(mut config: Config) -> Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== validate_username =====
+
+    #[test]
+    fn validate_username_valid_simple() {
+        assert_eq!(validate_username("user123"), Ok("user123"));
+    }
+
+    #[test]
+    fn validate_username_valid_with_dots() {
+        assert_eq!(validate_username("user.name"), Ok("user.name"));
+    }
+
+    #[test]
+    fn validate_username_valid_with_hyphens() {
+        assert_eq!(validate_username("user-name"), Ok("user-name"));
+    }
+
+    #[test]
+    fn validate_username_valid_with_underscores() {
+        assert_eq!(validate_username("user_name"), Ok("user_name"));
+    }
+
+    #[test]
+    fn validate_username_valid_single_char() {
+        assert_eq!(validate_username("a"), Ok("a"));
+    }
+
+    #[test]
+    fn validate_username_valid_max_length() {
+        let user = "a".repeat(64);
+        assert_eq!(validate_username(&user), Ok(user.as_str()));
+    }
+
+    #[test]
+    fn validate_username_rejects_empty() {
+        assert!(validate_username("").is_err());
+    }
+
+    #[test]
+    fn validate_username_rejects_too_long() {
+        let user = "a".repeat(65);
+        assert!(validate_username(&user).is_err());
+    }
+
+    #[test]
+    fn validate_username_rejects_at_sign() {
+        assert!(validate_username("user@domain").is_err());
+    }
+
+    #[test]
+    fn validate_username_rejects_spaces() {
+        assert!(validate_username("user name").is_err());
+    }
+
+    #[test]
+    fn validate_username_rejects_chinese() {
+        assert!(validate_username("用户名").is_err());
+    }
+
+    #[test]
+    fn validate_username_rejects_special_chars() {
+        assert!(validate_username("user!").is_err());
+        assert!(validate_username("user#").is_err());
+        assert!(validate_username("user/").is_err());
+    }
+
+    // ===== validate_operator =====
+
+    #[test]
+    fn validate_operator_valid_empty() {
+        assert_eq!(validate_operator(""), Ok(""));
+    }
+
+    #[test]
+    fn validate_operator_valid_telecom() {
+        assert_eq!(validate_operator("@telecom"), Ok("@telecom"));
+    }
+
+    #[test]
+    fn validate_operator_valid_unicom() {
+        assert_eq!(validate_operator("@unicom"), Ok("@unicom"));
+    }
+
+    #[test]
+    fn validate_operator_valid_cmcc() {
+        assert_eq!(validate_operator("@cmcc"), Ok("@cmcc"));
+    }
+
+    #[test]
+    fn validate_operator_rejects_ctcc() {
+        // validate_operator itself does NOT migrate; migration happens in validate_config
+        assert!(validate_operator("@ctcc").is_err());
+    }
+
+    #[test]
+    fn validate_operator_rejects_cucc() {
+        assert!(validate_operator("@cucc").is_err());
+    }
+
+    #[test]
+    fn validate_operator_rejects_unknown() {
+        assert!(validate_operator("@unknown").is_err());
+    }
+
+    #[test]
+    fn validate_operator_rejects_no_at_prefix() {
+        assert!(validate_operator("telecom").is_err());
+    }
+
+    // ===== validate_password =====
+
+    #[test]
+    fn validate_password_valid_simple() {
+        assert_eq!(validate_password("pass"), Ok(()));
+    }
+
+    #[test]
+    fn validate_password_valid_single_char() {
+        assert_eq!(validate_password("a"), Ok(()));
+    }
+
+    #[test]
+    fn validate_password_valid_max_length() {
+        let pwd = "a".repeat(128);
+        assert_eq!(validate_password(&pwd), Ok(()));
+    }
+
+    #[test]
+    fn validate_password_rejects_empty() {
+        assert!(validate_password("").is_err());
+    }
+
+    #[test]
+    fn validate_password_rejects_too_long() {
+        let pwd = "a".repeat(129);
+        assert!(validate_password(&pwd).is_err());
+    }
+
+    // ===== validate_portal_url =====
+
+    #[test]
+    fn validate_portal_url_valid_http_private() {
+        assert!(validate_portal_url("http://10.1.99.100").is_ok());
+    }
+
+    #[test]
+    fn validate_portal_url_valid_https_private() {
+        assert!(validate_portal_url("https://10.1.99.100").is_ok());
+    }
+
+    #[test]
+    fn validate_portal_url_valid_loopback() {
+        assert!(validate_portal_url("http://127.0.0.1").is_ok());
+    }
+
+    #[test]
+    fn validate_portal_url_valid_192_168() {
+        assert!(validate_portal_url("http://192.168.1.1").is_ok());
+    }
+
+    #[test]
+    fn validate_portal_url_valid_localhost() {
+        assert!(validate_portal_url("http://localhost").is_ok());
+    }
+
+    #[test]
+    fn validate_portal_url_valid_with_port() {
+        assert!(validate_portal_url("http://10.1.99.100:801").is_ok());
+    }
+
+    #[test]
+    fn validate_portal_url_rejects_public_ip() {
+        assert!(validate_portal_url("http://8.8.8.8").is_err());
+    }
+
+    #[test]
+    fn validate_portal_url_rejects_domain() {
+        assert!(validate_portal_url("http://example.com").is_err());
+    }
+
+    #[test]
+    fn validate_portal_url_rejects_ftp_scheme() {
+        assert!(validate_portal_url("ftp://10.1.99.100").is_err());
+    }
+
+    #[test]
+    fn validate_portal_url_rejects_invalid_url() {
+        assert!(validate_portal_url("not a url").is_err());
+    }
+
+    #[test]
+    fn validate_portal_url_rejects_empty() {
+        assert!(validate_portal_url("").is_err());
+    }
+
+    // ===== validate_config =====
+
+    #[test]
+    fn validate_config_default_ok() {
+        assert!(validate_config(Config::default()).is_ok());
+    }
+
+    #[test]
+    fn validate_config_rejects_bad_username() {
+        let mut config = Config::default();
+        config.user = "user@bad".to_string();
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_bad_operator() {
+        let mut config = Config::default();
+        config.operator = "@unknown".to_string();
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_migrates_ctcc_operator() {
+        let mut config = Config::default();
+        config.operator = "@ctcc".to_string();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.operator, "@telecom");
+    }
+
+    #[test]
+    fn validate_config_migrates_cucc_operator() {
+        let mut config = Config::default();
+        config.operator = "@cucc".to_string();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.operator, "@unicom");
+    }
+
+    #[test]
+    fn validate_config_rejects_bad_theme_mode() {
+        let mut config = Config::default();
+        config.theme_mode = "purple".to_string();
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_bad_color() {
+        let mut config = Config::default();
+        config.custom_theme_color = "red".to_string();
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_bad_portal_url() {
+        let mut config = Config::default();
+        config.portal_url = "http://8.8.8.8".to_string();
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_bad_fixed_gateway() {
+        let mut config = Config::default();
+        config.fixed_gateway = "not-an-ip".to_string();
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_bad_campus_gateway() {
+        let mut config = Config::default();
+        config.campus_gateway = "not-an-ip".to_string();
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_clamps_background_check_interval_low() {
+        let mut config = Config::default();
+        config.background_check_interval = 1000;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.background_check_interval, 10000);
+    }
+
+    #[test]
+    fn validate_config_clamps_background_check_interval_high() {
+        let mut config = Config::default();
+        config.background_check_interval = 5000000;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.background_check_interval, 3600000);
+    }
+
+    #[test]
+    fn validate_config_clamps_latency_test_interval() {
+        let mut config = Config::default();
+        config.latency_test_interval = 1000;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.latency_test_interval, 10000);
+    }
+
+    #[test]
+    fn validate_config_clamps_log_retention_days() {
+        let mut config = Config::default();
+        config.log_retention_days = 9999;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.log_retention_days, 365);
+    }
+
+    #[test]
+    fn validate_config_migrates_old_hour_to_minutes() {
+        let mut config = Config::default();
+        config.config_version = 1;
+        config.campus_check_start_minutes = 8; // 8 hours → 480 minutes
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_check_start_minutes, 480);
+        assert_eq!(result.config_version, 2);
+    }
+
+    #[test]
+    fn validate_config_preserves_v2_minutes() {
+        let mut config = Config::default();
+        config.config_version = 2;
+        config.campus_check_start_minutes = 600;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_check_start_minutes, 600);
+    }
+
+    #[test]
+    fn validate_config_clamps_campus_check_start_minutes() {
+        let mut config = Config::default();
+        config.config_version = 2;
+        config.campus_check_start_minutes = 2000;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_check_start_minutes, 1439);
+    }
+
+    #[test]
+    fn validate_config_normalizes_empty_portal_url() {
+        let mut config = Config::default();
+        config.portal_url = String::new();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.portal_url, "http://10.1.99.100");
+    }
+
+    #[test]
+    fn validate_config_normalizes_portal_url_with_port() {
+        let mut config = Config::default();
+        config.portal_url = "http://10.1.99.100:801".to_string();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.portal_url, "http://10.1.99.100");
+    }
+
+    #[test]
+    fn validate_config_fills_empty_campus_gateway() {
+        let mut config = Config::default();
+        config.campus_gateway = String::new();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_gateway, "10.2.127.254");
+    }
+
+    #[test]
+    fn validate_config_skips_username_validation_when_empty() {
+        let mut config = Config::default();
+        config.user = String::new();
+        assert!(validate_config(config).is_ok());
+    }
+
+    #[test]
+    fn validate_config_skips_password_when_masked() {
+        let mut config = Config::default();
+        config.password = PASSWORD_MASK.to_string();
+        assert!(validate_config(config).is_ok());
+    }
+
+    // ===== validate_config_lenient =====
+
+    #[test]
+    fn validate_config_lenient_preserves_valid_config() {
+        let mut config = Config::default();
+        config.user = "testuser".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.user, "testuser");
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_username() {
+        let mut config = Config::default();
+        config.user = "user@bad".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.user, Config::default().user);
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_operator() {
+        let mut config = Config::default();
+        config.operator = "@unknown".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.operator, Config::default().operator);
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_theme_mode() {
+        let mut config = Config::default();
+        config.theme_mode = "purple".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.theme_mode, "dark");
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_color() {
+        let mut config = Config::default();
+        config.custom_theme_color = "red".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.custom_theme_color, "#6366f1");
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_portal_url() {
+        let mut config = Config::default();
+        config.portal_url = "http://8.8.8.8".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.portal_url, Config::default().portal_url);
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_fixed_gateway() {
+        let mut config = Config::default();
+        config.fixed_gateway = "not-an-ip".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.fixed_gateway, Config::default().fixed_gateway);
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_campus_gateway() {
+        let mut config = Config::default();
+        config.campus_gateway = "not-an-ip".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.campus_gateway, Config::default().campus_gateway);
+    }
+
+    #[test]
+    fn validate_config_lenient_migrates_ctcc() {
+        let mut config = Config::default();
+        config.operator = "@ctcc".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.operator, "@telecom");
+    }
+
+    #[test]
+    fn validate_config_lenient_fills_empty_campus_gateway() {
+        let mut config = Config::default();
+        config.campus_gateway = String::new();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.campus_gateway, "10.2.127.254");
+    }
+
+    #[test]
+    fn validate_config_lenient_preserves_valid_password() {
+        let mut config = Config::default();
+        config.password = "mypassword".to_string();
+        let result = validate_config_lenient(config);
+        assert_eq!(result.password, "mypassword");
+    }
+}

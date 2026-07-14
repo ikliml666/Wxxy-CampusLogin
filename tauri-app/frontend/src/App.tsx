@@ -25,6 +25,7 @@ import { SettingsPanel } from '@/settings'
 import { getPanelDirection, createPanelAppleVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
+import { AnimationActiveProvider } from '@/hooks/usePageIdle'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
@@ -364,7 +365,9 @@ function AppInner() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppInner />
+      <AnimationActiveProvider>
+        <AppInner />
+      </AnimationActiveProvider>
     </ErrorBoundary>
   )
 }
