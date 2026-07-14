@@ -19,18 +19,10 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
     let app_h = app_handle.clone();
     state.task_manager.spawn("background_check", move |cancel_token| {
         async move {
-            {
-                let mut waited = 0u64;
-                while waited < 5000 {
-                    let s = app_h.state::<AppState>();
-                    if !s.tasks.is_checking.is_active() {
-                        break;
-                    }
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_millis(50)) => { waited += 50; }
-                        _ = cancel_token.cancelled() => { break; }
-                    }
-                }
+            // 首启直接执行首次检测，不再忙等 is_checking 信号量；
+            // 若上次检测仍在进行，run_background_check 内部 try_acquire 会安全跳过。
+            if cancel_token.is_cancelled() {
+                return;
             }
 
             run_background_check(&app_h, cancel_token.clone()).await;

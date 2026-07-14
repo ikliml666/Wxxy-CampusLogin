@@ -23,17 +23,19 @@ pub fn try_auto_login_on_preparation(
         return;
     }
 
-    if state.network.load().has_logged_online {
+    // 单次 load 快照，复用读取 has_logged_online / logout_protected_until / last_auto_login_attempt
+    let snap = state.network.load();
+    if snap.has_logged_online {
         return;
     }
 
-    let protected_until = state.network.load().logout_protected_until;
+    let protected_until = snap.logout_protected_until;
     if std::time::Instant::now() < protected_until {
         crate::log_debug!("auto_login", "注销保护期内，跳过自动登录");
         return;
     }
 
-    let last_attempt = state.network.load().last_auto_login_attempt;
+    let last_attempt = snap.last_auto_login_attempt;
     if last_attempt.elapsed().as_secs() < config.auto_login_cooldown_secs {
         crate::log_debug!("auto_login", "自动登录冷却中（{}秒内不重复），跳过", config.auto_login_cooldown_secs);
         return;
@@ -85,17 +87,19 @@ pub fn try_disconnect_reconnect(
 ) -> bool {
     let any_offline = (!online && a1.is_some()) || secondary_online == Some(false);
 
-    if !state.network.load().any_adapter_online || !any_offline || !reachable || !login_available || !config.auto_login_on_preparation {
+    // 单次 load 快照，复用读取 any_adapter_online / logout_protected_until / last_auto_login_attempt / disconnect_reconnect_count
+    let snap = state.network.load();
+    if !snap.any_adapter_online || !any_offline || !reachable || !login_available || !config.auto_login_on_preparation {
         return false;
     }
 
-    let protected_until = state.network.load().logout_protected_until;
+    let protected_until = snap.logout_protected_until;
     if std::time::Instant::now() < protected_until {
         crate::log_debug!("auto_login", "注销保护期内，跳过断线重连");
         return false;
     }
 
-    let last_attempt = state.network.load().last_auto_login_attempt;
+    let last_attempt = snap.last_auto_login_attempt;
     if last_attempt.elapsed().as_secs() < config.auto_login_cooldown_secs {
         return false;
     }
@@ -109,7 +113,7 @@ pub fn try_disconnect_reconnect(
         }
     };
 
-    let reconnect_count = state.network.load().disconnect_reconnect_count + 1;
+    let reconnect_count = snap.disconnect_reconnect_count + 1;
     state.network.increment_disconnect_reconnect_count();
     if reconnect_count <= config.max_disconnect_reconnect {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
@@ -128,9 +132,11 @@ pub fn try_disconnect_reconnect(
             reconnect_count, config.max_disconnect_reconnect, reconnect_result.success, elapsed.as_millis());
 
         if reconnect_result.success {
-            state.network.update(|s| s.disconnect_reconnect_count = 0);
-            state.network.update(|s| s.any_adapter_online = true);
-            state.network.update(|s| s.has_logged_online = true);
+            state.network.update(|s| {
+                s.disconnect_reconnect_count = 0;
+                s.any_adapter_online = true;
+                s.has_logged_online = true;
+            });
             if let Err(e) = crate::commands::system::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
                 crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
             }
@@ -243,8 +249,10 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
                 if !campus_result.on_campus {
                     crate::log_info!("auto_login", "开机自启: 校园网检测未通过，跳过自动登录 - {}", campus_result.message);
-                    s.network.update(|s| s.current_ssid = campus_result.current_ssid.clone());
-                    s.network.update(|s| s.on_campus_network = campus_result.on_campus);
+                    s.network.update(|s| {
+                        s.current_ssid = campus_result.current_ssid.clone();
+                        s.on_campus_network = campus_result.on_campus;
+                    });
                     let _ = EventBus::new(&app_h).emit_auto_login_result(false, &campus_result.message, true);
                     // 如果配置的适配器均无IP（完全无网络），跳过退出，等待网络恢复
                     let a1_has_ip = adapters.iter().any(|a| a.name == adapter1_name && !a.ip.is_empty());
@@ -259,8 +267,10 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     return;
                 }
 
-                s.network.update(|s| s.current_ssid = campus_result.current_ssid.clone());
-                s.network.update(|s| s.on_campus_network = true);
+                s.network.update(|s| {
+                    s.current_ssid = campus_result.current_ssid.clone();
+                    s.on_campus_network = true;
+                });
                 crate::log_info!("auto_login", "开机自启: 校园网检测通过 - {}", campus_result.message);
             }
         }
@@ -332,8 +342,10 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     };
                     let msg = format!("已在线（{}）", adapter_names.join("、"));
 
-                    s.network.update(|s| s.any_adapter_online = true);
-                    s.network.update(|s| s.has_logged_online = true);
+                    s.network.update(|s| {
+                        s.any_adapter_online = true;
+                        s.has_logged_online = true;
+                    });
 
                     crate::log_info!("auto_login", "已在线，跳过登录: 适配器=[{}]", adapter_names.join(", "));
 

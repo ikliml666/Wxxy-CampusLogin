@@ -10,6 +10,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
 import { AnimatePresence, m } from 'framer-motion'
 import { ErrorBoundary, ToastContainer, FluidBackground, ConfirmDialog, LogPanel } from '@/shared'
+import type { PanelName } from '@/shared'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/monitor'
 import { DockNav } from '@/components/layout/DockNav'
@@ -38,6 +39,8 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   settings: { titleKey: 'panel.settings', descKey: 'panel.settingsDesc' },
   log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
+
+const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style paint', willChange: 'transform', transform: 'translateZ(0)' }
 
 function AppInner() {
   useAppInit()
@@ -142,6 +145,14 @@ function AppInner() {
   const handleClearLogs = useCallback(() => {
     setLogs([])
   }, [setLogs])
+
+  const handlePanelChange = useCallback((p: PanelName) => {
+    if (panelChangeLock.current) return
+    panelChangeLock.current = true
+    setActivePanel(p)
+    safeStorage.set('campus-active-panel', p)
+    setTimeout(() => { panelChangeLock.current = false }, 500)
+  }, [setActivePanel])
 
   const panelInfo = PANEL_TITLES[activePanel] || PANEL_TITLES.dashboard
 
@@ -283,7 +294,7 @@ function AppInner() {
                 animate="animate"
                 exit="exit"
                 className="panel-content"
-                style={{ contain: 'layout style paint', willChange: 'transform', transform: 'translateZ(0)' } as React.CSSProperties}
+                style={PANEL_CONTAINER_STYLE}
               >
                 <ErrorBoundary>{panelContent}</ErrorBoundary>
               </m.div>
@@ -300,13 +311,7 @@ function AppInner() {
 
       <DockNav
         outerRef={setRef('dockNav')}
-        onPanelChange={(p) => {
-          if (panelChangeLock.current) return
-          panelChangeLock.current = true
-          setActivePanel(p)
-          safeStorage.set('campus-active-panel', p)
-          setTimeout(() => { panelChangeLock.current = false }, 500)
-        }}
+        onPanelChange={handlePanelChange}
       />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />

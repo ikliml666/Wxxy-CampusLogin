@@ -21,6 +21,86 @@ let _qualityLockFlag = false
 let _checkOnlineLockFlag = false
 let _adapterLockFlag = false
 
+type CampusStatus = Awaited<ReturnType<typeof api.checkCampusStatus>>
+type PortalStatus = Awaited<ReturnType<typeof api.checkPortalStatus>>
+
+// ===== checkOnline 子函数（模块级辅助函数，状态更新由 checkOnline 统一处理）=====
+
+// campus 网络检测：调用后端检测校园网状态，失败时返回 null
+async function detectCampusNetwork(): Promise<CampusStatus | null> {
+  try {
+    return await api.checkCampusStatus()
+  } catch {
+    return null
+  }
+}
+
+// 根据校园网检测结果构造 bgStatus 补丁（纯函数，读取所需数据由参数传入）
+function buildCampusBgStatusPatch(
+  adapters: Adapter[],
+  adapter1: string,
+  adapter2: string,
+  bgStatus: BackgroundStatus,
+  campusStatus: CampusStatus
+): Partial<BackgroundStatus> {
+  const a1Info = adapters.find(a => a.name === adapter1)
+  const a2Info = adapters.find(a => a.name === adapter2)
+  const a1OnCampus = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
+  const a2OnCampus = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
+  const a1CampusMessage = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
+  const a2CampusMessage = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
+  return {
+    onCampusNetwork: campusStatus.onCampusNetwork,
+    campusWifi: campusStatus.campusWifi,
+    campusWired: campusStatus.campusWired,
+    a1OnCampus: a1OnCampus ?? bgStatus.a1OnCampus,
+    a2OnCampus: a2OnCampus ?? bgStatus.a2OnCampus,
+    a1CampusMessage: a1CampusMessage ?? bgStatus.a1CampusMessage,
+    a2CampusMessage: a2CampusMessage ?? bgStatus.a2CampusMessage,
+    enableNetworkNameCheck: campusStatus.enableNetworkNameCheck ?? bgStatus.enableNetworkNameCheck,
+    requiredNetworkName: campusStatus.requiredNetworkName ?? bgStatus.requiredNetworkName,
+  }
+}
+
+// 适配器解析：从适配器列表中选择 IP（纯函数）
+function pickAdapterIp(adapters: Adapter[], adapter1: string | undefined): string {
+  if (adapter1 && adapter1 !== '自动检测') {
+    const adapter = adapters.find(a => a.name === adapter1)
+    if (adapter?.ip) return adapter.ip
+  }
+  if (adapters.length > 0) {
+    const wired = adapters.find(a => !a.wireless)
+    const wireless = adapters.find(a => a.wireless)
+    return (wired || wireless || adapters[0]).ip
+  }
+  return ''
+}
+
+// 适配器解析：当前列表无 IP 时，重新拉取适配器并解析 IP
+async function refreshAdaptersForIp(
+  adapter1: string | undefined
+): Promise<{ adapterIp: string; adapters: Adapter[] | null }> {
+  try {
+    const freshAdapters = await api.getAdapters?.(true)
+    if (freshAdapters && freshAdapters.length > 0) {
+      return { adapterIp: pickAdapterIp(freshAdapters, adapter1), adapters: freshAdapters }
+    }
+  } catch {}
+  return { adapterIp: '', adapters: null }
+}
+
+// portal 状态查询：查询在线状态，失败时返回 { ok: false }
+async function queryPortalStatus(
+  adapterIp: string
+): Promise<{ ok: true; portal: PortalStatus } | { ok: false }> {
+  try {
+    const portal = await api.checkPortalStatus(adapterIp)
+    return { ok: true, portal }
+  } catch {
+    return { ok: false }
+  }
+}
+
 interface AppStore {
   config: Config
   passwordSaved: boolean
@@ -312,94 +392,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const currentConfig = cfg || s.config
       if (!currentConfig) return
 
+      // campus 网络检测
       if (currentConfig.enableNetworkNameCheck) {
-        try {
-          const campusStatus = await api.checkCampusStatus()
-          if (epoch !== checkOnlineEpoch) return
-          if (campusStatus && !campusStatus.onCampusNetwork) {
-            const { status, addLog } = get()
-            const prevState = status.state
-            if (prevState !== 'offline' && campusStatus.campusMessage) {
-              addLog(campusStatus.campusMessage, 'warning')
-            }
-            set((s) => {
-              const a1Info = s.adapters.find(a => a.name === s.config.adapter1)
-              const a2Info = s.adapters.find(a => a.name === s.config.adapter2)
-              const a1OnCampus = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-              const a2OnCampus = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-              const a1CampusMessage = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
-              const a2CampusMessage = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
-              return {
-                bgStatus: {
-                  ...s.bgStatus,
-                  onCampusNetwork: false,
-                  campusWifi: campusStatus.campusWifi,
-                  campusWired: campusStatus.campusWired,
-                  a1OnCampus: a1OnCampus ?? s.bgStatus.a1OnCampus,
-                  a2OnCampus: a2OnCampus ?? s.bgStatus.a2OnCampus,
-                  a1CampusMessage: a1CampusMessage ?? s.bgStatus.a1CampusMessage,
-                  a2CampusMessage: a2CampusMessage ?? s.bgStatus.a2CampusMessage,
-                  enableNetworkNameCheck: campusStatus.enableNetworkNameCheck ?? s.bgStatus.enableNetworkNameCheck,
-                  requiredNetworkName: campusStatus.requiredNetworkName ?? s.bgStatus.requiredNetworkName,
-                }
-              }
-            })
-            get().setStatus({ text: campusStatus.campusMessage || i18next.t('auth.notOnCampus'), state: 'offline' })
-            return
+        const campusStatus = await detectCampusNetwork()
+        if (epoch !== checkOnlineEpoch) return
+        if (campusStatus && !campusStatus.onCampusNetwork) {
+          const { status, addLog } = get()
+          const prevState = status.state
+          if (prevState !== 'offline' && campusStatus.campusMessage) {
+            addLog(campusStatus.campusMessage, 'warning')
           }
-          if (campusStatus) {
-            set((s) => {
-              const a1Info = s.adapters.find(a => a.name === s.config.adapter1)
-              const a2Info = s.adapters.find(a => a.name === s.config.adapter2)
-              const a1OnCampus = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-              const a2OnCampus = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-              const a1CampusMessage = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
-              const a2CampusMessage = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
-              return {
-                bgStatus: {
-                  ...s.bgStatus,
-                  onCampusNetwork: campusStatus.onCampusNetwork,
-                  campusWifi: campusStatus.campusWifi,
-                  campusWired: campusStatus.campusWired,
-                  a1OnCampus: a1OnCampus ?? s.bgStatus.a1OnCampus,
-                  a2OnCampus: a2OnCampus ?? s.bgStatus.a2OnCampus,
-                  a1CampusMessage: a1CampusMessage ?? s.bgStatus.a1CampusMessage,
-                  a2CampusMessage: a2CampusMessage ?? s.bgStatus.a2CampusMessage,
-                  enableNetworkNameCheck: campusStatus.enableNetworkNameCheck ?? s.bgStatus.enableNetworkNameCheck,
-                  requiredNetworkName: campusStatus.requiredNetworkName ?? s.bgStatus.requiredNetworkName,
-                }
-              }
-            })
-          }
-        } catch {}
+          set((st) => ({
+            bgStatus: { ...st.bgStatus, ...buildCampusBgStatusPatch(st.adapters, st.config.adapter1, st.config.adapter2, st.bgStatus, campusStatus) }
+          }))
+          get().setStatus({ text: campusStatus.campusMessage || i18next.t('auth.notOnCampus'), state: 'offline' })
+          return
+        }
+        if (campusStatus) {
+          set((st) => ({
+            bgStatus: { ...st.bgStatus, ...buildCampusBgStatusPatch(st.adapters, st.config.adapter1, st.config.adapter2, st.bgStatus, campusStatus) }
+          }))
+        }
       }
 
-      let adapterIp = ''
-      if (currentConfig.adapter1 && currentConfig.adapter1 !== '自动检测') {
-        const adapter = currentAdapters.find(a => a.name === currentConfig.adapter1)
-        if (adapter?.ip) adapterIp = adapter.ip
-      } else if (currentAdapters.length > 0) {
-        const wired = currentAdapters.find(a => !a.wireless)
-        const wireless = currentAdapters.find(a => a.wireless)
-        adapterIp = (wired || wireless || currentAdapters[0]).ip
-      }
-
+      // 适配器解析
+      let adapterIp = pickAdapterIp(currentAdapters, currentConfig.adapter1)
       if (!adapterIp) {
-        try {
-          const freshAdapters = await api.getAdapters?.(true)
-          if (freshAdapters && freshAdapters.length > 0) {
-            currentAdapters = freshAdapters
-            set({ adapters: freshAdapters })
-            if (currentConfig.adapter1 && currentConfig.adapter1 !== '自动检测') {
-              const adapter = currentAdapters.find(a => a.name === currentConfig.adapter1)
-              if (adapter?.ip) adapterIp = adapter.ip
-            } else {
-              const wired = currentAdapters.find(a => !a.wireless)
-              const wireless = currentAdapters.find(a => a.wireless)
-              adapterIp = (wired || wireless || currentAdapters[0]).ip
-            }
-          }
-        } catch {}
+        const refreshed = await refreshAdaptersForIp(currentConfig.adapter1)
+        if (refreshed.adapters) {
+          currentAdapters = refreshed.adapters
+          set({ adapters: refreshed.adapters })
+          adapterIp = refreshed.adapterIp
+        }
       }
 
       if (!adapterIp) {
@@ -408,21 +432,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return
       }
 
-      try {
-        const portalStatus = await api.checkPortalStatus(adapterIp)
-        if (epoch !== checkOnlineEpoch) return
-        if (portalStatus) {
-          const { status, addLog } = get()
-          const prevState = status.state
-          const newState = portalStatus.online ? 'online' : 'offline'
-          if (prevState !== newState && portalStatus.message) {
-            addLog(portalStatus.message, portalStatus.online ? 'success' : 'warning')
-          }
-          get().setStatus({ text: portalStatus.message || i18next.t('auth.unknownStatus'), state: newState })
-        }
-      } catch {
-        if (epoch !== checkOnlineEpoch) return
+      // portal 状态查询
+      const portalResult = await queryPortalStatus(adapterIp)
+      if (epoch !== checkOnlineEpoch) return
+      if (!portalResult.ok) {
         get().setStatus({ text: i18next.t('auth.notLoggedIn'), state: 'offline' })
+      } else if (portalResult.portal) {
+        const { status, addLog } = get()
+        const prevState = status.state
+        const newState = portalResult.portal.online ? 'online' : 'offline'
+        if (prevState !== newState && portalResult.portal.message) {
+          addLog(portalResult.portal.message, portalResult.portal.online ? 'success' : 'warning')
+        }
+        get().setStatus({ text: portalResult.portal.message || i18next.t('auth.unknownStatus'), state: newState })
       }
     } finally {
       setTimeout(() => { _checkOnlineLockFlag = false }, 500)

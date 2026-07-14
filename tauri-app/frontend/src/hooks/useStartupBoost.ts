@@ -24,8 +24,16 @@ export function useStartupBoost() {
   const timelineRef = useRef<gsap.core.Timeline | null>(null)
   const boostedRef = useRef(false)
 
-  const setRef = useCallback(<K extends keyof StartupRefs>(key: K) => (el: StartupRefs[K]) => {
-    refs.current[key] = el
+  const refCallbacks = useRef<Partial<Record<keyof StartupRefs, (el: HTMLDivElement | null) => void>>>({})
+
+  const setRef = useCallback(<K extends keyof StartupRefs>(key: K) => {
+    const cached = refCallbacks.current[key]
+    if (cached) return cached
+    const cb = (el: HTMLDivElement | null) => {
+      refs.current[key] = el
+    }
+    refCallbacks.current[key] = cb
+    return cb
   }, [])
 
   const warmUpGpuLayers = useCallback(() => {

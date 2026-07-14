@@ -49,3 +49,18 @@ impl AppHandleExt for AppHandle {
         EventBus::new(self).emit_update_download_progress(progress)
     }
 }
+
+/// 在阻塞线程池中执行闭包，统一 `spawn_blocking` + `map_err(JoinError)` 样板。
+///
+/// 闭包返回 `Result<T, String>`（内部已 map_err），调用方使用
+/// `run_blocking(|| { ... }).await?` 即可同时展开 JoinError 与内部 Result。
+#[allow(dead_code)] // 第一批仅新增 helper，调用点迁移留给后续批次
+pub async fn run_blocking<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
