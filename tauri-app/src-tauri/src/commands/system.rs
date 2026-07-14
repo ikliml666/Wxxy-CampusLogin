@@ -110,11 +110,6 @@ pub fn cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> R
     result
 }
 
-#[allow(dead_code)]
-pub fn append_login_history(app_handle: &AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
-    crate::config::persist::append_login_history(app_handle, success, message, adapter, user, login_type)
-}
-
 #[tauri::command]
 pub fn get_logs(app_handle: AppHandle, lines: Option<usize>) -> Result<String, String> {
     let n = lines.unwrap_or(200);

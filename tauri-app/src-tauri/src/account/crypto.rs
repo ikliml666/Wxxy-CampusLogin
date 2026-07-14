@@ -36,76 +36,73 @@ mod dpapi {
         fn LocalFree(h_mem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
     }
 
-    pub fn encrypt(plaintext: &[u8]) -> Result<Vec<u8>, String> {
-        let mut plaintext_owned = plaintext.to_vec();
+    /// 调用 DPAPI 函数（CryptProtectData/CryptUnprotectData）的通用 helper，
+    /// 统一 DataBlob 构造、结果检查、输出数据读取与 LocalFree 释放。
+    fn call_dpapi<F>(input_data: &[u8], dpapi_call: F, error_msg: &str, empty_error_msg: &str) -> Result<Vec<u8>, String>
+    where
+        F: FnOnce(&mut DataBlob, &mut DataBlob) -> i32,
+    {
+        let mut input_owned = input_data.to_vec();
         let mut input = DataBlob {
-            cb_data: plaintext_owned.len() as u32,
-            pb_data: plaintext_owned.as_mut_ptr(),
+            cb_data: input_owned.len() as u32,
+            pb_data: input_owned.as_mut_ptr(),
         };
         let mut output = DataBlob {
             cb_data: 0,
             pb_data: ptr::null_mut(),
         };
 
-        let result = unsafe {
-            CryptProtectData(
-                &mut input,
-                ptr::null(),
-                ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
-                0,
-                &mut output,
-            )
-        };
+        let result = dpapi_call(&mut input, &mut output);
 
         if result == 0 {
-            return Err("DPAPI加密失败".to_string());
+            return Err(error_msg.to_string());
         }
 
         if output.pb_data.is_null() || output.cb_data == 0 {
             unsafe { LocalFree(output.pb_data as *mut std::ffi::c_void) };
-            return Err("DPAPI加密返回空数据".to_string());
+            return Err(empty_error_msg.to_string());
         }
-        let encrypted = unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize).to_vec() };
+        let data = unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize).to_vec() };
         unsafe { LocalFree(output.pb_data as *mut std::ffi::c_void) };
-        Ok(encrypted)
+        Ok(data)
+    }
+
+    pub fn encrypt(plaintext: &[u8]) -> Result<Vec<u8>, String> {
+        call_dpapi(
+            plaintext,
+            |input, output| unsafe {
+                CryptProtectData(
+                    input,
+                    ptr::null(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    0,
+                    output,
+                )
+            },
+            "DPAPI加密失败",
+            "DPAPI加密返回空数据",
+        )
     }
 
     pub fn decrypt(data: &[u8]) -> Result<Vec<u8>, String> {
-        let mut data_owned = data.to_vec();
-        let mut input = DataBlob {
-            cb_data: data_owned.len() as u32,
-            pb_data: data_owned.as_mut_ptr(),
-        };
-        let mut output = DataBlob {
-            cb_data: 0,
-            pb_data: ptr::null_mut(),
-        };
-
-        let result = unsafe {
-            CryptUnprotectData(
-                &mut input,
-                ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
-                0,
-                &mut output,
-            )
-        };
-
-        if result == 0 {
-            return Err("DPAPI解密失败，可能需要重新输入密码".to_string());
-        }
-
-        if output.pb_data.is_null() || output.cb_data == 0 {
-            unsafe { LocalFree(output.pb_data as *mut std::ffi::c_void) };
-            return Err("DPAPI解密返回空数据".to_string());
-        }
-        let decrypted = unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize).to_vec() };
-        unsafe { LocalFree(output.pb_data as *mut std::ffi::c_void) };
-        Ok(decrypted)
+        call_dpapi(
+            data,
+            |input, output| unsafe {
+                CryptUnprotectData(
+                    input,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    0,
+                    output,
+                )
+            },
+            "DPAPI解密失败，可能需要重新输入密码",
+            "DPAPI解密返回空数据",
+        )
     }
 }
 

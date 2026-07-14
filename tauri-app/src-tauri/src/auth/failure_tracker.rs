@@ -66,7 +66,7 @@ pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_r
     }
 
     let prev_count = state.network.load().portal_failure_count;
-    state.network.increment_portal_failure_count();
+    state.network.update(|s| s.portal_failure_count += 1);
     let new_count = prev_count + 1;
     crate::log_info!("login", "认证失败计数: {}/5 (code={})", new_count, cmd_result.data.as_ref()
         .and_then(|d| d.get("code"))

@@ -98,7 +98,7 @@ pub(super) fn emit_background_check_result(
     result: &BackgroundCheckResult,
 ) {
     let check_count = state.network.load().background_check_count + 1;
-    state.network.increment_background_check_count();
+    state.network.update(|s| s.background_check_count += 1);
     let is_running = state.task_manager.is_running("background_check");
     // increment 后单次 load 快照，复用读取 current_ssid / on_campus_network / logout_protected_until
     let snap = state.network.load();

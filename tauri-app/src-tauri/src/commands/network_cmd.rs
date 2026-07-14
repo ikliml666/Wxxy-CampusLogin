@@ -89,9 +89,8 @@ pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandl
     let config = state.config.load_full();
     let user_account = config.user_account_with_operator();
     let user_password = config.password.clone();
-    let operator = config.operator.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let status = crate::auth::portal::check_portal_full(&adapter_ip, None, Some(&user_account), Some(&user_password), Some(&operator))?;
+        let status = crate::auth::portal::check_portal_full(&adapter_ip, None, Some(&user_account), Some(&user_password))?;
         Ok(serde_json::json!({
             "online": status.online,
             "message": status.message,

@@ -114,7 +114,7 @@ pub fn try_disconnect_reconnect(
     };
 
     let reconnect_count = snap.disconnect_reconnect_count + 1;
-    state.network.increment_disconnect_reconnect_count();
+    state.network.update(|s| s.disconnect_reconnect_count += 1);
     if reconnect_count <= config.max_disconnect_reconnect {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
         emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect));
@@ -278,7 +278,6 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
         let user_account = config.user_account_with_operator();
         let user_password = config.password.clone();
-        let operator = config.operator.clone();
 
         let (a1_found, a2_ref) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
         if let Some(a1) = a1_found {
@@ -296,22 +295,19 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 name2_opt = Some(a2.name.clone());
                 let ua1 = user_account.clone();
                 let up1 = user_password.clone();
-                let op1 = operator.clone();
                 let ua2 = user_account.clone();
                 let up2 = user_password.clone();
-                let op2 = operator.clone();
                 // 双适配器并行 Portal 检测：先 spawn 两个 handle，再分别 await
                 // 原 spawn->await->spawn->await 串行，改为并行可显著缩短双适配器检测耗时
-                let h1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua1), Some(&up1), Some(&op1)));
-                let h2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name), Some(&ua2), Some(&up2), Some(&op2)));
+                let h1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua1), Some(&up1)));
+                let h2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name), Some(&ua2), Some(&up2)));
                 let r1 = h1.await;
                 let r2 = h2.await;
                 (r1, Some(r2))
             } else {
                 let ua = user_account.clone();
                 let up = user_password.clone();
-                let op = operator.clone();
-                let r1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua), Some(&up), Some(&op))).await;
+                let r1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua), Some(&up))).await;
                 (r1, None)
             };
 

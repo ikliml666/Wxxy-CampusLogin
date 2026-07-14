@@ -79,7 +79,7 @@ pub struct PortalStatus {
     pub error_kind: Option<String>,
 }
 
-pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>, _operator: Option<&str>) -> Result<PortalStatus, String> {
+pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>) -> Result<PortalStatus, String> {
     let t0 = std::time::Instant::now();
     let portal_url = PORTAL_URL.load().clone();
     let local_addr = parse_adapter_ip(adapter_ip);

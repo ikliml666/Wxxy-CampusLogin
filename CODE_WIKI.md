@@ -42,8 +42,9 @@ Wxxy-CampusLogin/
 ├── tauri-app/
 │   ├── package.json                 # 根层依赖
 │   ├── frontend/                    # React 前端
-│   │   ├── package.json             # 前端依赖 (含 zustand ^5.0, framer-motion ^12)
-│   │   ├── vite.config.ts           # Vite 构建配置
+│   │   ├── package.json             # 前端依赖 (含 zustand ^5.0, framer-motion ^12, vitest ^4.1)
+│   │   ├── vite.config.ts           # Vite 构建配置 (manualChunks 分组)
+│   │   ├── vitest.config.ts         # Vitest 测试配置 (jsdom + globals + @ 别名)
 │   │   ├── tailwind.config.js       # Tailwind CSS 配置
 │   │   ├── postcss.config.js        # PostCSS 配置
 │   │   ├── tsconfig.json            # TypeScript 配置
@@ -54,15 +55,25 @@ Wxxy-CampusLogin/
 │   │       ├── App.tsx              # 根组件
 │   │       ├── vite-env.d.ts        # Vite 环境类型声明
 │   │       ├── index.css            # 全局样式
-│   │       ├── hooks/               # 自定义 Hooks (12个)
-│   │       │   ├── useAppStore.ts   # 统一状态管理 (zustand) + 密码处理
-│   │       │   ├── useIpc.ts        # Tauri IPC 封装 (含 DNS/DoH/注销 API)
-│   │       │   ├── useAppInit.ts    # 初始化逻辑 + 事件监听 + 在线日志去重
+│   │       ├── hooks/               # 自定义 Hooks (22个)
+│   │       │   ├── tauriApi.ts      # Tauri IPC 封装 (原 useIpc.ts，含 DNS/DoH/注销 API + 重试 + 事件工厂)
+│   │       │   ├── useAppStore.ts   # 兼容壳 (3行 re-export，原单体已按领域拆分)
+│   │       │   ├── useConfigStore.ts     # 配置领域 store (config/密码防抖保存/accounts/language)
+│   │       │   ├── useAuthStore.ts       # 认证领域 store (doLogin/doLogout/checkOnline/status/bgStatus)
+│   │       │   ├── useAdapterStore.ts    # 适配器领域 store (adapters/details/disabled/activePanel)
+│   │       │   ├── useQualityStore.ts    # 网络质量领域 store (networkQuality/dnsDoh/gpuInfo/refreshRate)
+│   │       │   ├── useThemeStore.ts      # 主题领域 store (themeName/isLightMode/customThemeColor + DOM 副作用)
+│   │       │   ├── useLogToastStore.ts   # 日志/Toast store (独立 zustand)
+│   │       │   ├── useAppInit.ts         # 初始化编排 hook (调用 4 个子 hook)
+│   │       │   ├── useEventListeners.ts  # Tauri 事件监听统一注册 (16 个事件 + 窗口关闭拦截)
+│   │       │   ├── useInitialDataLoad.ts # getInitData 拉取并 bootstrap 所有 store
+│   │       │   ├── useHeartbeat.ts       # 渲染心跳 (5s 间隔，visibility 暂停)
+│   │       │   ├── useGlobalShortcut.ts  # 全局快捷键 (Ctrl+Shift+C 取消自动退出)
+│   │       │   ├── useGpuCorrection.ts   # WebGL GPU 信息校正 (WEBGL_debug_renderer_info)
 │   │       │   ├── useAnimationProfile.ts  # 动画配置
 │   │       │   ├── useAsyncLock.ts  # 异步锁
 │   │       │   ├── useBreatheAnimation.ts  # 呼吸动画
 │   │       │   ├── useGlowAnimation.ts     # 发光动画
-│   │       │   ├── useLogToastStore.ts     # 日志 Toast 状态
 │   │       │   ├── usePageIdle.ts   # 页面空闲检测
 │   │       │   ├── usePulseAnimation.ts    # 脉冲动画
 │   │       │   ├── useRipple.ts     # 涟漪效果
@@ -72,7 +83,10 @@ Wxxy-CampusLogin/
 │   │       │   ├── color.ts         # HEX→HSL 颜色转换
 │   │       │   ├── latency.ts       # 延迟等级/颜色计算 (显式 borderBg)
 │   │       │   ├── animations.ts    # Framer Motion 动画变体
-│   │       │   └── easing-config.ts # 缓动配置
+│   │       │   ├── easing-config.ts # 缓动配置
+│   │       │   ├── color.test.ts    # 单元测试 (hexToHsl)
+│   │       │   ├── latency.test.ts  # 单元测试 (getLatencyLevel/getLatencyColor/mergeNetworkQuality 等)
+│   │       │   └── utils.test.ts    # 单元测试 (cn/extractErrorMessage)
 │   │       ├── i18n/
 │   │       │   ├── index.ts         # i18next 初始化配置
 │   │       │   └── locales/         # 翻译文件 (zh.json / en.json)
@@ -163,15 +177,14 @@ Wxxy-CampusLogin/
 │           │       ├── mod.rs       # 重导出
 │           │       ├── registry.rs  # 注册表遍历 (CLASS_SUBKEY_CACHE 懒加载+锁优化)
 │           │       └── windows.rs   # Windows 特定发现逻辑
-│           ├── auth/                # 认证模块
+│           ├── auth/                # 认证模块 (6个子模块，原 traits.rs 已删除)
 │           │   ├── mod.rs           # 重导出
 │           │   ├── portal.rs        # Portal认证状态检测 (random_v + block_on_http 同步-异步桥接)
 │           │   ├── protocol.rs      # 登录/两步注销/重试/响应解析 (random_v)
 │           │   ├── session.rs       # 登录/注销会话管理 (adapter_action_with_log/login_adapter_with_log 通用封装)
-│           │   ├── service.rs       # 认证服务编排 (full_login/full_logout 统一入口)
-│           │   ├── traits.rs        # AdapterResolver trait 抽象 (主/副适配器名称解析)
+│           │   ├── service.rs       # 认证服务编排 (full_login/full_logout 统一入口 + post_login_handler)
 │           │   ├── failure_tracker.rs # 认证失败计数跟踪
-│           │   └── dual_adapter_executor.rs # 双适配器并行执行器
+│           │   └── dual_adapter_executor.rs # 双适配器并行执行器 (tokio spawn_blocking + 可中断错峰)
 │           ├── account/             # 账号模块
 │           │   ├── mod.rs           # 多账号管理命令
 │           │   └── crypto.rs        # 加密工具 (Windows DPAPI)
@@ -185,17 +198,20 @@ Wxxy-CampusLogin/
 │           │   ├── logger.rs        # 日志系统 (文件+通道+调试模式切换+日志保留天数清理)
 │           │   ├── lifecycle.rs     # 自动退出控制 + 校园网退出流程
 │           │   ├── notification.rs  # 通知封装 (emit_notification)
-│           │   ├── events.rs        # 事件总线 EventBus (17 个 emit_xxx 方法)
+│           │   ├── events.rs        # 事件总线 EventBus (16 个 emit_xxx 方法)
 │           │   ├── command_context.rs # 命令上下文 CommandContext::from_app
 │           │   └── task_manager.rs  # 后台任务管理器 BackgroundTaskManager (cancel token 统一管理)
-│           ├── monitor/             # 监控模块
-│           │   ├── mod.rs           # 重导出
-│           │   ├── watcher.rs       # 后台检测调度器 (PortalCheckResult 职责分离/校园网检测/Portal容错/Handle::enter 上下文修复)
+│           ├── monitor/             # 监控模块 (11个子模块)
+│           │   ├── mod.rs           # 重导出 (含 trigger_background_check 别名)
+│           │   ├── watcher.rs       # 门面 + 启动聚合 (51行，re-export background_check/background_task + run_startup_tasks)
+│           │   ├── background_check.rs  # 后台检测主体 (run_background_check_blocking，从 watcher 拆出)
+│           │   ├── background_task.rs   # 后台任务调度 (start_background_check_inner + task_manager.spawn)
+│           │   ├── portal_failure.rs    # Portal 请求失败容错 (handle_portal_request_failure，阈值5)
 │           │   ├── auto_auth.rs     # 自动登录/断线重连
 │           │   ├── latency.rs       # 网络质量通知+延迟测试循环
 │           │   ├── adapter_watch.rs # 适配器状态监控 (CancellationToken可退出)
-│           │   ├── campus_check.rs  # 校园网检测 (从 watcher 拆分)
-│           │   ├── portal_check.rs  # Portal 检测 (check_adapter_portal 并行检测)
+│           │   ├── campus_check.rs  # 校园网检测 (CampusCheckResult 定义于此)
+│           │   ├── portal_check.rs  # Portal 检测 (PortalCheckResult 定义于此 + check_adapter_portal)
 │           │   ├── quality_scheduler.rs # 质量检测调度器
 │           │   └── background_emit.rs   # 后台事件推送
 │           ├── platform/            # 平台交互模块
@@ -244,9 +260,12 @@ Wxxy-CampusLogin/
 │  React 19 + TypeScript + Tailwind CSS + Radix UI    │
 │  Framer Motion 动画 | GSAP 3 | shadcn/ui | zustand  │
 ├─────────────────────────────────────────────────────┤
-│              单一状态管理层 (State Layer)             │
-│  useAppStore (zustand) — 集中管理所有前端状态         │
-│  useIpc Hook — Tauri IPC 通信封装 (单一实例)          │
+│            领域状态管理层 (State Layer)              │
+│  useConfigStore / useAuthStore / useAdapterStore     │
+│  useQualityStore / useThemeStore (zustand 按领域拆分) │
+│  useLogToastStore — 日志/Toast                       │
+│  useAppStore — 兼容壳 (3行 re-export)                │
+│  tauriApi — Tauri IPC 通信封装 (纯模块，非 hook)     │
 ├─────────────────────────────────────────────────────┤
 │                IPC 通信层 (Bridge Layer)              │
 │  Tauri invoke (请求-响应) | Tauri listen (事件推送)   │
@@ -254,13 +273,16 @@ Wxxy-CampusLogin/
 ├─────────────────────────────────────────────────────┤
 │                 业务逻辑层 (Logic Layer)              │
 │  ┌─────────────────────────────────────────────────┐ │
-│  │  monitor/watcher.rs (调度器, PortalCheckResult 职责分离) │
+│  │  monitor/watcher.rs (门面+启动聚合, 51行, re-export background_check/background_task) │ │
+│  │    └─→ run_startup_tasks (启动期聚合 3 个 task_manager.spawn) │ │
+│  │  monitor/background_check.rs (后台检测主体, run_background_check_blocking) │ │
+│  │    ├─→ monitor/portal_failure.rs (Portal请求失败容错, 阈值5) │ │
 │  │    ├─→ monitor/auto_auth.rs (自动登录/断线重连)  │ │
 │  │    ├─→ infra/lifecycle.rs  (自动退出倒计时+校园网退出) │ │
 │  │    ├─→ monitor/latency.rs  (质量通知/延迟循环)   │ │
 │  │    └─→ monitor/adapter_watch.rs (适配器监控,可取消) │ │
 │  │  app/ — 应用生命周期 (startup/tray/window/shortcut/heartbeat/shutdown) │ │
-│  │  auth/ — 认证模块 (7个子模块: session/protocol/portal/service/traits/failure_tracker/dual_adapter_executor) │ │
+│  │  auth/ — 认证模块 (6个子模块: session/protocol/portal/service/failure_tracker/dual_adapter_executor) │ │
 │  │  auth/portal.rs — Portal 检测 (block_on_http 同步-异步桥接) │ │
 │  │  network/ — 网络检测/延迟测试/质量检测 (8个业务子模块 + discovery/ 子目录含 registry/windows) │ │
 │  │  network/timing.rs — DNS智能解析/DoH/评分系统     │ │
@@ -284,27 +306,30 @@ Wxxy-CampusLogin/
 └─────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Commands 模块依赖关系 (v2.2.8)
+### 3.2 Commands 模块依赖关系 (v2.2.9)
 
 ```
 // [架构说明] 模块间耦合关系
 //
 //  依赖链（箭头表示 "调用/依赖"）：
 //
-//  monitor/watcher ──→ monitor/auto_auth ──→ infra/lifecycle
-//       │                    │                    │
-//       │                    └──→ infra/notification (emit_notification)
-//       │
-//       ├──→ monitor/latency ──→ infra/notification (emit_notification)
-//       │
-//       └──→ infra/lifecycle
+//  monitor/watcher (门面) ──re-export──→ monitor/background_check (检测主体)
+//                                            │
+//                                            ├──→ monitor/portal_failure (Portal请求失败容错)
+//                                            ├──→ monitor/auto_auth ──→ infra/lifecycle
+//                                            │         │                    │
+//                                            │         └──→ infra/notification (emit_notification)
+//                                            ├──→ monitor/latency ──→ infra/notification
+//                                            └──→ infra/lifecycle
 //
-//  commands/login ──→ auth/service (full_login/full_logout 统一入口)
+//  monitor/background_task (调度层) ──→ task_manager.spawn("background_check") ──→ background_check
+//
+//  commands/login ──→ auth/service (full_login/full_logout 统一入口 + post_login_handler)
 //                  │     └──→ auth/session ──→ auth/protocol (两步注销)
 //                  │                          └──→ auth/portal (Portal 检测)
 //                  ├──→ infra/events (EventBus emit_login_log)
 //                  ├──→ infra/lifecycle (start_auto_exit)
-//                  └──→ monitor/watcher (run_background_check)
+//                  └──→ monitor/watcher (run_background_check，经 re-export 跳转 background_check)
 //
 //  infra/lifecycle ──→ infra/notification (emit_notification)
 //
@@ -312,17 +337,16 @@ Wxxy-CampusLogin/
 //                          + 依赖 state + network, CancellationToken 可退出
 //
 //  commands/network_cmd ──→ network (适配器/DHCP/质量检测)
-//                       ├──→ monitor/watcher (check_campus_network)
+//                       ├──→ monitor/watcher (check_campus_network，经 re-export)
 //                       ├──→ monitor/latency (spawn_latency_test_loop)
 //                       ├──→ auth/portal (check_portal_full)
 //                       ├──→ platform/dns_config (DNS/DoH 读写)
 //                       └──→ platform/elevation (UAC 提权)
 //
-//  耦合问题：
-//    1. monitor/watcher 是核心调度器，同时依赖 auto_auth/lifecycle/latency 三个子模块，
-//       任何子模块的接口变更都会影响 watcher
-//    2. auto_auth 同时调用 lifecycle 和 notification，形成 watcher→auto_auth→lifecycle
-//       的三层调用链，中间层的变更会向上传播
+//  耦合说明：
+//    1. monitor/watcher 已瘦身为门面(51行)，检测主体迁移至 background_check.rs，
+//       外部调用路径不变（通过 pub use re-export）
+//    2. background_check 是核心检测主体，依赖 portal_failure/auto_auth/lifecycle/latency
 //    3. emit_notification 被 auto_auth/lifecycle/latency 三处调用，是事实上的共享工具，
 //       但定义在 infra/notification 模块中，语义上更清晰
 //
@@ -333,19 +357,19 @@ Wxxy-CampusLogin/
 ### 3.3 数据流
 
 ```
-用户操作 → React组件 → useAppStore → useIpc.invoke()
-                                         ↓
-                                    Tauri IPC
-                                         ↓
-                              #[tauri::command] Rust函数
-                                         ↓
-                              AppState (ConfigStore + TaskFlags + BackgroundTaskManager + NetworkState + ExitStateStore + 4个原子辅助字段: last_update_check_epoch_ms/update_notified/last_disabled_notification_ms/last_render_heartbeat_ms)
-                                         ↓
-                              Win32 API / HTTP / 注册表 / 文件系统
-                                         ↓
-                              结果返回 / 事件推送 (emit)
-                                         ↓
-                              useIpc.listen() → useAppStore → UI更新
+用户操作 → React组件 → 领域 store (useConfigStore/useAuthStore/useAdapterStore/useQualityStore) → tauriApi.invoke()
+                                                                                                       ↓
+                                                                                                  Tauri IPC
+                                                                                                       ↓
+                                                                                            #[tauri::command] Rust函数
+                                                                                                       ↓
+                              AppState (ConfigStore + TaskFlags + BackgroundTaskManager + NetworkState + ExitStateStore + UpdateStats[含4个原子字段: last_update_check_epoch_ms/update_notified/last_disabled_notification_ms/last_render_heartbeat_ms])
+                                                                                                       ↓
+                                                                                              Win32 API / HTTP / 注册表 / 文件系统
+                                                                                                       ↓
+                                                                                              结果返回 / 事件推送 (emit)
+                                                                                                       ↓
+                                                                                              tauriApi.onXxx() → useEventListeners → 领域 store → UI更新
 ```
 
 ---
@@ -514,6 +538,10 @@ pub struct AppState {
     pub task_manager: BackgroundTaskManager,       // 后台任务统一管理（含取消能力）
     pub network: NetworkState,                     // 网络状态快照存储
     pub exit: ExitStateStore,                      // 退出状态存储
+    pub update_stats: UpdateStats,                 // 更新/通知统计（4个原子字段合并子结构体）
+}
+
+pub struct UpdateStats {
     pub last_update_check_epoch_ms: AtomicU64,
     pub update_notified: AtomicBool,
     pub last_disabled_notification_ms: AtomicU64,
@@ -521,7 +549,7 @@ pub struct AppState {
 }
 ```
 
-**说明**：相比旧版，`config`/`network`/`exit` 三个字段均升级为对应的 Store/State 封装类型；新增 `task_manager: BackgroundTaskManager` 字段，承接原 `TaskFlags` 中迁移出去的取消令牌职责。`AppState` 不再直接持有 `update_config` 方法，配置 CAS 更新改走 `state.config.update(...)`。
+**说明**：wave 3c (AM-4) 将原散落在 `AppState` 顶层的 4 个原子更新/通知标志（`last_update_check_epoch_ms`/`update_notified`/`last_disabled_notification_ms`/`last_render_heartbeat_ms`）合并为子结构体 `UpdateStats`，`AppState` 现仅 6 个字段。`config`/`network`/`exit` 均为对应 Store/State 封装类型；`task_manager` 承接取消令牌职责。`AppState` 不再直接持有 `update_config` 方法，配置 CAS 更新改走 `state.config.update(...)`。
 
 #### CommandResult / AccountResult 返回类型
 
@@ -906,6 +934,7 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 | `full_login()` | `auth/service.rs` | 登录核心逻辑 (单/双适配器分支) |
 | `login_adapter_with_log()` | `auth/session.rs` | 单适配器登录+日志 |
 | `adapter_action_with_log()` | `auth/session.rs` | 通用适配器操作+日志封装 |
+| `post_login_handler()` | `auth/service.rs` | 登录后处理 (AM-13 从 commands/login.rs 下沉)：解除注销保护期 → 延迟500ms触发 `monitor::watcher::run_background_check` → 按需启动 `auto_exit` |
 
 **注销命令** (`commands/login.rs` 委托 `auth/service.rs`):
 
@@ -917,22 +946,16 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 
 **锁语义**: 登录使用 `is_logging_in`，注销使用独立的 `is_logging_out`
 
-**适配器解析抽象** (`auth/traits.rs`):
+**适配器解析** (直接函数调用，无 trait 抽象):
+
+> 注：`auth/traits.rs` 整个文件已在重构中删除（不仅删除 `DefaultAdapterResolver`，连 `AdapterResolver` trait 与 `MockAdapterResolver` 一并移除）。`auth/service.rs` 现直接调用 `crate::network::resolve_adapter_names` 与 `crate::network::find_dual_adapters` 等自由函数，不再经过 trait 抽象。原 `PortalChecker` / `ProtocolClient` trait 及其 impl/mock 早在 v2.2.8 已删除（dead code）。
+
+**双适配器并行执行** (`auth/dual_adapter_executor.rs`，152 行含测试):
 
 | 项 | 说明 |
 |------|------|
-| `AdapterResolver` trait | 主/副适配器名称解析抽象 (`resolve_adapter_names`)，便于测试注入 mock |
-| `DefaultAdapterResolver` | 默认实现，委托 `network::resolve_adapter_names` |
-| `MockAdapterResolver` (测试) | 测试用 mock 实现，返回固定主/副适配器名 |
-
-> 注：原 `PortalChecker` / `ProtocolClient` trait 及其 impl/mock 已在 v2.2.8 删除（dead code）。
-
-**双适配器并行执行** (`auth/dual_adapter_executor.rs`):
-
-| 项 | 说明 |
-|------|------|
-| `DualAdapterResult` | 双适配器执行结果结构体 |
-| `execute_dual()` | 双适配器并行执行器 |
+| `DualAdapterResult` | 双适配器执行结果结构体 (`primary`/`secondary` 两个 `Option<CommandResult>`) |
+| `execute_dual(a1_action, a2_action, is_quitting)` | 双适配器并行执行器：适配器1立即 `spawn_blocking`，适配器2通过 10×100ms 轮询 `is_quitting` 实现可中断 1s 错峰；退出时副适配器不再发起操作（替代原 `std::thread::scope` 方案） |
 
 **认证失败计数与 MAC 重置** (`auth/failure_tracker.rs` 内部函数):
 
@@ -948,19 +971,47 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 - **全量注销**（未指定 `adapter_name`）：重置 `any_adapter_online`/`last_a1_online`/`last_a2_online`/`has_logged_online` 为 false，`disconnect_reconnect_count` 归零，重置 `last_auto_login_attempt` 为当前时间，取消自动退出倒计时，设置 60 秒注销保护期 (`logout_protected_until`)
 - **单适配器注销**（指定 `adapter_name`）：仅重置对应适配器的 `last_a1_online` 或 `last_a2_online`，重新计算 `any_adapter_online = a1 || a2`，其余标志保持不变
 
-### 4.8 后台巡检调度器 — `monitor/watcher.rs`
+### 4.8 后台巡检 — `monitor/` (watcher 门面 + background_check 主体 + background_task 调度)
 
-**职责**: 纯调度器，职责分离重构
+> **重构说明**：原 `watcher.rs` 大文件已按职责拆分。`watcher.rs` 现仅 51 行，作为门面 re-export `background_check`/`background_task`，并提供 `run_startup_tasks` 启动聚合入口。检测主体迁移至 `background_check.rs`，任务调度迁移至 `background_task.rs`，Portal 失败容错迁移至 `portal_failure.rs`。外部调用路径（`monitor::watcher::run_background_check` 等）通过 re-export 保持不变。
 
-**核心类型**:
+#### 4.8.1 watcher.rs — 门面 + 启动聚合 (51 行)
+
+**职责**：纯门面模块，re-export 子模块函数 + 启动期聚合任务。
+
+**re-export**：
+- `pub use super::background_check::run_background_check;`
+- `pub use super::background_task::start_background_check_inner;`
+- `pub use super::campus_check::check_campus_network;`
+- `pub use super::background_emit::{adapter_status_entry, adapter_disabled_entry, adapter_disconnected_entry};`
+
+**`run_startup_tasks(app_handle)`**：启动期聚合入口，依据 config 注册 3 个 `task_manager.spawn` 跟踪任务：
+- `startup_bg_check` — 启动后台检测
+- `startup_latency` — 启动延迟测试循环
+- `startup_auto_login` — 启动自动登录
+
+#### 4.8.2 background_check.rs — 后台检测主体 (~320 行)
+
+**职责**：一次完整后台检测周期：获取适配器列表 → 解析双适配器名 → 校园网环境验证 → Portal 检测（含双适配器并行）→ Portal 失败容错 → 状态更新与事件下发 → 自动登录/断开重连触发 → 网络质量检测调度。
+
+**关键函数**：
+
+| 函数 | 说明 |
+|------|------|
+| `run_background_check_blocking(app_handle, state, cancel_token) -> Option<(String,String)>` | 同步主体 (~290 行)，返回 `Some((adapter_name, adapter_ip))` 表示需继续网络质量检测 |
+| `run_background_check(app_handle, cancel_token)` | async 包装：`spawn_blocking` 跑 `run_background_check_blocking`，成功后调用 `run_quality_check` |
+
+**核心类型** (定义于 monitor 子模块，非 watcher.rs)：
 
 ```rust
+// portal_check.rs
 enum PortalCheckResult {
     Success { online: bool, message: String, reachable: bool, login_available: bool },
     Error { is_request_failed: bool },
     NotFound,
 }
 
+// campus_check.rs
 struct CampusCheckResult {
     wifi: Option<ConnectionCampusStatus>,   // WiFi 校园网状态
     wired: Option<ConnectionCampusStatus>,  // 有线校园网状态
@@ -970,69 +1021,71 @@ struct CampusCheckResult {
 }
 
 struct ConnectionCampusStatus {
-    on_campus: bool,         // 是否在校园网
-    name: Option<String>,    // 连接名称 (WiFi 无 SSID 或有线无 profile 时为 None)
-    message: String,         // 状态消息
+    on_campus: bool,
+    name: Option<String>,
+    message: String,
 }
 ```
 
-**watcher.rs 调用的独立函数** (定义在 monitor/ 子模块，通过 `use` 导入):
+**background_check 调用的子函数** (定义在 monitor/ 子模块):
 
 | 函数 | 实际所在模块 | 说明 |
 |------|------------|------|
-| `check_adapter_portal()` | `portal_check.rs` | 消除主/副适配器检测逻辑重复 |
-| `build_adapter_details()` | `background_emit.rs` | 适配器详情构建 |
-| `handle_status_change()` | `background_emit.rs` | 状态变更通知 |
-| `emit_background_check_result()` | `background_emit.rs` | 统一检测结果 JSON 构建和事件发送（含 campusWifi/campusWired/a1CampusMessage/a2CampusMessage/a1OnCampus/a2OnCampus 字段） |
-| `update_network_state()` | `background_emit.rs` | 独立网络状态更新逻辑 |
-| `adapter_status_entry()` / `adapter_disabled_entry()` / `adapter_disconnected_entry()` | `background_emit.rs` | 适配器状态条目构建 |
+| `check_adapter_portal()` | `portal_check.rs` | 单适配器 Portal 检测，消除主/副重复 |
+| `handle_portal_request_failure()` | `portal_failure.rs` | Portal 请求失败容错（见 4.8.4） |
+| `build_adapter_details()` / `handle_status_change()` / `emit_background_check_result()` / `update_network_state()` / `adapter_status_entry()` 等 | `background_emit.rs` | 适配器详情/状态变更/检测结果事件/网络状态更新/状态条目构建 |
 | `check_campus_network()` | `campus_check.rs` | WiFi/有线分别检测校园网状态 |
 | `run_quality_check()` | `quality_scheduler.rs` | 质量检测调度 |
 
-**Handle::enter 上下文修复** (v2.2.7 修复): 双适配器并行 Portal 检测使用 `std::thread::scope` 启动子线程，但子线程无 Tokio reactor 上下文，导致 `check_portal_full` 中的 `block_on_http`（`Handle::try_current().block_on()`）panic "there is no reactor running"。修复方式：在 `run_background_check_blocking` 中通过 `tokio::runtime::Handle::current()` 取得当前 runtime handle，子线程入口处调用 `let _guard = h.enter();` 设置 Tokio 上下文，使 `Handle::current().block_on()` 能正确工作。`_guard` 在子线程退出时 RAII 释放。
+**Handle::enter 上下文修复** (v2.2.7)：双适配器并行 Portal 检测使用 `std::thread::scope` 启动子线程，子线程无 Tokio reactor 上下文导致 `block_on_http` panic。修复：在 `run_background_check_blocking` 中取 `tokio::runtime::Handle::current()`，子线程入口 `let _guard = h.enter();` 设置上下文，RAII 释放。
 
-```rust
-let runtime_handle = tokio::runtime::Handle::current();
-std::thread::scope(|s| {
-    let h1 = runtime_handle.clone();
-    let t1 = s.spawn(move || {
-        let _guard = h1.enter();           // 设置 Tokio 上下文
-        check_adapter_portal(adapter1, app_handle)
-    });
-    // ...
-});
-```
+**校园网检测集成**：三级校园网检测（网络名称→/18子网→网关Ping），结果含 `currentSsid`/`onCampusNetwork`。**无网络保护**：配置适配器均无IP时跳过校园网退出流程，等待网络恢复后重新检测。
 
-**校园网检测集成**: 后台检测中集成三级校园网检测（网络名称→/18子网→网关Ping），检测结果包含 `currentSsid` 和 `onCampusNetwork` 字段。**无网络保护**：当配置的适配器均无IP时（完全无网络连接），跳过校园网退出流程，等待网络恢复后重新检测，避免误判"非校园网"触发退出
-
-**注销保护期机制**: 注销成功后设置 60 秒保护期 (`logout_protected_until`)，期间：
+**注销保护期机制**：注销成功后设置 60 秒保护期 (`logout_protected_until`)，期间：
 - `update_network_state` 跳过原子状态更新
 - `emit_background_check_result` 强制 `online=false`，避免 Portal 延迟导致前端误判
 - `check_portal_status` API 直接返回 `{ online: false }`，不再请求 Portal 服务器
 
-**Portal 容错机制** (v2.2.5 新增, v2.2.7 增强):
+#### 4.8.3 background_task.rs — 任务调度层 (~55 行)
 
-`NetworkSnapshot.portal_failure_count: u32` 字段（通过 `ArcSwap<NetworkSnapshot>` CAS 更新）记录 Portal 请求连续失败次数。后台巡检中：
+**职责**：后台检测任务的生命周期/调度层。配置更新（开启 `enable_background_check`、修正过小间隔）→ 通过 `task_manager.spawn("background_check", ...)` 注册可取消任务 → 首次立即执行 + `tokio::time::interval` 周期循环 + `cancel_token.cancelled()` 优雅退出 → 落盘配置。
 
-1. 每次主/副适配器 Portal 请求失败（`is_request_failed: true`）时，对应适配器的 `a1_auth_failure_count` / `a2_auth_failure_count` 自增（按适配器分别计数，CAS 更新 NetworkSnapshot）
-2. Portal 失败时先检查网关从该适配器IP是否可达（`check_gateway_reachable_from()`），不可达则跳过计数（校园网断网/维护场景）
-3. 连续 5 次失败时触发 `dhcp_release_renew_single`（仅对该失败适配器执行 MAC 重置 + DHCP 续租，仅对校园网子网适配器生效）
-4. 触发后重置计数器为 0
-5. Portal 检测恢复正常（`Success`）时，CAS 写入 0 重置计数器并记录原值日志
-
-**新增函数**:
+**关键函数**：
 
 | 函数 | 说明 |
 |------|------|
-| `check_gateway_reachable_from()` | 从指定适配器IP检查网关可达性，不可达时跳过容错计数 |
+| `start_background_check_inner(app_handle, state) -> Result<CommandResult, String>` | 注册 `background_check` 任务到 task_manager，循环内通过 `is_running`/`cancel_token` 管理自身 |
 
-**量化改进** (职责分离重构后，Portal 容错逻辑内联回该函数导致行数回升):
+> 注：`monitor/mod.rs` 将 `start_background_check_inner` re-export 为 `trigger_background_check`（统一触发入口别名）。
 
-| 指标 | 重构前 | 职责分离后 | 当前 (含 Portal 容错内联) |
-|------|--------|-----------|--------------------------|
-| `run_background_check_blocking` 行数 | ~190 行 | ~88 行 | ~337 行 |
-| 重复 JSON 构建代码 | 3 处 | 0 处 | 0 处 |
-| 主函数圈复杂度 | 15+ | ~5 | ~12 (Portal 容错分支) |
+#### 4.8.4 portal_failure.rs — Portal 请求失败容错 (~90 行)
+
+**职责**：处理单适配器 Portal HTTP 请求失败（`PortalCheckResult::Error { is_request_failed: true }`）的统一逻辑：网关可达性判定 → 跳过/累加失败计数 → 达阈值触发该适配器 MAC 重置。
+
+**关键函数与常量**：
+
+| 项 | 说明 |
+|------|------|
+| `PORTAL_REQUEST_FAILURE_THRESHOLD` | `5`（连续 5 次触发，私有常量） |
+| `handle_portal_request_failure(state, app_handle, adapter_ref, adapter_ip, campus_gw, counter, adapter_label)` | 网关不可达时跳过计数并重置为 0；达阈值触发 `dhcp_release_renew_single` MAC 重置+DHCP续租 |
+
+**Portal 容错完整链路** (v2.2.5 新增, v2.2.7 增强, 重构后迁移至此)：
+
+1. 主/副适配器 Portal 请求失败（`is_request_failed: true`）时，对应适配器 `a1_auth_failure_count`/`a2_auth_failure_count` 自增（CAS 更新 NetworkSnapshot）
+2. 失败时先检查网关从该适配器IP是否可达（`check_gateway_reachable_from()`），不可达则跳过计数（校园网断网/维护场景）
+3. 连续 5 次失败触发 `dhcp_release_renew_single`（仅对该失败适配器 MAC 重置 + DHCP 续租，仅对校园网子网适配器生效）
+4. 触发后重置计数器为 0
+5. Portal 检测恢复正常（`Success`）时 CAS 写入 0 重置计数器并记录原值日志
+
+> **与 auth/failure_tracker 的区分**：`portal_failure.rs` 处理 **Portal HTTP 请求失败**，`auth/failure_tracker.rs` 处理**认证失败**（ac_auth_failed/1/4）。两者共用 `AdapterFailureCounter` 枚举与计数访问器（`get/set/increment_adapter_failure_count`），但触发条件各异。
+
+**量化改进** (职责分离重构)：
+
+| 指标 | 重构前 (watcher.rs) | 当前 (background_check.rs) |
+|------|---------------------|---------------------------|
+| `run_background_check_blocking` 行数 | ~190 行（单文件） | ~290 行（含 Portal 容错调用） |
+| 重复 JSON 构建代码 | 3 处 | 0 处 |
+| watcher.rs 总行数 | ~337 行 | 51 行（门面） |
 
 ### 4.9 自动登录模块 — `monitor/auto_auth.rs`
 
@@ -1144,88 +1197,148 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 > **架构说明**: 前端采用业务域分目录架构，每个业务域目录包含面板组件、逻辑 Hook、类型定义和模块导出。类型定义分散在各业务域的 `types.ts` 中，而非集中在一个 `types/index.ts` 文件。
 
-### 5.1 状态管理 — `hooks/useAppStore.ts`
+### 5.1 状态管理架构 — 领域 store 拆分 (3b 阶段 AM-7)
 
-- 基于 zustand ^5.0 的全局状态管理
-- 密码处理：`password === '***'` 时直接 `delete` 密码字段，两层防护过滤后端返回的遮蔽值（updateConfig 保留 pending 真密码 + flushPendingConfig delete MASK）
-- 注销状态：`isLoggingOut` + `doLogout` action
-- 登录/注销均支持 `adapterName` 可选参数
-- `checkOnline` 使用 epoch 计数器防竞态 + 并发锁(`_checkOnlineLockFlag`)，包含完整校园网检测逻辑（campusWifi/campusWired/a1OnCampus/a2OnCampus 等）
-- `doLogin` 使用 `get()` 获取最新配置避免 Stale Closure，成功后自动调用 `checkNetworkQuality`
-- `i18next.t()` 在 action 函数体内调用（非 Store 创建时），避免初始化时序问题
-- `localStorage` 已替换为 `safeStorage`（内存降级封装），避免隐私模式下 localStorage 不可用
-- **新增状态字段**: `passwordSaved`/`isRefreshingQuality`/`isRefreshingAdapters`/`refreshRate`/`language`
-- **新增 Action**: `updateConfigLocal`/`syncPasswordSaved`/`addToastWithAction`/`removeToastsByPrefix`/`refreshAdapters`/`setGpuInfo`/`setLanguage`/`initTheme`/`setCustomThemeColor`/`setUpdateAvailable`/`setLatestVersion`/`setReleaseNotes`
-- **密码保存防抖**: `saveConfigPending` + `saveConfigTimer` 实现 500ms 防抖保存，`flushPendingConfig`/`hasPendingConfig` 导出
-- **刷新锁机制**: `refreshQuality`/`refreshAdapters` 含 500ms 冷却期锁(`_qualityLockFlag`/`_adapterLockFlag`)
-- **主题订阅**: `useAppStore.subscribe` 监听 `isLightMode`/`themeName`/`customThemeColor` 变化
+> **重构说明**：原单体 `useAppStore.ts` 已按领域拆分为 5 个独立 store + 1 个日志/Toast store。`useAppStore.ts` 现仅 3 行 re-export 兼容壳，无任何自身状态。所有 store 基于 zustand ^5.0，`localStorage` 已替换为 `safeStorage`（内存降级封装），避免隐私模式下 localStorage 不可用。
 
-### 5.2 IPC 封装 — `hooks/useIpc.ts`
+**领域 store 一览**：
 
-**新增类型**: `ConnectionCampusStatus`/`CampusStatusResult`
+| Store | 文件 | 职责 | 关键 state | 关键 action |
+|-------|------|------|-----------|-------------|
+| `useConfigStore` | `useConfigStore.ts` (121行) | 配置/账号/语言 + 防抖保存 + 密码掩码 | `config`/`passwordSaved`/`accounts`/`activeAccount`/`language`/`api` | `updateConfig`(500ms防抖)/`updateConfigLocal`/`syncPasswordSaved`/`saveConfigDirect`/`setLanguage` |
+| `useAuthStore` | `useAuthStore.ts` (272行) | 登录/注销/在线检测/后台状态 | `isLoggingIn`/`isLoggingOut`/`status`/`bgStatus` | `doLogin`/`doLogout`/`checkOnline`/`setStatus`/`setBgStatus` |
+| `useAdapterStore` | `useAdapterStore.ts` (53行) | 适配器列表/详情/面板 | `adapters`/`disabledAdapters`/`adapterDetails`/`isRefreshingAdapters`/`activePanel` | `refreshAdapters`/`setAdapters`/`setActivePanel` |
+| `useQualityStore` | `useQualityStore.ts` (76行) | 网络质量/DNS DoH/更新/GPU | `networkQuality`/`dnsDohStatus`/`dnsChecking`/`isRefreshingQuality`/`updateAvailable`/`latestVersion`/`releaseNotes`/`gpuInfo`/`refreshRate` | `refreshQuality`/`setNetworkQuality`/`setDnsDohStatus`/`setUpdateAvailable`/`setGpuInfo` |
+| `useThemeStore` | `useThemeStore.ts` (81行) | 主题/亮暗/自定义色 + DOM 副作用 | `themeName`/`isLightMode`/`customThemeColor` | `setThemeName`/`setIsLightMode`/`initTheme`/`setCustomThemeColor` |
+| `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300) | `logs`/`toasts` | `addLog`/`addToast`/`removeToast` |
+| `useAppStore` | `useAppStore.ts` (3行) | **兼容壳**，仅 re-export `useAppInit`/`hasPendingConfig`/`flushPendingConfig` | 无 | 无 |
 
-**事件监听器** (通过 `createEventListener` 工厂函数):
+**密码处理** (迁移至 `useConfigStore`)：`password === PASSWORD_MASK` 时两层防护——`updateConfig` 合并挂起配置时若旧挂起有真实密码但新 partial 传 MASK，保留旧挂起真实密码；`flushPendingConfig` 最终合并时若 password 仍是 MASK 则 `delete`，让后端识别 MASK 并保留原密码。
 
-| 事件监听器 | 说明 |
-|------------|------|
-| `onBackgroundCheckResult` | 后台检测结果 |
-| `onAutoLoginResult` | 自动登录结果 |
-| `onAdaptersChanged` | 适配器状态变更 |
-| `onAdapterDetailsChanged` | 适配器详情变更 |
-| `onDisabledAdaptersChanged` | 禁用适配器变更 |
-| `onAdapterDisabledWarning` | 适配器禁用警告 |
-| `onLoginLog` | 登录/注销日志 |
-| `onAutoExitCountdown` / `onAutoExitCancelled` | 自动退出倒计时/取消 |
-| `onCampusExitCountdown` / `onCampusExitCancelled` | 校园网退出倒计时/取消 |
-| `onNetworkQualityResult` | 网络质量结果 |
-| `onSystemNotification` | 系统通知 |
-| `onUpdateAvailable` | 更新可用 |
-| `onDownloadProgress` | 下载进度 |
-| `onConfigChanged` | 配置变更 |
+**刷新锁统一模式**：各领域 store 均采用模块级 `_xxxLockFlag` + `setTimeout(..., 500)` 的统一防抖锁模式：
+- `useConfigStore`：`saveConfigTimer` + `saveConfigPending`（500ms 防抖保存）
+- `useAuthStore`：`_checkOnlineLockFlag` + `checkOnlineEpoch`（防竞态 + 防旧请求覆盖）
+- `useAdapterStore`：`_adapterLockFlag`
+- `useQualityStore`：`_qualityLockFlag`
 
-**API 清单** (部分清单，实际 `TauriApi` interface 定义 50+ 个 API，以下为核心 API):
+**主题 DOM 副作用** (迁移至 `useThemeStore`)：store 模块底部 `subscribe` 监听 `isLightMode`/`themeName`/`customThemeColor` 变化，toggle `dark` class、添加 `theme-${name}` 类、计算 CSS 变量 `--primary`/`--ring`/`--accent`。
 
-| API | 说明 |
-|-----|------|
-| `doLogin(adapterName?)` | 登录，可选指定适配器 |
-| `doLogout(adapterName?)` | 注销，可选指定适配器 |
-| `checkDnsDohStatus()` | 检测 DNS/DoH 状态 |
-| `setupDnsDoh()` | 一键设置推荐 DNS + DoH |
-| `installUpdate(checksumUrl)` | 安装更新，传递 SHA256 校验URL |
-| `checkCampusStatus()` | 检测校园网状态 |
-| `enableAdapter(name)` | 启用适配器 |
-| `dhcpRenewAll()` | DHCP 全部续租 |
-| `dhcpReleaseRenew()` | DHCP 释放续租 |
-| `dhcpReleaseRenewAdapter(name)` | 指定适配器 DHCP 释放续租 |
-| `renderHeartbeat()` | 前端心跳 |
-| `getGpuInfo()` | 获取 GPU 信息 |
-| `getLogRetentionDays()` | 获取日志保留天数 |
-| `setLogRetentionDays(days)` | 设置日志保留天数 |
+> 注：`activePanel` 归 `useAdapterStore` 管理（历史归位，语义上与适配器关联较弱但实际如此）。`i18next.t()` 在 action 函数体内调用（非 Store 创建时），避免初始化时序问题。
 
-**新增重试机制**: `tauriApiWithRetry` 对 `saveConfig`/`checkPortalStatus`/`checkNetworkQuality` 自动重试（最多2次，指数退避+随机抖动）
+### 5.2 IPC 封装 — `hooks/tauriApi.ts` (原 useIpc.ts)
 
-**openExternal 安全逻辑**: 协议白名单(http/https) + URL长度限制(2048) + URL解析验证，先尝试 invoke 失败后 fallback 到 shell 插件
+> **重命名**：`useIpc.ts` 已重命名为 `tauriApi.ts`（commit e06203d），从 hook 风格转向纯 API 模块（无 React 依赖）。
 
-**类型定义**: 分散在各业务域的 `types.ts` 文件中（account/auth/monitor/network/settings/shared），合计 40+ 个类型/接口定义
+**导出**：`tauriApi: TauriApi`（默认对象，~50 个 invoke 方法 + 16 个事件监听器工厂）、`tauriApiWithRetry: TauriApi`（对 3 个易失败命令包一层 `withRetry`）。
 
-### 5.3 初始化逻辑 — `hooks/useAppInit.ts`
+**事件监听器** (16 个，均通过 `createEventListener<T>(eventName)` 工厂创建，返回取消函数):
 
-- 在线日志去重：5秒内在线日志自动去重
-- 主/副适配器状态合并显示：`"已在线（以太网、WLAN）"`
-- 监听器先于数据获取注册，避免遗漏初始化期间事件
-- `mountedRef` 保护异步回调，避免卸载后写入
-- **catch 块中 `showWindow` 不受 `mountedRef` 影响**：窗口显示是应用级别操作，即使组件已卸载仍需执行
-- **前端不再主动调用 `checkNetworkQuality`**：移除 `qualityPromise`，由后端 latency loop 统一管理
-- **系统通知由后端统一发送**：前端不再重复调用 `api.sendNotification`，由 `notify_network_quality_change` 统一处理
-- **网络质量事件无防抖**：移除 500ms 防抖，增量推送的 Phase 1 和 HTTPS 批次结果可立即更新 UI
-- **WebGL GPU 检测校正**: `getWebGlRenderer`/`parseWebGlGpu`/`classifyTierFromWebGl`/`correctGpuInfoWithWebGl`
-- **网络质量告警**: `handleQualityBadAlert`
-- **事件监听节流**: `background-check-result` 1000ms, `adapters-changed` 500ms
-- **新增事件监听器**: `adapter-details-changed`/`adapter-disabled-warning`/`login-log`/`campus-exit-countdown`/`campus-exit-cancelled`/`system-notification`/`update-available`/`config-changed`
-- **窗口关闭处理**: `onCloseRequested` 时 `flushPendingConfig`
-- **前端心跳**: 每5秒调用 `renderHeartbeat`
-- **Ctrl+Shift+C 快捷键**: 前端也注册
-- **DNS 初始化检查**
+| 监听器方法 | 事件名 |
+|------------|--------|
+| `onBackgroundCheckResult` | `background-check-result` |
+| `onAutoLoginResult` | `auto-login-result` |
+| `onAdaptersChanged` | `adapters-changed` |
+| `onAdapterDetailsChanged` | `adapter-details-changed` |
+| `onDisabledAdaptersChanged` | `disabled-adapters-changed` |
+| `onAdapterDisabledWarning` | `adapter-disabled-warning` |
+| `onLoginLog` | `login-log` |
+| `onNetworkQualityResult` | `network-quality-result` |
+| `onAutoExitCountdown` / `onAutoExitCancelled` | `auto-exit-countdown` / `auto-exit-cancelled` |
+| `onCampusExitCountdown` / `onCampusExitCancelled` | `campus-exit-countdown` / `campus-exit-cancelled` |
+| `onSystemNotification` | `system-notification` |
+| `onUpdateAvailable` | `update-available` |
+| `onDownloadProgress` | `update-download-progress` |
+| `onConfigChanged` | `config-changed` |
+
+**`createEventListener` 竞态处理**：闭包维护 `cancelled`/`unlisten` 双状态，处理"订阅尚未完成时即被取消"的竞态；取消函数若 `unlisten` 已就绪则直接调用，否则挂到 `listenPromise.then(fn => fn?.())` 延后清理。
+
+**API 清单** (`TauriApi` interface 定义 ~50 个 API，按领域分组):
+
+| 领域 | API |
+|------|-----|
+| 配置 | `getConfig` / `saveConfig` / `getInitData` |
+| 适配器 | `getAdapters(force?)` / `getDisabledAdapters` / `enableAdapter` / `getAdapterDetails` |
+| Portal/校园网 | `checkPortalStatus(adapterIp)` / `checkCampusStatus` |
+| 登录 | `doLogin(adapterName?)` / `doLogout(adapterName?)` |
+| 窗口 | `minimizeWindow` / `closeWindow` / `showWindow` |
+| 账号 | `listAccounts` / `switchAccount` / `saveCurrentAsAccount` / `deleteAccount` / `getActiveAccount` |
+| 后台检测 | `startBackgroundCheck` / `stopBackgroundCheck` / `triggerBackgroundCheck` / `getBackgroundStatus` |
+| DHCP | `dhcpRenewAll` / `dhcpReleaseRenew` / `dhcpReleaseRenewAdapter` |
+| 网络质量 | `checkNetworkQuality` / `startLatencyTest` / `stopLatencyTest` |
+| 系统集成 | `openExternal` / `getAutoLaunch` / `setAutoLaunch` / `getNotificationEnabled` / `setNotificationEnabled` / `sendNotification` / `cancelAutoExit` |
+| 日志/调试 | `getLogs(lines?)` / `clearLogs` / `getDebugMode` / `setDebugMode` / `getLogRetentionDays` / `setLogRetentionDays` |
+| 更新 | `checkUpdate` / `downloadUpdate` / `installUpdate` / `getMirrorUrls` |
+| DNS DoH | `checkDnsDohStatus` / `setupDnsDoh` |
+| 其它 | `renderHeartbeat` / `getGpuInfo` |
+
+**重试机制** (`tauriApiWithRetry`)：`isRetryableError` 判断消息含 `timeout`/`network`/`fetch`/`connection` 之一；`withRetry(fn, maxRetries=2, baseDelay=500)` 指数退避 `baseDelay * 2^attempt + random(0..200)` ms，最多重试 2 次（共 3 次尝试）。仅对 `saveConfig`/`checkPortalStatus`/`checkNetworkQuality` 三个命令包装。
+
+**openExternal 5 层安全逻辑**：①协议白名单(http/https) ②URL长度上限(2048) ③`new URL()` 解析校验 ④调用后端 `open_external` 二次校验 ⑤后端失败降级到 `@tauri-apps/plugin-shell` 的 `open`。所有失败路径仅 DEV 模式 `console.warn`，不抛错。
+
+**类型定义**: 分散在各业务域的 `types.ts` 文件中（account/auth/monitor/network/settings/shared），合计 40+ 个类型/接口定义。
+
+### 5.3 初始化编排 — `hooks/useAppInit.ts` (11 行)
+
+**职责**：纯编排 hook，依次调用 4 个子 hook，无自身状态：
+
+```ts
+export function useAppInit() {
+  useEventListeners()   // Tauri 事件监听统一注册
+  useInitialDataLoad()  // getInitData 拉取并 bootstrap stores
+  useHeartbeat()        // 5s 渲染心跳
+  useGlobalShortcut()   // Ctrl+Shift+C 取消自动退出
+}
+```
+
+#### 5.3.1 `useEventListeners.ts` (345 行) — 事件监听统一注册
+
+mount 时注册全部 Tauri 事件监听器与窗口关闭拦截，unmount 时统一清理。注册 16 个事件订阅 + 1 个窗口关闭拦截：
+
+- `getCurrentWindow().onCloseRequested` — 拦截关闭，若有 pending config 先 `flushPendingConfig()`，等 300ms 再关闭
+- `onBackgroundCheckResult` — 更新 `bgStatus`、记录在线/离线日志（1s 节流 + 5s 在线日志节流）
+- `onAdaptersChanged` — 更新 store，500ms 节流（前缘+后缘双重保护）
+- `onAdapterDetailsChanged` / `onDisabledAdaptersChanged` / `onAdapterDisabledWarning`
+- `onAutoLoginResult` — Toast + 触发 `checkOnline`
+- `onLoginLog` — 写入 `useLogToastStore.addLog`
+- `onAutoExitCountdown`/`onAutoExitCancelled`/`onCampusExitCountdown`/`onCampusExitCancelled` — 倒计时 Toast
+- `onNetworkQualityResult` — 合并到 `useQualityStore.networkQuality`，触发"延迟过高"告警 (`handleQualityBadAlert`)
+- `onSystemNotification` / `onUpdateAvailable` / `onConfigChanged`（仅本地 `updateConfigLocal`，不回写）
+
+**关键策略**：监听器先于数据获取注册（在 `useInitialDataLoad` 之前），避免遗漏初始化期间事件；`mountedRef` 防止 unmount 后写状态；系统通知由后端统一发送，前端不再调用 `api.sendNotification`；网络质量事件无防抖，增量推送可立即更新 UI。
+
+#### 5.3.2 `useInitialDataLoad.ts` (157 行) — 初始数据 bootstrap
+
+mount 时调 `api.getInitData()` 拉取全量数据，按流水线 bootstrap 所有领域 store：
+
+1. 失败兜底：`api.showWindow()` + 重置 `config = DEFAULT_CONFIG`
+2. 合并 `cfg = { ...DEFAULT_CONFIG, ...initData.config }`
+3. 根据 `cfg.password === PASSWORD_MASK` 调 `syncPasswordSaved(true/false)`
+4. `useConfigStore.setState({ config: cfg })` → `useThemeStore.initTheme(cfg)`
+5. 从 storage 读 `campus-active-panel`，决定 `defaultPanel` 与窗口显示（`isAutoStart && hiddenStart` 则不显示）
+6. 写入 adapters / bgStatus / adapterDetails / 异步拉取 disabledAdapters / accounts / activeAccount
+7. 调 `useAuthStore.checkOnline(cfg, adps)`
+8. GPU 信息：initData.gpuInfo 优先 + `correctGpuInfo` 校正；否则异步 `api.getGpuInfo` + 校正
+9. 写入 `refreshRate`
+10. 异步 `checkDnsDohStatus` + 检查推荐 DNS + 是否启用 DoH，缺失则告警日志
+11. **网络质量检测由后端 latency loop 统一管理**，前端不再主动调用 `checkNetworkQuality`
+
+**幂等保护**：`initDoneRef` 防止 StrictMode 双触发；`mountedRef` 防止 unmount 后写状态；catch 块中 `showWindow` 不受 `mountedRef` 影响（应用级操作）。
+
+#### 5.3.3 `useHeartbeat.ts` (19 行) — 渲染心跳
+
+mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调一次；监听 `visibilitychange`，`document.hidden` 时暂停心跳；unmount 清理 interval 与 listener。
+
+#### 5.3.4 `useGlobalShortcut.ts` (16 行) — 全局快捷键
+
+监听 `window.keydown`，命中 `Ctrl+Shift+C` 时 `e.preventDefault()` 并调用 `api.cancelAutoExit?.()`（取消自动退出/校园网退出倒计时）。
+
+#### 5.3.5 `useGpuCorrection.ts` (75 行) — WebGL GPU 校正
+
+通过 WebGL `WEBGL_debug_renderer_info` 扩展读取真实 GPU，校正后端 WMI 报告：
+- `getWebGlRenderer()` — `UNMASKED_VENDOR_WEBGL`/`UNMASKED_RENDERER_WEBGL`
+- `parseWebGlGpu(renderer)` — 正则匹配 `ANGLE(Vendor, Model)` 格式
+- `classifyTierFromWebGl(vendor, model)` — 返回 `GpuTier`：NVIDIA→discrete，Intel Arc→discrete/Iris Xe→mid-igpu/UHD→low-igpu，AMD RX/Pro→discrete/780m/880m→high-igpu 等
+- `correctGpuInfoWithWebGl(wmiInfo)` — WMI 与 WebGL vendor 不一致且 WMI 为独显时，返回 WebGL 解析的 GPU
 
 > **崩溃恢复说明**: `setupCrashRecovery`（含 GPU/WebGL/SharedArrayBuffer 错误重载、5秒心跳 GPU 崩溃检测、页面可见性暂停/恢复 GSAP globalTimeline）定义在 `main.tsx`，见 5.11
 
@@ -1310,7 +1423,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮 |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个面板含speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult 等) |
-| `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.2.8'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项) |
+| `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.2.9'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项) |
 | `index.ts` | 模块导出 |
 
 ### 5.6 布局组件 — `components/layout/`
@@ -1406,7 +1519,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 
 ## 六、IPC 通信完整清单
 
-### 6.1 请求-响应命令 (v2.2.8: 50个)
+### 6.1 请求-响应命令 (v2.2.9: 50个)
 
 | 命令名 | 说明 |
 |--------|------|
@@ -1532,17 +1645,32 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | `tailwind-merge` | ^2.5.0 | Tailwind class 冲突合并 |
 | Radix UI primitives (7 项) | ^1.1.x ~ ^2.1.x | 无障碍UI (dialog/label/select/separator/slot/switch/tooltip) |
 
-**开发依赖 (devDependencies, 8 项)**:
+**开发依赖 (devDependencies, 12 项)**:
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
+| `@testing-library/jest-dom` | ^6.9.1 | Jest DOM 断言扩展 (vitest 单元测试) |
+| `@testing-library/react` | ^16.3.2 | React 组件测试工具 (渲染/查询/交互) |
 | `@types/react` / `@types/react-dom` | ^19.0.0 | React 类型定义 |
 | `@vitejs/plugin-react` | ^4.3.0 | Vite React 插件 |
-| `vite` | ^6.0.0 | 构建工具 |
-| `typescript` | ^5.5.0 | 类型系统 |
-| `tailwindcss` | ^3.4.10 | CSS 框架 |
-| `postcss` | ^8.4.40 | CSS 后处理器 |
 | `autoprefixer` | ^10.4.20 | 自动添加浏览器前缀 |
+| `jsdom` | ^29.1.1 | DOM 环境模拟 (vitest 测试环境) |
+| `postcss` | ^8.4.40 | CSS 后处理器 |
+| `tailwindcss` | ^3.4.10 | CSS 框架 |
+| `typescript` | ^5.5.0 | 类型系统 |
+| `vite` | ^6.0.0 | 构建工具 |
+| `vitest` | ^4.1.10 | 单元测试框架 (Vite 原生集成) |
+
+**scripts 脚本**:
+
+| 脚本 | 命令 | 说明 |
+|------|------|------|
+| `dev` | `vite` | 启动开发服务器 |
+| `build` | `vite build` | 生产构建 |
+| `preview` | `vite preview` | 预览构建产物 |
+| `test` | `vitest run` | 单次运行单元测试 (CI 用) |
+| `test:watch` | `vitest` | 监听模式运行单元测试 |
+| `clean` | node 脚本 | 清理 dist 与 node_modules/.vite 缓存目录 |
 
 ### 7.3 依赖关系图
 
@@ -1577,7 +1705,7 @@ app/ (应用生命周期模块)
 infra/
   ├── mod.rs (重导出)
   ├── state/ ← config/model.rs, arc-swap, parking_lot, tokio-util (子目录重构自 state.rs)
-  │   ├── mod.rs     [TaskLock/TaskFlags/AppState (9 字段) /CommandResult/AccountResult]
+  │   ├── mod.rs     [TaskLock/TaskFlags/AppState (6 字段 + UpdateStats 子结构体) /CommandResult/AccountResult]
   │   ├── store.rs   [ConfigStore: ArcSwap<Config> CAS 更新]
   │   ├── network.rs [NetworkState + NetworkSnapshot: ArcSwap 快照 CAS 读写]
   │   └── exit.rs    [ExitStateStore]
@@ -1586,32 +1714,35 @@ infra/
   ├── lifecycle.rs ← infra/state/, infra/notification.rs
   │   [start_auto_exit / cancel_auto_exit_inner / start_campus_exit / shutdown_and_exit]
   ├── notification.rs — emit_notification 封装
-  ├── events.rs — EventBus (17 个 emit_xxx 方法, emit_login_log/emit_network_quality/...)
+  ├── events.rs — EventBus (16 个 emit_xxx 方法, emit_login_log/emit_network_quality/...)
   └── command_context.rs — CommandContext::from_app (统一访问 ConfigStore/TaskFlags/NetworkState/ExitStateStore)
 
-monitor/
-  ├── mod.rs (重导出)
-  ├── watcher.rs (调度器, PortalCheckResult 职责分离, 校园网检测, Handle::enter 上下文修复)
+monitor/ (11 个子模块)
+  ├── mod.rs (重导出, 含 trigger_background_check 别名)
+  ├── watcher.rs (门面 51行, re-export background_check/background_task + run_startup_tasks)
+  ├── background_check.rs ← portal_failure/auto_auth/lifecycle/latency/portal_check/campus_check/background_emit
+  │   [run_background_check_blocking 检测主体 + run_background_check async 包装]
+  ├── background_task.rs ← infra/task_manager [start_background_check_inner + task_manager.spawn]
+  ├── portal_failure.rs ← infra/state/, network/dhcp [handle_portal_request_failure, 阈值5]
   ├── auto_auth.rs ← infra/state/, auth/session.rs, infra/notification.rs, infra/lifecycle.rs
   ├── latency.rs ← infra/state/, network/*, infra/notification.rs [spawn_latency_test_loop]
   ├── adapter_watch.rs ← infra/state/, infra/events.rs, CancellationToken
-  ├── campus_check.rs — 校园网检测 (从 watcher 拆分)
-  ├── portal_check.rs — Portal 检测 (check_adapter_portal 并行检测)
+  ├── campus_check.rs — 校园网检测 (CampusCheckResult 定义于此)
+  ├── portal_check.rs — Portal 检测 (PortalCheckResult 定义于此 + check_adapter_portal)
   ├── quality_scheduler.rs — 质量检测调度器
   └── background_emit.rs — 后台事件推送
 
-auth/ (7 个子模块)
+auth/ (6 个子模块，原 traits.rs 已删除)
   ├── mod.rs (重导出)
   ├── portal.rs ← network/client.rs, reqwest, url [random_v, block_on_http 同步-异步桥接]
   ├── protocol.rs ← network/client.rs, reqwest, urlencoding, regex [random_v]
   │   [两步注销: 2轮循环 MAC解绑+Radius注销, callback 动态生成 dr100{round+1}/dr100{round+2}]
   ├── session.rs ← auth/portal.rs, auth/protocol.rs, network/adapter.rs
   │   [adapter_action_with_log / login_adapter_with_log 通用封装]
-  ├── service.rs ← auth/session.rs, auth/failure_tracker.rs, auth/traits.rs, auth/dual_adapter_executor.rs
-  │   [full_login / full_logout 统一入口 + logout_adapter_with_log]
-  ├── traits.rs — AdapterResolver trait + DefaultAdapterResolver
+  ├── service.rs ← auth/session.rs, auth/failure_tracker.rs, auth/dual_adapter_executor.rs, network/adapter.rs
+  │   [full_login / full_logout 统一入口 + logout_adapter_with_log + post_login_handler (直接调用 network::resolve_adapter_names，无 trait)]
   ├── failure_tracker.rs ← infra/state/ [is_auth_failure / update_auth_failure_count / reset_all]
-  └── dual_adapter_executor.rs — execute_dual 双适配器并行执行
+  └── dual_adapter_executor.rs — execute_dual 双适配器并行执行 (tokio spawn_blocking + 可中断错峰)
 
 network/ (8 个业务子模块 + discovery/ 子目录)
   ├── mod.rs (重导出)
@@ -1663,10 +1794,20 @@ update/
       [verify_download_sha256: 分块流式读取计算 SHA256，64KB buffer]
       [SHA256 校验文件支持镜像源 URL 列表]
 
-App.tsx
-  └── useAppStore (zustand, useShallow 选择性订阅)
-        ├── useIpc.ts ← @tauri-apps/api
-        └── useAppInit.ts
+App.tsx (377行, App + AppInner)
+  ├── 领域 store (zustand, useShallow 选择性订阅)
+  │   ├── useConfigStore (config/accounts/language + 防抖保存)
+  │   ├── useAuthStore (doLogin/doLogout/checkOnline/status/bgStatus)
+  │   ├── useAdapterStore (adapters/details/activePanel)
+  │   ├── useQualityStore (networkQuality/dnsDoh/gpuInfo)
+  │   ├── useThemeStore (themeName/isLightMode/customThemeColor)
+  │   └── useLogToastStore (logs/toasts)
+  ├── tauriApi.ts ← @tauri-apps/api (原 useIpc.ts，纯模块非 hook)
+  └── useAppInit.ts (编排 hook)
+        ├── useEventListeners.ts (16 个事件订阅 + 窗口关闭拦截)
+        ├── useInitialDataLoad.ts (getInitData bootstrap)
+        ├── useHeartbeat.ts (5s 渲染心跳)
+        └── useGlobalShortcut.ts (Ctrl+Shift+C)
 ```
 
 ---
@@ -1809,11 +1950,11 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 > ⚠️ **Cargo.lock 中的 version**：由 cargo 自动更新，下次 `cargo build` 时自动重写。
 
 > ⚠️ **升级检查清单**：建议在发布前对照以下 5 个**必须保持一致**的位置：
-> 1. `tauri-app/src-tauri/tauri.conf.json` → `"version": "2.2.8"`
-> 2. `tauri-app/src-tauri/Cargo.toml` → `version = "2.2.8"`
-> 3. `tauri-app/frontend/src/shared/ui-constants.ts` → `APP_VERSION = '2.2.8'`
-> 4. `tauri-app/package.json` + `tauri-app/frontend/package.json` → `"version": "2.2.8"`
-> 5. 根 `version.json` → `"version": "v2.2.8"`（带 v 是发布 tag 格式）
+> 1. `tauri-app/src-tauri/tauri.conf.json` → `"version": "2.2.9"`
+> 2. `tauri-app/src-tauri/Cargo.toml` → `version = "2.2.9"`
+> 3. `tauri-app/frontend/src/shared/ui-constants.ts` → `APP_VERSION = '2.2.9'`
+> 4. `tauri-app/package.json` + `tauri-app/frontend/package.json` → `"version": "2.2.9"`
+> 5. 根 `version.json` → `"version": "v2.2.9"`（带 v 是发布 tag 格式）
 
 ### 后端代码引用方式
 
@@ -1835,23 +1976,15 @@ let version = env!("APP_VERSION").to_string();
 |---|---|---|
 | `ui-constants.ts` `APP_VERSION` 常量 | 代码内直接 import | 手动同步 |
 
-前端 `vite.config.ts` 中虽保留了 `__APP_VERSION__` 注入逻辑（从 `tauriConf.version` 动态读取并通过 `define` 注入），但全前端目录**0 处引用**该常量，属历史遗留死代码：
-
-```typescript
-// vite.config.ts:19 (历史遗留，无消费者)
-const appVersion = tauriConf.version || '0.0.0'
-define: {
-  __APP_VERSION__: JSON.stringify(appVersion),
-}
-```
+> v2.2.9 重构清理：`vite.config.ts` 已移除原 `__APP_VERSION__` 注入逻辑（不再 `import tauriConf`、不再 `define` 注入），前端版本号唯一来源为 `ui-constants.ts` 的 `APP_VERSION` 硬编码常量。
 
 > 注：`ui-constants.ts` 的 `APP_VERSION` 保留硬编码是为了在非 Tauri 环境（如纯前端 Storybook / 单元测试 mock）下也能取到合理默认值。**升级时仅需同步 `ui-constants.ts` 一处**。
 
 ### 版本号格式约定
 
-- **semver 格式（不带 v）**：`Cargo.toml` / `tauri.conf.json` / `package.json` × 2 / `ui-constants.ts` → `2.2.8`
-- **发布 tag 格式（带 v）**：`version.json` / 后端日志（`v{}`）/ `about-preview.html` 的 `app-version` 和 `status-version` div（`v2.2.8`）/ README 徽章（`version-2.2.8` 不带 v，但后端启动日志带 v）
+- **semver 格式（不带 v）**：`Cargo.toml` / `tauri.conf.json` / `package.json` × 2 / `ui-constants.ts` → `2.2.9`
+- **发布 tag 格式（带 v）**：`version.json` / 后端日志（`v{}`）/ `about-preview.html` 的 `app-version` 和 `status-version` div（`v2.2.9`）/ README 徽章（`version-2.2.9` 不带 v，但后端启动日志带 v）
 
 ---
 
-*文档版本: v2.2.9 | 基于代码版本: CampusLogin v2.2.9 | 更新日期: 2026-06-26*
+*文档版本: v2.2.9 | 基于代码版本: CampusLogin v2.2.9 | 更新日期: 2026-07-14*

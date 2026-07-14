@@ -10,6 +10,18 @@ pub fn random_v() -> String {
     format!("{v}")
 }
 
+/// 可中断等待：在指定时长内每 100ms 检查退出标志，返回 true 表示未取消，false 表示已取消
+fn wait_cancellable(duration_ms: u64, is_quitting: &std::sync::atomic::AtomicBool) -> bool {
+    let steps = duration_ms / 100;
+    for _ in 0..steps {
+        if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    true
+}
+
 fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Option<&str>) -> Result<serde_json::Value, String> {
     let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
     let validated_operator = crate::config::validate::validate_operator(operator).map_err(|e| e.to_string())?;
@@ -76,13 +88,8 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
             }
         }
 
-        if attempt < max_retries {
-            for _ in 0..20 {
-                if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-                    return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
+        if attempt < max_retries && !wait_cancellable(2000, is_quitting) {
+            return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
         }
     }
 
@@ -148,7 +155,7 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
     }
 }
 
-fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
+fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
     let validated_user = crate::config::validate::validate_username(user).map_err(|e| e.to_string())?;
     let portal_base = PORTAL_URL.load().clone();
     let portal_base_url = crate::auth::portal::ensure_portal_port(&portal_base);
@@ -249,7 +256,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac:
     }))
 }
 
-pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, if_index: u32, mac: &str, max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
+pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str, max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
     let mut last_result = None;
 
     for attempt in 1..=max_retries {
@@ -257,7 +264,7 @@ pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, if_index: u32,
             return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
         }
 
-        let result = do_logout_request(user, adapter_ip, if_index, mac, is_quitting);
+        let result = do_logout_request(user, adapter_ip, is_quitting);
         match result {
             Ok(ref r) if r.get("success").and_then(|v| v.as_bool()).unwrap_or(false) => {
                 return Ok(r.clone());
@@ -274,13 +281,8 @@ pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, if_index: u32,
             }
         }
 
-        if attempt < max_retries {
-            for _ in 0..20 {
-                if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-                    return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
+        if attempt < max_retries && !wait_cancellable(2000, is_quitting) {
+            return Ok(serde_json::json!({ "code": "error", "message": "应用正在退出", "success": false }));
         }
     }
 
