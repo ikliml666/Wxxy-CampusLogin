@@ -187,7 +187,8 @@ pub fn schedule_update_cleanup() {
 
 pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
+    let task_manager = app_handle.state::<AppState>().task_manager.clone();
+    if let Err(e) = task_manager.spawn("update_check_loop", move |_cancel| async move {
         let state = app_h.state::<AppState>();
         let last_epoch = state.last_update_check_epoch_ms.load(Ordering::Acquire);
         let now_epoch = std::time::SystemTime::now()
@@ -235,7 +236,9 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
                 waited += 5;
             }
         }
-    });
+    }) {
+        crate::log_warn!("updater", "注册 update_check_loop 跟踪任务失败: {}", e);
+    }
 }
 
 /// 执行一次更新检查并发送通知

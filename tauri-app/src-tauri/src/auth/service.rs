@@ -1,5 +1,7 @@
-use tauri::AppHandle;
-use std::sync::atomic::AtomicBool;
+use tauri::{AppHandle, Manager};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use crate::config::model::Config;
 use crate::network::{
     Adapter, get_adapters_cached,
@@ -207,4 +209,34 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
             crate::log_warn!("logout", "注销请求失败");
             CommandResult::err("注销请求失败")
         })
+}
+
+/// 登录成功后的公共后处理：解除注销保护期、延迟后台检测、按需触发自动退出。
+/// AM-13: 从 commands/login.rs 下沉到 auth/service.rs，供 commands/login.rs 与 app/tray.rs 共享调用，消除跨层依赖。
+pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
+    crate::log_info!("login", "登录成功");
+    // 手动/快速登录成功后解除注销保护期，避免后台检测强制 online=false 覆盖登录状态
+    // 保护期仅用于阻止注销后自动登录立即触发，手动登录不受影响
+    state.network.update(|s| s.logout_protected_until = std::time::Instant::now());
+    crate::log_debug!("login", "已解除注销保护期");
+
+    let app_h_bg = app_handle.clone();
+    let config = state.config.load_full();
+    let auto_exit = config.auto_exit_after_login;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let s = app_h_bg.state::<AppState>();
+        // 退出流程已开始时不再执行后台检查或触发自动退出
+        if s.exit.is_quitting.load(Ordering::Acquire) {
+            return;
+        }
+        let cancel_token = s.task_manager
+            .cancel_token("background_check")
+            .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
+        crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
+
+        if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {
+            crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);
+        }
+    });
 }

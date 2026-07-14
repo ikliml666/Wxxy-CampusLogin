@@ -68,6 +68,14 @@ impl BackgroundTaskManager {
         }
     }
 
+    /// 从管理器中移除指定任务但不取消也不等待。
+    ///
+    /// 适用于任务自身即将触发 `shutdown_and_exit` 的场景：避免 `shutdown` 等待自己导致死锁。
+    /// 任务会继续运行直到自然结束。返回是否成功找到并移除。
+    pub fn detach(&self, name: &str) -> bool {
+        self.inner.lock().remove(name).is_some()
+    }
+
     /// 取消所有已注册任务并等待它们全部结束。
     pub async fn shutdown(&self) {
         let handles: Vec<TaskHandle> = {

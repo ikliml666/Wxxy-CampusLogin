@@ -173,7 +173,8 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         is_auto_start, initial_delay, config.dual_adapter);
 
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
+    let task_manager = s.task_manager.clone();
+    if let Err(e) = task_manager.spawn("auto_login_on_start", move |_cancel| async move {
         tokio::time::sleep(Duration::from_millis(initial_delay)).await;
 
         let s = app_h.state::<AppState>();
@@ -408,5 +409,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 }
             }
         }
-    });
+    }) {
+        crate::log_warn!("auto_login", "注册 auto_login_on_start 跟踪任务失败: {}", e);
+    }
 }
