@@ -20,6 +20,7 @@ fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
     };
     let config = state.config.load_full();
     let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+    let a2_enabled = crate::network::is_secondary_adapter_enabled(&config, &a2_name);
 
     let check_one = |name: &str| -> bool {
         crate::network::find_with_valid_ip(&adapters, name)
@@ -28,12 +29,17 @@ fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
             .unwrap_or(false)
     };
 
-    let a1_online = check_one(&a1_name);
-    let a2_online = if crate::network::is_secondary_adapter_enabled(&config, &a2_name) {
-        check_one(&a2_name)
-    } else {
-        false
-    };
+    // 并行检测双适配器 Portal 状态，避免串行累加 HTTP 延迟
+    let (a1_online, a2_online) = std::thread::scope(|s| {
+        let h1 = s.spawn(|| check_one(&a1_name));
+        let a2_online = if a2_enabled {
+            let h2 = s.spawn(|| check_one(&a2_name));
+            h2.join().unwrap_or(false)
+        } else {
+            false
+        };
+        (h1.join().unwrap_or(false), a2_online)
+    });
 
     AdapterOnlineStatus {
         any_online: a1_online || a2_online,

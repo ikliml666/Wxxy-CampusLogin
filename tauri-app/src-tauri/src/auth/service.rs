@@ -85,8 +85,8 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         let is_quitting1 = state.exit.is_quitting.clone();
         let is_quitting2 = state.exit.is_quitting.clone();
         let dual_result = crate::auth::dual_adapter_executor::execute_dual(
-            Box::new(move || login_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
-            Box::new(move || login_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
+            move || login_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref()),
+            move || login_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref()),
             state.exit.is_quitting.clone(),
         );
 
@@ -194,8 +194,8 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
         let is_quitting1 = state.exit.is_quitting.clone();
         let is_quitting2 = state.exit.is_quitting.clone();
         let dual_result = crate::auth::dual_adapter_executor::execute_dual(
-            Box::new(move || logout_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref())),
-            Box::new(move || logout_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref())),
+            move || logout_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref()),
+            move || logout_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref()),
             state.exit.is_quitting.clone(),
         );
 
