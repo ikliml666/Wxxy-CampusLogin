@@ -1,19 +1,23 @@
 import { useCallback } from 'react'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
 
 export function useAuth() {
-  const store = useAppStore(useShallow((s) => ({
+  const authStore = useAuthStore(useShallow((s) => ({
     isLoggingIn: s.isLoggingIn,
     isLoggingOut: s.isLoggingOut,
     status: s.status,
     doLogin: s.doLogin,
     doLogout: s.doLogout,
     checkOnline: s.checkOnline,
+  })))
+  const configStore = useConfigStore(useShallow((s) => ({
     api: s.api,
   })))
+  const store = { ...authStore, ...configStore }
 
-  const configPortalUrl = useAppStore((s) => s.config.portalUrl)
+  const configPortalUrl = useConfigStore((s) => s.config.portalUrl)
 
   const handleOpenPortal = useCallback(() => {
     const url = configPortalUrl || 'http://10.1.99.100'

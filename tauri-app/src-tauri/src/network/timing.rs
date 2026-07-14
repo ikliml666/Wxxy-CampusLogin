@@ -177,7 +177,7 @@ pub async fn measure_https_timing(
             return result;
         }
 
-        let mut buf = vec![0u8; 8192];
+        let mut buf = [0u8; 8192];
         let mut total_read = 0usize;
         let mut first_byte_received = false;
         let mut content_start = Instant::now();

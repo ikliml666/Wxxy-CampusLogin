@@ -3,7 +3,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { APP_VERSION } from '@/shared'
 import { memo, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
+import { useThemeStore } from '@/hooks/useThemeStore'
 import { useTranslation } from 'react-i18next'
 
 interface TitleBarProps {
@@ -56,11 +58,11 @@ export const TitleBar = memo(function TitleBar({
   isMaximized,
 }: TitleBarProps) {
   const { t } = useTranslation()
-  const isLightMode = useAppStore((s) => s.isLightMode)
-  const updateAvailable = useAppStore((s) => s.updateAvailable)
-  const latestVersion = useAppStore((s) => s.latestVersion)
-  const language = useAppStore((s) => s.language)
-  const setLanguage = useAppStore((s) => s.setLanguage)
+  const isLightMode = useThemeStore((s) => s.isLightMode)
+  const updateAvailable = useQualityStore((s) => s.updateAvailable)
+  const latestVersion = useQualityStore((s) => s.latestVersion)
+  const language = useConfigStore((s) => s.language)
+  const setLanguage = useConfigStore((s) => s.setLanguage)
   const lastClickTimeRef = useRef(0)
 
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

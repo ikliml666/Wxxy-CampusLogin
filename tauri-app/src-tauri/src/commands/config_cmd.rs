@@ -6,11 +6,9 @@ use crate::config::validate::{validate_config, validate_config_lenient};
 use crate::account::crypto;
 use crate::infra::state::{AppState, CommandResult};
 
-pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
+pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
     let data_dir = persist::get_data_dir(app_handle);
-    let config_path = persist::get_config_path(&data_dir);
-    let json = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {e}"))?;
-    persist::atomic_write(&config_path, &json)?;
+    persist::save_config_to_disk_encrypted(&data_dir, config)?;
 
     // 统一发射 config-changed 事件：必须 mask 密码后再发射，避免泄露加密后的真实密码
     // 所有调用方（save_config/switch_account/set_auto_launch 等）都通过此路径统一通知前端
@@ -20,14 +18,6 @@ pub fn save_config_to_disk(app_handle: &AppHandle, config: &Config) -> Result<()
     }
     let _ = app_handle.notify_config_changed(&emit_cfg);
     Ok(())
-}
-
-pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
-    let mut disk_config = config.clone();
-    if !disk_config.password.is_empty() && disk_config.password != crate::config::model::PASSWORD_MASK {
-        disk_config.password = crypto::encrypt(&disk_config.password)?;
-    }
-    save_config_to_disk(app_handle, &disk_config)
 }
 
 fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {

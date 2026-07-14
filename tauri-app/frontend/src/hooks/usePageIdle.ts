@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, createContext, useContext, useMemo, createElement, type ReactNode } from 'react'
 
 function usePageIdle() {
   const [isIdle, setIsIdle] = useState(false)
@@ -74,9 +74,21 @@ function useWindowFocused() {
   return isFocused
 }
 
-export function useAnimationActive() {
+// FP-2: 将 useAnimationActive 监听器全局化。
+// 原实现每次调用注册 8-9 个 document/window 监听器，QualityPanel 打开时约 11 个实例 → ~88 个监听器。
+// 现在通过 Provider 在应用顶层只调用一次组合逻辑，调用点改为 useContext 消费。
+const AnimationActiveContext = createContext<boolean>(true)
+
+export function AnimationActiveProvider({ children }: { children: ReactNode }) {
   const isVisible = usePageVisible()
   const isFocused = useWindowFocused()
   const isIdle = usePageIdle()
-  return isVisible && isFocused && !isIdle
+  // 用 useMemo 稳定 value 引用，避免 Provider re-render 导致所有消费者跟随 re-render。
+  const value = useMemo(() => isVisible && isFocused && !isIdle, [isVisible, isFocused, isIdle])
+  // .ts 文件无法使用 JSX，用 createElement 等价表达 <AnimationActiveContext.Provider value={value}>{children}</...>
+  return createElement(AnimationActiveContext.Provider, { value }, children)
+}
+
+export function useAnimationActive(): boolean {
+  return useContext(AnimationActiveContext)
 }

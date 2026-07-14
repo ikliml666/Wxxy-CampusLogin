@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next'
 import { AnimatedNumber } from '@/shared'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
-import gsap from 'gsap'
 
 function getSignalCfg(level: string) {
   const qc = QUALITY_CONFIG[level as keyof typeof QUALITY_CONFIG] ?? QUALITY_CONFIG.unknown
@@ -30,7 +29,7 @@ const BAR_SPECS = [
   { height: 54, width: 9, delay: 0.24 },
 ]
 
-// GSAP 驱动的信号发光点，替代 CSS signal-glow-active
+// CSS @keyframes 驱动的信号发光点，替代 GSAP timeline（FP-3 性能优化）
 const SignalGlowDot = memo(function SignalGlowDot({
   width,
   glow,
@@ -44,26 +43,6 @@ const SignalGlowDot = memo(function SignalGlowDot({
   delay: number
   willChangeTransform: boolean | undefined
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el || !animActive) return
-
-    gsap.set(el, { opacity: 0, scaleX: 0, force3D: true })
-
-    const tl = gsap.timeline({ delay, repeat: -1, repeatDelay: 0 })
-    tl.to(el, { opacity: 0.7, scaleX: 1.3, duration: 1, ease: 'sine.inOut' })
-      .to(el, { opacity: 0.3, scaleX: 0.8, duration: 1, ease: 'sine.inOut' })
-      .to(el, { opacity: 0.7, scaleX: 1.1, duration: 1, ease: 'sine.inOut' })
-      .to(el, { opacity: 0.5, scaleX: 0.95, duration: 1, ease: 'sine.inOut' })
-      .to(el, { opacity: 1, scaleX: 1, duration: 1, ease: 'sine.inOut' })
-
-    return () => {
-      tl.kill()
-    }
-  }, [animActive, delay])
-
   if (!animActive) {
     return (
       <div
@@ -78,16 +57,16 @@ const SignalGlowDot = memo(function SignalGlowDot({
     )
   }
 
+  // economy 档（willChangeOrbs=false）不挂载动画 class，等同 animation: none
   return (
     <div
-      ref={ref}
-      className="absolute bottom-0 rounded-full"
+      className={cn('absolute bottom-0 rounded-full', willChangeTransform && 'signal-glow-active')}
       style={{
         width: width + 5,
         height: 3,
         backgroundColor: glow,
         boxShadow: `0 0 4px 2px ${glow}`,
-        willChange: willChangeTransform ? 'transform, opacity' : undefined,
+        animationDelay: `${delay}s`,
       }}
     />
   )

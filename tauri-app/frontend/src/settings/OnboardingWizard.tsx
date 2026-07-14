@@ -19,7 +19,7 @@ import {
   Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
 import { ISP_OPTIONS } from '@/settings'
 import { APP_NAME, PASSWORD_MASK } from '@/shared'
 import { cn, safeStorage } from '@/lib/utils'
@@ -89,8 +89,8 @@ function StepIndicator({ current }: { current: number }) {
 
 export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
   const { t } = useTranslation()
-  const language = useAppStore((s) => s.language)
-  const setLanguage = useAppStore((s) => s.setLanguage)
+  const language = useConfigStore((s) => s.language)
+  const setLanguage = useConfigStore((s) => s.setLanguage)
   const [step, setStep] = useState(0)
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))

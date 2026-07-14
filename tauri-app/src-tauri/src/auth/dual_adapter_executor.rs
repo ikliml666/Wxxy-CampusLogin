@@ -41,11 +41,17 @@ impl DualAdapterResult {
 ///
 /// 使用 `tokio::task::spawn_blocking` + `tokio::time::sleep` 实现并发与可中断延迟，
 /// 替代原有的 `std::thread::scope` 方案。退出时适配器2不再发起操作。
-pub fn execute_dual(
-    a1_action: Box<dyn FnOnce() -> Option<CommandResult> + Send>,
-    a2_action: Box<dyn FnOnce() -> Option<CommandResult> + Send>,
+///
+/// 使用泛型静态分发替代 `Box<dyn FnOnce>`，消除堆分配与虚函数调用。
+pub fn execute_dual<F1, F2>(
+    a1_action: F1,
+    a2_action: F2,
     is_quitting: Arc<AtomicBool>,
-) -> DualAdapterResult {
+) -> DualAdapterResult
+where
+    F1: FnOnce() -> Option<CommandResult> + Send + 'static,
+    F2: FnOnce() -> Option<CommandResult> + Send + 'static,
+{
     tauri::async_runtime::block_on(async {
         // 适配器1立即执行
         let r1 = tokio::task::spawn_blocking(a1_action);
@@ -129,8 +135,8 @@ mod tests {
     fn execute_dual_runs_both_actions() {
         let is_quitting = Arc::new(AtomicBool::new(false));
         let result = execute_dual(
-            Box::new(|| Some(CommandResult::ok_msg("a1"))),
-            Box::new(|| Some(CommandResult::ok_msg("a2"))),
+            || Some(CommandResult::ok_msg("a1")),
+            || Some(CommandResult::ok_msg("a2")),
             is_quitting,
         );
         assert!(result.success());
@@ -142,8 +148,8 @@ mod tests {
     fn execute_dual_cancels_secondary_on_quit() {
         let is_quitting = Arc::new(AtomicBool::new(true));
         let result = execute_dual(
-            Box::new(|| Some(CommandResult::ok_msg("a1"))),
-            Box::new(|| Some(CommandResult::ok_msg("a2"))),
+            || Some(CommandResult::ok_msg("a1")),
+            || Some(CommandResult::ok_msg("a2")),
             is_quitting,
         );
         assert!(result.success());

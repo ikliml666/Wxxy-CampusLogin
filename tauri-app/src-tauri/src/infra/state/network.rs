@@ -84,25 +84,6 @@ impl NetworkState {
             }
         }
     }
-
-    fn increment<F>(&self, f: F)
-    where
-        F: Fn(&mut NetworkSnapshot),
-    {
-        self.update(|s| f(s));
-    }
-
-    pub fn increment_background_check_count(&self) {
-        self.increment(|s| s.background_check_count += 1);
-    }
-
-    pub fn increment_disconnect_reconnect_count(&self) {
-        self.increment(|s| s.disconnect_reconnect_count += 1);
-    }
-
-    pub fn increment_portal_failure_count(&self) {
-        self.increment(|s| s.portal_failure_count += 1);
-    }
 }
 
 #[cfg(test)]

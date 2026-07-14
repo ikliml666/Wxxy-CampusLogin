@@ -11,7 +11,7 @@ import {
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings'
 import { cn } from '@/lib/utils'
 import React, { memo, useMemo } from 'react'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useThemeStore } from '@/hooks/useThemeStore'
 import { useTranslation } from 'react-i18next'
 
 interface SettingsPanelProps {
@@ -54,8 +54,8 @@ export const SettingsPanel = memo(function SettingsPanel({
   onSetTheme,
   onShowOnboarding,
 }: SettingsPanelProps) {
-  const isLightMode = useAppStore((s) => s.isLightMode)
-  const themeName = useAppStore((s) => s.themeName)
+  const isLightMode = useThemeStore((s) => s.isLightMode)
+  const themeName = useThemeStore((s) => s.themeName)
   const customColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
   const { t } = useTranslation()
 

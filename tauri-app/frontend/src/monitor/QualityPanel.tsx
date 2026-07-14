@@ -18,7 +18,7 @@ import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type La
 import React, { useCallback, memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m, type Variants } from 'framer-motion'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 
@@ -99,8 +99,8 @@ const tabContainerVariants: Variants = {
 
 export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
   const { t } = useTranslation()
-  const networkQuality = useAppStore((s) => s.networkQuality)
-  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
+  const networkQuality = useQualityStore((s) => s.networkQuality)
+  const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
   const profile = useAnimationProfile()
   const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
   const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })

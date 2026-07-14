@@ -6,7 +6,7 @@ use crate::auth::portal::check_portal_full;
 use crate::auth::protocol::do_login_with_retry;
 use crate::infra::events::EventBus;
 use crate::infra::state::CommandResult;
-use crate::commands::system::append_login_history;
+use crate::config::persist::append_login_history;
 
 pub fn adapter_action_with_log<F>(
     adapter: &Adapter,
@@ -84,7 +84,7 @@ pub fn login_adapter_with_log(
         return None;
     }
 
-    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name), None, None, Some(&config.operator)) {
+    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name), None, None) {
         if sec_status.online {
             return Some(CommandResult {
                 success: true,
@@ -112,7 +112,7 @@ pub fn login_adapter_with_log(
             if let Some(ref data) = cmd_result.data {
                 let message = data.get("message").and_then(|v| v.as_str()).unwrap_or("");
                 if message.contains("无法解析登录响应") {
-                    if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name), None, None, Some(&config_operator)) {
+                    if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name), None, None) {
                         if sec_status.online {
                             let event_bus = EventBus::new(app_handle);
                             if let Err(e) = event_bus.emit_login_log(&format!("{adapter_name} 已在线"), "success") {

@@ -19,7 +19,9 @@ import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
 
 interface NetworkPanelProps {
   config: Config
@@ -33,7 +35,7 @@ const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
 export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpdateConfig }: NetworkPanelProps) {
   const { t } = useTranslation()
-  const disabledAdapters = useAppStore((s) => s.disabledAdapters)
+  const disabledAdapters = useAdapterStore((s) => s.disabledAdapters)
   const [dohEnabling, setDohEnabling] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
@@ -44,31 +46,31 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
     return () => { mountedRef.current = false }
   }, [])
 
-  const dnsStatus = useAppStore(s => s.dnsDohStatus)
-  const dnsChecking = useAppStore(s => s.dnsChecking)
-  const refreshAdapters = useAppStore(s => s.refreshAdapters)
-  const isRefreshingAdapters = useAppStore(s => s.isRefreshingAdapters)
+  const dnsStatus = useQualityStore(s => s.dnsDohStatus)
+  const dnsChecking = useQualityStore(s => s.dnsChecking)
+  const refreshAdapters = useAdapterStore(s => s.refreshAdapters)
+  const isRefreshingAdapters = useAdapterStore(s => s.isRefreshingAdapters)
 
   const handleCheckDns = useCallback(async () => {
-    useAppStore.getState().setDnsChecking(true)
+    useQualityStore.getState().setDnsChecking(true)
     try {
       const status = await ipc.checkDnsDohStatus()
-      useAppStore.getState().setDnsDohStatus(status)
+      useQualityStore.getState().setDnsDohStatus(status)
       if (status) {
         const hasRecommendedDns = status.adapters.some(a => a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address)))
         const dohNotEnabled = status.adapters.some(a =>
           a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
         )
         if (!hasRecommendedDns) {
-          useAppStore.getState().addLog(t('network.dnsNotRecommended'), 'warning')
+          useLogToastStore.getState().addLog(t('network.dnsNotRecommended'), 'warning')
         } else if (dohNotEnabled) {
-          useAppStore.getState().addLog(t('network.dnsDohNotEnabled'), 'warning')
+          useLogToastStore.getState().addLog(t('network.dnsDohNotEnabled'), 'warning')
         }
       }
     } catch {
-      useAppStore.getState().setDnsDohStatus(null)
+      useQualityStore.getState().setDnsDohStatus(null)
     } finally {
-      useAppStore.getState().setDnsChecking(false)
+      useQualityStore.getState().setDnsChecking(false)
     }
   }, [ipc])
 
@@ -78,16 +80,16 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
       const result = await ipc.setupDnsDoh()
       if (!mountedRef.current) return
       if (result.success) {
-        useAppStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
+        useLogToastStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
         const status = await ipc.checkDnsDohStatus()
         if (!mountedRef.current) return
-        useAppStore.getState().setDnsDohStatus(status)
+        useQualityStore.getState().setDnsDohStatus(status)
       } else {
-        useAppStore.getState().addToast(t('network.dnsOptFailed'), 'error', result.message)
+        useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', result.message)
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return
-      useAppStore.getState().addToast(t('network.dnsOptFailed'), 'error', extractErrorMessage(e))
+      useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', extractErrorMessage(e))
     } finally {
       if (mountedRef.current) setDohEnabling(false)
     }
@@ -103,18 +105,18 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
         const skipped = results.filter((r: any) => r.skipped)
         const failed = results.filter((r: any) => !r.success && !r.skipped)
         if (succeeded.length > 0) {
-          useAppStore.getState().addToast(`已获取新IP: ${succeeded.map((r: any) => r.name).join(', ')}`, 'success')
+          useLogToastStore.getState().addToast(`已获取新IP: ${succeeded.map((r: any) => r.name).join(', ')}`, 'success')
         }
         if (skipped.length > 0) {
-          useAppStore.getState().addToast(`${skipped.map((r: any) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
+          useLogToastStore.getState().addToast(`${skipped.map((r: any) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
         }
         if (failed.length > 0) {
           const failedDetails = failed.map((r: any) => r.reason ? `${r.name}: ${r.reason}` : r.name).join('; ')
-          useAppStore.getState().addToast(`获取新IP失败: ${failedDetails}`, 'error')
+          useLogToastStore.getState().addToast(`获取新IP失败: ${failedDetails}`, 'error')
         }
       }
     } catch (e) {
-      useAppStore.getState().addToast('获取新IP失败', 'error')
+      useLogToastStore.getState().addToast('获取新IP失败', 'error')
     } finally {
       if (mountedRef.current) setGettingNewIpAdapter(null)
     }
@@ -123,8 +125,8 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
         ipc.getAdapters?.().catch(() => undefined),
         ipc.getAdapterDetails?.().catch(() => undefined),
       ])
-      if (newAdapters) useAppStore.setState({ adapters: newAdapters })
-      if (newDetails) useAppStore.setState({ adapterDetails: newDetails })
+      if (newAdapters) useAdapterStore.setState({ adapters: newAdapters })
+      if (newDetails) useAdapterStore.setState({ adapterDetails: newDetails })
     } catch {}
   }, [ipc, mountedRef])
 
@@ -134,13 +136,13 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
       const result = await ipc.enableAdapter?.(adapterName)
       if (!mountedRef.current) return
       if (result?.success) {
-        useAppStore.getState().addToast(t('network.adapterEnabled', { name: adapterName }), 'success', result.message)
+        useLogToastStore.getState().addToast(t('network.adapterEnabled', { name: adapterName }), 'success', result.message)
       } else {
-        useAppStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', result?.message)
+        useLogToastStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', result?.message)
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return
-      useAppStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', extractErrorMessage(e))
+      useLogToastStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', extractErrorMessage(e))
     } finally {
       if (mountedRef.current) setEnablingAdapter(null)
     }
@@ -151,9 +153,9 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
         ipc.getAdapterDetails?.().catch(() => undefined),
         ipc.getDisabledAdapters?.().catch(() => undefined),
       ])
-      if (newAdapters) useAppStore.setState({ adapters: newAdapters })
-      if (newDetails) useAppStore.setState({ adapterDetails: newDetails })
-      if (newDisabled) useAppStore.setState({ disabledAdapters: newDisabled })
+      if (newAdapters) useAdapterStore.setState({ adapters: newAdapters })
+      if (newDetails) useAdapterStore.setState({ adapterDetails: newDetails })
+      if (newDisabled) useAdapterStore.setState({ disabledAdapters: newDisabled })
     } catch {}
   }, [ipc, mountedRef, t])
 

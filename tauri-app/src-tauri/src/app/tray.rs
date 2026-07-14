@@ -67,7 +67,7 @@ fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 );
 
                 if result.success {
-                    crate::commands::login::post_login_handler(&app_h, &s);
+                    crate::auth::service::post_login_handler(&app_h, &s);
                 }
             });
         }

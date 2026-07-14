@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 use tauri::Manager;
+use crate::config::model::Config;
+use crate::account::crypto;
 
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
     // 临时文件名带纳秒时间戳，避免并发保存时互相覆盖
@@ -76,4 +78,67 @@ pub fn list_account_names(app_handle: &tauri::AppHandle) -> Vec<String> {
 
 pub fn get_login_history_path(data_dir: &Path) -> PathBuf {
     data_dir.join("login-history.json")
+}
+
+pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
+    let data_dir = get_data_dir(app_handle);
+    let history_path = get_login_history_path(&data_dir);
+    std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
+
+    let mut history: Vec<serde_json::Value> = if history_path.exists() {
+        let content = match std::fs::read_to_string(&history_path) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::log_warn!("system", "读取登录历史失败，备份后重置: {}", e);
+                let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                String::new()
+            }
+        };
+        if content.is_empty() {
+            vec![]
+        } else {
+            match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(e) => {
+                    crate::log_warn!("system", "解析登录历史失败，备份后重置: {}", e);
+                    let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                    vec![]
+                }
+            }
+        }
+    } else {
+        vec![]
+    };
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    history.insert(0, serde_json::json!({
+        "time": now,
+        "success": success,
+        "message": message,
+        "adapter": adapter,
+        "user": user,
+        "type": login_type
+    }));
+
+    if history.len() > 100 {
+        history.truncate(100);
+    }
+
+    let json = serde_json::to_string_pretty(&history)
+        .map_err(|e| format!("序列化登录历史失败: {e}"))?;
+
+    atomic_write(&history_path, &json)?;
+
+    Ok(())
+}
+
+pub fn save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String> {
+    let mut disk_config = config.clone();
+    if !disk_config.password.is_empty() && disk_config.password != crate::config::model::PASSWORD_MASK {
+        disk_config.password = crypto::encrypt(&disk_config.password)?;
+    }
+    let config_path = get_config_path(data_dir);
+    let json = serde_json::to_string_pretty(&disk_config).map_err(|e| format!("序列化配置失败: {e}"))?;
+    atomic_write(&config_path, &json)
 }

@@ -1,7 +1,5 @@
 use tauri::{AppHandle, Manager, State};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 use crate::infra::events::EventBus;
 use crate::network::get_adapters_cached;
 use crate::auth::portal::check_portal_full;
@@ -22,20 +20,26 @@ fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
     };
     let config = state.config.load_full();
     let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+    let a2_enabled = crate::network::is_secondary_adapter_enabled(&config, &a2_name);
 
     let check_one = |name: &str| -> bool {
         crate::network::find_with_valid_ip(&adapters, name)
-            .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None, None)
+            .map(|a| check_portal_full(&a.ip, Some(&a.name), None, None)
                 .map(|ps| ps.online).unwrap_or(false))
             .unwrap_or(false)
     };
 
-    let a1_online = check_one(&a1_name);
-    let a2_online = if crate::network::is_secondary_adapter_enabled(&config, &a2_name) {
-        check_one(&a2_name)
-    } else {
-        false
-    };
+    // 并行检测双适配器 Portal 状态，避免串行累加 HTTP 延迟
+    let (a1_online, a2_online) = std::thread::scope(|s| {
+        let h1 = s.spawn(|| check_one(&a1_name));
+        let a2_online = if a2_enabled {
+            let h2 = s.spawn(|| check_one(&a2_name));
+            h2.join().unwrap_or(false)
+        } else {
+            false
+        };
+        (h1.join().unwrap_or(false), a2_online)
+    });
 
     AdapterOnlineStatus {
         any_online: a1_online || a2_online,
@@ -67,39 +71,10 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
     };
 
     if result.success {
-        post_login_handler(&app_handle, &state);
+        crate::auth::service::post_login_handler(&app_handle, &state);
     }
 
     Ok(result)
-}
-
-/// 登录成功后的公共后处理：解除注销保护期、延迟后台检测、按需触发自动退出。
-pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
-    crate::log_info!("login", "登录成功");
-    // 手动/快速登录成功后解除注销保护期，避免后台检测强制 online=false 覆盖登录状态
-    // 保护期仅用于阻止注销后自动登录立即触发，手动登录不受影响
-    state.network.update(|s| s.logout_protected_until = std::time::Instant::now());
-    crate::log_debug!("login", "已解除注销保护期");
-
-    let app_h_bg = app_handle.clone();
-    let config = state.config.load_full();
-    let auto_exit = config.auto_exit_after_login;
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let s = app_h_bg.state::<AppState>();
-        // 退出流程已开始时不再执行后台检查或触发自动退出
-        if s.exit.is_quitting.load(Ordering::Acquire) {
-            return;
-        }
-        let cancel_token = s.task_manager
-            .cancel_token("background_check")
-            .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
-        crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
-
-        if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {
-            crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);
-        }
-    });
 }
 
 #[tauri::command]

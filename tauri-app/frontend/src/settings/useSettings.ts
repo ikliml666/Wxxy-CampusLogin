@@ -1,14 +1,21 @@
 import { useCallback } from 'react'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useThemeStore } from '@/hooks/useThemeStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
 import type { ThemeName } from '@/shared'
 
 export function useSettings() {
-  const store = useAppStore(useShallow((s) => ({
+  const configStore = useConfigStore(useShallow((s) => ({
     config: s.config,
     updateConfig: s.updateConfig,
     saveConfigDirect: s.saveConfigDirect,
+    passwordSaved: s.passwordSaved,
+    syncPasswordSaved: s.syncPasswordSaved,
+    api: s.api,
+  })))
+  const themeStore = useThemeStore(useShallow((s) => ({
     themeName: s.themeName,
     isLightMode: s.isLightMode,
     customThemeColor: s.customThemeColor,
@@ -16,19 +23,19 @@ export function useSettings() {
     setIsLightMode: s.setIsLightMode,
     initTheme: s.initTheme,
     setCustomThemeColor: s.setCustomThemeColor,
-    passwordSaved: s.passwordSaved,
-    syncPasswordSaved: s.syncPasswordSaved,
-    api: s.api,
+  })))
+  const logToastStore = useLogToastStore(useShallow((s) => ({
     addToast: s.addToast,
   })))
+  const store = { ...configStore, ...themeStore, ...logToastStore }
 
-  const configEnableNotification = useAppStore((s) => s.config.enableNotification)
+  const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
 
   const handleToggleLightMode = useCallback(() => {
-    const current = useAppStore.getState().isLightMode
+    const current = useThemeStore.getState().isLightMode
     const next = !current
-    useAppStore.getState().setIsLightMode(next)
-    useAppStore.getState().updateConfig({ themeMode: next ? 'light' : 'dark' })
+    useThemeStore.getState().setIsLightMode(next)
+    useConfigStore.getState().updateConfig({ themeMode: next ? 'light' : 'dark' })
     safeStorage.set('campus-light-mode', next ? '1' : '0')
   }, [])
 

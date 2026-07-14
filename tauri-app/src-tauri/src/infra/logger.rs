@@ -411,7 +411,13 @@ pub fn shutdown() {
     }
     let mut thread_lock = LOGGER_THREAD.lock();
     if let Some(handle) = thread_lock.take() {
-        let _ = handle.join();
+        // 显式 join logger 线程，带 500ms 超时避免 logger 线程卡死时阻塞进程退出
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = handle.join();
+            let _ = tx.send(());
+        });
+        let _ = rx.recv_timeout(std::time::Duration::from_millis(500));
     }
 }
 

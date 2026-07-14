@@ -1,15 +1,20 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { useAppStore, useAppInit } from '@/hooks/useAppStore'
+import { useAppInit } from '@/hooks/useAppInit'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useAuth } from '@/auth'
 import { useMonitor } from '@/monitor'
 import { useNetwork } from '@/network'
 import { useAccount } from '@/account'
 import { useSettings } from '@/settings'
-import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
 import { AnimatePresence, m } from 'framer-motion'
 import { ErrorBoundary, ToastContainer, FluidBackground, ConfirmDialog, LogPanel } from '@/shared'
+import type { PanelName } from '@/shared'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/monitor'
 import { DockNav } from '@/components/layout/DockNav'
@@ -24,6 +29,7 @@ import { SettingsPanel } from '@/settings'
 import { getPanelDirection, createPanelAppleVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
+import { AnimationActiveProvider } from '@/hooks/usePageIdle'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
@@ -39,27 +45,29 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
 
+const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style paint', willChange: 'transform', transform: 'translateZ(0)' }
+
 function AppInner() {
   useAppInit()
   const { t } = useTranslation()
 
-  const activePanel = useAppStore((s) => s.activePanel)
-  const adapters = useAppStore((s) => s.adapters)
-  const accounts = useAppStore((s) => s.accounts)
-  const activeAccount = useAppStore((s) => s.activeAccount)
-  const isLoggingIn = useAppStore((s) => s.isLoggingIn)
+  const activePanel = useAdapterStore((s) => s.activePanel)
+  const adapters = useAdapterStore((s) => s.adapters)
+  const accounts = useConfigStore((s) => s.accounts)
+  const activeAccount = useConfigStore((s) => s.activeAccount)
+  const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
 
-  const config = useAppStore(useShallow((s) => s.config))
-  const api = useAppStore.getState().api
+  const config = useConfigStore(useShallow((s) => s.config))
+  const api = useConfigStore.getState().api
 
-  const updateConfig = useAppStore((s) => s.updateConfig)
-  const setActivePanel = useAppStore((s) => s.setActivePanel)
-  const setUpdateAvailable = useAppStore((s) => s.setUpdateAvailable)
-  const setLatestVersion = useAppStore((s) => s.setLatestVersion)
-  const setReleaseNotes = useAppStore((s) => s.setReleaseNotes)
-  const addToast = useAppStore((s) => s.addToast)
-  const doLogin = useAppStore((s) => s.doLogin)
-  const refreshQuality = useAppStore((s) => s.refreshQuality)
+  const updateConfig = useConfigStore((s) => s.updateConfig)
+  const setActivePanel = useAdapterStore((s) => s.setActivePanel)
+  const setUpdateAvailable = useQualityStore((s) => s.setUpdateAvailable)
+  const setLatestVersion = useQualityStore((s) => s.setLatestVersion)
+  const setReleaseNotes = useQualityStore((s) => s.setReleaseNotes)
+  const addToast = useLogToastStore((s) => s.addToast)
+  const doLogin = useAuthStore((s) => s.doLogin)
+  const refreshQuality = useQualityStore((s) => s.refreshQuality)
 
   const { handleOpenPortal, handleOpenSelfService } = useAuth()
   const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
@@ -118,7 +126,7 @@ function AppInner() {
       }
     })
     getCurrentWindow().isMaximized().then(m => setIsMaximized(m)).catch((e) => { if (import.meta.env.DEV) console.error(e) })
-    return () => { unlisten.then(fn => fn()).catch((e) => { if (import.meta.env.DEV) console.error(e) }); useAppStore.getState().cleanupToasts() }
+    return () => { unlisten.then(fn => fn()).catch((e) => { if (import.meta.env.DEV) console.error(e) }); useLogToastStore.getState().cleanupToasts() }
   }, [])
 
   useEffect(() => {
@@ -142,6 +150,14 @@ function AppInner() {
   const handleClearLogs = useCallback(() => {
     setLogs([])
   }, [setLogs])
+
+  const handlePanelChange = useCallback((p: PanelName) => {
+    if (panelChangeLock.current) return
+    panelChangeLock.current = true
+    setActivePanel(p)
+    safeStorage.set('campus-active-panel', p)
+    setTimeout(() => { panelChangeLock.current = false }, 500)
+  }, [setActivePanel])
 
   const panelInfo = PANEL_TITLES[activePanel] || PANEL_TITLES.dashboard
 
@@ -283,7 +299,7 @@ function AppInner() {
                 animate="animate"
                 exit="exit"
                 className="panel-content"
-                style={{ contain: 'layout style paint', willChange: 'transform', transform: 'translateZ(0)' } as React.CSSProperties}
+                style={PANEL_CONTAINER_STYLE}
               >
                 <ErrorBoundary>{panelContent}</ErrorBoundary>
               </m.div>
@@ -300,13 +316,7 @@ function AppInner() {
 
       <DockNav
         outerRef={setRef('dockNav')}
-        onPanelChange={(p) => {
-          if (panelChangeLock.current) return
-          panelChangeLock.current = true
-          setActivePanel(p)
-          safeStorage.set('campus-active-panel', p)
-          setTimeout(() => { panelChangeLock.current = false }, 500)
-        }}
+        onPanelChange={handlePanelChange}
       />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
@@ -315,9 +325,9 @@ function AppInner() {
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
         openExternal={(url) => api.openExternal?.(url)}
-        initialLatestVersion={useAppStore.getState().latestVersion}
-        initialReleaseNotes={useAppStore.getState().releaseNotes}
-        initialUpdateAvailable={useAppStore.getState().updateAvailable}
+        initialLatestVersion={useQualityStore.getState().latestVersion}
+        initialReleaseNotes={useQualityStore.getState().releaseNotes}
+        initialUpdateAvailable={useQualityStore.getState().updateAvailable}
         onUpdateAvailable={(hasUpdate, version, notes) => {
           setUpdateAvailable(hasUpdate)
           if (version) setLatestVersion(version)
@@ -359,7 +369,9 @@ function AppInner() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppInner />
+      <AnimationActiveProvider>
+        <AppInner />
+      </AnimationActiveProvider>
     </ErrorBoundary>
   )
 }

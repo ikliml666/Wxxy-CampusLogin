@@ -49,9 +49,13 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
     }
 
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
+    let task_manager = state.task_manager.clone();
+    if let Err(e) = state.task_manager.spawn("campus_exit", move |cancel_token| async move {
         // 阶段1：等待30秒后最小化到托盘
-        tokio::time::sleep(Duration::from_millis(CAMPUS_MINIMIZE_DELAY_MS)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(CAMPUS_MINIMIZE_DELAY_MS)) => {}
+            _ = cancel_token.cancelled() => return,
+        }
 
         let s = app_h.state::<AppState>();
         // 用 deadline 做二次校验：若 deadline 已被清除（取消）或已变更（重触发），则退出
@@ -66,7 +70,10 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         }
 
         // 阶段2：再等30秒后强制退出
-        tokio::time::sleep(Duration::from_millis(CAMPUS_EXIT_DELAY_MS - CAMPUS_MINIMIZE_DELAY_MS)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(CAMPUS_EXIT_DELAY_MS - CAMPUS_MINIMIZE_DELAY_MS)) => {}
+            _ = cancel_token.cancelled() => return,
+        }
 
         let s = app_h.state::<AppState>();
         // 用 deadline 做最终校验：必须存在且已到期，且未被取消
@@ -84,16 +91,19 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         crate::log_info!("campus_exit", "校园网验证退出流程完成，正在退出");
 
         // 注销快捷键（如果自动退出未在运行）
+        // 持有锁覆盖 check-then-act，消除 TOCTOU 竞态：
+        // is_none() 检查与 unregister 在同一锁临界区内完成，防止 start_auto_exit 在间隙注册快捷键
         {
-            // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
-            // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
-            // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
-            let auto_exit_active = s.exit.auto_exit_deadline.lock().is_some();
-            try_unregister_cancel_exit_shortcut(&app_h, !auto_exit_active);
+            let guard = s.exit.auto_exit_deadline.lock();
+            try_unregister_cancel_exit_shortcut(&app_h, guard.is_none());
         }
 
+        // 在调用 shutdown_and_exit 前 detach 自己，避免 shutdown 等待自己导致死锁
+        task_manager.detach("campus_exit");
         shutdown_and_exit(&app_h, &s).await;
-    });
+    }) {
+        crate::log_warn!("campus_exit", "注册 campus_exit 跟踪任务失败: {}", e);
+    }
 }
 
 /// 取消校园网退出流程（当重新检测到校园网时调用，或通过快捷键取消）
@@ -103,11 +113,12 @@ pub fn cancel_campus_exit(app_handle: &AppHandle, state: &AppState) {
         crate::log_info!("campus_exit", "校园网退出流程已取消");
 
         // 如果自动退出也未在运行，注销快捷键
-        // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
-        // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
-        // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
-        let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
-        try_unregister_cancel_exit_shortcut(app_handle, !auto_exit_active);
+        // 持有锁覆盖 check-then-act，消除 TOCTOU 竞态：
+        // is_none() 检查与 unregister 在同一锁临界区内完成，防止 start_auto_exit 在间隙注册快捷键
+        {
+            let guard = state.exit.auto_exit_deadline.lock();
+            try_unregister_cancel_exit_shortcut(app_handle, guard.is_none());
+        }
     }
 }
 
@@ -122,11 +133,12 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
     crate::log_info!("campus_exit", "校园网退出流程已取消（快捷键）");
 
     // 如果自动退出也未在运行，注销快捷键
-    // 注意：此处存在 TOCTOU 竞态——is_some() 检查后释放锁，unregister 前另一线程可能
-    // 调用 start_auto_exit 注册快捷键。窗口极小（纳秒级），且仅影响快捷键可用性，
-    // 不影响退出流程正确性。如需彻底修复，需引入快捷键引用计数或统一锁。
-    let auto_exit_active = state.exit.auto_exit_deadline.lock().is_some();
-    try_unregister_cancel_exit_shortcut(app_handle, !auto_exit_active);
+    // 持有锁覆盖 check-then-act，消除 TOCTOU 竞态：
+    // is_none() 检查与 unregister 在同一锁临界区内完成，防止 start_auto_exit 在间隙注册快捷键
+    {
+        let guard = state.exit.auto_exit_deadline.lock();
+        try_unregister_cancel_exit_shortcut(app_handle, guard.is_none());
+    }
 
     emit_notification(app_handle, "已取消退出", "校园网退出已取消，程序将继续运行");
 
@@ -174,7 +186,8 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
     }
 
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
+    let task_manager = state.task_manager.clone();
+    if let Err(e) = state.task_manager.spawn("auto_exit", move |cancel_token| async move {
         let sleep_duration = {
             let s = app_h.state::<AppState>();
             let deadline = s.exit.deadline();
@@ -183,7 +196,10 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
                 None => Duration::from_millis(AUTO_EXIT_DELAY_MS),
             }
         };
-        tokio::time::sleep(sleep_duration).await;
+        tokio::select! {
+            _ = tokio::time::sleep(sleep_duration) => {}
+            _ = cancel_token.cancelled() => return,
+        }
         let s = app_h.state::<AppState>();
         {
             let deadline = s.exit.deadline();
@@ -198,8 +214,12 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         // 仅在校园网退出未启动时注销快捷键，避免影响校园网退出的取消能力
         let campus_exit_active = s.exit.campus_exit_started.load(Ordering::Acquire);
         try_unregister_cancel_exit_shortcut(&app_h, !campus_exit_active);
+        // 在调用 shutdown_and_exit 前 detach 自己，避免 shutdown 等待自己导致死锁
+        task_manager.detach("auto_exit");
         shutdown_and_exit(&app_h, &s).await;
-    });
+    }) {
+        crate::log_warn!("auto_exit", "注册 auto_exit 跟踪任务失败: {}", e);
+    }
 }
 
 pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {

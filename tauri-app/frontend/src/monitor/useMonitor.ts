@@ -1,18 +1,25 @@
 import { useCallback } from 'react'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
 import { useShallow } from 'zustand/react/shallow'
 
 export function useMonitor() {
-  const store = useAppStore(useShallow((s) => ({
+  const authStore = useAuthStore(useShallow((s) => ({
     bgStatus: s.bgStatus,
     setBgStatus: s.setBgStatus,
+  })))
+  const qualityStore = useQualityStore(useShallow((s) => ({
     networkQuality: s.networkQuality,
     setNetworkQuality: s.setNetworkQuality,
     isRefreshingQuality: s.isRefreshingQuality,
     refreshQuality: s.refreshQuality,
+  })))
+  const configStore = useConfigStore(useShallow((s) => ({
     api: s.api,
     updateConfigLocal: s.updateConfigLocal,
   })))
+  const store = { ...authStore, ...qualityStore, ...configStore }
 
   const handleToggleBackgroundCheck = useCallback(async (enabled: boolean, intervalSec: number) => {
     try {

@@ -21,7 +21,9 @@ import type { Adapter } from '@/network'
 import { LatencyPair } from '@/monitor'
 import { safeStorage } from '@/lib/utils'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 
 type CardId = 'quickActions' | 'accountManage' | 'networkQuality'
@@ -366,10 +368,10 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
   const { t } = useTranslation()
   const [cards, setCards] = useState<CardId[]>(loadLayout)
   const [editing, setEditing] = useState(false)
-  const bgStatus = useAppStore((s) => s.bgStatus)
-  const networkQuality = useAppStore((s) => s.networkQuality)
-  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
-  const adapters = useAppStore((s) => s.adapters)
+  const bgStatus = useAuthStore((s) => s.bgStatus)
+  const networkQuality = useQualityStore((s) => s.networkQuality)
+  const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
+  const adapters = useAdapterStore((s) => s.adapters)
 
   useEffect(() => { saveLayout(cards) }, [cards])
 

@@ -5,7 +5,9 @@ import { memo, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshButton } from '@/shared'
 import { NetworkQualityCapsule } from '@/monitor'
-import { useAppStore } from '@/hooks/useAppStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useQualityStore } from '@/hooks/useQualityStore'
 
 interface StatusBarProps {
   onOpenPortal: () => void
@@ -14,16 +16,16 @@ interface StatusBarProps {
 
 export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfService }: StatusBarProps) {
   const { t } = useTranslation()
-  const status = useAppStore((s) => s.status)
-  const config = useAppStore((s) => s.config)
-  const isRefreshingQuality = useAppStore((s) => s.isRefreshingQuality)
-  const enableNetworkQuality = useAppStore((s) => s.config.enableNetworkQuality !== false)
-  const refreshQuality = useAppStore((s) => s.refreshQuality)
-  const networkQuality = useAppStore((s) => s.networkQuality)
-  const campusWifi = useAppStore((s) => s.bgStatus.campusWifi)
-  const campusWired = useAppStore((s) => s.bgStatus.campusWired)
-  const onCampusNetwork = useAppStore((s) => s.bgStatus.onCampusNetwork)
-  const adapterStatuses = useAppStore((s) => s.bgStatus.adapterStatuses) ?? []
+  const status = useAuthStore((s) => s.status)
+  const config = useConfigStore((s) => s.config)
+  const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
+  const enableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality !== false)
+  const refreshQuality = useQualityStore((s) => s.refreshQuality)
+  const networkQuality = useQualityStore((s) => s.networkQuality)
+  const campusWifi = useAuthStore((s) => s.bgStatus.campusWifi)
+  const campusWired = useAuthStore((s) => s.bgStatus.campusWired)
+  const onCampusNetwork = useAuthStore((s) => s.bgStatus.onCampusNetwork)
+  const adapterStatuses = useAuthStore((s) => s.bgStatus.adapterStatuses) ?? []
   const statusText = status.text
   const statusState = status.state
   const prevStatusRef = useRef(statusState)

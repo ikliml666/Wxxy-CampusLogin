@@ -8,6 +8,26 @@ use crate::infra::state::AppState;
 use crate::infra::lifecycle::start_auto_exit;
 use super::campus_check::CampusCheckResult;
 
+/// 后台检测结果聚合，封装 emit_background_check_result 所需的全部数据字段，
+/// 替代原先 16 个独立参数，避免调用方传参错位。
+pub(super) struct BackgroundCheckResult<'a> {
+    pub online: bool,
+    pub reachable: bool,
+    pub login_available: bool,
+    pub message: &'a str,
+    pub adapter1_name: &'a str,
+    pub adapter2_name: &'a str,
+    pub secondary_online: Option<bool>,
+    pub secondary_message: &'a str,
+    pub dual_adapter: bool,
+    pub config: &'a crate::config::model::Config,
+    pub campus_result: &'a CampusCheckResult,
+    pub a1_campus_msg: Option<&'a str>,
+    pub a2_campus_msg: Option<&'a str>,
+    pub a1_on_campus: Option<bool>,
+    pub a2_on_campus: Option<bool>,
+}
+
 pub fn adapter_status_entry(name: &str, ip: &str, wireless: bool, online: bool, message: &str) -> serde_json::Value {
     serde_json::json!({
         "name": name, "ip": ip, "wireless": wireless,
@@ -72,64 +92,51 @@ pub(super) fn handle_status_change(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_background_check_result(
     app_handle: &AppHandle,
     state: &AppState,
-    online: bool,
-    reachable: bool,
-    login_available: bool,
-    message: &str,
-    adapter1_name: &str,
-    adapter2_name: &str,
-    secondary_online: Option<bool>,
-    secondary_message: &str,
-    dual_adapter: bool,
-    config: &crate::config::model::Config,
-    campus_result: &CampusCheckResult,
-    a1_campus_msg: Option<&str>,
-    a2_campus_msg: Option<&str>,
-    a1_on_campus: Option<bool>,
-    a2_on_campus: Option<bool>,
+    result: &BackgroundCheckResult,
 ) {
     let check_count = state.network.load().background_check_count + 1;
-    state.network.increment_background_check_count();
+    state.network.update(|s| s.background_check_count += 1);
     let is_running = state.task_manager.is_running("background_check");
-    let ssid_val = state.network.load().current_ssid.clone();
-    let on_campus_val = state.network.load().on_campus_network;
+    // increment 后单次 load 快照，复用读取 current_ssid / on_campus_network / logout_protected_until
+    let snap = state.network.load();
+    let ssid_val = snap.current_ssid.clone();
+    let on_campus_val = snap.on_campus_network;
 
     // 注销保护期内，强制 online=false，避免 Portal 延迟导致前端误判为在线
-    let protected_until = state.network.load().logout_protected_until;
+    let protected_until = snap.logout_protected_until;
     let is_logout_protected = std::time::Instant::now() < protected_until;
     let (effective_online, effective_secondary_online) = if is_logout_protected {
         crate::log_debug!("background", "注销保护期内，emit 事件强制 online=false");
         (false, Some(false))
     } else {
-        (online, secondary_online)
+        (result.online, result.secondary_online)
     };
 
     if let Err(e) = EventBus::new(app_handle).emit_background_check_result(serde_json::json!({
-        "serverAvailable": reachable,
-        "loginAvailable": login_available,
+        "serverAvailable": result.reachable,
+        "loginAvailable": result.login_available,
         "online": effective_online,
-        "message": message,
-        "adapter1Name": adapter1_name,
-        "adapter2Name": if dual_adapter { adapter2_name } else { "" },
+        "message": result.message,
+        "adapter1Name": result.adapter1_name,
+        "adapter2Name": if result.dual_adapter { result.adapter2_name } else { "" },
         "secondaryOnline": effective_secondary_online,
-        "secondaryMessage": secondary_message,
+        "secondaryMessage": result.secondary_message,
         "timestamp": chrono::Utc::now().timestamp_millis(),
         "checkCount": check_count,
         "isRunning": is_running,
         "currentSsid": ssid_val.as_ref(),
         "onCampusNetwork": on_campus_val,
-        "enableNetworkNameCheck": config.enable_network_name_check,
-        "requiredNetworkName": config.required_network_name,
-        "campusWifi": campus_result.wifi,
-        "campusWired": campus_result.wired,
-        "a1CampusMessage": a1_campus_msg,
-        "a2CampusMessage": a2_campus_msg,
-        "a1OnCampus": a1_on_campus,
-        "a2OnCampus": a2_on_campus,
+        "enableNetworkNameCheck": result.config.enable_network_name_check,
+        "requiredNetworkName": result.config.required_network_name,
+        "campusWifi": result.campus_result.wifi,
+        "campusWired": result.campus_result.wired,
+        "a1CampusMessage": result.a1_campus_msg,
+        "a2CampusMessage": result.a2_campus_msg,
+        "a1OnCampus": result.a1_on_campus,
+        "a2OnCampus": result.a2_on_campus,
     })) {
         crate::log_warn!("background", "发送后台检测结果失败: {}", e);
     }
@@ -154,11 +161,13 @@ pub(super) fn update_network_state(
         return;
     }
 
-    state.network.update(|s| s.any_adapter_online = any_online);
-    state.network.update(|s| s.last_a1_online = online);
-    if any_online {
-        state.network.update(|s| s.disconnect_reconnect_count = 0);
-    }
+    state.network.update(|s| {
+        s.any_adapter_online = any_online;
+        s.last_a1_online = online;
+        if any_online {
+            s.disconnect_reconnect_count = 0;
+        }
+    });
 
     if reachable && !state.network.load().has_logged_online && online {
         state.network.update(|s| s.has_logged_online = true);

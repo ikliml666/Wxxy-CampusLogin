@@ -75,7 +75,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                     }
                     let should_notify = {
                         let s = app_h.state::<AppState>();
-                        let last_ms = s.last_disabled_notification_ms.load(Ordering::Relaxed);
+                        let last_ms = s.update_stats.last_disabled_notification_ms.load(Ordering::Relaxed);
                         if last_ms == 0 {
                             true
                         } else {
@@ -86,7 +86,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                     if should_notify {
                         let s = app_h.state::<AppState>();
                         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                        s.last_disabled_notification_ms.store(now.as_millis() as u64, Ordering::Relaxed);
+                        s.update_stats.last_disabled_notification_ms.store(now.as_millis() as u64, Ordering::Relaxed);
                         let c = s.config.load();
                         let adapter1 = &c.adapter1;
                         let adapter2 = &c.adapter2;

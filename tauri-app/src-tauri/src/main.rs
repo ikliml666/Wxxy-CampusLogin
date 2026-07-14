@@ -31,6 +31,5 @@ fn main() {
     app::startup::run(core_count);
     crate::infra::logger::flush();
     crate::infra::logger::shutdown();
-    std::thread::sleep(std::time::Duration::from_millis(200));
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
 }

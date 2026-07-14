@@ -8,9 +8,9 @@ use crate::auth::failure_tracker::AdapterFailureCounter;
 use super::auto_auth::{try_auto_login_on_preparation, try_disconnect_reconnect};
 use super::campus_check::{CampusCheckResult, adapter_campus_status, adapter_campus_message, check_campus_network};
 use super::portal_check::{PortalCheckResult, check_adapter_portal};
-use super::portal_failure::handle_portal_request_failure;
+use crate::auth::failure_tracker::handle_portal_request_failure;
 use super::quality_scheduler::run_quality_check;
-use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state};
+use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, BackgroundCheckResult};
 
 pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) -> Option<(String, String)> {
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
@@ -56,14 +56,20 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     } else {
         check_campus_network(&config, &adapters)
     };
-    state.network.update(|s| s.current_ssid = campus_result.current_ssid.clone());
     // 始终更新 on_campus_network（静默期内 campus_result.on_campus=true，确保 emit 字段一致）
-    state.network.update(|s| s.on_campus_network = campus_result.on_campus);
+    // 合并条件分支内的 any_adapter_online/last_a1_online 重置，减少 CAS 循环次数
+    let campus_check_failed = config.enable_network_name_check && !campus_result.on_campus;
+    state.network.update(|s| {
+        s.current_ssid = campus_result.current_ssid.clone();
+        s.on_campus_network = campus_result.on_campus;
+        if campus_check_failed {
+            s.any_adapter_online = false;
+            s.last_a1_online = false;
+        }
+    });
 
-    if config.enable_network_name_check && !campus_result.on_campus {
+    if campus_check_failed {
         crate::log_debug!("background", "校园网检测未通过: {}", campus_result.message);
-        state.network.update(|s| s.any_adapter_online = false);
-        state.network.update(|s| s.last_a1_online = false);
         let a1_campus = adapter_campus_message(&adapter1_name, &adapters, &campus_result);
         let a2_campus = if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
             adapter_campus_message(&adapter2_name, &adapters, &campus_result)
@@ -73,11 +79,24 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             adapter_campus_status(&adapter2_name, &adapters, &campus_result).map(|s| s.on_campus)
         } else { None };
         emit_background_check_result(
-            app_handle, state, false, false, false, a1_campus.as_deref().unwrap_or(&campus_result.message),
-            &adapter1_name, &adapter2_name,
-            None, a2_campus.as_deref().unwrap_or(""), config.dual_adapter, &config, &campus_result,
-            a1_campus.as_deref(), a2_campus.as_deref(),
-            a1_on_campus, a2_on_campus,
+            app_handle, state,
+            &BackgroundCheckResult {
+                online: false,
+                reachable: false,
+                login_available: false,
+                message: a1_campus.as_deref().unwrap_or(&campus_result.message),
+                adapter1_name: &adapter1_name,
+                adapter2_name: &adapter2_name,
+                secondary_online: None,
+                secondary_message: a2_campus.as_deref().unwrap_or(""),
+                dual_adapter: config.dual_adapter,
+                config: &config,
+                campus_result: &campus_result,
+                a1_campus_msg: a1_campus.as_deref(),
+                a2_campus_msg: a2_campus.as_deref(),
+                a1_on_campus,
+                a2_on_campus,
+            },
         );
         // 如果配置的适配器均无IP（完全无网络），跳过退出，等待网络恢复
         let no_configured_ip = a1.is_none() && a2.is_none();
@@ -101,24 +120,21 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     let t_portal = std::time::Instant::now();
     let (primary_result, secondary_result) = if config.dual_adapter {
         if let (Some(adapter1), Some(adapter2)) = (a1, a2) {
-            // 获取 Tokio runtime handle 传入 scope 子线程：
-            // spawn_blocking 线程中 Handle::current() 可用，但 std::thread::scope 子线程
-            // 无 Tokio 上下文，check_portal_full 中的 block_on 会因找不到 reactor 而 panic。
-            // 在子线程中 enter() 设置上下文，使 Handle::current().block_on() 能正确工作。
+            // 改用 tauri::async_runtime::spawn_blocking + tokio::join! 并行检测双适配器，
+            // 替代 std::thread::scope 创建 OS 线程的方式（参考 auto_auth.rs 同场景实现）。
+            // run_background_check_blocking 运行在 spawn_blocking 线程内，通过 Handle::current().block_on
+            // 进入 async 上下文，使 spawn_blocking 提交的任务能被 await。
             let runtime_handle = tokio::runtime::Handle::current();
-            std::thread::scope(|s| {
-                let h1 = runtime_handle.clone();
-                let h2 = runtime_handle.clone();
-                let t1 = s.spawn(move || {
-                    let _guard = h1.enter();
-                    check_adapter_portal(adapter1, app_handle)
-                });
-                let t2 = s.spawn(move || {
-                    let _guard = h2.enter();
-                    check_adapter_portal(adapter2, app_handle)
-                });
-                let r1 = t1.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
-                let r2 = t2.join().unwrap_or(PortalCheckResult::Error { is_request_failed: false });
+            let a1_owned = adapter1.clone();
+            let a2_owned = adapter2.clone();
+            let app_h1 = app_handle.clone();
+            let app_h2 = app_handle.clone();
+            runtime_handle.block_on(async {
+                let h1 = tauri::async_runtime::spawn_blocking(move || check_adapter_portal(&a1_owned, &app_h1));
+                let h2 = tauri::async_runtime::spawn_blocking(move || check_adapter_portal(&a2_owned, &app_h2));
+                let (r1, r2) = tokio::join!(h1, h2);
+                let r1 = r1.unwrap_or(PortalCheckResult::Error { is_request_failed: false });
+                let r2 = r2.unwrap_or(PortalCheckResult::Error { is_request_failed: false });
                 (r1, Some(r2))
             })
         } else {
@@ -139,7 +155,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let portal_elapsed = t_portal.elapsed();
 
-    // Portal 请求失败容错：累加失败计数，连续5次 request_failed 时触发 MAC 重置（阈值见 portal_failure.rs::PORTAL_REQUEST_FAILURE_THRESHOLD）
+    // Portal 请求失败容错：累加失败计数，连续5次 request_failed 时触发 MAC 重置（阈值见 failure_tracker.rs::PORTAL_REQUEST_FAILURE_THRESHOLD）
     let primary_is_request_failed = matches!(&primary_result, PortalCheckResult::Error { is_request_failed: true });
     let secondary_is_request_failed = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Error { is_request_failed: true })).unwrap_or(false);
     let any_request_failed = primary_is_request_failed || secondary_is_request_failed;
@@ -170,18 +186,24 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         let primary_success = matches!(&primary_result, PortalCheckResult::Success { .. });
         let secondary_success = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Success { .. })).unwrap_or(false);
 
-        if primary_success {
-            let prev = state.network.load().a1_auth_failure_count;
-            state.network.update(|s| s.a1_auth_failure_count = 0);
-            if prev > 0 {
-                crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev);
+        // 合并 a1/a2 失败计数重置为单次 update，减少 CAS 循环次数
+        if primary_success || secondary_success {
+            let snap = state.network.load();
+            let prev_a1 = snap.a1_auth_failure_count;
+            let prev_a2 = snap.a2_auth_failure_count;
+            state.network.update(|s| {
+                if primary_success {
+                    s.a1_auth_failure_count = 0;
+                }
+                if secondary_success {
+                    s.a2_auth_failure_count = 0;
+                }
+            });
+            if primary_success && prev_a1 > 0 {
+                crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev_a1);
             }
-        }
-        if secondary_success {
-            let prev = state.network.load().a2_auth_failure_count;
-            state.network.update(|s| s.a2_auth_failure_count = 0);
-            if prev > 0 {
-                crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev);
+            if secondary_success && prev_a2 > 0 {
+                crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev_a2);
             }
         }
     }
@@ -245,11 +267,24 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     } else { None };
 
     emit_background_check_result(
-        app_handle, state, online, reachable, login_available, &message,
-        &adapter1_name, &adapter2_name,
-        secondary_online, &secondary_message, config.dual_adapter, &config, &campus_result,
-        a1_campus.as_deref(), a2_campus.as_deref(),
-        a1_on_campus, a2_on_campus,
+        app_handle, state,
+        &BackgroundCheckResult {
+            online,
+            reachable,
+            login_available,
+            message: &message,
+            adapter1_name: &adapter1_name,
+            adapter2_name: &adapter2_name,
+            secondary_online,
+            secondary_message: &secondary_message,
+            dual_adapter: config.dual_adapter,
+            config: &config,
+            campus_result: &campus_result,
+            a1_campus_msg: a1_campus.as_deref(),
+            a2_campus_msg: a2_campus.as_deref(),
+            a1_on_campus,
+            a2_on_campus,
+        },
     );
 
     try_auto_login_on_preparation(app_handle, state, login_available, online, &config);
