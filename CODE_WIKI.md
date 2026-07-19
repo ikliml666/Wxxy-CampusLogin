@@ -183,8 +183,8 @@ Wxxy-CampusLogin/
 │           │   ├── protocol.rs      # 登录/两步注销/重试/响应解析 (random_v)
 │           │   ├── session.rs       # 登录/注销会话管理 (adapter_action_with_log/login_adapter_with_log 通用封装)
 │           │   ├── service.rs       # 认证服务编排 (full_login/full_logout 统一入口 + post_login_handler)
-│           │   ├── failure_tracker.rs # 认证失败计数跟踪
-│           │   └── dual_adapter_executor.rs # 双适配器并行执行器 (tokio spawn_blocking + 可中断错峰)
+│           │   ├── failure_tracker.rs # 认证+Portal请求失败计数 (9c 合并原 monitor/portal_failure.rs)
+│           │   └── dual_adapter_executor.rs # 双适配器并行执行器 (泛型静态分发 + tokio spawn_blocking + 可中断错峰)
 │           ├── account/             # 账号模块
 │           │   ├── mod.rs           # 多账号管理命令
 │           │   └── crypto.rs        # 加密工具 (Windows DPAPI)
@@ -195,18 +195,17 @@ Wxxy-CampusLogin/
 │           │   │   ├── store.rs     # ConfigStore (封装 ArcSwap<Config>)
 │           │   │   ├── network.rs   # NetworkState + NetworkSnapshot (CAS 快照更新)
 │           │   │   └── exit.rs      # ExitStateStore
-│           │   ├── logger.rs        # 日志系统 (文件+通道+调试模式切换+日志保留天数清理)
+│           │   ├── logger.rs        # 日志系统 (文件+通道+调试模式切换+日志保留天数清理+shutdown mpsc超时join)
 │           │   ├── lifecycle.rs     # 自动退出控制 + 校园网退出流程
 │           │   ├── notification.rs  # 通知封装 (emit_notification)
 │           │   ├── events.rs        # 事件总线 EventBus (16 个 emit_xxx 方法)
 │           │   ├── command_context.rs # 命令上下文 CommandContext::from_app
 │           │   └── task_manager.rs  # 后台任务管理器 BackgroundTaskManager (cancel token 统一管理)
-│           ├── monitor/             # 监控模块 (11个子模块)
+│           ├── monitor/             # 监控模块 (10个子模块，portal_failure 已迁入 auth/failure_tracker)
 │           │   ├── mod.rs           # 重导出 (含 trigger_background_check 别名)
 │           │   ├── watcher.rs       # 门面 + 启动聚合 (51行，re-export background_check/background_task + run_startup_tasks)
 │           │   ├── background_check.rs  # 后台检测主体 (run_background_check_blocking，从 watcher 拆出)
 │           │   ├── background_task.rs   # 后台任务调度 (start_background_check_inner + task_manager.spawn)
-│           │   ├── portal_failure.rs    # Portal 请求失败容错 (handle_portal_request_failure，阈值5)
 │           │   ├── auto_auth.rs     # 自动登录/断线重连
 │           │   ├── latency.rs       # 网络质量通知+延迟测试循环
 │           │   ├── adapter_watch.rs # 适配器状态监控 (CancellationToken可退出)
@@ -276,7 +275,7 @@ Wxxy-CampusLogin/
 │  │  monitor/watcher.rs (门面+启动聚合, 51行, re-export background_check/background_task) │ │
 │  │    └─→ run_startup_tasks (启动期聚合 3 个 task_manager.spawn) │ │
 │  │  monitor/background_check.rs (后台检测主体, run_background_check_blocking) │ │
-│  │    ├─→ monitor/portal_failure.rs (Portal请求失败容错, 阈值5) │ │
+│  │    ├─→ auth/failure_tracker.rs (认证+Portal请求失败计数, 阈值5) │ │
 │  │    ├─→ monitor/auto_auth.rs (自动登录/断线重连)  │ │
 │  │    ├─→ infra/lifecycle.rs  (自动退出倒计时+校园网退出) │ │
 │  │    ├─→ monitor/latency.rs  (质量通知/延迟循环)   │ │
@@ -284,7 +283,7 @@ Wxxy-CampusLogin/
 │  │  app/ — 应用生命周期 (startup/tray/window/shortcut/heartbeat/shutdown) │ │
 │  │  auth/ — 认证模块 (6个子模块: session/protocol/portal/service/failure_tracker/dual_adapter_executor) │ │
 │  │  auth/portal.rs — Portal 检测 (block_on_http 同步-异步桥接) │ │
-│  │  network/ — 网络检测/延迟测试/质量检测 (8个业务子模块 + discovery/ 子目录含 registry/windows) │ │
+│  │  network/ — 网络检测/延迟测试/质量检测 (9个业务子模块 + discovery/ 子目录含 registry/windows) │ │
 │  │  network/timing.rs — DNS智能解析/DoH/评分系统     │ │
 │  │  platform/dns_config.rs — DNS/DoH 检测与设置      │ │
 │  │  account/ — 多账号管理 + DPAPI加密                │ │
@@ -315,7 +314,7 @@ Wxxy-CampusLogin/
 //
 //  monitor/watcher (门面) ──re-export──→ monitor/background_check (检测主体)
 //                                            │
-//                                            ├──→ monitor/portal_failure (Portal请求失败容错)
+//                                            ├──→ auth/failure_tracker (认证+Portal请求失败计数, 阈值5)
 //                                            ├──→ monitor/auto_auth ──→ infra/lifecycle
 //                                            │         │                    │
 //                                            │         └──→ infra/notification (emit_notification)
@@ -346,7 +345,7 @@ Wxxy-CampusLogin/
 //  耦合说明：
 //    1. monitor/watcher 已瘦身为门面(51行)，检测主体迁移至 background_check.rs，
 //       外部调用路径不变（通过 pub use re-export）
-//    2. background_check 是核心检测主体，依赖 portal_failure/auto_auth/lifecycle/latency
+//    2. background_check 是核心检测主体，依赖 auth/failure_tracker/auto_auth/lifecycle/latency
 //    3. emit_notification 被 auto_auth/lifecycle/latency 三处调用，是事实上的共享工具，
 //       但定义在 infra/notification 模块中，语义上更清晰
 //
@@ -386,7 +385,7 @@ Wxxy-CampusLogin/
 2. **Tokio runtime 构建**: `build_runtime(core_count)` 根据 CPU 核心数动态配置 `worker_threads(2-8)` 和 `max_blocking_threads(8-64)`
 3. **runtime 注入 Tauri**: `tauri::async_runtime::set(handle)` 将 Tokio handle 注入 Tauri 异步运行时
 4. **启动应用**: `app::startup::run(core_count)` 进入 Tauri 主循环
-5. **退出清理**: flush 日志 → shutdown logger → 200ms sleep → `runtime.shutdown_timeout(5s)`
+5. **退出清理**: flush 日志 → shutdown logger (mpsc + recv_timeout 500ms 带超时 join，B9-14 删除原固定 sleep(200ms)) → `runtime.shutdown_timeout(5s)`
 
 **app/startup.rs 关键流程** (在 `setup_app` 钩子中):
 
@@ -666,9 +665,10 @@ lazy_static! {
 
 > 注：原 `NetworkCache` 结构体与 `NET_CACHE` 单例已拆分 — 适配器缓存迁移到 `network/adapter_cache.rs`，网关/子网缓存迁移到 `network/subnet.rs`，Portal 状态缓存由 `auth/portal.rs` 局部管理。`client.rs` 仅保留 Portal URL 与 HTTP 客户端池两个全局变量。
 
-**HTTP 客户端池** (`CLIENT_POOL: DashMap`):
+**HTTP 客户端池** (`CLIENT_POOL: DashMap`, B9-17 LRU 淘汰):
 
-- Key = `local_addr:tls_version:timeout`，池上限 32 个连接
+- Key = `local_addr:tls_version:timeout`，池上限 `CLIENT_POOL_MAX_ENTRIES=32`，TTL `CLIENT_POOL_TTL_SECS=600`
+- **LRU 淘汰策略** (B9-17)：`client_pool_get` 命中时更新 `Instant::now()`（按访问时间淘汰，非原 FIFO 按创建时间）；容量超限时 `min_by_key(Instant)` 剔除最久未访问条目
 - `create_safe_http_client(timeout, local_addr)` — TLS 1.3 优先 + TLS 1.2 降级，`no-cache/no-store` 头
 
 **关键函数**:
@@ -935,6 +935,7 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 | `login_adapter_with_log()` | `auth/session.rs` | 单适配器登录+日志 |
 | `adapter_action_with_log()` | `auth/session.rs` | 通用适配器操作+日志封装 |
 | `post_login_handler()` | `auth/service.rs` | 登录后处理 (AM-13 从 commands/login.rs 下沉)：解除注销保护期 → 延迟500ms触发 `monitor::watcher::run_background_check` → 按需启动 `auto_exit` |
+| `check_any_adapter_online()` | `commands/login.rs` | **B9-10 并行化**：双适配器 Portal 在线检测从串行改为 `std::thread::scope` 并行，双适配器检测延迟减半；`do_logout` 复用其逐适配器检测结果避免重复 HTTP 请求 |
 
 **注销命令** (`commands/login.rs` 委托 `auth/service.rs`):
 
@@ -950,21 +951,24 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 
 > 注：`auth/traits.rs` 整个文件已在重构中删除（不仅删除 `DefaultAdapterResolver`，连 `AdapterResolver` trait 与 `MockAdapterResolver` 一并移除）。`auth/service.rs` 现直接调用 `crate::network::resolve_adapter_names` 与 `crate::network::find_dual_adapters` 等自由函数，不再经过 trait 抽象。原 `PortalChecker` / `ProtocolClient` trait 及其 impl/mock 早在 v2.2.8 已删除（dead code）。
 
-**双适配器并行执行** (`auth/dual_adapter_executor.rs`，152 行含测试):
+**双适配器并行执行** (`auth/dual_adapter_executor.rs`，158 行含测试, B9-7 泛型化):
 
 | 项 | 说明 |
 |------|------|
 | `DualAdapterResult` | 双适配器执行结果结构体 (`primary`/`secondary` 两个 `Option<CommandResult>`) |
-| `execute_dual(a1_action, a2_action, is_quitting)` | 双适配器并行执行器：适配器1立即 `spawn_blocking`，适配器2通过 10×100ms 轮询 `is_quitting` 实现可中断 1s 错峰；退出时副适配器不再发起操作（替代原 `std::thread::scope` 方案） |
+| `execute_dual<F1, F2>(a1_action: F1, a2_action: F2, is_quitting)` | 双适配器并行执行器：**B9-7 将 `Box<dyn FnOnce>` 改为泛型 `F1`/`F2` 静态分发**（`F: FnOnce() -> Option<CommandResult> + Send + 'static`），消除堆分配与虚函数调用；适配器1立即 `spawn_blocking`，适配器2通过 10×100ms 轮询 `is_quitting` 实现可中断 1s 错峰；2 处调用点（service.rs 的 `full_login` + `full_logout`）去 `Box::new` 直接传闭包 |
 
-**认证失败计数与 MAC 重置** (`auth/failure_tracker.rs` 内部函数):
+**认证失败计数与 Portal 请求失败容错** (`auth/failure_tracker.rs`, 9c B9-5 合并原 `monitor/portal_failure.rs`):
 
 | 函数 | 说明 |
 |------|------|
-| `is_auth_failure()` | 判断 CommandResult 是否为认证失败 |
-| `update_auth_failure_count()` | 单适配器认证失败计数，连续5次(ac_auth_failed/1/4)触发 MAC 重置+DHCP 续租 |
+| `is_auth_failure()` | 判断 CommandResult 是否为认证失败 (`AUTH_FAILURE_CODES: ["ac_auth_failed","1","4"]`) |
+| `update_auth_failure_count()` | 单适配器认证失败计数，连续5次触发 MAC 重置+DHCP 续租 |
 | `update_dual_adapter_auth_failure()` | 双适配器分别计数，各自5次触发单适配器 MAC 重置 |
+| `handle_portal_request_failure()` | **9c 从 portal_failure.rs 迁入**：Portal HTTP 请求失败容错，`PORTAL_REQUEST_FAILURE_THRESHOLD=5`；网关不可达时跳过计数并重置（校园网断网/维护期避免误重置 MAC），达阈值触发 `dhcp_release_renew_single` |
 | `reset_all()` | 重置所有认证失败计数器 |
+
+> `AdapterFailureCounter` 枚举 (A1/A2) 统一认证失败与 Portal 请求失败的计数访问器 (`get/set/increment_adapter_failure_count`)。
 
 **注销成功后状态重置** (v2.2.5 区分全量/单适配器):
 
@@ -973,7 +977,7 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 
 ### 4.8 后台巡检 — `monitor/` (watcher 门面 + background_check 主体 + background_task 调度)
 
-> **重构说明**：原 `watcher.rs` 大文件已按职责拆分。`watcher.rs` 现仅 51 行，作为门面 re-export `background_check`/`background_task`，并提供 `run_startup_tasks` 启动聚合入口。检测主体迁移至 `background_check.rs`，任务调度迁移至 `background_task.rs`，Portal 失败容错迁移至 `portal_failure.rs`。外部调用路径（`monitor::watcher::run_background_check` 等）通过 re-export 保持不变。
+> **重构说明**：原 `watcher.rs` 大文件已按职责拆分。`watcher.rs` 现仅 51 行，作为门面 re-export `background_check`/`background_task`，并提供 `run_startup_tasks` 启动聚合入口。检测主体迁移至 `background_check.rs`，任务调度迁移至 `background_task.rs`。Portal 失败容错原位于 `portal_failure.rs`，9c 阶段 (B9-5) 已合并入 `auth/failure_tracker.rs`（统一失败计数入口）。外部调用路径（`monitor::watcher::run_background_check` 等）通过 re-export 保持不变。
 
 #### 4.8.1 watcher.rs — 门面 + 启动聚合 (51 行)
 
@@ -1032,12 +1036,12 @@ struct ConnectionCampusStatus {
 | 函数 | 实际所在模块 | 说明 |
 |------|------------|------|
 | `check_adapter_portal()` | `portal_check.rs` | 单适配器 Portal 检测，消除主/副重复 |
-| `handle_portal_request_failure()` | `portal_failure.rs` | Portal 请求失败容错（见 4.8.4） |
+| `handle_portal_request_failure()` | `auth/failure_tracker.rs` | Portal 请求失败容错（9c 从 portal_failure.rs 迁入，见 4.7） |
 | `build_adapter_details()` / `handle_status_change()` / `emit_background_check_result()` / `update_network_state()` / `adapter_status_entry()` 等 | `background_emit.rs` | 适配器详情/状态变更/检测结果事件/网络状态更新/状态条目构建 |
 | `check_campus_network()` | `campus_check.rs` | WiFi/有线分别检测校园网状态 |
 | `run_quality_check()` | `quality_scheduler.rs` | 质量检测调度 |
 
-**Handle::enter 上下文修复** (v2.2.7)：双适配器并行 Portal 检测使用 `std::thread::scope` 启动子线程，子线程无 Tokio reactor 上下文导致 `block_on_http` panic。修复：在 `run_background_check_blocking` 中取 `tokio::runtime::Handle::current()`，子线程入口 `let _guard = h.enter();` 设置上下文，RAII 释放。
+**双适配器并行 Portal 检测**：`run_background_check_blocking` 使用 `tauri::async_runtime::spawn_blocking` + `tokio::join!` 并行检测双适配器 Portal 状态（替代原 `std::thread::scope` 方案，与 `dual_adapter_executor` 实现策略一致）。v2.2.7 历史：原 `std::thread::scope` 子线程无 Tokio reactor 上下文导致 `block_on_http` panic，曾通过 `Handle::current()` + `h.enter()` 设置上下文修复；当前 `spawn_blocking` 方案天然具备 reactor 上下文，无需手动 enter。
 
 **校园网检测集成**：三级校园网检测（网络名称→/18子网→网关Ping），结果含 `currentSsid`/`onCampusNetwork`。**无网络保护**：配置适配器均无IP时跳过校园网退出流程，等待网络恢复后重新检测。
 
@@ -1058,26 +1062,19 @@ struct ConnectionCampusStatus {
 
 > 注：`monitor/mod.rs` 将 `start_background_check_inner` re-export 为 `trigger_background_check`（统一触发入口别名）。
 
-#### 4.8.4 portal_failure.rs — Portal 请求失败容错 (~90 行)
+#### 4.8.4 Portal 请求失败容错 — 已迁入 `auth/failure_tracker.rs` (9c B9-5)
 
-**职责**：处理单适配器 Portal HTTP 请求失败（`PortalCheckResult::Error { is_request_failed: true }`）的统一逻辑：网关可达性判定 → 跳过/累加失败计数 → 达阈值触发该适配器 MAC 重置。
+> **迁移说明**：原 `monitor/portal_failure.rs` (~90 行) 已在 9c 阶段 (B9-5) 整体合并入 `auth/failure_tracker.rs`，统一失败计数入口。`monitor/portal_failure.rs` 文件已删除，`monitor/mod.rs` 子模块从 11 个降为 10 个。逻辑详见 4.7 章节 `handle_portal_request_failure()`。
 
-**关键函数与常量**：
-
-| 项 | 说明 |
-|------|------|
-| `PORTAL_REQUEST_FAILURE_THRESHOLD` | `5`（连续 5 次触发，私有常量） |
-| `handle_portal_request_failure(state, app_handle, adapter_ref, adapter_ip, campus_gw, counter, adapter_label)` | 网关不可达时跳过计数并重置为 0；达阈值触发 `dhcp_release_renew_single` MAC 重置+DHCP续租 |
-
-**Portal 容错完整链路** (v2.2.5 新增, v2.2.7 增强, 重构后迁移至此)：
+**Portal 容错完整链路** (v2.2.5 新增, v2.2.7 增强, 9c 迁入 failure_tracker)：
 
 1. 主/副适配器 Portal 请求失败（`is_request_failed: true`）时，对应适配器 `a1_auth_failure_count`/`a2_auth_failure_count` 自增（CAS 更新 NetworkSnapshot）
-2. 失败时先检查网关从该适配器IP是否可达（`check_gateway_reachable_from()`），不可达则跳过计数（校园网断网/维护场景）
-3. 连续 5 次失败触发 `dhcp_release_renew_single`（仅对该失败适配器 MAC 重置 + DHCP 续租，仅对校园网子网适配器生效）
+2. 失败时先检查网关从该适配器IP是否可达（`check_gateway_reachable_from()`），不可达则跳过计数并重置（校园网断网/维护期避免误重置 MAC）
+3. 连续 5 次失败（`PORTAL_REQUEST_FAILURE_THRESHOLD=5`）触发 `dhcp_release_renew_single`（仅对该失败适配器 MAC 重置 + DHCP 续租，仅对校园网子网适配器生效）
 4. 触发后重置计数器为 0
 5. Portal 检测恢复正常（`Success`）时 CAS 写入 0 重置计数器并记录原值日志
 
-> **与 auth/failure_tracker 的区分**：`portal_failure.rs` 处理 **Portal HTTP 请求失败**，`auth/failure_tracker.rs` 处理**认证失败**（ac_auth_failed/1/4）。两者共用 `AdapterFailureCounter` 枚举与计数访问器（`get/set/increment_adapter_failure_count`），但触发条件各异。
+> 9c 合并后，`auth/failure_tracker.rs` 统一管理**认证失败**（`AUTH_FAILURE_CODES: ["ac_auth_failed","1","4"]`）与 **Portal HTTP 请求失败**两类计数，共用 `AdapterFailureCounter` 枚举 (A1/A2) 与计数访问器（`get/set/increment_adapter_failure_count`）。
 
 **量化改进** (职责分离重构)：
 
@@ -1114,6 +1111,8 @@ struct ConnectionCampusStatus {
 | `cancel_campus_exit()` | 取消校园网退出流程。如果自动退出未运行，注销快捷键 |
 | `cancel_campus_exit_with_notification()` | 快捷键取消校园网退出 (含通知和快捷键注销) |
 | `shutdown_and_exit()` | 统一退出入口 (async)：设置 `is_quitting` → `task_manager.shutdown()` 清理后台任务 → `app_handle.exit(0)`。被 `start_campus_exit` 和 `start_auto_exit` 共同调用 |
+
+**B9-8 TOCTOU 竞态修复** (9c)：`start_campus_exit`/`cancel_campus_exit`/`cancel_campus_exit_with_notification` 3 处 `auto_exit_deadline` 的 check-then-act（`is_none()` 检查 + `try_unregister_cancel_exit_shortcut`）原跨锁边界存在 TOCTOU 竞态。修复：3 处均改为持有 `auto_exit_deadline` 锁覆盖 check-then-act，在同一锁临界区内完成 `is_none()` 检查与 unregister，防止 `start_auto_exit` 在间隙注册快捷键。
 
 ### 4.11 延迟测试模块 — `monitor/latency.rs`
 
@@ -1717,13 +1716,12 @@ infra/
   ├── events.rs — EventBus (16 个 emit_xxx 方法, emit_login_log/emit_network_quality/...)
   └── command_context.rs — CommandContext::from_app (统一访问 ConfigStore/TaskFlags/NetworkState/ExitStateStore)
 
-monitor/ (11 个子模块)
+monitor/ (10 个子模块，portal_failure 已迁入 auth/failure_tracker)
   ├── mod.rs (重导出, 含 trigger_background_check 别名)
   ├── watcher.rs (门面 51行, re-export background_check/background_task + run_startup_tasks)
-  ├── background_check.rs ← portal_failure/auto_auth/lifecycle/latency/portal_check/campus_check/background_emit
+  ├── background_check.rs ← auth/failure_tracker/auto_auth/lifecycle/latency/portal_check/campus_check/background_emit
   │   [run_background_check_blocking 检测主体 + run_background_check async 包装]
   ├── background_task.rs ← infra/task_manager [start_background_check_inner + task_manager.spawn]
-  ├── portal_failure.rs ← infra/state/, network/dhcp [handle_portal_request_failure, 阈值5]
   ├── auto_auth.rs ← infra/state/, auth/session.rs, infra/notification.rs, infra/lifecycle.rs
   ├── latency.rs ← infra/state/, network/*, infra/notification.rs [spawn_latency_test_loop]
   ├── adapter_watch.rs ← infra/state/, infra/events.rs, CancellationToken
@@ -1741,10 +1739,10 @@ auth/ (6 个子模块，原 traits.rs 已删除)
   │   [adapter_action_with_log / login_adapter_with_log 通用封装]
   ├── service.rs ← auth/session.rs, auth/failure_tracker.rs, auth/dual_adapter_executor.rs, network/adapter.rs
   │   [full_login / full_logout 统一入口 + logout_adapter_with_log + post_login_handler (直接调用 network::resolve_adapter_names，无 trait)]
-  ├── failure_tracker.rs ← infra/state/ [is_auth_failure / update_auth_failure_count / reset_all]
-  └── dual_adapter_executor.rs — execute_dual 双适配器并行执行 (tokio spawn_blocking + 可中断错峰)
+  ├── failure_tracker.rs ← infra/state/, network/dhcp [is_auth_failure / update_auth_failure_count / handle_portal_request_failure / reset_all]
+  └── dual_adapter_executor.rs — execute_dual<F1,F2> 双适配器并行执行 (B9-7 泛型静态分发 + tokio spawn_blocking + 可中断错峰)
 
-network/ (8 个业务子模块 + discovery/ 子目录)
+network/ (9 个业务子模块 + discovery/ 子目录)
   ├── mod.rs (重导出)
   ├── client.rs ← arc-swap, lazy_static, dashmap, reqwest [TLS 1.3+回退, PORTAL_URL/CLIENT_POOL]
   ├── adapter.rs ← client.rs, windows, regex [TTL 5s 缓存, validate_adapter_name]
@@ -1855,6 +1853,12 @@ App.tsx (377行, App + AppInner)
 | Tokio 线程池动态配置 | 根据 CPU 核心数配置 worker_threads(2-8)/max_blocking_threads(8-64) (app/startup.rs::build_runtime) | 资源利用更合理 |
 | CAS 原子配置更新 | `ConfigStore::update` CAS 原子更新 (compare_and_swap 循环) 避免 TOCTOU 竞态 (infra/state/store.rs:35-49) | 配置一致性保证 |
 | 流式 SHA256 校验 | 分块流式读取计算 SHA256，64KB buffer | 大文件校验内存占用降低 |
+| dual_adapter_executor 泛型化 (B9-7) | `Box<dyn FnOnce>` 改泛型 `F1`/`F2` 静态分发，4 处调用点去 `Box::new` (auth/dual_adapter_executor.rs) | 消除堆分配与虚函数调用 |
+| 双适配器在线检测并行化 (B9-10) | `check_any_adapter_online` 串行改 `std::thread::scope` 并行 (commands/login.rs) | 双适配器检测延迟减半 |
+| logger shutdown 超时 join (B9-14) | `mpsc` + `recv_timeout(500ms)` 带超时 join 替代固定 `sleep(200ms)` (infra/logger.rs)；main.rs 删除固定 sleep | 避免 logger 线程卡死阻塞退出，同时消除不必要的 200ms 等待 |
+| CLIENT_POOL LRU 淘汰 (B9-17) | `client_pool_get` 命中时更新 `Instant`，容量超限 `min_by_key` 剔除最久未访问 (network/client.rs) | 热点连接保活，冷连接及时回收 |
+| background_check CAS 合并 (B9-4) | 合并连续 `network.update` 调用，2 处从 2 次 CAS 降为 1 次 (monitor/background_check.rs) | 减少 CAS 循环开销 |
+| lifecycle TOCTOU 竞态修复 (B9-8) | 3 处 `auto_exit_deadline` check-then-act 收入同一锁临界区 (infra/lifecycle.rs) | 消除快捷键注册/注销竞态 |
 
 ---
 
