@@ -55,7 +55,7 @@ Wxxy-CampusLogin/
 │   │   │   ├── monitor/     # 监控面板（状态/质量/延迟/测速）
 │   │   │   ├── settings/    # 设置面板
 │   │   │   ├── shared/      # 共享组件（日志/错误边界/Toast/动画数字等）
-│   │   │   ├── hooks/       # 状态管理 & IPC
+│   │   │   ├── hooks/       # 状态管理（按领域拆分为 5 个 store）& IPC & 初始化子 hook
 │   │   │   ├── i18n/        # 国际化
 │   │   │   │   └── locales/ # 语言文件（zh.json / en.json）
 │   │   │   ├── lib/         # 工具函数
@@ -68,7 +68,7 @@ Wxxy-CampusLogin/
 │       │   ├── config/      # 配置管理（model/persist/validate）
 │       │   ├── auth/        # 认证模块（Portal检测/登录注销协议/会话管理）
 │       │   ├── account/     # 账号模块（多账号管理 + crypto.rs DPAPI加密）
-│       │   ├── monitor/     # 监控模块（后台巡检/自动登录/延迟测试/适配器监控）
+│       │   ├── monitor/     # 监控模块（后台巡检 background_check/background_task/自动登录/延迟测试/适配器监控）
 │       │   ├── infra/       # 基础设施（状态管理/日志系统/自动退出生命周期/通知）
 │       │   ├── platform/    # 平台交互（DNS配置/UAC提权/GPU检测/开机自启）
 │       │   └── update/      # 更新模块（检查/下载/安装/SHA256校验）
@@ -113,13 +113,33 @@ cd ../src-tauri
 cargo build --release
 ```
 
+### 测试
+
+项目包含后端 Rust 测试和前端 TypeScript 测试，CI 前请确保全部通过。
+
+```bash
+# 后端测试（197 个测试）
+cd tauri-app/src-tauri
+cargo test
+
+# 后端 lint
+cargo clippy --all-targets -- -D warnings
+
+# 前端测试（40 个测试）
+cd ../frontend
+npm test
+
+# 前端类型检查
+npx tsc --noEmit
+```
+
 ## 安全说明
 
 - 密码使用 Windows DPAPI 加密存储，绑定当前 Windows 用户
 - 前端显示密码为 `***`，不暴露明文；保存时空密码不覆盖旧密码
 - HTTP 客户端默认 TLS 1.3，回退 TLS 1.2
 - DoH 解析使用 RFC 8484 wire format
-- 更新安装包 SHA256 完整性校验，校验缺失时拒绝安装
+- 更新安装包 SHA256 完整性校验，校验源全部 4xx 时降级通过（视为发布流程未上传 .sha256），仅 5xx/网络异常时阻塞安装
 - 适配器名称校验防止命令注入
 - 配置导出自动脱敏密码，兜底路径拒绝导出防密码泄漏
 - 账号名校验防止路径遍历攻击
