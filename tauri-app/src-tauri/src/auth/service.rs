@@ -223,6 +223,9 @@ pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
     let app_h_bg = app_handle.clone();
     let config = state.config.load_full();
     let auto_exit = config.auto_exit_after_login;
+    // 历史缺陷：无论用户是否开启后台巡检，登录后都强制触发一次后台检查。
+    // 改为仅当 enable_background_check 开启时才触发，避免违背用户显式关闭的决定。
+    let enable_bg = config.enable_background_check;
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
         let s = app_h_bg.state::<AppState>();
@@ -230,10 +233,12 @@ pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
         if s.exit.is_quitting.load(Ordering::Acquire) {
             return;
         }
-        let cancel_token = s.task_manager
-            .cancel_token("background_check")
-            .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
-        crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
+        if enable_bg {
+            let cancel_token = s.task_manager
+                .cancel_token("background_check")
+                .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
+            crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
+        }
 
         if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {
             crate::infra::lifecycle::start_auto_exit(&app_h_bg, &s);

@@ -10,6 +10,30 @@ pub fn random_v() -> String {
     format!("{v}")
 }
 
+/// 读取 HTTP 响应体并限制 1MB 上限（无 Content-Length 的 chunked/流式响应也受限）。
+/// 读取失败返回空串（调用方按"无可解析内容"处理），超限同样返回空串并告警。
+fn read_bounded_body(resp: reqwest::Response, label: &str) -> String {
+    const MAX_BODY: u64 = 1024 * 1024;
+    if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
+        crate::log_warn!("logout", "{label}响应体过大(Content-Length={:?})，忽略", resp.content_length());
+        return String::new();
+    }
+    match tauri::async_runtime::block_on(resp.bytes()) {
+        Ok(b) => {
+            if b.len() as u64 > MAX_BODY {
+                crate::log_warn!("logout", "{label}响应体超限({}B)，忽略", b.len());
+                String::new()
+            } else {
+                String::from_utf8_lossy(&b).into_owned()
+            }
+        }
+        Err(e) => {
+            crate::log_warn!("logout", "{label}响应体读取失败: {}", e);
+            String::new()
+        }
+    }
+}
+
 /// 可中断等待：在指定时长内每 100ms 检查退出标志，返回 true 表示未取消，false 表示已取消
 fn wait_cancellable(duration_ms: u64, is_quitting: &std::sync::atomic::AtomicBool) -> bool {
     let steps = duration_ms / 100;
@@ -47,15 +71,25 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
 
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
     let t_req = std::time::Instant::now();
+    // 历史缺陷：错误串脱敏仅替换字面密码（URL 编码后的 %xx 无法匹配），
+    // reqwest 错误一旦包含完整 URL 即泄漏编码后的凭据。改为完全不把 URL 带入错误信息。
     let resp = tauri::async_runtime::block_on(
         client.get(&url).timeout(std::time::Duration::from_secs(15)).send()
-    ).map_err(|e| format!("登录请求失败: {}", e.to_string().replace(&url, &safe_url).replace(password, "***")))?;
+    ).map_err(|e| format!("登录请求失败: {}", crate::auth::portal::safe_truncate(&e.to_string(), 200)))?;
 
     let status_code = resp.status();
-    if resp.content_length().map(|len| len > 1024 * 1024).unwrap_or(false) {
+    // 历史缺陷：content_length() 缺失（chunked/流式响应）时不设上限，恶意/异常
+    // Portal 可耗尽内存。改为无论是否带 Content-Length 都硬限制 1MB。
+    const MAX_BODY: u64 = 1024 * 1024;
+    if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
         return Err("登录响应体过大".to_string());
     }
-    let body = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
+    let body_bytes = tauri::async_runtime::block_on(resp.bytes())
+        .map_err(|e| format!("读取登录响应失败: {e}"))?;
+    if body_bytes.len() as u64 > MAX_BODY {
+        return Err("登录响应体过大".to_string());
+    }
+    let body = String::from_utf8_lossy(&body_bytes).into_owned();
     let req_elapsed = t_req.elapsed();
 
     crate::log_info!("login", "登录请求完成({}ms): URL={}, status={:?}, bodyLen={}",
@@ -196,7 +230,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
             client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
         ) {
             Ok(resp) => {
-                let body_unbind = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
+                let body_unbind = read_bounded_body(resp, "MAC解绑");
                 crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
                 let unbind_result = parse_logout_result(&body_unbind)?;
                 if unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -226,7 +260,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
             client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
         ) {
             Ok(resp) => {
-                let body_logout = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
+                let body_logout = read_bounded_body(resp, "Radius注销");
                 crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_logout, 500));
                 let logout_result = parse_logout_result(&body_logout)?;
                 if logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {

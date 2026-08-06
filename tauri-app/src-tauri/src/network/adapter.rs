@@ -157,13 +157,24 @@ pub fn ensure_ethernet_ip_for_login(
             "info",
         );
 
-        let child = new_command("ipconfig")
+        let child = match new_command("ipconfig")
             .args(["/renew", name])
-            .spawn();
+            .spawn()
+        {
+            Ok(c) => Some(c),
+            Err(e) => {
+                // 历史缺陷：spawn 失败被 if let Ok 静默吞掉，仍走 poll 并误报"续租超时"。
+                crate::log_warn!("network", "DHCP续租启动失败(ipconfig spawn): {}", e);
+                None
+            }
+        };
 
         let got_ip = poll_adapter_ip_quick(name, 5000, is_quitting);
 
-        if let Ok(mut c) = child {
+        if let Some(mut c) = child {
+            // poll 结束后 kill 仍在运行的 ipconfig：避免子进程残留。
+            // 历史缺陷：轮询结束即 kill 可能中断半途 DHCP 事务，但保留 kill 防止
+            // ipconfig 悬挂；此处 kill 失败仅记录不致命。
             let _ = c.kill();
             let _ = c.wait();
         }

@@ -51,6 +51,11 @@ mod tests {
 /// 判断网卡是否在 Win11 高级网络设置 / ncpa.cpl 中可见
 /// 严格按注册表 PnP 设备树检测，避免按名称误伤多物理网卡场景
 pub fn is_visible_in_ncpa(guid: &str) -> bool {
+    // 历史缺陷：空 GUID 直接返回 false，物理适配器 AdapterName 为空时被静默隐藏。
+    // 空 GUID 无法做注册表匹配，回退为"可见"（交由黑名单/IP 等后续过滤兜底）。
+    if guid.is_empty() {
+        return true;
+    }
     // 注册表 1：HKLM\...\Control\Network\{4D36E972-...}\{GUID}\Connection\ShowInNetworkConnections
     //   = 0 → 用户/系统标记为隐藏
     //   = 1 或不存在 → Windows 默认显示
@@ -60,9 +65,6 @@ pub fn is_visible_in_ncpa(guid: &str) -> bool {
     //   创建的多个 WLAN 2/3/4/5，这些在网络栈可见但 PnP 树中已被清理）
     //
     // 决策：注册表 1 + 2 都通过才视为可见
-    if guid.is_empty() {
-        return false;
-    }
     // 注册表 1 检查：Connection 子键的 ShowInNetworkConnections
     let key_path = format!(
         "SYSTEM\\CurrentControlSet\\Control\\Network\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}\\{guid}\\Connection"
