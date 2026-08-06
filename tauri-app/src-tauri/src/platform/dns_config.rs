@@ -20,6 +20,25 @@ const DNS_SETTING_PROFILE_NAMESERVER: u64 = 0x0200;
 #[allow(dead_code)] // 在 set_profile_dns_via_api 中使用，编译器因条件编译误报
 const DNS_SETTING_DOH_PROFILE: u64 = 0x2000;
 
+/// 计算 NameServer 列表各服务器与 DoH 模板的绑定关系。
+///
+/// 返回 (ServerIndex, 模板URL) 列表，ServerIndex 是服务器在 `dns_servers` 中的下标。
+/// 仅为实际存在且配置了模板的服务器生成绑定；模板不匹配的服务器不参与 DoH。
+/// 历史缺陷：曾对 doh_templates 全量生成 ServerIndex 0..3，与仅含 2 台服务器的
+/// NameServer 列表不匹配（越界 + 模板错配）。此纯函数供单测覆盖。
+fn doh_bindings<'a>(dns_servers: &[&str], doh_templates: &'a [(&str, &str)]) -> Vec<(usize, &'a str)> {
+    dns_servers
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, server_ip)| {
+            doh_templates
+                .iter()
+                .find(|(ip, _)| ip == server_ip)
+                .map(|(_, tpl)| (idx, *tpl))
+        })
+        .collect()
+}
+
 #[cfg(target_os = "windows")]
 fn set_dns_inner(
     adapter_guid: &str,
@@ -42,7 +61,13 @@ fn set_dns_inner(
     doh_settings.reserve(doh_templates.len());
     doh_props.reserve(doh_templates.len());
 
-    for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
+    // 历史缺陷：对 doh_templates（4 台 DoH 服务器）全量生成 ServerIndex 0..3，
+    // 但 NameServer 仅含 dns_servers（2 台）。ServerIndex 按 Win32 契约必须索引
+    // NameServer 列表中的实际位置：索引 2/3 引用不存在的服务器导致
+    // SetInterfaceDnsSettings 报 ERROR_INVALID_PARAMETER，且索引 1 的 DoH 模板
+    // 错配（223.6.6.6 模板套到 1.12.12.12）。
+    // 修复：仅为 NameServer 中实际存在的服务器生成 DoH 属性，按服务器 IP 匹配模板。
+    for (idx, template) in doh_bindings(dns_servers, doh_templates) {
         let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
         doh_templates_wide.push(tpl_wide);
 
@@ -50,6 +75,7 @@ fn set_dns_inner(
             Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
             Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
         };
+        let cur_idx = doh_settings.len();
         doh_settings.push(doh_setting);
 
         let prop = DNS_SERVER_PROPERTY {
@@ -57,7 +83,7 @@ fn set_dns_inner(
             ServerIndex: idx as u32,
             Type: DNS_SERVER_PROPERTY_TYPE(DNS_PROPERTY_TYPE_DOH),
             Property: DNS_SERVER_PROPERTY_TYPES {
-                DohSettings: &mut doh_settings[idx],
+                DohSettings: &mut doh_settings[cur_idx],
             },
         };
         doh_props.push(prop);
@@ -132,7 +158,13 @@ pub fn set_profile_dns_via_api(
     doh_settings.reserve(doh_templates.len());
     doh_props.reserve(doh_templates.len());
 
-    for (idx, (_ip, template)) in doh_templates.iter().enumerate() {
+    // 历史缺陷：对 doh_templates（4 台 DoH 服务器）全量生成 ServerIndex 0..3，
+    // 但 NameServer 仅含 dns_servers（2 台）。ServerIndex 按 Win32 契约必须索引
+    // NameServer 列表中的实际位置：索引 2/3 引用不存在的服务器导致
+    // SetInterfaceDnsSettings 报 ERROR_INVALID_PARAMETER，且索引 1 的 DoH 模板
+    // 错配（223.6.6.6 模板套到 1.12.12.12）。
+    // 修复：仅为 NameServer 中实际存在的服务器生成 DoH 属性，按服务器 IP 匹配模板。
+    for (idx, template) in doh_bindings(dns_servers, doh_templates) {
         let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
         doh_templates_wide.push(tpl_wide);
 
@@ -140,6 +172,7 @@ pub fn set_profile_dns_via_api(
             Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
             Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
         };
+        let cur_idx = doh_settings.len();
         doh_settings.push(doh_setting);
 
         let prop = DNS_SERVER_PROPERTY {
@@ -147,7 +180,7 @@ pub fn set_profile_dns_via_api(
             ServerIndex: idx as u32,
             Type: DNS_SERVER_PROPERTY_TYPE(DNS_PROPERTY_TYPE_DOH),
             Property: DNS_SERVER_PROPERTY_TYPES {
-                DohSettings: &mut doh_settings[idx],
+                DohSettings: &mut doh_settings[cur_idx],
             },
         };
         doh_props.push(prop);
@@ -481,4 +514,39 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
         "dohSupported": true,
         "autoDohEnabled": any_doh_enabled,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doh_bindings_only_for_present_servers() {
+        // NameServer 仅含 2 台服务器，doh_templates 有 4 台。
+        // 历史缺陷：生成 4 条属性（ServerIndex 0..3），索引 2/3 越界。
+        let servers = ["223.5.5.5", "1.12.12.12"];
+        let templates = DOH_SERVERS;
+        let bindings = doh_bindings(&servers, templates);
+        assert_eq!(bindings.len(), 2, "只为实际存在的服务器生成绑定");
+        assert_eq!(bindings[0].0, 0);
+        assert_eq!(bindings[0].1, "https://dns.alidns.com/dns-query");
+        assert_eq!(bindings[1].0, 1);
+        assert_eq!(bindings[1].1, "https://doh.pub/dns-query", "1.12.12.12 必须配对 doh.pub 而非 dns.alidns.com");
+    }
+
+    #[test]
+    fn doh_bindings_skips_servers_without_template() {
+        let servers = ["223.5.5.5", "9.9.9.9"]; // 9.9.9.9 无模板
+        let templates = DOH_SERVERS;
+        let bindings = doh_bindings(&servers, templates);
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].0, 0);
+    }
+
+    #[test]
+    fn doh_bindings_empty_when_no_match() {
+        let servers = ["8.8.8.8"];
+        let bindings = doh_bindings(&servers, DOH_SERVERS);
+        assert!(bindings.is_empty());
+    }
 }
