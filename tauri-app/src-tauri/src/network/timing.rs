@@ -104,13 +104,13 @@ pub async fn measure_https_timing(
     let dns_timeout = timeout / 3;
 
     let dns_start = Instant::now();
-    let ip = if let Some(cached) = super::dns::dns_cache_get(host) {
+    let ip = if let Some(cached) = super::dns::dns_cache_get(host, bind_addr) {
         result.dns_ms = ms_from(dns_start);
         cached
     } else {
         match super::dns::resolve_host_smart(host, dns_timeout, bind_addr).await {
             Ok(ip) => {
-                super::dns::dns_cache_put(host, ip);
+                super::dns::dns_cache_put(host, bind_addr, ip);
                 result.dns_ms = ms_from(dns_start);
                 ip
             }

@@ -7,12 +7,15 @@ lazy_static::lazy_static! {
     static ref DNS_SERVER_SCORES: dashmap::DashMap<String, ServerScore> = dashmap::DashMap::new();
     static ref DOH_SERVER_SCORES: dashmap::DashMap<String, ServerScore> = dashmap::DashMap::new();
 
-    /// BP-5: 缓存系统默认 ResolverConfig（Google DNS），避免 fallback 路径每次重复构造。
-    /// ResolverConfig::default() 内部调用 NameServerConfigGroup::google() 解析多个 IP 地址
-    /// 并构建 NameServerConfig 列表。L161 的系统 fallback 路径不依赖动态 bind_addr，
-    /// 其 config 是编译期固定的，适合缓存。使用时 .clone() 产生独立副本。
-    static ref SYSTEM_RESOLVER_CONFIG: hickory_resolver::config::ResolverConfig =
-        hickory_resolver::config::ResolverConfig::default();
+    /// BP-5: 缓存系统 ResolverConfig，避免 fallback 路径每次重复构造。
+    /// 历史缺陷：此处曾用 ResolverConfig::default()（硬编码 Google 8.8.8.8/8.8.4.4），
+    /// 在仅 Portal 可达的校园网/捕获门户场景必然失败，导致"系统 DNS fallback"形同虚设。
+    /// 现改用真实 OS 配置（system_conf::read_system_conf），失败时回退 default。
+    static ref SYSTEM_RESOLVER_CONFIG: hickory_resolver::config::ResolverConfig = {
+        hickory_resolver::system_conf::read_system_conf()
+            .map(|(config, _opts)| config)
+            .unwrap_or_else(|_| hickory_resolver::config::ResolverConfig::default())
+    };
 }
 
 const DNS_FALLBACK_SERVERS: &[&str] = &["223.5.5.5", "1.12.12.12", "114.114.114.114"];
@@ -83,22 +86,34 @@ pub(crate) fn get_best_doh_servers() -> Vec<(String, String)> {
 const DNS_CACHE_TTL_SECS: u64 = 60;
 const DNS_CACHE_MAX_ENTRIES: usize = 64;
 
-pub(crate) fn dns_cache_get(host: &str) -> Option<IpAddr> {
-    DNS_CACHE.get(host).and_then(|entry| {
+/// 缓存 key：host + bind_addr。
+/// bind_addr 参与 key 使不同出口接口的解析结果互不污染
+/// （split-horizon/地理 DNS 下同一域名经不同接口可解析到不同 IP）。
+fn dns_cache_key(host: &str, bind_addr: Option<IpAddr>) -> String {
+    match bind_addr {
+        Some(ip) => format!("{host}@{ip}"),
+        None => host.to_string(),
+    }
+}
+
+pub(crate) fn dns_cache_get(host: &str, bind_addr: Option<IpAddr>) -> Option<IpAddr> {
+    let key = dns_cache_key(host, bind_addr);
+    DNS_CACHE.get(&key).and_then(|entry| {
         if entry.value().1.elapsed().as_secs() < DNS_CACHE_TTL_SECS {
             Some(entry.value().0)
         } else {
             None
         }
     }).or_else(|| {
-        DNS_CACHE.remove_if(host, |_, (_, ts)| ts.elapsed().as_secs() >= DNS_CACHE_TTL_SECS);
+        DNS_CACHE.remove_if(&key, |_, (_, ts)| ts.elapsed().as_secs() >= DNS_CACHE_TTL_SECS);
         None
     })
 }
 
-pub(crate) fn dns_cache_put(host: &str, ip: IpAddr) {
+pub(crate) fn dns_cache_put(host: &str, bind_addr: Option<IpAddr>, ip: IpAddr) {
     let now = Instant::now();
-    DNS_CACHE.insert(host.to_string(), (ip, now));
+    let key = dns_cache_key(host, bind_addr);
+    DNS_CACHE.insert(key, (ip, now));
     DNS_CACHE.retain(|_, (_, ts)| now.saturating_duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
     while DNS_CACHE.len() > DNS_CACHE_MAX_ENTRIES {
         let oldest = DNS_CACHE.iter()
@@ -158,8 +173,20 @@ pub(crate) async fn resolve_host_uncached_with_bind(
                     .ok_or_else(|| "无DNS结果".to_string())
             }
             Err(_) => {
-                // BP-5: 使用缓存的系统默认 config，避免每次 fallback 都重新构造
-                let sys_config = SYSTEM_RESOLVER_CONFIG.clone();
+                // BP-5: 使用缓存的系统 config，避免每次 fallback 都重新构造
+                let mut sys_config = SYSTEM_RESOLVER_CONFIG.clone();
+                // 保留 bind_addr：双适配器场景下系统 fallback 也必须从指定接口出站，
+                // 否则 egress 走错接口导致解析失败（历史缺陷：fallback 丢弃 bind_addr）
+                if let Some(bind_ip) = bind_addr {
+                    let bind_sock = std::net::SocketAddr::new(bind_ip, 0);
+                    let mut updated = hickory_resolver::config::ResolverConfig::new();
+                    for ns in sys_config.name_servers() {
+                        let mut ns = ns.clone();
+                        ns.bind_addr = Some(bind_sock);
+                        updated.add_name_server(ns);
+                    }
+                    sys_config = updated;
+                }
                 let mut sys_opts = ResolverOpts::default();
                 sys_opts.try_tcp_on_error = true;
                 sys_opts.timeout = timeout;
@@ -268,6 +295,18 @@ pub(crate) fn base64url_encode_no_pad(data: &[u8]) -> String {
 pub(crate) fn parse_dns_response_wire(data: &[u8]) -> Result<Vec<IpAddr>, String> {
     if data.len() < 12 {
         return Err("DNS响应太短".to_string());
+    }
+    // 校验响应头：QR 位必须为 1（响应）、RCODE 必须为 0（无错误）。
+    // 历史缺陷：仅解析 ANCOUNT 与 A 记录，RCODE!=0 的错误响应（如 NXDOMAIN）
+    // 或非响应报文会被当作"无答案"吞掉，无法区分 DNS 劫持与解析失败。
+    let flags = u16::from_be_bytes([data[2], data[3]]);
+    let is_response = (flags >> 15) & 0x1 == 1;
+    let rcode = flags & 0x000F;
+    if !is_response {
+        return Err("DNS响应格式无效: QR位不是响应".to_string());
+    }
+    if rcode != 0 {
+        return Err(format!("DNS响应错误码: RCODE={rcode}"));
     }
     let qdcount = u16::from_be_bytes([data[4], data[5]]) as usize;
     let ancount = u16::from_be_bytes([data[6], data[7]]) as usize;
@@ -397,7 +436,7 @@ pub(crate) async fn resolve_via_doh(
 }
 
 pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option<IpAddr>) -> Result<IpAddr, String> {
-    if let Some(ip) = dns_cache_get(host) {
+    if let Some(ip) = dns_cache_get(host, bind_addr) {
         return Ok(ip);
     }
 
@@ -430,7 +469,7 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
         match res {
             Ok(Ok(ip)) => {
                 set.abort_all();
-                dns_cache_put(host, ip);
+                dns_cache_put(host, bind_addr, ip);
                 return Ok(ip);
             }
             Ok(Err(e)) => {
@@ -732,15 +771,15 @@ mod tests {
     fn dns_cache_put_then_get() {
         let host = "test_put_get_unique_v1.example.com";
         let ip: IpAddr = "203.0.113.42".parse().unwrap();
-        dns_cache_put(host, ip);
-        let result = dns_cache_get(host);
+        dns_cache_put(host, None, ip);
+        let result = dns_cache_get(host, None);
         assert_eq!(result, Some(ip));
     }
 
     #[test]
     fn dns_cache_get_miss() {
         let host = "test_cache_miss_unique_v1.example.com";
-        let result = dns_cache_get(host);
+        let result = dns_cache_get(host, None);
         assert_eq!(result, None);
     }
 
@@ -749,10 +788,24 @@ mod tests {
         let host = "test_overwrite_unique_v1.example.com";
         let ip1: IpAddr = "203.0.113.1".parse().unwrap();
         let ip2: IpAddr = "203.0.113.2".parse().unwrap();
-        dns_cache_put(host, ip1);
-        dns_cache_put(host, ip2);
-        let result = dns_cache_get(host);
+        dns_cache_put(host, None, ip1);
+        dns_cache_put(host, None, ip2);
+        let result = dns_cache_get(host, None);
         assert_eq!(result, Some(ip2));
+    }
+
+    #[test]
+    fn dns_cache_keyed_by_bind_addr() {
+        // 不同 bind_addr 的解析结果必须互相隔离（split-horizon/地理 DNS）
+        let host = "test_bind_isolated_unique_v1.example.com";
+        let ip_a: IpAddr = "203.0.113.10".parse().unwrap();
+        let ip_b: IpAddr = "203.0.113.20".parse().unwrap();
+        let bind_a: IpAddr = "192.168.1.10".parse().unwrap();
+        let bind_b: IpAddr = "192.168.2.10".parse().unwrap();
+        dns_cache_put(host, Some(bind_a), ip_a);
+        dns_cache_put(host, Some(bind_b), ip_b);
+        assert_eq!(dns_cache_get(host, Some(bind_a)), Some(ip_a));
+        assert_eq!(dns_cache_get(host, Some(bind_b)), Some(ip_b));
     }
 
     // ===== SYSTEM_RESOLVER_CONFIG (BP-5) =====
@@ -761,7 +814,6 @@ mod tests {
     fn system_resolver_config_initializes_without_panic() {
         // BP-5: 验证缓存的 SYSTEM_RESOLVER_CONFIG 能成功初始化
         let config = &*SYSTEM_RESOLVER_CONFIG;
-        // ResolverConfig::default() 使用 Google DNS，应该有 name servers
         assert!(!config.name_servers().is_empty());
     }
 
@@ -772,5 +824,27 @@ mod tests {
         let clone2 = SYSTEM_RESOLVER_CONFIG.clone();
         // 两个 clone 应该有相同的 name servers 数量
         assert_eq!(clone1.name_servers().len(), clone2.name_servers().len());
+    }
+
+    // ===== DoH 响应头校验（RCODE / QR）=====
+
+    #[test]
+    fn parse_dns_response_wire_rejects_nxdomain_rcode() {
+        // RCODE=3 (NXDOMAIN) 的错误响应不得被当作"无答案"吞掉
+        let mut data = build_test_dns_response();
+        data[3] = 0x83; // flags: 0x81 0x83 → RCODE=3
+        let result = parse_dns_response_wire(&data);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("RCODE"));
+    }
+
+    #[test]
+    fn parse_dns_response_wire_rejects_query_packet() {
+        // QR=0（查询报文）不是响应，必须拒绝
+        let mut data = build_test_dns_response();
+        data[2] = 0x01; // flags: 0x01 0x80 → QR=0
+        let result = parse_dns_response_wire(&data);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("QR"));
     }
 }
