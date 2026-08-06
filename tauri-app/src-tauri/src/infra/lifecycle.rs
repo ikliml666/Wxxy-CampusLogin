@@ -50,8 +50,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
 
     let app_h = app_handle.clone();
     let task_manager = state.task_manager.clone();
-    if let Err(e) = state.task_manager.spawn("campus_exit", move |cancel_token| async move {
-        // 阶段1：等待30秒后最小化到托盘
+    if let Err(e) = state.task_manager.spawn("campus_exit", move |cancel_token| async move {        // 阶段1：等待30秒后最小化到托盘
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_millis(CAMPUS_MINIMIZE_DELAY_MS)) => {}
             _ = cancel_token.cancelled() => return,
@@ -102,7 +101,11 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         task_manager.detach("campus_exit");
         shutdown_and_exit(&app_h, &s).await;
     }) {
-        crate::log_warn!("campus_exit", "注册 campus_exit 跟踪任务失败: {}", e);
+        // spawn 失败：回滚 CAS 标志与 deadline，避免 campus_exit_started 永久为 true
+        // 导致后续 start_campus_exit 全部短路、自动退出流程死亡（历史缺陷）。
+        state.exit.campus_exit_started.store(false, Ordering::Release);
+        state.exit.set_campus_exit_deadline(None);
+        crate::log_warn!("campus_exit", "注册 campus_exit 跟踪任务失败，已回滚退出标志: {}", e);
     }
 }
 

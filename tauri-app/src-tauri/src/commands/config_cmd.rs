@@ -86,6 +86,13 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
         config.password = current.password.clone();
     }
 
+    // 历史缺陷：修改 Portal URL 仅存配置，不更新进程全局 PORTAL_URL，
+    // 运行期后台巡检/登录仍用旧地址直到重启。此处持久化前先同步全局。
+    crate::network::update_portal_url(&config.portal_url);
+
+    // 日志保留天数同步应用到运行期 logger（否则需重启或重进日志面板才生效）
+    crate::infra::logger::set_log_retention_days(config.log_retention_days);
+
     state.config.store(config.clone());
     save_config_to_disk_encrypted(&app_handle, &config)?;
     crate::log_info!("config", "配置保存成功, 用户: {}", config.user);

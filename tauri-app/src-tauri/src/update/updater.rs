@@ -199,7 +199,7 @@ pub fn schedule_update_cleanup() {
 pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
     let app_h = app_handle.clone();
     let task_manager = app_handle.state::<AppState>().task_manager.clone();
-    if let Err(e) = task_manager.spawn("update_check_loop", move |_cancel| async move {
+    if let Err(e) = task_manager.spawn("update_check_loop", move |cancel_token| async move {
         let state = app_h.state::<AppState>();
         let last_epoch = state.update_stats.last_update_check_epoch_ms.load(Ordering::Acquire);
         let now_epoch = std::time::SystemTime::now()
@@ -208,8 +208,11 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
             .as_millis() as u64;
         let elapsed_secs = if last_epoch == 0 { AUTO_CHECK_INTERVAL_SECS + 1 } else { (now_epoch - last_epoch) / 1000 };
 
-        // 首次检查：若距上次检查超过间隔则立即检查
-        if elapsed_secs >= AUTO_CHECK_INTERVAL_SECS {
+        // 首次检查：若距上次检查超过间隔则立即检查（退出中跳过）
+        if elapsed_secs >= AUTO_CHECK_INTERVAL_SECS
+            && !cancel_token.is_cancelled()
+            && !state.exit.is_quitting.load(Ordering::Acquire)
+        {
             do_update_check(&app_h, &state).await;
         }
 
@@ -219,12 +222,15 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
         } else {
             AUTO_CHECK_INTERVAL_SECS
         };
-        // 拆分为 5s 步进循环，每次检查 is_quitting，避免 24h sleep 期间无法响应退出
+        // 拆分为 5s 步进循环，同时监听取消令牌，避免 24h sleep 期间无法响应退出
         let mut elapsed = 0u64;
         let step = 5u64;
         while elapsed < remaining_secs {
             let wait = std::cmp::min(step, remaining_secs - elapsed);
-            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(wait)) => {}
+                _ = cancel_token.cancelled() => return,
+            }
             elapsed += wait;
             if state.exit.is_quitting.load(Ordering::Acquire) {
                 break;
@@ -233,17 +239,20 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
 
         // 后续固定间隔检查
         loop {
-            if state.exit.is_quitting.load(Ordering::Acquire) {
+            if cancel_token.is_cancelled() || state.exit.is_quitting.load(Ordering::Acquire) {
                 break;
             }
             do_update_check(&app_h, &state).await;
-            // 拆分为 5s 步进等待，避免 24h sleep 期间无法响应退出
+            // 拆分为 5s 步进等待，同时监听取消令牌
             let mut waited = 0u64;
             while waited < AUTO_CHECK_INTERVAL_SECS {
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                    _ = cancel_token.cancelled() => return,
+                }
                 if state.exit.is_quitting.load(Ordering::Acquire) {
                     return;
                 }
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 waited += 5;
             }
         }

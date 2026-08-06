@@ -29,6 +29,11 @@ pub fn handle_window_close_event(window: &Window, event: &WindowEvent) {
             let _ = ww.hide(); // [忽略错误] 窗口可能已关闭
         }
     } else {
+        // 历史缺陷：此处直接 graceful_exit 而不 prevent_close。窗口关闭后成为
+        // 最后一个窗口，Tauri run loop 立即退出，异步排空被中断，后台任务未
+        // 排空（DHCP 子进程/登录请求/日志刷盘被截断）。
+        // 修复：先阻止默认关闭，待后台任务排空完成后主动 exit(0)。
+        api.prevent_close();
         let app_h = window.app_handle().clone();
         graceful_exit(&app_h, &s);
     }
