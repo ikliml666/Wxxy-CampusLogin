@@ -12,6 +12,14 @@ use crate::infra::lifecycle::{start_auto_exit, start_campus_exit};
 
 const RECONNECT_REMINDER_INTERVAL: u32 = 10;
 
+/// 断线重连是否应向上报告"已重连成功"。
+///
+/// 只有登录成功且未超过重连次数上限时才返回 true，调用方据此
+/// 跳过用重连前旧 Portal 快照覆盖 `any_adapter_online` 的逻辑。
+pub fn reconnect_should_report(login_success: bool, within_limit: bool) -> bool {
+    login_success && within_limit
+}
+
 pub fn try_auto_login_on_preparation(
     app_handle: &AppHandle,
     state: &AppState,
@@ -115,7 +123,10 @@ pub fn try_disconnect_reconnect(
 
     let reconnect_count = snap.disconnect_reconnect_count + 1;
     state.network.update(|s| s.disconnect_reconnect_count += 1);
-    if reconnect_count <= config.max_disconnect_reconnect {
+    let within_limit = reconnect_count <= config.max_disconnect_reconnect;
+    let mut reconnect_success = false;
+
+    if within_limit {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
         emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect));
 
@@ -132,6 +143,7 @@ pub fn try_disconnect_reconnect(
             reconnect_count, config.max_disconnect_reconnect, reconnect_result.success, elapsed.as_millis());
 
         if reconnect_result.success {
+            reconnect_success = true;
             state.network.update(|s| {
                 s.disconnect_reconnect_count = 0;
                 s.any_adapter_online = true;
@@ -155,7 +167,13 @@ pub fn try_disconnect_reconnect(
             emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
         }
     }
-    false
+
+    // 历史缺陷：此函数所有路径均返回 false，导致调用方 background_check.rs 的
+    // "if !reconnected" 分支永远用重连前旧 Portal 快照覆盖 any_adapter_online，
+    // 单适配器用户重连成功后立即被重新标记为离线，且下一周期因 !any_adapter_online
+    // 提前返回、不再尝试重连，用户被永久困在离线状态。
+    // 修复：重连成功（且未超限）时返回 true，让调用方跳过旧快照覆盖。
+    reconnect_should_report(reconnect_success, within_limit)
 }
 
 pub fn run_auto_login_on_start(app_handle: &AppHandle) {
@@ -400,5 +418,28 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         }
     }) {
         crate::log_warn!("auto_login", "注册 auto_login_on_start 跟踪任务失败: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reconnect_success_within_limit_reports_true() {
+        // 重连成功且未超限 → 必须返回 true，调用方才不会用旧 Portal 快照覆盖在线状态
+        assert!(reconnect_should_report(true, true));
+    }
+
+    #[test]
+    fn reconnect_failure_never_reports_true() {
+        assert!(!reconnect_should_report(false, true));
+        assert!(!reconnect_should_report(false, false));
+    }
+
+    #[test]
+    fn reconnect_success_over_limit_reports_false() {
+        // 超过重连次数上限：即使登录成功也不再上报（停止自动重连）
+        assert!(!reconnect_should_report(true, false));
     }
 }
