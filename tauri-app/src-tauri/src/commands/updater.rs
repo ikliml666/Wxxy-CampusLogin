@@ -175,7 +175,7 @@ pub async fn download_update(
 }
 
 #[tauri::command]
-pub async fn install_update(file_path: String, checksum_url: Option<String>) -> Result<bool, String> {
+pub async fn install_update(app_handle: tauri::AppHandle, file_path: String, checksum_url: Option<String>) -> Result<bool, String> {
     let path = std::path::Path::new(&file_path);
     if !path.exists() {
         return Err("安装包文件不存在".to_string());
@@ -200,7 +200,14 @@ pub async fn install_update(file_path: String, checksum_url: Option<String>) -> 
                 vec![url]
             };
 
-            match crate::update::updater::verify_download_sha256(&file_path, &sha256_urls).await {
+            // 是否允许"所有校验源 4xx 时跳过校验"：默认关闭（拒绝未校验安装），
+            // 需用户在设置中显式开启 skipSha256WhenMissing
+            let allow_skip_missing = CommandContext::from_app(&app_handle)
+                .config
+                .load()
+                .skip_sha256_when_missing;
+
+            match crate::update::updater::verify_download_sha256(&file_path, &sha256_urls, allow_skip_missing).await {
                 Ok(true) => {}
                 Ok(false) => {
                     let _ = std::fs::remove_file(&file_path);

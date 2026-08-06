@@ -230,6 +230,7 @@ mod tests {
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
+            skip_sha256_when_missing: false,
             config_version: 2,
         }
     }

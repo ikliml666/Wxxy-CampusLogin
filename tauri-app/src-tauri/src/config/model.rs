@@ -71,6 +71,8 @@ pub struct Config {
     pub max_disconnect_reconnect: u32,
     #[serde(rename = "autoLoginCooldownSecs", default = "default_auto_login_cooldown_secs")]
     pub auto_login_cooldown_secs: u64,
+    #[serde(rename = "skipSha256WhenMissing", default)]
+    pub skip_sha256_when_missing: bool,
     #[serde(rename = "configVersion", default)]
     pub config_version: u32,
 }
@@ -165,6 +167,7 @@ impl Default for Config {
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
+            skip_sha256_when_missing: false,
             config_version: 2,
         }
     }

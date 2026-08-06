@@ -76,7 +76,28 @@ fn build_short_timeout_http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("创建HTTP客户端失败: {e}"))
 }
 
-pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -> Result<bool, String> {
+/// 所有校验和源均失败时的决策。
+///
+/// - 所有响应均为 4xx（文件不存在/权限受限）且无传输错误：
+///   `allow_skip` 为 true 时降级通过（发布流程未上传 .sha256），否则拒绝安装。
+/// - 存在 5xx/传输错误：一律视为系统异常，拒绝安装。
+pub fn decide_checksum_missing(all_client_errors: bool, had_transport_error: bool, allow_skip: bool) -> Result<(), String> {
+    if all_client_errors && !had_transport_error {
+        if allow_skip {
+            crate::log_warn!(
+                "updater",
+                "所有 SHA256 校验源均返回 4xx，视为发布流程未上传 .sha256 文件（用户已显式开启跳过校验），降级通过"
+            );
+            Ok(())
+        } else {
+            Err("校验和源全部不可用（4xx），且未开启 skipSha256WhenMissing，拒绝安装未校验的安装包".to_string())
+        }
+    } else {
+        Err("所有校验和源均失败（含 5xx/网络错误），拒绝安装".to_string())
+    }
+}
+
+pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String], allow_skip_missing: bool) -> Result<bool, String> {
     if checksum_urls.is_empty() {
         return Err("未提供校验和URL".to_string());
     }
@@ -84,8 +105,6 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
     let client = build_short_timeout_http_client()?;
 
     // 按顺序尝试所有 URL（GitHub 原始源 + 镜像源），任一成功即用
-    // 降级策略：所有源都返回 4xx（文件不存在/权限受限）时视为"无可用校验文件"，
-    // 返回 Ok(true) 跳过校验并输出警告日志；存在 5xx/网络错误则视为系统异常，保留原行为返回错误
     let mut last_err = String::new();
     let mut all_client_errors = true; // 是否所有响应都是 4xx（文件不存在/权限问题）
     let mut had_transport_error = false; // 是否有网络/超时等传输错误
@@ -123,18 +142,10 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String]) -
         match content {
             Some(c) => c,
             None => {
-                // 所有源都失败
-                if all_client_errors && !had_transport_error {
-                    // 所有响应都是 4xx（文件不存在/权限受限）→ 降级通过
-                    crate::log_warn!(
-                        "updater",
-                        "所有 {} 个 SHA256 校验源均返回 4xx（最后错误: {}），视为发布流程未上传 .sha256 文件，降级跳过校验",
-                        checksum_urls.len(),
-                        last_err
-                    );
-                    return Ok(true);
-                }
-                return Err(format!("所有校验和源均失败（最后错误: {last_err}）"));
+                // 所有源都失败：按显式开关决策（默认拒绝，需用户在设置中确认跳过）
+                decide_checksum_missing(all_client_errors, had_transport_error, allow_skip_missing)
+                    .map_err(|e| format!("{e}（最后错误: {last_err}）"))?;
+                return Ok(true);
             }
         }
     };
@@ -365,4 +376,33 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
         ],
         sha256_checksum: Some(serde_json::to_string(&sha256_urls).unwrap_or_default()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_4xx_without_explicit_optin_is_hard_error() {
+        // 所有校验源 4xx 且用户未开启跳过 → 必须拒绝安装（原实现返回 Ok(true) 直接通过）
+        let result = decide_checksum_missing(true, false, false);
+        assert!(result.is_err(), "未显式开启跳过时必须拒绝未校验安装");
+        assert!(result.unwrap_err().contains("skipSha256WhenMissing"));
+    }
+
+    #[test]
+    fn all_4xx_with_explicit_optin_is_allowed() {
+        let result = decide_checksum_missing(true, false, true);
+        assert!(result.is_ok(), "用户显式开启跳过后允许降级通过");
+    }
+
+    #[test]
+    fn server_error_or_transport_error_always_blocks() {
+        // 5xx：即使开启跳过也拒绝
+        assert!(decide_checksum_missing(false, false, true).is_err());
+        assert!(decide_checksum_missing(false, false, false).is_err());
+        // 传输错误：即使开启跳过也拒绝
+        assert!(decide_checksum_missing(true, true, true).is_err());
+        assert!(decide_checksum_missing(false, true, false).is_err());
+    }
 }
