@@ -255,8 +255,14 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     state.network.update(|s| s.last_a2_online = secondary_online == Some(true));
 
+    // 历史缺陷：handle_status_change 传入的是仅主适配器的 online，
+    // 而 prev_online 是 any_adapter_online（主+副任意在线即 true）。
+    // 双适配器"主断副通"时 online=false 与 prev_online=true 比较，
+    // 每个巡检周期都误报"在线→离线"通知。
+    // 修复：状态变更检测统一用 any_online（任一适配器在线即在线）。
+    let any_online = online || secondary_online == Some(true);
     handle_status_change(
-        prev_online, online, reachable, login_available,
+        prev_online, any_online, reachable, login_available,
         &adapter1_name, &message,
         &adapter2_name, if secondary_message.is_empty() { None } else { Some(secondary_message.as_str()) },
         &config, app_handle,

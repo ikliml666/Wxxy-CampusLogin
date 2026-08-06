@@ -186,7 +186,12 @@ enum PageCheckResult {
 }
 
 fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckResult {
-    let page_url = format!("{portal_base}/");
+    // 历史缺陷：此处直接 format!("{portal_base}/") 用配置的默认 80 端口，
+    // 而登录/注销/协议请求一律强制 :801（ensure_portal_port）。
+    // 在仅暴露 801 的校园网部署上页面探测必然失败 → 误报"Portal页面请求失败"。
+    // 修复：页面探测 URL 与协议请求保持一致端口。
+    let portal_base_with_port = ensure_portal_port(portal_base);
+    let page_url = format!("{portal_base_with_port}/");
     let resp = match block_on_http(
         client.get(&page_url).timeout(portal_config::REQUEST_TIMEOUT).send()
     ) {
@@ -196,6 +201,13 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
             return PageCheckResult::Failed;
         }
     };
+
+    // 非 2xx 状态码：4xx/5xx 错误页不得作为正常页面分析
+    // （历史缺陷：状态码未校验，错误页无登录特征时被当作 Unknown/Offline）
+    if !resp.status().is_success() {
+        crate::log_warn!("network", "Portal页面请求状态异常: {}", resp.status());
+        return PageCheckResult::Failed;
+    }
 
     let html = match block_on_http(resp.text()) {
         Ok(t) => t,
