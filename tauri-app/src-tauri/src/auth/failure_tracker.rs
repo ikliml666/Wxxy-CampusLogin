@@ -181,6 +181,8 @@ pub fn reset_all(state: &AppState) {
         s.portal_failure_count = 0;
         s.a1_auth_failure_count = 0;
         s.a2_auth_failure_count = 0;
+        // 准备自动登录失败计数一并重置，注销后重新允许自动登录尝试
+        s.prep_login_failures = 0;
     });
     crate::log_info!("logout", "已重置所有认证失败计数");
 }

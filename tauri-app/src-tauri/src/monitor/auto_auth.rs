@@ -12,6 +12,11 @@ use crate::infra::lifecycle::{start_auto_exit, start_campus_exit};
 
 const RECONNECT_REMINDER_INTERVAL: u32 = 10;
 
+/// 准备自动登录连续失败上限：达到后本会话停止自动登录。
+/// 历史缺陷：自动登录无限重试，错误凭据下每 ~60s 重试一次且每 5 次认证失败
+/// 触发全适配器 DHCP 释放续租（断网），应用无人值守时周期性断网持续一整夜。
+const PREP_LOGIN_MAX_FAILURES: u32 = 5;
+
 /// 断线重连是否应向上报告"已重连成功"。
 ///
 /// 只有登录成功且未超过重连次数上限时才返回 true，调用方据此
@@ -34,6 +39,17 @@ pub fn try_auto_login_on_preparation(
     // 单次 load 快照，复用读取 has_logged_online / logout_protected_until / last_auto_login_attempt
     let snap = state.network.load();
     if snap.has_logged_online {
+        return;
+    }
+
+    // 连续失败达上限：本会话停止自动登录，避免错误凭据下无限重试 +
+    // 周期性 DHCP 断网。用户手动登录成功后重置。
+    if snap.prep_login_failures >= PREP_LOGIN_MAX_FAILURES {
+        crate::log_warn!(
+            "auto_login",
+            "准备自动登录连续失败 {} 次，本会话停止自动登录，请手动登录或检查账号密码",
+            snap.prep_login_failures
+        );
         return;
     }
 
@@ -70,10 +86,19 @@ pub fn try_auto_login_on_preparation(
         }
 
         if login_result.success {
-            state.network.update(|s| s.has_logged_online = true);
+            state.network.update(|s| {
+                s.has_logged_online = true;
+                s.prep_login_failures = 0;
+            });
             if config.enable_notification {
                 emit_notification(app_handle, "自动登录成功", &login_result.message.unwrap_or_default());
             }
+        } else {
+            // 登录失败（含认证失败）：累加准备自动登录失败计数，
+            // 达上限后本会话停止重试（见函数开头判断）
+            state.network.update(|s| s.prep_login_failures = s.prep_login_failures.saturating_add(1));
+            let failures = state.network.load().prep_login_failures;
+            crate::log_info!("auto_login", "准备自动登录失败 [{}/{}]", failures, PREP_LOGIN_MAX_FAILURES);
         }
     } else {
         crate::log_debug!("auto_login", "自动登录跳过：已有登录任务在进行");
@@ -148,6 +173,7 @@ pub fn try_disconnect_reconnect(
                 s.disconnect_reconnect_count = 0;
                 s.any_adapter_online = true;
                 s.has_logged_online = true;
+                s.prep_login_failures = 0;
             });
             if let Err(e) = crate::config::persist::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
                 crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
@@ -353,6 +379,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     s.network.update(|s| {
                         s.any_adapter_online = true;
                         s.has_logged_online = true;
+                        s.prep_login_failures = 0;
                     });
 
                     crate::log_info!("auto_login", "已在线，跳过登录: 适配器=[{}]", adapter_names.join(", "));
@@ -405,7 +432,10 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
             if login_result.success {
                 let s = app_h.state::<AppState>();
-                s.network.update(|s| s.has_logged_online = true);
+                s.network.update(|s| {
+                    s.has_logged_online = true;
+                    s.prep_login_failures = 0;
+                });
                 if config.enable_notification {
                     emit_notification(&app_h, "自动登录成功", &login_result.message.unwrap_or_default());
                 }

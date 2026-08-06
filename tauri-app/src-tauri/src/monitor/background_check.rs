@@ -65,6 +65,11 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         if campus_check_failed {
             s.any_adapter_online = false;
             s.last_a1_online = false;
+            // 历史缺陷：has_logged_online 仅在登录成功时置位、永不重置，
+            // 用户离开校园网（campus fail）再重新进入后，准备自动登录被
+            // has_logged_online 永久拦截，必须手动登录。此处随离线一并重置，
+            // 使重新进入校园网后自动登录恢复生效。
+            s.has_logged_online = false;
         }
     });
 

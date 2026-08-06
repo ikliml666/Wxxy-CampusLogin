@@ -170,7 +170,10 @@ pub(super) fn update_network_state(
     });
 
     if reachable && !state.network.load().has_logged_online && online {
-        state.network.update(|s| s.has_logged_online = true);
+        state.network.update(|s| {
+            s.has_logged_online = true;
+            s.prep_login_failures = 0;
+        });
         if state.config.load().auto_exit_on_online {
             start_auto_exit(app_handle, state);
         }

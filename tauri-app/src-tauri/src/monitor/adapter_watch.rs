@@ -70,7 +70,17 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                         let s = app_h.state::<AppState>();
                         if !s.network.load().any_adapter_online {
                             crate::log_info!("adapter_watch", "适配器从禁用恢复，触发重新检测");
-                            let _ = crate::monitor::trigger_background_check(&app_h, &s);
+                            // 历史缺陷：此处原调用 trigger_background_check（实为 start_background_check_inner
+                            // 的别名），会无条件重开用户已停止的后台巡检并持久化 enable_background_check=true，
+                            // 用户明确关闭的巡检被适配器恢复事件悄悄重新开启。
+                            // 改为只触发一次性检查（内部 is_checking 信号量防止并发）。
+                            let cancel = s.task_manager
+                                .cancel_token("background_check")
+                                .unwrap_or_else(|| std::sync::Arc::new(tokio_util::sync::CancellationToken::new()));
+                            let app_h_check = app_h.clone();
+                            tauri::async_runtime::spawn(async move {
+                                super::background_check::run_background_check(&app_h_check, cancel).await;
+                            });
                         }
                     }
                     let should_notify = {
