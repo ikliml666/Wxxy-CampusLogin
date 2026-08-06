@@ -196,12 +196,25 @@ pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) ->
         return Ok(CommandResult::ok_msg("延迟测试已在运行"));
     }
 
+    // 持久化开关，避免重启后 enableLatencyTest 丢失（历史缺陷：仅前端本地更新，重启即回退）
+    let cfg = s.config.update(|c| c.enable_latency_test = true);
+    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+        crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
+    }
+
     Ok(CommandResult::ok_msg("延迟测试已启动"))
 }
 
 #[tauri::command]
-pub fn stop_latency_test(state: State<'_, AppState>) -> Result<CommandResult, String> {
+pub fn stop_latency_test(app_handle: AppHandle, state: State<'_, AppState>) -> Result<CommandResult, String> {
     state.task_manager.cancel("latency_test");
+
+    let s = CommandContext::from_app(&app_handle);
+    let cfg = s.config.update(|c| c.enable_latency_test = false);
+    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+        crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
+    }
+
     Ok(CommandResult::ok_msg("延迟测试已停止"))
 }
 

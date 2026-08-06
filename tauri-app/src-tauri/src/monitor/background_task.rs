@@ -5,16 +5,12 @@ use crate::infra::state::{AppState, CommandResult};
 use super::background_check::run_background_check;
 
 pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {
-    let (interval, cfg) = {
-        let cfg = state.config.update(|cfg| {
-            cfg.enable_background_check = true;
-            if cfg.background_check_interval < 10000 {
-                cfg.background_check_interval = 15000;
-            }
-        });
-        let interval = cfg.background_check_interval;
-        (interval, cfg)
-    };
+    let cfg = state.config.update(|cfg| {
+        cfg.enable_background_check = true;
+        if cfg.background_check_interval < 10000 {
+            cfg.background_check_interval = 15000;
+        }
+    });
 
     let app_h = app_handle.clone();
     state.task_manager.spawn("background_check", move |cancel_token| {
@@ -27,9 +23,17 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
 
             run_background_check(&app_h, cancel_token.clone()).await;
 
-            let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
-            interval_timer.tick().await;
+            // 间隔动态读取：每次 tick 后重读 config.background_check_interval，
+            // 使设置面板修改的间隔即时生效（历史缺陷：interval 在 spawn 时捕获一次，
+            // 运行中修改间隔直到重启任务才生效）
             loop {
+                let interval_ms = {
+                    let s = app_h.state::<AppState>();
+                    let cfg = s.config.load();
+                    cfg.background_check_interval.max(10000)
+                };
+                let mut interval_timer = tokio::time::interval(Duration::from_millis(interval_ms));
+                interval_timer.tick().await;
                 tokio::select! {
                     _ = interval_timer.tick() => {}
                     _ = cancel_token.cancelled() => {
