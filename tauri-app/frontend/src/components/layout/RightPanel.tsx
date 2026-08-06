@@ -114,9 +114,15 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
             duration: 0.4,
             ease: 'back.out(1.2)',
             force3D: true,
+            // 历史缺陷：tween 被中断（组件卸载等）时 onComplete 不执行，
+            // isClearing 永久 true、清空按钮禁用。onInterrupt 一并复位。
             onComplete: () => {
               ctx.revert()
               onClearLogs()
+              setIsClearing(false)
+            },
+            onInterrupt: () => {
+              ctx.revert()
               setIsClearing(false)
             },
           })

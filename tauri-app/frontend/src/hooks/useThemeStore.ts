@@ -67,7 +67,12 @@ useThemeStore.subscribe((state, prev) => {
       root.classList.add('theme-custom')
       const hex = state.customThemeColor || '#6366f1'
       const hsl = hexToHsl(hex)
-      root.style.cssText += `--primary:${hsl.h} ${hsl.s}% ${hsl.l}%;--ring:${hsl.h} ${hsl.s}% ${hsl.l}%;--accent:${hsl.h} ${Math.min(hsl.s, 33)}% ${state.isLightMode ? 94 : 17}%;--accent-foreground:${hsl.h} ${hsl.s}% ${state.isLightMode ? 20 : 85}%`
+      // 历史缺陷：cssText += 累积声明，多次切换主题后 inline style 无界增长。
+      // 改用 setProperty 覆盖同名变量。
+      root.style.setProperty('--primary', `${hsl.h} ${hsl.s}% ${hsl.l}%`)
+      root.style.setProperty('--ring', `${hsl.h} ${hsl.s}% ${hsl.l}%`)
+      root.style.setProperty('--accent', `${hsl.h} ${Math.min(hsl.s, 33)}% ${state.isLightMode ? 94 : 17}%`)
+      root.style.setProperty('--accent-foreground', `${hsl.h} ${hsl.s}% ${state.isLightMode ? 20 : 85}%`)
     } else {
       root.style.removeProperty('--primary')
       root.style.removeProperty('--ring')

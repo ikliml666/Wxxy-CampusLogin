@@ -5,6 +5,8 @@ import { MAX_LOG_ENTRIES } from '@/shared'
 const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let toastIdCounter = 0
 let logIdCounter = 0
+// 历史缺陷：toasts 数组无上限，突发 toast 快于 4s 消失时无限累积。
+const MAX_TOASTS = 8
 
 interface LogToastStore {
   logs: LogEntry[]
@@ -45,7 +47,11 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
   addToast: (title, type = 'info', description, duration = 4000) => {
     const id = String(++toastIdCounter)
     const toast: ToastMessage = { id, title, description, type, duration }
-    set(state => ({ toasts: [...state.toasts, toast] }))
+    // 超限时淘汰最旧的（其定时器一并清理）
+    set(state => {
+      const next = state.toasts.length >= MAX_TOASTS ? state.toasts.slice(1) : state.toasts
+      return { toasts: [...next, toast] }
+    })
     const timer = setTimeout(() => {
       set(state => ({ toasts: state.toasts.filter(t => t.id !== id) }))
       toastTimers.delete(id)
@@ -55,7 +61,10 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
 
   addToastWithAction: (toast) => {
     const effectiveDuration = toast.duration ?? 8000
-    set(state => ({ toasts: [...state.toasts, { ...toast, duration: effectiveDuration }] }))
+    set(state => {
+      const next = state.toasts.length >= MAX_TOASTS ? state.toasts.slice(1) : state.toasts
+      return { toasts: [...next, { ...toast, duration: effectiveDuration }] }
+    })
     const timer = setTimeout(() => {
       set(state => ({ toasts: state.toasts.filter(t => t.id !== toast.id) }))
       toastTimers.delete(toast.id)

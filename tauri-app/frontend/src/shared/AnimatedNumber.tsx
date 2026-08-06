@@ -77,6 +77,9 @@ export function AnimatedNumber({
       // economy 档禁用 scale 弹跳，仅做数字滚动（降级一致性）
       if (profile.tier !== 'economy') {
         scaleQuickToRef.current(1.08)
+        // 历史缺陷：delayedCall 覆盖前不 kill 旧 call，快速连续变化时多个
+        // 回调堆积，中途中把 scale 弹回 1 造成跳变。改为先取消再注册。
+        if (resetTimerRef.current) resetTimerRef.current.kill()
         resetTimerRef.current = gsap.delayedCall(resolvedDuration * 0.2 / 1000, () => {
           scaleQuickToRef.current?.(1)
           resetTimerRef.current = null

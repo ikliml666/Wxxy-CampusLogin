@@ -160,6 +160,18 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
   }, [])
 
   const handleLoginAndFinish = useCallback(async () => {
+    // 历史缺陷：步骤 3 不重新校验账号字段，且双适配器 + 自动检测可保存
+    // dualAdapter:true, adapter2:'' 的不一致配置（RightPanel 视为未启用副适配器）。
+    // 这里做最终校验：账号密码必填、双适配器必须选副适配器。
+    const hasAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
+    if (!hasAccount) {
+      setLoginSuccess(false)
+      return
+    }
+    if (dualAdapter && (!adapter2 || adapter2 === AUTO_DETECT_SENTINEL)) {
+      setLoginSuccess(false)
+      return
+    }
     const updateData: Record<string, string | boolean> = {
       user: username.trim(),
       operator: operator === '__default__' ? '' : operator,
@@ -188,7 +200,7 @@ export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConf
     } catch {
       setLoginSuccess(false)
     }
-  }, [username, password, operator, adapter1, adapter2, dualAdapter, onUpdateConfig, onLogin, onClose])
+  }, [username, password, operator, adapter1, adapter2, dualAdapter, config.password, onUpdateConfig, onLogin, onClose])
 
   const direction = useRef(1)
 

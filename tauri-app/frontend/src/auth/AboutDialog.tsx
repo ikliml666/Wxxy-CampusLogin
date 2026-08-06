@@ -517,7 +517,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>{progress ? `${formatSize(progress.downloaded)} / ${formatSize(progress.total)}` : t('about.preparing')}</span>
-                      <span className="font-medium text-foreground">{progress?.percent.toFixed(1) ?? 0}%</span>
+                      <span className="font-medium text-foreground">{(progress?.percent ?? 0).toFixed(1)}%</span>
                     </div>
                     {progress && progress.speed > 0 && (
                       <div className="text-xs text-muted-foreground">

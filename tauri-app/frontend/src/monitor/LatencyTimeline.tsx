@@ -86,21 +86,30 @@ export const LatencyTimeline = React.memo(function LatencyTimeline({ totalMs, dn
       <div className={cn('space-y-1.5', className)}>
         <div className="flex h-2 rounded-full overflow-hidden bg-muted/60">
           {hasSegments ? (
-            segments.segs.map((seg, i) => (
-              <div
-                key={seg.label}
-                className={cn(
-                  'h-full',
-                  seg.color,
-                  i === 0 && 'rounded-l-full',
-                  i === segments.segs.length - 1 && 'rounded-r-full',
-                )}
-                style={{
-                  width: `${Math.max((seg.ms / barMax) * 100, 3)}%`,
-                  transition: 'width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                }}
-              />
-            ))
+            // 历史缺陷：每段 min(3%) 下限导致多段求和可超 100% 溢出。
+            // 改为把最小值补贴计算进宽度，超出部分按比例归一化，保证总和 ≤100%。
+            segments.segs.map((seg, i) => {
+              const raw = Math.max((seg.ms / barMax) * 100, 3)
+              const totalMinWidth = segments.segs.length * 3
+              const width = raw <= 3 && totalMinWidth <= 100
+                ? 3
+                : (raw / Math.max(totalMinWidth, 100)) * 100
+              return (
+                <div
+                  key={seg.label}
+                  className={cn(
+                    'h-full',
+                    seg.color,
+                    i === 0 && 'rounded-l-full',
+                    i === segments.segs.length - 1 && 'rounded-r-full',
+                  )}
+                  style={{
+                    width: `${Math.min(width, 100)}%`,
+                    transition: 'width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  }}
+                />
+              )
+            })
           ) : (
             <div
               className={cn('h-full rounded-full', levelColor.bar)}
