@@ -41,15 +41,6 @@ pub(crate) fn set_adapter_failure_count(state: &AppState, counter: AdapterFailur
     });
 }
 
-pub(crate) fn increment_adapter_failure_count(state: &AppState, counter: AdapterFailureCounter) {
-    state.network.update(|s| {
-        match counter {
-            AdapterFailureCounter::A1 => s.a1_auth_failure_count += 1,
-            AdapterFailureCounter::A2 => s.a2_auth_failure_count += 1,
-        }
-    });
-}
-
 /// 单适配器全局失败计数：连续 5 次认证失败触发全部适配器 MAC 重置
 pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_result: &CommandResult, campus_gw: &str) {
     if cmd_result.success {
@@ -65,9 +56,13 @@ pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_r
         return;
     }
 
-    let prev_count = state.network.load().portal_failure_count;
-    state.network.update(|s| s.portal_failure_count += 1);
-    let new_count = prev_count + 1;
+    // 历史缺陷：load() 读 prev 与 update() 增 1 是两次快照操作，存在 TOCTOU，
+    // 并发路径可能读同一旧值、都判定达到阈值 → 双重触发 MAC 重置/DHCP 续租。
+    // 修复：读-增-判定全部在单次 update 闭包内完成，返回原子计算后的新值。
+    let new_count = state.network.update_with_result(|s| {
+        s.portal_failure_count += 1;
+        s.portal_failure_count
+    });
     crate::log_info!("login", "认证失败计数: {}/5 (code={})", new_count, cmd_result.data.as_ref()
         .and_then(|d| d.get("code"))
         .and_then(|v| v.as_str())
@@ -138,9 +133,18 @@ fn handle_single_adapter_failure(
         return;
     }
 
-    let prev_count = get_adapter_failure_count(state, counter);
-    increment_adapter_failure_count(state, counter);
-    let new_count = prev_count + 1;
+    // 历史缺陷：读旧值 + 单独 update 增 1 非原子，并发路径可双重触发 MAC 重置。
+    // 修复：读-增-判定在单次 update_with_result 内完成。
+    let new_count = state.network.update_with_result(|s| {
+        match counter {
+            AdapterFailureCounter::A1 => s.a1_auth_failure_count += 1,
+            AdapterFailureCounter::A2 => s.a2_auth_failure_count += 1,
+        }
+        match counter {
+            AdapterFailureCounter::A1 => s.a1_auth_failure_count,
+            AdapterFailureCounter::A2 => s.a2_auth_failure_count,
+        }
+    });
     crate::log_info!("login", "{} 认证失败计数: {}/5 (code={})", adapter_name, new_count,
         result.as_ref()
             .and_then(|r| r.data.as_ref())
@@ -222,9 +226,18 @@ pub fn handle_portal_request_failure(
         return;
     }
 
-    let prev_count = get_adapter_failure_count(state, counter);
-    increment_adapter_failure_count(state, counter);
-    let new_count = prev_count + 1;
+    // 历史缺陷：读旧值 + 单独 update 增 1 非原子（同 handle_single_adapter_failure）。
+    // 修复：读-增-判定在单次 update_with_result 内完成。
+    let new_count = state.network.update_with_result(|s| {
+        match counter {
+            AdapterFailureCounter::A1 => s.a1_auth_failure_count += 1,
+            AdapterFailureCounter::A2 => s.a2_auth_failure_count += 1,
+        }
+        match counter {
+            AdapterFailureCounter::A1 => s.a1_auth_failure_count,
+            AdapterFailureCounter::A2 => s.a2_auth_failure_count,
+        }
+    });
     crate::log_info!(
         "background",
         "{} Portal失败计数: {}/{} (网关可达)",

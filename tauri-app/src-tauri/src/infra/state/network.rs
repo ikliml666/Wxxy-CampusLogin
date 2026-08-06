@@ -88,6 +88,27 @@ impl NetworkState {
             }
         }
     }
+
+    /// 原子更新并返回闭包计算结果。
+    ///
+    /// 用于"读-改-判定"场景（如失败计数累加后判断是否达阈值）：
+    /// 保证判定基于原子更新后的值，避免并发下基于旧快照做决策的 TOCTOU。
+    pub fn update_with_result<T, F>(&self, mut f: F) -> T
+    where
+        T: Clone,
+        F: FnMut(&mut NetworkSnapshot) -> T,
+    {
+        loop {
+            let current = self.snapshot.load_full();
+            let mut new = (*current).clone();
+            let result = f(&mut new);
+            let new_arc = Arc::new(new);
+            let prev = self.snapshot.compare_and_swap(&current, new_arc);
+            if Arc::ptr_eq(&current, &prev) {
+                return result;
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -31,6 +31,11 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
 
                 crate::network::dns::cleanup_expired_dns_cache();
 
+                // 历史缺陷：CLASS_SUBKEY_CACHE 仅首次访问构建、只在 enable_adapter 刷新，
+                // 运行期设备管理器禁用/拔插适配器的可见性与禁用分类永久陈旧。
+                // 随 15s 监听周期轻量刷新（注册表遍历在后台线程执行）。
+                crate::network::discovery::registry::refresh_class_subkey_cache();
+
                 let result = tauri::async_runtime::spawn_blocking(|| {
                     get_all_adapters_force()
                 }).await;
