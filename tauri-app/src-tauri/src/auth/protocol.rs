@@ -189,15 +189,24 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         );
 
         let t_unbind = std::time::Instant::now();
-        let resp_unbind = tauri::async_runtime::block_on(
+        // MAC 解绑为 best-effort：网络失败/端点不可用时记录并继续，
+        // 不得中断更关键的 Radius 注销（历史缺陷：unbind 的 ? 直接 abort 整个注销流程，
+        // 解绑端点不可用时注销永远失败，且跳过第 2 轮重试）
+        match tauri::async_runtime::block_on(
             client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
-        ).map_err(|e| format!("第{round}轮MAC解绑请求失败: {e}"))?;
-        let body_unbind = tauri::async_runtime::block_on(resp_unbind.text()).unwrap_or_default();
-        crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
-
-        let unbind_result = parse_logout_result(&body_unbind)?;
-        let unbind_ok = unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-        if unbind_ok { any_unbind_ok = true; }
+        ) {
+            Ok(resp) => {
+                let body_unbind = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
+                crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
+                let unbind_result = parse_logout_result(&body_unbind)?;
+                if unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    any_unbind_ok = true;
+                }
+            }
+            Err(e) => {
+                crate::log_warn!("logout", "第{}轮MAC解绑请求失败(降级继续): {}", round, e);
+            }
+        };
 
         crate::log_info!("logout", "第{}轮: Radius注销: adapterIp={}", round, wlan_user_ip);
 
@@ -212,15 +221,22 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         );
 
         let t_logout = std::time::Instant::now();
-        let resp_logout = tauri::async_runtime::block_on(
+        // Radius 注销发送失败同样降级：记录并进入下一轮，避免单次网络抖动跳过重试
+        match tauri::async_runtime::block_on(
             client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
-        ).map_err(|e| format!("第{round}轮Radius注销请求失败: {e}"))?;
-        let body_logout = tauri::async_runtime::block_on(resp_logout.text()).unwrap_or_default();
-        crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_logout, 500));
-
-        let logout_result = parse_logout_result(&body_logout)?;
-        let radius_ok = logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-        if radius_ok { any_radius_ok = true; }
+        ) {
+            Ok(resp) => {
+                let body_logout = tauri::async_runtime::block_on(resp.text()).unwrap_or_default();
+                crate::log_info!("logout", "第{}轮Radius注销完成({}ms): body={}", round, t_logout.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_logout, 500));
+                let logout_result = parse_logout_result(&body_logout)?;
+                if logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    any_radius_ok = true;
+                }
+            }
+            Err(e) => {
+                crate::log_warn!("logout", "第{}轮Radius注销请求失败(降级继续): {}", round, e);
+            }
+        };
 
         if round == 1 {
             // 第1轮已全部成功则跳过第2轮，避免多发无谓请求
@@ -241,12 +257,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         }
     }
 
-    let combined_msg = match (any_radius_ok, any_unbind_ok) {
-        (true, true) => "注销成功",
-        (true, false) => "Radius注销成功，MAC解绑失败",
-        (false, true) => "Radius注销失败，MAC解绑成功",
-        (false, false) => "注销失败",
-    };
+    let combined_msg = merge_logout_results(any_radius_ok, any_unbind_ok);
 
     Ok(serde_json::json!({
         "code": if any_radius_ok { "0" } else { "1" },
@@ -254,6 +265,19 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         "success": any_radius_ok,
         "retryable": !any_radius_ok,
     }))
+}
+
+/// 合并 Radius 注销与 MAC 解绑的结果消息。
+///
+/// Radius 注销是主操作（决定 success/retryable），MAC 解绑为 best-effort
+/// 辅助步骤：解绑失败不应使整体注销失败，但要在消息中如实反映。
+pub fn merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'static str {
+    match (any_radius_ok, any_unbind_ok) {
+        (true, true) => "注销成功",
+        (true, false) => "Radius注销成功，MAC解绑失败",
+        (false, true) => "Radius注销失败，MAC解绑成功",
+        (false, false) => "注销失败",
+    }
 }
 
 pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str, max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
@@ -446,5 +470,22 @@ mod tests {
         let result = do_logout_with_retry("user", Some("10.0.0.1"), 0, "00:00:00:00:00:00", 3, &quitting).unwrap();
         assert!(!result["success"].as_bool().unwrap());
         assert_eq!(result["message"], "应用正在退出");
+    }
+
+    #[test]
+    fn merge_radius_success_unbind_failure_reports_success() {
+        // 关键约束：MAC 解绑失败不得使整体注销失败（Radius 是主操作）
+        assert_eq!(merge_logout_results(true, false), "Radius注销成功，MAC解绑失败");
+    }
+
+    #[test]
+    fn merge_both_success_is_full_success() {
+        assert_eq!(merge_logout_results(true, true), "注销成功");
+    }
+
+    #[test]
+    fn merge_both_failure_is_failure() {
+        assert_eq!(merge_logout_results(false, false), "注销失败");
+        assert_eq!(merge_logout_results(false, true), "Radius注销失败，MAC解绑成功");
     }
 }
