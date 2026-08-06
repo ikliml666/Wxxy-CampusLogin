@@ -15,13 +15,15 @@ import { useGpuCorrection } from './useGpuCorrection'
 const VALID_PANELS: PanelName[] = NAV_ITEMS.map(item => item.id)
 
 export function useInitialDataLoad() {
-  const initDoneRef = useRef(false)
   const mountedRef = useRef(true)
   const correctGpuInfo = useGpuCorrection()
 
   useEffect(() => {
-    if (initDoneRef.current) return
-    initDoneRef.current = true
+    // StrictMode 下 effect 会执行 setup→cleanup→setup。
+    // 这里不能在二次 setup 时短路（旧实现用 initDoneRef 跳过），
+    // 否则 cleanup 已将 mountedRef 置 false，二次 setup 的异步初始化
+    // 全部被 mountedRef 检查丢弃，dev 模式初始化/事件监听全灭。
+    mountedRef.current = true
 
     const lt = useLogToastStore
     const { api } = useConfigStore.getState()

@@ -55,6 +55,9 @@ export const AccountPanel = memo(function AccountPanel({
   const mountedRef = useRef(true)
 
   useEffect(() => {
+    // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
+    // 否则 async handler 内的 setState 在 dev 模式下全部被丢弃
+    mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
 

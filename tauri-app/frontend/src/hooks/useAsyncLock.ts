@@ -9,7 +9,12 @@ export function useAsyncLock<T extends (...args: any[]) => Promise<any>>(
   const mountedRef = useRef(true)
   const fnRef = useRef(fn)
   fnRef.current = fn
-  useEffect(() => { return () => { mountedRef.current = false } }, [])
+  useEffect(() => {
+    // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
+    // 否则 cleanup 置 false 后 setTimeout 内锁永远不释放，按钮永久转圈
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   const execute = useCallback(async (...args: any[]) => {
     if (lockRef.current) return
     lockRef.current = true

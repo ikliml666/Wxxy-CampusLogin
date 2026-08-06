@@ -239,10 +239,15 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => { return () => {
-    mountedRef.current = false
-    if (switchTimerRef.current) clearTimeout(switchTimerRef.current)
-  } }, [])
+  useEffect(() => {
+    // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
+    // 否则 setTimeout 回调内 setSwitchingAccount 在 dev 模式下永远不执行
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (switchTimerRef.current) clearTimeout(switchTimerRef.current)
+    }
+  }, [])
 
   const handleSwitchAccount = useCallback(async (name: string) => {
     if (name === activeAccount) return

@@ -18,6 +18,9 @@ export function useEventListeners() {
   const mountedRef = useRef(true)
 
   useEffect(() => {
+    // StrictMode setup→cleanup→setup：二次 setup 时必须恢复 mountedRef，
+    // 否则 cleanup 置 false 后所有事件 handler 全部静默失效（仅 dev 模式出现）
+    mountedRef.current = true
     const lt = useLogToastStore
     const { api } = useConfigStore.getState()
     const unlisteners: Array<() => void> = []

@@ -101,6 +101,9 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const mountedRef = useRef(true)
 
   useEffect(() => {
+    // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
+    // 否则 cleanup 置 false 后 fetchLogs 结果永远被丢弃
+    mountedRef.current = true
     return () => {
       mountedRef.current = false
     }
