@@ -31,7 +31,10 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "on": "On",
-    "off": "Off"
+    "off": "Off",
+    "renderError": "Page render error",
+    "unknownError": "Unknown error",
+    "reload": "Reload"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -55,7 +58,9 @@
     "maximize": "Maximize",
     "restore": "Restore",
     "exit": "Exit",
-    "newVersionFound": "New version v{{version}} available, click to view"
+    "newVersionFound": "New version v{{version}} available, click to view",
+    "newVersion": "New version v{{version}} available",
+    "switchLanguage": "Switch Language"
   },
   "auth": {
     "login": "Login",
@@ -169,10 +174,10 @@
     "dnsNotRecommended": "Not using recommended DNS. Consider setting Alibaba (223.5.5.5) + Tencent (1.12.12.12) DNS manually",
     "profileDns": "Profile DNS",
     "adapterDns": "Adapter DNS",
-    "adapterDnsOverridesProfile": "Adapter DNS overrides profile DNS",
-    "adapterDnsOverridesProfileTip": "Adapter-level DNS has higher priority and overrides profile-level DNS. One-click optimization will clear it automatically.",
-    "perProfileDns": "Per Profile",
-    "perAdapterDns": "Per Adapter",
+    "adapterDnsOverridesProfile": "Adapter-level DNS overrides Profile-level DNS",
+    "adapterDnsOverridesProfileTip": "Adapter-level DNS has higher priority, profile-level DNS won't take effect. Consider clearing adapter-level DNS.",
+    "perProfileDns": "Per-Profile",
+    "perAdapterDns": "Per-Adapter",
     "dnsDohNotEnabled": "DNS DoH encryption not enabled. Enable it in Windows Settings → Network → DNS Encryption",
     "dnsNotConfigured": "DNS Not Configured",
     "dnsRecommendedWithDoh": "Using Recommended DNS + DoH",
@@ -185,12 +190,10 @@
     "dohNotSupported": "DoH configuration not supported on this system (requires Windows 11 or Windows Server 2022+). You can still set recommended DNS servers",
     "pendingOptimization": "Needs Optimization",
     "notConfigured": "Not Configured",
-    "profileDns": "Profile DNS",
-    "adapterDns": "Adapter DNS",
-    "adapterDnsOverridesProfile": "Adapter-level DNS overrides Profile-level DNS",
-    "adapterDnsOverridesProfileTip": "Adapter-level DNS has higher priority, profile-level DNS won't take effect. Consider clearing adapter-level DNS.",
-    "perProfileDns": "Per-Profile",
-    "perAdapterDns": "Per-Adapter"
+    "gotNewIp": "Got new IP: {{names}}",
+    "skipNonCampus": "{{name}}({{ip}}) is not on campus subnet, skipped",
+    "getNewIpFailed": "Failed to get new IP: {{details}}",
+    "getNewIpFailedShort": "Failed to get new IP"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",
@@ -229,15 +232,18 @@
     "autoExitNonCampus": "Auto-exit on Non-campus Network",
     "autoExitNonCampusDesc": "Minimize to tray after 30s on non-campus network, force quit after another 30s (Ctrl+Shift+C to cancel)",
     "campusCheckStartTime": "Campus Check Start Time",
-    "campusCheckStartTimeDesc": "Skip campus verification before this time to avoid false exit (00:00 to always check)",
+    "campusCheckStartTimeDesc": "No campus detection before this time to avoid off-campus triggers",
     "oclock": ":00",
     "currentSsid": "Current: {{ssid}}",
     "ssidNotObtained": "Network Name Not Obtained",
     "connectedToCampus": "Connected to Campus Network",
     "notCampusNetwork": "Non-campus Network",
     "primary": "Pri",
-    "campusCheckStartTime": "Campus Check Start Time",
-    "campusCheckStartTimeDesc": "No campus detection before this time to avoid off-campus triggers"
+    "qualityGwHigh": "LAN {{ms}}ms",
+    "qualityExtHigh": "WAN {{ms}}ms",
+    "qualityLatencyHigh": "High latency: {{parts}}",
+    "qualityLatencyAbnormal": "Abnormal network latency",
+    "campusNetworkIssue": "Campus network may have issues"
   },
   "quality": {
     "networkQuality": "Network Quality",

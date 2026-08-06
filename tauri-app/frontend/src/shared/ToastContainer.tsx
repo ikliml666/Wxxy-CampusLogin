@@ -1,4 +1,5 @@
 import { AnimatePresence, m } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 import type { ToastMessage } from '@/shared'
 import { CheckCircle2, AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -33,6 +34,7 @@ const TOAST_ICON_COLORS = {
 }
 
 export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
+  const { t } = useTranslation()
   const profile = useAnimationProfile()
   const isEconomy = profile.tier === 'economy'
   const enterTransition = isEconomy
@@ -86,7 +88,7 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
                 size="icon-sm"
                 className="shrink-0 -mr-1 -mt-1 btn-physical"
                 onClick={() => onRemove(toast.id)}
-                aria-label="关闭"
+                aria-label={t('common.close')}
               >
                 <X className="h-3.5 w-3.5" />
               </Button>

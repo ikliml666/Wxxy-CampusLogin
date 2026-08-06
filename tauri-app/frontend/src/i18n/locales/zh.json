@@ -31,7 +31,10 @@
     "enabled": "已启用",
     "disabled": "已禁用",
     "on": "开",
-    "off": "关"
+    "off": "关",
+    "renderError": "页面渲染出错",
+    "unknownError": "未知错误",
+    "reload": "重新加载"
   },
   "nav": {
     "dashboard": "总览",
@@ -55,7 +58,9 @@
     "maximize": "最大化",
     "restore": "还原",
     "exit": "退出",
-    "newVersionFound": "发现新版本 v{{version}}，点击查看"
+    "newVersionFound": "发现新版本 v{{version}}，点击查看",
+    "newVersion": "新版本 v{{version}} 已可用",
+    "switchLanguage": "切换语言"
   },
   "auth": {
     "login": "登录",
@@ -170,7 +175,7 @@
     "profileDns": "配置文件DNS",
     "adapterDns": "适配器DNS",
     "adapterDnsOverridesProfile": "适配器级DNS已覆盖配置文件级DNS",
-    "adapterDnsOverridesProfileTip": "适配器级DNS优先级更高，配置文件级DNS不会生效。一键优化时会自动清除。",
+    "adapterDnsOverridesProfileTip": "适配器级DNS优先级更高，配置文件级DNS不会生效。建议清除适配器级DNS。",
     "perProfileDns": "按配置文件",
     "perAdapterDns": "按适配器",
     "dnsDohNotEnabled": "DNS未启用DoH加密，建议在 Windows 设置 → 网络 → DNS 加密中手动开启",
@@ -185,12 +190,10 @@
     "dohNotSupported": "当前系统不支持DoH配置（需要Windows 11或Windows Server 2022+），仍可设置推荐DNS服务器",
     "pendingOptimization": "待优化",
     "notConfigured": "未配置",
-    "profileDns": "配置文件DNS",
-    "adapterDns": "适配器DNS",
-    "adapterDnsOverridesProfile": "适配器级DNS已覆盖配置文件级DNS",
-    "adapterDnsOverridesProfileTip": "适配器级DNS优先级更高，配置文件级DNS不会生效。建议清除适配器级DNS。",
-    "perProfileDns": "按配置文件",
-    "perAdapterDns": "按适配器"
+    "gotNewIp": "已获取新IP: {{names}}",
+    "skipNonCampus": "{{name}}({{ip}})非校园网子网，已跳过",
+    "getNewIpFailed": "获取新IP失败: {{details}}",
+    "getNewIpFailedShort": "获取新IP失败"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",
@@ -228,16 +231,19 @@
     "detectionLogicAny": "①②③任一满足即判定在校园网",
     "autoExitNonCampus": "非校园网自动退出",
     "autoExitNonCampusDesc": "非校园网络时 30s 后最小化托盘，再 30s 后强制退出（Ctrl+Shift+C 取消）",
-    "campusCheckStartTime": "校园网检测起始时间",
-    "campusCheckStartTimeDesc": "早于该时间跳过校园网环境验证，避免误判退出（00:00则始终检测）",
+    "campusCheckStartTime": "校园网检测开始时间",
+    "campusCheckStartTimeDesc": "在此时间之前不执行校园网检测，避免非在校时段误触发",
     "oclock": "点",
     "currentSsid": "当前: {{ssid}}",
     "ssidNotObtained": "未获取网络名",
     "connectedToCampus": "已连接校园网",
     "notCampusNetwork": "非校园网络",
     "primary": "主",
-    "campusCheckStartTime": "校园网检测开始时间",
-    "campusCheckStartTimeDesc": "在此时间之前不执行校园网检测，避免非在校时段误触发"
+    "qualityGwHigh": "内网{{ms}}ms",
+    "qualityExtHigh": "外网{{ms}}ms",
+    "qualityLatencyHigh": "延迟过高: {{parts}}",
+    "qualityLatencyAbnormal": "网络延迟异常",
+    "campusNetworkIssue": "校园网可能出现问题"
   },
   "quality": {
     "networkQuality": "网络质量",

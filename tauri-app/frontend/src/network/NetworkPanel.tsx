@@ -108,18 +108,18 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
         const skipped = results.filter((r: any) => r.skipped)
         const failed = results.filter((r: any) => !r.success && !r.skipped)
         if (succeeded.length > 0) {
-          useLogToastStore.getState().addToast(`已获取新IP: ${succeeded.map((r: any) => r.name).join(', ')}`, 'success')
+          useLogToastStore.getState().addToast(t('network.gotNewIp', { names: succeeded.map((r: any) => r.name).join(', ') }), 'success')
         }
         if (skipped.length > 0) {
-          useLogToastStore.getState().addToast(`${skipped.map((r: any) => `${r.name}(${r.ip})非校园网子网，已跳过`).join('; ')}`, 'info')
+          useLogToastStore.getState().addToast(skipped.map((r: any) => t('network.skipNonCampus', { name: r.name, ip: r.ip })).join('; '), 'info')
         }
         if (failed.length > 0) {
           const failedDetails = failed.map((r: any) => r.reason ? `${r.name}: ${r.reason}` : r.name).join('; ')
-          useLogToastStore.getState().addToast(`获取新IP失败: ${failedDetails}`, 'error')
+          useLogToastStore.getState().addToast(t('network.getNewIpFailed', { details: failedDetails }), 'error')
         }
       }
     } catch (e) {
-      useLogToastStore.getState().addToast('获取新IP失败', 'error')
+      useLogToastStore.getState().addToast(t('network.getNewIpFailedShort'), 'error')
     } finally {
       if (mountedRef.current) setGettingNewIpAdapter(null)
     }

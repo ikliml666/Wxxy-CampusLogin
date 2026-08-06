@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import i18next from 'i18next'
 import type { LogType } from '@/shared'
 import type { BackgroundStatus, AdapterOnlineStatus, NetworkQuality } from '@/monitor'
 import { useConfigStore, flushPendingConfig, hasPendingConfig } from './useConfigStore'
@@ -32,10 +33,10 @@ export function useEventListeners() {
         const gwHigh = filtered.gatewayLatency > 200
         const extHigh = filtered.externalLatency > 200
         const parts: string[] = []
-        if (gwHigh) parts.push(`内网${filtered.gatewayLatency}ms`)
-        if (extHigh) parts.push(`外网${filtered.externalLatency}ms`)
-        const msg = parts.length > 0 ? `延迟过高: ${parts.join('、')}` : '网络延迟异常'
-        lt.getState().addToast('校园网可能出现问题', 'warning', msg)
+        if (gwHigh) parts.push(i18next.t('monitor.qualityGwHigh', { ms: filtered.gatewayLatency }))
+        if (extHigh) parts.push(i18next.t('monitor.qualityExtHigh', { ms: filtered.externalLatency }))
+        const msg = parts.length > 0 ? i18next.t('monitor.qualityLatencyHigh', { parts: parts.join('、') }) : i18next.t('monitor.qualityLatencyAbnormal')
+        lt.getState().addToast(i18next.t('monitor.campusNetworkIssue'), 'warning', msg)
         lt.getState().addLog(msg, 'warning')
         // 系统通知由后端 notify_network_quality_change 统一发送，前端不再重复调用 api.sendNotification
       }
