@@ -41,20 +41,29 @@ export function useAccount() {
   }, [store.api, store.updateConfig, store.setActiveAccount, store.setAccounts, store.addToast])
 
   const handleDeleteAccount = useCallback(async (name: string) => {
+    let result
     try {
-      await store.api.deleteAccount?.(name)
+      result = await store.api.deleteAccount?.(name)
     } catch (e) {
       const errMsg = extractErrorMessage(e)
       store.addToast('删除账号失败', 'error', errMsg)
       return
     }
+    if (result?.success === false) {
+      store.addToast('删除账号失败', 'error', result.message || '未知错误')
+      return
+    }
+    // 历史缺陷：删除活跃账号后不应用返回的 activeAccount/config，
+    // UI 仍显示已删除账号名；后端曾仅内存清空不落盘，重启后配置指向已删除账号。
+    if (result?.activeAccount !== undefined) store.setActiveAccount(result.activeAccount)
+    if (result?.config) store.updateConfig(result.config)
     try {
       const accs = await store.api.listAccounts?.() || []
       store.setAccounts(accs)
     } catch (e) {
       if (import.meta.env.DEV) console.error('刷新账号列表失败:', e)
     }
-  }, [store.api, store.setAccounts, store.addToast])
+  }, [store.api, store.setAccounts, store.setActiveAccount, store.updateConfig, store.addToast])
 
   const handleSwitchAccount = useCallback(async (name: string) => {
     try {

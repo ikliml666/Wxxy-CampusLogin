@@ -81,6 +81,11 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       // 保留 PASSWORD_MASK 原样发送，让后端识别 MASK 并保留原密码
       const fullConfig = { ...get().config, ...cfg }
       await api.saveConfig(fullConfig)
+      // 历史缺陷：会话内保存密码后 config-changed 回写 MASK，但 passwordSaved 从不置 true，
+      // 密码框显示空白且无"已保存"占位符。保存成功即标记密码已保存。
+      if (cfg.password !== undefined && cfg.password !== '') {
+        get().syncPasswordSaved(true)
+      }
     } catch (e: unknown) {
       const errMsg = extractErrorMessage(e)
       useLogToastStore.getState().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }), 'error')

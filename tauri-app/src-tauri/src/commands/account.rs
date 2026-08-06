@@ -204,14 +204,25 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle, state: 
     }).await.map_err(|e| e.to_string())??;
 
     let current_config = state.config.load();
-    if current_config.active_account == account_name {
+    let cleared_active = current_config.active_account == account_name;
+    if cleared_active {
         state.config.update(|c| {
             c.active_account = String::new();
         });
+        // 历史缺陷：清空 active_account 仅内存更新不落盘，重启后配置仍指向已删除账号。
+        // 持久化并发射 config-changed（删除账号后 UI 若不清空，显示将永久不一致）。
+        let cfg = state.config.load();
+        if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+            crate::log_warn!("account", "保存删除账号后的配置失败: {}", e);
+        }
     }
 
     let display_config = state.config.load().masked_for_display();
-    Ok(AccountResult::ok(display_config))
+    let mut result = AccountResult::ok(display_config);
+    if cleared_active {
+        result.active_account = Some(String::new());
+    }
+    Ok(result)
 }
 
 #[tauri::command]
