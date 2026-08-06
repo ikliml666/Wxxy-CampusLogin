@@ -118,14 +118,20 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           // 更新上次位置（像素坐标）
           lastPosRef.current = { x: currentX, y: currentY }
 
+          // RAF 回调内不能读取 e.currentTarget：React 在 handler 返回后立即将其置 null
+          // （React 19 executeDispatch 的 finally 中 event.currentTarget = null），
+          // 因此这里同步捕获 DOM 节点引用
+          const el = e.currentTarget
+          if (!el) return
+
           // RAF 节流：同一帧内只执行一次 DOM 读写
           if (rafRef.current) cancelAnimationFrame(rafRef.current)
           rafRef.current = requestAnimationFrame(() => {
-            const rect = e.currentTarget.getBoundingClientRect()
+            const rect = el.getBoundingClientRect()
             const px = ((currentX - rect.left) / rect.width) * 100
             const py = ((currentY - rect.top) / rect.height) * 100
-            e.currentTarget.style.setProperty('--mouse-x', `${px}%`)
-            e.currentTarget.style.setProperty('--mouse-y', `${py}%`)
+            el.style.setProperty('--mouse-x', `${px}%`)
+            el.style.setProperty('--mouse-y', `${py}%`)
             rafRef.current = 0
           })
         }}

@@ -55,10 +55,14 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
 
     const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
       if (!tiltEnabled || !xQuick.current || !yQuick.current) return
+      // RAF 回调内不能读取 e.currentTarget：React 在 handler 返回后立即将其置 null，
+      // 因此这里同步捕获节点引用与光标坐标
+      const el = e.currentTarget as HTMLElement
+      const clientX = e.clientX
+      const clientY = e.clientY
       // RAF-throttle: only update once per frame
       cancelAnimationFrame(tiltRafRef.current)
       tiltRafRef.current = requestAnimationFrame(() => {
-        const el = e.currentTarget as HTMLElement
         if (el.style.willChange !== 'transform') {
           el.style.willChange = 'transform'
         }
@@ -68,8 +72,8 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
           rect = el.getBoundingClientRect()
           rectCacheRef.current = rect
         }
-        const x = (e.clientX - rect.left) / rect.width - 0.5
-        const y = (e.clientY - rect.top) / rect.height - 0.5
+        const x = (clientX - rect.left) / rect.width - 0.5
+        const y = (clientY - rect.top) / rect.height - 0.5
         xQuick.current?.(x * 8)
         yQuick.current?.(-y * 8)
       })
