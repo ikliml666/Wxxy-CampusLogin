@@ -13,6 +13,11 @@ const api = tauriApiWithRetry
 
 let saveConfigTimer: ReturnType<typeof setTimeout> | null = null
 let saveConfigPending: Partial<Config> | null = null
+// 正在发送的保存 Promise（in-flight 保存）。关闭窗口时需等待其完成，避免数据丢失。
+let saveConfigInFlight: Promise<void> | null = null
+// 本地已修改但尚未被后端确认的字段名集合。
+// config-changed 回传时跳过这些字段，避免后端旧快照覆盖本地刚改的值。
+let dirtyFields = new Set<string>()
 
 interface ConfigStore {
   config: Config
@@ -23,6 +28,8 @@ interface ConfigStore {
   api: typeof api
   updateConfig: (partial: Partial<Config>) => void
   updateConfigLocal: (partial: Partial<Config>) => void
+  mergeConfigFromBackend: (incoming: Partial<Config>) => void
+  clearDirtyFields: () => void
   syncPasswordSaved: (saved: boolean) => void
   saveConfigDirect: (cfg: Partial<Config>) => Promise<void>
   setAccounts: (a: string[]) => void
@@ -42,6 +49,8 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const { config, saveConfigDirect } = get()
     const next = { ...config, ...partial }
     set({ config: next })
+    // 标记本地已修改字段：config-changed 回传时跳过，防止后端旧快照覆盖
+    Object.keys(partial).forEach(k => dirtyFields.add(k))
     const sanitized = { ...partial }
     if (saveConfigPending) {
       const next = { ...saveConfigPending, ...sanitized }
@@ -70,25 +79,49 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const { config } = get()
     const next = { ...config, ...partial }
     set({ config: next })
+    Object.keys(partial).forEach(k => dirtyFields.add(k))
     if (partial.customThemeColor) useThemeStore.getState().setCustomThemeColor(partial.customThemeColor)
+  },
+
+  // 合并后端 config-changed 回传：跳过本地已修改未确认的字段，
+  // 避免后端旧快照（含过期 enableLatencyTest/密码 MASK）覆盖本地新值
+  mergeConfigFromBackend: (incoming) => {
+    const { config } = get()
+    const merged = { ...config }
+    for (const [k, v] of Object.entries(incoming)) {
+      if (!dirtyFields.has(k)) merged[k as keyof Config] = v as never
+    }
+    set({ config: merged })
+  },
+
+  clearDirtyFields: () => {
+    dirtyFields.clear()
   },
 
   syncPasswordSaved: (saved) => set({ passwordSaved: saved }),
 
   saveConfigDirect: async (cfg) => {
-    try {
-      // 合并完整配置，确保发送给后端的是完整的 Config 对象
-      // 保留 PASSWORD_MASK 原样发送，让后端识别 MASK 并保留原密码
-      const fullConfig = { ...get().config, ...cfg }
-      await api.saveConfig(fullConfig)
-      // 历史缺陷：会话内保存密码后 config-changed 回写 MASK，但 passwordSaved 从不置 true，
-      // 密码框显示空白且无"已保存"占位符。保存成功即标记密码已保存。
-      if (cfg.password !== undefined && cfg.password !== '') {
-        get().syncPasswordSaved(true)
+    const fullConfig = { ...get().config, ...cfg }
+    const promise = (async () => {
+      try {
+        await api.saveConfig(fullConfig)
+        // 保存成功：后端已确认这些字段，清除本地脏标记
+        Object.keys(cfg).forEach(k => dirtyFields.delete(k))
+        // 历史缺陷：会话内保存密码后 config-changed 回写 MASK，但 passwordSaved 从不置 true，
+        // 密码框显示空白且无"已保存"占位符。保存成功即标记密码已保存。
+        if (cfg.password !== undefined && cfg.password !== '') {
+          get().syncPasswordSaved(true)
+        }
+      } catch (e: unknown) {
+        const errMsg = extractErrorMessage(e)
+        useLogToastStore.getState().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }), 'error')
       }
-    } catch (e: unknown) {
-      const errMsg = extractErrorMessage(e)
-      useLogToastStore.getState().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }), 'error')
+    })()
+    saveConfigInFlight = promise
+    try {
+      await promise
+    } finally {
+      saveConfigInFlight = null
     }
   },
 
@@ -103,7 +136,10 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
 }))
 
 export function hasPendingConfig() {
-  return saveConfigPending !== null
+  // 历史缺陷：仅检查 saveConfigPending，debounce 已触发、保存 in-flight 时返回 false，
+  // 关闭窗口直接跳过 flush 分支，in-flight 保存随进程被丢弃。
+  // 修复：pending 或 in-flight 任一存在都视为有待保存数据。
+  return saveConfigPending !== null || saveConfigInFlight !== null
 }
 
 export function flushPendingConfig() {
@@ -123,4 +159,5 @@ export function flushPendingConfig() {
     const api = useConfigStore.getState().api
     api?.saveConfig(fullConfig)?.catch?.(() => {})
   }
+  return saveConfigInFlight
 }

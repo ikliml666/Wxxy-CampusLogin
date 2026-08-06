@@ -44,8 +44,16 @@ export function useEventListeners() {
     getCurrentWindow().onCloseRequested(async (event) => {
       if (hasPendingConfig()) {
         event.preventDefault()
-        flushPendingConfig()
-        await new Promise(r => setTimeout(r, 300))
+        // 历史缺陷：flushPendingConfig 仅发送 debounce 待存数据且不 await，
+        // in-flight 保存（invoke 未 resolve）被丢弃。现在 await 返回的 in-flight promise。
+        const inFlight = flushPendingConfig()
+        if (inFlight) {
+          // 等待保存完成（最多 2s，避免卡死关闭）
+          await Promise.race([
+            inFlight,
+            new Promise(r => setTimeout(r, 2000)),
+          ])
+        }
         await getCurrentWindow().close()
       } else {
         flushPendingConfig()
@@ -331,7 +339,10 @@ export function useEventListeners() {
     const unsub9 = api.onConfigChanged?.((data) => {
       if (!mountedRef.current) return
       if (data?.config) {
-        useConfigStore.getState().updateConfigLocal(data.config)
+        // 历史缺陷：updateConfigLocal 全量替换 store 配置，本地刚设置但尚未
+        // 落盘的字段（enableLatencyTest 等）被后端旧快照回滚，且密码被 MASK 覆盖。
+        // 修复：mergeConfigFromBackend 跳过本地脏字段。
+        useConfigStore.getState().mergeConfigFromBackend(data.config)
       }
     }) ?? (() => {})
     if (unsub9) unlisteners.push(unsub9)
