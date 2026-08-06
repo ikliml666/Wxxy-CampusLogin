@@ -355,7 +355,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       <SelectSeparator />
                     )}
                     {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === t('network.disabledSuffix')}>
+                      <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
                         {a.name}（{a.status}）
                       </SelectItem>
                     ))}
@@ -393,7 +393,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
                       <SelectSeparator />
                     )}
                     {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === t('network.disabledSuffix')}>
+                      <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
                         {a.name}（{a.status}）
                       </SelectItem>
                     ))}

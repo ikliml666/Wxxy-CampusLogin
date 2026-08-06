@@ -90,7 +90,9 @@
     "unknownStatus": "Unknown Status",
     "configSaveFailed": "Configuration save failed, please retry",
     "configSaveFailedLog": "Configuration save failed: {{msg}}",
-    "loginAfterQualityCheckFailed": "Post-login quality check failed: {{msg}}"
+    "loginAfterQualityCheckFailed": "Post-login quality check failed: {{msg}}",
+    "loginTimeout": "Login timed out, check network and retry",
+    "logoutTimeout": "Logout timed out, try again later"
   },
   "account": {
     "loginInfo": "Login Information",

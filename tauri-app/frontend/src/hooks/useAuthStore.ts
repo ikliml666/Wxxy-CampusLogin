@@ -98,6 +98,15 @@ async function queryPortalStatus(
   }
 }
 
+// 登录/注销 invoke 超时包装：后端阻塞（Portal HTTP 挂起等）时超时返回，
+// 避免 isLoggingIn/isLoggingOut 永久为 true、按钮永久禁用（历史缺陷 P2-34）
+function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMsg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(timeoutMsg)), ms)),
+  ])
+}
+
 interface AuthStore {
   isLoggingIn: boolean
   isLoggingOut: boolean
@@ -136,7 +145,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
 
     let success = false
     try {
-      const result = await api.doLogin(adapterName)
+      const result = await withTimeout(api.doLogin(adapterName), 60000, i18next.t('auth.loginTimeout'))
       if (result?.success) {
         set({ status: { text: i18next.t('auth.loginSuccess'), state: 'online' } })
         useLogToastStore.getState().addLog(result.message || i18next.t('auth.loginSuccess'), 'success')
@@ -161,7 +170,12 @@ export const useAuthStore = create<AuthStore>((set) => ({
       useLogToastStore.getState().addToast(i18next.t('auth.loginError'), 'error', msg)
     }
 
-    try { await useAuthStore.getState().checkOnline() } catch {}
+    // 历史缺陷：登录成功置 online 后立即 checkOnline()，Portal 会话尚未传播时
+    // 二次查询返回 offline，把"登录成功"瞬间覆盖为"未登录"（状态闪烁）。
+    // 修复：登录成功跳过立即复查（登录结果已是权威判定）；仅失败时复查确认状态。
+    if (!success) {
+      try { await useAuthStore.getState().checkOnline() } catch {}
+    }
     set({ isLoggingIn: false })
     return success
   },
@@ -176,7 +190,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     useLogToastStore.getState().addToast(i18next.t('auth.loggingOutToast'), 'info')
 
     try {
-      const result = await api.doLogout(adapterName)
+      const result = await withTimeout(api.doLogout(adapterName), 60000, i18next.t('auth.logoutTimeout'))
       if (result?.success) {
         set({ status: { text: i18next.t('auth.logoutSuccess'), state: 'offline' } })
         useLogToastStore.getState().addLog(result.message || i18next.t('auth.logoutSuccess'), 'success')

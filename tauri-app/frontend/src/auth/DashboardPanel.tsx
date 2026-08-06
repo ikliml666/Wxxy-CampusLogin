@@ -158,9 +158,12 @@ const QuickActionsCard = memo(function QuickActionsCard({
           </Button>
           <div className="relative">
             <Button variant="outline" className="h-auto py-3 justify-start gap-3 w-full"
-              onClick={isDualAdapter ? undefined : handleGetNewIp}
+              onClick={isDualAdapter ? (adapterMenuOpen ? handleMenuClose : handleMenuOpen) : handleGetNewIp}
               disabled={isGettingNewIp}
               {...(isDualAdapter ? {
+                // 历史缺陷：双适配器下 onClick=undefined，菜单仅 onMouseEnter/Leave 可开，
+                // 键盘用户无法触发。改为 click 切换菜单（桌面用户鼠标悬停行为不变），
+                // 并支持 Enter/Space 键盘触发（Button 原生支持）。
                 onMouseEnter: handleMenuOpen,
                 onMouseLeave: handleMenuClose,
               } : {})}

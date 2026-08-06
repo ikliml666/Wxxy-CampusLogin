@@ -90,7 +90,9 @@
     "unknownStatus": "未知状态",
     "configSaveFailed": "配置保存失败，请重试",
     "configSaveFailedLog": "保存配置失败: {{msg}}",
-    "loginAfterQualityCheckFailed": "登录后网络质量检测失败: {{msg}}"
+    "loginAfterQualityCheckFailed": "登录后网络质量检测失败: {{msg}}",
+    "loginTimeout": "登录超时，请检查网络后重试",
+    "logoutTimeout": "注销超时，请稍后重试"
   },
   "account": {
     "loginInfo": "登录信息",
