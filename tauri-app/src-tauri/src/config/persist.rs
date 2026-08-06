@@ -135,10 +135,57 @@ pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, messag
 
 pub fn save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String> {
     let mut disk_config = config.clone();
-    if !disk_config.password.is_empty() && disk_config.password != crate::config::model::PASSWORD_MASK {
+    // 任何非空密码一律 DPAPI 加密落盘。
+    // 注意：不得排除 PASSWORD_MASK("***")——若用户真实密码恰为 "***"，
+    // 排除判断会使其明文落盘。占位符语义由上层 save_config 负责替换为真实密码，
+    // 此处只负责"非空即加密"。
+    if !disk_config.password.is_empty() {
         disk_config.password = crypto::encrypt(&disk_config.password)?;
     }
     let config_path = get_config_path(data_dir);
     let json = serde_json::to_string_pretty(&disk_config).map_err(|e| format!("序列化配置失败: {e}"))?;
     atomic_write(&config_path, &json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_data_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cl_persist_test_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn literal_star_password_is_encrypted_on_disk() {
+        // 用户真实密码恰为 PASSWORD_MASK("***") 时必须 DPAPI 加密，
+        // 不得因"等于占位符"判断而明文落盘
+        let cfg = Config {
+            password: "***".to_string(),
+            ..Default::default()
+        };
+        let dir = temp_data_dir("star");
+        save_config_to_disk_encrypted(&dir, &cfg).unwrap();
+        let raw = std::fs::read_to_string(get_config_path(&dir)).unwrap();
+        assert!(
+            !raw.contains("\"password\":\"***\""),
+            "真实密码 *** 不得明文落盘，磁盘内容: {raw}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn empty_password_stays_empty() {
+        let cfg = Config {
+            password: String::new(),
+            ..Default::default()
+        };
+        let dir = temp_data_dir("empty");
+        save_config_to_disk_encrypted(&dir, &cfg).unwrap();
+        let raw = std::fs::read_to_string(get_config_path(&dir)).unwrap();
+        assert!(raw.contains("\"password\": \"\""), "空密码应原样落盘");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
