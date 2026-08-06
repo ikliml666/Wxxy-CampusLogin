@@ -156,11 +156,25 @@ struct ICMLuaUtilVtbl {
     _query_interface: usize,
     _add_ref: usize,
     release: unsafe extern "system" fn(*mut std::ffi::c_void) -> u32,
-    _method1: usize,
-    _method2: usize,
-    _method3: usize,
-    _method4: usize,
-    _method5: usize,
-    _method6: usize,
+    set_call_state: unsafe extern "system" fn(*mut std::ffi::c_void, u32) -> windows::core::HRESULT,
     shell_exec: unsafe extern "system" fn(*mut std::ffi::c_void, *const u16, *const u16, *const u16, u32, u32) -> windows::core::HRESULT,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 标准 ICMLuaUtil 布局：QueryInterface(0) AddRef(1) Release(2) SetCallState(3) ShellExec(4)。
+    /// 历史版本在 release 与 shell_exec 之间声明了 6 个占位方法，导致 shell_exec 落在 slot 9（越界 UB）。
+    #[test]
+    fn vtbl_shell_exec_slot_is_4() {
+        let slot = std::mem::offset_of!(ICMLuaUtilVtbl, shell_exec) / std::mem::size_of::<usize>();
+        assert_eq!(slot, 4, "shell_exec 必须在 vtable slot 4，当前位于 slot {slot}（越界）");
+    }
+
+    #[test]
+    fn vtbl_set_call_state_slot_is_3() {
+        let slot = std::mem::offset_of!(ICMLuaUtilVtbl, set_call_state) / std::mem::size_of::<usize>();
+        assert_eq!(slot, 3, "SetCallState 必须在 vtable slot 3，当前位于 slot {slot}");
+    }
 }
