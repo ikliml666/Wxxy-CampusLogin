@@ -52,6 +52,10 @@ export const AccountPanel = memo(function AccountPanel({
   const [showAddInput, setShowAddInput] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [passwordFocused, setPasswordFocused] = useState(false)
+  // 聚焦时的本地草稿：避免输入暂停 >500ms 后 store 被 config-changed 回写
+  // MASK 导致密码框 wipe、后续输入截断（历史缺陷 P1-F5）。
+  // 输入期间不写 store，blur 时一次性提交。
+  const [passwordDraft, setPasswordDraft] = useState('')
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -62,10 +66,24 @@ export const AccountPanel = memo(function AccountPanel({
   }, [])
 
   const displayPassword = (() => {
-    if (passwordFocused) return config.password === PASSWORD_MASK ? '' : (config.password || '')
+    if (passwordFocused) return passwordDraft
     if (passwordSaved && (!config.password || config.password === PASSWORD_MASK)) return '••••••••'
     return config.password === PASSWORD_MASK ? '' : (config.password || '')
   })()
+
+  const handlePasswordFocus = () => {
+    setPasswordFocused(true)
+    setPasswordDraft('')
+  }
+
+  const handlePasswordBlur = () => {
+    setPasswordFocused(false)
+    // 聚焦期间输入了非空草稿 → 提交保存
+    if (passwordDraft) {
+      onUpdateConfig({ password: passwordDraft })
+      setPasswordDraft('')
+    }
+  }
 
   const handleAddAccount = async () => {
     const trimmed = newAccountName.trim()
@@ -117,21 +135,9 @@ export const AccountPanel = memo(function AccountPanel({
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   value={displayPassword}
-                  onChange={e => onUpdateConfig({ password: e.target.value })}
-                  onFocus={() => setPasswordFocused(true)}
-                  onBlur={() => {
-                    setPasswordFocused(false)
-                    // 密码已保存且用户未输入新密码时，恢复 MASK 并跳过发送
-                    if (passwordSaved && (!config.password || config.password === PASSWORD_MASK)) {
-                      if (config.password !== PASSWORD_MASK) {
-                        onUpdateConfig({ password: PASSWORD_MASK })
-                      }
-                      return
-                    }
-                    if (config.password && config.password !== PASSWORD_MASK) {
-                      onUpdateConfig({ password: config.password })
-                    }
-                  }}
+                  onChange={e => setPasswordDraft(e.target.value)}
+                  onFocus={handlePasswordFocus}
+                  onBlur={handlePasswordBlur}
                   placeholder={passwordSaved ? t('account.passwordSavedPlaceholder') : t('account.passwordPlaceholder')}
                   icon={<KeyRound className="h-4 w-4" />}
                   className="[&::-ms-reveal]:hidden pr-10"

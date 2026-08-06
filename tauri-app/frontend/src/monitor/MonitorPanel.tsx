@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, PowerOff, AlarmClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared'
-import React, { memo, useMemo } from 'react'
+import React, { memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useAuthStore } from '@/hooks/useAuthStore'
@@ -75,9 +75,21 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
   const { t } = useTranslation()
   const bgStatus = useAuthStore((s) => s.bgStatus)
   const intervalSec = useMemo(() => (config.backgroundCheckInterval || 60000) / 1000, [config.backgroundCheckInterval])
+  // 数字输入本地草稿：blur/Enter 时 clamp 提交，避免 clamp 后的值回灌输入框
+  // 导致用户无法输入（清空瞬回 10/60、120 变 1020）（历史缺陷 P1-F6）。
+  const [intervalDraft, setIntervalDraft] = useState<string | null>(null)
   const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
     await onTriggerCheck()
   }, 2000)
+
+  const commitInterval = () => {
+    if (intervalDraft === null) return
+    const v = Math.min(600, Math.max(10, parseInt(intervalDraft) || 60))
+    if (v * 1000 !== config.backgroundCheckInterval) {
+      onUpdateConfig({ backgroundCheckInterval: v * 1000 })
+    }
+    setIntervalDraft(null)
+  }
 
   return (
     <div className="space-y-4">
@@ -141,8 +153,10 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                   type="number"
                   min={10}
                   max={600}
-                  value={intervalSec}
-                  onChange={e => onUpdateConfig({ backgroundCheckInterval: Math.max(10, parseInt(e.target.value) || 60) * 1000 })}
+                  value={intervalDraft ?? intervalSec}
+                  onChange={e => setIntervalDraft(e.target.value)}
+                  onBlur={commitInterval}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                   className="w-16 h-8 text-center font-mono"
                 />
                 <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>

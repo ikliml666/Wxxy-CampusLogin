@@ -144,6 +144,17 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
   }, [networkQuality])
 
   const intervalSec = useMemo(() => (config.latencyTestInterval || 30000) / 1000, [config.latencyTestInterval])
+  // 数字输入本地草稿：blur/Enter 时 clamp 提交（历史缺陷 P1-F6）
+  const [intervalDraft, setIntervalDraft] = useState<string | null>(null)
+
+  const commitInterval = () => {
+    if (intervalDraft === null) return
+    const v = Math.min(600, Math.max(10, parseInt(intervalDraft) || 30))
+    if (v * 1000 !== config.latencyTestInterval) {
+      onUpdateConfig({ latencyTestInterval: v * 1000 })
+    }
+    setIntervalDraft(null)
+  }
 
   const [activeTab, setActiveTab] = useState('gateway')
   const [tabDirection, setTabDirection] = useState(1)
@@ -275,8 +286,10 @@ export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig,
                   type="number"
                   min={10}
                   max={600}
-                  value={intervalSec}
-                  onChange={e => onUpdateConfig({ latencyTestInterval: Math.max(10, parseInt(e.target.value) || 30) * 1000 })}
+                  value={intervalDraft ?? intervalSec}
+                  onChange={e => setIntervalDraft(e.target.value)}
+                  onBlur={commitInterval}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                   className="w-16 h-8 text-center font-mono tabular-nums"
                 />
                 <span className="text-xs text-muted-foreground ml-1.5">{t('common.seconds')}</span>
