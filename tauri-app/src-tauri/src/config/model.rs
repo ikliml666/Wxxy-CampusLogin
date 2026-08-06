@@ -178,14 +178,6 @@ impl Config {
         }
         c
     }
-
-    pub fn user_account_with_operator(&self) -> String {
-        if !self.operator.is_empty() && self.operator != "__default__" {
-            format!("{}{}", self.user, self.operator)
-        } else {
-            self.user.clone()
-        }
-    }
 }
 
 #[cfg(test)]

@@ -8,10 +8,6 @@ mod portal_config {
     pub const CLIENT_TIMEOUT: Duration = Duration::from_secs(8);
     /// 单次 HTTP 请求超时
     pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
-    /// 响应体最大允许大小（1MB）
-    pub const MAX_RESPONSE_SIZE: u64 = 1024 * 1024;
-    /// JSONP 回调前缀
-    pub const JSONP_CALLBACK_PREFIX: &str = "dr1003(";
 
     // 页面特征字符串
     pub const PAGE_INDICATOR_LOGOUT: &str = "Dr.COMWebLoginID_1";
@@ -79,15 +75,13 @@ pub struct PortalStatus {
     pub error_kind: Option<String>,
 }
 
-pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_account: Option<&str>, user_password: Option<&str>) -> Result<PortalStatus, String> {
+pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, _user_account: Option<&str>, _user_password: Option<&str>) -> Result<PortalStatus, String> {
     let t0 = std::time::Instant::now();
     let portal_url = PORTAL_URL.load().clone();
     let local_addr = parse_adapter_ip(adapter_ip);
 
     let client = create_safe_http_client(portal_config::CLIENT_TIMEOUT, local_addr)?;
     let portal_base = portal_url.trim_end_matches('/');
-    let account = user_account.unwrap_or("");
-    let password = user_password.unwrap_or("");
 
     log_portal_query_start(adapter_name, adapter_ip);
     let page_result = check_portal_page(&client, portal_base);
@@ -99,7 +93,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
             Ok(status)
         }
         PageCheckResult::Unknown => {
-            handle_unknown_page_status(&client, portal_base, account, password, adapter_ip, adapter_name, t0)
+            Ok(handle_unknown_page_status(adapter_name, adapter_ip))
         }
         PageCheckResult::Failed => {
             log_portal_page_failed(adapter_name, adapter_ip);
@@ -108,69 +102,22 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, user_acco
     }
 }
 
-/// 处理页面检测无法判断登录状态的情况，尝试 API 备用检测
-fn handle_unknown_page_status(
-    client: &reqwest::Client,
-    portal_base: &str,
-    account: &str,
-    password: &str,
-    adapter_ip: &str,
-    adapter_name: Option<&str>,
-    t0: std::time::Instant,
-) -> Result<PortalStatus, String> {
-    if account.is_empty() {
-        log_portal_no_credentials(adapter_name, adapter_ip);
-        return Ok(build_unknown_status());
-    }
-
-    log_portal_api_fallback(adapter_name, adapter_ip);
-
-    let nat_ip = is_nat_private_ip(adapter_ip);
-    if nat_ip {
-        crate::log_info!("network", "检测到NAT内网IP({}), 不发送wlan_user_ip", adapter_ip);
-    }
-
-    let wlan_user_ip_param = if nat_ip { "" } else { adapter_ip };
-    let portal_base_with_port = ensure_portal_port(portal_base);
-    let status_url = build_portal_status_url(&portal_base_with_port, account, password, wlan_user_ip_param);
-
-    log_portal_api_request(adapter_name, adapter_ip);
-
-    match execute_portal_api_request(client, &status_url) {
-        Ok(data) => {
-            let (online, login_available) = parse_portal_api_result(&data);
-            let status = PortalStatus {
-                reachable: true,
-                login_available,
-                online,
-                message: if online { "已在线".to_string() } else { "未登录".to_string() },
-                data_length: data.len(),
-                error_kind: None,
-            };
-            log_portal_final_result(t0.elapsed(), adapter_name, adapter_ip, &status);
-            Ok(status)
-        }
-        Err(ApiRequestError::RequestFailed) => {
-            // 页面检测已确认 Portal 可达（Unknown 仅表示无法判断登录态），API 失败不应推翻页面可达性
-            Ok(PortalStatus {
-                reachable: true,
-                login_available: true,
-                online: false,
-                message: "Portal 页面可达，API 检测失败".to_string(),
-                data_length: 0,
-                error_kind: Some("request_failed".to_string()),
-            })
-        }
-        Err(ApiRequestError::ResponseTooLarge) => {
-            Ok(PortalStatus {
-                reachable: false,
-                online: false,
-                login_available: true,
-                message: "响应体过大".to_string(),
-                data_length: 0,
-                error_kind: Some("response_too_large".to_string()),
-            })
-        }
+/// 处理页面检测无法判断登录状态的情况。
+///
+/// 安全约束：状态探测是只读操作，绝不允许携带用户密码调用登录端点。
+/// Portal 页面无法识别时返回"需要人工确认"状态，由用户在界面上手动判断，
+/// 避免两类风险：
+/// 1. 错误凭据在每次状态轮询时向登录端点发起认证，触发账号锁定风险；
+/// 2. 正确凭据被静默登录，但结果被 `parse_portal_api_result` 误报为"未登录"。
+fn handle_unknown_page_status(adapter_name: Option<&str>, adapter_ip: &str) -> PortalStatus {
+    log_portal_no_credentials(adapter_name, adapter_ip);
+    PortalStatus {
+        reachable: true,
+        login_available: true,
+        online: false,
+        message: "Portal 页面无法判断登录状态，请手动确认".to_string(),
+        data_length: 0,
+        error_kind: Some("need_manual_check".to_string()),
     }
 }
 
@@ -196,18 +143,6 @@ fn build_determined_status(online: bool) -> PortalStatus {
     }
 }
 
-/// 构建"页面检测无法判断且无凭据"的 PortalStatus
-fn build_unknown_status() -> PortalStatus {
-    PortalStatus {
-        reachable: true,
-        login_available: true,
-        online: false,
-        message: "页面检测无法判断登录状态".to_string(),
-        data_length: 0,
-        error_kind: None,
-    }
-}
-
 /// 构建"页面请求失败"的 PortalStatus
 fn build_request_failed_status() -> PortalStatus {
     PortalStatus {
@@ -218,84 +153,6 @@ fn build_request_failed_status() -> PortalStatus {
         data_length: 0,
         error_kind: Some("request_failed".to_string()),
     }
-}
-
-/// 构建 Portal API 状态查询 URL
-fn build_portal_status_url(portal_base: &str, account: &str, password: &str, wlan_user_ip: &str) -> String {
-    format!(
-        "{}/eportal/portal/login?callback=dr1003&login_method=1&user_account={}&user_password={}&wlan_user_ip={}&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v={}&lang=zh",
-        portal_base,
-        urlencoding::encode(account),
-        urlencoding::encode(password),
-        urlencoding::encode(wlan_user_ip),
-        crate::auth::protocol::random_v()
-    )
-}
-
-/// API 请求错误类型
-enum ApiRequestError {
-    RequestFailed,
-    ResponseTooLarge,
-}
-
-/// 执行 Portal API 请求并返回响应文本
-fn execute_portal_api_request(client: &reqwest::Client, url: &str) -> Result<String, ApiRequestError> {
-    let t_req = std::time::Instant::now();
-
-    let resp = match block_on_http(
-        client.get(url).timeout(portal_config::REQUEST_TIMEOUT).send()
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            crate::log_warn!("network", "Portal API备用检测失败({}ms): {}", t_req.elapsed().as_millis(), e);
-            return Err(ApiRequestError::RequestFailed);
-        }
-    };
-
-    let status_code = resp.status();
-    if resp.content_length().map(|len| len > portal_config::MAX_RESPONSE_SIZE).unwrap_or(false) {
-        return Err(ApiRequestError::ResponseTooLarge);
-    }
-
-    let data = block_on_http(resp.text()).unwrap_or_default();
-    let req_elapsed = t_req.elapsed();
-
-    crate::log_debug!("network", "Portal API备用检测响应: 状态码={:?}, bodyLen={}, 耗时{}ms",
-        status_code, data.len(), req_elapsed.as_millis());
-
-    Ok(data)
-}
-
-/// 解析 Portal API 响应，返回 (online, login_available)
-fn parse_portal_api_result(data: &str) -> (bool, bool) {
-    let dr1003_result = parse_dr1003_result(data);
-    match dr1003_result {
-        Some((result_val, ret_code)) => match result_val {
-            1 => (true, false),
-            0 => match ret_code {
-                Some(2) => (true, false),
-                _ => (false, true),
-            },
-            // result=2 表示已经在线，与 protocol.rs 中 parse_login_result 的语义保持一致
-            2 => (true, false),
-            _ => (false, true),
-        },
-        None => {
-            crate::log_warn!("network", "Portal API也无法解析: {}", safe_truncate(data, 200));
-            (false, true)
-        }
-    }
-}
-
-fn parse_dr1003_result(data: &str) -> Option<(i64, Option<i64>)> {
-    let start = data.find(portal_config::JSONP_CALLBACK_PREFIX)?;
-    let inner_start = start + portal_config::JSONP_CALLBACK_PREFIX.len();
-    let inner_end = data[inner_start..].rfind(')').map(|i| inner_start + i)?;
-    let json_str = &data[inner_start..inner_end];
-    let val: serde_json::Value = serde_json::from_str(json_str).ok()?;
-    let result_val = val.get("result")?.as_i64()?;
-    let ret_code = val.get("ret_code").and_then(|v| v.as_i64());
-    Some((result_val, ret_code))
 }
 
 pub(crate) fn is_nat_private_ip(ip: &str) -> bool {
@@ -401,12 +258,6 @@ fn log_portal_page_result(elapsed: std::time::Duration, adapter_name: Option<&st
         elapsed.as_millis(), adapter_name.unwrap_or("unknown"), adapter_ip, status.online, status.message);
 }
 
-fn log_portal_final_result(elapsed: std::time::Duration, adapter_name: Option<&str>, adapter_ip: &str, status: &PortalStatus) {
-    crate::log_debug!("network", "Portal检测结果({}ms): adapter={}, ip={}, reachable={}, loginAvailable={}, online={}, msg={}",
-        elapsed.as_millis(), adapter_name.unwrap_or("unknown"), adapter_ip,
-        status.reachable, status.login_available, status.online, status.message);
-}
-
 fn log_portal_page_failed(adapter_name: Option<&str>, adapter_ip: &str) {
     crate::log_debug!("network", "Portal页面请求失败: adapter={}, ip={}",
         adapter_name.unwrap_or("unknown"), adapter_ip);
@@ -414,16 +265,6 @@ fn log_portal_page_failed(adapter_name: Option<&str>, adapter_ip: &str) {
 
 fn log_portal_no_credentials(adapter_name: Option<&str>, adapter_ip: &str) {
     crate::log_debug!("network", "Portal页面检测无法判断且无凭据: adapter={}, ip={}",
-        adapter_name.unwrap_or("unknown"), adapter_ip);
-}
-
-fn log_portal_api_fallback(adapter_name: Option<&str>, adapter_ip: &str) {
-    crate::log_info!("network", "Portal页面检测无法判断, 尝试API备用检测: adapter={}, ip={}",
-        adapter_name.unwrap_or("unknown"), adapter_ip);
-}
-
-fn log_portal_api_request(adapter_name: Option<&str>, adapter_ip: &str) {
-    crate::log_debug!("network", "Portal API备用检测请求: adapter={}, ip={}",
         adapter_name.unwrap_or("unknown"), adapter_ip);
 }
 
@@ -513,12 +354,22 @@ mod tests {
     }
 
     #[test]
-    fn build_unknown_status_correct() {
-        let status = build_unknown_status();
+    fn handle_unknown_page_status_returns_manual_check() {
+        // 页面无法识别时：可达、可登录但 online=false，且 error_kind=need_manual_check
+        let status = handle_unknown_page_status(Some("以太网"), "192.168.1.1");
         assert!(status.reachable);
         assert!(status.login_available);
         assert!(!status.online);
-        assert_eq!(status.message, "页面检测无法判断登录状态");
+        assert_eq!(status.error_kind, Some("need_manual_check".to_string()));
+    }
+
+    #[test]
+    fn handle_unknown_page_status_is_readonly_no_credentials() {
+        // 关键安全约束：状态探测不得执行登录。页面无法识别时直接返回，
+        // 不得携带任何凭据向登录端点发起请求（此函数签名已不再接受密码）。
+        let status = handle_unknown_page_status(None, "");
+        assert!(!status.online);
+        assert_eq!(status.message, "Portal 页面无法判断登录状态，请手动确认");
     }
 
     #[test]
@@ -529,89 +380,6 @@ mod tests {
         assert!(!status.online);
         assert_eq!(status.message, "Portal页面请求失败");
         assert_eq!(status.error_kind, Some("request_failed".to_string()));
-    }
-
-    #[test]
-    fn build_portal_status_url_contains_required_params() {
-        let url = build_portal_status_url("http://10.0.0.1:801", "user", "pass", "192.168.1.1");
-        assert!(url.contains("callback=dr1003"));
-        assert!(url.contains("login_method=1"));
-        assert!(url.contains("user_account=user"));
-        assert!(url.contains("user_password=pass"));
-        assert!(url.contains("wlan_user_ip=192.168.1.1"));
-        assert!(url.contains("jsVersion=4.1.3"));
-    }
-
-    #[test]
-    fn build_portal_status_url_encodes_special_chars() {
-        let url = build_portal_status_url("http://10.0.0.1:801", "user@test", "p@ss", "10.0.0.1");
-        assert!(url.contains("user_account=user%40test"));
-        assert!(url.contains("user_password=p%40ss"));
-    }
-
-    #[test]
-    fn build_portal_status_url_empty_ip_for_nat() {
-        let url = build_portal_status_url("http://10.0.0.1:801", "user", "pass", "");
-        assert!(url.contains("wlan_user_ip="));
-    }
-
-    #[test]
-    fn parse_portal_api_result_online_result_1() {
-        let data = "dr1003({\"result\":1,\"ret_code\":0})";
-        let (online, login_available) = parse_portal_api_result(data);
-        assert!(online);
-        assert!(!login_available);
-    }
-
-    #[test]
-    fn parse_portal_api_result_offline_result_0() {
-        let data = "dr1003({\"result\":0,\"ret_code\":0})";
-        let (online, login_available) = parse_portal_api_result(data);
-        assert!(!online);
-        assert!(login_available);
-    }
-
-    #[test]
-    fn parse_portal_api_result_online_result_0_ret_code_2() {
-        let data = "dr1003({\"result\":0,\"ret_code\":2})";
-        let (online, login_available) = parse_portal_api_result(data);
-        assert!(online);
-        assert!(!login_available);
-    }
-
-    #[test]
-    fn parse_portal_api_result_online_result_2() {
-        let data = "dr1003({\"result\":2})";
-        let (online, login_available) = parse_portal_api_result(data);
-        assert!(online);
-        assert!(!login_available);
-    }
-
-    #[test]
-    fn parse_portal_api_result_unparseable() {
-        let data = "invalid data";
-        let (online, login_available) = parse_portal_api_result(data);
-        assert!(!online);
-        assert!(login_available);
-    }
-
-    #[test]
-    fn parse_dr1003_result_valid() {
-        let data = "dr1003({\"result\":1,\"ret_code\":0})";
-        let result = parse_dr1003_result(data);
-        assert_eq!(result, Some((1, Some(0))));
-    }
-
-    #[test]
-    fn parse_dr1003_result_no_callback() {
-        let data = "no callback here";
-        assert!(parse_dr1003_result(data).is_none());
-    }
-
-    #[test]
-    fn parse_dr1003_result_missing_result_field() {
-        let data = "dr1003({\"ret_code\":0})";
-        assert!(parse_dr1003_result(data).is_none());
     }
 
     #[test]

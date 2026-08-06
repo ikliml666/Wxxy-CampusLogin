@@ -276,9 +276,6 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
             }
         }
 
-        let user_account = config.user_account_with_operator();
-        let user_password = config.password.clone();
-
         let (a1_found, a2_ref) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
         if let Some(a1) = a1_found {
             let ip1 = a1.ip.clone();
@@ -290,24 +287,20 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
             let name1_for_msg = name1.clone();
 
             let t_portal = std::time::Instant::now();
+            // 状态探测为只读操作（check_portal_full 不再接受/使用凭据），
+            // 不向登录端点发送账号密码，避免错误凭据触发锁定或静默登录
             let portal_result = if let Some(a2) = a2_opt {
                 let ip2 = a2.ip.clone();
                 name2_opt = Some(a2.name.clone());
-                let ua1 = user_account.clone();
-                let up1 = user_password.clone();
-                let ua2 = user_account.clone();
-                let up2 = user_password.clone();
                 // 双适配器并行 Portal 检测：先 spawn 两个 handle，再分别 await
                 // 原 spawn->await->spawn->await 串行，改为并行可显著缩短双适配器检测耗时
-                let h1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua1), Some(&up1)));
-                let h2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name), Some(&ua2), Some(&up2)));
+                let h1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), None, None));
+                let h2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name), None, None));
                 let r1 = h1.await;
                 let r2 = h2.await;
                 (r1, Some(r2))
             } else {
-                let ua = user_account.clone();
-                let up = user_password.clone();
-                let r1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), Some(&ua), Some(&up))).await;
+                let r1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), None, None)).await;
                 (r1, None)
             };
 
