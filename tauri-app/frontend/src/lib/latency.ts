@@ -1,5 +1,5 @@
 import type { NetworkQuality } from '@/monitor'
-import { QUALITY_CONFIG } from '@/network'
+import { QUALITY_CONFIG } from '@/network/constants'
 
 type LatencyLevel = 'excellent' | 'great' | 'good' | 'fair' | 'poor' | 'bad'
 export type LatencyType = 'gateway' | 'external'

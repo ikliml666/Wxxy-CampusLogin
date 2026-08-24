@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { useAdapterStore } from '@/hooks/useAdapterStore'
+import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
@@ -27,15 +27,9 @@ export function useNetwork() {
   const store = { ...adapterStore, ...qualityStore, ...configStore, ...logToastStore }
 
   const refreshAdapterInfo = useCallback(async () => {
-    try {
-      const [adapters, details] = await Promise.all([
-        store.api.getAdapters?.().catch(() => undefined),
-        store.api.getAdapterDetails?.().catch(() => undefined),
-      ])
-      if (adapters) useAdapterStore.setState({ adapters })
-      if (details) useAdapterStore.setState({ adapterDetails: details })
-    } catch (e) { if (import.meta.env.DEV) console.error(e) }
-  }, [store.api])
+    // 复用 useAdapterStore 公共刷新动作，消除三处重复实现（历史缺陷 P2-F10）
+    await refreshAdapterData()
+  }, [])
 
   const handleDhcpRenew = useCallback(async () => {
     try { await store.api.dhcpRenewAll?.() } catch (e) { if (import.meta.env.DEV) console.error('DHCP 续租失败:', e) }
@@ -75,7 +69,7 @@ export function useNetwork() {
     try {
       const result = await store.api.dhcpReleaseRenewAdapter?.(adapterName)
       if (result) {
-        const results: DhcpResultItem[] = 'results' in result && Array.isArray(result.results) ? result.results : [result as any]
+        const results: DhcpResultItem[] = 'results' in result && Array.isArray(result.results) ? result.results : [result as unknown as DhcpResultItem]
         const succeeded = results.filter((r: DhcpResultItem) => r.success)
         const skipped = results.filter((r: DhcpResultItem) => r.skipped)
         const failed = results.filter((r: DhcpResultItem) => !r.success && !r.skipped)

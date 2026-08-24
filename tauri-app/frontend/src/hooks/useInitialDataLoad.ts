@@ -8,8 +8,8 @@ import { useQualityStore } from './useQualityStore'
 import { useThemeStore } from './useThemeStore'
 import { useLogToastStore } from './useLogToastStore'
 import { safeStorage } from '@/lib/utils'
-import { NAV_ITEMS, PASSWORD_MASK } from '@/shared'
-import { DEFAULT_CONFIG } from '@/settings'
+import { NAV_ITEMS, PASSWORD_MASK } from '@/shared/ui-constants'
+import { DEFAULT_CONFIG } from '@/settings/constants'
 import { useGpuCorrection } from './useGpuCorrection'
 
 const VALID_PANELS: PanelName[] = NAV_ITEMS.map(item => item.id)

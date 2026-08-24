@@ -1,7 +1,7 @@
 // 主题领域 store：负责主题名称、浅色模式、自定义主题色及 DOM 副作用
 import { create } from 'zustand'
 import type { ThemeName } from '@/shared'
-import { VALID_THEMES } from '@/settings'
+import { VALID_THEMES } from '@/settings/constants'
 import type { Config } from '@/settings'
 import { safeStorage } from '@/lib/utils'
 import { hexToHsl } from '@/lib/color'

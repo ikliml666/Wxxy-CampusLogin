@@ -15,7 +15,7 @@ export function useAsyncLock<T extends (...args: any[]) => Promise<any>>(
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
-  const execute = useCallback(async (...args: any[]) => {
+  const execute = useCallback(async (...args: Parameters<T>) => {
     if (lockRef.current) return
     lockRef.current = true
     setIsRunning(true)

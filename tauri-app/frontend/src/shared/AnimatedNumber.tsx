@@ -48,6 +48,11 @@ export function AnimatedNumber({
     })
     return () => {
       if (resetTimerRef.current) { resetTimerRef.current.kill(); resetTimerRef.current = null }
+      // 历史缺陷：quickTo 底层 tween 在组件卸载后仍存活，持续占用 CPU 并尝试写
+      // 已卸载的 DOM（ref.current 已为 null，onUpdate 有保护不报错但空转）。
+      // cleanup 时 kill 底层 tween（objRef 的 value 属性 + el 的 scale 属性）。
+      gsap.killTweensOf(objRef.current, 'value')
+      gsap.killTweensOf(el, 'scale')
       valueQuickToRef.current = null
       scaleQuickToRef.current = null
     }

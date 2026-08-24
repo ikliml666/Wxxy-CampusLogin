@@ -1,31 +1,29 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
 import { useAppInit } from '@/hooks/useAppInit'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
-import { useAuth } from '@/auth'
-import { useMonitor } from '@/monitor'
-import { useNetwork } from '@/network'
-import { useAccount } from '@/account'
-import { useSettings } from '@/settings'
+import { useAuth } from '@/auth/useAuth'
+import { useMonitor } from '@/monitor/useMonitor'
+import { useNetwork } from '@/network/useNetwork'
+import { useAccount } from '@/account/useAccount'
+import { useSettings } from '@/settings/useSettings'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
 import { AnimatePresence, m } from 'framer-motion'
-import { ErrorBoundary, ToastContainer, FluidBackground, ConfirmDialog, LogPanel } from '@/shared'
+// 共享基础组件按文件直接导入，避免经 shared barrel 静态引入 LogPanel 等懒加载面板模块
+import { ErrorBoundary } from '@/shared/ErrorBoundary'
+import { ToastContainer } from '@/shared/ToastContainer'
+import { FluidBackground } from '@/shared/FluidBackground'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import type { PanelName } from '@/shared'
 import { TitleBar } from '@/components/layout/TitleBar'
-import { StatusBar } from '@/monitor'
+import { StatusBar } from '@/monitor/StatusBar'
 import { DockNav } from '@/components/layout/DockNav'
 import { RightPanel } from '@/components/layout/RightPanel'
-import { AboutDialog } from '@/auth'
-import { ThemeDialog, OnboardingWizard } from '@/settings'
-import { DashboardPanel } from '@/auth'
-import { AccountPanel } from '@/account'
-import { NetworkPanel } from '@/network'
-import { MonitorPanel, QualityPanel, SpeedTestPanel } from '@/monitor'
-import { SettingsPanel } from '@/settings'
+import { DashboardPanel } from '@/auth/DashboardPanel'
 import { getPanelDirection, createPanelAppleVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
@@ -33,6 +31,19 @@ import { AnimationActiveProvider } from '@/hooks/usePageIdle'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
+
+// 低频面板/对话框按需分包（FE-A-04）：默认面板 Dashboard 保持静态导入，避免首屏闪加载态；
+// 其余面板与对话框均为命名导出，经 then 适配为默认导出后 React.lazy 代码分割，Suspense 内渲染。
+const AccountPanel = lazy(() => import('@/account/AccountPanel').then((m) => ({ default: m.AccountPanel })))
+const NetworkPanel = lazy(() => import('@/network/NetworkPanel').then((m) => ({ default: m.NetworkPanel })))
+const MonitorPanel = lazy(() => import('@/monitor/MonitorPanel').then((m) => ({ default: m.MonitorPanel })))
+const QualityPanel = lazy(() => import('@/monitor/QualityPanel').then((m) => ({ default: m.QualityPanel })))
+const SpeedTestPanel = lazy(() => import('@/monitor/SpeedTestPanel').then((m) => ({ default: m.SpeedTestPanel })))
+const SettingsPanel = lazy(() => import('@/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel })))
+const LogPanel = lazy(() => import('@/shared/LogPanel').then((m) => ({ default: m.LogPanel })))
+const AboutDialog = lazy(() => import('@/auth/AboutDialog').then((m) => ({ default: m.AboutDialog })))
+const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((m) => ({ default: m.ThemeDialog })))
+const OnboardingWizard = lazy(() => import('@/settings/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard })))
 
 const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   dashboard: { titleKey: 'panel.dashboard', descKey: 'panel.dashboardDesc' },
@@ -47,6 +58,19 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
 
 const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style paint', willChange: 'transform', transform: 'translateZ(0)' }
 
+// 懒加载面板 chunk 加载期间的轻量骨架，避免切换面板时整块空白
+function PanelSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true">
+      <div className="rounded-2xl border border-border/60 bg-background/60 p-6 animate-pulse space-y-3">
+        <div className="h-5 w-1/3 rounded bg-muted" />
+        <div className="h-4 w-1/2 rounded bg-muted/70" />
+        <div className="h-3 w-2/3 rounded bg-muted/50" />
+      </div>
+    </div>
+  )
+}
+
 function AppInner() {
   useAppInit()
   const { t } = useTranslation()
@@ -57,7 +81,13 @@ function AppInner() {
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
 
-  const config = useConfigStore(useShallow((s) => s.config))
+  // 粒度订阅：App 外壳只消费 user/enableNetworkQuality/autoLaunch/enableNotification 四个字段，
+  // 各 Panel 自行从 store 订阅 config，避免任意 config 字段变化（文本输入、主题色拖拽等）
+  // 触发 App 外壳 + 全部子组件级联重渲染
+  const configUser = useConfigStore((s) => s.config.user)
+  const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
+  const configAutoLaunch = useConfigStore((s) => s.config.autoLaunch)
+  const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
   const api = useConfigStore.getState().api
 
   const updateConfig = useConfigStore((s) => s.updateConfig)
@@ -74,9 +104,6 @@ function AppInner() {
   const { handleDhcpRenew, handleDhcpReleaseRenew, handleDhcpReleaseRenewAdapter } = useNetwork()
   const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
-
-  const configEnableNotification = config.enableNotification
-  const configAutoLaunch = config.autoLaunch
 
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
     useShallow((s) => ({
@@ -131,11 +158,11 @@ function AppInner() {
 
   useEffect(() => {
     const done = safeStorage.get('campus-onboarding-done')
-    if (!done && !config.user) {
+    if (!done && !configUser) {
       const timer = setTimeout(() => setOnboardingOpen(true), 800)
       return () => clearTimeout(timer)
     }
-  }, [config.user])
+  }, [configUser])
 
   const handleToggleMaximize = useCallback(async () => {
     try {
@@ -166,7 +193,6 @@ function AppInner() {
     case 'dashboard':
       panelContent = (
         <DashboardPanel
-          config={config}
           accounts={accounts}
           activeAccount={activeAccount}
           onUpdateConfig={updateConfig}
@@ -181,7 +207,6 @@ function AppInner() {
     case 'account':
       panelContent = (
         <AccountPanel
-          config={config}
           adapters={adapters}
           accounts={accounts}
           activeAccount={activeAccount}
@@ -195,7 +220,6 @@ function AppInner() {
     case 'network':
       panelContent = (
         <NetworkPanel
-          config={config}
           adapters={adapters}
           onUpdateConfig={updateConfig}
         />
@@ -204,7 +228,6 @@ function AppInner() {
     case 'monitor':
       panelContent = (
         <MonitorPanel
-          config={config}
           onUpdateConfig={updateConfig}
           onToggleBackgroundCheck={handleToggleBackgroundCheck}
           onTriggerCheck={handleTriggerCheck}
@@ -212,9 +235,8 @@ function AppInner() {
       )
       break
     case 'quality':
-      panelContent = config.enableNetworkQuality !== false ? (
+      panelContent = configEnableNetworkQuality !== false ? (
         <QualityPanel
-          config={config}
           onUpdateConfig={updateConfig}
           onRefreshQuality={refreshQuality}
           onToggleLatencyTest={handleToggleLatencyTest}
@@ -224,7 +246,6 @@ function AppInner() {
     case 'settings':
       panelContent = (
         <SettingsPanel
-          config={config}
           autoLaunch={configAutoLaunch !== false}
           onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
@@ -301,7 +322,9 @@ function AppInner() {
                 className="panel-content"
                 style={PANEL_CONTAINER_STYLE}
               >
-                <ErrorBoundary>{panelContent}</ErrorBoundary>
+                <ErrorBoundary>
+                  <Suspense fallback={<PanelSkeleton />}>{panelContent}</Suspense>
+                </ErrorBoundary>
               </m.div>
             </AnimatePresence>
           </div>
@@ -321,29 +344,33 @@ function AppInner() {
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
 
-      <AboutDialog
-        open={aboutOpen}
-        onClose={() => setAboutOpen(false)}
-        openExternal={(url) => api.openExternal?.(url)}
-        initialLatestVersion={useQualityStore.getState().latestVersion}
-        initialReleaseNotes={useQualityStore.getState().releaseNotes}
-        initialUpdateAvailable={useQualityStore.getState().updateAvailable}
-        onUpdateAvailable={(hasUpdate, version, notes) => {
-          setUpdateAvailable(hasUpdate)
-          if (version) setLatestVersion(version)
-          if (notes) setReleaseNotes(notes)
-          if (hasUpdate && version) {
-            api.sendNotification?.(t('about.newVersionFound'), `CampusLogin v${version} ${t('about.newVersionFound')}`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
-          }
-        }}
-      />
+      <Suspense fallback={null}>
+        <AboutDialog
+          open={aboutOpen}
+          onClose={() => setAboutOpen(false)}
+          openExternal={(url) => api.openExternal?.(url)}
+          initialLatestVersion={useQualityStore.getState().latestVersion}
+          initialReleaseNotes={useQualityStore.getState().releaseNotes}
+          initialUpdateAvailable={useQualityStore.getState().updateAvailable}
+          onUpdateAvailable={(hasUpdate, version, notes) => {
+            setUpdateAvailable(hasUpdate)
+            if (version) setLatestVersion(version)
+            if (notes) setReleaseNotes(notes)
+            if (hasUpdate && version) {
+              api.sendNotification?.(t('about.newVersionFound'), `CampusLogin v${version} ${t('about.newVersionFound')}`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+            }
+          }}
+        />
+      </Suspense>
 
-      <ThemeDialog
-        open={themeOpen}
-        onClose={() => setThemeOpen(false)}
-        onSetTheme={handleSetTheme}
-        onToggleLightMode={handleToggleLightMode}
-      />
+      <Suspense fallback={null}>
+        <ThemeDialog
+          open={themeOpen}
+          onClose={() => setThemeOpen(false)}
+          onSetTheme={handleSetTheme}
+          onToggleLightMode={handleToggleLightMode}
+        />
+      </Suspense>
 
       <ConfirmDialog
         open={confirmDelete.open}
@@ -353,15 +380,16 @@ function AppInner() {
         onCancel={() => setConfirmDelete({ open: false, name: '' })}
       />
 
-      <OnboardingWizard
-        open={onboardingOpen}
-        onClose={() => setOnboardingOpen(false)}
-        config={config}
-        adapters={adapters}
-        onUpdateConfig={updateConfig}
-        onLogin={doLogin}
-        isLoggingIn={isLoggingIn}
-      />
+      <Suspense fallback={null}>
+        <OnboardingWizard
+          open={onboardingOpen}
+          onClose={() => setOnboardingOpen(false)}
+          adapters={adapters}
+          onUpdateConfig={updateConfig}
+          onLogin={doLogin}
+          isLoggingIn={isLoggingIn}
+        />
+      </Suspense>
     </div>
   )
 }

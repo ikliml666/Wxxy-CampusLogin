@@ -1,10 +1,10 @@
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getLatencyLevel } from '@/lib/latency'
-import { QUALITY_CONFIG } from '@/network'
+import { QUALITY_CONFIG } from '@/network/constants'
 import { useMemo, useRef, useEffect, useState, memo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AnimatedNumber } from '@/shared'
+import { AnimatedNumber } from '@/shared/AnimatedNumber'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 

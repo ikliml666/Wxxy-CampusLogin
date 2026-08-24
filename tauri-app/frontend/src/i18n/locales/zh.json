@@ -90,6 +90,7 @@
     "unknownStatus": "未知状态",
     "configSaveFailed": "配置保存失败，请重试",
     "configSaveFailedLog": "保存配置失败: {{msg}}",
+    "configDirtyResetLog": "字段 {{field}} 连续保存失败，已放弃本地待同步标记，恢复与后端配置同步",
     "loginAfterQualityCheckFailed": "登录后网络质量检测失败: {{msg}}",
     "loginTimeout": "登录超时，请检查网络后重试",
     "logoutTimeout": "注销超时，请稍后重试"

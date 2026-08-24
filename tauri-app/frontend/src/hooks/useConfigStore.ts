@@ -1,8 +1,8 @@
 // 配置领域 store：负责配置对象、密码保存状态、账号列表、语言设置
 import { create } from 'zustand'
 import type { Config } from '@/settings'
-import { DEFAULT_CONFIG } from '@/settings'
-import { PASSWORD_MASK } from '@/shared'
+import { DEFAULT_CONFIG } from '@/settings/constants'
+import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from './tauriApi'
 import { useLogToastStore } from './useLogToastStore'
@@ -18,6 +18,11 @@ let saveConfigInFlight: Promise<void> | null = null
 // 本地已修改但尚未被后端确认的字段名集合。
 // config-changed 回传时跳过这些字段，避免后端旧快照覆盖本地刚改的值。
 let dirtyFields = new Set<string>()
+// 历史缺陷：保存持续失败时 dirtyFields 中的字段被 mergeConfigFromBackend 永久跳过，
+// UI 与后端配置脱节且无提示。为 dirty 字段引入连续失败计数，超过阈值后
+// 放弃脏标记，允许后端回传重新同步该字段。
+const DIRTY_FAILURE_LIMIT = 3
+const dirtyFailureCounts = new Map<string, number>()
 
 interface ConfigStore {
   config: Config
@@ -50,7 +55,11 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const next = { ...config, ...partial }
     set({ config: next })
     // 标记本地已修改字段：config-changed 回传时跳过，防止后端旧快照覆盖
-    Object.keys(partial).forEach(k => dirtyFields.add(k))
+    // 重新编辑视为新一轮保存，重置该字段的连续失败计数
+    Object.keys(partial).forEach(k => {
+      dirtyFields.add(k)
+      dirtyFailureCounts.delete(k)
+    })
     const sanitized = { ...partial }
     if (saveConfigPending) {
       const next = { ...saveConfigPending, ...sanitized }
@@ -79,7 +88,10 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const { config } = get()
     const next = { ...config, ...partial }
     set({ config: next })
-    Object.keys(partial).forEach(k => dirtyFields.add(k))
+    Object.keys(partial).forEach(k => {
+      dirtyFields.add(k)
+      dirtyFailureCounts.delete(k)
+    })
     if (partial.customThemeColor) useThemeStore.getState().setCustomThemeColor(partial.customThemeColor)
   },
 
@@ -96,6 +108,7 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
 
   clearDirtyFields: () => {
     dirtyFields.clear()
+    dirtyFailureCounts.clear()
   },
 
   syncPasswordSaved: (saved) => set({ passwordSaved: saved }),
@@ -105,8 +118,11 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const promise = (async () => {
       try {
         await api.saveConfig(fullConfig)
-        // 保存成功：后端已确认这些字段，清除本地脏标记
-        Object.keys(cfg).forEach(k => dirtyFields.delete(k))
+        // 保存成功：后端已确认这些字段，清除本地脏标记与失败计数
+        Object.keys(cfg).forEach(k => {
+          dirtyFields.delete(k)
+          dirtyFailureCounts.delete(k)
+        })
         // 历史缺陷：会话内保存密码后 config-changed 回写 MASK，但 passwordSaved 从不置 true，
         // 密码框显示空白且无"已保存"占位符。保存成功即标记密码已保存。
         if (cfg.password !== undefined && cfg.password !== '') {
@@ -115,6 +131,18 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       } catch (e: unknown) {
         const errMsg = extractErrorMessage(e)
         useLogToastStore.getState().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }), 'error')
+        // 连续失败达阈值的字段放弃脏标记，后端回传可重新同步，避免永久脱节
+        Object.keys(cfg).forEach(k => {
+          if (!dirtyFields.has(k)) return
+          const count = (dirtyFailureCounts.get(k) ?? 0) + 1
+          if (count >= DIRTY_FAILURE_LIMIT) {
+            dirtyFields.delete(k)
+            dirtyFailureCounts.delete(k)
+            useLogToastStore.getState().addLog(i18next.t('auth.configDirtyResetLog', { field: k }), 'warning')
+          } else {
+            dirtyFailureCounts.set(k, count)
+          }
+        })
       }
     })()
     saveConfigInFlight = promise

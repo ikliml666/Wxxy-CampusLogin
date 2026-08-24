@@ -19,8 +19,8 @@ export function createLogEntryVariants(easing: EasingConfig) {
 const PANEL_ORDER = ['dashboard', 'account', 'network', 'monitor', 'quality', 'speedtest', 'settings', 'log'] as const
 
 export function getPanelDirection(from: string, to: string): number {
-  const fromIdx = PANEL_ORDER.indexOf(from as any)
-  const toIdx = PANEL_ORDER.indexOf(to as any)
+  const fromIdx = PANEL_ORDER.indexOf(from as (typeof PANEL_ORDER)[number])
+  const toIdx = PANEL_ORDER.indexOf(to as (typeof PANEL_ORDER)[number])
   if (fromIdx === -1 || toIdx === -1) return 1
   return toIdx > fromIdx ? 1 : -1
 }

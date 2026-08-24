@@ -8,14 +8,15 @@ import { Separator } from '@/components/ui/separator'
 import {
   Rocket, Check, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass
 } from 'lucide-react'
-import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings'
+import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
 import { cn } from '@/lib/utils'
-import React, { memo, useMemo } from 'react'
+import React, { memo, useMemo, useState, useRef, useEffect } from 'react'
 import { useThemeStore } from '@/hooks/useThemeStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 
 interface SettingsPanelProps {
-  config: Config
   autoLaunch: boolean
   onUpdateConfig: (partial: Partial<Config>) => void
   onSetAutoLaunch: (enabled: boolean) => Promise<void>
@@ -46,7 +47,6 @@ const PRESET_COLOR_NAMES: Record<string, string> = {
 }
 
 export const SettingsPanel = memo(function SettingsPanel({
-  config,
   autoLaunch,
   onUpdateConfig,
   onSetAutoLaunch,
@@ -56,7 +56,57 @@ export const SettingsPanel = memo(function SettingsPanel({
 }: SettingsPanelProps) {
   const isLightMode = useThemeStore((s) => s.isLightMode)
   const themeName = useThemeStore((s) => s.themeName)
-  const customColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
+  // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
+  // 使 App 外壳不再因任意 config 字段变化而级联重渲染
+  const config = useConfigStore(useShallow((s) => s.config))
+  // 主题色取色器本地草稿：拖动取色时 onChange 每帧触发，
+  // 直接写 store 会高频触发级联渲染与全局 CSS 变量重算；
+  // 本地 state 保证取色预览流畅，停顿 80ms 后再写 store 持久化
+  const [colorDraft, setColorDraft] = useState<string | null>(null)
+  const colorCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    return () => { if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current) }
+  }, [])
+  // 固定网关文本输入本地草稿：blur/Enter 时一次性提交，
+  // 避免每键写 store 触发级联渲染与防抖保存
+  const [fixedGatewayDraft, setFixedGatewayDraft] = useState<string | null>(null)
+
+  const storeCustomColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
+  const customColor = colorDraft ?? storeCustomColor
+
+  const commitColorDraft = () => {
+    if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current)
+    colorCommitTimerRef.current = null
+    if (colorDraft !== null) {
+      onUpdateConfig({ customThemeColor: colorDraft })
+      setColorDraft(null)
+    }
+  }
+
+  const handleCustomColorChange = (v: string) => {
+    setColorDraft(v)
+    if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current)
+    colorCommitTimerRef.current = setTimeout(() => {
+      colorCommitTimerRef.current = null
+      onUpdateConfig({ customThemeColor: v })
+      setColorDraft(null)
+    }, 80)
+  }
+
+  const handlePresetColor = (c: string) => {
+    // 点预设色时丢弃取色草稿并取消待提交的节流任务，避免旧取色值回写覆盖
+    if (colorCommitTimerRef.current) { clearTimeout(colorCommitTimerRef.current); colorCommitTimerRef.current = null }
+    setColorDraft(null)
+    onUpdateConfig({ customThemeColor: c })
+  }
+
+  const commitFixedGateway = () => {
+    if (fixedGatewayDraft === null) return
+    if (fixedGatewayDraft !== (config.fixedGateway || '')) {
+      onUpdateConfig({ fixedGateway: fixedGatewayDraft })
+    }
+    setFixedGatewayDraft(null)
+  }
   const { t } = useTranslation()
 
   return (
@@ -129,7 +179,8 @@ export const SettingsPanel = memo(function SettingsPanel({
                       <input
                         type="color"
                         value={customColor}
-                        onChange={e => onUpdateConfig({ customThemeColor: e.target.value })}
+                        onChange={e => handleCustomColorChange(e.target.value)}
+                        onBlur={commitColorDraft}
                         className="absolute inset-0 opacity-0 cursor-pointer"
                       />
                     </label>
@@ -138,7 +189,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                         {PRESET_COLORS.map(c => (
                           <button
                             key={c}
-                            onClick={() => onUpdateConfig({ customThemeColor: c })}
+                            onClick={() => handlePresetColor(c)}
                             aria-label={t(PRESET_COLOR_NAMES[c] || c)}
                             className={cn(
                               'w-7 h-7 rounded-lg border-2 transition-transform hover:scale-110',
@@ -414,8 +465,10 @@ export const SettingsPanel = memo(function SettingsPanel({
                   id="fixed-gateway"
                   type="text"
                   placeholder={t('settings.fixedGatewayPlaceholder')}
-                  value={config.fixedGateway || ''}
-                  onChange={e => onUpdateConfig({ fixedGateway: e.target.value })}
+                  value={fixedGatewayDraft ?? (config.fixedGateway || '')}
+                  onChange={e => setFixedGatewayDraft(e.target.value)}
+                  onBlur={commitFixedGateway}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                   className="flex-1 h-8 px-3 text-sm bg-muted/50 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
                 />
                 {config.fixedGateway && (

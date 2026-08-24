@@ -11,7 +11,7 @@ import {
 import {
   Check, Palette, Sparkles, Moon
 } from 'lucide-react'
-import { THEME_OPTIONS } from '@/settings'
+import { THEME_OPTIONS } from '@/settings/constants'
 import { cn } from '@/lib/utils'
 import type { ThemeName } from '@/shared'
 import { useThemeStore } from '@/hooks/useThemeStore'

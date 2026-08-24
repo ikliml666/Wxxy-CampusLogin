@@ -12,7 +12,7 @@ import {
   ChevronDown, ChevronRight, XCircle, Package,
   Zap, Users, Wifi, Sparkles
 } from 'lucide-react'
-import { APP_NAME, APP_VERSION } from '@/shared'
+import { APP_NAME, APP_VERSION } from '@/shared/ui-constants'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'

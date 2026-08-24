@@ -3,11 +3,16 @@ import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { memo, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RefreshButton } from '@/shared'
-import { NetworkQualityCapsule } from '@/monitor'
+import { RefreshButton } from '@/shared/RefreshButton'
+import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
+import type { AdapterOnlineStatus } from '@/monitor'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
+
+// 模块级空数组常量：bgStatus.adapterStatuses 为 undefined 时复用同一引用，
+// 避免每次渲染 `?? []` 创建新数组触发订阅重渲染（历史缺陷 P2-F6）
+const EMPTY_ADAPTER_STATUSES: AdapterOnlineStatus[] = []
 
 interface StatusBarProps {
   onOpenPortal: () => void
@@ -17,7 +22,11 @@ interface StatusBarProps {
 export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfService }: StatusBarProps) {
   const { t } = useTranslation()
   const status = useAuthStore((s) => s.status)
-  const config = useConfigStore((s) => s.config)
+  // 粒度订阅：仅消费 adapter1/adapter2/dualAdapter 三个字段，
+  // 避免任意 config 字段变化（如主题色拖拽、文本输入）触发整条 StatusBar 重渲染
+  const adapter1 = useConfigStore((s) => s.config.adapter1)
+  const adapter2 = useConfigStore((s) => s.config.adapter2)
+  const dualAdapter = useConfigStore((s) => s.config.dualAdapter)
   const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
   const enableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality !== false)
   const refreshQuality = useQualityStore((s) => s.refreshQuality)
@@ -25,7 +34,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   const campusWifi = useAuthStore((s) => s.bgStatus.campusWifi)
   const campusWired = useAuthStore((s) => s.bgStatus.campusWired)
   const onCampusNetwork = useAuthStore((s) => s.bgStatus.onCampusNetwork)
-  const adapterStatuses = useAuthStore((s) => s.bgStatus.adapterStatuses) ?? []
+  const adapterStatuses = useAuthStore((s) => s.bgStatus.adapterStatuses) ?? EMPTY_ADAPTER_STATUSES
   const statusText = status.text
   const statusState = status.state
   const prevStatusRef = useRef(statusState)
@@ -41,8 +50,8 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
       return { displayText: statusText, campusTooltip: null }
     }
 
-    const a1Name = config?.adapter1 && config.adapter1 !== '自动检测' ? config.adapter1 : null
-    const a2Name = config?.dualAdapter && config?.adapter2 && config.adapter2 !== '自动检测' ? config.adapter2 : null
+    const a1Name = adapter1 && adapter1 !== '自动检测' ? adapter1 : null
+    const a2Name = dualAdapter && adapter2 && adapter2 !== '自动检测' ? adapter2 : null
 
     // 与 AdapterStatusCard 同源：使用 bgStatus.adapterStatuses 的 online 字段（来自 data.online/secondaryOnline）
     // 之前用 a1OnCampus/a2OnCampus（来自 check_campus_network）导致"已在线"与卡片"未在线"撕裂
@@ -78,7 +87,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
     if (campusWired) tooltipParts.push(campusWired.message)
 
     return { displayText: text, campusTooltip: tooltipParts.length > 0 ? tooltipParts.join('\n') : null }
-  }, [statusText, statusState, config, campusWifi, campusWired, onCampusNetwork, adapterStatuses, t])
+  }, [statusText, statusState, adapter1, adapter2, dualAdapter, campusWifi, campusWired, onCampusNetwork, adapterStatuses, t])
 
   const statusConfig = {
     online: { color: 'text-emerald-500', dot: 'bg-emerald-500', bg: 'rgba(16, 185, 129, 0.12)' },

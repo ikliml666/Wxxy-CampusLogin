@@ -11,6 +11,15 @@ const api = tauriApiWithRetry
 
 let _qualityLockFlag = false
 
+// 最近一次网络质量结果到达时间（毫秒时间戳，0 表示从未收到）。
+// 用于登录后手动质量探测的节流判断：已有新鲜结果（任意来源：循环事件/手动刷新）时
+// 跳过手动全量探测，避免与后端 latency loop/后台巡检重复全量检测（历史缺陷 P2-F5）。
+let lastQualityResultTime = 0
+
+export function getLastQualityResultTime(): number {
+  return lastQualityResultTime
+}
+
 interface QualityStore {
   networkQuality: NetworkQuality | null
   dnsDohStatus: DnsDohStatus | null
@@ -31,7 +40,7 @@ interface QualityStore {
   setGpuInfo: (info: GpuInfo) => void
 }
 
-export const useQualityStore = create<QualityStore>((set) => ({
+export const useQualityStore = create<QualityStore>((set, get) => ({
   networkQuality: null,
   dnsDohStatus: null,
   dnsChecking: false,
@@ -51,9 +60,8 @@ export const useQualityStore = create<QualityStore>((set) => ({
     try {
       const q = await api.checkNetworkQuality?.()
       if (q) {
-        set(s => ({
-          networkQuality: mergeNetworkQuality(s.networkQuality, q)
-        }))
+        // 统一走 setNetworkQuality，保证 lastQualityResultTime 覆盖手动刷新来源
+        get().setNetworkQuality((old) => mergeNetworkQuality(old, q))
       }
     } catch(e) {
       if (import.meta.env.DEV) console.error('[refreshQuality]', e)
@@ -65,7 +73,13 @@ export const useQualityStore = create<QualityStore>((set) => ({
     }
   },
 
-  setNetworkQuality: (q) => set(state => ({ networkQuality: typeof q === 'function' ? q(state.networkQuality) : q })),
+  // 记录质量结果到达时间：任意来源（后台循环事件/手动刷新/登录后探测）都算新鲜结果，
+  // 用于登录后手动探测节流（历史缺陷 P2-F5）
+  setNetworkQuality: (q) => set(state => {
+    const next = typeof q === 'function' ? q(state.networkQuality) : q
+    if (next !== null) lastQualityResultTime = Date.now()
+    return { networkQuality: next }
+  }),
   setDnsDohStatus: (s) => set({ dnsDohStatus: s }),
   setDnsChecking: (v) => set({ dnsChecking: v }),
   setUpdateAvailable: (v) => set({ updateAvailable: v }),

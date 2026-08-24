@@ -7,12 +7,12 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Search, RefreshCw, Gauge, Clock, Play, Square, Router, Globe2, MonitorSmartphone, Gamepad2, Tv, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getRefreshIconClass } from '@/shared'
-import { QUALITY_CONFIG } from '@/network'
-import { LatencyPair } from '@/monitor'
-import { SegmentTabs, TabContent } from '@/shared'
-import { AnimatedNumber } from '@/shared'
-import { LatencyTimeline } from '@/monitor'
+import { getRefreshIconClass } from '@/shared/RefreshButton'
+import { QUALITY_CONFIG } from '@/network/constants'
+import { LatencyPair } from '@/monitor/LatencyComponents'
+import { SegmentTabs, TabContent } from '@/shared/SegmentTabs'
+import { AnimatedNumber } from '@/shared/AnimatedNumber'
+import { LatencyTimeline } from '@/monitor/LatencyTimeline'
 
 import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type LatencyType } from '@/lib/latency'
 import React, { useCallback, memo, useMemo, useState } from 'react'
@@ -21,10 +21,11 @@ import { m, type Variants } from 'framer-motion'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useGlowAnimation } from '@/hooks/useGlowAnimation'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useShallow } from 'zustand/react/shallow'
 
 
 interface QualityPanelProps {
-  config: Config
   onUpdateConfig: (partial: Partial<Config>) => void
   onRefreshQuality?: () => Promise<void>
   onToggleLatencyTest?: (enabled: boolean, intervalSec: number) => Promise<void>
@@ -97,10 +98,13 @@ const tabContainerVariants: Variants = {
   },
 }
 
-export const QualityPanel = memo(function QualityPanel({ config, onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
+export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
   const { t } = useTranslation()
   const networkQuality = useQualityStore((s) => s.networkQuality)
   const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
+  // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
+  // 使 App 外壳不再因任意 config 字段变化而级联重渲染
+  const config = useConfigStore(useShallow((s) => s.config))
   const profile = useAnimationProfile()
   const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
   const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })

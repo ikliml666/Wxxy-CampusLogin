@@ -4,9 +4,10 @@ import type { ThemeName } from '@/shared'
 import { LazyMotion, domAnimation, MotionConfig } from 'framer-motion'
 import { gsap } from 'gsap'
 import App from './App'
-import { ErrorBoundary } from '@/shared'
+// 按文件直接导入，避免经 barrel 静态引入懒加载面板模块（FE-A-04）
+import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { safeStorage } from '@/lib/utils'
-import { VALID_THEMES } from '@/settings'
+import { VALID_THEMES } from '@/settings/constants'
 import './index.css'
 import './i18n'
 
@@ -91,7 +92,8 @@ function setupCrashRecovery() {
   setInterval(() => {
     if (!isVisible) return
     const elapsed = performance.now() - lastHeartbeatTime
-    if (elapsed > 5000) {
+    // 阈值放宽到 10s（FE-A-11）：避免低端机长 GC/长任务阻塞 >5s 时误判为 GPU 崩溃而整页重载
+    if (elapsed > 10000) {
       if (import.meta.env.DEV) console.error(`[CrashRecovery] 渲染心跳丢失 ${Math.round(elapsed)}ms，疑似GPU崩溃`)
       tryRecover()
     }
