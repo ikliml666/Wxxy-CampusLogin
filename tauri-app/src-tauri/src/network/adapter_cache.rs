@@ -37,13 +37,30 @@ fn query_adapters_cached_inner() -> AdapterQueryResult {
     Ok(result)
 }
 
-pub fn get_all_adapters_force() -> AdapterQueryResult {
-    ADAPTER_CACHE.write().take();
+/// 读取缓存的三元组（adapters, details, disabled），缓存过期时才触发全量查询。
+///
+/// BE-B-05: adapter_watch 每 15s 周期性监测变更，原走 get_all_adapters_force
+/// 强制清缓存重查，与 4s 后台常驻刷新叠加。改用本函数读缓存（最多陈旧 4s）。
+pub fn get_all_adapters_cached() -> AdapterQueryResult {
     query_adapters_cached_inner()
 }
 
+/// 命中缓存时仅克隆调用方需要的 Vec（BE-B-04：命中路径原 clone 全部三个 Vec）；
+/// 未命中才全量查询并整体写入缓存（未命中路径仅 adapters 需要一次 clone 进缓存）。
 pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
-    let (adapters, _, _) = query_adapters_cached_inner()?;
+    {
+        let cache = ADAPTER_CACHE.read();
+        if let Some((adapters, _, _, ts)) = cache.as_ref() {
+            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                return Ok(adapters.clone());
+            }
+        }
+    }
+    let (adapters, details, disabled) = crate::network::discovery::query_adapters_addresses()?;
+    {
+        let mut cache = ADAPTER_CACHE.write();
+        *cache = Some((adapters.clone(), details, disabled, Instant::now()));
+    }
     Ok(adapters)
 }
 
@@ -69,6 +86,15 @@ pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
 }
 
 pub fn get_disabled_adapters_cached() -> Result<Vec<DisabledAdapter>, String> {
+    // 命中路径仅克隆 disabled（BE-B-04）
+    {
+        let cache = ADAPTER_CACHE.read();
+        if let Some((_, _, disabled, ts)) = cache.as_ref() {
+            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                return Ok(disabled.clone());
+            }
+        }
+    }
     let (_, _, disabled) = query_adapters_cached_inner()?;
     Ok(disabled)
 }
@@ -79,6 +105,15 @@ pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
 }
 
 pub fn get_adapter_details_cached() -> Result<Vec<AdapterDetail>, String> {
+    // 命中路径仅克隆 details（BE-B-04）
+    {
+        let cache = ADAPTER_CACHE.read();
+        if let Some((_, details, _, ts)) = cache.as_ref() {
+            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                return Ok(details.clone());
+            }
+        }
+    }
     let (_, details, _) = query_adapters_cached_inner()?;
     Ok(details)
 }
@@ -135,6 +170,10 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
     // 同步刷新注册表缓存，避免 is_admin_disabled_via_registry 返回过时结果
     #[cfg(target_os = "windows")]
     crate::network::discovery::registry::refresh_class_subkey_cache();
+    // 适配器启用属于可见性变更事件，同步失效 ShowInNetworkConnections 查询缓存
+    //（BE-B-04：该缓存平时按 TTL 失效，变更路径必须立即失效避免短窗陈旧）
+    #[cfg(target_os = "windows")]
+    crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
     crate::log_info!("adapter", "已清空适配器缓存");
 
     Ok(())
@@ -163,7 +202,9 @@ pub fn wait_for_adapter(max_wait_ms: u64, is_quitting: &std::sync::atomic::Atomi
 
 pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &AtomicBool) -> bool {
     let start = std::time::Instant::now();
-    let interval = std::time::Duration::from_millis(100);
+    // BE-A-04: 原为 100ms 轮询，每次 get_adapters_force 强刷 GetAdaptersAddresses，
+    // 续租等待期高频系统调用。放宽到 300ms（保持 5s 超时语义，IP 变更检测至多延迟 300ms）。
+    let interval = std::time::Duration::from_millis(300);
     let timeout = std::time::Duration::from_millis(timeout_ms);
     // 记录初始 IP，只有 IP 变为非空且与初始值不同时才认为续租成功
     let initial_ip = get_adapters_force()

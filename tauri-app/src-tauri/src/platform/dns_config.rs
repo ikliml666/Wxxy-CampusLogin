@@ -39,8 +39,18 @@ fn doh_bindings<'a>(dns_servers: &[&str], doh_templates: &'a [(&str, &str)]) -> 
         .collect()
 }
 
+/// DNS 设置目标：Interface 写入 NameServer + NAMESERVER 类 flags，
+/// Profile 写入 ProfileNameServer + PROFILE_NAMESERVER 类 flags。
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy)]
+enum DnsTarget {
+    Interface,
+    Profile,
+}
+
 #[cfg(target_os = "windows")]
 fn set_dns_inner(
+    target: DnsTarget,
     adapter_guid: &str,
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
@@ -89,23 +99,41 @@ fn set_dns_inner(
         doh_props.push(prop);
     }
 
-    let flags = if include_doh && !doh_props.is_empty() {
-        (DNS_SETTING_NAMESERVER | DNS_SETTING_DOH) as u64
-    } else {
-        DNS_SETTING_NAMESERVER as u64
+    // 目标字段与 flags 差异：Interface 写入 NameServer + NAMESERVER|DOH，
+    // Profile 写入 ProfileNameServer + PROFILE_NAMESERVER|DOH_PROFILE
+    let ns_ptr = ns_wide.as_mut_ptr();
+    let (nameserver, profile_nameserver) = match target {
+        DnsTarget::Interface => (PWSTR(ns_ptr), PWSTR::null()),
+        DnsTarget::Profile => (PWSTR::null(), PWSTR(ns_ptr)),
+    };
+    let flags = match target {
+        DnsTarget::Interface => {
+            if include_doh && !doh_props.is_empty() {
+                (DNS_SETTING_NAMESERVER | DNS_SETTING_DOH) as u64
+            } else {
+                DNS_SETTING_NAMESERVER as u64
+            }
+        }
+        DnsTarget::Profile => {
+            if !doh_props.is_empty() {
+                (DNS_SETTING_PROFILE_NAMESERVER | DNS_SETTING_DOH_PROFILE) as u64
+            } else {
+                DNS_SETTING_PROFILE_NAMESERVER as u64
+            }
+        }
     };
 
     let settings = DNS_INTERFACE_SETTINGS3 {
         Version: DNS_INTERFACE_SETTINGS_VERSION3,
         Flags: flags,
         Domain: PWSTR::null(),
-        NameServer: PWSTR(ns_wide.as_mut_ptr()),
+        NameServer: nameserver,
         SearchList: PWSTR::null(),
         RegistrationEnabled: 0,
         RegisterAdapterName: 0,
         EnableLLMNR: 0,
         QueryAdapterName: 0,
-        ProfileNameServer: PWSTR::null(),
+        ProfileNameServer: profile_nameserver,
         DisableUnconstrainedQueries: 0,
         SupplementalSearchList: PWSTR::null(),
         cServerProperties: doh_props.len() as u32,
@@ -133,7 +161,7 @@ pub fn set_dns_via_api(
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
 ) -> Result<(), String> {
-    set_dns_inner(adapter_guid, dns_servers, doh_templates, true, "DNS+DoH")
+    set_dns_inner(DnsTarget::Interface, adapter_guid, dns_servers, doh_templates, true, "DNS+DoH")
 }
 
 /// 设置按配置文件（per-profile）的 DNS + DoH
@@ -144,84 +172,7 @@ pub fn set_profile_dns_via_api(
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
 ) -> Result<(), String> {
-    use windows::Win32::NetworkManagement::IpHelper::*;
-    use windows::core::PWSTR;
-
-    let guid = crate::platform::elevation::parse_guid(adapter_guid)?;
-
-    let ns_str: String = dns_servers.join(",");
-    let mut ns_wide: Vec<u16> = ns_str.encode_utf16().chain(std::iter::once(0)).collect();
-
-    let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
-    let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
-    let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
-    doh_settings.reserve(doh_templates.len());
-    doh_props.reserve(doh_templates.len());
-
-    // 历史缺陷：对 doh_templates（4 台 DoH 服务器）全量生成 ServerIndex 0..3，
-    // 但 NameServer 仅含 dns_servers（2 台）。ServerIndex 按 Win32 契约必须索引
-    // NameServer 列表中的实际位置：索引 2/3 引用不存在的服务器导致
-    // SetInterfaceDnsSettings 报 ERROR_INVALID_PARAMETER，且索引 1 的 DoH 模板
-    // 错配（223.6.6.6 模板套到 1.12.12.12）。
-    // 修复：仅为 NameServer 中实际存在的服务器生成 DoH 属性，按服务器 IP 匹配模板。
-    for (idx, template) in doh_bindings(dns_servers, doh_templates) {
-        let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
-        doh_templates_wide.push(tpl_wide);
-
-        let doh_setting = DNS_DOH_SERVER_SETTINGS {
-            Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
-            Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
-        };
-        let cur_idx = doh_settings.len();
-        doh_settings.push(doh_setting);
-
-        let prop = DNS_SERVER_PROPERTY {
-            Version: DNS_SERVER_PROPERTY_VERSION1,
-            ServerIndex: idx as u32,
-            Type: DNS_SERVER_PROPERTY_TYPE(DNS_PROPERTY_TYPE_DOH),
-            Property: DNS_SERVER_PROPERTY_TYPES {
-                DohSettings: &mut doh_settings[cur_idx],
-            },
-        };
-        doh_props.push(prop);
-    }
-
-    let flags = if !doh_props.is_empty() {
-        (DNS_SETTING_PROFILE_NAMESERVER | DNS_SETTING_DOH_PROFILE) as u64
-    } else {
-        DNS_SETTING_PROFILE_NAMESERVER as u64
-    };
-
-    let settings = DNS_INTERFACE_SETTINGS3 {
-        Version: DNS_INTERFACE_SETTINGS_VERSION3,
-        Flags: flags,
-        Domain: PWSTR::null(),
-        NameServer: PWSTR::null(),
-        SearchList: PWSTR::null(),
-        RegistrationEnabled: 0,
-        RegisterAdapterName: 0,
-        EnableLLMNR: 0,
-        QueryAdapterName: 0,
-        ProfileNameServer: PWSTR(ns_wide.as_mut_ptr()),
-        DisableUnconstrainedQueries: 0,
-        SupplementalSearchList: PWSTR::null(),
-        cServerProperties: doh_props.len() as u32,
-        ServerProperties: doh_props.as_mut_ptr(),
-        cProfileServerProperties: 0,
-        ProfileServerProperties: std::ptr::null_mut(),
-    };
-
-    unsafe {
-        let result = SetInterfaceDnsSettings(
-            guid,
-            &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
-        );
-        if result != windows::Win32::Foundation::WIN32_ERROR(0) {
-            return Err(format!("SetInterfaceDnsSettings(ProfileDNS) 失败: 错误码 {}", result.0));
-        }
-    }
-
-    Ok(())
+    set_dns_inner(DnsTarget::Profile, adapter_guid, dns_servers, doh_templates, true, "ProfileDNS")
 }
 
 /// 清除适配器级 DNS 设置（NameServer），使配置文件级 DNS 生效

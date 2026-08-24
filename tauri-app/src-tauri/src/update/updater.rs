@@ -69,11 +69,25 @@ pub fn compare_versions(current: &str, latest: &str) -> bool {
     false
 }
 
-fn build_short_timeout_http_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {e}"))
+/// 短超时 HTTP 客户端（模块级缓存，首次构建后复用）。
+/// 不接入 network/client.rs 的 CLIENT_POOL：池内客户端强制 .no_proxy()，
+/// 会改变更新下载对系统代理的语义；此处保持原生代理行为。
+/// 更新检查与 SHA256 校验超时同为 10s，reqwest::Client 为可并发复用的句柄，
+/// 共享同一实例安全（连接池按 host 复用）。
+static SHORT_TIMEOUT_CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> = std::sync::OnceLock::new();
+
+fn build_short_timeout_http_client() -> Result<&'static reqwest::Client, String> {
+    // 用 get_or_init 缓存 Result（工具链下 get_or_try_init 未稳定）。
+    // Client 构建失败属确定性配置错误，缓存失败结果不影响正确性。
+    match SHORT_TIMEOUT_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("创建HTTP客户端失败: {e}"))
+    }) {
+        Ok(c) => Ok(c),
+        Err(e) => Err(e.clone()),
+    }
 }
 
 /// 所有校验和源均失败时的决策。

@@ -54,23 +54,28 @@ pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
 static MAC_SEED_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn generate_random_mac() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let counter = MAC_SEED_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
-    let seed = time.wrapping_add(counter.wrapping_mul(0x9E3779B97F4A7C15));
-    let mut rng = seed;
-    let mut next = || { rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); rng };
-    let b1 = (next() & 0xFF) as u8;
-    let b2 = (next() & 0xFF) as u8;
-    let b3 = (next() & 0xFF) as u8;
-    let b4 = (next() & 0xFF) as u8;
-    let b5 = (next() & 0xFF) as u8;
-    let b6 = (next() & 0xFF) as u8;
-    let first = (b1 & 0xFC) | 0x02;
-    format!("{first:02X}{b2:02X}{b3:02X}{b4:02X}{b5:02X}{b6:02X}")
+    // BE-A-06: 原实现用"系统时间+计数器"种子自制 LCG，同一毫秒内 MAC 可被推算，可预测。
+    // 改用成熟随机源 getrandom（Windows 走 BCryptGenRandom）填充 6 字节。
+    // 低概率失败时降级回时间+计数器种子，保证函数总能返回合法单播/本地管理 MAC。
+    let mut bytes = [0u8; 6];
+    if getrandom::fill(&mut bytes).is_err() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let counter = MAC_SEED_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        let mut rng = time.wrapping_add(counter.wrapping_mul(0x9E3779B97F4A7C15));
+        for b in bytes.iter_mut() {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *b = (rng & 0xFF) as u8;
+        }
+    }
+    bytes[0] = (bytes[0] & 0xFC) | 0x02; // 第 1 字节：最低位=0 单播，次低位=1 本地管理
+    format!(
+        "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]
+    )
 }
 
 fn mac_with_dashes(mac: &str) -> String {

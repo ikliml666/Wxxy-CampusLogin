@@ -76,17 +76,20 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
 
         // 双适配器错峰并行登录：适配器2延迟1s启动，避免同时登录触发系统封禁
         // 使用 DualAdapterExecutor 统一并发执行与结果合并
+        // BE-A-09: Config 以 Arc 共享给两个闭包，替代完整 clone 两份
+        //（spawn_blocking 要求 'static，闭包需持有所有权；Arc 仅复制引用计数）
         let a1_clone = a1_ref.clone();
         let a2_clone = a2_ref.clone();
-        let config_clone1 = config.clone();
-        let config_clone2 = config.clone();
+        let campus_gateway = config.campus_gateway.clone();
+        let config_shared1 = std::sync::Arc::new(config);
+        let config_shared2 = config_shared1.clone();
         let app_h1 = app_handle.clone();
         let app_h2 = app_handle.clone();
         let is_quitting1 = state.exit.is_quitting.clone();
         let is_quitting2 = state.exit.is_quitting.clone();
         let dual_result = crate::auth::dual_adapter_executor::execute_dual(
-            move || login_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref()),
-            move || login_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref()),
+            move || login_adapter_with_log(&a1_clone, &config_shared1, &app_h1, is_quitting1.as_ref()),
+            move || login_adapter_with_log(&a2_clone, &config_shared2, &app_h2, is_quitting2.as_ref()),
             state.exit.is_quitting.clone(),
         );
 
@@ -94,7 +97,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         // 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器 MAC 重置
         update_dual_adapter_auth_failure(
             state, app_handle, &dual_result.primary, &dual_result.secondary,
-            &adapter1_name, &adapter2_name, &config.campus_gateway,
+            &adapter1_name, &adapter2_name, &campus_gateway,
         );
         return result;
     }
@@ -185,17 +188,18 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
 
         // 双适配器注销并行，适配器2延迟1s错峰（与登录侧策略一致）
         // 使用 DualAdapterExecutor 统一并发执行与结果合并，修复原 logout 不可中断 bug
+        // BE-A-09: Config 以 Arc 共享给两个闭包，替代完整 clone 两份
         let a1_clone = a1_ref.clone();
         let a2_clone = a2_ref.clone();
-        let config_clone1 = config.clone();
-        let config_clone2 = config.clone();
+        let config_shared1 = std::sync::Arc::new(config);
+        let config_shared2 = config_shared1.clone();
         let app_h1 = app_handle.clone();
         let app_h2 = app_handle.clone();
         let is_quitting1 = state.exit.is_quitting.clone();
         let is_quitting2 = state.exit.is_quitting.clone();
         let dual_result = crate::auth::dual_adapter_executor::execute_dual(
-            move || logout_adapter_with_log(&a1_clone, &config_clone1, &app_h1, is_quitting1.as_ref()),
-            move || logout_adapter_with_log(&a2_clone, &config_clone2, &app_h2, is_quitting2.as_ref()),
+            move || logout_adapter_with_log(&a1_clone, &config_shared1, &app_h1, is_quitting1.as_ref()),
+            move || logout_adapter_with_log(&a2_clone, &config_shared2, &app_h2, is_quitting2.as_ref()),
             state.exit.is_quitting.clone(),
         );
 

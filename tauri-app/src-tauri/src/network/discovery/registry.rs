@@ -10,6 +10,7 @@
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::time::Instant;
 
 #[cfg(test)]
 mod tests {
@@ -57,8 +58,8 @@ pub fn is_visible_in_ncpa(guid: &str) -> bool {
         return true;
     }
     // 注册表 1：HKLM\...\Control\Network\{4D36E972-...}\{GUID}\Connection\ShowInNetworkConnections
-    //   = 0 → 用户/系统标记为隐藏
-    //   = 1 或不存在 → Windows 默认显示
+    //   = 0 -> 用户/系统标记为隐藏
+    //   = 1 或不存在 -> Windows 默认显示
     //
     // 注册表 2：HKLM\SYSTEM\CurrentControlSet\Enum\<Enumerator>\<InstanceId>
     //   PnP 设备树中必须存在该 GUID 对应的实例，否则为"幽灵虚拟副本"（如 Wi-Fi Direct Virtual Adapter
@@ -66,23 +67,73 @@ pub fn is_visible_in_ncpa(guid: &str) -> bool {
     //
     // 决策：注册表 1 + 2 都通过才视为可见
     // 注册表 1 检查：Connection 子键的 ShowInNetworkConnections
+    //（BE-B-04：随 4s 适配器缓存刷新，parse 对每个适配器触发一次注册表 open_subkey，
+    // 加短 TTL 整表缓存；启用适配器等变更路径通过 invalidate_show_in_ncpa_cache 立即失效）
+    if !show_in_ncpa_cached(guid) {
+        return false;
+    }
+    // 注册表 2 检查：Class subkey 交叉验证
+    class_subkey_has_matching_guid(guid)
+}
+
+// ShowInNetworkConnections 查询缓存：guid -> 是否可见。None 表示未初始化或已失效。
+//（lazy_static 宏不生成 rustdoc，用普通注释避免 unused doc comment 警告）
+lazy_static! {
+    static ref SHOW_IN_NCPA_CACHE: RwLock<Option<(HashMap<String, bool>, Instant)>> = RwLock::new(None);
+}
+
+/// 缓存 TTL（秒），与适配器缓存 TTL（5s）对齐：值极少变化且变更路径有显式失效。
+const SHOW_IN_NCPA_CACHE_TTL_SECS: u64 = 5;
+
+/// 原注册表 1 检查：Connection 子键的 ShowInNetworkConnections
+fn query_show_in_ncpa(guid: &str) -> bool {
     let key_path = format!(
         "SYSTEM\\CurrentControlSet\\Control\\Network\\{{4D36E972-E325-11CE-BFC1-08002BE10318}}\\{guid}\\Connection"
     );
-    let show_in_ncpa = match winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(&key_path) {
+    match winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(&key_path) {
         Ok(key) => {
             match key.get_value::<u32, _>("ShowInNetworkConnections") {
                 Ok(val) => val != 0,
                 Err(_) => true,
             }
         }
-        Err(_) => true,  // Connection 子键缺失 → 视为可见，由 PnP 树检查把关
-    };
-    if !show_in_ncpa {
-        return false;
+        Err(_) => true,  // Connection 子键缺失 -> 视为可见，由 PnP 树检查把关
     }
-    // 注册表 2 检查：Class subkey 交叉验证
-    class_subkey_has_matching_guid(guid)
+}
+
+/// 带短 TTL 缓存的注册表 1 查询（读多写少，读锁快速路径）
+fn show_in_ncpa_cached(guid: &str) -> bool {
+    {
+        let cache = SHOW_IN_NCPA_CACHE.read();
+        if let Some((map, ts)) = cache.as_ref() {
+            if ts.elapsed().as_secs() < SHOW_IN_NCPA_CACHE_TTL_SECS {
+                if let Some(v) = map.get(guid) {
+                    return *v;
+                }
+                // 未命中但缓存未过期：查注册表并补入（设备管理器新出现的适配器）
+                let v = query_show_in_ncpa(guid);
+                drop(cache);
+                let mut cache = SHOW_IN_NCPA_CACHE.write();
+                if let Some((map, _)) = cache.as_mut() {
+                    map.insert(guid.to_string(), v);
+                }
+                return v;
+            }
+        }
+    }
+    // 缓存缺失或已过期：全量重建（build 在锁外执行注册表 I/O，仅用锁做 swap，
+    // 与 CLASS_SUBKEY_CACHE 的 ensure_cache_initialized 同模式）
+    let v = query_show_in_ncpa(guid);
+    let mut new_map = HashMap::new();
+    new_map.insert(guid.to_string(), v);
+    *SHOW_IN_NCPA_CACHE.write() = Some((new_map, Instant::now()));
+    v
+}
+
+/// 失效 ShowInNetworkConnections 查询缓存。
+/// 适配器启用/禁用等可见性变更路径必须调用，避免变更后短窗内返回陈旧结果。
+pub fn invalidate_show_in_ncpa_cache() {
+    *SHOW_IN_NCPA_CACHE.write() = None;
 }
 
 /// Class subkey 缓存条目：记录 NetCfgInstanceId 是否存在及 ConfigFlags 值

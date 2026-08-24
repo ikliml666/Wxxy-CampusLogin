@@ -52,7 +52,7 @@ where
     F1: FnOnce() -> Option<CommandResult> + Send + 'static,
     F2: FnOnce() -> Option<CommandResult> + Send + 'static,
 {
-    tauri::async_runtime::block_on(async {
+    crate::infra::async_util::block_on_sync(async {
         // 适配器1立即执行
         let r1 = tokio::task::spawn_blocking(a1_action);
 

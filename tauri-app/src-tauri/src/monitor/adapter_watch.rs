@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use crate::network::{Adapter, DisabledAdapter, get_all_adapters_force};
+use crate::network::{Adapter, DisabledAdapter, get_all_adapters_cached};
 use crate::infra::state::AppState;
 use crate::infra::events::EventBus;
 
@@ -14,6 +14,9 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
             let mut last_adapters: Vec<Adapter> = Vec::new();
             let mut last_disabled: Vec<DisabledAdapter> = Vec::new();
             let mut interval_timer = tokio::time::interval(Duration::from_millis(ADAPTER_WATCH_INTERVAL));
+            // 单轮检测耗时超过周期时默认 Burst 会连续补发错过的 tick 造成连发，
+            // 改为 Delay 保持固定周期、错过的不补发
+            interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval_timer.tick().await;
 
             loop {
@@ -34,11 +37,18 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                 // 历史缺陷：CLASS_SUBKEY_CACHE 仅首次访问构建、只在 enable_adapter 刷新，
                 // 运行期设备管理器禁用/拔插适配器的可见性与禁用分类永久陈旧。
                 // 随 15s 监听周期轻量刷新（注册表遍历在后台线程执行）。
-                crate::network::discovery::registry::refresh_class_subkey_cache();
-
-                let result = tauri::async_runtime::spawn_blocking(|| {
-                    get_all_adapters_force()
+                // BE-B-01: refresh_class_subkey_cache 内部是 winreg 同步遍历 HKLM Class 子键，
+                // 包进 spawn_blocking 避免在 async 任务线程上执行同步注册表 I/O
+                // （与下方适配器查询同一模式）。
+                let _ = tauri::async_runtime::spawn_blocking(|| {
+                    crate::network::discovery::registry::refresh_class_subkey_cache();
                 }).await;
+
+                // BE-B-05: 原为 get_all_adapters_force 每 15s 强制清缓存重查，与 4s 后台
+                // 常驻刷新叠加造成重复全量 GetAdaptersAddresses。改读缓存（数据最多陈旧
+                // 4s，对本周期只需检测"名称/IP 是否变化"的变更监测粒度足够；真正需要
+                // 即时数据的路径仍可用 force 变体）。
+                let result = tauri::async_runtime::spawn_blocking(get_all_adapters_cached).await;
 
                 if let Ok(Ok((adapters, details, disabled))) = result {
                 let adapters_changed = {
@@ -50,8 +60,16 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                         || sorted_current.iter().zip(sorted_last.iter()).any(|(a, b)| a.name != b.name || a.ip != b.ip)
                 };
 
-                let disabled_changed = disabled.len() != last_disabled.len()
-                    || disabled.iter().zip(last_disabled.iter()).any(|(a, b)| a.name != b.name || a.status != b.status);
+                // 历史缺陷：GetAdaptersAddresses 返回顺序不稳定，disabled 直接 zip 比较会
+                // 因顺序变化误报 changed；与上方 adapters 一致按 name 排序后再比较。
+                let disabled_changed = {
+                    let mut sorted_cur: Vec<&DisabledAdapter> = disabled.iter().collect();
+                    let mut sorted_last: Vec<&DisabledAdapter> = last_disabled.iter().collect();
+                    sorted_cur.sort_by(|a, b| a.name.cmp(&b.name));
+                    sorted_last.sort_by(|a, b| a.name.cmp(&b.name));
+                    sorted_cur.len() != sorted_last.len()
+                        || sorted_cur.iter().zip(sorted_last.iter()).any(|(a, b)| a.name != b.name || a.status != b.status)
+                };
 
                 if adapters_changed {
                     if let Err(e) = EventBus::new(&app_h).emit_adapters_changed(&adapters) {

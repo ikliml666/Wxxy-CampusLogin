@@ -54,6 +54,9 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<
     app_handle.state::<AppState>().task_manager.spawn("latency_test", move |cancel_token| {
         async move {
             let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
+            // 单轮检测耗时超过周期时默认 Burst 会连续补发错过的 tick 造成连发，
+            // 改为 Delay 保持固定周期、错过的不补发
+            interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut first_run = true;
             loop {
                 if !first_run {

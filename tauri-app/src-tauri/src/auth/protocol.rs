@@ -18,7 +18,7 @@ fn read_bounded_body(resp: reqwest::Response, label: &str) -> String {
         crate::log_warn!("logout", "{label}响应体过大(Content-Length={:?})，忽略", resp.content_length());
         return String::new();
     }
-    match tauri::async_runtime::block_on(resp.bytes()) {
+    match crate::infra::async_util::block_on_sync(resp.bytes()) {
         Ok(b) => {
             if b.len() as u64 > MAX_BODY {
                 crate::log_warn!("logout", "{label}响应体超限({}B)，忽略", b.len());
@@ -73,7 +73,7 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let t_req = std::time::Instant::now();
     // 历史缺陷：错误串脱敏仅替换字面密码（URL 编码后的 %xx 无法匹配），
     // reqwest 错误一旦包含完整 URL 即泄漏编码后的凭据。改为完全不把 URL 带入错误信息。
-    let resp = tauri::async_runtime::block_on(
+    let resp = crate::infra::async_util::block_on_sync(
         client.get(&url).timeout(std::time::Duration::from_secs(15)).send()
     ).map_err(|e| format!("登录请求失败: {}", crate::auth::portal::safe_truncate(&e.to_string(), 200)))?;
 
@@ -84,7 +84,7 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
         return Err("登录响应体过大".to_string());
     }
-    let body_bytes = tauri::async_runtime::block_on(resp.bytes())
+    let body_bytes = crate::infra::async_util::block_on_sync(resp.bytes())
         .map_err(|e| format!("读取登录响应失败: {e}"))?;
     if body_bytes.len() as u64 > MAX_BODY {
         return Err("登录响应体过大".to_string());
@@ -131,18 +131,19 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
 }
 
 fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
-    let json_data = if let Some(start) = response.find("dr1003(") {
+    // BE-A-07: 直接对响应切片解析，避免 to_string() 克隆整段响应体
+    let json_data: &str = if let Some(start) = response.find("dr1003(") {
         let inner_start = start + 7;
         if let Some(inner_end) = response[inner_start..].rfind(')').map(|i| inner_start + i) {
-            response[inner_start..inner_end].to_string()
+            &response[inner_start..inner_end]
         } else {
-            response.to_string()
+            response
         }
     } else {
-        response.to_string()
+        response
     };
 
-    match serde_json::from_str::<serde_json::Value>(&json_data) {
+    match serde_json::from_str::<serde_json::Value>(json_data) {
         Ok(data) => {
             let result = data.get("result").and_then(|v| v.as_i64()).unwrap_or(-1);
             let msg = data.get("msg").and_then(|v| v.as_str()).unwrap_or("");
@@ -226,7 +227,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         // MAC 解绑为 best-effort：网络失败/端点不可用时记录并继续，
         // 不得中断更关键的 Radius 注销（历史缺陷：unbind 的 ? 直接 abort 整个注销流程，
         // 解绑端点不可用时注销永远失败，且跳过第 2 轮重试）
-        match tauri::async_runtime::block_on(
+        match crate::infra::async_util::block_on_sync(
             client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
         ) {
             Ok(resp) => {
@@ -256,7 +257,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
 
         let t_logout = std::time::Instant::now();
         // Radius 注销发送失败同样降级：记录并进入下一轮，避免单次网络抖动跳过重试
-        match tauri::async_runtime::block_on(
+        match crate::infra::async_util::block_on_sync(
             client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
         ) {
             Ok(resp) => {
@@ -350,18 +351,19 @@ pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, _if_index: u32
 
 fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
     crate::log_info!("logout", "parse_logout_result原始响应: {}", crate::auth::portal::safe_truncate(response, 1000));
-    let json_data = if let Some(start) = response.find('(') {
+    // BE-A-07: 直接对响应切片解析，避免 to_string() 克隆整段响应体
+    let json_data: &str = if let Some(start) = response.find('(') {
         let inner_start = start + 1;
         if let Some(inner_end) = response[inner_start..].rfind(')').map(|i| inner_start + i) {
-            response[inner_start..inner_end].to_string()
+            &response[inner_start..inner_end]
         } else {
-            response.to_string()
+            response
         }
     } else {
-        response.to_string()
+        response
     };
 
-    match serde_json::from_str::<serde_json::Value>(&json_data) {
+    match serde_json::from_str::<serde_json::Value>(json_data) {
         Ok(data) => {
             let result = data.get("result").and_then(|v| v.as_i64()).unwrap_or(-1);
             let msg = data.get("msg").and_then(|v| v.as_str()).unwrap_or("");
