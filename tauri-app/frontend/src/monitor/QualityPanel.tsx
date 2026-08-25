@@ -85,12 +85,17 @@ const DETAIL_CATEGORIES = [
 ]
 
 const tabContainerVariants: Variants = {
+  initial: {
+    opacity: 0,
+  },
   animate: {
+    opacity: 1,
     transition: {
       staggerChildren: 0.035,
     },
   },
   exit: {
+    opacity: 0,
     transition: {
       staggerChildren: 0.025,
       staggerDirection: -1,
