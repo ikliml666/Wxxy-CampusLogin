@@ -94,7 +94,7 @@
     -moz-osx-font-smoothing: grayscale;
     background: var(--surface-main);
     overflow: hidden;
-    font-size: 15px;
+    font-size: 16px;
   }
 
   body {
@@ -153,7 +153,7 @@
   }
 
   .rounded-xl {
-    border-radius: 12px !important;
+    border-radius: 16px !important;
   }
 
   input[type="text"],
@@ -166,25 +166,16 @@
     border-radius: 10px !important;
   }
 
-  button[class*="rounded"],
-  button[class*="rounded-lg"],
-  button[class*="rounded-xl"] {
-    border-radius: 9999px !important;
+  button[class*="rounded-lg"] {
+    border-radius: 12px !important;
   }
-
-  [class*="rounded-lg"].inline-flex,
-  [class*="rounded-xl"].inline-flex {
-    border-radius: 16px !important;
+  button[class*="rounded-md"] {
+    border-radius: 10px !important;
   }
 
   .rounded-lg.shadow-lg,
   [class*="rounded-lg"][class*="shadow-"] {
     border-radius: 12px !important;
-  }
-
-  [class*="w-8 h-8"][class*="rounded"],
-  [class*="w-6 h-6"][class*="rounded"] {
-    border-radius: 50% !important;
   }
 
   .glass-dock {
@@ -306,7 +297,6 @@
   }
 
   .log-entry-flash {
-    will-change: opacity;
     position: relative;
   }
   .log-entry-flash::after {
@@ -514,31 +504,7 @@
     }
   }
 
-  .icon-hover-glow {
-    position: relative;
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-
-  .icon-hover-glow::after {
-    content: '';
-    position: absolute;
-    inset: -4px;
-    border-radius: inherit;
-    box-shadow: 0 0 6px hsl(var(--primary) / 0.4);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-  }
-
-  .icon-hover-glow:hover {
-    transform: scale(1.1);
-  }
-
-  .icon-hover-glow:hover::after {
-    opacity: 1;
-  }
-
-  .btn-physical:hover, .btn-press:hover, .icon-hover-glow:hover, .titlebar-icon-btn:hover, .titlebar-win-btn:hover {
+  .btn-physical:hover, .btn-press:hover, .titlebar-icon-btn:hover, .titlebar-win-btn:hover {
     will-change: transform;
   }
 
@@ -548,54 +514,7 @@
   }
 
   .animate-window-reveal {
-    will-change: opacity;
     animation: windowReveal 0.3s ease-out both !important;
-  }
-
-  @keyframes staggerSlideUp {
-    from { opacity: 0; transform: translateY(14px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .animate-stagger-1 { will-change: transform, opacity; animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.05s both !important; }
-  .animate-stagger-2 { will-change: transform, opacity; animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.13s both !important; }
-  .animate-stagger-3 { will-change: transform, opacity; animation: staggerSlideUp 0.5s cubic-bezier(0.33, 1, 0.68, 1) 0.21s both !important; }
-
-
-  @keyframes numberFlash {
-    0% { opacity: 1; scale: 1; }
-    30% { opacity: 0.8; scale: 1.05; }
-    100% { opacity: 1; scale: 1; }
-  }
-
-  .number-flash {
-    will-change: transform, opacity;
-    animation: numberFlash 0.4s ease-out !important;
-  }
-
-
-  @keyframes checkFlash {
-    0% { opacity: 0; transform: scale(0.5); }
-    50% { opacity: 1; transform: scale(1.2); }
-    100% { opacity: 0; transform: scale(1); }
-  }
-
-  .animate-check-flash {
-    will-change: transform, opacity;
-    animation: checkFlash 0.5s ease-out forwards !important;
-  }
-
-  @keyframes badgePulse {
-    0% { transform: scale(1); }
-    25% { transform: scale(1.2); }
-    50% { transform: scale(0.95); }
-    75% { transform: scale(1.08); }
-    100% { transform: scale(1); }
-  }
-
-  .badge-pulse {
-    will-change: transform;
-    animation: badgePulse 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
   }
 
   @keyframes refreshShake {
@@ -608,22 +527,7 @@
   }
 
   .refresh-shake {
-    will-change: transform;
     animation: refreshShake 0.35s ease-out !important;
-  }
-
-  @keyframes barElastic {
-    0% { transform: scaleY(var(--bar-from, 0)); }
-    60% { transform: scaleY(calc(var(--bar-to, 1) * 1.1)); }
-    80% { transform: scaleY(calc(var(--bar-to, 1) * 0.97)); }
-    100% { transform: scaleY(var(--bar-to, 1)); }
-  }
-
-  .bar-elastic {
-    will-change: transform;
-    contain: paint;
-    animation: barElastic 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
-    transform-origin: bottom;
   }
 
   .log-entry-hover {
@@ -643,28 +547,6 @@
   .log-left-bar {
     transition: opacity 0.2s ease, transform 0.2s ease;
     opacity: 0.5;
-  }
-
-  .gradient-layer {
-    background: linear-gradient(
-      135deg,
-      hsl(210, 30%, 95%) 0%,
-      hsl(220, 25%, 94%) 25%,
-      hsl(250, 20%, 93%) 50%,
-      hsl(230, 22%, 94%) 75%,
-      hsl(215, 28%, 95%) 100%
-    );
-  }
-
-  .dark .gradient-layer {
-    background: linear-gradient(
-      135deg,
-      hsl(220, 15%, 12%) 0%,
-      hsl(230, 18%, 10%) 25%,
-      hsl(260, 15%, 11%) 50%,
-      hsl(240, 16%, 10%) 75%,
-      hsl(225, 17%, 12%) 100%
-    );
   }
 
   .layout-smooth-resize {
@@ -691,7 +573,6 @@
   }
 
   .card-enter {
-    will-change: transform, opacity;
     animation: cardEnter 0.35s cubic-bezier(0.33, 1, 0.68, 1) both;
     animation-delay: calc(var(--stagger-i, 0) * 0.05s);
   }
@@ -729,7 +610,6 @@
   }
 
   .dialog-overlay-enter {
-    will-change: opacity;
     contain: paint;
     animation: dialogOverlayIn 0.2s ease-out both;
   }
@@ -739,7 +619,6 @@
   }
 
   .dialog-content-enter {
-    will-change: transform, opacity;
     contain: paint;
     animation: dialogContentIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
@@ -748,19 +627,18 @@
     animation: dialogContentOut 0.12s cubic-bezier(0.7, 0, 0.84, 0) both;
   }
 
-  @keyframes rippleExpand {
+  @keyframes rippleEffectExpand {
     0% { transform: scale(0); opacity: 0.4; }
     100% { transform: scale(4); opacity: 0; }
   }
 
   .ripple-effect {
-    will-change: transform, opacity;
     contain: paint;
     position: absolute;
     border-radius: 50%;
     background: hsl(var(--primary) / 0.2);
     transform: scale(0);
-    animation: rippleExpand 0.6s ease-out forwards;
+    animation: rippleEffectExpand 0.6s ease-out forwards;
     pointer-events: none;
   }
 
@@ -805,7 +683,6 @@
     to { opacity: 1; transform: scale(1) rotate(0deg); }
   }
   .icon-spin-in {
-    will-change: transform, opacity;
     animation: iconSpinIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
@@ -827,14 +704,12 @@
     100% { transform: scale(1); }
   }
   .status-enter {
-    will-change: transform, opacity;
     animation: statusEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
   .status-enter-from-offline {
     animation: statusEnterFromOffline 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
   .status-offline-shake {
-    will-change: transform;
     animation: statusOfflineShake 0.6s ease-in-out both;
   }
 
@@ -844,7 +719,6 @@
     100% { opacity: 1; transform: translateY(0) scale(1); }
   }
   .label-bounce-in {
-    will-change: transform, opacity;
     animation: labelBounceIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
@@ -853,32 +727,15 @@
     to { transform: scale(1); opacity: 1; }
   }
   .num-scale-in {
-    will-change: transform;
     animation: numScaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 }
 
 @layer utilities {
   .anim-idle .animate-pulse,
-  .anim-idle .animate-spin {
+  .anim-idle .animate-spin,
+  .anim-idle .signal-glow-active {
     animation-play-state: paused !important;
-  }
-
-  @keyframes numBounce {
-    0%   { transform: scale(1);    }
-    40%  { transform: scale(1.12); }
-    100% { transform: scale(1);    }
-  }
-
-  .num-bounce {
-    will-change: transform;
-    animation: numBounce 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  }
-
-  .num-highlight {
-    transition: color 0.15s ease-out;
-    font-weight: 600;
-    color: hsl(var(--primary));
   }
 
   .capsule-hover-wrap {
@@ -887,29 +744,6 @@
   }
   .capsule-hover-wrap:hover {
     transform: scale(1.05);
-  }
-
-  @keyframes statusRingExpand {
-    0%   { transform: scale(1);   opacity: 0.6; }
-    100% { transform: scale(2.5); opacity: 0; }
-  }
-
-  .status-ring-expand {
-    will-change: transform, opacity;
-  }
-
-  .status-ring-expand::after {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    border-radius: inherit;
-    border: 2px solid currentColor;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .status-ring-expand.active::after {
-    animation: statusRingExpand 0.6s ease-out forwards !important;
   }
 
   @keyframes signalBarEnter {
@@ -921,7 +755,6 @@
   }
 
   .signal-bar-enter {
-    will-change: transform;
     contain: paint;
     animation: signalBarEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
@@ -974,6 +807,12 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .animated-card-interactive {
+      transition: none;
+    }
+    .animated-card-interactive.ripple-active::before {
+      animation: none;
+    }
     .signal-bar-enter,
     .log-entry-flash::after,
     .ripple-effect,
@@ -982,7 +821,16 @@
     .status-enter-from-offline,
     .status-offline-shake,
     .label-bounce-in,
-    .num-scale-in {
+    .num-scale-in,
+    .card-enter,
+    .dialog-overlay-enter,
+    .dialog-content-enter,
+    .dialog-content-exit,
+    .refresh-shake,
+    .animate-window-reveal,
+    .signal-glow-active,
+    .animate-pulse,
+    .animate-spin {
       animation: none !important;
     }
     .list-item-interactive:hover {
@@ -990,7 +838,6 @@
     }
     .btn-physical,
     .btn-press,
-    .icon-hover-glow,
     .titlebar-icon-btn,
     .titlebar-win-btn {
       will-change: auto !important;

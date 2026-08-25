@@ -11,7 +11,9 @@ import { VALID_THEMES } from '@/settings/constants'
 import './index.css'
 import './i18n'
 
-gsap.defaults({ ease: 'expo.out', force3D: true })
+// force3D 不设全局默认：transform 相关 tween 均已在各处显式声明 force3D: true，
+// 全局强制反而让每个 tween 结束后合成层不易回收。仅保留 ease 与 ticker 配置。
+gsap.defaults({ ease: 'expo.out' })
 gsap.config({ autoSleep: 5, nullTargetWarn: false })
 gsap.ticker.lagSmoothing(500, 33)
 
