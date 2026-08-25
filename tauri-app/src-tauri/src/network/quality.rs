@@ -238,24 +238,29 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
         }
         LatencyTask::SystemDns { name, domains } => {
-            // 并发解析所有域名，避免断网时串行超时导致首屏延迟膨胀（4域名串行可达12s）
-            let mut set = tokio::task::JoinSet::new();
-            for domain in domains.iter().cloned() {
-                let bind_addr = ctx.bind_addr;
-                set.spawn(async move {
-                    let start = Instant::now();
-                    let ok = crate::network::dns::resolve_host_smart(&domain, std::time::Duration::from_secs(3), bind_addr).await.is_ok();
-                    (domain, ok, start.elapsed().as_millis() as i64)
-                });
-            }
+            // BE-A-03: 域名按 2 个/批并发解析（原 4 域名一次并发）。每域名
+            // resolve_host_smart 内部仍有 1 DoH + 传统 DNS 竞速，限制并发避免
+            // 瞬时连接叠加；批间串行，但单批最多等 3s（断网最坏约 6s，远优于
+            // 原注释担心的全串行 12s）。聚合仍为单个 "DNS解析" 条目，语义不变。
             let mut latencies: Vec<i64> = Vec::new();
             let mut failed_domains: Vec<String> = Vec::new();
-            while let Some(res) = set.join_next().await {
-                if let Ok((domain, ok, elapsed)) = res {
-                    if ok {
-                        latencies.push(elapsed.max(1));
-                    } else {
-                        failed_domains.push(domain);
+            for chunk in domains.chunks(2) {
+                let mut set = tokio::task::JoinSet::new();
+                for domain in chunk.iter().cloned() {
+                    let bind_addr = ctx.bind_addr;
+                    set.spawn(async move {
+                        let start = Instant::now();
+                        let ok = crate::network::dns::resolve_host_smart(&domain, std::time::Duration::from_secs(3), bind_addr).await.is_ok();
+                        (domain, ok, start.elapsed().as_millis() as i64)
+                    });
+                }
+                while let Some(res) = set.join_next().await {
+                    if let Ok((domain, ok, elapsed)) = res {
+                        if ok {
+                            latencies.push(elapsed.max(1));
+                        } else {
+                            failed_domains.push(domain);
+                        }
                     }
                 }
             }
@@ -294,7 +299,39 @@ fn get_latency_level(latency: i64) -> usize {
     5
 }
 
-fn build_quality_result(results: &[LatencyResult], gateway_str: &str, start: Instant) -> NetworkQualityResult {
+/// 并发执行一批 Phase1 任务并收集结果（内部 JoinSet，任一时刻退出标志置位即中止）。
+/// BE-A-03：把 Phase1 拆成若干小批，避免网关 + 3 DNS×2 协议 + 2 DoH + SystemDns
+/// 一次 spawn 出 20+ 瞬时连接。
+async fn run_phase1_batch(
+    tasks: Vec<LatencyTaskCtx>,
+    skip_ttfb: bool,
+    skip_content: bool,
+    is_quitting: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Vec<LatencyResult> {
+    let mut batch_set = tokio::task::JoinSet::new();
+    for ctx in tasks {
+        let st = skip_ttfb;
+        let sc = skip_content;
+        batch_set.spawn(async move { execute_task(ctx, st, sc).await });
+    }
+    let mut results: Vec<LatencyResult> = Vec::new();
+    while let Some(res) = batch_set.join_next().await {
+        if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+            batch_set.abort_all();
+            break;
+        }
+        if let Ok(r) = res {
+            results.push(r);
+        }
+    }
+    results
+}
+
+fn build_quality_result<'a>(
+    results: impl Iterator<Item = &'a LatencyResult>,
+    gateway_str: &str,
+    start: Instant,
+) -> NetworkQualityResult {
     let mut details = serde_json::Map::new();
     let mut metrics = serde_json::Map::new();
     let mut external_values: Vec<i64> = Vec::new();
@@ -424,10 +461,17 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         }
     };
 
-    let mut phase1_tasks: Vec<LatencyTaskCtx> = Vec::new();
+    // BE-A-03: Phase1 并发控制——原一次并发网关 + 3 DNS + 2 DoH + SystemDns
+    // （内部 4 域名并发），瞬时 20+ 连接。改为分小批，每批并发不超过 3：
+    //   批次1: 网关 + 阿里DNS + 腾讯DNS
+    //   批次2: 信风DNS + 阿里DoH + 腾讯DoH
+    //   批次3: SystemDns（内部 2 个域名/批，见 execute_task）
+    // 聚合语义不变（details/metrics 按 name 键输出，与收集顺序无关）。
+    let mut phase1_results: Vec<LatencyResult> = Vec::new();
 
+    let mut batch1: Vec<LatencyTaskCtx> = Vec::new();
     if let Some(ref gw) = gateway {
-        phase1_tasks.push(LatencyTaskCtx {
+        batch1.push(LatencyTaskCtx {
             task: LatencyTask::Gateway {
                 name: "网关".to_string(),
                 target: gw.clone(),
@@ -435,63 +479,49 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
             bind_addr,
         });
     }
-
-    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
+    batch1.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
         name: "阿里DNS".to_string(),
         ip: "223.5.5.5".to_string(),
         domain: "www.baidu.com".to_string(),
     }, bind_addr });
-    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
+    batch1.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
         name: "腾讯DNS".to_string(),
         ip: "1.12.12.12".to_string(),
         domain: "www.baidu.com".to_string(),
     }, bind_addr });
-    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
-        name: "信风DNS".to_string(),
-        ip: "114.114.114.114".to_string(),
-        domain: "www.baidu.com".to_string(),
-    }, bind_addr });
+    phase1_results.extend(run_phase1_batch(batch1, skip_ttfb, skip_content, &is_quitting).await);
 
-    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::Doh {
-        name: "阿里DoH".to_string(),
-        doh_server: "dns.alidns.com".to_string(),
-        doh_ip: "223.5.5.5".to_string(),
-        doh_host: "baidu.com".to_string(),
-    }, bind_addr });
-    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::Doh {
-        name: "腾讯DoH".to_string(),
-        doh_server: "doh.pub".to_string(),
-        doh_ip: "1.12.12.12".to_string(),
-        doh_host: "baidu.com".to_string(),
-    }, bind_addr });
+    phase1_results.extend(run_phase1_batch(vec![
+        LatencyTaskCtx { task: LatencyTask::DnsServer {
+            name: "信风DNS".to_string(),
+            ip: "114.114.114.114".to_string(),
+            domain: "www.baidu.com".to_string(),
+        }, bind_addr },
+        LatencyTaskCtx { task: LatencyTask::Doh {
+            name: "阿里DoH".to_string(),
+            doh_server: "dns.alidns.com".to_string(),
+            doh_ip: "223.5.5.5".to_string(),
+            doh_host: "baidu.com".to_string(),
+        }, bind_addr },
+        LatencyTaskCtx { task: LatencyTask::Doh {
+            name: "腾讯DoH".to_string(),
+            doh_server: "doh.pub".to_string(),
+            doh_ip: "1.12.12.12".to_string(),
+            doh_host: "baidu.com".to_string(),
+        }, bind_addr },
+    ], skip_ttfb, skip_content, &is_quitting).await);
 
-    phase1_tasks.push(LatencyTaskCtx { task: LatencyTask::SystemDns {
-        name: "DNS解析".to_string(),
-        domains: vec![
-            "www.baidu.com".to_string(),
-            "www.bilibili.com".to_string(),
-            "www.jd.com".to_string(),
-            "cn.bing.com".to_string(),
-        ],
-    }, bind_addr });
-
-    let mut phase1_set = tokio::task::JoinSet::new();
-    for ctx in phase1_tasks {
-        let st = skip_ttfb;
-        let sc = skip_content;
-        phase1_set.spawn(async move { execute_task(ctx, st, sc).await });
-    }
-
-    let mut phase1_results: Vec<LatencyResult> = Vec::new();
-    while let Some(res) = phase1_set.join_next().await {
-        if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-            phase1_set.abort_all();
-            break;
-        }
-        if let Ok(r) = res {
-            phase1_results.push(r);
-        }
-    }
+    phase1_results.extend(run_phase1_batch(vec![
+        LatencyTaskCtx { task: LatencyTask::SystemDns {
+            name: "DNS解析".to_string(),
+            domains: vec![
+                "www.baidu.com".to_string(),
+                "www.bilibili.com".to_string(),
+                "www.jd.com".to_string(),
+                "cn.bing.com".to_string(),
+            ],
+        }, bind_addr },
+    ], skip_ttfb, skip_content, &is_quitting).await);
 
     if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
         return NetworkQualityResult {
@@ -505,7 +535,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
 
     // 增量推送：Phase 1 完成后立即 emit，让前端先显示网关+DNS+DoH结果
     if let Some(ah) = app_handle {
-        let mut partial = build_quality_result(&phase1_results, gateway_str, now);
+        let mut partial = build_quality_result(phase1_results.iter(), gateway_str, now);
         partial.quality = "busy".to_string();
         if let Ok(val) = serde_json::to_value(&partial) {
             if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
@@ -557,17 +587,15 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
                 phase2_results.push(r);
             }
         }
-        // 增量推送：每批 HTTPS 完成后 emit 累计结果
+        // 增量推送：每批 HTTPS 完成后 emit 累计结果（迭代器拼接，避免全量 clone）
         if let Some(ah) = app_handle {
-            let mut cumulative = phase1_results.clone();
-            cumulative.extend(phase2_results.iter().cloned());
-            let mut partial = build_quality_result(&cumulative, gateway_str, now);
+            let mut partial = build_quality_result(phase1_results.iter().chain(phase2_results.iter()), gateway_str, now);
             partial.quality = "busy".to_string();
             if let Ok(val) = serde_json::to_value(&partial) {
                 if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
                     crate::log_warn!("quality", "[增量推送] HTTPS 批次 emit 失败: {}", e);
                 } else {
-                    crate::log_info!("quality", "[增量推送] HTTPS 批次 emit 成功, 累计结果数={}, 耗时{}ms", cumulative.len(), now.elapsed().as_millis());
+                    crate::log_info!("quality", "[增量推送] HTTPS 批次 emit 成功, 累计结果数={}, 耗时{}ms", phase1_results.len() + phase2_results.len(), now.elapsed().as_millis());
                 }
             }
         }
@@ -576,7 +604,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     let mut results: Vec<LatencyResult> = phase1_results;
     results.extend(phase2_results);
 
-    let result = build_quality_result(&results, gateway_str, now);
+    let result = build_quality_result(results.iter(), gateway_str, now);
 
     // 汇总：统计失败数量
     let failed_count = results.iter().filter(|r| r.latency < 0).count();

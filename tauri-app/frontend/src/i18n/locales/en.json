@@ -90,6 +90,7 @@
     "unknownStatus": "Unknown Status",
     "configSaveFailed": "Configuration save failed, please retry",
     "configSaveFailedLog": "Configuration save failed: {{msg}}",
+    "configDirtyResetLog": "Field {{field}} failed to save repeatedly, local pending-sync flag dropped, resyncing with backend",
     "loginAfterQualityCheckFailed": "Post-login quality check failed: {{msg}}",
     "loginTimeout": "Login timed out, check network and retry",
     "logoutTimeout": "Logout timed out, try again later"

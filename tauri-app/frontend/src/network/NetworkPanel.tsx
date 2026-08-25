@@ -1,5 +1,5 @@
 import type { Config } from '@/settings'
-import type { Adapter } from '@/network'
+import type { Adapter, DhcpReleaseRenewResult } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
@@ -19,12 +19,13 @@ import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
-import { useAdapterStore } from '@/hooks/useAdapterStore'
+import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useShallow } from 'zustand/react/shallow'
 
 interface NetworkPanelProps {
-  config: Config
   adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
 }
@@ -33,9 +34,12 @@ const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6'])
 const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53'])
 const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
-export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpdateConfig }: NetworkPanelProps) {
+export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfig }: NetworkPanelProps) {
   const { t } = useTranslation()
   const disabledAdapters = useAdapterStore((s) => s.disabledAdapters)
+  // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
+  // 使 App 外壳不再因任意 config 字段变化而级联重渲染
+  const config = useConfigStore(useShallow((s) => s.config))
   const [dohEnabling, setDohEnabling] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
@@ -103,18 +107,21 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
     try {
       const result = await ipc.dhcpReleaseRenewAdapter?.(adapterName)
       if (result) {
-        const results = 'results' in result && Array.isArray(result.results) ? result.results : [result]
-        const succeeded = results.filter((r: any) => r.success)
-        const skipped = results.filter((r: any) => r.skipped)
-        const failed = results.filter((r: any) => !r.success && !r.skipped)
+        // 与 useNetwork.handleDhcpReleaseRenewAdapter 同源：单条结果（结果对象本身）
+        // 或批量结果（{ results: [...] }）两种形态，统一为逐条结果类型
+        type DhcpResultItem = DhcpReleaseRenewResult['results'][number]
+        const results: DhcpResultItem[] = 'results' in result && Array.isArray(result.results) ? result.results : [result as unknown as DhcpResultItem]
+        const succeeded = results.filter((r) => r.success)
+        const skipped = results.filter((r) => r.skipped)
+        const failed = results.filter((r) => !r.success && !r.skipped)
         if (succeeded.length > 0) {
-          useLogToastStore.getState().addToast(t('network.gotNewIp', { names: succeeded.map((r: any) => r.name).join(', ') }), 'success')
+          useLogToastStore.getState().addToast(t('network.gotNewIp', { names: succeeded.map((r) => r.name).join(', ') }), 'success')
         }
         if (skipped.length > 0) {
-          useLogToastStore.getState().addToast(skipped.map((r: any) => t('network.skipNonCampus', { name: r.name, ip: r.ip })).join('; '), 'info')
+          useLogToastStore.getState().addToast(skipped.map((r) => t('network.skipNonCampus', { name: r.name, ip: r.ip })).join('; '), 'info')
         }
         if (failed.length > 0) {
-          const failedDetails = failed.map((r: any) => r.reason ? `${r.name}: ${r.reason}` : r.name).join('; ')
+          const failedDetails = failed.map((r) => r.reason ? `${r.name}: ${r.reason}` : r.name).join('; ')
           useLogToastStore.getState().addToast(t('network.getNewIpFailed', { details: failedDetails }), 'error')
         }
       }
@@ -123,14 +130,8 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
     } finally {
       if (mountedRef.current) setGettingNewIpAdapter(null)
     }
-    try {
-      const [newAdapters, newDetails] = await Promise.all([
-        ipc.getAdapters?.().catch(() => undefined),
-        ipc.getAdapterDetails?.().catch(() => undefined),
-      ])
-      if (newAdapters) useAdapterStore.setState({ adapters: newAdapters })
-      if (newDetails) useAdapterStore.setState({ adapterDetails: newDetails })
-    } catch {}
+    // 复用公共刷新动作，消除内联重复（历史缺陷 P2-F10）
+    await refreshAdapterData()
   }, [ipc, mountedRef])
 
   const handleEnableAdapter = useCallback(async (adapterName: string) => {
@@ -150,16 +151,7 @@ export const NetworkPanel = memo(function NetworkPanel({ config, adapters, onUpd
       if (mountedRef.current) setEnablingAdapter(null)
     }
     // 刷新适配器列表（启用后状态变化，需更新 adapters + disabledAdapters + details）
-    try {
-      const [newAdapters, newDetails, newDisabled] = await Promise.all([
-        ipc.getAdapters?.(true).catch(() => undefined),
-        ipc.getAdapterDetails?.().catch(() => undefined),
-        ipc.getDisabledAdapters?.().catch(() => undefined),
-      ])
-      if (newAdapters) useAdapterStore.setState({ adapters: newAdapters })
-      if (newDetails) useAdapterStore.setState({ adapterDetails: newDetails })
-      if (newDisabled) useAdapterStore.setState({ disabledAdapters: newDisabled })
-    } catch {}
+    await refreshAdapterData({ force: true, includeDisabled: true })
   }, [ipc, mountedRef, t])
 
   const getDnsQuality = (

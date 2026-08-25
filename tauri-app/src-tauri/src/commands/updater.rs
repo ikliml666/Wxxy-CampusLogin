@@ -85,14 +85,17 @@ pub async fn download_update(
         return Err(format!("文件过大({}MB)，超过大小限制{}MB)", total_size / 1024 / 1024, MAX_DOWNLOAD_SIZE / 1024 / 1024));
     }
 
-    let mut file = std::fs::File::create(&file_path)
+    // BE-A-08: 写盘改用 tokio::fs，写循环整体异步化，避免在 async 命令线程上
+    // 用 std::fs 同步 write_all/flush 阻塞运行时（原实现大文件下载时阻塞 IO 线程）。
+    let mut file = tokio::fs::File::create(&file_path)
+        .await
         .map_err(|e| format!("创建临时文件失败: {e}"))?;
 
     let mut downloaded: u64 = 0;
     let mut last_emit = std::time::Instant::now();
     let mut last_downloaded: u64 = 0;
 
-    use std::io::Write;
+    use tokio::io::AsyncWriteExt;
     loop {
         let chunk = match response.chunk().await {
             Ok(c) => c,
@@ -104,7 +107,7 @@ pub async fn download_update(
 
         match chunk {
             Some(data) => {
-                if let Err(e) = file.write_all(&data) {
+                if let Err(e) = file.write_all(&data).await {
                     let _ = std::fs::remove_file(&file_path);
                     return Err(format!("写入文件失败: {e}"));
                 }
@@ -147,7 +150,7 @@ pub async fn download_update(
         }
     }
 
-    if let Err(e) = file.flush() {
+    if let Err(e) = file.flush().await {
         let _ = std::fs::remove_file(&file_path);
         return Err(format!("刷新文件失败: {e}"));
     }

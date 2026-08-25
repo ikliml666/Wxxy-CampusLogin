@@ -43,11 +43,13 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
 pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) -> serde_json::Value {
     let config = state.config.load_full();
     let running = state.task_manager.is_running("background_check");
-    let server_avail = state.network.load().server_available;
+    // 单次原子快照，避免多次 load 拼出跨时刻不一致的状态
+    let snap = state.network.load();
+    let server_avail = snap.server_available;
 
     let adapter_statuses = {
         let mut adapter_statuses = Vec::new();
-        let a1_online = state.network.load().last_a1_online;
+        let a1_online = snap.last_a1_online;
 
         if let Ok(adapters) = crate::network::get_adapters_cached() {
             let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
@@ -63,7 +65,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
             }
 
             if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
-                let a2_online_state = state.network.load().last_a2_online;
+                let a2_online_state = snap.last_a2_online;
                 if let Some(a2) = crate::network::find_by_name(&adapters, &adapter2_name) {
                     if a2.ip.is_empty() {
                         adapter_statuses.push(watcher::adapter_disconnected_entry(&adapter2_name, a2.wireless));
@@ -81,9 +83,9 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
 
     let any_online = adapter_statuses.as_array().map(|arr| arr.iter().any(|s| s["online"].as_bool().unwrap_or(false))).unwrap_or(false);
 
-    let check_count = state.network.load().background_check_count;
-    let current_ssid = state.network.load().current_ssid.clone();
-    let on_campus = state.network.load().on_campus_network;
+    let check_count = snap.background_check_count;
+    let current_ssid = snap.current_ssid.clone();
+    let on_campus = snap.on_campus_network;
 
     serde_json::json!({
         "serverAvailable": server_avail,

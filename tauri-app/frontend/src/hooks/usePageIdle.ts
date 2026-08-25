@@ -1,40 +1,43 @@
-import { useState, useEffect, useCallback, useRef, createContext, useContext, useMemo, createElement, type ReactNode } from 'react'
+import { useState, useEffect, useRef, createContext, useContext, useMemo, createElement, type ReactNode } from 'react'
 
 function usePageIdle() {
   const [isIdle, setIsIdle] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastActiveRef = useRef(Date.now())
   const IDLE_TIMEOUT = 2_000
-
-  const lastResetRef = useRef(0)
-  const resetIdle = useCallback(() => {
-    const now = Date.now()
-    if (now - lastResetRef.current < 200) return
-    lastResetRef.current = now
-    setIsIdle(false)
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setIsIdle(true), IDLE_TIMEOUT)
-  }, [])
-
-  const resetIdleRef = useRef(resetIdle)
-  resetIdleRef.current = resetIdle
+  // 轮询间隔：远小于空闲阈值，空闲判定时机与原先定时器一致（最迟 2s+500ms 判定）
+  const IDLE_CHECK_INTERVAL = 500
 
   useEffect(() => {
-    const handler = () => resetIdleRef.current()
+    lastActiveRef.current = Date.now()
+    setIsIdle(false)
+
+    // 历史缺陷：mousemove 每 200ms 重建空闲定时器（clearTimeout+setTimeout），
+    // 持续移动时定时器反复抖动、反复 setIsIdle(false)。
+    // 改为单一 interval 轮询读取 lastActiveRef 判定空闲，2s 空闲行为不变。
+    const interval = setInterval(() => {
+      const idle = Date.now() - lastActiveRef.current >= IDLE_TIMEOUT
+      setIsIdle(prev => (prev === idle ? prev : idle))
+    }, IDLE_CHECK_INTERVAL)
+
+    const handler = () => {
+      lastActiveRef.current = Date.now()
+      setIsIdle(false)
+    }
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const
     events.forEach(evt => document.addEventListener(evt, handler, { passive: true }))
     const onVisChange = () => {
       if (document.hidden) {
         setIsIdle(true)
       } else {
-        resetIdleRef.current()
+        lastActiveRef.current = Date.now()
+        setIsIdle(false)
       }
     }
     document.addEventListener('visibilitychange', onVisChange)
-    timerRef.current = setTimeout(() => setIsIdle(true), IDLE_TIMEOUT)
     return () => {
       events.forEach(evt => document.removeEventListener(evt, handler))
       document.removeEventListener('visibilitychange', onVisChange)
-      if (timerRef.current) clearTimeout(timerRef.current)
+      clearInterval(interval)
     }
   }, [])
 

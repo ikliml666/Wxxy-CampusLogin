@@ -10,13 +10,18 @@ import { tauriApiWithRetry } from './tauriApi'
 import { useLogToastStore } from './useLogToastStore'
 import { useConfigStore } from './useConfigStore'
 import { useAdapterStore } from './useAdapterStore'
-import { useQualityStore } from './useQualityStore'
+import { useQualityStore, getLastQualityResultTime } from './useQualityStore'
 import i18next from 'i18next'
 
 const api = tauriApiWithRetry
 
 let checkOnlineEpoch = 0
 let _checkOnlineLockFlag = false
+
+// 登录后手动质量探测节流阈值：与后端 run_quality_check 的 60s 全局节流对齐。
+// 最近 60s 内已有任意来源的质量结果（后台循环事件/手动刷新）则跳过手动全量探测，
+// 避免与后端 latency loop/后台巡检重复全量检测（历史缺陷 P2-F5）。
+const QUALITY_MANUAL_THROTTLE_MS = 60_000
 
 type CampusStatus = Awaited<ReturnType<typeof api.checkCampusStatus>>
 type PortalStatus = Awaited<ReturnType<typeof api.checkPortalStatus>>
@@ -157,11 +162,17 @@ export const useAuthStore = create<AuthStore>((set) => ({
         useLogToastStore.getState().addToast(i18next.t('auth.loginFailed'), 'error', result?.message)
       }
       if (useConfigStore.getState().config.enableNetworkQuality !== false) {
-        api.checkNetworkQuality?.().then((q) => {
-          if (q) useQualityStore.getState().setNetworkQuality((old: NetworkQuality | null) => mergeNetworkQuality(old, q))
-        }).catch((e) => {
-          useLogToastStore.getState().addLog(i18next.t('auth.loginAfterQualityCheckFailed', { msg: extractErrorMessage(e) }), 'warning')
-        })
+        // 历史缺陷：登录后无条件手动全量质量探测，与后端 latency loop/后台巡检重复
+        // （后端 run_quality_check 的 60s 全局节流只作用于循环路径，手动命令不受限）。
+        // 改为节流：最近 60s 内已有任意来源的质量结果则跳过，保留"登录后立即更新质量显示"，
+        // 同时避免登录瞬间重复全量探测。
+        if (Date.now() - getLastQualityResultTime() > QUALITY_MANUAL_THROTTLE_MS) {
+          api.checkNetworkQuality?.().then((q) => {
+            if (q) useQualityStore.getState().setNetworkQuality((old: NetworkQuality | null) => mergeNetworkQuality(old, q))
+          }).catch((e) => {
+            useLogToastStore.getState().addLog(i18next.t('auth.loginAfterQualityCheckFailed', { msg: extractErrorMessage(e) }), 'warning')
+          })
+        }
       }
     } catch (e) {
       const msg = extractErrorMessage(e)
@@ -277,7 +288,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
         set({ status: { text: portalResult.portal.message || i18next.t('auth.unknownStatus'), state: newState } })
       }
     } finally {
-      setTimeout(() => { _checkOnlineLockFlag = false }, 500)
+      // 历史缺陷：用 setTimeout(500) 释放锁时，若 checkOnline 实际执行超过 500ms，
+      // 锁已提前释放，并发调用可进入产生冗余 invoke（有 checkOnlineEpoch 兜底，非数据竞态）。
+      // 改为 promise 真正 settle 时立即释放，锁持有时间与执行时间一致。
+      _checkOnlineLockFlag = false
     }
   },
 

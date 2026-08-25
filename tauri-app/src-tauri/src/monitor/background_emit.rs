@@ -97,8 +97,12 @@ pub(super) fn emit_background_check_result(
     state: &AppState,
     result: &BackgroundCheckResult,
 ) {
-    let check_count = state.network.load().background_check_count + 1;
-    state.network.update(|s| s.background_check_count += 1);
+    // BE-A-10: 读-增非原子（load() 读旧值 + update() 增 1 两次快照，并发下可能重复计数），
+    // 改为单次 update_with_result CAS 内完成自增并返回新值（参照 failure_tracker.rs 已修复模式）。
+    let check_count = state.network.update_with_result(|s| {
+        s.background_check_count += 1;
+        s.background_check_count
+    });
     let is_running = state.task_manager.is_running("background_check");
     // increment 后单次 load 快照，复用读取 current_ssid / on_campus_network / logout_protected_until
     let snap = state.network.load();

@@ -16,7 +16,7 @@ import {
   Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { NAV_ITEMS } from '@/shared'
+import { NAV_ITEMS } from '@/shared/ui-constants'
 import { m, useMotionValue, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import { useTranslation } from 'react-i18next'

@@ -10,6 +10,10 @@ import { useLogToastStore } from './useLogToastStore'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
+// 模块级空数组常量：adapterStatuses 为空时复用同一引用，避免每次后台检测
+// 产生新数组导致 StatusBar 等订阅方整体重渲染（历史缺陷 P2-F6）
+const EMPTY_ADAPTER_STATUSES: AdapterOnlineStatus[] = []
+
 export function useEventListeners() {
   const lastAdapterOnlineRef = useRef<Map<string, boolean>>(new Map())
   const lastOnlineLogTimeRef = useRef(0)
@@ -155,7 +159,7 @@ export function useEventListeners() {
             online: data.online ?? prev.online,
             checkCount: data.checkCount ?? prev.checkCount,
             isRunning: data.isRunning ?? prev.isRunning,
-            adapterStatuses: statuses.length > 0 ? statuses : prev.adapterStatuses,
+            adapterStatuses: statuses.length > 0 ? statuses : (prev.adapterStatuses ?? EMPTY_ADAPTER_STATUSES),
             currentSsid: data.currentSsid ?? prev.currentSsid,
             onCampusNetwork: data.onCampusNetwork ?? prev.onCampusNetwork,
             enableNetworkNameCheck: data.enableNetworkNameCheck ?? prev.enableNetworkNameCheck,
@@ -173,7 +177,13 @@ export function useEventListeners() {
           const statusText = anyOnline
             ? (data.online ? data.message : data.secondaryMessage || data.message)
             : data.message
-          useAuthStore.getState().setStatus({ text: statusText, state: anyOnline ? 'online' : 'offline' })
+          const statusState = anyOnline ? 'online' : 'offline'
+          // 历史缺陷：每次后台检测都无条件 setStatus 产生新对象，StatusBar 订阅 status
+          // 每次整卡重渲染。text/state 未变化时跳过，保持引用稳定。
+          const cur = useAuthStore.getState().status
+          if (cur.text !== statusText || cur.state !== statusState) {
+            useAuthStore.getState().setStatus({ text: statusText, state: statusState })
+          }
         }
       }
     }) ?? (() => {})

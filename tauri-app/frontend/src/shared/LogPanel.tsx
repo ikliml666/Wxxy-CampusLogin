@@ -99,6 +99,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const lineSelectorRef = useRef<HTMLDivElement>(null)
   const fetchSeqRef = useRef(0)
   const mountedRef = useRef(true)
+  // 保存最近一次原始日志，轮询内容未变化时跳过 setState，避免整表四层 memo 重算（FE-B-10）
+  const rawLogsRef = useRef('')
 
   useEffect(() => {
     // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
@@ -115,7 +117,12 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     try {
       const result = await api.getLogs(lineCount)
       if (seq !== fetchSeqRef.current || !mountedRef.current) return
-      setRawLogs(result)
+      // 内容未变化时不触发 setState，避免 5s 轮询导致 parsedLines/filteredLines/displayedLines/levelCounts
+      // 四层 useMemo 串行全量重算与整表重渲染（FE-B-10）
+      if (result !== rawLogsRef.current) {
+        rawLogsRef.current = result
+        setRawLogs(result)
+      }
     } catch (e: unknown) {
       if (seq !== fetchSeqRef.current || !mountedRef.current) return
       addToast(t('log.fetchLogFailed'), 'error', extractErrorMessage(e))
@@ -151,10 +158,18 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   }, [api])
 
   useEffect(() => {
+    // 轮询叠加窗口可见性门控（FE-A-09）：与 useHeartbeat 的 visibilitychange 检查写法一致，
+    // 窗口被遮挡/最小化时跳过该轮 invoke；IntersectionObserver 的 isVisibleRef 门控保持不变。
+    let hidden = document.hidden
+    const onVisChange = () => { hidden = document.hidden }
+    document.addEventListener('visibilitychange', onVisChange)
     const timer = setInterval(() => {
-      if (isVisibleRef.current) fetchLogs()
+      if (isVisibleRef.current && !hidden) fetchLogs()
     }, 5000)
-    return () => clearInterval(timer)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisChange)
+      clearInterval(timer)
+    }
   }, [fetchLogs])
 
   const toggleDebugMode = useCallback(async () => {
@@ -204,14 +219,18 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
   }, [])
 
-  const parsedLines = useMemo(() =>
-    rawLogs
-      .split('\n')
-      .filter(Boolean)
-      .map(parseLogLine)
-      .filter((line): line is ParsedLogLine => line !== null),
-    [rawLogs]
-  )
+  const parsedLines = useMemo(() => {
+    // 单遍解析：合并 split→filter(Boolean)→map→filter 为一次遍历，减少中间数组分配（FE-B-10）
+    const lines = rawLogs.split('\n')
+    const result: ParsedLogLine[] = []
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (!line) continue
+      const parsed = parseLogLine(line)
+      if (parsed) result.push(parsed)
+    }
+    return result
+  }, [rawLogs])
 
   const availableModules = useMemo(() => {
     const modules = new Set(parsedLines.map(line => line.module))
@@ -298,6 +317,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 ctx.revert()
                 api.clearLogs().then(() => {
                   if (!mountedRef.current) return
+                  rawLogsRef.current = ''
                   setRawLogs('')
                   setLogsKey(prev => prev + 1)
                   addToast(t('log.logCleared'), 'success')
@@ -307,6 +327,14 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   addToast(t('log.clearLogFailed'), 'error', extractErrorMessage(e))
                   setIsClearing(false)
                 })
+              },
+              // 历史缺陷：tween 被中断（AnimatePresence 切换面板、组件卸载等）时
+              // onComplete 不执行，isClearing 残留导致清空按钮永久禁用。
+              // onInterrupt 复位状态（与 RightPanel 清空动画的处理方式对齐：
+              // 中断即放弃本次清空，日志保留，用户可重试）。
+              onInterrupt: () => {
+                ctx.revert()
+                if (mountedRef.current) setIsClearing(false)
               },
             })
           }, container)
@@ -318,6 +346,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     // fallback: 无 DOM 元素时直接清空
     api.clearLogs().then(() => {
       if (!mountedRef.current) return
+      rawLogsRef.current = ''
       setRawLogs('')
       setLogsKey(prev => prev + 1)
       addToast(t('log.logCleared'), 'success')

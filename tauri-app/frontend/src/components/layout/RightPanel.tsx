@@ -12,8 +12,7 @@ import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useBreatheAnimation } from '@/hooks/useBreatheAnimation'
-import { useShallow } from 'zustand/react/shallow'
-import { RefreshButton } from '@/shared'
+import { RefreshButton } from '@/shared/RefreshButton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from 'react-i18next'
 
@@ -87,7 +86,11 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   const emptyBreatheRef = useBreatheAnimation({ minOpacity: 0.2, maxOpacity: 0.4, minScale: 1, maxScale: 1.05, minRotation: 3, maxRotation: 0, duration: 6 })
   const adapterDetails = useAdapterStore((s) => s.adapterDetails)
   const adapters = useAdapterStore((s) => s.adapters)
-  const config = useConfigStore(useShallow((s) => s.config))
+  // 粒度订阅：仅消费 adapter1/adapter2/dualAdapter 三个字段（displayAdapters），
+  // 避免任意 config 字段变化触发右侧面板（含日志列表）重渲染
+  const adapter1 = useConfigStore((s) => s.config.adapter1)
+  const adapter2 = useConfigStore((s) => s.config.adapter2)
+  const dualAdapter = useConfigStore((s) => s.config.dualAdapter)
   const isRefreshingAdapters = useAdapterStore((s) => s.isRefreshingAdapters)
   const refreshAdapters = useAdapterStore((s) => s.refreshAdapters)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -157,15 +160,15 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
   const displayAdapters = useMemo(() => {
     const result: { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string; mac: string }[] = []
-    const primary = getAdapterInfo(config?.adapter1, adapterDetails, adapters)
+    const primary = getAdapterInfo(adapter1, adapterDetails, adapters)
     if (primary) result.push(primary)
-    const dualEnabled = config?.dualAdapter && config?.adapter2 && config.adapter2 !== '自动检测'
+    const dualEnabled = dualAdapter && adapter2 && adapter2 !== '自动检测'
     if (dualEnabled) {
-      const secondary = getAdapterInfo(config.adapter2, adapterDetails, adapters)
+      const secondary = getAdapterInfo(adapter2, adapterDetails, adapters)
       if (secondary) result.push(secondary)
     }
     return result
-  }, [adapterDetails, adapters, config])
+  }, [adapterDetails, adapters, adapter1, adapter2, dualAdapter])
 
   // FP-4: 日志分片。logs.length > 50 时，前段用普通 div 渲染（无进出场动画），
   // 最近 30 条保留 m.div + AnimatePresence 动画。降低 300 条日志频繁追加时的 reconciliation 成本。

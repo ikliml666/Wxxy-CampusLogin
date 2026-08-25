@@ -27,6 +27,7 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
   ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, noRipple = false, enableTilt, staggerIndex, children, ...props }, ref) => {
     const profile = useAnimationProfile()
     const rippleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+    const resetWillChangeTimerRef = React.useRef<gsap.core.Tween | null>(null)
 
     const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !noAnimation
     const cardRef = React.useRef<HTMLDivElement>(null)
@@ -46,6 +47,10 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       return () => {
         ro.disconnect()
         rectCacheRef.current = null
+        // 历史缺陷：tilt RAF 未取消，组件卸载后回调仍可能执行写已卸载节点。
+        if (tiltRafRef.current) cancelAnimationFrame(tiltRafRef.current)
+        // willChange 复位 delayedCall 也一并 kill，避免卸载后仍写 style
+        if (resetWillChangeTimerRef.current) { resetWillChangeTimerRef.current.kill(); resetWillChangeTimerRef.current = null }
         gsap.killTweensOf(el, 'rotateY')
         gsap.killTweensOf(el, 'rotateX')
         xQuick.current = null
@@ -83,7 +88,11 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       if (!xQuick.current || !yQuick.current) return
       xQuick.current(0)
       yQuick.current(0)
-      gsap.delayedCall(0.4, () => {
+      // 历史缺陷：delayedCall 不保存引用，组件卸载后回调仍执行（写已卸载节点）；
+      // 连续 leave/enter 也会堆积多个回调。改为先取消旧的再注册，cleanup 时 kill。
+      if (resetWillChangeTimerRef.current) resetWillChangeTimerRef.current.kill()
+      resetWillChangeTimerRef.current = gsap.delayedCall(0.4, () => {
+        resetWillChangeTimerRef.current = null
         const el = cardRef.current
         if (el) el.style.willChange = ''
       })

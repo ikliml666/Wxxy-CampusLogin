@@ -20,8 +20,9 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
-import { ISP_OPTIONS } from '@/settings'
-import { APP_NAME, PASSWORD_MASK } from '@/shared'
+import { useShallow } from 'zustand/react/shallow'
+import { ISP_OPTIONS } from '@/settings/constants'
+import { APP_NAME, PASSWORD_MASK } from '@/shared/ui-constants'
 import { cn, safeStorage } from '@/lib/utils'
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
@@ -33,7 +34,6 @@ const AUTO_DETECT_SENTINEL = '自动检测'
 interface OnboardingWizardProps {
   open: boolean
   onClose: () => void
-  config: Config
   adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
   onLogin: (adapterName?: string) => Promise<boolean>
@@ -87,10 +87,13 @@ function StepIndicator({ current }: { current: number }) {
   )
 }
 
-export function OnboardingWizard({ open, onClose, config, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
+export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
   const { t } = useTranslation()
   const language = useConfigStore((s) => s.language)
   const setLanguage = useConfigStore((s) => s.setLanguage)
+  // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
+  // 使 App 外壳不再因任意 config 字段变化而级联重渲染
+  const config = useConfigStore(useShallow((s) => s.config))
   const [step, setStep] = useState(0)
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))

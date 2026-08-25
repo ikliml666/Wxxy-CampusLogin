@@ -1859,6 +1859,25 @@ App.tsx (377行, App + AppInner)
 | CLIENT_POOL LRU 淘汰 (B9-17) | `client_pool_get` 命中时更新 `Instant`，容量超限 `min_by_key` 剔除最久未访问 (network/client.rs) | 热点连接保活，冷连接及时回收 |
 | background_check CAS 合并 (B9-4) | 合并连续 `network.update` 调用，2 处从 2 次 CAS 降为 1 次 (monitor/background_check.rs) | 减少 CAS 循环开销 |
 | lifecycle TOCTOU 竞态修复 (B9-8) | 3 处 `auto_exit_deadline` check-then-act 收入同一锁临界区 (infra/lifecycle.rs) | 消除快捷键注册/注销竞态 |
+| 质量检测全局节流 (v2.4.0) | `LAST_QUALITY_CHECK_DONE_MS` 全局 60s 最小间隔，后台巡检（15s）与延迟循环（30s）共用，手动命令不受限 (monitor/quality_scheduler.rs) | 消除每 15s 全量外网探测的高频重复（原两定时器叠加） |
+| 注册表遍历移入 blocking 池 (v2.4.0) | adapter_watch 15s 周期的 `refresh_class_subkey_cache` 包进 spawn_blocking (monitor/adapter_watch.rs) | 不再在 async worker 线程同步遍历 HKLM Class 子键 |
+| 网关 surge_ping 替代 ping (v2.4.0) | `check_gateway_reachable_from` 改 surge_ping 异步 ICMP（bind 源 IP 等同 `-S`）(network/subnet.rs) | 消除每 15s spawn ping 子进程 |
+| netsh 查询 TTL 缓存 (v2.4.0) | SSID/有线 Profile 结果 60s 缓存，仅缓存 Ok (network/subnet.rs) | 消除每 15s 各 spawn 一次 netsh wlan/lan |
+| DNS Resolver 复用 (v2.4.0) | 按 (bind_addr, server 集, 超时) 维度缓存的 Resolver 小池 (network/dns.rs) | 替代每次解析新建 Resolver（含自带 runtime） |
+| DNS 竞速降级 (v2.4.0) | `resolve_host_smart` 由"全部 DoH+传统 DNS"降级为"历史最快 1 路 DoH+传统 DNS" (network/dns.rs) | 每域名 TLS 握手减半；QR/RCODE 校验保留 |
+| DNS 缓存淘汰优化 (v2.4.0) | O(n²) 逐条删除改单次排序取最旧 N 条 (network/dns.rs) | 容量超限清理 O(n log n) |
+| 质量检测 Phase1 分批 (v2.4.0) | 网关/DNS/DoH/SystemDns 分 3 小批，每批 ≤3 并发；SystemDns 2 个/批 (network/quality.rs) | 瞬时并发 20+ → ≤3 |
+| 适配器轮询与缓存 (v2.4.0) | IP 强刷 100ms→300ms；`ShowInNetworkConnections` 5s TTL 缓存；adapter_watch 改读缓存；命中路径按需克隆 (network/adapter_cache.rs, registry.rs, adapter_watch.rs) | 减少系统调用；消除 15s force 与 4s 刷新叠加 |
+| 更新下载异步写盘 (v2.4.0) | download_update 改 tokio::fs 异步写 (commands/updater.rs) | 大文件下载不再阻塞 async 线程 |
+| 日志 IO 优化 (v2.4.0) | 消 line clone（SendError 归还）；批量落盘（32 条或 2s）；read_recent_logs 尾部倒读 (infra/logger.rs) | 减少分配；消除每条日志一次写+flush |
+| block_on 统一安全工具 (v2.4.0) | 新增 `infra::async_util::block_on_sync`，protocol/双适配器 5 处迁移 (auth/protocol.rs, dual_adapter_executor.rs) | 防 async worker 线程 block_on panic（前瞻） |
+| 客户端池键去 String (v2.4.0) | CLIENT_POOL key 改 `(Option<IpAddr>, u8, u64)` 元组 (network/client.rs) | 热路径零堆分配 |
+| MAC 随机化 getrandom (v2.4.0) | generate_random_mac 改 getrandom 填充（低概率失败降级 LCG）(network/dhcp.rs) | 原时间+计数器 LCG 可预测 → 密码学随机 |
+| 前端订阅粒度化 (v2.4.0) | App/StatusBar/RightPanel config 全量订阅改最小粒度 selector (App.tsx, StatusBar.tsx, RightPanel.tsx) | 任意字段变化不再级联重渲染外壳与面板 |
+| 面板代码分割 (v2.4.0) | 10 个低频面板/对话框 React.lazy 分包并绕开 barrel (App.tsx) | 主包 402KB→285KB（-29%） |
+| 文本输入本地草稿 (v2.4.0) | 用户名/网关/SSID/fixedGateway 改本地 draft + blur 提交；主题色 80ms 节流 (AccountPanel, MonitorPanel, SettingsPanel) | 不再每键写 store + 触发防抖保存 |
+| 日志面板渲染优化 (v2.4.0) | 轮询内容未变跳过 setState；叠加窗口可见性门控；单遍解析 (shared/LogPanel.tsx) | 消除四层 useMemo 全量重算与整表重渲染 |
+| 事件与动画资源 (v2.4.0) | setStatus 浅比较；usePageIdle interval 化；GSAP/RAF/ripple 清理与 reduced-motion 兜底 (useEventListeners, usePageIdle, AnimatedNumber, button, animated-card, useRipple) | 减少无效 setState 与未清理资源 |
 
 ---
 

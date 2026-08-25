@@ -18,15 +18,15 @@ import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
   Check, X, Eye, EyeOff
 } from 'lucide-react'
-import { ISP_OPTIONS } from '@/settings'
-import { PASSWORD_MASK } from '@/shared'
+import { ISP_OPTIONS } from '@/settings/constants'
+import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { cn } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { useShallow } from 'zustand/react/shallow'
 
 interface AccountPanelProps {
-  config: Config
   adapters: Adapter[]
   accounts: string[]
   activeAccount: string
@@ -37,7 +37,6 @@ interface AccountPanelProps {
 }
 
 export const AccountPanel = memo(function AccountPanel({
-  config,
   adapters,
   accounts,
   activeAccount,
@@ -48,6 +47,9 @@ export const AccountPanel = memo(function AccountPanel({
 }: AccountPanelProps) {
   const { t } = useTranslation()
   const passwordSaved = useConfigStore((s) => s.passwordSaved)
+  // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
+  // 使 App 外壳不再因任意 config 字段变化而级联重渲染
+  const config = useConfigStore(useShallow((s) => s.config))
   const [newAccountName, setNewAccountName] = useState('')
   const [showAddInput, setShowAddInput] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -56,6 +58,9 @@ export const AccountPanel = memo(function AccountPanel({
   // MASK 导致密码框 wipe、后续输入截断（历史缺陷 P1-F5）。
   // 输入期间不写 store，blur 时一次性提交。
   const [passwordDraft, setPasswordDraft] = useState('')
+  // 用户名文本输入本地草稿：blur/Enter 时提交（与 passwordDraft 同模式），
+  // 避免每键写 store 触发级联渲染与防抖保存
+  const [usernameDraft, setUsernameDraft] = useState<string | null>(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -78,11 +83,19 @@ export const AccountPanel = memo(function AccountPanel({
 
   const handlePasswordBlur = () => {
     setPasswordFocused(false)
-    // 聚焦期间输入了非空草稿 → 提交保存
+    // 聚焦期间输入了非空草稿 -> 提交保存
     if (passwordDraft) {
       onUpdateConfig({ password: passwordDraft })
       setPasswordDraft('')
     }
+  }
+
+  const commitUsername = () => {
+    if (usernameDraft === null) return
+    if (usernameDraft !== (config.user || '')) {
+      onUpdateConfig({ user: usernameDraft })
+    }
+    setUsernameDraft(null)
   }
 
   const handleAddAccount = async () => {
@@ -122,8 +135,10 @@ export const AccountPanel = memo(function AccountPanel({
               <Input
                 id="username"
                 type="text"
-                value={config.user || ''}
-                onChange={e => onUpdateConfig({ user: e.target.value })}
+                value={usernameDraft ?? (config.user || '')}
+                onChange={e => setUsernameDraft(e.target.value)}
+                onBlur={commitUsername}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                 placeholder={t('account.usernamePlaceholder')}
                 icon={<UserCircle className="h-4 w-4" />}
               />

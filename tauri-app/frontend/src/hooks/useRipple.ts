@@ -24,10 +24,16 @@ export function useRipple() {
     ripple.style.top = `${y}px`
 
     const controller = new AbortController()
-    ripple.addEventListener('animationend', () => {
+    // 历史缺陷：ripple span 依赖 animationend 移除，reduced-motion（全局 animation:none）
+    // 下 animationend 永不触发，span 残留累积。加 300ms 超时兜底移除。
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    const removeRipple = () => {
+      if (timeout) clearTimeout(timeout)
       ripple.remove()
       controller.abort()
-    }, { signal: controller.signal })
+    }
+    timeout = setTimeout(removeRipple, 300)
+    ripple.addEventListener('animationend', removeRipple, { signal: controller.signal })
 
     el.appendChild(ripple)
   }, [])

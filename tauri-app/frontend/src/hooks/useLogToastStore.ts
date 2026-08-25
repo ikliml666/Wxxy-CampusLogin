@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { LogType, ToastMessage, LogEntry } from '@/shared'
-import { MAX_LOG_ENTRIES } from '@/shared'
+import { MAX_LOG_ENTRIES } from '@/shared/ui-constants'
 
 const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let toastIdCounter = 0

@@ -8,6 +8,32 @@ const api = tauriApiWithRetry
 
 let _adapterLockFlag = false
 
+// 适配器数据刷新（getAdapters + getAdapterDetails 并行拉取后写回 store）。
+// 收敛 useNetwork.refreshAdapterInfo / useAdapterStore.refreshAdapters /
+// NetworkPanel 内联刷新三处重复实现（历史缺陷 P2-F10）。
+// force 透传给 get_adapters（true=强制重探）；includeDisabled 额外刷新禁用列表；
+// triggerCheck 是否在刷新后触发后台检测（各调用点保持原有时机）。
+export async function refreshAdapterData(options: {
+  force?: boolean
+  includeDisabled?: boolean
+  triggerCheck?: boolean
+} = {}): Promise<void> {
+  const { force = false, includeDisabled = false, triggerCheck = false } = options
+  try {
+    const [adapters, details, disabled] = await Promise.all([
+      api.getAdapters?.(force).catch(() => undefined),
+      api.getAdapterDetails?.().catch(() => undefined),
+      includeDisabled ? api.getDisabledAdapters?.().catch(() => undefined) : Promise.resolve(undefined),
+    ])
+    if (adapters) useAdapterStore.setState({ adapters })
+    if (details) useAdapterStore.setState({ adapterDetails: details })
+    if (disabled) useAdapterStore.setState({ disabledAdapters: disabled })
+    if (triggerCheck) api.triggerBackgroundCheck?.().catch(() => {})
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[refreshAdapterData]', e)
+  }
+}
+
 interface AdapterStore {
   adapters: Adapter[]
   disabledAdapters: DisabledAdapter[]
@@ -31,13 +57,8 @@ export const useAdapterStore = create<AdapterStore>((set) => ({
     _adapterLockFlag = true
     set({ isRefreshingAdapters: true })
     try {
-      const [adapters, details] = await Promise.all([
-        api.getAdapters?.(true).catch(() => undefined),
-        api.getAdapterDetails?.().catch(() => undefined),
-      ])
-      if (adapters) set({ adapters })
-      if (details) set({ adapterDetails: details })
-      api.triggerBackgroundCheck?.().catch(() => {})
+      // 复用公共刷新动作（force 重探 + 触发后台检测，与原实现时机一致）
+      await refreshAdapterData({ force: true, triggerCheck: true })
     } catch(e) {
       if (import.meta.env.DEV) console.error('[refreshAdapters]', e)
     } finally {

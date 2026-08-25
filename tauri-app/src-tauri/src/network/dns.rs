@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 lazy_static::lazy_static! {
@@ -23,6 +25,61 @@ const DOH_FALLBACK_SERVERS: &[(&str, &str)] = &[
     ("dns.alidns.com", "223.5.5.5"),
     ("doh.pub", "1.12.12.12"),
 ];
+
+// ===== Resolver 复用池（BE-D-01）=====
+// hickory 0.24 的同步 Resolver 内部自带一个 current-thread Tokio Runtime，
+// 每次解析都新建会重复创建 Runtime + AsyncResolver（连接池、后台任务），
+// 是传统 DNS 解析的主要固定开销。按 (bind_addr, server 集, 超时) 维度缓存复用。
+//
+// 为避免共享单个 Resolver 时其内部 Mutex<Runtime> 把并发解析串行化
+// （quality Phase1 的 SystemDns 会并发解析多个域名，若串行会把离线超时
+// 逐域名累加），每个 key 维护一个小池，池满后轮转取用：
+// 既保证并发并行度，又避免重复建 Runtime。
+const RESOLVER_POOL_SIZE: usize = 4;
+const RESOLVER_CACHE_MAX_KEYS: usize = 16;
+
+struct ResolverPoolEntry {
+    resolvers: Vec<Arc<hickory_resolver::Resolver>>,
+    next: usize,
+}
+
+lazy_static::lazy_static! {
+    static ref RESOLVER_CACHE: parking_lot::Mutex<HashMap<String, ResolverPoolEntry>> =
+        parking_lot::Mutex::new(HashMap::new());
+}
+
+fn resolver_cache_key(bind_addr: Option<IpAddr>, servers: &[String], timeout: Duration) -> String {
+    format!("{:?}|{}|{}", bind_addr, servers.join(","), timeout.as_millis())
+}
+
+/// 获取或创建 Resolver：池未满时按需扩容（首次调用建 1 个，最多 POOL_SIZE 个），
+/// 池满后轮转复用；key 数量极少（几个 bind_addr × 几组 server），超限整体重建即可。
+fn resolver_get_or_create(
+    key: &str,
+    config: hickory_resolver::config::ResolverConfig,
+    opts: hickory_resolver::config::ResolverOpts,
+) -> Result<Arc<hickory_resolver::Resolver>, String> {
+    let mut cache = RESOLVER_CACHE.lock();
+    if cache.len() >= RESOLVER_CACHE_MAX_KEYS && !cache.contains_key(key) {
+        cache.clear();
+    }
+    let entry = cache.entry(key.to_string()).or_insert_with(|| ResolverPoolEntry {
+        resolvers: Vec::with_capacity(RESOLVER_POOL_SIZE),
+        next: 0,
+    });
+    if entry.resolvers.len() < RESOLVER_POOL_SIZE {
+        let resolver = Arc::new(
+            hickory_resolver::Resolver::new(config, opts)
+                .map_err(|e| format!("创建解析器失败: {e}"))?,
+        );
+        entry.resolvers.push(resolver.clone());
+        Ok(resolver)
+    } else {
+        let idx = entry.next;
+        entry.next = (entry.next + 1) % entry.resolvers.len();
+        Ok(entry.resolvers[idx].clone())
+    }
+}
 
 #[derive(Clone)]
 struct ServerScore {
@@ -114,15 +171,25 @@ pub(crate) fn dns_cache_put(host: &str, bind_addr: Option<IpAddr>, ip: IpAddr) {
     let now = Instant::now();
     let key = dns_cache_key(host, bind_addr);
     DNS_CACHE.insert(key, (ip, now));
-    DNS_CACHE.retain(|_, (_, ts)| now.saturating_duration_since(*ts).as_secs() < DNS_CACHE_TTL_SECS);
-    while DNS_CACHE.len() > DNS_CACHE_MAX_ENTRIES {
-        let oldest = DNS_CACHE.iter()
-            .min_by_key(|e| e.value().1)
-            .map(|e| e.key().clone());
-        if let Some(key) = oldest {
+    // BE-D-03: 清理合并到容量超限时一次性执行——先剔除过期项（合并原每次
+    // put 全表 retain 的职责），仍超限时一次收集排序取最旧 N 条删除，
+    // 替代原"循环 min_by_key 逐条删 + 每次 put 全表 retain"。
+    if DNS_CACHE.len() > DNS_CACHE_MAX_ENTRIES {
+        let deadline = now.checked_sub(Duration::from_secs(DNS_CACHE_TTL_SECS)).unwrap_or(now);
+        DNS_CACHE.retain(|_, (_, ts)| *ts > deadline);
+    }
+    if DNS_CACHE.len() > DNS_CACHE_MAX_ENTRIES {
+        let mut entries: Vec<(String, Instant)> = DNS_CACHE.iter()
+            .map(|e| (e.key().clone(), e.value().1))
+            .collect();
+        entries.sort_by_key(|(_, ts)| *ts);
+        let mut remove_count = DNS_CACHE.len().saturating_sub(DNS_CACHE_MAX_ENTRIES);
+        for (key, _) in entries {
+            if remove_count == 0 {
+                break;
+            }
             DNS_CACHE.remove(&key);
-        } else {
-            break;
+            remove_count -= 1;
         }
     }
 }
@@ -140,7 +207,6 @@ pub(crate) async fn resolve_host_uncached_with_bind(
     let host = host.to_string();
     let result = tokio::task::spawn_blocking(move || {
         use hickory_resolver::config::*;
-        use hickory_resolver::Resolver;
 
         let mut config = ResolverConfig::new();
         let servers = get_best_dns_servers();
@@ -162,8 +228,9 @@ pub(crate) async fn resolve_host_uncached_with_bind(
         opts.attempts = 2;
         opts.num_concurrent_reqs = servers.len().min(3);
 
-        let resolver = Resolver::new(config, opts)
-            .map_err(|e| format!("创建解析器失败: {e}"))?;
+        // BE-D-01: 从复用池取 Resolver，避免每次解析新建内部 Tokio Runtime
+        let key = resolver_cache_key(bind_addr, &servers, timeout);
+        let resolver = resolver_get_or_create(&key, config, opts)?;
 
         match resolver.lookup_ip(&host) {
             Ok(response) => {
@@ -193,8 +260,9 @@ pub(crate) async fn resolve_host_uncached_with_bind(
                 sys_opts.attempts = 2;
                 sys_opts.num_concurrent_reqs = 2;
 
-                let sys_resolver = Resolver::new(sys_config, sys_opts)
-                    .map_err(|e| format!("创建系统解析器失败: {e}"))?;
+                // 系统 fallback 也走复用池（key 带 sys 前缀，config 由 SYSTEM_RESOLVER_CONFIG 固定）
+                let sys_key = format!("sys|{:?}|{}", bind_addr, timeout.as_millis());
+                let sys_resolver = resolver_get_or_create(&sys_key, sys_config, sys_opts)?;
 
                 sys_resolver.lookup_ip(&host)
                     .map_err(|e| format!("{e}"))
@@ -223,7 +291,6 @@ pub(crate) async fn dns_lookup(
     protocol: hickory_resolver::config::Protocol,
 ) -> (Result<(), String>, i64) {
     use hickory_resolver::config::*;
-    use hickory_resolver::Resolver;
 
     let start = Instant::now();
     let ip: IpAddr = match server_ip.parse() {
@@ -248,9 +315,11 @@ pub(crate) async fn dns_lookup(
     opts.attempts = 2;
     opts.num_concurrent_reqs = 1;
 
-    let resolver = match Resolver::new(resolver_config, opts) {
+    // BE-D-01: 单服务器解析器也走复用池（key 含 server/protocol/bind/timeout）
+    let key = format!("single|{}|{:?}|{:?}|{}", server_ip, protocol, bind_addr, timeout.as_millis());
+    let resolver = match resolver_get_or_create(&key, resolver_config, opts) {
         Ok(r) => r,
-        Err(e) => return (Err(format!("创建解析器失败: {e}")), -1),
+        Err(e) => return (Err(e), -1),
     };
 
     let domain = domain.to_string();
@@ -445,7 +514,11 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
 
     let mut set = tokio::task::JoinSet::new();
 
-    for (server, ip_str) in &doh_servers {
+    // BE-D-02: 竞速降级——只并发"历史最快 1 个 DoH + 传统 DNS"两路。
+    // 原实现对全部 DoH（默认 2 个）都发起 TLS 握手，每域名 3 路 TLS 且连接一次即弃；
+    // 改为仅 1 路 DoH（get_best_doh_servers 已按延迟升序，first 即最快），
+    // 每域名 TLS 握手从 2 路降到 1 路。DoH 响应的 QR/RCODE 劫持校验逻辑不变。
+    if let Some((server, ip_str)) = doh_servers.first() {
         if let Ok(doh_ip) = ip_str.parse::<IpAddr>() {
             let s = server.clone();
             let h = host.to_string();

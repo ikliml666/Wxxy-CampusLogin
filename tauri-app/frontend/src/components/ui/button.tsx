@@ -97,6 +97,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const rafRef = React.useRef<number>(0)
     const lastPosRef = React.useRef<{ x: number; y: number }>({ x: -999, y: -999 })
 
+    // 历史缺陷：RAF 未取消，按钮卸载后回调仍可能执行写已卸载节点。
+    // cleanup 时 cancel 未完成的 RAF。
+    React.useEffect(() => {
+      return () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      }
+    }, [])
+
     return (
       <button
         className={cn(buttonVariants({ variant, size, className }), 'btn-press')}

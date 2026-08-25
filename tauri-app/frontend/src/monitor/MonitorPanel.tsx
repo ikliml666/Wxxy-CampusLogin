@@ -10,14 +10,15 @@ import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, PowerOff, AlarmClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getRefreshIconClass } from '@/shared'
+import { getRefreshIconClass } from '@/shared/RefreshButton'
 import React, { memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useAuthStore } from '@/hooks/useAuthStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useShallow } from 'zustand/react/shallow'
 
 interface MonitorPanelProps {
-  config: Config
   onUpdateConfig: (partial: Partial<Config>) => void
   onToggleBackgroundCheck: (enabled: boolean, interval: number) => Promise<void>
   onTriggerCheck: () => Promise<void>
@@ -71,13 +72,20 @@ const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }:
   )
 })
 
-export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
+export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
   const { t } = useTranslation()
   const bgStatus = useAuthStore((s) => s.bgStatus)
+  // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
+  // 使 App 外壳不再因任意 config 字段变化而级联重渲染
+  const config = useConfigStore(useShallow((s) => s.config))
   const intervalSec = useMemo(() => (config.backgroundCheckInterval || 60000) / 1000, [config.backgroundCheckInterval])
   // 数字输入本地草稿：blur/Enter 时 clamp 提交，避免 clamp 后的值回灌输入框
   // 导致用户无法输入（清空瞬回 10/60、120 变 1020）（历史缺陷 P1-F6）。
   const [intervalDraft, setIntervalDraft] = useState<string | null>(null)
+  // 文本输入本地草稿：blur/Enter 时一次性提交，
+  // 避免每键写 store 触发级联渲染与防抖保存（与 intervalDraft 同模式）
+  const [networkNameDraft, setNetworkNameDraft] = useState<string | null>(null)
+  const [campusGatewayDraft, setCampusGatewayDraft] = useState<string | null>(null)
   const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
     await onTriggerCheck()
   }, 2000)
@@ -89,6 +97,22 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
       onUpdateConfig({ backgroundCheckInterval: v * 1000 })
     }
     setIntervalDraft(null)
+  }
+
+  const commitNetworkName = () => {
+    if (networkNameDraft === null) return
+    if (networkNameDraft !== (config.requiredNetworkName || '')) {
+      onUpdateConfig({ requiredNetworkName: networkNameDraft })
+    }
+    setNetworkNameDraft(null)
+  }
+
+  const commitCampusGateway = () => {
+    if (campusGatewayDraft === null) return
+    if (campusGatewayDraft !== (config.campusGateway || '')) {
+      onUpdateConfig({ campusGateway: campusGatewayDraft })
+    }
+    setCampusGatewayDraft(null)
   }
 
   return (
@@ -271,8 +295,10 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                     <Input
                       type="text"
                       placeholder={t('monitor.campusNetworkNamePlaceholder')}
-                      value={config.requiredNetworkName || ''}
-                      onChange={e => onUpdateConfig({ requiredNetworkName: e.target.value })}
+                      value={networkNameDraft ?? (config.requiredNetworkName || '')}
+                      onChange={e => setNetworkNameDraft(e.target.value)}
+                      onBlur={commitNetworkName}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                       className="h-8 text-sm"
                     />
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusNetworkNameTip')}</p>
@@ -282,13 +308,16 @@ export const MonitorPanel = memo(function MonitorPanel({ config, onUpdateConfig,
                     <Input
                       type="text"
                       placeholder={t('monitor.campusGatewayPlaceholder')}
-                      value={config.campusGateway || ''}
+                      value={campusGatewayDraft ?? (config.campusGateway || '')}
                       onChange={e => {
                         const v = e.target.value
+                        // 格式校验保持原语义：仅合法输入进入草稿（store 中永远不会有非法值）
                         if (!v || /^(\d{1,3}\.){0,3}\d{0,3}$/.test(v)) {
-                          onUpdateConfig({ campusGateway: v })
+                          setCampusGatewayDraft(v)
                         }
                       }}
+                      onBlur={commitCampusGateway}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                       className="h-8 text-sm"
                     />
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusGatewayTip')}</p>
