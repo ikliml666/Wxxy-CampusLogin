@@ -368,7 +368,11 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
             />
 
             <TabContent>
-              <TooltipProvider delayDuration={200}>
+              {/* 历史缺陷：m.div(key=activeTab) 之前被 TooltipProvider 包裹，导致
+                  AnimatePresence mode="wait" 只能感知恒定无 key 的 TooltipProvider，
+                  切换子标签时 key 变化不被追踪，进出场动画被跳过。
+                  修复：把 TooltipProvider 移到 m.div 内部，让 m.div(key) 成为
+                  AnimatePresence 的直接子元素，切换时才播进出场过渡。 */}
               <m.div
                 key={activeTab}
                 custom={tabDirection}
@@ -378,8 +382,9 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                 exit="exit"
                 className="space-y-2"
               >
+                <TooltipProvider delayDuration={200}>
                 {activeItems.map(item => (
-                  <m.div key={item.name} variants={tabItemVariants}>
+                  <m.div key={item.name} variants={tabItemVariants} custom={tabDirection}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className={cn(
@@ -462,8 +467,8 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                     </Tooltip>
                   </m.div>
                 ))}
+                </TooltipProvider>
               </m.div>
-              </TooltipProvider>
             </TabContent>
 
             {networkQuality?.timestamp && networkQuality.quality !== 'unknown' && (
