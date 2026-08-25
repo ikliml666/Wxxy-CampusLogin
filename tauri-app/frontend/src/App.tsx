@@ -57,11 +57,13 @@ const AboutDialog = lazy(loadAboutDialog)
 const ThemeDialog = lazy(loadThemeDialog)
 const OnboardingWizard = lazy(loadOnboardingWizard)
 
-// 启动后在空闲时段预加载所有面板/对话框 chunk，避免首次点击切换面板时等待加载
+// 启动后尽早并行预加载所有面板/对话框 chunk（不等待空闲回调），
+// 避免首次点击切换面板时等待下载导致卡顿
 function preloadPanels() {
   const loaders = [loadAccountPanel, loadNetworkPanel, loadMonitorPanel, loadQualityPanel,
     loadSpeedTestPanel, loadSettingsPanel, loadLogPanel, loadAboutDialog, loadThemeDialog, loadOnboardingWizard]
-  loaders.forEach((loader) => { loader().catch(() => { /* 预加载失败静默，不影响正常切换 */ }) })
+  // 并行发起所有动态 import（浏览器并发下载 chunk），任一个失败不影响其余
+  Promise.allSettled(loaders.map((loader) => loader()))
 }
 
 const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
@@ -157,10 +159,9 @@ function AppInner() {
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         runStartupSequence()
-        // 启动动画播完后，在浏览器空闲时段预加载所有面板 chunk，
-        // 避免首次点击切换面板时等待 chunk 下载导致卡顿（requestIdleCallback 兼容回退 setTimeout）
-        const schedule = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1000))
-        schedule(() => preloadPanels())
+        // 启动动画开始即并行预加载所有面板 chunk（import 异步不阻塞渲染），
+        // 不等空闲回调，让 chunk 尽早下载就绪，消除首次切换卡顿
+        preloadPanels()
       })
     })
     return () => cancelAnimationFrame(raf)
