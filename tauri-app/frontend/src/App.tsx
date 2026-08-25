@@ -24,6 +24,13 @@ import { StatusBar } from '@/monitor/StatusBar'
 import { DockNav } from '@/components/layout/DockNav'
 import { RightPanel } from '@/components/layout/RightPanel'
 import { DashboardPanel } from '@/auth/DashboardPanel'
+// 常用面板静态导入：切换零等待（消除分包下载卡顿）。仅低频的 LogPanel/对话框保留懒加载。
+import { AccountPanel } from '@/account/AccountPanel'
+import { NetworkPanel } from '@/network/NetworkPanel'
+import { MonitorPanel } from '@/monitor/MonitorPanel'
+import { QualityPanel } from '@/monitor/QualityPanel'
+import { SpeedTestPanel } from '@/monitor/SpeedTestPanel'
+import { SettingsPanel } from '@/settings/SettingsPanel'
 import { getPanelDirection, createPanelAppleVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
@@ -32,37 +39,21 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 
-// 低频面板/对话框按需分包（FE-A-04）：默认面板 Dashboard 保持静态导入，避免首屏闪加载态；
-// 其余面板与对话框均为命名导出，经 then 适配为默认导出后 React.lazy 代码分割，Suspense 内渲染。
-// loader 单独抽出供 React.lazy 与启动预加载（preloadPanels）复用：切面板时 chunk 已就绪，避免卡顿。
-const loadAccountPanel = () => import('@/account/AccountPanel').then((m) => ({ default: m.AccountPanel }))
-const loadNetworkPanel = () => import('@/network/NetworkPanel').then((m) => ({ default: m.NetworkPanel }))
-const loadMonitorPanel = () => import('@/monitor/MonitorPanel').then((m) => ({ default: m.MonitorPanel }))
-const loadQualityPanel = () => import('@/monitor/QualityPanel').then((m) => ({ default: m.QualityPanel }))
-const loadSpeedTestPanel = () => import('@/monitor/SpeedTestPanel').then((m) => ({ default: m.SpeedTestPanel }))
-const loadSettingsPanel = () => import('@/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel }))
+// 低频模块按需分包（FE-A-04）：LogPanel 与三个对话框保留 React.lazy 懒加载，
+// 其余常用面板已静态导入（切换零等待）。loader 抽出供 lazy 与启动预加载复用。
 const loadLogPanel = () => import('@/shared/LogPanel').then((m) => ({ default: m.LogPanel }))
 const loadAboutDialog = () => import('@/auth/AboutDialog').then((m) => ({ default: m.AboutDialog }))
 const loadThemeDialog = () => import('@/settings/ThemeDialog').then((m) => ({ default: m.ThemeDialog }))
 const loadOnboardingWizard = () => import('@/settings/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard }))
 
-const AccountPanel = lazy(loadAccountPanel)
-const NetworkPanel = lazy(loadNetworkPanel)
-const MonitorPanel = lazy(loadMonitorPanel)
-const QualityPanel = lazy(loadQualityPanel)
-const SpeedTestPanel = lazy(loadSpeedTestPanel)
-const SettingsPanel = lazy(loadSettingsPanel)
 const LogPanel = lazy(loadLogPanel)
 const AboutDialog = lazy(loadAboutDialog)
 const ThemeDialog = lazy(loadThemeDialog)
 const OnboardingWizard = lazy(loadOnboardingWizard)
 
-// 启动后尽早并行预加载所有面板/对话框 chunk（不等待空闲回调），
-// 避免首次点击切换面板时等待下载导致卡顿
+// 启动后尽早并行预加载剩余的懒加载 chunk（LogPanel + 对话框），避免首次打开时等待
 function preloadPanels() {
-  const loaders = [loadAccountPanel, loadNetworkPanel, loadMonitorPanel, loadQualityPanel,
-    loadSpeedTestPanel, loadSettingsPanel, loadLogPanel, loadAboutDialog, loadThemeDialog, loadOnboardingWizard]
-  // 并行发起所有动态 import（浏览器并发下载 chunk），任一个失败不影响其余
+  const loaders = [loadLogPanel, loadAboutDialog, loadThemeDialog, loadOnboardingWizard]
   Promise.allSettled(loaders.map((loader) => loader()))
 }
 
