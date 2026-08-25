@@ -468,7 +468,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   return (
     <div
       ref={outerRef}
-      className="fixed bottom-5 z-50 flex justify-center pointer-events-none"
+      className="fixed bottom-5 z-30 flex justify-center pointer-events-none"
       style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
     >
       <nav

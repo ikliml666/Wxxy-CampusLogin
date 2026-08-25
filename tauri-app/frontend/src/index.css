@@ -460,15 +460,6 @@
     box-shadow: 0 0 0 2px hsl(var(--ring));
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .animated-card-interactive {
-      transition: none;
-    }
-    .animate-spin {
-      animation: none !important;
-    }
-  }
-
   .dark .animated-card-interactive:hover {
     border-color: rgba(255, 255, 255, 0.06);
   }
@@ -763,6 +754,7 @@
   @media (prefers-reduced-motion: reduce) {
     .animated-card-interactive {
       transition: none;
+      will-change: auto !important;
     }
     .signal-bar-enter,
     .log-entry-flash::after,
