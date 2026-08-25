@@ -34,16 +34,35 @@ import { useTranslation } from 'react-i18next'
 
 // 低频面板/对话框按需分包（FE-A-04）：默认面板 Dashboard 保持静态导入，避免首屏闪加载态；
 // 其余面板与对话框均为命名导出，经 then 适配为默认导出后 React.lazy 代码分割，Suspense 内渲染。
-const AccountPanel = lazy(() => import('@/account/AccountPanel').then((m) => ({ default: m.AccountPanel })))
-const NetworkPanel = lazy(() => import('@/network/NetworkPanel').then((m) => ({ default: m.NetworkPanel })))
-const MonitorPanel = lazy(() => import('@/monitor/MonitorPanel').then((m) => ({ default: m.MonitorPanel })))
-const QualityPanel = lazy(() => import('@/monitor/QualityPanel').then((m) => ({ default: m.QualityPanel })))
-const SpeedTestPanel = lazy(() => import('@/monitor/SpeedTestPanel').then((m) => ({ default: m.SpeedTestPanel })))
-const SettingsPanel = lazy(() => import('@/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel })))
-const LogPanel = lazy(() => import('@/shared/LogPanel').then((m) => ({ default: m.LogPanel })))
-const AboutDialog = lazy(() => import('@/auth/AboutDialog').then((m) => ({ default: m.AboutDialog })))
-const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((m) => ({ default: m.ThemeDialog })))
-const OnboardingWizard = lazy(() => import('@/settings/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard })))
+// loader 单独抽出供 React.lazy 与启动预加载（preloadPanels）复用：切面板时 chunk 已就绪，避免卡顿。
+const loadAccountPanel = () => import('@/account/AccountPanel').then((m) => ({ default: m.AccountPanel }))
+const loadNetworkPanel = () => import('@/network/NetworkPanel').then((m) => ({ default: m.NetworkPanel }))
+const loadMonitorPanel = () => import('@/monitor/MonitorPanel').then((m) => ({ default: m.MonitorPanel }))
+const loadQualityPanel = () => import('@/monitor/QualityPanel').then((m) => ({ default: m.QualityPanel }))
+const loadSpeedTestPanel = () => import('@/monitor/SpeedTestPanel').then((m) => ({ default: m.SpeedTestPanel }))
+const loadSettingsPanel = () => import('@/settings/SettingsPanel').then((m) => ({ default: m.SettingsPanel }))
+const loadLogPanel = () => import('@/shared/LogPanel').then((m) => ({ default: m.LogPanel }))
+const loadAboutDialog = () => import('@/auth/AboutDialog').then((m) => ({ default: m.AboutDialog }))
+const loadThemeDialog = () => import('@/settings/ThemeDialog').then((m) => ({ default: m.ThemeDialog }))
+const loadOnboardingWizard = () => import('@/settings/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard }))
+
+const AccountPanel = lazy(loadAccountPanel)
+const NetworkPanel = lazy(loadNetworkPanel)
+const MonitorPanel = lazy(loadMonitorPanel)
+const QualityPanel = lazy(loadQualityPanel)
+const SpeedTestPanel = lazy(loadSpeedTestPanel)
+const SettingsPanel = lazy(loadSettingsPanel)
+const LogPanel = lazy(loadLogPanel)
+const AboutDialog = lazy(loadAboutDialog)
+const ThemeDialog = lazy(loadThemeDialog)
+const OnboardingWizard = lazy(loadOnboardingWizard)
+
+// 启动后在空闲时段预加载所有面板/对话框 chunk，避免首次点击切换面板时等待加载
+function preloadPanels() {
+  const loaders = [loadAccountPanel, loadNetworkPanel, loadMonitorPanel, loadQualityPanel,
+    loadSpeedTestPanel, loadSettingsPanel, loadLogPanel, loadAboutDialog, loadThemeDialog, loadOnboardingWizard]
+  loaders.forEach((loader) => { loader().catch(() => { /* 预加载失败静默，不影响正常切换 */ }) })
+}
 
 const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   dashboard: { titleKey: 'panel.dashboard', descKey: 'panel.dashboardDesc' },
@@ -138,6 +157,10 @@ function AppInner() {
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         runStartupSequence()
+        // 启动动画播完后，在浏览器空闲时段预加载所有面板 chunk，
+        // 避免首次点击切换面板时等待 chunk 下载导致卡顿（requestIdleCallback 兼容回退 setTimeout）
+        const schedule = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1000))
+        schedule(() => preloadPanels())
       })
     })
     return () => cancelAnimationFrame(raf)
