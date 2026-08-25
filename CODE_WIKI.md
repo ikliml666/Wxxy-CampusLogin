@@ -1495,7 +1495,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 ### 5.11 入口点 — `main.tsx`
 
-- **GSAP 全局配置**: `expo.out` 默认缓动, `force3D: true`, `autoSleep: 5`, `lagSmoothing(500, 33)`, `nullTargetWarn: false`
+- **GSAP 全局配置**: `expo.out` 默认缓动, `autoSleep: 5`, `lagSmoothing(500, 33)`, `nullTargetWarn: false`。`force3D` 不设全局默认——transform 相关 tween 均已显式声明 `force3D: true`，全局强制反而让动画结束后合成层不易回收
 - **prefers-reduced-motion**: GSAP duration 设为 0
 - **主题初始化**: `initTheme()` — 从 localStorage 恢复亮暗模式 + 主题类
 - **崩溃恢复** (`setupCrashRecovery`): 最多3次自动重载，GPU/WebGL/SharedArrayBuffer 错误触发重载，渲染心跳5秒无响应视为GPU崩溃触发重载，页面可见性变化时暂停/恢复 GSAP globalTimeline
@@ -1869,7 +1869,7 @@ App.tsx (377行, App + AppInner)
 | 前端选择性订阅 | useShallow 减少不必要重渲染 | UI 响应更流畅 |
 | 高频事件节流 | 500ms 时间戳节流 | 防止 UI 频繁更新 |
 | FluidBackground CSS动画移除 | 3个大型渐变层动画完全移除 | GPU进程CPU占用显著降低 |
-| GSAP动画迁移 | 约 12 个 CSS 动画迁移至 GSAP，全局配置 `gsap.defaults({force3D:true})` + `gsap.config({autoSleep:5})` + `gsap.ticker.lagSmoothing(500,33)` (main.tsx:13-15) | GPU合成层加速，空闲自动暂停 |
+| GSAP动画迁移 | 约 12 个 CSS 动画迁移至 GSAP，全局配置 `gsap.defaults({ease:'expo.out'})` + `gsap.config({autoSleep:5})` + `gsap.ticker.lagSmoothing(500,33)` (main.tsx:14-15)，`force3D` 不再全局默认（各 tween 显式声明） | GPU合成层加速，空闲自动暂停，动画结束回收 |
 | RAF节流+位置去抖 | Button/DockNav/AnimatedCard鼠标事件节流 | 减少无效getBoundingClientRect调用 |
 | transition-all替换 | 10 处替换为显式属性列表（剩余 4 处 AboutDialog/OnboardingWizard/DockNav×2 为有意保留） | 减少不必要的属性过渡计算 |
 | WebView2 内存管理 | 前台 NORMAL/后台 LOW (ICoreWebView2_19.SetMemoryUsageTargetLevel) | 后台内存占用显著降低 |
@@ -1902,6 +1902,8 @@ App.tsx (377行, App + AppInner)
 | 文本输入本地草稿 (v2.4.0) | 用户名/网关/SSID/fixedGateway 改本地 draft + blur 提交；主题色 80ms 节流 (AccountPanel, MonitorPanel, SettingsPanel) | 不再每键写 store + 触发防抖保存 |
 | 日志面板渲染优化 (v2.4.0) | 轮询内容未变跳过 setState；叠加窗口可见性门控；单遍解析 (shared/LogPanel.tsx) | 消除四层 useMemo 全量重算与整表重渲染 |
 | 事件与动画资源 (v2.4.0) | setStatus 浅比较；usePageIdle interval 化；GSAP/RAF/ripple 清理与 reduced-motion 兜底 (useEventListeners, usePageIdle, AnimatedNumber, button, animated-card, useRipple) | 减少无效 setState 与未清理资源 |
+| 动画合成层精细化管理 (v2.5.0) | 移除一次性/瞬态动画的常驻 will-change（card-enter 等）；main.tsx 去全局 force3D；.anim-idle 补 signal-glow-active 暂停；重复 @keyframes rippleExpand 拆分改名修复 AnimatedCard 涟漪不可见 (index.css, main.tsx) | 动画结束即回收合成层，降低持续 GPU 层开销 |
+| 设计基础整治 (v2.5.0) | html font-size 15px→16px（对齐 DockNav fallback 修正 dock 偏移）；统一圆角体系（移除按钮 9999px 胶囊化与 w-8 h-8 强转圆形，md=10/lg=12/xl=16）；补全 prefers-reduced-motion；清理 9+ 死代码类 (index.css) | 视觉层级一致，reduced-motion 全停，减小样式体积 |
 
 ---
 
