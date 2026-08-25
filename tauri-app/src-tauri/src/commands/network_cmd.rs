@@ -257,186 +257,20 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
             }
 
             if elevation::is_admin() {
-                let mut api_success: Vec<String> = Vec::new();
-                let mut api_fail: Vec<String> = Vec::new();
-
-                for adapter in &active {
-                    let dns_list: Vec<&str> = vec![dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS];
-                    let doh_list: Vec<(&str, &str)> = dns_config::DOH_SERVERS.to_vec();
-
-                    // WiFi 适配器：先清除适配器级 DNS，再设置配置文件级 DNS
-                    // 有线适配器：保持适配器级 DNS
-                    if adapter.wireless {
-                        // 清除适配器级 DNS，确保配置文件级 DNS 生效
-                        if let Err(e) = dns_config::clear_adapter_dns_via_api(&adapter.guid) {
-                            crate::log_warn!("dns", "清除适配器级DNS失败: {} - {}", adapter.name, e);
-                        }
-                        match dns_config::set_profile_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
-                            Ok(()) => {
-                                crate::log_info!("dns", "配置文件级DNS+DoH设置成功: {}", adapter.name);
-                                api_success.push(adapter.name.clone());
-                            }
-                            Err(e) => {
-                                crate::log_warn!("dns", "配置文件级DNS设置失败: {} - {}, 降级到适配器级", adapter.name, e);
-                                // 降级到适配器级 DNS
-                                match dns_config::set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
-                                    Ok(()) => {
-                                        crate::log_info!("dns", "降级适配器级DNS+DoH成功: {}", adapter.name);
-                                        api_success.push(adapter.name.clone());
-                                    }
-                                    Err(e2) => {
-                                        crate::log_warn!("dns", "适配器级DNS也失败: {} - {}", adapter.name, e2);
-                                        api_fail.push(format!("{}: {}", adapter.name, e2));
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        match dns_config::set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
-                            Ok(()) => {
-                                crate::log_info!("dns", "Win32 API设置DNS+DoH成功: {}", adapter.name);
-                                api_success.push(adapter.name.clone());
-                            }
-                            Err(e) => {
-                                crate::log_warn!("dns", "Win32 API设置DNS失败: {} - {}", adapter.name, e);
-                                api_fail.push(format!("{}: {}", adapter.name, e));
-                            }
-                        }
-                    }
-                }
-
-                let _ = crate::network::discovery::new_command("ipconfig")
-                    .args(["/flushdns"])
-                    .output();
-
-                if !api_success.is_empty() {
-                    let mut parts = Vec::new();
-                    parts.push(format!("已为 {} 设置DNS({}+{})并启用DoH", api_success.join("、"), dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS));
-                    if !api_fail.is_empty() {
-                        parts.push(format!("{}个适配器设置失败", api_fail.len()));
-                    }
-                    return Ok(serde_json::json!({
-                        "success": api_fail.is_empty(),
-                        "message": parts.join("，"),
-                        "dnsSuccess": api_success,
-                        "dnsFailed": api_fail,
-                        "dohAdded": dns_config::DOH_SERVERS.iter().map(|(ip, _)| ip.to_string()).collect::<Vec<_>>(),
-                        "dohFailed": [],
-                    }));
-                }
-
-                return Ok(serde_json::json!({
-                    "success": false,
-                    "message": "设置DNS失败".to_string(),
-                    "dnsFailed": api_fail,
-                }));
+                return Ok(crate::network::dns_setup::setup_dns_doh_admin());
             }
 
-            crate::log_info!("dns", "非管理员运行，使用COM ShellExec提权设置DNS+DoH");
-            let mut ps_cmds: Vec<String> = Vec::new();
-            for adapter in &active {
-                if adapter.wireless {
-                    // WiFi: 清除适配器级 DNS，设置配置文件级 DNS
-                    ps_cmds.push(format!(
-                        "netsh interface ip set dns name='{}' dhcp",
-                        crate::network::dhcp::escape_ps_single_quote(&adapter.name)
-                    ));
-                    // 设置 ProfileNameServer（通过注册表）
-                    if !adapter.guid.is_empty() {
-                        ps_cmds.push(format!(
-                            "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{}' -Name 'ProfileNameServer' -Value '{},{}'",
-                            adapter.guid, dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
-                        ));
-                    }
-                } else {
-                    ps_cmds.push(format!(
-                        "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses ('{}','{}') -Confirm:$false",
-                        crate::network::dhcp::escape_ps_single_quote(&adapter.name), dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
-                    ));
-                }
-            }
-            for (ip, template) in dns_config::DOH_SERVERS {
-                ps_cmds.push(format!("netsh dns add encryption server={ip} dohtemplate={template} autoupgrade=yes udpfallback=yes"));
-            }
-            ps_cmds.push("ipconfig /flushdns".to_string());
-            let ps_script = ps_cmds.join("; ");
-            let ps_args = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{ps_script}\"");
-
-            match elevation::shell_exec_elevated("powershell", &ps_args, true) {
-                Ok(()) => {
-                    std::thread::sleep(std::time::Duration::from_millis(1500));
-                    let mut verify_ok = false;
-                    for adapter in &active {
-                        let check = crate::network::discovery::new_command("netsh")
-                            .args(["interface", "ip", "show", "dns", &format!("name={}", adapter.name)])
-                            .output();
-                        if let Ok(co) = check {
-                            let out = format!("{}{}", String::from_utf8_lossy(&co.stdout), String::from_utf8_lossy(&co.stderr));
-                            if out.contains(dns_config::PRIMARY_DNS) {
-                                verify_ok = true;
-                            }
-                        }
-                    }
-                    if verify_ok {
-                        return Ok(serde_json::json!({
-                            "success": true,
-                            "message": "已通过管理员权限设置DNS并启用DoH".to_string(),
-                        }));
-                    }
-                }
-                Err(com_err) => {
-                    crate::log_warn!("dns", "COM ShellExec提权失败: {}，降级到ShellExecuteW", com_err);
-                }
-            }
-
-            // 校验适配器名称不含 cmd 元字符，防止命令注入
-            for adapter in &active {
-                if adapter.name.chars().any(|c| matches!(c, '"' | '&' | '|' | '<' | '>' | '^' | '%')) {
-                    return Ok(serde_json::json!({
-                        "success": false,
-                        "message": format!("适配器名称含特殊字符，无法通过cmd设置DNS: {}", adapter.name)
-                    }));
-                }
-            }
-
-            let mut all_cmds = String::new();
-            for adapter in &active {
-                if adapter.wireless {
-                    // WiFi: 清除适配器级 DNS (恢复 DHCP)，设置 ProfileNameServer
-                    all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" dhcp & ", adapter.name));
-                    if !adapter.guid.is_empty() {
-                        all_cmds.push_str(&format!(
-                            "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\{}\" /v ProfileNameServer /t REG_SZ /d \"{},{}\" /f & ",
-                            adapter.guid, dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS
-                        ));
-                    }
-                } else {
-                    all_cmds.push_str(&format!("netsh interface ip set dns name=\"{}\" static {} primary & ", adapter.name, dns_config::PRIMARY_DNS));
-                    all_cmds.push_str(&format!("netsh interface ip add dns name=\"{}\" {} index=2 & ", adapter.name, dns_config::SECONDARY_DNS));
-                    if !adapter.guid.is_empty() {
-                        for dns_ip in &[dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS] {
-                            all_cmds.push_str(&format!(
-                                "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\InterfaceSpecificParameters\\{}\\DohInterfaceSettings\\Doh\\{}\" /v DohFlags /t REG_QWORD /d 1 /f & ",
-                                adapter.guid, dns_ip
-                            ));
-                        }
-                    }
-                }
-            }
-            for (ip, template) in dns_config::DOH_SERVERS {
-                all_cmds.push_str(&format!("netsh dns add encryption server={ip} dohtemplate={template} autoupgrade=yes udpfallback=yes & "));
-            }
-            all_cmds.push_str("ipconfig /flushdns");
-
-            match elevation::run_elevated("cmd", &format!("/c {all_cmds}")) {
-                Ok(()) => {
-                    std::thread::sleep(std::time::Duration::from_millis(2000));
-                    Ok(serde_json::json!({
-                        "success": true,
-                        "message": "已通过管理员权限设置DNS并启用DoH".to_string(),
-                    }))
-                }
+            crate::log_info!("dns", "非管理员运行，通过 --helper 提权设置DNS+DoH");
+            let result_path = crate::platform::helper_spawn::unique_result_path();
+            match crate::platform::helper_spawn::spawn_elevated_helper(
+                "dns",
+                &[],
+                &result_path,
+                std::time::Duration::from_secs(30),
+            ) {
+                Ok(v) => Ok(v),
                 Err(e) => {
+                    crate::log_warn!("dns", "helper提权设置DNS失败: {}", e);
                     Ok(serde_json::json!({
                         "success": false,
                         "message": format!("需要管理员权限: {}", e),

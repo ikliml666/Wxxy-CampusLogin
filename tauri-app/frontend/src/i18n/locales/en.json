@@ -135,6 +135,7 @@
     "noAdaptersTip": "Please check your network connection",
     "noIp": "No IP",
     "primary": "Primary",
+    "linkSpeed": "Link speed {speed}",
     "wireless": "Wireless",
     "wired": "Wired",
     "adapterSettings": "Adapter Settings",

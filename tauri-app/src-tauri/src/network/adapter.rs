@@ -260,6 +260,7 @@ mod tests {
             mac: String::new(),
             if_index: 1,
             status,
+            link_speed: 0,
         }
     }
 

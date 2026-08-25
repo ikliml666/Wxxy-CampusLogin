@@ -168,15 +168,16 @@ Wxxy-CampusLogin/
 │           │   ├── client.rs        # 缓存基础设施 (PORTAL_URL/CLIENT_POOL/HTTP客户端/TLS 1.3+回退)
 │           │   ├── adapter.rs       # 适配器选择 (薄 re-export 模块: discovery/adapter_cache/dhcp/subnet)
 │           │   ├── adapter_cache.rs # 适配器查询缓存 (force/cached 双模式)
-│           │   ├── dhcp.rs          # DHCP 操作 (release/renew)
+│           │   ├── dhcp.rs          # DHCP 操作 (release/renew, MAC 重置, apply_mac_change_via_registry)
 │           │   ├── subnet.rs        # 子网判定 (/18 校园网子网匹配)
 │           │   ├── dns.rs           # DNS 缓存管理 + DoH解析 + 智能解析策略
 │           │   ├── timing.rs        # HTTP计时 + DNS智能解析 + DoH + 评分系统
 │           │   ├── quality.rs       # 网络质量并发延迟测试 (两阶段检测+增量推送)
+│           │   ├── dns_setup.rs     # DNS+DoH 一键设置 (管理员/提权 helper 共用, setup_dns_doh_admin)
 │           │   └── discovery/       # 适配器发现子模块
 │           │       ├── mod.rs       # 重导出
 │           │       ├── registry.rs  # 注册表遍历 (CLASS_SUBKEY_CACHE 懒加载+锁优化)
-│           │       └── windows.rs   # Windows 特定发现逻辑
+│           │       └── windows.rs   # Windows 特定发现逻辑 (GetAdaptersAddresses + LinkSpeed)
 │           ├── auth/                # 认证模块 (6个子模块，原 traits.rs 已删除)
 │           │   ├── mod.rs           # 重导出
 │           │   ├── portal.rs        # Portal认证状态检测 (random_v + block_on_http 同步-异步桥接)
@@ -218,10 +219,13 @@ Wxxy-CampusLogin/
 │           │   ├── dns_config.rs    # DNS/DoH 配置文件设置 (per-profile/适配器级/DoH API)
 │           │   ├── elevation.rs     # UAC 提权 (ShellExecuteW + COM ShellExec) + GUID 解析 + is_admin
 │           │   ├── gpu.rs           # GPU 信息检测 (DXGI) + 刷新率检测 + 浏览器参数 + gpu_preference
-│           │   └── autostart.rs     # 开机自启 (注册表/Tauri 插件)
+│           │   ├── autostart.rs     # 开机自启 (注册表/Tauri 插件)
+│           │   └── helper_spawn.rs  # --helper 提权子进程启动 + 结果文件轮询 (spawn_elevated_helper)
 │           ├── update/              # 更新模块
 │           │   ├── mod.rs           # 重导出
 │           │   └── updater.rs       # 更新检查/下载/安装 (SHA256校验)
+│           ├── helper/              # 提权辅助子进程 (--helper 模式, 主进程入口最先拦截)
+│           │   └── mod.rs           # HelperOp/parse_helper_args/run_helper + 结果文件回写
 │           ├── app/                 # 应用生命周期模块
 │           │   ├── mod.rs           # 重导出
 │           │   ├── startup.rs       # 应用启动 (setup_app + 命令注册 + panic hook)
@@ -382,10 +386,11 @@ Wxxy-CampusLogin/
 **main.rs 关键流程**:
 
 1. **panic hook**: `log_error!` 写入日志文件 + `flush_quick`（500ms超时）确保日志落盘 + `eprintln` 兜底（release 模式 `windows_subsystem=windows` 不可见但保留）
-2. **Tokio runtime 构建**: `build_runtime(core_count)` 根据 CPU 核心数动态配置 `worker_threads(2-8)` 和 `max_blocking_threads(8-64)`
-3. **runtime 注入 Tauri**: `tauri::async_runtime::set(handle)` 将 Tokio handle 注入 Tauri 异步运行时
-4. **启动应用**: `app::startup::run(core_count)` 进入 Tauri 主循环
-5. **退出清理**: flush 日志 → shutdown logger (mpsc + recv_timeout 500ms 带超时 join，B9-14 删除原固定 sleep(200ms)) → `runtime.shutdown_timeout(5s)`
+2. **`--helper` 拦截**: 主进程以管理员身份重启自身（提权执行改 MAC / 设 DNS+DoH）时附带 `--helper <op>` 参数；`helper::parse_helper_args` 在 panic hook 之后、Tauri Builder 装配之前拦截，命中则 `helper::run_helper` 执行并 `std::process::exit`（不创建窗口/托盘/监听）；参数非法时退出码 2 不启动正常 UI。详见 §4.15 helper 提权子进程
+3. **Tokio runtime 构建**: `build_runtime(core_count)` 根据 CPU 核心数动态配置 `worker_threads(2-8)` 和 `max_blocking_threads(8-64)`
+4. **runtime 注入 Tauri**: `tauri::async_runtime::set(handle)` 将 Tokio handle 注入 Tauri 异步运行时
+5. **启动应用**: `app::startup::run(core_count)` 进入 Tauri 主循环
+6. **退出清理**: flush 日志 → shutdown logger (mpsc + recv_timeout 500ms 带超时 join，B9-14 删除原固定 sleep(200ms)) → `runtime.shutdown_timeout(5s)`
 
 **app/startup.rs 关键流程** (在 `setup_app` 钩子中):
 
@@ -699,7 +704,7 @@ lazy_static! {
 **re-export 来源**:
 - `network::discovery` — `Adapter`/`AdapterDetail`/`DisabledAdapter` 类型 + `is_blacklisted`/`new_command` + Win32 API `GetAdaptersAddresses` 查询 + 适配器状态四分类
 - `network::adapter_cache` — `get_adapters_force`/`validate_adapter_name`/`poll_adapter_ip_quick` + TTL 5秒缓存
-- `network::dhcp` — `dhcp_renew_wired_only`/`dhcp_release_renew_all`/`dhcp_release_renew_single`/`escape_ps_single_quote`
+- `network::dhcp` — `dhcp_renew_wired_only`/`dhcp_release_renew_all`/`dhcp_release_renew_single`/`apply_mac_change_via_registry`
 - `network::subnet` — `get_wireless_ssid`/`get_wired_network_profile`/`check_gateway_reachable`/`check_gateway_reachable_from`/`is_same_subnet_18`
 
 **适配器状态四分类** (`AdapterStatus` 枚举，定义在 `network/discovery/`):
@@ -707,6 +712,8 @@ lazy_static! {
   - `Disconnected` — 未连接（OperStatus LowerLayerDown/Dormant，线缆未插或USB网卡未连接）
   - `EnabledNoIp` — 未禁用无IP（OperStatus Up 但无有效 IP，含 169.254 APIPA 清空后）
   - `Connected` — 已连接（OperStatus Up 且有有效 IP）
+
+**连接速度 (LinkSpeed)**: `Adapter`/`AdapterDetail` 新增 `linkSpeed` 字段（u64 bit/s，0 表示未知），直接读 `IP_ADAPTER_ADDRESSES.ReceiveLinkSpeed`（无需额外 API）。前端 NetworkPanel 适配器卡片展示格式化后速度（Gbps/Mbps）。
 
 **适配器可见性双重验证** (定义在 `network/discovery/registry.rs`):
   - `is_visible_in_ncpa()` — 注册表双重检查：`ShowInNetworkConnections` + Class subkey PnP 设备树交叉验证，过滤幽灵虚拟副本
@@ -1146,7 +1153,7 @@ struct ConnectionCampusStatus {
 | `check_portal_status()` | 检测 Portal 认证状态（注销保护期内直接返回离线） |
 | `check_campus_status()` | 检测校园网状态，返回 campusWifi/campusWired 字段 |
 | `check_dns_doh_status()` | 通过 winreg 读取注册表检测 DNS/DoH 状态 |
-| `setup_dns_doh()` | 一键设置推荐 DNS + DoH (WiFi用配置文件级DNS，有线用适配器级DNS，COM ShellExecuteW 提权 `shell_exec_elevated` 优先，回退 `run_elevated`) |
+| `setup_dns_doh()` | 一键设置推荐 DNS + DoH (WiFi用配置文件级DNS，有线用适配器级DNS；管理员直调 `dns_setup::setup_dns_doh_admin`，非管理员经 `--helper` 提权重启自身) |
 
 **UAC 提权** (位于 `platform/elevation.rs`):
 
@@ -1178,7 +1185,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 - 适配器名称映射: `HKLM\SYSTEM\CurrentControlSet\Control\Network\{4D36E972-...}\{GUID}\Connection\Name`
 - DoH 配置: `HKLM\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DohWellKnownServers\{IP}`
 
-**安全**: 适配器名称校验（禁止 `&|;` 等元字符），含空格适配器名使用引号包裹
+**安全**: 提权操作不再拼装 shell 命令 —— helper 由 Rust 直调 Win32/winreg，适配器名/参数通过 `get_adapters_force` 按 GUID 解析，无命令注入面
 
 ### 4.14 其他命令模块
 
@@ -1189,6 +1196,19 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 **system.rs** — 系统功能命令，`get_init_data` 手动遍历 accounts 目录获取账号列表（与 `list_account_names()` 逻辑重复，未复用），新增返回字段 `gpuInfo`/`refreshRate`；新增 `append_login_history()` 登录历史记录（最多100条）
 
 **updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验源 4xx 缺失时降级跳过并告警（哈希不匹配/传输错误时拒绝安装），MSI 安装使用 `raw_arg` 支持含空格路径，403 返回中文友好提示
+
+### 4.15 提权辅助子进程 — `helper/` (--helper 模式)
+
+**动机**: 需要管理员权限的操作（改 MAC / 设 DNS+DoH）此前在非管理员下提权执行 PowerShell 脚本（`Set-NetAdapter`/`Set-DnsClientServerAddress`）。自 2.4.0 起改为**提权重启自身**：以管理员身份启动当前 exe 并附加 `--helper <op>`，由 Rust 直调 Win32/winreg 完成操作，彻底移除 PowerShell 依赖（含 `-EncodedCommand` Base64 编码与 `escape_ps_single_quote`）。
+
+**执行流**:
+1. **主进程** (`platform/helper_spawn.rs::spawn_elevated_helper`)：`std::env::current_exe()` 取自身路径，生成唯一结果文件路径（`%TEMP%/campus-login-helper-<pid>-<ts>.json`），拼参数 `--helper <op> ... --result <path>`，按现有降级链提权启动（COM ICMLuaUtil 静默 → 失败 ShellExecuteW runas 弹 UAC）
+2. **helper 进程** (`main.rs` 顶部拦截)：`helper::parse_helper_args` 解析出 `HelperOp`（`Dns` / `Mac{guid, mac_no_dash}`），`run_helper` 执行：
+   - `Dns` → `network::dns_setup::setup_dns_doh_admin()`（枚举活跃适配器 → Win32 设置 → 全局 DoH 注册 → flushdns）
+   - `Mac` → 按 GUID 在 `get_adapters_force` 中解析适配器名 → `dhcp::apply_mac_change_via_registry`（写注册表 NetworkAddress + release/disable/enable/renew）
+3. **结果回传**: helper 把 `HelperResult{success, message, op, logs}` 原子写入结果文件（tmp + rename），主进程 100ms 间隔轮询（DNS 超时 30s / MAC 超时 25s），读取后把 `logs` 并入主进程日志，返回 JSON 结果
+
+**要点**: helper 进程不初始化 logger（避免与主进程跨进程写同一日志文件竞争）；参数仅含 GUID/MAC/结果路径等受控字符，适配器名由 helper 自行枚举，无 shell 拼接注入面。
 
 ---
 
@@ -1686,7 +1706,7 @@ main.rs (二进制入口)
               ├── login.rs ← auth/service.rs, infra/events.rs, infra/lifecycle.rs, monitor/watcher.rs
               │   [do_login + do_logout (两步注销), adapter_name 可选参数]
               ├── background.rs (命令入口，委托 monitor::watcher)
-              ├── network_cmd.rs ← network/*, infra/state/, platform/dns_config.rs, platform/elevation.rs, monitor/watcher.rs, monitor/latency.rs, auth/portal.rs
+              ├── network_cmd.rs ← network/*, infra/state/, platform/dns_config.rs, platform/elevation.rs, platform/helper_spawn.rs, network/dns_setup.rs, monitor/watcher.rs, monitor/latency.rs, auth/portal.rs
               │   [check_dns_doh_status / setup_dns_doh / check_campus_status / check_portal_status / start_latency_test]
               ├── account.rs ← config/, account/crypto.rs, infra/state/, config_cmd.rs
               ├── system.rs ← config/, network/*, infra/state/, platform/dns_config.rs
@@ -1748,7 +1768,7 @@ network/ (9 个业务子模块 + discovery/ 子目录)
   ├── adapter.rs ← client.rs, windows, regex [TTL 5s 缓存, validate_adapter_name]
   │   [校园网检测: 网络名称/子网/网关Ping]
   ├── adapter_cache.rs — 适配器查询缓存 (force/cached 双模式)
-  ├── dhcp.rs — DHCP 操作 (release/renew, dhcp_renew_wired_only)
+  ├── dhcp.rs — DHCP 操作 (release/renew, MAC 重置, apply_mac_change_via_registry)
   ├── subnet.rs — 子网判定 (/18 校园网子网匹配)
   ├── dns.rs — DNS 缓存管理 + DoH解析 + 智能解析策略
   ├── timing.rs
@@ -1758,10 +1778,12 @@ network/ (9 个业务子模块 + discovery/ 子目录)
   │   └── measure_https_timing / measure_dns_query / measure_doh_timing
   ├── quality.rs ← adapter.rs, client.rs, surge-ping, tokio-rustls, timing.rs, tauri::AppHandle
   │   [两阶段检测: DNS/DoH → HTTPS(分批并发) + 增量推送]
+  ├── dns_setup.rs ← dns_config.rs, get_adapters_force
+  │   [setup_dns_doh_admin: 管理员/提权 helper 共用的一键 DNS+DoH 设置]
   └── discovery/ (适配器发现子模块)
       ├── mod.rs (重导出)
       ├── registry.rs — 注册表遍历 (CLASS_SUBKEY_CACHE 懒加载+锁优化)
-      └── windows.rs — Windows 特定发现逻辑
+      └── windows.rs — Windows 特定发现逻辑 (GetAdaptersAddresses + LinkSpeed)
 
 platform/
   ├── mod.rs (重导出)
@@ -1772,7 +1794,9 @@ platform/
   │   [GpuInfo 含 gpu_preference: u8 (0=默认/1=节能/2=高性能, 读注册表 UserGpuPreferences)]
   │   [determine_tier: NVIDIA→discrete, Intel Arc→discrete, Iris Xe→mid-igpu, UHD→low/mid-igpu, AMD RX/Pro→discrete, 780M/880M→high-igpu]
   │   [build_browser_args: NVIDIA→d3d12+SkiaGraphite+DrDc, Intel/AMD→d3d11+SkiaGraphite+DrDc, 未知→d3d11+禁用DrDc]
-  └── autostart.rs — 开机自启
+  ├── autostart.rs — 开机自启
+  └── helper_spawn.rs ← elevation.rs
+      [spawn_elevated_helper: 提权重启自身(--helper) + 结果文件轮询]
 
 config/
   ├── mod.rs (重导出)
@@ -1834,9 +1858,9 @@ App.tsx (377行, App + AppInner)
 
 | 优化项 | 实现 | 效果 |
 |--------|------|------|
-| PowerShell 消除 | ShellExecuteW 替代 PowerShell UAC 提权 | 200-500ms → 1ms |
+| PowerShell 消除 | `--helper` 提权重启自身，Rust 直调 Win32/winreg 替代 PowerShell 脚本（改 MAC/设 DNS+DoH，2.4.0） | 200-500ms → 1ms |
 | GPU 检测改用 DXGI | `CreateDXGIFactory1` + `EnumAdapters1` 替代 PowerShell | 1~3s → 50~200ms |
-| DNS 设置优化 | `SetInterfaceDnsSettings` Win32 API + COM 提权 (`shell_exec_elevated`) 替代 PowerShell (dns_config.rs) | 1-3s → 100-300ms |
+| DNS 设置优化 | `SetInterfaceDnsSettings` Win32 API（`dns_config.rs`）+ 管理员/helper 共用 `dns_setup.rs::setup_dns_doh_admin` 替代 PowerShell | 1-3s → 100-300ms |
 | DNS 注册表检测 | winreg 替代 PowerShell (read_adapter_dns_from_registry 中用 `netsh dns show encryption` 读取) | 10x+ 速度提升 |
 | 适配器 TTL 缓存 | 5秒 TTL + 4秒后台主动刷新 (adapter_cache.rs::start_cache_refresh_task, CACHE_REFRESH_INTERVAL_SECS=4) | 减少 API 调用，保证缓存新鲜 |
 | codegen-units=1 | LTO 跨单元优化 | +2~5% 性能 |
