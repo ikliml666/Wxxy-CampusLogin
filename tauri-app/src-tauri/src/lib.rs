@@ -8,3 +8,4 @@ pub mod account;
 pub mod platform;
 pub mod update;
 pub mod infra;
+pub mod helper;

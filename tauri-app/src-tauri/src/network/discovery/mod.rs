@@ -63,6 +63,8 @@ pub struct Adapter {
     pub mac: String,
     pub if_index: u32,
     pub status: AdapterStatus,
+    /// 连接速度（bit/s，0 表示未知），来自 IP_ADAPTER_ADDRESSES.ReceiveLinkSpeed
+    pub link_speed: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +79,8 @@ pub struct AdapterDetail {
     pub mac: String,
     pub if_index: u32,
     pub status: AdapterStatus,
+    /// 连接速度（bit/s，0 表示未知）
+    pub link_speed: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

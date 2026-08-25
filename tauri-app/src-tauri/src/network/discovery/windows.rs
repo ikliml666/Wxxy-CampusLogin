@@ -127,6 +127,8 @@ fn parse_adapter_addresses(
 
         let is_wireless = if_type == if_type_wireless;
         let if_index = unsafe { addr.Anonymous1.Anonymous.IfIndex };
+        // 连接速度（bit/s）：IP_ADAPTER_ADDRESSES 自带字段，无需额外调用
+        let link_speed = addr.ReceiveLinkSpeed;
 
         let mac = if addr.PhysicalAddressLength >= 6 {
             let bytes = unsafe { std::slice::from_raw_parts(addr.PhysicalAddress.as_ptr(), 6) };
@@ -223,6 +225,7 @@ fn parse_adapter_addresses(
             mac: mac.clone(),
             if_index,
             status,
+            link_speed,
         });
 
         // Connected 和 EnabledNoIp 状态推入 details（EnabledNoIp 保留 dhcp_server 供诊断）
@@ -239,6 +242,7 @@ fn parse_adapter_addresses(
                     mac,
                     if_index,
                     status,
+                    link_speed,
                 });
             }
             AdapterStatus::EnabledNoIp => {
@@ -252,6 +256,7 @@ fn parse_adapter_addresses(
                     mac,
                     if_index,
                     status,
+                    link_speed,
                 });
             }
             AdapterStatus::Disabled => {

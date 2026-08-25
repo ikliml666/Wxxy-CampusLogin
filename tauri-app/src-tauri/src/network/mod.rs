@@ -4,6 +4,7 @@ pub mod client;
 pub mod dhcp;
 pub mod discovery;
 pub mod dns;
+pub mod dns_setup;
 pub mod quality;
 pub mod subnet;
 pub mod timing;

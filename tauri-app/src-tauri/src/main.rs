@@ -10,6 +10,7 @@ mod account;
 mod platform;
 mod update;
 mod infra;
+mod helper;
 
 fn main() {
     // 注册 panic hook：panic=abort 时 hook 仍会执行，确保日志 flush
@@ -20,6 +21,21 @@ fn main() {
         crate::infra::logger::flush_quick();
         eprintln!("panic: {info}");
     }));
+
+    // helper 模式：主进程以管理员身份重启自身执行提权操作（改 MAC / 设 DNS+DoH）。
+    // 必须在 Tauri Builder / 单实例 / 托盘等装配之前拦截并退出，不进入正常应用流程。
+    // 参数非法时不启动正常应用（避免 --helper 参数被误传导致正常 UI 启动）。
+    let args: Vec<String> = std::env::args().collect();
+    match helper::parse_helper_args(&args) {
+        Ok(Some((op, result_path))) => {
+            std::process::exit(helper::run_helper(op, result_path));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("helper 参数解析失败: {e}");
+            std::process::exit(2);
+        }
+    }
 
     let core_count = std::thread::available_parallelism()
         .map(|n| n.get())

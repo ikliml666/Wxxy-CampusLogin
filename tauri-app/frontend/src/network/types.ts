@@ -8,6 +8,8 @@ export interface Adapter {
   mac: string
   ifIndex: number
   status: AdapterStatus
+  /** 连接速度（bit/s，0 表示未知） */
+  linkSpeed?: number
 }
 
 export interface DisabledAdapter {
@@ -26,6 +28,8 @@ export interface AdapterDetail {
   mac: string
   ifIndex: number
   status: AdapterStatus
+  /** 连接速度（bit/s，0 表示未知） */
+  linkSpeed?: number
 }
 
 interface DnsServerInfo {

@@ -1,9 +1,13 @@
 //! DHCP 续租、MAC 重置、netsh 接口控制
 //!
 //! 从 `adapter.rs` 迁移，隔离 PowerShell 调用。
-//! T4.4.2: PowerShell 命令通过 -EncodedCommand Base64 参数化，消除注入风险。
-//! T4.4.3 决策记录：评估 Win32 API（DeviceIoControl + OID_802_3_CURRENT_ADDRESS）替代 PowerShell，
-//!   结论：需引入 unsafe 代码和驱动依赖，收益不抵成本，暂不实施，保留 PowerShell 方案。
+//! T4.4.2: 提权操作不再依赖 PowerShell —— 通过 --helper 以管理员身份重启自身
+//!   （见 crate::helper / crate::platform::helper_spawn），由 Rust 直调注册表 + netsh，
+//!   彻底移除 Set-NetAdapter 脚本与 -EncodedCommand Base64 编码。
+//! T4.4.3 历史决策记录：曾评估 Win32 API（DeviceIoControl + OID_802_3_CURRENT_ADDRESS）
+//!   替代 PowerShell，结论是需引入 unsafe 代码和驱动依赖，收益不抵成本；
+//!   最终采用"提权重启自身 + 注册表 NetworkAddress + 重启网卡"方案（等价于
+//!   Set-NetAdapter -MacAddress 的底层行为），见 apply_mac_change_via_registry。
 
 use crate::network::adapter_cache::{
     get_adapters_cached, get_adapters_force, validate_adapter_name,
@@ -202,50 +206,27 @@ pub fn poll_adapter_has_ip(adapter_name: &str, timeout_ms: u64) -> bool {
     false
 }
 
-pub fn escape_ps_single_quote(s: &str) -> String {
-    s.replace("'", "''")
-}
-
-/// 将 PowerShell 脚本编码为 -EncodedCommand 参数（UTF-16LE Base64）。
-/// 消除引号转义和命令注入风险，适配器名/MAC 均通过脚本变量传递。
-fn encode_ps_command(script: &str) -> String {
-    use base64::Engine as _;
-    let utf16le: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
-    base64::engine::general_purpose::STANDARD.encode(&utf16le)
-}
-
-fn try_elevated_mac_script(adapter_name: &str, _guid: &str, mac_no_dash: &str, old_ip: &str) -> (bool, Option<String>) {
-    let mac_dashed = mac_with_dashes(mac_no_dash);
-    let script = format!(
-        "$name='{name}';$mac='{mac}';\
-         Set-NetAdapter -Name $name -MacAddress $mac -Confirm:$false -ErrorAction Stop;\
-         ipconfig /release $name;\
-         Start-Sleep -Seconds 1;\
-         ipconfig /renew $name",
-        mac = mac_dashed, name = escape_ps_single_quote(adapter_name)
-    );
-    crate::log_info!("adapter", "尝试提权修改MAC(Set-NetAdapter): adapter={}, mac={}", adapter_name, mac_dashed);
-    let encoded = encode_ps_command(&script);
-    match crate::platform::elevation::run_elevated("powershell", &format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}")) {
-        Ok(()) => {
-            crate::log_info!("adapter", "提权脚本已启动，等待IP变更...");
-            if let Some(changed_ip) = poll_ip_change(adapter_name, old_ip, 25_000) {
-                crate::log_info!("adapter", "提权修改MAC成功: 新IP={}", changed_ip);
-                (true, None)
-            } else {
-                crate::log_warn!("adapter", "提权修改MAC超时: 25秒内IP未变更");
-                (false, Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
-            }
-        }
-        Err(e) => {
-            crate::log_warn!("adapter", "提权执行MAC修改失败: {}", e);
-            (false, Some(format!("提权失败: {e}，请尝试以管理员身份运行应用")))
-        }
+/// 通过注册表修改 MAC 并重启网卡（管理员 / 提权 helper 共用）。
+/// 等价于 `Set-NetAdapter -MacAddress` 的底层行为：写 NetworkAddress + 重启网卡。
+#[cfg(target_os = "windows")]
+pub fn apply_mac_change_via_registry(
+    adapter_guid: &str,
+    adapter_name: &str,
+    mac_no_dash: &str,
+) -> Result<(), String> {
+    set_mac_via_registry(adapter_guid, mac_no_dash)?;
+    let _ = dhcp_release(adapter_name);
+    let disable_ok = netsh_disable(adapter_name);
+    if disable_ok {
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
+    let _ = netsh_enable(adapter_name);
+    let _ = dhcp_renew(adapter_name);
+    Ok(())
 }
 
-/// 尝试修改适配器 MAC 地址：管理员直写注册表，非管理员走 COM ShellExec 提权
-fn try_modify_mac(adapter: &Adapter, fake_mac: &str, mac_dashed: &str) -> (bool, bool, Option<String>) {
+/// 尝试修改适配器 MAC 地址：管理员直写注册表，非管理员通过 --helper 提权重启自身
+fn try_modify_mac(adapter: &Adapter, fake_mac: &str, _mac_dashed: &str) -> (bool, bool, Option<String>) {
     if crate::platform::elevation::is_admin() {
         match set_mac_via_registry(&adapter.guid, fake_mac) {
             Ok(()) => {
@@ -255,28 +236,38 @@ fn try_modify_mac(adapter: &Adapter, fake_mac: &str, mac_dashed: &str) -> (bool,
             Err(e) => (false, false, Some(format!("MAC地址修改失败: {e}"))),
         }
     } else {
-        crate::log_info!("adapter", "非管理员运行，跳过注册表直写，直接COM ShellExec提权: guid={}", adapter.guid);
-        let script = format!(
-            "Set-NetAdapter -Name '{}' -MacAddress '{}' -Confirm:$false; ipconfig /release '{}'; Start-Sleep -Seconds 1; ipconfig /renew '{}'",
-            escape_ps_single_quote(&adapter.name), mac_dashed, escape_ps_single_quote(&adapter.name), escape_ps_single_quote(&adapter.name)
-        );
-        let encoded = encode_ps_command(&script);
-        let ps_cmd = format!("-WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}");
-        match crate::platform::elevation::shell_exec_elevated("powershell", &ps_cmd, true) {
-            Ok(()) => {
-                crate::log_info!("adapter", "COM ShellExec提权成功，等待IP变更...");
+        crate::log_info!("adapter", "非管理员运行，通过 --helper 提权修改MAC: guid={}", adapter.guid);
+        let result_path = crate::platform::helper_spawn::unique_result_path();
+        let args = [adapter.guid.as_str(), fake_mac];
+        match crate::platform::helper_spawn::spawn_elevated_helper(
+            "mac",
+            &args,
+            &result_path,
+            std::time::Duration::from_secs(25),
+        ) {
+            Ok(v) => {
+                let success = v.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
+                if !success {
+                    let msg = v
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("helper执行失败")
+                        .to_string();
+                    crate::log_warn!("adapter", "helper修改MAC失败: {}", msg);
+                    return (false, true, Some(msg));
+                }
+                // helper 已完成写注册表 + 重启网卡，主进程侧等待 IP 变更
                 if let Some(changed_ip) = poll_ip_change(&adapter.name, &adapter.ip, 25_000) {
-                    crate::log_info!("adapter", "COM提权修改MAC成功: 新IP={}", changed_ip);
+                    crate::log_info!("adapter", "helper修改MAC成功: 新IP={}", changed_ip);
                     (true, true, None)
                 } else {
-                    crate::log_warn!("adapter", "COM提权修改MAC超时: 25秒内IP未变更");
-                    (true, true, Some("COM提权已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
+                    crate::log_warn!("adapter", "helper修改MAC完成但25秒内IP未变更");
+                    (true, true, Some("MAC已修改但IP未变更，可能网卡驱动不支持MAC伪装".to_string()))
                 }
             }
-            Err(com_err) => {
-                crate::log_warn!("adapter", "COM ShellExec失败: {}，降级到ShellExecuteW", com_err);
-                let (ok, msg) = try_elevated_mac_script(&adapter.name, &adapter.guid, fake_mac, &adapter.ip);
-                (ok, ok, msg)
+            Err(e) => {
+                crate::log_warn!("adapter", "helper提权执行失败: {}", e);
+                (false, true, Some(format!("提权失败: {e}，请尝试以管理员身份运行应用")))
             }
         }
     }
@@ -415,31 +406,6 @@ pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn encode_ps_command_produces_valid_utf16le_base64() {
-        let script = "Write-Host 'hello'";
-        let encoded = encode_ps_command(script);
-        // 解码 Base64
-        use base64::Engine as _;
-        let decoded = base64::engine::general_purpose::STANDARD.decode(&encoded).unwrap();
-        // 解码 UTF-16LE
-        let utf16: Vec<u16> = decoded.chunks(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        let original: Vec<u16> = script.encode_utf16().collect();
-        assert_eq!(utf16, original);
-    }
-
-    #[test]
-    fn encode_ps_command_elimimates_injection_chars() {
-        // 验证编码后不含原始特殊字符（引号、分号等），消除注入风险
-        let script = "Set-NetAdapter -Name 'test;rm -rf /' -Confirm:$false";
-        let encoded = encode_ps_command(script);
-        assert!(!encoded.contains('\''), "编码后不应包含单引号");
-        assert!(!encoded.contains(';'), "编码后不应包含分号");
-        assert!(!encoded.contains("test"), "编码后不应包含原始文本");
-    }
 
     #[test]
     fn blacklist_filters_known_virtual_adapters() {
