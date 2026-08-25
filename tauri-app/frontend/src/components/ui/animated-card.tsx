@@ -16,7 +16,6 @@ interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> {
   noHover?: boolean
   noAnimation?: boolean
   noEnterAnimation?: boolean
-  noRipple?: boolean
   enableTilt?: boolean
   staggerIndex?: number
 }
@@ -24,9 +23,8 @@ interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> {
 const REST_SHADOW = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
 
 export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, AnimatedCardProps>(
-  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, noRipple = false, enableTilt, staggerIndex, children, ...props }, ref) => {
+  ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, enableTilt, staggerIndex, children, ...props }, ref) => {
     const profile = useAnimationProfile()
-    const rippleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
     const resetWillChangeTimerRef = React.useRef<gsap.core.Tween | null>(null)
 
     const tiltEnabled = (enableTilt !== undefined ? enableTilt : profile.enableTilt) && !noHover && !noAnimation
@@ -98,28 +96,6 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       })
     }, [])
 
-    const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
-      if (noRipple || noAnimation || noHover) return
-      const el = e.currentTarget as HTMLElement
-      const rect = el.getBoundingClientRect()
-      const x = ((e.clientX - rect.left) / rect.width) * 100
-      const y = ((e.clientY - rect.top) / rect.height) * 100
-      el.style.setProperty('--ripple-x', `${x}%`)
-      el.style.setProperty('--ripple-y', `${y}%`)
-      el.classList.add('ripple-active')
-      if (rippleTimerRef.current) clearTimeout(rippleTimerRef.current)
-      rippleTimerRef.current = setTimeout(() => {
-        el.classList.remove('ripple-active')
-        rippleTimerRef.current = null
-      }, 400)
-    }, [noRipple, noAnimation, noHover])
-
-    React.useEffect(() => {
-      return () => {
-        if (rippleTimerRef.current) clearTimeout(rippleTimerRef.current)
-      }
-    }, [])
-
     const cardClassName = React.useMemo(
       () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
       [className]
@@ -145,7 +121,6 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
           '--stagger-i': staggerIndex ?? 0,
           perspective: tiltEnabled ? 800 : undefined,
         } as React.CSSProperties}
-        onMouseDown={handleMouseDown}
         onMouseLeave={handleMouseLeave}
         onMouseMove={handleMouseMove}
       >

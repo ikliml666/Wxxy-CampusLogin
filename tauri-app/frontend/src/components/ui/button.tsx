@@ -97,14 +97,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const rafRef = React.useRef<number>(0)
     const lastPosRef = React.useRef<{ x: number; y: number }>({ x: -999, y: -999 })
 
-    // 历史缺陷：RAF 未取消，按钮卸载后回调仍可能执行写已卸载节点。
-    // cleanup 时 cancel 未完成的 RAF。
-    React.useEffect(() => {
-      return () => {
-        if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      }
-    }, [])
-
     return (
       <button
         className={cn(buttonVariants({ variant, size, className }), 'btn-press')}
@@ -126,20 +118,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           // 更新上次位置（像素坐标）
           lastPosRef.current = { x: currentX, y: currentY }
 
-          // RAF 回调内不能读取 e.currentTarget：React 在 handler 返回后立即将其置 null
-          // （React 19 executeDispatch 的 finally 中 event.currentTarget = null），
-          // 因此这里同步捕获 DOM 节点引用
-          const el = e.currentTarget
-          if (!el) return
-
           // RAF 节流：同一帧内只执行一次 DOM 读写
           if (rafRef.current) cancelAnimationFrame(rafRef.current)
           rafRef.current = requestAnimationFrame(() => {
-            const rect = el.getBoundingClientRect()
+            const rect = e.currentTarget.getBoundingClientRect()
             const px = ((currentX - rect.left) / rect.width) * 100
             const py = ((currentY - rect.top) / rect.height) * 100
-            el.style.setProperty('--mouse-x', `${px}%`)
-            el.style.setProperty('--mouse-y', `${py}%`)
+            e.currentTarget.style.setProperty('--mouse-x', `${px}%`)
+            e.currentTarget.style.setProperty('--mouse-y', `${py}%`)
             rafRef.current = 0
           })
         }}
