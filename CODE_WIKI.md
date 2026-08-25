@@ -1903,9 +1903,6 @@ App.tsx (377行, App + AppInner)
 | 动画合成层精细化管理 (v2.5.0) | 移除一次性/瞬态动画的常驻 will-change（card-enter 等）；main.tsx 去全局 force3D；.anim-idle 补 signal-glow-active 暂停 (index.css, main.tsx) | 动画结束即回收合成层，降低持续 GPU 层开销 |
 | 设计基础整治 (v2.5.0) | html font-size 15px→16px（对齐 DockNav fallback 修正 dock 偏移）；统一圆角体系（移除按钮 9999px 胶囊化与 w-8 h-8 强转圆形，md=10/lg=12/xl=16）；**移除涟漪动画**（卡片+按钮，删 useRipple.ts）；补全 prefers-reduced-motion；清理 9+ 死代码类；z-index 语义化（DockNav z-50→z-30 低于遮罩，新增 Z_INDEX 表） (index.css, main.tsx, ui-constants.ts, DockNav.tsx) | 视觉层级一致，reduced-motion 全停，减小样式体积与持续 GPU 开销，消除 Dock 与遮罩层级竞态 |
 | 动画丢失修复 (v2.5.0) | `LazyMotion features={domAnimation}` → `domMax`（恢复 layout 特性，修复 SegmentTabs 选中背景块 slide 动画）；`.panel-content` `content-visibility: auto`→`visible`（避免含动画元素被跳过渲染合成，修复卡片入场/信号条/数字滚动"数据在但没播"） (main.tsx, index.css) | 恢复面板/子标签切换动画与测试过程动画显示 |
-| 子标签切换动画修复 (v2.5.0) | `QualityPanel` 测试详情子标签切换：`TooltipProvider` 从 `m.div(key=activeTab)` 外层移入内层，让 `AnimatePresence mode=wait` 感知到 key 变化从而播进出场动画；`tabContainerVariants` 补全 initial/终态；子元素 `m.div` 补 `custom={tabDirection}` (QualityPanel.tsx) | 恢复测试详情网关/DNS/网站/视频/游戏子标签切换的滑动+淡入过渡 |
-| 面板启动预加载 (v2.5.0) | `App.tsx` 面板 lazy loader 抽出复用（`loadAccountPanel` 等），新增 `preloadPanels()` 在启动动画播完后经 `requestIdleCallback` 空闲时 `import()` 预取所有面板/对话框 chunk (App.tsx) | 切面板时 chunk 已就绪，避免首次切换等待下载导致卡顿 |
-| 常用面板静态导入 (v2.5.0) | Account/Network/Monitor/Quality/SpeedTest/Settings 6 个常用面板改静态 `import`（并入主包 285→368KB），切换零等待；仅 LogPanel + About/Theme/Onboarding 对话框保留懒加载 + 启动预取 (App.tsx) | 消除常用面板切换卡顿，首屏体积仍低于分包前 402KB |
 
 ---
 

@@ -516,7 +516,9 @@
   }
 
   .panel-content {
-    content-visibility: auto;
+    /* content-visibility: auto 会跳过视口外/被判不可见的含动画元素渲染合成，
+       导致卡片入场/信号条/数字滚动等动画"数据在但看起来没播"。改为 visible 强制渲染。 */
+    content-visibility: visible;
     contain-intrinsic-size: auto 300px;
     contain: layout style;
   }

@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import type { ThemeName } from '@/shared'
-import { LazyMotion, domAnimation, MotionConfig } from 'framer-motion'
+import { LazyMotion, domMax, MotionConfig } from 'framer-motion'
 import { gsap } from 'gsap'
 import App from './App'
 // 按文件直接导入，避免经 barrel 静态引入懒加载面板模块（FE-A-04）
@@ -111,7 +111,7 @@ const AppWrapper = import.meta.env.DEV
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <AppWrapper>
     <ErrorBoundary>
-      <LazyMotion features={domAnimation} strict>
+      <LazyMotion features={domMax} strict>
         <MotionConfig reducedMotion="user">
           <App />
         </MotionConfig>
