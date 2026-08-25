@@ -18,6 +18,9 @@ pub struct HelperResult {
     pub op: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub logs: Vec<String>,
+    /// 操作返回的完整明细（如 DNS 设置的 dnsSuccess/dnsFailed/dohAdded 等），供主进程透传给前端
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 /// helper 支持的操作。
@@ -93,7 +96,13 @@ fn run_dns(logs: &mut Vec<String>) -> HelperResult {
         .and_then(|m| m.as_str())
         .unwrap_or("设置DNS+DoH完成")
         .to_string();
-    HelperResult { success, message, op: "dns".to_string(), logs: std::mem::take(logs) }
+    HelperResult {
+        success,
+        message,
+        op: "dns".to_string(),
+        logs: std::mem::take(logs),
+        details: Some(v),
+    }
 }
 
 fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResult {
@@ -106,6 +115,7 @@ fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResul
                 message: format!("枚举适配器失败: {e}"),
                 op: "mac".to_string(),
                 logs: std::mem::take(logs),
+                details: None,
             }
         }
     };
@@ -117,6 +127,7 @@ fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResul
                 message: format!("未找到GUID对应的适配器: {guid}"),
                 op: "mac".to_string(),
                 logs: std::mem::take(logs),
+                details: None,
             }
         }
     };
@@ -126,12 +137,14 @@ fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResul
             message: format!("MAC已修改并重启网卡: {}", adapter.name),
             op: "mac".to_string(),
             logs: std::mem::take(logs),
+            details: None,
         },
         Err(e) => HelperResult {
             success: false,
             message: e,
             op: "mac".to_string(),
             logs: std::mem::take(logs),
+            details: None,
         },
     }
 }
@@ -206,23 +219,27 @@ mod tests {
             message: "ok".to_string(),
             op: "dns".to_string(),
             logs: vec!["a".to_string(), "b".to_string()],
+            details: Some(serde_json::json!({ "dnsFailed": ["WLAN: err"] })),
         };
         let v = serde_json::to_value(&r).unwrap();
         assert_eq!(v["success"], true);
         assert_eq!(v["message"], "ok");
         assert_eq!(v["op"], "dns");
         assert_eq!(v["logs"][0], "a");
+        assert_eq!(v["details"]["dnsFailed"][0], "WLAN: err");
     }
 
     #[test]
-    fn helper_result_omits_empty_logs() {
+    fn helper_result_omits_empty_logs_and_details() {
         let r = HelperResult {
             success: true,
             message: "ok".to_string(),
             op: "mac".to_string(),
             logs: vec![],
+            details: None,
         };
         let v = serde_json::to_value(&r).unwrap();
         assert!(v.get("logs").is_none());
+        assert!(v.get("details").is_none());
     }
 }

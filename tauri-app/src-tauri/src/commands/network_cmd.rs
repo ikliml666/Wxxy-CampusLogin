@@ -268,7 +268,22 @@ pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
                 &result_path,
                 std::time::Duration::from_secs(30),
             ) {
-                Ok(v) => Ok(v),
+                Ok(v) => {
+                    // 把 helper details（完整 DNS 设置明细 dnsSuccess/dnsFailed/dohAdded/dohFailed）
+                    // 提升到顶层，保证与管理员路径返回结构一致
+                    if let Some(details) = v.get("details").and_then(|d| d.as_object()) {
+                        let mut merged = v.clone();
+                        if let Some(obj) = merged.as_object_mut() {
+                            for (k, val) in details {
+                                if k != "success" && k != "message" && !obj.contains_key(k) {
+                                    obj.insert(k.clone(), val.clone());
+                                }
+                            }
+                        }
+                        return Ok(merged);
+                    }
+                    Ok(v)
+                }
                 Err(e) => {
                     crate::log_warn!("dns", "helper提权设置DNS失败: {}", e);
                     Ok(serde_json::json!({
