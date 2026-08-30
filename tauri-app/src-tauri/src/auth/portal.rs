@@ -63,6 +63,22 @@ pub fn safe_truncate(s: &str, max_len: usize) -> &str {
     &s[..boundary]
 }
 
+/// 错误信息脱敏：reqwest 错误的 Display 会携带完整请求 URL（含 user_password），
+/// 将完整 URL、URL 编码后的密码与明文密码统一替换为占位符，避免凭据泄漏到通知/日志。
+pub fn redact_credentials(mut msg: String, url: &str, base_url: &str, password: &str) -> String {
+    if !url.is_empty() {
+        msg = msg.replace(url, &format!("{base_url}?***"));
+    }
+    let encoded = urlencoding::encode(password).into_owned();
+    if !encoded.is_empty() {
+        msg = msg.replace(&encoded, "***");
+    }
+    if !password.is_empty() {
+        msg = msg.replace(password, "***");
+    }
+    msg
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PortalStatus {

@@ -68,9 +68,9 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
                 <Icon className={cn('h-5 w-5 shrink-0 mt-0.5', TOAST_ICON_COLORS[toast.type])} />
               </m.div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{toast.title}</p>
+                <p className="text-sm font-medium break-words">{toast.title}</p>
                 {toast.description && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{toast.description}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 [overflow-wrap:anywhere]">{toast.description}</p>
                 )}
                 {toast.action && (
                   <Button

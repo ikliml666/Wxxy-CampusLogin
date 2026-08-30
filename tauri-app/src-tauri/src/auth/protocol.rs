@@ -72,10 +72,14 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
     let t_req = std::time::Instant::now();
     // 历史缺陷：错误串脱敏仅替换字面密码（URL 编码后的 %xx 无法匹配），
-    // reqwest 错误一旦包含完整 URL 即泄漏编码后的凭据。改为完全不把 URL 带入错误信息。
+    // reqwest 错误一旦包含完整 URL 即泄漏编码后的凭据。错误信息中的完整 URL
+    // 统一替换为 base_url?***，密码（明文与 URL 编码形式）替换为 ***。
     let resp = crate::infra::async_util::block_on_sync(
         client.get(&url).timeout(std::time::Duration::from_secs(15)).send()
-    ).map_err(|e| format!("登录请求失败: {}", crate::auth::portal::safe_truncate(&e.to_string(), 200)))?;
+    ).map_err(|e| {
+        let msg = crate::auth::portal::redact_credentials(e.to_string(), &url, &base_url, password);
+        format!("登录请求失败: {}", crate::auth::portal::safe_truncate(&msg, 200))
+    })?;
 
     let status_code = resp.status();
     // 历史缺陷：content_length() 缺失（chunked/流式响应）时不设上限，恶意/异常
@@ -118,6 +122,9 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
                 last_result = Some(r);
             }
             Err(e) => {
+                // 历史缺陷：请求失败只进 last_result，日志完全静默，
+                // 排障时只见连续"登录请求开始"而无任何失败原因
+                crate::log_warn!("login", "登录请求失败 [{}/{}]: {}", attempt, max_retries, e);
                 last_result = Some(serde_json::json!({ "code": "error", "message": e, "success": false, "retryable": true }));
             }
         }
