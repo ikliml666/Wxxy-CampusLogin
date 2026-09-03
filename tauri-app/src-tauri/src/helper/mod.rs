@@ -26,13 +26,13 @@ pub struct HelperResult {
 /// helper 支持的操作。
 #[derive(Debug, Clone, PartialEq)]
 pub enum HelperOp {
-    /// 设置 DNS + 启用 DoH（helper 自行枚举活跃适配器）
-    Dns,
+    /// 设置 DNS + 启用 DoH（只处理 `targets` 名单内的适配器，主进程 resolve 后传入）
+    Dns { targets: Vec<String> },
     /// 修改适配器 MAC（注册表 NetworkAddress + 重启网卡）
     Mac { guid: String, mac_no_dash: String },
 }
 
-/// 解析 `--helper <op> ... --result <path>` 参数。
+/// 解析 `--helper <op> [op参数...] --result <path>` 参数。
 /// 未命中 helper 模式返回 Ok(None)；命中但参数非法返回 Err（调用方不应启动正常应用）。
 pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<String>)>, String> {
     let Some(pos) = args.iter().position(|a| a == "--helper") else {
@@ -41,24 +41,30 @@ pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<Str
     let op = args
         .get(pos + 1)
         .ok_or_else(|| "helper 缺少操作类型".to_string())?;
+    // 收集 op 之后、第一个 `--` 开头参数之前的所有位置参数（如 dns 的适配器名单）
+    let mut positional: Vec<String> = Vec::new();
+    let mut i = pos + 2;
+    while i < args.len() && !args[i].starts_with("--") {
+        positional.push(args[i].clone());
+        i += 1;
+    }
     let parsed = match op.as_str() {
-        "dns" => HelperOp::Dns,
+        "dns" => HelperOp::Dns { targets: positional },
         "mac" => {
-            let guid = args
-                .get(pos + 2)
+            let guid = positional
+                .first()
                 .ok_or_else(|| "helper mac 缺少 GUID".to_string())?
                 .clone();
-            let mac_no_dash = args
-                .get(pos + 3)
+            let mac_no_dash = positional
+                .get(1)
                 .ok_or_else(|| "helper mac 缺少 MAC".to_string())?
                 .clone();
             HelperOp::Mac { guid, mac_no_dash }
         }
         other => return Err(format!("未知 helper 操作: {other}")),
     };
-    // 遍历 --helper 之后的所有参数，找 --result <path>（顺序无关，便于扩展）
+    // 遍历剩余参数，找 --result <path>（顺序无关，便于扩展）
     let mut result_path = None;
-    let mut i = pos + 2;
     while i < args.len() {
         if args[i] == "--result" {
             result_path = Some(
@@ -78,7 +84,7 @@ pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<Str
 pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
     let mut logs: Vec<String> = Vec::new();
     let result = match &op {
-        HelperOp::Dns => run_dns(&mut logs),
+        HelperOp::Dns { targets } => run_dns(targets, &mut logs),
         HelperOp::Mac { guid, mac_no_dash } => run_mac(guid, mac_no_dash, &mut logs),
     };
     if let Some(path) = result_path {
@@ -87,9 +93,9 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
     if result.success { 0 } else { 1 }
 }
 
-fn run_dns(logs: &mut Vec<String>) -> HelperResult {
-    logs.push("helper: 开始设置DNS+DoH".to_string());
-    let v = crate::network::dns_setup::setup_dns_doh_admin();
+fn run_dns(targets: &[String], logs: &mut Vec<String>) -> HelperResult {
+    logs.push(format!("helper: 开始设置DNS+DoH（目标适配器: {}）", if targets.is_empty() { "无".to_string() } else { targets.join("、") }));
+    let v = crate::network::dns_setup::setup_dns_doh_admin(targets);
     let success = v.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
     let message = v
         .get("message")
@@ -178,8 +184,26 @@ mod tests {
             r"C:\Users\test\Temp\r.json".to_string(),
         ];
         let (op, path) = parse_helper_args(&args).unwrap().unwrap();
-        assert_eq!(op, HelperOp::Dns);
+        assert_eq!(op, HelperOp::Dns { targets: vec![] });
         assert_eq!(path.as_deref(), Some(r"C:\Users\test\Temp\r.json"));
+    }
+
+    #[test]
+    fn parse_dns_with_targets() {
+        let args = vec![
+            "--helper".to_string(),
+            "dns".to_string(),
+            "以太网".to_string(),
+            "Wi-Fi".to_string(),
+            "--result".to_string(),
+            "r.json".to_string(),
+        ];
+        let (op, path) = parse_helper_args(&args).unwrap().unwrap();
+        assert_eq!(
+            op,
+            HelperOp::Dns { targets: vec!["以太网".to_string(), "Wi-Fi".to_string()] }
+        );
+        assert_eq!(path.as_deref(), Some("r.json"));
     }
 
     #[test]

@@ -109,10 +109,16 @@ fn wrap_dhcp_result(results: Vec<serde_json::Value>) -> serde_json::Value {
 }
 
 #[tauri::command]
-pub async fn dhcp_renew_all() -> Result<serde_json::Value, String> {
+pub async fn dhcp_renew_all(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     crate::log_info!("network", "开始DHCP续租");
     tauri::async_runtime::spawn_blocking(move || {
-        let results = dhcp_renew_wired_only().map_err(|e| {
+        // 续租范围只限 resolve 后的主/副适配器中有线者，不触碰其他网卡
+        let adapters = get_adapters_cached().unwrap_or_default();
+        let config = CommandContext::from_app(&app_handle).config.load_full();
+        let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+        let targets: Vec<String> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
+            .iter().map(|a| a.name.clone()).collect();
+        let results = dhcp_renew_wired_only(&targets).map_err(|e| {
             crate::log_error!("network", "DHCP续租失败: {}", e);
             e
         })?;
@@ -129,7 +135,13 @@ pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Val
         get_campus_gateway(ctx.state)
     };
     tauri::async_runtime::spawn_blocking(move || {
-        let results = dhcp_release_renew_all(&campus_gateway).map_err(|e| {
+        // MAC 重置 + 释放/续租范围只限 resolve 后的主/副适配器
+        let adapters = get_adapters_cached().unwrap_or_default();
+        let config = CommandContext::from_app(&app_handle).config.load_full();
+        let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+        let targets: Vec<String> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
+            .iter().map(|a| a.name.clone()).collect();
+        let results = dhcp_release_renew_all(&campus_gateway, &targets).map_err(|e| {
             crate::log_error!("network", "DHCP续租失败: {}", e);
             e
         })?;
@@ -234,37 +246,47 @@ pub async fn check_dns_doh_status() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn setup_dns_doh() -> Result<serde_json::Value, String> {
+pub async fn setup_dns_doh(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
     crate::log_info!("dns", "开始一键设置DNS+DoH");
-    tauri::async_runtime::spawn_blocking(|| {
+    tauri::async_runtime::spawn_blocking(move || {
         #[cfg(not(target_os = "windows"))]
         {
+            let _ = &app_handle;
             return Ok(serde_json::json!({ "success": false, "message": "仅支持Windows" }));
         }
         #[cfg(target_os = "windows")]
         {
             let adapters = crate::network::get_adapters_cached()
                 .unwrap_or_default();
-            let active: Vec<&Adapter> = adapters.iter()
+            // 操作范围白名单：只对 resolve 后的主/副适配器设置 DNS/DoH，
+            // 不再触碰系统里其他活跃适配器
+            let config = crate::infra::command_context::CommandContext::from_app(&app_handle)
+                .config
+                .load_full();
+            let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+            let targets: Vec<String> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
+                .into_iter()
                 .filter(|a| !a.ip.is_empty() && !crate::network::is_blacklisted(&a.name))
+                .map(|a| a.name)
                 .collect();
 
-            if active.is_empty() {
+            if targets.is_empty() {
                 return Ok(serde_json::json!({
                     "success": false,
-                    "message": "未找到活跃的网络适配器".to_string(),
+                    "message": "未找到目标网络适配器（主/副适配器均无活跃连接）".to_string(),
                 }));
             }
 
             if elevation::is_admin() {
-                return Ok(crate::network::dns_setup::setup_dns_doh_admin());
+                return Ok(crate::network::dns_setup::setup_dns_doh_admin(&targets));
             }
 
             crate::log_info!("dns", "非管理员运行，通过 --helper 提权设置DNS+DoH");
             let result_path = crate::platform::helper_spawn::unique_result_path();
+            let arg_refs: Vec<&str> = targets.iter().map(|s| s.as_str()).collect();
             match crate::platform::helper_spawn::spawn_elevated_helper(
                 "dns",
-                &[],
+                &arg_refs,
                 &result_path,
                 std::time::Duration::from_secs(30),
             ) {

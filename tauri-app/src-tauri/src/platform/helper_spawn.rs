@@ -37,7 +37,8 @@ pub fn spawn_elevated_helper(
     let mut params = format!("--helper {op}");
     for a in args {
         params.push(' ');
-        params.push_str(a);
+        // 参数统一加引号：适配器名可含空格（如 "以太网 2"），不加引号会被命令行拆碎
+        params.push_str(&format!("\"{a}\""));
     }
     params.push_str(&format!(" --result \"{}\"", result_path.display()));
 

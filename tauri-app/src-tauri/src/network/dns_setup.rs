@@ -3,24 +3,26 @@
 //! 从 commands/network_cmd.rs 的 setup_dns_doh 管理员分支抽出，
 //! 供主进程（管理员路径）与 helper 子进程（提权后，见 crate::helper）复用，
 //! 避免两处逻辑漂移。管理员路径与 helper 路径行为一致：
-//! 枚举活跃适配器 → WiFi 走配置文件级、有线走接口级 Win32 设置 →
-//! 注册全局 DoH 服务器（netsh dns add encryption）→ 清 DNS 缓存。
+//! 按调用方传入的目标适配器名单（resolve 后的主/副适配器）→ WiFi 走配置文件级、
+//! 有线走接口级 Win32 设置 → 注册全局 DoH 服务器（netsh dns add encryption）→ 清 DNS 缓存。
 
 #[cfg(target_os = "windows")]
-pub fn setup_dns_doh_admin() -> serde_json::Value {
+/// `targets` 为操作范围白名单（resolve 后的主/副适配器名）：只对这些适配器
+/// 设置 DNS/DoH，不再触碰系统里其他活跃适配器。全局 DoH 注册与 flushdns 不受名单限制。
+pub fn setup_dns_doh_admin(targets: &[String]) -> serde_json::Value {
     use crate::network::{get_adapters_force, is_blacklisted, Adapter};
     use crate::platform::dns_config;
 
     let adapters = get_adapters_force().unwrap_or_default();
     let active: Vec<&Adapter> = adapters
         .iter()
-        .filter(|a| !a.ip.is_empty() && !is_blacklisted(&a.name))
+        .filter(|a| !a.ip.is_empty() && !is_blacklisted(&a.name) && targets.iter().any(|t| t == &a.name))
         .collect();
 
     if active.is_empty() {
         return serde_json::json!({
             "success": false,
-            "message": "未找到活跃的网络适配器".to_string(),
+            "message": "未找到目标网络适配器（主/副适配器均无活跃连接）".to_string(),
         });
     }
 
@@ -123,6 +125,6 @@ pub fn setup_dns_doh_admin() -> serde_json::Value {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn setup_dns_doh_admin() -> serde_json::Value {
+pub fn setup_dns_doh_admin(_targets: &[String]) -> serde_json::Value {
     serde_json::json!({ "success": false, "message": "仅支持Windows".to_string() })
 }
