@@ -65,7 +65,7 @@ Wxxy-CampusLogin/
 │   │       │   ├── useThemeStore.ts      # 主题领域 store (themeName/isLightMode/customThemeColor + DOM 副作用)
 │   │       │   ├── useLogToastStore.ts   # 日志/Toast store (独立 zustand)
 │   │       │   ├── useAppInit.ts         # 初始化编排 hook (调用 4 个子 hook)
-│   │       │   ├── useEventListeners.ts  # Tauri 事件监听统一注册 (16 个事件 + 窗口关闭拦截)
+│   │       │   ├── useEventListeners.ts  # Tauri 事件监听统一注册 (15 个事件 + 窗口关闭拦截)
 │   │       │   ├── useInitialDataLoad.ts # getInitData 拉取并 bootstrap 所有 store
 │   │       │   ├── useHeartbeat.ts       # 渲染心跳 (5s 间隔，visibility 暂停)
 │   │       │   ├── useGlobalShortcut.ts  # 全局快捷键 (Ctrl+Shift+C 取消自动退出)
@@ -197,7 +197,7 @@ Wxxy-CampusLogin/
 │           │   │   └── exit.rs      # ExitStateStore
 │           │   ├── logger.rs        # 日志系统 (文件+通道+调试模式切换+日志保留天数清理+shutdown mpsc超时join)
 │           │   ├── lifecycle.rs     # 自动退出控制 + 校园网退出流程
-│           │   ├── notification.rs  # 通知封装 (emit_notification)
+│           │   ├── notification.rs  # 系统通知封装 (emit_notification，仅非前台 Windows 通知)
 │           │   ├── events.rs        # 事件总线 EventBus (16 个 emit_xxx 方法)
 │           │   ├── command_context.rs # 命令上下文 CommandContext::from_app
 │           │   └── task_manager.rs  # 后台任务管理器 BackgroundTaskManager (cancel token 统一管理)
@@ -1269,7 +1269,11 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `useThemeStore` | `useThemeStore.ts` (81行) | 主题/亮暗/自定义色 + DOM 副作用 | `themeName`/`isLightMode`/`customThemeColor` | `setThemeName`/`setIsLightMode`/`initTheme`/`setCustomThemeColor` |
 | `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300；Toast 上限 MAX_TOASTS=4，`addToast`/`addToastWithAction` 同 title 去重——同一条业务事件经"专用事件 + system-notification"双通道各弹一次时只保留先到的) | `logs`/`toasts` | `addLog`/`addToast`/`addToastWithAction`/`removeToast`/`removeToastsByPrefix` |
 
-> **双通道通知去重 (2026-09-03)**：后端 `emit_notification` 同时发 `system-notification` 前端事件 + 系统通知，与各业务专用事件（`onAutoLoginResult`/`onAutoExitCountdown`/`onAutoExitCancelled`/`onCampusExitCountdown`/`onCampusExitCancelled`/质量告警）形成双通道。同 title 的（"自动登录成功"/"即将自动退出"）由 store 同题去重覆盖；title 不同的（后端"已取消退出" vs 前端"已取消自动退出"、"网络拥堵" vs "校园网可能出现问题"）由 `useEventListeners.ts` 的 `TITLES_WITH_DEDICATED_TOAST` 白名单拦截——system-notification 通道对白名单内 title 只写日志不弹 toast。后端新增通知若前端已有专用 toast，须同步把 title 加入白名单。
+> **通知单通道规范 (2026-09-03 重构)**：一条通知只有一个来源、一个通道、一个文案源，杜绝双通道重复。
+> - `emit_notification`（`infra/notification.rs`）**只发 Windows 系统通知**（应用非前台 + `enable_notification` 时），不再向前端发 `system-notification` 事件（`EventBus.emit_system_notification` 已删除）；系统通知文案为中文硬编码（后端无法感知前端 UI 语言，为已知边界）
+> - 应用内 toast/日志由**业务专用事件**负责：`onAutoLoginResult`（登录成功/失败）、`onAutoExitCountdown`（即将退出+取消按钮）、`onAutoExitCancelled`、`onCampusExitCountdown`/`onCampusExitCancelled`（校园网退出/取消+按钮）、`onNetworkQualityResult`→`handleQualityBadAlert`（质量告警）、`onLoginLog`（过程告警日志：检测到断线/重连失败/网络仍断线/网络拥堵/恢复——原 emit_notification 调用点已补 `emit_login_log`）、`onUpdateAvailable`（发现新版本）
+> - store 防护：`MAX_TOASTS=4` + 同 title 去重 + 超限淘汰时清理定时器；窗口非前台时普通 toast 不入队（信息由日志兜底），带 action 的 toast 仍入队（承载取消退出操作入口）
+> - 通知文案 i18n：专用通道统一走 `i18next.t('notify.*')`；`enable_notification` 开关仅控制系统通知，应用内 toast 不受影响（设置面板描述已注明）
 | `useAppStore` | `useAppStore.ts` (3行) | **兼容壳**，仅 re-export `useAppInit`/`hasPendingConfig`/`flushPendingConfig` | 无 | 无 |
 
 **密码处理** (迁移至 `useConfigStore`)：`password === PASSWORD_MASK` 时两层防护——`updateConfig` 合并挂起配置时若旧挂起有真实密码但新 partial 传 MASK，保留旧挂起真实密码；`flushPendingConfig` 最终合并时若 password 仍是 MASK 则 `delete`，让后端识别 MASK 并保留原密码。
@@ -1288,7 +1292,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 > **重命名**：`useIpc.ts` 已重命名为 `tauriApi.ts`（commit e06203d），从 hook 风格转向纯 API 模块（无 React 依赖）。
 
-**导出**：`tauriApi: TauriApi`（默认对象，~50 个 invoke 方法 + 16 个事件监听器工厂）、`tauriApiWithRetry: TauriApi`（对 3 个易失败命令包一层 `withRetry`）。
+**导出**：`tauriApi: TauriApi`（默认对象，~50 个 invoke 方法 + 15 个事件监听器工厂）、`tauriApiWithRetry: TauriApi`（对 3 个易失败命令包一层 `withRetry`）。
 
 **事件监听器** (16 个，均通过 `createEventListener<T>(eventName)` 工厂创建，返回取消函数):
 
@@ -1351,7 +1355,7 @@ export function useAppInit() {
 
 #### 5.3.1 `useEventListeners.ts` (345 行) — 事件监听统一注册
 
-mount 时注册全部 Tauri 事件监听器与窗口关闭拦截，unmount 时统一清理。注册 16 个事件订阅 + 1 个窗口关闭拦截：
+mount 时注册全部 Tauri 事件监听器与窗口关闭拦截，unmount 时统一清理。注册 15 个事件订阅 + 1 个窗口关闭拦截：
 
 - `getCurrentWindow().onCloseRequested` — 拦截关闭，若有 pending config 先 `flushPendingConfig()`，等 300ms 再关闭
 - `onBackgroundCheckResult` — 更新 `bgStatus`、记录在线/离线日志（1s 节流 + 5s 在线日志节流）
@@ -1865,7 +1869,7 @@ App.tsx (377行, App + AppInner)
   │   └── useLogToastStore (logs/toasts)
   ├── tauriApi.ts ← @tauri-apps/api (原 useIpc.ts，纯模块非 hook)
   └── useAppInit.ts (编排 hook)
-        ├── useEventListeners.ts (16 个事件订阅 + 窗口关闭拦截)
+        ├── useEventListeners.ts (15 个事件订阅 + 窗口关闭拦截)
         ├── useInitialDataLoad.ts (getInitData bootstrap)
         ├── useHeartbeat.ts (5s 渲染心跳)
         └── useGlobalShortcut.ts (Ctrl+Shift+C)
@@ -1947,6 +1951,7 @@ App.tsx (377行, App + AppInner)
 | 子标签切换动画修复 (v2.5.0) | `QualityPanel` 测试详情子标签切换：`TooltipProvider` 从 `m.div(key=activeTab)` 外层移入内层，让 `AnimatePresence mode=wait` 感知到 key 变化从而播进出场动画；`tabContainerVariants` 补全 initial/终态；子元素 `m.div` 补 `custom={tabDirection}` (QualityPanel.tsx) | 恢复测试详情网关/DNS/网站/视频/游戏子标签切换的滑动+淡入过渡 |
 | 面板启动预加载 (v2.5.0) | `App.tsx` 面板 lazy loader 抽出复用（`loadAccountPanel` 等），新增 `preloadPanels()` 在启动动画播完后经 `requestIdleCallback` 空闲时 `import()` 预取所有面板/对话框 chunk (App.tsx) | 切面板时 chunk 已就绪，避免首次切换等待下载导致卡顿 |
 | 常用面板静态导入 (v2.5.0) | Account/Network/Monitor/Quality/SpeedTest/Settings 6 个常用面板改静态 `import`（并入主包 285→368KB），切换零等待；仅 LogPanel + About/Theme/Onboarding 对话框保留懒加载 + 启动预取 (App.tsx) | 消除常用面板切换卡顿，首屏体积仍低于分包前 402KB |
+| WebView2 vsync 恢复 (2026-09-03) | `build_browser_args` 移除 `--disable-gpu-vsync`（platform/gpu.rs）；前端 GSAP/Framer/CSS 本就 rAF/vsync 驱动无 JS 上限 | 解除 vsync 后 BeginFrame 不对齐显示器刷新，帧节奏紊乱经 DWM 合并呈撕裂+顿挫（观感"掉帧"）且 GPU 空耗；恢复后管线锁显示器刷新率，120Hz 屏动画最高 120fps |
 
 ---
 
