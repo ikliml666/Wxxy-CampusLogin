@@ -111,9 +111,11 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     }
   }, [])
 
-  const fetchLogs = useCallback(async () => {
+  // manual=true 为用户触发（初始加载/手动刷新/切换调试模式），切换刷新按钮加载态；
+  // 5s 轮询不置 loading，否则刷新图标每 5 秒自转一圈，与手动刷新语义混淆
+  const fetchLogs = useCallback(async (manual = false) => {
     const seq = ++fetchSeqRef.current
-    setIsLoading(true)
+    if (manual) setIsLoading(true)
     try {
       const result = await api.getLogs(lineCount)
       if (seq !== fetchSeqRef.current || !mountedRef.current) return
@@ -128,12 +130,12 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       addToast(t('log.fetchLogFailed'), 'error', extractErrorMessage(e))
     } finally {
       if (seq !== fetchSeqRef.current || !mountedRef.current) return
-      setIsLoading(false)
+      if (manual) setIsLoading(false)
     }
   }, [api, lineCount, addToast])
 
   useEffect(() => {
-    fetchLogs()
+    fetchLogs(true)
   }, [fetchLogs])
 
   useEffect(() => {
@@ -179,7 +181,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
       if (!mountedRef.current) return
       setDebugMode(next)
       addToast(next ? t('log.debugEnabled') : t('log.debugDisabled'), 'info')
-      fetchLogs()
+      fetchLogs(true)
     } catch {
       if (!mountedRef.current) return
       addToast(t('log.debugToggleFailed'), 'error')
@@ -429,7 +431,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   variant="outline"
                   size="sm"
                   className="h-7 text-[11px] gap-1 px-2"
-                  onClick={fetchLogs}
+                  onClick={() => fetchLogs(true)}
                   disabled={isLoading}
                 >
                   <RefreshCw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
@@ -551,14 +553,17 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     </div>
                   )}
                   <AnimatePresence mode="popLayout" key={logsKey}>
-                    {displayedLines.map((line) => {
+                    {displayedLines.map((line, idx) => {
                       const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
                       const Icon = cfg.icon
                       const enableAnimation = displayedLines.length <= 30
+                      // key 追加 idx：同一秒内可能产生完全相同内容的日志（如高频重试），
+                      // 仅用 内容前20字符 组 key 会重复，触发 React 警告与动画元素复用错乱
+                      const lineKey = `${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}-${idx}`
                       if (!enableAnimation) {
                         return (
                           <div
-                            key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
+                            key={lineKey}
                             className={cn(
                               'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
                               cfg.border,
@@ -592,7 +597,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                       }
                       return (
                         <m.div
-                          key={`${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}`}
+                          key={lineKey}
                           variants={logVariants}
                           initial="initial"
                           animate="animate"

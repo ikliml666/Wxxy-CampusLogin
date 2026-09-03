@@ -44,9 +44,12 @@ export function useInitialDataLoad() {
           useThemeStore.getState().initTheme(cfg)
 
           const savedPanel = safeStorage.get('campus-active-panel') as PanelName | null
-          if (savedPanel && VALID_PANELS.includes(savedPanel) && !cfg.defaultPanel) useAdapterStore.getState().setActivePanel(savedPanel)
+          // 质量检测已禁用时 quality 面板不渲染（App.tsx 返回 null、Dock 隐藏入口），
+          // 恢复该面板会导致重启后主区域空白，跳过恢复
+          const qualityDisabled = cfg.enableNetworkQuality === false
+          if (savedPanel && VALID_PANELS.includes(savedPanel) && !cfg.defaultPanel && !(qualityDisabled && savedPanel === 'quality')) useAdapterStore.getState().setActivePanel(savedPanel)
 
-          if (cfg.defaultPanel) {
+          if (cfg.defaultPanel && !(qualityDisabled && cfg.defaultPanel === 'quality')) {
             useAdapterStore.getState().setActivePanel(cfg.defaultPanel as PanelName)
             safeStorage.set('campus-active-panel', cfg.defaultPanel)
           }

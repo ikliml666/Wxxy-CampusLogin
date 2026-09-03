@@ -108,12 +108,15 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
     if (container) {
       const entries = container.querySelectorAll('.log-entry-hover')
       if (entries.length > 0) {
+        // 动态 stagger：条目越多间隔越短，总时长封顶（与 LogPanel 同策略），
+        // 否则日志满 300 条时清空动画 ≈ 60 秒且期间按钮禁用无法取消
+        const staggerEach = entries.length > 8 ? 0.05 : entries.length > 4 ? 0.1 : 0.2
         const ctx = gsap.context(() => {
           gsap.to(entries, {
             autoAlpha: 0,
             x: 50,
             scaleX: 0.8,
-            stagger: { each: 0.2, from: 'start' },
+            stagger: { each: staggerEach, from: 'start' },
             duration: 0.4,
             ease: 'back.out(1.2)',
             force3D: true,

@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import React, { memo, useMemo, useState, useRef, useEffect } from 'react'
 import { useThemeStore } from '@/hooks/useThemeStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 
@@ -409,7 +410,19 @@ export const SettingsPanel = memo(function SettingsPanel({
               <Switch
                 id="enable-quality"
                 checked={config.enableNetworkQuality !== false}
-                onCheckedChange={checked => onUpdateConfig({ enableNetworkQuality: checked })}
+                onCheckedChange={checked => {
+                  if (checked) {
+                    onUpdateConfig({ enableNetworkQuality: true })
+                    return
+                  }
+                  // 关闭质量检测时联动清理 quality 面板引用，否则 App 对该面板渲染 null、
+                  // Dock 隐藏入口，当前面板停留在 quality 时主区域空白
+                  const { activePanel, setActivePanel } = useAdapterStore.getState()
+                  const patch: Partial<Config> = { enableNetworkQuality: false }
+                  if (config.defaultPanel === 'quality') patch.defaultPanel = ''
+                  onUpdateConfig(patch)
+                  if (activePanel === 'quality') setActivePanel('dashboard')
+                }}
                 className="shrink-0"
               />
             </div>

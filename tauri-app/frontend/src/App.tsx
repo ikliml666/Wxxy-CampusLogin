@@ -198,7 +198,9 @@ function AppInner() {
     panelChangeLock.current = true
     setActivePanel(p)
     safeStorage.set('campus-active-panel', p)
-    setTimeout(() => { panelChangeLock.current = false }, 500)
+    // 锁只需覆盖 AnimatePresence mode="wait" 的退出动画时长（0.08s），
+    // 原固定 500ms 会吞掉快速连续点击
+    setTimeout(() => { panelChangeLock.current = false }, 120)
   }, [setActivePanel])
 
   const panelInfo = PANEL_TITLES[activePanel] || PANEL_TITLES.dashboard

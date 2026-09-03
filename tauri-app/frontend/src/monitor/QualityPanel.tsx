@@ -104,7 +104,7 @@ const tabContainerVariants: Variants = {
 }
 
 export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const networkQuality = useQualityStore((s) => s.networkQuality)
   const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
@@ -475,7 +475,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
               <div className="flex items-center gap-1.5 pt-2">
                 <Clock className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[11px] text-muted-foreground">
-                  {t('quality.detectionTime')}: {new Date(networkQuality.timestamp).toLocaleTimeString('zh-CN')}
+                  {t('quality.detectionTime')}: {new Date(networkQuality.timestamp).toLocaleTimeString(i18n.language === 'en' ? 'en-US' : 'zh-CN')}
                 </span>
               </div>
             )}
