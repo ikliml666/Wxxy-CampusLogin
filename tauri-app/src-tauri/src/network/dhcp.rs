@@ -33,9 +33,13 @@ pub fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
     Ok(output.status.success())
 }
 
-pub fn dhcp_renew_wired_only() -> Result<Vec<serde_json::Value>, String> {
+/// 对目标适配器（resolve 后的主/副适配器）中的有线网卡执行 DHCP 续租，
+/// 不再遍历系统全部有线适配器
+pub fn dhcp_renew_wired_only(targets: &[String]) -> Result<Vec<serde_json::Value>, String> {
     let adapters = get_adapters_cached()?;
-    let wired: Vec<&Adapter> = adapters.iter().filter(|a| !a.wireless).collect();
+    let wired: Vec<&Adapter> = adapters.iter()
+        .filter(|a| !a.wireless && targets.iter().any(|t| t == &a.name))
+        .collect();
     if wired.is_empty() { return Ok(vec![]); }
 
     let mut results = Vec::new();
@@ -382,15 +386,21 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
     })
 }
 
-pub fn dhcp_release_renew_all(campus_gateway: &str) -> Result<Vec<serde_json::Value>, String> {
+/// 对目标适配器（resolve 后的主/副适配器）执行 MAC 修改 + DHCP 释放/续租，
+/// `targets` 为空时返回空结果——不触碰名单外的适配器（renew_adapter_with_mac
+/// 内部仍有虚拟网卡黑名单与非校园网子网跳过两层保护）
+pub fn dhcp_release_renew_all(campus_gateway: &str, targets: &[String]) -> Result<Vec<serde_json::Value>, String> {
     if campus_gateway.is_empty() {
         return Err("校园网网关为空，无法判断子网".to_string());
     }
     let adapters = get_adapters_cached()?;
-    if adapters.is_empty() { return Ok(vec![]); }
+    let targets: Vec<&Adapter> = adapters.iter()
+        .filter(|a| targets.iter().any(|t| t == &a.name))
+        .collect();
+    if targets.is_empty() { return Ok(vec![]); }
 
     let mut results = Vec::new();
-    for adapter in &adapters {
+    for adapter in &targets {
         results.push(renew_adapter_with_mac(adapter, campus_gateway));
     }
     Ok(results)

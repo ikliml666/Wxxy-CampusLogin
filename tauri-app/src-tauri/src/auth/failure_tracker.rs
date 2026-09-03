@@ -41,8 +41,10 @@ pub(crate) fn set_adapter_failure_count(state: &AppState, counter: AdapterFailur
     });
 }
 
-/// 单适配器全局失败计数：连续 5 次认证失败触发全部适配器 MAC 重置
-pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_result: &CommandResult, campus_gw: &str) {
+/// 单适配器全局失败计数：连续 5 次认证失败触发该登录适配器的 MAC 重置。
+/// `adapter_name` 为本次登录用的适配器（调用方 resolve 后传入）——
+/// 只重置它，不再对系统全部适配器做 MAC 重置。
+pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_result: &CommandResult, campus_gw: &str, adapter_name: &str) {
     if cmd_result.success {
         let prev = state.network.load().portal_failure_count;
         if prev > 0 {
@@ -69,26 +71,23 @@ pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_r
         .unwrap_or(""));
 
     if new_count >= MAX_FAILURES {
-        crate::log_warn!("login", "连续{}次认证失败，触发MAC重置+DHCP续租", new_count);
+        crate::log_warn!("login", "连续{}次认证失败，触发{}的MAC重置+DHCP续租", new_count, adapter_name);
         let event_bus = EventBus::new(app_handle);
         let _ = event_bus.emit_login_log("连续5次认证失败，正在重置MAC并重新获取IP...", "warning");
-        match crate::network::dhcp_release_renew_all(campus_gw) {
-            Ok(results) => {
-                for r in &results {
-                    let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let name = r.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                    if skipped {
-                        crate::log_debug!("login", "MAC重置跳过非校园网适配器: {}", name);
-                    } else if success {
-                        crate::log_info!("login", "MAC重置成功: {}", name);
-                    } else {
-                        crate::log_warn!("login", "MAC重置失败: {}", name);
-                    }
+        match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {
+            Ok(r) => {
+                let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+                let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                if skipped {
+                    crate::log_debug!("login", "{} MAC重置跳过(非校园网子网)", adapter_name);
+                } else if success {
+                    crate::log_info!("login", "{} MAC重置成功", adapter_name);
+                } else {
+                    crate::log_warn!("login", "{} MAC重置失败", adapter_name);
                 }
             }
             Err(e) => {
-                crate::log_error!("login", "MAC重置+DHCP续租失败: {}", e);
+                crate::log_error!("login", "{} MAC重置+DHCP续租失败: {}", adapter_name, e);
             }
         }
         state.network.update(|s| s.portal_failure_count = 0);

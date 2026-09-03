@@ -56,7 +56,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
             Some(a) => {
                 let result = login_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
                     .unwrap_or_else(|| CommandResult::err("登录请求失败"));
-                update_auth_failure_count(state, app_handle, &result, &config.campus_gateway);
+                update_auth_failure_count(state, app_handle, &result, &config.campus_gateway, name);
                 return result;
             }
             None => return CommandResult::err(&format!("未找到适配器: {name}")),
@@ -106,7 +106,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
 
     let result = login_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
         .unwrap_or_else(|| CommandResult::err("登录请求失败"));
-    update_auth_failure_count(state, app_handle, &result, &config.campus_gateway);
+    update_auth_failure_count(state, app_handle, &result, &config.campus_gateway, &adapter1_name);
     result
 }
 
