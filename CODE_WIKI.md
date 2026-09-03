@@ -791,6 +791,43 @@ pub fn random_v() -> String {
 - `/mac/unbind` 接口 `result=0` 且 msg 含"解绑终端MAC成功"表示解绑成功
 - `result=0` 但 msg 含错误关键词（"非法"/"失败"/"错误"/"拒绝"）→ 失败
 
+#### 4.5.4.1 校园网认证协议速查 (2026-09-03 沉淀)
+
+> 来源：社区项目 [Senquan007/Wxxy_network_auto_login](https://github.com/Senquan007/Wxxy_network_auto_login) README + 2026-09-03 本机浏览器/curl 实测。认证系统为 Dr.COM 城市热点，GET 方式认证。
+
+**端口语义（严格区分，勿再对齐）**:
+
+| 端口 | 角色 | 用途 |
+|------|------|------|
+| `10.1.99.100` (80) | Dr.COM 网关状态页 | **仅页面状态检测**（`check_portal_page`）：GBK 页面内嵌 `注销页`/`Dr.COMWebLoginID_*`/`uid=`/`v4ip=` 状态特征；已在线渲染"您已经成功登录。"+注销按钮 |
+| `10.1.99.100:801` | ePortal 认证 API + 管理前端 | **登录/注销/协议请求**（`ensure_portal_port`）；根路径 302→`/eportal` SPA 管理系统登录表单，已在线仍渲染登录页、无状态特征，**禁止用于状态探测** |
+
+**登录请求模板**（`protocol.rs do_login_request` 与社区项目完全一致）:
+
+```
+GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
+    &user_account={学号}{运营商后缀}&user_password={密码}
+    &wlan_user_ip=&wlan_user_ipv6=&wlan_user_mac=000000000000
+    &wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v={random}&lang=zh
+```
+
+- 运营商后缀：无锡学院无后缀 / `@cmcc` / `@unicom` / `@telecom`
+- `wlan_user_ip` 非关键认证数据，可留空甚至删除（社区实验结论，与本项目 NAT 检测后不发的设计一致）
+- `v` 为随机数即可（本项目 `random_v()` 1000-9999）
+
+**登录响应语义（JSONP `dr1003({...})`）**:
+
+| 响应 | 含义 | 本项目处理 |
+|------|------|-----------|
+| `result=1` + "Portal协议认证成功" | 登录成功 | success（还防"非法/失败/错误/拒绝"假成功） |
+| `result=0` + "IP: x.x.x.x 已经在线！" + `ret_code=2` | **已在线（成功态）** | success —— result=0 是双语义，必须按 msg 区分 |
+| `result=0` + "AC认证失败" | 凭据失败 | `ac_auth_failed`（AUTH_FAILURE_CODES 计数） |
+| `result=0` + 其他 msg | 真实业务失败（账号过期/余额不足等） | `unknown_failure`，不误报成功 |
+| `result=2` + "已经在线" | 已在线变体 | success |
+| `result=3` / `result=4` | 流量超限 / 账号被禁用 | 失败 |
+
+**环境事实**：校园网 IP 为 DHCP 动态分配，租期约 1 天（社区项目因此需 cron 定时重登；本项目由后台巡检 + 断线重连 + DHCP 续租覆盖）。
+
 #### 4.5.5 网络质量检测 — `quality.rs`
 
 **两阶段检测**:
