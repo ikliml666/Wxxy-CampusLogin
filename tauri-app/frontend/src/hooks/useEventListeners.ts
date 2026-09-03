@@ -14,6 +14,19 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 // 产生新数组导致 StatusBar 等订阅方整体重渲染（历史缺陷 P2-F6）
 const EMPTY_ADAPTER_STATUSES: AdapterOnlineStatus[] = []
 
+// 以下通知已有专用事件通道（success/warning 语义、取消按钮、i18n 文案），
+// system-notification 通道只写日志不再弹 toast，避免同一事件弹两条样式不同的
+// 通知。无法用 store 的同题去重覆盖——专用事件与系统通知的标题不同
+// （如"已取消退出" vs "已取消自动退出"）。后端新增 emit_notification 时，
+// 若前端已有专用 toast，把该 title 加入此表。
+const TITLES_WITH_DEDICATED_TOAST = new Set([
+  '自动登录成功', // onAutoLoginResult
+  '即将自动退出', // onAutoExitCountdown（含取消按钮）
+  '已取消退出', // onAutoExitCancelled"已取消自动退出" / onCampusExitCancelled"已取消校园网退出"
+  '非校园网络', // onCampusExitCountdown（含取消按钮）
+  '网络拥堵', // handleQualityBadAlert"校园网可能出现问题"
+])
+
 export function useEventListeners() {
   const lastAdapterOnlineRef = useRef<Map<string, boolean>>(new Map())
   const lastOnlineLogTimeRef = useRef(0)
@@ -328,7 +341,9 @@ export function useEventListeners() {
     const unsub7 = api.onSystemNotification?.((data) => {
       if (!mountedRef.current) return
       if (data?.title) {
-        lt.getState().addToast(data.title, 'info', data.body, 5000)
+        if (!TITLES_WITH_DEDICATED_TOAST.has(data.title)) {
+          lt.getState().addToast(data.title, 'info', data.body, 5000)
+        }
         lt.getState().addLog(`[系统通知] ${data.title}: ${data.body || ''}`, 'info')
       }
     }) ?? (() => {})

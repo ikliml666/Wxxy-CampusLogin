@@ -1268,6 +1268,8 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `useQualityStore` | `useQualityStore.ts` (76行) | 网络质量/DNS DoH/更新/GPU | `networkQuality`/`dnsDohStatus`/`dnsChecking`/`isRefreshingQuality`/`updateAvailable`/`latestVersion`/`releaseNotes`/`gpuInfo`/`refreshRate` | `refreshQuality`/`setNetworkQuality`/`setDnsDohStatus`/`setUpdateAvailable`/`setGpuInfo` |
 | `useThemeStore` | `useThemeStore.ts` (81行) | 主题/亮暗/自定义色 + DOM 副作用 | `themeName`/`isLightMode`/`customThemeColor` | `setThemeName`/`setIsLightMode`/`initTheme`/`setCustomThemeColor` |
 | `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300；Toast 上限 MAX_TOASTS=4，`addToast`/`addToastWithAction` 同 title 去重——同一条业务事件经"专用事件 + system-notification"双通道各弹一次时只保留先到的) | `logs`/`toasts` | `addLog`/`addToast`/`addToastWithAction`/`removeToast`/`removeToastsByPrefix` |
+
+> **双通道通知去重 (2026-09-03)**：后端 `emit_notification` 同时发 `system-notification` 前端事件 + 系统通知，与各业务专用事件（`onAutoLoginResult`/`onAutoExitCountdown`/`onAutoExitCancelled`/`onCampusExitCountdown`/`onCampusExitCancelled`/质量告警）形成双通道。同 title 的（"自动登录成功"/"即将自动退出"）由 store 同题去重覆盖；title 不同的（后端"已取消退出" vs 前端"已取消自动退出"、"网络拥堵" vs "校园网可能出现问题"）由 `useEventListeners.ts` 的 `TITLES_WITH_DEDICATED_TOAST` 白名单拦截——system-notification 通道对白名单内 title 只写日志不弹 toast。后端新增通知若前端已有专用 toast，须同步把 title 加入白名单。
 | `useAppStore` | `useAppStore.ts` (3行) | **兼容壳**，仅 re-export `useAppInit`/`hasPendingConfig`/`flushPendingConfig` | 无 | 无 |
 
 **密码处理** (迁移至 `useConfigStore`)：`password === PASSWORD_MASK` 时两层防护——`updateConfig` 合并挂起配置时若旧挂起有真实密码但新 partial 传 MASK，保留旧挂起真实密码；`flushPendingConfig` 最终合并时若 password 仍是 MASK 则 `delete`，让后端识别 MASK 并保留原密码。
