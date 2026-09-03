@@ -712,7 +712,9 @@ lazy_static! {
   - `EnabledNoIp` — 未禁用无IP（OperStatus Up 但无有效 IP，含 169.254 APIPA 清空后）
   - `Connected` — 已连接（OperStatus Up 且有有效 IP）
 
-**连接速度 (LinkSpeed)**: `Adapter`/`AdapterDetail` 新增 `linkSpeed` 字段（u64 bit/s，0 表示未知），直接读 `IP_ADAPTER_ADDRESSES.ReceiveLinkSpeed`（无需额外 API）。前端 NetworkPanel 适配器卡片展示格式化后速度（Gbps/Mbps）。
+**连接速度 (LinkSpeed)**: `Adapter`/`AdapterDetail` 新增 `linkSpeed` 字段（u64 bit/s，0 表示未知），直接读 `IP_ADAPTER_ADDRESSES.ReceiveLinkSpeed`（无需额外 API）。**未连接时 Windows 返回 u64::MAX（内部 -1 哨兵），发现层归 0 表示未知**（2026-09-03：原样透传曾被前端换算成 18446744073.7 Gbps）。前端 NetworkPanel 适配器卡片展示格式化后速度，统一 Mbps 单位（低于 1 Mbps 用 Kbps）。
+
+**适配器操作范围约定（2026-09-03）**: 检测/优化/登录/注销等**操作类**流程只作用于 `resolve_adapter_names` 解析出的主/副适配器（"自动检测"由 resolve 落到具体适配器），新增 `filter_operation_adapters(adapters, a1, a2)` 作为范围过滤基准；**UI 展示类**（get_adapters/get_adapter_details/adapter_watch/check_dns_doh_status/check_campus_status 命令）保持遍历全部。落地位置：后台巡检与开机自启的校园网检测传过滤后列表；`select_adapter` 经 resolve 取主适配器 IP（不再回退到配置范围外适配器，无 IP 返回空由调用方兜底）；`setup_dns_doh_admin(targets)` DNS/DoH 一键设置只写名单内适配器（helper 提权路径经 `--helper dns <名单...>` 传参，`spawn_elevated_helper` 对参数统一加引号防适配器名含空格被拆碎）；`dhcp_renew_wired_only(targets)`/`dhcp_release_renew_all(gw, targets)` DHCP 操作、`update_auth_failure_count(..., adapter_name)` 自动 MAC 重置（原对全部适配器重置，现只重置登录适配器）均按名单收窄；登录/注销（full_login/full_logout）本就只操作 a1/a2，未变。
 
 **适配器可见性双重验证** (定义在 `network/discovery/registry.rs`):
   - `is_visible_in_ncpa()` — 注册表双重检查：`ShowInNetworkConnections` + Class subkey PnP 设备树交叉验证，过滤幽灵虚拟副本
@@ -1007,7 +1009,7 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 | 函数 | 说明 |
 |------|------|
 | `is_auth_failure()` | 判断 CommandResult 是否为认证失败 (`AUTH_FAILURE_CODES: ["ac_auth_failed","1","4"]`) |
-| `update_auth_failure_count()` | 单适配器认证失败计数，连续5次触发 MAC 重置+DHCP 续租 |
+| `update_auth_failure_count()` | 单适配器认证失败计数，连续5次触发该登录适配器（调用方 resolve 后传入 `adapter_name`）的 MAC 重置+DHCP 续租（2026-09-03：由重置全部适配器收窄为单个，走 `dhcp_release_renew_single`） |
 | `update_dual_adapter_auth_failure()` | 双适配器分别计数，各自5次触发单适配器 MAC 重置 |
 | `handle_portal_request_failure()` | **9c 从 portal_failure.rs 迁入**：Portal HTTP 请求失败容错，`PORTAL_REQUEST_FAILURE_THRESHOLD=5`；网关不可达时跳过计数并重置（校园网断网/维护期避免误重置 MAC），达阈值触发 `dhcp_release_renew_single` |
 | `reset_all()` | 重置所有认证失败计数器 |
@@ -1241,7 +1243,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 **执行流**:
 1. **主进程** (`platform/helper_spawn.rs::spawn_elevated_helper`)：`std::env::current_exe()` 取自身路径，生成唯一结果文件路径（`%TEMP%/campus-login-helper-<pid>-<ts>.json`），拼参数 `--helper <op> ... --result <path>`，按现有降级链提权启动（COM ICMLuaUtil 静默 → 失败 ShellExecuteW runas 弹 UAC）
-2. **helper 进程** (`main.rs` 顶部拦截)：`helper::parse_helper_args` 解析出 `HelperOp`（`Dns` / `Mac{guid, mac_no_dash}`），`run_helper` 执行：
+2. **helper 进程** (`main.rs` 顶部拦截)：`helper::parse_helper_args` 解析出 `HelperOp`（`Dns{targets 适配器名单}` / `Mac{guid, mac_no_dash}`，op 后到首个 `--` 参数前为位置参数），`run_helper` 执行：
    - `Dns` → `network::dns_setup::setup_dns_doh_admin()`（枚举活跃适配器 → Win32 设置 → 全局 DoH 注册 → flushdns）
    - `Mac` → 按 GUID 在 `get_adapters_force` 中解析适配器名 → `dhcp::apply_mac_change_via_registry`（写注册表 NetworkAddress + release/disable/enable/renew）
 3. **结果回传**: helper 把 `HelperResult{success, message, op, logs}` 原子写入结果文件（tmp + rename），主进程 100ms 间隔轮询（DNS 超时 30s / MAC 超时 25s），读取后把 `logs` 并入主进程日志，返回 JSON 结果
