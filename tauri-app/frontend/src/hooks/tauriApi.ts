@@ -26,7 +26,7 @@ interface CampusStatusResult {
 
 interface TauriApi {
   getConfig: () => Promise<Config>
-  saveConfig: (config: Config) => Promise<SaveConfigResult>
+  saveConfig: (config: Config, clearPassword?: boolean) => Promise<SaveConfigResult>
   getAdapters: (force?: boolean) => Promise<Adapter[]>
   getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
@@ -124,7 +124,7 @@ const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => 
 
 const tauriApi: TauriApi = {
   getConfig: () => invoke<Config>('get_config'),
-  saveConfig: (config) => invoke<SaveConfigResult>('save_config', { config }),
+  saveConfig: (config, clearPassword) => invoke<SaveConfigResult>('save_config', { config, clearPassword }),
   getAdapters: (force) => invoke<Adapter[]>('get_adapters', { force }),
   getDisabledAdapters: () => invoke<DisabledAdapter[]>('get_disabled_adapters'),
   enableAdapter: (adapterName) => invoke<EnableAdapterResult>('enable_adapter', { adapterName }),
@@ -238,7 +238,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, baseDe
 
 export const tauriApiWithRetry: TauriApi = {
   ...tauriApi,
-  saveConfig: (config) => withRetry(() => tauriApi.saveConfig(config)),
+  saveConfig: (config, clearPassword) => withRetry(() => tauriApi.saveConfig(config, clearPassword)),
   checkPortalStatus: (adapterIp) => withRetry(() => tauriApi.checkPortalStatus(adapterIp)),
   checkNetworkQuality: () => withRetry(() => tauriApi.checkNetworkQuality()),
 }

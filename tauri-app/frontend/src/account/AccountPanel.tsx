@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 
 interface AccountPanelProps {
@@ -47,6 +48,7 @@ export const AccountPanel = memo(function AccountPanel({
 }: AccountPanelProps) {
   const { t } = useTranslation()
   const passwordSaved = useConfigStore((s) => s.passwordSaved)
+  const addToast = useLogToastStore((s) => s.addToast)
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
@@ -90,6 +92,14 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }
 
+  // 清除已保存密码：后端空密码语义是"保留旧密码"，必须走显式 clearPassword 标志
+  const handleClearPassword = useCallback(async () => {
+    const store = useConfigStore.getState()
+    await store.saveConfigDirect({ password: '' }, true)
+    store.syncPasswordSaved(false)
+    addToast(t('account.passwordCleared'), 'success')
+  }, [addToast, t])
+
   const commitUsername = () => {
     if (usernameDraft === null) return
     if (usernameDraft !== (config.user || '')) {
@@ -100,7 +110,12 @@ export const AccountPanel = memo(function AccountPanel({
 
   const handleAddAccount = async () => {
     const trimmed = newAccountName.trim()
-    if (!trimmed || trimmed.length > 32 || !/^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/.test(trimmed)) return
+    if (!trimmed) return
+    if (trimmed.length > 32 || !/^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/.test(trimmed)) {
+      // 校验失败给出明确反馈（此前静默 return，点击确认像没反应）
+      addToast(t('account.invalidAccountName'), 'error')
+      return
+    }
     await onAddAccount(trimmed)
     if (!mountedRef.current) return
     setNewAccountName('')
@@ -144,7 +159,18 @@ export const AccountPanel = memo(function AccountPanel({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('account.password')}</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('account.password')}</Label>
+                {passwordSaved && (
+                  <button
+                    type="button"
+                    onClick={handleClearPassword}
+                    className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
+                  >
+                    {t('account.clearPassword')}
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Input
                   id="password"

@@ -70,7 +70,12 @@ pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
 }
 
 #[tauri::command]
-pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Config) -> Result<CommandResult, String> {
+pub fn save_config(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    config: Config,
+    clear_password: Option<bool>,
+) -> Result<CommandResult, String> {
     let validated = match validate_config(config) {
         Ok(c) => c,
         Err(e) => {
@@ -80,8 +85,11 @@ pub fn save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Co
     };
 
     let mut config = validated;
-    // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
-    if config.password.is_empty() || config.password == crate::config::model::PASSWORD_MASK {
+    // 显式清除密码（用户在账号面板点击"清除密码"）：跳过兜底直接置空
+    if clear_password == Some(true) {
+        config.password = String::new();
+    } else if config.password.is_empty() || config.password == crate::config::model::PASSWORD_MASK {
+        // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
         let current = state.config.load();
         config.password = current.password.clone();
     }
