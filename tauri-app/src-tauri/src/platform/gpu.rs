@@ -234,30 +234,17 @@ pub fn detect_gpu_info() -> &'static GpuInfo {
 }
 
 pub fn build_browser_args() -> String {
-    let gpu_info = detect_gpu_info();
-    let vendor = gpu_info.vendor.to_lowercase();
-
-    // 不加 --disable-gpu-vsync：解除 vsync 后 BeginFrame 不再对齐显示器刷新，
-    // 经 DWM 合并呈现为撕裂+顿挫（观感即"掉帧"）；保持 vsync 才能锁到显示器
-    // 刷新率（120Hz 屏 → 最高 120fps）。
-    let mut args = String::from("--js-flags=--max-old-space-size=512 --renderer-process-limit=8 --enable-zero-copy --enable-native-gpu-memory-buffers --gpu-memory-buffer-size-mb=128 --num-raster-threads=4");
-
-    if vendor.contains("nvidia") {
-        args.push_str(" --use-angle=d3d12");
-        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc");
-        args.push_str(" --enable-gpu-rasterization");
-    } else if vendor.contains("intel") || vendor.contains("amd") || vendor.contains("advanced micro") || vendor.contains("ati") {
-        args.push_str(" --use-angle=d3d11");
-        args.push_str(" --enable-features=SkiaGraphite,UseSkiaRenderer,EnableDrDc");
-        args.push_str(" --enable-gpu-rasterization");
-    } else {
-        args.push_str(" --use-angle=d3d11");
-        args.push_str(" --disable-features=EnableDrDc");
-        args.push_str(" --enable-features=SkiaGraphite");
-    }
-
+    // 2026-09-03 参数精简（经 Chromium main 源码逐项核验）：原串 11 个参数中，
+    // --enable-native-gpu-memory-buffers/--gpu-memory-buffer-size-mb/UseSkiaRenderer 已被
+    // Chromium 移除（未知项被 WebView2 静默忽略）；--renderer-process-limit 不再被读取；
+    // --num-raster-threads/--enable-gpu-rasterization Windows 默认即达目标值；
+    // EnableDrDc 为 Android 专用（源码标注 Windows NOT SUPPORTED）；--use-angle=d3d12 非
+    // 法值回退默认；SkiaGraphite 为实验性强开、需配套 feature，存在渲染异常风险；
+    // --enable-zero-copy 收益不可测。一律删除交还平台默认（测试最充分的配置）。
+    // ponytail: 实测证明确有增益的 switch 再按需加回。
+    let args = "--js-flags=--max-old-space-size=512";
     crate::log_info!("gpu", "WebView2 浏览器参数: {}", args);
-    args
+    args.to_string()
 }
 
 pub fn detect_display_refresh_rate() -> u32 {

@@ -408,7 +408,7 @@ Wxxy-CampusLogin/
    - **3 秒保底 showWindow**：独立线程 3 秒后检查窗口可见性，不可见则强制 `window.show()` + `set_focus()`，最多重试3次，防止前端初始化异常导致窗口永远隐藏
    - **前端心跳监控**：独立线程每 5 秒检查 `last_render_heartbeat_ms`，连续 3 次超过 20 秒无心跳则重载 WebView
 3. **WebView2 内存管理**: `on_window_event` Focused 时通过 `ICoreWebView2_19.SetMemoryUsageTargetLevel` 调节（前台 NORMAL，后台 LOW）
-4. **GPU 动态浏览器参数**: `build_browser_args()` 根据 GPU 厂商动态设置 WebView2 参数（ANGLE 后端/SkiaGraphite/DrDc）
+4. **WebView2 浏览器参数**: `build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（2026-09-03 精简：原 ANGLE/SkiaGraphite/DrDc/zero-copy 等 9 个参数经核验已失效/Windows 默认即开/Windows 不支持/实验性强开，一并删除交还平台默认）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭，退出时使用 `force_release()` 清理任务标志
 6. **退出流程**: cancel token → 短暂等待后台任务响应 → force_release 兜底 → `exit(0)`，窗口关闭与托盘退出行为统一
 7. **命令注册**: 50个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
@@ -1836,7 +1836,7 @@ platform/
   ├── gpu.rs — GPU 信息检测 (DXGI EnumAdapters1) + 显示器刷新率检测 (EnumDisplaySettingsW) + 动态浏览器参数 (build_browser_args)
   │   [GpuInfo 含 gpu_preference: u8 (0=默认/1=节能/2=高性能, 读注册表 UserGpuPreferences)]
   │   [determine_tier: NVIDIA→discrete, Intel Arc→discrete, Iris Xe→mid-igpu, UHD→low/mid-igpu, AMD RX/Pro→discrete, 780M/880M→high-igpu]
-  │   [build_browser_args: NVIDIA→d3d12+SkiaGraphite+DrDc, Intel/AMD→d3d11+SkiaGraphite+DrDc, 未知→d3d11+禁用DrDc]
+  │   [build_browser_args: 仅 --js-flags=--max-old-space-size=512（2026-09-03 精简，渲染交还平台默认）]
   ├── autostart.rs — 开机自启
   └── helper_spawn.rs ← elevation.rs
       [spawn_elevated_helper: 提权重启自身(--helper) + 结果文件轮询]
@@ -1916,7 +1916,7 @@ App.tsx (377行, App + AppInner)
 | RAF节流+位置去抖 | Button/DockNav/AnimatedCard鼠标事件节流 | 减少无效getBoundingClientRect调用 |
 | transition-all替换 | 10 处替换为显式属性列表（剩余 4 处 AboutDialog/OnboardingWizard/DockNav×2 为有意保留） | 减少不必要的属性过渡计算 |
 | WebView2 内存管理 | 前台 NORMAL/后台 LOW (ICoreWebView2_19.SetMemoryUsageTargetLevel) | 后台内存占用显著降低 |
-| GPU 动态浏览器参数 | build_browser_args 根据 GPU 厂商设置 ANGLE 后端/SkiaGraphite/DrDc | 渲染兼容性和性能优化 |
+| WebView2 参数精简 (2026-09-03) | `build_browser_args` 由厂商分支 11 参数精简为仅 `--js-flags=--max-old-space-size=512`：`--enable-native-gpu-memory-buffers`/`--gpu-memory-buffer-size-mb`/`UseSkiaRenderer` 已从 Chromium 移除，`--renderer-process-limit` 不再被读取，`--num-raster-threads`/`--enable-gpu-rasterization` Windows 默认即开，`EnableDrDc` 源码标注 Windows NOT SUPPORTED，`--use-angle=d3d12` 非法值回退默认，`SkiaGraphite` 实验性强开有渲染异常风险，`--enable-zero-copy` 收益不可测 | 渲染交还平台默认（测试最充分配置），消除实验组合隐患，厂商分支代码删除 |
 | Tokio 线程池动态配置 | 根据 CPU 核心数配置 worker_threads(2-8)/max_blocking_threads(8-64) (app/startup.rs::build_runtime) | 资源利用更合理 |
 | CAS 原子配置更新 | `ConfigStore::update` CAS 原子更新 (compare_and_swap 循环) 避免 TOCTOU 竞态 (infra/state/store.rs:35-49) | 配置一致性保证 |
 | 流式 SHA256 校验 | 分块流式读取计算 SHA256，64KB buffer | 大文件校验内存占用降低 |
