@@ -75,6 +75,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
   const [progress, setProgress] = useState<DownloadProgress | null>(null)
   const [mirrors, setMirrors] = useState<MirrorSource[]>([])
   const [downloadError, setDownloadError] = useState('')
+  const [installError, setInstallError] = useState('')
   const [downloadedFile, setDownloadedFile] = useState('')
   const [checkError, setCheckError] = useState('')
   const [showReleaseNotes, setShowReleaseNotes] = useState(false)
@@ -162,36 +163,31 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     }
   }, [api])
 
-  // 一键下载：使用默认选中的镜像源直接开始下载
-  const handleQuickDownload = useCallback(async (assetUrl: string) => {
-    setDownloadState('selecting')
-    setShowMirrorList(false)
-    setSelectedMirror(null)
+  // 一键下载前确保 updateInfo 完整：通知缓存路径构造的 updateInfo 缺 sha256Checksum
+  // 与 assets，直接用会导致下载 404（兜底文件名不匹配）且安装被后端拒绝。
+  // 刷新失败时退回缓存对象（可能仍缺 checksum，安装阶段会显示明确错误）。
+  const ensureFullUpdateInfo = useCallback(async (): Promise<UpdateInfo | null> => {
+    if (updateInfo?.sha256Checksum) return updateInfo
     try {
-      const mirrorList = await api.getMirrorUrls(assetUrl)
-      setMirrors(mirrorList)
-      // 自动选择最优源
-      const preferred = mirrorList.find(m => m.name !== 'GitHub' && m.name !== 'GitHub 官方') || mirrorList[0]
-      if (preferred) {
-        setSelectedMirror(preferred.url)
-        // 直接开始下载
-        await handleDownload(preferred.url)
-      }
+      const info = await api.checkUpdate()
+      setUpdateInfo(info)
+      onUpdateAvailable?.(info.hasUpdate, info.latestVersion, info.releaseNotes)
+      return info
     } catch {
-      setMirrors([{ name: 'GitHub', url: assetUrl, description: t('about.officialSource') }])
-      setSelectedMirror(assetUrl)
-      await handleDownload(assetUrl)
+      return updateInfo
     }
-  }, [api, handleDownload])
+  }, [updateInfo, api, onUpdateAvailable])
 
   const handleInstall = useCallback(async () => {
     if (!downloadedFile) return
+    setInstallError('')
     try {
       await api.installUpdate(downloadedFile, updateInfo?.sha256Checksum)
     } catch (e) {
-      if (import.meta.env.DEV) console.error('安装更新失败:', e)
+      // 安装失败必须给用户可见反馈（此前静默失败，按钮点了没反应）
+      setInstallError(extractErrorMessage(e) || t('about.installFailed'))
     }
-  }, [api, downloadedFile, updateInfo?.sha256Checksum])
+  }, [api, downloadedFile, updateInfo?.sha256Checksum, t])
 
   const openGithub = useCallback(() => {
     openExternal?.(`https://github.com/${GITHUB_REPO}`)
@@ -215,8 +211,36 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     return items
   }, [updateInfo?.releaseNotes])
 
-  // 默认 asset URL
-  const defaultAssetUrl = windowsAsset?.url || `https://github.com/${GITHUB_REPO}/releases/latest/download/${updateInfo?.latestVersion ? `CampusLogin_${updateInfo.latestVersion}_x64-setup.exe` : 'CampusLogin_x64-setup.exe'}`
+  // 默认 asset URL：优先用检查结果中的真实资产；缓存路径 assets 为空时的兜底文件名
+  // 必须与 Release 资产命名一致（Wxxy-CampusLogin_{版本}_x64-setup.exe），否则 404
+  const defaultAssetUrl = windowsAsset?.url || `https://github.com/${GITHUB_REPO}/releases/latest/download/${updateInfo?.latestVersion ? `Wxxy-CampusLogin_${updateInfo.latestVersion}_x64-setup.exe` : 'Wxxy-CampusLogin_x64-setup.exe'}`
+
+  // 一键下载：使用默认选中的镜像源直接开始下载
+  const handleQuickDownload = useCallback(async () => {
+    setDownloadState('selecting')
+    setShowMirrorList(false)
+    setSelectedMirror(null)
+    const info = await ensureFullUpdateInfo()
+    const asset = info?.assets.find(a =>
+      a.name.toLowerCase().endsWith('.exe') || a.name.toLowerCase().endsWith('.msi')
+    )
+    const assetUrl = asset?.url || defaultAssetUrl
+    try {
+      const mirrorList = await api.getMirrorUrls(assetUrl)
+      setMirrors(mirrorList)
+      // 自动选择最优源
+      const preferred = mirrorList.find(m => m.name !== 'GitHub' && m.name !== 'GitHub 官方') || mirrorList[0]
+      if (preferred) {
+        setSelectedMirror(preferred.url)
+        // 直接开始下载
+        await handleDownload(preferred.url)
+      }
+    } catch {
+      setMirrors([{ name: 'GitHub', url: assetUrl, description: t('about.officialSource') }])
+      setSelectedMirror(assetUrl)
+      await handleDownload(assetUrl)
+    }
+  }, [api, handleDownload, ensureFullUpdateInfo, defaultAssetUrl, t])
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -383,7 +407,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     if (selectedMirror) {
                       handleDownload(selectedMirror)
                     } else {
-                      handleQuickDownload(defaultAssetUrl)
+                      handleQuickDownload()
                     }
                   }}
                   disabled={checking}
@@ -544,6 +568,11 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     <Package className="h-5 w-5" />
                     {t('about.installUpdate')}
                   </Button>
+                  {installError && (
+                    <div className="text-xs text-rose-500 bg-rose-50 dark:bg-rose-950/20 rounded-xl p-3 break-all">
+                      {installError}
+                    </div>
+                  )}
                   <p className="text-[11px] text-muted-foreground text-center">
                     {t('about.installNote')}
                   </p>
@@ -569,7 +598,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       if (selectedMirror) {
                         handleDownload(selectedMirror)
                       } else {
-                        handleQuickDownload(defaultAssetUrl)
+                        handleQuickDownload()
                       }
                     }}
                   >
@@ -586,7 +615,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   variant="ghost"
                   size="sm"
                   className="text-xs text-muted-foreground"
-                  onClick={() => { setDownloadState('idle'); setShowMirrorList(false) }}
+                  onClick={() => { setDownloadState('idle'); setShowMirrorList(false); setInstallError('') }}
                 >
                   {t('about.return')}
                 </Button>

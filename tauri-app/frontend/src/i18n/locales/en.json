@@ -140,7 +140,10 @@
     "autoExitAfterLogin": "Exit After Login",
     "autoExitAfterLoginDesc": "Automatically close the app after authentication",
     "deleteAccountTitle": "Delete Account",
-    "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone."
+    "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
+    "clearPassword": "Clear saved password",
+    "passwordCleared": "Saved password cleared",
+    "invalidAccountName": "Account name must be 1-32 chars: Chinese, letters, digits, underscore or hyphen"
   },
   "network": {
     "networkAdapters": "Network Adapters",
@@ -538,7 +541,8 @@
     "autoReconnect": "Auto Reconnect",
     "autoReconnectDesc": "Automatically restore connection after disconnection",
     "officialSource": "Official Source",
-    "sizeUnknown": "Unknown"
+    "sizeUnknown": "Unknown",
+    "installFailed": "Failed to launch installer"
   },
   "statusbar": {
     "refreshLatencyTest": "Refresh Latency Test",

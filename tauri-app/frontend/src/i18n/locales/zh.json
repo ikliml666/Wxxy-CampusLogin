@@ -140,7 +140,10 @@
     "autoExitAfterLogin": "登录成功后退出",
     "autoExitAfterLoginDesc": "认证通过后自动关闭本程序",
     "deleteAccountTitle": "删除账号",
-    "deleteAccountMessage": "确定要删除账号「{{name}}」吗？此操作不可撤销。"
+    "deleteAccountMessage": "确定要删除账号「{{name}}」吗？此操作不可撤销。",
+    "clearPassword": "清除密码",
+    "passwordCleared": "已清除保存的密码",
+    "invalidAccountName": "账号名限 1-32 位，仅支持中文、字母、数字、下划线、连字符"
   },
   "network": {
     "networkAdapters": "网络适配器",
@@ -538,7 +541,8 @@
     "autoReconnect": "自动重连",
     "autoReconnectDesc": "断网后自动恢复连接",
     "officialSource": "官方源",
-    "sizeUnknown": "未知"
+    "sizeUnknown": "未知",
+    "installFailed": "安装启动失败"
   },
   "statusbar": {
     "refreshLatencyTest": "刷新延迟检测",
