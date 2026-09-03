@@ -195,10 +195,19 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
         }
         LatencyTask::Https { name, host } => {
-            // HTTPS 测试绑定校园网适配器：双网卡场景下系统默认路由可能选中未认证的
+            // HTTPS 测试优先绑定校园网适配器：双网卡场景下系统默认路由可能选中未认证的
             // 另一张网卡（实测：以太网已认证、WLAN 未认证时路由走 WLAN，全部 TLS 握手
             // 超时）。绑定经 Portal 认证的适配器 IP 保证出口正确；DNS 解析内部仍走系统解析。
-            let r = crate::network::timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
+            //
+            // 绑定失败回退系统路由：Clash/mihomo 等代理的 TUN 模式会注入跃点 0 的
+            // 0.0.0.0/1 + 128.0.0.0/1 路由劫持全部外网目标，源绑定的直连流量出接口不匹配
+            // 被丢弃（实测绑定已认证以太网直连全部 TCP 超时，而网关/DNS/DoH 正常）——
+            // 此时回退走系统路由即用户真实出口路径，保证仍有有效结果。
+            let mut r = crate::network::timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
+            if !r.success && ctx.bind_addr.is_some() {
+                crate::log_info!("quality", "HTTPS绑定直连失败 [{}]: {}，回退系统路由重试（可能存在代理TUN劫持）", name, r.error.as_deref().unwrap_or("未知错误"));
+                r = crate::network::timing::measure_https_timing(&host, 443, None, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
+            }
             let lat = if r.success { r.total_ms } else { -1 };
             if !r.success {
                 crate::log_warn!("quality", "HTTPS测试失败 [{}]: {} - {}", name, r.url, r.error.as_deref().unwrap_or("未知错误"));
