@@ -731,6 +731,7 @@ lazy_static! {
 - v 参数使用 `random_v()` 随机生成
 - NAT 内网 IP 检测，NAT 环境下不发送 `wlan_user_ip`
 - `PortalStatus` 新增 `error_kind` 字段区分"请求失败"与"Portal不可达"
+- **801→80 端口页面探测回退** (2026-09-03)：校园网 801 端口是新版 EPortal（`/eportal` 302→Vue SPA 壳页面 `<title>EPortal</title>`），无论登录与否 HTML 相同、无状态特征，旧 Dr.COM 特征（`Dr.COMWebLoginID_*`/`登录页`/`注销页`）永远失配 → 误报"Portal 页面无法判断登录状态，请手动确认"。修复：`check_portal_page` 先按 801 探测，非 `Determined` 时回退 80 端口旧版 Dr.COM 网关页面（GBK 编码，但 `Dr.COMWebLoginID`/`uid='`/`v4ip='` 等 ASCII 特征可正常匹配），再无法判断才返回 Unknown。`portal_base_at_port(base, port)` 为强制改端口的内部 helper（`ensure_portal_port` 保持"已配置端口则保留"原语义）。
 - **`block_on_http` helper**：同步-异步桥接函数，用于在同步上下文（如 `std::thread::scope` 子线程）中执行 async reqwest 请求。优先使用 `Handle::try_current()` → `handle.block_on(future)`（设置 reactor guard），失败 fallback 到 `tauri::async_runtime::block_on(future)`。背景：b4d8e82 将 `reqwest::blocking` 迁移到异步 reqwest，但 `std::thread::scope` 子线程无 Tokio reactor 上下文导致 panic "there is no reactor running"。**约束**：不能在 async worker 线程上直接调用（`Handle::block_on` 会 panic），所有调用者必须通过 `spawn_blocking` 或在同步线程中调用。
 
 #### 4.5.4 登录/注销请求 — `auth/protocol.rs`
@@ -816,7 +817,7 @@ pub async fn check_network_quality_async(
 
 | 优化项 | 说明 |
 |--------|------|
-| HTTPS 不绑定适配器 | `bind_addr: None`，让系统路由表决定出口网卡，避免校园网绑定主适配器 IP 导致外网 TCP 超时 |
+| HTTPS 恢复绑定适配器 (2026-09-03) | v2.2.5 的"HTTPS 不绑定适配器"在双网卡场景失效：系统默认路由选中未认证网卡（如 WLAN）时全部 HTTPS TLS 握手超时（实测 14/19 项失败）。现 HTTPS 测试绑定经 Portal 认证的适配器 IP（`ctx.bind_addr`），与网关/DNS/DoH 测试一致 |
 | DNS 解析优先 IPv4 | `resolve_host_uncached_with_bind` 中优先返回 `is_ipv4()` 的结果，避免 IPv6 地址导致连接失败 |
 | 增量推送 | `app_handle: Option<&AppHandle>` 参数，Phase 1 和 HTTPS 批次完成后立即 emit，前端逐步填充数据 |
 | HTTPS 分批并发 | Phase 2 改为每批 4 个分批并发，减少校园网高 RTT 环境下 TLS 带宽竞争 |
@@ -1136,6 +1137,7 @@ struct ConnectionCampusStatus {
 | 增量推送 | 传递 `Some(&app_handle)` 给 `check_network_quality_async`，启用 Phase 1 + HTTPS 批次增量推送 |
 | 后端统一通知 | `notify_network_quality_change` 在后端发送网络质量变化通知，前端不再主动调用 `sendNotification` |
 | 移除 15s 冷却 (v2.2.6) | 删除 last_quality_check_time 字段及冷却检查逻辑，首次检测可立即执行 |
+| 未在线跳过 (2026-09-03) | `spawn_latency_test_loop` 每轮检查 `any_adapter_online`，Portal 未认证时跳过自动检测（未认证时外网 HTTPS 必被拦截、全超时且误报"网络拥堵"）；前端手动触发的 `check_network_quality` 命令不受限 |
 
 ### 4.12 适配器监控模块 — `monitor/adapter_watch.rs`
 
@@ -1228,7 +1230,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `useAdapterStore` | `useAdapterStore.ts` (53行) | 适配器列表/详情/面板 | `adapters`/`disabledAdapters`/`adapterDetails`/`isRefreshingAdapters`/`activePanel` | `refreshAdapters`/`setAdapters`/`setActivePanel` |
 | `useQualityStore` | `useQualityStore.ts` (76行) | 网络质量/DNS DoH/更新/GPU | `networkQuality`/`dnsDohStatus`/`dnsChecking`/`isRefreshingQuality`/`updateAvailable`/`latestVersion`/`releaseNotes`/`gpuInfo`/`refreshRate` | `refreshQuality`/`setNetworkQuality`/`setDnsDohStatus`/`setUpdateAvailable`/`setGpuInfo` |
 | `useThemeStore` | `useThemeStore.ts` (81行) | 主题/亮暗/自定义色 + DOM 副作用 | `themeName`/`isLightMode`/`customThemeColor` | `setThemeName`/`setIsLightMode`/`initTheme`/`setCustomThemeColor` |
-| `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300) | `logs`/`toasts` | `addLog`/`addToast`/`removeToast` |
+| `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300；Toast 上限 MAX_TOASTS=4，`addToast`/`addToastWithAction` 同 title 去重——同一条业务事件经"专用事件 + system-notification"双通道各弹一次时只保留先到的) | `logs`/`toasts` | `addLog`/`addToast`/`addToastWithAction`/`removeToast`/`removeToastsByPrefix` |
 | `useAppStore` | `useAppStore.ts` (3行) | **兼容壳**，仅 re-export `useAppInit`/`hasPendingConfig`/`flushPendingConfig` | 无 | 无 |
 
 **密码处理** (迁移至 `useConfigStore`)：`password === PASSWORD_MASK` 时两层防护——`updateConfig` 合并挂起配置时若旧挂起有真实密码但新 partial 传 MASK，保留旧挂起真实密码；`flushPendingConfig` 最终合并时若 password 仍是 MASK 则 `delete`，让后端识别 MASK 并保留原密码。
