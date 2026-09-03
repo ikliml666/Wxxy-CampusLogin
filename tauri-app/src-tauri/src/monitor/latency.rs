@@ -82,6 +82,11 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<
                 if adapter_ip.is_empty() {
                     continue;
                 }
+                // Portal 未认证时外网 HTTPS 必被拦截（全超时），检测结果无意义且会误报
+                // "网络拥堵"，跳过本轮等待认证后再测（手动触发不受限）
+                if !s.network.load().any_adapter_online {
+                    continue;
+                }
                 // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(1)) => {}

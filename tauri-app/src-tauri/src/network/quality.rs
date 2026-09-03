@@ -195,9 +195,10 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
         }
         LatencyTask::Https { name, host } => {
-            // HTTPS 测试不绑定适配器：校园网环境下绑定主适配器 IP 可能导致 TCP 连接外网超时
-            // （主适配器路由表可能没有外网默认路由），让系统路由表决定出口网卡
-            let r = crate::network::timing::measure_https_timing(&host, 443, None, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
+            // HTTPS 测试绑定校园网适配器：双网卡场景下系统默认路由可能选中未认证的
+            // 另一张网卡（实测：以太网已认证、WLAN 未认证时路由走 WLAN，全部 TLS 握手
+            // 超时）。绑定经 Portal 认证的适配器 IP 保证出口正确；DNS 解析内部仍走系统解析。
+            let r = crate::network::timing::measure_https_timing(&host, 443, ctx.bind_addr, std::time::Duration::from_secs(3), skip_ttfb, skip_content).await;
             let lat = if r.success { r.total_ms } else { -1 };
             if !r.success {
                 crate::log_warn!("quality", "HTTPS测试失败 [{}]: {} - {}", name, r.url, r.error.as_deref().unwrap_or("未知错误"));
