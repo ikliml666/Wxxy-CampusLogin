@@ -14,18 +14,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 // 产生新数组导致 StatusBar 等订阅方整体重渲染（历史缺陷 P2-F6）
 const EMPTY_ADAPTER_STATUSES: AdapterOnlineStatus[] = []
 
-// 以下通知已有专用事件通道（success/warning 语义、取消按钮、i18n 文案），
-// system-notification 通道只写日志不再弹 toast，避免同一事件弹两条样式不同的
-// 通知。无法用 store 的同题去重覆盖——专用事件与系统通知的标题不同
-// （如"已取消退出" vs "已取消自动退出"）。后端新增 emit_notification 时，
-// 若前端已有专用 toast，把该 title 加入此表。
-const TITLES_WITH_DEDICATED_TOAST = new Set([
-  '自动登录成功', // onAutoLoginResult
-  '即将自动退出', // onAutoExitCountdown（含取消按钮）
-  '已取消退出', // onAutoExitCancelled"已取消自动退出" / onCampusExitCancelled"已取消校园网退出"
-  '非校园网络', // onCampusExitCountdown（含取消按钮）
-  '网络拥堵', // handleQualityBadAlert"校园网可能出现问题"
-])
 
 export function useEventListeners() {
   const lastAdapterOnlineRef = useRef<Map<string, boolean>>(new Map())
@@ -209,10 +197,10 @@ export function useEventListeners() {
         lt.getState().addLog(result.message, 'success')
         lastOnlineLogTimeRef.current = Date.now()
       } else if (result.success) {
-        lt.getState().addToast('自动登录成功', 'success', result.message)
+        lt.getState().addToast(i18next.t('notify.autoLoginSuccess'), 'success', result.message)
       } else {
-        lt.getState().addLog(`自动登录失败: ${result.message}`, 'error')
-        lt.getState().addToast('自动登录失败', 'error', result.message)
+        lt.getState().addLog(i18next.t('notify.autoLoginFailedLog', { msg: result.message }), 'error')
+        lt.getState().addToast(i18next.t('notify.autoLoginFailed'), 'error', result.message)
       }
       useAuthStore.getState().checkOnline().catch((e) => { if (import.meta.env.DEV) console.error(e) })
     }) ?? (() => {})
@@ -277,15 +265,15 @@ export function useEventListeners() {
     const unsub4 = api.onAutoExitCountdown?.((data) => {
       if (!mountedRef.current) return
       if (data) {
-        lt.getState().addLog(`检测到已登录，${Math.ceil(data.delay / 1000)}秒后自动退出，按 ${data.shortcut} 取消`, 'info')
+        lt.getState().addLog(i18next.t('notify.autoExitCountdownLog', { seconds: Math.ceil(data.delay / 1000), shortcut: data.shortcut }), 'info')
         lt.getState().addToastWithAction({
           id: `auto-exit-cancel-${Date.now()}`,
-          title: '即将自动退出',
-          description: `${Math.ceil(data.delay / 1000)}秒后自动退出，点击取消`,
+          title: i18next.t('notify.autoExitSoon'),
+          description: i18next.t('notify.autoExitDesc', { seconds: Math.ceil(data.delay / 1000) }),
           type: 'warning',
           duration: data.delay,
           action: {
-            label: '取消退出',
+            label: i18next.t('notify.cancelExit'),
             onClick: () => {
               api.cancelAutoExit()
             },
@@ -296,8 +284,8 @@ export function useEventListeners() {
     if (unsub4) unlisteners.push(unsub4)
 
     const unsub5 = api.onAutoExitCancelled?.(() => {
-      lt.getState().addLog('已取消自动退出', 'success')
-      lt.getState().addToast('已取消自动退出', 'success')
+      lt.getState().addLog(i18next.t('notify.autoExitCancelled'), 'success')
+      lt.getState().addToast(i18next.t('notify.autoExitCancelled'), 'success')
       lt.getState().removeToastsByPrefix('auto-exit-cancel-')
     }) ?? (() => {})
     if (unsub5) unlisteners.push(unsub5)
@@ -305,15 +293,15 @@ export function useEventListeners() {
     const unsubCampusExit = api.onCampusExitCountdown?.((data) => {
       if (!mountedRef.current) return
       if (data) {
-        lt.getState().addLog(`非校园网络，${Math.ceil(data.minimizeDelay / 1000)}秒后最小化，${Math.ceil(data.exitDelay / 1000)}秒后退出，按 Ctrl+Shift+C 取消`, 'warning')
+        lt.getState().addLog(i18next.t('notify.campusExitLog', { minimize: Math.ceil(data.minimizeDelay / 1000), exit: Math.ceil(data.exitDelay / 1000) }), 'warning')
         lt.getState().addToastWithAction({
           id: `campus-exit-cancel-${Date.now()}`,
-          title: '非校园网络',
-          description: `${Math.ceil(data.minimizeDelay / 1000)}秒后最小化，${Math.ceil(data.exitDelay / 1000)}秒后退出，点击取消`,
+          title: i18next.t('notify.campusExit'),
+          description: i18next.t('notify.campusExitDesc', { minimize: Math.ceil(data.minimizeDelay / 1000), exit: Math.ceil(data.exitDelay / 1000) }),
           type: 'warning',
           duration: data.exitDelay,
           action: {
-            label: '取消退出',
+            label: i18next.t('notify.cancelExit'),
             onClick: () => {
               api.cancelAutoExit()
             },
@@ -324,8 +312,8 @@ export function useEventListeners() {
     if (unsubCampusExit) unlisteners.push(unsubCampusExit)
 
     const unsubCampusExitCancelled = api.onCampusExitCancelled?.(() => {
-      lt.getState().addLog('已取消校园网退出', 'success')
-      lt.getState().addToast('已取消校园网退出', 'success')
+      lt.getState().addLog(i18next.t('notify.campusExitCancelled'), 'success')
+      lt.getState().addToast(i18next.t('notify.campusExitCancelled'), 'success')
       lt.getState().removeToastsByPrefix('campus-exit-cancel-')
     }) ?? (() => {})
     if (unsubCampusExitCancelled) unlisteners.push(unsubCampusExitCancelled)
@@ -337,17 +325,6 @@ export function useEventListeners() {
       useQualityStore.getState().setNetworkQuality(mergeNetworkQuality(prev, data))
     }) ?? (() => {})
     if (unsub6) unlisteners.push(unsub6)
-
-    const unsub7 = api.onSystemNotification?.((data) => {
-      if (!mountedRef.current) return
-      if (data?.title) {
-        if (!TITLES_WITH_DEDICATED_TOAST.has(data.title)) {
-          lt.getState().addToast(data.title, 'info', data.body, 5000)
-        }
-        lt.getState().addLog(`[系统通知] ${data.title}: ${data.body || ''}`, 'info')
-      }
-    }) ?? (() => {})
-    if (unsub7) unlisteners.push(unsub7)
 
     const unsub8 = api.onUpdateAvailable?.((data) => {
       if (!mountedRef.current) return

@@ -38,4 +38,25 @@ describe('useLogToastStore 通知去重与上限', () => {
     expect(toasts[0].title).toBe('通知2')
     expect(toasts[3].title).toBe('通知5')
   })
+
+  it('窗口非前台时普通 toast 不入队（信息由日志兜底）', () => {
+    const original = document.visibilityState
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    try {
+      const s = useLogToastStore.getState()
+      s.addToast('后台通知', 'info', '不应入队')
+      expect(useLogToastStore.getState().toasts).toHaveLength(0)
+      // 带 action 的 toast 仍入队：承载"取消退出"等操作入口
+      s.addToastWithAction({
+        id: 'hidden-action',
+        title: '即将自动退出',
+        description: '20秒后自动退出',
+        type: 'warning',
+        action: { label: '取消', onClick: () => {} },
+      })
+      expect(useLogToastStore.getState().toasts).toHaveLength(1)
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => original })
+    }
+  })
 })

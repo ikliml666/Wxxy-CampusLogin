@@ -1,4 +1,18 @@
 {
+  "notify": {
+    "autoLoginSuccess": "自动登录成功",
+    "autoLoginFailed": "自动登录失败",
+    "autoLoginFailedLog": "自动登录失败: {{msg}}",
+    "autoExitSoon": "即将自动退出",
+    "autoExitDesc": "{{seconds}}秒后自动退出，点击取消",
+    "autoExitCountdownLog": "检测到已登录，{{seconds}}秒后自动退出，按 {{shortcut}} 取消",
+    "autoExitCancelled": "已取消自动退出",
+    "campusExit": "非校园网络",
+    "campusExitDesc": "{{minimize}}秒后最小化，{{exit}}秒后退出，点击取消",
+    "campusExitLog": "非校园网络，{{minimize}}秒后最小化，{{exit}}秒后退出，按 Ctrl+Shift+C 取消",
+    "campusExitCancelled": "已取消校园网退出",
+    "cancelExit": "取消退出"
+  },
   "common": {
     "confirm": "确定",
     "cancel": "取消",
@@ -356,7 +370,7 @@
     "defaultPanelDesc": "选择应用启动后自动显示的面板",
     "rememberLast": "记住上次",
     "notification": "系统通知",
-    "notificationDesc": "配置系统通知和提醒方式",
+    "notificationDesc": "应用不在前台时的 Windows 系统通知；应用内提示不受此开关影响",
     "enableNotification": "启用通知",
     "enableNotificationDesc": "状态变更、网络拥堵等事件时发送桌面通知",
     "qualityDetection": "网络质量检测",

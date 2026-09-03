@@ -42,11 +42,6 @@ export interface AutoExitCountdownData {
   shortcut: string
 }
 
-export interface SystemNotificationData {
-  title: string
-  body: string
-}
-
 export interface SaveConfigResult {
   success: boolean
   message?: string

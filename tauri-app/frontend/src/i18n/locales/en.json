@@ -1,4 +1,18 @@
 {
+  "notify": {
+    "autoLoginSuccess": "Auto login succeeded",
+    "autoLoginFailed": "Auto login failed",
+    "autoLoginFailedLog": "Auto login failed: {{msg}}",
+    "autoExitSoon": "Auto exit imminent",
+    "autoExitDesc": "Auto exit in {{seconds}}s, click to cancel",
+    "autoExitCountdownLog": "Already logged in, auto exit in {{seconds}}s, press {{shortcut}} to cancel",
+    "autoExitCancelled": "Auto exit cancelled",
+    "campusExit": "Not on campus network",
+    "campusExitDesc": "Minimize in {{minimize}}s, exit in {{exit}}s, click to cancel",
+    "campusExitLog": "Not on campus network: minimize in {{minimize}}s, exit in {{exit}}s, press Ctrl+Shift+C to cancel",
+    "campusExitCancelled": "Campus exit cancelled",
+    "cancelExit": "Cancel exit"
+  },
   "common": {
     "confirm": "Confirm",
     "cancel": "Cancel",
@@ -356,7 +370,7 @@
     "defaultPanelDesc": "Select the panel to display automatically on app startup",
     "rememberLast": "Remember Last",
     "notification": "System Notifications",
-    "notificationDesc": "Configure system notifications and reminders",
+    "notificationDesc": "Windows system notifications when the app is in background; in-app toasts are not affected",
     "enableNotification": "Enable Notifications",
     "enableNotificationDesc": "Send desktop notifications for status changes, network congestion, etc.",
     "qualityDetection": "Network Quality Detection",

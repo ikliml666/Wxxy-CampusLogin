@@ -49,15 +49,28 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
   },
 
   addToast: (title, type = 'info', description, duration = 4000) => {
+    // 窗口非前台时用户看不到 toast，入队只会产生"回到窗口时的过时通知"；
+    // 信息已由调用方同步写入日志，此处直接跳过（带操作按钮的 toast 例外——
+    // 它承载"取消退出"等操作入口，用户回来时仍需可见）
+    if (document.visibilityState !== 'visible') return
     let newId: string | null = null
-    // 超限时淘汰最旧的（其定时器一并清理）；同题已存在时跳过
+    let evictedId: string | null = null
+    // 超限时淘汰最旧的；同题已存在时跳过
     set(state => {
       if (isDuplicateTitle(state.toasts, title)) return state
       newId = String(++toastIdCounter)
       const toast: ToastMessage = { id: newId, title, description, type, duration }
+      if (state.toasts.length >= MAX_TOASTS) {
+        evictedId = state.toasts[0]?.id ?? null
+      }
       const next = state.toasts.length >= MAX_TOASTS ? state.toasts.slice(1) : state.toasts
       return { toasts: [...next, toast] }
     })
+    // 被淘汰 toast 的定时器一并清理，避免到期空跑
+    if (evictedId !== null) {
+      const t = toastTimers.get(evictedId)
+      if (t) { clearTimeout(t); toastTimers.delete(evictedId) }
+    }
     const id = newId
     if (id === null) return
     const timer = setTimeout(() => {
@@ -69,14 +82,22 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
 
   addToastWithAction: (toast) => {
     const effectiveDuration = toast.duration ?? 8000
-    // 同题已存在时跳过（带按钮版先到时挡掉后到的 system-notification 重复版）
+    // 同题已存在时跳过；非前台也入队（承载取消退出等操作入口）
     let added = false
+    let evictedId: string | null = null
     set(state => {
       if (isDuplicateTitle(state.toasts, toast.title)) return state
       added = true
+      if (state.toasts.length >= MAX_TOASTS) {
+        evictedId = state.toasts[0]?.id ?? null
+      }
       const next = state.toasts.length >= MAX_TOASTS ? state.toasts.slice(1) : state.toasts
       return { toasts: [...next, { ...toast, duration: effectiveDuration }] }
     })
+    if (evictedId !== null) {
+      const t = toastTimers.get(evictedId)
+      if (t) { clearTimeout(t); toastTimers.delete(evictedId) }
+    }
     if (!added) return
     const timer = setTimeout(() => {
       set(state => ({ toasts: state.toasts.filter(t => t.id !== toast.id) }))

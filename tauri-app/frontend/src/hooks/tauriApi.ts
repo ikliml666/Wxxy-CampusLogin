@@ -6,7 +6,7 @@ import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewRe
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult } from '@/settings'
-import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult, GpuInfo } from '@/shared'
+import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult, GpuInfo } from '@/shared'
 
 interface ConnectionCampusStatus {
   onCampus: boolean
@@ -65,13 +65,11 @@ interface TauriApi {
   setAutoLaunch: (enabled: boolean) => Promise<AutoLaunchResult>
   getNotificationEnabled: () => Promise<boolean>
   setNotificationEnabled: (enabled: boolean) => Promise<boolean>
-  sendNotification: (title: string, body: string) => Promise<boolean>
   cancelAutoExit: () => Promise<CommandResult>
   onAutoExitCountdown: (cb: (data: AutoExitCountdownData) => void) => () => void
   onAutoExitCancelled: (cb: () => void) => () => void
   onCampusExitCountdown: (cb: (data: { minimizeDelay: number; exitDelay: number }) => void) => () => void
   onCampusExitCancelled: (cb: () => void) => () => void
-  onSystemNotification: (cb: (data: SystemNotificationData) => void) => () => void
   onConfigChanged: (cb: (data: { config: Config }) => void) => () => void
   showWindow: () => Promise<void>
   getLogs: (lines?: number) => Promise<string>
@@ -182,13 +180,11 @@ const tauriApi: TauriApi = {
   setAutoLaunch: (enabled) => invoke<AutoLaunchResult>('set_auto_launch', { enabled }),
   getNotificationEnabled: () => invoke<boolean>('get_notification_enabled'),
   setNotificationEnabled: (enabled) => invoke<boolean>('set_notification_enabled', { enabled }),
-  sendNotification: (title, body) => invoke<boolean>('send_notification', { title, body }),
   cancelAutoExit: () => invoke<CommandResult>('cancel_auto_exit'),
   onAutoExitCountdown: createEventListener<AutoExitCountdownData>('auto-exit-countdown'),
   onAutoExitCancelled: createEventListener<Record<string, never>>('auto-exit-cancelled'),
   onCampusExitCountdown: createEventListener<{ minimizeDelay: number; exitDelay: number }>('campus-exit-countdown'),
   onCampusExitCancelled: createEventListener<Record<string, never>>('campus-exit-cancelled'),
-  onSystemNotification: createEventListener<SystemNotificationData>('system-notification'),
   onConfigChanged: createEventListener<{ config: Config }>('config-changed'),
   showWindow: () => invoke<void>('show_window'),
   getLogs: (lines) => invoke<string>('get_logs', { lines }),

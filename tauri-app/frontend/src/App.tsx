@@ -372,7 +372,8 @@ function AppInner() {
             if (version) setLatestVersion(version)
             if (notes) setReleaseNotes(notes)
             if (hasUpdate && version) {
-              api.sendNotification?.(t('about.newVersionFound'), `CampusLogin v${version} ${t('about.newVersionFound')}`).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+              addToast(t('about.newVersionFound'), 'info', `CampusLogin v${version}`)
+              useLogToastStore.getState().addLog(`发现新版本 v${version}`, 'info')
             }
           }}
         />
