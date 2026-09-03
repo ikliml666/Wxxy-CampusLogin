@@ -34,10 +34,9 @@ const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6'])
 const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53'])
 const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
-/** 连接速度格式化：bit/s → "1 Gbps" / "100 Mbps" / "100 Kbps"，未知返回空串 */
+/** 连接速度格式化：bit/s → 统一 Mbps 显示（如 "1000 Mbps"），低于 1 Mbps 用 Kbps，未知返回空串 */
 function formatSpeed(bps?: number): string {
   if (!bps || bps <= 0) return ''
-  if (bps >= 1e9) return `${(bps / 1e9).toFixed(1).replace(/\.0$/, '')} Gbps`
   if (bps >= 1e6) return `${Math.round(bps / 1e6)} Mbps`
   return `${Math.round(bps / 1e3)} Kbps`
 }

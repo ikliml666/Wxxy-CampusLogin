@@ -127,8 +127,13 @@ fn parse_adapter_addresses(
 
         let is_wireless = if_type == if_type_wireless;
         let if_index = unsafe { addr.Anonymous1.Anonymous.IfIndex };
-        // 连接速度（bit/s）：IP_ADAPTER_ADDRESSES 自带字段，无需额外调用
-        let link_speed = addr.ReceiveLinkSpeed;
+        // 连接速度（bit/s）：IP_ADAPTER_ADDRESSES 自带字段，无需额外调用。
+        // 未连接时 Windows 返回 u64::MAX（内部 -1 哨兵），归 0 表示未知（原样透传
+        // 会被前端换算成 18446744073.7 Gbps）
+        let link_speed = match addr.ReceiveLinkSpeed {
+            u64::MAX => 0,
+            v => v,
+        };
 
         let mac = if addr.PhysicalAddressLength >= 6 {
             let bytes = unsafe { std::slice::from_raw_parts(addr.PhysicalAddress.as_ptr(), 6) };
