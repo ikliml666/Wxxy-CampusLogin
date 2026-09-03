@@ -99,21 +99,25 @@ pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Confi
     (adapter1, adapter2)
 }
 
+/// 过滤出解析后的主/副适配器：检测、优化等操作只作用于 resolve_adapter_names
+/// 解析出的 adapter1/adapter2（"自动检测"由 resolve 落到具体适配器），
+/// 其余适配器不参与操作（UI 展示仍用全量列表）
+pub fn filter_operation_adapters(adapters: &[Adapter], adapter1_name: &str, adapter2_name: &str) -> Vec<Adapter> {
+    adapters.iter()
+        .filter(|a| a.name == adapter1_name || (!adapter2_name.is_empty() && a.name == adapter2_name))
+        .cloned()
+        .collect()
+}
+
 pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
     if adapters.is_empty() { return (String::new(), String::new()); }
 
-    if !config.adapter1.is_empty() && config.adapter1 != "自动检测" {
-        if let Some(a) = find_with_valid_ip(adapters, &config.adapter1) {
-            return (a.ip.clone(), a.name.clone());
-        }
-    }
-
-    if let Some(wired) = adapters.iter().find(|a| !a.ip.is_empty() && !a.wireless) {
-        return (wired.ip.clone(), wired.name.clone());
-    }
-
-    if let Some(with_ip) = adapters.iter().find(|a| !a.ip.is_empty()) {
-        return (with_ip.ip.clone(), with_ip.name.clone());
+    // 统一经 resolve_adapter_names 解析（含"自动检测"与配置名失效降级），
+    // 只在解析出的主适配器上取 IP，不回退到配置范围外的适配器——
+    // 与登录/注销的作用范围保持一致（原实现配置名无 IP 时会静默选中任意有 IP 的外部适配器）
+    let (a1_name, _a2_name) = resolve_adapter_names(adapters, config);
+    if let Some(a) = find_with_valid_ip(adapters, &a1_name) {
+        return (a.ip.clone(), a.name.clone());
     }
 
     (String::new(), String::new())

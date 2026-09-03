@@ -54,7 +54,9 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             message: format!("校园网检测静默期（早于{hour}:{minute:02}），跳过验证"),
         }
     } else {
-        check_campus_network(&config, &adapters)
+        // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围
+        let op_adapters = crate::network::filter_operation_adapters(&adapters, &adapter1_name, &adapter2_name);
+        check_campus_network(&config, &op_adapters)
     };
     // 始终更新 on_campus_network（静默期内 campus_result.on_campus=true，确保 emit 字段一致）
     // 合并条件分支内的 any_adapter_online/last_a1_online 重置，减少 CAS 循环次数

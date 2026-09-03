@@ -290,9 +290,10 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
             } else {
                 // 校园网检测任务异常（panic 或被取消）时不能误判为"不在校园网"，
                 // 否则会触发 start_campus_exit 将用户错误踢出。此处直接跳过本次检测。
+                // 检测范围只含解析后的主/副适配器，与其他操作的作用范围一致
                 let campus_result = match tauri::async_runtime::spawn_blocking({
                     let cfg = config.clone();
-                    let adps = adapters.clone();
+                    let adps = crate::network::filter_operation_adapters(&adapters, &adapter1_name, &adapter2_name);
                     move || crate::monitor::watcher::check_campus_network(&cfg, &adps)
                 }).await {
                     Ok(result) => result,

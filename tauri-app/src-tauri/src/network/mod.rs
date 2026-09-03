@@ -25,7 +25,7 @@ pub use subnet::{
 
 // adapter.rs 原生符号（适配器选择职责）
 pub use adapter::{
-    resolve_adapter_names, select_adapter,
+    resolve_adapter_names, select_adapter, filter_operation_adapters,
     ensure_ethernet_ip_for_login,
     find_by_name, find_with_valid_ip, find_dual_adapters,
     is_secondary_adapter_enabled,
