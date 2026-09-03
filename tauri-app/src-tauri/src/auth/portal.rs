@@ -51,6 +51,18 @@ pub fn ensure_portal_port(base: &str) -> String {
     }
 }
 
+/// 强制将 Portal 地址设为指定端口（用于页面探测回退）
+fn portal_base_at_port(base: &str, port: u16) -> String {
+    let trimmed = base.trim_end_matches('/');
+    match url::Url::parse(trimmed) {
+        Ok(mut u) => {
+            let _ = u.set_port(Some(port));
+            u.as_str().trim_end_matches('/').to_string()
+        }
+        Err(_) => format!("{trimmed}:{port}"),
+    }
+}
+
 pub fn safe_truncate(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         return s;
@@ -206,7 +218,18 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
     // 而登录/注销/协议请求一律强制 :801（ensure_portal_port）。
     // 在仅暴露 801 的校园网部署上页面探测必然失败 → 误报"Portal页面请求失败"。
     // 修复：页面探测 URL 与协议请求保持一致端口。
-    let portal_base_with_port = ensure_portal_port(portal_base);
+    let result = fetch_and_analyze_portal_page(client, &portal_base_at_port(portal_base, 801));
+    if matches!(result, PageCheckResult::Determined(_)) {
+        return result;
+    }
+    // 801 返回新版 EPortal SPA 壳页面（/eportal 首页，无论登录与否内容相同，
+    // 无登录状态特征）或不可达时，回退旧版 Dr.COM 网关页面（80 端口）：
+    // 其 HTML 内嵌 uid=/v4ip=/注销页 等状态特征，可可靠判定在线与否。
+    fetch_and_analyze_portal_page(client, &portal_base_at_port(portal_base, 80))
+}
+
+/// 请求 Portal 页面并分析登录状态
+fn fetch_and_analyze_portal_page(client: &reqwest::Client, portal_base_with_port: &str) -> PageCheckResult {
     let page_url = format!("{portal_base_with_port}/");
     let resp = match block_on_http(
         client.get(&page_url).timeout(portal_config::REQUEST_TIMEOUT).send()
@@ -262,7 +285,8 @@ fn analyze_portal_page_content(html: &str) -> PageCheckResult {
         return PageCheckResult::Determined(true);
     }
 
-    crate::log_info!("network", "Portal页面无法判断登录状态: {}", safe_truncate(html, 300));
+    // 后台巡检周期性触发，Unknown 属常见中间态（801 SPA 页面回退 80 前），降为 debug 防日志刷屏
+    crate::log_debug!("network", "Portal页面无法判断登录状态: {}", safe_truncate(html, 300));
     PageCheckResult::Unknown
 }
 
