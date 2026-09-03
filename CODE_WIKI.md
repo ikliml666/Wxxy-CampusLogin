@@ -731,7 +731,7 @@ lazy_static! {
 - v 参数使用 `random_v()` 随机生成
 - NAT 内网 IP 检测，NAT 环境下不发送 `wlan_user_ip`
 - `PortalStatus` 新增 `error_kind` 字段区分"请求失败"与"Portal不可达"
-- **801→80 端口页面探测回退** (2026-09-03)：校园网 801 端口是新版 EPortal（`/eportal` 302→Vue SPA 壳页面 `<title>EPortal</title>`），无论登录与否 HTML 相同、无状态特征，旧 Dr.COM 特征（`Dr.COMWebLoginID_*`/`登录页`/`注销页`）永远失配 → 误报"Portal 页面无法判断登录状态，请手动确认"。修复：`check_portal_page` 先按 801 探测，非 `Determined` 时回退 80 端口旧版 Dr.COM 网关页面（GBK 编码，但 `Dr.COMWebLoginID`/`uid='`/`v4ip='` 等 ASCII 特征可正常匹配），再无法判断才返回 Unknown。`portal_base_at_port(base, port)` 为强制改端口的内部 helper（`ensure_portal_port` 保持"已配置端口则保留"原语义）。
+- **页面探测禁止走 :801** (2026-09-03)：v2.2.x 曾把页面探测端口强制对齐 :801（与协议请求一致），但校园网 801 是 Dr.COM EPortal 管理系统前端（`/eportal` SPA 登录表单），浏览器实测已在线状态下打开仍渲染登录页、HTML 无任何状态特征 → 旧 Dr.COM 特征永远失配，误报"Portal 页面无法判断登录状态，请手动确认"。修复：`check_portal_page` 改回请求配置的原始地址（默认 80 端口 Dr.COM 网关页，GBK 编码但 `Dr.COMWebLoginID`/`uid='`/`v4ip='` 等 ASCII 特征可正常匹配，渲染结果为"您已经成功登录。"+注销按钮）；登录/注销等协议请求仍强制 :801（`ensure_portal_port`，两者端口本就不同）。
 - **`block_on_http` helper**：同步-异步桥接函数，用于在同步上下文（如 `std::thread::scope` 子线程）中执行 async reqwest 请求。优先使用 `Handle::try_current()` → `handle.block_on(future)`（设置 reactor guard），失败 fallback 到 `tauri::async_runtime::block_on(future)`。背景：b4d8e82 将 `reqwest::blocking` 迁移到异步 reqwest，但 `std::thread::scope` 子线程无 Tokio reactor 上下文导致 panic "there is no reactor running"。**约束**：不能在 async worker 线程上直接调用（`Handle::block_on` 会 panic），所有调用者必须通过 `spawn_blocking` 或在同步线程中调用。
 
 #### 4.5.4 登录/注销请求 — `auth/protocol.rs`

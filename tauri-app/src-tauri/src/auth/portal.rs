@@ -51,18 +51,6 @@ pub fn ensure_portal_port(base: &str) -> String {
     }
 }
 
-/// 强制将 Portal 地址设为指定端口（用于页面探测回退）
-fn portal_base_at_port(base: &str, port: u16) -> String {
-    let trimmed = base.trim_end_matches('/');
-    match url::Url::parse(trimmed) {
-        Ok(mut u) => {
-            let _ = u.set_port(Some(port));
-            u.as_str().trim_end_matches('/').to_string()
-        }
-        Err(_) => format!("{trimmed}:{port}"),
-    }
-}
-
 pub fn safe_truncate(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         return s;
@@ -214,23 +202,15 @@ enum PageCheckResult {
 }
 
 fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckResult {
-    // 历史缺陷：此处直接 format!("{portal_base}/") 用配置的默认 80 端口，
-    // 而登录/注销/协议请求一律强制 :801（ensure_portal_port）。
-    // 在仅暴露 801 的校园网部署上页面探测必然失败 → 误报"Portal页面请求失败"。
-    // 修复：页面探测 URL 与协议请求保持一致端口。
-    let result = fetch_and_analyze_portal_page(client, &portal_base_at_port(portal_base, 801));
-    if matches!(result, PageCheckResult::Determined(_)) {
-        return result;
-    }
-    // 801 返回新版 EPortal SPA 壳页面（/eportal 首页，无论登录与否内容相同，
-    // 无登录状态特征）或不可达时，回退旧版 Dr.COM 网关页面（80 端口）：
-    // 其 HTML 内嵌 uid=/v4ip=/注销页 等状态特征，可可靠判定在线与否。
-    fetch_and_analyze_portal_page(client, &portal_base_at_port(portal_base, 80))
-}
-
-/// 请求 Portal 页面并分析登录状态
-fn fetch_and_analyze_portal_page(client: &reqwest::Client, portal_base_with_port: &str) -> PageCheckResult {
-    let page_url = format!("{portal_base_with_port}/");
+    // 页面探测使用配置的原始地址（默认 80 端口 Dr.COM 网关页：HTML 内嵌
+    // "注销页"/"Dr.COMWebLoginID_*"/uid=/v4ip= 等状态特征，可判定登录状态）。
+    // 不要探测 :801——那是 Dr.COM EPortal 管理系统前端（SPA 登录表单），
+    // 已在线状态下打开仍渲染登录页、无任何状态特征，探测必然 Unknown。
+    // 历史缺陷：v2.2.x 曾把页面探测强制对齐 :801（与协议请求一致端口），
+    // 校园网 801 改版为 EPortal 后误报"Portal 页面无法判断登录状态，请手动确认"，
+    // 2026-09-03 经浏览器实测 80/801 渲染结果后回退为原始地址探测。
+    // 登录/注销/协议请求仍强制 :801（ensure_portal_port），两者端口本就不同。
+    let page_url = format!("{}/", portal_base.trim_end_matches('/'));
     let resp = match block_on_http(
         client.get(&page_url).timeout(portal_config::REQUEST_TIMEOUT).send()
     ) {
