@@ -136,7 +136,7 @@
     "noAdaptersTip": "请检查网络连接状态",
     "noIp": "未获取IP",
     "primary": "主适配器",
-    "linkSpeed": "连接速度 {speed}",
+    "linkSpeed": "连接速度 {{speed}}",
     "wireless": "无线",
     "wired": "有线",
     "adapterSettings": "适配器设置",
