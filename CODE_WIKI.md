@@ -1227,13 +1227,13 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 ### 4.14 其他命令模块
 
-**config_cmd.rs** — 配置保存/加载 (委托 `config/persist.rs`)，空密码兜底逻辑 (前端未传密码且旧密码存在时保留旧密码)
+**config_cmd.rs** — 配置保存/加载 (委托 `config/persist.rs`)，空密码兜底逻辑 (前端未传密码且旧密码存在时保留旧密码)；`save_config` 可选参数 `clear_password`（2026-09-03）：显式为 true 时跳过兜底强制置空密码，供账号面板"清除密码"使用（前端经 `saveConfig(cfg, clearPassword)` / `saveConfigDirect(cfg, clearPassword)` 透传）
 
 **account.rs** — 多账号管理 (委托 `account/mod.rs`)，使用 `list_account_names()` 共享函数，切换账号仅替换账号相关字段保留启动设置，删除账号前检查并清空 `active_account`
 
 **system.rs** — 系统功能命令，`get_init_data` 手动遍历 accounts 目录获取账号列表（与 `list_account_names()` 逻辑重复，未复用），新增返回字段 `gpuInfo`/`refreshRate`；新增 `append_login_history()` 登录历史记录（最多100条）
 
-**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验源 4xx 缺失时降级跳过并告警（哈希不匹配/传输错误时拒绝安装），MSI 安装使用 `raw_arg` 支持含空格路径，403 返回中文友好提示
+**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验和全 4xx 缺失时**默认拒绝安装**（需 `skipSha256WhenMissing`，无前端开关；5xx/传输错误/哈希不匹配一律拒绝），MSI 安装使用 `raw_arg` 支持含空格路径；`get_mirror_urls` 镜像 URL **原样拼接不做百分号编码**（2026-09-03：gh-proxy.com 对整体编码形式返回 403，与 updater.rs 的 sha256 镜像拼接方式保持一致）
 
 ### 4.15 提权辅助子进程 — `helper/` (--helper 模式)
 
@@ -1412,7 +1412,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage |
-| `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染 |
+| `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe` |
 | `useAuth.ts` | 认证逻辑 Hook |
 | `types.ts` | 认证类型定义 (PortalStatusResult, CommandResult, LoginResult) |
 | `index.ts` | 模块导出 |
@@ -1493,8 +1493,8 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流 |
-| `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画 |
+| `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流。tooltip 水平居中用 Tailwind `-translate-x-1/2`（2026-09-03：原 inline `translateX(-50%)` 覆盖 class transform 导致上浮动画失效） |
+| `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画。清空日志 GSAP 动画 stagger 动态封顶（>8条0.05s/>4条0.1s，2026-09-03：原固定 0.2s/条，日志满 300 条时动画约 60 秒且按钮禁用无法取消），与 LogPanel 同策略 |
 | `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
 
 ### 5.7 延迟颜色 — `lib/latency.ts`
@@ -1571,7 +1571,8 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **PANEL_TITLES**: 面板标题 i18n key 映射表（titleKey/descKey）
 - **初始化**: 调用 `useAppInit()` + 5 个业务 Hook（useAuth/useMonitor/useNetwork/useAccount/useSettings）
 - **启动加速**: `useStartupBoost` 编排 5 元素入场动画（titleBar/statusBar/title/rightPanel/dockNav）
-- **面板转场**: `AnimatePresence mode="wait"` + `panelVariants`（createPanelAppleVariants）+ slideDirection
+- **面板转场**: `AnimatePresence mode="wait"` + `panelVariants`（createPanelAppleVariants）+ slideDirection；切换锁 120ms（2026-09-03：原 500ms 远超退出动画 0.08s，快速连续点击被静默吞掉）
+- **quality 面板可见性联动**（2026-09-03 约定）: `enableNetworkQuality === false` 时 App 对 quality 面板渲染 `null`、DockNav 过滤入口。三处必须联动——`useInitialDataLoad` 启动恢复 `defaultPanel`/`savedPanel` 时跳过 quality（否则重启后主区域空白）、`SettingsPanel` 关闭质量开关时清 `defaultPanel` 并把 `activePanel` 切回 dashboard。新增受开关控制的面板时同样需三处联动
 - **窗口监听**: `getCurrentWindow().onResized` 监听窗口大小变化
 - **引导向导**: 首次启动检测（`safeStorage.get('campus-onboarding-done')`），未完成则弹出 OnboardingWizard
 - **ErrorBoundary 嵌套**: 外层 ErrorBoundary（L361）+ 面板内容 ErrorBoundary（L288）+ main.tsx ErrorBoundary
@@ -1892,7 +1893,8 @@ App.tsx (377行, App + AppInner)
 | 账号名称校验 | infra/state/mod.rs::validate_account_name 正则白名单 `^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$` + 长度 1-32，防路径遍历 |
 | panic=abort | 编译选项减小二进制体积，避免信息泄露 |
 | TaskGuard RAII 防死锁 | TaskGuard::Drop 自动释放任务锁；`force_release` 标注 `#[cfg(test)]` 仅供测试 |
-| SHA256 更新校验 | 校验源 4xx 缺失时降级跳过并告警 (updater.rs:122-132)；校验文件存在且哈希不匹配/传输错误时拒绝安装 |
+| SHA256 更新校验 | 校验源优先级：GitHub API asset digest（服务端计算，发布者漏传 .sha256 时兜底）→ 官方 .sha256 → 3 镜像 .sha256，任一成功即用 (`updater.rs extract_checksum`)；全 4xx 默认拒绝安装（需 `skipSha256WhenMissing`，无前端开关），5xx/传输错误/哈希不匹配一律拒绝 |
+| 更新发布约定 (2026-09-03) | ① `check_update_inner` 对下载 URL 做 HEAD 探测，Release 资产 404（version.json 先行而未发布）则本轮不提示更新，探测网络失败保守视为存在；② `version.json` 支持可选 `notes` 字段填充 release_notes；③ `build.ps1` 构建后自动生成 `<installer>.sha256`（shasum 兼容格式），**发布 Release 必须同时上传安装包与 .sha256 文件**，版本号提交与 Release 发布需同流程完成 |
 | 适配器名称校验 | network/adapter_cache.rs::validate_adapter_name (经 adapter.rs re-export)，禁止 `&\|;\`$()<>\"'\n\r\0` 等元字符，防命令注入 |
 
 ---
@@ -2045,6 +2047,13 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 8. **同步文档** — `CODE_WIKI.md` 顶部版本号 + 底部元信息
 
 > ⚠️ **Cargo.lock 中的 version**：由 cargo 自动更新，下次 `cargo build` 时自动重写。
+
+> ⚠️ **版本号提交与 Release 发布必须同流程完成**（2026-09-03 教训，v2.3.0 事故）：`version.json` 一旦推送到 main 而对应 tag 的 Release 尚未发布，所有旧版本用户会收到更新通知但下载必然 404。现版本后端已加 HEAD 探测兜底（资产 404 则本轮不提示更新），但仍应把"改 version.json"与"发布 Release"绑在同一次操作里。
+
+> ⚠️ **Release 资产发布检查清单**（2026-09-03 新增）：
+> 1. 上传 `Wxxy-CampusLogin_{ver}_x64-setup.exe`（文件名必须与 `update/updater.rs` 硬编码拼接完全一致）
+> 2. 同时上传构建产物目录中的 `{安装包名}.sha256`（`build.ps1` 第 [5/5] 步已自动生成）——缺失时应用内更新校验全 4xx，默认拒绝安装且用户无法自救
+> 3. `version.json` 可选填 `notes` 字段（字符串，Markdown 列表），将显示为应用内更新日志（release_notes）
 
 > ⚠️ **升级检查清单**：建议在发布前对照以下 5 个**必须保持一致**的位置：
 > 1. `tauri-app/src-tauri/tauri.conf.json` → `"version": "2.2.9"`
