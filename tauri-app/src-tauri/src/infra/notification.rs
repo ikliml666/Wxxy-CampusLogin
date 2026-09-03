@@ -1,16 +1,16 @@
 use tauri::{AppHandle, Manager};
-use crate::infra::events::EventBus;
 
-/// 发送系统通知
+/// 发送系统通知（Windows 通知中心）
 ///
-/// 1. 无论是否启用系统通知，都向前端发送 `system-notification` 事件
-/// 2. 仅在非前台且用户启用通知时调用操作系统通知 API
+/// 仅在"应用不在前台且用户启用通知"时调用操作系统通知 API；
+/// 应用不在前台时弹系统通知，是这类通知的唯一出口。
+///
+/// 应用内（前台）的 toast/日志展示由各业务专用事件负责
+/// （`onAutoLoginResult`/`onAutoExitCountdown`/`emit_login_log` 等），
+/// 本函数不再向前端发事件——双通道 toast 重复的历史缺陷由此根除。
+/// 系统通知文案为中文硬编码：后端无法感知前端 UI 语言（i18next 存储在前端），
+/// 且该通知仅在用户未看界面时出现，主要用户群为中文。
 pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str) {
-    let event_bus = EventBus::new(app_handle);
-    if let Err(e) = event_bus.emit_system_notification(title, body) {
-        crate::log_warn!("system", "发送系统通知事件失败: {}", e);
-    }
-
     let enable_notification = {
         let s = app_handle.state::<crate::infra::state::AppState>();
         s.config.load().enable_notification

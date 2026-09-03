@@ -41,8 +41,10 @@ pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, q
     if let Some(kind) = should_notify {
         if kind == "bad" {
             emit_notification(app_handle, "网络拥堵", "校园网延迟升高，网络可能拥堵");
+            let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟升高，网络可能拥堵", "warning");
         } else {
             emit_notification(app_handle, "网络恢复", "校园网延迟已恢复正常");
+            let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟已恢复正常", "info");
         }
     }
 

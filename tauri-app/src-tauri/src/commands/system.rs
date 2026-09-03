@@ -2,7 +2,6 @@ use tauri::{AppHandle, State, Window};
 use std::sync::atomic::Ordering;
 use crate::infra::command_context::CommandContext;
 use crate::infra::state::{AppState, CommandResult};
-use crate::infra::notification::emit_notification;
 use crate::platform::autostart;
 
 #[tauri::command]
@@ -87,18 +86,6 @@ pub fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_h
     }
     crate::log_info!("system", "通知已{}", if enabled { "开启" } else { "关闭" });
     Ok(enabled)
-}
-
-#[tauri::command]
-pub fn send_notification(title: String, body: String, app_handle: AppHandle) -> Result<bool, String> {
-    if title.is_empty() || title.len() > 256 {
-        return Err("通知标题长度需在1-256之间".to_string());
-    }
-    if body.len() > 1024 {
-        return Err("通知内容过长".to_string());
-    }
-    emit_notification(&app_handle, &title, &body);
-    Ok(true)
 }
 
 #[tauri::command]

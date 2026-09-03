@@ -86,6 +86,7 @@ pub struct UpdateStats {
     pub last_update_check_epoch_ms: AtomicU64,
     pub update_notified: AtomicBool,
     pub last_disabled_notification_ms: AtomicU64,
+    pub last_network_change_notification_ms: AtomicU64,
     pub last_render_heartbeat_ms: AtomicU64,
 }
 
@@ -101,6 +102,7 @@ impl UpdateStats {
             last_update_check_epoch_ms: AtomicU64::new(0),
             update_notified: AtomicBool::new(false),
             last_disabled_notification_ms: AtomicU64::new(0),
+            last_network_change_notification_ms: AtomicU64::new(0),
             last_render_heartbeat_ms: AtomicU64::new(0),
         }
     }

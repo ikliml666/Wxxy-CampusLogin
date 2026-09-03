@@ -154,6 +154,11 @@ pub fn try_disconnect_reconnect(
     if within_limit {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
         emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect));
+        // emit_notification 仅覆盖非前台系统通知，前台过程信息走日志通道
+        let _ = EventBus::new(app_handle).emit_login_log(
+            &format!("检测到断线: {offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect),
+            "warning",
+        );
 
         crate::log_info!("auto_login", "断线重连 [{}/{}]: 离线适配器={}, online={}, secondaryOnline={}",
             reconnect_count, config.max_disconnect_reconnect, offline_adapter, online, secondary_online.unwrap_or(true));
@@ -189,8 +194,13 @@ pub fn try_disconnect_reconnect(
         if reconnect_count == config.max_disconnect_reconnect + 1 {
             crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", config.max_disconnect_reconnect);
             emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录");
+            let _ = EventBus::new(app_handle).emit_login_log("断线重连失败: 已达到最大重连次数，请手动登录", "error");
         } else if reconnect_count > config.max_disconnect_reconnect + 1 && (reconnect_count - config.max_disconnect_reconnect - 1) % RECONNECT_REMINDER_INTERVAL == 0 {
             emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
+            let _ = EventBus::new(app_handle).emit_login_log(
+                &format!("网络仍断线: {} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }),
+                "warning",
+            );
         }
     }
 

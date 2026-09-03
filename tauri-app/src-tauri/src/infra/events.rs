@@ -108,14 +108,6 @@ impl<'a> EventBus<'a> {
         self.emit("adapters-changed", adapters)
     }
 
-    /// 系统通知事件
-    pub fn emit_system_notification(&self, title: &str, body: &str) -> Result<(), String> {
-        self.emit("system-notification", serde_json::json!({
-            "title": title,
-            "body": body,
-        }))
-    }
-
     /// 更新相关事件
     pub fn emit_update_download_progress<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
         self.emit("update-download-progress", payload)

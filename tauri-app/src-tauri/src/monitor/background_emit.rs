@@ -2,7 +2,8 @@
 //!
 //! 从 watcher.rs 拆分，集中管理 background_check 结果的构造、事件发射与网络状态更新。
 
-use tauri::AppHandle;
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Manager};
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use crate::infra::lifecycle::start_auto_exit;
@@ -85,7 +86,16 @@ pub(super) fn handle_status_change(
             adapter_details);
 
         if !current_online && config.enable_notification {
-            crate::infra::notification::emit_notification(app_handle, "网络状态变更", &adapter_details);
+            // 网络抖动（在线↔离线快速翻转）时 60s 内不重复弹系统通知
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let stats = &app_handle.state::<AppState>().update_stats;
+            if now_ms.saturating_sub(stats.last_network_change_notification_ms.load(Ordering::Acquire)) >= 60_000 {
+                stats.last_network_change_notification_ms.store(now_ms, Ordering::Release);
+                crate::infra::notification::emit_notification(app_handle, "网络状态变更", &adapter_details);
+            }
         }
     } else {
         crate::log_debug!("background", "检测结果: online={}, reachable={}, loginAvailable={}, [{}]", current_online, reachable, login_available, adapter_details);
