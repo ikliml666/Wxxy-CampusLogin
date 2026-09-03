@@ -281,7 +281,8 @@ pub fn get_mirror_urls(github_url: String) -> Result<Vec<serde_json::Value>, Str
         return Err("URL包含非法字符".to_string());
     }
 
-    let encoded = urlencoding::encode(&github_url);
+    // 原样拼接，不做百分号编码：与 update/updater.rs 的 sha256 镜像 URL 拼接一致；
+    // gh-proxy.com 对整体编码形式返回 403（实测），原样 URL 所有镜像均支持
     let mirrors = vec![
         serde_json::json!({
             "name": "GitHub 官方",
@@ -290,17 +291,17 @@ pub fn get_mirror_urls(github_url: String) -> Result<Vec<serde_json::Value>, Str
         }),
         serde_json::json!({
             "name": "ghfast.top",
-            "url": format!("https://ghfast.top/{}", encoded),
+            "url": format!("https://ghfast.top/{}", github_url),
             "description": "国内加速，速度较快"
         }),
         serde_json::json!({
             "name": "gh-proxy.com",
-            "url": format!("https://gh-proxy.com/{}", encoded),
+            "url": format!("https://gh-proxy.com/{}", github_url),
             "description": "国内加速，多区域节点"
         }),
         serde_json::json!({
             "name": "ghproxy.net",
-            "url": format!("https://ghproxy.net/{}", encoded),
+            "url": format!("https://ghproxy.net/{}", github_url),
             "description": "国内加速镜像"
         }),
     ];

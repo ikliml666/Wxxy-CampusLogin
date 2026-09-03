@@ -111,6 +111,32 @@ pub fn decide_checksum_missing(all_client_errors: bool, had_transport_error: boo
     }
 }
 
+/// 从校验源响应文本中提取 64 位小写 SHA256。
+/// GitHub API 响应为 JSON：取 assets 中首个 .exe 资产的 digest 字段（"sha256:hex"）；
+/// .sha256 文件响应为纯文本：取首个空白分隔 token。
+/// 提取失败返回 None，调用方继续尝试下一校验源。
+fn extract_checksum(url: &str, text: &str) -> Option<String> {
+    if url.contains("api.github.com") {
+        let value: serde_json::Value = serde_json::from_str(text).ok()?;
+        let assets = value.get("assets")?.as_array()?;
+        for asset in assets {
+            let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            if name.ends_with(".exe") {
+                let digest = asset.get("digest").and_then(|d| d.as_str())?;
+                let hex = digest.strip_prefix("sha256:")?;
+                if hex.len() == 64 {
+                    return Some(hex.to_lowercase());
+                }
+                return None;
+            }
+        }
+        None
+    } else {
+        let token = text.split_whitespace().next().unwrap_or("");
+        (token.len() == 64).then(|| token.to_lowercase())
+    }
+}
+
 pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String], allow_skip_missing: bool) -> Result<bool, String> {
     if checksum_urls.is_empty() {
         return Err("未提供校验和URL".to_string());
@@ -118,19 +144,22 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String], a
 
     let client = build_short_timeout_http_client()?;
 
-    // 按顺序尝试所有 URL（GitHub 原始源 + 镜像源），任一成功即用
+    // 按顺序尝试所有 URL（GitHub API digest + GitHub 原始源 + 镜像源），任一成功即用
     let mut last_err = String::new();
     let mut all_client_errors = true; // 是否所有响应都是 4xx（文件不存在/权限问题）
     let mut had_transport_error = false; // 是否有网络/超时等传输错误
-    let checksum_content = {
-        let mut content: Option<String> = None;
+    let expected_hash = {
+        let mut hash: Option<String> = None;
         for url in checksum_urls {
             match client.get(url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     match resp.text().await {
                         Ok(text) => {
-                            content = Some(text);
-                            break;
+                            if let Some(h) = extract_checksum(url, &text) {
+                                hash = Some(h);
+                                break;
+                            }
+                            last_err = format!("校验源响应中未找到有效校验和: {url}");
                         }
                         Err(e) => {
                             last_err = format!("读取校验和内容失败: {e}");
@@ -153,8 +182,8 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String], a
                 }
             }
         }
-        match content {
-            Some(c) => c,
+        match hash {
+            Some(h) => h,
             None => {
                 // 所有源都失败：按显式开关决策（默认拒绝，需用户在设置中确认跳过）
                 decide_checksum_missing(all_client_errors, had_transport_error, allow_skip_missing)
@@ -163,16 +192,6 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String], a
             }
         }
     };
-
-    let expected_hash = checksum_content
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
-
-    if expected_hash.is_empty() || expected_hash.len() != 64 {
-        return Err("校验和格式无效".to_string());
-    }
 
     // 分块流式读取并计算 SHA256，避免一次性 std::fs::read 大文件（如 50MB+ 安装包）造成内存峰值
     // 仍在 spawn_blocking 内执行，不阻塞 async 线程；64KB buffer 使内存占用恒定
@@ -301,7 +320,7 @@ async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
     }
 }
 
-pub async fn fetch_latest_release() -> Result<(bool, String), String> {
+pub async fn fetch_latest_release() -> Result<(bool, String, String), String> {
     // 先尝试 GitHub 原始源
     match fetch_version_from_url(VERSION_FILE_URL).await {
         Ok(result) => Ok(result),
@@ -324,7 +343,7 @@ pub async fn fetch_latest_release() -> Result<(bool, String), String> {
     }
 }
 
-async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
+async fn fetch_version_from_url(url: &str) -> Result<(bool, String, String), String> {
     let client = build_short_timeout_http_client()?;
 
     let resp = client
@@ -356,21 +375,50 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String), String> {
     let current = env!("APP_VERSION");
     let has_update = compare_versions(current, &latest_tag);
 
-    Ok((has_update, latest_tag))
+    // notes 字段可选：发布流程在 version.json 中随版本号一起维护更新日志
+    let notes = data["notes"].as_str().unwrap_or("").to_string();
+
+    Ok((has_update, latest_tag, notes))
 }
 
 
 
 pub async fn check_update_inner() -> Result<UpdateInfo, String> {
-    let (has_update, latest_tag) = fetch_latest_release().await?;
+    let (has_update, latest_tag, notes) = fetch_latest_release().await?;
 
     let exe_name = format!("Wxxy-CampusLogin_{latest_tag}_x64-setup.exe");
     let github_exe_url = format!(
         "https://github.com/{GITHUB_REPO}/releases/download/v{latest_tag}/{exe_name}"
     );
-    // 为 SHA256 校验文件生成 GitHub 原始源 + 镜像源 URL 列表
+
+    // version.json 先行而 Release 尚未发布时（发布时序问题），下载必然 404。
+    // 探测官方源资产：确认不存在则本轮不提示更新，避免用户收到通知后下载必败；
+    // 探测本身网络失败时保守维持 has_update，交由下载阶段报错并允许走镜像重试。
+    let mut has_update = has_update;
+    if has_update {
+        let client = build_short_timeout_http_client()?;
+        match client
+            .head(&github_exe_url)
+            .header("User-Agent", "CampusLogin-UpdateChecker")
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().as_u16() == 404 => {
+                crate::log_warn!("updater", "version.json 声明 v{latest_tag} 但 Release 资产不存在，本轮不提示更新");
+                has_update = false;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                crate::log_debug!("updater", "更新资产探测失败（保守视为存在）: {e}");
+            }
+        }
+    }
+
+    // SHA256 校验源优先级：GitHub API 官方 digest（服务端计算，发布者漏传 .sha256
+    // 文件时兜底）→ GitHub 原始 .sha256 → 镜像源，任一成功即用
     let sha256_urls: Vec<String> = {
-        let mut urls = vec![format!("{}.sha256", github_exe_url)];
+        let mut urls = vec![format!("https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{latest_tag}")];
+        urls.push(format!("{github_exe_url}.sha256"));
         for mirror_prefix in &[
             "https://ghfast.top/",
             "https://gh-proxy.com/",
@@ -384,7 +432,7 @@ pub async fn check_update_inner() -> Result<UpdateInfo, String> {
     Ok(UpdateInfo {
         has_update,
         latest_version: latest_tag,
-        release_notes: String::new(),
+        release_notes: notes,
         assets: vec![
             ReleaseAsset {
                 name: exe_name.clone(),
@@ -427,5 +475,41 @@ mod tests {
         // 传输错误：即使开启跳过也拒绝
         assert!(decide_checksum_missing(true, true, true).is_err());
         assert!(decide_checksum_missing(false, true, false).is_err());
+    }
+
+    const HASH_LOWER: &str = "3c91004d01826e0211f6e95512192262baa7aeabc863317a6e7a1910531d5271";
+
+    #[test]
+    fn extract_checksum_from_github_api_json() {
+        let body = format!(
+            r#"{{"tag_name":"v2.3.0","assets":[{{"name":"Wxxy-CampusLogin_2.3.0_x64-setup.exe","digest":"sha256:{HASH_LOWER}"}},{{"name":"source.zip"}}]}}"#
+        );
+        assert_eq!(
+            extract_checksum("https://api.github.com/repos/x/y/releases/tags/v2.3.0", &body),
+            Some(HASH_LOWER.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_checksum_api_json_without_exe_asset_is_none() {
+        let body = r#"{"tag_name":"v2.3.0","assets":[{"name":"source.zip"}]}"#;
+        assert_eq!(
+            extract_checksum("https://api.github.com/repos/x/y/releases/tags/v2.3.0", body),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_checksum_from_sha256_file_text() {
+        // shasum 风格 "<hash>  <filename>"，大写 hash 也归一化为小写
+        let upper: String = HASH_LOWER.to_uppercase();
+        assert_eq!(
+            extract_checksum("https://github.com/x/y/releases/download/v/.exe.sha256", &format!("{upper}  app.exe")),
+            Some(HASH_LOWER.to_string())
+        );
+        // 非 64 位 token 视为无效
+        assert_eq!(extract_checksum("https://mirror/a.sha256", "not-a-hash"), None);
+        // API 响应损坏（非 JSON）→ None 而非 panic
+        assert_eq!(extract_checksum("https://api.github.com/x", "rate limited"), None);
     }
 }
