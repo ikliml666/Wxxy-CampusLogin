@@ -66,13 +66,23 @@ where
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
+        // spawn_blocking 内 panic 不能静默吞掉（unwrap_or(None) 会变成"无结果"，
+        // 合并消息为空串，用户看不到任何错误），转为失败的 CommandResult
+        let join_to_result = |r: Result<Option<CommandResult>, tokio::task::JoinError>| match r {
+            Ok(v) => v,
+            Err(e) => {
+                crate::log_error!("auth", "双适配器操作任务异常退出: {}", e);
+                Some(CommandResult::err("适配器操作任务异常退出"))
+            }
+        };
+
         let secondary = if cancelled {
             None
         } else {
-            tokio::task::spawn_blocking(a2_action).await.unwrap_or(None)
+            join_to_result(tokio::task::spawn_blocking(a2_action).await)
         };
 
-        let primary = r1.await.unwrap_or(None);
+        let primary = join_to_result(r1.await);
 
         DualAdapterResult { primary, secondary }
     })

@@ -12,19 +12,21 @@ pub fn random_v() -> String {
 
 /// 读取 HTTP 响应体并限制 1MB 上限（无 Content-Length 的 chunked/流式响应也受限）。
 /// 读取失败返回空串（调用方按"无可解析内容"处理），超限同样返回空串并告警。
+/// 按 Content-Type charset 解码（GBK Portal 的中文成败关键词依赖正确解码）。
 fn read_bounded_body(resp: reqwest::Response, label: &str) -> String {
     const MAX_BODY: u64 = 1024 * 1024;
     if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
         crate::log_warn!("logout", "{label}响应体过大(Content-Length={:?})，忽略", resp.content_length());
         return String::new();
     }
+    let charset = content_type_charset(&resp);
     match crate::infra::async_util::block_on_sync(resp.bytes()) {
         Ok(b) => {
             if b.len() as u64 > MAX_BODY {
                 crate::log_warn!("logout", "{label}响应体超限({}B)，忽略", b.len());
                 String::new()
             } else {
-                String::from_utf8_lossy(&b).into_owned()
+                crate::platform::console_output::decode_charset_bytes(&b, charset.as_deref())
             }
         }
         Err(e) => {
@@ -32,6 +34,53 @@ fn read_bounded_body(resp: reqwest::Response, label: &str) -> String {
             String::new()
         }
     }
+}
+
+/// 提取 Content-Type 中的 charset 参数（UTF-8 响应无该参数时返回 None）
+fn content_type_charset(resp: &reqwest::Response) -> Option<String> {
+    resp.headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|ct| ct.split(';').find_map(|p| p.trim().strip_prefix("charset=").map(|s| s.to_string())))
+}
+
+/// 从 JSONP 响应中按花括号平衡（字符串/转义感知）截取第一个完整 JSON 对象。
+/// 旧实现 `rfind(')')` 取响应最后一个右括号，msg 含半角 `)`（如"密码错误(剩余2次)"）
+/// 时 JSON 被截断导致解析失败、登录误报；纯 JSON（非 JSONP）响应回退原文。
+fn jsonp_json_slice(response: &str) -> &str {
+    let extracted = (|| {
+        let open = response.find('(')?;
+        let obj_start = open + response[open..].find('{')?;
+        let bytes = response.as_bytes();
+        let mut depth = 0i32;
+        let mut in_string = false;
+        let mut escaped = false;
+        for (i, &b) in bytes.iter().enumerate().skip(obj_start) {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if b == b'\\' {
+                    escaped = true;
+                } else if b == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match b {
+                b'"' => in_string = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(&response[obj_start..=i]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    })();
+    extracted.unwrap_or(response)
 }
 
 /// 可中断等待：在指定时长内每 100ms 检查退出标志，返回 true 表示未取消，false 表示已取消
@@ -88,12 +137,13 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
         return Err("登录响应体过大".to_string());
     }
+    let charset = content_type_charset(&resp);
     let body_bytes = crate::infra::async_util::block_on_sync(resp.bytes())
         .map_err(|e| format!("读取登录响应失败: {e}"))?;
     if body_bytes.len() as u64 > MAX_BODY {
         return Err("登录响应体过大".to_string());
     }
-    let body = String::from_utf8_lossy(&body_bytes).into_owned();
+    let body = crate::platform::console_output::decode_charset_bytes(&body_bytes, charset.as_deref());
     let req_elapsed = t_req.elapsed();
 
     crate::log_info!("login", "登录请求完成({}ms): URL={}, status={:?}, bodyLen={}",
@@ -139,16 +189,7 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
 
 fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
     // BE-A-07: 直接对响应切片解析，避免 to_string() 克隆整段响应体
-    let json_data: &str = if let Some(start) = response.find("dr1003(") {
-        let inner_start = start + 7;
-        if let Some(inner_end) = response[inner_start..].rfind(')').map(|i| inner_start + i) {
-            &response[inner_start..inner_end]
-        } else {
-            response
-        }
-    } else {
-        response
-    };
+    let json_data: &str = jsonp_json_slice(response);
 
     match serde_json::from_str::<serde_json::Value>(json_data) {
         Ok(data) => {
@@ -359,16 +400,7 @@ pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, _if_index: u32
 fn parse_logout_result(response: &str) -> Result<serde_json::Value, String> {
     crate::log_info!("logout", "parse_logout_result原始响应: {}", crate::auth::portal::safe_truncate(response, 1000));
     // BE-A-07: 直接对响应切片解析，避免 to_string() 克隆整段响应体
-    let json_data: &str = if let Some(start) = response.find('(') {
-        let inner_start = start + 1;
-        if let Some(inner_end) = response[inner_start..].rfind(')').map(|i| inner_start + i) {
-            &response[inner_start..inner_end]
-        } else {
-            response
-        }
-    } else {
-        response
-    };
+    let json_data: &str = jsonp_json_slice(response);
 
     match serde_json::from_str::<serde_json::Value>(json_data) {
         Ok(data) => {
@@ -425,6 +457,30 @@ mod tests {
         assert!(result["success"].as_bool().unwrap());
         assert_eq!(result["code"], "0");
         assert_eq!(result["message"], "登录成功");
+    }
+
+    // ===== jsonp_json_slice：msg 含半角括号/花括号/转义时不再截断 JSON =====
+
+    #[test]
+    fn jsonp_msg_with_ascii_paren_not_truncated() {
+        let response = r#"dr1003({"result":1,"msg":"密码错误(剩余2次)","error_info":"E2601"})"#;
+        let result = parse_login_result(response).unwrap();
+        assert_eq!(result["code"], "1");
+        assert!(result["message"].as_str().unwrap().contains("(剩余2次)"));
+    }
+
+    #[test]
+    fn jsonp_msg_with_braces_and_escapes() {
+        // 验证字符串内的花括号/转义引号/半角括号不会截断 JSON：msg 完整保留
+        let response = r#"dr1003({"result":1,"msg":"格式 {a} 与 \"引号\" 混入)","ok":1})"#;
+        let result = parse_login_result(response).unwrap();
+        assert!(result["message"].as_str().unwrap().contains("混入)"));
+    }
+
+    #[test]
+    fn plain_json_response_still_parses() {
+        let result = parse_login_result(r#"{"result":0,"msg":"认证成功"}"#).unwrap();
+        assert!(result["success"].as_bool().unwrap());
     }
 
     #[test]
