@@ -8,8 +8,8 @@ interface SponsorCardProps {
   onClose: () => void
 }
 
-// 非模态赞助浮层：无遮罩、不抢焦点、不阻塞任何交互，
-// 点击浮层外任意处或按 Esc 即关闭，保证"弹出但不影响使用"
+// 赞助下拉浮层：锚定标题栏赞助按钮下方自然向下展开（自动弹出与手动入口共用此位置）。
+// 非模态：无遮罩、不抢焦点、不阻塞任何交互，点击浮层外任意处或按 Esc 即关闭
 export function SponsorCard({ open, onClose }: SponsorCardProps) {
   const { t } = useTranslation()
   const cardRef = useRef<HTMLDivElement>(null)
@@ -35,12 +35,15 @@ export function SponsorCard({ open, onClose }: SponsorCardProps) {
     <AnimatePresence>
       {open && (
         <m.div
-          initial={{ opacity: 0, x: '130%' }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: '130%' }}
-          transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
-          className="fixed bottom-24 right-5 z-[70]"
+          initial={{ opacity: 0, y: -8, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -8, scale: 0.97 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+          className="fixed top-[52px] right-[104px] z-[60]"
+          style={{ transformOrigin: 'top right' }}
         >
+          {/* 指向赞助按钮的小箭头 */}
+          <div className="absolute -top-1.5 right-6 h-3 w-3 rotate-45 rounded-[3px] border-l border-t border-border/60 bg-background" />
           <div
             ref={cardRef}
             className="w-[312px] rounded-2xl border border-border/60 bg-background/95 backdrop-blur-md shadow-2xl p-4"

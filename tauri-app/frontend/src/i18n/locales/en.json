@@ -522,6 +522,7 @@
     "updateNotFound": "Update information not found",
     "releaseNotes": "Release Notes",
     "githubRepo": "GitHub Repository",
+    "sponsor": "Sponsor the Author",
     "oneClickDownload": "One-Click Download v{{version}}",
     "switchDownloadSource": "Slow download? Click to switch source",
     "newFeatureHighlights": "New Feature Highlights",

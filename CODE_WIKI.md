@@ -1436,7 +1436,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage。注意 framer-motion 对 Reorder.Item 内联写 `touch-action: pan-x`（axis=y），class 层的 touch-action 会被覆盖，触摸垂直滚动让位于拖拽排序；列表溢出时的滚动可达性由全局细滚动条保证（2026-09-04） |
-| `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe`。**2026-09-04 布局调整**：一键下载按钮与切换下载源入口从右侧栏顶部移到底部（`mt-auto`），新功能亮点/核心优势卡片置于顶部；核心优势卡片宽度 260px→340px 使"双适配器支持"标题单行；左栏描述文案改为无锡学院专属（`about.appDesc`="无锡学院校园网自动登录助手"、`about.dualAdapterSupportDesc`="适配无锡学院双网卡环境"，zh/en 同步——应用仅支持无锡学院，不再宣称兼容多种校园认证方式）。**固定亮色皮肤（2026-09-04）**：对话框内 30 处 `dark:` 变体类全部移除，DialogContent 挂 `index.css` 的 `.force-light-dialog`（容器级重定义主题变量为浅色值 + 显式 `color: hsl(var(--foreground))`——`color` 是继承属性，body 按暗色变量算出的颜色会直接继承下来，仅重定义变量不够），修复暗色模式下白底上近白文字几乎不可读的存量缺陷；浅色模式视觉无变化 |
+| `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe`。**2026-09-04 布局调整**：一键下载按钮与切换下载源入口从右侧栏顶部移到底部（`mt-auto`），新功能亮点/核心优势卡片置于顶部；核心优势卡片宽度 260px→340px 使"双适配器支持"标题单行；左栏描述文案改为无锡学院专属（`about.appDesc`="无锡学院校园网自动登录助手"、`about.dualAdapterSupportDesc`="适配无锡学院双网卡环境"，zh/en 同步——应用仅支持无锡学院，不再宣称兼容多种校园认证方式）。**赞助入口（2026-09-04）**：左栏底部新增"赞助支持"按钮（`about.sponsor`，rose 风格遵循固定亮色皮肤无 dark: 变体），点击回调 `onShowSponsor` → App 关闭关于对话框并打开赞助下拉浮层。**固定亮色皮肤（2026-09-04）**：对话框内 30 处 `dark:` 变体类全部移除，DialogContent 挂 `index.css` 的 `.force-light-dialog`（容器级重定义主题变量为浅色值 + 显式 `color: hsl(var(--foreground))`——`color` 是继承属性，body 按暗色变量算出的颜色会直接继承下来，仅重定义变量不够），修复暗色模式下白底上近白文字几乎不可读的存量缺陷；浅色模式视觉无变化 |
 | `useAuth.ts` | 认证逻辑 Hook |
 | `types.ts` | 认证类型定义 (PortalStatusResult, CommandResult, LoginResult) |
 | `index.ts` | 模块导出 |
@@ -1508,7 +1508,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮 |
-| `SponsorCard.tsx` | 赞助浮层 (2026-09-04)。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭。右下角 fixed (bottom-24 right-5, z-[70]，高于 DockNav 菜单 z-60 低于 toast z-100)，入场从窗口右侧外滑入（framer-motion `x:'130%'→0`，出场反向）。内嵌微信/支付宝收款码 (public/sponsor-weixin.png / sponsor-alipay.jpg)。文案走 i18n sponsor 段 |
+| `SponsorCard.tsx` | 赞助下拉浮层 (2026-09-04)。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭。锚定标题栏赞助按钮下方自然向下展开（fixed top-[52px] right-[104px]，带指向按钮的小箭头，z-[60]，高于 DockNav 菜单同级低于 toast z-100），自动弹出与手动入口共用此浮层。内嵌微信/支付宝收款码 (public/sponsor-weixin.png / sponsor-alipay.jpg)。文案走 i18n sponsor 段 + about.sponsor |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个面板含speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult 等) |
 | `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.2.9'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项) |
@@ -1600,7 +1600,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **quality 面板可见性联动**（2026-09-03 约定）: `enableNetworkQuality === false` 时 App 对 quality 面板渲染 `null`、DockNav 过滤入口。三处必须联动——`useInitialDataLoad` 启动恢复 `defaultPanel`/`savedPanel` 时跳过 quality（否则重启后主区域空白）、`SettingsPanel` 关闭质量开关时清 `defaultPanel` 并把 `activePanel` 切回 dashboard。新增受开关控制的面板时同样需三处联动
 - **窗口监听**: `getCurrentWindow().onResized` 监听窗口大小变化
 - **引导向导**: 首次启动检测（`safeStorage.get('campus-onboarding-done')`），未完成则弹出 OnboardingWizard
-- **赞助浮层自动弹出** (2026-09-04): 已有账号才弹（`configUser` 非空，与 onboarding 的 `!configUser` 条件天然互斥）→ 启动 1s 延迟（`SPONSOR_SHOW_DELAY_MS`，等启动入场动画完成）→ `document.visibilityState === 'visible'` 才弹（静默启动/最小化时挂 visibilitychange 推迟到可见）→ 7 天频控（`sponsor-last-shown` epoch ms 存 localStorage，`SPONSOR_SHOW_INTERVAL_MS`）。弹出瞬间即写时间戳；标题栏 Heart 手动打开不受频控、不写时间戳。频控判断在 `configUser` 短路之后，二者叠加保证首次使用（无账号）阶段完全不打扰。
+- **赞助下拉浮层自动弹出** (2026-09-04): 已有账号才弹（`configUser` 非空，与 onboarding 的 `!configUser` 条件天然互斥）→ 启动 1s 延迟（`SPONSOR_SHOW_DELAY_MS`，等启动入场动画完成）→ `document.visibilityState === 'visible'` 才弹（静默启动/最小化时挂 visibilitychange 推迟到可见）→ 7 天频控（`sponsor-last-shown` epoch ms 存 localStorage，`SPONSOR_SHOW_INTERVAL_MS`）。弹出瞬间即写时间戳；标题栏 Heart 与关于对话框"赞助支持"两个手动入口不受频控、不写时间戳。频控判断在 `configUser` 短路之后，二者叠加保证首次使用（无账号）阶段完全不打扰。浮层为标题栏按钮下方下拉展开（曾尝试独立外挂子窗口方案，实测体验不佳已废弃，改回窗口内非模态浮层）。
 - **ErrorBoundary 嵌套**: 外层 ErrorBoundary（L361）+ 面板内容 ErrorBoundary（L288）+ main.tsx ErrorBoundary
 - **useLogToastStore**: 独立 zustand store 用于 Toast 管理
 

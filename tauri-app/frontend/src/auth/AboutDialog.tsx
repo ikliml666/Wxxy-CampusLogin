@@ -10,7 +10,7 @@ import {
   Check, ExternalLink, RefreshCw,
   Download, Globe, Server, Loader2,
   ChevronDown, ChevronRight, XCircle, Package,
-  Zap, Users, Wifi, Sparkles
+  Zap, Users, Wifi, Sparkles, Heart
 } from'lucide-react'
 import { APP_NAME, APP_VERSION } from'@/shared/ui-constants'
 import { cn, extractErrorMessage } from'@/lib/utils'
@@ -23,6 +23,7 @@ interface AboutDialogProps {
   open: boolean
   onClose: () => void
   openExternal?: (url: string) => void
+  onShowSponsor?: () => void
   onUpdateAvailable?: (hasUpdate: boolean, latestVersion?: string, releaseNotes?: string) => void
   initialLatestVersion?: string
   initialReleaseNotes?: string
@@ -66,7 +67,7 @@ function renderInlineMarkdown(text: string): ReactNode {
   })
 }
 
-export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvailable, initialLatestVersion, initialReleaseNotes, initialUpdateAvailable }: AboutDialogProps) {
+export function AboutDialog({ open: isOpen, onClose, openExternal, onShowSponsor, onUpdateAvailable, initialLatestVersion, initialReleaseNotes, initialUpdateAvailable }: AboutDialogProps) {
   const api = tauriApiWithRetry
   const { t } = useTranslation()
   const [checking, setChecking] = useState(false)
@@ -336,8 +337,18 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               </div>
             ) : null}
 
-            {/* 底部: GitHub 仓库链接 */}
-            <div className="mt-auto pt-4">
+            {/* 底部: 赞助按钮 + GitHub 仓库链接 */}
+            <div className="mt-auto pt-4 space-y-3">
+              {onShowSponsor && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-center gap-2 h-[34px] text-xs rounded-lg border-rose-200 bg-rose-50/60 text-rose-600 hover:bg-rose-100/70 hover:text-rose-600"
+                  onClick={onShowSponsor}
+                >
+                  <Heart className="h-3 w-3 fill-rose-500 text-rose-500" aria-hidden="true" />
+                  {t('about.sponsor')}
+                </Button>
+              )}
               <button
                 onClick={openGithub}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
