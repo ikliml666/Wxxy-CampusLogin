@@ -13,8 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
+import { SegmentTabs } from '@/shared'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
@@ -64,6 +65,13 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const dnsChecking = useQualityStore(s => s.dnsChecking)
   const refreshAdapters = useAdapterStore(s => s.refreshAdapters)
   const isRefreshingAdapters = useAdapterStore(s => s.isRefreshingAdapters)
+  // DNS 优化目标：ipv4 / ipv6 / both（默认双栈）
+  const [dnsFamily, setDnsFamily] = useState<'both' | 'ipv4' | 'ipv6'>('both')
+  const familyTabs = [
+    { key: 'ipv4', label: 'IPv4', icon: Network, color: 'text-primary', bg: '' },
+    { key: 'ipv6', label: 'IPv6', icon: Globe, color: 'text-primary', bg: '' },
+    { key: 'both', label: t('network.dnsFamilyBoth'), icon: Layers, color: 'text-primary', bg: '' },
+  ]
 
   const handleCheckDns = useCallback(async () => {
     useQualityStore.getState().setDnsChecking(true)
@@ -91,7 +99,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const handleSetupDnsDoh = useCallback(async () => {
     setDohEnabling(true)
     try {
-      const result = await ipc.setupDnsDoh()
+      const result = await ipc.setupDnsDoh(dnsFamily)
       if (!mountedRef.current) return
       if (result.success) {
         useLogToastStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
@@ -107,7 +115,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     } finally {
       if (mountedRef.current) setDohEnabling(false)
     }
-  }, [ipc])
+  }, [ipc, dnsFamily])
 
   const handleGetNewIpForAdapter = useCallback(async (adapterName: string) => {
     setGettingNewIpAdapter(adapterName)
@@ -461,6 +469,14 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
             </div>
           </CardHeader>
           <CardContent>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <Label className="text-xs font-medium text-muted-foreground shrink-0">{t('network.dnsFamilyLabel')}</Label>
+              <SegmentTabs
+                tabs={familyTabs}
+                activeKey={dnsFamily}
+                onTabChange={key => setDnsFamily(key as 'both' | 'ipv4' | 'ipv6')}
+              />
+            </div>
             {!dnsStatus && !dnsChecking && (
               <div className="text-center py-6">
                 <Shield className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />

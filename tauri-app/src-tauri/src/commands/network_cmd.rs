@@ -246,8 +246,14 @@ pub async fn check_dns_doh_status() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn setup_dns_doh(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    crate::log_info!("dns", "开始一键设置DNS+DoH");
+pub async fn setup_dns_doh(app_handle: tauri::AppHandle, family: Option<String>) -> Result<serde_json::Value, String> {
+    // 优化目标："ipv4"/"ipv6"/"both"（默认 both），非法值回退 both
+    let family = match family.as_deref() {
+        Some("ipv4") => "ipv4".to_string(),
+        Some("ipv6") => "ipv6".to_string(),
+        _ => "both".to_string(),
+    };
+    crate::log_info!("dns", "开始一键设置DNS+DoH（优化目标: {family}）");
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(not(target_os = "windows"))]
         {
@@ -278,15 +284,18 @@ pub async fn setup_dns_doh(app_handle: tauri::AppHandle) -> Result<serde_json::V
             }
 
             if elevation::is_admin() {
-                return Ok(crate::network::dns_setup::setup_dns_doh_admin(&targets));
+                return Ok(crate::network::dns_setup::setup_dns_doh_admin(&targets, &family));
             }
 
             crate::log_info!("dns", "非管理员运行，通过 --helper 提权设置DNS+DoH");
             let result_path = crate::platform::helper_spawn::unique_result_path();
-            let arg_refs: Vec<&str> = targets.iter().map(|s| s.as_str()).collect();
+            let mut arg_refs: Vec<String> = targets.clone();
+            arg_refs.push("--family".to_string());
+            arg_refs.push(family);
+            let arg_strs: Vec<&str> = arg_refs.iter().map(|s| s.as_str()).collect();
             match crate::platform::helper_spawn::spawn_elevated_helper(
                 "dns",
-                &arg_refs,
+                &arg_strs,
                 &result_path,
                 std::time::Duration::from_secs(30),
             ) {

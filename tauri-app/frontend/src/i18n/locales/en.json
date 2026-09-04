@@ -181,7 +181,7 @@
     "secondaryAdapter": "Secondary Adapter",
     "selectSecondaryAdapter": "Select Secondary Adapter",
     "dnsOptimization": "DNS Optimization",
-    "dnsOptimizationDesc": "Recommended: Alibaba DNS + Tencent DNS (incl. IPv6) with DoH encryption",
+    "dnsOptimizationDesc": "Recommended: Alibaba DNS + Tencent DNS (IPv4/IPv6 selectable) with DoH encryption",
     "checkDns": "Check DNS",
     "checkingDns": "Checking...",
     "oneClickOptimize": "One-Click Optimize",
@@ -214,7 +214,9 @@
     "gotNewIp": "Got new IP: {{names}}",
     "skipNonCampus": "{{name}}({{ip}}) is not on campus subnet, skipped",
     "getNewIpFailed": "Failed to get new IP: {{details}}",
-    "getNewIpFailedShort": "Failed to get new IP"
+    "getNewIpFailedShort": "Failed to get new IP",
+    "dnsFamilyLabel": "Target",
+    "dnsFamilyBoth": "IPv4 + IPv6"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",

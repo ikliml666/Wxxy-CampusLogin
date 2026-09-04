@@ -26,13 +26,14 @@ pub struct HelperResult {
 /// helper 支持的操作。
 #[derive(Debug, Clone, PartialEq)]
 pub enum HelperOp {
-    /// 设置 DNS + 启用 DoH（只处理 `targets` 名单内的适配器，主进程 resolve 后传入）
-    Dns { targets: Vec<String> },
+    /// 设置 DNS + 启用 DoH（只处理 `targets` 名单内的适配器，主进程 resolve 后传入；
+    /// `family` 为优化目标 "ipv4"/"ipv6"/"both"）
+    Dns { targets: Vec<String>, family: String },
     /// 修改适配器 MAC（注册表 NetworkAddress + 重启网卡）
     Mac { guid: String, mac_no_dash: String },
 }
 
-/// 解析 `--helper <op> [op参数...] --result <path>` 参数。
+/// 解析 `--helper <op> [op参数...] [--family <v>] --result <path>` 参数。
 /// 未命中 helper 模式返回 Ok(None)；命中但参数非法返回 Err（调用方不应启动正常应用）。
 pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<String>)>, String> {
     let Some(pos) = args.iter().position(|a| a == "--helper") else {
@@ -48,8 +49,31 @@ pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<Str
         positional.push(args[i].clone());
         i += 1;
     }
+    // 遍历剩余参数，找 --family <v> 与 --result <path>（顺序无关，便于扩展）
+    let mut result_path = None;
+    let mut family = "both".to_string();
+    while i < args.len() {
+        match args[i].as_str() {
+            "--family" => {
+                family = args
+                    .get(i + 1)
+                    .ok_or_else(|| "--family 缺少取值".to_string())?
+                    .clone();
+                i += 2;
+            }
+            "--result" => {
+                result_path = Some(
+                    args.get(i + 1)
+                        .ok_or_else(|| "--result 缺少路径".to_string())?
+                        .clone(),
+                );
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
     let parsed = match op.as_str() {
-        "dns" => HelperOp::Dns { targets: positional },
+        "dns" => HelperOp::Dns { targets: positional, family },
         "mac" => {
             let guid = positional
                 .first()
@@ -63,20 +87,6 @@ pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<Str
         }
         other => return Err(format!("未知 helper 操作: {other}")),
     };
-    // 遍历剩余参数，找 --result <path>（顺序无关，便于扩展）
-    let mut result_path = None;
-    while i < args.len() {
-        if args[i] == "--result" {
-            result_path = Some(
-                args.get(i + 1)
-                    .ok_or_else(|| "--result 缺少路径".to_string())?
-                    .clone(),
-            );
-            i += 2;
-        } else {
-            i += 1;
-        }
-    }
     Ok(Some((parsed, result_path)))
 }
 
@@ -84,7 +94,7 @@ pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<Str
 pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
     let mut logs: Vec<String> = Vec::new();
     let result = match &op {
-        HelperOp::Dns { targets } => run_dns(targets, &mut logs),
+        HelperOp::Dns { targets, family } => run_dns(targets, family, &mut logs),
         HelperOp::Mac { guid, mac_no_dash } => run_mac(guid, mac_no_dash, &mut logs),
     };
     if let Some(path) = result_path {
@@ -93,9 +103,12 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
     if result.success { 0 } else { 1 }
 }
 
-fn run_dns(targets: &[String], logs: &mut Vec<String>) -> HelperResult {
-    logs.push(format!("helper: 开始设置DNS+DoH（目标适配器: {}）", if targets.is_empty() { "无".to_string() } else { targets.join("、") }));
-    let v = crate::network::dns_setup::setup_dns_doh_admin(targets);
+fn run_dns(targets: &[String], family: &str, logs: &mut Vec<String>) -> HelperResult {
+    logs.push(format!(
+        "helper: 开始设置DNS+DoH（目标适配器: {}，优化目标: {family}）",
+        if targets.is_empty() { "无".to_string() } else { targets.join("、") }
+    ));
+    let v = crate::network::dns_setup::setup_dns_doh_admin(targets, family);
     let success = v.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
     let message = v
         .get("message")
@@ -184,24 +197,29 @@ mod tests {
             r"C:\Users\test\Temp\r.json".to_string(),
         ];
         let (op, path) = parse_helper_args(&args).unwrap().unwrap();
-        assert_eq!(op, HelperOp::Dns { targets: vec![] });
+        assert_eq!(op, HelperOp::Dns { targets: vec![], family: "both".to_string() });
         assert_eq!(path.as_deref(), Some(r"C:\Users\test\Temp\r.json"));
     }
 
     #[test]
-    fn parse_dns_with_targets() {
+    fn parse_dns_with_targets_and_family() {
         let args = vec![
             "--helper".to_string(),
             "dns".to_string(),
             "以太网".to_string(),
             "Wi-Fi".to_string(),
+            "--family".to_string(),
+            "ipv6".to_string(),
             "--result".to_string(),
             "r.json".to_string(),
         ];
         let (op, path) = parse_helper_args(&args).unwrap().unwrap();
         assert_eq!(
             op,
-            HelperOp::Dns { targets: vec!["以太网".to_string(), "Wi-Fi".to_string()] }
+            HelperOp::Dns {
+                targets: vec!["以太网".to_string(), "Wi-Fi".to_string()],
+                family: "ipv6".to_string(),
+            }
         );
         assert_eq!(path.as_deref(), Some("r.json"));
     }

@@ -181,7 +181,7 @@
     "secondaryAdapter": "副适配器",
     "selectSecondaryAdapter": "选择副适配器",
     "dnsOptimization": "DNS优化",
-    "dnsOptimizationDesc": "推荐使用阿里DNS + 腾讯DNS（含IPv6），并启用DoH加密",
+    "dnsOptimizationDesc": "推荐使用阿里DNS + 腾讯DNS（可单独优化IPv4或IPv6），并启用DoH加密",
     "checkDns": "检测DNS",
     "checkingDns": "检测中...",
     "oneClickOptimize": "一键优化",
@@ -214,7 +214,9 @@
     "gotNewIp": "已获取新IP: {{names}}",
     "skipNonCampus": "{{name}}({{ip}})非校园网子网，已跳过",
     "getNewIpFailed": "获取新IP失败: {{details}}",
-    "getNewIpFailedShort": "获取新IP失败"
+    "getNewIpFailedShort": "获取新IP失败",
+    "dnsFamilyLabel": "优化目标",
+    "dnsFamilyBoth": "IPv4 + IPv6"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",

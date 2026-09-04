@@ -901,7 +901,7 @@ pub async fn check_network_quality_async(
 | `set_dns_via_api()` | 适配器级 DNS+DoH 设置（原有函数，有线适配器使用） |
 | `set_doh_via_api()` | 适配器级 DoH 设置（仅设置 DoH，不修改 NameServer） |
 
-> DNS+DoH 一键设置（`network/dns_setup.rs::setup_dns_doh_admin`）以 `NameServer` 逗号分隔混合列表写入 v4+v6 四个地址（`SetInterfaceDnsSettings` 支持双栈列表），`doh_bindings` 按服务器 IP 精确匹配模板（含 IPv6，`ServerIndex` 取实际下标），netsh 全局 DoH 注册循环同样覆盖 v6 服务器。DNS 检测的 `should_filter_ip` 对非点分格式返回 false（不过滤），IPv6 地址可正常读取与显示；前端 `ALI_DNS`/`TENCENT_DNS` 推荐集合已含 v6 地址。
+> DNS+DoH 一键设置（`network/dns_setup.rs::setup_dns_doh_admin(targets, family)`）按 `family`（"ipv4"/"ipv6"/"both"，默认 both）决定 NameServer 列表：ipv4 只写 2 条 v4、ipv6 只写 2 条 v6、both 写 v4+v6 混合 4 条（逗号分隔，`SetInterfaceDnsSettings` 支持双栈列表），`doh_bindings` 按服务器 IP 精确匹配模板（含 IPv6，`ServerIndex` 取实际下标），netsh 全局 DoH 注册循环同样覆盖 v6 服务器。前端 NetworkPanel DNS 卡片用 `SegmentTabs` 三档选择（IPv4/IPv6/IPv4+IPv6，默认双栈），选择经 `setup_dns_doh` 命令的 `family` 参数传入，helper 提权路径经 `--helper dns <名单...> --family <v>` 传递。DNS 检测的 `should_filter_ip` 对非点分格式返回 false（不过滤），IPv6 地址可正常读取与显示；前端 `ALI_DNS`/`TENCENT_DNS` 推荐集合已含 v6 地址。
 
 **DNS 检测增强**: `read_adapter_dns_from_registry()` 同时读取 `NameServer`（适配器级）和 `ProfileNameServer`（配置文件级），source 优先级为 manual > profile > dhcp，输出 `dnsSource`/`profileDnsServers`/`adapterDnsOverridesProfile` 字段
 

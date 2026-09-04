@@ -9,7 +9,8 @@
 #[cfg(target_os = "windows")]
 /// `targets` 为操作范围白名单（resolve 后的主/副适配器名）：只对这些适配器
 /// 设置 DNS/DoH，不再触碰系统里其他活跃适配器。全局 DoH 注册与 flushdns 不受名单限制。
-pub fn setup_dns_doh_admin(targets: &[String]) -> serde_json::Value {
+/// `family` 为优化目标："ipv4" 只写 v4、"ipv6" 只写 v6、"both"（默认）写 v4+v6 混合列表。
+pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Value {
     use crate::network::{get_adapters_force, is_blacklisted, Adapter};
     use crate::platform::dns_config;
 
@@ -26,20 +27,23 @@ pub fn setup_dns_doh_admin(targets: &[String]) -> serde_json::Value {
         });
     }
 
-    let mut api_success: Vec<String> = Vec::new();
-    let mut api_fail: Vec<String> = Vec::new();
-
-    for adapter in &active {
-        // IPv4 + IPv6 混合写入 NameServer（逗号分隔，SetInterfaceDnsSettings 支持双栈列表）：
-        // 阿里 v4+v6 + 腾讯 v4+v6
-        let dns_list: Vec<&str> = vec![
+    // 按 family 决定 NameServer 列表；DoH 绑定由 doh_bindings 按列表实际内容配对
+    let dns_list: Vec<&str> = match family {
+        "ipv4" => vec![dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS],
+        "ipv6" => vec![dns_config::PRIMARY_DNS_V6, dns_config::SECONDARY_DNS_V6],
+        _ => vec![
             dns_config::PRIMARY_DNS,
             dns_config::SECONDARY_DNS,
             dns_config::PRIMARY_DNS_V6,
             dns_config::SECONDARY_DNS_V6,
-        ];
-        let doh_list: Vec<(&str, &str)> = dns_config::DOH_SERVERS.to_vec();
+        ],
+    };
+    let doh_list: Vec<(&str, &str)> = dns_config::DOH_SERVERS.to_vec();
 
+    let mut api_success: Vec<String> = Vec::new();
+    let mut api_fail: Vec<String> = Vec::new();
+
+    for adapter in &active {
         // WiFi 适配器：先清除适配器级 DNS，再设置配置文件级 DNS
         // 有线适配器：保持适配器级 DNS
         if adapter.wireless {
