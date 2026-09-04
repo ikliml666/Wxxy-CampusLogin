@@ -1188,7 +1188,7 @@ struct ConnectionCampusStatus {
 | 后端统一通知 | `notify_network_quality_change` 在后端发送网络质量变化通知，前端不再主动调用 `sendNotification` |
 | 移除 15s 冷却 (v2.2.6) | 删除 last_quality_check_time 字段及冷却检查逻辑，首次检测可立即执行 |
 | 未在线跳过 (2026-09-03) | `spawn_latency_test_loop` 每轮检查 `any_adapter_online`，Portal 未认证时跳过自动检测（未认证时外网 HTTPS 必被拦截、全超时且误报"网络拥堵"）；前端手动触发的 `check_network_quality` 命令不受限 |
-| 双驱动者 UI 如实标注 (2026-09-04) | 质量数据有两个周期驱动者：后台巡检（`enable_background_check && enable_network_quality`，每轮顺带 `run_quality_check`）与定时测试循环（`enable_latency_test`）。QualityPanel"定时测试"卡片在开关未开但后台巡检开着时显示"随后台巡检刷新"蓝色徽标（title 说明来源），消除"数据在刷但开关显示启动"的困惑。已知残留：60s 全局节流在双驱动者下会吞掉 <60s 的自定义间隔（`QUALITY_CHECK_MIN_INTERVAL_MS`） |
+| 质量驱动者收敛 (2026-09-04) | 全量质量检测（`run_quality_check`）的周期驱动者收敛为定时测试循环一个（`spawn_latency_test_loop`，条件 `enable_network_quality && enable_latency_test`）；后台巡检不再顺带触发质量检测（`run_background_check_blocking` 返回 `()`，删除 quality_info 联动），60s 全局节流（`QUALITY_CHECK_MIN_INTERVAL_MS`）随之移除——定时测试间隔（最小 10s）从此真实生效。信号量 `is_quality_checking` 保留防与手动检测并发。代价：不开"定时测试"则质量面板无周期数据（仅手动检测按钮） |
 
 ### 4.12 适配器监控模块 — `monitor/adapter_watch.rs`
 
@@ -1425,7 +1425,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage |
+| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage。编辑模式在 body 打 `dashboard-editing` 标使 main 显示细滚动条（2026-09-04）：全局滚动条被隐藏（index.css 无边框美学），编辑列表溢出一屏时若无滚动条提示，最后一张卡片看起来像被截断；注意 framer-motion 对 Reorder.Item 内联写 `touch-action: pan-x`（axis=y），class 层的 touch-action 会被覆盖，触摸垂直滚动让位于拖拽排序 |
 | `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe` |
 | `useAuth.ts` | 认证逻辑 Hook |
 | `types.ts` | 认证类型定义 (PortalStatusResult, CommandResult, LoginResult) |
@@ -1942,7 +1942,7 @@ App.tsx (377行, App + AppInner)
 | CLIENT_POOL LRU 淘汰 (B9-17) | `client_pool_get` 命中时更新 `Instant`，容量超限 `min_by_key` 剔除最久未访问 (network/client.rs) | 热点连接保活，冷连接及时回收 |
 | background_check CAS 合并 (B9-4) | 合并连续 `network.update` 调用，2 处从 2 次 CAS 降为 1 次 (monitor/background_check.rs) | 减少 CAS 循环开销 |
 | lifecycle TOCTOU 竞态修复 (B9-8) | 3 处 `auto_exit_deadline` check-then-act 收入同一锁临界区 (infra/lifecycle.rs) | 消除快捷键注册/注销竞态 |
-| 质量检测全局节流 (v2.4.0) | `LAST_QUALITY_CHECK_DONE_MS` 全局 60s 最小间隔，后台巡检（15s）与延迟循环（30s）共用，手动命令不受限 (monitor/quality_scheduler.rs) | 消除每 15s 全量外网探测的高频重复（原两定时器叠加） |
+| 质量检测全局节流 (v2.4.0) | ~~`LAST_QUALITY_CHECK_DONE_MS` 全局 60s 最小间隔~~ **已移除 (2026-09-04)**：双定时器叠加的成因随质量驱动者收敛消失，节流反而吞掉 <60s 的自定义定时测试间隔 (monitor/quality_scheduler.rs) | 消除每 15s 全量外网探测的高频重复（原两定时器叠加） |
 | 注册表遍历移入 blocking 池 (v2.4.0) | adapter_watch 15s 周期的 `refresh_class_subkey_cache` 包进 spawn_blocking (monitor/adapter_watch.rs) | 不再在 async worker 线程同步遍历 HKLM Class 子键 |
 | 网关 surge_ping 替代 ping (v2.4.0) | `check_gateway_reachable_from` 改 surge_ping 异步 ICMP（bind 源 IP 等同 `-S`）(network/subnet.rs) | 消除每 15s spawn ping 子进程 |
 | netsh 查询 TTL 缓存 (v2.4.0) | SSID/有线 Profile 结果 60s 缓存，仅缓存 Ok (network/subnet.rs) | 消除每 15s 各 spawn 一次 netsh wlan/lan |
