@@ -419,6 +419,12 @@ export const SettingsPanel = memo(function SettingsPanel({
                   // Dock 隐藏入口，当前面板停留在 quality 时主区域空白
                   const { activePanel, setActivePanel } = useAdapterStore.getState()
                   const patch: Partial<Config> = { enableNetworkQuality: false }
+                  // 联动关闭定时测试：总开关关闭后不应继续全量外网检测（后端
+                  // start_latency_test 也有同向校验，双保险防止开关与任务分叉）
+                  if (config.enableLatencyTest) {
+                    patch.enableLatencyTest = false
+                    useConfigStore.getState().api.stopLatencyTest?.().catch(() => {})
+                  }
                   if (config.defaultPanel === 'quality') patch.defaultPanel = ''
                   onUpdateConfig(patch)
                   if (activePanel === 'quality') setActivePanel('dashboard')

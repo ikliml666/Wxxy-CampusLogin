@@ -199,6 +199,17 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
 #[tauri::command]
 pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
     let s = CommandContext::from_app(&app_handle);
+    // 总开关关闭时定时测试不应运行（历史缺陷：运行路径不校验总开关，
+    // 关总开关后定时测试仍做全量外网检测并可能弹"网络拥堵"通知）。
+    // 同步把 enable_latency_test 落盘为 false，经 config-changed 事件推回前端，
+    // 避免 UI 开关与实际运行状态分叉
+    if !s.config.load().enable_network_quality {
+        let cfg = s.config.update(|c| c.enable_latency_test = false);
+        if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+            crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
+        }
+        return Ok(CommandResult::ok_msg("质量检测总开关未启用，定时测试保持关闭"));
+    }
     let interval = {
         let config = s.config.load();
         if config.latency_test_interval < 10000 { 30000 } else { config.latency_test_interval }

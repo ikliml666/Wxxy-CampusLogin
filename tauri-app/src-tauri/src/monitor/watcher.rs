@@ -37,7 +37,9 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
                 let c = s.config.load();
                 if c.latency_test_interval < 10000 { 30000 } else { c.latency_test_interval }
             };
-            let _ = spawn_latency_test_loop(&app_h, interval);
+            if let Err(e) = spawn_latency_test_loop(&app_h, interval) {
+                crate::log_warn!("background", "启动定时测试循环失败: {}", e);
+            }
         }) {
             crate::log_warn!("background", "注册 startup_latency 跟踪任务失败: {}", e);
         }
