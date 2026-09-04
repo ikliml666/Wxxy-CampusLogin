@@ -281,6 +281,8 @@
     "systemDnsResolution": "系统DNS解析",
     "scheduledTest": "定时测试",
     "scheduledTestDesc": "自动周期性检测网络延迟",
+    "drivenByBackground": "随后台巡检刷新",
+    "drivenByBackgroundTip": "定时测试未开启，质量数据由后台巡检周期更新；开启定时测试后可自定义检测间隔",
     "testInterval": "测试间隔",
     "testDetails": "测试详情",
     "testDetailsDesc": "各节点延迟检测结果",

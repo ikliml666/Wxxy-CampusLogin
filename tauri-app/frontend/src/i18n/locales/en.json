@@ -281,6 +281,8 @@
     "systemDnsResolution": "System DNS Resolution",
     "scheduledTest": "Scheduled Test",
     "scheduledTestDesc": "Automatically test network latency at intervals",
+    "drivenByBackground": "Driven by background check",
+    "drivenByBackgroundTip": "Scheduled test is off; quality data refreshes with the background check. Enable it to customize the interval",
     "testInterval": "Test Interval",
     "testDetails": "Test Details",
     "testDetailsDesc": "Latency test results for each node",
