@@ -140,7 +140,7 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
             .output()
             .map_err(|e| format!("启用适配器失败: {e}"))?;
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = crate::platform::console_output::decode_console_bytes(&output.stderr);
             let stderr_trimmed = stderr.trim();
             return Err(if stderr_trimmed.is_empty() {
                 "启用适配器失败：netsh 返回非零退出码但未输出错误信息".to_string()

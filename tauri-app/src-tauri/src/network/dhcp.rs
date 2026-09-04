@@ -14,6 +14,20 @@ use crate::network::adapter_cache::{
 };
 use crate::network::subnet::is_same_subnet_18;
 use crate::network::discovery::{is_blacklisted, Adapter, new_command};
+use crate::platform::console_output::decode_console_bytes;
+
+/// ipconfig 失败时退出码常仍为 0（错误只写在输出文本里），退出码之外
+/// 按中英错误关键字兜底判定；适配器名不含这些词，误报面可忽略
+fn ipconfig_output_failed(stdout: &[u8], stderr: &[u8]) -> bool {
+    let text = format!(
+        "{} {}",
+        decode_console_bytes(stdout).to_lowercase(),
+        decode_console_bytes(stderr).to_lowercase()
+    );
+    ["error", "cannot", "failed", "失败", "错误", "无法"]
+        .iter()
+        .any(|k| text.contains(k))
+}
 
 pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
     validate_adapter_name(adapter_name)?;
@@ -21,7 +35,15 @@ pub fn dhcp_renew(adapter_name: &str) -> Result<bool, String> {
         .args(["/renew", adapter_name])
         .output()
         .map_err(|e| format!("DHCP续租失败: {e}"))?;
-    Ok(output.status.success())
+    if !output.status.success() {
+        return Ok(false);
+    }
+    let failed = ipconfig_output_failed(&output.stdout, &output.stderr);
+    if failed {
+        crate::log_warn!("adapter", "DHCP续租输出异常({}): {}",
+            adapter_name, decode_console_bytes(&output.stdout).lines().last().unwrap_or_default());
+    }
+    Ok(!failed)
 }
 
 pub fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
@@ -30,7 +52,15 @@ pub fn dhcp_release(adapter_name: &str) -> Result<bool, String> {
         .args(["/release", adapter_name])
         .output()
         .map_err(|e| format!("DHCP释放失败: {e}"))?;
-    Ok(output.status.success())
+    if !output.status.success() {
+        return Ok(false);
+    }
+    let failed = ipconfig_output_failed(&output.stdout, &output.stderr);
+    if failed {
+        crate::log_warn!("adapter", "DHCP释放输出异常({}): {}",
+            adapter_name, decode_console_bytes(&output.stdout).lines().last().unwrap_or_default());
+    }
+    Ok(!failed)
 }
 
 /// 对目标适配器（resolve 后的主/副适配器）中的有线网卡执行 DHCP 续租，
@@ -223,8 +253,15 @@ pub fn apply_mac_change_via_registry(
     let disable_ok = netsh_disable(adapter_name);
     if disable_ok {
         std::thread::sleep(std::time::Duration::from_millis(500));
+    } else {
+        crate::log_warn!("adapter", "网卡停用失败({})，MAC 可能未生效", adapter_name);
     }
-    let _ = netsh_enable(adapter_name);
+    // 网卡停在停用状态会静默断网，必须视为整体失败
+    if !netsh_enable(adapter_name) {
+        let err = format!("网卡重新启用失败({})，请到网络适配器设置手动启用", adapter_name);
+        crate::log_error!("adapter", "{}", err);
+        return Err(err);
+    }
     let _ = dhcp_renew(adapter_name);
     Ok(())
 }
@@ -342,10 +379,14 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
         let disable_ok = netsh_disable(&adapter.name);
         if disable_ok {
             std::thread::sleep(std::time::Duration::from_millis(500));
+        } else {
+            crate::log_warn!("adapter", "网卡停用失败({})", adapter.name);
         }
         let enable_ok = netsh_enable(&adapter.name);
         if enable_ok {
             poll_adapter_has_ip(&adapter.name, 3000);
+        } else {
+            crate::log_error!("adapter", "网卡重新启用失败({})，请手动启用", adapter.name);
         }
         let renew_ok = match dhcp_renew(&adapter.name) {
             Ok(s) => s,

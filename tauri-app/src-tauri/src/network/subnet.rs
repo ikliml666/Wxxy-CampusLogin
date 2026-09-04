@@ -55,7 +55,7 @@ fn get_wireless_ssid_uncached() -> Result<Option<String>, String> {
         return Ok(None);
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::platform::console_output::decode_console_bytes(&output.stdout);
     for line in stdout.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
@@ -97,7 +97,7 @@ fn get_wired_network_profile_uncached() -> Result<Option<String>, String> {
         return Ok(None);
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::platform::console_output::decode_console_bytes(&output.stdout);
     for line in stdout.lines() {
         let trimmed = line.trim();
         let is_profile_line = trimmed.to_lowercase().contains("profile")

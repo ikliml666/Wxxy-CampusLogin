@@ -102,9 +102,12 @@ pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Valu
         }
     }
 
-    // 注册全局 DoH 服务器（对齐原 PowerShell/cmd 路径行为）
+    // 注册全局 DoH 服务器（对齐原 PowerShell/cmd 路径行为）。
+    // 失败必须如实上报：历史实现 let _ 吞掉且 dohFailed 恒空，DoH 未生效
+    // 仍向用户展示"并启用DoH"
+    let mut doh_failed: Vec<String> = Vec::new();
     for (ip, template) in dns_config::DOH_SERVERS {
-        let _ = crate::network::discovery::new_command("netsh")
+        match crate::network::discovery::new_command("netsh")
             .args([
                 "dns",
                 "add",
@@ -114,7 +117,29 @@ pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Valu
                 "autoupgrade=yes",
                 "udpfallback=yes",
             ])
-            .output();
+            .output()
+        {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                // 重复添加已注册条目按幂等成功处理（netsh 退出码语义未实测确证，
+                // 无论退出码如何，"已存在"都不是失败）
+                let stderr_text = crate::platform::console_output::decode_console_bytes(&out.stderr);
+                let stdout_text = crate::platform::console_output::decode_console_bytes(&out.stdout);
+                let combined = format!("{} {}", stderr_text, stdout_text);
+                if combined.contains("已存在") || combined.to_lowercase().contains("already exists") {
+                    crate::log_debug!("dns", "DoH加密服务器已注册: {}", ip);
+                    continue;
+                }
+                let detail = stderr_text.trim();
+                crate::log_warn!("dns", "注册DoH加密服务器失败: {} - {}（退出码 {:?}）",
+                    ip, if detail.is_empty() { "无输出" } else { detail }, out.status.code());
+                doh_failed.push(ip.to_string());
+            }
+            Err(e) => {
+                crate::log_warn!("dns", "注册DoH加密服务器失败: {} - {}", ip, e);
+                doh_failed.push(ip.to_string());
+            }
+        }
     }
 
     let _ = crate::network::discovery::new_command("ipconfig")
@@ -135,24 +160,37 @@ pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Valu
             ),
         };
         let mut parts = Vec::new();
-        parts.push(format!(
-            "已为 {} 设置DNS（{}）并启用DoH",
-            api_success.join("、"),
-            servers_desc
-        ));
+        if doh_failed.is_empty() {
+            parts.push(format!(
+                "已为 {} 设置DNS（{}）并启用DoH",
+                api_success.join("、"),
+                servers_desc
+            ));
+        } else {
+            parts.push(format!(
+                "已为 {} 设置DNS（{}），{}项DoH注册失败",
+                api_success.join("、"),
+                servers_desc,
+                doh_failed.len()
+            ));
+        }
         if family == "ipv6" {
             parts.push("仅IPv6模式：请确保当前网络支持IPv6出口，否则域名解析可能失败".to_string());
         }
         if !api_fail.is_empty() {
             parts.push(format!("{}个适配器设置失败", api_fail.len()));
         }
+        let doh_ok: Vec<&str> = dns_config::DOH_SERVERS.iter()
+            .map(|(ip, _)| *ip)
+            .filter(|ip| !doh_failed.iter().any(|f| f == ip))
+            .collect();
         return serde_json::json!({
-            "success": api_fail.is_empty(),
+            "success": api_fail.is_empty() && doh_failed.is_empty(),
             "message": parts.join("，"),
             "dnsSuccess": api_success,
             "dnsFailed": api_fail,
-            "dohAdded": dns_config::DOH_SERVERS.iter().map(|(ip, _)| ip.to_string()).collect::<Vec<_>>(),
-            "dohFailed": [],
+            "dohAdded": doh_ok,
+            "dohFailed": doh_failed,
         });
     }
 

@@ -339,7 +339,7 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
             .output();
 
         if let Ok(out) = output {
-            let text = String::from_utf8_lossy(&out.stdout);
+            let text = crate::platform::console_output::decode_console_bytes(&out.stdout);
             let mut current_ip: Option<String> = None;
             let mut current_template: Option<String> = None;
             let mut current_autoupgrade: bool = false;

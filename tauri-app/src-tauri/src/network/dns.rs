@@ -492,16 +492,47 @@ pub(crate) async fn resolve_via_doh(
         return Err(format!("DoH响应状态异常: {}", status_line.trim()));
     }
 
-    let body = &response[header_end + 4..];
+    // RFC 9110 允许服务器以 chunked 编码响应（即使请求带 Connection: close），
+    // chunk 头会破坏 DNS wire 解析，需按 Transfer-Encoding 重组
+    let headers = std::str::from_utf8(&response[..header_end]).unwrap_or("").to_ascii_lowercase();
+    let raw_body = &response[header_end + 4..];
+    let body_vec: Vec<u8> = if headers.contains("transfer-encoding:") && headers.contains("chunked") {
+        decode_chunked_body(raw_body).ok_or("DoH chunked 响应解析失败")?
+    } else {
+        raw_body.to_vec()
+    };
 
-    if body.is_empty() {
+    if body_vec.is_empty() {
         return Err("DoH响应体为空".to_string());
     }
 
-    let ips = parse_dns_response_wire(body)
+    let ips = parse_dns_response_wire(&body_vec)
         .map_err(|e| format!("DoH解析响应失败: {e}"))?;
     ips.into_iter().next()
         .ok_or_else(|| "DoH响应无有效A记录".to_string())
+}
+
+/// 重组 RFC 9110 chunked 传输编码的响应体；畸形输入返回 None
+fn decode_chunked_body(input: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut pos = 0usize;
+    loop {
+        let line_end = input[pos..].windows(2).position(|w| w == b"\r\n")? + pos;
+        let size_str = std::str::from_utf8(&input[pos..line_end]).ok()?;
+        let size = usize::from_str_radix(size_str.split(';').next()?.trim(), 16).ok()?;
+        pos = line_end + 2;
+        if size == 0 {
+            return Some(out);
+        }
+        if pos + size > input.len() {
+            return None;
+        }
+        out.extend_from_slice(&input[pos..pos + size]);
+        pos += size;
+        if input.get(pos..pos + 2) == Some(b"\r\n") {
+            pos += 2;
+        }
+    }
 }
 
 pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option<IpAddr>) -> Result<IpAddr, String> {
@@ -577,6 +608,28 @@ pub async fn resolve_host_smart(host: &str, timeout: Duration, bind_addr: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ===== decode_chunked_body =====
+
+    #[test]
+    fn decode_chunked_single_chunk() {
+        let input = b"4\r\nabcd\r\n0\r\n\r\n";
+        assert_eq!(decode_chunked_body(input).unwrap(), b"abcd");
+    }
+
+    #[test]
+    fn decode_chunked_multiple_chunks_with_extension() {
+        let input = b"3;a=1\r\nabc\r\n2\r\nde\r\n0\r\n\r\n";
+        assert_eq!(decode_chunked_body(input).unwrap(), b"abcde");
+    }
+
+    #[test]
+    fn decode_chunked_malformed_returns_none() {
+        // size 声明 10 但数据只有 2 字节
+        assert!(decode_chunked_body(b"A\r\nab\r\n").is_none());
+        // 非法 hex size
+        assert!(decode_chunked_body(b"xyz\r\nab\r\n").is_none());
+    }
 
     // ===== build_dns_query_wire =====
 
