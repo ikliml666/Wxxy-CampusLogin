@@ -621,7 +621,7 @@ pub struct AccountResult {
 | `themeMode` | String | `"dark"` | 主题模式 |
 | `enableNotification` | bool | true | 启用通知 |
 | `activeAccount` | String | `""` | 当前活跃账号名 |
-| `enableLatencyTest` | bool | false | 启用延迟测试 |
+| `enableLatencyTest` | bool | true | 启用延迟测试（默认开启，2026-09-04） |
 | `latencyTestInterval` | u64 | 60000 | 延迟测试间隔 (ms) |
 | `customThemeColor` | String | `"#6366f1"` | 自定义主题颜色 |
 | `defaultPanel` | String | `""` | 默认面板 |
@@ -1982,6 +1982,7 @@ App.tsx (377行, App + AppInner)
 | 落盘统一路径 (2026-09-04) | start_background_check_inner 改走 commands::config_cmd::save_config_to_disk_encrypted（广播 config-changed）；watcher spawn 失败加日志 | 直调 persist 层不广播配置事件，前端/消费方失同步 |
 | 全局细滚动条 (2026-09-04) | index.css 滚动条从全局隐藏（display:none!important）改为 6px 半透明细条（thin + webkit），删除 dashboard-editing 特例与 body class effect | 隐藏使"内容可滚动"不可发现（编辑列表溢出一屏卡片看似截断；日志/设置/对话框同类）；6px 半透明与无边框美学兼容，观感经浏览器截图验证 |
 | anim-idle 排除 spinner (2026-09-04) | index.css .anim-idle 冻结列表移除 .animate-spin（保留 animate-pulse/signal-glow-active） | 2 秒无输入即全局冻结 loading 指示，用户误读"程序卡死"（登录按钮/检测中 spinner 均中招） |
+| 定时测试默认开启 (2026-09-04) | `enable_latency_test` 默认值 false→true（后端 Config::default + 前端 DEFAULT_CONFIG 两处同步）；已存显式 false 的用户配置不受影响（serde 尊重显式值），仅新安装与缺字段配置生效 | 用户预期"装完即有周期质量数据"，默认关闭使质量面板空置（驱动者收敛后周期数据唯一来源就是定时测试循环） |
 
 **已知限制（有意不修，2026-09-04 审计结论）**：① netsh 文本解析依赖中/英关键字，其他系统语言静默失效（目标用户群为中文系统，结构化解析无官方 JSON 接口）；② index.css 的 Tailwind 语义类 !important 劫持（.rounded-xl 等）与全局 border 透明为 v2.5.0 设计系统决策，全局移除会引发不可控视觉回归，维持现状；③ framer-motion 对 Reorder.Item 内联写 touch-action: pan-x（触摸屏垂直滚动让位于拖拽排序，框架行为）；④ v6 栈"空 NameServer 清除"的 API 接受性未经 Win11 实测（失败已降级警告）；⑤ 后端 serde_json::json! 手写返回体与前端类型的字段对齐靠约定，无编译期保证；⑥ auth/session 页面特征误判"已在线"（Portal 页面残留 uid='/v4ip=' 时跳过登录）——判定逻辑需真机实测 Portal 页面后才能改；⑦ 注销占位凭据 drcom/123 为 Dr.COM 惯例，现实 Portal 接受，不为假想故障加真实凭据回退；⑧ config `campusCheckStartHour` alias 在残留旧字段的脏数据下覆盖分钟值；⑨ atomic_write 在 rename 前崩溃的窗口回退旧配置（非丢失）。
 

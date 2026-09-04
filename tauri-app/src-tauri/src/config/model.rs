@@ -153,7 +153,7 @@ impl Default for Config {
             theme_mode: "dark".to_string(),
             enable_notification: true,
             active_account: String::new(),
-            enable_latency_test: false,
+            enable_latency_test: true,
             latency_test_interval: 60000,
             custom_theme_color: "#6366f1".to_string(),
             default_panel: String::new(),

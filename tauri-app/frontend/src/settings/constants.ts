@@ -21,7 +21,7 @@ export const DEFAULT_CONFIG: Config = {
   themeMode: 'dark',
   enableNotification: true,
   activeAccount: '',
-  enableLatencyTest: false,
+  enableLatencyTest: true,
   latencyTestInterval: 60000,
   customThemeColor: '#6366f1',
   defaultPanel: '',
