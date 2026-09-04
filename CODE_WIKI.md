@@ -215,6 +215,7 @@ Wxxy-CampusLogin/
 │           │   └── background_emit.rs   # 后台事件推送
 │           ├── platform/            # 平台交互模块
 │           │   ├── mod.rs           # 重导出
+│           │   ├── console_output.rs # 控制台输出解码 (UTF-8 优先 → OEM 代码页 MultiByteToWideChar)
 │           │   ├── dns_config.rs    # DNS/DoH 配置文件设置 (per-profile/适配器级/DoH API)
 │           │   ├── elevation.rs     # UAC 提权 (ShellExecuteW + COM ShellExec) + GUID 解析 + is_admin
 │           │   ├── gpu.rs           # GPU 信息检测 (DXGI) + 刷新率检测 + 浏览器参数 + gpu_preference
@@ -1425,7 +1426,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage。编辑模式在 body 打 `dashboard-editing` 标使 main 显示细滚动条（2026-09-04）：全局滚动条被隐藏（index.css 无边框美学），编辑列表溢出一屏时若无滚动条提示，最后一张卡片看起来像被截断；注意 framer-motion 对 Reorder.Item 内联写 `touch-action: pan-x`（axis=y），class 层的 touch-action 会被覆盖，触摸垂直滚动让位于拖拽排序 |
+| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage。注意 framer-motion 对 Reorder.Item 内联写 `touch-action: pan-x`（axis=y），class 层的 touch-action 会被覆盖，触摸垂直滚动让位于拖拽排序；列表溢出时的滚动可达性由全局细滚动条保证（2026-09-04） |
 | `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe` |
 | `useAuth.ts` | 认证逻辑 Hook |
 | `types.ts` | 认证类型定义 (PortalStatusResult, CommandResult, LoginResult) |
@@ -1968,6 +1969,16 @@ App.tsx (377行, App + AppInner)
 | 面板启动预加载 (v2.5.0) | `App.tsx` 面板 lazy loader 抽出复用（`loadAccountPanel` 等），新增 `preloadPanels()` 在启动动画播完后经 `requestIdleCallback` 空闲时 `import()` 预取所有面板/对话框 chunk (App.tsx) | 切面板时 chunk 已就绪，避免首次切换等待下载导致卡顿 |
 | 常用面板静态导入 (v2.5.0) | Account/Network/Monitor/Quality/SpeedTest/Settings 6 个常用面板改静态 `import`（并入主包 285→368KB），切换零等待；仅 LogPanel + About/Theme/Onboarding 对话框保留懒加载 + 启动预取 (App.tsx) | 消除常用面板切换卡顿，首屏体积仍低于分包前 402KB |
 | WebView2 vsync 恢复 (2026-09-03) | `build_browser_args` 移除 `--disable-gpu-vsync`（platform/gpu.rs）；前端 GSAP/Framer/CSS 本就 rAF/vsync 驱动无 JS 上限 | 解除 vsync 后 BeginFrame 不对齐显示器刷新，帧节奏紊乱经 DWM 合并呈撕裂+顿挫（观感"掉帧"）且 GPU 空耗；恢复后管线锁显示器刷新率，120Hz 屏动画最高 120fps |
+| 控制台输出 OEM 解码 (2026-09-04) | 新增 `platform/console_output.rs::decode_console_bytes`（严格 UTF-8 优先 → GetOEMCP + MultiByteToWideChar 回退），netsh/ipconfig 输出解析 4 处接入（subnet.rs×2、dns_config.rs、adapter_cache.rs） | GBK 代码页系统（未开系统 UTF-8 的中文 Win，目标用户默认配置）上"配置文件"/"自动升级"关键字匹配与 SSID 解析此前全部失效；本机 UTF-8 模式下开发期无法暴露 |
+| ipconfig/netsh 失败如实呈现 (2026-09-04) | dhcp_renew/release 退出码之外按中英错误关键字兜底判定（`ipconfig_output_failed`）；apply_mac_change_via_registry 网卡 enable 失败改 Err（停用状态静默断网）；巡检区 disable/enable 失败记日志 | ipconfig 失败退出码常为 0（假成功）；MAC 重置流程 enable 失败被吞 |
+| DoH 响应 chunked 重组 (2026-09-04) | `decode_chunked_body`（RFC 9110 chunk 格式含扩展与畸形拒绝，3 单测），DoH HTTP 解析按 Transfer-Encoding 分支 | 服务器 chunked 响应时 chunk 头会破坏 DNS wire 解析 |
+| DoH 注册失败如实上报 (2026-09-04) | netsh dns add encryption 逐条判定，失败取 stderr 记日志并计入 dohFailed；success/message/dohAdded/dohFailed 真实化 | 原实现 let _ 吞错误且 dohFailed 恒空，DoH 未生效仍提示"并启用DoH" |
+| 质量总开关联动 (2026-09-04) | start_latency_test 校验 enable_network_quality（关闭则落盘 enable_latency_test=false 经统一路径推前端）；SettingsPanel 关总开关联动 stopLatencyTest | 关总开关后定时测试仍全量外网检测+弹拥堵通知；开关与任务分叉的两个方向都闭环 |
+| 落盘统一路径 (2026-09-04) | start_background_check_inner 改走 commands::config_cmd::save_config_to_disk_encrypted（广播 config-changed）；watcher spawn 失败加日志 | 直调 persist 层不广播配置事件，前端/消费方失同步 |
+| 全局细滚动条 (2026-09-04) | index.css 滚动条从全局隐藏（display:none!important）改为 6px 半透明细条（thin + webkit），删除 dashboard-editing 特例与 body class effect | 隐藏使"内容可滚动"不可发现（编辑列表溢出一屏卡片看似截断；日志/设置/对话框同类）；6px 半透明与无边框美学兼容，观感经浏览器截图验证 |
+| anim-idle 排除 spinner (2026-09-04) | index.css .anim-idle 冻结列表移除 .animate-spin（保留 animate-pulse/signal-glow-active） | 2 秒无输入即全局冻结 loading 指示，用户误读"程序卡死"（登录按钮/检测中 spinner 均中招） |
+
+**已知限制（有意不修，2026-09-04 审计结论）**：① netsh 文本解析依赖中/英关键字，其他系统语言静默失效（目标用户群为中文系统，结构化解析无官方 JSON 接口）；② index.css 的 Tailwind 语义类 !important 劫持（.rounded-xl 等）与全局 border 透明为 v2.5.0 设计系统决策，全局移除会引发不可控视觉回归，维持现状；③ framer-motion 对 Reorder.Item 内联写 touch-action: pan-x（触摸屏垂直滚动让位于拖拽排序，框架行为）；④ v6 栈"空 NameServer 清除"的 API 接受性未经 Win11 实测（失败已降级警告）；⑤ 后端 serde_json::json! 手写返回体与前端类型的字段对齐靠约定，无编译期保证。
 
 ---
 
