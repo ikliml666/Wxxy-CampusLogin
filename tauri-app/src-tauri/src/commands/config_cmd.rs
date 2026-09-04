@@ -49,7 +49,22 @@ pub fn load_config_from_disk_or_default(app_handle: &AppHandle) -> Config {
     match load_config_from_file(app_handle) {
         Ok(config) => validate_config_lenient(config),
         Err(e) => {
-            crate::log_warn!("config", "加载配置失败: {}，使用默认配置", e);
+            // 解析/解密失败（非"文件不存在"）时把原文件留档，用户数据不全量丢失，
+            // 可手工恢复；文件不存在属首次启动，无需备份
+            let config_path = crate::config::persist::get_config_path(&crate::config::persist::get_data_dir(app_handle));
+            let mut backup_note = String::new();
+            if config_path.exists() {
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let bak = config_path.with_extension(format!("json.corrupt-{stamp}.bak"));
+                backup_note = match std::fs::copy(&config_path, &bak) {
+                    Ok(_) => format!("，原文件已备份至 {:?}", bak),
+                    Err(be) => format!("，且备份失败: {}", be),
+                };
+            }
+            crate::log_warn!("config", "加载配置失败: {}{}，使用默认配置", e, backup_note);
             Config::default()
         }
     }
@@ -101,8 +116,10 @@ pub fn save_config(
     // 日志保留天数同步应用到运行期 logger（否则需重启或重进日志面板才生效）
     crate::infra::logger::set_log_retention_days(config.log_retention_days);
 
-    state.config.store(config.clone());
+    // 先落盘再更新内存：磁盘失败（满/只读）时命令返回 Err 且运行态不变，
+    // 避免"保存失败但内存已生效、重启后回退"的错位
     save_config_to_disk_encrypted(&app_handle, &config)?;
+    state.config.store(config.clone());
     crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
 
     Ok(CommandResult::ok())

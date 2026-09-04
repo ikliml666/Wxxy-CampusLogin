@@ -29,7 +29,8 @@ pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String>
 
 pub fn get_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     let tauri_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| {
-        dirs::data_dir().unwrap_or_else(|| PathBuf::from("."))
+        // 极端回退也落在应用子目录，避免与其他应用共享的根数据目录污染
+        dirs::data_dir().map(|d| d.join("campus-login")).unwrap_or_else(|| PathBuf::from("."))
     });
 
     if !tauri_dir.exists() {

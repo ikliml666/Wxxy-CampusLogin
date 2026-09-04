@@ -4,6 +4,9 @@ pub const PASSWORD_MASK: &str = "***";
 pub const AUTO_DETECT_ADAPTER: &str = "自动检测";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// 容器级 default：任一字段缺失（旧版本配置/手工编辑）都用 Default 补齐，
+// 否则 serde 缺一个字段即整体反序列化失败 → 上层全量重置丢配置
+#[serde(default)]
 pub struct Config {
     pub user: String,
     #[serde(default)]
