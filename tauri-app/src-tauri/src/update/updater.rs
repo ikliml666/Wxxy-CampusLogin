@@ -45,7 +45,6 @@ pub fn compare_versions(current: &str, latest: &str) -> bool {
     let parse_version = |s: &str| -> Vec<u32> {
         s.trim_start_matches('v')
             .split('.')
-            .take(3)
             .map(|seg| {
                 // 提取段中的数字部分（处理 "2-beta" 等后缀），解析失败按 0
                 let digits: String = seg.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -56,7 +55,9 @@ pub fn compare_versions(current: &str, latest: &str) -> bool {
     let cur = parse_version(current);
     let lat = parse_version(latest);
 
-    for i in 0..3 {
+    // 全段比较：截断为 3 段时 hotfix（如 2.3.0.1）与 2.3.0 判等，升级提示永不出现
+    let len = cur.len().max(lat.len());
+    for i in 0..len {
         let c = cur.get(i).copied().unwrap_or(0);
         let l = lat.get(i).copied().unwrap_or(0);
         if l > c {
@@ -113,7 +114,8 @@ pub fn decide_checksum_missing(all_client_errors: bool, had_transport_error: boo
 
 /// 从校验源响应文本中提取 64 位小写 SHA256。
 /// GitHub API 响应为 JSON：取 assets 中首个 .exe 资产的 digest 字段（"sha256:hex"）；
-/// .sha256 文件响应为纯文本：取首个空白分隔 token。
+/// .sha256 文件响应为纯文本：支持 shasum 风格（`<hash>  <file>`，取首 token）
+/// 与 BSD 风格（`SHA256 (file) = <hash>`，取等号后 token）。
 /// 提取失败返回 None，调用方继续尝试下一校验源。
 fn extract_checksum(url: &str, text: &str) -> Option<String> {
     if url.contains("api.github.com") {
@@ -122,18 +124,26 @@ fn extract_checksum(url: &str, text: &str) -> Option<String> {
         for asset in assets {
             let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("");
             if name.ends_with(".exe") {
-                let digest = asset.get("digest").and_then(|d| d.as_str())?;
-                let hex = digest.strip_prefix("sha256:")?;
-                if hex.len() == 64 {
-                    return Some(hex.to_lowercase());
+                // 多架构 release 可能有多个 .exe 资产：无有效 digest 时继续找下一个
+                if let Some(digest) = asset.get("digest").and_then(|d| d.as_str()) {
+                    if let Some(hex) = digest.strip_prefix("sha256:") {
+                        if hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                            return Some(hex.to_lowercase());
+                        }
+                    }
                 }
-                return None;
             }
         }
         None
     } else {
-        let token = text.split_whitespace().next().unwrap_or("");
-        (token.len() == 64).then(|| token.to_lowercase())
+        let is_hex64 = |s: &str| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit());
+        let first = text.split_whitespace().next().unwrap_or("");
+        if is_hex64(first) {
+            return Some(first.to_lowercase());
+        }
+        // BSD 风格：SHA256 (file) = <hash>
+        let after_eq = text.rsplit('=').next().unwrap_or("").trim();
+        is_hex64(after_eq).then(|| after_eq.to_lowercase())
     }
 }
 
@@ -221,7 +231,9 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String], a
 pub fn schedule_update_cleanup() {
     let temp_dir = std::env::temp_dir().join("campus-login-update");
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+        // 24h 后清理：原 600s 内用户可能尚未点击安装（UAC 等待/稍后安装），
+        // 安装包会被提前删除
+        tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
         let _ = tauri::async_runtime::spawn_blocking(move || {
             std::fs::remove_dir_all(&temp_dir)
         }).await;
@@ -320,7 +332,7 @@ async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
     }
 }
 
-pub async fn fetch_latest_release() -> Result<(bool, String, String), String> {
+pub async fn fetch_latest_release() -> Result<(bool, String, String, Option<String>), String> {
     // 先尝试 GitHub 原始源
     match fetch_version_from_url(VERSION_FILE_URL).await {
         Ok(result) => Ok(result),
@@ -343,7 +355,7 @@ pub async fn fetch_latest_release() -> Result<(bool, String, String), String> {
     }
 }
 
-async fn fetch_version_from_url(url: &str) -> Result<(bool, String, String), String> {
+async fn fetch_version_from_url(url: &str) -> Result<(bool, String, String, Option<String>), String> {
     let client = build_short_timeout_http_client()?;
 
     let resp = client
@@ -377,16 +389,19 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String, String), Str
 
     // notes 字段可选：发布流程在 version.json 中随版本号一起维护更新日志
     let notes = data["notes"].as_str().unwrap_or("").to_string();
+    // asset 字段可选：安装包文件名由发布流程在 version.json 中声明，
+    // 未声明时回退历史命名约定 Wxxy-CampusLogin_{tag}_x64-setup.exe
+    let asset = data["asset"].as_str().map(|s| s.to_string());
 
-    Ok((has_update, latest_tag, notes))
+    Ok((has_update, latest_tag, notes, asset))
 }
 
 
 
 pub async fn check_update_inner() -> Result<UpdateInfo, String> {
-    let (has_update, latest_tag, notes) = fetch_latest_release().await?;
+    let (has_update, latest_tag, notes, asset) = fetch_latest_release().await?;
 
-    let exe_name = format!("Wxxy-CampusLogin_{latest_tag}_x64-setup.exe");
+    let exe_name = asset.unwrap_or_else(|| format!("Wxxy-CampusLogin_{latest_tag}_x64-setup.exe"));
     let github_exe_url = format!(
         "https://github.com/{GITHUB_REPO}/releases/download/v{latest_tag}/{exe_name}"
     );
@@ -459,6 +474,36 @@ mod tests {
         let result = decide_checksum_missing(true, false, false);
         assert!(result.is_err(), "未显式开启跳过时必须拒绝未校验安装");
         assert!(result.unwrap_err().contains("skipSha256WhenMissing"));
+    }
+
+    // ===== compare_versions =====
+
+    #[test]
+    fn hotfix_four_segment_version_is_detected() {
+        // 历史 bug：take(3) 截断使 2.3.0.1 与 2.3.0 判等，hotfix 永不提示
+        assert!(compare_versions("2.3.0", "2.3.0.1"));
+        assert!(!compare_versions("2.3.0.1", "2.3.0"));
+    }
+
+    #[test]
+    fn version_compare_numeric_and_v_prefix() {
+        assert!(compare_versions("2.9.0", "2.10.0"));
+        assert!(compare_versions("v2.3.0", "v2.4.0"));
+        assert!(!compare_versions("2.3.0", "2.3.0"));
+    }
+
+    #[test]
+    fn extract_checksum_supports_bsd_style() {
+        let bsd = "SHA256 (Wxxy-CampusLogin_2.3.0_x64-setup.exe) = ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234";
+        assert_eq!(
+            extract_checksum("https://example.com/pkg.sha256", bsd).unwrap(),
+            "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+        );
+        let shasum = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234  pkg.exe";
+        assert_eq!(
+            extract_checksum("https://example.com/pkg.sha256", shasum).unwrap(),
+            "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+        );
     }
 
     #[test]

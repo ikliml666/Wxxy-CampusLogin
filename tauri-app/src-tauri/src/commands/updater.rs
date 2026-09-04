@@ -51,11 +51,21 @@ pub async fn download_update(
         return Err(format!("不允许从该域名下载: {host}"));
     }
 
-    let filename = parsed
+    // 文件名来自 URL 路径末段：清洗 Windows 非法字符与分隔符，
+    // 防止 temp_dir.join 落到预期目录之外
+    let raw_filename = parsed
         .path_segments()
         .and_then(|mut seg| seg.next_back())
-        .unwrap_or("update.exe")
-        .to_string();
+        .unwrap_or("update.exe");
+    let filename: String = raw_filename
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .collect();
+    let filename = if filename.contains("..") || filename.is_empty() {
+        "update.exe".to_string()
+    } else {
+        filename
+    };
 
     const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
 
@@ -244,6 +254,10 @@ pub async fn install_update(app_handle: tauri::AppHandle, file_path: String, che
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
+            // raw_arg 不做转义：路径含引号会破坏 msiexec 参数边界
+            if canonical_path.display().to_string().contains('"') {
+                return Err("安装路径含非法字符（引号）".to_string());
+            }
             let result = std::process::Command::new("msiexec")
                 .raw_arg(format!("/i \"{}\"", canonical_path.display()))
                 .creation_flags(0x08000000)
