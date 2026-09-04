@@ -73,22 +73,23 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<
                     || s.exit.is_quitting.load(Ordering::Acquire) {
                     break;
                 }
-                let (adapter_ip, adapter_name) = {
+                // 就绪等待：适配器未解析出 IP、或 Portal 尚未认证（此时外网 HTTPS
+                // 必被拦截全超时，检测结果无意义且会误报"网络拥堵"）时无法产出
+                // 有效质量数据，每 2s 短重试且不消耗周期 tick。此前未就绪走 continue，
+                // 会立刻耗尽 interval 的即时首 tick，之后干等完整周期——启动后首次
+                // 结果要 30s+；现在条件一旦满足立即检测，首结果缩短到数秒内
+                let (adapter_ip, adapter_name) = loop {
                     let config = s.config.load();
-                    let adapters = match get_adapters_cached_async().await {
-                        Ok(a) => a,
-                        Err(_) => continue,
-                    };
-                    crate::network::select_adapter(&adapters, &config)
+                    let adapters = get_adapters_cached_async().await.unwrap_or_default();
+                    let (ip, name) = crate::network::select_adapter(&adapters, &config);
+                    if !ip.is_empty() && s.network.load().any_adapter_online {
+                        break (ip, name);
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                        _ = cancel_token.cancelled() => return,
+                    }
                 };
-                if adapter_ip.is_empty() {
-                    continue;
-                }
-                // Portal 未认证时外网 HTTPS 必被拦截（全超时），检测结果无意义且会误报
-                // "网络拥堵"，跳过本轮等待认证后再测（手动触发不受限）
-                if !s.network.load().any_adapter_online {
-                    continue;
-                }
                 // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(1)) => {}
