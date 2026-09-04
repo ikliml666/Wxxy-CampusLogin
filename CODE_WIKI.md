@@ -1594,7 +1594,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **PANEL_TITLES**: 面板标题 i18n key 映射表（titleKey/descKey）
 - **初始化**: 调用 `useAppInit()` + 5 个业务 Hook（useAuth/useMonitor/useNetwork/useAccount/useSettings）
 - **启动加速**: `useStartupBoost` 编排 5 元素入场动画（titleBar/statusBar/title/rightPanel/dockNav）
-- **面板转场**: `AnimatePresence mode="wait"` + `panelVariants`（createPanelAppleVariants）+ slideDirection；切换锁 120ms（2026-09-03：原 500ms 远超退出动画 0.08s，快速连续点击被静默吞掉）
+- **面板转场**: `AnimatePresence mode="wait"` + `panelVariants`（createPanelAppleVariants）+ slideDirection；切换锁 120ms（2026-09-03：原 500ms 远超退出动画 0.08s，快速连续点击被静默吞掉）。**内容用 deferredPanel**（2026-09-04：`useDeferredValue(activePanel)`，快速连切跳过中间面板 mount）——面板 switch/转场 key/标题 key/滑动方向全部消费 `deferredPanel`，`activePanel` 仅用于 DockNav 高亮与 storage 恢复
 - **quality 面板可见性联动**（2026-09-03 约定）: `enableNetworkQuality === false` 时 App 对 quality 面板渲染 `null`、DockNav 过滤入口。三处必须联动——`useInitialDataLoad` 启动恢复 `defaultPanel`/`savedPanel` 时跳过 quality（否则重启后主区域空白）、`SettingsPanel` 关闭质量开关时清 `defaultPanel` 并把 `activePanel` 切回 dashboard。新增受开关控制的面板时同样需三处联动
 - **窗口监听**: `getCurrentWindow().onResized` 监听窗口大小变化
 - **引导向导**: 首次启动检测（`safeStorage.get('campus-onboarding-done')`），未完成则弹出 OnboardingWizard
@@ -1968,6 +1968,7 @@ App.tsx (377行, App + AppInner)
 | 前端订阅粒度化 (v2.4.0) | App/StatusBar/RightPanel config 全量订阅改最小粒度 selector (App.tsx, StatusBar.tsx, RightPanel.tsx) | 任意字段变化不再级联重渲染外壳与面板 |
 | 面板代码分割 (v2.4.0，2026-09-04 修订) | 低频对话框（About/Theme/Onboarding）React.lazy 分包 + 启动预热；**LogPanel 回归静态导入**——NetworkPanel 经 barrel 静态引 SegmentTabs 曾把 LogPanel 连带打进主包使 lazy 失效（vite 警告可查），真 lazy 实测即使 chunk 缓存命中切换仍 ~366ms（React.lazy+Suspense 挂载链），13KB 分包远不值切换延迟；常用面板全部静态导入 | 主包 385KB（vendor 拆分是分包主要收益）；面板切换 100-120ms → 61-68ms，日志面板 366ms → 62ms（生产 preview 实测，无 longtask） |
 | 面板切换动画等待链 (2026-09-04) | `createPanelAppleVariants` 退出 0.08s→0.04s；`handlePanelChange` 切换锁 120ms→60ms（锁只需覆盖退出时长，锁内点击仍按设计丢弃） | mode="wait" 每次切换固定多等退出时长；锁过长吞快速连点（"点了没反应"） |
+| 面板内容 deferred 渲染 (2026-09-04) | App.tsx 新增 `deferredPanel = useDeferredValue(activePanel)`，面板 switch / AnimatePresence key / 标题+描述 key / slideDirection 全部同步 `deferredPanel`（activePanel 仅保留给 DockNav 高亮与 storage 恢复）。快速连续切换时 React 并发跳过中间面板 mount，重排/栅格化只花在最终面板上，进入动画不再被挂载工作阻塞——vsync 对齐后 120Hz 帧预算仅 8.3ms，此为真机 WebView2 "快速切换短卡顿"的主修 | IAB 生产构建实测：16 连切（120ms 间隔）0 longtask 0 掉帧，max 帧间隔 18.2→12.1ms；逐面板单切与 60ms 极速连点均 0 longtask；单次切换点击→内容提交延迟 10ms（不可感知）。**注意**：新增面板转场相关逻辑时标题/方向/key 必须用 deferredPanel，用 activePanel 会内容与标题错位 |
 | panel-content 去 paint containment (2026-09-04) | `PANEL_CONTAINER_STYLE` contain 从 `layout style paint` 改 `layout style`（App.tsx） | paint containment 把后代裁剪到 content box，编辑模式卡片右上角 `-right-1.5` 的删除按钮越出 6px 被裁（hit-test 扫描实测裁剪线=panel-content 右缘 729，按钮右缘 735）；top 方向越界同理。布局/样式隔离保留，微损绘制隔离 |
 | 类型检查策略 (2026-09-04) | tsconfig 显式 `types: ["vite/client"]`（node.json 为 `["node"]`）+ 检查命令 `npx tsc --noEmit --incremental`（4.3s 首跑→1.9s 增量，exit 0 零错误）。**禁止跑 `tsc -b`**（tsconfig.node.json 为 composite 项目会 emit 出 vite.config.js/.d.ts 污染产物） | 未设 types 时 TS 自动加载 node_modules 全部 @types 包——工作区根 node_modules 的 @types/yauzl 损坏（二进制文件）导致全量检查必报错 exit 2 |
 | 文本输入本地草稿 (v2.4.0) | 用户名/网关/SSID/fixedGateway 改本地 draft + blur 提交；主题色 80ms 节流 (AccountPanel, MonitorPanel, SettingsPanel) | 不再每键写 store + 触发防抖保存 |

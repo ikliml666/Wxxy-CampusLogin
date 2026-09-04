@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, useDeferredValue } from 'react'
 import { useAppInit } from '@/hooks/useAppInit'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -91,6 +91,9 @@ function AppInner() {
   const { t } = useTranslation()
 
   const activePanel = useAdapterStore((s) => s.activePanel)
+  // 面板内容低优先级渲染：快速连续切换时 React 并发会跳过中间面板的
+  // mount（重排/栅格化只花在最终面板上），切换动画不再被挂载工作阻塞
+  const deferredPanel = useDeferredValue(activePanel)
   const adapters = useAdapterStore((s) => s.adapters)
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
@@ -143,11 +146,11 @@ function AppInner() {
   const [slideDirection, setSlideDirection] = useState(1)
 
   useEffect(() => {
-    if (prevPanelRef.current !== activePanel) {
-      setSlideDirection(getPanelDirection(prevPanelRef.current, activePanel))
-      prevPanelRef.current = activePanel
+    if (prevPanelRef.current !== deferredPanel) {
+      setSlideDirection(getPanelDirection(prevPanelRef.current, deferredPanel))
+      prevPanelRef.current = deferredPanel
     }
-  }, [activePanel])
+  }, [deferredPanel])
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
@@ -206,10 +209,10 @@ function AppInner() {
     setTimeout(() => { panelChangeLock.current = false }, 60)
   }, [setActivePanel])
 
-  const panelInfo = PANEL_TITLES[activePanel] || PANEL_TITLES.dashboard
+  const panelInfo = PANEL_TITLES[deferredPanel] || PANEL_TITLES.dashboard
 
   let panelContent: React.ReactNode = null
-  switch (activePanel) {
+  switch (deferredPanel) {
     case 'dashboard':
       panelContent = (
         <DashboardPanel
@@ -322,18 +325,18 @@ function AppInner() {
           <div className={cn("mx-auto", isMaximized ? "max-w-[1020px]" : "max-w-[640px]")}>
             <div ref={setRef('title')} className="mb-6 relative z-[1]">
               <h1
-                key={`title-${activePanel}`}
+                key={`title-${deferredPanel}`}
                 className="text-xl font-semibold tracking-tight transition-opacity duration-200"
               >{t(panelInfo.titleKey)}</h1>
               <p
-                key={`desc-${activePanel}`}
+                key={`desc-${deferredPanel}`}
                 className="text-sm text-muted-foreground mt-1 transition-opacity duration-150"
               >{t(panelInfo.descKey)}</p>
             </div>
 
             <AnimatePresence mode="wait" custom={slideDirection}>
               <m.div
-                key={activePanel}
+                key={deferredPanel}
                 custom={slideDirection}
                 variants={panelVariants}
                 initial="initial"
