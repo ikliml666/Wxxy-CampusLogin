@@ -30,7 +30,14 @@ pub fn setup_dns_doh_admin(targets: &[String]) -> serde_json::Value {
     let mut api_fail: Vec<String> = Vec::new();
 
     for adapter in &active {
-        let dns_list: Vec<&str> = vec![dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS];
+        // IPv4 + IPv6 混合写入 NameServer（逗号分隔，SetInterfaceDnsSettings 支持双栈列表）：
+        // 阿里 v4+v6 + 腾讯 v4+v6
+        let dns_list: Vec<&str> = vec![
+            dns_config::PRIMARY_DNS,
+            dns_config::SECONDARY_DNS,
+            dns_config::PRIMARY_DNS_V6,
+            dns_config::SECONDARY_DNS_V6,
+        ];
         let doh_list: Vec<(&str, &str)> = dns_config::DOH_SERVERS.to_vec();
 
         // WiFi 适配器：先清除适配器级 DNS，再设置配置文件级 DNS

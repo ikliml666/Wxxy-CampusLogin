@@ -30,8 +30,8 @@ interface NetworkPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
 }
 
-const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6'])
-const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53'])
+const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'])
+const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53', '2402:4e00::'])
 const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
 /** 连接速度格式化：bit/s → 统一 Mbps 显示（如 "1000 Mbps"），低于 1 Mbps 用 Kbps，未知返回空串 */

@@ -2,12 +2,22 @@
 pub const PRIMARY_DNS: &str = "223.5.5.5";
 #[cfg(target_os = "windows")]
 pub const SECONDARY_DNS: &str = "1.12.12.12";
+/// 阿里公共 DNS IPv6（官方公布：2400:3200::1 / 2400:3200:baba::1）
+#[cfg(target_os = "windows")]
+pub const PRIMARY_DNS_V6: &str = "2400:3200::1";
+#[cfg(target_os = "windows")]
+pub const SECONDARY_DNS_V6: &str = "2402:4e00::";
+/// 腾讯 DNSPod IPv6（官方公布：2402:4e00::）
 #[cfg(target_os = "windows")]
 pub const DOH_SERVERS: &[(&str, &str)] = &[
     ("223.5.5.5", "https://dns.alidns.com/dns-query"),
     ("223.6.6.6", "https://dns.alidns.com/dns-query"),
     ("1.12.12.12", "https://doh.pub/dns-query"),
     ("120.53.53.53", "https://doh.pub/dns-query"),
+    // IPv6：DoH 模板按域名，dns.alidns.com / doh.pub 双栈，v6 服务器复用同一模板
+    ("2400:3200::1", "https://dns.alidns.com/dns-query"),
+    ("2400:3200:baba::1", "https://dns.alidns.com/dns-query"),
+    ("2402:4e00::", "https://doh.pub/dns-query"),
 ];
 
 #[cfg(target_os = "windows")]
@@ -492,6 +502,16 @@ mod tests {
         let bindings = doh_bindings(&servers, templates);
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].0, 0);
+    }
+
+    #[test]
+    fn doh_bindings_support_ipv6_servers() {
+        // IPv6 服务器按 IP 精确匹配模板：阿里 v6 配 dns.alidns.com、腾讯 v6 配 doh.pub
+        let servers = ["2400:3200::1", "2402:4e00::"];
+        let bindings = doh_bindings(&servers, DOH_SERVERS);
+        assert_eq!(bindings.len(), 2, "v4+v6 混合 NameServer 中 IPv6 服务器也要参与 DoH 绑定");
+        assert_eq!(bindings[0].1, "https://dns.alidns.com/dns-query");
+        assert_eq!(bindings[1].1, "https://doh.pub/dns-query");
     }
 
     #[test]

@@ -885,6 +885,13 @@ pub async fn check_network_quality_async(
 
 #### 4.5.6 DNS 按配置文件设置 — `platform/dns_config.rs`
 
+**推荐服务器常量 (2026-09-03 起 IPv4+IPv6 双栈)**:
+| 常量 | 值 | 说明 |
+|------|------|------|
+| `PRIMARY_DNS` / `SECONDARY_DNS` | `223.5.5.5` / `1.12.12.12` | 阿里 / 腾讯 IPv4 |
+| `PRIMARY_DNS_V6` / `SECONDARY_DNS_V6` | `2400:3200::1` / `2402:4e00::` | 阿里 / 腾讯 DNSPod IPv6（官方公布地址） |
+| `DOH_SERVERS` | 4 条 IPv4 + 3 条 IPv6（`2400:3200::1`、`2400:3200:baba::1` → dns.alidns.com，`2402:4e00::` → doh.pub） | DoH 模板按域名，双栈服务器复用同一模板 |
+
 **Per-Profile DNS 设置**:
 
 | 函数 | 说明 |
@@ -893,6 +900,8 @@ pub async fn check_network_quality_async(
 | `clear_adapter_dns_via_api()` | 清除适配器级 DNS (`NameServer`)，使配置文件级 DNS 生效 |
 | `set_dns_via_api()` | 适配器级 DNS+DoH 设置（原有函数，有线适配器使用） |
 | `set_doh_via_api()` | 适配器级 DoH 设置（仅设置 DoH，不修改 NameServer） |
+
+> DNS+DoH 一键设置（`network/dns_setup.rs::setup_dns_doh_admin`）以 `NameServer` 逗号分隔混合列表写入 v4+v6 四个地址（`SetInterfaceDnsSettings` 支持双栈列表），`doh_bindings` 按服务器 IP 精确匹配模板（含 IPv6，`ServerIndex` 取实际下标），netsh 全局 DoH 注册循环同样覆盖 v6 服务器。DNS 检测的 `should_filter_ip` 对非点分格式返回 false（不过滤），IPv6 地址可正常读取与显示；前端 `ALI_DNS`/`TENCENT_DNS` 推荐集合已含 v6 地址。
 
 **DNS 检测增强**: `read_adapter_dns_from_registry()` 同时读取 `NameServer`（适配器级）和 `ProfileNameServer`（配置文件级），source 优先级为 manual > profile > dhcp，输出 `dnsSource`/`profileDnsServers`/`adapterDnsOverridesProfile` 字段
 
