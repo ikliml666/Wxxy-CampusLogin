@@ -897,11 +897,13 @@ pub async fn check_network_quality_async(
 | 函数 | 说明 |
 |------|------|
 | `set_profile_dns_via_api()` | 使用 `DNS_SETTING_PROFILE_NAMESERVER` (0x0200) 设置配置文件级 DNS，仅对当前 WiFi 生效 |
-| `clear_adapter_dns_via_api()` | 清除适配器级 DNS (`NameServer`)，使配置文件级 DNS 生效 |
+| `clear_adapter_dns_via_api()` | 清除适配器级 DNS (`NameServer`)，IPv4/IPv6 两栈各调一次（只清 v4 栈会残留旧 v6 静态配置），使配置文件级 DNS 生效 |
 | `set_dns_via_api()` | 适配器级 DNS+DoH 设置（原有函数，有线适配器使用） |
 | `set_doh_via_api()` | 适配器级 DoH 设置（仅设置 DoH，不修改 NameServer） |
 
-> DNS+DoH 一键设置（`network/dns_setup.rs::setup_dns_doh_admin(targets, family)`）按 `family`（"ipv4"/"ipv6"/"both"，默认 both）决定 NameServer 列表：ipv4 只写 2 条 v4、ipv6 只写 2 条 v6、both 写 v4+v6 混合 4 条（逗号分隔，`SetInterfaceDnsSettings` 支持双栈列表），`doh_bindings` 按服务器 IP 精确匹配模板（含 IPv6，`ServerIndex` 取实际下标），netsh 全局 DoH 注册循环同样覆盖 v6 服务器。前端 NetworkPanel DNS 卡片用 `SegmentTabs` 三档选择（IPv4/IPv6/IPv4+IPv6，默认双栈），选择经 `setup_dns_doh` 命令的 `family` 参数传入，helper 提权路径经 `--helper dns <名单...> --family <v>` 传递。DNS 检测的 `should_filter_ip` 对非点分格式返回 false（不过滤），IPv6 地址可正常读取与显示；前端 `ALI_DNS`/`TENCENT_DNS` 推荐集合已含 v6 地址。
+> **双栈拆分契约 (2026-09-04)**: `SetInterfaceDnsSettings` 一次调用只作用于一个栈——默认仅 IPv4，带 `DNS_SETTING_IPV6` (0x0001) 时仅 IPv6，NameServer 地址族必须与目标栈一致（官方 netioapi.h 文档 + Mullvad talpid-dns 双重佐证）。`split_families()` 把 NameServer 列表按 `:` 分组，v4/v6 各调一次 `set_dns_stack()`；DoH 属性字段与 flag 一一对应：Interface → `ServerProperties` (DNS_SETTING_DOH 0x1000)，Profile → `ProfileServerProperties` (DNS_SETTING_DOH_PROFILE 0x2000)（历史缺陷：Profile 的 DoH 属性挂在 ServerProperties 上，per-profile DoH 从未真正写入，表面生效全靠 netsh 全局注册 autoupgrade 兜底）。`ServerIndex` 按本栈列表实际下标（`doh_bindings`）。
+
+> DNS+DoH 一键设置（`network/dns_setup.rs::setup_dns_doh_admin(targets, family)`）按 `family`（"ipv4"/"ipv6"/"both"，默认 both）决定 NameServer 列表：ipv4 只写 2 条 v4、ipv6 只写 2 条 v6、both 写 v4+v6 共 4 条（内部经 `split_families` 分栈各写一次，不做混合串），`doh_bindings` 按服务器 IP 精确匹配模板（含 IPv6，`ServerIndex` 取实际下标），netsh 全局 DoH 注册循环同样覆盖 v6 服务器。WiFi 分支先 `clear_adapter_dns_via_api` 再写 profile；**清除失败时不再吞掉**，改走接口级设置（接口级残留会覆盖 profile DNS）。成功消息按 family 反映实际写入的服务器；仅 IPv6 档附加"请确保网络支持 IPv6 出口"提示。前端 NetworkPanel DNS 卡片用 `SegmentTabs` 三档选择（IPv4/IPv6/IPv4+IPv6，默认双栈），选择经 `setup_dns_doh` 命令的 `family` 参数传入，helper 提权路径经 `--helper dns <名单...> --family <v>` 传递。DNS 检测的 `should_filter_ip` 对非点分格式返回 false（不过滤），IPv6 地址可正常读取与显示；`netsh dns show encryption` 输出解析按 Ipv4Addr/Ipv6Addr 可解析性识别服务器行（历史缺陷：仅匹配点分十进制，v6 条目漏检且模板行串染到上一个 v4 条目）；前端 `ALI_DNS`/`TENCENT_DNS` 推荐集合已含 v6 地址。
 
 **DNS 检测增强**: `read_adapter_dns_from_registry()` 同时读取 `NameServer`（适配器级）和 `ProfileNameServer`（配置文件级），source 优先级为 manual > profile > dhcp，输出 `dnsSource`/`profileDnsServers`/`adapterDnsOverridesProfile` 字段
 
@@ -1186,6 +1188,7 @@ struct ConnectionCampusStatus {
 | 后端统一通知 | `notify_network_quality_change` 在后端发送网络质量变化通知，前端不再主动调用 `sendNotification` |
 | 移除 15s 冷却 (v2.2.6) | 删除 last_quality_check_time 字段及冷却检查逻辑，首次检测可立即执行 |
 | 未在线跳过 (2026-09-03) | `spawn_latency_test_loop` 每轮检查 `any_adapter_online`，Portal 未认证时跳过自动检测（未认证时外网 HTTPS 必被拦截、全超时且误报"网络拥堵"）；前端手动触发的 `check_network_quality` 命令不受限 |
+| 双驱动者 UI 如实标注 (2026-09-04) | 质量数据有两个周期驱动者：后台巡检（`enable_background_check && enable_network_quality`，每轮顺带 `run_quality_check`）与定时测试循环（`enable_latency_test`）。QualityPanel"定时测试"卡片在开关未开但后台巡检开着时显示"随后台巡检刷新"蓝色徽标（title 说明来源），消除"数据在刷但开关显示启动"的困惑。已知残留：60s 全局节流在双驱动者下会吞掉 <60s 的自定义间隔（`QUALITY_CHECK_MIN_INTERVAL_MS`） |
 
 ### 4.12 适配器监控模块 — `monitor/adapter_watch.rs`
 
