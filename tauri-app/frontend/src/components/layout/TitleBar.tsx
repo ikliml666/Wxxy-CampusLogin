@@ -1,4 +1,4 @@
-import { Bell, BellOff, Languages, Palette, Info, Moon, Sun, ArrowUpCircle } from 'lucide-react'
+import { Bell, BellOff, Languages, Palette, Info, Moon, Sun, ArrowUpCircle, Heart } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APP_VERSION } from '@/shared/ui-constants'
 import { memo, useCallback, useRef } from 'react'
@@ -13,6 +13,7 @@ interface TitleBarProps {
   onToggleNotification: () => void
   onShowTheme: () => void
   onShowAbout: () => void
+  onShowSponsor: () => void
   onToggleLightMode: () => void
   onMinimize: () => void
   onToggleMaximize: () => void
@@ -51,6 +52,7 @@ export const TitleBar = memo(function TitleBar({
   onToggleNotification,
   onShowTheme,
   onShowAbout,
+  onShowSponsor,
   onToggleLightMode,
   onMinimize,
   onToggleMaximize,
@@ -197,6 +199,19 @@ export const TitleBar = memo(function TitleBar({
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom"><p>{t('titlebar.themeSettings')}</p></TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onShowSponsor}
+                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-rose-500 transition-colors titlebar-icon-btn"
+                aria-label={t('titlebar.sponsor')}
+              >
+                <Heart className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom"><p>{t('titlebar.sponsor')}</p></TooltipContent>
           </Tooltip>
 
           <Tooltip>

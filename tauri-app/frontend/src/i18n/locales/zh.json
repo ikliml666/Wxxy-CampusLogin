@@ -68,6 +68,7 @@
     "notificationOff": "通知已关闭",
     "themeSettings": "主题设置",
     "about": "关于",
+    "sponsor": "赞助",
     "minimize": "最小化",
     "maximize": "最大化",
     "restore": "还原",
@@ -639,5 +640,11 @@
   },
   "dock": {
     "selectAdapter": "选择适配器"
+  },
+  "sponsor": {
+    "title": "请作者喝一杯 ☕",
+    "desc": "如果这个工具帮到了你，欢迎请作者喝杯奶茶～",
+    "wechatAlt": "微信收款码",
+    "alipayAlt": "支付宝收款码"
   }
 }

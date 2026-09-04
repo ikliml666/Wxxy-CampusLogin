@@ -19,6 +19,7 @@ import { ToastContainer } from '@/shared/ToastContainer'
 import { FluidBackground } from '@/shared/FluidBackground'
 import { LogPanel } from '@/shared/LogPanel'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { SponsorCard } from '@/shared/SponsorCard'
 import type { PanelName } from '@/shared'
 import { TitleBar } from '@/components/layout/TitleBar'
 import { StatusBar } from '@/monitor/StatusBar'
@@ -68,6 +69,10 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   settings: { titleKey: 'panel.settings', descKey: 'panel.settingsDesc' },
   log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
+
+// 赞助浮层：启动后延迟展示的等待时间 + 两次自动展示的最小间隔
+const SPONSOR_SHOW_DELAY_MS = 40_000
+const SPONSOR_SHOW_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 
 // contain 只到 layout style：paint 会把后代裁到 content box，编辑模式卡片右上角
 // -right-1.5 的删除按钮越出 6px 被裁掉右缘（实测裁剪线=panel-content 右缘）
@@ -137,6 +142,7 @@ function AppInner() {
   const [themeOpen, setThemeOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
   const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [sponsorOpen, setSponsorOpen] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
 
   const profile = useAnimationProfile()
@@ -182,6 +188,33 @@ function AppInner() {
     if (!done && !configUser) {
       const timer = setTimeout(() => setOnboardingOpen(true), 800)
       return () => clearTimeout(timer)
+    }
+  }, [configUser])
+
+  // 赞助浮层自动弹出：已有账号才弹（与 onboarding 天然互斥），启动 40s 且窗口可见时展示，
+  // 7 天频控（localStorage 持久化）；窗口不可见（静默启动/最小化）时推迟到可见再弹，
+  // 弹出瞬间即写时间戳。手动入口（标题栏心形按钮）不受频控、不写时间戳
+  useEffect(() => {
+    if (!configUser) return
+    const last = Number(safeStorage.get('sponsor-last-shown') || 0)
+    if (Date.now() - last < SPONSOR_SHOW_INTERVAL_MS) return
+
+    let listening = false
+    const showIfVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      document.removeEventListener('visibilitychange', showIfVisible)
+      listening = false
+      safeStorage.set('sponsor-last-shown', String(Date.now()))
+      setSponsorOpen(true)
+    }
+    const timer = setTimeout(() => {
+      document.addEventListener('visibilitychange', showIfVisible)
+      listening = true
+      showIfVisible()
+    }, SPONSOR_SHOW_DELAY_MS)
+    return () => {
+      clearTimeout(timer)
+      if (listening) document.removeEventListener('visibilitychange', showIfVisible)
     }
   }, [configUser])
 
@@ -305,6 +338,7 @@ function AppInner() {
           onToggleNotification={handleToggleNotification}
           onShowTheme={() => setThemeOpen(true)}
           onShowAbout={() => setAboutOpen(true)}
+          onShowSponsor={() => setSponsorOpen(true)}
           onToggleLightMode={handleToggleLightMode}
           onMinimize={() => api.minimizeWindow?.()}
           onToggleMaximize={handleToggleMaximize}
@@ -366,6 +400,8 @@ function AppInner() {
       />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      <SponsorCard open={sponsorOpen} onClose={() => setSponsorOpen(false)} />
 
       <Suspense fallback={null}>
         <AboutDialog

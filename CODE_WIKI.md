@@ -129,6 +129,7 @@ Wxxy-CampusLogin/
 │   │       │   ├── LogPanel.tsx     # 日志面板
 │   │       │   ├── ErrorBoundary.tsx # 错误边界
 │   │       │   ├── ConfirmDialog.tsx # 确认对话框
+│   │       │   ├── SponsorCard.tsx  # 赞助浮层 (非模态, 2026-09-04)
 │   │       │   ├── FluidBackground.tsx # 流体背景
 │   │       │   ├── AnimatedNumber.tsx # 动画数字
 │   │       │   ├── RefreshButton.tsx # 刷新按钮
@@ -1507,6 +1508,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮 |
+| `SponsorCard.tsx` | 赞助浮层 (2026-09-04)。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭。右下角 fixed (bottom-24 right-5, z-[70]，高于 DockNav 菜单 z-60 低于 toast z-100)，内嵌微信/支付宝收款码 (public/sponsor-weixin.png / sponsor-alipay.jpg)。文案走 i18n sponsor 段 |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个面板含speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult 等) |
 | `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.2.9'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项) |
@@ -1518,7 +1520,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 |------|------|
 | `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，选择项收敛为主/副适配器（`scopedAdapters`，2026-09-04），GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流。tooltip 水平居中用 Tailwind `-translate-x-1/2`（2026-09-03：原 inline `translateX(-50%)` 覆盖 class transform 导致上浮动画失效） |
 | `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画。清空日志 GSAP 动画 stagger 动态封顶（>8条0.05s/>4条0.1s，2026-09-03：原固定 0.2s/条，日志满 300 条时动画约 60 秒且按钮禁用无法取消），与 LogPanel 同策略 |
-| `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
+| `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/赞助Heart/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
 
 ### 5.7 延迟颜色 — `lib/latency.ts`
 
@@ -1531,7 +1533,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 ### 5.8 国际化 — i18n/
 
 - 基于 react-i18next + i18next-browser-languagedetector
-- 翻译文件按 JSON 顶级 key 分组（单一 "translation" namespace，共22个）：nav, titlebar, dock, auth, account, settings, monitor, network, quality, speedtest, statusbar, dashboard, log, rightPanel, about, common, onboarding, confirmDialog, isp, panel, themeDialog, crashRecovery
+- 翻译文件按 JSON 顶级 key 分组（单一 "translation" namespace，共23个）：nav, titlebar, dock, auth, account, settings, monitor, network, quality, speedtest, statusbar, dashboard, log, rightPanel, about, common, onboarding, confirmDialog, isp, panel, themeDialog, crashRecovery, sponsor
 - 非组件中使用 `import i18next from 'i18next'` + `i18next.t()` 而非 useTranslation hook
 - 常量文件（NAV_ITEMS、ISP_OPTIONS、THEME_OPTIONS、QUALITY_CONFIG）添加 labelKey 字段，运行时通过 t(labelKey) 翻译
 - 默认语言中文，i18n 仍使用 `localStorage`（非 safeStorage），仅 `useAppStore.setLanguage` 使用 `safeStorage`
@@ -1598,6 +1600,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **quality 面板可见性联动**（2026-09-03 约定）: `enableNetworkQuality === false` 时 App 对 quality 面板渲染 `null`、DockNav 过滤入口。三处必须联动——`useInitialDataLoad` 启动恢复 `defaultPanel`/`savedPanel` 时跳过 quality（否则重启后主区域空白）、`SettingsPanel` 关闭质量开关时清 `defaultPanel` 并把 `activePanel` 切回 dashboard。新增受开关控制的面板时同样需三处联动
 - **窗口监听**: `getCurrentWindow().onResized` 监听窗口大小变化
 - **引导向导**: 首次启动检测（`safeStorage.get('campus-onboarding-done')`），未完成则弹出 OnboardingWizard
+- **赞助浮层自动弹出** (2026-09-04): 已有账号才弹（`configUser` 非空，与 onboarding 的 `!configUser` 条件天然互斥）→ 启动 40s 延迟（`SPONSOR_SHOW_DELAY_MS`）→ `document.visibilityState === 'visible'` 才弹（静默启动/最小化时挂 visibilitychange 推迟到可见）→ 7 天频控（`sponsor-last-shown` epoch ms 存 localStorage，`SPONSOR_SHOW_INTERVAL_MS`）。弹出瞬间即写时间戳；标题栏 Heart 手动打开不受频控、不写时间戳。频控判断在 `configUser` 短路之后，二者叠加保证首次使用（无账号）阶段完全不打扰。
 - **ErrorBoundary 嵌套**: 外层 ErrorBoundary（L361）+ 面板内容 ErrorBoundary（L288）+ main.tsx ErrorBoundary
 - **useLogToastStore**: 独立 zustand store 用于 Toast 管理
 
