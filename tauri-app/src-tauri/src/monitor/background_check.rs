@@ -9,14 +9,15 @@ use super::auto_auth::{try_auto_login_on_preparation, try_disconnect_reconnect};
 use super::campus_check::{CampusCheckResult, adapter_campus_status, adapter_campus_message, check_campus_network};
 use super::portal_check::{PortalCheckResult, check_adapter_portal};
 use crate::auth::failure_tracker::handle_portal_request_failure;
-use super::quality_scheduler::run_quality_check;
 use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, BackgroundCheckResult};
 
-pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) -> Option<(String, String)> {
+pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) {
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
-        return None;
+        return;
     }
-    let _check_guard = state.tasks.is_checking.try_acquire()?;
+    let Some(_check_guard) = state.tasks.is_checking.try_acquire() else {
+        return;
+    };
     let t_total = std::time::Instant::now();
 
     let config = state.config.load_full();
@@ -30,7 +31,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             Ok(a) => a,
             Err(e) => {
                 crate::log_error!("background", "获取适配器列表失败: {}", e);
-                return None;
+                return;
             }
         }
     };
@@ -114,14 +115,14 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             start_campus_exit(app_handle, state);
         }
         crate::log_debug!("background", "后台检测周期完成(校园网检测未通过), 总耗时{}ms", t_total.elapsed().as_millis());
-        return None;
+        return;
     }
 
     // 校园网验证通过：取消之前的退出流程（如果有的话）
     cancel_campus_exit(app_handle, state);
 
     if cancel_token.is_cancelled() {
-        return None;
+        return;
     }
 
     let t_portal = std::time::Instant::now();
@@ -315,27 +316,17 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     }
 
     crate::log_debug!("background", "后台检测周期完成, 总耗时{}ms", t_total.elapsed().as_millis());
-
-    if online && a1.is_some() && config.enable_network_quality {
-        if let Some(a1_ref) = a1 {
-            return Some((a1_ref.name.clone(), a1_ref.ip.clone()));
-        }
-    }
-
-    None
 }
 
+/// 后台巡检：只负责连通性/Portal/重连，质量检测由定时测试循环独占
+/// （latency.rs 的 spawn_latency_test_loop → quality_scheduler::run_quality_check），
+/// 避免双定时器叠加触发全量外网检测、60s 节流吞掉用户自定义间隔（2026-09-04 收敛）
 pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) {
     let app_h = app_handle.clone();
-    let quality_info = tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         let s = app_h.state::<AppState>();
         run_background_check_blocking(&app_h, &s, &cancel_token)
     }).await.unwrap_or_else(|e| {
         crate::log_error!("background", "后台检测异常: {}", e);
-        None
     });
-
-    if let Some((adapter_name, adapter_ip)) = quality_info {
-        run_quality_check(app_handle, &adapter_name, &adapter_ip).await;
-    }
 }

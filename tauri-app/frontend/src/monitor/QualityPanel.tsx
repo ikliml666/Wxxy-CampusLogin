@@ -308,11 +308,6 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                   {t('monitor.running')}
                 </Badge>
               )}
-              {!config.enableLatencyTest && config.enableBackgroundCheck !== false && config.enableNetworkQuality !== false && (
-                <Badge variant="outline" title={t('quality.drivenByBackgroundTip')} className="text-[10px] text-blue-600 border-blue-500/20">
-                  {t('quality.drivenByBackground')}
-                </Badge>
-              )}
             </div>
           </CardContent>
         </AnimatedCard>
