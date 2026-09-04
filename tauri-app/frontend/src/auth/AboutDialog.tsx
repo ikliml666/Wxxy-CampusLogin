@@ -1,23 +1,23 @@
-import { Button } from '@/components/ui/button'
+import { Button } from'@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog'
+} from'@/components/ui/dialog'
 import {
   Check, ExternalLink, RefreshCw,
   Download, Globe, Server, Loader2,
   ChevronDown, ChevronRight, XCircle, Package,
   Zap, Users, Wifi, Sparkles
-} from 'lucide-react'
-import { APP_NAME, APP_VERSION } from '@/shared/ui-constants'
-import { cn, extractErrorMessage } from '@/lib/utils'
-import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react'
-import { tauriApiWithRetry } from '@/hooks/tauriApi'
-import { useTranslation } from 'react-i18next'
-import type { UpdateInfo, DownloadProgress, MirrorSource } from '@/shared'
+} from'lucide-react'
+import { APP_NAME, APP_VERSION } from'@/shared/ui-constants'
+import { cn, extractErrorMessage } from'@/lib/utils'
+import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from'react'
+import { tauriApiWithRetry } from'@/hooks/tauriApi'
+import { useTranslation } from'react-i18next'
+import type { UpdateInfo, DownloadProgress, MirrorSource } from'@/shared'
 
 interface AboutDialogProps {
   open: boolean
@@ -29,19 +29,19 @@ interface AboutDialogProps {
   initialUpdateAvailable?: boolean
 }
 
-const GITHUB_REPO = 'ikliml666/Wxxy-CampusLogin'
+const GITHUB_REPO ='ikliml666/Wxxy-CampusLogin'
 
-type DownloadState = 'idle' | 'selecting' | 'downloading' | 'done' | 'error'
+type DownloadState ='idle' |'selecting' |'downloading' |'done' |'error'
 
 // 核心优势数据（无更新时展示）- 使用 i18n key
 const CORE_FEATURES = [
-  { icon: Zap, titleKey: 'about.dualAdapterSupport', descKey: 'about.dualAdapterSupportDesc' },
-  { icon: Users, titleKey: 'about.multiAccountManage', descKey: 'about.multiAccountManageDesc' },
-  { icon: Wifi, titleKey: 'about.autoReconnect', descKey: 'about.autoReconnectDesc' },
+  { icon: Zap, titleKey:'about.dualAdapterSupport', descKey:'about.dualAdapterSupportDesc' },
+  { icon: Users, titleKey:'about.multiAccountManage', descKey:'about.multiAccountManageDesc' },
+  { icon: Wifi, titleKey:'about.autoReconnect', descKey:'about.autoReconnectDesc' },
 ]
 
 function formatSize(bytes: number): string {
-  if (bytes === 0) return '' // 未知大小不显示
+  if (bytes === 0) return'' // 未知大小不显示
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
@@ -116,7 +116,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
       setUpdateInfo({
         hasUpdate: !!initialUpdateAvailable,
         latestVersion: initialLatestVersion,
-        releaseNotes: initialReleaseNotes || '',
+        releaseNotes: initialReleaseNotes ||'',
         assets: [],
       })
       autoCheckedRef.current = true
@@ -204,7 +204,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     const items: string[] = []
     for (const line of lines) {
       const trimmed = line.trim()
-      if ((trimmed.startsWith('- ') || trimmed.startsWith('* ')) && items.length < 5) {
+      if ((trimmed.startsWith('-') || trimmed.startsWith('*')) && items.length < 5) {
         items.push(trimmed.slice(2))
       }
     }
@@ -213,7 +213,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
 
   // 默认 asset URL：优先用检查结果中的真实资产；缓存路径 assets 为空时的兜底文件名
   // 必须与 Release 资产命名一致（Wxxy-CampusLogin_{版本}_x64-setup.exe），否则 404
-  const defaultAssetUrl = windowsAsset?.url || `https://github.com/${GITHUB_REPO}/releases/latest/download/${updateInfo?.latestVersion ? `Wxxy-CampusLogin_${updateInfo.latestVersion}_x64-setup.exe` : 'Wxxy-CampusLogin_x64-setup.exe'}`
+  const defaultAssetUrl = windowsAsset?.url || `https://github.com/${GITHUB_REPO}/releases/latest/download/${updateInfo?.latestVersion ? `Wxxy-CampusLogin_${updateInfo.latestVersion}_x64-setup.exe` :'Wxxy-CampusLogin_x64-setup.exe'}`
 
   // 一键下载：使用默认选中的镜像源直接开始下载
   const handleQuickDownload = useCallback(async () => {
@@ -229,14 +229,14 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
       const mirrorList = await api.getMirrorUrls(assetUrl)
       setMirrors(mirrorList)
       // 自动选择最优源
-      const preferred = mirrorList.find(m => m.name !== 'GitHub' && m.name !== 'GitHub 官方') || mirrorList[0]
+      const preferred = mirrorList.find(m => m.name !=='GitHub' && m.name !=='GitHub 官方') || mirrorList[0]
       if (preferred) {
         setSelectedMirror(preferred.url)
         // 直接开始下载
         await handleDownload(preferred.url)
       }
     } catch {
-      setMirrors([{ name: 'GitHub', url: assetUrl, description: t('about.officialSource') }])
+      setMirrors([{ name:'GitHub', url: assetUrl, description: t('about.officialSource') }])
       setSelectedMirror(assetUrl)
       await handleDownload(assetUrl)
     }
@@ -244,7 +244,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[90vw] max-w-[1200px] p-0 gap-0 overflow-hidden rounded-2xl border-0 shadow-none">
+      <DialogContent className="force-light-dialog w-[90vw] max-w-[1200px] p-0 gap-0 overflow-hidden rounded-2xl border-0 shadow-none">
         {/* 隐藏的 header，仅用于无障碍访问 */}
         <DialogHeader className="sr-only">
           <DialogTitle>{t('about.aboutTitle')}</DialogTitle>
@@ -266,7 +266,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="text-sm text-muted-foreground">v{APP_VERSION}</span>
                 {updateInfo?.hasUpdate && (
-                  <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400 border border-violet-300/60 dark:border-violet-700/40 rounded-full px-1.5 py-px leading-4 bg-violet-50 dark:bg-violet-950/30">
+                  <span className="text-[10px] font-medium text-violet-600 border border-violet-300/60 rounded-full px-1.5 py-px leading-4 bg-violet-50">
                     v{updateInfo.latestVersion}
                   </span>
                 )}
@@ -282,14 +282,14 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             <Button
               variant="outline"
               className={cn(
-                'w-full justify-center gap-2 h-[34px] text-xs mt-auto mb-3 rounded-lg',
-                updateInfo && !updateInfo.hasUpdate && 'border-emerald-300 bg-emerald-50/50 text-emerald-600 dark:border-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400',
-                updateInfo?.hasUpdate && 'border-violet-300 bg-violet-50/50 text-violet-600 dark:border-violet-700 dark:bg-violet-950/20 dark:text-violet-400'
+'w-full justify-center gap-2 h-[34px] text-xs mt-auto mb-3 rounded-lg',
+                updateInfo && !updateInfo.hasUpdate &&'border-emerald-300 bg-emerald-50/50 text-emerald-600',
+                updateInfo?.hasUpdate &&'border-violet-300 bg-violet-50/50 text-violet-600'
               )}
               onClick={handleCheckUpdate}
-              disabled={checking || downloadState === 'downloading'}
+              disabled={checking || downloadState ==='downloading'}
             >
-              <RefreshCw className={cn('h-3 w-3 shrink-0', checking && 'animate-spin')} />
+              <RefreshCw className={cn('h-3 w-3 shrink-0', checking &&'animate-spin')} />
               {checking ? t('about.checking') : updateInfo ? (
                 updateInfo.hasUpdate ? t('about.newVersionFound') : t('about.alreadyLatest')
               ) : checkError ? t('about.checkFailedRetry') : t('about.checkUpdate')}
@@ -302,19 +302,19 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   onClick={() => setShowReleaseNotes(!showReleaseNotes)}
                   className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                 >
-                  <ChevronRight className={cn('h-3 w-3 transition-transform', showReleaseNotes && 'rotate-90')} />
+                  <ChevronRight className={cn('h-3 w-3 transition-transform', showReleaseNotes &&'rotate-90')} />
                   {t('about.releaseNotes')}
                 </button>
                 {showReleaseNotes && (
-                  <div className="text-xs text-muted-foreground/80 bg-gray-50 dark:bg-muted/20 rounded-lg p-3 mt-2 max-h-[180px] overflow-y-auto overflow-x-auto leading-relaxed break-words [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_ul]:space-y-0.5 [&_li]:list-disc [&_li]:ml-4 [&_table]:w-full [&_th]:text-left [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_tr]:border-b [&_tr]:border-border/30 [&_p]:break-words [&_code]:break-all">
+                  <div className="text-xs text-muted-foreground/80 bg-gray-50 rounded-lg p-3 mt-2 max-h-[180px] overflow-y-auto overflow-x-auto leading-relaxed break-words [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_ul]:space-y-0.5 [&_li]:list-disc [&_li]:ml-4 [&_table]:w-full [&_th]:text-left [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_tr]:border-b [&_tr]:border-border/30 [&_p]:break-words [&_code]:break-all">
                     {updateInfo.releaseNotes.split('\n').map((line, i) => {
                       const trimmed = line.trim()
                       if (!trimmed) return <br key={i} />
-                      if (trimmed.startsWith('# ')) return <h3 key={i} className="break-words">{trimmed.slice(2)}</h3>
-                      if (trimmed.startsWith('## ')) return <h3 key={i} className="break-words">{trimmed.slice(3)}</h3>
-                      if (trimmed.startsWith('### ')) return <h3 key={i} className="break-words">{trimmed.slice(4)}</h3>
-                      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.slice(2))}</li>
-                      if (/^\d+\.\s/.test(trimmed)) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.replace(/^\d+\s/, ''))}</li>
+                      if (trimmed.startsWith('#')) return <h3 key={i} className="break-words">{trimmed.slice(2)}</h3>
+                      if (trimmed.startsWith('##')) return <h3 key={i} className="break-words">{trimmed.slice(3)}</h3>
+                      if (trimmed.startsWith('###')) return <h3 key={i} className="break-words">{trimmed.slice(4)}</h3>
+                      if (trimmed.startsWith('-') || trimmed.startsWith('*')) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.slice(2))}</li>
+                      if (/^\d+\.\s/.test(trimmed)) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.replace(/^\d+\s/,''))}</li>
                       if (trimmed.startsWith('|')) {
                         const cells = trimmed.split('|').filter(c => c.trim())
                         if (cells.length > 1) {
@@ -323,7 +323,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                           return (
                             <div key={i} className="flex text-[11px] border-b border-border/20 last:border-0 py-0.5 min-w-0">
                               {cells.map((cell, j) => (
-                                <span key={j} className={`flex-1 min-w-0 ${j > 0 ? 'border-l border-border/20 pl-2' : ''} truncate`}>{cell.trim()}</span>
+                                <span key={j} className={`flex-1 min-w-0 ${j > 0 ?'border-l border-border/20 pl-2' :''} truncate`}>{cell.trim()}</span>
                               ))}
                             </div>
                           )
@@ -340,7 +340,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             <div className="mt-auto pt-4">
               <button
                 onClick={openGithub}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-600 dark:hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
               >
                 <ExternalLink className="h-3 w-3" />
                 {t('about.githubRepo')}
@@ -352,21 +352,21 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
           <div className="flex-1 bg-[#F8F9FA] flex flex-col p-6 min-h-0 relative">
 
             {/* ------ idle + 无更新：已是最新版 ------ */}
-            {downloadState === 'idle' && !updateInfo?.hasUpdate && (
+            {downloadState ==='idle' && !updateInfo?.hasUpdate && (
               <div className="flex-1 flex flex-col items-center justify-center gap-5">
                 {updateInfo ? (
                   <>
                     <div className="flex flex-col items-center gap-2">
-                      <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center">
+                      <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center">
                         <Check className="h-8 w-8 text-emerald-500" />
                       </div>
-                      <p className="text-base font-semibold text-emerald-600 dark:text-emerald-400">{t('about.alreadyLatest')}</p>
+                      <p className="text-base font-semibold text-emerald-600">{t('about.alreadyLatest')}</p>
                       <p className="text-sm text-muted-foreground">v{APP_VERSION}</p>
                     </div>
                     {/* 核心优势卡片 */}
                     <div className="grid grid-cols-3 gap-2.5 w-full max-w-[340px] mt-2">
                       {CORE_FEATURES.map((feat) => (
-                        <div key={feat.titleKey} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
+                        <div key={feat.titleKey} className="bg-white rounded-xl p-2.5 text-center shadow-sm border border-gray-100">
                           <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
                           <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
                           <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{t(feat.descKey)}</div>
@@ -376,7 +376,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   </>
                 ) : checkError ? (
                   <>
-                    <div className="w-16 h-16 rounded-full bg-rose-50 dark:bg-rose-950/30 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center">
                       <XCircle className="h-8 w-8 text-rose-400" />
                     </div>
                     <p className="text-sm text-rose-500 text-center max-w-xs">{checkError}</p>
@@ -386,7 +386,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   </>
                 ) : (
                   <>
-                    <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-muted/30 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
                       <Package className="h-8 w-8 text-muted-foreground/30" />
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -398,7 +398,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             )}
 
             {/* ------ idle + 有更新：功能亮点（顶部）+ 下载按钮与镜像（底部） ------ */}
-            {downloadState === 'idle' && updateInfo?.hasUpdate && (
+            {downloadState ==='idle' && updateInfo?.hasUpdate && (
               <div className="flex-1 flex flex-col gap-4 min-h-0">
                 {/* 新功能亮点 */}
                 {featureHighlights.length > 0 && (
@@ -407,7 +407,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       <Sparkles className="h-3.5 w-3.5 text-violet-500" />
                       <span className="text-xs font-semibold text-foreground">{t('about.newFeatureHighlights')}</span>
                     </div>
-                    <div className="bg-white dark:bg-card rounded-xl border border-gray-100 dark:border-border/50 divide-y divide-gray-50 dark:divide-border/30">
+                    <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
                       {featureHighlights.map((item, i) => (
                         <div key={i} className="flex items-start gap-2.5 px-3 py-2.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1 shrink-0" />
@@ -425,7 +425,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   <div>
                     <div className="grid grid-cols-3 gap-2.5 max-w-[340px]">
                       {CORE_FEATURES.map((feat) => (
-                        <div key={feat.titleKey} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
+                        <div key={feat.titleKey} className="bg-white rounded-xl p-2.5 text-center shadow-sm border border-gray-100">
                           <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
                           <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
                         </div>
@@ -465,12 +465,12 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                         const mirrorList = await api.getMirrorUrls(defaultAssetUrl)
                         setMirrors(mirrorList)
                         if (!selectedMirror) {
-                          const preferred = mirrorList.find(m => m.name !== 'GitHub' && m.name !== 'GitHub 官方') || mirrorList[0]
+                          const preferred = mirrorList.find(m => m.name !=='GitHub' && m.name !=='GitHub 官方') || mirrorList[0]
                           if (preferred) setSelectedMirror(preferred.url)
                         }
                       } catch {
                         if (mirrors.length === 0) {
-                          setMirrors([{ name: 'GitHub', url: defaultAssetUrl, description: t('about.officialSource') }])
+                          setMirrors([{ name:'GitHub', url: defaultAssetUrl, description: t('about.officialSource') }])
                           if (!selectedMirror) setSelectedMirror(defaultAssetUrl)
                         }
                       }
@@ -478,12 +478,12 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     }}
                   >
                     {t('about.switchDownloadSource')}
-                    <ChevronDown className={cn('h-3 w-3 transition-transform', showMirrorList && 'rotate-180')} />
+                    <ChevronDown className={cn('h-3 w-3 transition-transform', showMirrorList &&'rotate-180')} />
                   </button>
 
                   {/* 镜像源悬浮下拉面板 */}
                   {showMirrorList && mirrors.length > 0 && (
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white dark:bg-card rounded-xl shadow-lg border border-gray-100 dark:border-border/60 z-50 py-1.5">
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white rounded-xl shadow-lg border border-gray-100 z-50 py-1.5">
                       {mirrors.map((m) => (
                         <button
                           key={m.name}
@@ -492,13 +492,13 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                             setShowMirrorList(false)
                           }}
                           className={cn(
-                            'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
+'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
                             selectedMirror === m.url
-                              ? 'bg-violet-50 dark:bg-violet-950/20'
-                              : 'hover:bg-gray-50 dark:hover:bg-muted/30'
+                              ?'bg-violet-50'
+                              :'hover:bg-gray-50'
                           )}
                         >
-                          {m.name === 'GitHub 官方' || m.name === 'GitHub'
+                          {m.name ==='GitHub 官方' || m.name ==='GitHub'
                             ? <Globe className="h-4 w-4 text-gray-400 shrink-0" />
                             : <Server className="h-4 w-4 text-blue-400 shrink-0" />
                           }
@@ -519,7 +519,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             )}
 
             {/* ------ selecting：准备下载中 ------ */}
-            {downloadState === 'selecting' && (
+            {downloadState ==='selecting' && (
               <div className="flex-1 flex flex-col items-center justify-center gap-3">
                 <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
                 <p className="text-sm text-muted-foreground">{t('about.preparingDownload')}</p>
@@ -527,7 +527,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             )}
 
             {/* ------ downloading：下载进度 ------ */}
-            {downloadState === 'downloading' && (
+            {downloadState ==='downloading' && (
               <div className="flex-1 flex flex-col justify-center gap-4">
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
@@ -535,7 +535,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     <span className="text-sm font-medium">{t('about.downloading')}</span>
                   </div>
                   <div className="space-y-2">
-                    <div className="h-2.5 bg-gray-200 dark:bg-muted rounded-full overflow-hidden">
+                    <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all duration-300"
                         style={{ width: `${progress?.percent ?? 0}%` }}
@@ -556,10 +556,10 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             )}
 
             {/* ------ done：下载完成 ------ */}
-            {downloadState === 'done' && (
+            {downloadState ==='done' && (
               <div className="flex-1 flex flex-col justify-center gap-4">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400">
+                  <div className="flex items-center justify-center gap-2 text-emerald-600">
                     <Check className="h-6 w-6" />
                     <span className="text-base font-medium">{t('about.downloadComplete')}</span>
                   </div>
@@ -571,7 +571,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     {t('about.installUpdate')}
                   </Button>
                   {installError && (
-                    <div className="text-xs text-rose-500 bg-rose-50 dark:bg-rose-950/20 rounded-xl p-3 break-all">
+                    <div className="text-xs text-rose-500 bg-rose-50 rounded-xl p-3 break-all">
                       {installError}
                     </div>
                   )}
@@ -583,14 +583,14 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             )}
 
             {/* ------ error：下载失败 ------ */}
-            {downloadState === 'error' && (
+            {downloadState ==='error' && (
               <div className="flex-1 flex flex-col justify-center gap-4">
                 <div className="space-y-4">
                   <div className="flex items-center justify-center gap-2 text-rose-500">
                     <XCircle className="h-5 w-5" />
                     <span className="text-sm font-medium">{t('about.downloadFailed')}</span>
                   </div>
-                  <div className="text-xs text-rose-500 bg-rose-50 dark:bg-rose-950/20 rounded-xl p-3">
+                  <div className="text-xs text-rose-500 bg-rose-50 rounded-xl p-3">
                     {downloadError}
                   </div>
                   <Button
@@ -611,7 +611,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             )}
 
             {/* 右下角返回按钮 */}
-            {(downloadState === 'done' || downloadState === 'error') && (
+            {(downloadState ==='done' || downloadState ==='error') && (
               <div className="flex justify-end pt-2">
                 <Button
                   variant="ghost"

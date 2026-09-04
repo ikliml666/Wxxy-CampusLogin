@@ -83,6 +83,33 @@
   .theme-cherry { --primary: 350 89% 60%; --primary-foreground: 0 0% 100%; --ring: 350 89% 60%; --accent: 350 33% 94%; --accent-foreground: 350 89% 20%; }
   .theme-cherry.dark { --primary: 350 89% 67%; --accent: 350 33% 17%; --accent-foreground: 350 89% 85%; }
 
+  /* 强制亮色皮肤作用域：关于对话框为固定白底双栏设计（bg-white / bg-[#F8F9FA]），
+     暗色主题下继承的近白文字/暗色卡片变量在白底上对比度崩坏（存量缺陷）。
+     在容器上重定义主题变量为浅色值，内部所有走变量的类
+     （text-foreground/text-muted-foreground/bg-card 等）无论主题统一解析为亮色皮肤。 */
+  .force-light-dialog {
+    /* color 是继承属性：body 已按暗色变量算出颜色再继承下来，仅重定义变量不够，
+       必须在此显式声明 color 让子树继承亮色计算值 */
+    color: hsl(var(--foreground));
+    --background: 210 40% 96%;
+    --foreground: 220 15% 20%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 20%;
+    --primary: 239 84% 61%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 93%;
+    --secondary-foreground: 220 15% 20%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 50%;
+    --accent: 220 14% 94%;
+    --accent-foreground: 220 15% 20%;
+    --border: transparent;
+    --input: 220 14% 90%;
+    --ring: 239 84% 61%;
+  }
+
   * {
     border-color: transparent;
   }
