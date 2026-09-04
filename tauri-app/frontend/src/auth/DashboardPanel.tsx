@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Config } from '@/settings'
 import type { NetworkQuality } from '@/monitor'
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
 import { Reorder, m, AnimatePresence } from 'framer-motion'
 import { QUALITY_CONFIG } from '@/network/constants'
+import { resolveAdapterNames } from '@/network/adapters'
 import type { Adapter } from '@/network'
 import { LatencyPair } from '@/monitor/LatencyComponents'
 import { safeStorage } from '@/lib/utils'
@@ -113,18 +115,29 @@ const QuickActionsCard = memo(function QuickActionsCard({
 
   const isGettingNewIp = isGettingNewIpAll || isGettingNewIpForAdapter
 
+  const getNewIpBtnRef = useRef<HTMLButtonElement>(null)
+
   const handleMenuOpen = useCallback(() => {
     if (menuCloseTimerRef.current) clearTimeout(menuCloseTimerRef.current)
+    // 菜单 portal 到 body 并按按钮视口坐标 fixed 定位：卡片容器 overflow:hidden +
+    // contain:content（paint）会裁掉 absolute 菜单（仅露出按钮下方约 17px）
+    const r = getNewIpBtnRef.current?.getBoundingClientRect()
+    if (r) setMenuPos({ x: r.left, y: r.bottom + 6 })
     setAdapterMenuOpen(true)
   }, [])
+
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
 
   const handleMenuClose = useCallback(() => {
     menuCloseTimerRef.current = setTimeout(() => setAdapterMenuOpen(false), 200)
   }, [])
 
-  // Find the primary adapter's wireless status for icon
-  const primaryAdapter = adapters.find(a => a.name === config.adapter1)
-  const secondaryAdapter = adapters.find(a => a.name === config.adapter2)
+  // 与后端 resolve_adapter_names 同源规则解析主/副：配置名失效（如适配器已改名/移除）
+  // 时降级到自动检测。旧实现直接用 config.adapter1/adapter2 匹配，
+  // "自动检测"配置会把字面量传给后端 dhcp_release_renew_adapter 导致校验失败
+  const resolved = resolveAdapterNames(adapters, config)
+  const primaryAdapter = adapters.find(a => a.name === resolved.primary)
+  const secondaryAdapter = adapters.find(a => a.name === resolved.secondary)
 
   return (
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation} className={cn(isPoorQuality && 'relative overflow-visible')}>
@@ -158,7 +171,7 @@ const QuickActionsCard = memo(function QuickActionsCard({
             </div>
           </Button>
           <div className="relative">
-            <Button variant="outline" className="h-auto py-3 justify-start gap-3 w-full"
+            <Button ref={getNewIpBtnRef} variant="outline" className="h-auto py-3 justify-start gap-3 w-full"
               onClick={isDualAdapter ? (adapterMenuOpen ? handleMenuClose : handleMenuOpen) : handleGetNewIp}
               disabled={isGettingNewIp}
               {...(isDualAdapter ? {
@@ -177,58 +190,63 @@ const QuickActionsCard = memo(function QuickActionsCard({
                 <div className="text-[11px] text-muted-foreground">{isGettingNewIp ? t('dashboard.gettingNewIp') : t('dashboard.getNewIpDesc')}</div>
               </div>
             </Button>
-            <AnimatePresence>
-              {adapterMenuOpen && isDualAdapter && (
-                <m.div
-                  initial={{ opacity: 0, scale: 0.95, y: 4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.97, y: 2 }}
-                  transition={{ duration: 0.2 }}
-                  className="absolute top-full left-0 mt-1 min-w-[200px] py-2 px-1.5 rounded-2xl z-[60]"
-                  style={{
-                    background: 'hsl(var(--card) / 0.95)',
-                    boxShadow: '0 8px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
-                    border: '1px solid hsl(var(--border) / 0.5)',
-                  }}
-                  onMouseEnter={() => {
-                    if (menuCloseTimerRef.current) clearTimeout(menuCloseTimerRef.current)
-                  }}
-                  onMouseLeave={handleMenuClose}
-                >
-                  <div className="px-3 py-1.5">
-                    <span className="text-[11px] font-medium text-muted-foreground">{t('dashboard.selectAdapterForNewIp')}</span>
-                  </div>
-                  {config.adapter1 && (
-                    <button
-                      onClick={() => { setAdapterMenuOpen(false); handleGetNewIpForAdapter(config.adapter1) }}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium hover:bg-muted/60 rounded-xl transition-colors"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        {primaryAdapter?.wireless ? <Wifi className="h-3.5 w-3.5 text-primary" /> : <Cable className="h-3.5 w-3.5 text-primary" />}
-                      </div>
-                      <div className="flex flex-col items-start">
-                        <span className="truncate">{config.adapter1}</span>
-                        <span className="text-[10px] text-muted-foreground">{t('network.primary')}</span>
-                      </div>
-                    </button>
-                  )}
-                  {config.adapter2 && (
-                    <button
-                      onClick={() => { setAdapterMenuOpen(false); handleGetNewIpForAdapter(config.adapter2) }}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium hover:bg-muted/60 rounded-xl transition-colors"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
-                        {secondaryAdapter?.wireless ? <Wifi className="h-3.5 w-3.5 text-amber-500" /> : <Cable className="h-3.5 w-3.5 text-amber-500" />}
-                      </div>
-                      <div className="flex flex-col items-start">
-                        <span className="truncate">{config.adapter2}</span>
-                        <span className="text-[10px] text-muted-foreground">{t('network.secondary')}</span>
-                      </div>
-                    </button>
-                  )}
-                </m.div>
-              )}
-            </AnimatePresence>
+            {createPortal(
+              <AnimatePresence>
+                {adapterMenuOpen && isDualAdapter && menuPos && (
+                  <m.div
+                    initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.97, y: 2 }}
+                    transition={{ duration: 0.2 }}
+                    className="fixed min-w-[200px] py-2 px-1.5 rounded-2xl z-[60]"
+                    style={{
+                      left: menuPos.x,
+                      top: menuPos.y,
+                      background: 'hsl(var(--card) / 0.95)',
+                      boxShadow: '0 8px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
+                      border: '1px solid hsl(var(--border) / 0.5)',
+                    }}
+                    onMouseEnter={() => {
+                      if (menuCloseTimerRef.current) clearTimeout(menuCloseTimerRef.current)
+                    }}
+                    onMouseLeave={handleMenuClose}
+                  >
+                    <div className="px-3 py-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground">{t('dashboard.selectAdapterForNewIp')}</span>
+                    </div>
+                    {resolved.primary && (
+                      <button
+                        onClick={() => { setAdapterMenuOpen(false); handleGetNewIpForAdapter(resolved.primary) }}
+                        className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium hover:bg-muted/60 rounded-xl transition-colors"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          {primaryAdapter?.wireless ? <Wifi className="h-3.5 w-3.5 text-primary" /> : <Cable className="h-3.5 w-3.5 text-primary" />}
+                        </div>
+                        <div className="flex flex-col items-start">
+                          <span className="truncate">{resolved.primary}</span>
+                          <span className="text-[10px] text-muted-foreground">{t('network.primary')}</span>
+                        </div>
+                      </button>
+                    )}
+                    {resolved.secondary && (
+                      <button
+                        onClick={() => { setAdapterMenuOpen(false); handleGetNewIpForAdapter(resolved.secondary) }}
+                        className="w-full flex items-center gap-3 px-3 py-2 text-[13px] font-medium hover:bg-muted/60 rounded-xl transition-colors"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                          {secondaryAdapter?.wireless ? <Wifi className="h-3.5 w-3.5 text-amber-500" /> : <Cable className="h-3.5 w-3.5 text-amber-500" />}
+                        </div>
+                        <div className="flex flex-col items-start">
+                          <span className="truncate">{resolved.secondary}</span>
+                          <span className="text-[10px] text-muted-foreground">{t('network.secondary')}</span>
+                        </div>
+                      </button>
+                    )}
+                  </m.div>
+                )}
+              </AnimatePresence>,
+              document.body
+            )}
           </div>
         </div>
       </CardContent>

@@ -717,6 +717,8 @@ lazy_static! {
 
 **适配器操作范围约定（2026-09-03）**: 检测/优化/登录/注销等**操作类**流程只作用于 `resolve_adapter_names` 解析出的主/副适配器（"自动检测"由 resolve 落到具体适配器），新增 `filter_operation_adapters(adapters, a1, a2)` 作为范围过滤基准；**UI 展示类**（get_adapters/get_adapter_details/adapter_watch/check_dns_doh_status/check_campus_status 命令）保持遍历全部。落地位置：后台巡检与开机自启的校园网检测传过滤后列表；`select_adapter` 经 resolve 取主适配器 IP（不再回退到配置范围外适配器，无 IP 返回空由调用方兜底）；`setup_dns_doh_admin(targets)` DNS/DoH 一键设置只写名单内适配器（helper 提权路径经 `--helper dns <名单...>` 传参，`spawn_elevated_helper` 对参数统一加引号防适配器名含空格被拆碎）；`dhcp_renew_wired_only(targets)`/`dhcp_release_renew_all(gw, targets)` DHCP 操作、`update_auth_failure_count(..., adapter_name)` 自动 MAC 重置（原对全部适配器重置，现只重置登录适配器）均按名单收窄；登录/注销（full_login/full_logout）本就只操作 a1/a2，未变。
 
+**前端选择器同源收敛（2026-09-04）**: 登录/注销的适配器选择浮层（DockNav `AdapterMenu`）只列主/副适配器（有 IP 者），与"适配器操作范围约定"对齐——直接点击按钮仍走后端 resolve 全量逻辑，浮层只影响菜单选项。新增 `frontend/src/network/adapters.ts` 的 `resolveAdapterNames(adapters, config)`，与后端 `resolve_adapter_names`（adapter.rs:48）**同源规则**：配置名有效→用配置名；空/"自动检测"/不在当前列表→自动检测（有线有 IP > 任意有 IP > 第一个；副适配器自动检测排除主适配器）。**两端规则若分叉，选择器与实际登录目标会对不上**，改任一侧必须同步另一侧（有单测 adapters.test.ts 锁行为）。DashboardPanel"获取新IP"菜单同步改用 resolve：修复 adapter1/adapter2 为"自动检测"时把字面量传给 `dhcp_release_renew_adapter` 导致 `validate_adapter_name` 校验失败的存量缺陷。同卡菜单改为 `createPortal(document.body)` + fixed 按钮坐标定位：卡片容器 `animated-card-interactive` 的 `overflow:hidden + contain:content`（paint）会裁掉 absolute 菜单（实测菜单 bottom 514 被裁到卡片 bottom 381，仅露 17px），存量缺陷顺带修复。
+
 **适配器可见性双重验证** (定义在 `network/discovery/registry.rs`):
   - `is_visible_in_ncpa()` — 注册表双重检查：`ShowInNetworkConnections` + Class subkey PnP 设备树交叉验证，过滤幽灵虚拟副本
   - `is_admin_disabled_via_registry()` — `ConfigFlags 0x1` 检测管理员禁用，区分"管理员禁用"vs"硬件缺失(USB未连接)"
@@ -1514,7 +1516,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流。tooltip 水平居中用 Tailwind `-translate-x-1/2`（2026-09-03：原 inline `translateX(-50%)` 覆盖 class transform 导致上浮动画失效） |
+| `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，选择项收敛为主/副适配器（`scopedAdapters`，2026-09-04），GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流。tooltip 水平居中用 Tailwind `-translate-x-1/2`（2026-09-03：原 inline `translateX(-50%)` 覆盖 class transform 导致上浮动画失效） |
 | `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画。清空日志 GSAP 动画 stagger 动态封顶（>8条0.05s/>4条0.1s，2026-09-03：原固定 0.2s/条，日志满 300 条时动画约 60 秒且按钮禁用无法取消），与 LogPanel 同策略 |
 | `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
 

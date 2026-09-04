@@ -18,15 +18,17 @@ import {
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared/ui-constants'
 import { m, useMotionValue, AnimatePresence } from 'framer-motion'
-import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
+import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { resolveAdapterNames } from '@/network/adapters'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { usePulseAnimation } from '@/hooks/usePulseAnimation'
+import { useShallow } from 'zustand/react/shallow'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -399,8 +401,22 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const isLoggingOut = useAuthStore((s) => s.isLoggingOut)
   const adapters = useAdapterStore((s) => s.adapters)
   const enableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality !== false)
+  const { adapter1, adapter2, dualAdapter } = useConfigStore(useShallow((s) => ({
+    adapter1: s.config.adapter1,
+    adapter2: s.config.adapter2,
+    dualAdapter: s.config.dualAdapter,
+  })))
   const doLogin = useAuthStore((s) => s.doLogin)
   const doLogout = useAuthStore((s) => s.doLogout)
+
+  // 登录/注销的作用域就是"适配器设置"里的主/副适配器（与后端 resolve_adapter_names
+  // 同源规则，含自动检测与配置名失效降级），选择器不再列其余适配器。
+  // 直接点击按钮仍走后端 resolve，此列表只影响菜单选项。
+  const scopedAdapters = useMemo(() => {
+    const { primary, secondary } = resolveAdapterNames(adapters, { adapter1, adapter2, dualAdapter })
+    const names = new Set(secondary ? [primary, secondary] : [primary])
+    return adapters.filter(a => names.has(a.name) && a.ip)
+  }, [adapters, adapter1, adapter2, dualAdapter])
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const animActive = useAnimationActive()
   const profile = useAnimationProfile()
@@ -503,7 +519,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           icon={LogOut}
           isLoading={isLoggingOut}
           isDisabled={isLoggingIn}
-          adapters={adapters}
+          adapters={scopedAdapters}
           onAction={doLogout}
           variant="outline"
         />
@@ -514,7 +530,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           icon={LogIn}
           isLoading={isLoggingIn}
           isDisabled={isLoggingOut}
-          adapters={adapters}
+          adapters={scopedAdapters}
           onAction={doLogin}
           variant="primary"
         />
