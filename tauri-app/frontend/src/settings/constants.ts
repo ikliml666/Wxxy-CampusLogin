@@ -12,7 +12,7 @@ export const DEFAULT_CONFIG: Config = {
   autoLoginOnStart: true,
   autoExitAfterLogin: true,
   minimizeToTray: false,
-  hiddenStart: true,
+  hiddenStart: false,
   autoLaunch: true,
   enableBackgroundCheck: true,
   backgroundCheckInterval: 15000,

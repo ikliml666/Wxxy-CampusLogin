@@ -144,7 +144,7 @@ impl Default for Config {
             auto_login_on_start: true,
             auto_exit_after_login: true,
             minimize_to_tray: false,
-            hidden_start: true,
+            hidden_start: false,
             auto_launch: true,
             enable_background_check: true,
             background_check_interval: 15000,

@@ -70,8 +70,8 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
 
-// 赞助浮层：启动后延迟展示的等待时间 + 两次自动展示的最小间隔
-const SPONSOR_SHOW_DELAY_MS = 40_000
+// 赞助浮层：启动后 1s 弹出（等启动入场动画完成）+ 两次自动展示的最小间隔
+const SPONSOR_SHOW_DELAY_MS = 1_000
 const SPONSOR_SHOW_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 
 // contain 只到 layout style：paint 会把后代裁到 content box，编辑模式卡片右上角
@@ -191,7 +191,7 @@ function AppInner() {
     }
   }, [configUser])
 
-  // 赞助浮层自动弹出：已有账号才弹（与 onboarding 天然互斥），启动 40s 且窗口可见时展示，
+  // 赞助浮层自动弹出：已有账号才弹（与 onboarding 天然互斥），启动 1s 且窗口可见时从右侧外滑入，
   // 7 天频控（localStorage 持久化）；窗口不可见（静默启动/最小化）时推迟到可见再弹，
   // 弹出瞬间即写时间戳。手动入口（标题栏心形按钮）不受频控、不写时间戳
   useEffect(() => {
