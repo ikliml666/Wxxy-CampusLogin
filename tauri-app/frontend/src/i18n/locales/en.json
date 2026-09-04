@@ -68,6 +68,7 @@
     "notificationOff": "Notifications Off",
     "themeSettings": "Theme Settings",
     "about": "About",
+    "sponsor": "Sponsor",
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",
@@ -521,6 +522,7 @@
     "updateNotFound": "Update information not found",
     "releaseNotes": "Release Notes",
     "githubRepo": "GitHub Repository",
+    "sponsor": "Sponsor the Author",
     "oneClickDownload": "One-Click Download v{{version}}",
     "switchDownloadSource": "Slow download? Click to switch source",
     "newFeatureHighlights": "New Feature Highlights",
@@ -639,5 +641,11 @@
   },
   "dock": {
     "selectAdapter": "Select Adapter"
+  },
+  "sponsor": {
+    "title": "Buy the Author a Drink ☕",
+    "desc": "If this tool helps you, feel free to buy the author a drink!",
+    "wechatAlt": "WeChat Pay QR code",
+    "alipayAlt": "Alipay QR code"
   }
 }

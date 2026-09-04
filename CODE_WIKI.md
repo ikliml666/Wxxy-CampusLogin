@@ -129,6 +129,7 @@ Wxxy-CampusLogin/
 │   │       │   ├── LogPanel.tsx     # 日志面板
 │   │       │   ├── ErrorBoundary.tsx # 错误边界
 │   │       │   ├── ConfirmDialog.tsx # 确认对话框
+│   │       │   ├── SponsorCard.tsx  # 赞助浮层 (非模态, 2026-09-04)
 │   │       │   ├── FluidBackground.tsx # 流体背景
 │   │       │   ├── AnimatedNumber.tsx # 动画数字
 │   │       │   ├── RefreshButton.tsx # 刷新按钮
@@ -612,7 +613,7 @@ pub struct AccountResult {
 | `autoLoginOnStart` | bool | true | 启动时自动登录 |
 | `autoExitAfterLogin` | bool | true | 登录后自动退出 |
 | `minimizeToTray` | bool | false | 关闭时最小化到托盘 |
-| `hiddenStart` | bool | true | 静默启动 |
+| `hiddenStart` | bool | false | 静默启动 (2026-09-04 默认 true→false) |
 | `autoLaunch` | bool | true | 开机自启 |
 | `enableBackgroundCheck` | bool | true | 启用后台检测 |
 | `backgroundCheckInterval` | u64 | 15000 | 后台检测间隔 (ms) |
@@ -1438,7 +1439,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），3种子组件（QuickActionsCard/AccountManageCard/NetworkQualityCard），布局持久化到safeStorage。注意 framer-motion 对 Reorder.Item 内联写 `touch-action: pan-x`（axis=y），class 层的 touch-action 会被覆盖，触摸垂直滚动让位于拖拽排序；列表溢出时的滚动可达性由全局细滚动条保证（2026-09-04） |
-| `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe`。**2026-09-04 布局调整**：一键下载按钮与切换下载源入口从右侧栏顶部移到底部（`mt-auto`），新功能亮点/核心优势卡片置于顶部；核心优势卡片宽度 260px→340px 使"双适配器支持"标题单行；左栏描述文案改为无锡学院专属（`about.appDesc`="无锡学院校园网自动登录助手"、`about.dualAdapterSupportDesc`="适配无锡学院双网卡环境"，zh/en 同步——应用仅支持无锡学院，不再宣称兼容多种校园认证方式）。**固定亮色皮肤（2026-09-04）**：对话框内 30 处 `dark:` 变体类全部移除，DialogContent 挂 `index.css` 的 `.force-light-dialog`（容器级重定义主题变量为浅色值 + 显式 `color: hsl(var(--foreground))`——`color` 是继承属性，body 按暗色变量算出的颜色会直接继承下来，仅重定义变量不够），修复暗色模式下白底上近白文字几乎不可读的存量缺陷；浅色模式视觉无变化 |
+| `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe`。**2026-09-04 布局调整**：一键下载按钮与切换下载源入口从右侧栏顶部移到底部（`mt-auto`），新功能亮点/核心优势卡片置于顶部；核心优势卡片宽度 260px→340px 使"双适配器支持"标题单行；左栏描述文案改为无锡学院专属（`about.appDesc`="无锡学院校园网自动登录助手"、`about.dualAdapterSupportDesc`="适配无锡学院双网卡环境"，zh/en 同步——应用仅支持无锡学院，不再宣称兼容多种校园认证方式）。**赞助入口（2026-09-04）**：左栏底部新增"赞助支持"按钮（`about.sponsor`，rose 风格遵循固定亮色皮肤无 dark: 变体），点击后**右栏原地切换为赞助内嵌页**（`showSponsor` state，标题+双码大图+右下角"返回"，右栏现有更新仪表盘内容用 `contents/hidden` 整体切换——最小 diff 且布局语义不变；对话框关闭时重置回仪表盘），不关闭对话框、不回主界面弹浮层；标题栏 Heart 才打开主界面下拉浮层。**固定亮色皮肤（2026-09-04）**：对话框内 30 处 `dark:` 变体类全部移除，DialogContent 挂 `index.css` 的 `.force-light-dialog`（容器级重定义主题变量为浅色值 + 显式 `color: hsl(var(--foreground))`——`color` 是继承属性，body 按暗色变量算出的颜色会直接继承下来，仅重定义变量不够），修复暗色模式下白底上近白文字几乎不可读的存量缺陷；浅色模式视觉无变化 |
 | `useAuth.ts` | 认证逻辑 Hook |
 | `types.ts` | 认证类型定义 (PortalStatusResult, CommandResult, LoginResult) |
 | `index.ts` | 模块导出 |
@@ -1510,6 +1511,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮 |
+| `SponsorCard.tsx` | 赞助下拉浮层 (2026-09-04)。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭。锚定标题栏赞助按钮下方自然向下展开（fixed top-[52px] right-[104px]，带指向按钮的小箭头，z-[60]，高于 DockNav 菜单同级低于 toast z-100），自动弹出与手动入口共用此浮层。内嵌微信/支付宝收款码 (public/sponsor-weixin.png / sponsor-alipay.jpg)。文案走 i18n sponsor 段 + about.sponsor |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个面板含speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SystemNotificationData, SaveConfigResult 等) |
 | `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.2.9'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项) |
@@ -1521,7 +1523,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 |------|------|
 | `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，选择项收敛为主/副适配器（`scopedAdapters`，2026-09-04），GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流。tooltip 水平居中用 Tailwind `-translate-x-1/2`（2026-09-03：原 inline `translateX(-50%)` 覆盖 class transform 导致上浮动画失效） |
 | `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画。清空日志 GSAP 动画 stagger 动态封顶（>8条0.05s/>4条0.1s，2026-09-03：原固定 0.2s/条，日志满 300 条时动画约 60 秒且按钮禁用无法取消），与 LogPanel 同策略 |
-| `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
+| `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/赞助Heart/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
 
 ### 5.7 延迟颜色 — `lib/latency.ts`
 
@@ -1534,7 +1536,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 ### 5.8 国际化 — i18n/
 
 - 基于 react-i18next + i18next-browser-languagedetector
-- 翻译文件按 JSON 顶级 key 分组（单一 "translation" namespace，共22个）：nav, titlebar, dock, auth, account, settings, monitor, network, quality, speedtest, statusbar, dashboard, log, rightPanel, about, common, onboarding, confirmDialog, isp, panel, themeDialog, crashRecovery
+- 翻译文件按 JSON 顶级 key 分组（单一 "translation" namespace，共23个）：nav, titlebar, dock, auth, account, settings, monitor, network, quality, speedtest, statusbar, dashboard, log, rightPanel, about, common, onboarding, confirmDialog, isp, panel, themeDialog, crashRecovery, sponsor
 - 非组件中使用 `import i18next from 'i18next'` + `i18next.t()` 而非 useTranslation hook
 - 常量文件（NAV_ITEMS、ISP_OPTIONS、THEME_OPTIONS、QUALITY_CONFIG）添加 labelKey 字段，运行时通过 t(labelKey) 翻译
 - 默认语言中文，i18n 仍使用 `localStorage`（非 safeStorage），仅 `useAppStore.setLanguage` 使用 `safeStorage`
@@ -1601,6 +1603,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **quality 面板可见性联动**（2026-09-03 约定）: `enableNetworkQuality === false` 时 App 对 quality 面板渲染 `null`、DockNav 过滤入口。三处必须联动——`useInitialDataLoad` 启动恢复 `defaultPanel`/`savedPanel` 时跳过 quality（否则重启后主区域空白）、`SettingsPanel` 关闭质量开关时清 `defaultPanel` 并把 `activePanel` 切回 dashboard。新增受开关控制的面板时同样需三处联动
 - **窗口监听**: `getCurrentWindow().onResized` 监听窗口大小变化
 - **引导向导**: 首次启动检测（`safeStorage.get('campus-onboarding-done')`），未完成则弹出 OnboardingWizard
+- **赞助下拉浮层自动弹出** (2026-09-04): 已有账号才弹（`configUser` 非空，与 onboarding 的 `!configUser` 条件天然互斥）→ 启动 1s 延迟（`SPONSOR_SHOW_DELAY_MS`，等启动入场动画完成）→ `document.visibilityState === 'visible'` 才弹（静默启动/最小化时挂 visibilitychange 推迟到可见）→ 7 天频控（`sponsor-last-shown` epoch ms 存 localStorage，`SPONSOR_SHOW_INTERVAL_MS`）。弹出瞬间即写时间戳；标题栏 Heart 与关于对话框"赞助支持"两个手动入口不受频控、不写时间戳。频控判断在 `configUser` 短路之后，二者叠加保证首次使用（无账号）阶段完全不打扰。浮层为标题栏按钮下方下拉展开（曾尝试独立外挂子窗口方案，实测体验不佳已废弃，改回窗口内非模态浮层）。
 - **ErrorBoundary 嵌套**: 外层 ErrorBoundary（L361）+ 面板内容 ErrorBoundary（L288）+ main.tsx ErrorBoundary
 - **useLogToastStore**: 独立 zustand store 用于 Toast 管理
 

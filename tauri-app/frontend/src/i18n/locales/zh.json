@@ -68,6 +68,7 @@
     "notificationOff": "通知已关闭",
     "themeSettings": "主题设置",
     "about": "关于",
+    "sponsor": "赞助",
     "minimize": "最小化",
     "maximize": "最大化",
     "restore": "还原",
@@ -521,6 +522,7 @@
     "updateNotFound": "未找到更新信息",
     "releaseNotes": "更新日志",
     "githubRepo": "GitHub 仓库",
+    "sponsor": "赞助支持",
     "oneClickDownload": "一键下载 v{{version}}",
     "switchDownloadSource": "下载慢？点击切换下载源",
     "newFeatureHighlights": "新功能亮点",
@@ -639,5 +641,11 @@
   },
   "dock": {
     "selectAdapter": "选择适配器"
+  },
+  "sponsor": {
+    "title": "请作者喝一杯 ☕",
+    "desc": "如果这个工具帮到了你，欢迎请作者喝杯奶茶～",
+    "wechatAlt": "微信收款码",
+    "alipayAlt": "支付宝收款码"
   }
 }

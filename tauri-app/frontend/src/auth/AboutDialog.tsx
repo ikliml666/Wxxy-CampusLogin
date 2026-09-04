@@ -10,7 +10,7 @@ import {
   Check, ExternalLink, RefreshCw,
   Download, Globe, Server, Loader2,
   ChevronDown, ChevronRight, XCircle, Package,
-  Zap, Users, Wifi, Sparkles
+  Zap, Users, Wifi, Sparkles, Heart
 } from'lucide-react'
 import { APP_NAME, APP_VERSION } from'@/shared/ui-constants'
 import { cn, extractErrorMessage } from'@/lib/utils'
@@ -70,6 +70,8 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
   const api = tauriApiWithRetry
   const { t } = useTranslation()
   const [checking, setChecking] = useState(false)
+  // 赞助内嵌页：点击左栏"赞助支持"后右栏切换为赞助面板，"返回"切回更新仪表盘
+  const [showSponsor, setShowSponsor] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
   const [downloadState, setDownloadState] = useState<DownloadState>('idle')
   const [progress, setProgress] = useState<DownloadProgress | null>(null)
@@ -109,6 +111,10 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     }
     setChecking(false)
   }, [api, onUpdateAvailable])
+
+  useEffect(() => {
+    if (!isOpen) setShowSponsor(false)
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -336,8 +342,16 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               </div>
             ) : null}
 
-            {/* 底部: GitHub 仓库链接 */}
-            <div className="mt-auto pt-4">
+            {/* 底部: 赞助按钮 + GitHub 仓库链接 */}
+            <div className="mt-auto pt-4 space-y-3">
+              <Button
+                variant="outline"
+                className="w-full justify-center gap-2 h-[34px] text-xs rounded-lg border-rose-200 bg-rose-50/60 text-rose-600 hover:bg-rose-100/70 hover:text-rose-600"
+                onClick={() => setShowSponsor(true)}
+              >
+                <Heart className="h-3 w-3 fill-rose-500 text-rose-500" aria-hidden="true" />
+                {t('about.sponsor')}
+              </Button>
               <button
                 onClick={openGithub}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
@@ -348,9 +362,47 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             </div>
           </div>
 
-          {/* ===== 右侧栏 (65%) - 更新仪表盘 ===== */}
+          {/* ===== 右侧栏 (65%) - 更新仪表盘 / 赞助内嵌页 ===== */}
           <div className="flex-1 bg-[#F8F9FA] flex flex-col p-6 min-h-0 relative">
 
+            {/* 赞助内嵌页：右栏整体切换展示，"返回"回到更新仪表盘 */}
+            {showSponsor && (
+              <div className="flex-1 flex flex-col items-center min-h-0">
+                <div className="text-center shrink-0">
+                  <div className="flex items-center justify-center gap-1.5 text-base font-semibold">
+                    <Heart className="h-4 w-4 text-rose-500 fill-rose-500" aria-hidden="true" />
+                    {t('sponsor.title')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('sponsor.desc')}</p>
+                </div>
+                <div className="flex gap-4 items-start justify-center flex-1 min-h-0 mt-3">
+                  <img
+                    src="/sponsor-weixin.png"
+                    alt={t('sponsor.wechatAlt')}
+                    className="max-h-full rounded-xl border border-gray-100 shadow-sm"
+                    draggable={false}
+                  />
+                  <img
+                    src="/sponsor-alipay.jpg"
+                    alt={t('sponsor.alipayAlt')}
+                    className="max-h-full rounded-xl border border-gray-100 shadow-sm"
+                    draggable={false}
+                  />
+                </div>
+                <div className="flex justify-end w-full pt-2 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    onClick={() => setShowSponsor(false)}
+                  >
+                    {t('about.return')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className={showSponsor ? 'hidden' : 'contents'}>
             {/* ------ idle + 无更新：已是最新版 ------ */}
             {downloadState ==='idle' && !updateInfo?.hasUpdate && (
               <div className="flex-1 flex flex-col items-center justify-center gap-5">
@@ -623,6 +675,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                 </Button>
               </div>
             )}
+            </div>
           </div>
         </div>
       </DialogContent>
