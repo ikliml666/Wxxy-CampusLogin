@@ -437,7 +437,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   disabled={dnsChecking}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors whitespace-nowrap',
-                    'bg-white/60 hover:bg-white/80 text-foreground',
+                    // 暗色下白 60% 叠暗卡会变浅灰底，配主题近白字对比度崩坏，加暗色变体
+                    'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15',
                     'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]',
                     'backdrop-blur-sm',
                     dnsChecking && 'opacity-70 cursor-wait'
