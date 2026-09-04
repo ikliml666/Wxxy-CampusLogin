@@ -1183,7 +1183,9 @@ struct ConnectionCampusStatus {
 
 | 函数 | 说明 |
 |------|------|
-| `notify_network_quality_change()` | 网络质量变化通知 (bad/good 级别切换)，由后端统一发送，前端不再重复调用 `sendNotification` |
+| `classify_quality_change()` | 质量档位切换纯判定（不落状态不发通知）：恶化到 poor/bad → `Some("bad")`，从 poor/bad 恢复 → `Some("good")`；`BAD_LEVELS` 常量与复核共用，5 个单测锁定 |
+| `record_last_quality()` | 落盘 `last_network_quality` 状态（NetworkSnapshot） |
+| `notify_quality_change()` | 发送网络质量通知（bad=网络拥堵 / good=网络恢复）+ `emit_login_log`，前端不再重复调用 `sendNotification` |
 | `spawn_latency_test_loop()` | 启动延迟测试循环 (CancellationToken) |
 
 **v2.2.5 改进**:
@@ -1193,8 +1195,9 @@ struct ConnectionCampusStatus {
 | 启动延迟 1 秒 | 循环开始前 `sleep(1s)`，避免网络未稳定时 HTTPS 测试延迟异常 |
 | RAII guard | `is_quality_checking.try_acquire()` 返回 `TaskGuard`，作用域结束自动释放，替代手动 `swap_acquire + force_release` |
 | 增量推送 | 传递 `Some(&app_handle)` 给 `check_network_quality_async`，启用 Phase 1 + HTTPS 批次增量推送 |
-| 后端统一通知 | `notify_network_quality_change` 在后端发送网络质量变化通知，前端不再主动调用 `sendNotification` |
+| 后端统一通知 | 网络质量变化通知由后端统一发送（`notify_quality_change`），前端不再主动调用 `sendNotification` |
 | 移除 15s 冷却 (v2.2.6) | 删除 last_quality_check_time 字段及冷却检查逻辑，首次检测可立即执行 |
+| 延迟升高复核确认 (2026-09-04) | 恶化到 poor/bad 不再立即通知：`run_quality_check`（quality_scheduler.rs）以 15s 间隔再连续复核 2 次（`SPIKE_CONFIRM_COUNT=2` / `SPIKE_CONFIRM_INTERVAL_SECS=15`），全部达到 `BAD_LEVELS` 才发"网络拥堵"通知，任一次未达标即放弃——避免瞬时抖动误报。复核检测复用 `perform_quality_check`（信号量抢占 + 检测 + 前端推送），前端数据照常更新仅门控系统通知；复核未执行成功（如与手动检测互斥冲突）按证据不足处理：不通知、不落 `last_network_quality`，下轮周期可重新触发。恢复通知不受影响；落状态语义：确认→落末次 bad 值，任一次复核未达标→落该次实际值，复核未产出→不落（保持原值） |
 | 未在线跳过 (2026-09-03) | `spawn_latency_test_loop` 每轮检查 `any_adapter_online`，Portal 未认证时跳过自动检测（未认证时外网 HTTPS 必被拦截、全超时且误报"网络拥堵"）；前端手动触发的 `check_network_quality` 命令不受限 |
 | 质量驱动者收敛 (2026-09-04) | 全量质量检测（`run_quality_check`）的周期驱动者收敛为定时测试循环一个（`spawn_latency_test_loop`，条件 `enable_network_quality && enable_latency_test`）；后台巡检不再顺带触发质量检测（`run_background_check_blocking` 返回 `()`，删除 quality_info 联动），60s 全局节流（`QUALITY_CHECK_MIN_INTERVAL_MS`）随之移除——定时测试间隔（最小 10s）从此真实生效。信号量 `is_quality_checking` 保留防与手动检测并发。代价：不开"定时测试"则质量面板无周期数据（仅手动检测按钮） |
 | 就绪短重试 (2026-09-04) | 修复"启动后几秒内拿不到质量首结果"：未就绪（适配器无 IP / `any_adapter_online=false`）时原先走 `continue`，会立刻耗尽 tokio interval 的即时首 tick（首两个循环连续跳过后），之后干等完整周期（30s+）才轮到下一轮——而 `any_adapter_online` 要等后台巡检首次探测完（数秒）才置 true，天然错过。现改为未就绪时内层循环每 2s 短重试且不消耗周期 tick，就绪后立即检测：启动后首次结果从 30s+ 缩短到数秒 |

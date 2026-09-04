@@ -6,49 +6,47 @@ use crate::infra::state::AppState;
 use crate::infra::notification::emit_notification;
 use super::quality_scheduler::run_quality_check;
 
-pub fn notify_network_quality_change(app_handle: &AppHandle, state: &AppState, quality: &serde_json::Value, enable_notification: bool) {
-    let current = quality["quality"].as_str().unwrap_or("unknown").to_string();
+/// 触发"网络拥堵"通知的质量档位（quality_scheduler 复核同样以此为准）
+pub(super) const BAD_LEVELS: &[&str] = &["poor", "bad"];
+const GOOD_LEVELS: &[&str] = &["excellent", "great", "good"];
 
-    let should_notify = {
-        let last_arc = state.network.load().last_network_quality.clone();
-        let last = last_arc.as_ref();
-        if !enable_notification {
-            None
-        } else if let Some(last_q) = last {
-            if current != *last_q {
-                let bad_levels: &[&str] = &["poor", "bad"];
-                let good_levels: &[&str] = &["excellent", "great", "good"];
-                let was_bad = bad_levels.contains(&last_q.as_str());
-                let is_bad = bad_levels.contains(&current.as_str());
-                let was_good = good_levels.contains(&last_q.as_str());
-                let is_good = good_levels.contains(&current.as_str());
-
-                if is_bad && !was_bad {
-                    Some("bad")
-                } else if is_good && !was_good && was_bad {
-                    Some("good")
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
-
-    if let Some(kind) = should_notify {
-        if kind == "bad" {
-            emit_notification(app_handle, "网络拥堵", "校园网延迟升高，网络可能拥堵");
-            let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟升高，网络可能拥堵", "warning");
-        } else {
-            emit_notification(app_handle, "网络恢复", "校园网延迟已恢复正常");
-            let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟已恢复正常", "info");
-        }
+/// 与上次质量档位比较判断是否需要通知（纯判断，不落状态不发通知）：
+/// Some("bad") = 恶化到 poor/bad，需经 quality_scheduler 复核确认后才通知；
+/// Some("good") = 从 poor/bad 恢复。
+pub(super) fn classify_quality_change(last: Option<&str>, current: &str, enable_notification: bool) -> Option<&'static str> {
+    if !enable_notification {
+        return None;
     }
+    let last_q = last?;
+    if current == last_q {
+        return None;
+    }
+    let was_bad = BAD_LEVELS.contains(&last_q);
+    let is_bad = BAD_LEVELS.contains(&current);
+    let was_good = GOOD_LEVELS.contains(&last_q);
+    let is_good = GOOD_LEVELS.contains(&current);
 
-    state.network.update(|s| s.last_network_quality = Some(current.clone()));
+    if is_bad && !was_bad {
+        Some("bad")
+    } else if is_good && !was_good && was_bad {
+        Some("good")
+    } else {
+        None
+    }
+}
+
+pub(super) fn record_last_quality(state: &AppState, current: &str) {
+    state.network.update(|s| s.last_network_quality = Some(current.to_string()));
+}
+
+pub(super) fn notify_quality_change(app_handle: &AppHandle, kind: &str) {
+    if kind == "bad" {
+        emit_notification(app_handle, "网络拥堵", "校园网延迟升高，网络可能拥堵");
+        let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟升高，网络可能拥堵", "warning");
+    } else {
+        emit_notification(app_handle, "网络恢复", "校园网延迟已恢复正常");
+        let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟已恢复正常", "info");
+    }
 }
 
 pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<(), String> {
@@ -100,4 +98,43 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_quality_change;
+
+    #[test]
+    fn degraded_to_bad_level_triggers_pending_bad() {
+        assert_eq!(classify_quality_change(Some("good"), "bad", true), Some("bad"));
+        assert_eq!(classify_quality_change(Some("excellent"), "poor", true), Some("bad"));
+    }
+
+    #[test]
+    fn recovery_from_bad_level_triggers_good() {
+        assert_eq!(classify_quality_change(Some("bad"), "good", true), Some("good"));
+        assert_eq!(classify_quality_change(Some("poor"), "excellent", true), Some("good"));
+    }
+
+    #[test]
+    fn same_level_or_unknown_last_never_notifies() {
+        assert_eq!(classify_quality_change(Some("bad"), "bad", true), None);
+        assert_eq!(classify_quality_change(Some("good"), "good", true), None);
+        assert_eq!(classify_quality_change(None, "bad", true), None);
+    }
+
+    #[test]
+    fn middle_levels_crossing_never_notifies() {
+        // fair/unknown 等中间档位与任意档位互转均不通知（与历史行为一致）
+        assert_eq!(classify_quality_change(Some("good"), "fair", true), None);
+        assert_eq!(classify_quality_change(Some("fair"), "bad", true), Some("bad"));
+        assert_eq!(classify_quality_change(Some("bad"), "fair", true), None);
+        assert_eq!(classify_quality_change(Some("poor"), "poor", true), None);
+    }
+
+    #[test]
+    fn notification_disabled_never_classifies() {
+        assert_eq!(classify_quality_change(Some("good"), "bad", false), None);
+        assert_eq!(classify_quality_change(Some("bad"), "good", false), None);
+    }
 }
