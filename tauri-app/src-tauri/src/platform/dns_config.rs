@@ -58,13 +58,51 @@ enum DnsTarget {
     Profile,
 }
 
+/// NameServer 条目按地址族分组：含 ':' 即 IPv6，否则按 IPv4 处理。
+/// Win32 契约（DNS_INTERFACE_SETTINGS3.Flags）：一次调用只作用于一个栈——
+/// 默认仅 IPv4 栈，带 DNS_SETTING_IPV6(0x0001) 时仅 IPv6 栈，且 NameServer
+/// 地址族必须与目标栈一致，混合串写入会失败或被静默丢弃。
+fn split_families<'a>(dns_servers: &[&'a str]) -> (Vec<&'a str>, Vec<&'a str>) {
+    (
+        dns_servers.iter().filter(|s| !s.contains(':')).copied().collect(),
+        dns_servers.iter().filter(|s| s.contains(':')).copied().collect(),
+    )
+}
+
 #[cfg(target_os = "windows")]
 fn set_dns_inner(
     target: DnsTarget,
     adapter_guid: &str,
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
-    include_doh: bool,
+    err_label: &str,
+) -> Result<(), String> {
+    let (v4_servers, v6_servers) = split_families(dns_servers);
+    let mut errs: Vec<String> = Vec::new();
+    if !v4_servers.is_empty() {
+        if let Err(e) = set_dns_stack(target, false, adapter_guid, &v4_servers, doh_templates, err_label) {
+            errs.push(e);
+        }
+    }
+    if !v6_servers.is_empty() {
+        if let Err(e) = set_dns_stack(target, true, adapter_guid, &v6_servers, doh_templates, err_label) {
+            errs.push(e);
+        }
+    }
+    if errs.is_empty() { Ok(()) } else { Err(errs.join("；")) }
+}
+
+/// 设置单个协议栈的 DNS（+DoH）。`ipv6` 决定 flags 是否带 DNS_SETTING_IPV6，
+/// NameServer 只接收该栈的地址；DoH 属性按 target 挂到与 flag 对应的字段：
+/// Interface → ServerProperties（DNS_SETTING_DOH），
+/// Profile → ProfileServerProperties（DNS_SETTING_DOH_PROFILE）。
+#[cfg(target_os = "windows")]
+fn set_dns_stack(
+    target: DnsTarget,
+    ipv6: bool,
+    adapter_guid: &str,
+    dns_servers: &[&str],
+    doh_templates: &[(&str, &str)],
     err_label: &str,
 ) -> Result<(), String> {
     use windows::Win32::NetworkManagement::IpHelper::*;
@@ -78,15 +116,11 @@ fn set_dns_inner(
     let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
     let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
     let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
-    doh_settings.reserve(doh_templates.len());
-    doh_props.reserve(doh_templates.len());
+    doh_settings.reserve(dns_servers.len());
+    doh_props.reserve(dns_servers.len());
 
-    // 历史缺陷：对 doh_templates（4 台 DoH 服务器）全量生成 ServerIndex 0..3，
-    // 但 NameServer 仅含 dns_servers（2 台）。ServerIndex 按 Win32 契约必须索引
-    // NameServer 列表中的实际位置：索引 2/3 引用不存在的服务器导致
-    // SetInterfaceDnsSettings 报 ERROR_INVALID_PARAMETER，且索引 1 的 DoH 模板
-    // 错配（223.6.6.6 模板套到 1.12.12.12）。
-    // 修复：仅为 NameServer 中实际存在的服务器生成 DoH 属性，按服务器 IP 匹配模板。
+    // ServerIndex 按 Win32 契约必须索引本栈 NameServer 列表中的实际位置：
+    // 仅为列表中实际存在且配置了模板的服务器生成 DoH 属性，按服务器 IP 匹配模板。
     for (idx, template) in doh_bindings(dns_servers, doh_templates) {
         let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
         doh_templates_wide.push(tpl_wide);
@@ -109,28 +143,31 @@ fn set_dns_inner(
         doh_props.push(prop);
     }
 
-    // 目标字段与 flags 差异：Interface 写入 NameServer + NAMESERVER|DOH，
-    // Profile 写入 ProfileNameServer + PROFILE_NAMESERVER|DOH_PROFILE
     let ns_ptr = ns_wide.as_mut_ptr();
     let (nameserver, profile_nameserver) = match target {
         DnsTarget::Interface => (PWSTR(ns_ptr), PWSTR::null()),
         DnsTarget::Profile => (PWSTR::null(), PWSTR(ns_ptr)),
     };
-    let flags = match target {
-        DnsTarget::Interface => {
-            if include_doh && !doh_props.is_empty() {
-                (DNS_SETTING_NAMESERVER | DNS_SETTING_DOH) as u64
-            } else {
-                DNS_SETTING_NAMESERVER as u64
-            }
-        }
-        DnsTarget::Profile => {
-            if !doh_props.is_empty() {
-                (DNS_SETTING_PROFILE_NAMESERVER | DNS_SETTING_DOH_PROFILE) as u64
-            } else {
-                DNS_SETTING_PROFILE_NAMESERVER as u64
-            }
-        }
+
+    let ns_flag: u64 = match target {
+        DnsTarget::Interface => DNS_SETTING_NAMESERVER as u64,
+        DnsTarget::Profile => DNS_SETTING_PROFILE_NAMESERVER as u64,
+    };
+    let mut flags = ns_flag;
+    if ipv6 {
+        flags |= DNS_SETTING_IPV6 as u64;
+    }
+    if !doh_props.is_empty() {
+        flags |= match target {
+            DnsTarget::Interface => DNS_SETTING_DOH as u64,
+            DnsTarget::Profile => DNS_SETTING_DOH_PROFILE as u64,
+        };
+    }
+
+    // DoH 属性槽与 flag 一一对应，未使用的槽必须为 NULL
+    let (c_server_props, server_props, c_profile_props, profile_props) = match target {
+        DnsTarget::Interface => (doh_props.len() as u32, doh_props.as_mut_ptr(), 0u32, std::ptr::null_mut()),
+        DnsTarget::Profile => (0u32, std::ptr::null_mut(), doh_props.len() as u32, doh_props.as_mut_ptr()),
     };
 
     let settings = DNS_INTERFACE_SETTINGS3 {
@@ -146,10 +183,10 @@ fn set_dns_inner(
         ProfileNameServer: profile_nameserver,
         DisableUnconstrainedQueries: 0,
         SupplementalSearchList: PWSTR::null(),
-        cServerProperties: doh_props.len() as u32,
-        ServerProperties: doh_props.as_mut_ptr(),
-        cProfileServerProperties: 0,
-        ProfileServerProperties: std::ptr::null_mut(),
+        cServerProperties: c_server_props,
+        ServerProperties: server_props,
+        cProfileServerProperties: c_profile_props,
+        ProfileServerProperties: profile_props,
     };
 
     unsafe {
@@ -158,7 +195,8 @@ fn set_dns_inner(
             &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
         );
         if result != windows::Win32::Foundation::WIN32_ERROR(0) {
-            return Err(format!("SetInterfaceDnsSettings({}) 失败: 错误码 {}", err_label, result.0));
+            let stack = if ipv6 { "IPv6" } else { "IPv4" };
+            return Err(format!("SetInterfaceDnsSettings({},{}) 失败: 错误码 {}", err_label, stack, result.0));
         }
     }
 
@@ -171,7 +209,7 @@ pub fn set_dns_via_api(
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
 ) -> Result<(), String> {
-    set_dns_inner(DnsTarget::Interface, adapter_guid, dns_servers, doh_templates, true, "DNS+DoH")
+    set_dns_inner(DnsTarget::Interface, adapter_guid, dns_servers, doh_templates, "DNS+DoH")
 }
 
 /// 设置按配置文件（per-profile）的 DNS + DoH
@@ -182,23 +220,39 @@ pub fn set_profile_dns_via_api(
     dns_servers: &[&str],
     doh_templates: &[(&str, &str)],
 ) -> Result<(), String> {
-    set_dns_inner(DnsTarget::Profile, adapter_guid, dns_servers, doh_templates, true, "ProfileDNS")
+    set_dns_inner(DnsTarget::Profile, adapter_guid, dns_servers, doh_templates, "ProfileDNS")
 }
 
-/// 清除适配器级 DNS 设置（NameServer），使配置文件级 DNS 生效
+/// 清除适配器级 DNS 设置（NameServer），恢复 DHCP 获取。
+/// IPv4/IPv6 两个栈分别清除：只清 v4 栈时，旧的静态 v6 配置会残留。
+/// v4 清除失败必须报错（接口级残留会覆盖 profile DNS）；v6 清除的
+/// "IPV6 flag + 空串"组合的 API 接受性未经 Win11 实测确证（文档字面要求
+/// IPV6 时 NameServer 必须为 v6 地址），失败降级为警告，避免整个 clear
+/// 恒失败导致 WiFi 分支全部退化为接口级设置。
 #[cfg(target_os = "windows")]
 pub fn clear_adapter_dns_via_api(adapter_guid: &str) -> Result<(), String> {
+    if let Err(e) = clear_dns_stack(adapter_guid, true) {
+        crate::log_warn!("dns", "清除适配器级DNS(IPv6)失败（忽略）: {}", e);
+    }
+    clear_dns_stack(adapter_guid, false)
+}
+
+#[cfg(target_os = "windows")]
+fn clear_dns_stack(adapter_guid: &str, ipv6: bool) -> Result<(), String> {
     use windows::Win32::NetworkManagement::IpHelper::*;
     use windows::core::PWSTR;
 
     let guid = crate::platform::elevation::parse_guid(adapter_guid)?;
 
-    // 设置 NameServer 为空字符串，清除适配器级 DNS
-    let mut empty_ns: Vec<u16> = [0u16].to_vec();
+    // 设置 NameServer 为空字符串，清除该栈的适配器级 DNS
+    let mut empty_ns: Vec<u16> = vec![0u16];
+
+    let flags = DNS_SETTING_NAMESERVER as u64
+        | if ipv6 { DNS_SETTING_IPV6 as u64 } else { 0 };
 
     let settings = DNS_INTERFACE_SETTINGS3 {
         Version: DNS_INTERFACE_SETTINGS_VERSION3,
-        Flags: DNS_SETTING_NAMESERVER as u64,
+        Flags: flags,
         Domain: PWSTR::null(),
         NameServer: PWSTR(empty_ns.as_mut_ptr()),
         SearchList: PWSTR::null(),
@@ -221,7 +275,8 @@ pub fn clear_adapter_dns_via_api(adapter_guid: &str) -> Result<(), String> {
             &settings as *const _ as *const DNS_INTERFACE_SETTINGS,
         );
         if result != windows::Win32::Foundation::WIN32_ERROR(0) {
-            return Err(format!("清除适配器级DNS失败: 错误码 {}", result.0));
+            let stack = if ipv6 { "IPv6" } else { "IPv4" };
+            return Err(format!("清除适配器级DNS({})失败: 错误码 {}", stack, result.0));
         }
     }
 
@@ -296,8 +351,11 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
                     continue;
                 }
 
+                // 服务器 IP 行按"可解析为合法地址"识别：IPv4 或 IPv6。
+                // 此前仅匹配点分十进制，IPv6 条目解析不到，且其模板行会被
+                // 错误记到上一个 IPv4 条目名下（串染）。
                 let ip_match = trimmed.split_whitespace()
-                    .find(|s| s.chars().all(|c| c.is_ascii_digit() || c == '.') && s.contains('.') && s.parse::<std::net::Ipv4Addr>().is_ok())
+                    .find(|s| s.parse::<std::net::Ipv4Addr>().is_ok() || s.parse::<std::net::Ipv6Addr>().is_ok())
                     .map(|s| s.to_string());
 
                 if let Some(ip) = ip_match {
@@ -480,6 +538,14 @@ pub fn read_adapter_dns_from_registry() -> Result<serde_json::Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn split_families_partitions_by_colon() {
+        let mixed = ["223.5.5.5", "2400:3200::1", "1.12.12.12", "2402:4e00::"];
+        let (v4, v6) = split_families(&mixed);
+        assert_eq!(v4, vec!["223.5.5.5", "1.12.12.12"]);
+        assert_eq!(v6, vec!["2400:3200::1", "2402:4e00::"]);
+    }
 
     #[test]
     fn doh_bindings_only_for_present_servers() {

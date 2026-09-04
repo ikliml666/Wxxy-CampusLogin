@@ -44,31 +44,45 @@ pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Valu
     let mut api_fail: Vec<String> = Vec::new();
 
     for adapter in &active {
-        // WiFi 适配器：先清除适配器级 DNS，再设置配置文件级 DNS
+        // WiFi 适配器：先清除适配器级 DNS，再设置配置文件级 DNS；
+        // 清除失败时接口级残留会覆盖 profile DNS（接口级优先级更高），
+        // 此时改走接口级设置而非写 profile
         // 有线适配器：保持适配器级 DNS
         if adapter.wireless {
-            if let Err(e) = dns_config::clear_adapter_dns_via_api(&adapter.guid) {
-                crate::log_warn!("dns", "清除适配器级DNS失败: {} - {}", adapter.name, e);
-            }
-            match dns_config::set_profile_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
-                Ok(()) => {
-                    crate::log_info!("dns", "配置文件级DNS+DoH设置成功: {}", adapter.name);
-                    api_success.push(adapter.name.clone());
-                }
+            match dns_config::clear_adapter_dns_via_api(&adapter.guid) {
+                Ok(()) => match dns_config::set_profile_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
+                    Ok(()) => {
+                        crate::log_info!("dns", "配置文件级DNS+DoH设置成功: {}", adapter.name);
+                        api_success.push(adapter.name.clone());
+                    }
+                    Err(e) => {
+                        crate::log_warn!(
+                            "dns",
+                            "配置文件级DNS设置失败: {} - {}, 降级到适配器级",
+                            adapter.name,
+                            e
+                        );
+                        match dns_config::set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
+                            Ok(()) => {
+                                crate::log_info!("dns", "降级适配器级DNS+DoH成功: {}", adapter.name);
+                                api_success.push(adapter.name.clone());
+                            }
+                            Err(e2) => {
+                                crate::log_warn!("dns", "适配器级DNS也失败: {} - {}", adapter.name, e2);
+                                api_fail.push(format!("{}: {}", adapter.name, e2));
+                            }
+                        }
+                    }
+                },
                 Err(e) => {
-                    crate::log_warn!(
-                        "dns",
-                        "配置文件级DNS设置失败: {} - {}, 降级到适配器级",
-                        adapter.name,
-                        e
-                    );
+                    crate::log_warn!("dns", "清除适配器级DNS失败: {} - {}, 改用接口级设置", adapter.name, e);
                     match dns_config::set_dns_via_api(&adapter.guid, &dns_list, &doh_list) {
                         Ok(()) => {
-                            crate::log_info!("dns", "降级适配器级DNS+DoH成功: {}", adapter.name);
+                            crate::log_info!("dns", "接口级DNS+DoH设置成功: {}", adapter.name);
                             api_success.push(adapter.name.clone());
                         }
                         Err(e2) => {
-                            crate::log_warn!("dns", "适配器级DNS也失败: {} - {}", adapter.name, e2);
+                            crate::log_warn!("dns", "接口级DNS设置失败: {} - {}", adapter.name, e2);
                             api_fail.push(format!("{}: {}", adapter.name, e2));
                         }
                     }
@@ -108,13 +122,27 @@ pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Valu
         .output();
 
     if !api_success.is_empty() {
+        // 文案按 family 反映实际写入的服务器（此前硬编码 v4 地址，IPv6 档误导）
+        let servers_desc = match family {
+            "ipv6" => format!("IPv6 {}/{}", dns_config::PRIMARY_DNS_V6, dns_config::SECONDARY_DNS_V6),
+            "ipv4" => format!("IPv4 {}/{}", dns_config::PRIMARY_DNS, dns_config::SECONDARY_DNS),
+            _ => format!(
+                "IPv4 {}/{}、IPv6 {}/{}",
+                dns_config::PRIMARY_DNS,
+                dns_config::SECONDARY_DNS,
+                dns_config::PRIMARY_DNS_V6,
+                dns_config::SECONDARY_DNS_V6
+            ),
+        };
         let mut parts = Vec::new();
         parts.push(format!(
-            "已为 {} 设置DNS({}+{})并启用DoH",
+            "已为 {} 设置DNS（{}）并启用DoH",
             api_success.join("、"),
-            dns_config::PRIMARY_DNS,
-            dns_config::SECONDARY_DNS
+            servers_desc
         ));
+        if family == "ipv6" {
+            parts.push("仅IPv6模式：请确保当前网络支持IPv6出口，否则域名解析可能失败".to_string());
+        }
         if !api_fail.is_empty() {
             parts.push(format!("{}个适配器设置失败", api_fail.len()));
         }
@@ -136,6 +164,6 @@ pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Valu
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn setup_dns_doh_admin(_targets: &[String]) -> serde_json::Value {
+pub fn setup_dns_doh_admin(_targets: &[String], _family: &str) -> serde_json::Value {
     serde_json::json!({ "success": false, "message": "仅支持Windows".to_string() })
 }
