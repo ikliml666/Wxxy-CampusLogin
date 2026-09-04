@@ -38,7 +38,8 @@ export function createPanelAppleVariants(easing: EasingConfig) {
       y: -4,
       opacity: 0.9,
       scale: 0.99,
-      transition: { duration: 0.08, ease: easing.exit as [number, number, number, number] },
+      // 0.04s：退出只是过渡提示，等待税越低切换越跟手（0.08s 时每刀固定多等 80ms）
+      transition: { duration: 0.04, ease: easing.exit as [number, number, number, number] },
     },
   }
 }

@@ -1963,7 +1963,8 @@ App.tsx (377行, App + AppInner)
 | 客户端池键去 String (v2.4.0) | CLIENT_POOL key 改 `(Option<IpAddr>, u8, u64)` 元组 (network/client.rs) | 热路径零堆分配 |
 | MAC 随机化 getrandom (v2.4.0) | generate_random_mac 改 getrandom 填充（低概率失败降级 LCG）(network/dhcp.rs) | 原时间+计数器 LCG 可预测 → 密码学随机 |
 | 前端订阅粒度化 (v2.4.0) | App/StatusBar/RightPanel config 全量订阅改最小粒度 selector (App.tsx, StatusBar.tsx, RightPanel.tsx) | 任意字段变化不再级联重渲染外壳与面板 |
-| 面板代码分割 (v2.4.0) | 10 个低频面板/对话框 React.lazy 分包并绕开 barrel (App.tsx) | 主包 402KB→285KB（-29%） |
+| 面板代码分割 (v2.4.0，2026-09-04 修订) | 低频对话框（About/Theme/Onboarding）React.lazy 分包 + 启动预热；**LogPanel 回归静态导入**——NetworkPanel 经 barrel 静态引 SegmentTabs 曾把 LogPanel 连带打进主包使 lazy 失效（vite 警告可查），真 lazy 实测即使 chunk 缓存命中切换仍 ~366ms（React.lazy+Suspense 挂载链），13KB 分包远不值切换延迟；常用面板全部静态导入 | 主包 385KB（vendor 拆分是分包主要收益）；面板切换 100-120ms → 61-68ms，日志面板 366ms → 62ms（生产 preview 实测，无 longtask） |
+| 面板切换动画等待链 (2026-09-04) | `createPanelAppleVariants` 退出 0.08s→0.04s；`handlePanelChange` 切换锁 120ms→60ms（锁只需覆盖退出时长，锁内点击仍按设计丢弃） | mode="wait" 每次切换固定多等退出时长；锁过长吞快速连点（"点了没反应"） |
 | 文本输入本地草稿 (v2.4.0) | 用户名/网关/SSID/fixedGateway 改本地 draft + blur 提交；主题色 80ms 节流 (AccountPanel, MonitorPanel, SettingsPanel) | 不再每键写 store + 触发防抖保存 |
 | 日志面板渲染优化 (v2.4.0) | 轮询内容未变跳过 setState；叠加窗口可见性门控；单遍解析 (shared/LogPanel.tsx) | 消除四层 useMemo 全量重算与整表重渲染 |
 | 事件与动画资源 (v2.4.0) | setStatus 浅比较；usePageIdle interval 化；GSAP/RAF/ripple 清理与 reduced-motion 兜底 (useEventListeners, usePageIdle, AnimatedNumber, button, animated-card, useRipple) | 减少无效 setState 与未清理资源 |

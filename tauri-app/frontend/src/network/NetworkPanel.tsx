@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select'
 import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
-import { SegmentTabs } from '@/shared'
+import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'

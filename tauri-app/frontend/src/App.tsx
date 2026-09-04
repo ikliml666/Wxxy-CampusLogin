@@ -17,6 +17,7 @@ import { AnimatePresence, m } from 'framer-motion'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
 import { FluidBackground } from '@/shared/FluidBackground'
+import { LogPanel } from '@/shared/LogPanel'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import type { PanelName } from '@/shared'
 import { TitleBar } from '@/components/layout/TitleBar'
@@ -39,21 +40,21 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 
-// 低频模块按需分包（FE-A-04）：LogPanel 与三个对话框保留 React.lazy 懒加载，
-// 其余常用面板已静态导入（切换零等待）。loader 抽出供 lazy 与启动预加载复用。
-const loadLogPanel = () => import('@/shared/LogPanel').then((m) => ({ default: m.LogPanel }))
+// 低频对话框按需分包（FE-A-04）+ 启动预热；loader 抽出供 lazy 与启动预加载复用。
+// LogPanel 曾保留 lazy，但实测即使 chunk 命中缓存，React.lazy+Suspense 链路仍让
+// 切换从 ~65ms 恶化到 ~366ms（多一轮 Suspense 挂载与动画重入），13KB 分包收益
+// 远小于切换延迟代价，回归静态导入（其余分包收益来自 vendor 拆分，保持不变）。
 const loadAboutDialog = () => import('@/auth/AboutDialog').then((m) => ({ default: m.AboutDialog }))
 const loadThemeDialog = () => import('@/settings/ThemeDialog').then((m) => ({ default: m.ThemeDialog }))
 const loadOnboardingWizard = () => import('@/settings/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard }))
 
-const LogPanel = lazy(loadLogPanel)
 const AboutDialog = lazy(loadAboutDialog)
 const ThemeDialog = lazy(loadThemeDialog)
 const OnboardingWizard = lazy(loadOnboardingWizard)
 
-// 启动后尽早并行预加载剩余的懒加载 chunk（LogPanel + 对话框），避免首次打开时等待
+// 启动后尽早并行预加载剩余的懒加载 chunk（对话框），避免首次打开时等待
 function preloadPanels() {
-  const loaders = [loadLogPanel, loadAboutDialog, loadThemeDialog, loadOnboardingWizard]
+  const loaders = [loadAboutDialog, loadThemeDialog, loadOnboardingWizard]
   Promise.allSettled(loaders.map((loader) => loader()))
 }
 
@@ -198,9 +199,9 @@ function AppInner() {
     panelChangeLock.current = true
     setActivePanel(p)
     safeStorage.set('campus-active-panel', p)
-    // 锁只需覆盖 AnimatePresence mode="wait" 的退出动画时长（0.08s），
+    // 锁只需覆盖 AnimatePresence mode="wait" 的退出动画时长（0.04s），
     // 原固定 500ms 会吞掉快速连续点击
-    setTimeout(() => { panelChangeLock.current = false }, 120)
+    setTimeout(() => { panelChangeLock.current = false }, 60)
   }, [setActivePanel])
 
   const panelInfo = PANEL_TITLES[activePanel] || PANEL_TITLES.dashboard
