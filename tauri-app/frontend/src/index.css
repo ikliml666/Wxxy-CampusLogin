@@ -105,45 +105,28 @@
   }
 
   body,
-  div,
-  main,
-  section,
-  nav,
-  [class*="overflow"] {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  html::-webkit-scrollbar,
-  body::-webkit-scrollbar,
-  div::-webkit-scrollbar,
-  main::-webkit-scrollbar,
-  section::-webkit-scrollbar,
-  nav::-webkit-scrollbar,
-  [class*="overflow"]::-webkit-scrollbar,
-  *::-webkit-scrollbar,
-  ::-webkit-scrollbar {
-    display: none !important;
-    width: 0 !important;
-    height: 0 !important;
-  }
-
-  /* 首页编辑模式：main 显示细滚动条。编辑列表内容溢出一屏时全局隐藏的滚动条
-     让"可滚动"完全不可发现，最后一张卡片看起来像被截断（2026-09-04） */
-  body.dashboard-editing main {
+  /* 全局细滚动条：完全隐藏会让"内容可滚动"不可发现（曾致首页编辑列表卡片
+     看似被截断），6px 半透明滚动条与无边框设计兼容（2026-09-04） */
+  * {
     scrollbar-width: thin;
     scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
   }
-  body.dashboard-editing main::-webkit-scrollbar {
-    display: block !important;
-    width: 6px !important;
-    height: 6px !important;
+  ::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+    height: 6px;
   }
-  body.dashboard-editing main::-webkit-scrollbar-thumb {
+  ::-webkit-scrollbar-thumb {
     background: rgba(100, 116, 139, 0.45);
     border-radius: 3px;
   }
-  body.dashboard-editing main::-webkit-scrollbar-track {
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.7);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-corner {
     background: transparent;
   }
 
@@ -698,8 +681,9 @@
 }
 
 @layer utilities {
+  /* .animate-spin 不参与 idle 冻结：它是标准 loading 指示，用户 2 秒无输入后
+     冻结 spinner 会被误读为"程序卡死"（2026-09-04） */
   .anim-idle .animate-pulse,
-  .anim-idle .animate-spin,
   .anim-idle .signal-glow-active {
     animation-play-state: paused !important;
   }

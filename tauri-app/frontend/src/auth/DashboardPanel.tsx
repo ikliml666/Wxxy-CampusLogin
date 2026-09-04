@@ -387,13 +387,6 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
 
   useEffect(() => { saveLayout(cards) }, [cards])
 
-  // 编辑模式在 body 上打标，让 main 显示细滚动条：全局滚动条被隐藏（设计上
-  // 无边框美学），编辑列表溢出一屏时没有任何"可滚动"提示，卡片看起来像被截断
-  useEffect(() => {
-    document.body.classList.toggle('dashboard-editing', editing)
-    return () => document.body.classList.remove('dashboard-editing')
-  }, [editing])
-
   const handleAddCard = useCallback((id: CardId) => {
     setCards(prev => prev.includes(id) ? prev : [...prev, id])
   }, [])
