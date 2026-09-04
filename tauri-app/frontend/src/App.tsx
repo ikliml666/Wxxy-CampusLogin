@@ -69,7 +69,9 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
 
-const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style paint', willChange: 'transform', transform: 'translateZ(0)' }
+// contain 只到 layout style：paint 会把后代裁到 content box，编辑模式卡片右上角
+// -right-1.5 的删除按钮越出 6px 被裁掉右缘（实测裁剪线=panel-content 右缘）
+const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style', willChange: 'transform', transform: 'translateZ(0)' }
 
 // 懒加载面板 chunk 加载期间的轻量骨架，避免切换面板时整块空白
 function PanelSkeleton() {
