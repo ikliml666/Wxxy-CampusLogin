@@ -128,6 +128,25 @@
     height: 0 !important;
   }
 
+  /* 首页编辑模式：main 显示细滚动条。编辑列表内容溢出一屏时全局隐藏的滚动条
+     让"可滚动"完全不可发现，最后一张卡片看起来像被截断（2026-09-04） */
+  body.dashboard-editing main {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+  }
+  body.dashboard-editing main::-webkit-scrollbar {
+    display: block !important;
+    width: 6px !important;
+    height: 6px !important;
+  }
+  body.dashboard-editing main::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.45);
+    border-radius: 3px;
+  }
+  body.dashboard-editing main::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   *, *::before, *::after {
     -webkit-font-smoothing: antialiased;
   }
