@@ -364,7 +364,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                       <p className="text-sm text-muted-foreground">v{APP_VERSION}</p>
                     </div>
                     {/* 核心优势卡片 */}
-                    <div className="grid grid-cols-3 gap-2.5 w-full max-w-[260px] mt-2">
+                    <div className="grid grid-cols-3 gap-2.5 w-full max-w-[340px] mt-2">
                       {CORE_FEATURES.map((feat) => (
                         <div key={feat.titleKey} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
                           <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
@@ -397,27 +397,62 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               </div>
             )}
 
-            {/* ------ idle + 有更新：下载按钮 + 镜像下拉 + 功能亮点 ------ */}
+            {/* ------ idle + 有更新：功能亮点（顶部）+ 下载按钮与镜像（底部） ------ */}
             {downloadState === 'idle' && updateInfo?.hasUpdate && (
-              <div className="flex-1 flex flex-col gap-4">
-                {/* 一键下载按钮 */}
-                <Button
-                  className="h-14 w-full rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-600 hover:to-purple-600 text-white font-semibold text-base justify-center gap-2.5 shadow-md shadow-violet-500/20 transition-[background-color,color,box-shadow,transform]"
-                  onClick={() => {
-                    if (selectedMirror) {
-                      handleDownload(selectedMirror)
-                    } else {
-                      handleQuickDownload()
-                    }
-                  }}
-                  disabled={checking}
-                >
-                  <Download className="h-5 w-5" />
-                  {t('about.oneClickDownload', { version: updateInfo.latestVersion })}
-                </Button>
+              <div className="flex-1 flex flex-col gap-4 min-h-0">
+                {/* 新功能亮点 */}
+                {featureHighlights.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+                      <span className="text-xs font-semibold text-foreground">{t('about.newFeatureHighlights')}</span>
+                    </div>
+                    <div className="bg-white dark:bg-card rounded-xl border border-gray-100 dark:border-border/50 divide-y divide-gray-50 dark:divide-border/30">
+                      {featureHighlights.map((item, i) => (
+                        <div key={i} className="flex items-start gap-2.5 px-3 py-2.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1 shrink-0" />
+                          <span className="text-xs text-muted-foreground leading-relaxed break-words">
+                            {renderInlineMarkdown(item)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                {/* 切换下载源入口 + 悬浮下拉面板 */}
-                <div className="relative">
+                {/* 无功能亮点时用核心优势卡片填充 */}
+                {featureHighlights.length === 0 && (
+                  <div>
+                    <div className="grid grid-cols-3 gap-2.5 max-w-[340px]">
+                      {CORE_FEATURES.map((feat) => (
+                        <div key={feat.titleKey} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
+                          <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
+                          <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 一键下载按钮 + 切换下载源入口（固定底部） */}
+                <div className="mt-auto pt-2">
+                  <Button
+                    className="h-14 w-full rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-600 hover:to-purple-600 text-white font-semibold text-base justify-center gap-2.5 shadow-md shadow-violet-500/20 transition-[background-color,color,box-shadow,transform]"
+                    onClick={() => {
+                      if (selectedMirror) {
+                        handleDownload(selectedMirror)
+                      } else {
+                        handleQuickDownload()
+                      }
+                    }}
+                    disabled={checking}
+                  >
+                    <Download className="h-5 w-5" />
+                    {t('about.oneClickDownload', { version: updateInfo.latestVersion })}
+                  </Button>
+
+                  {/* 切换下载源入口 + 悬浮下拉面板 */}
+                  <div className="relative mt-3 flex justify-center">
                   <button
                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                     onClick={async () => {
@@ -479,40 +514,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     </div>
                   )}
                 </div>
-
-                {/* 新功能亮点 */}
-                {featureHighlights.length > 0 && (
-                  <div className="mt-1">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Sparkles className="h-3.5 w-3.5 text-violet-500" />
-                      <span className="text-xs font-semibold text-foreground">{t('about.newFeatureHighlights')}</span>
-                    </div>
-                    <div className="bg-white dark:bg-card rounded-xl border border-gray-100 dark:border-border/50 divide-y divide-gray-50 dark:divide-border/30">
-                      {featureHighlights.map((item, i) => (
-                        <div key={i} className="flex items-start gap-2.5 px-3 py-2.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1 shrink-0" />
-                          <span className="text-xs text-muted-foreground leading-relaxed break-words">
-                            {renderInlineMarkdown(item)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 无功能亮点时用核心优势卡片填充 */}
-                {featureHighlights.length === 0 && (
-                  <div className="mt-1">
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {CORE_FEATURES.map((feat) => (
-                        <div key={feat.titleKey} className="bg-white dark:bg-card rounded-xl p-2.5 text-center shadow-sm border border-gray-100 dark:border-border/50">
-                          <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
-                          <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
             )}
 

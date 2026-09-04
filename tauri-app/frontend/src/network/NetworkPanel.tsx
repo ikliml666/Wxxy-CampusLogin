@@ -420,24 +420,23 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <Shield className="h-5 w-5 text-primary" />
                 </div>
-                <div>
-                  <CardTitle>{t('network.dnsOptimization')}</CardTitle>
-                <CardDescription>{t('network.dnsOptimizationDesc')}</CardDescription>
+                <div className="min-w-0">
+                  <CardTitle className="whitespace-nowrap">{t('network.dnsOptimization')}</CardTitle>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <m.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleCheckDns}
                   disabled={dnsChecking}
                   className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors',
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors whitespace-nowrap',
                     'bg-white/60 hover:bg-white/80 text-foreground',
                     'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]',
                     'backdrop-blur-sm',
@@ -453,7 +452,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   onClick={handleSetupDnsDoh}
                   disabled={dohEnabling}
                   className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors',
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors whitespace-nowrap',
                     'text-white',
                     'shadow-[0_2px_8px_rgba(99,102,241,0.3)]',
                     dohEnabling && 'opacity-80 cursor-wait'
@@ -467,6 +466,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </m.button>
               </div>
             </div>
+            {/* 功能描述移到标题行下方整行显示：原 CardDescription 占标题行宽度，
+                会把右侧"检测DNS/一键优化"按钮挤到折行 */}
+            <CardDescription className="mt-2">{t('network.dnsOptimizationDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between gap-2 mb-3">

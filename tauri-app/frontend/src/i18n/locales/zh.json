@@ -509,7 +509,7 @@
   "about": {
     "aboutTitle": "关于",
     "aboutDesc": "查看应用信息和检查更新",
-    "appDesc": "校园网自动登录助手",
+    "appDesc": "无锡学院校园网自动登录助手",
     "appDescSub": "支持多适配器与自动重连",
     "checkUpdate": "检查更新",
     "checking": "检查中...",
@@ -537,7 +537,7 @@
     "waitingForCheck": "等待检查更新",
     "checkingUpdate": "正在检查更新...",
     "dualAdapterSupport": "双适配器支持",
-    "dualAdapterSupportDesc": "兼容多种校园网认证方式",
+    "dualAdapterSupportDesc": "适配无锡学院双网卡环境",
     "multiAccountManage": "多账号管理",
     "multiAccountManageDesc": "轻松切换与保存多个账号",
     "autoReconnect": "自动重连",

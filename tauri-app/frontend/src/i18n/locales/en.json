@@ -509,7 +509,7 @@
   "about": {
     "aboutTitle": "About",
     "aboutDesc": "View app information and check for updates",
-    "appDesc": "Campus Network Auto-Login Assistant",
+    "appDesc": "Wuxi University Campus Network Auto-Login",
     "appDescSub": "Supports multi-adapter and auto-reconnect",
     "checkUpdate": "Check for Updates",
     "checking": "Checking...",
@@ -537,7 +537,7 @@
     "waitingForCheck": "Waiting to check for updates",
     "checkingUpdate": "Checking for updates...",
     "dualAdapterSupport": "Dual Adapter Support",
-    "dualAdapterSupportDesc": "Compatible with various campus network authentication methods",
+    "dualAdapterSupportDesc": "Tailored for Wuxi University dual-adapter networking",
     "multiAccountManage": "Multi-Account Management",
     "multiAccountManageDesc": "Easily switch and save multiple accounts",
     "autoReconnect": "Auto Reconnect",
