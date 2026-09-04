@@ -409,7 +409,6 @@ function AppInner() {
           open={aboutOpen}
           onClose={() => setAboutOpen(false)}
           openExternal={(url) => api.openExternal?.(url)}
-          onShowSponsor={() => { setAboutOpen(false); setSponsorOpen(true) }}
           initialLatestVersion={useQualityStore.getState().latestVersion}
           initialReleaseNotes={useQualityStore.getState().releaseNotes}
           initialUpdateAvailable={useQualityStore.getState().updateAvailable}
