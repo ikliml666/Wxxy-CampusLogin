@@ -751,6 +751,11 @@ pub fn random_v() -> String {
 
 每次请求独立生成 1000-9999 随机4位数 v 值，统一应用于登录、注销、Portal 检测。
 
+**响应解码与 JSONP 解析 (2026-09-04 补扫修复)**:
+
+- **编码**: 响应体经 `platform/console_output.rs::decode_charset_bytes` 解码——Content-Type 显式 GBK 族按 936，否则 UTF-8 优先 → OEM 回退。修复老 Dr.COM Portal（GBK 响应）下"认证成功/已经在线/非法"等中文关键词匹配全部失效：result==1 的真实失败会被误报为登录成功（`from_utf8_lossy` 时代 GBK 字节全变 U+FFFD）
+- **JSONP**: `jsonp_json_slice()` 从第一个 `(` 后的第一个 `{` 起做字符串/转义感知的花括号平衡扫描到配对 `}`。旧实现 `rfind(')')` 取最后一个右括号，msg 含半角 `)`（如"密码错误(剩余2次)"）时 JSON 被截断 → 解析失败 → 重试 3 次全败误报
+
 **登录函数**:
 
 | 函数 | 说明 |
@@ -1978,7 +1983,9 @@ App.tsx (377行, App + AppInner)
 | 全局细滚动条 (2026-09-04) | index.css 滚动条从全局隐藏（display:none!important）改为 6px 半透明细条（thin + webkit），删除 dashboard-editing 特例与 body class effect | 隐藏使"内容可滚动"不可发现（编辑列表溢出一屏卡片看似截断；日志/设置/对话框同类）；6px 半透明与无边框美学兼容，观感经浏览器截图验证 |
 | anim-idle 排除 spinner (2026-09-04) | index.css .anim-idle 冻结列表移除 .animate-spin（保留 animate-pulse/signal-glow-active） | 2 秒无输入即全局冻结 loading 指示，用户误读"程序卡死"（登录按钮/检测中 spinner 均中招） |
 
-**已知限制（有意不修，2026-09-04 审计结论）**：① netsh 文本解析依赖中/英关键字，其他系统语言静默失效（目标用户群为中文系统，结构化解析无官方 JSON 接口）；② index.css 的 Tailwind 语义类 !important 劫持（.rounded-xl 等）与全局 border 透明为 v2.5.0 设计系统决策，全局移除会引发不可控视觉回归，维持现状；③ framer-motion 对 Reorder.Item 内联写 touch-action: pan-x（触摸屏垂直滚动让位于拖拽排序，框架行为）；④ v6 栈"空 NameServer 清除"的 API 接受性未经 Win11 实测（失败已降级警告）；⑤ 后端 serde_json::json! 手写返回体与前端类型的字段对齐靠约定，无编译期保证。
+**已知限制（有意不修，2026-09-04 审计结论）**：① netsh 文本解析依赖中/英关键字，其他系统语言静默失效（目标用户群为中文系统，结构化解析无官方 JSON 接口）；② index.css 的 Tailwind 语义类 !important 劫持（.rounded-xl 等）与全局 border 透明为 v2.5.0 设计系统决策，全局移除会引发不可控视觉回归，维持现状；③ framer-motion 对 Reorder.Item 内联写 touch-action: pan-x（触摸屏垂直滚动让位于拖拽排序，框架行为）；④ v6 栈"空 NameServer 清除"的 API 接受性未经 Win11 实测（失败已降级警告）；⑤ 后端 serde_json::json! 手写返回体与前端类型的字段对齐靠约定，无编译期保证；⑥ auth/session 页面特征误判"已在线"（Portal 页面残留 uid='/v4ip=' 时跳过登录）——判定逻辑需真机实测 Portal 页面后才能改；⑦ 注销占位凭据 drcom/123 为 Dr.COM 惯例，现实 Portal 接受，不为假想故障加真实凭据回退；⑧ config `campusCheckStartHour` alias 在残留旧字段的脏数据下覆盖分钟值；⑨ atomic_write 在 rename 前崩溃的窗口回退旧配置（非丢失）。
+
+**config 健壮性修复 (2026-09-04 补扫)**：Config 加容器级 `#[serde(default)]`（任一字段缺失用 Default 补齐，此前 20+ 字段无 default，缺一个即整体反序列化失败）；加载失败时原文件 `copy` 留档为 `config.json.corrupt-<ts>.bak`（不再静默全量重置无备份）；`save_config` 改先落盘再更新内存（磁盘失败运行态不变）；`get_data_dir` 极端回退加 `campus-login` 子目录。**update 模块**：`compare_versions` 全段比较（`.take(3)` 截断曾使 `2.3.0.1` hotfix 永不提示）；version.json 可选 `asset` 字段声明安装包文件名（改名不再静默断更新）；`extract_checksum` 多 .exe 资产遍历 + BSD 风格 sha256 支持；更新临时目录清理 600s→24h；下载文件名清洗（防路径穿越）；msi 路径含引号拒绝。**auth**：双适配器 `spawn_blocking` panic 由 `unwrap_or(None)` 静默吞掉改为失败 CommandResult + log_error。
 
 ---
 
@@ -2075,10 +2082,11 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 
 > ⚠️ **版本号提交与 Release 发布必须同流程完成**（2026-09-03 教训，v2.3.0 事故）：`version.json` 一旦推送到 main 而对应 tag 的 Release 尚未发布，所有旧版本用户会收到更新通知但下载必然 404。现版本后端已加 HEAD 探测兜底（资产 404 则本轮不提示更新），但仍应把"改 version.json"与"发布 Release"绑在同一次操作里。
 
-> ⚠️ **Release 资产发布检查清单**（2026-09-03 新增）：
-> 1. 上传 `Wxxy-CampusLogin_{ver}_x64-setup.exe`（文件名必须与 `update/updater.rs` 硬编码拼接完全一致）
+> ⚠️ **Release 资产发布检查清单**（2026-09-03 新增，2026-09-04 更新）：
+> 1. 上传 `Wxxy-CampusLogin_{ver}_x64-setup.exe`（文件名与硬编码拼接一致；若改名，在 `version.json` 加 `"asset": "<完整文件名>"` 覆盖默认命名，2026-09-04 起支持）
 > 2. 同时上传构建产物目录中的 `{安装包名}.sha256`（`build.ps1` 第 [5/5] 步已自动生成）——缺失时应用内更新校验全 4xx，默认拒绝安装且用户无法自救
 > 3. `version.json` 可选填 `notes` 字段（字符串，Markdown 列表），将显示为应用内更新日志（release_notes）
+> 4. 版本号支持任意段数（`2.3.0.1` hotfix 可正确提示升级，2026-09-04 修复 `.take(3)` 截断）
 
 > ⚠️ **升级检查清单**：建议在发布前对照以下 5 个**必须保持一致**的位置：
 > 1. `tauri-app/src-tauri/tauri.conf.json` → `"version": "2.2.9"`
