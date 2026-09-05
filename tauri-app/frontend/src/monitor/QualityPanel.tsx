@@ -402,7 +402,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                               'text-[11px] font-semibold tabular-nums',
                               item.latency >= 0 && hasData ? getLatencyColor(item.latency).text : 'text-muted-foreground/40'
                             )}>
-                              {item.latency >= 0 && hasData ? <AnimatedNumber value={item.latency} decimals={0} duration={0.4} /> : '--'}
+                              {item.latency >= 0 && hasData ? <AnimatedNumber value={item.latency} decimals={0} duration={400} /> : '--'}
                             </span>
                           </div>
                           {item.latency >= 0 && hasData && (

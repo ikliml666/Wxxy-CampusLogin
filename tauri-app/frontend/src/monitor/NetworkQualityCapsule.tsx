@@ -35,7 +35,7 @@ const LatencyRow = memo(function LatencyRow({ icon: Icon, label, sub, latency }:
         {sub && <span className="text-[9px] text-muted-foreground/50 leading-tight truncate">{sub}</span>}
       </div>
       <span className={cn('text-[11px] font-semibold tabular-nums shrink-0', color)}>
-        {ok ? <AnimatedNumber value={latency} unit="ms" decimals={0} duration={0.4} /> : '--'}
+        {ok ? <AnimatedNumber value={latency} unit="ms" decimals={0} duration={400} /> : '--'}
       </span>
     </div>
   )
@@ -196,7 +196,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
             <span className={cn('font-sans font-semibold tabular-nums', latencyTextColor)}>
-              <AnimatedNumber value={displayLatency} unit="ms" decimals={0} duration={0.4} />
+              <AnimatedNumber value={displayLatency} unit="ms" decimals={0} duration={400} />
             </span>
           )}
         </m.div>

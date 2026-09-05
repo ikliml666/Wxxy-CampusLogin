@@ -339,7 +339,7 @@ function AppInner() {
           onToggleNotification={handleToggleNotification}
           onShowTheme={() => setThemeOpen(true)}
           onShowAbout={() => setAboutOpen(true)}
-          onShowSponsor={() => setSponsorOpen(true)}
+          onShowSponsor={() => setSponsorOpen((v) => !v)}
           onToggleLightMode={handleToggleLightMode}
           onMinimize={() => api.minimizeWindow?.()}
           onToggleMaximize={handleToggleMaximize}

@@ -222,7 +222,7 @@ export function LatencyPair({ gatewayLatency, externalLatency, loading = false }
                     cfg?.textClass ?? 'text-muted-foreground',
                   )}
                 >
-                  {ok ? <AnimatedNumber value={latency} unit="ms" decimals={0} duration={0.45} /> : '--'}
+                  {ok ? <AnimatedNumber value={latency} unit="ms" decimals={0} duration={450} /> : '--'}
                 </span>
               )}
 
