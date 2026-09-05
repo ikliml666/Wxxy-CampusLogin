@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/select'
 import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone
+  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
@@ -189,18 +189,18 @@ export const AccountPanel = memo(function AccountPanel({
 
   return (
     <div className="space-y-4">
-      {/* 登录信息与运营商绑定并列两列，增强信息密度 */}
-      <div className="grid grid-cols-2 gap-4 items-start">
-      {/* 左列：登录信息 + 自动登录开关（填补与右列绑定卡的高度差） */}
-      <div className="space-y-4">
+      {/* 登录信息+自动化开关（左列）与运营商绑定（右列）并列，底部对齐 */}
+      <div className="grid grid-cols-2 gap-4">
+      {/* 左列：开关卡 flex-1 填满剩余高度，与右列绑定卡底部对齐 */}
+      <div className="flex flex-col gap-4">
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <KeyRound className="h-5 w-5 text-primary" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle>{t('account.loginInfo')}</CardTitle>
                 <CardDescription>
                   {activeAccount ? t('account.currentAccount', { name: activeAccount }) : t('account.loginInfoDesc')}
@@ -294,10 +294,21 @@ export const AccountPanel = memo(function AccountPanel({
         </AnimatedCard>
       </div>
 
-      {/* 底部开关卡上移，填补左列与右列绑定卡的高度差 */}
-      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardContent className="pt-5 space-y-4">
+      {/* 自动化开关：flex-1 填满左列剩余高度 */}
+      <div className="card-enter flex-1 flex" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="flex-1">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
+                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
@@ -326,14 +337,14 @@ export const AccountPanel = memo(function AccountPanel({
       </div>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
+      <div className="card-enter flex" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="flex-1">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <Link2 className="h-5 w-5 text-primary" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
                 <CardDescription>{t('account.bindDesc')}</CardDescription>
               </div>
