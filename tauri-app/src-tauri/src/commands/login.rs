@@ -23,6 +23,11 @@ fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
     let a2_enabled = crate::network::is_secondary_adapter_enabled(&config, &a2_name);
 
     let check_one = |name: &str| -> bool {
+        // scope 裸子线程没有 Tokio runtime context：reqwest 的 send() 是同步函数，
+        // 构造 per-request 超时计时器（tokio::time::sleep）需要 Handle::current()，
+        // 失败即 panic（panic=abort 下整进程崩溃，2026-09-05 注销流程崩溃事故根因）。
+        // 进入 tauri 全局 runtime 的 context 修复之。
+        let _runtime_ctx = tauri::async_runtime::handle().inner().enter();
         crate::network::find_with_valid_ip(&adapters, name)
             .map(|a| check_portal_full(&a.ip, Some(&a.name))
                 .map(|ps| ps.online).unwrap_or(false))
