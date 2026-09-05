@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
+import i18next from 'i18next'
 import { extractErrorMessage } from '@/lib/utils'
 
 export function useAccount() {
@@ -22,15 +23,15 @@ export function useAccount() {
     try {
       const result = await store.api.saveCurrentAsAccount?.(name)
       if (result?.success === false) {
-        store.addToast('保存账号失败', 'error', result.message || '未知错误')
+        store.addToast(i18next.t('account.saveFailed'), 'error', result.message || i18next.t('common.unknownError'))
         return
       }
       if (result?.config) store.updateConfig(result.config)
       if (result?.activeAccount) store.setActiveAccount(result.activeAccount)
-      store.addToast('账号已保存', 'success')
+      store.addToast(i18next.t('account.saveSuccess'), 'success')
     } catch (e: unknown) {
       const errMsg = extractErrorMessage(e)
-      store.addToast('保存账号失败', 'error', errMsg)
+      store.addToast(i18next.t('account.saveFailed'), 'error', errMsg)
     }
     try {
       const accs = await store.api.listAccounts?.() || []
@@ -46,11 +47,11 @@ export function useAccount() {
       result = await store.api.deleteAccount?.(name)
     } catch (e) {
       const errMsg = extractErrorMessage(e)
-      store.addToast('删除账号失败', 'error', errMsg)
+      store.addToast(i18next.t('account.deleteFailed'), 'error', errMsg)
       return
     }
     if (result?.success === false) {
-      store.addToast('删除账号失败', 'error', result.message || '未知错误')
+      store.addToast(i18next.t('account.deleteFailed'), 'error', result.message || i18next.t('common.unknownError'))
       return
     }
     // 历史缺陷：删除活跃账号后不应用返回的 activeAccount/config，
@@ -69,15 +70,15 @@ export function useAccount() {
     try {
       const result = await store.api.switchAccount?.(name)
       if (result?.success === false) {
-        store.addToast('切换账号失败', 'error', result.message || '未知错误')
+        store.addToast(i18next.t('account.switchFailed'), 'error', result.message || i18next.t('common.unknownError'))
         return
       }
       if (result?.config) store.updateConfig(result.config)
       if (result?.activeAccount) store.setActiveAccount(result.activeAccount)
-      store.addToast('已切换账号', 'success')
+      store.addToast(i18next.t('account.switchSuccess'), 'success')
     } catch (e: unknown) {
       const errMsg = extractErrorMessage(e)
-      store.addToast('切换账号失败', 'error', errMsg)
+      store.addToast(i18next.t('account.switchFailed'), 'error', errMsg)
     }
   }, [store.api, store.updateConfig, store.setActiveAccount, store.addToast])
 

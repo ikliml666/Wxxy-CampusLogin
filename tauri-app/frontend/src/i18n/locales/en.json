@@ -144,7 +144,12 @@
     "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
     "clearPassword": "Clear saved password",
     "passwordCleared": "Saved password cleared",
-    "invalidAccountName": "Account name must be 1-32 chars: Chinese, letters, digits, underscore or hyphen"
+    "invalidAccountName": "Account name must be 1-32 chars: Chinese, letters, digits, underscore or hyphen",
+    "saveFailed": "Failed to Save Account",
+    "saveSuccess": "Account Saved",
+    "deleteFailed": "Failed to Delete Account",
+    "switchFailed": "Failed to Switch Account",
+    "switchSuccess": "Account Switched"
   },
   "network": {
     "networkAdapters": "Network Adapters",
@@ -267,7 +272,21 @@
     "qualityExtHigh": "WAN {{ms}}ms",
     "qualityLatencyHigh": "High latency: {{parts}}",
     "qualityLatencyAbnormal": "Abnormal network latency",
-    "campusNetworkIssue": "Campus network may have issues"
+    "campusNetworkIssue": "Campus network may have issues",
+    "timelineUdp": "UDP",
+    "timelineDns": "DNS",
+    "timelineTcp": "TCP",
+    "timelineTls": "TLS",
+    "timelineTtfb": "TTFB",
+    "timelineContent": "Content",
+    "timelineNetwork": "Network",
+    "timelineUdpDesc": "UDP DNS query time",
+    "timelineDnsDesc": "DNS resolution time",
+    "timelineTcpDesc": "TCP connection establishment (3-way handshake)",
+    "timelineTlsDesc": "TLS handshake time",
+    "timelineTtfbDesc": "Time to first byte — from request sent to first byte received",
+    "timelineContentDesc": "Response body download — receiving the full page data",
+    "timelineNetworkDesc": "Application-layer latency — extra transfer overhead from server to client"
   },
   "quality": {
     "networkQuality": "Network Quality",

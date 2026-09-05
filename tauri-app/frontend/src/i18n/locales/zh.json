@@ -144,7 +144,12 @@
     "deleteAccountMessage": "确定要删除账号「{{name}}」吗？此操作不可撤销。",
     "clearPassword": "清除密码",
     "passwordCleared": "已清除保存的密码",
-    "invalidAccountName": "账号名限 1-32 位，仅支持中文、字母、数字、下划线、连字符"
+    "invalidAccountName": "账号名限 1-32 位，仅支持中文、字母、数字、下划线、连字符",
+    "saveFailed": "保存账号失败",
+    "saveSuccess": "账号已保存",
+    "deleteFailed": "删除账号失败",
+    "switchFailed": "切换账号失败",
+    "switchSuccess": "已切换账号"
   },
   "network": {
     "networkAdapters": "网络适配器",
@@ -267,7 +272,21 @@
     "qualityExtHigh": "外网{{ms}}ms",
     "qualityLatencyHigh": "延迟过高: {{parts}}",
     "qualityLatencyAbnormal": "网络延迟异常",
-    "campusNetworkIssue": "校园网可能出现问题"
+    "campusNetworkIssue": "校园网可能出现问题",
+    "timelineUdp": "UDP",
+    "timelineDns": "DNS",
+    "timelineTcp": "TCP",
+    "timelineTls": "TLS",
+    "timelineTtfb": "TTFB",
+    "timelineContent": "内容",
+    "timelineNetwork": "网络",
+    "timelineUdpDesc": "UDP DNS查询时间",
+    "timelineDnsDesc": "域名解析时间",
+    "timelineTcpDesc": "TCP连接建立时间（三次握手）",
+    "timelineTlsDesc": "TLS加密握手时间",
+    "timelineTtfbDesc": "首字节时间 — 发送请求到收到服务器第一个字节",
+    "timelineContentDesc": "响应体下载时间 — 接收完整页面数据",
+    "timelineNetworkDesc": "应用层处理延迟 — 服务器到客户端的额外传输开销"
   },
   "quality": {
     "networkQuality": "网络质量",
