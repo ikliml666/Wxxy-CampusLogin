@@ -40,6 +40,7 @@
   "nav": {
     "dashboard": "总览",
     "account": "账号",
+    "selfservice": "自助服务",
     "network": "网络适配器",
     "monitor": "网络状态检测",
     "quality": "网络质量",
@@ -661,6 +662,8 @@
     "dashboardDesc": "实时监控网络状态和登录验证服务",
     "account": "账号管理",
     "accountDesc": "管理自动登录设置和通知选项",
+    "selfservice": "自助服务",
+    "selfserviceDesc": "查看在线信息与近期上网记录，支持踢设备下线",
     "network": "网络适配器",
     "networkDesc": "查看和配置网络适配器",
     "monitor": "网络状态检测",

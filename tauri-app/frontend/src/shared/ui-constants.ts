@@ -7,6 +7,7 @@ export const PASSWORD_MASK = '***'
 export const NAV_ITEMS = [
   { id: 'dashboard' as const, labelKey: 'nav.dashboard', icon: 'LayoutDashboard', shortcut: '1' },
   { id: 'account' as const, labelKey: 'nav.account', icon: 'UserCircle', shortcut: '2' },
+  { id: 'selfservice' as const, labelKey: 'nav.selfservice', icon: 'Globe', shortcut: '9' },
   { id: 'network' as const, labelKey: 'nav.network', icon: 'Wifi', shortcut: '3' },
   { id: 'monitor' as const, labelKey: 'nav.monitor', icon: 'Radar', shortcut: '4' },
   { id: 'quality' as const, labelKey: 'nav.quality', icon: 'Gauge', shortcut: '5' },

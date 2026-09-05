@@ -1,13 +1,16 @@
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
-import { Eye, Globe, History, Loader2, LogOut, RefreshCw } from 'lucide-react'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Eye, Globe, History, KeyRound, Loader2, LogOut, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
 
 // 自助服务 dashboard 协议字段（逆向于 2026-09-05 页面 JS，原始 JSON 透传）
 interface SelfOnlineItem {
@@ -60,14 +63,14 @@ const formatFlowMb = (downFlow: string, upFlow: string) => {
   return ((down + up) / 1024).toFixed(3)
 }
 
-interface SelfDashboardCardsProps {
-  account: string
-  password: string
-}
-
-export function SelfDashboardCards({ account, password }: SelfDashboardCardsProps) {
+export function SelfServicePanel() {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
+  // 凭据仅内存保留：学号默认取当前配置，自助服务密码由用户输入（不落盘不写日志）
+  const configUser = useConfigStore((s) => s.config.user)
+  const [account, setAccount] = useState('')
+  const [password, setPassword] = useState('')
+  const credInitedRef = useRef(false)
   const [onlineList, setOnlineList] = useState<SelfOnlineItem[] | null>(null)
   const [history, setHistory] = useState<SelfHistoryRow[] | null>(null)
   const [querying, setQuerying] = useState(false)
@@ -79,6 +82,14 @@ export function SelfDashboardCards({ account, password }: SelfDashboardCardsProp
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
+
+  // 配置异步加载完成后初始化一次学号（与 AccountPanel 绑定卡 bindInitedRef 同模式）
+  useEffect(() => {
+    if (!credInitedRef.current && configUser) {
+      setAccount(configUser)
+      credInitedRef.current = true
+    }
+  }, [configUser])
 
   const hasCred = account.trim().length > 0 && password.trim().length > 0
 
@@ -136,7 +147,7 @@ export function SelfDashboardCards({ account, password }: SelfDashboardCardsProp
 
   return (
     <React.Fragment>
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
@@ -165,7 +176,33 @@ export function SelfDashboardCards({ account, password }: SelfDashboardCardsProp
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3">
+            {/* 凭据区：学号默认取当前配置，密码仅内存保留（不落盘不写日志） */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="self-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
+                <Input
+                  id="self-account"
+                  type="text"
+                  value={account}
+                  onChange={e => setAccount(e.target.value)}
+                  placeholder={t('onboarding.bindSelfAccountPlaceholder')}
+                  icon={<UserCircle className="h-4 w-4" />}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
+                <Input
+                  id="self-password"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
+                  icon={<KeyRound className="h-4 w-4" />}
+                  className="[&::-ms-reveal]:hidden"
+                />
+              </div>
+            </div>
             {!hasCred ? (
               <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : querying && onlineList === null ? (
@@ -228,7 +265,7 @@ export function SelfDashboardCards({ account, password }: SelfDashboardCardsProp
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">

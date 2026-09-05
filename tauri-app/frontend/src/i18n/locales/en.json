@@ -40,6 +40,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "account": "Account",
+    "selfservice": "Self-Service",
     "network": "Network Adapters",
     "monitor": "Network Monitor",
     "quality": "Network Quality",
@@ -661,6 +662,8 @@
     "dashboardDesc": "Real-time network status and login verification monitoring",
     "account": "Account Management",
     "accountDesc": "Manage auto-login settings and notification options",
+    "selfservice": "Self-Service",
+    "selfserviceDesc": "View online devices and recent sessions, kick devices offline",
     "network": "Network Adapters",
     "networkDesc": "View and configure network adapters",
     "monitor": "Network Status Detection",

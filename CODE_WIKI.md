@@ -96,7 +96,7 @@ Wxxy-CampusLogin/
 │   │       │   └── locales/         # 翻译文件 (zh.json / en.json)
 │   │       ├── account/             # 账号模块
 │   │       │   ├── AccountPanel.tsx # 账号管理面板
-│   │       │   ├── SelfDashboardCards.tsx # 自助服务 dashboard 两卡片（在线信息+近期上网记录，2026-09-05）
+│   │       │   ├── SelfServicePanel.tsx # 自助服务面板（在线信息+近期上网记录两卡片，2026-09-05）
 │   │       │   ├── useAccount.ts    # 账号逻辑
 │   │       │   ├── types.ts         # 账号类型定义
 │   │       │   └── index.ts         # 模块导出
@@ -888,7 +888,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 
 #### 4.5.4.3 自助服务系统（Dr.COM Self）dashboard 卡片协议：在线信息 + 近期上网记录 (2026-09-05)
 
-> 来源：2026-09-05 浏览器（IAB）登录态下读取 dashboard 页内嵌 bootstrapTable JS + 登录会话内 fetch 实测响应结构。实现于 `self_service/mod.rs`（`query_dashboard`/`offline_session`）+ `commands/self_service.rs`（`query_self_dashboard`/`self_offline_session`，53 → 55 个命令）。账户管理页两卡片（`SelfDashboardCards.tsx`）复用绑定卡的学号/自助服务密码。
+> 来源：2026-09-05 浏览器（IAB）登录态下读取 dashboard 页内嵌 bootstrapTable JS + 登录会话内 fetch 实测响应结构。实现于 `self_service/mod.rs`（`query_dashboard`/`offline_session`）+ `commands/self_service.rs`（`query_self_dashboard`/`self_offline_session`，53 → 55 个命令）。前端为独立"自助服务"面板（`SelfServicePanel.tsx`，2026-09-05 从账户管理页单开，面板自带凭据输入区）。
 
 **协议链路（登录会话 cookie 即可，均无额外必填参数）**:
 
@@ -903,7 +903,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - 登录链路已重构：`login_session`（共用前 3 步：checkcode → randomCode 预热 → verify）为最底层，`login_and_fetch_bind_page`（绑定/状态/明文查看）与 `query_dashboard`（一次登录连拉 getOnlineList + getLoginHistory，`fetch_dashboard_json` 共用"302=会话失效 + 非 JSON=异常页"判定）都从它出发
 - 302 重定向 = 登录会话失效（统一文案"登录会话失效，请重试"）；`parse_offline_success` 对非 JSON/缺字段/非布尔一律判失败
 - 前端格式化**对齐原站公式**（dashboard 页内嵌 JS）：MAC 每 2 字符加 `-`；useTime `parseInt/60` 分钟取整；流量 `(down+up)/1024` M 三位小数；终端类型截掉 `#` 前缀（空→`-`）；epoch → `YYYY-MM-DD HH:mm:ss`；null 主机名 → `-`。**注意 useTime 单位与上网记录的时长（分）不同，流量 KB 与 M 不同**，透传 JSON 由前端换算，后端不改结构
-- 注销交互：ConfirmDialog 确认（文案明示断网风险）→ `selfOfflineSession` → 成功后前端本地移除该行（不自动重拉，避免整会话重登开销）；i18n `account.selfDashboard*/col*/payStyle*/selfOffline*` 键组（zh/en 对称）
+- 前端：**独立"自助服务"面板**（2026-09-05 从账户管理页单开；`PanelName`/`PANEL_TITLES`/NAV_ITEMS/设置页默认面板选项四处接入，DockNav Globe 图标）——`SelfServicePanel.tsx` 含在线信息+近期上网记录两卡片，凭据区在"在线信息"卡内顶部（学号默认取 `config.user`，密码仅内存保留不落盘）；注销走 ConfirmDialog（明示断网风险）→ `self_offline_session` → 成功后前端本地移除该行（不自动重拉，避免整会话重登开销）；i18n `nav.selfservice`/`panel.selfservice*`/`account.selfDashboard*/col*/payStyle*/selfOffline*` 键组（zh/en 对称）
 - **逆向安全红线**：dashboard 页有注销功能，实验只允许用**必然不存在的 sessionid** 探测接口格式，绝不能点击/调用页面上真实会话的注销——误踢当前在线设备会导致用户断网
 - 单测：`offline_success_parsing`（success 判定 4 边界）；前端 vitest 3 用例（凭据联动禁用/表格格式化断言/注销确认后移除行）
 
@@ -1517,7 +1517,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `AccountPanel.tsx` | 账号管理面板，两列网格等高布局(左列：登录信息卡+自动化设置开关卡(`flex-1` 撑满与右列底部对齐)；右列：**绑定运营商账号**卡输入框垂直排布+绑定状态区(2026-09-05，query_bind_status 查询：手机号掩码前三后二/查看密码走 Windows Hello/SSPI 验证后 reveal_operator_credential 临时显示明文)；下方账号管理卡全宽) |
-| `SelfDashboardCards.tsx` | 自助服务 dashboard 两卡片(2026-09-05，协议见 §4.5.4.3)：**在线信息**表(操作列注销→ConfirmDialog→self_offline_session→本地移除行) + **近期上网记录**表；凭据复用 AccountPanel 绑定卡的 bindSelfAccount/bindSelfPassword（props 传入，不重复收集）；格式化公式对齐原站 JS（MAC 连字符/秒→分/KB→M/#前缀截取/epoch→本地串）；未填凭据时按钮禁用+提示 |
+| `SelfServicePanel.tsx` | "自助服务"独立面板(2026-09-05，协议见 §4.5.4.3；从账户管理页单开，`PanelName`/`PANEL_TITLES`/NAV_ITEMS/设置页默认面板选项四处接入)：**在线信息**表(操作列注销→ConfirmDialog→self_offline_session→本地移除行) + **近期上网记录**表；凭据区在"在线信息"卡内顶部(学号默认取 config.user，密码仅内存保留不落盘)；格式化公式对齐原站 JS（MAC 连字符/秒→分/KB→M/#前缀截取/epoch→本地串）；未填凭据时按钮禁用+提示 |
 | `useAccount.ts` | 账号逻辑 Hook |
 | `types.ts` | 账号类型定义 (SwitchAccountResult, DeleteAccountResult, SaveAccountResult) |
 | `index.ts` | 模块导出 |
