@@ -11,6 +11,7 @@ mod platform;
 mod update;
 mod infra;
 mod helper;
+mod self_service;
 
 fn main() {
     // 注册 panic hook：panic=abort 时 hook 仍会执行，确保日志 flush

@@ -16,12 +16,13 @@ import {
 } from '@/components/ui/select'
 import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff
+  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
-import { cn } from '@/lib/utils'
+import { cn, extractErrorMessage } from '@/lib/utils'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -132,16 +133,145 @@ export const AccountPanel = memo(function AccountPanel({
     try { await onSwitchAccount(name) } finally { setSwitchingAccount(null) }
   }, [activeAccount, onSwitchAccount, switchingAccount])
 
+  // 运营商账号绑定（凭据仅内存传递，不写配置不落盘）
+  const BIND_OPERATOR_NONE = '__none__'
+  const [bindSelfAccount, setBindSelfAccount] = useState('')
+  const [bindSelfPassword, setBindSelfPassword] = useState('')
+  const [bindOp, setBindOp] = useState(BIND_OPERATOR_NONE)
+  const [bindPhone, setBindPhone] = useState('')
+  const [bindSms, setBindSms] = useState('')
+  const [binding, setBinding] = useState(false)
+  const bindInitedRef = useRef(false)
+
+  // 绑定状态查询（后端返回掩码账号，明文不经过前端 state）
+  interface OperatorBindingInfo { account: string; passwordSet: boolean }
+  type BindStatuses = Record<'cmcc' | 'telecom' | 'unicom', OperatorBindingInfo | null>
+  const [bindStatuses, setBindStatuses] = useState<BindStatuses | null>(null)
+  const [queryingStatus, setQueryingStatus] = useState(false)
+  const [revealedOp, setRevealedOp] = useState<string | null>(null)
+  const [revealedPassword, setRevealedPassword] = useState('')
+
+  // config 异步加载完成后初始化一次（学号/运营商默认取当前配置）
+  useEffect(() => {
+    if (!bindInitedRef.current && config.user) {
+      setBindSelfAccount(config.user)
+      if (config.operator) setBindOp(config.operator)
+      bindInitedRef.current = true
+    }
+  }, [config.user, config.operator])
+
+  const canBind = bindSelfAccount.trim().length > 0
+    && bindSelfPassword.trim().length > 0
+    && bindOp !== BIND_OPERATOR_NONE
+    && /^1\d{10}$/.test(bindPhone.trim())
+    && bindSms.trim().length > 0
+
+  const canQueryStatus = bindSelfAccount.trim().length > 0 && bindSelfPassword.trim().length > 0
+
+  const fetchBindStatus = useCallback(async () => {
+    if (queryingStatus) return
+    setQueryingStatus(true)
+    try {
+      const result = await tauriApiWithRetry.getBindStatus({
+        account: bindSelfAccount.trim(),
+        password: bindSelfPassword.trim(),
+      })
+      if (!mountedRef.current) return
+      if (result.success && result.data) {
+        const d = result.data as Record<string, OperatorBindingInfo | null>
+        setBindStatuses({
+          cmcc: d.cmcc ?? null,
+          telecom: d.telecom ?? null,
+          unicom: d.unicom ?? null,
+        })
+      } else {
+        addToast(result.message || t('onboarding.bindFailed'), 'error')
+      }
+    } catch (err) {
+      if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
+    } finally {
+      if (mountedRef.current) setQueryingStatus(false)
+    }
+  }, [queryingStatus, bindSelfAccount, bindSelfPassword, addToast, t])
+
+  // 查看明文密码：先 Windows 本地身份验证，通过后再拉取
+  const handleReveal = useCallback(async (opValue: string) => {
+    if (revealedOp === opValue) {
+      setRevealedOp(null)
+      setRevealedPassword('')
+      return
+    }
+    try {
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity()
+      if (!mountedRef.current) return
+      if (!verified.success) {
+        addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
+        return
+      }
+      const r = await tauriApiWithRetry.revealOperatorCredential({
+        account: bindSelfAccount.trim(),
+        password: bindSelfPassword.trim(),
+        operator: opValue,
+      })
+      if (!mountedRef.current) return
+      if (r.success && r.data) {
+        const d = r.data as { phone?: string; smsPassword?: string }
+        setRevealedPassword(d.smsPassword || '')
+        setRevealedOp(opValue)
+      } else {
+        addToast(r.message || t('onboarding.bindFailed'), 'error')
+      }
+    } catch (err) {
+      if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
+    }
+  }, [revealedOp, bindSelfAccount, bindSelfPassword, addToast, t])
+
+  const handleBindOperator = useCallback(async () => {
+    if (binding || !canBind) return
+    setBinding(true)
+    try {
+      const result = await tauriApiWithRetry.bindOperator({
+        account: bindSelfAccount.trim(),
+        password: bindSelfPassword.trim(),
+        operator: bindOp,
+        phone: bindPhone.trim(),
+        smsPassword: bindSms.trim(),
+      })
+      if (mountedRef.current) {
+        if (result.success) {
+          addToast(result.message || t('onboarding.bindSuccess'), 'success')
+          // 成功后清空敏感字段
+          setBindSelfPassword('')
+          setBindSms('')
+          // 绑定成功后自动刷新状态区（凭据本次有效）
+          void fetchBindStatus()
+        } else {
+          addToast(result.message || t('onboarding.bindFailed'), 'error')
+        }
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
+      }
+    } finally {
+      if (mountedRef.current) setBinding(false)
+    }
+  }, [binding, canBind, bindSelfAccount, bindSelfPassword, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
+
   return (
     <div className="space-y-4">
+      {/* 登录信息+自动化开关（左列）与运营商绑定（右列）并列，底部对齐 */}
+      <div className="grid grid-cols-2 gap-4">
+      {/* 左列：开关卡 flex-1 填满剩余高度，与右列绑定卡底部对齐 */}
+      <div className="flex flex-col gap-4">
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <KeyRound className="h-5 w-5 text-primary" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle>{t('account.loginInfo')}</CardTitle>
                 <CardDescription>
                   {activeAccount ? t('account.currentAccount', { name: activeAccount }) : t('account.loginInfoDesc')}
@@ -235,7 +365,221 @@ export const AccountPanel = memo(function AccountPanel({
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+      {/* 自动化开关：flex-1 填满左列剩余高度；grid 使卡片包装层 stretch 占满宽度 */}
+      <div className="card-enter flex-1 grid" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
+                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login"
+                checked={config.autoLoginOnStart || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">{t('account.autoExitAfterLogin')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoExitAfterLoginDesc')}</p>
+              </div>
+              <Switch
+                id="auto-exit"
+                checked={config.autoExitAfterLogin || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
+              </div>
+              <Switch
+                id="auto-exit-online"
+                checked={config.autoExitOnOnline || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login-ready"
+                checked={config.autoLoginOnPreparation || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
+                className="shrink-0"
+              />
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+      </div>
+
+      <div className="card-enter grid" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Link2 className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
+                <CardDescription>{t('account.bindDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* 绑定状态区：后端返回掩码账号（前三后二），密码仅回是否设置 */}
+            <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+              {bindStatuses ? (
+                ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => {
+                  const key = o.value.slice(1) as 'cmcc' | 'telecom' | 'unicom'
+                  const info = bindStatuses[key]
+                  return (
+                    <div key={o.value} className="flex items-center justify-between text-xs gap-2">
+                      <span className="text-muted-foreground shrink-0">{t(o.labelKey)}</span>
+                      {info ? (
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                          <span className="font-medium font-mono">{info.account}</span>
+                          {info.passwordSet && (
+                            revealedOp === o.value ? (
+                              <button
+                                type="button"
+                                onClick={() => handleReveal(o.value)}
+                                className="font-mono text-[11px] text-primary hover:text-primary/80 transition-colors"
+                              >
+                                {revealedPassword || '••••••'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleReveal(o.value)}
+                                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                              >
+                                {t('account.bindStatusReveal')}
+                              </button>
+                            )
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/60">{t('account.bindStatusNotBound')}</span>
+                      )}
+                    </div>
+                  )
+                })
+              ) : (
+                <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchBindStatus}
+                disabled={!canQueryStatus || queryingStatus}
+                className="w-full gap-1.5 h-8"
+              >
+                {queryingStatus ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
+                ) : (
+                  <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
+                )}
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
+              <Input
+                id="bind-account"
+                type="text"
+                value={bindSelfAccount}
+                onChange={e => setBindSelfAccount(e.target.value)}
+                placeholder={t('onboarding.bindSelfAccountPlaceholder')}
+                icon={<UserCircle className="h-4 w-4" />}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
+              <Input
+                id="bind-self-password"
+                type="password"
+                value={bindSelfPassword}
+                onChange={e => setBindSelfPassword(e.target.value)}
+                placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
+                icon={<KeyRound className="h-4 w-4" />}
+                className="[&::-ms-reveal]:hidden"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
+              <Select value={bindOp} onValueChange={setBindOp}>
+                <SelectTrigger aria-label={t('onboarding.bindIsp')}>
+                  <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
+                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
+              <Input
+                id="bind-phone"
+                type="tel"
+                maxLength={11}
+                value={bindPhone}
+                onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
+                placeholder={t('onboarding.bindPhonePlaceholder')}
+                icon={<Smartphone className="h-4 w-4" />}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
+              <Input
+                id="bind-sms-password"
+                value={bindSms}
+                onChange={e => setBindSms(e.target.value)}
+                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
+                icon={<KeyRound className="h-4 w-4" />}
+              />
+              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
+            </div>
+            <Button
+              onClick={handleBindOperator}
+              disabled={!canBind || binding}
+              className="w-full gap-1.5"
+            >
+              {binding ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
+              ) : (
+                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
+              )}
+            </Button>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -339,35 +683,6 @@ export const AccountPanel = memo(function AccountPanel({
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardContent className="pt-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
-              </div>
-              <Switch
-                id="auto-login"
-                checked={config.autoLoginOnStart || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">{t('account.autoExitAfterLogin')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoExitAfterLoginDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit"
-                checked={config.autoExitAfterLogin || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-              />
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </div>
     </div>
   )
 })

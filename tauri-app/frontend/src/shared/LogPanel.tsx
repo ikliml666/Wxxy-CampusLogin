@@ -542,7 +542,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               onScroll={handleScroll}
               role="log"
               aria-label={t('log.systemLog')}
-              className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto max-h-[420px] font-mono text-[12px]"
+              className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto h-[calc(100vh-400px)] min-h-[320px] font-mono text-[12px]"
             >
               {displayedLines.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">

@@ -9,3 +9,4 @@ pub mod platform;
 pub mod update;
 pub mod infra;
 pub mod helper;
+pub mod self_service;

@@ -1,6 +1,6 @@
 # CampusLogin 校园网登录助手 — Code Wiki
 
-> **版本**: v2.3.0 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
+> **版本**: v2.3.1 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64)
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
 
@@ -229,6 +229,7 @@ Wxxy-CampusLogin/
 │           │   ├── dns_config.rs    # DNS/DoH 配置文件设置 (per-profile/适配器级/DoH API)
 │           │   ├── elevation.rs     # UAC 提权 (ShellExecuteW + COM ShellExec) + GUID 解析 + is_admin
 │           │   ├── gpu.rs           # GPU 信息检测 (DXGI) + 刷新率检测 + 浏览器参数 + gpu_preference
+│           │   ├── identity.rs      # Windows 本地身份验证 (Hello UserConsentVerifier + CredUI/SSPI NTLM 回退, 2026-09-05)
 │           │   ├── autostart.rs     # 开机自启 (注册表读写; Tauri autostart 插件在 startup.rs 注册)
 │           │   └── helper_spawn.rs  # --helper 提权子进程启动 + 结果文件轮询 (spawn_elevated_helper)
 │           ├── update/              # 更新模块
@@ -244,6 +245,8 @@ Wxxy-CampusLogin/
 │           │   ├── shortcut.rs      # 全局快捷键 (Ctrl+Shift+C 取消自动退出)
 │           │   ├── heartbeat.rs     # 渲染进程心跳检测 + spawn_window_safety_thread (3秒保底显示窗口)
 │           │   └── shutdown.rs      # graceful_exit + handle_window_close_event (关闭进托盘/退出分流)
+│           ├── self_service/        # 自助服务系统 (Dr.COM Self) 协议：登录 + 绑定运营商账号 (2026-09-05)
+│           │   └── mod.rs           # bind_operator 协议链路 + checkcode/csrftoken/swal msg 提取 + 6 个单测
 │           └── commands/            # Tauri 命令 (模块化拆分)
 │               ├── mod.rs           # 命令模块声明与架构文档
 │               ├── config_cmd.rs    # 配置相关命令 (空密码兜底)
@@ -252,6 +255,7 @@ Wxxy-CampusLogin/
 │               ├── network_cmd.rs   # 网络命令 + DNS/DoH 检测与设置 (winreg + ShellExecuteW)
 │               ├── system.rs        # 系统功能命令
 │               ├── account.rs       # 多账号管理命令 (逻辑自含; account/mod.rs 仅声明 crypto)
+│               ├── self_service.rs  # bind_operator 命令 (校验 + 校园网源 IP 解析, 委托 self_service 模块)
 │               └── updater.rs       # 更新命令 (委托 update 模块)
 ├── CODE_WIKI.md                     # 本文档
 ├── AGENTS.md                        # AI 编码助手项目约定
@@ -422,7 +426,7 @@ Wxxy-CampusLogin/
 4. **WebView2 浏览器参数**: `platform/gpu.rs::build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（2026-09-03 精简：原 ANGLE/SkiaGraphite/DrDc/zero-copy 等 11 个参数经核验已失效/Windows 默认即开/Windows 不支持/实验性强开，一并删除交还平台默认）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭（分流逻辑在 `app/shutdown.rs::handle_window_close_event`）
 6. **退出流程**: 设 `is_quitting` → `task_manager.shutdown()` 取消并等待后台任务（整体 10s 超时上限，防任务卡在不响应取消的阻塞调用时退出挂起）→ `exit(0)`（`app/shutdown.rs::graceful_exit` → `infra/lifecycle.rs::shutdown_and_exit`），窗口关闭与托盘退出行为统一
-7. **命令注册**: 49个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
+7. **命令注册**: 50个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
 
 ### 4.2 全局状态 — `infra/state/` 子目录
 
@@ -852,6 +856,34 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 | `result=3` / `result=4` | 流量超限 / 账号被禁用 | 失败 |
 
 **环境事实**：校园网 IP 为 DHCP 动态分配，租期约 1 天（社区项目因此需 cron 定时重登；本项目由后台巡检 + 断线重连 + DHCP 续租覆盖）。
+
+#### 4.5.4.2 自助服务系统（Dr.COM Self）运营商绑定协议 (2026-09-05)
+
+> 来源：2026-09-05 本机 curl + 浏览器（含 IAB）实测。实现于 `self_service/mod.rs`（协议）+ `commands/self_service.rs`（`bind_operator` 命令），供新手教程"绑定运营商账号"步骤使用。系统地址 `http://10.1.80.200:8080/Self`（仅校园网内网可达，常量 `SELF_BASE_URL`）。
+
+**业务背景**：校园网账号（学号）首次使用前必须在自助服务系统绑定运营商账号（办理套餐的手机号 + 运营商账户密码，由运营商在办理套餐时短信下发），否则 Portal 认证无法正常使用。账户密码**无法自行请求**，遗失可咨询运营商客服。
+
+**协议链路（5 步，全部实测验证）**:
+
+| 步骤 | 请求 | 要点 |
+|------|------|------|
+| 1. 取 checkcode | `GET /Self/login/` | hidden `name="checkcode" value="4位数字"`，会话级，正则提取 |
+| 2. **验证码预热** | `GET /Self/login/randomCode?t=` | **必要隐式前置**：浏览器打开登录页时 `<img>` 自动加载此地址，服务端在 session 记录"已发放"；跳过则 verify 必 302 失败并提示"验证码错误！"。本部署验证码输入框隐藏（`randomDiv` class=hide），提交空 `code` 即通过，用户无需输入 |
+| 3. 登录 | `POST /Self/login/verify` | `account=学号&password=md5(密码小写hex)&checkcode=…&code=`；成功 302 → `/Self/dashboard`；失败 302 → `/Self/login/`，重新 GET 登录页从内嵌 `})('提示文本');` 提取失败原因（如"账号或密码错误！"）。自助系统密码默认为身份证后 6 位 |
+| 4. 取绑定表单 | `GET /Self/service/operatorId` | hidden `csrftoken`（UUID）+ `FLDEXTRA1..6`（预填已绑定值，需用 `extract_fld_values` 全量解析）；302 = 登录会话失效 |
+| 5. 提交绑定 | `POST /Self/service/bind-operator` | `csrftoken + FLDEXTRA1..6`，映射：中国移动=1/2、中国电信=3/4、中国联通=5/6（账号/密码**明文**提交，无 MD5、无 JS 拦截、maxlength 20）；**表单整体保存：非目标运营商字段必须带回预填原值，填空串会清掉已有绑定**（2026-09-05 用户实测缺陷）；HTTP 200 重渲染页，内嵌 swal msg 含"绑定运营商账号信息成功"判成功（可含多行 `\n` 分隔的多运营商结果），建议带 Referer 头（实测缺失偶发服务端空响应） |
+
+**实现约定**:
+
+- `bind_operator(account, password, operator, phone, sms_password)` 为 async 命令，直接 await 协议 async fn（无 spawn_blocking）；`operator` 与 `Config.operator` 同源（`@cmcc`/`@telecom`/`@unicom`，经 `operator_fld_pair` 映射 FLDEXTRA 序号）
+- 会话客户端独立于 `CLIENT_POOL`：`cookie_store(true)` 保持 JSESSIONID + `redirect(Policy::none())` 手动按 Location 判定 verify 结果 + 绑定校园网适配器源 IP（多网卡场景，与登录同源规则解析，复用 `create_safe_http_client` 的 local_addr 能力但不进池）
+- reqwest 需开启 `cookies` feature（Cargo.toml）；MD5 用 `md-5` crate（lib 名 `md5`）
+- **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/运营商账户密码均不持久化
+- **main.rs 与 lib.rs 是两棵独立模块树**：新增顶层模块必须同时在这两个文件声明（本次曾漏 main.rs 导致 bin target E0432）
+- **绑定状态查询**：`query_bind_status` 命令复用登录链路（`login_and_fetch_bind_page` 提取为共用函数），解析 FLDEXTRA 预填值返回三运营商绑定状态；手机号掩码**前三后二**（`mask_account`，如 `197******38`），密码仅回是否设置，明文不出协议模块
+- **查看明文密码需 Windows 本地身份验证**：`verify_windows_identity`（`platform/identity.rs`——主路径 Windows Hello `UserConsentVerifier::RequestVerificationAsync`；未配置 Hello 时回退 `CredUIPromptForCredentialsW` 收集凭据 + SSPI NTLM 往返校验。`LogonUser` 需 SE_TCB_NAME 特权普通进程不可用，SSPI `AcceptSecurityContext` 是无特权校验标准做法）→ 通过后 `reveal_operator_credential` 返回该运营商明文（手机号 + 账户密码），前端临时显示可隐藏
+- 单测 7 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）、mask_account 掩码规则
+- 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
 
 #### 4.5.5 网络质量检测 — `quality.rs`
 
@@ -1334,7 +1366,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 > **重命名**：`useIpc.ts` 已重命名为 `tauriApi.ts`（commit e06203d），从 hook 风格转向纯 API 模块（无 React 依赖）。
 
-**导出**：`tauriApi: TauriApi`（默认对象，49 个 invoke 方法 + 15 个事件监听器工厂）、`tauriApiWithRetry: TauriApi`（对 3 个易失败命令包一层 `withRetry`）。
+**导出**：`tauriApi: TauriApi`（默认对象，50 个 invoke 方法 + 15 个事件监听器工厂）、`tauriApiWithRetry: TauriApi`（对 3 个易失败命令包一层 `withRetry`）。
 
 **事件监听器** (15 个，均通过 `createEventListener<T>(eventName)` 工厂创建，返回取消函数):
 
@@ -1356,7 +1388,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 **`createEventListener` 竞态处理**：闭包维护 `cancelled`/`unlisten` 双状态，处理"订阅尚未完成时即被取消"的竞态；取消函数若 `unlisten` 已就绪则直接调用，否则挂到 `listenPromise.then(fn => fn?.())` 延后清理。
 
-**API 清单** (`TauriApi` interface 定义 49 个 API，按领域分组):
+**API 清单** (`TauriApi` interface 定义 50 个 API，按领域分组):
 
 | 领域 | API |
 |------|-----|
@@ -1462,7 +1494,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `AccountPanel.tsx` | 账号管理面板，3卡片(登录信息含密码显示隐藏/账号管理含添加切换删除/自动登录退出开关) |
+| `AccountPanel.tsx` | 账号管理面板，两列网格等高布局(左列：登录信息卡+自动化设置开关卡(`flex-1` 撑满与右列底部对齐)；右列：**绑定运营商账号**卡输入框垂直排布+绑定状态区(2026-09-05，query_bind_status 查询：手机号掩码前三后二/查看密码走 Windows Hello/SSPI 验证后 reveal_operator_credential 临时显示明文)；下方账号管理卡全宽) |
 | `useAccount.ts` | 账号逻辑 Hook |
 | `types.ts` | 账号类型定义 (SwitchAccountResult, DeleteAccountResult, SaveAccountResult) |
 | `index.ts` | 模块导出 |
@@ -1509,7 +1541,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 |------|------|
 | `SettingsPanel.tsx` | 设置面板，5卡片(外观/启动设置/通知/质量检测/引导向导)+7种主题+12色预设+取色器+亮暗模式 |
 | `ThemeDialog.tsx` | 主题对话框，2列布局+亮暗模式切换 |
-| `OnboardingWizard.tsx` | 4步引导向导(欢迎→账号→适配器→完成)，Framer Motion滑动转场，含语言切换，完成后自动登录 |
+| `OnboardingWizard.tsx` | 5步引导向导(欢迎→绑定运营商账号(可跳过)→账号→适配器→完成)，Framer Motion滑动转场，含语言切换，完成后自动登录；绑定步骤调 `bind_operator` 命令完成自助系统登录+运营商绑定（2026-09-05） |
 | `useSettings.ts` | 设置逻辑 Hook |
 | `constants.ts` | 设置常量 (DEFAULT_CONFIG/ISP_OPTIONS(4种)/THEME_OPTIONS(7种)/VALID_THEMES/DEFAULT_PANEL_OPTIONS) |
 | `types.ts` | 设置类型定义 (Config(36字段含logRetentionDays/configVersion，排除后业务字段34个), AutoLaunchResult, InitData) |
@@ -2157,4 +2189,4 @@ let version = env!("APP_VERSION").to_string();
 
 ---
 
-*文档版本: v2.3.0 | 基于代码版本: CampusLogin v2.3.0 | 更新日期: 2026-09-05 | 本轮全模块核对修正*
+*文档版本: v2.3.1 | 基于代码版本: CampusLogin v2.3.1 | 更新日期: 2026-09-05 | 本轮全模块核对修正*
