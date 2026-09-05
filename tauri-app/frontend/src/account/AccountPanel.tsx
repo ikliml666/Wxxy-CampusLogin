@@ -191,6 +191,8 @@ export const AccountPanel = memo(function AccountPanel({
     <div className="space-y-4">
       {/* 登录信息与运营商绑定并列两列，增强信息密度 */}
       <div className="grid grid-cols-2 gap-4 items-start">
+      {/* 左列：登录信息 + 自动登录开关（填补与右列绑定卡的高度差） */}
+      <div className="space-y-4">
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -292,7 +294,39 @@ export const AccountPanel = memo(function AccountPanel({
         </AnimatedCard>
       </div>
 
+      {/* 底部开关卡上移，填补左列与右列绑定卡的高度差 */}
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardContent className="pt-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login"
+                checked={config.autoLoginOnStart || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">{t('account.autoExitAfterLogin')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoExitAfterLoginDesc')}</p>
+              </div>
+              <Switch
+                id="auto-exit"
+                checked={config.autoExitAfterLogin || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
+              />
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -381,7 +415,7 @@ export const AccountPanel = memo(function AccountPanel({
       </div>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -485,35 +519,6 @@ export const AccountPanel = memo(function AccountPanel({
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardContent className="pt-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
-              </div>
-              <Switch
-                id="auto-login"
-                checked={config.autoLoginOnStart || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">{t('account.autoExitAfterLogin')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoExitAfterLoginDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit"
-                checked={config.autoExitAfterLogin || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-              />
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </div>
     </div>
   )
 })
