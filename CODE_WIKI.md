@@ -416,11 +416,11 @@ Wxxy-CampusLogin/
    - 创建系统托盘
    - 启动适配器监控和启动任务 (通过 `run_startup_tasks`)
    - **3 秒保底 showWindow**：独立线程 3 秒后检查窗口可见性，不可见则强制 `window.show()` + `set_focus()`，最多重试3次，防止前端初始化异常导致窗口永远隐藏
-   - **前端心跳监控**：独立线程每 5 秒检查 `last_render_heartbeat_ms`，连续 3 次超过 20 秒无心跳则重载 WebView
+   - **前端心跳监控**：独立线程每 5 秒检查 `last_render_heartbeat_ms`，连续 3 次超过 20 秒无心跳则重载 WebView；窗口可监控判定需同时满足 `is_visible() && !is_minimized()`（2026-09-05：前端 `useHeartbeat` 在 `document.hidden` 含最小化时暂停心跳，而 Win32 最小化窗口 is_visible 仍为 true，只查可见性会让最小化超阈值后必误触发重载）
 3. **WebView2 内存管理**: `on_window_event` Focused 时通过 `ICoreWebView2_19.SetMemoryUsageTargetLevel` 调节（前台 NORMAL，后台 LOW）
 4. **WebView2 浏览器参数**: `platform/gpu.rs::build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（2026-09-03 精简：原 ANGLE/SkiaGraphite/DrDc/zero-copy 等 11 个参数经核验已失效/Windows 默认即开/Windows 不支持/实验性强开，一并删除交还平台默认）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭（分流逻辑在 `app/shutdown.rs::handle_window_close_event`）
-6. **退出流程**: 设 `is_quitting` → `task_manager.shutdown()` 取消并等待后台任务 → `exit(0)`（`app/shutdown.rs::graceful_exit` → `infra/lifecycle.rs::shutdown_and_exit`），窗口关闭与托盘退出行为统一
+6. **退出流程**: 设 `is_quitting` → `task_manager.shutdown()` 取消并等待后台任务（整体 10s 超时上限，防任务卡在不响应取消的阻塞调用时退出挂起）→ `exit(0)`（`app/shutdown.rs::graceful_exit` → `infra/lifecycle.rs::shutdown_and_exit`），窗口关闭与托盘退出行为统一
 7. **命令注册**: 49个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
 
 ### 4.2 全局状态 — `infra/state/` 子目录
@@ -1182,12 +1182,12 @@ struct ConnectionCampusStatus {
 
 | 函数 | 说明 |
 |------|------|
-| `start_auto_exit()` | 启动自动退出倒计时 + 快捷键注册 + 通知 |
-| `cancel_auto_exit_inner()` | 取消自动退出 |
+| `start_auto_exit()` | 启动自动退出倒计时 + 快捷键注册 + 通知；spawn 失败时回滚 deadline（否则残留 deadline 使后续触发全部短路，本轮自动退出静默失效） |
+| `cancel_auto_exit_inner()` | 取消自动退出：清 deadline + cancelled 标志 + **同步 `task_manager.cancel("auto_exit")`**（2026-09-05：取消只清标志不清任务会留下同名残留，20s 内重新登录时 spawn 被拒→假倒计时且 deadline 残留短路后续触发） |
 | `start_campus_exit()` | 校园网验证不通过时：30s后最小化到托盘，再30s后强制退出 (受 `campus_exit_on_fail` 控制)。**先 CAS 防止重复触发，成功后再设置 deadline**，避免 `campus_exit_started` 永久卡死 (原实现先 set_deadline 再 CAS 会导致周期性调用时 deadline 被推后、CAS 失败后运行中任务最终校验 deadline 未到期而 return，标志位永久 true) |
-| `cancel_campus_exit()` | 取消校园网退出流程。如果自动退出未运行，注销快捷键 |
-| `cancel_campus_exit_with_notification()` | 快捷键取消校园网退出 (含通知和快捷键注销) |
-| `shutdown_and_exit()` | 统一退出入口 (async)：设置 `is_quitting` → `task_manager.shutdown()` 清理后台任务 → `app_handle.exit(0)`。被 `start_campus_exit` 和 `start_auto_exit` 共同调用 |
+| `cancel_campus_exit()` | 取消校园网退出流程：swap 标志 + 清 deadline + **同步 `task_manager.cancel("campus_exit")`**（2026-09-05 同 cancel_auto_exit_inner 理由）。如果自动退出未运行，注销快捷键 |
+| `cancel_campus_exit_with_notification()` | 快捷键取消校园网退出 (含通知、快捷键注销与同步 cancel 任务) |
+| `shutdown_and_exit()` | 统一退出入口 (async)：设置 `is_quitting` → `task_manager.shutdown()` 清理后台任务（**整体 10s 超时上限**）→ `app_handle.exit(0)`。被 `start_campus_exit` 和 `start_auto_exit` 共同调用 |
 
 **B9-8 TOCTOU 竞态修复** (9c)：`start_campus_exit`/`cancel_campus_exit`/`cancel_campus_exit_with_notification` 3 处 `auto_exit_deadline` 的 check-then-act（`is_none()` 检查 + `try_unregister_cancel_exit_shortcut`）原跨锁边界存在 TOCTOU 竞态。修复：3 处均改为持有 `auto_exit_deadline` 锁覆盖 check-then-act，在同一锁临界区内完成 `is_none()` 检查与 unregister，防止 `start_auto_exit` 在间隙注册快捷键。
 
@@ -1281,7 +1281,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 1. **主进程** (`platform/helper_spawn.rs::spawn_elevated_helper`)：`std::env::current_exe()` 取自身路径，生成唯一结果文件路径（`%TEMP%/campus-login-helper-<pid>-<ts>.json`），拼参数 `--helper <op> ... --result <path>`，按现有降级链提权启动（COM ICMLuaUtil 静默 → 失败 ShellExecuteW runas 弹 UAC）
 2. **helper 进程** (`main.rs` 顶部拦截)：`helper::parse_helper_args` 解析出 `HelperOp`（`Dns{targets 适配器名单, family}` / `Mac{guid, mac_no_dash}`，`--family` 参数默认 "both"，op 后到首个 `--` 参数前为位置参数），`run_helper` 执行：
    - `Dns` → `network::dns_setup::setup_dns_doh_admin(targets, family)`（枚举活跃适配器 → Win32 设置 → 全局 DoH 注册 → flushdns）
-   - `Mac` → 按 GUID 在 `get_adapters_force` 中解析适配器名 → `dhcp::apply_mac_change_via_registry`（写注册表 NetworkAddress + release/disable/enable/renew）
+   - `Mac` → 按 GUID 在 `get_adapters_force` 中解析适配器名 → `dhcp::apply_mac_change_via_registry`（写注册表 NetworkAddress + release/disable/enable/renew）→ **`dhcp::remove_mac_from_registry` 在 helper 提权上下文内清除注册表伪装值**（2026-09-05：原清理放在非提升的主进程必然 Access Denied 且仅 log_warn 吞掉，伪装 MAC 每次重启后持续生效；运行中 MAC 不受清除影响，重启后恢复物理 MAC）
 3. **结果回传**: helper 把 `HelperResult{success, message, op, logs, details: Option<serde_json::Value>}` 原子写入结果文件（tmp + rename，`details` 透传 DNS 设置明细给前端），主进程 100ms 间隔轮询（DNS 超时 30s / MAC 超时 25s），读取后把 `logs` 并入主进程日志，返回 JSON 结果
 
 **要点**: helper 进程不初始化 logger（避免与主进程跨进程写同一日志文件竞争）；参数仅含 GUID/MAC/结果路径等受控字符，适配器名由 helper 自行枚举，无 shell 拼接注入面。
@@ -1394,7 +1394,7 @@ export function useAppInit() {
 
 mount 时注册全部 Tauri 事件监听器与窗口关闭拦截，unmount 时统一清理。注册 14 个事件订阅 + 1 个窗口关闭拦截：
 
-- `getCurrentWindow().onCloseRequested` — 拦截关闭，若有 pending config 先 `flushPendingConfig()`，再 await in-flight 保存（`Promise.race` 2s 上限）后才关闭
+- `getCurrentWindow().onCloseRequested` — 拦截关闭，若有 pending config 先 `flushPendingConfig()`，再 await 其返回的保存（2026-09-05：返回值纳入本次 flush 新发出的 `saveConfig` promise 与既有 in-flight 的合并等待，仅 debounce pending 时不再拿到 null 直接关窗丢数据；`Promise.race` 2s 上限保持）后才关闭
 - `onBackgroundCheckResult` — 更新 `bgStatus`、记录在线/离线日志（1s 节流 + 5s 在线日志节流）
 - `onAdaptersChanged` — 更新 store，500ms 节流（前缘+后缘双重保护）
 - `onAdapterDetailsChanged` / `onDisabledAdaptersChanged` / `onAdapterDisabledWarning`
@@ -1483,7 +1483,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `NetworkPanel.tsx` | 3个卡片（网络适配器列表含状态四分类/适配器设置/DNS优化），适配器启用/单适配器获取新IP |
-| `useNetwork.ts` | 网络逻辑 Hook |
+| `useNetwork.ts` | 网络逻辑 Hook；模块级导出 `normalizeDhcpResults`（单条/批量结果归一化）+ `announceDhcpResults`（成功/跳过/失败三类 i18n toast，2026-09-05 起与 NetworkPanel "获取新IP"共用同一实现，替代面板内逐行复制品与 hook 内硬编码中文文案） |
 | `adapters.ts` | `resolveAdapterNames(adapters, config)` 前端适配器解析，与后端 `resolve_adapter_names` 同源规则 |
 | `adapters.test.ts` | resolveAdapterNames 单测（锁同源行为） |
 | `constants.ts` | 网络常量 (QUALITY_CONFIG: 9级质量配置含labelKey/color/bg/border/borderBg/icon/hex/activeBars/glow，定义于此) |
