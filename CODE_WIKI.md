@@ -96,6 +96,7 @@ Wxxy-CampusLogin/
 │   │       │   └── locales/         # 翻译文件 (zh.json / en.json)
 │   │       ├── account/             # 账号模块
 │   │       │   ├── AccountPanel.tsx # 账号管理面板
+│   │       │   ├── SelfDashboardCards.tsx # 自助服务 dashboard 两卡片（在线信息+近期上网记录，2026-09-05）
 │   │       │   ├── useAccount.ts    # 账号逻辑
 │   │       │   ├── types.ts         # 账号类型定义
 │   │       │   └── index.ts         # 模块导出
@@ -245,7 +246,7 @@ Wxxy-CampusLogin/
 │           │   ├── shortcut.rs      # 全局快捷键 (Ctrl+Shift+C 取消自动退出)
 │           │   ├── heartbeat.rs     # 渲染进程心跳检测 + spawn_window_safety_thread (3秒保底显示窗口)
 │           │   └── shutdown.rs      # graceful_exit + handle_window_close_event (关闭进托盘/退出分流)
-│           ├── self_service/        # 自助服务系统 (Dr.COM Self) 协议：登录 + 绑定运营商账号 (2026-09-05)
+│           ├── self_service/        # 自助服务系统 (Dr.COM Self) 协议：登录 + 运营商绑定 + dashboard 在线信息/上网记录/注销会话 (2026-09-05)
 │           │   └── mod.rs           # bind_operator 协议链路 + checkcode/csrftoken/swal msg 提取 + 6 个单测
 │           └── commands/            # Tauri 命令 (模块化拆分)
 │               ├── mod.rs           # 命令模块声明与架构文档
@@ -255,7 +256,7 @@ Wxxy-CampusLogin/
 │               ├── network_cmd.rs   # 网络命令 + DNS/DoH 检测与设置 (winreg + ShellExecuteW)
 │               ├── system.rs        # 系统功能命令
 │               ├── account.rs       # 多账号管理命令 (逻辑自含; account/mod.rs 仅声明 crypto)
-│               ├── self_service.rs  # bind_operator 命令 (校验 + 校园网源 IP 解析, 委托 self_service 模块)
+│               ├── self_service.rs  # bind_operator/query_bind_status/query_self_dashboard/self_offline_session 等命令 (校验 + 校园网源 IP 解析, 委托 self_service 模块)
 │               └── updater.rs       # 更新命令 (委托 update 模块)
 ├── CODE_WIKI.md                     # 本文档
 ├── AGENTS.md                        # AI 编码助手项目约定
@@ -426,7 +427,7 @@ Wxxy-CampusLogin/
 4. **WebView2 浏览器参数**: `platform/gpu.rs::build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（2026-09-03 精简：原 ANGLE/SkiaGraphite/DrDc/zero-copy 等 11 个参数经核验已失效/Windows 默认即开/Windows 不支持/实验性强开，一并删除交还平台默认）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭（分流逻辑在 `app/shutdown.rs::handle_window_close_event`）
 6. **退出流程**: 设 `is_quitting` → `task_manager.shutdown()` 取消并等待后台任务（整体 10s 超时上限，防任务卡在不响应取消的阻塞调用时退出挂起）→ `exit(0)`（`app/shutdown.rs::graceful_exit` → `infra/lifecycle.rs::shutdown_and_exit`），窗口关闭与托盘退出行为统一
-7. **命令注册**: 50个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
+7. **命令注册**: 55个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
 
 ### 4.2 全局状态 — `infra/state/` 子目录
 
@@ -884,6 +885,27 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - **查看明文密码需 Windows 本地身份验证**：`verify_windows_identity`（`platform/identity.rs`——主路径 Windows Hello `UserConsentVerifier::RequestVerificationAsync`；未配置 Hello 时回退 `CredUIPromptForCredentialsW` 收集凭据 + SSPI NTLM 往返校验。`LogonUser` 需 SE_TCB_NAME 特权普通进程不可用，SSPI `AcceptSecurityContext` 是无特权校验标准做法）→ 通过后 `reveal_operator_credential` 返回该运营商明文（手机号 + 账户密码），前端临时显示可隐藏
 - 单测 7 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）、mask_account 掩码规则
 - 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
+
+#### 4.5.4.3 自助服务系统（Dr.COM Self）dashboard 卡片协议：在线信息 + 近期上网记录 (2026-09-05)
+
+> 来源：2026-09-05 浏览器（IAB）登录态下读取 dashboard 页内嵌 bootstrapTable JS + 登录会话内 fetch 实测响应结构。实现于 `self_service/mod.rs`（`query_dashboard`/`offline_session`）+ `commands/self_service.rs`（`query_self_dashboard`/`self_offline_session`，53 → 55 个命令）。账户管理页两卡片（`SelfDashboardCards.tsx`）复用绑定卡的学号/自助服务密码。
+
+**协议链路（登录会话 cookie 即可，均无额外必填参数）**:
+
+| 接口 | 请求 | 响应结构与字段语义 |
+|------|------|------|
+| 在线信息 | `GET /Self/dashboard/getOnlineList` | 对象数组：`loginTime`（字符串 "YYYY-MM-DD HH:mm:ss"）、`ip`、`mac`（12 位 hex 无分隔）、`useTime`（**秒**）、`downFlow`/`upFlow`（**KB**）、`hostName`（可空）、`terminalType`（`#PC` 带 `#` 前缀）、`sessionId`（注销用） |
+| 近期上网记录 | `GET /Self/dashboard/getLoginHistory` | 数组的数组：`[上线时间 epoch ms, 注销时间 epoch ms, ip, mac, 时长(分), 流量(M), 计费方式 1时长/2流量/3包月, 金额, 主机名(null), 终端类型, ...]` |
+| 注销会话 | `GET /Self/dashboard/tooffline?sessionid=` | `{"success":bool}`；实测对不存在的 sessionid 也返回 true（服务端宽松），前端只能以"接口成功"提示 |
+
+**实现约定**:
+
+- 登录链路已重构：`login_session`（共用前 3 步：checkcode → randomCode 预热 → verify）为最底层，`login_and_fetch_bind_page`（绑定/状态/明文查看）与 `query_dashboard`（一次登录连拉 getOnlineList + getLoginHistory，`fetch_dashboard_json` 共用"302=会话失效 + 非 JSON=异常页"判定）都从它出发
+- 302 重定向 = 登录会话失效（统一文案"登录会话失效，请重试"）；`parse_offline_success` 对非 JSON/缺字段/非布尔一律判失败
+- 前端格式化**对齐原站公式**（dashboard 页内嵌 JS）：MAC 每 2 字符加 `-`；useTime `parseInt/60` 分钟取整；流量 `(down+up)/1024` M 三位小数；终端类型截掉 `#` 前缀（空→`-`）；epoch → `YYYY-MM-DD HH:mm:ss`；null 主机名 → `-`。**注意 useTime 单位与上网记录的时长（分）不同，流量 KB 与 M 不同**，透传 JSON 由前端换算，后端不改结构
+- 注销交互：ConfirmDialog 确认（文案明示断网风险）→ `selfOfflineSession` → 成功后前端本地移除该行（不自动重拉，避免整会话重登开销）；i18n `account.selfDashboard*/col*/payStyle*/selfOffline*` 键组（zh/en 对称）
+- **逆向安全红线**：dashboard 页有注销功能，实验只允许用**必然不存在的 sessionid** 探测接口格式，绝不能点击/调用页面上真实会话的注销——误踢当前在线设备会导致用户断网
+- 单测：`offline_success_parsing`（success 判定 4 边界）；前端 vitest 3 用例（凭据联动禁用/表格格式化断言/注销确认后移除行）
 
 #### 4.5.5 网络质量检测 — `quality.rs`
 
@@ -1495,6 +1517,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `AccountPanel.tsx` | 账号管理面板，两列网格等高布局(左列：登录信息卡+自动化设置开关卡(`flex-1` 撑满与右列底部对齐)；右列：**绑定运营商账号**卡输入框垂直排布+绑定状态区(2026-09-05，query_bind_status 查询：手机号掩码前三后二/查看密码走 Windows Hello/SSPI 验证后 reveal_operator_credential 临时显示明文)；下方账号管理卡全宽) |
+| `SelfDashboardCards.tsx` | 自助服务 dashboard 两卡片(2026-09-05，协议见 §4.5.4.3)：**在线信息**表(操作列注销→ConfirmDialog→self_offline_session→本地移除行) + **近期上网记录**表；凭据复用 AccountPanel 绑定卡的 bindSelfAccount/bindSelfPassword（props 传入，不重复收集）；格式化公式对齐原站 JS（MAC 连字符/秒→分/KB→M/#前缀截取/epoch→本地串）；未填凭据时按钮禁用+提示 |
 | `useAccount.ts` | 账号逻辑 Hook |
 | `types.ts` | 账号类型定义 (SwitchAccountResult, DeleteAccountResult, SaveAccountResult) |
 | `index.ts` | 模块导出 |

@@ -16,6 +16,17 @@
 //! 5. `POST /Self/service/bind-operator` `csrftoken + FLDEXTRA1..6`
 //!    （中国移动=1/2，中国电信=3/4，中国联通=5/6，账号/密码**明文**提交）
 //!    → HTTP 200 重渲染绑定页，内嵌 swal msg 含"绑定运营商账号信息成功"判成功
+//!
+//! dashboard 卡片协议（逆向于 2026-09-05 dashboard 页内嵌 JS + 实测响应结构，
+//! 仅需登录会话 cookie，无需额外参数）：
+//! 6. `GET /Self/dashboard/getOnlineList`  在线设备列表（对象数组：loginTime 字符串、
+//!    ip、mac 12位hex、useTime 秒、downFlow/upFlow KB、hostName、terminalType
+//!    "#PC" 带#前缀、sessionId 供注销）
+//! 7. `GET /Self/dashboard/getLoginHistory` 近期上网记录（数组的数组：上线/注销时间
+//!    epoch 毫秒、ip、mac、时长分、流量 M、计费方式 1时长/2流量/3包月、金额、主机名、
+//!    终端类型）
+//! 8. `GET /Self/dashboard/tooffline?sessionid=` 踢指定会话下线 → `{"success":bool}`
+//!    （实测对不存在的 sessionid 也返回 true，服务端宽松处理）
 
 use std::net::IpAddr;
 
@@ -244,13 +255,13 @@ fn binding_from(acct: &str, pwd: &str) -> Option<OperatorBinding> {
     })
 }
 
-/// 登录自助服务系统并返回绑定表单页 HTML（绑定/查询共用前 4 步）。
-/// 返回 (会话客户端, 绑定页 HTML)——客户端须保持 cookie 会话供后续请求使用。
-async fn login_and_fetch_bind_page(
+/// 登录自助服务系统并返回会话客户端（绑定/dashboard 查询共用前 3 步）。
+/// 客户端须保持 cookie 会话供后续请求使用。
+async fn login_session(
     account: &str,
     password: &str,
     local_addr: Option<IpAddr>,
-) -> Result<(reqwest::Client, String), String> {
+) -> Result<reqwest::Client, String> {
     let client = build_session_client(local_addr)?;
 
     // 1. 登录页取 checkcode
@@ -301,6 +312,17 @@ async fn login_and_fetch_bind_page(
         let msg = extract_swal_msg(&fail_html).unwrap_or_default();
         return Err(if msg.is_empty() { "登录失败，请检查学号与自助服务密码".to_string() } else { msg });
     }
+    Ok(client)
+}
+
+/// 登录自助服务系统并返回绑定表单页 HTML（绑定/查询共用前 4 步）。
+/// 返回 (会话客户端, 绑定页 HTML)——客户端须保持 cookie 会话供后续请求使用。
+async fn login_and_fetch_bind_page(
+    account: &str,
+    password: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<(reqwest::Client, String), String> {
+    let client = login_session(account, password, local_addr).await?;
 
     // 4. 绑定表单页 HTML（302 = 登录会话失效）
     let op_resp = client
@@ -315,6 +337,75 @@ async fn login_and_fetch_bind_page(
         .map_err(|e| format!("打开绑定页失败: {e}"))?
         .text().await.map_err(|e| format!("读取绑定页失败: {e}"))?;
     Ok((client, op_html))
+}
+
+/// 请求 dashboard 查询接口并解析 JSON（getOnlineList / getLoginHistory 共用）。
+/// 302 = 登录会话失效；非 JSON = 服务端异常页。
+async fn fetch_dashboard_json(
+    client: &reqwest::Client,
+    path: &str,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = client
+        .get(format!("{}/dashboard/{path}", SELF_BASE_URL))
+        .send().await
+        .map_err(|e| format!("请求{label}失败: {e}"))?;
+    if resp.status().is_redirection() {
+        return Err("登录会话失效，请重试".to_string());
+    }
+    let text = resp
+        .error_for_status()
+        .map_err(|e| format!("请求{label}失败: {e}"))?
+        .text().await.map_err(|e| format!("读取{label}失败: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("{label}解析失败: {e}"))
+}
+
+/// 查询自助服务 dashboard 数据（在线信息 + 近期上网记录）。
+/// 一次登录会话连拉两个接口，返回原始 JSON（数组结构），展示格式化由前端完成。
+pub async fn query_dashboard(
+    account: &str,
+    password: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<(serde_json::Value, serde_json::Value), String> {
+    let client = login_session(account, password, local_addr).await?;
+    let online = fetch_dashboard_json(&client, "getOnlineList", "在线信息").await?;
+    let history = fetch_dashboard_json(&client, "getLoginHistory", "上网记录").await?;
+    Ok((online, history))
+}
+
+/// tooffline 响应 success 判定（非 JSON / 缺字段按失败处理）
+fn parse_offline_success(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| v.get("success").and_then(|s| s.as_bool()))
+        .unwrap_or(false)
+}
+
+/// 注销指定上网会话（dashboard 在线信息卡片操作列，GET tooffline?sessionid=）。
+pub async fn offline_session(
+    account: &str,
+    password: &str,
+    session_id: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<(), String> {
+    let client = login_session(account, password, local_addr).await?;
+    let resp = client
+        .get(format!("{}/dashboard/tooffline", SELF_BASE_URL))
+        .query(&[("sessionid", session_id)])
+        .send().await
+        .map_err(|e| format!("请求注销失败: {e}"))?;
+    if resp.status().is_redirection() {
+        return Err("登录会话失效，请重试".to_string());
+    }
+    let text = resp
+        .error_for_status()
+        .map_err(|e| format!("请求注销失败: {e}"))?
+        .text().await.map_err(|e| format!("读取注销结果失败: {e}"))?;
+    if parse_offline_success(&text) {
+        Ok(())
+    } else {
+        Err("注销失败，请稍后重试".to_string())
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +482,16 @@ mod tests {
         assert_eq!(operator_fld_pair("@unicom"), Some((5, 6)));
         assert_eq!(operator_fld_pair("@unknown"), None);
         assert_eq!(operator_fld_pair(""), None);
+    }
+
+    #[test]
+    fn offline_success_parsing() {
+        // 实测响应格式 {"success":bool}；非 JSON / 缺字段 / 非布尔按失败处理
+        assert!(parse_offline_success(r#"{"success":true}"#));
+        assert!(!parse_offline_success(r#"{"success":false}"#));
+        assert!(!parse_offline_success(r#"{"result":1}"#));
+        assert!(!parse_offline_success("<html>error</html>"));
+        assert!(!parse_offline_success(""));
     }
 
     #[test]

@@ -103,6 +103,72 @@ pub async fn query_bind_status(
     }
 }
 
+/// 查询自助服务 dashboard（在线信息 + 近期上网记录，一次登录拉两个接口，
+/// 原始数组结构透传，展示格式化由前端完成）
+#[tauri::command]
+pub async fn query_self_dashboard(
+    state: State<'_, AppState>,
+    account: String,
+    password: String,
+) -> Result<CommandResult, String> {
+    let account = account.trim();
+    let password = password.trim();
+    if account.is_empty() {
+        return Ok(CommandResult::err("请输入学号"));
+    }
+    if password.is_empty() {
+        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    }
+
+    let local_addr = resolve_campus_bind_addr(&state);
+    match self_service::query_dashboard(account, password, local_addr).await {
+        Ok((online, history)) => Ok(CommandResult {
+            success: true,
+            message: None,
+            data: Some(json!({ "onlineList": online, "loginHistory": history })),
+        }),
+        Err(e) => {
+            crate::log_warn!("self", "查询自助服务在线信息失败: {e}");
+            Ok(CommandResult::err(&e))
+        }
+    }
+}
+
+/// 注销指定自助服务在线会话（dashboard 在线信息卡片操作列）。
+/// 凭据仅本次请求内存传递，不写入配置、不落盘、不写日志。
+#[tauri::command]
+pub async fn self_offline_session(
+    state: State<'_, AppState>,
+    account: String,
+    password: String,
+    session_id: String,
+) -> Result<CommandResult, String> {
+    let account = account.trim();
+    let password = password.trim();
+    let session_id = session_id.trim();
+    if account.is_empty() {
+        return Ok(CommandResult::err("请输入学号"));
+    }
+    if password.is_empty() {
+        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    }
+    if session_id.is_empty() {
+        return Ok(CommandResult::err("缺少会话标识"));
+    }
+
+    let local_addr = resolve_campus_bind_addr(&state);
+    match self_service::offline_session(account, password, session_id, local_addr).await {
+        Ok(()) => {
+            crate::log_info!("self", "自助服务注销会话成功");
+            Ok(CommandResult::ok_msg("注销成功"))
+        }
+        Err(e) => {
+            crate::log_warn!("self", "自助服务注销会话失败: {e}");
+            Ok(CommandResult::err(&e))
+        }
+    }
+}
+
 /// Windows 本地身份验证（Windows Hello，未配置时回退 Windows 凭据对话框 +
 /// SSPI 本地校验）。通过后前端才可调用 reveal_operator_credential 查看明文。
 #[tauri::command]

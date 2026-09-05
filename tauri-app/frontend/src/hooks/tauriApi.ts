@@ -39,6 +39,8 @@ interface TauriApi {
   getBindStatus: (params: { account: string; password: string }) => Promise<CommandResult>
   verifyWindowsIdentity: () => Promise<CommandResult>
   revealOperatorCredential: (params: { account: string; password: string; operator: string }) => Promise<CommandResult>
+  querySelfDashboard: (params: { account: string; password: string }) => Promise<CommandResult>
+  selfOfflineSession: (params: { account: string; password: string; sessionId: string }) => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -141,6 +143,8 @@ const tauriApi: TauriApi = {
   getBindStatus: (params) => invoke<CommandResult>('query_bind_status', { ...params }),
   verifyWindowsIdentity: () => invoke<CommandResult>('verify_windows_identity', {}),
   revealOperatorCredential: (params) => invoke<CommandResult>('reveal_operator_credential', { ...params }),
+  querySelfDashboard: (params) => invoke<CommandResult>('query_self_dashboard', { ...params }),
+  selfOfflineSession: (params) => invoke<CommandResult>('self_offline_session', { ...params }),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),

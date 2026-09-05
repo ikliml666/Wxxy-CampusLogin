@@ -23,6 +23,7 @@ import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
+import { SelfDashboardCards } from '@/account/SelfDashboardCards'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -682,6 +683,9 @@ export const AccountPanel = memo(function AccountPanel({
           </CardContent>
         </AnimatedCard>
       </div>
+
+      {/* 自助服务 dashboard：在线信息 + 近期上网记录（凭据复用绑定卡的学号/自助服务密码） */}
+      <SelfDashboardCards account={bindSelfAccount} password={bindSelfPassword} />
 
     </div>
   )
