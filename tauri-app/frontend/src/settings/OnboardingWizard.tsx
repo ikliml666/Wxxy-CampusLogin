@@ -23,13 +23,12 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { APP_NAME, PASSWORD_MASK } from '@/shared/ui-constants'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, safeStorage } from '@/lib/utils'
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
-
-const AUTO_DETECT_SENTINEL = '自动检测'
 
 interface OnboardingWizardProps {
   open: boolean
@@ -98,8 +97,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
   const [operator, setOperator] = useState(config.operator || '__default__')
-  const [adapter1, setAdapter1] = useState(config.adapter1 || AUTO_DETECT_SENTINEL)
-  const [adapter2, setAdapter2] = useState(config.adapter2 || AUTO_DETECT_SENTINEL)
+  const [adapter1, setAdapter1] = useState(config.adapter1 || AUTO_DETECT_ADAPTER)
+  const [adapter2, setAdapter2] = useState(config.adapter2 || AUTO_DETECT_ADAPTER)
   const [dualAdapter, setDualAdapter] = useState(!!config.dualAdapter)
   const [showPassword, setShowPassword] = useState(false)
   const [loginSuccess, setLoginSuccess] = useState(false)
@@ -112,8 +111,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setUsername(config.user || '')
       setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
       setOperator(config.operator || '__default__')
-      setAdapter1(config.adapter1 || AUTO_DETECT_SENTINEL)
-      setAdapter2(config.adapter2 || AUTO_DETECT_SENTINEL)
+      setAdapter1(config.adapter1 || AUTO_DETECT_ADAPTER)
+      setAdapter2(config.adapter2 || AUTO_DETECT_ADAPTER)
       setDualAdapter(!!config.dualAdapter)
       setLoginSuccess(false)
     }
@@ -137,8 +136,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     }
     if (step === 2) {
       onUpdateConfig({
-        adapter1: adapter1 === AUTO_DETECT_SENTINEL ? '' : adapter1,
-        adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_SENTINEL ? '' : adapter2) : '',
+        adapter1: adapter1 === AUTO_DETECT_ADAPTER ? '' : adapter1,
+        adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_ADAPTER ? '' : adapter2) : '',
         dualAdapter,
       })
     }
@@ -171,15 +170,15 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setLoginSuccess(false)
       return
     }
-    if (dualAdapter && (!adapter2 || adapter2 === AUTO_DETECT_SENTINEL)) {
+    if (dualAdapter && (!adapter2 || adapter2 === AUTO_DETECT_ADAPTER)) {
       setLoginSuccess(false)
       return
     }
     const updateData: Record<string, string | boolean> = {
       user: username.trim(),
       operator: operator === '__default__' ? '' : operator,
-      adapter1: adapter1 === AUTO_DETECT_SENTINEL ? '' : adapter1,
-      adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_SENTINEL ? '' : adapter2) : '',
+      adapter1: adapter1 === AUTO_DETECT_ADAPTER ? '' : adapter1,
+      adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_ADAPTER ? '' : adapter2) : '',
       dualAdapter,
     }
     if (password.trim()) {
@@ -187,7 +186,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     }
     onUpdateConfig(updateData as unknown as Record<string, string>)
     try {
-      const success = await onLogin(adapter1 === AUTO_DETECT_SENTINEL ? undefined : adapter1)
+      const success = await onLogin(adapter1 === AUTO_DETECT_ADAPTER ? undefined : adapter1)
       if (success) {
         setLoginSuccess(true)
         if (finishTimerRef.current) {
@@ -332,7 +331,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                         <SelectValue placeholder={t('onboarding.selectAdapter')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={AUTO_DETECT_SENTINEL}>{t('onboarding.autoDetect')}</SelectItem>
+                        <SelectItem value={AUTO_DETECT_ADAPTER}>{t('onboarding.autoDetect')}</SelectItem>
                         {adapters.map(a => (
                           <SelectItem key={a.name} value={a.name}>
                             <span className="flex items-center gap-2">
@@ -372,7 +371,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                           <SelectValue placeholder={t('onboarding.selectSecondaryAdapter')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={AUTO_DETECT_SENTINEL}>{t('onboarding.autoDetect')}</SelectItem>
+                          <SelectItem value={AUTO_DETECT_ADAPTER}>{t('onboarding.autoDetect')}</SelectItem>
                           {adapters.filter(a => a.name !== adapter1).map(a => (
                             <SelectItem key={a.name} value={a.name}>
                               <span className="flex items-center gap-2">
@@ -438,7 +437,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                       <Cable className="h-3.5 w-3.5" />{t('onboarding.primaryAdapter')}
                     </span>
                     <span className="font-medium truncate ml-2 max-w-[200px]">
-                      {adapter1 === AUTO_DETECT_SENTINEL ? t('onboarding.autoDetect') : adapter1}
+                      {adapter1 === AUTO_DETECT_ADAPTER ? t('onboarding.autoDetect') : adapter1}
                     </span>
                   </div>
                   {dualAdapter && (
@@ -449,7 +448,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                           <Network className="h-3.5 w-3.5" />{t('onboarding.secondaryAdapter')}
                         </span>
                         <span className="font-medium truncate ml-2 max-w-[200px]">
-                          {adapter2 === AUTO_DETECT_SENTINEL ? t('onboarding.autoDetect') : adapter2}
+                          {adapter2 === AUTO_DETECT_ADAPTER ? t('onboarding.autoDetect') : adapter2}
                         </span>
                       </div>
                     </>

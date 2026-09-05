@@ -104,7 +104,7 @@ describe('mergeNetworkQuality', () => {
   it('merges details from old and incoming for normal qualities', () => {
     const old = makeNq({
       quality: 'excellent',
-      details: { 网关: { target: 'gw', latency: 5, type: 'tcp' } },
+      details: { gateway: { target: 'gw', latency: 5, type: 'tcp' } },
       metrics: { totalElapsed: 100, tests: {} },
     });
     const incoming = makeNq({
@@ -113,7 +113,7 @@ describe('mergeNetworkQuality', () => {
     });
     const result = mergeNetworkQuality(old, incoming);
     expect(result.details).toEqual({
-      网关: { target: 'gw', latency: 5, type: 'tcp' },
+      gateway: { target: 'gw', latency: 5, type: 'tcp' },
       baidu: { target: 'baidu', latency: 30, type: 'tcp' },
     });
     expect(result.metrics).toEqual({ totalElapsed: 100, tests: {} });
@@ -130,10 +130,10 @@ describe('extractGatewayLatency', () => {
     expect(extractGatewayLatency(nq)).toBe(5);
   });
 
-  it('falls back to details["网关"].latency when gatewayLatency < 0', () => {
+  it('falls back to details["gateway"].latency when gatewayLatency < 0', () => {
     const nq = makeNq({
       gatewayLatency: -1,
-      details: { 网关: { target: 'gw', latency: 12, type: 'tcp' } },
+      details: { gateway: { target: 'gw', latency: 12, type: 'tcp' } },
     });
     expect(extractGatewayLatency(nq)).toBe(12);
   });
@@ -159,12 +159,12 @@ describe('extractExternalLatency', () => {
     expect(extractExternalLatency(nq)).toBe(40);
   });
 
-  it('computes median from external details excluding 网关', () => {
+  it('computes median from external details excluding gateway', () => {
     const nq = makeNq({
       averageExternalLatency: -1,
       externalLatency: -1,
       details: {
-        网关: { target: 'gw', latency: 5, type: 'tcp' },
+        gateway: { target: 'gw', latency: 5, type: 'tcp' },
         a: { target: 'a', latency: 30, type: 'tcp' },
         b: { target: 'b', latency: 10, type: 'tcp' },
         c: { target: 'c', latency: 50, type: 'tcp' },

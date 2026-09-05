@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import type { Config } from '@/settings'
 import type { StatusState } from '@/shared'
 import type { Adapter } from '@/network'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import type { BackgroundStatus, NetworkQuality } from '@/monitor'
 import { extractErrorMessage } from '@/lib/utils'
 import { mergeNetworkQuality } from '@/lib/latency'
@@ -65,7 +66,7 @@ function buildCampusBgStatusPatch(
 
 // 适配器解析：从适配器列表中选择 IP（纯函数）
 function pickAdapterIp(adapters: Adapter[], adapter1: string | undefined): string {
-  if (adapter1 && adapter1 !== '自动检测') {
+  if (adapter1 && adapter1 !== AUTO_DETECT_ADAPTER) {
     const adapter = adapters.find(a => a.name === adapter1)
     if (adapter?.ip) return adapter.ip
   }

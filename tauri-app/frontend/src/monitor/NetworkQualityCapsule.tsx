@@ -60,7 +60,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
 
   const gatewayLatency = useMemo(() => extractGatewayLatency(networkQuality), [networkQuality])
   const externalLatency = useMemo(() => extractExternalLatency(networkQuality), [networkQuality])
-  const dnsLatency = useMemo(() => networkQuality?.details?.['DNS解析']?.latency ?? -1, [networkQuality?.details])
+  const dnsLatency = useMemo(() => networkQuality?.details?.['dnsResolve']?.latency ?? -1, [networkQuality?.details])
 
   const gatewaySub = useMemo(() => {
     if (!networkQuality) return undefined
@@ -77,10 +77,10 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   }, [networkQuality, t])
 
   const dnsSub = useMemo(() => {
-    const detail = networkQuality?.details?.['DNS解析']
+    const detail = networkQuality?.details?.['dnsResolve']
     if (!detail) return undefined
     return detail.target ? `→ ${detail.target}` : t('quality.systemDnsResolution')
-  }, [networkQuality?.details?.['DNS解析'], t])
+  }, [networkQuality?.details?.['dnsResolve'], t])
 
   const displayLatency = useMemo(() => {
     if (externalLatency >= 0) return externalLatency

@@ -1,5 +1,6 @@
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
@@ -333,14 +334,14 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               <div className="space-y-2">
                 <Label className="text-xs font-medium text-muted-foreground">{t('network.primaryAdapter')}</Label>
                 <Select
-                  value={config.adapter1 || '自动检测'}
+                  value={config.adapter1 || AUTO_DETECT_ADAPTER}
                   onValueChange={(value) => onUpdateConfig({ adapter1: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t('network.selectPrimaryAdapter')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="自动检测">{t('network.autoDetect')}</SelectItem>
+                    <SelectItem value={AUTO_DETECT_ADAPTER}>{t('network.autoDetect')}</SelectItem>
                     {adapters.filter(a => a.ip).map(a => (
                       <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                     ))}

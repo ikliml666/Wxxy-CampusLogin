@@ -31,7 +31,7 @@ export function mergeNetworkQuality(old: NetworkQuality | null, incoming: Networ
 export function extractGatewayLatency(nq: NetworkQuality | null): number {
   if (!nq) return -1
   if (nq.gatewayLatency >= 0) return nq.gatewayLatency
-  const gwDetail = nq.details?.['网关']
+  const gwDetail = nq.details?.['gateway']
   return gwDetail && gwDetail.latency >= 0 ? gwDetail.latency : -1
 }
 
@@ -42,7 +42,7 @@ export function extractExternalLatency(nq: NetworkQuality | null): number {
   if (avg !== undefined && avg >= 0) return avg
   if (ext >= 0) return ext
   const extDetails = Object.entries(nq.details ?? {})
-    .filter(([key, d]) => key !== '网关' && d.latency >= 0)
+    .filter(([key, d]) => key !== 'gateway' && d.latency >= 0)
     .map(([, d]) => d.latency)
   if (extDetails.length > 0) {
     extDetails.sort((a, b) => a - b)

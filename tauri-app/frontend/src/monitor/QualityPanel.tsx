@@ -37,7 +37,7 @@ const DETAIL_CATEGORIES = [
     key: 'gateway',
     labelKey: 'quality.gateway',
     icon: Router,
-    names: ['网关'],
+    names: ['gateway'],
     type: 'gateway' as LatencyType,
     color: 'text-blue-500',
     bg: 'bg-blue-500/10',
@@ -47,7 +47,7 @@ const DETAIL_CATEGORIES = [
     key: 'dns',
     labelKey: 'quality.dnsServer',
     icon: Globe2,
-    names: ['阿里DoH', '腾讯DoH', '阿里DNS', '腾讯DNS', '信风DNS', 'DNS解析'],
+    names: ['aliDoh', 'tencentDoh', 'aliDns', 'tencentDns', 'xinfengDns', 'dnsResolve'],
     type: 'external' as LatencyType,
     color: 'text-violet-500',
     bg: 'bg-violet-500/10',
@@ -57,7 +57,7 @@ const DETAIL_CATEGORIES = [
     key: 'http',
     labelKey: 'quality.websiteTest',
     icon: MonitorSmartphone,
-    names: ['百度', '京东', '必应', '12306'],
+    names: ['baidu', 'jd', 'bing', 'railway12306'],
     type: 'external' as LatencyType,
     color: 'text-emerald-500',
     bg: 'bg-emerald-500/10',
@@ -67,7 +67,7 @@ const DETAIL_CATEGORIES = [
     key: 'stream',
     labelKey: 'quality.videoPlatform',
     icon: Tv,
-    names: ['哔哩哔哩', '抖音', '哔哩哔哩直播', '抖音直播'],
+    names: ['bilibili', 'douyin', 'bilibiliLive', 'douyinLive'],
     type: 'external' as LatencyType,
     color: 'text-amber-500',
     bg: 'bg-amber-500/10',
@@ -77,7 +77,7 @@ const DETAIL_CATEGORIES = [
     key: 'game',
     labelKey: 'quality.gameServer',
     icon: Gamepad2,
-    names: ['英雄联盟', '原神', '绝地求生', '永劫无间'],
+    names: ['lol', 'genshin', 'pubg', 'naraka'],
     type: 'external' as LatencyType,
     color: 'text-rose-500',
     bg: 'bg-rose-500/10',
@@ -399,7 +399,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                             <span className={cn(
                               'text-[11px] font-medium',
                               !(item.latency >= 0 && hasData) && 'text-muted-foreground/60'
-                            )}>{item.name}</span>
+                            )}>{t(`quality.names.${item.name}`)}</span>
                             <span className={cn(
                               'text-[11px] font-semibold tabular-nums',
                               item.latency >= 0 && hasData ? getLatencyColor(item.latency).text : 'text-muted-foreground/40'
