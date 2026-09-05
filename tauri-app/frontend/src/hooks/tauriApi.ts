@@ -35,6 +35,7 @@ interface TauriApi {
   checkCampusStatus: () => Promise<CampusStatusResult>
   doLogin: (adapterName?: string) => Promise<LoginResult>
   doLogout: (adapterName?: string) => Promise<LoginResult>
+  bindOperator: (params: { account: string; password: string; operator: string; phone: string; smsPassword: string }) => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -133,6 +134,7 @@ const tauriApi: TauriApi = {
   checkCampusStatus: () => invoke<CampusStatusResult>('check_campus_status'),
   doLogin: (adapterName) => invoke<LoginResult>('do_login', { adapterName }),
   doLogout: (adapterName) => invoke<LoginResult>('do_logout', { adapterName }),
+  bindOperator: (params) => invoke<CommandResult>('bind_operator', { ...params }),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),
