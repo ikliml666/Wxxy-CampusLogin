@@ -1,6 +1,6 @@
 # CampusLogin 校园网登录助手 — Code Wiki
 
-> **版本**: v2.3.1 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
+> **版本**: v2.3.2 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64)
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
 
@@ -882,7 +882,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/运营商账户密码均不持久化
 - **main.rs 与 lib.rs 是两棵独立模块树**：新增顶层模块必须同时在这两个文件声明（本次曾漏 main.rs 导致 bin target E0432）
 - **绑定状态查询**：`query_bind_status` 命令复用登录链路（`login_and_fetch_bind_page` 提取为共用函数），解析 FLDEXTRA 预填值返回三运营商绑定状态；手机号掩码**前三后二**（`mask_account`，如 `197******38`），密码仅回是否设置，明文不出协议模块
-- **查看明文密码需 Windows 本地身份验证**：`verify_windows_identity`（`platform/identity.rs`——主路径 Windows Hello `UserConsentVerifier::RequestVerificationAsync`；未配置 Hello 时回退 `CredUIPromptForCredentialsW` 收集凭据 + SSPI NTLM 往返校验。`LogonUser` 需 SE_TCB_NAME 特权普通进程不可用，SSPI `AcceptSecurityContext` 是无特权校验标准做法）→ 通过后 `reveal_operator_credential` 返回该运营商明文（手机号 + 账户密码），前端临时显示可隐藏
+- **查看明文密码需 Windows 本地身份验证**：`verify_windows_identity`（`platform/identity.rs`——主路径 Windows Hello `UserConsentVerifier::RequestVerificationAsync`；未配置 Hello 时回退 `CredUIPromptForCredentialsW` 收集凭据 + SSPI NTLM 往返校验。`LogonUser` 需 SE_TCB_NAME 特权普通进程不可用，SSPI `AcceptSecurityContext` 是无特权校验标准做法）→ 通过后 `reveal_operator_credential` 返回该运营商明文（手机号 + 账户密码），前端临时显示可隐藏。2026-09-05 改进：命令先 `show + set_focus` 主窗口再弹验证（系统弹窗不抢前台，避免验证窗口需手动从任务栏点开）；`verify_identity` 返回 `Ok(hello_used)`，命令 data 带 `helloUsed`，走凭据回退（未配置 Hello）时前端 toast 提示推荐开启；**绑定/查询共用验证门**（AccountPanel 模块级 firstFree→needVerify→verified：首次绑定/查询免验，之后一次通过应用生命周期内共用；reveal 每次验证但通过后顺带置 verified），`AccountPanel.helloGate.test.tsx` 锁行为
 - 单测 7 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）、mask_account 掩码规则
 - 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
 
@@ -2212,4 +2212,4 @@ let version = env!("APP_VERSION").to_string();
 
 ---
 
-*文档版本: v2.3.1 | 基于代码版本: CampusLogin v2.3.1 | 更新日期: 2026-09-05 | 本轮全模块核对修正*
+*文档版本: v2.3.2 | 基于代码版本: CampusLogin v2.3.2 | 更新日期: 2026-09-05 | 本轮全模块核对修正*

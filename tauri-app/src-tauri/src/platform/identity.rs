@@ -14,14 +14,18 @@ use windows::Win32::Security::Authentication::Identity::{
 
 const CONSENT_MESSAGE: &str = "查看运营商账户密码，请完成身份验证";
 
-/// 验证当前 Windows 用户身份。返回 Ok 表示通过；Err 为可展示给用户的失败原因。
-pub fn verify_identity() -> Result<(), String> {
+/// 验证当前 Windows 用户身份。返回 Ok(hello_used) 表示通过——true 走的 Windows
+/// Hello，false 走的凭据对话框回退（设备未配置/不可用 Hello，前端可借此提示推荐开启）；
+/// Err 为可展示给用户的失败原因。
+pub fn verify_identity() -> Result<bool, String> {
     match verify_hello() {
-        Ok(true) => return Ok(()),
+        Ok(true) => return Ok(true),
+        // Ok(false) = 设备未配置/不可用 Hello，静默转回退
         Ok(false) => {}
         Err(e) => crate::log_warn!("identity", "Windows Hello 验证异常，转凭据对话框: {e}"),
     }
-    verify_by_password_dialog()
+    verify_by_password_dialog()?;
+    Ok(false)
 }
 
 /// Windows Hello（指纹/面部/Hello PIN）。Ok(false) = 设备未配置/不可用。

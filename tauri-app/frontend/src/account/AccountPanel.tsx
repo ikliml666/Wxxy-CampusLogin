@@ -39,6 +39,11 @@ interface AccountPanelProps {
   onSwitchAccount: (name: string) => Promise<void>
 }
 
+// 会话级 Windows Hello 验证门（模块变量，应用生命周期内有效）：
+// 首次绑定/查询免验证（首次使用友好）；之后需要验证，一次通过后所有绑定/查询共用。
+// 查看明文密码不受此门影响，仍每次验证，但通过后顺带解锁绑定/查询。
+let helloGate: 'firstFree' | 'needVerify' | 'verified' = 'firstFree'
+
 export const AccountPanel = memo(function AccountPanel({
   adapters,
   accounts,
@@ -137,6 +142,7 @@ export const AccountPanel = memo(function AccountPanel({
   const BIND_OPERATOR_NONE = '__none__'
   const [bindSelfAccount, setBindSelfAccount] = useState('')
   const [bindSelfPassword, setBindSelfPassword] = useState('')
+  const [showBindPassword, setShowBindPassword] = useState(false)
   const [bindOp, setBindOp] = useState(BIND_OPERATOR_NONE)
   const [bindPhone, setBindPhone] = useState('')
   const [bindSms, setBindSms] = useState('')
@@ -168,8 +174,36 @@ export const AccountPanel = memo(function AccountPanel({
 
   const canQueryStatus = bindSelfAccount.trim().length > 0 && bindSelfPassword.trim().length > 0
 
+  // 绑定/查询共用的 Hello 验证门：首次免验，之后需验证且一次通过全局共用。
+  // 验证时设备未配置 Hello（走凭据对话框回退）则顺带提示推荐开启。
+  const ensureHelloVerified = useCallback(async (): Promise<boolean> => {
+    if (helloGate === 'verified') return true
+    if (helloGate === 'firstFree') {
+      helloGate = 'needVerify'
+      return true
+    }
+    try {
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity()
+      if (!mountedRef.current) return false
+      if (verified.success) {
+        helloGate = 'verified'
+        const d = verified.data as { helloUsed?: boolean } | undefined
+        if (d && d.helloUsed === false) {
+          addToast(t('account.helloRecommend'), 'info')
+        }
+        return true
+      }
+      addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
+      return false
+    } catch (err) {
+      if (mountedRef.current) addToast(extractErrorMessage(err) || t('account.bindStatusRevealFailed'), 'error')
+      return false
+    }
+  }, [addToast, t])
+
   const fetchBindStatus = useCallback(async () => {
     if (queryingStatus) return
+    if (!(await ensureHelloVerified())) return
     setQueryingStatus(true)
     try {
       const result = await tauriApiWithRetry.getBindStatus({
@@ -192,9 +226,10 @@ export const AccountPanel = memo(function AccountPanel({
     } finally {
       if (mountedRef.current) setQueryingStatus(false)
     }
-  }, [queryingStatus, bindSelfAccount, bindSelfPassword, addToast, t])
+  }, [queryingStatus, ensureHelloVerified, bindSelfAccount, bindSelfPassword, addToast, t])
 
-  // 查看明文密码：先 Windows 本地身份验证，通过后再拉取
+  // 查看明文密码：每次都经 Windows 本地身份验证（最敏感操作，不进共用验证门），
+  // 通过后顺带解锁后续绑定/查询；未配置 Hello 时提示推荐开启
   const handleReveal = useCallback(async (opValue: string) => {
     if (revealedOp === opValue) {
       setRevealedOp(null)
@@ -207,6 +242,11 @@ export const AccountPanel = memo(function AccountPanel({
       if (!verified.success) {
         addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
         return
+      }
+      helloGate = 'verified'
+      const vd = verified.data as { helloUsed?: boolean } | undefined
+      if (vd && vd.helloUsed === false) {
+        addToast(t('account.helloRecommend'), 'info')
       }
       const r = await tauriApiWithRetry.revealOperatorCredential({
         account: bindSelfAccount.trim(),
@@ -228,6 +268,7 @@ export const AccountPanel = memo(function AccountPanel({
 
   const handleBindOperator = useCallback(async () => {
     if (binding || !canBind) return
+    if (!(await ensureHelloVerified())) return
     setBinding(true)
     try {
       const result = await tauriApiWithRetry.bindOperator({
@@ -256,7 +297,7 @@ export const AccountPanel = memo(function AccountPanel({
     } finally {
       if (mountedRef.current) setBinding(false)
     }
-  }, [binding, canBind, bindSelfAccount, bindSelfPassword, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
+  }, [binding, canBind, ensureHelloVerified, bindSelfAccount, bindSelfPassword, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
 
   return (
     <div className="space-y-4">
@@ -517,15 +558,25 @@ export const AccountPanel = memo(function AccountPanel({
             </div>
             <div className="space-y-2">
               <Label htmlFor="bind-self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
-              <Input
-                id="bind-self-password"
-                type="password"
-                value={bindSelfPassword}
-                onChange={e => setBindSelfPassword(e.target.value)}
-                placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
-                icon={<KeyRound className="h-4 w-4" />}
-                className="[&::-ms-reveal]:hidden"
-              />
+              <div className="relative">
+                <Input
+                  id="bind-self-password"
+                  type={showBindPassword ? 'text' : 'password'}
+                  value={bindSelfPassword}
+                  onChange={e => setBindSelfPassword(e.target.value)}
+                  placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
+                  icon={<KeyRound className="h-4 w-4" />}
+                  className="[&::-ms-reveal]:hidden pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBindPassword(!showBindPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label={showBindPassword ? t('account.hidePassword') : t('account.showPassword')}
+                >
+                  {showBindPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>

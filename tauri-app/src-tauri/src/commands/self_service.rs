@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 
 use serde_json::json;
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::infra::state::{AppState, CommandResult};
 use crate::self_service::{self, BindParams};
@@ -171,14 +171,26 @@ pub async fn self_offline_session(
 
 /// Windows 本地身份验证（Windows Hello，未配置时回退 Windows 凭据对话框 +
 /// SSPI 本地校验）。通过后前端才可调用 reveal_operator_credential 查看明文。
+/// data.helloUsed=false 表示走的是凭据对话框回退（设备未配置 Hello），前端据此
+/// 提示推荐开启 Windows Hello。
 #[tauri::command]
-pub async fn verify_windows_identity() -> Result<CommandResult, String> {
+pub async fn verify_windows_identity(app: tauri::AppHandle) -> Result<CommandResult, String> {
+    // 先把主窗口带到前台：Hello/凭据对话框是系统弹窗，应用自身不在前台时
+    // 系统窗口不会自动置顶，用户需要手动从任务栏点开（实测缺陷）
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
     // 弹窗/校验为阻塞调用，放独立线程避免占用 Tauri 异步运行时
     let result = tauri::async_runtime::spawn_blocking(|| crate::platform::identity::verify_identity())
         .await
         .map_err(|e| format!("身份验证任务失败: {e}"))?;
     match result {
-        Ok(()) => Ok(CommandResult::ok()),
+        Ok(hello_used) => Ok(CommandResult {
+            success: true,
+            message: None,
+            data: Some(json!({ "helloUsed": hello_used })),
+        }),
         Err(e) => Ok(CommandResult::err(&e)),
     }
 }
