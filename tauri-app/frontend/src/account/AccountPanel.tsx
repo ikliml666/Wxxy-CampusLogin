@@ -294,9 +294,9 @@ export const AccountPanel = memo(function AccountPanel({
         </AnimatedCard>
       </div>
 
-      {/* 自动化开关：flex-1 填满左列剩余高度 */}
-      <div className="card-enter flex-1 flex" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="flex-1">
+      {/* 自动化开关：flex-1 填满左列剩余高度；grid 使卡片包装层 stretch 占满宽度 */}
+      <div className="card-enter flex-1 grid" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
@@ -337,8 +337,8 @@ export const AccountPanel = memo(function AccountPanel({
       </div>
       </div>
 
-      <div className="card-enter flex" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="flex-1">
+      <div className="card-enter grid" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">

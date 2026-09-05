@@ -860,7 +860,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 
 > 来源：2026-09-05 本机 curl + 浏览器（含 IAB）实测。实现于 `self_service/mod.rs`（协议）+ `commands/self_service.rs`（`bind_operator` 命令），供新手教程"绑定运营商账号"步骤使用。系统地址 `http://10.1.80.200:8080/Self`（仅校园网内网可达，常量 `SELF_BASE_URL`）。
 
-**业务背景**：校园网账号（学号）首次使用前必须在自助服务系统绑定运营商账号（办理套餐的手机号 + 运营商下发的短信密码），否则 Portal 认证无法正常使用。短信密码由运营商在办理套餐时发送，**无法自行请求**。
+**业务背景**：校园网账号（学号）首次使用前必须在自助服务系统绑定运营商账号（办理套餐的手机号 + 运营商账户密码，由运营商在办理套餐时短信下发），否则 Portal 认证无法正常使用。账户密码**无法自行请求**，遗失可咨询运营商客服。
 
 **协议链路（5 步，全部实测验证）**:
 
@@ -877,7 +877,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - `bind_operator(account, password, operator, phone, sms_password)` 为 async 命令，直接 await 协议 async fn（无 spawn_blocking）；`operator` 与 `Config.operator` 同源（`@cmcc`/`@telecom`/`@unicom`，经 `operator_fld_pair` 映射 FLDEXTRA 序号）
 - 会话客户端独立于 `CLIENT_POOL`：`cookie_store(true)` 保持 JSESSIONID + `redirect(Policy::none())` 手动按 Location 判定 verify 结果 + 绑定校园网适配器源 IP（多网卡场景，与登录同源规则解析，复用 `create_safe_http_client` 的 local_addr 能力但不进池）
 - reqwest 需开启 `cookies` feature（Cargo.toml）；MD5 用 `md-5` crate（lib 名 `md5`）
-- **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/短信密码均不持久化
+- **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/运营商账户密码均不持久化
 - **main.rs 与 lib.rs 是两棵独立模块树**：新增顶层模块必须同时在这两个文件声明（本次曾漏 main.rs 导致 bin target E0432）
 - 单测 6 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）
 - 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
