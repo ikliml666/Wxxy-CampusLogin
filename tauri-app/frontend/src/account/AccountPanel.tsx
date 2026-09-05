@@ -403,6 +403,32 @@ export const AccountPanel = memo(function AccountPanel({
                 onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
               />
             </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
+              </div>
+              <Switch
+                id="auto-exit-online"
+                checked={config.autoExitOnOnline || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login-ready"
+                checked={config.autoLoginOnPreparation || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
+                className="shrink-0"
+              />
+            </div>
           </CardContent>
         </AnimatedCard>
       </div>
