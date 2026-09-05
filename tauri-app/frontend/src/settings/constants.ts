@@ -1,12 +1,13 @@
 import { NAV_ITEMS } from '@/shared/ui-constants'
 import type { ThemeName } from '@/shared/ui-types'
 import type { Config } from '@/settings/types'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 
 export const DEFAULT_CONFIG: Config = {
   user: '',
   password: '',
   operator: '',
-  adapter1: '自动检测',
+  adapter1: AUTO_DETECT_ADAPTER,
   adapter2: '',
   dualAdapter: false,
   autoLoginOnStart: true,
@@ -62,6 +63,5 @@ export const VALID_THEMES: ThemeName[] = ['default', 'vibrant', 'forest', 'midni
 
 export const DEFAULT_PANEL_OPTIONS = NAV_ITEMS.map(item => ({
   value: item.id,
-  label: item.label,
   labelKey: item.labelKey,
 }))

@@ -146,8 +146,12 @@ pub fn try_disconnect_reconnect(
         }
     };
 
-    let reconnect_count = snap.disconnect_reconnect_count + 1;
-    state.network.update(|s| s.disconnect_reconnect_count += 1);
+    // 读-增-取值在单次 CAS 内完成：并发下通知文案计数与实际自增一致
+    // （对齐 failure_tracker.rs 的 update_with_result 模式）
+    let reconnect_count = state.network.update_with_result(|s| {
+        s.disconnect_reconnect_count += 1;
+        s.disconnect_reconnect_count
+    });
     let within_limit = reconnect_count <= config.max_disconnect_reconnect;
     let mut reconnect_success = false;
 
@@ -349,13 +353,13 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 name2_opt = Some(a2.name.clone());
                 // 双适配器并行 Portal 检测：先 spawn 两个 handle，再分别 await
                 // 原 spawn->await->spawn->await 串行，改为并行可显著缩短双适配器检测耗时
-                let h1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), None, None));
-                let h2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name), None, None));
+                let h1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1)));
+                let h2 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip2, Some(&a2.name)));
                 let r1 = h1.await;
                 let r2 = h2.await;
                 (r1, Some(r2))
             } else {
-                let r1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1), None, None)).await;
+                let r1 = tauri::async_runtime::spawn_blocking(move || check_portal_full(&ip1, Some(&name1))).await;
                 (r1, None)
             };
 

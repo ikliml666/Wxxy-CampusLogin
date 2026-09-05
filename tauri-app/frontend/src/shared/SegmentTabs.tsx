@@ -1,4 +1,5 @@
 import { m, AnimatePresence } from 'framer-motion'
+import { useId } from 'react'
 import { cn } from '@/lib/utils'
 
 interface TabItem {
@@ -16,6 +17,9 @@ interface SegmentTabsProps {
 }
 
 export function SegmentTabs({ tabs, activeKey, onTabChange }: SegmentTabsProps) {
+  // layoutId 全局唯一：多处 SegmentTabs 并存时共享 "activeTab" 会让 framer-motion
+  // 跨实例错误共享布局动画（useId 生成实例前缀）
+  const layoutIdPrefix = useId()
   return (
     <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/40 backdrop-blur-sm">
       {tabs.map(tab => {
@@ -35,7 +39,7 @@ export function SegmentTabs({ tabs, activeKey, onTabChange }: SegmentTabsProps) 
           >
             {isActive && (
               <m.div
-                layoutId="activeTab"
+                layoutId={`${layoutIdPrefix}-activeTab`}
                 className="absolute inset-0 rounded-lg bg-background/60 shadow-sm border border-border/40"
                 transition={{ type: 'spring', stiffness: 400, damping: 28 }}
               />

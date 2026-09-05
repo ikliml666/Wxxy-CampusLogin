@@ -93,8 +93,9 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<
                     _ = tokio::time::sleep(Duration::from_secs(1)) => {}
                     _ = cancel_token.cancelled() => break,
                 }
-                // 调用统一的 quality_scheduler 执行检测（含 semaphore 互斥、emit、通知）
-                run_quality_check(&app_h, &adapter_name, &adapter_ip).await;
+                // 调用统一的 quality_scheduler 执行检测（含 semaphore 互斥、emit、通知）；
+                // 传循环取消令牌，停止定时测试后正在执行的一轮提前返回
+                run_quality_check(&app_h, &adapter_name, &adapter_ip, Some(&cancel_token)).await;
             }
         }
     })

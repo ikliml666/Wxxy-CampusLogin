@@ -11,11 +11,10 @@
     "campusExitDesc": "Minimize in {{minimize}}s, exit in {{exit}}s, click to cancel",
     "campusExitLog": "Not on campus network: minimize in {{minimize}}s, exit in {{exit}}s, press Ctrl+Shift+C to cancel",
     "campusExitCancelled": "Campus exit cancelled",
-    "cancelExit": "Cancel exit"
+    "cancelExit": "Cancel exit",
+    "newVersionFoundLog": "New version found: v{{version}}"
   },
   "common": {
-    "confirm": "Confirm",
-    "cancel": "Cancel",
     "refresh": "Refresh",
     "clear": "Clear",
     "add": "Add",
@@ -24,28 +23,16 @@
     "done": "Done",
     "save": "Save",
     "close": "Close",
-    "back": "Back",
     "retry": "Retry",
     "open": "Open",
-    "skip": "Skip",
-    "next": "Next",
-    "previous": "Previous",
-    "current": "Current",
-    "default": "Default",
     "none": "None",
-    "loading": "Loading...",
     "refreshing": "Refreshing...",
-    "success": "Success",
     "error": "Error",
     "warning": "Warning",
     "info": "Info",
     "seconds": "s",
     "times": "times",
     "unknown": "Unknown",
-    "enabled": "Enabled",
-    "disabled": "Disabled",
-    "on": "On",
-    "off": "Off",
     "renderError": "Page render error",
     "unknownError": "Unknown error",
     "reload": "Reload"
@@ -92,11 +79,9 @@
     "loggingOutToast": "Logging out...",
     "defaultAdapter": "Default Adapter",
     "allAdapters": "All Adapters",
-    "selectAdapter": "Select Adapter",
     "online": "Online",
     "offline": "Offline",
     "noIp": "No IP Address",
-    "checking": "Checking...",
     "notLoggedIn": "Not Logged In",
     "networkAdapterOnline": "Network Adapter Online",
     "networkAdapterOffline": "Network Adapter Offline",
@@ -132,8 +117,6 @@
     "switchAccount": "Switch Account",
     "deleteAccount": "Delete Account",
     "currentInUse": "In Use",
-    "switching": "Switching...",
-    "clickToSwitch": "Click to Switch",
     "noSavedAccounts": "No Saved Accounts",
     "noSavedAccountsTip": "Click the button above to add an account",
     "autoLoginCampus": "Auto Login to Campus Network",
@@ -144,7 +127,12 @@
     "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
     "clearPassword": "Clear saved password",
     "passwordCleared": "Saved password cleared",
-    "invalidAccountName": "Account name must be 1-32 chars: Chinese, letters, digits, underscore or hyphen"
+    "invalidAccountName": "Account name must be 1-32 chars: Chinese, letters, digits, underscore or hyphen",
+    "saveFailed": "Failed to Save Account",
+    "saveSuccess": "Account Saved",
+    "deleteFailed": "Failed to Delete Account",
+    "switchFailed": "Failed to Switch Account",
+    "switchSuccess": "Account Switched"
   },
   "network": {
     "networkAdapters": "Network Adapters",
@@ -165,7 +153,6 @@
     "selectBackupAdapter": "Select Secondary Adapter",
     "autoDetect": "Auto Detect",
     "noIpSuffix": "(No IP)",
-    "disabledSuffix": "Disabled",
     "status": {
       "disabled": "Disabled",
       "disconnected": "Disconnected",
@@ -179,8 +166,6 @@
     "getNewIp": "Get New IP",
     "refreshDhcp": "Refresh DHCP",
     "secondary": "Secondary",
-    "secondaryAdapter": "Secondary Adapter",
-    "selectSecondaryAdapter": "Select Secondary Adapter",
     "dnsOptimization": "DNS Optimization",
     "dnsOptimizationDesc": "Recommended: Alibaba DNS + Tencent DNS (IPv4/IPv6 selectable) with DoH encryption",
     "checkDns": "Check DNS",
@@ -217,13 +202,13 @@
     "getNewIpFailed": "Failed to get new IP: {{details}}",
     "getNewIpFailedShort": "Failed to get new IP",
     "dnsFamilyLabel": "Target",
-    "dnsFamilyBoth": "IPv4 + IPv6"
+    "dnsFamilyBoth": "IPv4 + IPv6",
+    "dhcpRenewFailed": "DHCP renew failed"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",
     "detectionRunning": "Network status detection service is running",
     "detectionStopped": "Network status detection service is stopped",
-    "checkCount": "{{count}} times",
     "refreshNow": "Refresh Now",
     "detecting": "Detecting",
     "stop": "Stop",
@@ -257,7 +242,6 @@
     "autoExitNonCampusDesc": "Minimize to tray after 30s on non-campus network, force quit after another 30s (Ctrl+Shift+C to cancel)",
     "campusCheckStartTime": "Campus Check Start Time",
     "campusCheckStartTimeDesc": "No campus detection before this time to avoid off-campus triggers",
-    "oclock": ":00",
     "currentSsid": "Current: {{ssid}}",
     "ssidNotObtained": "Network Name Not Obtained",
     "connectedToCampus": "Connected to Campus Network",
@@ -267,7 +251,21 @@
     "qualityExtHigh": "WAN {{ms}}ms",
     "qualityLatencyHigh": "High latency: {{parts}}",
     "qualityLatencyAbnormal": "Abnormal network latency",
-    "campusNetworkIssue": "Campus network may have issues"
+    "campusNetworkIssue": "Campus network may have issues",
+    "timelineUdp": "UDP",
+    "timelineDns": "DNS",
+    "timelineTcp": "TCP",
+    "timelineTls": "TLS",
+    "timelineTtfb": "TTFB",
+    "timelineContent": "Content",
+    "timelineNetwork": "Network",
+    "timelineUdpDesc": "UDP DNS query time",
+    "timelineDnsDesc": "DNS resolution time",
+    "timelineTcpDesc": "TCP connection establishment (3-way handshake)",
+    "timelineTlsDesc": "TLS handshake time",
+    "timelineTtfbDesc": "Time to first byte — from request sent to first byte received",
+    "timelineContentDesc": "Response body download — receiving the full page data",
+    "timelineNetworkDesc": "Application-layer latency — extra transfer overhead from server to client"
   },
   "quality": {
     "networkQuality": "Network Quality",
@@ -305,7 +303,6 @@
     "fair": "Fair",
     "poor": "Slow",
     "bad": "Congested",
-    "detecting": "Detecting",
     "unknown": "Unknown",
     "disabled": "Disabled",
     "busy": "Detecting",
@@ -314,7 +311,28 @@
     "ttfbExplanation": "TTFB (Time to First Byte)",
     "ttfbExplanationDetail": "— Time from sending HTTP request to receiving the first byte from the server, reflecting server processing speed. Baidu ~20-50ms, video platforms ~50-200ms. Can be skipped in settings.",
     "contentTransferExplanation": "Content Transfer",
-    "contentTransferExplanationDetail": "— Time to read the complete HTTP response body, significantly affected by page size. Can be skipped to greatly reduce detection time and latency values."
+    "contentTransferExplanationDetail": "— Time to read the complete HTTP response body, significantly affected by page size. Can be skipped to greatly reduce detection time and latency values.",
+    "names": {
+      "gateway": "Gateway",
+      "aliDns": "AliDNS",
+      "tencentDns": "Tencent DNS",
+      "xinfengDns": "XinFeng DNS",
+      "aliDoh": "Ali DoH",
+      "tencentDoh": "Tencent DoH",
+      "dnsResolve": "DNS Resolve",
+      "baidu": "Baidu",
+      "jd": "JD",
+      "bing": "Bing",
+      "railway12306": "12306",
+      "bilibili": "Bilibili",
+      "douyin": "Douyin",
+      "bilibiliLive": "Bilibili Live",
+      "douyinLive": "Douyin Live",
+      "lol": "LoL",
+      "genshin": "Genshin Impact",
+      "pubg": "PUBG",
+      "naraka": "Naraka"
+    }
   },
   "speedtest": {
     "networkSpeedTest": "Network Speed Test",
@@ -357,7 +375,6 @@
     "lightMode": "Light Mode",
     "darkMode": "Dark Mode",
     "switchTheme": "Toggle light/dark theme",
-    "switchLightDark": "Switch between light and dark interface",
     "startupSettings": "Startup Settings",
     "startupSettingsDesc": "Configure app startup behavior",
     "autoLaunch": "Auto-start on Boot",
@@ -420,7 +437,8 @@
       "telecom": "China Telecom",
       "unicom": "China Unicom",
       "cmcc": "China Mobile"
-    }
+    },
+    "autoLaunchFailed": "Failed to set launch at startup"
   },
   "log": {
     "systemLog": "System Logs",
@@ -448,13 +466,17 @@
     "allModules": "All Modules",
     "noSearchResults": "No matching logs found",
     "retention": {
-      "label": "Retention",
       "3days": "3 Days",
       "7days": "7 Days",
       "14days": "14 Days",
       "30days": "30 Days",
       "permanent": "Permanent"
-    }
+    },
+    "initDataFailedLog": "Failed to load init data, using default config: {{msg}}",
+    "dnsNotRecommendedLog": "Recommended DNS not in use. Open the Network panel and click 'One-click DNS Optimize' to set Alibaba + Tencent DNS",
+    "dnsDohNotEnabledLog": "DNS DoH encryption not enabled. Click 'One-click DNS Optimize' in the Network panel, or enable it in Windows Settings → Network → DNS Encryption",
+    "flushSaveFailedLog": "Failed to save config before close: {{msg}}",
+    "retentionChangeFailed": "Failed to set log retention"
   },
   "onboarding": {
     "welcome": "Welcome",
@@ -489,7 +511,6 @@
     "previous": "Previous",
     "next": "Next",
     "skip": "Skip",
-    "adapter": "Adapter",
     "primaryAdapter": "Primary Adapter",
     "secondaryAdapter": "Secondary Adapter",
     "selectSecondaryAdapter": "Select Secondary Adapter",
@@ -497,15 +518,10 @@
     "enableDualAdapterDesc": "Use two network adapters simultaneously for improved reliability",
     "selectAdapter": "Select Adapter",
     "autoDetect": "Auto Detect",
-    "default": "Default",
     "showPassword": "Show Password",
     "hidePassword": "Hide Password",
     "username": "Username",
-    "password": "Password",
-    "wuxiUniversity": "Wuxi University",
-    "chinaTelecom": "China Telecom",
-    "chinaUnicom": "China Unicom",
-    "chinaMobile": "China Mobile"
+    "password": "Password"
   },
   "about": {
     "aboutTitle": "About",
@@ -545,7 +561,6 @@
     "autoReconnect": "Auto Reconnect",
     "autoReconnectDesc": "Automatically restore connection after disconnection",
     "officialSource": "Official Source",
-    "sizeUnknown": "Unknown",
     "installFailed": "Failed to launch installer"
   },
   "statusbar": {
@@ -561,12 +576,9 @@
     "dhcpRenew": "DHCP Renew",
     "dhcpRenewDesc": "Renew current IP address",
     "dhcpRenewing": "Running...",
-    "getNewIp": "Get New IP",
-    "refreshDhcp": "Refresh DHCP",
     "getNewIpDesc": "Change MAC to get new IP",
     "gettingNewIp": "Getting...",
     "getNewIpPrimary": "New IP (Primary)",
-    "getNewIpSecondary": "New IP (Secondary)",
     "selectAdapterForNewIp": "Select adapter for new IP",
     "accountManage": "Account Management",
     "accountManageDesc": "Switch login accounts",
@@ -583,12 +595,6 @@
   "confirmDialog": {
     "confirm": "Confirm",
     "cancel": "Cancel"
-  },
-  "isp": {
-    "wuxiUniversity": "Wuxi University",
-    "chinaTelecom": "China Telecom",
-    "chinaUnicom": "China Unicom",
-    "chinaMobile": "China Mobile"
   },
   "panel": {
     "dashboard": "Dashboard",
@@ -615,14 +621,6 @@
     "lightMode": "Light Mode",
     "darkMode": "Dark Mode",
     "switchLightDark": "Switch between light and dark interface"
-  },
-  "crashRecovery": {
-    "renderErrorDetected": "[CrashRecovery] Render anomaly detected, attempting reload ({{current}}/{{max}})",
-    "reloadLimitExceeded": "[CrashRecovery] Reload limit exceeded, stopping auto-recovery",
-    "gpuWebglError": "[CrashRecovery] GPU/WebGL error: {{msg}}",
-    "heartbeatLost": "[CrashRecovery] Render heartbeat lost for {{elapsed}}ms, possible GPU crash",
-    "maximizeCheckFailed": "Failed to get window maximize state:",
-    "toggleMaximizeFailed": "Failed to toggle maximize:"
   },
   "rightPanel": {
     "runtimeLog": "Runtime Log",

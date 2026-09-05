@@ -45,11 +45,12 @@ const MAGNETIC_RANGE = 80
 const MAX_SCALE = 1.35
 const MAX_LIFT = -14
 
-function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }: {
+function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mouseX, onLayout }: {
   id: PanelName
   label: string
   icon: string
   isActive: boolean
+  visibleCount: number
   onPanelChange: (id: PanelName) => void
   mouseX: ReturnType<typeof useMotionValue<number>>
   onLayout?: (el: HTMLButtonElement | null) => void
@@ -116,7 +117,8 @@ function DockItem({ id, label, icon, isActive, onPanelChange, mouseX, onLayout }
       window.removeEventListener('resize', updateRect)
       unsub()
     }
-  }, [mouseX])
+    // visibleCount 变化（如关闭"网络质量"开关过滤面板项）时按钮平移，需重算磁吸中心
+  }, [mouseX, visibleCount])
 
   return (
     <button
@@ -498,6 +500,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
             label={t(labelKey)}
             icon={icon}
             isActive={activePanel === id}
+            visibleCount={visibleItems.length}
             onPanelChange={onPanelChange}
             mouseX={mouseX}
             onLayout={handleItemLayout(id)}

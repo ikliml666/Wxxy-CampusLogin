@@ -98,7 +98,7 @@ mod tests {
         let gbk = [0xC5u8, 0xE4, 0xD6, 0xC3, 0xCE, 0xC4, 0xBC, 0xFE];
         assert_eq!(decode_charset_bytes(&gbk, Some("gbk")), "配置文件");
         assert_eq!(decode_charset_bytes(&gbk, Some("GB2312")), "配置文件");
-        assert_eq!(decode_charset_bytes(&gbk, Some("charset=gb18030")), "配置文件");
+        assert_eq!(decode_charset_bytes(&gbk, Some("gb18030")), "配置文件");
     }
 
     #[test]

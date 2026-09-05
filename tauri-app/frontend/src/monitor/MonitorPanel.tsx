@@ -89,6 +89,10 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
   const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
     await onTriggerCheck()
   }, 2000)
+  // 启动/停止加锁：快速连点会并发触发 start/stop 与 saveConfigDirect（与上方触发检测同一锁模式）
+  const [isTogglingDetection, toggleBackgroundCheck] = useAsyncLock(async (enabled: boolean, interval: number) => {
+    await onToggleBackgroundCheck(enabled, interval)
+  })
 
   const commitInterval = () => {
     if (intervalDraft === null) return
@@ -154,7 +158,8 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   size="sm"
                   variant={bgStatus.isRunning ? 'destructive' : 'default'}
                   className="h-8 text-xs gap-1.5"
-                  onClick={() => onToggleBackgroundCheck(!bgStatus.isRunning, intervalSec)}
+                  onClick={() => toggleBackgroundCheck(!bgStatus.isRunning, intervalSec)}
+                  disabled={isTogglingDetection}
                 >
                   {bgStatus.isRunning ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
                   {bgStatus.isRunning ? t('monitor.stop') : t('monitor.start')}
@@ -167,7 +172,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               <div className="flex items-center gap-2.5">
                 <Switch
                   checked={bgStatus.isRunning}
-                  onCheckedChange={(checked) => onToggleBackgroundCheck(checked, intervalSec)}
+                  onCheckedChange={(checked) => toggleBackgroundCheck(checked, intervalSec)}
                 />
                 <Label className="text-sm font-medium">{bgStatus.isRunning ? t('monitor.running') : t('monitor.stopped')}</Label>
               </div>

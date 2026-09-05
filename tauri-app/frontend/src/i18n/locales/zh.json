@@ -11,11 +11,10 @@
     "campusExitDesc": "{{minimize}}秒后最小化，{{exit}}秒后退出，点击取消",
     "campusExitLog": "非校园网络，{{minimize}}秒后最小化，{{exit}}秒后退出，按 Ctrl+Shift+C 取消",
     "campusExitCancelled": "已取消校园网退出",
+    "newVersionFoundLog": "发现新版本 v{{version}}",
     "cancelExit": "取消退出"
   },
   "common": {
-    "confirm": "确定",
-    "cancel": "取消",
     "refresh": "刷新",
     "clear": "清空",
     "add": "添加",
@@ -24,28 +23,16 @@
     "done": "完成",
     "save": "保存",
     "close": "关闭",
-    "back": "返回",
     "retry": "重试",
     "open": "打开",
-    "skip": "跳过",
-    "next": "下一步",
-    "previous": "上一步",
-    "current": "当前",
-    "default": "默认",
     "none": "无",
-    "loading": "加载中...",
     "refreshing": "刷新中...",
-    "success": "成功",
     "error": "错误",
     "warning": "警告",
     "info": "信息",
     "seconds": "秒",
     "times": "次",
     "unknown": "未知",
-    "enabled": "已启用",
-    "disabled": "已禁用",
-    "on": "开",
-    "off": "关",
     "renderError": "页面渲染出错",
     "unknownError": "未知错误",
     "reload": "重新加载"
@@ -92,11 +79,9 @@
     "loggingOutToast": "正在注销...",
     "defaultAdapter": "默认适配器",
     "allAdapters": "全部适配器",
-    "selectAdapter": "选择适配器",
     "online": "已在线",
     "offline": "未在线",
     "noIp": "无IP地址",
-    "checking": "检测中...",
     "notLoggedIn": "未登录",
     "networkAdapterOnline": "网络适配器已在线",
     "networkAdapterOffline": "网络适配器未在线",
@@ -132,8 +117,6 @@
     "switchAccount": "切换账号",
     "deleteAccount": "删除账号",
     "currentInUse": "当前使用",
-    "switching": "切换中...",
-    "clickToSwitch": "点击切换",
     "noSavedAccounts": "暂无保存的账号",
     "noSavedAccountsTip": "点击上方按钮添加账号配置",
     "autoLoginCampus": "自动登录校园网",
@@ -144,7 +127,12 @@
     "deleteAccountMessage": "确定要删除账号「{{name}}」吗？此操作不可撤销。",
     "clearPassword": "清除密码",
     "passwordCleared": "已清除保存的密码",
-    "invalidAccountName": "账号名限 1-32 位，仅支持中文、字母、数字、下划线、连字符"
+    "invalidAccountName": "账号名限 1-32 位，仅支持中文、字母、数字、下划线、连字符",
+    "saveFailed": "保存账号失败",
+    "saveSuccess": "账号已保存",
+    "deleteFailed": "删除账号失败",
+    "switchFailed": "切换账号失败",
+    "switchSuccess": "已切换账号"
   },
   "network": {
     "networkAdapters": "网络适配器",
@@ -165,7 +153,6 @@
     "selectBackupAdapter": "选择副适配器",
     "autoDetect": "自动检测",
     "noIpSuffix": "（未获取IP）",
-    "disabledSuffix": "已禁用",
     "status": {
       "disabled": "已禁用",
       "disconnected": "未连接",
@@ -179,8 +166,6 @@
     "getNewIp": "获取新IP",
     "refreshDhcp": "刷新DHCP",
     "secondary": "副适配器",
-    "secondaryAdapter": "副适配器",
-    "selectSecondaryAdapter": "选择副适配器",
     "dnsOptimization": "DNS优化",
     "dnsOptimizationDesc": "推荐使用阿里DNS + 腾讯DNS（可单独优化IPv4或IPv6），并启用DoH加密",
     "checkDns": "检测DNS",
@@ -217,13 +202,13 @@
     "getNewIpFailed": "获取新IP失败: {{details}}",
     "getNewIpFailedShort": "获取新IP失败",
     "dnsFamilyLabel": "优化目标",
-    "dnsFamilyBoth": "IPv4 + IPv6"
+    "dnsFamilyBoth": "IPv4 + IPv6",
+    "dhcpRenewFailed": "DHCP 续租失败"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",
     "detectionRunning": "网络状态检测服务运行中",
     "detectionStopped": "网络状态检测服务已停止",
-    "checkCount": "{{count}} 次",
     "refreshNow": "立即刷新",
     "detecting": "检测中",
     "stop": "停止",
@@ -257,7 +242,6 @@
     "autoExitNonCampusDesc": "非校园网络时 30s 后最小化托盘，再 30s 后强制退出（Ctrl+Shift+C 取消）",
     "campusCheckStartTime": "校园网检测开始时间",
     "campusCheckStartTimeDesc": "在此时间之前不执行校园网检测，避免非在校时段误触发",
-    "oclock": "点",
     "currentSsid": "当前: {{ssid}}",
     "ssidNotObtained": "未获取网络名",
     "connectedToCampus": "已连接校园网",
@@ -267,7 +251,21 @@
     "qualityExtHigh": "外网{{ms}}ms",
     "qualityLatencyHigh": "延迟过高: {{parts}}",
     "qualityLatencyAbnormal": "网络延迟异常",
-    "campusNetworkIssue": "校园网可能出现问题"
+    "campusNetworkIssue": "校园网可能出现问题",
+    "timelineUdp": "UDP",
+    "timelineDns": "DNS",
+    "timelineTcp": "TCP",
+    "timelineTls": "TLS",
+    "timelineTtfb": "TTFB",
+    "timelineContent": "内容",
+    "timelineNetwork": "网络",
+    "timelineUdpDesc": "UDP DNS查询时间",
+    "timelineDnsDesc": "域名解析时间",
+    "timelineTcpDesc": "TCP连接建立时间（三次握手）",
+    "timelineTlsDesc": "TLS加密握手时间",
+    "timelineTtfbDesc": "首字节时间 — 发送请求到收到服务器第一个字节",
+    "timelineContentDesc": "响应体下载时间 — 接收完整页面数据",
+    "timelineNetworkDesc": "应用层处理延迟 — 服务器到客户端的额外传输开销"
   },
   "quality": {
     "networkQuality": "网络质量",
@@ -305,7 +303,6 @@
     "fair": "一般",
     "poor": "较慢",
     "bad": "拥堵",
-    "detecting": "检测中",
     "unknown": "未知",
     "disabled": "已禁用",
     "busy": "检测中",
@@ -314,7 +311,28 @@
     "ttfbExplanation": "TTFB（首字节时间）",
     "ttfbExplanationDetail": "— 从发送HTTP请求到收到服务器第一个字节的耗时，反映服务器处理速度。百度约20-50ms，视频平台50-200ms。可在设置中跳过此检测。",
     "contentTransferExplanation": "内容传输",
-    "contentTransferExplanationDetail": "— 读取完整HTTP响应体的时间，受页面大小影响显著。可在设置中跳过以大幅降低检测耗时和延迟值。"
+    "contentTransferExplanationDetail": "— 读取完整HTTP响应体的时间，受页面大小影响显著。可在设置中跳过以大幅降低检测耗时和延迟值。",
+    "names": {
+      "gateway": "网关",
+      "aliDns": "阿里DNS",
+      "tencentDns": "腾讯DNS",
+      "xinfengDns": "信风DNS",
+      "aliDoh": "阿里DoH",
+      "tencentDoh": "腾讯DoH",
+      "dnsResolve": "DNS解析",
+      "baidu": "百度",
+      "jd": "京东",
+      "bing": "必应",
+      "railway12306": "12306",
+      "bilibili": "哔哩哔哩",
+      "douyin": "抖音",
+      "bilibiliLive": "哔哩哔哩直播",
+      "douyinLive": "抖音直播",
+      "lol": "英雄联盟",
+      "genshin": "原神",
+      "pubg": "绝地求生",
+      "naraka": "永劫无间"
+    }
   },
   "speedtest": {
     "networkSpeedTest": "网络测速",
@@ -357,7 +375,6 @@
     "lightMode": "浅色模式",
     "darkMode": "深色模式",
     "switchTheme": "切换界面明暗主题",
-    "switchLightDark": "切换明亮或深色界面背景",
     "startupSettings": "启动设置",
     "startupSettingsDesc": "配置应用启动行为",
     "autoLaunch": "开机自启",
@@ -420,7 +437,8 @@
       "telecom": "中国电信",
       "unicom": "中国联通",
       "cmcc": "中国移动"
-    }
+    },
+    "autoLaunchFailed": "开机自启设置失败"
   },
   "log": {
     "systemLog": "系统日志",
@@ -448,13 +466,17 @@
     "allModules": "全部模块",
     "noSearchResults": "未找到匹配的日志",
     "retention": {
-      "label": "日志保留",
       "3days": "3天",
       "7days": "7天",
       "14days": "14天",
       "30days": "30天",
       "permanent": "永久"
-    }
+    },
+    "initDataFailedLog": "初始化数据加载失败，已使用默认配置: {{msg}}",
+    "dnsNotRecommendedLog": "未使用推荐DNS，建议在「网络」面板点击「一键优化DNS」设置阿里+腾讯DNS",
+    "dnsDohNotEnabledLog": "DNS未启用DoH加密，建议在「网络」面板点击「一键优化DNS」启用，或在 Windows 设置 → 网络 → DNS 加密中手动开启",
+    "flushSaveFailedLog": "关闭前保存配置失败: {{msg}}",
+    "retentionChangeFailed": "日志保留时长设置失败"
   },
   "onboarding": {
     "welcome": "欢迎",
@@ -489,7 +511,6 @@
     "previous": "上一步",
     "next": "下一步",
     "skip": "跳过",
-    "adapter": "适配器",
     "primaryAdapter": "主适配器",
     "secondaryAdapter": "副适配器",
     "selectSecondaryAdapter": "选择副适配器",
@@ -497,15 +518,10 @@
     "enableDualAdapterDesc": "同时使用两个网络适配器，扩展网络可靠性",
     "selectAdapter": "选择适配器",
     "autoDetect": "自动检测",
-    "default": "默认",
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
     "username": "用户名",
-    "password": "密码",
-    "wuxiUniversity": "无锡学院",
-    "chinaTelecom": "中国电信",
-    "chinaUnicom": "中国联通",
-    "chinaMobile": "中国移动"
+    "password": "密码"
   },
   "about": {
     "aboutTitle": "关于",
@@ -545,7 +561,6 @@
     "autoReconnect": "自动重连",
     "autoReconnectDesc": "断网后自动恢复连接",
     "officialSource": "官方源",
-    "sizeUnknown": "未知",
     "installFailed": "安装启动失败"
   },
   "statusbar": {
@@ -561,12 +576,9 @@
     "dhcpRenew": "DHCP续租",
     "dhcpRenewDesc": "续租当前IP地址",
     "dhcpRenewing": "执行中...",
-    "getNewIp": "获取新IP",
-    "refreshDhcp": "刷新DHCP",
     "getNewIpDesc": "更换MAC获取新IP",
     "gettingNewIp": "获取中...",
     "getNewIpPrimary": "获取新IP(主)",
-    "getNewIpSecondary": "获取新IP(副)",
     "selectAdapterForNewIp": "选择适配器获取新IP",
     "accountManage": "账号管理",
     "accountManageDesc": "切换登录账号",
@@ -583,12 +595,6 @@
   "confirmDialog": {
     "confirm": "确定",
     "cancel": "取消"
-  },
-  "isp": {
-    "wuxiUniversity": "无锡学院",
-    "chinaTelecom": "中国电信",
-    "chinaUnicom": "中国联通",
-    "chinaMobile": "中国移动"
   },
   "panel": {
     "dashboard": "总览",
@@ -615,14 +621,6 @@
     "lightMode": "浅色模式",
     "darkMode": "深色模式",
     "switchLightDark": "切换明亮或深色界面背景"
-  },
-  "crashRecovery": {
-    "renderErrorDetected": "[CrashRecovery] 检测到渲染异常，尝试重载 ({{current}}/{{max}})",
-    "reloadLimitExceeded": "[CrashRecovery] 重载次数超限，停止自动恢复",
-    "gpuWebglError": "[CrashRecovery] GPU/WebGL错误: {{msg}}",
-    "heartbeatLost": "[CrashRecovery] 渲染心跳丢失 {{elapsed}}ms，疑似GPU崩溃",
-    "maximizeCheckFailed": "获取窗口最大化状态失败:",
-    "toggleMaximizeFailed": "切换最大化失败:"
   },
   "rightPanel": {
     "runtimeLog": "运行日志",

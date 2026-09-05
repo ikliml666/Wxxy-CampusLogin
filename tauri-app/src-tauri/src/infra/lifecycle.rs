@@ -113,6 +113,9 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
 pub fn cancel_campus_exit(app_handle: &AppHandle, state: &AppState) {
     if state.exit.campus_exit_started.swap(false, Ordering::AcqRel) {
         state.exit.set_campus_exit_deadline(None);
+        // 同步取消后台任务并清出管理器：任务体有 deadline 为 None 的自检兜底，
+        // 此处取消的目的是立即清出同名槽位，避免取消后短时间内重触发时 spawn 被拒
+        state.task_manager.cancel("campus_exit");
         crate::log_info!("campus_exit", "校园网退出流程已取消");
 
         // 如果自动退出也未在运行，注销快捷键
@@ -132,6 +135,8 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
         return;
     }
     state.exit.set_campus_exit_deadline(None);
+    // 同步取消后台任务并清出管理器（理由同 cancel_campus_exit）
+    state.task_manager.cancel("campus_exit");
 
     crate::log_info!("campus_exit", "校园网退出流程已取消（快捷键）");
 
@@ -221,7 +226,10 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         task_manager.detach("auto_exit");
         shutdown_and_exit(&app_h, &s).await;
     }) {
-        crate::log_warn!("auto_exit", "注册 auto_exit 跟踪任务失败: {}", e);
+        // spawn 失败（典型原因：残留同名任务未被取消导致被拒）：回滚 deadline，
+        // 否则残留的 deadline 会让后续 start_auto_exit 全部短路，本轮自动退出静默失效
+        state.exit.set_deadline(None);
+        crate::log_warn!("auto_exit", "注册 auto_exit 跟踪任务失败，已回滚退出截止时间: {}", e);
     }
 }
 
@@ -234,6 +242,9 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
         state.exit.set_deadline(None);
     }
     state.exit.auto_exit_cancelled.store(true, Ordering::Release);
+    // 同步取消后台任务并清出管理器：任务体本身有 deadline 为 None 的自检兜底，
+    // 此处取消的目的是立即清出同名槽位，避免 20s 内重新登录时 spawn 被拒
+    state.task_manager.cancel("auto_exit");
 
     // 仅在校园网退出未启动时注销快捷键，避免影响校园网退出的取消能力
     let campus_exit_active = state.exit.campus_exit_started.load(Ordering::Acquire);
@@ -264,7 +275,11 @@ fn try_unregister_cancel_exit_shortcut(app_handle: &AppHandle, should_unregister
 /// 设置退出标志、通过 BackgroundTaskManager 取消并等待所有后台任务结束，然后退出进程。
 pub async fn shutdown_and_exit(app_handle: &AppHandle, state: &AppState) {
     state.exit.is_quitting.store(true, Ordering::Release);
-    state.task_manager.shutdown().await;
+    // 后台任务可能卡在不响应取消的阻塞调用（DHCP 子进程、长 HTTP 等），
+    // 整体等待加上限，避免窗口已关但退出流程长时间挂起
+    if tokio::time::timeout(Duration::from_secs(10), state.task_manager.shutdown()).await.is_err() {
+        crate::log_warn!("lifecycle", "后台任务清理超过 10s，放弃等待强制退出");
+    }
     crate::log_info!("lifecycle", "后台任务已清理，执行退出");
     app_handle.exit(0);
 }

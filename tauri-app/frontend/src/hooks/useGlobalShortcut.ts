@@ -16,7 +16,8 @@ export function useGlobalShortcut() {
       if (isEditable) return
       if (e.ctrlKey && e.shiftKey && e.key === 'C') {
         e.preventDefault()
-        try { api.cancelAutoExit?.() } catch (e) { if (import.meta.env.DEV) console.error(e) }
+        // invoke 返回 Promise，try/catch 捕不到异步拒绝，需显式 .catch 兜底
+        api.cancelAutoExit?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
       }
     }
     window.addEventListener('keydown', handleKeyDown)

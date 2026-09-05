@@ -316,11 +316,12 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     {updateInfo.releaseNotes.split('\n').map((line, i) => {
                       const trimmed = line.trim()
                       if (!trimmed) return <br key={i} />
-                      if (trimmed.startsWith('#')) return <h3 key={i} className="break-words">{trimmed.slice(2)}</h3>
-                      if (trimmed.startsWith('##')) return <h3 key={i} className="break-words">{trimmed.slice(3)}</h3>
-                      if (trimmed.startsWith('###')) return <h3 key={i} className="break-words">{trimmed.slice(4)}</h3>
+                      // 前缀判断必须从长到短（### → ## → #），否则 # 分支拦截所有多级标题且 slice 错位
+                      if (trimmed.startsWith('###')) return <h3 key={i} className="break-words">{trimmed.slice(3)}</h3>
+                      if (trimmed.startsWith('##')) return <h3 key={i} className="break-words">{trimmed.slice(2)}</h3>
+                      if (trimmed.startsWith('#')) return <h3 key={i} className="break-words">{trimmed.slice(1)}</h3>
                       if (trimmed.startsWith('-') || trimmed.startsWith('*')) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.slice(2))}</li>
-                      if (/^\d+\.\s/.test(trimmed)) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.replace(/^\d+\s/,''))}</li>
+                      if (/^\d+\.\s/.test(trimmed)) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.replace(/^\d+\.\s*/,''))}</li>
                       if (trimmed.startsWith('|')) {
                         const cells = trimmed.split('|').filter(c => c.trim())
                         if (cells.length > 1) {

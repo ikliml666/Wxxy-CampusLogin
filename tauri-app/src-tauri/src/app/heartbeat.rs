@@ -18,8 +18,12 @@ pub fn spawn_heartbeat_thread(app_handle: AppHandle) {
                 _ = tokio::time::sleep(check_interval) => {}
             }
             if let Some(window) = app_handle.get_webview_window("main") {
-                let is_visible = window.is_visible().unwrap_or(false);
-                if !is_visible {
+                // 前端 useHeartbeat 在 document.hidden（含最小化）时暂停发送心跳，
+                // 而 Win32 下最小化窗口 is_visible() 仍为 true，仅排除可见性会导致
+                // 最小化超过阈值后必误触发重载，故需一并排除最小化状态。
+                let monitorable = window.is_visible().unwrap_or(false)
+                    && !window.is_minimized().unwrap_or(false);
+                if !monitorable {
                     consecutive_stale = 0;
                     continue;
                 }

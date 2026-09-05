@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import type { Config } from '@/settings'
 import type { StatusState } from '@/shared'
 import type { Adapter } from '@/network'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import type { BackgroundStatus, NetworkQuality } from '@/monitor'
 import { extractErrorMessage } from '@/lib/utils'
 import { mergeNetworkQuality } from '@/lib/latency'
@@ -15,7 +16,6 @@ import i18next from 'i18next'
 
 const api = tauriApiWithRetry
 
-let checkOnlineEpoch = 0
 let _checkOnlineLockFlag = false
 
 // 登录后手动质量探测节流阈值：与后端 run_quality_check 的 60s 全局节流对齐。
@@ -66,7 +66,7 @@ function buildCampusBgStatusPatch(
 
 // 适配器解析：从适配器列表中选择 IP（纯函数）
 function pickAdapterIp(adapters: Adapter[], adapter1: string | undefined): string {
-  if (adapter1 && adapter1 !== '自动检测') {
+  if (adapter1 && adapter1 !== AUTO_DETECT_ADAPTER) {
     const adapter = adapters.find(a => a.name === adapter1)
     if (adapter?.ip) return adapter.ip
   }
@@ -225,7 +225,6 @@ export const useAuthStore = create<AuthStore>((set) => ({
   checkOnline: async (cfg, adps) => {
     if (_checkOnlineLockFlag) return
     _checkOnlineLockFlag = true
-    const epoch = ++checkOnlineEpoch
     try {
       let currentAdapters = adps || useAdapterStore.getState().adapters
       const currentConfig = cfg || useConfigStore.getState().config
@@ -234,7 +233,6 @@ export const useAuthStore = create<AuthStore>((set) => ({
       // campus 网络检测
       if (currentConfig.enableNetworkNameCheck) {
         const campusStatus = await detectCampusNetwork()
-        if (epoch !== checkOnlineEpoch) return
         if (campusStatus && !campusStatus.onCampusNetwork) {
           const prevState = useAuthStore.getState().status.state
           if (prevState !== 'offline' && campusStatus.campusMessage) {
@@ -269,14 +267,12 @@ export const useAuthStore = create<AuthStore>((set) => ({
       }
 
       if (!adapterIp) {
-        if (epoch !== checkOnlineEpoch) return
         set({ status: { text: i18next.t('auth.noNetwork'), state: 'offline' } })
         return
       }
 
       // portal 状态查询
       const portalResult = await queryPortalStatus(adapterIp)
-      if (epoch !== checkOnlineEpoch) return
       if (!portalResult.ok) {
         set({ status: { text: i18next.t('auth.notLoggedIn'), state: 'offline' } })
       } else if (portalResult.portal) {
@@ -289,8 +285,9 @@ export const useAuthStore = create<AuthStore>((set) => ({
       }
     } finally {
       // 历史缺陷：用 setTimeout(500) 释放锁时，若 checkOnline 实际执行超过 500ms，
-      // 锁已提前释放，并发调用可进入产生冗余 invoke（有 checkOnlineEpoch 兜底，非数据竞态）。
+      // 锁已提前释放，并发调用可进入产生冗余 invoke。
       // 改为 promise 真正 settle 时立即释放，锁持有时间与执行时间一致。
+      // 锁串行下任意时刻至多一个执行体，无需 epoch 校验并发结果。
       _checkOnlineLockFlag = false
     }
   },

@@ -125,6 +125,16 @@ fn run_dns(targets: &[String], family: &str, logs: &mut Vec<String>) -> HelperRe
 }
 
 fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResult {
+    // NetworkAddress 注册表值直接写裸 MAC，非法格式会静默写坏网卡配置
+    if !(mac_no_dash.len() == 12 && mac_no_dash.bytes().all(|b| b.is_ascii_hexdigit())) {
+        return HelperResult {
+            success: false,
+            message: format!("MAC 格式非法: {mac_no_dash}（要求 12 位十六进制字符、无分隔符）"),
+            op: "mac".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        };
+    }
     logs.push(format!("helper: 开始修改MAC guid={guid}"));
     let adapters = match crate::network::get_adapters_force() {
         Ok(a) => a,
@@ -151,13 +161,21 @@ fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResul
         }
     };
     match crate::network::dhcp::apply_mac_change_via_registry(guid, &adapter.name, mac_no_dash) {
-        Ok(()) => HelperResult {
-            success: true,
-            message: format!("MAC已修改并重启网卡: {}", adapter.name),
-            op: "mac".to_string(),
-            logs: std::mem::take(logs),
-            details: None,
-        },
+        Ok(()) => {
+            // 注册表 NetworkAddress 是持久伪装值：运行中的 MAC 不受清除影响，重启后恢复物理 MAC。
+            // 必须在 helper 的管理员上下文内清除——主进程非提升时对 HKLM Class 键无写权限，
+            // 仅靠主进程清理会让伪装 MAC 每次重启后持续生效且用户无从恢复。
+            if let Err(e) = crate::network::dhcp::remove_mac_from_registry(guid) {
+                logs.push(format!("helper: 清除MAC注册表伪装值失败: {e}（重启后将维持伪装MAC）"));
+            }
+            HelperResult {
+                success: true,
+                message: format!("MAC已修改并重启网卡: {}", adapter.name),
+                op: "mac".to_string(),
+                logs: std::mem::take(logs),
+                details: None,
+            }
+        }
         Err(e) => HelperResult {
             success: false,
             message: e,

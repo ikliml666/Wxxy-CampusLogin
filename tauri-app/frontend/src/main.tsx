@@ -8,6 +8,7 @@ import App from './App'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { safeStorage } from '@/lib/utils'
 import { VALID_THEMES } from '@/settings/constants'
+import { isRenderLoopAlive } from '@/lib/renderLiveness'
 import './index.css'
 import './i18n'
 
@@ -88,6 +89,13 @@ function setupCrashRecovery() {
 
   setInterval(() => {
     if (!isVisible) return
+    // 历史缺陷：GPU 崩溃（渲染进程 JS 存活）时本 interval 仍正常跳动，检测不到目标场景。
+    // rAF 停滞超 10s（与下方阈值同一语义）视为渲染链失活，跳过心跳更新，
+    // 让 elapsed 判定触发恢复
+    if (!isRenderLoopAlive()) {
+      if (import.meta.env.DEV) console.warn('[CrashRecovery] rAF 心跳停滞，跳过心跳更新')
+      return
+    }
     lastHeartbeatTime = performance.now()
   }, 1000)
 

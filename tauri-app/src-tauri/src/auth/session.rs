@@ -84,8 +84,12 @@ pub fn login_adapter_with_log(
         return None;
     }
 
-    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name), None, None) {
+    if let Ok(sec_status) = check_portal_full(&adapter.ip, Some(&adapter.name)) {
         if sec_status.online {
+            // 预检"已在线"直通成功，与正常成功路径一致补记登录历史
+            if let Err(e) = append_login_history(app_handle, true, &sec_status.message, &adapter.name, &config.user, "login") {
+                crate::log_warn!("login", "记录登录历史失败: {}", e);
+            }
             return Some(CommandResult {
                 success: true,
                 message: Some(sec_status.message),
@@ -110,9 +114,12 @@ pub fn login_adapter_with_log(
     if let Some(ref cmd_result) = result {
         if !cmd_result.success {
             if let Some(ref data) = cmd_result.data {
-                let message = data.get("message").and_then(|v| v.as_str()).unwrap_or("");
-                if message.contains("无法解析登录响应") {
-                    if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name), None, None) {
+                // code=parse_error 且 retryable=true 仅对应 protocol.rs 的"无法解析登录响应"
+                // 分支（HTML 分支同 code 但 retryable=false），改判 data 字段消除跨文件文案耦合
+                let is_parse_error = data.get("code").and_then(|v| v.as_str()) == Some("parse_error")
+                    && data.get("retryable").and_then(|v| v.as_bool()).unwrap_or(false);
+                if is_parse_error {
+                    if let Ok(sec_status) = check_portal_full(&adapter_ip, Some(&adapter_name)) {
                         if sec_status.online {
                             let event_bus = EventBus::new(app_handle);
                             if let Err(e) = event_bus.emit_login_log(&format!("{adapter_name} 已在线"), "success") {

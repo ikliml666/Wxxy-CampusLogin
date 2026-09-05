@@ -54,11 +54,17 @@ export function useEventListeners() {
         // in-flight 保存（invoke 未 resolve）被丢弃。现在 await 返回的 in-flight promise。
         const inFlight = flushPendingConfig()
         if (inFlight) {
-          // 等待保存完成（最多 2s，避免卡死关闭）
-          await Promise.race([
-            inFlight,
-            new Promise(r => setTimeout(r, 2000)),
-          ])
+          // 等待保存完成（最多 2s，避免卡死关闭）；race 输掉的定时器须清理，
+          // 否则定时器悬挂 2s 内阻止进程收尾
+          let timeoutId: ReturnType<typeof setTimeout> | null = null
+          try {
+            await Promise.race([
+              inFlight,
+              new Promise(r => { timeoutId = setTimeout(r, 2000) }),
+            ])
+          } finally {
+            if (timeoutId !== null) clearTimeout(timeoutId)
+          }
         }
         await getCurrentWindow().close()
       } else {

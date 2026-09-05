@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useQualityStore } from './useQualityStore'
 import type { EasingConfig } from '@/lib/easing-config'
 import { getEasingConfig } from '@/lib/easing-config'
@@ -14,7 +14,6 @@ interface AnimationProfile {
   numberDuration: number
   springStiffness: number
   springDamping: number
-  mass?: number
   powerPreference: 'low-power' | 'high-performance'
   prefersCssAnimation: boolean
   enableGpuCompositing: boolean
@@ -65,20 +64,32 @@ function resolveTier(gpuTier: GpuTier | undefined, reducedMotion: boolean): Anim
   return 'standard'
 }
 
+// 模块级 MediaQueryList：运行时切换 reduced-motion 经 change 事件驱动重算，
+// 避免只在 useMemo 重算瞬间读取造成切换不生效
+const reducedMotionQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(prefers-reduced-motion: reduce)')
+  : null
+
 export function useAnimationProfile(): AnimationProfile {
   const refreshRate = useQualityStore((s) => s.refreshRate)
   const gpuInfo = useQualityStore((s) => s.gpuInfo)
+  const [reducedMotion, setReducedMotion] = useState(() => !!reducedMotionQuery?.matches)
+
+  useEffect(() => {
+    if (!reducedMotionQuery) return
+    const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches)
+    reducedMotionQuery.addEventListener('change', onChange)
+    return () => reducedMotionQuery.removeEventListener('change', onChange)
+  }, [])
 
   return useMemo(() => {
     const effectiveRefreshRate = refreshRate > 0 ? refreshRate : 120
     const easing = getEasingConfig(effectiveRefreshRate)
-    const reducedMotion = typeof window !== 'undefined'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const tier = resolveTier(gpuInfo?.tier, reducedMotion)
     const base: AnimationProfile = { ...HIGH_PROFILE, tier, easing, refreshRate: effectiveRefreshRate }
     if (tier === 'economy') {
       return { ...base, ...ECONOMY_OVERRIDES }
     }
     return base
-  }, [refreshRate, gpuInfo])
+  }, [refreshRate, gpuInfo, reducedMotion])
 }

@@ -7,6 +7,7 @@ import { RefreshButton } from '@/shared/RefreshButton'
 import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
 import type { AdapterOnlineStatus } from '@/monitor'
 import { useAuthStore } from '@/hooks/useAuthStore'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 
@@ -50,8 +51,8 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
       return { displayText: statusText, campusTooltip: null }
     }
 
-    const a1Name = adapter1 && adapter1 !== '自动检测' ? adapter1 : null
-    const a2Name = dualAdapter && adapter2 && adapter2 !== '自动检测' ? adapter2 : null
+    const a1Name = adapter1 && adapter1 !== AUTO_DETECT_ADAPTER ? adapter1 : null
+    const a2Name = dualAdapter && adapter2 && adapter2 !== AUTO_DETECT_ADAPTER ? adapter2 : null
 
     // 与 AdapterStatusCard 同源：使用 bgStatus.adapterStatuses 的 online 字段（来自 data.online/secondaryOnline）
     // 之前用 a1OnCampus/a2OnCampus（来自 check_campus_network）导致"已在线"与卡片"未在线"撕裂

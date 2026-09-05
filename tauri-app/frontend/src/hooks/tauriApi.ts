@@ -238,7 +238,8 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, baseDe
 
 export const tauriApiWithRetry: TauriApi = {
   ...tauriApi,
+  // 仅 saveConfig 保留重试：保存是一次性关键操作、无其他兜底机制。
+  // checkPortalStatus 由 checkOnline 高频调用且后台检测循环本身周期性重试，
+  // checkNetworkQuality 有后端 latency loop 事件流兜底，包 3 次指数退避重试会放大高频调用流量
   saveConfig: (config, clearPassword) => withRetry(() => tauriApi.saveConfig(config, clearPassword)),
-  checkPortalStatus: (adapterIp) => withRetry(() => tauriApi.checkPortalStatus(adapterIp)),
-  checkNetworkQuality: () => withRetry(() => tauriApi.checkNetworkQuality()),
 }

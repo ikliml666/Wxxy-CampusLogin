@@ -88,7 +88,7 @@ pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandl
 
     // 状态探测为只读操作：不向登录端点发送账号密码（check_portal_full 已不接受凭据）
     tauri::async_runtime::spawn_blocking(move || {
-        let status = crate::auth::portal::check_portal_full(&adapter_ip, None, None, None)?;
+        let status = crate::auth::portal::check_portal_full(&adapter_ip, None)?;
         Ok(serde_json::json!({
             "online": status.online,
             "message": status.message,

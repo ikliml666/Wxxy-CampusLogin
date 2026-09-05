@@ -57,7 +57,15 @@ fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 let s = app_h.state::<AppState>();
                 let _guard = match s.tasks.is_logging_in.try_acquire() {
                     Some(g) => g,
-                    None => return,
+                    // 锁被占时不能静默吞掉：用户点击后无任何反馈表现为"点了没反应"
+                    None => {
+                        let _ = EventBus::new(&app_h).emit_auto_login_result(
+                            false,
+                            "登录正在进行中，请稍候",
+                            false,
+                        );
+                        return;
+                    }
                 };
                 let result = crate::auth::service::full_login(&s, &app_h, None);
                 let _ = EventBus::new(&app_h).emit_auto_login_result(

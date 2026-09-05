@@ -508,8 +508,12 @@ async fn do_doh_https(
     let mut buf = vec![0u8; 4096];
     let mut total_read = 0usize;
     let mut first_read = true;
+    // 总 deadline：整个读阶段共享一个上限，防止慢速滴流响应每轮都压线读入而
+    // 无限拖长（对照 dns.rs resolve_via_doh 的 deadline 模式）
+    let read_deadline = Instant::now() + http_timeout;
     loop {
-        match tokio::time::timeout(http_timeout, tls_stream.read(&mut buf)).await {
+        let remaining = read_deadline.saturating_duration_since(Instant::now());
+        match tokio::time::timeout(remaining, tls_stream.read(&mut buf)).await {
             Ok(Ok(0)) => break,
             Ok(Ok(n)) => {
                 if first_read {

@@ -189,17 +189,24 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   }, [debugMode, api, addToast, fetchLogs])
 
   const handleRetentionChange = useCallback(async (days: number) => {
+    const prev = retentionDays
     setRetentionDays(days)
     try {
       await api.setLogRetentionDays?.(days)
-    } catch {}
-  }, [api])
+    } catch (e: unknown) {
+      // 乐观更新失败：回滚本地值并提示
+      if (!mountedRef.current) return
+      setRetentionDays(prev)
+      addToast(t('log.retentionChangeFailed'), 'error', extractErrorMessage(e))
+    }
+  }, [api, retentionDays, addToast, t])
 
   useEffect(() => {
     if (scrollRef.current && isAutoScrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [rawLogs, filterLevel])
+    // 过滤条件（级别/模块/搜索）变化同样改变 displayedLines，需一并触发自动滚动
+  }, [rawLogs, filterLevel, filterModule, searchText])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -451,7 +458,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   size="sm"
                   className="h-7 text-[11px] gap-1 px-2 text-destructive hover:text-destructive"
                   onClick={handleClear}
-                  disabled={isClearing || parsedLines.length === 0}
+                  disabled={isClearing || displayedLines.length === 0}
                 >
                   <Trash2 className="h-3 w-3" />
                   {t('common.clear')}

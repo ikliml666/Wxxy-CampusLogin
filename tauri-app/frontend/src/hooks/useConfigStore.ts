@@ -149,7 +149,9 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     try {
       await promise
     } finally {
-      saveConfigInFlight = null
+      // 仅清掉自己的引用：并发保存时后写者已覆盖 saveConfigInFlight，
+      // 无条件清空会让 hasPendingConfig 漏报，关窗跳过等待丢数据
+      if (saveConfigInFlight === promise) saveConfigInFlight = null
     }
   },
 
@@ -170,11 +172,12 @@ export function hasPendingConfig() {
   return saveConfigPending !== null || saveConfigInFlight !== null
 }
 
-export function flushPendingConfig() {
+export function flushPendingConfig(): Promise<unknown> | null {
   if (saveConfigTimer) {
     clearTimeout(saveConfigTimer)
     saveConfigTimer = null
   }
+  let flushed: Promise<unknown> | null = null
   if (saveConfigPending) {
     const pending = saveConfigPending
     saveConfigPending = null
@@ -185,7 +188,18 @@ export function flushPendingConfig() {
     // 保留 store 中的 PASSWORD_MASK 原样发送给后端，让后端识别并保留原密码
     const fullConfig = { ...useConfigStore.getState().config, ...sanitized }
     const api = useConfigStore.getState().api
-    api?.saveConfig(fullConfig)?.catch?.(() => {})
+    // 历史缺陷：本次新发出的保存不经 in-flight 跟踪，返回的却是旧引用，
+    // 仅有 debounce 待存时调用方拿到 null 直接关窗，本次保存随窗口销毁丢失。
+    // 修复：flush 发出的保存纳入返回值，由调用方一并等待。
+    // catch 后 resolve 保持返回 promise 语义（关窗不因保存失败而中断），但失败需留诊断
+    flushed = (api?.saveConfig(fullConfig)?.catch?.((e) => {
+      if (import.meta.env.DEV) console.error('[flushPendingConfig] saveConfig failed:', e)
+      useLogToastStore.getState().addLog(i18next.t('log.flushSaveFailedLog', { msg: extractErrorMessage(e) }), 'error')
+    })) ?? null
   }
-  return saveConfigInFlight
+  const current = saveConfigInFlight
+  if (flushed && current) {
+    return Promise.allSettled([flushed, current]).then(() => undefined)
+  }
+  return flushed ?? current
 }

@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { getLatencyColor, getLatencyLevel } from '@/lib/latency'
@@ -17,14 +18,16 @@ interface LatencyTimelineProps {
 
 interface TimelineSegment { ms: number; label: string; desc: string; color: string; dot: string }
 
+// label/desc 存 i18n key（渲染处 t() 翻译）。键名（含 '内容'/'网络'）是后端 quality.rs
+// details 字典的原始 key，属跨语言契约不可改动，仅展示文案走 i18n。
 const SEGMENT_INFO: Record<string, { label: string; desc: string; color: string; dot: string }> = {
-  UDP: { label: 'UDP', desc: 'UDP DNS查询时间', color: 'bg-sky-400', dot: 'bg-sky-400' },
-  DNS: { label: 'DNS', desc: '域名解析时间', color: 'bg-blue-500', dot: 'bg-blue-500' },
-  TCP: { label: 'TCP', desc: 'TCP连接建立时间（三次握手）', color: 'bg-indigo-500', dot: 'bg-indigo-500' },
-  TLS: { label: 'TLS', desc: 'TLS加密握手时间', color: 'bg-violet-500', dot: 'bg-violet-500' },
-  TTFB: { label: 'TTFB', desc: '首字节时间 — 发送请求到收到服务器第一个字节', color: 'bg-amber-500', dot: 'bg-amber-500' },
-  内容: { label: '内容', desc: '响应体下载时间 — 接收完整页面数据', color: 'bg-emerald-500', dot: 'bg-emerald-500' },
-  网络: { label: '网络', desc: '应用层处理延迟 — 服务器到客户端的额外传输开销', color: 'bg-pink-400', dot: 'bg-pink-400' },
+  UDP: { label: 'monitor.timelineUdp', desc: 'monitor.timelineUdpDesc', color: 'bg-sky-400', dot: 'bg-sky-400' },
+  DNS: { label: 'monitor.timelineDns', desc: 'monitor.timelineDnsDesc', color: 'bg-blue-500', dot: 'bg-blue-500' },
+  TCP: { label: 'monitor.timelineTcp', desc: 'monitor.timelineTcpDesc', color: 'bg-indigo-500', dot: 'bg-indigo-500' },
+  TLS: { label: 'monitor.timelineTls', desc: 'monitor.timelineTlsDesc', color: 'bg-violet-500', dot: 'bg-violet-500' },
+  TTFB: { label: 'monitor.timelineTtfb', desc: 'monitor.timelineTtfbDesc', color: 'bg-amber-500', dot: 'bg-amber-500' },
+  内容: { label: 'monitor.timelineContent', desc: 'monitor.timelineContentDesc', color: 'bg-emerald-500', dot: 'bg-emerald-500' },
+  网络: { label: 'monitor.timelineNetwork', desc: 'monitor.timelineNetworkDesc', color: 'bg-pink-400', dot: 'bg-pink-400' },
 }
 
 const LEVEL_BAR_COLOR: Record<string, { bar: string; dot: string }> = {
@@ -37,6 +40,7 @@ const LEVEL_BAR_COLOR: Record<string, { bar: string; dot: string }> = {
 }
 
 export const LatencyTimeline = React.memo(function LatencyTimeline({ totalMs, dnsMs, tcpMs, tlsMs, udpMs, networkMs, ttfbMs, contentMs, className }: LatencyTimelineProps) {
+  const { t } = useTranslation()
   const segments = useMemo(() => {
     const segs: TimelineSegment[] = []
 
@@ -77,9 +81,12 @@ export const LatencyTimeline = React.memo(function LatencyTimeline({ totalMs, dn
   const barTotal = hasSegments ? segments.total : totalMs
   const barMax = Math.max(barTotal, 1)
 
-  const level = getLatencyLevel(totalMs)
-  const levelColor = LEVEL_BAR_COLOR[level] ?? LEVEL_BAR_COLOR.bad
-  const totalTextColor = getLatencyColor(totalMs).text
+  // 无数据（totalMs<0）时 muted 灰占位，不落入 bad 档渲染成拥堵红（与总时长 '—' 处理风格一致）
+  const isNoData = totalMs < 0
+  const levelColor = isNoData
+    ? { bar: 'bg-muted-foreground/30', dot: 'bg-muted-foreground/30' }
+    : (LEVEL_BAR_COLOR[getLatencyLevel(totalMs)] ?? LEVEL_BAR_COLOR.bad)
+  const totalTextColor = isNoData ? 'text-muted-foreground' : getLatencyColor(totalMs).text
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -127,13 +134,13 @@ export const LatencyTimeline = React.memo(function LatencyTimeline({ totalMs, dn
                 <TooltipTrigger asChild>
                   <div className="flex items-center gap-1 cursor-help">
                     <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', seg.dot)} />
-                    <span className="text-[10px] font-medium text-foreground/80">{seg.label}</span>
+                    <span className="text-[10px] font-medium text-foreground/80">{t(seg.label)}</span>
                     <span className="text-[10px] tabular-nums text-muted-foreground">{seg.ms}ms</span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  <p className="font-medium">{seg.label}: {seg.ms}ms</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{seg.desc}</p>
+                  <p className="font-medium">{t(seg.label)}: {seg.ms}ms</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{t(seg.desc)}</p>
                 </TooltipContent>
               </Tooltip>
             ))

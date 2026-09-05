@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { RefreshCw, Check } from 'lucide-react'
+import i18next from 'i18next'
 import { cn } from '@/lib/utils'
 import { m, AnimatePresence } from 'framer-motion'
 
@@ -26,7 +27,7 @@ const RefreshButton = React.forwardRef<HTMLButtonElement, RefreshButtonProps>(
     return (
       <button
         ref={ref}
-        aria-label={ariaLabel ?? '刷新'}
+        aria-label={ariaLabel ?? i18next.t('common.refresh')}
         className={cn(
           'p-1.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground',
           'transition-colors duration-200',

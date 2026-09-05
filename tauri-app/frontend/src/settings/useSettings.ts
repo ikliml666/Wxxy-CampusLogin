@@ -4,6 +4,7 @@ import { useThemeStore } from '@/hooks/useThemeStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
+import i18next from 'i18next'
 import type { ThemeName } from '@/shared'
 
 export function useSettings() {
@@ -47,8 +48,12 @@ export function useSettings() {
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
     store.updateConfig({ autoLaunch: enabled })
-    try { await store.api.setAutoLaunch?.(enabled) } catch (e) { if (import.meta.env.DEV) console.error('设置开机自启失败:', e) }
-  }, [store.updateConfig, store.api])
+    // API 失败时 UI 已显示开启但注册表未生效，须提示用户
+    try { await store.api.setAutoLaunch?.(enabled) } catch (e) {
+      if (import.meta.env.DEV) console.error('设置开机自启失败:', e)
+      store.addToast(i18next.t('settings.autoLaunchFailed'), 'error')
+    }
+  }, [store.updateConfig, store.api, store.addToast])
 
   const handleSetTheme = useCallback((name: string) => {
     store.setThemeName(name as ThemeName)

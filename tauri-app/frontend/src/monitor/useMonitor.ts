@@ -40,7 +40,7 @@ export function useMonitor() {
     } catch (e) {
       if (import.meta.env.DEV) console.error('切换后台检查失败:', e)
     }
-  }, [store.api, store.updateConfigLocal, store.setBgStatus])
+  }, [store.api, store.updateConfigLocal, store.setBgStatus, store.saveConfigDirect])
 
   const handleTriggerCheck = useCallback(async () => {
     try { await store.api.triggerBackgroundCheck?.() } catch (e) { if (import.meta.env.DEV) console.error('触发后台检查失败:', e) }
@@ -63,7 +63,7 @@ export function useMonitor() {
     } catch (e) {
       if (import.meta.env.DEV) console.error('切换延迟测试失败:', e)
     }
-  }, [store.api, store.updateConfigLocal])
+  }, [store.api, store.updateConfigLocal, store.saveConfigDirect])
 
   return {
     ...store,

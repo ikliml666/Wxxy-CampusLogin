@@ -1,5 +1,6 @@
 import type { LogEntry } from '@/shared'
 import type { AdapterDetail, Adapter } from '@/network'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { ScrollText, CheckCircle2, AlertCircle, Info, AlertTriangle, Trash2, Wifi, Cable, ChevronDown, ChevronRight } from 'lucide-react'
@@ -61,7 +62,7 @@ function getAdapterInfo(
   adapterDetails: AdapterDetail[],
   adapters: Adapter[]
 ): { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string; mac: string } | null {
-  if (adapterName && adapterName !== '自动检测') {
+  if (adapterName && adapterName !== AUTO_DETECT_ADAPTER) {
     const detail = adapterDetails.find(a => a.name === adapterName)
     if (detail) return detail
     const adapter = adapters.find(a => a.name === adapterName)
@@ -165,7 +166,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
     const result: { name: string; ip: string; wireless: boolean; subnetMask: string; gateway: string; dhcpServer: string; mac: string }[] = []
     const primary = getAdapterInfo(adapter1, adapterDetails, adapters)
     if (primary) result.push(primary)
-    const dualEnabled = dualAdapter && adapter2 && adapter2 !== '自动检测'
+    const dualEnabled = dualAdapter && adapter2 && adapter2 !== AUTO_DETECT_ADAPTER
     if (dualEnabled) {
       const secondary = getAdapterInfo(adapter2, adapterDetails, adapters)
       if (secondary) result.push(secondary)

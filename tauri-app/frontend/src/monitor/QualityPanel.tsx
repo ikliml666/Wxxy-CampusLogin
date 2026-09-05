@@ -18,6 +18,7 @@ import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type La
 import React, { useCallback, memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m, type Variants } from 'framer-motion'
+import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useGlowAnimation } from '@/hooks/useGlowAnimation'
@@ -36,7 +37,7 @@ const DETAIL_CATEGORIES = [
     key: 'gateway',
     labelKey: 'quality.gateway',
     icon: Router,
-    names: ['网关'],
+    names: ['gateway'],
     type: 'gateway' as LatencyType,
     color: 'text-blue-500',
     bg: 'bg-blue-500/10',
@@ -46,7 +47,7 @@ const DETAIL_CATEGORIES = [
     key: 'dns',
     labelKey: 'quality.dnsServer',
     icon: Globe2,
-    names: ['阿里DoH', '腾讯DoH', '阿里DNS', '腾讯DNS', '信风DNS', 'DNS解析'],
+    names: ['aliDoh', 'tencentDoh', 'aliDns', 'tencentDns', 'xinfengDns', 'dnsResolve'],
     type: 'external' as LatencyType,
     color: 'text-violet-500',
     bg: 'bg-violet-500/10',
@@ -56,7 +57,7 @@ const DETAIL_CATEGORIES = [
     key: 'http',
     labelKey: 'quality.websiteTest',
     icon: MonitorSmartphone,
-    names: ['百度', '京东', '必应', '12306'],
+    names: ['baidu', 'jd', 'bing', 'railway12306'],
     type: 'external' as LatencyType,
     color: 'text-emerald-500',
     bg: 'bg-emerald-500/10',
@@ -66,7 +67,7 @@ const DETAIL_CATEGORIES = [
     key: 'stream',
     labelKey: 'quality.videoPlatform',
     icon: Tv,
-    names: ['哔哩哔哩', '抖音', '哔哩哔哩直播', '抖音直播'],
+    names: ['bilibili', 'douyin', 'bilibiliLive', 'douyinLive'],
     type: 'external' as LatencyType,
     color: 'text-amber-500',
     bg: 'bg-amber-500/10',
@@ -76,7 +77,7 @@ const DETAIL_CATEGORIES = [
     key: 'game',
     labelKey: 'quality.gameServer',
     icon: Gamepad2,
-    names: ['英雄联盟', '原神', '绝地求生', '永劫无间'],
+    names: ['lol', 'genshin', 'pubg', 'naraka'],
     type: 'external' as LatencyType,
     color: 'text-rose-500',
     bg: 'bg-rose-500/10',
@@ -176,10 +177,11 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
     setActiveTab(key)
   }, [activeTab])
 
-  const handleToggleLatencyTest = useCallback(async () => {
+  // 启动/停止加锁：快速连点会并发触发 start/stop 与 saveConfigDirect（对齐 MonitorPanel 的 useAsyncLock 模式）
+  const [isTogglingLatency, handleToggleLatencyTest] = useAsyncLock(async () => {
     if (!onToggleLatencyTest) return
     await onToggleLatencyTest(!config.enableLatencyTest, intervalSec)
-  }, [config.enableLatencyTest, intervalSec, onToggleLatencyTest])
+  })
 
   const details = useMemo(() => networkQuality?.details ?? {}, [networkQuality?.details])
 
@@ -279,7 +281,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                   variant={config.enableLatencyTest ? 'destructive' : 'default'}
                   className="h-8 text-xs gap-1.5"
                   onClick={handleToggleLatencyTest}
-                  disabled={!onToggleLatencyTest}
+                  disabled={!onToggleLatencyTest || isTogglingLatency}
                 >
                   {config.enableLatencyTest ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
                   {config.enableLatencyTest ? t('monitor.stop') : t('monitor.start')}
@@ -397,12 +399,12 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                             <span className={cn(
                               'text-[11px] font-medium',
                               !(item.latency >= 0 && hasData) && 'text-muted-foreground/60'
-                            )}>{item.name}</span>
+                            )}>{t(`quality.names.${item.name}`)}</span>
                             <span className={cn(
                               'text-[11px] font-semibold tabular-nums',
                               item.latency >= 0 && hasData ? getLatencyColor(item.latency).text : 'text-muted-foreground/40'
                             )}>
-                              {item.latency >= 0 && hasData ? <AnimatedNumber value={item.latency} decimals={0} duration={0.4} /> : '--'}
+                              {item.latency >= 0 && hasData ? <AnimatedNumber value={item.latency} decimals={0} duration={400} /> : '--'}
                             </span>
                           </div>
                           {item.latency >= 0 && hasData && (

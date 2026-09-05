@@ -1,5 +1,7 @@
 import type { Config } from '@/settings'
-import type { Adapter, DhcpReleaseRenewResult } from '@/network'
+import type { Adapter } from '@/network'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
+import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
@@ -79,10 +81,10 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       const status = await ipc.checkDnsDohStatus()
       useQualityStore.getState().setDnsDohStatus(status)
       if (status) {
-        const hasRecommendedDns = status.adapters.some(a => a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address)))
-        const dohNotEnabled = status.adapters.some(a =>
+        const hasRecommendedDns = status.adapters?.some(a => a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address))) ?? false
+        const dohNotEnabled = status.adapters?.some(a =>
           a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
-        )
+        ) ?? false
         if (!hasRecommendedDns) {
           useLogToastStore.getState().addLog(t('network.dnsNotRecommended'), 'warning')
         } else if (dohNotEnabled) {
@@ -103,9 +105,14 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       if (!mountedRef.current) return
       if (result.success) {
         useLogToastStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
-        const status = await ipc.checkDnsDohStatus()
-        if (!mountedRef.current) return
-        useQualityStore.getState().setDnsDohStatus(status)
+        // 检测刷新独立捕获：其失败不应落入外层 catch 再弹一次"优化失败"与上面的成功 toast 矛盾
+        try {
+          const status = await ipc.checkDnsDohStatus()
+          if (!mountedRef.current) return
+          useQualityStore.getState().setDnsDohStatus(status)
+        } catch (e) {
+          if (import.meta.env.DEV) console.error('[setupDnsDoh] 刷新DNS状态失败:', e)
+        }
       } else {
         useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', result.message)
       }
@@ -122,23 +129,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     try {
       const result = await ipc.dhcpReleaseRenewAdapter?.(adapterName)
       if (result) {
-        // 与 useNetwork.handleDhcpReleaseRenewAdapter 同源：单条结果（结果对象本身）
-        // 或批量结果（{ results: [...] }）两种形态，统一为逐条结果类型
-        type DhcpResultItem = DhcpReleaseRenewResult['results'][number]
-        const results: DhcpResultItem[] = 'results' in result && Array.isArray(result.results) ? result.results : [result as unknown as DhcpResultItem]
-        const succeeded = results.filter((r) => r.success)
-        const skipped = results.filter((r) => r.skipped)
-        const failed = results.filter((r) => !r.success && !r.skipped)
-        if (succeeded.length > 0) {
-          useLogToastStore.getState().addToast(t('network.gotNewIp', { names: succeeded.map((r) => r.name).join(', ') }), 'success')
-        }
-        if (skipped.length > 0) {
-          useLogToastStore.getState().addToast(skipped.map((r) => t('network.skipNonCampus', { name: r.name, ip: r.ip })).join('; '), 'info')
-        }
-        if (failed.length > 0) {
-          const failedDetails = failed.map((r) => r.reason ? `${r.name}: ${r.reason}` : r.name).join('; ')
-          useLogToastStore.getState().addToast(t('network.getNewIpFailed', { details: failedDetails }), 'error')
-        }
+        // 结果归一化与 成功/跳过/失败 分类提示统一走 useNetwork 导出实现（两入口共用同一套文案）
+        announceDhcpResults(normalizeDhcpResults(result), useLogToastStore.getState().addToast)
       }
     } catch (e) {
       useLogToastStore.getState().addToast(t('network.getNewIpFailedShort'), 'error')
@@ -147,7 +139,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     }
     // 复用公共刷新动作，消除内联重复（历史缺陷 P2-F10）
     await refreshAdapterData()
-  }, [ipc, mountedRef])
+  }, [ipc, mountedRef, t])
 
   const handleEnableAdapter = useCallback(async (adapterName: string) => {
     setEnablingAdapter(adapterName)
@@ -342,14 +334,14 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               <div className="space-y-2">
                 <Label className="text-xs font-medium text-muted-foreground">{t('network.primaryAdapter')}</Label>
                 <Select
-                  value={config.adapter1 || '自动检测'}
+                  value={config.adapter1 || AUTO_DETECT_ADAPTER}
                   onValueChange={(value) => onUpdateConfig({ adapter1: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t('network.selectPrimaryAdapter')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="自动检测">{t('network.autoDetect')}</SelectItem>
+                    <SelectItem value={AUTO_DETECT_ADAPTER}>{t('network.autoDetect')}</SelectItem>
                     {adapters.filter(a => a.ip).map(a => (
                       <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                     ))}
@@ -368,7 +360,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     )}
                     {disabledAdapters.map(a => (
                       <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{a.status}）
+                        {a.name}（{t(`network.status.${a.status}`)}）
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -406,7 +398,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     )}
                     {disabledAdapters.map(a => (
                       <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{a.status}）
+                        {a.name}（{t(`network.status.${a.status}`)}）
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -143,6 +143,13 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
 
                 last_adapters = adapters;
                 last_disabled = disabled;
+                } else {
+                    // 查询失败整段跳过会静默丢一轮变更检测，记警告便于排查
+                    match result {
+                        Ok(Err(e)) => crate::log_warn!("adapter_watch", "适配器查询失败: {}", e),
+                        Err(e) => crate::log_warn!("adapter_watch", "适配器查询任务失败: {}", e),
+                        _ => {}
+                    }
                 }
             }
         }
