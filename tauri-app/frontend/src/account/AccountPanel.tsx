@@ -189,6 +189,8 @@ export const AccountPanel = memo(function AccountPanel({
 
   return (
     <div className="space-y-4">
+      {/* 登录信息与运营商绑定并列两列，增强信息密度 */}
+      <div className="grid grid-cols-2 gap-4 items-start">
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -293,6 +295,95 @@ export const AccountPanel = memo(function AccountPanel({
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Link2 className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
+                <CardDescription>{t('account.bindDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="bind-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
+              <Input
+                id="bind-account"
+                type="text"
+                value={bindSelfAccount}
+                onChange={e => setBindSelfAccount(e.target.value)}
+                placeholder={t('onboarding.bindSelfAccountPlaceholder')}
+                icon={<UserCircle className="h-4 w-4" />}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
+              <Input
+                id="bind-self-password"
+                type="password"
+                value={bindSelfPassword}
+                onChange={e => setBindSelfPassword(e.target.value)}
+                placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
+                icon={<KeyRound className="h-4 w-4" />}
+                className="[&::-ms-reveal]:hidden"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
+              <Select value={bindOp} onValueChange={setBindOp}>
+                <SelectTrigger aria-label={t('onboarding.bindIsp')}>
+                  <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
+                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
+              <Input
+                id="bind-phone"
+                type="tel"
+                maxLength={11}
+                value={bindPhone}
+                onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
+                placeholder={t('onboarding.bindPhonePlaceholder')}
+                icon={<Smartphone className="h-4 w-4" />}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
+              <Input
+                id="bind-sms-password"
+                value={bindSms}
+                onChange={e => setBindSms(e.target.value)}
+                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
+                icon={<KeyRound className="h-4 w-4" />}
+              />
+              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
+            </div>
+            <Button
+              onClick={handleBindOperator}
+              disabled={!canBind || binding}
+              className="w-full gap-1.5"
+            >
+              {binding ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
+              ) : (
+                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
+              )}
+            </Button>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -390,96 +481,6 @@ export const AccountPanel = memo(function AccountPanel({
                 <p className="text-xs text-muted-foreground/60 mt-1">{t('account.noSavedAccountsTip')}</p>
               </div>
             )}
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Link2 className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
-                <CardDescription>{t('account.bindDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="bind-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
-                <Input
-                  id="bind-account"
-                  type="text"
-                  value={bindSelfAccount}
-                  onChange={e => setBindSelfAccount(e.target.value)}
-                  placeholder={t('onboarding.bindSelfAccountPlaceholder')}
-                  icon={<UserCircle className="h-4 w-4" />}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="bind-self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
-                <Input
-                  id="bind-self-password"
-                  type="password"
-                  value={bindSelfPassword}
-                  onChange={e => setBindSelfPassword(e.target.value)}
-                  placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
-                  icon={<KeyRound className="h-4 w-4" />}
-                  className="[&::-ms-reveal]:hidden"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
-                <Select value={bindOp} onValueChange={setBindOp}>
-                  <SelectTrigger aria-label={t('onboarding.bindIsp')}>
-                    <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
-                      <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
-                <Input
-                  id="bind-phone"
-                  type="tel"
-                  maxLength={11}
-                  value={bindPhone}
-                  onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
-                  placeholder={t('onboarding.bindPhonePlaceholder')}
-                  icon={<Smartphone className="h-4 w-4" />}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
-              <Input
-                id="bind-sms-password"
-                value={bindSms}
-                onChange={e => setBindSms(e.target.value)}
-                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
-                icon={<KeyRound className="h-4 w-4" />}
-              />
-              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
-            </div>
-            <Button
-              onClick={handleBindOperator}
-              disabled={!canBind || binding}
-              className="w-full gap-1.5"
-            >
-              {binding ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
-              ) : (
-                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
-              )}
-            </Button>
           </CardContent>
         </AnimatedCard>
       </div>

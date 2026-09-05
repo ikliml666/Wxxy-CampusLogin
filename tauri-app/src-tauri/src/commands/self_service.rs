@@ -44,7 +44,7 @@ pub async fn bind_operator(
         return Ok(CommandResult::err("请输入 11 位手机号"));
     }
     if sms_password.is_empty() {
-        return Ok(CommandResult::err("请输入运营商发送的短信密码"));
+        return Ok(CommandResult::err("请输入运营商账户密码"));
     }
 
     let local_addr = resolve_campus_bind_addr(&state);

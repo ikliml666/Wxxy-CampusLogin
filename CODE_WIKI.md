@@ -880,7 +880,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/短信密码均不持久化
 - **main.rs 与 lib.rs 是两棵独立模块树**：新增顶层模块必须同时在这两个文件声明（本次曾漏 main.rs 导致 bin target E0432）
 - 单测 6 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）
-- 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）
+- 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
 
 #### 4.5.5 网络质量检测 — `quality.rs`
 
@@ -1491,7 +1491,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `AccountPanel.tsx` | 账号管理面板，4卡片(登录信息含密码显示隐藏/账号管理含添加切换删除/**绑定运营商账号**(2026-09-05，调 bind_operator，学号/运营商默认取配置，成功 toast 清敏感字段)/自动登录退出开关) |
+| `AccountPanel.tsx` | 账号管理面板，4卡片两列网格(登录信息+**绑定运营商账号**并列(2026-09-05，绑定卡输入框垂直排布，调 bind_operator，学号/运营商默认取配置，成功 toast 清敏感字段)/账号管理含添加切换删除/自动登录退出开关) |
 | `useAccount.ts` | 账号逻辑 Hook |
 | `types.ts` | 账号类型定义 (SwitchAccountResult, DeleteAccountResult, SaveAccountResult) |
 | `index.ts` | 模块导出 |
