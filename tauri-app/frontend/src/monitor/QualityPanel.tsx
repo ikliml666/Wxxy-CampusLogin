@@ -18,6 +18,7 @@ import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type La
 import React, { useCallback, memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m, type Variants } from 'framer-motion'
+import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useGlowAnimation } from '@/hooks/useGlowAnimation'
@@ -176,10 +177,11 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
     setActiveTab(key)
   }, [activeTab])
 
-  const handleToggleLatencyTest = useCallback(async () => {
+  // 启动/停止加锁：快速连点会并发触发 start/stop 与 saveConfigDirect（对齐 MonitorPanel 的 useAsyncLock 模式）
+  const [isTogglingLatency, handleToggleLatencyTest] = useAsyncLock(async () => {
     if (!onToggleLatencyTest) return
     await onToggleLatencyTest(!config.enableLatencyTest, intervalSec)
-  }, [config.enableLatencyTest, intervalSec, onToggleLatencyTest])
+  })
 
   const details = useMemo(() => networkQuality?.details ?? {}, [networkQuality?.details])
 
@@ -279,7 +281,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                   variant={config.enableLatencyTest ? 'destructive' : 'default'}
                   className="h-8 text-xs gap-1.5"
                   onClick={handleToggleLatencyTest}
-                  disabled={!onToggleLatencyTest}
+                  disabled={!onToggleLatencyTest || isTogglingLatency}
                 >
                   {config.enableLatencyTest ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
                   {config.enableLatencyTest ? t('monitor.stop') : t('monitor.start')}

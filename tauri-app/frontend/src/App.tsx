@@ -118,6 +118,10 @@ function AppInner() {
   const setUpdateAvailable = useQualityStore((s) => s.setUpdateAvailable)
   const setLatestVersion = useQualityStore((s) => s.setLatestVersion)
   const setReleaseNotes = useQualityStore((s) => s.setReleaseNotes)
+  // 响应式订阅传给 AboutDialog（此前在 JSX props 里 getState() 取快照，非响应式）
+  const latestVersion = useQualityStore((s) => s.latestVersion)
+  const releaseNotes = useQualityStore((s) => s.releaseNotes)
+  const qualityUpdateAvailable = useQualityStore((s) => s.updateAvailable)
   const addToast = useLogToastStore((s) => s.addToast)
   const doLogin = useAuthStore((s) => s.doLogin)
   const refreshQuality = useQualityStore((s) => s.refreshQuality)
@@ -409,16 +413,16 @@ function AppInner() {
           open={aboutOpen}
           onClose={() => setAboutOpen(false)}
           openExternal={(url) => api.openExternal?.(url)}
-          initialLatestVersion={useQualityStore.getState().latestVersion}
-          initialReleaseNotes={useQualityStore.getState().releaseNotes}
-          initialUpdateAvailable={useQualityStore.getState().updateAvailable}
+          initialLatestVersion={latestVersion}
+          initialReleaseNotes={releaseNotes}
+          initialUpdateAvailable={qualityUpdateAvailable}
           onUpdateAvailable={(hasUpdate, version, notes) => {
             setUpdateAvailable(hasUpdate)
             if (version) setLatestVersion(version)
             if (notes) setReleaseNotes(notes)
             if (hasUpdate && version) {
               addToast(t('about.newVersionFound'), 'info', `CampusLogin v${version}`)
-              useLogToastStore.getState().addLog(`发现新版本 v${version}`, 'info')
+              useLogToastStore.getState().addLog(t('notify.newVersionFoundLog', { version }), 'info')
             }
           }}
         />

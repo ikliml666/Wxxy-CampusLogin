@@ -7,7 +7,8 @@ import { useAuthStore } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useThemeStore } from './useThemeStore'
 import { useLogToastStore } from './useLogToastStore'
-import { safeStorage } from '@/lib/utils'
+import { safeStorage, extractErrorMessage } from '@/lib/utils'
+import i18next from 'i18next'
 import { NAV_ITEMS, PASSWORD_MASK } from '@/shared/ui-constants'
 import { DEFAULT_CONFIG } from '@/settings/constants'
 import { useGpuCorrection } from './useGpuCorrection'
@@ -133,10 +134,10 @@ export function useInitialDataLoad() {
                 )
                 if (!hasRecommendedDns) {
                   if (!mountedRef.current) return
-                  lt.getState().addLog('未使用推荐DNS，建议在「网络」面板点击「一键优化DNS」设置阿里+腾讯DNS', 'warning')
+                  lt.getState().addLog(i18next.t('log.dnsNotRecommendedLog'), 'warning')
                 } else if (dohNotEnabled) {
                   if (!mountedRef.current) return
-                  lt.getState().addLog('DNS未启用DoH加密，建议在「网络」面板点击「一键优化DNS」启用，或在 Windows 设置 → 网络 → DNS 加密中手动开启', 'warning')
+                  lt.getState().addLog(i18next.t('log.dnsDohNotEnabledLog'), 'warning')
                 }
               }
             } catch (e) { if (import.meta.env.DEV) console.error(e) }
@@ -147,10 +148,13 @@ export function useInitialDataLoad() {
 
           dnsPromise.catch((e) => { if (import.meta.env.DEV) console.error(e) })
         }
-      } catch (_) {
+      } catch (e) {
+        // getInitData 失败降级为默认配置：此前静默吞错，"配置未加载"无从排查
+        if (import.meta.env.DEV) console.error('[useInitialDataLoad] getInitData failed:', e)
         // showWindow 不受 mountedRef 影响，窗口显示是应用级别的操作
         api.showWindow?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
         if (!mountedRef.current) return
+        lt.getState().addLog(i18next.t('log.initDataFailedLog', { msg: extractErrorMessage(e) }), 'error')
         useConfigStore.setState({ config: DEFAULT_CONFIG })
       }
     })()

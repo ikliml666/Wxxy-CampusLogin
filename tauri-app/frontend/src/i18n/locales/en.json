@@ -11,7 +11,8 @@
     "campusExitDesc": "Minimize in {{minimize}}s, exit in {{exit}}s, click to cancel",
     "campusExitLog": "Not on campus network: minimize in {{minimize}}s, exit in {{exit}}s, press Ctrl+Shift+C to cancel",
     "campusExitCancelled": "Campus exit cancelled",
-    "cancelExit": "Cancel exit"
+    "cancelExit": "Cancel exit",
+    "newVersionFoundLog": "New version found: v{{version}}"
   },
   "common": {
     "confirm": "Confirm",
@@ -222,7 +223,8 @@
     "getNewIpFailed": "Failed to get new IP: {{details}}",
     "getNewIpFailedShort": "Failed to get new IP",
     "dnsFamilyLabel": "Target",
-    "dnsFamilyBoth": "IPv4 + IPv6"
+    "dnsFamilyBoth": "IPv4 + IPv6",
+    "dhcpRenewFailed": "DHCP renew failed"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",
@@ -439,7 +441,8 @@
       "telecom": "China Telecom",
       "unicom": "China Unicom",
       "cmcc": "China Mobile"
-    }
+    },
+    "autoLaunchFailed": "Failed to set launch at startup"
   },
   "log": {
     "systemLog": "System Logs",
@@ -473,7 +476,12 @@
       "14days": "14 Days",
       "30days": "30 Days",
       "permanent": "Permanent"
-    }
+    },
+    "initDataFailedLog": "Failed to load init data, using default config: {{msg}}",
+    "dnsNotRecommendedLog": "Recommended DNS not in use. Open the Network panel and click 'One-click DNS Optimize' to set Alibaba + Tencent DNS",
+    "dnsDohNotEnabledLog": "DNS DoH encryption not enabled. Click 'One-click DNS Optimize' in the Network panel, or enable it in Windows Settings → Network → DNS Encryption",
+    "flushSaveFailedLog": "Failed to save config before close: {{msg}}",
+    "retentionChangeFailed": "Failed to set log retention"
   },
   "onboarding": {
     "welcome": "Welcome",

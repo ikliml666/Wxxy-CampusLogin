@@ -62,6 +62,5 @@ export const VALID_THEMES: ThemeName[] = ['default', 'vibrant', 'forest', 'midni
 
 export const DEFAULT_PANEL_OPTIONS = NAV_ITEMS.map(item => ({
   value: item.id,
-  label: item.label,
   labelKey: item.labelKey,
 }))

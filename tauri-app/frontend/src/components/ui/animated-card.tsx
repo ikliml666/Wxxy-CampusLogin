@@ -22,6 +22,12 @@ interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const REST_SHADOW = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
 
+// 模块级缓存 MediaQueryList（与 main.tsx 用法风格一致）：matchMedia 结果同会话不变，
+// 避免每次渲染都新建 MediaQueryList 查询
+const reducedMotionQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(prefers-reduced-motion: reduce)')
+  : null
+
 export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, AnimatedCardProps>(
   ({ animationConfig, className, noHover = false, noAnimation = false, noEnterAnimation = false, enableTilt, staggerIndex, children, ...props }, ref) => {
     const profile = useAnimationProfile()
@@ -101,7 +107,7 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       [className]
     )
 
-    const showEntryAnim = !noEnterAnimation && !noAnimation && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const showEntryAnim = !noEnterAnimation && !noAnimation && !(reducedMotionQuery?.matches ?? false)
 
     if (noAnimation) {
       return (

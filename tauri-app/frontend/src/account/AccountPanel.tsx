@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -32,7 +33,7 @@ interface AccountPanelProps {
   accounts: string[]
   activeAccount: string
   onUpdateConfig: (partial: Partial<Config>) => void
-  onAddAccount: (name: string) => Promise<void>
+  onAddAccount: (name: string) => Promise<boolean>
   onDeleteAccount: (name: string) => void
   onSwitchAccount: (name: string) => Promise<void>
 }
@@ -116,16 +117,20 @@ export const AccountPanel = memo(function AccountPanel({
       addToast(t('account.invalidAccountName'), 'error')
       return
     }
-    await onAddAccount(trimmed)
-    if (!mountedRef.current) return
+    // 仅保存成功时清空输入并收起输入 UI，失败保留内容供修改重试
+    const ok = await onAddAccount(trimmed)
+    if (!ok || !mountedRef.current) return
     setNewAccountName('')
     setShowAddInput(false)
   }
 
+  // busy 态防重复提交：切换进行中忽略再次点击（对照 DashboardPanel switchingAccount 模式）
+  const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
   const handleSwitchAccount = useCallback(async (name: string) => {
-    if (name === activeAccount) return
-    await onSwitchAccount(name)
-  }, [activeAccount, onSwitchAccount])
+    if (name === activeAccount || switchingAccount !== null) return
+    setSwitchingAccount(name)
+    try { await onSwitchAccount(name) } finally { setSwitchingAccount(null) }
+  }, [activeAccount, onSwitchAccount, switchingAccount])
 
   return (
     <div className="space-y-4">
@@ -212,14 +217,14 @@ export const AccountPanel = memo(function AccountPanel({
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground">{t('account.primaryAdapter')}</Label>
               <Select
-                value={config.adapter1 || '自动检测'}
+                value={config.adapter1 || AUTO_DETECT_ADAPTER}
                 onValueChange={(value) => onUpdateConfig({ adapter1: value })}
               >
                 <SelectTrigger aria-label={t('account.selectPrimaryAdapter')}>
                   <SelectValue placeholder={t('account.selectPrimaryAdapter')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="自动检测">{t('network.autoDetect')}</SelectItem>
+                  <SelectItem value={AUTO_DETECT_ADAPTER}>{t('network.autoDetect')}</SelectItem>
                   {adapters.map(a => (
                     <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                   ))}
@@ -303,6 +308,7 @@ export const AccountPanel = memo(function AccountPanel({
                             size="icon-sm"
                             className="rounded-lg"
                             onClick={() => handleSwitchAccount(name)}
+                            disabled={switchingAccount !== null}
                             aria-label={t('account.switchAccount')}
                           >
                             <ArrowRightLeft className="h-3.5 w-3.5" />

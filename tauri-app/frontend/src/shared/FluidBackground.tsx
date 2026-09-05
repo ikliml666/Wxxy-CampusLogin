@@ -1,11 +1,6 @@
-interface FluidBackgroundProps {
-  innerRef?: (el: HTMLDivElement | null) => void
-}
-
-export function FluidBackground({ innerRef }: FluidBackgroundProps) {
+export function FluidBackground() {
   return (
     <div
-      ref={innerRef}
       className="absolute inset-0 z-0 pointer-events-none"
       style={{
         background: 'var(--surface-main)',

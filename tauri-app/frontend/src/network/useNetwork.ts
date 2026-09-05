@@ -62,10 +62,13 @@ export function useNetwork() {
   }, [])
 
   const handleDhcpRenew = useCallback(async () => {
-    try { await store.api.dhcpRenewAll?.() } catch (e) { if (import.meta.env.DEV) console.error('DHCP 续租失败:', e) }
+    try { await store.api.dhcpRenewAll?.() } catch (e) {
+      if (import.meta.env.DEV) console.error('DHCP 续租失败:', e)
+      store.addToast(i18next.t('network.dhcpRenewFailed'), 'error')
+    }
     await refreshAdapterInfo()
     store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
-  }, [store.api, refreshAdapterInfo])
+  }, [store.api, store.addToast, refreshAdapterInfo])
 
   const handleDhcpReleaseRenew = useCallback(async () => {
     try {

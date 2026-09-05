@@ -80,10 +80,10 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       const status = await ipc.checkDnsDohStatus()
       useQualityStore.getState().setDnsDohStatus(status)
       if (status) {
-        const hasRecommendedDns = status.adapters.some(a => a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address)))
-        const dohNotEnabled = status.adapters.some(a =>
+        const hasRecommendedDns = status.adapters?.some(a => a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address))) ?? false
+        const dohNotEnabled = status.adapters?.some(a =>
           a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
-        )
+        ) ?? false
         if (!hasRecommendedDns) {
           useLogToastStore.getState().addLog(t('network.dnsNotRecommended'), 'warning')
         } else if (dohNotEnabled) {
@@ -104,9 +104,14 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       if (!mountedRef.current) return
       if (result.success) {
         useLogToastStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
-        const status = await ipc.checkDnsDohStatus()
-        if (!mountedRef.current) return
-        useQualityStore.getState().setDnsDohStatus(status)
+        // 检测刷新独立捕获：其失败不应落入外层 catch 再弹一次"优化失败"与上面的成功 toast 矛盾
+        try {
+          const status = await ipc.checkDnsDohStatus()
+          if (!mountedRef.current) return
+          useQualityStore.getState().setDnsDohStatus(status)
+        } catch (e) {
+          if (import.meta.env.DEV) console.error('[setupDnsDoh] 刷新DNS状态失败:', e)
+        }
       } else {
         useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', result.message)
       }
@@ -354,7 +359,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     )}
                     {disabledAdapters.map(a => (
                       <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{a.status}）
+                        {a.name}（{t(`network.status.${a.status}`)}）
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -392,7 +397,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     )}
                     {disabledAdapters.map(a => (
                       <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{a.status}）
+                        {a.name}（{t(`network.status.${a.status}`)}）
                       </SelectItem>
                     ))}
                   </SelectContent>

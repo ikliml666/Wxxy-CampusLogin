@@ -1,17 +1,24 @@
 import type { GpuInfo, GpuTier } from '@/shared'
 
+// 同会话 GPU 不变：首次检测结果（含 null=检测失败）模块级缓存，
+// 避免每次校正都新建 canvas + WebGL context（context 创建开销大且有数量上限）
+let cachedWebGlRenderer: { vendor: string; renderer: string } | null | undefined
+
 function getWebGlRenderer(): { vendor: string; renderer: string } | null {
+  if (cachedWebGlRenderer !== undefined) return cachedWebGlRenderer
   try {
     const c = document.createElement('canvas')
     const gl = c.getContext('webgl') as WebGLRenderingContext | null
       || c.getContext('experimental-webgl') as WebGLRenderingContext | null
-    if (!gl) return null
+    if (!gl) { cachedWebGlRenderer = null; return null }
     const ext = gl.getExtension('WEBGL_debug_renderer_info')
-    if (!ext) return null
+    if (!ext) { cachedWebGlRenderer = null; return null }
     const vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || ''
     const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || ''
-    return { vendor, renderer }
+    cachedWebGlRenderer = { vendor, renderer }
+    return cachedWebGlRenderer
   } catch {
+    cachedWebGlRenderer = null
     return null
   }
 }

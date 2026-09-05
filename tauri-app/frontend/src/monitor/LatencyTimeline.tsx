@@ -81,9 +81,12 @@ export const LatencyTimeline = React.memo(function LatencyTimeline({ totalMs, dn
   const barTotal = hasSegments ? segments.total : totalMs
   const barMax = Math.max(barTotal, 1)
 
-  const level = getLatencyLevel(totalMs)
-  const levelColor = LEVEL_BAR_COLOR[level] ?? LEVEL_BAR_COLOR.bad
-  const totalTextColor = getLatencyColor(totalMs).text
+  // 无数据（totalMs<0）时 muted 灰占位，不落入 bad 档渲染成拥堵红（与总时长 '—' 处理风格一致）
+  const isNoData = totalMs < 0
+  const levelColor = isNoData
+    ? { bar: 'bg-muted-foreground/30', dot: 'bg-muted-foreground/30' }
+    : (LEVEL_BAR_COLOR[getLatencyLevel(totalMs)] ?? LEVEL_BAR_COLOR.bad)
+  const totalTextColor = isNoData ? 'text-muted-foreground' : getLatencyColor(totalMs).text
 
   return (
     <TooltipProvider delayDuration={200}>

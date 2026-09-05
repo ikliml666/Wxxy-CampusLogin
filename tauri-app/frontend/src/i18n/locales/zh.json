@@ -11,7 +11,7 @@
     "campusExitDesc": "{{minimize}}秒后最小化，{{exit}}秒后退出，点击取消",
     "campusExitLog": "非校园网络，{{minimize}}秒后最小化，{{exit}}秒后退出，按 Ctrl+Shift+C 取消",
     "campusExitCancelled": "已取消校园网退出",
-    "cancelExit": "取消退出"
+        "newVersionFoundLog": "发现新版本 v{{version}}"
   },
   "common": {
     "confirm": "确定",
@@ -222,7 +222,8 @@
     "getNewIpFailed": "获取新IP失败: {{details}}",
     "getNewIpFailedShort": "获取新IP失败",
     "dnsFamilyLabel": "优化目标",
-    "dnsFamilyBoth": "IPv4 + IPv6"
+        "dnsFamilyBoth": "IPv4 + IPv6",
+    "dhcpRenewFailed": "DHCP 续租失败"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",
@@ -439,7 +440,8 @@
       "telecom": "中国电信",
       "unicom": "中国联通",
       "cmcc": "中国移动"
-    }
+    },
+    "autoLaunchFailed": "开机自启设置失败"
   },
   "log": {
     "systemLog": "系统日志",
@@ -473,7 +475,12 @@
       "14days": "14天",
       "30days": "30天",
       "permanent": "永久"
-    }
+    },
+    "initDataFailedLog": "初始化数据加载失败，已使用默认配置: {{msg}}",
+    "dnsNotRecommendedLog": "未使用推荐DNS，建议在「网络」面板点击「一键优化DNS」设置阿里+腾讯DNS",
+    "dnsDohNotEnabledLog": "DNS未启用DoH加密，建议在「网络」面板点击「一键优化DNS」启用，或在 Windows 设置 → 网络 → DNS 加密中手动开启",
+    "flushSaveFailedLog": "关闭前保存配置失败: {{msg}}",
+    "retentionChangeFailed": "日志保留时长设置失败"
   },
   "onboarding": {
     "welcome": "欢迎",

@@ -109,7 +109,7 @@ export const TitleBar = memo(function TitleBar({
             <button
               className="relative text-[10px] px-2 py-0.5 bg-[#f3f4f6] text-muted-foreground font-medium rounded-full dark:bg-[#1f2128] cursor-pointer hover:bg-primary/10 hover:text-primary dark:hover:bg-primary/20 transition-colors"
               onClick={onShowAbout}
-              aria-label={t('titlebar.newVersionFound', { version: APP_VERSION })}
+              aria-label={t('titlebar.newVersionFound', { version: latestVersion ?? APP_VERSION })}
             >
               v{APP_VERSION}
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white dark:border-[#1f2128]" aria-hidden="true" />

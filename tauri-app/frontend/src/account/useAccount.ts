@@ -19,17 +19,20 @@ export function useAccount() {
   })))
   const store = { ...configStore, ...logToastStore }
 
-  const handleAddAccount = useCallback(async (name: string) => {
+  // 返回保存是否成功，调用方据此决定是否清空输入/收起输入 UI（失败时保留用户已输入内容）
+  const handleAddAccount = useCallback(async (name: string): Promise<boolean> => {
+    let ok = true
     try {
       const result = await store.api.saveCurrentAsAccount?.(name)
       if (result?.success === false) {
         store.addToast(i18next.t('account.saveFailed'), 'error', result.message || i18next.t('common.unknownError'))
-        return
+        return false
       }
       if (result?.config) store.updateConfig(result.config)
       if (result?.activeAccount) store.setActiveAccount(result.activeAccount)
       store.addToast(i18next.t('account.saveSuccess'), 'success')
     } catch (e: unknown) {
+      ok = false
       const errMsg = extractErrorMessage(e)
       store.addToast(i18next.t('account.saveFailed'), 'error', errMsg)
     }
@@ -39,6 +42,7 @@ export function useAccount() {
     } catch (e) {
       if (import.meta.env.DEV) console.error('刷新账号列表失败:', e)
     }
+    return ok
   }, [store.api, store.updateConfig, store.setActiveAccount, store.setAccounts, store.addToast])
 
   const handleDeleteAccount = useCallback(async (name: string) => {

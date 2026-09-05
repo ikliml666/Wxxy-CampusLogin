@@ -191,7 +191,11 @@ export function flushPendingConfig(): Promise<unknown> | null {
     // 历史缺陷：本次新发出的保存不经 in-flight 跟踪，返回的却是旧引用，
     // 仅有 debounce 待存时调用方拿到 null 直接关窗，本次保存随窗口销毁丢失。
     // 修复：flush 发出的保存纳入返回值，由调用方一并等待。
-    flushed = (api?.saveConfig(fullConfig)?.catch?.(() => {})) ?? null
+    // catch 后 resolve 保持返回 promise 语义（关窗不因保存失败而中断），但失败需留诊断
+    flushed = (api?.saveConfig(fullConfig)?.catch?.((e) => {
+      if (import.meta.env.DEV) console.error('[flushPendingConfig] saveConfig failed:', e)
+      useLogToastStore.getState().addLog(i18next.t('log.flushSaveFailedLog', { msg: extractErrorMessage(e) }), 'error')
+    })) ?? null
   }
   const current = saveConfigInFlight
   if (flushed && current) {

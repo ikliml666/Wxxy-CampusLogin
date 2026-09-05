@@ -56,17 +56,17 @@ export const useAdapterStore = create<AdapterStore>((set) => ({
     if (_adapterLockFlag) return
     _adapterLockFlag = true
     set({ isRefreshingAdapters: true })
-    try {
+    const work = (async () => {
       // 复用公共刷新动作（force 重探 + 触发后台检测，与原实现时机一致）
       await refreshAdapterData({ force: true, triggerCheck: true })
-    } catch(e) {
+    })().catch((e) => {
       if (import.meta.env.DEV) console.error('[refreshAdapters]', e)
-    } finally {
-      setTimeout(() => {
-        _adapterLockFlag = false
-        set({ isRefreshingAdapters: false })
-      }, 500)
-    }
+    })
+    // 历史缺陷：setTimeout(500) 释放锁，执行超 500ms 时锁提前释放可重入。
+    // 改为实际工作完成且 isRefreshingAdapters 最短展示 500ms 后再释放（对齐 checkOnline 修复模式）。
+    await Promise.all([work, new Promise(r => setTimeout(r, 500))])
+    _adapterLockFlag = false
+    set({ isRefreshingAdapters: false })
   },
 
   setAdapters: (a) => set({ adapters: a }),

@@ -86,7 +86,7 @@
     <div id="root">
       <div class="sk">
         <div class="sk-tb"></div>
-        <div class="sk-sb"><span class="sk-dot"></span>正在初始化...</div>
+        <div class="sk-sb"><span class="sk-dot"></span><span id="sk-init-text">正在初始化...</span></div>
         <div class="sk-main">
           <div class="sk-side"></div>
           <div class="sk-content">
@@ -97,6 +97,18 @@
         </div>
       </div>
     </div>
+    <script>
+      // 骨架屏文案语言兜底：i18n 未就绪前按 localStorage 的 app-language（i18n lookupLocalStorage 同名键）
+      // 选择首屏文案，默认/中文用户看中文，英文用户看英文
+      (function(){
+        try{
+          if(localStorage.getItem('app-language')==='en'){
+            var el=document.getElementById('sk-init-text');
+            if(el)el.textContent='Initializing...';
+          }
+        }catch(e){}
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

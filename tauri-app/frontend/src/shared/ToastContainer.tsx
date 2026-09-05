@@ -55,7 +55,7 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
               className={cn(
                 'pointer-events-auto flex items-start gap-3 w-80 p-4 rounded-xl',
                 'shadow-[0_4px_20px_rgba(0,0,0,0.08),0_1px_4px_rgba(0,0,0,0.04)]',
-                TOAST_STYLES[toast.type]
+                TOAST_STYLES[toast.type] ?? TOAST_STYLES.info
               )}
             >
               <m.div
