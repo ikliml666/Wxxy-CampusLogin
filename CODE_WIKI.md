@@ -119,7 +119,7 @@ Wxxy-CampusLogin/
 │   │       ├── network/             # 网络模块
 │   │       │   ├── NetworkPanel.tsx # DNS 优化卡片
 │   │       │   ├── useNetwork.ts    # 网络逻辑
-│   │       │   ├── adapters.ts      # 前端适配器解析 (resolveAdapterNames, 与后端同源规则)
+│   │       │   ├── adapters.ts      # 前端适配器解析 (resolveAdapterNames, 与后端同源规则) + AUTO_DETECT_ADAPTER 哨兵常量（2026-09-05 起全前端"自动检测"字面量统一引用它，存储语义不变）
 │   │       │   ├── adapters.test.ts # resolveAdapterNames 单测 (锁同源行为)
 │   │       │   ├── constants.ts     # 网络常量 (QUALITY_CONFIG 9级在此定义)
 │   │       │   ├── types.ts         # 网络类型定义
@@ -855,6 +855,8 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 
 #### 4.5.5 网络质量检测 — `quality.rs`
 
+**details/metrics 键契约（2026-09-05 标识符化）**: `details`/`metrics` 字典以检测任务 `name` 为键，原为中文字面量（前端硬编码同一中文取值，英文界面显示中文条目名）。现统一为英文标识符：`gateway`/`aliDns`/`tencentDns`/`xinfengDns`/`aliDoh`/`tencentDoh`/`dnsResolve`（SystemDns 聚合条目）+ 12 个 HTTPS 站点 `baidu`/`jd`/`bing`/`railway12306`/`bilibili`/`bilibiliLive`/`douyin`/`douyinLive`/`lol`/`genshin`/`pubg`/`naraka`。前端消费点（`lib/latency.ts` 的 gateway 过滤、`NetworkQualityCapsule` 的 dnsResolve、`QualityPanel` 分组 names）同步改标识符，**条目显示名**走 i18n `quality.names.*`（zh 保留原中文/en 英文名）。前后端键必须同步修改（同仓库同发版，无兼容窗口）。
+
 **两阶段检测**:
 1. Phase 1: 并行测试网关 + 3 个 DNS + 2 个 DoH + 系统 DNS → 更新评分表 → 增量推送
 2. Phase 2: 并行预解析 HTTPS 主机名 → 分批（每批4个）并行测试 12 个 HTTPS 网站 → 每批完成后增量推送
@@ -1310,7 +1312,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300；Toast 上限 MAX_TOASTS=4，`addToast`/`addToastWithAction` 同 title 去重防重复刷屏) | `logs`/`toasts` | `addLog`/`addToast`/`addToastWithAction`/`removeToast`/`removeToastsByPrefix` |
 
 > **通知单通道规范 (2026-09-03 重构)**：一条通知只有一个来源、一个通道、一个文案源，杜绝双通道重复。
-> - `emit_notification`（`infra/notification.rs`）**只发 Windows 系统通知**（应用非前台 + `enable_notification` 时），不再向前端发 `system-notification` 事件（`EventBus.emit_system_notification` 已删除）；系统通知文案为中文硬编码（后端无法感知前端 UI 语言，为已知边界）
+> - `emit_notification`（`infra/notification.rs`）**只发 Windows 系统通知**（用户看不到主窗口即 `!is_visible() || is_minimized()` + `enable_notification` 时，2026-09-05 由 is_focused 改为与 heartbeat 一致的 monitorable 判定：窗口可见但失焦不再误弹打扰；窗口不存在视为看不到继续弹），不再向前端发 `system-notification` 事件（`EventBus.emit_system_notification` 已删除）；系统通知文案为中文硬编码（后端无法感知前端 UI 语言，为已知边界）
 > - 应用内 toast/日志由**业务专用事件**负责：`onAutoLoginResult`（登录成功/失败）、`onAutoExitCountdown`（即将退出+取消按钮）、`onAutoExitCancelled`、`onCampusExitCountdown`/`onCampusExitCancelled`（校园网退出/取消+按钮）、`onNetworkQualityResult`→`handleQualityBadAlert`（质量告警）、`onLoginLog`（过程告警日志：检测到断线/重连失败/网络仍断线/网络拥堵/恢复——原 emit_notification 调用点已补 `emit_login_log`）、`onUpdateAvailable`（发现新版本）
 > - store 防护：`MAX_TOASTS=4` + 同 title 去重 + 超限淘汰时清理定时器；窗口非前台时普通 toast 不入队（信息由日志兜底），带 action 的 toast 仍入队（承载取消退出操作入口）
 > - 通知文案 i18n：专用通道统一走 `i18next.t('notify.*')`；`enable_notification` 开关仅控制系统通知，应用内 toast 不受影响（设置面板描述已注明）
