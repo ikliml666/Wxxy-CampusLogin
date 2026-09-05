@@ -1016,7 +1016,7 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 | `login_adapter_with_log()` | `auth/session.rs` | 单适配器登录+日志 |
 | `adapter_action_with_log()` | `auth/session.rs` | 通用适配器操作+日志封装 |
 | `post_login_handler()` | `auth/service.rs` | 登录后处理 (AM-13 从 commands/login.rs 下沉)：解除注销保护期 → 仅当 `enable_background_check` 开启时延迟500ms触发 `monitor::watcher::run_background_check` → 按需启动 `auto_exit` |
-| `check_any_adapter_online()` | `commands/login.rs` | **B9-10 并行化**：双适配器 Portal 在线检测从串行改为 `std::thread::scope` 并行，双适配器检测延迟减半；`do_logout` 复用其逐适配器检测结果避免重复 HTTP 请求 |
+| `check_any_adapter_online()` | `commands/login.rs` | **B9-10 并行化**：双适配器 Portal 在线检测从串行改为 `std::thread::scope` 并行，双适配器检测延迟减半；`do_logout` 复用其逐适配器检测结果避免重复 HTTP 请求。**2026-09-05 崩溃修复**：scope 裸子线程无 Tokio runtime context，reqwest `send()` 构造超时计时器时 `Handle::current()` panic（panic=abort 整进程崩溃），子线程闭包已补 `tauri::async_runtime::handle().inner().enter()` 进入 context |
 
 **注销命令** (`commands/login.rs` 委托 `auth/service.rs`):
 

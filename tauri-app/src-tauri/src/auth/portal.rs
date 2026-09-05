@@ -30,10 +30,11 @@ mod portal_config {
 /// 注意：不能在 async worker 线程上直接调用（Handle::block_on 会 panic）。
 /// 所有调用者必须通过 spawn_blocking 或在同步线程中调用。
 fn block_on_http<F: std::future::Future>(future: F) -> F::Output {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => handle.block_on(future),
-        Err(_) => tauri::async_runtime::block_on(future),
-    }
+    // 统一走 block_on_sync：其 Err 分支（无 runtime context 的裸线程）必须用
+    // 自持 Runtime::block_on 驱动——tauri::async_runtime::block_on 在 set(handle)
+    // 后退化为 Handle::block_on，实测无法支撑 reqwest 的 timer 资源访问
+    // （详见 infra/async_util.rs 顶部说明）。
+    crate::infra::async_util::block_on_sync(future)
 }
 
 /// 确保 Portal 地址包含 :801 端口，正确处理带路径的 URL
