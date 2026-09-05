@@ -366,9 +366,8 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
                 }
             }
         }
-        if let Err(e) = remove_mac_from_registry(&adapter.guid) {
-            crate::log_warn!("adapter", "清理MAC注册表失败({}): {}", adapter.guid, e);
-        }
+        // MAC 注册表伪装值的清理已由 helper 在提权上下文内完成（helper/mod.rs run_mac）；
+        // 本进程非提升，此处再清只会 Access Denied 产生误导性告警，不再尝试。
         if !ip_changed && message.is_none() {
             message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
         }

@@ -151,13 +151,21 @@ fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResul
         }
     };
     match crate::network::dhcp::apply_mac_change_via_registry(guid, &adapter.name, mac_no_dash) {
-        Ok(()) => HelperResult {
-            success: true,
-            message: format!("MAC已修改并重启网卡: {}", adapter.name),
-            op: "mac".to_string(),
-            logs: std::mem::take(logs),
-            details: None,
-        },
+        Ok(()) => {
+            // 注册表 NetworkAddress 是持久伪装值：运行中的 MAC 不受清除影响，重启后恢复物理 MAC。
+            // 必须在 helper 的管理员上下文内清除——主进程非提升时对 HKLM Class 键无写权限，
+            // 仅靠主进程清理会让伪装 MAC 每次重启后持续生效且用户无从恢复。
+            if let Err(e) = crate::network::dhcp::remove_mac_from_registry(guid) {
+                logs.push(format!("helper: 清除MAC注册表伪装值失败: {e}（重启后将维持伪装MAC）"));
+            }
+            HelperResult {
+                success: true,
+                message: format!("MAC已修改并重启网卡: {}", adapter.name),
+                op: "mac".to_string(),
+                logs: std::mem::take(logs),
+                details: None,
+            }
+        }
         Err(e) => HelperResult {
             success: false,
             message: e,
