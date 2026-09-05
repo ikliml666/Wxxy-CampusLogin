@@ -82,6 +82,7 @@ Wxxy-CampusLogin/
 │   │       │   ├── usePulseAnimation.ts    # 脉冲动画
 │   │       │   └── useStartupBoost.ts      # 启动加速
 │   │       ├── lib/
+│   │       │   ├── renderLiveness.ts # rAF 渲染活性检测（lastRafTime 停滞>10s 判渲染冻结；心跳发送前门控，GPU 崩溃 JS 存活场景交由后端重载）
 │   │       │   ├── utils.ts         # 工具函数 (含 safeStorage 内存降级封装，替代 localStorage)
 │   │       │   ├── color.ts         # HEX→HSL 颜色转换
 │   │       │   ├── latency.ts       # 延迟等级/颜色计算 (显式 borderBg)
@@ -653,7 +654,8 @@ pub struct AccountResult {
 
 | 函数 | 说明 |
 |------|------|
-| `atomic_write()` | 原子写入文件，3次重试+100ms间隔，重命名失败后删除临时文件 |
+| `atomic_write()` | 原子写入文件，3次重试+100ms间隔，重命名失败后删除临时文件；rename 前对临时文件 `sync_all` 落盘（2026-09-05），断电不产生半截 config |
+| `append_login_history()` | 登录历史追加（读-改-写全程持模块级 `LOGIN_HISTORY_LOCK` 互斥锁，2026-09-05，防自动/手动登录并发覆盖丢历史） |
 | `list_account_names()` | 共享函数，统一账号目录遍历逻辑 |
 | `validate_username()` | 校验用户名 (位于 validate.rs) |
 | `validate_operator()` | 校验运营商后缀 (返回 Result，非法值返回错误而非静默清空，位于 validate.rs) |
@@ -1116,7 +1118,7 @@ struct ConnectionCampusStatus {
 | `handle_portal_request_failure()` | `auth/failure_tracker.rs` | Portal 请求失败容错（9c 从 portal_failure.rs 迁入，见 4.7） |
 | `build_adapter_details()` / `handle_status_change()` / `emit_background_check_result()` / `update_network_state()` / `adapter_status_entry()` 等 | `background_emit.rs` | 适配器详情/状态变更/检测结果事件/网络状态更新/状态条目构建 |
 | `check_campus_network()` | `campus_check.rs` | WiFi/有线分别检测校园网状态 |
-| `run_quality_check()` | `quality_scheduler.rs` | 质量检测调度 |
+| `run_quality_check()` | `quality_scheduler.rs` | 质量检测调度；签名含 `cancel: Option<&CancellationToken>`（2026-09-05）：定时测试循环传入循环 token，复核窗口可即时中断；手动检测路径传 None 行为不变 |
 
 **双适配器并行 Portal 检测**：`run_background_check_blocking` 使用 `tauri::async_runtime::spawn_blocking` + `tokio::join!` 并行检测双适配器 Portal 状态（替代原 `std::thread::scope` 方案，与 `dual_adapter_executor` 实现策略一致）。v2.2.7 历史：原 `std::thread::scope` 子线程无 Tokio reactor 上下文导致 `block_on_http` panic，曾通过 `Handle::current()` + `h.enter()` 设置上下文修复；当前 `spawn_blocking` 方案天然具备 reactor 上下文，无需手动 enter。
 
