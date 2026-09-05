@@ -869,8 +869,8 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 | 1. 取 checkcode | `GET /Self/login/` | hidden `name="checkcode" value="4位数字"`，会话级，正则提取 |
 | 2. **验证码预热** | `GET /Self/login/randomCode?t=` | **必要隐式前置**：浏览器打开登录页时 `<img>` 自动加载此地址，服务端在 session 记录"已发放"；跳过则 verify 必 302 失败并提示"验证码错误！"。本部署验证码输入框隐藏（`randomDiv` class=hide），提交空 `code` 即通过，用户无需输入 |
 | 3. 登录 | `POST /Self/login/verify` | `account=学号&password=md5(密码小写hex)&checkcode=…&code=`；成功 302 → `/Self/dashboard`；失败 302 → `/Self/login/`，重新 GET 登录页从内嵌 `})('提示文本');` 提取失败原因（如"账号或密码错误！"）。自助系统密码默认为身份证后 6 位 |
-| 4. 取绑定表单 | `GET /Self/service/operatorId` | hidden `csrftoken`（UUID）+ `FLDEXTRA1..6`（预填已绑定值）；302 = 登录会话失效 |
-| 5. 提交绑定 | `POST /Self/service/bind-operator` | `csrftoken + FLDEXTRA1..6`，映射：中国移动=1/2、中国电信=3/4、中国联通=5/6（账号/密码**明文**提交，无 MD5、无 JS 拦截、maxlength 20）；HTTP 200 重渲染页，内嵌 swal msg 含"绑定运营商账号信息成功"判成功，失败 msg 原样透传 |
+| 4. 取绑定表单 | `GET /Self/service/operatorId` | hidden `csrftoken`（UUID）+ `FLDEXTRA1..6`（预填已绑定值，需用 `extract_fld_values` 全量解析）；302 = 登录会话失效 |
+| 5. 提交绑定 | `POST /Self/service/bind-operator` | `csrftoken + FLDEXTRA1..6`，映射：中国移动=1/2、中国电信=3/4、中国联通=5/6（账号/密码**明文**提交，无 MD5、无 JS 拦截、maxlength 20）；**表单整体保存：非目标运营商字段必须带回预填原值，填空串会清掉已有绑定**（2026-09-05 用户实测缺陷）；HTTP 200 重渲染页，内嵌 swal msg 含"绑定运营商账号信息成功"判成功（可含多行 `\n` 分隔的多运营商结果），建议带 Referer 头（实测缺失偶发服务端空响应） |
 
 **实现约定**:
 

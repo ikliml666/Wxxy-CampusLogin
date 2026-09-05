@@ -30,6 +30,9 @@ lazy_static! {
         Regex::new(r#"name="checkcode"[^>]*value="(\d+)""#).unwrap();
     static ref RE_CSRFTOKEN: Regex =
         Regex::new(r#"name="csrftoken"[^>]*value="([0-9a-fA-F-]{36})""#).unwrap();
+    // 绑定页 FLDEXTRA 预填值（value 在 name 之前，中间可跨行；密码框 value 为明文）
+    static ref RE_FLD_VALUE: Regex =
+        Regex::new(r#"value="([^"]*)"\s+name="FLDEXTRA(\d)""#).unwrap();
     // swal 提示注入段：`})('消息');`（整页唯一一处，消息文本可能含 \n 等 JS 转义）
     static ref RE_SWAL_MSG: Regex = Regex::new(r#"\}\)\('((?:[^'\\]|\\.)*)'\);"#).unwrap();
 }
@@ -66,6 +69,21 @@ pub fn extract_checkcode(html: &str) -> Option<String> {
 /// 绑定页 hidden csrftoken（UUID）提取
 pub fn extract_csrftoken(html: &str) -> Option<String> {
     RE_CSRFTOKEN.captures(html)?.get(1).map(|m| m.as_str().to_string())
+}
+
+/// 绑定页 FLDEXTRA1..6 预填值（已绑定运营商的账号/密码明文回显；未绑定为空串）。
+/// 绑定表单是**整体保存**：提交时必须带回其他运营商的预填原值，只发目标运营商
+/// 字段、其余填空串会把已有绑定清掉（2026-09-05 实测缺陷）。
+pub fn extract_fld_values(html: &str) -> [String; 6] {
+    let mut values: [String; 6] = std::array::from_fn(|_| String::new());
+    for cap in RE_FLD_VALUE.captures_iter(html) {
+        let idx: usize = match cap[2].parse() {
+            Ok(n) if (1..=6).contains(&n) => n,
+            _ => continue,
+        };
+        values[idx - 1] = cap[1].to_string();
+    }
+    values
 }
 
 /// 页面内嵌 swal 提示文本提取（登录失败原因 / 绑定结果，整页唯一）
@@ -175,8 +193,10 @@ pub async fn bind_operator(
         .text().await.map_err(|e| format!("读取绑定页失败: {e}"))?;
     let csrftoken = extract_csrftoken(&op_html)
         .ok_or_else(|| "绑定页解析失败（csrftoken 缺失）".to_string())?;
+    let prefilled = extract_fld_values(&op_html);
 
-    // 5. 提交绑定（账号/密码明文，按运营商映射 FLDEXTRA 序号，其余留空）
+    // 5. 提交绑定（账号/密码明文，按运营商映射 FLDEXTRA 序号）。
+    //    绑定表单整体保存：非目标运营商字段必须带回预填原值，填空串会清掉已有绑定
     let mut form: Vec<(String, String)> = Vec::with_capacity(7);
     form.push(("csrftoken".to_string(), csrftoken));
     for i in 1..=6usize {
@@ -185,12 +205,13 @@ pub async fn bind_operator(
         } else if i == pwd_fld {
             params.sms_password.to_string()
         } else {
-            String::new()
+            prefilled[i - 1].clone()
         };
         form.push((format!("FLDEXTRA{i}"), value));
     }
     let bind_resp = client
         .post(format!("{}/service/bind-operator", SELF_BASE_URL))
+        .header(reqwest::header::REFERER, format!("{}/service/operatorId", SELF_BASE_URL))
         .form(&form)
         .send().await
         .map_err(|e| format!("提交绑定请求失败: {e}"))?;
@@ -272,5 +293,47 @@ mod tests {
         assert_eq!(operator_fld_pair("@unicom"), Some((5, 6)));
         assert_eq!(operator_fld_pair("@unknown"), None);
         assert_eq!(operator_fld_pair(""), None);
+    }
+
+    #[test]
+    fn extract_fld_values_prefilled_kept_for_other_operators() {
+        // 模拟实测绑定页格式：value 属性在 name 之前且跨行；移动预填、电信/联通为空
+        let html = r#"<input type="text" class="form-control" value="12345678901"
+                                                           name="FLDEXTRA1"
+                                                           maxlength="20">
+                                                <input type="password" class="form-control" value="abc123"
+                                                           name="FLDEXTRA2" maxlength="20">
+                                                <input type="text" class="form-control" value=""
+                                                           name="FLDEXTRA3"
+                                                           maxlength="20">
+                                                <input type="password" class="form-control" value=""
+                                                           name="FLDEXTRA4" maxlength="20">
+                                                <input type="text" class="form-control" value=""
+                                                           name="FLDEXTRA5"
+                                                           maxlength="20">
+                                                <input type="password" class="form-control" value=""
+                                                           name="FLDEXTRA6" maxlength="20">"#;
+        let values = extract_fld_values(html);
+        assert_eq!(values[0], "12345678901");
+        assert_eq!(values[1], "abc123");
+        assert!(values[2].is_empty() && values[3].is_empty() && values[4].is_empty() && values[5].is_empty());
+
+        // 绑定联通（5/6）时，移动 1/2 必须带回预填值而非空串
+        let (acct_fld, pwd_fld) = operator_fld_pair("@unicom").unwrap();
+        let mut form = vec![("csrftoken".to_string(), "x".to_string())];
+        for i in 1..=6usize {
+            let value = if i == acct_fld {
+                "13900000000".to_string()
+            } else if i == pwd_fld {
+                "sms123".to_string()
+            } else {
+                values[i - 1].clone()
+            };
+            form.push((format!("FLDEXTRA{i}"), value));
+        }
+        assert_eq!(form[1], ("FLDEXTRA1".to_string(), "12345678901".to_string()));
+        assert_eq!(form[2], ("FLDEXTRA2".to_string(), "abc123".to_string()));
+        assert_eq!(form[5], ("FLDEXTRA5".to_string(), "13900000000".to_string()));
+        assert_eq!(form[6], ("FLDEXTRA6".to_string(), "sms123".to_string()));
     }
 }
