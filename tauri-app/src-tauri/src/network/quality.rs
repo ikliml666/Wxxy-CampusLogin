@@ -251,7 +251,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             // BE-A-03: 域名按 2 个/批并发解析（原 4 域名一次并发）。每域名
             // resolve_host_smart 内部仍有 1 DoH + 传统 DNS 竞速，限制并发避免
             // 瞬时连接叠加；批间串行，但单批最多等 3s（断网最坏约 6s，远优于
-            // 原注释担心的全串行 12s）。聚合仍为单个 "DNS解析" 条目，语义不变。
+            // 原注释担心的全串行 12s）。聚合仍为单个 "DNS解析"（键 dnsResolve）条目，语义不变。
             let mut latencies: Vec<i64> = Vec::new();
             let mut failed_domains: Vec<String> = Vec::new();
             for chunk in domains.chunks(2) {
@@ -351,7 +351,7 @@ fn build_quality_result<'a>(
         if r.is_external && r.latency >= 0 {
             external_values.push(r.latency);
         }
-        if r.name == "网关" {
+        if r.name == "gateway" {
             gateway_latency = r.latency;
         }
         let mut detail_json = serde_json::json!({
@@ -483,19 +483,19 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     if let Some(ref gw) = gateway {
         batch1.push(LatencyTaskCtx {
             task: LatencyTask::Gateway {
-                name: "网关".to_string(),
+                name: "gateway".to_string(),
                 target: gw.clone(),
             },
             bind_addr,
         });
     }
     batch1.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
-        name: "阿里DNS".to_string(),
+        name: "aliDns".to_string(),
         ip: "223.5.5.5".to_string(),
         domain: "www.baidu.com".to_string(),
     }, bind_addr });
     batch1.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
-        name: "腾讯DNS".to_string(),
+        name: "tencentDns".to_string(),
         ip: "1.12.12.12".to_string(),
         domain: "www.baidu.com".to_string(),
     }, bind_addr });
@@ -503,18 +503,18 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
 
     phase1_results.extend(run_phase1_batch(vec![
         LatencyTaskCtx { task: LatencyTask::DnsServer {
-            name: "信风DNS".to_string(),
+            name: "xinfengDns".to_string(),
             ip: "114.114.114.114".to_string(),
             domain: "www.baidu.com".to_string(),
         }, bind_addr },
         LatencyTaskCtx { task: LatencyTask::Doh {
-            name: "阿里DoH".to_string(),
+            name: "aliDoh".to_string(),
             doh_server: "dns.alidns.com".to_string(),
             doh_ip: "223.5.5.5".to_string(),
             doh_host: "baidu.com".to_string(),
         }, bind_addr },
         LatencyTaskCtx { task: LatencyTask::Doh {
-            name: "腾讯DoH".to_string(),
+            name: "tencentDoh".to_string(),
             doh_server: "doh.pub".to_string(),
             doh_ip: "1.12.12.12".to_string(),
             doh_host: "baidu.com".to_string(),
@@ -523,7 +523,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
 
     phase1_results.extend(run_phase1_batch(vec![
         LatencyTaskCtx { task: LatencyTask::SystemDns {
-            name: "DNS解析".to_string(),
+            name: "dnsResolve".to_string(),
             domains: vec![
                 "www.baidu.com".to_string(),
                 "www.bilibili.com".to_string(),
@@ -557,18 +557,18 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     }
 
     let https_hosts: &[(&str, &str)] = &[
-        ("百度", "www.baidu.com"),
-        ("京东", "www.jd.com"),
-        ("必应", "cn.bing.com"),
-        ("12306", "www.12306.cn"),
-        ("英雄联盟", "lol.qq.com"),
-        ("原神", "mhyy.mihoyo.com"),
-        ("绝地求生", "pubg.qq.com"),
-        ("永劫无间", "www.yjwujian.cn"),
-        ("哔哩哔哩", "www.bilibili.com"),
-        ("哔哩哔哩直播", "live.bilibili.com"),
-        ("抖音", "www.douyin.com"),
-        ("抖音直播", "live.douyin.com"),
+        ("baidu", "www.baidu.com"),
+        ("jd", "www.jd.com"),
+        ("bing", "cn.bing.com"),
+        ("railway12306", "www.12306.cn"),
+        ("lol", "lol.qq.com"),
+        ("genshin", "mhyy.mihoyo.com"),
+        ("pubg", "pubg.qq.com"),
+        ("naraka", "www.yjwujian.cn"),
+        ("bilibili", "www.bilibili.com"),
+        ("bilibiliLive", "live.bilibili.com"),
+        ("douyin", "www.douyin.com"),
+        ("douyinLive", "live.douyin.com"),
     ];
 
     // HTTPS 测试分批并发：每批最多 4 个，减少校园网环境下并发 TLS 握手竞争带宽导致延迟叠加

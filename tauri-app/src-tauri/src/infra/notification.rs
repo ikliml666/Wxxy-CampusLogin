@@ -2,8 +2,8 @@ use tauri::{AppHandle, Manager};
 
 /// 发送系统通知（Windows 通知中心）
 ///
-/// 仅在"应用不在前台且用户启用通知"时调用操作系统通知 API；
-/// 应用不在前台时弹系统通知，是这类通知的唯一出口。
+/// 仅在"用户看不到主窗口且用户启用通知"时调用操作系统通知 API；
+/// 用户看不到界面时弹系统通知，是这类通知的唯一出口。
 ///
 /// 应用内（前台）的 toast/日志展示由各业务专用事件负责
 /// （`onAutoLoginResult`/`onAutoExitCountdown`/`emit_login_log` 等），
@@ -19,10 +19,14 @@ pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str) {
         return;
     }
 
-    let is_focused = app_handle.get_webview_window("main")
-        .map(|w| w.is_focused().unwrap_or(false))
+    // 抑制判定与 app/heartbeat.rs 的 monitorable 语义一致：窗口可见且未最小化即视为
+    // 用户能看到的界面，此时不弹系统通知（改用应用内 toast/日志通道）。
+    // 仅看 is_focused 会在窗口可见但失焦（焦点在别的窗口）时误弹，打扰正在看界面的用户；
+    // 仅看 is_visible 又因 Win32 特性在最小化时仍返回 true，无法单独作为"能看到"依据。
+    let monitorable = app_handle.get_webview_window("main")
+        .map(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
         .unwrap_or(false);
-    if is_focused {
+    if monitorable {
         return;
     }
 
