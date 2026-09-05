@@ -6,30 +6,68 @@
 //! 注意：不能用 `LogonUser` 做校验——它要求调用进程持有 SE_TCB_NAME 特权，
 //! 普通桌面进程必然失败；SSPI `AcceptSecurityContext` 是无特权校验的标准做法。
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use windows::core::HSTRING;
 use windows::Win32::Security::Credentials::SecHandle;
 use windows::Win32::Security::Authentication::Identity::{
     DeleteSecurityContext, FreeCredentialsHandle,
 };
 
-const CONSENT_MESSAGE: &str = "查看运营商账户密码，请完成身份验证";
+/// 弹窗文案缺省值（命令层应传入 i18n 场景文案，仅在未传时兜底）
+const DEFAULT_CONSENT_MESSAGE: &str = "请完成 Windows 身份验证";
+
+/// 最近一次 Windows 身份验证通过的时间（epoch 秒；0 = 从未验证）。
+/// 敏感操作（查看明文凭据）在后端校验时效，防止 webview 层绕过前端验证编排。
+static LAST_VERIFY_EPOCH_SECS: AtomicU64 = AtomicU64::new(0);
+
+/// 验证时效（秒）：超时后敏感操作需重新验证
+pub const IDENTITY_VERIFY_TTL_SECS: u64 = 600;
+
+/// 验证通过后记录时间戳（verify_windows_identity 命令成功路径调用）
+pub fn note_identity_verified() {
+    LAST_VERIFY_EPOCH_SECS.store(epoch_secs_now(), Ordering::Release);
+}
+
+/// 是否存在时效内的验证记录
+pub fn identity_verified_recently() -> bool {
+    let verified_at = LAST_VERIFY_EPOCH_SECS.load(Ordering::Acquire);
+    is_within_ttl(verified_at, epoch_secs_now(), IDENTITY_VERIFY_TTL_SECS)
+}
+
+/// TTL 判定（纯函数，0 哨兵表示从未验证）
+fn is_within_ttl(verified_at: u64, now: u64, ttl_secs: u64) -> bool {
+    verified_at > 0 && now >= verified_at && now - verified_at <= ttl_secs
+}
+
+fn epoch_secs_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// 验证当前 Windows 用户身份。返回 Ok(hello_used) 表示通过——true 走的 Windows
 /// Hello，false 走的凭据对话框回退（设备未配置/不可用 Hello，前端可借此提示推荐开启）；
 /// Err 为可展示给用户的失败原因。
-pub fn verify_identity() -> Result<bool, String> {
-    match verify_hello() {
+pub fn verify_identity(consent_message: &str) -> Result<bool, String> {
+    let message = if consent_message.trim().is_empty() {
+        DEFAULT_CONSENT_MESSAGE
+    } else {
+        consent_message
+    };
+    match verify_hello(message) {
         Ok(true) => return Ok(true),
         // Ok(false) = 设备未配置/不可用 Hello，静默转回退
         Ok(false) => {}
         Err(e) => crate::log_warn!("identity", "Windows Hello 验证异常，转凭据对话框: {e}"),
     }
-    verify_by_password_dialog()?;
+    verify_by_password_dialog(message)?;
     Ok(false)
 }
 
 /// Windows Hello（指纹/面部/Hello PIN）。Ok(false) = 设备未配置/不可用。
-fn verify_hello() -> Result<bool, String> {
+fn verify_hello(consent_message: &str) -> Result<bool, String> {
     use windows::Security::Credentials::UI::{
         UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
     };
@@ -45,7 +83,7 @@ fn verify_hello() -> Result<bool, String> {
     }
 
     let result = {
-        UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(CONSENT_MESSAGE))
+        UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(consent_message))
             .map_err(|e| format!("Hello 验证请求失败: {e}"))?
             .get()
             .map_err(|e| format!("Hello 验证请求失败: {e}"))?
@@ -57,14 +95,27 @@ fn verify_hello() -> Result<bool, String> {
     }
 }
 
-/// 回退路径：Windows 凭据对话框收集账号密码 + SSPI NTLM 本地校验
-fn verify_by_password_dialog() -> Result<(), String> {
-    let (username, password) = credui_collect_credentials()?;
-    sspi_verify_credentials(&username, &password)
+/// 回退路径：Windows 凭据对话框收集账号密码 + SSPI NTLM 本地校验。
+/// 收集到的明文凭据在校验结束后立即清零（Rust drop 不清零，防堆内残留）。
+fn verify_by_password_dialog(consent_message: &str) -> Result<(), String> {
+    let (mut username, mut password) = credui_collect_credentials(consent_message)?;
+    let result = sspi_verify_credentials(&username, &password);
+    zeroize_string(&mut username);
+    zeroize_string(&mut password);
+    result
+}
+
+/// 清零字符串底层内存（零串仍是合法 UTF-8，不影响 drop）
+fn zeroize_string(s: &mut String) {
+    unsafe {
+        for b in s.as_bytes_mut() {
+            *b = 0;
+        }
+    }
 }
 
 /// 弹出 Windows 凭据对话框收集用户名/密码
-fn credui_collect_credentials() -> Result<(String, String), String> {
+fn credui_collect_credentials(consent_message: &str) -> Result<(String, String), String> {
     use windows::Win32::Foundation::WIN32_ERROR;
     use windows::Win32::Graphics::Gdi::HBITMAP;
     use windows::Win32::Security::Credentials::{
@@ -81,7 +132,7 @@ fn credui_collect_credentials() -> Result<(String, String), String> {
         let mut username = vec![0u16; CREDUI_MAX_USERNAME_LEN];
         let mut password = vec![0u16; CREDUI_MAX_PASSWORD_LEN];
         let mut save = windows::Win32::Foundation::BOOL::default();
-        let message = HSTRING::from(CONSENT_MESSAGE);
+        let message = HSTRING::from(consent_message);
         let caption = HSTRING::from("Windows 身份验证");
         let cred_info = CREDUI_INFOW {
             cbSize: std::mem::size_of::<CREDUI_INFOW>() as u32,
@@ -182,8 +233,7 @@ fn sspi_verify_credentials(username: &str, password: &str) -> Result<(), String>
         let mut client_has_ctx = false;
         let mut server_has_ctx = false;
 
-        let result = (|| -> Result<(), String> {
-            // 客户端第一轮：生成 NTLM Type1
+        let result = (|| -> Result<(), String> {            // 客户端第一轮：生成 NTLM Type1
             let (_, mut token) = client_step(
                 &cred_client, &mut ctx_client, &mut client_has_ctx,
                 &target, None, &mut expiry,
@@ -227,6 +277,10 @@ fn sspi_verify_credentials(username: &str, password: &str) -> Result<(), String>
             let _ = DeleteSecurityContext(&mut ctx_server);
             let _ = FreeCredentialsHandle(&mut cred_client);
             let _ = FreeCredentialsHandle(&mut cred_server);
+        // 立即清零堆上的明文凭据宽字节副本（SEC_WINNT_AUTH_IDENTITY_W 曾指向它们）
+        for buf in [&mut user_w, &mut domain_w, &mut pass_w] {
+            buf.iter_mut().for_each(|v| *v = 0);
+        }
         result
     }
 }
@@ -390,4 +444,32 @@ fn to_wide(s: &str) -> Vec<u16> {
 fn wide_to_string(wide: &[u16]) -> String {
     let end = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
     String::from_utf16_lossy(&wide[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_ttl_boundary() {
+        let ttl = IDENTITY_VERIFY_TTL_SECS;
+        // 从未验证（0 哨兵）一律拒绝
+        assert!(!is_within_ttl(0, 1000, ttl));
+        // 时效内：边界值通过
+        assert!(is_within_ttl(1000, 1000, ttl));
+        assert!(is_within_ttl(1000, 1000 + ttl, ttl));
+        // 超时 1 秒即拒绝
+        assert!(!is_within_ttl(1000, 1000 + ttl + 1, ttl));
+        // 异常时钟（now < verified_at）拒绝，防回拨放行
+        assert!(!is_within_ttl(2000, 1000, ttl));
+    }
+
+    #[test]
+    fn zeroize_string_clears_memory() {
+        let mut s = String::from("secret-password");
+        zeroize_string(&mut s);
+        assert!(s.bytes().all(|b| b == 0));
+        // 清零后仍是合法 UTF-8（空字符串），drop 无 UB
+        assert_eq!(s.len(), 15);
+    }
 }

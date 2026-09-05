@@ -176,7 +176,8 @@
     "selfOfflineConfirmDesc": "将使该设备的上网会话下线；若是当前设备，会导致断网。",
     "selfOfflineSuccess": "注销成功",
     "selfOfflineFailed": "注销失败",
-    "helloRecommend": "设备未配置 Windows Hello，建议在 Windows 设置中开启（人脸/指纹/PIN），身份验证更安全便捷"
+    "helloRecommend": "设备未配置 Windows Hello，建议在 Windows 设置中开启（人脸/指纹/PIN），身份验证更安全便捷",
+    "identityVerifyPrompt": "进行敏感操作前，请完成 Windows 身份验证"
   },
   "network": {
     "networkAdapters": "网络适配器",

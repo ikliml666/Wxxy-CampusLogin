@@ -170,33 +170,45 @@ pub async fn self_offline_session(
 }
 
 /// Windows 本地身份验证（Windows Hello，未配置时回退 Windows 凭据对话框 +
-/// SSPI 本地校验）。通过后前端才可调用 reveal_operator_credential 查看明文。
+/// SSPI 本地校验）。弹窗文案由前端按场景传入（i18n）；通过后记录后端验证时间戳
+/// （时效 IDENTITY_VERIFY_TTL_SECS，reveal 等敏感操作在后端校验，防 webview 绕过）。
 /// data.helloUsed=false 表示走的是凭据对话框回退（设备未配置 Hello），前端据此
 /// 提示推荐开启 Windows Hello。
 #[tauri::command]
-pub async fn verify_windows_identity(app: tauri::AppHandle) -> Result<CommandResult, String> {
+pub async fn verify_windows_identity(
+    app: tauri::AppHandle,
+    consent_message: Option<String>,
+) -> Result<CommandResult, String> {
     // 先把主窗口带到前台：Hello/凭据对话框是系统弹窗，应用自身不在前台时
     // 系统窗口不会自动置顶，用户需要手动从任务栏点开（实测缺陷）
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
         let _ = win.set_focus();
     }
+    let message = consent_message.unwrap_or_default();
     // 弹窗/校验为阻塞调用，放独立线程避免占用 Tauri 异步运行时
-    let result = tauri::async_runtime::spawn_blocking(|| crate::platform::identity::verify_identity())
-        .await
-        .map_err(|e| format!("身份验证任务失败: {e}"))?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::platform::identity::verify_identity(&message)
+    })
+    .await
+    .map_err(|e| format!("身份验证任务失败: {e}"))?;
     match result {
-        Ok(hello_used) => Ok(CommandResult {
-            success: true,
-            message: None,
-            data: Some(json!({ "helloUsed": hello_used })),
-        }),
+        Ok(hello_used) => {
+            crate::platform::identity::note_identity_verified();
+            Ok(CommandResult {
+                success: true,
+                message: None,
+                data: Some(json!({ "helloUsed": hello_used })),
+            })
+        }
         Err(e) => Ok(CommandResult::err(&e)),
     }
 }
 
 /// 查看某运营商的明文凭据（手机号 + 运营商账户密码）。
-/// 必须先通过 verify_windows_identity；凭据仅本次响应返回，不落盘不写日志。
+/// 必须先通过 verify_windows_identity（后端校验时效 IDENTITY_VERIFY_TTL_SECS，
+/// 时间戳由 verify_windows_identity 成功路径写入——验证与明文返回在后端关联，
+/// 不依赖前端编排，webview 层无法绕过）；凭据仅本次响应返回，不落盘不写日志。
 #[tauri::command]
 pub async fn reveal_operator_credential(
     state: State<'_, AppState>,
@@ -209,6 +221,11 @@ pub async fn reveal_operator_credential(
     let operator = operator.trim();
     if account.is_empty() || password.is_empty() {
         return Ok(CommandResult::err("请先填写学号与自助服务系统密码"));
+    }
+    if !crate::platform::identity::identity_verified_recently() {
+        return Ok(CommandResult::err(
+            "Windows 身份验证已过期，请重新验证后再查看",
+        ));
     }
 
     let local_addr = resolve_campus_bind_addr(&state);

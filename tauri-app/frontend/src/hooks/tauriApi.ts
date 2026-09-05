@@ -37,7 +37,7 @@ interface TauriApi {
   doLogout: (adapterName?: string) => Promise<LoginResult>
   bindOperator: (params: { account: string; password: string; operator: string; phone: string; smsPassword: string }) => Promise<CommandResult>
   getBindStatus: (params: { account: string; password: string }) => Promise<CommandResult>
-  verifyWindowsIdentity: () => Promise<CommandResult>
+  verifyWindowsIdentity: (params: { consentMessage: string }) => Promise<CommandResult>
   revealOperatorCredential: (params: { account: string; password: string; operator: string }) => Promise<CommandResult>
   querySelfDashboard: (params: { account: string; password: string }) => Promise<CommandResult>
   selfOfflineSession: (params: { account: string; password: string; sessionId: string }) => Promise<CommandResult>
@@ -141,7 +141,7 @@ const tauriApi: TauriApi = {
   doLogout: (adapterName) => invoke<LoginResult>('do_logout', { adapterName }),
   bindOperator: (params) => invoke<CommandResult>('bind_operator', { ...params }),
   getBindStatus: (params) => invoke<CommandResult>('query_bind_status', { ...params }),
-  verifyWindowsIdentity: () => invoke<CommandResult>('verify_windows_identity', {}),
+  verifyWindowsIdentity: (params) => invoke<CommandResult>('verify_windows_identity', { consentMessage: params.consentMessage }),
   revealOperatorCredential: (params) => invoke<CommandResult>('reveal_operator_credential', { ...params }),
   querySelfDashboard: (params) => invoke<CommandResult>('query_self_dashboard', { ...params }),
   selfOfflineSession: (params) => invoke<CommandResult>('self_offline_session', { ...params }),

@@ -183,7 +183,7 @@ export const AccountPanel = memo(function AccountPanel({
       return true
     }
     try {
-      const verified = await tauriApiWithRetry.verifyWindowsIdentity()
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity({ consentMessage: t('account.identityVerifyPrompt') })
       if (!mountedRef.current) return false
       if (verified.success) {
         helloGate = 'verified'
@@ -237,7 +237,7 @@ export const AccountPanel = memo(function AccountPanel({
       return
     }
     try {
-      const verified = await tauriApiWithRetry.verifyWindowsIdentity()
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity({ consentMessage: t('account.identityVerifyPrompt') })
       if (!mountedRef.current) return
       if (!verified.success) {
         addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
