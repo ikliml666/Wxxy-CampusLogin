@@ -142,6 +142,15 @@ export const AccountPanel = memo(function AccountPanel({
   const [bindSms, setBindSms] = useState('')
   const [binding, setBinding] = useState(false)
   const bindInitedRef = useRef(false)
+
+  // 绑定状态查询（后端返回掩码账号，明文不经过前端 state）
+  interface OperatorBindingInfo { account: string; passwordSet: boolean }
+  type BindStatuses = Record<'cmcc' | 'telecom' | 'unicom', OperatorBindingInfo | null>
+  const [bindStatuses, setBindStatuses] = useState<BindStatuses | null>(null)
+  const [queryingStatus, setQueryingStatus] = useState(false)
+  const [revealedOp, setRevealedOp] = useState<string | null>(null)
+  const [revealedPassword, setRevealedPassword] = useState('')
+
   // config 异步加载完成后初始化一次（学号/运营商默认取当前配置）
   useEffect(() => {
     if (!bindInitedRef.current && config.user) {
@@ -156,6 +165,66 @@ export const AccountPanel = memo(function AccountPanel({
     && bindOp !== BIND_OPERATOR_NONE
     && /^1\d{10}$/.test(bindPhone.trim())
     && bindSms.trim().length > 0
+
+  const canQueryStatus = bindSelfAccount.trim().length > 0 && bindSelfPassword.trim().length > 0
+
+  const fetchBindStatus = useCallback(async () => {
+    if (queryingStatus) return
+    setQueryingStatus(true)
+    try {
+      const result = await tauriApiWithRetry.getBindStatus({
+        account: bindSelfAccount.trim(),
+        password: bindSelfPassword.trim(),
+      })
+      if (!mountedRef.current) return
+      if (result.success && result.data) {
+        const d = result.data as Record<string, OperatorBindingInfo | null>
+        setBindStatuses({
+          cmcc: d.cmcc ?? null,
+          telecom: d.telecom ?? null,
+          unicom: d.unicom ?? null,
+        })
+      } else {
+        addToast(result.message || t('onboarding.bindFailed'), 'error')
+      }
+    } catch (err) {
+      if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
+    } finally {
+      if (mountedRef.current) setQueryingStatus(false)
+    }
+  }, [queryingStatus, bindSelfAccount, bindSelfPassword, addToast, t])
+
+  // 查看明文密码：先 Windows 本地身份验证，通过后再拉取
+  const handleReveal = useCallback(async (opValue: string) => {
+    if (revealedOp === opValue) {
+      setRevealedOp(null)
+      setRevealedPassword('')
+      return
+    }
+    try {
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity()
+      if (!mountedRef.current) return
+      if (!verified.success) {
+        addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
+        return
+      }
+      const r = await tauriApiWithRetry.revealOperatorCredential({
+        account: bindSelfAccount.trim(),
+        password: bindSelfPassword.trim(),
+        operator: opValue,
+      })
+      if (!mountedRef.current) return
+      if (r.success && r.data) {
+        const d = r.data as { phone?: string; smsPassword?: string }
+        setRevealedPassword(d.smsPassword || '')
+        setRevealedOp(opValue)
+      } else {
+        addToast(r.message || t('onboarding.bindFailed'), 'error')
+      }
+    } catch (err) {
+      if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
+    }
+  }, [revealedOp, bindSelfAccount, bindSelfPassword, addToast, t])
 
   const handleBindOperator = useCallback(async () => {
     if (binding || !canBind) return
@@ -174,6 +243,8 @@ export const AccountPanel = memo(function AccountPanel({
           // 成功后清空敏感字段
           setBindSelfPassword('')
           setBindSms('')
+          // 绑定成功后自动刷新状态区（凭据本次有效）
+          void fetchBindStatus()
         } else {
           addToast(result.message || t('onboarding.bindFailed'), 'error')
         }
@@ -185,7 +256,7 @@ export const AccountPanel = memo(function AccountPanel({
     } finally {
       if (mountedRef.current) setBinding(false)
     }
-  }, [binding, canBind, bindSelfAccount, bindSelfPassword, bindOp, bindPhone, bindSms, addToast, t])
+  }, [binding, canBind, bindSelfAccount, bindSelfPassword, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
 
   return (
     <div className="space-y-4">
@@ -351,6 +422,62 @@ export const AccountPanel = memo(function AccountPanel({
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* 绑定状态区：后端返回掩码账号（前三后二），密码仅回是否设置 */}
+            <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+              {bindStatuses ? (
+                ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => {
+                  const key = o.value.slice(1) as 'cmcc' | 'telecom' | 'unicom'
+                  const info = bindStatuses[key]
+                  return (
+                    <div key={o.value} className="flex items-center justify-between text-xs gap-2">
+                      <span className="text-muted-foreground shrink-0">{t(o.labelKey)}</span>
+                      {info ? (
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                          <span className="font-medium font-mono">{info.account}</span>
+                          {info.passwordSet && (
+                            revealedOp === o.value ? (
+                              <button
+                                type="button"
+                                onClick={() => handleReveal(o.value)}
+                                className="font-mono text-[11px] text-primary hover:text-primary/80 transition-colors"
+                              >
+                                {revealedPassword || '••••••'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleReveal(o.value)}
+                                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                              >
+                                {t('account.bindStatusReveal')}
+                              </button>
+                            )
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/60">{t('account.bindStatusNotBound')}</span>
+                      )}
+                    </div>
+                  )
+                })
+              ) : (
+                <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchBindStatus}
+                disabled={!canQueryStatus || queryingStatus}
+                className="w-full gap-1.5 h-8"
+              >
+                {queryingStatus ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
+                ) : (
+                  <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
+                )}
+              </Button>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="bind-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
               <Input

@@ -128,75 +128,14 @@ pub async fn bind_operator(
 ) -> Result<String, String> {
     let (acct_fld, pwd_fld) =
         operator_fld_pair(params.operator).ok_or_else(|| "请选择要绑定的运营商".to_string())?;
-    let client = build_session_client(local_addr)?;
-
-    // 1. 登录页取 checkcode
-    let login_html = client
-        .get(format!("{}/login/", SELF_BASE_URL))
-        .send().await
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("无法连接自助服务系统: {e}"))?
-        .text().await.map_err(|e| format!("读取登录页失败: {e}"))?;
-    let checkcode = extract_checkcode(&login_html)
-        .ok_or_else(|| "自助服务登录页解析失败（checkcode 缺失）".to_string())?;
-
-    // 2. 预热会话验证码状态（见模块注释，跳过则 verify 必失败）
-    client
-        .get(format!("{}/login/randomCode", SELF_BASE_URL))
-        .query(&[("t", "1")])
-        .send().await
-        .map_err(|e| format!("预热验证码失败: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("预热验证码失败: {e}"))?;
-
-    // 3. 登录（密码 MD5 后提交）
-    let verify_resp = client
-        .post(format!("{}/login/verify", SELF_BASE_URL))
-        .form(&[
-            ("account", params.account),
-            ("password", &md5_hex(params.password)),
-            ("checkcode", checkcode.as_str()),
-            ("code", ""),
-        ])
-        .send().await
-        .map_err(|e| format!("登录请求失败: {e}"))?;
-    let is_login_ok = verify_resp
-        .headers()
-        .get(reqwest::header::LOCATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|loc| loc.contains("/Self/dashboard"))
-        .unwrap_or(false);
-    if !is_login_ok {
-        // 失败：重新拉登录页提取服务端错误原文（如"账号或密码错误！"）
-        let fail_html = client
-            .get(format!("{}/login/", SELF_BASE_URL))
-            .send().await
-            .and_then(|r| r.error_for_status())
-            .map_err(|e| format!("登录失败（{e}）"))?
-            .text().await
-            .map_err(|e| format!("登录失败（读取错误信息失败: {e}）"))?;
-        let msg = extract_swal_msg(&fail_html).unwrap_or_default();
-        return Err(if msg.is_empty() { "登录失败，请检查学号与自助服务密码".to_string() } else { msg });
-    }
-
-    // 4. 绑定表单页取 csrftoken（302 = 登录会话失效）
-    let op_resp = client
-        .get(format!("{}/service/operatorId", SELF_BASE_URL))
-        .send().await
-        .map_err(|e| format!("打开绑定页失败: {e}"))?;
-    if op_resp.status().is_redirection() {
-        return Err("登录会话失效，请重试".to_string());
-    }
-    let op_html = op_resp
-        .error_for_status()
-        .map_err(|e| format!("打开绑定页失败: {e}"))?
-        .text().await.map_err(|e| format!("读取绑定页失败: {e}"))?;
+    let (client, op_html) =
+        login_and_fetch_bind_page(params.account, params.password, local_addr).await?;
     let csrftoken = extract_csrftoken(&op_html)
         .ok_or_else(|| "绑定页解析失败（csrftoken 缺失）".to_string())?;
     let prefilled = extract_fld_values(&op_html);
 
-    // 5. 提交绑定（账号/密码明文，按运营商映射 FLDEXTRA 序号）。
-    //    绑定表单整体保存：非目标运营商字段必须带回预填原值，填空串会清掉已有绑定
+    // 提交绑定（账号/密码明文，按运营商映射 FLDEXTRA 序号）。
+    // 绑定表单整体保存：非目标运营商字段必须带回预填原值，填空串会清掉已有绑定
     let mut form: Vec<(String, String)> = Vec::with_capacity(7);
     form.push(("csrftoken".to_string(), csrftoken));
     for i in 1..=6usize {
@@ -230,6 +169,152 @@ pub async fn bind_operator(
     } else {
         Err(msg)
     }
+}
+
+/// 已绑定的运营商凭据（供状态展示：手机号已掩码、密码只回是否设置）
+pub struct OperatorBinding {
+    /// 掩码后的运营商账号（手机号前三后二）
+    pub masked_account: String,
+    /// 运营商账户密码是否已设置
+    pub password_set: bool,
+}
+
+/// 查询当前绑定状态：登录自助系统 → 解析绑定表单预填值。
+/// 未绑定的运营商为 None；已绑定返回掩码账号（不返回任何明文凭据）。
+pub async fn query_bind_status(
+    account: &str,
+    password: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<[Option<OperatorBinding>; 3], String> {
+    let (_client, op_html) = login_and_fetch_bind_page(account, password, local_addr).await?;
+    let fld = extract_fld_values(&op_html);
+    Ok([
+        binding_from(&fld[0], &fld[1]),
+        binding_from(&fld[2], &fld[3]),
+        binding_from(&fld[4], &fld[5]),
+    ])
+}
+
+/// 查看某运营商的明文凭据（手机号 + 运营商账户密码）。
+/// 调用方必须先完成 Windows 本地身份验证（platform::identity::verify_identity）。
+pub async fn reveal_credential(
+    account: &str,
+    password: &str,
+    operator: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<(String, String), String> {
+    let (acct_fld, pwd_fld) =
+        operator_fld_pair(operator).ok_or_else(|| "请选择要查看的运营商".to_string())?;
+    let (_client, op_html) = login_and_fetch_bind_page(account, password, local_addr).await?;
+    let fld = extract_fld_values(&op_html);
+    let phone = fld[acct_fld - 1].clone();
+    let sms_password = fld[pwd_fld - 1].clone();
+    if phone.is_empty() && sms_password.is_empty() {
+        return Err("该运营商尚未绑定".to_string());
+    }
+    Ok((phone, sms_password))
+}
+
+/// 账号隐私掩码：11 位手机号前 3 后 2（中间 6 位打码）；其他格式 ≥8 位前 2 后 2、
+/// 5~7 位前 1 后 1；过短整体打码。明文凭据不出协议模块。
+pub fn mask_account(account: &str) -> String {
+    let chars: Vec<char> = account.chars().collect();
+    let n = chars.len();
+    if n == 0 {
+        return String::new();
+    }
+    let head = |k: usize| chars[..k].iter().collect::<String>();
+    let tail = |k: usize| chars[n - k..].iter().collect::<String>();
+    if n >= 8 {
+        format!("{}******{}", head(3), tail(2))
+    } else if n > 4 {
+        format!("{}****{}", head(1), tail(1))
+    } else {
+        "*".repeat(n)
+    }
+}
+
+fn binding_from(acct: &str, pwd: &str) -> Option<OperatorBinding> {
+    if acct.is_empty() {
+        return None;
+    }
+    Some(OperatorBinding {
+        masked_account: mask_account(acct),
+        password_set: !pwd.is_empty(),
+    })
+}
+
+/// 登录自助服务系统并返回绑定表单页 HTML（绑定/查询共用前 4 步）。
+/// 返回 (会话客户端, 绑定页 HTML)——客户端须保持 cookie 会话供后续请求使用。
+async fn login_and_fetch_bind_page(
+    account: &str,
+    password: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<(reqwest::Client, String), String> {
+    let client = build_session_client(local_addr)?;
+
+    // 1. 登录页取 checkcode
+    let login_html = client
+        .get(format!("{}/login/", SELF_BASE_URL))
+        .send().await
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| format!("无法连接自助服务系统: {e}"))?
+        .text().await.map_err(|e| format!("读取登录页失败: {e}"))?;
+    let checkcode = extract_checkcode(&login_html)
+        .ok_or_else(|| "自助服务登录页解析失败（checkcode 缺失）".to_string())?;
+
+    // 2. 预热会话验证码状态（见模块注释，跳过则 verify 必失败）
+    client
+        .get(format!("{}/login/randomCode", SELF_BASE_URL))
+        .query(&[("t", "1")])
+        .send().await
+        .map_err(|e| format!("预热验证码失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("预热验证码失败: {e}"))?;
+
+    // 3. 登录（密码 MD5 后提交）
+    let verify_resp = client
+        .post(format!("{}/login/verify", SELF_BASE_URL))
+        .form(&[
+            ("account", account),
+            ("password", &md5_hex(password)),
+            ("checkcode", checkcode.as_str()),
+            ("code", ""),
+        ])
+        .send().await
+        .map_err(|e| format!("登录请求失败: {e}"))?;
+    let is_login_ok = verify_resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|loc| loc.contains("/Self/dashboard"))
+        .unwrap_or(false);
+    if !is_login_ok {
+        // 失败：重新拉登录页提取服务端错误原文（如"账号或密码错误！"）
+        let fail_html = client
+            .get(format!("{}/login/", SELF_BASE_URL))
+            .send().await
+            .and_then(|r| r.error_for_status())
+            .map_err(|e| format!("登录失败（{e}）"))?
+            .text().await
+            .map_err(|e| format!("登录失败（读取错误信息失败: {e}）"))?;
+        let msg = extract_swal_msg(&fail_html).unwrap_or_default();
+        return Err(if msg.is_empty() { "登录失败，请检查学号与自助服务密码".to_string() } else { msg });
+    }
+
+    // 4. 绑定表单页 HTML（302 = 登录会话失效）
+    let op_resp = client
+        .get(format!("{}/service/operatorId", SELF_BASE_URL))
+        .send().await
+        .map_err(|e| format!("打开绑定页失败: {e}"))?;
+    if op_resp.status().is_redirection() {
+        return Err("登录会话失效，请重试".to_string());
+    }
+    let op_html = op_resp
+        .error_for_status()
+        .map_err(|e| format!("打开绑定页失败: {e}"))?
+        .text().await.map_err(|e| format!("读取绑定页失败: {e}"))?;
+    Ok((client, op_html))
 }
 
 #[cfg(test)]
@@ -284,6 +369,19 @@ mod tests {
         assert!(is_bind_success("中国移动账号:19720520238,绑定运营商账号信息成功 \\n"));
         assert!(!is_bind_success("密码错误，请重试"));
         assert!(!is_bind_success(""));
+    }
+
+    #[test]
+    fn mask_account_phone_front3_back2() {
+        // 11 位手机号：前 3 后 2，中间 6 位打码
+        assert_eq!(mask_account("19720520238"), "197******38");
+        assert_eq!(mask_account("13800000000"), "138******00");
+        assert_eq!(mask_account(""), "");
+        assert_eq!(mask_account("abc12345"), "abc******45");
+        // 5~7 位：前 1 后 1
+        assert_eq!(mask_account("12345"), "1****5");
+        // 过短：整体打码
+        assert_eq!(mask_account("123"), "***");
     }
 
     #[test]

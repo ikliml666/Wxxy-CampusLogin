@@ -109,6 +109,9 @@ pub fn run(core_count: usize) {
             crate::commands::updater::install_update,
             crate::commands::updater::get_mirror_urls,
             crate::commands::self_service::bind_operator,
+            crate::commands::self_service::query_bind_status,
+            crate::commands::self_service::verify_windows_identity,
+            crate::commands::self_service::reveal_operator_credential,
             crate::infra::logger::set_debug_mode,
             crate::infra::logger::get_debug_mode,
         ]);

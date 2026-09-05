@@ -36,6 +36,9 @@ interface TauriApi {
   doLogin: (adapterName?: string) => Promise<LoginResult>
   doLogout: (adapterName?: string) => Promise<LoginResult>
   bindOperator: (params: { account: string; password: string; operator: string; phone: string; smsPassword: string }) => Promise<CommandResult>
+  getBindStatus: (params: { account: string; password: string }) => Promise<CommandResult>
+  verifyWindowsIdentity: () => Promise<CommandResult>
+  revealOperatorCredential: (params: { account: string; password: string; operator: string }) => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -135,6 +138,9 @@ const tauriApi: TauriApi = {
   doLogin: (adapterName) => invoke<LoginResult>('do_login', { adapterName }),
   doLogout: (adapterName) => invoke<LoginResult>('do_logout', { adapterName }),
   bindOperator: (params) => invoke<CommandResult>('bind_operator', { ...params }),
+  getBindStatus: (params) => invoke<CommandResult>('query_bind_status', { ...params }),
+  verifyWindowsIdentity: () => invoke<CommandResult>('verify_windows_identity', {}),
+  revealOperatorCredential: (params) => invoke<CommandResult>('reveal_operator_credential', { ...params }),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),

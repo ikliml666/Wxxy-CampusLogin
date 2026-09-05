@@ -229,6 +229,7 @@ Wxxy-CampusLogin/
 │           │   ├── dns_config.rs    # DNS/DoH 配置文件设置 (per-profile/适配器级/DoH API)
 │           │   ├── elevation.rs     # UAC 提权 (ShellExecuteW + COM ShellExec) + GUID 解析 + is_admin
 │           │   ├── gpu.rs           # GPU 信息检测 (DXGI) + 刷新率检测 + 浏览器参数 + gpu_preference
+│           │   ├── identity.rs      # Windows 本地身份验证 (Hello UserConsentVerifier + CredUI/SSPI NTLM 回退, 2026-09-05)
 │           │   ├── autostart.rs     # 开机自启 (注册表读写; Tauri autostart 插件在 startup.rs 注册)
 │           │   └── helper_spawn.rs  # --helper 提权子进程启动 + 结果文件轮询 (spawn_elevated_helper)
 │           ├── update/              # 更新模块
@@ -879,7 +880,9 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - reqwest 需开启 `cookies` feature（Cargo.toml）；MD5 用 `md-5` crate（lib 名 `md5`）
 - **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/运营商账户密码均不持久化
 - **main.rs 与 lib.rs 是两棵独立模块树**：新增顶层模块必须同时在这两个文件声明（本次曾漏 main.rs 导致 bin target E0432）
-- 单测 6 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）
+- **绑定状态查询**：`query_bind_status` 命令复用登录链路（`login_and_fetch_bind_page` 提取为共用函数），解析 FLDEXTRA 预填值返回三运营商绑定状态；手机号掩码**前三后二**（`mask_account`，如 `197******38`），密码仅回是否设置，明文不出协议模块
+- **查看明文密码需 Windows 本地身份验证**：`verify_windows_identity`（`platform/identity.rs`——主路径 Windows Hello `UserConsentVerifier::RequestVerificationAsync`；未配置 Hello 时回退 `CredUIPromptForCredentialsW` 收集凭据 + SSPI NTLM 往返校验。`LogonUser` 需 SE_TCB_NAME 特权普通进程不可用，SSPI `AcceptSecurityContext` 是无特权校验标准做法）→ 通过后 `reveal_operator_credential` 返回该运营商明文（手机号 + 账户密码），前端临时显示可隐藏
+- 单测 7 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）、mask_account 掩码规则
 - 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
 
 #### 4.5.5 网络质量检测 — `quality.rs`
@@ -1491,7 +1494,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `AccountPanel.tsx` | 账号管理面板，两列网格等高布局(左列：登录信息卡+自动化设置开关卡(`flex-1` 撑满与右列底部对齐)；右列：**绑定运营商账号**卡输入框垂直排布(2026-09-05，调 bind_operator，学号/运营商默认取配置，成功 toast 清敏感字段)；下方账号管理卡全宽) |
+| `AccountPanel.tsx` | 账号管理面板，两列网格等高布局(左列：登录信息卡+自动化设置开关卡(`flex-1` 撑满与右列底部对齐)；右列：**绑定运营商账号**卡输入框垂直排布+绑定状态区(2026-09-05，query_bind_status 查询：手机号掩码前三后二/查看密码走 Windows Hello/SSPI 验证后 reveal_operator_credential 临时显示明文)；下方账号管理卡全宽) |
 | `useAccount.ts` | 账号逻辑 Hook |
 | `types.ts` | 账号类型定义 (SwitchAccountResult, DeleteAccountResult, SaveAccountResult) |
 | `index.ts` | 模块导出 |
