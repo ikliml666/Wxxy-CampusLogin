@@ -116,12 +116,16 @@ fn set_dns_stack(
     let mut doh_props: Vec<DNS_SERVER_PROPERTY> = Vec::new();
     let mut doh_settings: Vec<DNS_DOH_SERVER_SETTINGS> = Vec::new();
     let mut doh_templates_wide: Vec<Vec<u16>> = Vec::new();
-    doh_settings.reserve(dns_servers.len());
-    doh_props.reserve(dns_servers.len());
 
     // ServerIndex 按 Win32 契约必须索引本栈 NameServer 列表中的实际位置：
     // 仅为列表中实际存在且配置了模板的服务器生成 DoH 属性，按服务器 IP 匹配模板。
-    for (idx, template) in doh_bindings(dns_servers, doh_templates) {
+    let bindings = doh_bindings(dns_servers, doh_templates);
+    doh_templates_wide.reserve(bindings.len());
+    doh_settings.reserve(bindings.len());
+    doh_props.reserve(bindings.len());
+
+    // 阶段一：完整填充 doh_settings（此后不再变更）
+    for (_, template) in &bindings {
         let tpl_wide: Vec<u16> = template.encode_utf16().chain(std::iter::once(0)).collect();
         doh_templates_wide.push(tpl_wide);
 
@@ -129,15 +133,19 @@ fn set_dns_stack(
             Template: PWSTR(doh_templates_wide.last_mut().unwrap().as_mut_ptr()),
             Flags: (DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP) as u64,
         };
-        let cur_idx = doh_settings.len();
         doh_settings.push(doh_setting);
+    }
 
+    // 阶段二：doh_settings 定型后构建 props。DohSettings 存的裸指针仅在
+    // doh_settings 不再扩容/变更时有效——上述两阶段保证自此到
+    // SetInterfaceDnsSettings 调用结束 doh_settings 保持原地址。
+    for (i, (idx, _)) in bindings.iter().enumerate() {
         let prop = DNS_SERVER_PROPERTY {
             Version: DNS_SERVER_PROPERTY_VERSION1,
-            ServerIndex: idx as u32,
+            ServerIndex: *idx as u32,
             Type: DNS_SERVER_PROPERTY_TYPE(DNS_PROPERTY_TYPE_DOH),
             Property: DNS_SERVER_PROPERTY_TYPES {
-                DohSettings: &mut doh_settings[cur_idx],
+                DohSettings: &mut doh_settings[i],
             },
         };
         doh_props.push(prop);

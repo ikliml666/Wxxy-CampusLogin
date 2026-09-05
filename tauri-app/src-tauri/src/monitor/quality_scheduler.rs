@@ -42,9 +42,14 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
 /// 后台巡检不再触发（2026-09-04 收敛，避免双定时器叠加 + 节流吞掉自定义间隔）。
 /// 手动触发的 check_network_quality 命令不经过本函数。
 /// `is_quality_checking` 信号量保证与手动检测并发时互斥执行。
-pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str) {
+/// `cancel` 传定时测试循环的取消令牌：停止测试后正在执行的一轮（含 2×15s
+/// 复核窗口）提前返回；无取消上下文的调用方传 None（行为与取消前一致）。
+pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, cancel: Option<&tokio_util::sync::CancellationToken>) {
     let s = CommandContext::from_app(app_handle);
     let enable_notification = s.config.load().enable_notification;
+    if cancel.is_some_and(|c| c.is_cancelled()) {
+        return;
+    }
     let Some(first) = perform_quality_check(app_handle, adapter_name, adapter_ip).await else {
         return;
     };
@@ -57,8 +62,18 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
             let mut confirmed = true;
             let mut record: Option<String> = None;
             for _ in 0..SPIKE_CONFIRM_COUNT {
-                tokio::time::sleep(Duration::from_secs(SPIKE_CONFIRM_INTERVAL_SECS)).await;
-                if is_quitting.load(Ordering::Acquire) {
+                // 复核等待可被取消：停止定时测试后不再跑完剩余复核窗口
+                let cancelled = async {
+                    match cancel {
+                        Some(c) => c.cancelled().await,
+                        None => std::future::pending::<()>().await,
+                    }
+                };
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(SPIKE_CONFIRM_INTERVAL_SECS)) => {}
+                    _ = cancelled => return,
+                }
+                if is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
                     return;
                 }
                 match perform_quality_check(app_handle, adapter_name, adapter_ip).await {

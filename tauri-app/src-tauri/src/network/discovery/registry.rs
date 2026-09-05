@@ -121,8 +121,8 @@ fn show_in_ncpa_cached(guid: &str) -> bool {
             }
         }
     }
-    // 缓存缺失或已过期：全量重建（build 在锁外执行注册表 I/O，仅用锁做 swap，
-    // 与 CLASS_SUBKEY_CACHE 的 ensure_cache_initialized 同模式）
+    // 缓存缺失或已过期：单条重建——仅查询当前 guid 并以只含该条的映射换新缓存，
+    // 之后 TTL 内对其他 guid 逐条查询补入（build 在锁外执行注册表 I/O，仅用锁做 swap）
     let v = query_show_in_ncpa(guid);
     let mut new_map = HashMap::new();
     new_map.insert(guid.to_string(), v);

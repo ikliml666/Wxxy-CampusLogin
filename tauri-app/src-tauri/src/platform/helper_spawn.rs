@@ -19,6 +19,21 @@ pub fn unique_result_path() -> PathBuf {
     std::env::temp_dir().join(format!("campus-login-helper-{}-{ts}.json", std::process::id()))
 }
 
+/// 解析 helper 结果文件内容：并入诊断日志、删除结果文件并返回 JSON。
+fn read_helper_result(content: &str, result_path: &Path) -> Result<serde_json::Value, String> {
+    let v: serde_json::Value = serde_json::from_str(content)
+        .map_err(|e| format!("解析helper结果文件失败: {e}"))?;
+    if let Some(logs) = v.get("logs").and_then(|l| l.as_array()) {
+        for l in logs {
+            if let Some(s) = l.as_str() {
+                crate::log_info!("helper", "{s}");
+            }
+        }
+    }
+    let _ = std::fs::remove_file(result_path);
+    Ok(v)
+}
+
 /// 以管理员身份启动当前 exe 执行 `op`（--helper），轮询结果文件返回 helper 的 JSON 结果。
 ///
 /// `args` 为 helper 操作的位置参数（不含操作名本身）。结果路径可能含空格，
@@ -52,20 +67,14 @@ pub fn spawn_elevated_helper(
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if let Ok(content) = std::fs::read_to_string(result_path) {
-            let v: serde_json::Value = serde_json::from_str(&content)
-                .map_err(|e| format!("解析helper结果文件失败: {e}"))?;
-            // helper 的诊断日志并入主进程日志
-            if let Some(logs) = v.get("logs").and_then(|l| l.as_array()) {
-                for l in logs {
-                    if let Some(s) = l.as_str() {
-                        crate::log_info!("helper", "{s}");
-                    }
-                }
-            }
-            let _ = std::fs::remove_file(result_path);
-            return Ok(v);
+            return read_helper_result(&content, result_path);
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+    // 超时后追加一次结果文件检查：UAC 等待/DHCP 慢路径可能恰好越过 deadline
+    // 才完成写入，此时操作实际已成功，按正常结果返回而非误报超时失败
+    if let Ok(content) = std::fs::read_to_string(result_path) {
+        return read_helper_result(&content, result_path);
     }
     Err("提权操作超时，未收到helper结果".to_string())
 }

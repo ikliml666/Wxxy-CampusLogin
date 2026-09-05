@@ -21,9 +21,6 @@ pub fn build_runtime(core_count: usize) -> tokio::runtime::Runtime {
 
 /// 运行 Tauri 应用
 pub fn run(core_count: usize) {
-    let browser_args = crate::platform::gpu::build_browser_args();
-    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", &browser_args);
-
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
@@ -134,7 +131,20 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let log_dir = install_dir.join("logs");
+    // per-machine 安装到 Program Files 时安装目录不可写，日志会静默丢失（writer=None）；
+    // 先探测安装目录 logs 可写，失败则 fallback 到用户数据目录
+    let install_log_dir = install_dir.join("logs");
+    let log_dir = if std::fs::create_dir_all(&install_log_dir).is_ok()
+        && std::fs::write(install_log_dir.join(".log_probe"), b"").is_ok()
+    {
+        let _ = std::fs::remove_file(install_log_dir.join(".log_probe"));
+        install_log_dir
+    } else {
+        let fallback = data_dir.join("logs");
+        let _ = std::fs::create_dir_all(&fallback);
+        crate::log_warn!("startup", "安装目录日志不可写，回退到数据目录: {:?}", fallback);
+        fallback
+    };
 
     let config = {
         // 先完成 logger 初始化，再加载 config，避免 config 加载日志丢失

@@ -189,30 +189,32 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
                 campus_gw, AdapterFailureCounter::A2, "适配器2",
             );
         }
-    } else {
-        // 任一适配器 Success 即重置对应计数器
-        let primary_success = matches!(&primary_result, PortalCheckResult::Success { .. });
-        let secondary_success = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Success { .. })).unwrap_or(false);
+    }
 
-        // 合并 a1/a2 失败计数重置为单次 update，减少 CAS 循环次数
-        if primary_success || secondary_success {
-            let snap = state.network.load();
-            let prev_a1 = snap.a1_auth_failure_count;
-            let prev_a2 = snap.a2_auth_failure_count;
-            state.network.update(|s| {
-                if primary_success {
-                    s.a1_auth_failure_count = 0;
-                }
-                if secondary_success {
-                    s.a2_auth_failure_count = 0;
-                }
-            });
-            if primary_success && prev_a1 > 0 {
-                crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev_a1);
+    // 按适配器独立重置：某适配器本次 Success 即重置该适配器的失败计数，
+    // 不依赖对方检测结果（若对方 request_failed 也一样重置，对齐
+    // failure_tracker.rs "登录成功即重置"语义，避免残留计数导致下次真实失败提前触发 MAC 重置）
+    let primary_success = matches!(&primary_result, PortalCheckResult::Success { .. });
+    let secondary_success = secondary_result.as_ref().map(|r| matches!(r, PortalCheckResult::Success { .. })).unwrap_or(false);
+
+    // 合并 a1/a2 失败计数重置为单次 update，减少 CAS 循环次数
+    if primary_success || secondary_success {
+        let snap = state.network.load();
+        let prev_a1 = snap.a1_auth_failure_count;
+        let prev_a2 = snap.a2_auth_failure_count;
+        state.network.update(|s| {
+            if primary_success {
+                s.a1_auth_failure_count = 0;
             }
-            if secondary_success && prev_a2 > 0 {
-                crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev_a2);
+            if secondary_success {
+                s.a2_auth_failure_count = 0;
             }
+        });
+        if primary_success && prev_a1 > 0 {
+            crate::log_debug!("background", "适配器1 Portal检测恢复正常，重置失败计数(原值={})", prev_a1);
+        }
+        if secondary_success && prev_a2 > 0 {
+            crate::log_debug!("background", "适配器2 Portal检测恢复正常，重置失败计数(原值={})", prev_a2);
         }
     }
 

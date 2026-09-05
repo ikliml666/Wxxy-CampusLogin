@@ -51,7 +51,7 @@ pub(super) fn check_adapter_portal(
     adapter: &Adapter,
     app_handle: &AppHandle,
 ) -> PortalCheckResult {
-    match check_portal_full(&adapter.ip, Some(&adapter.name), None, None) {
+    match check_portal_full(&adapter.ip, Some(&adapter.name)) {
         Ok(ps) => {
             if ps.error_kind.as_deref() == Some("request_failed") {
                 crate::log_warn!("network", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);

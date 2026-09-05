@@ -91,7 +91,7 @@ pub struct PortalStatus {
     pub error_kind: Option<String>,
 }
 
-pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>, _user_account: Option<&str>, _user_password: Option<&str>) -> Result<PortalStatus, String> {
+pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result<PortalStatus, String> {
     let t0 = std::time::Instant::now();
     let portal_url = PORTAL_URL.load().clone();
     let local_addr = parse_adapter_ip(adapter_ip);
@@ -228,13 +228,12 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
         return PageCheckResult::Failed;
     }
 
-    let html = match block_on_http(resp.text()) {
-        Ok(t) => t,
-        Err(e) => {
-            crate::log_warn!("network", "Portal页面读取失败: {}", e);
-            return PageCheckResult::Failed;
-        }
-    };
+    // 复用协议路径的限长读取（1MB 上限 + charset 解码），防止异常 Portal 无限响应体
+    // 读取失败/超限时 read_bounded_body 返回空串并已告警，按请求失败处理
+    let html = crate::auth::protocol::read_bounded_body(resp, "Portal页面");
+    if html.is_empty() {
+        return PageCheckResult::Failed;
+    }
 
     crate::log_debug!("network", "Portal页面响应长度: {}", html.len());
 

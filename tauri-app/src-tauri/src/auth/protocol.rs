@@ -13,7 +13,7 @@ pub fn random_v() -> String {
 /// 读取 HTTP 响应体并限制 1MB 上限（无 Content-Length 的 chunked/流式响应也受限）。
 /// 读取失败返回空串（调用方按"无可解析内容"处理），超限同样返回空串并告警。
 /// 按 Content-Type charset 解码（GBK Portal 的中文成败关键词依赖正确解码）。
-fn read_bounded_body(resp: reqwest::Response, label: &str) -> String {
+pub(crate) fn read_bounded_body(resp: reqwest::Response, label: &str) -> String {
     const MAX_BODY: u64 = 1024 * 1024;
     if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
         crate::log_warn!("logout", "{label}响应体过大(Content-Length={:?})，忽略", resp.content_length());
@@ -363,7 +363,7 @@ pub fn merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'stati
     }
 }
 
-pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, _if_index: u32, _mac: &str, max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
+pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
     let mut last_result = None;
 
     for attempt in 1..=max_retries {
@@ -566,7 +566,7 @@ mod tests {
     #[test]
     fn do_logout_with_retry_respects_quit_flag() {
         let quitting = std::sync::atomic::AtomicBool::new(true);
-        let result = do_logout_with_retry("user", Some("10.0.0.1"), 0, "00:00:00:00:00:00", 3, &quitting).unwrap();
+        let result = do_logout_with_retry("user", Some("10.0.0.1"), 3, &quitting).unwrap();
         assert!(!result["success"].as_bool().unwrap());
         assert_eq!(result["message"], "应用正在退出");
     }

@@ -117,13 +117,11 @@ pub fn logout_adapter_with_log(
     is_quitting: &AtomicBool,
 ) -> Option<CommandResult> {
     let adapter_ip = adapter.ip.clone();
-    let adapter_if_index = adapter.if_index;
-    let adapter_mac = adapter.mac.clone();
 
     adapter_action_with_log(
         adapter, config, app_handle,
         "注销", "logout", "logout",
-        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), adapter_if_index, &adapter_mac, 2, is_quitting),
+        || do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), 2, is_quitting),
     )
 }
 

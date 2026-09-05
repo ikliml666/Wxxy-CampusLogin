@@ -1,7 +1,13 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use parking_lot::Mutex;
 use tauri::Manager;
 use crate::config::model::Config;
 use crate::account::crypto;
+
+// 登录历史的读-改-写全程互斥：自动登录与手动登录并发追加时，
+// 无锁的后写者会用旧快照覆盖先写者丢历史。锁内不调用本函数（无重入）。
+static LOGIN_HISTORY_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
     // 临时文件名带纳秒时间戳，避免并发保存时互相覆盖
@@ -12,8 +18,17 @@ pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String>
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    std::fs::write(&tmp_path, content)
-        .map_err(|e| format!("写入临时文件失败: {e}"))?;
+    // 用 File 句柄写入并 sync_all：断电时保证临时文件内容完整落盘，
+    // 避免半截文件被 rename 成正式配置（std::fs::write 无此保证）
+    let tmp_file = std::fs::File::create(&tmp_path)
+        .map_err(|e| format!("创建临时文件失败: {e}"))?;
+    {
+        let mut writer = std::io::BufWriter::new(&tmp_file);
+        writer.write_all(content.as_bytes())
+            .map_err(|e| format!("写入临时文件失败: {e}"))?;
+        writer.flush().map_err(|e| format!("写入临时文件失败: {e}"))?;
+    }
+    tmp_file.sync_all().map_err(|e| format!("刷盘临时文件失败: {e}"))?;
     for attempt in 0..3 {
         if std::fs::rename(&tmp_path, path).is_ok() {
             return Ok(());
@@ -82,6 +97,7 @@ pub fn get_login_history_path(data_dir: &Path) -> PathBuf {
 }
 
 pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
+    let _guard = LOGIN_HISTORY_LOCK.lock();
     let data_dir = get_data_dir(app_handle);
     let history_path = get_login_history_path(&data_dir);
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;

@@ -125,6 +125,16 @@ fn run_dns(targets: &[String], family: &str, logs: &mut Vec<String>) -> HelperRe
 }
 
 fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResult {
+    // NetworkAddress 注册表值直接写裸 MAC，非法格式会静默写坏网卡配置
+    if !(mac_no_dash.len() == 12 && mac_no_dash.bytes().all(|b| b.is_ascii_hexdigit())) {
+        return HelperResult {
+            success: false,
+            message: format!("MAC 格式非法: {mac_no_dash}（要求 12 位十六进制字符、无分隔符）"),
+            op: "mac".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        };
+    }
     logs.push(format!("helper: 开始修改MAC guid={guid}"));
     let adapters = match crate::network::get_adapters_force() {
         Ok(a) => a,

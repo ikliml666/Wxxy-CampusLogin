@@ -37,6 +37,11 @@ fn main() {
         }
     }
 
+    // 必须在 Tokio runtime 创建前设置：set_var 与 worker 线程并发读 env 存在竞态
+    // （std::env::set_var 非线程安全），先设 env 再起线程
+    let browser_args = crate::platform::gpu::build_browser_args();
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", &browser_args);
+
     let core_count = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(2);

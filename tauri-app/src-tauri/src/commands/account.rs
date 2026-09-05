@@ -178,6 +178,13 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         c.active_account = account_name.clone();
     });
 
+    // 与 switch_account/delete_account 对齐：active_account 变更必须落盘，
+    // 否则重启后回落到旧账号
+    let cfg = state.config.load();
+    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+        crate::log_warn!("account", "保存账号后持久化 active_account 失败: {}", e);
+    }
+
     let display_config = state.config.load().masked_for_display();
     crate::log_info!("account", "保存账号: {}", account_name);
     Ok(AccountResult::ok_with_account(account_name, display_config))

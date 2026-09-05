@@ -56,10 +56,13 @@ pub fn shell_exec_elevated(
     hide_window: bool,
 ) -> Result<(), String> {
     use windows::Win32::System::Com::CoInitializeEx;
+    use windows::Win32::System::Com::CoUninitialize;
     use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        // CoInitializeEx 成功（S_OK/S_FALSE）须在每个退出路径前配对 CoUninitialize；
+        // 失败（如 RPC_E_CHANGED_MODE）不得释放
+        let co_initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
 
         let moniker_name = "Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}";
         let moniker_wide: Vec<u16> = moniker_name.encode_utf16().chain(std::iter::once(0)).collect();
@@ -81,6 +84,9 @@ pub fn shell_exec_elevated(
         );
 
         if hr != 0 || p_unknown.is_null() {
+            if co_initialized {
+                CoUninitialize();
+            }
             return Err(format!("COM提权失败: HRESULT=0x{:08X}", hr as u32));
         }
 
@@ -102,7 +108,14 @@ pub fn shell_exec_elevated(
         ((*vtbl).release)(p_unknown);
 
         if result.is_err() {
+            if co_initialized {
+                CoUninitialize();
+            }
             return Err(format!("ShellExec 失败: {result:?}"));
+        }
+
+        if co_initialized {
+            CoUninitialize();
         }
 
         Ok(())

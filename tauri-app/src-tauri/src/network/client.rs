@@ -80,7 +80,9 @@ fn client_pool_get(key: &ClientPoolKey, label: &str) -> Option<reqwest::Client> 
         Some(client.clone())
     } else {
         drop(entry);
-        CLIENT_POOL.remove(key);
+        // remove_if 原子判断+删除：drop(entry) 与 remove 之间另一线程可能
+        // or_insert 新客户端，无条件的 remove 会误删新条目
+        CLIENT_POOL.remove_if(key, |_, v| v.1.elapsed().as_secs() >= CLIENT_POOL_TTL_SECS);
         crate::log_debug!("http", "客户端池TTL过期清除{}: key={:?}", label, key);
         None
     }

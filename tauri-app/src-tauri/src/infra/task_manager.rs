@@ -44,9 +44,15 @@ impl BackgroundTaskManager {
         let cancel_token = Arc::new(CancellationToken::new());
         let name_owned = name.to_string();
         let future = build_future(cancel_token.clone());
+        let cleanup_token = cancel_token.clone();
         let join_handle = tauri::async_runtime::spawn(async move {
             future.await;
-            inner.lock().remove(&name_owned);
+            // 仅当 map 中仍是自己这一实例时才 remove：cancel 后同名 re-spawn 时，
+            // 旧任务迟到的收尾不得误删新任务句柄
+            let mut tasks = inner.lock();
+            if tasks.get(&name_owned).is_some_and(|h| Arc::ptr_eq(&h.cancel_token, &cleanup_token)) {
+                tasks.remove(&name_owned);
+            }
         });
         let handle = TaskHandle {
             cancel_token: cancel_token.clone(),
