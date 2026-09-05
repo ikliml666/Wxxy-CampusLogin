@@ -1491,7 +1491,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `AccountPanel.tsx` | 账号管理面板，3卡片(登录信息含密码显示隐藏/账号管理含添加切换删除/自动登录退出开关) |
+| `AccountPanel.tsx` | 账号管理面板，4卡片(登录信息含密码显示隐藏/账号管理含添加切换删除/**绑定运营商账号**(2026-09-05，调 bind_operator，学号/运营商默认取配置，成功 toast 清敏感字段)/自动登录退出开关) |
 | `useAccount.ts` | 账号逻辑 Hook |
 | `types.ts` | 账号类型定义 (SwitchAccountResult, DeleteAccountResult, SaveAccountResult) |
 | `index.ts` | 模块导出 |

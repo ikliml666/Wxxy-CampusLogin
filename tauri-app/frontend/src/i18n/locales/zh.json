@@ -127,6 +127,7 @@
     "deleteAccountMessage": "确定要删除账号「{{name}}」吗？此操作不可撤销。",
     "clearPassword": "清除密码",
     "passwordCleared": "已清除保存的密码",
+    "bindDesc": "办理运营商套餐后，需先在自助服务系统绑定运营商账号（办理的手机号 + 短信密码）才能正常使用校园网",
     "invalidAccountName": "账号名限 1-32 位，仅支持中文、字母、数字、下划线、连字符",
     "saveFailed": "保存账号失败",
     "saveSuccess": "账号已保存",

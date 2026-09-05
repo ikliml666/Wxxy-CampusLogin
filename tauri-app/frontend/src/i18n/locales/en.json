@@ -127,6 +127,7 @@
     "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
     "clearPassword": "Clear saved password",
     "passwordCleared": "Saved password cleared",
+    "bindDesc": "After purchasing an ISP campus plan, you must bind your operator account (your phone number + SMS password) in the self-service system before using the campus network",
     "invalidAccountName": "Account name must be 1-32 chars: Chinese, letters, digits, underscore or hyphen",
     "saveFailed": "Failed to Save Account",
     "saveSuccess": "Account Saved",
