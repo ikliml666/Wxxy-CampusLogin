@@ -281,7 +281,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setShowCloseConfirm(true) }}>
-      <DialogContent className="w-[520px] h-[520px] p-0 overflow-hidden flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
+      <DialogContent className="w-[640px] h-[640px] p-0 overflow-hidden flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
         <StepIndicator current={step} />
 
         <AnimatePresence mode="wait" custom={direction.current}>
