@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
 import { render, fireEvent, act, cleanup, screen } from '@testing-library/react'
 
-// Hello 验证门（模块级状态）：首次绑定/查询免验 → 第二次触发验证 → 通过后共用。
+// Hello 验证门（模块级状态）：首次操作即验证 → 通过后共用。
 // 门状态为模块级单例，每个用例经 vi.resetModules + 动态 import 重置。
 const verifyWindowsIdentity = vi.fn()
 const queryBindStatus = vi.fn()
@@ -76,24 +76,20 @@ async function fillBindCreds() {
 }
 
 describe('AccountPanel Windows Hello 验证门', () => {
-  it('首次查询免验证；第二次触发一次验证；通过后后续查询共用不再验证', async () => {
+  it('首次查询即触发验证；通过后后续查询共用不再验证（与自助服务门独立）', async () => {
     const { container } = await renderPanel()
     await fillBindCreds()
     const queryBtn = () =>
       [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusQuery'))!
 
-    // 第一次：不触发 Hello
-    await act(async () => { fireEvent.click(queryBtn()) })
-    expect(verifyWindowsIdentity).not.toHaveBeenCalled()
-    expect(queryBindStatus).toHaveBeenCalledTimes(1)
-
-    // 第二次：触发一次验证（未配置 Hello 走回退但通过）
+    // 第一次：即触发验证
     verifyWindowsIdentity.mockResolvedValue({ success: true })
     await act(async () => { fireEvent.click(queryBtn()) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
-    expect(queryBindStatus).toHaveBeenCalledTimes(2)
+    expect(queryBindStatus).toHaveBeenCalledTimes(1)
 
     // 之后：共用验证结果，不再弹
+    await act(async () => { fireEvent.click(queryBtn()) })
     await act(async () => { fireEvent.click(queryBtn()) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
     expect(queryBindStatus).toHaveBeenCalledTimes(3)
@@ -105,21 +101,17 @@ describe('AccountPanel Windows Hello 验证门', () => {
     const queryBtn = () =>
       [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusQuery'))!
 
-    // 消耗掉首次免验额度
-    await act(async () => { fireEvent.click(queryBtn()) })
-    expect(queryBindStatus).toHaveBeenCalledTimes(1)
-
-    // 第二次：验证失败 → 不执行查询
+    // 第一次：验证失败 → 不执行查询
     verifyWindowsIdentity.mockResolvedValue({ success: false, message: '身份验证未通过' })
     await act(async () => { fireEvent.click(queryBtn()) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
-    expect(queryBindStatus).toHaveBeenCalledTimes(1)
+    expect(queryBindStatus).toHaveBeenCalledTimes(0)
 
-    // 再下一次：仍需验证（失败不置 verified）
+    // 第二次：仍需验证（失败不置 verified），成功后放行
     verifyWindowsIdentity.mockResolvedValue({ success: true })
     await act(async () => { fireEvent.click(queryBtn()) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(2)
-    expect(queryBindStatus).toHaveBeenCalledTimes(2)
+    expect(queryBindStatus).toHaveBeenCalledTimes(1)
   })
 })
 

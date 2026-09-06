@@ -268,8 +268,9 @@ export function SelfServicePanel() {
     }
   }, [hasCred, logQuerying, ensureSelfVerified, selfPasswordForSubmit, account, logStart, logEnd, addToast, t])
 
+  // 根容器 space-y-4 对齐全局面板卡片间距标准（AccountPanel/SettingsPanel 同款）
   return (
-    <React.Fragment>
+    <div className="space-y-4">
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -618,6 +619,6 @@ export function SelfServicePanel() {
         onConfirm={() => { if (confirmTarget) void handleOffline(confirmTarget) }}
         onCancel={() => setConfirmTarget(null)}
       />
-    </React.Fragment>
+    </div>
   )
 }

@@ -30,17 +30,17 @@ export const useSelfCredStore = create<SelfCredState>((set) => ({
 const helloEnabled = () => useConfigStore.getState().config.selfHelloEnabled !== false
 
 /**
- * 绑定运营商操作（绑定/查询绑定状态）共用的 Windows Hello 验证门。
- * 模块级状态：首次操作免验证（首次使用友好），之后需要验证且一次通过后
- * 所有绑定操作共用；Hello 总开关关闭时直接放行。
- * 查看明文密码不进门（每次验证），通过后 markGateVerified() 解锁。
+ * 绑定运营商操作（绑定/查询绑定状态）的 Windows Hello 验证门。
+ * 与自助服务面板的会话门完全独立（互不共享状态：在自助服务面板验证过，
+ * 绑定操作仍需单独验证，反之亦然）。首次操作即验证，通过后应用生命周期内
+ * 共用；Hello 总开关关闭时直接放行。查看明文密码不进门（每次验证），
+ * 通过后 markGateVerified() 解锁本门。
  */
-type HelloGate = 'firstFree' | 'needVerify' | 'verified'
-let helloGate: HelloGate = 'firstFree'
+let helloGateVerified = false
 
 /** 验证通过后解锁门（handleReveal 等自带验证的流程调用） */
 export function markGateVerified() {
-  helloGate = 'verified'
+  helloGateVerified = true
 }
 
 /** 绑定运营商操作执行前调用：返回 false 表示验证未通过，操作应中止 */
@@ -48,18 +48,14 @@ export function useHelloGate() {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
   return useCallback(async (): Promise<boolean> => {
-    if (helloGate === 'verified') return true
-    if (helloGate === 'firstFree') {
-      helloGate = 'needVerify'
-      return true
-    }
+    if (helloGateVerified) return true
     if (!helloEnabled()) return true
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
         consentMessage: t('account.identityVerifyPrompt'),
       })
       if (verified.success) {
-        helloGate = 'verified'
+        helloGateVerified = true
         return true
       }
       addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
