@@ -148,6 +148,45 @@ pub async fn query_self_dashboard(
     }
 }
 
+/// 查询自助服务"上网记录"账单页数据（/Self/bill/userOnlineLog，日期范围 + 汇总
+/// + 明细行，原始 JSON 透传，展示格式化由前端完成）。密码空/MASK 回退已保存值。
+#[tauri::command]
+pub async fn query_self_online_log(
+    state: State<'_, AppState>,
+    account: String,
+    password: String,
+    start_time: String,
+    end_time: String,
+) -> Result<CommandResult, String> {
+    let account = account.trim();
+    if account.is_empty() {
+        return Ok(CommandResult::err("请输入学号"));
+    }
+    let Some(password) = resolve_self_password(&state, &password) else {
+        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    };
+    let start_time = start_time.trim();
+    let end_time = end_time.trim();
+    let date_re = |s: &str| {
+        s.len() == 10
+            && s.as_bytes()[4] == b'-'
+            && s.as_bytes()[7] == b'-'
+            && s.chars().all(|c| c.is_ascii_digit() || c == '-')
+    };
+    if !date_re(start_time) || !date_re(end_time) {
+        return Ok(CommandResult::err("日期格式应为 YYYY-MM-DD"));
+    }
+
+    let local_addr = resolve_campus_bind_addr(&state);
+    match self_service::query_online_log(account, &password, start_time, end_time, local_addr).await {
+        Ok(log) => Ok(CommandResult { success: true, message: None, data: Some(log) }),
+        Err(e) => {
+            crate::log_warn!("self", "查询自助服务上网记录失败: {e}");
+            Ok(CommandResult::err(&e))
+        }
+    }
+}
+
 /// 注销指定自助服务在线会话（dashboard 在线信息卡片操作列）。
 /// 凭据仅本次请求内存传递，不写入配置、不落盘、不写日志。
 #[tauri::command]

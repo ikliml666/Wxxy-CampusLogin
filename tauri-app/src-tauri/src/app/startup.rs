@@ -113,6 +113,7 @@ pub fn run(core_count: usize) {
             crate::commands::self_service::verify_windows_identity,
             crate::commands::self_service::reveal_operator_credential,
             crate::commands::self_service::query_self_dashboard,
+            crate::commands::self_service::query_self_online_log,
             crate::commands::self_service::self_offline_session,
             crate::infra::logger::set_debug_mode,
             crate::infra::logger::get_debug_mode,

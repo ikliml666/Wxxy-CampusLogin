@@ -27,6 +27,18 @@
 //!    终端类型）
 //! 8. `GET /Self/dashboard/tooffline?sessionid=` 踢指定会话下线 → `{"success":bool}`
 //!    （实测对不存在的 sessionid 也返回 true，服务端宽松处理）
+//!
+//! 上网记录账单页协议（逆向于 2026-09-06 /Self/bill/userOnlineLog 页内嵌
+//! bootstrapTable 配置 + 会话内 fetch 实测）：
+//! 9. `GET /Self/bill/getUserOnlineLog?startTime=YYYY-MM-DD&endTime=YYYY-MM-DD&`
+//!    `pageNumber=1&pageSize=N`（GET，仅需登录会话；服务端分页，pageSize 大值有效）
+//!    → `{"rows":[...],"summary":{...},"total":N}`：
+//!    rows 行字段 loginTime/logoutTime（epoch **毫秒**）、time（分钟）、
+//!    flow/internetUpFlow/internetDownFlow/chinanetUpFlow/chinanetDownFlow/costMoney
+//!    （数值，页面 toFixed(2)；MB/元）、userIp/nasIp/nasPort、macAddress/userName 等
+//!    （页面未展示）；summary 键大写下划线（INTERNETUPFLOW/INTERNETDOWNFLOW/
+//!    CHINANETUPFLOW/CHINANETDOWNFLOW/FLOW/TIME/COSTMONEY/COU=记录数），与页面
+//!    顶部"汇总数据"卡一致。原始 JSON 透传前端，展示格式化不做在后端
 
 use std::net::IpAddr;
 
@@ -371,6 +383,40 @@ pub async fn query_dashboard(
     let online = fetch_dashboard_json(&client, "getOnlineList", "在线信息").await?;
     let history = fetch_dashboard_json(&client, "getLoginHistory", "上网记录").await?;
     Ok((online, history))
+}
+
+/// 查询自助服务"上网记录"账单页数据（协议见模块注释第 9 条）。
+/// 日期范围 YYYY-MM-DD（含端点）；一次请求大 pageSize 拉全（前端不做翻页），
+/// 返回原始 `{ rows, summary, total }`。
+pub async fn query_online_log(
+    account: &str,
+    password: &str,
+    start_time: &str,
+    end_time: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<serde_json::Value, String> {
+    let client = login_session(account, password, local_addr).await?;
+    let resp = client
+        .get(format!("{}/bill/getUserOnlineLog", SELF_BASE_URL))
+        .query(&[
+            ("startTime", start_time),
+            ("endTime", end_time),
+            ("pageNumber", "1"),
+            ("pageSize", "500"),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("请求上网记录失败: {e}"))?;
+    if resp.status().is_redirection() {
+        return Err("登录会话失效，请重试".to_string());
+    }
+    let text = resp
+        .error_for_status()
+        .map_err(|e| format!("请求上网记录失败: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("读取上网记录失败: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("上网记录解析失败: {e}"))
 }
 
 /// tooffline 响应 success 判定（非 JSON / 缺字段按失败处理）

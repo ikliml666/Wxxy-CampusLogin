@@ -25,9 +25,9 @@ export const useSelfCredStore = create<SelfCredState>((set) => ({
 }))
 
 /**
- * 自助服务相关操作（绑定/查询/dashboard/踢设备下线）共用的 Windows Hello 验证门。
+ * 绑定运营商操作（绑定/查询绑定状态）共用的 Windows Hello 验证门。
  * 模块级状态：首次操作免验证（首次使用友好），之后需要验证且一次通过后
- * 所有操作共用；查看明文密码不进门（每次验证），通过后 markGateVerified() 解锁。
+ * 所有绑定操作共用；查看明文密码不进门（每次验证），通过后 markGateVerified() 解锁。
  */
 type HelloGate = 'firstFree' | 'needVerify' | 'verified'
 let helloGate: HelloGate = 'firstFree'
@@ -37,7 +37,7 @@ export function markGateVerified() {
   helloGate = 'verified'
 }
 
-/** 绑定/查询/dashboard 等操作执行前调用：返回 false 表示验证未通过，操作应中止 */
+/** 绑定运营商操作执行前调用：返回 false 表示验证未通过，操作应中止 */
 export function useHelloGate() {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
@@ -55,6 +55,30 @@ export function useHelloGate() {
         helloGate = 'verified'
         return true
       }
+      addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
+      return false
+    } catch (err) {
+      addToast(extractErrorMessage(err) || t('account.bindStatusRevealFailed'), 'error')
+      return false
+    }
+  }, [addToast, t])
+}
+
+/**
+ * 自助服务面板专用验证：每次操作（刷新查询/踢设备下线）都要求 Windows Hello
+ * 验证——不免首次、不与绑定运营商的门共用（2026-09-06 用户要求：自助服务
+ * 能看到在线设备并可踢人下线，比绑定操作更敏感，首次免验等于裸奔；
+ * 且与绑定卡验证互不影响，绑定卡验证过不等于自助服务免验）。
+ */
+export function useSelfServiceVerify() {
+  const { t } = useTranslation()
+  const addToast = useLogToastStore((s) => s.addToast)
+  return useCallback(async (): Promise<boolean> => {
+    try {
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity({
+        consentMessage: t('account.identityVerifyPrompt'),
+      })
+      if (verified.success) return true
       addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
       return false
     } catch (err) {

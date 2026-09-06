@@ -41,6 +41,7 @@ interface TauriApi {
   revealOperatorCredential: (params: { account: string; password: string; operator: string }) => Promise<CommandResult>
   querySelfDashboard: (params: { account: string; password: string }) => Promise<CommandResult>
   selfOfflineSession: (params: { account: string; password: string; sessionId: string }) => Promise<CommandResult>
+  querySelfOnlineLog: (params: { account: string; password: string; startTime: string; endTime: string }) => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -145,6 +146,7 @@ const tauriApi: TauriApi = {
   revealOperatorCredential: (params) => invoke<CommandResult>('reveal_operator_credential', { ...params }),
   querySelfDashboard: (params) => invoke<CommandResult>('query_self_dashboard', { ...params }),
   selfOfflineSession: (params) => invoke<CommandResult>('self_offline_session', { ...params }),
+  querySelfOnlineLog: (params) => invoke<CommandResult>('query_self_online_log', { ...params }),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),

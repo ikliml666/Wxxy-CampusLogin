@@ -85,6 +85,8 @@ describe('SelfServicePanel', () => {
       await Promise.resolve()
     })
     expect(querySelfDashboard).toHaveBeenCalledWith({ account: '24380002', password: '123456' })
+    // 每次刷新都要求 Windows Hello 验证（不免首次、不与绑定卡门共用）
+    expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
 
     // MAC 每 2 字符加连字符；useTime 秒→分钟；(down+up) KB→M 三位小数；# 前缀截掉
     expect(container.textContent).toContain('AA-11-BB-22-CC-33')
@@ -94,6 +96,20 @@ describe('SelfServicePanel', () => {
     // 上网记录：主机名 null → "-"；epoch 时间格式化为本地字符串
     expect(container.textContent).toContain('-')
     expect(container.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+  })
+
+  it('验证失败时不执行刷新查询（每次操作都过 Hello 验证）', async () => {
+    verifyWindowsIdentity.mockResolvedValue({ success: false, message: '验证未通过' })
+    querySelfDashboard.mockResolvedValue({ success: true, data: { onlineList: [], loginHistory: [] } })
+    const { container } = render(<SelfServicePanel />)
+    await fillCreds()
+    const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
+    await act(async () => {
+      fireEvent.click(refreshBtn)
+      await Promise.resolve()
+    })
+    expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
+    expect(querySelfDashboard).not.toHaveBeenCalled()
   })
 
   it('注销需确认，确认后调用接口并移除对应行', async () => {
