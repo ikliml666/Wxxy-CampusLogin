@@ -3,10 +3,11 @@ import type { PanelName, ThemeName } from '@/shared'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Rocket, Check, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass, ShieldCheck
+  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass, ShieldCheck
 } from 'lucide-react'
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
@@ -242,6 +243,8 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
+      {/* 两列区：左=启动设置；右=通知+安全+引导（md 起两列，窄屏单列堆叠） */}
+      <div className="grid gap-4 md:grid-cols-2 items-start">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -340,45 +343,27 @@ export const SettingsPanel = memo(function SettingsPanel({
                 <Label className="text-sm font-medium">{t('settings.defaultPanel')}</Label>
               </div>
               <p className="text-[11px] text-muted-foreground">{t('settings.defaultPanelDesc')}</p>
-              <div className="grid grid-cols-2 gap-1.5 mt-2">
-                <button
-                  onClick={() => onUpdateConfig({ defaultPanel: '' })}
-                  aria-pressed={!config.defaultPanel}
-                  className={cn(
-                    'px-2.5 py-2 rounded-lg text-xs font-medium transition-colors duration-200',
-                    !config.defaultPanel
-                      ? 'bg-primary/10 text-primary'
-                      : 'hover:bg-accent text-muted-foreground'
-                  )}
-                >
-                  {t('settings.rememberLast')}
-                  {!config.defaultPanel && <Check className="h-3 w-3 ml-1 inline" />}
-                </button>
-                {DEFAULT_PANEL_OPTIONS.filter(opt => config.enableNetworkQuality !== false || opt.value !== 'quality').map(opt => {
-                  const isActive = config.defaultPanel === opt.value
-                  return (
-                    <button
-                      key={opt.value}
-                      onClick={() => onUpdateConfig({ defaultPanel: opt.value as PanelName })}
-                      aria-pressed={isActive}
-                      className={cn(
-                        'px-2.5 py-2 rounded-lg text-xs font-medium transition-colors duration-200',
-                        isActive
-                          ? 'bg-primary/10 text-primary'
-                          : 'hover:bg-accent text-muted-foreground'
-                      )}
-                    >
-                      {t(opt.labelKey)}
-                      {isActive && <Check className="h-3 w-3 ml-1 inline" />}
-                    </button>
-                  )
-                })}
-              </div>
+              {/* '' 表示"记住上次"；Radix Item 不接受空串，用哨兵值映射 */}
+              <Select
+                value={config.defaultPanel || '__remember__'}
+                onValueChange={v => onUpdateConfig({ defaultPanel: v === '__remember__' ? '' : v as PanelName })}
+              >
+                <SelectTrigger className="h-9 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__remember__">{t('settings.rememberLast')}</SelectItem>
+                  {DEFAULT_PANEL_OPTIONS.filter(opt => config.enableNetworkQuality !== false || opt.value !== 'quality').map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{t(opt.labelKey)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </AnimatedCard>
       </div>
 
+      <div className="flex flex-col gap-4">
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -409,7 +394,92 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
+      {/* 安全设置：Windows Hello 相关开关。关闭任一开关（安全 → 宽松方向）
+          都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
       <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle>{t('settings.security')}</CardTitle>
+                <CardDescription>{t('settings.securityDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="self-hello-enabled" className="text-sm font-medium cursor-pointer">{t('settings.selfHello')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.selfHelloDesc')}</p>
+              </div>
+              <Switch
+                id="self-hello-enabled"
+                checked={config.selfHelloEnabled !== false}
+                onCheckedChange={checked => {
+                  if (checked) { onUpdateConfig({ selfHelloEnabled: true }); return }
+                  void handleSecurityDisable(() => onUpdateConfig({ selfHelloEnabled: false }))
+                }}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="self-reverify" className="text-sm font-medium cursor-pointer">{t('settings.selfReverify')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.selfReverifyDesc')}</p>
+              </div>
+              <Switch
+                id="self-reverify"
+                disabled={config.selfHelloEnabled === false}
+                checked={config.selfReverifyEachAction === true}
+                onCheckedChange={checked => {
+                  if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
+                  void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
+                }}
+                className="shrink-0"
+              />
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      {onShowOnboarding && (
+        <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+          <AnimatedCard noEnterAnimation>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Compass className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
+                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <button
+                onClick={onShowOnboarding}
+                className={cn(
+                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
+                )}
+              >
+                <Compass className="h-4 w-4" />
+                {t('settings.openOnboardingGuide')}
+              </button>
+            </CardContent>
+          </AnimatedCard>
+        </div>
+      )}
+
+      </div>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -525,87 +595,6 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 安全设置：Windows Hello 相关开关。关闭任一开关（安全 → 宽松方向）
-          都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <ShieldCheck className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>{t('settings.security')}</CardTitle>
-                <CardDescription>{t('settings.securityDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="self-hello-enabled" className="text-sm font-medium cursor-pointer">{t('settings.selfHello')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.selfHelloDesc')}</p>
-              </div>
-              <Switch
-                id="self-hello-enabled"
-                checked={config.selfHelloEnabled !== false}
-                onCheckedChange={checked => {
-                  if (checked) { onUpdateConfig({ selfHelloEnabled: true }); return }
-                  void handleSecurityDisable(() => onUpdateConfig({ selfHelloEnabled: false }))
-                }}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="self-reverify" className="text-sm font-medium cursor-pointer">{t('settings.selfReverify')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.selfReverifyDesc')}</p>
-              </div>
-              <Switch
-                id="self-reverify"
-                disabled={config.selfHelloEnabled === false}
-                checked={config.selfReverifyEachAction === true}
-                onCheckedChange={checked => {
-                  if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
-                  void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
-                }}
-                className="shrink-0"
-              />
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      {onShowOnboarding && (
-        <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
-          <AnimatedCard noEnterAnimation>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Compass className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
-                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <button
-                onClick={onShowOnboarding}
-                className={cn(
-                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
-                )}
-              >
-                <Compass className="h-4 w-4" />
-                {t('settings.openOnboardingGuide')}
-              </button>
-            </CardContent>
-          </AnimatedCard>
-        </div>
-      )}
     </div>
   )
 })
