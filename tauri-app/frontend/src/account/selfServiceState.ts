@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { useConfigStore } from '@/hooks/useConfigStore'
 
 /**
  * 自助服务系统凭据共享 store（学号 + 自助服务密码）。
@@ -24,10 +25,15 @@ export const useSelfCredStore = create<SelfCredState>((set) => ({
   setPassword: (password) => set({ password }),
 }))
 
+// Windows Hello 操作验证总开关（config.selfHelloEnabled，缺失视为开启——
+// 旧配置/测试 mock 未写该字段时保持验证行为）。查看明文密码的验证不走门，不受此开关限制。
+const helloEnabled = () => useConfigStore.getState().config.selfHelloEnabled !== false
+
 /**
  * 绑定运营商操作（绑定/查询绑定状态）共用的 Windows Hello 验证门。
  * 模块级状态：首次操作免验证（首次使用友好），之后需要验证且一次通过后
- * 所有绑定操作共用；查看明文密码不进门（每次验证），通过后 markGateVerified() 解锁。
+ * 所有绑定操作共用；Hello 总开关关闭时直接放行。
+ * 查看明文密码不进门（每次验证），通过后 markGateVerified() 解锁。
  */
 type HelloGate = 'firstFree' | 'needVerify' | 'verified'
 let helloGate: HelloGate = 'firstFree'
@@ -47,6 +53,7 @@ export function useHelloGate() {
       helloGate = 'needVerify'
       return true
     }
+    if (!helloEnabled()) return true
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
         consentMessage: t('account.identityVerifyPrompt'),
@@ -65,20 +72,34 @@ export function useHelloGate() {
 }
 
 /**
- * 自助服务面板专用验证：每次操作（刷新查询/踢设备下线）都要求 Windows Hello
- * 验证——不免首次、不与绑定运营商的门共用（2026-09-06 用户要求：自助服务
- * 能看到在线设备并可踢人下线，比绑定操作更敏感，首次免验等于裸奔；
- * 且与绑定卡验证互不影响，绑定卡验证过不等于自助服务免验）。
+ * 自助服务面板会话门：切入面板验证一次（面板卸载时 resetSelfSessionGate 重置，
+ * 下次进入重新验证），面板内后续操作（刷新/踢下线/上网记录查询）共用；
+ * config.selfReverifyEachAction = true 时每次操作都验证；
+ * config.selfHelloEnabled = false 时整体放行。
  */
+let selfSessionVerified = false
+
+/** 面板卸载时重置会话门（下次切入面板重新验证） */
+export function resetSelfSessionGate() {
+  selfSessionVerified = false
+}
+
+/** 自助服务面板操作执行前调用：返回 false 表示验证未通过，操作应中止 */
 export function useSelfServiceVerify() {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
   return useCallback(async (): Promise<boolean> => {
+    if (!helloEnabled()) return true
+    const reverifyEach = useConfigStore.getState().config.selfReverifyEachAction === true
+    if (!reverifyEach && selfSessionVerified) return true
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
         consentMessage: t('account.identityVerifyPrompt'),
       })
-      if (verified.success) return true
+      if (verified.success) {
+        selfSessionVerified = true
+        return true
+      }
       addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
       return false
     } catch (err) {

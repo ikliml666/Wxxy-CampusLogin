@@ -24,7 +24,7 @@ vi.mock('@/hooks/useLogToastStore', () => ({
 const storeState = {
   passwordSaved: false,
   selfPasswordSaved: false,
-  config: { user: '24380002', operator: '', adapter1: '' },
+  config: { user: '24380002', operator: '', adapter1: '', selfHelloEnabled: true, selfReverifyEachAction: false },
   saveConfigDirect: () => Promise.resolve({} as never),
   syncPasswordSaved: () => {},
   syncSelfPasswordSaved: () => {},

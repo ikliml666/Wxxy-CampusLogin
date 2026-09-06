@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
 import { render, fireEvent, act, waitFor, screen, cleanup } from '@testing-library/react'
 import { SelfServicePanel } from './SelfServicePanel'
+import { resetSelfSessionGate } from './selfServiceState'
 
 const querySelfDashboard = vi.fn()
 const selfOfflineSession = vi.fn()
@@ -21,11 +22,19 @@ vi.mock('react-i18next', () => ({
 vi.mock('@/components/ui/animated-card', () => ({
   AnimatedCard: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }))
-// config store：学号默认取配置（凭据初始化逻辑依赖）
+// config store：学号默认取配置（凭据初始化逻辑依赖）+ Hello 策略开关
 const mockConfigUser = { current: '' }
+const mockHelloEnabled = { current: true }
+const mockReverifyEach = { current: false }
+const storeState = {
+  selfPasswordSaved: false,
+  config: { user: '', selfHelloEnabled: true, selfReverifyEachAction: false },
+}
 vi.mock('@/hooks/useConfigStore', () => ({
-  useConfigStore: (selector: (s: { config: { user: string } }) => unknown) =>
-    selector({ config: { user: mockConfigUser.current } }),
+  useConfigStore: Object.assign(
+    (selector: (s: typeof storeState) => unknown) => selector(storeState),
+    { getState: () => storeState },
+  ),
 }))
 
 // 假数据：结构与协议一致，IP/MAC 均为虚构值
@@ -41,9 +50,16 @@ beforeEach(() => {
   querySelfDashboard.mockReset()
   selfOfflineSession.mockReset()
   verifyWindowsIdentity.mockReset()
-  // 面板操作前需过 Hello 门（首次免验，之后验证成功放行）
+  // 面板操作前需过 Hello 门（切入面板验证一次后操作共用）
   verifyWindowsIdentity.mockResolvedValue({ success: true })
   mockConfigUser.current = ''
+  mockHelloEnabled.current = true
+  mockReverifyEach.current = false
+  storeState.config.user = ''
+  storeState.config.selfHelloEnabled = true
+  storeState.config.selfReverifyEachAction = false
+  // 面板会话门是模块级单例，跨用例重置
+  resetSelfSessionGate()
 })
 
 afterEach(() => {
@@ -70,6 +86,7 @@ describe('SelfServicePanel', () => {
 
   it('学号默认取 config.user；刷新后表格渲染并按协议格式化（MAC/时长/流量/终端类型/计费方式）', async () => {
     mockConfigUser.current = '24380002'
+    storeState.config.user = '24380002'
     querySelfDashboard.mockResolvedValue({
       success: true,
       data: { onlineList: ONLINE, loginHistory: HISTORY },
@@ -98,7 +115,7 @@ describe('SelfServicePanel', () => {
     expect(container.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
   })
 
-  it('验证失败时不执行刷新查询（每次操作都过 Hello 验证）', async () => {
+  it('验证失败时不执行刷新查询（进入面板/点击刷新都过 Hello 验证）', async () => {
     verifyWindowsIdentity.mockResolvedValue({ success: false, message: '验证未通过' })
     querySelfDashboard.mockResolvedValue({ success: true, data: { onlineList: [], loginHistory: [] } })
     const { container } = render(<SelfServicePanel />)
@@ -108,8 +125,46 @@ describe('SelfServicePanel', () => {
       fireEvent.click(refreshBtn)
       await Promise.resolve()
     })
-    expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
+    // 自动验证（切入面板）+ 手动点击各一次
+    expect(verifyWindowsIdentity).toHaveBeenCalled()
     expect(querySelfDashboard).not.toHaveBeenCalled()
+  })
+
+  it('Windows Hello 总开关关闭时不弹验证直接查询', async () => {
+    storeState.config.selfHelloEnabled = false
+    querySelfDashboard.mockResolvedValue({ success: true, data: { onlineList: [], loginHistory: [] } })
+    const { container } = render(<SelfServicePanel />)
+    await fillCreds()
+    const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
+    await act(async () => {
+      fireEvent.click(refreshBtn)
+      await Promise.resolve()
+    })
+    expect(verifyWindowsIdentity).not.toHaveBeenCalled()
+    expect(querySelfDashboard).toHaveBeenCalled()
+  })
+
+  it('验证一次后面板内操作共用（不再二次验证）', async () => {
+    querySelfDashboard.mockResolvedValue({
+      success: true,
+      data: { onlineList: ONLINE, loginHistory: [] },
+    })
+    const { container } = render(<SelfServicePanel />)
+    await fillCreds()
+    const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
+    await act(async () => {
+      fireEvent.click(refreshBtn)
+      await Promise.resolve()
+    })
+    const verifyCountAfterFirst = verifyWindowsIdentity.mock.calls.length
+    await act(async () => {
+      fireEvent.click(refreshBtn)
+      await Promise.resolve()
+    })
+    // 会话门已验证：第二次刷新不再弹验证
+    expect(verifyWindowsIdentity.mock.calls.length).toBe(verifyCountAfterFirst)
+    // 切入面板自动刷新 1 次 + 两次手动点击各 1 次
+    expect(querySelfDashboard).toHaveBeenCalledTimes(3)
   })
 
   it('注销需确认，确认后调用接口并移除对应行', async () => {

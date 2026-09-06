@@ -7,6 +7,8 @@ export const DEFAULT_CONFIG: Config = {
   user: '',
   password: '',
   selfPassword: '',
+  selfHelloEnabled: true,
+  selfReverifyEachAction: false,
   operator: '',
   adapter1: AUTO_DETECT_ADAPTER,
   adapter2: '',

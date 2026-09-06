@@ -11,7 +11,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
-import { useSelfCredStore, useSelfServiceVerify } from '@/account/selfServiceState'
+import { useSelfCredStore, useSelfServiceVerify, resetSelfSessionGate } from '@/account/selfServiceState'
 
 // 自助服务 dashboard 协议字段（逆向于 2026-09-05 页面 JS，原始 JSON 透传）
 interface SelfOnlineItem {
@@ -130,12 +130,18 @@ export function SelfServicePanel() {
   const [logSummary, setLogSummary] = useState<SelfLogSummary | null>(null)
   const [logQuerying, setLogQuerying] = useState(false)
   const mountedRef = useRef(true)
-  // 每次刷新/踢下线都要求 Windows Hello 验证（与绑定卡的门独立，不首免不共用）
+  // 切入面板验证一次后操作共用；面板卸载时重置会话门
   const ensureSelfVerified = useSelfServiceVerify()
+  const autoRefreshedRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
-    return () => { mountedRef.current = false }
+    return () => {
+      mountedRef.current = false
+      // 下次切入面板重新验证（会话门只在面板存活期内有效）
+      resetSelfSessionGate()
+      autoRefreshedRef.current = false
+    }
   }, [])
 
   // 配置异步加载完成后预填一次学号（store 为空时才填，与绑定卡预填同模式）
@@ -189,6 +195,22 @@ export function SelfServicePanel() {
       if (mountedRef.current) setQuerying(false)
     }
   }, [hasCred, querying, ensureSelfVerified, selfPasswordForSubmit, account, addToast, t])
+
+  // 切入面板自动验证并刷新（2026-09-06 用户要求）：凭据就绪后弹 Hello，
+  // 通过即自动拉取在线信息与近期上网记录；验证取消/失败则等用户手动刷新。
+  // Hello 总开关关闭时不弹窗（用户点刷新时门也直接放行）。
+  useEffect(() => {
+    if (autoRefreshedRef.current || !hasCred) return
+    if (useConfigStore.getState().config.selfHelloEnabled === false) {
+      autoRefreshedRef.current = true
+      void fetchDashboard()
+      return
+    }
+    autoRefreshedRef.current = true
+    void (async () => {
+      if (await ensureSelfVerified()) await fetchDashboard()
+    })()
+  }, [hasCred, ensureSelfVerified, fetchDashboard])
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineSessionId) return
@@ -278,8 +300,8 @@ export function SelfServicePanel() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* 凭据区：与账号面板绑定卡共用同一 store，样式同绑定卡（垂直排布 + 密码可见切换） */}
-            <div className="space-y-3">
+            {/* 凭据区：与账号面板绑定卡共用同一 store；两列并排压缩纵向空间 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="self-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
                 <Input
@@ -319,7 +341,7 @@ export function SelfServicePanel() {
             {!hasCred ? (
               <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : querying && onlineList === null ? (
-              <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfDashboardQuerying')}
               </div>
             ) : onlineList !== null && onlineList.length > 0 ? (
@@ -369,8 +391,8 @@ export function SelfServicePanel() {
                 </table>
               </div>
             ) : (
-              <div className="text-center py-6 text-xs text-muted-foreground">
-                {onlineList === null ? t('account.selfDashboardNeedCred') : t('account.selfDashboardEmpty')}
+              <div className="text-center py-4 text-xs text-muted-foreground">
+                {onlineList === null ? t('account.selfDashboardIdle') : t('account.selfDashboardEmpty')}
               </div>
             )}
             <p className="text-[11px] text-muted-foreground/70">{t('account.selfDashboardUnitNote')}</p>
@@ -435,9 +457,9 @@ export function SelfServicePanel() {
                 </table>
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                 <Eye className="h-3.5 w-3.5" />
-                {history === null ? t('account.selfDashboardNeedCred') : t('account.selfHistoryEmpty')}
+                {history === null ? t('account.selfDashboardIdle') : t('account.selfHistoryEmpty')}
               </div>
             )}
             <p className="text-[11px] text-muted-foreground/70">{t('account.selfDashboardUnitNote')}</p>
@@ -502,7 +524,7 @@ export function SelfServicePanel() {
             {!hasCred ? (
               <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : logQuerying && logRows === null ? (
-              <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfLogQuerying')}
               </div>
             ) : logRows !== null ? (
@@ -581,7 +603,7 @@ export function SelfServicePanel() {
                 )}
               </>
             ) : (
-              <div className="text-center py-6 text-xs text-muted-foreground">
+              <div className="text-center py-4 text-xs text-muted-foreground">
                 {t('account.selfLogHint')}
               </div>
             )}

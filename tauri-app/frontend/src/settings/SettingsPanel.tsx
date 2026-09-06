@@ -6,10 +6,12 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Rocket, Check, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass
+  Rocket, Check, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass, ShieldCheck
 } from 'lucide-react'
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
-import { cn } from '@/lib/utils'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { memo, useMemo, useState, useRef, useEffect } from 'react'
 import { useThemeStore } from '@/hooks/useThemeStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -107,6 +109,25 @@ export const SettingsPanel = memo(function SettingsPanel({
       onUpdateConfig({ fixedGateway: fixedGatewayDraft })
     }
     setFixedGatewayDraft(null)
+  }
+
+  // 关闭安全开关（安全 → 宽松方向）必须先通过 Windows Hello 验证，
+  // 防止绕过界面直接关闭保护；验证失败保持原状态（Switch 受控自动回弹）
+  const handleSecurityDisable = async (apply: (ok: boolean) => void) => {
+    const addToast = useLogToastStore.getState().addToast
+    try {
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity({
+        consentMessage: t('settings.securityChangePrompt'),
+      })
+      if (verified.success) {
+        apply(true)
+        addToast(t('settings.securityChanged'), 'success')
+      } else {
+        addToast(verified.message || t('settings.securityVerifyFailed'), 'error')
+      }
+    } catch (err) {
+      addToast(extractErrorMessage(err) || t('settings.securityVerifyFailed'), 'error')
+    }
   }
   const { t } = useTranslation()
 
@@ -504,8 +525,60 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
+      {/* 安全设置：Windows Hello 相关开关。关闭任一开关（安全 → 宽松方向）
+          都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
+      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle>{t('settings.security')}</CardTitle>
+                <CardDescription>{t('settings.securityDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="self-hello-enabled" className="text-sm font-medium cursor-pointer">{t('settings.selfHello')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.selfHelloDesc')}</p>
+              </div>
+              <Switch
+                id="self-hello-enabled"
+                checked={config.selfHelloEnabled !== false}
+                onCheckedChange={checked => {
+                  if (checked) { onUpdateConfig({ selfHelloEnabled: true }); return }
+                  void handleSecurityDisable(() => onUpdateConfig({ selfHelloEnabled: false }))
+                }}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="self-reverify" className="text-sm font-medium cursor-pointer">{t('settings.selfReverify')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.selfReverifyDesc')}</p>
+              </div>
+              <Switch
+                id="self-reverify"
+                disabled={config.selfHelloEnabled === false}
+                checked={config.selfReverifyEachAction === true}
+                onCheckedChange={checked => {
+                  if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
+                  void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
+                }}
+                className="shrink-0"
+              />
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
       {onShowOnboarding && (
-        <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+        <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
           <AnimatedCard noEnterAnimation>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
