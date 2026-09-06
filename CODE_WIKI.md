@@ -619,6 +619,7 @@ pub struct AccountResult {
 |------|------|--------|------|
 | `user` | String | `""` | 学号 |
 | `password` | String | `""` | 密码 (内存中明文, 磁盘上DPAPI加密) |
+| `selfPassword` | String | `""` | 自助服务系统密码 (2026-09-05, 内存中明文, 磁盘上DPAPI加密; 回传前端时替换为 MASK; 命令层 resolve_self_password 在前端传空/MASK 时回退此值) |
 | `operator` | String | `""` | 运营商后缀 (`""` 不拼接, `"@telecom"`/`"@unicom"`/`"@cmcc"` 直接拼接, 其他值 `validate_operator` 报错) |
 | `adapter1` | String | `"自动检测"` | 主适配器名称 |
 | `adapter2` | String | `""` | 副适配器名称 |
@@ -882,9 +883,9 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/运营商账户密码均不持久化
 - **main.rs 与 lib.rs 是两棵独立模块树**：新增顶层模块必须同时在这两个文件声明（本次曾漏 main.rs 导致 bin target E0432）
 - **绑定状态查询**：`query_bind_status` 命令复用登录链路（`login_and_fetch_bind_page` 提取为共用函数），解析 FLDEXTRA 预填值返回三运营商绑定状态；手机号掩码**前三后二**（`mask_account`，如 `197******38`），密码仅回是否设置，明文不出协议模块
-- **查看明文密码需 Windows 本地身份验证**：`verify_windows_identity`（`platform/identity.rs`——主路径 Windows Hello `UserConsentVerifier::RequestVerificationAsync`；未配置 Hello 时回退 `CredUIPromptForCredentialsW` 收集凭据 + SSPI NTLM 往返校验。`LogonUser` 需 SE_TCB_NAME 特权普通进程不可用，SSPI `AcceptSecurityContext` 是无特权校验标准做法）→ 通过后 `reveal_operator_credential` 返回该运营商明文（手机号 + 账户密码），前端临时显示可隐藏。2026-09-05 改进：命令先 `show + set_focus` 主窗口再弹验证；**验证弹窗文案由前端 i18n 传入**（`verify_identity(consent_message, parent_hwnd)`，覆盖性文案防"文案与操作不符"）；`verify_identity` 返回 `Ok(hello_used)`，命令 data 带 `helloUsed`，走凭据回退（未配置 Hello）时前端 toast 提示推荐开启；**绑定/查询/dashboard 共用验证门**（`account/selfServiceState.ts` 的 `useHelloGate`/`markGateVerified`，模块级 firstFree→needVerify→verified：首次免验，之后一次通过应用生命周期内共用；reveal 每次验证但通过后顺带置 verified），`AccountPanel.helloGate.test.tsx` 锁行为
-- **Win11 Hello 弹窗置顶（2026-09-05 用户实测缺陷修复）**：Win11 下系统 Hello Consent UI 由 broker 进程创建、不主动抢前台，仅 `set_focus` 不够（弹窗留在应用窗口后面需手动从任务栏点开；CredUI 对话框不受影响）。修复：`verify_windows_identity` 验证期间用 `TopmostGuard`（RAII，Drop 恢复）临时置顶主窗口把 Consent UI 顶到最前，并把主窗口 HWND（`w.hwnd()` 跨线程转 isize 原始值）传给 `CredUIPromptForCredentialsW` 的 `hwndParent` 作模态父窗口——两条弹窗路径都不会被遮挡
-- **验证与明文返回在后端关联（2026-09-05 安全加固）**：`verify_windows_identity` 成功后 `note_identity_verified()` 写后端时间戳（`LAST_VERIFY_EPOCH_SECS` AtomicU64），`reveal_operator_credential` 校验 `identity_verified_recently()`（TTL `IDENTITY_VERIFY_TTL_SECS`=600 秒，纯函数 `is_within_ttl` 含时钟回拨拒绝，有单测）——前端 helloGate 只是 UX 层，后端 TTL 才是真防线，webview 层绕过前端编排也无法拿明文；凭据对话框收集的 Windows 明文凭据在 SSPI 校验后立即清零（String `zeroize_string` + 宽字节副本 `fill(0)`，Rust drop 不清零防堆残留）
+- **Windows Hello 本地身份验证（2026-09-05 重构：仅 Hello，删除 CredUI 回退）**：`verify_windows_identity` → `platform/identity.rs` 的 `verify_identity(consent_message)`（async）。**只走 Windows Hello**（`UserConsentVerifier`，指纹/面部/Hello PIN），设备未配置时直接返回引导文案；CredUI 凭据对话框 + SSPI NTLM 回退已整体删除（用户明确只要 Hello）。弹窗文案由前端 i18n 传入。通过后 `reveal_operator_credential` 才可返回运营商明文。**关键平台问题（cppwinrt#999）：阻塞等待 RequestVerificationAsync（.get()）时 Consent 弹窗（独立进程 Credential Manager UI Host）无法完成前台转移，留在应用窗口后面且被 topmost 主窗口盖死（任务栏点击也提不上来）**；修复为非阻塞等待——`await_winrt_operation`（SetCompleted 回调 + tokio oneshot，windows 0.58 无内建 Future；delegate 是 FnMut、oneshot Sender 消费 self，用 Option::take() 适配），调用前 CoInitializeEx(MTA)。**绑定/查询/dashboard 共用验证门**（`account/selfServiceState.ts` 的 `useHelloGate`/`markGateVerified`，firstFree→needVerify→verified：首次免验，之后一次通过共用；reveal 每次验证但通过后顺带置 verified），`AccountPanel.helloGate.test.tsx` 锁行为
+- （Win11 置顶问题已并入上行非阻塞方案：原 TopmostGuard 置顶主窗口方案把非置顶的 Consent 彻底盖死，已删除）
+- **验证与明文返回在后端关联（2026-09-05 安全加固）**：`verify_windows_identity` 成功后 `note_identity_verified()` 写后端时间戳（`LAST_VERIFY_EPOCH_SECS` AtomicU64），`reveal_operator_credential` 校验 `identity_verified_recently()`（TTL `IDENTITY_VERIFY_TTL_SECS`=600 秒，纯函数 `is_within_ttl` 含时钟回拨拒绝，有单测）——前端 helloGate 只是 UX 层，后端 TTL 才是真防线，webview 层绕过前端编排也无法拿明文
 - 单测 7 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）、mask_account 掩码规则
 - 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
 

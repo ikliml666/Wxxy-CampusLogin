@@ -3,6 +3,7 @@ import type { PanelName, GpuInfo } from '@/shared/ui-types'
 export interface Config {
   user: string
   password: string
+  selfPassword: string
   operator: string
   adapter1: string
   adapter2: string

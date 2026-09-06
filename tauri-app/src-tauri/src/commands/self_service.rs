@@ -18,6 +18,22 @@ fn resolve_campus_bind_addr(state: &AppState) -> Option<IpAddr> {
         .and_then(|a| a.ip.parse().ok())
 }
 
+/// 解析自助服务密码：前端传入非 MASK 明文优先（用户刚重输的新密码）；
+/// 空/MASK 占位符时回退已保存的 config.self_password（加载时已 DPAPI 解密的
+/// 内存明文，磁盘上加密存储）。两者皆无返回 None（调用方提示输入密码）。
+fn resolve_self_password(state: &AppState, password: &str) -> Option<String> {
+    let p = password.trim();
+    if !p.is_empty() && p != crate::config::model::PASSWORD_MASK {
+        return Some(p.to_string());
+    }
+    let saved = state.config.load_full().self_password.clone();
+    let saved = saved.trim();
+    if !saved.is_empty() && saved != crate::config::model::PASSWORD_MASK {
+        return Some(saved.to_string());
+    }
+    None
+}
+
 /// 绑定运营商账号（新手教程"绑定运营商账号"步骤 / 账户管理页绑定卡片）。
 /// 凭据仅本次请求内存传递，不写入配置、不落盘、不写日志。
 #[tauri::command]
@@ -30,7 +46,6 @@ pub async fn bind_operator(
     sms_password: String,
 ) -> Result<CommandResult, String> {
     let account = account.trim();
-    let password = password.trim();
     let operator = operator.trim();
     let phone = phone.trim();
     let sms_password = sms_password.trim();
@@ -38,9 +53,10 @@ pub async fn bind_operator(
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    if password.is_empty() {
+    // 自助服务密码：前端未重输时回退已保存值（MASK/空串语义）
+    let Some(password) = resolve_self_password(&state, &password) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
-    }
+    };
     if phone.len() != 11 || !phone.chars().all(|c| c.is_ascii_digit()) {
         return Ok(CommandResult::err("请输入 11 位手机号"));
     }
@@ -53,7 +69,7 @@ pub async fn bind_operator(
         crate::log_warn!("self", "绑定运营商账号：未解析到有 IP 的校园网适配器，走系统默认路由");
     }
 
-    let params = BindParams { account, password, operator, phone, sms_password };
+    let params = BindParams { account, password: &password, operator, phone, sms_password };
     match self_service::bind_operator(&params, local_addr).await {
         Ok(msg) => {
             crate::log_info!("self", "绑定运营商账号成功: operator={}", operator);
@@ -74,16 +90,15 @@ pub async fn query_bind_status(
     password: String,
 ) -> Result<CommandResult, String> {
     let account = account.trim();
-    let password = password.trim();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    if password.is_empty() {
+    let Some(password) = resolve_self_password(&state, &password) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
-    }
+    };
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::query_bind_status(account, password, local_addr).await {
+    match self_service::query_bind_status(account, &password, local_addr).await {
         Ok(bindings) => {
             let to_json = |b: &Option<self_service::OperatorBinding>| match b {
                 Some(b) => json!({ "account": b.masked_account, "passwordSet": b.password_set }),
@@ -112,16 +127,15 @@ pub async fn query_self_dashboard(
     password: String,
 ) -> Result<CommandResult, String> {
     let account = account.trim();
-    let password = password.trim();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    if password.is_empty() {
+    let Some(password) = resolve_self_password(&state, &password) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
-    }
+    };
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::query_dashboard(account, password, local_addr).await {
+    match self_service::query_dashboard(account, &password, local_addr).await {
         Ok((online, history)) => Ok(CommandResult {
             success: true,
             message: None,
@@ -144,20 +158,19 @@ pub async fn self_offline_session(
     session_id: String,
 ) -> Result<CommandResult, String> {
     let account = account.trim();
-    let password = password.trim();
     let session_id = session_id.trim();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    if password.is_empty() {
+    let Some(password) = resolve_self_password(&state, &password) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
-    }
+    };
     if session_id.is_empty() {
         return Ok(CommandResult::err("缺少会话标识"));
     }
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::offline_session(account, password, session_id, local_addr).await {
+    match self_service::offline_session(account, &password, session_id, local_addr).await {
         Ok(()) => {
             crate::log_info!("self", "自助服务注销会话成功");
             Ok(CommandResult::ok_msg("注销成功"))
@@ -169,63 +182,25 @@ pub async fn self_offline_session(
     }
 }
 
-/// 验证期间临时置顶主窗口的 RAII guard：Win11 下系统 Hello 弹窗（broker 进程）
-/// 不主动抢前台，会留在应用窗口后面需要手动从任务栏点开（实测缺陷）；置顶主窗口
-/// 把 Consent UI 顶到最前，验证结束（完成/取消/异常）自动恢复。
-struct TopmostGuard(Option<tauri::WebviewWindow>);
-
-impl TopmostGuard {
-    fn new(win: Option<tauri::WebviewWindow>) -> Self {
-        if let Some(w) = &win {
-            let _ = w.set_always_on_top(true);
-        }
-        Self(win)
-    }
-}
-
-impl Drop for TopmostGuard {
-    fn drop(&mut self) {
-        if let Some(w) = &self.0 {
-            let _ = w.set_always_on_top(false);
-        }
-    }
-}
-
-/// Windows 本地身份验证（Windows Hello，未配置时回退 Windows 凭据对话框 +
-/// SSPI 本地校验）。弹窗文案由前端按场景传入（i18n）；通过后记录后端验证时间戳
+/// Windows 本地身份验证（仅 Windows Hello，设备未配置时返回引导文案）。
+/// 弹窗文案由前端按场景传入（i18n）；必须非阻塞 await（阻塞会导致 Consent 弹窗
+/// 留在应用窗口后面，见 identity.rs 模块注释）；通过后记录后端验证时间戳
 /// （时效 IDENTITY_VERIFY_TTL_SECS，reveal 等敏感操作在后端校验，防 webview 绕过）。
-/// data.helloUsed=false 表示走的是凭据对话框回退（设备未配置 Hello），前端据此
-/// 提示推荐开启 Windows Hello。
 #[tauri::command]
 pub async fn verify_windows_identity(
     app: tauri::AppHandle,
     consent_message: Option<String>,
 ) -> Result<CommandResult, String> {
-    // 先把主窗口带到前台：系统弹窗的前台行为依赖调用方窗口状态
-    let win = app.get_webview_window("main");
-    if let Some(w) = &win {
-        let _ = w.show();
-        let _ = w.set_focus();
+    // 主窗口带到前台：为系统 Consent UI 的前台转移提供正确上下文
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.set_focus();
     }
     let message = consent_message.unwrap_or_default();
-    // 弹窗/校验为阻塞调用，放独立线程避免占用 Tauri 异步运行时
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        // 验证期间置顶主窗口（RAII，结束自动恢复），同时把主窗口 HWND 传给
-        // 凭据对话框作模态父窗口（HWND 非 Send，跨线程传原始值）
-        let _topmost = TopmostGuard::new(win.clone());
-        let parent_hwnd = win.as_ref().and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize);
-        crate::platform::identity::verify_identity(&message, parent_hwnd)
-    })
-    .await
-    .map_err(|e| format!("身份验证任务失败: {e}"))?;
-    match result {
-        Ok(hello_used) => {
+    match crate::platform::identity::verify_identity(&message).await {
+        Ok(()) => {
             crate::platform::identity::note_identity_verified();
-            Ok(CommandResult {
-                success: true,
-                message: None,
-                data: Some(json!({ "helloUsed": hello_used })),
-            })
+            Ok(CommandResult::ok())
         }
         Err(e) => Ok(CommandResult::err(&e)),
     }
@@ -243,11 +218,13 @@ pub async fn reveal_operator_credential(
     operator: String,
 ) -> Result<CommandResult, String> {
     let account = account.trim();
-    let password = password.trim();
     let operator = operator.trim();
-    if account.is_empty() || password.is_empty() {
-        return Ok(CommandResult::err("请先填写学号与自助服务系统密码"));
+    if account.is_empty() {
+        return Ok(CommandResult::err("请输入学号"));
     }
+    let Some(password) = resolve_self_password(&state, &password) else {
+        return Ok(CommandResult::err("请先填写自助服务系统密码"));
+    };
     if !crate::platform::identity::identity_verified_recently() {
         return Ok(CommandResult::err(
             "Windows 身份验证已过期，请重新验证后再查看",
@@ -255,7 +232,7 @@ pub async fn reveal_operator_credential(
     }
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::reveal_credential(account, password, operator, local_addr).await {
+    match self_service::reveal_credential(account, &password, operator, local_addr).await {
         Ok((phone, sms_password)) => Ok(CommandResult {
             success: true,
             message: None,

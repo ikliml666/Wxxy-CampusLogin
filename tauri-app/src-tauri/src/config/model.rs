@@ -11,6 +11,9 @@ pub struct Config {
     pub user: String,
     #[serde(default)]
     pub password: String,
+    /// 自助服务系统登录密码（内存明文，磁盘 DPAPI 加密；回传前端时替换为 MASK）
+    #[serde(rename = "selfPassword", default)]
+    pub self_password: String,
     pub operator: String,
     pub adapter1: String,
     pub adapter2: String,
@@ -137,6 +140,7 @@ impl Default for Config {
         Self {
             user: String::new(),
             password: String::new(),
+            self_password: String::new(),
             operator: String::new(),
             adapter1: AUTO_DETECT_ADAPTER.to_string(),
             adapter2: String::new(),

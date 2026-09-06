@@ -15,7 +15,6 @@ interface SelfCredState {
   password: string
   setAccount: (account: string) => void
   setPassword: (password: string) => void
-  clearPassword: () => void
 }
 
 export const useSelfCredStore = create<SelfCredState>((set) => ({
@@ -23,7 +22,6 @@ export const useSelfCredStore = create<SelfCredState>((set) => ({
   password: '',
   setAccount: (account) => set({ account }),
   setPassword: (password) => set({ password }),
-  clearPassword: () => set({ password: '' }),
 }))
 
 /**
@@ -55,10 +53,6 @@ export function useHelloGate() {
       })
       if (verified.success) {
         helloGate = 'verified'
-        const d = verified.data as { helloUsed?: boolean } | undefined
-        if (d && d.helloUsed === false) {
-          addToast(t('account.helloRecommend'), 'info')
-        }
         return true
       }
       addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')

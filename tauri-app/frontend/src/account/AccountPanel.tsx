@@ -139,9 +139,15 @@ export const AccountPanel = memo(function AccountPanel({
   const BIND_OPERATOR_NONE = '__none__'
   const bindSelfAccount = useSelfCredStore((s) => s.account)
   const setBindSelfAccount = useSelfCredStore((s) => s.setAccount)
+  // 自助服务密码持久化（与登录信息密码同措施）：config.selfPassword DPAPI 加密落盘，
+  // 前端只见 MASK；store 中的 password 是聚焦期草稿（跨面板同步），blur 时提交保存
   const bindSelfPassword = useSelfCredStore((s) => s.password)
   const setBindSelfPassword = useSelfCredStore((s) => s.setPassword)
-  const clearSelfPassword = useSelfCredStore((s) => s.clearPassword)
+  const selfPasswordSaved = config.selfPassword === PASSWORD_MASK
+  const [bindPwdFocused, setBindPwdFocused] = useState(false)
+  const displayBindPassword = bindPwdFocused
+    ? bindSelfPassword
+    : (selfPasswordSaved ? '••••••••' : '')
   const [showBindPassword, setShowBindPassword] = useState(false)
   const [bindOp, setBindOp] = useState(BIND_OPERATOR_NONE)
   const [bindPhone, setBindPhone] = useState('')
@@ -169,13 +175,30 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }, [config.user, config.operator, setBindSelfAccount])
 
+  // 聚焦清空草稿开始新输入；blur 时草稿非空则保存到配置（与登录信息密码同模式）
+  const handleBindPwdFocus = () => {
+    setBindPwdFocused(true)
+    setBindSelfPassword('')
+  }
+  const handleBindPwdBlur = () => {
+    setBindPwdFocused(false)
+    if (bindSelfPassword) {
+      onUpdateConfig({ selfPassword: bindSelfPassword })
+      setBindSelfPassword('')
+    }
+  }
+
+  // 提交命令用的密码：重输的新草稿优先，否则空串（后端回退已保存值）
+  const selfPasswordForSubmit = bindSelfPassword.trim()
+
   const canBind = bindSelfAccount.trim().length > 0
-    && bindSelfPassword.trim().length > 0
+    && (bindSelfPassword.trim().length > 0 || selfPasswordSaved)
     && bindOp !== BIND_OPERATOR_NONE
     && /^1\d{10}$/.test(bindPhone.trim())
     && bindSms.trim().length > 0
 
-  const canQueryStatus = bindSelfAccount.trim().length > 0 && bindSelfPassword.trim().length > 0
+  const canQueryStatus = bindSelfAccount.trim().length > 0
+    && (bindSelfPassword.trim().length > 0 || selfPasswordSaved)
 
   // 绑定/查询/dashboard 共用的 Hello 验证门（实现见 selfServiceState.ts）：
   // 首次免验，之后需验证且一次通过全局共用
@@ -188,7 +211,7 @@ export const AccountPanel = memo(function AccountPanel({
     try {
       const result = await tauriApiWithRetry.getBindStatus({
         account: bindSelfAccount.trim(),
-        password: bindSelfPassword.trim(),
+        password: selfPasswordForSubmit,
       })
       if (!mountedRef.current) return
       if (result.success && result.data) {
@@ -206,7 +229,7 @@ export const AccountPanel = memo(function AccountPanel({
     } finally {
       if (mountedRef.current) setQueryingStatus(false)
     }
-  }, [queryingStatus, ensureHelloVerified, bindSelfAccount, bindSelfPassword, addToast, t])
+  }, [queryingStatus, ensureHelloVerified, selfPasswordForSubmit, bindSelfAccount, addToast, t])
 
   // 查看明文密码：每次都经 Windows 本地身份验证（最敏感操作，不进共用验证门），
   // 通过后顺带解锁后续绑定/查询；未配置 Hello 时提示推荐开启
@@ -230,7 +253,7 @@ export const AccountPanel = memo(function AccountPanel({
       }
       const r = await tauriApiWithRetry.revealOperatorCredential({
         account: bindSelfAccount.trim(),
-        password: bindSelfPassword.trim(),
+        password: selfPasswordForSubmit,
         operator: opValue,
       })
       if (!mountedRef.current) return
@@ -244,7 +267,7 @@ export const AccountPanel = memo(function AccountPanel({
     } catch (err) {
       if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
     }
-  }, [revealedOp, bindSelfAccount, bindSelfPassword, addToast, t])
+  }, [revealedOp, bindSelfAccount, selfPasswordForSubmit, addToast, t])
 
   const handleBindOperator = useCallback(async () => {
     if (binding || !canBind) return
@@ -253,7 +276,7 @@ export const AccountPanel = memo(function AccountPanel({
     try {
       const result = await tauriApiWithRetry.bindOperator({
         account: bindSelfAccount.trim(),
-        password: bindSelfPassword.trim(),
+        password: selfPasswordForSubmit,
         operator: bindOp,
         phone: bindPhone.trim(),
         smsPassword: bindSms.trim(),
@@ -261,8 +284,7 @@ export const AccountPanel = memo(function AccountPanel({
       if (mountedRef.current) {
         if (result.success) {
           addToast(result.message || t('onboarding.bindSuccess'), 'success')
-          // 成功后清空敏感字段（共享 store 同步，自助服务面板密码一并清空）
-          clearSelfPassword()
+          // 成功后清空运营商账户密码（自助服务密码已持久化保存，不清）
           setBindSms('')
           // 绑定成功后自动刷新状态区（凭据本次有效）
           void fetchBindStatus()
@@ -277,7 +299,7 @@ export const AccountPanel = memo(function AccountPanel({
     } finally {
       if (mountedRef.current) setBinding(false)
     }
-  }, [binding, canBind, ensureHelloVerified, bindSelfAccount, bindSelfPassword, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
+  }, [binding, canBind, ensureHelloVerified, selfPasswordForSubmit, bindSelfAccount, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
 
   return (
     <div className="space-y-4">
@@ -542,9 +564,11 @@ export const AccountPanel = memo(function AccountPanel({
                 <Input
                   id="bind-self-password"
                   type={showBindPassword ? 'text' : 'password'}
-                  value={bindSelfPassword}
+                  value={displayBindPassword}
                   onChange={e => setBindSelfPassword(e.target.value)}
-                  placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
+                  onFocus={handleBindPwdFocus}
+                  onBlur={handleBindPwdBlur}
+                  placeholder={selfPasswordSaved ? t('account.passwordSavedPlaceholder') : t('onboarding.bindSelfPasswordPlaceholder')}
                   icon={<KeyRound className="h-4 w-4" />}
                   className="[&::-ms-reveal]:hidden pr-10"
                 />

@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Eye, EyeOff, Globe, History, KeyRound, Loader2, LogOut, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
@@ -70,8 +71,13 @@ export function SelfServicePanel() {
   // 凭据与账号面板绑定卡共享同一 store（切换面板不丢失；仅内存保留不落盘）
   const account = useSelfCredStore((s) => s.account)
   const setAccount = useSelfCredStore((s) => s.setAccount)
+  // 自助服务密码已持久化（config.selfPassword DPAPI 加密落盘，前端只见 MASK）；
+  // store 中的 password 是聚焦期草稿，blur 时保存到配置
   const password = useSelfCredStore((s) => s.password)
   const setPassword = useSelfCredStore((s) => s.setPassword)
+  const selfPasswordSaved = useConfigStore((s) => s.config.selfPassword) === PASSWORD_MASK
+  const [pwdFocused, setPwdFocused] = useState(false)
+  const displayPassword = pwdFocused ? password : (selfPasswordSaved ? '••••••••' : '')
   const [showPassword, setShowPassword] = useState(false)
   const credInitedRef = useRef(false)
   const [onlineList, setOnlineList] = useState<SelfOnlineItem[] | null>(null)
@@ -98,7 +104,22 @@ export function SelfServicePanel() {
     }
   }, [configUser, setAccount])
 
-  const hasCred = account.trim().length > 0 && password.trim().length > 0
+  // 聚焦清空草稿开始新输入；blur 时草稿非空则保存到配置（与登录信息密码同模式）
+  const handlePwdFocus = () => {
+    setPwdFocused(true)
+    setPassword('')
+  }
+  const handlePwdBlur = () => {
+    setPwdFocused(false)
+    if (password) {
+      void useConfigStore.getState().saveConfigDirect({ selfPassword: password })
+      setPassword('')
+    }
+  }
+
+  // 提交命令用的密码：重输的新草稿优先，否则空串（后端回退已保存值）
+  const selfPasswordForSubmit = password.trim()
+  const hasCred = account.trim().length > 0 && (selfPasswordForSubmit.length > 0 || selfPasswordSaved)
 
   const fetchDashboard = useCallback(async () => {
     if (!hasCred || querying) return
@@ -107,7 +128,7 @@ export function SelfServicePanel() {
     try {
       const result = await tauriApiWithRetry.querySelfDashboard({
         account: account.trim(),
-        password: password.trim(),
+        password: selfPasswordForSubmit,
       })
       if (!mountedRef.current) return
       if (result.success && result.data) {
@@ -122,7 +143,7 @@ export function SelfServicePanel() {
     } finally {
       if (mountedRef.current) setQuerying(false)
     }
-  }, [hasCred, querying, ensureHelloVerified, account, password, addToast, t])
+  }, [hasCred, querying, ensureHelloVerified, selfPasswordForSubmit, account, addToast, t])
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineSessionId) return
@@ -131,7 +152,7 @@ export function SelfServicePanel() {
     try {
       const result = await tauriApiWithRetry.selfOfflineSession({
         account: account.trim(),
-        password: password.trim(),
+        password: selfPasswordForSubmit,
         sessionId: item.sessionId,
       })
       if (!mountedRef.current) return
@@ -149,7 +170,7 @@ export function SelfServicePanel() {
         setConfirmTarget(null)
       }
     }
-  }, [offlineSessionId, ensureHelloVerified, account, password, addToast, t])
+  }, [offlineSessionId, ensureHelloVerified, selfPasswordForSubmit, account, addToast, t])
 
   const thClass = 'px-2 py-2 font-medium whitespace-nowrap text-left'
   const tdClass = 'px-2 py-2 whitespace-nowrap font-mono text-[11px]'
@@ -205,9 +226,11 @@ export function SelfServicePanel() {
                   <Input
                     id="self-password"
                     type={showPassword ? 'text' : 'password'}
-                    value={password}
+                    value={displayPassword}
                     onChange={e => setPassword(e.target.value)}
-                    placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
+                    onFocus={handlePwdFocus}
+                    onBlur={handlePwdBlur}
+                    placeholder={selfPasswordSaved ? t('account.passwordSavedPlaceholder') : t('onboarding.bindSelfPasswordPlaceholder')}
                     icon={<KeyRound className="h-4 w-4" />}
                     className="[&::-ms-reveal]:hidden pr-10"
                   />

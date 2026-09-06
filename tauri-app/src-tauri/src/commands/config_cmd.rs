@@ -16,6 +16,9 @@ pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) ->
     if !emit_cfg.password.is_empty() {
         emit_cfg.password = crate::config::model::PASSWORD_MASK.to_string();
     }
+    if !emit_cfg.self_password.is_empty() {
+        emit_cfg.self_password = crate::config::model::PASSWORD_MASK.to_string();
+    }
     let _ = app_handle.notify_config_changed(&emit_cfg);
     Ok(())
 }
@@ -38,6 +41,16 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
                 // 解密失败时仅清空密码，保留其他配置，避免全量配置丢失
                 crate::log_warn!("config", "密码解密失败，清除密码保留其他配置: {}", e);
                 config.password = String::new();
+            }
+        }
+    }
+
+    if !config.self_password.is_empty() && config.self_password != crate::config::model::PASSWORD_MASK {
+        match crypto::decrypt(&config.self_password) {
+            Ok(decrypted) => config.self_password = decrypted,
+            Err(e) => {
+                crate::log_warn!("config", "自助服务密码解密失败，清除保留其他配置: {}", e);
+                config.self_password = String::new();
             }
         }
     }
@@ -107,6 +120,11 @@ pub fn save_config(
         // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
         let current = state.config.load();
         config.password = current.password.clone();
+    }
+    // 自助服务密码同规则：空/MASK 占位符时保留已保存值（前端仅在用户重输时传新值）
+    if config.self_password.is_empty() || config.self_password == crate::config::model::PASSWORD_MASK {
+        let current = state.config.load();
+        config.self_password = current.self_password.clone();
     }
 
     // 历史缺陷：修改 Portal URL 仅存配置，不更新进程全局 PORTAL_URL，
