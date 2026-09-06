@@ -688,7 +688,22 @@
     "networkQualityDesc": "实时网络延迟监测",
     "addCard": "添加卡片",
     "noCards": "暂无卡片",
-    "noCardsTip": "点击上方\"编辑\"添加卡片"
+    "noCardsTip": "点击上方\"编辑\"添加卡片",
+    "selfNotConfigured": "未配置自助服务凭据",
+    "selfNotConfiguredTip": "在自助服务页设置学号与密码后展示",
+    "selfQueryFailed": "查询失败",
+    "selfRetry": "重试",
+    "selfShow": "显示关键信息",
+    "selfHide": "隐藏关键信息",
+    "selfOnline": "在线信息",
+    "selfOnlineDesc": "自助服务在线设备概览",
+    "selfLog": "近期上网记录",
+    "selfLogDesc": "今日自助服务上网记录",
+    "selfNoOnline": "当前无在线设备",
+    "selfNoLogs": "今日暂无上网记录",
+    "selfDeviceCount": "共 {{count}} 台在线设备",
+    "selfLogCount": "今日 {{count}} 条记录",
+    "selfMaskedHint": "关键信息已隐藏"
   },
   "confirmDialog": {
     "confirm": "确定",

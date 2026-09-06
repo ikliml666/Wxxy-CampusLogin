@@ -688,7 +688,22 @@
     "networkQualityDesc": "Real-time network latency monitoring",
     "addCard": "Add Card",
     "noCards": "No Cards",
-    "noCardsTip": "Click \"Edit\" above to add cards"
+    "noCardsTip": "Click \"Edit\" above to add cards",
+    "selfNotConfigured": "Self-service credentials not set",
+    "selfNotConfiguredTip": "Set your student ID and password on the Self-Service page first",
+    "selfQueryFailed": "Query failed",
+    "selfRetry": "Retry",
+    "selfShow": "Show key info",
+    "selfHide": "Hide key info",
+    "selfOnline": "Online Devices",
+    "selfOnlineDesc": "Self-service online device overview",
+    "selfLog": "Recent Activity Log",
+    "selfLogDesc": "Today's self-service activity log",
+    "selfNoOnline": "No online devices",
+    "selfNoLogs": "No activity records today",
+    "selfDeviceCount": "{{count}} devices online",
+    "selfLogCount": "{{count}} records today",
+    "selfMaskedHint": "Key info hidden"
   },
   "confirmDialog": {
     "confirm": "Confirm",

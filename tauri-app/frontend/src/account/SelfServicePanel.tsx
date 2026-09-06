@@ -56,12 +56,12 @@ interface SelfLogSummary {
   COU: number
 }
 
-const formatMac = (mac: string) => {
+export const formatMac = (mac: string) => {
   const pairs = mac.match(/.{2}/g)
   return pairs ? pairs.join('-') : mac
 }
 
-const formatEpoch = (ms: unknown) => {
+export const formatEpoch = (ms: unknown) => {
   const d = new Date(Number(ms))
   if (Number.isNaN(d.getTime())) return '-'
   const p = (n: number) => String(n).padStart(2, '0')
@@ -80,13 +80,13 @@ const toInt = (value: unknown) => {
 }
 
 // 使用时长：秒 → 分钟（原站 parseInt/60 取整）
-const formatUseTimeMinutes = (seconds: string) => {
+export const formatUseTimeMinutes = (seconds: string) => {
   const n = toInt(seconds)
   return n === null ? '--' : String(Math.round(n / 60))
 }
 
 // 使用流量：(下行+上行) KB → M，保留 3 位（原站同公式）
-const formatFlowMb = (downFlow: string, upFlow: string) => {
+export const formatFlowMb = (downFlow: string, upFlow: string) => {
   const down = toInt(downFlow) ?? 0
   const up = toInt(upFlow) ?? 0
   return ((down + up) / 1024).toFixed(3)
@@ -95,7 +95,7 @@ const formatFlowMb = (downFlow: string, upFlow: string) => {
 // 上网记录数值格式化（原站 toFixed(2)；null/undefined 兜底 0.00）
 const fmt2 = (value: unknown) => Number(value ?? 0).toFixed(2)
 // 本地日期 YYYY-MM-DD（toISOString 是 UTC，跨时区会偏一天）
-const localDateStr = (d = new Date()) => {
+export const localDateStr = (d = new Date()) => {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }

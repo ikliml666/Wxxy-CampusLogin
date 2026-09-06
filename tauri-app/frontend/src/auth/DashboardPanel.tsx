@@ -12,9 +12,9 @@ import {
   Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, Check, X,
   Plus, Activity, Settings2,
-  Wifi, Cable
+  Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, extractErrorMessage } from '@/lib/utils'
 import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
 import { Reorder, m, AnimatePresence } from 'framer-motion'
 import { QUALITY_CONFIG } from '@/network/constants'
@@ -28,9 +28,13 @@ import { useQualityStore } from '@/hooks/useQualityStore'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
+import { useHelloGate } from '@/account/selfServiceState'
+import { formatEpoch, formatUseTimeMinutes, formatFlowMb, localDateStr } from '@/account/SelfServicePanel'
 import { useShallow } from 'zustand/react/shallow'
 
-type CardId = 'quickActions' | 'accountManage' | 'networkQuality'
+type CardId = 'quickActions' | 'accountManage' | 'selfOnline' | 'selfLog' | 'networkQuality'
 
 interface CardDef {
   id: CardId
@@ -41,12 +45,14 @@ interface CardDef {
 const ALL_CARDS: CardDef[] = [
   { id: 'quickActions', label: 'dashboard.quickActions', icon: Zap },
   { id: 'accountManage', label: 'dashboard.accountManage', icon: UserCircle },
+  { id: 'selfOnline', label: 'dashboard.selfOnline', icon: MonitorSmartphone },
+  { id: 'selfLog', label: 'dashboard.selfLog', icon: History },
   { id: 'networkQuality', label: 'dashboard.networkQuality', icon: Gauge },
 ]
 
 const CARD_MAP = Object.fromEntries(ALL_CARDS.map(c => [c.id, c])) as Record<CardId, CardDef>
 
-const DEFAULT_LAYOUT: CardId[] = ['quickActions', 'accountManage', 'networkQuality']
+const DEFAULT_LAYOUT: CardId[] = ['quickActions', 'accountManage', 'selfOnline', 'selfLog', 'networkQuality']
 
 function loadLayout(): CardId[] {
   try {
@@ -369,6 +375,255 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   )
 })
 
+// 自助卡共用：自助凭据判断 + 关键信息掩码/查看切换。
+// 查看经绑定验证门（useHelloGate，与账号页绑定卡共用生命周期），验证通过后
+// 应用内所有自助卡同时解锁；再点切回掩码不需要验证
+function useSelfCardReveal() {
+  const config = useConfigStore(useShallow((s) => s.config))
+  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
+  const ensureHelloVerified = useHelloGate()
+  const hasCred = !!config.user && selfPasswordSaved
+  const [revealed, setRevealed] = useState(false)
+  const toggleReveal = useCallback(async () => {
+    if (revealed) { setRevealed(false); return }
+    if (!(await ensureHelloVerified())) return
+    setRevealed(true)
+  }, [revealed, ensureHelloVerified])
+  return { config, hasCred, revealed, toggleReveal }
+}
+
+// 自助卡自动查询共用骨架：凭据齐备按学号自动查一次（引用变化不重查），
+// fetcher 内解析 CommandResult，失败抛错 → 卡内错误态 + toast
+function useSelfCardFetch<T>(fetcher: (account: string) => Promise<T>, account: string) {
+  const addToast = useLogToastStore((s) => s.addToast)
+  const { t } = useTranslation()
+  const [data, setData] = useState<T | null>(null)
+  const [querying, setQuerying] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const mountedRef = useRef(true)
+  const fetchLockRef = useRef(false)
+  const fetchedForRef = useRef<string | null>(null)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  const fetchNow = useCallback(async () => {
+    if (fetchLockRef.current || !account) return
+    fetchLockRef.current = true
+    setQuerying(true)
+    setLoadError(false)
+    try {
+      const d = await fetcher(account)
+      if (!mountedRef.current) return
+      setData(d)
+    } catch (err) {
+      if (mountedRef.current) {
+        setLoadError(true)
+        addToast(extractErrorMessage(err) || t('dashboard.selfQueryFailed'), 'error')
+      }
+    } finally {
+      fetchLockRef.current = false
+      if (mountedRef.current) setQuerying(false)
+    }
+  }, [fetcher, account, addToast, t])
+
+  useEffect(() => {
+    if (!account || fetchedForRef.current === account) return
+    fetchedForRef.current = account
+    void fetchNow()
+  }, [account, fetchNow])
+
+  return { data, querying, loadError, refetch: fetchNow }
+}
+
+// 在线信息卡：自助服务当前在线设备概览。数据自动查询（后端命令无明文泄露）；
+// 未验证时设备明细（IP/登录时间等）以圆点掩码显示，点眼睛验证后展示
+interface SelfOnlineItem {
+  loginTime: string
+  ip: string
+  mac: string
+  useTime: string
+  downFlow: string
+  upFlow: string
+  hostName: string
+  terminalType: string
+}
+
+const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimation }: {
+  noAnimation?: boolean; noEnterAnimation?: boolean
+}) {
+  const { t } = useTranslation()
+  const { config, hasCred, revealed, toggleReveal } = useSelfCardReveal()
+  const fetchOnline = useCallback(async (account: string) => {
+    // 密码传空串，后端回退已保存凭据（与绑定卡查询同路径）
+    const r = await tauriApiWithRetry.querySelfDashboard({ account, password: '' })
+    if (!r.success || !r.data) throw new Error(r.message || t('account.selfDashboardFailed'))
+    const d = r.data as { onlineList?: SelfOnlineItem[] }
+    return Array.isArray(d.onlineList) ? d.onlineList : []
+  }, [t])
+  const { data: onlineList, querying, loadError, refetch } = useSelfCardFetch(fetchOnline, hasCred ? config.user.trim() : '')
+
+  const renderBody = () => {
+    if (querying && onlineList === null) return (
+      <div className="text-center py-3 text-xs text-muted-foreground">{t('account.bindStatusQuerying')}</div>
+    )
+    if (loadError && onlineList === null) return (
+      <div className="text-center py-3 space-y-2">
+        <p className="text-xs text-muted-foreground">{t('dashboard.selfQueryFailed')}</p>
+        <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => void refetch()}>
+          {t('dashboard.selfRetry')}
+        </Button>
+      </div>
+    )
+    return (
+      <>
+        <div className="flex items-center justify-between p-3 rounded-xl bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.06)]">
+          <span className="text-xs text-muted-foreground">{t('dashboard.selfDeviceCount', { count: onlineList?.length ?? 0 })}</span>
+          {!revealed && <span className="text-[10px] text-muted-foreground/60">{t('dashboard.selfMaskedHint')}</span>}
+        </div>
+        {(onlineList ?? []).slice(0, 3).map(item => {
+          const label = item.hostName || (item.terminalType ? item.terminalType.replace(/^#/, '') : '') || '-'
+          return (
+            <div key={item.ip + '-' + item.loginTime} className="p-3 rounded-xl bg-muted/30 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium font-mono">{revealed ? item.ip : '••••••'}</span>
+                <span className="text-[11px] text-muted-foreground truncate">{revealed ? label : '•••'}</span>
+              </div>
+              <div className="text-[11px] text-muted-foreground font-mono">
+                {revealed
+                  ? item.loginTime + ' · ' + formatUseTimeMinutes(item.useTime) + ' min · ' + formatFlowMb(item.downFlow, item.upFlow) + ' MB'
+                  : '••••-••-•• ••:••:•• · •• min · ••• MB'}
+              </div>
+            </div>
+          )
+        })}
+        {(onlineList?.length ?? 0) > 3 && (
+          <div className="text-center text-[11px] text-muted-foreground">+{onlineList!.length - 3}</div>
+        )}
+        {onlineList?.length === 0 && (
+          <div className="text-center py-3 text-xs text-muted-foreground">{t('dashboard.selfNoOnline')}</div>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <MonitorSmartphone className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <CardTitle>{t('dashboard.selfOnline')}</CardTitle>
+            <CardDescription>{t('dashboard.selfOnlineDesc')}</CardDescription>
+          </div>
+          {hasCred && (onlineList !== null || loadError) && (
+            <Button variant="ghost" size="icon-sm" className="ml-auto rounded-xl" onClick={() => void toggleReveal()}
+              aria-label={t(revealed ? 'dashboard.selfHide' : 'dashboard.selfShow')} disabled={querying && onlineList === null}>
+              {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {!hasCred ? (
+          <div className="text-center py-3">
+            <p className="text-xs text-muted-foreground">{t('dashboard.selfNotConfigured')}</p>
+            <p className="text-[11px] text-muted-foreground/70 mt-1">{t('dashboard.selfNotConfiguredTip')}</p>
+          </div>
+        ) : renderBody()}
+      </CardContent>
+    </AnimatedCard>
+  )
+})
+
+// 近期上网记录卡：今日自助服务上网记录（上线时间/时长/流量）。
+// 未验证时只显示条数概览，明细行以圆点掩码显示，点眼睛验证后展示
+interface SelfLogRow { loginTime: number; time: number; flow: number }
+const SELF_LOG_LIMIT = 5
+
+const SelfLogCard = memo(function SelfLogCard({ noAnimation, noEnterAnimation }: {
+  noAnimation?: boolean; noEnterAnimation?: boolean
+}) {
+  const { t } = useTranslation()
+  const { config, hasCred, revealed, toggleReveal } = useSelfCardReveal()
+  const fetchLog = useCallback(async (account: string) => {
+    const today = localDateStr()
+    const r = await tauriApiWithRetry.querySelfOnlineLog({ account, password: '', startTime: today, endTime: today })
+    if (!r.success || !r.data) throw new Error(r.message || t('account.selfLogFailed'))
+    const d = r.data as { rows?: SelfLogRow[]; total?: number }
+    const all = Array.isArray(d.rows) ? d.rows : []
+    return { rows: all.slice(0, SELF_LOG_LIMIT), total: typeof d.total === 'number' ? d.total : all.length }
+  }, [t])
+  const { data, querying, loadError, refetch } = useSelfCardFetch(fetchLog, hasCred ? config.user.trim() : '')
+  const rows = data?.rows ?? null
+
+  const renderBody = () => {
+    if (querying && rows === null) return (
+      <div className="text-center py-3 text-xs text-muted-foreground">{t('account.bindStatusQuerying')}</div>
+    )
+    if (loadError && rows === null) return (
+      <div className="text-center py-3 space-y-2">
+        <p className="text-xs text-muted-foreground">{t('dashboard.selfQueryFailed')}</p>
+        <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => void refetch()}>
+          {t('dashboard.selfRetry')}
+        </Button>
+      </div>
+    )
+    return (
+      <>
+        <div className="flex items-center justify-between p-3 rounded-xl bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.06)]">
+          <span className="text-xs text-muted-foreground">{t('dashboard.selfLogCount', { count: data?.total ?? 0 })}</span>
+          {!revealed && <span className="text-[10px] text-muted-foreground/60">{t('dashboard.selfMaskedHint')}</span>}
+        </div>
+        {(rows ?? []).map(row => (
+          <div key={row.loginTime} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-muted/30">
+            <span className="text-xs font-mono text-foreground/90">{revealed ? formatEpoch(row.loginTime) : '••••-••-•• ••:••'}</span>
+            <span className="text-[11px] text-muted-foreground font-mono shrink-0">
+              {revealed ? row.time + ' min · ' + Number(row.flow ?? 0).toFixed(1) + ' MB' : '•• min · ••• MB'}
+            </span>
+          </div>
+        ))}
+        {rows?.length === 0 && (
+          <div className="text-center py-3 text-xs text-muted-foreground">{t('dashboard.selfNoLogs')}</div>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <History className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <CardTitle>{t('dashboard.selfLog')}</CardTitle>
+            <CardDescription>{t('dashboard.selfLogDesc')}</CardDescription>
+          </div>
+          {hasCred && (rows !== null || loadError) && (
+            <Button variant="ghost" size="icon-sm" className="ml-auto rounded-xl" onClick={() => void toggleReveal()}
+              aria-label={t(revealed ? 'dashboard.selfHide' : 'dashboard.selfShow')} disabled={querying && rows === null}>
+              {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {!hasCred ? (
+          <div className="text-center py-3">
+            <p className="text-xs text-muted-foreground">{t('dashboard.selfNotConfigured')}</p>
+            <p className="text-[11px] text-muted-foreground/70 mt-1">{t('dashboard.selfNotConfiguredTip')}</p>
+          </div>
+        ) : renderBody()}
+      </CardContent>
+    </AnimatedCard>
+  )
+})
+
 function renderCard(id: CardId, props: DashboardPanelProps, config: Config, _bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, isRefreshingQuality: boolean, editing: boolean, adapters: Adapter[]) {
   const noAnim = editing
   const noEnter = !editing
@@ -386,6 +641,10 @@ function renderCard(id: CardId, props: DashboardPanelProps, config: Config, _bgS
       />
     case 'accountManage':
       return <AccountManageCard accounts={props.accounts} activeAccount={props.activeAccount} onSwitchAccount={props.onSwitchAccount} noAnimation={noAnim} noEnterAnimation={noEnter} />
+    case 'selfOnline':
+      return <SelfOnlineCard noAnimation={noAnim} noEnterAnimation={noEnter} />
+    case 'selfLog':
+      return <SelfLogCard noAnimation={noAnim} noEnterAnimation={noEnter} />
     case 'networkQuality':
       return <NetworkQualityCard networkQuality={networkQuality} isRefreshingQuality={isRefreshingQuality} onRefreshQuality={props.onRefreshQuality} noAnimation={noAnim} noEnterAnimation={noEnter} />
   }
