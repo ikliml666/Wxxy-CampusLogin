@@ -44,16 +44,22 @@ const helloEnabled = () => useConfigStore.getState().config.selfHelloEnabled !==
  * 明文保护的路径；后端 reveal 的 TTL 校验与此呼应。
  */
 const VERIFY_TTL_MS = 570_000
+/** 门新鲜判定：TTL 内且时钟未回拨（elapsed >= 0）。时钟回拨时视为过期——下次
+ * 操作重弹 Hello，前后端时间戳在回拨后的时钟上重新对齐；后端 is_within_ttl
+ * 同样拒绝 now < verified_at，两侧方向一致，避免前端永真而后端拒绝的死锁 */
+const gateFresh = (verifiedAt: number) => {
+  if (verifiedAt <= 0) return false
+  const elapsed = Date.now() - verifiedAt
+  return elapsed >= 0 && elapsed < VERIFY_TTL_MS
+}
 let helloGateVerifiedAt = 0
-const helloGateFresh = () =>
-  helloGateVerifiedAt > 0 && Date.now() - helloGateVerifiedAt < VERIFY_TTL_MS
 
 export function useHelloGate(options?: { ignoreToggle?: boolean }) {
   const ignoreToggle = options?.ignoreToggle === true
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
   return useCallback(async (): Promise<boolean> => {
-    if (helloGateFresh()) return true
+    if (gateFresh(helloGateVerifiedAt)) return true
     if (!ignoreToggle && !helloEnabled()) return true
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
@@ -81,8 +87,6 @@ export function useHelloGate(options?: { ignoreToggle?: boolean }) {
  * config.selfHelloEnabled = false 时整体放行。
  */
 let selfSessionVerifiedAt = 0
-const selfSessionFresh = () =>
-  selfSessionVerifiedAt > 0 && Date.now() - selfSessionVerifiedAt < VERIFY_TTL_MS
 
 /** 面板卸载时重置会话门（下次切入面板重新验证） */
 export function resetSelfSessionGate() {
@@ -96,7 +100,7 @@ export function useSelfServiceVerify() {
   return useCallback(async (): Promise<boolean> => {
     if (!helloEnabled()) return true
     const reverifyEach = useConfigStore.getState().config.selfReverifyEachAction === true
-    if (!reverifyEach && selfSessionFresh()) return true
+    if (!reverifyEach && gateFresh(selfSessionVerifiedAt)) return true
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
         consentMessage: t('account.identityVerifyPrompt'),
