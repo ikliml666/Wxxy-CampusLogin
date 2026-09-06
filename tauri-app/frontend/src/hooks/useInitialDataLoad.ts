@@ -40,6 +40,9 @@ export function useInitialDataLoad() {
           } else if (cfg.password && cfg.password !== '') {
             useConfigStore.getState().syncPasswordSaved(false)
           }
+          if (cfg.selfPassword === PASSWORD_MASK) {
+            useConfigStore.getState().syncSelfPasswordSaved(true)
+          }
           useConfigStore.setState({ config: cfg })
 
           useThemeStore.getState().initTheme(cfg)
@@ -148,6 +151,10 @@ export function useInitialDataLoad() {
 
           dnsPromise.catch((e) => { if (import.meta.env.DEV) console.error(e) })
         }
+
+        // 配置加载完成信号：依赖 config 的启动逻辑（自助服务面板自动验证/回显等）
+        // 以此为准，不在加载窗口期提前消耗一次性流程
+        if (mountedRef.current) useConfigStore.setState({ configLoaded: true })
       } catch (e) {
         // getInitData 失败降级为默认配置：此前静默吞错，"配置未加载"无从排查
         if (import.meta.env.DEV) console.error('[useInitialDataLoad] getInitData failed:', e)
@@ -155,7 +162,7 @@ export function useInitialDataLoad() {
         api.showWindow?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
         if (!mountedRef.current) return
         lt.getState().addLog(i18next.t('log.initDataFailedLog', { msg: extractErrorMessage(e) }), 'error')
-        useConfigStore.setState({ config: DEFAULT_CONFIG })
+        useConfigStore.setState({ config: DEFAULT_CONFIG, configLoaded: true })
       }
     })()
 

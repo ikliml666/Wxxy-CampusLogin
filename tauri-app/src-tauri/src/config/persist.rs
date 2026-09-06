@@ -159,6 +159,9 @@ pub fn save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result
     if !disk_config.password.is_empty() {
         disk_config.password = crypto::encrypt(&disk_config.password)?;
     }
+    if !disk_config.self_password.is_empty() {
+        disk_config.self_password = crypto::encrypt(&disk_config.self_password)?;
+    }
     let config_path = get_config_path(data_dir);
     let json = serde_json::to_string_pretty(&disk_config).map_err(|e| format!("序列化配置失败: {e}"))?;
     atomic_write(&config_path, &json)

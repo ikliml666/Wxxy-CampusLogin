@@ -112,6 +112,9 @@ pub fn run(core_count: usize) {
             crate::commands::self_service::query_bind_status,
             crate::commands::self_service::verify_windows_identity,
             crate::commands::self_service::reveal_operator_credential,
+            crate::commands::self_service::query_self_dashboard,
+            crate::commands::self_service::query_self_online_log,
+            crate::commands::self_service::self_offline_session,
             crate::infra::logger::set_debug_mode,
             crate::infra::logger::get_debug_mode,
         ]);
@@ -187,5 +190,18 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
 
     crate::app::heartbeat::spawn_heartbeat_thread(app_h.clone());
     crate::app::heartbeat::spawn_window_safety_thread(app_h);
+
+    // GPU/刷新率检测预热（后台线程）：get_init_data 关键路径读取缓存即可，
+    // 首次 DXGI 枚举的耗时不阻塞前端拿到配置（2026-09-06 启动流程优化）
+    std::thread::Builder::new()
+        .name("gpu-warmup".into())
+        .spawn(|| {
+            let info = crate::platform::gpu::detect_gpu_info();
+            let rate = crate::platform::gpu::detect_display_refresh_rate();
+            crate::log_info!("startup", "GPU 预热完成: {} {}Hz", info.model, rate);
+        })
+        .map_err(|e| crate::log_warn!("startup", "GPU 预热线程启动失败: {e}"))
+        .ok();
+
     Ok(())
 }

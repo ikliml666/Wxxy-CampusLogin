@@ -28,6 +28,7 @@ import { RightPanel } from '@/components/layout/RightPanel'
 import { DashboardPanel } from '@/auth/DashboardPanel'
 // 常用面板静态导入：切换零等待（消除分包下载卡顿）。仅低频的 LogPanel/对话框保留懒加载。
 import { AccountPanel } from '@/account/AccountPanel'
+import { SelfServicePanel } from '@/account/SelfServicePanel'
 import { NetworkPanel } from '@/network/NetworkPanel'
 import { MonitorPanel } from '@/monitor/MonitorPanel'
 import { QualityPanel } from '@/monitor/QualityPanel'
@@ -62,6 +63,7 @@ function preloadPanels() {
 const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   dashboard: { titleKey: 'panel.dashboard', descKey: 'panel.dashboardDesc' },
   account: { titleKey: 'panel.account', descKey: 'panel.accountDesc' },
+  selfservice: { titleKey: 'panel.selfservice', descKey: 'panel.selfserviceDesc' },
   network: { titleKey: 'panel.network', descKey: 'panel.networkDesc' },
   monitor: { titleKey: 'panel.monitor', descKey: 'panel.monitorDesc' },
   quality: { titleKey: 'panel.quality', descKey: 'panel.qualityDesc' },
@@ -277,6 +279,9 @@ function AppInner() {
           onSwitchAccount={handleSwitchAccount}
         />
       )
+      break
+    case 'selfservice':
+      panelContent = <SelfServicePanel />
       break
     case 'network':
       panelContent = (

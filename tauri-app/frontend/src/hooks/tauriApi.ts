@@ -26,7 +26,7 @@ interface CampusStatusResult {
 
 interface TauriApi {
   getConfig: () => Promise<Config>
-  saveConfig: (config: Config, clearPassword?: boolean) => Promise<SaveConfigResult>
+  saveConfig: (config: Config, clearPassword?: boolean, clearSelfPassword?: boolean) => Promise<SaveConfigResult>
   getAdapters: (force?: boolean) => Promise<Adapter[]>
   getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
@@ -37,8 +37,11 @@ interface TauriApi {
   doLogout: (adapterName?: string) => Promise<LoginResult>
   bindOperator: (params: { account: string; password: string; operator: string; phone: string; smsPassword: string }) => Promise<CommandResult>
   getBindStatus: (params: { account: string; password: string }) => Promise<CommandResult>
-  verifyWindowsIdentity: () => Promise<CommandResult>
+  verifyWindowsIdentity: (params: { consentMessage: string }) => Promise<CommandResult>
   revealOperatorCredential: (params: { account: string; password: string; operator: string }) => Promise<CommandResult>
+  querySelfDashboard: (params: { account: string; password: string }) => Promise<CommandResult>
+  selfOfflineSession: (params: { account: string; password: string; sessionId: string }) => Promise<CommandResult>
+  querySelfOnlineLog: (params: { account: string; password: string; startTime: string; endTime: string }) => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -128,7 +131,7 @@ const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => 
 
 const tauriApi: TauriApi = {
   getConfig: () => invoke<Config>('get_config'),
-  saveConfig: (config, clearPassword) => invoke<SaveConfigResult>('save_config', { config, clearPassword }),
+  saveConfig: (config, clearPassword, clearSelfPassword) => invoke<SaveConfigResult>('save_config', { config, clearPassword, clearSelfPassword }),
   getAdapters: (force) => invoke<Adapter[]>('get_adapters', { force }),
   getDisabledAdapters: () => invoke<DisabledAdapter[]>('get_disabled_adapters'),
   enableAdapter: (adapterName) => invoke<EnableAdapterResult>('enable_adapter', { adapterName }),
@@ -139,8 +142,11 @@ const tauriApi: TauriApi = {
   doLogout: (adapterName) => invoke<LoginResult>('do_logout', { adapterName }),
   bindOperator: (params) => invoke<CommandResult>('bind_operator', { ...params }),
   getBindStatus: (params) => invoke<CommandResult>('query_bind_status', { ...params }),
-  verifyWindowsIdentity: () => invoke<CommandResult>('verify_windows_identity', {}),
+  verifyWindowsIdentity: (params) => invoke<CommandResult>('verify_windows_identity', { consentMessage: params.consentMessage }),
   revealOperatorCredential: (params) => invoke<CommandResult>('reveal_operator_credential', { ...params }),
+  querySelfDashboard: (params) => invoke<CommandResult>('query_self_dashboard', { ...params }),
+  selfOfflineSession: (params) => invoke<CommandResult>('self_offline_session', { ...params }),
+  querySelfOnlineLog: (params) => invoke<CommandResult>('query_self_online_log', { ...params }),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),
@@ -249,5 +255,5 @@ export const tauriApiWithRetry: TauriApi = {
   // 仅 saveConfig 保留重试：保存是一次性关键操作、无其他兜底机制。
   // checkPortalStatus 由 checkOnline 高频调用且后台检测循环本身周期性重试，
   // checkNetworkQuality 有后端 latency loop 事件流兜底，包 3 次指数退避重试会放大高频调用流量
-  saveConfig: (config, clearPassword) => withRetry(() => tauriApi.saveConfig(config, clearPassword)),
+  saveConfig: (config, clearPassword, clearSelfPassword) => withRetry(() => tauriApi.saveConfig(config, clearPassword, clearSelfPassword)),
 }

@@ -26,7 +26,14 @@ const dirtyFailureCounts = new Map<string, number>()
 
 interface ConfigStore {
   config: Config
+  // 初始配置是否已从后端加载完成（getInitData 成功或降级都置 true）。
+  // 依赖 config 的启动逻辑（如自助服务面板自动验证/回显"已保存"）应等此信号，
+  // 避免在加载窗口期做出错误判断或提前消耗一次性流程。
+  configLoaded: boolean
   passwordSaved: boolean
+  // 自助服务密码已保存（独立布尔：显示"已保存圆点"不依赖 config.selfPassword 的值，
+  // 该字段在保存窗口期/回传竞态下可能是 ''/明文/'***' 三态）
+  selfPasswordSaved: boolean
   accounts: string[]
   activeAccount: string
   language: string
@@ -36,7 +43,8 @@ interface ConfigStore {
   mergeConfigFromBackend: (incoming: Partial<Config>) => void
   clearDirtyFields: () => void
   syncPasswordSaved: (saved: boolean) => void
-  saveConfigDirect: (cfg: Partial<Config>, clearPassword?: boolean) => Promise<void>
+  syncSelfPasswordSaved: (saved: boolean) => void
+  saveConfigDirect: (cfg: Partial<Config>, clearPassword?: boolean, clearSelfPassword?: boolean) => Promise<void>
   setAccounts: (a: string[]) => void
   setActiveAccount: (a: string) => void
   setLanguage: (lang: string) => void
@@ -44,7 +52,9 @@ interface ConfigStore {
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({
   config: DEFAULT_CONFIG,
+  configLoaded: false,
   passwordSaved: false,
+  selfPasswordSaved: false,
   accounts: [],
   activeAccount: '',
   language: safeStorage.get('app-language') || 'zh',
@@ -113,11 +123,13 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
 
   syncPasswordSaved: (saved) => set({ passwordSaved: saved }),
 
-  saveConfigDirect: async (cfg, clearPassword) => {
+  syncSelfPasswordSaved: (saved) => set({ selfPasswordSaved: saved }),
+
+  saveConfigDirect: async (cfg, clearPassword, clearSelfPassword) => {
     const fullConfig = { ...get().config, ...cfg }
     const promise = (async () => {
       try {
-        await api.saveConfig(fullConfig, clearPassword)
+        await api.saveConfig(fullConfig, clearPassword, clearSelfPassword)
         // 保存成功：后端已确认这些字段，清除本地脏标记与失败计数
         Object.keys(cfg).forEach(k => {
           dirtyFields.delete(k)
@@ -127,6 +139,9 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
         // 密码框显示空白且无"已保存"占位符。保存成功即标记密码已保存。
         if (cfg.password !== undefined && cfg.password !== '') {
           get().syncPasswordSaved(true)
+        }
+        if (cfg.selfPassword !== undefined && cfg.selfPassword !== '') {
+          get().syncSelfPasswordSaved(true)
         }
       } catch (e: unknown) {
         const errMsg = extractErrorMessage(e)

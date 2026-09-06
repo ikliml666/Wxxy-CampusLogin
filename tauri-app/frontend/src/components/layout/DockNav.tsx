@@ -14,6 +14,7 @@ import {
   Cable,
   Wifi as WifiIcon,
   Check,
+  Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared/ui-constants'
@@ -33,6 +34,7 @@ import { useShallow } from 'zustand/react/shallow'
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
   UserCircle,
+  Globe,
   Wifi,
   Radar,
   Gauge,

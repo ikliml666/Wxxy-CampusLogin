@@ -111,9 +111,10 @@ pub fn clear_logs(app_handle: AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Result<serde_json::Value, String> {
-    let config = state.config.load();
-    let mut cfg = config.as_ref().clone();
-    cfg.password = crate::config::model::PASSWORD_MASK.to_string();
+    // 出站掩码唯一出口（含 self_password）：state 内是解密后的明文，漏掩码会把
+    // 明文发给 webview，且前端 selfPasswordSaved（依赖 === MASK）永远 false →
+    // 重启后密码框显示空、切入自助服务面板的自动 Hello 验证永不触发（2026-09-06 真机缺陷）
+    let cfg = state.config.load().masked_for_display();
 
     let accounts = crate::config::persist::list_account_names(&app_handle);
 
@@ -125,8 +126,8 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     let adapters = crate::network::get_adapters_cached().unwrap_or_default();
     let adapter_details = crate::network::get_adapter_details_cached().unwrap_or_default();
     let disabled_adapters = crate::network::get_disabled_adapters_cached().unwrap_or_default();
-    let active_account = config.active_account.clone();
-    let notification_enabled = config.enable_notification;
+    let active_account = cfg.active_account.clone();
+    let notification_enabled = cfg.enable_notification;
 
     let is_auto_start = std::env::args().any(|a| a == "--autostart");
 

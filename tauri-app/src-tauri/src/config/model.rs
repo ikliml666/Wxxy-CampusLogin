@@ -11,6 +11,17 @@ pub struct Config {
     pub user: String,
     #[serde(default)]
     pub password: String,
+    /// 自助服务系统登录密码（内存明文，磁盘 DPAPI 加密；回传前端时替换为 MASK）
+    #[serde(rename = "selfPassword", default)]
+    pub self_password: String,
+    /// 是否启用 Windows Hello 操作验证（默认 true）。关闭后自助服务面板与绑定
+    /// 操作不再弹验证，但"查看运营商账户密码"仍强制验证（后端 TTL 校验不受此
+    /// 开关影响，防止一键关闭保护后明文裸奔）
+    #[serde(rename = "selfHelloEnabled", default = "default_true")]
+    pub self_hello_enabled: bool,
+    /// 自助服务面板每次操作都二次验证（默认 false：切入面板验证一次后操作共用）
+    #[serde(rename = "selfReverifyEachAction", default)]
+    pub self_reverify_each_action: bool,
     pub operator: String,
     pub adapter1: String,
     pub adapter2: String,
@@ -137,6 +148,9 @@ impl Default for Config {
         Self {
             user: String::new(),
             password: String::new(),
+            self_password: String::new(),
+            self_hello_enabled: true,
+            self_reverify_each_action: false,
             operator: String::new(),
             adapter1: AUTO_DETECT_ADAPTER.to_string(),
             adapter2: String::new(),
@@ -177,12 +191,22 @@ impl Default for Config {
 }
 
 impl Config {
+    /// 出站掩码（唯一出口约定：所有把 Config 发往前端的路径必须经由本方法，
+    /// 不得手工逐字段打码——漏一个字段就是一次明文泄露，account 三命令即前车之鉴）。
+    /// 空值保留（未设置语义），非空一律替换为 MASK。
     pub fn masked_for_display(&self) -> Config {
         let mut c = self.clone();
-        if !c.password.is_empty() {
-            c.password = PASSWORD_MASK.to_string();
-        }
+        c.mask_in_place();
         c
+    }
+
+    pub fn mask_in_place(&mut self) {
+        if !self.password.is_empty() {
+            self.password = PASSWORD_MASK.to_string();
+        }
+        if !self.self_password.is_empty() {
+            self.self_password = PASSWORD_MASK.to_string();
+        }
     }
 }
 

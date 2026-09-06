@@ -10,12 +10,9 @@ pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) ->
     let data_dir = persist::get_data_dir(app_handle);
     persist::save_config_to_disk_encrypted(&data_dir, config)?;
 
-    // 统一发射 config-changed 事件：必须 mask 密码后再发射，避免泄露加密后的真实密码
-    // 所有调用方（save_config/switch_account/set_auto_launch 等）都通过此路径统一通知前端
-    let mut emit_cfg = config.clone();
-    if !emit_cfg.password.is_empty() {
-        emit_cfg.password = crate::config::model::PASSWORD_MASK.to_string();
-    }
+    // 统一发射 config-changed 事件：必须掩码后再发射，避免泄露真实密码
+    // （所有调用方 save_config/switch_account/set_auto_launch 等都经此路径通知前端）
+    let emit_cfg = config.masked_for_display();
     let _ = app_handle.notify_config_changed(&emit_cfg);
     Ok(())
 }
@@ -38,6 +35,16 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
                 // 解密失败时仅清空密码，保留其他配置，避免全量配置丢失
                 crate::log_warn!("config", "密码解密失败，清除密码保留其他配置: {}", e);
                 config.password = String::new();
+            }
+        }
+    }
+
+    if !config.self_password.is_empty() && config.self_password != crate::config::model::PASSWORD_MASK {
+        match crypto::decrypt(&config.self_password) {
+            Ok(decrypted) => config.self_password = decrypted,
+            Err(e) => {
+                crate::log_warn!("config", "自助服务密码解密失败，清除保留其他配置: {}", e);
+                config.self_password = String::new();
             }
         }
     }
@@ -78,10 +85,7 @@ pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
-    let config = state.config.load();
-    let mut cfg = config.as_ref().clone();
-    cfg.password = crate::config::model::PASSWORD_MASK.to_string();
-    Ok(cfg)
+    Ok(state.config.load().masked_for_display())
 }
 
 #[tauri::command]
@@ -90,6 +94,7 @@ pub fn save_config(
     app_handle: AppHandle,
     config: Config,
     clear_password: Option<bool>,
+    clear_self_password: Option<bool>,
 ) -> Result<CommandResult, String> {
     let validated = match validate_config(config) {
         Ok(c) => c,
@@ -108,6 +113,14 @@ pub fn save_config(
         let current = state.config.load();
         config.password = current.password.clone();
     }
+    // 自助服务密码同规则：空/MASK 占位符时保留已保存值（前端仅在用户重输时传新值）；
+    // 显式清除（clearSelfPassword，与 clear_password 同语义）跳过兜底直接置空
+    if clear_self_password == Some(true) {
+        config.self_password = String::new();
+    } else if config.self_password.is_empty() || config.self_password == crate::config::model::PASSWORD_MASK {
+        let current = state.config.load();
+        config.self_password = current.self_password.clone();
+    }
 
     // 历史缺陷：修改 Portal URL 仅存配置，不更新进程全局 PORTAL_URL，
     // 运行期后台巡检/登录仍用旧地址直到重启。此处持久化前先同步全局。
@@ -123,4 +136,30 @@ pub fn save_config(
     crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
 
     Ok(CommandResult::ok())
+}
+
+#[cfg(test)]
+mod tests {
+    /// 出站掩码回归锁：masked_for_display 必须同时掩掉 password 与 self_password
+    /// 两个敏感字段（空=未设置语义保留）。历史缺陷：fe000de 修 get_init_data/
+    /// get_config 漏掩 self_password 时漏掉了 account 三命令（switch/save_as/
+    /// delete），它们经 masked_for_display 组装返回值，明文 selfPassword 随 IPC
+    /// 出站到 webview——掩码逻辑收敛到 Config 自身后该类遗漏即被类型锁死。
+    #[test]
+    fn masked_for_display_masks_both_password_fields() {
+        let mut cfg = crate::config::model::Config::default();
+        // 空值 = 未设置，保留（前端据此显示"未保存"）
+        let masked = cfg.masked_for_display();
+        assert_eq!(masked.password, "");
+        assert_eq!(masked.self_password, "");
+        // 非空（明文）必须双双掩码
+        cfg.password = "login-secret".to_string();
+        cfg.self_password = "self-secret".to_string();
+        let masked = cfg.masked_for_display();
+        assert_eq!(masked.password, crate::config::model::PASSWORD_MASK);
+        assert_eq!(masked.self_password, crate::config::model::PASSWORD_MASK);
+        // 原 struct 不被就地修改
+        assert_eq!(cfg.password, "login-secret");
+        assert_eq!(cfg.self_password, "self-secret");
+    }
 }

@@ -1,6 +1,6 @@
 # CampusLogin 校园网登录助手 — Code Wiki
 
-> **版本**: v2.3.1 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
+> **版本**: v2.3.2 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64)
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
 
@@ -96,6 +96,7 @@ Wxxy-CampusLogin/
 │   │       │   └── locales/         # 翻译文件 (zh.json / en.json)
 │   │       ├── account/             # 账号模块
 │   │       │   ├── AccountPanel.tsx # 账号管理面板
+│   │       │   ├── SelfServicePanel.tsx # 自助服务面板（在线信息+近期上网记录两卡片，2026-09-05）
 │   │       │   ├── useAccount.ts    # 账号逻辑
 │   │       │   ├── types.ts         # 账号类型定义
 │   │       │   └── index.ts         # 模块导出
@@ -245,7 +246,7 @@ Wxxy-CampusLogin/
 │           │   ├── shortcut.rs      # 全局快捷键 (Ctrl+Shift+C 取消自动退出)
 │           │   ├── heartbeat.rs     # 渲染进程心跳检测 + spawn_window_safety_thread (3秒保底显示窗口)
 │           │   └── shutdown.rs      # graceful_exit + handle_window_close_event (关闭进托盘/退出分流)
-│           ├── self_service/        # 自助服务系统 (Dr.COM Self) 协议：登录 + 绑定运营商账号 (2026-09-05)
+│           ├── self_service/        # 自助服务系统 (Dr.COM Self) 协议：登录 + 运营商绑定 + dashboard 在线信息/上网记录/注销会话 (2026-09-05)
 │           │   └── mod.rs           # bind_operator 协议链路 + checkcode/csrftoken/swal msg 提取 + 6 个单测
 │           └── commands/            # Tauri 命令 (模块化拆分)
 │               ├── mod.rs           # 命令模块声明与架构文档
@@ -255,7 +256,7 @@ Wxxy-CampusLogin/
 │               ├── network_cmd.rs   # 网络命令 + DNS/DoH 检测与设置 (winreg + ShellExecuteW)
 │               ├── system.rs        # 系统功能命令
 │               ├── account.rs       # 多账号管理命令 (逻辑自含; account/mod.rs 仅声明 crypto)
-│               ├── self_service.rs  # bind_operator 命令 (校验 + 校园网源 IP 解析, 委托 self_service 模块)
+│               ├── self_service.rs  # bind_operator/query_bind_status/query_self_dashboard/self_offline_session 等命令 (校验 + 校园网源 IP 解析, 委托 self_service 模块)
 │               └── updater.rs       # 更新命令 (委托 update 模块)
 ├── CODE_WIKI.md                     # 本文档
 ├── AGENTS.md                        # AI 编码助手项目约定
@@ -426,7 +427,7 @@ Wxxy-CampusLogin/
 4. **WebView2 浏览器参数**: `platform/gpu.rs::build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（2026-09-03 精简：原 ANGLE/SkiaGraphite/DrDc/zero-copy 等 11 个参数经核验已失效/Windows 默认即开/Windows 不支持/实验性强开，一并删除交还平台默认）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭（分流逻辑在 `app/shutdown.rs::handle_window_close_event`）
 6. **退出流程**: 设 `is_quitting` → `task_manager.shutdown()` 取消并等待后台任务（整体 10s 超时上限，防任务卡在不响应取消的阻塞调用时退出挂起）→ `exit(0)`（`app/shutdown.rs::graceful_exit` → `infra/lifecycle.rs::shutdown_and_exit`），窗口关闭与托盘退出行为统一
-7. **命令注册**: 50个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
+7. **命令注册**: 55个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
 
 ### 4.2 全局状态 — `infra/state/` 子目录
 
@@ -618,6 +619,8 @@ pub struct AccountResult {
 |------|------|--------|------|
 | `user` | String | `""` | 学号 |
 | `password` | String | `""` | 密码 (内存中明文, 磁盘上DPAPI加密) |
+| `selfPassword` | String | `""` | 自助服务系统密码 (2026-09-05, 内存中明文, 磁盘上DPAPI加密; 回传前端时替换为 MASK; 命令层 resolve_self_password 在前端传空/MASK 时回退此值; 显式清除走 save_config 的 `clearSelfPassword` 标志——与 clear_password 对称, 绑定卡/自助面板密码框旁"清除密码"按钮, 2026-09-06) |
+  ⚠️ 出站掩码纪律（2026-09-06 缺陷修复后收敛）：所有把 Config 发往前端的路径**必须经 `Config::masked_for_display()`（config/model.rs 唯一出口，password + self_password 双字段掩码，空值=未设置语义保留）**，不得手工逐字段打码。历史缺陷链：state 内是解密明文，漏掩码会把明文发给 webview（隐私泄露），且前端 selfPasswordSaved（依赖 === MASK）永远 false → 重启后密码框显示空、切入自助服务面板的自动 Hello 验证永不触发；fe000de 修 get_init_data/get_config 时漏掉 account 三命令（switch/save_as/delete 经 `masked_for_display` 组装 `AccountResult.config`），明文 selfPassword 随 IPC 出站——掩码收敛进 Config 自身后该类遗漏被回归单测（config_cmd.rs，双字段断言）锁死，独立函数 `mask_self_password` 已删除。后续加固方向（评审调研）：敏感字段改 `secrecy::SecretString` 类型锁（rust-lang/crates.io、rage 同款，默认禁 Serialize 编译期防出站）
 | `operator` | String | `""` | 运营商后缀 (`""` 不拼接, `"@telecom"`/`"@unicom"`/`"@cmcc"` 直接拼接, 其他值 `validate_operator` 报错) |
 | `adapter1` | String | `"自动检测"` | 主适配器名称 |
 | `adapter2` | String | `""` | 副适配器名称 |
@@ -881,9 +884,37 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - **安全契约**：凭据仅本次请求内存传递，不写配置、不落盘、不写日志；手机号/运营商账户密码均不持久化
 - **main.rs 与 lib.rs 是两棵独立模块树**：新增顶层模块必须同时在这两个文件声明（本次曾漏 main.rs 导致 bin target E0432）
 - **绑定状态查询**：`query_bind_status` 命令复用登录链路（`login_and_fetch_bind_page` 提取为共用函数），解析 FLDEXTRA 预填值返回三运营商绑定状态；手机号掩码**前三后二**（`mask_account`，如 `197******38`），密码仅回是否设置，明文不出协议模块
-- **查看明文密码需 Windows 本地身份验证**：`verify_windows_identity`（`platform/identity.rs`——主路径 Windows Hello `UserConsentVerifier::RequestVerificationAsync`；未配置 Hello 时回退 `CredUIPromptForCredentialsW` 收集凭据 + SSPI NTLM 往返校验。`LogonUser` 需 SE_TCB_NAME 特权普通进程不可用，SSPI `AcceptSecurityContext` 是无特权校验标准做法）→ 通过后 `reveal_operator_credential` 返回该运营商明文（手机号 + 账户密码），前端临时显示可隐藏
+- **Windows Hello 本地身份验证（2026-09-05 重构：仅 Hello，删除 CredUI 回退）**：`verify_windows_identity` → `platform/identity.rs` 的 `verify_identity(consent_message)`（async）。**只走 Windows Hello**（`UserConsentVerifier`，指纹/面部/Hello PIN），设备未配置时直接返回引导文案；CredUI 凭据对话框 + SSPI NTLM 回退已整体删除（用户明确只要 Hello）。弹窗文案由前端 i18n 传入。通过后 `reveal_operator_credential` 才可返回运营商明文。**关键平台问题（cppwinrt#999）：阻塞等待 RequestVerificationAsync（.get()）时 Consent 弹窗（独立进程 Credential Manager UI Host）无法完成前台转移，留在应用窗口后面且被 topmost 主窗口盖死（任务栏点击也提不上来）**；修复为非阻塞等待——`await_winrt_operation`（SetCompleted 回调 + tokio oneshot，windows 0.58 无内建 Future；delegate 是 FnMut、oneshot Sender 消费 self，用 Option::take() 适配）。**不手动 CoInitializeEx（2026-09-06 评审调研后删除）**：本文件所有 COM 入口都经 `windows::core::factory()`，windows-core 0.58 factory_cache 撞 `CO_E_NOTINITIALIZED` 时自动 `CoIncrementMTAUsage` 重试（imp/factory_cache.rs:88-95），tokio worker 线程迁移后照样自愈；手动 init/uninit 轮转反而破坏该机制（microsoft/windows-rs#1169），官方 sample / Bitwarden desktop_native / OneKeePass 均不手写。**绑定/查询/dashboard 共用验证门**（`account/selfServiceState.ts` 的 `useHelloGate`/`markGateVerified`，firstFree→needVerify→verified：首次免验，之后一次通过共用；reveal 每次验证但通过后顺带置 verified），`AccountPanel.helloGate.test.tsx` 锁行为
+- （Win11 置顶问题已并入上行非阻塞方案：原 TopmostGuard 置顶主窗口方案把非置顶的 Consent 彻底盖死，已删除）
+- **Consent 弹窗前台问题终局方案（2026-09-06，GitHub 调研后实施）**：非阻塞等待解决了"完全弹不出"，但 Consent UI 仍不抢前台——这是 **Windows bug（task.ms/49689617，Chromium 代码注释确认）**：弹窗由 broker 进程创建且不绑定任何窗口。两路径修复：① **主路径（Win11 Build 22000+）**：官方 interop 接口 `IUserConsentVerifierInterop::RequestVerificationForWindowAsync(hwnd, msg)`（`windows::Win32::System::WinRT`，feature `Win32_System_WinRT`）把 Consent 对话框**绑定到主窗口 HWND**，作为其子级 UI 天然置前——Flutter local_auth_windows/Bitwarden/ProtonMail(Tauri2) 同做法；HWND 取 `webview_window.hwnd()` 的原始 isize（跨 windows crate 版本安全），构造时转 `HWND(isize as *mut c_void)`（0.58 句柄是指针类型）；interop 是 COM 包装（!Send），须块作用域内创建 op 后立即释放、不跨 await，否则命令 future 非 Send 编译失败。② **兜底（Win10/interop 不可用，`.ok()?` 回退）**：无窗口绑定 + `spawn_consent_focus_nudger` 后台线程轮询对话框窗口类名 **"Credential Dialog Xaml Host"**（250ms×12 次）`SetForegroundWindow` 提前台——Chromium（crypto/user_verifying_key_win.cc）/gsudo 同款；interop 路径一旦拿到 op，await 结果即最终结论（含用户取消），**不再回退重弹**。命令层传 `owner_hwnd: Option<isize>` 给 `verify_identity(msg, owner_hwnd)`
+- **验证与明文返回在后端关联（2026-09-05 安全加固）**：`verify_windows_identity` 成功后 `note_identity_verified()` 写后端时间戳（`LAST_VERIFY_EPOCH_SECS` AtomicU64），`reveal_operator_credential` 校验 `identity_verified_recently()`（TTL `IDENTITY_VERIFY_TTL_SECS`=600 秒，纯函数 `is_within_ttl` 含时钟回拨拒绝，有单测）——前端 helloGate 只是 UX 层，后端 TTL 才是真防线，webview 层绕过前端编排也无法拿明文。**门覆盖面（2026-09-06 评审后扩展）**：`bind_operator`/`self_offline_session`（改变外部状态）经 `ensure_identity_gate` 同源校验（`selfHelloEnabled` 开启时要求 TTL 内验证；关闭时放行——用户主动弃用则两门整体失效）；**只读查询命令（query_self_dashboard/query_self_online_log/query_bind_status）有意不设门**：总览卡自动刷新依赖免验证拉取（数据本就存于本机、掩码属渲染层），参考 Bitwarden reprompt 分级保护/sudo 仅副作用命令需认证
 - 单测 7 个（纯函数）：checkcode/csrftoken/swal msg 提取（实测 HTML 样例）、绑定成功判定、FLDEXTRA 映射、md5 标准测试向量（不使用真实凭据向量）、mask_account 掩码规则
 - 前端：新手教程 5 步向导（欢迎→**绑定运营商账号(可跳过)**→账号→适配器→完成），`tauriApi.bindOperator`，i18n `onboarding.bind*` 键组（zh/en）；字段名"运营商账户密码"（键名 `bindSmsPassword` 保留历史命名），校园网登录密码与自助服务密码默认均为身份证后 6 位（placeholder 提醒）；账户管理页登录信息卡与绑定卡并列两列（2026-09-05）
+
+#### 4.5.4.3 自助服务系统（Dr.COM Self）dashboard 卡片协议：在线信息 + 近期上网记录 (2026-09-05)
+
+> 来源：2026-09-05 浏览器（IAB）登录态下读取 dashboard 页内嵌 bootstrapTable JS + 登录会话内 fetch 实测响应结构。实现于 `self_service/mod.rs`（`query_dashboard`/`offline_session`/2026-09-06 增 `query_online_log`）+ `commands/self_service.rs`（`query_self_dashboard`/`self_offline_session`/`query_self_online_log`，55 → 56 个命令）。前端为独立"自助服务"面板（`SelfServicePanel.tsx`，2026-09-05 从账户管理页单开，面板自带凭据输入区）。
+
+**协议链路（登录会话 cookie 即可，均无额外必填参数）**:
+
+| 接口 | 请求 | 响应结构与字段语义 |
+|------|------|------|
+| 在线信息 | `GET /Self/dashboard/getOnlineList` | 对象数组：`loginTime`（字符串 "YYYY-MM-DD HH:mm:ss"）、`ip`、`mac`（12 位 hex 无分隔）、`useTime`（**秒**）、`downFlow`/`upFlow`（**KB**）、`hostName`（可空）、`terminalType`（`#PC` 带 `#` 前缀）、`sessionId`（注销用） |
+| 近期上网记录 | `GET /Self/dashboard/getLoginHistory` | 数组的数组：`[上线时间 epoch ms, 注销时间 epoch ms, ip, mac, 时长(分), 流量(M), 计费方式 1时长/2流量/3包月, 金额, 主机名(null), 终端类型, ...]` |
+| 注销会话 | `GET /Self/dashboard/tooffline?sessionid=` | `{"success":bool}`；实测对不存在的 sessionid 也返回 true（服务端宽松），前端只能以"接口成功"提示 |
+
+**实现约定**:
+
+- 登录链路已重构：`login_session`（共用前 3 步：checkcode → randomCode 预热 → verify）为最底层，`login_and_fetch_bind_page`（绑定/状态/明文查看）与 `query_dashboard`（一次登录连拉 getOnlineList + getLoginHistory，`fetch_dashboard_json` 共用"302=会话失效 + 非 JSON=异常页"判定）都从它出发
+- 302 重定向 = 登录会话失效（统一文案"登录会话失效，请重试"）；`parse_offline_success` 对非 JSON/缺字段/非布尔一律判失败
+- 前端格式化**对齐原站公式**（dashboard 页内嵌 JS）：MAC 每 2 字符加 `-`；useTime `parseInt/60` 分钟取整；流量 `(down+up)/1024` M 三位小数；终端类型截掉 `#` 前缀（空→`-`）；epoch → `YYYY-MM-DD HH:mm:ss`；null 主机名 → `-`。**注意 useTime 单位与上网记录的时长（分）不同，流量 KB 与 M 不同**，透传 JSON 由前端换算，后端不改结构
+- 自助服务面板根容器 `space-y-4`（2026-09-06 从 Fragment 平铺改为对齐全局 16px 卡间距标准）
+- **启动时序（2026-09-06）**：`configLoaded` 布尔（getInitData 成功/降级完成置位）是自助服务面板自动验证+自动刷新的前置条件——启动后立刻切入面板时配置还在加载，等信号再判断凭据/弹 Hello，加载窗口期显示"配置加载中..."；后端 setup_app 用 gpu-warmup 后台线程预热 GPU/刷新率检测（OnceLock 缓存），get_init_data 读缓存即返回不阻塞前端拿配置
+- 前端：**独立"自助服务"面板**（2026-09-05 从账户管理页单开；`PanelName`/`PANEL_TITLES`/NAV_ITEMS/设置页默认面板选项四处接入，DockNav Globe 图标）——`SelfServicePanel.tsx` 含在线信息+近期上网记录两卡片，**凭据与账号面板绑定卡共用 `selfServiceState.ts` 的 `useSelfCredStore`**（切换面板不丢失、样式同绑定卡垂直排布；学号仅内存保留，密码 blur 即经 `saveConfigDirect` DPAPI 落盘）。**密码"已保存"显示两面板（绑定卡+自助服务面板）统一读 store 独立布尔 `selfPasswordSaved` 而非 `config.selfPassword === MASK`（2026-09-06 缺陷修复，自助服务面板第二日补修——首修只改了 AccountPanel）**：blur 走 updateConfig 会把明文写进本地 config 且标 dirty，挡住 config-changed 回传的 MASK（清 dirty 与事件到达竞态），输入框闪空甚至永久空白；布尔由 saveConfigDirect 非空成功置位 + 初始加载按 MASK 置位，`useConfigStore.selfPassword.test.ts` 锁行为；查询/踢下线前过 `useHelloGate` 验证门；注销走 ConfirmDialog（明示断网风险）→ `self_offline_session` → 成功后前端本地移除该行（不自动重拉，避免整会话重登开销）；i18n `nav.selfservice`/`panel.selfservice*`/`account.selfDashboard*/col*/payStyle*/selfOffline*` 键组（zh/en 对称）
+- **逆向安全红线**：dashboard 页有注销功能，实验只允许用**必然不存在的 sessionid** 探测接口格式，绝不能点击/调用页面上真实会话的注销——误踢当前在线设备会导致用户断网
+- **上网记录账单卡（2026-09-06，协议第 9 条）**：`SelfServicePanel` 第三张卡——日期范围（默认今天）+ 汇总 8 格 + 12 列明细表（横滚）；`query_online_log`（`login_session` + GET `bill/getUserOnlineLog?startTime&endTime&pageNumber&pageSize=500`，一次拉全不翻页，超 500 提示缩小范围）；命令 `query_self_online_log`（YYYY-MM-DD 校验 + resolve_self_password 回退）；前端 epoch ms 格式化（logoutTime 0/空 → `-`）、数值 toFixed(2)（记录数 COU 取整）；列名复用 dashboard 卡现有键（注销时间/使用时长/使用流量/计费金额/IP地址），新增 `account.selfLog*` 26 键（zh/en）；汇总键全大写（INTERNETUPFLOW/…/TIME/COSTMONEY/COU）
+- **Hello 验证门拆分（2026-09-06 用户收紧）**：`selfServiceState.ts` 两套门——绑定卡 `useHelloGate`（时间戳 `helloGateVerifiedAt`：**首次操作即验证**，通过后 TTL 内共用；2026-09-06 删除首免——原首免会让自助服务验证后绑定首次也免验，观感像共用，两门已彻底独立；同日评审后由"应用生命周期永真"改为 **TTL 570s 对齐后端 600s、留 30s 时钟余量（sudo timestamp 式会话）**——永真缓存会在 10 分钟后撞上后端 reveal TTL 过期且无重验入口，重启前功能死锁；门新鲜判定 `gateFresh` 含 `elapsed >= 0`（时钟回拨视为过期，与后端 is_within_ttl 同向，回拨后重验即重新对齐，2026-09-06））；**查看明文与绑定/查询共用此门**（2026-09-06 用户要求查询验证后查看免二次验证），`useHelloGate({ ignoreToggle: true })`：门 TTL 内放行、未验证/已过期时无视总开关强制验证（明文特权操作不因总开关关闭而裸奔，后端 reveal TTL 校验呼应），`markGateVerified` 导出已移除；**自助服务面板 `useSelfServiceVerify` 会话门：切入面板验证一次后 TTL 内操作共用**（时间戳 `selfSessionVerifiedAt` 同款 TTL，面板卸载 `resetSelfSessionGate()` 重置；`selfReverifyEachAction=true` 时退化为每次操作验证）；`config.selfHelloEnabled=false` 时两门整体放行，**reveal 明文密码不走门不受开关限制**（后端 TTL 防线恒在）。设置页"安全设置"卡两开关（`selfHelloEnabled`/`selfReverifyEachAction`），**关闭方向必须先过 Hello 验证**（`handleSecurityDisable`），开启方向免验；SelfServicePanel mount 后凭据就绪即自动验证+自动刷新（`autoRefreshedRef` 防重复；**自动刷新直接走 `fetchDashboard` 内含验证门**——2026-09-06 修 `selfReverifyEachAction=true` 时外层验证+内层验证连弹两次 Hello）；新手教程绑定步骤接入 `useHelloGate`（后端 bind 命令补门配套）；SelfServicePanel.test 锁"每次进面板验证/操作共用/开关关闭放行"
+- 单测：`offline_success_parsing`（success 判定 4 边界）；前端 vitest 5 用例（凭据联动禁用/表格格式化断言+切入验证/验证失败不查询/开关关闭放行/操作共用）
 
 #### 4.5.5 网络质量检测 — `quality.rs`
 
@@ -1336,7 +1367,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 | Store | 文件 | 职责 | 关键 state | 关键 action |
 |-------|------|------|-----------|-------------|
-| `useConfigStore` | `useConfigStore.ts` (191行) | 配置/账号/语言 + 防抖保存 + 密码掩码 + 脏字段跟踪 | `config`/`passwordSaved`/`accounts`/`activeAccount`/`language`/`api`/`dirtyFields` | `updateConfig`(500ms防抖)/`updateConfigLocal`/`syncPasswordSaved`/`saveConfigDirect`/`setLanguage`/`saveConfigInFlight`(in-flight 保存等待)/`mergeConfigFromBackend`/`clearDirtyFields` |
+| `useConfigStore` | `useConfigStore.ts` (~220行) | 配置/账号/语言 + 防抖保存 + 密码掩码 + 脏字段跟踪 + configLoaded 启动信号 | `config`/`passwordSaved`/`selfPasswordSaved`/`accounts`/`activeAccount`/`language`/`api`/`dirtyFields` | `updateConfig`(500ms防抖)/`updateConfigLocal`/`syncPasswordSaved`/`syncSelfPasswordSaved`/`saveConfigDirect`(非空 selfPassword 成功置位 selfPasswordSaved)/`setLanguage`/`saveConfigInFlight`(in-flight 保存等待)/`mergeConfigFromBackend`/`clearDirtyFields` |
 | `useAuthStore` | `useAuthStore.ts` (300行) | 登录/注销/在线检测/后台状态 + 登录后 60s 手动质量探测节流 | `isLoggingIn`/`isLoggingOut`/`status`/`bgStatus` | `doLogin`/`doLogout`/`checkOnline`/`setStatus`/`setBgStatus` |
 | `useAdapterStore` | `useAdapterStore.ts` (74行) | 适配器列表/详情/面板 | `adapters`/`disabledAdapters`/`adapterDetails`/`isRefreshingAdapters`/`activePanel` | `refreshAdapters`/`setAdapters`/`setActivePanel` (模块级 `refreshAdapterData` 公共函数) |
 | `useQualityStore` | `useQualityStore.ts` (90行) | 网络质量/DNS DoH/更新/GPU | `networkQuality`/`dnsDohStatus`/`dnsChecking`/`isRefreshingQuality`/`updateAvailable`/`latestVersion`/`releaseNotes`/`gpuInfo`/`refreshRate` | `refreshQuality`/`setNetworkQuality`/`setDnsDohStatus`/`setUpdateAvailable`/`setGpuInfo` |
@@ -1495,6 +1526,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `AccountPanel.tsx` | 账号管理面板，两列网格等高布局(左列：登录信息卡+自动化设置开关卡(`flex-1` 撑满与右列底部对齐)；右列：**绑定运营商账号**卡输入框垂直排布+绑定状态区(2026-09-05，query_bind_status 查询：手机号掩码前三后二/查看密码走 Windows Hello/SSPI 验证后 reveal_operator_credential 临时显示明文)；下方账号管理卡全宽) |
+| `SelfServicePanel.tsx` | "自助服务"独立面板(2026-09-05，协议见 §4.5.4.3；从账户管理页单开，`PanelName`/`PANEL_TITLES`/NAV_ITEMS/设置页默认面板选项四处接入)：**在线信息**表(操作列注销→ConfirmDialog→self_offline_session→本地移除行) + **近期上网记录**表；凭据区在"在线信息"卡内顶部(学号默认取 config.user，密码仅内存保留不落盘)；格式化公式对齐原站 JS（MAC 连字符/秒→分/KB→M/#前缀截取/epoch→本地串）；未填凭据时按钮禁用+提示 |
 | `useAccount.ts` | 账号逻辑 Hook |
 | `types.ts` | 账号类型定义 (SwitchAccountResult, DeleteAccountResult, SaveAccountResult) |
 | `index.ts` | 模块导出 |
@@ -2189,4 +2221,4 @@ let version = env!("APP_VERSION").to_string();
 
 ---
 
-*文档版本: v2.3.1 | 基于代码版本: CampusLogin v2.3.1 | 更新日期: 2026-09-05 | 本轮全模块核对修正*
+*文档版本: v2.3.2 | 基于代码版本: CampusLogin v2.3.2 | 更新日期: 2026-09-05 | 本轮全模块核对修正*
