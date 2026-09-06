@@ -27,6 +27,9 @@ const dirtyFailureCounts = new Map<string, number>()
 interface ConfigStore {
   config: Config
   passwordSaved: boolean
+  // 自助服务密码已保存（独立布尔：显示"已保存圆点"不依赖 config.selfPassword 的值，
+  // 该字段在保存窗口期/回传竞态下可能是 ''/明文/'***' 三态）
+  selfPasswordSaved: boolean
   accounts: string[]
   activeAccount: string
   language: string
@@ -36,6 +39,7 @@ interface ConfigStore {
   mergeConfigFromBackend: (incoming: Partial<Config>) => void
   clearDirtyFields: () => void
   syncPasswordSaved: (saved: boolean) => void
+  syncSelfPasswordSaved: (saved: boolean) => void
   saveConfigDirect: (cfg: Partial<Config>, clearPassword?: boolean) => Promise<void>
   setAccounts: (a: string[]) => void
   setActiveAccount: (a: string) => void
@@ -45,6 +49,7 @@ interface ConfigStore {
 export const useConfigStore = create<ConfigStore>((set, get) => ({
   config: DEFAULT_CONFIG,
   passwordSaved: false,
+  selfPasswordSaved: false,
   accounts: [],
   activeAccount: '',
   language: safeStorage.get('app-language') || 'zh',
@@ -113,6 +118,8 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
 
   syncPasswordSaved: (saved) => set({ passwordSaved: saved }),
 
+  syncSelfPasswordSaved: (saved) => set({ selfPasswordSaved: saved }),
+
   saveConfigDirect: async (cfg, clearPassword) => {
     const fullConfig = { ...get().config, ...cfg }
     const promise = (async () => {
@@ -127,6 +134,9 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
         // 密码框显示空白且无"已保存"占位符。保存成功即标记密码已保存。
         if (cfg.password !== undefined && cfg.password !== '') {
           get().syncPasswordSaved(true)
+        }
+        if (cfg.selfPassword !== undefined && cfg.selfPassword !== '') {
+          get().syncSelfPasswordSaved(true)
         }
       } catch (e: unknown) {
         const errMsg = extractErrorMessage(e)

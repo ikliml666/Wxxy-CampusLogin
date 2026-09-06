@@ -140,10 +140,12 @@ export const AccountPanel = memo(function AccountPanel({
   const bindSelfAccount = useSelfCredStore((s) => s.account)
   const setBindSelfAccount = useSelfCredStore((s) => s.setAccount)
   // 自助服务密码持久化（与登录信息密码同措施）：config.selfPassword DPAPI 加密落盘，
-  // 前端只见 MASK；store 中的 password 是聚焦期草稿（跨面板同步），blur 时提交保存
+  // 前端只见 MASK；store 中的 password 是聚焦期草稿（跨面板同步），blur 时提交保存。
+  // "已保存"读独立布尔而非 config.selfPassword === MASK：blur 保存到 config-changed
+  // 回传 MASK 之间存在窗口期/竞态，依赖该字段判断会让输入框闪空甚至永久空白
   const bindSelfPassword = useSelfCredStore((s) => s.password)
   const setBindSelfPassword = useSelfCredStore((s) => s.setPassword)
-  const selfPasswordSaved = config.selfPassword === PASSWORD_MASK
+  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
   const [bindPwdFocused, setBindPwdFocused] = useState(false)
   const displayBindPassword = bindPwdFocused
     ? bindSelfPassword
@@ -175,7 +177,9 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }, [config.user, config.operator, setBindSelfAccount])
 
-  // 聚焦清空草稿开始新输入；blur 时草稿非空则保存到配置（与登录信息密码同模式）
+  // 聚焦清空草稿开始新输入；blur 时草稿非空则直接落盘（与自助服务面板同路径：
+  // saveConfigDirect 只发送不写本地 config——走 updateConfig 会把明文写进
+  // config.selfPassword 且标记 dirty，既挡住后端回传的 MASK 又让输入框闪空）
   const handleBindPwdFocus = () => {
     setBindPwdFocused(true)
     setBindSelfPassword('')
@@ -183,7 +187,7 @@ export const AccountPanel = memo(function AccountPanel({
   const handleBindPwdBlur = () => {
     setBindPwdFocused(false)
     if (bindSelfPassword) {
-      onUpdateConfig({ selfPassword: bindSelfPassword })
+      void useConfigStore.getState().saveConfigDirect({ selfPassword: bindSelfPassword })
       setBindSelfPassword('')
     }
   }

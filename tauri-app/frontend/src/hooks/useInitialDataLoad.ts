@@ -40,6 +40,9 @@ export function useInitialDataLoad() {
           } else if (cfg.password && cfg.password !== '') {
             useConfigStore.getState().syncPasswordSaved(false)
           }
+          if (cfg.selfPassword === PASSWORD_MASK) {
+            useConfigStore.getState().syncSelfPasswordSaved(true)
+          }
           useConfigStore.setState({ config: cfg })
 
           useThemeStore.getState().initTheme(cfg)
