@@ -10,13 +10,9 @@ pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) ->
     let data_dir = persist::get_data_dir(app_handle);
     persist::save_config_to_disk_encrypted(&data_dir, config)?;
 
-    // 统一发射 config-changed 事件：必须 mask 密码后再发射，避免泄露加密后的真实密码
-    // 所有调用方（save_config/switch_account/set_auto_launch 等）都通过此路径统一通知前端
-    let mut emit_cfg = config.clone();
-    if !emit_cfg.password.is_empty() {
-        emit_cfg.password = crate::config::model::PASSWORD_MASK.to_string();
-    }
-    mask_self_password(&mut emit_cfg);
+    // 统一发射 config-changed 事件：必须掩码后再发射，避免泄露真实密码
+    // （所有调用方 save_config/switch_account/set_auto_launch 等都经此路径通知前端）
+    let emit_cfg = config.masked_for_display();
     let _ = app_handle.notify_config_changed(&emit_cfg);
     Ok(())
 }
@@ -87,23 +83,9 @@ pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 自助服务密码出站掩码（所有把 Config 发往前端的命令必须调用）：
-/// state 内是解密后的明文；空值保留（未设置语义），非空一律替换为 MASK。
-/// 历史缺陷：get_init_data/get_config 漏掩码，明文经 IPC 泄露到 webview，
-/// 且前端 selfPasswordSaved 永远 false → 重启后密码框显示空、自动验证不弹。
-pub fn mask_self_password(cfg: &mut crate::config::model::Config) {
-    if !cfg.self_password.is_empty() {
-        cfg.self_password = crate::config::model::PASSWORD_MASK.to_string();
-    }
-}
-
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
-    let config = state.config.load();
-    let mut cfg = config.as_ref().clone();
-    cfg.password = crate::config::model::PASSWORD_MASK.to_string();
-    mask_self_password(&mut cfg);
-    Ok(cfg)
+    Ok(state.config.load().masked_for_display())
 }
 
 #[tauri::command]
@@ -154,21 +136,26 @@ pub fn save_config(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    /// 出站掩码回归锁：非空自助服务密码必须替换为 MASK（空=未设置语义保留）。
-    /// 历史缺陷：get_init_data/get_config 漏调掩码，解密后的明文经 IPC 发到
-    /// webview（隐私泄露），且前端 selfPasswordSaved 永远 false → 重启后
-    /// 密码框显示空、切入自助服务面板的自动 Hello 验证永不触发。
+    /// 出站掩码回归锁：masked_for_display 必须同时掩掉 password 与 self_password
+    /// 两个敏感字段（空=未设置语义保留）。历史缺陷：fe000de 修 get_init_data/
+    /// get_config 漏掩 self_password 时漏掉了 account 三命令（switch/save_as/
+    /// delete），它们经 masked_for_display 组装返回值，明文 selfPassword 随 IPC
+    /// 出站到 webview——掩码逻辑收敛到 Config 自身后该类遗漏即被类型锁死。
     #[test]
-    fn mask_self_password_masks_non_empty_only() {
+    fn masked_for_display_masks_both_password_fields() {
         let mut cfg = crate::config::model::Config::default();
         // 空值 = 未设置，保留（前端据此显示"未保存"）
-        mask_self_password(&mut cfg);
-        assert_eq!(cfg.self_password, "");
-        // 非空（明文）必须掩码
-        cfg.self_password = "plain-secret".to_string();
-        mask_self_password(&mut cfg);
-        assert_eq!(cfg.self_password, crate::config::model::PASSWORD_MASK);
+        let masked = cfg.masked_for_display();
+        assert_eq!(masked.password, "");
+        assert_eq!(masked.self_password, "");
+        // 非空（明文）必须双双掩码
+        cfg.password = "login-secret".to_string();
+        cfg.self_password = "self-secret".to_string();
+        let masked = cfg.masked_for_display();
+        assert_eq!(masked.password, crate::config::model::PASSWORD_MASK);
+        assert_eq!(masked.self_password, crate::config::model::PASSWORD_MASK);
+        // 原 struct 不被就地修改
+        assert_eq!(cfg.password, "login-secret");
+        assert_eq!(cfg.self_password, "self-secret");
     }
 }

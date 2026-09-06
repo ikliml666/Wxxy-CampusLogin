@@ -191,12 +191,22 @@ impl Default for Config {
 }
 
 impl Config {
+    /// 出站掩码（唯一出口约定：所有把 Config 发往前端的路径必须经由本方法，
+    /// 不得手工逐字段打码——漏一个字段就是一次明文泄露，account 三命令即前车之鉴）。
+    /// 空值保留（未设置语义），非空一律替换为 MASK。
     pub fn masked_for_display(&self) -> Config {
         let mut c = self.clone();
-        if !c.password.is_empty() {
-            c.password = PASSWORD_MASK.to_string();
-        }
+        c.mask_in_place();
         c
+    }
+
+    pub fn mask_in_place(&mut self) {
+        if !self.password.is_empty() {
+            self.password = PASSWORD_MASK.to_string();
+        }
+        if !self.self_password.is_empty() {
+            self.self_password = PASSWORD_MASK.to_string();
+        }
     }
 }
 
