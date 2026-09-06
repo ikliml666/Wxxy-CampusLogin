@@ -27,6 +27,7 @@ const mockConfigUser = { current: '' }
 const mockHelloEnabled = { current: true }
 const mockReverifyEach = { current: false }
 const storeState = {
+  configLoaded: true,
   selfPasswordSaved: false,
   config: { user: '', selfHelloEnabled: true, selfReverifyEachAction: false },
 }
@@ -55,6 +56,7 @@ beforeEach(() => {
   mockConfigUser.current = ''
   mockHelloEnabled.current = true
   mockReverifyEach.current = false
+  storeState.configLoaded = true
   storeState.config.user = ''
   storeState.config.selfHelloEnabled = true
   storeState.config.selfReverifyEachAction = false
@@ -168,7 +170,7 @@ describe('SelfServicePanel', () => {
   })
 
   it('密码眼睛按钮不夺取输入框焦点（mousedown preventDefault），修改时点眼睛不会因 blur 清草稿而显示空', async () => {
-    const { container } = render(<SelfServicePanel />)
+    render(<SelfServicePanel />)
     await fillCreds()
     const pwdInput = screen.getByLabelText('onboarding.bindSelfPassword')
     // 输入框旁的眼睛按钮（Input 内部有一层 relative 包装，向上找第一个含按钮的祖先）

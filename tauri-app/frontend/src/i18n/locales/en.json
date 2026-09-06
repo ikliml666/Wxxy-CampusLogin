@@ -151,6 +151,7 @@
     "selfDashboardRefresh": "Refresh",
     "selfDashboardQuerying": "Querying...",
     "selfDashboardNeedCred": "Fill in the student ID and self-service password above to query",
+    "selfConfigLoading": "Loading configuration...",
     "selfDashboardIdle": "Click the refresh button to query",
     "selfDashboardUnitNote": "Time in minutes; traffic in MB",
     "selfDashboardEmpty": "No online devices",

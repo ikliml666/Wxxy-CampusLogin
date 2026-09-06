@@ -22,6 +22,7 @@ vi.mock('@/hooks/useLogToastStore', () => ({
     selector({ addToast: () => {} }),
 }))
 const storeState = {
+  configLoaded: true,
   passwordSaved: false,
   selfPasswordSaved: false,
   config: { user: '24380002', operator: '', adapter1: '', selfHelloEnabled: true, selfReverifyEachAction: false },

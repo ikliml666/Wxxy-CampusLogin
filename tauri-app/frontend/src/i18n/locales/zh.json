@@ -151,6 +151,7 @@
     "selfDashboardRefresh": "刷新",
     "selfDashboardQuerying": "查询中...",
     "selfDashboardNeedCred": "填写上方学号与自助服务密码后可查询",
+    "selfConfigLoading": "配置加载中...",
     "selfDashboardIdle": "点击刷新按钮查询",
     "selfDashboardUnitNote": "时长单位：分钟；流量单位：M",
     "selfDashboardEmpty": "暂无在线设备",

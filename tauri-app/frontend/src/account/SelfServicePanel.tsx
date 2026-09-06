@@ -133,6 +133,8 @@ export function SelfServicePanel() {
   // 切入面板验证一次后操作共用；面板卸载时重置会话门
   const ensureSelfVerified = useSelfServiceVerify()
   const autoRefreshedRef = useRef(false)
+  // 初始配置是否已加载（getInitData 完成）：加载窗口期内不判断凭据/不弹验证
+  const configLoaded = useConfigStore((s) => s.configLoaded)
 
   useEffect(() => {
     mountedRef.current = true
@@ -200,7 +202,8 @@ export function SelfServicePanel() {
   // 通过即自动拉取在线信息与近期上网记录；验证取消/失败则等用户手动刷新。
   // Hello 总开关关闭时不弹窗（用户点刷新时门也直接放行）。
   useEffect(() => {
-    if (autoRefreshedRef.current || !hasCred) return
+    // 配置未加载完（启动后立刻切过来）时凭据判断不可靠，等 configLoaded 再启动
+    if (autoRefreshedRef.current || !configLoaded || !hasCred) return
     if (useConfigStore.getState().config.selfHelloEnabled === false) {
       autoRefreshedRef.current = true
       void fetchDashboard()
@@ -210,7 +213,7 @@ export function SelfServicePanel() {
     void (async () => {
       if (await ensureSelfVerified()) await fetchDashboard()
     })()
-  }, [hasCred, ensureSelfVerified, fetchDashboard])
+  }, [configLoaded, hasCred, ensureSelfVerified, fetchDashboard])
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineSessionId) return
@@ -340,7 +343,11 @@ export function SelfServicePanel() {
                 </div>
               </div>
             </div>
-            {!hasCred ? (
+            {!configLoaded ? (
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
+              </p>
+            ) : !hasCred ? (
               <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : querying && onlineList === null ? (
               <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
@@ -416,7 +423,11 @@ export function SelfServicePanel() {
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
-            {!hasCred ? (
+            {!configLoaded ? (
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
+              </p>
+            ) : !hasCred ? (
               <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : history !== null && history.length > 0 ? (
               <div className="overflow-x-auto rounded-lg border border-border/50">
@@ -523,7 +534,11 @@ export function SelfServicePanel() {
                 )}
               </Button>
             </div>
-            {!hasCred ? (
+            {!configLoaded ? (
+              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
+              </p>
+            ) : !hasCred ? (
               <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : logQuerying && logRows === null ? (
               <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">

@@ -26,6 +26,10 @@ const dirtyFailureCounts = new Map<string, number>()
 
 interface ConfigStore {
   config: Config
+  // 初始配置是否已从后端加载完成（getInitData 成功或降级都置 true）。
+  // 依赖 config 的启动逻辑（如自助服务面板自动验证/回显"已保存"）应等此信号，
+  // 避免在加载窗口期做出错误判断或提前消耗一次性流程。
+  configLoaded: boolean
   passwordSaved: boolean
   // 自助服务密码已保存（独立布尔：显示"已保存圆点"不依赖 config.selfPassword 的值，
   // 该字段在保存窗口期/回传竞态下可能是 ''/明文/'***' 三态）
@@ -48,6 +52,7 @@ interface ConfigStore {
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({
   config: DEFAULT_CONFIG,
+  configLoaded: false,
   passwordSaved: false,
   selfPasswordSaved: false,
   accounts: [],
