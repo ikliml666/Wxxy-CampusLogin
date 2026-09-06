@@ -70,15 +70,15 @@ pub async fn verify_identity(
 }
 
 /// Windows Hello（指纹/面部/Hello PIN）。非阻塞等待（SetCompleted 回调 + oneshot）。
+/// 线程安全说明：不手动 CoInitializeEx——本文件所有 COM 入口都经
+/// `windows::core::factory()`，windows-core 0.58 的 factory_cache 在撞到
+/// CO_E_NOTINITIALIZED 时自动 CoIncrementMTAUsage 重试（imp/factory_cache.rs），
+/// tokio worker 线程迁移后照样自愈；手动 init/uninit 轮转反而会破坏该机制
+/// （microsoft/windows-rs#1169）。官方 sample / Bitwarden / OneKeePass 同款。
 async fn verify_hello(consent_message: &str, owner_hwnd: Option<isize>) -> Result<(), String> {
     use windows::Security::Credentials::UI::{
         UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
     };
-    // WinRT 工厂调用要求线程初始化 COM（MTA，进程内幂等；已初始化时失败忽略）
-    unsafe {
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-    }
 
     let availability = await_winrt_operation(
         UserConsentVerifier::CheckAvailabilityAsync()
