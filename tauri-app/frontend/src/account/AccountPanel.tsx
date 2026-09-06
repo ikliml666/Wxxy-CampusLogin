@@ -23,7 +23,7 @@ import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
-import { useSelfCredStore, useHelloGate, markGateVerified } from '@/account/selfServiceState'
+import { useSelfCredStore, useHelloGate } from '@/account/selfServiceState'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -235,8 +235,10 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }, [queryingStatus, ensureHelloVerified, selfPasswordForSubmit, bindSelfAccount, addToast, t])
 
-  // 查看明文密码：每次都经 Windows 本地身份验证（最敏感操作，不进共用验证门），
-  // 通过后顺带解锁后续绑定/查询；未配置 Hello 时提示推荐开启
+  // 查看明文密码：与绑定/查询共用同一验证门（2026-09-06 用户要求：查询验证后
+  // 查看不再二次验证）。ignoreToggle：明文特权操作在 Hello 总开关关闭时仍强制
+  // 验证（后端 reveal 的 TTL 校验呼应，开关关闭不是绕过明文保护的路径）
+  const ensureRevealVerified = useHelloGate({ ignoreToggle: true })
   const handleReveal = useCallback(async (opValue: string) => {
     if (revealedOp === opValue) {
       setRevealedOp(null)
@@ -244,13 +246,7 @@ export const AccountPanel = memo(function AccountPanel({
       return
     }
     try {
-      const verified = await tauriApiWithRetry.verifyWindowsIdentity({ consentMessage: t('account.identityVerifyPrompt') })
-      if (!mountedRef.current) return
-      if (!verified.success) {
-        addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
-        return
-      }
-      markGateVerified()
+      if (!(await ensureRevealVerified())) return
       const r = await tauriApiWithRetry.revealOperatorCredential({
         account: bindSelfAccount.trim(),
         password: selfPasswordForSubmit,
@@ -267,7 +263,7 @@ export const AccountPanel = memo(function AccountPanel({
     } catch (err) {
       if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
     }
-  }, [revealedOp, bindSelfAccount, selfPasswordForSubmit, addToast, t])
+  }, [revealedOp, bindSelfAccount, selfPasswordForSubmit, ensureRevealVerified, addToast, t])
 
   const handleBindOperator = useCallback(async () => {
     if (binding || !canBind) return
