@@ -31,6 +31,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { extractErrorMessage } from '@/lib/utils'
+import { useHelloGate } from '@/account/selfServiceState'
 
 interface OnboardingWizardProps {
   open: boolean
@@ -113,6 +114,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const [loginSuccess, setLoginSuccess] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const prevOpenRef = useRef(false)
+  // 绑定步骤的 Hello 验证门（与账户面板绑定卡同款）：绑定会改绑运营商账号，
+  // 后端命令有验证门（Hello 开启时要求 TTL 内已验证），前端先行验证保证一次通过
+  const ensureBindHello = useHelloGate()
 
   // 绑定运营商账号步骤（step 1）状态；凭据仅内存传递，不写入配置
   const [selfAccount, setSelfAccount] = useState(config.user || '')
@@ -154,6 +158,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const handleBind = useCallback(async () => {
     if (bindState === 'loading' || bindState === 'success') return
     setBindError('')
+    if (!(await ensureBindHello())) return
     setBindState('loading')
     try {
       const result = await tauriApiWithRetry.bindOperator({
@@ -179,7 +184,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setBindError(extractErrorMessage(err) || t('onboarding.bindFailed'))
       setBindState('error')
     }
-  }, [bindState, selfAccount, selfPassword, bindOperatorValue, phone, smsPassword, t])
+  }, [bindState, selfAccount, selfPassword, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
 
   useEffect(() => {
     return () => {

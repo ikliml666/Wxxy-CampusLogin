@@ -8,6 +8,20 @@ use tauri::{Manager, State};
 use crate::infra::state::{AppState, CommandResult};
 use crate::self_service::{self, BindParams};
 
+/// 改变外部状态的命令（绑定运营商 / 注销在线会话）的后端验证门：Hello 开启时
+/// 要求后端 TTL 内验证通过（与 reveal 同源时间戳，webview 无法伪造）。查询类
+/// 命令有意不设门——总览卡自动刷新依赖免验证拉取（数据本就存于本机，掩码属
+/// 渲染层），补门会破坏该体验且不构成实际防线。
+fn ensure_identity_gate(state: &AppState) -> Option<String> {
+    if !state.config.load().self_hello_enabled {
+        return None;
+    }
+    if crate::platform::identity::identity_verified_recently() {
+        return None;
+    }
+    Some("Windows 身份验证已过期，请重新验证后再操作".to_string())
+}
+
 /// 解析校园网适配器源 IP（与登录同源规则：配置名有效 → 有线优先 → 任意有 IP），
 /// 多网卡场景下保证自助服务请求从校园网侧发出
 fn resolve_campus_bind_addr(state: &AppState) -> Option<IpAddr> {
@@ -16,6 +30,18 @@ fn resolve_campus_bind_addr(state: &AppState) -> Option<IpAddr> {
     let (a1_name, _a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
     crate::network::find_with_valid_ip(&adapters, &a1_name)
         .and_then(|a| a.ip.parse().ok())
+}
+
+/// 严格 YYYY-MM-DD（月份 01-12、日期 01-31）：旧实现只查分隔符位置，
+/// "----------" 也能通过并构造无效请求打到自助服务系统
+fn is_iso_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return false;
+    }
+    b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() })
+        && matches!(s[5..7].parse::<u8>(), Ok(m) if (1..=12).contains(&m))
+        && matches!(s[8..10].parse::<u8>(), Ok(d) if (1..=31).contains(&d))
 }
 
 /// 解析自助服务密码：前端传入非 MASK 明文优先（用户刚重输的新密码）；
@@ -52,6 +78,9 @@ pub async fn bind_operator(
 
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
+    }
+    if let Some(msg) = ensure_identity_gate(&state) {
+        return Ok(CommandResult::err(&msg));
     }
     // 自助服务密码：前端未重输时回退已保存值（MASK/空串语义）
     let Some(password) = resolve_self_password(&state, &password) else {
@@ -167,14 +196,12 @@ pub async fn query_self_online_log(
     };
     let start_time = start_time.trim();
     let end_time = end_time.trim();
-    let date_re = |s: &str| {
-        s.len() == 10
-            && s.as_bytes()[4] == b'-'
-            && s.as_bytes()[7] == b'-'
-            && s.chars().all(|c| c.is_ascii_digit() || c == '-')
-    };
-    if !date_re(start_time) || !date_re(end_time) {
+    if !is_iso_date(start_time) || !is_iso_date(end_time) {
         return Ok(CommandResult::err("日期格式应为 YYYY-MM-DD"));
+    }
+    // 零填充 ISO 日期字符串比较即日期先后
+    if start_time > end_time {
+        return Ok(CommandResult::err("开始日期不能晚于结束日期"));
     }
 
     let local_addr = resolve_campus_bind_addr(&state);
@@ -200,6 +227,9 @@ pub async fn self_offline_session(
     let session_id = session_id.trim();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
+    }
+    if let Some(msg) = ensure_identity_gate(&state) {
+        return Ok(CommandResult::err(&msg));
     }
     let Some(password) = resolve_self_password(&state, &password) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
@@ -281,5 +311,25 @@ pub async fn reveal_operator_credential(
             data: Some(json!({ "phone": phone, "smsPassword": sms_password })),
         }),
         Err(e) => Ok(CommandResult::err(&e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iso_date_strict() {
+        assert!(is_iso_date("2026-09-06"));
+        // 旧宽松实现可放行的样本
+        assert!(!is_iso_date("----------"));
+        assert!(!is_iso_date("2026-99-06"));
+        // 月份/日期越界、分隔符错误、位数不足
+        assert!(!is_iso_date("2026-13-01"));
+        assert!(!is_iso_date("2026-09-32"));
+        assert!(!is_iso_date("2026-09-00"));
+        assert!(!is_iso_date("2026/09/06"));
+        assert!(!is_iso_date("2026-9-06"));
+        assert!(!is_iso_date(""));
     }
 }
