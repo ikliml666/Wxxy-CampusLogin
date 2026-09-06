@@ -94,6 +94,13 @@ export const formatFlowMb = (downFlow: string, upFlow: string) => {
 
 // 上网记录数值格式化（原站 toFixed(2)；null/undefined 兜底 0.00）
 const fmt2 = (value: unknown) => Number(value ?? 0).toFixed(2)
+// 金额列：保留服务端原始精度（历史行金额可能带小数，toInt 会把 0.50 截成 0）；
+// null/空 → '-'，非数值 → '-'
+const fmtMoney = (value: unknown) => {
+  if (value == null || value === '') return '-'
+  const n = Number(value)
+  return Number.isFinite(n) ? String(n) : '-'
+}
 // 本地日期 YYYY-MM-DD（toISOString 是 UTC，跨时区会偏一天）
 export const localDateStr = (d = new Date()) => {
   const p = (n: number) => String(n).padStart(2, '0')
@@ -169,6 +176,16 @@ export function SelfServicePanel() {
       setPassword('')
     }
   }
+
+  // 清除已保存的自助服务密码：后端空值语义是"保留"，必须显式 clearSelfPassword；
+  // 顺带清空本地草稿，否则失焦时 blur 兜底会把草稿又存回去
+  const handleClearSelfPassword = useCallback(async () => {
+    const store = useConfigStore.getState()
+    setPassword('')
+    await store.saveConfigDirect({ selfPassword: '' }, undefined, true)
+    store.syncSelfPasswordSaved(false)
+    addToast(t('account.selfPasswordCleared'), 'success')
+  }, [addToast, t])
 
   // 提交命令用的密码：重输的新草稿优先，否则空串（后端回退已保存值）
   const selfPasswordForSubmit = password.trim()
@@ -312,7 +329,19 @@ export function SelfServicePanel() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
+                  {selfPasswordSaved && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={handleClearSelfPassword}
+                      className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
+                    >
+                      {t('account.clearPassword')}
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <Input
                     id="self-password"
@@ -455,7 +484,7 @@ export function SelfServicePanel() {
                             : row[6] === 3 ? t('account.payStyleMonth')
                             : ''}
                         </td>
-                        <td className={tdClass}>{toInt(row[7]) ?? '-'}</td>
+                        <td className={tdClass}>{fmtMoney(row[7])}</td>
                         <td className={tdClass}>{row[8] || '-'}</td>
                         <td className={tdClass}>{formatTerminalType(row[9] as string | null)}</td>
                       </tr>

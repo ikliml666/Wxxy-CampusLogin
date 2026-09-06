@@ -24,9 +24,10 @@ describe('useConfigStore selfPasswordSaved 置位规则', () => {
   it('保存非空 selfPassword 成功后置 selfPasswordSaved=true', async () => {
     await useConfigStore.getState().saveConfigDirect({ selfPassword: 'abc123' })
     expect(useConfigStore.getState().selfPasswordSaved).toBe(true)
-    // 发送给后端的是明文，由后端 DPAPI 加密落盘
+    // 发送给后端的是明文，由后端 DPAPI 加密落盘；clearSelfPassword 缺省不置 true
     expect(saveConfig).toHaveBeenCalledWith(
       expect.objectContaining({ selfPassword: 'abc123' }),
+      undefined,
       undefined,
     )
   })

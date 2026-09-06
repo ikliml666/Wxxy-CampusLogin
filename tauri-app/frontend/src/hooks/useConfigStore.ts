@@ -44,7 +44,7 @@ interface ConfigStore {
   clearDirtyFields: () => void
   syncPasswordSaved: (saved: boolean) => void
   syncSelfPasswordSaved: (saved: boolean) => void
-  saveConfigDirect: (cfg: Partial<Config>, clearPassword?: boolean) => Promise<void>
+  saveConfigDirect: (cfg: Partial<Config>, clearPassword?: boolean, clearSelfPassword?: boolean) => Promise<void>
   setAccounts: (a: string[]) => void
   setActiveAccount: (a: string) => void
   setLanguage: (lang: string) => void
@@ -125,11 +125,11 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
 
   syncSelfPasswordSaved: (saved) => set({ selfPasswordSaved: saved }),
 
-  saveConfigDirect: async (cfg, clearPassword) => {
+  saveConfigDirect: async (cfg, clearPassword, clearSelfPassword) => {
     const fullConfig = { ...get().config, ...cfg }
     const promise = (async () => {
       try {
-        await api.saveConfig(fullConfig, clearPassword)
+        await api.saveConfig(fullConfig, clearPassword, clearSelfPassword)
         // 保存成功：后端已确认这些字段，清除本地脏标记与失败计数
         Object.keys(cfg).forEach(k => {
           dirtyFields.delete(k)

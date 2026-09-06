@@ -44,8 +44,9 @@ const ONLINE = [{
   useTime: '3600', downFlow: '1048576', upFlow: '0', hostName: '',
   terminalType: '#PC', sessionId: '42',
 }]
-// epoch ms 为虚构时间戳
-const HISTORY = [[1788565605000, 1788588847000, '10.0.0.2', 'AA11BB22CC33', 15, 256, 2, 0, null, '#PC', 'PC', 1]]
+// epoch ms 为虚构时间戳；row[7] 金额用带小数的字符串（服务端可能发字符串小数，
+// 历史缺陷：toInt 截断成整数）
+const HISTORY = [[1788565605000, 1788588847000, '10.0.0.2', 'AA11BB22CC33', 15, 256, 2, '3.30', null, '#PC', 'PC', 1]]
 
 beforeEach(() => {
   querySelfDashboard.mockReset()
@@ -112,6 +113,8 @@ describe('SelfServicePanel', () => {
     expect(container.textContent).toContain('60')
     expect(container.textContent).toContain('1024.000')
     expect(container.textContent).toContain('account.payStyleFlow')
+    // 金额保留服务端原始精度（3.30 不截断成 3）
+    expect(container.textContent).toContain('3.3')
     // 上网记录：主机名 null → "-"；epoch 时间格式化为本地字符串
     expect(container.textContent).toContain('-')
     expect(container.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)

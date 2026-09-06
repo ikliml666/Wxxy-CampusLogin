@@ -94,6 +94,7 @@ pub fn save_config(
     app_handle: AppHandle,
     config: Config,
     clear_password: Option<bool>,
+    clear_self_password: Option<bool>,
 ) -> Result<CommandResult, String> {
     let validated = match validate_config(config) {
         Ok(c) => c,
@@ -112,8 +113,11 @@ pub fn save_config(
         let current = state.config.load();
         config.password = current.password.clone();
     }
-    // 自助服务密码同规则：空/MASK 占位符时保留已保存值（前端仅在用户重输时传新值）
-    if config.self_password.is_empty() || config.self_password == crate::config::model::PASSWORD_MASK {
+    // 自助服务密码同规则：空/MASK 占位符时保留已保存值（前端仅在用户重输时传新值）；
+    // 显式清除（clearSelfPassword，与 clear_password 同语义）跳过兜底直接置空
+    if clear_self_password == Some(true) {
+        config.self_password = String::new();
+    } else if config.self_password.is_empty() || config.self_password == crate::config::model::PASSWORD_MASK {
         let current = state.config.load();
         config.self_password = current.self_password.clone();
     }

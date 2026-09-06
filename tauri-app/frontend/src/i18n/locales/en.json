@@ -128,6 +128,7 @@
     "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
     "clearPassword": "Clear saved password",
     "passwordCleared": "Saved password cleared",
+    "selfPasswordCleared": "Saved self-service password cleared",
     "bindDesc": "After purchasing an ISP campus plan, you must bind your operator account (your phone number + operator account password) in the self-service system before using the campus network",
     "bindStatusHint": "Fill in the student ID and self-service password to query binding status of each operator",
     "bindStatusQuery": "Query Binding Status",

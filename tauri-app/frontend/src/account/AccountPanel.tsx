@@ -103,6 +103,16 @@ export const AccountPanel = memo(function AccountPanel({
     addToast(t('account.passwordCleared'), 'success')
   }, [addToast, t])
 
+  // 清除已保存的自助服务密码：同上，后端空值语义是"保留"，必须显式 clearSelfPassword；
+  // 顺带清空本地草稿，否则失焦时 blur 兜底会把草稿又存回去
+  const handleClearSelfPassword = useCallback(async () => {
+    const store = useConfigStore.getState()
+    setBindSelfPassword('')
+    await store.saveConfigDirect({ selfPassword: '' }, undefined, true)
+    store.syncSelfPasswordSaved(false)
+    addToast(t('account.selfPasswordCleared'), 'success')
+  }, [addToast, t])
+
   const commitUsername = () => {
     if (usernameDraft === null) return
     if (usernameDraft !== (config.user || '')) {
@@ -556,7 +566,18 @@ export const AccountPanel = memo(function AccountPanel({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="bind-self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="bind-self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
+                {selfPasswordSaved && (
+                  <button
+                    type="button"
+                    onClick={handleClearSelfPassword}
+                    className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
+                  >
+                    {t('account.clearPassword')}
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Input
                   id="bind-self-password"
