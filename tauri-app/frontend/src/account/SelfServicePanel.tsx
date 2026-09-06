@@ -5,7 +5,6 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Eye, EyeOff, Globe, History, KeyRound, Loader2, LogOut, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
-import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
@@ -75,7 +74,10 @@ export function SelfServicePanel() {
   // store 中的 password 是聚焦期草稿，blur 时保存到配置
   const password = useSelfCredStore((s) => s.password)
   const setPassword = useSelfCredStore((s) => s.setPassword)
-  const selfPasswordSaved = useConfigStore((s) => s.config.selfPassword) === PASSWORD_MASK
+  // "已保存"读独立布尔而非 config.selfPassword === MASK（与 AccountPanel 同因同修，
+  // 2026-09-06）：blur 保存到 config-changed 回传 MASK 之间存在窗口期/竞态，
+  // 依赖该字段判断会让输入框闪空甚至永久空白
+  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
   const [pwdFocused, setPwdFocused] = useState(false)
   const displayPassword = pwdFocused ? password : (selfPasswordSaved ? '••••••••' : '')
   const [showPassword, setShowPassword] = useState(false)

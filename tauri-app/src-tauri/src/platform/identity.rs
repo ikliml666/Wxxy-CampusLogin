@@ -4,10 +4,17 @@
 //! 设备未配置 Hello 时直接返回错误引导用户配置，**不回退凭据对话框**
 //! （2026-09-05 用户要求移除 CredUI 输密码的回退路径）。
 //!
-//! 已知平台问题与对策（cppwinrt#999）：阻塞等待 `RequestVerificationAsync`
-//! （`.get()`）时 Consent 弹窗会留在应用窗口后面、无法置前（Win11 实测）；
-//! 必须在 async 上下文非阻塞 `.await`，弹窗才会正常置前。因此 verify_hello
-//! 为 async fn，由命令层直接 await（不再 spawn_blocking）。
+//! Consent 弹窗前台问题（Win11 实测 + 调研结论）：
+//! - 弹窗由独立 broker 进程（Credential Manager UI Host）显示，且不抢前台是
+//!   已知 Windows bug（task.ms/49689617，Chromium 代码注释确认）。
+//! - 主路径（Win11 Build 22000+）：官方 interop 接口
+//!   `IUserConsentVerifierInterop::RequestVerificationForWindowAsync(hwnd, msg)`
+//!   把 Consent 对话框绑定到主窗口 HWND，作为其子级 UI 天然置前——
+//!   Flutter local_auth_windows / Bitwarden / ProtonMail(Tauri2) 同做法。
+//! - 兜底（Win10 / interop 不可用）：无窗口绑定 + 后台线程轮询对话框窗口
+//!   类名（"Credential Dialog Xaml Host"）提前台（Chromium/gsudo 同款）。
+//! - 所有路径均非阻塞等待（SetCompleted 回调 + oneshot，见 await_winrt_operation）：
+//!   阻塞 `.get()` 会加剧弹窗无法完成前台转移（cppwinrt#999）。
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -47,20 +54,23 @@ fn epoch_secs_now() -> u64 {
 }
 
 /// 验证当前 Windows 用户身份（Windows Hello）。
-/// 通过返回 Ok(())；Err 为可展示给用户的失败原因（含设备未配置 Hello 的引导文案）。
-pub async fn verify_identity(consent_message: &str) -> Result<(), String> {
+/// `owner_hwnd` 为主窗口句柄：提供时走官方 interop 接口把 Consent 对话框绑定到
+/// 该窗口（Win11 天然置前）；未提供或 interop 不可用（Win10）时走无绑定路径 +
+/// 焦点轮询兜底。通过返回 Ok(())；Err 为可展示给用户的失败原因。
+pub async fn verify_identity(
+    consent_message: &str,
+    owner_hwnd: Option<isize>,
+) -> Result<(), String> {
     let message = if consent_message.trim().is_empty() {
         DEFAULT_CONSENT_MESSAGE
     } else {
         consent_message
     };
-    verify_hello(message).await
+    verify_hello(message, owner_hwnd).await
 }
 
-/// Windows Hello（指纹/面部/Hello PIN）。非阻塞等待（SetCompleted 回调 + oneshot）：
-/// 阻塞等待（.get()）会导致 Consent 弹窗留在应用窗口后面且无法置前（Win11 实测 +
-/// cppwinrt#999），回调驱动等待时系统可正常完成前台转移。
-async fn verify_hello(consent_message: &str) -> Result<(), String> {
+/// Windows Hello（指纹/面部/Hello PIN）。非阻塞等待（SetCompleted 回调 + oneshot）。
+async fn verify_hello(consent_message: &str, owner_hwnd: Option<isize>) -> Result<(), String> {
     use windows::Security::Credentials::UI::{
         UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
     };
@@ -83,6 +93,16 @@ async fn verify_hello(consent_message: &str) -> Result<(), String> {
         );
     }
 
+    // 主路径：interop 绑定主窗口，Consent 对话框显示在窗口之上（无需抢前台）
+    if let Some(hwnd) = owner_hwnd {
+        if let Some(outcome) = try_verification_for_window(hwnd, consent_message).await {
+            return outcome;
+        }
+        // interop 接口/调用不可用（Win10 Build 22000 以下等）→ 落到无绑定路径
+    }
+
+    // 兜底路径：无窗口绑定，Consent UI 不抢前台是已知 Windows bug，靠轮询提前台
+    spawn_consent_focus_nudger();
     let result = await_winrt_operation(
         UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(consent_message))
             .map_err(|e| format!("Hello 验证请求失败: {e}"))?,
@@ -94,6 +114,61 @@ async fn verify_hello(consent_message: &str) -> Result<(), String> {
     } else {
         Err("Windows Hello 验证未通过".to_string())
     }
+}
+
+/// interop 主路径（Win11 Build 22000+）：`RequestVerificationForWindowAsync` 把
+/// Consent 对话框绑定到 appWindow，作为该窗口的子级 UI 显示，天然在应用之前。
+/// 返回 None 表示 interop 不可用（调用方回退无绑定路径）；返回 Some 即为最终结论
+/// （含用户取消——取消不应再弹一次兜底弹窗）。
+async fn try_verification_for_window(
+    hwnd: isize,
+    message: &str,
+) -> Option<Result<(), String>> {
+    use windows::Security::Credentials::UI::{UserConsentVerificationResult, UserConsentVerifier};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::WinRT::IUserConsentVerifierInterop;
+
+    let op: windows::Foundation::IAsyncOperation<UserConsentVerificationResult> = {
+        // interop 是 COM 接口包装（!Send），块作用域内创建 op 后立即释放，不跨 await
+        let interop: IUserConsentVerifierInterop = windows::core::factory::<
+            UserConsentVerifier,
+            IUserConsentVerifierInterop,
+        >()
+        .ok()?;
+        unsafe {
+            interop.RequestVerificationForWindowAsync(HWND(hwnd as *mut std::ffi::c_void), &HSTRING::from(message))
+        }
+        .ok()?
+    };
+    let result = await_winrt_operation(op).await;
+    Some(match result {
+        Ok(r) if r == UserConsentVerificationResult::Verified => Ok(()),
+        Ok(_) => Err("Windows Hello 验证未通过".to_string()),
+        Err(e) => Err(format!("Hello 验证请求失败: {e}")),
+    })
+}
+
+/// 兜底路径的焦点轮询：Consent 对话框由 broker 进程创建且不抢前台（Windows bug
+/// task.ms/49689617），轮询其已知窗口类名并调用 SetForegroundWindow 提前台。
+/// 与 Chromium（crypto/user_verifying_key_win.cc）、gsudo 同款做法；应用自身
+/// 前台时即可命中权限规则，固定轮询 3 秒后线程自行结束（无需停止信号）。
+fn spawn_consent_focus_nudger() {
+    std::thread::spawn(|| {
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
+        let class_name = HSTRING::from("Credential Dialog Xaml Host");
+        for _ in 0..12 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            unsafe {
+                // windows 0.58 中 FindWindowW 失败返回 Err 或无效句柄，均视为未找到
+                if let Ok(hwnd) = FindWindowW(PCWSTR(class_name.as_ptr()), PCWSTR::null()) {
+                    if !hwnd.is_invalid() {
+                        let _ = SetForegroundWindow(hwnd);
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// 非阻塞等待 WinRT IAsyncOperation（windows 0.58 未内建 Future 实现）：

@@ -183,21 +183,24 @@ pub async fn self_offline_session(
 }
 
 /// Windows 本地身份验证（仅 Windows Hello，设备未配置时返回引导文案）。
-/// 弹窗文案由前端按场景传入（i18n）；必须非阻塞 await（阻塞会导致 Consent 弹窗
-/// 留在应用窗口后面，见 identity.rs 模块注释）；通过后记录后端验证时间戳
-/// （时效 IDENTITY_VERIFY_TTL_SECS，reveal 等敏感操作在后端校验，防 webview 绕过）。
+/// 弹窗文案由前端按场景传入（i18n）；主路径用官方 interop 接口把 Consent
+/// 对话框绑定到主窗口 HWND（Win11 天然置前，见 identity.rs 模块注释）；
+/// 通过后记录后端验证时间戳（时效 IDENTITY_VERIFY_TTL_SECS，reveal 等敏感
+/// 操作在后端校验，防 webview 绕过）。
 #[tauri::command]
 pub async fn verify_windows_identity(
     app: tauri::AppHandle,
     consent_message: Option<String>,
 ) -> Result<CommandResult, String> {
-    // 主窗口带到前台：为系统 Consent UI 的前台转移提供正确上下文
-    if let Some(win) = app.get_webview_window("main") {
+    // 主窗口带到前台（为兜底路径提供前台进程上下文）+ 取 HWND 供 Consent UI 绑定。
+    // HWND 取 isize 原始值：tauri 与本项目 windows crate 版本可能不同，跨类型不直通
+    let owner_hwnd = app.get_webview_window("main").and_then(|win| {
         let _ = win.show();
         let _ = win.set_focus();
-    }
+        win.hwnd().ok().map(|h| h.0 as isize)
+    });
     let message = consent_message.unwrap_or_default();
-    match crate::platform::identity::verify_identity(&message).await {
+    match crate::platform::identity::verify_identity(&message, owner_hwnd).await {
         Ok(()) => {
             crate::platform::identity::note_identity_verified();
             Ok(CommandResult::ok())
