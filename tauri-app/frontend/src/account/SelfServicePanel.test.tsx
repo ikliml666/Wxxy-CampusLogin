@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
-import { render, fireEvent, act, waitFor, screen, cleanup } from '@testing-library/react'
+import { render, fireEvent, act, waitFor, screen, cleanup, createEvent } from '@testing-library/react'
 import { SelfServicePanel } from './SelfServicePanel'
 import { resetSelfSessionGate } from './selfServiceState'
 
@@ -165,6 +165,25 @@ describe('SelfServicePanel', () => {
     expect(verifyWindowsIdentity.mock.calls.length).toBe(verifyCountAfterFirst)
     // 切入面板自动刷新 1 次 + 两次手动点击各 1 次
     expect(querySelfDashboard).toHaveBeenCalledTimes(3)
+  })
+
+  it('密码眼睛按钮不夺取输入框焦点（mousedown preventDefault），修改时点眼睛不会因 blur 清草稿而显示空', async () => {
+    const { container } = render(<SelfServicePanel />)
+    await fillCreds()
+    const pwdInput = screen.getByLabelText('onboarding.bindSelfPassword')
+    // 输入框旁的眼睛按钮（Input 内部有一层 relative 包装，向上找第一个含按钮的祖先）
+    let host: HTMLElement | null = pwdInput.closest('div')
+    let eyeBtn: HTMLButtonElement | null = null
+    while (host && !eyeBtn) {
+      eyeBtn = host.querySelector('button')
+      if (!eyeBtn) host = host.parentElement
+    }
+    expect(eyeBtn).toBeTruthy()
+    // mousedown 必须被 preventDefault：否则真实浏览器中点击眼睛会先夺焦 →
+    // 触发 blur → 草稿被清空/提交，用户看到空输入框（历史缺陷）
+    const event = createEvent.mouseDown(eyeBtn!)
+    fireEvent(eyeBtn!, event)
+    expect(event.defaultPrevented).toBe(true)
   })
 
   it('注销需确认，确认后调用接口并移除对应行', async () => {
