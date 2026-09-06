@@ -243,8 +243,9 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区：左=启动设置；右=通知+安全+引导（md 起两列，窄屏单列堆叠） */}
-      <div className="grid gap-4 md:grid-cols-2 items-start">
+      {/* 两列区：左=启动设置；右=通知+安全+引导（md 起两列，窄屏单列堆叠）。
+          右列经 stretch + justify-between 拉伸至与左列等高，剩余空间均分到卡片间隙 */}
+      <div className="grid gap-4 md:grid-cols-2">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -363,7 +364,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 justify-between">
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
