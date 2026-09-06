@@ -247,10 +247,6 @@ export const AccountPanel = memo(function AccountPanel({
         return
       }
       markGateVerified()
-      const vd = verified.data as { helloUsed?: boolean } | undefined
-      if (vd && vd.helloUsed === false) {
-        addToast(t('account.helloRecommend'), 'info')
-      }
       const r = await tauriApiWithRetry.revealOperatorCredential({
         account: bindSelfAccount.trim(),
         password: selfPasswordForSubmit,

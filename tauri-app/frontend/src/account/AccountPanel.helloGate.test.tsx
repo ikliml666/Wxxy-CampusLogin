@@ -86,7 +86,7 @@ describe('AccountPanel Windows Hello 验证门', () => {
     expect(queryBindStatus).toHaveBeenCalledTimes(1)
 
     // 第二次：触发一次验证（未配置 Hello 走回退但通过）
-    verifyWindowsIdentity.mockResolvedValue({ success: true, data: { helloUsed: false } })
+    verifyWindowsIdentity.mockResolvedValue({ success: true })
     await act(async () => { fireEvent.click(queryBtn()) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
     expect(queryBindStatus).toHaveBeenCalledTimes(2)
@@ -114,7 +114,7 @@ describe('AccountPanel Windows Hello 验证门', () => {
     expect(queryBindStatus).toHaveBeenCalledTimes(1)
 
     // 再下一次：仍需验证（失败不置 verified）
-    verifyWindowsIdentity.mockResolvedValue({ success: true, data: { helloUsed: true } })
+    verifyWindowsIdentity.mockResolvedValue({ success: true })
     await act(async () => { fireEvent.click(queryBtn()) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(2)
     expect(queryBindStatus).toHaveBeenCalledTimes(2)

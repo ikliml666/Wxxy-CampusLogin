@@ -176,7 +176,6 @@
     "selfOfflineConfirmDesc": "This will end the session of that device; if it is the current device, you will be disconnected.",
     "selfOfflineSuccess": "Session terminated",
     "selfOfflineFailed": "Failed to terminate session",
-    "helloRecommend": "Windows Hello is not configured. Enable it in Windows Settings (face/fingerprint/PIN) for faster and safer verification",
     "identityVerifyPrompt": "Verify your Windows identity before performing sensitive actions"
   },
   "network": {

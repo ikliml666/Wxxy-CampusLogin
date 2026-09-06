@@ -42,7 +42,7 @@ beforeEach(() => {
   selfOfflineSession.mockReset()
   verifyWindowsIdentity.mockReset()
   // 面板操作前需过 Hello 门（首次免验，之后验证成功放行）
-  verifyWindowsIdentity.mockResolvedValue({ success: true, data: { helloUsed: true } })
+  verifyWindowsIdentity.mockResolvedValue({ success: true })
   mockConfigUser.current = ''
 })
 
