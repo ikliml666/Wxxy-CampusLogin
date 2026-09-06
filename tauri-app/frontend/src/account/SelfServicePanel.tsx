@@ -79,10 +79,10 @@ const toInt = (value: unknown) => {
   return Number.isNaN(n) ? null : n
 }
 
-// 使用时长：秒 → 分钟（原站 parseInt/60 取整）
+// 使用时长：秒 → 分钟（原站 parseInt/60 取整，floor 与其一致；round 会把 90 秒显示成 2 分钟）
 export const formatUseTimeMinutes = (seconds: string) => {
   const n = toInt(seconds)
-  return n === null ? '--' : String(Math.round(n / 60))
+  return n === null ? '--' : String(Math.floor(n / 60))
 }
 
 // 使用流量：(下行+上行) KB → M，保留 3 位（原站同公式）
@@ -200,20 +200,14 @@ export function SelfServicePanel() {
 
   // 切入面板自动验证并刷新（2026-09-06 用户要求）：凭据就绪后弹 Hello，
   // 通过即自动拉取在线信息与近期上网记录；验证取消/失败则等用户手动刷新。
-  // Hello 总开关关闭时不弹窗（用户点刷新时门也直接放行）。
+  // 直接调 fetchDashboard（内部自带验证门）——外层再验一次会让
+  // selfReverifyEachAction=true 的用户切入面板连弹两次 Hello。
   useEffect(() => {
     // 配置未加载完（启动后立刻切过来）时凭据判断不可靠，等 configLoaded 再启动
     if (autoRefreshedRef.current || !configLoaded || !hasCred) return
-    if (useConfigStore.getState().config.selfHelloEnabled === false) {
-      autoRefreshedRef.current = true
-      void fetchDashboard()
-      return
-    }
     autoRefreshedRef.current = true
-    void (async () => {
-      if (await ensureSelfVerified()) await fetchDashboard()
-    })()
-  }, [configLoaded, hasCred, ensureSelfVerified, fetchDashboard])
+    void fetchDashboard()
+  }, [configLoaded, hasCred, fetchDashboard])
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineSessionId) return
