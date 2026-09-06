@@ -16,9 +16,7 @@ pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) ->
     if !emit_cfg.password.is_empty() {
         emit_cfg.password = crate::config::model::PASSWORD_MASK.to_string();
     }
-    if !emit_cfg.self_password.is_empty() {
-        emit_cfg.self_password = crate::config::model::PASSWORD_MASK.to_string();
-    }
+    mask_self_password(&mut emit_cfg);
     let _ = app_handle.notify_config_changed(&emit_cfg);
     Ok(())
 }
@@ -89,11 +87,22 @@ pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 自助服务密码出站掩码（所有把 Config 发往前端的命令必须调用）：
+/// state 内是解密后的明文；空值保留（未设置语义），非空一律替换为 MASK。
+/// 历史缺陷：get_init_data/get_config 漏掩码，明文经 IPC 泄露到 webview，
+/// 且前端 selfPasswordSaved 永远 false → 重启后密码框显示空、自动验证不弹。
+pub fn mask_self_password(cfg: &mut crate::config::model::Config) {
+    if !cfg.self_password.is_empty() {
+        cfg.self_password = crate::config::model::PASSWORD_MASK.to_string();
+    }
+}
+
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
     let config = state.config.load();
     let mut cfg = config.as_ref().clone();
     cfg.password = crate::config::model::PASSWORD_MASK.to_string();
+    mask_self_password(&mut cfg);
     Ok(cfg)
 }
 
@@ -141,4 +150,25 @@ pub fn save_config(
     crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
 
     Ok(CommandResult::ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 出站掩码回归锁：非空自助服务密码必须替换为 MASK（空=未设置语义保留）。
+    /// 历史缺陷：get_init_data/get_config 漏调掩码，解密后的明文经 IPC 发到
+    /// webview（隐私泄露），且前端 selfPasswordSaved 永远 false → 重启后
+    /// 密码框显示空、切入自助服务面板的自动 Hello 验证永不触发。
+    #[test]
+    fn mask_self_password_masks_non_empty_only() {
+        let mut cfg = crate::config::model::Config::default();
+        // 空值 = 未设置，保留（前端据此显示"未保存"）
+        mask_self_password(&mut cfg);
+        assert_eq!(cfg.self_password, "");
+        // 非空（明文）必须掩码
+        cfg.self_password = "plain-secret".to_string();
+        mask_self_password(&mut cfg);
+        assert_eq!(cfg.self_password, crate::config::model::PASSWORD_MASK);
+    }
 }

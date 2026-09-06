@@ -114,6 +114,10 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     let config = state.config.load();
     let mut cfg = config.as_ref().clone();
     cfg.password = crate::config::model::PASSWORD_MASK.to_string();
+    // self_password 同样必须掩码：state 内是解密后的明文，漏掩码会把明文发给
+    // webview，且前端 selfPasswordSaved（依赖 === MASK）永远 false → 重启后密码框
+    // 显示空、切入自助服务面板的自动 Hello 验证永不触发（2026-09-06 真机缺陷）
+    crate::commands::config_cmd::mask_self_password(&mut cfg);
 
     let accounts = crate::config::persist::list_account_names(&app_handle);
 

@@ -620,6 +620,7 @@ pub struct AccountResult {
 | `user` | String | `""` | 学号 |
 | `password` | String | `""` | 密码 (内存中明文, 磁盘上DPAPI加密) |
 | `selfPassword` | String | `""` | 自助服务系统密码 (2026-09-05, 内存中明文, 磁盘上DPAPI加密; 回传前端时替换为 MASK; 命令层 resolve_self_password 在前端传空/MASK 时回退此值) |
+  ⚠️ 出站掩码纪律（2026-09-06 缺陷修复）：所有把 Config 发往前端的命令（get_init_data / get_config / notify_config_changed）**必须调用 `mask_self_password`**——state 内是解密明文，漏掩码会把明文发给 webview（隐私泄露），且前端 selfPasswordSaved（依赖 === MASK）永远 false → 重启后密码框显示空、切入自助服务面板的自动 Hello 验证永不触发；`config_cmd.rs` 有回归单测
 | `operator` | String | `""` | 运营商后缀 (`""` 不拼接, `"@telecom"`/`"@unicom"`/`"@cmcc"` 直接拼接, 其他值 `validate_operator` 报错) |
 | `adapter1` | String | `"自动检测"` | 主适配器名称 |
 | `adapter2` | String | `""` | 副适配器名称 |
