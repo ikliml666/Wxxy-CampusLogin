@@ -5,10 +5,12 @@ import { SelfServicePanel } from './SelfServicePanel'
 
 const querySelfDashboard = vi.fn()
 const selfOfflineSession = vi.fn()
+const verifyWindowsIdentity = vi.fn()
 vi.mock('@/hooks/tauriApi', () => ({
   tauriApiWithRetry: {
     querySelfDashboard: (...args: unknown[]) => querySelfDashboard(...args),
     selfOfflineSession: (...args: unknown[]) => selfOfflineSession(...args),
+    verifyWindowsIdentity: (...args: unknown[]) => verifyWindowsIdentity(...args),
   },
 }))
 // t 直接回键名，断言 i18n 键参与渲染
@@ -38,6 +40,9 @@ const HISTORY = [[1788565605000, 1788588847000, '10.0.0.2', 'AA11BB22CC33', 15, 
 beforeEach(() => {
   querySelfDashboard.mockReset()
   selfOfflineSession.mockReset()
+  verifyWindowsIdentity.mockReset()
+  // 面板操作前需过 Hello 门（首次免验，之后验证成功放行）
+  verifyWindowsIdentity.mockResolvedValue({ success: true, data: { helloUsed: true } })
   mockConfigUser.current = ''
 })
 

@@ -23,6 +23,7 @@ import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
+import { useSelfCredStore, useHelloGate, markGateVerified } from '@/account/selfServiceState'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -38,11 +39,6 @@ interface AccountPanelProps {
   onDeleteAccount: (name: string) => void
   onSwitchAccount: (name: string) => Promise<void>
 }
-
-// 会话级 Windows Hello 验证门（模块变量，应用生命周期内有效）：
-// 首次绑定/查询免验证（首次使用友好）；之后需要验证，一次通过后所有绑定/查询共用。
-// 查看明文密码不受此门影响，仍每次验证，但通过后顺带解锁绑定/查询。
-let helloGate: 'firstFree' | 'needVerify' | 'verified' = 'firstFree'
 
 export const AccountPanel = memo(function AccountPanel({
   adapters,
@@ -138,10 +134,14 @@ export const AccountPanel = memo(function AccountPanel({
     try { await onSwitchAccount(name) } finally { setSwitchingAccount(null) }
   }, [activeAccount, onSwitchAccount, switchingAccount])
 
-  // 运营商账号绑定（凭据仅内存传递，不写配置不落盘）
+  // 自助服务系统凭据：跨面板共享 store（与自助服务面板同一份输入，切换面板不丢失；
+  // 仅内存保留不落盘，退出应用即清空）
   const BIND_OPERATOR_NONE = '__none__'
-  const [bindSelfAccount, setBindSelfAccount] = useState('')
-  const [bindSelfPassword, setBindSelfPassword] = useState('')
+  const bindSelfAccount = useSelfCredStore((s) => s.account)
+  const setBindSelfAccount = useSelfCredStore((s) => s.setAccount)
+  const bindSelfPassword = useSelfCredStore((s) => s.password)
+  const setBindSelfPassword = useSelfCredStore((s) => s.setPassword)
+  const clearSelfPassword = useSelfCredStore((s) => s.clearPassword)
   const [showBindPassword, setShowBindPassword] = useState(false)
   const [bindOp, setBindOp] = useState(BIND_OPERATOR_NONE)
   const [bindPhone, setBindPhone] = useState('')
@@ -157,14 +157,17 @@ export const AccountPanel = memo(function AccountPanel({
   const [revealedOp, setRevealedOp] = useState<string | null>(null)
   const [revealedPassword, setRevealedPassword] = useState('')
 
-  // config 异步加载完成后初始化一次（学号/运营商默认取当前配置）
+  // config 异步加载完成后初始化一次（学号/运营商默认取当前配置；
+  // 学号仅在共享 store 为空时预填，不覆盖用户在自助服务面板已输入的值）
   useEffect(() => {
     if (!bindInitedRef.current && config.user) {
-      setBindSelfAccount(config.user)
+      if (!useSelfCredStore.getState().account) {
+        setBindSelfAccount(config.user)
+      }
       if (config.operator) setBindOp(config.operator)
       bindInitedRef.current = true
     }
-  }, [config.user, config.operator])
+  }, [config.user, config.operator, setBindSelfAccount])
 
   const canBind = bindSelfAccount.trim().length > 0
     && bindSelfPassword.trim().length > 0
@@ -174,32 +177,9 @@ export const AccountPanel = memo(function AccountPanel({
 
   const canQueryStatus = bindSelfAccount.trim().length > 0 && bindSelfPassword.trim().length > 0
 
-  // 绑定/查询共用的 Hello 验证门：首次免验，之后需验证且一次通过全局共用。
-  // 验证时设备未配置 Hello（走凭据对话框回退）则顺带提示推荐开启。
-  const ensureHelloVerified = useCallback(async (): Promise<boolean> => {
-    if (helloGate === 'verified') return true
-    if (helloGate === 'firstFree') {
-      helloGate = 'needVerify'
-      return true
-    }
-    try {
-      const verified = await tauriApiWithRetry.verifyWindowsIdentity({ consentMessage: t('account.identityVerifyPrompt') })
-      if (!mountedRef.current) return false
-      if (verified.success) {
-        helloGate = 'verified'
-        const d = verified.data as { helloUsed?: boolean } | undefined
-        if (d && d.helloUsed === false) {
-          addToast(t('account.helloRecommend'), 'info')
-        }
-        return true
-      }
-      addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
-      return false
-    } catch (err) {
-      if (mountedRef.current) addToast(extractErrorMessage(err) || t('account.bindStatusRevealFailed'), 'error')
-      return false
-    }
-  }, [addToast, t])
+  // 绑定/查询/dashboard 共用的 Hello 验证门（实现见 selfServiceState.ts）：
+  // 首次免验，之后需验证且一次通过全局共用
+  const ensureHelloVerified = useHelloGate()
 
   const fetchBindStatus = useCallback(async () => {
     if (queryingStatus) return
@@ -243,7 +223,7 @@ export const AccountPanel = memo(function AccountPanel({
         addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
         return
       }
-      helloGate = 'verified'
+      markGateVerified()
       const vd = verified.data as { helloUsed?: boolean } | undefined
       if (vd && vd.helloUsed === false) {
         addToast(t('account.helloRecommend'), 'info')
@@ -281,8 +261,8 @@ export const AccountPanel = memo(function AccountPanel({
       if (mountedRef.current) {
         if (result.success) {
           addToast(result.message || t('onboarding.bindSuccess'), 'success')
-          // 成功后清空敏感字段
-          setBindSelfPassword('')
+          // 成功后清空敏感字段（共享 store 同步，自助服务面板密码一并清空）
+          clearSelfPassword()
           setBindSms('')
           // 绑定成功后自动刷新状态区（凭据本次有效）
           void fetchBindStatus()

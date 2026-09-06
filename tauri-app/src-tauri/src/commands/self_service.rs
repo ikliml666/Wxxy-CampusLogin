@@ -169,6 +169,28 @@ pub async fn self_offline_session(
     }
 }
 
+/// 验证期间临时置顶主窗口的 RAII guard：Win11 下系统 Hello 弹窗（broker 进程）
+/// 不主动抢前台，会留在应用窗口后面需要手动从任务栏点开（实测缺陷）；置顶主窗口
+/// 把 Consent UI 顶到最前，验证结束（完成/取消/异常）自动恢复。
+struct TopmostGuard(Option<tauri::WebviewWindow>);
+
+impl TopmostGuard {
+    fn new(win: Option<tauri::WebviewWindow>) -> Self {
+        if let Some(w) = &win {
+            let _ = w.set_always_on_top(true);
+        }
+        Self(win)
+    }
+}
+
+impl Drop for TopmostGuard {
+    fn drop(&mut self) {
+        if let Some(w) = &self.0 {
+            let _ = w.set_always_on_top(false);
+        }
+    }
+}
+
 /// Windows 本地身份验证（Windows Hello，未配置时回退 Windows 凭据对话框 +
 /// SSPI 本地校验）。弹窗文案由前端按场景传入（i18n）；通过后记录后端验证时间戳
 /// （时效 IDENTITY_VERIFY_TTL_SECS，reveal 等敏感操作在后端校验，防 webview 绕过）。
@@ -179,16 +201,20 @@ pub async fn verify_windows_identity(
     app: tauri::AppHandle,
     consent_message: Option<String>,
 ) -> Result<CommandResult, String> {
-    // 先把主窗口带到前台：Hello/凭据对话框是系统弹窗，应用自身不在前台时
-    // 系统窗口不会自动置顶，用户需要手动从任务栏点开（实测缺陷）
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
-        let _ = win.set_focus();
+    // 先把主窗口带到前台：系统弹窗的前台行为依赖调用方窗口状态
+    let win = app.get_webview_window("main");
+    if let Some(w) = &win {
+        let _ = w.show();
+        let _ = w.set_focus();
     }
     let message = consent_message.unwrap_or_default();
     // 弹窗/校验为阻塞调用，放独立线程避免占用 Tauri 异步运行时
     let result = tauri::async_runtime::spawn_blocking(move || {
-        crate::platform::identity::verify_identity(&message)
+        // 验证期间置顶主窗口（RAII，结束自动恢复），同时把主窗口 HWND 传给
+        // 凭据对话框作模态父窗口（HWND 非 Send，跨线程传原始值）
+        let _topmost = TopmostGuard::new(win.clone());
+        let parent_hwnd = win.as_ref().and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize);
+        crate::platform::identity::verify_identity(&message, parent_hwnd)
     })
     .await
     .map_err(|e| format!("身份验证任务失败: {e}"))?;

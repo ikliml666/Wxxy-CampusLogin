@@ -49,8 +49,9 @@ fn epoch_secs_now() -> u64 {
 
 /// 验证当前 Windows 用户身份。返回 Ok(hello_used) 表示通过——true 走的 Windows
 /// Hello，false 走的凭据对话框回退（设备未配置/不可用 Hello，前端可借此提示推荐开启）；
-/// Err 为可展示给用户的失败原因。
-pub fn verify_identity(consent_message: &str) -> Result<bool, String> {
+/// Err 为可展示给用户的失败原因。`parent_hwnd` 为主窗口句柄（isize 原始值，跨线程
+/// 传递用），凭据对话框以它为模态父窗口保证不被主窗口遮挡。
+pub fn verify_identity(consent_message: &str, parent_hwnd: Option<isize>) -> Result<bool, String> {
     let message = if consent_message.trim().is_empty() {
         DEFAULT_CONSENT_MESSAGE
     } else {
@@ -62,7 +63,7 @@ pub fn verify_identity(consent_message: &str) -> Result<bool, String> {
         Ok(false) => {}
         Err(e) => crate::log_warn!("identity", "Windows Hello 验证异常，转凭据对话框: {e}"),
     }
-    verify_by_password_dialog(message)?;
+    verify_by_password_dialog(message, parent_hwnd)?;
     Ok(false)
 }
 
@@ -97,8 +98,8 @@ fn verify_hello(consent_message: &str) -> Result<bool, String> {
 
 /// 回退路径：Windows 凭据对话框收集账号密码 + SSPI NTLM 本地校验。
 /// 收集到的明文凭据在校验结束后立即清零（Rust drop 不清零，防堆内残留）。
-fn verify_by_password_dialog(consent_message: &str) -> Result<(), String> {
-    let (mut username, mut password) = credui_collect_credentials(consent_message)?;
+fn verify_by_password_dialog(consent_message: &str, parent_hwnd: Option<isize>) -> Result<(), String> {
+    let (mut username, mut password) = credui_collect_credentials(consent_message, parent_hwnd)?;
     let result = sspi_verify_credentials(&username, &password);
     zeroize_string(&mut username);
     zeroize_string(&mut password);
@@ -114,8 +115,8 @@ fn zeroize_string(s: &mut String) {
     }
 }
 
-/// 弹出 Windows 凭据对话框收集用户名/密码
-fn credui_collect_credentials(consent_message: &str) -> Result<(String, String), String> {
+/// 弹出 Windows 凭据对话框收集用户名/密码（parent_hwnd：主窗口句柄，作为模态父窗口）
+fn credui_collect_credentials(consent_message: &str, parent_hwnd: Option<isize>) -> Result<(String, String), String> {
     use windows::Win32::Foundation::WIN32_ERROR;
     use windows::Win32::Graphics::Gdi::HBITMAP;
     use windows::Win32::Security::Credentials::{
@@ -136,7 +137,9 @@ fn credui_collect_credentials(consent_message: &str) -> Result<(String, String),
         let caption = HSTRING::from("Windows 身份验证");
         let cred_info = CREDUI_INFOW {
             cbSize: std::mem::size_of::<CREDUI_INFOW>() as u32,
-            hwndParent: HWND::default(),
+            hwndParent: parent_hwnd
+                .map(|p| HWND(p as *mut core::ffi::c_void))
+                .unwrap_or_default(),
             pszMessageText: windows::core::PCWSTR(message.as_ptr()),
             pszCaptionText: windows::core::PCWSTR(caption.as_ptr()),
             hbmBanner: HBITMAP::default(),

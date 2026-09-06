@@ -3,7 +3,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Eye, Globe, History, KeyRound, Loader2, LogOut, RefreshCw, UserCircle } from 'lucide-react'
+import { Eye, EyeOff, Globe, History, KeyRound, Loader2, LogOut, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
@@ -11,6 +11,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { useSelfCredStore, useHelloGate } from '@/account/selfServiceState'
 
 // 自助服务 dashboard 协议字段（逆向于 2026-09-05 页面 JS，原始 JSON 透传）
 interface SelfOnlineItem {
@@ -66,10 +67,12 @@ const formatFlowMb = (downFlow: string, upFlow: string) => {
 export function SelfServicePanel() {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
-  // 凭据仅内存保留：学号默认取当前配置，自助服务密码由用户输入（不落盘不写日志）
-  const configUser = useConfigStore((s) => s.config.user)
-  const [account, setAccount] = useState('')
-  const [password, setPassword] = useState('')
+  // 凭据与账号面板绑定卡共享同一 store（切换面板不丢失；仅内存保留不落盘）
+  const account = useSelfCredStore((s) => s.account)
+  const setAccount = useSelfCredStore((s) => s.setAccount)
+  const password = useSelfCredStore((s) => s.password)
+  const setPassword = useSelfCredStore((s) => s.setPassword)
+  const [showPassword, setShowPassword] = useState(false)
   const credInitedRef = useRef(false)
   const [onlineList, setOnlineList] = useState<SelfOnlineItem[] | null>(null)
   const [history, setHistory] = useState<SelfHistoryRow[] | null>(null)
@@ -77,24 +80,29 @@ export function SelfServicePanel() {
   const [offlineSessionId, setOfflineSessionId] = useState<string | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<SelfOnlineItem | null>(null)
   const mountedRef = useRef(true)
+  const ensureHelloVerified = useHelloGate()
 
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
 
-  // 配置异步加载完成后初始化一次学号（与 AccountPanel 绑定卡 bindInitedRef 同模式）
+  // 配置异步加载完成后预填一次学号（store 为空时才填，与绑定卡预填同模式）
+  const configUser = useConfigStore((s) => s.config.user)
   useEffect(() => {
     if (!credInitedRef.current && configUser) {
-      setAccount(configUser)
+      if (!useSelfCredStore.getState().account) {
+        setAccount(configUser)
+      }
       credInitedRef.current = true
     }
-  }, [configUser])
+  }, [configUser, setAccount])
 
   const hasCred = account.trim().length > 0 && password.trim().length > 0
 
   const fetchDashboard = useCallback(async () => {
     if (!hasCred || querying) return
+    if (!(await ensureHelloVerified())) return
     setQuerying(true)
     try {
       const result = await tauriApiWithRetry.querySelfDashboard({
@@ -114,10 +122,11 @@ export function SelfServicePanel() {
     } finally {
       if (mountedRef.current) setQuerying(false)
     }
-  }, [hasCred, querying, account, password, addToast, t])
+  }, [hasCred, querying, ensureHelloVerified, account, password, addToast, t])
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineSessionId) return
+    if (!(await ensureHelloVerified())) return
     setOfflineSessionId(item.sessionId)
     try {
       const result = await tauriApiWithRetry.selfOfflineSession({
@@ -140,7 +149,7 @@ export function SelfServicePanel() {
         setConfirmTarget(null)
       }
     }
-  }, [offlineSessionId, account, password, addToast, t])
+  }, [offlineSessionId, ensureHelloVerified, account, password, addToast, t])
 
   const thClass = 'px-2 py-2 font-medium whitespace-nowrap text-left'
   const tdClass = 'px-2 py-2 whitespace-nowrap font-mono text-[11px]'
@@ -177,8 +186,8 @@ export function SelfServicePanel() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* 凭据区：学号默认取当前配置，密码仅内存保留（不落盘不写日志） */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* 凭据区：与账号面板绑定卡共用同一 store，样式同绑定卡（垂直排布 + 密码可见切换） */}
+            <div className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="self-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
                 <Input
@@ -192,15 +201,25 @@ export function SelfServicePanel() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
-                <Input
-                  id="self-password"
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
-                  icon={<KeyRound className="h-4 w-4" />}
-                  className="[&::-ms-reveal]:hidden"
-                />
+                <div className="relative">
+                  <Input
+                    id="self-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
+                    icon={<KeyRound className="h-4 w-4" />}
+                    className="[&::-ms-reveal]:hidden pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={showPassword ? t('account.hidePassword') : t('account.showPassword')}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
             {!hasCred ? (
