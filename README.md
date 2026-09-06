@@ -24,6 +24,10 @@
 - **网络质量监测** — 网关/DNS/DoH/HTTPS 延迟并发测试，DNS 解析专项测试，结果增量推送；"网络拥堵"通知经 15s 间隔两次复核确认，避免瞬时抖动误报
 - **双适配器支持** — 有线 + 无线同时管理，Dock 栏适配器选择菜单
 - **多账号管理** — DPAPI 加密存储、快速切换
+- **运营商账号绑定** — 对接校园网自助服务系统，绑定/查询运营商账号，绑定状态一目了然
+- **Windows Hello 验证** — 查看运营商密码明文、踢设备下线等敏感操作需本地生物识别/PIN 验证，后端时效复核
+- **自助服务查询** — 在线设备信息、近期上网记录（日期范围筛选 + 汇总统计），支持踢设备下线
+- **总览自定义卡片** — 首页卡片可增删与拖拽排序，内置"在线信息"与"近期上网记录"卡（关键信息验证后查看）
 - **主题定制** — 7 种预设主题 + 自定义主题色 + 深浅模式
 - **系统托盘** — 最小化到托盘后台运行，支持托盘快速登录
 - **开机自启** — 支持静默启动
@@ -41,7 +45,7 @@
 | 后端 | Rust + Tokio |
 | 网络 | reqwest 0.12 + tokio-rustls 0.26 + hickory-resolver 0.24 |
 | 加密 | Windows DPAPI |
-| 平台 | Windows (Win32 API) |
+| 平台 | Windows (Win32/WinRT API, Windows Hello) |
 | 国际化 | react-i18next + i18next-browser-languagedetector |
 
 ## 项目结构
@@ -75,7 +79,7 @@ Wxxy-CampusLogin/
 │       │   ├── account/     # 账号模块（crypto.rs DPAPI 加密）
 │       │   ├── monitor/     # 监控模块（后台巡检/自动登录/延迟测试/适配器监控）
 │       │   ├── infra/       # 基础设施（状态管理/日志/事件总线/退出生命周期/通知）
-│       │   ├── platform/    # 平台交互（DNS配置/UAC提权/GPU检测/开机自启）
+│       │   ├── platform/    # 平台交互（DNS配置/UAC提权/GPU检测/开机自启/Windows Hello验证）
 │       │   ├── helper/      # 提权辅助子进程（改 MAC/设 DNS，无 PowerShell 依赖）
 │       │   ├── app/         # 应用生命周期（启动/托盘/窗口/快捷键/心跳）
 │       │   └── update/      # 更新模块（检查/下载/安装/SHA256校验）
@@ -122,14 +126,14 @@ pwsh tauri-app/build.ps1
 项目包含后端 Rust 测试和前端 TypeScript 测试，CI 前请确保全部通过。
 
 ```bash
-# 后端测试（234 个测试）
+# 后端测试（246 个单元测试 + 1 个回归集成测试）
 cd tauri-app/src-tauri
 cargo test
 
 # 后端 lint
 cargo clippy --all-targets -- -D warnings
 
-# 前端测试（52 个测试）
+# 前端测试（74 个测试）
 cd ../frontend
 npm test
 
@@ -139,8 +143,9 @@ npx tsc --noEmit --incremental
 
 ## 安全说明
 
-- 密码使用 Windows DPAPI 加密存储，绑定当前 Windows 用户
-- 前端显示密码为 `***`，不暴露明文；保存时空密码不覆盖旧密码
+- 密码使用 Windows DPAPI 加密存储，绑定当前 Windows 用户（登录密码与自助服务密码同措施）
+- 前端显示密码为 `***`，不暴露明文；保存时空密码不覆盖旧密码；所有配置出站路径统一经后端掩码出口，明文不出后端
+- 查看运营商账户密码明文需通过 Windows Hello 验证，后端校验验证时效（600 秒 TTL），绕过前端也无法获取明文
 - HTTP 客户端默认 TLS 1.3，回退 TLS 1.2
 - DoH 解析使用 RFC 8484 wire format
 - 更新安装包 SHA256 完整性校验：校验源全部 4xx 时默认拒绝安装，5xx/传输错误/哈希不匹配一律拒绝
