@@ -70,3 +70,6 @@ CODE_WIKI.md
 
 # tsbuildinfo
 *.tsbuildinfo
+
+# Android port: android/ 是独立 git 仓库(嵌套目录,勿将内层仓库提交进主仓库)
+/android/
