@@ -93,6 +93,7 @@ pub struct DisabledAdapter {
 
 /// 创建子进程时附加 Windows 隐藏窗口标志，避免弹出控制台窗口。
 pub fn new_command(program: &str) -> std::process::Command {
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
     let mut cmd = std::process::Command::new(program);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
@@ -104,6 +105,7 @@ pub fn is_blacklisted(name: &str) -> bool {
 }
 
 /// 将 IPv4 前缀长度转换为点分十进制掩码。
+#[cfg(target_os = "windows")]
 pub(crate) fn prefix_len_to_mask(len: u32) -> String {
     if len > 32 { return String::new(); }
     let mask: u32 = if len == 0 { 0 } else { !0u32 << (32 - len) };

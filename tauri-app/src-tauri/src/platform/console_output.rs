@@ -56,6 +56,9 @@ pub fn decode_console_bytes(bytes: &[u8]) -> String {
 /// 控制台输出同策略（UTF-8 优先 → OEM 回退）。校园网 Portal（老 Dr.COM）
 /// 常返回 GBK 编码，登录/注销的中文关键词成败判定依赖正确解码。
 pub fn decode_charset_bytes(bytes: &[u8], charset: Option<&str>) -> String {
+    // 非 Windows 无代码页解码分支,显式消费参数避免 unused 警告
+    #[cfg(not(target_os = "windows"))]
+    let _ = charset;
     #[cfg(target_os = "windows")]
     if let Some(cs) = charset {
         let cs = cs.trim().to_ascii_lowercase();

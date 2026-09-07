@@ -7,9 +7,9 @@ use lazy_static::lazy_static;
 use parking_lot::RwLock;
 use std::time::Instant;
 use std::sync::atomic::AtomicBool;
-use crate::network::discovery::{
-    Adapter, AdapterDetail, AdapterQueryResult, DisabledAdapter, new_command,
-};
+use crate::network::discovery::{Adapter, AdapterDetail, AdapterQueryResult, DisabledAdapter};
+#[cfg(desktop)]
+use crate::network::discovery::new_command;
 
 /// 缓存条目：(adapters, details, disabled, timestamp)
 type AdapterCacheEntry = (Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant);
@@ -126,6 +126,7 @@ pub fn validate_adapter_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(desktop)]
 pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
     validate_adapter_name(adapter_name)?;
 

@@ -123,3 +123,14 @@ pub fn decrypt(encrypted_base64: &str) -> Result<String, String> {
     let decrypted = dpapi::decrypt(&data)?;
     String::from_utf8(decrypted).map_err(|e| format!("UTF8转换失败: {e}"))
 }
+
+// 非桌面平台无 DPAPI:阶段 1 安卓密码不落盘,加密路径不触达;阶段 2 换 Android Keystore
+#[cfg(not(target_os = "windows"))]
+pub fn encrypt(_plaintext: &str) -> Result<String, String> {
+    Err("加密存储仅桌面端支持".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn decrypt(_encrypted_base64: &str) -> Result<String, String> {
+    Err("加密存储仅桌面端支持".to_string())
+}

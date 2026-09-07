@@ -14,9 +14,13 @@ pub use discovery::{
     Adapter, AdapterDetail, DisabledAdapter,
     is_blacklisted,
 };
-pub use dhcp::{
-    dhcp_renew_wired_only, dhcp_release_renew_all, dhcp_release_renew_single,
-};
+pub use dhcp::dhcp_renew_wired_only;
+// MAC 重置链路依赖注册表/提权,仅桌面
+#[cfg(target_os = "windows")]
+pub use dhcp::{dhcp_release_renew_all, dhcp_release_renew_single};
+// 非 Windows 存根版(skipped 语义),供 failure_tracker 跨平台调用
+#[cfg(not(target_os = "windows"))]
+pub use dhcp::dhcp_release_renew_single;
 pub use subnet::{
     check_gateway_reachable, check_gateway_reachable_from,
     is_same_subnet_18,
@@ -34,9 +38,12 @@ pub use adapter::{
 pub use adapter_cache::{
     get_adapters_cached, get_adapters_cached_async, get_adapters_force,
     get_disabled_adapters_cached, get_adapter_details_cached,
-    get_all_adapters_cached, enable_adapter,
+    get_all_adapters_cached,
     wait_for_adapter,
 };
+// 适配器启用走 netsh+提权,仅桌面
+#[cfg(desktop)]
+pub use adapter_cache::enable_adapter;
 
 pub use client::update_portal_url;
 

@@ -1,0 +1,15 @@
+{
+  "identifier": "desktop",
+  "description": "Desktop-only capabilities: shell / global shortcut / autostart",
+  "windows": ["main"],
+  "platforms": ["windows", "macOS", "linux"],
+  "permissions": [
+    "shell:allow-open",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
+  ]
+}

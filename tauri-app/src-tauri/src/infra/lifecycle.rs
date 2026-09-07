@@ -1,7 +1,9 @@
 use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use crate::infra::state::{AppState, CommandResult, AUTO_EXIT_DELAY_MS, CANCEL_EXIT_SHORTCUT};
+use crate::infra::state::{AppState, CommandResult, AUTO_EXIT_DELAY_MS};
+#[cfg(desktop)]
+use crate::infra::state::CANCEL_EXIT_SHORTCUT;
 use crate::infra::events::EventBus;
 use crate::infra::notification::emit_notification;
 
@@ -41,11 +43,14 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
     emit_notification(app_handle, "非校园网络", &format!("{}秒后最小化，{}秒后退出，按 Ctrl+Shift+C 可取消", CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000));
 
     // 注册统一取消快捷键（与自动退出共用 Ctrl+Shift+C）
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    if !app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT)
-        && app_handle.global_shortcut().register(CANCEL_EXIT_SHORTCUT).is_err()
+    #[cfg(desktop)]
     {
-        crate::log_warn!("campus_exit", "快捷键注册失败，请通过界面取消退出");
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        if !app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT)
+            && app_handle.global_shortcut().register(CANCEL_EXIT_SHORTCUT).is_err()
+        {
+            crate::log_warn!("campus_exit", "快捷键注册失败，请通过界面取消退出");
+        }
     }
 
     let app_h = app_handle.clone();
@@ -182,12 +187,17 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
 
     emit_notification(app_handle, "即将自动退出", &format!("{}秒后自动退出，按 Ctrl+Shift+C 可取消", AUTO_EXIT_DELAY_MS / 1000));
 
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    let shortcut_registered = if !app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
-        app_handle.global_shortcut().register(CANCEL_EXIT_SHORTCUT).is_ok()
-    } else {
-        true
+    #[cfg(desktop)]
+    let shortcut_registered = {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        if !app_handle.global_shortcut().is_registered(CANCEL_EXIT_SHORTCUT) {
+            app_handle.global_shortcut().register(CANCEL_EXIT_SHORTCUT).is_ok()
+        } else {
+            true
+        }
     };
+    #[cfg(not(desktop))]
+    let shortcut_registered = true;
 
     if !shortcut_registered {
         crate::log_warn!("auto_exit", "快捷键注册失败，请通过界面取消自动退出");
@@ -260,6 +270,7 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
 }
 
 /// 仅在 should_unregister 为 true 且快捷键已注册时，注销 CANCEL_EXIT_SHORTCUT
+#[cfg(desktop)]
 fn try_unregister_cancel_exit_shortcut(app_handle: &AppHandle, should_unregister: bool) {
     if !should_unregister {
         return;
@@ -269,6 +280,10 @@ fn try_unregister_cancel_exit_shortcut(app_handle: &AppHandle, should_unregister
         let _ = app_handle.global_shortcut().unregister(CANCEL_EXIT_SHORTCUT);
     }
 }
+
+// 非桌面无全局快捷键,空实现保持调用点不变
+#[cfg(not(desktop))]
+fn try_unregister_cancel_exit_shortcut(_app_handle: &AppHandle, _should_unregister: bool) {}
 
 /// 统一的后台任务清理与进程退出。
 ///

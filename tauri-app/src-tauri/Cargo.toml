@@ -14,11 +14,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico"] }
-tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-autostart = "2"
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "macros", "io-util"] }
@@ -43,6 +39,13 @@ dashmap = "6"
 getrandom = "0.3"
 sha2 = "0.10"
 md-5 = "0.10"
+
+# 桌面专属插件:不参与安卓/iOS 构建(官方 updater 插件 README 同款写法)
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-shell = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"

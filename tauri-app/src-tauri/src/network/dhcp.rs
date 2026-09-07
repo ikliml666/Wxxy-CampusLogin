@@ -12,8 +12,11 @@
 use crate::network::adapter_cache::{
     get_adapters_cached, get_adapters_force, validate_adapter_name,
 };
+#[cfg(target_os = "windows")]
 use crate::network::subnet::is_same_subnet_18;
-use crate::network::discovery::{is_blacklisted, Adapter, new_command};
+#[cfg(target_os = "windows")]
+use crate::network::discovery::is_blacklisted;
+use crate::network::discovery::{Adapter, new_command};
 use crate::platform::console_output::decode_console_bytes;
 
 /// ipconfig 失败时退出码常仍为 0（错误只写在输出文本里），退出码之外
@@ -89,8 +92,10 @@ pub fn dhcp_renew_wired_only(targets: &[String]) -> Result<Vec<serde_json::Value
     Ok(results)
 }
 
+#[cfg(target_os = "windows")]
 static MAC_SEED_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[cfg(target_os = "windows")]
 fn generate_random_mac() -> String {
     // BE-A-06: 原实现用"系统时间+计数器"种子自制 LCG，同一毫秒内 MAC 可被推算，可预测。
     // 改用成熟随机源 getrandom（Windows 走 BCryptGenRandom）填充 6 字节。
@@ -116,6 +121,7 @@ fn generate_random_mac() -> String {
     )
 }
 
+#[cfg(target_os = "windows")]
 fn mac_with_dashes(mac: &str) -> String {
     mac.as_bytes()
         .chunks(2)
@@ -267,6 +273,7 @@ pub fn apply_mac_change_via_registry(
 }
 
 /// 尝试修改适配器 MAC 地址：管理员直写注册表，非管理员通过 --helper 提权重启自身
+#[cfg(target_os = "windows")]
 fn try_modify_mac(adapter: &Adapter, fake_mac: &str, _mac_dashed: &str) -> (bool, bool, Option<String>) {
     if crate::platform::elevation::is_admin() {
         match set_mac_via_registry(&adapter.guid, fake_mac) {
@@ -315,6 +322,7 @@ fn try_modify_mac(adapter: &Adapter, fake_mac: &str, _mac_dashed: &str) -> (bool
 }
 
 /// 对单个适配器执行 MAC 修改 + DHCP 释放/续租流程，返回结果 JSON
+#[cfg(target_os = "windows")]
 fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json::Value {
     // T4.4.1: 虚拟适配器白名单过滤，跳过虚拟/软件网卡避免误操作
     if is_blacklisted(&adapter.name) {
@@ -429,6 +437,7 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
 /// 对目标适配器（resolve 后的主/副适配器）执行 MAC 修改 + DHCP 释放/续租，
 /// `targets` 为空时返回空结果——不触碰名单外的适配器（renew_adapter_with_mac
 /// 内部仍有虚拟网卡黑名单与非校园网子网跳过两层保护）
+#[cfg(target_os = "windows")]
 pub fn dhcp_release_renew_all(campus_gateway: &str, targets: &[String]) -> Result<Vec<serde_json::Value>, String> {
     if campus_gateway.is_empty() {
         return Err("校园网网关为空，无法判断子网".to_string());
@@ -446,11 +455,23 @@ pub fn dhcp_release_renew_all(campus_gateway: &str, targets: &[String]) -> Resul
     Ok(results)
 }
 
+#[cfg(target_os = "windows")]
 pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Result<serde_json::Value, String> {
     let adapters = get_adapters_cached()?;
     let adapter = crate::network::find_by_name(&adapters, adapter_name)
         .ok_or_else(|| format!("未找到适配器: {adapter_name}"))?;
     Ok(renew_adapter_with_mac(adapter, campus_gateway))
+}
+
+// 非桌面无注册表 MAC 重置能力:返回 skipped 语义,保持 failure_tracker 调用点跨平台可用
+#[cfg(not(target_os = "windows"))]
+pub fn dhcp_release_renew_single(_adapter_name: &str, _campus_gateway: &str) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "name": _adapter_name,
+        "success": false,
+        "skipped": true,
+        "reason": "非桌面平台不支持MAC重置"
+    }))
 }
 
 #[cfg(test)]
