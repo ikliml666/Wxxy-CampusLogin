@@ -372,6 +372,18 @@ macro_rules! log_error {
     };
 }
 
+#[cfg(target_os = "android")]
+pub fn get_log_dir(app_handle: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    // 安卓上 current_exe 指向只读的 APK 安装目录,日志必须落应用私有数据目录
+    app_handle
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("logs")
+}
+
+#[cfg(not(target_os = "android"))]
 pub fn get_log_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     use tauri::Manager;
     let install_dir = std::env::current_exe()
