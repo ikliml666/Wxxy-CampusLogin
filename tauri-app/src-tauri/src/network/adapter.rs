@@ -249,6 +249,7 @@ mod tests {
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             skip_sha256_when_missing: false,
+            update_source: "mirror".to_string(),
             config_version: 2,
         }
     }
