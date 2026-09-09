@@ -36,6 +36,8 @@ export interface Config {
   requiredNetworkName: string
   enableNetworkNameCheck: boolean
   campusGateway: string
+  /** 检查/下载更新渠道优先级: mirror=镜像加速优先(默认) github=官方优先 */
+  updateSource: 'mirror' | 'github' 
   campusExitOnFail: boolean
   campusCheckStartMinutes: number
   maxDisconnectReconnect: number

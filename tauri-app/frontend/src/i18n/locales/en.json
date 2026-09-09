@@ -660,7 +660,10 @@
     "autoReconnect": "Auto Reconnect",
     "autoReconnectDesc": "Automatically restore connection after disconnection",
     "officialSource": "Official Source",
-    "installFailed": "Failed to launch installer"
+    "installFailed": "Failed to launch installer",
+    "updateSource": "Update channel",
+    "sourceMirror": "Mirror (accelerated)",
+    "sourceGithub": "GitHub (official)"
   },
   "statusbar": {
     "refreshLatencyTest": "Refresh Latency Test",

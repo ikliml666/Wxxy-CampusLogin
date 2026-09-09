@@ -75,6 +75,9 @@ pub struct Config {
     pub enable_network_name_check: bool,
     #[serde(rename = "campusGateway", default = "default_campus_gateway", deserialize_with = "deserialize_campus_gateway")]
     pub campus_gateway: String,
+    /// 检查/下载更新渠道优先级: "mirror"=镜像加速优先(默认) | "github"=官方优先
+    #[serde(rename = "updateSource", default)]
+    pub update_source: String,
     #[serde(rename = "campusExitOnFail", default = "default_true")]
     pub campus_exit_on_fail: bool,
     #[serde(rename = "campusCheckStartMinutes", alias = "campusCheckStartHour", default = "default_campus_check_start_minutes")]
@@ -179,6 +182,7 @@ impl Default for Config {
             required_network_name: "i-wxxy".to_string(),
             enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
+            update_source: "mirror".to_string(),
             campus_exit_on_fail: true,
             campus_check_start_minutes: 480,
             log_retention_days: 7,

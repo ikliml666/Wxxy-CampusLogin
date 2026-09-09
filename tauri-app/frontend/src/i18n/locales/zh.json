@@ -660,7 +660,10 @@
     "autoReconnect": "自动重连",
     "autoReconnectDesc": "断网后自动恢复连接",
     "officialSource": "官方源",
-    "installFailed": "安装启动失败"
+    "installFailed": "安装启动失败",
+    "updateSource": "更新渠道",
+    "sourceMirror": "镜像加速",
+    "sourceGithub": "GitHub 官方"
   },
   "statusbar": {
     "refreshLatencyTest": "刷新延迟检测",

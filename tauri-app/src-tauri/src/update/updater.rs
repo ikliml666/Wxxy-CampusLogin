@@ -308,7 +308,8 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
 
 /// 执行一次更新检查并发送通知
 async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
-    match check_update_inner().await {
+    let mirror_first = state.config.load().update_source != "github";
+    match check_update_inner(mirror_first).await {
         Ok(info) => {
             if let Err(e) = EventBus::new(app_h).emit_update_available(
                 info.has_update,
@@ -332,27 +333,34 @@ async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
     }
 }
 
-pub async fn fetch_latest_release() -> Result<(bool, String, String, Option<String>), String> {
-    // 先尝试 GitHub 原始源
-    match fetch_version_from_url(VERSION_FILE_URL).await {
-        Ok(result) => Ok(result),
-        Err(github_err) => {
-            crate::log_info!("updater", "GitHub源检查失败: {}，尝试镜像源降级...", github_err);
-            // 降级到镜像源
-            for mirror_url in VERSION_MIRRORS {
-                match fetch_version_from_url(mirror_url).await {
-                    Ok(result) => {
-                        crate::log_info!("updater", "镜像源 {} 检查成功", mirror_url);
-                        return Ok(result);
-                    }
-                    Err(mirror_err) => {
-                        crate::log_debug!("updater", "镜像源 {} 失败: {}", mirror_url, mirror_err);
-                    }
+/// 检查更新:按用户渠道设置(update_source="github" 官方优先/其余镜像优先)排序源,
+/// 未选中一侧保留为降级兜底
+pub async fn fetch_latest_release(mirror_first: bool) -> Result<(bool, String, String, Option<String>), String> {
+    let ordered: Vec<&str> = if mirror_first {
+        vec![VERSION_MIRRORS[0], VERSION_MIRRORS[1], VERSION_MIRRORS[2], VERSION_FILE_URL]
+    } else {
+        vec![VERSION_FILE_URL, VERSION_MIRRORS[0], VERSION_MIRRORS[1], VERSION_MIRRORS[2]]
+    };
+    let mut primary_err = String::from("未知错误");
+    for (i, url) in ordered.iter().enumerate() {
+        match fetch_version_from_url(url).await {
+            Ok(result) => {
+                if i > 0 {
+                    crate::log_info!("updater", "更新源 {} 检查成功(降级生效)", url);
+                }
+                return Ok(result);
+            }
+            Err(e) => {
+                if i == 0 {
+                    crate::log_info!("updater", "首选更新源检查失败: {}，按序降级...", e);
+                    primary_err = e;
+                } else {
+                    crate::log_debug!("updater", "更新源 {} 失败: {}", url, e);
                 }
             }
-            Err(format!("GitHub源及所有镜像源均失败（GitHub: {github_err}）"))
         }
     }
+    Err(format!("所有更新源均失败（首选: {primary_err}）"))
 }
 
 async fn fetch_version_from_url(url: &str) -> Result<(bool, String, String, Option<String>), String> {
@@ -398,8 +406,8 @@ async fn fetch_version_from_url(url: &str) -> Result<(bool, String, String, Opti
 
 
 
-pub async fn check_update_inner() -> Result<UpdateInfo, String> {
-    let (has_update, latest_tag, notes, asset) = fetch_latest_release().await?;
+pub async fn check_update_inner(mirror_first: bool) -> Result<UpdateInfo, String> {
+    let (has_update, latest_tag, notes, asset) = fetch_latest_release(mirror_first).await?;
 
     let exe_name = asset.unwrap_or_else(|| format!("Wxxy-CampusLogin_{latest_tag}_x64-setup.exe"));
     let github_exe_url = format!(

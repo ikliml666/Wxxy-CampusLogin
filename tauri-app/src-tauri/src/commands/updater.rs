@@ -7,7 +7,8 @@ use std::sync::atomic::Ordering;
 #[tauri::command]
 pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     crate::log_info!("updater", "手动检查更新");
-    let info = crate::update::updater::check_update_inner().await?;
+    let mirror_first = CommandContext::from_app(&app_handle).config.load().update_source != "github";
+    let info = crate::update::updater::check_update_inner(mirror_first).await?;
 
     let state = CommandContext::from_app(&app_handle);
     let now = std::time::SystemTime::now()

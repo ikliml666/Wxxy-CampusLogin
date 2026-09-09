@@ -37,6 +37,7 @@ export const DEFAULT_CONFIG: Config = {
   requiredNetworkName: 'i-wxxy',
   enableNetworkNameCheck: true,
   campusGateway: '10.2.127.254',
+  updateSource: 'mirror',
   campusExitOnFail: true,
   campusCheckStartMinutes: 480,
   maxDisconnectReconnect: 3,

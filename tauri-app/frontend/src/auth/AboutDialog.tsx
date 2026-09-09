@@ -17,6 +17,7 @@ import { cn, extractErrorMessage } from'@/lib/utils'
 import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from'react'
 import { tauriApiWithRetry } from'@/hooks/tauriApi'
 import { useTranslation } from'react-i18next'
+import { useConfigStore } from '@/hooks/useConfigStore'
 import type { UpdateInfo, DownloadProgress, MirrorSource } from'@/shared'
 
 interface AboutDialogProps {
@@ -67,6 +68,7 @@ function renderInlineMarkdown(text: string): ReactNode {
 }
 
 export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvailable, initialLatestVersion, initialReleaseNotes, initialUpdateAvailable }: AboutDialogProps) {
+  const updateSource = useConfigStore((s) => s.config.updateSource ?? 'mirror')
   const api = tauriApiWithRetry
   const { t } = useTranslation()
   const [checking, setChecking] = useState(false)
@@ -283,6 +285,31 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             <p className="text-xs text-muted-foreground text-center mt-3 leading-relaxed">
               {t('about.appDesc')}<br />{t('about.appDescSub')}
             </p>
+
+            {/* 更新渠道:检查与下载的源优先级,持久化于 config */}
+            <div className="rounded-xl border border-border/60 p-3.5 space-y-2.5">
+              <p className="text-sm font-medium">{t('about.updateSource')}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { value: 'mirror', label: t('about.sourceMirror') },
+                  { value: 'github', label: t('about.sourceGithub') },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => useConfigStore.getState().updateConfig({ updateSource: opt.value })}
+                    className={cn(
+                      'h-9 rounded-lg text-xs font-medium border transition-colors',
+                      updateSource === opt.value
+                        ? 'bg-primary/10 border-primary/50 text-primary'
+                        : 'border-border/60 text-muted-foreground'
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* 检查更新按钮 */}
             <Button
