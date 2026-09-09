@@ -471,24 +471,56 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         }
     };
 
+    // 快速预览波(2026-09-09 安卓真机反馈:全量 19 项约 18s 首屏等不起,要求
+    // 1-3s 出结果):网关 + 首个外网站点仅 2 连接并发,~1-2s 即得可用结论,以
+    // quality="busy" 增量 emit(前端按延迟推断等级显示);完整检测继续后台跑。
+    // 网关与 baidu 从原批次挪入本波,避免重复测量。
+    let mut phase1_results: Vec<LatencyResult> = Vec::new();
+    {
+        let mut preview_set = tokio::task::JoinSet::new();
+        if let Some(ref gw) = gateway {
+            preview_set.spawn({
+                let gw = gw.clone();
+                async move {
+                    execute_task(LatencyTaskCtx {
+                        task: LatencyTask::Gateway { name: "gateway".to_string(), target: gw },
+                        bind_addr,
+                    }, skip_ttfb, skip_content).await
+                }
+            });
+        }
+        preview_set.spawn(async move {
+            execute_task(LatencyTaskCtx {
+                task: LatencyTask::Https { name: "baidu".to_string(), host: "www.baidu.com".to_string() },
+                bind_addr,
+            }, skip_ttfb, skip_content).await
+        });
+        while let Some(res) = preview_set.join_next().await {
+            if let Ok(r) = res {
+                phase1_results.push(r);
+            }
+        }
+        if let Some(ah) = app_handle {
+            let mut partial = build_quality_result(phase1_results.iter(), gateway_str, now);
+            partial.quality = "busy".to_string();
+            if let Ok(val) = serde_json::to_value(&partial) {
+                if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
+                    crate::log_warn!("quality", "[增量推送] 预览波 emit 失败: {}", e);
+                } else {
+                    crate::log_info!("quality", "[增量推送] 预览波 emit 成功, details数={}, 耗时{}ms", phase1_results.len(), now.elapsed().as_millis());
+                }
+            }
+        }
+    }
+
     // BE-A-03: Phase1 并发控制——原一次并发网关 + 3 DNS + 2 DoH + SystemDns
     // （内部 4 域名并发），瞬时 20+ 连接。改为分小批，每批并发不超过 3：
-    //   批次1: 网关 + 阿里DNS + 腾讯DNS
+    //   批次1: 阿里DNS + 腾讯DNS（网关已挪入上方预览波）
     //   批次2: 信风DNS + 阿里DoH + 腾讯DoH
     //   批次3: SystemDns（内部 2 个域名/批，见 execute_task）
     // 聚合语义不变（details/metrics 按 name 键输出，与收集顺序无关）。
-    let mut phase1_results: Vec<LatencyResult> = Vec::new();
 
     let mut batch1: Vec<LatencyTaskCtx> = Vec::new();
-    if let Some(ref gw) = gateway {
-        batch1.push(LatencyTaskCtx {
-            task: LatencyTask::Gateway {
-                name: "gateway".to_string(),
-                target: gw.clone(),
-            },
-            bind_addr,
-        });
-    }
     batch1.push(LatencyTaskCtx { task: LatencyTask::DnsServer {
         name: "aliDns".to_string(),
         ip: "223.5.5.5".to_string(),
@@ -557,7 +589,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     }
 
     let https_hosts: &[(&str, &str)] = &[
-        ("baidu", "www.baidu.com"),
+        // baidu 已挪入预览波(首屏 1-2s 出结果),此处不再重复测量
         ("jd", "www.jd.com"),
         ("bing", "cn.bing.com"),
         ("railway12306", "www.12306.cn"),
