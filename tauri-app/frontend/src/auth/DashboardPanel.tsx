@@ -526,23 +526,19 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
           {!revealed && <span className="text-[10px] text-muted-foreground/60">{t('dashboard.selfMaskedHint')}</span>}
         </div>
         {(onlineList ?? []).slice(0, 3).map(item => (
-          <div key={item.sessionId || item.ip + '-' + item.loginTime} className="p-3 rounded-xl bg-muted/30 space-y-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-medium font-mono shrink-0">{revealed ? item.ip : '••••••'}</span>
-              <span className="text-[11px] text-muted-foreground font-mono truncate min-w-0">
-                {revealed ? formatMac(item.mac) : '••:••:••:••:••:••'}
-              </span>
-              {revealed && (
-                <Button variant="ghost" size="sm" className="ml-auto h-7 shrink-0 gap-1.5 text-[11px] text-muted-foreground hover:text-destructive"
-                  disabled={offlineBusy} onClick={() => setOfflineTarget(item)}>
-                  <LogOut className="h-3 w-3" />
-                  {t('account.selfOffline')}
-                </Button>
-              )}
+          <div key={item.sessionId || item.ip + '-' + item.loginTime} className="p-3 rounded-xl bg-muted/30 flex items-center gap-2">
+            <div className="flex-1 min-w-0 space-y-0.5">
+              <div className="text-sm font-medium font-mono truncate">{revealed ? item.ip : '••••••'}</div>
+              <div className="text-[11px] text-muted-foreground font-mono truncate">{revealed ? formatMac(item.mac) : '••:••:••:••:••:••'}</div>
+              <div className="text-[11px] text-muted-foreground font-mono">{revealed ? item.loginTime : '••••-••-•• ••:••:••'}</div>
             </div>
-            <div className="text-[11px] text-muted-foreground font-mono">
-              {revealed ? item.loginTime : '••••-••-•• ••:••:••'}
-            </div>
+            {revealed && (
+              <Button variant="ghost" size="sm" className="shrink-0 h-8 gap-1.5 text-[11px] text-muted-foreground hover:text-destructive"
+                disabled={offlineBusy} onClick={() => setOfflineTarget(item)}>
+                <LogOut className="h-3 w-3" />
+                {t('account.selfOffline')}
+              </Button>
+            )}
           </div>
         ))}
         {(onlineList?.length ?? 0) > 3 && (
