@@ -15,7 +15,7 @@ import {
   Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff, LogOut
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
-import { extractGatewayLatency, extractExternalLatency, getLatencyLevel } from '@/lib/latency'
+import { resolveQualityDisplay } from '@/lib/latency'
 import { Reorder, m, AnimatePresence } from 'framer-motion'
 import { QUALITY_CONFIG } from '@/network/constants'
 import { resolveAdapterNames } from '@/network/adapters'
@@ -336,17 +336,8 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   networkQuality: NetworkQuality | null; isRefreshingQuality: boolean; onRefreshQuality?: () => Promise<void>; noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
   const { t } = useTranslation()
-  // 增量推送期间 quality 长期停在 unknown/busy（终态要等全部外网域名跑完），
-  // 按 quality 门槛会让卡片永远转圈——已有部分延迟数据就展示，等级按延迟推断
-  // （与胶囊同语义，真机 2026-09-09）
-  const gatewayLatency = networkQuality ? extractGatewayLatency(networkQuality) : -1
-  const externalLatency = networkQuality ? extractExternalLatency(networkQuality) : -1
-  const displayLatency = externalLatency >= 0 ? externalLatency : gatewayLatency
+  const { quality: effectiveQuality, gatewayLatency, externalLatency, displayLatency } = resolveQualityDisplay(networkQuality)
   const hasLatency = displayLatency >= 0
-  const rawQuality = networkQuality?.quality ?? 'unknown'
-  const effectiveQuality = hasLatency && (rawQuality === 'unknown' || rawQuality === 'busy')
-    ? getLatencyLevel(displayLatency)
-    : rawQuality
   const qualityConfig = useMemo(() => {
     return QUALITY_CONFIG[effectiveQuality] ?? QUALITY_CONFIG.unknown
   }, [effectiveQuality])

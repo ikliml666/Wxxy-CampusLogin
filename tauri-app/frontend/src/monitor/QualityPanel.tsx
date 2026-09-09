@@ -14,7 +14,7 @@ import { SegmentTabs, TabContent } from '@/shared/SegmentTabs'
 import { AnimatedNumber } from '@/shared/AnimatedNumber'
 import { LatencyTimeline } from '@/monitor/LatencyTimeline'
 
-import { getLatencyColor, extractGatewayLatency, extractExternalLatency, type LatencyType } from '@/lib/latency'
+import { getLatencyColor, resolveQualityDisplay, type LatencyType } from '@/lib/latency'
 import React, { useCallback, memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m, type Variants } from 'framer-motion'
@@ -148,10 +148,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
       },
     }),
   }), [profile.easing.smooth])
+  const { quality: effectiveQuality, gatewayLatency, externalLatency, displayLatency } = resolveQualityDisplay(networkQuality)
   const qualityConfig = useMemo(() => {
-    if (!networkQuality) return QUALITY_CONFIG.unknown
-    return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown
-  }, [networkQuality])
+    return QUALITY_CONFIG[effectiveQuality] ?? QUALITY_CONFIG.unknown
+  }, [effectiveQuality])
 
   const intervalSec = useMemo(() => (config.latencyTestInterval || 30000) / 1000, [config.latencyTestInterval])
   // 数字输入本地草稿：blur/Enter 时 clamp 提交（历史缺陷 P1-F6）
@@ -195,9 +195,6 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
       return detail ? { name, ...detail } : { name, latency: -1, target: '', type: '' }
     })
   }, [activeTab, hasData, details])
-
-  const effectiveGatewayLatency = extractGatewayLatency(networkQuality)
-  const effectiveExternalLatency = extractExternalLatency(networkQuality)
 
   return (
     <div className="space-y-4">
@@ -251,10 +248,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {networkQuality && networkQuality.quality !== 'unknown' ? (
+            {displayLatency >= 0 ? (
               <LatencyPair
-                gatewayLatency={effectiveGatewayLatency}
-                externalLatency={effectiveExternalLatency}
+                gatewayLatency={gatewayLatency}
+                externalLatency={externalLatency}
               />
             ) : (
               <LatencyPair gatewayLatency={-1} externalLatency={-1} loading />
@@ -473,7 +470,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
               </m.div>
             </TabContent>
 
-            {networkQuality?.timestamp && networkQuality.quality !== 'unknown' && (
+            {networkQuality?.timestamp && displayLatency >= 0 && (
               <div className="flex items-center gap-1.5 pt-2">
                 <Clock className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[11px] text-muted-foreground">
