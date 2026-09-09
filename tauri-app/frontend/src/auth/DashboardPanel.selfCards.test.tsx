@@ -128,8 +128,11 @@ describe('DashboardPanel 自助卡（在线信息 + 近期上网记录）', () =
     await act(async () => { fireEvent.click(eyeBtns()[0]) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
     expect(screen.getByText('10.1.2.3')).toBeTruthy()
-    expect(screen.getByText('DESKTOP-1')).toBeTruthy()
-    expect(screen.getByText('2026-09-06 10:00:00 · 60 min · 1001.000 MB')).toBeTruthy()
+    // 在线信息卡精简后（2026-09-09）：每行 IP+MAC+上线时间+行内注销
+    expect(screen.getByText('aa-bb-cc-dd-ee-ff')).toBeTruthy()
+    expect(screen.getByText('2026-09-06 10:00:00')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'account.selfOffline' }).length).toBeGreaterThan(0)
+    expect(screen.queryByText('DESKTOP-1')).toBeNull()
     expect(screen.queryByText('••••••')).toBeNull()
     // 第二卡查看：门已验证，不再弹验证
     await act(async () => { fireEvent.click(eyeBtns()[0]) })

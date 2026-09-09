@@ -12,10 +12,10 @@ import {
   Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, Check, X,
   Plus, Activity, Settings2,
-  Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff
+  Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff, LogOut
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
-import { extractGatewayLatency, extractExternalLatency } from '@/lib/latency'
+import { extractGatewayLatency, extractExternalLatency, getLatencyLevel } from '@/lib/latency'
 import { Reorder, m, AnimatePresence } from 'framer-motion'
 import { QUALITY_CONFIG } from '@/network/constants'
 import { resolveAdapterNames } from '@/network/adapters'
@@ -31,7 +31,8 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
-import { formatEpoch, formatUseTimeMinutes, formatFlowMb, localDateStr } from '@/account/SelfServicePanel'
+import { formatEpoch, localDateStr, formatMac } from '@/account/SelfServicePanel'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { useShallow } from 'zustand/react/shallow'
 
 type CardId = 'quickActions' | 'accountManage' | 'selfOnline' | 'selfLog' | 'networkQuality'
@@ -335,10 +336,20 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
   networkQuality: NetworkQuality | null; isRefreshingQuality: boolean; onRefreshQuality?: () => Promise<void>; noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
   const { t } = useTranslation()
+  // 增量推送期间 quality 长期停在 unknown/busy（终态要等全部外网域名跑完），
+  // 按 quality 门槛会让卡片永远转圈——已有部分延迟数据就展示，等级按延迟推断
+  // （与胶囊同语义，真机 2026-09-09）
+  const gatewayLatency = networkQuality ? extractGatewayLatency(networkQuality) : -1
+  const externalLatency = networkQuality ? extractExternalLatency(networkQuality) : -1
+  const displayLatency = externalLatency >= 0 ? externalLatency : gatewayLatency
+  const hasLatency = displayLatency >= 0
+  const rawQuality = networkQuality?.quality ?? 'unknown'
+  const effectiveQuality = hasLatency && (rawQuality === 'unknown' || rawQuality === 'busy')
+    ? getLatencyLevel(displayLatency)
+    : rawQuality
   const qualityConfig = useMemo(() => {
-    if (!networkQuality) return QUALITY_CONFIG.unknown
-    return QUALITY_CONFIG[networkQuality.quality] ?? QUALITY_CONFIG.unknown
-  }, [networkQuality])
+    return QUALITY_CONFIG[effectiveQuality] ?? QUALITY_CONFIG.unknown
+  }, [effectiveQuality])
 
   return (
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
@@ -362,11 +373,8 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {networkQuality && networkQuality.quality !== 'unknown' ? (
-          <LatencyPair
-            gatewayLatency={extractGatewayLatency(networkQuality)}
-            externalLatency={extractExternalLatency(networkQuality)}
-          />
+        {hasLatency ? (
+          <LatencyPair gatewayLatency={gatewayLatency} externalLatency={externalLatency} />
         ) : (
           <LatencyPair gatewayLatency={-1} externalLatency={-1} loading />
         )}
@@ -438,7 +446,8 @@ function useSelfCardFetch<T>(fetcher: (account: string) => Promise<T>, account: 
 }
 
 // 在线信息卡：自助服务当前在线设备概览。数据自动查询（后端命令无明文泄露）；
-// 未验证时设备明细（IP/登录时间等）以圆点掩码显示，点眼睛验证后展示
+// 未验证时设备明细以圆点掩码显示，点眼睛验证后展示（2026-09-09 按用户要求精简：
+// 每行仅 IP+MAC+上线时间+行内注销，去掉时长/流量）
 interface SelfOnlineItem {
   loginTime: string
   ip: string
@@ -448,6 +457,7 @@ interface SelfOnlineItem {
   upFlow: string
   hostName: string
   terminalType: string
+  sessionId: string
 }
 
 const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimation }: {
@@ -455,6 +465,9 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
 }) {
   const { t } = useTranslation()
   const { config, hasCred, revealed, toggleReveal } = useSelfCardReveal()
+  const addToast = useLogToastStore((s) => s.addToast)
+  const [offlineTarget, setOfflineTarget] = useState<SelfOnlineItem | null>(null)
+  const [offlineBusy, setOfflineBusy] = useState(false)
   const fetchOnline = useCallback(async (account: string) => {
     // 密码传空串，后端回退已保存凭据（与绑定卡查询同路径）
     const r = await tauriApiWithRetry.querySelfDashboard({ account, password: '' })
@@ -463,6 +476,36 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     return Array.isArray(d.onlineList) ? d.onlineList : []
   }, [t])
   const { data: onlineList, querying, loadError, refetch } = useSelfCardFetch(fetchOnline, hasCred ? config.user.trim() : '')
+
+  // 设备会话到期被踢下线后应从卡片自动消失（2026-09-09 用户要求）：
+  // 卡片数据原本只按学号查一次，这里补 60s 轮询
+  useEffect(() => {
+    if (!hasCred) return
+    const timer = setInterval(() => { void refetch() }, 60_000)
+    return () => clearInterval(timer)
+  }, [hasCred, refetch])
+
+  const handleOffline = useCallback(async (item: SelfOnlineItem) => {
+    if (offlineBusy) return
+    setOfflineBusy(true)
+    try {
+      // 密码空串，后端 resolve_self_password 回退已保存自助密码
+      const r = await tauriApiWithRetry.selfOfflineSession({
+        account: config.user.trim(), password: '', sessionId: item.sessionId,
+      })
+      if (r.success) {
+        addToast(r.message || t('account.selfOfflineSuccess'), 'success')
+        void refetch()
+      } else {
+        addToast(r.message || t('account.selfOfflineFailed'), 'error')
+      }
+    } catch (err) {
+      addToast(extractErrorMessage(err) || t('account.selfOfflineFailed'), 'error')
+    } finally {
+      setOfflineBusy(false)
+      setOfflineTarget(null)
+    }
+  }, [offlineBusy, config.user, addToast, t, refetch])
 
   const renderBody = () => {
     if (querying && onlineList === null) return (
@@ -482,22 +525,26 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
           <span className="text-xs text-muted-foreground">{t('dashboard.selfDeviceCount', { count: onlineList?.length ?? 0 })}</span>
           {!revealed && <span className="text-[10px] text-muted-foreground/60">{t('dashboard.selfMaskedHint')}</span>}
         </div>
-        {(onlineList ?? []).slice(0, 3).map(item => {
-          const label = item.hostName || (item.terminalType ? item.terminalType.replace(/^#/, '') : '') || '-'
-          return (
-            <div key={item.ip + '-' + item.loginTime} className="p-3 rounded-xl bg-muted/30 space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium font-mono">{revealed ? item.ip : '••••••'}</span>
-                <span className="text-[11px] text-muted-foreground truncate">{revealed ? label : '•••'}</span>
-              </div>
-              <div className="text-[11px] text-muted-foreground font-mono">
-                {revealed
-                  ? item.loginTime + ' · ' + formatUseTimeMinutes(item.useTime) + ' min · ' + formatFlowMb(item.downFlow, item.upFlow) + ' MB'
-                  : '••••-••-•• ••:••:•• · •• min · ••• MB'}
-              </div>
+        {(onlineList ?? []).slice(0, 3).map(item => (
+          <div key={item.sessionId || item.ip + '-' + item.loginTime} className="p-3 rounded-xl bg-muted/30 space-y-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm font-medium font-mono shrink-0">{revealed ? item.ip : '••••••'}</span>
+              <span className="text-[11px] text-muted-foreground font-mono truncate min-w-0">
+                {revealed ? formatMac(item.mac) : '••:••:••:••:••:••'}
+              </span>
+              {revealed && (
+                <Button variant="ghost" size="sm" className="ml-auto h-7 shrink-0 gap-1.5 text-[11px] text-muted-foreground hover:text-destructive"
+                  disabled={offlineBusy} onClick={() => setOfflineTarget(item)}>
+                  <LogOut className="h-3 w-3" />
+                  {t('account.selfOffline')}
+                </Button>
+              )}
             </div>
-          )
-        })}
+            <div className="text-[11px] text-muted-foreground font-mono">
+              {revealed ? item.loginTime : '••••-••-•• ••:••:••'}
+            </div>
+          </div>
+        ))}
         {(onlineList?.length ?? 0) > 3 && (
           <div className="text-center text-[11px] text-muted-foreground">+{onlineList!.length - 3}</div>
         )}
@@ -535,6 +582,11 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
           </div>
         ) : renderBody()}
       </CardContent>
+      <ConfirmDialog open={offlineTarget !== null}
+        title={t('account.selfOfflineConfirmTitle')}
+        message={t('account.selfOfflineConfirmDesc')}
+        onConfirm={() => { if (offlineTarget) void handleOffline(offlineTarget) }}
+        onCancel={() => setOfflineTarget(null)} />
     </AnimatedCard>
   )
 })
