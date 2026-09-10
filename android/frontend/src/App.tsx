@@ -17,7 +17,8 @@ import { useAccount } from '@/account/useAccount'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage, cn } from '@/lib/utils'
 import { AnimatePresence, m } from 'framer-motion'
-import { Settings, Palette, Info } from 'lucide-react'
+import { Settings, Palette, Info, Heart } from 'lucide-react'
+import { SponsorCard } from '@/shared/SponsorCard'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
@@ -73,6 +74,7 @@ function AppInner() {
 
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
+  const [sponsorOpen, setSponsorOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
 
   const panelVariants = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } }
@@ -157,6 +159,9 @@ function AppInner() {
         >
           <NetworkQualityCapsule networkQuality={networkQuality} />
         </button>
+        <button type="button" aria-label={t('titlebar.sponsor')} onClick={() => setSponsorOpen(true)} className="p-2 text-muted-foreground active:text-rose-500">
+          <Heart className="h-5 w-5" />
+        </button>
         <button type="button" aria-label={t('panel.settings')} onClick={() => handleTabChange('more')} className="p-2 -mr-1 text-muted-foreground active:text-foreground">
           <Settings className="h-5 w-5" />
         </button>
@@ -202,6 +207,8 @@ function AppInner() {
       <BottomNav tab={tab} onChange={handleTabChange} />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      <SponsorCard open={sponsorOpen} onClose={() => setSponsorOpen(false)} />
 
       <Suspense fallback={null}>
         <AboutDialog
