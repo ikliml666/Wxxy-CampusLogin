@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { MascotFigure } from '@/shared/MascotFigure'
 import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import gsap from 'gsap'
@@ -545,10 +546,14 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto h-[calc(100vh-400px)] min-h-[320px] font-mono text-[12px]"
             >
               {displayedLines.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
-                  <FileText className="h-8 w-8 mb-2 opacity-30" />
+                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground/50">
+                  {parsedLines.length === 0 ? (
+                    <MascotFigure variant="empty" size="md" className="mb-1" />
+                  ) : (
+                    <FileText className="h-8 w-8 mb-2 opacity-30" />
+                  )}
                   <p className="text-xs">
-                    {parsedLines.length === 0 ? t('log.noLogs') : 
+                    {parsedLines.length === 0 ? t('log.noLogs') :
                      searchText.trim() ? t('log.noSearchResults') : t('log.noFilteredLogs')}
                   </p>
                 </div>

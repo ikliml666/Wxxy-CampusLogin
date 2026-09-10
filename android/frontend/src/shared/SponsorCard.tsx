@@ -1,6 +1,7 @@
 import { Heart } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { MascotFigure } from '@/shared/MascotFigure'
 
 interface SponsorCardProps {
   open: boolean
@@ -19,6 +20,9 @@ export function SponsorCard({ open, onClose }: SponsorCardProps) {
       }}
     >
       <DialogContent className="max-w-[340px] gap-3 p-4">
+        <div className="flex justify-center">
+          <MascotFigure variant="sponsor" size="sm" className="-mb-2" />
+        </div>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-1.5 text-sm font-semibold">
             <Heart className="h-4 w-4 shrink-0 fill-rose-500 text-rose-500" aria-hidden="true" />

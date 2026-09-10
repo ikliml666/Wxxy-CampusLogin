@@ -13,6 +13,7 @@ import {
   Zap, Users, Wifi, Sparkles, Heart
 } from'lucide-react'
 import { APP_NAME, APP_VERSION } from'@/shared/ui-constants'
+import { MascotFigure } from '@/shared/MascotFigure'
 import { cn, extractErrorMessage } from'@/lib/utils'
 import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from'react'
 import { tauriApiWithRetry } from'@/hooks/tauriApi'
@@ -279,6 +280,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   </span>
                 )}
               </div>
+              <MascotFigure variant="portrait" size="md" className="mt-3" />
             </div>
 
             {/* 简短描述 */}
