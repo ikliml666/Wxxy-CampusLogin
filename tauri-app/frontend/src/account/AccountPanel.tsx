@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
+import { MascotFigure } from '@/shared/MascotFigure'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
@@ -748,7 +749,7 @@ export const AccountPanel = memo(function AccountPanel({
               </div>
             ) : (
               <div className="text-center py-8">
-                <UserCircle className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
+                <MascotFigure variant="empty" size="md" className="mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">{t('account.noSavedAccounts')}</p>
                 <p className="text-xs text-muted-foreground/60 mt-1">{t('account.noSavedAccountsTip')}</p>
               </div>

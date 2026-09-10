@@ -23,6 +23,7 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { APP_NAME, PASSWORD_MASK } from '@/shared/ui-constants'
+import { MascotFigure } from '@/shared/MascotFigure'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, safeStorage } from '@/lib/utils'
 import type { Config } from '@/settings'
@@ -302,12 +303,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
           >
             {step === 0 && (
               <div className="flex flex-col items-center text-center space-y-5 py-4">
-                <div className="relative">
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 blur-xl opacity-30 animate-pulse" />
-                  <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 via-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/30">
-                    <Zap className="h-10 w-10 text-white" strokeWidth={2.5} />
-                  </div>
-                </div>
+                <MascotFigure variant="welcome" size="lg" />
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold tracking-tight">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</h2>
                   <p className="text-sm text-muted-foreground leading-relaxed max-w-[340px]">
@@ -569,9 +565,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
             {step === 4 && (
               <div className="flex flex-col h-full">
                 <div className="flex flex-col items-center text-center space-y-3 pt-2 pb-4">
-                  <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center ring-4 ring-emerald-100/60 dark:ring-emerald-900/30">
-                    <Check className="h-7 w-7 text-emerald-500" strokeWidth={2.5} />
-                  </div>
+                  <MascotFigure variant="celebrate" size="lg" />
                   <div className="space-y-1">
                     <h3 className="text-base font-semibold">{t('onboarding.ready')}</h3>
                     <p className="text-xs text-muted-foreground">{t('onboarding.readyDesc')}</p>

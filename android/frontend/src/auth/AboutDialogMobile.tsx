@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   Check, ExternalLink, RefreshCw, Loader2, XCircle,
-  Zap, Users, Wifi, Sparkles, Download, PackageOpen
+  Zap, Users, Wifi, Download, PackageOpen
 } from 'lucide-react'
 import { APP_NAME, APP_VERSION } from '@/shared/ui-constants'
 import { extractErrorMessage, cn } from '@/lib/utils'
@@ -125,9 +125,13 @@ export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdat
         <div className="space-y-4">
           {/* 应用信息 */}
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
-              <Sparkles className="h-6 w-6 text-primary" />
-            </div>
+            <img
+              src="/girl/mascot-portrait.png"
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="w-12 h-12 rounded-2xl object-cover object-top shrink-0 select-none"
+            />
             <div className="min-w-0">
               <p className="text-sm font-semibold">{APP_NAME}</p>
               <p className="text-xs text-muted-foreground">v{APP_VERSION} · {t('about.appDesc')}</p>
