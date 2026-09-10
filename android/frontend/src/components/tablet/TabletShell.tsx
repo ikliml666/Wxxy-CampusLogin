@@ -59,6 +59,12 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
 // contain 只到 layout style:paint 会裁掉卡片出血元素(桌面同款约定)
 const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style' }
 
+// 平板触屏适配系数:桌面布局件按鼠标设计(标题栏按钮 28px 触屏难点中),
+// 顶部两栏(TitleBar/StatusBar)整体放大提升可点性,内容区适度缩小平衡屏占比。
+// CSS zoom 由 WebView(Chromium)原生支持,只作用于本外壳,不碰手机外壳与桌面端。
+const TOPBAR_ZOOM = 1.3
+const CONTENT_ZOOM = 0.9
+
 function TabletShellInner() {
   useAppInit()
   useAdaptiveFramePace()
@@ -205,31 +211,34 @@ function TabletShellInner() {
       className="flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground relative app-outer-square"
       style={{ background: 'var(--surface-main)' }}
     >
-      {/* 安卓 edge-to-edge 下系统状态栏悬浮于 WebView 之上,标题栏让出顶部安全区 */}
-      <div className="relative z-[1]" style={{ paddingTop: 'env(safe-area-inset-top)', contain: 'layout style paint' }}>
-        <TitleBar
-          showWindowControls={false}
-          notificationEnabled={configEnableNotification !== false}
-          onToggleNotification={handleToggleNotification}
-          onShowTheme={() => setThemeOpen(true)}
-          onShowAbout={() => setAboutOpen(true)}
-          onShowSponsor={() => setSponsorOpen((v) => !v)}
-          onToggleLightMode={handleToggleLightMode}
-          onMinimize={() => {}}
-          onToggleMaximize={() => {}}
-          onClose={() => {}}
-          isMaximized={false}
-        />
+      {/* 安卓 edge-to-edge 下系统状态栏悬浮于 WebView 之上,标题栏让出顶部安全区
+          (safe-area padding 置于 zoom 层之外,避免被缩放) */}
+      <div className="relative z-[1]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+        <div style={{ zoom: TOPBAR_ZOOM, contain: 'layout style paint' }}>
+          <TitleBar
+            showWindowControls={false}
+            notificationEnabled={configEnableNotification !== false}
+            onToggleNotification={handleToggleNotification}
+            onShowTheme={() => setThemeOpen(true)}
+            onShowAbout={() => setAboutOpen(true)}
+            onShowSponsor={() => setSponsorOpen((v) => !v)}
+            onToggleLightMode={handleToggleLightMode}
+            onMinimize={() => {}}
+            onToggleMaximize={() => {}}
+            onClose={() => {}}
+            isMaximized={false}
+          />
+        </div>
       </div>
 
-      <div className="relative z-[1]" style={{ contain: 'layout style paint' }}>
+      <div className="relative z-[1]" style={{ zoom: TOPBAR_ZOOM, contain: 'layout style paint' }}>
         <StatusBar
           onOpenPortal={handleOpenPortal}
           onOpenSelfService={handleOpenSelfService}
         />
       </div>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
+      <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize" style={{ zoom: CONTENT_ZOOM }}>
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
           <div className="mx-auto max-w-[720px]">
             <div className="mb-6 relative z-[1]">
