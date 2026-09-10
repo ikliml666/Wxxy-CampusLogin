@@ -389,6 +389,7 @@ async fn portal_probe_on_little_cores(
     match spawned {
         Ok(_) => rx.await.map_err(|e| format!("探测线程提前退出: {e}"))?,
         Err(e) => {
+            eprintln!("[portal_probe] 线程创建失败,降级共享阻塞池: {e}");
             // 线程创建失败降级回共享阻塞池(仅保正确性;原始 ip 未被 move)
             tauri::async_runtime::spawn_blocking(move || {
                 campus_login_lib::auth::portal::check_portal_full(&ip, None)
