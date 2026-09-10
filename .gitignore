@@ -79,3 +79,4 @@ android/*.apk.idsig
 
 # Android build script (hardcoded local JDK path)
 android/build-apk.ps1
+.zcode/

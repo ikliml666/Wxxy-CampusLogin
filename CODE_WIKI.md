@@ -1,6 +1,6 @@
 # CampusLogin 校园网登录助手 — Code Wiki
 
-> **版本**: v2.3.3 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
+> **版本**: v2.3.4 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64) + Android
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
 
@@ -2277,5 +2277,5 @@ let version = env!("APP_VERSION").to_string();
 
 ---
 
-*文档版本: v2.3.3 | 基于代码版本: CampusLogin v2.3.3 | 更新日期: 2026-09-10 | 同步 v2.3.3 全端版本号（Windows + 安卓）*
+*文档版本: v2.3.4 | 基于代码版本: CampusLogin v2.3.4 | 更新日期: 2026-09-10 | 同步 v2.3.4 全端版本号（Windows + 安卓）*
 
