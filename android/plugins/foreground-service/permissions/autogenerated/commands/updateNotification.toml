@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-updateNotification"
+description = "Enables the updateNotification command without any pre-configured scope."
+commands.allow = ["updateNotification"]
+
+[[permission]]
+identifier = "deny-updateNotification"
+description = "Denies the updateNotification command without any pre-configured scope."
+commands.deny = ["updateNotification"]

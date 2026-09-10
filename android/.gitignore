@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+frontend/dist/
+src-tauri/target/
+
+# Local env
+*.local
+
+# Gradle build outputs & generated tauri api
+build/
+.tauri/
+local.properties
+
+# tsc incremental build info
+*.tsbuildinfo

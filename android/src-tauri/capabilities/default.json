@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "安卓端主窗口能力:官方 biometric(验证门)/opener(外链,APK 安装)/notification(监控前台通知权限请求)前端 API",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "biometric:default",
+    "opener:default",
+    "notification:default"
+  ]
+}

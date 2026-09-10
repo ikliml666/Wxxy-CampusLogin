@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-setBootAutostart"
+description = "Enables the setBootAutostart command without any pre-configured scope."
+commands.allow = ["setBootAutostart"]
+
+[[permission]]
+identifier = "deny-setBootAutostart"
+description = "Denies the setBootAutostart command without any pre-configured scope."
+commands.deny = ["setBootAutostart"]

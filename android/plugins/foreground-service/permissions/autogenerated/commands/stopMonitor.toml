@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stopMonitor"
+description = "Enables the stopMonitor command without any pre-configured scope."
+commands.allow = ["stopMonitor"]
+
+[[permission]]
+identifier = "deny-stopMonitor"
+description = "Denies the stopMonitor command without any pre-configured scope."
+commands.deny = ["stopMonitor"]

@@ -1,0 +1,45 @@
+#![cfg(mobile)]
+//! 移动插件:把进程网络绑定到 WLAN(ConnectivityManager.bindProcessToNetwork),
+//! 经 netd FwmarkServer 对进程内全部 socket(含 Rust native)生效,强制登录流量走 WiFi。
+
+use tauri::{
+    plugin::{Builder, PluginHandle, TauriPlugin},
+    Manager, Runtime,
+};
+
+#[cfg(target_os = "android")]
+const PLUGIN_IDENTIFIER: &str = "com.campuslogin.plugin.networkbind";
+
+pub struct CampusNetworkBind<R: Runtime>(PluginHandle<R>);
+
+type Result<T> = std::result::Result<T, tauri::plugin::mobile::PluginInvokeError>;
+
+impl<R: Runtime> CampusNetworkBind<R> {
+    /// 把进程绑定到当前具备 WiFi 传输能力的 Network;返回 Kotlin 侧结果 {"bound": bool}
+    pub fn bind_to_wifi(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("bindToWifi", ())
+    }
+}
+
+/// Extensions to [`tauri::App`], [`tauri::AppHandle`], [`tauri::WebviewWindow`], [`tauri::Webview`] and [`tauri::Window`] to access the network bind APIs.
+pub trait CampusNetworkBindExt<R: Runtime> {
+    fn campus_network_bind(&self) -> &CampusNetworkBind<R>;
+}
+
+impl<R: Runtime, T: Manager<R>> CampusNetworkBindExt<R> for T {
+    fn campus_network_bind(&self) -> &CampusNetworkBind<R> {
+        self.state::<CampusNetworkBind<R>>().inner()
+    }
+}
+
+/// Initializes the plugin.
+pub fn init<R: Runtime>() -> TauriPlugin<R> {
+    Builder::new("campus-network-bind")
+        .setup(|app, api| {
+            #[cfg(target_os = "android")]
+            let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "NetworkBindPlugin")?;
+            app.manage(CampusNetworkBind(handle));
+            Ok(())
+        })
+        .build()
+}

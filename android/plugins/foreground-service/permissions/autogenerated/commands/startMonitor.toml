@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-startMonitor"
+description = "Enables the startMonitor command without any pre-configured scope."
+commands.allow = ["startMonitor"]
+
+[[permission]]
+identifier = "deny-startMonitor"
+description = "Denies the startMonitor command without any pre-configured scope."
+commands.deny = ["startMonitor"]

@@ -1,0 +1,14 @@
+[package]
+name = "tauri-plugin-campus-keystore"
+version = "0.1.0"
+description = "AndroidKeyStore AES-GCM 加解密原语(密码落盘加密,替代桌面 DPAPI)"
+edition = "2021"
+links = "tauri-plugin-campus-keystore"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+serde = "1"
+serde_json = "1"
+tauri = { version = "2" }

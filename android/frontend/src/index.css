@@ -1,0 +1,824 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 96%;
+    --foreground: 220 15% 20%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 20%;
+    --primary: 239 84% 61%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 93%;
+    --secondary-foreground: 220 15% 20%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 50%;
+    --accent: 220 14% 94%;
+    --accent-foreground: 220 15% 20%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+    --border: transparent;
+    --input: 220 14% 90%;
+    --ring: 239 84% 61%;
+    --radius: 12px;
+
+    --surface-top: #ffffff;
+    --surface-main: #f0f4f8;
+    --surface-side: #f8fafc;
+
+    background-color: #f0f4f8;
+  }
+
+  .dark {
+    --background: 220 15% 8%;
+    --foreground: 220 10% 90%;
+    --card: 220 15% 10%;
+    --card-foreground: 220 10% 90%;
+    --popover: 220 15% 10%;
+    --popover-foreground: 220 10% 90%;
+    --primary: 239 80% 68%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 15% 15%;
+    --secondary-foreground: 220 10% 90%;
+    --muted: 220 15% 15%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 220 15% 15%;
+    --accent-foreground: 220 10% 90%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 71% 45%;
+    --success-foreground: 144 100% 6%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+    --border: transparent;
+    --input: 220 15% 18%;
+    --ring: 239 80% 68%;
+
+    --surface-top: #14161b;
+    --surface-main: #0c0e12;
+    --surface-side: #101216;
+
+    background-color: #0c0e12;
+  }
+
+  .theme-vibrant { --primary: 270 91% 65%; --primary-foreground: 0 0% 100%; --ring: 270 91% 65%; --accent: 270 33% 94%; --accent-foreground: 270 91% 20%; }
+  .theme-vibrant.dark { --primary: 270 91% 72%; --accent: 270 33% 17%; --accent-foreground: 270 91% 85%; }
+  .theme-forest { --primary: 142 71% 45%; --primary-foreground: 0 0% 100%; --ring: 142 71% 45%; --accent: 142 33% 94%; --accent-foreground: 142 71% 20%; }
+  .theme-forest.dark { --primary: 142 71% 52%; --accent: 142 33% 17%; --accent-foreground: 142 71% 85%; }
+  .theme-midnight { --primary: 25 95% 53%; --primary-foreground: 0 0% 100%; --ring: 25 95% 53%; --accent: 25 33% 94%; --accent-foreground: 25 95% 20%; }
+  .theme-midnight.dark { --primary: 25 95% 60%; --accent: 25 33% 17%; --accent-foreground: 25 95% 85%; }
+  .theme-ocean { --primary: 187 92% 41%; --primary-foreground: 0 0% 100%; --ring: 187 92% 41%; --accent: 187 33% 94%; --accent-foreground: 187 92% 20%; }
+  .theme-ocean.dark { --primary: 187 92% 50%; --accent: 187 33% 17%; --accent-foreground: 187 92% 85%; }
+  .theme-cherry { --primary: 350 89% 60%; --primary-foreground: 0 0% 100%; --ring: 350 89% 60%; --accent: 350 33% 94%; --accent-foreground: 350 89% 20%; }
+  .theme-cherry.dark { --primary: 350 89% 67%; --accent: 350 33% 17%; --accent-foreground: 350 89% 85%; }
+
+  /* 强制亮色皮肤作用域：关于对话框为固定白底双栏设计（bg-white / bg-[#F8F9FA]），
+     暗色主题下继承的近白文字/暗色卡片变量在白底上对比度崩坏（存量缺陷）。
+     在容器上重定义主题变量为浅色值，内部所有走变量的类
+     （text-foreground/text-muted-foreground/bg-card 等）无论主题统一解析为亮色皮肤。 */
+  .force-light-dialog {
+    /* color 是继承属性：body 已按暗色变量算出颜色再继承下来，仅重定义变量不够，
+       必须在此显式声明 color 让子树继承亮色计算值 */
+    color: hsl(var(--foreground));
+    --background: 210 40% 96%;
+    --foreground: 220 15% 20%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 20%;
+    --primary: 239 84% 61%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 93%;
+    --secondary-foreground: 220 15% 20%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 50%;
+    --accent: 220 14% 94%;
+    --accent-foreground: 220 15% 20%;
+    --border: transparent;
+    --input: 220 14% 90%;
+    --ring: 239 84% 61%;
+  }
+
+  * {
+    border-color: transparent;
+  }
+
+  html {
+    @apply antialiased;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--surface-main);
+    overflow: hidden;
+    font-size: 16px;
+  }
+
+  body {
+    @apply text-foreground font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background: var(--surface-main);
+    overflow: hidden;
+  }
+
+  body,
+  /* 全局细滚动条：完全隐藏会让"内容可滚动"不可发现（曾致首页编辑列表卡片
+     看似被截断），6px 半透明滚动条与无边框设计兼容（2026-09-04） */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+  }
+  ::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.45);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.7);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  *, *::before, *::after {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.15);
+    color: hsl(var(--primary));
+  }
+}
+
+@layer components {
+  .bg-card,
+  [class*="rounded-2xl"].bg-white,
+  .rounded-2xl.bg-white {
+    border-radius: 16px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02) !important;
+  }
+
+  .dark .bg-card,
+  .dark [class*="rounded-2xl"].bg-white,
+  .dark .rounded-2xl.bg-white {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06) !important;
+  }
+
+  .rounded-xl {
+    border-radius: 16px !important;
+  }
+
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  select,
+  textarea,
+  .rounded-md {
+    border-radius: 10px !important;
+  }
+
+  button[class*="rounded-lg"] {
+    border-radius: 12px !important;
+  }
+  button[class*="rounded-md"] {
+    border-radius: 10px !important;
+  }
+
+  .rounded-lg.shadow-lg,
+  [class*="rounded-lg"][class*="shadow-"] {
+    border-radius: 12px !important;
+  }
+
+  .glass-dock {
+    background: rgba(240, 243, 248, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 18px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+    position: relative;
+    contain: style;
+    overflow: visible;
+  }
+
+  .glass-dock::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      165deg,
+      rgba(255,255,255,0.35) 0%,
+      rgba(255,255,255,0.12) 25%,
+      transparent 50%,
+      rgba(255,255,255,0.06) 75%,
+      rgba(255,255,255,0.15) 100%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .glass-dock::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 10%;
+    right: 10%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,0.5) 20%,
+      rgba(255,255,255,0.7) 50%,
+      rgba(255,255,255,0.5) 80%,
+      transparent 100%
+    );
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .dark .glass-dock {
+    background: rgba(14, 16, 20, 0.85);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18), inset 0 0 20px rgba(255, 255, 255, 0.02);
+  }
+
+  .dark .glass-dock::before {
+    background: linear-gradient(
+      165deg,
+      rgba(255,255,255,0.06) 0%,
+      rgba(255,255,255,0.03) 25%,
+      transparent 50%,
+      rgba(255,255,255,0.02) 75%,
+      rgba(255,255,255,0.04) 100%
+    );
+  }
+
+  .dark .glass-dock::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,0.08) 20%,
+      rgba(255,255,255,0.12) 50%,
+      rgba(255,255,255,0.08) 80%,
+      transparent 100%
+    );
+  }
+
+  .app-outer-square {
+    border-radius: 16px !important;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .dark .app-outer-square {
+    box-shadow: 0 8px 40px rgba(0,0,0,0.30), 0 2px 8px rgba(0,0,0,0.15);
+  }
+
+  .surface-top-square {
+    border-top-left-radius: 16px !important;
+    border-top-right-radius: 16px !important;
+  }
+
+  .surface-side-square {
+    border-bottom-right-radius: 16px !important;
+  }
+
+  .surface-main-square {
+    border-bottom-left-radius: 16px !important;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+  }
+
+  .app-maximized.app-outer-square {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .app-maximized .surface-top-square {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+  }
+
+  .app-maximized .surface-side-square {
+    border-bottom-right-radius: 0 !important;
+  }
+
+  .app-maximized .surface-main-square {
+    border-bottom-left-radius: 0 !important;
+  }
+
+  .log-entry-flash {
+    position: relative;
+  }
+  .log-entry-flash::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: hsl(var(--primary) / 0.08);
+    animation: logFlash 0.8s ease-out;
+    pointer-events: none;
+  }
+  @keyframes logFlash {
+    0% { opacity: 0; }
+    20% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  .btn-physical {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-physical::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255,255,255,0.15) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+
+  .btn-physical:hover::before {
+    opacity: 1;
+  }
+
+  .btn-physical:hover {
+    transform: scale(1.03);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08), 0 0 0 1px rgba(255,255,255,0.1) inset;
+  }
+
+  .btn-physical:active {
+    transform: scale(0.97);
+    transition-duration: 0.1s;
+  }
+
+  .btn-physical:not(:active) {
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease;
+  }
+
+  .btn-press {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-press::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255,255,255,0.12) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+
+  .btn-press:hover::before {
+    opacity: 1;
+  }
+
+  .btn-press:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.08) inset;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease;
+  }
+
+  .btn-press:active {
+    transform: scale(0.96);
+    transition-duration: 0.08s;
+  }
+
+  .btn-press:not(:active) {
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease;
+  }
+
+  .soft-btn {
+    border-radius: 12px !important;
+    box-shadow:
+      4px 4px 8px rgba(0,0,0,0.06),
+      -4px -4px 8px rgba(255,255,255,0.7),
+      inset 0 0 0 rgba(0,0,0,0),
+      inset 0 0 0 rgba(255,255,255,0);
+    transition: transform 0.15s ease-out, background-color 0.2s ease;
+  }
+
+  .soft-btn:hover {
+    box-shadow:
+      6px 6px 12px rgba(0,0,0,0.08),
+      -6px -6px 12px rgba(255,255,255,0.8),
+      inset 0 0 0 rgba(0,0,0,0),
+      inset 0 0 0 rgba(255,255,255,0);
+    transform: translateY(-1px);
+  }
+
+  .soft-btn:active {
+    box-shadow:
+      2px 2px 4px rgba(0,0,0,0.04),
+      -2px -2px 4px rgba(255,255,255,0.5),
+      inset 2px 2px 4px rgba(0,0,0,0.04),
+      inset -2px -2px 4px rgba(255,255,255,0.7);
+    transform: translateY(0) scale(0.98);
+    transition-duration: 0.1s;
+  }
+
+  .dark .soft-btn {
+    box-shadow:
+      4px 4px 8px rgba(0,0,0,0.25),
+      -4px -4px 8px rgba(255,255,255,0.04),
+      inset 0 0 0 rgba(0,0,0,0),
+      inset 0 0 0 rgba(255,255,255,0);
+  }
+
+  .dark .soft-btn:hover {
+    box-shadow:
+      6px 6px 12px rgba(0,0,0,0.30),
+      -6px -6px 12px rgba(255,255,255,0.06),
+      inset 0 0 0 rgba(0,0,0,0),
+      inset 0 0 0 rgba(255,255,255,0);
+  }
+
+  .dark .soft-btn:active {
+    box-shadow:
+      2px 2px 4px rgba(0,0,0,0.15),
+      -2px -2px 4px rgba(255,255,255,0.02),
+      inset 2px 2px 4px rgba(0,0,0,0.15),
+      inset -2px -2px 4px rgba(255,255,255,0.04);
+  }
+
+  .animated-card-interactive {
+    transition: border-color 0.3s ease, transform 0.2s cubic-bezier(0.33, 1, 0.68, 1);
+    border: 1px solid transparent;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    contain: layout style paint;
+  }
+
+  .animated-card-interactive:hover {
+    border-color: rgba(0, 0, 0, 0.06);
+    transform: translateY(-2px);
+  }
+
+  .animated-card-interactive:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--ring));
+  }
+
+  .dark .animated-card-interactive:hover {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .btn-physical:hover, .btn-press:hover, .titlebar-icon-btn:hover, .titlebar-win-btn:hover {
+    will-change: transform;
+  }
+
+  @keyframes windowReveal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .animate-window-reveal {
+    animation: windowReveal 0.3s ease-out both !important;
+  }
+
+  @keyframes refreshShake {
+    0% { transform: translateX(0); }
+    20% { transform: translateX(-3px); }
+    40% { transform: translateX(3px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .refresh-shake {
+    animation: refreshShake 0.35s ease-out !important;
+  }
+
+  .log-entry-hover {
+    transition: background-color 0.2s ease, transform 0.2s ease;
+  }
+
+  .log-entry-hover:hover {
+    background-color: hsl(var(--accent));
+    transform: translateX(6px);
+  }
+
+  .log-entry-hover:hover .log-left-bar {
+    opacity: 1;
+    transform: scaleY(1.2);
+  }
+
+  .log-left-bar {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    opacity: 0.5;
+  }
+
+  .layout-smooth-resize {
+    transition: gap 0.3s ease,
+                opacity 0.2s ease;
+    contain: layout style paint;
+  }
+
+  .panel-content {
+    /* content-visibility: auto 会跳过视口外/被判不可见的含动画元素渲染合成，
+       导致卡片入场/信号条/数字滚动等动画"数据在但看起来没播"。改为 visible 强制渲染。 */
+    content-visibility: visible;
+    contain-intrinsic-size: auto 300px;
+    contain: layout style;
+  }
+
+  @keyframes cardEnter {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .card-enter {
+    animation: cardEnter 0.35s cubic-bezier(0.33, 1, 0.68, 1) both;
+    animation-delay: calc(var(--stagger-i, 0) * 0.05s);
+  }
+
+  @keyframes dialogOverlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes dialogOverlayOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes dialogContentIn {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  @keyframes dialogContentOut {
+    from {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.97) translateY(4px);
+    }
+  }
+
+  .dialog-overlay-enter {
+    contain: paint;
+    animation: dialogOverlayIn 0.2s ease-out both;
+  }
+
+  .dialog-overlay-exit {
+    animation: dialogOverlayOut 0.12s ease-in both;
+  }
+
+  .dialog-content-enter {
+    contain: paint;
+    animation: dialogContentIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .dialog-content-exit {
+    animation: dialogContentOut 0.12s cubic-bezier(0.7, 0, 0.84, 0) both;
+  }
+
+  input[type="text"]:focus,
+  input[type="password"]:focus,
+  input[type="number"]:focus,
+  input[type="search"]:focus,
+  select:focus,
+  textarea:focus {
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.15), 0 0 12px hsl(var(--primary) / 0.08) !important;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+
+
+
+  .titlebar-icon-btn {
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.2s ease;
+  }
+  .titlebar-icon-btn:hover {
+    transform: scale(1.08) rotate(var(--hover-rotate, 0deg));
+  }
+  .titlebar-icon-btn:active {
+    transform: scale(0.95);
+    transition-duration: 0.1s;
+  }
+
+  .titlebar-win-btn {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease;
+  }
+  .titlebar-win-btn:hover {
+    transform: scale(1.1);
+  }
+  .titlebar-win-btn:active {
+    transform: scale(0.92);
+    transition-duration: 0.08s;
+  }
+
+  @keyframes iconSpinIn {
+    from { opacity: 0; transform: scale(0.5) rotate(-90deg); }
+    to { opacity: 1; transform: scale(1) rotate(0deg); }
+  }
+  .icon-spin-in {
+    animation: iconSpinIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes statusEnter {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  @keyframes statusEnterFromOffline {
+    from { transform: scale(1.06); opacity: 1; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  @keyframes statusOfflineShake {
+    0% { transform: scale(1); }
+    17% { transform: scale(1.06); }
+    33% { transform: scale(0.94); }
+    50% { transform: scale(1.03); }
+    67% { transform: scale(0.98); }
+    83% { transform: scale(1); }
+    100% { transform: scale(1); }
+  }
+  .status-enter {
+    animation: statusEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .status-enter-from-offline {
+    animation: statusEnterFromOffline 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .status-offline-shake {
+    animation: statusOfflineShake 0.6s ease-in-out both;
+  }
+
+  @keyframes labelBounceIn {
+    0% { opacity: 0; transform: translateY(6px) scale(0.8); }
+    60% { opacity: 1; transform: translateY(0) scale(1.1); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .label-bounce-in {
+    animation: labelBounceIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes numScaleIn {
+    from { transform: scale(1.3); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  .num-scale-in {
+    animation: numScaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+
+@layer utilities {
+  /* .animate-spin 不参与 idle 冻结：它是标准 loading 指示，用户 2 秒无输入后
+     冻结 spinner 会被误读为"程序卡死"（2026-09-04） */
+  .anim-idle .animate-pulse,
+  /* 移动端隐藏滚动条：Chromium WebView 对 overflow 容器默认外露灰条，原生 app 惯例不显示 */
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+
+  .anim-idle .signal-glow-active {
+    animation-play-state: paused !important;
+  }
+
+  .capsule-hover-wrap {
+    display: inline-flex;
+    transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+  .capsule-hover-wrap:hover {
+    transform: scale(1.05);
+  }
+
+  @keyframes signalBarEnter {
+    0% { transform: scaleY(0); }
+    40% { transform: scaleY(1.15); }
+    60% { transform: scaleY(0.92); }
+    80% { transform: scaleY(1.04); }
+    100% { transform: scaleY(1); }
+  }
+
+  .signal-bar-enter {
+    contain: paint;
+    animation: signalBarEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  .signal-glow-idle {
+    opacity: 0.5;
+    transform: scaleX(1);
+  }
+
+  @keyframes signal-glow-pulse {
+    0%   { opacity: 0;   transform: scaleX(0);    animation-timing-function: ease-in-out; }
+    20%  { opacity: 0.7; transform: scaleX(1.3);  animation-timing-function: ease-in-out; }
+    40%  { opacity: 0.3; transform: scaleX(0.8);  animation-timing-function: ease-in-out; }
+    60%  { opacity: 0.7; transform: scaleX(1.1);  animation-timing-function: ease-in-out; }
+    80%  { opacity: 0.5; transform: scaleX(0.95); animation-timing-function: ease-in-out; }
+    100% { opacity: 1;   transform: scaleX(1); }
+  }
+
+  .signal-glow-active {
+    will-change: transform, opacity;
+    animation: signal-glow-pulse 5s ease-in-out infinite;
+  }
+
+  .list-item-interactive {
+    position: relative;
+    transition: transform 0.2s ease, background-color 0.2s ease;
+  }
+
+  .list-item-interactive:hover {
+    transform: translateX(4px);
+  }
+
+  .list-item-interactive::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 20%;
+    bottom: 20%;
+    width: 3px;
+    border-radius: 2px;
+    background: hsl(var(--primary));
+    opacity: 0;
+    transform: scaleY(0);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+
+  .list-item-interactive:hover::before {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animated-card-interactive {
+      transition: none;
+      will-change: auto !important;
+    }
+    .signal-bar-enter,
+    .log-entry-flash::after,
+    .icon-spin-in,
+    .status-enter,
+    .status-enter-from-offline,
+    .status-offline-shake,
+    .label-bounce-in,
+    .num-scale-in,
+    .card-enter,
+    .dialog-overlay-enter,
+    .dialog-content-enter,
+    .dialog-content-exit,
+    .refresh-shake,
+    .animate-window-reveal,
+    .signal-glow-active,
+    .animate-pulse,
+    .animate-spin {
+      animation: none !important;
+    }
+    .list-item-interactive:hover {
+      transform: none;
+    }
+    .btn-physical,
+    .btn-press,
+    .titlebar-icon-btn,
+    .titlebar-win-btn {
+      will-change: auto !important;
+    }
+  }
+}

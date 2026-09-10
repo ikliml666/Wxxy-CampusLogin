@@ -1,0 +1,51 @@
+[package]
+name = "campus-login-android"
+version = "2.3.2"
+description = "校园网登录助手安卓端"
+edition = "2021"
+
+[lib]
+name = "campus_login_android_lib"
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "macros", "io-util", "sync"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+lazy_static = "1.5"
+regex = "1"
+network-interface = "2"
+# APK 下载完整性校验(version.json 的 sha256_checksum;桌面同算法)
+sha2 = "0.10"
+
+# 读 Android 系统属性(ro.soc.model 等,bionic __system_property_get);仅 android 目标编译
+[target.'cfg(target_os = "android")'.dependencies]
+android_system_properties = "0.1"
+# sched_setaffinity 绑小核(稳态功耗);依赖树内已有,零成本引入
+libc = "0.2"
+
+# 协议核心:与桌面端单点共享(阶段 3 收敛为 git 依赖 + tag)
+campus-login = { path = "../../tauri-app/src-tauri" }
+
+# WLAN 网络绑定插件(bindProcessToNetwork)
+tauri-plugin-campus-network-bind = { path = "../plugins/network-bind" }
+
+# AndroidKeyStore AES-GCM 加解密(密码落盘加密,替代桌面 DPAPI)
+tauri-plugin-campus-keystore = { path = "../plugins/keystore" }
+
+# 前台服务保活(通知+WifiLock+WakeLock)+开机自启
+tauri-plugin-campus-monitor-service = { path = "../plugins/foreground-service" }
+
+# 官方插件:生物识别验证门(BiometricPrompt)与外链/APK 打开
+tauri-plugin-biometric = "2"
+tauri-plugin-opener = "2"
+
+# 更新流:检查/流式下载(rustls 避免安卓 openssl 交叉编译问题)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+futures-util = "0.3"

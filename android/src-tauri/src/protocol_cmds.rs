@@ -1,0 +1,180 @@
+//! 协议命令面:登录/注销/Portal 探测,命令名与参数与桌面版对齐(前端近零适配)。
+//! 登录/注销复用桌面协议核心(auth::protocol),源 IP 绑定用检测阶段缓存的 wlan0 地址。
+//! 敏感纪律:任何日志、错误信息、事件 payload 不得携带 password。
+
+use std::sync::atomic::AtomicBool;
+use tauri::Manager;
+
+/// 兼容桌面契约:前端 invoke('do_login', {adapterName}) 仅传适配器,凭据由后端配置回退
+#[tauri::command]
+pub async fn do_login(
+    user: Option<String>,
+    password: Option<String>,
+    operator: Option<String>,
+    adapter: Option<String>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::android_state::AndroidState>,
+) -> Result<serde_json::Value, String> {
+    let _ = adapter;
+    // 用户名/密码为空时都回退已保存配置(总览一键登录免输凭据;与桌面取配置语义一致)
+    let user = match user {
+        Some(u) if !u.trim().is_empty() => u.trim().to_string(),
+        _ => crate::config_state::current_settings(&app).await?.user,
+    };
+    let operator = operator.unwrap_or_default();
+    let password = match password {
+        Some(p) if !p.is_empty() => p,
+        _ => crate::config_state::current_settings(&app).await?.password,
+    };
+    if user.is_empty() || password.is_empty() {
+        eprintln!("[do_login][v2] reject: user_empty={} password_empty={}", user.is_empty(), password.is_empty());
+        return Err("账号与密码不能为空".to_string());
+    }
+    eprintln!("[do_login] start: user_len={} operator={}", user.len(), operator);
+    let operator = if operator.is_empty() {
+        crate::config_state::current_settings(&app).await?.operator
+    } else {
+        operator
+    };
+
+    let result = run_login(&user, &password, &operator, &state).await?;
+    // 登录历史落盘(桌面 session.rs 同构;此处为手动登录)
+    if let Ok(dir) = app.path().app_data_dir() {
+        let message = result["message"].as_str().unwrap_or("");
+        let success = result["success"].as_bool().unwrap_or(false);
+        let _ = crate::login_history::append(&dir, success, message, &user, "manual");
+    }
+    // 手动登录成功:清除自动登录熔断与注销保护(否则手动救回来后自动重登仍被闸住)
+    if result["success"].as_bool().unwrap_or(false) {
+        use crate::monitor_loop::MONITOR;
+        MONITOR.consecutive_failures.store(0, std::sync::atomic::Ordering::Relaxed);
+        MONITOR.logout_protected_until_ms.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    Ok(result)
+}
+
+/// 登录执行体(monitor_loop 自动重登复用;返回协议 JSON {code,message,success,retryable})
+pub async fn run_login(
+    user: &str,
+    password: &str,
+    operator: &str,
+    state: &tauri::State<'_, crate::android_state::AndroidState>,
+) -> Result<serde_json::Value, String> {
+    let adapter_ip = cached_adapter_ip(state);
+    let user = user.to_string();
+    let password = password.to_string();
+    let operator = operator.to_string();
+    // do_login_with_retry 是同步函数(内部 block_on_http 桥接),禁止在 async 上下文直接调用
+    tauri::async_runtime::spawn_blocking(move || {
+        let is_quitting = AtomicBool::new(false);
+        campus_login_lib::auth::protocol::do_login_with_retry(
+            &user,
+            &password,
+            &operator,
+            adapter_ip.as_deref(),
+            3,
+            &is_quitting,
+        )
+    })
+    .await
+    .map_err(|e| format!("登录任务执行失败: {e}"))?
+}
+
+/// 注销:两步注销(Radius + MAC 解绑)复用桌面协议核心
+#[tauri::command]
+pub async fn do_logout(
+    user: Option<String>,
+    adapter: Option<String>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::android_state::AndroidState>,
+) -> Result<serde_json::Value, String> {
+    let _ = adapter;
+    let user = match user.map(|u| u.trim().to_string()) {
+        Some(u) if !u.is_empty() => u,
+        // 桌面注销仅需学号;user 空时回退已存账号
+        _ => crate::config_state::current_settings(&app).await?.user,
+    };
+    if user.is_empty() {
+        return Err("注销需要学号,请先在账号输入框填写".to_string());
+    }
+    let adapter_ip = cached_adapter_ip(&state);
+    let user_for_history = user.clone();
+    let inner = tauri::async_runtime::spawn_blocking(move || {
+        let is_quitting = AtomicBool::new(false);
+        campus_login_lib::auth::protocol::do_logout_with_retry(
+            &user,
+            adapter_ip.as_deref(),
+            3,
+            &is_quitting,
+        )
+    })
+    .await
+    .map_err(|e| format!("注销任务执行失败: {e}"))??;
+
+    if let Ok(dir) = app.path().app_data_dir() {
+        let message = inner["message"].as_str().unwrap_or("");
+        let success = inner["success"].as_bool().unwrap_or(false);
+        let _ = crate::login_history::append(&dir, success, message, &user_for_history, "manual");
+    }
+    // 注销保护期 60s:后台检测此前会在冷却后把用户自动登回,违背注销意图
+    // (桌面 logout_protected_until 同语义;登录成功时清除)
+    {
+        use crate::monitor_loop::MONITOR;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        MONITOR.logout_protected_until_ms.store(now + 60_000, std::sync::atomic::Ordering::Relaxed);
+    }
+    Ok(inner)
+}
+
+/// 桌面同名命令:Portal 状态页探测(端口 80 页面特征判在线,协议走 :801)
+#[tauri::command]
+pub async fn check_portal_status(
+    adapter_ip: Option<String>,
+    state: tauri::State<'_, crate::android_state::AndroidState>,
+) -> Result<campus_login_lib::auth::portal::PortalStatus, String> {
+    let ip = match adapter_ip {
+        Some(ip) if !ip.is_empty() => ip,
+        _ => cached_adapter_ip(&state).unwrap_or_default(),
+    };
+    // check_portal_full 为同步函数(内部 block_on_http),必须 spawn_blocking
+    tauri::async_runtime::spawn_blocking(move || {
+        campus_login_lib::auth::portal::check_portal_full(&ip, None)
+    })
+    .await
+    .map_err(|e| format!("Portal 探测任务执行失败: {e}"))?
+}
+
+fn cached_adapter_ip(
+    state: &tauri::State<'_, crate::android_state::AndroidState>,
+) -> Option<String> {
+    state
+        .cached_source_ip
+        .lock()
+        .ok()
+        .and_then(|cached| cached.map(|ip| ip.to_string()))
+}
+
+#[tauri::command]
+pub fn ping_test() -> &'static str {
+    "pong"
+}
+
+/// 把进程网络绑定到 WLAN;返回 {"bound": bool}。前端 invoke("bind_to_wifi") 调用。
+#[tauri::command]
+pub fn bind_to_wifi(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+        app.campus_network_bind()
+            .bind_to_wifi()
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("网络绑定仅安卓端支持".to_string())
+    }
+}

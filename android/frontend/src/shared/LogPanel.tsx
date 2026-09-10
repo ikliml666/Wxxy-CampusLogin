@@ -1,0 +1,673 @@
+import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { AnimatedCard } from '@/components/ui/animated-card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  FileText,
+  RefreshCw,
+  Trash2,
+  AlertCircle,
+  Info,
+  AlertTriangle,
+  Bug,
+  ChevronDown,
+  Search,
+  X,
+} from 'lucide-react'
+import { cn, extractErrorMessage } from '@/lib/utils'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import gsap from 'gsap'
+import { m, AnimatePresence } from 'framer-motion'
+import { createLogEntryVariants } from '@/lib/animations'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+
+interface LogPanelProps {
+  api: {
+    getLogs: (lines?: number) => Promise<string>
+    clearLogs: () => Promise<boolean>
+    getDebugMode: () => Promise<boolean>
+    setDebugMode: (enabled: boolean) => Promise<boolean>
+    getLogRetentionDays?: () => Promise<number>
+    setLogRetentionDays?: (days: number) => Promise<void>
+  }
+  addToast: (message: string, type: 'info' | 'success' | 'error' | 'warning', description?: string) => void
+}
+
+type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+
+interface ParsedLogLine {
+  timestamp: string
+  level: LogLevel
+  module: string
+  message: string
+  raw: string
+}
+
+const DEFAULT_LEVEL_CONFIG = { icon: Info, color: 'text-muted-foreground', bg: 'bg-muted', border: 'border-l-muted-foreground', leftBar: 'bg-muted-foreground', labelKey: 'common.unknown' }
+
+const LEVEL_CONFIG: Record<LogLevel, { icon: typeof Info; color: string; bg: string; border: string; leftBar: string; labelKey: string }> = {
+  DEBUG: { icon: Bug, color: 'text-slate-400', bg: 'bg-slate-500/8', border: 'border-l-slate-400', leftBar: 'bg-slate-400', labelKey: 'log.debug' },
+  INFO: { icon: Info, color: 'text-sky-500', bg: 'bg-sky-500/8', border: 'border-l-sky-400', leftBar: 'bg-sky-400', labelKey: 'common.info' },
+  WARN: { icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-l-amber-500', leftBar: 'bg-amber-500', labelKey: 'common.warning' },
+  ERROR: { icon: AlertCircle, color: 'text-destructive', bg: 'bg-destructive/10', border: 'border-l-rose-500', leftBar: 'bg-rose-500', labelKey: 'common.error' },
+}
+
+const LOG_LINE_REGEX = /^\[(.+?)\]\s*\[(DEBUG|INFO|WARN|ERROR)\]\s*\[(.+?)\]\s*(.+)$/
+
+// 安卓构建行渲染改两行布局：MIUI 大字体下时间戳/级别/模块等 shrink-0 前置元素
+// 总宽可超过容器，单行 flex 会把消息压到一字符宽（真机实测）——消息独占整行根治
+const isAndroidBuild = import.meta.env.VITE_PLATFORM === 'android'
+
+function parseLogLine(line: string): ParsedLogLine | null {
+  const match = line.match(LOG_LINE_REGEX)
+  if (!match) return null
+  return {
+    timestamp: match[1],
+    level: match[2] as LogLevel,
+    module: match[3],
+    message: match[4],
+    raw: line,
+  }
+}
+
+const LINE_OPTIONS = [
+  { value: 100, labelKey: 'log.lines100' },
+  { value: 200, labelKey: 'log.lines200' },
+  { value: 500, labelKey: 'log.lines500' },
+  { value: 1000, labelKey: 'log.lines1000' },
+]
+
+const MAX_DISPLAY_LINES = 200
+
+export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
+  const profile = useAnimationProfile()
+  const { t } = useTranslation()
+  const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
+  const [rawLogs, setRawLogs] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
+  const [lineCount, setLineCount] = useState(200)
+  const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
+  const [searchText, setSearchText] = useState('')
+  const [filterModule, setFilterModule] = useState<string>('ALL')
+  const [showLineSelector, setShowLineSelector] = useState(false)
+  const [debugMode, setDebugMode] = useState(false)
+  const [retentionDays, setRetentionDays] = useState(7)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const isAutoScrollRef = useRef(true)
+  const isVisibleRef = useRef(true)
+  const lineSelectorRef = useRef<HTMLDivElement>(null)
+  const fetchSeqRef = useRef(0)
+  const mountedRef = useRef(true)
+  // 保存最近一次原始日志，轮询内容未变化时跳过 setState，避免整表四层 memo 重算（FE-B-10）
+  const rawLogsRef = useRef('')
+
+  useEffect(() => {
+    // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
+    // 否则 cleanup 置 false 后 fetchLogs 结果永远被丢弃
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // manual=true 为用户触发（初始加载/手动刷新/切换调试模式），切换刷新按钮加载态；
+  // 5s 轮询不置 loading，否则刷新图标每 5 秒自转一圈，与手动刷新语义混淆
+  const fetchLogs = useCallback(async (manual = false) => {
+    const seq = ++fetchSeqRef.current
+    if (manual) setIsLoading(true)
+    try {
+      const result = await api.getLogs(lineCount)
+      if (seq !== fetchSeqRef.current || !mountedRef.current) return
+      // 内容未变化时不触发 setState，避免 5s 轮询导致 parsedLines/filteredLines/displayedLines/levelCounts
+      // 四层 useMemo 串行全量重算与整表重渲染（FE-B-10）
+      if (result !== rawLogsRef.current) {
+        rawLogsRef.current = result
+        setRawLogs(result)
+      }
+    } catch (e: unknown) {
+      if (seq !== fetchSeqRef.current || !mountedRef.current) return
+      addToast(t('log.fetchLogFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (seq !== fetchSeqRef.current || !mountedRef.current) return
+      if (manual) setIsLoading(false)
+    }
+  }, [api, lineCount, addToast])
+
+  useEffect(() => {
+    fetchLogs(true)
+  }, [fetchLogs])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { isVisibleRef.current = entry.isIntersecting },
+      { threshold: 0 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    api.getDebugMode().then(v => { if (mountedRef.current) setDebugMode(v) }).catch(() => {})
+  }, [api])
+
+  useEffect(() => {
+    api.getLogRetentionDays?.().then((days) => {
+      if (days !== undefined) setRetentionDays(days)
+    }).catch(() => {})
+  }, [api])
+
+  useEffect(() => {
+    // 轮询叠加窗口可见性门控（FE-A-09）：与 useHeartbeat 的 visibilitychange 检查写法一致，
+    // 窗口被遮挡/最小化时跳过该轮 invoke；IntersectionObserver 的 isVisibleRef 门控保持不变。
+    let hidden = document.hidden
+    const onVisChange = () => { hidden = document.hidden }
+    document.addEventListener('visibilitychange', onVisChange)
+    const timer = setInterval(() => {
+      if (isVisibleRef.current && !hidden) fetchLogs()
+    }, 5000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisChange)
+      clearInterval(timer)
+    }
+  }, [fetchLogs])
+
+  const toggleDebugMode = useCallback(async () => {
+    try {
+      const next = !debugMode
+      await api.setDebugMode(next)
+      if (!mountedRef.current) return
+      setDebugMode(next)
+      addToast(next ? t('log.debugEnabled') : t('log.debugDisabled'), 'info')
+      fetchLogs(true)
+    } catch {
+      if (!mountedRef.current) return
+      addToast(t('log.debugToggleFailed'), 'error')
+    }
+  }, [debugMode, api, addToast, fetchLogs])
+
+  const handleRetentionChange = useCallback(async (days: number) => {
+    const prev = retentionDays
+    setRetentionDays(days)
+    try {
+      await api.setLogRetentionDays?.(days)
+    } catch (e: unknown) {
+      // 乐观更新失败：回滚本地值并提示
+      if (!mountedRef.current) return
+      setRetentionDays(prev)
+      addToast(t('log.retentionChangeFailed'), 'error', extractErrorMessage(e))
+    }
+  }, [api, retentionDays, addToast, t])
+
+  useEffect(() => {
+    if (scrollRef.current && isAutoScrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+    // 过滤条件（级别/模块/搜索）变化同样改变 displayedLines，需一并触发自动滚动
+  }, [rawLogs, filterLevel, filterModule, searchText])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (lineSelectorRef.current && !lineSelectorRef.current.contains(e.target as Node)) {
+        setShowLineSelector(false)
+      }
+    }
+    if (showLineSelector) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showLineSelector])
+
+  const [logsKey, setLogsKey] = useState(0)
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+    isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
+  }, [])
+
+  const parsedLines = useMemo(() => {
+    // 单遍解析：合并 split→filter(Boolean)→map→filter 为一次遍历，减少中间数组分配（FE-B-10）
+    const lines = rawLogs.split('\n')
+    const result: ParsedLogLine[] = []
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (!line) continue
+      const parsed = parseLogLine(line)
+      if (parsed) result.push(parsed)
+    }
+    return result
+  }, [rawLogs])
+
+  const availableModules = useMemo(() => {
+    const modules = new Set(parsedLines.map(line => line.module))
+    return Array.from(modules).sort()
+  }, [parsedLines])
+
+  const filteredLines = useMemo(() => {
+    let result = parsedLines
+
+    // 级别筛选
+    if (filterLevel !== 'ALL') {
+      result = result.filter(line => line.level === filterLevel)
+    }
+
+    // 模块筛选
+    if (filterModule !== 'ALL') {
+      result = result.filter(line => line.module === filterModule)
+    }
+
+    // 搜索筛选
+    if (searchText.trim()) {
+      const keyword = searchText.trim().toLowerCase()
+      result = result.filter(line =>
+        line.message.toLowerCase().includes(keyword) ||
+        line.module.toLowerCase().includes(keyword) ||
+        line.timestamp.includes(searchText.trim())
+      )
+    }
+
+    return result
+  }, [parsedLines, filterLevel, filterModule, searchText])
+
+  const displayedLines = useMemo(() =>
+    filteredLines.length > MAX_DISPLAY_LINES
+      ? filteredLines.slice(-MAX_DISPLAY_LINES)
+      : filteredLines,
+    [filteredLines]
+  )
+
+  const handleClear = useCallback(() => {
+    if (displayedLines.length === 0 || isClearing) return
+    setShowClearConfirm(true)
+  }, [displayedLines.length, isClearing])
+
+  const handleClearConfirm = useCallback(() => {
+    setShowClearConfirm(false)
+    setIsClearing(true)
+
+    // 用 GSAP 对当前可视区域内的 DOM 元素做一条一条删除动画
+    const container = scrollRef.current
+    if (container) {
+      const allEntries = container.querySelectorAll('.log-line')
+      if (allEntries.length > 0) {
+        // 只筛选当前视口内可见的条目
+        const containerRect = container.getBoundingClientRect()
+        const visibleEntries: Element[] = []
+        allEntries.forEach(el => {
+          const rect = el.getBoundingClientRect()
+          if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+            visibleEntries.push(el)
+          }
+        })
+
+        // 对不可见的条目直接隐藏
+        const hiddenEntries = Array.from(allEntries).filter(el => !visibleEntries.includes(el))
+        if (hiddenEntries.length > 0) {
+          gsap.set(hiddenEntries, { autoAlpha: 0 })
+        }
+
+        // 对可见的条目做一条一条删除动画
+        if (visibleEntries.length > 0) {
+          // 动态 stagger：条目越多间隔越短，总时长封顶避免清空等待过久
+          const staggerEach = visibleEntries.length > 8 ? 0.05 : visibleEntries.length > 4 ? 0.1 : 0.2
+          const ctx = gsap.context(() => {
+            gsap.to(visibleEntries, {
+              autoAlpha: 0,
+              x: 50,
+              scaleX: 0.8,
+              stagger: { each: staggerEach, from: 'start' },
+              duration: 0.4,
+              ease: 'back.out(1.2)',
+              force3D: true,
+              onComplete: () => {
+                ctx.revert()
+                api.clearLogs().then(() => {
+                  if (!mountedRef.current) return
+                  rawLogsRef.current = ''
+                  setRawLogs('')
+                  setLogsKey(prev => prev + 1)
+                  addToast(t('log.logCleared'), 'success')
+                  setIsClearing(false)
+                }).catch((e: unknown) => {
+                  if (!mountedRef.current) return
+                  addToast(t('log.clearLogFailed'), 'error', extractErrorMessage(e))
+                  setIsClearing(false)
+                })
+              },
+              // 历史缺陷：tween 被中断（AnimatePresence 切换面板、组件卸载等）时
+              // onComplete 不执行，isClearing 残留导致清空按钮永久禁用。
+              // onInterrupt 复位状态（与 RightPanel 清空动画的处理方式对齐：
+              // 中断即放弃本次清空，日志保留，用户可重试）。
+              onInterrupt: () => {
+                ctx.revert()
+                if (mountedRef.current) setIsClearing(false)
+              },
+            })
+          }, container)
+          return
+        }
+      }
+    }
+
+    // fallback: 无 DOM 元素时直接清空
+    api.clearLogs().then(() => {
+      if (!mountedRef.current) return
+      rawLogsRef.current = ''
+      setRawLogs('')
+      setLogsKey(prev => prev + 1)
+      addToast(t('log.logCleared'), 'success')
+    }).catch((e: unknown) => {
+      if (!mountedRef.current) return
+      addToast(t('log.clearLogFailed'), 'error', extractErrorMessage(e))
+    }).finally(() => {
+      if (mountedRef.current) setIsClearing(false)
+    })
+  }, [api, addToast])
+
+  const levelCounts = useMemo(() =>
+    parsedLines.reduce((acc, line) => {
+      acc[line.level] = (acc[line.level] || 0) + 1
+      return acc
+    }, {} as Record<LogLevel, number>),
+    [parsedLines]
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <FileText className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <CardTitle>{t('log.systemLog')}</CardTitle>
+                <CardDescription>{t('log.systemLogDesc')}</CardDescription>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                <div className="relative" ref={lineSelectorRef}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px] gap-1 px-2"
+                    onClick={() => setShowLineSelector(!showLineSelector)}
+                  >
+                    {t(LINE_OPTIONS.find(o => o.value === lineCount)?.labelKey || 'log.lines200')}
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                  {showLineSelector && (
+                    <div className="absolute right-0 top-full mt-1 z-10 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[100px]">
+                      {LINE_OPTIONS.map(opt => (
+                        <button
+                          key={opt.value}
+                          onClick={() => {
+                            setLineCount(opt.value)
+                            setShowLineSelector(false)
+                          }}
+                          className={cn(
+                            'w-full px-3 py-1.5 text-xs text-left hover:bg-accent transition-colors',
+                            lineCount === opt.value ? 'text-primary font-medium' : 'text-foreground'
+                          )}
+                        >
+                          {t(opt.labelKey)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <Select
+                  value={String(retentionDays)}
+                  onValueChange={(v) => handleRetentionChange(Number(v))}
+                >
+                  <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">{t('log.retention.3days')}</SelectItem>
+                    <SelectItem value="7">{t('log.retention.7days')}</SelectItem>
+                    <SelectItem value="14">{t('log.retention.14days')}</SelectItem>
+                    <SelectItem value="30">{t('log.retention.30days')}</SelectItem>
+                    <SelectItem value="0">{t('log.retention.permanent')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[11px] gap-1 px-2"
+                  onClick={() => fetchLogs(true)}
+                  disabled={isLoading}
+                >
+                  <RefreshCw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
+                  {t('common.refresh')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn('h-7 text-[11px] gap-1 px-2', debugMode && 'bg-amber-500/10 text-amber-500 border-amber-500/30')}
+                  onClick={toggleDebugMode}
+                >
+                  <Bug className="h-3 w-3" />
+                  {debugMode ? t('log.debugOn') : t('log.debugOff')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[11px] gap-1 px-2 text-destructive hover:text-destructive"
+                  onClick={handleClear}
+                  disabled={isClearing || displayedLines.length === 0}
+                >
+                  <Trash2 className="h-3 w-3" />
+                  {t('common.clear')}
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder={t('log.searchPlaceholder')}
+                  className="w-full h-7 pl-7 pr-7 text-[11px] rounded-md border border-border bg-background/80 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+                {searchText && (
+                  <button
+                    onClick={() => setSearchText('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              <Select value={filterModule} onValueChange={setFilterModule}>
+                <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">{t('log.allModules')}</SelectItem>
+                  {availableModules.map(mod => (
+                    <SelectItem key={mod} value={mod}>{mod}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setFilterLevel('ALL')}
+                aria-pressed={filterLevel === 'ALL'}
+                className={cn(
+                  'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors',
+                  filterLevel === 'ALL'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-accent'
+                )}
+              >
+                {t('log.all')}
+                {parsedLines.length > 0 && (
+                  <span className="ml-1 opacity-60">{parsedLines.length}</span>
+                )}
+              </button>
+              {(Object.keys(LEVEL_CONFIG) as LogLevel[]).map(level => {
+                const cfg = LEVEL_CONFIG[level]
+                const count = levelCounts[level] || 0
+                return (
+                  <button
+                    key={level}
+                    onClick={() => setFilterLevel(level)}
+                    aria-pressed={filterLevel === level}
+                    className={cn(
+                      'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors flex items-center gap-1',
+                      filterLevel === level
+                        ? cn(cfg.bg, cfg.color)
+                        : 'text-muted-foreground hover:bg-accent'
+                    )}
+                  >
+                    <cfg.icon className="h-3 w-3" />
+                    {t(cfg.labelKey)}
+                    {count > 0 && <span className="opacity-60">{count}</span>}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div
+              ref={scrollRef}
+              onScroll={handleScroll}
+              role="log"
+              aria-label={t('log.systemLog')}
+              className="rounded-lg border border-border/50 bg-background/80 overflow-y-auto h-[calc(100vh-400px)] min-h-[320px] font-mono text-[12px]"
+            >
+              {displayedLines.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
+                  <FileText className="h-8 w-8 mb-2 opacity-30" />
+                  <p className="text-xs">
+                    {parsedLines.length === 0 ? t('log.noLogs') : 
+                     searchText.trim() ? t('log.noSearchResults') : t('log.noFilteredLogs')}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {filteredLines.length > MAX_DISPLAY_LINES && (
+                    <div className="px-3 py-1.5 text-[11px] text-muted-foreground/60 text-center border-b border-border/30">
+                      {t('log.showRecentLogs', { max: MAX_DISPLAY_LINES, total: filteredLines.length })}
+                    </div>
+                  )}
+                  <AnimatePresence mode="popLayout" key={logsKey}>
+                    {displayedLines.map((line, idx) => {
+                      const cfg = LEVEL_CONFIG[line.level] ?? DEFAULT_LEVEL_CONFIG
+                      const Icon = cfg.icon
+                      const enableAnimation = displayedLines.length <= 30
+                      // key 追加 idx：同一秒内可能产生完全相同内容的日志（如高频重试），
+                      // 仅用 内容前20字符 组 key 会重复，触发 React 警告与动画元素复用错乱
+                      const lineKey = `${logsKey}-${line.timestamp}-${line.module}-${line.message.slice(0, 20)}-${idx}`
+                      if (!enableAnimation) {
+                        return (
+                          <div
+                            key={lineKey}
+                            className={cn(
+                              'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
+                              isAndroidBuild && 'flex-col gap-0.5',
+                              cfg.border,
+                              line.level === 'ERROR' && cfg.bg,
+                              'hover:bg-muted/40',
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                'log-left-bar absolute left-0 top-0 bottom-0 w-[3px] rounded-r opacity-0 group-hover:opacity-100',
+                                'transition-opacity duration-200',
+                                cfg.leftBar,
+                              )}
+                            />
+                            <div className={cn('flex items-start gap-2', isAndroidBuild && 'min-w-0')}>
+                              <Icon className={cn('h-3 w-3 shrink-0 mt-0.5', cfg.color)} />
+                              <span className="text-muted-foreground/50 shrink-0">{line.timestamp}</span>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  'h-4 px-1 text-[9px] font-mono shrink-0 border-0',
+                                  cfg.bg,
+                                  cfg.color,
+                                )}
+                              >
+                                {line.level}
+                              </Badge>
+                              <span className={cn('text-primary/60 shrink-0', isAndroidBuild && 'min-w-0 truncate')}>[{line.module}]</span>
+                            </div>
+                            <span className={cn(isAndroidBuild ? 'pl-5' : 'min-w-0 flex-1', 'break-words leading-normal whitespace-pre-wrap', cfg.color)}>{line.message}</span>
+                          </div>
+                        )
+                      }
+                      return (
+                        <m.div
+                          key={lineKey}
+                          variants={logVariants}
+                          initial="initial"
+                          animate="animate"
+                          exit="exit"
+                          className={cn(
+                            'log-line relative flex items-start gap-2 px-3 py-2 border-l-2 cursor-default group',
+                            isAndroidBuild && 'flex-col gap-0.5',
+                            cfg.border,
+                            line.level === 'ERROR' && cfg.bg,
+                            'hover:bg-muted/40',
+                          )}
+                          whileHover={{
+                            x: 6,
+                            transition: { duration: 0.2 },
+                          }}
+                        >
+                          <div
+                            className={cn(
+                              'log-left-bar absolute left-0 top-0 bottom-0 w-[3px] rounded-r opacity-0 group-hover:opacity-100',
+                              'transition-opacity duration-200',
+                              cfg.leftBar,
+                            )}
+                          />
+                          <div className={cn('flex items-start gap-2', isAndroidBuild && 'min-w-0')}>
+                            <Icon className={cn('h-3 w-3 shrink-0 mt-0.5', cfg.color)} />
+                            <span className="text-muted-foreground/50 shrink-0">{line.timestamp}</span>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'h-4 px-1 text-[9px] font-mono shrink-0 border-0',
+                                cfg.bg,
+                                cfg.color,
+                              )}
+                            >
+                              {line.level}
+                            </Badge>
+                            <span className={cn('text-primary/60 shrink-0', isAndroidBuild && 'min-w-0 truncate')}>[{line.module}]</span>
+                          </div>
+                          <span className={cn(isAndroidBuild ? 'pl-5' : 'min-w-0 flex-1', 'break-words leading-normal whitespace-pre-wrap', cfg.color)}>{line.message}</span>
+                        </m.div>
+                    )
+                  })}
+                </AnimatePresence>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+      <ConfirmDialog
+        open={showClearConfirm}
+        title={t('log.clearLogTitle')}
+        message={t('log.clearLogMessage')}
+        onConfirm={handleClearConfirm}
+        onCancel={() => setShowClearConfirm(false)}
+      />
+    </div>
+  )
+})

@@ -1,0 +1,7 @@
+[default]
+description = """
+CampusLogin 密码落盘加密:AndroidKeyStore AES-GCM 加解密原语,
+密钥不出安全硬件,替代桌面端 DPAPI。
+"""
+
+permissions = ["allow-encrypt", "allow-decrypt"]

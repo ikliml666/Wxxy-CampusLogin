@@ -1,0 +1,14 @@
+[default]
+description = """
+校园网后台监控保活:前台服务(常驻通知+WifiLock+WakeLock)与开机自启开关。
+业务逻辑(检测/自动重登)全在 Rust 侧,本插件仅保证进程存活与通知展示。
+"""
+
+permissions = [
+    "allow-startMonitor",
+    "allow-stopMonitor",
+    "allow-updateNotification",
+    "allow-setBootAutostart",
+    "allow-isBootAutostartEnabled",
+    "allow-installApk",
+]
