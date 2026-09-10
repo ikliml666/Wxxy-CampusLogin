@@ -682,6 +682,14 @@ pub struct AccountResult {
 | `validate_password()` | 校验密码 (位于 validate.rs) |
 | `deserialize_non_empty_or()` | 自定义反序列化器，空字符串自动回填默认值 (位于 model.rs) |
 
+#### 4.3.1 安卓端配置 — `android/src-tauri/src/config_state.rs` (2026-09-10)
+
+安卓端全量配置 `Settings`（结构对齐桌面 `Config` 可适用子集，camelCase IPC 契约；密码字段经 AndroidKeyStore AES-GCM 落盘）。**默认值双源覆盖关系**：前端 `DEFAULT_CONFIG` 与后端 `Settings::default` 都定义默认值，真机 `get_init_data` 返回后端值覆盖前端——**改默认值必须改后端**，只改前端无效（2026-09-10 曾因此导致自动化开关 UI 显示关闭）。
+
+- **开箱即用默认值（2026-09-10）**：`auto_login_on_start`/`enable_background_check`/`auto_login_on_preparation`/`enable_network_name_check`/`skip_ttfb_in_latency`/`skip_content_in_latency` 六开关默认 true（自动化登录、验证设置、质量跳过项）；`enable_boot_autostart`（开机自启）不属于登录自动化，保持 false 由用户主动开启。
+- **schema 迁移链**（`migrate_legacy_defaults`，一次性、落盘后不重复触发、幂等）：v0→v1 后台检测间隔 15s→60s（仅命中历史默认值时）；v1→v2 上述六开关存量配置里的显式 false 一并刷为 true（开发阶段统一开箱即用；落盘后用户主动关闭不会再被覆盖）。新装 `config_schema_version=2` 跳过迁移。**注意迁移只在版本变更时落盘**，v2+ 配置读盘不写盘。
+- **测试无法在本机 host 运行**：安卓 crate 按移动插件门控依赖（desktop cfg 缺 reqwest 等），host `cargo test` 编译不过；build.rs 解析 capabilities 的移动插件权限（biometric/opener/notification）同样失败——为存量环境限制。验证路径：`cargo check --target aarch64-linux-android --all-targets`（需 NDK 工具链注入 `CC_aarch64_linux_android` 等环境变量，host desktop target 不可用），测试断言锁定默认值与迁移语义。
+
 ### 4.4 加密工具 — `account/crypto.rs`
 
 Windows DPAPI 加密/解密，绑定当前 Windows 用户。`encrypt()` 无显式空输入检查，直接将 `&[u8]` 传给 `CryptProtectData`，空数据加密行为依赖 DPAPI API（返回 0 或 output 为空时返回 `Err`）。`decrypt()` 解密失败返回 `Err`。
