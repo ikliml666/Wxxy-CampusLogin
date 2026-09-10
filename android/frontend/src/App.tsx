@@ -1,7 +1,8 @@
-// 移动端外壳:顶部轻 header + 单列卡流 + 底部 5 tab。
-// 视觉延续桌面(暗色 surface/主题色/圆角卡/发光 accent),布局专为安卓重做;
-// 桌面件(TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/Onboarding/Sponsor)不再渲染。
-// 动画:仅保留面板切换的 framer-motion 过渡(交互触发,天然活跃期);氛围动画见 useDeviceProfile(Task 4)。
+// 安卓双外壳入口:手机=移动外壳(顶部轻 header + 单列卡流 + 底部 5 tab);
+// 平板(sw600dp 语义)=桌面 Dock 布局(TabletShell,桌面件同源复用、面板用安卓版)。
+// 手机外壳视觉延续桌面(暗色 surface/主题色/圆角卡/发光 accent),布局专为安卓重做;
+// 桌面件(TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/Onboarding/Sponsor)在手机外壳不再渲染。
+// 动画:仅保留面板切换的 framer-motion 过渡(交互触发,天然活跃期);氛围动画见 useDeviceProfile。
 
 import { useState, useCallback, useEffect, useDeferredValue, lazy, Suspense } from 'react'
 import { useAppInit } from '@/hooks/useAppInit'
@@ -26,6 +27,8 @@ import { useTranslation } from 'react-i18next'
 import { BottomNav, type MobileTab } from '@/components/layout/BottomNav'
 import { MobileDashboard } from '@/components/mobile/MobileDashboard'
 import { MobileMore } from '@/components/mobile/MobileMore'
+import { TabletShell } from '@/components/tablet/TabletShell'
+import { useFormFactor } from '@/hooks/useFormFactor'
 import { AccountPanel } from '@/account/AccountPanel'
 import { SelfServicePanel } from '@/account/SelfServicePanel'
 import { QualityPanel } from '@/monitor/QualityPanel'
@@ -252,11 +255,14 @@ function AppInner() {
   )
 }
 
+// 双外壳:平板(sw600dp 语义,短边≥600dp)渲染桌面 Dock 布局(TabletShell,
+// 面板内容仍为安卓版),手机维持移动底部导航外壳(AppInner)
 export default function App() {
+  const formFactor = useFormFactor()
   return (
     <ErrorBoundary>
       <AnimationActiveProvider>
-        <AppInner />
+        {formFactor === 'tablet' ? <TabletShell /> : <AppInner />}
       </AnimationActiveProvider>
     </ErrorBoundary>
   )

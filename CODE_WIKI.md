@@ -8,7 +8,7 @@
 
 ## 一、项目概览
 
-CampusLogin 是一款校园网自动登录助手，面向无锡学院校园网认证系统（锐捷 ePortal），提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理等功能。**双端同构**：Windows 桌面端（`tauri-app/`）与安卓端（`android/`，2026-09-10 并入本仓库）共用同一协议核心（安卓以 Cargo path 依赖桌面 crate），命令面同名对齐，UI 各自适配（桌面 Dock 布局 / 移动底部导航）。
+CampusLogin 是一款校园网自动登录助手，面向无锡学院校园网认证系统（锐捷 ePortal），提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理等功能。**双端同构**：Windows 桌面端（`tauri-app/`）与安卓端（`android/`，2026-09-10 并入本仓库）共用同一协议核心（安卓以 Cargo path 依赖桌面 crate），命令面同名对齐，UI 各自适配（桌面 Dock 布局 / 安卓双外壳：平板复用 Dock 布局 + 手机移动底部导航，2026-09-10）。
 
 ### 核心特性
 
@@ -264,7 +264,7 @@ Wxxy-CampusLogin/
 │               ├── self_service.rs  # bind_operator/query_bind_status/query_self_dashboard/self_offline_session 等命令 (校验 + 校园网源 IP 解析, 委托 self_service 模块)
 │               └── updater.rs       # 更新命令 (委托 update 模块)
 ├── android/                         # 安卓端 (2026-09-10 由独立仓库并入, 与桌面共用本仓库)
-│   ├── frontend/                    # React 前端 (桌面复刻+移动裁剪; VITE_PLATFORM=android 平台判断)
+│   ├── frontend/                    # React 前端 (桌面复刻+移动裁剪; VITE_PLATFORM=android 平台判断; 平板/手机双外壳: useFormFactor 短边≥600dp 判平板渲染 TabletShell 桌面布局, 2026-09-10)
 │   ├── src-tauri/                   # 安卓 Rust 后端 (monitor_loop 后台检测+自动重登 / config_state CryptoBridge / protocol_cmds / cpu_affinity 小核绑定)
 │   │   ├── Cargo.toml               # campus-login path 依赖主仓库协议核心 + libc(android target)
 │   │   └── gen/android/             # tauri CLI 生成的 gradle 工程 (settings.gradle 插件声明为手改; build 产物不入库)
@@ -1706,6 +1706,16 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **赞助下拉浮层自动弹出** (2026-09-04): 已有账号才弹（`configUser` 非空，与 onboarding 的 `!configUser` 条件天然互斥）→ 启动 1s 延迟（`SPONSOR_SHOW_DELAY_MS`，等启动入场动画完成）→ `document.visibilityState === 'visible'` 才弹（静默启动/最小化时挂 visibilitychange 推迟到可见）→ 7 天频控（`sponsor-last-shown` epoch ms 存 localStorage，`SPONSOR_SHOW_INTERVAL_MS`）。弹出瞬间即写时间戳；标题栏 Heart 与关于对话框"赞助支持"两个手动入口不受频控、不写时间戳。频控判断在 `configUser` 短路之后，二者叠加保证首次使用（无账号）阶段完全不打扰。浮层为标题栏按钮下方下拉展开（曾尝试独立外挂子窗口方案，实测体验不佳已废弃，改回窗口内非模态浮层）。
 - **ErrorBoundary 嵌套**: 外层 ErrorBoundary（L460）+ 面板内容 ErrorBoundary（L383）+ main.tsx ErrorBoundary
 - **useLogToastStore**: 独立 zustand store 用于 Toast 管理
+
+### 5.14 安卓端前端双外壳 — 平板/手机形态区分 (2026-09-10)
+
+安卓端同一 APK 需同时覆盖手机与平板。运行时按**设备短边**区分形态（`hooks/useFormFactor.ts`）：`Math.min(innerWidth, innerHeight) >= 600` 判为平板——即 Android 官方 **sw600dp（smallest-width）** 语义（viewport `width=device-width` 时 1 CSS px ≈ 1dp），与 react-native-device-info 的 `smallestScreenWidthDp >= 600`、Flutter 社区 `shortestSide >= 600` 惯例同源。**不用"宽>高"判方向**：手机横屏宽>高但短边仍 <600 仍是手机，平板竖屏宽<高但短边仍 ≥600 仍是平板，旋转不翻转结论；`resize`+`orientationchange` 监听实现旋转/分屏实时切换（无需刷新）。
+
+- **双外壳路由**（`App.tsx`）: `formFactor === 'tablet'` 渲染 `components/tablet/TabletShell.tsx`（桌面 Dock 布局），否则渲染原移动外壳 `AppInner`（顶 header + 单列卡流 + 底部 5 tab）。两外壳各自调用 `useAppInit`，仅渲染其一不重复初始化。
+- **TabletShell 复用面**: TitleBar/StatusBar/RightPanel/DockNav 与桌面端同源副本（样式零改动）；面板内容全用安卓版——总览=MobileDashboard（安卓 DashboardPanel + 移动卡注入）、设置=安卓 SettingsPanel（生物识别等安卓项保留、Windows 专属项经 `VITE_PLATFORM` 内部裁剪）、账号/自助服务/监控/测速/日志均为安卓裁剪版面板。**network 面板不接入**（安卓 NAV_ITEMS 无此项，DNS 优化为 Windows 注册表能力）。
+- **TabletShell 相对桌面 App 的裁剪**: 无窗口控制（TitleBar 新增 `showWindowControls?: boolean`，安卓副本传 false 隐藏最小化/最大化/关闭三键并禁用 `startDragging`/双击最大化——安卓无窗口管理 API，`minimizeWindow` 等在安卓 tauriApi 是 `desktopOnly` 必 reject）；无 useStartupBoost 开场序列与 Onboarding 向导（无账号引导与移动外壳同款直达账号页，共用 `campus-onboarding-done` 标记）；无赞助自动弹出；面板过渡沿用移动外壳轻量 y 位移变体；根容器去桌面 `min-w-[800px]`（平板竖屏 600-800dp 会被压出横向滚动）；标题栏外层加 `env(safe-area-inset-top)`、DockNav bottom 改 `calc(1.25rem + env(safe-area-inset-bottom))`（安卓 edge-to-edge 状态栏/手势条）。
+- **DockNav 触屏化**（安卓副本）: 模块级 `IS_TOUCH = matchMedia('(hover: none)')`——触屏设备无 hover，登录/注销按钮**首次点击弹适配器菜单**（已选过则直接执行），菜单顶部新增"自动检测"项（用 `resolveAdapterNames` 同源算出的主适配器执行，与后端规则一致），保留"不指定适配器"路径；鼠标设备行为完全不变。
+- **副本分叉警示**: `TitleBar.tsx`/`DockNav.tsx` 此前与桌面端逐字节相同（SAME），本次在安卓副本加入分叉（showWindowControls/IS_TOUCH/safe-area）。**后续从桌面同步这两个文件时不可整文件覆盖**，需人工比对分叉点。
 
 ---
 

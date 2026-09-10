@@ -156,14 +156,20 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
   )
 }
 
+// 触屏设备无 hover:登录/注销按钮首次点击先弹适配器菜单(含"自动检测"项),
+// 鼠标设备保持原行为(直接执行,hover 弹菜单)
+const IS_TOUCH = typeof window !== 'undefined' && (window.matchMedia?.('(hover: none)').matches ?? false)
+
 interface AdapterMenuProps {
   adapters: Adapter[]
   selectedAdapter?: string
   onSelect: (adapterName: string) => void
   actionLabel: string
+  /** 与后端 resolve_adapter_names 同源算出的主适配器,菜单顶部"自动检测"项用它执行 */
+  autoDetectName?: string
 }
 
-function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: AdapterMenuProps) {
+function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel, autoDetectName }: AdapterMenuProps) {
   const { t } = useTranslation()
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
   const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
@@ -203,6 +209,26 @@ function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel }: Adapt
       <div className="px-3 py-1.5">
         <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - {t('dock.selectAdapter')}</span>
       </div>
+      {/* 触屏入口:无 hover 菜单时点击按钮即落在这里,首项保留"不指定适配器"的原桌面路径 */}
+      {autoDetectName && (
+        <button
+          onClick={() => onSelect(autoDetectName)}
+          className={cn(
+            'adapter-menu-item relative w-full flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium transition-all duration-200 rounded-xl',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+            !effectiveSelected
+              ? 'bg-primary/10 text-primary shadow-sm'
+              : 'hover:bg-muted/60 text-foreground'
+          )}
+        >
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-primary/10">
+            <Zap className={cn('h-3.5 w-3.5', !effectiveSelected ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />
+          </div>
+          <div className="flex flex-col items-start min-w-0">
+            <span className="truncate font-semibold">{t('dock.autoDetect')}</span>
+          </div>
+        </button>
+      )}
       {activeAdapters.map((adapter, index) => {
         const isSelected = effectiveSelected === adapter.name
         return (
@@ -259,6 +285,7 @@ function ActionButtonWithMenu({
   isLoading,
   isDisabled,
   adapters,
+  autoDetectName,
   onAction,
   variant,
 }: {
@@ -268,6 +295,7 @@ function ActionButtonWithMenu({
   isLoading: boolean
   isDisabled: boolean
   adapters: Adapter[]
+  autoDetectName?: string
   onAction: (adapterName?: string) => void
   variant: 'primary' | 'outline'
 }) {
@@ -308,10 +336,17 @@ function ActionButtonWithMenu({
 
   const handleClick = useCallback(() => {
     if (isLoading || isDisabled) return
+    // 触屏(hover:none)首次点击先弹菜单选适配器(或"自动检测"),已选过则直接执行;
+    // 鼠标设备保持原行为:直接执行,hover 弹菜单
+    if (IS_TOUCH && showMenu && !menuOpen && selectedAdapter === undefined) {
+      cancelTimers()
+      setMenuOpen(true)
+      return
+    }
     setMenuOpen(false)
     cancelTimers()
     onAction()
-  }, [isLoading, isDisabled, onAction, cancelTimers])
+  }, [isLoading, isDisabled, onAction, cancelTimers, showMenu, menuOpen, selectedAdapter])
 
   useEffect(() => {
     return () => {
@@ -386,6 +421,7 @@ function ActionButtonWithMenu({
             selectedAdapter={selectedAdapter}
             onSelect={handleSelect}
             actionLabel={label}
+            autoDetectName={autoDetectName}
           />
         )}
       </AnimatePresence>
@@ -416,10 +452,13 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   // 登录/注销的作用域就是"适配器设置"里的主/副适配器（与后端 resolve_adapter_names
   // 同源规则，含自动检测与配置名失效降级），选择器不再列其余适配器。
   // 直接点击按钮仍走后端 resolve，此列表只影响菜单选项。
-  const scopedAdapters = useMemo(() => {
+  const { scopedAdapters, autoDetectAdapter } = useMemo(() => {
     const { primary, secondary } = resolveAdapterNames(adapters, { adapter1, adapter2, dualAdapter })
     const names = new Set(secondary ? [primary, secondary] : [primary])
-    return adapters.filter(a => names.has(a.name) && a.ip)
+    return {
+      scopedAdapters: adapters.filter(a => names.has(a.name) && a.ip),
+      autoDetectAdapter: primary,
+    }
   }, [adapters, adapter1, adapter2, dualAdapter])
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const animActive = useAnimationActive()
@@ -487,8 +526,8 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   return (
     <div
       ref={outerRef}
-      className="fixed bottom-5 z-30 flex justify-center pointer-events-none"
-      style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
+      className="fixed z-30 flex justify-center pointer-events-none"
+      style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))', bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
     >
       <nav
         className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
@@ -525,6 +564,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           isLoading={isLoggingOut}
           isDisabled={isLoggingIn}
           adapters={scopedAdapters}
+          autoDetectName={autoDetectAdapter}
           onAction={doLogout}
           variant="outline"
         />
@@ -536,6 +576,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           isLoading={isLoggingIn}
           isDisabled={isLoggingOut}
           adapters={scopedAdapters}
+          autoDetectName={autoDetectAdapter}
           onAction={doLogin}
           variant="primary"
         />

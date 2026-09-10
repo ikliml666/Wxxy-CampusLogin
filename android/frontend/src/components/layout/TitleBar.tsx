@@ -19,6 +19,8 @@ interface TitleBarProps {
   onToggleMaximize: () => void
   onClose: () => void
   isMaximized: boolean
+  /** 无窗口管理平台(安卓平板)传 false:隐藏最小化/最大化/关闭三键并禁用拖动与双击最大化 */
+  showWindowControls?: boolean
 }
 
 const MinimizeIcon = () => (
@@ -58,6 +60,7 @@ export const TitleBar = memo(function TitleBar({
   onToggleMaximize,
   onClose,
   isMaximized,
+  showWindowControls = true,
 }: TitleBarProps) {
   const { t } = useTranslation()
   const isLightMode = useThemeStore((s) => s.isLightMode)
@@ -68,7 +71,7 @@ export const TitleBar = memo(function TitleBar({
   const lastClickTimeRef = useRef(0)
 
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
+    if (!showWindowControls || e.button !== 0) return
     const target = e.target as HTMLElement
     if (target.closest('button, a, input, select, textarea, [role="button"]')) return
 
@@ -79,11 +82,12 @@ export const TitleBar = memo(function TitleBar({
     if (elapsed < 300) return
 
     getCurrentWindow().startDragging().catch(() => {})
-  }, [])
+  }, [showWindowControls])
 
   const handleTitleBarDoubleClick = useCallback(() => {
+    if (!showWindowControls) return
     onToggleMaximize()
-  }, [onToggleMaximize])
+  }, [showWindowControls, onToggleMaximize])
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -227,44 +231,48 @@ export const TitleBar = memo(function TitleBar({
             <TooltipContent side="bottom"><p>{t('titlebar.about')}</p></TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
-                onClick={onMinimize}
-                aria-label={t('titlebar.minimize')}
-              >
-                <MinimizeIcon />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom"><p>{t('titlebar.minimize')}</p></TooltipContent>
-          </Tooltip>
+          {showWindowControls && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
+                    onClick={onMinimize}
+                    aria-label={t('titlebar.minimize')}
+                  >
+                    <MinimizeIcon />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom"><p>{t('titlebar.minimize')}</p></TooltipContent>
+              </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
-                onClick={onToggleMaximize}
-                aria-label={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}
-              >
-                {isMaximized ? <RestoreIcon /> : <MaximizeIcon />}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom"><p>{isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}</p></TooltipContent>
-          </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors titlebar-win-btn"
+                    onClick={onToggleMaximize}
+                    aria-label={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}
+                  >
+                    {isMaximized ? <RestoreIcon /> : <MaximizeIcon />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom"><p>{isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}</p></TooltipContent>
+              </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors titlebar-win-btn"
-                onClick={onClose}
-                aria-label={t('titlebar.exit')}
-              >
-                <CloseIcon />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom"><p>{t('titlebar.exit')}</p></TooltipContent>
-          </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors titlebar-win-btn"
+                    onClick={onClose}
+                    aria-label={t('titlebar.exit')}
+                  >
+                    <CloseIcon />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom"><p>{t('titlebar.exit')}</p></TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
     </TooltipProvider>
