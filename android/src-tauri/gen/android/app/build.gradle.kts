@@ -24,6 +24,24 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    // release 直接用本机 debug.keystore 签名(个人分发):构建产出即发布物,免去 zipalign/apksigner 后处理;
+    // 签名证书一经发布不可更换(换证书=用户必须卸载重装)
+    signingConfigs {
+        create("release") {
+            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+    // 产物根本命名:Wxxy-CampusLogin_<版本>.apk(与桌面安装包命名同源),不再依赖构建后改名
+    applicationVariants.all {
+        val variantVersionName = versionName
+        outputs.all {
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+                "Wxxy-CampusLogin_${variantVersionName}.apk"
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -38,6 +56,7 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))

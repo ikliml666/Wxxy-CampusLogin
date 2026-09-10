@@ -76,3 +76,6 @@ CODE_WIKI.md
 # APK 安装包备份与 apksigner 空文件不入库
 android/*.apk
 android/*.apk.idsig
+
+# Android build script (hardcoded local JDK path)
+android/build-apk.ps1

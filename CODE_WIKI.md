@@ -2141,7 +2141,8 @@ panic = "abort"
 - **主仓库 `cargo test`**（`tauri-app/src-tauri` 下）：**493 全绿**（lib 246 + bin 同套 246 + repro 1）；改动后不得低于此基线
 - **安卓 Rust 验证**：host `cargo check` 在 `android/src-tauri` 基线即失败（mobile-only 插件权限 host 收集不全），靠 `tauri android build` 交叉编译验证
 - **前端验证**：`npx tsc --noEmit --incremental`（禁止 `tsc -b`——tsconfig.node.json 是 composite 项目，会 emit 出 vite.config.js/.d.ts 污染文件）
-- **安卓构建链**：先手动 `npx vite build`（tauri CLI 不跑 beforeBuildCommand）→ `tauri android build --target aarch64 --apk` → build-tools `zipalign` + `apksigner`（`~/.android/debug.keystore`, pass: android）签名；Windows 需开启开发者模式（允许符号链接）
+- **安卓构建链**：先手动 `npx vite build`（tauri CLI 不跑 beforeBuildCommand）→ `tauri android build --target aarch64 --apk`；Windows 需开启开发者模式（允许符号链接）
+- **安卓产物命名与签名（gradle 内置，2026-09-10）**：`gen/android/app/build.gradle.kts` 配置 release signingConfig（本机 `~/.android/debug.keystore`）+ `applicationVariants` outputFileName——构建直接产出已签名/已对齐的 `Wxxy-CampusLogin_<版本>.apk`（版本号跟随 tauri.conf.json），zipalign/apksigner 后处理整体消失。**CLI 完成报告仍指向旧约定名 `app-universal-release.apk`（预期路径，实际不存在），以输出目录实际文件为准**。签名证书一经发布不可更换（换=用户卸载重装）。一键链 `pwsh android/build-apk.ps1`（含本机 JDK 路径，gitignore 不入库）
 
 ---
 
