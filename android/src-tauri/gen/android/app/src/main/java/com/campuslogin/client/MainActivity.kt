@@ -1,4 +1,4 @@
-package com.campuslogin.app
+package com.campuslogin.client
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

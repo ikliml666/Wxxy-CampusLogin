@@ -2216,6 +2216,13 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 > 4. `tauri-app/package.json` + `tauri-app/frontend/package.json` → `"version": "2.3.0"`
 > 5. 根 `version.json` → `"version": "v2.3.0"`（带 v 是发布 tag 格式）
 
+### 安卓端 identifier（包名）
+
+- **两端 identifier 相互独立**：桌面 `tauri-app/src-tauri/tauri.conf.json`（`com.campus.login`）、安卓 `android/src-tauri/tauri.conf.json`（`com.campuslogin.client`，2026-09-10 由 `com.campuslogin.app` 迁移）。安卓 identifier 直接决定 `gen/android/app/build.gradle.kts` 的 `namespace`/`applicationId` 与 MainActivity 包路径——改 identifier 必须同步这三处并 `git mv` Kotlin 目录；**改包名=卸载重装**（AndroidKeyStore 密钥按包名隔离，密码密文作废）
+- `.app` 结尾的 identifier 会触发 tauri-cli 的 macOS bundle 冲突警告（纯 lint，无 macOS 目标也无碍，迁移后已消除）
+- `gen/android/buildSrc` 的 Kotlin 文件**无 package 声明（默认包）**，目录名 `com/campuslogin/app/kotlin/` 是历史残留，与包名无关不影响编译；Manifest 的 activity 用相对名 `.MainActivity` 自动跟随 namespace
+- 构建后用 `aapt2 dump badging <apk>` 验证 applicationId；gen/schemas 与插件 permissions 随构建再生的 `\n`→`\r\n` 行尾差异是噪音（语义零变化，node 深比较可证），提交前 `git checkout --` 还原
+
 ### 后端代码引用方式
 
 ```rust
