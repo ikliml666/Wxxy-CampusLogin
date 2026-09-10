@@ -17,7 +17,7 @@ interface LogToastStore {
   toasts: ToastMessage[]
 
   addLog: (message: string, type?: LogType) => void
-  addToast: (title: string, type?: LogType, description?: string, duration?: number) => void
+  addToast: (title: string, type?: LogType, description?: string, duration?: number, mascot?: ToastMessage['mascot']) => void
   addToastWithAction: (toast: ToastMessage) => void
   removeToast: (id: string) => void
   removeToastsByPrefix: (prefix: string) => void
@@ -48,7 +48,7 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
     })
   },
 
-  addToast: (title, type = 'info', description, duration = 4000) => {
+  addToast: (title, type = 'info', description, duration = 4000, mascot) => {
     // 窗口非前台时用户看不到 toast，入队只会产生"回到窗口时的过时通知"；
     // 信息已由调用方同步写入日志，此处直接跳过（带操作按钮的 toast 例外——
     // 它承载"取消退出"等操作入口，用户回来时仍需可见）
@@ -59,7 +59,7 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
     set(state => {
       if (isDuplicateTitle(state.toasts, title)) return state
       newId = String(++toastIdCounter)
-      const toast: ToastMessage = { id: newId, title, description, type, duration }
+      const toast: ToastMessage = { id: newId, title, description, type, duration, mascot }
       if (state.toasts.length >= MAX_TOASTS) {
         evictedId = state.toasts[0]?.id ?? null
       }

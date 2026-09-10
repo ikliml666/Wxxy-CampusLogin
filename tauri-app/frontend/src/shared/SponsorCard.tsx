@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { AnimatePresence, m } from 'framer-motion'
 import { Heart, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { MascotFigure } from '@/shared/MascotFigure'
 
 interface SponsorCardProps {
   open: boolean
@@ -50,6 +51,9 @@ export function SponsorCard({ open, onClose }: SponsorCardProps) {
             role="dialog"
             aria-label={t('sponsor.title')}
           >
+            <div className="flex justify-center -mb-2">
+              <MascotFigure variant="sponsor" size="sm" />
+            </div>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 text-sm font-semibold">

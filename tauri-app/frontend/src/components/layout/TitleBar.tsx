@@ -94,16 +94,14 @@ export const TitleBar = memo(function TitleBar({
         style={{ background: 'var(--surface-top)' }}
       >
         <div className="flex items-center gap-3">
-          <div
-            className="w-7 h-7 bg-[#4f46e5] flex items-center justify-center rounded-full"
+          <img
+            src="/girl/mascot-portrait.png"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="w-7 h-7 rounded-full object-cover object-[center_22%] shrink-0 select-none"
             style={{ boxShadow: '0 2px 8px rgba(79,70,229,0.3)' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
+          />
           <span className="text-sm font-semibold tracking-tight">{t('titlebar.appName')}</span>
           {updateAvailable ? (
             <button

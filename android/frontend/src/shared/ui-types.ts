@@ -26,6 +26,8 @@ export interface ToastMessage {
   description?: string
   type: LogType
   duration?: number
+  /** 登录结果等场景的看板娘变体:设置后 toast 左侧显示对应娘头像 */
+  mascot?: 'celebrate' | 'offline'
   action?: {
     label: string
     onClick: () => void

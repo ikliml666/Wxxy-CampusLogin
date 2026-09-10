@@ -58,15 +58,25 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
                 TOAST_STYLES[toast.type] ?? TOAST_STYLES.info
               )}
             >
-              <m.div
-                initial={{ rotate: isEconomy ? 0 : -20, scale: 0.5 }}
-                animate={{ rotate: 0, scale: 1 }}
-                transition={isEconomy
-                  ? { duration: 0.2, ease: profile.easing.snappy as [number, number, number, number] }
-                  : { type: 'spring' as const, stiffness: 500, damping: 20 }}
-              >
-                <Icon className={cn('h-5 w-5 shrink-0 mt-0.5', TOAST_ICON_COLORS[toast.type])} />
-              </m.div>
+              {toast.mascot ? (
+                <img
+                  src={`/girl/mascot-${toast.mascot}.png`}
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                  className="w-11 h-11 rounded-xl object-cover shrink-0 select-none"
+                />
+              ) : (
+                <m.div
+                  initial={{ rotate: isEconomy ? 0 : -20, scale: 0.5 }}
+                  animate={{ rotate: 0, scale: 1 }}
+                  transition={isEconomy
+                    ? { duration: 0.2, ease: profile.easing.snappy as [number, number, number, number] }
+                    : { type: 'spring' as const, stiffness: 500, damping: 20 }}
+                >
+                  <Icon className={cn('h-5 w-5 shrink-0 mt-0.5', TOAST_ICON_COLORS[toast.type])} />
+                </m.div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium break-words">{toast.title}</p>
                 {toast.description && (
