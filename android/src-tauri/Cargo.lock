@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login-android"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "android_system_properties",
  "campus-login",
