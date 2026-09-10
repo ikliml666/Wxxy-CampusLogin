@@ -8,7 +8,7 @@
 
 ## 一、项目概览
 
-CampusLogin 是一款校园网自动登录助手桌面应用，面向无锡学院校园网认证系统（锐捷 ePortal），提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理等功能。
+CampusLogin 是一款校园网自动登录助手，面向无锡学院校园网认证系统（锐捷 ePortal），提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理等功能。**双端同构**：Windows 桌面端（`tauri-app/`）与安卓端（`android/`，2026-09-10 并入本仓库）共用同一协议核心（安卓以 Cargo path 依赖桌面 crate），命令面同名对齐，UI 各自适配（桌面 Dock 布局 / 移动底部导航）。
 
 ### 核心特性
 
@@ -35,6 +35,7 @@ CampusLogin 是一款校园网自动登录助手桌面应用，面向无锡学�
 | 中英语言切换 | 标题栏一键切换中英文，react-i18next + i18next-browser-languagedetector，默认中文 |
 | 日志自动清理 | 可选保存时间（3/7/14/30天+永久），AtomicU32全局存储，后端定时清理 |
 | 测速面板 | 第三方测速站点快捷导航卡片(speedtest.cn/speedtest.net/ustc/neu) |
+| 安卓端 | AndroidKeyStore AES-GCM 密文存储（替代 DPAPI）+ 生物识别验证门（BiometricPrompt 兜底锁屏凭据）+ 前台服务保活监控（常驻通知/WifiLock/WakeLock）+ 开机自启，包名 `com.campuslogin.client` |
 
 ---
 
@@ -262,6 +263,12 @@ Wxxy-CampusLogin/
 │               ├── account.rs       # 多账号管理命令 (逻辑自含; account/mod.rs 仅声明 crypto)
 │               ├── self_service.rs  # bind_operator/query_bind_status/query_self_dashboard/self_offline_session 等命令 (校验 + 校园网源 IP 解析, 委托 self_service 模块)
 │               └── updater.rs       # 更新命令 (委托 update 模块)
+├── android/                         # 安卓端 (2026-09-10 由独立仓库并入, 与桌面共用本仓库)
+│   ├── frontend/                    # React 前端 (桌面复刻+移动裁剪; VITE_PLATFORM=android 平台判断)
+│   ├── src-tauri/                   # 安卓 Rust 后端 (monitor_loop 后台检测+自动重登 / config_state CryptoBridge / protocol_cmds / cpu_affinity 小核绑定)
+│   │   ├── Cargo.toml               # campus-login path 依赖主仓库协议核心 + libc(android target)
+│   │   └── gen/android/             # tauri CLI 生成的 gradle 工程 (settings.gradle 插件声明为手改; build 产物不入库)
+│   └── plugins/                     # 手写 tauri 插件: keystore / foreground-service(MonitorService+installApk) / network-bind
 ├── CODE_WIKI.md                     # 本文档
 ├── AGENTS.md                        # AI 编码助手项目约定
 ├── README.md                        # 项目说明
@@ -1777,6 +1784,8 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | `campus-exit-cancelled` | 校园网退出已取消 |
 | `config-changed` | 配置变更 |
 
+**安卓端 IPC 面**：命令与桌面同名对齐（`do_login`/`do_logout`/`check_portal_status`/`check_campus_status`/自助服务/账号管理/`get_init_data`/日志/网络质量/更新全族，前端 `tauriApi` 接口面两端一致）；桌面专属命令（app/helper/monitor 启动等）在安卓 cfg 门控不可见。事件面为桌面子集：`background-check-result`/`login-log`/`auto-login-result`/`network-quality-result`/`update-available` 等；适配器×4、自动退出×2、校园网退出×2、`config-changed` 等桌面事件安卓不 emit。
+
 ---
 
 ## 七、依赖关系
@@ -1814,6 +1823,12 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | `base64` | 0.22 | Base64 编解码 |
 | `chrono` | 0.4 | 时间处理 |
 | `open` | 5 | 打开外部链接 |
+
+### 7.1.1 安卓端依赖 (android/src-tauri/Cargo.toml)
+
+- **协议核心单点**：`campus-login = { path = "../../tauri-app/src-tauri" }`——登录/注销/Portal 探测/自助服务/网络质量等协议实现零复制，直接复用桌面 crate；桌面侧 cfg 门控的模块（app/helper/monitor/update）对安卓不可见
+- 安卓 target 专属：`libc`（sched_setaffinity 小核绑定）；手写插件 `keystore`/`foreground-service`/`network-bind`（Cargo path 依赖，含 Kotlin 侧）
+- 密码加密 = AndroidKeyStore AES-GCM（手写 keystore 插件，`CryptoBridge` 抽象与桌面 DPAPI 同构），磁盘形态 `EncodedSettings`（密码字段与密文分离）
 
 ### 7.2 前端依赖 (frontend/package.json)
 
@@ -2120,6 +2135,13 @@ opt-level = 3
 strip = true
 panic = "abort"
 ```
+
+### 测试与构建基线（2026-09-10 实测）
+
+- **主仓库 `cargo test`**（`tauri-app/src-tauri` 下）：**493 全绿**（lib 246 + bin 同套 246 + repro 1）；改动后不得低于此基线
+- **安卓 Rust 验证**：host `cargo check` 在 `android/src-tauri` 基线即失败（mobile-only 插件权限 host 收集不全），靠 `tauri android build` 交叉编译验证
+- **前端验证**：`npx tsc --noEmit --incremental`（禁止 `tsc -b`——tsconfig.node.json 是 composite 项目，会 emit 出 vite.config.js/.d.ts 污染文件）
+- **安卓构建链**：先手动 `npx vite build`（tauri CLI 不跑 beforeBuildCommand）→ `tauri android build --target aarch64 --apk` → build-tools `zipalign` + `apksigner`（`~/.android/debug.keystore`, pass: android）签名；Windows 需开启开发者模式（允许符号链接）
 
 ---
 
