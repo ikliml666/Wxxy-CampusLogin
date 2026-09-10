@@ -2253,7 +2253,7 @@ let version = env!("APP_VERSION").to_string();
 
 ## 二十、安卓端(阶段 0+1,2026-09-07)
 
-> 安卓端为**独立仓库** `android/`(主仓库 .gitignore 忽略,嵌套目录),本节沉淀其架构与迁移期踩坑。实施计划:`docs/superpowers/plans/2026-09-07-android-port-phase0-1.md`(本地)。
+> 安卓端原为**独立仓库**(嵌套目录,主仓库 .gitignore 忽略),**2026-09-10 起并入主仓库共用单一 git 仓库**(见 22 章尾部"仓库结构变化"记录),本节沉淀其架构与迁移期踩坑。实施计划:`docs/superpowers/plans/2026-09-07-android-port-phase0-1.md`(本地)。
 
 ### 20.1 架构与门控边界
 
@@ -2406,3 +2406,4 @@ let version = env!("APP_VERSION").to_string();
 - 质量检测预览波(2026-09-09,v25,共享库 quality.rs 两端生效):全量 19 项约 18s,用户要求 1-3s 出结果——check_network_quality_async 开头加预览波(网关+baidu HTTPS 仅 2 连接并发 ~1-2s,以 quality=busy 增量 emit,前端 resolveQualityDisplay 推断等级),baidu/网关从 Phase1 批次与 https_hosts 挪除防重复;**增量推送的 busy 部分结果里 build_quality_result 少样本聚合安全**(单样本中位数=该值)。真机:冷启动 3s 胶囊"优秀 40ms"
 - 安卓状态点三层修复(2026-09-09,v25/v26):①checkOnline 适配器链是桌面遗留(adapters 恒空→"无网络"打灰)——安卓副本传空串让 check_portal_status 回退缓存源 IP(pickAdapterIp/refreshAdaptersForIp 删除);②status_value() 展平 last_result 的 online/message 到顶层+前端启动读 bgResult.online 置绿(首轮 emit 早于 WebView 监听,事件竞态丢失,getInitData 是唯一可靠初值源);③**核心:run_check_once 三态消费**——Portal 探测 Unknown(特征失配)/Failed(超时)此前无条件折叠 online=false,每拍打灰+触发自动重登"已经在线"(deepseek-v4-flash 分身定位:handle_unknown_page_status 硬编码 online:false+monitor_loop 丢弃 error_kind);修=仅 error_kind.is_none()(Determined)才翻转在线状态,Unknown/Failed 保持 MONITOR.was_online 记忆,真掉线由 Determined(false)(登录页)正常翻转。**坑:已在线 Portal 页面特征是 GBK 中文+严格串匹配(uid='/v4ip='/注销页),间歇失配是常态而非异常,消费层必须容错**;分身对"匹配顺序"的判断有误(实际已登录特征在前),分身结论仍需主审核实
 - 实操坑补充(2026-09-09,v24-v26 真机):底部 tab 与登录/注销大按钮触控区重叠——tap"更多"tab (1150,2513) 第三次误触真实注销(立即点登录 (321,2463) 恢复),底部导航尽量经顶部胶囊/低位 y=2680;设备息屏后 screencap 全黑+NotificationShade 焦点,KEYCODE_WAKEUP+上滑不解锁(有密码)则 UI 目视验证只能留给用户,状态点绿态验证以代码链路+单测背书;主仓库 cargo test 顺手修复 adapter.rs 测试 Config 字面量缺 update_source(上批遗留)
+- 仓库结构变化(2026-09-10):android/ 从嵌套独立仓库**并入主仓库共用单一 git 仓库**(用户决策)——.gitignore 移除 `/android/` 条目,新增 `android/*.apk`、`android/*.apk.idsig` 持续忽略;`android/frontend/.env`(仅 VITE_PLATFORM=android,无敏感信息)原被主仓库全局 `.env` 规则挡住,git add -f 强制入库保住克隆后平台判断(AccountPanel/MonitorPanel/SettingsPanel/LogPanel 四组件消费);原独立仓库 git 历史备份于 `.android-git-backup/`(feat/android-full-parity 在内,已 ignore,确认不需要后可删);构建流程零影响(cd android 路径不变,gen/android 的 build 产物仍由 gen 内各层 .gitignore 挡住,20GB 构建产物未入库);并入提交 41c9e06(272 文件 45411 行),随 chore/android-port-foundation 共 13 笔 ff 合并进 main 推送 GitHub。**坑:Bash 工作目录跨调用残留——cd android 后"并行"调用实际都在子目录执行,主仓库侦查一度被带歪,跨仓库操作一律显式绝对路径 cd;Git Bash heredoc 中文按 GBK 字节落盘污染 UTF-8 文件(tail 可见乱码),中文写入一律用 Edit 工具**;CODE_WIKI.md 在主仓库 .gitignore 有条目但对已 tracked 文件不生效,每次更新仍需提交
