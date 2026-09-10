@@ -5,8 +5,9 @@
 // 账号/自助服务/监控/测速/日志均为安卓裁剪版面板。
 // 相对桌面 App 的差异:无窗口控制(安卓无窗口管理 API)、无开场启动序列与
 // Onboarding 向导、无赞助自动弹出;无账号引导与移动外壳同款(直达账号页);
-// 面板过渡沿用移动外壳轻量变体。network 面板不接入(安卓 NAV_ITEMS 无此项,
-// DNS 优化为 Windows 注册表能力)。
+// 面板过渡沿用移动外壳轻量变体。竖屏时隐藏右侧日志栏为主区让出全宽
+// (useOrientation 方向检测,Dock 同步按全视口居中;日志功能经 Dock"日志"面板仍可达)。
+// network 面板不接入(安卓 NAV_ITEMS 无此项,DNS 优化为 Windows 注册表能力)。
 
 import { useState, useCallback, useEffect, useRef, useDeferredValue, lazy, Suspense } from 'react'
 import { useAppInit } from '@/hooks/useAppInit'
@@ -39,6 +40,7 @@ import { QualityPanel } from '@/monitor/QualityPanel'
 import { SpeedTestPanel } from '@/monitor/SpeedTestPanel'
 import { SettingsPanel } from '@/settings/SettingsPanel'
 import { useAdaptiveFramePace, markInteraction } from '@/hooks/useAdaptiveFramePace'
+import { useOrientation } from '@/hooks/useFormFactor'
 import { useTranslation } from 'react-i18next'
 
 const AboutDialog = lazy(() => import('@/auth/AboutDialog').then((mod) => ({ default: mod.AboutDialog })))
@@ -110,6 +112,15 @@ function TabletShellInner() {
   const [themeOpen, setThemeOpen] = useState(false)
   const [sponsorOpen, setSponsorOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
+
+  // 竖屏隐藏右侧日志栏(Dock 的"日志"面板仍可查日志),主区占满全宽;
+  // DockNav 宽度按 calc(100vw - var(--right-panel-width, 288px)) 居中,
+  // 竖屏时把变量置 0 使其按全视口居中
+  const isLandscape = useOrientation() === 'landscape'
+  const shellStyle = {
+    background: 'var(--surface-main)',
+    ...(!isLandscape ? { '--right-panel-width': '0px' } : {}),
+  } as React.CSSProperties
 
   const panelVariants = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } }
 
@@ -209,7 +220,7 @@ function TabletShellInner() {
   return (
     <div
       className="flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground relative app-outer-square"
-      style={{ background: 'var(--surface-main)' }}
+      style={shellStyle}
     >
       {/* 安卓 edge-to-edge 下系统状态栏悬浮于 WebView 之上,标题栏让出顶部安全区
           (safe-area padding 置于 zoom 层之外,避免被缩放) */}
@@ -271,10 +282,12 @@ function TabletShellInner() {
           </div>
         </main>
 
-        <RightPanel
-          logs={logs}
-          onClearLogs={handleClearLogs}
-        />
+        {isLandscape && (
+          <RightPanel
+            logs={logs}
+            onClearLogs={handleClearLogs}
+          />
+        )}
       </div>
 
       <DockNav

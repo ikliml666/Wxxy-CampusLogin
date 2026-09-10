@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 
 export type FormFactor = 'phone' | 'tablet'
+export type Orientation = 'portrait' | 'landscape'
 
 /** Android 平板官方分界:smallest-width 600dp(sw600dp) */
 const TABLET_MIN_EDGE_PX = 600
@@ -15,11 +16,15 @@ function detectFormFactor(): FormFactor {
   return Math.min(window.innerWidth, window.innerHeight) >= TABLET_MIN_EDGE_PX ? 'tablet' : 'phone'
 }
 
-export function useFormFactor(): FormFactor {
-  const [formFactor, setFormFactor] = useState<FormFactor>(detectFormFactor)
+function detectOrientation(): Orientation {
+  return window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait'
+}
+
+// 视口度量共用订阅:resize(旋转/分屏)与 orientationchange 时重算
+function useViewportMeasure<T>(calc: () => T): T {
+  const [value, setValue] = useState<T>(calc)
   useEffect(() => {
-    // 旋转与分屏都会触发 resize,重算短边
-    const onChange = () => setFormFactor(detectFormFactor())
+    const onChange = () => setValue(calc())
     window.addEventListener('resize', onChange)
     window.addEventListener('orientationchange', onChange)
     return () => {
@@ -27,5 +32,14 @@ export function useFormFactor(): FormFactor {
       window.removeEventListener('orientationchange', onChange)
     }
   }, [])
-  return formFactor
+  return value
+}
+
+export function useFormFactor(): FormFactor {
+  return useViewportMeasure(detectFormFactor)
+}
+
+/** 当前方向(宽≥高为横屏),响应旋转/分屏实时切换 */
+export function useOrientation(): Orientation {
+  return useViewportMeasure(detectOrientation)
 }

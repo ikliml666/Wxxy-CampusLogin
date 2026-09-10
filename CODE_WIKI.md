@@ -1716,6 +1716,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **TabletShell 相对桌面 App 的裁剪**: 无窗口控制（TitleBar 新增 `showWindowControls?: boolean`，安卓副本传 false 隐藏最小化/最大化/关闭三键并禁用 `startDragging`/双击最大化——安卓无窗口管理 API，`minimizeWindow` 等在安卓 tauriApi 是 `desktopOnly` 必 reject）；无 useStartupBoost 开场序列与 Onboarding 向导（无账号引导与移动外壳同款直达账号页，共用 `campus-onboarding-done` 标记）；无赞助自动弹出；面板过渡沿用移动外壳轻量 y 位移变体；根容器去桌面 `min-w-[800px]`（平板竖屏 600-800dp 会被压出横向滚动）；标题栏外层加 `env(safe-area-inset-top)`、DockNav bottom 改 `calc(1.25rem + env(safe-area-inset-bottom))`（安卓 edge-to-edge 状态栏/手势条）。
 - **DockNav 触屏化**（安卓副本）: 模块级 `IS_TOUCH = matchMedia('(hover: none)')`——触屏设备无 hover，登录/注销按钮**首次点击弹适配器菜单**（已选过则直接执行），菜单顶部新增"自动检测"项（用 `resolveAdapterNames` 同源算出的主适配器执行，与后端规则一致），保留"不指定适配器"路径；鼠标设备行为完全不变。
 - **触屏缩放分层**（2026-09-10）: 桌面布局件按鼠标设计，TabletShell 内以 CSS `zoom` 分层适配触屏——顶部两栏（TitleBar/StatusBar 包裹层）`TOPBAR_ZOOM=1.3`（标题栏按钮 28→36px），内容区（main+RightPanel 父容器）`CONTENT_ZOOM=0.9`；safe-area padding 置于 zoom 层外；DockNav 不缩放。系数为 TabletShell 顶部常量，真机体验后可调。
+- **竖屏隐藏日志侧栏**（2026-09-10）: `useFormFactor.ts` 另提供 `useOrientation`（宽≥高为横屏）。TabletShell 竖屏时不渲染 RightPanel（日志经 Dock"日志"面板仍可达），并把根容器 `--right-panel-width` 置 0px——DockNav 宽度公式 `calc(100vw - var(--right-panel-width, 288px))` 由此自动从"视口-288 居中"切到全视口居中，横屏恢复默认。
 - **副本分叉警示**: `TitleBar.tsx`/`DockNav.tsx` 此前与桌面端逐字节相同（SAME），本次在安卓副本加入分叉（showWindowControls/IS_TOUCH/safe-area）。**后续从桌面同步这两个文件时不可整文件覆盖**，需人工比对分叉点。
 
 ---
