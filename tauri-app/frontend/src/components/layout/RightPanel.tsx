@@ -112,6 +112,17 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
         // 动态 stagger：条目越多间隔越短，总时长封顶（与 LogPanel 同策略），
         // 否则日志满 300 条时清空动画 ≈ 60 秒且期间按钮禁用无法取消
         const staggerEach = entries.length > 8 ? 0.05 : entries.length > 4 ? 0.1 : 0.2
+        let settled = false
+        let failsafe: ReturnType<typeof setTimeout> | undefined
+        const finishClear = () => {
+          if (settled) return
+          settled = true
+          if (failsafe) clearTimeout(failsafe)
+          // 不 revert：条目 DOM 交由 React 在 logs=[] 后卸载；
+          // revert 会先把条目恢复可见再卸载，产生"日志重现"闪现
+          onClearLogs()
+          setIsClearing(false)
+        }
         const ctx = gsap.context(() => {
           gsap.to(entries, {
             autoAlpha: 0,
@@ -122,18 +133,27 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
             ease: 'back.out(1.2)',
             force3D: true,
             // 历史缺陷：tween 被中断（组件卸载等）时 onComplete 不执行，
-            // isClearing 永久 true、清空按钮禁用。onInterrupt 一并复位。
-            onComplete: () => {
-              ctx.revert()
-              onClearLogs()
-              setIsClearing(false)
-            },
+            // isClearing 永久 true、清空按钮禁用。onInterrupt 复位（放弃本次清空）。
+            onComplete: finishClear,
             onInterrupt: () => {
+              if (settled) return
+              settled = true
+              if (failsafe) clearTimeout(failsafe)
               ctx.revert()
               setIsClearing(false)
             },
           })
         }, container)
+        // GSAP 回调依赖 rAF ticker：窗口被遮挡/最小化（WebView2/安卓 WebView rAF 停摆）
+        // 时 tween 冻结，onComplete/onInterrupt 均不触发，isClearing 卡死、
+        // 已隐藏条目还会被 framer-motion 重渲染拉回可见（表现为"日志又出现了"）。
+        // setTimeout 不受 rAF 影响，到点按"完成"兜底（幂等），与动画时序解耦。
+        failsafe = setTimeout(() => {
+          // 先结算再 revert：revert kill 冻结的 tween 会同步触发 onInterrupt，
+          // 顺序颠倒会让 onInterrupt 抢先置 settled，onClearLogs 被跳过
+          finishClear()
+          ctx.revert()
+        }, (0.4 + staggerEach * (entries.length - 1)) * 1000 + 600)
         return
       }
     }
