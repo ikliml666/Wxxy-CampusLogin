@@ -823,8 +823,18 @@ pub fn random_v() -> String {
   成功: result=0, msg="解绑终端MAC成功！"
 ```
 
-> **为什么顺序倒置（2026-09-11 调研沉淀）**：ePortal 4.1.x 的 `mac/unbind` 是按 `wlan_user_ip` 踢下线的**破坏性操作**（社区 POC [Eportalcutdown](https://github.com/Zaxk1337/Eportalcutdown) 利用其无鉴权断网）。旧实现每轮"先 unbind 后 logout"×2 轮、外层再重试 2 次（最坏 4+4 个请求），unbind 先行会立即断网并使后续 logout 作用在被踢残的会话上，诱发网关在线表与 Radius 会话不一致的"僵尸"状态——注销后打不开登录页、重新登录返回"已经在线"假成功，换 MAC（拿新 IP）才恢复。同校开源项目 Rikka-Sei/wxxy-autoLogin-Script 亦为"先 logout 后 unbind"；主流实现（cqu-net-auth/eptools/Meirs）均为"先查询、一次到位、绝不连发"，且 unbind 的 `wlan_user_ip` 传**整数形式**（旧实现传点分十进制）。重构后注销请求上限从 8 个降到 3 个。
+> **为什么顺序倒置（2026-09-11 调研 + 虚拟机实测沉淀）**：旧实现每轮"先 unbind 后 logout"×2 轮、外层再重试 2 次（最坏 4+4 个请求），连发请求且顺序与同校开源项目（Rikka-Sei/wxxy-autoLogin-Script，同一认证服务器）相反；主流实现（cqu-net-auth/eptools/Meirs）均为"先查询、一次到位、绝不连发"，且 unbind 的 `wlan_user_ip` 传**整数形式**（旧实现传点分十进制）。重构后注销请求上限从 8 个降到 3 个。
 > 配套修复（session.rs `login_adapter_with_log`）："已经在线"假成功复核——登录返回"已经在线"时再跑一次 `check_portal_full`，探测不通判为服务端会话残留，降级为认证失败（code=1）走 `update_auth_failure_count` 计数，连续 5 次自动触发该适配器 MAC 重置自愈（换 MAC 恢复的程序化等价物）。
+
+**协议行为实测（2026-09-11，VMware 桥接 VM 独立身份 10.2.94.60，宿主身份零影响）**：
+
+- **`chkstatus` 接口在本部署不存在**：返回 `{"code":0,"msg":"404 eportal controller Chkstatus not found"}`——"注销前查在线状态"不可行；登录态判定用 80 状态页（在线时内嵌 `uid='<服务端uid>'`/`v4ip='<本机IP>'`/`time='<在线秒数>'` 变量）。
+- **`mac/unbind` 不踢在线会话**：unbind 后立即重登返回"IP: x.x.x.x 已经在线"（ret_code=2），Radius 会话仍活——社区 POC（Eportalcutdown"按 IP 断网"）在本部署不成立，unbind 仅作用于 MAC 绑定表；**注销成败与 unbind 无关，顺序倒置是防御性对齐而非修复实效**。
+- **注销后立即重登始终成功**：单次注销（两种顺序）、unbind+logout 4 连发后 0 延迟重登均 result=1 认证成功——**"注销后打不开登录页/换 MAC 恢复"的僵尸状态未复现**（单会话与同账号跨网段双会话并存两种条件均正常）；故障再现场景用 80 状态页 uid/v4ip/time 抓现场。
+- **重复请求无增益也无污染**：对已销毁会话的重复 logout 返回 result=0 失败、重复 unbind 返回稳定错误，后续登录不受影响——连发纯属浪费时间，"成功即止"正确。
+- **"已经在线"（result=0 + ret_code=2）只在会话真实存活时出现**（登录成功后 10s/30s 重登均如此）——session.rs 复核与实测行为兼容：真在线时 check_portal_full 确认放行不误伤。
+- **unbind 整数 IP 与点分 IP 行为无差异**（相同 msg 相同后果）；整数换算旁证：10.2.94.60 → 167927356，与 `ip_to_eportal_int`（Ipv4Addr::to_bits）一致。
+- **801 端口 JSONP 响应为 UTF-8**（80 网关页才是 GBK）——与 `decode_charset_bytes` "UTF-8 优先 → OEM 回退"策略兼容。
 
 **注销成功判定**:
 - 两步均成功 → 注销成功
