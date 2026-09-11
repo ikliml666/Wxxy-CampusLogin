@@ -60,7 +60,7 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
             >
               {toast.mascot ? (
                 <img
-                  src={`/girl/mascot-${toast.mascot}.png`}
+                  src={`/girl/mascot-${toast.mascot}.webp`}
                   alt=""
                   aria-hidden="true"
                   draggable={false}

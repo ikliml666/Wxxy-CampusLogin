@@ -605,7 +605,7 @@ export const SettingsPanel = memo(function SettingsPanel({
 
 {/* 背景看板娘:面板滚动末尾的低透明度装饰,不参与交互 */}
       <img
-        src="/girl/mascot-bg-nap.png"
+        src="/girl/mascot-bg-nap.webp"
         alt=""
         aria-hidden="true"
         draggable={false}

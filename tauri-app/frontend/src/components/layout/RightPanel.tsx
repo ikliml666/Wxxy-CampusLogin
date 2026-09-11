@@ -395,7 +395,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
 
       {/* 背景看板娘:日志栏滚动末尾的低透明度装饰,不参与交互 */}
       <img
-        src="/girl/mascot-bg-tea.png"
+        src="/girl/mascot-bg-tea.webp"
         alt=""
         aria-hidden="true"
         draggable={false}

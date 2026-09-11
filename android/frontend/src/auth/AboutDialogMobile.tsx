@@ -126,7 +126,7 @@ export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdat
           {/* 应用信息 */}
           <div className="flex items-center gap-3">
             <img
-              src="/girl/mascot-portrait.png"
+              src="/girl/mascot-portrait.webp"
               alt=""
               aria-hidden="true"
               draggable={false}
