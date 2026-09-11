@@ -45,6 +45,7 @@ import { useTranslation } from 'react-i18next'
 
 const AboutDialog = lazy(() => import('@/auth/AboutDialog').then((mod) => ({ default: mod.AboutDialog })))
 const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((mod) => ({ default: mod.ThemeDialog })))
+const OnboardingWizard = lazy(() => import('@/settings/OnboardingWizard').then((mod) => ({ default: mod.OnboardingWizard })))
 
 // 与桌面一致的面板标题;安卓 NAV_ITEMS 无 network,故不列
 const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
@@ -93,7 +94,7 @@ function TabletShellInner() {
   const addToast = useLogToastStore((s) => s.addToast)
   const refreshQuality = useQualityStore((s) => s.refreshQuality)
 
-  const { handleOpenPortal, handleOpenSelfService } = useAuth()
+  const { handleOpenPortal, handleOpenSelfService, doLogin, isLoggingIn } = useAuth()
   const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
   const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
@@ -111,6 +112,7 @@ function TabletShellInner() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [sponsorOpen, setSponsorOpen] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
 
   // 竖屏隐藏右侧日志栏(Dock 的"日志"面板仍可查日志),主区占满全宽;
@@ -134,15 +136,15 @@ function TabletShellInner() {
     setTimeout(() => { panelChangeLock.current = false }, 60)
   }, [setActivePanel])
 
-  // 无账号引导直达账号页(与移动外壳同款,共用 campus-onboarding-done 标记;
-  // 桌面 Onboarding 向导在安卓构建未启用)
+  // 首次启动无账号 → 弹向导（桌面同款 Dialog 形态；尺寸在 OnboardingWizard 里
+  // 收敛为响应式，适配平板竖屏 600dp 起的窄边）。标记由向导在「跳过」或
+  // 「登录成功」时写入，未完成则下次启动继续引导。
   useEffect(() => {
     const done = safeStorage.get('campus-onboarding-done')
     if (!done && !useConfigStore.getState().config.user) {
-      setActivePanel('account')
-      safeStorage.set('campus-onboarding-done', '1')
+      setOnboardingOpen(true)
     }
-  }, [setActivePanel])
+  }, [])
 
   const handleClearLogs = useCallback(() => {
     setLogs([])
@@ -204,6 +206,7 @@ function TabletShellInner() {
           onSetAutoLaunch={handleSetAutoLaunch}
           onToggleLightMode={handleToggleLightMode}
           onSetTheme={handleSetTheme}
+          onShowOnboarding={() => setOnboardingOpen(true)}
         />
       )
       break
@@ -330,6 +333,18 @@ function TabletShellInner() {
         onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '' }) }}
         onCancel={() => setConfirmDelete({ open: false, name: '' })}
       />
+
+      {/* 平板新手向导：桌面同款 Dialog（Radix Portal 渲染到 body，不受本外壳 zoom 缩放） */}
+      <Suspense fallback={null}>
+        <OnboardingWizard
+          open={onboardingOpen}
+          onClose={() => setOnboardingOpen(false)}
+          adapters={adapters}
+          onUpdateConfig={updateConfig}
+          onLogin={doLogin}
+          isLoggingIn={isLoggingIn}
+        />
+      </Suspense>
     </div>
   )
 }

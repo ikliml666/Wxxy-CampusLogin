@@ -19,20 +19,19 @@ import {
   Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network, Smartphone, Link2
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useConfigStore } from '@/hooks/useConfigStore'
-import { useShallow } from 'zustand/react/shallow'
 import { ISP_OPTIONS } from '@/settings/constants'
-import { APP_NAME, PASSWORD_MASK } from '@/shared/ui-constants'
+import { APP_NAME } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
-import { cn, safeStorage } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
-import { useState, useCallback, useEffect, useRef } from 'react'
 import { m, AnimatePresence } from 'framer-motion'
-import { tauriApiWithRetry } from '@/hooks/tauriApi'
-import { extractErrorMessage } from '@/lib/utils'
-import { useHelloGate } from '@/account/selfServiceState'
+import {
+  useOnboardingFlow,
+  BIND_OPERATOR_NONE,
+  DEFAULT_OPERATOR,
+} from './useOnboardingFlow'
 
 interface OnboardingWizardProps {
   open: boolean
@@ -44,13 +43,6 @@ interface OnboardingWizardProps {
 }
 
 const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.bindOperator', 'onboarding.accountInfo', 'onboarding.networkAdapter', 'onboarding.setupComplete'] as const
-
-// 绑定步骤运营商下拉的未选择哨兵（Radix SelectItem value 禁止空串）
-const BIND_OPERATOR_NONE = '__none__'
-// 绑定成功后停留时长，让用户看到成功提示再进入下一步
-const BIND_SUCCESS_ADVANCE_MS = 1200
-
-type BindState = 'idle' | 'loading' | 'success' | 'error'
 
 const slideVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 30 : -30, opacity: 0 }),
@@ -97,197 +89,31 @@ function StepIndicator({ current }: { current: number }) {
   )
 }
 
+/**
+ * 平板/宽屏向导（Dialog 形态）。
+ * 流程逻辑与手机端全屏向导共用 `useOnboardingFlow`——步骤、校验、绑定、登录
+ * 只在一处维护，两端不会各自漂移。
+ */
 export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
   const { t } = useTranslation()
-  const language = useConfigStore((s) => s.language)
-  const setLanguage = useConfigStore((s) => s.setLanguage)
-  // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
-  // 使 App 外壳不再因任意 config 字段变化而级联重渲染
-  const config = useConfigStore(useShallow((s) => s.config))
-  const [step, setStep] = useState(0)
-  const [username, setUsername] = useState(config.user || '')
-  const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
-  const [operator, setOperator] = useState(config.operator || '__default__')
-  const [adapter1, setAdapter1] = useState(config.adapter1 || AUTO_DETECT_ADAPTER)
-  const [adapter2, setAdapter2] = useState(config.adapter2 || AUTO_DETECT_ADAPTER)
-  const [dualAdapter, setDualAdapter] = useState(!!config.dualAdapter)
-  const [showPassword, setShowPassword] = useState(false)
-  const [loginSuccess, setLoginSuccess] = useState(false)
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
-  const prevOpenRef = useRef(false)
-  // 绑定步骤的 Hello 验证门（与账户面板绑定卡同款）：绑定会改绑运营商账号，
-  // 后端命令有验证门（Hello 开启时要求 TTL 内已验证），前端先行验证保证一次通过
-  const ensureBindHello = useHelloGate()
-
-  // 绑定运营商账号步骤（step 1）状态；凭据仅内存传递，不写入配置
-  const [selfAccount, setSelfAccount] = useState(config.user || '')
-  const [selfPassword, setSelfPassword] = useState('')
-  const [bindOperatorValue, setBindOperatorValue] = useState(BIND_OPERATOR_NONE)
-  const [phone, setPhone] = useState('')
-  const [smsPassword, setSmsPassword] = useState('')
-  const [bindState, setBindState] = useState<BindState>('idle')
-  const [bindError, setBindError] = useState('')
-  const bindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (open && !prevOpenRef.current) {
-      setStep(0)
-      setUsername(config.user || '')
-      setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
-      setOperator(config.operator || '__default__')
-      setAdapter1(config.adapter1 || AUTO_DETECT_ADAPTER)
-      setAdapter2(config.adapter2 || AUTO_DETECT_ADAPTER)
-      setDualAdapter(!!config.dualAdapter)
-      setLoginSuccess(false)
-      setSelfAccount(config.user || '')
-      setSelfPassword('')
-      setBindOperatorValue(BIND_OPERATOR_NONE)
-      setPhone('')
-      setSmsPassword('')
-      setBindState('idle')
-      setBindError('')
-    }
-    prevOpenRef.current = open
-  }, [open, config.user, config.password, config.operator, config.adapter1, config.adapter2, config.dualAdapter])
-
-  const canBind = selfAccount.trim().length > 0
-    && selfPassword.trim().length > 0
-    && bindOperatorValue !== BIND_OPERATOR_NONE
-    && /^1\d{10}$/.test(phone.trim())
-    && smsPassword.trim().length > 0
-
-  const handleBind = useCallback(async () => {
-    if (bindState === 'loading' || bindState === 'success') return
-    setBindError('')
-    if (!(await ensureBindHello())) return
-    setBindState('loading')
-    try {
-      const result = await tauriApiWithRetry.bindOperator({
-        account: selfAccount.trim(),
-        password: selfPassword.trim(),
-        operator: bindOperatorValue,
-        phone: phone.trim(),
-        smsPassword: smsPassword.trim(),
-      })
-      if (result.success) {
-        setBindState('success')
-        if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
-        bindTimerRef.current = setTimeout(() => {
-          direction.current = 1
-          setStep(2)
-          setBindState('idle')
-        }, BIND_SUCCESS_ADVANCE_MS)
-      } else {
-        setBindError(result.message || t('onboarding.bindFailed'))
-        setBindState('error')
-      }
-    } catch (err) {
-      setBindError(extractErrorMessage(err) || t('onboarding.bindFailed'))
-      setBindState('error')
-    }
-  }, [bindState, selfAccount, selfPassword, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
-
-  useEffect(() => {
-    return () => {
-      if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
-    }
-  }, [])
-
-  const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
-
-  const handleNext = useCallback(() => {
-    if (step === 2) {
-      if (!canProceedAccount) return false
-      const updateData: Partial<Config> = {
-        user: username.trim(),
-        operator: operator === '__default__' ? '' : operator,
-      }
-      // 仅当用户输入了新密码时才更新 password 字段，避免空密码覆盖已保存的密码
-      if (password.trim()) {
-        updateData.password = password.trim()
-      }
-      onUpdateConfig(updateData)
-    }
-    if (step === 3) {
-      onUpdateConfig({
-        adapter1: adapter1 === AUTO_DETECT_ADAPTER ? '' : adapter1,
-        adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_ADAPTER ? '' : adapter2) : '',
-        dualAdapter,
-      })
-    }
-    return true
-  }, [step, username, password, operator, adapter1, adapter2, dualAdapter, canProceedAccount, onUpdateConfig])
-
-  const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const handleSkip = useCallback(() => {
-    if (finishTimerRef.current) {
-      clearTimeout(finishTimerRef.current)
-      finishTimerRef.current = null
-    }
-    safeStorage.set('campus-onboarding-done', '1')
-    onClose()
-  }, [onClose])
-
-  useEffect(() => {
-    return () => {
-      if (finishTimerRef.current) clearTimeout(finishTimerRef.current)
-    }
-  }, [])
-
-  const handleLoginAndFinish = useCallback(async () => {
-    // 历史缺陷：步骤 3 不重新校验账号字段，且双适配器 + 自动检测可保存
-    // dualAdapter:true, adapter2:'' 的不一致配置（RightPanel 视为未启用副适配器）。
-    // 这里做最终校验：账号密码必填、双适配器必须选副适配器。
-    const hasAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
-    if (!hasAccount) {
-      setLoginSuccess(false)
-      return
-    }
-    if (dualAdapter && (!adapter2 || adapter2 === AUTO_DETECT_ADAPTER)) {
-      setLoginSuccess(false)
-      return
-    }
-    const updateData: Record<string, string | boolean> = {
-      user: username.trim(),
-      operator: operator === '__default__' ? '' : operator,
-      adapter1: adapter1 === AUTO_DETECT_ADAPTER ? '' : adapter1,
-      adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_ADAPTER ? '' : adapter2) : '',
-      dualAdapter,
-    }
-    if (password.trim()) {
-      updateData.password = password.trim()
-    }
-    onUpdateConfig(updateData as unknown as Record<string, string>)
-    try {
-      const success = await onLogin(adapter1 === AUTO_DETECT_ADAPTER ? undefined : adapter1)
-      if (success) {
-        setLoginSuccess(true)
-        if (finishTimerRef.current) {
-          clearTimeout(finishTimerRef.current)
-        }
-        finishTimerRef.current = setTimeout(() => {
-          safeStorage.set('campus-onboarding-done', '1')
-          onClose()
-        }, 1500)
-      } else {
-        setLoginSuccess(false)
-      }
-    } catch {
-      setLoginSuccess(false)
-    }
-  }, [username, password, operator, adapter1, adapter2, dualAdapter, config.password, onUpdateConfig, onLogin, onClose])
-
-  const direction = useRef(1)
-
-  const advance = (nextStep: number) => {
-    direction.current = nextStep > step ? 1 : -1
-    setStep(nextStep)
-  }
+  const {
+    step, advance, goNext, handleSkip, handleLoginAndFinish, direction,
+    username, setUsername, password, setPassword, showPassword, setShowPassword, passwordSaved,
+    operator, setOperator,
+    adapter1, setAdapter1, adapter2, setAdapter2, dualAdapter, setDualAdapter,
+    selfAccount, setSelfAccount, selfPassword, setSelfPassword,
+    bindOperatorValue, setBindOperatorValue, phone, setPhone,
+    smsPassword, setSmsPassword, bindState, bindError, handleBind,
+    language, setLanguage,
+    loginSuccess, showCloseConfirm, setShowCloseConfirm,
+    canProceedAccount, canBind,
+  } = useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose })
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setShowCloseConfirm(true) }}>
-      <DialogContent className="w-[640px] h-[640px] p-0 overflow-hidden flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
+      {/* 尺寸响应式收敛（原为固定 640×640）：平板竖屏短边可低至 600dp，
+          固定宽高会溢出屏外——取值同时留出状态栏/手势条余量 */}
+      <DialogContent className="w-[min(640px,92vw)] h-[min(640px,86vh)] p-0 overflow-hidden flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
         <StepIndicator current={step} />
 
         <AnimatePresence mode="wait" custom={direction.current}>
@@ -357,7 +183,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                           <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
                         </SelectTrigger>
                         <SelectContent>
-                          {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
+                          {ISP_OPTIONS.filter(o => o.value !== DEFAULT_OPERATOR).map(o => (
                             <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
                           ))}
                         </SelectContent>
@@ -584,7 +410,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                       <KeyRound className="h-3.5 w-3.5" />{t('onboarding.password')}
                     </span>
                     <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                      {password ? '••••••••' : <span className="text-muted-foreground">-</span>}
+                      {passwordSaved ? '••••••••' : <span className="text-muted-foreground">-</span>}
                     </span>
                   </div>
                   <Separator />
@@ -652,7 +478,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
           <div>
             {step < 4 && (
               <Button
-                onClick={() => { if (handleNext()) advance(step + 1) }}
+                onClick={goNext}
                 disabled={step === 2 && !canProceedAccount}
                 className={cn(
                   "gap-1.5 min-w-[100px] transition-[background-color,color,box-shadow,transform] duration-200",

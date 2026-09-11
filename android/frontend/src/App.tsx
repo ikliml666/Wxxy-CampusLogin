@@ -39,6 +39,7 @@ import { useAdaptiveFramePace, markInteraction } from '@/hooks/useAdaptiveFrameP
 const AboutDialog = lazy(() => import('@/auth/AboutDialogMobile').then((mod) => ({ default: mod.AboutDialogMobile })))
 const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((mod) => ({ default: mod.ThemeDialog })))
 const MobileQuickActions = lazy(() => import('@/components/mobile/MobileQuickActions').then((mod) => ({ default: mod.MobileQuickActions })))
+const OnboardingWizardMobile = lazy(() => import('@/settings/OnboardingWizardMobile').then((mod) => ({ default: mod.OnboardingWizardMobile })))
 
 function AppInner() {
   useAppInit()
@@ -78,7 +79,11 @@ function AppInner() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [sponsorOpen, setSponsorOpen] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
+
+  const doLogin = useAuthStore((s) => s.doLogin)
+  const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
 
   const panelVariants = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } }
 
@@ -89,13 +94,14 @@ function AppInner() {
   }, [])
 
   useEffect(() => {
-    // 首次无账号时引导到账号页(替代桌面 onboarding 向导,移动端一步直达)
+    // 首次启动无账号 → 弹手机端新手向导（原实现是"直奔账号页"并立刻写
+    // campus-onboarding-done，等于没有引导：用户不知道填什么、哪个密码）。
+    // 标记改由向导在「跳过」或「登录成功」时写入，未完成则下次启动继续引导。
     const done = safeStorage.get('campus-onboarding-done')
     if (!done && !useConfigStore.getState().config.user) {
-      handleTabChange('account')
-      safeStorage.set('campus-onboarding-done', '1')
+      setOnboardingOpen(true)
     }
-  }, [handleTabChange])
+  }, [])
 
   let panelContent: React.ReactNode = null
   switch (deferredTab) {
@@ -129,7 +135,7 @@ function AppInner() {
         ) : null
       break
     case 'more':
-      panelContent = <MobileMore />
+      panelContent = <MobileMore onShowOnboarding={() => setOnboardingOpen(true)} />
       break
   }
 
@@ -251,6 +257,18 @@ function AppInner() {
         onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '' }) }}
         onCancel={() => setConfirmDelete({ open: false, name: '' })}
       />
+
+      {/* 手机端新手向导：全屏覆盖（fixed inset-0 z-50），置于最外层避免被外壳布局裁剪 */}
+      <Suspense fallback={null}>
+        <OnboardingWizardMobile
+          open={onboardingOpen}
+          onClose={() => setOnboardingOpen(false)}
+          adapters={adapters}
+          onUpdateConfig={updateConfig}
+          onLogin={doLogin}
+          isLoggingIn={isLoggingIn}
+        />
+      </Suspense>
     </div>
   )
 }

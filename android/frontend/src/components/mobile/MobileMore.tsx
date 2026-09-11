@@ -22,7 +22,12 @@ const TABS: { id: MoreTab; labelKey: string }[] = [
   { id: 'settings', labelKey: 'mobile.moreSettings' },
 ]
 
-export function MobileMore() {
+interface MobileMoreProps {
+  /** 从设置里重新打开新手向导（由外壳传入；未传时设置面板不显示该卡片） */
+  onShowOnboarding?: () => void
+}
+
+export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
   const { t } = useTranslation()
   const [sub, setSub] = useState<MoreTab>('monitor')
   const { handleToggleBackgroundCheck, handleTriggerCheck } = useMonitor()
@@ -68,7 +73,7 @@ export function MobileMore() {
           onSetAutoLaunch={handleSetAutoLaunch}
           onToggleLightMode={handleToggleLightMode}
           onSetTheme={handleSetTheme}
-          onShowOnboarding={() => {}}
+          onShowOnboarding={onShowOnboarding}
         />
       )}
     </div>
