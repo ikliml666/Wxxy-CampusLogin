@@ -209,10 +209,13 @@ pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
     match outcome {
         Ok(v) if v["bound"].as_bool().unwrap_or(false) => {
             let cleared = campus_login_lib::network::client::clear_client_pool();
+            // reason 在此为所选 WiFi 的能力摘要（net/nonet + val/unval + cp），
+            // 用于区分"绑到了正常 WiFi"还是"绑到了未认证的校园网 captive portal"
             campus_login_lib::log_info!(
                 "wifi-bind",
-                "进程网络已绑定 WiFi（path={}，清理旧连接 {} 条）",
+                "进程网络已绑定 WiFi（path={}, wifi={}，清理旧连接 {} 条）",
                 v["path"].as_str().unwrap_or("?"),
+                v["reason"].as_str().unwrap_or("?"),
                 cleared
             );
         }
