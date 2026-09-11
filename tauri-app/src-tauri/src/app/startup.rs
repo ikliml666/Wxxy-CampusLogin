@@ -188,6 +188,12 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
 
     crate::monitor::watcher::run_startup_tasks(&app_h);
 
+    // WebView2 运行时版本记录（白屏诊断证据链第一环）+ ProcessFailed 崩溃订阅
+    // （2026-09-11：渲染/浏览器进程崩溃由事件驱动立即恢复，不再只能等心跳超时推断）
+    crate::app::webview_recovery::record_webview2_runtime_version();
+    #[cfg(target_os = "windows")]
+    crate::app::webview_recovery::subscribe_process_failed(&app_h);
+
     crate::app::heartbeat::spawn_heartbeat_thread(app_h.clone());
     crate::app::heartbeat::spawn_window_safety_thread(app_h);
 

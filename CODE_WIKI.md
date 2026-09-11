@@ -250,6 +250,7 @@ Wxxy-CampusLogin/
 │           │   ├── window.rs        # 窗口焦点内存调节 (handle_window_focus_event) + show_and_focus_main
 │           │   ├── shortcut.rs      # 全局快捷键 (Ctrl+Shift+C 取消自动退出)
 │           │   ├── heartbeat.rs     # 渲染进程心跳检测 + spawn_window_safety_thread (3秒保底显示窗口)
+│           │   ├── webview_recovery.rs # WebView2 ProcessFailed 订阅 + 恢复限流入口 + 运行时版本记录 (2026-09-11 白屏修复)
 │           │   └── shutdown.rs      # graceful_exit + handle_window_close_event (关闭进托盘/退出分流)
 │           ├── self_service/        # 自助服务系统 (Dr.COM Self) 协议：登录 + 运营商绑定 + dashboard 在线信息/上网记录/注销会话 (2026-09-05)
 │           │   └── mod.rs           # bind_operator 协议链路 + checkcode/csrftoken/swal msg 提取 + 6 个单测
@@ -434,7 +435,7 @@ Wxxy-CampusLogin/
    - 启动适配器监控和启动任务 (通过 `run_startup_tasks`)
    - **3 秒保底 showWindow**：独立线程 3 秒后检查窗口可见性，不可见则强制 `window.show()` + `set_focus()`，最多重试3次，防止前端初始化异常导致窗口永远隐藏
    - **前端心跳监控**：独立线程每 5 秒检查 `last_render_heartbeat_ms`，连续 3 次超过 20 秒无心跳则重载 WebView；窗口可监控判定需同时满足 `is_visible() && !is_minimized()`（2026-09-05：前端 `useHeartbeat` 在 `document.hidden` 含最小化时暂停心跳，而 Win32 最小化窗口 is_visible 仍为 true，只查可见性会让最小化超阈值后必误触发重载）
-   - **白屏恢复已知缺口（2026-09-11 GitHub 调研结论，未实施）**：① `heartbeat.rs` 的 reload 用 `window.eval("window.location.reload()")` 且**无频率限制、忽略 eval 结果**——渲染进程已退出/无响应时 eval 永不生效，每 ~20-35s 无限重发空转；② Tauri 2 **Windows 侧不暴露 WebView2 `ProcessFailed` 事件**（官方 PR #15162 仅 macOS/iOS 有 `on_web_content_process_terminate` 且带 10s/3次滑动窗口限流；wry `src/webview2/mod.rs` 未订阅 `add_ProcessFailed`），崩溃只能靠心跳超时推断，最坏白屏 20-35s 才触发首次 reload；③ 浏览器进程退出（`BROWSER_PROCESS_EXITED`）场景 reload 无效，需销毁重建窗口或重启。可实施路径：经 `webview2-com`（依赖树已有）`ICoreWebView2_4::add_ProcessFailed` 订阅崩溃种类（先例：§3.2 的 ICoreWebView2_19 内存管理），按 kind 分级恢复（RENDER_EXITED→限流 reload / UNRESPONSIVE→需进程级处置 / BROWSER_EXITED→重建）；参考 Electron `render-process-gone` 官方策略。诊断手段：用户数据目录 `EBWebView/Crashpad/reports/*.dmp`、注册表 `EdgeUpdate\Clients\{F3017226-...}\pv` 记录运行时版本（Evergreen 自动更新，WebView2Feedback#5692 证实特定版本白屏 bug）、`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu` A/B 对比定位 GPU 类白屏
+   - **白屏恢复缺口修复（2026-09-11 GitHub 调研后实施，`app/webview_recovery.rs`）**：① **订阅 ProcessFailed**——Tauri 2 Windows 侧不暴露该事件（官方 PR #15162 仅 Apple 平台有 `on_web_content_process_terminate` 且带 10s/3次限流；wry `src/webview2/mod.rs` 未订阅），经 `webview2-com 0.38`（新增依赖）`ICoreWebView2_4::add_ProcessFailed` 直订（`ProcessFailedEventHandler::create(Box<closure>)`，闭包拿 `args.ProcessFailedKind`——注意 sys 0.38 方法名**无 Get 前缀**，token 参数为 `*mut i64`）；按 kind 分级：RENDER/FRAME_RENDER/BROWSER_PROCESS_EXITED → 立即走恢复入口（渲染崩溃比心跳路径快 20-35s），GPU/Utility/PPAPI 等 → 仅记日志交运行时自愈（GPU 未自愈由 rAF 冻结→心跳兜底）。② **恢复动作唯一入口 `attempt_webview_recovery`**：5 分钟窗口最多 3 次 reload（`recovery_gate` 纯函数，3 单测），心跳超时路径（原 `heartbeat.rs` 裸 eval 无限流、`let _ =` 忽略结果）与事件路径共用同一限流器；超限停止自动恢复只留 ERROR 日志（reload 对已退出/无响应进程无效，无限重发是原空转缺陷），eval 失败（webview 整体失效）亦留 ERROR——不自动重启应用，重启是用户决策。③ **诊断埋点 `record_webview2_runtime_version`**：启动时读注册表 EdgeUpdate `{F3017226-FAC6-4E36-9A38-E4524AA30166}\pv`（HKLM WOW6432Node 优先 → HKLM → HKCU），Evergreen 自动更新、白屏可能仅特定版本存在（WebView2Feedback#5692 证实 4191.47 白屏 bug），版本号是诊断第一证据。限流状态在 `UpdateStats`（`webview_recovery_window_start_ms`/`webview_recovery_count` 两原子字段）。诊断手段备忘：崩溃 dump 在用户数据目录 `EBWebView/Crashpad/reports/*.dmp`；GPU 类白屏可 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu` A/B 对比
 3. **WebView2 内存管理**: `on_window_event` Focused 时通过 `ICoreWebView2_19.SetMemoryUsageTargetLevel` 调节（前台 NORMAL，后台 LOW）
 4. **WebView2 浏览器参数**: `platform/gpu.rs::build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（2026-09-03 精简：原 ANGLE/SkiaGraphite/DrDc/zero-copy 等 11 个参数经核验已失效/Windows 默认即开/Windows 不支持/实验性强开，一并删除交还平台默认）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭（分流逻辑在 `app/shutdown.rs::handle_window_close_event`）
@@ -576,6 +577,8 @@ pub struct UpdateStats {
     pub last_disabled_notification_ms: AtomicU64,
     pub last_render_heartbeat_ms: AtomicU64,
     pub last_network_change_notification_ms: AtomicU64,
+    pub webview_recovery_window_start_ms: AtomicU64,   // WebView 恢复滑动窗口起点 (app/webview_recovery.rs)
+    pub webview_recovery_count: AtomicU32,             // 当前窗口内 reload 次数
 }
 ```
 
@@ -1930,7 +1933,8 @@ app/ (应用生命周期模块)
   ├── tray.rs — 系统托盘 (菜单/事件处理)
   ├── window.rs — 窗口焦点内存调节 (handle_window_focus_event) + show_and_focus_main
   ├── shortcut.rs — 全局快捷键 (Ctrl+Shift+C 取消自动退出)
-  ├── heartbeat.rs — 渲染进程心跳检测 + spawn_window_safety_thread (3秒保底显示窗口)
+  ├── heartbeat.rs — 渲染进程心跳检测 + spawn_window_safety_thread (3秒保底显示窗口; reload 恢复动作收敛至 webview_recovery)
+  ├── webview_recovery.rs — WebView2 崩溃恢复统一入口 (ProcessFailed 订阅分级处理 / attempt_webview_recovery 5分钟3次限流 / 运行时版本记录, 2026-09-11)
   └── shutdown.rs — graceful_exit + handle_window_close_event (关闭进托盘/退出分流; 统一入口 shutdown_and_exit 在 infra/lifecycle.rs)
 
 infra/
