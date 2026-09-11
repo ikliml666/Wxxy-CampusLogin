@@ -1,6 +1,40 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useLogToastStore } from './useLogToastStore'
 
+describe('addLog 连续重复折叠计数', () => {
+  beforeEach(() => {
+    useLogToastStore.setState({ logs: [] })
+  })
+
+  it('连续相同消息折叠为一条并累计 ×N 计数', () => {
+    const s = useLogToastStore.getState()
+    s.addLog('自动登录失败: 认证超时', 'error')
+    s.addLog('自动登录失败: 认证超时', 'error')
+    s.addLog('自动登录失败: 认证超时', 'error')
+    const logs = useLogToastStore.getState().logs
+    expect(logs).toHaveLength(1)
+    expect(logs[0].count).toBe(3)
+  })
+
+  it('不同消息插入后连续性中断，再出现同消息为新条目（计数从 1 起）', () => {
+    const s = useLogToastStore.getState()
+    s.addLog('有线适配器: 已离线', 'warning')
+    s.addLog('正在尝试自动登录', 'info')
+    s.addLog('有线适配器: 已离线', 'warning')
+    const logs = useLogToastStore.getState().logs
+    expect(logs).toHaveLength(3)
+    expect(logs[0].count).toBeUndefined()
+    expect(logs[2].count).toBeUndefined()
+  })
+
+  it('同消息不同级别不折叠（级别参与折叠判定）', () => {
+    const s = useLogToastStore.getState()
+    s.addLog('登录失败', 'error')
+    s.addLog('登录失败', 'warning')
+    expect(useLogToastStore.getState().logs).toHaveLength(2)
+  })
+})
+
 describe('useLogToastStore 通知去重与上限', () => {
   beforeEach(() => {
     useLogToastStore.getState().cleanupToasts()

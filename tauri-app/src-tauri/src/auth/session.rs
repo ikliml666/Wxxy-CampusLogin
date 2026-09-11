@@ -137,6 +137,41 @@ pub fn login_adapter_with_log(
         }
     }
 
+    // "已经在线"假成功复核：注销后网关在线表残留的"僵尸"会话会让 Portal 对本机 IP
+    // 回"已经在线"（success=true）但实际流量不通。保持成功会掩盖断网并抑制重连；
+    // 降级为认证失败（code=1）走 update_auth_failure_count 计数，连续 5 次触发该
+    // 适配器 MAC 重置自动自愈。预检直通与 parse_error 复核路径已实测确认，无需再验。
+    if let Some(ref cmd_result) = result {
+        if cmd_result.success {
+            let already_online_msg = cmd_result
+                .data
+                .as_ref()
+                .and_then(|d| d.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|m| m.contains("已经在线"))
+                .unwrap_or(false);
+            if already_online_msg {
+                let verified = check_portal_full(&adapter_ip, Some(&adapter_name))
+                    .map(|s| s.online)
+                    .unwrap_or(false);
+                if !verified {
+                    crate::log_warn!("login", "{adapter_name} 返回已在线但 Portal 探测不通，判定服务端会话残留");
+                    return Some(CommandResult {
+                        success: false,
+                        message: Some(format!(
+                            "{adapter_name} 已在线但网络不通（服务端会话残留），建议自助服务强制下线或获取新IP后重试"
+                        )),
+                        data: Some(serde_json::json!({
+                            "code": "1",
+                            "message": "已在线但网络不通（服务端会话残留）",
+                            "retryable": false,
+                        })),
+                    });
+                }
+            }
+        }
+    }
+
     result
 }
 

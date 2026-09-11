@@ -15,7 +15,7 @@ CampusLogin 是一款校园网自动登录助手，面向无锡学院校园网�
 | 特性 | 说明 |
 |------|------|
 | 一键登录 | 自动检测适配器、DHCP续租、可重试失败智能重试(retryable 判定) |
-| 一键注销 | 两步注销：Radius注销 + MAC解绑，支持指定适配器注销或全部注销 |
+| 一键注销 | Radius注销先行(成功即止) + MAC解绑收尾，支持指定适配器注销或全部注销 |
 | 自动重连 | 后台巡检断线检测，最多3次自动重连 |
 | 校园网检测 | 三级检测：网络名称匹配 → /18子网匹配 → 网关Ping可达 |
 | DNS 智能解析 | 动态评分选择最优 DNS 服务器，应用级 DoH 解析，三级智能解析策略 |
@@ -434,6 +434,7 @@ Wxxy-CampusLogin/
    - 启动适配器监控和启动任务 (通过 `run_startup_tasks`)
    - **3 秒保底 showWindow**：独立线程 3 秒后检查窗口可见性，不可见则强制 `window.show()` + `set_focus()`，最多重试3次，防止前端初始化异常导致窗口永远隐藏
    - **前端心跳监控**：独立线程每 5 秒检查 `last_render_heartbeat_ms`，连续 3 次超过 20 秒无心跳则重载 WebView；窗口可监控判定需同时满足 `is_visible() && !is_minimized()`（2026-09-05：前端 `useHeartbeat` 在 `document.hidden` 含最小化时暂停心跳，而 Win32 最小化窗口 is_visible 仍为 true，只查可见性会让最小化超阈值后必误触发重载）
+   - **白屏恢复已知缺口（2026-09-11 GitHub 调研结论，未实施）**：① `heartbeat.rs` 的 reload 用 `window.eval("window.location.reload()")` 且**无频率限制、忽略 eval 结果**——渲染进程已退出/无响应时 eval 永不生效，每 ~20-35s 无限重发空转；② Tauri 2 **Windows 侧不暴露 WebView2 `ProcessFailed` 事件**（官方 PR #15162 仅 macOS/iOS 有 `on_web_content_process_terminate` 且带 10s/3次滑动窗口限流；wry `src/webview2/mod.rs` 未订阅 `add_ProcessFailed`），崩溃只能靠心跳超时推断，最坏白屏 20-35s 才触发首次 reload；③ 浏览器进程退出（`BROWSER_PROCESS_EXITED`）场景 reload 无效，需销毁重建窗口或重启。可实施路径：经 `webview2-com`（依赖树已有）`ICoreWebView2_4::add_ProcessFailed` 订阅崩溃种类（先例：§3.2 的 ICoreWebView2_19 内存管理），按 kind 分级恢复（RENDER_EXITED→限流 reload / UNRESPONSIVE→需进程级处置 / BROWSER_EXITED→重建）；参考 Electron `render-process-gone` 官方策略。诊断手段：用户数据目录 `EBWebView/Crashpad/reports/*.dmp`、注册表 `EdgeUpdate\Clients\{F3017226-...}\pv` 记录运行时版本（Evergreen 自动更新，WebView2Feedback#5692 证实特定版本白屏 bug）、`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu` A/B 对比定位 GPU 类白屏
 3. **WebView2 内存管理**: `on_window_event` Focused 时通过 `ICoreWebView2_19.SetMemoryUsageTargetLevel` 调节（前台 NORMAL，后台 LOW）
 4. **WebView2 浏览器参数**: `platform/gpu.rs::build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（2026-09-03 精简：原 ANGLE/SkiaGraphite/DrDc/zero-copy 等 11 个参数经核验已失效/Windows 默认即开/Windows 不支持/实验性强开，一并删除交还平台默认）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭（分流逻辑在 `app/shutdown.rs::handle_window_close_event`）
@@ -797,35 +798,56 @@ pub fn random_v() -> String {
 |------|------|
 | `do_login_with_retry()` | 登录请求+重试(重试次数由调用方传入)，重试等待可中断(每100ms检查退出标志) |
 
-**注销函数** (两步注销):
+**注销函数** (Radius 注销先行 + MAC 解绑收尾):
 
 | 函数 | 说明 |
 |------|------|
-| `do_logout_request()` | 两步注销：① MAC解绑(best-effort) ② Radius注销 |
+| `do_logout_request()` | Radius 注销（主操作，最多 2 次、成功即止）+ MAC 解绑（单次收尾，best-effort） |
 | `do_logout_with_retry()` | 注销重试(重试次数由调用方传入)，重试等待可中断 |
 | `parse_logout_result()` | 注销结果解析 (JSONP)，支持多种成功条件 |
+| `ip_to_eportal_int()` | 点分 IPv4 → ePortal 整数 IP（大端序，对齐前端 ip_to_int；NAT 空串回退原样） |
 
-**两步注销流程** (2轮循环，每轮先 MAC 解绑再 Radius 注销，callback 动态生成):
+**注销请求顺序** (2026-09-11 重构，根治"注销后打不开登录页、换 MAC 才恢复"):
 
 ```
-第1轮 (round=1): unbind_cb=dr1002, logout_cb=dr1003
-  步骤A: MAC 解绑
-    GET /eportal/portal/mac/unbind?callback=dr1002
-        &user_account={学号}&wlan_user_mac=000000000000
-        &wlan_user_ip={IP整数}&jsVersion=4.1.3&v={random}&lang=zh
-    成功: result=0, msg="解绑终端MAC成功！"
-  步骤B: Radius 注销
-    GET /eportal/portal/logout?callback=dr1003&login_method=1
-        &user_account=drcom&user_password=123&ac_logout=1
-        &register_mode=1&wlan_user_ip={IP}&wlan_user_mac=000000000000
-        &jsVersion=4.1.3&v={random}&lang=zh
-    成功: result=1, msg="Radius注销成功！"
-
-第2轮 (round=2): unbind_cb=dr1003, logout_cb=dr1004
-  (重复步骤A+B，callback 值递增)
+① Radius 注销（最多 2 次、成功即 break，两次间可中断等待 1.5s）
+  GET /eportal/portal/logout?callback=dr100{round+2}&login_method=1
+      &user_account=drcom&user_password=123&ac_logout=1
+      &register_mode=1&wlan_user_ip={IP}&wlan_user_mac=000000000000
+      &jsVersion=4.1.3&v={random}&lang=zh
+  成功: result=1, msg="Radius注销成功！"
+② MAC 解绑（单次，best-effort；退出中跳过）
+  GET /eportal/portal/mac/unbind?callback=dr1002
+      &user_account={学号}&wlan_user_mac=000000000000
+      &wlan_user_ip={整数IP}&jsVersion=4.1.3&v={random}&lang=zh
+  成功: result=0, msg="解绑终端MAC成功！"
 ```
 
-> 注：`unbind_cb = format!("dr100{}", round + 1)`，`logout_cb = format!("dr100{}", round + 2)`，每轮 callback 递增。任一轮 Radius 注销或 MAC 解绑成功即标记 `any_radius_ok`/`any_unbind_ok`。
+> **为什么顺序倒置（2026-09-11 调研 + 虚拟机实测沉淀）**：旧实现每轮"先 unbind 后 logout"×2 轮、外层再重试 2 次（最坏 4+4 个请求），连发请求且顺序与同校开源项目（Rikka-Sei/wxxy-autoLogin-Script，同一认证服务器）相反；主流实现（cqu-net-auth/eptools/Meirs）均为"先查询、一次到位、绝不连发"，且 unbind 的 `wlan_user_ip` 传**整数形式**（旧实现传点分十进制）。重构后注销请求上限从 8 个降到 3 个。
+> 配套修复（session.rs `login_adapter_with_log`）："已经在线"假成功复核——登录返回"已经在线"时再跑一次 `check_portal_full`，探测不通判为服务端会话残留，降级为认证失败（code=1）走 `update_auth_failure_count` 计数，连续 5 次自动触发该适配器 MAC 重置自愈（换 MAC 恢复的程序化等价物）。
+
+**协议行为实测（2026-09-11，VMware 桥接 VM 独立身份 10.2.94.60，宿主身份零影响）**：
+
+- **`chkstatus` 接口在本部署不存在**：返回 `{"code":0,"msg":"404 eportal controller Chkstatus not found"}`——"注销前查在线状态"不可行；登录态判定用 80 状态页（在线时内嵌 `uid='<服务端uid>'`/`v4ip='<本机IP>'`/`time='<在线秒数>'` 变量）。
+- **`mac/unbind` 不踢在线会话**：unbind 后立即重登返回"IP: x.x.x.x 已经在线"（ret_code=2），Radius 会话仍活——社区 POC（Eportalcutdown"按 IP 断网"）在本部署不成立，unbind 仅作用于 MAC 绑定表；**注销成败与 unbind 无关，顺序倒置是防御性对齐而非修复实效**。
+- **注销后立即重登始终成功**：单次注销（两种顺序）、unbind+logout 4 连发后 0 延迟重登均 result=1 认证成功——**"注销后打不开登录页/换 MAC 恢复"的僵尸状态未复现**（单会话与同账号跨网段双会话并存两种条件均正常）；故障再现场景用 80 状态页 uid/v4ip/time 抓现场。
+- **重复请求无增益也无污染**：对已销毁会话的重复 logout 返回 result=0 失败、重复 unbind 返回稳定错误，后续登录不受影响——连发纯属浪费时间，"成功即止"正确。
+- **"已经在线"（result=0 + ret_code=2）只在会话真实存活时出现**（登录成功后 10s/30s 重登均如此）——session.rs 复核与实测行为兼容：真在线时 check_portal_full 确认放行不误伤。
+- **unbind 整数 IP 与点分 IP 行为无差异**（相同 msg 相同后果）；整数换算旁证：10.2.94.60 → 167927356，与 `ip_to_eportal_int`（Ipv4Addr::to_bits）一致。
+- **801 端口 JSONP 响应为 UTF-8**（80 网关页才是 GBK）——与 `decode_charset_bytes` "UTF-8 优先 → OEM 回退"策略兼容。exp3 已用 UTF-8 解码实测证实（中文 msg 完整可读）。
+
+**压测与变异补充实测（exp3，2026-09-11，15 轮循环 + 错误参数变异，双探针验证）**：
+
+- **累计 19 次注销（点分/整数/空 IP/错 IP/连发/双顺序全谱系）后立即重登全部成功，0 僵尸**——故障率 95% 置信上界约 15%；结论修正为：**"注销后僵尸"不是协议的固有行为，属间歇性服务端/环境异常**，应用侧防御（成功即止 + "已经在线"复核 + MAC 重置自愈）保持。
+- **网关劫持实证**：未认证时公网探针（`connect.rom.miui.com/generate_204`）返回 **302**（被劫持到 Portal），认证后返回 204——`net204` 状态码可作为权威在线判据（区分"有 IP 未认证"与"真在线"）。
+- **空 `wlan_user_ip` 的 logout 成功**（result=1）——服务端按请求源 IP 定位会话，NAT 分支安全。
+- **错 IP 的 logout/unbind 无污染**：logout 传不存在 IP 返回"Radius注销失败！"（result=0），unbind 传无效 IP 返回**"获取用户在线信息数据为空！"**（项目 parse 将该响应判为成功——语义实为"无会话可注销"，宽松但无害），本机会话与后续登录均不受影响。
+- **80 状态页单次探针有 ~9% 瞬时抖动**（33 次在线期采样 3 次取不到 uid/v4ip 变量，同时段公网 204 均通）——单次页面探测不可靠，后台巡检"失败计数阈值 5 才触发动作"的设计必要。
+
+**换 MAC 恢复链路实测（exp4，2026-09-11，用户手动切换 VM 网卡 MAC 后）**：
+
+- 换 MAC（04:83:D8:28:0E:52 → 00-50-56-37-48-E9）后 DHCP 立即获得**全新 IP**（10.2.94.60 → 10.2.79.99）——"换 MAC = 换身份"实证；新身份首次登录即成功（result=1，80 页 uid/v4ip 与公网 204 双探针确认），随后 3 轮注销-重登同样全绿。**"换 MAC 后可恢复登录"的恢复面闭环**；累计四轮实验 23 次注销 0 僵尸。
+- 未覆盖残留：僵尸态下的换 MAC 恢复（前提是僵尸复现，四轮实验均未复现）；WLAN 段身份。
 
 **注销成功判定**:
 - 两步均成功 → 注销成功
@@ -1385,7 +1407,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `useAdapterStore` | `useAdapterStore.ts` (74行) | 适配器列表/详情/面板 | `adapters`/`disabledAdapters`/`adapterDetails`/`isRefreshingAdapters`/`activePanel` | `refreshAdapters`/`setAdapters`/`setActivePanel` (模块级 `refreshAdapterData` 公共函数) |
 | `useQualityStore` | `useQualityStore.ts` (90行) | 网络质量/DNS DoH/更新/GPU | `networkQuality`/`dnsDohStatus`/`dnsChecking`/`isRefreshingQuality`/`updateAvailable`/`latestVersion`/`releaseNotes`/`gpuInfo`/`refreshRate` | `refreshQuality`/`setNetworkQuality`/`setDnsDohStatus`/`setUpdateAvailable`/`setGpuInfo` |
 | `useThemeStore` | `useThemeStore.ts` (86行) | 主题/亮暗/自定义色 + DOM 副作用 | `themeName`/`isLightMode`/`customThemeColor` | `setThemeName`/`setIsLightMode`/`initTheme`/`setCustomThemeColor` |
-| `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300；Toast 上限 MAX_TOASTS=4，`addToast`/`addToastWithAction` 同 title 去重防重复刷屏) | `logs`/`toasts` | `addLog`/`addToast`/`addToastWithAction`/`removeToast`/`removeToastsByPrefix` |
+| `useLogToastStore` | `useLogToastStore.ts` | 日志/Toast (独立 zustand，MAX_LOG_ENTRIES=300；**`addLog` 连续重复折叠+×N 计数 (2026-09-11)：与末条 message+type 相同不再静默刷时间戳，而是累计 `LogEntry.count` 并刷新 time，RightPanel 渲染 ×N 徽标——对齐 logback DuplicateMessageFilter/tracing-dedup/Chrome DevTools 的"连续重复折叠+计数"惯例，重复次数是诊断信息；跨条 A-B-A 不折叠（会打乱时间序，场景不密集）。后端文件日志保留原始逐条不折叠，审计优先**；Toast 上限 MAX_TOASTS=4，`addToast`/`addToastWithAction` 同 title 去重防重复刷屏) | `logs`/`toasts` | `addLog`/`addToast`/`addToastWithAction`/`removeToast`/`removeToastsByPrefix` |
 
 > **通知单通道规范 (2026-09-03 重构)**：一条通知只有一个来源、一个通道、一个文案源，杜绝双通道重复。
 > - `emit_notification`（`infra/notification.rs`）**只发 Windows 系统通知**（用户看不到主窗口即 `!is_visible() || is_minimized()` + `enable_notification` 时，2026-09-05 由 is_focused 改为与 heartbeat 一致的 monitorable 判定：窗口可见但失焦不再误弹打扰；窗口不存在视为看不到继续弹），不再向前端发 `system-notification` 事件（`EventBus.emit_system_notification` 已删除）；系统通知文案为中文硬编码（后端无法感知前端 UI 语言，为已知边界）
