@@ -404,6 +404,26 @@ function AppInner() {
         />
       </div>
 
+      {/* 侧边看板娘:宽视口下主内容卡片两侧空白处的低透明度装饰,不参与交互。
+          右侧偏移 304px 避让 w-72(288px) 的 RightPanel;1560px 以下无侧边空间,隐藏。
+          占位图待站姿竖版新图生成后替换 src 即可。 */}
+      <img
+        src="/girl/mascot-bg-lounge.png"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        loading="lazy"
+        className="fixed left-2 bottom-6 z-0 hidden min-[1560px]:block w-44 opacity-[0.10] dark:opacity-[0.06] select-none pointer-events-none"
+      />
+      <img
+        src="/girl/mascot-bg-nap.png"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        loading="lazy"
+        className="fixed right-[304px] bottom-6 z-0 hidden min-[1560px]:block w-44 opacity-[0.10] dark:opacity-[0.06] select-none pointer-events-none"
+      />
+
       <DockNav
         outerRef={setRef('dockNav')}
         onPanelChange={handlePanelChange}

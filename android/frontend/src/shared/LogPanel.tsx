@@ -318,6 +318,29 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
         if (visibleEntries.length > 0) {
           // 动态 stagger：条目越多间隔越短，总时长封顶避免清空等待过久
           const staggerEach = visibleEntries.length > 8 ? 0.05 : visibleEntries.length > 4 ? 0.1 : 0.2
+          let settled = false
+          let failsafe: ReturnType<typeof setTimeout> | undefined
+          const finishClear = () => {
+            if (settled) return
+            settled = true
+            if (failsafe) clearTimeout(failsafe)
+            // 不 revert：条目 DOM 交由 React 在 rawLogs 清空后卸载；
+            // revert 会先把条目恢复可见再卸载，产生"日志重现"闪现
+            api.clearLogs().then(() => {
+              if (!mountedRef.current) return
+              rawLogsRef.current = ''
+              setRawLogs('')
+              setLogsKey(prev => prev + 1)
+              addToast(t('log.logCleared'), 'success')
+              setIsClearing(false)
+            }).catch((e: unknown) => {
+              if (!mountedRef.current) return
+              // 清空失败日志保留，恢复被动画隐藏的条目可见
+              ctx.revert()
+              addToast(t('log.clearLogFailed'), 'error', extractErrorMessage(e))
+              setIsClearing(false)
+            })
+          }
           const ctx = gsap.context(() => {
             gsap.to(visibleEntries, {
               autoAlpha: 0,
@@ -327,31 +350,30 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               duration: 0.4,
               ease: 'back.out(1.2)',
               force3D: true,
-              onComplete: () => {
-                ctx.revert()
-                api.clearLogs().then(() => {
-                  if (!mountedRef.current) return
-                  rawLogsRef.current = ''
-                  setRawLogs('')
-                  setLogsKey(prev => prev + 1)
-                  addToast(t('log.logCleared'), 'success')
-                  setIsClearing(false)
-                }).catch((e: unknown) => {
-                  if (!mountedRef.current) return
-                  addToast(t('log.clearLogFailed'), 'error', extractErrorMessage(e))
-                  setIsClearing(false)
-                })
-              },
+              onComplete: finishClear,
               // 历史缺陷：tween 被中断（AnimatePresence 切换面板、组件卸载等）时
               // onComplete 不执行，isClearing 残留导致清空按钮永久禁用。
               // onInterrupt 复位状态（与 RightPanel 清空动画的处理方式对齐：
               // 中断即放弃本次清空，日志保留，用户可重试）。
               onInterrupt: () => {
+                if (settled) return
+                settled = true
+                if (failsafe) clearTimeout(failsafe)
                 ctx.revert()
                 if (mountedRef.current) setIsClearing(false)
               },
             })
           }, container)
+          // GSAP 回调依赖 rAF ticker：安卓 WebView 后台/遮挡时 rAF 停摆，
+          // tween 冻结，onComplete/onInterrupt 均不触发，isClearing 卡死、
+          // 已隐藏条目还会被 framer-motion 重渲染拉回可见（表现为"日志又出现了"）。
+          // setTimeout 不受 rAF 影响，到点按"完成"兜底（幂等），与动画时序解耦。
+          failsafe = setTimeout(() => {
+            // 先结算再 revert：revert kill 冻结的 tween 会同步触发 onInterrupt，
+            // 顺序颠倒会让 onInterrupt 抢先置 settled，clearLogs 被跳过
+            finishClear()
+            ctx.revert()
+          }, (0.4 + staggerEach * (visibleEntries.length - 1)) * 1000 + 600)
           return
         }
       }

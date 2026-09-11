@@ -99,7 +99,7 @@ export const TitleBar = memo(function TitleBar({
             alt=""
             aria-hidden="true"
             draggable={false}
-            className="w-7 h-7 rounded-full object-cover object-[center_22%] shrink-0 select-none"
+            className="w-10 h-10 rounded-full object-cover object-[center_22%] shrink-0 select-none"
             style={{ boxShadow: '0 2px 8px rgba(79,70,229,0.3)' }}
           />
           <span className="text-sm font-semibold tracking-tight">{t('titlebar.appName')}</span>
