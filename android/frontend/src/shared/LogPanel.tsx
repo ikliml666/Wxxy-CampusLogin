@@ -673,6 +673,16 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
         onConfirm={handleClearConfirm}
         onCancel={() => setShowClearConfirm(false)}
       />
+
+{/* 背景看板娘:面板滚动末尾的低透明度装饰,不参与交互 */}
+      <img
+        src="/girl/mascot-bg-tea.png"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        loading="lazy"
+        className="mx-auto mt-6 w-64 opacity-[0.10] dark:opacity-[0.06] select-none pointer-events-none"
+      />
     </div>
   )
 })
