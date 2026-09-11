@@ -15,7 +15,7 @@ CampusLogin 是一款校园网自动登录助手，面向无锡学院校园网�
 | 特性 | 说明 |
 |------|------|
 | 一键登录 | 自动检测适配器、DHCP续租、可重试失败智能重试(retryable 判定) |
-| 一键注销 | 两步注销：Radius注销 + MAC解绑，支持指定适配器注销或全部注销 |
+| 一键注销 | Radius注销先行(成功即止) + MAC解绑收尾，支持指定适配器注销或全部注销 |
 | 自动重连 | 后台巡检断线检测，最多3次自动重连 |
 | 校园网检测 | 三级检测：网络名称匹配 → /18子网匹配 → 网关Ping可达 |
 | DNS 智能解析 | 动态评分选择最优 DNS 服务器，应用级 DoH 解析，三级智能解析策略 |
@@ -798,35 +798,33 @@ pub fn random_v() -> String {
 |------|------|
 | `do_login_with_retry()` | 登录请求+重试(重试次数由调用方传入)，重试等待可中断(每100ms检查退出标志) |
 
-**注销函数** (两步注销):
+**注销函数** (Radius 注销先行 + MAC 解绑收尾):
 
 | 函数 | 说明 |
 |------|------|
-| `do_logout_request()` | 两步注销：① MAC解绑(best-effort) ② Radius注销 |
+| `do_logout_request()` | Radius 注销（主操作，最多 2 次、成功即止）+ MAC 解绑（单次收尾，best-effort） |
 | `do_logout_with_retry()` | 注销重试(重试次数由调用方传入)，重试等待可中断 |
 | `parse_logout_result()` | 注销结果解析 (JSONP)，支持多种成功条件 |
+| `ip_to_eportal_int()` | 点分 IPv4 → ePortal 整数 IP（大端序，对齐前端 ip_to_int；NAT 空串回退原样） |
 
-**两步注销流程** (2轮循环，每轮先 MAC 解绑再 Radius 注销，callback 动态生成):
+**注销请求顺序** (2026-09-11 重构，根治"注销后打不开登录页、换 MAC 才恢复"):
 
 ```
-第1轮 (round=1): unbind_cb=dr1002, logout_cb=dr1003
-  步骤A: MAC 解绑
-    GET /eportal/portal/mac/unbind?callback=dr1002
-        &user_account={学号}&wlan_user_mac=000000000000
-        &wlan_user_ip={IP整数}&jsVersion=4.1.3&v={random}&lang=zh
-    成功: result=0, msg="解绑终端MAC成功！"
-  步骤B: Radius 注销
-    GET /eportal/portal/logout?callback=dr1003&login_method=1
-        &user_account=drcom&user_password=123&ac_logout=1
-        &register_mode=1&wlan_user_ip={IP}&wlan_user_mac=000000000000
-        &jsVersion=4.1.3&v={random}&lang=zh
-    成功: result=1, msg="Radius注销成功！"
-
-第2轮 (round=2): unbind_cb=dr1003, logout_cb=dr1004
-  (重复步骤A+B，callback 值递增)
+① Radius 注销（最多 2 次、成功即 break，两次间可中断等待 1.5s）
+  GET /eportal/portal/logout?callback=dr100{round+2}&login_method=1
+      &user_account=drcom&user_password=123&ac_logout=1
+      &register_mode=1&wlan_user_ip={IP}&wlan_user_mac=000000000000
+      &jsVersion=4.1.3&v={random}&lang=zh
+  成功: result=1, msg="Radius注销成功！"
+② MAC 解绑（单次，best-effort；退出中跳过）
+  GET /eportal/portal/mac/unbind?callback=dr1002
+      &user_account={学号}&wlan_user_mac=000000000000
+      &wlan_user_ip={整数IP}&jsVersion=4.1.3&v={random}&lang=zh
+  成功: result=0, msg="解绑终端MAC成功！"
 ```
 
-> 注：`unbind_cb = format!("dr100{}", round + 1)`，`logout_cb = format!("dr100{}", round + 2)`，每轮 callback 递增。任一轮 Radius 注销或 MAC 解绑成功即标记 `any_radius_ok`/`any_unbind_ok`。
+> **为什么顺序倒置（2026-09-11 调研沉淀）**：ePortal 4.1.x 的 `mac/unbind` 是按 `wlan_user_ip` 踢下线的**破坏性操作**（社区 POC [Eportalcutdown](https://github.com/Zaxk1337/Eportalcutdown) 利用其无鉴权断网）。旧实现每轮"先 unbind 后 logout"×2 轮、外层再重试 2 次（最坏 4+4 个请求），unbind 先行会立即断网并使后续 logout 作用在被踢残的会话上，诱发网关在线表与 Radius 会话不一致的"僵尸"状态——注销后打不开登录页、重新登录返回"已经在线"假成功，换 MAC（拿新 IP）才恢复。同校开源项目 Rikka-Sei/wxxy-autoLogin-Script 亦为"先 logout 后 unbind"；主流实现（cqu-net-auth/eptools/Meirs）均为"先查询、一次到位、绝不连发"，且 unbind 的 `wlan_user_ip` 传**整数形式**（旧实现传点分十进制）。重构后注销请求上限从 8 个降到 3 个。
+> 配套修复（session.rs `login_adapter_with_log`）："已经在线"假成功复核——登录返回"已经在线"时再跑一次 `check_portal_full`，探测不通判为服务端会话残留，降级为认证失败（code=1）走 `update_auth_failure_count` 计数，连续 5 次自动触发该适配器 MAC 重置自愈（换 MAC 恢复的程序化等价物）。
 
 **注销成功判定**:
 - 两步均成功 → 注销成功

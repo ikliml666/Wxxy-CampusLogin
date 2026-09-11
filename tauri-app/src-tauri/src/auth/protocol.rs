@@ -253,43 +253,16 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
 
+    // Radius 注销先行（主操作，最多 2 次、成功即止）。
+    // 历史缺陷：旧实现每轮"先 MAC 解绑再 Radius 注销"×2 轮，外层再重试 2 次（最坏 4+4 次）。
+    // ePortal 4.1.x 的 mac/unbind 是按 wlan_user_ip 踢下线的破坏性操作（社区 POC
+    // Eportalcutdown 利用其实现无鉴权断网），先 unbind 会让后续 logout 作用在被踢残的
+    // 会话上，诱发网关在线表与 Radius 会话不一致的"僵尸"状态（注销后打不开登录页、
+    // 换 MAC/换 IP 才恢复）。改为 logout 成功后至多补一次 unbind 清理 MAC 绑定；
+    // logout 全败时 unbind 作兜底踢下线。
     let mut any_radius_ok = false;
-    let mut any_unbind_ok = false;
-
     for round in 1..=2 {
-        let unbind_cb = format!("dr100{}", round + 1);
         let logout_cb = format!("dr100{}", round + 2);
-
-        crate::log_info!("logout", "第{}轮: MAC解绑: user={}", round, validated_user);
-
-        let unbind_url = format!(
-            "{}/eportal/portal/mac/unbind?callback={}&user_account={}&wlan_user_mac=000000000000&wlan_user_ip={}&jsVersion=4.1.3&v={}&lang=zh",
-            portal_base_url,
-            unbind_cb,
-            urlencoding::encode(validated_user),
-            urlencoding::encode(wlan_user_ip),
-            random_v(),
-        );
-
-        let t_unbind = std::time::Instant::now();
-        // MAC 解绑为 best-effort：网络失败/端点不可用时记录并继续，
-        // 不得中断更关键的 Radius 注销（历史缺陷：unbind 的 ? 直接 abort 整个注销流程，
-        // 解绑端点不可用时注销永远失败，且跳过第 2 轮重试）
-        match crate::infra::async_util::block_on_sync(
-            client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
-        ) {
-            Ok(resp) => {
-                let body_unbind = read_bounded_body(resp, "MAC解绑");
-                crate::log_info!("logout", "第{}轮MAC解绑完成({}ms): body={}", round, t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
-                let unbind_result = parse_logout_result(&body_unbind)?;
-                if unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    any_unbind_ok = true;
-                }
-            }
-            Err(e) => {
-                crate::log_warn!("logout", "第{}轮MAC解绑请求失败(降级继续): {}", round, e);
-            }
-        };
 
         crate::log_info!("logout", "第{}轮: Radius注销: adapterIp={}", round, wlan_user_ip);
 
@@ -304,7 +277,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         );
 
         let t_logout = std::time::Instant::now();
-        // Radius 注销发送失败同样降级：记录并进入下一轮，避免单次网络抖动跳过重试
+        // Radius 注销发送失败降级：记录并进入下一轮，避免单次网络抖动跳过重试
         match crate::infra::async_util::block_on_sync(
             client.get(&logout_url).timeout(std::time::Duration::from_secs(15)).send()
         ) {
@@ -314,18 +287,15 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
                 let logout_result = parse_logout_result(&body_logout)?;
                 if logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
                     any_radius_ok = true;
+                    break;
                 }
             }
             Err(e) => {
                 crate::log_warn!("logout", "第{}轮Radius注销请求失败(降级继续): {}", round, e);
             }
-        };
+        }
 
         if round == 1 {
-            // 第1轮已全部成功则跳过第2轮，避免多发无谓请求
-            if any_radius_ok && any_unbind_ok {
-                break;
-            }
             // 可中断等待 1.5s（15×100ms，每次检查退出标志）
             for _ in 0..15 {
                 if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
@@ -338,6 +308,40 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
                 break;
             }
         }
+    }
+
+    // MAC 解绑收尾（单次，best-effort）：清理 MAC 免认证绑定；Radius 注销全败时作
+    // 兜底踢下线。请求失败/端点不可用只记录不中断——注销成败以 Radius 结果为准。
+    let mut any_unbind_ok = false;
+    if !is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+        let unbind_ip_param = ip_to_eportal_int(wlan_user_ip)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| wlan_user_ip.to_string());
+        let unbind_url = format!(
+            "{}/eportal/portal/mac/unbind?callback=dr1002&user_account={}&wlan_user_mac=000000000000&wlan_user_ip={}&jsVersion=4.1.3&v={}&lang=zh",
+            portal_base_url,
+            urlencoding::encode(validated_user),
+            urlencoding::encode(&unbind_ip_param),
+            random_v(),
+        );
+
+        let t_unbind = std::time::Instant::now();
+        crate::log_info!("logout", "MAC解绑: user={}", validated_user);
+        match crate::infra::async_util::block_on_sync(
+            client.get(&unbind_url).timeout(std::time::Duration::from_secs(15)).send()
+        ) {
+            Ok(resp) => {
+                let body_unbind = read_bounded_body(resp, "MAC解绑");
+                crate::log_info!("logout", "MAC解绑完成({}ms): body={}", t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
+                let unbind_result = parse_logout_result(&body_unbind)?;
+                if unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    any_unbind_ok = true;
+                }
+            }
+            Err(e) => {
+                crate::log_warn!("logout", "MAC解绑请求失败(降级继续): {}", e);
+            }
+        };
     }
 
     let combined_msg = merge_logout_results(any_radius_ok, any_unbind_ok);
@@ -361,6 +365,13 @@ pub fn merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'stati
         (false, true) => "Radius注销失败，MAC解绑成功",
         (false, false) => "注销失败",
     }
+}
+
+/// 点分 IPv4 → ePortal 整数形式（与 ePortal 前端 ip_to_int 同语义：大端序数值）。
+/// 社区实现（cqu-net-auth/eptools/Eportalcutdown POC）的 unbind 均传整数 IP；
+/// NAT 场景传空串时解析失败返回 None，调用方回退原样。
+fn ip_to_eportal_int(ip: &str) -> Option<u32> {
+    ip.parse::<std::net::Ipv4Addr>().ok().map(std::net::Ipv4Addr::to_bits)
 }
 
 pub fn do_logout_with_retry(user: &str, adapter_ip: Option<&str>, max_retries: u32, is_quitting: &std::sync::atomic::AtomicBool) -> Result<serde_json::Value, String> {
@@ -586,5 +597,19 @@ mod tests {
     fn merge_both_failure_is_failure() {
         assert_eq!(merge_logout_results(false, false), "注销失败");
         assert_eq!(merge_logout_results(false, true), "Radius注销失败，MAC解绑成功");
+    }
+
+    #[test]
+    fn ip_to_eportal_int_matches_frontend_ip_to_int() {
+        // ePortal 前端 ip_to_int 的大端序数值语义（Eportalcutdown/cqu-net-auth 同款）
+        assert_eq!(ip_to_eportal_int("10.2.1.3"), Some(0x0A02_0103));
+        assert_eq!(ip_to_eportal_int("172.16.5.254"), Some(0xAC10_05FE));
+    }
+
+    #[test]
+    fn ip_to_eportal_int_rejects_empty_and_garbage() {
+        // NAT 场景传空串、非法输入 → None，调用方回退原样参数
+        assert_eq!(ip_to_eportal_int(""), None);
+        assert_eq!(ip_to_eportal_int("not-an-ip"), None);
     }
 }
