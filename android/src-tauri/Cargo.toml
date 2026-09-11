@@ -1,6 +1,6 @@
 [package]
 name = "campus-login-android"
-version = "2.3.4"
+version = "2.3.5"
 description = "校园网登录助手安卓端"
 edition = "2021"
 
