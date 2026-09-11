@@ -1636,7 +1636,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮。带 `mascot` 字段（`'celebrate' | 'offline'`，2026-09-11）时左侧渲染对应看板娘图（裸 img 非 MascotFigure，避免 tailwind 尺寸类冲突），登录成功/失败由 `useAuthStore` 经 `useLogToastStore.addToast` 第 5 参传入 |
-| `MascotFigure.tsx` | 看板娘展示组件（双端同构，2026-09-10）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline}.png`，`size` 三档（sm w-20/md w-28/lg w-40）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`，2026-09-11）：不经组件，由总览/设置/网络质量/日志四面板滚动末尾低透明度裸 img 直引（w-64、opacity 0.10/深色 0.06、pointer-events-none；设置页内容短，图上加 `pb-72` 撑滚动余量避免滚到底被固定底栏遮住）。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死为 0（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → `assets/ui-girl/` → 双端 `public/girl/`（2026-09-11 v2 重做：去 WiFi 呆毛改卷曲呆毛、8 张全套替换、图标同步重制） |
+| `MascotFigure.tsx` | 看板娘展示组件（双端同构，2026-09-10）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline}.png`，`size` 三档（sm w-20/md w-28/lg w-40）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`，2026-09-11）：不经组件，由总览/设置/网络质量/日志面板及桌面日志栏 RightPanel 滚动末尾低透明度裸 img 直引（w-64、opacity 0.10/深色 0.06、pointer-events-none；设置页内容短，图上加 `pb-72` 撑滚动余量避免滚到底被固定底栏遮住）。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死为 0（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → `assets/ui-girl/` → 双端 `public/girl/`（2026-09-11 v2 重做：去 WiFi 呆毛改卷曲呆毛、8 张全套替换、图标同步重制） |
 | `SponsorCard.tsx` | 赞助下拉浮层 (2026-09-04)。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭。锚定标题栏赞助按钮下方自然向下展开（fixed top-[52px] right-[104px]，带指向按钮的小箭头，z-[60]，高于 DockNav 菜单同级低于 toast z-100），自动弹出与手动入口共用此浮层。内嵌微信/支付宝收款码 (public/sponsor-weixin.png / sponsor-alipay.jpg)。浮层顶部居中渲染赞助看板娘（MascotFigure variant=sponsor，2026-09-11）。文案走 i18n sponsor 段 + about.sponsor |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个: dashboard/account/network/monitor/quality/settings/log/speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult 等 10 个导出) |
@@ -1649,7 +1649,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 |------|------|
 | `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝色Wifi/有线绿色Cable图标, 300ms延迟关闭/150ms延迟打开)，选择项收敛为主/副适配器（`scopedAdapters`，2026-09-04），GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流。tooltip 水平居中用 Tailwind `-translate-x-1/2`（2026-09-03：原 inline `translateX(-50%)` 覆盖 class transform 导致上浮动画失效） |
 | `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画。清空日志 GSAP 动画 stagger 动态封顶（>8条0.05s/>4条0.1s，2026-09-03：原固定 0.2s/条，日志满 300 条时动画约 60 秒且按钮禁用无法取消），与 LogPanel 同策略 |
-| `TitleBar.tsx` | 标题栏，应用图标+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/赞助Heart/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
+| `TitleBar.tsx` | 标题栏，看板娘头像 logo（mascot-portrait 圆形裁剪 w-10，2026-09-11 由 w-7 放大以突出形象）+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/赞助Heart/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
 
 ### 5.7 延迟颜色 — `lib/latency.ts`
 
