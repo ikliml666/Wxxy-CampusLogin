@@ -3,7 +3,7 @@ pub mod network;
 pub mod exit;
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use crate::config::model::Config;
 use store::ConfigStore;
 use network::NetworkState;
@@ -88,6 +88,11 @@ pub struct UpdateStats {
     pub last_disabled_notification_ms: AtomicU64,
     pub last_network_change_notification_ms: AtomicU64,
     pub last_render_heartbeat_ms: AtomicU64,
+    /// WebView 恢复动作（reload）滑动窗口起点 epoch ms（app/webview_recovery.rs），
+    /// 0 表示尚未触发过恢复
+    pub webview_recovery_window_start_ms: AtomicU64,
+    /// 当前恢复窗口内已执行的 reload 次数
+    pub webview_recovery_count: AtomicU32,
 }
 
 impl Default for UpdateStats {
@@ -104,6 +109,8 @@ impl UpdateStats {
             last_disabled_notification_ms: AtomicU64::new(0),
             last_network_change_notification_ms: AtomicU64::new(0),
             last_render_heartbeat_ms: AtomicU64::new(0),
+            webview_recovery_window_start_ms: AtomicU64::new(0),
+            webview_recovery_count: AtomicU32::new(0),
         }
     }
 }

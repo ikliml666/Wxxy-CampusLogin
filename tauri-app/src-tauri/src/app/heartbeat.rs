@@ -43,10 +43,12 @@ pub fn spawn_heartbeat_thread(app_handle: AppHandle) {
             if elapsed > crash_threshold_ms {
                 consecutive_stale += 1;
                 if consecutive_stale >= 3 {
-                    crate::log_warn!("heartbeat", "前端心跳丢失 {}ms，尝试重载WebView", elapsed);
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.eval("window.location.reload()");
-                    }
+                    // 恢复动作收敛到 webview_recovery：滑动窗口限流 + webview 失效升级日志，
+                    // 与 ProcessFailed 事件路径共用同一限流器，避免两条路径 reload 叠加空转
+                    crate::app::webview_recovery::attempt_webview_recovery(
+                        &app_handle,
+                        &format!("前端心跳丢失 {}ms", elapsed),
+                    );
                     consecutive_stale = 0;
                 }
             } else {
