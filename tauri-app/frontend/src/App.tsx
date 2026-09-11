@@ -404,15 +404,15 @@ function AppInner() {
         />
       </div>
 
-      {/* 侧边看板娘:≥1520px 宽视口两侧垂直居中显示,随页面滚动恒定可见的低透明度装饰,不参与交互。
-          右侧偏移 304px 避让 w-72(288px) 的 RightPanel;1520px 以下无侧边空间,隐藏。 */}
+      {/* 侧边看板娘:≥1480px 宽视口两侧垂直居中显示,随页面滚动恒定可见的低透明度装饰,不参与交互。
+          右侧偏移 304px 避让 w-72(288px) 的 RightPanel;1480px 以下无侧边空间,隐藏。 */}
       <img
         src="/girl/mascot-side-wave.webp"
         alt=""
         aria-hidden="true"
         draggable={false}
         loading="lazy"
-        className="fixed left-2 top-1/2 -translate-y-1/2 z-0 hidden min-[1520px]:block w-56 opacity-[0.26] dark:opacity-[0.16] select-none pointer-events-none"
+        className="fixed left-2 top-1/2 -translate-y-1/2 z-0 hidden min-[1480px]:block w-48 opacity-[0.26] dark:opacity-[0.16] select-none pointer-events-none"
       />
       <img
         src="/girl/mascot-side-laptop.webp"
@@ -420,7 +420,7 @@ function AppInner() {
         aria-hidden="true"
         draggable={false}
         loading="lazy"
-        className="fixed right-[304px] top-1/2 -translate-y-1/2 z-0 hidden min-[1520px]:block w-56 opacity-[0.26] dark:opacity-[0.16] select-none pointer-events-none"
+        className="fixed right-[304px] top-1/2 -translate-y-1/2 z-0 hidden min-[1480px]:block w-48 opacity-[0.26] dark:opacity-[0.16] select-none pointer-events-none"
       />
 
       <DockNav
