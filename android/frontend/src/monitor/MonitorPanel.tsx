@@ -213,7 +213,8 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
 
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
+          {/* pb-5:验证设置卡标题与首个开关的间距,12px 过近,放宽到 20px(与卡片左右 padding 对齐) */}
+          <CardHeader className="pb-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <Settings2 className="h-5 w-5 text-primary" />

@@ -52,7 +52,8 @@ pub struct Settings {
     // 日志
     pub log_retention_days: u32,
     /// 配置结构版本:旧版本文件缺省反序列化为 0,load_from 据此执行一次性
-    /// 默认值迁移(0→1:后台检测间隔 15s→60s)。新装即 1,不再触发。
+    /// 默认值迁移(0→1:后台检测间隔 15s→60s;1→2:自动化登录/检测与网络验证、
+    /// 质量跳过项开关默认改为开启)。新装即 2,不再触发。
     pub config_schema_version: u32,
 }
 
@@ -65,12 +66,12 @@ impl Default for Settings {
             self_hello_enabled: true,
             self_reverify_each_action: false,
             operator: String::new(),
-            auto_login_on_start: false,
-            enable_background_check: false,
+            auto_login_on_start: true,
+            enable_background_check: true,
             // 2026-09-09 起 60s:后台检测是稳态周期任务,15s 间隔空转耗电,
             // 旧配置由 migrate_legacy_defaults 按 schema 版本一次性迁移
             background_check_interval: 60_000,
-            auto_login_on_preparation: false,
+            auto_login_on_preparation: true,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             theme_mode: "dark".to_string(),
@@ -82,17 +83,17 @@ impl Default for Settings {
             enable_latency_test: false,
             latency_test_interval: 60_000,
             enable_network_quality: true,
-            skip_ttfb_in_latency: false,
-            skip_content_in_latency: false,
+            skip_ttfb_in_latency: true,
+            skip_content_in_latency: true,
             portal_url: "http://10.1.99.100".to_string(),
             fixed_gateway: "10.2.127.254".to_string(),
             required_network_name: "i-wxxy".to_string(),
-            enable_network_name_check: false,
+            enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
-            config_schema_version: 1,
+            config_schema_version: 2,
         }
     }
 }
@@ -203,18 +204,27 @@ pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, St
     Ok(s)
 }
 
-/// 旧默认一次性迁移(schema v0→v1):后台检测间隔 15s 是历史默认值,统一升为
-/// 当前默认 60s(稳态功耗)。迁移结果(含版本号)落盘,此后用户主动设回 15s
-/// 不会再被覆盖。落盘失败静默:下次读盘重迁,幂等。
+/// 旧默认一次性迁移:
+/// v0→v1:后台检测间隔 15s 是历史默认值,统一升为当前默认 60s(稳态功耗);
+/// v1→v2(2026-09-10):自动化登录/检测与网络验证、质量跳过项开关历史默认
+/// false 改为开启,存量配置文件里显式落的 false 一并刷为 true(开发阶段统一
+/// 开箱即用)。迁移结果(含版本号)落盘,此后用户主动关回不会再次覆盖;
+/// 落盘失败静默:下次读盘重迁,幂等。
 async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Settings) {
-    if s.config_schema_version >= 1 {
-        return;
-    }
-    if s.background_check_interval == 15_000 {
+    let migrated = s.config_schema_version < 2;
+    if s.config_schema_version < 1 && s.background_check_interval == 15_000 {
         s.background_check_interval = 60_000;
     }
-    s.config_schema_version = 1;
-    let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+    if migrated {
+        s.auto_login_on_start = true;
+        s.enable_background_check = true;
+        s.auto_login_on_preparation = true;
+        s.enable_network_name_check = true;
+        s.skip_ttfb_in_latency = true;
+        s.skip_content_in_latency = true;
+        s.config_schema_version = 2;
+        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+    }
 }
 
 pub async fn save_to(dir: &Path, bridge: &CryptoBridge, s: &Settings) -> Result<(), String> {
@@ -415,30 +425,53 @@ mod tests {
         assert_eq!(s.required_network_name, "i-wxxy");
         assert_eq!(s.theme_mode, "dark");
         assert_eq!(s.background_check_interval, 60_000);
-        assert_eq!(s.config_schema_version, 1, "新装即当前版本,不触发迁移");
+        assert_eq!(s.config_schema_version, 2, "新装即当前版本,不触发迁移");
         assert_eq!(s.max_disconnect_reconnect, 3);
         assert!(s.self_hello_enabled);
         assert!(s.enable_network_quality);
+        // 2026-09-10 起开箱即用:自动化登录/检测、网络验证、质量跳过项默认开启
+        assert!(s.auto_login_on_start);
+        assert!(s.enable_background_check);
+        assert!(s.auto_login_on_preparation);
+        assert!(s.enable_network_name_check);
+        assert!(s.skip_ttfb_in_latency);
+        assert!(s.skip_content_in_latency);
+        // 开机自启不属于登录自动化,保持用户主动开启
+        assert!(!s.enable_boot_autostart);
     }
 
     #[tokio::test]
     async fn 迁移_旧默认15s升60s且落盘后用户值不被覆盖() {
         let dir = tmp_dir("migrate");
         let bridge = fake_bridge();
-        // 构造 v0 旧配置:15s 间隔(历史默认值)
+        // 构造 v0 旧配置:15s 间隔(历史默认值)+ 历史默认关闭的自动化/验证开关
         let mut old = sample_settings();
         old.config_schema_version = 0;
         old.background_check_interval = 15_000;
+        old.auto_login_on_start = false;
+        old.enable_background_check = false;
+        old.auto_login_on_preparation = false;
+        old.enable_network_name_check = false;
+        old.skip_ttfb_in_latency = false;
+        old.skip_content_in_latency = false;
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 60_000, "旧默认应迁移为 60s");
-        assert_eq!(back.config_schema_version, 1);
-        // 迁移已落盘:此后用户主动设回 15s 是明确意图,不再被覆盖
+        assert!(back.auto_login_on_start, "v2 迁移应刷开自动化登录");
+        assert!(back.enable_background_check);
+        assert!(back.auto_login_on_preparation);
+        assert!(back.enable_network_name_check);
+        assert!(back.skip_ttfb_in_latency);
+        assert!(back.skip_content_in_latency);
+        assert_eq!(back.config_schema_version, 2);
+        // 迁移已落盘:此后用户主动设回 15s/关开关是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.background_check_interval = 15_000;
+        manual.auto_login_on_start = false;
         save_to(&dir, &bridge, &manual).await.unwrap();
         let back2 = load_from(&dir, &bridge).await.unwrap();
-        assert_eq!(back2.background_check_interval, 15_000, "v1 配置不再迁移");
+        assert_eq!(back2.background_check_interval, 15_000, "v2 配置不再迁移间隔");
+        assert!(!back2.auto_login_on_start, "v2 配置下用户主动关闭不被覆盖");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -452,7 +485,7 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 30_000, "非旧默认值不迁移");
-        assert_eq!(back.config_schema_version, 1);
+        assert_eq!(back.config_schema_version, 2);
         std::fs::remove_dir_all(&dir).ok();
     }
 
