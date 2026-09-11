@@ -11,7 +11,7 @@
 
 ### 1.1 定位
 
-CampusLogin 是无锡学院校园网（Dr.COM ePortal）自动登录助手，**Tauri 2 双端同构应用**：Windows 桌面端（`tauri-app/`）与安卓端（`android/`，2026-09-10 并入本仓库）共用同一协议核心（安卓以 Cargo path 依赖桌面 crate），登录/注销/Portal 探测/自助服务/网络质量协议零复制，命令面同名对齐，UI 各自适配（桌面 Dock 布局 / 移动底部导航）。提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理、运营商绑定与自助服务查询。
+CampusLogin 是无锡学院校园网（Dr.COM ePortal）自动登录助手，**Tauri 2 双端同构应用**：Windows 桌面端（`tauri-app/`）与安卓端（`android/`，2026-09-10 并入本仓库）共用同一协议核心（安卓以 Cargo path 依赖桌面 crate），登录/注销/Portal 探测/自助服务/网络质量协议零复制，命令面同名对齐，UI 各自适配（桌面 Dock 布局 / 安卓双外壳：平板复用 Dock 布局 + 手机移动底部导航）。提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理、运营商绑定与自助服务查询。
 
 ### 1.2 技术栈与核心特性
 
@@ -67,7 +67,7 @@ Wxxy-CampusLogin/
 │           ├── self_service/        # Dr.COM Self 自助服务协议
 │           └── helper/ update/      # --helper 提权子进程；更新检查/下载/SHA256 校验
 ├── android/                         # 安卓端（2026-09-10 由独立仓库并入；详解见附录 A §4.16 / B §5.14）
-│   ├── frontend/                    # React 前端（桌面复刻+移动裁剪；VITE_PLATFORM=android 平台分支）
+│   ├── frontend/                    # React 前端（桌面复刻+移动裁剪；VITE_PLATFORM=android 平台分支；平板/手机双外壳——useFormFactor 短边≥600dp 判平板渲染 TabletShell 桌面布局）
 │   ├── src-tauri/                   # 安卓 Rust 后端（14 模块；campus-login path 依赖桌面协议核心）
 │   │   └── gen/android/             # tauri CLI 生成的 gradle 工程（版本化提交，build 产物不入库）
 │   └── plugins/                     # 手写 Tauri 插件: keystore / foreground-service(MonitorService+installApk) / network-bind
@@ -1724,6 +1724,18 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **生物识别**: 新增 `@tauri-apps/plugin-biometric`（BiometricPrompt，兜底锁屏凭据）对应桌面 Windows Hello；验证成功调 `verify_biometric_identity` 写后端 TTL
 - **关于对话框**: `AboutDialogMobile.tsx` 移动版
 - **tauri.conf.json**: identifier `com.campuslogin.client`、窗口 400×800（移动竖屏）、`bundle.android.minSdkVersion` 29（Android 10+）、devUrl 5174
+
+### 5.14.1 平板/手机双外壳 — 平板/手机形态区分 (2026-09-10)
+
+安卓端同一 APK 需同时覆盖手机与平板。运行时按**设备短边**区分形态（`hooks/useFormFactor.ts`）：`Math.min(innerWidth, innerHeight) >= 600` 判为平板——即 Android 官方 **sw600dp（smallest-width）** 语义（viewport `width=device-width` 时 1 CSS px ≈ 1dp），与 react-native-device-info 的 `smallestScreenWidthDp >= 600`、Flutter 社区 `shortestSide >= 600` 惯例同源。**不用"宽>高"判方向**：手机横屏宽>高但短边仍 <600 仍是手机，平板竖屏宽<高但短边仍 ≥600 仍是平板，旋转不翻转结论；`resize`+`orientationchange` 监听实现旋转/分屏实时切换（无需刷新）。
+
+- **双外壳路由**（`App.tsx`）: `formFactor === 'tablet'` 渲染 `components/tablet/TabletShell.tsx`（桌面 Dock 布局），否则渲染原移动外壳 `AppInner`（顶 header + 单列卡流 + 底部 5 tab）。两外壳各自调用 `useAppInit`，仅渲染其一不重复初始化。
+- **TabletShell 复用面**: TitleBar/StatusBar/RightPanel/DockNav 与桌面端同源副本（样式零改动）；面板内容全用安卓版——总览=MobileDashboard（安卓 DashboardPanel + 移动卡注入）、设置=安卓 SettingsPanel（生物识别等安卓项保留、Windows 专属项经 `VITE_PLATFORM` 内部裁剪）、账号/自助服务/监控/测速/日志均为安卓裁剪版面板。**network 面板不接入**（安卓 NAV_ITEMS 无此项，DNS 优化为 Windows 注册表能力）。
+- **TabletShell 相对桌面 App 的裁剪**: 无窗口控制（TitleBar 新增 `showWindowControls?: boolean`，安卓副本传 false 隐藏最小化/最大化/关闭三键并禁用 `startDragging`/双击最大化——安卓无窗口管理 API，`minimizeWindow` 等在安卓 tauriApi 是 `desktopOnly` 必 reject）；无 useStartupBoost 开场序列与 Onboarding 向导（无账号引导与移动外壳同款直达账号页，共用 `campus-onboarding-done` 标记）；无赞助自动弹出；面板过渡沿用移动外壳轻量 y 位移变体；根容器去桌面 `min-w-[800px]`（平板竖屏 600-800dp 会被压出横向滚动）；标题栏外层加 `env(safe-area-inset-top)`、DockNav bottom 改 `calc(1.25rem + env(safe-area-inset-bottom))`（安卓 edge-to-edge 状态栏/手势条）。
+- **DockNav 触屏化**（安卓副本）: 模块级 `IS_TOUCH = matchMedia('(hover: none)')`——触屏设备无 hover，登录/注销按钮**首次点击弹适配器菜单**（已选过则直接执行），菜单顶部新增"自动检测"项（用 `resolveAdapterNames` 同源算出的主适配器执行，与后端规则一致），保留"不指定适配器"路径；鼠标设备行为完全不变。
+- **触屏缩放分层**（2026-09-10）: 桌面布局件按鼠标设计，TabletShell 内以 CSS `zoom` 分层适配触屏——顶部两栏（TitleBar/StatusBar 包裹层）`TOPBAR_ZOOM=1.3`（标题栏按钮 28→36px），内容区（main+RightPanel 父容器）`CONTENT_ZOOM=0.9`；safe-area padding 置于 zoom 层外；DockNav 不缩放。系数为 TabletShell 顶部常量，真机体验后可调。
+- **竖屏隐藏日志侧栏**（2026-09-10）: `useFormFactor.ts` 另提供 `useOrientation`（宽≥高为横屏）。TabletShell 竖屏时不渲染 RightPanel（日志经 Dock"日志"面板仍可达），并把根容器 `--right-panel-width` 置 0px——DockNav 宽度公式 `calc(100vw - var(--right-panel-width, 288px))` 由此自动从"视口-288 居中"切到全视口居中，横屏恢复默认。
+- **副本分叉警示**: `TitleBar.tsx`/`DockNav.tsx` 此前与桌面端逐字节相同（SAME），本次在安卓副本加入分叉（showWindowControls/IS_TOUCH/safe-area）。**后续从桌面同步这两个文件时不可整文件覆盖**，需人工比对分叉点。
 
 ---
 
