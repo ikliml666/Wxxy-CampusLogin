@@ -1,16 +1,21 @@
 # Wxxy-CampusLogin
 
-无锡学院校园网登录助手 — 基于 Tauri 2 + React 19 的 Windows 桌面应用
+无锡学院校园网登录助手 — 基于 Tauri 2 + React 19，Windows 桌面 + Android 双端应用
 
 ![version](https://img.shields.io/badge/version-2.3.4-blue)
-![platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)
+![platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20Android-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 <img alt="screenshot" src="assets/screenshot-main.png" />
 
 ## 下载安装
 
-前往 [Releases](https://github.com/ikliml666/Wxxy-CampusLogin/releases) 下载最新安装包（`Wxxy-CampusLogin_{版本}_x64-setup.exe`），双击安装即可。应用内置更新检查，新版本发布后会自动提示。
+前往 [Releases](https://github.com/ikliml666/Wxxy-CampusLogin/releases) 下载最新版本：
+
+- **Windows**：`Wxxy-CampusLogin_{版本}_x64-setup.exe`，双击安装即可
+- **Android**：`Wxxy-CampusLogin_{版本}.apk`，安装需允许"未知来源应用"（系统版本要求 Android 10+）
+
+两端应用均内置更新检查，新版本发布后会自动提示（安卓端支持应用内下载 APK 并唤起系统安装器）。
 
 ## 功能特性
 
@@ -35,6 +40,14 @@
 - **用户自助服务** — 一键打开校园网自助服务系统
 - **中英语言切换** — 标题栏一键切换，默认中文
 
+**安卓端**（`android/`，与桌面端共享同一 Rust 协议核心，功能同名对齐）：
+
+- 一键登录 / 两步注销、后台断线自动重登（前台服务 + 常驻通知 + WifiLock 保活）
+- 校园网检测（/18 子网匹配 + Portal 可达性探测）、网络质量监测与定时测试
+- 多账号管理（AndroidKeyStore AES-GCM 加密存储）、运营商账号绑定与自助服务查询（敏感操作经系统 BiometricPrompt 生物识别验证）
+- 开机自启、运行日志面板、应用内更新（下载 APK 唤起系统安装器）
+- 平台差异：系统托盘、Windows Hello、DNS 优化、双适配器/有线管理为桌面专属；安卓端登录流量强制绑定 WLAN（`bindProcessToNetwork`，不走蜂窝数据）
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -44,8 +57,8 @@
 | 样式 | TailwindCSS 3.4 + Framer Motion 12 + GSAP 3 |
 | 后端 | Rust + Tokio |
 | 网络 | reqwest 0.12 + tokio-rustls 0.26 + hickory-resolver 0.24 |
-| 加密 | Windows DPAPI |
-| 平台 | Windows (Win32/WinRT API, Windows Hello) |
+| 加密 | Windows DPAPI（桌面）/ AndroidKeyStore AES-256-GCM（安卓） |
+| 平台 | Windows (Win32/WinRT API, Windows Hello)；Android (前台服务, BiometricPrompt, minSdk 29) |
 | 国际化 | react-i18next + i18next-browser-languagedetector |
 
 ## 项目结构
@@ -86,6 +99,18 @@ Wxxy-CampusLogin/
 │       ├── icons/           # 应用图标
 │       ├── Cargo.toml
 │       └── tauri.conf.json
+├── android/                 # 安卓端（与桌面共享协议核心，Cargo path 依赖）
+│   ├── frontend/            # React 前端（桌面复刻 + 移动裁剪，底部导航布局）
+│   ├── src-tauri/           # 安卓 Rust 后端（监控循环/加密配置/校园网探针/更新）
+│   │   ├── src/
+│   │   │   ├── lib.rs           # 入口（44 个 Tauri 命令，与桌面同名对齐）
+│   │   │   ├── protocol_cmds.rs # 登录/注销/Portal 探测（复用桌面协议核心）
+│   │   │   ├── campus_detect.rs # 校园网探针（子网匹配 + Portal TCP 可达）
+│   │   │   ├── config_state.rs  # 配置管理（AndroidKeyStore 加密落盘）
+│   │   │   ├── monitor_loop.rs  # 后台检测 + 断线自动重登状态机
+│   │   │   └── ...              # 自助服务/账号/日志/更新/SoC 分档等
+│   │   └── gen/android/     # Tauri 生成的 Gradle 工程（产物不入库）
+│   └── plugins/             # 手写 Tauri 插件（keystore / foreground-service / network-bind）
 └── CODE_WIKI.md             # 详细代码文档
 ```
 
@@ -121,6 +146,22 @@ npx tauri dev
 pwsh tauri-app/build.ps1
 ```
 
+### 安卓构建
+
+前置要求：[Android Studio](https://developer.android.com/studio)（SDK + NDK + JDK 17）、`ANDROID_HOME` / `NDK_HOME` / `JAVA_HOME` 已配置、`rustup target add aarch64-linux-android`。Windows 需开启开发者模式（允许符号链接）。
+
+```bash
+# 真机 / 模拟器调试
+cd android/frontend && npm install && npm run dev
+cd ../src-tauri && npx @tauri-apps/cli android dev
+
+# 构建发布 APK（tauri CLI 不执行 beforeBuildCommand，前端必须先单独构建）
+cd ../frontend && npm install && npm run build
+cd ../src-tauri && npx @tauri-apps/cli android build --target aarch64 --apk
+```
+
+> 安卓端协议核心经 Cargo path 依赖桌面 crate（`tauri-app/src-tauri`），构建前请先完成桌面端依赖安装（`tauri-app/src-tauri` 可编译）。安卓 Rust 侧依赖 mobile-only 插件，host `cargo check` 不可用，以 `tauri android build` 交叉编译结果为准。
+
 ### 测试
 
 项目包含后端 Rust 测试和前端 TypeScript 测试，CI 前请确保全部通过。
@@ -144,6 +185,9 @@ npx tsc --noEmit --incremental
 ## 安全说明
 
 - 密码使用 Windows DPAPI 加密存储，绑定当前 Windows 用户（登录密码与自助服务密码同措施）
+- 安卓端密码使用 AndroidKeyStore AES-256-GCM 加密存储（密钥硬件隔离，随应用卸载销毁），磁盘文件不含明文；敏感操作经系统 BiometricPrompt 验证，后端校验验证时效（600 秒 TTL）
+- 登录/注销流量强制绑定 WLAN 接口（`ConnectivityManager.bindProcessToNetwork`），物理上不经蜂窝数据发送
+- 应用内更新下载域名白名单校验 + 500MB 上限 + SHA256 完整性校验（GitHub API digest 优先），APK 安装路径限定应用更新目录
 - 前端显示密码为 `***`，不暴露明文；保存时空密码不覆盖旧密码；所有配置出站路径统一经后端掩码出口，明文不出后端
 - 查看运营商账户密码明文需通过 Windows Hello 验证，后端校验验证时效（600 秒 TTL），绕过前端也无法获取明文
 - HTTP 客户端默认 TLS 1.3，回退 TLS 1.2

@@ -1368,6 +1368,58 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 ---
 
+### 4.16 安卓端后端 — `android/src-tauri/` (2026-09-10 并入本仓库)
+
+**总原则（与桌面端的复用边界）**: 协议核心**单点共享**——`campus-login = { path = "../../tauri-app/src-tauri" }`，登录/注销/Portal 探测/自助服务/网络质量/日志系统直接复用桌面 crate，**禁止复制协议逻辑**；桌面侧 cfg 门控模块（app/helper/monitor/update/platform Windows 部分）对安卓不可见。安卓侧只做三件事：**平台探针**（校园网判定/源 IP）、**状态管理**（Keystore 加密配置 + 监控状态机）、**命令面包装**（44 个命令与桌面同名对齐，前端 tauriApi 两端一致）。
+
+**入口 `lib.rs`** (102 行): `#[cfg_attr(mobile, tauri::mobile_entry_point)]`。插件注册顺序：`campus_network_bind` → `campus_keystore` → `campus_monitor_service` → `tauri_plugin_biometric`（host 编译为空的 mobile-only crate）→ `tauri_plugin_notification` → `tauri_plugin_opener`。Setup 钩子：日志初始化到 `app_data_dir/logs`（与桌面 `infra::logger::get_log_dir` 的 android 分支一致）→ `monitor_loop::run_startup_tasks`（启动恢复，见下）。`generate_handler!` 注册 44 个命令。
+
+#### 4.16.1 模块清单
+
+| 模块 | 行数 | 职责 |
+|------|------|------|
+| `protocol_cmds.rs` | 180 | 登录/注销/Portal 探测/WiFi 绑定命令（包装桌面协议核心） |
+| `campus_detect.rs` | 220 | 校园网探针：源 IP 选取 + 三层判定 + `detect_campus`/`check_campus_status` |
+| `config_state.rs` | 509 | 全量配置 Settings（Keystore 加密落盘/掩码出口/schema 迁移）+ `CryptoBridge` |
+| `monitor_loop.rs` | 588 | 后台监控状态机：tick 检测 → 自动重登 → 事件推送 + 启动恢复编排 |
+| `self_service_cmds.rs` | 318 | 自助服务六命令 + 生物识别验证门（包装桌面 self_service 协议） |
+| `identity_gate.rs` | 66 | 验证门 TTL 时间戳（600s，语义同构桌面 platform/identity.rs） |
+| `account_cmds.rs` | 238 | 多账号管理（与桌面 commands/account.rs 同构）+ 全局配置 IO 串行锁 |
+| `system_cmds.rs` | 160 | `get_init_data` 聚合 + 日志族 + `get_soc_info` 设备分档 |
+| `quality_cmds.rs` | 73 | 网络质量/定时延迟测试（复用跨平台 network::quality） |
+| `update_cmds.rs` | 418 | 更新检查（镜像降级）+ APK 流式下载 + SHA256 校验 + 安装 |
+| `login_history.rs` | 142 | 登录历史追加（manual/auto 来源） |
+| `cpu_affinity.rs` | 69 | 大小核拓扑识别 + 线程绑小核（功耗适配） |
+| `android_state.rs` | 13 | 进程态：wlan0 源 IP 缓存 + 配置内存态 |
+
+#### 4.16.2 关键设计
+
+- **登录/注销（protocol_cmds.rs）**: `do_login`/`do_logout` 参数与桌面同名对齐（adapter 参数收下不用），凭据空/MASK 时回退已存配置（总览一键登录免输凭据）。桌面 `do_login_with_retry`/`do_logout_with_retry` 是同步函数（内部 `block_on_http` 桥接），**禁止在 async 上下文直调**，一律 `tauri::async_runtime::spawn_blocking`。源 IP 用检测阶段缓存的 wlan0 地址（`AndroidState.cached_source_ip`）。敏感纪律：日志/错误/事件 payload 不携带 password。注销成功设 60s 注销保护期（防后台检测把用户自动登回）；手动登录成功清自动重登熔断计数与保护期。
+- **校园网探针（campus_detect.rs）**: 安卓**无 SSID 通道且非 root 无 ICMP**（原始 socket 被 SELinux 禁止，surge-ping 不可用），桌面三层判定（SSID→子网→ICMP 网关）的安卓版改为：**/18 子网判定**（复用桌面纯函数 `is_same_subnet_18`）→ **网关 TCP 可达**（内网地址，救回跨 /18 的 AP 区段）→ **Portal TCP 可达**（最后兜底；配置公网 portal 域名时家宽也可能连通，属已知边界）。源 IP 选取 `pick_campus_source_ip`：排除蜂窝接口（`rmnet*` 高通系/`ccmni*` MTK 系——登录流量绝不出走移动数据）、link-local/回环，wlan0 优先。`check_campus_status` 形状对齐桌面 `network_cmd.rs`，`currentSsid` 恒空（无 netsh）。
+- **配置管理（config_state.rs）**: `Settings` 30 字段 camelCase 契约对齐桌面 `Config` 可适用子集（含 `update_source` 更新渠道、`config_schema_version`）。密码落盘形态 `EncodedSettings`：**密码字段与密文分离**（`passwordCipher`/`selfPasswordCipher`），Settings 内密码恒空——加密失败置空而非让配置不可用，解密失败（密钥变更/篡改）同样置空继续加载。`CryptoBridge` 抽象：真机走 keystore 插件，host 测试注入可逆假桥（base64），密码路径可测。出站一律 `masked_for_display`（非空→`***`，对齐桌面 `Config::masked_for_display` 唯一出口语义）；`resolve_password_field` 空/MASK 回退已存值 + `clear` 标志显式清除（与桌面 save_config 同构）。写入 tmp + rename 原子落盘。schema v0→v1 一次性迁移：旧默认后台检测间隔 15s 升 60s（稳态功耗），迁移落盘后用户主动设回不再覆盖。
+- **监控状态机（monitor_loop.rs）**: `MonitorState` 全原子字段（running/check_count/consecutive_failures/reconnect_count/was_online/desired_interval_ms/logout_protected_until_ms）。tick 流程 `run_check_once` 五步：①校园网判定（顺带刷新源 IP 缓存）②Portal 探测——**专用短命线程绑小核**执行（60s 一拍的稳态周期任务，不占共享 worker 池拖累登录等前台任务；绑核失败静默回落内核调度）③**三态消费**：仅"确定判定"（`error_kind=None`）才翻转在线状态，Unknown（已在线页面特征失配）/Failed（超时）不构成可信离线证据，保持上一拍记忆（否则 Portal GBK 页面特征间歇失配即误判掉线）④自动重登判定：纯函数 `should_attempt_login`（在线/掉线/非校园网/重连上限/cooldown）+ 调用侧两道闸——**注销保护期 60s**（手动注销后不自动登回）+ **连续失败熔断 5 次**（凭据错误无限重试耗流量）⑤emit `background-check-result`（字段对齐桌面可适用子集）+ 更新常驻通知文案。间隔热更新：`start_background_check` 刷新 `desired_interval_ms`，循环体逐 tick 对比重建计时器（改间隔立即生效）。`run_startup_tasks` 启动恢复（对齐桌面 watcher::run_startup_tasks）：500ms 就绪窗口后读配置，三条启动链**并行 spawn**（后台检测/质量首测或定时测试/启动自动登录——2026-09-09 由串行改并行，冷启动登录不再被 12 域名质量首测压尾）+ 24h 更新检查循环；启动探测 `probe_with_retry` 未确认校园网时 3s 后重试一次（开机自启 DHCP 未就绪场景）。
+- **生物识别验证门（identity_gate.rs + self_service_cmds.rs）**: 前端 BiometricPrompt 认证成功后调 `verify_biometric_identity` 写 TTL 时间戳（600s，`AtomicU64`，时钟回拨视为过期）。`ensure_identity_gate` 语义同构桌面：`selfHelloEnabled` 关闭放行、TTL 内放行否则拦截；**改状态命令设门（bind_operator/self_offline_session），查询类不设门，reveal_operator_credential 无论开关强制验证**。协议六命令全部包装桌面 `campus_login_lib::self_service`，`local_addr` 绑定缓存源 IP。
+- **多账号（account_cmds.rs）**: 一账号一 JSON（同 EncodedSettings 格式，仅目录不同）、切换合并登录字段、账号名消毒正则（1-32 字符字母/数字/下划线/中文/连字符，防路径穿越）。**`CONFIG_IO_LOCK` tokio 异步锁**：save_config/switch/delete/boot_autostart/通知开关并发读改写的互斥（guard 需跨 await 覆盖 load→merge→save 全序列）。
+- **系统信息（system_cmds.rs）**: `get_init_data` 补桌面专属字段空默认（gpuInfo=null/adapters=[] 等）防前端 `useInitialDataLoad` 读 undefined 崩溃。`get_soc_info`：读 `ro.soc.model`（Android 12+ CDD 强制属性）分档 tier 0-3（骁龙 8 系全代 SM8250-SM8750 + 天玑 9300/9400 = 3 旗舰；骁龙 7 系/天玑 8 系 = 2；注意 8s Gen3=SM8635 是中端不能按 SM86 前缀误判），无属性值按大核数（≥1.8GHz）/内存启发式兜底；前端据此调帧率。
+- **更新流（update_cmds.rs）**: `check_update` 按 `update_source` 渠道排序 version.json 4 源（ghfast.top/gh-proxy.com/ghproxy.net 镜像与 GitHub 官方互为降级）→ GitHub API 拉 APK 资产与**服务端 digest**（最可信校验源）→ `download_update` 域名白名单（8 个 host，防 SSRF）+ 500MB 上限 + 200ms 节流进度事件 + SHA256 强制比对（API digest 优先，version.json 兜底；不匹配删文件）→ `install_update` 路径 canonicalize 限定应用更新目录内。24h 自动检查循环（桌面同语义），有新版 emit + 系统通知。
+- **绑核（cpu_affinity.rs）**: 解析 `/sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq` 按频率分簇，最低频簇=小核（A55 类）；**频率差 <30% 视为同构不绑定**；`libc::sched_setaffinity` 绑定。所有失败静默返回 false——只影响功耗不影响正确性。
+
+#### 4.16.3 手写 Tauri 插件 — `android/plugins/` (Rust 壳 + Kotlin 实现)
+
+| 插件 | 组成 | 要点 |
+|------|------|------|
+| `keystore` | KeystorePlugin.kt (90 行) | AndroidKeyStore **AES-256-GCM**，key alias `campus_login_master`（不存在则生成，硬件隔离），IV(12B)+密文 Base64 编解码；密钥按包名隔离——**改包名=密码密文作废**（用户卸载重装） |
+| `foreground-service` | ForegroundService.kt (166 行) + MonitorServicePlugin.kt (153 行) + BootReceiver | 见下 |
+| `network-bind` | NetworkBindPlugin.kt (35 行) | `ConnectivityManager.bindProcessToNetwork(wifi)` 把进程网络绑定到 WLAN——登录流量物理上只走 WiFi；`unbind` 恢复系统默认路由 |
+
+**foreground-service 插件**（保活三件套 + 自启 + 装 APK）:
+
+- `ForegroundService`: 只做保活（监控逻辑在 Rust 侧循环，服务被回收=进程死亡=循环终止，状态天然一致）。START_STICKY；前台通知走**标准安卓协议**——ongoing + Chronometer 计时（起点固定为服务启动时刻，每拍更新文案不动计时）+ CATEGORY_SERVICE，即 Android 16 promoted ongoing 特征，ColorOS 流体云/HyperOS 原生通道按 Live Updates 自动识别（用户侧需开"实时通知提升"类权限），不做厂商私有 extras；FGS type `SPECIAL_USE`（API 34+）。**WifiLock**（`WIFI_MODE_FULL_HIGH_PERF`，抑制 WiFi 省电断流）+ **网络事件驱动短持 WakeLock**：NetworkCallback 的 onAvailable/onLost/onCapabilitiesChanged 时短持 3s PARTIAL_WAKE_LOCK nudge，保证 Rust 轮询 tick 在 CPU 唤醒窗口内立即执行，其余时间不持锁系统可正常 suspend（长持 WakeLock 的省电反模式被显式避开）。
+- `MonitorServicePlugin`: `startMonitor`/`stopMonitor`（停止走 ACTION_STOP 意图让服务自杀，避免 stopService 与 startForeground 竞态）/`updateNotification`（与服务侧共用同一构建函数保证通知形态一致）/`installApk`（**FileProvider content:// URI** 交系统包安装器——应用私有目录 file:// 对 Android 7+ 必失败 FileUriExposedException；文件名只取末段防路径逃逸）/`setBootAutostart`（`setComponentEnabledSetting` 启停 BootReceiver 组件 + SharedPreferences 记忆）/`isBootAutostartEnabled`。
+- `BootReceiver`: ACTION_BOOT_COMPLETED 时（且用户开启过自启）拉起前台服务 + **best-effort 拉起 MainActivity**——Rust 监控循环/自动登录/定时测试由 tauri Activity 的 setup→run_startup_tasks 驱动，FGS 只是通知壳；Android 10+ 后台启 Activity 受 ROM 限制（MIUI 需"后台弹出界面"权限），被拦时常驻通知仍在，用户点开 app 一次即恢复完整链路。
+
+---
+
 ## 五、前端模块详解 (React/TypeScript)
 
 > **架构说明**: 前端采用业务域分目录架构，每个业务域目录包含面板组件、逻辑 Hook、类型定义和模块导出。类型定义分散在各业务域的 `types.ts` 中，而非集中在一个 `types/index.ts` 文件。
@@ -1708,6 +1760,18 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **ErrorBoundary 嵌套**: 外层 ErrorBoundary（L460）+ 面板内容 ErrorBoundary（L383）+ main.tsx ErrorBoundary
 - **useLogToastStore**: 独立 zustand store 用于 Toast 管理
 
+### 5.14 安卓端前端 — `android/frontend/` (2026-09-10 并入)
+
+**代码形态**: 独立 React 代码库（**桌面复刻 + 移动裁剪**，非源码级共享）——独立 package.json（版本号与桌面同步维护），vite alias 仅 `@ → ./src`，dev 端口 5174（strictPort）。目录结构与桌面 frontend 同构（auth/account/monitor/settings/shared/hooks/i18n/lib），测试基建不复刻。
+
+**平台判断**: `frontend/.env` 设 `VITE_PLATFORM=android`，源码经 `import.meta.env.VITE_PLATFORM === 'android'` 分支（消费点：AccountPanel/MonitorPanel/SettingsPanel/LogPanel 四处，如日志面板移动端改纵向布局）。
+
+**移动适配要点**:
+- **导航**: `BottomNav`（MobileTab 底部导航）替代桌面 DockNav；桌面件不渲染——TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/OnboardingWizard/SponsorCard（见 App.tsx 头部注释）
+- **生物识别**: 新增 `@tauri-apps/plugin-biometric`（BiometricPrompt，兜底锁屏凭据）对应桌面 Windows Hello；验证成功调 `verify_biometric_identity` 写后端 TTL
+- **关于对话框**: `AboutDialogMobile.tsx` 移动版
+- **tauri.conf.json**: identifier `com.campuslogin.client`、窗口 400×800（移动竖屏）、`bundle.android.minSdkVersion` 29（Android 10+）、devUrl 5174
+
 ---
 
 ## 六、IPC 通信完整清单
@@ -1764,6 +1828,22 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | `query_self_dashboard` | 自助服务在线设备查询（一次登录连拉两接口，原始 JSON 透传） |
 | `query_self_online_log` | 自助服务上网记录查询（严格 YYYY-MM-DD 日期校验，拒绝 start>end） |
 | `self_offline_session` | 踢设备下线（改变外部状态，经 `ensure_identity_gate` 后端验证门） |
+
+#### 6.1.1 安卓端命令面 (44 个，与桌面同名对齐)
+
+注册于 `android/src-tauri/src/lib.rs`，前端 `tauriApi` 接口面两端一致。桌面专属命令（app/helper/monitor 启动/DNS 设置/适配器管理/Windows Hello/窗口控制等）在安卓 cfg 门控不可见。
+
+| 模块 | 命令 |
+|------|------|
+| protocol_cmds | `do_login` / `do_logout` / `check_portal_status` / `ping_test` / `bind_to_wifi`（进程网络绑定 WLAN） |
+| campus_detect | `detect_campus`（阶段 1 检测卡详情） / `check_campus_status`（桌面同名，`currentSsid` 恒空） |
+| config_state | `get_config` / `save_config`（Keystore 加密落盘 + 掩码出口 + clear 标志） |
+| self_service_cmds | `verify_biometric_identity`（BiometricPrompt 成功后写后端 TTL） / `bind_operator` / `query_bind_status` / `query_self_dashboard` / `query_self_online_log` / `self_offline_session` / `reveal_operator_credential`（门语义同桌面：改状态设门、查询免门、reveal 强制） |
+| account_cmds | `list_accounts` / `switch_account` / `save_current_as_account` / `delete_account` / `get_active_account` |
+| system_cmds | `get_init_data`（补桌面字段空默认） / `get_soc_info`（SoC 分档 tier 0-3） / `get_logs` / `clear_logs` / `get_log_retention_days` / `set_log_retention_days` / `get_debug_mode` / `set_debug_mode` |
+| monitor_loop | `start_background_check` / `stop_background_check` / `trigger_background_check` / `get_background_status` / `get_boot_autostart` / `set_boot_autostart` / `get_notification_enabled` / `set_notification_enabled` |
+| quality_cmds | `check_network_quality` / `start_latency_test` / `stop_latency_test` |
+| update_cmds | `check_update` / `download_update` / `get_mirror_urls` / `install_update`（APK 路径限定更新目录 → FileProvider 唤起安装器） |
 
 ### 6.2 事件推送
 
@@ -2278,5 +2358,5 @@ let version = env!("APP_VERSION").to_string();
 
 ---
 
-*文档版本: v2.3.4 | 基于代码版本: CampusLogin v2.3.4 | 更新日期: 2026-09-10 | 同步 v2.3.4 全端版本号（Windows + 安卓）*
+*文档版本: v2.3.4 | 基于代码版本: CampusLogin v2.3.4 | 更新日期: 2026-09-11 | 补充安卓端详解（4.16 后端模块与手写插件 / 5.14 安卓前端 / 6.1.1 安卓命令面）*
 
