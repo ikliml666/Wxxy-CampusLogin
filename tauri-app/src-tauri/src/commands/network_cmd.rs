@@ -34,7 +34,8 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
     crate::log_info!("network", "启用适配器: {}", adapter_name);
     crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
     let adapter_name_log = adapter_name.clone();
-    tauri::async_runtime::spawn_blocking(move || enable_adapter_inner(&adapter_name)).await.map_err(|e| e.to_string())??;
+    // 手动启用按钮：允许 COM 提权失败后降级弹 UAC（行为不变）
+    tauri::async_runtime::spawn_blocking(move || enable_adapter_inner(&adapter_name, true)).await.map_err(|e| e.to_string())??;
     crate::log_info!("network", "适配器启用成功: {}", adapter_name_log);
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
