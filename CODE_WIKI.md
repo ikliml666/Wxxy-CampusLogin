@@ -1377,7 +1377,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 |------|------|------|
 | `keystore` | KeystorePlugin.kt (90 行) | AndroidKeyStore **AES-256-GCM**，key alias `campus_login_master`（不存在则生成，硬件隔离），IV(12B)+密文 Base64 编解码；密钥按包名隔离——**改包名=密码密文作废**（用户卸载重装） |
 | `foreground-service` | ForegroundService.kt (166 行) + MonitorServicePlugin.kt (153 行) + BootReceiver | 见下 |
-| `network-bind` | NetworkBindPlugin.kt (35 行) | `ConnectivityManager.bindProcessToNetwork(wifi)` 把进程网络绑定到 WLAN——登录流量物理上只走 WiFi（fwmark 进程级，探测 TcpStream/HTTP/DNS 全覆盖）；`unbind` 恢复系统默认路由。**调用时机（ensure_wifi_bound）**：启动自动登录、每拍探测/掉线重登、手动登录/注销/探测前均先绑定（失败只记日志不阻断，无 WiFi 回落默认路由）——修"WiFi+流量同开时未认证 WiFi 被系统降分、默认路由落蜂窝导致探测与登录走错网络" |
+| `network-bind` | NetworkBindPlugin.kt (~120 行) | 把进程网络绑定到 WLAN（`ConnectivityManager.bindProcessToNetwork`）——登录流量物理上只走 WiFi（fwmark 进程级，探测 TcpStream/HTTP/DNS 全覆盖）；`unbind` 恢复系统默认路由。**双路径**（2026-09-11 修复）：① 快速路径 `allNetworks` 取第一个 **带 `NET_CAPABILITY_INTERNET`** 的 WiFi 网络直接绑（只查 TRANSPORT_WIFI 会绑到系统判定无互联网的 WiFi，比不绑更糟）；② 失败回退 `requestNetwork`（3s 超时，在 `onAvailable` 回调内绑定）——Android 12+ 与部分 OEM 上 `allNetworks + bindProcessToNetwork` 会直接返回 false（WiFiFlutter#296、issuetracker#249023377），官方推荐回调内绑定；返回 `{bound, path, reason}`。**调用时机（`ensure_wifi_bound`）**：启动自动登录、每拍探测/掉线重登、**手动登录 `do_login`**、**手动探测 `check_portal_status`**、注销 `do_logout` 前均先绑定——手动两条链路此前漏绑，是"手点登录必然失败"的直接原因。**绑定成功后清空 HTTP 客户端池**（`network::client::clear_client_pool`）：fwmark 只在 socket 创建时生效，池里 keep-alive 的旧连接仍走绑前路由，复用等于绑定无效。日志走 `log_info!/log_warn!` 落盘（原 eprintln 只进 logcat，用户日志看不到绑定成败） |
 
 **foreground-service 插件**（保活三件套 + 自启 + 装 APK）:
 
@@ -1728,7 +1728,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 **平台判断**: `frontend/.env` 设 `VITE_PLATFORM=android`，源码经 `import.meta.env.VITE_PLATFORM === 'android'` 分支（消费点：AccountPanel/MonitorPanel/SettingsPanel/LogPanel 四处，如日志面板移动端改纵向布局）。
 
 **移动适配要点**:
-- **导航**: `BottomNav`（MobileTab 底部导航）替代桌面 DockNav；桌面件不渲染——TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/OnboardingWizard/SponsorCard（见 App.tsx 头部注释）
+- **导航**: `BottomNav`（MobileTab 底部导航）替代桌面 DockNav；桌面件不渲染——TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/SponsorCard（见 App.tsx 头部注释）。新手向导不共用桌面 Dialog 版本，改用手机专属全屏版 `OnboardingWizardMobile`（见 §5.14.2）
 - **生物识别**: 新增 `@tauri-apps/plugin-biometric`（BiometricPrompt，兜底锁屏凭据）对应桌面 Windows Hello；验证成功调 `verify_biometric_identity` 写后端 TTL
 - **关于对话框**: `AboutDialogMobile.tsx` 移动版
 - **tauri.conf.json**: identifier `com.campuslogin.client`、窗口 400×800（移动竖屏）、`bundle.android.minSdkVersion` 29（Android 10+）、devUrl 5174
@@ -1739,11 +1739,24 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 
 - **双外壳路由**（`App.tsx`）: `formFactor === 'tablet'` 渲染 `components/tablet/TabletShell.tsx`（桌面 Dock 布局），否则渲染原移动外壳 `AppInner`（顶 header + 单列卡流 + 底部 5 tab）。两外壳各自调用 `useAppInit`，仅渲染其一不重复初始化。
 - **TabletShell 复用面**: TitleBar/StatusBar/RightPanel/DockNav 与桌面端同源副本（样式零改动）；面板内容全用安卓版——总览=MobileDashboard（安卓 DashboardPanel + 移动卡注入）、设置=安卓 SettingsPanel（生物识别等安卓项保留、Windows 专属项经 `VITE_PLATFORM` 内部裁剪）、账号/自助服务/监控/测速/日志均为安卓裁剪版面板。**network 面板不接入**（安卓 NAV_ITEMS 无此项，DNS 优化为 Windows 注册表能力）。
-- **TabletShell 相对桌面 App 的裁剪**: 无窗口控制（TitleBar 新增 `showWindowControls?: boolean`，安卓副本传 false 隐藏最小化/最大化/关闭三键并禁用 `startDragging`/双击最大化——安卓无窗口管理 API，`minimizeWindow` 等在安卓 tauriApi 是 `desktopOnly` 必 reject）；无 useStartupBoost 开场序列与 Onboarding 向导（无账号引导与移动外壳同款直达账号页，共用 `campus-onboarding-done` 标记）；无赞助自动弹出；面板过渡沿用移动外壳轻量 y 位移变体；根容器去桌面 `min-w-[800px]`（平板竖屏 600-800dp 会被压出横向滚动）；标题栏外层加 `env(safe-area-inset-top)`、DockNav bottom 改 `calc(1.25rem + env(safe-area-inset-bottom))`（安卓 edge-to-edge 状态栏/手势条）。
+- **TabletShell 相对桌面 App 的裁剪**: 无窗口控制（TitleBar 新增 `showWindowControls?: boolean`，安卓副本传 false 隐藏最小化/最大化/关闭三键并禁用 `startDragging`/双击最大化——安卓无窗口管理 API，`minimizeWindow` 等在安卓 tauriApi 是 `desktopOnly` 必 reject）；无 useStartupBoost 开场序列；**有 Onboarding 向导**（桌面同款 Dialog，尺寸改响应式适配平板窄边，见 §5.14.2）；无赞助自动弹出；面板过渡沿用移动外壳轻量 y 位移变体；根容器去桌面 `min-w-[800px]`（平板竖屏 600-800dp 会被压出横向滚动）；标题栏外层加 `env(safe-area-inset-top)`、DockNav bottom 改 `calc(1.25rem + env(safe-area-inset-bottom))`（安卓 edge-to-edge 状态栏/手势条）。
 - **DockNav 触屏化**（安卓副本）: 模块级 `IS_TOUCH = matchMedia('(hover: none)')`——触屏设备无 hover，登录/注销按钮**首次点击弹适配器菜单**（已选过则直接执行），菜单顶部新增"自动检测"项（用 `resolveAdapterNames` 同源算出的主适配器执行，与后端规则一致），保留"不指定适配器"路径；鼠标设备行为完全不变。
 - **触屏缩放分层**（2026-09-10）: 桌面布局件按鼠标设计，TabletShell 内以 CSS `zoom` 分层适配触屏——顶部两栏（TitleBar/StatusBar 包裹层）`TOPBAR_ZOOM=1.3`（标题栏按钮 28→36px），内容区（main+RightPanel 父容器）`CONTENT_ZOOM=0.9`；safe-area padding 置于 zoom 层外；DockNav 不缩放。系数为 TabletShell 顶部常量，真机体验后可调。
 - **竖屏隐藏日志侧栏**（2026-09-10）: `useFormFactor.ts` 另提供 `useOrientation`（宽≥高为横屏）。TabletShell 竖屏时不渲染 RightPanel（日志经 Dock"日志"面板仍可达），并把根容器 `--right-panel-width` 置 0px——DockNav 宽度公式 `calc(100vw - var(--right-panel-width, 288px))` 由此自动从"视口-288 居中"切到全视口居中，横屏恢复默认。
 - **副本分叉警示**: `TitleBar.tsx`/`DockNav.tsx` 此前与桌面端逐字节相同（SAME），本次在安卓副本加入分叉（showWindowControls/IS_TOUCH/safe-area）。**后续从桌面同步这两个文件时不可整文件覆盖**，需人工比对分叉点。
+
+### 5.14.2 安卓端新手向导 — 流程单点 + 双形态外壳 (2026-09-11)
+
+**背景**：向导此前在安卓端**整体缺失**——手机外壳不渲染（`App.tsx` 注释列在"桌面件"里），首次无账号直接跳账号页并立刻写 `campus-onboarding-done`（等于没有引导：用户不知道填学号还是手机号、密码是哪一位）；平板外壳同样未接入；设置面板的"打开新手指引"按钮在 `MobileMore.tsx` 被传成空函数 `() => {}`，点了没反应。向导本体是桌面 640×640 固定尺寸的 Dialog，手机窄屏（360-430dp）下不可用。
+
+**结构与分工**：
+- `settings/useOnboardingFlow.ts` — **流程逻辑单点**（5 步状态机、账号/适配器校验、绑定运营商、登录并收尾、配置落盘、`campus-onboarding-done` 写入）。抽出的理由：手机与平板两套外壳 UI 完全不同，但后端契约必须一致；复制两份状态机是原组件历史缺陷（步骤 3 不重校验账号、双适配器可存成 `dualAdapter:true + adapter2:''` 的不一致配置）的温床。
+- `settings/OnboardingWizardMobile.tsx` — **手机专属全屏向导**（`fixed inset-0`）。相对 Dialog 形态的差异：段式进度轨（当前段拉长 + `3/5` 计步）替代 7 个圆点、触控目标放大到 48px、去 `autoFocus`（避免进账号步骤即弹键盘遮住表单）、上下各留 `env(safe-area-inset-*)`、底部操作区固定不随内容滚动、跳过确认用自有遮罩卡片（不用桌面 Dialog）。
+- `settings/OnboardingWizard.tsx`（安卓副本）— 平板复用，改为消费同一 hook；`DialogContent` 由固定 `w-[640px] h-[640px]` 收敛为 `w-[min(640px,92vw)] h-[min(640px,86vh)]`，600dp 竖屏实测收敛到 552×640 居中不溢出。
+
+**接入**：手机 `App.tsx`（`OnboardingWizardMobile`）+ 平板 `TabletShell.tsx`（`OnboardingWizard`）都在"首次启动且无账号"时打开，引导标记改由向导在「跳过」或「登录成功」时写入——未走完则下次启动继续引导。`MobileMore` 的 `onShowOnboarding` 已贯通到外壳，设置里的重新打开入口恢复可用（平板 SettingsPanel 也补传该 prop）。
+
+**注意**：桌面端 `tauri-app/frontend/settings/OnboardingWizard.tsx` 仍为自包含逻辑（未消费 hook），安卓副本自本次起分叉——后续跨端同步该文件不可整文件覆盖。
 
 ---
 

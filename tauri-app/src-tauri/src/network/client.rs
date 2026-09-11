@@ -125,3 +125,18 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
     }
     Ok(client)
 }
+
+/// 清空 HTTP 客户端池，返回被清理的条目数。
+///
+/// **网络路由变化后必须调用**：安卓端 `bindProcessToNetwork` 的 fwmark 只在
+/// **socket 创建时**由 netd 的 eBPF 打标，池里 keep-alive 的既有连接仍走绑定前的
+/// 路由——复用它们等于绑定没生效（登录/探测/注销全链路都吃这个坑）。代价是
+/// 下一批请求重建 TCP+TLS；调用点都在操作发起前，此时没有在途请求，故安全。
+pub fn clear_client_pool() -> usize {
+    let count = CLIENT_POOL.len();
+    if count > 0 {
+        CLIENT_POOL.clear();
+        crate::log_info!("http", "客户端池已清空: {} 条（网络路由变化，避免复用旧路由连接）", count);
+    }
+    count
+}

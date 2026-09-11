@@ -16,6 +16,9 @@ pub async fn do_login(
     state: tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<serde_json::Value, String> {
     let _ = adapter;
+    // 手动登录此前漏了 ensure_wifi_bound（只有启动自动登录与 monitor 每拍有）——
+    // WiFi+流量同开时默认路由落蜂窝，用户手动点登录必然失败
+    ensure_wifi_bound(&app).await;
     // 用户名/密码为空时都回退已保存配置(总览一键登录免输凭据;与桌面取配置语义一致)
     let user = match user {
         Some(u) if !u.trim().is_empty() => u.trim().to_string(),
@@ -135,8 +138,11 @@ pub async fn do_logout(
 #[tauri::command]
 pub async fn check_portal_status(
     adapter_ip: Option<String>,
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<campus_login_lib::auth::portal::PortalStatus, String> {
+    // 手动探测同样先绑 WiFi（此前漏绑：探测请求走系统默认路由，双网同开时落蜂窝）
+    ensure_wifi_bound(&app).await;
     let ip = match adapter_ip {
         Some(ip) if !ip.is_empty() => ip,
         _ => cached_adapter_ip(&state).unwrap_or_default(),
@@ -181,11 +187,18 @@ pub fn bind_to_wifi(app: tauri::AppHandle) -> Result<serde_json::Value, String> 
     }
 }
 
-/// 后台链路(启动自动登录/周期检测/注销/手动探测)执行前确保进程已绑 WiFi。
-/// 根因:WiFi 未认证时被安卓网络评分降权,WiFi+流量同开下默认路由可能落到
-/// 蜂窝,探测(TcpStream)/登录/注销全部走错网络;bindProcessToNetwork 是进程级
-/// fwmark,对 tokio socket 与 Rust native 调用全生效。
-/// 结果只记日志不阻断:无 WiFi/绑定失败均回落默认路由,不改变流程语义。
+/// 全链路(启动自动登录/周期检测/断线重连/注销/手动登录/手动探测)执行前确保进程已绑 WiFi。
+///
+/// 根因：WiFi 未认证时被安卓网络评分降权，WiFi+流量同开下默认路由可能落到蜂窝，
+/// 探测(TcpStream)/登录/注销全部走错网络；`bindProcessToNetwork` 是进程级 fwmark
+/// （netd eBPF 在 **socket 创建时** 打标），对 tokio socket 与 Rust native 调用都生效。
+///
+/// **绑定成功后必须清空 HTTP 客户端池**：既有 keep-alive 连接的 fwmark 是绑前打的，
+/// 复用它们等于绑定没生效——这是"绑了仍走错网络"的关键一环。
+///
+/// 结果只记日志不阻断：无 WiFi/绑定失败均回落默认路由，不改变流程语义；但日志
+/// **必须落盘**（原先用 eprintln 只进 logcat，用户拿到的日志文件里看不到绑定成败，
+/// 无从定位"为什么还是登录不上"）。
 pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
     let cloned = app.clone();
     // JNI 调用是阻塞的,走 spawn_blocking 不占用 async 线程;复用 bind_to_wifi
@@ -195,9 +208,22 @@ pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
         .unwrap_or_else(|e| Err(e.to_string()));
     match outcome {
         Ok(v) if v["bound"].as_bool().unwrap_or(false) => {
-            eprintln!("[wifi-bind][debug] 进程已绑定 WiFi");
+            let cleared = campus_login_lib::network::client::clear_client_pool();
+            campus_login_lib::log_info!(
+                "wifi-bind",
+                "进程网络已绑定 WiFi（path={}，清理旧连接 {} 条）",
+                v["path"].as_str().unwrap_or("?"),
+                cleared
+            );
         }
-        Ok(_) => eprintln!("[wifi-bind][debug] 当前无 WiFi 网络,保持默认路由"),
-        Err(e) => eprintln!("[wifi-bind][warn] WiFi 绑定失败(不影响本次流程): {e}"),
+        Ok(v) => campus_login_lib::log_warn!(
+            "wifi-bind",
+            "未绑定 WiFi（reason={}），本次回落系统默认路由",
+            v["reason"].as_str().unwrap_or("unknown")
+        ),
+        Err(e) => campus_login_lib::log_warn!(
+            "wifi-bind",
+            "WiFi 绑定调用失败（本次回落默认路由）: {e}"
+        ),
     }
 }
