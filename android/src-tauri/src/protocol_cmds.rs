@@ -88,6 +88,8 @@ pub async fn do_logout(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<serde_json::Value, String> {
+    // 注销协议请求同样必须走 WiFi(WiFi+流量同开时默认路由可能落蜂窝)
+    ensure_wifi_bound(&app).await;
     let _ = adapter;
     let user = match user.map(|u| u.trim().to_string()) {
         Some(u) if !u.is_empty() => u,
@@ -176,5 +178,26 @@ pub fn bind_to_wifi(app: tauri::AppHandle) -> Result<serde_json::Value, String> 
     {
         let _ = app;
         Err("网络绑定仅安卓端支持".to_string())
+    }
+}
+
+/// 后台链路(启动自动登录/周期检测/注销/手动探测)执行前确保进程已绑 WiFi。
+/// 根因:WiFi 未认证时被安卓网络评分降权,WiFi+流量同开下默认路由可能落到
+/// 蜂窝,探测(TcpStream)/登录/注销全部走错网络;bindProcessToNetwork 是进程级
+/// fwmark,对 tokio socket 与 Rust native 调用全生效。
+/// 结果只记日志不阻断:无 WiFi/绑定失败均回落默认路由,不改变流程语义。
+pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
+    let cloned = app.clone();
+    // JNI 调用是阻塞的,走 spawn_blocking 不占用 async 线程;复用 bind_to_wifi
+    // 命令的 cfg(mobile) 门控,非移动端编译期消除为空实现,调用点无需配对门控
+    let outcome = tauri::async_runtime::spawn_blocking(move || bind_to_wifi(cloned))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+    match outcome {
+        Ok(v) if v["bound"].as_bool().unwrap_or(false) => {
+            eprintln!("[wifi-bind][debug] 进程已绑定 WiFi");
+        }
+        Ok(_) => eprintln!("[wifi-bind][debug] 当前无 WiFi 网络,保持默认路由"),
+        Err(e) => eprintln!("[wifi-bind][warn] WiFi 绑定失败(不影响本次流程): {e}"),
     }
 }
