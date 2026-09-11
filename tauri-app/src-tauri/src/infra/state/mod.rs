@@ -93,6 +93,10 @@ pub struct UpdateStats {
     pub webview_recovery_window_start_ms: AtomicU64,
     /// 当前恢复窗口内已执行的 reload 次数
     pub webview_recovery_count: AtomicU32,
+    /// 自动启用被禁适配器：上次尝试时间 epoch ms（adapter_watch），0 表示从未尝试
+    pub auto_enable_last_attempt_ms: AtomicU64,
+    /// 自动启用连续失败次数（退避输入；成功或手选适配器全部恢复时清零）
+    pub auto_enable_failure_count: AtomicU32,
 }
 
 impl Default for UpdateStats {
@@ -111,6 +115,8 @@ impl UpdateStats {
             last_render_heartbeat_ms: AtomicU64::new(0),
             webview_recovery_window_start_ms: AtomicU64::new(0),
             webview_recovery_count: AtomicU32::new(0),
+            auto_enable_last_attempt_ms: AtomicU64::new(0),
+            auto_enable_failure_count: AtomicU32::new(0),
         }
     }
 }

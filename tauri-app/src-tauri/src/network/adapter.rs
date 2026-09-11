@@ -9,7 +9,7 @@ use tauri::AppHandle;
 use crate::config::model::Config;
 use crate::infra::events::EventBus;
 // ensure_ethernet_ip_for_login 内部裸调用所需（原为 pub use 兼容层，现已扁平化到源模块）
-use crate::network::discovery::{Adapter, new_command};
+use crate::network::discovery::{Adapter, DisabledAdapter, new_command};
 use crate::network::adapter_cache::{get_adapters_force, poll_adapter_ip_quick};
 
 /// 按名称查找适配器
@@ -43,6 +43,24 @@ pub fn find_dual_adapters<'a>(
 /// 调用方如需额外条件（如 != adapter1_name、!= AUTO_DETECT_ADAPTER），请在返回值上附加。
 pub fn is_secondary_adapter_enabled(config: &crate::config::Config, adapter2_name: &str) -> bool {
     config.dual_adapter && !adapter2_name.is_empty()
+}
+
+/// 用户手选(非空且非哨兵)且当前处于禁用列表的适配器。
+///
+/// "手选"判定：非空串 且 != AUTO_DETECT_ADAPTER（"自动检测"模式不参与自动启用）。
+/// adapter1 手选即纳入；adapter2 需 dual_adapter 开启且手选才纳入。
+/// 纯函数，供 adapter_watch 监控循环与单测使用。
+pub fn configured_disabled_adapters<'a>(
+    config: &Config,
+    disabled: &'a [DisabledAdapter],
+) -> Vec<&'a DisabledAdapter> {
+    let manual1 = !config.adapter1.is_empty()
+        && config.adapter1 != crate::config::model::AUTO_DETECT_ADAPTER;
+    let manual2 = is_secondary_adapter_enabled(config, &config.adapter2)
+        && config.adapter2 != crate::config::model::AUTO_DETECT_ADAPTER;
+    disabled.iter()
+        .filter(|d| (manual1 && d.name == config.adapter1) || (manual2 && d.name == config.adapter2))
+        .collect()
 }
 
 pub fn resolve_adapter_names(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
@@ -305,5 +323,57 @@ mod tests {
         let config = make_test_config("自动检测", false, "");
         let (a1, _) = resolve_adapter_names(&adapters, &config);
         assert_eq!(a1, "以太网");
+    }
+
+    fn make_disabled(name: &str) -> DisabledAdapter {
+        DisabledAdapter {
+            name: name.to_string(),
+            status: "Disabled".to_string(),
+            description: String::new(),
+        }
+    }
+
+    #[test]
+    fn configured_disabled_adapters_manual_only() {
+        let sentinel = crate::config::model::AUTO_DETECT_ADAPTER;
+        let disabled = vec![make_disabled("以太网"), make_disabled("WLAN")];
+
+        // adapter1 空串（自动检测语义）：不纳入
+        let c = make_test_config("", false, "");
+        assert!(configured_disabled_adapters(&c, &disabled).is_empty());
+
+        // adapter1 为哨兵"自动检测"：不纳入
+        let c = make_test_config(sentinel, false, "");
+        assert!(configured_disabled_adapters(&c, &disabled).is_empty());
+
+        // adapter1 手选 + dual 关（adapter2 即使填了也不生效）：仅 adapter1
+        let c = make_test_config("以太网", false, "WLAN");
+        let got = configured_disabled_adapters(&c, &disabled);
+        assert_eq!(got.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), vec!["以太网"]);
+
+        // adapter1 手选 + dual 开 + adapter2 空串：仅 adapter1
+        let c = make_test_config("以太网", true, "");
+        let got = configured_disabled_adapters(&c, &disabled);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "以太网");
+
+        // adapter1 哨兵 + dual 开 + adapter2 手选：仅 adapter2
+        let c = make_test_config(sentinel, true, "WLAN");
+        let got = configured_disabled_adapters(&c, &disabled);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "WLAN");
+
+        // adapter2 为哨兵 + dual 开：不纳入 adapter2
+        let c = make_test_config("以太网", true, sentinel);
+        let got = configured_disabled_adapters(&c, &disabled);
+        assert_eq!(got.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), vec!["以太网"]);
+
+        // 双双手选 + dual 开：两个都纳入
+        let c = make_test_config("以太网", true, "WLAN");
+        assert_eq!(configured_disabled_adapters(&c, &disabled).len(), 2);
+
+        // 手选适配器不在禁用列表：不纳入
+        let c = make_test_config("蓝牙", true, "WLAN2");
+        assert!(configured_disabled_adapters(&c, &disabled).is_empty());
     }
 }

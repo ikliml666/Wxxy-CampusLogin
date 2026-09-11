@@ -312,6 +312,8 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
     if settings.user.is_empty() || settings.password.is_empty() {
         return;
     }
+    // 探测/登录前强制绑 WiFi:WiFi+流量同开时默认路由可能落蜂窝,探测与登录走错网络
+    crate::protocol_cmds::ensure_wifi_bound(app).await;
     let state = app.state::<crate::android_state::AndroidState>();
     let probe = match probe_with_retry(settings).await {
         Ok(p) => p,
@@ -410,6 +412,10 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
             return;
         }
     };
+
+    // 每拍探测/Portal 探测/掉线自动重登前强制绑 WiFi(同 auto_login_on_start;
+    // WiFi 未认证被降分后默认路由可能落蜂窝)
+    crate::protocol_cmds::ensure_wifi_bound(app).await;
 
     // 1. 校园网判定(复用探针;源 IP 缓存同步更新——自动重登/质量测试绑定用,
     //    此前后台链路不缓存,首次重登拿空/过期 IP 被协议拒)

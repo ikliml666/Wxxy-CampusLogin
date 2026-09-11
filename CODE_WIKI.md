@@ -1257,7 +1257,7 @@ struct ConnectionCampusStatus {
 
 | 函数 | 说明 |
 |------|------|
-| `start_adapter_watch()` | 启动适配器状态监控循环 (15s间隔，CancellationToken可退出)，适配器恢复时触发重新检测，禁用适配器通知节流(60s内不重复) |
+| `start_adapter_watch()` | 启动适配器状态监控循环 (15s间隔，CancellationToken可退出)，适配器恢复时触发重新检测，禁用适配器通知节流(60s内不重复)。**自动启用**：用户手选适配器（adapter1/adapter2 非空且非"自动检测"哨兵）出现在禁用列表时自动 `enable_adapter(name, false)`（COM 静默提权，**绝不弹 UAC**），失败按 0/60s/120s/300s 封顶退避重试（`auto_enable_backoff_ms`），成功清零计数并延迟 5s 触发一次性 `run_background_check` 衔接登录；"自动检测"模式不参与 |
 
 ### 4.13 网络命令模块 — `commands/network_cmd.rs`
 
@@ -1369,7 +1369,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 |------|------|------|
 | `keystore` | KeystorePlugin.kt (90 行) | AndroidKeyStore **AES-256-GCM**，key alias `campus_login_master`（不存在则生成，硬件隔离），IV(12B)+密文 Base64 编解码；密钥按包名隔离——**改包名=密码密文作废**（用户卸载重装） |
 | `foreground-service` | ForegroundService.kt (166 行) + MonitorServicePlugin.kt (153 行) + BootReceiver | 见下 |
-| `network-bind` | NetworkBindPlugin.kt (35 行) | `ConnectivityManager.bindProcessToNetwork(wifi)` 把进程网络绑定到 WLAN——登录流量物理上只走 WiFi；`unbind` 恢复系统默认路由 |
+| `network-bind` | NetworkBindPlugin.kt (35 行) | `ConnectivityManager.bindProcessToNetwork(wifi)` 把进程网络绑定到 WLAN——登录流量物理上只走 WiFi（fwmark 进程级，探测 TcpStream/HTTP/DNS 全覆盖）；`unbind` 恢复系统默认路由。**调用时机（ensure_wifi_bound）**：启动自动登录、每拍探测/掉线重登、手动登录/注销/探测前均先绑定（失败只记日志不阻断，无 WiFi 回落默认路由）——修"WiFi+流量同开时未认证 WiFi 被系统降分、默认路由落蜂窝导致探测与登录走错网络" |
 
 **foreground-service 插件**（保活三件套 + 自启 + 装 APK）:
 
@@ -1616,7 +1616,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
 | `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮。带 `mascot` 字段（`'celebrate' | 'offline'`，2026-09-11）时左侧渲染对应看板娘图（裸 img 非 MascotFigure，避免 tailwind 尺寸类冲突），登录成功/失败由 `useAuthStore` 经 `useLogToastStore.addToast` 第 5 参传入 |
-| `MascotFigure.tsx` | 看板娘展示组件（双端同构）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline}.png`，`size` 三档（sm/md/lg）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`）不经组件、低透明度裸 img 直引。**桌面端**：App.tsx 布局层两个 fixed 侧边娘（≥1560px 宽视口显示，right 侧避让 w-72 的 RightPanel，z-0 沉于 main 卡片下层）；RightPanel 日志栏的茶娘为**运行日志卡内部底部水印**（absolute bottom-3 低透明度，卡容器 relative overflow-hidden，日志条目少时从空白处露出）。**安卓端**：四面板滚动末尾底部娘保留（窄屏无侧边空间），设置页图加 `pb-72` 撑滚动余量避让固定底栏。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → PNG 档案 → 转 WebP（q84 原尺寸，-85%）→ 双端 `public/girl/*.webp`（代码引用 .webp，PNG 不入打包） |
+| `MascotFigure.tsx` | 看板娘展示组件（双端同构）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline}.png`，`size` 三档（sm/md/lg）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`）不经组件、低透明度裸 img 直引。**桌面端**：App.tsx 布局层两个 fixed 侧边娘（≥1480px 宽视口显示，`top-1/2 -translate-y-1/2` 锚定视口两侧垂直居中、滚动恒定可见，w-48、opacity 0.26/暗色 0.16，right 侧避让 w-72 的 RightPanel；桌面默认窗口已放宽为 1480×880 使立绘默认即可见，<1480 视口媒体查询自动隐藏）；RightPanel 日志栏的茶娘为**运行日志卡内部底部水印**（absolute bottom-3 低透明度，卡容器 relative overflow-hidden，日志条目少时从空白处露出）。**安卓端**：四面板滚动末尾底部娘保留（窄屏无侧边空间），设置页图加 `pb-72` 撑滚动余量避让固定底栏。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → PNG 档案 → 转 WebP（q84 原尺寸，-85%）→ 双端 `public/girl/*.webp`（代码引用 .webp，PNG 不入打包） |
 | `SponsorCard.tsx` | 赞助下拉浮层。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭；锚定标题栏赞助按钮下方自然向下展开（fixed，z-[60]，高于 DockNav 菜单低于 toast），自动弹出与手动入口共用此浮层；内嵌微信/支付宝收款码；文案走 i18n sponsor 段 + about.sponsor |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个: dashboard/account/network/monitor/quality/settings/log/speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult 等 10 个导出) |

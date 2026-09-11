@@ -125,6 +125,8 @@ pub async fn detect_campus(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<serde_json::Value, String> {
+    // 手动探测前强制绑 WiFi:WiFi+流量同开时默认路由可能落蜂窝,探测走错网络
+    crate::protocol_cmds::ensure_wifi_bound(&app).await;
     let settings = crate::config_state::current_settings(&app).await?;
     let probe = probe_campus(&settings.campus_gateway, &settings.portal_url).await?;
     cache_source_ip(&state, probe.source);
@@ -151,6 +153,8 @@ pub async fn check_campus_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<serde_json::Value, String> {
+    // 手动探测前强制绑 WiFi(同 detect_campus)
+    crate::protocol_cmds::ensure_wifi_bound(&app).await;
     let settings = crate::config_state::current_settings(&app).await?;
     let probe = probe_campus(&settings.campus_gateway, &settings.portal_url).await?;
     cache_source_ip(&state, probe.source);

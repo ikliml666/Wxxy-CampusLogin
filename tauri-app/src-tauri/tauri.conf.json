@@ -12,8 +12,8 @@
     "windows": [
       {
         "title": "校园网登录助手",
-        "width": 1280,
-        "height": 800,
+        "width": 1480,
+        "height": 880,
         "minWidth": 960,
         "minHeight": 640,
         "decorations": false,

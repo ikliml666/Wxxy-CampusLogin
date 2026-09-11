@@ -126,8 +126,13 @@ pub fn validate_adapter_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 启用指定适配器（netsh + 提权）。
+///
+/// `allow_uac_prompt`：非管理员且 COM 静默提权失败时是否允许降级弹 UAC。
+/// 手动按钮路径传 true（保持可弹 UAC 的原行为）；监控循环自动启用路径传 false
+/// （后台静默执行，绝不弹窗，失败交给退避重试）。
 #[cfg(desktop)]
-pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
+pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), String> {
     validate_adapter_name(adapter_name)?;
 
     // netsh 命令行参数（适配器名含空格时需双引号包裹）
@@ -157,6 +162,10 @@ pub fn enable_adapter(adapter_name: &str) -> Result<(), String> {
                 crate::log_info!("adapter", "COM ShellExec 提权启用适配器成功: {}", adapter_name);
             }
             Err(com_err) => {
+                // 自动启用路径禁止弹 UAC：COM 静默提权失败即返回，由监控循环退避重试兜底
+                if !allow_uac_prompt {
+                    return Err(format!("COM静默提权启用失败(自动路径不弹UAC): {com_err}"));
+                }
                 // COM 失败：降级 ShellExecuteW runas（会弹 UAC）
                 crate::log_warn!("adapter", "COM ShellExec 失败: {}，降级到 ShellExecuteW runas", com_err);
                 crate::platform::elevation::run_elevated("netsh", &netsh_args)

@@ -316,7 +316,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 <Search className="h-5 w-5 text-primary" />
               </div>
               <div>
