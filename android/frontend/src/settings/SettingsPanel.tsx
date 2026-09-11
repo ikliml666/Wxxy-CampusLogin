@@ -253,7 +253,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 <Rocket className="h-5 w-5 text-primary" />
               </div>
               <div>
@@ -376,7 +376,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 <Bell className="h-5 w-5 text-primary" />
               </div>
               <div>
@@ -408,7 +408,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 <ShieldCheck className="h-5 w-5 text-primary" />
               </div>
               <div>
@@ -459,7 +459,7 @@ export const SettingsPanel = memo(function SettingsPanel({
           <AnimatedCard noEnterAnimation>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                   <Compass className="h-5 w-5 text-primary" />
                 </div>
                 <div>
@@ -491,7 +491,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 <Gauge className="h-5 w-5 text-primary" />
               </div>
               <div>

@@ -322,7 +322,7 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
             <UserCircle className="h-5 w-5 text-primary" />
           </div>
           <div>
@@ -575,7 +575,7 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
             <MonitorSmartphone className="h-5 w-5 text-primary" />
           </div>
           <div>
@@ -665,7 +665,7 @@ const SelfLogCard = memo(function SelfLogCard({ noAnimation, noEnterAnimation }:
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
             <History className="h-5 w-5 text-primary" />
           </div>
           <div>
