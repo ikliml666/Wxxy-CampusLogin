@@ -3,43 +3,33 @@
 > **版本**: v2.3.4 | **架构**: Tauri 2 (Rust 后端 + React/TypeScript 前端)
 > **目标平台**: Windows (x64) + Android
 > **通信方式**: Tauri IPC (`invoke` / `listen`)
+> **文档分层**: 一~五章为手册层（概览 / 架构速查 / 关键约定 / 踩坑记录 / 决策记录），新人从这里读起；附录 A~H 为参考层（模块逐文件详解 / IPC 全表 / 依赖 / 安全 / 性能 / 版本号流程），内部沿用原 4.x/5.x/6.x/7.x 编号，正文的"见 4.x"类引用均指向附录。
 
 ---
 
 ## 一、项目概览
 
-CampusLogin 是一款校园网自动登录助手，面向无锡学院校园网认证系统（锐捷 ePortal），提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理等功能。**双端同构**：Windows 桌面端（`tauri-app/`）与安卓端（`android/`，2026-09-10 并入本仓库）共用同一协议核心（安卓以 Cargo path 依赖桌面 crate），命令面同名对齐，UI 各自适配（桌面 Dock 布局 / 移动底部导航）。
+### 1.1 定位
 
-### 核心特性
+CampusLogin 是无锡学院校园网（Dr.COM ePortal）自动登录助手，**Tauri 2 双端同构应用**：Windows 桌面端（`tauri-app/`）与安卓端（`android/`，2026-09-10 并入本仓库）共用同一协议核心（安卓以 Cargo path 依赖桌面 crate），登录/注销/Portal 探测/自助服务/网络质量协议零复制，命令面同名对齐，UI 各自适配（桌面 Dock 布局 / 移动底部导航）。提供一键登录/注销、自动重连、校园网智能检测、DNS 智能解析与优化、网络质量监测、多账号管理、运营商绑定与自助服务查询。
 
-| 特性 | 说明 |
-|------|------|
-| 一键登录 | 自动检测适配器、DHCP续租、可重试失败智能重试(retryable 判定) |
-| 一键注销 | 两步注销：Radius注销 + MAC解绑，支持指定适配器注销或全部注销 |
-| 自动重连 | 后台巡检断线检测，最多3次自动重连 |
-| 校园网检测 | 三级检测：网络名称匹配 → /18子网匹配 → 网关Ping可达 |
-| DNS 智能解析 | 动态评分选择最优 DNS 服务器，应用级 DoH 解析，三级智能解析策略 |
-| DNS 优化 | 检测 DNS/DoH 配置，一键设置推荐 DNS + 启用 DoH 加密 |
-| 网络质量检测 | 网关/DNS/DoH/HTTPS/游戏服务器延迟并发测试，DNS 解析专项测试，增量推送逐步填充 |
-| 多账号管理 | DPAPI 加密存储、快速切换 |
-| 运营商账号绑定 | 对接自助服务系统（Dr.COM Self），绑定/查询运营商账号，手机号掩码显示 |
-| Windows Hello 验证 | 查看密码明文/绑定/踢下线等敏感操作本地生物识别或 PIN 验证，前端门 TTL 570s + 后端 600s TTL 复核 |
-| 自助服务查询 | 独立面板：在线设备信息（可踢下线）+ 近期上网记录（日期筛选+汇总统计） |
-| 总览自定义卡片 | 首页卡片可增删拖拽排序，内置"在线信息"与"近期上网记录"卡（关键信息验证后查看） |
-| 双适配器支持 | 有线 + 无线同时管理，Dock 栏适配器选择菜单 |
-| 系统托盘 | 最小化到托盘后台运行，支持托盘快速登录 |
-| 开机自启 | 注册表写入 / Tauri 插件 |
-| 自动退出 | 登录成功后倒计时退出，快捷键取消(Ctrl+Shift+C) |
-| 主题系统 | 7种预设主题 + 自定义主题色 + 深浅模式 |
-| 用户自助服务 | 一键打开校园网自助服务系统 |
-| 中英语言切换 | 标题栏一键切换中英文，react-i18next + i18next-browser-languagedetector，默认中文 |
-| 日志自动清理 | 可选保存时间（3/7/14/30天+永久），AtomicU32全局存储，后端定时清理 |
-| 测速面板 | 第三方测速站点快捷导航卡片(speedtest.cn/speedtest.net/ustc/neu) |
-| 安卓端 | AndroidKeyStore AES-GCM 密文存储（替代 DPAPI）+ 生物识别验证门（BiometricPrompt 兜底锁屏凭据）+ 前台服务保活监控（常驻通知/WifiLock/WakeLock）+ 开机自启，包名 `com.campuslogin.client` |
+### 1.2 技术栈与核心特性
+
+| 层 | 桌面端 | 安卓端 |
+|----|--------|--------|
+| 框架 | Tauri 2（WebView2） | Tauri 2（minSdk 29 / Android 10+） |
+| 前端 | React 19 + TypeScript + Vite 6 + TailwindCSS 3.4 + Framer Motion 12 + GSAP 3 | 同左（独立复刻代码库，`VITE_PLATFORM=android` 分支） |
+| 状态 | zustand ^5（按领域拆分 store） | 同左 |
+| 后端 | Rust + Tokio + reqwest 0.12 + hickory-resolver + tokio-rustls | Rust + Tokio（`campus-login` path 依赖桌面协议核心） |
+| 密码加密 | Windows DPAPI | AndroidKeyStore AES-256-GCM（手写插件） |
+| 敏感操作验证 | Windows Hello（UserConsentVerifier） | BiometricPrompt（`@tauri-apps/plugin-biometric`） |
+| 平台集成 | Win32/WinRT（适配器/注册表/DXGI/UAC 提权/托盘） | 前台服务 + WifiLock/WakeLock、`bindProcessToNetwork`、FileProvider 装 APK |
+
+核心特性：一键登录/两步注销（Radius + MAC 解绑）、后台巡检断线自动重连、校园网三级检测、DNS 动态评分 + 应用级 DoH（RFC 8484）+ 一键 DNS/DoH 优化、网络质量并发检测与增量推送、多账号管理、运营商账号绑定、自助服务查询（在线信息/上网记录/踢下线）、敏感操作验证门、更新检查（镜像降级 + SHA256）、主题系统、中英双语、开机自启（桌面注册表 / 安卓 BootReceiver + 前台服务）。
 
 ---
 
-## 二、项目目录结构
+### 1.3 目录结构
 
 ```
 Wxxy-CampusLogin/
@@ -276,11 +266,42 @@ Wxxy-CampusLogin/
 └── .gitignore
 ```
 
+### 1.4 启动 / 构建 / 测试命令
+
+```bash
+# ── 桌面端 ────────────────────────────────────────────────
+cd tauri-app/frontend && npm install     # 前端依赖
+cd .. && npm install                     # 根层依赖（含 tauri CLI）
+
+cd tauri-app && npx tauri dev            # 开发模式
+
+# 测试与检查（改动后基线：cargo test 493 全绿 = lib 246 + bin 同套 246 + 回归 1）
+cd tauri-app/src-tauri && cargo test
+cargo clippy --all-targets -- -D warnings
+cd ../frontend && npm test               # vitest 74 用例
+npx tsc --noEmit --incremental           # 类型检查（禁止 tsc -b，见 §四 踩坑）
+
+# 发布构建（前端打包 + Tauri 打包 + 生成 .sha256）
+pwsh tauri-app/build.ps1
+
+# ── 安卓端 ────────────────────────────────────────────────
+# 前置：ANDROID_HOME/NDK_HOME/JAVA_HOME 已配置；rustup target add aarch64-linux-android；
+#       Windows 开发者模式（允许符号链接）
+cd android/frontend && npm install
+npm run build                            # tauri CLI 不跑 beforeBuildCommand，必须先单独构建
+cd ../src-tauri
+npx @tauri-apps/cli android dev                       # 真机/模拟器调试
+npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
+# ⚠ host cargo check 在 android/src-tauri 基线即失败（mobile-only 插件），验证只认交叉编译
+```
+
+> 布局/交互类改动的验证方法：临时向 `tauri-app/frontend/index.html` 注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后完整还原（git diff 必须干净）**。分支纪律、CHANGELOG 记录等流程约定见 `AGENTS.md`；版本号五处同步与 Release 检查清单见附录 H。
+
 ---
 
-## 三、架构总览
+## 二、架构速查
 
-### 3.1 分层架构
+### 2.1 分层架构（桌面端）
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -334,7 +355,7 @@ Wxxy-CampusLogin/
 └─────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Commands 模块依赖关系 (v2.3.0)
+### 2.2 Commands 模块依赖关系 (v2.3.0)
 
 ```
 // [架构说明] 模块间耦合关系
@@ -383,7 +404,7 @@ Wxxy-CampusLogin/
 // 后台任务通过 BackgroundTaskManager 统一管理 cancel token，响应退出信号避免退出挂起
 ```
 
-### 3.3 数据流
+### 2.3 关键数据流
 
 ```
 用户操作 → React组件 → 领域 store (useConfigStore/useAuthStore/useAdapterStore/useQualityStore) → tauriApi.invoke()
@@ -401,9 +422,180 @@ Wxxy-CampusLogin/
                                                                                               tauriApi.onXxx() → useEventListeners → 领域 store → UI更新
 ```
 
+### 2.4 模块职责速查
+
+**桌面后端** `tauri-app/src-tauri/src/`（逐文件详解见附录 A）:
+
+| 模块 | 职责 |
+|------|------|
+| `main.rs` + `app/` | 入口（panic hook / `--helper` 拦截 / runtime）与应用生命周期（启动装配/托盘/窗口/快捷键/心跳/退出分流） |
+| `commands/` | 56 个 Tauri 命令，按领域 8 文件（config/login/background/network/system/account/self_service/updater） |
+| `auth/` | 认证协议核心：Portal 检测（portal）、登录/两步注销请求（protocol）、会话封装（session）、服务编排（service）、失败计数（failure_tracker）、双适配器并行执行器（dual_adapter_executor） |
+| `network/` | 网络基础设施：适配器发现与缓存（discovery/adapter_cache）、DHCP 与 MAC（dhcp）、/18 子网与网关（subnet）、DNS 评分与 DoH 智能解析（dns）、HTTP 计时（timing）、质量并发检测（quality）、DNS 一键设置（dns_setup） |
+| `monitor/` | 后台巡检：watcher 门面 + background_check 主体 + background_task 调度、自动登录（auto_auth）、延迟测试循环（latency）、适配器监控（adapter_watch） |
+| `config/` | 配置模型（40 字段）/ 原子持久化 / 校验与迁移 |
+| `account/` | DPAPI 加密（crypto.rs）；多账号命令逻辑在 commands/account.rs |
+| `infra/` | 全局状态（state/ 三 Store CAS 快照）、日志、事件总线（15 emit）、后台任务管理、退出生命周期、系统通知 |
+| `platform/` | Windows 交互：DNS/DoH 设置、UAC 提权、GPU 检测、Windows Hello、开机自启、helper 子进程启动 |
+| `self_service/` | Dr.COM Self 自助服务协议（登录/绑定/dashboard/上网记录/踢下线/明文揭示） |
+| `helper/` + `update/` | `--helper` 提权子进程（改 MAC/设 DNS）；更新检查/下载/SHA256 校验/安装 |
+
+**桌面/安卓共用前端形态**（桌面 `tauri-app/frontend/src/` 详解见附录 B，安卓差异见附录 B §7.14）:
+
+| 模块 | 职责 |
+|------|------|
+| `hooks/` | 领域 store ×7（zustand：config/auth/adapter/quality/theme/logToast）+ `tauriApi.ts` IPC 封装（56 API + 15 事件）+ 初始化编排（useAppInit → 事件/首载/心跳/快捷键） |
+| `auth/ account/ monitor/ network/ settings/` | 业务域面板（组件 + useXxx hook + types） |
+| `shared/ components/` | 共享组件（日志/Toast/错误边界/看板娘/赞助浮层）与 shadcn 风格基础 UI |
+| `lib/ i18n/` | 工具（latency/color/safeStorage）与中英文案 |
+
+**安卓端** `android/`（后端详解见附录 A §4.16，前端差异见附录 B §7.14）:
+
+| 模块 | 职责 |
+|------|------|
+| `src-tauri/src/`（14 模块） | 命令面包装（protocol/self_service/account/system/quality/update_cmds）、校园网探针（campus_detect）、Keystore 加密配置（config_state）、监控状态机（monitor_loop）、验证门 TTL（identity_gate）、绑核（cpu_affinity） |
+| `plugins/` | 手写 Tauri 插件三件：keystore（AES-256-GCM）/ foreground-service（前台服务保活+自启+装 APK）/ network-bind（进程绑定 WLAN） |
+| `frontend/` | 独立复刻 React 前端（移动裁剪 + `VITE_PLATFORM=android` 分支 + BottomNav） |
+
+### 2.5 核心文件索引
+
+| 要找什么 | 去哪 |
+|----------|------|
+| 桌面应用入口 / 命令注册点 | `tauri-app/src-tauri/src/main.rs` → `app/startup.rs`（`run()` 的 `generate_handler!`，新增命令必须在此注册） |
+| 登录/注销协议实现 | `auth/protocol.rs`（请求模板/两步注销/JSONP 解析）、`auth/portal.rs`（状态检测，80 页面探测 vs :801 协议） |
+| 配置模型 / 持久化 / 校验 | `config/model.rs`（40 字段+掩码出口）、`config/persist.rs`（atomic_write/账号/历史）、`config/validate.rs` |
+| 全局状态 | `infra/state/`（AppState / ConfigStore / NetworkSnapshot，ArcSwap CAS） |
+| 事件推送 | `infra/events.rs`（EventBus 15 个 emit）+ 附录 C 事件表 |
+| 密码加密 | `account/crypto.rs`（DPAPI）；安卓 `android/plugins/keystore/` |
+| 前端 IPC 封装 | `hooks/tauriApi.ts`（新增命令 → 此处加方法 + `useEventListeners` 加监听） |
+| 前端入口 / 面板路由 | `main.tsx` → `App.tsx`（activePanel switch，转场用 deferredPanel） |
+| 版本号权威源 | `tauri-app/src-tauri/tauri.conf.json` 的 `version`（build.rs 注入 `APP_VERSION`；同步清单见附录 H） |
+| 发布构建脚本 | `tauri-app/build.ps1`（产物 + .sha256） |
+| 安卓入口 / 命令注册 | `android/src-tauri/src/lib.rs`（44 命令 + 5 插件 + run_startup_tasks） |
+| 安卓包名 / 窗口 / minSdk | `android/src-tauri/tauri.conf.json`（identifier `com.campuslogin.client`） |
+| 安卓 Gradle 签名与产物命名 | `android/src-tauri/gen/android/app/build.gradle.kts`（release signingConfig + outputFileName） |
+| IPC 命令与事件全表 | 附录 C |
+
 ---
 
-## 四、后端模块详解 (Rust)
+## 三、关键约定
+
+只列本项目特有、违反必出问题的规矩；通用工程规范不重复（流程类见 `AGENTS.md`）。
+
+1. **协议核心单点共享（双端铁律）**：登录/注销/Portal/自助服务/网络质量的实现只存在于桌面 crate（`tauri-app/src-tauri`），安卓以 Cargo path 依赖复用，**禁止复制协议逻辑**。桌面 cfg 门控模块（app/helper/monitor/update）对安卓不可见。
+2. **命令面两端同名对齐**：前端 `tauriApi` 一套接口两端消费；安卓命令与桌面同名同参（`do_login`/`save_config`…），差异只在实现。新增命令：桌面在 `app/startup.rs` 注册，安卓在 `android/src-tauri/src/lib.rs` 注册，并在 `hooks/tauriApi.ts` 加方法。
+3. **敏感信息出站唯一出口**：一切把 Config 发往前端的路径必经 `Config::masked_for_display()`（桌面）/ `config_state::masked_for_display`（安卓），**禁止手工逐字段打码**（历史缺陷：漏一处即明文出站，有回归单测锁死）。密码"空串/MASK=未修改回退已存值、显式清除走 `clear` 标志"语义两端同构。日志/错误/事件 payload 一律不得携带 password。
+4. **验证门分级**：改变外部状态的命令设门（bind_operator / self_offline_session），只读查询有意不设门（总览卡自动刷新依赖免验证拉取），明文查看无论开关强制验证；前端门 TTL 570s + 后端 600s 复核（后端 TTL 才是真防线）。
+5. **通知单通道**：系统通知只有 `emit_notification`（窗口不可见才发）；应用内提示走业务专用事件（`auto-login-result`/`login-log`/…）；`enable_notification` 只控制系统通知。新增提醒先想清楚走哪条通道，不要双发。
+6. **适配器操作范围**：操作类流程（检测/登录/注销/DNS 设置/DHCP）只作用于 `resolve_adapter_names` 解析出的主/副适配器；UI 展示类遍历全部。前端 `network/adapters.ts::resolveAdapterNames` 与后端**同源规则**，改任一侧必须同步另一侧（`adapters.test.ts` 锁行为）。
+7. **质量检测键与驱动者**：`details`/`metrics` 字典键为英文标识符（`gateway`/`aliDns`/`bilibili`…），显示名走 i18n `quality.names.*`，前后端键同步改（同仓库同发版无兼容窗口）。周期质量检测唯一驱动者是定时测试循环；新增受开关控制的面板需三处联动（App 渲染 null / DockNav 过滤入口 / useInitialDataLoad 跳过恢复）。
+8. **面板转场用 `deferredPanel`**：App.tsx 中面板 switch/转场 key/标题/方向全部消费 `useDeferredValue` 后的值，`activePanel` 仅用于 DockNav 高亮与 storage 恢复——用错会内容与标题错位。
+9. **版本号五处同步**：`tauri.conf.json` 是唯一权威源（build.rs 注入 `APP_VERSION`），升级按附录 H 清单走；`version.json` 推送与 Release 发布必须同一次操作完成。
+10. **验证基线**：`cargo test` 493 全绿 / `cargo clippy -D warnings` / `npx tsc --noEmit --incremental` / `npm test`；安卓只认 `tauri android build` 交叉编译。布局/交互改动需浏览器实测且用后 `git diff` 干净（方法见 §1.4）。
+11. **模块声明双树**：`main.rs` 与 `lib.rs` 是两棵独立模块树，新增顶层模块必须两处同时声明（漏一处 bin target E0432）。
+12. **安卓生成工程纪律**：`gen/android/` 版本化提交但 build 产物不入库；`settings.gradle` 插件声明为手改；构建再生的 `\n`→`\r\n` 行尾差异是噪音，提交前 `git checkout --` 还原；**改 identifier（包名）= 用户卸载重装**（Keystore 密钥按包名隔离），必须同步 gradle namespace/applicationId/MainActivity 包路径三处并 `git mv` Kotlin 目录；签名证书一经发布不可更换。
+13. **Release 资产**：安装包与 `.sha256` 必须同传（校验源全 4xx 默认拒绝安装且用户无法自救）；APK 由 gradle 内置签名与命名；镜像 URL 拼接一律原样拼接不做百分号编码（gh-proxy 403 坑）。
+
+---
+
+## 四、踩坑记录
+
+坑 + 症状 + 根因 + 解法，一条一两行；按域分组。
+
+**工具链 / 构建**
+
+- `npx tsc -b` 会 emit 出 `vite.config.js`/`.d.ts` 污染文件：tsconfig.node.json 是 composite 项目——类型检查一律 `npx tsc --noEmit --incremental`。
+- tsc 全量检查必报错 exit 2：工作区根 node_modules 的 `@types/yauzl` 是损坏的二进制文件——tsconfig 显式 `types: ["vite/client"]`（node 侧 `["node"]`）阻止自动加载全部 @types。
+- host `cargo check` 在 `android/src-tauri` 基线即失败：mobile-only 插件权限 host 收集不全——安卓验证只认 `tauri android build` 交叉编译。
+- 安卓构建后 APK 没更新：tauri CLI 不跑 `beforeBuildCommand`，frontend/dist 还是旧的——先手动 `npx vite build`。
+- `tauri android build` 完成报告指向 `app-universal-release.apk` 但文件不存在：产物名/签名已内置 gradle（`Wxxy-CampusLogin_<版本>.apk`）——以输出目录实际文件为准。
+- `gen/` 下 schemas 与插件 permissions 构建后出现 `\n`→`\r\n` 全文件 diff：噪音（node 深比较语义零变化）——提交前 `git checkout --` 还原。
+- identifier 以 `.app` 结尾触发 tauri-cli macOS bundle 警告：纯 lint，但会污染构建输出——本项目已迁 `com.campuslogin.client`。
+
+**协议 / 编码**
+
+- 老 Dr.COM Portal（GBK 响应）下登录失败被误报成功：`from_utf8_lossy` 把 GBK 字节全变 U+FFFD，中文关键词匹配全失效——响应统一经 `decode_charset_bytes`（Content-Type GBK→936，否则 UTF-8 优先→OEM 回退）。
+- JSONP 解析失败，msg 含半角括号时（如"密码错误(剩余2次)"）重试全败：旧实现 `rfind(')')` 截断 JSON——改字符串/转义感知的花括号平衡扫描（`jsonp_json_slice`）。
+- 状态探测/协议请求端口混用即失效：`:801` 是 ePortal SPA（已在线仍渲染登录页、无状态特征），`:80` 网关页才有状态特征——协议请求强制 801（`ensure_portal_port`），页面探测用 80。
+- 子线程 reqwest panic `there is no reactor running`：`std::thread::scope` 裸子线程无 Tokio reactor——同步桥接统一走 `block_on_http` / `spawn_blocking`，禁止在 async 上下文直调同步协议函数。
+- 安卓检测不到网关存活：非 root 无 ICMP（SELinux 禁原始 socket，surge-ping 不可用）——网关可达性用 TCP connect 表达。
+- 镜像下载 403：gh-proxy.com 拒绝百分号编码后的整链 URL——镜像拼接一律原样拼接。
+- 本机（UTF-8 模式）一切正常、用户机（GBK 代码页）关键字匹配全失效：netsh/ipconfig 输出编码随系统——控制台输出统一 `decode_console_bytes`（UTF-8 优先→OEM 回退）。
+- ipconfig 失败但代码认为成功：失败退出码常为 0——退出码之外按中英错误关键字兜底判定。
+
+**Windows 平台**
+
+- Hello Consent 弹窗弹不出（卡主窗口后面、任务栏点击也提不上来）：Windows bug（task.ms/49689617，broker 进程窗口不绑前台）——主路径 `IUserConsentVerifierInterop::RequestVerificationForWindowAsync(hwnd)` 绑主窗口；Win10 兜底轮询窗口类名 "Credential Dialog Xaml Host" `SetForegroundWindow`。
+- 阻塞等待 Consent（`.get()`）整段死锁：阻塞使弹窗无法完成前台转移——非阻塞 `await_winrt_operation`（SetCompleted 回调 + oneshot）。
+- 手动 `CoInitializeEx` 后撞 `CO_E_NOTINITIALIZED`：windows crate 的 factory cache 自带 `CoIncrementMTAUsage` 自愈，手动 init/uninit 反而破坏它——**不要手动 COM init**。
+- 适配器速度显示 18446744073 Gbps：Windows 未连接时 LinkSpeed 返回 u64::MAX（内部 -1 哨兵）——发现层归 0 表示未知。
+- 动画撕裂顿挫（观感掉帧）：WebView2 注入过 `--disable-gpu-vsync`，BeginFrame 不对齐显示器刷新经 DWM 合并紊乱——vsync 相关参数不要动。
+- 旧配置文件缺一个字段整个 Config 加载失败：结构体无字段级 default——Config 已加容器级 `#[serde(default)]`；损坏文件留档 `config.json.corrupt-<ts>.bak` 不再静默重置。
+
+**前端**
+
+- LogPanel 的 lazy 失效被打进主包：NetworkPanel 经 barrel 静态引 SegmentTabs 连带打包——面板代码分割时留意 barrel 传递依赖（现 LogPanel 已回归静态导入，属有意决策）。
+- 快速切面板时内容与标题错位：转场相关逻辑用了 `activePanel`——必须用 `deferredPanel`（见 §三-8）。
+- absolute 定位的菜单/按钮被卡片裁掉（菜单只露 17px）：`animated-card-interactive` 的 `contain: paint` 裁剪后代越界——菜单用 `createPortal(document.body)`；`panel-content` 已去掉 paint containment。
+- 容器内 margin 间距不生效：`space-y-4 > * + *` 的 specificity 锁死 margin-bottom——间距用 padding 不用 margin。
+- 动画"数据在但没播"（卡片入场/信号条/数字滚动）：`.panel-content` 的 `content-visibility: auto` 跳过合成——改 `visible`；`LazyMotion` 用 `domAnimation` 缺 layout 特性导致 SegmentTabs 滑块不动——用 `domMax`。
+- 2 秒无输入后 loading 转圈停了，被误读"程序卡死"：`.anim-idle` 全局冻结列表含 `.animate-spin`——已排除（冻结列表改动时注意）。
+- Radix Select 报错/不渲染某项：Item 不接受空串 value——"记住上次"类空值语义用哨兵值映射。
+- Toast 同一提示连发刷屏：store 已做 `MAX_TOASTS=4` + 同 title 去重——新 toast 复用 `addToast`，不要绕过。
+- 安卓 app 白屏在 `get_init_data` 少字段：前端 `useInitialDataLoad` 直接读字段不判空——安卓命令补桌面专属字段空默认（gpuInfo/adapters/…），新增字段两端同步。
+
+**安卓端**
+
+- 改包名后用户密码全部失效：AndroidKeyStore 密钥按包名隔离，密文作废——改 identifier 属破坏性操作，需用户卸载重装（见 §三-12）。
+- 前台服务通知"运行时长永远小于一个周期"：每拍 `notify` 同 ID 重建通知时 `when` 取 now，Chronometer 被重置——起点固定为服务启动时刻（`startAtMs`）。
+- 应用内下载 APK 后安装失败（Android 7+）：应用私有目录 `file://` URI 必失败（FileUriExposedException）——FileProvider `content://` URI + FLAG_GRANT_READ_URI_PERMISSION。
+- 运行中改检测间隔不生效：`start_background_check` 幂等分支吞掉新间隔——循环体逐 tick 对比 `desired_interval_ms` 重建计时器。
+- Portal 已在线特征间歇失配 → 状态点反复打灰 + 自动重登撞"已经在线"：探测 Unknown/Failed 不是可信离线证据——三态消费，仅 `error_kind=None` 才翻转在线状态。
+- Android 10+ 开机自启只有通知没有界面：后台启 Activity 受 ROM 限制（MIUI 需"后台弹出界面"权限）——BootReceiver best-effort 拉 MainActivity，被拦时用户点开 app 一次即恢复完整链路（设计内行为）。
+- 安卓旧版本升级后后台检测间隔被"改回"：schema v0→v1 一次性迁移把旧默认 15s 升 60s——迁移结果落盘后用户显式设回不再覆盖；新增默认值迁移走同一 schema 版本机制。
+
+**发布**
+
+- version.json 推送后全员收到更新通知但下载 404：Release 尚未发布——版本号提交与 Release 发布绑同一次操作（后端已有 HEAD 探测兜底：资产 404 本轮不提示）。
+- hotfix 版本（如 2.3.0.1）永不提示更新：旧版本比较 `.take(3)` 截断——已改全段比较。
+- 升级后关于页版本号没变：`about-preview.html` 的 `app-version`/`status-version` 两个 div 漏同步（带 v 前缀）——按附录 H 清单逐项走。
+
+---
+
+## 五、决策记录
+
+带日期的架构/方案决策及理由。**"因为"是关键**——后人需知道当时的权衡，否则容易把选择当唯一答案重做一遍。
+
+- **2026-09-03 WebView2 浏览器参数精简到仅 `--js-flags=--max-old-space-size=512`**：原 11 参数逐项核验——部分已从 Chromium 移除、部分 Windows 默认即开、部分 Windows 不支持、实验性强开有渲染异常风险——渲染交还平台默认（测试最充分的配置），消除实验组合隐患。
+- **2026-09-03 恢复 WebView2 vsync（移除 `--disable-gpu-vsync`）**：解锁后帧节奏紊乱经 DWM 合并呈撕裂+顿挫，观感"掉帧"实为管线未对齐显示器刷新；前端动画本就 rAF/vsync 驱动无 JS 上限。
+- **2026-09-03 Portal 页面探测用 :80、协议请求强制 :801**：801 是 ePortal SPA 管理前端（已在线仍渲染登录页、无状态特征），80 网关页（GBK）内嵌可匹配的登录态特征——曾统一对齐 801 导致误报"无法判断登录状态"，两端口语义严格区分不再合并。
+- **2026-09-03 提权操作用 `--helper` 重启自身，弃用 PowerShell**：Rust 直调 Win32/winreg——移除 shell 拼接注入面与 `-EncodedCommand` 编码坑，耗时 200-500ms→1ms。
+- **2026-09-03 通知单通道规范**：一条通知一个来源一个通道——曾双通道重复轰炸用户；系统通知只走 `emit_notification`，应用内提示走业务事件。
+- **2026-09-04 质量检测驱动者收敛为定时测试循环独占**：曾双定时器叠加导致每 15s 全量外网探测高频重复——收敛后删除全局节流；代价是不开定时测试则质量面板无周期数据（有意接受，手动检测按钮兜底）。
+- **2026-09-04 "网络拥堵"通知需 15s 间隔两次复核确认**：瞬时抖动误报会消耗通知信任——复核未达标只更新数据不通知；恢复通知不受影响。
+- **2026-09-04 常用面板静态导入、仅 3 个低频对话框懒加载+启动预取**：React.lazy 切换实测 ~366ms（chunk 缓存命中仍如此），13KB 分包远不值切换延迟——首屏体积与交互流畅取舍取后者。
+- **2026-09-04 面板内容渲染用 `deferredPanel`（useDeferredValue）**：120Hz 帧预算仅 8.3ms，快速连切时 React 并发跳过中间面板 mount——真机"快速切换短卡顿"的主修。
+- **2026-09-04 全局细滚动条替代隐藏**：隐藏使"内容可滚动"不可发现（编辑列表溢出一屏卡片看似截断）——可发现性优先，6px 半透明兼容无边框美学。
+- **2026-09-04 定时测试默认开启（false→true）**：驱动者收敛后周期质量数据唯一来源是定时测试——默认关闭使质量面板空置，违背"装完即有数据"的用户预期。
+- **2026-09-05 身份验证仅 Windows Hello，删除 CredUI/SSPI 回退**：用户明确只要 Hello——设备未配置时返回引导文案而非降级到密码框。
+- **2026-09-05 Consent 弹窗前台问题用"interop 绑 HWND 主路径 + focus nudger 兜底"两路径修复**：根因是 Windows bug（broker 窗口不绑前台）应用侧无法根治——只能绕；与 Flutter local_auth_windows/Bitwarden 同做法。
+- **2026-09-05 只读查询命令不设验证门**：总览卡自动刷新依赖免验证拉取，数据本就在本机、掩码属渲染层——参考 Bitwarden reprompt 分级保护/sudo 仅副作用命令需认证。
+- **2026-09-06 出站掩码收敛为 `Config::masked_for_display()` 唯一出口**：散点手工打码被证实必漏（account 三命令漏掩码明文出站的缺陷链）——收敛 + 回归单测锁死；后续加固方向 `secrecy::SecretString` 编译期防出站。
+- **2026-09-06 验证门演进为"首次即验证 + TTL 570s 会话"**：每操作验证在高频面板不可用——570s 刻意短于后端 600s，前端在过期前重新验证而非撞后端拒绝。
+- **2026-09-06 `configLoaded` 确定性信号**：自助面板自动验证/刷新严格等待配置加载完成信号——消除启动加载窗口期的时序竞态（原靠猜延迟）。
+- **2026-09-08 安卓常驻通知走标准安卓协议，不做厂商私有 extras**：ongoing + Chronometer + CATEGORY_SERVICE 即 promoted ongoing 触发特征，ColorOS 流体云/HyperOS 原生通道按 Live Updates 自动识别——厂商岛态由 ROM 决定，用户侧需开"实时通知提升"类权限（已知体验边界，统一行为优先于逐厂商适配）。
+- **2026-09-09 安卓启动三链（后台检测/质量首测/自动登录）并行 spawn、就绪窗口 1.5s→500ms**：串行时质量首测（12 域名数秒级）把自动登录压最后，冷启动登录被成倍拖长——网络未就绪的极端场景由自动登录一次重试 + 后台检测下一拍兜底。
+- **2026-09-09 安卓后台检测间隔默认 15s→60s + schema 版本迁移机制**：稳态周期任务 15s 空转耗电——引入 `config_schema_version` 做一次性默认值迁移（迁移落盘后用户显式设回不再被覆盖），后续默认值变更沿用该机制。
+- **2026-09-09 安卓在线状态三态消费**：Portal GBK 页面特征间歇失配曾致误判掉线（状态点反复打灰 + 自动重登撞"已经在线"）——Unknown/Failed 不构成可信离线证据，保持上一拍记忆；真掉线由确定判定正常翻转，护栏不遮蔽真实状态。
+- **2026-09-10 安卓 APK 签名与产物命名内置 gradle**：release signingConfig + `applicationVariants` outputFileName——zipalign/apksigner 后处理整体消失；代价是签名证书绑定本机 debug.keystore，一经发布不可更换（换=用户卸载重装）。
+- **2026-09-10 安卓 identifier 定为 `com.campuslogin.client`**：原 `.app` 结尾触发 tauri-cli macOS bundle lint 警告——虽无 macOS 目标无实害，迁移消除噪音。
+- **2026-09-11 注销协议改为 Radius 注销先行、成功即止，MAC 解绑收尾**：调研证实 ePortal `mac/unbind` 是按 IP 踢下线的破坏性操作，旧"先解绑后注销"顺序为防御性对齐——虚拟机 30+ 请求实测未复现"注销后打不开登录页"的僵尸状态（定性间歇性服务端/环境异常），但先 logout 后 unbind 与主流实现一致，保持防御性正确。
+- **（早期重构）删除 auth 层 trait 抽象（AdapterResolver/PortalChecker/ProtocolClient）**：单实现 trait + mock 属无意义抽象——直接调自由函数，测试用真函数。
+- **（设计）版本号 build.rs 单权威源注入**：应用内多处版本号引用手改必漏（已发生事故）——`tauri.conf.json` 唯一编辑点，编译期 `env!("APP_VERSION")` 同步，见附录 H。
+
+---
+
+## 附录 A：桌面后端模块详解 (Rust)
 
 ### 4.1 应用入口 — `main.rs` + `app/startup.rs`
 
@@ -1420,7 +1612,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 ---
 
-## 五、前端模块详解 (React/TypeScript)
+## 附录 B：前端模块详解 (React/TypeScript)
 
 > **架构说明**: 前端采用业务域分目录架构，每个业务域目录包含面板组件、逻辑 Hook、类型定义和模块导出。类型定义分散在各业务域的 `types.ts` 中，而非集中在一个 `types/index.ts` 文件。
 
@@ -1774,7 +1966,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 
 ---
 
-## 六、IPC 通信完整清单
+## 附录 C：IPC 通信完整清单
 
 ### 6.1 请求-响应命令 (v2.3.2: 56个)
 
@@ -1869,7 +2061,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 
 ---
 
-## 七、依赖关系
+## 附录 D：依赖关系
 
 ### 7.1 Rust 依赖 (Cargo.toml)
 
@@ -2107,7 +2299,7 @@ App.tsx (466行, App + AppInner)
 
 ---
 
-## 八、安全体系
+## 附录 E：安全体系
 
 | 措施 | 实现 |
 |------|------|
@@ -2131,7 +2323,7 @@ App.tsx (466行, App + AppInner)
 
 ---
 
-## 九、性能优化
+## 附录 F：性能优化与已知限制
 
 | 优化项 | 实现 | 效果 |
 |--------|------|------|
@@ -2206,7 +2398,7 @@ App.tsx (466行, App + AppInner)
 
 ---
 
-## 十、编译配置
+## 附录 G：编译配置与测试基线
 
 ```toml
 [profile.release]
@@ -2227,7 +2419,7 @@ panic = "abort"
 
 ---
 
-## 十一、版本号管理
+## 附录 H：版本号管理
 
 ### 设计目标
 
@@ -2358,5 +2550,5 @@ let version = env!("APP_VERSION").to_string();
 
 ---
 
-*文档版本: v2.3.4 | 基于代码版本: CampusLogin v2.3.4 | 更新日期: 2026-09-11 | 补充安卓端详解（4.16 后端模块与手写插件 / 5.14 安卓前端 / 6.1.1 安卓命令面）*
+*文档版本: v2.3.4 | 基于代码版本: CampusLogin v2.3.4 | 更新日期: 2026-09-11 | 文档结构整改为五段手册层（概览/架构速查/关键约定/踩坑记录/决策记录）+ 附录 A~H 参考层；含安卓端详解（附录 A §4.16 / 附录 B §7.14 / 附录 C §6.1.1）*
 
