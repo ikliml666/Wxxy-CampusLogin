@@ -203,4 +203,8 @@ npx tsc --noEmit --incremental
 
 ## 许可证
 
-MIT License
+本项目采用**双轨许可**：
+
+- **源代码**：[MIT License](LICENSE) —— 允许自由使用、修改与再分发（含商用），须保留版权声明。
+- **美术素材**（看板娘/背景娘全套插画、应用图标等）：**版权所有，不在 MIT 授权范围内**。禁止单独提取、二次分发、改编与商用，详见 [LICENSE-ASSETS.md](LICENSE-ASSETS.md)。
+- **第三方组件**：本项目依赖的开源组件（Rust crates、npm 包等）的版权与许可声明汇总见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
