@@ -58,7 +58,7 @@ Wxxy-CampusLogin/
 │   │   ├── postcss.config.js        # PostCSS 配置
 │   │   ├── tsconfig.json            # TypeScript 配置
 │   │   ├── index.html               # HTML 入口
-│   │   ├── public/                  # 静态资源 (图标 PNG + sponsor-weixin.png / sponsor-alipay.jpg)
+│   │   ├── public/                  # 静态资源 (图标 PNG + sponsor-weixin.png / sponsor-alipay.jpg + girl/ 看板娘场景图)
 │   │   └── src/
 │   │       ├── main.tsx             # React 入口
 │   │       ├── App.tsx              # 根组件
@@ -1531,7 +1531,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 
 | 文件 | 说明 |
 |------|------|
-| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），5张自定义卡（`ALL_CARDS`: QuickActionsCard/AccountManageCard/SelfOnlineCard/SelfLogCard/NetworkQualityCard，质量总开关关闭时隐藏网络质量卡），布局持久化到safeStorage。**2026-09-06 新增"在线信息"与"近期上网记录"两卡**（`SelfOnlineCard`/`SelfLogCard`；共用 hook `useSelfCardReveal`（凭据判断 + 掩码/验证切换）与 `useSelfCardFetch`（自动查询骨架：按学号只查一次、引用变化不重查、错误卡内重试 + toast）定义于本文件；自动查询走 `querySelfDashboard`/`querySelfOnlineLog`，密码传空串由后端回退已保存值，命令仅回传非敏感概览不触发验证；关键信息（IP/登录时间/时长/流量明细）未验证时圆点掩码，点眼睛经 `useHelloGate` 验证后显示、再点切回不再验证；每卡显隐独立，与账号页绑定卡共用门生命周期；无凭据显示引导提示，`selfHelloEnabled` 关闭时眼睛直接放行）。注意 framer-motion 对 Reorder.Item 内联写 `touch-action: pan-x`（axis=y），class 层的 touch-action 会被覆盖，触摸垂直滚动让位于拖拽排序；列表溢出时的滚动可达性由全局细滚动条保证（2026-09-04） |
+| `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），5张自定义卡（`ALL_CARDS`: QuickActionsCard/AccountManageCard/SelfOnlineCard/SelfLogCard/NetworkQualityCard，质量总开关关闭时隐藏网络质量卡），布局持久化到safeStorage。**2026-09-06 新增"在线信息"与"近期上网记录"两卡**（`SelfOnlineCard`/`SelfLogCard`；共用 hook `useSelfCardReveal`（凭据判断 + 掩码/验证切换）与 `useSelfCardFetch`（自动查询骨架：按学号只查一次、引用变化不重查、错误卡内重试 + toast）定义于本文件；自动查询走 `querySelfDashboard`/`querySelfOnlineLog`，密码传空串由后端回退已保存值，命令仅回传非敏感概览不触发验证；关键信息（IP/登录时间/时长/流量明细）未验证时圆点掩码，点眼睛经 `useHelloGate` 验证后显示、再点切回不再验证；每卡显隐独立，与账号页绑定卡共用门生命周期；无凭据显示引导提示，`selfHelloEnabled` 关闭时眼睛直接放行）。注意 framer-motion 对 Reorder.Item 内联写 `touch-action: pan-x`（axis=y），class 层的 touch-action 会被覆盖，触摸垂直滚动让位于拖拽排序；列表溢出时的滚动可达性由全局细滚动条保证（2026-09-04）。总览滚动末尾（空态块后）渲染低透明度背景看板娘 `mascot-bg-laptop`（2026-09-11，w-64、opacity 0.10/深色 0.06、pointer-events-none，文档流末尾 img 而非 absolute——随滚动被内容自然遮挡） |
 | `DashboardPanel.selfCards.test.tsx` | 总览自助两卡单测（2026-09-06）：自动查询+掩码、验证后明细/切回不再验证、验证失败保持掩码、无凭据不查询 |
 | `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**2026-09-03 修复**：`ensureFullUpdateInfo` 在一键下载前确保 updateInfo 完整（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案（原先静默失败无任何反馈）；兜底下载文件名对齐真实资产命名 `Wxxy-CampusLogin_{v}_x64-setup.exe`。**2026-09-04 布局调整**：一键下载按钮与切换下载源入口从右侧栏顶部移到底部（`mt-auto`），新功能亮点/核心优势卡片置于顶部；核心优势卡片宽度 260px→340px 使"双适配器支持"标题单行；左栏描述文案改为无锡学院专属（`about.appDesc`="无锡学院校园网自动登录助手"、`about.dualAdapterSupportDesc`="适配无锡学院双网卡环境"，zh/en 同步——应用仅支持无锡学院，不再宣称兼容多种校园认证方式）。**赞助入口（2026-09-04）**：左栏底部新增"赞助支持"按钮（`about.sponsor`，rose 风格遵循固定亮色皮肤无 dark: 变体），点击后**右栏原地切换为赞助内嵌页**（`showSponsor` state，标题+双码大图+右下角"返回"，右栏现有更新仪表盘内容用 `contents/hidden` 整体切换——最小 diff 且布局语义不变；对话框关闭时重置回仪表盘），不关闭对话框、不回主界面弹浮层；标题栏 Heart 才打开主界面下拉浮层。**固定亮色皮肤（2026-09-04）**：对话框内 30 处 `dark:` 变体类全部移除，DialogContent 挂 `index.css` 的 `.force-light-dialog`（容器级重定义主题变量为浅色值 + 显式 `color: hsl(var(--foreground))`——`color` 是继承属性，body 按暗色变量算出的颜色会直接继承下来，仅重定义变量不够），修复暗色模式下白底上近白文字几乎不可读的存量缺陷；浅色模式视觉无变化 |
 | `useAuth.ts` | 认证逻辑 Hook |
@@ -1610,8 +1610,9 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `AnimatedNumber.tsx` | 动画数字，GSAP quickTo驱动，支持unit/decimals/duration，economy档禁用scale弹跳 |
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
-| `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮 |
-| `SponsorCard.tsx` | 赞助下拉浮层 (2026-09-04)。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭。锚定标题栏赞助按钮下方自然向下展开（fixed top-[52px] right-[104px]，带指向按钮的小箭头，z-[60]，高于 DockNav 菜单同级低于 toast z-100），自动弹出与手动入口共用此浮层。内嵌微信/支付宝收款码 (public/sponsor-weixin.png / sponsor-alipay.jpg)。文案走 i18n sponsor 段 + about.sponsor |
+| `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮。带 `mascot` 字段（`'celebrate' | 'offline'`，2026-09-11）时左侧渲染对应看板娘图（裸 img 非 MascotFigure，避免 tailwind 尺寸类冲突），登录成功/失败由 `useAuthStore` 经 `useLogToastStore.addToast` 第 5 参传入 |
+| `MascotFigure.tsx` | 看板娘展示组件（双端同构，2026-09-10）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline}.png`，`size` 三档（sm w-20/md w-28/lg w-40）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`，2026-09-11）：不经组件，由总览/设置/网络质量/日志四面板滚动末尾低透明度裸 img 直引（w-64、opacity 0.10/深色 0.06、pointer-events-none；设置页内容短，图上加 `pb-72` 撑滚动余量避免滚到底被固定底栏遮住）。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死为 0（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → `assets/ui-girl/` → 双端 `public/girl/`（2026-09-11 v2 重做：去 WiFi 呆毛改卷曲呆毛、8 张全套替换、图标同步重制） |
+| `SponsorCard.tsx` | 赞助下拉浮层 (2026-09-04)。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭。锚定标题栏赞助按钮下方自然向下展开（fixed top-[52px] right-[104px]，带指向按钮的小箭头，z-[60]，高于 DockNav 菜单同级低于 toast z-100），自动弹出与手动入口共用此浮层。内嵌微信/支付宝收款码 (public/sponsor-weixin.png / sponsor-alipay.jpg)。浮层顶部居中渲染赞助看板娘（MascotFigure variant=sponsor，2026-09-11）。文案走 i18n sponsor 段 + about.sponsor |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个: dashboard/account/network/monitor/quality/settings/log/speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult 等 10 个导出) |
 | `ui-constants.ts` | UI 常量 (MAX_LOG_ENTRIES=300/APP_VERSION='2.3.0'/APP_NAME='校园网登录助手'/PASSWORD_MASK='***'/NAV_ITEMS=8个导航项/Z_INDEX 分层常量) |

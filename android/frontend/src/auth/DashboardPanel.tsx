@@ -971,6 +971,16 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
           <p className="text-xs mt-1">{t('dashboard.noCardsTip')}</p>
         </div>
       )}
+
+      {/* 背景看板娘:总览滚动末尾的低透明度装饰,不参与交互 */}
+      <img
+        src="/girl/mascot-bg-laptop.png"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        loading="lazy"
+        className="mx-auto mt-6 w-64 opacity-[0.10] dark:opacity-[0.06] select-none pointer-events-none"
+      />
     </div>
   )
 })
