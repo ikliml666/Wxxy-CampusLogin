@@ -33,10 +33,12 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
     const time = new Date().toLocaleTimeString(undefined, { hour12: false })
     set(state => {
       const last = state.logs[state.logs.length - 1]
-      // 去重：如果最后一条日志的消息内容和类型完全相同，只更新时间戳
+      // 连续重复折叠：与最后一条消息内容和类型都相同时，不追加新条目，
+      // 改为累计 ×N 计数并刷新最后发生时间——重复次数本身是诊断信息
+      // （如自动登录失败风暴），静默刷新时间戳会让用户低估问题规模
       if (last && last.message === message && last.type === type) {
         const updated = [...state.logs]
-        updated[updated.length - 1] = { ...last, time }
+        updated[updated.length - 1] = { ...last, time, count: (last.count ?? 1) + 1 }
         return { logs: updated }
       }
       // 不同内容：追加新条目

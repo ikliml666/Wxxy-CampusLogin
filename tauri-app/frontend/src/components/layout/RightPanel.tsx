@@ -248,6 +248,11 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                   <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
                   <div className="flex-1 min-w-0">
                     <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                    {(log.count ?? 1) > 1 && (
+                      <span className="ml-1 inline-block text-[9px] leading-none px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono align-middle">
+                        ×{log.count}
+                      </span>
+                    )}
                     <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
                   </div>
                 </div>
@@ -275,6 +280,11 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                     <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
                     <div className="flex-1 min-w-0">
                       <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                      {(log.count ?? 1) > 1 && (
+                        <span className="ml-1 inline-block text-[9px] leading-none px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono align-middle">
+                          ×{log.count}
+                        </span>
+                      )}
                       <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
                     </div>
                   </m.div>
