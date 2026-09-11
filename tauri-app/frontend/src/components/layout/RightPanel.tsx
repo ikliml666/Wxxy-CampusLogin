@@ -213,7 +213,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
       className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square"
       style={{ background: 'var(--surface-side)' }}
     >
-      <AnimatedCard noHover noAnimation className="mx-2 mt-3 mb-1.5 flex flex-col flex-1 min-h-0 rounded-2xl">
+      <AnimatedCard noHover noAnimation className="relative overflow-hidden mx-2 mt-3 mb-1.5 flex flex-col flex-1 min-h-0 rounded-2xl">
         <div className="flex items-center justify-between px-4 py-3 shrink-0">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <ScrollText className="h-3.5 w-3.5" />
@@ -237,10 +237,20 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           )}
         </div>
 
+        {/* 运行日志卡背景看板娘:卡片内底部的水印装饰,日志条目少时从空白处露出,不参与交互 */}
+        <img
+          src="/girl/mascot-bg-tea.webp"
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          loading="lazy"
+          className="pointer-events-none select-none absolute bottom-3 left-1/2 -translate-x-1/2 w-40 opacity-[0.08] dark:opacity-[0.05] z-0"
+        />
+
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className={cn('overflow-y-auto px-4 pb-3 min-h-0', logs.length > 0 ? 'flex-1' : '')}
+          className={cn('relative z-10 overflow-y-auto px-4 pb-3 min-h-0', logs.length > 0 ? 'flex-1' : '')}
           style={{
             overscrollBehavior: 'contain',
           }}
@@ -413,15 +423,6 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
         </AnimatePresence>
       </AnimatedCard>
 
-      {/* 背景看板娘:日志栏滚动末尾的低透明度装饰,不参与交互 */}
-      <img
-        src="/girl/mascot-bg-tea.png"
-        alt=""
-        aria-hidden="true"
-        draggable={false}
-        loading="lazy"
-        className="mx-auto mt-4 w-56 opacity-[0.10] dark:opacity-[0.06] select-none pointer-events-none"
-      />
     </div>
   )
 })

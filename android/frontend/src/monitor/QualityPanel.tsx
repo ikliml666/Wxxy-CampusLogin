@@ -484,7 +484,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
 
 {/* 背景看板娘:面板滚动末尾的低透明度装饰,不参与交互 */}
       <img
-        src="/girl/mascot-bg-lounge.png"
+        src="/girl/mascot-bg-lounge.webp"
         alt=""
         aria-hidden="true"
         draggable={false}
