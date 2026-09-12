@@ -54,6 +54,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             protocol_cmds::ping_test,
             protocol_cmds::bind_to_wifi,
+            protocol_cmds::accept_wifi_network,
             protocol_cmds::do_login,
             protocol_cmds::do_logout,
             protocol_cmds::check_portal_status,

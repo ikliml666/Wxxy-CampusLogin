@@ -19,6 +19,13 @@ impl<R: Runtime> CampusNetworkBind<R> {
     pub fn bind_to_wifi(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("bindToWifi", ())
     }
+
+    /// 让系统"接受"这张无互联网的 WiFi(校园网认证前的 captive portal 场景),
+    /// 免去用户手动在系统弹窗点"仍然连接";
+    /// 返回 {"accepted": bool, "path": String, "reason"?: String}
+    pub fn accept_wifi_network(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("acceptWifiNetwork", ())
+    }
 }
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`], [`tauri::WebviewWindow`], [`tauri::Webview`] and [`tauri::Window`] to access the network bind APIs.

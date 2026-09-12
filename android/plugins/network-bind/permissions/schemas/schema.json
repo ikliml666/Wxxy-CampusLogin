@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the acceptWifiNetwork command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-acceptWifiNetwork",
+          "markdownDescription": "Enables the acceptWifiNetwork command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the acceptWifiNetwork command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-acceptWifiNetwork",
+          "markdownDescription": "Denies the acceptWifiNetwork command without any pre-configured scope."
+        },
+        {
           "description": "Enables the bindToWifi command without any pre-configured scope.",
           "type": "string",
           "const": "allow-bindToWifi",
@@ -319,10 +331,10 @@
           "markdownDescription": "Denies the unbind command without any pre-configured scope."
         },
         {
-          "description": "把 CampusLogin 进程网络绑定到 WLAN(ConnectivityManager.bindProcessToNetwork),\n强制登录流量走 WiFi 而非移动数据。\n\n#### This default permission set includes:\n\n- `allow-bind-to-wifi`\n- `allow-unbind`",
+          "description": "把 CampusLogin 进程网络绑定到 WLAN(ConnectivityManager.bindProcessToNetwork),\n强制登录流量走 WiFi 而非移动数据。\n\n#### This default permission set includes:\n\n- `allow-bind-to-wifi`\n- `allow-unbind`\n- `allow-accept-wifi-network`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "把 CampusLogin 进程网络绑定到 WLAN(ConnectivityManager.bindProcessToNetwork),\n强制登录流量走 WiFi 而非移动数据。\n\n#### This default permission set includes:\n\n- `allow-bind-to-wifi`\n- `allow-unbind`"
+          "markdownDescription": "把 CampusLogin 进程网络绑定到 WLAN(ConnectivityManager.bindProcessToNetwork),\n强制登录流量走 WiFi 而非移动数据。\n\n#### This default permission set includes:\n\n- `allow-bind-to-wifi`\n- `allow-unbind`\n- `allow-accept-wifi-network`"
         }
       ]
     }

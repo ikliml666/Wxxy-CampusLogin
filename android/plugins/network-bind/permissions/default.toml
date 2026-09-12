@@ -4,4 +4,4 @@ description = """
 强制登录流量走 WiFi 而非移动数据。
 """
 
-permissions = ["allow-bind-to-wifi", "allow-unbind"]
+permissions = ["allow-bind-to-wifi", "allow-unbind", "allow-accept-wifi-network"]

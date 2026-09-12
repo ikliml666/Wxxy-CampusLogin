@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.provider.Settings
 import app.tauri.annotation.Command
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
@@ -81,10 +82,15 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
             return
         }
 
-        val quickFailure = when {
+        // allNetworks 直绑失败的原因（含 VPN 是否活动）：仅作归因证据，不再是终判。
+        // 回退路径失败时两条原因分开呈现（见下方 finish 调用）——此前把
+        // requestNetwork 的异常拼接在 vpn_active 之后，真机日志长成
+        // `bind_rejected_vpn_active_SecurityException:...CHANGE_NETWORK_STATE`，
+        // 看着像 VPN 问题，实际是没声明 CHANGE_NETWORK_STATE（2026-09-12 复盘）
+        val directBindFail = when {
             picked == null -> "no_wifi_network"
-            hasVpn(manager) -> "bind_rejected_vpn_active"
-            else -> "bind_rejected_" + capsSummary
+            hasVpn(manager) -> "bind_false_vpn_active"
+            else -> "bind_false_" + capsSummary
         }
 
         // 回退路径：显式请求 WiFi 网络（不带 INTERNET 能力，见类注释第 2 条）
@@ -100,11 +106,11 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
                 } catch (e: Exception) {
                     false
                 }
-                finish(ok, "requestNetwork", if (ok) capsSummary else quickFailure)
+                finish(ok, "requestNetwork", if (ok) capsSummary else "allNetworks[$directBindFail] requestNetwork[onAvailable_bind_false]")
             }
 
             override fun onUnavailable() {
-                finish(false, "requestNetwork", quickFailure + "_unavailable")
+                finish(false, "requestNetwork", "allNetworks[$directBindFail] requestNetwork[onUnavailable]")
             }
         }
 
@@ -119,7 +125,7 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
             finish(
                 false,
                 "requestNetwork",
-                quickFailure + "_" + e.javaClass.simpleName + ":" + (e.message ?: "")
+                "allNetworks[$directBindFail] requestNetwork[${e.javaClass.simpleName}:${e.message ?: ""}]"
             )
         }
     }
@@ -131,6 +137,123 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         heldCallback?.let { runCatching { manager.unregisterNetworkCallback(it) } }
         heldCallback = null
         invoke.resolve()
+    }
+
+    /**
+     * 让系统"接受"这张无互联网的 WiFi（校园网认证前的 captive portal 场景），
+     * 免去用户手动在系统弹窗点"仍然连接"。
+     *
+     * 依次尝试三条路径，返回值 `{accepted, path, reason}`：
+     * 1. `already_validated`：网络已通过验证，无需处理；
+     * 2. `hidden_api`：反射调用 `ConnectivityManager.setAcceptUnvalidated(network, true, true)`
+     *    —— 这正是系统弹窗"仍然连接 + 不再询问"的内部实现（AOSP ConnectivityService
+     *    的 handleSetAcceptUnvalidated）；它需要 CONNECTIVITY_INTERNAL 权限，普通应用
+     *    通常被 hidden API 名单拦下（表现为 NoSuchMethodException）；
+     * 3. `settings_global`：回退写 `Settings.Global`（`captive_portal_mode=0` +
+     *    `network_avoid_bad_wifi=0`），需用户授权 WRITE_SETTINGS——CaptivePortalController
+     *    同款做法，真机（HyperOS 3.0 / Android 16）已验证这两个键可写且不回滚。
+     */
+    @Command
+    fun acceptWifiNetwork(invoke: Invoke) {
+        val manager = cm
+        val ret = JSObject()
+        // 无论网络状态如何都先探测一次 hidden API 可达性：这决定"直接调底层 API"
+        // 这条路在当前设备/系统上是否成立（hidden API 名单、ROM 定制都会影响），
+        // 且探测本身无副作用，可在任意网络环境下取证
+        ret.put("hiddenApi", canReachSetAcceptUnvalidated())
+
+        val wifi = try {
+            manager.allNetworks.firstOrNull { n ->
+                manager.getNetworkCapabilities(n)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+        } catch (e: Exception) {
+            null
+        }
+        if (wifi == null) {
+            ret.put("accepted", false)
+            ret.put("path", "none")
+            ret.put("reason", "no_wifi_network")
+            invoke.resolve(ret)
+            return
+        }
+
+        val caps = manager.getNetworkCapabilities(wifi)
+        if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) {
+            ret.put("accepted", true)
+            ret.put("path", "already_validated")
+            invoke.resolve(ret)
+            return
+        }
+
+        val hiddenErr = trySetAcceptUnvalidated(manager, wifi)
+        if (hiddenErr == null) {
+            ret.put("accepted", true)
+            ret.put("path", "hidden_api")
+            invoke.resolve(ret)
+            return
+        }
+
+        val settingsErr = applyNetworkSettingsCompat(activity.applicationContext)
+        ret.put("accepted", settingsErr == null)
+        ret.put("path", if (settingsErr == null) "settings_global" else "none")
+        ret.put("reason", "hidden_api[$hiddenErr] settings[$settingsErr]")
+        invoke.resolve(ret)
+    }
+
+    /** 探测 hidden API `setAcceptUnvalidated` 方法是否可达（只解析不调用，无副作用） */
+    private fun canReachSetAcceptUnvalidated(): Boolean = try {
+        ConnectivityManager::class.java.getDeclaredMethod(
+            "setAcceptUnvalidated",
+            Network::class.java,
+            Boolean::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType,
+        )
+        true
+    } catch (e: Throwable) {
+        false
+    }
+
+    /** 反射调用 hidden API `setAcceptUnvalidated`；返回 null 表示成功，否则为失败原因 */
+    private fun trySetAcceptUnvalidated(manager: ConnectivityManager, network: Network): String? = try {
+        val method = ConnectivityManager::class.java.getDeclaredMethod(
+            "setAcceptUnvalidated",
+            Network::class.java,
+            Boolean::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType,
+        )
+        method.isAccessible = true
+        method.invoke(manager, network, true, true)
+        null
+    } catch (e: Throwable) {
+        // hidden API 名单拦截（NoSuchMethodException）、权限不足（SecurityException）
+        // 或 system_server 侧断言失败（InvocationTargetException）都归到 here
+        e.javaClass.simpleName + ":" + (e.cause?.javaClass?.simpleName ?: e.message ?: "")
+    }
+
+    /**
+     * 写 Settings.Global 兜底；返回 null 表示成功，否则为失败原因。
+     *
+     * 权限层级：Global 表由 `WRITE_SECURE_SETTINGS`（signature|privileged）保护，
+     * 普通签名应用**无法通过用户授权获得**，因此这条路径对普通用户实际不可用，
+     * 仅在 root / Shizuku / 系统预装场景生效。此前先用 `Settings.System.canWrite()`
+     * 提前返回——它检查的是 System 表的 `WRITE_SETTINGS`，与本处写 Global 无关，
+     * 恒定 false 且把真实原因（SecurityException）挡在门外，属误判。
+     * 现在直接试写，由系统给出真实结论。
+     */
+    private fun applyNetworkSettingsCompat(context: Context): String? {
+        val cr = context.contentResolver
+        return try {
+            // IGNORE：系统不做 captive portal 判定，也就不再弹"无法访问互联网"
+            Settings.Global.putInt(cr, "captive_portal_mode", 0)
+            // 不"躲开"无网 WiFi，避免系统把默认路由切回蜂窝
+            Settings.Global.putInt(cr, "network_avoid_bad_wifi", 0)
+            null
+        } catch (e: Throwable) {
+            // 普通签名必然是 SecurityException（缺 WRITE_SECURE_SETTINGS）；
+            // 某些 ROM 还会把键列入不可写白名单
+            e.javaClass.simpleName + ":" + (e.message ?: "")
+        }
     }
 
     /** 网络能力摘要：net/nonet（是否有互联网能力）+ val/unval（是否已验证）+ cp（captive portal） */

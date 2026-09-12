@@ -187,6 +187,24 @@ pub fn bind_to_wifi(app: tauri::AppHandle) -> Result<serde_json::Value, String> 
     }
 }
 
+/// 让系统"接受"当前无互联网的 WiFi（校园网认证前的 captive portal 场景），
+/// 免去用户手动在系统弹窗点"仍然连接"。前端可通过 invoke("accept_wifi_network") 手动触发。
+#[tauri::command]
+pub fn accept_wifi_network(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+        app.campus_network_bind()
+            .accept_wifi_network()
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("网络接受仅安卓端支持".to_string())
+    }
+}
+
 /// 全链路(启动自动登录/周期检测/断线重连/注销/手动登录/手动探测)执行前确保进程已绑 WiFi。
 ///
 /// 根因：WiFi 未认证时被安卓网络评分降权，WiFi+流量同开下默认路由可能落到蜂窝，
@@ -218,15 +236,89 @@ pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
                 v["reason"].as_str().unwrap_or("?"),
                 cleared
             );
+            // 真机排障通道:release 包无 root 读不到私有目录日志文件，logcat 是
+            // 唯一免 root 可见的输出（同 do_login 的 eprintln 诊断）
+            eprintln!(
+                "[wifi-bind] ok path={} wifi={} cleared={}",
+                v["path"].as_str().unwrap_or("?"),
+                v["reason"].as_str().unwrap_or("?"),
+                cleared
+            );
+            // 校园网认证前的 WiFi 会被系统判为"无互联网"，需用户在系统弹窗点
+            // "仍然连接"才会被当作可用网络——绑定成功后顺带代劳，免去手动确认。
+            // 是否真有动作由 Kotlin 侧按 NetworkCapabilities 判定（已验证则直接返回）
+            accept_campus_wifi(app).await;
         }
-        Ok(v) => campus_login_lib::log_warn!(
-            "wifi-bind",
-            "未绑定 WiFi（reason={}），本次回落系统默认路由",
-            v["reason"].as_str().unwrap_or("unknown")
-        ),
-        Err(e) => campus_login_lib::log_warn!(
-            "wifi-bind",
-            "WiFi 绑定调用失败（本次回落默认路由）: {e}"
-        ),
+        Ok(v) => {
+            eprintln!(
+                "[wifi-bind] not_bound reason={} path={}",
+                v["reason"].as_str().unwrap_or("unknown"),
+                v["path"].as_str().unwrap_or("?")
+            );
+            campus_login_lib::log_warn!(
+                "wifi-bind",
+                "未绑定 WiFi（reason={}），本次回落系统默认路由",
+                v["reason"].as_str().unwrap_or("unknown")
+            );
+        }
+        Err(e) => {
+            eprintln!("[wifi-bind] call_failed: {e}");
+            campus_login_lib::log_warn!(
+                "wifi-bind",
+                "WiFi 绑定调用失败（本次回落默认路由）: {e}"
+            );
+        }
+    }
+}
+
+/// 让系统接受"无互联网"的 WiFi（校园网认证前的 captive portal 场景）。
+///
+/// 背景：AOSP ConnectivityService 只在 `explicitlySelected && !acceptUnvalidated` 时
+/// 弹"此网络无法访问互联网 / 仍然连接"，而这两个字段属 NetworkAgent 侧、应用无公开
+/// API 可写。这里按三条路径尝试（详见 NetworkBindPlugin.acceptWifiNetwork）：
+/// 反射 hidden API `setAcceptUnvalidated` → 回退写 `Settings.Global`（captive_portal_mode=0
+/// + network_avoid_bad_wifi=0）。无实际动作时 Kotlin 侧直接返回 already_validated。
+///
+/// 结果只记日志不阻断：拿不到 WRITE_SETTINGS 授权或 ROM 拦下写入时，用户仍可按系统
+/// 弹窗手动确认（原有路径不变）。
+pub(crate) async fn accept_campus_wifi(app: &tauri::AppHandle) {
+    let cloned = app.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || accept_wifi_network(cloned))
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+    match outcome {
+        Ok(v) if v["accepted"].as_bool().unwrap_or(false) => {
+            eprintln!(
+                "[wifi-accept] accepted path={} hiddenApi={} reason={}",
+                v["path"].as_str().unwrap_or("?"),
+                v["hiddenApi"].as_bool().unwrap_or(false),
+                v["reason"].as_str().unwrap_or("?")
+            );
+            campus_login_lib::log_info!(
+                "wifi-accept",
+                "系统已接受该 WiFi（path={}, hiddenApi可达={}）",
+                v["path"].as_str().unwrap_or("?"),
+                v["hiddenApi"].as_bool().unwrap_or(false)
+            )
+        }
+        Ok(v) => {
+            eprintln!(
+                "[wifi-accept] rejected path={} hiddenApi={} reason={}",
+                v["path"].as_str().unwrap_or("?"),
+                v["hiddenApi"].as_bool().unwrap_or(false),
+                v["reason"].as_str().unwrap_or("?")
+            );
+            campus_login_lib::log_warn!(
+                "wifi-accept",
+                "未能让系统接受该 WiFi（path={}, hiddenApi可达={}, reason={}）",
+                v["path"].as_str().unwrap_or("?"),
+                v["hiddenApi"].as_bool().unwrap_or(false),
+                v["reason"].as_str().unwrap_or("?")
+            );
+        }
+        Err(e) => {
+            eprintln!("[wifi-accept] call_failed: {e}");
+            campus_login_lib::log_warn!("wifi-accept", "网络接受调用失败: {e}");
+        }
     }
 }

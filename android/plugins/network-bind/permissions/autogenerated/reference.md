@@ -7,6 +7,7 @@
 
 - `allow-bind-to-wifi`
 - `allow-unbind`
+- `allow-accept-wifi-network`
 
 ## Permission Table
 
@@ -16,6 +17,32 @@
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`campus-network-bind:allow-acceptWifiNetwork`
+
+</td>
+<td>
+
+Enables the acceptWifiNetwork command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:deny-acceptWifiNetwork`
+
+</td>
+<td>
+
+Denies the acceptWifiNetwork command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

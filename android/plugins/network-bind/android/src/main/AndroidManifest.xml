@@ -2,4 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- requestNetwork 回退路径必需（普通权限，声明即生效）。
+         缺失时 ConnectivityManager.requestNetwork 直接抛 SecurityException：
+         "was not granted either of these permissions: CHANGE_NETWORK_STATE, WRITE_SETTINGS"
+         （2026-09-12 真机日志实证）——绑定因此在直绑失败后连回退也走不通。 -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 </manifest>

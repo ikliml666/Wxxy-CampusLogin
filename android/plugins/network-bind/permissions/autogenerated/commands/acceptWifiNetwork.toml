@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-acceptWifiNetwork"
+description = "Enables the acceptWifiNetwork command without any pre-configured scope."
+commands.allow = ["acceptWifiNetwork"]
+
+[[permission]]
+identifier = "deny-acceptWifiNetwork"
+description = "Denies the acceptWifiNetwork command without any pre-configured scope."
+commands.deny = ["acceptWifiNetwork"]
