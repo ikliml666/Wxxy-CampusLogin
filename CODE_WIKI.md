@@ -2072,8 +2072,8 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 1. **编辑唯一权威源** — 修改 `tauri-app/src-tauri/tauri.conf.json` 的 `"version"` 字段为 `"2.3.0"`
 2. **手动同步 Cargo.toml** — 修改 `tauri-app/src-tauri/Cargo.toml` 的 `version` 字段为 `"2.3.0"`（cargo 强制要求）
 3. **同步发布标记** — 修改仓库根 `version.json` 的 `"version"` 为 `"v2.3.0"`（带 v 前缀，是 GitHub release tag 的格式）
-4. **同步前端 package.json** — `tauri-app/frontend/package.json` 与 `android/frontend/package.json` 的 `"version"` 字段（npm 规范要求，无 v 前缀）
-5. **同步前端常量** — `tauri-app/frontend/src/shared/ui-constants.ts` 的 `APP_VERSION`
+4. **同步前端 package.json** — `tauri-app/frontend/package.json`、`tauri-app/package.json`（tauri CLI 根包）与 `android/frontend/package.json` 的 `"version"` 字段（npm 规范要求，无 v 前缀）
+5. **同步前端常量** — `tauri-app/frontend/src/shared/ui-constants.ts` 与 `android/frontend/src/shared/ui-constants.ts`（安卓前端独立复刻库，漏改则安卓关于界面/顶栏版本号停留旧版）的 `APP_VERSION`
 6. **同步静态预览** — `tauri-app/frontend/about-preview.html` 的 `app-version` 和 `status-version` 两个 div（**注意**：此处带 `v` 前缀，如 `v2.3.0`）
 7. **同步徽章** — `README.md` 的 `version-2.3.0` 徽章
 8. **同步文档** — `CODE_WIKI.md` 顶部版本号 + 底部元信息
