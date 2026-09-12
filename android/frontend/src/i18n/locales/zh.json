@@ -350,12 +350,9 @@
     "timelineNetworkDesc": "应用层处理延迟 — 服务器到客户端的额外传输开销"
   },
   "quality": {
-    "bgSubstitute": "网络质量检测已关闭（省电），当前展示后台检测状态",
     "bgOnline": "在线",
     "bgOffline": "离线",
     "bgUnknown": "未检测",
-    "bgCheckCount": "已检测 {{count}} 次",
-    "bgManualHint": "可点击右上角刷新做单次质量测试，或在下方开启定时测试",
     "networkQuality": "网络质量",
     "realtimeLatencyMonitor": "实时网络延迟监测",
     "internalLatency": "内网延迟",

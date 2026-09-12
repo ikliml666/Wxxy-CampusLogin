@@ -1,25 +1,33 @@
 // 移动端底部导航:简单 tab(总览/账号/自助/质量/更多)。
 // 桌面 DockNav 的磁吸/gsap 交互在移动端移除——触控目标 ≥48dp,无悬浮动画,仅色态切换。
 
-import { LayoutDashboard, UserCircle, Globe, Gauge, LayoutGrid } from 'lucide-react'
+import { LayoutDashboard, UserCircle, Globe, Gauge, Radar, LayoutGrid } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
+import { useConfigStore } from '@/hooks/useConfigStore'
 
-export type MobileTab = 'dashboard' | 'account' | 'selfservice' | 'quality' | 'more'
+export type MobileTab = 'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'
 
+// 第 4 位动态:质量检测开启时为"网络质量",关闭(默认,省电)时该标签页删除、
+// 由"后台检测(网络状态检测)"替代补位——与桌面版关掉质量后 tab 消失同语义。
 const TABS: { id: MobileTab; labelKey: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', labelKey: 'nav.dashboard', Icon: LayoutDashboard },
   { id: 'account', labelKey: 'nav.account', Icon: UserCircle },
   { id: 'selfservice', labelKey: 'nav.selfservice', Icon: Globe },
-  { id: 'quality', labelKey: 'nav.quality', Icon: Gauge },
   { id: 'more', labelKey: 'nav.more', Icon: LayoutGrid },
 ]
+
+const QUALITY_TAB = { id: 'quality' as const, labelKey: 'nav.quality', Icon: Gauge }
+const MONITOR_TAB = { id: 'monitor' as const, labelKey: 'nav.monitor', Icon: Radar }
 
 export function BottomNav({ tab, onChange }: {
   tab: MobileTab
   onChange: (t: MobileTab) => void
 }) {
   const { t } = useTranslation()
+  const qualityEnabled = useConfigStore((s) => s.config.enableNetworkQuality !== false)
+  const tabs = [...TABS]
+  tabs.splice(3, 0, qualityEnabled ? QUALITY_TAB : MONITOR_TAB)
   return (
     <nav
       className="shrink-0 z-10"
@@ -32,7 +40,7 @@ export function BottomNav({ tab, onChange }: {
       }}
     >
       <div className="grid grid-cols-5 scrollbar-none">
-        {TABS.map(({ id, labelKey, Icon }) => {
+        {tabs.map(({ id, labelKey, Icon }) => {
           const active = tab === id
           return (
             <button

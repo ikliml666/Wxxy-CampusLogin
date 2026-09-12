@@ -24,7 +24,6 @@ import { useQualityStore } from '@/hooks/useQualityStore'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 import { useConfigStore } from '@/hooks/useConfigStore'
-import { useAuthStore } from '@/hooks/useAuthStore'
 import { useShallow } from 'zustand/react/shallow'
 
 
@@ -114,11 +113,6 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
-  // enableNetworkQuality 默认关闭(省电)时,质量页由后台检测状态代替展示
-  const qualityDisabled = config.enableNetworkQuality === false
-  const bgOnline = useAuthStore((s) => s.bgStatus.online)
-  const bgMessage = useAuthStore((s) => s.bgStatus.message)
-  const bgCheckCount = useAuthStore((s) => s.bgStatus.checkCount)
   const profile = useAnimationProfile()
   const isPoorQuality = ['poor', 'bad'].includes(networkQuality?.quality ?? '')
   const dangerGlowRef = useGlowAnimation({ duration: 4, maxScale: 1.02, maxOpacity: 1 })
@@ -223,22 +217,12 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
               </div>
               <div>
                 <CardTitle>{t('quality.networkQuality')}</CardTitle>
-                <CardDescription>{qualityDisabled ? t('quality.bgSubstitute') : t('quality.realtimeLatencyMonitor')}</CardDescription>
+                <CardDescription>{t('quality.realtimeLatencyMonitor')}</CardDescription>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                {qualityDisabled ? (
-                  <Badge variant="outline" className={cn('whitespace-nowrap shrink-0', 
-                    bgOnline === true && 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-                    bgOnline === false && 'bg-rose-500/10 text-rose-600 border-rose-500/20',
-                    bgOnline !== true && bgOnline !== false && 'bg-muted text-muted-foreground border-border',
-                  )}>
-                    {bgOnline === true ? t('quality.bgOnline') : bgOnline === false ? t('quality.bgOffline') : t('quality.bgUnknown')}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className={cn(qualityConfig?.bg ?? 'bg-muted', qualityConfig?.color ?? 'text-muted-foreground', qualityConfig?.border ?? 'border-border')}>
-                    {t(qualityConfig?.labelKey ?? 'common.unknown')}
-                  </Badge>
-                )}
+                <Badge variant="outline" className={cn(qualityConfig?.bg ?? 'bg-muted', qualityConfig?.color ?? 'text-muted-foreground', qualityConfig?.border ?? 'border-border')}>
+                  {t(qualityConfig?.labelKey ?? 'common.unknown')}
+                </Badge>
                 {onRefreshQuality && (
                   <TooltipProvider delayDuration={300}>
                     <Tooltip>
@@ -266,30 +250,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {qualityDisabled ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-3 rounded-xl bg-muted/30 px-4 py-3">
-                  <span className={cn(
-                    'w-2 h-2 rounded-full shrink-0',
-                    bgOnline === true && 'bg-emerald-500',
-                    bgOnline === false && 'bg-rose-500',
-                    bgOnline !== true && bgOnline !== false && 'bg-muted-foreground/40',
-                  )} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">
-                      {bgOnline === true ? t('quality.bgOnline') : bgOnline === false ? t('quality.bgOffline') : t('quality.bgUnknown')}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">{bgMessage || '—'}</p>
-                  </div>
-                  {bgCheckCount > 0 && (
-                    <Badge variant="outline" className="text-[10px] shrink-0">
-                      {t('quality.bgCheckCount', { count: bgCheckCount })}
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-[11px] text-muted-foreground">{t('quality.bgManualHint')}</p>
-              </div>
-            ) : displayLatency >= 0 ? (
+            {displayLatency >= 0 ? (
               <LatencyPair
                 gatewayLatency={gatewayLatency}
                 externalLatency={externalLatency}

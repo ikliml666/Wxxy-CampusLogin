@@ -5,6 +5,7 @@ import type { NetworkQuality } from '@/monitor'
 import type { GpuInfo } from '@/shared'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { tauriApiWithRetry } from './tauriApi'
+import { useConfigStore } from './useConfigStore'
 
 const api = tauriApiWithRetry
 
@@ -55,8 +56,9 @@ export const useQualityStore = create<QualityStore>((set, get) => ({
   refreshRate: 0,
 
   refreshQuality: async () => {
-    // enableNetworkQuality 默认关闭(省电)后,手动刷新仍是显式的单次质量测试,放行
+    const { config } = useConfigStore.getState()
     if (_qualityLockFlag) return
+    if (config.enableNetworkQuality === false) return
     _qualityLockFlag = true
     set({ isRefreshingQuality: true })
     try {

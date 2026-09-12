@@ -440,6 +440,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
   const isLoggingOut = useAuthStore((s) => s.isLoggingOut)
   const adapters = useAdapterStore((s) => s.adapters)
+  const enableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality !== false)
   const { adapter1, adapter2, dualAdapter } = useConfigStore(useShallow((s) => ({
     adapter1: s.config.adapter1,
     adapter2: s.config.adapter2,
@@ -459,8 +460,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
       autoDetectAdapter: primary,
     }
   }, [adapters, adapter1, adapter2, dualAdapter])
-  // 质量页常驻导航:enableNetworkQuality 默认关闭(省电)后页面改由后台检测状态代替展示
-  const visibleItems = NAV_ITEMS
+  const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const animActive = useAnimationActive()
   const profile = useAnimationProfile()
   const mouseX = useMotionValue(-1000)

@@ -34,6 +34,7 @@ import { useFormFactor } from '@/hooks/useFormFactor'
 import { AccountPanel } from '@/account/AccountPanel'
 import { SelfServicePanel } from '@/account/SelfServicePanel'
 import { QualityPanel } from '@/monitor/QualityPanel'
+import { MonitorPanel } from '@/monitor/MonitorPanel'
 import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
 import { AnimationActiveProvider } from '@/hooks/usePageIdle'
 import { useAdaptiveFramePace, markInteraction } from '@/hooks/useAdaptiveFramePace'
@@ -58,6 +59,7 @@ function AppInner() {
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const status = useAuthStore((s) => s.status)
+  const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
   const qualityDisabled = useConfigStore((s) => s.config.enableNetworkQuality) === false
   const bgOnline = useAuthStore((s) => s.bgStatus.online)
@@ -70,7 +72,7 @@ function AppInner() {
   const setLatestVersion = useQualityStore((s) => s.setLatestVersion)
   const setReleaseNotes = useQualityStore((s) => s.setReleaseNotes)
 
-  const { handleToggleLatencyTest } = useMonitor()
+  const { handleToggleLatencyTest, handleToggleBackgroundCheck, handleTriggerCheck } = useMonitor()
   const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
 
   const { toasts, removeToast } = useLogToastStore(
@@ -129,12 +131,22 @@ function AppInner() {
       panelContent = <SelfServicePanel />
       break
     case 'quality':
-      // 质量页常驻:开关默认关闭(省电)后由后台检测状态代替展示
+      panelContent =
+        configEnableNetworkQuality !== false ? (
+          <QualityPanel
+            onUpdateConfig={updateConfig}
+            onRefreshQuality={refreshQuality}
+            onToggleLatencyTest={handleToggleLatencyTest}
+          />
+        ) : null
+      break
+    case 'monitor':
+      // 质量检测关闭(默认,省电)时,底部导航"网络质量"位置由后台检测替代补位
       panelContent = (
-        <QualityPanel
+        <MonitorPanel
           onUpdateConfig={updateConfig}
-          onRefreshQuality={refreshQuality}
-          onToggleLatencyTest={handleToggleLatencyTest}
+          onToggleBackgroundCheck={handleToggleBackgroundCheck}
+          onTriggerCheck={handleTriggerCheck}
         />
       )
       break
@@ -167,7 +179,7 @@ function AppInner() {
         <button
           type="button"
           aria-label={t('quality.latencyDetails')}
-          onClick={() => handleTabChange('quality')}
+          onClick={() => handleTabChange(qualityDisabled ? 'monitor' : 'quality')}
           className="flex-1 min-w-0 flex justify-start active:scale-[0.98] transition-transform"
         >
           {qualityDisabled ? (
