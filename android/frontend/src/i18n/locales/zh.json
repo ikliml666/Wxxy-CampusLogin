@@ -791,7 +791,8 @@
     "moreMonitor": "后台检测",
     "moreSettings": "设置",
     "moreLog": "日志",
-    "moreSpeedtest": "测速",
+    "moreSpeedtest": "测速"
+  },
   "face": {
     "enrollTitle": "录入人脸",
     "verifyTitle": "人脸验证",
@@ -811,6 +812,5 @@
     "notEnrolled": "未录入",
     "enrollSuccess": "人脸录入成功",
     "enrollFailed": "人脸录入未完成"
-  }
   }
 }
