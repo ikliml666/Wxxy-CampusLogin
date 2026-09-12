@@ -40,7 +40,18 @@ fn main() {
 
     // 必须在 Tokio runtime 创建前设置：set_var 与 worker 线程并发读 env 存在竞态
     // （std::env::set_var 非线程安全），先设 env 再起线程
-    let browser_args = crate::platform::gpu::build_browser_args();
+    let mut browser_args = crate::platform::gpu::build_browser_args();
+    // 开启 WebView2 Crashpad 转储：默认禁用（EBWebView/Crashpad/reports/ 一直为空），
+    // 开启后浏览器进程崩溃落盘 minidump，与 ProcessFailed 的 Reason/ExitCode 组成完整诊断链。
+    // 路径与 app_data_dir 同源（Roaming\com.campus.login，与 tauri.conf.json identifier 同步）
+    if let Some(data_dir) = dirs::data_dir() {
+        let dump_dir = data_dir.join("com.campus.login").join("crashdumps");
+        let _ = std::fs::create_dir_all(&dump_dir);
+        browser_args.push_str(&format!(
+            " --enable-crash-reporter --crash-dumps-dir=\"{}\"",
+            dump_dir.display()
+        ));
+    }
     std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", &browser_args);
 
     let core_count = std::thread::available_parallelism()

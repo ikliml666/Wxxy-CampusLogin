@@ -365,6 +365,9 @@ pub fn record_webview2_runtime_version() {
     {
         use winreg::RegKey;
 
+        /// WebView2 Runtime 固定版本分发的安装根目录（注册表缺失时的回退来源）
+        const RUNTIME_DIR: &str = r"C:\Program Files (x86)\Microsoft\EdgeWebView\Application";
+
         // WebView2 Runtime 的 EdgeUpdate 安装记录 GUID（微软分发文档约定）：
         // 系统级安装在 HKLM 且 64 位进程需走 WOW6432Node 视图，用户级安装在 HKCU
         const SUB_KEY: &str =
@@ -390,8 +393,43 @@ pub fn record_webview2_runtime_version() {
                 }
             }
         }
-        crate::log_debug!("webview_recovery", "未找到 WebView2 运行时版本注册表记录");
+        // 回退：EdgeUpdate 注册表可能缺失（实测机器存在此情况），从固定版本分发
+        // 安装目录名读取（C:\Program Files (x86)\Microsoft\EdgeWebView\Application\<x.y.z.w>），
+        // 多版本共存取最高——与 WebView2Loader 默认选择行为一致
+        if let Some(v) =
+            pick_runtime_version(std::fs::read_dir(RUNTIME_DIR).map(|rd| {
+                rd.filter_map(Result::ok)
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            }))
+        {
+            crate::log_info!(
+                "webview_recovery",
+                "WebView2 运行时版本: {} (安装目录回退)",
+                v
+            );
+            return;
+        }
+        crate::log_debug!("webview_recovery", "未找到 WebView2 运行时版本记录");
     }
+}
+
+/// 从安装目录条目中选出最高版本号（形如 `151.0.4129.107`，四个数字段）。
+/// Result 支持调用处传 `read_dir` 结果，纯函数便于单测。
+#[cfg(target_os = "windows")]
+fn pick_runtime_version(entries: std::io::Result<Vec<String>>) -> Option<String> {
+    entries
+        .ok()?
+        .into_iter()
+        .filter(|n| {
+            let parts: Vec<_> = n.split('.').collect();
+            parts.len() == 4 && parts.iter().all(|p| p.parse::<u64>().is_ok())
+        })
+        .max_by_key(|n| {
+            n.split('.')
+                .map(|p| p.parse::<u64>().unwrap_or(0))
+                .collect::<Vec<_>>()
+        })
 }
 
 #[cfg(test)]
@@ -454,5 +492,23 @@ mod tests {
         let (ok, kept) = restart_guard_decide(&stale, now);
         assert!(ok);
         assert_eq!(kept, vec![now]);
+    }
+
+    #[test]
+    fn 运行时版本目录回退取最高版本并忽略非版本条目() {
+        let ok = Ok(vec![
+            "151.0.4129.107".into(),
+            "140.0.3485.20".into(),
+            "Locales".into(),
+            "not-a-version".into(),
+            "1.2".into(),
+        ]);
+        assert_eq!(
+            pick_runtime_version(ok),
+            Some("151.0.4129.107".to_string())
+        );
+        assert_eq!(pick_runtime_version(Ok(vec![])), None);
+        let err: std::io::Result<Vec<String>> = Err(std::io::Error::other("x"));
+        assert_eq!(pick_runtime_version(err), None);
     }
 }

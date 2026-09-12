@@ -164,6 +164,12 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
 
     crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
     crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
+    // 浏览器参数在 main 极早期设置（先于 logger），此处补记 env 实际值（含 crash 转储参数）
+    crate::log_info!(
+        "gpu",
+        "WebView2 浏览器参数: {}",
+        std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_else(|_| "<未设置>".into())
+    );
 
     let state = CommandContext::from_app(app.handle());
 

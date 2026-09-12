@@ -195,6 +195,7 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) {
             ret.put("accepted", true)
             ret.put("path", "already_validated")
+            ret.put("reason", "already_validated")
             invoke.resolve(ret)
             return
         }

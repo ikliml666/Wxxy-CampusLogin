@@ -242,9 +242,9 @@ pub fn build_browser_args() -> String {
     // 法值回退默认；SkiaGraphite 为实验性强开、需配套 feature，存在渲染异常风险；
     // --enable-zero-copy 收益不可测。一律删除交还平台默认（测试最充分的配置）。
     // ponytail: 实测证明确有增益的 switch 再按需加回。
-    let args = "--js-flags=--max-old-space-size=512";
-    crate::log_info!("gpu", "WebView2 浏览器参数: {}", args);
-    args.to_string()
+    // 参数值的日志在 startup.rs（logger 初始化之后）打印 env 实际值——本函数在
+    // main 极早期调用（先于 Tokio runtime / logger），此处打印只会丢失
+    "--js-flags=--max-old-space-size=512".to_string()
 }
 
 pub fn detect_display_refresh_rate() -> u32 {
