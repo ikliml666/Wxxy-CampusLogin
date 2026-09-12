@@ -89,7 +89,10 @@ pub fn has_newer_version(current: &str, latest: &str) -> bool {
 
 fn http_client() -> Result<reqwest::Client, String> {
     // 移动端用 rustls,避免 openssl 交叉编译问题;忽略证书校验关闭(白名单域名 TLS 正常校验)
+    // connect_timeout 必设:被阻断地址(GitHub API 等)表现为 TCP 挂起而非快速失败,
+    // 不设连接超时会吃满 30s 总超时——镜像加速检查"极慢"的主因(逐源串行 30s)
     reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))
@@ -151,6 +154,9 @@ async fn fetch_apk_assets(client: &reqwest::Client, latest: &str) -> (Vec<Releas
     let url = format!("https://api.github.com/repos/ikliml666/Wxxy-CampusLogin/releases/tags/v{latest}");
     let Ok(resp) = client
         .get(&url)
+        // 资产列表是 version.json 之后的附加信息,拉不到也应快速降级(前端走外链兜底),
+        // 不让被阻断的 GitHub API 拖住整个检查
+        .timeout(std::time::Duration::from_secs(10))
         .header("User-Agent", "Wxxy-CampusLogin")
         .header("Accept", "application/vnd.github+json")
         .send()
@@ -198,7 +204,7 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
     let urls = version_urls(mirror_first);
     let mut last_err = String::from("未知错误");
     for url in urls {
-        match client.get(url).send().await {
+        match client.get(url).timeout(std::time::Duration::from_secs(10)).send().await {
             Ok(resp) if resp.status().is_success() => {
                 let raw: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
                 let vf: VersionFile = serde_json::from_value(raw).map_err(|e| e.to_string())?;
