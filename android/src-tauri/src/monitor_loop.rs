@@ -99,12 +99,23 @@ fn emit_login_log(app: &tauri::AppHandle, message: &str, log_type: &str) {
 /// 系统通知(区别于常驻通知):掉线/重连失败/达上限/新版本等关键事件。
 /// 此前安卓关键事件零提醒(桌面 emit_notification 系同语义),锁屏时用户
 /// 对掉线完全无感知;enable_notification=false 时静默。
-pub(crate) fn notify_system(app: &tauri::AppHandle, enabled: bool, title: &str, body: &str) {
+pub(crate) fn notify_system(app: &tauri::AppHandle, enabled: bool, title: &str, body: &str, mascot: &str) {
     if !enabled {
         return;
     }
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title(title).body(body).show();
+    // mascot 为 drawable 资源名（如 mascot_alert），作为通知大图显示看板娘；
+    // 资源缺失时插件抛 Resources.NotFoundException，降级为不带大图的纯文本。
+    let result = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .large_icon(mascot)
+        .show();
+    if result.is_err() {
+        let _ = app.notification().builder().title(title).body(body).show();
+    }
 }
 
 /// 启动后台监控:Rust tokio 循环 + 前台服务保活(幂等)
@@ -343,11 +354,11 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
         Ok(v) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
             emit_login_log(app, &format!("启动自动登录失败: {msg}"), "error");
-            notify_system(app, settings.enable_notification, "启动自动登录失败", &msg);
+            notify_system(app, settings.enable_notification, "启动自动登录失败", &msg, "mascot_offline");
         }
         Err(e) => {
             emit_login_log(app, &format!("启动自动登录失败: {e}"), "error");
-            notify_system(app, settings.enable_notification, "启动自动登录失败", &e);
+            notify_system(app, settings.enable_notification, "启动自动登录失败", &e, "mascot_offline");
         }
     }
 }
@@ -485,7 +496,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     let was_online = MONITOR.was_online.swap(online, Ordering::Relaxed);
     // 掉线通知:从在线翻离线且在校园网(桌面 background_emit 同语义)
     if was_online && !online && on_campus {
-        notify_system(app, settings.enable_notification, "校园网连接掉线", &format!("将自动重登: {portal_message}"));
+        notify_system(app, settings.enable_notification, "校园网连接掉线", &format!("将自动重登: {portal_message}"), "mascot_alert");
     }
 
     // 4. 自动登录判定与执行(敏感纪律:payload/日志只含结果不含密码)
@@ -514,7 +525,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         MONITOR.reconnect_count.fetch_add(1, Ordering::Relaxed);
         let count = MONITOR.reconnect_count.load(Ordering::Relaxed);
         if count >= settings.max_disconnect_reconnect {
-            notify_system(app, settings.enable_notification, "自动重连已达上限", "本轮在线周期内不再自动重登,请手动登录");
+            notify_system(app, settings.enable_notification, "自动重连已达上限", "本轮在线周期内不再自动重登,请手动登录", "mascot_offline");
         }
         let state = app.state::<crate::android_state::AndroidState>();
         match crate::protocol_cmds::run_login(&settings.user, &settings.password, &settings.operator, &state).await {
@@ -531,14 +542,14 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
                 } else {
                     // 协议返回失败(凭据错误等)与执行失败同计入熔断,达 5 次停止本会话自动重登
                     MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-                    notify_system(app, settings.enable_notification, "自动重登失败", &message);
+                    notify_system(app, settings.enable_notification, "自动重登失败", &message, "mascot_offline");
                 }
                 login_result = Some(v);
             }
             Err(e) => {
                 MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
                 emit_login_log(app, &format!("自动登录执行失败: {e}"), "error");
-                notify_system(app, settings.enable_notification, "自动重登失败", &e);
+                notify_system(app, settings.enable_notification, "自动重登失败", &e, "mascot_offline");
             }
         }
     }

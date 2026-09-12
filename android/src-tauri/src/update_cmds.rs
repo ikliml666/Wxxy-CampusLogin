@@ -234,6 +234,7 @@ pub fn start_update_check_loop(app: tauri::AppHandle) {
                         enabled,
                         "发现新版本",
                         &format!("新版本 v{} 可用,请在关于页更新", info.latest_version),
+                        "mascot_update",
                     );
                 }
             }

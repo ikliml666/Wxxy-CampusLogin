@@ -34,6 +34,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": ["resources/mascot-update-toast.png", "resources/mascot-toast/*"],
     "icon": [
       "icons/icon.ico",
       "icons/32x32.png",

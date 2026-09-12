@@ -40,7 +40,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         crate::log_warn!("campus_exit", "发送校园网退出倒计时事件失败: {}", e);
     }
 
-    emit_notification(app_handle, "非校园网络", &format!("{}秒后最小化，{}秒后退出，按 Ctrl+Shift+C 可取消", CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000));
+    emit_notification(app_handle, "非校园网络", &format!("{}秒后最小化，{}秒后退出，按 Ctrl+Shift+C 可取消", CAMPUS_MINIMIZE_DELAY_MS / 1000, CAMPUS_EXIT_DELAY_MS / 1000), "mascot-alert");
 
     // 注册统一取消快捷键（与自动退出共用 Ctrl+Shift+C）
     #[cfg(desktop)]
@@ -153,7 +153,7 @@ pub fn cancel_campus_exit_with_notification(app_handle: &AppHandle, state: &AppS
         try_unregister_cancel_exit_shortcut(app_handle, guard.is_none());
     }
 
-    emit_notification(app_handle, "已取消退出", "校园网退出已取消，程序将继续运行");
+    emit_notification(app_handle, "已取消退出", "校园网退出已取消，程序将继续运行", "mascot-portrait");
 
     if let Err(e) = EventBus::new(app_handle).emit_campus_exit_cancelled() {
         crate::log_warn!("campus_exit", "发送取消校园网退出事件失败: {}", e);
@@ -185,7 +185,7 @@ pub fn start_auto_exit(app_handle: &AppHandle, state: &AppState) {
         crate::log_warn!("auto_exit", "发送退出倒计时事件失败: {}", e);
     }
 
-    emit_notification(app_handle, "即将自动退出", &format!("{}秒后自动退出，按 Ctrl+Shift+C 可取消", AUTO_EXIT_DELAY_MS / 1000));
+    emit_notification(app_handle, "即将自动退出", &format!("{}秒后自动退出，按 Ctrl+Shift+C 可取消", AUTO_EXIT_DELAY_MS / 1000), "mascot-portrait");
 
     #[cfg(desktop)]
     let shortcut_registered = {
@@ -260,7 +260,7 @@ pub fn cancel_auto_exit_inner(app_handle: &AppHandle, state: &AppState) -> Resul
     let campus_exit_active = state.exit.campus_exit_started.load(Ordering::Acquire);
     try_unregister_cancel_exit_shortcut(app_handle, !campus_exit_active);
 
-    emit_notification(app_handle, "已取消退出", "自动退出已取消，程序将继续运行");
+    emit_notification(app_handle, "已取消退出", "自动退出已取消，程序将继续运行", "mascot-portrait");
 
     if let Err(e) = EventBus::new(app_handle).emit_auto_exit_cancelled() {
         crate::log_warn!("auto_exit", "发送取消自动退出事件失败: {}", e);
