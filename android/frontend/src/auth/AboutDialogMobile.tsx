@@ -1,5 +1,5 @@
 // 关于(移动竖版):桌面 AboutDialog 是 320px 侧栏+宽主区的横版双栏,手机放不下。
-// 竖版精简:应用信息 + 检查更新 + 应用内下载安装 APK(资产缺失时外链 Releases 兜底) + 核心特性。
+// 竖版精简:应用信息 + 检查更新 + 应用内下载安装 APK(资产缺失时外链 Releases 兜底)。
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   Check, ExternalLink, RefreshCw, Loader2, XCircle,
-  Zap, Users, Wifi, Download, PackageOpen
+  Download, PackageOpen
 } from 'lucide-react'
 import { APP_NAME, APP_VERSION } from '@/shared/ui-constants'
 import { extractErrorMessage, cn } from '@/lib/utils'
@@ -28,11 +28,6 @@ interface AboutDialogMobileProps {
 }
 
 const GITHUB_REPO = 'ikliml666/Wxxy-CampusLogin'
-const CORE_FEATURES = [
-  { icon: Zap, titleKey: 'about.dualAdapterSupport' },
-  { icon: Users, titleKey: 'about.multiAccountManage' },
-  { icon: Wifi, titleKey: 'about.autoReconnect' },
-]
 
 export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdateAvailable }: AboutDialogMobileProps) {
   const api = tauriApiWithRetry
@@ -193,7 +188,7 @@ export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdat
               <div className="space-y-2">
                 <p className="text-xs font-medium text-primary">🎉 {t('about.newVersionFound')}: v{updateInfo.latestVersion}</p>
                 {updateInfo.releaseNotes && (
-                  <p className="text-xs text-muted-foreground line-clamp-4 whitespace-pre-line">{updateInfo.releaseNotes}</p>
+                  <div className="max-h-[38dvh] overflow-y-auto whitespace-pre-line text-xs text-muted-foreground">{updateInfo.releaseNotes}</div>
                 )}
                 {downloadError && (
                   <p className="flex items-start gap-1.5 text-xs text-destructive">
@@ -265,16 +260,6 @@ export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdat
             <span className="text-sm font-medium">{t('about.githubRepo')}</span>
             <ExternalLink className="h-4 w-4 text-muted-foreground" />
           </button>
-
-          {/* 核心特性 */}
-          <div className="space-y-1.5">
-            {CORE_FEATURES.map(({ icon: Icon, titleKey }) => (
-              <div key={titleKey} className="flex items-center gap-2.5 rounded-lg bg-muted/30 px-3 py-2">
-                <Icon className="h-4 w-4 text-primary shrink-0" />
-                <span className="text-xs text-muted-foreground min-w-0">{t(titleKey)}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </DialogContent>
     </Dialog>
