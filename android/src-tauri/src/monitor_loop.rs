@@ -2,6 +2,7 @@
 //! → emit background-check-result / login-log。决策逻辑抽纯函数便于 TDD,
 //! tokio 循环体与前台服务保活在下方(Task 4)。
 
+use chrono::Timelike;
 use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -426,6 +427,17 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
             return;
         }
     };
+
+    // 校园网检测静默期(时间门控,桌面 background_check 同语义):早于配置的开始时间
+    // (当日分钟数,0=禁用)整拍跳过,避免非在校时段反复探测与误报掉线通知;在线状态
+    // 保持上一拍记忆,不构成误判
+    if settings.campus_check_start_minutes > 0 {
+        let now = chrono::Local::now();
+        let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
+        if minutes_now < settings.campus_check_start_minutes {
+            return;
+        }
+    }
 
     // 每拍探测/Portal 探测/掉线自动重登前强制绑 WiFi(同 auto_login_on_start;
     // WiFi 未认证被降分后默认路由可能落蜂窝)
