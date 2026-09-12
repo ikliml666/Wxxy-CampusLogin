@@ -80,6 +80,12 @@ pub struct Config {
     pub update_source: String,
     #[serde(rename = "campusExitOnFail", default = "default_true")]
     pub campus_exit_on_fail: bool,
+    /// 非校园网自动退出生效时段起点（分钟数，480=8:00；结束<=起点时视为仅受起点限制）
+    #[serde(rename = "campusExitStartMinutes", default = "default_campus_exit_start_minutes")]
+    pub campus_exit_start_minutes: u16,
+    /// 非校园网自动退出生效时段终点（分钟数，1380=23:00，不含该时刻）
+    #[serde(rename = "campusExitEndMinutes", default = "default_campus_exit_end_minutes")]
+    pub campus_exit_end_minutes: u16,
     #[serde(rename = "campusCheckStartMinutes", alias = "campusCheckStartHour", default = "default_campus_check_start_minutes")]
     pub campus_check_start_minutes: u16,
     #[serde(rename = "logRetentionDays", default = "default_log_retention_days")]
@@ -123,6 +129,10 @@ where
 fn default_true() -> bool { true }
 
 fn default_campus_check_start_minutes() -> u16 { 460 }
+
+fn default_campus_exit_start_minutes() -> u16 { 480 }
+
+fn default_campus_exit_end_minutes() -> u16 { 1380 }
 
 pub fn default_fixed_gateway() -> String {
     "10.2.127.254".to_string()
@@ -184,6 +194,8 @@ impl Default for Config {
             campus_gateway: "10.2.127.254".to_string(),
             update_source: "mirror".to_string(),
             campus_exit_on_fail: true,
+            campus_exit_start_minutes: 480,
+            campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 460,
             log_retention_days: 7,
             max_disconnect_reconnect: 3,

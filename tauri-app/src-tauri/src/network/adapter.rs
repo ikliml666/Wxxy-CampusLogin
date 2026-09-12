@@ -262,6 +262,8 @@ mod tests {
             enable_network_name_check: false,
             campus_gateway: String::new(),
             campus_exit_on_fail: true,
+            campus_exit_start_minutes: 480,
+            campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 480,
             log_retention_days: 7,
             max_disconnect_reconnect: 3,

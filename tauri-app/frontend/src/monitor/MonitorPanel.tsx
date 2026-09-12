@@ -355,6 +355,51 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   <Separator className="my-2" />
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
+                        <AlarmClock className="h-3.5 w-3.5 text-rose-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <Label htmlFor="campus-exit-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusExitTimeWindow')}</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusExitTimeWindowDesc')}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Input
+                        id="campus-exit-start-time"
+                        type="time"
+                        value={(() => {
+                          const m = config.campusExitStartMinutes ?? 480
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ campusExitStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-24 h-7 text-sm font-mono"
+                      />
+                      <span className="text-xs text-muted-foreground">–</span>
+                      <Input
+                        type="time"
+                        aria-label={t('monitor.campusExitWindowEnd')}
+                        value={(() => {
+                          const m = config.campusExitEndMinutes ?? 1380
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ campusExitEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-24 h-7 text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
                         <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
                       </div>
