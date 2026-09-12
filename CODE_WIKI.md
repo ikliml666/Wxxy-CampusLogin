@@ -2083,7 +2083,7 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 > ⚠️ **版本号提交与 Release 发布必须同流程完成**（v2.3.0 事故教训）：version.json 先行推送而 Release 未发布时，旧版用户收到更新通知但下载 404；后端已有 HEAD 探测兜底（资产 404 本轮不提示），流程上仍须绑定同一次操作。
 
 > ⚠️ **Release 资产发布检查清单**：
-> 0. 项目根 `pwsh make-release.ps1` 一键汇总：包装 `tauri-app/build.ps1`（可 `-SkipBuild` 复用已有产物），自动把安装包改名为规范资产名 + 生成 .sha256 + 收集 APK 与 `RELEASE_NOTES_v{ver}.md` 到 `release/`（已在 .gitignore），结尾打印 `gh release upload` 命令——直接执行即可完成资产上传
+> 0. （本机本地脚本 `make-release.ps1`，不入 git，仅发布者机器可用）一键汇总：包装 `tauri-app/build.ps1`（可 `-SkipBuild` 复用已有产物），自动把安装包改名为规范资产名 + 生成 .sha256 + 收集 APK 与 `RELEASE_NOTES_v{ver}.md` 到 `release/`（已在 .gitignore），结尾打印 `gh release upload` 命令——直接执行即可完成资产上传；无此脚本时按 1~2 条手动执行
 > 1. 上传 `Wxxy-CampusLogin_{ver}_x64-setup.exe`（文件名与硬编码拼接一致；若改名，在 `version.json` 加 `"asset": "<完整文件名>"` 覆盖默认命名）
 > 2. 同时上传构建产物目录中的 `{安装包名}.sha256`（`build.ps1` 第 [5/5] 步已自动生成）——缺失时应用内更新校验全 4xx，默认拒绝安装且用户无法自救
 > 3. `version.json` 可选填 `notes` 字段（字符串，Markdown 列表），将显示为应用内更新日志（release_notes）

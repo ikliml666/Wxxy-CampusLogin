@@ -9,6 +9,8 @@ output/
 app-output/
 app-v/
 tauri-release/
+# 发布资产汇总脚本：仅本地保留（用户要求，不随仓库分发）
+make-release.ps1
 installer-build/
 release-build/
 archive/
