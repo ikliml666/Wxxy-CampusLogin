@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { useDailyMascots } from '@/shared/dailyMascot'
 import type { Config } from '@/settings'
 import type { NetworkQuality } from '@/monitor'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -827,6 +828,7 @@ function EditableCardItem({ id, onRemove, removeLabel, onSwap, children }: {
 
 export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanelProps) {
   const { t } = useTranslation()
+  const [bottomMascot] = useDailyMascots([0])
   const allDefs = useMemo<CardDef[]>(() => props.extraCards?.length
     ? [...ALL_CARDS, ...props.extraCards.map(e => ({ id: e.id, label: e.label, icon: e.icon }))]
     : ALL_CARDS, [props.extraCards])
@@ -974,7 +976,7 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
 
       {/* 背景看板娘:总览滚动末尾的低透明度装饰,不参与交互 */}
       <img
-        src="/girl/mascot-bg-laptop.webp"
+        src={`/girl/mascot-${bottomMascot}.webp`}
         alt=""
         aria-hidden="true"
         draggable={false}

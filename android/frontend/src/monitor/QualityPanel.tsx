@@ -17,6 +17,7 @@ import { LatencyTimeline } from '@/monitor/LatencyTimeline'
 import { getLatencyColor, resolveQualityDisplay, type LatencyType } from '@/lib/latency'
 import React, { useCallback, memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDailyMascots } from '@/shared/dailyMascot'
 import { m, type Variants } from 'framer-motion'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useQualityStore } from '@/hooks/useQualityStore'
@@ -106,6 +107,7 @@ const tabContainerVariants: Variants = {
 
 export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefreshQuality, onToggleLatencyTest }: QualityPanelProps) {
   const { t, i18n } = useTranslation()
+  const [bottomMascot] = useDailyMascots([1])
   const networkQuality = useQualityStore((s) => s.networkQuality)
   const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
@@ -484,7 +486,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
 
 {/* 背景看板娘:面板滚动末尾的低透明度装饰,不参与交互 */}
       <img
-        src="/girl/mascot-bg-lounge.webp"
+        src={`/girl/mascot-${bottomMascot}.webp`}
         alt=""
         aria-hidden="true"
         draggable={false}

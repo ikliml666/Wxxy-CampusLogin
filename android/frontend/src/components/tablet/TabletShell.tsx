@@ -24,6 +24,7 @@ import { safeStorage } from '@/lib/utils'
 import { AnimatePresence, m } from 'framer-motion'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
+import { useDailyMascots } from '@/shared/dailyMascot'
 import { LogPanel } from '@/shared/LogPanel'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { UpdateAvailableDialog } from '@/shared/UpdateAvailableDialog'
@@ -115,6 +116,10 @@ function TabletShellInner() {
   const [sponsorOpen, setSponsorOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
+
+  // 侧边看板娘:每日轮换(offset 0/1 同日不重复)。平板横屏宽度有限:左侧
+  // ≥900px(720 主区+128 立绘+边距)单侧显示;右侧需再让过 288px 右栏,≥1330px。
+  const [leftMascot, rightMascot] = useDailyMascots([0, 1])
 
   // 竖屏隐藏右侧日志栏(Dock 的"日志"面板仍可查日志),主区占满全宽;
   // DockNav 宽度按 calc(100vw - var(--right-panel-width, 288px)) 居中,
@@ -293,6 +298,24 @@ function TabletShellInner() {
           />
         )}
       </div>
+
+      {/* 侧边看板娘:固定于视口两侧、不参与交互,断点保证不挤压主区与右栏(见上方注释) */}
+      <img
+        src={`/girl/mascot-${leftMascot}.webp`}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        loading="lazy"
+        className="fixed left-2 top-1/2 -translate-y-1/2 z-0 hidden min-[900px]:block w-32 opacity-[0.22] dark:opacity-[0.14] select-none pointer-events-none"
+      />
+      <img
+        src={`/girl/mascot-${rightMascot}.webp`}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        loading="lazy"
+        className="fixed right-[304px] top-1/2 -translate-y-1/2 z-0 hidden min-[1330px]:block w-32 opacity-[0.22] dark:opacity-[0.14] select-none pointer-events-none"
+      />
 
       <DockNav
         onPanelChange={handlePanelChange}

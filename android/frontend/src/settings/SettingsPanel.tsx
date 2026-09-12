@@ -24,6 +24,7 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
+import { useDailyMascots } from '@/shared/dailyMascot'
 
 // 安卓构建差异化渲染：Windows 专属设置（退出应用/托盘/默认面板）不渲染
 const isAndroid = import.meta.env.VITE_PLATFORM === 'android'
@@ -67,6 +68,7 @@ export const SettingsPanel = memo(function SettingsPanel({
   onShowOnboarding,
 }: SettingsPanelProps) {
   const isLightMode = useThemeStore((s) => s.isLightMode)
+  const [bottomMascot] = useDailyMascots([2])
   const themeName = useThemeStore((s) => s.themeName)
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
@@ -666,7 +668,7 @@ export const SettingsPanel = memo(function SettingsPanel({
 
 {/* 背景看板娘:面板滚动末尾的低透明度装饰,不参与交互 */}
       <img
-        src="/girl/mascot-bg-nap.webp"
+        src={`/girl/mascot-${bottomMascot}.webp`}
         alt=""
         aria-hidden="true"
         draggable={false}

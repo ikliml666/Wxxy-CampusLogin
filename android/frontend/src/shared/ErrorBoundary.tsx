@@ -1,7 +1,7 @@
 import { Component, type ReactNode } from 'react'
 import i18next from 'i18next'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle } from 'lucide-react'
+import { MascotFigure } from '@/shared/MascotFigure'
 
 interface Props {
   children: ReactNode
@@ -30,7 +30,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-screen p-8 font-sans text-muted-foreground text-center bg-background">
-          <AlertTriangle className="h-12 w-12 mb-4 text-amber-500" />
+          <MascotFigure variant="alert" size="lg" className="mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">{i18next.t('common.renderError')}</h2>
           <p className="text-sm max-w-md leading-relaxed mb-6">
             {this.state.error?.message || i18next.t('common.unknownError')}
