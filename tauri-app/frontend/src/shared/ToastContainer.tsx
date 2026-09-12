@@ -1,7 +1,7 @@
 import { AnimatePresence, m } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import type { ToastMessage } from '@/shared'
-import { CheckCircle2, AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { memo } from 'react'
@@ -12,11 +12,12 @@ interface ToastContainerProps {
   onRemove: (id: string) => void
 }
 
-const TOAST_ICONS = {
-  info: Info,
-  success: CheckCircle2,
-  error: AlertCircle,
-  warning: AlertTriangle,
+/** 各类型 toast 的默认看板娘变体，toast.mascot 显式传参时覆盖 */
+const TOAST_MASCOTS: Record<ToastMessage['type'], NonNullable<ToastMessage['mascot']>> = {
+  info: 'portrait',
+  success: 'celebrate',
+  error: 'offline',
+  warning: 'alert',
 }
 
 const TOAST_STYLES = {
@@ -24,13 +25,6 @@ const TOAST_STYLES = {
   success: 'bg-emerald-50/95 dark:bg-emerald-950/40',
   error: 'bg-red-50/95 dark:bg-red-950/40',
   warning: 'bg-amber-50/95 dark:bg-amber-950/40',
-}
-
-const TOAST_ICON_COLORS = {
-  info: 'text-blue-500',
-  success: 'text-emerald-500',
-  error: 'text-red-500',
-  warning: 'text-amber-500',
 }
 
 export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
@@ -45,7 +39,7 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
     <div className="fixed top-[84px] left-4 z-[100] flex flex-col gap-2 pointer-events-none" aria-live="polite" role="status">
       <AnimatePresence mode="popLayout">
         {toasts.map((toast) => {
-          const Icon = TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] ?? Info
+          const mascot = toast.mascot ?? TOAST_MASCOTS[toast.type]
           return (
             <m.div
               key={`toast-${toast.id}`}
@@ -58,25 +52,13 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
                 TOAST_STYLES[toast.type] ?? TOAST_STYLES.info
               )}
             >
-              {toast.mascot ? (
-                <img
-                  src={`/girl/mascot-${toast.mascot}.webp`}
-                  alt=""
-                  aria-hidden="true"
-                  draggable={false}
-                  className="w-11 h-11 rounded-xl object-cover shrink-0 select-none"
-                />
-              ) : (
-                <m.div
-                  initial={{ rotate: isEconomy ? 0 : -20, scale: 0.5 }}
-                  animate={{ rotate: 0, scale: 1 }}
-                  transition={isEconomy
-                    ? { duration: 0.2, ease: profile.easing.snappy as [number, number, number, number] }
-                    : { type: 'spring' as const, stiffness: 500, damping: 20 }}
-                >
-                  <Icon className={cn('h-5 w-5 shrink-0 mt-0.5', TOAST_ICON_COLORS[toast.type])} />
-                </m.div>
-              )}
+              <img
+                src={`/girl/mascot-${mascot}.webp`}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                className="w-11 h-11 rounded-xl object-cover shrink-0 select-none"
+              />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium break-words">{toast.title}</p>
                 {toast.description && (

@@ -91,7 +91,7 @@ pub fn try_auto_login_on_preparation(
                 s.prep_login_failures = 0;
             });
             if config.enable_notification {
-                emit_notification(app_handle, "自动登录成功", &login_result.message.unwrap_or_default());
+                emit_notification(app_handle, "自动登录成功", &login_result.message.unwrap_or_default(), "mascot-celebrate");
             }
         } else {
             // 登录失败（含认证失败）：累加准备自动登录失败计数，
@@ -157,7 +157,7 @@ pub fn try_disconnect_reconnect(
 
     if within_limit {
         let offline_adapter = if !online { adapter1_name } else { adapter2_name };
-        emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect));
+        emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect), "mascot-alert");
         // emit_notification 仅覆盖非前台系统通知，前台过程信息走日志通道
         let _ = EventBus::new(app_handle).emit_login_log(
             &format!("检测到断线: {offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect),
@@ -197,10 +197,10 @@ pub fn try_disconnect_reconnect(
         drop(login_guard);
         if reconnect_count == config.max_disconnect_reconnect + 1 {
             crate::log_warn!("auto_login", "断线重连已达上限({}), 停止自动重连", config.max_disconnect_reconnect);
-            emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录");
+            emit_notification(app_handle, "断线重连失败", "已达到最大重连次数，请手动登录", "mascot-offline");
             let _ = EventBus::new(app_handle).emit_login_log("断线重连失败: 已达到最大重连次数，请手动登录", "error");
         } else if reconnect_count > config.max_disconnect_reconnect + 1 && (reconnect_count - config.max_disconnect_reconnect - 1) % RECONNECT_REMINDER_INTERVAL == 0 {
-            emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }));
+            emit_notification(app_handle, "网络仍断线", &format!("{} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }), "mascot-offline");
             let _ = EventBus::new(app_handle).emit_login_log(
                 &format!("网络仍断线: {} 仍处于离线状态，请手动登录或检查网络", if !online { adapter1_name } else { adapter2_name }),
                 "warning",
@@ -452,7 +452,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     s.prep_login_failures = 0;
                 });
                 if config.enable_notification {
-                    emit_notification(&app_h, "自动登录成功", &login_result.message.unwrap_or_default());
+                    emit_notification(&app_h, "自动登录成功", &login_result.message.unwrap_or_default(), "mascot-celebrate");
                 }
 
                 if config.auto_exit_after_login {

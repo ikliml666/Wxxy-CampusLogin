@@ -41,10 +41,10 @@ pub(super) fn record_last_quality(state: &AppState, current: &str) {
 
 pub(super) fn notify_quality_change(app_handle: &AppHandle, kind: &str) {
     if kind == "bad" {
-        emit_notification(app_handle, "网络拥堵", "校园网延迟升高，网络可能拥堵");
+        emit_notification(app_handle, "网络拥堵", "校园网延迟升高，网络可能拥堵", "mascot-busy");
         let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟升高，网络可能拥堵", "warning");
     } else {
-        emit_notification(app_handle, "网络恢复", "校园网延迟已恢复正常");
+        emit_notification(app_handle, "网络恢复", "校园网延迟已恢复正常", "mascot-celebrate");
         let _ = crate::infra::events::EventBus::new(app_handle).emit_login_log("校园网延迟已恢复正常", "info");
     }
 }

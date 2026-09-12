@@ -60,7 +60,7 @@ Wxxy-CampusLogin/
 │           ├── auth/                # 认证协议核心: portal/protocol/session/service/failure_tracker/dual_adapter_executor
 │           ├── network/             # client/adapter/discovery/adapter_cache/dhcp/subnet/dns/timing/quality/dns_setup
 │           ├── monitor/             # 后台巡检: watcher 门面 + background_check/background_task/auto_auth/latency/adapter_watch 等 10 子模块
-│           ├── config/              # model(40字段)/persist(原子写+账号+历史)/validate(校验+迁移)
+│           ├── config/              # model(42字段)/persist(原子写+账号+历史)/validate(校验+迁移)
 │           ├── infra/               # state/(ConfigStore/NetworkState/ExitStateStore) + logger/events/task_manager/lifecycle/notification/async_util
 │           ├── platform/            # Windows 交互: dns_config/elevation/gpu/identity/autostart/helper_spawn/console_output/toast(更新提醒 WinRT toast)
 │           ├── account/             # crypto.rs (Windows DPAPI)
@@ -237,7 +237,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 | `auth/` | 认证协议核心：Portal 检测（portal）、登录/两步注销请求（protocol）、会话封装（session）、服务编排（service）、失败计数（failure_tracker）、双适配器并行执行器（dual_adapter_executor） |
 | `network/` | 网络基础设施：适配器发现与缓存（discovery/adapter_cache）、DHCP 与 MAC（dhcp）、/18 子网与网关（subnet）、DNS 评分与 DoH 智能解析（dns）、HTTP 计时（timing）、质量并发检测（quality）、DNS 一键设置（dns_setup） |
 | `monitor/` | 后台巡检：watcher 门面 + background_check 主体 + background_task 调度、自动登录（auto_auth）、延迟测试循环（latency）、适配器监控（adapter_watch） |
-| `config/` | 配置模型（40 字段）/ 原子持久化 / 校验与迁移 |
+| `config/` | 配置模型（42 字段）/ 原子持久化 / 校验与迁移 |
 | `account/` | DPAPI 加密（crypto.rs）；多账号命令逻辑在 commands/account.rs |
 | `infra/` | 全局状态（state/ 三 Store CAS 快照）、日志、事件总线（15 emit）、后台任务管理、退出生命周期、系统通知 |
 | `platform/` | Windows 交互：DNS/DoH 设置、UAC 提权、GPU 检测、Windows Hello、开机自启、helper 子进程启动 |
@@ -267,7 +267,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 |----------|------|
 | 桌面应用入口 / 命令注册点 | `tauri-app/src-tauri/src/main.rs` → `app/startup.rs`（`run()` 的 `generate_handler!`，新增命令必须在此注册） |
 | 登录/注销协议实现 | `auth/protocol.rs`（请求模板/两步注销/JSONP 解析）、`auth/portal.rs`（状态检测，80 页面探测 vs :801 协议） |
-| 配置模型 / 持久化 / 校验 | `config/model.rs`（40 字段+掩码出口）、`config/persist.rs`（atomic_write/账号/历史）、`config/validate.rs` |
+| 配置模型 / 持久化 / 校验 | `config/model.rs`（42 字段+掩码出口）、`config/persist.rs`（atomic_write/账号/历史）、`config/validate.rs` |
 | 全局状态 | `infra/state/`（AppState / ConfigStore / NetworkSnapshot，ArcSwap CAS） |
 | 事件推送 | `infra/events.rs`（EventBus 15 个 emit）+ 附录 C 事件表 |
 | 密码加密 | `account/crypto.rs`（DPAPI）；安卓 `android/plugins/keystore/` |
@@ -291,6 +291,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 3. **敏感信息出站唯一出口**：一切把 Config 发往前端的路径必经 `Config::masked_for_display()`（桌面）/ `config_state::masked_for_display`（安卓），**禁止手工逐字段打码**（漏一处即明文出站，有回归单测锁死）。密码"空串/MASK=未修改回退已存值、显式清除走 `clear` 标志"语义两端同构。日志/错误/事件 payload 一律不得携带 password。
 4. **验证门分级**：改变外部状态的命令设门（bind_operator / self_offline_session），只读查询有意不设门（总览卡自动刷新依赖免验证拉取），明文查看无论开关强制验证；前端门 TTL 570s + 后端 600s 复核（后端 TTL 才是真防线）。
 5. **通知单通道**：系统通知只有 `emit_notification`（窗口不可见才发）；应用内提示走业务专用事件（`auto-login-result`/`login-log`/…）；`enable_notification` 只控制系统通知。新增提醒先想清楚走哪条通道，不要双发。
+   - **2026-09-12 起系统通知带看板娘头像**：`emit_notification(app, title, body, mascot)` 第 4 参为变体名（`mascot-alert` 等）。Windows 桌面优先走 `platform/toast.rs::show_system_toast` 自组 WinRT toast（appLogoOverride 圆形头像；插件 notify-rust 在 Windows 不暴露图片参数，带不出娘），失败降级插件纯文本；安卓该函数无图，安卓系统通知的娘大图由 `monitor_loop::notify_system` 的 `large_icon`（drawable 资源名）负责。头像 PNG 经 `bundle.resources` 打包（`resources/mascot-toast/`，仅 PNG——toast 不支持 webp），运行时 `resource_dir()` 拼成 `file:///` URL。
 6. **适配器操作范围**：操作类流程（检测/登录/注销/DNS 设置/DHCP）只作用于 `resolve_adapter_names` 解析出的主/副适配器；UI 展示类遍历全部。前端 `network/adapters.ts::resolveAdapterNames` 与后端**同源规则**，改任一侧必须同步另一侧（`adapters.test.ts` 锁行为）。
 7. **质量检测键与驱动者**：`details`/`metrics` 字典键为英文标识符（`gateway`/`aliDns`/`bilibili`…），显示名走 i18n `quality.names.*`，前后端键同步改（同仓库同发版无兼容窗口）。周期质量检测唯一驱动者是定时测试循环；新增受开关控制的面板需三处联动（App 渲染 null / DockNav 过滤入口 / useInitialDataLoad 跳过恢复）。
 8. **面板转场用 `deferredPanel`**：App.tsx 中面板 switch/转场 key/标题/方向全部消费 `useDeferredValue` 后的值，`activePanel` 仅用于 DockNav 高亮与 storage 恢复——用错会内容与标题错位。
@@ -594,7 +595,7 @@ pub struct AccountResult {
 
 ### 4.3 配置管理 — `config/`
 
-**`Config` 结构体** (40个字段):
+**`Config` 结构体** (42个字段):
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -633,7 +634,9 @@ pub struct AccountResult {
 | `enableNetworkNameCheck` | bool | true | 启用校园网名称检测 |
 | `campusGateway` | String | `"10.2.127.254"` | 校园网关地址 (空字符串回填默认值) |
 | `campusExitOnFail` | bool | true | 校园网验证失败时是否触发退出 |
-| `campusCheckStartMinutes` | u16 | 480 | 校园网检测静默期截止时间（分钟数，480=8:00），支持旧字段名 `campusCheckStartHour` 反序列化 |
+| `campusExitStartMinutes` | u16 | 480 | 非校园网自动退出生效时段起点（分钟数，480=8:00） |
+| `campusExitEndMinutes` | u16 | 1380 | 非校园网自动退出生效时段终点（分钟数，1380=23:00，不含该时刻；<= 起点时视为仅受起点限制） |
+| `campusCheckStartMinutes` | u16 | 460 | 校园网检测静默期截止时间（分钟数，460=7:40），支持旧字段名 `campusCheckStartHour` 反序列化 |
 | `logRetentionDays` | u32 | 7 | 日志保留天数 |
 | `maxDisconnectReconnect` | u32 | 3 | 断线重连最大次数 |
 | `autoLoginCooldownSecs` | u64 | 60 | 自动登录冷却秒数 |
@@ -1236,7 +1239,7 @@ struct ConnectionCampusStatus {
 |------|------|
 | `start_auto_exit()` | 启动自动退出倒计时 + 快捷键注册 + 通知；spawn 失败时回滚 deadline（否则残留 deadline 使后续触发全部短路，本轮自动退出静默失效） |
 | `cancel_auto_exit_inner()` | 取消自动退出：清 deadline + cancelled 标志 + **同步 `task_manager.cancel("auto_exit")`**（只清标志不清任务会留下同名残留，20s 内重新登录时 spawn 被拒→假倒计时且 deadline 残留短路后续触发） |
-| `start_campus_exit()` | 校园网验证不通过时：30s后最小化到托盘，再30s后强制退出 (受 `campus_exit_on_fail` 控制)。**先 CAS 防止重复触发，成功后再设置 deadline**（顺序反了会 deadline 被推后、标志位永久卡死） |
+| `start_campus_exit()` | 校园网验证不通过时：30s后最小化到托盘，再30s后强制退出 (受 `campus_exit_on_fail` 控制；且仅在校内生效时段 `campus_exit_start/end_minutes`（默认 8:00–23:00，终点不含；结束<=起点退化为仅按起点限制）内触发，窗口外记日志跳过)。**先 CAS 防止重复触发，成功后再设置 deadline**（顺序反了会 deadline 被推后、标志位永久卡死） |
 | `cancel_campus_exit()` | 取消校园网退出流程：swap 标志 + 清 deadline + **同步 `task_manager.cancel("campus_exit")`**。如果自动退出未运行，注销快捷键 |
 | `cancel_campus_exit_with_notification()` | 快捷键取消校园网退出 (含通知、快捷键注销与同步 cancel 任务) |
 | `shutdown_and_exit()` | 统一退出入口 (async)：设置 `is_quitting` → `task_manager.shutdown()` 清理后台任务（**整体 10s 超时上限**）→ `app_handle.exit(0)`。被 `start_campus_exit` 和 `start_auto_exit` 共同调用 |
@@ -1624,8 +1627,8 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `AnimatedNumber.tsx` | 动画数字，GSAP quickTo驱动，支持unit/decimals/duration，economy档禁用scale弹跳 |
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
-| `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮。带 `mascot` 字段（`'celebrate' | 'offline'`）时左侧渲染对应看板娘图（裸 img 非 MascotFigure，避免 tailwind 尺寸类冲突），登录成功/失败由 `useAuthStore` 经 `useLogToastStore.addToast` 第 5 参传入 |
-| `MascotFigure.tsx` | 看板娘展示组件（双端同构）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline}.png`，`size` 三档（sm/md/lg）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`）不经组件、低透明度裸 img 直引。**桌面端**：App.tsx 布局层两个 fixed 侧边娘（≥1360px 宽视口显示，`top-1/2 -translate-y-1/2` 锚定视口两侧垂直居中、滚动恒定可见，w-36、opacity 0.26/暗色 0.16，right 侧避让 w-72 的 RightPanel；桌面默认窗口 1360×768 使立绘默认即可见（常态左右间隙 24/16px），<1360 视口媒体查询自动隐藏；立绘宽 W、断点 B、默认窗口三者联动约束 `B ≥ 320 + 720 + 2×(W+16)` 且 B 取默认窗口宽）；RightPanel 日志栏的茶娘为**运行日志卡内部底部水印**（absolute bottom-3 低透明度，卡容器 relative overflow-hidden，日志条目少时从空白处露出）。**安卓端**：四面板滚动末尾底部娘保留（窄屏无侧边空间），设置页图加 `pb-72` 撑滚动余量避让固定底栏。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → PNG 档案 → 转 WebP（q84 原尺寸，-85%）→ 双端 `public/girl/*.webp`（代码引用 .webp，PNG 不入打包） |
+| `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮。**全部 toast 统一渲染看板娘头像**（裸 img 非 MascotFigure，避免 tailwind 尺寸类冲突）：`mascot` 字段（`portrait|celebrate|offline|alert|update`）显式传参优先，缺省按 type 映射（info→portrait/success→celebrate/error→offline/warning→alert，见 `TOAST_MASCOTS`）；特殊变体经 `useLogToastStore.addToast` 第 5 参传入（如新版本提示传 update） |
+| `MascotFigure.tsx` | 看板娘展示组件（双端同构）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline,alert,busy,update}.webp`（2026-09-12 新增 alert/busy/update 三变体，见 `assets/ui-girl/original/` 归档），`size` 三档（sm/md/lg）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`）不经组件、低透明度裸 img 直引。**桌面端**：App.tsx 布局层两个 fixed 侧边娘（≥1360px 宽视口显示，`top-1/2 -translate-y-1/2` 锚定视口两侧垂直居中、滚动恒定可见，w-36、opacity 0.26/暗色 0.16，right 侧避让 w-72 的 RightPanel；桌面默认窗口 1360×768 使立绘默认即可见（常态左右间隙 24/16px），<1360 视口媒体查询自动隐藏；立绘宽 W、断点 B、默认窗口三者联动约束 `B ≥ 320 + 720 + 2×(W+16)` 且 B 取默认窗口宽）；RightPanel 日志栏的茶娘为**运行日志卡内部底部水印**（absolute bottom-3 低透明度，卡容器 relative overflow-hidden，日志条目少时从空白处露出）。**安卓端**：四面板滚动末尾底部娘保留（窄屏无侧边空间），设置页图加 `pb-72` 撑滚动余量避让固定底栏。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → PNG 档案 → 转 WebP（q84 原尺寸，-85%）→ 双端 `public/girl/*.webp`（代码引用 .webp，PNG 不入打包） |
 | `SponsorCard.tsx` | 赞助下拉浮层。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭；锚定标题栏赞助按钮下方自然向下展开（fixed，z-[60]，高于 DockNav 菜单低于 toast），自动弹出与手动入口共用此浮层；内嵌微信/支付宝收款码；文案走 i18n sponsor 段 + about.sponsor |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
 | `ui-types.ts` | UI 类型定义 (StatusState, PanelName(8个: dashboard/account/network/monitor/quality/settings/log/speedtest), ThemeName(7种), LogType, GpuTier, GpuInfo, LogEntry, ToastMessage, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult 等 10 个导出) |

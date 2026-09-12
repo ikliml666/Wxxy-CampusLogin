@@ -154,12 +154,12 @@ export const useAuthStore = create<AuthStore>((set) => ({
       if (result?.success) {
         set({ status: { text: i18next.t('auth.loginSuccess'), state: 'online' } })
         useLogToastStore.getState().addLog(result.message || i18next.t('auth.loginSuccess'), 'success')
-        useLogToastStore.getState().addToast(i18next.t('auth.loginSuccess'), 'success', result.message, undefined, 'celebrate')
+        useLogToastStore.getState().addToast(i18next.t('auth.loginSuccess'), 'success', result.message)
         success = true
       } else {
         set({ status: { text: i18next.t('auth.loginFailed'), state: 'offline' } })
         useLogToastStore.getState().addLog(result?.message || i18next.t('auth.loginFailed'), 'error')
-        useLogToastStore.getState().addToast(i18next.t('auth.loginFailed'), 'error', result?.message, undefined, 'offline')
+        useLogToastStore.getState().addToast(i18next.t('auth.loginFailed'), 'error', result?.message)
       }
       if (useConfigStore.getState().config.enableNetworkQuality !== false) {
         // 历史缺陷：登录后无条件手动全量质量探测，与后端 latency loop/后台巡检重复
@@ -178,7 +178,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const msg = extractErrorMessage(e)
       set({ status: { text: i18next.t('auth.loginError'), state: 'error' } })
       useLogToastStore.getState().addLog(`登录异常: ${msg}`, 'error')
-      useLogToastStore.getState().addToast(i18next.t('auth.loginError'), 'error', msg, undefined, 'offline')
+      useLogToastStore.getState().addToast(i18next.t('auth.loginError'), 'error', msg)
     }
 
     // 历史缺陷：登录成功置 online 后立即 checkOnline()，Portal 会话尚未传播时

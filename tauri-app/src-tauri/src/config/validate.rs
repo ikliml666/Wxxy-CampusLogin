@@ -131,6 +131,8 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         config.config_version = 2;
     }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
+    config.campus_exit_start_minutes = config.campus_exit_start_minutes.min(1439);
+    config.campus_exit_end_minutes = config.campus_exit_end_minutes.min(1439);
     Ok(config)
 }
 

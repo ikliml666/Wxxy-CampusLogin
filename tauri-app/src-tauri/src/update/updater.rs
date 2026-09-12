@@ -295,10 +295,10 @@ async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
                 #[cfg(all(desktop, target_os = "windows"))]
                 if let Err(e) = crate::platform::toast::show_update_toast(app_h, &info.latest_version) {
                     crate::log_warn!("updater", "更新 toast 发送失败，降级普通通知: {}", e);
-                    emit_notification(app_h, "发现新版本", &body);
+                    emit_notification(app_h, "发现新版本", &body, "mascot-update");
                 }
                 #[cfg(not(all(desktop, target_os = "windows")))]
-                emit_notification(app_h, "发现新版本", &body);
+                emit_notification(app_h, "发现新版本", &body, "mascot-update");
             }
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

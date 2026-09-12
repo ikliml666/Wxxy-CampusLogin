@@ -94,7 +94,7 @@ pub(super) fn handle_status_change(
             let stats = &app_handle.state::<AppState>().update_stats;
             if now_ms.saturating_sub(stats.last_network_change_notification_ms.load(Ordering::Acquire)) >= 60_000 {
                 stats.last_network_change_notification_ms.store(now_ms, Ordering::Release);
-                crate::infra::notification::emit_notification(app_handle, "网络状态变更", &adapter_details);
+                crate::infra::notification::emit_notification(app_handle, "网络状态变更", &adapter_details, "mascot-portrait");
             }
         }
     } else {
