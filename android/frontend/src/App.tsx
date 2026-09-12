@@ -29,6 +29,7 @@ import { BottomNav, type MobileTab } from '@/components/layout/BottomNav'
 import { MobileDashboard } from '@/components/mobile/MobileDashboard'
 import { MobileMore } from '@/components/mobile/MobileMore'
 import { TabletShell } from '@/components/tablet/TabletShell'
+import { FaceCaptureDialog } from '@/face/FaceCaptureDialog'
 import { useFormFactor } from '@/hooks/useFormFactor'
 import { AccountPanel } from '@/account/AccountPanel'
 import { SelfServicePanel } from '@/account/SelfServicePanel'
@@ -283,6 +284,8 @@ export default function App() {
     <ErrorBoundary>
       <AnimationActiveProvider>
         {formFactor === 'tablet' ? <TabletShell /> : <AppInner />}
+        {/* 2D 人脸录入/验证弹窗单例:验证门(tauriApi)命令式驱动,双外壳共用 */}
+        <FaceCaptureDialog />
       </AnimationActiveProvider>
     </ErrorBoundary>
   )

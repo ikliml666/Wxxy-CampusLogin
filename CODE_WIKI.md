@@ -1757,6 +1757,13 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 
 **注意**：桌面端 `tauri-app/frontend/settings/OnboardingWizard.tsx` 仍为自包含逻辑（未消费 hook），安卓副本已分叉——后续跨端同步该文件不可整文件覆盖。
 
+### 5.14.3 2D 人脸验证 — `face/` (2026-09-12)
+
+- **背景**：国产设备 2D 人脸全是 Class 1，系统级不可达（BiometricPrompt 只暴露 Class 2/3）；应用内自实现成为唯一现实路径（支付宝同款思路，本地化）。选型 `@vladmandic/human`（代码 MIT；blazeface/facemesh/faceres 模型 Apache-2.0；**不启用**包内 antispoof/liveness/insightface 模型——许可不明或 NC），模型 6 文件随 APK 分发（`frontend/public/models/`，≈8.9MB）。许可与用途声明见 THIRD-PARTY-NOTICES.md。
+- **模块**：`faceService.ts`（human 单例 + warmup、相机流、录入=质量门控 8 帧描述子均值、验证=随机动作挑战[眨眼/左转/右转，10s 窗] + similarity≥0.55 比对 3 帧；眨眼用 human mesh 比率判据+帧间状态机，防瞬态丢帧）；`faceVerifyStore.ts`（命令式弹窗桥 + shouldUseFaceFallback；独立于 tauriApi 避免 hook 循环引用）；`FaceCaptureDialog.tsx`（录入/验证共用 UI，App 根部单例，双外壳共用）。
+- **验证链语义**（`verifyWindowsIdentity` 单点分支）：开关 `allow2dFaceVerify`(后端 Settings,默认 false)开启 + 模板已录入 + `plugin-biometric.checkStatus()` 不可用 → 2D 人脸；否则系统 BiometricPrompt(BIOMETRIC_WEAK|DEVICE_CREDENTIAL，生物/锁屏自动兜底)。人脸失败码（faceTimeout/faceChallenge/faceMismatch/faceCamera）并入 `biometricFailMessage` 本地化。模板仅存本机 safeStorage，验证通过仍走后端 `verify_biometric_identity` TTL 门——后端不感知验证方式。
+- **配置要点**：CSP 必须含 `script-src 'wasm-unsafe-eval'`（tfjs WebGL/WASM），`img-src`/`worker-src` 需 blob:；Manifest 需 CAMERA——wry 0.55.1 Kotlin `RustWebChromeClient.onPermissionRequest` 已内置 VIDEO_CAPTURE→CAMERA 运行时权限链路，无需自写插件。相似度阈值 0.55 为 human 默认注释值从严起步，**真机标定后可调**；不依赖 SharedArrayBuffer 多线程（Android 自定义协议下 crossOriginIsolated 未验证）。
+
 ---
 
 ## 附录 C：IPC 通信完整清单

@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- APK 更新安装(用户确认安装,无静默安装) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 2D 人脸验证(应用内自实现,WebView getUserMedia 前置摄像头) -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

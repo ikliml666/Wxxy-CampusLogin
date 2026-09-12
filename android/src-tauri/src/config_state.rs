@@ -19,6 +19,9 @@ pub struct Settings {
     pub self_password: String,
     pub self_hello_enabled: bool,
     pub self_reverify_each_action: bool,
+    /// 2D 人脸验证开关(默认关):系统生物识别不可用且已录入人脸时,验证门回退到
+    /// 应用内 2D 人脸比对(低安全,照片可欺骗,开启时前端有风险告知)
+    pub allow_2d_face_verify: bool,
     pub operator: String,
     // 行为
     pub auto_login_on_start: bool,
@@ -67,6 +70,7 @@ impl Default for Settings {
             self_password: String::new(),
             self_hello_enabled: true,
             self_reverify_each_action: false,
+            allow_2d_face_verify: false,
             operator: String::new(),
             auto_login_on_start: true,
             enable_background_check: true,

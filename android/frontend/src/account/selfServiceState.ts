@@ -44,6 +44,11 @@ const BIOMETRIC_ERROR_KEY: Record<string, string> = {
   biometryNotAvailable: 'account.biometricNotEnrolled',
   biometryLockout: 'account.biometricLockout',
   authenticationFailed: 'account.biometricFailed',
+  // 2D 人脸回退链（faceService）的业务错误码
+  faceTimeout: 'account.faceTimeout',
+  faceChallenge: 'account.faceChallenge',
+  faceMismatch: 'account.faceMismatch',
+  faceCamera: 'account.faceCamera',
 }
 
 export function biometricFailMessage(err: unknown, t: (key: string) => string): string {

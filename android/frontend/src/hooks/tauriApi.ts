@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { authenticate as biometricAuthenticate } from '@tauri-apps/plugin-biometric'
+import { authenticate as biometricAuthenticate, checkStatus as biometricCheckStatus } from '@tauri-apps/plugin-biometric'
 import { openUrl as openerOpenUrl } from '@tauri-apps/plugin-opener'
+import { shouldUseFaceFallback, useFaceDialogStore } from '@/face/faceVerifyStore'
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
 import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
@@ -162,6 +163,33 @@ const tauriApi: TauriApi = {
   bindOperator: (params) => invoke<CommandResult>('bind_operator', { ...params }),
   getBindStatus: (params) => invoke<CommandResult>('query_bind_status', { ...params }),
   verifyWindowsIdentity: async (params) => {
+    // 2D 人脸回退：开关开启且已录入人脸、且系统生物识别不可用（国产平板 2D 人脸为
+    // Class 1，BiometricPrompt 不可达）时走应用内人脸验证（动作挑战 + 本地比对）。
+    // status 查询异常不阻断——回退到系统链路。
+    if (shouldUseFaceFallback()) {
+      try {
+        const status = await biometricCheckStatus()
+        if (!status.isAvailable) {
+          const r = await useFaceDialogStore.getState().openFaceDialog('verify')
+          if (!r.ok) {
+            const codeMap: Record<string, string> = {
+              cancel: 'userCancel',
+              timeout: 'faceTimeout',
+              challenge: 'faceChallenge',
+              mismatch: 'faceMismatch',
+              camera: 'faceCamera',
+            }
+            throw { code: codeMap[r.reason ?? ''] ?? 'userCancel', message: '2D face verify failed' }
+          }
+          return invoke<CommandResult>('verify_biometric_identity', { consentMessage: params.consentMessage })
+        }
+      } catch (err) {
+        // 人脸链自身的业务错误（face* 码与用户取消）原样抛出，由 biometricFailMessage
+        // 按 code 翻译；其余（status 查询等基础设施异常）落回系统验证链路
+        const code = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined
+        if (typeof code === 'string' && (code.startsWith('face') || code === 'userCancel')) throw err
+      }
+    }
     // 安卓等价物:系统 BiometricPrompt(支持锁屏凭据兜底)→ 后端记 TTL 时间戳
     await biometricAuthenticate(params.consentMessage, { allowDeviceCredential: true })
     return invoke<CommandResult>('verify_biometric_identity', { consentMessage: params.consentMessage })

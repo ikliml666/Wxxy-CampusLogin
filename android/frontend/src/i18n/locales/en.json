@@ -210,7 +210,11 @@
     "biometricCancelled": "Verification cancelled",
     "biometricNotEnrolled": "No usable biometrics or screen lock is set up. Enroll a fingerprint/face or set a screen lock in system settings first",
     "biometricLockout": "Biometrics are temporarily locked after repeated failures. Try again later or use your screen lock",
-    "biometricFailed": "Verification failed, please try again"
+    "biometricFailed": "Verification failed, please try again",
+    "faceTimeout": "Face verification timed out, please retry",
+    "faceChallenge": "Action challenge not completed, please retry",
+    "faceMismatch": "Face match failed",
+    "faceCamera": "Cannot access the camera, please check system permission settings"
   },
   "network": {
     "networkAdapters": "Network Adapters",
@@ -481,6 +485,8 @@
     "selfHelloDesc": "Self-service actions require biometric verification; devices without enrolled biometrics fall back to screen-lock verification; once off, everything works except viewing the operator password",
     "selfReverify": "Re-verify every action",
     "selfReverifyDesc": "When on, every refresh/terminate/query in the self-service panel requires verification; when off, verifying once on entry is enough",
+    "allow2dFace": "Allow 2D face verification",
+    "allow2dFaceDesc": "Falls back to on-device 2D face matching when system biometrics are unavailable; less secure than fingerprint (photos may spoof it), personal devices only",
     "securityChangePrompt": "Verify your identity before disabling a security option",
     "securityVerifyFailed": "Verification failed; setting unchanged",
     "securityChanged": "Security setting updated",
@@ -785,6 +791,26 @@
     "moreMonitor": "Background Check",
     "moreSettings": "Settings",
     "moreLog": "Logs",
-    "moreSpeedtest": "Speed Test"
+    "moreSpeedtest": "Speed Test",
+  "face": {
+    "enrollTitle": "Enroll Face",
+    "verifyTitle": "Face Verification",
+    "startingCamera": "Starting camera…",
+    "cameraError": "Cannot access the camera, please check system permission settings",
+    "enrollProgress": "Look straight at the screen and hold still: {{done}}/{{total}}",
+    "pleaseHold": "Look straight at the screen",
+    "challengeBlink": "Please blink",
+    "challengeTurnLeft": "Turn your head left",
+    "challengeTurnRight": "Turn your head right",
+    "cancel": "Cancel",
+    "riskTitle": "Enable 2D face verification?",
+    "riskContent": "2D face matching is used to confirm sensitive actions on this device. It is less secure than fingerprint or system face unlock — a photo may spoof it. Face features stay on this device and are never uploaded. Personal devices only.",
+    "enrollBtn": "Enroll Face",
+    "enrollRedo": "Re-enroll Face",
+    "enrolled": "Face enrolled",
+    "notEnrolled": "Not enrolled",
+    "enrollSuccess": "Face enrolled successfully",
+    "enrollFailed": "Face enrollment not completed"
+  }
   }
 }

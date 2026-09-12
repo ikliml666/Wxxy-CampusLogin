@@ -8,6 +8,8 @@ export interface Config {
   selfHelloEnabled: boolean
   /** 自助服务面板每次操作都二次验证（默认 false：切入面板验证一次后共用） */
   selfReverifyEachAction: boolean
+  /** 2D 人脸验证开关（默认 false）：系统生物识别不可用且已录入人脸时，验证门回退应用内 2D 人脸比对（低安全） */
+  allow2dFaceVerify: boolean
   operator: string
   adapter1: string
   adapter2: string

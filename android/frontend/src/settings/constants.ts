@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG: Config = {
   selfPassword: '',
   selfHelloEnabled: true,
   selfReverifyEachAction: false,
+  allow2dFaceVerify: false,
   operator: '',
   adapter1: AUTO_DETECT_ADAPTER,
   adapter2: '',

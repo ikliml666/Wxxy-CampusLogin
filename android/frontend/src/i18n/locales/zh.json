@@ -210,7 +210,11 @@
     "biometricCancelled": "已取消验证",
     "biometricNotEnrolled": "本设备未设置可用的生物识别或锁屏密码，请先在系统设置中录入指纹/人脸或设置锁屏",
     "biometricLockout": "生物识别多次失败已临时锁定，请稍后重试或改用锁屏密码",
-    "biometricFailed": "验证未通过，请重试"
+    "biometricFailed": "验证未通过，请重试",
+    "faceTimeout": "人脸验证超时，请重试",
+    "faceChallenge": "动作验证未完成，请重试",
+    "faceMismatch": "人脸比对未通过",
+    "faceCamera": "无法访问相机，请检查系统权限设置"
   },
   "network": {
     "networkAdapters": "网络适配器",
@@ -481,6 +485,8 @@
     "selfHelloDesc": "自助服务相关操作前需通过生物识别验证；未录入指纹/人脸的设备自动改用锁屏密码验证；关闭后除\"查看运营商账户密码\"外不再验证",
     "selfReverify": "每次操作二次验证",
     "selfReverifyDesc": "开启后自助服务面板每次刷新/注销/查询都要求验证；关闭后切入面板验证一次即可",
+    "allow2dFace": "允许 2D 人脸验证",
+    "allow2dFaceDesc": "系统生物识别不可用时回退到应用内 2D 人脸比对；安全性低于指纹（照片可能欺骗），仅建议个人设备开启",
     "securityChangePrompt": "关闭安全选项前，请完成身份验证",
     "securityVerifyFailed": "验证未通过，设置未修改",
     "securityChanged": "安全设置已更新",
@@ -785,6 +791,26 @@
     "moreMonitor": "后台检测",
     "moreSettings": "设置",
     "moreLog": "日志",
-    "moreSpeedtest": "测速"
+    "moreSpeedtest": "测速",
+  "face": {
+    "enrollTitle": "录入人脸",
+    "verifyTitle": "人脸验证",
+    "startingCamera": "正在启动相机…",
+    "cameraError": "无法访问相机，请检查系统权限设置",
+    "enrollProgress": "请正对屏幕保持不动：{{done}}/{{total}}",
+    "pleaseHold": "请正对屏幕",
+    "challengeBlink": "请眨眨眼",
+    "challengeTurnLeft": "请向左转头",
+    "challengeTurnRight": "请向右转头",
+    "cancel": "取消",
+    "riskTitle": "开启 2D 人脸验证？",
+    "riskContent": "2D 人脸比对用于本机敏感操作确认，安全性低于指纹与系统人脸，照片可能欺骗验证。人脸特征仅保存在本机、不会上传。仅建议在个人设备上开启。",
+    "enrollBtn": "录入人脸",
+    "enrollRedo": "重新录入人脸",
+    "enrolled": "已录入人脸",
+    "notEnrolled": "未录入",
+    "enrollSuccess": "人脸录入成功",
+    "enrollFailed": "人脸录入未完成"
+  }
   }
 }

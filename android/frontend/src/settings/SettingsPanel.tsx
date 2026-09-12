@@ -14,6 +14,10 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { cn } from '@/lib/utils'
 import { biometricFailMessage } from '@/account/selfServiceState'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { Button } from '@/components/ui/button'
+import { useFaceDialogStore } from '@/face/faceVerifyStore'
+import { hasTemplate, clearTemplate } from '@/face/faceService'
 import React, { memo, useMemo, useState, useRef, useEffect } from 'react'
 import { useThemeStore } from '@/hooks/useThemeStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -78,6 +82,10 @@ export const SettingsPanel = memo(function SettingsPanel({
   // 固定网关文本输入本地草稿：blur/Enter 时一次性提交，
   // 避免每键写 store 触发级联渲染与防抖保存
   const [fixedGatewayDraft, setFixedGatewayDraft] = useState<string | null>(null)
+  // 2D 人脸开关的风险确认弹窗；录入走命令式 openFaceDialog
+  const [faceRiskConfirmOpen, setFaceRiskConfirmOpen] = useState(false)
+  const openFaceDialog = useFaceDialogStore((s) => s.openFaceDialog)
+  const addToast = useLogToastStore.getState().addToast
 
   const storeCustomColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
   const customColor = colorDraft ?? storeCustomColor
@@ -119,7 +127,6 @@ export const SettingsPanel = memo(function SettingsPanel({
   // 关闭安全开关（安全 → 宽松方向）必须先通过 Windows Hello 验证，
   // 防止绕过界面直接关闭保护；验证失败保持原状态（Switch 受控自动回弹）
   const handleSecurityDisable = async (apply: (ok: boolean) => void) => {
-    const addToast = useLogToastStore.getState().addToast
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
         consentMessage: t('settings.securityChangePrompt'),
@@ -451,9 +458,62 @@ export const SettingsPanel = memo(function SettingsPanel({
                 className="shrink-0"
               />
             </div>
+            <Separator />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5 min-w-0">
+                  <Label htmlFor="allow-2d-face" className="text-sm font-medium cursor-pointer">{t('settings.allow2dFace')}</Label>
+                  <p className="text-[11px] text-muted-foreground">{t('settings.allow2dFaceDesc')}</p>
+                </div>
+                <Switch
+                  id="allow-2d-face"
+                  disabled={config.selfHelloEnabled === false}
+                  checked={config.allow2dFaceVerify === true}
+                  onCheckedChange={checked => {
+                    if (checked) { setFaceRiskConfirmOpen(true); return }
+                    // 关闭即清除人脸模板（数据最小化；重开需重新录入）
+                    clearTemplate()
+                    onUpdateConfig({ allow2dFaceVerify: false })
+                  }}
+                  className="shrink-0"
+                />
+              </div>
+              {config.allow2dFaceVerify === true && (
+                <div className="flex items-center justify-between gap-2 pl-0.5">
+                  <span className={cn('text-[11px]', hasTemplate() ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400')}>
+                    {hasTemplate() ? t('face.enrolled') : t('face.notEnrolled')}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      void openFaceDialog('enroll').then(r => {
+                        if (r.ok) addToast(t('face.enrollSuccess'), 'success')
+                        else if (r.reason !== 'cancel') addToast(t('face.enrollFailed'), 'error')
+                      })
+                    }}
+                  >
+                    {hasTemplate() ? t('face.enrollRedo') : t('face.enrollBtn')}
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardContent>
         </AnimatedCard>
       </div>
+
+      {/* 2D 人脸风险确认：开启前告知低安全等级与本地存储语义 */}
+      <ConfirmDialog
+        open={faceRiskConfirmOpen}
+        title={t('face.riskTitle')}
+        message={t('face.riskContent')}
+        onConfirm={() => {
+          setFaceRiskConfirmOpen(false)
+          onUpdateConfig({ allow2dFaceVerify: true })
+        }}
+        onCancel={() => setFaceRiskConfirmOpen(false)}
+      />
 
       {onShowOnboarding && (
         <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
