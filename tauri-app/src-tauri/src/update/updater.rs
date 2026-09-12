@@ -7,6 +7,8 @@ use std::sync::atomic::Ordering;
 
 const GITHUB_REPO: &str = "ikliml666/Wxxy-CampusLogin";
 const AUTO_CHECK_INTERVAL_SECS: u64 = 86400;
+/// 启动后延迟首查秒数（避开启动期任务高峰）
+const STARTUP_CHECK_DELAY_SECS: u64 = 5;
 const VERSION_FILE_URL: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
 
 /// version.json 镜像源列表（GitHub 原始源失败时按顺序降级）
@@ -246,49 +248,18 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
     let task_manager = app_handle.state::<AppState>().task_manager.clone();
     if let Err(e) = task_manager.spawn("update_check_loop", move |cancel_token| async move {
         let state = app_h.state::<AppState>();
-        let last_epoch = state.update_stats.last_update_check_epoch_ms.load(Ordering::Acquire);
-        let now_epoch = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let elapsed_secs = if last_epoch == 0 { AUTO_CHECK_INTERVAL_SECS + 1 } else { (now_epoch - last_epoch) / 1000 };
-
-        // 首次检查：若距上次检查超过间隔则立即检查（退出中跳过）
-        if elapsed_secs >= AUTO_CHECK_INTERVAL_SECS
-            && !cancel_token.is_cancelled()
-            && !state.exit.is_quitting.load(Ordering::Acquire)
-        {
-            do_update_check(&app_h, &state).await;
+        // 启动延迟 5s 首查（避开启动期任务高峰），此后每 24h 一次；
+        // 全程 5s 步进等待 + cancel token/退出标志，保证退出可中断
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(STARTUP_CHECK_DELAY_SECS)) => {}
+            _ = cancel_token.cancelled() => return,
         }
-
-        // 计算到下次检查的剩余时间，避免频繁重启导致检查被持续推迟
-        let remaining_secs = if elapsed_secs < AUTO_CHECK_INTERVAL_SECS {
-            AUTO_CHECK_INTERVAL_SECS - elapsed_secs
-        } else {
-            AUTO_CHECK_INTERVAL_SECS
-        };
-        // 拆分为 5s 步进循环，同时监听取消令牌，避免 24h sleep 期间无法响应退出
-        let mut elapsed = 0u64;
-        let step = 5u64;
-        while elapsed < remaining_secs {
-            let wait = std::cmp::min(step, remaining_secs - elapsed);
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(wait)) => {}
-                _ = cancel_token.cancelled() => return,
-            }
-            elapsed += wait;
-            if state.exit.is_quitting.load(Ordering::Acquire) {
-                break;
-            }
-        }
-
-        // 后续固定间隔检查
         loop {
             if cancel_token.is_cancelled() || state.exit.is_quitting.load(Ordering::Acquire) {
                 break;
             }
             do_update_check(&app_h, &state).await;
-            // 拆分为 5s 步进等待，同时监听取消令牌
+            // 5s 步进等待 24h，同时监听取消令牌
             let mut waited = 0u64;
             while waited < AUTO_CHECK_INTERVAL_SECS {
                 tokio::select! {

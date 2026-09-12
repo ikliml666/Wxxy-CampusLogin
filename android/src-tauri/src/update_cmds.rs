@@ -212,8 +212,8 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
     Err(format!("检查更新失败: {last_err}"))
 }
 
-/// 自动更新检查循环(桌面 startup 24h 同语义):首启延迟 30s 查一次,之后每 24h;
-/// 有新版本 emit update-available(前端 useEventListeners 早已监听,据此提示)
+/// 自动更新检查循环(桌面 startup 24h 同语义):启动延迟 5s 查一次,之后每 24h;
+/// 有新版本 emit update-available(前端 useEventListeners 早已监听,据此弹窗提示)
 /// + 系统通知(过 enable_notification 闸)。循环随进程存活,无需停。
 pub fn start_update_check_loop(app: tauri::AppHandle) {
     if UPDATE_LOOP_RUNNING.swap(true, Ordering::Relaxed) {
@@ -221,7 +221,7 @@ pub fn start_update_check_loop(app: tauri::AppHandle) {
     }
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             if let Ok(info) = check_update_inner(&app).await {
                 if info.has_update {
                     let _ = app.emit("update-available", &info);
