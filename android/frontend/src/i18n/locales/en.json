@@ -206,7 +206,11 @@
     "selfLogColCnDown": "Domestic Down(MB)",
     "selfLogColNasIp": "NAS IP",
     "selfLogColNasPort": "NAS Port",
-    "identityVerifyPrompt": "Verify your identity before performing sensitive actions"
+    "identityVerifyPrompt": "Verify your identity before performing sensitive actions",
+    "biometricCancelled": "Verification cancelled",
+    "biometricNotEnrolled": "No usable biometrics or screen lock is set up. Enroll a fingerprint/face or set a screen lock in system settings first",
+    "biometricLockout": "Biometrics are temporarily locked after repeated failures. Try again later or use your screen lock",
+    "biometricFailed": "Verification failed, please try again"
   },
   "network": {
     "networkAdapters": "Network Adapters",
@@ -474,7 +478,7 @@
     "security": "Security",
     "securityDesc": "Biometric and sensitive action verification",
     "selfHello": "Enable biometric verification",
-    "selfHelloDesc": "Self-service actions require biometric verification; once off, everything works except viewing the operator password",
+    "selfHelloDesc": "Self-service actions require biometric verification; devices without enrolled biometrics fall back to screen-lock verification; once off, everything works except viewing the operator password",
     "selfReverify": "Re-verify every action",
     "selfReverifyDesc": "When on, every refresh/terminate/query in the self-service panel requires verification; when off, verifying once on entry is enough",
     "securityChangePrompt": "Verify your identity before disabling a security option",
