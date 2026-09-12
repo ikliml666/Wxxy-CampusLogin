@@ -58,7 +58,6 @@ function AppInner() {
   const adapters = useAdapterStore((s) => s.adapters)
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
-  const status = useAuthStore((s) => s.status)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
   const qualityDisabled = useConfigStore((s) => s.config.enableNetworkQuality) === false
@@ -160,21 +159,13 @@ function AppInner() {
       className="relative flex flex-col h-full overflow-hidden font-sans bg-background text-foreground"
       style={{ background: 'var(--surface-main)' }}
     >
-      {/* 顶部轻 header:状态色点 + 网络质量胶囊 + 主题/关于入口。
+      {/* 顶部轻 header:网络质量胶囊(自带状态点) + 主题/关于入口。
           absolute 覆盖在 main 上方——滚动内容从 header 背后穿过，backdrop-blur 才真正雾化（MD3 top app bar 惯例）。
           上/下各留 12px：与系统状态栏(通知栏)和正文卡片都保持呼吸间距 */}
       <header
         className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 backdrop-blur-md z-10"
         style={{ background: 'color-mix(in srgb, var(--surface-main) 85%, transparent)' }}
       >
-        <span
-          className={cn(
-            'h-2.5 w-2.5 rounded-full',
-            status?.state === 'online' && 'bg-emerald-500 shadow-[0_0_8px_currentColor] text-emerald-500',
-            status?.state === 'loading' && 'bg-amber-500 text-amber-500 animate-pulse',
-            (status?.state === 'offline' || status?.state === 'error') && 'bg-zinc-500'
-          )}
-        />
         {/* 应用名移除(用户要求);原位置放桌面版同款网络质量胶囊,点击进质量页看明细 */}
         <button
           type="button"

@@ -311,6 +311,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 
 - `npx tsc -b` 会 emit 出 `vite.config.js`/`.d.ts` 污染文件：tsconfig.node.json 是 composite 项目——类型检查一律 `npx tsc --noEmit --incremental`。
 - tsc 全量检查必报错 exit 2：自动加载了工作区根 node_modules 里损坏的 `@types/yauzl`——tsconfig 显式 `types: ["vite/client"]`（node 侧 `["node"]`）阻止自动加载全部 @types。
+- 双端娘图资产必须过 alpha 校验：`side-music/side-phone` 两张曾是 VP8 无 alpha（漏跑 rembg），深色模式下整块浅色背景刺眼——新增图用脚本解析 RIFF chunk 确认 ALPH 存在（双端 public/girl 同名文件须 md5 一致）。
 - host `cargo check` 在 `android/src-tauri` 基线即失败：mobile-only 插件权限 host 收集不全——安卓验证只认 `tauri android build` 交叉编译。
 - 安卓构建后 APK 没更新：tauri CLI 不跑 `beforeBuildCommand`，frontend/dist 还是旧的——先手动 `npx vite build`。
 - `tauri android build` 完成报告指向 `app-universal-release.apk` 但文件不存在：产物名/签名已内置 gradle——以输出目录实际文件为准。
