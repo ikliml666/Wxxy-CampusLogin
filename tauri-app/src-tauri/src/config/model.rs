@@ -122,7 +122,7 @@ where
 
 fn default_true() -> bool { true }
 
-fn default_campus_check_start_minutes() -> u16 { 480 }
+fn default_campus_check_start_minutes() -> u16 { 460 }
 
 pub fn default_fixed_gateway() -> String {
     "10.2.127.254".to_string()
@@ -184,7 +184,7 @@ impl Default for Config {
             campus_gateway: "10.2.127.254".to_string(),
             update_source: "mirror".to_string(),
             campus_exit_on_fail: true,
-            campus_check_start_minutes: 480,
+            campus_check_start_minutes: 460,
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,

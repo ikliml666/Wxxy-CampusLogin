@@ -367,7 +367,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                       id="campus-check-start-time"
                       type="time"
                       value={(() => {
-                        const m = config.campusCheckStartMinutes ?? 480
+                        const m = config.campusCheckStartMinutes ?? 460
                         const h = Math.floor(m / 60)
                         const min = m % 60
                         return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
