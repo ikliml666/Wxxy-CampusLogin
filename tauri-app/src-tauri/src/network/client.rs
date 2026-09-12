@@ -132,6 +132,8 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
 /// **socket 创建时**由 netd 的 eBPF 打标，池里 keep-alive 的既有连接仍走绑定前的
 /// 路由——复用它们等于绑定没生效（登录/探测/注销全链路都吃这个坑）。代价是
 /// 下一批请求重建 TCP+TLS；调用点都在操作发起前，此时没有在途请求，故安全。
+// 桌面 bin 不调用（无多网络路由切换）；仅安卓端经 campus_login_lib 路径依赖调用。
+#[allow(dead_code)]
 pub fn clear_client_pool() -> usize {
     let count = CLIENT_POOL.len();
     if count > 0 {
