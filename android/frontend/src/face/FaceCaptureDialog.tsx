@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Camera } from 'lucide-react'
+import { Loader2, Camera, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -22,8 +22,7 @@ import { openCamera, closeCamera, enrollFace, verifyFace, type FaceChallenge } f
 
 const CHALLENGE_KEY: Record<FaceChallenge, string> = {
   blink: 'face.challengeBlink',
-  turnLeft: 'face.challengeTurnLeft',
-  turnRight: 'face.challengeTurnRight',
+  turn: 'face.challengeTurn',
 }
 
 export function FaceCaptureDialog() {
@@ -49,7 +48,8 @@ export function FaceCaptureDialog() {
 function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r: { ok: boolean; reason?: string }) => void }) {
   const { t } = useTranslation()
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [phase, setPhase] = useState<'starting' | 'running' | 'error'>('starting')
+  const [phase, setPhase] = useState<'starting' | 'running' | 'success' | 'error'>('starting')
+  const [facePresent, setFacePresent] = useState(true)
   const [progress, setProgress] = useState(0)
   const [challenge, setChallenge] = useState<FaceChallenge | null>(null)
   const [errorKey, setErrorKey] = useState<string>('')
@@ -72,15 +72,26 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
       if (cancelled) return
       setPhase('running')
       if (mode === 'enroll') {
-        const r = await enrollFace(video, (done) => setProgress(done)).catch(() => null)
+        const r = await enrollFace(video, (done) => setProgress(done), (p) => setFacePresent(p)).catch(() => null)
         if (cancelled) return
+        if (r && r.ok) {
+          setPhase('success')
+          await new Promise((res) => setTimeout(res, 600))
+          if (cancelled) return
+        }
         onClose(r && r.ok ? { ok: true } : { ok: false, reason: r && 'reason' in r ? r.reason : 'timeout' })
       } else {
         const r = await verifyFace(
           video,
           (c) => setChallenge(c),
+          (p) => setFacePresent(p),
         ).catch(() => null)
         if (cancelled) return
+        if (r && r.ok) {
+          setPhase('success')
+          await new Promise((res) => setTimeout(res, 600))
+          if (cancelled) return
+        }
         onClose(r && r.ok ? { ok: true } : { ok: false, reason: r && 'reason' in r ? r.reason : 'mismatch' })
       }
     }
@@ -101,12 +112,18 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
           muted
           playsInline
           autoPlay
-          className={phase === 'running' ? 'w-full h-full object-cover scale-x-[-1]' : 'invisible'}
+          className={phase === 'running' || phase === 'success' ? 'w-full h-full object-cover scale-x-[-1]' : 'invisible'}
         />
         {phase === 'starting' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin" />
             <p className="text-xs">{t('face.startingCamera')}</p>
+          </div>
+        )}
+        {phase === 'success' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-emerald-500/70 text-white">
+            <CheckCircle2 className="h-8 w-8" />
+            <p className="text-sm font-medium">{t('face.verifySuccess')}</p>
           </div>
         )}
         {phase === 'error' && (
@@ -116,16 +133,22 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
           </div>
         )}
       </div>
-      <div className="min-h-[40px] flex items-center justify-center gap-2 text-sm text-center">
+      <div className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-sm text-center">
         {mode === 'enroll' && phase === 'running' && (
-          <span className="text-muted-foreground">
-            {t('face.enrollProgress', { done: progress, total: 8 })}
-          </span>
+          <>
+            <span className="text-muted-foreground">
+              {t('face.enrollProgress', { done: progress, total: 8 })}
+            </span>
+            {!facePresent && <span className="text-xs text-amber-600 dark:text-amber-400">{t('face.noFace')}</span>}
+          </>
         )}
         {mode === 'verify' && phase === 'running' && challenge && (
-          <span className="font-medium text-primary text-base">
-            {t(CHALLENGE_KEY[challenge])}
-          </span>
+          <>
+            <span className="font-medium text-primary text-base">
+              {t(CHALLENGE_KEY[challenge])}
+            </span>
+            {!facePresent && <span className="text-xs text-amber-600 dark:text-amber-400">{t('face.noFace')}</span>}
+          </>
         )}
         {phase === 'starting' && <span className="text-xs text-muted-foreground">{t('face.pleaseHold')}</span>}
       </div>

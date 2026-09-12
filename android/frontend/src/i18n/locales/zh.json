@@ -801,8 +801,6 @@
     "enrollProgress": "请正对屏幕保持不动：{{done}}/{{total}}",
     "pleaseHold": "请正对屏幕",
     "challengeBlink": "请眨眨眼",
-    "challengeTurnLeft": "请向左转头",
-    "challengeTurnRight": "请向右转头",
     "cancel": "取消",
     "riskTitle": "开启 2D 人脸验证？",
     "riskContent": "2D 人脸比对用于本机敏感操作确认，安全性低于指纹与系统人脸，照片可能欺骗验证。人脸特征仅保存在本机、不会上传。仅建议在个人设备上开启。",
@@ -811,6 +809,9 @@
     "enrolled": "已录入人脸",
     "notEnrolled": "未录入",
     "enrollSuccess": "人脸录入成功",
-    "enrollFailed": "人脸录入未完成"
+    "enrollFailed": "人脸录入未完成",
+    "challengeTurn": "请向左或向右转头",
+    "noFace": "未检测到人脸，请正对屏幕",
+    "verifySuccess": "验证通过"
   }
 }

@@ -5,7 +5,7 @@
  * 不可达（BiometricPrompt 只暴露 Class 2/3），因此在"系统生物识别不可用 +
  * 用户开启 allow2dFaceVerify 且已录入"时，验证门回退到应用内人脸比对。
  *
- * 安全边界（用户已确认接受）：动作挑战（眨眼/左转/右转）只能挡静态照片，
+ * 安全边界（用户已确认接受）：动作挑战（眨眼/转头）只能挡静态照片，
  * 不防重放视频；描述子模板仅存本机 safeStorage；比对通过后与生物链路共用
  * 同一后端 verify_biometric_identity TTL 门，后端不感知验证方式。
  *
@@ -32,7 +32,7 @@ const POLL_INTERVAL_MS = 120
 /** 采帧质量门控：检测分下限 */
 const DETECT_SCORE_MIN = 0.85
 
-export type FaceChallenge = 'blink' | 'turnLeft' | 'turnRight'
+export type FaceChallenge = 'blink' | 'turn'
 
 export type FaceFailReason = 'timeout' | 'challenge' | 'mismatch' | 'camera'
 export type FaceVerifyResult = { ok: true } | { ok: false; reason: FaceFailReason }
@@ -155,6 +155,7 @@ function saveTemplate(d: number[]): void {
 export async function enrollFace(
   video: HTMLVideoElement,
   onProgress: (done: number, total: number) => void,
+  onFacePresence?: (present: boolean) => void,
 ): Promise<{ ok: true } | { ok: false; reason: FaceFailReason }> {
   const h = await getHuman()
   const samples: number[][] = []
@@ -162,6 +163,7 @@ export async function enrollFace(
   while (samples.length < ENROLL_FRAMES) {
     if (Date.now() > deadline) return { ok: false, reason: 'timeout' }
     const snap = await detectOnce(h, video).catch(() => null)
+    onFacePresence?.(!!snap)
     // 门控：检测分够、有描述子、正脸（gesture 无明显转头）
     if (snap && snap.score >= DETECT_SCORE_MIN && snap.embedding
       && !snap.gestures.some(g => g === 'facing left' || g === 'facing right')) {
@@ -188,7 +190,7 @@ export async function verifyFace(
   if (!template) return { ok: false, reason: 'mismatch' }
   const h = await getHuman()
 
-  const challenges: FaceChallenge[] = ['blink', 'turnLeft', 'turnRight']
+  const challenges: FaceChallenge[] = ['blink', 'turn']
   const challenge = challenges[Math.floor(Math.random() * challenges.length)]
   onChallenge(challenge)
 
@@ -205,9 +207,8 @@ export async function verifyFace(
     if (challenge === 'blink') {
       // 瞬态动作：本帧闭合即记完成（窗口内一次有效眨眼）
       if (snap.eyesClosed) challengeDone = true
-    } else if (challenge === 'turnLeft') {
-      if (snap.gestures.includes('facing left')) challengeDone = true
-    } else if (snap.gestures.includes('facing right')) {
+    } else if (snap.gestures.includes('facing left') || snap.gestures.includes('facing right')) {
+      // 转头挑战：任一侧均可（镜像语义用户易转反，方向不是安全边界）
       challengeDone = true
     }
     if (challengeDone) break

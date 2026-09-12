@@ -801,8 +801,6 @@
     "enrollProgress": "Look straight at the screen and hold still: {{done}}/{{total}}",
     "pleaseHold": "Look straight at the screen",
     "challengeBlink": "Please blink",
-    "challengeTurnLeft": "Turn your head left",
-    "challengeTurnRight": "Turn your head right",
     "cancel": "Cancel",
     "riskTitle": "Enable 2D face verification?",
     "riskContent": "2D face matching is used to confirm sensitive actions on this device. It is less secure than fingerprint or system face unlock — a photo may spoof it. Face features stay on this device and are never uploaded. Personal devices only.",
@@ -811,6 +809,9 @@
     "enrolled": "Face enrolled",
     "notEnrolled": "Not enrolled",
     "enrollSuccess": "Face enrolled successfully",
-    "enrollFailed": "Face enrollment not completed"
+    "enrollFailed": "Face enrollment not completed",
+    "challengeTurn": "Turn your head left or right",
+    "noFace": "No face detected — look straight at the screen",
+    "verifySuccess": "Verified"
   }
 }
