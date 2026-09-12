@@ -253,8 +253,22 @@ pub fn get_mirror_urls(github_url: String) -> Result<Vec<serde_json::Value>, Str
 }
 
 /// 流式下载 APK 到 app_data_dir/update/,emit update-download-progress(桌面同构)
+///
+/// 并发互斥：重复 IPC 调用同时下载会互写同一临时文件，外壳原子标志 + 内部函数
+/// 保证所有提前 return 路径都复位标志。
+static DOWNLOAD_RUNNING: AtomicBool = AtomicBool::new(false);
+
 #[tauri::command]
 pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<String, String> {
+    if DOWNLOAD_RUNNING.swap(true, Ordering::Relaxed) {
+        return Err("已有下载任务进行中，请等待完成".to_string());
+    }
+    let result = download_update_inner(app, url).await;
+    DOWNLOAD_RUNNING.store(false, Ordering::Relaxed);
+    result
+}
+
+async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<String, String> {
     allowed_url(&url)?;
     let client = http_client()?;
     let resp = client
@@ -295,11 +309,12 @@ pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<Strin
     let mut last_emit = Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("下载中断: {e}"))?;
-        downloaded += chunk.len() as u64;
-        if downloaded > MAX_DOWNLOAD_BYTES {
+        // 大小上限在写入前判定，超限不落盘即中止（原实现先写后判，多写一个 chunk）
+        if downloaded + chunk.len() as u64 > MAX_DOWNLOAD_BYTES {
             let _ = tokio::fs::remove_file(&path).await;
             return Err("下载超过 500MB 上限,已中止".to_string());
         }
+        downloaded += chunk.len() as u64;
         file.write_all(&chunk)
             .await
             .map_err(|e| format!("写入失败: {e}"))?;

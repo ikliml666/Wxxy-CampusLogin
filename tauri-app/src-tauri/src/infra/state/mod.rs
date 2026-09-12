@@ -76,6 +76,7 @@ pub struct TaskFlags {
     pub is_logging_in: TaskLock,
     pub is_logging_out: TaskLock,
     pub is_quality_checking: TaskLock,
+    pub is_downloading: TaskLock,
 }
 
 /// 更新与通知相关统计字段
@@ -145,6 +146,7 @@ impl AppState {
                 is_logging_in: TaskLock::new(),
                 is_logging_out: TaskLock::new(),
                 is_quality_checking: TaskLock::new(),
+                is_downloading: TaskLock::new(),
             },
             task_manager: BackgroundTaskManager::new(),
             network: NetworkState::new(),

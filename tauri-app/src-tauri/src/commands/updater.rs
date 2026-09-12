@@ -27,6 +27,9 @@ pub async fn download_update(
     _state: State<'_, AppState>,
 ) -> Result<String, String> {
     crate::log_info!("updater", "开始下载更新: {}", url);
+    // 并发下载互斥：TaskGuard RAII 全路径自动释放，防止两个下载写同一临时文件互相覆盖
+    let _download_guard = _state.tasks.is_downloading.try_acquire()
+        .ok_or_else(|| "已有下载任务进行中，请等待完成".to_string())?;
     if !url.starts_with("https://") {
         return Err("仅允许HTTPS协议下载更新包".to_string());
     }
@@ -118,17 +121,17 @@ pub async fn download_update(
 
         match chunk {
             Some(data) => {
+                // 大小上限在写入前判定，超限不落盘即中止（原实现先写后判，多写一个 chunk）
+                if downloaded + data.len() as u64 > MAX_DOWNLOAD_SIZE {
+                    drop(file);
+                    let _ = std::fs::remove_file(&file_path);
+                    return Err(format!("下载文件超过大小限制({}MB)", MAX_DOWNLOAD_SIZE / 1024 / 1024));
+                }
                 if let Err(e) = file.write_all(&data).await {
                     let _ = std::fs::remove_file(&file_path);
                     return Err(format!("写入文件失败: {e}"));
                 }
                 downloaded += data.len() as u64;
-
-                if downloaded > MAX_DOWNLOAD_SIZE {
-                    drop(file);
-                    let _ = std::fs::remove_file(&file_path);
-                    return Err(format!("下载文件超过大小限制({}MB)", MAX_DOWNLOAD_SIZE / 1024 / 1024));
-                }
 
                 let now = std::time::Instant::now();
                 let elapsed = now.saturating_duration_since(last_emit);
