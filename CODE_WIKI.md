@@ -2087,7 +2087,7 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 > 0. （本机本地脚本 `make-release.ps1`，不入 git，仅发布者机器可用）一键汇总：包装 `tauri-app/build.ps1`（可 `-SkipBuild` 复用已有产物），自动把安装包改名为规范资产名 + 生成 .sha256 + 收集 APK 与 `RELEASE_NOTES_v{ver}.md` 到 `release/`（已在 .gitignore），结尾打印 `gh release upload` 命令——直接执行即可完成资产上传；无此脚本时按 1~2 条手动执行
 > 1. 上传 `Wxxy-CampusLogin_{ver}_x64-setup.exe`（文件名与硬编码拼接一致；若改名，在 `version.json` 加 `"asset": "<完整文件名>"` 覆盖默认命名）
 > 2. 同时上传构建产物目录中的 `{安装包名}.sha256`（`build.ps1` 第 [5/5] 步已自动生成）——缺失时应用内更新校验全 4xx，默认拒绝安装且用户无法自救。**APK 无需 .sha256**：安卓更新链路校验源为 GitHub API digest（服务端计算）+ `version.json` 的 sha256 字段兜底，从不请求 `.apk.sha256` 静态文件（`update_cmds.rs` `fetch_apk_assets`）
-> 3. `version.json` 可选填 `notes` 字段（字符串，Markdown 列表），将显示为应用内更新日志（release_notes）
+> 3. **发版必须维护 `version.json` 的 `notes` 字段**（字符串，Markdown，`### 标题`/`- 列表`逐行渲染）——它就是应用内"关于"弹窗右栏常驻的"更新日志"内容（release_notes）；漏写时用户侧只显示"本次更新未提供说明"空态（v2.3.6 即漏写，v2.3.5 用户看到更新内容区空白）。`make-release.ps1` 不会代写此字段，发布前手动编辑 version.json 与版本号同一次提交推送
 > 4. 版本号支持任意段数（`2.3.0.1` hotfix 可正确提示升级）
 
 ### 安卓端 identifier（包名）
