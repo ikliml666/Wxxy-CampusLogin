@@ -46,6 +46,8 @@ pub struct Settings {
     pub required_network_name: String,
     pub enable_network_name_check: bool,
     pub campus_gateway: String,
+    /// 校园网检测开始时间(当日分钟数,0=禁用):早于此时间周期检测整拍跳过,与桌面 campusCheckStartMinutes 同语义
+    pub campus_check_start_minutes: u16,
     // 更新
     /// 检查/下载更新渠道优先级:"mirror"(镜像加速优先,默认,国内主场景)|"github"(官方优先)
     pub update_source: String,
@@ -90,6 +92,8 @@ impl Default for Settings {
             required_network_name: "i-wxxy".to_string(),
             enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
+            // 与桌面 default_campus_check_start_minutes 同值(07:40)
+            campus_check_start_minutes: 460,
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移

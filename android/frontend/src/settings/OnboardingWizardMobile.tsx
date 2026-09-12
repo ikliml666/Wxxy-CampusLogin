@@ -22,16 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import {
-  Check, ArrowRight, ArrowLeft, Wifi, Cable, Shield, Zap,
-  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network, Smartphone, Link2
+  Check, ArrowRight, ArrowLeft, Shield, Zap,
+  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Smartphone, Link2
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { APP_NAME } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn } from '@/lib/utils'
 import { m, AnimatePresence } from 'framer-motion'
 import {
@@ -41,12 +39,10 @@ import {
   DEFAULT_OPERATOR,
 } from './useOnboardingFlow'
 import type { Config } from '@/settings'
-import type { Adapter } from '@/network'
 
 interface OnboardingWizardMobileProps {
   open: boolean
   onClose: () => void
-  adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
   onLogin: (adapterName?: string) => Promise<boolean>
   isLoggingIn: boolean
@@ -86,7 +82,6 @@ function StepTrack({ current }: { current: number }) {
 export function OnboardingWizardMobile({
   open,
   onClose,
-  adapters,
   onUpdateConfig,
   onLogin,
   isLoggingIn,
@@ -346,78 +341,6 @@ export function OnboardingWizardMobile({
 
               {f.step === 3 && (
                 <div className="space-y-4 pt-1">
-                  <div className="space-y-1.5">
-                    <h3 className="text-base font-semibold">{t('onboarding.selectNetworkAdapter')}</h3>
-                    <p className="text-xs text-muted-foreground">{t('onboarding.selectNetworkAdapterDesc')}</p>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-medium">{t('onboarding.primaryAdapter')}</Label>
-                      <Select value={f.adapter1} onValueChange={f.setAdapter1}>
-                        <SelectTrigger className="h-12">
-                          <SelectValue placeholder={t('onboarding.selectAdapter')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={AUTO_DETECT_ADAPTER}>{t('onboarding.autoDetect')}</SelectItem>
-                          {adapters.map((a) => (
-                            <SelectItem key={a.name} value={a.name}>
-                              <span className="flex items-center gap-2">
-                                {a.wireless ? <Wifi className="h-3 w-3 text-blue-500" /> : <Cable className="h-3 w-3 text-emerald-500" />}
-                                {a.name}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-md bg-violet-500/10 flex items-center justify-center shrink-0">
-                          <Network className="h-4 w-4 text-violet-500" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium leading-tight">{t('onboarding.enableDualAdapter')}</div>
-                          <div className="text-[11px] text-muted-foreground leading-snug">{t('onboarding.enableDualAdapterDesc')}</div>
-                        </div>
-                      </div>
-                      <Switch checked={f.dualAdapter} onCheckedChange={f.setDualAdapter} className="shrink-0 ml-2" />
-                    </div>
-
-                    {f.dualAdapter && (
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium">{t('onboarding.secondaryAdapter')}</Label>
-                        <Select value={f.adapter2} onValueChange={f.setAdapter2}>
-                          <SelectTrigger className="h-12">
-                            <SelectValue placeholder={t('onboarding.selectSecondaryAdapter')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={AUTO_DETECT_ADAPTER}>{t('onboarding.autoDetect')}</SelectItem>
-                            {adapters.filter((a) => a.name !== f.adapter1).map((a) => (
-                              <SelectItem key={a.name} value={a.name}>
-                                <span className="flex items-center gap-2">
-                                  {a.wireless ? <Wifi className="h-3 w-3 text-blue-500" /> : <Cable className="h-3 w-3 text-emerald-500" />}
-                                  {a.name}
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {adapters.length === 0 && (
-                      <div className="text-xs text-amber-600 bg-amber-500/10 rounded-lg p-3 flex items-start gap-2">
-                        <Wifi className="h-4 w-4 mt-0.5 shrink-0" />
-                        {t('onboarding.noConnectedAdapters')}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {f.step === 4 && (
-                <div className="space-y-4 pt-1">
                   <div className="flex flex-col items-center text-center space-y-3">
                     <MascotFigure variant="celebrate" size="md" />
                     <div className="space-y-1">
@@ -450,28 +373,6 @@ export function OnboardingWizardMobile({
                         {t(ISP_OPTIONS.find((o) => o.value === f.operator)?.labelKey ?? 'onboarding.default')}
                       </span>
                     </div>
-                    <Separator />
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
-                        <Cable className="h-3.5 w-3.5" />{t('onboarding.primaryAdapter')}
-                      </span>
-                      <span className="font-medium truncate">
-                        {f.adapter1 === AUTO_DETECT_ADAPTER ? t('onboarding.autoDetect') : f.adapter1}
-                      </span>
-                    </div>
-                    {f.dualAdapter && (
-                      <>
-                        <Separator />
-                        <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
-                            <Network className="h-3.5 w-3.5" />{t('onboarding.secondaryAdapter')}
-                          </span>
-                          <span className="font-medium truncate">
-                            {f.adapter2 === AUTO_DETECT_ADAPTER ? t('onboarding.autoDetect') : f.adapter2}
-                          </span>
-                        </div>
-                      </>
-                    )}
                   </div>
                 </div>
               )}
@@ -498,7 +399,7 @@ export function OnboardingWizardMobile({
           </Button>
         )}
 
-        {f.step < 4 && (
+        {f.step < 3 && (
           <Button
             onClick={f.goNext}
             disabled={f.step === 2 && !f.canProceedAccount}
@@ -512,7 +413,7 @@ export function OnboardingWizardMobile({
           </Button>
         )}
 
-        {f.step === 4 && !f.loginSuccess && (
+        {f.step === 3 && !f.loginSuccess && (
           <Button
             onClick={f.handleLoginAndFinish}
             disabled={isLoggingIn || !f.username}
@@ -526,7 +427,7 @@ export function OnboardingWizardMobile({
           </Button>
         )}
 
-        {f.step === 4 && f.loginSuccess && (
+        {f.step === 3 && f.loginSuccess && (
           <div className="flex-[1.6] h-12 flex items-center justify-center gap-2 text-emerald-600 font-medium">
             <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
           </div>
