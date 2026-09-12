@@ -167,7 +167,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 └─────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Commands 模块依赖关系 (v2.3.0)
+### 2.2 Commands 模块依赖关系
 
 ```
 // [架构说明] 模块间耦合关系
@@ -288,7 +288,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 
 1. **协议核心单点共享（双端铁律）**：登录/注销/Portal/自助服务/网络质量的实现只存在于桌面 crate（`tauri-app/src-tauri`），安卓以 Cargo path 依赖复用，**禁止复制协议逻辑**。桌面 cfg 门控模块（app/helper/monitor/update）对安卓不可见。
 2. **命令面两端同名对齐**：前端 `tauriApi` 一套接口两端消费；安卓命令与桌面同名同参（`do_login`/`save_config`…），差异只在实现。新增命令：桌面在 `app/startup.rs` 注册，安卓在 `android/src-tauri/src/lib.rs` 注册，并在 `hooks/tauriApi.ts` 加方法。
-3. **敏感信息出站唯一出口**：一切把 Config 发往前端的路径必经 `Config::masked_for_display()`（桌面）/ `config_state::masked_for_display`（安卓），**禁止手工逐字段打码**（历史缺陷：漏一处即明文出站，有回归单测锁死）。密码"空串/MASK=未修改回退已存值、显式清除走 `clear` 标志"语义两端同构。日志/错误/事件 payload 一律不得携带 password。
+3. **敏感信息出站唯一出口**：一切把 Config 发往前端的路径必经 `Config::masked_for_display()`（桌面）/ `config_state::masked_for_display`（安卓），**禁止手工逐字段打码**（漏一处即明文出站，有回归单测锁死）。密码"空串/MASK=未修改回退已存值、显式清除走 `clear` 标志"语义两端同构。日志/错误/事件 payload 一律不得携带 password。
 4. **验证门分级**：改变外部状态的命令设门（bind_operator / self_offline_session），只读查询有意不设门（总览卡自动刷新依赖免验证拉取），明文查看无论开关强制验证；前端门 TTL 570s + 后端 600s 复核（后端 TTL 才是真防线）。
 5. **通知单通道**：系统通知只有 `emit_notification`（窗口不可见才发）；应用内提示走业务专用事件（`auto-login-result`/`login-log`/…）；`enable_notification` 只控制系统通知。新增提醒先想清楚走哪条通道，不要双发。
 6. **适配器操作范围**：操作类流程（检测/登录/注销/DNS 设置/DHCP）只作用于 `resolve_adapter_names` 解析出的主/副适配器；UI 展示类遍历全部。前端 `network/adapters.ts::resolveAdapterNames` 与后端**同源规则**，改任一侧必须同步另一侧（`adapters.test.ts` 锁行为）。
@@ -401,16 +401,16 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
    - 启动适配器监控和启动任务 (通过 `run_startup_tasks`)
    - **3 秒保底 showWindow**：独立线程 3 秒后检查窗口可见性，不可见则强制 `window.show()` + `set_focus()`，最多重试3次，防止前端初始化异常导致窗口永远隐藏
    - **前端心跳监控**：独立线程每 5 秒检查 `last_render_heartbeat_ms`，连续 3 次超过 20 秒无心跳则重载 WebView；判定需同时满足 `is_visible() && !is_minimized()`（前端在 `document.hidden` 含最小化时暂停心跳，只查可见性会对最小化窗口误触发重载）
-  - **白屏/黑屏恢复（`app/webview_recovery.rs`）**：① 直订 WebView2 `ProcessFailed`（Tauri 2 Windows 侧不暴露该事件，经 `webview2-com` 0.38 `ICoreWebView2_4::add_ProcessFailed`；sys 0.38 方法名**无 Get 前缀**，token 参数为 `*mut i64`），并 cast `ICoreWebView2ProcessFailedEventArgs2` 读 **Reason / ExitCode**（v1 只有 kind，拿不到"为什么退出"：Reason 直接区分 进程崩溃/内存不足/被外部终止/未预期）——GPU/Utility/PPAPI 等仅记日志交运行时自愈（GPU 未自愈由 rAF 冻结→心跳兜底）。② **按 WebView 存活状态分流恢复动作**：`RENDER/FRAME_RENDER_PROCESS_EXITED`（WebView 仍有效、页面白屏）→ `attempt_webview_recovery`（5 分钟窗口最多 3 次 reload，`recovery_gate` 纯函数，3 单测，心跳超时路径共用同一限流器）；`BROWSER_PROCESS_EXITED`（**WebView 已进入 Closed**）→ `attempt_app_restart` **自动重启应用**（跨进程落盘限流 `webview_restart_guard`，10 分钟窗口最多 2 次，超限只留 ERROR 日志防闪屏循环）。**根因（2026-09-11 实测复现）**：浏览器进程退出后 reload 返回成功但页面保持全黑——微软文档明确 BrowserProcessExited 后 WebView 为 Closed、必须重建，实测无障碍元素 175→9 且应用主进程存活（用户只能手动重启），故该类故障只走重启路径。③ 诊断埋点 `record_webview2_runtime_version`：启动读注册表 EdgeUpdate `pv`（Evergreen 自动更新，白屏可能仅特定版本存在；**本机三个路径全 MISSING，版本号未落盘**）；崩溃 dump 在用户数据目录 `EBWebView/Crashpad/reports/*.dmp`（**本机为空，无 dump 可分析**），GPU 类白屏可 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu` A/B 对比。限流状态在 `UpdateStats`（`webview_recovery_window_start_ms`/`webview_recovery_count` 两原子字段）。
+  - **白屏/黑屏恢复（`app/webview_recovery.rs`）**：① 直订 WebView2 `ProcessFailed`（Tauri 2 Windows 侧不暴露该事件，经 `webview2-com` 0.38 `ICoreWebView2_4::add_ProcessFailed`；sys 0.38 方法名**无 Get 前缀**，token 参数为 `*mut i64`），并 cast `ICoreWebView2ProcessFailedEventArgs2` 读 **Reason / ExitCode**（v1 只有 kind，拿不到"为什么退出"：Reason 直接区分 进程崩溃/内存不足/被外部终止/未预期）——GPU/Utility/PPAPI 等仅记日志交运行时自愈（GPU 未自愈由 rAF 冻结→心跳兜底）。② **按 WebView 存活状态分流恢复动作**：`RENDER/FRAME_RENDER_PROCESS_EXITED`（WebView 仍有效、页面白屏）→ `attempt_webview_recovery`（5 分钟窗口最多 3 次 reload，`recovery_gate` 纯函数，3 单测，心跳超时路径共用同一限流器）；`BROWSER_PROCESS_EXITED`（**WebView 已进入 Closed**）→ `attempt_app_restart` **自动重启应用**（跨进程落盘限流 `webview_restart_guard`，10 分钟窗口最多 2 次，超限只留 ERROR 日志防闪屏循环）。**根因**：浏览器进程退出后 WebView 进入 Closed，reload 返回成功但页面保持全黑（微软文档明确必须重建），故该类故障只走重启路径。③ 诊断埋点 `record_webview2_runtime_version`：启动读注册表 EdgeUpdate `pv`（Evergreen 自动更新，白屏可能仅特定版本存在）；崩溃 dump 在用户数据目录 `EBWebView/Crashpad/reports/*.dmp`，GPU 类白屏可 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu` A/B 对比。限流状态在 `UpdateStats`（`webview_recovery_window_start_ms`/`webview_recovery_count` 两原子字段）。
 3. **WebView2 内存管理**: `on_window_event` Focused 时通过 `ICoreWebView2_19.SetMemoryUsageTargetLevel` 调节（前台 NORMAL，后台 LOW）
 4. **WebView2 浏览器参数**: `platform/gpu.rs::build_browser_args()` 仅注入 `--js-flags=--max-old-space-size=512`（渲染交还平台默认，勿加实验参数，见踩坑/决策）
 5. **窗口关闭事件**: `minimizeToTray` 为 true 时隐藏而非关闭（分流逻辑在 `app/shutdown.rs::handle_window_close_event`）
 6. **退出流程**: 设 `is_quitting` → `task_manager.shutdown()` 取消并等待后台任务（整体 10s 超时上限，防任务卡在不响应取消的阻塞调用时退出挂起）→ `exit(0)`（`app/shutdown.rs::graceful_exit` → `infra/lifecycle.rs::shutdown_and_exit`），窗口关闭与托盘退出行为统一
-7. **命令注册**: 55个 `#[tauri::command]` 函数 (在 `run()` 中通过 `tauri::generate_handler!` 注册)
+7. **命令注册**: 56 个 `#[tauri::command]` 函数（在 `run()` 中通过 `tauri::generate_handler!` 注册）
 
 ### 4.2 全局状态 — `infra/state/` 子目录
 
-本模块已从单文件 `state.rs` 重构为 `state/` 子目录，按职责拆分为 4 个文件：
+`state/` 子目录按职责拆分为 4 个文件：
 
 | 文件 | 职责 |
 |------|------|
@@ -557,7 +557,7 @@ pub struct UpdateStats {
 pub struct CommandResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,    // 原 String，改为 Option<String>
+    pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }
@@ -567,7 +567,7 @@ pub struct CommandResult {
 pub struct AccountResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,    // 原 String，改为 Option<String>
+    pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_account: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -611,7 +611,7 @@ pub struct AccountResult {
 | `autoLoginOnStart` | bool | true | 启动时自动登录 |
 | `autoExitAfterLogin` | bool | true | 登录后自动退出 |
 | `minimizeToTray` | bool | false | 关闭时最小化到托盘 |
-| `hiddenStart` | bool | false | 静默启动 (2026-09-04 默认 true→false) |
+| `hiddenStart` | bool | false | 静默启动 |
 | `autoLaunch` | bool | true | 开机自启 |
 | `enableBackgroundCheck` | bool | true | 启用后台检测 |
 | `backgroundCheckInterval` | u64 | 15000 | 后台检测间隔 (ms) |
@@ -620,7 +620,7 @@ pub struct AccountResult {
 | `themeMode` | String | `"dark"` | 主题模式 |
 | `enableNotification` | bool | true | 启用通知 |
 | `activeAccount` | String | `""` | 当前活跃账号名 |
-| `enableLatencyTest` | bool | true | 启用延迟测试（默认开启，2026-09-04） |
+| `enableLatencyTest` | bool | true | 启用延迟测试（默认开启） |
 | `latencyTestInterval` | u64 | 60000 | 延迟测试间隔 (ms) |
 | `customThemeColor` | String | `"#6366f1"` | 自定义主题颜色 |
 | `defaultPanel` | String | `""` | 默认面板 |
@@ -644,19 +644,19 @@ pub struct AccountResult {
 
 | 函数 | 说明 |
 |------|------|
-| `atomic_write()` | 原子写入文件，3次重试+100ms间隔，重命名失败后删除临时文件；rename 前对临时文件 `sync_all` 落盘（2026-09-05），断电不产生半截 config |
-| `append_login_history()` | 登录历史追加（读-改-写全程持模块级 `LOGIN_HISTORY_LOCK` 互斥锁，2026-09-05，防自动/手动登录并发覆盖丢历史） |
+| `atomic_write()` | 原子写入文件，3次重试+100ms间隔，重命名失败后删除临时文件；rename 前对临时文件 `sync_all` 落盘，断电不产生半截 config |
+| `append_login_history()` | 登录历史追加（读-改-写全程持模块级 `LOGIN_HISTORY_LOCK` 互斥锁，防自动/手动登录并发覆盖丢历史） |
 | `list_account_names()` | 共享函数，统一账号目录遍历逻辑 |
 | `validate_username()` | 校验用户名 (位于 validate.rs) |
 | `validate_operator()` | 校验运营商后缀 (返回 Result，非法值返回错误而非静默清空，位于 validate.rs) |
 | `validate_password()` | 校验密码 (位于 validate.rs) |
 | `deserialize_non_empty_or()` | 自定义反序列化器，空字符串自动回填默认值 (位于 model.rs) |
 
-#### 4.3.1 安卓端配置 — `android/src-tauri/src/config_state.rs` (2026-09-10)
+#### 4.3.1 安卓端配置 — `android/src-tauri/src/config_state.rs`
 
-安卓端全量配置 `Settings`（结构对齐桌面 `Config` 可适用子集，camelCase IPC 契约；密码字段经 AndroidKeyStore AES-GCM 落盘）。**默认值双源覆盖关系**：前端 `DEFAULT_CONFIG` 与后端 `Settings::default` 都定义默认值，真机 `get_init_data` 返回后端值覆盖前端——**改默认值必须改后端**，只改前端无效（2026-09-10 曾因此导致自动化开关 UI 显示关闭）。
+安卓端全量配置 `Settings`（结构对齐桌面 `Config` 可适用子集，camelCase IPC 契约；密码字段经 AndroidKeyStore AES-GCM 落盘）。**默认值双源覆盖关系**：前端 `DEFAULT_CONFIG` 与后端 `Settings::default` 都定义默认值，真机 `get_init_data` 返回后端值覆盖前端——**改默认值必须改后端**，只改前端无效。
 
-- **开箱即用默认值（2026-09-10）**：`auto_login_on_start`/`enable_background_check`/`auto_login_on_preparation`/`enable_network_name_check`/`skip_ttfb_in_latency`/`skip_content_in_latency` 六开关默认 true（自动化登录、验证设置、质量跳过项）；`enable_boot_autostart`（开机自启）不属于登录自动化，保持 false 由用户主动开启。
+- **开箱即用默认值**：`auto_login_on_start`/`enable_background_check`/`auto_login_on_preparation`/`enable_network_name_check`/`skip_ttfb_in_latency`/`skip_content_in_latency` 六开关默认 true（自动化登录、验证设置、质量跳过项）；`enable_boot_autostart`（开机自启）不属于登录自动化，保持 false 由用户主动开启。
 - **schema 迁移链**（`migrate_legacy_defaults`，一次性、落盘后不重复触发、幂等）：v0→v1 后台检测间隔 15s→60s（仅命中历史默认值时）；v1→v2 上述六开关存量配置里的显式 false 一并刷为 true（开发阶段统一开箱即用；落盘后用户主动关闭不会再被覆盖）。新装 `config_schema_version=2` 跳过迁移。**注意迁移只在版本变更时落盘**，v2+ 配置读盘不写盘。
 - **测试无法在本机 host 运行**：安卓 crate 按移动插件门控依赖（desktop cfg 缺 reqwest 等），host `cargo test` 编译不过；build.rs 解析 capabilities 的移动插件权限（biometric/opener/notification）同样失败——为存量环境限制。验证路径：`cargo check --target aarch64-linux-android --all-targets`（需 NDK 工具链注入 `CC_aarch64_linux_android` 等环境变量，host desktop target 不可用），测试断言锁定默认值与迁移语义。
 
@@ -681,10 +681,10 @@ lazy_static! {
 
 > 注：适配器缓存在 `network/adapter_cache.rs`，网关/子网缓存在 `network/subnet.rs`，Portal 状态缓存由 `auth/portal.rs` 局部管理——`client.rs` 仅保留 Portal URL 与 HTTP 客户端池两个全局变量。
 
-**HTTP 客户端池** (`CLIENT_POOL: DashMap`, B9-17 LRU 淘汰):
+**HTTP 客户端池** (`CLIENT_POOL: DashMap`, LRU 淘汰):
 
-- Key = `(Option<IpAddr>, u8, u64)` 元组（绑定源 IP + TLS 版本标识 + 超时毫秒，v2.4.0 起告别字符串键零堆分配），value 附带 `Instant` 访问时间，池上限 `CLIENT_POOL_MAX_ENTRIES=32`，TTL `CLIENT_POOL_TTL_SECS=600`
-- **LRU 淘汰策略** (B9-17)：`client_pool_get` 命中时更新 `Instant::now()`（按访问时间淘汰，非原 FIFO 按创建时间）；容量超限时 `min_by_key(Instant)` 剔除最久未访问条目
+- Key = `(Option<IpAddr>, u8, u64)` 元组（绑定源 IP + TLS 版本标识 + 超时毫秒），value 附带 `Instant` 访问时间，池上限 `CLIENT_POOL_MAX_ENTRIES=32`，TTL `CLIENT_POOL_TTL_SECS=600`
+- **LRU 淘汰策略**：`client_pool_get` 命中时更新 `Instant::now()`（按访问时间淘汰）；容量超限时 `min_by_key(Instant)` 剔除最久未访问条目
 - `create_safe_http_client(timeout, local_addr)` — TLS 1.3 优先 + TLS 1.2 降级，`no-cache/no-store` 头
 
 **关键函数**:
@@ -698,7 +698,7 @@ lazy_static! {
 
 #### 4.5.2 适配器查询 — `adapter.rs` (选择逻辑) + `network/mod.rs` (re-export 收敛点)
 
-`adapter.rs` 原为 pub use 兼容层，现已**扁平化到源模块**（adapter.rs 顶部注释自述）；对外 re-export 收敛到 `network/mod.rs`（mod.rs 注释"从源模块直接 re-export，消除 adapter.rs 中转层"），调用方直连源模块或经 `crate::network::` 顶层路径访问。
+`adapter.rs` 仅保留适配器选择逻辑，对外 re-export 收敛到 `network/mod.rs`，调用方直连源模块或经 `crate::network::` 顶层路径访问。
 
 **adapter.rs 本地保留函数** (适配器选择):
 
@@ -715,7 +715,7 @@ lazy_static! {
 
 **`network/mod.rs` re-export 来源**:
 - `network::discovery` — `Adapter`/`AdapterDetail`/`DisabledAdapter` 类型 + `is_blacklisted` + Win32 API `GetAdaptersAddresses` 查询 + 适配器状态四分类
-- `network::adapter_cache` — `get_adapters_force`/`get_adapters_cached`/`get_adapters_cached_async`/`get_disabled_adapters_cached`/`get_adapter_details_cached`/`get_all_adapters_cached`/`enable_adapter`/`wait_for_adapter`/`filter_operation_adapters` 等 + TTL 5秒缓存（`validate_adapter_name`/`poll_adapter_ip_quick` 由调用方直连源模块，未再中转）
+- `network::adapter_cache` — `get_adapters_force`/`get_adapters_cached`/`get_adapters_cached_async`/`get_disabled_adapters_cached`/`get_adapter_details_cached`/`get_all_adapters_cached`/`enable_adapter`/`wait_for_adapter`/`filter_operation_adapters` 等 + TTL 5秒缓存
 - `network::dhcp` — `dhcp_renew_wired_only`/`dhcp_release_renew_all`/`dhcp_release_renew_single`
 - `network::subnet` — `get_wireless_ssid`/`get_wired_network_profile`/`check_gateway_reachable`/`check_gateway_reachable_from`/`is_same_subnet_18`
 
@@ -725,7 +725,7 @@ lazy_static! {
   - `EnabledNoIp` — 未禁用无IP（OperStatus Up 但无有效 IP，含 169.254 APIPA 清空后）
   - `Connected` — 已连接（OperStatus Up 且有有效 IP）
 
-**连接速度 (LinkSpeed)**: `Adapter`/`AdapterDetail` 新增 `linkSpeed` 字段（u64 bit/s，0 表示未知），直接读 `IP_ADAPTER_ADDRESSES.ReceiveLinkSpeed`（无需额外 API）。**未连接时 Windows 返回 u64::MAX（内部 -1 哨兵），发现层归 0 表示未知**（2026-09-03：原样透传曾被前端换算成 18446744073.7 Gbps）。前端 NetworkPanel 适配器卡片展示格式化后速度，统一 Mbps 单位（低于 1 Mbps 用 Kbps）。
+**连接速度 (LinkSpeed)**: `Adapter`/`AdapterDetail` 新增 `linkSpeed` 字段（u64 bit/s，0 表示未知），直接读 `IP_ADAPTER_ADDRESSES.ReceiveLinkSpeed`（无需额外 API）。**未连接时 Windows 返回 u64::MAX（内部 -1 哨兵），发现层归 0 表示未知**——原样透传会被前端换算成 18446744073.7 Gbps。前端 NetworkPanel 适配器卡片展示格式化后速度，统一 Mbps 单位（低于 1 Mbps 用 Kbps）。
 
 **适配器操作范围约定**: 检测/优化/登录/注销/DNS 设置/DHCP 等**操作类**流程只作用于 `resolve_adapter_names` 解析出的主/副适配器（"自动检测"由 resolve 落到具体适配器），`filter_operation_adapters(adapters, a1, a2)` 为范围过滤基准；**UI 展示类**（get_adapters/get_adapter_details/adapter_watch/check_dns_doh_status/check_campus_status）保持遍历全部。落地：后台巡检与开机自启的校园网检测传过滤后列表；`select_adapter` 经 resolve 取主适配器 IP（无 IP 返回空由调用方兜底）；`setup_dns_doh_admin(targets)`/`dhcp_renew_wired_only(targets)`/`dhcp_release_renew_all(gw, targets)`/自动 MAC 重置均按名单收窄（helper 提权路径经 `--helper dns <名单...>` 传参，`spawn_elevated_helper` 对参数统一加引号防适配器名含空格被拆碎）；登录/注销（full_login/full_logout）本就只操作 a1/a2。
 
@@ -764,7 +764,7 @@ pub fn random_v() -> String {
 
 每次请求独立生成 1000-9999 随机4位数 v 值，统一应用于登录与注销请求（`random_v` 定义于 `protocol.rs:6`，Portal 页面检测不发 v 参数）。
 
-**响应解码与 JSONP 解析 (2026-09-04 补扫修复)**:
+**响应解码与 JSONP 解析**:
 
 - **编码**: 响应体经 `platform/console_output.rs::decode_charset_bytes` 解码——Content-Type 显式 GBK 族按 936，否则 UTF-8 优先 → OEM 回退（`from_utf8_lossy` 会把 GBK 字节全变 U+FFFD，中文关键词匹配全失效、真实失败被误报登录成功）
 - **JSONP**: `jsonp_json_slice()` 从第一个 `(` 后的第一个 `{` 起做字符串/转义感知的花括号平衡扫描到配对 `}`（`rfind(')')` 旧法在 msg 含半角括号如"密码错误(剩余2次)"时截断 JSON → 解析失败重试全败）
@@ -892,7 +892,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 
 #### 4.5.4.3 自助服务系统（Dr.COM Self）dashboard 卡片协议：在线信息 + 近期上网记录 (2026-09-05)
 
-> 来源：2026-09-05 浏览器（IAB）登录态下读取 dashboard 页内嵌 bootstrapTable JS + 登录会话内 fetch 实测响应结构。实现于 `self_service/mod.rs`（`query_dashboard`/`offline_session`/2026-09-06 增 `query_online_log`）+ `commands/self_service.rs`（`query_self_dashboard`/`self_offline_session`/`query_self_online_log`，55 → 56 个命令）。前端为独立"自助服务"面板（`SelfServicePanel.tsx`，2026-09-05 从账户管理页单开，面板自带凭据输入区）。
+> 来源：2026-09-05 浏览器（IAB）登录态下读取 dashboard 页内嵌 bootstrapTable JS + 登录会话内 fetch 实测响应结构。实现于 `self_service/mod.rs`（`query_dashboard`/`offline_session`/`query_online_log`）+ `commands/self_service.rs`（`query_self_dashboard`/`self_offline_session`/`query_self_online_log`）。前端为独立"自助服务"面板（`SelfServicePanel.tsx`，自带凭据输入区）。
 
 **协议链路（登录会话 cookie 即可，均无额外必填参数）**:
 
@@ -907,7 +907,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 - 登录链路已重构：`login_session`（共用前 3 步：checkcode → randomCode 预热 → verify）为最底层，`login_and_fetch_bind_page`（绑定/状态/明文查看）与 `query_dashboard`（一次登录连拉 getOnlineList + getLoginHistory，`fetch_dashboard_json` 共用"302=会话失效 + 非 JSON=异常页"判定）都从它出发
 - 302 重定向 = 登录会话失效（统一文案"登录会话失效，请重试"）；`parse_offline_success` 对非 JSON/缺字段/非布尔一律判失败
 - 前端格式化**对齐原站公式**（dashboard 页内嵌 JS）：MAC 每 2 字符加 `-`；useTime `parseInt/60` 分钟取整；流量 `(down+up)/1024` M 三位小数；终端类型截掉 `#` 前缀（空→`-`）；epoch → `YYYY-MM-DD HH:mm:ss`；null 主机名 → `-`。**注意 useTime 单位与上网记录的时长（分）不同，流量 KB 与 M 不同**，透传 JSON 由前端换算，后端不改结构
-- **启动时序（2026-09-06）**：`configLoaded` 布尔（getInitData 成功/降级完成置位）是自助服务面板自动验证+自动刷新的前置条件——启动后立刻切入面板时配置还在加载，等信号再判断凭据/弹 Hello，加载窗口期显示"配置加载中..."；后端 setup_app 用 gpu-warmup 后台线程预热 GPU/刷新率检测（OnceLock 缓存），get_init_data 读缓存即返回不阻塞前端拿配置
+- **启动时序**：`configLoaded` 布尔（getInitData 成功/降级完成置位）是自助服务面板自动验证+自动刷新的前置条件——启动后立刻切入面板时配置还在加载，等信号再判断凭据/弹 Hello，加载窗口期显示"配置加载中..."；后端 setup_app 用 gpu-warmup 后台线程预热 GPU/刷新率检测（OnceLock 缓存），get_init_data 读缓存即返回不阻塞前端拿配置
 - 前端：**独立"自助服务"面板**（`SelfServicePanel.tsx` 含在线信息+近期上网记录两卡片；**凭据与账号面板绑定卡共用 `useSelfCredStore`**——切换面板不丢失、学号仅内存保留，密码 blur 即经 `saveConfigDirect` DPAPI 落盘）。**密码"已保存"显示两面板统一读 store 独立布尔 `selfPasswordSaved` 而非 `config.selfPassword === MASK`**（blur 走 updateConfig 会把明文写进本地 config 且标 dirty，挡住 config-changed 回传的 MASK——输入框闪空甚至永久空白；布尔由 saveConfigDirect 非空成功置位 + 初始加载按 MASK 置位，`useConfigStore.selfPassword.test.ts` 锁行为）；查询/踢下线前过 `useHelloGate` 验证门；注销走 ConfirmDialog；i18n `nav.selfservice`/`panel.selfservice*`/`account.selfDashboard*` 键组（zh/en 对称）
 - **逆向安全红线**：dashboard 页有注销功能，实验只允许用**必然不存在的 sessionid** 探测接口格式，绝不能点击/调用页面上真实会话的注销——误踢当前在线设备会导致用户断网
 - **上网记录账单卡**：`SelfServicePanel` 第三张卡——日期范围（默认今天）+ 汇总 8 格 + 12 列明细表（横滚）；`query_online_log`（`login_session` + GET `bill/getUserOnlineLog?startTime&endTime&pageNumber&pageSize=500`，一次拉全不翻页，超 500 提示缩小范围）；命令 `query_self_online_log`（YYYY-MM-DD 校验 + resolve_self_password 回退）；前端 epoch ms 格式化（logoutTime 0/空 → `-`）；列名复用 dashboard 卡现有键，新增 `account.selfLog*` 键组（zh/en）
@@ -916,7 +916,7 @@ GET http://10.1.99.100:801/eportal/portal/login?callback=dr1003&login_method=1
 
 #### 4.5.5 网络质量检测 — `quality.rs`
 
-**details/metrics 键契约（2026-09-05 标识符化）**: `details`/`metrics` 字典以检测任务 `name` 为键，原为中文字面量（前端硬编码同一中文取值，英文界面显示中文条目名）。现统一为英文标识符：`gateway`/`aliDns`/`tencentDns`/`xinfengDns`/`aliDoh`/`tencentDoh`/`dnsResolve`（SystemDns 聚合条目）+ 12 个 HTTPS 站点 `baidu`/`jd`/`bing`/`railway12306`/`bilibili`/`bilibiliLive`/`douyin`/`douyinLive`/`lol`/`genshin`/`pubg`/`naraka`。前端消费点（`lib/latency.ts` 的 gateway 过滤、`NetworkQualityCapsule` 的 dnsResolve、`QualityPanel` 分组 names）同步改标识符，**条目显示名**走 i18n `quality.names.*`（zh 保留原中文/en 英文名）。前后端键必须同步修改（同仓库同发版，无兼容窗口）。
+**details/metrics 键契约**: `details`/`metrics` 字典以检测任务 `name` 为键，统一为英文标识符：`gateway`/`aliDns`/`tencentDns`/`xinfengDns`/`aliDoh`/`tencentDoh`/`dnsResolve`（SystemDns 聚合条目）+ 12 个 HTTPS 站点 `baidu`/`jd`/`bing`/`railway12306`/`bilibili`/`bilibiliLive`/`douyin`/`douyinLive`/`lol`/`genshin`/`pubg`/`naraka`。前端消费点（`lib/latency.ts` 的 gateway 过滤、`NetworkQualityCapsule` 的 dnsResolve、`QualityPanel` 分组 names）同步改标识符，**条目显示名**走 i18n `quality.names.*`（zh 保留原中文/en 英文名）。前后端键必须同步修改（同仓库同发版，无兼容窗口）。
 
 **两阶段检测**:
 1. Phase 1: 并行测试网关 + 3 个 DNS + 2 个 DoH + 系统 DNS → 更新评分表 → 增量推送
@@ -997,7 +997,7 @@ pub async fn check_network_quality_async(
 static ref DNS_SERVER_SCORES: DashMap<String, ServerScore>;   // network/dns.rs
 static ref DOH_SERVER_SCORES: DashMap<String, ServerScore>;   // network/dns.rs
 
-// DNS 与 DoH 评分共用同一结构体（原 DnsServerScore/DohServerScore 已合并）
+// DNS 与 DoH 评分共用同一结构体
 struct ServerScore { latency_ms: i64, success: bool, last_tested: Instant }
 ```
 
@@ -1071,7 +1071,7 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 | `full_login()` | `auth/service.rs` | 登录核心逻辑 (单/双适配器分支) |
 | `login_adapter_with_log()` | `auth/session.rs` | 单适配器登录+日志 |
 | `adapter_action_with_log()` | `auth/session.rs` | 通用适配器操作+日志封装 |
-| `post_login_handler()` | `auth/service.rs` | 登录后处理 (AM-13 从 commands/login.rs 下沉)：解除注销保护期 → 仅当 `enable_background_check` 开启时延迟500ms触发 `monitor::watcher::run_background_check` → 按需启动 `auto_exit` |
+| `post_login_handler()` | `auth/service.rs` | 登录后处理：解除注销保护期 → 仅当 `enable_background_check` 开启时延迟500ms触发 `monitor::watcher::run_background_check` → 按需启动 `auto_exit` |
 | `check_any_adapter_online()` | `commands/login.rs` | 双适配器 Portal 在线检测 `std::thread::scope` 并行（延迟减半）；`do_logout` 复用其逐适配器检测结果避免重复请求。**scope 裸子线程无 Tokio runtime context**（reqwest 构造计时器时 `Handle::current()` panic，panic=abort 整进程崩溃），子线程闭包必须 `tauri::async_runtime::handle().inner().enter()` 进入 context |
 
 **注销命令** (`commands/login.rs` 委托 `auth/service.rs`):
@@ -1086,35 +1086,35 @@ DNS缓存 (TTL 60s) → DoH + 传统DNS 并发竞速（首个成功即返回并�
 
 **适配器解析** (直接函数调用，无 trait 抽象):
 
-> 适配器解析为直接函数调用，无 trait 抽象：`auth/service.rs` 直接调 `crate::network::resolve_adapter_names`/`find_dual_adapters` 等自由函数（原 AdapterResolver/PortalChecker/ProtocolClient trait 及 mock 已删除——单实现 trait + mock 属无意义抽象，测试用真函数）。
+> 适配器解析为直接函数调用，无 trait 抽象：`auth/service.rs` 直接调 `crate::network::resolve_adapter_names`/`find_dual_adapters` 等自由函数，测试用真函数。
 
-**双适配器并行执行** (`auth/dual_adapter_executor.rs`，168 行含测试, B9-7 泛型化):
+**双适配器并行执行** (`auth/dual_adapter_executor.rs`，168 行含测试):
 
 | 项 | 说明 |
 |------|------|
 | `DualAdapterResult` | 双适配器执行结果结构体 (`primary`/`secondary` 两个 `Option<CommandResult>`) |
 | `execute_dual<F1, F2>(a1_action: F1, a2_action: F2, is_quitting)` | 双适配器并行执行器：泛型 `F1`/`F2` 静态分发（无 Box 堆分配与虚函数调用）；适配器1立即 `spawn_blocking`，适配器2通过 10×100ms 轮询 `is_quitting` 实现可中断 1s 错峰 |
 
-**认证失败计数与 Portal 请求失败容错** (`auth/failure_tracker.rs`, 9c B9-5 合并原 `monitor/portal_failure.rs`):
+**认证失败计数与 Portal 请求失败容错** (`auth/failure_tracker.rs`):
 
 | 函数 | 说明 |
 |------|------|
 | `is_auth_failure()` | 判断 CommandResult 是否为认证失败 (`AUTH_FAILURE_CODES: ["ac_auth_failed","1","4"]`) |
-| `update_auth_failure_count()` | 单适配器认证失败计数，连续5次触发该登录适配器（调用方 resolve 后传入 `adapter_name`）的 MAC 重置+DHCP 续租（2026-09-03：由重置全部适配器收窄为单个，走 `dhcp_release_renew_single`） |
+| `update_auth_failure_count()` | 单适配器认证失败计数，连续5次触发该登录适配器（调用方 resolve 后传入 `adapter_name`）的 MAC 重置+DHCP 续租（走 `dhcp_release_renew_single`） |
 | `update_dual_adapter_auth_failure()` | 双适配器分别计数，各自5次触发单适配器 MAC 重置 |
-| `handle_portal_request_failure()` | **9c 从 portal_failure.rs 迁入**：Portal HTTP 请求失败容错，`PORTAL_REQUEST_FAILURE_THRESHOLD=5`；网关不可达时跳过计数并重置（校园网断网/维护期避免误重置 MAC），达阈值触发 `dhcp_release_renew_single` |
+| `handle_portal_request_failure()` | Portal HTTP 请求失败容错，`PORTAL_REQUEST_FAILURE_THRESHOLD=5`；网关不可达时跳过计数并重置（校园网断网/维护期避免误重置 MAC），达阈值触发 `dhcp_release_renew_single` |
 | `reset_all()` | 重置所有认证失败计数器 |
 
 > `AdapterFailureCounter` 枚举 (A1/A2) 统一认证失败与 Portal 请求失败的计数访问器（`get_adapter_failure_count`/`set_adapter_failure_count` 两个访问器；自增经 `NetworkState::update_with_result` 闭包内联完成，无独立 increment 函数）。
 
-**注销成功后状态重置** (v2.2.5 区分全量/单适配器):
+**注销成功后状态重置**（区分全量/单适配器）:
 
 - **全量注销**（未指定 `adapter_name`）：重置 `any_adapter_online`/`last_a1_online`/`last_a2_online`/`has_logged_online` 为 false，`disconnect_reconnect_count` 归零，重置 `last_auto_login_attempt` 为当前时间，取消自动退出倒计时，设置 60 秒注销保护期 (`logout_protected_until`)
 - **单适配器注销**（指定 `adapter_name`）：仅重置对应适配器的 `last_a1_online` 或 `last_a2_online`，重新计算 `any_adapter_online = a1 || a2`，其余标志保持不变
 
 ### 4.8 后台巡检 — `monitor/` (watcher 门面 + background_check 主体 + background_task 调度)
 
-> `watcher.rs` 现仅 54 行门面：re-export 子模块函数 + `run_startup_tasks` 启动聚合入口；检测主体在 `background_check.rs`，任务调度在 `background_task.rs`，Portal 失败容错已并入 `auth/failure_tracker.rs`。外部调用路径（`monitor::watcher::run_background_check` 等）经 re-export 保持不变。
+> `watcher.rs` 是 54 行门面：re-export 子模块函数 + `run_startup_tasks` 启动聚合入口；检测主体在 `background_check.rs`，任务调度在 `background_task.rs`，Portal 失败容错在 `auth/failure_tracker.rs`。外部调用路径（`monitor::watcher::run_background_check` 等）经 re-export。
 
 #### 4.8.1 watcher.rs — 门面 + 启动聚合 (54 行)
 
@@ -1173,12 +1173,12 @@ struct ConnectionCampusStatus {
 | 函数 | 实际所在模块 | 说明 |
 |------|------------|------|
 | `check_adapter_portal()` | `portal_check.rs` | 单适配器 Portal 检测，消除主/副重复 |
-| `handle_portal_request_failure()` | `auth/failure_tracker.rs` | Portal 请求失败容错（9c 从 portal_failure.rs 迁入，见 4.7） |
+| `handle_portal_request_failure()` | `auth/failure_tracker.rs` | Portal 请求失败容错（见 4.7） |
 | `build_adapter_details()` / `handle_status_change()` / `emit_background_check_result()` / `update_network_state()` / `adapter_status_entry()` 等 | `background_emit.rs` | 适配器详情/状态变更/检测结果事件/网络状态更新/状态条目构建 |
 | `check_campus_network()` | `campus_check.rs` | WiFi/有线分别检测校园网状态 |
-| `run_quality_check()` | `quality_scheduler.rs` | 质量检测调度；签名含 `cancel: Option<&CancellationToken>`（2026-09-05）：定时测试循环传入循环 token，复核窗口可即时中断；手动检测路径传 None 行为不变 |
+| `run_quality_check()` | `quality_scheduler.rs` | 质量检测调度；签名含 `cancel: Option<&CancellationToken>`：定时测试循环传入循环 token，复核窗口可即时中断；手动检测路径传 None 行为不变 |
 
-**双适配器并行 Portal 检测**：`run_background_check_blocking` 用 `tauri::async_runtime::spawn_blocking` + `tokio::join!` 并行检测双适配器（与 `dual_adapter_executor` 策略一致；`std::thread::scope` 裸子线程方案已废弃——无 Tokio reactor 上下文会 panic）。
+**双适配器并行 Portal 检测**：`run_background_check_blocking` 用 `tauri::async_runtime::spawn_blocking` + `tokio::join!` 并行检测双适配器（与 `dual_adapter_executor` 策略一致；**不可用 `std::thread::scope` 裸子线程——无 Tokio reactor 上下文会 panic**）。
 
 **校园网检测集成**：三级校园网检测（网络名称→/18子网→网关Ping），结果含 `currentSsid`/`onCampusNetwork`。**无网络保护**：配置适配器均无IP时跳过校园网退出流程，等待网络恢复后重新检测。
 
@@ -1201,9 +1201,9 @@ struct ConnectionCampusStatus {
 
 #### 4.8.4 Portal 请求失败容错 — `auth/failure_tracker.rs`
 
-> Portal HTTP 请求失败容错与认证失败计数统一在 `auth/failure_tracker.rs`（`monitor/portal_failure.rs` 已不存在），详见 4.7 `handle_portal_request_failure()`。
+> Portal HTTP 请求失败容错与认证失败计数统一在 `auth/failure_tracker.rs`，详见 4.7 `handle_portal_request_failure()`。
 
-**Portal 容错完整链路** (v2.2.5 新增, v2.2.7 增强, 9c 迁入 failure_tracker)：
+**Portal 容错完整链路**：
 
 1. 主/副适配器 Portal 请求失败（`is_request_failed: true`）时，对应适配器 `a1_auth_failure_count`/`a2_auth_failure_count` 自增（CAS 更新 NetworkSnapshot）
 2. 失败时先检查网关从该适配器IP是否可达（`check_gateway_reachable_from()`），不可达则跳过计数并重置（校园网断网/维护期避免误重置 MAC）
@@ -1211,7 +1211,7 @@ struct ConnectionCampusStatus {
 4. 触发后重置计数器为 0
 5. Portal 检测恢复正常（`Success`）时 CAS 写入 0 重置计数器并记录原值日志
 
-> 9c 合并后，`auth/failure_tracker.rs` 统一管理**认证失败**（`AUTH_FAILURE_CODES: ["ac_auth_failed","1","4"]`）与 **Portal HTTP 请求失败**两类计数，共用 `AdapterFailureCounter` 枚举 (A1/A2) 与计数访问器（`get_adapter_failure_count`/`set_adapter_failure_count`，自增经 `update_with_result` 闭包内联）。
+> `auth/failure_tracker.rs` 统一管理**认证失败**（`AUTH_FAILURE_CODES: ["ac_auth_failed","1","4"]`）与 **Portal HTTP 请求失败**两类计数，共用 `AdapterFailureCounter` 枚举 (A1/A2) 与计数访问器（`get_adapter_failure_count`/`set_adapter_failure_count`，自增经 `update_with_result` 闭包内联）。
 
 ### 4.9 自动登录模块 — `monitor/auto_auth.rs`
 
@@ -1249,14 +1249,14 @@ struct ConnectionCampusStatus {
 |------|------|
 | `classify_quality_change()` | 质量档位切换纯判定（不落状态不发通知）：恶化到 poor/bad → `Some("bad")`，从 poor/bad 恢复 → `Some("good")`；`BAD_LEVELS` 常量与复核共用，5 个单测锁定 |
 | `record_last_quality()` | 落盘 `last_network_quality` 状态（NetworkSnapshot） |
-| `notify_quality_change()` | 发送网络质量通知（bad=网络拥堵 / good=网络恢复）+ `emit_login_log`，通知通道单一化（前端 sendNotification API 已删除） |
+| `notify_quality_change()` | 发送网络质量通知（bad=网络拥堵 / good=网络恢复）+ `emit_login_log`，通知通道单一化 |
 | `spawn_latency_test_loop()` | 启动延迟测试循环 (CancellationToken) |
 
 **关键策略**:
 
 | 策略 | 说明 |
 |--------|------|
-| 后端统一通知 | 网络质量变化通知由后端统一发送（`notify_quality_change`），前端 sendNotification API 已删除 |
+| 后端统一通知 | 网络质量变化通知由后端统一发送（`notify_quality_change`） |
 | 未在线跳过 | `spawn_latency_test_loop` 每轮检查 `any_adapter_online`，Portal 未认证时跳过自动检测（未认证时外网 HTTPS 必被拦截、全超时且误报"网络拥堵"）；前端手动触发的 `check_network_quality` 命令不受限 |
 | 质量驱动者收敛 | 全量质量检测周期驱动者收敛为定时测试循环一个（条件 `enable_network_quality && enable_latency_test`）；后台巡检不再顺带触发（`run_background_check_blocking` 返回 `()`），定时测试间隔（最小 10s）真实生效；信号量 `is_quality_checking` 防与手动检测并发。代价：不开"定时测试"则质量面板无周期数据（仅手动检测按钮） |
 | 延迟升高复核确认 | 恶化到 poor/bad 不立即通知：`run_quality_check`（quality_scheduler.rs）以 15s 间隔再连续复核 2 次（`SPIKE_CONFIRM_COUNT=2`/`SPIKE_CONFIRM_INTERVAL_SECS=15`），全部达到 `BAD_LEVELS` 才发"网络拥堵"通知——防瞬时抖动误报；复核检测复用 `perform_quality_check`（前端数据照常更新仅门控系统通知），复核未执行成功按证据不足处理不通知，下轮可重触发；恢复通知不受影响 |
@@ -1313,30 +1313,30 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 ### 4.14 其他命令模块
 
-**config_cmd.rs** — 配置保存/加载 (委托 `config/persist.rs`)，空密码兜底逻辑 (前端未传密码且旧密码存在时保留旧密码)；`save_config` 可选参数 `clear_password`（2026-09-03）：显式为 true 时跳过兜底强制置空密码，供账号面板"清除密码"使用；`clearSelfPassword`（2026-09-06）同语义清除自助服务密码（前端经 `saveConfig(cfg, clearPassword, clearSelfPassword)` / useConfigStore 的 `saveConfigDirect` 透传）
+**config_cmd.rs** — 配置保存/加载 (委托 `config/persist.rs`)，空密码兜底逻辑 (前端未传密码且旧密码存在时保留旧密码)；`save_config` 可选参数 `clear_password`：显式为 true 时跳过兜底强制置空密码，供账号面板"清除密码"使用；`clearSelfPassword` 同语义清除自助服务密码（前端经 `saveConfig(cfg, clearPassword, clearSelfPassword)` / useConfigStore 的 `saveConfigDirect` 透传）
 
 **account.rs** — 多账号管理命令（逻辑自含于本文件；`account/mod.rs` 仅声明 crypto 子模块），使用 `list_account_names()` 共享函数，切换账号仅替换账号相关字段保留启动设置，删除账号前检查并清空 `active_account`
 
 **system.rs** — 系统功能命令，`get_init_data` 复用 `persist::list_account_names()` 获取账号列表，返回字段含 `gpuInfo`/`refreshRate`；登录历史记录 `append_login_history()`（最多100条）定义于 `config/persist.rs`，由 `auth/session.rs` 与 `monitor/auto_auth.rs` 调用
 
-**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验和全 4xx 缺失时**默认拒绝安装**（需 `skipSha256WhenMissing`，无前端开关；5xx/传输错误/哈希不匹配一律拒绝），MSI 安装使用 `raw_arg` 支持含空格路径；`get_mirror_urls` 镜像 URL **原样拼接不做百分号编码**（2026-09-03：gh-proxy.com 对整体编码形式返回 403，与 updater.rs 的 sha256 镜像拼接方式保持一致）；自动检查循环发现新版本时走 `platform/toast.rs::show_update_toast`（带点击回调的 WinRT toast，点击唤起主窗口并 emit `update-notification-click`，前端打开关于界面；失败降级普通 `emit_notification`）
+**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验和全 4xx 缺失时**默认拒绝安装**（需 `skipSha256WhenMissing`，无前端开关；5xx/传输错误/哈希不匹配一律拒绝），MSI 安装使用 `raw_arg` 支持含空格路径；`get_mirror_urls` 镜像 URL **原样拼接不做百分号编码**（gh-proxy.com 对整体编码形式返回 403，与 updater.rs 的 sha256 镜像拼接方式一致）；自动检查循环发现新版本时走 `platform/toast.rs::show_update_toast`（带点击回调的 WinRT toast，点击唤起主窗口并 emit `update-notification-click`，前端打开关于界面；失败降级普通 `emit_notification`）
 
 ### 4.15 提权辅助子进程 — `helper/` (--helper 模式)
 
-**动机**: 需要管理员权限的操作（改 MAC / 设 DNS+DoH）此前在非管理员下提权执行 PowerShell 脚本（`Set-NetAdapter`/`Set-DnsClientServerAddress`）。自 2.4.0 起改为**提权重启自身**：以管理员身份启动当前 exe 并附加 `--helper <op>`，由 Rust 直调 Win32/winreg 完成操作，彻底移除 PowerShell 依赖（含 `-EncodedCommand` Base64 编码与 `escape_ps_single_quote`）。
+**动机**: 需要管理员权限的操作（改 MAC / 设 DNS+DoH）走**提权重启自身**：以管理员身份启动当前 exe 并附加 `--helper <op>`，由 Rust 直调 Win32/winreg 完成，无 PowerShell 依赖与 shell 拼接注入面。
 
 **执行流**:
 1. **主进程** (`platform/helper_spawn.rs::spawn_elevated_helper`)：`std::env::current_exe()` 取自身路径，生成唯一结果文件路径（`%TEMP%/campus-login-helper-<pid>-<ts>.json`），拼参数 `--helper <op> ... --result <path>`，按现有降级链提权启动（COM ICMLuaUtil 静默 → 失败 ShellExecuteW runas 弹 UAC）
 2. **helper 进程** (`main.rs` 顶部拦截)：`helper::parse_helper_args` 解析出 `HelperOp`（`Dns{targets 适配器名单, family}` / `Mac{guid, mac_no_dash}`，`--family` 参数默认 "both"，op 后到首个 `--` 参数前为位置参数），`run_helper` 执行：
    - `Dns` → `network::dns_setup::setup_dns_doh_admin(targets, family)`（枚举活跃适配器 → Win32 设置 → 全局 DoH 注册 → flushdns）
-   - `Mac` → 按 GUID 在 `get_adapters_force` 中解析适配器名 → `dhcp::apply_mac_change_via_registry`（写注册表 NetworkAddress + release/disable/enable/renew）→ **`dhcp::remove_mac_from_registry` 在 helper 提权上下文内清除注册表伪装值**（2026-09-05：原清理放在非提升的主进程必然 Access Denied 且仅 log_warn 吞掉，伪装 MAC 每次重启后持续生效；运行中 MAC 不受清除影响，重启后恢复物理 MAC）
+   - `Mac` → 按 GUID 在 `get_adapters_force` 中解析适配器名 → `dhcp::apply_mac_change_via_registry`（写注册表 NetworkAddress + release/disable/enable/renew）→ **`dhcp::remove_mac_from_registry` 在 helper 提权上下文内清除注册表伪装值**（非提权进程写必然 Access Denied 且被 log_warn 吞掉，伪装 MAC 会每次重启后持续生效；运行中 MAC 不受影响，重启后恢复物理 MAC）
 3. **结果回传**: helper 把 `HelperResult{success, message, op, logs, details: Option<serde_json::Value>}` 原子写入结果文件（tmp + rename，`details` 透传 DNS 设置明细给前端），主进程 100ms 间隔轮询（DNS 超时 30s / MAC 超时 25s），读取后把 `logs` 并入主进程日志，返回 JSON 结果
 
 **要点**: helper 进程不初始化 logger（避免与主进程跨进程写同一日志文件竞争）；参数仅含 GUID/MAC/结果路径等受控字符，适配器名由 helper 自行枚举，无 shell 拼接注入面。
 
 ---
 
-### 4.16 安卓端后端 — `android/src-tauri/` (2026-09-10 并入本仓库)
+### 4.16 安卓端后端 — `android/src-tauri/`
 
 **总原则（与桌面端的复用边界）**: 协议核心**单点共享**——`campus-login = { path = "../../tauri-app/src-tauri" }`，登录/注销/Portal 探测/自助服务/网络质量/日志系统直接复用桌面 crate，**禁止复制协议逻辑**；桌面侧 cfg 门控模块（app/helper/monitor/update/platform Windows 部分）对安卓不可见。安卓侧只做三件事：**平台探针**（校园网判定/源 IP）、**状态管理**（Keystore 加密配置 + 监控状态机）、**命令面包装**（44 个命令与桌面同名对齐，前端 tauriApi 两端一致）。
 
@@ -1365,7 +1365,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 - **登录/注销（protocol_cmds.rs）**: `do_login`/`do_logout` 参数与桌面同名对齐（adapter 参数收下不用），凭据空/MASK 时回退已存配置（总览一键登录免输凭据）。桌面 `do_login_with_retry`/`do_logout_with_retry` 是同步函数（内部 `block_on_http` 桥接），**禁止在 async 上下文直调**，一律 `tauri::async_runtime::spawn_blocking`。源 IP 用检测阶段缓存的 wlan0 地址（`AndroidState.cached_source_ip`）。敏感纪律：日志/错误/事件 payload 不携带 password。注销成功设 60s 注销保护期（防后台检测把用户自动登回）；手动登录成功清自动重登熔断计数与保护期。
 - **校园网探针（campus_detect.rs）**: 安卓**无 SSID 通道且非 root 无 ICMP**（原始 socket 被 SELinux 禁止，surge-ping 不可用），桌面三层判定（SSID→子网→ICMP 网关）的安卓版改为：**/18 子网判定**（复用桌面纯函数 `is_same_subnet_18`）→ **网关 TCP 可达**（内网地址，救回跨 /18 的 AP 区段）→ **Portal TCP 可达**（最后兜底；配置公网 portal 域名时家宽也可能连通，属已知边界）。源 IP 选取 `pick_campus_source_ip`：排除蜂窝接口（`rmnet*` 高通系/`ccmni*` MTK 系——登录流量绝不出走移动数据）、link-local/回环，wlan0 优先。`check_campus_status` 形状对齐桌面 `network_cmd.rs`，`currentSsid` 恒空（无 netsh）。
 - **配置管理（config_state.rs）**: `Settings` 31 字段 camelCase 契约对齐桌面 `Config` 可适用子集（含 `update_source` 更新渠道、`campus_check_start_minutes` 检测静默期门控（分钟数，0=禁用，默认 460=07:40 与桌面同值）、`config_schema_version`）。密码落盘形态 `EncodedSettings`：**密码字段与密文分离**（`passwordCipher`/`selfPasswordCipher`），Settings 内密码恒空——加密失败置空而非让配置不可用，解密失败（密钥变更/篡改）同样置空继续加载。`CryptoBridge` 抽象：真机走 keystore 插件，host 测试注入可逆假桥（base64），密码路径可测。出站一律 `masked_for_display`（非空→`***`，对齐桌面 `Config::masked_for_display` 唯一出口语义）；`resolve_password_field` 空/MASK 回退已存值 + `clear` 标志显式清除（与桌面 save_config 同构）。写入 tmp + rename 原子落盘。schema v0→v1 一次性迁移：旧默认后台检测间隔 15s 升 60s（稳态功耗），迁移落盘后用户主动设回不再覆盖。
-- **监控状态机（monitor_loop.rs）**: `MonitorState` 全原子字段（running/check_count/consecutive_failures/reconnect_count/was_online/desired_interval_ms/logout_protected_until_ms）。tick 流程 `run_check_once` 五步：⓪**检测静默期门控**（2026-09-12 对齐桌面 `background_check`：当前时间早于 `campus_check_start_minutes`（0=禁用）整拍跳过，防非在校时段反复探测与误报掉线通知；在线状态保持上一拍记忆）①校园网判定（顺带刷新源 IP 缓存）②Portal 探测——**专用短命线程绑小核**执行（60s 一拍的稳态周期任务，不占共享 worker 池拖累登录等前台任务；绑核失败静默回落内核调度）③**三态消费**：仅"确定判定"（`error_kind=None`）才翻转在线状态，Unknown（已在线页面特征失配）/Failed（超时）不构成可信离线证据，保持上一拍记忆（否则 Portal GBK 页面特征间歇失配即误判掉线）④自动重登判定：纯函数 `should_attempt_login`（在线/掉线/非校园网/重连上限/cooldown）+ 调用侧两道闸——**注销保护期 60s**（手动注销后不自动登回）+ **连续失败熔断 5 次**（凭据错误无限重试耗流量）⑤emit `background-check-result`（字段对齐桌面可适用子集）+ 更新常驻通知文案。间隔热更新：`start_background_check` 刷新 `desired_interval_ms`，循环体逐 tick 对比重建计时器（改间隔立即生效）。`run_startup_tasks` 启动恢复（对齐桌面 watcher::run_startup_tasks）：500ms 就绪窗口后读配置，三条启动链**并行 spawn**（后台检测/质量首测或定时测试/启动自动登录——2026-09-09 由串行改并行，冷启动登录不再被 12 域名质量首测压尾）+ 24h 更新检查循环；启动探测 `probe_with_retry` 未确认校园网时 3s 后重试一次（开机自启 DHCP 未就绪场景）。**⚠️ 裸线程必须 enter runtime context**（2026-09-12 真机每拍 panic 复盘）：绑小核的 `portal-probe` 是裸线程，无 Tokio thread-local context，其内调用的同步网络函数（`check_portal_full` → `block_on_sync` → reqwest 超时计时器 → `Handle::current()`）会 panic "there is no reactor running"。**仅靠 `block_on_sync` 的 Err 兜底分支（自持 Runtime）实测兜不住**；正确做法是闭包入口 `Handle::enter()`（桌面 `commands/login.rs` 的 scope 裸线程同款），并把闭包体包进 `catch_unwind` 把 panic 转 Err（否则调用侧只看到"线程提前退出"）。桌面侧无此问题——Portal 探测全在 `spawn_blocking` 内，唯一 scope 裸线程已显式 enter。
+- **监控状态机（monitor_loop.rs）**: `MonitorState` 全原子字段（running/check_count/consecutive_failures/reconnect_count/was_online/desired_interval_ms/logout_protected_until_ms）。tick 流程 `run_check_once` 五步：⓪**检测静默期门控**（对齐桌面 `background_check`：当前时间早于 `campus_check_start_minutes`（0=禁用）整拍跳过，防非在校时段反复探测与误报掉线通知；在线状态保持上一拍记忆）①校园网判定（顺带刷新源 IP 缓存）②Portal 探测——**专用短命线程绑小核**执行（60s 一拍的稳态周期任务，不占共享 worker 池拖累登录等前台任务；绑核失败静默回落内核调度）③**三态消费**：仅"确定判定"（`error_kind=None`）才翻转在线状态，Unknown（已在线页面特征失配）/Failed（超时）不构成可信离线证据，保持上一拍记忆（否则 Portal GBK 页面特征间歇失配即误判掉线）④自动重登判定：纯函数 `should_attempt_login`（在线/掉线/非校园网/重连上限/cooldown）+ 调用侧两道闸——**注销保护期 60s**（手动注销后不自动登回）+ **连续失败熔断 5 次**（凭据错误无限重试耗流量）⑤emit `background-check-result`（字段对齐桌面可适用子集）+ 更新常驻通知文案。间隔热更新：`start_background_check` 刷新 `desired_interval_ms`，循环体逐 tick 对比重建计时器（改间隔立即生效）。`run_startup_tasks` 启动恢复（对齐桌面 watcher::run_startup_tasks）：500ms 就绪窗口后读配置，三条启动链**并行 spawn**（后台检测/质量首测或定时测试/启动自动登录——冷启动登录不被 12 域名质量首测压尾）+ 24h 更新检查循环；启动探测 `probe_with_retry` 未确认校园网时 3s 后重试一次（开机自启 DHCP 未就绪场景）。**⚠️ 裸线程必须 enter runtime context**：绑小核的 `portal-probe` 是裸线程，无 Tokio thread-local context，其内调用的同步网络函数（`check_portal_full` → `block_on_sync` → reqwest 超时计时器 → `Handle::current()`）会 panic "there is no reactor running"。**仅靠 `block_on_sync` 的 Err 兜底分支（自持 Runtime）实测兜不住**；正确做法是闭包入口 `Handle::enter()`（桌面 `commands/login.rs` 的 scope 裸线程同款），并把闭包体包进 `catch_unwind` 把 panic 转 Err（否则调用侧只看到"线程提前退出"）。桌面侧无此问题——Portal 探测全在 `spawn_blocking` 内，唯一 scope 裸线程已显式 enter。
 - **生物识别验证门（identity_gate.rs + self_service_cmds.rs）**: 前端 BiometricPrompt 认证成功后调 `verify_biometric_identity` 写 TTL 时间戳（600s，`AtomicU64`，时钟回拨视为过期）。`ensure_identity_gate` 语义同构桌面：`selfHelloEnabled` 关闭放行、TTL 内放行否则拦截；**改状态命令设门（bind_operator/self_offline_session），查询类不设门，reveal_operator_credential 无论开关强制验证**。协议六命令全部包装桌面 `campus_login_lib::self_service`，`local_addr` 绑定缓存源 IP。
 - **多账号（account_cmds.rs）**: 一账号一 JSON（同 EncodedSettings 格式，仅目录不同）、切换合并登录字段、账号名消毒正则（1-32 字符字母/数字/下划线/中文/连字符，防路径穿越）。**`CONFIG_IO_LOCK` tokio 异步锁**：save_config/switch/delete/boot_autostart/通知开关并发读改写的互斥（guard 需跨 await 覆盖 load→merge→save 全序列）。
 - **系统信息（system_cmds.rs）**: `get_init_data` 补桌面专属字段空默认（gpuInfo=null/adapters=[] 等）防前端 `useInitialDataLoad` 读 undefined 崩溃。`get_soc_info`：读 `ro.soc.model`（Android 12+ CDD 强制属性）分档 tier 0-3（骁龙 8 系全代 SM8250-SM8750 + 天玑 9300/9400 = 3 旗舰；骁龙 7 系/天玑 8 系 = 2；注意 8s Gen3=SM8635 是中端不能按 SM86 前缀误判），无属性值按大核数（≥1.8GHz）/内存启发式兜底；前端据此调帧率。
@@ -1378,7 +1378,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 |------|------|------|
 | `keystore` | KeystorePlugin.kt (90 行) | AndroidKeyStore **AES-256-GCM**，key alias `campus_login_master`（不存在则生成，硬件隔离），IV(12B)+密文 Base64 编解码；密钥按包名隔离——**改包名=密码密文作废**（用户卸载重装） |
 | `foreground-service` | ForegroundService.kt (166 行) + MonitorServicePlugin.kt (153 行) + BootReceiver | 见下 |
-| `network-bind` | NetworkBindPlugin.kt (~250 行) | 把进程网络绑定到 WLAN（`ConnectivityManager.bindProcessToNetwork`）——登录流量物理上只走 WiFi（fwmark 进程级，探测 TcpStream/HTTP/DNS 全覆盖）；`unbind` 恢复系统默认路由。**双路径**：① 快速路径 `allNetworks` **优先取有 `NET_CAPABILITY_INTERNET` 的 WiFi、没有再退到任意 WiFi**——校园网认证前是 captive portal，系统可能不给 INTERNET/VALIDATED，用"有互联网"筛选会把唯一可用的 WiFi 筛掉（真机 `reason=bind_rejected` 的根因之一）；② 失败回退 `requestNetwork`（3s 超时，`onAvailable` 内绑定），**显式 `removeCapability(NET_CAPABILITY_INTERNET)`**——AOSP WifiNetworkFactory 对含该能力的 WiFi 请求直接拒绝（"cannot contain NET_CAPABILITY_INTERNET"）。`allNetworks + bindProcessToNetwork` 在 Android 12+ 与部分 OEM 上会返回 false（issuetracker#249023377、WiFiFlutter#296）——真机 2026-09-12 实测即为该组合失败、回退 `requestNetwork` 成功。**权限**：`ACCESS_NETWORK_STATE`/`ACCESS_WIFI_STATE` + **`CHANGE_NETWORK_STATE`（`requestNetwork` 必需，2026-09-12 补——缺失时回退路径直接抛 SecurityException，绑定全程失败）**。返回 `{bound, path, reason}`：成功时 reason 为能力摘要（net/nonet+val/unval+cp）、path 为 `allNetworks`/`requestNetwork`/`already_bound`（**同一网络重复绑定**时回 `already_bound`——启动瞬间多条链路并发调用，Rust 侧据此**跳过清连接池**，避免首批请求反复重建连接；`unbind` 会清空该记忆），失败时为 `allNetworks[<直绑失败原因>] requestNetwork[<异常类名:消息>]`（**两条原因分开呈现**——旧版拼成 `bind_rejected_vpn_active_SecurityException` 把权限问题伪装成 VPN 问题，误导过一轮排查）。**调用时机（`ensure_wifi_bound`）**：启动自动登录、每拍探测/掉线重登、手动登录 `do_login`、手动探测 `check_portal_status`、注销 `do_logout` 前均先绑定；绑定成功后清空 HTTP 客户端池（`network::client::clear_client_pool`，fwmark 只在 socket 创建时生效），并顺带调 `acceptWifiNetwork`。日志走 `log_info!/log_warn!` 落盘 + `eprintln!` 进 logcat（release 包无 root 时的唯一可见通道）。**`acceptWifiNetwork`（让系统接受无互联网 WiFi）三路径**：`already_validated`（网络已验证，无需动作）→ 反射 `setAcceptUnvalidated`（**真机 `hiddenApi=false`：Android 9+ hidden API 名单拦截 + 需 CONNECTIVITY_INTERNAL，普通应用不可达**）→ 写 `Settings.Global`（`captive_portal_mode=0` + `network_avoid_bad_wifi=0`；由 `WRITE_SECURE_SETTINGS` 保护，普通签名应用**无法通过用户授权获得**，仅 root/Shizuku/系统预装可见）。**结论：普通签名应用两条底层路径都走不通，但实测也不需要**——真机（2026-09-12 用户确认）：应用绑定该 WiFi（未验证状态也能经 `requestNetwork` 绑到）→ 完成 Portal 认证 → 系统探测到连通后把网络转 `VALIDATED` → 系统"登录到 WLAN"提示消失、默认路由落到 WiFi。即**"系统默认直连"是认证成功的自然结果**，不是需要修改的系统设置；此前"必须手动选仍然连接"的表象，根因是绑定失败导致认证永远做不成（`bindProcessToNetwork` 才是关键手段）。注意 `Settings.System.canWrite()` 检查的是 System 表的 `WRITE_SETTINGS`，与写 Global 无关（旧实现据此提前返回属误判，已改为直接试写并由系统给出真实异常） |
+| `network-bind` | NetworkBindPlugin.kt (~250 行) | 把进程网络绑定到 WLAN（`ConnectivityManager.bindProcessToNetwork`）——登录流量物理上只走 WiFi（fwmark 进程级，探测 TcpStream/HTTP/DNS 全覆盖）；`unbind` 恢复系统默认路由。**双路径**：① 快速路径 `allNetworks` **优先取有 `NET_CAPABILITY_INTERNET` 的 WiFi、没有再退到任意 WiFi**——校园网认证前是 captive portal，系统可能不给 INTERNET/VALIDATED，用"有互联网"筛选会把唯一可用的 WiFi 筛掉；② 失败回退 `requestNetwork`（3s 超时，`onAvailable` 内绑定），**显式 `removeCapability(NET_CAPABILITY_INTERNET)`**——AOSP WifiNetworkFactory 对含该能力的 WiFi 请求直接拒绝（"cannot contain NET_CAPABILITY_INTERNET"）。`allNetworks + bindProcessToNetwork` 在 Android 12+ 与部分 OEM 上会返回 false（issuetracker#249023377、WiFiFlutter#296）——真机实测该组合失败、回退 `requestNetwork` 成功。**权限**：`ACCESS_NETWORK_STATE`/`ACCESS_WIFI_STATE` + **`CHANGE_NETWORK_STATE`（`requestNetwork` 必需——缺失时回退路径直接抛 SecurityException，绑定全程失败）**。返回 `{bound, path, reason}`：成功时 reason 为能力摘要（net/nonet+val/unval+cp）、path 为 `allNetworks`/`requestNetwork`/`already_bound`（**同一网络重复绑定**时回 `already_bound`——启动瞬间多条链路并发调用，Rust 侧据此**跳过清连接池**，避免首批请求反复重建连接；`unbind` 会清空该记忆），失败时为 `allNetworks[<直绑失败原因>] requestNetwork[<异常类名:消息>]`（**两条原因分开呈现**——合并拼接会把权限问题伪装成 VPN 问题）。**调用时机（`ensure_wifi_bound`）**：启动自动登录、每拍探测/掉线重登、手动登录 `do_login`、手动探测 `check_portal_status`、注销 `do_logout` 前均先绑定；绑定成功后清空 HTTP 客户端池（`network::client::clear_client_pool`，fwmark 只在 socket 创建时生效），并顺带调 `acceptWifiNetwork`。日志走 `log_info!/log_warn!` 落盘 + `eprintln!` 进 logcat（release 包无 root 时的唯一可见通道）。**`acceptWifiNetwork`（让系统接受无互联网 WiFi）三路径**：`already_validated`（网络已验证，无需动作）→ 反射 `setAcceptUnvalidated`（**真机 `hiddenApi=false`：Android 9+ hidden API 名单拦截 + 需 CONNECTIVITY_INTERNAL，普通应用不可达**）→ 写 `Settings.Global`（`captive_portal_mode=0` + `network_avoid_bad_wifi=0`；由 `WRITE_SECURE_SETTINGS` 保护，普通签名应用**无法通过用户授权获得**，仅 root/Shizuku/系统预装可见）。**结论：普通签名应用两条底层路径都走不通，但实测也不需要**——真机：应用绑定该 WiFi（未验证状态也能经 `requestNetwork` 绑到）→ 完成 Portal 认证 → 系统探测到连通后把网络转 `VALIDATED` → 系统"登录到 WLAN"提示消失、默认路由落到 WiFi。即**"系统默认直连"是认证成功的自然结果**，不是需要修改的系统设置；`bindProcessToNetwork` 才是关键手段。注意 `Settings.System.canWrite()` 检查的是 System 表的 `WRITE_SETTINGS`，与写 Global 无关——直接试写并由系统给出真实异常 |
 
 **foreground-service 插件**（保活三件套 + 自启 + 装 APK）:
 
@@ -1392,9 +1392,9 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 > **架构说明**: 前端采用业务域分目录架构，每个业务域目录包含面板组件、逻辑 Hook、类型定义和模块导出。类型定义分散在各业务域的 `types.ts` 中，而非集中在一个 `types/index.ts` 文件。
 
-### 5.1 状态管理架构 — 领域 store 拆分 (3b 阶段 AM-7)
+### 5.1 状态管理架构 — 领域 store 拆分
 
-> 领域 store 拆分：`useAppStore.ts` 仅 3 行 re-export 兼容壳；所有 store 基于 zustand ^5，`localStorage` 已替换为 `safeStorage`（内存降级封装，避免隐私模式下不可用）。
+> 所有 store 基于 zustand ^5，持久化走 `safeStorage`（内存降级封装，避免隐私模式下不可用）；`useAppStore.ts` 仅 3 行 re-export 兼容壳。
 
 **领域 store 一览**：
 
@@ -1422,7 +1422,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 > 注：`activePanel` 归 `useAdapterStore` 管理（历史归位，语义上与适配器关联较弱但实际如此）。`i18next.t()` 在 action 函数体内调用（非 Store 创建时），避免初始化时序问题。
 
-### 5.2 IPC 封装 — `hooks/tauriApi.ts` (原 useIpc.ts)
+### 5.2 IPC 封装 — `hooks/tauriApi.ts`
 
 **导出**：`tauriApi: TauriApi`（默认对象，56 个 invoke 方法 + 15 个事件监听器工厂）、`tauriApiWithRetry: TauriApi`（对 `saveConfig` 包一层 `withRetry`）。
 
@@ -1489,7 +1489,7 @@ export function useAppInit() {
 
 mount 时注册全部 Tauri 事件监听器与窗口关闭拦截，unmount 时统一清理。注册 14 个事件订阅 + 1 个窗口关闭拦截：
 
-- `getCurrentWindow().onCloseRequested` — 拦截关闭，若有 pending config 先 `flushPendingConfig()`，再 await 其返回的保存（2026-09-05：返回值纳入本次 flush 新发出的 `saveConfig` promise 与既有 in-flight 的合并等待，仅 debounce pending 时不再拿到 null 直接关窗丢数据；`Promise.race` 2s 上限保持）后才关闭
+- `getCurrentWindow().onCloseRequested` — 拦截关闭，若有 pending config 先 `flushPendingConfig()`，再 await 其返回的保存（返回值合并本次 flush 新发出的 `saveConfig` 与既有 in-flight 等待，避免 debounce pending 时丢数据；`Promise.race` 2s 上限）后才关闭
 - `onBackgroundCheckResult` — 更新 `bgStatus`、记录在线/离线日志（1s 节流 + 5s 在线日志节流）
 - `onAdaptersChanged` — 更新 store，500ms 节流（前缘+后缘双重保护）
 - `onAdapterDetailsChanged` / `onDisabledAdaptersChanged` / `onAdapterDisabledWarning`
@@ -1499,7 +1499,7 @@ mount 时注册全部 Tauri 事件监听器与窗口关闭拦截，unmount 时�
 - `onNetworkQualityResult` — 合并到 `useQualityStore.networkQuality`，触发"延迟过高"告警 (`handleQualityBadAlert`)
 - `onUpdateAvailable` / `onConfigChanged`（经 `mergeConfigFromBackend` 合并——跳过本地脏字段，不整体覆盖）
 
-**关键策略**：监听器先于数据获取注册（在 `useInitialDataLoad` 之前），避免遗漏初始化期间事件；`mountedRef` 防止 unmount 后写状态；系统通知由后端统一发送（前端 sendNotification API 已删除）；网络质量事件无防抖，增量推送可立即更新 UI。
+**关键策略**：监听器先于数据获取注册（在 `useInitialDataLoad` 之前），避免遗漏初始化期间事件；`mountedRef` 防止 unmount 后写状态；系统通知由后端统一发送；网络质量事件无防抖，增量推送可立即更新 UI。
 
 #### 5.3.2 `useInitialDataLoad.ts` (157 行) — 初始数据 bootstrap
 
@@ -1517,9 +1517,9 @@ mount 时调 `api.getInitData()` 拉取全量数据，按流水线 bootstrap 所
 10. 异步 `checkDnsDohStatus` + 检查推荐 DNS + 是否启用 DoH，缺失则告警日志
 11. **网络质量检测由后端 latency loop 统一管理**，前端不再主动调用 `checkNetworkQuality`
 
-**幂等保护**：`mountedRef` 防止 unmount 后写状态（StrictMode 二次 setup 时恢复 `mountedRef.current = true`，不短路初始化——旧实现的 `initDoneRef` 已移除）；catch 块中 `showWindow` 不受 `mountedRef` 影响（应用级操作）。
+**幂等保护**：`mountedRef` 防止 unmount 后写状态（StrictMode 二次 setup 时恢复 `mountedRef.current = true`，不短路初始化）；catch 块中 `showWindow` 不受 `mountedRef` 影响（应用级操作）。
 
-**`configLoaded` 确定性信号 (2026-09-06)**：成功路径与失败降级路径都置位 `useConfigStore.configLoaded`（157/165 行）——自助服务面板的自动验证+自动刷新严格等待该信号，配置加载完成且凭据就绪才弹 Hello 并拉取，消除启动加载窗口期的时序竞态；窗口期内面板卡提示"配置加载中..."。后端配套：setup 启动时 gpu-warmup 后台线程预热 GPU/刷新率检测（OnceLock 缓存），`get_init_data` 读缓存即返回，前端更早拿到配置。
+**`configLoaded` 确定性信号**：成功路径与失败降级路径都置位 `useConfigStore.configLoaded`（157/165 行）——自助服务面板的自动验证+自动刷新严格等待该信号，配置加载完成且凭据就绪才弹 Hello 并拉取，消除启动加载窗口期的时序竞态；窗口期内面板卡提示"配置加载中..."。后端配套：setup 启动时 gpu-warmup 后台线程预热 GPU/刷新率检测（OnceLock 缓存），`get_init_data` 读缓存即返回，前端更早拿到配置。
 
 #### 5.3.3 `useHeartbeat.ts` (19 行) — 渲染心跳
 
@@ -1546,7 +1546,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `DashboardPanel.tsx` | 总览面板，卡片可拖拽排序（framer-motion Reorder.Group），5 张自定义卡（`ALL_CARDS`: QuickActionsCard/AccountManageCard/SelfOnlineCard/SelfLogCard/NetworkQualityCard，质量总开关关闭时隐藏网络质量卡），布局持久化到 safeStorage。**自助两卡**（在线信息/上网记录）共用 hook `useSelfCardReveal`（凭据判断 + 掩码/验证切换）与 `useSelfCardFetch`（自动查询骨架：按学号只查一次、引用变化不重查、错误卡内重试 + toast），自动查询走 `querySelfDashboard`/`querySelfOnlineLog`（密码传空串由后端回退已保存值，仅回传非敏感概览）；关键信息（IP/登录时间/时长/流量明细）未验证时圆点掩码，点眼睛经 `useHelloGate` 验证后显示、再点切回不再验证；每卡显隐独立，与账号页绑定卡共用门生命周期；无凭据显示引导提示，`selfHelloEnabled` 关闭时眼睛直接放行。总览滚动末尾渲染低透明度背景看板娘 `mascot-bg-laptop`（文档流末尾 img 而非 absolute，随滚动被内容自然遮挡） |
-| `DashboardPanel.selfCards.test.tsx` | 总览自助两卡单测（2026-09-06）：自动查询+掩码、验证后明细/切回不再验证、验证失败保持掩码、无凭据不查询 |
+| `DashboardPanel.selfCards.test.tsx` | 总览自助两卡单测：自动查询+掩码、验证后明细/切回不再验证、验证失败保持掩码、无凭据不查询 |
 | `AboutDialog.tsx` | 关于对话框，双栏布局(应用信息+更新仪表盘)，镜像源选择，下载状态机(idle→selecting→downloading→done/error)，Release Notes渲染。**一键下载前 `ensureFullUpdateInfo` 确保 updateInfo 完整**（系统通知缓存路径构造的对象缺 `sha256Checksum`/`assets`，原样使用会下载 404 且安装被后端拒绝）；安装失败在 done 态显示错误文案。**赞助入口**：左栏"赞助支持"按钮点击后右栏原地切换为赞助内嵌页（不关对话框；关闭对话框时重置回仪表盘）。**固定亮色皮肤**：对话框挂 `.force-light-dialog`（容器级重定义主题变量 + 显式 `color` 继承），修复暗色模式白底近白文字不可读；浅色模式视觉无变化 |
 | `useAuth.ts` | 认证逻辑 Hook |
 | `types.ts` | 认证类型定义 (PortalStatusResult, CommandResult, LoginResult) |
@@ -1558,7 +1558,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 |------|------|
 | `AccountPanel.tsx` | 账号管理面板，两列网格等高布局(左列：登录信息卡+自动化设置开关卡(`flex-1` 撑满与右列底部对齐)；右列：**绑定运营商账号**卡输入框垂直排布+绑定状态区(query_bind_status 查询：手机号掩码前三后二/查看密码走 Hello 验证后 reveal_operator_credential 临时显示明文，与绑定/查询共用 `useHelloGate` 门)；两个密码框旁均有**"清除密码"入口**（登录密码 `clearPassword`、自助服务密码 `clearSelfPassword`，仅已保存时显示，`onMouseDown preventDefault` 防夺焦；清除自助密码顺带清空本地草稿防 blur 兜底存回)；下方账号管理卡全宽) |
 | `selfServiceState.ts` | 绑定卡与自助服务面板**跨面板共享层**（zustand，非持久化）：`useSelfCredStore`（学号+自助服务密码共用输入，切面板不丢失，退出应用即清空）、`useHelloGate`（绑定/明文查看门：时间戳 `helloGateVerifiedAt` TTL 570s、`gateFresh` 含 `elapsed >= 0` 回拨守卫、`ignoreToggle` 选项使明文查看无视总开关强制验证）、`useSelfServiceVerify`（自助面板会话门 `selfSessionVerifiedAt` 同款 TTL，`resetSelfSessionGate()` 面板卸载重置） |
-| `SelfServicePanel.tsx` | "自助服务"独立面板(协议见 §4.5.4.3；`PanelName`/`PANEL_TITLES`/NAV_ITEMS/设置页默认面板选项四处接入)：**在线信息**表(操作列注销→ConfirmDialog→self_offline_session→成功后本地移除该行，不自动重拉避免整会话重登开销) + **近期上网记录**卡(日期范围筛选默认今天 + 汇总 8 格 + 12 列明细表横滚；**金额列 `fmtMoney` 保留原始精度**，历史行 parseInt 截断曾把 0.50 显示成 0；空值/非数值显示 `-`)；凭据区在"在线信息"卡内顶部(与绑定卡共用 `useSelfCredStore`，学号默认取 config.user，密码 blur 经 `saveConfigDirect` DPAPI 落盘)，密码框旁"清除密码"入口；未填凭据时按钮禁用+提示 |
+| `SelfServicePanel.tsx` | "自助服务"独立面板(协议见 §4.5.4.3；`PanelName`/`PANEL_TITLES`/NAV_ITEMS/设置页默认面板选项四处接入)：**在线信息**表(操作列注销→ConfirmDialog→self_offline_session→成功后本地移除该行，不自动重拉避免整会话重登开销) + **近期上网记录**卡(日期范围筛选默认今天 + 汇总 8 格 + 12 列明细表横滚；**金额列 `fmtMoney` 保留原始精度**（parseInt 截断会把 0.50 显示成 0）；空值/非数值显示 `-`)；凭据区在"在线信息"卡内顶部(与绑定卡共用 `useSelfCredStore`，学号默认取 config.user，密码 blur 经 `saveConfigDirect` DPAPI 落盘)，密码框旁"清除密码"入口；未填凭据时按钮禁用+提示 |
 | `AccountPanel.helloGate.test.tsx` | 绑定门行为单测（首次即验证/验证失败不执行且下次仍需验证/查询验证后查看明文不再二次验证） |
 | `SelfServicePanel.test.tsx` | 自助面板单测（每次进面板验证/会话内操作共用/开关关闭放行/凭据输入与格式化） |
 | `useAccount.ts` | 账号逻辑 Hook |
@@ -1585,7 +1585,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | 文件 | 说明 |
 |------|------|
 | `NetworkPanel.tsx` | 3个卡片（网络适配器列表含状态四分类/适配器设置/DNS优化），适配器启用/单适配器获取新IP |
-| `useNetwork.ts` | 网络逻辑 Hook；模块级导出 `normalizeDhcpResults`（单条/批量结果归一化）+ `announceDhcpResults`（成功/跳过/失败三类 i18n toast，2026-09-05 起与 NetworkPanel "获取新IP"共用同一实现，替代面板内逐行复制品与 hook 内硬编码中文文案） |
+| `useNetwork.ts` | 网络逻辑 Hook；模块级导出 `normalizeDhcpResults`（单条/批量结果归一化）+ `announceDhcpResults`（成功/跳过/失败三类 i18n toast，与 NetworkPanel "获取新IP"共用同一实现） |
 | `adapters.ts` | `resolveAdapterNames(adapters, config)` 前端适配器解析，与后端 `resolve_adapter_names` 同源规则 |
 | `adapters.test.ts` | resolveAdapterNames 单测（锁同源行为） |
 | `constants.ts` | 网络常量 (QUALITY_CONFIG: 9级质量配置含labelKey/color/bg/border/borderBg/icon/hex/activeBars/glow，定义于此) |
@@ -1624,7 +1624,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 | `AnimatedNumber.tsx` | 动画数字，GSAP quickTo驱动，支持unit/decimals/duration，economy档禁用scale弹跳 |
 | `RefreshButton.tsx` | 刷新按钮，旋转动画+完成时shake效果+showCheck绿色对勾动画 |
 | `SegmentTabs.tsx` | 分段Tab，Framer Motion layoutId滑块动画+TabContent(AnimatePresence) |
-| `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮。带 `mascot` 字段（`'celebrate' | 'offline'`，2026-09-11）时左侧渲染对应看板娘图（裸 img 非 MascotFigure，避免 tailwind 尺寸类冲突），登录成功/失败由 `useAuthStore` 经 `useLogToastStore.addToast` 第 5 参传入 |
+| `ToastContainer.tsx` | Toast容器，4种类型(info/success/error/warning)，economy档简单transition替代spring，支持action按钮。带 `mascot` 字段（`'celebrate' | 'offline'`）时左侧渲染对应看板娘图（裸 img 非 MascotFigure，避免 tailwind 尺寸类冲突），登录成功/失败由 `useAuthStore` 经 `useLogToastStore.addToast` 第 5 参传入 |
 | `MascotFigure.tsx` | 看板娘展示组件（双端同构）。`variant` 对应 `/girl/mascot-{portrait,welcome,empty,celebrate,sponsor,offline}.png`，`size` 三档（sm/md/lg）；tailwind 尺寸类无法被 className 可靠覆盖，特殊尺寸场景用裸 img。**背景装饰娘 4 张**（`mascot-bg-{laptop,nap,lounge,tea}.png`）不经组件、低透明度裸 img 直引。**桌面端**：App.tsx 布局层两个 fixed 侧边娘（≥1360px 宽视口显示，`top-1/2 -translate-y-1/2` 锚定视口两侧垂直居中、滚动恒定可见，w-36、opacity 0.26/暗色 0.16，right 侧避让 w-72 的 RightPanel；桌面默认窗口 1360×768 使立绘默认即可见（常态左右间隙 24/16px），<1360 视口媒体查询自动隐藏；立绘宽 W、断点 B、默认窗口三者联动约束 `B ≥ 320 + 720 + 2×(W+16)` 且 B 取默认窗口宽）；RightPanel 日志栏的茶娘为**运行日志卡内部底部水印**（absolute bottom-3 低透明度，卡容器 relative overflow-hidden，日志条目少时从空白处露出）。**安卓端**：四面板滚动末尾底部娘保留（窄屏无侧边空间），设置页图加 `pb-72` 撑滚动余量避让固定底栏。**坑：`space-y-*` 容器的子元素 margin-bottom 被 `space-y-4 > * + *` 规则锁死（specificity 更高），间距要用 padding 不用 margin**。素材链：AI 原图归档 `assets/ui-girl/original/` → rembg(isnet-anime) 抠图 → PNG 档案 → 转 WebP（q84 原尺寸，-85%）→ 双端 `public/girl/*.webp`（代码引用 .webp，PNG 不入打包） |
 | `SponsorCard.tsx` | 赞助下拉浮层。**非模态**：无遮罩、不抢焦点、不阻塞交互，点击浮层外任意处(window pointerdown capture)或 Esc 即关闭；锚定标题栏赞助按钮下方自然向下展开（fixed，z-[60]，高于 DockNav 菜单低于 toast），自动弹出与手动入口共用此浮层；内嵌微信/支付宝收款码；文案走 i18n sponsor 段 + about.sponsor |
 | `types.ts` | 共享类型定义 (UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource 等) |
@@ -1638,7 +1638,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 |------|------|
 | `DockNav.tsx` | 适配器选择浮层 + 注销按钮 (无线蓝Wifi/有线绿Cable图标, 300ms延迟关闭/150ms延迟打开)，选择项收敛为主/副适配器（`scopedAdapters`），GSAP 磁吸效果（MAGNETIC_RANGE=80, MAX_SCALE=1.35, MAX_LIFT=-14），economy档禁用磁吸，RAF节流。tooltip 水平居中必须用 Tailwind `-translate-x-1/2`（inline `translateX(-50%)` 会覆盖 class transform 导致上浮动画失效） |
 | `RightPanel.tsx` | 右侧面板，运行日志+网络适配器信息(可展开/折叠，显示IP/子网掩码/网关/DHCP/MAC)，空日志时呼吸动画。清空日志 GSAP 动画 stagger 动态封顶（>8条0.05s/>4条0.1s，固定 0.2s/条在日志满 300 条时动画约 60 秒且按钮禁用无法取消），与 LogPanel 同策略 |
-| `TitleBar.tsx` | 标题栏，看板娘头像 logo（mascot-portrait 圆形裁剪 w-10，2026-09-11 由 w-7 放大以突出形象）+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/赞助Heart/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
+| `TitleBar.tsx` | 标题栏，看板娘头像 logo（mascot-portrait 圆形裁剪 w-10）+版本号+更新提示+工具按钮(亮暗/语言/通知/主题/赞助Heart/关于/最小化/最大化/关闭)，双击最大化，拖拽移动窗口 |
 
 ### 5.7 延迟颜色 — `lib/latency.ts`
 
@@ -1684,7 +1684,7 @@ mount 时立即调一次 `api.renderHeartbeat()`，`setInterval` 每 5000ms 调�
 - **GSAP 全局配置**: `expo.out` 默认缓动, `autoSleep: 5`, `lagSmoothing(500, 33)`, `nullTargetWarn: false`。`force3D` 不设全局默认——transform 相关 tween 均已显式声明 `force3D: true`，全局强制反而让动画结束后合成层不易回收
 - **prefers-reduced-motion**: GSAP duration 设为 0
 - **主题初始化**: `initTheme()` — 从 safeStorage（localStorage 封装）恢复亮暗模式 + 主题类
-- **崩溃恢复** (`setupCrashRecovery`): 最多3次自动重载，GPU/WebGL/SharedArrayBuffer 错误触发重载，渲染心跳10秒无响应视为GPU崩溃触发重载（FE-A-11 由 5s 放宽），页面可见性变化时暂停/恢复 GSAP globalTimeline
+- **崩溃恢复** (`setupCrashRecovery`): 最多3次自动重载，GPU/WebGL/SharedArrayBuffer 错误触发重载，渲染心跳10秒无响应视为GPU崩溃触发重载，页面可见性变化时暂停/恢复 GSAP globalTimeline
 - **渲染链**: `ErrorBoundary` > `LazyMotion(domMax)` > `MotionConfig(reducedMotion="user")` > `App`
 - **开发模式**: 使用 `React.StrictMode`
 
@@ -1715,7 +1715,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **初始化**: 调用 `useAppInit()` + 5 个业务 Hook（useAuth/useMonitor/useNetwork/useAccount/useSettings）
 - **启动加速**: `useStartupBoost` 编排 5 元素入场动画（titleBar/statusBar/title/rightPanel/dockNav）
 - **面板转场**: `AnimatePresence mode="wait"` + `panelVariants`（createPanelAppleVariants）+ slideDirection；切换锁 60ms（锁只需覆盖退出时长，锁内点击仍按设计丢弃）。**内容用 deferredPanel**（§三-8：`useDeferredValue(activePanel)`，快速连切跳过中间面板 mount）——面板 switch/转场 key/标题 key/滑动方向全部消费 `deferredPanel`，`activePanel` 仅用于 DockNav 高亮与 storage 恢复
-- **quality 面板可见性联动**（2026-09-03 约定）: `enableNetworkQuality === false` 时 App 对 quality 面板渲染 `null`、DockNav 过滤入口。三处必须联动——`useInitialDataLoad` 启动恢复 `defaultPanel`/`savedPanel` 时跳过 quality（否则重启后主区域空白）、`SettingsPanel` 关闭质量开关时清 `defaultPanel` 并把 `activePanel` 切回 dashboard。新增受开关控制的面板时同样需三处联动
+- **quality 面板可见性联动**: `enableNetworkQuality === false` 时 App 对 quality 面板渲染 `null`、DockNav 过滤入口。三处必须联动——`useInitialDataLoad` 启动恢复 `defaultPanel`/`savedPanel` 时跳过 quality（否则重启后主区域空白）、`SettingsPanel` 关闭质量开关时清 `defaultPanel` 并把 `activePanel` 切回 dashboard。新增受开关控制的面板时同样需三处联动
 - **窗口监听**: `getCurrentWindow().onResized` 监听窗口大小变化
 - **引导向导**: 首次启动检测（`safeStorage.get('campus-onboarding-done')`），未完成则弹出 OnboardingWizard
 - **赞助下拉浮层自动弹出**: 已有账号才弹（`configUser` 非空，与 onboarding 的 `!configUser` 条件天然互斥）→ 启动 1s 延迟（等启动入场动画完成）→ `document.visibilityState === 'visible'` 才弹（静默启动/最小化时挂 visibilitychange 推迟到可见）→ 7 天频控（localStorage epoch ms）。弹出瞬间即写时间戳；标题栏 Heart 与关于对话框"赞助支持"两个手动入口不受频控、不写时间戳
@@ -1742,28 +1742,26 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 - **TabletShell 复用面**: TitleBar/StatusBar/RightPanel/DockNav 与桌面端同源副本（样式零改动）；面板内容全用安卓版——总览=MobileDashboard（安卓 DashboardPanel + 移动卡注入）、设置=安卓 SettingsPanel（生物识别等安卓项保留、Windows 专属项经 `VITE_PLATFORM` 内部裁剪）、账号/自助服务/监控/测速/日志均为安卓裁剪版面板。**network 面板不接入**（安卓 NAV_ITEMS 无此项，DNS 优化为 Windows 注册表能力）。
 - **TabletShell 相对桌面 App 的裁剪**: 无窗口控制（TitleBar 新增 `showWindowControls?: boolean`，安卓副本传 false 隐藏最小化/最大化/关闭三键并禁用 `startDragging`/双击最大化——安卓无窗口管理 API，`minimizeWindow` 等在安卓 tauriApi 是 `desktopOnly` 必 reject）；无 useStartupBoost 开场序列；**有 Onboarding 向导**（桌面同款 Dialog，尺寸改响应式适配平板窄边，见 §5.14.2）；无赞助自动弹出；面板过渡沿用移动外壳轻量 y 位移变体；根容器去桌面 `min-w-[800px]`（平板竖屏 600-800dp 会被压出横向滚动）；标题栏外层加 `env(safe-area-inset-top)`、DockNav bottom 改 `calc(1.25rem + env(safe-area-inset-bottom))`（安卓 edge-to-edge 状态栏/手势条）。
 - **DockNav 触屏化**（安卓副本）: 模块级 `IS_TOUCH = matchMedia('(hover: none)')`——触屏设备无 hover，登录/注销按钮**首次点击弹适配器菜单**（已选过则直接执行），菜单顶部新增"自动检测"项（用 `resolveAdapterNames` 同源算出的主适配器执行，与后端规则一致），保留"不指定适配器"路径；鼠标设备行为完全不变。
-- **触屏缩放分层**（2026-09-10）: 桌面布局件按鼠标设计，TabletShell 内以 CSS `zoom` 分层适配触屏——顶部两栏（TitleBar/StatusBar 包裹层）`TOPBAR_ZOOM=1.3`（标题栏按钮 28→36px），内容区（main+RightPanel 父容器）`CONTENT_ZOOM=0.9`；safe-area padding 置于 zoom 层外；DockNav 不缩放。系数为 TabletShell 顶部常量，真机体验后可调。
-- **竖屏隐藏日志侧栏**（2026-09-10）: `useFormFactor.ts` 另提供 `useOrientation`（宽≥高为横屏）。TabletShell 竖屏时不渲染 RightPanel（日志经 Dock"日志"面板仍可达），并把根容器 `--right-panel-width` 置 0px——DockNav 宽度公式 `calc(100vw - var(--right-panel-width, 288px))` 由此自动从"视口-288 居中"切到全视口居中，横屏恢复默认。
-- **副本分叉警示**: `TitleBar.tsx`/`DockNav.tsx` 此前与桌面端逐字节相同（SAME），本次在安卓副本加入分叉（showWindowControls/IS_TOUCH/safe-area）。**后续从桌面同步这两个文件时不可整文件覆盖**，需人工比对分叉点。
+- **触屏缩放分层**: 桌面布局件按鼠标设计，TabletShell 内以 CSS `zoom` 分层适配触屏——顶部两栏（TitleBar/StatusBar 包裹层）`TOPBAR_ZOOM=1.3`（标题栏按钮 28→36px），内容区（main+RightPanel 父容器）`CONTENT_ZOOM=0.9`；safe-area padding 置于 zoom 层外；DockNav 不缩放。系数为 TabletShell 顶部常量，真机体验后可调。
+- **竖屏隐藏日志侧栏**: `useFormFactor.ts` 另提供 `useOrientation`（宽≥高为横屏）。TabletShell 竖屏时不渲染 RightPanel（日志经 Dock"日志"面板仍可达），并把根容器 `--right-panel-width` 置 0px——DockNav 宽度公式 `calc(100vw - var(--right-panel-width, 288px))` 由此自动从"视口-288 居中"切到全视口居中，横屏恢复默认。
+- **副本分叉警示**: `TitleBar.tsx`/`DockNav.tsx` 的安卓副本已在桌面版基础上分叉（showWindowControls/IS_TOUCH/safe-area）。**后续从桌面同步这两个文件时不可整文件覆盖**，需人工比对分叉点。
 
-### 5.14.2 安卓端新手向导 — 流程单点 + 双形态外壳 (2026-09-11)
-
-**背景**：向导此前在安卓端**整体缺失**——手机外壳不渲染（`App.tsx` 注释列在"桌面件"里），首次无账号直接跳账号页并立刻写 `campus-onboarding-done`（等于没有引导：用户不知道填学号还是手机号、密码是哪一位）；平板外壳同样未接入；设置面板的"打开新手指引"按钮在 `MobileMore.tsx` 被传成空函数 `() => {}`，点了没反应。向导本体是桌面 640×640 固定尺寸的 Dialog，手机窄屏（360-430dp）下不可用。
+### 5.14.2 安卓端新手向导 — 流程单点 + 双形态外壳
 
 **结构与分工**：
-- `settings/useOnboardingFlow.ts` — **流程逻辑单点**（4 步状态机、账号校验、绑定运营商、登录并收尾、配置落盘、`campus-onboarding-done` 写入）。抽出的理由：手机与平板两套外壳 UI 完全不同，但后端契约必须一致；复制两份状态机是原组件历史缺陷（完成步不重校验账号）的温床。**无适配器步骤**（2026-09-12）：安卓后端 `do_login` 丢弃 adapter 参数（网络出口由系统决定），选网卡不生效，指引移除该步。
+- `settings/useOnboardingFlow.ts` — **流程逻辑单点**（4 步状态机、账号校验、绑定运营商、登录并收尾、配置落盘、`campus-onboarding-done` 写入）。抽出的理由：两套外壳 UI 完全不同，但后端契约必须一致。**无适配器步骤**：安卓后端 `do_login` 丢弃 adapter 参数（网络出口由系统决定），选网卡不生效，指引移除该步。
 - `settings/OnboardingWizardMobile.tsx` — **手机专属全屏向导**（`fixed inset-0`）。相对 Dialog 形态的差异：段式进度轨（当前段拉长 + `3/4` 计步）替代 7 个圆点、触控目标放大到 48px、去 `autoFocus`（避免进账号步骤即弹键盘遮住表单）、上下各留 `env(safe-area-inset-*)`、底部操作区固定不随内容滚动、跳过确认用自有遮罩卡片（不用桌面 Dialog）。
 - `settings/OnboardingWizard.tsx`（安卓副本）— 平板复用，改为消费同一 hook；`DialogContent` 由固定 `w-[640px] h-[640px]` 收敛为 `w-[min(640px,92vw)] h-[min(640px,86vh)]`，600dp 竖屏实测收敛到 552×640 居中不溢出。
 
-**接入**：手机 `App.tsx`（`OnboardingWizardMobile`）+ 平板 `TabletShell.tsx`（`OnboardingWizard`）都在"首次启动且无账号"时打开，引导标记改由向导在「跳过」或「登录成功」时写入——未走完则下次启动继续引导。`MobileMore` 的 `onShowOnboarding` 已贯通到外壳，设置里的重新打开入口恢复可用（平板 SettingsPanel 也补传该 prop）。
+**接入**：手机 `App.tsx`（`OnboardingWizardMobile`）+ 平板 `TabletShell.tsx`（`OnboardingWizard`）都在"首次启动且无账号"时打开，引导标记由向导在「跳过」或「登录成功」时写入——未走完则下次启动继续引导。设置里的重新打开入口经 `onShowOnboarding` 贯通到外壳（平板 SettingsPanel 也传入该 prop）。
 
-**注意**：桌面端 `tauri-app/frontend/settings/OnboardingWizard.tsx` 仍为自包含逻辑（未消费 hook），安卓副本自本次起分叉——后续跨端同步该文件不可整文件覆盖。
+**注意**：桌面端 `tauri-app/frontend/settings/OnboardingWizard.tsx` 仍为自包含逻辑（未消费 hook），安卓副本已分叉——后续跨端同步该文件不可整文件覆盖。
 
 ---
 
 ## 附录 C：IPC 通信完整清单
 
-### 6.1 请求-响应命令 (v2.3.2: 56个)
+### 6.1 请求-响应命令 (56 个)
 
 | 命令名 | 说明 |
 |--------|------|
@@ -1853,7 +1851,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | `campus-exit-cancelled` | 校园网退出已取消 |
 | `config-changed` | 配置变更 |
 
-**安卓端 IPC 面**：命令与桌面同名对齐（`do_login`/`do_logout`/`check_portal_status`/`check_campus_status`/自助服务/账号管理/`get_init_data`/日志/网络质量/更新全族，前端 `tauriApi` 接口面两端一致）；桌面专属命令（app/helper/monitor 启动等）在安卓 cfg 门控不可见。事件面为桌面子集：`background-check-result`/`login-log`/`auto-login-result`/`network-quality-result`/`update-available` 等；适配器×4、自动退出×2、校园网退出×2、`config-changed` 等桌面事件安卓不 emit。
+**安卓端 IPC 面**：命令面见 §6.1.1。事件面为桌面子集：`background-check-result`/`login-log`/`auto-login-result`/`network-quality-result`/`update-available` 等；适配器×4、自动退出×2、校园网退出×2、`config-changed` 等桌面事件安卓不 emit。
 
 ---
 
@@ -1965,7 +1963,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | panic=abort | 编译选项减小二进制体积，避免信息泄露 |
 | TaskGuard RAII 防死锁 | TaskGuard::Drop 自动释放任务锁；`force_release` 标注 `#[cfg(test)]` 仅供测试 |
 | SHA256 更新校验 | 校验源优先级：GitHub API asset digest（服务端计算，发布者漏传 .sha256 时兜底）→ 官方 .sha256 → 3 镜像 .sha256，任一成功即用 (`updater.rs extract_checksum`)；全 4xx 默认拒绝安装（需 `skipSha256WhenMissing`，无前端开关），5xx/传输错误/哈希不匹配一律拒绝 |
-| 更新发布约定 (2026-09-03) | ① `check_update_inner` 对下载 URL 做 HEAD 探测，Release 资产 404（version.json 先行而未发布）则本轮不提示更新，探测网络失败保守视为存在；② `version.json` 支持可选 `notes` 字段填充 release_notes；③ `build.ps1` 构建后自动生成 `<installer>.sha256`（shasum 兼容格式），**发布 Release 必须同时上传安装包与 .sha256 文件**，版本号提交与 Release 发布需同流程完成 |
+| 更新发布约定 | ① `check_update_inner` 对下载 URL 做 HEAD 探测，Release 资产 404（version.json 先行而未发布）则本轮不提示更新，探测网络失败保守视为存在；② `version.json` 支持可选 `notes` 字段填充 release_notes；③ `build.ps1` 构建后自动生成 `<installer>.sha256`（shasum 兼容格式），**发布 Release 必须同时上传安装包与 .sha256 文件**，版本号提交与 Release 发布需同流程完成 |
 | 适配器名称校验 | network/adapter_cache.rs::validate_adapter_name，禁止 `&\|;\`$()<>\"'\n\r\0` 等元字符，防命令注入 |
 | 敏感操作验证门 | 查看明文/绑定/踢下线过 Windows Hello 门：前端 TTL 570s 会话（`account/selfServiceState.ts`，明文查看 `ignoreToggle` 无视总开关）+ 后端 600s TTL 真防线（`platform/identity.rs::identity_verified_recently` 含回拨拒绝；`commands/self_service.rs::ensure_identity_gate` 仅对改外部状态命令校验）；只读查询有意不设门；`selfHelloEnabled=false` 整体放行但明文查看仍强制验证（详见 §三-4 / §4.5.4.2） |
 | 出站掩码唯一出口 | 所有把 Config 发往前端的路径必经 `Config::masked_for_display()`（password + self_password 双字段掩码，空值=未设置语义保留），回归单测锁死——详见 §4.3 掩码纪律 |
@@ -2011,7 +2009,7 @@ panic = "abort"
 - **安卓 Rust 验证**：host `cargo check` 在 `android/src-tauri` 基线即失败（mobile-only 插件权限 host 收集不全），靠 `tauri android build` 交叉编译验证
 - **前端验证**：`npx tsc --noEmit --incremental`（禁止 `tsc -b`——tsconfig.node.json 是 composite 项目，会 emit 出 vite.config.js/.d.ts 污染文件）
 - **安卓构建链**：先手动 `npx vite build`（tauri CLI 不跑 beforeBuildCommand）→ `tauri android build --target aarch64 --apk`；Windows 需开启开发者模式（允许符号链接）
-- **安卓产物命名与签名（gradle 内置，2026-09-10）**：`gen/android/app/build.gradle.kts` 配置 release signingConfig（本机 `~/.android/debug.keystore`）+ `applicationVariants` outputFileName——构建直接产出已签名/已对齐的 `Wxxy-CampusLogin_<版本>.apk`（版本号跟随 tauri.conf.json），zipalign/apksigner 后处理整体消失。**CLI 完成报告仍指向旧约定名 `app-universal-release.apk`（预期路径，实际不存在），以输出目录实际文件为准**。签名证书一经发布不可更换（换=用户卸载重装）。一键链 `pwsh android/build-apk.ps1`（含本机 JDK 路径，gitignore 不入库）
+- **安卓产物命名与签名（gradle 内置）**：`gen/android/app/build.gradle.kts` 配置 release signingConfig（本机 `~/.android/debug.keystore`）+ `applicationVariants` outputFileName——构建直接产出已签名/已对齐的 `Wxxy-CampusLogin_<版本>.apk`（版本号跟随 tauri.conf.json），zipalign/apksigner 后处理整体消失。**CLI 完成报告仍指向旧约定名 `app-universal-release.apk`（预期路径，实际不存在），以输出目录实际文件为准**。签名证书一经发布不可更换（换=用户卸载重装）。一键链 `pwsh android/build-apk.ps1`（含本机 JDK 路径，gitignore 不入库）
 
 ---
 
@@ -2069,23 +2067,16 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 
 > ⚠️ **版本号提交与 Release 发布必须同流程完成**（v2.3.0 事故教训）：version.json 先行推送而 Release 未发布时，旧版用户收到更新通知但下载 404；后端已有 HEAD 探测兜底（资产 404 本轮不提示），流程上仍须绑定同一次操作。
 
-> ⚠️ **Release 资产发布检查清单**（2026-09-03 新增，2026-09-04 更新）：
-> 1. 上传 `Wxxy-CampusLogin_{ver}_x64-setup.exe`（文件名与硬编码拼接一致；若改名，在 `version.json` 加 `"asset": "<完整文件名>"` 覆盖默认命名，2026-09-04 起支持）
+> ⚠️ **Release 资产发布检查清单**：
+> 1. 上传 `Wxxy-CampusLogin_{ver}_x64-setup.exe`（文件名与硬编码拼接一致；若改名，在 `version.json` 加 `"asset": "<完整文件名>"` 覆盖默认命名）
 > 2. 同时上传构建产物目录中的 `{安装包名}.sha256`（`build.ps1` 第 [5/5] 步已自动生成）——缺失时应用内更新校验全 4xx，默认拒绝安装且用户无法自救
 > 3. `version.json` 可选填 `notes` 字段（字符串，Markdown 列表），将显示为应用内更新日志（release_notes）
-> 4. 版本号支持任意段数（`2.3.0.1` hotfix 可正确提示升级，2026-09-04 修复 `.take(3)` 截断）
-
-> ⚠️ **升级检查清单**：建议在发布前对照以下 5 个**必须保持一致**的位置：
-> 1. `tauri-app/src-tauri/tauri.conf.json` → `"version": "2.3.0"`
-> 2. `tauri-app/src-tauri/Cargo.toml` → `version = "2.3.0"`
-> 3. `tauri-app/frontend/src/shared/ui-constants.ts` → `APP_VERSION = '2.3.0'`
-> 4. `tauri-app/package.json` + `tauri-app/frontend/package.json` → `"version": "2.3.0"`
-> 5. 根 `version.json` → `"version": "v2.3.0"`（带 v 是发布 tag 格式）
+> 4. 版本号支持任意段数（`2.3.0.1` hotfix 可正确提示升级）
 
 ### 安卓端 identifier（包名）
 
-- **两端 identifier 相互独立**：桌面 `tauri-app/src-tauri/tauri.conf.json`（`com.campus.login`）、安卓 `android/src-tauri/tauri.conf.json`（`com.campuslogin.client`，2026-09-10 由 `com.campuslogin.app` 迁移）。安卓 identifier 直接决定 `gen/android/app/build.gradle.kts` 的 `namespace`/`applicationId` 与 MainActivity 包路径——改 identifier 必须同步这三处并 `git mv` Kotlin 目录；**改包名=卸载重装**（AndroidKeyStore 密钥按包名隔离，密码密文作废）
-- `.app` 结尾的 identifier 会触发 tauri-cli 的 macOS bundle 冲突警告（纯 lint，无 macOS 目标也无碍，迁移后已消除）
+- **两端 identifier 相互独立**：桌面 `tauri-app/src-tauri/tauri.conf.json`（`com.campus.login`）、安卓 `android/src-tauri/tauri.conf.json`（`com.campuslogin.client`）。安卓 identifier 直接决定 `gen/android/app/build.gradle.kts` 的 `namespace`/`applicationId` 与 MainActivity 包路径——改 identifier 必须同步这三处并 `git mv` Kotlin 目录；**改包名=卸载重装**（AndroidKeyStore 密钥按包名隔离，密码密文作废）
+- `.app` 结尾的 identifier 会触发 tauri-cli 的 macOS bundle 冲突警告（纯 lint，无 macOS 目标也无碍）
 - `gen/android/buildSrc` 的 Kotlin 文件**无 package 声明（默认包）**，目录名 `com/campuslogin/app/kotlin/` 是历史残留，与包名无关不影响编译；Manifest 的 activity 用相对名 `.MainActivity` 自动跟随 namespace
 - 构建后用 `aapt2 dump badging <apk>` 验证 applicationId；gen/schemas 与插件 permissions 随构建再生的 `\n`→`\r\n` 行尾差异是噪音（语义零变化，node 深比较可证），提交前 `git checkout --` 还原
 
@@ -2109,7 +2100,7 @@ let version = env!("APP_VERSION").to_string();
 |---|---|---|
 | `ui-constants.ts` `APP_VERSION` 常量 | 代码内直接 import | 手动同步 |
 
-> v2.2.9 重构清理：`vite.config.ts` 已移除原 `__APP_VERSION__` 注入逻辑（不再 `import tauriConf`、不再 `define` 注入），前端版本号唯一来源为 `ui-constants.ts` 的 `APP_VERSION` 硬编码常量。
+> `vite.config.ts` 不做版本号注入，前端版本号唯一来源为 `ui-constants.ts` 的 `APP_VERSION` 常量。
 
 > 注：`ui-constants.ts` 的 `APP_VERSION` 保留硬编码是为了在非 Tauri 环境（如纯前端 Storybook / 单元测试 mock）下也能取到合理默认值。**升级时仅需同步 `ui-constants.ts` 一处**。
 
@@ -2120,5 +2111,5 @@ let version = env!("APP_VERSION").to_string();
 
 ---
 
-*文档版本: v2.3.5 | 基于代码版本: CampusLogin v2.3.5 | 更新日期: 2026-09-11 | 五段手册层（概览/架构速查/关键约定/踩坑记录/决策记录）+ 附录 A~H 参考层；含安卓端详解（附录 A §4.16 / 附录 B §5.14 / 附录 C §6.1.1）；2026-09-11 精简：已解决缺陷的修复过程叙述与历史版本优化流水移除，保留架构、约定、协议知识与已知限制*
+*文档版本: v2.3.5 | 基于代码版本: CampusLogin v2.3.5 | 更新日期: 2026-09-12 | 五段手册层（概览/架构速查/关键约定/踩坑记录/决策记录）+ 附录 A~H 参考层；含安卓端详解（附录 A §4.16 / 附录 B §5.14 / 附录 C §6.1.1）；精简原则：已解决缺陷的修复过程叙述与历史版本流水移除，保留架构、约定、踩坑、决策、认证与自助服务协议知识及已知限制*
 
