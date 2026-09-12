@@ -184,7 +184,8 @@ function AppInner() {
             <NetworkQualityCapsule networkQuality={networkQuality} />
           </button>
         )}
-        <button type="button" aria-label={t('titlebar.sponsor')} onClick={() => setSponsorOpen(true)} className="p-2 text-muted-foreground active:text-rose-500">
+        {/* ml-auto:胶囊隐藏(质量关闭)时图标组仍固定右侧,由第一个图标接管 flex-1 的推开职责 */}
+        <button type="button" aria-label={t('titlebar.sponsor')} onClick={() => setSponsorOpen(true)} className="ml-auto p-2 text-muted-foreground active:text-rose-500">
           <Heart className="h-5 w-5" />
         </button>
         <button type="button" aria-label={t('panel.settings')} onClick={() => handleTabChange('more')} className="p-2 -mr-1 text-muted-foreground active:text-foreground">
