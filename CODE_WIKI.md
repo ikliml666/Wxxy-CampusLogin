@@ -349,6 +349,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 **发布**
 
 - version.json 推送后全员收到更新通知但下载 404：Release 尚未发布——版本号提交与 Release 发布绑同一次操作（详见附录 H）。
+- 安卓更新检测 version.json 解析契约：version.json 是 snake_case 的 `version`/`notes`（桌面手取），安卓端曾误用 camelCase 的 `UpdateInfo` 整体反序列化（找 `latestVersion` 键恒落空）——has_update 恒 false，≤v2.3.6 全部安卓版本永远"已是最新"。两端消费 version.json 的字段名必须对齐桌面 `data["version"]` 契约；测试造数据必须用真实上游形状，不得用目标结构体形状自证。
 
 ---
 

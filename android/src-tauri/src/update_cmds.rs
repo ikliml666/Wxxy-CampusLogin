@@ -132,6 +132,18 @@ fn version_urls(mirror_first: bool) -> Vec<&'static str> {
     }
 }
 
+/// version.json 的真实形状：snake_case 的 version/notes 字段（桌面 updater 的
+/// `fetch_latest_release` 按 data["version"] 手取同款契约）。不能整体反序列化为
+/// UpdateInfo——camelCase 找 latestVersion 键永远匹配不到 "version"，has_update
+/// 恒为 false，安卓端将永远"已是最新版本"（≤v2.3.6 真实缺陷）
+#[derive(Debug, Default, Deserialize, Clone)]
+struct VersionFile {
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    notes: String,
+}
+
 /// 从 GitHub API release 拉取 APK 资产与官方 digest(服务端计算,最可信校验源)。
 /// API 失败/限流/无 APK 资产时返回空——前端降级为外链 Releases(与现状一致);
 /// version.json 不含 assets,真实下载地址只能来自 API。
@@ -189,20 +201,26 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
         match client.get(url).send().await {
             Ok(resp) if resp.status().is_success() => {
                 let raw: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-                let info: UpdateInfo = serde_json::from_value(raw).map_err(|e| e.to_string())?;
+                let vf: VersionFile = serde_json::from_value(raw).map_err(|e| e.to_string())?;
+                let latest_version = vf.version.trim_start_matches('v').to_string();
+                if latest_version.is_empty() {
+                    last_err = "version.json 缺少 version 字段".to_string();
+                    continue;
+                }
                 let current = env!("CARGO_PKG_VERSION");
-                let has_update = has_newer_version(current, &info.latest_version);
-                // APK 资产与校验值:API digest 优先,version.json 字段兜底
-                let (assets, checksum) = fetch_apk_assets(&client, &info.latest_version).await;
-                let sha256_checksum = checksum.or(info.sha256_checksum);
+                let has_update = has_newer_version(current, &latest_version);
+                // APK 资产与校验值:校验值唯一来源 GitHub API digest(服务端计算),
+                // version.json 无 sha256 字段约定
+                let (assets, checksum) = fetch_apk_assets(&client, &latest_version).await;
                 if let Ok(mut guard) = UPDATE_CHECKSUM.lock() {
-                    *guard = sha256_checksum.clone();
+                    *guard = checksum.clone();
                 }
                 return Ok(UpdateInfo {
                     has_update,
+                    latest_version,
+                    release_notes: vf.notes,
                     assets,
-                    sha256_checksum,
-                    ..info
+                    sha256_checksum: checksum,
                 });
             }
             Ok(resp) => last_err = format!("HTTP {}", resp.status()),
@@ -430,5 +448,28 @@ mod tests {
         assert_eq!(info.assets[0].name, "app.apk");
         assert!(info.sha256_checksum.is_none());
         assert!(!info.has_update);
+    }
+
+    #[test]
+    fn version_json_真实形状解析() {
+        // 线上 version.json 的真实形状（只有 snake_case 的 version 键）——
+        // 回归护栏：曾经误用 UpdateInfo(camelCase) 整体反序列化它导致 latest_version
+        // 恒为空、安卓端永远"已是最新版本"
+        let raw = serde_json::json!({ "version": "v2.3.6" });
+        let vf: VersionFile = serde_json::from_value(raw).unwrap();
+        assert_eq!(vf.version, "v2.3.6");
+        assert!(vf.notes.is_empty());
+        let latest = vf.version.trim_start_matches('v');
+        assert!(has_newer_version("2.3.5", latest));
+        assert!(!has_newer_version("2.3.6", latest));
+
+        // 缺 version 字段时必须解析为空串（check_update_inner 据此跳过该源而非误判无更新）
+        let empty: VersionFile = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(empty.version.is_empty());
+
+        // notes 可选字段随版本号一起维护时透传 release_notes
+        let with_notes: VersionFile =
+            serde_json::from_value(serde_json::json!({ "version": "v2.4.0", "notes": "- 修复" })).unwrap();
+        assert_eq!(with_notes.notes, "- 修复");
     }
 }
