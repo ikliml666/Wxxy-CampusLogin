@@ -24,4 +24,4 @@
 
 - 技术栈：Tauri 2 + React 19 + TypeScript，Windows + 安卓双端同构的校园网（Dr.COM/Portal）自动登录助手。
 - 桌面端：前端根 `tauri-app/frontend`、后端根 `tauri-app/src-tauri`；安卓端根 `android/`（后端 path 依赖桌面协议核心 crate，前端为独立复刻树）。
-- 发布流程、版本号五处同步、Release 资产检查清单见 `CODE_WIKI.md` 对应章节（版本号提交与 Release 发布必须同流程完成）。
+- 发布流程、版本号同步清单、Release 资产检查清单见 `CODE_WIKI.md` 对应章节（版本号提交与 Release 发布必须同流程完成）。

@@ -107,7 +107,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 # ⚠ host cargo check 在 android/src-tauri 基线即失败（mobile-only 插件），验证只认交叉编译
 ```
 
-> 布局/交互类改动的验证方法：临时向 `tauri-app/frontend/index.html` 注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后完整还原（git diff 必须干净）**。分支纪律、CHANGELOG 记录等流程约定见 `AGENTS.md`；版本号五处同步与 Release 检查清单见附录 H。
+> 布局/交互类改动的验证方法：临时向 `tauri-app/frontend/index.html` 注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后完整还原（git diff 必须干净）**。分支纪律、CHANGELOG 记录等流程约定见 `AGENTS.md`；版本号同步清单与 Release 检查清单见附录 H。
 
 ---
 
@@ -295,7 +295,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 6. **适配器操作范围**：操作类流程（检测/登录/注销/DNS 设置/DHCP）只作用于 `resolve_adapter_names` 解析出的主/副适配器；UI 展示类遍历全部。前端 `network/adapters.ts::resolveAdapterNames` 与后端**同源规则**，改任一侧必须同步另一侧（`adapters.test.ts` 锁行为）。
 7. **质量检测键与驱动者**：`details`/`metrics` 字典键为英文标识符（`gateway`/`aliDns`/`bilibili`…），显示名走 i18n `quality.names.*`，前后端键同步改（同仓库同发版无兼容窗口）。周期质量检测唯一驱动者是定时测试循环；新增受开关控制的面板需三处联动（App 渲染 null / DockNav 过滤入口 / useInitialDataLoad 跳过恢复）。
 8. **面板转场用 `deferredPanel`**：App.tsx 中面板 switch/转场 key/标题/方向全部消费 `useDeferredValue` 后的值，`activePanel` 仅用于 DockNav 高亮与 storage 恢复——用错会内容与标题错位。
-9. **版本号五处同步**：`tauri.conf.json` 是唯一权威源（build.rs 注入 `APP_VERSION`），升级按附录 H 清单走；`version.json` 推送与 Release 发布必须同一次操作完成。
+9. **版本号多处同步**：`tauri.conf.json` 是唯一权威源（build.rs 注入 `APP_VERSION`），升级按附录 H 清单逐项走（含安卓端，勿只改桌面）；`version.json` 推送与 Release 发布必须同一次操作完成。
 10. **验证基线**：`cargo test` 493 全绿 / `cargo clippy -D warnings` / `npx tsc --noEmit --incremental` / `npm test`；安卓只认 `tauri android build` 交叉编译。布局/交互改动需浏览器实测且用后 `git diff` 干净（方法见 §1.4）。
 11. **模块声明双树**：`main.rs` 与 `lib.rs` 是两棵独立模块树，新增顶层模块必须两处同时声明（漏一处 bin target E0432）。
 12. **安卓生成工程纪律**：`gen/android/` 版本化提交但 build 产物不入库；`settings.gradle` 插件声明为手改；构建再生的 `\n`→`\r\n` 行尾差异是噪音，提交前 `git checkout --` 还原；**改 identifier（包名）= 用户卸载重装**（Keystore 密钥按包名隔离），必须同步 gradle namespace/applicationId/MainActivity 包路径三处并 `git mv` Kotlin 目录；签名证书一经发布不可更换。
@@ -2071,11 +2071,12 @@ println!("cargo:rustc-env=APP_VERSION={version}");
 1. **编辑唯一权威源** — 修改 `tauri-app/src-tauri/tauri.conf.json` 的 `"version"` 字段为 `"2.3.0"`
 2. **手动同步 Cargo.toml** — 修改 `tauri-app/src-tauri/Cargo.toml` 的 `version` 字段为 `"2.3.0"`（cargo 强制要求）
 3. **同步发布标记** — 修改仓库根 `version.json` 的 `"version"` 为 `"v2.3.0"`（带 v 前缀，是 GitHub release tag 的格式）
-4. **同步前端 package.json** — 两个 `package.json` 的 `"version"` 字段（npm 规范要求，无 v 前缀）
+4. **同步前端 package.json** — `tauri-app/frontend/package.json` 与 `android/frontend/package.json` 的 `"version"` 字段（npm 规范要求，无 v 前缀）
 5. **同步前端常量** — `tauri-app/frontend/src/shared/ui-constants.ts` 的 `APP_VERSION`
 6. **同步静态预览** — `tauri-app/frontend/about-preview.html` 的 `app-version` 和 `status-version` 两个 div（**注意**：此处带 `v` 前缀，如 `v2.3.0`）
 7. **同步徽章** — `README.md` 的 `version-2.3.0` 徽章
 8. **同步文档** — `CODE_WIKI.md` 顶部版本号 + 底部元信息
+9. **同步安卓后端配置** — `android/src-tauri/tauri.conf.json` 的 `"version"` 与 `android/src-tauri/Cargo.toml` 的 `version` 和桌面保持同值（APK versionName 随 tauri.conf.json 生成；漏改则双端版本漂移）
 
 > ⚠️ **Cargo.lock 中的 version**：由 cargo 自动更新，下次 `cargo build` 时自动重写。
 
