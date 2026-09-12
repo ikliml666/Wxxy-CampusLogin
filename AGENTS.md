@@ -4,7 +4,8 @@
 
 ## 必守约定
 
-1. **改动必须记入 CHANGELOG.md**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `CHANGELOG.md` 的 `[Unreleased]` 小节（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。CHANGELOG.md 在 .gitignore 中（第 52 行），本地持续维护、不提交。
+1. **改动必须记入 CHANGELOG.md**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `CHANGELOG.md` 的 `[Unreleased]` 小节（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。CHANGELOG.md 在 .gitignore 中，本地持续维护、不提交。
+   **CHANGELOG 按版本归档**：发布版本（打 tag 或跑 `make-release.ps1`）时把当时整份 `CHANGELOG.md` 快照存为本地 `changelogs/CHANGELOG_v<版本>.md`（该目录在 .gitignore，仅本地留存），防止单文件无限膨胀；`make-release.ps1` 汇总发布资产时自动执行快照，快照后可酌情清理 CHANGELOG.md 中已发布版本的旧条目保持轻量。
 
 2. **分支纪律**：改动全在主题分支（`feat/xxx`、`fix/xxx`、`perf/xxx`、`chore/xxx`），不直接改 main；commit 说明用 `feat:` / `fix:` / `perf:` / `chore:` / `docs:` 前缀；不擅自 push、merge、删分支——由用户决定。
 
