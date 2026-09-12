@@ -44,6 +44,10 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     /** requestNetwork 持有的回调：绑定期间保持注册，unbind 时注销 */
     private var heldCallback: ConnectivityManager.NetworkCallback? = null
 
+    /** 上次绑定的网络：同网络重复绑定时回 path=already_bound，供 Rust 侧跳过清连接池
+     *  （启动瞬间多条链路会在一秒内并发调 bindToWifi，重复清池会让首批请求反复重建连接） */
+    private var lastBoundNetwork: Network? = null
+
     private val cm: ConnectivityManager
         get() = activity.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
@@ -78,7 +82,9 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         val capsSummary = picked?.second?.let { describe(it) } ?: "none"
 
         if (picked != null && manager.bindProcessToNetwork(picked.first)) {
-            finish(true, "allNetworks", capsSummary)
+            val same = picked.first == lastBoundNetwork
+            lastBoundNetwork = picked.first
+            finish(true, if (same) "already_bound" else "allNetworks", capsSummary)
             return
         }
 
@@ -106,7 +112,13 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
                 } catch (e: Exception) {
                     false
                 }
-                finish(ok, "requestNetwork", if (ok) capsSummary else "allNetworks[$directBindFail] requestNetwork[onAvailable_bind_false]")
+                if (!ok) {
+                    finish(false, "requestNetwork", "allNetworks[$directBindFail] requestNetwork[onAvailable_bind_false]")
+                    return
+                }
+                val same = network == lastBoundNetwork
+                lastBoundNetwork = network
+                finish(true, if (same) "already_bound" else "requestNetwork", capsSummary)
             }
 
             override fun onUnavailable() {
@@ -136,6 +148,7 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         manager.bindProcessToNetwork(null) // 恢复系统默认路由
         heldCallback?.let { runCatching { manager.unregisterNetworkCallback(it) } }
         heldCallback = null
+        lastBoundNetwork = null
         invoke.resolve()
     }
 

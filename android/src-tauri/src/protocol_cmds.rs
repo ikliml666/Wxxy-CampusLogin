@@ -226,7 +226,14 @@ pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
         .unwrap_or_else(|e| Err(e.to_string()));
     match outcome {
         Ok(v) if v["bound"].as_bool().unwrap_or(false) => {
-            let cleared = campus_login_lib::network::client::clear_client_pool();
+            // 同一网络重复绑定（path=already_bound）时不清池：fwmark 已指向该网络，
+            // 池中旧连接的标记仍然正确。启动瞬间多条链路会在一秒内并发调用本函数
+            // （真机 1 秒 6 次），每次都清池会让首批请求反复重建连接（多付 TLS 握手）。
+            let cleared = if v["path"].as_str() == Some("already_bound") {
+                0
+            } else {
+                campus_login_lib::network::client::clear_client_pool()
+            };
             // reason 在此为所选 WiFi 的能力摘要（net/nonet + val/unval + cp），
             // 用于区分"绑到了正常 WiFi"还是"绑到了未认证的校园网 captive portal"
             campus_login_lib::log_info!(
