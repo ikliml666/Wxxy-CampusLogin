@@ -57,8 +57,10 @@ function AppInner() {
   const adapters = useAdapterStore((s) => s.adapters)
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
-  const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   const status = useAuthStore((s) => s.status)
+  // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
+  const qualityDisabled = useConfigStore((s) => s.config.enableNetworkQuality) === false
+  const bgOnline = useAuthStore((s) => s.bgStatus.online)
   const api = useConfigStore.getState().api
 
   const updateConfig = useConfigStore((s) => s.updateConfig)
@@ -127,14 +129,14 @@ function AppInner() {
       panelContent = <SelfServicePanel />
       break
     case 'quality':
-      panelContent =
-        configEnableNetworkQuality !== false ? (
-          <QualityPanel
-            onUpdateConfig={updateConfig}
-            onRefreshQuality={refreshQuality}
-            onToggleLatencyTest={handleToggleLatencyTest}
-          />
-        ) : null
+      // 质量页常驻:开关默认关闭(省电)后由后台检测状态代替展示
+      panelContent = (
+        <QualityPanel
+          onUpdateConfig={updateConfig}
+          onRefreshQuality={refreshQuality}
+          onToggleLatencyTest={handleToggleLatencyTest}
+        />
+      )
       break
     case 'more':
       panelContent = <MobileMore onShowOnboarding={() => setOnboardingOpen(true)} />
@@ -168,7 +170,14 @@ function AppInner() {
           onClick={() => handleTabChange('quality')}
           className="flex-1 min-w-0 flex justify-start active:scale-[0.98] transition-transform"
         >
-          <NetworkQualityCapsule networkQuality={networkQuality} />
+          {qualityDisabled ? (
+            <span className={cn('flex items-center gap-1.5 text-sm font-medium', bgOnline === true && 'text-emerald-500', bgOnline !== true && 'text-muted-foreground')}>
+              <span className={cn('h-2 w-2 rounded-full', bgOnline === true && 'bg-emerald-500', bgOnline === false && 'bg-rose-500', bgOnline !== true && bgOnline !== false && 'bg-zinc-500')} />
+              {bgOnline === true ? t('quality.bgOnline') : bgOnline === false ? t('quality.bgOffline') : t('quality.bgUnknown')}
+            </span>
+          ) : (
+            <NetworkQualityCapsule networkQuality={networkQuality} />
+          )}
         </button>
         <button type="button" aria-label={t('titlebar.sponsor')} onClick={() => setSponsorOpen(true)} className="p-2 text-muted-foreground active:text-rose-500">
           <Heart className="h-5 w-5" />

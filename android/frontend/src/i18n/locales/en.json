@@ -350,6 +350,12 @@
     "timelineNetworkDesc": "Application-layer latency — extra transfer overhead from server to client"
   },
   "quality": {
+    "bgSubstitute": "Quality testing is off to save power; showing background check status",
+    "bgOnline": "Online",
+    "bgOffline": "Offline",
+    "bgUnknown": "Not checked",
+    "bgCheckCount": "{{count}} checks",
+    "bgManualHint": "Tap refresh above for a one-shot test, or enable scheduled testing below",
     "networkQuality": "Network Quality",
     "realtimeLatencyMonitor": "Real-time Network Latency Monitoring",
     "internalLatency": "Internal Latency",

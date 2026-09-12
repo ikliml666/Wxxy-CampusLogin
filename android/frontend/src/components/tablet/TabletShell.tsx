@@ -80,7 +80,6 @@ function TabletShellInner() {
   const adapters = useAdapterStore((s) => s.adapters)
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
-  const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   const configAutoLaunch = useConfigStore((s) => s.config.autoLaunch)
   const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
   const api = useConfigStore.getState().api
@@ -189,13 +188,14 @@ function TabletShellInner() {
       )
       break
     case 'quality':
-      panelContent = configEnableNetworkQuality !== false ? (
+      // 质量页常驻:开关默认关闭(省电)后由后台检测状态代替展示
+      panelContent = (
         <QualityPanel
           onUpdateConfig={updateConfig}
           onRefreshQuality={refreshQuality}
           onToggleLatencyTest={handleToggleLatencyTest}
         />
-      ) : null
+      )
       break
     case 'speedtest':
       panelContent = (

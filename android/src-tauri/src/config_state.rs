@@ -58,7 +58,8 @@ pub struct Settings {
     pub log_retention_days: u32,
     /// 配置结构版本:旧版本文件缺省反序列化为 0,load_from 据此执行一次性
     /// 默认值迁移(0→1:后台检测间隔 15s→60s;1→2:自动化登录/检测与网络验证、
-    /// 质量跳过项开关默认改为开启)。新装即 2,不再触发。
+    /// 质量跳过项开关默认改为开启;2→3:网络质量检测默认改为关闭)。
+    /// 新装即 3,不再触发。
     pub config_schema_version: u32,
 }
 
@@ -88,7 +89,10 @@ impl Default for Settings {
             enable_boot_autostart: false,
             enable_latency_test: false,
             latency_test_interval: 60_000,
-            enable_network_quality: true,
+            // 2026-09-12 起默认关闭(省电:质量检测含 12+ 外网目标,启动即跑一轮数秒;
+            // 质量页改由后台检测状态代替展示),旧配置由 migrate_legacy_defaults
+            // 按 schema 版本一次性迁移
+            enable_network_quality: false,
             skip_ttfb_in_latency: true,
             skip_content_in_latency: true,
             portal_url: "http://10.1.99.100".to_string(),
@@ -101,7 +105,7 @@ impl Default for Settings {
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
-            config_schema_version: 2,
+            config_schema_version: 3,
         }
     }
 }
@@ -216,10 +220,12 @@ pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, St
 /// v0→v1:后台检测间隔 15s 是历史默认值,统一升为当前默认 60s(稳态功耗);
 /// v1→v2(2026-09-10):自动化登录/检测与网络验证、质量跳过项开关历史默认
 /// false 改为开启,存量配置文件里显式落的 false 一并刷为 true(开发阶段统一
-/// 开箱即用)。迁移结果(含版本号)落盘,此后用户主动关回不会再次覆盖;
+/// 开箱即用);
+/// v2→v3(2026-09-12):网络质量检测默认改为关闭(省电),存量一并刷为 false。
+/// 迁移结果(含版本号)落盘,此后用户主动改回不会再次覆盖;
 /// 落盘失败静默:下次读盘重迁,幂等。
 async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Settings) {
-    let migrated = s.config_schema_version < 2;
+    let migrated = s.config_schema_version < 3;
     if s.config_schema_version < 1 && s.background_check_interval == 15_000 {
         s.background_check_interval = 60_000;
     }
@@ -230,7 +236,10 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
         s.enable_network_name_check = true;
         s.skip_ttfb_in_latency = true;
         s.skip_content_in_latency = true;
-        s.config_schema_version = 2;
+        if s.config_schema_version < 3 {
+            s.enable_network_quality = false;
+        }
+        s.config_schema_version = 3;
         let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
     }
 }
@@ -433,10 +442,11 @@ mod tests {
         assert_eq!(s.required_network_name, "i-wxxy");
         assert_eq!(s.theme_mode, "dark");
         assert_eq!(s.background_check_interval, 60_000);
-        assert_eq!(s.config_schema_version, 2, "新装即当前版本,不触发迁移");
+        assert_eq!(s.config_schema_version, 3, "新装即当前版本,不触发迁移");
         assert_eq!(s.max_disconnect_reconnect, 3);
         assert!(s.self_hello_enabled);
-        assert!(s.enable_network_quality);
+        // 2026-09-12 起默认关闭(省电),质量页由后台检测状态代替展示
+        assert!(!s.enable_network_quality);
         // 2026-09-10 起开箱即用:自动化登录/检测、网络验证、质量跳过项默认开启
         assert!(s.auto_login_on_start);
         assert!(s.enable_background_check);
@@ -452,10 +462,11 @@ mod tests {
     async fn 迁移_旧默认15s升60s且落盘后用户值不被覆盖() {
         let dir = tmp_dir("migrate");
         let bridge = fake_bridge();
-        // 构造 v0 旧配置:15s 间隔(历史默认值)+ 历史默认关闭的自动化/验证开关
+        // 构造 v0 旧配置:15s 间隔(历史默认值)+ 历史默认开启的质量检测 + 历史默认关闭的自动化/验证开关
         let mut old = sample_settings();
         old.config_schema_version = 0;
         old.background_check_interval = 15_000;
+        old.enable_network_quality = true;
         old.auto_login_on_start = false;
         old.enable_background_check = false;
         old.auto_login_on_preparation = false;
@@ -471,15 +482,18 @@ mod tests {
         assert!(back.enable_network_name_check);
         assert!(back.skip_ttfb_in_latency);
         assert!(back.skip_content_in_latency);
-        assert_eq!(back.config_schema_version, 2);
-        // 迁移已落盘:此后用户主动设回 15s/关开关是明确意图,不再被覆盖
+        assert!(!back.enable_network_quality, "v3 迁移应关闭质量检测");
+        assert_eq!(back.config_schema_version, 3);
+        // 迁移已落盘:此后用户主动设回 15s/开质量检测是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.background_check_interval = 15_000;
         manual.auto_login_on_start = false;
+        manual.enable_network_quality = true;
         save_to(&dir, &bridge, &manual).await.unwrap();
         let back2 = load_from(&dir, &bridge).await.unwrap();
-        assert_eq!(back2.background_check_interval, 15_000, "v2 配置不再迁移间隔");
-        assert!(!back2.auto_login_on_start, "v2 配置下用户主动关闭不被覆盖");
+        assert_eq!(back2.background_check_interval, 15_000, "v3 配置不再迁移间隔");
+        assert!(!back2.auto_login_on_start, "迁移后用户主动关闭不被覆盖");
+        assert!(back2.enable_network_quality, "迁移后用户主动开启质量检测不被覆盖");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -493,7 +507,7 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 30_000, "非旧默认值不迁移");
-        assert_eq!(back.config_schema_version, 2);
+        assert_eq!(back.config_schema_version, 3);
         std::fs::remove_dir_all(&dir).ok();
     }
 
