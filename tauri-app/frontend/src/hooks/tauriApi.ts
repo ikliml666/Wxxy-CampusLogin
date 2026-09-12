@@ -90,6 +90,7 @@ interface TauriApi {
   getMirrorUrls: (githubUrl: string) => Promise<MirrorSource[]>
   onDownloadProgress: (cb: (data: DownloadProgress) => void) => () => void
   onUpdateAvailable: (cb: (data: UpdateAvailableData) => void) => () => void
+  onUpdateNotificationClick: (cb: (data: unknown) => void) => () => void
   checkDnsDohStatus: () => Promise<DnsDohStatus>
   setupDnsDoh: (family?: 'ipv4' | 'ipv6' | 'both') => Promise<DnsSetupResult>
   renderHeartbeat: () => Promise<{ online: boolean; checking: boolean }>
@@ -212,6 +213,7 @@ const tauriApi: TauriApi = {
   getMirrorUrls: (githubUrl) => invoke<MirrorSource[]>('get_mirror_urls', { githubUrl }),
   onDownloadProgress: createEventListener<DownloadProgress>('update-download-progress'),
   onUpdateAvailable: createEventListener<UpdateAvailableData>('update-available'),
+  onUpdateNotificationClick: createEventListener<unknown>('update-notification-click'),
   checkDnsDohStatus: () => invoke<DnsDohStatus>('check_dns_doh_status'),
   setupDnsDoh: (family) => invoke<DnsSetupResult>('setup_dns_doh', { family }),
   renderHeartbeat: () => invoke<{ online: boolean; checking: boolean }>('render_heartbeat'),

@@ -26,6 +26,7 @@ import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
 import { LogPanel } from '@/shared/LogPanel'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { UpdateAvailableDialog } from '@/shared/UpdateAvailableDialog'
 import { SponsorCard } from '@/shared/SponsorCard'
 import type { PanelName } from '@/shared'
 import { TitleBar } from '@/components/layout/TitleBar'
@@ -316,6 +317,8 @@ function TabletShellInner() {
           }}
         />
       </Suspense>
+
+      <UpdateAvailableDialog onGoUpdate={() => setAboutOpen(true)} />
 
       <Suspense fallback={null}>
         <ThemeDialog

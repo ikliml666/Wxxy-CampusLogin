@@ -14,3 +14,5 @@ pub mod gpu;
 pub mod helper_spawn;
 #[cfg(desktop)]
 pub mod identity;
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod toast;

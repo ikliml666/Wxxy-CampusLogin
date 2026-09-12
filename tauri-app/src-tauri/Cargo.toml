@@ -69,6 +69,9 @@ windows = { version = "0.58", features = [
     "Win32_System_Variant",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Dxgi",
+    "Foundation",
+    "Data_Xml_Dom",
+    "UI_Notifications",
 ] }
 
 [profile.release]

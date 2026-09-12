@@ -54,6 +54,11 @@ impl<'a> EventBus<'a> {
         }))
     }
 
+    /// 系统通知点击跳转关于界面事件（platform/toast.rs 的 WinRT Activated 回调发出）
+    pub fn emit_update_notification_click(&self) -> Result<(), String> {
+        self.emit("update-notification-click", serde_json::json!({}))
+    }
+
     /// 适配器详情变更事件
     pub fn emit_adapter_details_changed<S: Serialize + Clone>(&self, details: S) -> Result<(), String> {
         self.emit("adapter-details-changed", details)

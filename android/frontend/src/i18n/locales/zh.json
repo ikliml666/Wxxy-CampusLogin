@@ -624,6 +624,12 @@
     "bindFailed": "绑定失败",
     "bindSkipHint": "已绑定过运营商账号？直接点击\"下一步\"跳过"
   },
+  "updatePrompt": {
+    "title": "发现新版本 v{{version}}",
+    "body": "新版本已发布，立即前往关于界面下载更新。",
+    "go": "立即前往更新",
+    "later": "关闭"
+  },
   "about": {
     "aboutTitle": "关于",
     "aboutDesc": "查看应用信息和检查更新",
