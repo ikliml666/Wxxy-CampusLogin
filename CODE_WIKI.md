@@ -62,7 +62,7 @@ Wxxy-CampusLogin/
 │           ├── monitor/             # 后台巡检: watcher 门面 + background_check/background_task/auto_auth/latency/adapter_watch 等 10 子模块
 │           ├── config/              # model(40字段)/persist(原子写+账号+历史)/validate(校验+迁移)
 │           ├── infra/               # state/(ConfigStore/NetworkState/ExitStateStore) + logger/events/task_manager/lifecycle/notification/async_util
-│           ├── platform/            # Windows 交互: dns_config/elevation/gpu/identity/autostart/helper_spawn/console_output
+│           ├── platform/            # Windows 交互: dns_config/elevation/gpu/identity/autostart/helper_spawn/console_output/toast(更新提醒 WinRT toast)
 │           ├── account/             # crypto.rs (Windows DPAPI)
 │           ├── self_service/        # Dr.COM Self 自助服务协议
 │           └── helper/ update/      # --helper 提权子进程；更新检查/下载/SHA256 校验
@@ -364,6 +364,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 - **2026-09-08 安卓常驻通知走标准安卓协议，不做厂商私有 extras**：ongoing + Chronometer + CATEGORY_SERVICE 即 promoted ongoing 特征——厂商岛态由 ROM 决定，用户侧需开"实时通知提升"类权限（已知体验边界，统一行为优先于逐厂商适配）。
 - **2026-09-09 安卓后台检测间隔默认 15s→60s + schema 版本迁移机制**：稳态周期任务 15s 空转耗电——引入 `config_schema_version` 做一次性默认值迁移（迁移落盘后用户显式设回不再覆盖），后续默认值变更沿用该机制。
 - **2026-09-11 注销协议改为 Radius 注销先行、成功即止，MAC 解绑收尾**：实测证实 unbind 不踢在线会话、连发无增益，"注销后打不开登录页"属间歇性服务端/环境异常（23 次注销 0 僵尸）——主流实现（cqu-net-auth/eptools/Meirs）均"一次到位绝不连发"，先 logout 后 unbind 保持防御性正确（详见 §4.5.4）。
+- **2026-09-12 更新提醒分端定制：桌面 WinRT 自写 toast + 安卓应用内弹窗**：tauri-plugin-notification 桌面端（notify-rust）不暴露 Activated 回调、Windows 无通知点击自定义能力，桌面"点击通知跳关于界面"只能经 windows crate 自组 toast XML（AUMID 借 PowerShell 同款，与既有通知同源；失败降级普通通知）；安卓提醒链路原本只有日志+版本角标，补 `UpdateAvailableDialog` 应用内弹窗（双壳挂载）。
 - **（早期重构）删除 auth 层 trait 抽象（AdapterResolver/PortalChecker/ProtocolClient）**：单实现 trait + mock 属无意义抽象——直接调自由函数，测试用真函数。
 - **（设计）版本号 build.rs 单权威源注入**：应用内多处版本号引用手改必漏（已发生事故）——`tauri.conf.json` 唯一编辑点，编译期 `env!("APP_VERSION")` 同步，见附录 H。
 
@@ -1318,7 +1319,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 **system.rs** — 系统功能命令，`get_init_data` 复用 `persist::list_account_names()` 获取账号列表，返回字段含 `gpuInfo`/`refreshRate`；登录历史记录 `append_login_history()`（最多100条）定义于 `config/persist.rs`，由 `auth/session.rs` 与 `monitor/auto_auth.rs` 调用
 
-**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验和全 4xx 缺失时**默认拒绝安装**（需 `skipSha256WhenMissing`，无前端开关；5xx/传输错误/哈希不匹配一律拒绝），MSI 安装使用 `raw_arg` 支持含空格路径；`get_mirror_urls` 镜像 URL **原样拼接不做百分号编码**（2026-09-03：gh-proxy.com 对整体编码形式返回 403，与 updater.rs 的 sha256 镜像拼接方式保持一致）
+**updater.rs** — 更新命令 (委托 `update/updater.rs`)，SHA256 校验和全 4xx 缺失时**默认拒绝安装**（需 `skipSha256WhenMissing`，无前端开关；5xx/传输错误/哈希不匹配一律拒绝），MSI 安装使用 `raw_arg` 支持含空格路径；`get_mirror_urls` 镜像 URL **原样拼接不做百分号编码**（2026-09-03：gh-proxy.com 对整体编码形式返回 403，与 updater.rs 的 sha256 镜像拼接方式保持一致）；自动检查循环发现新版本时走 `platform/toast.rs::show_update_toast`（带点击回调的 WinRT toast，点击唤起主窗口并 emit `update-notification-click`，前端打开关于界面；失败降级普通 `emit_notification`）
 
 ### 4.15 提权辅助子进程 — `helper/` (--helper 模式)
 
@@ -1730,7 +1731,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 **移动适配要点**:
 - **导航**: `BottomNav`（MobileTab 底部导航）替代桌面 DockNav；桌面件不渲染——TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/SponsorCard（见 App.tsx 头部注释）。新手向导不共用桌面 Dialog 版本，改用手机专属全屏版 `OnboardingWizardMobile`（见 §5.14.2）
 - **生物识别**: 新增 `@tauri-apps/plugin-biometric`（BiometricPrompt，兜底锁屏凭据）对应桌面 Windows Hello；验证成功调 `verify_biometric_identity` 写后端 TTL
-- **关于对话框**: `AboutDialogMobile.tsx` 移动版
+- **关于对话框**: `AboutDialogMobile.tsx` 移动版；更新检查循环发现新版本时由 `UpdateAvailableDialog`（shared/，手机 App.tsx 与平板 TabletShell 双壳挂载）弹窗提醒，含「立即前往更新」（跳转关于界面）与「关闭」按钮，状态 `qualityStore.updatePromptOpen`
 - **tauri.conf.json**: identifier `com.campuslogin.client`、窗口 400×800（移动竖屏）、`bundle.android.minSdkVersion` 29（Android 10+）、devUrl 5174
 
 ### 5.14.1 平板/手机双外壳 — 平板/手机形态区分 (2026-09-10)
@@ -1846,6 +1847,7 @@ shadcn/ui 风格的基础组件，被各面板广泛引用：
 | `auto-exit-cancelled` | 自动退出已取消 |
 | `update-available` | 更新可用 |
 | `update-download-progress` | 下载进度 |
+| `update-notification-click` | 更新系统通知被点击（platform/toast.rs WinRT Activated 回调发出，仅桌面） |
 | `adapter-details-changed` | 适配器详情变更 |
 | `campus-exit-countdown` | 校园网退出倒计时 |
 | `campus-exit-cancelled` | 校园网退出已取消 |

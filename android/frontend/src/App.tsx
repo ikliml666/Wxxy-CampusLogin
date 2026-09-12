@@ -23,6 +23,7 @@ import { SponsorCard } from '@/shared/SponsorCard'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { UpdateAvailableDialog } from '@/shared/UpdateAvailableDialog'
 import { useTranslation } from 'react-i18next'
 import { BottomNav, type MobileTab } from '@/components/layout/BottomNav'
 import { MobileDashboard } from '@/components/mobile/MobileDashboard'
@@ -231,6 +232,8 @@ function AppInner() {
           }}
         />
       </Suspense>
+
+      <UpdateAvailableDialog onGoUpdate={() => setAboutOpen(true)} />
 
       <Suspense fallback={null}>
         <ThemeDialog

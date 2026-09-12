@@ -319,7 +319,15 @@ async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) {
                 crate::log_warn!("updater", "发送更新通知失败: {}", e);
             }
             if info.has_update && state.update_stats.update_notified.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                emit_notification(app_h, "发现新版本", &format!("新版本 v{} 可用，请在关于页面查看", info.latest_version));
+                let body = format!("新版本 v{} 可用，前往关于界面进行更新", info.latest_version);
+                // Windows 走带点击回调的 WinRT toast（点击通知跳转关于界面），失败降级普通系统通知
+                #[cfg(all(desktop, target_os = "windows"))]
+                if let Err(e) = crate::platform::toast::show_update_toast(app_h, &info.latest_version) {
+                    crate::log_warn!("updater", "更新 toast 发送失败，降级普通通知: {}", e);
+                    emit_notification(app_h, "发现新版本", &body);
+                }
+                #[cfg(not(all(desktop, target_os = "windows")))]
+                emit_notification(app_h, "发现新版本", &body);
             }
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

@@ -28,6 +28,8 @@ interface QualityStore {
   updateAvailable: boolean
   latestVersion: string
   releaseNotes: string
+  // 发现新版本弹窗是否可见：收到 update-available(hasUpdate) 时置 true，用户关闭/前往后置 false
+  updatePromptOpen: boolean
   gpuInfo: GpuInfo | null
   refreshRate: number
   refreshQuality: () => Promise<void>
@@ -37,6 +39,7 @@ interface QualityStore {
   setUpdateAvailable: (v: boolean) => void
   setLatestVersion: (v: string) => void
   setReleaseNotes: (v: string) => void
+  setUpdatePromptOpen: (v: boolean) => void
   setGpuInfo: (info: GpuInfo) => void
 }
 
@@ -48,6 +51,7 @@ export const useQualityStore = create<QualityStore>((set, get) => ({
   updateAvailable: false,
   latestVersion: '',
   releaseNotes: '',
+  updatePromptOpen: false,
   gpuInfo: null,
   refreshRate: 0,
 
@@ -85,6 +89,7 @@ export const useQualityStore = create<QualityStore>((set, get) => ({
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
   setLatestVersion: (v) => set({ latestVersion: v }),
   setReleaseNotes: (v) => set({ releaseNotes: v }),
+  setUpdatePromptOpen: (v) => set({ updatePromptOpen: v }),
 
   setGpuInfo: (info) => set({ gpuInfo: info }),
 }))

@@ -189,6 +189,12 @@ function AppInner() {
     return () => { unlisten.then(fn => fn()).catch((e) => { if (import.meta.env.DEV) console.error(e) }); useLogToastStore.getState().cleanupToasts() }
   }, [])
 
+  // 系统通知"发现新版本"被点击（后端 WinRT toast Activated 回调发事件）→ 打开关于界面
+  useEffect(() => {
+    const unlisten = api.onUpdateNotificationClick?.(() => setAboutOpen(true))
+    return () => { unlisten?.() }
+  }, [api])
+
   useEffect(() => {
     const done = safeStorage.get('campus-onboarding-done')
     if (!done && !configUser) {

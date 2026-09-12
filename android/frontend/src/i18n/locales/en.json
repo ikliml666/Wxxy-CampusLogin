@@ -624,6 +624,12 @@
     "bindFailed": "Bind failed",
     "bindSkipHint": "Already bound? Click \"Next\" to skip"
   },
+  "updatePrompt": {
+    "title": "New version v{{version}} available",
+    "body": "A new version has been released. Go to About to download the update.",
+    "go": "Update Now",
+    "later": "Close"
+  },
   "about": {
     "aboutTitle": "About",
     "aboutDesc": "View app information and check for updates",
