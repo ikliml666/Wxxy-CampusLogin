@@ -28,6 +28,23 @@ pub struct MonitorState {
     pub desired_interval_ms: AtomicU64,
     /// 注销保护期截止(epoch ms):手动注销后一段时间内不自动重登,登录成功清零
     pub logout_protected_until_ms: AtomicU64,
+    /// 最近一次 WiFi 变化事件的 epoch ms:去抖与"风暴内最后事件生效"判定
+    pub wifi_event_ms: AtomicU64,
+}
+
+/// WiFi 事件触发检测的延迟:连上瞬间 DHCP/路由往往未就绪,立即探测必失败;
+/// 延迟等网络稳定再跑,同时充当"事件风暴合并窗口"(连上 WiFi 会连发
+/// onAvailable + onCapabilitiesChanged 等多条事件,窗口内最后一条生效)
+const WIFI_EVENT_DELAY_MS: u64 = 2500;
+
+/// WiFi 事件去抖窗口:距上次事件不足该值视为同一次风暴的后续事件,不再重复安排
+const WIFI_EVENT_DEBOUNCE_MS: u64 = 1000;
+
+/// WiFi 事件是否为一次风暴的起点(应安排一次检测)。纯函数,单测锁定:
+/// 首事件(last=0)或距上次事件 >= 去抖窗口 → 起点;窗口内 → 后续事件,
+/// 由已安排的任务执行(风暴内只跑一次)
+fn wifi_event_is_burst_start(last_event_ms: u64, now_ms: u64, debounce_ms: u64) -> bool {
+    last_event_ms == 0 || now_ms.saturating_sub(last_event_ms) >= debounce_ms
 }
 
 /// 本 tick 是否应尝试登录(纯函数,全量条件显式入参)
@@ -142,6 +159,10 @@ pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json:
     }
     MONITOR.running.store(true, Ordering::Relaxed);
 
+    // WiFi 变化监听随后台检测起停:变化事件即时触发一次完整检测(不等下一拍)
+    #[cfg(mobile)]
+    start_wifi_watcher(&app);
+
     tauri::async_runtime::spawn(monitor_tick_loop(app.clone(), want));
     emit_login_log(&app, "后台监控已启动", "info");
     Ok(serde_json::json!({ "isRunning": true }))
@@ -150,6 +171,7 @@ pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json:
 #[tauri::command]
 pub async fn stop_background_check(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     MONITOR.running.store(false, Ordering::Relaxed);
+    stop_wifi_watcher(&app);
     #[cfg(mobile)]
     {
         use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
@@ -157,6 +179,90 @@ pub async fn stop_background_check(app: tauri::AppHandle) -> Result<serde_json::
     }
     emit_login_log(&app, "后台监控已停止", "info");
     Ok(serde_json::json!({ "isRunning": false }))
+}
+
+/// WiFi 变化监听的注册 channel id:注销 removeListener 需要
+#[cfg(mobile)]
+static WIFI_WATCHER_CHANNEL_ID: AtomicU32 = AtomicU32::new(0);
+#[cfg(mobile)]
+static WIFI_WATCHER_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// 注册 WiFi 变化监听(Kotlin NetworkCallback → channel 事件):随后台检测开关
+/// 起停——start_background_check 成功后调用;失败只记日志,退化为纯周期检测
+#[cfg(mobile)]
+pub(crate) fn start_wifi_watcher(app: &tauri::AppHandle) {
+    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+
+    let app_h = app.clone();
+    let channel = tauri::ipc::Channel::<serde_json::Value>::new(move |body| {
+        handle_wifi_event(app_h.clone(), body)
+    });
+    let id = channel.id();
+    match app.campus_network_bind().start_wifi_watcher(channel) {
+        Ok(_) => {
+            WIFI_WATCHER_CHANNEL_ID.store(id, Ordering::Relaxed);
+            WIFI_WATCHER_ACTIVE.store(true, Ordering::Relaxed);
+            campus_login_lib::log_info!("monitor", "WiFi 变化监听已启动(WiFi 变化即时触发检测)");
+        }
+        Err(e) => {
+            campus_login_lib::log_warn!("monitor", "WiFi 变化监听启动失败,退化为纯周期检测: {e}")
+        }
+    }
+}
+
+/// 注销 WiFi 变化监听(随 stop_background_check 调用)
+#[cfg(mobile)]
+pub(crate) fn stop_wifi_watcher(app: &tauri::AppHandle) {
+    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+
+    if !WIFI_WATCHER_ACTIVE.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    let id = WIFI_WATCHER_CHANNEL_ID.load(Ordering::Relaxed);
+    if let Err(e) = app.campus_network_bind().stop_wifi_watcher(id) {
+        campus_login_lib::log_warn!("monitor", "WiFi 变化监听注销失败: {e}");
+    } else {
+        campus_login_lib::log_info!("monitor", "WiFi 变化监听已停止");
+    }
+}
+
+/// WiFi 变化事件处理:去抖 + 延迟后执行一次完整检测(run_check_once)。
+/// channel 消息体为 {"event": "available|lost|validated|unvalidated"}
+#[cfg(mobile)]
+fn handle_wifi_event(
+    app: tauri::AppHandle,
+    body: tauri::ipc::InvokeResponseBody,
+) -> tauri::Result<()> {
+    // 事件只在后台监控运行时有意义(watcher 生命周期与其绑定,此处兜底防竞态)
+    if !is_running() {
+        return Ok(());
+    }
+    let event = body
+        .deserialize::<serde_json::Value>()
+        .ok()
+        .and_then(|v| v["event"].as_str().map(str::to_string));
+    let Some(event) = event else {
+        return Ok(());
+    };
+    let now = epoch_ms();
+    if !wifi_event_is_burst_start(
+        MONITOR.wifi_event_ms.load(Ordering::Relaxed),
+        now,
+        WIFI_EVENT_DEBOUNCE_MS,
+    ) {
+        return Ok(());
+    }
+    MONITOR.wifi_event_ms.store(now, Ordering::Relaxed);
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(WIFI_EVENT_DELAY_MS)).await;
+        // 风暴内更新的起点已覆盖时间戳:本任务过期自杀,由最后安排的任务执行
+        if MONITOR.wifi_event_ms.load(Ordering::Relaxed) != now {
+            return;
+        }
+        campus_login_lib::log_info!("monitor", "检测到 WiFi 变化({event}),立即执行网络状态检测");
+        run_check_once(&app).await;
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -627,5 +733,22 @@ mod tests {
     #[test]
     fn cooldown_为零_立即重试() {
         assert!(should_attempt_login(false, true, true, true, 0, 3, 0, 0));
+    }
+
+    #[test]
+    fn wifi事件_首事件与窗口外为起点_窗口内不算() {
+        assert!(wifi_event_is_burst_start(0, 1_000_000, WIFI_EVENT_DEBOUNCE_MS));
+        // 距上次事件 >= 去抖窗口 → 新风暴起点
+        assert!(wifi_event_is_burst_start(
+            1_000_000,
+            1_000_000 + WIFI_EVENT_DEBOUNCE_MS,
+            WIFI_EVENT_DEBOUNCE_MS
+        ));
+        // 窗口内的后续事件(同一次连上 WiFi 的连发)不安排新检测
+        assert!(!wifi_event_is_burst_start(
+            1_000_000,
+            1_000_000 + WIFI_EVENT_DEBOUNCE_MS - 1,
+            WIFI_EVENT_DEBOUNCE_MS
+        ));
     }
 }

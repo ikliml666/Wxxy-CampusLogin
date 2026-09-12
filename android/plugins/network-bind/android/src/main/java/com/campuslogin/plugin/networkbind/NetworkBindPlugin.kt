@@ -286,6 +286,75 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         false
     }
 
+    /** WiFi 变化监听回调：startWifiWatcher 注册，stopWifiWatcher 注销 */
+    private var watcherCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** 同一 WiFi 上 NET_CAPABILITY_VALIDATED 的上次值；null = 未知（断开/未见过回调） */
+    private var lastValidated: Boolean? = null
+
+    /** WiFi 变化事件 → listener channel（Rust 侧经基类 registerListener 建立） */
+    private fun emitWifiEvent(event: String) {
+        val payload = JSObject()
+        payload.put("event", event)
+        trigger("wifiChanged", payload)
+    }
+
+    /**
+     * 注册 WiFi 变化监听（幂等）：WiFi 连上/断开上报，同一 WiFi 上
+     * NET_CAPABILITY_VALIDATED 翻转（校园网认证前后）也上报。
+     * 不取 SSID（免 ACCESS_FINE_LOCATION），WiFi 切换以新网络 onAvailable 体现。
+     */
+    @Command
+    fun startWifiWatcher(invoke: Invoke) {
+        if (watcherCallback != null) {
+            invoke.resolve()
+            return
+        }
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                emitWifiEvent("available")
+            }
+
+            override fun onLost(network: Network) {
+                lastValidated = null
+                emitWifiEvent("lost")
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                // 该回调高频触发（信号强度、带宽变化等），只在 VALIDATED 翻转时上报；
+                // 首次只记录（连上瞬间 onAvailable 已发过）
+                if (lastValidated != null && validated != lastValidated) {
+                    emitWifiEvent(if (validated) "validated" else "unvalidated")
+                }
+                lastValidated = validated
+            }
+        }
+        try {
+            cm.registerNetworkCallback(request, callback)
+            watcherCallback = callback
+            invoke.resolve()
+        } catch (e: Exception) {
+            invoke.reject("register_network_callback_failed: ${e.javaClass.simpleName}:${e.message ?: ""}")
+        }
+    }
+
+    @Command
+    fun stopWifiWatcher(invoke: Invoke) {
+        watcherCallback?.let {
+            try {
+                cm.unregisterNetworkCallback(it)
+            } catch (_: Exception) {
+            }
+        }
+        watcherCallback = null
+        lastValidated = null
+        invoke.resolve()
+    }
+
     companion object {
         /** requestNetwork 的超时（毫秒）：网络不可用时走 onUnavailable，避免调用方无限等待 */
         private const val REQUEST_TIMEOUT_MS = 3000
