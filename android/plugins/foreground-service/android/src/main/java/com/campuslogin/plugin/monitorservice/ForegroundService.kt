@@ -27,6 +27,14 @@ class ForegroundService : Service() {
         const val ACTION_UPDATE = "com.campuslogin.plugin.monitorservice.UPDATE"
         const val ACTION_STOP = "com.campuslogin.plugin.monitorservice.STOP"
 
+        /**
+         * nudge 唤醒锁最小间隔:onCapabilitiesChanged 在 WiFi 信号/带宽波动时
+         * 高频连发(弱信号环境可达每秒多条),每次都 acquire 3s 唤醒锁会反复
+         * 抑制系统 suspend。窗口内的事件不补锁——真正的检测触发在 Rust 侧
+         * watcher(自带 2.5s 延迟 + 1s 去抖)与周期 tick,及时性不受影响。
+         */
+        const val NUDGE_THROTTLE_MS = 5000L
+
         @Volatile
         var isRunning: Boolean = false
             private set
@@ -95,7 +103,11 @@ class ForegroundService : Service() {
         val cm = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val pm = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
         val callback = object : ConnectivityManager.NetworkCallback() {
+            private var lastNudgeMs = 0L
             private fun nudge() {
+                val now = System.currentTimeMillis()
+                if (now - lastNudgeMs < NUDGE_THROTTLE_MS) return
+                lastNudgeMs = now
                 wakeLock?.release()
                 wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "campus:nudge").apply {
                     setReferenceCounted(false)

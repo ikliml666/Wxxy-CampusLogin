@@ -366,6 +366,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 - **2026-09-09 安卓后台检测间隔默认 15s→60s + schema 版本迁移机制**：稳态周期任务 15s 空转耗电——引入 `config_schema_version` 做一次性默认值迁移（迁移落盘后用户显式设回不再覆盖），后续默认值变更沿用该机制。
 - **2026-09-11 注销协议改为 Radius 注销先行、成功即止，MAC 解绑收尾**：实测证实 unbind 不踢在线会话、连发无增益，"注销后打不开登录页"属间歇性服务端/环境异常（23 次注销 0 僵尸）——主流实现（cqu-net-auth/eptools/Meirs）均"一次到位绝不连发"，先 logout 后 unbind 保持防御性正确（详见 §4.5.4）。
 - **2026-09-12 更新提醒分端定制：桌面 WinRT 自写 toast + 安卓应用内弹窗**：tauri-plugin-notification 桌面端（notify-rust）不暴露 Activated 回调、Windows 无通知点击自定义能力，桌面"点击通知跳关于界面"只能经 windows crate 自组 toast XML（AUMID 借 PowerShell 同款，与既有通知同源；失败降级普通通知）；安卓提醒链路原本只有日志+版本角标，补 `UpdateAvailableDialog` 应用内弹窗（双壳挂载）。
+- **2026-09-12 安卓省电调研定调：巡检架构维持"Kotlin FGS 保活 + Rust tokio 循环"，省电做在细节**：Tauri 官方口径（tauri-apps discussion #14615）后台常驻只能靠前台服务且 WebView/后端进程随时可被杀——本项目 FGS specialUse 类型（非 dataSync，无 6h/24h 上限）+ START_STICKY + 服务死即循环死的架构已被官方口径验证为正确，勿迁移 WorkManager（最小周期 15min 覆盖不了 60s 检测）。省电优化落在：①服务侧 NetworkCallback nudge 唤醒锁 5s 节流（onCapabilitiesChanged 高频连发每次持 3s 锁抑制 suspend）；②常驻通知仅在线状态翻转时 notify（原每拍重建，文案不再带逐拍检测次数）。未实施备查：质量循环稳态退避（12+ 外网目标/60s 为最大功耗主力）、WifiLock FULL_HIGH_PERF 降级、电池白名单入口。保活对抗类手法（无声音乐/1px Activity/双进程）明确不用——解决"不被杀"却增加耗电，与目标相反。
 - **（早期重构）删除 auth 层 trait 抽象（AdapterResolver/PortalChecker/ProtocolClient）**：单实现 trait + mock 属无意义抽象——直接调自由函数，测试用真函数。
 - **（设计）版本号 build.rs 单权威源注入**：应用内多处版本号引用手改必漏（已发生事故）——`tauri.conf.json` 唯一编辑点，编译期 `env!("APP_VERSION")` 同步，见附录 H。
 

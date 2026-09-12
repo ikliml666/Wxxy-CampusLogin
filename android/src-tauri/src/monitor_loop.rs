@@ -4,7 +4,7 @@
 
 use chrono::Timelike;
 use lazy_static::lazy_static;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -30,6 +30,10 @@ pub struct MonitorState {
     pub logout_protected_until_ms: AtomicU64,
     /// 最近一次 WiFi 变化事件的 epoch ms:去抖与"风暴内最后事件生效"判定
     pub wifi_event_ms: AtomicU64,
+    /// 常驻通知已展示的在线状态(0=未展示,1=在线,2=未连接):仅状态翻转时才
+    /// notify 重建通知——每拍重建常驻通知是稳态功耗点(60s 一拍 IPC + notify),
+    /// 文案不再携带逐拍递增的检测次数(检测次数前端状态页有)
+    pub notified_online: AtomicU8,
 }
 
 /// WiFi 事件触发检测的延迟:连上瞬间 DHCP/路由往往未就绪,立即探测必失败;
@@ -158,6 +162,8 @@ pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json:
         let _ = service.set_boot_autostart(settings.enable_boot_autostart);
     }
     MONITOR.running.store(true, Ordering::Relaxed);
+    // 重置通知状态记忆:服务通知刚以"校园网监控运行中"重建,首拍需刷新为实时状态
+    MONITOR.notified_online.store(0, Ordering::Relaxed);
 
     // WiFi 变化监听随后台检测起停:变化事件即时触发一次完整检测(不等下一拍)
     #[cfg(mobile)]
@@ -681,15 +687,18 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     use tauri::Emitter;
     let _ = app.emit("background-check-result", payload);
 
-    // 常驻通知同步实时状态(仅更新文案,Chronometer 起点由服务侧固定,时长不被打断)
+    // 常驻通知同步实时状态:仅在线状态翻转时 notify(Chronometer 起点由服务侧
+    // 固定,时长不被打断)。每拍重建是稳态功耗点,2026-09-12 调研后改为按需更新
     #[cfg(mobile)]
     {
         use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        let count = MONITOR.check_count.load(Ordering::Relaxed);
-        let state = if online { "在线" } else { "未连接" };
-        let _ = app
-            .campus_monitor_service()
-            .update_notification(&format!("监控运行中 · {state} · 已检测 {count} 次"));
+        let state_code = if online { 1u8 } else { 2 };
+        if MONITOR.notified_online.swap(state_code, Ordering::Relaxed) != state_code {
+            let state = if online { "在线" } else { "未连接" };
+            let _ = app
+                .campus_monitor_service()
+                .update_notification(&format!("监控运行中 · {state}"));
+        }
     }
 }
 
