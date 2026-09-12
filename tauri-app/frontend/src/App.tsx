@@ -80,6 +80,23 @@ const SPONSOR_SHOW_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 // -right-1.5 的删除按钮越出 6px 被裁掉右缘（实测裁剪线=panel-content 右缘）
 const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style', willChange: 'transform', transform: 'translateZ(0)' }
 
+// 侧边看板娘图池:按本地日期做种子每日随机,同日固定、左右不重复
+const SIDE_MASCOT_POOL = [
+  'side-wave', 'side-laptop', 'side-phone', 'side-mug', 'side-music', 'side-heart',
+  'side-stretch', 'side-book', 'side-game', 'side-plant', 'side-victory',
+  'side-snack', 'side-umbrella', 'side-think',
+] as const
+
+function pickDailySideMascots(dayKey: string): [string, string] {
+  // 按天序号轮转:14×13=182 种有序组合,连续 182 天不重样后循环
+  const CYCLE = SIDE_MASCOT_POOL.length * (SIDE_MASCOT_POOL.length - 1)
+  const k = ((Math.floor(Date.parse(dayKey) / 86_400_000) % CYCLE) + CYCLE) % CYCLE
+  const pool = [...SIDE_MASCOT_POOL]
+  const left = pool.splice(Math.floor(k / (SIDE_MASCOT_POOL.length - 1)), 1)[0]
+  const right = pool[k % (SIDE_MASCOT_POOL.length - 1)]
+  return [left, right]
+}
+
 // 懒加载面板 chunk 加载期间的轻量骨架，避免切换面板时整块空白
 function PanelSkeleton() {
   return (
@@ -96,6 +113,18 @@ function PanelSkeleton() {
 function AppInner() {
   useAppInit()
   const { t } = useTranslation()
+
+  const [dailySideMascots, setDailySideMascots] = useState(() => pickDailySideMascots(new Date().toDateString()))
+  useEffect(() => {
+    // 应用常驻托盘可能数日不重启:每分钟比对日期,跨天即切换当日组合
+    const timer = setInterval(() => {
+      setDailySideMascots((prev) => {
+        const next = pickDailySideMascots(new Date().toDateString())
+        return next[0] === prev[0] && next[1] === prev[1] ? prev : next
+      })
+    }, 60_000)
+    return () => clearInterval(timer)
+  }, [])
 
   const activePanel = useAdapterStore((s) => s.activePanel)
   // 面板内容低优先级渲染：快速连续切换时 React 并发会跳过中间面板的
@@ -411,9 +440,10 @@ function AppInner() {
       </div>
 
       {/* 侧边看板娘:≥1360px 宽视口两侧垂直居中显示,随页面滚动恒定可见的低透明度装饰,不参与交互。
-          右侧偏移 304px 避让 w-72(288px) 的 RightPanel;1360px 以下无侧边空间,隐藏。 */}
+          右侧偏移 304px 避让 w-72(288px) 的 RightPanel;1360px 以下无侧边空间,隐藏。
+          每日随机:按本地日期做种子从池中选左右各一张(同日固定、左右不重复),跨天轮换。 */}
       <img
-        src="/girl/mascot-side-wave.webp"
+        src={`/girl/mascot-${dailySideMascots[0]}.webp`}
         alt=""
         aria-hidden="true"
         draggable={false}
@@ -421,7 +451,7 @@ function AppInner() {
         className="fixed left-2 top-1/2 -translate-y-1/2 z-0 hidden min-[1360px]:block w-36 opacity-[0.26] dark:opacity-[0.16] select-none pointer-events-none"
       />
       <img
-        src="/girl/mascot-side-laptop.webp"
+        src={`/girl/mascot-${dailySideMascots[1]}.webp`}
         alt=""
         aria-hidden="true"
         draggable={false}
