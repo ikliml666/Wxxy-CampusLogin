@@ -350,9 +350,6 @@
     "timelineNetworkDesc": "应用层处理延迟 — 服务器到客户端的额外传输开销"
   },
   "quality": {
-    "bgOnline": "在线",
-    "bgOffline": "离线",
-    "bgUnknown": "未检测",
     "networkQuality": "网络质量",
     "realtimeLatencyMonitor": "实时网络延迟监测",
     "internalLatency": "内网延迟",

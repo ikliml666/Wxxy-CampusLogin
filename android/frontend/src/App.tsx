@@ -60,8 +60,7 @@ function AppInner() {
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
-  const qualityDisabled = useConfigStore((s) => s.config.enableNetworkQuality) === false
-  const bgOnline = useAuthStore((s) => s.bgStatus.online)
+  const status = useAuthStore((s) => s.status)
   const api = useConfigStore.getState().api
 
   const updateConfig = useConfigStore((s) => s.updateConfig)
@@ -159,29 +158,32 @@ function AppInner() {
       className="relative flex flex-col h-full overflow-hidden font-sans bg-background text-foreground"
       style={{ background: 'var(--surface-main)' }}
     >
-      {/* 顶部轻 header:网络质量胶囊(自带状态点) + 主题/关于入口。
+      {/* 顶部轻 header:状态色点 + 网络质量胶囊(质量开启时,关闭同步隐藏) + 主题/关于入口。
           absolute 覆盖在 main 上方——滚动内容从 header 背后穿过，backdrop-blur 才真正雾化（MD3 top app bar 惯例）。
           上/下各留 12px：与系统状态栏(通知栏)和正文卡片都保持呼吸间距 */}
       <header
         className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 backdrop-blur-md z-10"
         style={{ background: 'color-mix(in srgb, var(--surface-main) 85%, transparent)' }}
       >
-        {/* 应用名移除(用户要求);原位置放桌面版同款网络质量胶囊,点击进质量页看明细 */}
-        <button
-          type="button"
-          aria-label={t('quality.latencyDetails')}
-          onClick={() => handleTabChange(qualityDisabled ? 'monitor' : 'quality')}
-          className="flex-1 min-w-0 flex justify-start active:scale-[0.98] transition-transform"
-        >
-          {qualityDisabled ? (
-            <span className={cn('flex items-center gap-1.5 text-sm font-medium', bgOnline === true && 'text-emerald-500', bgOnline !== true && 'text-muted-foreground')}>
-              <span className={cn('h-2 w-2 rounded-full', bgOnline === true && 'bg-emerald-500', bgOnline === false && 'bg-rose-500', bgOnline !== true && bgOnline !== false && 'bg-zinc-500')} />
-              {bgOnline === true ? t('quality.bgOnline') : bgOnline === false ? t('quality.bgOffline') : t('quality.bgUnknown')}
-            </span>
-          ) : (
-            <NetworkQualityCapsule networkQuality={networkQuality} />
+        <span
+          className={cn(
+            'h-2.5 w-2.5 rounded-full',
+            status?.state === 'online' && 'bg-emerald-500 shadow-[0_0_8px_currentColor] text-emerald-500',
+            status?.state === 'loading' && 'bg-amber-500 text-amber-500 animate-pulse',
+            (status?.state === 'offline' || status?.state === 'error') && 'bg-zinc-500'
           )}
-        </button>
+        />
+        {/* 应用名移除(用户要求);原位置放桌面版同款网络质量胶囊,点击进质量页看明细;质量关闭时同步隐藏 */}
+        {configEnableNetworkQuality !== false && (
+          <button
+            type="button"
+            aria-label={t('quality.latencyDetails')}
+            onClick={() => handleTabChange('quality')}
+            className="flex-1 min-w-0 flex justify-start active:scale-[0.98] transition-transform"
+          >
+            <NetworkQualityCapsule networkQuality={networkQuality} />
+          </button>
+        )}
         <button type="button" aria-label={t('titlebar.sponsor')} onClick={() => setSponsorOpen(true)} className="p-2 text-muted-foreground active:text-rose-500">
           <Heart className="h-5 w-5" />
         </button>

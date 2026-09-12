@@ -350,9 +350,6 @@
     "timelineNetworkDesc": "Application-layer latency — extra transfer overhead from server to client"
   },
   "quality": {
-    "bgOnline": "Online",
-    "bgOffline": "Offline",
-    "bgUnknown": "Not checked",
     "networkQuality": "Network Quality",
     "realtimeLatencyMonitor": "Real-time Network Latency Monitoring",
     "internalLatency": "Internal Latency",
