@@ -382,11 +382,25 @@ async fn portal_probe_on_little_cores(
 ) -> Result<campus_login_lib::auth::portal::PortalStatus, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let ip_for_thread = ip.clone();
+    // 裸线程不在 Tokio runtime 上下文内:check_portal_full 内部经 block_on_sync 驱动的
+    // reqwest,构造超时计时器(tokio::time::sleep → Handle::current)时必须有 reactor
+    // context,缺失即 panic "there is no reactor running"(2026-09-11 真机每拍必现)。
+    // 先在本 async 上下文取 handle,线程内 enter——与桌面 commands/login.rs 的
+    // scope 裸线程同款处理(2026-09-05 注销流程崩溃事故根因);绑小核意图不变。
+    let probe_handle = tokio::runtime::Handle::try_current().ok();
     let spawned = std::thread::Builder::new()
         .name("portal-probe".to_string())
         .spawn(move || {
+            let _guard = probe_handle.as_ref().map(|h| h.enter());
             crate::cpu_affinity::pin_current_thread_to_little_cores();
-            let _ = tx.send(campus_login_lib::auth::portal::check_portal_full(&ip_for_thread, None));
+            // panic 兜底:裸线程 panic 直接 unwind 时 rx.await 只会得到"探测线程提前
+            // 退出",真实原因(reactor context 缺失)就此丢失、每拍静默失败。捕获后
+            // 转为 Err 结果回传,默认 panic hook 仍会把消息打到 logcat。
+            let probed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                campus_login_lib::auth::portal::check_portal_full(&ip_for_thread, None)
+            }));
+            let result = probed.unwrap_or_else(|_| Err("探测线程 panic".to_string()));
+            let _ = tx.send(result);
         });
     match spawned {
         Ok(_) => rx.await.map_err(|e| format!("探测线程提前退出: {e}"))?,
