@@ -451,7 +451,7 @@ function AppInner() {
             if (version) setLatestVersion(version)
             if (notes) setReleaseNotes(notes)
             if (hasUpdate && version) {
-              addToast(t('about.newVersionFound'), 'info', `CampusLogin v${version}`)
+              addToast(t('about.newVersionFound'), 'info', `CampusLogin v${version}`, undefined, 'update')
               useLogToastStore.getState().addLog(t('notify.newVersionFoundLog', { version }), 'info')
             }
           }}
