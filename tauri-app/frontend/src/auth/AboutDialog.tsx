@@ -9,13 +9,13 @@ import {
 import {
   Check, ExternalLink, RefreshCw,
   Download, Globe, Server, Loader2,
-  ChevronDown, ChevronRight, XCircle, Package,
+  ChevronDown, XCircle, Package,
   Zap, Users, Wifi, Sparkles, Heart
 } from'lucide-react'
 import { APP_NAME, APP_VERSION } from'@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
 import { cn, extractErrorMessage } from'@/lib/utils'
-import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from'react'
+import { useState, useCallback, useEffect, useRef, type ReactNode } from'react'
 import { tauriApiWithRetry } from'@/hooks/tauriApi'
 import { useTranslation } from'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -83,7 +83,6 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
   const [installError, setInstallError] = useState('')
   const [downloadedFile, setDownloadedFile] = useState('')
   const [checkError, setCheckError] = useState('')
-  const [showReleaseNotes, setShowReleaseNotes] = useState(false)
   const [showMirrorList, setShowMirrorList] = useState(false)
   const [selectedMirror, setSelectedMirror] = useState<string | null>(null)
   const unlistenRef = useRef<(() => void) | null>(null)
@@ -206,19 +205,34 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     a.name.toLowerCase().endsWith('.exe') || a.name.toLowerCase().endsWith('.msi')
   )
 
-  // 从 release_notes 提取功能亮点（前 5 条列表项）
-  const featureHighlights = useMemo(() => {
-    if (!updateInfo?.releaseNotes) return []
-    const lines = updateInfo.releaseNotes.split('\n')
-    const items: string[] = []
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if ((trimmed.startsWith('-') || trimmed.startsWith('*')) && items.length < 5) {
-        items.push(trimmed.slice(2))
+// releaseNotes 逐行渲染（### 标题 / 列表项 / 表格行 / 段落），更新内容大区域共用
+function renderNotesLines(notes: string): ReactNode[] {
+  return notes.split('\n').map((line, i) => {
+    const trimmed = line.trim()
+    if (!trimmed) return <br key={i} />
+    // 前缀判断必须从长到短（### → ## → #），否则 # 分支拦截所有多级标题且 slice 错位
+    if (trimmed.startsWith('###')) return <h3 key={i} className="break-words">{trimmed.slice(3)}</h3>
+    if (trimmed.startsWith('##')) return <h3 key={i} className="break-words">{trimmed.slice(2)}</h3>
+    if (trimmed.startsWith('#')) return <h3 key={i} className="break-words">{trimmed.slice(1)}</h3>
+    if (trimmed.startsWith('-') || trimmed.startsWith('*')) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.slice(2))}</li>
+    if (/^\d+\.\s/.test(trimmed)) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.replace(/^\d+\.\s*/, ''))}</li>
+    if (trimmed.startsWith('|')) {
+      const cells = trimmed.split('|').filter(c => c.trim())
+      if (cells.length > 1) {
+        const isHeader = trimmed.includes('---')
+        if (isHeader) return null
+        return (
+          <div key={i} className="flex text-[11px] border-b border-border/20 last:border-0 py-0.5 min-w-0">
+            {cells.map((cell, j) => (
+              <span key={j} className={`flex-1 min-w-0 ${j > 0 ? 'border-l border-border/20 pl-2' : ''} truncate`}>{cell.trim()}</span>
+            ))}
+          </div>
+        )
       }
     }
-    return items
-  }, [updateInfo?.releaseNotes])
+    return <p key={i} className="my-1 break-words">{renderInlineMarkdown(trimmed)}</p>
+  })
+}
 
   // 默认 asset URL：优先用检查结果中的真实资产；缓存路径 assets 为空时的兜底文件名
   // 必须与 Release 资产命名一致（Wxxy-CampusLogin_{版本}_x64-setup.exe），否则 404
@@ -330,48 +344,6 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               ) : checkError ? t('about.checkFailedRetry') : t('about.checkUpdate')}
             </Button>
 
-            {/* 更新日志 - 折叠收起（默认闭合） */}
-            {updateInfo?.hasUpdate && updateInfo?.releaseNotes ? (
-              <div className="mt-3">
-                <button
-                  onClick={() => setShowReleaseNotes(!showReleaseNotes)}
-                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
-                >
-                  <ChevronRight className={cn('h-3 w-3 transition-transform', showReleaseNotes &&'rotate-90')} />
-                  {t('about.releaseNotes')}
-                </button>
-                {showReleaseNotes && (
-                  <div className="text-xs text-muted-foreground/80 bg-gray-50 rounded-lg p-3 mt-2 max-h-[180px] overflow-y-auto overflow-x-auto leading-relaxed break-words [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_ul]:space-y-0.5 [&_li]:list-disc [&_li]:ml-4 [&_table]:w-full [&_th]:text-left [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_tr]:border-b [&_tr]:border-border/30 [&_p]:break-words [&_code]:break-all">
-                    {updateInfo.releaseNotes.split('\n').map((line, i) => {
-                      const trimmed = line.trim()
-                      if (!trimmed) return <br key={i} />
-                      // 前缀判断必须从长到短（### → ## → #），否则 # 分支拦截所有多级标题且 slice 错位
-                      if (trimmed.startsWith('###')) return <h3 key={i} className="break-words">{trimmed.slice(3)}</h3>
-                      if (trimmed.startsWith('##')) return <h3 key={i} className="break-words">{trimmed.slice(2)}</h3>
-                      if (trimmed.startsWith('#')) return <h3 key={i} className="break-words">{trimmed.slice(1)}</h3>
-                      if (trimmed.startsWith('-') || trimmed.startsWith('*')) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.slice(2))}</li>
-                      if (/^\d+\.\s/.test(trimmed)) return <li key={i} className="break-words">{renderInlineMarkdown(trimmed.replace(/^\d+\.\s*/,''))}</li>
-                      if (trimmed.startsWith('|')) {
-                        const cells = trimmed.split('|').filter(c => c.trim())
-                        if (cells.length > 1) {
-                          const isHeader = trimmed.includes('---')
-                          if (isHeader) return null
-                          return (
-                            <div key={i} className="flex text-[11px] border-b border-border/20 last:border-0 py-0.5 min-w-0">
-                              {cells.map((cell, j) => (
-                                <span key={j} className={`flex-1 min-w-0 ${j > 0 ?'border-l border-border/20 pl-2' :''} truncate`}>{cell.trim()}</span>
-                              ))}
-                            </div>
-                          )
-                        }
-                      }
-                      return <p key={i} className="my-1 break-words">{renderInlineMarkdown(trimmed)}</p>
-                    })}
-                  </div>
-                )}
-              </div>
-            ) : null}
-
             {/* 底部: 赞助按钮 + GitHub 仓库链接 */}
             <div className="mt-auto pt-4 space-y-3">
               <Button
@@ -480,42 +452,25 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
               </div>
             )}
 
-            {/* ------ idle + 有更新：功能亮点（顶部）+ 下载按钮与镜像（底部） ------ */}
+            {/* ------ idle + 有更新：更新内容（大区域可滚动）+ 下载按钮与镜像（底部） ------ */}
             {downloadState ==='idle' && updateInfo?.hasUpdate && (
               <div className="flex-1 flex flex-col gap-4 min-h-0">
-                {/* 新功能亮点 */}
-                {featureHighlights.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Sparkles className="h-3.5 w-3.5 text-violet-500" />
-                      <span className="text-xs font-semibold text-foreground">{t('about.newFeatureHighlights')}</span>
-                    </div>
-                    <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
-                      {featureHighlights.map((item, i) => (
-                        <div key={i} className="flex items-start gap-2.5 px-3 py-2.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1 shrink-0" />
-                          <span className="text-xs text-muted-foreground leading-relaxed break-words">
-                            {renderInlineMarkdown(item)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                {/* 更新内容：常驻展示 releaseNotes 全文，超出可滚动；无 notes 时不留空白 */}
+                <div className="flex-1 min-h-0 flex flex-col">
+                  <div className="flex items-center gap-1.5 mb-2 shrink-0">
+                    <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+                    <span className="text-xs font-semibold text-foreground">{t('about.releaseNotes')}</span>
                   </div>
-                )}
-
-                {/* 无功能亮点时用核心优势卡片填充 */}
-                {featureHighlights.length === 0 && (
-                  <div>
-                    <div className="grid grid-cols-3 gap-2.5 max-w-[340px]">
-                      {CORE_FEATURES.map((feat) => (
-                        <div key={feat.titleKey} className="bg-white rounded-xl p-2.5 text-center shadow-sm border border-gray-100">
-                          <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
-                          <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
-                        </div>
-                      ))}
+                  {updateInfo.releaseNotes ? (
+                    <div className="flex-1 min-h-0 overflow-y-auto bg-white rounded-xl border border-gray-100 p-3.5 text-xs text-muted-foreground/80 leading-relaxed break-words [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:first:mt-0 [&_ul]:space-y-0.5 [&_li]:list-disc [&_li]:ml-4 [&_table]:w-full [&_th]:text-left [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_tr]:border-b [&_tr]:border-border/30 [&_p]:break-words [&_code]:break-all">
+                      {renderNotesLines(updateInfo.releaseNotes)}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="flex-1 min-h-0 flex items-center justify-center">
+                      <p className="text-sm text-muted-foreground">{t('about.noReleaseNotes')}</p>
+                    </div>
+                  )}
+                </div>
 
                 {/* 一键下载按钮 + 切换下载源入口（固定底部） */}
                 <div className="mt-auto pt-2">
@@ -564,9 +519,9 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                     <ChevronDown className={cn('h-3 w-3 transition-transform', showMirrorList &&'rotate-180')} />
                   </button>
 
-                  {/* 镜像源悬浮下拉面板 */}
+                  {/* 镜像源悬浮下拉面板：入口贴弹窗底部且 DialogContent overflow-hidden，必须向上弹出 */}
                   {showMirrorList && mirrors.length > 0 && (
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white rounded-xl shadow-lg border border-gray-100 z-50 py-1.5">
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-white rounded-xl shadow-lg border border-gray-100 z-50 py-1.5">
                       {mirrors.map((m) => (
                         <button
                           key={m.name}

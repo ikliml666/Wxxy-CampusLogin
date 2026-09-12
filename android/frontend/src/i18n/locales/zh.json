@@ -654,6 +654,7 @@
     "githubApiLimited": "GitHub API 访问受限，请稍后重试",
     "updateNotFound": "未找到更新信息",
     "releaseNotes": "更新日志",
+    "noReleaseNotes": "本次更新未提供说明",
     "githubRepo": "GitHub 仓库",
     "sponsor": "赞助支持",
     "oneClickDownload": "一键下载 v{{version}}",

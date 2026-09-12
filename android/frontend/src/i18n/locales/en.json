@@ -654,6 +654,7 @@
     "githubApiLimited": "GitHub API access limited, please try again later",
     "updateNotFound": "Update information not found",
     "releaseNotes": "Release Notes",
+    "noReleaseNotes": "No notes provided for this update",
     "githubRepo": "GitHub Repository",
     "sponsor": "Sponsor the Author",
     "oneClickDownload": "One-Click Download v{{version}}",
