@@ -263,7 +263,6 @@ function AppInner() {
         <OnboardingWizardMobile
           open={onboardingOpen}
           onClose={() => setOnboardingOpen(false)}
-          adapters={adapters}
           onUpdateConfig={updateConfig}
           onLogin={doLogin}
           isLoggingIn={isLoggingIn}

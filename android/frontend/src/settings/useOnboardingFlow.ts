@@ -1,10 +1,12 @@
 /**
- * 新手指引向导的流程逻辑：5 步状态机 + 配置写入 + 绑定/登录副作用。
+ * 新手指引向导的流程逻辑：4 步状态机 + 配置写入 + 绑定/登录副作用。
  *
  * 抽成 hook 的原因：安卓端两套外壳（手机=全屏分步向导、平板=复用桌面 Dialog 向导）
  * UI 完全不同，但流程步骤与后端契约必须一致——复制两份状态机正是原组件内
- * handleLoginAndFinish 历史缺陷（步骤 3 不重校验账号、双适配器可存成不一致配置）
- * 的温床。UI 各自渲染，逻辑单点维护。
+ * handleLoginAndFinish 历史缺陷（完成步不重校验账号）的温床。UI 各自渲染，逻辑单点维护。
+ *
+ * 无适配器步骤：安卓网络出口由系统决定（后端 do_login 丢弃 adapter 参数），
+ * 选择网络适配器在安卓上不生效，2026-09-12 起从指引中移除。
  *
  * 凭据纪律：绑定步骤的自助服务密码仅内存传递，不写入配置、不进日志。
  */
@@ -13,15 +15,14 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
 import type { Config } from '@/settings'
 
-/** 步骤总数：欢迎 → 绑定运营商 → 账号 → 适配器 → 完成 */
-export const ONBOARDING_STEP_COUNT = 5
+/** 步骤总数：欢迎 → 绑定运营商 → 账号 → 完成 */
+export const ONBOARDING_STEP_COUNT = 4
 /** 绑定步骤运营商下拉的未选择哨兵（Radix SelectItem value 禁止空串） */
 export const BIND_OPERATOR_NONE = '__none__'
 /** 账号步骤运营商下拉的"默认"哨兵 */
@@ -52,9 +53,6 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
   const [operator, setOperator] = useState(config.operator || DEFAULT_OPERATOR)
-  const [adapter1, setAdapter1] = useState(config.adapter1 || AUTO_DETECT_ADAPTER)
-  const [adapter2, setAdapter2] = useState(config.adapter2 || AUTO_DETECT_ADAPTER)
-  const [dualAdapter, setDualAdapter] = useState(!!config.dualAdapter)
   const [showPassword, setShowPassword] = useState(false)
   const [loginSuccess, setLoginSuccess] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
@@ -83,9 +81,6 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       setUsername(config.user || '')
       setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
       setOperator(config.operator || DEFAULT_OPERATOR)
-      setAdapter1(config.adapter1 || AUTO_DETECT_ADAPTER)
-      setAdapter2(config.adapter2 || AUTO_DETECT_ADAPTER)
-      setDualAdapter(!!config.dualAdapter)
       setLoginSuccess(false)
       setSelfAccount(config.user || '')
       setSelfPassword('')
@@ -96,7 +91,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       setBindError('')
     }
     prevOpenRef.current = open
-  }, [open, config.user, config.password, config.operator, config.adapter1, config.adapter2, config.dualAdapter])
+  }, [open, config.user, config.password, config.operator])
 
   useEffect(() => {
     return () => {
@@ -149,7 +144,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
 
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
-  /** 账号/适配器步骤的"下一步"落盘；返回是否放行（账号步骤不满足则留在原地） */
+  /** 账号步骤的"下一步"落盘；返回是否放行（账号步骤不满足则留在原地） */
   const handleNext = useCallback(() => {
     if (step === 2) {
       if (!canProceedAccount) return false
@@ -163,15 +158,8 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       }
       onUpdateConfig(updateData)
     }
-    if (step === 3) {
-      onUpdateConfig({
-        adapter1: adapter1 === AUTO_DETECT_ADAPTER ? '' : adapter1,
-        adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_ADAPTER ? '' : adapter2) : '',
-        dualAdapter,
-      })
-    }
     return true
-  }, [step, username, password, operator, adapter1, adapter2, dualAdapter, canProceedAccount, onUpdateConfig])
+  }, [step, username, password, operator, canProceedAccount, onUpdateConfig])
 
   const goNext = useCallback(() => {
     if (handleNext()) advance(step + 1)
@@ -187,31 +175,22 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
   }, [onClose])
 
   const handleLoginAndFinish = useCallback(async () => {
-    // 历史缺陷：步骤 3 不重新校验账号字段，且双适配器 + 自动检测可保存
-    // dualAdapter:true, adapter2:'' 的不一致配置（RightPanel 视为未启用副适配器）。
-    // 这里做最终校验：账号密码必填、双适配器必须选副适配器。
+    // 历史缺陷：完成步不重新校验账号字段。这里做最终校验：账号密码必填。
     const hasAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
     if (!hasAccount) {
-      setLoginSuccess(false)
-      return
-    }
-    if (dualAdapter && (!adapter2 || adapter2 === AUTO_DETECT_ADAPTER)) {
       setLoginSuccess(false)
       return
     }
     const updateData: Record<string, string | boolean> = {
       user: username.trim(),
       operator: operator === DEFAULT_OPERATOR ? '' : operator,
-      adapter1: adapter1 === AUTO_DETECT_ADAPTER ? '' : adapter1,
-      adapter2: dualAdapter ? (adapter2 === AUTO_DETECT_ADAPTER ? '' : adapter2) : '',
-      dualAdapter,
     }
     if (password.trim()) {
       updateData.password = password.trim()
     }
     onUpdateConfig(updateData as unknown as Record<string, string>)
     try {
-      const success = await onLogin(adapter1 === AUTO_DETECT_ADAPTER ? undefined : adapter1)
+      const success = await onLogin()
       if (success) {
         setLoginSuccess(true)
         if (finishTimerRef.current) clearTimeout(finishTimerRef.current)
@@ -225,7 +204,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
     } catch {
       setLoginSuccess(false)
     }
-  }, [username, password, operator, adapter1, adapter2, dualAdapter, config.password, onUpdateConfig, onLogin, onClose])
+  }, [username, password, operator, config.password, onUpdateConfig, onLogin, onClose])
 
   /** 密码是否已保存（后端掩码态）：完成页用它决定显示 •••••••• 还是 "-" */
   const passwordSaved = !!password || config.password === PASSWORD_MASK
@@ -237,9 +216,6 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
     username, setUsername,
     password, setPassword, showPassword, setShowPassword,
     operator, setOperator,
-    adapter1, setAdapter1,
-    adapter2, setAdapter2,
-    dualAdapter, setDualAdapter,
     // 绑定步骤
     selfAccount, setSelfAccount,
     selfPassword, setSelfPassword,

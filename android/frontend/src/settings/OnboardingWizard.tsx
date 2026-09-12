@@ -13,19 +13,16 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { Switch } from '@/components/ui/switch'
 import {
-  Check, ArrowRight, ArrowLeft, Wifi, Cable, Shield, Zap,
-  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network, Smartphone, Link2
+  Check, ArrowRight, ArrowLeft, Shield, Zap,
+  Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Smartphone, Link2
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { APP_NAME } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn } from '@/lib/utils'
 import type { Config } from '@/settings'
-import type { Adapter } from '@/network'
 import { m, AnimatePresence } from 'framer-motion'
 import {
   useOnboardingFlow,
@@ -36,13 +33,12 @@ import {
 interface OnboardingWizardProps {
   open: boolean
   onClose: () => void
-  adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
   onLogin: (adapterName?: string) => Promise<boolean>
   isLoggingIn: boolean
 }
 
-const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.bindOperator', 'onboarding.accountInfo', 'onboarding.networkAdapter', 'onboarding.setupComplete'] as const
+const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.bindOperator', 'onboarding.accountInfo', 'onboarding.setupComplete'] as const
 
 const slideVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 30 : -30, opacity: 0 }),
@@ -94,13 +90,12 @@ function StepIndicator({ current }: { current: number }) {
  * 流程逻辑与手机端全屏向导共用 `useOnboardingFlow`——步骤、校验、绑定、登录
  * 只在一处维护，两端不会各自漂移。
  */
-export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
+export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
   const { t } = useTranslation()
   const {
     step, advance, goNext, handleSkip, handleLoginAndFinish, direction,
     username, setUsername, password, setPassword, showPassword, setShowPassword, passwordSaved,
     operator, setOperator,
-    adapter1, setAdapter1, adapter2, setAdapter2, dualAdapter, setDualAdapter,
     selfAccount, setSelfAccount, selfPassword, setSelfPassword,
     bindOperatorValue, setBindOperatorValue, phone, setPhone,
     smsPassword, setSmsPassword, bindState, bindError, handleBind,
@@ -311,84 +306,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
             )}
 
             {step === 3 && (
-              <div className="space-y-4 py-2">
-                <div className="space-y-1.5">
-                  <h3 className="text-base font-semibold">{t('onboarding.selectNetworkAdapter')}</h3>
-                  <p className="text-xs text-muted-foreground">{t('onboarding.selectNetworkAdapterDesc')}</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">{t('onboarding.primaryAdapter')}</Label>
-                    <Select value={adapter1} onValueChange={setAdapter1}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('onboarding.selectAdapter')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={AUTO_DETECT_ADAPTER}>{t('onboarding.autoDetect')}</SelectItem>
-                        {adapters.map(a => (
-                          <SelectItem key={a.name} value={a.name}>
-                            <span className="flex items-center gap-2">
-                              {a.wireless ? <Wifi className="h-3 w-3 text-blue-500" /> : <Cable className="h-3 w-3 text-emerald-500" />}
-                              {a.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* 启用双适配器开关 */}
-                  <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-md bg-violet-500/10 flex items-center justify-center shrink-0">
-                        <Network className="h-3.5 w-3.5 text-violet-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium leading-tight">{t('onboarding.enableDualAdapter')}</div>
-                        <div className="text-[11px] text-muted-foreground leading-snug">{t('onboarding.enableDualAdapterDesc')}</div>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={dualAdapter}
-                      onCheckedChange={setDualAdapter}
-                      className="shrink-0 ml-2"
-                    />
-                  </div>
-
-                  {/* 副适配器下拉：开关开启时显示 */}
-                  {dualAdapter && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-medium">{t('onboarding.secondaryAdapter')}</Label>
-                      <Select value={adapter2} onValueChange={setAdapter2}>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('onboarding.selectSecondaryAdapter')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={AUTO_DETECT_ADAPTER}>{t('onboarding.autoDetect')}</SelectItem>
-                          {adapters.filter(a => a.name !== adapter1).map(a => (
-                            <SelectItem key={a.name} value={a.name}>
-                              <span className="flex items-center gap-2">
-                                {a.wireless ? <Wifi className="h-3 w-3 text-blue-500" /> : <Cable className="h-3 w-3 text-emerald-500" />}
-                                {a.name}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {adapters.length === 0 && (
-                    <div className="text-xs text-amber-600 bg-amber-500/10 rounded-lg p-3 flex items-start gap-2">
-                      <Wifi className="h-4 w-4 mt-0.5 shrink-0" />
-                      {t('onboarding.noConnectedAdapters')}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {step === 4 && (
               <div className="flex flex-col h-full">
                 <div className="flex flex-col items-center text-center space-y-3 pt-2 pb-4">
                   <MascotFigure variant="celebrate" size="lg" />
@@ -422,28 +339,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                       {t(ISP_OPTIONS.find(o => o.value === operator)?.labelKey ?? 'onboarding.default')}
                     </span>
                   </div>
-                  <Separator />
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-1.5">
-                      <Cable className="h-3.5 w-3.5" />{t('onboarding.primaryAdapter')}
-                    </span>
-                    <span className="font-medium truncate ml-2 max-w-[200px]">
-                      {adapter1 === AUTO_DETECT_ADAPTER ? t('onboarding.autoDetect') : adapter1}
-                    </span>
-                  </div>
-                  {dualAdapter && (
-                    <>
-                      <Separator />
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground flex items-center gap-1.5">
-                          <Network className="h-3.5 w-3.5" />{t('onboarding.secondaryAdapter')}
-                        </span>
-                        <span className="font-medium truncate ml-2 max-w-[200px]">
-                          {adapter2 === AUTO_DETECT_ADAPTER ? t('onboarding.autoDetect') : adapter2}
-                        </span>
-                      </div>
-                    </>
-                  )}
                 </div>
               </div>
             )}
@@ -476,7 +371,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
             )}
           </div>
           <div>
-            {step < 4 && (
+            {step < 3 && (
               <Button
                 onClick={goNext}
                 disabled={step === 2 && !canProceedAccount}
@@ -492,7 +387,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                 )}
               </Button>
             )}
-            {step === 4 && !loginSuccess && (
+            {step === 3 && !loginSuccess && (
               <Button
                 onClick={handleLoginAndFinish}
                 disabled={isLoggingIn || !username}
@@ -509,7 +404,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                 )}
               </Button>
             )}
-            {step === 4 && loginSuccess && (
+            {step === 3 && loginSuccess && (
               <div className="flex items-center gap-2 text-emerald-600 font-medium">
                 <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
               </div>
