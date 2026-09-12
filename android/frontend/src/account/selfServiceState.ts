@@ -30,6 +30,29 @@ export const useSelfCredStore = create<SelfCredState>((set) => ({
 const helloEnabled = () => useConfigStore.getState().config.selfHelloEnabled !== false
 
 /**
+ * 生物验证失败的 toast 文案：按插件 reject 对象的 code 字段（稳定错误码）翻译。
+ * 验证调用已带 allowDeviceCredential:true——未录入生物识别但设置了锁屏的设备会
+ * 自动弹锁屏密码（Windows Hello"生物或 PIN"同款语义），因此"未录入/不支持生物"
+ * 的提示应引导用户补齐锁屏；取消类（userCancel/systemCancel）只是用户主动中止，
+ * 文案保持中性。未知错误码回退原始消息。
+ */
+const BIOMETRIC_ERROR_KEY: Record<string, string> = {
+  userCancel: 'account.biometricCancelled',
+  systemCancel: 'account.biometricCancelled',
+  biometryNotEnrolled: 'account.biometricNotEnrolled',
+  noDeviceCredential: 'account.biometricNotEnrolled',
+  biometryNotAvailable: 'account.biometricNotEnrolled',
+  biometryLockout: 'account.biometricLockout',
+  authenticationFailed: 'account.biometricFailed',
+}
+
+export function biometricFailMessage(err: unknown, t: (key: string) => string): string {
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined
+  const key = typeof code === 'string' ? BIOMETRIC_ERROR_KEY[code] : undefined
+  return (key ? t(key) : '') || extractErrorMessage(err) || t('account.bindStatusRevealFailed')
+}
+
+/**
  * 绑定运营商操作（绑定/查询绑定状态/查看明文密码）的 Windows Hello 验证门。
  * 与自助服务面板的会话门完全独立（互不共享状态：在自助服务面板验证过，
  * 绑定操作仍需单独验证，反之亦然）。首次操作即验证，通过后 TTL 内共用
@@ -72,7 +95,7 @@ export function useHelloGate(options?: { ignoreToggle?: boolean }) {
       addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
       return false
     } catch (err) {
-      addToast(extractErrorMessage(err) || t('account.bindStatusRevealFailed'), 'error')
+      addToast(biometricFailMessage(err, t), 'error')
       return false
     }
   }, [ignoreToggle, addToast, t])
@@ -112,7 +135,7 @@ export function useSelfServiceVerify() {
       addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
       return false
     } catch (err) {
-      addToast(extractErrorMessage(err) || t('account.bindStatusRevealFailed'), 'error')
+      addToast(biometricFailMessage(err, t), 'error')
       return false
     }
   }, [addToast, t])

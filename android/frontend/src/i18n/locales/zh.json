@@ -206,7 +206,11 @@
     "selfLogColCnDown": "国内下行(MB)",
     "selfLogColNasIp": "NAS IP",
     "selfLogColNasPort": "NAS 端口",
-    "identityVerifyPrompt": "进行敏感操作前，请完成身份验证"
+    "identityVerifyPrompt": "进行敏感操作前，请完成身份验证",
+    "biometricCancelled": "已取消验证",
+    "biometricNotEnrolled": "本设备未设置可用的生物识别或锁屏密码，请先在系统设置中录入指纹/人脸或设置锁屏",
+    "biometricLockout": "生物识别多次失败已临时锁定，请稍后重试或改用锁屏密码",
+    "biometricFailed": "验证未通过，请重试"
   },
   "network": {
     "networkAdapters": "网络适配器",
@@ -474,7 +478,7 @@
     "security": "安全设置",
     "securityDesc": "生物识别与敏感操作验证选项",
     "selfHello": "启用生物识别验证",
-    "selfHelloDesc": "自助服务相关操作前需通过生物识别验证；关闭后除\"查看运营商账户密码\"外不再验证",
+    "selfHelloDesc": "自助服务相关操作前需通过生物识别验证；未录入指纹/人脸的设备自动改用锁屏密码验证；关闭后除\"查看运营商账户密码\"外不再验证",
     "selfReverify": "每次操作二次验证",
     "selfReverifyDesc": "开启后自助服务面板每次刷新/注销/查询都要求验证；关闭后切入面板验证一次即可",
     "securityChangePrompt": "关闭安全选项前，请完成身份验证",

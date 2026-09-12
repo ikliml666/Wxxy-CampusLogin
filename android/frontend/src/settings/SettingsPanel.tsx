@@ -12,7 +12,8 @@ import {
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
-import { cn, extractErrorMessage } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { biometricFailMessage } from '@/account/selfServiceState'
 import React, { memo, useMemo, useState, useRef, useEffect } from 'react'
 import { useThemeStore } from '@/hooks/useThemeStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -130,7 +131,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         addToast(verified.message || t('settings.securityVerifyFailed'), 'error')
       }
     } catch (err) {
-      addToast(extractErrorMessage(err) || t('settings.securityVerifyFailed'), 'error')
+      addToast(biometricFailMessage(err, t) || t('settings.securityVerifyFailed'), 'error')
     }
   }
   const { t } = useTranslation()
