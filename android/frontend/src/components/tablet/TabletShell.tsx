@@ -20,7 +20,7 @@ import { useAuth } from '@/auth/useAuth'
 import { useAccount } from '@/account/useAccount'
 import { useSettings } from '@/settings/useSettings'
 import { useShallow } from 'zustand/react/shallow'
-import { safeStorage } from '@/lib/utils'
+import { safeStorage, cn } from '@/lib/utils'
 import { AnimatePresence, m } from 'framer-motion'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
@@ -117,7 +117,7 @@ function TabletShellInner() {
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
 
   // 侧边看板娘:每日轮换(offset 0/1 同日不重复)。平板横屏宽度有限:左侧
-  // ≥900px(720 主区+128 立绘+边距)单侧显示;右侧需再让过 288px 右栏,≥1330px。
+  // 左娘 ≥1008px(720 主区 + 2×(128 立绘+16 边距),900-1008px 区间会压进内容列);右娘横屏再让过 288px 右栏 ≥1330px,竖屏右栏隐藏不再偏移。
   const [leftMascot, rightMascot] = useDailyMascots([0, 1])
 
   // 竖屏隐藏右侧日志栏(Dock 的"日志"面板仍可查日志),主区占满全宽;
@@ -306,7 +306,7 @@ function TabletShellInner() {
         aria-hidden="true"
         draggable={false}
         loading="lazy"
-        className="fixed left-2 top-1/2 -translate-y-1/2 z-0 hidden min-[900px]:block w-32 opacity-[0.22] dark:opacity-[0.14] select-none pointer-events-none"
+        className="fixed left-2 top-1/2 -translate-y-1/2 z-0 hidden min-[1008px]:block w-32 opacity-[0.22] dark:opacity-[0.14] select-none pointer-events-none"
       />
       <img
         src={`/girl/mascot-${rightMascot}.webp`}
@@ -314,7 +314,10 @@ function TabletShellInner() {
         aria-hidden="true"
         draggable={false}
         loading="lazy"
-        className="fixed right-[304px] top-1/2 -translate-y-1/2 z-0 hidden min-[1330px]:block w-32 opacity-[0.22] dark:opacity-[0.14] select-none pointer-events-none"
+        className={cn(
+          'fixed top-1/2 -translate-y-1/2 z-0 hidden min-[1330px]:block w-32 opacity-[0.22] dark:opacity-[0.14] select-none pointer-events-none',
+          isLandscape ? 'right-[304px]' : 'right-2'
+        )}
       />
 
       <DockNav

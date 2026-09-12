@@ -213,7 +213,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
       className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square"
       style={{ background: 'var(--surface-side)' }}
     >
-      <AnimatedCard noHover noAnimation className="mx-2 mt-3 mb-1.5 flex flex-col flex-1 min-h-0 rounded-2xl">
+      <AnimatedCard noHover noAnimation className="relative overflow-hidden mx-2 mt-3 mb-1.5 flex flex-col flex-1 min-h-0 rounded-2xl">
         <div className="flex items-center justify-between px-4 py-3 shrink-0">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <ScrollText className="h-3.5 w-3.5" />
@@ -237,10 +237,20 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           )}
         </div>
 
+        {/* 运行日志卡背景看板娘:卡片内底部的水印装饰,日志条目少时从空白处露出,不参与交互(对齐桌面) */}
+        <img
+          src="/girl/mascot-bg-tea.webp"
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          loading="lazy"
+          className="pointer-events-none select-none absolute bottom-3 left-1/2 -translate-x-1/2 w-40 opacity-[0.08] dark:opacity-[0.05] z-0"
+        />
+
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className={cn('overflow-y-auto px-4 pb-3 min-h-0', logs.length > 0 ? 'flex-1' : '')}
+          className={cn('relative z-10 overflow-y-auto px-4 pb-3 min-h-0', logs.length > 0 ? 'flex-1' : '')}
           style={{
             overscrollBehavior: 'contain',
           }}
@@ -255,19 +265,24 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
           ) : (
             <div className="space-y-1">
             {staticLogs.map((log) => {
-              const Icon = LOG_ICONS[log.type]
+              const Icon = LOG_ICONS[log.type] ?? Info
               return (
                 <div
                   key={log.id}
                   className={cn(
                     'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover flex-shrink-0',
-                    LOG_BG_COLORS[log.type],
+                    LOG_BG_COLORS[log.type] ?? '',
                   )}
                 >
-                  <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type])} />
+                  <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type] ?? 'bg-zinc-400')} />
                   <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
                   <div className="flex-1 min-w-0">
                     <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                    {(log.count ?? 1) > 1 && (
+                      <span className="ml-1 inline-block text-[9px] leading-none px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono align-middle">
+                        ×{log.count}
+                      </span>
+                    )}
                     <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
                   </div>
                 </div>
@@ -275,7 +290,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
             })}
             <AnimatePresence initial={false}>
               {animLogs.map((log, i) => {
-                const Icon = LOG_ICONS[log.type]
+                const Icon = LOG_ICONS[log.type] ?? Info
                 const idx = staticCount + i
                 const isLatest = isNewLog && idx === logs.length - 1
                 return (
@@ -287,14 +302,19 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
                     exit="exit"
                     className={cn(
                       'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover flex-shrink-0',
-                      LOG_BG_COLORS[log.type],
+                      LOG_BG_COLORS[log.type] ?? '',
                       isLatest && 'log-entry-flash'
                     )}
                   >
-                    <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type])} />
+                    <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type] ?? 'bg-zinc-400')} />
                     <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
                     <div className="flex-1 min-w-0">
                       <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                      {(log.count ?? 1) > 1 && (
+                        <span className="ml-1 inline-block text-[9px] leading-none px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono align-middle">
+                          ×{log.count}
+                        </span>
+                      )}
                       <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
                     </div>
                   </m.div>

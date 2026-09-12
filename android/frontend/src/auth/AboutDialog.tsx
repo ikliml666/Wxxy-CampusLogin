@@ -14,6 +14,7 @@ import {
 } from'lucide-react'
 import { APP_NAME, APP_VERSION } from'@/shared/ui-constants'
 import { cn, extractErrorMessage } from'@/lib/utils'
+import { MascotFigure } from'@/shared/MascotFigure'
 import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from'react'
 import { tauriApiWithRetry } from'@/hooks/tauriApi'
 import { useTranslation } from'react-i18next'
@@ -257,7 +258,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
           <DialogDescription>{t('about.aboutDesc')}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex h-[520px]">
+        <div className="flex h-[min(720px,85dvh)]">
           {/* ===== 左侧栏 - 应用信息 ===== */}
           <div className="w-[320px] bg-white flex flex-col p-6 overflow-y-auto overflow-x-hidden shrink-0">
             {/* 顶部: 图标 + 标题 + 版本 */}
@@ -277,6 +278,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
                   </span>
                 )}
               </div>
+              <MascotFigure variant="portrait" size="md" className="mt-3" />
             </div>
 
             {/* 简短描述 */}
@@ -369,6 +371,7 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
             {/* 赞助内嵌页：右栏整体切换展示，"返回"回到更新仪表盘 */}
             {showSponsor && (
               <div className="flex-1 flex flex-col items-center min-h-0">
+                <MascotFigure variant="sponsor" size="sm" className="mb-1 shrink-0" />
                 <div className="text-center shrink-0">
                   <div className="flex items-center justify-center gap-1.5 text-base font-semibold">
                     <Heart className="h-4 w-4 text-rose-500 fill-rose-500" aria-hidden="true" />

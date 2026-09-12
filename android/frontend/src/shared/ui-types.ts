@@ -18,6 +18,8 @@ export interface LogEntry {
   time: string
   message: string
   type: LogType
+  /** 连续重复折叠的累计次数；undefined 表示该条目只出现过一次 */
+  count?: number
 }
 
 export interface ToastMessage {

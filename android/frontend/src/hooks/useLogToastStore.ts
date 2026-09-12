@@ -36,7 +36,8 @@ export const useLogToastStore = create<LogToastStore>((set) => ({
       // 去重：如果最后一条日志的消息内容和类型完全相同，只更新时间戳
       if (last && last.message === message && last.type === type) {
         const updated = [...state.logs]
-        updated[updated.length - 1] = { ...last, time }
+        // 重复内容累计 ×N(对齐桌面):静默刷新时间戳会让用户低估失败风暴的规模
+        updated[updated.length - 1] = { ...last, time, count: (last.count ?? 1) + 1 }
         return { logs: updated }
       }
       // 不同内容：追加新条目

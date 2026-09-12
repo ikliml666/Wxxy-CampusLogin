@@ -442,7 +442,7 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
     let probe = match probe_with_retry(settings).await {
         Ok(p) => p,
         Err(e) => {
-            emit_login_log(app, &format!("启动自动登录:校园网判定失败 {e}"), "warn");
+            emit_login_log(app, &format!("启动自动登录:校园网判定失败 {e}"), "warning");
             return;
         }
     };
