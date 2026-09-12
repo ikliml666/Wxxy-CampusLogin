@@ -39,6 +39,9 @@ export interface Config {
   /** 检查/下载更新渠道优先级: mirror=镜像加速优先(默认) github=官方优先 */
   updateSource: 'mirror' | 'github' 
   campusExitOnFail: boolean
+  /** 非校园网自动退出生效时段（分钟数，480=8:00 / 1380=23:00，不含终点） */
+  campusExitStartMinutes: number
+  campusExitEndMinutes: number
   campusCheckStartMinutes: number
   maxDisconnectReconnect: number
   autoLoginCooldownSecs: number

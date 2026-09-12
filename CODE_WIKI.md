@@ -60,7 +60,7 @@ Wxxy-CampusLogin/
 │           ├── auth/                # 认证协议核心: portal/protocol/session/service/failure_tracker/dual_adapter_executor
 │           ├── network/             # client/adapter/discovery/adapter_cache/dhcp/subnet/dns/timing/quality/dns_setup
 │           ├── monitor/             # 后台巡检: watcher 门面 + background_check/background_task/auto_auth/latency/adapter_watch 等 10 子模块
-│           ├── config/              # model(40字段)/persist(原子写+账号+历史)/validate(校验+迁移)
+│           ├── config/              # model(42字段)/persist(原子写+账号+历史)/validate(校验+迁移)
 │           ├── infra/               # state/(ConfigStore/NetworkState/ExitStateStore) + logger/events/task_manager/lifecycle/notification/async_util
 │           ├── platform/            # Windows 交互: dns_config/elevation/gpu/identity/autostart/helper_spawn/console_output/toast(更新提醒 WinRT toast)
 │           ├── account/             # crypto.rs (Windows DPAPI)
@@ -237,7 +237,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 | `auth/` | 认证协议核心：Portal 检测（portal）、登录/两步注销请求（protocol）、会话封装（session）、服务编排（service）、失败计数（failure_tracker）、双适配器并行执行器（dual_adapter_executor） |
 | `network/` | 网络基础设施：适配器发现与缓存（discovery/adapter_cache）、DHCP 与 MAC（dhcp）、/18 子网与网关（subnet）、DNS 评分与 DoH 智能解析（dns）、HTTP 计时（timing）、质量并发检测（quality）、DNS 一键设置（dns_setup） |
 | `monitor/` | 后台巡检：watcher 门面 + background_check 主体 + background_task 调度、自动登录（auto_auth）、延迟测试循环（latency）、适配器监控（adapter_watch） |
-| `config/` | 配置模型（40 字段）/ 原子持久化 / 校验与迁移 |
+| `config/` | 配置模型（42 字段）/ 原子持久化 / 校验与迁移 |
 | `account/` | DPAPI 加密（crypto.rs）；多账号命令逻辑在 commands/account.rs |
 | `infra/` | 全局状态（state/ 三 Store CAS 快照）、日志、事件总线（15 emit）、后台任务管理、退出生命周期、系统通知 |
 | `platform/` | Windows 交互：DNS/DoH 设置、UAC 提权、GPU 检测、Windows Hello、开机自启、helper 子进程启动 |
@@ -267,7 +267,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 |----------|------|
 | 桌面应用入口 / 命令注册点 | `tauri-app/src-tauri/src/main.rs` → `app/startup.rs`（`run()` 的 `generate_handler!`，新增命令必须在此注册） |
 | 登录/注销协议实现 | `auth/protocol.rs`（请求模板/两步注销/JSONP 解析）、`auth/portal.rs`（状态检测，80 页面探测 vs :801 协议） |
-| 配置模型 / 持久化 / 校验 | `config/model.rs`（40 字段+掩码出口）、`config/persist.rs`（atomic_write/账号/历史）、`config/validate.rs` |
+| 配置模型 / 持久化 / 校验 | `config/model.rs`（42 字段+掩码出口）、`config/persist.rs`（atomic_write/账号/历史）、`config/validate.rs` |
 | 全局状态 | `infra/state/`（AppState / ConfigStore / NetworkSnapshot，ArcSwap CAS） |
 | 事件推送 | `infra/events.rs`（EventBus 15 个 emit）+ 附录 C 事件表 |
 | 密码加密 | `account/crypto.rs`（DPAPI）；安卓 `android/plugins/keystore/` |
@@ -595,7 +595,7 @@ pub struct AccountResult {
 
 ### 4.3 配置管理 — `config/`
 
-**`Config` 结构体** (40个字段):
+**`Config` 结构体** (42个字段):
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -634,7 +634,9 @@ pub struct AccountResult {
 | `enableNetworkNameCheck` | bool | true | 启用校园网名称检测 |
 | `campusGateway` | String | `"10.2.127.254"` | 校园网关地址 (空字符串回填默认值) |
 | `campusExitOnFail` | bool | true | 校园网验证失败时是否触发退出 |
-| `campusCheckStartMinutes` | u16 | 480 | 校园网检测静默期截止时间（分钟数，480=8:00），支持旧字段名 `campusCheckStartHour` 反序列化 |
+| `campusExitStartMinutes` | u16 | 480 | 非校园网自动退出生效时段起点（分钟数，480=8:00） |
+| `campusExitEndMinutes` | u16 | 1380 | 非校园网自动退出生效时段终点（分钟数，1380=23:00，不含该时刻；<= 起点时视为仅受起点限制） |
+| `campusCheckStartMinutes` | u16 | 460 | 校园网检测静默期截止时间（分钟数，460=7:40），支持旧字段名 `campusCheckStartHour` 反序列化 |
 | `logRetentionDays` | u32 | 7 | 日志保留天数 |
 | `maxDisconnectReconnect` | u32 | 3 | 断线重连最大次数 |
 | `autoLoginCooldownSecs` | u64 | 60 | 自动登录冷却秒数 |
@@ -1237,7 +1239,7 @@ struct ConnectionCampusStatus {
 |------|------|
 | `start_auto_exit()` | 启动自动退出倒计时 + 快捷键注册 + 通知；spawn 失败时回滚 deadline（否则残留 deadline 使后续触发全部短路，本轮自动退出静默失效） |
 | `cancel_auto_exit_inner()` | 取消自动退出：清 deadline + cancelled 标志 + **同步 `task_manager.cancel("auto_exit")`**（只清标志不清任务会留下同名残留，20s 内重新登录时 spawn 被拒→假倒计时且 deadline 残留短路后续触发） |
-| `start_campus_exit()` | 校园网验证不通过时：30s后最小化到托盘，再30s后强制退出 (受 `campus_exit_on_fail` 控制)。**先 CAS 防止重复触发，成功后再设置 deadline**（顺序反了会 deadline 被推后、标志位永久卡死） |
+| `start_campus_exit()` | 校园网验证不通过时：30s后最小化到托盘，再30s后强制退出 (受 `campus_exit_on_fail` 控制；且仅在校内生效时段 `campus_exit_start/end_minutes`（默认 8:00–23:00，终点不含；结束<=起点退化为仅按起点限制）内触发，窗口外记日志跳过)。**先 CAS 防止重复触发，成功后再设置 deadline**（顺序反了会 deadline 被推后、标志位永久卡死） |
 | `cancel_campus_exit()` | 取消校园网退出流程：swap 标志 + 清 deadline + **同步 `task_manager.cancel("campus_exit")`**。如果自动退出未运行，注销快捷键 |
 | `cancel_campus_exit_with_notification()` | 快捷键取消校园网退出 (含通知、快捷键注销与同步 cancel 任务) |
 | `shutdown_and_exit()` | 统一退出入口 (async)：设置 `is_quitting` → `task_manager.shutdown()` 清理后台任务（**整体 10s 超时上限**）→ `app_handle.exit(0)`。被 `start_campus_exit` 和 `start_auto_exit` 共同调用 |

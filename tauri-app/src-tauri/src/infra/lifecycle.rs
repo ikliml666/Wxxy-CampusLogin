@@ -1,6 +1,7 @@
 use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use chrono::Timelike;
 use crate::infra::state::{AppState, CommandResult, AUTO_EXIT_DELAY_MS};
 #[cfg(desktop)]
 use crate::infra::state::CANCEL_EXIT_SHORTCUT;
@@ -11,12 +12,31 @@ use crate::infra::notification::emit_notification;
 const CAMPUS_MINIMIZE_DELAY_MS: u64 = 30000;
 const CAMPUS_EXIT_DELAY_MS: u64 = 60000;
 
+/// 非校园网自动退出生效窗口判定（now/start/end 均为当日分钟数 0-1439）。
+/// 结束 <= 开始时视为仅受开始时间限制（等价旧单边语义，防止误设导致功能静默失效）。
+fn is_within_campus_exit_window(now_minutes: u16, start: u16, end: u16) -> bool {
+    now_minutes >= start && (end <= start || now_minutes < end)
+}
+
 /// 校园网验证不通过时：30s后最小化到托盘，再30s后强制退出
 /// 受 config.campus_exit_on_fail 控制；关闭时仅记录日志不触发退出
 pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
     let config = state.config.load();
     if !config.campus_exit_on_fail {
         crate::log_info!("campus_exit", "校园网验证未通过，但 campus_exit_on_fail 已关闭，跳过最小化+退出流程");
+        return;
+    }
+
+    let now = chrono::Local::now();
+    let now_min = now.hour() as u16 * 60 + now.minute() as u16;
+    if !is_within_campus_exit_window(now_min, config.campus_exit_start_minutes, config.campus_exit_end_minutes) {
+        crate::log_info!(
+            "campus_exit",
+            "校园网验证未通过，但当前 {:02}:{:02} 不在非校园网退出生效时段 {:02}:{:02}–{:02}:{:02}，跳过退出流程",
+            now.hour(), now.minute(),
+            config.campus_exit_start_minutes / 60, config.campus_exit_start_minutes % 60,
+            config.campus_exit_end_minutes / 60, config.campus_exit_end_minutes % 60
+        );
         return;
     }
 
@@ -297,4 +317,28 @@ pub async fn shutdown_and_exit(app_handle: &AppHandle, state: &AppState) {
     }
     crate::log_info!("lifecycle", "后台任务已清理，执行退出");
     app_handle.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_within_campus_exit_window;
+
+    #[test]
+    fn campus_exit_window_default_8_to_23() {
+        // 默认 8:00–23:00：起止时刻均含头不含尾
+        assert!(!is_within_campus_exit_window(479, 480, 1380));
+        assert!(is_within_campus_exit_window(480, 480, 1380));
+        assert!(is_within_campus_exit_window(1379, 480, 1380));
+        assert!(!is_within_campus_exit_window(1380, 480, 1380));
+        assert!(!is_within_campus_exit_window(0, 480, 1380));
+    }
+
+    #[test]
+    fn campus_exit_window_end_le_start_falls_back_to_start_only() {
+        // 结束 <= 开始：退化为仅受开始时间限制（起点后全天生效），防止误设静默失效
+        assert!(is_within_campus_exit_window(480, 480, 0));
+        assert!(!is_within_campus_exit_window(479, 480, 0));
+        assert!(is_within_campus_exit_window(1439, 480, 100));
+        assert!(is_within_campus_exit_window(0, 0, 0));
+    }
 }

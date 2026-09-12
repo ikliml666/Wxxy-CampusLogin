@@ -39,6 +39,8 @@ export const DEFAULT_CONFIG: Config = {
   campusGateway: '10.2.127.254',
   updateSource: 'mirror',
   campusExitOnFail: true,
+  campusExitStartMinutes: 480,
+  campusExitEndMinutes: 1380,
   campusCheckStartMinutes: 460,
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
