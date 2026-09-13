@@ -275,7 +275,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 | 前端入口 / 面板路由 | `main.tsx` → `App.tsx`（activePanel switch，转场用 deferredPanel） |
 | 版本号权威源 | `tauri-app/src-tauri/tauri.conf.json` 的 `version`（build.rs 注入 `APP_VERSION`；同步清单见附录 H） |
 | 发布构建脚本 | `tauri-app/build.ps1`（产物 + .sha256） |
-| 安卓入口 / 命令注册 | `android/src-tauri/src/lib.rs`（44 命令 + 5 插件 + run_startup_tasks） |
+| 安卓入口 / 命令注册 | `android/src-tauri/src/lib.rs`（48 命令 + 5 插件 + run_startup_tasks） |
 | 安卓包名 / 窗口 / minSdk | `android/src-tauri/tauri.conf.json`（identifier `com.campuslogin.client`） |
 | 安卓 Gradle 签名与产物命名 | `android/src-tauri/gen/android/app/build.gradle.kts`（release signingConfig + outputFileName） |
 | IPC 命令与事件全表 | 附录 C |
@@ -371,6 +371,7 @@ npx @tauri-apps/cli android build --target aarch64 --apk   # 产出已签名 APK
 - **2026-09-12 安卓省电调研定调：巡检架构维持"Kotlin FGS 保活 + Rust tokio 循环"，省电做在细节**：Tauri 官方口径（tauri-apps discussion #14615）后台常驻只能靠前台服务且 WebView/后端进程随时可被杀——本项目 FGS specialUse 类型（非 dataSync，无 6h/24h 上限）+ START_STICKY + 服务死即循环死的架构已被官方口径验证为正确，勿迁移 WorkManager（最小周期 15min 覆盖不了 60s 检测）。省电优化落在：①服务侧 NetworkCallback nudge 唤醒锁 5s 节流（onCapabilitiesChanged 高频连发每次持 3s 锁抑制 suspend）；②常驻通知仅在线状态翻转时 notify（原每拍重建，文案不再带逐拍检测次数）。未实施备查：质量循环稳态退避（12+ 外网目标/60s 为最大功耗主力）、WifiLock FULL_HIGH_PERF 降级、电池白名单入口。保活对抗类手法（无声音乐/1px Activity/双进程）明确不用——解决"不被杀"却增加耗电，与目标相反。
 - **2026-09-12 网络质量检测默认关闭（schema v3），质量页由后台检测状态代替**：`enable_network_quality` 默认 false + v2→v3 一次性迁移（存量刷 false，用户开回落盘不覆盖，沿用 v1→v2 先例）。前端行为与桌面同语义：关闭即删除质量 tab，其余 tab 补位——平板 DockNav 恢复按开关过滤 quality；手机 BottomNav 第 4 位动态互换（质量开→"网络质量"，关→"后台检测/网络状态检测" MonitorPanel，App.tsx 补 monitor case），手机顶栏胶囊关闭态改显后台在线状态（原 NetworkQualityCapsule 恒显"未知"误导）、点击跳后台检测面板；启动/循环链路仍受该开关门控。**语义对照**：`enable_network_quality`=质量链路总开关，`enable_latency_test`=定时循环开关（默认本就 false）——改默认值必须走后端 `Settings::default` + schema 迁移（双源覆盖，只改前端无效，见 §4.3.1）。
 - **2026-09-12 平板布局对齐 Windows 版（差异审计驱动）+ 日志类型枚举漂移修复**：安卓前端是独立复刻树,桌面修复不会自动同步——用「同一提交是否同时改 android/frontend」审计出 5 处未同步并补齐（日志 ×N 折叠计数、日志卡茶娘水印、TitleBar 娘头像（平板 TOPBAR_ZOOM=1.3,用 w-8 对齐桌面 w-10 视觉）、AboutDialog 高度自适应+娘图、侧边娘认断点：左娘 900→1008px（720 主区+2×(128+16),900-1008 区间会压进内容列）、右娘竖屏不偏移 304px）。**教训：跨树日志事件 type 必须对齐前端 LogType 枚举**——安卓后端 emit_login_log 曾发 "warn" 而前端枚举是 'warning',LOG_ICONS[type] 取 undefined 直接白屏（启动自动登录判定失败可触发）；后端已改 'warning',前端映射加 `?? Info` 兜底防再犯。Redmi 25060RK16C(dali) 短边约 334dp 属手机壳,平板壳验证靠浏览器 mock 平板视口。
+- **2026-09-13 安卓省电三刀定调（真机归因驱动）**：前台静置满帧合成（10s 2438 帧、RenderThread 40%+、宿主 ≈0.8 核）是 2.5W/20% CPU 主因，根因是**页面存在常驻 rAF**（useAdaptiveFramePace 的 rAF 轮询 + renderLiveness 模块级 rAF 循环）——Chromium 对"有活跃 rAF"的页面持续满帧派发 BeginFrame，合成器永不休眠；**用 rAF 做的帧率控制器自己阻止了合成器休眠**。修复：帧控轮询改 setInterval(250ms)、renderLiveness 改按需短探测（双端）、修复 `.anim-idle .animate-pulse` 冻结失效。修复后真机实测静置 10s **0 帧、全线程 <1%**。后台巡检分档：`effective_interval_ms` 纯函数（亮屏+WiFi=基础档 60s，灭屏或蜂窝=idle 档 300s），WifiLock/WakeLock 改探针窗口按需持有（`beginProbeWindow`/`endProbeWindow`，ProbeWindowGuard RAII），nudge 按关注字段翻转去重——常驻锁清零（vitals 2h/24h 异常线 + CDD [C-3-1] WiFi 省电依据）。巡检分档经 B2 `getPowerState` 查询式（isInteractive+网络类型），不做屏幕广播接收器。保活设置（D 块）：电池白名单标准 API + 10 厂商跳转候选表，**直接 startActivity + catch(ActivityNotFoundException) 降级，禁用 resolveActivity 预探测**（Android 11+ 包可见性会误判不存在直接降级）。踩坑实证：① `.anim-idle .animate-pulse,` 误并入 `.scrollbar-none` 规则——CSS 逗号选择器列表共享规则体，加选择器会把前者的规则体吃掉；② 分身做 WiFi 断连回归用飞行模式开关，**飞行模式一开无线 adb 即断且无法远程恢复**——真机回归只用关 WiFi 等无损手段；③ 本仓 tauri build.rs 不为新插件命令生成 per-command toml，生成物是 reference.md/schema.json/gen-schemas 三类。
 - **（早期重构）删除 auth 层 trait 抽象（AdapterResolver/PortalChecker/ProtocolClient）**：单实现 trait + mock 属无意义抽象——直接调自由函数，测试用真函数。
 - **（设计）版本号 build.rs 单权威源注入**：应用内多处版本号引用手改必漏（已发生事故）——`tauri.conf.json` 唯一编辑点，编译期 `env!("APP_VERSION")` 同步，见附录 H。
 
@@ -666,7 +667,7 @@ pub struct AccountResult {
 安卓端全量配置 `Settings`（结构对齐桌面 `Config` 可适用子集，camelCase IPC 契约；密码字段经 AndroidKeyStore AES-GCM 落盘）。**默认值双源覆盖关系**：前端 `DEFAULT_CONFIG` 与后端 `Settings::default` 都定义默认值，真机 `get_init_data` 返回后端值覆盖前端——**改默认值必须改后端**，只改前端无效。
 
 - **开箱即用默认值**：`auto_login_on_start`/`enable_background_check`/`auto_login_on_preparation`/`enable_network_name_check`/`skip_ttfb_in_latency`/`skip_content_in_latency` 六开关默认 true（自动化登录、验证设置、质量跳过项）；`enable_boot_autostart`（开机自启）不属于登录自动化，保持 false 由用户主动开启。
-- **schema 迁移链**（`migrate_legacy_defaults`，一次性、落盘后不重复触发、幂等）：v0→v1 后台检测间隔 15s→60s（仅命中历史默认值时）；v1→v2 上述六开关存量配置里的显式 false 一并刷为 true（开发阶段统一开箱即用；落盘后用户主动关闭不会再被覆盖）。新装 `config_schema_version=2` 跳过迁移。**注意迁移只在版本变更时落盘**，v2+ 配置读盘不写盘。
+- **schema 迁移链**（`migrate_legacy_defaults`，一次性、落盘后不重复触发、幂等）：v0→v1 后台检测间隔 15s→60s（仅命中历史默认值时）；v1→v2 上述六开关存量配置里的显式 false 一并刷为 true（开发阶段统一开箱即用；落盘后用户主动关闭不会再被覆盖）。v2→v3 质量检测默认关闭（见 §五 2026-09-12）；v3→v4 新增 `background_check_idle_interval`（灭屏/蜂窝巡检间隔，默认 300_000）。新装 `config_schema_version=4` 跳过迁移。**注意迁移只在版本变更时落盘**，v4+ 配置读盘不写盘。
 - **测试无法在本机 host 运行**：安卓 crate 按移动插件门控依赖（desktop cfg 缺 reqwest 等），host `cargo test` 编译不过；build.rs 解析 capabilities 的移动插件权限（biometric/opener/notification）同样失败——为存量环境限制。验证路径：`cargo check --target aarch64-linux-android --all-targets`（需 NDK 工具链注入 `CC_aarch64_linux_android` 等环境变量，host desktop target 不可用），测试断言锁定默认值与迁移语义。
 
 ### 4.4 加密工具 — `account/crypto.rs`
@@ -1350,7 +1351,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 
 **总原则（与桌面端的复用边界）**: 协议核心**单点共享**——`campus-login = { path = "../../tauri-app/src-tauri" }`，登录/注销/Portal 探测/自助服务/网络质量/日志系统直接复用桌面 crate，**禁止复制协议逻辑**；桌面侧 cfg 门控模块（app/helper/monitor/update/platform Windows 部分）对安卓不可见。安卓侧只做三件事：**平台探针**（校园网判定/源 IP）、**状态管理**（Keystore 加密配置 + 监控状态机）、**命令面包装**（44 个命令与桌面同名对齐，前端 tauriApi 两端一致）。
 
-**入口 `lib.rs`** (102 行): `#[cfg_attr(mobile, tauri::mobile_entry_point)]`。插件注册顺序：`campus_network_bind` → `campus_keystore` → `campus_monitor_service` → `tauri_plugin_biometric`（host 编译为空的 mobile-only crate）→ `tauri_plugin_notification` → `tauri_plugin_opener`。Setup 钩子：日志初始化到 `app_data_dir/logs`（与桌面 `infra::logger::get_log_dir` 的 android 分支一致）→ `monitor_loop::run_startup_tasks`（启动恢复，见下）。`generate_handler!` 注册 44 个命令。
+**入口 `lib.rs`** (102 行): `#[cfg_attr(mobile, tauri::mobile_entry_point)]`。插件注册顺序：`campus_network_bind` → `campus_keystore` → `campus_monitor_service` → `tauri_plugin_biometric`（host 编译为空的 mobile-only crate）→ `tauri_plugin_notification` → `tauri_plugin_opener`。Setup 钩子：日志初始化到 `app_data_dir/logs`（与桌面 `infra::logger::get_log_dir` 的 android 分支一致）→ `monitor_loop::run_startup_tasks`（启动恢复，见下）。`generate_handler!` 注册 48 个命令。
 
 #### 4.16.1 模块清单
 
@@ -1359,7 +1360,7 @@ fn parse_guid(s: &str) -> Result<GUID, String> {
 | `protocol_cmds.rs` | 180 | 登录/注销/Portal 探测/WiFi 绑定命令（包装桌面协议核心） |
 | `campus_detect.rs` | 220 | 校园网探针：源 IP 选取 + 三层判定 + `detect_campus`/`check_campus_status` |
 | `config_state.rs` | 546 | 全量配置 Settings（Keystore 加密落盘/掩码出口/schema 迁移）+ `CryptoBridge` |
-| `monitor_loop.rs` | 620 | 后台监控状态机：tick 检测（静默期时间门控）→ 自动重登 → 事件推送 + 启动恢复编排 |
+| `monitor_loop.rs` | 700+ | 后台监控状态机：tick 检测（静默期时间门控）→ 自动重登 → 事件推送 + 启动恢复编排；巡检分档 `effective_interval_ms`（亮屏+WiFi 基础档 / 灭屏或蜂窝 idle 档）+ `ProbeWindowGuard` 探针窗口锁 |
 | `self_service_cmds.rs` | 318 | 自助服务六命令 + 生物识别验证门（包装桌面 self_service 协议） |
 | `identity_gate.rs` | 66 | 验证门 TTL 时间戳（600s，语义同构桌面 platform/identity.rs） |
 | `account_cmds.rs` | 238 | 多账号管理（与桌面 commands/account.rs 同构）+ 全局配置 IO 串行锁 |
