@@ -13,4 +13,5 @@ permissions = [
     "allow-installApk",
     "allow-beginProbeWindow",
     "allow-endProbeWindow",
+    "allow-getPowerState",
 ]

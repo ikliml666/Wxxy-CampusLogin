@@ -367,10 +367,10 @@
           "markdownDescription": "Denies the updateNotification command without any pre-configured scope."
         },
         {
-          "description": "校园网后台监控保活:前台服务(常驻通知+WifiLock+WakeLock)与开机自启开关。\n业务逻辑(检测/自动重登)全在 Rust 侧,本插件仅保证进程存活与通知展示。\n\n#### This default permission set includes:\n\n- `allow-startMonitor`\n- `allow-stopMonitor`\n- `allow-updateNotification`\n- `allow-setBootAutostart`\n- `allow-isBootAutostartEnabled`\n- `allow-installApk`",
+          "description": "校园网后台监控保活:前台服务(常驻通知+WifiLock+WakeLock)与开机自启开关。\n业务逻辑(检测/自动重登)全在 Rust 侧,本插件仅保证进程存活与通知展示。\n\n#### This default permission set includes:\n\n- `allow-startMonitor`\n- `allow-stopMonitor`\n- `allow-updateNotification`\n- `allow-setBootAutostart`\n- `allow-isBootAutostartEnabled`\n- `allow-installApk`\n- `allow-beginProbeWindow`\n- `allow-endProbeWindow`\n- `allow-getPowerState`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "校园网后台监控保活:前台服务(常驻通知+WifiLock+WakeLock)与开机自启开关。\n业务逻辑(检测/自动重登)全在 Rust 侧,本插件仅保证进程存活与通知展示。\n\n#### This default permission set includes:\n\n- `allow-startMonitor`\n- `allow-stopMonitor`\n- `allow-updateNotification`\n- `allow-setBootAutostart`\n- `allow-isBootAutostartEnabled`\n- `allow-installApk`"
+          "markdownDescription": "校园网后台监控保活:前台服务(常驻通知+WifiLock+WakeLock)与开机自启开关。\n业务逻辑(检测/自动重登)全在 Rust 侧,本插件仅保证进程存活与通知展示。\n\n#### This default permission set includes:\n\n- `allow-startMonitor`\n- `allow-stopMonitor`\n- `allow-updateNotification`\n- `allow-setBootAutostart`\n- `allow-isBootAutostartEnabled`\n- `allow-installApk`\n- `allow-beginProbeWindow`\n- `allow-endProbeWindow`\n- `allow-getPowerState`"
         }
       ]
     }

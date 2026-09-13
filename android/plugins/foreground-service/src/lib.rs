@@ -16,6 +16,14 @@ struct BoolResult {
     enabled: bool,
 }
 
+#[derive(Deserialize)]
+struct PowerStateResult {
+    #[serde(rename = "screenOn")]
+    screen_on: bool,
+    #[serde(rename = "wifiConnected")]
+    wifi_connected: bool,
+}
+
 pub struct CampusMonitorService<R: Runtime>(PluginHandle<R>);
 
 type Result<T> = std::result::Result<T, tauri::plugin::mobile::PluginInvokeError>;
@@ -43,6 +51,13 @@ impl<R: Runtime> CampusMonitorService<R> {
     /// 退出探针窗口:释放窗口锁(幂等;由 run_check_once 的 drop guard 保证必达)
     pub fn end_probe_window(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("endProbeWindow", ())
+    }
+
+    /// 电源状态:(屏幕是否交互中, 当前活动网络是否 WiFi)。
+    /// 供巡检分档——WiFi 且亮屏基础间隔,否则闲时间隔。
+    pub fn get_power_state(&self) -> Result<(bool, bool)> {
+        let r: PowerStateResult = self.0.run_mobile_plugin("getPowerState", ())?;
+        Ok((r.screen_on, r.wifi_connected))
     }
 
     /// 开关开机自启(BOOT_COMPLETED receiver 组件启停 + SharedPreferences 记忆)

@@ -11,6 +11,9 @@
 - `allow-setBootAutostart`
 - `allow-isBootAutostartEnabled`
 - `allow-installApk`
+- `allow-beginProbeWindow`
+- `allow-endProbeWindow`
+- `allow-getPowerState`
 
 ## Permission Table
 
