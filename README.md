@@ -100,17 +100,17 @@ Wxxy-CampusLogin/
 │       ├── Cargo.toml
 │       └── tauri.conf.json
 └── android/                 # 安卓端（与桌面共享协议核心，Cargo path 依赖）
-│   ├── frontend/            # React 前端（桌面复刻 + 移动裁剪，底部导航布局）
-│   ├── src-tauri/           # 安卓 Rust 后端（监控循环/加密配置/校园网探针/更新）
-│   │   ├── src/
-│   │   │   ├── lib.rs           # 入口（48 个 Tauri 命令，与桌面同名对齐）
-│   │   │   ├── protocol_cmds.rs # 登录/注销/Portal 探测（复用桌面协议核心）
-│   │   │   ├── campus_detect.rs # 校园网探针（子网匹配 + Portal TCP 可达）
-│   │   │   ├── config_state.rs  # 配置管理（AndroidKeyStore 加密落盘）
-│   │   │   ├── monitor_loop.rs  # 后台检测 + 断线自动重登状态机
-│   │   │   └── ...              # 自助服务/账号/日志/更新/SoC 分档等
-│   │   └── gen/android/     # Tauri 生成的 Gradle 工程（产物不入库）
-│   └── plugins/             # 手写 Tauri 插件（keystore / foreground-service / network-bind）
+    ├── frontend/            # React 前端（桌面复刻 + 移动裁剪，底部导航布局）
+    ├── src-tauri/           # 安卓 Rust 后端（监控循环/加密配置/校园网探针/更新）
+    │   ├── src/
+    │   │   ├── lib.rs           # 入口（48 个 Tauri 命令，与桌面同名对齐）
+    │   │   ├── protocol_cmds.rs # 登录/注销/Portal 探测（复用桌面协议核心）
+    │   │   ├── campus_detect.rs # 校园网探针（子网匹配 + Portal TCP 可达）
+    │   │   ├── config_state.rs  # 配置管理（AndroidKeyStore 加密落盘）
+    │   │   ├── monitor_loop.rs  # 后台检测 + 断线自动重登状态机
+    │   │   └── ...              # 自助服务/账号/日志/更新/SoC 分档等
+    │   └── gen/android/     # Tauri 生成的 Gradle 工程（产物不入库）
+    └── plugins/             # 手写 Tauri 插件（keystore / foreground-service / network-bind）
 ```
 
 ## 开发环境搭建
