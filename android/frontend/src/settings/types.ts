@@ -43,7 +43,9 @@ export interface Config {
   /** 检查/下载更新渠道优先级: mirror=镜像加速优先(默认) github=官方优先 */
   updateSource: 'mirror' | 'github'
   campusExitOnFail: boolean
+  /** 校园网检测时段起点（分钟数，默认 460=07:40；0=禁用门控） */
   campusCheckStartMinutes: number
+  /** 校园网检测时段终点（分钟数，默认 1380=23:00；<= 开始时间时退化为仅开始时间限制） */
   campusCheckEndMinutes: number
   /** 每日定时登录时刻（分钟数，0=禁用；过点补触发） */
   scheduledLoginMinutes: number

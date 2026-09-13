@@ -56,7 +56,7 @@ pub struct Settings {
     pub campus_gateway: String,
     /// 校园网检测开始时间(当日分钟数,0=禁用):早于此时间周期检测整拍跳过,与桌面 campusCheckStartMinutes 同语义
     pub campus_check_start_minutes: u16,
-    /// 校园网检测时段终点(当日分钟数,0=不限制;<= 开始时间时退化为仅开始时间限制),与桌面 campusCheckEndMinutes 同语义
+    /// 校园网检测时段终点(当日分钟数,默认 1380=23:00;<= 开始时间时退化为仅开始时间限制),与桌面 campusCheckEndMinutes 同语义
     pub campus_check_end_minutes: u16,
     /// 每日定时登录时刻(当日分钟数,0=禁用;到点即触发含过点补触发),与桌面 scheduledLoginMinutes 同语义
     pub scheduled_login_minutes: u16,
@@ -70,8 +70,9 @@ pub struct Settings {
     /// 配置结构版本:旧版本文件缺省反序列化为 0,load_from 据此执行一次性
     /// 默认值迁移(0→1:后台检测间隔 15s→60s;1→2:自动化登录/检测与网络验证、
     /// 质量跳过项开关默认改为开启;2→3:网络质量检测默认改为关闭;
-    /// 3→4:新增闲时巡检间隔 background_check_idle_interval 默认 5min)。
-    /// 新装即 4,不再触发。
+    /// 3→4:新增闲时巡检间隔 background_check_idle_interval 默认 5min;
+    /// 4→5:校园网检测时段终点默认 0(仅开始时间限制)改为 1380=23:00)。
+    /// 新装即 5,不再触发。
     pub config_schema_version: u32,
 }
 
@@ -116,15 +117,16 @@ impl Default for Settings {
             campus_gateway: "10.2.127.254".to_string(),
             // 与桌面 default_campus_check_start_minutes 同值(07:40)
             campus_check_start_minutes: 460,
-            // 与桌面默认同值(0=不限制)
-            campus_check_end_minutes: 0,
+            // 与桌面默认同值(2026-09-13 起 1380=23:00;旧默认 0=仅开始时间限制,
+            // 旧配置由 migrate_legacy_defaults 按 schema 版本一次性迁移)
+            campus_check_end_minutes: 1380,
             // 每日定时登录/注销默认禁用(0=禁用)
             scheduled_login_minutes: 0,
             scheduled_logout_minutes: 0,
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
-            config_schema_version: 4,
+            config_schema_version: 5,
         }
     }
 }
@@ -243,6 +245,9 @@ pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, St
 /// v2→v3(2026-09-12):网络质量检测默认改为关闭(省电),存量一并刷为 false;
 /// v3→v4(2026-09-13):新增 background_check_idle_interval(蜂窝/灭屏 5min 分档省电),
 /// 旧文件缺该字段反序列化为 0,此处补默认 300_000。
+/// v4→v5(2026-09-13):campus_check_end_minutes 旧默认 0(仅开始时间限制)改为
+/// 1380=23:00,存量显式落的 0 一并刷为新默认(与 v2→v3/v3→v4 先例一致:开发阶段
+/// 统一开箱即用,显式设过 0 的极少数会被误刷);落盘后不再二次覆盖。
 /// 迁移结果(含版本号)落盘,此后用户主动改回不会再次覆盖;
 /// 落盘失败静默:下次读盘重迁,幂等。
 async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Settings) {
@@ -268,6 +273,13 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.background_check_idle_interval = 300_000;
         }
         s.config_schema_version = 4;
+        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+    }
+    if s.config_schema_version < 5 {
+        if s.campus_check_end_minutes == 0 {
+            s.campus_check_end_minutes = 1380;
+        }
+        s.config_schema_version = 5;
         let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
     }
 }
@@ -471,7 +483,8 @@ mod tests {
         assert_eq!(s.theme_mode, "dark");
         assert_eq!(s.background_check_interval, 60_000);
         assert_eq!(s.background_check_idle_interval, 300_000, "闲时巡检默认 5min");
-        assert_eq!(s.config_schema_version, 4, "新装即当前版本,不触发迁移");
+        assert_eq!(s.config_schema_version, 5, "新装即当前版本,不触发迁移");
+        assert_eq!(s.campus_check_end_minutes, 1380, "检测时段终点默认 23:00");
         assert_eq!(s.max_disconnect_reconnect, 3);
         assert!(s.self_hello_enabled);
         // 2026-09-12 起默认关闭(省电),质量页由后台检测状态代替展示
@@ -513,15 +526,18 @@ mod tests {
         assert!(back.skip_content_in_latency);
         assert!(!back.enable_network_quality, "v3 迁移应关闭质量检测");
         assert_eq!(back.background_check_idle_interval, 300_000, "v4 迁移应补闲时间隔");
-        assert_eq!(back.config_schema_version, 4);
+        assert_eq!(back.campus_check_end_minutes, 1380, "v5 迁移应刷检测时段终点旧默认 0→23:00");
+        assert_eq!(back.config_schema_version, 5);
         // 迁移已落盘:此后用户主动设回 15s/开质量检测是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.background_check_interval = 15_000;
         manual.auto_login_on_start = false;
         manual.enable_network_quality = true;
+        manual.campus_check_end_minutes = 0; // 用户显式设回 0(仅开始时间限制)
         save_to(&dir, &bridge, &manual).await.unwrap();
         let back2 = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back2.background_check_interval, 15_000, "v3 配置不再迁移间隔");
+        assert_eq!(back2.campus_check_end_minutes, 0, "迁移后用户主动设回 0 不被覆盖");
         assert!(!back2.auto_login_on_start, "迁移后用户主动关闭不被覆盖");
         assert!(back2.enable_network_quality, "迁移后用户主动开启质量检测不被覆盖");
         std::fs::remove_dir_all(&dir).ok();
@@ -537,7 +553,7 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 30_000, "非旧默认值不迁移");
-        assert_eq!(back.config_schema_version, 4);
+        assert_eq!(back.config_schema_version, 5);
         std::fs::remove_dir_all(&dir).ok();
     }
 

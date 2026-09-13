@@ -42,7 +42,9 @@ export interface Config {
   /** 非校园网自动退出生效时段（分钟数，480=8:00 / 1380=23:00，不含终点） */
   campusExitStartMinutes: number
   campusExitEndMinutes: number
+  /** 校园网检测时段起点（分钟数，默认 460=07:40；0=禁用门控） */
   campusCheckStartMinutes: number
+  /** 校园网检测时段终点（分钟数，默认 1380=23:00；<= 开始时间时退化为仅开始时间限制） */
   campusCheckEndMinutes: number
   /** 每日定时登录时刻（分钟数，0=禁用；过点补触发） */
   scheduledLoginMinutes: number

@@ -42,13 +42,14 @@ export const DEFAULT_CONFIG: Config = {
   campusExitStartMinutes: 480,
   campusExitEndMinutes: 1380,
   campusCheckStartMinutes: 460,
-  campusCheckEndMinutes: 0,
+  // 2026-09-13 起 1380=23:00(旧默认 0=仅开始时间限制),存量配置由后端 config_version v2→v3 迁移一次性刷新
+  campusCheckEndMinutes: 1380,
   scheduledLoginMinutes: 0,
   scheduledLogoutMinutes: 0,
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
-  configVersion: 2,
+  configVersion: 3,
 }
 
 export const ISP_OPTIONS = [

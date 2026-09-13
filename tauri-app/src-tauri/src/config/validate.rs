@@ -130,6 +130,15 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         // 迁移完成，升级配置版本
         config.config_version = 2;
     }
+    // v2→v3（2026-09-13）：campus_check_end_minutes 旧默认 0（仅开始时间限制）改为
+    // 1380=23:00。存量文件里显式落的 0 一并刷为新默认（与安卓 schema 迁移先例一致：
+    // 开发阶段统一开箱即用，显式设过 0 的极少数会被误刷，落盘后不再二次覆盖）
+    if config.config_version < 3 {
+        if config.campus_check_end_minutes == 0 {
+            config.campus_check_end_minutes = 1380;
+        }
+        config.config_version = 3;
+    }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
     config.campus_check_end_minutes = config.campus_check_end_minutes.min(1439);
     config.campus_exit_start_minutes = config.campus_exit_start_minutes.min(1439);
@@ -519,7 +528,25 @@ mod tests {
         config.campus_check_start_minutes = 8; // 8 hours → 480 minutes
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_start_minutes, 480);
-        assert_eq!(result.config_version, 2);
+        assert_eq!(result.config_version, 3);
+        assert_eq!(result.campus_check_end_minutes, 1380, "v1 旧配置 end=0 应随 v2→v3 迁移刷新");
+    }
+
+    #[test]
+    fn validate_config_migrates_check_end_default_to_1380() {
+        // v2→v3：旧默认 0（仅开始时间限制）刷为新默认 1380=23:00
+        let mut config = Config::default();
+        config.config_version = 2;
+        config.campus_check_end_minutes = 0;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_check_end_minutes, 1380);
+        assert_eq!(result.config_version, 3);
+        // 用户显式设过的非 0 值保持不动
+        let mut custom = Config::default();
+        custom.config_version = 2;
+        custom.campus_check_end_minutes = 1200;
+        let result = validate_config(custom).unwrap();
+        assert_eq!(result.campus_check_end_minutes, 1200, "非旧默认值不迁移");
     }
 
     #[test]

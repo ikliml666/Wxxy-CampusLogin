@@ -88,8 +88,8 @@ pub struct Config {
     pub campus_exit_end_minutes: u16,
     #[serde(rename = "campusCheckStartMinutes", alias = "campusCheckStartHour", default = "default_campus_check_start_minutes")]
     pub campus_check_start_minutes: u16,
-    /// 校园网检测时段终点（分钟数，0=不限制；<= 开始时间时退化为仅开始时间限制）
-    #[serde(rename = "campusCheckEndMinutes", default)]
+    /// 校园网检测时段终点（分钟数，1380=23:00；<= 开始时间时退化为仅开始时间限制）
+    #[serde(rename = "campusCheckEndMinutes", default = "default_campus_check_end_minutes")]
     pub campus_check_end_minutes: u16,
     /// 每日定时登录时刻（分钟数，0=禁用；到点即触发含过点补触发，判定见 config::schedule）
     #[serde(rename = "scheduledLoginMinutes", default)]
@@ -138,6 +138,10 @@ where
 fn default_true() -> bool { true }
 
 fn default_campus_check_start_minutes() -> u16 { 460 }
+
+/// 2026-09-13 起 1380=23:00（旧默认 0=仅开始时间限制），存量配置由
+/// validate 的 config_version v2→v3 迁移一次性刷新
+fn default_campus_check_end_minutes() -> u16 { 1380 }
 
 fn default_campus_exit_start_minutes() -> u16 { 480 }
 
@@ -206,14 +210,14 @@ impl Default for Config {
             campus_exit_start_minutes: 480,
             campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 460,
-            campus_check_end_minutes: 0,
+            campus_check_end_minutes: 1380,
             scheduled_login_minutes: 0,
             scheduled_logout_minutes: 0,
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             skip_sha256_when_missing: false,
-            config_version: 2,
+            config_version: 3,
         }
     }
 }
