@@ -1,6 +1,6 @@
 # AGENTS.md — 项目工作约定
 
-面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见本地 CodeWiki（wiki 根 `~/.codewiki/Wxxy-CampusLogin/`，由 `cw` 工具维护，位于仓库外、不入 git；入口是 `_architecture.md` 与 `_index.md`）；版本变更记录见 `CHANGELOG.md`（本地维护，不入 git）。
+面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见仓库内 `.codewiki/`（由 `cw` 工具维护，随仓库进 git、可评审可共享；入口是 `_architecture.md` 与 `_index.md`）；版本变更记录见 `CHANGELOG.md`（本地维护，不入 git）。
 
 ## 必守约定
 
@@ -17,7 +17,7 @@
    - 安卓端：host `cargo check` / `cargo test` 在 `android/src-tauri` 基线即失败（mobile-only 插件门控）——Rust 改动只认 `cargo check --target aarch64-linux-android --all-targets`（需注入 NDK 工具链环境变量）或一键出包 `pwsh android/build-apk.ps1`（详见 CodeWiki 的 `decisions/verification-baseline` 与 `learnings/android-host-cargo-check-fails`）。
    - 布局 / 交互类改动需浏览器实测：向 `tauri-app/frontend/index.html` 临时注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后必须完整还原**（git diff 必须干净）。
 
-5. **文档同步**：新模块、决策变更、踩坑记录同步进 CodeWiki（`~/.codewiki/Wxxy-CampusLogin/`）——修了 bug 写 `learnings/<slug>.md`、做了决策写 `decisions/<slug>.md`、并更新被改动代码影响到的文章；收尾跑 `cw index` 重建索引与 `cw meta update` 记录 commit。用户可见的行为变化同步 CHANGELOG（见第 1 条）。
+5. **文档同步**：新模块、决策变更、踩坑记录同步进 CodeWiki（仓库内 `.codewiki/`）——修了 bug 写 `learnings/<slug>.md`、做了决策写 `decisions/<slug>.md`、并更新被改动代码影响到的文章；收尾跑 `cw index` 重建索引与 `cw meta update` 记录 commit，两者对 `.codewiki/` 的改动随代码一起提交。用户可见的行为变化同步 CHANGELOG（见第 1 条）。
 
 6. **语言**：思考、回复、commit 说明、文档一律中文；代码、命令、报错原文保持原样。
 
