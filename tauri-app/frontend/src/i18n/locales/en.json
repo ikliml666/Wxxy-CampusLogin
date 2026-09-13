@@ -275,6 +275,10 @@
     "getNewIpFailedShort": "Failed to get new IP",
     "dnsFamilyLabel": "Target",
     "dnsFamilyBoth": "IPv4 + IPv6",
+    "resetDns": "Restore Auto DNS",
+    "resettingDns": "Restoring...",
+    "dnsResetSuccess": "DNS Auto-Restore Successful",
+    "dnsResetFailed": "Failed to Restore Auto DNS",
     "dhcpRenewFailed": "DHCP renew failed"
   },
   "monitor": {

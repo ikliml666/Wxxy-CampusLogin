@@ -51,6 +51,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
   const [dohEnabling, setDohEnabling] = useState(false)
+  const [dnsResetting, setDnsResetting] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
   const ipc = tauriApiWithRetry
@@ -123,6 +124,32 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       if (mountedRef.current) setDohEnabling(false)
     }
   }, [ipc, dnsFamily])
+
+  const handleResetDns = useCallback(async () => {
+    setDnsResetting(true)
+    try {
+      const result = await ipc.resetDns()
+      if (!mountedRef.current) return
+      if (result.success) {
+        useLogToastStore.getState().addToast(t('network.dnsResetSuccess'), 'success', result.message)
+        // 检测刷新独立捕获：其失败不应落入外层 catch 再弹一次"恢复失败"与上面的成功 toast 矛盾
+        try {
+          const status = await ipc.checkDnsDohStatus()
+          if (!mountedRef.current) return
+          useQualityStore.getState().setDnsDohStatus(status)
+        } catch (e) {
+          if (import.meta.env.DEV) console.error('[resetDns] 刷新DNS状态失败:', e)
+        }
+      } else {
+        useLogToastStore.getState().addToast(t('network.dnsResetFailed'), 'error', result.message)
+      }
+    } catch (e: unknown) {
+      if (!mountedRef.current) return
+      useLogToastStore.getState().addToast(t('network.dnsResetFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) setDnsResetting(false)
+    }
+  }, [ipc, t])
 
   const handleGetNewIpForAdapter = useCallback(async (adapterName: string) => {
     setGettingNewIpAdapter(adapterName)
@@ -456,6 +483,22 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 >
                   {dohEnabling ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
                   {dohEnabling ? t('network.settingUp') : t('network.oneClickOptimize')}
+                </m.button>
+                <m.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleResetDns}
+                  disabled={dnsResetting}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors whitespace-nowrap',
+                    'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15',
+                    'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]',
+                    'backdrop-blur-sm',
+                    dnsResetting && 'opacity-70 cursor-wait'
+                  )}
+                >
+                  {dnsResetting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3 text-muted-foreground" />}
+                  {dnsResetting ? t('network.resettingDns') : t('network.resetDns')}
                 </m.button>
               </div>
             </div>

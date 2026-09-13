@@ -338,3 +338,88 @@ pub async fn setup_dns_doh(app_handle: tauri::AppHandle, family: Option<String>)
         }
     }).await.map_err(|e| format!("设置DNS+DoH失败: {e}"))?
 }
+
+#[tauri::command]
+pub async fn reset_dns(app_handle: tauri::AppHandle) -> Result<CommandResult, String> {
+    crate::log_info!("dns", "开始恢复DNS自动获取");
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = &app_handle;
+            return Ok(CommandResult::err("仅支持Windows"));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+            // 操作范围与 setup_dns_doh 一致：只对 resolve 后的主/副适配器清除 DNS
+            let config = crate::infra::command_context::CommandContext::from_app(&app_handle)
+                .config
+                .load_full();
+            let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+            let targets: Vec<Adapter> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
+                .into_iter()
+                .filter(|a| !a.ip.is_empty() && !crate::network::is_blacklisted(&a.name))
+                .collect();
+
+            if targets.is_empty() {
+                return Ok(CommandResult::err("未找到目标网络适配器（主/副适配器均无活跃连接）"));
+            }
+
+            if elevation::is_admin() {
+                let mut restored: Vec<String> = Vec::new();
+                let mut failed: Vec<String> = Vec::new();
+                for adapter in &targets {
+                    match dns_config::clear_adapter_dns_via_api(&adapter.guid) {
+                        Ok(()) => {
+                            crate::log_info!("dns", "恢复DNS自动获取成功: {}", adapter.name);
+                            restored.push(adapter.name.clone());
+                        }
+                        Err(e) => {
+                            crate::log_warn!("dns", "恢复DNS自动获取失败: {} - {}", adapter.name, e);
+                            failed.push(format!("{}: {}", adapter.name, e));
+                        }
+                    }
+                }
+
+                if failed.is_empty() {
+                    return Ok(CommandResult::ok_msg(&format!("已恢复DNS自动获取（{} 个适配器）", restored.len())));
+                } else if restored.is_empty() {
+                    return Ok(CommandResult::err(&format!("恢复DNS自动获取失败: {}", failed.join("；"))));
+                } else {
+                    return Ok(CommandResult::err(&format!("部分适配器恢复失败: {}", failed.join("；"))));
+                }
+            }
+
+            // 非管理员：与 setup_dns_doh 同一提权路径（--helper clear_dns），UAC 取消/超时给出明确失败提示
+            crate::log_info!("dns", "非管理员运行，通过 --helper 提权恢复DNS自动获取");
+            let result_path = crate::platform::helper_spawn::unique_result_path();
+            let guid_strs: Vec<&str> = targets.iter().map(|a| a.guid.as_str()).collect();
+            match crate::platform::helper_spawn::spawn_elevated_helper(
+                "clear_dns",
+                &guid_strs,
+                &result_path,
+                std::time::Duration::from_secs(30),
+            ) {
+                Ok(v) => {
+                    let success = v.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
+                    let message = v
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("恢复DNS自动获取完成")
+                        .to_string();
+                    crate::log_info!("dns", "helper提权恢复DNS完成: {message}");
+                    // 三态汇总文案由 helper 侧生成（与管理员路径一致），失败明细在其 details.failed
+                    if success {
+                        Ok(CommandResult::ok_msg(&message))
+                    } else {
+                        Ok(CommandResult::err(&message))
+                    }
+                }
+                Err(e) => {
+                    crate::log_warn!("dns", "helper提权恢复DNS失败: {}", e);
+                    Ok(CommandResult::err(&format!("需要管理员权限: {e}")))
+                }
+            }
+        }
+    }).await.map_err(|e| format!("恢复DNS自动获取失败: {e}"))?
+}

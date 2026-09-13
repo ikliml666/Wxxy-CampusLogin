@@ -275,6 +275,10 @@
     "getNewIpFailedShort": "获取新IP失败",
     "dnsFamilyLabel": "优化目标",
     "dnsFamilyBoth": "IPv4 + IPv6",
+    "resetDns": "恢复自动获取",
+    "resettingDns": "恢复中...",
+    "dnsResetSuccess": "已恢复DNS自动获取",
+    "dnsResetFailed": "恢复自动获取失败",
     "dhcpRenewFailed": "DHCP 续租失败"
   },
   "monitor": {

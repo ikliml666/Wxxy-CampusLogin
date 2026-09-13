@@ -126,6 +126,7 @@ interface TauriApi {
   onUpdateAvailable: (cb: (data: UpdateAvailableData) => void) => () => void
   checkDnsDohStatus: () => Promise<DnsDohStatus>
   setupDnsDoh: (family?: 'ipv4' | 'ipv6' | 'both') => Promise<DnsSetupResult>
+  resetDns: () => Promise<CommandResult>
   renderHeartbeat: () => Promise<{ online: boolean; checking: boolean }>
   getGpuInfo: () => Promise<GpuInfo>
   getLogRetentionDays: () => Promise<number>
@@ -278,6 +279,7 @@ const tauriApi: TauriApi = {
   onUpdateAvailable: createEventListener<UpdateAvailableData>('update-available'),
   checkDnsDohStatus: () => desktopOnly<DnsDohStatus>('check_dns_doh_status'),
   setupDnsDoh: (_family) => desktopOnly<DnsSetupResult>("setup_dns_doh"),
+  resetDns: () => desktopOnly<CommandResult>('reset_dns'),
   renderHeartbeat: () => desktopOnly<{ online: boolean; checking: boolean }>('render_heartbeat'),
   getGpuInfo: () => desktopOnly<GpuInfo>('get_gpu_info'),
   getLogRetentionDays: () => invoke<number>('get_log_retention_days'),

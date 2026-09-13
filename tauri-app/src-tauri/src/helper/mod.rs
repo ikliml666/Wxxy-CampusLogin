@@ -29,6 +29,9 @@ pub enum HelperOp {
     /// 设置 DNS + 启用 DoH（只处理 `targets` 名单内的适配器，主进程 resolve 后传入；
     /// `family` 为优化目标 "ipv4"/"ipv6"/"both"）
     Dns { targets: Vec<String>, family: String },
+    /// 恢复DNS自动获取（清除适配器级 DNS；`targets` 为适配器 GUID 名单，
+    /// 主进程 resolve 后传入，复用 Dns 的位置参数传入方式）
+    ClearDns { targets: Vec<String> },
     /// 修改适配器 MAC（注册表 NetworkAddress + 重启网卡）
     Mac { guid: String, mac_no_dash: String },
 }
@@ -74,6 +77,7 @@ pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<Str
     }
     let parsed = match op.as_str() {
         "dns" => HelperOp::Dns { targets: positional, family },
+        "clear_dns" => HelperOp::ClearDns { targets: positional },
         "mac" => {
             let guid = positional
                 .first()
@@ -95,6 +99,7 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
     let mut logs: Vec<String> = Vec::new();
     let result = match &op {
         HelperOp::Dns { targets, family } => run_dns(targets, family, &mut logs),
+        HelperOp::ClearDns { targets } => run_clear_dns(targets, &mut logs),
         HelperOp::Mac { guid, mac_no_dash } => run_mac(guid, mac_no_dash, &mut logs),
     };
     if let Some(path) = result_path {
@@ -121,6 +126,66 @@ fn run_dns(targets: &[String], family: &str, logs: &mut Vec<String>) -> HelperRe
         op: "dns".to_string(),
         logs: std::mem::take(logs),
         details: Some(v),
+    }
+}
+
+/// 恢复DNS自动获取（清除适配器级 DNS）。`targets` 为适配器 GUID 名单（主进程 resolve 后传入）。
+/// 逐适配器结果明细写入 details.restored / details.failed（"名字: 错误"），供主进程解析失败明细；
+/// 三态汇总文案（全成功 / 部分失败 / 全失败）与管理员路径（commands/network_cmd.rs reset_dns）保持一致。
+fn run_clear_dns(targets: &[String], logs: &mut Vec<String>) -> HelperResult {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (targets, logs);
+        HelperResult {
+            success: false,
+            message: "仅支持Windows".to_string(),
+            op: "clear_dns".to_string(),
+            logs: Vec::new(),
+            details: None,
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        logs.push(format!(
+            "helper: 开始恢复DNS自动获取（目标适配器: {}）",
+            if targets.is_empty() { "无".to_string() } else { targets.join("、") }
+        ));
+        let adapters = crate::network::get_adapters_force().unwrap_or_default();
+        let mut restored: Vec<String> = Vec::new();
+        let mut failed: Vec<String> = Vec::new();
+        for guid in targets {
+            // 日志与明细优先用适配器名，查不到时以 GUID 兜底（清除操作本身只依赖 GUID）
+            let name = adapters
+                .iter()
+                .find(|a| a.guid.eq_ignore_ascii_case(guid))
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| guid.clone());
+            match crate::platform::dns_config::clear_adapter_dns_via_api(guid) {
+                Ok(()) => {
+                    logs.push(format!("helper: 恢复DNS自动获取成功: {name}"));
+                    restored.push(name);
+                }
+                Err(e) => {
+                    logs.push(format!("helper: 恢复DNS自动获取失败: {name} - {e}"));
+                    failed.push(format!("{name}: {e}"));
+                }
+            }
+        }
+        let success = failed.is_empty();
+        let message = if failed.is_empty() {
+            format!("已恢复DNS自动获取（{} 个适配器）", restored.len())
+        } else if restored.is_empty() {
+            format!("恢复DNS自动获取失败: {}", failed.join("；"))
+        } else {
+            format!("部分适配器恢复失败: {}", failed.join("；"))
+        };
+        HelperResult {
+            success,
+            message,
+            op: "clear_dns".to_string(),
+            logs: std::mem::take(logs),
+            details: Some(serde_json::json!({ "restored": restored, "failed": failed })),
+        }
     }
 }
 
@@ -237,6 +302,29 @@ mod tests {
             HelperOp::Dns {
                 targets: vec!["以太网".to_string(), "Wi-Fi".to_string()],
                 family: "ipv6".to_string(),
+            }
+        );
+        assert_eq!(path.as_deref(), Some("r.json"));
+    }
+
+    #[test]
+    fn parse_clear_dns_with_targets() {
+        let args = vec![
+            "--helper".to_string(),
+            "clear_dns".to_string(),
+            "{4D36E972-E325-11CE-BFC1-08002BE10318}".to_string(),
+            "{ABC-002}".to_string(),
+            "--result".to_string(),
+            "r.json".to_string(),
+        ];
+        let (op, path) = parse_helper_args(&args).unwrap().unwrap();
+        assert_eq!(
+            op,
+            HelperOp::ClearDns {
+                targets: vec![
+                    "{4D36E972-E325-11CE-BFC1-08002BE10318}".to_string(),
+                    "{ABC-002}".to_string(),
+                ]
             }
         );
         assert_eq!(path.as_deref(), Some("r.json"));

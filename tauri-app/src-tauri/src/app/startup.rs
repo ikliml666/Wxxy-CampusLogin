@@ -80,6 +80,7 @@ pub fn run(core_count: usize) {
             crate::commands::network_cmd::stop_latency_test,
             crate::commands::network_cmd::check_dns_doh_status,
             crate::commands::network_cmd::setup_dns_doh,
+            crate::commands::network_cmd::reset_dns,
             crate::commands::account::list_accounts,
             crate::commands::account::switch_account,
             crate::commands::account::save_current_as_account,
