@@ -12,6 +12,7 @@
 - [[decisions\dns-reset-requires-elevation|DNS 一键还原必须与一键设置一样走提权，否则功能只做一半]]
 - [[decisions\portal-port-semantics|Portal 页面探测用 :80、协议请求强制 :801]]
 - [[decisions\release-asset-integrity|Release 资产完整性（安装包与 .sha256 同传、镜像 URL 原样拼接）]]
+- [[decisions\android-vpn-bypass-infeasible|VPN 旁路定调:Network API 层不可绕(netd EPERM),走内核 SO_BINDTODEVICE + 探针回退]]
 - [[decisions\webview2-args-minimal|WebView2 浏览器参数精简到单参数并恢复 vsync]]
 - [[decisions\bin-lib-dual-module-tree|bin 与 lib 是两棵独立模块树，新增顶层模块必须两处声明]]
 - [[decisions\remove-auth-layer-traits|删除 auth 层 trait 抽象（AdapterResolver/PortalChecker/ProtocolClient）]]

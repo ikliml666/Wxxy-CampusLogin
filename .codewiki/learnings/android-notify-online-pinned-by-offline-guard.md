@@ -39,8 +39,15 @@ let online = match &portal {
 - **静默期整拍 `return` 同样会让通知陈旧**：`campus_check_start/end_minutes` 门外整拍跳过探测，上一拍的"在线"通知会一直挂着到次日。修复同日补齐：静默期 return 前把常驻通知重建为「监控运行中 · 已暂停检测(非检测时段)」（`notified_online` 状态码 3，`monitor_loop.rs:702-712`），跳过的是探测、不是状态保鲜。
 - 排查此类问题先看**通知为什么不翻**而不是"为什么判在线"：状态记忆位（`was_online`）与通知记忆位（`notified_online`）是两级缓存，任一级不翻转都会冻结展示。
 
+## 真机验证（2026-09-13，小米 25060RK16C/HyperOS）
+
+- **无 VPN 环境**：关 WiFi 走蜂窝后约 **5 秒**通知翻转为「未连接」（WiFi 事件去抖 1s + `WIFI_EVENT_DELAY_MS=2500` 等路由稳定 + 探测耗时，时间线与设计吻合）；连回后恢复。此前版本在此场景被钉死为「在线」。
+- **用户家中特殊拓扑（曾误诊为"VPN 打穿"）**：用户家 WiFi 路由器上游级联校园网（路由器 WAN 口 10.2.x.x 自己挂着 Dr.COM 会话），手机连该 WiFi 时 Portal 经路由器 NAT **真实可达**，且 Portal 返回的是路由器 WAN 会话的「已在线」页（`uid='…@cmcc'; v4ip='10.2.79.90'; oltime≈48h`）→ 判「在线」。这在"能上网"语义下是真实判定（手机确实免登录可上网），不是误报。教训：**可达性 = 物理拓扑（级联/NAT）**，不等于"本机在校园 /18 内"；「在线」的产品语义（能上网 vs 本机在校园网）是两条不同的判定线，改动前要先确认用户要哪条。
+- **secure 全量 VPN 接管本应用时**（用户实测：开 Clash 不排除本应用则无法登录）：socket 类判定（网关/Portal TCP、Portal HTTP、登录请求）全部经隧道，判定与登录均不可用——这是平台边界（见 [[android-vpn-bypass-infeasible|不做"绕过 VPN 直连 WiFi"]]），唯一官方出口是 VPN 侧排除本应用。
+
 ## Connections
 
 - [[android-backend]] — `MonitorState` 的 `was_online`/`notified_online` 与 `run_check_once` 三态消费
 - [[background-check-and-auto-login]] — 两端在线判定与静默期语义对照
 - [[android-keepalive-fgs-architecture]] — 前台服务常驻通知与"仅翻转时重建"的省电约束
+- [[android-vpn-bypass-infeasible|不做"绕过 VPN 直连 WiFi"]] — secure VPN 下判定不可信的平台边界与缓解路线
