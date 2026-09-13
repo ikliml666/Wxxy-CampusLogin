@@ -26,6 +26,8 @@ pub struct MonitorState {
     /// 运行中循环的目标检测间隔(ms):start_background_check 每次调用刷新,
     /// 循环体逐 tick 对比实现"改间隔立即生效"(否则幂等分支吞掉新间隔)
     pub desired_interval_ms: AtomicU64,
+    /// 闲时巡检间隔(ms):蜂窝/灭屏时生效,start_background_check 从配置刷新
+    pub idle_interval_ms: AtomicU64,
     /// 注销保护期截止(epoch ms):手动注销后一段时间内不自动重登,登录成功清零
     pub logout_protected_until_ms: AtomicU64,
     /// 最近一次 WiFi 变化事件的 epoch ms:去抖与"风暴内最后事件生效"判定
@@ -49,6 +51,20 @@ const WIFI_EVENT_DEBOUNCE_MS: u64 = 1000;
 /// 由已安排的任务执行(风暴内只跑一次)
 fn wifi_event_is_burst_start(last_event_ms: u64, now_ms: u64, debounce_ms: u64) -> bool {
     last_event_ms == 0 || now_ms.saturating_sub(last_event_ms) >= debounce_ms
+}
+
+/// 巡检分档(纯函数,单测锁定):WiFi 且屏幕亮着 → 基础间隔(默认 60s);
+/// 蜂窝网络或屏幕熄灭 → 闲时间隔(默认 5min)。
+/// 拉长间隔不改变正确性:WiFi 变化事件仍即时触发检测(handle_wifi_event),
+/// 且无明确离线证据时在线状态保持上一拍记忆(三态护栏)。
+/// 闲时间隔不足基础间隔时以基础间隔为准,避免配置误配成更频繁。
+pub fn effective_interval_ms(base_ms: u64, idle_ms: u64, screen_on: bool, wifi_connected: bool) -> u64 {
+    let base = base_ms.max(5000);
+    if screen_on && wifi_connected {
+        base
+    } else {
+        idle_ms.max(base)
+    }
 }
 
 /// 本 tick 是否应尝试登录(纯函数,全量条件显式入参)
@@ -145,6 +161,9 @@ pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json:
     let settings = crate::config_state::current_settings(&app).await?;
     let want = settings.background_check_interval.max(5000);
     MONITOR.desired_interval_ms.store(want, Ordering::Relaxed);
+    MONITOR
+        .idle_interval_ms
+        .store(settings.background_check_idle_interval, Ordering::Relaxed);
     if is_running() {
         // 已在跑:仅刷新目标间隔,循环体下 tick 重建计时器(改间隔立即生效)
         return Ok(serde_json::json!({ "isRunning": true }));
@@ -475,10 +494,40 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
     }
 }
 
+/// 探针窗口 guard:进入窗口持 WifiLock/WakeLock,离开(Drop,含 early return 与 panic
+/// unwind)必释放。Android 8+ 后台 startService 受限,故经插件命令直调服务静态入口。
+#[cfg(mobile)]
+struct ProbeWindowGuard(tauri::AppHandle);
+
+#[cfg(mobile)]
+impl Drop for ProbeWindowGuard {
+    fn drop(&mut self) {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let _ = self.0.campus_monitor_service().end_probe_window();
+    }
+}
+
+/// 电源状态:(屏幕交互中, 当前活动网络为 WiFi)。
+/// 查询失败按保守值 (true, true) 处理——按基础间隔巡检,不因查询异常漏检测
+/// (省电是优化项,漏检是功能缺陷)。
+#[cfg(mobile)]
+fn power_state(app: &tauri::AppHandle) -> (bool, bool) {
+    use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+    app.campus_monitor_service()
+        .get_power_state()
+        .unwrap_or((true, true))
+}
+
+#[cfg(not(mobile))]
+fn power_state(_app: &tauri::AppHandle) -> (bool, bool) {
+    (true, true)
+}
+
 async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
     // 下限 5s:防误配超小间隔打爆探测
     let mut current = interval_ms.max(5000);
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(current));
+    let mut last_probe_ms: u64 = 0;
     loop {
         tick.tick().await;
         if !is_running() {
@@ -492,6 +541,16 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
             tick = tokio::time::interval(std::time::Duration::from_millis(current));
             tick.tick().await;
         }
+        // 分档:唤醒周期恒为基础间隔(保证亮屏/回 WiFi 后最迟一拍恢复),
+        // 是否真正跑探针由闲时间隔决定——蜂窝/灭屏时跳拍,省掉整轮 Portal 探测
+        let idle_ms = MONITOR.idle_interval_ms.load(Ordering::Relaxed);
+        let (screen_on, wifi_connected) = power_state(&app);
+        let effective = effective_interval_ms(current, idle_ms, screen_on, wifi_connected);
+        let now = epoch_ms();
+        if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective {
+            continue;
+        }
+        last_probe_ms = now;
         run_check_once(&app).await;
     }
     MONITOR.running.store(false, Ordering::Relaxed);
@@ -565,6 +624,15 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
             return;
         }
     }
+
+    // 探针窗口:本轮巡检期间持 WifiLock(防 WiFi 省电断流)+ 唤醒锁,
+    // 窗口外全部释放(省电)。guard 保证任何 early return / panic 都释放。
+    #[cfg(mobile)]
+    let _probe_window = {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let _ = app.campus_monitor_service().begin_probe_window();
+        ProbeWindowGuard(app.clone())
+    };
 
     // 每拍探测/Portal 探测/掉线自动重登前强制绑 WiFi(同 auto_login_on_start;
     // WiFi 未认证被降分后默认路由可能落蜂窝)
@@ -763,5 +831,28 @@ mod tests {
             1_000_000 + WIFI_EVENT_DEBOUNCE_MS - 1,
             WIFI_EVENT_DEBOUNCE_MS
         ));
+    }
+
+    #[test]
+    fn 巡检分档_wifi且亮屏走基础间隔_其余走闲时() {
+        // WiFi + 亮屏 → 基础间隔
+        assert_eq!(effective_interval_ms(60_000, 300_000, true, true), 60_000);
+        // 蜂窝 → 闲时间隔
+        assert_eq!(effective_interval_ms(60_000, 300_000, true, false), 300_000);
+        // 灭屏 → 闲时间隔
+        assert_eq!(effective_interval_ms(60_000, 300_000, false, true), 300_000);
+        // 灭屏 + 蜂窝 → 闲时间隔
+        assert_eq!(effective_interval_ms(60_000, 300_000, false, false), 300_000);
+    }
+
+    #[test]
+    fn 巡检分档_闲时间隔小于基础间隔时取基础间隔() {
+        assert_eq!(effective_interval_ms(120_000, 30_000, false, false), 120_000);
+    }
+
+    #[test]
+    fn 巡检分档_基础间隔下限5s() {
+        assert_eq!(effective_interval_ms(1_000, 300_000, true, true), 5_000);
+        assert_eq!(effective_interval_ms(1_000, 0, false, false), 5_000);
     }
 }
