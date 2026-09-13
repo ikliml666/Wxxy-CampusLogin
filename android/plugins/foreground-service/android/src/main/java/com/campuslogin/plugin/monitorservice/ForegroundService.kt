@@ -29,11 +29,30 @@ class ForegroundService : Service() {
 
         /**
          * nudge 唤醒锁最小间隔:onCapabilitiesChanged 在 WiFi 信号/带宽波动时
-         * 高频连发(弱信号环境可达每秒多条),每次都 acquire 3s 唤醒锁会反复
-         * 抑制系统 suspend。窗口内的事件不补锁——真正的检测触发在 Rust 侧
-         * watcher(自带 2.5s 延迟 + 1s 去抖)与周期 tick,及时性不受影响。
+         * 高频连发(弱信号环境可达每秒多条),每次都 acquire 会反复抑制系统 suspend。
+         * 2026-09-13 起同时按"关注字段是否翻转"过滤(见 registerNetworkWatcher),
+         * 本阈值作为第二道闸。
          */
         const val NUDGE_THROTTLE_MS = 5000L
+
+        /** nudge 唤醒锁持有时长:覆盖 Rust 侧 WiFi 事件延迟(2.5s)+ 一次探针 */
+        const val NUDGE_WAKE_MS = 3000L
+
+        /** 探针窗口唤醒锁上限:正常窗口数百毫秒,超时兜底防泄漏(异常漏调 endProbeWindow) */
+        const val PROBE_WINDOW_TIMEOUT_MS = 30_000L
+
+        /**
+         * 当前运行中的服务实例(onDestroy 置空)。探针窗口由 Rust 巡检在每拍开始/结束
+         * 时经插件命令直调——同进程静态引用,避免 Android 8+ 后台 startService 限制。
+         */
+        @Volatile
+        private var instance: ForegroundService? = null
+
+        /** 进入探针窗口:窗口内持有 WifiLock + 唤醒锁 */
+        fun beginProbeWindow() { instance?.acquireProbeLocks() }
+
+        /** 退出探针窗口:释放窗口锁(幂等) */
+        fun endProbeWindow() { instance?.releaseProbeLocks() }
 
         @Volatile
         var isRunning: Boolean = false
@@ -76,47 +95,115 @@ class ForegroundService : Service() {
     }
 
     private var wifiLock: WifiManager.WifiLock? = null
-    private var wakeLock: PowerManager.WakeLock? = null
+    private var nudgeWakeLock: PowerManager.WakeLock? = null
+    private var probeWakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate() {
         super.onCreate()
         startAtMs = System.currentTimeMillis()
         startForegroundWithText("校园网监控运行中")
-        // WifiLock:WiFi 高性能模式,抑制 Wi-Fi 省电断流(断流直接影响登录保活)
-        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        @Suppress("DEPRECATION")
-        wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "campus:wifi").apply {
-            setReferenceCounted(false)
-            acquire()
-        }
+        // WifiLock/WakeLock 改为探针窗口内按需持有(见 acquireProbeLocks):
+        // 常驻 WIFI_MODE_FULL_HIGH_PERF 会让系统永不进入 WiFi 省电(CDD 要求持有期
+        // 必须关 WiFi 省电),而一轮探针只数百毫秒——按需持有既保探针可用又省电。
+        instance = this
         registerNetworkWatcher()
         isRunning = true
     }
 
     /**
-     * 网络变化事件驱动:网络断/连/能力变化时短持 3s 唤醒锁,
-     * 保证 Rust 侧轮询 tick 在 CPU 被唤醒的窗口内立即执行;
-     * 其余时间不持锁,系统可正常 suspend(省电)。acquire(ms) 超时自动释放。
+     * 探针窗口加锁:Rust 侧每轮巡检开始时调用(经 MonitorServicePlugin 的
+     * beginProbeWindow 命令)。WifiLock 抑制探针期间 WiFi 省电断流,
+     * PARTIAL_WAKE_LOCK 保证探针线程不被 suspend;唤醒锁带 timeout,
+     * endProbeWindow 未到达(进程被杀/异常)时由系统自动释放,不会永久持锁。
+     */
+    @Synchronized
+    private fun acquireProbeLocks() {
+        if (wifiLock == null) {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "campus:wifi")
+        }
+        wifiLock?.let {
+            if (!it.isHeld) {
+                it.setReferenceCounted(false)
+                it.acquire()
+            }
+        }
+        val pm = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+        try {
+            probeWakeLock?.release()
+        } catch (_: Exception) {
+        }
+        probeWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "campus:probe").apply {
+            setReferenceCounted(false)
+            acquire(PROBE_WINDOW_TIMEOUT_MS)
+        }
+    }
+
+    /** 探针窗口解锁:每轮巡检结束(含异常路径)由 Rust 侧 guard 调用;幂等 */
+    @Synchronized
+    private fun releaseProbeLocks() {
+        try {
+            wifiLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {
+        }
+        try {
+            probeWakeLock?.release()
+        } catch (_: Exception) {
+        }
+        probeWakeLock = null
+    }
+
+    /**
+     * 网络变化事件驱动:网络断/连、或"关注字段"(TRANSPORT 集合 / VALIDATED)翻转时
+     * 短持唤醒锁,保证 Rust 侧轮询 tick 在 CPU 被唤醒的窗口内准时执行;
+     * 其余时间不持锁,系统可正常 suspend(省电)。
+     *
+     * 2026-09-13:onCapabilitiesChanged 在信号强度/带宽波动时高频连发(弱信号下每秒多条),
+     * 原先无条件 nudge(只靠 5s 节流挡)。改为按关注字段翻转判定——与 network-bind 插件
+     * 的 watcher 同款去重(NetworkBindPlugin.kt:326-334),节流作为第二道闸。
+     * 唤醒锁字段独立于探针窗口,避免与 acquireProbeLocks 互相 release。
      */
     private fun registerNetworkWatcher() {
         val cm = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val pm = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
         val callback = object : ConnectivityManager.NetworkCallback() {
             private var lastNudgeMs = 0L
+            /** 上次已见的关注字段位掩码:0=无掩码,-1=尚未收到过能力回调。
+             *  bit0=TRANSPORT_WIFI,bit1=TRANSPORT_CELLULAR,bit2=NET_CAPABILITY_VALIDATED */
+            private var lastFieldMask = -1
+
             private fun nudge() {
                 val now = System.currentTimeMillis()
                 if (now - lastNudgeMs < NUDGE_THROTTLE_MS) return
                 lastNudgeMs = now
-                wakeLock?.release()
-                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "campus:nudge").apply {
+                try {
+                    nudgeWakeLock?.release()
+                } catch (_: Exception) {
+                }
+                nudgeWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "campus:nudge").apply {
                     setReferenceCounted(false)
-                    acquire(3000)
+                    acquire(NUDGE_WAKE_MS)
                 }
             }
+
             override fun onAvailable(network: Network) = nudge()
-            override fun onLost(network: Network) = nudge()
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = nudge()
+
+            override fun onLost(network: Network) {
+                lastFieldMask = -1
+                nudge()
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                val mask = (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) 1 else 0) or
+                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) 2 else 0) or
+                    (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 4 else 0)
+                if (mask != lastFieldMask) {
+                    lastFieldMask = mask
+                    nudge()
+                }
+            }
         }
         cm.registerNetworkCallback(
             NetworkRequest.Builder()
@@ -127,14 +214,20 @@ class ForegroundService : Service() {
         networkCallback = callback
     }
 
+    /** 服务销毁时的全清理:探针锁 + nudge 锁 + 网络回调 */
     private fun releaseLocks() {
-        wifiLock?.release()
-        wifiLock = null
-        wakeLock?.release()
-        wakeLock = null
+        releaseProbeLocks()
+        try {
+            nudgeWakeLock?.release()
+        } catch (_: Exception) {
+        }
+        nudgeWakeLock = null
         networkCallback?.let { cb ->
             val cm = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            cm.unregisterNetworkCallback(cb)
+            try {
+                cm.unregisterNetworkCallback(cb)
+            } catch (_: Exception) {
+            }
         }
         networkCallback = null
     }
@@ -154,6 +247,7 @@ class ForegroundService : Service() {
 
     override fun onDestroy() {
         releaseLocks()
+        instance = null
         isRunning = false
         startAtMs = 0L
         super.onDestroy()

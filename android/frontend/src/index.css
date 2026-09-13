@@ -709,8 +709,16 @@
 
 @layer utilities {
   /* .animate-spin 不参与 idle 冻结：它是标准 loading 指示，用户 2 秒无输入后
-     冻结 spinner 会被误读为"程序卡死"（2026-09-04） */
-  .anim-idle .animate-pulse,
+     冻结 spinner 会被误读为"程序卡死"（2026-09-04）。
+     2026-09-13 修复：`.anim-idle .animate-pulse` 曾与 `.scrollbar-none` 并进同一条
+     规则（逗号后插入了新选择器），animation-play-state 只落在 signal-glow-active 上，
+     animate-pulse 的 idle 冻结整条失效——后台监控运行时的雷达脉冲（MonitorPanel）
+     与骨架脉冲在用户 2s 无输入后仍持续驱动合成器。
+     每个选择器独立成规则，禁止再往逗号列表后插入新选择器。 */
+  .anim-idle .animate-pulse {
+    animation-play-state: paused !important;
+  }
+
   /* 移动端隐藏滚动条：Chromium WebView 对 overflow 容器默认外露灰条，原生 app 惯例不显示 */
   .scrollbar-none { scrollbar-width: none; }
   .scrollbar-none::-webkit-scrollbar { display: none; }

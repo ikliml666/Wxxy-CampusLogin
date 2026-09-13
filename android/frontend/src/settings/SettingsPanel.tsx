@@ -25,6 +25,7 @@ import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import { useDailyMascots } from '@/shared/dailyMascot'
+import { KeepAliveSettingsCard } from './KeepAliveSettingsCard'
 
 // 安卓构建差异化渲染：Windows 专属设置（退出应用/托盘/默认面板）不渲染
 const isAndroid = import.meta.env.VITE_PLATFORM === 'android'
@@ -411,6 +412,16 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardContent>
         </AnimatedCard>
       </div>
+
+      {/* 保活设置(安卓专属):电池优化白名单 + 厂商自启/省电页跳转。
+          桌面端无对应 API,故 isAndroid 门控;文案措辞与桌面设置页统一 */}
+      {isAndroid && (
+        <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+          <AnimatedCard noEnterAnimation>
+            <KeepAliveSettingsCard />
+          </AnimatedCard>
+        </div>
+      )}
 
       {/* 安全设置：Windows Hello 相关开关。关闭任一开关（安全 → 宽松方向）
           都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}

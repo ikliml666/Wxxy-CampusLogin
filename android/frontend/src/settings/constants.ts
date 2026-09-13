@@ -22,6 +22,8 @@ export const DEFAULT_CONFIG: Config = {
   enableBackgroundCheck: true,
   // 2026-09-09 起 60s(与后端 Settings::default 一致):稳态周期检测降功耗
   backgroundCheckInterval: 60000,
+  // 2026-09-13 起:闲时(蜂窝/灭屏)巡检 5min,与后端 Settings::default 一致
+  backgroundCheckIdleInterval: 300000,
   autoLoginOnPreparation: true,
   autoExitOnOnline: true,
   themeMode: 'dark',
@@ -46,7 +48,8 @@ export const DEFAULT_CONFIG: Config = {
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
-  configVersion: 2,
+  // 2026-09-13 对齐后端 config_schema_version(此前漂移在 2)
+  configVersion: 4,
 }
 
 export const ISP_OPTIONS = [

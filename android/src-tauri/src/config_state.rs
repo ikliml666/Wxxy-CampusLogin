@@ -27,6 +27,11 @@ pub struct Settings {
     pub auto_login_on_start: bool,
     pub enable_background_check: bool,
     pub background_check_interval: u64,
+    /// 闲时巡检间隔(ms):蜂窝网络或屏幕熄灭时的巡检周期(默认 5min)。
+    /// 2026-09-13 起:亮屏 + WiFi 走 background_check_interval(60s),其余场景拉长到本值——
+    /// 省电(非 WiFi 环境探针必失败、灭屏时用户不在看状态),且不改变在线状态
+    /// (无明确离线证据时保持上一拍记忆)。
+    pub background_check_idle_interval: u64,
     pub auto_login_on_preparation: bool,
     pub max_disconnect_reconnect: u32,
     pub auto_login_cooldown_secs: u64,
@@ -60,8 +65,9 @@ pub struct Settings {
     pub log_retention_days: u32,
     /// 配置结构版本:旧版本文件缺省反序列化为 0,load_from 据此执行一次性
     /// 默认值迁移(0→1:后台检测间隔 15s→60s;1→2:自动化登录/检测与网络验证、
-    /// 质量跳过项开关默认改为开启;2→3:网络质量检测默认改为关闭)。
-    /// 新装即 3,不再触发。
+    /// 质量跳过项开关默认改为开启;2→3:网络质量检测默认改为关闭;
+    /// 3→4:新增闲时巡检间隔 background_check_idle_interval 默认 5min)。
+    /// 新装即 4,不再触发。
     pub config_schema_version: u32,
 }
 
@@ -80,6 +86,8 @@ impl Default for Settings {
             // 2026-09-09 起 60s:后台检测是稳态周期任务,15s 间隔空转耗电,
             // 旧配置由 migrate_legacy_defaults 按 schema 版本一次性迁移
             background_check_interval: 60_000,
+            // 2026-09-13:闲时(蜂窝/灭屏)巡检周期 5min,与 Task B3 的分档判定配套
+            background_check_idle_interval: 300_000,
             auto_login_on_preparation: true,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
@@ -109,7 +117,7 @@ impl Default for Settings {
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
-            config_schema_version: 3,
+            config_schema_version: 4,
         }
     }
 }
@@ -225,15 +233,17 @@ pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, St
 /// v1→v2(2026-09-10):自动化登录/检测与网络验证、质量跳过项开关历史默认
 /// false 改为开启,存量配置文件里显式落的 false 一并刷为 true(开发阶段统一
 /// 开箱即用);
-/// v2→v3(2026-09-12):网络质量检测默认改为关闭(省电),存量一并刷为 false。
+/// v2→v3(2026-09-12):网络质量检测默认改为关闭(省电),存量一并刷为 false;
+/// v3→v4(2026-09-13):新增 background_check_idle_interval(蜂窝/灭屏 5min 分档省电),
+/// 旧文件缺该字段反序列化为 0,此处补默认 300_000。
 /// 迁移结果(含版本号)落盘,此后用户主动改回不会再次覆盖;
 /// 落盘失败静默:下次读盘重迁,幂等。
 async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Settings) {
-    let migrated = s.config_schema_version < 3;
+    let legacy = s.config_schema_version < 3;
     if s.config_schema_version < 1 && s.background_check_interval == 15_000 {
         s.background_check_interval = 60_000;
     }
-    if migrated {
+    if legacy {
         s.auto_login_on_start = true;
         s.enable_background_check = true;
         s.auto_login_on_preparation = true;
@@ -244,6 +254,13 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.enable_network_quality = false;
         }
         s.config_schema_version = 3;
+        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+    }
+    if s.config_schema_version < 4 {
+        if s.background_check_idle_interval == 0 {
+            s.background_check_idle_interval = 300_000;
+        }
+        s.config_schema_version = 4;
         let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
     }
 }
@@ -446,7 +463,8 @@ mod tests {
         assert_eq!(s.required_network_name, "i-wxxy");
         assert_eq!(s.theme_mode, "dark");
         assert_eq!(s.background_check_interval, 60_000);
-        assert_eq!(s.config_schema_version, 3, "新装即当前版本,不触发迁移");
+        assert_eq!(s.background_check_idle_interval, 300_000, "闲时巡检默认 5min");
+        assert_eq!(s.config_schema_version, 4, "新装即当前版本,不触发迁移");
         assert_eq!(s.max_disconnect_reconnect, 3);
         assert!(s.self_hello_enabled);
         // 2026-09-12 起默认关闭(省电),质量页由后台检测状态代替展示
@@ -487,7 +505,8 @@ mod tests {
         assert!(back.skip_ttfb_in_latency);
         assert!(back.skip_content_in_latency);
         assert!(!back.enable_network_quality, "v3 迁移应关闭质量检测");
-        assert_eq!(back.config_schema_version, 3);
+        assert_eq!(back.background_check_idle_interval, 300_000, "v4 迁移应补闲时间隔");
+        assert_eq!(back.config_schema_version, 4);
         // 迁移已落盘:此后用户主动设回 15s/开质量检测是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.background_check_interval = 15_000;
@@ -511,7 +530,7 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 30_000, "非旧默认值不迁移");
-        assert_eq!(back.config_schema_version, 3);
+        assert_eq!(back.config_schema_version, 4);
         std::fs::remove_dir_all(&dir).ok();
     }
 

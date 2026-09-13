@@ -11,6 +11,12 @@
 - `allow-setBootAutostart`
 - `allow-isBootAutostartEnabled`
 - `allow-installApk`
+- `allow-beginProbeWindow`
+- `allow-endProbeWindow`
+- `allow-getPowerState`
+- `allow-getBatteryOptimizationInfo`
+- `allow-requestIgnoreBatteryOptimizations`
+- `allow-openVendorBatterySettings`
 
 ## Permission Table
 

@@ -16,6 +16,14 @@ struct BoolResult {
     enabled: bool,
 }
 
+#[derive(Deserialize)]
+struct PowerStateResult {
+    #[serde(rename = "screenOn")]
+    screen_on: bool,
+    #[serde(rename = "wifiConnected")]
+    wifi_connected: bool,
+}
+
 pub struct CampusMonitorService<R: Runtime>(PluginHandle<R>);
 
 type Result<T> = std::result::Result<T, tauri::plugin::mobile::PluginInvokeError>;
@@ -35,6 +43,23 @@ impl<R: Runtime> CampusMonitorService<R> {
         self.0.run_mobile_plugin("updateNotification", serde_json::json!({ "text": text }))
     }
 
+    /// 进入探针窗口:窗口内持有 WifiLock + 唤醒锁(巡检每拍开始调用)
+    pub fn begin_probe_window(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("beginProbeWindow", ())
+    }
+
+    /// 退出探针窗口:释放窗口锁(幂等;由 run_check_once 的 drop guard 保证必达)
+    pub fn end_probe_window(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("endProbeWindow", ())
+    }
+
+    /// 电源状态:(屏幕是否交互中, 当前活动网络是否 WiFi)。
+    /// 供巡检分档——WiFi 且亮屏基础间隔,否则闲时间隔。
+    pub fn get_power_state(&self) -> Result<(bool, bool)> {
+        let r: PowerStateResult = self.0.run_mobile_plugin("getPowerState", ())?;
+        Ok((r.screen_on, r.wifi_connected))
+    }
+
     /// 开关开机自启(BOOT_COMPLETED receiver 组件启停 + SharedPreferences 记忆)
     pub fn set_boot_autostart(&self, enabled: bool) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("setBootAutostart", serde_json::json!({ "enabled": enabled }))
@@ -49,6 +74,21 @@ impl<R: Runtime> CampusMonitorService<R> {
     /// 以文件名重新拼路径防逃逸;FileProvider content:// URI(桌面 exe/msi 不适用)
     pub fn install_apk(&self, file_path: &str) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("installApk", serde_json::json!({ "text": file_path }))
+    }
+
+    /// 电池优化白名单信息:{ignoring, brand, manufacturer, hasVendorTarget}
+    pub fn get_battery_optimization_info(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("getBatteryOptimizationInfo", ())
+    }
+
+    /// 一次性申请加入电池优化白名单(系统确认框)
+    pub fn request_ignore_battery_optimizations(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("requestIgnoreBatteryOptimizations", ())
+    }
+
+    /// 跳厂商自启/省电页(降级链);返回 {path, target, tried}
+    pub fn open_vendor_battery_settings(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("openVendorBatterySettings", ())
     }
 }
 

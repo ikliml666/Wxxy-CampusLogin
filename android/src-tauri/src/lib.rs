@@ -20,6 +20,7 @@ mod account_cmds;
 mod system_cmds;
 mod quality_cmds;
 mod update_cmds;
+mod battery_cmds;
 
 use tauri::Manager;
 
@@ -90,6 +91,9 @@ pub fn run() {
             monitor_loop::set_boot_autostart,
             monitor_loop::get_notification_enabled,
             monitor_loop::set_notification_enabled,
+            battery_cmds::get_battery_optimization_info,
+            battery_cmds::request_ignore_battery_optimizations,
+            battery_cmds::open_vendor_battery_settings,
             quality_cmds::check_network_quality,
             quality_cmds::start_latency_test,
             quality_cmds::stop_latency_test,

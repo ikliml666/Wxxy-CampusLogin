@@ -21,6 +21,8 @@ export interface Config {
   autoLaunch: boolean
   enableBackgroundCheck: boolean
   backgroundCheckInterval: number
+  /** 闲时巡检间隔(ms):蜂窝网络或屏幕熄灭时的巡检周期(默认 300000=5min) */
+  backgroundCheckIdleInterval: number
   autoLoginOnPreparation: boolean
   autoExitOnOnline: boolean
   themeMode: 'light' | 'dark' | 'system'
