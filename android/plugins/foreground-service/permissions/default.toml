@@ -11,4 +11,6 @@ permissions = [
     "allow-setBootAutostart",
     "allow-isBootAutostartEnabled",
     "allow-installApk",
+    "allow-beginProbeWindow",
+    "allow-endProbeWindow",
 ]

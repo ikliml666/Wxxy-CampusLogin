@@ -95,6 +95,21 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         }
     }
 
+    // 探针窗口:Rust 巡检每拍开始/结束直调服务静态入口(同进程,无 IPC 路由)。
+    // 窗口内持有 WifiLock + 唤醒锁,窗口外全部释放——常驻 WifiLock 会让系统
+    // 永不进入 WiFi 省电(CDD 要求),而一轮探针只数百毫秒。
+    @Command
+    fun beginProbeWindow(invoke: Invoke) {
+        ForegroundService.beginProbeWindow()
+        invoke.resolve()
+    }
+
+    @Command
+    fun endProbeWindow(invoke: Invoke) {
+        ForegroundService.endProbeWindow()
+        invoke.resolve()
+    }
+
     @Command
     fun setBootAutostart(invoke: Invoke) {
         val args = invoke.parseArgs(BoolArgs::class.java)

@@ -35,6 +35,16 @@ impl<R: Runtime> CampusMonitorService<R> {
         self.0.run_mobile_plugin("updateNotification", serde_json::json!({ "text": text }))
     }
 
+    /// 进入探针窗口:窗口内持有 WifiLock + 唤醒锁(巡检每拍开始调用)
+    pub fn begin_probe_window(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("beginProbeWindow", ())
+    }
+
+    /// 退出探针窗口:释放窗口锁(幂等;由 run_check_once 的 drop guard 保证必达)
+    pub fn end_probe_window(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("endProbeWindow", ())
+    }
+
     /// 开关开机自启(BOOT_COMPLETED receiver 组件启停 + SharedPreferences 记忆)
     pub fn set_boot_autostart(&self, enabled: bool) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("setBootAutostart", serde_json::json!({ "enabled": enabled }))
