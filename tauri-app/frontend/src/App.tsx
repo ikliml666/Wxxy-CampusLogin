@@ -403,14 +403,19 @@ function AppInner() {
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[880px]" : "max-w-[720px]")}>
             <div ref={setRef('title')} className="mb-6 relative z-[1]">
-              <h1
-                key={`title-${deferredPanel}`}
-                className="text-xl font-semibold tracking-tight transition-opacity duration-200"
-              >{t(panelInfo.titleKey)}</h1>
-              <p
-                key={`desc-${deferredPanel}`}
-                className="text-sm text-muted-foreground mt-1 transition-opacity duration-150"
-              >{t(panelInfo.descKey)}</p>
+              {/* 标题/描述与内容同向滑入：复用 panelVariants（y:8→0 spring 进入），与内容区同款变体与时序 */}
+              <AnimatePresence mode="wait">
+                <m.div
+                  key={deferredPanel}
+                  variants={panelVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                >
+                  <h1 className="text-xl font-semibold tracking-tight">{t(panelInfo.titleKey)}</h1>
+                  <p className="text-sm text-muted-foreground mt-1">{t(panelInfo.descKey)}</p>
+                </m.div>
+              </AnimatePresence>
             </div>
 
             <AnimatePresence mode="wait" custom={slideDirection}>
