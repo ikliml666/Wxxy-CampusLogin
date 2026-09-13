@@ -1,6 +1,6 @@
 # AGENTS.md — 项目工作约定
 
-面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构速查见 `CODE_WIKI.md`；版本变更记录见 `CHANGELOG.md`（本地维护，不入 git）。
+面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见本地 CodeWiki（wiki 根 `~/.codewiki/Wxxy-CampusLogin/`，由 `cw` 工具维护，位于仓库外、不入 git；入口是 `_architecture.md` 与 `_index.md`）；版本变更记录见 `CHANGELOG.md`（本地维护，不入 git）。
 
 ## 必守约定
 
@@ -9,15 +9,15 @@
 
 2. **分支纪律**：改动全在主题分支（`feat/xxx`、`fix/xxx`、`perf/xxx`、`chore/xxx`），不直接改 main；commit 说明用 `feat:` / `fix:` / `perf:` / `chore:` / `docs:` 前缀；不擅自 push、merge、删分支——由用户决定。
 
-3. **通用改进双端同步**：本项目是 Windows 桌面端 + 安卓端的双端应用，安卓前端（`android/frontend`）是独立复刻代码库，**桌面改动不会自动同步到安卓**。凡通用改进——前端 UI / 交互行为、文案与 i18n、图标与看板娘素材、IPC 命令面、配置字段与默认值、事件与日志类型等——必须在**同一次提交内双端各改一份**（桌面 `tauri-app/` + 安卓 `android/`），不允许只改一端留待"下次同步"；提交前用 `git diff --stat` 自检是否同时触及两端。两类例外：协议实现单点存在于桌面 crate（安卓经 Cargo path 依赖自动继承，禁止复制，见 CODE_WIKI §三-1）；平台专属能力（DPAPI/Keystore、托盘/前台服务等）各端自理。
+3. **通用改进双端同步**：本项目是 Windows 桌面端 + 安卓端的双端应用，安卓前端（`android/frontend`）是独立复刻代码库，**桌面改动不会自动同步到安卓**。凡通用改进——前端 UI / 交互行为、文案与 i18n、图标与看板娘素材、IPC 命令面、配置字段与默认值、事件与日志类型等——必须在**同一次提交内双端各改一份**（桌面 `tauri-app/` + 安卓 `android/`），不允许只改一端留待"下次同步"；提交前用 `git diff --stat` 自检是否同时触及两端。两类例外：协议实现单点存在于桌面 crate（安卓经 Cargo path 依赖自动继承，禁止复制，见 CodeWiki 的 `decisions/protocol-core-single-source` 与 `concepts/dual-platform-sharing`）；平台专属能力（DPAPI/Keystore、托盘/前台服务等）各端自理。
 
 4. **验证以实际输出为准，不凭"应该没问题"**：
    - 前端：`npx tsc --noEmit --incremental`（在 `tauri-app/frontend` 下；**禁止 `tsc -b`**——tsconfig.node.json 为 composite 项目，会 emit 出 vite.config.js/.d.ts 污染文件）。涉及打包产物时 `npx vite build` 确认无警告。安卓前端同法（在 `android/frontend` 下执行）。
-   - 后端：`cargo test`（在 `tauri-app/src-tauri` 下；全绿基线 493 用例，以 CODE_WIKI §1.4 为准）。
-   - 安卓端：host `cargo check` / `cargo test` 在 `android/src-tauri` 基线即失败（mobile-only 插件门控）——Rust 改动只认 `cargo check --target aarch64-linux-android --all-targets`（需注入 NDK 工具链环境变量）或一键出包 `pwsh android/build-apk.ps1`（详见 CODE_WIKI §1.4 / §4.3.1）。
+   - 后端：`cargo test`（在 `tauri-app/src-tauri` 下；全绿基线 493 用例，以 CodeWiki 的 `decisions/verification-baseline` 为准）。
+   - 安卓端：host `cargo check` / `cargo test` 在 `android/src-tauri` 基线即失败（mobile-only 插件门控）——Rust 改动只认 `cargo check --target aarch64-linux-android --all-targets`（需注入 NDK 工具链环境变量）或一键出包 `pwsh android/build-apk.ps1`（详见 CodeWiki 的 `decisions/verification-baseline` 与 `learnings/android-host-cargo-check-fails`）。
    - 布局 / 交互类改动需浏览器实测：向 `tauri-app/frontend/index.html` 临时注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后必须完整还原**（git diff 必须干净）。
 
-5. **文档同步**：新模块、决策变更、踩坑记录同步更新 `CODE_WIKI.md`（增量记录，不写流水账）；用户可见的行为变化同步 CHANGELOG（见第 1 条）。
+5. **文档同步**：新模块、决策变更、踩坑记录同步进 CodeWiki（`~/.codewiki/Wxxy-CampusLogin/`）——修了 bug 写 `learnings/<slug>.md`、做了决策写 `decisions/<slug>.md`、并更新被改动代码影响到的文章；收尾跑 `cw index` 重建索引与 `cw meta update` 记录 commit。用户可见的行为变化同步 CHANGELOG（见第 1 条）。
 
 6. **语言**：思考、回复、commit 说明、文档一律中文；代码、命令、报错原文保持原样。
 
@@ -25,4 +25,4 @@
 
 - 技术栈：Tauri 2 + React 19 + TypeScript，Windows + 安卓双端同构的校园网（Dr.COM/Portal）自动登录助手。
 - 桌面端：前端根 `tauri-app/frontend`、后端根 `tauri-app/src-tauri`；安卓端根 `android/`（后端 path 依赖桌面协议核心 crate，前端为独立复刻树）。
-- 发布流程、版本号同步清单、Release 资产检查清单见 `CODE_WIKI.md` 对应章节（版本号提交与 Release 发布必须同流程完成）。
+- 发布流程、版本号同步清单、Release 资产检查清单见 CodeWiki 的 `decisions/release-asset-integrity` 与 `decisions/version-single-source-build-rs`（版本号提交与 Release 发布必须同流程完成）。
