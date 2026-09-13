@@ -206,16 +206,29 @@ function AppInner() {
   }, [runStartupSequence])
 
   useEffect(() => {
-    const unlisten = getCurrentWindow().onResized(async () => {
-      try {
-        const maximized = await getCurrentWindow().isMaximized()
-        setIsMaximized(maximized)
-      } catch (e) {
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+    let disposed = false
+    const syncMaximized = () => {
+      getCurrentWindow().isMaximized().then((maximized) => {
+        // 节流窗口内卸载：invoke 已在飞，返回后不再 setState
+        if (!disposed) setIsMaximized(maximized)
+      }).catch((e) => {
         if (import.meta.env.DEV) console.error('获取窗口最大化状态失败:', e)
-      }
+      })
+    }
+    const unlisten = getCurrentWindow().onResized(() => {
+      // 拖拽窗口边缘时本回调高频触发，逐次 await isMaximized() 产生大量 IPC 往返；
+      // 100ms 尾节流合并为拖拽停止后的一次查询，最终最大化状态仍保证同步
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(syncMaximized, 100)
     })
     getCurrentWindow().isMaximized().then(m => setIsMaximized(m)).catch((e) => { if (import.meta.env.DEV) console.error(e) })
-    return () => { unlisten.then(fn => fn()).catch((e) => { if (import.meta.env.DEV) console.error(e) }); useLogToastStore.getState().cleanupToasts() }
+    return () => {
+      disposed = true
+      if (resizeTimer) clearTimeout(resizeTimer)
+      unlisten.then(fn => fn()).catch((e) => { if (import.meta.env.DEV) console.error(e) })
+      useLogToastStore.getState().cleanupToasts()
+    }
   }, [])
 
   // 系统通知"发现新版本"被点击（后端 WinRT toast Activated 回调发事件）→ 打开关于界面

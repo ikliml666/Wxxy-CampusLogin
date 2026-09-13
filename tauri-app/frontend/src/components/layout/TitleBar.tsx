@@ -203,6 +203,7 @@ export const TitleBar = memo(function TitleBar({
             <TooltipTrigger asChild>
               <button
                 onClick={onShowSponsor}
+                data-sponsor-anchor="true"
                 className="h-7 w-7 rounded-full inline-flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-rose-500 transition-colors titlebar-icon-btn"
                 aria-label={t('titlebar.sponsor')}
               >
