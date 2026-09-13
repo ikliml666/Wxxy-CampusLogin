@@ -32,8 +32,8 @@ pub struct MonitorState {
     pub logout_protected_until_ms: AtomicU64,
     /// 最近一次 WiFi 变化事件的 epoch ms:去抖与"风暴内最后事件生效"判定
     pub wifi_event_ms: AtomicU64,
-    /// 常驻通知已展示的在线状态(0=未展示,1=在线,2=未连接):仅状态翻转时才
-    /// notify 重建通知——每拍重建常驻通知是稳态功耗点(60s 一拍 IPC + notify),
+    /// 常驻通知已展示的在线状态(0=未展示,1=在线,2=未连接,3=非检测时段):仅状态
+    /// 翻转时才 notify 重建通知——每拍重建常驻通知是稳态功耗点(60s 一拍 IPC + notify),
     /// 文案不再携带逐拍递增的检测次数(检测次数前端状态页有)
     pub notified_online: AtomicU8,
     /// 定时登录当日已触发标记(当日序号 num_days_from_ce;0=从未触发,当日序号
@@ -699,6 +699,17 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         if minutes_now < settings.campus_check_start_minutes
             || (end > settings.campus_check_start_minutes && minutes_now >= end)
         {
+            // 非检测时段不探测,但常驻通知不能停在上一拍的"在线"(2026-09-13 真机反馈);
+            // 状态码 3=非检测时段,与在线(1)/未连接(2)区分,仅首次进入本状态时重建通知
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+                if MONITOR.notified_online.swap(3, Ordering::Relaxed) != 3 {
+                    let _ = app
+                        .campus_monitor_service()
+                        .update_notification("监控运行中 · 已暂停检测(非检测时段)");
+                }
+            }
             return;
         }
     }
@@ -744,9 +755,15 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     // (真机 2026-09-09 反馈:不手动登录不变绿、过一会又变灰)。真掉线由
     // Determined(false)(Portal 返回登录页)正常翻转,不受此护栏影响。
     let prev_online = MONITOR.was_online.load(Ordering::Relaxed);
+    // 非校园网不存在"校园网在线":WiFi 断开走蜂窝 / 连着家用 WiFi 时
+    // 子网、校园网关、Portal 三判据全否(on_campus=false)且 Portal 探测必失败,
+    // 此前一律沿用 prev_online 会把"在线"永久钉住(2026-09-13 真机:WiFi 断开后
+    // 常驻通知仍显示在线)。校园网内探针失配(页面特征乱码/超时)仍保持上一拍,
+    // 2026-09-09 的反误报语义不变。桌面同语义:campus fail 即置 any_adapter_online=false
     let online = match &portal {
         Ok(s) if s.error_kind.is_none() => s.online,
-        _ => prev_online,
+        _ if on_campus => prev_online,
+        _ => false,
     };
 
     // 3. 状态机:在线清零计数,记录 was_online
