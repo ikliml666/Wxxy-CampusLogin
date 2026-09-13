@@ -40,7 +40,10 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
     Ok(CommandResult::ok_msg("已触发后台检测"))
 }
 
-pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) -> serde_json::Value {
+/// `adapters` 由调用方提供（如 get_init_data 已取好的快照），避免本函数内部
+/// 再全量取一次适配器并 clone 整个 Vec；无现成快照的调用方先自行
+/// `get_adapters_cached()`（失败按空切片处理，行为与原失败分支一致）。
+pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle, adapters: &[crate::network::Adapter]) -> serde_json::Value {
     let config = state.config.load_full();
     let running = state.task_manager.is_running("background_check");
     // 单次原子快照，避免多次 load 拼出跨时刻不一致的状态
@@ -51,10 +54,10 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
         let mut adapter_statuses = Vec::new();
         let a1_online = snap.last_a1_online;
 
-        if let Ok(adapters) = crate::network::get_adapters_cached() {
-            let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+        {
+            let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(adapters, &config);
 
-            if let Some(a1) = crate::network::find_by_name(&adapters, &adapter1_name) {
+            if let Some(a1) = crate::network::find_by_name(adapters, &adapter1_name) {
                 if a1.ip.is_empty() {
                     adapter_statuses.push(watcher::adapter_disconnected_entry(&adapter1_name, a1.wireless));
                 } else {
@@ -66,7 +69,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
 
             if crate::network::is_secondary_adapter_enabled(&config, &adapter2_name) {
                 let a2_online_state = snap.last_a2_online;
-                if let Some(a2) = crate::network::find_by_name(&adapters, &adapter2_name) {
+                if let Some(a2) = crate::network::find_by_name(adapters, &adapter2_name) {
                     if a2.ip.is_empty() {
                         adapter_statuses.push(watcher::adapter_disconnected_entry(&adapter2_name, a2.wireless));
                     } else {
@@ -112,6 +115,7 @@ pub fn get_background_status_value(state: &AppState, _app_handle: &AppHandle) ->
 #[tauri::command]
 pub async fn get_background_status(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     let state = CommandContext::from_app(&app_handle);
-    Ok(get_background_status_value(&state, &app_handle))
+    let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+    Ok(get_background_status_value(&state, &app_handle, &adapters))
 }
 

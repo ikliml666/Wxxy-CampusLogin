@@ -249,7 +249,8 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
     if let Err(e) = task_manager.spawn("update_check_loop", move |cancel_token| async move {
         let state = app_h.state::<AppState>();
         // 启动延迟 5s 首查（避开启动期任务高峰），此后每 24h 一次；
-        // 全程 5s 步进等待 + cancel token/退出标志，保证退出可中断
+        // 等待期 select 取消令牌保证退出可中断（退出流程 shutdown_and_exit
+        // 会 task_manager.shutdown() 取消本任务），无需步进轮询退出标志
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(STARTUP_CHECK_DELAY_SECS)) => {}
             _ = cancel_token.cancelled() => return,
@@ -259,17 +260,10 @@ pub fn start_update_check_loop(app_handle: &tauri::AppHandle) {
                 break;
             }
             do_update_check(&app_h, &state).await;
-            // 5s 步进等待 24h，同时监听取消令牌
-            let mut waited = 0u64;
-            while waited < AUTO_CHECK_INTERVAL_SECS {
-                tokio::select! {
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
-                    _ = cancel_token.cancelled() => return,
-                }
-                if state.exit.is_quitting.load(Ordering::Acquire) {
-                    return;
-                }
-                waited += 5;
+            // 24h 等待单次睡眠 + select 取消令牌，消除原 5s 步进的 17280 次/天无谓唤醒
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(AUTO_CHECK_INTERVAL_SECS)) => {}
+                _ = cancel_token.cancelled() => return,
             }
         }
     }) {

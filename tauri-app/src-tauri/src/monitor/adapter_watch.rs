@@ -6,6 +6,12 @@ use crate::infra::state::AppState;
 use crate::infra::events::EventBus;
 
 const ADAPTER_WATCH_INTERVAL: u64 = 15000;
+/// class subkey 缓存刷新周期 = 15s × 4 = 60s。选择"放宽周期"而非"仅适配器
+/// 集合变化时刷新"：禁用分类检测（is_admin_disabled_via_registry 读该缓存）
+/// 本身依赖缓存新鲜度，而设备管理器禁用/启用未必改变适配器 name/ip——
+/// "变化后才刷新"会让禁用状态在首次变化发生前永远检测不到（先有鸡还是先有蛋）。
+/// 60s 陈旧窗口与 4s 适配器缓存刷新（BE-B-05）同理，对本监测粒度足够。
+const CLASS_SUBKEY_REFRESH_ROUNDS: u32 = 4;
 
 pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
     let app_h = app_handle.clone();
@@ -13,6 +19,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
         async move {
             let mut last_adapters: Vec<Adapter> = Vec::new();
             let mut last_disabled: Vec<DisabledAdapter> = Vec::new();
+            let mut class_refresh_round: u32 = 0;
             let mut interval_timer = tokio::time::interval(Duration::from_millis(ADAPTER_WATCH_INTERVAL));
             // 单轮检测耗时超过周期时默认 Burst 会连续补发错过的 tick 造成连发，
             // 改为 Delay 保持固定周期、错过的不补发
@@ -36,13 +43,18 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
 
                 // 历史缺陷：CLASS_SUBKEY_CACHE 仅首次访问构建、只在 enable_adapter 刷新，
                 // 运行期设备管理器禁用/拔插适配器的可见性与禁用分类永久陈旧。
-                // 随 15s 监听周期轻量刷新（注册表遍历在后台线程执行）。
+                // 改为每 CLASS_SUBKEY_REFRESH_ROUNDS 轮（60s）刷新一次（注册表遍历在
+                // 后台线程执行），首次读取仍有 ensure_cache_initialized 兜底构建。
                 // BE-B-01: refresh_class_subkey_cache 内部是 winreg 同步遍历 HKLM Class 子键，
                 // 包进 spawn_blocking 避免在 async 任务线程上执行同步注册表 I/O
                 // （与下方适配器查询同一模式）。
-                let _ = tauri::async_runtime::spawn_blocking(|| {
-                    crate::network::discovery::registry::refresh_class_subkey_cache();
-                }).await;
+                class_refresh_round += 1;
+                if class_refresh_round >= CLASS_SUBKEY_REFRESH_ROUNDS {
+                    class_refresh_round = 0;
+                    let _ = tauri::async_runtime::spawn_blocking(|| {
+                        crate::network::discovery::registry::refresh_class_subkey_cache();
+                    }).await;
+                }
 
                 // BE-B-05: 原为 get_all_adapters_force 每 15s 强制清缓存重查，与 4s 后台
                 // 常驻刷新叠加造成重复全量 GetAdaptersAddresses。改读缓存（数据最多陈旧

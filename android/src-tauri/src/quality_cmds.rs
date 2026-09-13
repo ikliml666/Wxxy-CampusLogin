@@ -32,6 +32,7 @@ async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
         &settings.fixed_gateway,
         is_quitting,
         Some(app),
+        false,
     )
     .await
 }

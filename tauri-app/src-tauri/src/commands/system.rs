@@ -131,7 +131,8 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
 
     let is_auto_start = std::env::args().any(|a| a == "--autostart");
 
-    let bg_status = super::background::get_background_status_value(&state, &app_handle);
+    // 复用上方已取好的适配器快照，避免 get_background_status_value 内部重复全量取一次
+    let bg_status = super::background::get_background_status_value(&state, &app_handle, &adapters);
 
     Ok(serde_json::json!({
         "config": cfg,

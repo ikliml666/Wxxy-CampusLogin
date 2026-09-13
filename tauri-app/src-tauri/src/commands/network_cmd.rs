@@ -192,7 +192,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     if adapter_ip.is_empty() {
         return Ok(empty_quality_json("unknown"));
     }
-    let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None).await;
+    let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None, false).await;
     crate::log_info!("network", "网络质量检测完成");
     serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {e}"))
 }

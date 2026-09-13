@@ -448,7 +448,11 @@ fn build_quality_result<'a>(
     }
 }
 
-pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, skip_ttfb: bool, skip_content: bool, fixed_gateway: &str, is_quitting: Arc<std::sync::atomic::AtomicBool>, app_handle: Option<&AppHandle>) -> NetworkQualityResult {
+/// `lightweight` 轻量复核模式：仅执行预览波（网关 + 1 个外网站点 baidu）即返回，
+/// 跳过 DNS/DoH 批次与 11 站 HTTPS 批次。供质量恶化复核轮使用——复核只需确认
+/// poor/bad 档位是否持续，全量 19 项外网目标会让单次恶化触发 3 倍外网流量。
+#[allow(clippy::too_many_arguments)] // 检测入口参数本就 7 个压线，轻量开关不值得一并打包重构
+pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, skip_ttfb: bool, skip_content: bool, fixed_gateway: &str, is_quitting: Arc<std::sync::atomic::AtomicBool>, app_handle: Option<&AppHandle>, lightweight: bool) -> NetworkQualityResult {
     let now = Instant::now();
 
     let gateway = if !fixed_gateway.is_empty() {
@@ -519,6 +523,10 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     //   批次2: 信风DNS + 阿里DoH + 腾讯DoH
     //   批次3: SystemDns（内部 2 个域名/批，见 execute_task）
     // 聚合语义不变（details/metrics 按 name 键输出，与收集顺序无关）。
+    if lightweight {
+        // 预览波结果（网关 + baidu）已足以给出档位结论，直接汇总返回
+        return build_quality_result(phase1_results.iter(), gateway_str, now);
+    }
 
     let mut batch1: Vec<LatencyTaskCtx> = Vec::new();
     batch1.push(LatencyTaskCtx { task: LatencyTask::DnsServer {

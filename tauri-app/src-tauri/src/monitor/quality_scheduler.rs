@@ -14,7 +14,9 @@ const SPIKE_CONFIRM_INTERVAL_SECS: u64 = 15;
 
 /// 单次质量检测：互斥抢占 → 执行 → 推送前端。返回 None 表示信号量被占用
 /// （如手动检测进行中）或序列化失败，调用方不得当作有效档位使用。
-async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str) -> Option<serde_json::Value> {
+/// `lightweight` 透传给 check_network_quality_async：复核轮只测网关 + 1 个
+/// 外网站点（恶化复核只需确认档位持续，无需 19 项全量外网目标）。
+async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, lightweight: bool) -> Option<serde_json::Value> {
     let s = CommandContext::from_app(app_handle);
     let (skip_ttfb, skip_content, fixed_gateway) = {
         let cfg = s.config.load();
@@ -24,7 +26,7 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
         Some(g) => g,
         None => return None,
     };
-    let quality = check_network_quality_async(adapter_name, adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(app_handle)).await;
+    let quality = check_network_quality_async(adapter_name, adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(app_handle), lightweight).await;
     let quality_val = match serde_json::to_value(&quality) {
         Ok(v) => v,
         Err(e) => {
@@ -50,7 +52,7 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
     if cancel.is_some_and(|c| c.is_cancelled()) {
         return;
     }
-    let Some(first) = perform_quality_check(app_handle, adapter_name, adapter_ip).await else {
+    let Some(first) = perform_quality_check(app_handle, adapter_name, adapter_ip, false).await else {
         return;
     };
     let current = first["quality"].as_str().unwrap_or("unknown").to_string();
@@ -76,7 +78,8 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
                 if is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
                     return;
                 }
-                match perform_quality_check(app_handle, adapter_name, adapter_ip).await {
+                // 复核轮轻量化：只测网关 + 1 个外网站点，15s×2 复核确认语义不变
+                match perform_quality_check(app_handle, adapter_name, adapter_ip, true).await {
                     Some(val) => {
                         let q = val["quality"].as_str().unwrap_or("unknown").to_string();
                         let bad = BAD_LEVELS.contains(&q.as_str());
