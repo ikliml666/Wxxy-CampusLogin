@@ -40,6 +40,8 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
       <AnimatePresence mode="popLayout">
         {toasts.map((toast) => {
           const mascot = toast.mascot ?? TOAST_MASCOTS[toast.type]
+          // celebrate 娘图首帧一次性 spring 弹入（economy 档与其他变体跳过），transition 复用 enterTransition
+          const popIn = !isEconomy && mascot === 'celebrate'
           return (
             <m.div
               key={`toast-${toast.id}`}
@@ -52,11 +54,13 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
                 TOAST_STYLES[toast.type] ?? TOAST_STYLES.info
               )}
             >
-              <img
+              <m.img
                 src={`/girl/mascot-${mascot}.webp`}
                 alt=""
                 aria-hidden="true"
                 draggable={false}
+                initial={popIn ? { scale: 0.9 } : false}
+                animate={popIn ? { scale: 1, transition: enterTransition } : undefined}
                 className="w-11 h-11 rounded-xl object-cover shrink-0 select-none"
               />
               <div className="flex-1 min-w-0">

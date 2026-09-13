@@ -11,7 +11,6 @@ import {
   Info,
   AlertTriangle,
   Bug,
-  ChevronDown,
   Search,
   X,
 } from 'lucide-react'
@@ -94,14 +93,12 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
   const [searchText, setSearchText] = useState('')
   const [filterModule, setFilterModule] = useState<string>('ALL')
-  const [showLineSelector, setShowLineSelector] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [retentionDays, setRetentionDays] = useState(7)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const isVisibleRef = useRef(true)
-  const lineSelectorRef = useRef<HTMLDivElement>(null)
   const fetchSeqRef = useRef(0)
   const mountedRef = useRef(true)
   // 保存最近一次原始日志，轮询内容未变化时跳过 setState，避免整表四层 memo 重算（FE-B-10）
@@ -212,18 +209,6 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     }
     // 过滤条件（级别/模块/搜索）变化同样改变 displayedLines，需一并触发自动滚动
   }, [rawLogs, filterLevel, filterModule, searchText])
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (lineSelectorRef.current && !lineSelectorRef.current.contains(e.target as Node)) {
-        setShowLineSelector(false)
-      }
-    }
-    if (showLineSelector) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showLineSelector])
 
   const [logsKey, setLogsKey] = useState(0)
 
@@ -416,36 +401,19 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <CardDescription>{t('log.systemLogDesc')}</CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                <div className="relative" ref={lineSelectorRef}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[11px] gap-1 px-2"
-                    onClick={() => setShowLineSelector(!showLineSelector)}
-                  >
-                    {t(LINE_OPTIONS.find(o => o.value === lineCount)?.labelKey || 'log.lines200')}
-                    <ChevronDown className="h-3 w-3" />
-                  </Button>
-                  {showLineSelector && (
-                    <div className="absolute right-0 top-full mt-1 z-10 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[100px]">
-                      {LINE_OPTIONS.map(opt => (
-                        <button
-                          key={opt.value}
-                          onClick={() => {
-                            setLineCount(opt.value)
-                            setShowLineSelector(false)
-                          }}
-                          className={cn(
-                            'w-full px-3 py-1.5 text-xs text-left hover:bg-accent transition-colors',
-                            lineCount === opt.value ? 'text-primary font-medium' : 'text-foreground'
-                          )}
-                        >
-                          {t(opt.labelKey)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <Select
+                  value={String(lineCount)}
+                  onValueChange={(v) => setLineCount(Number(v))}
+                >
+                  <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border" aria-label={t('log.systemLog')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LINE_OPTIONS.map(opt => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>{t(opt.labelKey)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select
                   value={String(retentionDays)}
                   onValueChange={(v) => handleRetentionChange(Number(v))}

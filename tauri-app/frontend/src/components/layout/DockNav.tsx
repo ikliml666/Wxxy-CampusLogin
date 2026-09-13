@@ -147,7 +147,9 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
         />
       )}
       <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+      {/* 视觉 tooltip：按钮已有 aria-label（与文本相同），aria-hidden 防止屏幕阅读器双读 */}
       <span
+        aria-hidden="true"
         className="absolute -top-9 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap pointer-events-none bg-white shadow-lg dark:bg-[#1e2028] opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-visible:opacity-100 group-focus-visible:translate-y-0 transition-all duration-100 delay-[250ms]"
       >
         {label}
