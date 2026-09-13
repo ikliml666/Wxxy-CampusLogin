@@ -265,6 +265,7 @@ mod tests {
             campus_exit_start_minutes: 480,
             campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 480,
+            campus_check_end_minutes: 0,
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,

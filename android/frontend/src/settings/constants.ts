@@ -42,6 +42,7 @@ export const DEFAULT_CONFIG: Config = {
   updateSource: 'mirror',
   campusExitOnFail: true,
   campusCheckStartMinutes: 460,
+  campusCheckEndMinutes: 0,
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,

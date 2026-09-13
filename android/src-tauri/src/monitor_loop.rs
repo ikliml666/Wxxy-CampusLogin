@@ -552,12 +552,16 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     };
 
     // 校园网检测静默期(时间门控,桌面 background_check 同语义):早于配置的开始时间
-    // (当日分钟数,0=禁用)整拍跳过,避免非在校时段反复探测与误报掉线通知;在线状态
-    // 保持上一拍记忆,不构成误判
+    // (当日分钟数,0=禁用)或晚于结束时间(0/<=开始时间=不限制,与桌面
+    // is_campus_check_silent 同退化规则)整拍跳过,避免非在校时段反复探测与误报
+    // 掉线通知;在线状态保持上一拍记忆,不构成误判
     if settings.campus_check_start_minutes > 0 {
         let now = chrono::Local::now();
         let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
-        if minutes_now < settings.campus_check_start_minutes {
+        let end = settings.campus_check_end_minutes;
+        if minutes_now < settings.campus_check_start_minutes
+            || (end > settings.campus_check_start_minutes && minutes_now >= end)
+        {
             return;
         }
     }

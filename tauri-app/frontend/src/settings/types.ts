@@ -43,6 +43,7 @@ export interface Config {
   campusExitStartMinutes: number
   campusExitEndMinutes: number
   campusCheckStartMinutes: number
+  campusCheckEndMinutes: number
   maxDisconnectReconnect: number
   autoLoginCooldownSecs: number
   logRetentionDays: number

@@ -131,6 +131,7 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         config.config_version = 2;
     }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
+    config.campus_check_end_minutes = config.campus_check_end_minutes.min(1439);
     config.campus_exit_start_minutes = config.campus_exit_start_minutes.min(1439);
     config.campus_exit_end_minutes = config.campus_exit_end_minutes.min(1439);
     Ok(config)
@@ -535,6 +536,15 @@ mod tests {
         config.campus_check_start_minutes = 2000;
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_start_minutes, 1439);
+    }
+
+    #[test]
+    fn validate_config_clamps_campus_check_end_minutes() {
+        let mut config = Config::default();
+        config.config_version = 2;
+        config.campus_check_end_minutes = 2000;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_check_end_minutes, 1439);
     }
 
     #[test]

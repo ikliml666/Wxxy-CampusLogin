@@ -42,17 +42,31 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let (a1, a2) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
 
-    let campus_result = if config.campus_check_start_minutes > 0 && (chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16) < config.campus_check_start_minutes {
+    let now_min = chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16;
+    let campus_result = if crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes) {
         let hour = config.campus_check_start_minutes / 60;
         let minute = config.campus_check_start_minutes % 60;
-        crate::log_info!("background", "校园网检测静默期（当前时间早于{}:{:02}），跳过校园网环境验证", hour, minute);
+        let end_hour = config.campus_check_end_minutes / 60;
+        let end_minute = config.campus_check_end_minutes % 60;
+        let (window, log_window) = if config.campus_check_end_minutes > config.campus_check_start_minutes {
+            (
+                format!("不在{hour}:{minute:02}–{end_hour}:{end_minute:02}检测时段内"),
+                format!("不在检测时段 {:02}:{:02}–{:02}:{:02}", hour, minute, end_hour, end_minute),
+            )
+        } else {
+            (
+                format!("早于{hour}:{minute:02}"),
+                format!("早于 {:02}:{:02}", hour, minute),
+            )
+        };
+        crate::log_info!("background", "校园网检测静默期（当前时间{}），跳过校园网环境验证", log_window);
         cancel_campus_exit(app_handle, state);
         CampusCheckResult {
             wifi: None,
             wired: None,
             on_campus: true,
             current_ssid: None,
-            message: format!("校园网检测静默期（早于{hour}:{minute:02}），跳过验证"),
+            message: format!("校园网检测静默期（{window}），跳过验证"),
         }
     } else {
         // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围

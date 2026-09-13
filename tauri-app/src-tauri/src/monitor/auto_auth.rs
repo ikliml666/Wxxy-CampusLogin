@@ -284,12 +284,13 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
         if config.enable_network_name_check {
-            let skip_campus = config.campus_check_start_minutes > 0 && (chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16) < config.campus_check_start_minutes;
+            let now_min = chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16;
+            let skip_campus = crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes);
 
             if skip_campus {
                 let hour = config.campus_check_start_minutes / 60;
                 let minute = config.campus_check_start_minutes % 60;
-                crate::log_info!("auto_login", "开机自启: 校园网检测静默期（当前时间早于{}:{:02}），跳过校园网环境验证", hour, minute);
+                crate::log_info!("auto_login", "开机自启: 校园网检测静默期（不在 {:02}:{:02} 起的检测时段内），跳过校园网环境验证", hour, minute);
                 s.network.update(|s| s.on_campus_network = true);
             } else {
                 // 校园网检测任务异常（panic 或被取消）时不能误判为"不在校园网"，

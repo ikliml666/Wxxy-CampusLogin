@@ -42,6 +42,7 @@ export interface Config {
   updateSource: 'mirror' | 'github'
   campusExitOnFail: boolean
   campusCheckStartMinutes: number
+  campusCheckEndMinutes: number
   maxDisconnectReconnect: number
   autoLoginCooldownSecs: number
   logRetentionDays: number

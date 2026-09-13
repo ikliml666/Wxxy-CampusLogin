@@ -404,27 +404,43 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
                       </div>
                       <div className="min-w-0">
-                        <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckStartTime')}</Label>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusCheckStartTimeDesc')}</p>
+                        <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckTimeRange')}</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusCheckTimeRangeDesc')}</p>
                       </div>
                     </div>
-                    <Input
-                      id="campus-check-start-time"
-                      type="time"
-                      value={(() => {
-                        const m = config.campusCheckStartMinutes ?? 460
-                        const h = Math.floor(m / 60)
-                        const min = m % 60
-                        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-28 h-7 text-sm font-mono"
-                    />
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Input
+                        id="campus-check-start-time"
+                        type="time"
+                        value={(() => {
+                          const m = config.campusCheckStartMinutes ?? 460
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-24 h-7 text-sm font-mono"
+                      />
+                      <span className="text-xs text-muted-foreground">–</span>
+                      <Input
+                        type="time"
+                        aria-label={t('monitor.campusCheckWindowEnd')}
+                        value={(() => {
+                          const m = config.campusCheckEndMinutes ?? 0
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-24 h-7 text-sm font-mono"
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 pt-1">
                     {(() => {

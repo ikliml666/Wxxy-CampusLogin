@@ -236,3 +236,47 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         message,
     }
 }
+
+/// 校园网检测静默期判定（now/start/end 均为当日分钟数 0-1439）。
+/// start=0 表示禁用门控；end=0 或 end<=start 时仅受开始时间限制
+/// （等价旧单边语义，与 lifecycle::is_within_campus_exit_window 的退化规则一致，
+/// 防止误设导致检测整天静默失效）。
+pub fn is_campus_check_silent(now_minutes: u16, start: u16, end: u16) -> bool {
+    if start == 0 {
+        return false;
+    }
+    if now_minutes < start {
+        return true;
+    }
+    end > start && now_minutes >= end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_campus_check_silent;
+
+    #[test]
+    fn 静默期判定_开始时间单边() {
+        // 旧语义：0=禁用门控；早于开始时间静默
+        assert!(!is_campus_check_silent(400, 0, 0));
+        assert!(is_campus_check_silent(400, 460, 0));
+        assert!(!is_campus_check_silent(460, 460, 0));
+        assert!(!is_campus_check_silent(1439, 460, 0));
+    }
+
+    #[test]
+    fn 静默期判定_时间段双边() {
+        // 生效窗口 [07:40, 23:00)：窗口外静默
+        assert!(is_campus_check_silent(400, 460, 1380));
+        assert!(!is_campus_check_silent(460, 460, 1380));
+        assert!(!is_campus_check_silent(1379, 460, 1380));
+        assert!(is_campus_check_silent(1380, 460, 1380));
+    }
+
+    #[test]
+    fn 静默期判定_结束不晚于开始时退化为单边() {
+        // end <= start：仅受开始时间限制，防止误设导致整天静默
+        assert!(!is_campus_check_silent(1380, 460, 460));
+        assert!(!is_campus_check_silent(1380, 1380, 100));
+    }
+}
