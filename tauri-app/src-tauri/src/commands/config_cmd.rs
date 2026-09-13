@@ -14,6 +14,9 @@ pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) ->
     // （所有调用方 save_config/switch_account/set_auto_launch 等都经此路径通知前端）
     let emit_cfg = config.masked_for_display();
     let _ = app_handle.notify_config_changed(&emit_cfg);
+    // 托盘菜单依赖账号配置（「快速注销」可用性取决于 user 是否已配置、「切换账号」
+    // 依赖 active_account 标记），配置落盘后异步重建菜单
+    crate::app::tray::refresh_tray_menu_state(app_handle);
     Ok(())
 }
 

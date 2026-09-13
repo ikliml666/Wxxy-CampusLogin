@@ -4,7 +4,6 @@ use crate::infra::events::EventBus;
 use crate::network::get_adapters_cached;
 use crate::auth::portal::check_portal_full;
 use crate::auth::failure_tracker;
-use crate::infra::command_context::CommandContext;
 use crate::infra::state::{AppState, CommandResult};
 
 struct AdapterOnlineStatus {
@@ -84,49 +83,52 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
 
 #[tauri::command]
 pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
-    let (result, any_online_after_logout) = {
-        let adapter = adapter_name.clone();
-        let app_h = app_handle.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let s = app_h.state::<AppState>();
-            let _guard = match s.tasks.is_logging_out.try_acquire() {
-                Some(g) => g,
-                None => {
-                    crate::log_warn!("logout", "注销被拒绝：已有注销任务在进行");
-                    return (CommandResult::err("注销正在进行中，请稍后再试"), None);
-                }
-            };
+    let app_h = app_handle.clone();
+    // 注销含网络请求与固定 1s 复检延迟，走 spawn_blocking；State<'_> 不可跨 await，
+    // 闭包内经 app_handle 重新获取
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        perform_full_logout_sync(&app_h, adapter_name.as_deref())
+    }).await.map_err(|e| format!("注销任务失败: {e}"))?;
+    Ok(result)
+}
 
-            let result = crate::auth::service::full_logout(&s, &app_h, adapter.as_deref());
+/// do_logout 命令与托盘「快速注销」菜单共享的注销核心（含阻塞网络请求与 1s 在线
+/// 复检，须在 spawn_blocking 等阻塞上下文调用）。协议动作复用 auth::service::full_logout，
+/// 成功后的状态重置与 do_logout 原实现逐行对齐（取消自动退出/重置检测计数/60s 注销保护期）。
+pub(crate) fn perform_full_logout_sync(app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult {
+    let s = app_handle.state::<AppState>();
+    let _guard = match s.tasks.is_logging_out.try_acquire() {
+        Some(g) => g,
+        None => {
+            crate::log_warn!("logout", "注销被拒绝：已有注销任务在进行");
+            return CommandResult::err("注销正在进行中，请稍后再试");
+        }
+    };
 
-            let any_online_after_logout = if result.success {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                let status = check_any_adapter_online(&s);
-                if status.any_online {
-                    let event_bus = EventBus::new(&app_h);
-                    let _ = event_bus.emit_login_log(
-                        "页面检测仍显示在线，注销可能未完全生效",
-                        "warning",
-                    );
-                } else {
-                    let event_bus = EventBus::new(&app_h);
-                    let _ = event_bus.emit_login_log(
-                        "注销成功（页面检测已确认离线）",
-                        "success",
-                    );
-                }
-                Some(status)
-            } else {
-                None
-            };
+    let result = crate::auth::service::full_logout(&s, app_handle, adapter_name);
 
-            (result, any_online_after_logout)
-        }).await.map_err(|e| format!("注销任务失败: {e}"))?
+    let any_online_after_logout = if result.success {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let status = check_any_adapter_online(&s);
+        if status.any_online {
+            let event_bus = EventBus::new(app_handle);
+            let _ = event_bus.emit_login_log(
+                "页面检测仍显示在线，注销可能未完全生效",
+                "warning",
+            );
+        } else {
+            let event_bus = EventBus::new(app_handle);
+            let _ = event_bus.emit_login_log(
+                "注销成功（页面检测已确认离线）",
+                "success",
+            );
+        }
+        Some(status)
+    } else {
+        None
     };
 
     if result.success {
-        let s = CommandContext::from_app(&app_handle);
-
         if adapter_name.is_none() {
             // 全量注销：重置所有全局标志 + 取消自动退出 + 60秒注销保护期
             crate::log_info!("logout", "全量注销成功，已重置网络状态，60秒注销保护期开始");
@@ -176,5 +178,5 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
             });
         }
     }
-    Ok(result)
+    result
 }

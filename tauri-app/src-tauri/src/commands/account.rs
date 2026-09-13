@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use crate::config::model::Config;
 use crate::config::persist;
 use crate::account::crypto;
@@ -13,20 +13,38 @@ pub async fn list_accounts(app_handle: AppHandle) -> Result<Vec<String>, String>
 
 #[tauri::command]
 pub async fn switch_account(account_name: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<AccountResult, String> {
-    let safe_name = match crate::infra::state::validate_account_name(&account_name) {
-        Ok(n) => n,
-        Err(e) => return Ok(AccountResult::err(&e)),
-    };
-    let safe_name_log = safe_name.clone();
-
     let app_h = app_handle.clone();
-    let account_config = tauri::async_runtime::spawn_blocking(move || {
-        load_account_config_inner(&app_h, &safe_name)
-    }).await.map_err(|e| e.to_string())??;
+    // 阻塞读盘+落盘，走 spawn_blocking；State<'_> 不可跨 await，闭包内经 app_handle 重新获取
+    let switch_result = tauri::async_runtime::spawn_blocking(move || {
+        let s = app_h.state::<AppState>();
+        perform_switch_account_sync(&app_h, &s, &account_name)
+    }).await.map_err(|e| e.to_string())?;
 
-    let config = match account_config {
-        Some(c) => c,
-        None => return Ok(AccountResult::err("账号不存在")),
+    match switch_result {
+        Ok(()) => {
+            let display_config = state.config.load().masked_for_display();
+            Ok(AccountResult::ok(display_config))
+        }
+        // 与原实现语义一致：校验失败/账号不存在等业务错误以 AccountResult::err 返回
+        //（前端对 success=false 有统一的错误 toast 分支）
+        Err(e) => Ok(AccountResult::err(&e)),
+    }
+}
+
+/// switch_account 命令与托盘「切换账号」菜单共享的核心逻辑（含阻塞读盘与落盘，
+/// 须在 spawn_blocking 等阻塞上下文调用）。落盘统一经 save_config_to_disk_encrypted，
+/// 其内部会发射 config-changed（前端自动同步）并刷新托盘菜单。
+/// 返回 Err(String)：账号名校验失败 / 账号不存在 / 读盘或落盘失败。
+pub(crate) fn perform_switch_account_sync(
+    app_handle: &AppHandle,
+    state: &AppState,
+    account_name: &str,
+) -> Result<(), String> {
+    let safe_name = crate::infra::state::validate_account_name(account_name)?;
+
+    let account_config = load_account_config_inner(app_handle, &safe_name)?;
+    let Some(config) = account_config else {
+        return Err("账号不存在".to_string());
     };
 
     let merged = state.config.update(|c| {
@@ -36,16 +54,13 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
         c.adapter1 = config.adapter1.clone();
         c.adapter2 = config.adapter2.clone();
         c.dual_adapter = config.dual_adapter;
-        c.active_account = safe_name_log.clone();
+        c.active_account = safe_name.clone();
     });
 
-    let app_h2 = app_handle.clone();
-    tauri::async_runtime::spawn_blocking(move || super::config_cmd::save_config_to_disk_encrypted(&app_h2, &merged)).await.map_err(|e| e.to_string())??;
+    super::config_cmd::save_config_to_disk_encrypted(app_handle, &merged)?;
 
-    crate::log_info!("account", "切换账号: {} (用户: {})", safe_name_log, config.user);
-
-    let display_config = state.config.load().masked_for_display();
-    Ok(AccountResult::ok(display_config))
+    crate::log_info!("account", "切换账号: {} (用户: {})", safe_name, config.user);
+    Ok(())
 }
 
 #[tauri::command]
@@ -229,6 +244,9 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle, state: 
     if cleared_active {
         result.active_account = Some(String::new());
     }
+    // 托盘「切换账号」子菜单按账号文件列表构建，删除后需重建（删除当前账号时
+    // 上方 save_config_to_disk_encrypted 已触发，这里统一刷新一次保证覆盖）
+    crate::app::tray::refresh_tray_menu_state(&app_handle);
     Ok(result)
 }
 
