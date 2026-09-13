@@ -75,6 +75,21 @@ impl<R: Runtime> CampusMonitorService<R> {
     pub fn install_apk(&self, file_path: &str) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("installApk", serde_json::json!({ "text": file_path }))
     }
+
+    /// 电池优化白名单信息:{ignoring, brand, manufacturer, hasVendorTarget}
+    pub fn get_battery_optimization_info(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("getBatteryOptimizationInfo", ())
+    }
+
+    /// 一次性申请加入电池优化白名单(系统确认框)
+    pub fn request_ignore_battery_optimizations(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("requestIgnoreBatteryOptimizations", ())
+    }
+
+    /// 跳厂商自启/省电页(降级链);返回 {path, target, tried}
+    pub fn open_vendor_battery_settings(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("openVendorBatterySettings", ())
+    }
 }
 
 pub trait CampusMonitorServiceExt<R: Runtime> {

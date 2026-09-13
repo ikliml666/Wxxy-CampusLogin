@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- APK 更新安装(用户确认安装,无静默安装) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 电池优化白名单:一次性引导跳转(系统确认框,非静默加入)。
+         应用商店对直接请求该白名单有审核要求,UI 必须先有明确的用户确认步骤
+         (前端 KeepAliveSettingsCard 先弹自家说明框再调 request_ignore_battery_optimizations) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 2D 人脸验证(应用内自实现,WebView getUserMedia 前置摄像头) -->
     <uses-permission android:name="android.permission.CAMERA" />
 

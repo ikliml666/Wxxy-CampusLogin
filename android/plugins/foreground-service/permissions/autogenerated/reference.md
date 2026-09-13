@@ -14,6 +14,9 @@
 - `allow-beginProbeWindow`
 - `allow-endProbeWindow`
 - `allow-getPowerState`
+- `allow-getBatteryOptimizationInfo`
+- `allow-requestIgnoreBatteryOptimizations`
+- `allow-openVendorBatterySettings`
 
 ## Permission Table
 
