@@ -9,6 +9,7 @@
 - [[concepts\config-and-persistence|配置模型与持久化]]
 ## Decision
 
+- [[decisions\dns-reset-requires-elevation|DNS 一键还原必须与一键设置一样走提权，否则功能只做一半]]
 - [[decisions\portal-port-semantics|Portal 页面探测用 :80、协议请求强制 :801]]
 - [[decisions\release-asset-integrity|Release 资产完整性（安装包与 .sha256 同传、镜像 URL 原样拼接）]]
 - [[decisions\webview2-args-minimal|WebView2 浏览器参数精简到单参数并恢复 vsync]]
@@ -22,6 +23,8 @@
 - [[decisions\android-generated-project-discipline|安卓生成工程纪律（gen/android 入库、identifier 破坏性、签名不可更换）]]
 - [[decisions\android-power-three-fixes|安卓省电三刀定调（真机归因驱动）]]
 - [[decisions\android-keepalive-fgs-architecture|安卓省电调研定调：巡检架构维持 Kotlin FGS 保活 + Rust tokio 循环]]
+- [[decisions\config-schedule-pure-function|定时动作判定收敛为跨平台纯函数单点共享]]
+- [[decisions\scheduled-actions-outside-silent-window|定时登录/注销的判定点必须置于静默期与巡检分档之外]]
 - [[decisions\panel-import-strategy|常用面板静态导入，仅 3 个低频对话框懒加载 + 启动预取]]
 - [[decisions\tablet-layout-alignment-audit|平板布局对齐 Windows 版（差异审计驱动）]]
 - [[decisions\helper-self-restart-elevation|提权操作用 --helper 重启自身，弃用 PowerShell]]
@@ -34,6 +37,7 @@
 - [[decisions\verification-baseline|统一验证基线（测试与类型检查命令）]]
 - [[decisions\network-quality-default-off|网络质量检测默认关闭（schema v3），质量页由后台检测状态代替]]
 - [[decisions\query-bind-status-no-gate-by-design|自助服务查询命令的"无验证门 + 密码逐个回退"是有意设计]]
+- [[decisions\quality-history-persistence|质量检测结果落盘：复用 login_history 范式，双端 JSON 形状一致]]
 - [[decisions\quality-detail-key-contract|质量检测键用英文标识符 + 驱动者收敛与三处联动]]
 - [[decisions\quality-check-single-driver|质量检测驱动者收敛为定时测试循环独占]]
 - [[decisions\windows-hello-only-identity|身份验证仅用 Windows Hello，删除 CredUI/SSPI 回退]]
@@ -70,6 +74,7 @@
 - [[learnings\android-apk-not-updated-before-build-command|安卓构建后 APK 没更新：tauri CLI 不跑 beforeBuildCommand]]
 - [[learnings\android-gateway-icmp-unavailable|安卓检测不到网关存活：非 root 无 ICMP]]
 - [[learnings\android-verify-timestamp-trusted-from-frontend|安卓验证门的时间戳信任前端]]
+- [[learnings\audit-findings-must-be-verified|审计结论必须回到代码核实：本轮 33 项中有 3 项描述与代码不符]]
 - [[learnings\tailwind-space-y-margin-specificity|容器内 margin 间距不生效（space-y-4 的 specificity 锁死 margin-bottom）]]
 - [[learnings\android-file-uri-install-failure|应用内下载 APK 后安装失败（Android 7+，file:// URI 被禁）]]
 - [[learnings\plugin-permission-dangling-refs|插件权限 default.toml 的悬空引用不会在构建期暴露]]
