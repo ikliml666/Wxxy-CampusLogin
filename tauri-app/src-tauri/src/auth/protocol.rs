@@ -10,19 +10,23 @@ pub fn random_v() -> String {
     format!("{v}")
 }
 
+/// HTTP 响应体读取上限（1MB）：read_bounded_body / read_bounded_body_async 共用
+const MAX_HTTP_BODY: u64 = 1024 * 1024;
+
 /// 读取 HTTP 响应体并限制 1MB 上限（无 Content-Length 的 chunked/流式响应也受限）。
 /// 读取失败返回空串（调用方按"无可解析内容"处理），超限同样返回空串并告警。
 /// 按 Content-Type charset 解码（GBK Portal 的中文成败关键词依赖正确解码）。
+/// ⚠️ 仅限同步上下文调用（内部经 block_on_sync 驱动，async 上下文内调用会 panic）；
+/// async fn 中请用 read_bounded_body_async。
 pub(crate) fn read_bounded_body(resp: reqwest::Response, label: &str) -> String {
-    const MAX_BODY: u64 = 1024 * 1024;
-    if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
+    if resp.content_length().map(|len| len > MAX_HTTP_BODY).unwrap_or(false) {
         crate::log_warn!("logout", "{label}响应体过大(Content-Length={:?})，忽略", resp.content_length());
         return String::new();
     }
     let charset = content_type_charset(&resp);
     match crate::infra::async_util::block_on_sync(resp.bytes()) {
         Ok(b) => {
-            if b.len() as u64 > MAX_BODY {
+            if b.len() as u64 > MAX_HTTP_BODY {
                 crate::log_warn!("logout", "{label}响应体超限({}B)，忽略", b.len());
                 String::new()
             } else {
@@ -33,6 +37,28 @@ pub(crate) fn read_bounded_body(resp: reqwest::Response, label: &str) -> String 
             crate::log_warn!("logout", "{label}响应体读取失败: {}", e);
             String::new()
         }
+    }
+}
+
+/// read_bounded_body 的 async 版本：直接 await 响应体，可在 async fn 中安全调用。
+/// 限长与 charset 解码行为与同步版一致（1MB 上限）；差异：读取失败/超限返回 Err
+/// （调用方以 `?` 透传明确的失败原因），而非同步版的空串+告警。
+pub(crate) async fn read_bounded_body_async(
+    resp: reqwest::Response,
+    label: &str,
+) -> Result<String, String> {
+    if resp.content_length().map(|len| len > MAX_HTTP_BODY).unwrap_or(false) {
+        crate::log_warn!("self", "{label}响应体过大(Content-Length={:?})，拒绝读取", resp.content_length());
+        return Err(format!("{label}响应体过大，已拒绝读取"));
+    }
+    let charset = content_type_charset(&resp);
+    match resp.bytes().await {
+        Ok(b) if b.len() as u64 > MAX_HTTP_BODY => {
+            crate::log_warn!("self", "{label}响应体超限({}B)，拒绝读取", b.len());
+            Err(format!("{label}响应体超限（{}B > 1MB），已拒绝读取", b.len()))
+        }
+        Ok(b) => Ok(crate::platform::console_output::decode_charset_bytes(&b, charset.as_deref())),
+        Err(e) => Err(format!("{label}响应体读取失败: {e}")),
     }
 }
 

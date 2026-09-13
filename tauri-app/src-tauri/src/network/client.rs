@@ -69,13 +69,13 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
     builder.build().map_err(|e| format!("创建HTTP客户端失败: {e}"))
 }
 
-/// 命中检查：返回 Some(client) 表示有效命中；返回 None 表示未命中或已过期清除
-/// 命中时更新 Instant 为当前时间（LRU 按访问时间淘汰，非 FIFO 按创建时间淘汰）
+/// 命中检查：返回 Some(client) 表示有效命中；返回 None 表示未命中或已过期清除。
+/// 命中路径用读锁取 clone 返回、不刷新时间戳（get_mut 写锁会串行化同 key 并发请求）；
+/// 代价是淘汰退化为按条目插入时间（原 LRU 按访问时间），精度略降可接受，TTL 语义不变。
 fn client_pool_get(key: &ClientPoolKey, label: &str) -> Option<reqwest::Client> {
-    let mut entry = CLIENT_POOL.get_mut(key)?;
-    let (client, instant) = entry.value_mut();
+    let entry = CLIENT_POOL.get(key)?;
+    let (client, instant) = entry.value();
     if instant.elapsed().as_secs() < CLIENT_POOL_TTL_SECS {
-        *instant = Instant::now();
         crate::log_debug!("http", "客户端池命中{}: key={:?}", label, key);
         Some(client.clone())
     } else {
@@ -113,7 +113,7 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
     };
 
     CLIENT_POOL.entry(actual_key).or_insert_with(|| (client.clone(), Instant::now()));
-    // 容量上限清理：按 Instant 找最久未访问条目剔除（LRU 按访问时间淘汰）
+    // 容量上限清理：按 Instant 找最早插入的条目剔除（命中路径不刷新时间戳，见 client_pool_get）
     while CLIENT_POOL.len() > CLIENT_POOL_MAX_ENTRIES {
         if let Some(entry) = CLIENT_POOL.iter().min_by_key(|e| e.value().1) {
             let key = entry.key().clone();

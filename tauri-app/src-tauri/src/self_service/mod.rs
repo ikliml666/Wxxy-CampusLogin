@@ -45,6 +45,8 @@ use std::net::IpAddr;
 use lazy_static::lazy_static;
 use regex::Regex;
 
+use crate::auth::protocol::read_bounded_body_async;
+
 /// 自助服务系统基地址（无锡学院部署，仅校园网内网可达）
 pub const SELF_BASE_URL: &str = "http://10.1.80.200:8080/Self";
 
@@ -180,10 +182,10 @@ pub async fn bind_operator(
     if bind_resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
     }
-    let bind_html = bind_resp
+    let bind_resp = bind_resp
         .error_for_status()
-        .map_err(|e| format!("提交绑定请求失败: {e}"))?
-        .text().await.map_err(|e| format!("读取绑定结果失败: {e}"))?;
+        .map_err(|e| format!("提交绑定请求失败: {e}"))?;
+    let bind_html = read_bounded_body_async(bind_resp, "绑定结果").await?;
     let msg = extract_swal_msg(&bind_html).unwrap_or_default();
     if is_bind_success(&msg) {
         Ok(msg)
@@ -277,12 +279,12 @@ async fn login_session(
     let client = build_session_client(local_addr)?;
 
     // 1. 登录页取 checkcode
-    let login_html = client
+    let login_resp = client
         .get(format!("{}/login/", SELF_BASE_URL))
         .send().await
         .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("无法连接自助服务系统: {e}"))?
-        .text().await.map_err(|e| format!("读取登录页失败: {e}"))?;
+        .map_err(|e| format!("无法连接自助服务系统: {e}"))?;
+    let login_html = read_bounded_body_async(login_resp, "登录页").await?;
     let checkcode = extract_checkcode(&login_html)
         .ok_or_else(|| "自助服务登录页解析失败（checkcode 缺失）".to_string())?;
 
@@ -314,13 +316,12 @@ async fn login_session(
         .unwrap_or(false);
     if !is_login_ok {
         // 失败：重新拉登录页提取服务端错误原文（如"账号或密码错误！"）
-        let fail_html = client
+        let fail_resp = client
             .get(format!("{}/login/", SELF_BASE_URL))
             .send().await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| format!("登录失败（{e}）"))?
-            .text().await
-            .map_err(|e| format!("登录失败（读取错误信息失败: {e}）"))?;
+            .map_err(|e| format!("登录失败（{e}）"))?;
+        let fail_html = read_bounded_body_async(fail_resp, "登录失败页").await?;
         let msg = extract_swal_msg(&fail_html).unwrap_or_default();
         return Err(if msg.is_empty() { "登录失败，请检查学号与自助服务密码".to_string() } else { msg });
     }
@@ -344,10 +345,10 @@ async fn login_and_fetch_bind_page(
     if op_resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
     }
-    let op_html = op_resp
+    let op_resp = op_resp
         .error_for_status()
-        .map_err(|e| format!("打开绑定页失败: {e}"))?
-        .text().await.map_err(|e| format!("读取绑定页失败: {e}"))?;
+        .map_err(|e| format!("打开绑定页失败: {e}"))?;
+    let op_html = read_bounded_body_async(op_resp, "绑定页").await?;
     Ok((client, op_html))
 }
 
@@ -365,10 +366,10 @@ async fn fetch_dashboard_json(
     if resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
     }
-    let text = resp
+    let resp = resp
         .error_for_status()
-        .map_err(|e| format!("请求{label}失败: {e}"))?
-        .text().await.map_err(|e| format!("读取{label}失败: {e}"))?;
+        .map_err(|e| format!("请求{label}失败: {e}"))?;
+    let text = read_bounded_body_async(resp, label).await?;
     serde_json::from_str(&text).map_err(|e| format!("{label}解析失败: {e}"))
 }
 
@@ -410,12 +411,10 @@ pub async fn query_online_log(
     if resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
     }
-    let text = resp
+    let resp = resp
         .error_for_status()
-        .map_err(|e| format!("请求上网记录失败: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("读取上网记录失败: {e}"))?;
+        .map_err(|e| format!("请求上网记录失败: {e}"))?;
+    let text = read_bounded_body_async(resp, "上网记录").await?;
     serde_json::from_str(&text).map_err(|e| format!("上网记录解析失败: {e}"))
 }
 
@@ -443,10 +442,10 @@ pub async fn offline_session(
     if resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
     }
-    let text = resp
+    let resp = resp
         .error_for_status()
-        .map_err(|e| format!("请求注销失败: {e}"))?
-        .text().await.map_err(|e| format!("读取注销结果失败: {e}"))?;
+        .map_err(|e| format!("请求注销失败: {e}"))?;
+    let text = read_bounded_body_async(resp, "注销结果").await?;
     if parse_offline_success(&text) {
         Ok(())
     } else {

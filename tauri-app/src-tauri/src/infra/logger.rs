@@ -476,6 +476,12 @@ pub fn shutdown() {
     }
 }
 
+/// 判断文件名是否为本应用日志文件（app- 前缀 + .log 后缀）。
+/// clear_logs 只删应用自身日志，避免误删日志目录内的其他文件。
+fn is_app_log_file(name: &str) -> bool {
+    name.starts_with("app-") && name.ends_with(".log")
+}
+
 pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
     let lock = CLEAR_LOGS_MUTEX.lock();
 
@@ -484,7 +490,9 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
     if log_dir.exists() {
         if let Ok(entries) = fs::read_dir(&log_dir) {
             for entry in entries.flatten() {
-                let _ = fs::remove_file(entry.path());
+                if entry.file_name().to_str().map(is_app_log_file).unwrap_or(false) {
+                    let _ = fs::remove_file(entry.path());
+                }
             }
         }
     }
@@ -529,4 +537,27 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
     drop(lock);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_app_log_file_positive() {
+        assert!(is_app_log_file("app-2026-09-13.log"));
+        assert!(is_app_log_file("app-20260913120000.log"));
+    }
+
+    #[test]
+    fn is_app_log_file_negative() {
+        assert!(!is_app_log_file("other.txt"));
+        // .log.bak 后缀不是 .log 结尾
+        assert!(!is_app_log_file("app-.log.bak"));
+        assert!(!is_app_log_file("config.json"));
+        // 无后缀
+        assert!(!is_app_log_file("app-2026-09-13"));
+        // 前缀不符
+        assert!(!is_app_log_file("client-2026-09-13.log"));
+    }
 }

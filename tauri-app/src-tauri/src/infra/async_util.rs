@@ -21,13 +21,22 @@ use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 
 /// 无 runtime 上下文线程上的兜底驱动器（多线程 Runtime，enable_all）。
+/// 构造失败不 panic（panic=abort 会直接终止进程且消息可能丢失）：
+/// 落盘错误日志并强制 flush 后以非零码退出，保证现场可诊断。
 fn fallback_runtime() -> &'static Runtime {
     static FALLBACK: OnceLock<Runtime> = OnceLock::new();
     FALLBACK.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
+        match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
-            .expect("创建兜底 Tokio runtime 失败")
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                crate::log_error!("async", "创建兜底 Tokio runtime 失败: {e}");
+                crate::infra::logger::flush_quick();
+                std::process::exit(1);
+            }
+        }
     })
 }
 

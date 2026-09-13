@@ -54,11 +54,33 @@ fn resolver_cache_key(bind_addr: Option<IpAddr>, servers: &[String], timeout: Du
 
 /// 获取或创建 Resolver：池未满时按需扩容（首次调用建 1 个，最多 POOL_SIZE 个），
 /// 池满后轮转复用；key 数量极少（几个 bind_addr × 几组 server），超限整体重建即可。
+/// Resolver 构造（内部 Tokio Runtime + 连接池，耗时）在锁外进行：命中路径仅短暂
+/// 持锁轮转取用，未命中路径先锁外建好再写回缓存，避免并发解析被构造过程串行化。
 fn resolver_get_or_create(
     key: &str,
     config: hickory_resolver::config::ResolverConfig,
     opts: hickory_resolver::config::ResolverOpts,
 ) -> Result<Arc<hickory_resolver::Resolver>, String> {
+    // 快路径：池已满时轮转取用（无构造，持锁仅更新游标）
+    {
+        let mut cache = RESOLVER_CACHE.lock();
+        if let Some(entry) = cache.get_mut(key) {
+            if entry.resolvers.len() >= RESOLVER_POOL_SIZE {
+                let idx = entry.next;
+                entry.next = (entry.next + 1) % entry.resolvers.len();
+                return Ok(entry.resolvers[idx].clone());
+            }
+        }
+    }
+
+    // 慢路径：锁外构造 Resolver
+    let resolver = Arc::new(
+        hickory_resolver::Resolver::new(config, opts)
+            .map_err(|e| format!("创建解析器失败: {e}"))?,
+    );
+
+    // 写回缓存（double-check：并发期间其他线程可能已把该 key 的池填满或触发超限重建；
+    // push 前复查容量，重复构造的实例被丢弃而非覆盖，池本就允许多实例并存）
     let mut cache = RESOLVER_CACHE.lock();
     if cache.len() >= RESOLVER_CACHE_MAX_KEYS && !cache.contains_key(key) {
         cache.clear();
@@ -68,10 +90,6 @@ fn resolver_get_or_create(
         next: 0,
     });
     if entry.resolvers.len() < RESOLVER_POOL_SIZE {
-        let resolver = Arc::new(
-            hickory_resolver::Resolver::new(config, opts)
-                .map_err(|e| format!("创建解析器失败: {e}"))?,
-        );
         entry.resolvers.push(resolver.clone());
         Ok(resolver)
     } else {
