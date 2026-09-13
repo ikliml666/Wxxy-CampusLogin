@@ -46,13 +46,13 @@ pub struct Config {
 | 类别 | 字段 | 说明 |
 |---|---|---|
 | 必需（无 `default`，缺即整体失败但被容器级 default 兜住） | `user` `operator` `adapter1` `adapter2` `dual_adapter` `auto_login_on_start` `auto_exit_after_login` `minimize_to_tray` `hidden_start` `auto_launch` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `auto_exit_on_online` `theme_mode` `enable_notification` `active_account` `enable_latency_test` `latency_test_interval` `custom_theme_color` `default_panel` `enable_network_quality` | 走容器级 `Default` |
-| 字段级 `default = "fn"` | `password` `self_password` `self_hello_enabled`(`default_true`) `self_reverify_each_action` `skip_ttfb_in_latency`(`true`) `skip_content_in_latency`(`true`) `portal_url` `fixed_gateway` `required_network_name`(+`deserialize_with`) `enable_network_name_check`(`true`) `campus_gateway`(+`deserialize_with`) `update_source` `campus_exit_on_fail`(`true`) `campus_exit_start_minutes`(480) `campus_exit_end_minutes`(1380) `campus_check_start_minutes`(460, `alias = "campusCheckStartHour"`) `campus_check_end_minutes`(0) `log_retention_days`(7) `max_disconnect_reconnect`(3) `auto_login_cooldown_secs`(60) `skip_sha256_when_missing` `config_version`(0→Default 里为 2) | 逐字段兜底 |
+| 字段级 `default = "fn"` | `password` `self_password` `self_hello_enabled`(`default_true`) `self_reverify_each_action` `skip_ttfb_in_latency`(`true`) `skip_content_in_latency`(`true`) `portal_url` `fixed_gateway` `required_network_name`(+`deserialize_with`) `enable_network_name_check`(`true`) `campus_gateway`(+`deserialize_with`) `update_source` `campus_exit_on_fail`(`true`) `campus_exit_start_minutes`(480) `campus_exit_end_minutes`(1380) `campus_check_start_minutes`(460, `alias = "campusCheckStartHour"`) `campus_check_end_minutes`(1380，2026-09-13 起旧默认 0 由 v2→v3 迁移刷新) `log_retention_days`(7) `max_disconnect_reconnect`(3) `auto_login_cooldown_secs`(60) `skip_sha256_when_missing` `config_version`(0→Default 里为 3) | 逐字段兜底 |
 
 命名契约：Rust snake_case + `#[serde(rename = "camelCase")]`，与前端 TS 类型逐字对应（例：`self_password` → `selfPassword`、`background_check_interval` → `backgroundCheckInterval`、`campus_check_start_minutes` → `campusCheckStartMinutes`）。
 
 特殊反序列化：`deserialize_non_empty_or`（`model.rs:106-116`）用于 `required_network_name` 与 `campus_gateway`——空串回退默认值（`i-wxxy` / `10.2.127.254`）。
 
-默认值函数集中在 `model.rs:132-160`，`Default for Config` 在 `:162-211`（注意 `config_version: 2`、`background_check_interval: 15000`、`latency_test_interval: 60000`、`theme_mode: "dark"`、`update_source: "mirror"`、`adapter1: AUTO_DETECT_ADAPTER`("自动检测")）。
+默认值函数集中在 `model.rs:138-170`，`Default for Config` 在 `:172-221`（注意 `config_version: 3`、`campus_check_end_minutes: 1380`、`background_check_interval: 15000`、`latency_test_interval: 60000`、`theme_mode: "dark"`、`update_source: "mirror"`、`adapter1: AUTO_DETECT_ADAPTER`("自动检测")）。
 
 ### 桌面原子写与文件布局（`config/persist.rs`）
 
@@ -96,11 +96,12 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
 | Portal URL | `http://10.1.99.100:801` 或空串 → `http://10.1.99.100` | `normalize_portal_url` `:81-85`，调用 `:105/177` |
 | 间隔 clamp | `background_check_interval` 与 `latency_test_interval` → `[10000, 3600000]` | `:103-104` |
 | 日志保留 | `log_retention_days > 365` → `365`（0 = 永久保留，不重置） | `:119-122` |
-| 配置版本 | `config_version < 2` 时，`campus_check_start_minutes` 若在 `(0, 24)` 视为小时值 ×60，并置 `config_version = 2` | `:125-132` |
-| 分钟字段上界 | 四个 `*_minutes` 字段 `.min(1439)` | `:133-136` |
+| 配置版本 v1→v2 | `config_version < 2` 时，`campus_check_start_minutes` 若在 `(0, 24)` 视为小时值 ×60，并置 `config_version = 2` | `:125-131` |
+| 配置版本 v2→v3（2026-09-13） | `config_version < 3` 时，`campus_check_end_minutes == 0`（旧默认）→ `1380`，并置 `config_version = 3`（用户显式设的其他值不动） | `:133-140` |
+| 分钟字段上界 | 六个 `*_minutes` 字段 `.min(1439)` | `:142-147` |
 | 空值补齐 | `campus_gateway` / `required_network_name` 空 → 默认值 | `:110-118` |
 
-**宽松校验**：`validate_config_lenient`（`:143-207`）逐字段降级（每个失败只回退该字段并 `log_warn`），最后再跑一次严格 `validate_config` 兜底，仍失败才整体用 `Config::default()`（`:200-206`）。启动路径 `commands/config_cmd.rs:55-78` 用它；保存路径用严格版（`:99`）。
+**宽松校验**：`validate_config_lenient`（`:154-218`）逐字段降级（每个失败只回退该字段并 `log_warn`），最后再跑一次严格 `validate_config` 兜底，仍失败才整体用 `Config::default()`（`:211-217`）。启动路径 `commands/config_cmd.rs:55-78` 用它；保存路径用严格版（`:99`）。
 
 ### 桌面加载与保存路径
 
@@ -137,34 +138,34 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
 - `switch_account`（`account.rs:15-49`）：读账号文件 → 解密密码 → `state.config.update` 合并 `user`/`password`/`operator`/`adapter1`/`adapter2`/`dual_adapter`/`active_account` → 落盘。
 - `save_current_as_account`（`:52-191`）：先把上一个 active 账号的登录字段回写（保留该账号文件里已有的主题等非登录字段，`existing.password` 先清空 `:83`），再写当前账号，密码走 `crypto::encrypt`（`:161-168`）；最后持久化 `active_account`。
 - `delete_account`（`:194-233`）：删文件；若删的是当前账号则清 `active_account` 并持久化 + 广播（`:213-225`，注释记录"仅内存更新不落盘，重启后仍指向已删除账号"的历史缺陷）。
-- 账号文件格式 = `Config`（`model.rs`），因此也带全部 44 字段与容器级 default。
+- 账号文件格式 = `Config`（`model.rs`），因此也带全部 46 字段与容器级 default。
 
 **安卓**（`android/src-tauri/src/account_cmds.rs`）：
 
 - 账号目录 `<app_data_dir>/accounts`（`account_cmds.rs:60-66`），账号名正则 `^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$`（`:13-14`），与桌面同款约束。
 - 账号文件格式 = `EncodedSettings`（复用 `config_state::load_file` / `save_file`，`:94-99/158`），即密码密文外置。
-- **`CONFIG_IO_LOCK`**（`:17`）：`tokio::sync::Mutex<()>` 异步锁，覆盖 `load → merge → save` 全序列（`config_io_lock()` `:21-23`），被 `switch_account`（`:127`）、`save_current_as_account`（`:156`）、`delete_account`（`:179`）、`set_boot_autostart`（`monitor_loop.rs:331`）、`set_notification_enabled`（`monitor_loop.rs:355`）共用。
+- **`CONFIG_IO_LOCK`**（`:17`）：`tokio::sync::Mutex<()>` 异步锁，覆盖 `load → merge → save` 全序列（`config_io_lock()` `:21-23`），被 `switch_account`（`:127`）、`save_current_as_account`（`:156`）、`delete_account`（`:179`）、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）共用。
 - 合并字段只有三项：`user` / `password` / `operator`（`:134-137`，注释"adapter/双适配器为桌面专属,安卓不存在"）。
 
 **安卓登录历史**（`login_history.rs`）：文件 `<app_data_dir>/login-history.json`（`:23-25`），头插上限 `LOGIN_HISTORY_MAX = 100`（`:10`，截断 `:67`），adapter 字段固定 `wlan0`（`:62`），字段名与桌面契约一致（`type` 而非 `login_type`，`:19-20`），损坏文件重命名为 `login-history.json.corrupt-<毫秒时间戳>.bak`（`:34`）后重置。写入用固定名 tmp + rename（`:72-74`），无 `sync_all`。
 
 ### 安卓配置模型与迁移（`config_state.rs`）
 
-`Settings` 定义在 `config_state.rs:15-72`，共 **35 个字段**，序列化属性是 `#[serde(rename_all = "camelCase", default)]`（`:14`）——一次统一 camelCase，而不是桌面那样逐字段 `rename`。
+`Settings` 定义在 `config_state.rs:15-76`，共 **37 个字段**，序列化属性是 `#[serde(rename_all = "camelCase", default)]`（`:14`）——一次统一 camelCase，而不是桌面那样逐字段 `rename`。
 
-与桌面 `Config` 的字段差异（`model.rs:10-104` vs `config_state.rs:15-72`）：**交集 31 个字段，桌面独有 13 个，安卓独有 4 个**。
+与桌面 `Config` 的字段差异（`model.rs:10-109` vs `config_state.rs:15-76`）：**交集 33 个字段，桌面独有 13 个，安卓独有 4 个**（2026-09-13 双端同加 `scheduled_login/scheduled_logout_minutes` 后由 31 增至 33）。
 
 | 仅桌面（13） | 仅安卓（4） |
 |---|---|
 | `adapter1` `adapter2` `dual_adapter` | `allow_2d_face_verify`（2D 人脸回退开关，`:24`） |
 | `minimize_to_tray` `hidden_start` `auto_launch` | `background_check_idle_interval`（闲时巡检，`:34`） |
 | `auto_exit_after_login` `auto_exit_on_online` | `enable_boot_autostart`（`:44`） |
-| `campus_exit_on_fail` `campus_exit_start_minutes` `campus_exit_end_minutes` | `config_schema_version`（`:71`，桌面叫 `config_version`） |
+| `campus_exit_on_fail` `campus_exit_start_minutes` `campus_exit_end_minutes` | `config_schema_version`（`:75`，桌面叫 `config_version`） |
 | `skip_sha256_when_missing` `config_version` | |
 
-共有（命名一致）：`password` `self_password` `self_hello_enabled` `self_reverify_each_action` `operator` `auto_login_on_start` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `max_disconnect_reconnect` `auto_login_cooldown_secs` `theme_mode` `enable_notification` `custom_theme_color` `default_panel` `active_account` `enable_latency_test` `latency_test_interval` `enable_network_quality` `skip_ttfb_in_latency` `skip_content_in_latency` `portal_url` `fixed_gateway` `required_network_name` `enable_network_name_check` `campus_gateway` `campus_check_start_minutes` `campus_check_end_minutes` `update_source` `log_retention_days` `user`。
+共有（命名一致）：`password` `self_password` `self_hello_enabled` `self_reverify_each_action` `operator` `auto_login_on_start` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `max_disconnect_reconnect` `auto_login_cooldown_secs` `theme_mode` `enable_notification` `custom_theme_color` `default_panel` `active_account` `enable_latency_test` `latency_test_interval` `enable_network_quality` `skip_ttfb_in_latency` `skip_content_in_latency` `portal_url` `fixed_gateway` `required_network_name` `enable_network_name_check` `campus_gateway` `campus_check_start_minutes` `campus_check_end_minutes` `scheduled_login_minutes` `scheduled_logout_minutes` `update_source` `log_retention_days` `user`。
 
-**磁盘格式 `EncodedSettings`**（`:166-172`）：
+**磁盘格式 `EncodedSettings`**（`:176-180`）：
 
 ```rust
 struct EncodedSettings {
@@ -174,17 +175,18 @@ struct EncodedSettings {
 }
 ```
 
-`save_file`（`:192-223`）加密后构造（`:213-217`），写 `.json.tmp` 再 rename（`:219-221`），**没有 `sync_all`、没有 rename 重试、tmp 名固定**——并发保护靠调用方的 `CONFIG_IO_LOCK`。空密码不产生密文位（回归测试 `空密码不写密文位` `:574-586`）。
+`save_file`（`:200-231`）加密后构造（`:221-225`），写 `.json.tmp` 再 rename（`:227-229`），**没有 `sync_all`、没有 rename 重试、tmp 名固定**——并发保护靠调用方的 `CONFIG_IO_LOCK`。空密码不产生密文位（回归测试 `空密码不写密文位` `:597`）。
 
-**安卓迁移**（`migrate_legacy_defaults` `:241-266`，由 `load_from` `:225-229` 调用）：
+**安卓迁移**（`migrate_legacy_defaults` `:252-283`，由 `load_from` `:233` 调用）：
 
 | schema | 规则 | 位置 |
 |---|---|---|
-| 0 → 1 | `background_check_interval == 15_000` → `60_000` | `:243-245` |
-| < 3（`legacy` 标记） | 强刷 `auto_login_on_start` / `enable_background_check` / `auto_login_on_preparation` / `enable_network_name_check` / `skip_ttfb_in_latency` / `skip_content_in_latency` = `true`；`< 3` 时 `enable_network_quality = false`；置 `config_schema_version = 3` | `:246-258` |
-| < 4 | `background_check_idle_interval == 0` → `300_000`；置 4 | `:259-265` |
+| 0 → 1 | `background_check_interval == 15_000` → `60_000` | `:254-256` |
+| < 3（`legacy` 标记） | 强刷 `auto_login_on_start` / `enable_background_check` / `auto_login_on_preparation` / `enable_network_name_check` / `skip_ttfb_in_latency` / `skip_content_in_latency` = `true`；`< 3` 时 `enable_network_quality = false`；置 `config_schema_version = 3` | `:257-267` |
+| < 4 | `background_check_idle_interval == 0` → `300_000`；置 4 | `:270-274` |
+| < 5（2026-09-13） | `campus_check_end_minutes == 0`（旧默认，仅开始时间限制）→ `1380`（23:00）；置 5 | `:277-281` |
 
-迁移结果落盘，落盘失败静默（下次读盘重迁，幂等）；迁移后用户主动改回不再被覆盖（回归测试 `迁移_旧默认15s升60s且落盘后用户值不被覆盖` `:483-521`）。
+迁移结果落盘，落盘失败静默（下次读盘重迁，幂等）；迁移后用户主动改回不再被覆盖（回归测试 `迁移_旧默认15s升60s且落盘后用户值不被覆盖` `:483-556`，含 v4→v5 的"迁移后用户显式设回 0 不被二次覆盖"断言 `:535-539`）。
 
 ### 配置变更如何触发前端更新
 
@@ -226,7 +228,7 @@ struct EncodedSettings {
 - **安卓配置读改写必须持 `CONFIG_IO_LOCK`**（`account_cmds.rs:21-23`）：`tokio::sync::Mutex` 而非 `parking_lot`，因为 guard 要跨 await 覆盖整个 load→merge→save 序列。
 - **空密码不产生密文位**：安卓 `save_file:201-212` 只在非空时加密；桌面 `persist.rs:159-163` 同理。
 - **登录历史上限 100 条**：桌面 `persist.rs:141-143`、安卓 `login_history.rs:10/67`。
-- **`config_version`（桌面）与 `config_schema_version`（安卓）是两套独立机制**：桌面管小时→分钟迁移（`validate.rs:125-132`），安卓管默认值批次迁移（`config_state.rs:241-266`），两者语义与触发时机都不同，不可互相套用。
+- **`config_version`（桌面）与 `config_schema_version`（安卓）是两套独立机制**：桌面管小时→分钟（v1→v2）与检测时段终点旧默认（v2→v3）迁移（`validate.rs:123-140`），安卓管默认值批次迁移（`config_state.rs:252-283`），两者语义与触发时机都不同，不可互相套用。
 
 ## Data Flow
 
@@ -271,8 +273,8 @@ masked_for_display()                       桌面 save_config_to_disk_encrypted
 
 ## Known Issues
 
-- **两端字段集不是子集关系**：交集 31 个字段，桌面独有 13 个（双适配器三件、托盘/隐藏启动、退出策略、`campus_exit_*` 三件、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify` / `background_check_idle_interval` / `enable_boot_autostart` / `config_schema_version`）。这意味着"双端同步"实际是双向增量同步，新增字段时无法照抄某一端。
-- **`config_version` 与 `config_schema_version` 是两套编号**：桌面是 2（`model.rs:208`），安卓是 4（`config_state.rs:120`），两者语义不同却名字相近，容易被误当同一版本号维护。
+- **两端字段集不是子集关系**：交集 33 个字段，桌面独有 13 个（双适配器三件、托盘/隐藏启动、退出策略、`campus_exit_*` 三件、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify` / `background_check_idle_interval` / `enable_boot_autostart` / `config_schema_version`）。这意味着"双端同步"实际是双向增量同步，新增字段时无法照抄某一端。
+- **`config_version` 与 `config_schema_version` 是两套编号**：桌面是 3（`model.rs:220`），安卓是 5（`config_state.rs:128`），两者语义不同却名字相近，容易被误当同一版本号维护（2026-09-13 两端同日各进一版：桌面 v2→v3、安卓 v4→v5，都是 `campus_check_end_minutes` 旧默认 0 → 1380）。
 - **安卓 tmp 文件名固定且无 fsync**：`config_state.rs:219-221` 用固定 `.json.tmp` 且不做 `sync_all` + rename 重试；`login_history.rs:72-74` 同样。并发保护完全依赖调用方持有 `CONFIG_IO_LOCK`，任何新增写路径忘记加锁就会互相覆盖。
 - **桌面 `atomic_write` 用纳秒时间戳生成 tmp 名**（`persist.rs:14-20`）：极端情况下同纳秒并发仍可能撞名，且每分钟残留的 tmp 文件无清理逻辑。
 - **安卓配置无校验层**：`Settings` 没有任何 `validate_*` 对应物（桌面有 `config/validate.rs` 677 行），`save_config`（`config_state.rs:311-338`）直接落盘，非法 `portal_url` / `theme_mode` / `custom_theme_color` 可被写入并持久化。

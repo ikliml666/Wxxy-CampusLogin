@@ -104,7 +104,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `StatusBar` | `monitor/StatusBar.tsx:23` | 平板顶栏状态条：状态胶囊（含离线/恢复动画 class）+ 质量胶囊 + 刷新 + 自助服务/门户外链（`onOpenSelfService` 可选） |
-| `MonitorPanel` | `monitor/MonitorPanel.tsx:79` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校验、检测时间窗） |
+| `MonitorPanel` | `monitor/MonitorPanel.tsx:79` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校验、检测时间窗）。检测时间段行（`:368-414`）窄屏（<640px）纵向堆叠——右侧两个 `w-24` 的 `<input type="time">` 合计约 200px 不可压缩，同行布局会把左侧 `min-w-0` 标题挤成逐字竖排（360-430px 手机实测标题 14×164px），容器用 `flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`，≥640px 恢复同一行 |
 | `QualityPanel` | `monitor/QualityPanel.tsx:108` | 网络质量面板：质量指纹卡、定时测试卡、测试明细卡（5 类 tab + 每项时间线） |
 | `SpeedTestPanel` | `monitor/SpeedTestPanel.tsx:109` | 测速站点集合（8 个硬编码站点，3 个分类），点击经 `openExternal` 外开 |
 | `NetworkQualityCapsule` | `monitor/NetworkQualityCapsule.tsx:53` | 质量胶囊：延迟数字 + 悬停 portal 明细（网关/外网/DNS 三行），busy/unknown 时按延迟推断等级（`NetworkQualityCapsule.tsx:96-98`） |
@@ -160,7 +160,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `OnboardingFlowOptions` | `settings/useOnboardingFlow.ts:37` | `{open, onUpdateConfig, onLogin, onClose}` |
 | `useOnboardingFlow` | `settings/useOnboardingFlow.ts:45` | 向导流程状态机（两套外壳共用的逻辑单点） |
 | `OnboardingFlow` | `settings/useOnboardingFlow.ts:233` | `ReturnType<typeof useOnboardingFlow>` |
-| `DEFAULT_CONFIG` | `settings/constants.ts:6` | 全部配置默认值（53 行，含 `backgroundCheckInterval:60000`、`backgroundCheckIdleInterval:300000`、`configVersion:4`） |
+| `DEFAULT_CONFIG` | `settings/constants.ts:6` | 全部配置默认值（文件共 80 行，含 `backgroundCheckInterval:60000`、`backgroundCheckIdleInterval:300000`、`campusCheckEndMinutes:1380`（2026-09-13 起旧默认 0）、`configVersion:5`） |
 | `ISP_OPTIONS` | `settings/constants.ts:55` | 运营商 4 项（`__default__`/`@telecom`/`@unicom`/`@cmcc`） |
 | `THEME_OPTIONS` | `settings/constants.ts:62` | 主题 7 项（含 `custom`） |
 | `VALID_THEMES` | `settings/constants.ts:72` | 主题名白名单（`main.tsx:38`、`useInitialDataLoad.ts:51` 用它校验存储值） |
@@ -188,7 +188,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 ## 结构体与字段（前端即 props 与 state 类型）
 
-### `Config`（`settings/types.ts:3-52`，43 字段；口径：接口本体（第 4-51 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`）
+### `Config`（`settings/types.ts:3-58`，45 字段；口径：接口本体（第 4-57 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`）
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
@@ -224,11 +224,12 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `campusGateway` | `string` | 校园网网关（默认 `10.2.127.254`） |
 | `updateSource` | `'mirror' \| 'github'` | 更新渠道优先级（默认 `mirror`） |
 | `campusExitOnFail` | `boolean` | 非校园网自动退出（安卓 UI 隐藏） |
-| `campusCheckStartMinutes` / `campusCheckEndMinutes` | `number` | 检测时间窗（分钟制；默认 460=07:40 / 0=00:00） |
+| `scheduledLoginMinutes` / `scheduledLogoutMinutes` | `number` | 每日定时登录/注销时刻（分钟制，`0`=禁用；安卓 `MonitorPanel` 展示、后端每拍判定） |
+| `campusCheckStartMinutes` / `campusCheckEndMinutes` | `number` | 检测时间窗（分钟制；默认 460=07:40 / 1380=23:00，2026-09-13 起终点旧默认 0 由后端 v4→v5 迁移与 `DEFAULT_CONFIG` 双源刷新） |
 | `maxDisconnectReconnect` | `number` | 断连重连上限（默认 3） |
 | `autoLoginCooldownSecs` | `number` | 自动登录冷却秒（默认 60） |
 | `logRetentionDays` | `number` | 日志保留天数（默认 7） |
-| `configVersion` | `number` | 配置 schema 版本（默认 4） |
+| `configVersion` | `number` | 配置 schema 版本（默认 5） |
 
 ### 其余 settings/ 类型
 
@@ -401,7 +402,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 5. **平台门控写成运行时常量（三处），安卓分支为死代码**：`AccountPanel.tsx:55`、`MonitorPanel.tsx:23`、`SettingsPanel.tsx:31` 各自 `const isAndroid = import.meta.env.VITE_PLATFORM === 'android'`，配套的 `!isAndroid &&` 区块（`AccountPanel.tsx:448-474` 自动退出/上线退出、`MonitorPanel.tsx:246-267` 上线退出、`MonitorPanel.tsx:346-367` 非校园网退出、`SettingsPanel.tsx:302-380` 静默启动/最小化托盘/默认面板/自动退出）在安卓构建中恒不渲染。这些块与桌面前端逐字同源（桌面同一文件里 `isAndroid` 为假），因此**改一端必须同步另一端**，否则两端 `isAndroid` 语义分叉；`VITE_PLATFORM` 未在 `vite-env.d.ts` 中声明类型（`src/vite-env.d.ts:1` 只有一行 vite/client 引用），拼错字符串不会被类型检查拦下。
 6. **`SettingsPanel` 的间隔默认值三处不一致**：`QualityPanel` 的延迟测试间隔回退值是 30000ms（`monitor/QualityPanel.tsx:158`，`config.latencyTestInterval || 30000`），而 `DEFAULT_CONFIG.latencyTestInterval` 是 60000（`settings/constants.ts:33`）；`MonitorPanel` 的巡检间隔回退 60000（`monitor/MonitorPanel.tsx:85`）与默认一致，但 `MobileDashboard` 的监控摘要卡用 `Math.max(5, ...)` 下限 5s（`components/mobile/MobileDashboard.tsx:85`），而 `MonitorPanel` 的 `commitInterval` 下限是 10s（`monitor/MonitorPanel.tsx:103`）——同一个 config 字段在两处 UI 的下限不同。
 7. **`config.backgroundCheckInterval` 被 UI 以秒呈现、以毫秒落盘，跨处转换点分散**：`MonitorPanel.tsx:85`（读）、`MonitorPanel.tsx:105`（写）、`MobileDashboard.tsx:85`（读）、`MobileDashboard.tsx:102`（写）、`useMonitor.ts:31`（写）共 5 处 `/1000`、`*1000` 换算，任一处遗漏即出现「设 60 秒实际 60000 秒」类偏差。
-8. **`campusCheckEndMinutes = 0` 的 UI 呈现有歧义**：`MonitorPanel.tsx:400-403` 把 0 渲染为 `00:00`，与「不限制/未设置」语义无视觉区分（默认值即 0，`settings/constants.ts:47`）；时间窗判定在后端，前端只透传。
+8. **`campusCheckEndMinutes = 0`（用户手选 00:00）的 UI 呈现有歧义**：`MonitorPanel.tsx:401-404` 把 0 渲染为 `00:00`，与「仅开始时间限制」语义无视觉区分。默认值已在 2026-09-13 从 0 改为 1380=23:00（`settings/constants.ts:48` + 后端 v4→v5 迁移双源刷新），但歧义本身仍在：用户把手选终点拨到 00:00 时实际含义是「只有开始时间限制」，界面上与"午夜截止"无法区分；另注意 `MonitorPanel.tsx:402` 的空值兜底 `?? 0` 仍是旧默认，config 异常缺字段时 UI 会显示 00:00 而后端默认是 1380，两端兜底不一致。时间窗判定在后端，前端只透传。
 9. **`StatusBar` 的 `wasOffline` 在渲染期读 ref**：`monitor/StatusBar.tsx:42` 在 render 中读取 `prevStatusRef.current`，而该 ref 在 `useEffect`（`StatusBar.tsx:44-46`）里更新；React 严格模式下渲染可能被丢弃重放，此时基于 ref 的「刚从离线恢复」判定可能与实际提交节奏不一致（只影响 `status-enter-from-offline` 动画类，不影响状态语义）。另外手机外壳自绘 header 的状态点（`App.tsx:168-175`）与 `StatusBar` 的胶囊（`StatusBar.tsx:110-130`）是两套实现，颜色映射写了两遍。
 10. **`about` 两个弹窗重复实现同一后端链路**：`AboutDialog`（平板）与 `AboutDialogMobile`（手机）各自实现 `checkUpdate` → `getMirrorUrls` → `downloadUpdate` → `installUpdate`（`auth/AboutDialog.tsx:122-264`、`auth/AboutDialogMobile.tsx:50-110`），错误文案映射（403/404 分支）也各写一份（`auth/AboutDialog.tsx:133-137`、`auth/AboutDialogMobile.tsx:59-61`）；`AboutDialogMobile` 的镜像顺序由 `updateSource` 决定（`auth/AboutDialogMobile.tsx:79-81`），`AboutDialog` 无此逻辑（`auth/AboutDialog.tsx:253` 固定选非 GitHub 源）。
 11. **2D 人脸开关与模板的持久化不一致会产生不可达功能**：`allow2dFaceVerify` 存于后端配置，模板存于 `safeStorage`（`face/faceService.ts:20` 的 `campus-2d-face-template`）。关闭开关时前端清模板（`settings/SettingsPanel.tsx:487-489`），但若 WebView 数据被清（或换设备恢复配置），会出现 `allow2dFaceVerify = true` 而 `hasTemplate() = false`，此时 `shouldUseFaceFallback()`（`face/faceVerifyStore.ts:44-46`）返回 false，验证落到系统 `BiometricPrompt`（`tauriApi.ts:209`）——在只有 Class 1 2D 人脸的设备上该链路不可用（`face/faceService.ts:5-8` 注释说明的场景），用户无从察觉，只能去设置页重录。

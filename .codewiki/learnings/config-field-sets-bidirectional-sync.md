@@ -13,9 +13,9 @@ tags: [教训, 双端, 配置, 同步]
 
 ## 根因
 
-两端字段集不是子集关系：交集 31 个字段，**桌面独有 13 个**（双适配器三件、托盘/隐藏启动、退出策略、`campus_exit_*` 三件、`skip_sha256_when_missing`、`config_version`），**安卓独有 4 个**（`allow_2d_face_verify`、`background_check_idle_interval`、`enable_boot_autostart`、`config_schema_version`）。桌面 44、安卓 35。
+两端字段集不是子集关系：交集 33 个字段，**桌面独有 13 个**（双适配器三件、托盘/隐藏启动、退出策略、`campus_exit_*` 三件、`skip_sha256_when_missing`、`config_version`），**安卓独有 4 个**（`allow_2d_face_verify`、`background_check_idle_interval`、`enable_boot_autostart`、`config_schema_version`）。桌面 46、安卓 37（2026-09-13 双端同加 `scheduled_login/scheduled_logout_minutes`）。
 
-另有两套易混编号：`config_version`（桌面 2）与 `config_schema_version`（安卓 4）语义不同却名字相近；两端 `default_panel` 默认值也不同（安卓 `"dashboard"`、桌面空串）。
+另有两套易混编号：`config_version`（桌面 3）与 `config_schema_version`（安卓 5）语义不同却名字相近；两端 `default_panel` 默认值也不同（安卓 `"dashboard"`、桌面空串）。
 
 ## 解决
 

@@ -89,20 +89,20 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 | 校园网退出倒计时 | 最小化 30000 / 退出 60000 | 无此能力 | 桌面 `lifecycle.rs:12-13` |
 | 启动自动登录就绪延迟 | 1500 ms（`--autostart` 时 5000 ms） | 500 ms | 桌面 `auto_auth.rs:227-228`；安卓 `monitor_loop.rs:383` |
 | 开机自启适配器重试 | 3 次 × 3000 ms | 无 | 桌面 `auto_auth.rs:266-270` |
-| 检测时段默认窗口 | `campusCheckStartMinutes` 460（07:40）、`campusCheckEndMinutes` 0（不限） | 同 460 / 0 | 桌面 `model.rs:202-203`；安卓 `config_state.rs:114-116` |
+| 检测时段默认窗口 | `campusCheckStartMinutes` 460（07:40）、`campusCheckEndMinutes` 1380（23:00，2026-09-13 起旧默认 0 由迁移刷新） | 同 460 / 1380 | 桌面 `model.rs:89-93`；安卓 `config_state.rs:58-60`（Default `:117-121`）、迁移 `config_state.rs:277-281` |
 | 校园网退出生效时段默认 | 480–1380（08:00–23:00） | 无 | 桌面 `model.rs:200-201` |
 | 取消退出快捷键 | `CommandOrControl+Shift+C` | 无 | 桌面 `infra/state/mod.rs:14` |
 | WiFi 事件延迟 / 去抖 | 无（无事件触发） | 2500 / 1000 ms | 安卓 `monitor_loop.rs:44/47` |
 
 ### 各环节行为细节
 
-**检测时段门控**（桌面 `monitor/campus_check.rs:244-252`）：`start == 0` 视为禁用；早于 start 静默；`end > start && now >= end` 静默（end ≤ start 退化为仅受 start 限制）。静默期桌面构造 `on_campus: true` 的伪结果并 `cancel_campus_exit`（`background_check.rs:63-70`），安卓直接 `return` 整拍跳过（`monitor_loop.rs:617-626`），两者都保持上一拍在线记忆。
+**检测时段门控**（桌面 `monitor/campus_check.rs:244-252`）：`start == 0` 视为禁用；早于 start 静默；`end > start && now >= end` 静默（end ≤ start 退化为仅受 start 限制）。静默期桌面构造 `on_campus: true` 的伪结果并 `cancel_campus_exit`（`background_check.rs:63-70`），安卓直接 `return` 整拍跳过（`monitor_loop.rs:695-715`），两者都保持上一拍在线记忆；2026-09-13 起安卓在 return 前把常驻通知重建为「监控运行中 · 已暂停检测(非检测时段)」（`monitor_loop.rs:702-712`，`notified_online` 状态码 3），不再展示上一拍的过期「在线」。
 
-**状态机与在线判定**：桌面 `prev_online` 取 `any_adapter_online`，`any_online = online || secondary_online == Some(true)`（`background_check.rs:248/282`），历史缺陷注释（`:277-281`）记录曾用"仅主适配器 online"比较导致双适配器"主断副通"每拍误报离线。安卓用三态护栏：只有 `error_kind.is_none()` 的确定判定才翻转状态，Unknown/Failed 保持 `prev_online`（`monitor_loop.rs:669-672`）。
+**状态机与在线判定**：桌面 `prev_online` 取 `any_adapter_online`，`any_online = online || secondary_online == Some(true)`（`background_check.rs:248/282`），历史缺陷注释（`:277-281`）记录曾用"仅主适配器 online"比较导致双适配器"主断副通"每拍误报离线；campus fail 时桌面直接置 `any_adapter_online=false`（`background_check.rs:80-89`）——非校园网没有"校园网在线"可言。安卓 2026-09-13 起用同语义三态护栏：`Ok(s) 且 error_kind=None → s.online`；其余结果且 `on_campus=true` → 沿用 `prev_online`（校园网内探针失配不翻转，反误报）；其余结果且 `on_campus=false` → 判离线（`monitor_loop.rs:763-767`）。此前护栏把"探测失败（error_kind=Some）"一律折叠成沿用 `prev_online`，WiFi 断开走蜂窝后三判据全否且 Portal 探测必失败，在线状态被永久钉死（详见 [[android-notify-online-pinned-by-offline-guard]]）。
 
 **注销保护期**：桌面 `logout_protected_until` 在 `emit_background_check_result` 里强制 `online=false`（`background_emit.rs:122-130`），并在 `update_network_state` 里跳过状态写回（`:170-176`）；自动登录与重连两条路径都检查它（`auto_auth.rs:56-60`、`:129-133`）。安卓用 `logout_protected_until_ms`，`run_check_once` 里判 `now < logout_protected_until_ms` 则 `should=false`（`monitor_loop.rs:688/693-695`）。
 
-**通知出口**：桌面 `emit_notification`（`infra/notification.rs:22-65`）只在"`enable_notification` 为真 且 主窗口不可见或已最小化"时弹系统通知（`:26-40`）；Windows 桌面用自组 WinRT toast 带看板娘，失败降级插件（`:53-60`）；`mascot` 变体名 `mascot-alert` / `mascot-celebrate` / `mascot-portrait` / `mascot-offline` / `mascot-busy`。安卓 `notify_system`（`monitor_loop.rs:139-156`）用 `large_icon`，两个在用大图 `mascot_alert` / `mascot_offline` 已随 APK 内置（`android/src-tauri/gen/android/app/src/main/res/drawable-xxhdpi/`），资源缺失时降级纯文本仅作兜底。
+**通知出口**：桌面 `emit_notification`（`infra/notification.rs:22-65`）只在"`enable_notification` 为真 且 主窗口不可见或已最小化"时弹系统通知（`:26-40`）；Windows 桌面用自组 WinRT toast 带看板娘，失败降级插件（`:53-60`）；`mascot` 变体名 `mascot-alert` / `mascot-celebrate` / `mascot-portrait` / `mascot-offline` / `mascot-busy`。安卓 `notify_system`（`monitor_loop.rs:145-162`）用 `large_icon`，两个在用大图 `mascot_alert` / `mascot_offline` 已随 APK 内置（`android/src-tauri/gen/android/app/src/main/res/drawable-xxhdpi/`），资源缺失时降级纯文本仅作兜底。安卓另有**常驻通知**（前台服务自带，非系统弹窗）：仅 `notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段，`monitor_loop.rs:35-38`、`:857-869`），静默期进入状态 3 重建为「已暂停检测(非检测时段)」（`:702-712`）。
 
 **生命周期倒计时**：自动退出 `start_auto_exit`（`lifecycle.rs:183-264`）用 `auto_exit_deadline` + `auto_exit_cancelled` 双状态防重复触发；校园网退出 `start_campus_exit`（`lifecycle.rs:23-135`）先 CAS `campus_exit_started` 再设 deadline（注释 `:45-50` 记录原顺序导致的永久卡死缺陷），受 `campus_exit_on_fail` 与生效时段双重门控（`:25-41`）。两者退出前都 `task_manager.detach` 自身避免 shutdown 自等死锁（`:126`、`:256`）。
 
@@ -116,8 +116,8 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 - **重连计数必须读-增-判定在同一 CAS 内**：`update_with_result`（`auto_auth.rs:151-154`、`failure_tracker.rs:64-67/137-146/230-239`），历史缺陷注释记录 load + update 两次快照导致双重触发 MAC 重置。
 - **campus fail 必须重置 `has_logged_online`**：`background_check.rs:85-89` 注释说明不重置会导致离开校园网再回来时准备自动登录被永久拦截。
 - **重连成功必须向上报告 `reconnected=true`**：`reconnect_should_report`（`auto_auth.rs:24-26`）与三处测试（`:474-490`）；否则调用方用重连前旧 Portal 快照覆盖 `any_adapter_online`，用户被困离线。
-- **间隔必须动态读取**：桌面 loop 每 tick 重读 `config.background_check_interval`（`background_task.rs:29-34`），安卓对比 `desired_interval_ms` 重建计时器（`monitor_loop.rs:538-543`），否则设置面板改间隔不生效。
-- **通知重复抑制**：桌面"自动登录成功"走应用内事件 `auto-login-result` 不留系统通知重复（`auto_auth.rs:93-95` 只在配置开启时发系统通知），状态变更通知 60s 节流（`background_emit.rs:88-99`）；安卓注释明确启动自动登录与首拍重登连续发生，成功走事件、失败才留系统通知（`monitor_loop.rs:441-443`）。
+- **间隔必须动态读取**：桌面 loop 每 tick 重读 `config.background_check_interval`（`background_task.rs:29-34`），安卓对比 `desired_interval_ms` 重建计时器（`monitor_loop.rs:544-549`），否则设置面板改间隔不生效。
+- **通知重复抑制**：桌面"自动登录成功"走应用内事件 `auto-login-result` 不留系统通知重复（`auto_auth.rs:93-95` 只在配置开启时发系统通知），状态变更通知 60s 节流（`background_emit.rs:88-99`）；安卓注释明确启动自动登录与首拍重登连续发生，成功走事件、失败才留系统通知（`monitor_loop.rs:447-449`）。
 - **弹窗文案与 i18n**：后端系统通知文案为中文硬编码（`infra/notification.rs:17-20` 说明后端无法感知前端语言，且仅在用户未看界面时出现）。
 - **shutdown 必须限时**：`shutdown_and_exit` 对 `task_manager.shutdown()` 加 10s 上限（`lifecycle.rs:315-317`）。
 
@@ -150,19 +150,19 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 
 | 维度 | 安卓做法 | 位置 |
 |---|---|---|
-| 入口 | `lib.rs:51` → `run_startup_tasks`，先 sleep 500ms，再**并行** spawn 后台检测 / 质量 / 自动登录 / 更新检查循环 | `lib.rs:51`、`monitor_loop.rs:381-419` |
-| 状态容器 | 全局 `lazy_static MONITOR: MonitorState`（进程内原子量），非桌面 `AppState` | `monitor_loop.rs:11-39` |
+| 入口 | `lib.rs:51` → `run_startup_tasks`，先 sleep 500ms，再**并行** spawn 后台检测 / 质量 / 自动登录 / 更新检查循环 | `lib.rs:51`、`monitor_loop.rs:387-425` |
+| 状态容器 | 全局 `lazy_static MONITOR: MonitorState`（进程内原子量），非桌面 `AppState` | `monitor_loop.rs:12-39` |
 | 分档省电 | `effective_interval_ms(base, idle, screen_on, wifi_connected)`：亮屏 + WiFi 用 base，否则 idle | `monitor_loop.rs:61-68` |
-| 事件驱动 | WiFi 变化监听（Kotlin NetworkCallback → Channel）触发即时检测，去抖 1000ms + 延迟 2500ms，风暴内最后一条生效 | `monitor_loop.rs:52-54`、`:218-291` |
-| 保活 | 前台服务常驻通知；仅在线状态翻转时 `update_notification`（`notified_online` 记忆），不每拍重建 | `monitor_loop.rs:159-194`、`:764-774` |
-| 探针窗口锁 | `begin_probe_window` / `ProbeWindowGuard` Drop 保证 WifiLock + WakeLock 释放 | `monitor_loop.rs:497-508`、`:630-635` |
-| 绑 WiFi | 每拍探测与重登前 `ensure_wifi_bound` | `monitor_loop.rs:459`、`:639` |
-| 绑小核 | Portal 探测跑在专用短命线程并 `pin_current_thread_to_little_cores`（线程内 `handle.enter()` 补 reactor） | `monitor_loop.rs:563-600` |
+| 事件驱动 | WiFi 变化监听（Kotlin NetworkCallback → Channel）触发即时检测，去抖 1000ms + 延迟 2500ms，风暴内最后一条生效 | `monitor_loop.rs:52-54`、`:224-297` |
+| 保活 | 前台服务常驻通知；`notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段），静默期进入 3 重建为「已暂停检测」，不每拍重建 | `monitor_loop.rs:166-201`、`:702-712`、`:857-869` |
+| 探针窗口锁 | `begin_probe_window` / `ProbeWindowGuard` Drop 保证 WifiLock + WakeLock 释放 | `monitor_loop.rs:505-514`、`:719-724` |
+| 绑 WiFi | 每拍探测与重登前 `ensure_wifi_bound` | `monitor_loop.rs:465`、`:728` |
+| 绑小核 | Portal 探测跑在专用短命线程并 `pin_current_thread_to_little_cores`（线程内 `handle.enter()` 补 reactor） | `monitor_loop.rs:573-610` |
 | 决策纯函数 | `should_attempt_login`（在线/非校园网/开关/上限/冷却五条件） | `monitor_loop.rs:72-93` |
-| 无多适配器 | payload 无 `secondaryOnline`，`adapter2Name` 恒空 | `monitor_loop.rs:743-755` |
+| 无多适配器 | payload 无 `secondaryOnline`，`adapter2Name` 恒空 | `monitor_loop.rs:836-848` |
 | 无退出倒计时 | 无校园网退出、无自动退出、无 MAC 重置链路 | — |
-| 启动自动登录 | `probe_with_retry`（3s 重试一次）→ 登录成功预置 `was_online=true` + 清注销保护期 | `monitor_loop.rs:424-439`、`:481-482` |
-| 状态初值 | `status_value()` 把最近一次结果展平到顶层，供 `get_init_data` 提供启动初值（首轮 emit 早于 WebView 监听建立） | `monitor_loop.rs:96-116` |
+| 启动自动登录 | `probe_with_retry`（3s 重试一次）→ 登录成功预置 `was_online=true` + 清注销保护期 | `monitor_loop.rs:430-445`、`:487-488` |
+| 状态初值 | `status_value()` 把最近一次结果展平到顶层，供 `get_init_data` 提供启动初值（首轮 emit 早于 WebView 监听建立） | `monitor_loop.rs:102-122` |
 
 ## Connections
 
@@ -177,11 +177,11 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 
 ## Known Issues
 
-- **安卓无 MAC 重置链路**：桌面在认证失败 5 次（`failure_tracker.rs:6`）与 Portal 请求失败 5 次（`:194`）时触发 `dhcp_release_renew_single`，安卓完全没有对应实现——安卓的 `consecutive_failures`（`monitor_loop.rs:694`）只用于停止自动重登。
-- **安卓断线重连次数在 `should_attempt_login` 与调用侧重复判上限**：`should_attempt_login` 内已有 `reconnect_count >= max_reconnect`（`monitor_loop.rs:89-91`），`run_check_once` 又在自增后判 `count >= settings.max_disconnect_reconnect` 发通知（`:711-713`），两处阈值语义（≥ vs 自增后）容易理解错位。
+- **安卓无 MAC 重置链路**：桌面在认证失败 5 次（`failure_tracker.rs:6`）与 Portal 请求失败 5 次（`:194`）时触发 `dhcp_release_renew_single`，安卓完全没有对应实现——安卓的 `consecutive_failures`（`monitor_loop.rs:789`）只用于停止自动重登。
+- **安卓断线重连次数在 `should_attempt_login` 与调用侧重复判上限**：`should_attempt_login` 内已有 `reconnect_count >= max_reconnect`（`monitor_loop.rs:89-91`），`run_check_once` 又在自增后判 `count >= settings.max_disconnect_reconnect` 发通知（`:806-808`），两处阈值语义（≥ vs 自增后）容易理解错位。
 - **桌面 `background_check_interval` 与安卓默认值不一致**：桌面 15000（`model.rs:180`），安卓 60000（`config_state.rs:88`），且安卓迁移逻辑会把 15000 的旧值刷成 60000（`config_state.rs:243-245`）。同一字段两端默认值分叉，双端同步约定（`AGENTS.md` 第 3 条）在此处未落实。
 - **桌面 `updater` 更新检查循环与 `run_startup_tasks` 分离**：桌面在 `app/startup.rs:193` 单独调 `start_update_check_loop`，安卓在 `run_startup_tasks` 内调（`monitor_loop.rs:408`），两端启动装配顺序不同。
 - **`CAMPUS_MINIMIZE_DELAY_MS` 硬编码且不可配**：`lifecycle.rs:12-13` 与 `AUTO_EXIT_DELAY_MS` 都是常量，用户无法调整倒计时长度，只能整体开关（`campus_exit_on_fail` / `auto_exit_after_login`）。
-- **静默期语义两端不同**：桌面静默期构造 `on_campus: true` 并继续走完整 Portal 探测（`background_check.rs:63-70`），安卓直接整拍 `return` 不探测（`monitor_loop.rs:617-626`）。非在校时段的"在线状态新鲜度"因此不可比。
-- **安卓 `run_startup_tasks` 就绪窗口 500ms 无重试兜底**：注释（`monitor_loop.rs:376-380`）说明网络未就绪靠"自动登录一次重试 + 后台检测下一拍"，即启动即失败会静默等到下一拍（最长 idle 300s）。
+- **静默期语义两端不同**：桌面静默期构造 `on_campus: true` 并继续走完整 Portal 探测（`background_check.rs:63-70`），安卓直接整拍 `return` 不探测（`monitor_loop.rs:695-715`）。2026-09-13 起安卓在静默期 return 前会把常驻通知重建为「已暂停检测(非检测时段)」，两端"在线状态"在静默期都保持上一拍记忆，但安卓通知面不再显示陈旧在线；在线状态本身的新鲜度两端仍不可比。
+- **安卓 `run_startup_tasks` 就绪窗口 500ms 无重试兜底**：注释（`monitor_loop.rs:382-386`）说明网络未就绪靠"自动登录一次重试 + 后台检测下一拍"，即启动即失败会静默等到下一拍（最长 idle 300s）。
 - **`try_disconnect_reconnect` 参数多达 10 个**（`auto_auth.rs:109-119`），`#[allow(clippy::too_many_arguments)]` 已经压不住可读性问题；`background_check.rs:322-326` 的调用点需逐个对齐位置参数，改动风险高。

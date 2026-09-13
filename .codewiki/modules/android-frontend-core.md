@@ -496,12 +496,12 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `campusGateway` | `string` | 校园网网关（默认 `10.2.127.254`） |
 | `updateSource` | `'mirror' \| 'github'` | 更新渠道优先级 |
 | `campusExitOnFail` | `boolean` | 非校园网时退出（**安卓 UI 隐藏**） |
-| `campusCheckStartMinutes` / `campusCheckEndMinutes` | `number` | 检测时间窗（分钟制，460=07:40，0=00:00） |
+| `campusCheckStartMinutes` / `campusCheckEndMinutes` | `number` | 检测时间窗（分钟制，460=07:40，1380=23:00；2026-09-13 起终点旧默认 0 由后端 v4→v5 迁移与 `DEFAULT_CONFIG` 双源刷新） |
 | `scheduledLoginMinutes` / `scheduledLogoutMinutes` | `number` | 每日定时登录/注销时刻（分钟数，0=禁用；过点补触发，默认值 `settings/constants.ts` 同步新增） |
 | `maxDisconnectReconnect` | `number` | 断连重连上限 |
 | `autoLoginCooldownSecs` | `number` | 自动登录冷却 |
 | `logRetentionDays` | `number` | 日志保留天数 |
-| `configVersion` | `number` | 配置 schema 版本（当前 4） |
+| `configVersion` | `number` | 配置 schema 版本（当前 5） |
 
 `InitData`（`settings/types.ts:63-76`）：`config: Partial<Config>`、`version: string`、`adapters: Adapter[]`、`adapterDetails: AdapterDetail[]`、`disabledAdapters: DisabledAdapter[]`、`accounts: string[]`、`activeAccount: string`、`backgroundStatus: BackgroundStatus`、`isAutoStart: boolean`、`autoLaunch: boolean`、`notificationEnabled: boolean`、`gpuInfo?: GpuInfo`、`refreshRate?: number`（安卓仅消费 `config`/`backgroundStatus`/`accounts`/`activeAccount`/`refreshRate`）。
 

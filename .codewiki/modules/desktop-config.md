@@ -11,7 +11,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 
 ## Overview
 
-本模块定义应用的全量配置数据结构 `Config`（44 个字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的敏感字段（`password`、`self_password`）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值）。
+本模块定义应用的全量配置数据结构 `Config`（46 个字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的敏感字段（`password`、`self_password`）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值；`config_version < 3` 时把 `campus_check_end_minutes` 旧默认 0 刷为 1380）。
 
 本模块在 `tauri-app/src-tauri/src/lib.rs:4` 被声明为跨平台模块（安卓端经 path 依赖可见），但安卓端另有自己的配置结构 `android/src-tauri/src/config_state.rs`（注释声明"结构对齐桌面 config::Config 可适用子集"），并不复用 `persist.rs` 的落盘路径。
 
@@ -32,24 +32,25 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | --- | --- | --- | --- |
 | `model.rs:3` | pub const | `PASSWORD_MASK: &str = "***"` | 出站掩码占位符；前端回传该值表示"未修改密码" |
 | `model.rs:4` | pub const | `AUTO_DETECT_ADAPTER: &str = "自动检测"` | 适配器自动选择的哨兵值（`network::adapter` 与 `monitor::adapter_watch` 都用它做比较） |
-| `model.rs:6-104` | pub struct | `Config` | 全量配置（44 字段，见下表）；容器级 `#[serde(default)]` |
-| `model.rs:106-116` | 私有 fn | `deserialize_non_empty_or<D>(deserializer, default_fn) -> Result<String, D::Error>` | 反序列化时把空串替换为指定默认值 |
-| `model.rs:118-123` | 私有 fn | `deserialize_campus_gateway<D>` | 组合上者，空串 → `default_campus_gateway()` |
-| `model.rs:125-130` | 私有 fn | `deserialize_required_network_name<D>` | 组合上者，空串 → `default_required_network_name()` |
-| `model.rs:132` | 私有 fn | `default_true() -> bool` | 返回 `true` |
-| `model.rs:134` | 私有 fn | `default_campus_check_start_minutes() -> u16` | 460（07:40） |
-| `model.rs:136` | 私有 fn | `default_campus_exit_start_minutes() -> u16` | 480（08:00） |
-| `model.rs:138` | 私有 fn | `default_campus_exit_end_minutes() -> u16` | 1380（23:00） |
-| `model.rs:140-142` | pub fn | `default_fixed_gateway() -> String` | `"10.2.127.254"` |
-| `model.rs:144` | pub fn | `default_log_retention_days() -> u32` | 7 |
-| `model.rs:146` | 私有 fn | `default_max_disconnect_reconnect() -> u32` | 3 |
-| `model.rs:148` | 私有 fn | `default_auto_login_cooldown_secs() -> u64` | 60 |
-| `model.rs:150-152` | pub fn | `default_portal_url() -> String` | `"http://10.1.99.100"`（`network::client::PORTAL_URL` 的初值也取它） |
-| `model.rs:154-156` | pub fn | `default_required_network_name() -> String` | `"i-wxxy"` |
-| `model.rs:158-160` | pub fn | `default_campus_gateway() -> String` | `"10.2.127.254"`（`commands/network_cmd.rs:105` 用作兜底） |
-| `model.rs:162-211` | impl | `Default for Config` | 44 个字段的默认值（见表） |
-| `model.rs:217-221` | pub fn | `Config::masked_for_display(&self) -> Config` | 克隆后掩码，原 struct 不变；**所有把 Config 发往前端的路径必须经此方法** |
-| `model.rs:223-230` | pub fn | `Config::mask_in_place(&mut self)` | 就地掩码：`password`/`self_password` 非空则置为 `PASSWORD_MASK` |
+| `model.rs:10-109` | pub struct | `Config` | 全量配置（46 字段，见下表）；容器级 `#[serde(default)]` |
+| `model.rs:112-122` | 私有 fn | `deserialize_non_empty_or<D>(deserializer, default_fn) -> Result<String, D::Error>` | 反序列化时把空串替换为指定默认值 |
+| `model.rs:124-129` | 私有 fn | `deserialize_campus_gateway<D>` | 组合上者，空串 → `default_campus_gateway()` |
+| `model.rs:131-136` | 私有 fn | `deserialize_required_network_name<D>` | 组合上者，空串 → `default_required_network_name()` |
+| `model.rs:138` | 私有 fn | `default_true() -> bool` | 返回 `true` |
+| `model.rs:140` | 私有 fn | `default_campus_check_start_minutes() -> u16` | 460（07:40） |
+| `model.rs:142-144` | 私有 fn | `default_campus_check_end_minutes() -> u16` | 1380（23:00，2026-09-13 起旧默认 0，由 v2→v3 迁移刷新） |
+| `model.rs:146` | 私有 fn | `default_campus_exit_start_minutes() -> u16` | 480（08:00） |
+| `model.rs:148` | 私有 fn | `default_campus_exit_end_minutes() -> u16` | 1380（23:00） |
+| `model.rs:150-152` | pub fn | `default_fixed_gateway() -> String` | `"10.2.127.254"` |
+| `model.rs:154` | pub fn | `default_log_retention_days() -> u32` | 7 |
+| `model.rs:156` | 私有 fn | `default_max_disconnect_reconnect() -> u32` | 3 |
+| `model.rs:158` | 私有 fn | `default_auto_login_cooldown_secs() -> u64` | 60 |
+| `model.rs:160-162` | pub fn | `default_portal_url() -> String` | `"http://10.1.99.100"`（`network::client::PORTAL_URL` 的初值也取它） |
+| `model.rs:164-166` | pub fn | `default_required_network_name() -> String` | `"i-wxxy"` |
+| `model.rs:168-170` | pub fn | `default_campus_gateway() -> String` | `"10.2.127.254"`（`commands/network_cmd.rs:105` 用作兜底） |
+| `model.rs:172-221` | impl | `Default for Config` | 46 个字段的默认值（见表） |
+| `model.rs:227-231` | pub fn | `Config::masked_for_display(&self) -> Config` | 克隆后掩码，原 struct 不变；**所有把 Config 发往前端的路径必须经此方法** |
+| `model.rs:233-240` | pub fn | `Config::mask_in_place(&mut self)` | 就地掩码：`password`/`self_password` 非空则置为 `PASSWORD_MASK` |
 
 本模块未定义任何 `trait`（只实现对 `Default` 的 `impl`）。
 
@@ -79,12 +80,12 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `validate.rs:42-71` | 私有 fn | `validate_portal_url(url: &str) -> Result<(), String>` | 协议限 http/https；host 必须是内网 IPv4 / 回环 IPv6 / 字面量 `localhost`；**域名一律拒绝** |
 | `validate.rs:73-79` | 私有 fn | `migrate_operator(op: &mut String)` | `@ctcc`→`@telecom`、`@cucc`→`@unicom` |
 | `validate.rs:81-85` | 私有 fn | `normalize_portal_url(url: &mut String)` | 空串或字面值 `"http://10.1.99.100:801"` → `"http://10.1.99.100"` |
-| `validate.rs:87-138` | pub fn | `validate_config(config: Config) -> Result<Config, String>` | 严格校验 + 迁移 + clamp；任一项非法即 `Err` |
-| `validate.rs:143-207` | pub fn | `validate_config_lenient(mut config: Config) -> Config` | 逐字段降级：无效字段回退 `Config::default()` 对应值并 `log_warn!`；末尾再跑一次严格版，仍失败则整份返回 `Config::default()` |
+| `validate.rs:87-150` | pub fn | `validate_config(config: Config) -> Result<Config, String>` | 严格校验 + 迁移（v1→v2 小时→分钟、v2→v3 检测时段终点旧默认）+ clamp；任一项非法即 `Err` |
+| `validate.rs:154-218` | pub fn | `validate_config_lenient(mut config: Config) -> Config` | 逐字段降级：无效字段回退 `Config::default()` 对应值并 `log_warn!`；末尾再跑一次严格版，仍失败则整份返回 `Config::default()` |
 
 ## 结构体与字段
 
-### `Config`（`model.rs:6-104`）
+### `Config`（`model.rs:10-109`）
 
 `#[derive(Debug, Clone, Serialize, Deserialize)]`（`model.rs:6`）+ 容器级 `#[serde(default)]`（`model.rs:9`）。JSON 键名无统一 `rename_all`，未标 `rename` 的字段保持 Rust 原名（`user`、`password`、`operator`、`adapter1`、`adapter2`），其余均为显式 camelCase。
 
@@ -128,12 +129,14 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:85` | `campus_exit_start_minutes` | `campusExitStartMinutes` | `u16` | `480`（08:00） | 非校园网自动退出生效时段起点（当日分钟数） |
 | `model.rs:88` | `campus_exit_end_minutes` | `campusExitEndMinutes` | `u16` | `1380`（23:00） | 生效时段终点（不含该时刻；结束 ≤ 起点时退化为仅受起点限制） |
 | `model.rs:90` | `campus_check_start_minutes` | `campusCheckStartMinutes`（alias `campusCheckStartHour`） | `u16` | `460`（07:40） | 校园网检测时段起点 |
-| `model.rs:93` | `campus_check_end_minutes` | `campusCheckEndMinutes` | `u16` | `0` | 检测时段终点；`0`=不限制；≤ 起点时退化为仅起点限制 |
-| `model.rs:95` | `log_retention_days` | `logRetentionDays` | `u32` | `7` | 日志保留天数；`0`=永久保留；上限 365 |
-| `model.rs:97` | `max_disconnect_reconnect` | `maxDisconnectReconnect` | `u32` | `3` | 断线重连次数上限（`monitor/auto_auth.rs:155`） |
-| `model.rs:99` | `auto_login_cooldown_secs` | `autoLoginCooldownSecs` | `u64` | `60` | 自动登录冷却秒数（`monitor/auto_auth.rs:63`） |
-| `model.rs:101` | `skip_sha256_when_missing` | `skipSha256WhenMissing` | `bool` | `false` | 更新包缺少 sha256 时是否跳过校验（`commands/updater.rs:225`） |
-| `model.rs:103` | `config_version` | `configVersion` | `u32` | `2` | 配置版本号，驱动 `campus_check_start_minutes` 小时→分钟迁移 |
+| `model.rs:93` | `campus_check_end_minutes` | `campusCheckEndMinutes` | `u16` | `1380`（23:00，2026-09-13 起旧默认 `0`） | 检测时段终点；≤ 起点时退化为仅起点限制；旧默认 `0` 由 `config_version` v2→v3 迁移刷为 1380 |
+| `model.rs:96` | `scheduled_login_minutes` | `scheduledLoginMinutes` | `u16` | `0` | 每日定时登录时刻（分钟数，`0`=禁用；到点即触发含过点补触发） |
+| `model.rs:99` | `scheduled_logout_minutes` | `scheduledLogoutMinutes` | `u16` | `0` | 每日定时注销时刻（分钟数，`0`=禁用） |
+| `model.rs:101` | `log_retention_days` | `logRetentionDays` | `u32` | `7` | 日志保留天数；`0`=永久保留；上限 365 |
+| `model.rs:103` | `max_disconnect_reconnect` | `maxDisconnectReconnect` | `u32` | `3` | 断线重连次数上限（`monitor/auto_auth.rs:155`） |
+| `model.rs:105` | `auto_login_cooldown_secs` | `autoLoginCooldownSecs` | `u64` | `60` | 自动登录冷却秒数（`monitor/auto_auth.rs:63`） |
+| `model.rs:107` | `skip_sha256_when_missing` | `skipSha256WhenMissing` | `bool` | `false` | 更新包缺少 sha256 时是否跳过校验（`commands/updater.rs:225`） |
+| `model.rs:109` | `config_version` | `configVersion` | `u32` | `3` | 配置版本号，驱动小时→分钟（v1→v2）与检测时段终点旧默认（v2→v3）迁移 |
 
 ### `Config` 的 serde 属性要点
 
@@ -145,6 +148,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:64`、`model.rs:66` | `default = "default_true"` | 两个 skip 开关默认 `true` |
 | `model.rs:72`、`model.rs:76` | `deserialize_with = "deserialize_...` | 空串替换为 `"i-wxxy"` / `"10.2.127.254"` |
 | `model.rs:89` | `alias = "campusCheckStartHour"` | 兼容旧版字段名（配合 `config_version < 2` 的小时→分钟迁移） |
+| `model.rs:92` | `default = "default_campus_check_end_minutes"` | `campus_check_end_minutes` 缺字段时取 1380（2026-09-13 起旧默认 0） |
 
 ## Data Flow
 
@@ -227,8 +231,8 @@ auth::session::adapter_action_with_log / monitor::auto_auth.rs:187
 10. **`save_config_to_disk_encrypted` 不做校验且会对 MASK 加密**：`persist.rs:153-168` 直接落盘传入的 `Config`；`persist.rs:159-164` 明确不排除 `PASSWORD_MASK`（注释 `persist.rs:155-158` 说明：若真实密码恰为 `"***"`，排除判断会让它明文落盘）。代价是：任何把 MASK 占位符直接落盘的调用方，重启后会得到明文密码 `"***"`（当前调用方 `commands/config_cmd.rs:107-123` 已在落盘前还原真值，属依赖调用方正确性）。
 11. **登录历史锁只覆盖 `append_login_history`**：`persist.rs:10` 的 `LOGIN_HISTORY_LOCK` 仅在 `persist.rs:100` 加锁；`commands/system.rs` 等若存在其他读写 `login-history.json` 的路径，将不受保护。另历史为"全量读 → 写"（`persist.rs:105-148`），每次追加都是 O(100) 次序列化。
 12. **登录历史读取失败/解析失败只做 `.bak` 改名后重置**：`persist.rs:110`、`persist.rs:121` 的备份路径用 `format!("{}.bak", ...)`（固定名，第二次失败会覆盖上一次备份），且失败被静默忽略（`let _ =`）。
-13. **配置迁移只覆盖 `config_version < 2` 的单向场景**：`validate.rs:125-132`，条件 `campus_check_start_minutes > 0 && < 24` 才视为小时值；若旧版用户恰好把该值设为 24 以上（理论上不该发生），会跳过迁移并被 `validate.rs:133` 截到 1439。迁移完成后无条件写 `config_version = 2`。
+13. **配置迁移是链式的 `config_version` 递增**：`validate.rs:123-140` 现有两段——v1→v2：`campus_check_start_minutes` 在 `(0, 24)` 视为小时值 ×60（`validate.rs:125-131`，条件不含 0/24 边界，旧版用户恰好设 24 以上会跳过迁移并被 clamp 截到 1439）；v2→v3（2026-09-13）：`campus_check_end_minutes == 0`（旧默认）刷为 1380 并置 `config_version = 3`（`validate.rs:133-140`），用户显式改回的其他值不动。两段迁移对同一份旧配置会连续执行（v1 文件先走小时→分钟再走终点刷值，`validate.rs:525-533` 有回归测试）；v3 为当前版本，迁移完成后不再变化。
 14. **`validate_portal_url` 拒绝域名**：`validate.rs:63-65`，host 既非 IP 也非字面量 `localhost` 即报"仅允许IP地址，不支持域名"。校园网改用域名 Portal 时需改代码。
 15. **`validate_portal_url` 的 IPv6 分支只允许回环**：`validate.rs:57-61`，非 `::1` 的 IPv6 一律拒绝，错误文案却写"仅允许内网IPv4或localhost"。
-16. **`campus_check_*` / `campus_exit_*` 只做 `min(1439)` 钳制**：`validate.rs:133-136`，无"起点晚于终点"的纠正（语义上允许，退化为仅受起点限制，见 `model.rs:83-93` 注释），但 UI 与日志可能展示出反直觉的时段。
+16. **`campus_check_*` / `campus_exit_*` / `scheduled_*_minutes` 只做 `min(1439)` 钳制**：`validate.rs:142-147`，无"起点晚于终点"的纠正（语义上允许，退化为仅受起点限制，见 `model.rs:88-93` 注释），但 UI 与日志可能展示出反直觉的时段。
 17. **`fixed_gateway` 允许空串**：`validate.rs:107-109` 仅在非空时校验 IP，空值语义（是否启用固定网关）没有显式开关，由消费方 `network::quality` 自行解释。

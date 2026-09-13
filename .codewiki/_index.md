@@ -70,6 +70,7 @@
 - [[learnings\reqwest-panic-no-reactor-in-thread|子线程 reqwest panic "there is no reactor running"]]
 - [[learnings\android-white-screen-missing-init-fields|安卓 app 白屏：get_init_data 少字段，前端直接读不判空]]
 - [[learnings\android-frontend-no-unit-tests|安卓前端没有单元测试]]
+- [[learnings\android-notify-online-pinned-by-offline-guard|安卓常驻监控通知在线状态被离线护栏静默钉死]]
 - [[learnings\android-version-json-camelcase-parse-drift|安卓更新检测对 version.json 的解析契约（camelCase vs snake_case）]]
 - [[learnings\android-apk-not-updated-before-build-command|安卓构建后 APK 没更新：tauri CLI 不跑 beforeBuildCommand]]
 - [[learnings\android-gateway-icmp-unavailable|安卓检测不到网关存活：非 root 无 ICMP]]
