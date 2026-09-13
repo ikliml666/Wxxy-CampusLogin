@@ -1,5 +1,8 @@
 pub mod adapter;
 pub mod adapter_cache;
+// 安卓 SO_BINDTODEVICE 物理网卡旁路:纯函数(能力分类/接口过滤)全平台编译供桌面单测,
+// socket 探测/TCP 连接/HTTP 通道仅 Android 编译(桌面零编译、零行为变化)
+pub mod bound_socket;
 pub mod client;
 pub mod dhcp;
 pub mod discovery;

@@ -40,6 +40,17 @@ getrandom = "0.3"
 sha2 = "0.10"
 md-5 = "0.10"
 
+# 安卓 SO_BINDTODEVICE 物理网卡旁路(bound_socket.rs;cfg(target_os = "android") 门控,桌面不编译)。
+# socket2/hyper/http-body-util 均已在依赖树内(reqwest→hyper-util/hyper),此处仅补安卓目标直连
+# 声明,不新增编译产物;network-interface 与安卓壳工程(android/src-tauri)同版本。
+[target.'cfg(target_os = "android")'.dependencies]
+socket2 = { version = "0.6", features = ["all"] }
+network-interface = "2"
+hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+# TokioIo:hyper 1.x 的 rt trait 与 tokio AsyncRead/AsyncWrite 的适配器(hyper 1.11 起不再内置)
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+http-body-util = "0.1"
+
 # 桌面专属插件:不参与安卓/iOS 构建(官方 updater 插件 README 同款写法)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-shell = "2"

@@ -161,6 +161,18 @@ pub(crate) fn notify_system(app: &tauri::AppHandle, enabled: bool, title: &str, 
     }
 }
 
+/// 探测/登录失败通知追加 VPN 接管提示:全量 VPN(Clash/UU 等)未排除本应用时,
+/// socket 探测与登录流量被 tun 劫持——SO_BINDTODEVICE 旁路在 secure VPN 或被
+/// ROM 封堵(bind_capability=Denied)时失效,用户侧唯一解法是在 VPN 中排除本应用
+/// 或临时关闭 VPN。只拼 message,不改通知/状态机逻辑。
+fn with_vpn_hint(body: &str) -> String {
+    if campus_login_lib::network::bound_socket::vpn_tun_present() {
+        format!("{body}（检测到 VPN 可能在接管本应用流量：请在 VPN 中排除本应用或临时关闭 VPN）")
+    } else {
+        body.to_string()
+    }
+}
+
 /// 启动后台监控:Rust tokio 循环 + 前台服务保活(幂等)
 #[tauri::command]
 pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -491,11 +503,11 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
         Ok(v) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
             emit_login_log(app, &format!("启动自动登录失败: {msg}"), "error");
-            notify_system(app, settings.enable_notification, "启动自动登录失败", &msg, "mascot_offline");
+            notify_system(app, settings.enable_notification, "启动自动登录失败", &with_vpn_hint(&msg), "mascot_offline");
         }
         Err(e) => {
             emit_login_log(app, &format!("启动自动登录失败: {e}"), "error");
-            notify_system(app, settings.enable_notification, "启动自动登录失败", &e, "mascot_offline");
+            notify_system(app, settings.enable_notification, "启动自动登录失败", &with_vpn_hint(&e), "mascot_offline");
         }
     }
 }
@@ -775,7 +787,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     let was_online = MONITOR.was_online.swap(online, Ordering::Relaxed);
     // 掉线通知:从在线翻离线且在校园网(桌面 background_emit 同语义)
     if was_online && !online && on_campus {
-        notify_system(app, settings.enable_notification, "校园网连接掉线", &format!("将自动重登: {portal_message}"), "mascot_alert");
+        notify_system(app, settings.enable_notification, "校园网连接掉线", &with_vpn_hint(&format!("将自动重登: {portal_message}")), "mascot_alert");
     }
 
     // 4. 自动登录判定与执行(敏感纪律:payload/日志只含结果不含密码)
@@ -804,7 +816,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         MONITOR.reconnect_count.fetch_add(1, Ordering::Relaxed);
         let count = MONITOR.reconnect_count.load(Ordering::Relaxed);
         if count >= settings.max_disconnect_reconnect {
-            notify_system(app, settings.enable_notification, "自动重连已达上限", "本轮在线周期内不再自动重登,请手动登录", "mascot_offline");
+            notify_system(app, settings.enable_notification, "自动重连已达上限", &with_vpn_hint("本轮在线周期内不再自动重登,请手动登录"), "mascot_offline");
         }
         let state = app.state::<crate::android_state::AndroidState>();
         match crate::protocol_cmds::run_login(&settings.user, &settings.password, &settings.operator, &state).await {
@@ -821,14 +833,14 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
                 } else {
                     // 协议返回失败(凭据错误等)与执行失败同计入熔断,达 5 次停止本会话自动重登
                     MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-                    notify_system(app, settings.enable_notification, "自动重登失败", &message, "mascot_offline");
+                    notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&message), "mascot_offline");
                 }
                 login_result = Some(v);
             }
             Err(e) => {
                 MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
                 emit_login_log(app, &format!("自动登录执行失败: {e}"), "error");
-                notify_system(app, settings.enable_notification, "自动重登失败", &e, "mascot_offline");
+                notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&e), "mascot_offline");
             }
         }
     }

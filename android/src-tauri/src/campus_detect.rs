@@ -37,9 +37,16 @@ pub fn pick_campus_source_ip(interfaces: &[(String, IpAddr)]) -> Option<Ipv4Addr
 
 /// Portal 服务器 TCP 可达性(替代 ICMP ping;portal 可达即视为校园网连通)。
 /// 连接被拒/超时 = 不通(返回 false),非调用错误。
+/// Android 走 bound_socket::tcp_connect_bounded:全量 VPN(Clash/UU 等)接管流量时,
+/// 经 SO_BINDTODEVICE 从物理网卡(WiFi)直连校园内网探测;能力缺失/无物理网卡时
+/// 内部自动回退普通连接(语义与原实现一致)。
 pub async fn portal_reachable(host: &str, port: u16, timeout: Duration) -> bool {
     matches!(
-        tokio::time::timeout(timeout, tokio::net::TcpStream::connect((host, port))).await,
+        tokio::time::timeout(
+            timeout,
+            campus_login_lib::network::bound_socket::tcp_connect_bounded(host, port, timeout)
+        )
+        .await,
         Ok(Ok(_))
     )
 }
