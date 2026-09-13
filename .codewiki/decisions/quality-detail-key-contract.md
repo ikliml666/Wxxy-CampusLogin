@@ -31,6 +31,8 @@ tags: [决策, 质量检测, i18n, 前端]
 
 新增检查项时键名必须英文且与 i18n 词条同步；已知脆弱点：`details`/`metrics` 中所有项都以 `name` 为键（`network/quality.rs:381-384`），重名会静默覆盖，须自行保证唯一。
 
+2026-09-13 补充：`check_network_quality_async` 新增 `lightweight` 轻量复核模式（`network/quality.rs:455`，仅执行预览波网关 + 1 个外网站点即提前返回，分支在 `:526-528`），其结果同样经统一的 `build_quality_result` 以 `name` 为键构造 `details`/`metrics`（`:524` 注释明确"聚合语义不变"），本契约不受影响。
+
 ## Connections
 
 [[quality-check-single-driver]]、[[network-quality-default-off]]、[[deferred-panel-transition]]

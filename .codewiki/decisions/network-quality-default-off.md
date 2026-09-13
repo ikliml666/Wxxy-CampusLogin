@@ -35,7 +35,7 @@ tags: [决策, 质量检测, 默认值, 安卓, 双端同语义]
 
 **语义对照**：`enable_network_quality` = 质量链路总开关；`enable_latency_test` = 定时循环开关（默认本就 false）。
 
-**改默认值必须走后端 `Settings::default` + schema 迁移（双源覆盖，只改前端无效）**——前端 `DEFAULT_CONFIG.configVersion` 也要与后端 `config_schema_version` 对齐（本轮由漂移值 2 同步到 4，`constants.ts:52`，见 [[android-interval-default-schema-migration]]）。副作用：质量开关是手机底栏结构的隐式开关，调整默认值需同时检查手机 tab 白名单（不含 `monitor`）与派生降级。
+**改默认值必须走后端 `Settings::default` + schema 迁移（双源覆盖，只改前端无效）**——前端 `DEFAULT_CONFIG.configVersion` 也要与后端 `config_schema_version` 对齐（本轮由漂移值 2 同步到 4，`constants.ts:54`，见 [[android-interval-default-schema-migration]]）。副作用：质量开关是手机底栏结构的隐式开关，调整默认值需同时检查手机 tab 白名单（不含 `monitor`）与派生降级。
 
 ## Connections
 

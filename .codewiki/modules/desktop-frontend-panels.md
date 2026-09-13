@@ -56,7 +56,7 @@ tags: [前端, 面板, react]
 
 ### 应用外壳：App.tsx
 
-`App.tsx:113` 的 `AppInner` 是全部装配逻辑所在；导出入口 `App`（`App.tsx:522-530`）只包三层：`ErrorBoundary` → `AnimationActiveProvider` → `AppInner`。
+`App.tsx:113` 的 `AppInner` 是全部装配逻辑所在；导出入口 `App`（`App.tsx:529-537`）只包三层：`ErrorBoundary` → `AnimationActiveProvider` → `AppInner`。
 
 - 启动与懒加载 loader：`loadAboutDialog`（`App.tsx:49`）、`loadThemeDialog`（`App.tsx:50`）、`loadOnboardingWizard`（`App.tsx:51`）、`lazy(...)` 三处（`App.tsx:53-55`）、`preloadPanels`（`App.tsx:58-61`）。
 - 面板元数据：`PANEL_TITLES`（`App.tsx:63-73`），9 个面板各带 `titleKey` / `descKey`。
@@ -69,29 +69,29 @@ tags: [前端, 面板, react]
 - 五个业务 hook 解构（面板 props 的唯一来源）：`useAuth`（`App.tsx:160`）、`useMonitor`（`App.tsx:161`）、`useNetwork`（`App.tsx:162`）、`useAccount`（`App.tsx:163`）、`useSettings`（`App.tsx:164`）。
 - 日志区 `useShallow` 订阅 `logs` / `toasts` / `removeToast` / `setLogs`（`App.tsx:166-173`）。
 - 面板切换锁与本地弹层状态：`panelChangeLock`（`App.tsx:175`）、`aboutOpen`（`App.tsx:176`）、`themeOpen`（`App.tsx:177`）、`confirmDelete`（`App.tsx:178`）、`onboardingOpen`（`App.tsx:179`）、`sponsorOpen`（`App.tsx:180`）、`isMaximized`（`App.tsx:181`）。
-- 动画与启动：`useAnimationProfile()`（`App.tsx:183`）、`panelVariants = createPanelAppleVariants(profile.easing)`（`App.tsx:184`）、`useStartupBoost` 的 `setRef` / `runStartupSequence`（`App.tsx:185`）、`prevPanelRef`（`App.tsx:186`）、`slideDirection`（`App.tsx:187`）。
-- 副作用：转场方向计算（`App.tsx:189-194`，比对 `prevPanelRef` 与 `deferredPanel`）；双 rAF 启动序列 + 并行预热懒加载 chunk（`App.tsx:196-206`）；窗口 resize/maximized 监听（`App.tsx:208-219`，cleanup 里顺带 `cleanupToasts()`）；系统通知点击开关于框（`App.tsx:222-225`）；首次引导自动弹出（`App.tsx:227-233`，`campus-onboarding-done` 未写且无 `configUser` 时延迟 800ms）；赞助浮层自动弹出（`App.tsx:239-261`，7 天频控 + 窗口可见性等待 + 弹出即写时间戳）。
-- 回调：`handleToggleMaximize`（`App.tsx:263-271`）、`handleClearLogs`（`App.tsx:273-275`）、`handlePanelChange`（`App.tsx:277-285`：60ms 重入锁 + 持久化 `campus-active-panel`）。
-- 标题文案：`panelInfo = PANEL_TITLES[deferredPanel] || PANEL_TITLES.dashboard`（`App.tsx:287`）。
+- 动画与启动：`useAnimationProfile()`（`App.tsx:183`）、`panelVariants = createPanelAppleVariants(profile.easing)`（`App.tsx:184`）、`useStartupBoost` 的 `setRef` / `runStartupSequence`（`App.tsx:185`）。
+- 副作用：双 rAF 启动序列 + 并行预热懒加载 chunk（`App.tsx:186-196`）；窗口 resize/maximized 监听（`App.tsx:198-222`，cleanup 里顺带 `cleanupToasts()`）；系统通知点击开关于框（`App.tsx:224-228`）；首次引导自动弹出（`App.tsx:230-236`，`campus-onboarding-done` 未写且无 `configUser` 时延迟 800ms）；赞助浮层自动弹出（`App.tsx:242-264`，7 天频控 + 窗口可见性等待 + 弹出即写时间戳）。
+- 回调：`handleToggleMaximize`（`App.tsx:266-274`）、`handleClearLogs`（`App.tsx:276-278`）、`handlePanelChange`（`App.tsx:280-288`：60ms 重入锁 + 持久化 `campus-active-panel`）。
+- 标题文案：`panelInfo = PANEL_TITLES[deferredPanel] || PANEL_TITLES.dashboard`（`App.tsx:290`）。
 
-**面板路由完整分支（`App.tsx:289-374`，`switch (deferredPanel)`）**
+**面板路由完整分支（`App.tsx:292-377`，`switch (deferredPanel)`）**
 
 | 分支 | 行号 | 渲染的面板 | 传入 props | 渲染条件 |
 |---|---|---|---|---|
-| `'dashboard'` | `App.tsx:291-304` | `DashboardPanel` | `accounts`、`activeAccount`、`onUpdateConfig=updateConfig`、`onSwitchAccount=handleSwitchAccount`、`onDhcpRenew`、`onDhcpReleaseRenew`、`onDhcpReleaseRenewAdapter`、`onRefreshQuality=refreshQuality` | 无额外条件 |
-| `'account'` | `App.tsx:305-317` | `AccountPanel` | `adapters`、`accounts`、`activeAccount`、`onUpdateConfig`、`onAddAccount=handleAddAccount`、`onDeleteAccount=(name)=>setConfirmDelete({open:true,name})`、`onSwitchAccount` | 无额外条件 |
-| `'selfservice'` | `App.tsx:318-320` | `SelfServicePanel` | 无 props（自订阅 store） | 无额外条件 |
-| `'network'` | `App.tsx:321-328` | `NetworkPanel` | `adapters`、`onUpdateConfig` | 无额外条件 |
-| `'monitor'` | `App.tsx:329-337` | `MonitorPanel` | `onUpdateConfig`、`onToggleBackgroundCheck=handleToggleBackgroundCheck`、`onTriggerCheck=handleTriggerCheck` | 无额外条件 |
-| `'quality'` | `App.tsx:338-346` | `QualityPanel` | `onUpdateConfig`、`onRefreshQuality`、`onToggleLatencyTest=handleToggleLatencyTest` | `configEnableNetworkQuality !== false`，否则渲染 `null`（主区域空白，靠 `SettingsPanel.tsx:512-522` 联动切走兜底） |
-| `'settings'` | `App.tsx:347-358` | `SettingsPanel` | `autoLaunch`（`configAutoLaunch !== false`）、`onUpdateConfig`、`onSetAutoLaunch`、`onToggleLightMode`、`onSetTheme`、`onShowOnboarding` | 无额外条件 |
-| `'log'` | `App.tsx:359-366` | `LogPanel`（静态导入） | `api`、`addToast` | 无额外条件 |
-| `'speedtest'` | `App.tsx:367-373` | `SpeedTestPanel` | `openExternal=(url)=>api.openExternal?.(url)` | 无额外条件 |
-| 默认（`default` 不存在） | — | `panelContent` 初值 `null`（`App.tsx:289`） | — | 当 `deferredPanel` 不在上述 9 个键内时渲染空白 |
+| `'dashboard'` | `App.tsx:294-307` | `DashboardPanel` | `accounts`、`activeAccount`、`onUpdateConfig=updateConfig`、`onSwitchAccount=handleSwitchAccount`、`onDhcpRenew`、`onDhcpReleaseRenew`、`onDhcpReleaseRenewAdapter`、`onRefreshQuality=refreshQuality` | 无额外条件 |
+| `'account'` | `App.tsx:308-320` | `AccountPanel` | `adapters`、`accounts`、`activeAccount`、`onUpdateConfig`、`onAddAccount=handleAddAccount`、`onDeleteAccount=(name)=>setConfirmDelete({open:true,name})`、`onSwitchAccount` | 无额外条件 |
+| `'selfservice'` | `App.tsx:321-323` | `SelfServicePanel` | 无 props（自订阅 store） | 无额外条件 |
+| `'network'` | `App.tsx:324-331` | `NetworkPanel` | `adapters`、`onUpdateConfig` | 无额外条件 |
+| `'monitor'` | `App.tsx:332-340` | `MonitorPanel` | `onUpdateConfig`、`onToggleBackgroundCheck=handleToggleBackgroundCheck`、`onTriggerCheck=handleTriggerCheck` | 无额外条件 |
+| `'quality'` | `App.tsx:341-349` | `QualityPanel` | `onUpdateConfig`、`onRefreshQuality`、`onToggleLatencyTest=handleToggleLatencyTest` | `configEnableNetworkQuality !== false`，否则渲染 `null`（主区域空白，靠 `SettingsPanel.tsx:582-592` 联动切走兜底） |
+| `'settings'` | `App.tsx:350-361` | `SettingsPanel` | `autoLaunch`（`configAutoLaunch !== false`）、`onUpdateConfig`、`onSetAutoLaunch`、`onToggleLightMode`、`onSetTheme`、`onShowOnboarding` | 无额外条件 |
+| `'log'` | `App.tsx:362-369` | `LogPanel`（静态导入） | `api`、`addToast` | 无额外条件 |
+| `'speedtest'` | `App.tsx:370-376` | `SpeedTestPanel` | `openExternal=(url)=>api.openExternal?.(url)` | 无额外条件 |
+| 默认（`default` 不存在） | — | `panelContent` 初值 `null`（`App.tsx:292`） | — | 当 `deferredPanel` 不在上述 9 个键内时渲染空白 |
 
-**转场与渲染管线**：外层 `AnimatePresence mode="wait" custom={slideDirection}` + `m.div key={deferredPanel}`（`App.tsx:416-431`），`variants={panelVariants}`（`App.tsx:420`，来自 `lib/animations.ts:28-45`），`className="panel-content"` 与 `PANEL_CONTAINER_STYLE`（`App.tsx:424-425`），内部依次包 `ErrorBoundary`（`App.tsx:427`）与 `Suspense fallback={<PanelSkeleton />}`（`App.tsx:428`）。标题与描述用 `key={\`title-${deferredPanel}\`}` / `key={\`desc-${deferredPanel}\`}` 强制随面板重挂（`App.tsx:406-413`）。
+**转场与渲染管线**：外层 `AnimatePresence mode="wait"` + `m.div key={deferredPanel}`（`App.tsx:424-438`），`variants={panelVariants}`（`App.tsx:427`，来自 `lib/animations.ts:19-36`），`className="panel-content"` 与 `PANEL_CONTAINER_STYLE`（`App.tsx:431-432`），内部依次包 `ErrorBoundary`（`App.tsx:434`）与 `Suspense fallback={<PanelSkeleton />}`（`App.tsx:435`）。标题与描述同样包进一组 `AnimatePresence mode="wait"` + `m.div key={deferredPanel}`（`App.tsx:409-421`），复用同一个 `panelVariants` 实现标题/描述与内容同向滑入（历史实现是仅用 `key` 强制重挂 + `slideDirection` 方向参数，方向信号已在死代码清理 `1dda320` 中删除）。
 
-**外壳其余结构**：根容器 `App.tsx:377`（含 `isMaximized && 'app-maximized'` 与 `animate-window-reveal`）；`FluidBackground`（`App.tsx:378`）；`TitleBar`（`App.tsx:380-393`，`setRef('titleBar')`，下发通知开关/主题/关于/赞助/浅色/最小化/最大化/关闭）；`StatusBar`（`App.tsx:395-400`，`setRef('statusBar')`）；主区 `main`（`App.tsx:403-433`，`max-w-[880px]` / `max-w-[720px]` 随最大化切换，`App.tsx:404`）；`RightPanel`（`App.tsx:435-439`）；两张侧边看板娘 `img`（`App.tsx:445-460`，`min-[1360px]` 起显示、右侧偏移 304px 避让 `w-72`）；`DockNav`（`App.tsx:462-465`）；`ToastContainer`（`App.tsx:467`）；`SponsorCard`（`App.tsx:469`）；`AboutDialog`（`App.tsx:471-489`，`Suspense` + 缓存版本号 + `onUpdateAvailable` 回调写 store/发 toast/写日志）；`ThemeDialog`（`App.tsx:491-498`）；删除账号 `ConfirmDialog`（`App.tsx:500-506`，确认后 `await handleDeleteAccount(name)` 再关框）；`OnboardingWizard`（`App.tsx:508-517`）。
+**外壳其余结构**：根容器 `App.tsx:380`（含 `isMaximized && 'app-maximized'` 与 `animate-window-reveal`）；`FluidBackground`（`App.tsx:381`）；`TitleBar`（`App.tsx:383-396`，`setRef('titleBar')`，下发通知开关/主题/关于/赞助/浅色/最小化/最大化/关闭）；`StatusBar`（`App.tsx:398-403`，`setRef('statusBar')`）；主区 `main`（`App.tsx:405-440`，`max-w-[880px]` / `max-w-[720px]` 随最大化切换，`App.tsx:407`）；`RightPanel`（`App.tsx:442-446`）；两张侧边看板娘 `img`（`App.tsx:452-467`，`min-[1360px]` 起显示、右侧偏移 304px 避让 `w-72`）；`DockNav`（`App.tsx:469-472`）；`ToastContainer`（`App.tsx:474`）；`SponsorCard`（`App.tsx:476`）；`AboutDialog`（`App.tsx:478-496`，`Suspense` + 缓存版本号 + `onUpdateAvailable` 回调写 store/发 toast/写日志）；`ThemeDialog`（`App.tsx:498-505`）；删除账号 `ConfirmDialog`（`App.tsx:507-513`，确认后 `await handleDeleteAccount(name)` 再关框）；`OnboardingWizard`（`App.tsx:515-524`）。
 
 ### 渲染根：main.tsx
 
@@ -128,8 +128,8 @@ tags: [前端, 面板, react]
 
 - props 接口 `AboutDialogProps`（`AboutDialog.tsx:24-32`）；仓库常量 `GITHUB_REPO`（`AboutDialog.tsx:34`）；下载状态机类型 `DownloadState = 'idle' | 'selecting' | 'downloading' | 'done' | 'error'`（`AboutDialog.tsx:36`）；核心优势数据 `CORE_FEATURES`（`AboutDialog.tsx:39-43`）；格式化工具 `formatSize`（`AboutDialog.tsx:45-50`）、`formatSpeed`（`AboutDialog.tsx:52-56`）、行内 markdown `renderInlineMarkdown`（`AboutDialog.tsx:58-69`）。
 - 状态：`checking`（`AboutDialog.tsx:75`）、`showSponsor`（`AboutDialog.tsx:77`）、`updateInfo`（`AboutDialog.tsx:78`）、`downloadState`（`AboutDialog.tsx:79`）、`progress`（`AboutDialog.tsx:80`）、`mirrors`（`AboutDialog.tsx:81`）、`downloadError`（`AboutDialog.tsx:82`）、`installError`（`AboutDialog.tsx:83`）、`downloadedFile`（`AboutDialog.tsx:84`）、`checkError`（`AboutDialog.tsx:85`）、`showMirrorList`（`AboutDialog.tsx:86`）、`selectedMirror`（`AboutDialog.tsx:87`）、`unlistenRef`（`AboutDialog.tsx:88`）、`autoCheckedRef`（`AboutDialog.tsx:91`）。
-- 行为：`hasCachedResult`（`AboutDialog.tsx:93`）；`handleCheckUpdate`（`AboutDialog.tsx:95-115`，403/404 分特殊文案）；切赞助页（`AboutDialog.tsx:117-119`）；缓存注入（`AboutDialog.tsx:121-132`）；单次自动检查（`AboutDialog.tsx:134-139`）；卸载清理监听（`AboutDialog.tsx:141-145`）；`handleDownload`（`AboutDialog.tsx:147-172`，注册 `onDownloadProgress` 再下载、finally 里注销）；`ensureFullUpdateInfo`（`AboutDialog.tsx:177-187`，通知缓存路径缺 `sha256Checksum` 时重查）；`handleInstall`（`AboutDialog.tsx:189-198`，失败显式写入 `installError`）；`openGithub`（`AboutDialog.tsx:200-202`）；`windowsAsset`（`AboutDialog.tsx:204-206`，只认 `.exe` / `.msi`）；releaseNotes 逐行渲染 `renderNotesLines`（`AboutDialog.tsx:209-235`，前缀判断从长到短）；兜底资产 URL `defaultAssetUrl`（`AboutDialog.tsx:239`）；一键下载 `handleQuickDownload`（`AboutDialog.tsx:242-266`，自动选非 GitHub 镜像，失败回退官方源）。
-- 视图：左栏（`AboutDialog.tsx:279-365`）含图标/版本/更新泡泡（`AboutDialog.tsx:291-295`）、`MascotFigure`（`AboutDialog.tsx:297`）、更新渠道二选一（`AboutDialog.tsx:306-328`，写 `config.updateSource`）、检查按钮四态文案（`AboutDialog.tsx:342-344`）、赞助与仓库链接（`AboutDialog.tsx:348-364`）；右栏（`AboutDialog.tsx:368-665`）含赞助内嵌页（`AboutDialog.tsx:371-406`）、idle 无更新态（`AboutDialog.tsx:410-453`）、idle 有更新态（`AboutDialog.tsx:456-557`，含通知全文渲染与镜像切换浮层 `AboutDialog.tsx:493-554`）、`selecting`（`AboutDialog.tsx:560-565`）、`downloading`（`AboutDialog.tsx:568-594`）、`done`（`AboutDialog.tsx:597-621`）、`error`（`AboutDialog.tsx:624-649`）、返回按钮（`AboutDialog.tsx:652-663`）。
+- 行为：`hasCachedResult`（`AboutDialog.tsx:93`）；`handleCheckUpdate`（`AboutDialog.tsx:95-115`，403/404 分特殊文案）；切赞助页（`AboutDialog.tsx:117-119`）；缓存注入（`AboutDialog.tsx:121-134`，补 `lastCheckError: null` / `lastCheckTime: null`）；单次自动检查（`AboutDialog.tsx:136-141`）；卸载清理监听（`AboutDialog.tsx:143-147`）；`handleDownload`（`AboutDialog.tsx:149-174`，注册 `onDownloadProgress` 再下载、finally 里注销）；`ensureFullUpdateInfo`（`AboutDialog.tsx:179-189`，通知缓存路径缺 `sha256Checksum` 时重查）；`handleInstall`（`AboutDialog.tsx:191-200`，失败显式写入 `installError`）；`openGithub`（`AboutDialog.tsx:202-204`）；`windowsAsset`（`AboutDialog.tsx:206-208`，只认 `.exe` / `.msi`）；releaseNotes 逐行渲染 `renderNotesLines`（`AboutDialog.tsx:211-237`，前缀判断从长到短）；兜底资产 URL `defaultAssetUrl`（`AboutDialog.tsx:241`）；一键下载 `handleQuickDownload`（`AboutDialog.tsx:244-268`，自动选非 GitHub 镜像，失败回退官方源）。
+- 视图：左栏（`AboutDialog.tsx:281-367`）含图标/版本/更新泡泡（`AboutDialog.tsx:293-297`）、`MascotFigure`（`AboutDialog.tsx:299`）、更新渠道二选一（`AboutDialog.tsx:308-330`，写 `config.updateSource`）、检查按钮四态文案（`AboutDialog.tsx:344-346`，检查失败态读 `updateInfo.lastCheckError || checkError`）、赞助与仓库链接（`AboutDialog.tsx:350-366`）；右栏（`AboutDialog.tsx:384-681`）含赞助内嵌页（`AboutDialog.tsx:373-422`）、idle 无更新态（`AboutDialog.tsx:426-469`，含 `lastCheckError` 失败原因展示与重试按钮；其余情况为已最新态）、idle 有更新态（`AboutDialog.tsx:472-573`，含通知全文渲染与镜像切换浮层 `AboutDialog.tsx:509-570`）、`selecting`（`AboutDialog.tsx:576-581`）、`downloading`（`AboutDialog.tsx:584-610`）、`done`（`AboutDialog.tsx:613-637`）、`error`（`AboutDialog.tsx:640-665`）、返回按钮（`AboutDialog.tsx:668-679`）。
 
 **useAuth.ts**：`useAuth`（`useAuth.ts:6-36`），`useShallow` 合并 `useAuthStore`（`useAuth.ts:7-14`）与 `useConfigStore`（`useAuth.ts:15-17`），`configPortalUrl`（`useAuth.ts:20`），`handleOpenPortal`（`useAuth.ts:22-25`，缺省 `http://10.1.99.100`），`handleOpenSelfService`（`useAuth.ts:27-29`，固定 `http://10.1.80.200:8080/Self/login/?302=LI`）。
 
@@ -183,9 +183,9 @@ tags: [前端, 面板, react]
 
 - props `MonitorPanelProps`（`MonitorPanel.tsx:21-25`）。
 - `AdapterStatusCard`（`MonitorPanel.tsx:27-73`）：在线/离线配色与图标、主适配器徽标（`MonitorPanel.tsx:51-53`）、IP 或 `auth.noIp`（`MonitorPanel.tsx:55`）。
-- 主组件（`MonitorPanel.tsx:75-470`）：`bgStatus`（`MonitorPanel.tsx:77`）、`config` 浅比较订阅（`MonitorPanel.tsx:80`）、`intervalSec`（`MonitorPanel.tsx:81`，缺省 60000/1000）、三处文本草稿 `intervalDraft` / `networkNameDraft` / `campusGatewayDraft`（`MonitorPanel.tsx:84-88`）；`isRefreshing` 用 `useAsyncLock(…, 2000)`（`MonitorPanel.tsx:89-91`）；`isTogglingDetection` 用默认 1500ms 冷却（`MonitorPanel.tsx:93-95`）；`commitInterval` 钳制 10–600s（`MonitorPanel.tsx:97-104`）、`commitNetworkName`（`MonitorPanel.tsx:106-112`）、`commitCampusGateway`（`MonitorPanel.tsx:114-120`）。
+- 主组件（`MonitorPanel.tsx:75-526`）：`bgStatus`（`MonitorPanel.tsx:77`）、`config` 浅比较订阅（`MonitorPanel.tsx:80`）、`intervalSec`（`MonitorPanel.tsx:81`，缺省 60000/1000）、三处文本草稿 `intervalDraft` / `networkNameDraft` / `campusGatewayDraft`（`MonitorPanel.tsx:84-88`）；`isRefreshing` 用 `useAsyncLock(…, 2000)`（`MonitorPanel.tsx:89-91`）；`isTogglingDetection` 用默认 1500ms 冷却（`MonitorPanel.tsx:93-95`）；`commitInterval` 钳制 10–600s（`MonitorPanel.tsx:97-104`）、`commitNetworkName`（`MonitorPanel.tsx:106-112`）、`commitCampusGateway`（`MonitorPanel.tsx:114-120`）。
 - 检测卡（`MonitorPanel.tsx:124-208`）：运行态图标与描述（`MonitorPanel.tsx:129-140`）、检查次数徽标（`MonitorPanel.tsx:143-146`，>9999 显示 k）、立即检测（`MonitorPanel.tsx:147-156`）、启动/停止（`MonitorPanel.tsx:157-166`）、开关与间隔输入（`MonitorPanel.tsx:171-193`）、适配器在线状态列表（`MonitorPanel.tsx:195-205`）。
-- 校验设置卡（`MonitorPanel.tsx:210-467`）：`enableBackgroundCheck`（`MonitorPanel.tsx:234-239`）、`autoExitOnOnline`（`MonitorPanel.tsx:252-257`）、`autoLoginOnPreparation`（`MonitorPanel.tsx:270-275`）、`enableNetworkNameCheck`（`MonitorPanel.tsx:289-294`），展开区（`MonitorPanel.tsx:296-463`）含 SSID 名（`MonitorPanel.tsx:300-308`）、网关（`MonitorPanel.tsx:313-327`，输入期正则 `^(\d{1,3}\.){0,3}\d{0,3}$` 只让合法值进草稿）、检测逻辑说明（`MonitorPanel.tsx:330-336`）、`campusExitOnFail`（`MonitorPanel.tsx:348-353`，缺省 true）、退出时段两端点 `campusExitStartMinutes` / `campusExitEndMinutes`（`MonitorPanel.tsx:367-397`，缺省 480/1380）、检查时段 `campusCheckStartMinutes` / `campusCheckEndMinutes`（`MonitorPanel.tsx:412-442`，缺省 460/0）、当前 SSID/有线/校园网徽标（`MonitorPanel.tsx:445-461`）。
+- 校验设置卡（`MonitorPanel.tsx:210-523`）：`enableBackgroundCheck`（`MonitorPanel.tsx:234-239`）、`autoExitOnOnline`（`MonitorPanel.tsx:252-257`）、`autoLoginOnPreparation`（`MonitorPanel.tsx:270-275`）、`enableNetworkNameCheck`（`MonitorPanel.tsx:289-294`），展开区（`MonitorPanel.tsx:296-519`）含 SSID 名（`MonitorPanel.tsx:300-308`）、网关（`MonitorPanel.tsx:313-327`，输入期正则 `^(\d{1,3}\.){0,3}\d{0,3}$` 只让合法值进草稿）、检测逻辑说明（`MonitorPanel.tsx:330-336`）、`campusExitOnFail`（`MonitorPanel.tsx:348-353`，缺省 true）、退出时段两端点 `campusExitStartMinutes` / `campusExitEndMinutes`（`MonitorPanel.tsx:367-397`，缺省 480/1380）、检查时段 `campusCheckStartMinutes` / `campusCheckEndMinutes`（`MonitorPanel.tsx:412-442`，缺省 460/0）、每日定时登录/定时注销时刻 `scheduledLoginMinutes` / `scheduledLogoutMinutes`（`MonitorPanel.tsx:442-497`，分钟制、0=禁用、过点补触发）、当前 SSID/有线/校园网徽标（`MonitorPanel.tsx:501-517`）。
 
 **QualityPanel.tsx（网络质量详情：总览 / 定时测试 / 分项明细）**
 
@@ -228,9 +228,9 @@ tags: [前端, 面板, react]
 - props `NetworkPanelProps`（`NetworkPanel.tsx:31-34`）。
 - DNS 白名单常量：`ALI_DNS`（`NetworkPanel.tsx:36`）、`TENCENT_DNS`（`NetworkPanel.tsx:37`）、`RECOMMENDED_DNS`（`NetworkPanel.tsx:38`，两者并集）。
 - `formatSpeed`（`NetworkPanel.tsx:41-45`，bit/s → Mbps / Kbps）。
-- 主组件（`NetworkPanel.tsx:47-590`）：`disabledAdapters`（`NetworkPanel.tsx:49`）、`config` 浅比较订阅（`NetworkPanel.tsx:52`）、`dohEnabling` / `gettingNewIpAdapter` / `enablingAdapter` 三个单槽位忙态（`NetworkPanel.tsx:53-55`）、`ipc = tauriApiWithRetry`（`NetworkPanel.tsx:56`）、`mountedRef`（`NetworkPanel.tsx:57-64`）、`dnsStatus` / `dnsChecking`（`NetworkPanel.tsx:66-67`）、`refreshAdapters` / `isRefreshingAdapters`（`NetworkPanel.tsx:68-69`）、`dnsFamily` 与 `familyTabs`（`NetworkPanel.tsx:71-76`）。
-- 行为：`handleCheckDns`（`NetworkPanel.tsx:78-99`，`checkDnsDohStatus` + 两类 warning 日志）；`handleSetupDnsDoh`（`NetworkPanel.tsx:101-125`，`setupDnsDoh(dnsFamily)`，随后独立 try 刷新状态，避免失败误报）；`handleGetNewIpForAdapter`（`NetworkPanel.tsx:127-142`，`dhcpReleaseRenewAdapter` + `announceDhcpResults` + `refreshAdapterData()`）；`handleEnableAdapter`（`NetworkPanel.tsx:144-162`，`enableAdapter` + 带 `includeDisabled` 刷新）；`getDnsQuality`（`NetworkPanel.tsx:164-183`，四级 `excellent`/`good`/`basic`/`none`）。
-- 视图：网卡卡（`NetworkPanel.tsx:185-317`，空态 `NetworkPanel.tsx:203-208`、主/副置顶排序 `NetworkPanel.tsx:211-217`、状态徽标与启用/获取新 IP/刷新 DHCP 按钮 `NetworkPanel.tsx:246-308`）；适配器设置卡（`NetworkPanel.tsx:319-410`，主适配器选择 `NetworkPanel.tsx:336-367`、副适配器选择与 `dualAdapter` 联动 `NetworkPanel.tsx:371-405`）；DNS 优化卡（`NetworkPanel.tsx:412-587`，双按钮 `NetworkPanel.tsx:425-459`、IP 族切换 `NetworkPanel.tsx:467-474`、未检测/检测中态 `NetworkPanel.tsx:475-487`、逐适配器明细与 profile 级 DNS `NetworkPanel.tsx:488-583`、DoH 不支持提示 `NetworkPanel.tsx:577-582`）。
+- 主组件（`NetworkPanel.tsx:47-633`）：`disabledAdapters`（`NetworkPanel.tsx:49`）、`config` 浅比较订阅（`NetworkPanel.tsx:52`）、`dohEnabling` / `dnsResetting` / `gettingNewIpAdapter` / `enablingAdapter` 四个单槽位忙态（`NetworkPanel.tsx:53-56`，`dnsResetting` 为重置 DNS 新增）、`ipc = tauriApiWithRetry`（`NetworkPanel.tsx:57`）、`mountedRef`（`NetworkPanel.tsx:58-66`）、`dnsStatus` / `dnsChecking`（`NetworkPanel.tsx:67-68`）、`refreshAdapters` / `isRefreshingAdapters`（`NetworkPanel.tsx:69-70`）、`dnsFamily` 与 `familyTabs`（`NetworkPanel.tsx:72-77`）。
+- 行为：`handleCheckDns`（`NetworkPanel.tsx:79-101`，`checkDnsDohStatus` + 两类 warning 日志）；`handleSetupDnsDoh`（`NetworkPanel.tsx:102-126`，`setupDnsDoh(dnsFamily)`，随后独立 try 刷新状态，避免失败误报）；`handleResetDns`（`NetworkPanel.tsx:128-146`，`resetDns()` 恢复默认 DNS，同样独立 try 刷新状态；补齐一键设 DNS 后的可逆性）；`handleGetNewIpForAdapter`（`NetworkPanel.tsx:154-169`，`dhcpReleaseRenewAdapter` + `announceDhcpResults` + `refreshAdapterData()`）；`handleEnableAdapter`（`NetworkPanel.tsx:171-189`，`enableAdapter` + 带 `includeDisabled` 刷新）；`getDnsQuality`（`NetworkPanel.tsx:191-210`，四级 `excellent`/`good`/`basic`/`none`，判定在 `NetworkPanel.tsx:202`）。
+- 视图：网卡卡（`NetworkPanel.tsx:215-343`，空态 `NetworkPanel.tsx:231-236`、主/副置顶排序 `NetworkPanel.tsx:238-244`、状态徽标与启用/获取新 IP/刷新 DHCP 按钮 `NetworkPanel.tsx:276-338`）；适配器设置卡（`NetworkPanel.tsx:347-436`，主适配器选择 `NetworkPanel.tsx:366-397`、副适配器选择与 `dualAdapter` 联动 `NetworkPanel.tsx:401-435`）；DNS 优化卡（`NetworkPanel.tsx:440-629`，检测/优化/重置 DNS 按钮 `NetworkPanel.tsx:455-500`、IP 族切换 `NetworkPanel.tsx:511-517`、未检测/检测中态 `NetworkPanel.tsx:519-531`、逐适配器明细与 profile 级 DNS `NetworkPanel.tsx:536-618`、DoH 不支持提示 `NetworkPanel.tsx:620-625`）。
 
 **adapters.ts**：`AUTO_DETECT_ADAPTER = '自动检测'`（`adapters.ts:3`）；`AdapterScope`（`adapters.ts:5-9`）；`resolveAdapterNames`（`adapters.ts:15-30`）——与后端 `resolve_adapter_names`（`src-tauri/src/network/adapter.rs`）保持同一规则：有线有 IP > 任意有 IP > 第一个；副适配器自动检测时排除主适配器。
 
@@ -246,15 +246,15 @@ tags: [前端, 面板, react]
 
 `settings/index.ts:1-7` 导出 `SettingsPanel`、`ThemeDialog`、`OnboardingWizard`、`useSettings`、types 与 constants。
 
-**constants.ts**：`DEFAULT_CONFIG`（`settings/constants.ts:6-50`，完整 43 字段默认值，与 `Config` 接口同口径）；`ISP_OPTIONS`（`settings/constants.ts:52-57`，`__default__`=无锡学院，其余 `@telecom` / `@unicom` / `@cmcc`）；`THEME_OPTIONS`（`settings/constants.ts:59-67`，7 套）；`VALID_THEMES`（`settings/constants.ts:69`，供 `main.tsx:38` 校验）；`DEFAULT_PANEL_OPTIONS`（`settings/constants.ts:71-74`，由 `NAV_ITEMS` 派生）。
+**constants.ts**：`DEFAULT_CONFIG`（`settings/constants.ts:6-52`，完整 45 字段默认值，与 `Config` 接口同口径）；`ISP_OPTIONS`（`settings/constants.ts:54-59`，`__default__`=无锡学院，其余 `@telecom` / `@unicom` / `@cmcc`）；`THEME_OPTIONS`（`settings/constants.ts:61-69`，7 套）；`VALID_THEMES`（`settings/constants.ts:71`，供 `main.tsx:38` 校验）；`DEFAULT_PANEL_OPTIONS`（`settings/constants.ts:73-76`，由 `NAV_ITEMS` 派生）。
 
-**types.ts**：`Config`（`settings/types.ts:3-51`，含 Windows Hello 开关、校园网时段、更新渠道等）；`AutoLaunchResult`（`settings/types.ts:53-56`）；`InitData`（`settings/types.ts:58-72`，`getInitData` 返回体，含 `config` / `adapters` / `adapterDetails` / `disabledAdapters` / `accounts` / `backgroundStatus` / `gpuInfo` 等）。
+**types.ts**：`Config`（`settings/types.ts:3-55`，含 Windows Hello 开关、校园网时段、每日定时登录/注销时刻、更新渠道等）；`AutoLaunchResult`（`settings/types.ts:57-60`）；`InitData`（`settings/types.ts:62-76`，`getInitData` 返回体，含 `config` / `adapters` / `adapterDetails` / `disabledAdapters` / `accounts` / `backgroundStatus` / `gpuInfo` 等）。
 
-**SettingsPanel.tsx（外观 / 启动 / 通知 / 安全 / 引导 / 质量检测）**
+**SettingsPanel.tsx（外观 / 启动 / 通知 / 安全 / 引导 / 质量检测 / 配置导出导入）**
 
-- props `SettingsPanelProps`（`SettingsPanel.tsx:23-30`）；`PRESET_COLORS` 12 色（`SettingsPanel.tsx:32-36`）；`PRESET_COLOR_NAMES`（`SettingsPanel.tsx:38-51`）。
-- 主组件（`SettingsPanel.tsx:53-601`）：`isLightMode` / `themeName`（`SettingsPanel.tsx:61-62`）、`config` 浅比较订阅（`SettingsPanel.tsx:65`）、取色草稿 `colorDraft` + 80ms 节流提交（`SettingsPanel.tsx:69-98`）、固定网关草稿 `fixedGatewayDraft`（`SettingsPanel.tsx:76`、`SettingsPanel.tsx:107-113`）、`customColor`（`SettingsPanel.tsx:78-79`）、`handlePresetColor`（`SettingsPanel.tsx:100-105`，点预设时取消待提交的取色任务）、`handleSecurityDisable`（`SettingsPanel.tsx:117-132`，关闭安全开关前必须过 `verifyWindowsIdentity`）。
-- 视图：外观卡（`SettingsPanel.tsx:137-244`，7 套主题按钮 `SettingsPanel.tsx:154-184`、自定义取色区 `SettingsPanel.tsx:188-229`、浅色开关 `SettingsPanel.tsx:232-241`）；启动设置卡（`SettingsPanel.tsx:249-365`，`autoLaunch` `SettingsPanel.tsx:268-273`、`autoLoginOnStart` `SettingsPanel.tsx:281-286`、`autoExitAfterLogin` `SettingsPanel.tsx:294-299`、`autoExitOnOnline` `SettingsPanel.tsx:307-312`、`hiddenStart` `SettingsPanel.tsx:320-325`、`minimizeToTray` `SettingsPanel.tsx:333-338`、`defaultPanel` 选择 `SettingsPanel.tsx:348-361`）；通知卡（`SettingsPanel.tsx:368-396`）；安全卡（`SettingsPanel.tsx:400-448`，`selfHelloEnabled` `SettingsPanel.tsx:419-427`、`selfReverifyEachAction` `SettingsPanel.tsx:435-444`）；引导入口（`SettingsPanel.tsx:450-478`）；质量检测卡（`SettingsPanel.tsx:483-597`，`enableNetworkQuality` 及其联动清理 `SettingsPanel.tsx:502-525`、`skipTtfbInLatency` `SettingsPanel.tsx:535-540`、`skipContentInLatency` `SettingsPanel.tsx:548-553`、说明块 `SettingsPanel.tsx:557-567`、`fixedGateway` 输入与清除 `SettingsPanel.tsx:569-594`）。
+- props `SettingsPanelProps`（`SettingsPanel.tsx:28-35`）；`PRESET_COLORS` 12 色（`SettingsPanel.tsx:37-41`）；`PRESET_COLOR_NAMES`（`SettingsPanel.tsx:43-56`）。
+- 主组件（`SettingsPanel.tsx:123-765`）：`isLightMode` / `themeName`（`SettingsPanel.tsx:66-67`）、`config` 浅比较订阅（`SettingsPanel.tsx:70`）、取色草稿 `colorDraft` + 80ms 节流提交（`SettingsPanel.tsx:74-103`）、固定网关草稿 `fixedGatewayDraft`（`SettingsPanel.tsx:81`、`SettingsPanel.tsx:177-183`）、`customColor`（`SettingsPanel.tsx:83-84`）、`handlePresetColor`（`SettingsPanel.tsx:105-110`，点预设时取消待提交的取色任务）、`handleSecurityDisable`（`SettingsPanel.tsx:122-137`，关闭安全开关前必须过 `verifyWindowsIdentity`）；配置导出/导入 handler（`SettingsPanel.tsx:141-204`，`exportWithPassword` 状态 `:141`、`handleExportConfig` `:148`、`handleImportConfig` `:184`，导出可选 DPAPI 密文携带密码、导入严格校验后走 `save_config` 同路径）。
+- 视图：外观卡（`SettingsPanel.tsx:208-314`，7 套主题按钮 `SettingsPanel.tsx:224-254`、自定义取色区 `SettingsPanel.tsx:258-299`、浅色开关 `SettingsPanel.tsx:302-311`）；启动设置卡（`SettingsPanel.tsx:320-435`，`autoLaunch` `SettingsPanel.tsx:338-343`、`autoLoginOnStart` `SettingsPanel.tsx:351-356`、`autoExitAfterLogin` `SettingsPanel.tsx:364-369`、`autoExitOnOnline` `SettingsPanel.tsx:377-382`、`hiddenStart` `SettingsPanel.tsx:390-395`、`minimizeToTray` `SettingsPanel.tsx:403-408`、`defaultPanel` 选择 `SettingsPanel.tsx:418-431`）；通知卡（`SettingsPanel.tsx:439-466`）；安全卡（`SettingsPanel.tsx:471-518`，`selfHelloEnabled` `SettingsPanel.tsx:489-497`、`selfReverifyEachAction` `SettingsPanel.tsx:505-514`）；引导入口（`SettingsPanel.tsx:522-548`）；质量检测卡（`SettingsPanel.tsx:554-665`，`enableNetworkQuality` 及其联动清理 `SettingsPanel.tsx:572-595`、`skipTtfbInLatency` `SettingsPanel.tsx:605-610`、`skipContentInLatency` `SettingsPanel.tsx:618-623`、说明块 `SettingsPanel.tsx:627-637`、`fixedGateway` 输入与清除 `SettingsPanel.tsx:639-664`）；导出/导入配置卡（`SettingsPanel.tsx:672-759`，`exportWithPassword` 开关 `:692`、导出按钮 `:699`、导入确认框 `:759`）。
 
 **OnboardingWizard.tsx（5 步首次引导）**
 
@@ -280,7 +280,7 @@ tags: [前端, 面板, react]
 | | | `onDhcpReleaseRenew` | `() => Promise<void>` | 全部适配器释放并重新获取 IP |
 | | | `onDhcpReleaseRenewAdapter` | `(adapterName: string) => Promise<void>` | 指定适配器获取新 IP |
 | | | `onRefreshQuality?` | `() => Promise<void>` | 手动刷新质量 |
-| | | `onToggleBackgroundCheck?` | `(enabled: boolean, intervalSec: number) => Promise<void>` | 声明但 `App.tsx:292-303` 未传（`renderCard` 亦未消费） |
+| | | `onToggleBackgroundCheck?` | `(enabled: boolean, intervalSec: number) => Promise<void>` | 声明但 `App.tsx:296-305` 未传（`renderCard` 亦未消费） |
 | `AccountPanel` | `account/AccountPanel.tsx:34-42` | `adapters` | `Adapter[]` | 主适配器下拉候选 |
 | | | `accounts` / `activeAccount` | `string[]` / `string` | 账号列表与当前账号 |
 | | | `onUpdateConfig` | `(partial: Partial<Config>) => void` | 配置写入 |
@@ -299,7 +299,7 @@ tags: [前端, 面板, react]
 | `SpeedTestPanel` | `monitor/SpeedTestPanel.tsx:105-107` | `openExternal` | `(url: string) => void` | 外部浏览器打开 |
 | `StatusBar` | `monitor/StatusBar.tsx:18-21` | `onOpenPortal` | `() => void` | 打开 Portal 页 |
 | | | `onOpenSelfService?` | `() => void` | 打开自助服务页（缺省则不渲染入口） |
-| `SettingsPanel` | `settings/SettingsPanel.tsx:23-30` | `autoLaunch` | `boolean` | 开机自启（由 App 从 `config.autoLaunch` 解出） |
+| `SettingsPanel` | `settings/SettingsPanel.tsx:28-35` | `autoLaunch` | `boolean` | 开机自启（由 App 从 `config.autoLaunch` 解出） |
 | | | `onUpdateConfig` | `(partial: Partial<Config>) => void` | 配置写入 |
 | | | `onSetAutoLaunch` | `(enabled: boolean) => Promise<void>` | 写注册表自启 |
 | | | `onToggleLightMode` | `() => void` | 明暗切换 |
@@ -366,8 +366,8 @@ tags: [前端, 面板, react]
 | `DhcpReleaseRenewResult` | `network/types.ts:62-65` | `success` / `results[]`（`name`、`wireless`、`ip`、`regOk`、`success`、`skipped`、`reason`） | — | 释放重获结果（toast 分类依据） |
 | `DnsSetupResult` | `network/types.ts:67-74` | `success` / `message` / `dnsSuccess?` / `dnsFailed?` / `dohAdded?` / `dohFailed?` | `boolean` / `string` / `string[]` | DNS/DoH 设置结果 |
 | `EnableAdapterResult` | `network/types.ts:76-79` | `success` / `message?` | `boolean` / `string` | 启用网卡结果 |
-| `Config` | `settings/types.ts:3-51` | 43 字段（账号密码、Hello 开关、适配器、自动化、主题、通知、质量、校园网时段、更新渠道、日志保留等） | 混合 | 全局配置（默认值见 `settings/constants.ts:6-50`） |
-| `InitData` | `settings/types.ts:58-72` | `config` / `version` / `adapters` / `adapterDetails` / `disabledAdapters` / `accounts` / `activeAccount` / `backgroundStatus` / `isAutoStart` / `autoLaunch` / `notificationEnabled` / `gpuInfo?` / `refreshRate?` | — | `get_init_data` 返回体 |
+| `Config` | `settings/types.ts:3-55` | 45 字段（账号密码、Hello 开关、适配器、自动化、主题、通知、质量、校园网时段、每日定时登录/注销时刻、更新渠道、日志保留等） | 混合 | 全局配置（默认值见 `settings/constants.ts:6-52`） |
+| `InitData` | `settings/types.ts:62-76` | `config` / `version` / `adapters` / `adapterDetails` / `disabledAdapters` / `accounts` / `activeAccount` / `backgroundStatus` / `isAutoStart` / `autoLaunch` / `notificationEnabled` / `gpuInfo?` / `refreshRate?` | — | `get_init_data` 返回体 |
 | `AutoLaunchResult` | `settings/types.ts:53-56` | `success` / `message?` | `boolean` / `string` | 自启设置返回 |
 | `ThemeName` | `shared/ui-types.ts:3` | `'default' \| 'vibrant' \| 'forest' \| 'midnight' \| 'ocean' \| 'cherry' \| 'custom'` | — | 主题名（本模块 `main.tsx:38`、`settings/constants.ts:69` 消费） |
 | `PanelName` | `shared/ui-types.ts:2` | 9 个面板 id | — | 面板路由键 |
@@ -378,27 +378,27 @@ tags: [前端, 面板, react]
 ### 流程一：登录（向导内的启动登录）
 
 1. 用户点「开始登录」（`settings/OnboardingWizard.tsx:669-685`）→ `handleLoginAndFinish`（`settings/OnboardingWizard.tsx:238-279`）做最终校验（账号必填、双适配器必须选副适配器，`settings/OnboardingWizard.tsx:242-250`）。
-2. 先写配置：`onUpdateConfig(updateData)`（`settings/OnboardingWizard.tsx:261`）→ `App.tsx:351` 传入的 `updateConfig` → `useConfigStore.updateConfig`（`hooks/useConfigStore.ts:63-95`，标脏 + 500ms debounce）。
-3. 再触发登录：`onLogin(adapter1 === AUTO_DETECT_ADAPTER ? undefined : adapter1)`（`settings/OnboardingWizard.tsx:263`）→ `App.tsx:514` 传入的 `doLogin` → `useAuthStore.doLogin`（`hooks/useAuthStore.ts:133-192`）。
-4. 登录前落盘：`saveConfigDirect(loginConfig)`（`hooks/useAuthStore.ts:145`）→ `hooks/useConfigStore.ts:128-171` → `api.saveConfig`（`hooks/tauriApi.ts:260` 的 retry 包装）→ `invoke('save_config', { config, clearPassword, clearSelfPassword })`（`hooks/tauriApi.ts:135`）。
-5. 真实登录：`withTimeout(api.doLogin(adapterName), 60000, ...)`（`hooks/useAuthStore.ts:153`）→ `invoke('do_login', { adapterName })`（`hooks/tauriApi.ts:142`）；成功后置 `status = { text: 登录成功, state: 'online' }`（`hooks/useAuthStore.ts:155`）并写日志/toast（`hooks/useAuthStore.ts:156-157`）。
-6. 登录后质量：`enableNetworkQuality !== false` 且距上次质量结果 >60s 时才 `checkNetworkQuality`（`hooks/useAuthStore.ts:164-176`）→ 写 `useQualityStore.setNetworkQuality`（`hooks/useQualityStore.ts:78-82`）。
-7. 失败分支才复查在线状态：`checkOnline()`（`hooks/useAuthStore.ts:187-189`）→ `check_campus_status`（`hooks/useAuthStore.ts:34`）/`get_adapters`（`hooks/useAuthStore.ts:86`）/`check_portal_status`（`hooks/useAuthStore.ts:99`）→ 写 `status`（`hooks/useAuthStore.ts:246`、`hooks/useAuthStore.ts:277-284`）。
+2. 先写配置：`onUpdateConfig(updateData)`（`settings/OnboardingWizard.tsx:261`）→ `App.tsx:354` 传入的 `updateConfig` → `useConfigStore.updateConfig`（`hooks/useConfigStore.ts:63-95`，标脏 + 500ms debounce）。
+3. 再触发登录：`onLogin(adapter1 === AUTO_DETECT_ADAPTER ? undefined : adapter1)`（`settings/OnboardingWizard.tsx:263`）→ `App.tsx:521` 传入的 `doLogin` → `useAuthStore.doLogin`（`hooks/useAuthStore.ts:145-204`）。
+4. 登录前落盘：`saveConfigDirect(loginConfig)`（`hooks/useAuthStore.ts:157`）→ `hooks/useConfigStore.ts:128-171` → `api.saveConfig`（`hooks/tauriApi.ts:271` 的 retry 包装）→ `invoke('save_config', { config, clearPassword, clearSelfPassword })`（`hooks/tauriApi.ts:142`）。
+5. 真实登录：`withTimeout(api.doLogin(adapterName), 60000, ...)`（`hooks/useAuthStore.ts:165`）→ `invoke('do_login', { adapterName })`（`hooks/tauriApi.ts:152`）；成功后置 `status = { text: 登录成功, state: 'online' }`（`hooks/useAuthStore.ts:167`）并写日志/toast（`hooks/useAuthStore.ts:168-169`）。
+6. 登录后质量：`enableNetworkQuality !== false` 且距上次质量结果 >60s 时才 `checkNetworkQuality`（`hooks/useAuthStore.ts:176-188`）→ 写 `useQualityStore.setNetworkQuality`（`hooks/useQualityStore.ts:78-82`）。
+7. 失败分支才复查在线状态：`checkOnline()`（`hooks/useAuthStore.ts:199-201`）→ `check_campus_status`（`hooks/useAuthStore.ts:34`）/`get_adapters`（`hooks/useAuthStore.ts:86`）/`check_portal_status`（`hooks/useAuthStore.ts:99`）→ 写 `status`（`hooks/useAuthStore.ts:258`、`hooks/useAuthStore.ts:289-296`，现在统一经 `setStatusStable` 内容比较后写入，引用未变时不触发订阅方重渲染）。
 
 ### 流程二：配置保存（开关类改动）
 
-1. 用户拨动任一 `Switch`，例如 `account/AccountPanel.tsx:439-443`（开机自动登录）、`settings/SettingsPanel.tsx:281-286`（同语义的另一入口）或 `settings/SettingsPanel.tsx:333-338`（最小化到托盘）；开机自启走例外路径：`settings/SettingsPanel.tsx:268-273` 的 `onSetAutoLaunch` 直接 `invoke('set_auto_launch')`，不经过 config debounce。
+1. 用户拨动任一 `Switch`，例如 `account/AccountPanel.tsx:439-443`（开机自动登录）、`settings/SettingsPanel.tsx:351-356`（同语义的另一入口）或 `settings/SettingsPanel.tsx:403-408`（最小化到托盘）；开机自启走例外路径：`settings/SettingsPanel.tsx:338-343` 的 `onSetAutoLaunch` 直接 `invoke('set_auto_launch')`，不经过 config debounce。
 2. `App.tsx:147` 注入的 `updateConfig` → `useConfigStore.updateConfig`（`hooks/useConfigStore.ts:63`）：先 `set({ config: next })` 与标脏（`hooks/useConfigStore.ts:66-72`），并入 `saveConfigPending`（`hooks/useConfigStore.ts:74-82`），500ms debounce 后调 `saveConfigDirect`（`hooks/useConfigStore.ts:83-93`）。
 3. `saveConfigDirect`（`hooks/useConfigStore.ts:128-171`）把 pending 浅合并进完整 config → `api.saveConfig`（`hooks/tauriApi.ts:260`，仅此方法带指数退避重试）→ `invoke('save_config', ...)`（`hooks/tauriApi.ts:135`）；成功后清脏标记并按需置 `passwordSaved` / `selfPasswordSaved`（`hooks/useConfigStore.ts:134-145`）。
 4. 反向回流：后端 `config-changed` 事件（`hooks/tauriApi.ts:203`）→ `mergeConfigFromBackend`（`hooks/useConfigStore.ts:110-117`）跳过 `dirtyFields`，避免旧快照覆盖本地新值。
 5. **绕过 debounce 的立即保存路径**（清密码、blur 时提交草稿、启停检测）：`AccountPanel.tsx:102`（`saveConfigDirect({password:''}, true)`）、`AccountPanel.tsx:201`（`saveConfigDirect({selfPassword})`）、`SelfServicePanel.tsx:175`、`SelfServicePanel.tsx:185`、`useMonitor.ts:29-32`、`useMonitor.ts:53-56`。
-6. 文本/数字输入的「本地草稿 + blur/Enter 提交」模式统一避免每键写 store：`AccountPanel.tsx:117-123`、`AccountPanel.tsx:85-97`、`MonitorPanel.tsx:97-120`、`QualityPanel.tsx:160-167`、`SettingsPanel.tsx:81-113`、`SettingsPanel.tsx:107-113`。
+6. 文本/数字输入的「本地草稿 + blur/Enter 提交」模式统一避免每键写 store：`AccountPanel.tsx:117-123`、`AccountPanel.tsx:85-97`、`MonitorPanel.tsx:97-120`、`QualityPanel.tsx:160-167`、`SettingsPanel.tsx:86-118`、`SettingsPanel.tsx:112-118`。
 
 ### 流程三：网络质量检测
 
-1. 结果入口（事件流）：后端发 `network-quality-result`（`hooks/tauriApi.ts:173`）→ 事件监听写 `useQualityStore.setNetworkQuality`（`hooks/useQualityStore.ts:78-82`，同时更新模块级 `lastQualityResultTime`）。
-2. 手动刷新入口三处：`monitor/StatusBar.tsx:147-156`（状态条刷新按钮）、`monitor/QualityPanel.tsx:224-246`（质量卡刷新按钮）、`auth/DashboardPanel.tsx:358-362`（首页质量卡刷新按钮）→ `useQualityStore.refreshQuality`（`hooks/useQualityStore.ts:54-74`）：模块级 `_qualityLockFlag` 与 `enableNetworkQuality` 双重门（`hooks/useQualityStore.ts:56-57`）→ `api.checkNetworkQuality()`（`hooks/useQualityStore.ts:61`）→ `invoke('check_network_quality')`（`hooks/tauriApi.ts:172`）→ `mergeNetworkQuality(old, q)`（`lib/latency.ts:25-29`）写回 store。
-3. 定时循环开关：`QualityPanel.tsx:181-184`（定时测试启停）与 `MonitorPanel.tsx:161-166`（后台检测启停）→ `useMonitor.handleToggleLatencyTest`（`hooks/useMonitor.ts:49-66`）/ `handleToggleBackgroundCheck`（`hooks/useMonitor.ts:25-43`）→ 先 `saveConfigDirect`（`hooks/useMonitor.ts:53-56` / `hooks/useMonitor.ts:29-32`）再 `api.startLatencyTest` / `stopLatencyTest`（`hooks/useMonitor.ts:57-61`，IPC 见 `hooks/tauriApi.ts:174-175`）或 `startBackgroundCheck` / `stopBackgroundCheck`（`hooks/useMonitor.ts:34/36`，IPC 见 `hooks/tauriApi.ts:165-166`）。
+1. 结果入口（事件流）：后端发 `network-quality-result`（`hooks/tauriApi.ts:183`）→ 事件监听写 `useQualityStore.setNetworkQuality`（`hooks/useQualityStore.ts:78-82`，同时更新模块级 `lastQualityResultTime`）。
+2. 手动刷新入口三处：`monitor/StatusBar.tsx:147-156`（状态条刷新按钮）、`monitor/QualityPanel.tsx:224-246`（质量卡刷新按钮）、`auth/DashboardPanel.tsx:358-362`（首页质量卡刷新按钮）→ `useQualityStore.refreshQuality`（`hooks/useQualityStore.ts:54-74`）：模块级 `_qualityLockFlag` 与 `enableNetworkQuality` 双重门（`hooks/useQualityStore.ts:56-57`）→ `api.checkNetworkQuality()`（`hooks/useQualityStore.ts:61`）→ `invoke('check_network_quality')`（`hooks/tauriApi.ts:182`）→ `mergeNetworkQuality(old, q)`（`lib/latency.ts:25-29`）写回 store。
+3. 定时循环开关：`QualityPanel.tsx:181-184`（定时测试启停）与 `MonitorPanel.tsx:161-166`（后台检测启停）→ `useMonitor.handleToggleLatencyTest`（`hooks/useMonitor.ts:49-66`）/ `handleToggleBackgroundCheck`（`hooks/useMonitor.ts:25-43`）→ 先 `saveConfigDirect`（`hooks/useMonitor.ts:53-56` / `hooks/useMonitor.ts:29-32`）再 `api.startLatencyTest` / `stopLatencyTest`（`hooks/useMonitor.ts:57-61`，IPC 见 `hooks/tauriApi.ts:184-185`）或 `startBackgroundCheck` / `stopBackgroundCheck`（`hooks/useMonitor.ts:34/36`，IPC 见 `hooks/tauriApi.ts:175-176`）。
 4. 展示解析：`resolveQualityDisplay`（`lib/latency.ts:59-68`，把长期停在 `unknown`/`busy` 的 `quality` 按 `displayLatency` 推断档位）→ 消费点 `auth/DashboardPanel.tsx:339`、`monitor/QualityPanel.tsx:151`；胶囊走自己的三级降级 `monitor/NetworkQualityCapsule.tsx:85-90`；信号条走 `getLatencyLevel`（`lib/latency.ts:7-15`）→ `monitor/LatencyComponents.tsx:76`。
 5. 状态条展示：`monitor/StatusBar.tsx:31-38` 订阅 `isRefreshingQuality` / `networkQuality` / `enableNetworkQuality` → `monitor/StatusBar.tsx:143-163` 条件渲染胶囊与刷新按钮。
 
@@ -407,15 +407,15 @@ tags: [前端, 面板, react]
 1. 凭据变化：面板输入直接写共享 store（`account/SelfServicePanel.tsx:114-119`、`account/AccountPanel.tsx:151-158`，同一份内存态），密码 blur 时落盘 `config.selfPassword`（`account/SelfServicePanel.tsx:168-178`、`account/AccountPanel.tsx:194-204`）。
 2. 条件判断：`hasCred`（`account/SelfServicePanel.tsx:192`）/ `canQueryStatus`（`account/AccountPanel.tsx:215-216`）。
 3. 验证门：`ensureSelfVerified = useSelfServiceVerify()`（`account/SelfServicePanel.tsx:141`，实现 `account/selfServiceState.ts:97-119`）或 `ensureHelloVerified = useHelloGate()`（`account/AccountPanel.tsx:220`，实现 `account/selfServiceState.ts:57-79`）→ `api.verifyWindowsIdentity({ consentMessage })`（`account/selfServiceState.ts:65` / `:105`）→ `invoke('verify_windows_identity', { consentMessage })`（`hooks/tauriApi.ts:146`）；通过后写模块级时间戳（`account/selfServiceState.ts:69` / `:109`）。
-4. 门通过后执行命令：`querySelfDashboard`（`account/SelfServicePanel.tsx:199` → `invoke('query_self_dashboard')` `hooks/tauriApi.ts:148`）、`selfOfflineSession`（`account/SelfServicePanel.tsx:234` → `invoke('self_offline_session')` `hooks/tauriApi.ts:149`）、`querySelfOnlineLog`（`account/SelfServicePanel.tsx:264` → `invoke('query_self_online_log')` `hooks/tauriApi.ts:150`）、`getBindStatus`（`account/AccountPanel.tsx:227` → `invoke('query_bind_status')` `hooks/tauriApi.ts:145`）、`revealOperatorCredential`（`account/AccountPanel.tsx:261` → `invoke('reveal_operator_credential')` `hooks/tauriApi.ts:147`）、`bindOperator`（`account/AccountPanel.tsx:284` / `settings/OnboardingWizard.tsx:165` → `invoke('bind_operator')` `hooks/tauriApi.ts:144`）。
+4. 门通过后执行命令：`querySelfDashboard`（`account/SelfServicePanel.tsx:199` → `invoke('query_self_dashboard')` `hooks/tauriApi.ts:158`）、`selfOfflineSession`（`account/SelfServicePanel.tsx:234` → `invoke('self_offline_session')` `hooks/tauriApi.ts:159`）、`querySelfOnlineLog`（`account/SelfServicePanel.tsx:264` → `invoke('query_self_online_log')` `hooks/tauriApi.ts:160`）、`getBindStatus`（`account/AccountPanel.tsx:227` → `invoke('query_bind_status')` `hooks/tauriApi.ts:155`）、`revealOperatorCredential`（`account/AccountPanel.tsx:261` → `invoke('reveal_operator_credential')` `hooks/tauriApi.ts:157`）、`bindOperator`（`account/AccountPanel.tsx:284` / `settings/OnboardingWizard.tsx:165` → `invoke('bind_operator')` `hooks/tauriApi.ts:154`）。
 5. 首页两卡复用同一门与同一批命令：`auth/DashboardPanel.tsx:460-499`（`useSelfCardReveal` + `useSelfCardFetch`）。
 
 ### 流程五：网卡刷新 / DHCP / DNS 优化
 
-1. 获取新 IP（指定网卡）：`network/NetworkPanel.tsx:290` → `ipc.dhcpReleaseRenewAdapter`（`network/NetworkPanel.tsx:130`）→ `invoke('dhcp_release_renew_adapter', { adapterName })`（`hooks/tauriApi.ts:171`）→ `announceDhcpResults(normalizeDhcpResults(result), addToast)`（`network/NetworkPanel.tsx:133`，实现 `network/useNetwork.ts:15-37`）→ `refreshAdapterData()`（`network/NetworkPanel.tsx:141` → `hooks/useAdapterStore.ts:16-35`，内部并行 `get_adapters` / `get_adapter_details`）。
-2. 启用被禁用网卡：`network/NetworkPanel.tsx:274` → `invoke('enable_adapter', { adapterName })`（`hooks/tauriApi.ts:138`）→ `refreshAdapterData({ force: true, includeDisabled: true })`（`network/NetworkPanel.tsx:161`）。
-3. DNS 检测与一键优化：`network/NetworkPanel.tsx:428` → `checkDnsDohStatus`（`network/NetworkPanel.tsx:81`，IPC `hooks/tauriApi.ts:217`）；`network/NetworkPanel.tsx:445` → `setupDnsDoh(dnsFamily)`（`network/NetworkPanel.tsx:104`，IPC `hooks/tauriApi.ts:218`），成功后独立 try 再刷状态（`network/NetworkPanel.tsx:110-115`）。
-4. 面板被动刷新：`useAdapterStore` 由 `useEventListeners` 订阅 `adapters-changed` / `adapter-details-changed` / `disabled-adapters-changed`（`hooks/tauriApi.ts:155-157`）落库，`network/NetworkPanel.tsx:49` 与 `monitor/MonitorPanel.tsx:77` 直接消费。
+1. 获取新 IP（指定网卡）：`network/NetworkPanel.tsx:320` → `ipc.dhcpReleaseRenewAdapter`（`network/NetworkPanel.tsx:158`）→ `invoke('dhcp_release_renew_adapter', { adapterName })`（`hooks/tauriApi.ts:181`）→ `announceDhcpResults(normalizeDhcpResults(result), addToast)`（`network/NetworkPanel.tsx:161`，实现 `network/useNetwork.ts:15-37`）→ `refreshAdapterData()`（`network/NetworkPanel.tsx:168` → `hooks/useAdapterStore.ts:16-35`，内部并行 `get_adapters` / `get_adapter_details`）。
+2. 启用被禁用网卡：`network/NetworkPanel.tsx:304` → `invoke('enable_adapter', { adapterName })`（`hooks/tauriApi.ts:148`）→ `refreshAdapterData({ force: true, includeDisabled: true })`（`network/NetworkPanel.tsx:188`）。
+3. DNS 检测与一键优化：`network/NetworkPanel.tsx:455` → `checkDnsDohStatus`（`network/NetworkPanel.tsx:82`，IPC `hooks/tauriApi.ts:227`）；`network/NetworkPanel.tsx:472` → `setupDnsDoh(dnsFamily)`（`network/NetworkPanel.tsx:105`，IPC `hooks/tauriApi.ts:228`），成功后独立 try 再刷状态（`network/NetworkPanel.tsx:109-115`）；一键恢复默认 DNS：`network/NetworkPanel.tsx:490` → `resetDns()`（`network/NetworkPanel.tsx:131`，IPC `hooks/tauriApi.ts:229`）。
+4. 面板被动刷新：`useAdapterStore` 由 `useEventListeners` 订阅 `adapters-changed` / `adapter-details-changed` / `disabled-adapters-changed`（`hooks/tauriApi.ts:165-167`）落库，`network/NetworkPanel.tsx:49` 与 `monitor/MonitorPanel.tsx:77` 直接消费。
 
 ## Connections
 
@@ -439,22 +439,21 @@ tags: [前端, 面板, react]
 
 ### 路由与外壳
 
-1. **`selfservice` 缺失于面板顺序表**：`lib/animations.ts:19` 的 `PANEL_ORDER` 只有 8 项（无 `selfservice`），`getPanelDirection`（`lib/animations.ts:21-26`）对任一含 `selfservice` 的切换都返回 `1`——进入/离开自助服务面板恒为同一方向滑动，与相邻面板切换的方向感不一致；`App.tsx:63-73` 的 `PANEL_TITLES` 与 `App.tsx:290-374` 的 switch 都是 9 项，三者不一致。
-2. **关闭质量检测后 quality 面板渲染 `null`**：`App.tsx:339-345` 在 `configEnableNetworkQuality === false` 时返回 `null`，若当前正停留在 `quality` 主区域空白。当前靠 `SettingsPanel.tsx:512-522` 联动切走（`setActivePanel('dashboard')`）兜底，但任何其他路径（如外部改配置、`config-changed` 回流）关闭该开关时仍会空白。
-3. **`deferredPanel` 与 `activePanel` 的瞬时分歧**：主区内容与标题用 `deferredPanel`（`App.tsx:287`、`App.tsx:290`、`App.tsx:418`），而 `DockNav` 高亮用 `activePanel`（`components/layout/DockNav.tsx:403`）——并发渲染延迟期间会出现「Dock 已切换、内容还是旧面板」，属预期取舍但应在排查视觉问题时先想到。
-4. **切换锁时长与动画时长硬耦合**：`App.tsx:284` 的 60ms 锁硬编码，注释明确它只覆盖 `mode="wait"` 的退出动画 0.04s（`lib/animations.ts:42`）；任一侧改动都会静默失配（锁过短→快速点击穿插旧内容，过长→吞点击）。
-5. **渲染期取 store 快照的非响应式写法**：`App.tsx:145` 用 `useConfigStore.getState().api` 在 render 中取值。`api` 恒定故无实际缺陷，但同文件 `App.tsx:152` 的注释恰恰记录了「此前在 JSX props 里 `getState()` 取快照，非响应式」这一历史问题；本行是同类写法残留。
-6. **`LogPanel` 已回归静态导入但注释保留旧结论**：`App.tsx:45-48` 的注释说明 `LogPanel` 从 `lazy` 回归静态导入的原因（`React.lazy` + `Suspense` 让切换从 ~65ms 恶化到 ~366ms），而 `App.tsx:20` 仍是静态导入、`App.tsx:29` 注释称「仅低频的 LogPanel/对话框保留懒加载」——注释与实现不一致。
-7. **生产环境不启用 `StrictMode`**：`main.tsx:115-117` 仅 DEV 包 `StrictMode`。因此面板里大量「StrictMode setup→cleanup→setup 恢复 mountedRef」的防御（`AccountPanel.tsx:72-77`、`DashboardPanel.tsx:271-279`、`NetworkPanel.tsx:59-64`、`hooks/useAsyncLock.ts:12-17`）在生产不受考验，但也意味着这些 double-invoke 类问题只在 DEV 暴露。
-8. **崩溃自恢复只处理三类特征**：`main.tsx:68-74` 只匹配 `GPU` / `WebGL` / `SharedArrayBuffer`；其他渲染进程错误不触发重载，只靠心跳（`main.tsx:90-110`）。心跳阈值 10s（`main.tsx:106`）在长任务阻塞场景下是刻意放宽的权衡。
+1. **关闭质量检测后 quality 面板渲染 `null`**：`App.tsx:342-348` 在 `configEnableNetworkQuality === false` 时返回 `null`，若当前正停留在 `quality` 主区域空白。当前靠 `SettingsPanel.tsx:582-592` 联动切走（`setActivePanel('dashboard')`）兜底，但任何其他路径（如外部改配置、`config-changed` 回流）关闭该开关时仍会空白。
+2. **`deferredPanel` 与 `activePanel` 的瞬时分歧**：主区内容与标题用 `deferredPanel`（`App.tsx:290`、`App.tsx:293`、`App.tsx:426`），而 `DockNav` 高亮用 `activePanel`（`components/layout/DockNav.tsx:405`）——并发渲染延迟期间会出现「Dock 已切换、内容还是旧面板」，属预期取舍但应在排查视觉问题时先想到。
+3. **切换锁时长与动画时长硬耦合**：`App.tsx:287` 的 60ms 锁硬编码，注释明确它只覆盖 `mode="wait"` 的退出动画 0.04s（`lib/animations.ts:32`）；任一侧改动都会静默失配（锁过短→快速点击穿插旧内容，过长→吞点击）。
+4. **渲染期取 store 快照的非响应式写法**：`App.tsx:145` 用 `useConfigStore.getState().api` 在 render 中取值。`api` 恒定故无实际缺陷，但同文件 `App.tsx:152` 的注释恰恰记录了「此前在 JSX props 里 `getState()` 取快照，非响应式」这一历史问题；本行是同类写法残留。
+5. **`LogPanel` 已回归静态导入但注释保留旧结论**：`App.tsx:46-48` 的注释说明 `LogPanel` 从 `lazy` 回归静态导入的原因（`React.lazy` + `Suspense` 让切换从 ~65ms 恶化到 ~366ms），而 `App.tsx:20` 仍是静态导入、`App.tsx:29` 注释称「仅低频的 LogPanel/对话框保留懒加载」——注释与实现不一致。
+6. **生产环境不启用 `StrictMode`**：`main.tsx:115-117` 仅 DEV 包 `StrictMode`。因此面板里大量「StrictMode setup→cleanup→setup 恢复 mountedRef」的防御（`AccountPanel.tsx:72-77`、`DashboardPanel.tsx:271-279`、`NetworkPanel.tsx:59-64`、`hooks/useAsyncLock.ts:12-17`）在生产不受考验，但也意味着这些 double-invoke 类问题只在 DEV 暴露。
+7. **崩溃自恢复只处理三类特征**：`main.tsx:68-74` 只匹配 `GPU` / `WebGL` / `SharedArrayBuffer`；其他渲染进程错误不触发重载，只靠心跳（`main.tsx:90-110`）。心跳阈值 10s（`main.tsx:106`）在长任务阻塞场景下是刻意放宽的权衡。
 
 ### auth 域
 
 9. **首页仅展示前 3 台在线设备**：`auth/DashboardPanel.tsx:519` 的 `.slice(0, 3)` 与 `auth/DashboardPanel.tsx:535-537` 的 `+N` 只给计数，无法展开查看——完整能力只在 `SelfServicePanel` 的 8 列表格（`account/SelfServicePanel.tsx:380-424`）。
-10. **60s 轮询不看可见性**：`auth/DashboardPanel.tsx:473-477` 的 `setInterval` 在窗口最小化/隐藏时仍持续发 `query_self_dashboard` IPC，无 `document.visibilityState` 判断（对比 `App.tsx:245-251` 的赞助弹层有可见性判断）。
+10. **60s 轮询不看可见性**：`auth/DashboardPanel.tsx:473-477` 的 `setInterval` 在窗口最小化/隐藏时仍持续发 `query_self_dashboard` IPC，无 `document.visibilityState` 判断（对比 `App.tsx:248-254` 的赞助弹层有可见性判断）。
 11. **布局持久化静默失败**：`auth/DashboardPanel.tsx:59-65` 的 `catch {}` 空块——`campus-dashboard-layout` 内容损坏时直接回退 `DEFAULT_LAYOUT`（`auth/DashboardPanel.tsx:66`），用户自定义布局无提示地丢失。
-12. **更新兜底资产名硬编码**：`auth/AboutDialog.tsx:239` 的兜底 URL 拼 `Wxxy-CampusLogin_${version}_x64-setup.exe`，与 Release 资产命名强耦合；缓存路径缺 `assets` 时（`auth/AboutDialog.tsx:174-176` 注释所述）依赖它命中，命名一旦变更即 404。
-13. **`windowsAsset` 只识别 `.exe` / `.msi`**：`auth/AboutDialog.tsx:204-206` 与 `auth/AboutDialog.tsx:247-249`，Release 若只发便携版 zip 或 APK，一键下载取不到资产。
+12. **更新兜底资产名硬编码**：`auth/AboutDialog.tsx:241` 的兜底 URL 拼 `Wxxy-CampusLogin_${version}_x64-setup.exe`，与 Release 资产命名强耦合；缓存路径缺 `assets` 时（`auth/AboutDialog.tsx:176-178` 注释所述）依赖它命中，命名一旦变更即 404。
+13. **`windowsAsset` 只识别 `.exe` / `.msi`**：`auth/AboutDialog.tsx:206-208` 与 `auth/AboutDialog.tsx:263-265`，Release 若只发便携版 zip 或 APK，一键下载取不到资产。
 14. **`handleCheckUpdate` 依赖数组缺 `t`**：`auth/AboutDialog.tsx:115` 的依赖为 `[api, onUpdateAvailable]`，但内部用 `t(...)`（`auth/AboutDialog.tsx:107-111`）——切换语言后该回调仍用旧语言的 `t`。同类问题见 `network/NetworkPanel.tsx:99`（依赖 `[ipc]`，内部用 `t` 于 `network/NetworkPanel.tsx:89`）。
 15. **`LoginResult` 为空扩展接口**：`auth/types.ts:14` `interface LoginResult extends CommandResult {}`，无新增字段，属可合并的写法（部分 lint 规则会报 `no-empty-interface`）。
 
@@ -464,7 +463,7 @@ tags: [前端, 面板, react]
 17. **`BIND_OPERATOR_NONE` 定义在组件体内**：`account/AccountPanel.tsx:150` 每次渲染重建（值恒定为 `'__none__'`，无功能影响）；同语义常量在 `settings/OnboardingWizard.tsx:49` 是模块级，位置不一致。
 18. **`switchingAccount` 清态无 mounted 守卫**：`account/AccountPanel.tsx:145` 的 `finally { setSwitchingAccount(null) }` 未判 `mountedRef.current`，而同文件新增账号路径在 `account/AccountPanel.tsx:135` 做了守卫——异步返回时组件已卸载会触发一次无意义的 setState。
 19. **Hello 门是模块级单例，无显式重置入口**：`account/selfServiceState.ts:55`（绑定门）与 `account/selfServiceState.ts:89`（会话门）都是模块级变量，生产代码只能等 `VERIFY_TTL_MS`（`account/selfServiceState.ts:46`，570s）过期或时钟回拨（`account/selfServiceState.ts:50-54`）；测试必须 `vi.resetModules()` 重置（`account/AccountPanel.helloGate.test.tsx:55`、`auth/DashboardPanel.selfCards.test.tsx:79`）。副作用：向导内绑定验证（`settings/OnboardingWizard.tsx:120`）与账户面板绑定卡共用同一门，任一处验证通过后另一处不再验证。
-20. **会话门只按面板卸载重置**：`account/SelfServicePanel.tsx:151` 在卸载时 `resetSelfSessionGate()`；该面板在 `App.tsx` 是静态导入但只在被选中时挂载，因此「切走再切回必然重验」成立；但若面板因 `ErrorBoundary` 兜底被替换（`App.tsx:427`），门不会被重置而状态丢失。
+20. **会话门只按面板卸载重置**：`account/SelfServicePanel.tsx:151` 在卸载时 `resetSelfSessionGate()`；该面板在 `App.tsx` 是静态导入但只在被选中时挂载，因此「切走再切回必然重验」成立；但若面板因 `ErrorBoundary` 兜底被替换（`App.tsx:434`），门不会被重置而状态丢失。
 21. **账单明细用数组下标作 key**：`account/SelfServicePanel.tsx:473` 与 `account/SelfServicePanel.tsx:616` 用 `key={idx}`——重新查询后若行序变化，React 会复用 DOM，配合内联输入态类逻辑有潜在错位（当前行内无输入，影响有限）。
 22. **500 条截断阈值硬编码**：`account/SelfServicePanel.tsx:635-637` 的 `logRows.length >= 500` 直接提示「超出部分未显示」，阈值不来自配置也不来自后端返回。
 23. **首页与自助页对同一协议各定义一份类型**：`auth/DashboardPanel.tsx:442-452` 与 `account/SelfServicePanel.tsx:17-27` 的 `SelfOnlineItem` 字段一致但重复定义，任一侧协议变更需同步两处。
@@ -483,19 +482,19 @@ tags: [前端, 面板, react]
 
 ### network 域
 
-33. **推荐 DNS 白名单硬编码在前端**：`network/NetworkPanel.tsx:36-38`（阿里/腾讯 IPv4+IPv6 共 7 个地址）。「推荐」判定（`network/NetworkPanel.tsx:178-182`）与提示文案都基于这份清单，与后端 DNS 优化实际下发的清单可能分叉；新增推荐源需改前端。
-34. **两个刷新入口参数不一致**：`network/NetworkPanel.tsx:141` 的 `refreshAdapterData()` 不带 `includeDisabled`，`network/NetworkPanel.tsx:161` 带 `{ force: true, includeDisabled: true }`；前者在网卡被禁用/启用的瞬间可能拿到过期列表（`network/NetworkPanel.tsx:160` 注释仅解释了后者）。
-35. **`handleCheckDns` 的依赖数组缺 `t`**：`network/NetworkPanel.tsx:99` 依赖 `[ipc]`，但 `network/NetworkPanel.tsx:89`、`network/NetworkPanel.tsx:91` 用 `t(...)` 写日志——切语言后该回调仍用旧语言。
-36. **`getDnsQuality` 在适配器级覆盖 profile 时的判定分支**：`network/NetworkPanel.tsx:175` 的 `adapter.adapterDnsOverridesProfile ? servers : (servers.length > 0 ? servers : profileServers)`——当「适配器级为空且 profile 有值」时用 profile 值；警告 UI（`network/NetworkPanel.tsx:542-547`）与判定分别独立计算，二者条件不同（警告多要求 `profileDnsServers.length > 0`），极端组合下可能出现「判为 excellent 但显示覆盖警告」。
-37. **`dnsStatus` 为空与 `dnsChecking` 的组合态**：`network/NetworkPanel.tsx:475-487` 分三个互斥分支渲染（未检测 / 检测中 / 有结果）；当检测失败被 `catch` 吞掉并置 `null`（`network/NetworkPanel.tsx:94-96`）时 UI 回到「点击检测」空态，用户无法区分「没查」与「查失败」。
+33. **推荐 DNS 白名单硬编码在前端**：`network/NetworkPanel.tsx:36-38`（阿里/腾讯 IPv4+IPv6 共 7 个地址）。「推荐」判定（`network/NetworkPanel.tsx:205-209`）与提示文案都基于这份清单，与后端 DNS 优化实际下发的清单可能分叉；新增推荐源需改前端。
+34. **两个刷新入口参数不一致**：`network/NetworkPanel.tsx:168` 的 `refreshAdapterData()` 不带 `includeDisabled`，`network/NetworkPanel.tsx:188` 带 `{ force: true, includeDisabled: true }`；前者在网卡被禁用/启用的瞬间可能拿到过期列表（`network/NetworkPanel.tsx:187` 注释仅解释了后者）。
+35. **`handleCheckDns` 的依赖数组缺 `t`**：`network/NetworkPanel.tsx:100` 依赖 `[ipc]`，但 `network/NetworkPanel.tsx:90`、`network/NetworkPanel.tsx:92` 用 `t(...)` 写日志——切语言后该回调仍用旧语言。
+36. **`getDnsQuality` 在适配器级覆盖 profile 时的判定分支**：`network/NetworkPanel.tsx:202` 的 `adapter.adapterDnsOverridesProfile ? servers : (servers.length > 0 ? servers : profileServers)`——当「适配器级为空且 profile 有值」时用 profile 值；警告 UI（`network/NetworkPanel.tsx:572-577`）与判定分别独立计算，二者条件不同（警告多要求 `profileDnsServers.length > 0`），极端组合下可能出现「判为 excellent 但显示覆盖警告」。
+37. **`dnsStatus` 为空与 `dnsChecking` 的组合态**：`network/NetworkPanel.tsx:519-531` 分三个互斥分支渲染（未检测 / 检测中 / 有结果）；当检测失败被 `catch` 吞掉并置 `null`（`network/NetworkPanel.tsx:95-97`）时 UI 回到「点击检测」空态，用户无法区分「没查」与「查失败」。
 
 ### settings 域
 
-38. **`handleSecurityDisable` 定义在 `t` 之前（顺序脆弱）**：`settings/SettingsPanel.tsx:117-132` 的闭包引用 `t`，而 `const { t } = useTranslation()` 在 `settings/SettingsPanel.tsx:133` 才声明——依赖「函数只在事件触发时才执行」这一事实避开 TDZ；若将来有人在渲染期调用它会抛 `ReferenceError`。
+38. **`handleSecurityDisable` 定义在 `t` 之前（顺序脆弱）**：`settings/SettingsPanel.tsx:122-137` 的闭包引用 `t`，而 `const { t } = useTranslation()` 在 `settings/SettingsPanel.tsx:138` 才声明——依赖「函数只在事件触发时才执行」这一事实避开 TDZ；若将来有人在渲染期调用它会抛 `ReferenceError`。
 39. **`OnboardingWizard` 可能把明文密码回填进输入框**：`settings/OnboardingWizard.tsx:109` 与 `settings/OnboardingWizard.tsx:136` 的写法是 `config.password === PASSWORD_MASK ? '' : (config.password || '')`——只有在后端回传 MASK 时才清空；若后端在某窗口期回传明文（`Config.password` 类型为 `string`），明文会被填入 `type="text"` 的可切换输入框（`settings/OnboardingWizard.tsx:450`）。账户/自助面板均改用独立布尔 `passwordSaved` / `selfPasswordSaved` 规避该状态机（`account/AccountPanel.tsx:79-83`、`account/SelfServicePanel.tsx:121-125` 的注释详述该缺陷），向导未同步该修法。
 40. **`handleLoginAndFinish` 校验失败时静默返回**：`settings/OnboardingWizard.tsx:242-250` 两个 `return` 分支只 `setLoginSuccess(false)`，不给 toast/内联错误；用户点「开始登录」无任何反馈（对比 `settings/OnboardingWizard.tsx:196` + `settings/OnboardingWizard.tsx:654-667` 在 step 2 用禁用态 + `onboarding.pleaseComplete` 提示）。
 41. **关窗二次确认会吞掉首次关闭意图**：`settings/OnboardingWizard.tsx:289` 只要 `open` 变 false 就 `setShowCloseConfirm(true)`，且 `settings/OnboardingWizard.tsx:290` 的 `onPointerDownOutside` 被 preventDefault——点遮罩不会关闭向导，只弹确认框；这是有意设计，但若内层确认框的 `Dialog` 与向导同时存在于 DOM，键盘 Esc 的行为需注意（`settings/OnboardingWizard.tsx:695` 的确认框没有显式 Esc 处理）。
-42. **`SettingsPanel` 关闭质量检测的联动只覆盖三处**：`settings/SettingsPanel.tsx:513-522` 处理 `enableLatencyTest`、`defaultPanel`、`activePanel`；但不回滚 `speedtest` 面板的默认值，也不清理 `useQualityStore.networkQuality` 里已缓存的结果（关闭后 `StatusBar`（`monitor/StatusBar.tsx:143`）不再显示胶囊，但 store 中的数据仍在）。
-43. **`fixedGateway` 清空按钮是原生 `button`**：`settings/SettingsPanel.tsx:586-592` 与输入框（`settings/SettingsPanel.tsx:575-584` 同样是原生 `input`）未走项目 UI 组件；行为一致但样式/可访问性（无 `aria-label`、无 label 关联）与同卡其他控件不齐。
-44. **取色器草稿的 80ms 节流与 blur 双通道**：`settings/SettingsPanel.tsx:90-98` 定时提交 + `settings/SettingsPanel.tsx:107-113` 的 `commitColorDraft` 走 `onBlur`——`<input type="color">`（`settings/SettingsPanel.tsx:202-208`）在部分平台不触发 blur，此时仅靠 80ms 定时器提交（`settings/SettingsPanel.tsx:93-97`），逻辑正确但存在两条提交路径需同时维护。
-45. **`defaultPanel` 哨兵值与 Radix 约束**：`settings/SettingsPanel.tsx:349-350` 用 `'__remember__'` 映射空串（Radix `SelectItem` 不接受空 `value`）；`settings/SettingsPanel.tsx:357` 过滤 `quality`，但未考虑 `enableNetworkQuality` 之外的其它无效面板组合；同时在 `settings/constants.ts:71-74` 用 `NAV_ITEMS` 派生选项，`NAV_ITEMS` 含全部 9 项（`shared/ui-constants.ts:7-17`）。
+42. **`SettingsPanel` 关闭质量检测的联动只覆盖三处**：`settings/SettingsPanel.tsx:583-592` 处理 `enableLatencyTest`、`defaultPanel`、`activePanel`；但不回滚 `speedtest` 面板的默认值，也不清理 `useQualityStore.networkQuality` 里已缓存的结果（关闭后 `StatusBar`（`monitor/StatusBar.tsx:143`）不再显示胶囊，但 store 中的数据仍在）。
+43. **`fixedGateway` 清空按钮是原生 `button`**：`settings/SettingsPanel.tsx:656-662` 与输入框（`settings/SettingsPanel.tsx:645-654` 同样是原生 `input`）未走项目 UI 组件；行为一致但样式/可访问性（无 `aria-label`、无 label 关联）与同卡其他控件不齐。
+44. **取色器草稿的 80ms 节流与 blur 双通道**：`settings/SettingsPanel.tsx:160-168` 定时提交 + `settings/SettingsPanel.tsx:177-183` 的 `commitColorDraft` 走 `onBlur`——`<input type="color">`（`settings/SettingsPanel.tsx:272-278`）在部分平台不触发 blur，此时仅靠 80ms 定时器提交（`settings/SettingsPanel.tsx:163-167`），逻辑正确但存在两条提交路径需同时维护。
+45. **`defaultPanel` 哨兵值与 Radix 约束**：`settings/SettingsPanel.tsx:419-420` 用 `'__remember__'` 映射空串（Radix `SelectItem` 不接受空 `value`）；`settings/SettingsPanel.tsx:427` 过滤 `quality`，但未考虑 `enableNetworkQuality` 之外的其它无效面板组合；同时在 `settings/constants.ts:73-76` 用 `NAV_ITEMS` 派生选项，`NAV_ITEMS` 含全部 9 项（`shared/ui-constants.ts:7-17`）。

@@ -13,7 +13,7 @@ tags: [决策, 前端, 面板转场, 并发渲染]
 
 ## 决策
 
-面板 switch / 转场 key / 标题 / 方向**全部消费** `useDeferredValue` 后的值（`deferredPanel`）；`activePanel` **仅**用于 DockNav 高亮与 storage 恢复。
+面板 switch / 转场 key / 标题**全部消费** `useDeferredValue` 后的值（`deferredPanel`）；`activePanel` **仅**用于 DockNav 高亮与 storage 恢复。历史实现还把按 `PANEL_ORDER` 计算的滑动方向 `slideDirection` 一并消费（`AnimatePresence custom` 传参），该方向信号已随死代码清理 `1dda320` 删除，`lib/animations.ts` 的 `getPanelDirection` / `PANEL_ORDER` 一并移除；标题/描述现与内容区共用 `panelVariants` 同向滑入（`App.tsx:409-421`）。
 
 ## 理由
 
@@ -25,7 +25,7 @@ tags: [决策, 前端, 面板转场, 并发渲染]
 
 ## 影响与约束
 
-用错（转场相关逻辑改用 `activePanel`）会内容与标题错位。已知残留分歧：`DockNav` 高亮仍用 `activePanel`（`components/layout/DockNav.tsx:403`），并发渲染延迟期间会出现"Dock 已切换、内容还是旧面板"，属预期取舍。相关硬耦合：`App.tsx:284` 的 60ms 切换锁只覆盖 `mode="wait"` 的退出动画 0.04s，任一侧改动都会静默失配。
+用错（转场相关逻辑改用 `activePanel`）会内容与标题错位。已知残留分歧：`DockNav` 高亮仍用 `activePanel`（`components/layout/DockNav.tsx:405`），并发渲染延迟期间会出现"Dock 已切换、内容还是旧面板"，属预期取舍。相关硬耦合：`App.tsx:287` 的 60ms 切换锁只覆盖 `mode="wait"` 的退出动画 0.04s（`lib/animations.ts:32`），任一侧改动都会静默失配。
 
 ## Connections
 

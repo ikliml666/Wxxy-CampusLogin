@@ -16,6 +16,7 @@ tags: [教训, 审计, 核实, 流程]
 1. **「full_login/full_logout 每次深拷贝整个 Config（14 个 String 字段）」** — 实际 `ConfigStore::load()` 本身返回 `Arc<Config>`（`infra/state/store.rs`），原代码的 `guard.clone()` 是引用计数，不是深拷贝。真实冗余是 `Arc::new(Arc<Config>)` 双重包装。优化仍然成立，但收益远小于描述。
 2. **「安卓 update_cmds.rs 的检查循环与桌面同构（5s 步进轮询，17280 次唤醒/天）」** — 实际是「5s 首查 → 直睡 24h」，**不存在步进轮询**，也没有取消源。按描述去改会引入无意义的 churn（硬套 `select!` 而无可取消的令牌）。
 3. **「面板内容有方向性滑动（panelVariants + slideDirection）」** — 实际 `panelVariants` 是固定 y 位移（`y:8 → 0`），且 `slideDirection` 虽经 `custom` 传入但静态 variants 从不消费，是**未生效的死信号**。若按字面给标题加 `±8px translateX`，反而与内容的 y 位移不同向，违背"同向滑入"的本意。
+   **后续（2026-09-13，提交 `1dda320`）**：该死信号已清理——双端 `lib/animations.ts` 删除失去调用方的 `getPanelDirection` 与 `PANEL_ORDER`，`App.tsx` 删除 `slideDirection` state、同步 effect、`prevPanelRef` 及两处 `custom` 传参；`panelVariants` 保持固定 y 位移不变，并改为标题/描述与内容区共用同一变体实现"同向滑入"（`tauri-app/frontend/src/App.tsx:184/409-427`）。若将来真要做方向性切换动画，需把 `createPanelAppleVariants` 改为函数形式变体（正确消费 `custom` 的既定模式见 QualityPanel 的 `tabItemVariants`）。
 
 ## 根因
 
