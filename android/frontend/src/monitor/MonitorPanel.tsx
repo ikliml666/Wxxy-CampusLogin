@@ -366,8 +366,9 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   </>
                   )}
                   {/* 检测时间段:安卓后端 run_check_once 同样消费 campusCheckStart/EndMinutes,两平台均显示 */}
+                  {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠 */}
                   <Separator className="my-2" />
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
                         <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
@@ -398,7 +399,8 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         type="time"
                         aria-label={t('monitor.campusCheckWindowEnd')}
                         value={(() => {
-                          const m = config.campusCheckEndMinutes ?? 0
+                          // 兜底值与后端 Settings::default / DEFAULT_CONFIG 对齐(1380=23:00),避免字段缺失时 UI 显示 00:00 而后端按 23:00 判定
+                          const m = config.campusCheckEndMinutes ?? 1380
                           return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
                         })()}
                         onChange={e => {
