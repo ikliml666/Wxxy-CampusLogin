@@ -44,6 +44,10 @@ export interface Config {
   campusExitEndMinutes: number
   campusCheckStartMinutes: number
   campusCheckEndMinutes: number
+  /** 每日定时登录时刻（分钟数，0=禁用；过点补触发） */
+  scheduledLoginMinutes: number
+  /** 每日定时注销时刻（分钟数，0=禁用；语义同上） */
+  scheduledLogoutMinutes: number
   maxDisconnectReconnect: number
   autoLoginCooldownSecs: number
   logRetentionDays: number

@@ -51,4 +51,13 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
     }) {
         crate::log_warn!("background", "注册 startup_auto_login 跟踪任务失败: {}", e);
     }
+
+    // 每日定时登录/定时注销（P2-32）：独立轻量循环，不受 enable_background_check
+    // 开关管（定时动作与巡检是两个功能）；循环内部逐拍读配置，两目标均 0=禁用时零开销
+    let app_h = app_handle.clone();
+    if let Err(e) = task_manager.spawn("scheduled_actions", move |cancel_token| async move {
+        super::scheduled::run_scheduled_action_loop(&app_h, cancel_token).await;
+    }) {
+        crate::log_warn!("background", "注册 scheduled_actions 跟踪任务失败: {}", e);
+    }
 }

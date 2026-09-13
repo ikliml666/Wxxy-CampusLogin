@@ -91,6 +91,12 @@ pub struct Config {
     /// 校园网检测时段终点（分钟数，0=不限制；<= 开始时间时退化为仅开始时间限制）
     #[serde(rename = "campusCheckEndMinutes", default)]
     pub campus_check_end_minutes: u16,
+    /// 每日定时登录时刻（分钟数，0=禁用；到点即触发含过点补触发，判定见 config::schedule）
+    #[serde(rename = "scheduledLoginMinutes", default)]
+    pub scheduled_login_minutes: u16,
+    /// 每日定时注销时刻（分钟数，0=禁用；语义同 scheduled_login_minutes）
+    #[serde(rename = "scheduledLogoutMinutes", default)]
+    pub scheduled_logout_minutes: u16,
     #[serde(rename = "logRetentionDays", default = "default_log_retention_days")]
     pub log_retention_days: u32,
     #[serde(rename = "maxDisconnectReconnect", default = "default_max_disconnect_reconnect")]
@@ -201,6 +207,8 @@ impl Default for Config {
             campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 460,
             campus_check_end_minutes: 0,
+            scheduled_login_minutes: 0,
+            scheduled_logout_minutes: 0,
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,

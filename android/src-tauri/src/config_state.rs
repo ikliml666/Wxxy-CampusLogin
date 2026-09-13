@@ -58,6 +58,10 @@ pub struct Settings {
     pub campus_check_start_minutes: u16,
     /// 校园网检测时段终点(当日分钟数,0=不限制;<= 开始时间时退化为仅开始时间限制),与桌面 campusCheckEndMinutes 同语义
     pub campus_check_end_minutes: u16,
+    /// 每日定时登录时刻(当日分钟数,0=禁用;到点即触发含过点补触发),与桌面 scheduledLoginMinutes 同语义
+    pub scheduled_login_minutes: u16,
+    /// 每日定时注销时刻(当日分钟数,0=禁用;语义同 scheduled_login_minutes),与桌面 scheduledLogoutMinutes 同语义
+    pub scheduled_logout_minutes: u16,
     // 更新
     /// 检查/下载更新渠道优先级:"mirror"(镜像加速优先,默认,国内主场景)|"github"(官方优先)
     pub update_source: String,
@@ -114,6 +118,9 @@ impl Default for Settings {
             campus_check_start_minutes: 460,
             // 与桌面默认同值(0=不限制)
             campus_check_end_minutes: 0,
+            // 每日定时登录/注销默认禁用(0=禁用)
+            scheduled_login_minutes: 0,
+            scheduled_logout_minutes: 0,
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移

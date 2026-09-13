@@ -3,7 +3,7 @@ pub mod network;
 pub mod exit;
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use crate::config::model::Config;
 use store::ConfigStore;
 use network::NetworkState;
@@ -79,6 +79,29 @@ pub struct TaskFlags {
     pub is_downloading: TaskLock,
 }
 
+/// 定时动作（定时登录/定时注销，monitor::scheduled）当日触发标记。
+/// 存当日序号（`num_days_from_ce()`），跨天值变化即视为未执行；
+/// 初始 `i32::MIN` 表示从未触发。与 auto_auth 的冷却/重连计数互不共享。
+pub struct ScheduledFired {
+    pub login_day: AtomicI32,
+    pub logout_day: AtomicI32,
+}
+
+impl Default for ScheduledFired {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScheduledFired {
+    pub fn new() -> Self {
+        Self {
+            login_day: AtomicI32::new(i32::MIN),
+            logout_day: AtomicI32::new(i32::MIN),
+        }
+    }
+}
+
 /// 更新与通知相关统计字段
 ///
 /// 将原 AppState 顶层的 4 个原子标志合并为语义内聚的子结构体。
@@ -129,6 +152,7 @@ pub struct AppState {
     pub network: NetworkState,
     pub exit: ExitStateStore,
     pub update_stats: UpdateStats,
+    pub scheduled: ScheduledFired,
 }
 
 impl Default for AppState {
@@ -152,6 +176,7 @@ impl AppState {
             network: NetworkState::new(),
             exit: ExitStateStore::new(),
             update_stats: UpdateStats::new(),
+            scheduled: ScheduledFired::new(),
         }
     }
 }

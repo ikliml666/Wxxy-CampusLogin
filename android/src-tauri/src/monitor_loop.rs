@@ -2,9 +2,9 @@
 //! → emit background-check-result / login-log。决策逻辑抽纯函数便于 TDD,
 //! tokio 循环体与前台服务保活在下方(Task 4)。
 
-use chrono::Timelike;
+use chrono::{Datelike, Timelike};
 use lazy_static::lazy_static;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -36,6 +36,12 @@ pub struct MonitorState {
     /// notify 重建通知——每拍重建常驻通知是稳态功耗点(60s 一拍 IPC + notify),
     /// 文案不再携带逐拍递增的检测次数(检测次数前端状态页有)
     pub notified_online: AtomicU8,
+    /// 定时登录当日已触发标记(当日序号 num_days_from_ce;0=从未触发,当日序号
+    /// 恒为正,与"未触发"等价;跨天由序号变化自然重置)。与掉线重连的 cooldown/
+    /// 熔断计数互不共享,判定复用跨平台纯函数 config::schedule
+    pub scheduled_login_day: AtomicI32,
+    /// 定时注销当日已触发标记(语义同 scheduled_login_day)
+    pub scheduled_logout_day: AtomicI32,
 }
 
 /// WiFi 事件触发检测的延迟:连上瞬间 DHCP/路由往往未就绪,立即探测必失败;
@@ -533,6 +539,10 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
         if !is_running() {
             break;
         }
+        // 定时登录/定时注销判定(P2-32):置于巡检分档跳拍与校园网检测静默期之前——
+        // 定时动作常配置在检测静默期/灭屏闲时段(如 23:30 注销、07:40 登录),
+        // 放进 run_check_once 会被静默期整拍吞掉。双目标均禁用时函数内部早退
+        run_scheduled_actions(&app).await;
         // 间隔热更新:运行中改检测间隔(start_background_check 刷新 desired),
         // 重建计时器;tokio interval 重建后首个 tick 立即返回,吃掉保持节奏
         let want = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
@@ -595,6 +605,74 @@ async fn portal_probe_on_little_cores(
             })
             .await
             .unwrap_or_else(|join| Err(format!("探测任务失败: {join}")))
+        }
+    }
+}
+
+/// 定时登录/定时注销(P2-32)判定与执行:
+/// - 判定复用桌面 crate 的跨平台纯函数 `campus_login_lib::config::schedule::should_fire_scheduled_action`
+///   (与桌面 monitor::scheduled 同语义,到点即触发含过点补触发);
+/// - 定时登录复用 auto_login_on_start 全编排(凭据检查/强制绑 WiFi/校园网探测,
+///   非校园网跳过不硬登/成功置 was_online 并清注销保护期/失败系统通知)——不复制协议逻辑;
+/// - 定时注销复用 protocol_cmds::do_logout(两步注销/login_history 落账/60s 注销
+///   保护期,防定时注销后被自动重登立即登回);
+/// - 标记独立存 MONITOR.scheduled_*_day,与掉线重连的 cooldown/熔断计数互不共享;
+///   到点即置标记(每日单次,成败不重试,避免凭据错误时每拍重发请求刷通知)。
+async fn run_scheduled_actions(app: &tauri::AppHandle) {
+    let settings = match crate::config_state::current_settings(app).await {
+        Ok(s) => s,
+        Err(_) => return, // 配置读取失败:静默跳过,下一拍重试
+    };
+    if settings.scheduled_login_minutes == 0 && settings.scheduled_logout_minutes == 0 {
+        return; // 双禁用:免读时钟早退
+    }
+    let now = chrono::Local::now();
+    let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;
+    let today_day = now.date_naive().num_days_from_ce() as i32;
+
+    if campus_login_lib::config::schedule::should_fire_scheduled_action(
+        now_minutes,
+        settings.scheduled_login_minutes,
+        MONITOR.scheduled_login_day.load(Ordering::Relaxed),
+        today_day,
+    ) {
+        MONITOR.scheduled_login_day.store(today_day, Ordering::Relaxed);
+        emit_login_log(
+            app,
+            &format!(
+                "定时登录触发 (目标 {:02}:{:02})",
+                settings.scheduled_login_minutes / 60,
+                settings.scheduled_login_minutes % 60
+            ),
+            "info",
+        );
+        auto_login_on_start(app, &settings).await;
+    }
+
+    if campus_login_lib::config::schedule::should_fire_scheduled_action(
+        now_minutes,
+        settings.scheduled_logout_minutes,
+        MONITOR.scheduled_logout_day.load(Ordering::Relaxed),
+        today_day,
+    ) {
+        MONITOR.scheduled_logout_day.store(today_day, Ordering::Relaxed);
+        emit_login_log(
+            app,
+            &format!(
+                "定时注销触发 (目标 {:02}:{:02})",
+                settings.scheduled_logout_minutes / 60,
+                settings.scheduled_logout_minutes % 60
+            ),
+            "info",
+        );
+        let state = app.state::<crate::android_state::AndroidState>();
+        match crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
+            Ok(v) => {
+                let success = v["success"].as_bool().unwrap_or(false);
+                let message = v["message"].as_str().unwrap_or("").to_string();
+                emit_login_log(app, &format!("定时注销: {message}"), if success { "success" } else { "error" });
+            }
+            Err(e) => emit_login_log(app, &format!("定时注销执行失败: {e}"), "error"),
         }
     }
 }

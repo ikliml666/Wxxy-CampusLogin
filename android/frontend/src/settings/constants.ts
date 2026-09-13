@@ -45,6 +45,8 @@ export const DEFAULT_CONFIG: Config = {
   campusExitOnFail: true,
   campusCheckStartMinutes: 460,
   campusCheckEndMinutes: 0,
+  scheduledLoginMinutes: 0,
+  scheduledLogoutMinutes: 0,
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,

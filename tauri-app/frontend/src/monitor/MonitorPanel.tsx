@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, PowerOff, AlarmClock } from 'lucide-react'
+import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, LogOut, PowerOff, AlarmClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import React, { memo, useMemo, useState } from 'react'
@@ -441,6 +441,62 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         className="w-24 h-7 text-sm font-mono"
                       />
                     </div>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                        <LogIn className="h-3.5 w-3.5 text-emerald-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <Label htmlFor="scheduled-login-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLoginTime')}</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLoginTimeDesc')}</p>
+                      </div>
+                    </div>
+                    <Input
+                      id="scheduled-login-time"
+                      type="time"
+                      aria-label={t('monitor.scheduledLoginTime')}
+                      value={(() => {
+                        const m = config.scheduledLoginMinutes ?? 0
+                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                      })()}
+                      onChange={e => {
+                        const [h, min] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(min)) {
+                          onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                        }
+                      }}
+                      className="w-24 h-7 text-sm font-mono"
+                    />
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
+                        <LogOut className="h-3.5 w-3.5 text-rose-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <Label htmlFor="scheduled-logout-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLogoutTime')}</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLogoutTimeDesc')}</p>
+                      </div>
+                    </div>
+                    <Input
+                      id="scheduled-logout-time"
+                      type="time"
+                      aria-label={t('monitor.scheduledLogoutTime')}
+                      value={(() => {
+                        const m = config.scheduledLogoutMinutes ?? 0
+                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                      })()}
+                      onChange={e => {
+                        const [h, min] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(min)) {
+                          onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                        }
+                      }}
+                      className="w-24 h-7 text-sm font-mono"
+                    />
                   </div>
                   <div className="flex items-center gap-2 pt-1">
                     {(() => {

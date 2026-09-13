@@ -134,6 +134,8 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     config.campus_check_end_minutes = config.campus_check_end_minutes.min(1439);
     config.campus_exit_start_minutes = config.campus_exit_start_minutes.min(1439);
     config.campus_exit_end_minutes = config.campus_exit_end_minutes.min(1439);
+    config.scheduled_login_minutes = config.scheduled_login_minutes.min(1439);
+    config.scheduled_logout_minutes = config.scheduled_logout_minutes.min(1439);
     Ok(config)
 }
 
