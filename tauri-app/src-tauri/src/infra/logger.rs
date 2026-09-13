@@ -477,8 +477,9 @@ pub fn shutdown() {
 }
 
 /// 判断文件名是否为本应用日志文件（app- 前缀 + .log 后缀）。
-/// clear_logs 只删应用自身日志，避免误删日志目录内的其他文件。
-fn is_app_log_file(name: &str) -> bool {
+/// clear_logs 只删应用自身日志，避免误删日志目录内的其他文件；
+/// export_diagnostics 复用同一判断挑选需打包的日志。
+pub fn is_app_log_file(name: &str) -> bool {
     name.starts_with("app-") && name.ends_with(".log")
 }
 

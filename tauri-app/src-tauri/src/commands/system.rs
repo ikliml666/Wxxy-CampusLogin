@@ -184,3 +184,94 @@ pub fn set_log_retention_days(days: u32) -> Result<(), String> {
 pub fn get_log_retention_days() -> u32 {
     crate::infra::logger::get_log_retention_days()
 }
+
+/// 导出诊断包到 <data_dir>/diagnostics/diag-<时间戳>/，返回目录路径（P2-29）。
+/// 包含：近 days 天应用日志（days=0 视为全部，与日志保留 0=永久语义一致）、
+/// 掩码后配置（敏感出站唯一出口 masked_for_display，严禁明文密码）、
+/// 适配器列表与详情快照、GPU 信息与刷新率、manifest.json 内容清单。
+#[tauri::command]
+pub fn export_diagnostics(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    days: Option<u32>,
+) -> Result<String, String> {
+    let days = days.unwrap_or(3);
+    // 先 flush：避免最后一批日志仍停留在 logger 缓冲，拷出截断的当天日志
+    crate::infra::logger::flush();
+
+    let data_dir = crate::config::persist::get_data_dir(&app_handle);
+    let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let out_dir = data_dir.join("diagnostics").join(format!("diag-{stamp}"));
+    std::fs::create_dir_all(&out_dir).map_err(|e| format!("创建诊断目录失败: {e}"))?;
+
+    // 1) 近 N 天应用日志（文件名过滤复用 clear_logs 同款判断）
+    let log_dir = crate::infra::logger::get_log_dir(&app_handle);
+    let cutoff = if days == 0 {
+        None
+    } else {
+        std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(u64::from(days) * 86400))
+    };
+    let mut log_files: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&log_dir) {
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
+            if !crate::infra::logger::is_app_log_file(&name) {
+                continue;
+            }
+            if let Some(cutoff) = cutoff {
+                let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else { continue };
+                if modified < cutoff {
+                    continue;
+                }
+            }
+            // 单文件拷贝失败（如被占用）不致命：跳过，不影响其余内容
+            if std::fs::copy(entry.path(), out_dir.join(&name)).is_ok() {
+                log_files.push(name);
+            }
+        }
+    }
+    log_files.sort();
+
+    // 2) 掩码后配置（唯一出口）
+    let masked = state.config.load().masked_for_display();
+    let config_json = serde_json::to_string_pretty(&masked).map_err(|e| format!("序列化配置失败: {e}"))?;
+    std::fs::write(out_dir.join("config-masked.json"), config_json)
+        .map_err(|e| format!("写入配置快照失败: {e}"))?;
+
+    // 3) 适配器列表与详情快照（枚举失败时写空数组，不阻断导出）
+    let adapters_json = serde_json::json!({
+        "adapters": crate::network::get_adapters_cached().unwrap_or_default(),
+        "adapterDetails": crate::network::get_adapter_details_cached().unwrap_or_default(),
+    });
+    std::fs::write(out_dir.join("adapters.json"), serde_json::to_string_pretty(&adapters_json).unwrap_or_else(|_| "{}".into()))
+        .map_err(|e| format!("写入适配器快照失败: {e}"))?;
+
+    // 4) GPU 信息与刷新率
+    let gpu_json = serde_json::json!({
+        "gpu": crate::platform::gpu::detect_gpu_info(),
+        "refreshRateHz": crate::platform::gpu::detect_display_refresh_rate(),
+    });
+    std::fs::write(out_dir.join("gpu.json"), serde_json::to_string_pretty(&gpu_json).unwrap_or_else(|_| "{}".into()))
+        .map_err(|e| format!("写入 GPU 快照失败: {e}"))?;
+
+    // 5) manifest：内容清单与生成环境
+    let manifest = serde_json::json!({
+        "type": "campus-login-diagnostics",
+        "appVersion": env!("APP_VERSION"),
+        "os": std::env::consts::OS,
+        "generatedAt": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "logDays": days,
+        "contents": {
+            "logFiles": log_files,
+            "config": "config-masked.json (passwords masked)",
+            "adapters": "adapters.json",
+            "gpu": "gpu.json",
+        },
+    });
+    std::fs::write(out_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap_or_else(|_| "{}".into()))
+        .map_err(|e| format!("写入 manifest 失败: {e}"))?;
+
+    crate::log_info!("system", "诊断包导出成功: {:?}", out_dir);
+    Ok(out_dir.to_string_lossy().to_string())
+}

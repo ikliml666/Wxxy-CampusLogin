@@ -56,6 +56,10 @@ interface CampusStatusResult {
 interface TauriApi {
   getConfig: () => Promise<Config>
   saveConfig: (config: Config, clearPassword?: boolean, clearSelfPassword?: boolean) => Promise<SaveConfigResult>
+  /** 桌面专属：配置导出/导入与诊断包导出依赖 DPAPI 密文、适配器/GPU 采集与本地文件系统，安卓端无对应实现 */
+  exportConfig: (includePassword?: boolean) => Promise<string>
+  importConfig: (path: string) => Promise<CommandResult>
+  exportDiagnostics: (days?: number) => Promise<string>
   getAdapters: (force?: boolean) => Promise<Adapter[]>
   getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
@@ -167,6 +171,9 @@ const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => 
 const tauriApi: TauriApi = {
   getConfig: () => invoke<Config>('get_config'),
   saveConfig: (config, clearPassword, clearSelfPassword) => invoke<SaveConfigResult>('save_config', { config, clearPassword, clearSelfPassword }),
+  exportConfig: (_includePassword) => desktopOnly<string>('export_config'),
+  importConfig: (_path) => desktopOnly<CommandResult>('import_config'),
+  exportDiagnostics: (_days) => desktopOnly<string>('export_diagnostics'),
   getAdapters: () => desktopOnly<Adapter[]>('get_adapters'),
   getDisabledAdapters: () => desktopOnly<DisabledAdapter[]>('get_disabled_adapters'),
   enableAdapter: (_adapterName) => desktopOnly<EnableAdapterResult>("enable_adapter"),

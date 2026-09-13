@@ -27,6 +27,12 @@ interface CampusStatusResult {
 interface TauriApi {
   getConfig: () => Promise<Config>
   saveConfig: (config: Config, clearPassword?: boolean, clearSelfPassword?: boolean) => Promise<SaveConfigResult>
+  /** 导出配置到 <dataDir>/exports/，返回文件路径；includePassword=true 时密码以本机 DPAPI 密文导出（桌面专属） */
+  exportConfig: (includePassword?: boolean) => Promise<string>
+  /** 从 JSON 文件导入配置（严格校验后走 save_config 同路径落盘，桌面专属） */
+  importConfig: (path: string) => Promise<CommandResult>
+  /** 导出诊断包（日志+掩码配置+适配器+GPU）到 <dataDir>/diagnostics/，返回目录路径（桌面专属） */
+  exportDiagnostics: (days?: number) => Promise<string>
   getAdapters: (force?: boolean) => Promise<Adapter[]>
   getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
@@ -134,6 +140,9 @@ const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => 
 const tauriApi: TauriApi = {
   getConfig: () => invoke<Config>('get_config'),
   saveConfig: (config, clearPassword, clearSelfPassword) => invoke<SaveConfigResult>('save_config', { config, clearPassword, clearSelfPassword }),
+  exportConfig: (includePassword) => invoke<string>('export_config', { includePassword }),
+  importConfig: (path) => invoke<CommandResult>('import_config', { path }),
+  exportDiagnostics: (days) => invoke<string>('export_diagnostics', { days }),
   getAdapters: (force) => invoke<Adapter[]>('get_adapters', { force }),
   getDisabledAdapters: () => invoke<DisabledAdapter[]>('get_disabled_adapters'),
   enableAdapter: (adapterName) => invoke<EnableAdapterResult>('enable_adapter', { adapterName }),

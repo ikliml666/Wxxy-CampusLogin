@@ -29,9 +29,9 @@ tags: [决策, ipc, 双端, 命令面]
 
 ## 影响与约束
 
-"新增命令必须三处同改"是硬约束。当前规模：安卓 48 条（`android/src-tauri/src/lib.rs:55` 宏，条目 `:56-103`）、桌面 56 条（`app/startup.rs:63` 宏，条目 `:64-119`）；差值 = 平台专属命令面（仅单端注册，不进"三处同改"）。
+"新增命令必须三处同改"是硬约束。当前规模：安卓 48 条（`android/src-tauri/src/lib.rs:55` 宏，条目 `:56-103`）、桌面 59 条（`app/startup.rs:63` 宏，条目 `:64-122`）；差值 = 平台专属命令面（仅单端注册，不进"三处同改"）。
 
-**例外（平台专属能力）**：安卓电池优化白名单三命令 `get_battery_optimization_info` / `request_ignore_battery_optimizations` / `open_vendor_battery_settings`（`android/src-tauri/src/battery_cmds.rs`，桌面无对应 API）只在安卓 `lib.rs` 与安卓树 `tauriApi.ts` 各注册一处，不要求桌面同名占位。
+**例外（平台专属能力）**：安卓电池优化白名单三命令 `get_battery_optimization_info` / `request_ignore_battery_optimizations` / `open_vendor_battery_settings`（`android/src-tauri/src/battery_cmds.rs`，桌面无对应 API）只在安卓 `lib.rs` 与安卓树 `tauriApi.ts` 各注册一处，不要求桌面同名占位。反向同理：桌面专属的导出/导入类命令 `export_config`/`import_config`/`export_diagnostics`（2026-09-13，DPAPI 密文与本地文件系统依赖，安卓 `crypto::encrypt` 非 Windows 恒 Err）只在桌面 `startup.rs` 注册，安卓树 `tauriApi.ts` 走 `desktopOnly` 占位。
 
 注意前端 `TauriApi` 类型仍保留安卓恒 reject 的桌面方法（`android/frontend/src/hooks/tauriApi.ts:56-133` 的 interface，实现处走 `desktopOnly` 统一拒绝），调用方在编译期无法察觉，实际强度低于命名对齐的表面承诺。
 

@@ -77,6 +77,121 @@ pub fn load_config_from_disk_or_default(app_handle: &AppHandle) -> Config {
     }
 }
 
+/// 组装配置导出 payload（纯函数，便于单测锁定"明文不出站"）。
+/// - include_password=false：掩码态出站（敏感信息出站唯一出口 masked_for_display）
+/// - include_password=true：密码字段以 DPAPI 加密态密文出站（内存明文重新 encrypt），
+///   wrapper 带 passwordEncrypted 标志供导入端区分；绝不写明文。
+///   空串或 MASK 占位视为"无已存密码"，写空串（MASK 语义：真实密码不会是 "***"，
+///   与 save_config 的占位符语义一致）。
+fn build_config_export_payload(current: &Config, include_password: bool) -> Result<serde_json::Value, String> {
+    let config = if include_password {
+        let mut c = current.clone();
+        for pwd in [&mut c.password, &mut c.self_password] {
+            if pwd.is_empty() || *pwd == crate::config::model::PASSWORD_MASK {
+                pwd.clear();
+            } else {
+                *pwd = crypto::encrypt(pwd)?;
+            }
+        }
+        c
+    } else {
+        current.masked_for_display()
+    };
+    Ok(serde_json::json!({
+        "type": "campus-login-config",
+        "version": 1,
+        "exportedAt": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "appVersion": env!("APP_VERSION"),
+        "passwordEncrypted": include_password,
+        "config": config,
+    }))
+}
+
+/// 还原导入文件中的一个密码字段（写盘方责任：MASK 占位不得直接落盘，
+/// 见 .codewiki/learnings/mask-placeholder-persisted-as-plaintext）。
+/// - 空串 / MASK 占位：保留当前已存值
+/// - passwordEncrypted=true：先本机 decrypt 还原明文；失败明确报错（含密码导出仅限
+///   本机导入），不静默清空避免"以为导入了密码实际没有"的困惑
+/// - 其余：视为明文直传（用户手工编辑的文件）
+fn restore_imported_password_field(imported: &mut String, encrypted: bool, current: &str) -> Result<(), String> {
+    if imported.is_empty() || imported == crate::config::model::PASSWORD_MASK {
+        *imported = current.to_string();
+        return Ok(());
+    }
+    if encrypted {
+        *imported = crypto::decrypt(imported)
+            .map_err(|e| format!("密码密文解密失败（含密码导出仅限本机导入）: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 导出当前配置到 <data_dir>/exports/config-<时间戳>.json，返回文件路径。
+/// 默认不含密码（掩码态）；include_password=true 时密码以本机 DPAPI 密文导出。
+#[tauri::command]
+pub fn export_config(state: State<'_, AppState>, app_handle: AppHandle, include_password: Option<bool>) -> Result<String, String> {
+    let current = state.config.load();
+    let payload = build_config_export_payload(&current, include_password.unwrap_or(false))?;
+    let json = serde_json::to_string_pretty(&payload).map_err(|e| format!("序列化配置失败: {e}"))?;
+
+    let data_dir = persist::get_data_dir(&app_handle);
+    let exports_dir = data_dir.join("exports");
+    std::fs::create_dir_all(&exports_dir).map_err(|e| format!("创建导出目录失败: {e}"))?;
+    let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let out_path = exports_dir.join(format!("config-{stamp}.json"));
+    std::fs::write(&out_path, json).map_err(|e| format!("写入导出文件失败: {e}"))?;
+
+    crate::log_info!("config", "配置导出成功: {:?}", out_path);
+    Ok(out_path.to_string_lossy().to_string())
+}
+
+/// 从 JSON 文件导入配置。失败分列三类原因：JSON 解析失败 / 配置校验失败 / 落盘失败
+/// （另有密码密文解密失败，见 restore_imported_password_field）。
+/// 通过后走与 save_config 完全相同的落盘路径：update_portal_url → set_log_retention_days
+/// → save_config_to_disk_encrypted（内含 config-changed 事件）→ 更新内存 ConfigStore。
+#[tauri::command]
+pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: String) -> Result<CommandResult, String> {
+    // 大小防呆：配置文件不应超过 1MB，防止误选超大文件整读进内存
+    const MAX_IMPORT_SIZE: u64 = 1024 * 1024;
+    let meta = std::fs::metadata(&path).map_err(|e| format!("读取配置文件失败: {e}"))?;
+    if meta.len() > MAX_IMPORT_SIZE {
+        return Err(format!("配置文件过大（{} 字节），超过 1MB 限制", meta.len()));
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("读取配置文件失败: {e}"))?;
+
+    // 失败分列①：JSON 解析失败
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("配置文件不是合法 JSON: {e}"))?;
+    // 兼容两种形态：本应用导出的 wrapper（{type, config, passwordEncrypted}）与裸 Config
+    let password_encrypted = value.get("passwordEncrypted").and_then(|b| b.as_bool()).unwrap_or(false);
+    let config_value = value.get("config").cloned().unwrap_or(value);
+    // 失败分列②：结构不符合 Config（serde 錯誤给出首个不合法字段）
+    let mut config: Config = serde_json::from_value(config_value)
+        .map_err(|e| format!("配置文件结构无效: {e}"))?;
+
+    // 密码语义还原必须先于严格校验：含密码导出的密码字段是 base64 密文，
+    // 长度必然超过 validate_password 的 128 上限，先还原成明文再校验
+    let current = state.config.load();
+    restore_imported_password_field(&mut config.password, password_encrypted, &current.password)?;
+    restore_imported_password_field(&mut config.self_password, password_encrypted, &current.self_password)?;
+
+    // 失败分列③：配置校验失败（严格版，与 save_config 同源）
+    let config = match validate_config(config) {
+        Ok(c) => c,
+        Err(e) => return Ok(CommandResult::err(&format!("配置校验失败: {e}"))),
+    };
+
+    // 与 save_config 同路径同顺序：全局 Portal URL → logger 保留天数 → 落盘（含
+    // config-changed 事件，掩码后发射）→ 更新内存。落盘失败（分列④）时命令返回 Err
+    // 且运行态不变，避免"导入成功但内存未生效"的错位
+    crate::network::update_portal_url(&config.portal_url);
+    crate::infra::logger::set_log_retention_days(config.log_retention_days);
+    save_config_to_disk_encrypted(&app_handle, &config)?;
+    state.config.store(config.clone());
+    crate::log_info!("config", "配置导入成功, 用户: {}", config.user);
+
+    Ok(CommandResult::ok_msg("配置导入成功"))
+}
+
 #[tauri::command]
 pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
     crate::app::window::show_and_focus_main(&app_handle);
@@ -140,6 +255,8 @@ pub fn save_config(
 
 #[cfg(test)]
 mod tests {
+    use super::{build_config_export_payload, restore_imported_password_field};
+
     /// 出站掩码回归锁：masked_for_display 必须同时掩掉 password 与 self_password
     /// 两个敏感字段（空=未设置语义保留）。历史缺陷：fe000de 修 get_init_data/
     /// get_config 漏掩 self_password 时漏掉了 account 三命令（switch/save_as/
@@ -161,5 +278,65 @@ mod tests {
         // 原 struct 不被就地修改
         assert_eq!(cfg.password, "login-secret");
         assert_eq!(cfg.self_password, "self-secret");
+    }
+
+    /// 导出安全回归锁（P2-30）：无论 include_password 取值如何，导出 payload 都
+    /// 不得包含内存明文密码。掩码态走 masked_for_display；含密码态必须是
+    /// DPAPI 密文（本机可解回原值），绝不出现明文字符串。
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn export_payload_never_contains_plaintext_password() {
+        let cfg = crate::config::model::Config {
+            password: "login-secret".to_string(),
+            self_password: "self-secret".to_string(),
+            ..Default::default()
+        };
+
+        // 掩码态：密码字段为 MASK，无明文
+        let masked = build_config_export_payload(&cfg, false).unwrap();
+        let masked_str = masked.to_string();
+        assert!(!masked_str.contains("login-secret"), "掩码导出泄露明文: {masked_str}");
+        assert_eq!(masked["config"]["password"], crate::config::model::PASSWORD_MASK);
+        assert_eq!(masked["passwordEncrypted"], false);
+
+        // 含密码态：DPAPI 密文（可解回原值），无明文
+        let enc = build_config_export_payload(&cfg, true).unwrap();
+        let enc_str = enc.to_string();
+        assert!(!enc_str.contains("login-secret"), "含密码导出泄露明文: {enc_str}");
+        assert!(!enc_str.contains("self-secret"), "含密码导出泄露自助密码明文: {enc_str}");
+        assert_eq!(enc["passwordEncrypted"], true);
+        let cipher = enc["config"]["password"].as_str().unwrap();
+        assert_eq!(crate::account::crypto::decrypt(cipher).unwrap(), "login-secret");
+        let self_cipher = enc["config"]["selfPassword"].as_str().unwrap();
+        assert_eq!(crate::account::crypto::decrypt(self_cipher).unwrap(), "self-secret");
+    }
+
+    /// 导入密码字段还原语义：空/MASK 保留当前已存值（MASK 占位不得落盘变明文 "***"）；
+    /// 密文需 decrypt 还原明文；密文解密失败明确报错而非静默清空。
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn import_password_restore_semantics() {
+        // 空 / MASK → 保留当前已存值
+        let mut imported = String::new();
+        restore_imported_password_field(&mut imported, false, "current-pwd").unwrap();
+        assert_eq!(imported, "current-pwd");
+        let mut imported = crate::config::model::PASSWORD_MASK.to_string();
+        restore_imported_password_field(&mut imported, true, "current-pwd").unwrap();
+        assert_eq!(imported, "current-pwd");
+
+        // 密文 → decrypt 还原明文
+        let cipher = crate::account::crypto::encrypt("real-pwd").unwrap();
+        let mut imported = cipher.clone();
+        restore_imported_password_field(&mut imported, true, "current-pwd").unwrap();
+        assert_eq!(imported, "real-pwd");
+
+        // 明文直传（未加密导出文件）
+        let mut imported = "plain-typed".to_string();
+        restore_imported_password_field(&mut imported, false, "current-pwd").unwrap();
+        assert_eq!(imported, "plain-typed");
+
+        // 伪造密文 → 明确报错
+        let mut imported = "not-a-valid-cipher".to_string();
+        assert!(restore_imported_password_field(&mut imported, true, "current-pwd").is_err());
     }
 }

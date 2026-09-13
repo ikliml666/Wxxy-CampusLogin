@@ -2,13 +2,18 @@ import type { Config } from '@/settings'
 import type { PanelName, ThemeName } from '@/shared'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass, ShieldCheck
+  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass, ShieldCheck,
+  Database, Upload, Download
 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
@@ -131,6 +136,71 @@ export const SettingsPanel = memo(function SettingsPanel({
     }
   }
   const { t } = useTranslation()
+
+  // ===== 数据管理：配置导出 / 导入（P2-30，桌面专属） =====
+  const [exportWithPassword, setExportWithPassword] = useState(false)
+  const [isExportingConfig, setIsExportingConfig] = useState(false)
+  const [isImportingConfig, setIsImportingConfig] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [showImportConfirm, setShowImportConfirm] = useState(false)
+  const [importPath, setImportPath] = useState('')
+
+  const handleExportConfig = async () => {
+    if (isExportingConfig) return
+    const addToast = useLogToastStore.getState().addToast
+    setIsExportingConfig(true)
+    try {
+      const filePath = await tauriApiWithRetry.exportConfig(exportWithPassword)
+      addToast(t('settings.exportConfigDone'), 'success', filePath)
+    } catch (err) {
+      addToast(extractErrorMessage(err) || t('settings.exportConfigFailed'), 'error')
+    } finally {
+      setIsExportingConfig(false)
+    }
+  }
+
+  // 导入文件来源：Tauri 核心 drag-drop（webview 拦截 HTML5 拖放转为原生事件，
+  // 拿到真实文件路径，无需 dialog 插件）+ 手工粘贴路径兜底。
+  // Dialog 打开期间才挂监听，关闭即清理。
+  useEffect(() => {
+    if (!importDialogOpen) return
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === 'drop') {
+        const first = event.payload.paths?.[0]
+        if (first) setImportPath(first)
+      }
+    }).then(fn => {
+      if (disposed) fn()
+      else unlisten = fn
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [importDialogOpen])
+
+  const handleImportConfig = async () => {
+    if (isImportingConfig || !importPath.trim()) return
+    const addToast = useLogToastStore.getState().addToast
+    setShowImportConfirm(false)
+    setIsImportingConfig(true)
+    try {
+      const result = await tauriApiWithRetry.importConfig(importPath.trim())
+      if (result.success) {
+        addToast(result.message || t('settings.importConfigDone'), 'success')
+        setImportPath('')
+        setImportDialogOpen(false)
+      } else {
+        addToast(result.message || t('settings.importConfigFailed'), 'error')
+      }
+    } catch (err) {
+      addToast(extractErrorMessage(err) || t('settings.importConfigFailed'), 'error')
+    } finally {
+      setIsImportingConfig(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -595,6 +665,100 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardContent>
         </AnimatedCard>
       </div>
+
+      {/* 数据管理：配置导出/导入（P2-30，桌面专属）。导出默认不含密码（掩码态）；
+          含密码导出走 DPAPI 密文仅本机可解。导入经严格校验 + 二次确认后覆盖当前配置 */}
+      <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <Database className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle>{t('settings.dataManagement')}</CardTitle>
+                <CardDescription>{t('settings.dataManagementDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="export-include-password" className="text-sm font-medium cursor-pointer">{t('settings.includePassword')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.includePasswordDesc')}</p>
+              </div>
+              <Switch
+                id="export-include-password"
+                checked={exportWithPassword}
+                onCheckedChange={setExportWithPassword}
+                className="shrink-0"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExportConfig}
+                disabled={isExportingConfig}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
+                )}
+              >
+                <Upload className="h-4 w-4" />
+                {isExportingConfig ? t('settings.exporting') : t('settings.exportConfig')}
+              </button>
+              <button
+                onClick={() => { setImportPath(''); setImportDialogOpen(true) }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'border border-border text-foreground hover:bg-accent active:scale-[0.98]'
+                )}
+              >
+                <Download className="h-4 w-4" />
+                {t('settings.importConfig')}
+              </button>
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      {/* 导入配置：拖放或粘贴文件路径（无 dialog 插件，用 Tauri 原生 drag-drop 拿真实路径） */}
+      <Dialog open={importDialogOpen} onOpenChange={(open) => { if (!open) setImportDialogOpen(false) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('settings.importConfigTitle')}</DialogTitle>
+            <DialogDescription>{t('settings.importConfigDesc')}</DialogDescription>
+          </DialogHeader>
+          <div
+            className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-5 text-center"
+            aria-label={t('settings.importConfigDropHint')}
+          >
+            <Download className="h-5 w-5 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">{t('settings.importConfigDropHint')}</p>
+          </div>
+          <input
+            type="text"
+            value={importPath}
+            onChange={e => setImportPath(e.target.value)}
+            placeholder={t('settings.importConfigPathPlaceholder')}
+            className="w-full h-9 px-3 text-xs bg-muted/50 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(false)}>{t('confirmDialog.cancel')}</Button>
+            <Button size="sm" disabled={!importPath.trim()} onClick={() => { setImportDialogOpen(false); setShowImportConfirm(true) }}>
+              {t('settings.importConfigNext')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导入二次确认：覆盖当前全部配置属破坏性操作，必须确认（复用全局 ConfirmDialog） */}
+      <ConfirmDialog
+        open={showImportConfirm}
+        title={t('settings.importConfigConfirmTitle')}
+        message={t('settings.importConfigConfirmMessage')}
+        onConfirm={handleImportConfig}
+        onCancel={() => setShowImportConfirm(false)}
+      />
 
     </div>
   )

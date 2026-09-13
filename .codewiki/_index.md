@@ -39,6 +39,7 @@
 - [[decisions\windows-hello-only-identity|身份验证仅用 Windows Hello，删除 CredUI/SSPI 回退]]
 - [[decisions\adapter-operation-scope|适配器操作范围只作用于主/副适配器（UI 展示遍历全部）]]
 - [[decisions\single-notification-channel|通知单通道（系统通知与应用内提示分离）]]
+- [[decisions\config-export-import|配置导出/导入与诊断包导出（密码密文出站、导入走 save_config 同路径）]]
 - [[decisions\deferred-panel-transition|面板内容渲染统一用 deferredPanel（useDeferredValue）]]
 - [[decisions\verification-gate-tiers|验证门分级（改变外部状态的命令才设门）]]
 ## Learning

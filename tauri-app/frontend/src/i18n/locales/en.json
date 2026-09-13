@@ -527,7 +527,25 @@
       "unicom": "China Unicom",
       "cmcc": "China Mobile"
     },
-    "autoLaunchFailed": "Failed to set launch at startup"
+    "autoLaunchFailed": "Failed to set launch at startup",
+    "dataManagement": "Data Management",
+    "dataManagementDesc": "Export or import app configuration for migration and troubleshooting",
+    "exportConfig": "Export Config",
+    "exporting": "Exporting...",
+    "includePassword": "Include password",
+    "includePasswordDesc": "Passwords are exported encrypted, decryptable on this machine only; keep off for cross-device migration",
+    "exportConfigDone": "Configuration exported",
+    "exportConfigFailed": "Failed to export configuration",
+    "importConfig": "Import Config",
+    "importConfigTitle": "Select configuration file",
+    "importConfigDesc": "The file will be strictly validated and will overwrite all current settings after confirmation.",
+    "importConfigDropHint": "Drop a config file here",
+    "importConfigPathPlaceholder": "or paste the full path to the config file",
+    "importConfigNext": "Next",
+    "importConfigConfirmTitle": "Confirm import",
+    "importConfigConfirmMessage": "Importing will overwrite ALL current settings (account, network and behavior). Continue?",
+    "importConfigDone": "Configuration imported",
+    "importConfigFailed": "Failed to import configuration"
   },
   "log": {
     "systemLog": "System Logs",
@@ -565,7 +583,11 @@
     "dnsNotRecommendedLog": "Recommended DNS not in use. Open the Network panel and click 'One-click DNS Optimize' to set Alibaba + Tencent DNS",
     "dnsDohNotEnabledLog": "DNS DoH encryption not enabled. Click 'One-click DNS Optimize' in the Network panel, or enable it in Windows Settings → Network → DNS Encryption",
     "flushSaveFailedLog": "Failed to save config before close: {{msg}}",
-    "retentionChangeFailed": "Failed to set log retention"
+    "retentionChangeFailed": "Failed to set log retention",
+    "exportDiagnostics": "Export Diagnostics",
+    "exportDiagnosticsDesc": "Bundle logs, masked config and adapter/GPU info for bug reports",
+    "exportDiagnosticsDone": "Diagnostics bundle exported",
+    "exportDiagnosticsFailed": "Failed to export diagnostics bundle"
   },
   "onboarding": {
     "welcome": "Welcome",

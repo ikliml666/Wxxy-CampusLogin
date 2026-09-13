@@ -18,7 +18,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 `tauri-app/src-tauri/src/commands/` 是桌面端 Rust 后端对 webview 暴露的全部 IPC 命令面：前端经 `@tauri-apps/api/core` 的 `invoke('<snake_case 命令名>')` 调用，命令函数负责参数校验、并发互斥、状态读写，再转发到 `auth` / `network` / `config` / `monitor` / `self_service` / `update` / `platform` 等下层模块。
 
-本模块共 **54 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 3、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 14、`system.rs` 15、`account.rs` 5、`self_service.rs` 7、`updater.rs` 4），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **56 项**。
+本模块共 **57 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 14、`system.rs` 16、`account.rs` 5、`self_service.rs` 7、`updater.rs` 4），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **59 项**。
 
 ## Key Components
 
@@ -26,27 +26,30 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 端 | 注册位置 | 注册项数 | 说明 |
 |---|---|---|---|
-| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-120` | 56 | 54 条 `commands::*` + `infra::logger::set_debug_mode`（118 行）/ `get_debug_mode`（119 行） |
+| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-123` | 59 | 57 条 `commands::*` + `infra::logger::set_debug_mode`（121 行）/ `get_debug_mode`（122 行） |
 | 安卓 | `android/src-tauri/src/lib.rs:55-104` | 48 | 同名对齐的独立实现（`protocol_cmds` / `campus_detect` / `config_state` / `self_service_cmds` / `account_cmds` / `system_cmds` / `monitor_loop` / `quality_cmds` / `update_cmds`），不含桌面专属命令 |
 
 模块声明见 `tauri-app/src-tauri/src/commands/mod.rs:1-8`（8 个 `pub mod`，`self_service` 在 8 行）。
 
-命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword, clearSelfPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 56 个命令名。
+命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword, clearSelfPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 59 个命令名。
 
-### 命令总表（逐条，共 54 条）
+### 命令总表（逐条，共 57 条）
 
-#### config_cmd.rs（3 条）
+#### config_cmd.rs（5 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `show_window` | `commands/config_cmd.rs:80-84` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
+| `show_window` | `commands/config_cmd.rs:196-200` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
 | `get_config` | `commands/config_cmd.rs:86-89` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码两个密码字段 | 无（掩码是出站唯一出口） |
 | `save_config` | `commands/config_cmd.rs:91-139` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>`、`clear_self_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 | `validate_config`（99 行）；`clear_password == Some(true)` 跳过兜底置空（109-110）；空/MASK 时回填当前内存密码（111-115、118-123） |
+| `export_config` | `commands/config_cmd.rs:131-145` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（86-113 行）有"明文不出站"回归测试（288 行） |
+| `import_config` | `commands/config_cmd.rs:152-193` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
 
 同文件非命令的公开辅助函数：
 
-- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:9-18`）：落盘 + 统一发射 `config-changed` 事件（掩码后发射，15-16 行）。**所有改写配置的命令最终都经此路径通知前端**。
+- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:9-18`）：落盘 + 统一发射 `config-changed` 事件（掩码后发射，15-16 行）。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）。
 - `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:55-78`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（63-73 行）后返回默认配置。
+- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（86-113）、`restore_imported_password_field`（116-127，写盘方 MASK 责任的导入侧实现）。
 
 #### login.rs（2 条）
 
@@ -83,7 +86,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `check_dns_doh_status` | `commands/network_cmd.rs:245-258` | — | `Result<serde_json::Value, String>` | 读注册表汇总各适配器 DNS 来源与 DoH 状态；非 Windows 返回空结构（253-256） | 无 |
 | `setup_dns_doh` | `commands/network_cmd.rs:260-340` | `app_handle`、`family: Option<String>`（`"ipv4"`/`"ipv6"`/`"both"`，非法回退 `both`，263-267） | `Result<serde_json::Value, String>` | 一键设置 DNS + DoH：管理员直调 `dns_setup::setup_dns_doh_admin`（298-300），否则经 `--helper dns` 提权（302-337） | 目标白名单：`resolve_adapter_names` + `filter_operation_adapters` + 非空 IP + `!is_blacklisted`（284-289）；无目标返回失败（291-296）；非 Windows 返回"仅支持Windows"（270-274） |
 
-#### system.rs（15 条）
+#### system.rs（16 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
@@ -102,6 +105,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `get_gpu_info` | `commands/system.rs:170-174` | — | `Result<serde_json::Value, String>` | 单独取 GPU 信息（内部 `OnceLock` 缓存） | 无 |
 | `set_log_retention_days` | `commands/system.rs:176-180` | `days: u32` | `Result<(), String>` | 更新运行期日志保留天数 | 无 |
 | `get_log_retention_days` | `commands/system.rs:182-185` | — | `u32` | 读日志保留天数（**唯一不返回 Result 的命令**） | 无 |
+| `export_diagnostics` | `commands/system.rs:193-277` | `app_handle`、`state`、`days: Option<u32>`（默认 3，0=全部日志） | `Result<String, String>` | 导出诊断包到 `<data_dir>/diagnostics/diag-<ts>/`：近 N 天 `app-*.log`（先 `logger::flush()` 防截断）、`config-masked.json`、`adapters.json`、`gpu.json`、`manifest.json`；返回目录路径 | 掩码配置走 `masked_for_display()` 唯一出口；日志文件名过滤复用 `logger::is_app_log_file`（已改 pub） |
 
 #### account.rs（5 条）
 

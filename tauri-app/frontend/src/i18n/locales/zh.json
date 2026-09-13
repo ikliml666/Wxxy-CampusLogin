@@ -527,7 +527,25 @@
       "unicom": "中国联通",
       "cmcc": "中国移动"
     },
-    "autoLaunchFailed": "开机自启设置失败"
+    "autoLaunchFailed": "开机自启设置失败",
+    "dataManagement": "数据管理",
+    "dataManagementDesc": "导出或导入应用配置，便于换机迁移与报障取证",
+    "exportConfig": "导出配置",
+    "exporting": "导出中...",
+    "includePassword": "包含密码",
+    "includePasswordDesc": "密码以本机加密密文导出，仅本机可解；跨设备迁移请关闭",
+    "exportConfigDone": "配置已导出",
+    "exportConfigFailed": "配置导出失败",
+    "importConfig": "导入配置",
+    "importConfigTitle": "选择配置文件",
+    "importConfigDesc": "导入将通过严格校验，确认后覆盖当前全部配置。",
+    "importConfigDropHint": "将配置文件拖到此处",
+    "importConfigPathPlaceholder": "或粘贴配置文件完整路径",
+    "importConfigNext": "下一步",
+    "importConfigConfirmTitle": "确认导入配置",
+    "importConfigConfirmMessage": "导入将覆盖当前全部配置（账号、网络与行为设置）。确定继续吗？",
+    "importConfigDone": "配置导入成功",
+    "importConfigFailed": "配置导入失败"
   },
   "log": {
     "systemLog": "系统日志",
@@ -565,7 +583,11 @@
     "dnsNotRecommendedLog": "未使用推荐DNS，建议在「网络」面板点击「一键优化DNS」设置阿里+腾讯DNS",
     "dnsDohNotEnabledLog": "DNS未启用DoH加密，建议在「网络」面板点击「一键优化DNS」启用，或在 Windows 设置 → 网络 → DNS 加密中手动开启",
     "flushSaveFailedLog": "关闭前保存配置失败: {{msg}}",
-    "retentionChangeFailed": "日志保留时长设置失败"
+    "retentionChangeFailed": "日志保留时长设置失败",
+    "exportDiagnostics": "导出诊断",
+    "exportDiagnosticsDesc": "打包日志、掩码配置与适配器/GPU 信息，便于报障附证据",
+    "exportDiagnosticsDone": "诊断包已导出",
+    "exportDiagnosticsFailed": "诊断包导出失败"
   },
   "onboarding": {
     "welcome": "欢迎",

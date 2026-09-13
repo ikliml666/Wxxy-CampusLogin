@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   FileText,
+  FileDown,
   RefreshCw,
   Trash2,
   AlertCircle,
@@ -32,6 +33,8 @@ interface LogPanelProps {
     setDebugMode: (enabled: boolean) => Promise<boolean>
     getLogRetentionDays?: () => Promise<number>
     setLogRetentionDays?: (days: number) => Promise<void>
+    /** 导出诊断包（桌面专属，安卓不传） */
+    exportDiagnostics?: (days?: number) => Promise<string>
   }
   addToast: (message: string, type: 'info' | 'success' | 'error' | 'warning', description?: string) => void
 }
@@ -92,6 +95,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [debugMode, setDebugMode] = useState(false)
   const [retentionDays, setRetentionDays] = useState(7)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollRef = useRef(true)
   const isVisibleRef = useRef(true)
@@ -270,6 +274,23 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     setShowClearConfirm(true)
   }, [displayedLines.length, isClearing])
 
+  // 导出诊断包（日志 + 掩码配置 + 适配器 + GPU），成功 toast 携带目录路径，
+  // 用户整包发给开发者即可附上版本/环境/掩码配置证据（P2-29）
+  const handleExportDiagnostics = useCallback(async () => {
+    if (!api.exportDiagnostics || isExportingDiagnostics) return
+    setIsExportingDiagnostics(true)
+    try {
+      const dir = await api.exportDiagnostics()
+      if (!mountedRef.current) return
+      addToast(t('log.exportDiagnosticsDone'), 'success', dir)
+    } catch (e: unknown) {
+      if (!mountedRef.current) return
+      addToast(t('log.exportDiagnosticsFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) setIsExportingDiagnostics(false)
+    }
+  }, [api, addToast, isExportingDiagnostics, t])
+
   const handleClearConfirm = useCallback(() => {
     setShowClearConfirm(false)
     setIsClearing(true)
@@ -425,6 +446,17 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                     <SelectItem value="0">{t('log.retention.permanent')}</SelectItem>
                   </SelectContent>
                 </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[11px] gap-1 px-2"
+                  onClick={handleExportDiagnostics}
+                  disabled={isExportingDiagnostics || !api.exportDiagnostics}
+                  title={t('log.exportDiagnosticsDesc')}
+                >
+                  <FileDown className={cn('h-3 w-3', isExportingDiagnostics && 'animate-pulse')} />
+                  {t('log.exportDiagnostics')}
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
