@@ -31,6 +31,18 @@ export interface SocInfo {
   tier: number
 }
 
+export interface BatteryOptimizationInfo {
+  ignoring: boolean
+  brand: string
+  hasVendorTarget: boolean
+}
+
+export interface VendorSettingsResult {
+  path: 'vendor' | 'vendor_action' | 'app_details' | 'settings' | 'none'
+  target: string
+  tried: string[]
+}
+
 interface CampusStatusResult {
   onCampusNetwork: boolean
   currentSsid: string | null
@@ -90,6 +102,9 @@ interface TauriApi {
   setAutoLaunch: (enabled: boolean) => Promise<AutoLaunchResult>
   getNotificationEnabled: () => Promise<boolean>
   setNotificationEnabled: (enabled: boolean) => Promise<boolean>
+  getBatteryOptimizationInfo: () => Promise<BatteryOptimizationInfo>
+  requestIgnoreBatteryOptimizations: () => Promise<boolean>
+  openVendorBatterySettings: () => Promise<VendorSettingsResult>
   cancelAutoExit: () => Promise<CommandResult>
   onAutoExitCountdown: (cb: (data: AutoExitCountdownData) => void) => () => void
   onAutoExitCancelled: (cb: () => void) => () => void
@@ -239,6 +254,9 @@ const tauriApi: TauriApi = {
   setAutoLaunch: (enabled) => invoke<void>('set_boot_autostart', { enabled }).then(() => ({ success: true }) as AutoLaunchResult),
   getNotificationEnabled: () => invoke<boolean>('get_notification_enabled'),
   setNotificationEnabled: (enabled) => invoke<boolean>('set_notification_enabled', { enabled }),
+  getBatteryOptimizationInfo: () => invoke<BatteryOptimizationInfo>('get_battery_optimization_info'),
+  requestIgnoreBatteryOptimizations: () => invoke<boolean>('request_ignore_battery_optimizations'),
+  openVendorBatterySettings: () => invoke<VendorSettingsResult>('open_vendor_battery_settings'),
   cancelAutoExit: () => desktopOnly<CommandResult>('cancel_auto_exit'),
   onAutoExitCountdown: noopListener as TauriApi['onAutoExitCountdown'],
   onAutoExitCancelled: noopListener as TauriApi['onAutoExitCancelled'],
