@@ -178,7 +178,14 @@ export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdat
                 {checkError}
               </p>
             )}
-            {updateInfo && !hasUpdate && (
+            {updateInfo?.lastCheckError && (
+              // 上次（自动/手动）检查失败但本次检查成功：带出失败原因，不再笼统显示"已是最新"
+              <p className="flex items-start gap-1.5 text-xs text-destructive">
+                <XCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                <span className="min-w-0 break-words">{t('about.lastCheckFailed')}: {updateInfo.lastCheckError}</span>
+              </p>
+            )}
+            {updateInfo && !hasUpdate && !updateInfo.lastCheckError && (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Check className="h-3.5 w-3.5 text-emerald-500" />
                 {t('about.alreadyLatest')}

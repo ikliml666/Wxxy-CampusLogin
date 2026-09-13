@@ -126,6 +126,8 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
         latestVersion: initialLatestVersion,
         releaseNotes: initialReleaseNotes ||'',
         assets: [],
+        lastCheckError: null,
+        lastCheckTime: null,
       })
       autoCheckedRef.current = true
     }
@@ -339,9 +341,9 @@ function renderNotesLines(notes: string): ReactNode[] {
               disabled={checking || downloadState ==='downloading'}
             >
               <RefreshCw className={cn('h-3 w-3 shrink-0', checking &&'animate-spin')} />
-              {checking ? t('about.checking') : updateInfo ? (
+              {checking ? t('about.checking') : (updateInfo?.lastCheckError || checkError) ? t('about.checkFailedRetry') : updateInfo ? (
                 updateInfo.hasUpdate ? t('about.newVersionFound') : t('about.alreadyLatest')
-              ) : checkError ? t('about.checkFailedRetry') : t('about.checkUpdate')}
+              ) : t('about.checkUpdate')}
             </Button>
 
             {/* 底部: 赞助按钮 + GitHub 仓库链接 */}
@@ -406,29 +408,43 @@ function renderNotesLines(notes: string): ReactNode[] {
             )}
 
             <div className={showSponsor ? 'hidden' : 'contents'}>
-            {/* ------ idle + 无更新：已是最新版 ------ */}
+            {/* ------ idle + 无更新：已是最新版 / 上次检查失败 ------ */}
             {downloadState ==='idle' && !updateInfo?.hasUpdate && (
               <div className="flex-1 flex flex-col items-center justify-center gap-5">
                 {updateInfo ? (
-                  <>
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center">
-                        <Check className="h-8 w-8 text-emerald-500" />
+                  updateInfo.lastCheckError ? (
+                    // 上次（自动/手动）检查失败但本次检查成功：带出失败原因，不再笼统显示"已是最新"
+                    <>
+                      <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center">
+                        <XCircle className="h-8 w-8 text-rose-400" />
                       </div>
-                      <p className="text-base font-semibold text-emerald-600">{t('about.alreadyLatest')}</p>
-                      <p className="text-sm text-muted-foreground">v{APP_VERSION}</p>
-                    </div>
-                    {/* 核心优势卡片 */}
-                    <div className="grid grid-cols-3 gap-2.5 w-full max-w-[340px] mt-2">
-                      {CORE_FEATURES.map((feat) => (
-                        <div key={feat.titleKey} className="bg-white rounded-xl p-2.5 text-center shadow-sm border border-gray-100">
-                          <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
-                          <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
-                          <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{t(feat.descKey)}</div>
+                      <p className="text-sm font-medium text-rose-500">{t('about.lastCheckFailed')}</p>
+                      <p className="text-xs text-muted-foreground text-center max-w-xs break-words">{updateInfo.lastCheckError}</p>
+                      <Button variant="outline" size="sm" className="text-xs" onClick={handleCheckUpdate} disabled={checking}>
+                        {t('common.retry')}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center">
+                          <Check className="h-8 w-8 text-emerald-500" />
                         </div>
-                      ))}
-                    </div>
-                  </>
+                        <p className="text-base font-semibold text-emerald-600">{t('about.alreadyLatest')}</p>
+                        <p className="text-sm text-muted-foreground">v{APP_VERSION}</p>
+                      </div>
+                      {/* 核心优势卡片 */}
+                      <div className="grid grid-cols-3 gap-2.5 w-full max-w-[340px] mt-2">
+                        {CORE_FEATURES.map((feat) => (
+                          <div key={feat.titleKey} className="bg-white rounded-xl p-2.5 text-center shadow-sm border border-gray-100">
+                            <feat.icon className="h-4 w-4 text-violet-500 mx-auto mb-1" />
+                            <div className="text-[11px] font-medium leading-tight">{t(feat.titleKey)}</div>
+                            <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{t(feat.descKey)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )
                 ) : checkError ? (
                   <>
                     <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center">

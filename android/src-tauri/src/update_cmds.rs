@@ -4,7 +4,7 @@
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::Emitter;
@@ -18,6 +18,19 @@ lazy_static! {
 }
 
 const VERSION_FILE: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
+/// 自动更新检查周期(桌面 updater 同语义):24h
+const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 3600;
+/// 失败退避重试间隔:5min → 15min → 1h(与 24h 周期互补:每个 24h 周期内
+/// 至多重试 3 次,退避用尽恢复 24h 周期等待,下一轮周期重新退避)
+const BACKOFF_RETRY_SECS: &[u64] = &[5 * 60, 15 * 60, 3600];
+
+/// 最近一次更新检查失败原因(检查成功后清除;None=最近检查无失败)。
+/// 原实现自动循环 `if let Ok(info)` 静默吞掉 Err:网络抖动时 24h 内不再重试且
+/// 前端不可见,用户误判"已是最新";记录后 check_update 返回体经 lastCheckError
+/// 带出(构造时快照),下次手动检查成功时仍能看到上次失败原因
+static LAST_CHECK_ERROR: Mutex<Option<String>> = Mutex::new(None);
+/// 最近一次更新检查完成时间 epoch ms(成功或失败都记录;0=从未检查)
+static LAST_CHECK_TIME_MS: AtomicU64 = AtomicU64::new(0);
 /// GitHub 原始源失败时按顺序降级(桌面同款镜像)
 const VERSION_MIRRORS: &[&str] = &[
     "https://ghfast.top/https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json",
@@ -54,6 +67,12 @@ pub struct UpdateInfo {
     pub release_notes: String,
     pub assets: Vec<ReleaseAsset>,
     pub sha256_checksum: Option<String>,
+    /// 最近一次更新检查失败原因。返回体携带的是本次检查前记录在案的错误快照
+    /// (本次检查成功时状态被清除,但快照已读出):自动检查失败后,用户下次
+    /// 手动检查成功时仍能看到上次失败原因;此前无失败时为 None
+    pub last_check_error: Option<String>,
+    /// 最近一次更新检查完成时间 unix ms(None=从未检查)
+    pub last_check_time: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -124,7 +143,50 @@ fn allowed_url(url: &str) -> Result<(), String> {
 /// 另一侧保留为降级兜底);version.json 4 源按序降级
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
-    check_update_inner(&app).await
+    check_and_record(&app).await
+}
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn last_check_error_snapshot() -> Option<String> {
+    LAST_CHECK_ERROR.lock().ok().and_then(|g| g.clone())
+}
+
+fn last_check_time_snapshot() -> Option<u64> {
+    let t = LAST_CHECK_TIME_MS.load(Ordering::Relaxed);
+    (t != 0).then_some(t)
+}
+
+/// 第 fail_count 次连续失败后的等待秒数:0=成功/首轮 → 24h 正常周期;
+/// 1..=3 → 对应退避档位(5min/15min/1h);超过 3 → 24h(调用方据此重置计数,
+/// 下一轮 24h 周期重新按退避重试)
+fn backoff_delay_secs(fail_count: u32) -> u64 {
+    fail_count
+        .checked_sub(1)
+        .and_then(|i| BACKOFF_RETRY_SECS.get(i as usize))
+        .copied()
+        .unwrap_or(AUTO_CHECK_INTERVAL_SECS)
+}
+
+/// 执行一次检查并把结果记入最近检查状态(lastCheckError/lastCheckTime 供前端展示)。
+/// 成功清除错误记录,失败写入原因;时间总是更新。自动循环与手动命令统一走本函数,
+/// 保证两条检查路径的可见状态一致
+async fn check_and_record(app: &tauri::AppHandle) -> Result<UpdateInfo, String> {
+    let result = check_update_inner(app).await;
+    let err = match &result {
+        Ok(_) => None,
+        Err(e) => Some(e.clone()),
+    };
+    if let Ok(mut guard) = LAST_CHECK_ERROR.lock() {
+        *guard = err;
+    }
+    LAST_CHECK_TIME_MS.store(now_epoch_ms(), Ordering::Release);
+    result
 }
 
 fn version_urls(mirror_first: bool) -> Vec<&'static str> {
@@ -227,6 +289,10 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
                     release_notes: vf.notes,
                     assets,
                     sha256_checksum: checksum,
+                    // 本次检查前的最近检查状态快照(本次结果随后由 check_and_record 写入):
+                    // 自动检查失败后,用户下次手动检查成功仍能看到上次失败原因
+                    last_check_error: last_check_error_snapshot(),
+                    last_check_time: last_check_time_snapshot(),
                 });
             }
             Ok(resp) => last_err = format!("HTTP {}", resp.status()),
@@ -237,32 +303,50 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
 }
 
 /// 自动更新检查循环(桌面 startup 24h 同语义):启动延迟 5s 查一次,之后每 24h;
-/// 有新版本 emit update-available(前端 useEventListeners 早已监听,据此弹窗提示)
+/// 失败按 5min→15min→1h 退避重试(原实现 `if let Ok(info)` 静默吞掉 Err,
+/// 网络抖动时 24h 内不再重试且无任何提示);有新版本 emit update-available
+/// (前端 useEventListeners 早已监听,据此弹窗提示)
 /// + 系统通知(过 enable_notification 闸)。循环随进程存活,无需停。
 pub fn start_update_check_loop(app: tauri::AppHandle) {
     if UPDATE_LOOP_RUNNING.swap(true, Ordering::Relaxed) {
         return;
     }
     tauri::async_runtime::spawn(async move {
+        // 失败退避计数:连续失败按退避档位重试,退避用尽恢复 24h 周期并重新计数
+        let mut fail_count: u32 = 0;
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            if let Ok(info) = check_update_inner(&app).await {
-                if info.has_update {
-                    let _ = app.emit("update-available", &info);
-                    let enabled = crate::config_state::current_settings(&app)
-                        .await
-                        .map(|s| s.enable_notification)
-                        .unwrap_or(false);
-                    crate::monitor_loop::notify_system(
-                        &app,
-                        enabled,
-                        "发现新版本",
-                        &format!("新版本 v{} 可用,请在关于页更新", info.latest_version),
-                        "mascot_update",
-                    );
+            match check_and_record(&app).await {
+                Ok(info) => {
+                    fail_count = 0;
+                    if info.has_update {
+                        let _ = app.emit("update-available", &info);
+                        let enabled = crate::config_state::current_settings(&app)
+                            .await
+                            .map(|s| s.enable_notification)
+                            .unwrap_or(false);
+                        crate::monitor_loop::notify_system(
+                            &app,
+                            enabled,
+                            "发现新版本",
+                            &format!("新版本 v{} 可用,请在关于页更新", info.latest_version),
+                            "mascot_update",
+                        );
+                    }
+                }
+                Err(e) => {
+                    // 失败原因已由 check_and_record 记入 LAST_CHECK_ERROR(经 lastCheckError
+                    // 回传前端展示),此处仅留日志
+                    campus_login_lib::log_warn!("updater", "自动更新检查失败: {e}");
+                    fail_count += 1;
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+            let wait = backoff_delay_secs(fail_count);
+            if fail_count as usize > BACKOFF_RETRY_SECS.len() {
+                // 退避重试用尽:恢复 24h 周期,下一轮 24h 周期重新按退避重试
+                fail_count = 0;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
         }
     });
 }
@@ -454,6 +538,23 @@ mod tests {
         assert_eq!(info.assets[0].name, "app.apk");
         assert!(info.sha256_checksum.is_none());
         assert!(!info.has_update);
+        // 新增 last 字段:缺失按 None 处理,序列化为 camelCase
+        assert!(info.last_check_error.is_none());
+        assert!(info.last_check_time.is_none());
+        let with_err: UpdateInfo = serde_json::from_str(
+            r#"{"latestVersion":"2.4.0","releaseNotes":"","lastCheckError":"HTTP 503","lastCheckTime":123}"#,
+        ).unwrap();
+        assert_eq!(with_err.last_check_error.as_deref(), Some("HTTP 503"));
+        assert_eq!(with_err.last_check_time, Some(123));
+    }
+
+    #[test]
+    fn 退避间隔_步进后回归24h周期() {
+        assert_eq!(backoff_delay_secs(0), AUTO_CHECK_INTERVAL_SECS, "成功或首轮 → 24h 正常周期");
+        assert_eq!(backoff_delay_secs(1), 5 * 60, "第 1 次失败 → 5min");
+        assert_eq!(backoff_delay_secs(2), 15 * 60, "第 2 次连续失败 → 15min");
+        assert_eq!(backoff_delay_secs(3), 3600, "第 3 次连续失败 → 1h");
+        assert_eq!(backoff_delay_secs(4), AUTO_CHECK_INTERVAL_SECS, "退避用尽恢复 24h 周期");
     }
 
     #[test]

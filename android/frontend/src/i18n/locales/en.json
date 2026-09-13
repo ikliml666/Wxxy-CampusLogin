@@ -672,6 +672,7 @@
     "alreadyLatest": "Already Up to Date",
     "checkFailed": "Update check failed. Please check your network connection",
     "checkFailedRetry": "Check Failed, Retry",
+    "lastCheckFailed": "Last check failed",
     "githubApiLimited": "GitHub API access limited, please try again later",
     "updateNotFound": "Update information not found",
     "releaseNotes": "Release Notes",

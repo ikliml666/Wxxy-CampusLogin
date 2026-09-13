@@ -8,14 +8,11 @@ use std::sync::atomic::Ordering;
 pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     crate::log_info!("updater", "手动检查更新");
     let mirror_first = CommandContext::from_app(&app_handle).config.load().update_source != "github";
-    let info = crate::update::updater::check_update_inner(mirror_first).await?;
+    // check_and_record 统一记录最近检查状态（lastCheckError/lastCheckTime 随返回体回传前端）
+    let info = crate::update::updater::check_and_record(mirror_first).await?;
 
     let state = CommandContext::from_app(&app_handle);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    state.update_stats.last_update_check_epoch_ms.store(now, Ordering::Release);
+    state.update_stats.last_update_check_epoch_ms.store(crate::update::updater::now_epoch_ms(), Ordering::Release);
 
     serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {e}"))
 }

@@ -672,6 +672,7 @@
     "alreadyLatest": "已是最新版本",
     "checkFailed": "检查更新失败，请检查网络连接",
     "checkFailedRetry": "检查失败，重试",
+    "lastCheckFailed": "上次检查失败",
     "githubApiLimited": "GitHub API 访问受限，请稍后重试",
     "updateNotFound": "未找到更新信息",
     "releaseNotes": "更新日志",
