@@ -18,14 +18,13 @@ use crate::auth::failure_tracker::{
 };
 
 pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult {
-    let config = {
-        let guard = state.config.load();
-        if guard.user.is_empty() || guard.password.is_empty() {
-            crate::log_warn!("login", "登录失败: 用户名或密码为空");
-            return CommandResult::err("用户名或密码为空");
-        }
-        guard.clone()
-    };
+    // state.config.load_full() 返回 Arc<Config>（引用计数），复用它即可：
+    // 免去复制 Config，也免去双适配器分支把 Arc 再包一层的二次包装
+    let config = state.config.load_full();
+    if config.user.is_empty() || config.password.is_empty() {
+        crate::log_warn!("login", "登录失败: 用户名或密码为空");
+        return CommandResult::err("用户名或密码为空");
+    }
 
     crate::log_info!("login", "开始登录, 用户: {}{}, 指定适配器: {:?}", config.user, config.operator, adapter_name);
 
@@ -81,7 +80,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         let a1_clone = a1_ref.clone();
         let a2_clone = a2_ref.clone();
         let campus_gateway = config.campus_gateway.clone();
-        let config_shared1 = std::sync::Arc::new(config);
+        let config_shared1 = config;
         let config_shared2 = config_shared1.clone();
         let app_h1 = app_handle.clone();
         let app_h2 = app_handle.clone();
@@ -126,14 +125,12 @@ pub fn logout_adapter_with_log(
 }
 
 pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult {
-    let config = {
-        let guard = state.config.load();
-        if guard.user.is_empty() {
-            crate::log_warn!("logout", "注销失败: 用户名为空");
-            return CommandResult::err("用户名为空，无法注销");
-        }
-        guard.clone()
-    };
+    // 与 full_login 同理：复用 load_full() 的 Arc，不再复制 Config
+    let config = state.config.load_full();
+    if config.user.is_empty() {
+        crate::log_warn!("logout", "注销失败: 用户名为空");
+        return CommandResult::err("用户名为空，无法注销");
+    }
 
     crate::log_info!("logout", "开始注销, 用户: {}, 指定适配器: {:?}", config.user, adapter_name);
 
@@ -189,7 +186,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
         // BE-A-09: Config 以 Arc 共享给两个闭包，替代完整 clone 两份
         let a1_clone = a1_ref.clone();
         let a2_clone = a2_ref.clone();
-        let config_shared1 = std::sync::Arc::new(config);
+        let config_shared1 = config;
         let config_shared2 = config_shared1.clone();
         let app_h1 = app_handle.clone();
         let app_h2 = app_handle.clone();

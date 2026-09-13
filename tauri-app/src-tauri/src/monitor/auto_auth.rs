@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 use chrono::Timelike;
 use crate::network::get_adapters_force;
@@ -311,7 +312,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 if !campus_result.on_campus {
                     crate::log_info!("auto_login", "开机自启: 校园网检测未通过，跳过自动登录 - {}", campus_result.message);
                     s.network.update(|s| {
-                        s.current_ssid = campus_result.current_ssid.clone();
+                        s.current_ssid = campus_result.current_ssid.as_deref().map(Arc::from);
                         s.on_campus_network = campus_result.on_campus;
                     });
                     let _ = EventBus::new(&app_h).emit_auto_login_result(false, &campus_result.message, true);
@@ -329,7 +330,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 }
 
                 s.network.update(|s| {
-                    s.current_ssid = campus_result.current_ssid.clone();
+                    s.current_ssid = campus_result.current_ssid.as_deref().map(Arc::from);
                     s.on_campus_network = true;
                 });
                 crate::log_info!("auto_login", "开机自启: 校园网检测通过 - {}", campus_result.message);

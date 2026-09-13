@@ -31,12 +31,17 @@ pub(super) fn adapter_campus_message(adapter_name: &str, adapters: &[Adapter], c
 }
 
 pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[crate::network::Adapter]) -> CampusCheckResult {
-    crate::log_info!("campus", "[校园网检测] enable_network_name_check={}, required_network_name='{}', campus_gateway='{}'",
+    crate::log_debug!("campus", "[校园网检测] enable_network_name_check={}, required_network_name='{}', campus_gateway='{}'",
         config.enable_network_name_check, config.required_network_name, config.campus_gateway);
 
     if !config.enable_network_name_check {
         let gateway_ok = crate::network::check_gateway_reachable(&config.campus_gateway);
-        crate::log_info!("campus", "[校园网检测] 名称检查已禁用，网关可达性: {}", gateway_ok);
+        if gateway_ok {
+            crate::log_debug!("campus", "[校园网检测] 名称检查已禁用，网关可达");
+        } else {
+            // 该分支提前返回、不经过末尾的结果日志，网关不可达（判定异常）在此单独告警
+            crate::log_warn!("campus", "[校园网检测] 名称检查已禁用，网关不可达: {}", config.campus_gateway);
+        }
         let msg = if gateway_ok {
             format!("网关{}可达", config.campus_gateway)
         } else {
@@ -57,17 +62,22 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     let wifi_ssid = crate::network::get_wireless_ssid().ok().flatten();
     let wired_profile = crate::network::get_wired_network_profile().ok().flatten();
 
-    crate::log_info!("campus", "[校园网检测] wifi_ssid={:?}, wired_profile={:?}", wifi_ssid, wired_profile);
+    crate::log_debug!("campus", "[校园网检测] wifi_ssid={:?}, wired_profile={:?}", wifi_ssid, wired_profile);
 
     let mut gateway_checked: Option<bool> = None;
     let check_gateway = |gw: &str, cache: &mut Option<bool>| -> bool {
         if let Some(cached) = cache {
-            crate::log_info!("campus", "[校园网检测] 使用缓存的网关可达性: {}", cached);
+            crate::log_debug!("campus", "[校园网检测] 使用缓存的网关可达性: {}", cached);
             *cached
         } else {
             let ok = crate::network::check_gateway_reachable(gw);
             *cache = Some(ok);
-            crate::log_info!("campus", "[校园网检测] 网关可达性检查: gw={}, reachable={}", gw, ok);
+            if ok {
+                crate::log_debug!("campus", "[校园网检测] 网关可达性检查: gw={}, reachable=true", gw);
+            } else {
+                // 探测失败：网关 ping 不通是归属判定失败的直接信号
+                crate::log_warn!("campus", "[校园网检测] 网关不可达: gw={}", gw);
+            }
             ok
         }
     };
@@ -76,7 +86,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         let wifi_adapters: Vec<&crate::network::Adapter> = adapters.iter().filter(|a| a.wireless).collect();
         match &wifi_ssid {
             Some(ssid) if ssid.eq_ignore_ascii_case(required_name) => {
-                crate::log_info!("campus", "[校园网检测] ✅ WiFi名称匹配: '{}'", ssid);
+                crate::log_debug!("campus", "[校园网检测] ✅ WiFi名称匹配: '{}'", ssid);
                 Some(ConnectionCampusStatus {
                     on_campus: true,
                     name: Some(ssid.clone()),
@@ -84,13 +94,13 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                 })
             }
             Some(ssid) => {
-                crate::log_info!("campus", "[校园网检测] WiFi SSID '{}' 不匹配校园网名称'{}'", ssid, required_name);
+                crate::log_debug!("campus", "[校园网检测] WiFi SSID '{}' 不匹配校园网名称'{}'", ssid, required_name);
                 let mut found = false;
                 let mut msg = String::new();
                 for a in &wifi_adapters {
                     if !a.ip.is_empty() {
                         let same_subnet = crate::network::is_same_subnet_18(&a.ip, campus_gw);
-                        crate::log_info!("campus", "[校园网检测] WiFi SSID不匹配，尝试子网检查: adapter={}, ip={}, /18匹配={}", a.name, a.ip, same_subnet);
+                        crate::log_debug!("campus", "[校园网检测] WiFi SSID不匹配，尝试子网检查: adapter={}, ip={}, /18匹配={}", a.name, a.ip, same_subnet);
                         if same_subnet {
                             found = true;
                             msg = format!("WiFi\"{ssid}\"名称不匹配但与网关在同一/18网段");
@@ -124,7 +134,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                     for a in &wifi_adapters {
                         if !a.ip.is_empty() {
                             let same_subnet = crate::network::is_same_subnet_18(&a.ip, campus_gw);
-                            crate::log_info!("campus", "[校园网检测] WiFi子网检查: adapter={}, ip={}, /18匹配={}", a.name, a.ip, same_subnet);
+                            crate::log_debug!("campus", "[校园网检测] WiFi子网检查: adapter={}, ip={}, /18匹配={}", a.name, a.ip, same_subnet);
                             if same_subnet {
                                 found = true;
                                 msg = format!("WiFi已连接校园网({}与网关在同一/18网段)", a.ip);
@@ -158,7 +168,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         } else {
             match &wired_profile {
                 Some(profile) if profile.eq_ignore_ascii_case(required_name) => {
-                    crate::log_info!("campus", "[校园网检测] ✅ 有线名称匹配: '{}'", profile);
+                    crate::log_debug!("campus", "[校园网检测] ✅ 有线名称匹配: '{}'", profile);
                     Some(ConnectionCampusStatus {
                         on_campus: true,
                         name: Some(profile.clone()),
@@ -171,7 +181,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                     for a in &wired_adapters {
                         if !a.ip.is_empty() {
                             let same_subnet = crate::network::is_same_subnet_18(&a.ip, campus_gw);
-                            crate::log_info!("campus", "[校园网检测] 有线子网检查: adapter={}, ip={}, /18匹配={}", a.name, a.ip, same_subnet);
+                            crate::log_debug!("campus", "[校园网检测] 有线子网检查: adapter={}, ip={}, /18匹配={}", a.name, a.ip, same_subnet);
                             if same_subnet {
                                 found = true;
                                 msg = format!("有线已连接校园网({}与网关在同一/18网段)", a.ip);
@@ -225,8 +235,14 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         if parts.is_empty() { "未连接到校园网络".to_string() } else { parts.join("；") }
     };
 
-    crate::log_info!("campus", "[校园网检测] 结果: on_campus={}, wifi={:?}, wired={:?}, message={}",
-        on_campus, wifi_status.as_ref().map(|s| s.on_campus), wired_status.as_ref().map(|s| s.on_campus), message);
+    if on_campus {
+        crate::log_debug!("campus", "[校园网检测] 结果: on_campus=true, wifi={:?}, wired={:?}, message={}",
+            wifi_status.as_ref().map(|s| s.on_campus), wired_status.as_ref().map(|s| s.on_campus), message);
+    } else {
+        // 判定异常（未在校园网）：保留 warn 级别便于排障
+        crate::log_warn!("campus", "[校园网检测] 判定未在校园网: wifi={:?}, wired={:?}, message={}",
+            wifi_status.as_ref().map(|s| s.on_campus), wired_status.as_ref().map(|s| s.on_campus), message);
+    }
 
     CampusCheckResult {
         wifi: wifi_status,

@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use chrono::Timelike;
 use crate::network::{get_adapters_cached, get_adapters_force};
 use crate::infra::state::AppState;
@@ -42,7 +43,8 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let (a1, a2) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
 
-    let now_min = chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16;
+    let now = chrono::Local::now();
+    let now_min = now.hour() as u16 * 60 + now.minute() as u16;
     let campus_result = if crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes) {
         let hour = config.campus_check_start_minutes / 60;
         let minute = config.campus_check_start_minutes % 60;
@@ -77,7 +79,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 合并条件分支内的 any_adapter_online/last_a1_online 重置，减少 CAS 循环次数
     let campus_check_failed = config.enable_network_name_check && !campus_result.on_campus;
     state.network.update(|s| {
-        s.current_ssid = campus_result.current_ssid.clone();
+        s.current_ssid = campus_result.current_ssid.as_deref().map(Arc::from);
         s.on_campus_network = campus_result.on_campus;
         if campus_check_failed {
             s.any_adapter_online = false;

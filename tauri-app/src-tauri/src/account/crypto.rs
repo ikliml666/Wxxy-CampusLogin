@@ -55,6 +55,11 @@ mod dpapi {
         let result = dpapi_call(&mut input, &mut output);
 
         if result == 0 {
+            // 失败路径也要释放输出缓冲：多数实现失败时 pb_data 为 null，
+            // 但契约上不保证，判空后与成功路径同款清理
+            if !output.pb_data.is_null() {
+                unsafe { LocalFree(output.pb_data as *mut std::ffi::c_void) };
+            }
             return Err(error_msg.to_string());
         }
 

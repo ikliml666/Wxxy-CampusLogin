@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 use crate::network::get_adapters_cached_async;
 use crate::infra::state::AppState;
@@ -36,7 +37,7 @@ pub(super) fn classify_quality_change(last: Option<&str>, current: &str, enable_
 }
 
 pub(super) fn record_last_quality(state: &AppState, current: &str) {
-    state.network.update(|s| s.last_network_quality = Some(current.to_string()));
+    state.network.update(|s| s.last_network_quality = Some(Arc::from(current)));
 }
 
 pub(super) fn notify_quality_change(app_handle: &AppHandle, kind: &str) {

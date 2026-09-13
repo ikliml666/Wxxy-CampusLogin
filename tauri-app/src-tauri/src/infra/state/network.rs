@@ -13,8 +13,10 @@ pub struct NetworkSnapshot {
     pub disconnect_reconnect_count: u32,
     pub background_check_count: u32,
     pub last_auto_login_attempt: Instant,
-    pub last_network_quality: Option<String>,
-    pub current_ssid: Option<String>,
+    /// 质量与 SSID 用 `Arc<str>`：快照在 CAS 循环里整份 clone，
+    /// 引用计数替代 String 深拷贝（后台检查单周期 update 8 次以上）
+    pub last_network_quality: Option<Arc<str>>,
+    pub current_ssid: Option<Arc<str>>,
     pub on_campus_network: bool,
     pub logout_protected_until: Instant,
     pub portal_failure_count: u32,
