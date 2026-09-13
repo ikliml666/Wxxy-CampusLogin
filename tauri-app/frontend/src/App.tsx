@@ -34,7 +34,7 @@ import { MonitorPanel } from '@/monitor/MonitorPanel'
 import { QualityPanel } from '@/monitor/QualityPanel'
 import { SpeedTestPanel } from '@/monitor/SpeedTestPanel'
 import { SettingsPanel } from '@/settings/SettingsPanel'
-import { getPanelDirection, createPanelAppleVariants } from '@/lib/animations'
+import { createPanelAppleVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { useStartupBoost } from '@/hooks/useStartupBoost'
 import { AnimationActiveProvider } from '@/hooks/usePageIdle'
@@ -183,16 +183,6 @@ function AppInner() {
   const profile = useAnimationProfile()
   const panelVariants = useMemo(() => createPanelAppleVariants(profile.easing), [profile.easing])
   const { setRef, runStartupSequence } = useStartupBoost()
-  const prevPanelRef = useRef(activePanel)
-  const [slideDirection, setSlideDirection] = useState(1)
-
-  useEffect(() => {
-    if (prevPanelRef.current !== deferredPanel) {
-      setSlideDirection(getPanelDirection(prevPanelRef.current, deferredPanel))
-      prevPanelRef.current = deferredPanel
-    }
-  }, [deferredPanel])
-
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -431,10 +421,9 @@ function AppInner() {
               </AnimatePresence>
             </div>
 
-            <AnimatePresence mode="wait" custom={slideDirection}>
+            <AnimatePresence mode="wait">
               <m.div
                 key={deferredPanel}
-                custom={slideDirection}
                 variants={panelVariants}
                 initial="initial"
                 animate="animate"
