@@ -5,6 +5,7 @@
 //! - config_state:全量配置(Keystore 加密落盘/掩码出口)
 //! - self_service_cmds:自助服务六命令 + 生物识别验证门
 //! - identity_gate / login_history:验证门 TTL 与登录历史
+//! - quality_history:网络质量历史落盘(形状与桌面端一致)
 //! - android_state:进程态(源 IP 缓存/配置内存态/监控循环句柄)
 
 mod campus_detect;
@@ -19,6 +20,7 @@ mod monitor_loop;
 mod account_cmds;
 mod system_cmds;
 mod quality_cmds;
+mod quality_history;
 mod update_cmds;
 mod battery_cmds;
 

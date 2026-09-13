@@ -34,6 +34,10 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
             return None;
         }
     };
+    // 质量历史落盘：定时循环（含复核轮）每次真实检测记一条，供趋势回溯与事后排障
+    if let Err(e) = crate::config::persist::append_quality_history(app_handle, &quality) {
+        crate::log_warn!("background", "写入网络质量历史失败: {}", e);
+    }
     if let Err(e) = EventBus::new(app_handle).emit_network_quality_result(&quality_val) {
         crate::log_warn!("background", "发送网络质量结果失败: {}", e);
     }

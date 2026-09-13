@@ -24,7 +24,7 @@ async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
         .and_then(|cached| cached.map(|ip| ip.to_string()))
         .unwrap_or_default();
     let is_quitting = Arc::new(AtomicBool::new(false));
-    check_network_quality_async(
+    let result = check_network_quality_async(
         "wlan0",
         &adapter_ip,
         settings.skip_ttfb_in_latency,
@@ -34,7 +34,14 @@ async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
         Some(app),
         false,
     )
-    .await
+    .await;
+    // 质量历史落盘：命令与定时循环都汇聚于此函数，每次真实检测记一条，供趋势回溯
+    if let Ok(dir) = app.path().app_data_dir() {
+        if let Err(e) = crate::quality_history::append(&dir, &result) {
+            campus_login_lib::log_warn!("quality", "写入网络质量历史失败: {e}");
+        }
+    }
+    result
 }
 
 #[tauri::command]

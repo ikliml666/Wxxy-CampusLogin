@@ -150,6 +150,68 @@ pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, messag
     Ok(())
 }
 
+// 质量历史的读-改-写全程互斥（理由同 LOGIN_HISTORY_LOCK）。
+static QUALITY_HISTORY_LOCK: Mutex<()> = Mutex::new(());
+
+pub fn get_quality_history_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("quality_history.json")
+}
+
+/// 追加一条网络质量历史（头插法，上限 100，损坏备份后重置；与 append_login_history 同款）。
+/// 延迟 <0（检测失败/未执行，源数据为 -1）落盘为 null，区分"未测"与 0ms。
+pub fn append_quality_history(app_handle: &tauri::AppHandle, result: &crate::network::quality::NetworkQualityResult) -> Result<(), String> {
+    append_quality_history_to(&get_data_dir(app_handle), result)
+}
+
+pub fn append_quality_history_to(data_dir: &Path, result: &crate::network::quality::NetworkQualityResult) -> Result<(), String> {
+    let _guard = QUALITY_HISTORY_LOCK.lock();
+    let history_path = get_quality_history_path(data_dir);
+    std::fs::create_dir_all(data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
+
+    let mut history: Vec<serde_json::Value> = if history_path.exists() {
+        let content = match std::fs::read_to_string(&history_path) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::log_warn!("system", "读取质量历史失败，备份后重置: {}", e);
+                let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                String::new()
+            }
+        };
+        if content.is_empty() {
+            vec![]
+        } else {
+            match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(e) => {
+                    crate::log_warn!("system", "解析质量历史失败，备份后重置: {}", e);
+                    let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                    vec![]
+                }
+            }
+        }
+    } else {
+        vec![]
+    };
+
+    history.insert(0, serde_json::json!({
+        "timestamp": result.timestamp,
+        "gatewayLatency": (result.gateway_latency >= 0).then_some(result.gateway_latency),
+        "externalLatency": (result.external_latency >= 0).then_some(result.external_latency),
+        "quality": result.quality,
+    }));
+
+    if history.len() > 100 {
+        history.truncate(100);
+    }
+
+    let json = serde_json::to_string_pretty(&history)
+        .map_err(|e| format!("序列化质量历史失败: {e}"))?;
+
+    atomic_write(&history_path, &json)?;
+
+    Ok(())
+}
+
 pub fn save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String> {
     let mut disk_config = config.clone();
     // 任何非空密码一律 DPAPI 加密落盘。
@@ -206,6 +268,65 @@ mod tests {
         save_config_to_disk_encrypted(&dir, &cfg).unwrap();
         let raw = std::fs::read_to_string(get_config_path(&dir)).unwrap();
         assert!(raw.contains("\"password\": \"\""), "空密码应原样落盘");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn quality_result(ts: u64, gw: i64, ext: i64, quality: &str) -> crate::network::quality::NetworkQualityResult {
+        crate::network::quality::NetworkQualityResult {
+            gateway_latency: gw,
+            external_latency: ext,
+            average_external_latency: ext,
+            gateway: "192.168.1.1".to_string(),
+            quality: quality.to_string(),
+            timestamp: ts,
+            details: serde_json::Value::Object(serde_json::Map::new()),
+            metrics: serde_json::Value::Object(serde_json::Map::new()),
+        }
+    }
+
+    #[test]
+    fn quality_history_head_insert_and_shape() {
+        let dir = temp_data_dir("qh_shape");
+        append_quality_history_to(&dir, &quality_result(1000, 12, 45, "good")).unwrap();
+        append_quality_history_to(&dir, &quality_result(2000, -1, 30, "poor")).unwrap();
+        let raw = std::fs::read_to_string(get_quality_history_path(&dir)).unwrap();
+        let entries: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["timestamp"], 2000, "最新在头");
+        assert_eq!(entries[0]["quality"], "poor");
+        assert!(entries[0]["gatewayLatency"].is_null(), "负延迟(-1)应落盘为 null");
+        assert_eq!(entries[0]["externalLatency"], 30);
+        assert_eq!(entries[1]["gatewayLatency"], 12);
+        assert_eq!(entries[1]["externalLatency"], 45);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quality_history_caps_at_100() {
+        let dir = temp_data_dir("qh_cap");
+        for i in 0..110 {
+            append_quality_history_to(&dir, &quality_result(i as u64, 1, 1, "good")).unwrap();
+        }
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(get_quality_history_path(&dir)).unwrap()).unwrap();
+        assert_eq!(entries.len(), 100);
+        assert_eq!(entries[0]["timestamp"], 109, "最新在头");
+        assert_eq!(entries[99]["timestamp"], 10, "最老保留第 10 条");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quality_history_corrupt_backup_and_reset() {
+        let dir = temp_data_dir("qh_corrupt");
+        std::fs::write(get_quality_history_path(&dir), "not-json{{{").unwrap();
+        append_quality_history_to(&dir, &quality_result(1, 1, 1, "good")).unwrap();
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(get_quality_history_path(&dir)).unwrap()).unwrap();
+        assert_eq!(entries.len(), 1, "损坏文件备份后从空重写");
+        let baks: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
+            .collect();
+        assert_eq!(baks.len(), 1, "损坏文件应被备份");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

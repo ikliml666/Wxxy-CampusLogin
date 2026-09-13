@@ -194,6 +194,10 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     }
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None, false).await;
     crate::log_info!("network", "网络质量检测完成");
+    // 质量历史落盘：手动检测同样记一条，供趋势回溯
+    if let Err(e) = crate::config::persist::append_quality_history(&app_handle, &result) {
+        crate::log_warn!("network", "写入网络质量历史失败: {}", e);
+    }
     serde_json::to_value(&result).map_err(|e| format!("序列化结果失败: {e}"))
 }
 
