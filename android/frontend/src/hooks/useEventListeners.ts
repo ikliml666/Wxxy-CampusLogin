@@ -19,8 +19,6 @@ export function useEventListeners() {
   const lastAdapterOnlineRef = useRef<Map<string, boolean>>(new Map())
   const lastOnlineLogTimeRef = useRef(0)
   const lastBgCheckTimeRef = useRef(0)
-  const lastAdaptersChangedTimeRef = useRef(0)
-  const adaptersChangedTrailingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -212,53 +210,9 @@ export function useEventListeners() {
     }) ?? (() => {})
     if (unsub2) unlisteners.push(unsub2)
 
-    const unsub3 = api.onAdaptersChanged?.((adps) => {
-      if (!mountedRef.current) return
-      if (!adps) return
-      const applyAdapters = (next: typeof adps) => {
-        useAdapterStore.setState({ adapters: next })
-        const { status } = useAuthStore.getState()
-        if (status.state === 'offline' || status.state === 'loading') {
-          useAuthStore.getState().checkOnline(undefined, next).catch((e) => { if (import.meta.env.DEV) console.error(e) })
-        }
-      }
-      const now = Date.now()
-      if (now - lastAdaptersChangedTimeRef.current >= 500) {
-        lastAdaptersChangedTimeRef.current = now
-        applyAdapters(adps)
-      } else {
-        if (adaptersChangedTrailingTimerRef.current) clearTimeout(adaptersChangedTrailingTimerRef.current)
-        const fireAt = lastAdaptersChangedTimeRef.current + 500
-        const delay = Math.max(0, fireAt - Date.now())
-        adaptersChangedTrailingTimerRef.current = setTimeout(() => {
-          adaptersChangedTrailingTimerRef.current = null
-          lastAdaptersChangedTimeRef.current = Date.now()
-          applyAdapters(adps)
-        }, delay)
-      }
-    }) ?? (() => {})
-    if (unsub3) unlisteners.push(unsub3)
-
-    const unsub3a = api.onAdapterDetailsChanged?.((details) => {
-      if (!mountedRef.current) return
-      if (details) useAdapterStore.setState({ adapterDetails: details })
-    }) ?? (() => {})
-    if (unsub3a) unlisteners.push(unsub3a)
-
-    const unsub3b = api.onDisabledAdaptersChanged?.((disabled) => {
-      if (!mountedRef.current) return
-      if (disabled) useAdapterStore.setState({ disabledAdapters: disabled })
-    }) ?? (() => {})
-    if (unsub3b) unlisteners.push(unsub3b)
-
-    const unsub3c = api.onAdapterDisabledWarning?.((data) => {
-      if (!mountedRef.current) return
-      if (data) {
-        lt.getState().addToast(data.message, 'warning')
-        lt.getState().addLog(data.message, 'warning')
-      }
-    }) ?? (() => {})
-    if (unsub3c) unlisteners.push(unsub3c)
+    // 安卓端 onAdaptersChanged / onAdapterDetailsChanged / onDisabledAdaptersChanged /
+    // onAdapterDisabledWarning 在 tauriApi 中均为 noopListener（适配器是桌面专属概念，
+    // 后端从不发这四类事件），注册对应 handler 属无效订阅，不注册。
 
     const unsub3d = api.onLoginLog?.((data) => {
       if (!mountedRef.current) return
@@ -361,10 +315,6 @@ export function useEventListeners() {
     return () => {
       mountedRef.current = false
       unlisteners.forEach(fn => fn())
-      if (adaptersChangedTrailingTimerRef.current) {
-        clearTimeout(adaptersChangedTrailingTimerRef.current)
-        adaptersChangedTrailingTimerRef.current = null
-      }
     }
   }, [])
 }

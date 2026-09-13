@@ -106,10 +106,22 @@ async function queryPortalStatus(
 // 登录/注销 invoke 超时包装：后端阻塞（Portal HTTP 挂起等）时超时返回，
 // 避免 isLoggingIn/isLoggingOut 永久为 true、按钮永久禁用（历史缺陷 P2-34）
 function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMsg: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
     promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(timeoutMsg)), ms)),
-  ])
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(timeoutMsg)), ms)
+    }),
+    // race settle 后清理输家定时器，避免每次登录/注销悬挂一个 60s 定时器
+  ]).finally(() => clearTimeout(timer))
+}
+
+// status 内容比较更新：text/state 未变化时不换新对象，保持引用稳定
+// （StatusBar 等组件按引用订阅 status，无条件 set 会触发无效重渲染）
+function setStatusStable(next: { text: string; state: StatusState }): void {
+  const cur = useAuthStore.getState().status
+  if (cur.text === next.text && cur.state === next.state) return
+  useAuthStore.getState().setStatus(next)
 }
 
 interface AuthStore {
@@ -243,7 +255,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
           set((st) => ({
             bgStatus: { ...st.bgStatus, ...buildCampusBgStatusPatch(adaptersSnap, configSnap.adapter1, configSnap.adapter2, st.bgStatus, campusStatus) }
           }))
-          set({ status: { text: campusStatus.campusMessage || i18next.t('auth.notOnCampus'), state: 'offline' } })
+          setStatusStable({ text: campusStatus.campusMessage || i18next.t('auth.notOnCampus'), state: 'offline' })
           return
         }
         if (campusStatus) {
@@ -267,21 +279,21 @@ export const useAuthStore = create<AuthStore>((set) => ({
       }
 
       if (!adapterIp) {
-        set({ status: { text: i18next.t('auth.noNetwork'), state: 'offline' } })
+        setStatusStable({ text: i18next.t('auth.noNetwork'), state: 'offline' })
         return
       }
 
       // portal 状态查询
       const portalResult = await queryPortalStatus(adapterIp)
       if (!portalResult.ok) {
-        set({ status: { text: i18next.t('auth.notLoggedIn'), state: 'offline' } })
+        setStatusStable({ text: i18next.t('auth.notLoggedIn'), state: 'offline' })
       } else if (portalResult.portal) {
         const prevState = useAuthStore.getState().status.state
         const newState = portalResult.portal.online ? 'online' : 'offline'
         if (prevState !== newState && portalResult.portal.message) {
           useLogToastStore.getState().addLog(portalResult.portal.message, portalResult.portal.online ? 'success' : 'warning')
         }
-        set({ status: { text: portalResult.portal.message || i18next.t('auth.unknownStatus'), state: newState } })
+        setStatusStable({ text: portalResult.portal.message || i18next.t('auth.unknownStatus'), state: newState })
       }
     } finally {
       // 历史缺陷：用 setTimeout(500) 释放锁时，若 checkOnline 实际执行超过 500ms，

@@ -16,12 +16,15 @@ const RefreshButton = React.forwardRef<HTMLButtonElement, RefreshButtonProps>(
     const [shakeClass, setShakeClass] = React.useState('')
 
     React.useEffect(() => {
-      if (prevRefreshing.current && !isRefreshing) {
+      // ref 归位不依赖分支：无论是否触发抖动都要同步最新值，
+      // 否则 true→false 后引用滞留，正确性靠 effect 依赖的隐式巧合
+      const wasRefreshing = prevRefreshing.current
+      prevRefreshing.current = isRefreshing
+      if (wasRefreshing && !isRefreshing) {
         setShakeClass('refresh-shake')
         const timer = setTimeout(() => setShakeClass(''), 350)
         return () => clearTimeout(timer)
       }
-      prevRefreshing.current = isRefreshing
     }, [isRefreshing])
 
     return (

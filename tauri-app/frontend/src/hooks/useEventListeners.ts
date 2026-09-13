@@ -241,7 +241,11 @@ export function useEventListeners() {
 
     const unsub3a = api.onAdapterDetailsChanged?.((details) => {
       if (!mountedRef.current) return
-      if (details) useAdapterStore.setState({ adapterDetails: details })
+      if (!details) return
+      // 后端每次推送新数组对象，内容未变时跳过 setState，保持引用稳定
+      const prev = useAdapterStore.getState().adapterDetails
+      if (prev && JSON.stringify(prev) === JSON.stringify(details)) return
+      useAdapterStore.setState({ adapterDetails: details })
     }) ?? (() => {})
     if (unsub3a) unlisteners.push(unsub3a)
 
