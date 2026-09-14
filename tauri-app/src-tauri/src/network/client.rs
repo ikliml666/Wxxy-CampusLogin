@@ -88,8 +88,36 @@ fn client_pool_get(key: &ClientPoolKey, label: &str) -> Option<reqwest::Client> 
     }
 }
 
-pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {
-    let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout);
+/// 安卓旁路客户端:默认头/重定向/超时与 create_safe_http_client 同款,但请求经
+/// 本地旁路代理转发(传输层 SO_BINDTODEVICE 物理网卡直连,见 bound_socket 模块
+/// 头注释的对照实验记录)。代理未启动(能力封堵/无物理网卡)返回 None,调用方
+/// 回退 create_safe_http_client 原路径。不设 local_address——出口由旁路 socket 决定。
+#[cfg(target_os = "android")]
+pub fn create_bypass_http_client(timeout: std::time::Duration) -> Result<reqwest::Client, String> {
+    let Some(addr) = crate::network::bound_socket::bypass_proxy_addr() else {
+        return Err("旁路代理未启动".to_string());
+    };
+    let mut default_headers = reqwest::header::HeaderMap::new();
+    default_headers.insert(
+        reqwest::header::CACHE_CONTROL,
+        reqwest::header::HeaderValue::from_static("no-store"),
+    );
+    default_headers.insert(
+        reqwest::header::PRAGMA,
+        reqwest::header::HeaderValue::from_static("no-cache"),
+    );
+    let proxy = reqwest::Proxy::all(format!("http://{addr}")).map_err(|e| format!("旁路代理配置失败: {e}"))?;
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .default_headers(default_headers)
+        .proxy(proxy)
+        .build()
+        .map_err(|e| format!("创建旁路HTTP客户端失败: {e}"))
+}
+
+pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {    let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout);
     if let Some(client) = client_pool_get(&tls13_key, "(TLS 1.3)") {
         return Ok(client);
     }

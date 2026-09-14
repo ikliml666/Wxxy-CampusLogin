@@ -213,30 +213,20 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
     // 登录/注销/协议请求仍强制 :801（ensure_portal_port），两者端口本就不同。
     let page_url = format!("{}/", portal_base.trim_end_matches('/'));
 
-    // Android 旁路优先(仅 Android 编译):全量 VPN 接管流量时经 SO_BINDTODEVICE 物理网卡
-    // 直连 Portal 页面;旁路不可用(能力被封堵/无物理网卡/HTTPS)→ 走下方 reqwest 原路径;
-    // 旁路已接管但请求失败 → 如实报 Failed(不回退,避免翻倍超时)。响应解码与页面特征
-    // 判定复用现有逻辑(analyze_portal_page_content),只换传输层。
+    // Android 旁路优先:客户端切换到旁路代理版(传输层 SO_BINDTODEVICE 物理网卡直连,
+    // 见 do_login_request 注释),下方 reqwest 代码(头/重定向/charset)原样复用;
+    // 旁路不可用(能力被 ROM 封堵/无物理网卡)→ 沿用传入的原客户端。
     #[cfg(target_os = "android")]
-    match block_on_http(crate::network::bound_socket::http_get_bounded(&page_url, portal_config::REQUEST_TIMEOUT)) {
-        Ok(Some(reply)) => {
-            if !(200..300).contains(&reply.status) {
-                crate::log_warn!("network", "Portal页面请求状态异常(bound-dev): {}", reply.status);
-                return PageCheckResult::Failed;
+    let client = match crate::network::bound_socket::bypass_proxy_addr() {
+        Some(_) => match crate::network::client::create_bypass_http_client(portal_config::REQUEST_TIMEOUT) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::log_warn!("network", "旁路客户端创建失败,走原路径: {e}");
+                client.clone()
             }
-            let html = reply.decoded_body();
-            if html.is_empty() {
-                return PageCheckResult::Failed;
-            }
-            crate::log_debug!("network", "Portal页面响应长度(bound-dev): {}", html.len());
-            return analyze_portal_page_content(&html);
-        }
-        Ok(None) => {} // 旁路不可用:reqwest 原路径
-        Err(e) => {
-            crate::log_warn!("network", "Portal页面请求失败(bound-dev): {}", e);
-            return PageCheckResult::Failed;
-        }
-    }
+        },
+        None => client.clone(),
+    };
 
     let resp = match block_on_http(
         client.get(&page_url).timeout(portal_config::REQUEST_TIMEOUT).send()

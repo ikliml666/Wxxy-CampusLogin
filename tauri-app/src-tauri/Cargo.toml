@@ -48,10 +48,6 @@ socket2 = { version = "0.6", features = ["all"] }
 # EINPROGRESS 判定用(非阻塞 connect 的 std ErrorKind 映射缺口,真机实证)
 libc = "0.2"
 network-interface = "2"
-hyper = { version = "1", default-features = false, features = ["client", "http1"] }
-# TokioIo:hyper 1.x 的 rt trait 与 tokio AsyncRead/AsyncWrite 的适配器(hyper 1.11 起不再内置)
-hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
-http-body-util = "0.1"
 
 # 桌面专属插件:不参与安卓/iOS 构建(官方 updater 插件 README 同款写法)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

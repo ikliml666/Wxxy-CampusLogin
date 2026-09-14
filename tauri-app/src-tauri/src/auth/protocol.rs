@@ -145,28 +145,17 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
 
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
-    let t_req = std::time::Instant::now();
-
-    // Android 旁路优先:全量 VPN(Clash/UU 等,未排除本应用)接管流量时,经 SO_BINDTODEVICE
-    // 从物理网卡(WiFi)直连 Portal,不再被 tun 劫持(仅 Android 编译;桌面路径零变化)。
-    // 旁路不可用(能力被 ROM 封堵/无物理网卡/HTTPS)→ 走下方 reqwest 原路径;
-    // 旁路已接管但连接失败 → 不回退直接报错(物理网不通时重试 reqwest 也必失败,只翻倍超时)。
+    // Android 旁路优先:全量 VPN(Clash/UU 等,未排除本应用)接管流量时,请求经本地
+    // 旁路代理转发、传输层走 SO_BINDTODEVICE 物理网卡直连(仅 Android 编译;桌面
+    // 路径零变化)。HTTP 层(头/重定向/charset)100% 复用 reqwest——手写 HTTP 会被
+    // 学校网关 nginx 400,见 bound_socket 模块头注释的对照实验记录。
+    // 旁路不可用(能力被 ROM 封堵/无物理网卡)→ 沿用上面 create_safe_http_client 原路径。
     #[cfg(target_os = "android")]
-    match crate::infra::async_util::block_on_sync(
-        crate::network::bound_socket::http_get_bounded(&url, std::time::Duration::from_secs(15)),
-    ) {
-        Ok(Some(reply)) => {
-            let body = reply.decoded_body();
-            crate::log_info!("login", "登录请求完成(bound-dev,{}ms): URL={}, status={}, bodyLen={}",
-                t_req.elapsed().as_millis(), safe_url, reply.status, body.len());
-            return parse_login_result(&body);
-        }
-        Ok(None) => {} // 旁路不可用:reqwest 原路径
-        Err(e) => {
-            let msg = crate::auth::portal::redact_credentials(e.to_string(), &url, &base_url, password);
-            return Err(format!("登录请求失败: {}", crate::auth::portal::safe_truncate(&msg, 200)));
-        }
-    }
+    let client = match crate::network::bound_socket::bypass_proxy_addr() {
+        Some(_) => crate::network::client::create_bypass_http_client(std::time::Duration::from_secs(15))?,
+        None => client,
+    };
+    let t_req = std::time::Instant::now();
 
     // 历史缺陷：错误串脱敏仅替换字面密码（URL 编码后的 %xx 无法匹配），
     // reqwest 错误一旦包含完整 URL 即泄漏编码后的凭据。错误信息中的完整 URL
@@ -300,6 +289,13 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
     }
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
+    // Android 旁路优先:客户端整体切换到旁路代理版(传输层 SO_BINDTODEVICE,见
+    // do_login_request 注释),下发的 radius/mac 请求自动继承,助手函数零改动
+    #[cfg(target_os = "android")]
+    let client = match crate::network::bound_socket::bypass_proxy_addr() {
+        Some(_) => crate::network::client::create_bypass_http_client(std::time::Duration::from_secs(15))?,
+        None => client,
+    };
 
     // Radius 注销先行（主操作，最多 2 次、成功即止）。
     // 历史缺陷：旧实现每轮"先 MAC 解绑再 Radius 注销"×2 轮，外层再重试 2 次（最坏 4+4 次）。
@@ -379,27 +375,10 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
 }
 
 /// 单轮 Radius 注销请求：返回 Ok(true)=注销成功。
-/// 安卓旁路优先(bound_socket::http_get_bounded,仅 Android 编译):旁路可用时由其完成
-/// 本请求,成功/失败都不再走 reqwest(避免翻倍超时);旁路不可用走 reqwest 原路径。
 /// 请求发送失败只记录并返回 false(降级继续,与原实现一致);解析失败向上传 Err。
+/// (安卓旁路由 do_logout_request 的客户端选择统一承接,本函数零改动)
 fn radius_logout_round(client: &reqwest::Client, logout_url: &str, round: u32) -> Result<bool, String> {
     let t_logout = std::time::Instant::now();
-    #[cfg(target_os = "android")]
-    match crate::infra::async_util::block_on_sync(
-        crate::network::bound_socket::http_get_bounded(logout_url, std::time::Duration::from_secs(15)),
-    ) {
-        Ok(Some(reply)) => {
-            let body_logout = reply.decoded_body();
-            crate::log_info!("logout", "第{}轮Radius注销完成(bound-dev,{}ms): body={}", round, t_logout.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_logout, 500));
-            let logout_result = parse_logout_result(&body_logout)?;
-            return Ok(logout_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false));
-        }
-        Ok(None) => {} // 旁路不可用:reqwest 原路径
-        Err(e) => {
-            crate::log_warn!("logout", "第{}轮Radius注销请求失败(bound-dev,降级继续): {}", round, e);
-            return Ok(false);
-        }
-    }
     match crate::infra::async_util::block_on_sync(
         client.get(logout_url).timeout(std::time::Duration::from_secs(15)).send()
     ) {
@@ -417,26 +396,10 @@ fn radius_logout_round(client: &reqwest::Client, logout_url: &str, round: u32) -
 }
 
 /// MAC 解绑请求（best-effort）：返回 Ok(true)=解绑成功。
-/// 安卓旁路优先(同 radius_logout_round 的三态语义);请求发送失败只记录并返回 false
-/// (降级继续,注销成败以 Radius 结果为准);解析失败向上传 Err(与原实现一致)。
+/// 请求发送失败只记录并返回 false(降级继续,注销成败以 Radius 结果为准);解析失败
+/// 向上传 Err。(安卓旁路由 do_logout_request 的客户端选择统一承接,本函数零改动)
 fn mac_unbind_request(client: &reqwest::Client, unbind_url: &str) -> Result<bool, String> {
     let t_unbind = std::time::Instant::now();
-    #[cfg(target_os = "android")]
-    match crate::infra::async_util::block_on_sync(
-        crate::network::bound_socket::http_get_bounded(unbind_url, std::time::Duration::from_secs(15)),
-    ) {
-        Ok(Some(reply)) => {
-            let body_unbind = reply.decoded_body();
-            crate::log_info!("logout", "MAC解绑完成(bound-dev,{}ms): body={}", t_unbind.elapsed().as_millis(), crate::auth::portal::safe_truncate(&body_unbind, 500));
-            let unbind_result = parse_logout_result(&body_unbind)?;
-            return Ok(unbind_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false));
-        }
-        Ok(None) => {} // 旁路不可用:reqwest 原路径
-        Err(e) => {
-            crate::log_warn!("logout", "MAC解绑请求失败(bound-dev,降级继续): {}", e);
-            return Ok(false);
-        }
-    }
     match crate::infra::async_util::block_on_sync(
         client.get(unbind_url).timeout(std::time::Duration::from_secs(15)).send()
     ) {

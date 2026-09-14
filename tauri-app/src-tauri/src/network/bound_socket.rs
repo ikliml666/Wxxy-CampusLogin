@@ -71,54 +71,7 @@ pub fn pick_physical_interface(names: &[String]) -> Option<String> {
         .map(|s| (*s).to_string())
 }
 
-/// 重定向目标解析:支持绝对 URL 与根相对路径(以 / 开头);其余形式(协议相对等)
-/// 返回 None 停止跟随。ponytail: 仅服务 Portal 页面探测的 302 场景,更完整的目标
-/// 解析(相对路径/协议相对)等真实 Portal 出现该形态再加。
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-fn redirect_target(current: &str, location: &str) -> Option<String> {
-    if location.starts_with("http://") || location.starts_with("https://") {
-        return Some(location.to_string());
-    }
-    if let Some(path) = location.strip_prefix('/') {
-        if path.starts_with('/') {
-            return None; // 协议相对形式 //host/x:不支持,停止跟随
-        }
-        let (scheme, rest) = current.split_once("://")?;
-        let authority = rest.split('/').next()?;
-        if authority.is_empty() {
-            return None;
-        }
-        return Some(format!("{scheme}://{authority}/{path}"));
-    }
-    None
-}
-
-/// 两个 URL 的 authority(host:port)是否一致:旁路通道只在同 authority 间跟随重定向
-/// (跨主机需重建绑定连接,不值得——返回 3xx 由上层按探测失败处理)。
-/// 端口缺省按 80 归一化(显式 :80 与缺省等价)。手写解析而非 hyper::Uri:本函数是
-/// 纯函数,需在桌面(无 hyper 依赖)编译供单测。
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-fn same_authority(a: &str, b: &str) -> bool {
-    let auth = |u: &str| -> Option<(String, u16)> {
-        let rest = u.split_once("://")?.1;
-        let authority = rest.split('/').next()?;
-        if authority.is_empty() {
-            return None;
-        }
-        match authority.rsplit_once(':') {
-            Some((h, p)) if !h.is_empty() && !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => {
-                Some((h.to_string(), p.parse().ok()?))
-            }
-            _ => Some((authority.to_string(), 80)),
-        }
-    };
-    match (auth(a), auth(b)) {
-        (Some(x), Some(y)) => x == y,
-        _ => false,
-    }
-}
-
-// ===== Android 专用(socket 能力探针 / TCP 连接 / HTTP GET 通道) =====
+// ===== Android 专用(socket 能力探针 / TCP 连接 / 本地旁路代理) =====
 
 /// 能力探针:对一次性 socket 尝试绑定 "lo"(恒存在),按 errno 分类,OnceLock 缓存。
 #[cfg(target_os = "android")]
@@ -255,149 +208,146 @@ pub async fn tcp_connect_bounded(
     }
 }
 
-/// 旁路 HTTP GET 的响应(1MB 上限已在请求层执行)
-#[cfg(target_os = "android")]
-pub struct HttpReply {
-    pub status: u16,
-    pub content_type: Option<String>,
-    pub body: Vec<u8>,
-}
+// ===== Android 本地旁路代理:reqwest 经 127.0.0.1 转发,传输层走 SO_BINDTODEVICE =====
+//
+// 为什么是转发代理而不是手写 HTTP:真机对照实验(2026-09-14)证实同一 URL 下
+// reqwest 200 而 hyper 手写请求被网关 nginx 400(补齐 accept/cache-control/pragma、
+// 去掉 SO_BINDTODEVICE 均无法消除,见 CHANGELOG 排查记录),请求头/编码差异无法
+// 穷举定位。改为本地起单请求 HTTP 转发器:reqwest 发代理请求(absolute-form)到
+// 127.0.0.1,转发器解析出目标后在旁路 socket 上以 origin-form 重放,响应原样回写——
+// HTTP 层(头/重定向/charset)100% 复用 reqwest,只有传输层被替换。
+//
+// 单请求语义:每连接处理一个请求-响应后关闭,响应注入 connection: close 令
+// reqwest 不复用连接;上游请求带 connection: close 使服务器响应后断开,转发
+// 读到 EOF 即完整响应。
 
+/// 取(或惰性启动)本地旁路代理地址;旁路不可用(能力被封堵/无物理网卡)返回 None。
 #[cfg(target_os = "android")]
-impl HttpReply {
-    /// 与 auth::protocol::read_bounded_body 同语义的响应体解码(Content-Type charset → GBK/UTF-8)。
-    /// 响应解析层(GBK 解码、特征匹配)由此继续复用现有代码,旁路只换传输层。
-    pub fn decoded_body(&self) -> String {
-        let charset = self.content_type.as_deref().and_then(|ct| {
-            ct.split(';').find_map(|p| p.trim().strip_prefix("charset=").map(str::to_string))
-        });
-        crate::platform::console_output::decode_charset_bytes(&self.body, charset.as_deref())
-    }
-}
-
-/// Android 旁路 HTTP GET(自动旁路),三态返回:
-/// - `Ok(Some(reply))` = 旁路通道已完成请求(物理网卡直连);
-/// - `Ok(None)` = 旁路不可用(能力被 ROM 封堵 / 无物理网卡 / 非 HTTP 目标),调用方走原通道;
-/// - `Err(e)` = 旁路已接管但请求失败(连接失败**不回退**,物理网不通重试原通道只会翻倍超时)。
-///
-/// 仅支持 http:// 明文(校园 Portal 即此形态);响应体 1MB 上限与
-/// auth::protocol::MAX_HTTP_BODY 一致;同 authority 重定向最多跟随 5 次(对齐
-/// reqwest Policy::limited(5)),跨主机重定向不跟随(需重建绑定连接,返回 3xx 由上层判定)。
-#[cfg(target_os = "android")]
-pub async fn http_get_bounded(url: &str, timeout: std::time::Duration) -> std::io::Result<Option<HttpReply>> {
-    if bind_capability() != BindCapability::Supported {
-        return Ok(None);
-    }
-    if physical_interface().is_none() {
-        eprintln!("[bind-dev] 无可用物理网卡,HTTP 走原通道");
-        return Ok(None);
-    }
-    let uri: hyper::Uri = url
-        .parse()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("[bind-dev] URL 解析失败: {e}")))?;
-    if uri.scheme_str() != Some("http") {
-        eprintln!("[bind-dev] 非 HTTP 目标({:?}),旁路不支持,走原通道", uri.scheme_str());
-        return Ok(None);
-    }
-    let Some(host) = uri.host().map(str::to_string) else {
-        return Ok(None);
-    };
-    let port = uri.port_u16().unwrap_or(80);
-    let stream = tcp_connect_bounded(&host, port, timeout).await?;
-    bounded_http_get_over(stream, url, timeout).await.map(Some)
-}
-
-/// 在已建立的旁路 TCP 连接上执行最小 HTTP/1.1 GET(hyper http1 握手 + connection: close),
-/// 同 authority 重定向最多 5 次。整个请求-响应过程受 timeout 约束。
-#[cfg(target_os = "android")]
-async fn bounded_http_get_over(
-    stream: tokio::net::TcpStream,
-    url: &str,
-    timeout: std::time::Duration,
-) -> std::io::Result<HttpReply> {
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream))
-        .await
-        .map_err(|e| std::io::Error::other(format!("[bind-dev] http 握手失败: {e}")))?;
-    // 连接驱动:connection: close 下服务端响应后即结束;sender drop 后亦随之结束
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("[bind-dev] http 连接结束: {e}");
+pub fn bypass_proxy_addr() -> Option<&'static std::net::SocketAddr> {
+    use std::sync::OnceLock;
+    static ADDR: OnceLock<Option<std::net::SocketAddr>> = OnceLock::new();
+    ADDR.get_or_init(|| {
+        if bind_capability() != BindCapability::Supported {
+            eprintln!("[bind-dev] 能力不受支持,旁路代理不启动");
+            return None;
         }
-    });
-
-    let mut current = url.to_string();
-    let mut redirects = 0u8;
-    loop {
-        let request = hyper::Request::builder()
-            .method(hyper::Method::GET)
-            .uri(current.as_str())
-            .header(hyper::header::CONNECTION, "close")
-            .body(http_body_util::Empty::<hyper::body::Bytes>::new())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("[bind-dev] 请求构造失败: {e}")))?;
-
-        let response = tokio::time::timeout(timeout, sender.send_request(request))
-            .await
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "[bind-dev] http 请求超时"))?
-            .map_err(|e| std::io::Error::other(format!("[bind-dev] http 发送失败: {e}")))?;
-
-        let status = response.status();
-        if status.is_redirection() && redirects < 5 {
-            if let Some(next) = response
-                .headers()
-                .get(hyper::header::LOCATION)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|loc| redirect_target(&current, loc))
-            {
-                if same_authority(&current, &next) {
-                    // connection: close 下复用连接前必须消费完上一个响应体,否则后续请求可能失败
-                    let _ = http_body_util::BodyExt::collect(response.into_body()).await;
-                    redirects += 1;
-                    current = next;
-                    continue;
+        if physical_interface().is_none() {
+            eprintln!("[bind-dev] 无可用物理网卡,旁路代理不启动");
+            return None;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").ok()?;
+        listener.set_nonblocking(true).ok()?;
+        let addr = listener.local_addr().ok()?;
+        tokio::spawn(async move {
+            let listener = match tokio::net::TcpListener::from_std(listener) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[bind-dev] 代理监听接管失败: {e}");
+                    return;
                 }
-                eprintln!("[bind-dev] 跨主机重定向不跟随: {next}");
-            }
-        }
-
-        // 预检上限:读 CONTENT_LENGTH 头(与 reqwest 路径 content_length 预检同语义;
-        // chunked 无此头时由收集后的 len 复检兜底)
-        let content_type = response
-            .headers()
-            .get(hyper::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-        let content_length: Option<u64> = response
-            .headers()
-            .get(hyper::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse().ok());
-        if content_length.map(|len| len > MAX_HTTP_BODY).unwrap_or(false) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("[bind-dev] 响应体过大(Content-Length={:?})", content_length),
-            ));
-        }
-        let body_in = response.into_body();
-        let body = tokio::time::timeout(timeout, http_body_util::BodyExt::collect(body_in))
-            .await
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "[bind-dev] 响应体读取超时"))?
-            .map_err(|e| std::io::Error::other(format!("[bind-dev] 响应体读取失败: {e}")))?
-            .to_bytes();
-        if body.len() as u64 > MAX_HTTP_BODY {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "[bind-dev] 响应体超限"));
-        }
-        return Ok(HttpReply {
-            status: status.as_u16(),
-            content_type,
-            body: body.to_vec(),
+            };
+                loop {
+                    match listener.accept().await {
+                        Ok((down, _)) => {
+                            tokio::spawn(proxy_one(down));
+                        }
+                        Err(e) => eprintln!("[bind-dev] 代理 accept 失败: {e}"),
+                    }
+                }
         });
-    }
+        eprintln!("[bind-dev] 旁路代理已启动: {addr}");
+        Some(addr)
+    })
+    .as_ref()
 }
 
-/// 响应体上限:与 auth::protocol::MAX_HTTP_BODY 同值(1MB),旁路通道独立常量
-/// (不引入 auth → network 反向依赖;两侧语义已在注释互指)。
+/// 代理单连接:读一个请求头块,旁路连接上游并重放,响应回写后关闭。
 #[cfg(target_os = "android")]
-const MAX_HTTP_BODY: u64 = 1024 * 1024;
+async fn proxy_one(mut down: tokio::net::TcpStream) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // 1. 读请求头块(到 \r\n\r\n,上限 32KB)
+    let mut head: Vec<u8> = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 512];
+    loop {
+        match down.read(&mut chunk).await {
+            Ok(0) => return,
+            Ok(n) => {
+                head.extend_from_slice(&chunk[..n]);
+                if head.ends_with(b"\r\n\r\n") {
+                    break;
+                }
+                if head.len() > 32 * 1024 {
+                    return;
+                }
+            }
+            Err(_) => return,
+        }
+    }
+    let head_str = String::from_utf8_lossy(&head).into_owned();
+    let mut lines = head_str.split("\r\n");
+    let req_line = lines.next().unwrap_or("");
+    let mut parts = req_line.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let abs_uri = parts.next().unwrap_or("");
+    let version = parts.next().unwrap_or("HTTP/1.1");
+
+    // 2. 解析目标(http:// 明文;校园请求即此形态,https/CONNECT 不支持)
+    let Some((host, port, origin_form)) = parse_proxy_target(abs_uri) else {
+        let _ = down.write_all(b"HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
+        return;
+    };
+
+    // 3. 旁路连接上游(connect 失败→502,由 reqwest 侧按失败处理,不回退原通道)
+    let mut up = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tcp_connect_bounded(&host, port, std::time::Duration::from_secs(10)),
+    )
+    .await
+    {
+        Ok(Ok(s)) => s,
+        _ => {
+            let _ = down.write_all(b"HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
+            return;
+        }
+    };
+
+    // 4. 改写请求行(absolute-form → origin-form)+ 原样透传其余头,追加 connection: close
+    let rest = head_str.split_once("\r\n").map(|(_, r)| r).unwrap_or("");
+    let rest = rest.strip_suffix("\r\n\r\n").unwrap_or(rest);
+    let mut req: Vec<u8> = Vec::with_capacity(head.len() + 32);
+    req.extend_from_slice(format!("{method} {origin_form} {version}\r\n").as_bytes());
+    req.extend_from_slice(rest.as_bytes());
+    req.extend_from_slice(b"connection: close\r\n\r\n");
+    if up.write_all(&req).await.is_err() {
+        return;
+    }
+
+    // 5. 上游响应(带 connection: close,读到 EOF 即完整)原样回写
+    let _ = tokio::io::copy(&mut up, &mut down).await;
+    // drop 时两端自然关闭
+}
+
+/// 代理请求行目标解析:http:// 的 absolute-form → (host, port, origin-form 路径)。
+/// 纯函数,桌面单测覆盖。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn parse_proxy_target(abs_uri: &str) -> Option<(String, u16, String)> {
+    let rest = abs_uri.strip_prefix("http://")?;
+    let (authority, path) = match rest.split_once('/') {
+        Some((a, p)) => (a, format!("/{p}")),
+        None => (rest, "/".to_string()),
+    };
+    if authority.is_empty() {
+        return None;
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() && !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => {
+            (h.to_string(), p.parse().ok()?)
+        }
+        _ => (authority.to_string(), 80),
+    };
+    Some((host, port, path))
+}
 
 #[cfg(test)]
 mod tests {
@@ -405,6 +355,25 @@ mod tests {
 
     fn names(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn 代理目标解析_绝对形式() {
+        assert_eq!(
+            parse_proxy_target("http://10.1.99.100:801/eportal/portal/login?a=1"),
+            Some(("10.1.99.100".to_string(), 801, "/eportal/portal/login?a=1".to_string()))
+        );
+        assert_eq!(
+            parse_proxy_target("http://10.1.99.100/"),
+            Some(("10.1.99.100".to_string(), 80, "/".to_string()))
+        );
+        // 无 path 的 absolute-form 同样合法,origin-form 归一化为 "/"
+        assert_eq!(
+            parse_proxy_target("http://10.1.99.100"),
+            Some(("10.1.99.100".to_string(), 80, "/".to_string()))
+        );
+        assert_eq!(parse_proxy_target("https://10.1.99.100/"), None);
+        assert_eq!(parse_proxy_target("/eportal/"), None);
     }
 
     #[test]
@@ -455,27 +424,5 @@ mod tests {
             classify_probe_result(&Err(std::io::Error::from(std::io::ErrorKind::Unsupported))),
             BindCapability::Unavailable
         );
-    }
-
-    #[test]
-    fn 重定向目标_绝对与根相对() {
-        assert_eq!(
-            redirect_target("http://10.1.99.100/", "http://10.1.99.100/login.html"),
-            Some("http://10.1.99.100/login.html".to_string())
-        );
-        assert_eq!(
-            redirect_target("http://10.1.99.100/", "/index_2.html?x=1"),
-            Some("http://10.1.99.100/index_2.html?x=1".to_string())
-        );
-        // 协议相对/纯相对路径:不支持,停止跟随
-        assert_eq!(redirect_target("http://10.1.99.100/", "//other.host/x"), None);
-        assert_eq!(redirect_target("http://10.1.99.100/a/b", "c/d"), None);
-    }
-
-    #[test]
-    fn authority_一致性判定() {
-        assert!(same_authority("http://10.1.99.100/a", "http://10.1.99.100:80/b"));
-        assert!(!same_authority("http://10.1.99.100/a", "http://10.1.99.200/b"));
-        assert!(!same_authority("http://10.1.99.100/a", "http://10.1.99.100:8080/b"));
     }
 }
