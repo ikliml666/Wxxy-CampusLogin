@@ -45,7 +45,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `state/mod.rs:1` | pub mod | `store` | 配置 ArcSwap 存储 |
 | `state/mod.rs:2` | pub mod | `network` | 网络状态快照 |
 | `state/mod.rs:3` | pub mod | `exit` | 退出状态与截止时间 |
-| `state/mod.rs:13` | pub const | `AUTO_EXIT_DELAY_MS: u64 = 20000` | 登录后自动退出倒计时（20s），`lifecycle::start_auto_exit` 与 `state/mod.rs:195` 使用 |
+| `state/mod.rs:13` | pub const | `AUTO_EXIT_DELAY_MS: u64 = 20000` | 登录后自动退出倒计时（20s），`lifecycle::start_auto_exit` 与 `state/mod.rs:212` 使用 |
 | `state/mod.rs:14` | pub const | `CANCEL_EXIT_SHORTCUT: &str = "CommandOrControl+Shift+C"` | 取消退出快捷键文本；`app/shortcut.rs:16` 解析、`lifecycle.rs:69,213,299` 注册/注销 |
 | `state/mod.rs:16-18` | pub struct | `TaskLock` | 单标志任务互斥锁 |
 | `state/mod.rs:20-22` | pub struct | `TaskGuard<'a>` | 锁的 RAII 句柄，Drop 时释放 |
@@ -57,18 +57,20 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `state/mod.rs:54-58` | impl | `Drop for TaskGuard<'_>` | `Release` 清标志 |
 | `state/mod.rs:60-62` | 私有 static | `ACCOUNT_NAME_RE: regex::Regex` | `^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$` |
 | `state/mod.rs:64` | pub fn | `validate_account_name(&str) -> Result<String, String>` | 账号名 1-32 字符 + 字符集校验 |
-| `state/mod.rs:74-80` | pub struct | `TaskFlags` | 5 个任务互斥锁的聚合 |
-| `state/mod.rs:86-101` | pub struct | `UpdateStats` | 更新/通知/心跳/恢复/自动启用的 9 个原子统计字段 |
-| `state/mod.rs:103-107` | impl | `Default for UpdateStats` | 委托 `new` |
-| `state/mod.rs:110` | pub fn | `UpdateStats::new() -> Self` | 全部置 0/false |
-| `state/mod.rs:125-132` | pub struct | `AppState` | 全局状态根，Tauri 托管对象 |
-| `state/mod.rs:134-138` | impl | `Default for AppState` | 委托 `new` |
-| `state/mod.rs:141` | pub fn | `AppState::new() -> Self` | 装配全部子状态；`app/startup.rs:50` 的 `.manage(AppState::new())` 是唯一生产构造点 |
-| `state/mod.rs:159-210` | `#[cfg(test)]` mod | `tests` | 5 个 TaskLock 测试 + 2 个账号名校验测试 |
-| `state/mod.rs:212-219` | pub struct | `CommandResult` | 通用命令返回（`Serialize`，字段 `skip_serializing_if = "Option::is_none"`） |
-| `state/mod.rs:222/225/228` | pub fn | `CommandResult::ok()` / `ok_msg(&str)` / `err(&str)` | 三个构造器 |
-| `state/mod.rs:233-243` | pub struct | `AccountResult` | 账号操作返回（`#[serde(rename_all = "camelCase")]`） |
-| `state/mod.rs:246/249/252` | pub fn | `AccountResult::ok(Config)` / `ok_with_account(String, Config)` / `err(&str)` | 三个构造器 |
+| `state/mod.rs:77` | pub fn | `sanitize_account_id(user: &str) -> String` | 自动建号的 id 生成（R2）：字符集与 `validate_account_name` 一致，非法字符替换 `_`、按字符截断 32（宽松替换版，任何输入有确定输出不报错） |
+| `state/mod.rs:91-97` | pub struct | `TaskFlags` | 5 个任务互斥锁的聚合 |
+| `state/mod.rs:103-118` | pub struct | `UpdateStats` | 更新/通知/心跳/恢复/自动启用的 9 个原子统计字段 |
+| `state/mod.rs:120-124` | impl | `Default for UpdateStats` | 委托 `new` |
+| `state/mod.rs:127` | pub fn | `UpdateStats::new() -> Self` | 全部置 0/false |
+| `state/mod.rs:142-149` | pub struct | `AppState` | 全局状态根，Tauri 托管对象 |
+| `state/mod.rs:151-155` | impl | `Default for AppState` | 委托 `new` |
+| `state/mod.rs:158` | pub fn | `AppState::new() -> Self` | 装配全部子状态；`app/startup.rs:50` 的 `.manage(AppState::new())` 是唯一生产构造点 |
+| `state/mod.rs:176-270` | `#[cfg(test)]` mod | `tests` | 5 个 TaskLock 测试 + 2 个账号名校验测试 + `sanitize_account_id` 规则锁 |
+| `state/mod.rs:272-279` | pub struct | `CommandResult` | 通用命令返回（`Serialize`，字段 `skip_serializing_if = "Option::is_none"`） |
+| `state/mod.rs:281/284/288` | pub fn | `CommandResult::ok()` / `ok_msg(&str)` / `err(&str)` | 三个构造器 |
+| `state/mod.rs:295-301` | pub struct | `AccountItem` | 账号列表条目（`{id, displayName}`，R3；display_name 持久层已兜底非空） |
+| `state/mod.rs:303-313` | pub struct | `AccountResult` | 账号操作返回（`#[serde(rename_all = "camelCase")]`，新增 `display_name` 携带 rename 结果） |
+| `state/mod.rs:316/319/321` | pub fn | `AccountResult::ok(Config)` / `ok_with_account(String, Config)` / `err(&str)` | 三个构造器 |
 
 ### infra/state/store.rs
 
@@ -247,40 +249,40 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 
 `TaskGuard<'a>`（`state/mod.rs:20-22`）唯一字段 `lock: &'a TaskLock`（`state/mod.rs:21`），是自动释放的依据；无 owner 标识、无重入（`mem::forget` 掉 guard 即永久占用）。
 
-### TaskFlags（`state/mod.rs:74-80`）
+### TaskFlags（`state/mod.rs:91-97`）
 
 | 字段 | 类型 | 行号 | 含义与使用点 |
 | --- | --- | --- | --- |
-| `is_checking` | `TaskLock` | `state/mod.rs:75` | 后台周期检测锁；`monitor/background_check.rs:18`、`commands/background.rs:30`、`commands/system.rs:163`（读 `is_active` 供前端显示） |
-| `is_logging_in` | `TaskLock` | `state/mod.rs:76` | 登录锁；`commands/login.rs:67`、`monitor/auto_auth.rs:69,141,425`、`app/tray.rs:58` |
-| `is_logging_out` | `TaskLock` | `state/mod.rs:77` | 注销锁；`commands/login.rs:92` |
-| `is_quality_checking` | `TaskLock` | `state/mod.rs:78` | 网络质量检测锁；`commands/network_cmd.rs:179`、`monitor/quality_scheduler.rs:23` |
-| `is_downloading` | `TaskLock` | `state/mod.rs:79` | 更新包下载锁；`commands/updater.rs:31` |
+| `is_checking` | `TaskLock` | `state/mod.rs:92` | 后台周期检测锁；`monitor/background_check.rs:18`、`commands/background.rs:30`、`commands/system.rs:163`（读 `is_active` 供前端显示） |
+| `is_logging_in` | `TaskLock` | `state/mod.rs:93` | 登录锁；`commands/login.rs:67`、`monitor/auto_auth.rs:69,141,425`、`app/tray.rs:58` |
+| `is_logging_out` | `TaskLock` | `state/mod.rs:94` | 注销锁；`commands/login.rs:92` |
+| `is_quality_checking` | `TaskLock` | `state/mod.rs:95` | 网络质量检测锁；`commands/network_cmd.rs:179`、`monitor/quality_scheduler.rs:23` |
+| `is_downloading` | `TaskLock` | `state/mod.rs:96` | 更新包下载锁；`commands/updater.rs:31` |
 
-### UpdateStats（`state/mod.rs:86-101`）
+### UpdateStats（`state/mod.rs:103-118`）
 
 | 字段 | 类型 | 行号 | 含义与使用点 |
 | --- | --- | --- | --- |
-| `last_update_check_epoch_ms` | `AtomicU64` | `state/mod.rs:87` | 上次更新检查时间；`commands/updater.rs:18`、`update/updater.rs:307` 写 |
-| `update_notified` | `AtomicBool` | `state/mod.rs:88` | 本会话是否已弹过"发现新版本"（CAS 去重）；`update/updater.rs:292` |
-| `last_disabled_notification_ms` | `AtomicU64` | `state/mod.rs:89` | 适配器被禁用的通知节流；`monitor/adapter_watch.rs:111,122` |
-| `last_network_change_notification_ms` | `AtomicU64` | `state/mod.rs:90` | 网络状态变更通知节流（60s）；`monitor/background_emit.rs:95-96` |
-| `last_render_heartbeat_ms` | `AtomicU64` | `state/mod.rs:91` | 前端心跳时间戳；写 `commands/system.rs:160`，读 `app/heartbeat.rs:38` |
-| `webview_recovery_window_start_ms` | `AtomicU64` | `state/mod.rs:94` | WebView 恢复滑动窗口起点（0 = 未触发过）；`app/webview_recovery.rs:62-74` |
-| `webview_recovery_count` | `AtomicU32` | `state/mod.rs:96` | 当前窗口内已 reload 次数；`app/webview_recovery.rs:66-78` |
-| `auto_enable_last_attempt_ms` | `AtomicU64` | `state/mod.rs:98` | 自动启用被禁适配器的上次尝试时间；`monitor/adapter_watch.rs:164,166` |
-| `auto_enable_failure_count` | `AtomicU32` | `state/mod.rs:100` | 自动启用连续失败数（退避输入）；`monitor/adapter_watch.rs:154-191` |
+| `last_update_check_epoch_ms` | `AtomicU64` | `state/mod.rs:104` | 上次更新检查时间；`commands/updater.rs:18`、`update/updater.rs:307` 写 |
+| `update_notified` | `AtomicBool` | `state/mod.rs:105` | 本会话是否已弹过"发现新版本"（CAS 去重）；`update/updater.rs:292` |
+| `last_disabled_notification_ms` | `AtomicU64` | `state/mod.rs:106` | 适配器被禁用的通知节流；`monitor/adapter_watch.rs:111,122` |
+| `last_network_change_notification_ms` | `AtomicU64` | `state/mod.rs:107` | 网络状态变更通知节流（60s）；`monitor/background_emit.rs:95-96` |
+| `last_render_heartbeat_ms` | `AtomicU64` | `state/mod.rs:108` | 前端心跳时间戳；写 `commands/system.rs:160`，读 `app/heartbeat.rs:38` |
+| `webview_recovery_window_start_ms` | `AtomicU64` | `state/mod.rs:111` | WebView 恢复滑动窗口起点（0 = 未触发过）；`app/webview_recovery.rs:62-74` |
+| `webview_recovery_count` | `AtomicU32` | `state/mod.rs:113` | 当前窗口内已 reload 次数；`app/webview_recovery.rs:66-78` |
+| `auto_enable_last_attempt_ms` | `AtomicU64` | `state/mod.rs:115` | 自动启用被禁适配器的上次尝试时间；`monitor/adapter_watch.rs:164,166` |
+| `auto_enable_failure_count` | `AtomicU32` | `state/mod.rs:117` | 自动启用连续失败数（退避输入）；`monitor/adapter_watch.rs:154-191` |
 
-### AppState（`state/mod.rs:125-132`）
+### AppState（`state/mod.rs:142-149`）
 
 | 字段 | 类型 | 行号 | 含义 |
 | --- | --- | --- | --- |
-| `config` | `ConfigStore` | `state/mod.rs:126` | 配置快照（ArcSwap） |
-| `tasks` | `TaskFlags` | `state/mod.rs:127` | 5 个任务互斥锁 |
-| `task_manager` | `BackgroundTaskManager` | `state/mod.rs:128` | 后台任务表（`Clone` 后可跨线程持有） |
-| `network` | `NetworkState` | `state/mod.rs:129` | 网络状态快照 |
-| `exit` | `ExitStateStore` | `state/mod.rs:130` | 退出状态与截止时间 |
-| `update_stats` | `UpdateStats` | `state/mod.rs:131` | 更新/通知/心跳/恢复统计 |
+| `config` | `ConfigStore` | `state/mod.rs:143` | 配置快照（ArcSwap） |
+| `tasks` | `TaskFlags` | `state/mod.rs:144` | 5 个任务互斥锁 |
+| `task_manager` | `BackgroundTaskManager` | `state/mod.rs:145` | 后台任务表（`Clone` 后可跨线程持有） |
+| `network` | `NetworkState` | `state/mod.rs:146` | 网络状态快照 |
+| `exit` | `ExitStateStore` | `state/mod.rs:147` | 退出状态与截止时间 |
+| `update_stats` | `UpdateStats` | `state/mod.rs:148` | 更新/通知/心跳/恢复统计 |
 
 ### ConfigStore（`state/store.rs:6-8`）
 
@@ -354,13 +356,16 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 
 | 结构体 | 字段 | 类型 | 行号 | 含义 |
 | --- | --- | --- | --- | --- |
-| `CommandResult` | `success` | `bool` | `state/mod.rs:214` | 恒序列化 |
-| `CommandResult` | `message` | `Option<String>` | `state/mod.rs:216` | `skip_serializing_if = "Option::is_none"` |
-| `CommandResult` | `data` | `Option<serde_json::Value>` | `state/mod.rs:218` | 同上 |
-| `AccountResult` | `success` | `bool` | `state/mod.rs:236` | 恒序列化 |
-| `AccountResult` | `message` | `Option<String>` | `state/mod.rs:238` | 可选 |
-| `AccountResult` | `active_account` | `Option<String>` | `state/mod.rs:240` | 当前激活账号名 |
-| `AccountResult` | `config` | `Option<Config>` | `state/mod.rs:242` | 变更后的配置（注意：由调用方负责掩码，见 `desktop-config`） |
+| `CommandResult` | `success` | `bool` | `state/mod.rs:274` | 恒序列化 |
+| `CommandResult` | `message` | `Option<String>` | `state/mod.rs:276` | `skip_serializing_if = "Option::is_none"` |
+| `CommandResult` | `data` | `Option<serde_json::Value>` | `state/mod.rs:278` | 同上 |
+| `AccountItem` | `id` | `String` | `state/mod.rs:296` | 账号文件名 stem（稳定不变） |
+| `AccountItem` | `display_name` | `String` | `state/mod.rs:298`（JSON `displayName`） | 可读显示名（持久层兜底非空） |
+| `AccountResult` | `success` | `bool` | `state/mod.rs:305` | 恒序列化 |
+| `AccountResult` | `message` | `Option<String>` | `state/mod.rs:307` | 可选 |
+| `AccountResult` | `active_account` | `Option<String>` | `state/mod.rs:309` | 当前激活账号 id（switch 成功时必现） |
+| `AccountResult` | `display_name` | `Option<String>` | `state/mod.rs:311` | rename 成功时的新显示名 |
+| `AccountResult` | `config` | `Option<Config>` | `state/mod.rs:313` | 变更后的配置（注意：由调用方负责掩码，见 `desktop-config`） |
 
 ## Data Flow
 

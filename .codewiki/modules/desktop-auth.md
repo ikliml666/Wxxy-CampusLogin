@@ -98,10 +98,17 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
-| `service.rs:20-111` | pub fn | `full_login(state, app_handle, adapter_name: Option<&str>) -> CommandResult` | 登录顶层编排：读配置 → 取适配器 → 单适配器或双适配器路径 → 失败计数 |
-| `service.rs:113-126` | pub fn | `logout_adapter_with_log(adapter, config, app_handle, is_quitting) -> Option<CommandResult>` | 单适配器注销，内层调 `do_logout_with_retry(..., 2, ...)` |
-| `service.rs:128-214` | pub fn | `full_logout(state, app_handle, adapter_name: Option<&str>) -> CommandResult` | 注销顶层编排（结构与 `full_login` 对称） |
-| `service.rs:218-249` | pub fn | `post_login_handler(app_handle, state)` | 登录成功后处理：解除注销保护期 → 500ms 后按需触发后台检查 → 按需触发自动退出 |
+| `service.rs:24` | 私有 fn | `credentials_missing(config) -> bool` | 空凭据前置校验：仅当全局凭据缺失**且**主/副适配器都未指定账号时才视为缺失（R1） |
+| `service.rs:33` | 私有 fn | `resolve_manual_adapter_account_id(name, config) -> &str` | 手动指定网卡时的账号匹配：==主适配器→`adapter1Account`、==副适配器→`adapter2Account`、否则空串（跟随全局） |
+| `service.rs:46` | 私有 fn | `credentials_config(base, account) -> Config` | 凭据覆盖：`account` 为 Some 时仅覆盖 `user/password/operator`，其余字段（含 `adapter1_account`/`adapter2_account`）保持 base |
+| `service.rs:58` / `:66` | 私有 fn | `load_adapter_account_config` / `adapter_account_from_dir` | 读取适配器指定账号的档案；空 id / 文件不存在 / 读取/解析/解密失败 → `log_warn` + `None`（回退全局凭据，不阻断登录） |
+| `service.rs:77` | 私有 fn | `adapter_credentials(base, app_handle, account_id) -> Config` | 按适配器角色组装凭据副本（薄封装上述两者） |
+| `service.rs:81-192` | pub fn | `full_login(state, app_handle, adapter_name: Option<&str>) -> CommandResult` | 登录顶层编排：读配置 → 凭据校验 → 取适配器 → 单/双/手动三条路径（各持按角色解析出的 `Arc<Config>` 凭据副本）→ 失败计数。详见 [[adapter-account-binding]] |
+| `service.rs:194-207` | pub fn | `logout_adapter_with_log(adapter, config, app_handle, is_quitting) -> Option<CommandResult>` | 单适配器注销，内层调 `do_logout_with_retry(..., 2, ...)` |
+| `service.rs:209-295` | pub fn | `full_logout(state, app_handle, adapter_name: Option<&str>) -> CommandResult` | 注销顶层编排（结构与 `full_login` 对称） |
+| `service.rs:297-330` | pub fn | `post_login_handler(app_handle, state)` | 登录成功后处理：解除注销保护期 → 500ms 后按需触发后台检查 → 按需触发自动退出 |
+
+`full_login`/`full_logout` 的一组纯函数（上表前 5 行）全部可单测，测试在 `service.rs:331` 起的 `mod tests`（凭据覆盖边界、手动匹配规则、空凭据校验规则、档案缺失回退、已存在档案加解密往返）。
 
 ### auth/failure_tracker.rs
 
@@ -196,17 +203,21 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 ```
 命令层 commands/login.rs:74 / app/tray.rs:70 / monitor/auto_auth.rs:72,173,430
   → auth::service::full_login(state, app_handle, adapter_name)
-      ├─ state.config.load() 校验 user/password 非空            (service.rs:21-28)
-      ├─ network::get_adapters_cached() → 失败则 wait_for_adapter(10000, quit)  (service.rs:32-38)
-      ├─ network::ensure_ethernet_ip_for_login(...)             (service.rs:44)
-      ├─ network::get_adapters_force() 绕缓存重取（DHCP 续租后 IP 变化）(service.rs:48-51)
-      ├─ 指定适配器分支：network::find_with_valid_ip → session::login_adapter_with_log
-      └─ 自动分支：network::resolve_adapter_names + find_dual_adapters
-             ├─ 单适配器：session::login_adapter_with_log(a1, ...)
-             └─ 双适配器：dual_adapter_executor::execute_dual(
-                    || login_adapter_with_log(a1,…),      // 立即
-                    || login_adapter_with_log(a2,…),      // 1s 后
-                    state.exit.is_quitting)
+      ├─ state.config.load_full() → credentials_missing 校验（全局为空且两适配器
+      │     均未绑定账号才拒绝）                            (service.rs:84-88)
+      ├─ network::get_adapters_cached() → 失败则 wait_for_adapter(10000, quit)  (service.rs:94-99)
+      ├─ network::ensure_ethernet_ip_for_login(...)             (service.rs:106)
+      ├─ network::get_adapters_force() 绕缓存重取（DHCP 续租后 IP 变化）(service.rs:110-113)
+      ├─ 指定适配器分支：按网卡名匹配主/副角色取绑定账号
+      │     （resolve_manual_adapter_account_id，service.rs:118-121）→ adapter_credentials
+      │     构造凭据副本 → find_with_valid_ip → session::login_adapter_with_log
+      ├─ 自动分支：network::resolve_adapter_names + find_dual_adapters
+      │     ├─ 单适配器：按主适配器角色构造副本 → session::login_adapter_with_log  (service.rs:186-187)
+      │     └─ 双适配器：主/副各持一份 Arc<Config>（未绑定账号时共享 base 的 Arc
+      │        保持零拷贝，绑定才深拷贝；service.rs:151-160）→ dual_adapter_executor::execute_dual(  (service.rs:169)
+      │              || login_adapter_with_log(a1, config_shared1,…),   // 立即
+      │              || login_adapter_with_log(a2, config_shared2,…),   // 1s 后
+      │              state.exit.is_quitting)
   → auth::session::login_adapter_with_log(adapter, config, app_handle, is_quitting)
       ├─ 预检 portal::check_portal_full(adapter.ip, Some(name))     (session.rs:87)
       │     └─ online==true → append_login_history(..., "login") + 直接返回成功
@@ -263,7 +274,7 @@ monitor 后台巡检 / session 预检 / commands → portal::check_portal_full(a
 ## Connections
 
 - [[desktop-commands]] — `commands/login.rs`（`full_login`/`full_logout`/`post_login_handler`/`reset_all`）、`commands/network_cmd.rs:105`（`config::model::default_campus_gateway`）、`commands/account.rs`（登录历史与账号切换）。
-- [[desktop-monitor]] — `monitor/background_check.rs:193,201` 调 `handle_portal_request_failure`；`monitor/auto_auth.rs:72,173,430` 调 `full_login`；`monitor/watcher.rs::run_background_check` 由 `post_login_handler`（`service.rs:242`）触发。
+- [[desktop-monitor]] — `monitor/background_check.rs:193,201` 调 `handle_portal_request_failure`；`monitor/auto_auth.rs:72,173,430` 调 `full_login`；`monitor/watcher.rs::run_background_check` 由 `post_login_handler`（`service.rs:320-321`）触发。
 - [[desktop-network-core]] — `network::client::{PORTAL_URL, create_safe_http_client}`、`network::{get_adapters_cached, get_adapters_force, wait_for_adapter, find_with_valid_ip, find_dual_adapters, resolve_adapter_names, ensure_ethernet_ip_for_login, dhcp_release_renew_single, check_gateway_reachable_from}`、`network::Adapter`。
 - [[desktop-config]] — `config::validate::{validate_username, validate_operator, validate_password}`（协议层第二道校验）、`config::persist::append_login_history`、`config::model::Config`。
 - [[desktop-infra]] — `infra::state::{AppState, CommandResult}`、`infra::events::EventBus`、`infra::async_util::block_on_sync`、`infra::lifecycle::start_auto_exit`、`infra::logger` 的 `log_*!` 宏（tag：`login` / `logout` / `network` / `background` / `auth`）、`platform::console_output::decode_charset_bytes`。
@@ -284,12 +295,12 @@ monitor 后台巡检 / session 预检 / commands → portal::check_portal_full(a
 11. **`PageCheckResult` 与 `portal_config` 均为私有**：`portal.rs:4`、`portal.rs:199`，外部（含安卓端）只能拿到 `PortalStatus`，无法对页面判定细节做断言或复用。
 12. **预检错误被静默吞掉**：`session.rs:87` 与 `session.rs:122` 用 `if let Ok(...)`，`check_portal_full` 的 `Err`（HTTP 客户端创建失败等）不会记录任何日志。
 13. **"已经在线"降级依赖 `message` 文本匹配**：`session.rs:151` 的 `m.contains("已经在线")` 与 `protocol.rs:200`、`protocol.rs:217` 的中文关键词耦合；文案变化即失效。同一逻辑还依赖 `parse_error` + `retryable` 组合（`session.rs:119-120`）来区分 HTML 分支，注释已说明这是为消除跨文件文案耦合。
-14. **`get_adapters_force` 失败静默回退旧快照**：`service.rs:48-51`，回退后可能仍使用 DHCP 续租前的空 IP 快照，异常链路上无日志。
+14. **`get_adapters_force` 失败静默回退旧快照**：`service.rs:110-113`，回退后可能仍使用 DHCP 续租前的空 IP 快照，异常链路上无日志。
 15. **`AUTH_FAILURE_CODES` 与协议 code 字符串跨文件耦合**：`failure_tracker.rs:9` 的 `["ac_auth_failed", "1", "4"]` 必须与 `protocol.rs:205`、`protocol.rs:212`、`protocol.rs:225` 产出的 code 一致；`"1"` 同时覆盖"非法/失败/错误/拒绝"四类语义，无法区分。反证在 `session.rs:144-173`：它把"已在线但网络不通"也降级为 `code="1"`，从而进入认证失败计数路径（注释明说这是为了触发 MAC 重置自愈）。
 16. **MAC 重置逻辑在两处重复实现**：`failure_tracker.rs:73-94`（认证失败路径）与 `failure_tracker.rs:154-178`（双适配器路径）与 `failure_tracker.rs:246-280`（Portal 请求失败路径）是三段近乎相同的 `dhcp_release_renew_single` + 日志代码，阈值常量却分属 `MAX_FAILURES`（`failure_tracker.rs:6`）与 `PORTAL_REQUEST_FAILURE_THRESHOLD`（`failure_tracker.rs:194`）。
 17. **认证失败与 Portal 请求失败共用同一计数器**：`handle_portal_request_failure`（`failure_tracker.rs:230-239`）与 `handle_single_adapter_failure`（`failure_tracker.rs:137-146`）都读写 `a1_auth_failure_count` / `a2_auth_failure_count`。注释（`failure_tracker.rs:196-203`）承认二者"触发条件不同但共用计数访问器"，因此两类失败混合累加会提前凑满阈值 5，触发非预期的 MAC 重置。
-18. **`execute_dual` 不校验调用线程**：`dual_adapter_executor.rs:55` 直接用 `block_on_sync` 驱动 `spawn_blocking`；`infra/async_util.rs` 顶部注释指出该函数在 async worker 线程上会 panic（`Handle::block_on` 嵌套限制）。当前唯一调用方 `service.rs:90`、`service.rs:198` 是同步函数，但函数签名未做防护或断言。
+18. **`execute_dual` 不校验调用线程**：`dual_adapter_executor.rs:55` 直接用 `block_on_sync` 驱动 `spawn_blocking`；`infra/async_util.rs` 顶部注释指出该函数在 async worker 线程上会 panic（`Handle::block_on` 嵌套限制）。当前唯一调用方 `service.rs:169`、`service.rs:277` 是同步函数，但函数签名未做防护或断言。
 19. **`execute_dual` 内适配器 2 的结果串行等待**：`dual_adapter_executor.rs:79-85` 先 `await` 适配器 2 的 join，再 `await` 适配器 1（`dual_adapter_executor.rs:85`）。两条任务本身并发，但若适配器 2 长时间不返回，适配器 1 已完成的结果也不会提前返回。
 20. **`DualAdapterResult::success()` 是"或"语义**：`dual_adapter_executor.rs:14-15`，一台成功即整体 `success=true`，失败端的信息只体现在合并消息与 `failure_tracker` 的分别计数里。
-21. **`post_login_handler` 的后台检查依赖未取消 token 的兜底**：`service.rs:239-241`，`task_manager.cancel_token("background_check")` 取不到时新建 token，即可能并发跑起第二个后台检查任务。
+21. **`post_login_handler` 的后台检查依赖未取消 token 的兜底**：`service.rs:316-321`，`task_manager.cancel_token("background_check")` 取不到时新建 token，即可能并发跑起第二个后台检查任务。
 22. **集成测试无断言、依赖真实校园网**：`tests/repro_logout_panic.rs:43-44` 只 `println!` 结果（"复现测试完成（未 panic 则说明该结构本身安全）"），没有任何 `assert`；测试要到真实 `10.2.106.187` 发 GET（`:27`、`:32`），在非校园网环境会因 `check_portal_full` 返回 `Failed` 而照样"通过"，无法起到回归锁定作用。

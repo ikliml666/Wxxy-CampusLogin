@@ -118,16 +118,21 @@ tauri-plugin-campus-monitor-service = { path = "../plugins/foreground-service" }
 1. **协议实现单点存在桌面 crate**：安卓经 Cargo path 依赖自动继承，**禁止复制**（`lib.rs:1` 与 `android/src-tauri/Cargo.toml` 注释均明确）。
 2. **平台专属能力各端自理**：DPAPI / Keystore、托盘 / 前台服务等。
 
+**账号体系（2026-09-14 落地）的同步归类**：
+
+- **双端通用项**（同一次提交双端各改一份）：账号显示名与 id 分离（`displayName` 字段、`AccountItem {id, displayName}` 出站契约、`rename_account` 命令、`list_accounts` 返回结构、重名/校验语义）；输入账号密码自动建号（`save_config` 落盘后同步账号档案）；切换账号后 UI 刷新（返回必带 `activeAccount` + `config-changed` 事件补齐独立字段同步）——见 [[account-display-name-id-separation]] 与 [[account-switch-ui-state-desync]]。
+- **桌面专属例外**：主/副适配器各自指定账号（`Config.adapter1Account`/`adapter2Account` 设备级字段 + 登录编排凭据副本 + 网络面板下拉）——双适配器与"网卡→账号"映射是桌面专属能力，见 [[adapter-account-binding]]；切账号合并明确排除这两个字段，故安卓 `Settings` 无需引入。
+
 ### 两端命令面差异
 
 | 维度 | 桌面 | 安卓 |
 |---|---|---|
-| 注册条数 | 60（`app/startup.rs:63-124`） | 48（`lib.rs:57-106`） |
+| 注册条数 | 61（`app/startup.rs:63-125`） | 49（`lib.rs:57-107`） |
 | 独有命令 | `show_window` / `minimize_window` / `close_window` / `open_external` / `cancel_auto_exit` / `render_heartbeat` / `get_gpu_info` / `check_dns_doh_status` / `setup_dns_doh` / `reset_dns` / `export_config` / `import_config` / `export_diagnostics` / 适配器 4 条 / `dhcp_*` 3 条 | `ping_test` / `bind_to_wifi` / `accept_wifi_network` / `detect_campus` / `get_soc_info` / 电池 3 条 / `get_boot_autostart` / `set_boot_autostart` |
 | 同名异实现 | `get_config` 返回 `Config` | `get_config` 返回掩码后的 `serde_json::Value`（`config_state.rs:304-316`） |
 | 语义等价异名 | `verify_windows_identity`、`get/set_auto_launch` | `verify_biometric_identity`、`get/set_boot_autostart` |
-| 配置字段数 | 46（`config/model.rs:10-110`） | 37（`config_state.rs:15-76`） |
-| 双适配器 | 支持（`dual_adapter` / `adapter1` / `adapter2`） | 不支持，`Settings` 无这些字段 |
+| 配置字段数 | 49（`config/model.rs:10-122`） | 38（`config_state.rs:15-80`） |
+| 双适配器 | 支持（`dual_adapter` / `adapter1` / `adapter2` / `adapter1Account` / `adapter2Account`） | 不支持，`Settings` 无这些字段 |
 
 ## 关键约束
 
@@ -169,7 +174,7 @@ tauri-app/src-tauri (campus-login, lib campus_login_lib)  ◄──────�
 
 - **`Cargo.toml` 注释与实现不一致**：`android/src-tauri/Cargo.toml` 写着"阶段 3 收敛为 git 依赖 + tag"，实际仍是相对路径 `../../tauri-app/src-tauri`，路径一旦重命名即断。
 - **版本号有两条独立来源**：桌面 `env!("APP_VERSION")` 由 `build.rs` 从 `tauri.conf.json` 注入（`tauri-app/src-tauri/build.rs:37`），安卓 `env!("CARGO_PKG_VERSION")` 取自 `Cargo.toml`。当前两边都是 `2.3.6`（两个 `Cargo.toml` `version` 字段 + 两个 `tauri.conf.json`），发布时需人工四处同步，无自动校验。
-- **两端配置面是"交集 + 双向差集"而非子集**：46（桌面）与 37（安卓）字段中只有 33 个共有（2026-09 定时登录/注销功能落地时双端各新增 `scheduledLoginMinutes`/`scheduledLogoutMinutes`，共有数由此前的 31 升至 33）；桌面独有 13 个（`adapter1`/`adapter2`/`dual_adapter`、`minimize_to_tray`/`hidden_start`/`auto_launch`、`auto_exit_after_login`/`auto_exit_on_online`、`campus_exit_on_fail`/`campus_exit_start_minutes`/`campus_exit_end_minutes`、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify`、`background_check_idle_interval`、`enable_boot_autostart`、`config_schema_version`），两侧独有集合与上轮清点相比未变。比较 `config/model.rs:10-110` 与 `config_state.rs:15-76` 可见，"双端同步"实际需要双向增量维护。
+- **两端配置面是"交集 + 双向差集"而非子集**：49（桌面）与 38（安卓）字段中只有 34 个共有（2026-09 定时登录/注销功能落地时双端各新增 `scheduledLoginMinutes`/`scheduledLogoutMinutes`，共有数由 31 升至 33；2026-09-14 双端同加 `displayName` 后升至 34）；桌面独有 15 个（`adapter1`/`adapter2`/`dual_adapter`、`adapter1_account`/`adapter2_account`（设备级账号绑定，[[adapter-account-binding]]）、`minimize_to_tray`/`hidden_start`/`auto_launch`、`auto_exit_after_login`/`auto_exit_on_online`、`campus_exit_on_fail`/`campus_exit_start_minutes`/`campus_exit_end_minutes`、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify`、`background_check_idle_interval`、`enable_boot_autostart`、`config_schema_version`）。比较 `config/model.rs:10-122` 与 `config_state.rs:15-80` 可见，"双端同步"实际需要双向增量维护。
 - **共享 crate 的 `infra::lifecycle` 带桌面语义但被安卓编译**：`lifecycle.rs:6` 只把 `CANCEL_EXIT_SHORTCUT` 做了 `#[cfg(desktop)]`，其余循环退出逻辑保留，安卓调用点为空实现（`lifecycle.rs:305-306`），属"编得过但用不上"的死代码。
 - **`config_state::current_settings` 标 `#[allow(dead_code)]` 却已被大量使用**：`config_state.rs:348` 的注释"Task 2 协议命令面接线"已过期，实际 `monitor_loop.rs`、`self_service_cmds.rs` 等都在调用。
 - **双端同步依赖人工纪律**：`AGENTS.md` 第 3 条要求同提交双端各改一份，但仓库中没有 CI 检查，无法自动拦截只改一端的提交（该约定曾写于旧版 `CODE_WIKI.md:289-290`；`CODE_WIKI.md` 已删除，由仓库内 `.codewiki/` 活 wiki 取代，约定现落在 `AGENTS.md`「必守约定」第 3 条）。

@@ -26,13 +26,13 @@ tags: [概念, 配置, 持久化, 迁移, 原子写, config-changed]
 
 ## Overview
 
-配置是横跨双端的核心数据：桌面 `config::Config`（44 字段，单文件 `config.json` + `accounts/*.json` + `login-history.json`），安卓 `config_state::Settings`（35 字段，同结构但密文外置为 `EncodedSettings`）。落盘走"临时文件 + rename"原子写，密码字段加密后落盘，读取时经 `validate_config_lenient` 逐字段降级。配置变更经 `config-changed` 事件（桌面）或命令返回值（安卓）回流前端。
+配置是横跨双端的核心数据：桌面 `config::Config`（49 字段，单文件 `config.json` + `accounts/*.json` + `login-history.json`），安卓 `config_state::Settings`（38 字段，同结构但密文外置为 `EncodedSettings`）。落盘走"临时文件 + rename"原子写，密码字段加密后落盘，读取时经 `validate_config_lenient` 逐字段降级。配置变更经 `config-changed` 事件（桌面）或命令返回值（安卓）回流前端。2026-09 起新增账号体系字段：桌面 `displayName`/`adapter1Account`/`adapter2Account`、安卓 `displayName`——两端结构均"无 `deny_unknown_fields` + 容器级 `serde(default)`"，**加字段不需要 schema 迁移**（旧文件缺字段自动补默认值），详见 [[account-display-name-id-separation]]。
 
 ## 机制说明
 
 ### 桌面配置模型（`config/model.rs`）
 
-`Config` 定义在 `model.rs:10-104`，共 **44 个字段**。关键结构决策：
+`Config` 定义在 `model.rs:10-122`，共 **49 个字段**。关键结构决策：
 
 ```rust
 // model.rs:7-9 容器级 default：任一字段缺失（旧版本配置/手工编辑）都用 Default 补齐，
@@ -52,7 +52,7 @@ pub struct Config {
 
 特殊反序列化：`deserialize_non_empty_or`（`model.rs:106-116`）用于 `required_network_name` 与 `campus_gateway`——空串回退默认值（`i-wxxy` / `10.2.127.254`）。
 
-默认值函数集中在 `model.rs:138-170`，`Default for Config` 在 `:172-221`（注意 `config_version: 3`、`campus_check_end_minutes: 1380`、`background_check_interval: 15000`、`latency_test_interval: 60000`、`theme_mode: "dark"`、`update_source: "mirror"`、`adapter1: AUTO_DETECT_ADAPTER`("自动检测")）。
+默认值函数集中在 `model.rs:149-181`，`Default for Config` 在 `:183-232`（注意 `config_version: 3`、`campus_check_end_minutes: 1380`、`background_check_interval: 15000`、`latency_test_interval: 60000`、`theme_mode: "dark"`、`update_source: "mirror"`、`adapter1: AUTO_DETECT_ADAPTER`("自动检测")、`display_name`/`adapter1_account`/`adapter2_account`: 空串）。2026-09 新增的三个账号字段（`displayName` `model.rs:61-64`、`adapter1Account` `:28-31`、`adapter2Account` `:32-34`）都没有字段级 `default`，靠容器级 default 补空串；JSON 名有契约锁测试 `serde_account_fields_json_names_and_defaults`（`model.rs:291` 起）。
 
 ### 桌面原子写与文件布局（`config/persist.rs`）
 
@@ -72,10 +72,10 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
 | 文件 | 路径函数 | 内容 |
 |---|---|---|
 | 主配置 | `get_config_path` → `<data>/config.json`（`persist.rs:60-62`） | `Config` JSON，`password` / `selfPassword` 为 DPAPI 密文（base64） |
-| 账号 | `get_accounts_dir` → `<data>/accounts/<名字>.json`（`persist.rs:64-66`） | 与主配置同格式的 `Config`；密码密文 |
-| 登录历史 | `get_login_history_path` → `<data>/login-history.json`（`persist.rs:95-97`） | JSON 数组，头插，**上限 100 条**（`:141-143`） |
+| 账号 | `get_accounts_dir` → `<data>/accounts/<id>.json`（`persist.rs:64-66`、`get_account_path` `:69-72`） | 与主配置同格式的扁平 `Config`（id = 文件名 stem）；密码密文 |
+| 登录历史 | `get_login_history_path` → `<data>/login-history.json`（`persist.rs:156-158`） | JSON 数组，头插，**上限 100 条**（`:202-204`） |
 
-`list_account_names`（`persist.rs:68-93`）过滤 `.` 前缀与空名、结果排序。`append_login_history`（`:99-151`）用 `LOGIN_HISTORY_LOCK`（`:10`）串行化读-改-写，解析失败时把原文件重命名为 `<path>.bak` 后重置。
+`list_account_items`（`persist.rs:117-154`）过滤 `.` 前缀与空名、按 id 排序，返回 `AccountItem {id, displayName}`（displayName 空/文件损坏兜底为 id）。`append_login_history`（`:160-212`）用 `LOGIN_HISTORY_LOCK`（`:10`）串行化读-改-写，解析失败时把原文件重命名为 `<path>.bak` 后重置。
 
 ### 桌面校验与迁移（`config/validate.rs`）
 
@@ -118,52 +118,56 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
   → state.config.store(config)（startup.rs:176）
   → network::update_portal_url + logger::set_log_retention_days（startup.rs:177-181）
 
-保存：commands/config_cmd.rs:92-139  save_config
+保存：commands/config_cmd.rs:210-266  save_config
   → validate_config（严格）
-  → clear_password / 空串 / "***" 三态处理（:109-123）
-  → network::update_portal_url（:127） + logger::set_log_retention_days（:130）
-  → save_config_to_disk_encrypted（先落盘）（:134）
-  → state.config.store（内存）（:135）
+  → clear_password / 空串 / "***" 三态处理（:227-241）
+  → network::update_portal_url（:245） + logger::set_log_retention_days（:248）
+  → save_config_to_disk_encrypted（先落盘）（:253）
+  → state.config.store（内存）（:255）
+  → auto_create_account_for_current 自动建号/同步账号档案，实际写盘时补刷托盘（:258-265）
 ```
 
-顺序上"先落盘再更新内存"（`:132-133` 注释）：磁盘失败时命令返回 Err 且运行态不变，避免"保存失败但内存已生效、重启后回退"的错位。
+顺序上"先落盘再更新内存"（`:256-257` 注释）：磁盘失败时命令返回 Err 且运行态不变，避免"保存失败但内存已生效、重启后回退"的错位。
 
-`save_config_to_disk_encrypted`（`:9-18`）是**所有配置写入的公共出口**，职责有二：① 加密切片（委托 `persist::save_config_to_disk_encrypted`）；② 掩码后广播 `config-changed`。调用方覆盖：`save_config`、`switch_account`（`account.rs:43`）、`save_current_as_account`（`:184`）、`delete_account`（`:222`）、`set_auto_launch`（`system.rs:61`）、`set_notification_enabled`（`system.rs:84`）、`start_background_check_inner`（`background_task.rs:55`）、`stop_background_check`（`commands/background.rs:20`）、`set_boot_autostart`（安卓）等。
+`save_config_to_disk_encrypted`（`:9-18`）是**所有配置写入的公共出口**，职责有二：① 加密切片（委托 `persist::save_config_to_disk_encrypted`）；② 掩码后广播 `config-changed`。调用方覆盖：`save_config`、`switch_account`（`account.rs:56`）、`save_current_as_account`（`:174`）、`delete_account`（`:244`）、`rename_account`（仅激活账号被改名，`:303`）、`set_auto_launch`（`system.rs:61`）、`set_notification_enabled`（`system.rs:84`）、`start_background_check_inner`（`background_task.rs:55`）、`stop_background_check`（`commands/background.rs:20`）、`set_boot_autostart`（安卓）等。自动建号与"非激活账号改名"只写账号档案文件（`persist::save_account_config`），不经此出口。
 
 ### 账号与登录历史存储
 
-**桌面**（`commands/account.rs`，5 条命令）：
+**桌面**（`commands/account.rs`，6 条命令 + save_config 内的自动建号副作用）：
 
-- 账号名消毒：`infra/state/mod.rs:64-72` `validate_account_name`——非空、≤32 字符、`ACCOUNT_NAME_RE`（字母/数字/下划线/中文/连字符），防路径穿越。
-- `switch_account`（`account.rs:15-49`）：读账号文件 → 解密密码 → `state.config.update` 合并 `user`/`password`/`operator`/`adapter1`/`adapter2`/`dual_adapter`/`active_account` → 落盘。
-- `save_current_as_account`（`:52-191`）：先把上一个 active 账号的登录字段回写（保留该账号文件里已有的主题等非登录字段，`existing.password` 先清空 `:83`），再写当前账号，密码走 `crypto::encrypt`（`:161-168`）；最后持久化 `active_account`。
-- `delete_account`（`:194-233`）：删文件；若删的是当前账号则清 `active_account` 并持久化 + 广播（`:213-225`，注释记录"仅内存更新不落盘，重启后仍指向已删除账号"的历史缺陷）。
-- 账号文件格式 = `Config`（`model.rs`），因此也带全部 46 字段与容器级 default。
+- 账号名消毒：`infra/state/mod.rs:64-73` `validate_account_name`——非空、≤32 字符、`ACCOUNT_NAME_RE`（字母/数字/下划线/中文/连字符），防路径穿越；宽松替换版 `sanitize_account_id`（`:77`，R2 自动建号 id 生成）。
+- `switch_account`（`account.rs:16-40`）：读账号文件 → 解密密码 → `merge_account_into_config`（`:66`，合并 `user`/`password`/`operator`/`adapter1`/`adapter2`/`dual_adapter`/`display_name`/`active_account`，**明确排除** `adapter1_account`/`adapter2_account` 设备级字段）→ 落盘；成功返回必带 `activeAccount`（R4，见 [[account-switch-ui-state-desync]]）。
+- `rename_account`（`:267-283`）：只改账号档案 `displayName`；激活账号被改名时同步主配置并经公共出口落盘（`:303`）。
+- `save_current_as_account`（`:82-214`）：先把上一个 active 账号的登录字段回写（经 `persist::{load_account_config,save_account_config}`，保留该账号文件里已有的主题等非登录字段与自定义 displayName），再写当前账号；最后持久化 `active_account`。
+- `delete_account`（`:216-259`）：删文件；若删的是当前账号则清 `active_account` 并持久化 + 广播（`:241-246`，注释记录"仅内存更新不落盘，重启后仍指向已删除账号"的历史缺陷）。
+- **自动建号（R2）**：`save_config` 落盘成功后 `auto_create_account_for_current`（`config_cmd.rs:258-265` → `account.rs:363`/`:386`）：输入了 user+password 即自动创建/同步同名账号档案（id=sanitize(user)、幂等短路、撞库跳过、保留自定义 displayName），失败仅告警，实际写盘时补刷托盘菜单。契约见 [[account-display-name-id-separation]]。
+- 账号文件格式 = 扁平 `Config`（`model.rs`），因此也带全部 49 字段与容器级 default。
 
 **安卓**（`android/src-tauri/src/account_cmds.rs`）：
 
-- 账号目录 `<app_data_dir>/accounts`（`account_cmds.rs:60-66`），账号名正则 `^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$`（`:13-14`），与桌面同款约束。
-- 账号文件格式 = `EncodedSettings`（复用 `config_state::load_file` / `save_file`，`:94-99/158`），即密码密文外置。
-- **`CONFIG_IO_LOCK`**（`:17`）：`tokio::sync::Mutex<()>` 异步锁，覆盖 `load → merge → save` 全序列（`config_io_lock()` `:21-23`），被 `switch_account`（`:127`）、`save_current_as_account`（`:156`）、`delete_account`（`:179`）、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）共用。
-- 合并字段只有三项：`user` / `password` / `operator`（`:134-137`，注释"adapter/双适配器为桌面专属,安卓不存在"）。
+- 账号目录 `<app_data_dir>/accounts`（`account_cmds.rs:89-93`），账号名正则 `^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$`（`:13-14`），与桌面同款约束。
+- 账号文件格式 = `EncodedSettings`（复用 `config_state::load_file` / `save_file`），即密码密文外置；`read_display_name`（`:99-105`）直接从 JSON 的 `settings.displayName` 取显示名（非敏感字段不解密）——**与桌面差异一：桌面账号文件是扁平 `Config` JSON**。
+- **`CONFIG_IO_LOCK`**（`:17`）：`tokio::sync::Mutex<()>` 异步锁，覆盖 `load → merge → save` 全序列（`config_io_lock()` `:21-23`），被 `switch_account`/`save_current_as_account`/`delete_account`/`rename_account`、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）共用。
+- 合并字段：`user` / `password` / `operator` / `display_name`（空兜底为 id）/ `active_account`（`:183-196`，注释"adapter/双适配器为桌面专属,安卓不存在"）。**与桌面差异二：无托盘刷新**（安卓无托盘），自动建号/改名/删除后不重建菜单。
 
 **安卓登录历史**（`login_history.rs`）：文件 `<app_data_dir>/login-history.json`（`:23-25`），头插上限 `LOGIN_HISTORY_MAX = 100`（`:10`，截断 `:67`），adapter 字段固定 `wlan0`（`:62`），字段名与桌面契约一致（`type` 而非 `login_type`，`:19-20`），损坏文件重命名为 `login-history.json.corrupt-<毫秒时间戳>.bak`（`:34`）后重置。写入用固定名 tmp + rename（`:72-74`），无 `sync_all`。
 
 ### 安卓配置模型与迁移（`config_state.rs`）
 
-`Settings` 定义在 `config_state.rs:15-76`，共 **37 个字段**，序列化属性是 `#[serde(rename_all = "camelCase", default)]`（`:14`）——一次统一 camelCase，而不是桌面那样逐字段 `rename`。
+`Settings` 定义在 `config_state.rs:15-80`，共 **38 个字段**，序列化属性是 `#[serde(rename_all = "camelCase", default)]`（`:14`）——一次统一 camelCase，而不是桌面那样逐字段 `rename`。
 
-与桌面 `Config` 的字段差异（`model.rs:10-109` vs `config_state.rs:15-76`）：**交集 33 个字段，桌面独有 13 个，安卓独有 4 个**（2026-09-13 双端同加 `scheduled_login/scheduled_logout_minutes` 后由 31 增至 33）。
+与桌面 `Config` 的字段差异（`model.rs:10-122` vs `config_state.rs:15-80`）：**交集 34 个字段，桌面独有 15 个，安卓独有 4 个**（2026-09-13 双端同加 `scheduled_login/scheduled_logout_minutes` 后交集由 31 增至 33；2026-09-14 双端同加 `display_name` 后交集增至 34、桌面新增 `adapter1_account`/`adapter2_account` 两个设备级独有字段）。
 
-| 仅桌面（13） | 仅安卓（4） |
+| 仅桌面（15） | 仅安卓（4） |
 |---|---|
-| `adapter1` `adapter2` `dual_adapter` | `allow_2d_face_verify`（2D 人脸回退开关，`:24`） |
-| `minimize_to_tray` `hidden_start` `auto_launch` | `background_check_idle_interval`（闲时巡检，`:34`） |
-| `auto_exit_after_login` `auto_exit_on_online` | `enable_boot_autostart`（`:44`） |
-| `campus_exit_on_fail` `campus_exit_start_minutes` `campus_exit_end_minutes` | `config_schema_version`（`:75`，桌面叫 `config_version`） |
+| `adapter1` `adapter2` `dual_adapter` | `allow_2d_face_verify`（2D 人脸回退开关） |
+| `adapter1_account` `adapter2_account`（设备级账号绑定，[[adapter-account-binding]]） | `background_check_idle_interval`（闲时巡检） |
+| `minimize_to_tray` `hidden_start` `auto_launch` | `enable_boot_autostart` |
+| `auto_exit_after_login` `auto_exit_on_online` | `config_schema_version`（桌面叫 `config_version`） |
+| `campus_exit_on_fail` `campus_exit_start_minutes` `campus_exit_end_minutes` | |
 | `skip_sha256_when_missing` `config_version` | |
 
-共有（命名一致）：`password` `self_password` `self_hello_enabled` `self_reverify_each_action` `operator` `auto_login_on_start` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `max_disconnect_reconnect` `auto_login_cooldown_secs` `theme_mode` `enable_notification` `custom_theme_color` `default_panel` `active_account` `enable_latency_test` `latency_test_interval` `enable_network_quality` `skip_ttfb_in_latency` `skip_content_in_latency` `portal_url` `fixed_gateway` `required_network_name` `enable_network_name_check` `campus_gateway` `campus_check_start_minutes` `campus_check_end_minutes` `scheduled_login_minutes` `scheduled_logout_minutes` `update_source` `log_retention_days` `user`。
+共有（命名一致）：`password` `self_password` `self_hello_enabled` `self_reverify_each_action` `operator` `auto_login_on_start` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `max_disconnect_reconnect` `auto_login_cooldown_secs` `theme_mode` `enable_notification` `custom_theme_color` `default_panel` `display_name` `active_account` `enable_latency_test` `latency_test_interval` `enable_network_quality` `skip_ttfb_in_latency` `skip_content_in_latency` `portal_url` `fixed_gateway` `required_network_name` `enable_network_name_check` `campus_gateway` `campus_check_start_minutes` `campus_check_end_minutes` `scheduled_login_minutes` `scheduled_logout_minutes` `update_source` `log_retention_days` `user`。
 
 **磁盘格式 `EncodedSettings`**（`:176-180`）：
 
@@ -221,6 +225,7 @@ struct EncodedSettings {
 
 - **新增配置字段必须同时改 5 处**：桌面 `config/model.rs` 字段 + `Default for Config`；安卓 `config_state.rs` 字段 + `Default for Settings`；两端前端 `settings/types.ts` + `settings/constants.ts` 的 `DEFAULT_CONFIG`。漏掉 `Default` 会让旧配置文件反序列化出 `false`/`0` 而非业务默认值。
 - **容器级 `#[serde(default)]` 不可删**（`model.rs:9`）：否则新增字段会让所有存量配置文件整体反序列化失败 → 全量重置丢配置。
+- **加普通字段不需要升 schema 版本**：两端结构都无 `deny_unknown_fields` + 有容器级 `serde(default)`（桌面 `model.rs:9`、安卓 `config_state.rs:14`），旧文件缺新字段自动补默认值（2026-09 的 `displayName`/`adapter1Account`/`adapter2Account` 均未升版本、无迁移；桌面契约锁测试 `serde_account_fields_json_names_and_defaults`）。只有"旧默认值语义变化"才需要迁移（如 v2→v3 / v4→v5 的时段终点刷值）。
 - **校验严格/宽松双路径不可混用**：启动读盘用 `validate_config_lenient`（`config_cmd.rs:57`），保存 / 导入用 `validate_config`（`:99`）。把宽松版用在保存路径会让非法输入静默落盘。
 - **所有配置写入必须经 `save_config_to_disk_encrypted`**：它同时承担加密与 `config-changed` 广播（`config_cmd.rs:13-14` 注释）。绕过它的写入（直接 `persist::save_config_to_disk_encrypted` 或自己写 JSON）不会通知前端。
 - **先落盘再更新内存**（`config_cmd.rs:132-133`）：顺序反了会出现"保存失败但内存已生效"。
@@ -273,7 +278,7 @@ masked_for_display()                       桌面 save_config_to_disk_encrypted
 
 ## Known Issues
 
-- **两端字段集不是子集关系**：交集 33 个字段，桌面独有 13 个（双适配器三件、托盘/隐藏启动、退出策略、`campus_exit_*` 三件、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify` / `background_check_idle_interval` / `enable_boot_autostart` / `config_schema_version`）。这意味着"双端同步"实际是双向增量同步，新增字段时无法照抄某一端。
+- **两端字段集不是子集关系**：交集 34 个字段，桌面独有 15 个（双适配器三件、适配器账号绑定两件、托盘/隐藏启动、退出策略、`campus_exit_*` 三件、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify` / `background_check_idle_interval` / `enable_boot_autostart` / `config_schema_version`）。这意味着"双端同步"实际是双向增量同步，新增字段时无法照抄某一端（`displayName` 为双端通用，`adapter1Account`/`adapter2Account` 为桌面设备级专属）。
 - **`config_version` 与 `config_schema_version` 是两套编号**：桌面是 3（`model.rs:220`），安卓是 5（`config_state.rs:128`），两者语义不同却名字相近，容易被误当同一版本号维护（2026-09-13 两端同日各进一版：桌面 v2→v3、安卓 v4→v5，都是 `campus_check_end_minutes` 旧默认 0 → 1380）。
 - **安卓 tmp 文件名固定且无 fsync**：`config_state.rs:219-221` 用固定 `.json.tmp` 且不做 `sync_all` + rename 重试；`login_history.rs:72-74` 同样。并发保护完全依赖调用方持有 `CONFIG_IO_LOCK`，任何新增写路径忘记加锁就会互相覆盖。
 - **桌面 `atomic_write` 用纳秒时间戳生成 tmp 名**（`persist.rs:14-20`）：极端情况下同纳秒并发仍可能撞名，且每分钟残留的 tmp 文件无清理逻辑。

@@ -102,11 +102,12 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | 150 | `querySelfOnlineLog({account,password,startTime,endTime})` | `query_self_online_log` | → `CommandResult` |
 | 151 | `minimizeWindow()` | `minimize_window` | → `void` |
 | 152 | `closeWindow()` | `close_window` | → `void` |
-| 160 | `listAccounts()` | `list_accounts` | → `string[]` |
-| 161 | `switchAccount(accountName)` | `switch_account` | → `SwitchAccountResult` |
-| 162 | `saveCurrentAsAccount(accountName)` | `save_current_as_account` | → `SaveAccountResult` |
-| 163 | `deleteAccount(accountName)` | `delete_account` | → `DeleteAccountResult` |
-| 164 | `getActiveAccount()` | `get_active_account` | → `string` |
+| 172 | `listAccounts()` | `list_accounts` | → `AccountItem[]`（`{id, displayName}`） |
+| 173 | `switchAccount(accountName)` | `switch_account` | → `SwitchAccountResult` |
+| 174 | `saveCurrentAsAccount(accountName)` | `save_current_as_account` | → `SaveAccountResult` |
+| 175 | `deleteAccount(accountName)` | `delete_account` | → `DeleteAccountResult` |
+| 176 | `renameAccount({accountId, displayName})` | `rename_account` | → `AccountResult`（重名等校验失败 `success=false`） |
+| 177 | `getActiveAccount()` | `get_active_account` | → `string` |
 | 165 | `startBackgroundCheck()` | `start_background_check` | → `CommandResult` |
 | 166 | `stopBackgroundCheck()` | `stop_background_check` | → `CommandResult` |
 | 167 | `triggerBackgroundCheck()` | `trigger_background_check` | → `CommandResult` |
@@ -316,11 +317,11 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 
 | 字段 / action | 类型 | 含义 |
 |---|---|---|
-| `config` | `Config` | 初值 `DEFAULT_CONFIG`（54）；`Config` 定义在 `settings/types.ts:3-51`，含 43 个字段（口径：接口本体第 4-50 行的字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`），例如 `user`/`password`/`selfPassword`/`adapter1`/`adapter2`/`dualAdapter`/`themeMode`/`defaultPanel`/`enableNetworkQuality`/`logRetentionDays` 等 |
+| `config` | `Config` | 初值 `DEFAULT_CONFIG`（54）；`Config` 定义在 `settings/types.ts`，含 46 个字段（2026-09 新增 `displayName`/`adapter1Account`/`adapter2Account` 三个可选字段；同文件另有 `AccountItem {id, displayName}` 与 `InitData.accounts: AccountItem[]`），例如 `user`/`password`/`selfPassword`/`adapter1`/`adapter2`/`dualAdapter`/`themeMode`/`defaultPanel`/`enableNetworkQuality`/`logRetentionDays` 等 |
 | `configLoaded` | `boolean` | 初始配置是否装载完成（成功或降级都置 true，见 `useInitialDataLoad.ts:157,165`） |
 | `passwordSaved` | `boolean` | 登录密码已保存（决定密码框显示"已保存"占位） |
 | `selfPasswordSaved` | `boolean` | 自助服务密码已保存（**独立布尔**，不依赖 `config.selfPassword` 的值，见 34-35 注释） |
-| `accounts` | `string[]` | 账号列表（初值 `[]`，58） |
+| `accounts` | `AccountItem[]` | 账号列表（初值 `[]`，58；每项 `{id, displayName}`，displayName 为空时后端已兜底为 id） |
 | `activeAccount` | `string` | 当前账号（初值 `''`，59） |
 | `language` | `string` | 初值 `safeStorage.get('app-language') \|\| 'zh'`（60） |
 | `api` | `typeof api`（即 `TauriApi`） | store 内缓存 IPC 对象（61），供 `useInitialDataLoad`/`useEventListeners`/`useHeartbeat`/`useGlobalShortcut` 取用 |
@@ -453,7 +454,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
    - `campus-exit-countdown`（299-317）/`campus-exit-cancelled`（320-324）：同上，前缀 `campus-exit-cancel-`。
    - `network-quality-result`（327-332）：先 `handleQualityBadAlert`（34-48，bad 状态跃迁时提示）→ `setNetworkQuality(mergeNetworkQuality(prev, data))`（331）。
    - `update-available`（335-345）：写 `updateAvailable`/`latestVersion`/`releaseNotes` 到 `useQualityStore`（`TitleBar` 消费：`components/layout/TitleBar.tsx:64-65`）。
-   - `config-changed`（348-355）：`mergeConfigFromBackend`（**不是** `updateConfigLocal`），避免后端旧快照回滚本地新值。
+   - `config-changed`（348-369）：`mergeConfigFromBackend`（**不是** `updateConfigLocal`），避免后端旧快照回滚本地新值。**注意**：与 `config` 并列的独立 store 字段不随 merge 更新——2026-09 起本分支额外做两步（R4 修复）：从 `data.config.activeAccount` 比对后 `setActiveAccount`（365）、再拉 `listAccounts` 刷新账号列表（367-369）。托盘菜单切换账号只走这条事件路径（不经过 IPC 返回值），漏掉它则托盘切换后前端高亮与列表需要手动刷新（根因分析见 [[account-switch-ui-state-desync]]）。
 4. **UI 渲染**：`RightPanel` 订阅 `useLogToastStore` 的 `logs`（由 `App.tsx` 传入 props）、`StatusBar` 订阅 `useAuthStore` 的 `bgStatus`/`status`。
 
 后端 emit 侧的事件名与载荷定义见 [[desktop-infra]]（`events.rs` 是唯一发射出口）。
@@ -505,7 +506,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 
 1. `tauriApi.ts:27-100` 加 `onXxx: (cb: (data: T) => void) => () => void`；`tauriApi.ts:133-223` 加 `onXxx: createEventListener<T>('xxx-event')`。
 2. `useEventListeners.ts:26-367` 的 effect 内注册并 `unlisteners.push(...)`（如 153-159 的写法）。
-3. store 写回点：`setBgStatus`（`useEventListeners.ts:136`）/`useAdapterStore.setState`（219、244、250）/`useQualityStore.getState().setXxx`（331、338-340）/`mergeConfigFromBackend`（354）。
+3. store 写回点：`setBgStatus`（`useEventListeners.ts:136`）/`useAdapterStore.setState`（219、244、250）/`useQualityStore.getState().setXxx`（331、338-340）/`mergeConfigFromBackend`（358）+ `setActiveAccount`（365）+ `setAccounts`（368）。
 4. 在 `mountedRef.current` 检查与（必要时）节流（参照 81、226）后写状态；Rust 侧 emit 见 [[desktop-infra]]。
 
 ## Connections

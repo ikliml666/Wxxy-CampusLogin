@@ -14,6 +14,8 @@ tags: [账号, DPAPI, 加密, 自助服务, Dr.COM Self, 运营商绑定, 跨平
 
 两者都在 `tauri-app/src-tauri/src/lib.rs:2` 与 `lib.rs:7` 被列为**跨平台协议核心**（安卓端经 `campus-login` path 依赖可见）：`self_service` 在安卓端被 `android/src-tauri/src/self_service_cmds.rs` 逐命令复用；`account::crypto` 的 Windows 分支只在 Windows 编译，非 Windows 平台是返回 `Err` 的桩（安卓端改用 `tauri-plugin-campus-keystore`）。
 
+2026-09 起账号体系扩展：账号列表项带 `displayName`（`list_accounts`/`get_init_data` 出站 `AccountItem {id, displayName}`）、新增 `rename_account` 命令、`save_config` 落盘后自动建号、`switch_account` 成功返回必带 `activeAccount`——取舍与契约见 [[account-display-name-id-separation]] 与 [[account-switch-ui-state-desync]]。
+
 ## Key Components
 
 ### account/mod.rs
@@ -120,17 +122,18 @@ tags: [账号, DPAPI, 加密, 自助服务, Dr.COM Self, 运营商绑定, 跨平
 ### 账号密码落盘加密（DPAPI）
 
 ```
-commands/config_cmd.rs::save_config / commands/account.rs::save_account
-  → config::persist::save_config_to_disk_encrypted(data_dir, config)   (persist.rs:153-168)
-      ├─ password 非空 → account::crypto::encrypt(&password)           (persist.rs:160)
+commands/config_cmd.rs::save_config → persist::save_config_to_disk_encrypted  (persist.rs:276-291)
+commands/account.rs / commands/config_cmd.rs::save_config 的自动建号
+  → config::persist::save_account_config(data_dir, account_id, config)  (persist.rs:101-115)
+      ├─ password 非空 → account::crypto::encrypt(&password)           (persist.rs:283 / :106)
       │     → base64::Engine::decode/encode(STANDARD) + dpapi::encrypt
       │       → call_dpapi → CryptProtectData（flags=0）→ LocalFree
-      └─ self_password 非空 → 同上                                      (persist.rs:163)
-  → persist::atomic_write(config.json)
+      └─ self_password 非空 → 同上                                      (persist.rs:286)
+  → persist::atomic_write(config.json / accounts/<id>.json)
 
-读取方向（commands/config_cmd.rs:32,43 与 commands/account.rs:256）
+读取方向（commands/config_cmd.rs:35,46 与 persist.rs:86 load_account_config）
   → account::crypto::decrypt(base64) → CryptUnprotectData → String::from_utf8
-     失败 → 桌面端：仅清空该字段（config_cmd.rs:36-38）/ 账号文件报错（account.rs:259-260）
+     失败 → 主配置：仅清空该字段（config_cmd.rs:38-40）/ 账号档案报错（persist.rs:89-91）
      非 Windows：恒 Err("加密存储仅桌面端支持") → 同失败分支
 ```
 
@@ -175,7 +178,7 @@ offline_session      → login_session → GET /Self/dashboard/tooffline?session
 ## Connections
 
 - [[desktop-config]] — `config::persist` 调用 `account::crypto::{encrypt, decrypt}`；`Config.self_password`（`config/model.rs:16`）承载自助服务密码、`self_hello_enabled`（`model.rs:21`）与 `self_reverify_each_action`（`model.rs:24`）是自助服务门禁与面板的配置面。
-- [[desktop-commands]] — `commands/account.rs`（`crypto::encrypt/decrypt` 用于账号档案：`:103`、`:161`、`:256`）、`commands/self_service.rs`（六个自助服务命令 + `verify_windows_identity`）、`commands/config_cmd.rs`（`crypto::decrypt`：`:32`、`:43`）。
+- [[desktop-commands]] — 账号命令（`list_accounts`/`switch_account`/`rename_account`/`save_current_as_account`/`delete_account`/`get_active_account`，共 6 条）经 `config::persist::{load_account_config, save_account_config, list_account_items}` 读写档案，crypto 调用已收敛在 persist 层（`persist.rs:86,106,283,286`）；`commands/self_service.rs`（六个自助服务命令 + `verify_windows_identity`）、`commands/config_cmd.rs`（`crypto::decrypt`：`:35`、`:46`；导入解密 `:125`）。
 - [[desktop-auth]] — `Config.operator` 的取值域（`""`/`@telecom`/`@unicom`/`@cmcc`）与 `account::crypto` 落盘的登录密码是同一份配置；自助服务绑定是校园网登录的前置条件（`self_service/mod.rs:4-5`）。
 - [[desktop-infra]] — `infra::state::AppState` / `CommandResult`、`infra::command_context::AppHandleExt`、`platform::identity`（`verify_identity` / `note_identity_verified` / `identity_verified_recently`）、`platform::console_output`（同层的平台能力实现）。
 - 安卓端（`android/src-tauri/src/`）：`self_service_cmds.rs` 全量复用 `campus_login_lib::self_service`；`account_cmds.rs` **不使用** `campus_login_lib::account::crypto`（改用 `tauri-plugin-campus-keystore`，见 `android/src-tauri/Cargo.toml` 依赖注释）。
@@ -195,8 +198,8 @@ offline_session      → login_session → GET /Self/dashboard/tooffline?session
 11. **客户端构造与 `network::client` 不一致**：`self_service/mod.rs:132-144` 不设 `min_tls_version`、不走客户端池、不设默认 `Cache-Control` 头（对比 `network/client.rs:43-67` 的 `build_client`）。当前基地址是明文 http，暂无实际影响，但两套客户端策略并存。
 12. **DPAPI 调用未设 `CRYPTPROTECT_UI_FORBIDDEN`**：`crypto.rs:80` 与 `crypto.rs:99` 的 `flags` 参数均为 `0`。按 Win32 语义，缺少该 flag 时 `CryptUnprotectData` 在特定场景（凭据上下文不匹配）理论上可能弹出 UI 提示；本应用是无界面后台/托盘场景，建议关注是否会阻塞调用线程。
 13. **DPAPI 失败信息不含系统错误码**：`crypto.rs:57-59` 只在 `result == 0` 时返回固定文案，未调 `GetLastError`，排障时无法区分"凭据不匹配/内存不足/参数非法"。
-14. **空明文加密必然失败**：`crypto.rs:45-49` 把入参复制为 `DataBlob{cb_data: len, pb_data: ptr}`；DPAPI 不接受 `cb_data == 0`，因此 `encrypt("")` 会返回 `Err("DPAPI加密失败")`。现有调用方都先判空（`persist.rs:159,162`、`commands/account.rs:102,158`），但函数契约未体现该约束。
-15. **非 Windows 是硬失败桩**：`crypto.rs:128-136` 两个函数恒返回 `Err("加密存储仅桌面端支持")`。这意味着同一份 `config/persist.rs:153-168` 在非 Windows target 上必然失败；安卓端因此**不使用** `config::persist`，改由 `android/src-tauri/src/config_state.rs` + `tauri-plugin-campus-keystore` 自行实现（`android/src-tauri/Cargo.toml` 注释："AndroidKeyStore AES-GCM 加解密(密码落盘加密,替代桌面 DPAPI)"）。
+14. **空明文加密必然失败**：`crypto.rs:45-49` 把入参复制为 `DataBlob{cb_data: len, pb_data: ptr}`；DPAPI 不接受 `cb_data == 0`，因此 `encrypt("")` 会返回 `Err("DPAPI加密失败")`。现有调用方都先判空（`persist.rs:106,282` 的 `if !...is_empty()` 守卫），但函数契约未体现该约束。
+15. **非 Windows 是硬失败桩**：`crypto.rs:128-136` 两个函数恒返回 `Err("加密存储仅桌面端支持")`。这意味着同一份 `config/persist.rs:276-291` 在非 Windows target 上必然失败；安卓端因此**不使用** `config::persist`，改由 `android/src-tauri/src/config_state.rs` + `tauri-plugin-campus-keystore` 自行实现（`android/src-tauri/Cargo.toml` 注释："AndroidKeyStore AES-GCM 加解密(密码落盘加密,替代桌面 DPAPI)"）。
 16. **`extract_fld_values` 的越界序号被静默丢弃**：`self_service/mod.rs:103-106` 对 `cap[2]` 解析失败或不在 `1..=6` 的匹配 `continue`，若页面引出 `FLDEXTRA7` 等新字段会被无声忽略（与"整体保存"语义叠加时风险同上第 4 条）。
 17. **没有对 `pageSize=500` 的分页兜底**：`self_service/mod.rs:405` 硬编码 `pageSize=500`，返回 `total > 500` 时后端只透传首页数据（前端不做翻页，见 `self_service/mod.rs:388-390` 注释）。
 18. **日期合法性校验在命令层而非协议层**：`self_service::query_online_log`（`:391-420`）不校验 `start_time`/`end_time` 格式，把关的是 `commands/self_service.rs:37-45` 的 `is_iso_date` 与 `:203-205` 的先后比较；安卓端需自行实现同等校验（`android/src-tauri/src/self_service_cmds.rs:208` 直接透传字符串）。

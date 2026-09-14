@@ -13,11 +13,11 @@ tags: [教训, 安全, 配置, 密码, 落盘]
 
 ## 根因
 
-`save_config_to_disk_encrypted`（`persist.rs:153-168`）直接落盘传入的 `Config`，**不做校验**；且 `persist.rs:159-164` 明确**不排除** `PASSWORD_MASK`——注释说明理由：若真实密码恰为 `"***"`，排除判断会让它明文落盘。
+`save_config_to_disk_encrypted`（`persist.rs:276-291`）直接落盘传入的 `Config`，**不做校验**；且 `persist.rs:282-287` 明确**不排除** `PASSWORD_MASK`——注释说明理由：若真实密码恰为 `"***"`，排除判断会让它明文落盘。账号档案写盘 `save_account_config`（`persist.rs:101-115`）沿用同一约定（自动建号/改名/另存都经它）。
 
 ## 解决
 
-当前调用方 `commands/config_cmd.rs:107-123` 已在落盘前还原真值——属**依赖调用方正确性**。
+当前调用方 `commands/config_cmd.rs:227-241` 已在落盘前还原真值——属**依赖调用方正确性**。2026-09-14 新增的账号档案路径 `save_account_config` 同样不做 MASK 排除：自动建号读的是 `state.config` 内存明文（已过 save_config 的掩码兜底），rename/另存读的是档案原文，当前调用方均安全。
 
 ## 教训
 

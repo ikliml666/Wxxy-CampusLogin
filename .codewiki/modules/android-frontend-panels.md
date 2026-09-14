@@ -61,7 +61,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `ExtraCardDef` | `auth/DashboardPanel.tsx:51` | 宿主注入卡片的契约：`id` / `label` / `icon` / `defaultPosition?: 'start' \| 'end'` / `render(editing)`；`MobileDashboard` 用它注入状态卡与监控摘要卡 |
 | `DashboardPanel` | `auth/DashboardPanel.tsx:829` | 总览看板（`memo`）：五张内置卡 + 宿主 extraCards 的统一编辑体系（增删/长按拖动排序/持久化） |
 
-`auth/DashboardPanel.tsx` 内部私有（读者最常需要的）：`BuiltinCardId`(40)、`CardId`(42，`string & {}` 泛化)、`CardDef`(44)、`ALL_CARDS`(60，five 张内置卡：`quickActions`/`accountManage`/`selfOnline`/`selfLog`/`networkQuality`)、`DEFAULT_LAYOUT`(68)、`loadLayout`(70)、`saveLayout`(81)、`EXTRA_REMOVED_KEY`(88，`campus-dashboard-extra-removed` 黑名单键)、`loadRemovedExtras`(90)、`DashboardPanelProps`(99)、`QuickActionsCard`(115，DHCP 续租/换 IP，含 `createPortal` 适配器菜单 230-286)、`AccountManageCard`(294)、`NetworkQualityCard`(365)、`useSelfCardReveal`(410，Hello 门 + 掩码切换)、`useSelfCardFetch`(426，自动查询 + 锁 + 错误态)、`SelfOnlineItem`(472)、`SelfOnlineCard`(484，60s 轮询 503-507)、`SelfLogRow`(613)、`SELF_LOG_LIMIT=5`(614)、`SelfLogCard`(616)、`renderCard`(696)、`LONG_PRESS_MS=350`(731)、`EditableCardItem`(733，自研长按拖动换序)。
+`auth/DashboardPanel.tsx` 内部私有（读者最常需要的）：`BuiltinCardId`(40)、`CardId`(42，`string & {}` 泛化)、`CardDef`(44)、`ALL_CARDS`(60，five 张内置卡：`quickActions`/`accountManage`/`selfOnline`/`selfLog`/`networkQuality`)、`DEFAULT_LAYOUT`(68)、`loadLayout`(70)、`saveLayout`(81)、`EXTRA_REMOVED_KEY`(88，`campus-dashboard-extra-removed` 黑名单键)、`loadRemovedExtras`(90)、`DashboardPanelProps`(99)、`QuickActionsCard`(115，DHCP 续租/换 IP，含 `createPortal` 适配器菜单 230-286)、`AccountManageCard`(294，`accounts: AccountItem[]`——按 `item.id` 匹配激活态、展示 `item.displayName`，列表缺失时兜底 id)、`NetworkQualityCard`(365)、`useSelfCardReveal`(410，Hello 门 + 掩码切换)、`useSelfCardFetch`(426，自动查询 + 锁 + 错误态)、`SelfOnlineItem`(472)、`SelfOnlineCard`(484，60s 轮询 503-507)、`SelfLogRow`(613)、`SELF_LOG_LIMIT=5`(614)、`SelfLogCard`(616)、`renderCard`(696)、`LONG_PRESS_MS=350`(731)、`EditableCardItem`(733，自研长按拖动换序)。
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
@@ -77,8 +77,8 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡、运营商绑定卡（绑定状态查询/查看明文/绑定表单）、账号管理卡（新增/切换/删除） |
-| `useAccount` | `account/useAccount.ts:8` | 账号动作集合：`handleAddAccount`(23，返回是否成功)、`handleDeleteAccount`(48)、`handleSwitchAccount`(73) |
+| `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡、运营商绑定卡（绑定状态查询/查看明文/绑定表单）、账号管理卡（新增/切换/改名/删除） |
+| `useAccount` | `account/useAccount.ts:8` | 账号动作集合：`refreshAccounts`(23)、`handleAddAccount`(33，返回是否成功)、`handleDeleteAccount`(53)、`handleSwitchAccount`(73，守卫用 `!== undefined` 而非真值判断——R4 修复)、`handleRenameAccount`(95，成功返回是否成功供退出内联编辑) |
 | `useSelfCredStore` | `account/selfServiceState.ts:21` | 自助服务凭据共享 store（`account` / `password` + setter），账号面板绑定卡与自助面板共用，仅内存不落盘 |
 | `biometricFailMessage` | `account/selfServiceState.ts:54` | 按插件 reject 的 `code` 翻译验证失败文案（错误码表 `BIOMETRIC_ERROR_KEY`，`selfServiceState.ts:39-52`） |
 | `useHelloGate` | `account/selfServiceState.ts:85` | 绑定/查看类操作的验证门（TTL 570s，`selfServiceState.ts:74`；`ignoreToggle` 语义见 `selfServiceState.ts:60-73`） |
@@ -236,7 +236,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 类型 | 位置 | 字段 |
 | --- | --- | --- |
 | `AutoLaunchResult` | `settings/types.ts:54` | `success`、`message?` |
-| `InitData` | `settings/types.ts:59` | `config: Partial<Config>`、`version`、`adapters`、`adapterDetails`、`disabledAdapters`、`accounts`、`activeAccount`、`backgroundStatus`、`isAutoStart`、`autoLaunch`、`notificationEnabled`、`gpuInfo?`、`refreshRate?` |
+| `InitData` | `settings/types.ts:74` | `config: Partial<Config>`、`version`、`adapters`、`adapterDetails`、`disabledAdapters`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount`、`backgroundStatus`、`isAutoStart`、`autoLaunch`、`notificationEnabled`、`gpuInfo?`、`refreshRate?` |
 
 ### auth/ 类型
 
@@ -291,7 +291,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `DashboardPanelProps`（私有） | `auth/DashboardPanel.tsx:99` | `accounts`、`activeAccount`、`onUpdateConfig`、`onSwitchAccount`、`onDhcpRenew`、`onDhcpReleaseRenew`、`onDhcpReleaseRenewAdapter`、`onRefreshQuality?`、`onToggleBackgroundCheck?`、`excludeCards?`、`extraCards?` |
 | `AboutDialogProps`（私有） | `auth/AboutDialog.tsx:23` | `open`、`onClose`、`openExternal?`、`onUpdateAvailable?`、`initialLatestVersion?`、`initialReleaseNotes?`、`initialUpdateAvailable?` |
 | `AboutDialogMobileProps`（私有） | `auth/AboutDialogMobile.tsx:23` | `open`、`onClose`、`openExternal?`、`onUpdateAvailable?` |
-| `AccountPanelProps`（私有） | `account/AccountPanel.tsx:34` | `adapters`、`accounts`、`activeAccount`、`onUpdateConfig`、`onAddAccount`（返回 `Promise<boolean>`）、`onDeleteAccount`、`onSwitchAccount` |
+| `AccountPanelProps`（私有） | `account/AccountPanel.tsx:35` | `adapters`、`accounts`（`AccountItem[]`）、`activeAccount`、`onUpdateConfig`、`onAddAccount`（返回 `Promise<boolean>`）、`onDeleteAccount`、`onSwitchAccount`、`onRenameAccount`（`:44`，返回 `Promise<boolean>`） |
 | `MonitorPanelProps`（私有） | `monitor/MonitorPanel.tsx:25` | `onUpdateConfig`、`onToggleBackgroundCheck(enabled, interval)`、`onTriggerCheck()` |
 | `QualityPanelProps`（私有） | `monitor/QualityPanel.tsx:30` | `onUpdateConfig`、`onRefreshQuality?`、`onToggleLatencyTest?` |
 | `SpeedTestPanelProps`（私有） | `monitor/SpeedTestPanel.tsx:105` | `openExternal(url)` |

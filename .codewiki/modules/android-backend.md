@@ -26,7 +26,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 安卓端 Tauri 后端（crate `campus-login-android`，lib 名 `campus_login_android_lib`，见 `android/src-tauri/Cargo.toml:2` 与 `:8`）是桌面协议核心 crate `campus-login` 的**薄壳**：它通过 Cargo path 依赖（`android/src-tauri/Cargo.toml:34`，`campus-login = { path = "../../tauri-app/src-tauri" }`）复用桌面全部协议实现，**不复制任何协议逻辑**；协议核心 crate 的 `lib.rs:1-20` 把 `account/auth/config/infra/network/platform/self_service` 设为跨平台可见面，而 `app/commands/helper/monitor/update` 用 `#[cfg(desktop)]` 门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓 target 不编译。
 
-安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（48 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
+安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（49 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
 
 平台专属能力（AndroidKeyStore 加密、前台服务保活、进程绑 WiFi、绑小核、电池优化白名单、APK 安装）由 `android/plugins/` 下三个手写插件承接，见 [[android-plugins]]。
 
@@ -67,11 +67,12 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | 15 | `query_self_online_log` | `self_service_cmds.rs:186` | 指定日期区间在线日志（不设门） | `commands/self_service.rs::query_self_online_log`（`startup.rs:116`） |
 | 16 | `self_offline_session` | `self_service_cmds.rs:215` | 强制下线会话（设验证门） | `commands/self_service.rs::self_offline_session`（`startup.rs:117`） |
 | 17 | `reveal_operator_credential` | `self_service_cmds.rs:244` | 明文揭示手机号/短信密码（**无论开关强制验证门**） | `commands/self_service.rs::reveal_operator_credential`（`startup.rs:114`） |
-| 18 | `list_accounts` | `account_cmds.rs:87` | 列举账号文件（过滤隐藏、排序） | `commands/account.rs::list_accounts`（`startup.rs:83`） |
-| 19 | `switch_account` | `account_cmds.rs:115` | 切换账号（合并 user/password/operator/activeAccount 到主配置） | `commands/account.rs::switch_account`（`startup.rs:84`） |
-| 20 | `save_current_as_account` | `account_cmds.rs:144` | 当前配置另存为账号 | `commands/account.rs::save_current_as_account`（`startup.rs:85`） |
-| 21 | `delete_account` | `account_cmds.rs:168` | 删除账号文件；删的是当前账号则清 `activeAccount` | `commands/account.rs::delete_account`（`startup.rs:86`） |
-| 22 | `get_active_account` | `account_cmds.rs:194` | 取 `activeAccount` | `commands/account.rs::get_active_account`（`startup.rs:87`） |
+| 18 | `list_accounts` | `account_cmds.rs:137` | 列举账号条目 `{id, displayName}`（过滤隐藏、按 id 排序；displayName 空/文件损坏兜底为 id） | `commands/account.rs::list_accounts`（`startup.rs:86`） |
+| 19 | `switch_account` | `account_cmds.rs:165` | 切换账号（合并 user/password/operator/adapter1/adapter2/dualAdapter/displayName/activeAccount；返回必带 activeAccount） | `commands/account.rs::switch_account`（`startup.rs:87`） |
+| 20 | `save_current_as_account` | `account_cmds.rs:200` | 当前配置另存为账号（保留自定义 displayName） | `commands/account.rs::save_current_as_account`（`startup.rs:89`） |
+| 21 | `delete_account` | `account_cmds.rs:267` | 删除账号文件；删的是当前账号则清 `activeAccount` | `commands/account.rs::delete_account`（`startup.rs:90`） |
+| 22 | `get_active_account` | `account_cmds.rs:293` | 取 `activeAccount` | `commands/account.rs::get_active_account`（`startup.rs:91`） |
+| 23 | `rename_account` | `account_cmds.rs:298` | 只改账号档案 `displayName`（id/激活态不动；激活账号被改名时同步主配置并落盘；重名拒绝；业务错误走 IPC `Err`） | `commands/account.rs::rename_account`（`startup.rs:88`） |
 | 23 | `get_init_data` | `system_cmds.rs:6` | 启动聚合：config（掩码）+ accounts + version + backgroundStatus + 桌面专属字段空默认 | `commands/system.rs::get_init_data`（`startup.rs:102`） |
 | 24 | `get_soc_info` | `system_cmds.rs:71` | 设备 SoC 型号与性能分档 tier 0-3 | `commands/system.rs::get_gpu_info`（`startup.rs:104`，语义对应、名字不同） |
 | 25 | `get_logs` | `system_cmds.rs:30` | 读最近 N 行日志（默认 200） | `commands/system.rs::get_logs`（`startup.rs:100`） |
@@ -175,21 +176,21 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 |------|------|------|
 | `pub const PASSWORD_MASK: &str = "***"` | `config_state.rs:10` | 掩码占位符（与桌面同款） |
 | `const CONFIG_FILE: &str = "config.json"` | `config_state.rs:11` | 配置文件名 |
-| `struct Settings` | `config_state.rs:15-76` | 全量配置（37 字段，见下节） |
-| `impl Default for Settings` | `config_state.rs:78-133` | 默认值（含 2026-09-09/12/13 的三次默认值调整，`campus_check_end_minutes: 1380`、`config_schema_version: 5`） |
-| `struct CryptoBridge` | `config_state.rs:135-138` | 加解密桥（`Arc<dyn Fn>` 便于 host 注入假实现） |
-| `impl CryptoBridge::from_app(app)` | `config_state.rs:141` | mobile 绑 keystore 插件；host 返回恒 Err 的实现（`config_state.rs:166-167`） |
-| `struct EncodedSettings` | `config_state.rs:176-180` | 落盘形态：`settings` + `passwordCipher` + `selfPasswordCipher` |
-| `pub async fn load_file(path, bridge)` | `config_state.rs:182` | 文件缺失 → `Settings::default()`；解密失败置空继续（`config_state.rs:191-196`） |
-| `pub async fn save_file(path, bridge, s)` | `config_state.rs:200` | 加密两密码 → `Settings` 内密码清空 → tmp + rename 原子写；**加密失败直接 Err 不落明文**（`config_state.rs:212`、`:218`） |
-| `pub async fn load_from(dir, bridge)` | `config_state.rs:233` | `load_file` + 迁移 |
-| `async fn migrate_legacy_defaults(dir, bridge, s)` | `config_state.rs:252` | schema v0→v3、v3→v4、v4→v5 一次性迁移并落盘（v4→v5：`campus_check_end_minutes` 旧默认 0 → 1380，`config_state.rs:277-281`） |
-| `pub async fn save_to(dir, bridge, s)` | `config_state.rs:286` | 写 `dir/config.json` |
-| `pub fn masked_for_display(s) -> serde_json::Value` | `config_state.rs:291` | 非空密码 → `***`；唯一出站出口 |
-| `pub fn resolve_password_field(incoming, current, clear) -> String` | `config_state.rs:303` | 空/掩码保留已存值，`clear` 显式清除 |
-| `#[tauri::command] get_config` | `config_state.rs:315` | 读盘 + 刷内存态 + 掩码出站 |
-| `#[tauri::command] save_config` | `config_state.rs:330` | 读当前 → 合并密码 → 落盘 → 刷内存态（**不联动后台/质量循环起停**，见 Known Issues） |
-| `pub async fn current_settings(app) -> Result<Settings, String>` | `config_state.rs:360` | 缓存优先，未命中读盘（仍带 `#[allow(dead_code)] // Task 2 协议命令面接线` 陈旧标注） |
+| `struct Settings` | `config_state.rs:15-80` | 全量配置（38 字段，见下节；2026-09 新增 `display_name`，:43-46，与桌面 `Config.displayName` 同契约） |
+| `impl Default for Settings` | `config_state.rs:82-137` | 默认值（含 2026-09-09/12/13 的三次默认值调整，`campus_check_end_minutes: 1380`、`config_schema_version: 5`；`display_name` 默认空串 `:107`） |
+| `struct CryptoBridge` | `config_state.rs:141-144` | 加解密桥（`Arc<dyn Fn>` 便于 host 注入假实现） |
+| `impl CryptoBridge::from_app(app)` | `config_state.rs:146` | mobile 绑 keystore 插件；host 返回恒 Err 的实现（`config_state.rs:171-172`） |
+| `struct EncodedSettings` | `config_state.rs:182-186` | 落盘形态：`settings` + `passwordCipher` + `selfPasswordCipher`（账号文件同构，displayName 嵌在 `settings.displayName`） |
+| `pub async fn load_file(path, bridge)` | `config_state.rs:188` | 文件缺失 → `Settings::default()`；解密失败置空继续（`config_state.rs:197-201`） |
+| `pub async fn save_file(path, bridge, s)` | `config_state.rs:206` | 加密两密码 → `Settings` 内密码清空 → tmp + rename 原子写；**加密失败直接 Err 不落明文**（`config_state.rs:218`、`:224`） |
+| `pub async fn load_from(dir, bridge)` | `config_state.rs:239` | `load_file` + 迁移 |
+| `async fn migrate_legacy_defaults(dir, bridge, s)` | `config_state.rs:258` | schema v0→v3、v3→v4、v4→v5 一次性迁移并落盘（v4→v5：`campus_check_end_minutes` 旧默认 0 → 1380，`config_state.rs:283-287`）；`displayName` 新增未升版本（serde default 兼容） |
+| `pub async fn save_to(dir, bridge, s)` | `config_state.rs:292` | 写 `dir/config.json` |
+| `pub fn masked_for_display(s) -> serde_json::Value` | `config_state.rs:297` | 非空密码 → `***`；唯一出站出口 |
+| `pub fn resolve_password_field(incoming, current, clear) -> String` | `config_state.rs:309` | 空/掩码保留已存值，`clear` 显式清除 |
+| `#[tauri::command] get_config` | `config_state.rs:321` | 读盘 + 刷内存态 + 掩码出站 |
+| `#[tauri::command] save_config` | `config_state.rs:336` | 读当前 → 合并密码 → 落盘 → 刷内存态（**不联动后台/质量循环起停**，见 Known Issues）→ **落盘成功后 `auto_create_account_for_current` 自动建号/同步账号档案**（`config_state.rs:363`，失败仅告警；只调底层 `save_file` 不经命令层，无递归风险） |
+| `pub async fn current_settings(app) -> Result<Settings, String>` | `config_state.rs:366` | 缓存优先，未命中读盘（仍带 `#[allow(dead_code)] // Task 2 协议命令面接线` 陈旧标注） |
 
 #### self_service_cmds.rs（318 行）
 
@@ -210,25 +211,34 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `#[tauri::command] self_offline_session` | `self_service_cmds.rs:215` | 设门 + `session_id` 非空校验 |
 | `#[tauri::command] reveal_operator_credential` | `self_service_cmds.rs:244` | 无条件验门（`self_service_cmds.rs:257-259`） |
 
-#### account_cmds.rs（238 行）
+#### account_cmds.rs（470 行，2026-09 扩展为与桌面 `commands/account.rs` 同构的 7 条命令 + 自动建号）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
 | `static ACCOUNT_NAME_RE: Regex` | `account_cmds.rs:13` | `^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$`（防路径穿越） |
 | `static CONFIG_IO_LOCK: tokio::sync::Mutex<()>` | `account_cmds.rs:17` | 配置读改写串行 |
-| `pub async fn config_io_lock()` | `account_cmds.rs:21` | 跨命令共用（`save_config` 未使用，见 Known Issues） |
-| `struct AccountResult` | `account_cmds.rs:25-35` | `{success, message?, activeAccount?, config?}` |
-| `impl AccountResult::{ok, ok_with_account, err}` | `account_cmds.rs:38`、`:41`、`:44` | 构造器 |
-| `pub fn validate_account_name(name)` | `account_cmds.rs:50` | 1-32 字符 + 白名单正则 |
-| `pub fn accounts_dir(app) -> Result<PathBuf, String>` | `account_cmds.rs:60` | `app_data_dir()/accounts` |
-| `pub fn list_account_names_sync(dir) -> Vec<String>` | `account_cmds.rs:68` | 过滤 `.` 前缀与空名，排序 |
-| `#[tauri::command] list_accounts` | `account_cmds.rs:87` | `spawn_blocking` 包装 |
-| `async fn load_account_file(path, bridge)` | `account_cmds.rs:94` | 不存在返回 None |
-| `async fn persist_current(app, merged)` | `account_cmds.rs:101` | 落盘 + 刷内存态 + 返回掩码 JSON |
-| `#[tauri::command] switch_account` | `account_cmds.rs:115` | 消毒 → `config_io_lock` → 载入账号 → 合并 `user/password/operator/activeAccount` |
-| `#[tauri::command] save_current_as_account` | `account_cmds.rs:144` | 当前配置写成账号文件 + 更新 `activeAccount` |
-| `#[tauri::command] delete_account` | `account_cmds.rs:168` | 删文件；命中当前账号则清字段 |
-| `#[tauri::command] get_active_account` | `account_cmds.rs:194` | 读 `activeAccount` |
+| `pub async fn config_io_lock()` | `account_cmds.rs:21` | 跨命令共用 |
+| `struct AccountItem` | `account_cmds.rs:29-34` | `{id, displayName}` 出站条目（与桌面 `infra::state::AccountItem` 同契约；display_name 持久层兜底非空） |
+| `struct AccountResult` | `account_cmds.rs:37-47` | `{success, message?, activeAccount?, displayName?, config?}`（`displayName` 为 rename 成功时携带） |
+| `impl AccountResult::{ok, ok_with_account, err}` | `account_cmds.rs:51`、`:54`、`:57` | 构造器 |
+| `pub fn validate_account_name(name)` | `account_cmds.rs:79` | 1-32 字符 + 白名单正则 |
+| `pub fn accounts_dir(app) -> Result<PathBuf, String>` | `account_cmds.rs:89` | `app_data_dir()/accounts` |
+| `fn read_display_name(path)` | `account_cmds.rs:99` | 从账号文件 JSON 读 `settings.displayName`（**不解密**：display_name 非敏感字段；注意账号文件是嵌套 `EncodedSettings`，与桌面扁平 `Config` JSON 不同） |
+| `pub fn list_account_items_sync(dir)` | `account_cmds.rs:107` | 枚举账号条目（过滤 `.` 前缀与空名，按 id 排序；displayName 空/读取/解析失败兜底为 id 并 `log_warn`） |
+| `#[tauri::command] list_accounts` | `account_cmds.rs:137` | `spawn_blocking` 包装 |
+| `async fn load_account_file(path, bridge)` | `account_cmds.rs:144` | 不存在返回 None |
+| `async fn persist_current(app, merged)` | `account_cmds.rs:151` | 落盘 + 刷内存态 + 返回掩码 JSON |
+| `#[tauri::command] switch_account` | `account_cmds.rs:165` | 消毒 → `config_io_lock` → 载入账号 → 合并登录字段 + `displayName`（空兜底为 id，与桌面同构）+ `activeAccount`；成功返回必带 `activeAccount` |
+| `#[tauri::command] save_current_as_account` | `account_cmds.rs:200` | 当前配置写成账号文件 + 更新 `activeAccount`；`merge_save_as_target`（`:235`）处理另存场景副本 displayName 置空 |
+| `#[tauri::command] delete_account` | `account_cmds.rs:267` | 删文件；命中当前账号则清字段 |
+| `#[tauri::command] get_active_account` | `account_cmds.rs:293` | 读 `activeAccount` |
+| `#[tauri::command] rename_account` | `account_cmds.rs:298` | `validate_display_name`（`:362`，trim 后 1..=32 码点、允许空格/emoji、禁控制字符）→ 重名检查 → 只改 `displayName` 写回；被改名账号是当前激活账号时同步主配置并落盘；业务错误走 IPC `Err(String)`（与桌面同构） |
+| `async fn rename_account_core(dir, bridge, account_id, display_name)` | `account_cmds.rs:333` | rename 核心（不依赖 AppHandle，可单测） |
+| `pub async fn auto_create_account_for_current(app, current)` | `account_cmds.rs:379` | R2 自动建号入口：由 `config_state.rs::save_config` 落盘后调用（失败仅告警；只调底层 `save_file`，不经命令层无递归）；**与桌面的差异：无托盘刷新（安卓无托盘）** |
+| `async fn auto_create_account_in(dir, bridge, current)` | `account_cmds.rs:401` | 与桌面同构五规则：无凭据跳过 → id=sanitize(user) → 不存在建号（displayName=原始 user 文本）→ `existing.user` 不一致撞库跳过不覆盖 → 一致则幂等短路/仅更新 password/operator 三字段保留 displayName |
+| `#[cfg(test)] mod tests` | `account_cmds.rs:442` | 覆盖 displayName 兜底、rename 校验/重名、自动建号幂等与撞库、无 displayName 字段旧文件兼容 |
+
+账号契约细节（两端同构部分）见 [[account-display-name-id-separation]] 与 [[account-switch-ui-state-desync]]。
 
 #### system_cmds.rs（160 行）
 
@@ -365,6 +375,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `enable_notification` | `bool` | 通知开关（默认 `true`） |
 | `custom_theme_color` | `String` | 自定义主题色（默认 `"#6366f1"`） |
 | `default_panel` | `String` | 默认面板（默认 `"dashboard"`） |
+| `display_name` | `String` | 本文件所属账号的显示名（2026-09 新增，与桌面同契约：空 → 读取阶段兜底为账号 id；可含空格/emoji） |
 | `active_account` | `String` | 当前账号名（默认空） |
 | `enable_boot_autostart` | `bool` | 开机自启（默认 `false`，不属登录自动化） |
 | `enable_latency_test` | `bool` | 定时质量测试（默认 `false`） |
@@ -428,13 +439,14 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `message` | `Option<String>` | 消息（`None` 不序列化） |
 | `data` | `Option<serde_json::Value>` | 业务数据（同上） |
 
-### `AccountResult`（`account_cmds.rs:25-35`）
+### `AccountResult`（`account_cmds.rs:37-47`）
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
 | `success` | `bool` | 成功标志 |
 | `message` | `Option<String>` | 错误消息 |
-| `active_account` | `Option<String>` | 变更后的当前账号 |
+| `active_account` | `Option<String>` | 变更后的当前账号 id（switch 成功必现） |
+| `display_name` | `Option<String>` | rename 成功时的新显示名 |
 | `config` | `Option<serde_json::Value>` | 变更后的配置（已掩码） |
 
 ### `MonitorState`（`monitor_loop.rs:17-39`）
@@ -610,8 +622,8 @@ save_config{config,clearPassword?,clearSelfPassword?}
 
 ## Known Issues
 
-1. **配置保存不联动循环起停**：`save_config`（`config_state.rs:330-356`）只落盘与刷内存态，不根据 `enable_background_check`/`enable_latency_test` 调用 `start/stop_background_check`、`start/stop_latency_test`。用户关掉开关后循环是否停止完全依赖前端另行发起命令（`android/frontend/src/hooks/tauriApi.ts:230-240` 提供了对应封装，但后端无兜底），后端层面存在"配置关、循环仍在跑"的窗口。
-2. **`config_io_lock` 覆盖不全**：锁在 `account_cmds.rs:17/21` 定义，`switch_account`/`save_current_as_account`/`delete_account`（`account_cmds.rs:127/156/179`）、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）有取锁，但 **`save_config`（`config_state.rs:330`）完全没取锁**——正是注释里点名的并发读改写竞态对象之一。
+1. **配置保存不联动循环起停**：`save_config`（`config_state.rs:336-366`）只落盘与刷内存态，不根据 `enable_background_check`/`enable_latency_test` 调用 `start/stop_background_check`、`start/stop_latency_test`。用户关掉开关后循环是否停止完全依赖前端另行发起命令（`android/frontend/src/hooks/tauriApi.ts:230-240` 提供了对应封装，但后端无兜底），后端层面存在"配置关、循环仍在跑"的窗口。
+2. **`config_io_lock` 覆盖不全**：锁在 `account_cmds.rs:17/21` 定义，`switch_account`/`save_current_as_account`/`delete_account`/`rename_account`（`account_cmds.rs` 各命令入口）、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）有取锁，但 **`save_config`（`config_state.rs:336`）完全没取锁**——正是注释里点名的并发读改写竞态对象之一；其落盘后的自动建号（`config_state.rs:363`）也在锁外，靠 `save_file` 原子写兜底。
 3. **`detect_campus` 已成死命令**：`campus_detect.rs:122` 注释称"前端旧 UI 仍在用"，但安卓前端全仓（`android/frontend/src/`）已无 `detect_campus`、`accept_wifi_network`、`ping_test` 的调用点（grep 仅命中 `set_boot_autostart`），三个命令与注释均属陈旧残留。
 4. **`UPDATE_CHECKSUM` 与下载目标未绑定**：校验值在 `check_update_inner`（`update_cmds.rs:221-223`）写入全局静态，`download_update`（`update_cmds.rs:364-370`）读取时**不校验该值属于哪个版本/资产**；前端若先手动 `check_update` 再下载其他 URL（或反过来先用旧校验值下载新包），要么误杀要么放行；校验值缺失时 fail-open（跳过校验）。
 5. **下载校验 fail-open**：`verify_file_sha256`（`update_cmds.rs:384-386`）在期望值不是 64 位 hex 时返回 `true`（视为未提供）；`update_cmds.rs:365` 的 `if let Some(expected)` 在 `None` 时直接跳过校验。发布流程未补 `digest` 时下载链路无完整性保护。

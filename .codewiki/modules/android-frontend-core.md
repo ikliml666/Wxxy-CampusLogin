@@ -148,43 +148,44 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `onDisabledAdaptersChanged(cb)` | 85 | 230 | `noopListener` |
 | `onAdapterDisabledWarning(cb)` | 86 | 231 | `noopListener` |
 | `onLoginLog(cb)` | 87 | 232 | `listen('login-log')` |
-| `listAccounts` | 88 | 233 | `invoke('list_accounts')` |
-| `switchAccount(accountName)` | 89 | 234 | `invoke('switch_account',{accountName})` |
-| `saveCurrentAsAccount(accountName)` | 90 | 235 | `invoke('save_current_as_account',{accountName})` |
-| `deleteAccount(accountName)` | 91 | 236 | `invoke('delete_account',{accountName})` |
-| `getActiveAccount` | 92 | 237 | `invoke('get_active_account')` |
-| `startBackgroundCheck` | 93 | 238 | `invoke('start_background_check')` |
-| `stopBackgroundCheck` | 94 | 239 | `invoke('stop_background_check')` |
-| `triggerBackgroundCheck` | 95 | 240 | `invoke('trigger_background_check')` |
-| `getBackgroundStatus` | 96 | 241 | `invoke('get_background_status')` |
-| `dhcpRenewAll` | 97 | 242 | `desktopOnly` → reject |
-| `dhcpReleaseRenew` | 98 | 243 | `desktopOnly` → reject |
-| `dhcpReleaseRenewAdapter(adapterName)` | 99 | 244 | `desktopOnly` → reject |
-| `checkNetworkQuality` | 100 | 245 | `invoke('check_network_quality')` |
-| `onNetworkQualityResult(cb)` | 101 | 246 | `listen('network-quality-result')` |
-| `startLatencyTest` | 102 | 247 | `invoke('start_latency_test')` |
-| `stopLatencyTest` | 103 | 248 | `invoke('stop_latency_test')` |
-| `openExternal(url)` | 104 | 249-260 | 校验协议（仅 http/https）、长度 ≤2048、`new URL` 可解析后调 `@tauri-apps/plugin-opener` 的 `openUrl` |
-| `getAutoLaunch` | 105 | 261 | `invoke('get_boot_autostart')` |
-| `setAutoLaunch(enabled)` | 106 | 262 | `invoke('set_boot_autostart')` 后包成 `{success:true}` |
-| `getNotificationEnabled` | 107 | 263 | `invoke('get_notification_enabled')` |
-| `setNotificationEnabled(enabled)` | 108 | 264 | `invoke('set_notification_enabled')` |
-| `getBatteryOptimizationInfo` | 109 | 265 | `invoke('get_battery_optimization_info')`（安卓专属） |
-| `requestIgnoreBatteryOptimizations` | 110 | 266 | `invoke('request_ignore_battery_optimizations')`（安卓专属） |
-| `openVendorBatterySettings` | 111 | 267 | `invoke('open_vendor_battery_settings')`（安卓专属） |
-| `cancelAutoExit` | 112 | 268 | `desktopOnly` → reject |
-| `onAutoExitCountdown(cb)` | 113 | 269 | `noopListener` |
-| `onAutoExitCancelled(cb)` | 114 | 270 | `noopListener` |
-| `onCampusExitCountdown(cb)` | 115 | 271 | `noopListener` |
-| `onCampusExitCancelled(cb)` | 116 | 272 | `noopListener` |
-| `onConfigChanged(cb)` | 117 | 273 | `listen('config-changed')` |
-| `showWindow` | 118 | 274 | `desktopOnly` → reject |
-| `getLogs(lines?)` | 119 | 275 | `invoke('get_logs',{lines})` |
-| `clearLogs` | 120 | 276 | `invoke('clear_logs')` |
-| `getDebugMode` | 121 | 277 | `invoke('get_debug_mode')` |
-| `setDebugMode(enabled)` | 122 | 278 | `invoke('set_debug_mode')` |
-| `getInitData` | 123 | 279 | `invoke('get_init_data')` |
-| `getSocInfo` | 124 | 280 | `invoke('get_soc_info')`（安卓专属） |
+| `listAccounts` | 88 | 235 | `invoke('list_accounts')` → `AccountItem[]`（`{id, displayName}`） |
+| `switchAccount(accountName)` | 89 | 236 | `invoke('switch_account',{accountName})` |
+| `saveCurrentAsAccount(accountName)` | 90 | 237 | `invoke('save_current_as_account',{accountName})` |
+| `deleteAccount(accountName)` | 91 | 238 | `invoke('delete_account',{accountName})` |
+| `renameAccount({accountId, displayName})` | 93 | 239 | `invoke('rename_account',{accountId,displayName})` → `AccountResult`（校验失败 `success=false`） |
+| `getActiveAccount` | 94 | 240 | `invoke('get_active_account')` |
+| `startBackgroundCheck` | 95 | 241 | `invoke('start_background_check')` |
+| `stopBackgroundCheck` | 96 | 242 | `invoke('stop_background_check')` |
+| `triggerBackgroundCheck` | 97 | 243 | `invoke('trigger_background_check')` |
+| `getBackgroundStatus` | 98 | 244 | `invoke('get_background_status')` |
+| `dhcpRenewAll` | 99 | 245 | `desktopOnly` → reject |
+| `dhcpReleaseRenew` | 100 | 246 | `desktopOnly` → reject |
+| `dhcpReleaseRenewAdapter(adapterName)` | 101 | 247 | `desktopOnly` → reject |
+| `checkNetworkQuality` | 102 | 248 | `invoke('check_network_quality')` |
+| `onNetworkQualityResult(cb)` | 103 | 249 | `listen('network-quality-result')` |
+| `startLatencyTest` | 104 | 250 | `invoke('start_latency_test')` |
+| `stopLatencyTest` | 105 | 251 | `invoke('stop_latency_test')` |
+| `openExternal(url)` | 106 | 252-262 | 校验协议（仅 http/https）、长度 ≤2048、`new URL` 可解析后调 `@tauri-apps/plugin-opener` 的 `openUrl` |
+| `getAutoLaunch` | 107 | 264 | `invoke('get_boot_autostart')` |
+| `setAutoLaunch(enabled)` | 108 | 265 | `invoke('set_boot_autostart')` 后包成 `{success:true}` |
+| `getNotificationEnabled` | 109 | 266 | `invoke('get_notification_enabled')` |
+| `setNotificationEnabled(enabled)` | 110 | 267 | `invoke('set_notification_enabled')` |
+| `getBatteryOptimizationInfo` | 111 | 268 | `invoke('get_battery_optimization_info')`（安卓专属） |
+| `requestIgnoreBatteryOptimizations` | 112 | 269 | `invoke('request_ignore_battery_optimizations')`（安卓专属） |
+| `openVendorBatterySettings` | 113 | 270 | `invoke('open_vendor_battery_settings')`（安卓专属） |
+| `cancelAutoExit` | 114 | 271 | `desktopOnly` → reject |
+| `onAutoExitCountdown(cb)` | 115 | 272 | `noopListener` |
+| `onAutoExitCancelled(cb)` | 116 | 273 | `noopListener` |
+| `onCampusExitCountdown(cb)` | 117 | 274 | `noopListener` |
+| `onCampusExitCancelled(cb)` | 118 | 275 | `noopListener` |
+| `onConfigChanged(cb)` | 119 | 276 | `listen('config-changed')` |
+| `showWindow` | 120 | 277 | `desktopOnly` → reject |
+| `getLogs(lines?)` | 121 | 278 | `invoke('get_logs',{lines})` |
+| `clearLogs` | 122 | 279 | `invoke('clear_logs')` |
+| `getDebugMode` | 123 | 280 | `invoke('get_debug_mode')` |
+| `setDebugMode(enabled)` | 124 | 281 | `invoke('set_debug_mode')` |
+| `getInitData` | 125 | 282 | `invoke('get_init_data')` |
+| `getSocInfo` | 126 | 283 | `invoke('get_soc_info')`（安卓专属） |
 | `checkUpdate` | 125 | 281 | `invoke('check_update')` |
 | `downloadUpdate(url)` | 126 | 282 | `invoke('download_update',{url})` |
 | `installUpdate(filePath, checksumUrl?)` | 127 | 283 | `invoke('install_update',{filePath, checksumUrl})` |
@@ -208,7 +209,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 | 导出 | 位置 | 说明 |
 | --- | --- | --- |
-| `useConfigStore` | `useConfigStore.ts:53` | 状态：`config` / `configLoaded` / `passwordSaved` / `selfPasswordSaved` / `accounts` / `activeAccount` / `language` / `api`；动作：`updateConfig`(63) / `updateConfigLocal`(97) / `mergeConfigFromBackend`(110) / `clearDirtyFields`(119) / `syncPasswordSaved`(124) / `syncSelfPasswordSaved`(126) / `saveConfigDirect`(128) / `setAccounts`(173) / `setActiveAccount`(174) / `setLanguage`(176) |
+| `useConfigStore` | `useConfigStore.ts:53` | 状态：`config` / `configLoaded` / `passwordSaved` / `selfPasswordSaved` / `accounts`（`AccountItem[]`）/ `activeAccount` / `language` / `api`；动作：`updateConfig`(63) / `updateConfigLocal`(97) / `mergeConfigFromBackend`(110) / `clearDirtyFields`(119) / `syncPasswordSaved`(124) / `syncSelfPasswordSaved`(126) / `saveConfigDirect`(128) / `setAccounts`(173) / `setActiveAccount`(174) / `setLanguage`(176) |
 | `hasPendingConfig` | `useConfigStore.ts:183` | debounce 待存或 in-flight 保存存在即 true（关窗前判定） |
 | `flushPendingConfig` | `useConfigStore.ts:190` | 清 debounce 定时器、立即发出待存配置、返回需等待的 Promise（含 in-flight） |
 
@@ -503,7 +504,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `logRetentionDays` | `number` | 日志保留天数 |
 | `configVersion` | `number` | 配置 schema 版本（当前 5） |
 
-`InitData`（`settings/types.ts:63-76`）：`config: Partial<Config>`、`version: string`、`adapters: Adapter[]`、`adapterDetails: AdapterDetail[]`、`disabledAdapters: DisabledAdapter[]`、`accounts: string[]`、`activeAccount: string`、`backgroundStatus: BackgroundStatus`、`isAutoStart: boolean`、`autoLaunch: boolean`、`notificationEnabled: boolean`、`gpuInfo?: GpuInfo`、`refreshRate?: number`（安卓仅消费 `config`/`backgroundStatus`/`accounts`/`activeAccount`/`refreshRate`）。
+`InitData`（`settings/types.ts:74-89`）：`config: Partial<Config>`、`version: string`、`adapters: Adapter[]`、`adapterDetails: AdapterDetail[]`、`disabledAdapters: DisabledAdapter[]`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount: string`、`backgroundStatus: BackgroundStatus`、`isAutoStart: boolean`、`autoLaunch: boolean`、`notificationEnabled: boolean`、`gpuInfo?: GpuInfo`、`refreshRate?: number`（安卓仅消费 `config`/`backgroundStatus`/`accounts`/`activeAccount`/`refreshRate`）。同文件 2026-09 新增 `AccountItem {id, displayName}`（:4-7）与 `Config.displayName`（:65）。
 
 `AuthStore` 相关类型：`PortalStatusResult`（`auth/types.ts:1`：`online`、`message?`、`reachable?`、`loginAvailable?`）、`CommandResult`（`auth/types.ts:8`：`success`、`message?`、`data?`）、`LoginResult extends CommandResult`（`auth/types.ts:14`）。
 
@@ -557,7 +558,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### 配置写回链路
 
-组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:63`）：合并进 `config`（65）→ 标脏 `dirtyFields`（69-72）→ 累积 `saveConfigPending`（74-82）→ 500ms debounce 后 `saveConfigDirect(pending)`（84-93）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:132` → `tauriApi.ts:331` → `tauriApi.ts:173` `invoke('save_config')`）→ 成功后清脏（134-137）；失败累计到 3 次放弃脏标记（150-160）。后端回传经 `onConfigChanged`（`useEventListeners.ts:304`）→ `mergeConfigFromBackend`（`useConfigStore.ts:110`，跳过脏字段）。关窗前 `hasPendingConfig`（183）/`flushPendingConfig`（190）保证不丢（`useEventListeners.ts:48-73`）。
+组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:63`）：合并进 `config`（65）→ 标脏 `dirtyFields`（69-72）→ 累积 `saveConfigPending`（74-82）→ 500ms debounce 后 `saveConfigDirect(pending)`（84-93）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:132` → `tauriApi.ts:331` → `tauriApi.ts:173` `invoke('save_config')`）→ 成功后清脏（134-137）；失败累计到 3 次放弃脏标记（150-160）。后端回传经 `onConfigChanged`（`useEventListeners.ts:304`）→ `mergeConfigFromBackend`（`useConfigStore.ts:110`，跳过脏字段）。**与 `config` 并列的独立字段不随 merge 更新**：2026-09 起该监听分支额外从 `data.config.activeAccount` 比对后 `setActiveAccount`（317）、再拉 `listAccounts` 刷新列表（319-323）——与桌面同构的 R4 修复，见 [[account-switch-ui-state-desync]]。关窗前 `hasPendingConfig`（183）/`flushPendingConfig`（190）保证不丢（`useEventListeners.ts:48-73`）。
 
 ### 主题与 CSS 变量链路
 

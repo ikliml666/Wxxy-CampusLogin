@@ -35,7 +35,7 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 
 ## Overview
 
-IPC 命令面是 webview（React 前端）与 Rust 后端之间的唯一函数调用通道，事件总线是后端向前端单向推送的唯一通道。桌面端由 `tauri-generate_handler!` 注册 **60 条命令**，安卓端由独立的 `generate_handler!` 注册 **48 条命令**，两端命令名逐字对齐，由各自的前端 `tauriApi.ts` 提供同形接口。事件面只有桌面端有统一封装（`infra/events.rs` 的 `EventBus`，16 个事件名），安卓端为桌面子集，且部分事件直接裸调 `app.emit`。
+IPC 命令面是 webview（React 前端）与 Rust 后端之间的唯一函数调用通道，事件总线是后端向前端单向推送的唯一通道。桌面端由 `tauri-generate_handler!` 注册 **61 条命令**，安卓端由独立的 `generate_handler!` 注册 **49 条命令**，两端命令名逐字对齐，由各自的前端 `tauriApi.ts` 提供同形接口。事件面只有桌面端有统一封装（`infra/events.rs` 的 `EventBus`，16 个事件名），安卓端为桌面子集，且部分事件直接裸调 `app.emit`。
 
 ## 机制说明
 
@@ -43,8 +43,8 @@ IPC 命令面是 webview（React 前端）与 Rust 后端之间的唯一函数�
 
 | 端 | 注册位置 | 注册项数 | 命令定义位置 |
 |---|---|---|---|
-| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-124` | 60 | `commands/` 下 8 文件 58 条 + `infra/logger.rs:336/343` 2 条 |
-| 安卓 | `android/src-tauri/src/lib.rs:57-106` | 48 | `android/src-tauri/src/` 下 9 个 `*_cmds` / 状态模块 |
+| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-125` | 61 | `commands/` 下 8 文件 59 条 + `infra/logger.rs` 2 条 |
+| 安卓 | `android/src-tauri/src/lib.rs:57-107` | 49 | `android/src-tauri/src/` 下 9 个 `*_cmds` / 状态模块 |
 
 桌面 `commands/mod.rs:1-8` 声明 8 个领域文件：`login` / `background` / `network_cmd` / `system` / `config_cmd` / `account` / `updater` / `self_service`。安卓 `lib.rs:11-25` 声明 15 个模块（2026-09-13 新增 `quality_history`：质量检测结果落盘）。
 
@@ -73,8 +73,8 @@ IPC 命令面是 webview（React 前端）与 Rust 后端之间的唯一函数�
 
 | 项 | 桌面 `tauri-app/frontend/src/hooks/tauriApi.ts` | 安卓 `android/frontend/src/hooks/tauriApi.ts` |
 |---|---|---|
-| `TauriApi` 接口成员总数 | 76（`27-106`） | 80（`56-137`） |
-| 其中 invoke 型方法 | 60（= 桌面命令数，一一对应） | 65（= 60 同名 + 5 安卓独有） |
+| `TauriApi` 接口成员总数 | 77（`27-106`） | 81（`56-137`） |
+| 其中 invoke 型方法 | 61（= 桌面命令数，一一对应） | 66（= 61 同名 + 5 安卓独有） |
 | 其中事件监听器 | 16（`163-226`） | 15（无 `onUpdateNotificationClick`） |
 | 实现体 | `140-234` | `169-294` |
 | 安卓独有 5 项 | — | `bindToWifi` / `getSocInfo` / `getBatteryOptimizationInfo` / `requestIgnoreBatteryOptimizations` / `openVendorBatterySettings` |
@@ -114,7 +114,7 @@ IPC 命令面是 webview（React 前端）与 Rust 后端之间的唯一函数�
 
 1. `tauri-app/src-tauri/src/commands/<领域>.rs` 写 `#[tauri::command] pub fn/async fn`。
 2. 若是新文件：`tauri-app/src-tauri/src/commands/mod.rs:1-8` 加 `pub mod <文件>`。
-3. `tauri-app/src-tauri/src/app/startup.rs:63-124` 的 `generate_handler!` 加一行 `crate::commands::<领域>::<fn>`。
+3. `tauri-app/src-tauri/src/app/startup.rs:63-125` 的 `generate_handler!` 加一行 `crate::commands::<领域>::<fn>`。
 4. `tauri-app/frontend/src/hooks/tauriApi.ts:27-106` 的 `TauriApi` 接口加成员签名。
 5. `tauri-app/frontend/src/hooks/tauriApi.ts:140-234` 的实现对象加 `invoke<T>('<命令名>', { 参数 })`。
 6. 调用点（`hooks/` 或对应 panel）；若该命令会改配置，走 `save_config_to_disk_encrypted` 以自动广播 `config-changed`（`commands/config_cmd.rs:9-21`）。
@@ -123,7 +123,7 @@ IPC 命令面是 webview（React 前端）与 Rust 后端之间的唯一函数�
 
 1. `android/src-tauri/src/<模块>.rs` 写 `#[tauri::command]`。
 2. 若是新模块：`android/src-tauri/src/lib.rs:11-25` 加 `mod <模块>`。
-3. `android/src-tauri/src/lib.rs:57-106` 的 `generate_handler!` 加一行。
+3. `android/src-tauri/src/lib.rs:57-107` 的 `generate_handler!` 加一行。
 4. `android/frontend/src/hooks/tauriApi.ts:56-137` 接口 + `169-294` 实现；若该能力桌面专属，实现写 `desktopOnly<T>('<name>')`（`14-16`）。
 5. 若命令读写配置：走 `config_state::save_to` + 更新 `android_state::AndroidState.config` 缓存（参考 `monitor_loop.rs:329-353`），**注意安卓不会自动广播 `config-changed`**。
 
@@ -135,7 +135,7 @@ IPC 命令面是 webview（React 前端）与 Rust 后端之间的唯一函数�
 
 ## 关键约束
 
-- **注册即全部**：命令不写进 `generate_handler!` 就等于不存在，`invoke` 会报 "command not found"。桌面唯一注册点 `startup.rs:63-124`，安卓唯一注册点 `lib.rs:57-106`。
+- **注册即全部**：命令不写进 `generate_handler!` 就等于不存在，`invoke` 会报 "command not found"。桌面唯一注册点 `startup.rs:63-125`，安卓唯一注册点 `lib.rs:57-107`。
 - **两端命令名必须逐字相同**（除上文三处已知映射），否则共享风格的组件在另一端失效。
 - **事件名是字符串常量，无编译期校验**：`events.rs` 的方法名与字符串分离（例：`emit_login_log` → `"login-log"`，`events.rs:22-27`），前端 `createEventListener('login-log')` 是又一处独立字面量，改名三处必须同步。
 - **桌面事件必须经 `EventBus` 发**：`events.rs:6` 注释明确"封装所有 `app_handle.emit` 调用"，直接裸调会绕过该约定。
@@ -151,7 +151,7 @@ React 组件
     → tauriApi.<method>()            (tauri-app|android/frontend/src/hooks/tauriApi.ts)
       → invoke('<snake_case>', { camelCaseArgs })
         → Tauri IPC
-          → generate_handler! 分发    (startup.rs:63-124 | android lib.rs:57-106)
+          → generate_handler! 分发    (startup.rs:63-125 | android lib.rs:57-107)
             → #[tauri::command] fn
               → CommandContext / AppState / android_state
               → 领域逻辑 (auth / network / monitor / self_service / update)
@@ -166,7 +166,7 @@ React 组件
 ## Connections
 
 - [[desktop-commands]] — 桌面命令层的逐文件详解与本概念的实现侧
-- [[android-backend]] — 安卓 48 条命令的模块分工
+- [[android-backend]] — 安卓 49 条命令的模块分工
 - [[desktop-infra]] — `EventBus` / `CommandContext` / 日志所在的基础设施层
 - [[desktop-frontend-hooks]] — `tauriApi.ts` 与 `useEventListeners.ts` 的组织方式
 - [[android-frontend]] — 安卓前端如何用 `desktopOnly` / `noopListener` 抹平命令面差异
@@ -178,7 +178,7 @@ React 组件
 
 - **安卓后端从不发射 `config-changed`**，但安卓前端仍注册了监听（`android/frontend/src/hooks/useEventListeners.ts:304`、`android/frontend/src/hooks/tauriApi.ts:273`）。安卓 `save_config`（`android/src-tauri/src/config_state.rs:319-345`）只落盘并更新内存缓存，不广播。后果：安卓端 `useConfigStore` 的 `mergeConfigFromBackend` / `dirtyFields` 合并逻辑（`android/frontend/src/hooks/useConfigStore.ts:108`）永远不触发，后端配置回写完全依赖命令返回值。
 - **安卓 4 个退出倒计时事件监听是空壳**：`noopListener` 覆盖 4 个退出倒计时事件（`android/frontend/src/hooks/tauriApi.ts:269-272`），但对应的 `useEventListeners` 消费代码（`android/frontend/src/hooks/useEventListeners.ts:225/246/253/274`）仍在，属死代码（4 个适配器事件的同类空壳消费已于 2026-09-13 清理，`useEventListeners.ts:214` 的注释说明了这一点）。
-- **文档与代码计数不一致**：旧的人工文档 `CODE_WIKI.md` 曾称安卓命令面"44 个"（其 §6.1.1），实际 `lib.rs` 注册 **48 条**（注册块 `lib.rs:57-106`，命令条目 `:58-105`）；`modules/desktop-commands.md` 原称安卓注册项 45、行号 54-100——那是 `battery_cmds` 三命令引入前的旧状态，2026-09-13 已修正为 48 项、注册块 57-106。计数核对须在主仓库工作区进行：滞后于 main 的分支/worktree 缺 `battery_cmds.rs`，会误测为 45 项。
+- **文档与代码计数不一致**：旧的人工文档 `CODE_WIKI.md` 曾称安卓命令面"44 个"（其 §6.1.1）；`modules/desktop-commands.md` 原称安卓注册项 45——那是 `battery_cmds` 三命令引入前的旧状态，2026-09-13 修正为 48 项、2026-09-14 新增 `rename_account` 后为 **49 条**（注册块 `lib.rs:57-107`）。桌面注册数 61 项（59 条 commands + 2 条日志命令）同日更新。计数核对须在主仓库工作区进行：滞后于 main 的分支/worktree 缺 `battery_cmds.rs`，会误测为 45 项。
 - **`auto-login-result` 载荷两端字段数不同**：桌面 `emit_auto_login_result(success, message, skipped)` 发三字段（`events.rs:35-41`），安卓的同名事件只发 `{success, message}`（`monitor_loop.rs:452-457`），而前端会读 `result.skipped`（`useEventListeners.ts:201`）——安卓端 `skipped` 恒为 `undefined`，走 else 分支。
 - **安卓 3 条命令无前端出口**：`ping_test`、`detect_campus`、`accept_wifi_network` 注册了但没有 `tauriApi` 封装，属"注册即暴露给 webview"的残留面。
 - **`update-notification-click` 安卓无对应**：桌面靠 WinRT toast 点击回调（`platform/toast.rs:68`），安卓走 `large_icon` 通知（`monitor_loop.rs:145-160`）无点击回传，前端接口也因此少了该监听器。

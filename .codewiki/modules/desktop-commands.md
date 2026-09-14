@@ -18,7 +18,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 `tauri-app/src-tauri/src/commands/` 是桌面端 Rust 后端对 webview 暴露的全部 IPC 命令面：前端经 `@tauri-apps/api/core` 的 `invoke('<snake_case 命令名>')` 调用，命令函数负责参数校验、并发互斥、状态读写，再转发到 `auth` / `network` / `config` / `monitor` / `self_service` / `update` / `platform` 等下层模块。
 
-本模块共 **57 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 14、`system.rs` 16、`account.rs` 5、`self_service.rs` 7、`updater.rs` 4），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **59 项**。
+本模块共 **59 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 15、`system.rs` 16、`account.rs` 6、`self_service.rs` 7、`updater.rs` 4），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **61 项**。
 
 ## Key Components
 
@@ -26,8 +26,8 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 端 | 注册位置 | 注册项数 | 说明 |
 |---|---|---|---|
-| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-123` | 59 | 57 条 `commands::*` + `infra::logger::set_debug_mode`（121 行）/ `get_debug_mode`（122 行） |
-| 安卓 | `android/src-tauri/src/lib.rs:55-104` | 48 | 同名对齐的独立实现（`protocol_cmds` / `campus_detect` / `config_state` / `self_service_cmds` / `account_cmds` / `system_cmds` / `monitor_loop` / `quality_cmds` / `update_cmds`），不含桌面专属命令 |
+| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-125` | 61 | 59 条 `commands::*` + `infra::logger::set_debug_mode`（124 行）/ `get_debug_mode`（125 行） |
+| 安卓 | `android/src-tauri/src/lib.rs:55-105` | 49 | 同名对齐的独立实现（`protocol_cmds` / `campus_detect` / `config_state` / `self_service_cmds` / `account_cmds` / `system_cmds` / `monitor_loop` / `quality_cmds` / `update_cmds`），不含桌面专属命令 |
 
 模块声明见 `tauri-app/src-tauri/src/commands/mod.rs:1-8`（8 个 `pub mod`，`self_service` 在 8 行）。
 
@@ -39,17 +39,17 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `show_window` | `commands/config_cmd.rs:196-200` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
-| `get_config` | `commands/config_cmd.rs:86-89` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码两个密码字段 | 无（掩码是出站唯一出口） |
-| `save_config` | `commands/config_cmd.rs:91-139` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>`、`clear_self_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 | `validate_config`（99 行）；`clear_password == Some(true)` 跳过兜底置空（109-110）；空/MASK 时回填当前内存密码（111-115、118-123） |
-| `export_config` | `commands/config_cmd.rs:131-145` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（86-113 行）有"明文不出站"回归测试（288 行） |
-| `import_config` | `commands/config_cmd.rs:152-193` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
+| `show_window` | `commands/config_cmd.rs:199-202` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
+| `get_config` | `commands/config_cmd.rs:205-207` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码两个密码字段 | 无（掩码是出站唯一出口） |
+| `save_config` | `commands/config_cmd.rs:210-266` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>`、`clear_self_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 → **落盘成功后自动建号/同步账号档案（R2，失败仅告警），实际写盘时补刷托盘菜单**（258-265） | `validate_config`（217）；`clear_password == Some(true)` 跳过兜底置空（227-228）；空/MASK 时回填当前内存密码（229-234、236-241） |
+| `export_config` | `commands/config_cmd.rs:134-152` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（89-117 行）有"明文不出站"回归测试（307 行起） |
+| `import_config` | `commands/config_cmd.rs:155-196` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
 
 同文件非命令的公开辅助函数：
 
 - `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:9-18`）：落盘 + 统一发射 `config-changed` 事件（掩码后发射，15-16 行）。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）。
-- `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:55-78`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（63-73 行）后返回默认配置。
-- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（86-113）、`restore_imported_password_field`（116-127，写盘方 MASK 责任的导入侧实现）。
+- `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:58-86`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（71-73 行）后返回默认配置。
+- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（89-117）、`restore_imported_password_field`（119-131，写盘方 MASK 责任的导入侧实现）。
 
 #### login.rs（2 条）
 
@@ -100,22 +100,23 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `cancel_auto_exit` | `commands/system.rs:91-98` | `app_handle`、`_state` | `Result<CommandResult, String>` | 统一取消自动退出 + 校园网退出（95-96） | 无 |
 | `get_logs` | `commands/system.rs:100-104` | `app_handle`、`lines: Option<usize>` | `Result<String, String>` | 读最近日志，默认 200 行 | 无 |
 | `clear_logs` | `commands/system.rs:106-110` | `app_handle` | `Result<bool, String>` | 清空日志文件 | 无 |
-| `get_init_data` | `commands/system.rs:112-151` | `state`、`app_handle` | `Result<serde_json::Value, String>` | 首屏聚合数据：掩码配置、账号名列表、版本、自启、GPU、刷新率、网卡三列表、激活账号、通知开关、`--autostart` 判定（122 行）、后台状态（134 行复用 `background::get_background_status_value`） | `masked_for_display()` 是出站唯一出口（117 行，注释记录了 2026-09-06 漏掩 `self_password` 的真机缺陷） |
+| `get_init_data` | `commands/system.rs:113-155` | `state`、`app_handle` | `Result<serde_json::Value, String>` | 首屏聚合数据：掩码配置、账号条目列表（`AccountItem {id, displayName}`，121 行）、版本、自启、GPU、刷新率、网卡三列表、激活账号、通知开关、`--autostart` 判定（138 行）、后台状态（141 行复用 `background::get_background_status_value`） | `masked_for_display()` 是出站唯一出口（118 行，注释记录了 2026-09-06 漏掩 `self_password` 的真机缺陷） |
 | `render_heartbeat` | `commands/system.rs:153-168` | `state` | `Result<serde_json::Value, String>` | 前端心跳：写 `update_stats.last_render_heartbeat_ms` 供 main.rs 心跳线程检测 WebView 崩溃；返回 `online`/`checking` | 无 |
 | `get_gpu_info` | `commands/system.rs:170-174` | — | `Result<serde_json::Value, String>` | 单独取 GPU 信息（内部 `OnceLock` 缓存） | 无 |
 | `set_log_retention_days` | `commands/system.rs:176-180` | `days: u32` | `Result<(), String>` | 更新运行期日志保留天数 | 无 |
 | `get_log_retention_days` | `commands/system.rs:182-185` | — | `u32` | 读日志保留天数（**唯一不返回 Result 的命令**） | 无 |
 | `export_diagnostics` | `commands/system.rs:193-277` | `app_handle`、`state`、`days: Option<u32>`（默认 3，0=全部日志） | `Result<String, String>` | 导出诊断包到 `<data_dir>/diagnostics/diag-<ts>/`：近 N 天 `app-*.log`（先 `logger::flush()` 防截断）、`config-masked.json`、`adapters.json`、`gpu.json`、`manifest.json`；返回目录路径 | 掩码配置走 `masked_for_display()` 唯一出口；日志文件名过滤复用 `logger::is_app_log_file`（已改 pub） |
 
-#### account.rs（5 条）
+#### account.rs（6 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `list_accounts` | `commands/account.rs:7-12` | `app_handle` | `Result<Vec<String>, String>` | 列出账号目录下的账号名 | 无 |
-| `switch_account` | `commands/account.rs:14-49` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 加载账号文件、合并登录字段到内存配置、落盘，返回掩码配置 | `validate_account_name`（16-19，失败返回 `AccountResult::err`）；账号不存在返回 `"账号不存在"`（29） |
-| `save_current_as_account` | `commands/account.rs:51-191` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 另存为账号：先回存旧账号（60-123），再写新账号文件（125-175，密码 DPAPI 加密），最后落盘 `active_account`（177-186） | `validate_account_name`（53-56） |
-| `delete_account` | `commands/account.rs:193-233` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 删除账号文件；若删的是激活账号则清空并落盘（213-225） | `validate_account_name`（195-196）：此处校验失败**直接 `Err` 传播**（与另两条命令返回 `AccountResult::err` 不一致） |
-| `get_active_account` | `commands/account.rs:235-239` | `state` | `Result<String, String>` | 读当前激活账号名 | 无 |
+| `list_accounts` | `commands/account.rs:8-13` | `app_handle` | `Result<Vec<AccountItem>, String>` | 列出账号目录下的账号条目（`{id, displayName}`，displayName 空/文件损坏时兜底为 id） | 无 |
+| `switch_account` | `commands/account.rs:16-40` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 加载账号文件、合并登录字段到内存配置、落盘，返回**激活账号 id**（`ok_with_account`，成功时 `activeAccount` 必现）+ 掩码配置 | `validate_account_name`（47，失败返回 `AccountResult::err`）；账号不存在返回 `"账号不存在"` |
+| `save_current_as_account` | `commands/account.rs:82-214` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 另存为账号：先回存旧账号（83-113，经 `persist::load_account_config`/`save_account_config`），再写新账号文件，最后落盘 `active_account` | `validate_account_name`（83） |
+| `delete_account` | `commands/account.rs:216-259` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 删除账号文件；若删的是激活账号则清空并落盘（241-246）；最后统一刷新托盘菜单（256） | `validate_account_name`（217-218）：此处校验失败**直接 `Err` 传播**（与另几条命令返回 `AccountResult::err` 不一致） |
+| `get_active_account` | `commands/account.rs:261-264` | `state` | `Result<String, String>` | 读当前激活账号名 | 无 |
+| `rename_account` | `commands/account.rs:267-283` | `account_id: String`、`display_name: String`、`app_handle` | `Result<AccountResult, String>` | 只改账号档案的 `displayName`（id/文件名/激活态不动）；被改名账号是激活账号时同步主配置 `display_name` 并落盘（303）；成功返回新显示名（`AccountResult.display_name`）。业务错误走 IPC `Err(String)`，前端 try/catch toast | `validate_account_name` 防路径穿越（294 入口 + 321 核心层兜底）；`validate_display_name`（345，trim 后 1..=32 码点、禁控制字符）；重名拒绝（`rename_account_core`，316） |
 
 #### self_service.rs（7 条）
 
@@ -142,7 +143,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 ### 命令返回值类型（定义在 `infra/state/mod.rs`，命令层大量复用）
 
-`CommandResult`（`infra/state/mod.rs:213-233`）：
+`CommandResult`（`infra/state/mod.rs:272-290`）：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -150,18 +151,21 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `message` | `Option<String>` | `#[serde(skip_serializing_if = "Option::is_none")]`，提示文案 |
 | `data` | `Option<serde_json::Value>` | 同上跳过序列化，附加数据 |
 
-构造器：`ok()`（222）、`ok_msg(&str)`（225）、`err(&str)`（228）。
+构造器：`ok()`（281）、`ok_msg(&str)`（284）、`err(&str)`（288）。
 
-`AccountResult`（`infra/state/mod.rs:235-255`）：
+`AccountItem`（`infra/state/mod.rs:295-301`）：`{id, displayName}`，账号列表出站条目（id = 文件名 stem 稳定不变；display_name 持久层已兜底非空）。
+
+`AccountResult`（`infra/state/mod.rs:303-322`）：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `success` | `bool` | 同 `CommandResult` |
 | `message` | `Option<String>` | 失败原因 |
-| `active_account` | `Option<String>` | 变更后的激活账号名（`delete_account` 清空时显式返回空串，`commands/account.rs:229-231`） |
+| `active_account` | `Option<String>` | 变更后的激活账号 id（`switch_account` 成功时**必现**；`delete_account` 清空时显式返回空串，`commands/account.rs:253-254`） |
+| `display_name` | `Option<String>` | `rename_account` 成功时携带 trim 后的新显示名（`infra/state/mod.rs:309`） |
 | `config` | `Option<Config>` | 掩码后的最新配置（前端直接替换本地配置） |
 
-构造器：`ok(Config)`（246）、`ok_with_account(String, Config)`（249）、`err(&str)`（252）。
+构造器：`ok(Config)`（316）、`ok_with_account(String, Config)`（319）、`err(&str)`（321）。
 
 ### 命令层私有结构体
 
@@ -200,7 +204,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `requiredNetworkName` | `config.required_network_name` | 要求的网络名 |
 | `campusWifi` / `campusWired` / `a1OnCampus` / `a2OnCampus` / `a1CampusMessage` / `a2CampusMessage` | 全部硬编码 `serde_json::Value::Null`（103-108） | 历史遗留占位，桌面端未填充（见 Known Issues） |
 
-`get_init_data`（构造点 `commands/system.rs:136-150`）：`config`（掩码）、`accounts`、`version`（编译期 `env!("APP_VERSION")`）、`autoLaunch`、`gpuInfo`、`refreshRate`、`adapters`、`adapterDetails`、`disabledAdapters`、`activeAccount`、`notificationEnabled`、`isAutoStart`（进程参数含 `--autostart`）、`backgroundStatus`（内嵌上面的后台状态）。
+`get_init_data`（构造点 `commands/system.rs:143-155`）：`config`（掩码）、`accounts`（`AccountItem[]`）、`version`（编译期 `env!("APP_VERSION")`）、`autoLaunch`、`gpuInfo`、`refreshRate`、`adapters`、`adapterDetails`、`disabledAdapters`、`activeAccount`、`notificationEnabled`、`isAutoStart`（进程参数含 `--autostart`）、`backgroundStatus`（内嵌上面的后台状态）。
 
 `check_campus_status`（`commands/network_cmd.rs:59-67`）：`onCampusNetwork`、`currentSsid`、`campusMessage`、`enableNetworkNameCheck`、`requiredNetworkName`、`campusWifi`、`campusWired`。
 
@@ -231,7 +235,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 出站事件不经过命令返回值，而是 `AppHandleExt`（`infra/command_context.rs:38-52`）：
 
-- `notify_config_changed(config)`：由 `save_config_to_disk_encrypted` 统一发射（`commands/config_cmd.rs:16`），保证 `save_config` / `switch_account` / `save_current_as_account` / `delete_account` / `set_auto_launch` / `set_notification_enabled` / `stop_background_check` / `start|stop_latency_test` 全部经同一出口通知前端，且发送的是**掩码后**配置。
+- `notify_config_changed(config)`：由 `save_config_to_disk_encrypted` 统一发射（`commands/config_cmd.rs:16`），保证 `save_config` / `switch_account` / `save_current_as_account` / `delete_account` / `rename_account`（仅激活账号被改名时）/ `set_auto_launch` / `set_notification_enabled` / `stop_background_check` / `start|stop_latency_test` 全部经同一出口通知前端，且发送的是**掩码后**配置。
 - `notify_update_download_progress(progress)`：`commands/updater.rs:150`、`181`。
 
 只读命令常通过 `CommandContext::from_app(&app_handle)`（`infra/command_context.rs:22-25`）在 `spawn_blocking` 闭包内重新取 `AppState`（因为 `State<'_, AppState>` 不能跨线程 move），例如 `commands/login.rs:66`、`commands/background.rs:15`、`commands/network_cmd.rs:118`。
@@ -289,7 +293,7 @@ invoke('install_update', {filePath, checksumUrl}) → commands/updater.rs:195
   → canonical 校验在临时目录内（202-209）→ verify_download_sha256（227）→ .exe/.msi 启动安装（251-287）
 ```
 
-账户命令的状态一致性：三条改写配置的账户命令都遵循"写文件 → 更新内存 → 经 `save_config_to_disk_encrypted` 落盘并广播"（`commands/account.rs:42-43`、`183-186`、`221-224`）。
+账户命令的状态一致性：改写配置的账户命令都遵循"写文件 → 更新内存 → 经 `save_config_to_disk_encrypted` 落盘并广播"（`commands/account.rs:56`、`174`、`244`、`303`）。另有两条不落主配置的旁路：`rename_account` 对非激活账号只写账号档案文件（`persist::save_account_config`）；`save_config` 落盘后的自动建号也只写账号档案（`config_cmd.rs:258-265`），但两者都会在写盘后补刷托盘菜单。
 
 ## Connections
 
@@ -305,19 +309,19 @@ invoke('install_update', {filePath, checksumUrl}) → commands/updater.rs:195
 - [[desktop-app-lifecycle]]：窗口的 `minimize_window` / `close_window`、托盘行为、`exit` 状态机与心跳线程。
 - [[desktop-platform]]：`platform::autostart` / `gpu` / `identity` / `helper_spawn` / `dns_config` / `elevation` 的 Win32 细节。
 - [[desktop-frontend-hooks]]：`tauri-app/frontend/src/hooks/tauriApi.ts` 的命令名与参数映射。
-- [[android-backend]]：安卓端同名命令的独立实现（`android/src-tauri/src/lib.rs:55-104`）。
+- [[android-backend]]：安卓端同名命令的独立实现（`android/src-tauri/src/lib.rs:55-105`）。
 
 ## Known Issues
 
 1. **后台状态 6 个字段恒为 `null`**：`commands/background.rs:103-108` 硬编码 `campusWifi` / `campusWired` / `a1OnCampus` / `a2OnCampus` / `a1CampusMessage` / `a2CampusMessage` 为 `serde_json::Value::Null`；安卓侧对应字段有实现（`android/src-tauri/src/monitor_loop.rs`），桌面端消费者必须容忍 null。
 2. **`check_any_adapter_online` 静默吞错**：`commands/login.rs:17-20`，`get_adapters_cached()` 失败直接返回"全部离线"，注销后的状态复位会据此把 `any_adapter_online` 写 false，可能掩盖真实在线状态。
 3. **`trigger_background_check` 的令牌可能游离**：`commands/background.rs:34-36`，`task_manager.cancel_token("background_check")` 不存在时新建一个 `CancellationToken` 并直接使用，该 token 未被登记到 `task_manager`；这类手动触发产生的任务无法被 `stop_background_check` 取消。
-4. **`delete_account` 的错误返回形态不一致**：`commands/account.rs:195-196` 校验失败直接 `Err(String)`，而 `switch_account`（16-19）/ `save_current_as_account`（53-56）返回 `Ok(AccountResult::err(...))`；前端两种失败路径需要分别处理。
-5. **`save_current_as_account` 回存旧账号失败仅告警**：`commands/account.rs:118-122`，旧账号写盘失败不阻断新账号保存，可能出现"旧账号未更新但已切换"的静默数据陈旧。
+4. **`delete_account` 的错误返回形态不一致**：`commands/account.rs:217-218` 校验失败直接 `Err(String)`，而 `switch_account`（47）/ `save_current_as_account`（83）返回 `Ok(AccountResult::err(...))`；前端两种失败路径需要分别处理。`rename_account` 则整体走 IPC `Err(String)`（第三种形态）。
+5. **`save_current_as_account` 回存旧账号失败仅告警**：`commands/account.rs:111`，旧账号写盘失败不阻断新账号保存，可能出现"旧账号未更新但已切换"的静默数据陈旧。
 6. **`disable` 后的 `install_update` 不可达分支**：`commands/updater.rs:276-287` 的 `#[cfg(not(target_os = "windows"))]` 分支仍调用 `msiexec`，非 Windows 桌面下必失败（该组合不在项目支持范围，但分支存在）。
 7. **`get_mirror_urls` 与下载白名单不一致**：镜像生成只给 4 个域名（`commands/updater.rs:304-325`），而 `download_update` 白名单有 13 项（39-53）；前端若自造镜像 URL，仍可能被下载命令接受但不在 UI 列表中。
 8. **`check_network_quality` 的 `busy` 语义**：`commands/network_cmd.rs:179-182` 忙时返回 `quality="busy"` 的成功响应（`success` 字段不存在），前端需按 `quality` 分支处理，不能只看命令是否 reject。
-9. **同步命令中的重活**：`get_init_data`（`commands/system.rs:112-151`）是 `fn`（非 `async`）却在内部做账号目录扫描（119）、网卡三列表枚举（126-128）、`detect_gpu_info()`（123）/`detect_display_refresh_rate()`（124）；GPU 与刷新率的首次 DXGI/GDI 枚举已由 `app/startup.rs:207-218` 的 `gpu-warmup` 后台线程预热（`platform/gpu.rs:14` 用 `OnceLock` 缓存），但网卡枚举与账号目录扫描仍在同步命令路径内执行，冷启动首次调用有阻塞风险。
+9. **同步命令中的重活**：`get_init_data`（`commands/system.rs:113-155`）是 `fn`（非 `async`）却在内部做账号目录扫描（120-124）、网卡三列表枚举（131-133）、`detect_gpu_info()`（128）/`detect_display_refresh_rate()`（129）；GPU 与刷新率的首次 DXGI/GDI 枚举已由 `app/startup.rs:207-218` 的 `gpu-warmup` 后台线程预热（`platform/gpu.rs:14` 用 `OnceLock` 缓存），但网卡枚举与账号目录扫描仍在同步命令路径内执行，冷启动首次调用有阻塞风险。
 10. **`get_log_retention_days` 是唯一非 `Result` 返回的命令**（`commands/system.rs:182-185`），错误无法上报，前端类型定义需区别对待。
 11. **`download_update` 在 `content_length` 缺失时的上限判断**：`commands/updater.rs:97-100` 的早退只在服务端给长度时生效，实际保护依赖逐 chunk 判定（125-129），这部分逻辑正确但属于"无长度时无预检"。
 12. **`do_logout` 的 `_state` 参数未使用**（`commands/login.rs:86`）：函数通过 `app_handle` 重新取 state（91 行），签名保留 `state` 只为与前端调用保持一致。
