@@ -71,6 +71,22 @@ pub fn validate_account_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
+/// 账号 id 生成（R2 自动建号）：把 validate_account_name 正则之外的字符替换为 '_'，
+/// 按字符截断 32 位。与 validate_account_name 的字符类必须保持一致
+///（此处为替换式宽松版：任何输入都有确定输出，不报错）。
+pub fn sanitize_account_id(user: &str) -> String {
+    user.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' || ('\u{4e00}'..='\u{9fff}').contains(&c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(32)
+        .collect()
+}
+
 pub struct TaskFlags {
     pub is_checking: TaskLock,
     pub is_logging_in: TaskLock,
@@ -232,6 +248,24 @@ mod tests {
         assert!(validate_account_name("").is_err());
         assert!(validate_account_name("user@name").is_err());
     }
+
+    /// 账号 id sanitize 规则锁（R2）：合法字符保留、其余替换 '_'、按字符截断 32
+    #[test]
+    fn sanitize_account_id_rules() {
+        // 合法学号原样保留
+        assert_eq!(sanitize_account_id("2023123456"), "2023123456");
+        // 合法字符类：字母数字下划线中文连字符
+        assert_eq!(sanitize_account_id("user_01-甲"), "user_01-甲");
+        // @ 与 . 等非法字符替换为 _
+        assert_eq!(sanitize_account_id("a@b.c"), "a_b_c");
+        // 按字符截断 32（中文按 1 字符计）
+        let long_cn: String = "甲".repeat(40);
+        assert_eq!(sanitize_account_id(&long_cn).chars().count(), 32);
+        // 全非法字符 → 全下划线（有效输出，调用方据此建号）
+        assert_eq!(sanitize_account_id("@@#"), "___");
+        // 空输入 → 空输出（调用方跳过建号）
+        assert_eq!(sanitize_account_id(""), "");
+    }
 }
 
 #[derive(Serialize)]
@@ -255,6 +289,15 @@ impl CommandResult {
     }
 }
 
+/// 账号列表条目（R3）：id 为账号文件名 stem（稳定不变），display_name 为可读显示名
+///（持久层空值已在 list_account_items 兜底为 id，出站一律非空）
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct AccountItem {
+    pub id: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountResult {
@@ -263,18 +306,20 @@ pub struct AccountResult {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_account: Option<String>,
+    #[serde(rename = "displayName", skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<Config>,
 }
 
 impl AccountResult {
     pub fn ok(config: Config) -> Self {
-        Self { success: true, message: None, active_account: None, config: Some(config) }
+        Self { success: true, message: None, active_account: None, display_name: None, config: Some(config) }
     }
     pub fn ok_with_account(account: String, config: Config) -> Self {
-        Self { success: true, message: None, active_account: Some(account), config: Some(config) }
+        Self { success: true, message: None, active_account: Some(account), display_name: None, config: Some(config) }
     }
     pub fn err(msg: &str) -> Self {
-        Self { success: false, message: Some(msg.to_string()), active_account: None, config: None }
+        Self { success: false, message: Some(msg.to_string()), active_account: None, display_name: None, config: None }
     }
 }

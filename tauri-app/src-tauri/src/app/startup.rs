@@ -85,6 +85,7 @@ pub fn run(core_count: usize) {
             crate::commands::network_cmd::reset_dns,
             crate::commands::account::list_accounts,
             crate::commands::account::switch_account,
+            crate::commands::account::rename_account,
             crate::commands::account::save_current_as_account,
             crate::commands::account::delete_account,
             crate::commands::account::get_active_account,

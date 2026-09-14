@@ -1,6 +1,6 @@
 // 配置领域 store：负责配置对象、密码保存状态、账号列表、语言设置
 import { create } from 'zustand'
-import type { Config } from '@/settings'
+import type { Config, AccountItem } from '@/settings'
 import { DEFAULT_CONFIG } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
@@ -34,7 +34,7 @@ interface ConfigStore {
   // 自助服务密码已保存（独立布尔：显示"已保存圆点"不依赖 config.selfPassword 的值，
   // 该字段在保存窗口期/回传竞态下可能是 ''/明文/'***' 三态）
   selfPasswordSaved: boolean
-  accounts: string[]
+  accounts: AccountItem[]
   activeAccount: string
   language: string
   api: typeof api
@@ -45,7 +45,7 @@ interface ConfigStore {
   syncPasswordSaved: (saved: boolean) => void
   syncSelfPasswordSaved: (saved: boolean) => void
   saveConfigDirect: (cfg: Partial<Config>, clearPassword?: boolean, clearSelfPassword?: boolean) => Promise<void>
-  setAccounts: (a: string[]) => void
+  setAccounts: (a: AccountItem[]) => void
   setActiveAccount: (a: string) => void
   setLanguage: (lang: string) => void
 }

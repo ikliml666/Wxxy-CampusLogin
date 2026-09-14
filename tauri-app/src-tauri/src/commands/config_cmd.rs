@@ -253,6 +253,14 @@ pub fn save_config(
     state.config.store(config.clone());
     crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
 
+    // R2 自动建号：输入了账号+密码即默认创建/同步同名本地账号。
+    // 失败仅告警，不得让本次保存失败；内部只走底层落盘，不经命令层避免递归。
+    // 实际创建/更新了账号时补刷托盘菜单——save_config_to_disk_encrypted 内部的
+    // 托盘刷新发生在自动建号之前，不补刷则新账号要等下一次落盘才进托盘子菜单
+    if crate::commands::account::auto_create_account_for_current(&state, &app_handle) {
+        crate::app::tray::refresh_tray_menu_state(&app_handle);
+    }
+
     Ok(CommandResult::ok())
 }
 

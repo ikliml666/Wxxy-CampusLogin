@@ -116,7 +116,10 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     // 重启后密码框显示空、切入自助服务面板的自动 Hello 验证永不触发（2026-09-06 真机缺陷）
     let cfg = state.config.load().masked_for_display();
 
-    let accounts = crate::config::persist::list_account_names(&app_handle);
+    let accounts = {
+        let data_dir = crate::config::persist::get_data_dir(&app_handle);
+        crate::config::persist::list_account_items(&data_dir)
+    };
 
     let version = env!("APP_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();

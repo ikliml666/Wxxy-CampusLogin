@@ -308,6 +308,18 @@ export function useEventListeners() {
         // 落盘的字段（enableLatencyTest 等）被后端旧快照回滚，且密码被 MASK 覆盖。
         // 修复：mergeConfigFromBackend 跳过本地脏字段。
         useConfigStore.getState().mergeConfigFromBackend(data.config)
+        // R4 第三条路径（外部切换账号走此事件）：同步激活账号 + 刷新账号列表。
+        // 后端 switch_account / rename / 自动建号落盘后广播 config-changed，
+        // 不修此路径则切账号后前端高亮与列表均需手动刷新才更新。
+        const cs = useConfigStore.getState()
+        const incomingActive = data.config.activeAccount
+        if (typeof incomingActive === 'string' && incomingActive !== cs.activeAccount) {
+          cs.setActiveAccount(incomingActive)
+        }
+        cs.api.listAccounts?.().then((accs) => {
+          if (!mountedRef.current) return
+          useConfigStore.getState().setAccounts(accs || [])
+        }).catch((e) => { if (import.meta.env.DEV) console.error('刷新账号列表失败:', e) })
       }
     }) ?? (() => {})
     if (unsub9) unlisteners.push(unsub9)

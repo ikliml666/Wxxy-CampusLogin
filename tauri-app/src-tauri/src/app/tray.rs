@@ -26,7 +26,10 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let has_account = !config.user.is_empty();
     let active_account = config.active_account.clone();
     drop(config);
-    let accounts = crate::config::persist::list_account_names(app);
+    let accounts = {
+        let data_dir = crate::config::persist::get_data_dir(app);
+        crate::config::persist::list_account_items(&data_dir)
+    };
 
     let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app)?;
     let quick_login_item = MenuItemBuilder::with_id("quick-login", "快速登录").build(app)?;
@@ -42,10 +45,11 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             .build(app)?;
         switch_builder = switch_builder.item(&placeholder);
     } else {
-        for name in &accounts {
-            let is_active = *name == active_account;
-            let label = if is_active { format!("{name}（当前）") } else { name.clone() };
-            let item = MenuItemBuilder::with_id(format!("{SWITCH_ITEM_PREFIX}{name}"), label)
+        for item in &accounts {
+            let is_active = item.id == active_account;
+            // 菜单展示显示名（R3：可与 id 不同）；事件 id 后缀仍用账号 id（稳定不变）
+            let label = if is_active { format!("{}（当前）", item.display_name) } else { item.display_name.clone() };
+            let item = MenuItemBuilder::with_id(format!("{SWITCH_ITEM_PREFIX}{}", item.id), label)
                 .enabled(!is_active)
                 .build(app)?;
             switch_builder = switch_builder.item(&item);
@@ -175,7 +179,7 @@ fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 // 落盘经 save_config_to_disk_encrypted，内部已发射 config-changed 同步前端
                 let result = crate::commands::account::perform_switch_account_sync(&app_h, &s, &name);
                 match result {
-                    Ok(()) => {
+                    Ok(_) => {
                         let _ = EventBus::new(&app_h).emit_login_log(
                             &format!("已切换到账号「{name}」，可点击快速登录"),
                             "success",

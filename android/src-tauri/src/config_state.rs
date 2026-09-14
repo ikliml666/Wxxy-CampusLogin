@@ -40,6 +40,10 @@ pub struct Settings {
     pub enable_notification: bool,
     pub custom_theme_color: String,
     pub default_panel: String,
+    /// 本文件所属账号的显示名(R3,与桌面 Config.displayName 同契约):空 → 读取
+    /// 阶段兜底为账号 id;仅是显示用途,可含空格/emoji 等任意可见字符。容器级
+    /// serde(default) 保证旧配置文件缺字段向后兼容,无需 schema 版本升级。
+    pub display_name: String,
     pub active_account: String,
     pub enable_boot_autostart: bool,
     // 定时质量测试
@@ -100,6 +104,7 @@ impl Default for Settings {
             enable_notification: true,
             custom_theme_color: "#6366f1".to_string(),
             default_panel: "dashboard".to_string(),
+            display_name: String::new(),
             active_account: String::new(),
             enable_boot_autostart: false,
             enable_latency_test: false,
@@ -351,8 +356,11 @@ pub async fn save_config(
     save_to(&dir, &bridge, &merged).await?;
     let state = app.state::<crate::android_state::AndroidState>();
     if let Ok(mut cache) = state.config.lock() {
-        *cache = Some(merged);
+        *cache = Some(merged.clone());
     }
+    // R2 自动建号:落盘成功后同步本地账号档案(失败仅告警,不影响保存结果;
+    // helper 只调底层 save_file,不经命令层,无递归风险)
+    crate::account_cmds::auto_create_account_for_current(&app, &merged).await;
     Ok(())
 }
 

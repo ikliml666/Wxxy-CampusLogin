@@ -98,7 +98,7 @@ function TabletShellInner() {
 
   const { handleOpenPortal, handleOpenSelfService, doLogin, isLoggingIn } = useAuth()
   const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
-  const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
+  const { handleAddAccount, handleDeleteAccount, handleSwitchAccount, handleRenameAccount } = useAccount()
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
 
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
@@ -115,7 +115,7 @@ function TabletShellInner() {
   const [themeOpen, setThemeOpen] = useState(false)
   const [sponsorOpen, setSponsorOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string; displayName: string }>({ open: false, name: '', displayName: '' })
 
   // 侧边看板娘:每日轮换(offset 0/1 同日不重复)。平板横屏宽度有限:左侧
   // 左娘 ≥1008px(720 主区 + 2×(128 立绘+16 边距),900-1008px 区间会压进内容列);右娘横屏再让过 288px 右栏 ≥1330px,竖屏右栏隐藏不再偏移。
@@ -171,8 +171,9 @@ function TabletShellInner() {
           activeAccount={activeAccount}
           onUpdateConfig={updateConfig}
           onAddAccount={handleAddAccount}
-          onDeleteAccount={(name) => setConfirmDelete({ open: true, name })}
+          onDeleteAccount={(id, displayName) => setConfirmDelete({ open: true, name: id, displayName })}
           onSwitchAccount={handleSwitchAccount}
+          onRenameAccount={handleRenameAccount}
         />
       )
       break
@@ -364,9 +365,10 @@ function TabletShellInner() {
       <ConfirmDialog
         open={confirmDelete.open}
         title={t('account.deleteAccountTitle')}
-        message={t('account.deleteAccountMessage', { name: confirmDelete.name })}
-        onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '' }) }}
-        onCancel={() => setConfirmDelete({ open: false, name: '' })}
+        // 展示文案用显示名（与列表一致，避免弹窗出现 id 让用户困惑）；删除调用仍传 id
+        message={t('account.deleteAccountMessage', { name: confirmDelete.displayName })}
+        onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '', displayName: '' }) }}
+        onCancel={() => setConfirmDelete({ open: false, name: '', displayName: '' })}
       />
 
       {/* 平板新手向导：桌面同款 Dialog（Radix Portal 渲染到 body，不受本外壳 zoom 缩放） */}

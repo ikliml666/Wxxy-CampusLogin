@@ -71,6 +71,7 @@ async function renderPanel() {
       onAddAccount={() => Promise.resolve(true)}
       onDeleteAccount={noop}
       onSwitchAccount={() => Promise.resolve()}
+      onRenameAccount={() => Promise.resolve(true)}
     />,
   )
 }

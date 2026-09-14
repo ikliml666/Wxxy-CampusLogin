@@ -6,8 +6,8 @@ import { shouldUseFaceFallback, useFaceDialogStore } from '@/face/faceVerifyStor
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
 import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
-import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult } from '@/account'
-import type { Config, InitData, AutoLaunchResult } from '@/settings'
+import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
+import type { Config, InitData, AutoLaunchResult, AccountItem } from '@/settings'
 import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult, GpuInfo } from '@/shared'
 
 /** 桌面专属能力在安卓端无对应物(适配器/DHCP/DNS/窗口/托盘),统一显式拒绝 */
@@ -85,10 +85,12 @@ interface TauriApi {
   onDisabledAdaptersChanged: (cb: (data: DisabledAdapter[]) => void) => () => void
   onAdapterDisabledWarning: (cb: (data: AdapterDisabledWarningData) => void) => () => void
   onLoginLog: (cb: (data: { message: string; type: string }) => void) => () => void
-  listAccounts: () => Promise<string[]>
+  listAccounts: () => Promise<AccountItem[]>
   switchAccount: (accountName: string) => Promise<SwitchAccountResult>
   saveCurrentAsAccount: (accountName: string) => Promise<SaveAccountResult>
   deleteAccount: (accountName: string) => Promise<DeleteAccountResult>
+  /** 账号改名：只改显示名，不动 id 与激活状态；成功返回 AccountResult（重名等校验失败 success=false） */
+  renameAccount: (params: { accountId: string; displayName: string }) => Promise<AccountResult>
   getActiveAccount: () => Promise<string>
   startBackgroundCheck: () => Promise<CommandResult>
   stopBackgroundCheck: () => Promise<CommandResult>
@@ -230,10 +232,11 @@ const tauriApi: TauriApi = {
   onDisabledAdaptersChanged: noopListener as TauriApi['onDisabledAdaptersChanged'],
   onAdapterDisabledWarning: noopListener as TauriApi['onAdapterDisabledWarning'],
   onLoginLog: createEventListener<{ message: string; type: string }>('login-log'),
-  listAccounts: () => invoke<string[]>('list_accounts'),
+  listAccounts: () => invoke<AccountItem[]>('list_accounts'),
   switchAccount: (accountName) => invoke<SwitchAccountResult>('switch_account', { accountName }),
   saveCurrentAsAccount: (accountName) => invoke<SaveAccountResult>('save_current_as_account', { accountName }),
   deleteAccount: (accountName) => invoke<DeleteAccountResult>('delete_account', { accountName }),
+  renameAccount: (params) => invoke<AccountResult>('rename_account', { ...params }),
   getActiveAccount: () => invoke<string>('get_active_account'),
   startBackgroundCheck: () => invoke<CommandResult>('start_background_check'),
   stopBackgroundCheck: () => invoke<CommandResult>('stop_background_check'),

@@ -160,7 +160,7 @@ function AppInner() {
   const { handleOpenPortal, handleOpenSelfService } = useAuth()
   const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
   const { handleDhcpRenew, handleDhcpReleaseRenew, handleDhcpReleaseRenewAdapter } = useNetwork()
-  const { handleAddAccount, handleDeleteAccount, handleSwitchAccount } = useAccount()
+  const { handleAddAccount, handleDeleteAccount, handleSwitchAccount, handleRenameAccount } = useAccount()
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
 
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
@@ -175,7 +175,7 @@ function AppInner() {
   const panelChangeLock = useRef(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string }>({ open: false, name: '' })
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string; displayName: string }>({ open: false, name: '', displayName: '' })
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [sponsorOpen, setSponsorOpen] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -313,8 +313,9 @@ function AppInner() {
           activeAccount={activeAccount}
           onUpdateConfig={updateConfig}
           onAddAccount={handleAddAccount}
-          onDeleteAccount={(name) => setConfirmDelete({ open: true, name })}
+          onDeleteAccount={(id, displayName) => setConfirmDelete({ open: true, name: id, displayName })}
           onSwitchAccount={handleSwitchAccount}
+          onRenameAccount={handleRenameAccount}
         />
       )
       break
@@ -507,9 +508,10 @@ function AppInner() {
       <ConfirmDialog
         open={confirmDelete.open}
         title={t('account.deleteAccountTitle')}
-        message={t('account.deleteAccountMessage', { name: confirmDelete.name })}
-        onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '' }) }}
-        onCancel={() => setConfirmDelete({ open: false, name: '' })}
+        // 展示文案用显示名（与列表一致，避免弹窗出现 id 让用户困惑）；删除调用仍传 id
+        message={t('account.deleteAccountMessage', { name: confirmDelete.displayName })}
+        onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '', displayName: '' }) }}
+        onCancel={() => setConfirmDelete({ open: false, name: '', displayName: '' })}
       />
 
       <Suspense fallback={null}>

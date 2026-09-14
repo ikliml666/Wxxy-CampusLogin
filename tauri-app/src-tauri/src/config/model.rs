@@ -25,6 +25,13 @@ pub struct Config {
     pub operator: String,
     pub adapter1: String,
     pub adapter2: String,
+    /// 主适配器绑定的账号 id（R1，设备级配置，仅桌面）；空 = 跟随当前激活账号。
+    /// 切换账号时不得被账号档案覆盖（切账号不改变"网卡→账号"映射）
+    #[serde(rename = "adapter1Account")]
+    pub adapter1_account: String,
+    /// 副适配器绑定的账号 id，语义同 adapter1_account
+    #[serde(rename = "adapter2Account")]
+    pub adapter2_account: String,
     #[serde(rename = "dualAdapter")]
     pub dual_adapter: bool,
     #[serde(rename = "autoLoginOnStart")]
@@ -51,6 +58,10 @@ pub struct Config {
     pub enable_notification: bool,
     #[serde(rename = "activeAccount")]
     pub active_account: String,
+    /// 本文件所属账号的显示名（R3，与内部 id 分离，可含空格/emoji 等任意字符）；
+    /// 空 → 读取阶段兜底用账号 id
+    #[serde(rename = "displayName")]
+    pub display_name: String,
     #[serde(rename = "enableLatencyTest")]
     pub enable_latency_test: bool,
     #[serde(rename = "latencyTestInterval")]
@@ -180,6 +191,8 @@ impl Default for Config {
             operator: String::new(),
             adapter1: AUTO_DETECT_ADAPTER.to_string(),
             adapter2: String::new(),
+            adapter1_account: String::new(),
+            adapter2_account: String::new(),
             dual_adapter: false,
             auto_login_on_start: true,
             auto_exit_after_login: true,
@@ -193,6 +206,7 @@ impl Default for Config {
             theme_mode: "dark".to_string(),
             enable_notification: true,
             active_account: String::new(),
+            display_name: String::new(),
             enable_latency_test: true,
             latency_test_interval: 60000,
             custom_theme_color: "#6366f1".to_string(),
@@ -273,5 +287,38 @@ mod tests {
         let config: Config = serde_json::from_value(json).unwrap();
         assert_eq!(config.max_disconnect_reconnect, 5);
         assert_eq!(config.auto_login_cooldown_secs, 120);
+    }
+
+    /// 新增账号字段 serde 契约锁（双端一致，字段名不得擅改）：
+    /// displayName / adapter1Account / adapter2Account，缺省回退空串
+    #[test]
+    fn serde_account_fields_json_names_and_defaults() {
+        let json = serde_json::to_value(Config::default()).unwrap();
+        assert_eq!(json["displayName"], "");
+        assert_eq!(json["adapter1Account"], "");
+        assert_eq!(json["adapter2Account"], "");
+
+        // 旧版本配置文件缺这三个字段 → 容器级 serde(default) 补空串，不整体失败
+        let mut old = serde_json::to_value(Config::default()).unwrap();
+        let obj = old.as_object_mut().unwrap();
+        obj.remove("displayName");
+        obj.remove("adapter1Account");
+        obj.remove("adapter2Account");
+        let config: Config = serde_json::from_value(old).unwrap();
+        assert_eq!(config.display_name, "");
+        assert_eq!(config.adapter1_account, "");
+        assert_eq!(config.adapter2_account, "");
+
+        // 序列化回读
+        let config = Config {
+            display_name: "我的账号".to_string(),
+            adapter1_account: "acc-1".to_string(),
+            adapter2_account: "acc_2".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["displayName"], "我的账号");
+        assert_eq!(json["adapter1Account"], "acc-1");
+        assert_eq!(json["adapter2Account"], "acc_2");
     }
 }

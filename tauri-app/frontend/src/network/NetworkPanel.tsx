@@ -36,6 +36,8 @@ interface NetworkPanelProps {
 const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'])
 const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53', '2402:4e00::'])
 const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
+// 适配器指定账号的「跟随当前账号」哨兵值（Radix Select 不允许空串 value，落盘时空串）
+const FOLLOW_CURRENT_ACCOUNT = '__follow__'
 
 /** 连接速度格式化：bit/s → 统一 Mbps 显示（如 "1000 Mbps"），低于 1 Mbps 用 Kbps，未知返回空串 */
 function formatSpeed(bps?: number): string {
@@ -50,6 +52,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
+  // 账号列表：适配器「指定账号」下拉的选项来源（id 为值、displayName 为显示）
+  const accounts = useConfigStore((s) => s.accounts)
   const [dohEnabling, setDohEnabling] = useState(false)
   const [dnsResetting, setDnsResetting] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
@@ -392,6 +396,21 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     ))}
                   </SelectContent>
                 </Select>
+                <Label className="text-xs font-medium text-muted-foreground">{t('network.adapterAccountPrimary')}</Label>
+                <Select
+                  value={config.adapter1Account || FOLLOW_CURRENT_ACCOUNT}
+                  onValueChange={(value) => onUpdateConfig({ adapter1Account: value === FOLLOW_CURRENT_ACCOUNT ? '' : value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('network.adapterAccountPrimary')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FOLLOW_CURRENT_ACCOUNT}>{t('network.followCurrentAccount')}</SelectItem>
+                    {accounts.map((acc) => (
+                      <SelectItem key={acc.id} value={acc.id}>{acc.displayName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium text-muted-foreground">{t('network.backupAdapter')}</Label>
@@ -430,8 +449,29 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     ))}
                   </SelectContent>
                 </Select>
+                {/* 副适配器指定账号：仅在已选副适配器时显示（跟随现有 UI 条件） */}
+                {config.adapter2 && (
+                  <>
+                    <Label className="text-xs font-medium text-muted-foreground">{t('network.adapterAccountSecondary')}</Label>
+                    <Select
+                      value={config.adapter2Account || FOLLOW_CURRENT_ACCOUNT}
+                      onValueChange={(value) => onUpdateConfig({ adapter2Account: value === FOLLOW_CURRENT_ACCOUNT ? '' : value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('network.adapterAccountSecondary')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={FOLLOW_CURRENT_ACCOUNT}>{t('network.followCurrentAccount')}</SelectItem>
+                        {accounts.map((acc) => (
+                          <SelectItem key={acc.id} value={acc.id}>{acc.displayName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                )}
               </div>
             </div>
+            <p className="text-xs text-muted-foreground mt-1">{t('network.adapterAccountTip')}</p>
           </CardContent>
         </AnimatedCard>
       </div>

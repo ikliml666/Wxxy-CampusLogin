@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useDailyMascots } from '@/shared/dailyMascot'
 import type { Config } from '@/settings'
+import type { AccountItem } from '@/settings/types'
 import type { NetworkQuality } from '@/monitor'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
@@ -97,7 +98,7 @@ function loadRemovedExtras(): string[] {
 }
 
 interface DashboardPanelProps {
-  accounts: string[]
+  accounts: AccountItem[]
   activeAccount: string
   onUpdateConfig: (partial: Partial<Config>) => void
   onSwitchAccount: (name: string) => Promise<any>
@@ -292,7 +293,7 @@ const QuickActionsCard = memo(function QuickActionsCard({
 })
 
 const AccountManageCard = memo(function AccountManageCard({ accounts, activeAccount, onSwitchAccount, noAnimation, noEnterAnimation }: {
-  accounts: string[]; activeAccount: string; onSwitchAccount: (name: string) => Promise<any>; noAnimation?: boolean; noEnterAnimation?: boolean
+  accounts: AccountItem[]; activeAccount: string; onSwitchAccount: (name: string) => Promise<any>; noAnimation?: boolean; noEnterAnimation?: boolean
 }) {
   const { t } = useTranslation()
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
@@ -308,16 +309,21 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
     }
   }, [])
 
-  const handleSwitchAccount = useCallback(async (name: string) => {
-    if (name === activeAccount) return
+  const handleSwitchAccount = useCallback(async (id: string) => {
+    if (id === activeAccount) return
     if (switchTimerRef.current) clearTimeout(switchTimerRef.current)
-    setSwitchingAccount(name)
-    try { await onSwitchAccount(name) } finally {
+    setSwitchingAccount(id)
+    try { await onSwitchAccount(id) } finally {
       switchTimerRef.current = setTimeout(() => { if (mountedRef.current) setSwitchingAccount(null) }, 500)
     }
   }, [activeAccount, onSwitchAccount])
 
-  const otherAccounts = useMemo(() => accounts.filter(a => a !== activeAccount), [accounts, activeAccount])
+  const otherAccounts = useMemo(() => accounts.filter(a => a.id !== activeAccount), [accounts, activeAccount])
+  // 当前账号显示名：列表里能找到就用 displayName，否则兜底 id（列表尚未加载时）
+  const activeDisplayName = useMemo(
+    () => accounts.find(a => a.id === activeAccount)?.displayName ?? activeAccount,
+    [accounts, activeAccount],
+  )
 
   return (
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
@@ -339,21 +345,21 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
               <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
                 <Check className="h-3.5 w-3.5 text-primary" />
               </div>
-              <span className="text-sm font-medium font-sans">{activeAccount}</span>
+              <span className="text-sm font-medium font-sans">{activeDisplayName}</span>
             </div>
             <Badge variant="default" className="text-[10px] h-5">{t('dashboard.current')}</Badge>
           </div>
         )}
-        {otherAccounts.length > 0 && otherAccounts.map(name => (
-          <button key={name} onClick={() => handleSwitchAccount(name)} disabled={switchingAccount !== null}
+        {otherAccounts.length > 0 && otherAccounts.map(item => (
+          <button key={item.id} onClick={() => handleSwitchAccount(item.id)} disabled={switchingAccount !== null}
             className="flex items-center justify-between w-full p-3 rounded-xl bg-muted/30 hover:bg-muted/60 transition-colors duration-200 text-left disabled:opacity-50">
             <div className="flex items-center gap-2.5">
               <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
                 <UserCircle className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
-              <span className="text-sm font-sans text-muted-foreground">{name}</span>
+              <span className="text-sm font-sans text-muted-foreground">{item.displayName}</span>
             </div>
-            {switchingAccount === name ? <span className="text-[10px] text-primary">{t('dashboard.switching')}</span> : <span className="text-[10px] text-muted-foreground">{t('dashboard.clickToSwitch')}</span>}
+            {switchingAccount === item.id ? <span className="text-[10px] text-primary">{t('dashboard.switching')}</span> : <span className="text-[10px] text-muted-foreground">{t('dashboard.clickToSwitch')}</span>}
           </button>
         ))}
         {accounts.length === 0 && <div className="text-center py-3 text-xs text-muted-foreground">{t('dashboard.noSavedAccounts')}</div>}

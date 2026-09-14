@@ -1,4 +1,5 @@
 import type { Config } from '@/settings'
+import type { AccountItem } from '@/settings/types'
 import type { Adapter } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
@@ -16,7 +17,7 @@ import {
 } from '@/components/ui/select'
 import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap
+  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap, Pencil
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
@@ -33,12 +34,14 @@ import { useShallow } from 'zustand/react/shallow'
 
 interface AccountPanelProps {
   adapters: Adapter[]
-  accounts: string[]
+  accounts: AccountItem[]
   activeAccount: string
   onUpdateConfig: (partial: Partial<Config>) => void
   onAddAccount: (name: string) => Promise<boolean>
-  onDeleteAccount: (name: string) => void
+  onDeleteAccount: (id: string, displayName: string) => void
   onSwitchAccount: (name: string) => Promise<void>
+  /** 账号改名：第一参为账号 id，第二参为已校验的新显示名；返回是否成功 */
+  onRenameAccount: (accountId: string, displayName: string) => Promise<boolean>
 }
 
 export const AccountPanel = memo(function AccountPanel({
@@ -49,6 +52,7 @@ export const AccountPanel = memo(function AccountPanel({
   onAddAccount,
   onDeleteAccount,
   onSwitchAccount,
+  onRenameAccount,
 }: AccountPanelProps) {
   const { t } = useTranslation()
   // 安卓端无系统适配器概念,网络由系统托管;桌面专属 UI 按平台隐藏
@@ -146,6 +150,43 @@ export const AccountPanel = memo(function AccountPanel({
     setSwitchingAccount(name)
     try { await onSwitchAccount(name) } finally { setSwitchingAccount(null) }
   }, [activeAccount, onSwitchAccount, switchingAccount])
+
+  // 当前激活账号的显示名：列表里能找到就用 displayName，否则兜底 id（列表尚未加载时）
+  const activeDisplayName = accounts.find(a => a.id === activeAccount)?.displayName ?? activeAccount
+
+  // 账号改名（内联编辑）：renamingId 指向编辑中的账号 id；失败保留草稿供修改重试
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [renaming, setRenaming] = useState(false)
+
+  const startRename = useCallback((item: AccountItem) => {
+    setRenamingId(item.id)
+    setRenameDraft(item.displayName)
+  }, [])
+
+  const cancelRename = useCallback(() => {
+    setRenamingId(null)
+    setRenameDraft('')
+  }, [])
+
+  const submitRename = useCallback(async () => {
+    if (renamingId === null || renaming) return
+    const trimmed = renameDraft.trim()
+    // 与后端 validate_display_name 口径对齐：trim 后 1..=32 字符（按 Unicode 码点
+    // 计，非 UTF-16 单元）、不得含控制字符（含 C1 区 U+0080–U+009F）/换行
+    if (!trimmed || [...trimmed].length > 32 || /[\u0000-\u001f\u007f\u0080-\u009f]/.test(trimmed)) {
+      addToast(t('account.invalidDisplayName'), 'error')
+      return
+    }
+    setRenaming(true)
+    try {
+      const ok = await onRenameAccount(renamingId, trimmed)
+      if (!mountedRef.current) return
+      if (ok) cancelRename()
+    } finally {
+      if (mountedRef.current) setRenaming(false)
+    }
+  }, [renamingId, renaming, renameDraft, onRenameAccount, cancelRename, addToast, t])
 
   // 自助服务系统凭据：跨面板共享 store（与自助服务面板同一份输入，切换面板不丢失；
   // 仅内存保留不落盘，退出应用即清空）
@@ -326,7 +367,7 @@ export const AccountPanel = memo(function AccountPanel({
               <div className="min-w-0">
                 <CardTitle>{t('account.loginInfo')}</CardTitle>
                 <CardDescription>
-                  {activeAccount ? t('account.currentAccount', { name: activeAccount }) : t('account.loginInfoDesc')}
+                  {activeAccount ? t('account.currentAccount', { name: activeDisplayName }) : t('account.loginInfoDesc')}
                 </CardDescription>
               </div>
             </div>
@@ -699,55 +740,92 @@ export const AccountPanel = memo(function AccountPanel({
           <CardContent>
             {accounts.length > 0 ? (
               <div className="space-y-1.5">
-                {accounts.map((name) => {
-                  const isActive = name === activeAccount
+                {accounts.map((item) => {
+                  const isActive = item.id === activeAccount
                   return (
-                    <div key={name} className={cn(
+                    <div key={item.id} className={cn(
                         'flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors duration-200',
                         isActive
                           ? 'bg-primary/8 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
                           : 'hover:bg-accent/60 list-item-interactive'
                       )}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={cn(
-                          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-                          isActive ? 'bg-primary/15' : 'bg-muted'
-                        )}>
-                          <UserCircle className={cn('h-4 w-4', isActive ? 'text-primary' : 'text-muted-foreground')} />
-                        </div>
-                        <div className="min-w-0 flex items-center">
-                          <span className="font-medium truncate">{name}</span>
-                          {isActive && (
-                            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
-                              {t('account.currentInUse')}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-0.5 shrink-0">
-                        {!isActive && (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="rounded-lg"
-                            onClick={() => handleSwitchAccount(name)}
-                            disabled={switchingAccount !== null}
-                            aria-label={t('account.switchAccount')}
-                          >
-                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                      {renamingId === item.id ? (
+                        <div className="flex items-center gap-2 w-full min-w-0">
+                          <Input
+                            value={renameDraft}
+                            onChange={e => setRenameDraft(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.preventDefault(); void submitRename() }
+                              if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+                            }}
+                            placeholder={t('account.renameInputPlaceholder')}
+                            maxLength={64}
+                            className="h-8 flex-1 min-w-0 text-xs"
+                            disabled={renaming}
+                            autoFocus
+                          />
+                          <Button size="icon-sm" variant="ghost" onClick={() => void submitRename()} disabled={renaming}>
+                            <Check className="h-3.5 w-3.5 text-emerald-500" />
                           </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="rounded-lg hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => onDeleteAccount(name)}
-                          aria-label={t('account.deleteAccount')}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                          <Button size="icon-sm" variant="ghost" onClick={cancelRename} disabled={renaming}>
+                            <X className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={cn(
+                              'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                              isActive ? 'bg-primary/15' : 'bg-muted'
+                            )}>
+                              <UserCircle className={cn('h-4 w-4', isActive ? 'text-primary' : 'text-muted-foreground')} />
+                            </div>
+                            <div className="min-w-0 flex items-center">
+                              <span className="font-medium truncate">{item.displayName}</span>
+                              {isActive && (
+                                <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
+                                  {t('account.currentInUse')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-0.5 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="rounded-lg"
+                              onClick={() => startRename(item)}
+                              disabled={switchingAccount !== null || renamingId !== null}
+                              aria-label={t('account.renameAccount')}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            {!isActive && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="rounded-lg"
+                                onClick={() => handleSwitchAccount(item.id)}
+                                disabled={switchingAccount !== null || renamingId !== null}
+                                aria-label={t('account.switchAccount')}
+                              >
+                                <ArrowRightLeft className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="rounded-lg hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => onDeleteAccount(item.id, item.displayName)}
+                              disabled={renamingId !== null}
+                              aria-label={t('account.deleteAccount')}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )
                 })}

@@ -6,7 +6,8 @@
 pub async fn get_init_data(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let settings = crate::config_state::current_settings(&app).await?;
     let dir = crate::account_cmds::accounts_dir(&app)?;
-    let accounts = crate::account_cmds::list_account_names_sync(&dir);
+    // AccountItem[](id + displayName,空显示名已兜底为 id);activeAccount 语义不变(账号 id)
+    let accounts = crate::account_cmds::list_account_items_sync(&dir);
 
     Ok(serde_json::json!({
         "config": crate::config_state::masked_for_display(&settings),

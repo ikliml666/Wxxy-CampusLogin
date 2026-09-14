@@ -1,5 +1,11 @@
 import type { PanelName, GpuInfo } from '@/shared/ui-types'
 
+/** 账号列表项：id 是账号文件名 stem（稳定不变），displayName 是可编辑显示名（后端已兜底非空） */
+export interface AccountItem {
+  id: string
+  displayName: string
+}
+
 export interface Config {
   user: string
   password: string
@@ -55,6 +61,8 @@ export interface Config {
   autoLoginCooldownSecs: number
   logRetentionDays: number
   configVersion: number
+  /** 当前激活账号的显示名（改名同步落盘）；空 → 回退用账号 id */
+  displayName?: string
 }
 
 export interface AutoLaunchResult {
@@ -68,7 +76,7 @@ export interface InitData {
   adapters: import('@/network').Adapter[]
   adapterDetails: import('@/network').AdapterDetail[]
   disabledAdapters: import('@/network').DisabledAdapter[]
-  accounts: string[]
+  accounts: AccountItem[]
   activeAccount: string
   backgroundStatus: import('@/monitor').BackgroundStatus
   isAutoStart: boolean

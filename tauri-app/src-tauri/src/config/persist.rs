@@ -65,31 +65,92 @@ pub fn get_accounts_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("accounts")
 }
 
-pub fn list_account_names(app_handle: &tauri::AppHandle) -> Vec<String> {
-    let data_dir = get_data_dir(app_handle);
-    let accounts_dir = get_accounts_dir(&data_dir);
+/// 账号档案文件路径（<data_dir>/accounts/<id>.json，id 为文件名 stem）
+pub fn get_account_path(data_dir: &Path, account_id: &str) -> PathBuf {
+    get_accounts_dir(data_dir).join(format!("{account_id}.json"))
+}
 
-    if !accounts_dir.exists() {
-        return vec![];
+/// 读取账号档案（扁平 Config JSON），密码解密为明文返回。
+/// 文件不存在 / 读盘失败 / 解析失败 / 解密失败均返回 Err（调用方按需区分文案）。
+pub fn load_account_config(data_dir: &Path, account_id: &str) -> Result<Config, String> {
+    let account_path = get_account_path(data_dir, account_id);
+    if !account_path.exists() {
+        return Err("账号不存在".to_string());
     }
+    let content = std::fs::read_to_string(&account_path)
+        .map_err(|e| format!("读取账号配置失败: {e}"))?;
+    let mut config: Config = serde_json::from_str(&content)
+        .map_err(|e| format!("解析账号配置失败: {e}"))?;
 
-    let mut accounts = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&accounts_dir) {
-        for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Some(name) = entry.path().file_stem().and_then(|n| n.to_str()) {
-                    // 过滤隐藏文件（. 前缀）和空名，与 get_init_data 行为对齐
-                    if name.starts_with('.') || name.is_empty() {
-                        continue;
-                    }
-                    accounts.push(name.to_string());
-                }
+    if !config.password.is_empty() {
+        match crypto::decrypt(&config.password) {
+            Ok(decrypted) => config.password = decrypted,
+            Err(e) => {
+                crate::log_error!("account", "账号密码解密失败: {}", e);
+                return Err("账号密码解密失败".to_string());
             }
         }
     }
 
-    accounts.sort();
-    accounts
+    Ok(config)
+}
+
+/// 写入账号档案（扁平 Config JSON）：非空密码 DPAPI 加密后落盘（与主配置
+/// save_config_to_disk_encrypted 同一加密约定；self_password 沿用既有账号文件
+/// 行为透传，见 list_account_items / load_account_config 的既有语义）。
+pub fn save_account_config(data_dir: &Path, account_id: &str, config: &Config) -> Result<(), String> {
+    let accounts_dir = get_accounts_dir(data_dir);
+    std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {e}"))?;
+    let mut disk_config = config.clone();
+    if !disk_config.password.is_empty() {
+        disk_config.password = crypto::encrypt(&disk_config.password)
+            .map_err(|e| format!("密码加密失败: {e}"))?;
+    }
+    let json = serde_json::to_string_pretty(&disk_config)
+        .map_err(|e| format!("序列化账号配置失败: {e}"))?;
+    atomic_write(&get_account_path(data_dir, account_id), &json)
+}
+
+/// 枚举账号档案为 AccountItem（id + display_name）。
+/// - 过滤：`.` 前缀与空名跳过（与旧 list_account_names 一致），按 id 排序；
+/// - display_name：为空（含纯空白）兜底为 id；文件读取/解析失败同样兜底为 id 并 log_warn。
+pub fn list_account_items(data_dir: &Path) -> Vec<crate::infra::state::AccountItem> {
+    let accounts_dir = get_accounts_dir(data_dir);
+    if !accounts_dir.exists() {
+        return vec![];
+    }
+
+    let mut items = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&accounts_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(id) = path.file_stem().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            // 过滤隐藏文件（. 前缀）和空名，与 get_init_data 行为对齐
+            if id.starts_with('.') || id.is_empty() {
+                continue;
+            }
+            let display_name = match std::fs::read_to_string(entry.path())
+                .map_err(|e| e.to_string())
+                .and_then(|c| serde_json::from_str::<Config>(&c).map_err(|e| e.to_string()))
+            {
+                Ok(config) if !config.display_name.trim().is_empty() => config.display_name,
+                Ok(_) => id.to_string(),
+                Err(e) => {
+                    crate::log_warn!("account", "读取账号文件失败，显示名兜底为 id: {} ({})", id, e);
+                    id.to_string()
+                }
+            };
+            items.push(crate::infra::state::AccountItem { id: id.to_string(), display_name });
+        }
+    }
+
+    items.sort_by(|a, b| a.id.cmp(&b.id));
+    items
 }
 
 pub fn get_login_history_path(data_dir: &Path) -> PathBuf {
@@ -327,6 +388,70 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
             .collect();
         assert_eq!(baks.len(), 1, "损坏文件应被备份");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 账号目录不存在时返回空列表（不 panic、不创建目录）
+    #[test]
+    fn list_account_items_missing_dir_is_empty() {
+        let dir = temp_data_dir("acc_missing");
+        assert!(list_account_items(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// display_name 兜底规则：空 → id；读取/解析失败 → id；按 id 排序；
+    /// `.` 前缀与非 json 文件过滤
+    #[test]
+    fn list_account_items_fallback_and_filter() {
+        use crate::infra::state::AccountItem;
+        let dir = temp_data_dir("acc_list");
+        let accounts_dir = get_accounts_dir(&dir);
+        std::fs::create_dir_all(&accounts_dir).unwrap();
+
+        // 有显示名
+        let mut cfg_a = Config::default();
+        cfg_a.display_name = "我的甲".to_string();
+        std::fs::write(accounts_dir.join("acc-a.json"), serde_json::to_string_pretty(&cfg_a).unwrap()).unwrap();
+        // 显示名为空 → 兜底为 id
+        let cfg_b = Config::default();
+        std::fs::write(accounts_dir.join("acc-b.json"), serde_json::to_string(&cfg_b).unwrap()).unwrap();
+        // 非法 JSON → 兜底为 id
+        std::fs::write(accounts_dir.join("acc-c.json"), "not-json{{{").unwrap();
+        // 隐藏文件与非 json 文件过滤
+        std::fs::write(accounts_dir.join(".hidden.json"), "{}").unwrap();
+        std::fs::write(accounts_dir.join("acc-d.txt"), "{}").unwrap();
+
+        let items = list_account_items(&dir);
+        assert_eq!(items, vec![
+            AccountItem { id: "acc-a".to_string(), display_name: "我的甲".to_string() },
+            AccountItem { id: "acc-b".to_string(), display_name: "acc-b".to_string() },
+            AccountItem { id: "acc-c".to_string(), display_name: "acc-c".to_string() },
+        ], "应按 id 排序、空显示名与损坏文件兜底为 id、过滤隐藏/非json");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 账号档案读写往返：密码落盘加密、读回解密还原；空密码原样
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn account_config_roundtrip_encrypts_password() {
+        let dir = temp_data_dir("acc_roundtrip");
+        let mut cfg = Config::default();
+        cfg.user = "u1".to_string();
+        cfg.password = "secret-pwd".to_string();
+        cfg.display_name = "显示名".to_string();
+        save_account_config(&dir, "acc-rt", &cfg).unwrap();
+
+        // 磁盘上不得出现明文密码
+        let raw = std::fs::read_to_string(get_account_path(&dir, "acc-rt")).unwrap();
+        assert!(!raw.contains("secret-pwd"), "账号文件明文泄露密码: {raw}");
+
+        let loaded = load_account_config(&dir, "acc-rt").unwrap();
+        assert_eq!(loaded.user, "u1");
+        assert_eq!(loaded.password, "secret-pwd");
+        assert_eq!(loaded.display_name, "显示名");
+
+        // 文件不存在 → Err("账号不存在")，不 panic
+        assert_eq!(load_account_config(&dir, "no-such").unwrap_err(), "账号不存在");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -74,6 +74,7 @@ pub fn run() {
             self_service_cmds::reveal_operator_credential,
             account_cmds::list_accounts,
             account_cmds::switch_account,
+            account_cmds::rename_account,
             account_cmds::save_current_as_account,
             account_cmds::delete_account,
             account_cmds::get_active_account,
