@@ -27,9 +27,9 @@ tags: [决策, 安卓, VPN, 网络判定, 平台边界]
 
 1. **能力探针**:对 "lo" 一次性 socket 试绑定,Ok→Supported / EPERM|EACCES→Denied / 其他→Unavailable,OnceLock 缓存;非 Supported 一律走原通道。
 2. **物理网卡选择**:接口名过滤(排除 tun*/utun*/ppp*/rmnet*/ccmni*/lo/dummy*),wlan0 优先;按名绑定,不要求已有 IP。
-3. **接入点**:`campus_detect.rs::portal_reachable`(网关/Portal TCP 探测)、`auth/protocol.rs` 登录/Radius 注销/MAC 解绑 GET、`auth/portal.rs` Portal 页面探测——Android 分支优先走旁路通道,桌面路径零变化(cfg 隔离)。
+3. **接入点**:`campus_detect.rs::portal_reachable`(网关/Portal TCP 探测)直接走旁路 socket;`auth/protocol.rs` 登录/Radius 注销/MAC 解绑、`auth/portal.rs` Portal 页面探测**整体切换到旁路客户端**(reqwest + 本地代理,HTTP 层零改动),桌面路径零变化(cfg 隔离)。
 4. **回退语义**:能力缺失/无物理口/socket 创建或绑定层错误→自动回退普通连接;**connect 层失败不回退**(物理网不通重试原通道也必失败,只翻倍超时)。
-5. **HTTP 旁路通道**:`http_get_bounded`(hyper http1 handshake over 绑定 socket,GET-only、connection:close、1MB 上限对齐 `MAX_HTTP_BODY`、同 authority 重定向≤5 次)——响应解码与页面特征判定完全复用现有代码,只换传输层。
+5. **HTTP 层必须 100% 复用 reqwest——本地转发代理,不手写 HTTP**(2026-09-14 真机教训):首版手写 minimal HTTP(hyper handshake)在真机被学校网关 nginx **400 Bad Request** 拒绝,对照实验矩阵(reqwest 200 / hyper 手写 400;补齐 accept/cache-control/pragma 头、去掉 SO_BINDTODEVICE 均无法消除)证明手写请求与 reqwest 的 wire 级差异无法穷举定位。终态:本地起单请求转发器(127.0.0.1 随机端口,absolute-form → origin-form 重放,注入 `connection: close` 单请求语义),reqwest 以 `Proxy::all` 指向它(`create_bypass_http_client`),登录/注销/探测的客户端整体切换——HTTP 层(头/重定向/charset)100% 复用 reqwest,只有传输层被替换。另修非阻塞 connect 的 **EINPROGRESS(115) 不被 std 映射为 WouldBlock** 导致旁路整体回退的 bug(按 `raw_os_error()==libc::EINPROGRESS` 判定,教训见 `learnings/nonblocking-connect-einprogress-not-wouldblock`)。
 6. **提示兜底**:`monitor_loop.rs::with_vpn_hint`——`vpn_tun_present()`(tun*/utun*/ppp* 宽松匹配)为真时,失败类通知 message 追加「检测到 VPN 可能在接管本应用流量:请在 VPN 中排除本应用或临时关闭 VPN」。
 
 ## 理由(源码级证据)
