@@ -93,6 +93,7 @@
 - [[learnings\rAF-blocks-compositor-idle|用 rAF 做的帧率控制器自己阻止了合成器休眠（已修复，保留作回归判据）]]
 - [[learnings\login-response-retry-semantics|登录"成功"与"可重试"的判定语义（中文文案与 code 字符串耦合）]]
 - [[learnings\mascot-asset-alpha-channel-check|看板娘图资产必须过 alpha 校验（VP8 无 alpha 导致深色模式刺眼）]]
+- [[learnings\adapter-disabled-classification-blindspot|禁用网卡分类盲区——只认 NotPresent+ConfigFlags 漏掉「禁用报 Down」]]
 - [[learnings\seconds-milliseconds-conversion-scatter|秒与毫秒的双向换算点分散在各处]]
 - [[learnings\android-log-type-enum-drift|跨树日志事件 type 必须对齐前端 LogType 枚举（"warn" vs "warning" 致白屏）]]
 - [[learnings\adapter-visibility-cache-staleness|适配器可见性/禁用分类缓存陈旧（只在 enable_adapter 刷新）]]
