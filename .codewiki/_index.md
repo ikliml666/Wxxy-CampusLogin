@@ -56,6 +56,7 @@
 - [[learnings\windows-hello-gate-module-singleton|Hello 门是模块级单例，跨面板与向导共享一份时间戳]]
 - [[learnings\input-time-wrapper-w-full|Input 组件 time 类型自带 relative w-full 包装层]]
 - [[learnings\mask-placeholder-persisted-as-plaintext|MASK 占位符被直接落盘会变明文密码 "***"]]
+- [[learnings\rtss-hook-injection-webview-crash|RTSS hook 注入导致 WebView2 白屏崩溃：根因、诊断与排除尝试的完整失败记录]]
 - [[learnings\radix-select-empty-string-value|Radix Select 报错/不渲染某项：Item 不接受空串 value]]
 - [[learnings\platform-com-elevation-undocumented|Windows COM 提权依赖未公开接口，失效时降级为弹 UAC]]
 - [[learnings\contain-paint-clips-absolute-menu|absolute 定位的菜单/按钮被卡片裁掉（contain: paint）]]

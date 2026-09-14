@@ -14,5 +14,8 @@ pub mod gpu;
 pub mod helper_spawn;
 #[cfg(desktop)]
 pub mod identity;
+// RTSS(MSI Afterburner) hook 注入致 WebView 白屏崩溃的预防(写排除 profile)
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod rtss_compat;
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod toast;

@@ -38,6 +38,12 @@ fn main() {
         }
     }
 
+    // RTSS(MSI Afterburner) hook 注入风险检测：在 WebView2 环境创建之前执行，
+    // 结果暂存、待 startup 里 logger 就绪后留痕（详见 platform/rtss_compat.rs 模块注释：
+    // 自动写排除 profile 已被 RTSS 实测忽略，这里只检测与告知）。
+    #[cfg(all(desktop, target_os = "windows"))]
+    crate::platform::rtss_compat::preinit_detect();
+
     // 必须在 Tokio runtime 创建前设置：set_var 与 worker 线程并发读 env 存在竞态
     // （std::env::set_var 非线程安全），先设 env 再起线程
     let mut browser_args = crate::platform::gpu::build_browser_args();

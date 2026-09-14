@@ -169,6 +169,13 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
 
     crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
     crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
+
+    // RTSS hook 冲突预防：实际处理已提前到 main 入口（WebView2 环境创建之前，见 main.rs）——
+    // 实测放在 setup 里为时已晚（浏览器进程已创建，6 个 WebView2 进程中 3 个已被注入）。
+    // 此处只把那次处理的结果留痕（logger 此时才就绪）；Program Files 下需管理员权限，
+    // 失败仅告警不影响启动（安装期由 NSIS POSTINSTALL hook 以管理员身份静默兜底）
+    #[cfg(all(desktop, target_os = "windows"))]
+    crate::platform::rtss_compat::log_preinit_outcome();
     // 浏览器参数在 main 极早期设置（先于 logger），此处补记 env 实际值（含 crash 转储参数）
     crate::log_info!(
         "gpu",
