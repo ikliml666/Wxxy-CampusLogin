@@ -45,6 +45,8 @@ md-5 = "0.10"
 # 声明,不新增编译产物;network-interface 与安卓壳工程(android/src-tauri)同版本。
 [target.'cfg(target_os = "android")'.dependencies]
 socket2 = { version = "0.6", features = ["all"] }
+# EINPROGRESS 判定用(非阻塞 connect 的 std ErrorKind 映射缺口,真机实证)
+libc = "0.2"
 network-interface = "2"
 hyper = { version = "1", default-features = false, features = ["client", "http1"] }
 # TokioIo:hyper 1.x 的 rt trait 与 tokio AsyncRead/AsyncWrite 的适配器(hyper 1.11 起不再内置)

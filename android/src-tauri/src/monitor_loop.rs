@@ -49,6 +49,11 @@ pub struct MonitorState {
 /// onAvailable + onCapabilitiesChanged 等多条事件,窗口内最后一条生效)
 const WIFI_EVENT_DELAY_MS: u64 = 2500;
 
+/// WiFi 断开(lost)事件零延迟:断开即事实,探测失败=离线,不需要等任何路由稳定;
+/// 等待只会拉长常驻通知的翻转时间(2026-09-14 用户要求断开感知 ≤1-2s)。连上方向
+/// 仍走 WIFI_EVENT_DELAY_MS(DHCP 未就绪的误判问题真实存在,不可一刀切)。
+const WIFI_LOST_EVENT_DELAY_MS: u64 = 0;
+
 /// WiFi 事件去抖窗口:距上次事件不足该值视为同一次风暴的后续事件,不再重复安排
 const WIFI_EVENT_DEBOUNCE_MS: u64 = 1000;
 
@@ -296,8 +301,12 @@ fn handle_wifi_event(
         return Ok(());
     }
     MONITOR.wifi_event_ms.store(now, Ordering::Relaxed);
+    // lost 零延迟:断开即事实,探测失败=离线;连上方向保持 2500ms 等 DHCP/路由稳定
+    let delay = if event == "lost" { WIFI_LOST_EVENT_DELAY_MS } else { WIFI_EVENT_DELAY_MS };
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(WIFI_EVENT_DELAY_MS)).await;
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
         // 风暴内更新的起点已覆盖时间戳:本任务过期自杀,由最后安排的任务执行
         if MONITOR.wifi_event_ms.load(Ordering::Relaxed) != now {
             return;

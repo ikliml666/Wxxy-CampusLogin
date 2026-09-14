@@ -88,13 +88,21 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
             return
         }
 
+        // allNetworks 无 WiFi(断开已生效):requestNetwork 等 WiFi 出现没有意义,
+        // 本拍探测走默认网络即可——等待最多拖 3s onUnavailable,拉长断开场景的
+        // 通知翻转(2026-09-14 优化)。连接方向竞态(WiFi 尚未注册)由 available/
+        // validated 事件触发的下一拍重新绑定兜底,不影响最终正确性。
+        if (picked == null) {
+            finish(false, "no_wifi_network", "allNetworks[no_wifi_network]")
+            return
+        }
+
         // allNetworks 直绑失败的原因（含 VPN 是否活动）：仅作归因证据，不再是终判。
         // 回退路径失败时两条原因分开呈现（见下方 finish 调用）——此前把
         // requestNetwork 的异常拼接在 vpn_active 之后，真机日志长成
         // `bind_rejected_vpn_active_SecurityException:...CHANGE_NETWORK_STATE`，
         // 看着像 VPN 问题，实际是没声明 CHANGE_NETWORK_STATE（2026-09-12 复盘）
         val directBindFail = when {
-            picked == null -> "no_wifi_network"
             hasVpn(manager) -> "bind_false_vpn_active"
             else -> "bind_false_" + capsSummary
         }

@@ -199,8 +199,10 @@ fn create_bound_stream(iface: &str, addr: std::net::SocketAddr) -> std::io::Resu
     sock.set_nonblocking(true)?;
     match sock.connect(&addr.into()) {
         Ok(()) => {}
-        // 非阻塞 connect 的标准返回:EINPROGRESS(std 映射为 WouldBlock),完成态由 writable().await + take_error 收割
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+        // 非阻塞 connect 返回 EINPROGRESS(115)/EWOULDBLOCK 都是"进行中",完成态由
+        // writable().await + take_error 收割。注意 std 不把 EINPROGRESS 映射为
+        // WouldBlock(真机 2026-09-14 实证:误判失败导致旁路整体回退),须按 raw errno 判
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.raw_os_error() == Some(libc::EINPROGRESS) => {}
         Err(e) => return Err(e),
     }
     let std_stream: std::net::TcpStream = sock.into();

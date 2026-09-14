@@ -81,7 +81,6 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
         .unwrap_or(false);
 
     let portal_host = portal_host_of(portal_url);
-    let portal_ok = portal_reachable(&portal_host, PORTAL_PORT, TCP_TIMEOUT).await;
 
     // 对齐桌面 campus_check 三层判定的安卓版(2026-09-09 真机反馈:能到达网关
     // 却被判非校园网)。桌面三层=SSID→/18 子网→网关 ICMP;安卓无 SSID 通道且
@@ -89,10 +88,15 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
     // ①网关 TCP(campus_gateway 必为内网地址,跨 /18 的 AP 区段靠它救回);
     // ②Portal TCP(配置公网 portal 域名时家宽也可能连通,属已知边界——
     //   建议保持 portal_url 为内网地址;放最后作为网关误配时的最后兜底)
-    let gateway_ok = if on_campus_by_subnet {
-        true
+    // 子网不命中时网关与 Portal 探测并行(2026-09-14:串行最坏 6s,拉长断开场景
+    // 通知翻转;join 后最坏 3s)。
+    let (portal_ok, gateway_ok) = if on_campus_by_subnet {
+        (portal_reachable(&portal_host, PORTAL_PORT, TCP_TIMEOUT).await, true)
     } else {
-        portal_reachable(campus_gateway, PORTAL_PORT, TCP_TIMEOUT).await
+        tokio::join!(
+            portal_reachable(&portal_host, PORTAL_PORT, TCP_TIMEOUT),
+            portal_reachable(campus_gateway, PORTAL_PORT, TCP_TIMEOUT),
+        )
     };
     let on_campus = on_campus_by_subnet || gateway_ok || portal_ok;
 
