@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, LogOut, PowerOff, AlarmClock } from 'lucide-react'
+import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, LogOut, PowerOff, AlarmClock, HelpCircle } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import React, { memo, useMemo, useState } from 'react'
@@ -291,7 +292,32 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     <Wifi className="h-4 w-4 text-violet-500" />
                   </div>
                   <div className="min-w-0">
-                    <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">{t('monitor.campusNetworkVerification')}</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">{t('monitor.campusNetworkVerification')}</Label>
+                      {/* 检测逻辑说明收进问号 Tooltip(与 QualityPanel 指标说明同模式),节约纵向空间 */}
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={t('monitor.detectionLogic')}
+                              className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center shrink-0 hover:bg-muted transition-colors"
+                            >
+                              <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="start" className="max-w-[320px]">
+                            <div className="space-y-1 text-[11px]">
+                              <p className="font-medium">{t('monitor.detectionLogic')}</p>
+                              <p>{t('monitor.detectionLogicStep1')}</p>
+                              <p>{t('monitor.detectionLogicStep2')}</p>
+                              <p>{t('monitor.detectionLogicStep3')}</p>
+                              <p>{t('monitor.detectionLogicAny')}</p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.campusNetworkVerificationDesc')}</p>
                   </div>
                 </div>
@@ -335,13 +361,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                       className="h-8 text-sm"
                     />
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusGatewayTip')}</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/40 p-2.5 space-y-1">
-                    <p className="text-[10px] font-medium text-foreground/80">{t('monitor.detectionLogic')}</p>
-                    <p className="text-[10px] text-muted-foreground">{t('monitor.detectionLogicStep1')}</p>
-                    <p className="text-[10px] text-muted-foreground">{t('monitor.detectionLogicStep2')}</p>
-                    <p className="text-[10px] text-muted-foreground">{t('monitor.detectionLogicStep3')}</p>
-                    <p className="text-[10px] text-muted-foreground">{t('monitor.detectionLogicAny')}</p>
                   </div>
                   {!isAndroid && (
                   <>
@@ -414,8 +433,9 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     </div>
                   </div>
                   {/* 定时登录/定时注销(P2-32):安卓 monitor_loop 每拍判定,与桌面同语义 */}
+                  {/* 窄屏右侧 time input 会把左侧描述挤成竖排,同时间段行:窄屏纵向堆叠 */}
                   <Separator className="my-2" />
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
                         <LogIn className="h-3.5 w-3.5 text-emerald-500" />
@@ -425,25 +445,28 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLoginTimeDesc')}</p>
                       </div>
                     </div>
-                    <Input
-                      id="scheduled-login-time"
-                      type="time"
-                      aria-label={t('monitor.scheduledLoginTime')}
-                      value={(() => {
-                        const m = config.scheduledLoginMinutes ?? 0
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-24 h-7 text-sm font-mono"
-                    />
+                    {/* Input 组件对 time 类型自带 relative w-full 包装层,直接作 flex 子项会吃满剩余空间使选择器悬中,外包 shrink-0 容器约束为内容宽 */}
+                    <div className="flex shrink-0 items-center">
+                      <Input
+                        id="scheduled-login-time"
+                        type="time"
+                        aria-label={t('monitor.scheduledLoginTime')}
+                        value={(() => {
+                          const m = config.scheduledLoginMinutes ?? 0
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-24 h-7 text-sm font-mono"
+                      />
+                    </div>
                   </div>
                   <Separator className="my-2" />
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
                         <LogOut className="h-3.5 w-3.5 text-rose-500" />
@@ -453,22 +476,24 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLogoutTimeDesc')}</p>
                       </div>
                     </div>
-                    <Input
-                      id="scheduled-logout-time"
-                      type="time"
-                      aria-label={t('monitor.scheduledLogoutTime')}
-                      value={(() => {
-                        const m = config.scheduledLogoutMinutes ?? 0
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-24 h-7 text-sm font-mono"
-                    />
+                    <div className="flex shrink-0 items-center">
+                      <Input
+                        id="scheduled-logout-time"
+                        type="time"
+                        aria-label={t('monitor.scheduledLogoutTime')}
+                        value={(() => {
+                          const m = config.scheduledLogoutMinutes ?? 0
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-24 h-7 text-sm font-mono"
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 pt-1">
                     {(() => {
