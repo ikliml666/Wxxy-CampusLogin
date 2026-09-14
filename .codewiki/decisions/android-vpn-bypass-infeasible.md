@@ -47,6 +47,13 @@ tags: [决策, 安卓, VPN, 网络判定, 平台边界]
 - **Android 17 兼容预警**:Local Network Protections(targetSdk ≥ 37)默认阻断局域网访问,探 10.x 网关/Portal 需申请 `ACCESS_LOCAL_NETWORK`(Android 16 临时用 `NEARBY_WIFI_DEVICES`);出包升 targetSdk 前必须复查此链路。
 - 桌面端零变化:bound_socket 的 socket/HTTP 通道 `#[cfg(target_os = "android")]` 门控,Windows 下的 VPN 场景维持现状(桌面未提需求)。
 
+## 真机验收（2026-09-14 用户实测）
+
+- **核心场景通过**：VPN **不排除本应用**时登录/探测正常工作（旁路代理生效，流量走物理网卡绕过 tun）——本决策的目标场景。
+- 无 VPN 场景登录/探测正常（reqwest 原行为不变）。
+- 断 WiFi 通知翻转提速已实装（lost 零延迟 + 探测并行 + 绑定快速返回），目标 1-2s。
+- 遗留观察点：`SO_BINDTODEVICE` 与 `bindProcessToNetwork` 共存时的 fwmark 交互在不同 ROM 上可能不同，异常时看 logcat `[bind-dev]`；Android 17 LNP 权限预警不变（见上"影响与约束"）。
+
 ## Connections
 
 [[android-notify-online-pinned-by-offline-guard]]、[[android-keepalive-fgs-architecture]]、[[background-check-and-auto-login]]
