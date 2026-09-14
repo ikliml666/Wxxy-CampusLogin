@@ -67,9 +67,7 @@ fn parse_adapter_addresses(
     if_type_ethernet: u32,
     if_type_wireless: u32,
 ) -> AdapterQueryResult {
-    use windows::Win32::NetworkManagement::Ndis::{
-        IfOperStatusUp, IfOperStatusNotPresent,
-    };
+    use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
     use windows::Win32::Networking::WinSock::*;
 
     let mut adapters = Vec::new();
@@ -199,27 +197,14 @@ fn parse_adapter_addresses(
             }
         }
 
-        // 严格四分类判定
-        let status = if is_up {
-            if ip.is_empty() {
-                AdapterStatus::EnabledNoIp
-            } else {
-                AdapterStatus::Connected
-            }
-        } else if oper_status == IfOperStatusNotPresent {
-            // NotPresent 可能是管理员禁用或硬件缺失(USB未连接)
-            // 用 ConfigFlags 区分：CONFIGFLAG_DISABLED (0x1) 才是管理员禁用
-            if is_admin_disabled_via_registry(&guid) {
-                AdapterStatus::Disabled
-            } else {
-                // USB 网卡未连接 / 硬件缺失 / 驱动未加载
-                AdapterStatus::Disconnected
-            }
-        } else {
-            // Down / LowerLayerDown / Dormant / Unknown / Testing 归为未连接
-            // Down 在 Windows 上实际语义是"接口未就绪"（媒体断开/未认证），不是管理员禁用
-            AdapterStatus::Disconnected
-        };
+        // 严格四分类判定（决策表见 classify_adapter_status 单测）。
+        // 非 Up 时查 GetIfEntry2 的 AdminStatus：微软文档化的管理性禁用标志（禁用→Down，
+        // 拔线/媒体断开→保持 Up）。历史缺陷：旧实现只认「OperStatus==NotPresent 且
+        // ConfigFlags DISABLED」，但文档明文禁用后 OperStatus「Down 或 NotPresent 皆可能」，
+        // 禁用报 Down 的网卡被归为「未连接」，自动启用永远不触发。
+        let admin_down = if is_up { None } else { is_admin_status_down(if_index) };
+        let registry_disabled = if is_up { false } else { is_admin_disabled_via_registry(&guid) };
+        let status = classify_adapter_status(is_up, !ip.is_empty(), oper_status, admin_down, registry_disabled);
 
         // 所有适配器都推入 adapters 列表（带状态，便于前端统一展示和启用操作）
         adapters.push(Adapter {
@@ -305,4 +290,128 @@ unsafe fn read_pwstr(ptr: windows::core::PWSTR) -> String {
 
 unsafe fn ipv4_from_in_addr(addr: windows::Win32::Networking::WinSock::IN_ADDR) -> String {
     std::net::Ipv4Addr::from(addr).to_string()
+}
+
+/// 查询接口 AdminStatus 是否为 Down（管理性禁用的文档化标志）。
+///
+/// 幽灵虚拟副本（接口不存在）或查询失败返回 `None`，调用方回退注册表 ConfigFlags 判定。
+/// `GetIfEntry2` 在 `InterfaceLuid` 为零时按 `InterfaceIndex` 查找。
+fn is_admin_status_down(if_index: u32) -> Option<bool> {
+    use windows::Win32::NetworkManagement::IpHelper::{GetIfEntry2, MIB_IF_ROW2};
+    use windows::Win32::NetworkManagement::Ndis::NET_IF_ADMIN_STATUS_DOWN;
+
+    let mut row = MIB_IF_ROW2::default();
+    row.InterfaceIndex = if_index;
+    let hr = unsafe { GetIfEntry2(&mut row) };
+    if hr != windows::Win32::Foundation::WIN32_ERROR(0) {
+        return None;
+    }
+    Some(row.AdminStatus == NET_IF_ADMIN_STATUS_DOWN)
+}
+
+/// 四分类决策（纯函数，便于单测）。
+///
+/// `admin_down`：`GetIfEntry2` 查得的 `AdminStatus == Down`（`None` = 接口不存在/查询失败）。
+/// AdminStatus 是微软文档化的管理性禁用标志：禁用 → Down；拔线/媒体断开 → 保持 Up。
+/// `registry_disabled`：注册表 `ConfigFlags` 的 `CONFIGFLAG_DISABLED` 位（未文档化行为，
+/// 仅作 NotPresent 且查不到 AdminStatus 时的回退）。
+///
+/// 历史缺陷：旧实现只在 `OperStatus == NotPresent` 时查 ConfigFlags 判禁用，
+/// 但文档明文禁用后 OperStatus「Down 或 NotPresent 两者皆可能」——
+/// 禁用报 Down 的网卡被归为「未连接」，自动启用永远不触发。
+fn classify_adapter_status(
+    is_up: bool,
+    has_ip: bool,
+    oper_status: windows::Win32::NetworkManagement::Ndis::IF_OPER_STATUS,
+    admin_down: Option<bool>,
+    registry_disabled: bool,
+) -> AdapterStatus {
+    if is_up {
+        return if has_ip { AdapterStatus::Connected } else { AdapterStatus::EnabledNoIp };
+    }
+    if admin_down == Some(true) {
+        return AdapterStatus::Disabled;
+    }
+    if oper_status == windows::Win32::NetworkManagement::Ndis::IfOperStatusNotPresent && registry_disabled {
+        return AdapterStatus::Disabled;
+    }
+    AdapterStatus::Disconnected
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_adapter_status;
+    use super::super::AdapterStatus;
+    use windows::Win32::NetworkManagement::Ndis::{IfOperStatusDown, IfOperStatusNotPresent};
+
+    #[test]
+    fn up_with_ip_is_connected() {
+        assert_eq!(
+            classify_adapter_status(true, true, IfOperStatusDown, None, false),
+            AdapterStatus::Connected
+        );
+    }
+
+    #[test]
+    fn up_without_ip_is_enabled_no_ip() {
+        assert_eq!(
+            classify_adapter_status(true, false, IfOperStatusDown, None, false),
+            AdapterStatus::EnabledNoIp
+        );
+    }
+
+    // 核心修复：禁用后 OperStatus 报 Down（文档明文 Down/NotPresent 皆可能），
+    // AdminStatus=Down 必须判为禁用——旧实现漏判为「未连接」
+    #[test]
+    fn down_with_admin_down_is_disabled() {
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusDown, Some(true), false),
+            AdapterStatus::Disabled
+        );
+    }
+
+    #[test]
+    fn down_with_admin_up_is_disconnected() {
+        // 拔线/媒体断开：AdminStatus 保持 Up
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusDown, Some(false), false),
+            AdapterStatus::Disconnected
+        );
+    }
+
+    #[test]
+    fn down_with_admin_query_failed_is_disconnected() {
+        // GetIfEntry2 查询失败：回退旧行为，不误判
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusDown, None, false),
+            AdapterStatus::Disconnected
+        );
+    }
+
+    #[test]
+    fn not_present_with_admin_down_is_disabled() {
+        // NotPresent + AdminStatus=Down（ConfigFlags 可能被开机驱动重装洗掉）
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusNotPresent, Some(true), false),
+            AdapterStatus::Disabled
+        );
+    }
+
+    #[test]
+    fn not_present_with_registry_flag_is_disabled() {
+        // 旧行为保持：NotPresent + ConfigFlags DISABLED 位
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusNotPresent, None, true),
+            AdapterStatus::Disabled
+        );
+    }
+
+    #[test]
+    fn not_present_without_any_flag_is_disconnected() {
+        // 幽灵虚拟副本（如 WLAN 2/5）：NotPresent 但非禁用
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusNotPresent, None, false),
+            AdapterStatus::Disconnected
+        );
+    }
 }
