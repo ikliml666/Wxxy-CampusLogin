@@ -50,7 +50,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 本模块覆盖安卓前端的业务面板层：总览看板（`auth/DashboardPanel.tsx`，安卓经 `MobileDashboard` 复用）、账号与运营商绑定（`account/AccountPanel.tsx`）、自助服务（`account/SelfServicePanel.tsx` 与 `account/selfServiceState.ts` 验证门）、后台巡检与网络质量（`monitor/*`）、设置与新手向导（`settings/*`）、运行日志（`shared/LogPanel.tsx`），以及适配器/DNS 面板（`network/*`，安卓无入口但有类型与常量输出）。
 
-与桌面前端的关系：本层文件多为**复刻同构**（同名文件同名组件、逐行近似），但面板装配、可见项与平台门控完全不同——手机壳只渲染 `MobileDashboard`/`AccountPanel`/`SelfServicePanel`/`QualityPanel`/`MonitorPanel`/`More 聚合页`（`App.tsx:110-154`、`components/mobile/MobileMore.tsx:67-85`），平板壳渲染八个 Dock 面板且不含 `network`（`components/tablet/TabletShell.tsx:161-227`）。
+与桌面前端的关系：本层文件多为**复刻同构**（同名文件同名组件、逐行近似），但面板装配、可见项与平台门控完全不同——手机壳只渲染 `MobileDashboard`/`AccountPanel`/`SelfServicePanel`/`QualityPanel`/`MonitorPanel`/`More 聚合页`（`App.tsx:111-154`、`components/mobile/MobileMore.tsx:67-85`），平板壳渲染八个 Dock 面板且不含 `network`（`components/tablet/TabletShell.tsx:162-229`）。
 
 ## Key Components
 
@@ -59,9 +59,9 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `ExtraCardDef` | `auth/DashboardPanel.tsx:51` | 宿主注入卡片的契约：`id` / `label` / `icon` / `defaultPosition?: 'start' \| 'end'` / `render(editing)`；`MobileDashboard` 用它注入状态卡与监控摘要卡 |
-| `DashboardPanel` | `auth/DashboardPanel.tsx:829` | 总览看板（`memo`）：五张内置卡 + 宿主 extraCards 的统一编辑体系（增删/长按拖动排序/持久化） |
+| `DashboardPanel` | `auth/DashboardPanel.tsx:835` | 总览看板（`memo`）：五张内置卡 + 宿主 extraCards 的统一编辑体系（增删/长按拖动排序/持久化） |
 
-`auth/DashboardPanel.tsx` 内部私有（读者最常需要的）：`BuiltinCardId`(40)、`CardId`(42，`string & {}` 泛化)、`CardDef`(44)、`ALL_CARDS`(60，five 张内置卡：`quickActions`/`accountManage`/`selfOnline`/`selfLog`/`networkQuality`)、`DEFAULT_LAYOUT`(68)、`loadLayout`(70)、`saveLayout`(81)、`EXTRA_REMOVED_KEY`(88，`campus-dashboard-extra-removed` 黑名单键)、`loadRemovedExtras`(90)、`DashboardPanelProps`(99)、`QuickActionsCard`(115，DHCP 续租/换 IP，含 `createPortal` 适配器菜单 230-286)、`AccountManageCard`(294，`accounts: AccountItem[]`——按 `item.id` 匹配激活态、展示 `item.displayName`，列表缺失时兜底 id)、`NetworkQualityCard`(365)、`useSelfCardReveal`(410，Hello 门 + 掩码切换)、`useSelfCardFetch`(426，自动查询 + 锁 + 错误态)、`SelfOnlineItem`(472)、`SelfOnlineCard`(484，60s 轮询 503-507)、`SelfLogRow`(613)、`SELF_LOG_LIMIT=5`(614)、`SelfLogCard`(616)、`renderCard`(696)、`LONG_PRESS_MS=350`(731)、`EditableCardItem`(733，自研长按拖动换序)。
+`auth/DashboardPanel.tsx` 内部私有（读者最常需要的）：`BuiltinCardId`(41)、`CardId`(43，`string & {}` 泛化)、`CardDef`(45)、`ALL_CARDS`(61，five 张内置卡：`quickActions`/`accountManage`/`selfOnline`/`selfLog`/`networkQuality`)、`DEFAULT_LAYOUT`(69)、`loadLayout`(71)、`saveLayout`(82)、`EXTRA_REMOVED_KEY`(89，`campus-dashboard-extra-removed` 黑名单键)、`loadRemovedExtras`(91)、`DashboardPanelProps`(100)、`QuickActionsCard`(116，DHCP 续租/换 IP，含 `createPortal` 适配器菜单 231-287)、`AccountManageCard`(295，`accounts: AccountItem[]`——按 `item.id` 匹配激活态、展示 `item.displayName`，列表缺失时兜底 id)、`NetworkQualityCard`(371)、`useSelfCardReveal`(416，Hello 门 + 掩码切换)、`useSelfCardFetch`(432，自动查询 + 锁 + 错误态)、`SelfOnlineItem`(478)、`SelfOnlineCard`(490，60s 轮询 509-513)、`SelfLogRow`(619)、`SELF_LOG_LIMIT=5`(620)、`SelfLogCard`(622)、`renderCard`(702)、`LONG_PRESS_MS=350`(737)、`EditableCardItem`(739，自研长按拖动换序)。
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
@@ -93,7 +93,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 `account/SelfServicePanel.tsx` 内部私有：`SelfOnlineItem`(17)、`SelfHistoryRow`(29，元组类型)、`SelfLogRow`(33)、`SelfLogSummary`(48)、`formatTerminalType`(72)、`toInt`(77)、`fmt2`(96)、`fmtMoney`(99)、`thClass`/`tdClass`(265/266)。
 
-`account/AccountPanel.tsx` 内部私有：`AccountPanelProps`(34)、`isAndroid`(55)、`BIND_OPERATOR_NONE='__none__'`(152)、`OperatorBindingInfo`(174)、`BindStatuses`(175)。
+`account/AccountPanel.tsx` 内部私有：`AccountPanelProps`(35)、`isAndroid`(59)、`BIND_OPERATOR_NONE='__none__'`(193)、`OperatorBindingInfo`(215)、`BindStatuses`(216)。
 
 `account/index.ts`：`AccountPanel`(1)、`useAccount`(2)、`export * from './types'`(4)；`SelfServicePanel` 与 `selfServiceState` 不在 barrel。
 
@@ -104,7 +104,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `StatusBar` | `monitor/StatusBar.tsx:23` | 平板顶栏状态条：状态胶囊（含离线/恢复动画 class）+ 质量胶囊 + 刷新 + 自助服务/门户外链（`onOpenSelfService` 可选） |
-| `MonitorPanel` | `monitor/MonitorPanel.tsx:79` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校验、检测时间窗）。校园网验证 Label 旁的问号 `HelpCircle`（`:297-318`）把检测逻辑四步说明收进 Tooltip（沿用 `QualityPanel` 指标问号同款模式，不占常驻空间）。检测时间段行（`:388-434`）窄屏（<640px）纵向堆叠——右侧两个 `w-24` 的 `<input type="time">` 合计约 200px 不可压缩，同行布局会把左侧 `min-w-0` 标题挤成逐字竖排（360-430px 手机实测标题 14×164px），容器用 `flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`，≥640px 恢复同一行；每日定时登录/注销两行（`:436-511`）同款堆叠，且单 time Input 外包 `flex shrink-0 items-center` 容器（Input 组件 time 类型自带 `relative w-full` 包装层会吃满剩余空间，见 `learnings/input-time-wrapper-w-full`） |
+| `MonitorPanel` | `monitor/MonitorPanel.tsx:80` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校验、检测时间窗）。校园网验证 Label 旁的问号 `HelpCircle`（`:298-319`）把检测逻辑四步说明收进 Tooltip（沿用 `QualityPanel` 指标问号同款模式，不占常驻空间）。检测时间段行（`:390-434`）窄屏（<640px）纵向堆叠——右侧两个 `w-24` 的 `<input type="time">` 合计约 200px 不可压缩，同行布局会把左侧 `min-w-0` 标题挤成逐字竖排（360-430px 手机实测标题 14×164px），容器用 `flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`，≥640px 恢复同一行；每日定时登录/注销两行（`:438-497`）同款堆叠，且单 time Input 外包 `flex shrink-0 items-center` 容器（Input 组件 time 类型自带 `relative w-full` 包装层会吃满剩余空间，见 `learnings/input-time-wrapper-w-full`） |
 | `QualityPanel` | `monitor/QualityPanel.tsx:108` | 网络质量面板：质量指纹卡、定时测试卡、测试明细卡（5 类 tab + 每项时间线） |
 | `SpeedTestPanel` | `monitor/SpeedTestPanel.tsx:109` | 测速站点集合（8 个硬编码站点，3 个分类），点击经 `openExternal` 外开 |
 | `NetworkQualityCapsule` | `monitor/NetworkQualityCapsule.tsx:53` | 质量胶囊：延迟数字 + 悬停 portal 明细（网关/外网/DNS 三行），busy/unknown 时按延迟推断等级（`NetworkQualityCapsule.tsx:96-98`） |
@@ -112,7 +112,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `LatencyTimeline` | `monitor/LatencyTimeline.tsx:42` | 单目标分段时间线（UDP/DNS/TCP/TLS/TTFB/内容/网络 + 总时长） |
 | `useMonitor` | `monitor/useMonitor.ts:7` | 巡检与延迟测试动作：`handleToggleBackgroundCheck`(25)、`handleTriggerCheck`(52)、`handleToggleLatencyTest`(56) |
 
-`monitor/MonitorPanel.tsx` 内部私有：`isAndroid`(23)、`MonitorPanelProps`(25)、`AdapterStatusCard`(31)。
+`monitor/MonitorPanel.tsx` 内部私有：`isAndroid`(24)、`MonitorPanelProps`(26)、`AdapterStatusCard`(32)。
 
 `monitor/QualityPanel.tsx` 内部私有：`QualityPanelProps`(30)、`DETAIL_CATEGORIES`(36-87，5 类明细分组名与后端 detail key 的映射)、`tabContainerVariants`(89)。
 
@@ -139,7 +139,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `resolveAdapterNames` | `network/adapters.ts:15` | 与后端 `resolve_adapter_names` 同源规则解析主/副适配器（有线有 IP > 任意有 IP > 第一个） |
 | `QUALITY_CONFIG` | `network/constants.ts:1` | 9 档质量展示配置（`excellent/great/good/fair/poor/bad/unknown/disabled/busy`，每档 `label`/`labelKey`/`color`/`bg`/`border`/`borderBg`/`icon`/`hex`/`activeBars`/`glow`） |
 
-`network/NetworkPanel.tsx` 内部私有：`NetworkPanelProps`(31)、`ALI_DNS`(36)、`TENCENT_DNS`(37)、`RECOMMENDED_DNS`(38)、`formatSpeed`(41)。
+`network/NetworkPanel.tsx` 内部私有：`NetworkPanelProps`(31)、`ALI_DNS`(36)、`TENCENT_DNS`(37)、`RECOMMENDED_DNS`(38)、`formatSpeed`(41)。**复刻分叉注意**：2026-09 桌面端为主/副适配器新增「指定账号」下拉（`adapter1Account`/`adapter2Account` 配置字段 + `FOLLOW_CURRENT_ACCOUNT` 哨兵，见 [[desktop-frontend-panels]]），安卓这份 NetworkPanel 副本**未同步**（该面板在安卓本无入口，属死代码），两端此文件已不再逐行同构。
 
 `network/useNetwork.ts` 内部私有：`DhcpResultItem`(11)、`AddToastFn`(12)。`network/index.ts`：`NetworkPanel`(1)、`useNetwork`(2)、`export * from './types'`(4)、`export * from './constants'`(5)。
 
@@ -148,7 +148,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `SettingsPanel` | `settings/SettingsPanel.tsx:63` | 设置面板：外观（主题网格、自定义取色、浅色模式）、启动设置、通知、保活（安卓专属卡）、安全（生物开关、2D 人脸）、引导入口、质量检测（总开关、跳过项、固定网关） |
-| `ThemeDialog` | `settings/ThemeDialog.tsx:27` | 主题弹窗（手机 header 的调色板入口，`App.tsx:255`） |
+| `ThemeDialog` | `settings/ThemeDialog.tsx:27` | 主题弹窗（手机 header 的调色板入口，`App.tsx:256`） |
 | `OnboardingWizard` | `settings/OnboardingWizard.tsx:93` | 平板/宽屏向导（Dialog 形态，四步 + 顶部圆点进度） |
 | `OnboardingWizardMobile` | `settings/OnboardingWizardMobile.tsx:82` | 手机全屏向导（段式进度轨、底部固定操作区、输入高 48px、不含 autoFocus） |
 | `useSettings` | `settings/useSettings.ts:10` | 设置动作：`handleToggleLightMode`(35)、`handleToggleNotification`(43)、`handleSetAutoLaunch`(49)、`handleSetTheme`(58) |
@@ -188,7 +188,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 ## 结构体与字段（前端即 props 与 state 类型）
 
-### `Config`（`settings/types.ts:3-58`，45 字段；口径：接口本体（第 4-57 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`）
+### `Config`（`settings/types.ts:9-67`，45 字段；口径：接口本体（第 10-66 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`。注意：桌面端同位置已新增可选的 `adapter1Account` / `adapter2Account` 适配器指定账号字段，安卓这份副本未同步——安卓 `NetworkPanel` 无入口，见下文 network/ 分叉说明）
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
@@ -235,8 +235,8 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 类型 | 位置 | 字段 |
 | --- | --- | --- |
-| `AutoLaunchResult` | `settings/types.ts:54` | `success`、`message?` |
-| `InitData` | `settings/types.ts:74` | `config: Partial<Config>`、`version`、`adapters`、`adapterDetails`、`disabledAdapters`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount`、`backgroundStatus`、`isAutoStart`、`autoLaunch`、`notificationEnabled`、`gpuInfo?`、`refreshRate?` |
+| `AutoLaunchResult` | `settings/types.ts:68` | `success`、`message?` |
+| `InitData` | `settings/types.ts:73` | `config: Partial<Config>`、`version`、`adapters`、`adapterDetails`、`disabledAdapters`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount`、`backgroundStatus`、`isAutoStart`、`autoLaunch`、`notificationEnabled`、`gpuInfo?`、`refreshRate?` |
 
 ### auth/ 类型
 
@@ -288,7 +288,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 类型 | 位置 | 字段 |
 | --- | --- | --- |
-| `DashboardPanelProps`（私有） | `auth/DashboardPanel.tsx:99` | `accounts`、`activeAccount`、`onUpdateConfig`、`onSwitchAccount`、`onDhcpRenew`、`onDhcpReleaseRenew`、`onDhcpReleaseRenewAdapter`、`onRefreshQuality?`、`onToggleBackgroundCheck?`、`excludeCards?`、`extraCards?` |
+| `DashboardPanelProps`（私有） | `auth/DashboardPanel.tsx:100` | `accounts`、`activeAccount`、`onUpdateConfig`、`onSwitchAccount`、`onDhcpRenew`、`onDhcpReleaseRenew`、`onDhcpReleaseRenewAdapter`、`onRefreshQuality?`、`onToggleBackgroundCheck?`、`excludeCards?`、`extraCards?` |
 | `AboutDialogProps`（私有） | `auth/AboutDialog.tsx:23` | `open`、`onClose`、`openExternal?`、`onUpdateAvailable?`、`initialLatestVersion?`、`initialReleaseNotes?`、`initialUpdateAvailable?` |
 | `AboutDialogMobileProps`（私有） | `auth/AboutDialogMobile.tsx:23` | `open`、`onClose`、`openExternal?`、`onUpdateAvailable?` |
 | `AccountPanelProps`（私有） | `account/AccountPanel.tsx:35` | `adapters`、`accounts`（`AccountItem[]`）、`activeAccount`、`onUpdateConfig`、`onAddAccount`（返回 `Promise<boolean>`）、`onDeleteAccount`、`onSwitchAccount`、`onRenameAccount`（`:44`，返回 `Promise<boolean>`） |
@@ -331,9 +331,9 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 外壳 | 装配点 | 面板清单 |
 | --- | --- | --- |
-| 手机外壳 | `App.tsx:110-154`（switch `deferredTab`） | `dashboard` → `MobileDashboard`(113)；`account` → `AccountPanel`(117-126)；`selfservice` → `SelfServicePanel`(129)；`quality` → `QualityPanel`(134-138，`enableNetworkQuality === false` 时返回 `null`)；`monitor` → `MonitorPanel`(144-148)；`more` → `MobileMore`(152) |
+| 手机外壳 | `App.tsx:111-154`（switch `deferredTab`） | `dashboard` → `MobileDashboard`(113)；`account` → `AccountPanel`(115-127)；`selfservice` → `SelfServicePanel`(129)；`quality` → `QualityPanel`(132-140，`enableNetworkQuality === false` 时返回 `null`)；`monitor` → `MonitorPanel`(142-150)；`more` → `MobileMore`(152) |
 | 手机「更多」页 | `components/mobile/MobileMore.tsx:67-85` | `monitor` → `MonitorPanel`(68)；`speedtest` → `SpeedTestPanel`(74)；`log` → `LogPanel`(75)；`settings` → `SettingsPanel`(77) |
-| 平板外壳 | `components/tablet/TabletShell.tsx:161-227`（switch `deferredPanel`） | `dashboard` → `MobileDashboard`(164)；`account` → `AccountPanel`(167-177)；`selfservice` → `SelfServicePanel`(180)；`monitor` → `MonitorPanel`(183-189)；`quality` → `QualityPanel`(192-198)；`speedtest` → `SpeedTestPanel`(201-205)；`settings` → `SettingsPanel`(208-217)；`log` → `LogPanel`(221-224，`case 'log'` 在 219) |
+| 平板外壳 | `components/tablet/TabletShell.tsx:162-229`（switch `deferredPanel`） | `dashboard` → `MobileDashboard`(164)；`account` → `AccountPanel`(167-179)；`selfservice` → `SelfServicePanel`(180)；`monitor` → `MonitorPanel`(183-189)；`quality` → `QualityPanel`(192-198)；`speedtest` → `SpeedTestPanel`(201-205)；`settings` → `SettingsPanel`(208-217)；`log` → `LogPanel`(220-223，`case 'log'` 在 220) |
 
 手机端底栏位置是动态的：质量检测开启时第 4 位是「网络质量」（`BottomNav.tsx:30` 插 `QUALITY_TAB`），关闭时插 `MONITOR_TAB`（后台检测）；与之对称，`MobileMore` 的 monitor 子页带 `qualityOnly: true`（`MobileMore.tsx:21`）并按 `qualityEnabled` 过滤（`MobileMore.tsx:36`），关闭质量时「更多」页从 monitor 派生降级为 speedtest（`MobileMore.tsx:39`）。
 
@@ -341,23 +341,23 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 用户动作 | 组件调用点 | store/hook | IPC 实现 | 后端命令 |
 | --- | --- | --- | --- | --- |
-| 总览：切换账号 | `DashboardPanel.tsx:315` | `useAccount.handleSwitchAccount`（`useAccount.ts:75`） | `tauriApi.ts:226` | `switch_account` |
-| 总览：在线设备卡自动查询 | `DashboardPanel.tsx:494` | 直调 `tauriApiWithRetry` | `tauriApi.ts:213` | `query_self_dashboard` |
-| 总览：踢设备下线 | `DashboardPanel.tsx:514` | 直调 | `tauriApi.ts:214` | `self_offline_session` |
-| 总览：今日上网记录 | `DashboardPanel.tsx:623` | 直调 | `tauriApi.ts:215` | `query_self_online_log` |
-| 总览：质量卡刷新 | `DashboardPanel.tsx:389` → `onRefreshQuality` | `useQualityStore.refreshQuality`（`useQualityStore.ts:58`） | `tauriApi.ts:237` | `check_network_quality` |
-| 账号：保存新账号 | `AccountPanel.tsx:136` | `useAccount.handleAddAccount`（`useAccount.ts:26`） | `tauriApi.ts:227` | `save_current_as_account` |
-| 账号：删除账号 | `AccountPanel.tsx:745` → 外壳确认框（`App.tsx:276`） | `useAccount.handleDeleteAccount`（`useAccount.ts:51`） | `tauriApi.ts:228` | `delete_account` |
-| 账号：绑定状态查询 | `AccountPanel.tsx:229`（先过 `useHelloGate`） | 直调 | `tauriApi.ts:179` | `query_bind_status` |
-| 账号：查看运营商明文密码 | `AccountPanel.tsx:263`（`ensureRevealVerified`，`ignoreToggle`） | `useHelloGate({ignoreToggle:true})`（`AccountPanel.tsx:254`） | `tauriApi.ts:212` | `reveal_operator_credential` |
-| 账号/向导：绑定运营商 | `AccountPanel.tsx:286`；`useOnboardingFlow.ts:120` | `useHelloGate`（`AccountPanel.tsx:222`；`useOnboardingFlow.ts:71`） | `tauriApi.ts:178` | `bind_operator` |
-| 账号：清除已保存密码 | `AccountPanel.tsx:104` / `AccountPanel.tsx:114` | `saveConfigDirect({password:''}, true)` / `({selfPassword:''}, undefined, true)` | `tauriApi.ts:168` | `save_config`（`clearPassword` / `clearSelfPassword`） |
+| 总览：切换账号 | `DashboardPanel.tsx:316` | `useAccount.handleSwitchAccount`（`useAccount.ts:75`） | `tauriApi.ts:226` | `switch_account` |
+| 总览：在线设备卡自动查询 | `DashboardPanel.tsx:500` | 直调 `tauriApiWithRetry` | `tauriApi.ts:213` | `query_self_dashboard` |
+| 总览：踢设备下线 | `DashboardPanel.tsx:520` | 直调 | `tauriApi.ts:214` | `self_offline_session` |
+| 总览：今日上网记录 | `DashboardPanel.tsx:629` | 直调 | `tauriApi.ts:215` | `query_self_online_log` |
+| 总览：质量卡刷新 | `DashboardPanel.tsx:395` → `onRefreshQuality` | `useQualityStore.refreshQuality`（`useQualityStore.ts:58`） | `tauriApi.ts:237` | `check_network_quality` |
+| 账号：保存新账号 | `AccountPanel.tsx:131` | `useAccount.handleAddAccount`（`useAccount.ts:33`） | `tauriApi.ts:227` | `save_current_as_account` |
+| 账号：删除账号 | `AccountPanel.tsx:820` → 外壳确认框（`App.tsx:278`） | `useAccount.handleDeleteAccount`（`useAccount.ts:51`） | `tauriApi.ts:228` | `delete_account` |
+| 账号：绑定状态查询 | `AccountPanel.tsx:265`（先过 `useHelloGate`） | 直调 | `tauriApi.ts:179` | `query_bind_status` |
+| 账号：查看运营商明文密码 | `AccountPanel.tsx:296`（`ensureRevealVerified`，`ignoreToggle`） | `useHelloGate({ignoreToggle:true})`（`AccountPanel.tsx:295`） | `tauriApi.ts:212` | `reveal_operator_credential` |
+| 账号/向导：绑定运营商 | `AccountPanel.tsx:322`；`useOnboardingFlow.ts:120` | `useHelloGate`（`AccountPanel.tsx:263`；`useOnboardingFlow.ts:71`） | `tauriApi.ts:178` | `bind_operator` |
+| 账号：清除已保存密码 | `AccountPanel.tsx:106` / `AccountPanel.tsx:115` | `saveConfigDirect({password:''}, true)` / `({selfPassword:''}, undefined, true)` | `tauriApi.ts:168` | `save_config`（`clearPassword` / `clearSelfPassword`） |
 | 自助：查询在线信息 | `SelfServicePanel.tsx:204` | `useSelfServiceVerify`（`SelfServicePanel.tsx:141`） | `tauriApi.ts:213` | `query_self_dashboard` |
 | 自助：踢下线 | `SelfServicePanel.tsx:243` | 同上 | `tauriApi.ts:214` | `self_offline_session` |
 | 自助：使用记录查询 | `SelfServicePanel.tsx:273` | 同上 | `tauriApi.ts:215` | `query_self_online_log` |
 | 自助：密码失焦保存 | `SelfServicePanel.tsx:180` | `saveConfigDirect`（`useConfigStore.ts:128`） | `tauriApi.ts:168` | `save_config` |
-| 巡检：启停/立即检测 | `MonitorPanel.tsx:165` / `MonitorPanel.tsx:155` | `useMonitor.handleToggleBackgroundCheck`（`useMonitor.ts:29`）/ `handleTriggerCheck`（`useMonitor.ts:53`） | `tauriApi.ts:230` / `tauriApi.ts:232` | `start_background_check` / `trigger_background_check` |
-| 巡检：间隔提交 | `MonitorPanel.tsx:105` | `onUpdateConfig` → debounce | `tauriApi.ts:168` | `save_config` |
+| 巡检：启停/立即检测 | `MonitorPanel.tsx:166` / `MonitorPanel.tsx:156` | `useMonitor.handleToggleBackgroundCheck`（`useMonitor.ts:29`）/ `handleTriggerCheck`（`useMonitor.ts:53`） | `tauriApi.ts:230` / `tauriApi.ts:232` | `start_background_check` / `trigger_background_check` |
+| 巡检：间隔提交 | `MonitorPanel.tsx:106` | `onUpdateConfig` → debounce | `tauriApi.ts:168` | `save_config` |
 | 质量：定时测试启停 | `QualityPanel.tsx:282` | `useMonitor.handleToggleLatencyTest`（`useMonitor.ts:60`） | `tauriApi.ts:239` / `tauriApi.ts:240` | `start_latency_test` / `stop_latency_test` |
 | 设置：开机自启 | `SettingsPanel.tsx:285` | `useSettings.handleSetAutoLaunch`（`useSettings.ts:52`） | `tauriApi.ts:254` | `set_boot_autostart` |
 | 设置：通知开关 | `SettingsPanel.tsx:408` | `updateConfig`；标题栏/平板走 `useSettings.handleToggleNotification`（`useSettings.ts:46`） | `tauriApi.ts:256` | `set_notification_enabled` |
@@ -369,13 +369,13 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 日志：拉取/清空/调试/保留 | `LogPanel.tsx:125` / `329` / `184` / `200`（另有 `158` 读调试模式、`162` 读保留天数） | 直调 `api`：外壳注入 `useConfigStore.getState().api`（手机经 `components/mobile/MobileMore.tsx:42`，平板经 `components/tablet/TabletShell.tsx:86`） | `tauriApi.ts:267` / `268` / `269` / `270` / `283` / `284` | `get_logs` / `clear_logs` / `get_debug_mode` / `set_debug_mode` / `get_log_retention_days` / `set_log_retention_days` |
 | 关于：检查更新 / 下载 / 安装 | `AboutDialogMobile.tsx:54` / `87` / `106`；`AboutDialog.tsx:126` / `189` / `220` | 直调 | `tauriApi.ts:273` / `274` / `275` | `check_update` / `download_update` / `install_update` |
 | 关于：镜像源列表 | `AboutDialogMobile.tsx:78`；`AboutDialog.tsx:250`/`476` | 直调 | `tauriApi.ts:276` | `get_mirror_urls` |
-| 向导：绑定 + 登录 | `useOnboardingFlow.ts:120` / `193` | `onLogin` 由外壳传入 `useAuthStore.doLogin`（`App.tsx:286`、`TabletShell.tsx:373`） | `tauriApi.ts:178` / `176` | `bind_operator` / `do_login` |
+| 向导：绑定 + 登录 | `useOnboardingFlow.ts:120` / `193` | `onLogin` 由外壳传入 `useAuthStore.doLogin`（`App.tsx:288`、`TabletShell.tsx:380`） | `tauriApi.ts:178` / `176` | `bind_operator` / `do_login` |
 
 ### 事件进入面板的路径
 
-- `background-check-result` → `useEventListeners.ts:77` 写 `useAuthStore.bgStatus` → `MonitorPanel`（`MonitorPanel.tsx:81`）与 `MobileDashboard` 的 `MobileMonitorCard`（`components/mobile/MobileDashboard.tsx:81`）消费；`StatusBar` 也订阅 `bgStatus.campusWifi/campusWired/adapterStatuses`（`StatusBar.tsx:35-38`）。
+- `background-check-result` → `useEventListeners.ts:77` 写 `useAuthStore.bgStatus` → `MonitorPanel`（`MonitorPanel.tsx:82`）与 `MobileDashboard` 的 `MobileMonitorCard`（`components/mobile/MobileDashboard.tsx:81`）消费；`StatusBar` 也订阅 `bgStatus.campusWifi/campusWired/adapterStatuses`（`StatusBar.tsx:35-38`）。
 - `network-quality-result` → `useEventListeners.ts:327` → `handleQualityBadAlert`（`useEventListeners.ts:34`，质量转差时弹警告 toast）→ `useQualityStore.setNetworkQuality` → `QualityPanel`（`QualityPanel.tsx:111`）/`NetworkQualityCapsule`（`NetworkQualityCapsule.tsx:92`）/`MobileDashboard` 的 `NetworkQualityCard`（`DashboardPanel.tsx:365`）。
-- `update-available` → `useEventListeners.ts:335` → `useQualityStore.setUpdatePromptOpen(true)` → `UpdateAvailableDialog`（`shared/UpdateAvailableDialog.tsx:20`）→ `onGoUpdate` 打开关于页（`App.tsx:252`、`TabletShell.tsx:347`）。
+- `update-available` → `useEventListeners.ts:335` → `useQualityStore.setUpdatePromptOpen(true)` → `UpdateAvailableDialog`（`shared/UpdateAvailableDialog.tsx:20`）→ `onGoUpdate` 打开关于页（`App.tsx:253`、`TabletShell.tsx:354`）。
 - `login-log` → `useEventListeners.ts:263` → `useLogToastStore.addLog` → `LogPanel`/`RightPanel`/`ToastContainer` 的日志与 toast 面。
 - `config-changed` → `useEventListeners.ts:350` → `mergeConfigFromBackend`（`useConfigStore.ts:110`）→ 各面板受控输入回读（脏字段跳过）。
 
@@ -383,7 +383,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 `useOnboardingFlow`（`useOnboardingFlow.ts:45`）在 `open` 由假转真时重置全部字段（`useOnboardingFlow.ts:78-94`）→ step0 欢迎（语言切换 `setLanguage`）→ step1 绑定：`handleBind`（114-143）先过 `ensureBindHello`（`useOnboardingFlow.ts:71` → `useHelloGate`），成功后 `BIND_SUCCESS_ADVANCE_MS=1200` 自动进 step2（130-134）→ step2 账号：`goNext`（164）内部 `handleNext`（148）在 step2 落盘 `user`/`operator`（仅非空密码才写 `password`，155-158）→ step3 完成页：`handleLoginAndFinish`（177）做最终校验（179）后 `onUpdateConfig` → `onLogin()`（193）→ 成功后 `LOGIN_SUCCESS_ADVANCE_MS=1500` 写 `campus-onboarding-done` 并 `onClose`（197-200）；「跳过」走 `handleSkip`（168）直接写标记并关闭。
 
-手机外壳的首次启动引导由 `App.tsx:100-108` 判定（无 `campus-onboarding-done` 且 `config.user` 为空时打开），平板外壳同逻辑在 `TabletShell.tsx:148-153`。
+手机外壳的首次启动引导由 `App.tsx:102-108` 判定（无 `campus-onboarding-done` 且 `config.user` 为空时打开），平板外壳同逻辑在 `TabletShell.tsx:149-154`。
 
 ## Connections
 
@@ -397,19 +397,19 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 1. **`network/` 整个面板层在安卓是死代码**：`NetworkPanel`（`network/NetworkPanel.tsx:47`）与 `useNetwork`（`network/useNetwork.ts:39`）全仓无 import（仅 `network/index.ts:1-2` barrel 导出）；`NAV_ITEMS`（`shared/ui-constants.ts:7-15`）不含 `network`，`TabletShell.tsx:10` 注释亦明确「network 面板不接入」，而 `PanelName`（`shared/ui-types.ts:2`）仍保留 `'network'`，`DEFAULT_PANEL_OPTIONS`（`settings/constants.ts:74`）由 `NAV_ITEMS` 派生故不含它。若将来接入，该面板依赖的 `checkDnsDohStatus`/`setupDnsDoh`/`dhcpReleaseRenewAdapter`/`enableAdapter` 在安卓全是 `desktopOnly` reject（`hooks/tauriApi.ts:279` / `280` / `236` / `171`）。
 2. **平板端关于弹窗没有 APK 兜底**：平板壳用 `AboutDialog`（`TabletShell.tsx:48`），其默认资产 URL 兜底是 Windows 安装包 `Wxxy-CampusLogin_{版本}_x64-setup.exe`（`auth/AboutDialog.tsx:237`），资产筛选也只认 `.exe`/`.msi`（`auth/AboutDialog.tsx:231-233`）；手机壳用的 `AboutDialogMobile` 才按 `.apk` 筛选（`auth/AboutDialogMobile.tsx:68`）并带「外链 Releases」兜底（`auth/AboutDialogMobile.tsx:240-249`）。Release 缺 APK 资产时平板端会走到一个下不动 .exe 的分支。
-3. **`DashboardPanel` 的 `quickActions` 卡被排除但仍在编辑体系内**：手机/平板都走 `MobileDashboard`，其 `EXCLUDED_CARDS = ['quickActions']`（`components/mobile/MobileDashboard.tsx:32`）通过 `excludeCards` 传入（`MobileDashboard.tsx:144`）；`visibleCards`（`DashboardPanel.tsx:891-898`）与 `availableCards`（`DashboardPanel.tsx:881-889`，883-885 行按 `excluded` 过滤）都不会列出它，因此该卡既不可见也无法重新添加，却仍占据 `cards` 数组（`DashboardPanel.tsx:901-911` 的 hidden 尾部分支把它留在尾部）。三个必填的 DHCP prop 因此只能传 `noopAsync`（`MobileDashboard.tsx:29`、`MobileDashboard.tsx:140-142`）。
-4. **`QuickActionsCard` 里 `resolveAdapterNames` 的结果在安卓恒为空**：`DashboardPanel.tsx:175-177` 依赖 `adapters`，而安卓 `adapters` 恒为 `[]`（`useAdapterStore.ts:49`，`getAdapters` reject），因此 `resolved.primary`/`resolved.secondary` 为空、菜单项（`DashboardPanel.tsx:254-281`）永不渲染。该卡在安卓本不可见（见上条），但代码仍留在这里，属复刻载荷。
-5. **平台门控写成运行时常量（三处），安卓分支为死代码**：`AccountPanel.tsx:55`、`MonitorPanel.tsx:23`、`SettingsPanel.tsx:31` 各自 `const isAndroid = import.meta.env.VITE_PLATFORM === 'android'`，配套的 `!isAndroid &&` 区块（`AccountPanel.tsx:448-474` 自动退出/上线退出、`MonitorPanel.tsx:246-267` 上线退出、`MonitorPanel.tsx:346-367` 非校园网退出、`SettingsPanel.tsx:302-380` 静默启动/最小化托盘/默认面板/自动退出）在安卓构建中恒不渲染。这些块与桌面前端逐字同源（桌面同一文件里 `isAndroid` 为假），因此**改一端必须同步另一端**，否则两端 `isAndroid` 语义分叉；`VITE_PLATFORM` 未在 `vite-env.d.ts` 中声明类型（`src/vite-env.d.ts:1` 只有一行 vite/client 引用），拼错字符串不会被类型检查拦下。
-6. **`SettingsPanel` 的间隔默认值三处不一致**：`QualityPanel` 的延迟测试间隔回退值是 30000ms（`monitor/QualityPanel.tsx:158`，`config.latencyTestInterval || 30000`），而 `DEFAULT_CONFIG.latencyTestInterval` 是 60000（`settings/constants.ts:33`）；`MonitorPanel` 的巡检间隔回退 60000（`monitor/MonitorPanel.tsx:85`）与默认一致，但 `MobileDashboard` 的监控摘要卡用 `Math.max(5, ...)` 下限 5s（`components/mobile/MobileDashboard.tsx:85`），而 `MonitorPanel` 的 `commitInterval` 下限是 10s（`monitor/MonitorPanel.tsx:103`）——同一个 config 字段在两处 UI 的下限不同。
-7. **`config.backgroundCheckInterval` 被 UI 以秒呈现、以毫秒落盘，跨处转换点分散**：`MonitorPanel.tsx:85`（读）、`MonitorPanel.tsx:105`（写）、`MobileDashboard.tsx:85`（读）、`MobileDashboard.tsx:102`（写）、`useMonitor.ts:31`（写）共 5 处 `/1000`、`*1000` 换算，任一处遗漏即出现「设 60 秒实际 60000 秒」类偏差。
-8. **`campusCheckEndMinutes = 0`（用户手选 00:00）的 UI 呈现有歧义**：`MonitorPanel.tsx:401-404` 把 0 渲染为 `00:00`，与「仅开始时间限制」语义无视觉区分。默认值已在 2026-09-13 从 0 改为 1380=23:00（`settings/constants.ts:48` + 后端 v4→v5 迁移双源刷新），但歧义本身仍在：用户把手选终点拨到 00:00 时实际含义是「只有开始时间限制」，界面上与"午夜截止"无法区分；另注意 `MonitorPanel.tsx:402` 的空值兜底 `?? 0` 仍是旧默认，config 异常缺字段时 UI 会显示 00:00 而后端默认是 1380，两端兜底不一致。时间窗判定在后端，前端只透传。
+3. **`DashboardPanel` 的 `quickActions` 卡被排除但仍在编辑体系内**：手机/平板都走 `MobileDashboard`，其 `EXCLUDED_CARDS = ['quickActions']`（`components/mobile/MobileDashboard.tsx:32`）通过 `excludeCards` 传入（`MobileDashboard.tsx:144`）；`visibleCards`（`DashboardPanel.tsx:897-904`）与 `availableCards`（`DashboardPanel.tsx:887-895`，889-891 行按 `excluded` 过滤）都不会列出它，因此该卡既不可见也无法重新添加，却仍占据 `cards` 数组（`DashboardPanel.tsx:907-917` 的 hidden 尾部分支把它留在尾部）。三个必填的 DHCP prop 因此只能传 `noopAsync`（`MobileDashboard.tsx:29`、`MobileDashboard.tsx:140-142`）。
+4. **`QuickActionsCard` 里 `resolveAdapterNames` 的结果在安卓恒为空**：`DashboardPanel.tsx:176-178` 依赖 `adapters`，而安卓 `adapters` 恒为 `[]`（`useAdapterStore.ts:49`，`getAdapters` reject），因此 `resolved.primary`/`resolved.secondary` 为空、菜单项（`DashboardPanel.tsx:255-282`）永不渲染。该卡在安卓本不可见（见上条），但代码仍留在这里，属复刻载荷。
+5. **平台门控写成运行时常量（三处），安卓分支为死代码**：`AccountPanel.tsx:59`、`MonitorPanel.tsx:24`、`SettingsPanel.tsx:31` 各自 `const isAndroid = import.meta.env.VITE_PLATFORM === 'android'`，配套的 `!isAndroid &&` 区块（`AccountPanel.tsx:489-515` 自动退出/上线退出、`MonitorPanel.tsx:247-268` 上线退出、`MonitorPanel.tsx:365-386` 非校园网退出、`SettingsPanel.tsx:302-380` 静默启动/最小化托盘/默认面板/自动退出）在安卓构建中恒不渲染。这些块与桌面前端逐字同源（桌面同一文件里 `isAndroid` 为假），因此**改一端必须同步另一端**，否则两端 `isAndroid` 语义分叉；`VITE_PLATFORM` 未在 `vite-env.d.ts` 中声明类型（`src/vite-env.d.ts:1` 只有一行 vite/client 引用），拼错字符串不会被类型检查拦下。
+6. **`SettingsPanel` 的间隔默认值三处不一致**：`QualityPanel` 的延迟测试间隔回退值是 30000ms（`monitor/QualityPanel.tsx:158`，`config.latencyTestInterval || 30000`），而 `DEFAULT_CONFIG.latencyTestInterval` 是 60000（`settings/constants.ts:33`）；`MonitorPanel` 的巡检间隔回退 60000（`monitor/MonitorPanel.tsx:86`）与默认一致，但 `MobileDashboard` 的监控摘要卡用 `Math.max(5, ...)` 下限 5s（`components/mobile/MobileDashboard.tsx:85`），而 `MonitorPanel` 的 `commitInterval` 下限是 10s（`monitor/MonitorPanel.tsx:104`）——同一个 config 字段在两处 UI 的下限不同。
+7. **`config.backgroundCheckInterval` 被 UI 以秒呈现、以毫秒落盘，跨处转换点分散**：`MonitorPanel.tsx:86`（读）、`MonitorPanel.tsx:106`（写）、`MobileDashboard.tsx:85`（读）、`MobileDashboard.tsx:102`（写）、`useMonitor.ts:31`（写）共 5 处 `/1000`、`*1000` 换算，任一处遗漏即出现「设 60 秒实际 60000 秒」类偏差。
+8. **`campusCheckEndMinutes = 0`（用户手选 00:00）的 UI 呈现有歧义**：`MonitorPanel.tsx:405-428` 把 0 渲染为 `00:00`，与「仅开始时间限制」语义无视觉区分。默认值已在 2026-09-13 从 0 改为 1380=23:00（`settings/constants.ts:48` + 后端 v4→v5 迁移双源刷新），UI 空值兜底也已在 2026-09-14 与后端默认对齐（`campusCheckStartMinutes ?? 460` / `campusCheckEndMinutes ?? 1380`，`MonitorPanel.tsx:405` / `:422`，双端同构），但歧义本身仍在：用户把手选终点拨到 00:00 时实际含义是「只有开始时间限制」，界面上与"午夜截止"无法区分。时间窗判定在后端，前端只透传。
 9. **`StatusBar` 的 `wasOffline` 在渲染期读 ref**：`monitor/StatusBar.tsx:42` 在 render 中读取 `prevStatusRef.current`，而该 ref 在 `useEffect`（`StatusBar.tsx:44-46`）里更新；React 严格模式下渲染可能被丢弃重放，此时基于 ref 的「刚从离线恢复」判定可能与实际提交节奏不一致（只影响 `status-enter-from-offline` 动画类，不影响状态语义）。另外手机外壳自绘 header 的状态点（`App.tsx:168-175`）与 `StatusBar` 的胶囊（`StatusBar.tsx:110-130`）是两套实现，颜色映射写了两遍。
 10. **`about` 两个弹窗重复实现同一后端链路**：`AboutDialog`（平板）与 `AboutDialogMobile`（手机）各自实现 `checkUpdate` → `getMirrorUrls` → `downloadUpdate` → `installUpdate`（`auth/AboutDialog.tsx:122-264`、`auth/AboutDialogMobile.tsx:50-110`），错误文案映射（403/404 分支）也各写一份（`auth/AboutDialog.tsx:133-137`、`auth/AboutDialogMobile.tsx:59-61`）；`AboutDialogMobile` 的镜像顺序由 `updateSource` 决定（`auth/AboutDialogMobile.tsx:79-81`），`AboutDialog` 无此逻辑（`auth/AboutDialog.tsx:253` 固定选非 GitHub 源）。
 11. **2D 人脸开关与模板的持久化不一致会产生不可达功能**：`allow2dFaceVerify` 存于后端配置，模板存于 `safeStorage`（`face/faceService.ts:20` 的 `campus-2d-face-template`）。关闭开关时前端清模板（`settings/SettingsPanel.tsx:487-489`），但若 WebView 数据被清（或换设备恢复配置），会出现 `allow2dFaceVerify = true` 而 `hasTemplate() = false`，此时 `shouldUseFaceFallback()`（`face/faceVerifyStore.ts:44-46`）返回 false，验证落到系统 `BiometricPrompt`（`tauriApi.ts:209`）——在只有 Class 1 2D 人脸的设备上该链路不可用（`face/faceService.ts:5-8` 注释说明的场景），用户无从察觉，只能去设置页重录。
 12. **自助面板的「切入自动验证」有多重前置条件，条件不全时用户看不到任何提示**：`SelfServicePanel.tsx:227-236` 要求 `configLoaded && !pwdTouchedRef.current && account.trim() && selfPasswordSaved` 才自动查询；任一不满足就静默等待手动刷新（`SelfServicePanel.tsx:313`）。其中 `configLoaded`（`useConfigStore.ts:32`）在 `getInitData` 失败降级时也置 true（`hooks/useInitialDataLoad.ts:113`），此时面板会以默认空凭据渲染而非报错。
-13. **`useSelfCardReveal` 的验证门与查看明文门是同一个状态机、但语义不同**：`auth/DashboardPanel.tsx:410-422` 走 `useHelloGate()`（默认无 `ignoreToggle`，总开关关闭时直接放行），而 `AccountPanel` 查看明文走 `useHelloGate({ignoreToggle:true})`（`account/AccountPanel.tsx:254`，总开关关闭仍强制验证）。两处「点眼睛查看」的验证强度不同，容易被误认为同一个门。
-14. **`useHelloGate` 的门是模块级单例，跨面板共享一份时间戳**：`account/selfServiceState.ts:83`（绑定门）与 `account/selfServiceState.ts:117`（自助会话门）是两个独立变量，但**绑定门只有一个**：账号面板绑定卡（`AccountPanel.tsx:222`）与两个向导（`useOnboardingFlow.ts:71`）共用 `helloGateVerifiedAt`，所以在向导里验证过一次后，账号面板的绑定/查询在 TTL 内不再验证；反之亦然。注释（`account/selfServiceState.ts:60-64`）只声明「与自助服务面板的门独立」，未声明面板与向导之间共享。
-15. **`MonitorPanel` 与 `MobileDashboard` 对同一后台检测状态有两套展示与两套动作**：`MonitorPanel.tsx:165` 与 `MobileDashboard.tsx:102` 都调 `handleToggleBackgroundCheck`，但前者传 `intervalSec = config/1000`（`MonitorPanel.tsx:85`，可能为 60），后者传 `Math.max(5, ...)`（`MobileDashboard.tsx:85`）——从总览卡切开关会用「下限 5s 的值」覆盖配置，可能与监控页显示值不同。
+13. **`useSelfCardReveal` 的验证门与查看明文门是同一个状态机、但语义不同**：`auth/DashboardPanel.tsx:416-430` 走 `useHelloGate()`（默认无 `ignoreToggle`，总开关关闭时直接放行），而 `AccountPanel` 查看明文走 `useHelloGate({ignoreToggle:true})`（`account/AccountPanel.tsx:295`，总开关关闭仍强制验证）。两处「点眼睛查看」的验证强度不同，容易被误认为同一个门。
+14. **`useHelloGate` 的门是模块级单例，跨面板共享一份时间戳**：`account/selfServiceState.ts:83`（绑定门）与 `account/selfServiceState.ts:117`（自助会话门）是两个独立变量，但**绑定门只有一个**：账号面板绑定卡（`AccountPanel.tsx:263`）与两个向导（`useOnboardingFlow.ts:71`）共用 `helloGateVerifiedAt`，所以在向导里验证过一次后，账号面板的绑定/查询在 TTL 内不再验证；反之亦然。注释（`account/selfServiceState.ts:60-64`）只声明「与自助服务面板的门独立」，未声明面板与向导之间共享。
+15. **`MonitorPanel` 与 `MobileDashboard` 对同一后台检测状态有两套展示与两套动作**：`MonitorPanel.tsx:166` 与 `MobileDashboard.tsx:102` 都调 `handleToggleBackgroundCheck`，但前者传 `intervalSec = config/1000`（`MonitorPanel.tsx:86`，可能为 60），后者传 `Math.max(5, ...)`（`MobileDashboard.tsx:85`）——从总览卡切开关会用「下限 5s 的值」覆盖配置，可能与监控页显示值不同。
 16. **`LogPanel` 的调试模式与保留天数在安卓行为依赖后端命令**：`getLogRetentionDays`/`setLogRetentionDays` 是安卓可用命令（`hooks/tauriApi.ts:283-284`），但 `AboutDialog`/`LogPanel` 之外无其他入口；`LogPanel` 的失败回滚逻辑（`shared/LogPanel.tsx:196-207`）依赖 `setLogRetentionDays` reject，若后端静默成功但未落盘则 UI 与磁盘不一致（无可验证前端的确认信号）。
 17. **`SpeedTestPanel` 的 8 个测速站是硬编码常量**：`monitor/SpeedTestPanel.tsx:28-101`，桌面端若为同一份数据，站点增删需双端各改一次（本文件在两端都是复刻副本，不属于共享 crate）。
 18. **`QualityPanel` 依赖后端 detail key 名做 i18n 查表**：`monitor/QualityPanel.tsx:401` 用 `t(\`quality.names.${item.name}\`)`，`item.name` 来自 `DETAIL_CATEGORIES` 硬编码列表（`QualityPanel.tsx:36-87`）；`LatencyTimeline` 的 `SEGMENT_INFO` 键（`monitor/LatencyTimeline.tsx:23-31`）包含后端原始中文 key `内容`/`网络`，注释（`monitor/LatencyTimeline.tsx:21-22`）声明这是跨语言契约——后端改 key 名会直接导致前端显示原始 token。

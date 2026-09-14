@@ -10,7 +10,7 @@ tags: [教训, 前端, 单位, 配置, 换算]
 
 ## 现象
 
-`config.backgroundCheckInterval` 被 UI 以**秒**呈现、以**毫秒**落盘，换算点分散在 5 处（`MonitorPanel.tsx:85` 读、`:105` 写、`MobileDashboard.tsx:85` 读、`:102` 写、`useMonitor.ts:31` 写）——任一处遗漏即出现"设 60 秒实际 60000 秒"类偏差。
+`config.backgroundCheckInterval` 被 UI 以**秒**呈现、以**毫秒**落盘，换算点分散在 5 处（`MonitorPanel.tsx:82` 读、`:102` 写、`MobileDashboard.tsx:85` 读、`:102` 写、`useMonitor.ts:31` 写）——任一处遗漏即出现"设 60 秒实际 60000 秒"类偏差。（2026-09-14 合并复核：MonitorPanel 因检测逻辑说明折叠与窄屏堆叠改动整体下移，原记录的 `:85`/`:105` 已顺移为 `:82`/`:102`，其余三处不变。）
 
 ## 根因
 
