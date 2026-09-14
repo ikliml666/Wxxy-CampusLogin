@@ -60,6 +60,7 @@
 - [[learnings\android-host-cargo-check-fails|host cargo check 在 android/src-tauri 基线即失败]]
 - [[learnings\ipconfig-failure-exit-code-zero|ipconfig 失败但代码认为成功（失败退出码常为 0）]]
 - [[learnings\tsc-b-emits-contaminated-files|npx tsc -b 会 emit 出 vite.config.js 等污染文件]]
+- [[learnings\nonblocking-connect-einprogress-not-wouldblock|std 不把 EINPROGRESS 映射为 WouldBlock,非阻塞 connect 判定须按 raw errno]]
 - [[learnings\tauri-android-build-report-path-missing|tauri android build 完成报告指向的 APK 文件不存在]]
 - [[learnings\broken-types-package-in-root-node-modules|tsc 全量检查必报错 exit 2：自动加载了工作区根 node_modules 里损坏的 @types/yauzl]]
 - [[learnings\portal-801-forced-probe-regression|v2.2.x 强制探 :801 SPA 页面导致 Portal 状态必然 Unknown（已回退）]]
