@@ -218,6 +218,16 @@ pub fn accept_wifi_network(app: tauri::AppHandle) -> Result<serde_json::Value, S
 /// **必须落盘**（原先用 eprintln 只进 logcat，用户拿到的日志文件里看不到绑定成败，
 /// 无从定位"为什么还是登录不上"）。
 pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
+    // 旁路代理生效时跳过:传输出口由 SO_BINDTODEVICE 物理网卡绑定决定(内核设备级,
+    // secure VPN 也拦不住),bindProcessToNetwork 冗余;且 secure VPN 全量接管本应用时
+    // 它会被 netd EPERM 拒绝,每拍打误导性"未绑定 WiFi"警告(2026-09-14 用户反馈:
+    // "日志一直警告未绑定 WiFi,但实际可用")。跳过同时省去每次的绑定尝试耗时。
+    #[cfg(target_os = "android")]
+    if campus_login_lib::network::bound_socket::bind_capability()
+        == campus_login_lib::network::bound_socket::BindCapability::Supported
+    {
+        return;
+    }
     let cloned = app.clone();
     // JNI 调用是阻塞的,走 spawn_blocking 不占用 async 线程;复用 bind_to_wifi
     // 命令的 cfg(mobile) 门控,非移动端编译期消除为空实现,调用点无需配对门控
