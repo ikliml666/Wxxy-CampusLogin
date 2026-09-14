@@ -104,7 +104,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `StatusBar` | `monitor/StatusBar.tsx:23` | 平板顶栏状态条：状态胶囊（含离线/恢复动画 class）+ 质量胶囊 + 刷新 + 自助服务/门户外链（`onOpenSelfService` 可选） |
-| `MonitorPanel` | `monitor/MonitorPanel.tsx:79` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校验、检测时间窗）。检测时间段行（`:368-414`）窄屏（<640px）纵向堆叠——右侧两个 `w-24` 的 `<input type="time">` 合计约 200px 不可压缩，同行布局会把左侧 `min-w-0` 标题挤成逐字竖排（360-430px 手机实测标题 14×164px），容器用 `flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`，≥640px 恢复同一行 |
+| `MonitorPanel` | `monitor/MonitorPanel.tsx:79` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校验、检测时间窗）。校园网验证 Label 旁的问号 `HelpCircle`（`:297-318`）把检测逻辑四步说明收进 Tooltip（沿用 `QualityPanel` 指标问号同款模式，不占常驻空间）。检测时间段行（`:388-434`）窄屏（<640px）纵向堆叠——右侧两个 `w-24` 的 `<input type="time">` 合计约 200px 不可压缩，同行布局会把左侧 `min-w-0` 标题挤成逐字竖排（360-430px 手机实测标题 14×164px），容器用 `flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`，≥640px 恢复同一行；每日定时登录/注销两行（`:436-511`）同款堆叠，且单 time Input 外包 `flex shrink-0 items-center` 容器（Input 组件 time 类型自带 `relative w-full` 包装层会吃满剩余空间，见 `learnings/input-time-wrapper-w-full`） |
 | `QualityPanel` | `monitor/QualityPanel.tsx:108` | 网络质量面板：质量指纹卡、定时测试卡、测试明细卡（5 类 tab + 每项时间线） |
 | `SpeedTestPanel` | `monitor/SpeedTestPanel.tsx:109` | 测速站点集合（8 个硬编码站点，3 个分类），点击经 `openExternal` 外开 |
 | `NetworkQualityCapsule` | `monitor/NetworkQualityCapsule.tsx:53` | 质量胶囊：延迟数字 + 悬停 portal 明细（网关/外网/DNS 三行），busy/unknown 时按延迟推断等级（`NetworkQualityCapsule.tsx:96-98`） |
