@@ -61,6 +61,7 @@ docs/
 
 # Build scripts
 tauri-app/build.ps1
+clean-build-cache.ps1
 
 # Helper binary (built during tauri build)
 tauri-app/src-tauri/campus-helper.exe
