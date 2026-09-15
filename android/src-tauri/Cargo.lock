@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login"
-version = "2.3.6"
+version = "2.3.7"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -479,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login-android"
-version = "2.3.6"
+version = "2.3.7"
 dependencies = [
  "android_system_properties",
  "campus-login",
@@ -4606,7 +4606,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-shell"
-version = "2.3.6"
+version = "2.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8548af174c5516e4f71f142acea4d02e00316296ea9aafa58798851481003e3c"
 dependencies = [
