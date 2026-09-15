@@ -1,11 +1,10 @@
 # AGENTS.md — 项目工作约定
 
-面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见仓库内 `.codewiki/`（由 `cw` 工具维护，随仓库进 git、可评审可共享；入口是 `_architecture.md` 与 `_index.md`）；版本变更记录见 `CHANGELOG.md`（本地维护，不入 git）。
+面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见仓库内 `.codewiki/`（由 `cw` 工具维护，随仓库进 git、可评审可共享；入口是 `_architecture.md` 与 `_index.md`）；版本变更记录见 `changelogs/`（按版本文件维护，仅本地留存，不入 git）。
 
 ## 必守约定
 
-1. **改动必须记入 CHANGELOG.md**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `CHANGELOG.md` 的 `[Unreleased]` 小节（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。CHANGELOG.md 在 .gitignore 中，本地持续维护、不提交。
-   **CHANGELOG 按版本归档**：发布版本（打 tag 或跑 `make-release.ps1`）时把当时整份 `CHANGELOG.md` 快照存为本地 `changelogs/CHANGELOG_v<版本>.md`（该目录在 .gitignore，仅本地留存），防止单文件无限膨胀；`make-release.ps1` 汇总发布资产时自动执行快照，快照后可酌情清理 CHANGELOG.md 中已发布版本的旧条目保持轻量。
+1. **改动必须记入版本化 changelog（changelogs/）**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `changelogs/CHANGELOG_v<版本>.md`（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。**默认内容存放的版本号 = 当前版本号 + 1**（当前版本 v2.3.7 → 新内容写 `changelogs/CHANGELOG_v2.3.8.md`；该文件即 v2.3.8 发布时的更新日志，发布后封版，新内容顺延写下一版文件）。`changelogs/` 在 .gitignore 中，仅本地留存、不提交；不再维护统一的 CHANGELOG.md（2026-09-15 起废弃），发布流程也没有快照步骤。
 
 2. **分支纪律**：改动全在主题分支（`feat/xxx`、`fix/xxx`、`perf/xxx`、`chore/xxx`），不直接改 main；commit 说明用 `feat:` / `fix:` / `perf:` / `chore:` / `docs:` 前缀；不擅自 push、merge、删分支——由用户决定。
 
@@ -17,7 +16,7 @@
    - 安卓端：host `cargo check` / `cargo test` 在 `android/src-tauri` 基线即失败（mobile-only 插件门控）——Rust 改动只认 `cargo check --target aarch64-linux-android --all-targets`（需注入 NDK 工具链环境变量）或一键出包 `pwsh android/build-apk.ps1`（详见 CodeWiki 的 `decisions/verification-baseline` 与 `learnings/android-host-cargo-check-fails`）。
    - 布局 / 交互类改动需浏览器实测：向 `tauri-app/frontend/index.html` 临时注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后必须完整还原**（git diff 必须干净）。
 
-5. **文档同步**：新模块、决策变更、踩坑记录同步进 CodeWiki（仓库内 `.codewiki/`）——修了 bug 写 `learnings/<slug>.md`、做了决策写 `decisions/<slug>.md`、并更新被改动代码影响到的文章；收尾跑 `cw index` 重建索引与 `cw meta update` 记录 commit，两者对 `.codewiki/` 的改动随代码一起提交。用户可见的行为变化同步 CHANGELOG（见第 1 条）。
+5. **文档同步**：新模块、决策变更、踩坑记录同步进 CodeWiki（仓库内 `.codewiki/`）——修了 bug 写 `learnings/<slug>.md`、做了决策写 `decisions/<slug>.md`、并更新被改动代码影响到的文章；收尾跑 `cw index` 重建索引与 `cw meta update` 记录 commit，两者对 `.codewiki/` 的改动随代码一起提交。用户可见的行为变化同步 changelog（见第 1 条）。
 
 6. **语言**：思考、回复、commit 说明、文档一律中文；代码、命令、报错原文保持原样。
 

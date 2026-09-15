@@ -32,6 +32,7 @@
 - [[decisions\helper-self-restart-elevation|提权操作用 --helper 重启自身，弃用 PowerShell]]
 - [[decisions\config-mask-single-exit|敏感信息出站唯一出口（统一走 masked_for_display）]]
 - [[decisions\update-notification-per-platform|更新提醒分端定制：桌面 WinRT 自写 toast + 安卓应用内弹窗]]
+- [[decisions\changelog-per-version-files|更新日志按版本文件维护（changelogs/，默认写入下一版号）]]
 - [[decisions\logout-radius-first|注销协议改为 Radius 注销先行、成功即止，MAC 解绑收尾]]
 - [[decisions\version-single-source-build-rs|版本号以 tauri.conf.json 为唯一权威源，build.rs 编译期注入]]
 - [[decisions\strictmode-dev-only|生产环境不启用 StrictMode]]
