@@ -85,7 +85,9 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     let wifi_status = {
         let wifi_adapters: Vec<&crate::network::Adapter> = adapters.iter().filter(|a| a.wireless).collect();
         match &wifi_ssid {
-            Some(ssid) if ssid.eq_ignore_ascii_case(required_name) => {
+            Some(ssid) if ssid.eq_ignore_ascii_case(required_name)
+                || (required_name.eq_ignore_ascii_case("i-wxxy")
+                    && (ssid.eq_ignore_ascii_case("iwxxy-2") || ssid.eq_ignore_ascii_case("iwxxy-3"))) => {
                 crate::log_debug!("campus", "[校园网检测] ✅ WiFi名称匹配: '{}'", ssid);
                 Some(ConnectionCampusStatus {
                     on_campus: true,
