@@ -98,13 +98,13 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 - `pub(super) fn adapter_campus_status<'a>(adapter_name, adapters, campus_result) -> Option<&'a ConnectionCampusStatus>` — `:22-27`，按适配器名字找 `Adapter`，用 `wireless` 决定取 `campus_result.wifi` 还是 `.wired`。
 - `pub(super) fn adapter_campus_message(adapter_name, adapters, campus_result) -> Option<String>` — `:29-31`，取该状态对象的 `message` 克隆。
-- `pub fn check_campus_network(config: &Config, adapters: &[Adapter]) -> CampusCheckResult` — `:33-238`，判定入口。
-  - `!enable_network_name_check` 分支（`:37-52`）：只看 `check_gateway_reachable(&config.campus_gateway)`，`on_campus = gateway_ok`，`wifi`/`wired`/`current_ssid` 全 `None`，message 为 `"网关{ip}可达"` 或 `"未连接到校园网络(网关不可达)"`。
-  - 名称检查开启时：先取 `get_wireless_ssid()` 与 `get_wired_network_profile()`（`:57-58`），并定义带缓存的网关探测闭包 `check_gateway`（`:63-73`，单次调用内只探一次网关）。
-  - WiFi 判定（`:75-152`）三种情况：SSID 命中 `required_network_name`（忽略大小写，`:78`）→ 直接 on_campus；SSID 不匹配但某 WiFi 网卡 IP 与网关同 `/18` 网段（`is_same_subnet_18`，`:92`）或网关可达（`:102-107`）→ 仍判 on_campus（message 记录降级理由）；都不成立 → `on_campus=false`。无 SSID 但有 WiFi 网卡时同样走"子网 → 网关"降级（`:118-150`），且**只有至少一个 WiFi 网卡有非空 IP 才信任网关可达性**（`:137`）。
-  - 有线判定（`:154-203`）：`wired_profile` 命中名称 → on_campus；否则子网/网关降级；同样要求本类型网卡至少一个非空 IP 才信任网关（`:184`）。
-  - 汇总（`:205-226`）：`on_campus = wifi.on_campus || wired.on_campus`；message 用 `；` 拼接所有"与 on_campus 一致"的分项消息；`current_ssid = wifi_ssid.or(wired_profile)`。
-- `pub fn is_campus_check_silent(now_minutes: u16, start: u16, end: u16) -> bool` — `:244-252`。`start == 0` → `false`（禁用门控）；`now < start` → `true`；`end > start && now >= end` → `true`。即 **`end <= start` 时退化为"仅开始时间单边门控"**。
+- `pub fn check_campus_network(config: &Config, adapters: &[Adapter]) -> CampusCheckResult` — `:33-256`，判定入口。
+  - `!enable_network_name_check` 分支（`:37-57`）：只看 `check_gateway_reachable(&config.campus_gateway)`，`on_campus = gateway_ok`，`wifi`/`wired`/`current_ssid` 全 `None`，message 为 `"网关{ip}可达"` 或 `"未连接到校园网络(网关不可达)"`。
+  - 名称检查开启时：先取 `get_wireless_ssid()` 与 `get_wired_network_profile()`（`:62-63`），并定义带缓存的网关探测闭包 `check_gateway`（`:68-83`，单次调用内只探一次网关）。
+  - WiFi 判定（`:85-164`）三种情况：SSID 命中 `required_network_name`（忽略大小写；`required_name` 为默认值 `i-wxxy` 时额外匹配 `iwxxy-2` / `iwxxy-3`，guard 在 `:88-90`，自定义名称时严格按自定义值匹配）→ 直接 on_campus；SSID 不匹配但某 WiFi 网卡 IP 与网关同 `/18` 网段（`is_same_subnet_18`，`:104`）或网关可达（`:113-119`）→ 仍判 on_campus（message 记录降级理由）；都不成立 → `on_campus=false`。无 SSID 但有 WiFi 网卡时同样走"子网 → 网关"降级（`:130-162`），且**只有至少一个 WiFi 网卡有非空 IP 才信任网关可达性**（`:149`）。
+  - 有线判定（`:166-215`）：`wired_profile` 命中名称 → on_campus；否则子网/网关降级；同样要求本类型网卡至少一个非空 IP 才信任网关（`:196`）。
+  - 汇总（`:217-238`）：`on_campus = wifi.on_campus || wired.on_campus`；message 用 `；` 拼接所有"与 on_campus 一致"的分项消息；`current_ssid = wifi_ssid.or(wired_profile)`。
+- `pub fn is_campus_check_silent(now_minutes: u16, start: u16, end: u16) -> bool` — `:262-270`。`start == 0` → `false`（禁用门控）；`now < start` → `true`；`end > start && now >= end` → `true`。即 **`end <= start` 时退化为"仅开始时间单边门控"**。
 
 静态行为参考（current_ssid 写回位置）：`monitor/background_check.rs:80`（巡检）、`monitor/auto_auth.rs:287-336`（开机自启路径）。
 
@@ -159,7 +159,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ### `#[cfg(test)]` 测试辅助项
 
-- `monitor/campus_check.rs:254-282`：`mod tests`，3 个用例覆盖 `is_campus_check_silent` 的单边/双边/退化语义。
+- `monitor/campus_check.rs:272-300`：`mod tests`，3 个用例覆盖 `is_campus_check_silent` 的单边/双边/退化语义。
 - `monitor/latency.rs:104-141`：5 个用例覆盖 `classify_quality_change` 的恶化、恢复、同档、中间档、通知关闭五种路径。
 - `monitor/adapter_watch.rs:232-245`：`auto_enable_backoff_ladder` 覆盖退避阶梯与 `u32::MAX` 封顶。
 - `monitor/auto_auth.rs:470-491`：3 个用例覆盖 `reconnect_should_report` 的成功/失败/超限组合。
@@ -270,7 +270,7 @@ tick（background_check_interval，下限 10000ms）
   → is_checking.try_acquire（抢不到静默 return）              background_check.rs:18
   → get_adapters_cached → fallback get_adapters_force        background_check.rs:28-37
   → resolve_adapter_names / find_dual_adapters               background_check.rs:41-43
-  → is_campus_check_silent(now_min, start, end)              campus_check.rs:244  ← 静默期则跳过校园网验证
+  → is_campus_check_silent(now_min, start, end)              campus_check.rs:262  ← 静默期则跳过校园网验证
   ├─ 静默期：cancel_campus_exit + on_campus=true             background_check.rs:62-70
   └─ 否则：check_campus_network(过滤后的主/副适配器)          background_check.rs:73-74
   → 写 current_ssid / on_campus_network                       background_check.rs:79-91
@@ -428,10 +428,10 @@ tick（background_check_interval，下限 10000ms）
 11. **`monitor/adapter_watch.rs:111-122` 禁用通知节流用 `Ordering::Relaxed`**：读写 `last_disabled_notification_ms` 均为 `Relaxed`（对比 `monitor/background_emit.rs:95-96` 的 `Acquire`/`Release`），并发下节流可能失效，表现为 60 秒内重复弹禁用警告。
 12. **`monitor/adapter_watch.rs:167-201` 多目标共享同一失败计数**：`for da in targets` 为每个被禁用手选适配器各起一个 `spawn_blocking` 且互不等待，成功/失败都作用在同一个 `auto_enable_failure_count` 上（`:177`、`:191`）——双适配器同时被禁用时，退避阶梯会比单适配器场景更快爬到 300s。
 13. **`monitor/adapter_watch.rs:31` 循环缺 `is_running` 检查**：与 `monitor/background_check.rs:44-47`、`monitor/latency.rs:70-73` 不同，`adapter_watch` 只检查 `exit.is_quitting`，任务停止完全依赖 cancel token；若 token 未触发而任务表已被移除，循环会继续跑。
-14. **`monitor/campus_check.rs:63-73` 网关可达性在 WiFi/有线间共享缓存**：单次 `check_campus_network` 只探一次网关并复用（`gateway_checked`），代码用"对应类型网卡至少有一个非空 IP"作折衷护栏（`:137`、`:184`），但当 WiFi 与有线同时有 IP 时，网关可达性可能来自另一类网卡而被归因到当前类型。
+14. **`monitor/campus_check.rs:68-83` 网关可达性在 WiFi/有线间共享缓存**：单次 `check_campus_network` 只探一次网关并复用（`gateway_checked`），代码用"对应类型网卡至少有一个非空 IP"作折衷护栏（`:149`、`:196`），但当 WiFi 与有线同时有 IP 时，网关可达性可能来自另一类网卡而被归因到当前类型。
 15. **`monitor/portal_check.rs:50-83` 同步阻塞的 Portal 检测**：`check_adapter_portal` 直接调同步 `check_portal_full`，安全性依赖调用方在 `spawn_blocking` 内（`monitor/background_check.rs:155-156`）；单适配器路径 `monitor/background_check.rs:164`、`:167` 与 `monitor/auto_auth.rs:357-363` 未再加包装，一旦调用链改变（例如挪进 async 任务）会阻塞 runtime 线程。
 16. **被主动跳过的逻辑清单**（易被误认为缺陷，实为设计）：
-    - 校园网名称检查关闭时只做网关探测、`wifi`/`wired`/`current_ssid` 全 `None` — `monitor/campus_check.rs:37-52`；
+    - 校园网名称检查关闭时只做网关探测、`wifi`/`wired`/`current_ssid` 全 `None` — `monitor/campus_check.rs:37-57`；
     - 校园网检测静默期内跳过验证并强制 `on_campus=true`、同时 `cancel_campus_exit` — `monitor/background_check.rs:46-70`；
     - 校园网不通过但主副适配器均无 IP 时不退出、等待网络恢复 — `monitor/background_check.rs:124-126`、`monitor/auto_auth.rs:322-324`；
     - 后台巡检不再触发全量质量检测（2026-09-04 收敛）— `monitor/background_check.rs:337-339`；

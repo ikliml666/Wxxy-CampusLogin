@@ -96,7 +96,7 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 
 ### 各环节行为细节
 
-**检测时段门控**（桌面 `monitor/campus_check.rs:244-252`）：`start == 0` 视为禁用；早于 start 静默；`end > start && now >= end` 静默（end ≤ start 退化为仅受 start 限制）。静默期桌面构造 `on_campus: true` 的伪结果并 `cancel_campus_exit`（`background_check.rs:63-70`），安卓直接 `return` 整拍跳过（`monitor_loop.rs:695-715`），两者都保持上一拍在线记忆；2026-09-13 起安卓在 return 前把常驻通知重建为「监控运行中 · 已暂停检测(非检测时段)」（`monitor_loop.rs:702-712`，`notified_online` 状态码 3），不再展示上一拍的过期「在线」。
+**检测时段门控**（桌面 `monitor/campus_check.rs:262-270`）：`start == 0` 视为禁用；早于 start 静默；`end > start && now >= end` 静默（end ≤ start 退化为仅受 start 限制）。静默期桌面构造 `on_campus: true` 的伪结果并 `cancel_campus_exit`（`background_check.rs:63-70`），安卓直接 `return` 整拍跳过（`monitor_loop.rs:695-715`），两者都保持上一拍在线记忆；2026-09-13 起安卓在 return 前把常驻通知重建为「监控运行中 · 已暂停检测(非检测时段)」（`monitor_loop.rs:702-712`，`notified_online` 状态码 3），不再展示上一拍的过期「在线」。
 
 **状态机与在线判定**：桌面 `prev_online` 取 `any_adapter_online`，`any_online = online || secondary_online == Some(true)`（`background_check.rs:248/282`），历史缺陷注释（`:277-281`）记录曾用"仅主适配器 online"比较导致双适配器"主断副通"每拍误报离线；campus fail 时桌面直接置 `any_adapter_online=false`（`background_check.rs:80-89`）——非校园网没有"校园网在线"可言。安卓 2026-09-13 起用同语义三态护栏：`Ok(s) 且 error_kind=None → s.online`；其余结果且 `on_campus=true` → 沿用 `prev_online`（校园网内探针失配不翻转，反误报）；其余结果且 `on_campus=false` → 判离线（`monitor_loop.rs:763-767`）。此前护栏把"探测失败（error_kind=Some）"一律折叠成沿用 `prev_online`，WiFi 断开走蜂窝后三判据全否且 Portal 探测必失败，在线状态被永久钉死（详见 [[android-notify-online-pinned-by-offline-guard]]）。
 
