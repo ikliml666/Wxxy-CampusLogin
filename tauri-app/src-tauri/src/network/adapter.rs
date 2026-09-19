@@ -248,6 +248,8 @@ mod tests {
             enable_background_check: false,
             background_check_interval: 60,
             auto_login_on_preparation: false,
+            enable_night_operator_switch: false,
+            night_operator_restore: String::new(),
             auto_exit_on_online: false,
             theme_mode: "light".to_string(),
             enable_notification: false,

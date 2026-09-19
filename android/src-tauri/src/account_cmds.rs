@@ -185,6 +185,9 @@ pub async fn switch_account(
     merged.user = account_cfg.user;
     merged.password = account_cfg.password;
     merged.operator = account_cfg.operator;
+    // 切账号后夜切恢复目标失效:restore 暂存的是旧账号的 ISP 后缀,残留会把
+    // A 账号的运营商恢复到 B 账号上,置空使夜切回到未切换态(与桌面同构)
+    merged.night_operator_restore = String::new();
     merged.display_name = if account_cfg.display_name.is_empty() {
         safe_name.clone()
     } else {

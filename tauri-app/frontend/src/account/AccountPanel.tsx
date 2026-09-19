@@ -521,6 +521,19 @@ export const AccountPanel = memo(function AccountPanel({
                 className="shrink-0"
               />
             </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="night-operator-switch" className="text-sm font-medium cursor-pointer">{t('account.nightOperatorSwitch')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.nightOperatorSwitchDesc')}</p>
+              </div>
+              <Switch
+                id="night-operator-switch"
+                checked={config.enableNightOperatorSwitch || false}
+                onCheckedChange={checked => onUpdateConfig({ enableNightOperatorSwitch: checked })}
+                className="shrink-0"
+              />
+            </div>
           </CardContent>
         </AnimatedCard>
       </div>

@@ -151,7 +151,7 @@ tags: [前端, 面板, react]
 - 自助凭据：`BIND_OPERATOR_NONE = '__none__'`（`AccountPanel.tsx:191`）；`useSelfCredStore` 读写 `account` / `password`（:192-199）；`displayBindPassword`（`AccountPanel.tsx:202`）；预填 effect（仅在共享 store 为空时填学号）。
 - 绑定口令落盘路径：`handleBindPwdFocus` / `handleBindPwdBlur`（blur 时 `saveConfigDirect({selfPassword})`）；`selfPasswordForSubmit`（空串表示让后端回退已保存值）；`canBind` / `canQueryStatus`（`AccountPanel.tsx:250-257`，手机号 `^1\d{10}$`）。
 - Hello 门与后端命令：`ensureHelloVerified = useHelloGate()`（`AccountPanel.tsx:261`）；`fetchBindStatus`（`AccountPanel.tsx:263`，`getBindStatus`）；`ensureRevealVerified = useHelloGate({ ignoreToggle: true })`（`AccountPanel.tsx:293`）；`handleReveal`（`AccountPanel.tsx:294`，`revealOperatorCredential`）；`handleBindOperator`（`AccountPanel.tsx:320`，`bindOperator`，成功后清 SMS 口令并自动刷新状态区）。
-- 视图四块：登录信息卡（`AccountPanel.tsx:359-457`，标题描述带当前账号**显示名** `activeDisplayName`；用户名草稿输入、密码框与眼睛、运营商选择、主适配器选择）；自动化开关卡（`AccountPanel.tsx:462-525`，四个开关：`autoLoginOnStart` / `autoExitAfterLogin` / `autoExitOnOnline` / `autoLoginOnPreparation`）；绑定卡（`AccountPanel.tsx:530-694`，状态区、查询按钮、学号/密码/运营商/手机/短信口令输入、提交按钮）；账号管理卡（`AccountPanel.tsx:699-841`，新增输入、列表按 `AccountItem {id, displayName}` 渲染并支持**切换/改名/删除**、空态）。
+- 视图四块：登录信息卡（`AccountPanel.tsx:359-457`，标题描述带当前账号**显示名** `activeDisplayName`；用户名草稿输入、密码框与眼睛、运营商选择、主适配器选择）；自动化开关卡（`AccountPanel.tsx:462-525`，五个开关：`autoLoginOnStart` / `autoExitAfterLogin` / `autoExitOnOnline` / `autoLoginOnPreparation` / `enableNightOperatorSwitch`——2026-09-19 新增夜切开关，安卓同位，见 [[decisions/night-operator-switch]]）；绑定卡（`AccountPanel.tsx:530-694`，状态区、查询按钮、学号/密码/运营商/手机/短信口令输入、提交按钮）；账号管理卡（`AccountPanel.tsx:699-841`，新增输入、列表按 `AccountItem {id, displayName}` 渲染并支持**切换/改名/删除**、空态）。
 
 **SelfServicePanel.tsx（自助服务：在线会话 / 上网历史 / 上网记录账单）**
 

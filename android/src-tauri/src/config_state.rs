@@ -23,6 +23,12 @@ pub struct Settings {
     /// 应用内 2D 人脸比对(低安全,照片可欺骗,开启时前端有风险告知)
     pub allow_2d_face_verify: bool,
     pub operator: String,
+    /// 晚间断网自动切换开关:周日/周一 23:00、周五/周六 23:30 电信/移动/联通服务
+    /// 下线,到点自动把 operator 切至无锡学院(空串),次日 6:30 后恢复。判定复用
+    /// 共享 crate 纯函数 config::night_switch(与桌面同契约,单点实现)。
+    pub enable_night_operator_switch: bool,
+    /// 夜间切换前的原运营商:切至无锡学院时暂存,次日恢复窗口取回后清空
+    pub night_operator_restore: String,
     // 行为
     pub auto_login_on_start: bool,
     pub enable_background_check: bool,
@@ -90,6 +96,8 @@ impl Default for Settings {
             self_reverify_each_action: false,
             allow_2d_face_verify: false,
             operator: String::new(),
+            enable_night_operator_switch: false,
+            night_operator_restore: String::new(),
             auto_login_on_start: true,
             enable_background_check: true,
             // 2026-09-09 起 60s:后台检测是稳态周期任务,15s 间隔空转耗电,
@@ -305,6 +313,15 @@ pub fn masked_for_display(s: &Settings) -> serde_json::Value {
     serde_json::to_value(&m).unwrap_or(serde_json::Value::Null)
 }
 
+/// 落盘后广播 config-changed(桌面 save_config_to_disk_encrypted 同语义):前端
+/// 依赖该事件同步 store,不广播则 UI 停留旧快照、后续保存会把后端新值覆盖回去。
+/// payload 为 { "config": 掩码后配置 }(双端前端契约 data.config);掩码必须复用
+/// masked_for_display(敏感信息出站唯一出口),不得另写序列化。
+pub async fn emit_config_changed(app: &tauri::AppHandle, s: &Settings) {
+    use tauri::Emitter;
+    let _ = app.emit("config-changed", serde_json::json!({ "config": masked_for_display(s) }));
+}
+
 /// 空串或掩码占位符视为"未修改",回退已存值;由 clear 标志显式清除(桌面 save_config 同构语义)
 pub fn resolve_password_field(incoming: &str, current: &str, clear: bool) -> String {
     if clear {
@@ -361,6 +378,9 @@ pub async fn save_config(
     // R2 自动建号:落盘成功后同步本地账号档案(失败仅告警,不影响保存结果;
     // helper 只调底层 save_file,不经命令层,无递归风险)
     crate::account_cmds::auto_create_account_for_current(&app, &merged).await;
+    // 广播 config-changed(桌面同语义):否则前端 store 停留旧快照,后续任意保存
+    // 会把后端刚落盘的值覆盖回去
+    emit_config_changed(&app, &merged).await;
     Ok(())
 }
 

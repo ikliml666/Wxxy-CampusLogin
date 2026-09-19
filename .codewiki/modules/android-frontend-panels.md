@@ -77,7 +77,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡、运营商绑定卡（绑定状态查询/查看明文/绑定表单）、账号管理卡（新增/切换/改名/删除） |
+| `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡（含 2026-09-19 新增的夜切开关 `enableNightOperatorSwitch`，两端可见，见 [[decisions/night-operator-switch]]）、运营商绑定卡（绑定状态查询/查看明文/绑定表单，其下拉**故意排除无锡学院**，见 [[learnings/binding-operator-select-excludes-campus]]）、账号管理卡（新增/切换/改名/删除） |
 | `useAccount` | `account/useAccount.ts:8` | 账号动作集合：`refreshAccounts`(23)、`handleAddAccount`(33，返回是否成功)、`handleDeleteAccount`(53)、`handleSwitchAccount`(73，守卫用 `!== undefined` 而非真值判断——R4 修复)、`handleRenameAccount`(95，成功返回是否成功供退出内联编辑) |
 | `useSelfCredStore` | `account/selfServiceState.ts:21` | 自助服务凭据共享 store（`account` / `password` + setter），账号面板绑定卡与自助面板共用，仅内存不落盘 |
 | `biometricFailMessage` | `account/selfServiceState.ts:54` | 按插件 reject 的 `code` 翻译验证失败文案（错误码表 `BIOMETRIC_ERROR_KEY`，`selfServiceState.ts:39-52`） |
@@ -188,7 +188,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 ## 结构体与字段（前端即 props 与 state 类型）
 
-### `Config`（`settings/types.ts:9-67`，45 字段；口径：接口本体（第 10-66 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`。注意：桌面端同位置已新增可选的 `adapter1Account` / `adapter2Account` 适配器指定账号字段，安卓这份副本未同步——安卓 `NetworkPanel` 无入口，见下文 network/ 分叉说明）
+### `Config`（`settings/types.ts:9-67`，47 字段；口径：接口本体（第 10-66 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`。注意：桌面端同位置已新增可选的 `adapter1Account` / `adapter2Account` 适配器指定账号字段，安卓这份副本未同步——安卓 `NetworkPanel` 无入口，见下文 network/ 分叉说明。2026-09-19 双端同加夜切 2 字段 `enableNightOperatorSwitch` / `nightOperatorRestore`）
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
@@ -198,6 +198,8 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `selfReverifyEachAction` | `boolean` | 自助面板每次操作都验证（默认 `false`） |
 | `allow2dFaceVerify` | `boolean` | 2D 人脸回退开关（默认 `false`） |
 | `operator` | `string` | 运营商后缀，`''` 表示默认（无锡学院） |
+| `enableNightOperatorSwitch` | `boolean` | 晚间断网自动切换总开关（默认 `false`，2026-09-19 新增，与桌面同名字段，见 [[decisions/night-operator-switch]]） |
+| `nightOperatorRestore` | `string` | 夜切暂存的原运营商；非空即"处于切换态"（默认 `''`，与桌面同名字段） |
 | `adapter1` / `adapter2` | `string` | 主/副适配器名（安卓无枚举，恒 `自动检测` / 空） |
 | `dualAdapter` | `boolean` | 启用备用适配器 |
 | `autoLoginOnStart` | `boolean` | 启动自动登录 |
@@ -332,10 +334,10 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 外壳 | 装配点 | 面板清单 |
 | --- | --- | --- |
 | 手机外壳 | `App.tsx:111-154`（switch `deferredTab`） | `dashboard` → `MobileDashboard`(113)；`account` → `AccountPanel`(115-127)；`selfservice` → `SelfServicePanel`(129)；`quality` → `QualityPanel`(132-140，`enableNetworkQuality === false` 时返回 `null`)；`monitor` → `MonitorPanel`(142-150)；`more` → `MobileMore`(152) |
-| 手机「更多」页 | `components/mobile/MobileMore.tsx:67-85` | `monitor` → `MonitorPanel`(68)；`speedtest` → `SpeedTestPanel`(74)；`log` → `LogPanel`(75)；`settings` → `SettingsPanel`(77) |
+| 手机「更多」页 | `components/mobile/MobileMore.tsx:67-85` | chips 顺序 2026-09-19 起为 **settings → speedtest → log → monitor**（默认选中 `settings`）：`settings` → `SettingsPanel`(77)；`speedtest` → `SpeedTestPanel`(74)；`log` → `LogPanel`(75)；`monitor` → `MonitorPanel`(68，`qualityOnly`) |
 | 平板外壳 | `components/tablet/TabletShell.tsx:162-229`（switch `deferredPanel`） | `dashboard` → `MobileDashboard`(164)；`account` → `AccountPanel`(167-179)；`selfservice` → `SelfServicePanel`(180)；`monitor` → `MonitorPanel`(183-189)；`quality` → `QualityPanel`(192-198)；`speedtest` → `SpeedTestPanel`(201-205)；`settings` → `SettingsPanel`(208-217)；`log` → `LogPanel`(220-223，`case 'log'` 在 220) |
 
-手机端底栏位置是动态的：质量检测开启时第 4 位是「网络质量」（`BottomNav.tsx:30` 插 `QUALITY_TAB`），关闭时插 `MONITOR_TAB`（后台检测）；与之对称，`MobileMore` 的 monitor 子页带 `qualityOnly: true`（`MobileMore.tsx:21`）并按 `qualityEnabled` 过滤（`MobileMore.tsx:36`），关闭质量时「更多」页从 monitor 派生降级为 speedtest（`MobileMore.tsx:39`）。
+手机端底栏位置是动态的：质量检测开启时第 4 位是「网络质量」（`BottomNav.tsx:30` 插 `QUALITY_TAB`），关闭时插 `MONITOR_TAB`（后台检测）；与之对称，`MobileMore` 的 monitor 子页带 `qualityOnly: true`（`MobileMore.tsx:21`）并按 `qualityEnabled` 过滤（`MobileMore.tsx:36`），关闭质量时「更多」页若停留在 monitor 派生降级为 settings（第一个 chip，`MobileMore.tsx:39`）。
 
 ### 面板 → store → `tauriApi.invoke` → 安卓 Rust 命令（真实调用点）
 

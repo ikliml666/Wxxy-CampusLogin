@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use chrono::{Datelike, Timelike};
 use tauri::{AppHandle, Manager};
+use crate::config::night_switch::{evaluate_night_switch, NightSwitchAction};
 use crate::config::schedule::should_fire_scheduled_action;
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
@@ -51,6 +52,22 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
         }
         if fire_logout {
             run_scheduled_logout(&app_h, now_minutes);
+        }
+        // 晚间断网切换：判定独立于当日标记（切换态由配置自身承载，纯函数幂等），
+        // 与定时动作同循环、同"独立于静默期闸门"的取位（见
+        // .codewiki/decisions/scheduled-actions-outside-silent-window）
+        let night_action = {
+            let config = s.config.load_full();
+            evaluate_night_switch(
+                config.enable_night_operator_switch,
+                now.weekday().num_days_from_sunday(),
+                now_minutes as u32,
+                &config.operator,
+                &config.night_operator_restore,
+            )
+        };
+        if night_action != NightSwitchAction::None {
+            apply_night_switch_action(&app_h, night_action);
         }
     }
 }
@@ -88,28 +105,67 @@ fn format_minutes(minutes: u16) -> String {
 /// 定时登录：复用 full_login（与手动/托盘登录同一互斥锁），成功后走
 /// post_login_handler（托盘快速登录同款编排，含解除保护期/延迟检测/自动退出）
 fn run_scheduled_login(app_handle: &AppHandle, target_minutes: u16) {
-    crate::log_info!("scheduled", "定时登录触发 (目标 {})", format_minutes(target_minutes));
+    spawn_login_action(
+        app_handle,
+        &format!("定时登录触发 (目标 {})", format_minutes(target_minutes)),
+        "定时登录",
+    );
+}
+
+/// 登录动作共用执行体（定时登录与晚间断网切换登录同款）：抢 `is_logging_in`
+/// 互斥锁，抢不到本拍跳过；日志/通知复用 emit_login_log（"success"/"error"）
+fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: &str) {
+    crate::log_info!("scheduled", "{trigger_log}");
     let app_h = app_handle.clone();
+    let result_prefix = result_prefix.to_string();
     tauri::async_runtime::spawn_blocking(move || {
         let s = app_h.state::<AppState>();
         let _guard = match s.tasks.is_logging_in.try_acquire() {
             Some(g) => g,
-            // 已有登录任务在跑：不重复发起（当日标记已置，单次语义）
+            // 已有登录任务在跑：不重复发起
             None => {
-                crate::log_warn!("scheduled", "定时登录跳过：已有登录任务进行中");
+                crate::log_warn!("scheduled", "登录动作跳过：已有登录任务进行中");
                 return;
             }
         };
         let result = crate::auth::service::full_login(&s, &app_h, None);
         let message = result.message.clone().unwrap_or_default();
         let _ = EventBus::new(&app_h).emit_login_log(
-            &format!("定时登录: {message}"),
+            &format!("{result_prefix}: {message}"),
             if result.success { "success" } else { "error" },
         );
         if result.success {
             crate::auth::service::post_login_handler(&app_h, &s);
         }
     });
+}
+
+/// 晚间断网切换动作：改内存配置 → 落盘（复用 save_config_to_disk_encrypted，
+/// 含 config-changed 事件与托盘刷新）→ 触发登录（复用定时登录的登录路径）。
+/// 切换态由配置自身承载，配置改完下一拍判定即回 None，无需去重标记。
+fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) {
+    let s = app_handle.state::<AppState>();
+    let mut config = (*s.config.load_full()).clone();
+    let trigger_log = match action {
+        NightSwitchAction::None => return,
+        NightSwitchAction::SwitchToCampus => {
+            let original = std::mem::take(&mut config.operator);
+            config.night_operator_restore = original;
+            "晚间断网切换: 运营商已切至无锡学院".to_string()
+        }
+        NightSwitchAction::Restore => {
+            config.operator = std::mem::take(&mut config.night_operator_restore);
+            "晚间断网切换: 已恢复原运营商".to_string()
+        }
+    };
+    if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &config) {
+        // 落盘失败不 store 内存（避免"内存已切换、重启后回退"的错位），下拍重试
+        crate::log_warn!("scheduled", "晚间断网切换配置落盘失败: {e}");
+        return;
+    }
+    s.config.store(config);
+    crate::log_info!("scheduled", "{trigger_log}");
+    spawn_login_action(app_handle, &format!("{trigger_log}, 触发登录"), "晚间断网切换");
 }
 
 /// 定时注销：复用 full_logout（与手动注销同一互斥锁）。成功后对齐全量注销后处理

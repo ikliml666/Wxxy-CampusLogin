@@ -26,6 +26,10 @@ export interface Config {
   enableBackgroundCheck: boolean
   backgroundCheckInterval: number
   autoLoginOnPreparation: boolean
+  /** 晚间断网自动切换运营商总开关（默认 false）：到点切至无锡学院、次日恢复窗口切回 */
+  enableNightOperatorSwitch: boolean
+  /** 切至无锡学院前暂存的原运营商；空 = 未处于切换态（后端内部状态） */
+  nightOperatorRestore: string
   autoExitOnOnline: boolean
   themeMode: 'light' | 'dark' | 'system'
   enableNotification: boolean

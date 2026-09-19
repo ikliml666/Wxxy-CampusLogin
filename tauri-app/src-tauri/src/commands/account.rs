@@ -67,6 +67,9 @@ fn merge_account_into_config(current: &mut Config, account: &Config, safe_name: 
     current.user = account.user.clone();
     current.password = account.password.clone();
     current.operator = account.operator.clone();
+    // 切账号后夜切恢复目标失效:restore 暂存的是旧账号的 ISP 后缀,残留会把
+    // A 账号的运营商恢复到 B 账号上,置空使夜切回到未切换态
+    current.night_operator_restore = String::new();
     current.adapter1 = account.adapter1.clone();
     current.adapter2 = account.adapter2.clone();
     current.dual_adapter = account.dual_adapter;

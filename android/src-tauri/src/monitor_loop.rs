@@ -630,7 +630,7 @@ async fn portal_probe_on_little_cores(
     }
 }
 
-/// 定时登录/定时注销(P2-32)判定与执行:
+/// 定时登录/定时注销(P2-32)判定与执行,附晚间断网自动切换运营商:
 /// - 判定复用桌面 crate 的跨平台纯函数 `campus_login_lib::config::schedule::should_fire_scheduled_action`
 ///   (与桌面 monitor::scheduled 同语义,到点即触发含过点补触发);
 /// - 定时登录复用 auto_login_on_start 全编排(凭据检查/强制绑 WiFi/校园网探测,
@@ -638,12 +638,52 @@ async fn portal_probe_on_little_cores(
 /// - 定时注销复用 protocol_cmds::do_logout(两步注销/login_history 落账/60s 注销
 ///   保护期,防定时注销后被自动重登立即登回);
 /// - 标记独立存 MONITOR.scheduled_*_day,与掉线重连的 cooldown/熔断计数互不共享;
-///   到点即置标记(每日单次,成败不重试,避免凭据错误时每拍重发请求刷通知)。
+///   到点即置标记(每日单次,成败不重试,避免凭据错误时每拍重发请求刷通知);
+/// - 晚间断网切换判定复用共享纯函数 `config::night_switch::evaluate_night_switch`
+///   (周日/周一 23:00、周五/周六 23:30 切至无锡学院,次日 6:30 起恢复),位于
+///   定时动作双禁用早退之前(夜切开关独立于定时登录/注销)。
 async fn run_scheduled_actions(app: &tauri::AppHandle) {
     let settings = match crate::config_state::current_settings(app).await {
         Ok(s) => s,
         Err(_) => return, // 配置读取失败:静默跳过,下一拍重试
     };
+    // 晚间断网自动切换运营商:纯函数依据当前 operator/restore 状态天然防重——
+    // 已切换(operator 为空、restore 非空)不再返回 SwitchToCampus,已恢复
+    // (restore 清空)不再返回 Restore,落盘即收敛,无需额外每日标记;落盘失败
+    // 时状态未变,下一拍天然重试。登录走 night_switch_login 内核(无校园网探测闸,
+    // 与桌面 full_login 对齐),不复用定时登录的 auto_login_on_start 全编排。
+    if settings.enable_night_operator_switch {
+        let now = chrono::Local::now();
+        let weekday = now.weekday().num_days_from_sunday();
+        let now_minutes = now.hour() * 60 + now.minute();
+        let action = campus_login_lib::config::night_switch::evaluate_night_switch(
+            settings.enable_night_operator_switch,
+            weekday,
+            now_minutes,
+            &settings.operator,
+            &settings.night_operator_restore,
+        );
+        match action {
+            campus_login_lib::config::night_switch::NightSwitchAction::SwitchToCampus => {
+                let mut switched = settings.clone();
+                switched.night_operator_restore = switched.operator.clone();
+                switched.operator = String::new();
+                emit_login_log(app, "晚间断网切换: 运营商已切至无锡学院", "info");
+                if persist_settings(app, &switched).await {
+                    night_switch_login(app, &switched).await;
+                }
+            }
+            campus_login_lib::config::night_switch::NightSwitchAction::Restore => {
+                let mut switched = settings.clone();
+                switched.operator = std::mem::take(&mut switched.night_operator_restore);
+                emit_login_log(app, "晚间断网切换: 已恢复原运营商", "info");
+                if persist_settings(app, &switched).await {
+                    night_switch_login(app, &switched).await;
+                }
+            }
+            campus_login_lib::config::night_switch::NightSwitchAction::None => {}
+        }
+    }
     if settings.scheduled_login_minutes == 0 && settings.scheduled_logout_minutes == 0 {
         return; // 双禁用:免读时钟早退
     }
@@ -695,6 +735,61 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             }
             Err(e) => emit_login_log(app, &format!("定时注销执行失败: {e}"), "error"),
         }
+    }
+}
+
+/// 落盘夜间切换后的配置并刷新内存缓存。凭据为 current_settings 解密后的明文,
+/// save_file 落盘前重新加密(与 save_config 命令同链路);成功后同步本地账号档案。
+/// 返回 false 表示落盘失败(已记 error 日志),调用方跳过登录触发,下一拍重试。
+async fn persist_settings(app: &tauri::AppHandle, s: &crate::config_state::Settings) -> bool {
+    let bridge = crate::config_state::CryptoBridge::from_app(app);
+    let dir = match app.path().app_data_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            emit_login_log(app, &format!("晚间断网切换配置落盘失败: {e}"), "error");
+            return false;
+        }
+    };
+    if let Err(e) = crate::config_state::save_to(&dir, &bridge, s).await {
+        emit_login_log(app, &format!("晚间断网切换配置落盘失败: {e}"), "error");
+        return false;
+    }
+    let state = app.state::<crate::android_state::AndroidState>();
+    if let Ok(mut cache) = state.config.lock() {
+        *cache = Some(s.clone());
+    }
+    crate::account_cmds::auto_create_account_for_current(app, s).await;
+    // 广播 config-changed(桌面 save_config_to_disk_encrypted 同语义):夜切改的
+    // operator/restore 须即时推到前端,否则 UI 停留旧运营商、用户随后改任意设置
+    // 会用旧快照把夜切字段覆盖回去
+    crate::config_state::emit_config_changed(app, s).await;
+    true
+}
+
+/// 夜切后的登录触发:直接走 run_login 内核(与桌面 full_login 无闸语义对齐)。
+/// 断网窗口内校园网探测可能不通过,auto_login_on_start 的"不在校园网则跳过"闸
+/// 会把登录无声吞掉;此处仅保留账号/密码为空不登的防御判断,失败照实记 error。
+async fn night_switch_login(app: &tauri::AppHandle, settings: &crate::config_state::Settings) {
+    if settings.user.is_empty() || settings.password.is_empty() {
+        emit_login_log(app, "晚间断网切换: 账号或密码未配置,跳过登录", "warning");
+        return;
+    }
+    // 登录前强制绑 WiFi(同 auto_login_on_start;WiFi+流量同开时默认路由可能落蜂窝)
+    crate::protocol_cmds::ensure_wifi_bound(app).await;
+    let state = app.state::<crate::android_state::AndroidState>();
+    match crate::protocol_cmds::run_login(&settings.user, &settings.password, &settings.operator, &state).await {
+        Ok(v) => {
+            let msg = v["message"].as_str().unwrap_or("").to_string();
+            let success = v["success"].as_bool().unwrap_or(false);
+            emit_login_log(app, &format!("晚间断网切换登录: {msg}"), if success { "success" } else { "error" });
+            if success {
+                // 登录成功是在线的权威证据(同 auto_login_on_start):预置 was_online
+                // 并清注销保护期,防止跨会话残留影响本轮掉线重登
+                MONITOR.was_online.store(true, Ordering::Relaxed);
+                MONITOR.logout_protected_until_ms.store(0, Ordering::Relaxed);
+            }
+        }
+        Err(e) => emit_login_log(app, &format!("晚间断网切换登录失败: {e}"), "error"),
     }
 }
 

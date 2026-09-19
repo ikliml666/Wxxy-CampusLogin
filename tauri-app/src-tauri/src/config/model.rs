@@ -50,6 +50,13 @@ pub struct Config {
     pub background_check_interval: u64,
     #[serde(rename = "autoLoginOnPreparation")]
     pub auto_login_on_preparation: bool,
+    /// 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院（空串），次日
+    /// 恢复窗口内切回；判定逻辑见 config::night_switch（跨平台纯函数）
+    #[serde(rename = "enableNightOperatorSwitch", default)]
+    pub enable_night_operator_switch: bool,
+    /// 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空
+    #[serde(rename = "nightOperatorRestore", default)]
+    pub night_operator_restore: String,
     #[serde(rename = "autoExitOnOnline")]
     pub auto_exit_on_online: bool,
     #[serde(rename = "themeMode")]
@@ -202,6 +209,8 @@ impl Default for Config {
             enable_background_check: true,
             background_check_interval: 15000,
             auto_login_on_preparation: true,
+            enable_night_operator_switch: false,
+            night_operator_restore: String::new(),
             auto_exit_on_online: true,
             theme_mode: "dark".to_string(),
             enable_notification: true,

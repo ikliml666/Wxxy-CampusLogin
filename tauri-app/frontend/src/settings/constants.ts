@@ -21,6 +21,8 @@ export const DEFAULT_CONFIG: Config = {
   enableBackgroundCheck: true,
   backgroundCheckInterval: 15000,
   autoLoginOnPreparation: true,
+  enableNightOperatorSwitch: false,
+  nightOperatorRestore: '',
   autoExitOnOnline: true,
   themeMode: 'dark',
   enableNotification: true,

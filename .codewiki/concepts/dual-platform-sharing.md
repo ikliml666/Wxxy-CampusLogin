@@ -131,7 +131,7 @@ tauri-plugin-campus-monitor-service = { path = "../plugins/foreground-service" }
 | 独有命令 | `show_window` / `minimize_window` / `close_window` / `open_external` / `cancel_auto_exit` / `render_heartbeat` / `get_gpu_info` / `check_dns_doh_status` / `setup_dns_doh` / `reset_dns` / `export_config` / `import_config` / `export_diagnostics` / 适配器 4 条 / `dhcp_*` 3 条 | `ping_test` / `bind_to_wifi` / `accept_wifi_network` / `detect_campus` / `get_soc_info` / 电池 3 条 / `get_boot_autostart` / `set_boot_autostart` |
 | 同名异实现 | `get_config` 返回 `Config` | `get_config` 返回掩码后的 `serde_json::Value`（`config_state.rs:304-316`） |
 | 语义等价异名 | `verify_windows_identity`、`get/set_auto_launch` | `verify_biometric_identity`、`get/set_boot_autostart` |
-| 配置字段数 | 49（`config/model.rs:10-122`） | 38（`config_state.rs:15-80`） |
+| 配置字段数 | 51（`config/model.rs:10-122`，2026-09-19 夜切 +2） | 40（`config_state.rs:15-80`，2026-09-19 夜切 +2） |
 | 双适配器 | 支持（`dual_adapter` / `adapter1` / `adapter2` / `adapter1Account` / `adapter2Account`） | 不支持，`Settings` 无这些字段 |
 
 ## 关键约束
@@ -174,7 +174,7 @@ tauri-app/src-tauri (campus-login, lib campus_login_lib)  ◄──────�
 
 - **`Cargo.toml` 注释与实现不一致**：`android/src-tauri/Cargo.toml` 写着"阶段 3 收敛为 git 依赖 + tag"，实际仍是相对路径 `../../tauri-app/src-tauri`，路径一旦重命名即断。
 - **版本号有两条独立来源**：桌面 `env!("APP_VERSION")` 由 `build.rs` 从 `tauri.conf.json` 注入（`tauri-app/src-tauri/build.rs:37`），安卓 `env!("CARGO_PKG_VERSION")` 取自 `Cargo.toml`。当前两边都是 `2.3.6`（两个 `Cargo.toml` `version` 字段 + 两个 `tauri.conf.json`），发布时需人工四处同步，无自动校验。
-- **两端配置面是"交集 + 双向差集"而非子集**：49（桌面）与 38（安卓）字段中只有 34 个共有（2026-09 定时登录/注销功能落地时双端各新增 `scheduledLoginMinutes`/`scheduledLogoutMinutes`，共有数由 31 升至 33；2026-09-14 双端同加 `displayName` 后升至 34）；桌面独有 15 个（`adapter1`/`adapter2`/`dual_adapter`、`adapter1_account`/`adapter2_account`（设备级账号绑定，[[adapter-account-binding]]）、`minimize_to_tray`/`hidden_start`/`auto_launch`、`auto_exit_after_login`/`auto_exit_on_online`、`campus_exit_on_fail`/`campus_exit_start_minutes`/`campus_exit_end_minutes`、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify`、`background_check_idle_interval`、`enable_boot_autostart`、`config_schema_version`）。比较 `config/model.rs:10-122` 与 `config_state.rs:15-80` 可见，"双端同步"实际需要双向增量维护。
+- **两端配置面是"交集 + 双向差集"而非子集**：51（桌面）与 40（安卓）字段中只有 36 个共有（2026-09 定时登录/注销功能落地时双端各新增 `scheduledLoginMinutes`/`scheduledLogoutMinutes`，共有数由 31 升至 33；2026-09-14 双端同加 `displayName` 后升至 34；2026-09-19 夜切功能双端同加 `enableNightOperatorSwitch`/`nightOperatorRestore` 后升至 36）；桌面独有 15 个（`adapter1`/`adapter2`/`dual_adapter`、`adapter1_account`/`adapter2_account`（设备级账号绑定，[[adapter-account-binding]]）、`minimize_to_tray`/`hidden_start`/`auto_launch`、`auto_exit_after_login`/`auto_exit_on_online`、`campus_exit_on_fail`/`campus_exit_start_minutes`/`campus_exit_end_minutes`、`skip_sha256_when_missing`、`config_version`），安卓独有 4 个（`allow_2d_face_verify`、`background_check_idle_interval`、`enable_boot_autostart`、`config_schema_version`）。比较 `config/model.rs:10-122` 与 `config_state.rs:15-80` 可见，"双端同步"实际需要双向增量维护。
 - **共享 crate 的 `infra::lifecycle` 带桌面语义但被安卓编译**：`lifecycle.rs:6` 只把 `CANCEL_EXIT_SHORTCUT` 做了 `#[cfg(desktop)]`，其余循环退出逻辑保留，安卓调用点为空实现（`lifecycle.rs:305-306`），属"编得过但用不上"的死代码。
 - **`config_state::current_settings` 标 `#[allow(dead_code)]` 却已被大量使用**：`config_state.rs:348` 的注释"Task 2 协议命令面接线"已过期，实际 `monitor_loop.rs`、`self_service_cmds.rs` 等都在调用。
 - **双端同步依赖人工纪律**：`AGENTS.md` 第 3 条要求同提交双端各改一份，但仓库中没有 CI 检查，无法自动拦截只改一端的提交（该约定曾写于旧版 `CODE_WIKI.md:289-290`；`CODE_WIKI.md` 已删除，由仓库内 `.codewiki/` 活 wiki 取代，约定现落在 `AGENTS.md`「必守约定」第 3 条）。

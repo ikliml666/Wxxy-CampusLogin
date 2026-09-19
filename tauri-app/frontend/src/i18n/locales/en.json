@@ -124,6 +124,8 @@
     "autoLoginCampusDesc": "Automatically authenticate on app startup",
     "autoExitAfterLogin": "Exit After Login",
     "autoExitAfterLoginDesc": "Automatically close the app after authentication",
+    "nightOperatorSwitch": "Night Outage Auto Switch",
+    "nightOperatorSwitchDesc": "Auto-switches to the campus operator (Wuxi University) at 23:00 on Sun/Mon and 23:30 on Fri/Sat when carrier service is down, and switches back after 06:30. Keep the app running in the background.",
     "deleteAccountTitle": "Delete Account",
     "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
     "clearPassword": "Clear saved password",

@@ -11,6 +11,8 @@ export const DEFAULT_CONFIG: Config = {
   selfReverifyEachAction: false,
   allow2dFaceVerify: false,
   operator: '',
+  enableNightOperatorSwitch: false,
+  nightOperatorRestore: '',
   adapter1: AUTO_DETECT_ADAPTER,
   adapter2: '',
   dualAdapter: false,
