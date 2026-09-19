@@ -1,4 +1,4 @@
-// "更多"聚合页:后台检测(桌面 MonitorPanel)/测速/日志/设置 子页,顶部 chips 切换。
+// "更多"聚合页:设置/测速/日志/后台检测(桌面 MonitorPanel) 子页,顶部 chips 切换。
 // 各子页复用桌面面板组件——它们是流式布局,窄屏可用;此处只提供移动导航容器。
 // 质量检测关闭(默认)时"后台检测"已提为底栏 tab,此处不再重复出现,子页随之移除。
 
@@ -18,10 +18,10 @@ import { useLogToastStore } from '@/hooks/useLogToastStore'
 type MoreTab = 'monitor' | 'speedtest' | 'log' | 'settings'
 
 const TABS: { id: MoreTab; labelKey: string; qualityOnly?: boolean }[] = [
-  { id: 'monitor', labelKey: 'mobile.moreMonitor', qualityOnly: true },
+  { id: 'settings', labelKey: 'mobile.moreSettings' },
   { id: 'speedtest', labelKey: 'mobile.moreSpeedtest' },
   { id: 'log', labelKey: 'mobile.moreLog' },
-  { id: 'settings', labelKey: 'mobile.moreSettings' },
+  { id: 'monitor', labelKey: 'mobile.moreMonitor', qualityOnly: true },
 ]
 
 interface MobileMoreProps {
@@ -31,12 +31,12 @@ interface MobileMoreProps {
 
 export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
   const { t } = useTranslation()
-  // 质量检测关闭时 monitor 子页不在 chips 里,默认落到测速;开启时保持后台检测优先
+  // 质量检测关闭时 monitor 子页不在 chips 里,已存的 monitor sub 派生降级到第一个 chip(设置)
   const qualityEnabled = useConfigStore((s) => s.config.enableNetworkQuality !== false)
   const tabs = useMemo(() => TABS.filter(({ qualityOnly }) => !qualityOnly || qualityEnabled), [qualityEnabled])
-  const [subRaw, setSub] = useState<MoreTab>('monitor')
+  const [subRaw, setSub] = useState<MoreTab>('settings')
   // config 晚到时 qualityEnabled 翻转,已存的 monitor sub 需派生降级,避免 chips 与内容区不一致
-  const sub = !qualityEnabled && subRaw === 'monitor' ? 'speedtest' : subRaw
+  const sub = !qualityEnabled && subRaw === 'monitor' ? 'settings' : subRaw
   const { handleToggleBackgroundCheck, handleTriggerCheck } = useMonitor()
   const { handleToggleLightMode, handleSetTheme, handleSetAutoLaunch } = useSettings()
   const api = useConfigStore.getState().api
