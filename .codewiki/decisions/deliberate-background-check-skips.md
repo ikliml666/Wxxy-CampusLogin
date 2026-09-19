@@ -16,7 +16,7 @@ tags: [决策, 巡检, 监控, 有意为之]
 
 以下六条是**主动跳过**、有意为之：
 
-1. 校园网名称检查关闭时只做网关探测、`wifi`/`wired`/`current_ssid` 全 `None`（`monitor/campus_check.rs:37-52`）；
+1. 校园网名称检查关闭时只做网关探测、`wifi`/`wired`/`current_ssid` 全 `None`（`monitor/campus_check.rs:37-57`）；
 2. 校园网检测静默期内跳过验证并强制 `on_campus=true`，同时 `cancel_campus_exit`（`monitor/background_check.rs:46-70`）。2026-09-13 起安卓侧静默期仍整拍跳过探测（`monitor_loop.rs:695-715`），但 return 前会同步一次常驻通知（「监控运行中 · 已暂停检测(非检测时段)」，`notified_online` 状态码 3，`monitor_loop.rs:702-712`）——静默期跳过的是**探测**，不是通知面的状态保鲜；否则上一拍遗留的「在线」常驻通知会在非检测时段一直展示到次日；
 3. 校园网不通过但主副适配器均无 IP 时不退出、等待网络恢复（`monitor/background_check.rs:124-126`、`monitor/auto_auth.rs:322-324`）；
 4. 后台巡检不再触发全量质量检测（2026-09-04 收敛）（`monitor/background_check.rs:337-339`）；

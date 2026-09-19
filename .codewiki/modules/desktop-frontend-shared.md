@@ -232,8 +232,8 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | `i18n/index.ts:1-6` | imports | `i18next`、`initReactI18next`、`LanguageDetector`、`zh.json`、`en.json` |
 | `i18n/index.ts:8-26` | `i18n.init({...})` | `resources: { zh: { translation: zh }, en: { translation: en } }`（12-15）、`fallbackLng: 'zh'`（16）、初始 `lng` 直读 `localStorage.getItem('app-language')`（17，try/catch）、`detection.order = ['localStorage','navigator']` 且 `lookupLocalStorage: 'app-language'`、`caches: ['localStorage']`（18-22）、`escapeValue: false`（23-25） |
 | `i18n/index.ts:28` | `export default i18n` | 供 `main.tsx` 侧 `import './i18n'` 触发初始化 |
-| `i18n/locales/zh.json:1-803` | 中文词条 | 22 个顶层命名空间、750 条叶子键 |
-| `i18n/locales/en.json:1-803` | 英文词条 | 22 个顶层命名空间、750 条叶子键（与 zh 键集合完全一致，无缺失） |
+| `i18n/locales/zh.json:1-813` | 中文词条 | 22 个顶层命名空间、759 条叶子键 |
+| `i18n/locales/en.json:1-813` | 英文词条 | 22 个顶层命名空间、759 条叶子键（与 zh 键集合完全一致，无缺失） |
 
 **顶层命名空间（zh.json 与 en.json 行号完全一致）**：
 
@@ -245,22 +245,22 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | 51 | `titlebar` | 15 | `components/layout/TitleBar.tsx` |
 | 68 | `auth` | 29 | `useAuthStore`、`auth/useAuth.ts` |
 | 99 | `account` | — | `account/AccountPanel.tsx`、`SelfServicePanel` |
-| 209 | `network` | — | `network/NetworkPanel.tsx` |
-| 284 | `monitor` | 68 | `monitor/*`、`useEventListeners` 的质量告警文案 |
-| 354 | `quality` | — | 质量面板与 `network/constants.ts` 的 `labelKey` |
-| 421 | `speedtest` | — | `monitor/SpeedTestPanel.tsx` |
-| 447 | `settings` | — | `settings/SettingsPanel.tsx` |
-| 554 | `log` | 38 | `shared/LogPanel.tsx`、`useConfigStore` 的保存失败/脏字段回退文案 |
-| 596 | `onboarding` | — | `settings/OnboardingWizard.tsx` |
-| 659 | `about` | — | `auth/AboutDialog.tsx` |
-| 704 | `statusbar` | — | `monitor/StatusBar.tsx` |
-| 711 | `dashboard` | — | `auth/DashboardPanel.tsx` |
-| 748 | `confirmDialog` | 2 | `shared/ConfirmDialog.tsx` |
-| 752 | `panel` | — | 各面板标题 |
-| 772 | `themeDialog` | — | `settings/ThemeDialog.tsx` |
-| 780 | `rightPanel` | 13 | `components/layout/RightPanel.tsx` |
-| 795 | `dock` | 1 | `components/layout/DockNav.tsx`（`dock.selectAdapter`） |
-| 798 | `sponsor` | 4 | `shared/SponsorCard.tsx` |
+| 214 | `network` | — | `network/NetworkPanel.tsx` |
+| 293 | `monitor` | 68 | `monitor/*`、`useEventListeners` 的质量告警文案 |
+| 363 | `quality` | — | 质量面板与 `network/constants.ts` 的 `labelKey` |
+| 430 | `speedtest` | — | `monitor/SpeedTestPanel.tsx` |
+| 456 | `settings` | — | `settings/SettingsPanel.tsx` |
+| 563 | `log` | 38 | `shared/LogPanel.tsx`、`useConfigStore` 的保存失败/脏字段回退文案 |
+| 605 | `onboarding` | — | `settings/OnboardingWizard.tsx` |
+| 668 | `about` | — | `auth/AboutDialog.tsx` |
+| 713 | `statusbar` | — | `monitor/StatusBar.tsx` |
+| 720 | `dashboard` | — | `auth/DashboardPanel.tsx` |
+| 757 | `confirmDialog` | 2 | `shared/ConfirmDialog.tsx` |
+| 761 | `panel` | — | 各面板标题 |
+| 781 | `themeDialog` | — | `settings/ThemeDialog.tsx` |
+| 789 | `rightPanel` | 13 | `components/layout/RightPanel.tsx` |
+| 804 | `dock` | 1 | `components/layout/DockNav.tsx`（`dock.selectAdapter`） |
+| 807 | `sponsor` | 4 | `shared/SponsorCard.tsx` |
 
 词条同时经两种方式消费：`react-i18next` 的 `useTranslation()`（组件内，如 `TitleBar.tsx:62`）与直接 `i18next.t(...)`（非组件上下文，如 `useAuthStore.ts:139`、`useEventListeners.ts:41`、`ErrorBoundary.tsx:34`）。
 
@@ -369,4 +369,4 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 13. **`easing-config.ts` 的 `EASING_60HZ` 未导出**（`easing-config.ts:11`）：只能经 `getEasingConfig` 获取，测试无法直接断言两套基线的具体曲线。
 14. **`lib/renderLiveness.ts` 曾在模块导入时启动常驻 rAF 循环（2026-09-13 已修复）**：原实现是模块级 `rafLoop` 无限递归（导入即启动、永不停止），任何 import 该模块的页面都会留下 pending `requestAnimationFrame`，Chromium 据此按刷新率持续派发 BeginFrame、合成器永不休眠（安卓省电改造 `266624b` 双端同改）。现改为按需短探测：`isRenderLoopAlive()`（`renderLiveness.ts:36-40`）距上次探测超过 `PROBE_REFRESH_MS=4_000`（`:18`）才经 `startProbe()`（`:24-34`）开一个 2 帧窗口，10s 停滞判定语义不变。**残留约束两条**：① 隐藏态直接返回 `true`（`:37`），调用方**仍必须先做可见性短路**（当前仅 `main.tsx:11` 与 `hooks/useHeartbeat.ts:3` 两个导入点，分别有 `isVisible` 分支 `main.tsx:91` 与 `paused` 分支 `useHeartbeat.ts:13`）；② 无 rAF 环境（SSR/部分测试环境）仍会因 `startProbe` 内的 `requestAnimationFrame` 抛错，但触发点从"导入即抛"推迟到"首次需要探测时"。
 15. **`i18n` 初始化读 `localStorage` 未走 `safeStorage`**（`i18n/index.ts:17`）：用裸 `try { localStorage.getItem } catch`，与 `lib/utils.ts:22-29` 的 `safeStorage` 双写内存兜底不一致；`setLanguage`（`hooks/useConfigStore.ts:178`）走 `safeStorage`，两者键名相同（`app-language`）但降级行为不同。
-16. **`i18n` 键数量完全对齐但无自动化校验**：实测 `zh.json` 与 `en.json` 各 750 条叶子键、键集合零缺失；仓库内没有测试或脚本守护这一点，新增词条若只加一端不会被拦住（安卓端另有独立副本，见 AGENTS.md 第 3 条双端同步要求）。
+16. **`i18n` 键数量完全对齐但无自动化校验**：实测 `zh.json` 与 `en.json` 各 759 条叶子键、键集合零缺失；仓库内没有测试或脚本守护这一点，新增词条若只加一端不会被拦住（安卓端另有独立副本，见 AGENTS.md 第 3 条双端同步要求）。
