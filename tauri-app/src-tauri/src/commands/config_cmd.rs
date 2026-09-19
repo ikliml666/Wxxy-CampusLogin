@@ -12,8 +12,10 @@ pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) ->
 
     // 统一发射 config-changed 事件：必须掩码后再发射，避免泄露真实密码
     // （所有调用方 save_config/switch_account/set_auto_launch 等都经此路径通知前端）
+    // 前端监听契约为 { config: Config }（useEventListeners 消费 data.config），
+    // 事件体必须带 config 包裹，直发裸 Config 会让前端监听静默失效
     let emit_cfg = config.masked_for_display();
-    let _ = app_handle.notify_config_changed(&emit_cfg);
+    let _ = app_handle.notify_config_changed(&serde_json::json!({ "config": emit_cfg }));
     // 托盘菜单依赖账号配置（「快速注销」可用性取决于 user 是否已配置、「切换账号」
     // 依赖 active_account 标记），配置落盘后异步重建菜单
     crate::app::tray::refresh_tray_menu_state(app_handle);
