@@ -18,7 +18,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use chrono::{Datelike, Timelike};
 use tauri::{AppHandle, Manager};
-use crate::config::night_switch::{evaluate_night_switch, NightSwitchAction};
+use crate::config::night_switch::{evaluate_night_switch, parse_chkstatus, uid_matches, NightSwitchAction};
 use crate::config::schedule::should_fire_scheduled_action;
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
@@ -26,6 +26,13 @@ use crate::infra::state::AppState;
 /// 判定拍间隔：分钟粒度判定，30s 保证最多半分钟偏差；错过（休眠/拍间隔）由
 /// 「过点补触发」语义兜底，不会整天静默失效
 const SCHEDULED_TICK_MS: u64 = 30_000;
+
+/// 夜切验证时序参数（与安卓端同构）：登录编排完成后等 15s 再查（eportal 在线表
+/// 非即时，立即查会读到切换前状态）；查询失败重试间隔 5s、最多 3 次，单次请求 15s 超时
+const NIGHT_VERIFY_WAIT_SECS: u64 = 15;
+const NIGHT_VERIFY_RETRY_SECS: u64 = 5;
+const NIGHT_VERIFY_ATTEMPTS: u32 = 3;
+const NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15;
 
 /// 循环体：由 watcher::run_startup_tasks 经 task_manager.spawn 拉起并跟踪
 pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) {
@@ -166,6 +173,10 @@ fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) 
     s.config.store(config);
     crate::log_info!("scheduled", "{trigger_log}");
     spawn_login_action(app_handle, &format!("{trigger_log}, 触发登录"), "晚间断网切换");
+    // 独立 tokio 任务验证切换是否生效，不阻塞监控循环；期望值取落盘后的 config.operator
+    // （SwitchToCampus 后为空串=无锡学院，Restore 后为恢复的后缀）
+    let expected_operator = app_handle.state::<AppState>().config.load_full().operator.clone();
+    tauri::async_runtime::spawn(verify_night_switch(app_handle.clone(), expected_operator));
 }
 
 /// 定时注销：复用 full_logout（与手动注销同一互斥锁）。成功后对齐全量注销后处理
@@ -175,36 +186,163 @@ fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) 
 fn run_scheduled_logout(app_handle: &AppHandle, target_minutes: u16) {
     crate::log_info!("scheduled", "定时注销触发 (目标 {})", format_minutes(target_minutes));
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let s = app_h.state::<AppState>();
-        let result = {
-            let _guard = match s.tasks.is_logging_out.try_acquire() {
-                Some(g) => g,
-                None => {
-                    crate::log_warn!("scheduled", "定时注销跳过：已有注销任务进行中");
-                    return;
-                }
-            };
-            crate::auth::service::full_logout(&s, &app_h, None)
+    tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "定时注销"));
+}
+
+/// 注销执行体（定时注销与夜切验证复登前的注销同款）：抢 `is_logging_out` 互斥锁，
+/// 抢不到本拍跳过；成功后取消登录后自动退出、重置登录/重连状态并启动 60s 注销保护期。
+fn perform_logout(app_handle: &AppHandle, result_prefix: &str) {
+    let s = app_handle.state::<AppState>();
+    let result = {
+        let _guard = match s.tasks.is_logging_out.try_acquire() {
+            Some(g) => g,
+            None => {
+                crate::log_warn!("scheduled", "{result_prefix}跳过：已有注销任务进行中");
+                return;
+            }
         };
-        let message = result.message.clone().unwrap_or_default();
-        let _ = EventBus::new(&app_h).emit_login_log(
-            &format!("定时注销: {message}"),
-            if result.success { "success" } else { "error" },
-        );
-        if result.success {
-            s.exit.auto_exit_cancelled.store(true, Ordering::Release);
-            s.exit.set_deadline(None);
-            crate::auth::failure_tracker::reset_all(&s);
-            let protected_until = std::time::Instant::now() + Duration::from_secs(60);
-            s.network.update(|n| {
-                n.has_logged_online = false;
-                n.disconnect_reconnect_count = 0;
-                n.last_auto_login_attempt = std::time::Instant::now();
-                n.logout_protected_until = protected_until;
-            });
+        crate::auth::service::full_logout(&s, app_handle, None)
+    };
+    let message = result.message.clone().unwrap_or_default();
+    let _ = EventBus::new(app_handle).emit_login_log(
+        &format!("{result_prefix}: {message}"),
+        if result.success { "success" } else { "error" },
+    );
+    if result.success {
+        s.exit.auto_exit_cancelled.store(true, Ordering::Release);
+        s.exit.set_deadline(None);
+        crate::auth::failure_tracker::reset_all(&s);
+        let protected_until = std::time::Instant::now() + Duration::from_secs(60);
+        s.network.update(|n| {
+            n.has_logged_online = false;
+            n.disconnect_reconnect_count = 0;
+            n.last_auto_login_attempt = std::time::Instant::now();
+            n.logout_protected_until = protected_until;
+        });
+    }
+}
+
+/// 夜切后的登录生效自动验证（与安卓端 verify_night_switch 同构，独立 tokio 任务
+/// 不阻塞监控循环）：等 15s → 查 eportal chkstatus(JSONP) 核对在线账号 uid 与期望
+/// 运营商后缀（重试 3 次、间隔 5s）→ 仍不符则注销重登一轮再复验 → 最终不符发告警
+/// 日志 + 系统通知，生效写 success 日志。uid 核对复用共享纯函数 config::night_switch。
+async fn verify_night_switch(app_handle: AppHandle, expected_operator: String) {
+    tokio::time::sleep(Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
+    let Some(config) = night_verify_config(&app_handle, &expected_operator) else {
+        return;
+    };
+    if let Ok(uid) = night_switch_verify_round(&config, &expected_operator).await {
+        let _ = EventBus::new(&app_handle)
+            .emit_login_log(&format!("夜切验证: 已生效, 在线账号 {uid}"), "success");
+        return;
+    }
+    // 未生效：注销 → 再登录 → 复验一轮。复登前复查 operator，用户已手动改走则止步，
+    // 避免把用户刚改的配置又注销掉
+    let _ = EventBus::new(&app_handle)
+        .emit_login_log("夜切验证: 未生效, 注销重登后复验", "warning");
+    let Some(config) = night_verify_config(&app_handle, &expected_operator) else {
+        return;
+    };
+    let app_h = app_handle.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "夜切验证注销")).await;
+    spawn_login_action(&app_handle, "夜切验证复登", "夜切验证");
+    tokio::time::sleep(Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
+    match night_switch_verify_round(&config, &expected_operator).await {
+        Ok(uid) => {
+            let _ = EventBus::new(&app_handle)
+                .emit_login_log(&format!("夜切验证: 已生效, 在线账号 {uid}"), "success");
         }
-    });
+        Err(e) => {
+            let _ = EventBus::new(&app_handle)
+                .emit_login_log(&format!("夜切验证: {e}, 请手动检查"), "warning");
+            crate::infra::notification::emit_notification(
+                &app_handle,
+                "夜切验证失败",
+                "夜切后在线账号与期望运营商不符, 请手动检查",
+                "mascot-alert",
+            );
+        }
+    }
+}
+
+/// 读取验证所需的配置快照；operator 已不等于期望值（用户手动改走其他运营商）时
+/// 返回 None 跳过验证——验证前提不成立，继续核对只会误报。
+fn night_verify_config(app_handle: &AppHandle, expected_operator: &str) -> Option<crate::config::model::Config> {
+    let s = app_handle.state::<AppState>();
+    let config = (*s.config.load_full()).clone();
+    (config.operator == expected_operator).then_some(config)
+}
+
+/// 一轮验证（NIGHT_VERIFY_ATTEMPTS 次重试、间隔 5s）：Ok(uid)=已生效，
+/// Err=最后一轮失败原因。HTTP/解析失败不 panic，收敛为 Err。
+async fn night_switch_verify_round(config: &crate::config::model::Config, expected_operator: &str) -> Result<String, String> {
+    // 复用桌面既有 reqwest 客户端池构造（超时 15s 作池 key，与 protocol.rs 同款）
+    let client = crate::network::client::create_safe_http_client(
+        Duration::from_secs(NIGHT_VERIFY_HTTP_TIMEOUT_SECS),
+        None,
+    )
+    .map_err(|e| format!("chkstatus 客户端创建失败: {e}"))?;
+    let mut last_err = String::new();
+    for attempt in 0..NIGHT_VERIFY_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_secs(NIGHT_VERIFY_RETRY_SECS)).await;
+        }
+        match night_switch_check_once(&client, &config.portal_url, &config.user, expected_operator).await {
+            Ok(uid) => return Ok(uid),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
+/// 单次 chkstatus 查询 + uid 核对：Ok=在线账号(uid)，Err=失败原因（不符时含观测 uid）
+async fn night_switch_check_once(
+    client: &reqwest::Client,
+    portal_url: &str,
+    user: &str,
+    expected_operator: &str,
+) -> Result<String, String> {
+    let url = format!("{}/drcom/chkstatus?callback=dr1003", portal_origin(portal_url));
+    let body = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("chkstatus 请求失败: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("chkstatus 响应读取失败: {e}"))?;
+    match parse_chkstatus(&body) {
+        Some(info) if info.online && uid_matches(&info.uid, user, expected_operator) => Ok(info.uid),
+        Some(info) => Err(format!(
+            "在线账号 {} 与期望 {} 不符",
+            info.uid,
+            expected_operator_display(expected_operator)
+        )),
+        None => Err("chkstatus 响应解析失败".to_string()),
+    }
+}
+
+/// portal_url 的 origin（chkstatus 与 portal 同源，eportal 按请求源 IP 判定本机）；
+/// 空值回退默认 portal 地址（config::model 的既有默认值）
+fn portal_origin(portal_url: &str) -> String {
+    let url = if portal_url.is_empty() {
+        crate::config::model::default_portal_url()
+    } else {
+        portal_url.to_string()
+    };
+    match url.split_once("://") {
+        Some((scheme, rest)) => format!("{scheme}://{}", rest.split('/').next().unwrap_or("")),
+        None => url.split('/').next().unwrap_or("").to_string(),
+    }
+}
+
+/// 期望运营商的展示名：空串=无锡学院，其余原样（@telecom 等）
+fn expected_operator_display(expected_operator: &str) -> &str {
+    if expected_operator.is_empty() {
+        "无锡学院"
+    } else {
+        expected_operator
+    }
 }
 
 #[cfg(test)]

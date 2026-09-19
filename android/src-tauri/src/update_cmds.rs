@@ -106,7 +106,7 @@ pub fn has_newer_version(current: &str, latest: &str) -> bool {
     false
 }
 
-fn http_client() -> Result<reqwest::Client, String> {
+pub(crate) fn http_client() -> Result<reqwest::Client, String> {
     // 移动端用 rustls,避免 openssl 交叉编译问题;忽略证书校验关闭(白名单域名 TLS 正常校验)
     // connect_timeout 必设:被阻断地址(GitHub API 等)表现为 TCP 挂起而非快速失败,
     // 不设连接超时会吃满 30s 总超时——镜像加速检查"极慢"的主因(逐源串行 30s)

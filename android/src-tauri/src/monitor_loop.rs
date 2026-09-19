@@ -671,6 +671,11 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 emit_login_log(app, "晚间断网切换: 运营商已切至无锡学院", "info");
                 if persist_settings(app, &switched).await {
                     night_switch_login(app, &switched).await;
+                    // 独立 tokio 任务验证登录是否生效,不阻塞监控循环
+                    tauri::async_runtime::spawn(verify_night_switch(
+                        app.clone(),
+                        switched.operator.clone(),
+                    ));
                 }
             }
             campus_login_lib::config::night_switch::NightSwitchAction::Restore => {
@@ -679,6 +684,10 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 emit_login_log(app, "晚间断网切换: 已恢复原运营商", "info");
                 if persist_settings(app, &switched).await {
                     night_switch_login(app, &switched).await;
+                    tauri::async_runtime::spawn(verify_night_switch(
+                        app.clone(),
+                        switched.operator.clone(),
+                    ));
                 }
             }
             campus_login_lib::config::night_switch::NightSwitchAction::None => {}
@@ -790,6 +799,132 @@ async fn night_switch_login(app: &tauri::AppHandle, settings: &crate::config_sta
             }
         }
         Err(e) => emit_login_log(app, &format!("晚间断网切换登录失败: {e}"), "error"),
+    }
+}
+
+/// 夜切验证时序参数(与桌面同构):登录编排完成后等 15s 再查(eportal 在线表
+/// 非即时,立即查会读到切换前状态);查询失败重试间隔 5s、最多 3 次,单次请求 15s 超时
+const NIGHT_VERIFY_WAIT_SECS: u64 = 15;
+const NIGHT_VERIFY_RETRY_SECS: u64 = 5;
+const NIGHT_VERIFY_ATTEMPTS: u32 = 3;
+const NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15;
+
+/// portal_url 的 origin(chkstatus 与 portal 同源,eportal 按请求源 IP 判定本机)
+fn portal_origin(portal_url: &str) -> String {
+    match portal_url.split_once("://") {
+        Some((scheme, rest)) => format!("{scheme}://{}", rest.split('/').next().unwrap_or("")),
+        None => portal_url.split('/').next().unwrap_or("").to_string(),
+    }
+}
+
+/// 期望运营商的展示名:空串=无锡学院,其余原样(@telecom 等)
+fn expected_operator_display(expected_operator: &str) -> &str {
+    if expected_operator.is_empty() {
+        "无锡学院"
+    } else {
+        expected_operator
+    }
+}
+
+/// 夜切后的登录生效自动验证(与桌面同构,独立 tokio 任务不阻塞监控循环):
+/// 等 15s → 查 eportal chkstatus(JSONP)核对在线账号 uid 与期望运营商后缀
+/// (重试 3 次、间隔 5s)→ 仍不符则注销重登一轮再复验 → 最终不符发告警日志
+/// +系统通知,生效写 success 日志。uid 核对复用共享纯函数 config::night_switch。
+async fn verify_night_switch(app: tauri::AppHandle, expected_operator: String) {
+    tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
+    let settings = match crate::config_state::current_settings(&app).await {
+        Ok(s) => s,
+        Err(_) => return, // 配置读取失败:静默放弃,不打扰用户
+    };
+    // 安全并发:用户已手动改走其他运营商,验证前提不成立,跳过
+    if settings.operator != expected_operator {
+        return;
+    }
+    if let Ok(uid) = night_switch_verify_round(&settings, &expected_operator).await {
+        emit_login_log(&app, &format!("夜切验证: 已生效, 在线账号 {uid}"), "success");
+        return;
+    }
+    // 未生效:注销→再登录→复验一轮(复登前复查 operator,用户手动改走则止步,
+    // 避免把用户刚改的配置又注销掉)
+    emit_login_log(&app, "夜切验证: 未生效, 注销重登后复验", "warning");
+    let settings = match crate::config_state::current_settings(&app).await {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    if settings.operator != expected_operator {
+        return;
+    }
+    let state = app.state::<crate::android_state::AndroidState>();
+    if let Err(e) = crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
+        emit_login_log(&app, &format!("夜切验证: 注销失败, 继续复登: {e}"), "warning");
+    }
+    night_switch_login(&app, &settings).await;
+    tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
+    match night_switch_verify_round(&settings, &expected_operator).await {
+        Ok(uid) => emit_login_log(&app, &format!("夜切验证: 已生效, 在线账号 {uid}"), "success"),
+        Err(e) => {
+            emit_login_log(&app, &format!("夜切验证: {e}, 请手动检查"), "warning");
+            notify_system(
+                &app,
+                settings.enable_notification,
+                "夜切验证失败",
+                "夜切后在线账号与期望运营商不符, 请手动检查",
+                "mascot_alert",
+            );
+        }
+    }
+}
+
+/// 一轮验证(NIGHT_VERIFY_ATTEMPTS 次重试、间隔 5s):Ok(uid)=已生效,
+/// Err=最后一轮失败原因。HTTP/解析失败不 panic,收敛为 Err。
+async fn night_switch_verify_round(
+    settings: &crate::config_state::Settings,
+    expected_operator: &str,
+) -> Result<String, String> {
+    // 复用 update_cmds 的移动端 reqwest 构造(rustls + connect_timeout)
+    let client = crate::update_cmds::http_client()?;
+    let mut last_err = String::new();
+    for attempt in 0..NIGHT_VERIFY_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_RETRY_SECS)).await;
+        }
+        match night_switch_check_once(&client, &settings.portal_url, &settings.user, expected_operator).await {
+            Ok(uid) => return Ok(uid),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
+/// 单次 chkstatus 查询+uid 核对:Ok=在线账号(uid),Err=失败原因(不符时含观测 uid)
+async fn night_switch_check_once(
+    client: &reqwest::Client,
+    portal_url: &str,
+    user: &str,
+    expected_operator: &str,
+) -> Result<String, String> {
+    let url = format!(
+        "{}/drcom/chkstatus?callback=dr1003",
+        portal_origin(portal_url)
+    );
+    let body = client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(NIGHT_VERIFY_HTTP_TIMEOUT_SECS))
+        .send()
+        .await
+        .map_err(|e| format!("chkstatus 请求失败: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("chkstatus 响应读取失败: {e}"))?;
+    use campus_login_lib::config::night_switch;
+    match night_switch::parse_chkstatus(&body) {
+        Some(info) if info.online && night_switch::uid_matches(&info.uid, user, expected_operator) => Ok(info.uid),
+        Some(info) => Err(format!(
+            "在线账号 {} 与期望 {} 不符",
+            info.uid,
+            expected_operator_display(expected_operator)
+        )),
+        None => Err("chkstatus 响应解析失败".to_string()),
     }
 }
 
@@ -1065,5 +1200,22 @@ mod tests {
     fn 巡检分档_基础间隔下限5s() {
         assert_eq!(effective_interval_ms(1_000, 300_000, true, true), 5_000);
         assert_eq!(effective_interval_ms(1_000, 0, false, false), 5_000);
+    }
+
+    #[test]
+    fn portal_origin_取scheme加host_去路径端口路径与查询() {
+        assert_eq!(portal_origin("http://10.1.99.100"), "http://10.1.99.100");
+        assert_eq!(portal_origin("http://10.1.99.100/"), "http://10.1.99.100");
+        assert_eq!(
+            portal_origin("http://10.1.99.100:8090/drcom/login"),
+            "http://10.1.99.100:8090"
+        );
+        assert_eq!(portal_origin("https://p.njupt.edu.cn/a79.htm"), "https://p.njupt.edu.cn");
+    }
+
+    #[test]
+    fn 期望运营商展示_空串为无锡学院_其余原样() {
+        assert_eq!(expected_operator_display(""), "无锡学院");
+        assert_eq!(expected_operator_display("@cmcc"), "@cmcc");
     }
 }

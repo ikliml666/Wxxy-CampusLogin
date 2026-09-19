@@ -72,9 +72,42 @@ pub fn evaluate_night_switch(
     NightSwitchAction::None
 }
 
+/// eportal 在线状态查询（chkstatus JSONP）的解析结果。
+/// `uid` 为当前在线账号（学号+运营商后缀，如 `24385214@cmcc`）；离线或缺失时为空串。
+/// eportal 按请求源 IP 判定本机，后端发起即查本机。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChkStatusInfo {
+    pub online: bool,
+    pub uid: String,
+}
+
+/// 解析 eportal chkstatus 的 JSONP 响应（`dr1003({...})`，可能带 UTF-8 BOM 与
+/// 前后空白）：剥 BOM/空白/callback 壳后按 JSON 解析，`online` = result==1
+/// （离线时字段结构未知，按字段缺失容错为 online=false、uid 空串）。
+/// 壳不完整或 JSON 解析失败返回 None；任何输入都不 panic。
+pub fn parse_chkstatus(body: &str) -> Option<ChkStatusInfo> {
+    let body = body.trim().trim_start_matches('\u{feff}').trim();
+    let json = body.strip_prefix("dr1003(")?.strip_suffix(')')?;
+    let value: serde_json::Value = serde_json::from_str(json.trim()).ok()?;
+    Some(ChkStatusInfo {
+        online: value.get("result").and_then(serde_json::Value::as_i64) == Some(1),
+        uid: value
+            .get("uid")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+    })
+}
+
+/// 核对在线账号 uid 与期望账号：uid trim、忽略 ASCII 大小写后与
+/// `学号 + 期望运营商后缀`（后缀可为空串）精确相等。
+pub fn uid_matches(uid: &str, user: &str, expected_operator: &str) -> bool {
+    uid.trim().eq_ignore_ascii_case(&format!("{user}{expected_operator}"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{evaluate_night_switch, NightSwitchAction};
+    use super::{evaluate_night_switch, parse_chkstatus, uid_matches, NightSwitchAction};
     use NightSwitchAction::*;
 
     const TELECOM: &str = "@telecom";
@@ -173,5 +206,70 @@ mod tests {
         assert_eq!(first, Restore);
         // 模拟调用方已清空 restore 后的下一拍
         assert_eq!(eval(true, 1, 390, "", ""), None);
+    }
+
+    // ===== chkstatus 解析与 uid 核对 =====
+
+    /// 2026-09-19 实测的 chkstatus 在线响应样例（JSONP 壳内为完整 JSON）
+    const CHKSTATUS_ONLINE: &str = r#"dr1003({"result":1,"time":781,"flow":5163183,"v46ip":"10.2.69.6","uid":"24385214@cmcc","AC":"24385214@cmcc"})"#;
+
+    #[test]
+    fn parse_chkstatus_实测在线样例() {
+        let info = parse_chkstatus(CHKSTATUS_ONLINE).expect("实测样例应可解析");
+        assert!(info.online);
+        assert_eq!(info.uid, "24385214@cmcc");
+    }
+
+    #[test]
+    fn parse_chkstatus_带bom标记与前后空白() {
+        let body = format!("\u{feff} \r\n{CHKSTATUS_ONLINE}  ");
+        let info = parse_chkstatus(&body).expect("BOM/空白不影响解析");
+        assert!(info.online);
+        assert_eq!(info.uid, "24385214@cmcc");
+    }
+
+    #[test]
+    fn parse_chkstatus_缺uid_在线但uid为空() {
+        let info = parse_chkstatus(r#"dr1003({"result":1,"time":781})"#).expect("缺 uid 容错为空串");
+        assert!(info.online);
+        assert_eq!(info.uid, "");
+    }
+
+    #[test]
+    fn parse_chkstatus_result为0_离线() {
+        let info = parse_chkstatus(r#"dr1003({"result":0,"message":"error"})"#).expect("result=0 可解析");
+        assert!(!info.online);
+        // 离线结构未知：缺 uid 等字段均容错，不 panic
+        let bare = parse_chkstatus(r#"dr1003({"result":0})"#).expect("离线最小结构可解析");
+        assert!(!bare.online);
+    }
+
+    #[test]
+    fn parse_chkstatus_非法文本与残缺壳不解析() {
+        assert!(parse_chkstatus("").is_none());
+        assert!(parse_chkstatus("   ").is_none());
+        assert!(parse_chkstatus("gateway timeout").is_none());
+        assert!(parse_chkstatus("dr1003(not json)").is_none());
+        assert!(parse_chkstatus("dr1003({\"result\":1,)").is_none());
+        // 壳残缺：缺前缀或缺右括号
+        assert!(parse_chkstatus(r#"{"result":1}"#).is_none());
+        assert!(parse_chkstatus(r#"dr1003({"result":1,"uid":"u@cmcc""#).is_none());
+    }
+
+    #[test]
+    fn uid_matches_忽略大小写与首尾空白() {
+        assert!(uid_matches("24385214@cmcc", "24385214", "@cmcc"));
+        assert!(uid_matches("  24385214@CMCC\t", "24385214", "@cmcc"));
+        assert!(uid_matches("24385214@Telecom", "24385214", "@telecom"));
+    }
+
+    #[test]
+    fn uid_matches_空后缀与不匹配() {
+        // 无线无锡学院态：期望 uid 为纯学号
+        assert!(uid_matches("24385214", "24385214", ""));
+        // 后缀不同 / 学号不同 / uid 为空（离线缺 uid）均不匹配
+        assert!(!uid_matches("24385214@unicom", "24385214", "@cmcc"));
+        assert!(!uid_matches("12345678@cmcc", "24385214", "@cmcc"));
+        assert!(!uid_matches("", "24385214", ""));
     }
 }
