@@ -394,7 +394,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                             onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                           }
                         }}
-                        className="w-24 h-7 text-sm font-mono"
+                        className="w-32 h-7 text-sm font-mono"
                       />
                     </div>
                   </div>
