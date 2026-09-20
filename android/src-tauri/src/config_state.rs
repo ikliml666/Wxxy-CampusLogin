@@ -116,7 +116,8 @@ impl Default for Settings {
             active_account: String::new(),
             enable_boot_autostart: false,
             enable_latency_test: false,
-            latency_test_interval: 60_000,
+            // 2026-09-20 起 60s → 600s(后台留存优化),存量旧默认由 v5→v6 迁移刷新
+            latency_test_interval: 600_000,
             // 2026-09-12 起默认关闭(省电:质量检测含 12+ 外网目标,启动即跑一轮数秒;
             // 质量页改由后台检测状态代替展示),旧配置由 migrate_legacy_defaults
             // 按 schema 版本一次性迁移
@@ -139,7 +140,7 @@ impl Default for Settings {
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
-            config_schema_version: 5,
+            config_schema_version: 6,
         }
     }
 }
@@ -261,6 +262,8 @@ pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, St
 /// v4→v5(2026-09-13):campus_check_end_minutes 旧默认 0(仅开始时间限制)改为
 /// 1380=23:00,存量显式落的 0 一并刷为新默认(与 v2→v3/v3→v4 先例一致:开发阶段
 /// 统一开箱即用,显式设过 0 的极少数会被误刷);落盘后不再二次覆盖。
+/// v5→v6(2026-09-20):质量测试间隔旧默认 60s→600s(后台留存优化),存量等于
+/// 旧默认的值一并刷为新默认;落盘后不再二次覆盖。
 /// 迁移结果(含版本号)落盘,此后用户主动改回不会再次覆盖;
 /// 落盘失败静默:下次读盘重迁,幂等。
 async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Settings) {
@@ -293,6 +296,13 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.campus_check_end_minutes = 1380;
         }
         s.config_schema_version = 5;
+        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+    }
+    if s.config_schema_version < 6 {
+        if s.latency_test_interval == 60_000 {
+            s.latency_test_interval = 600_000;
+        }
+        s.config_schema_version = 6;
         let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
     }
 }
@@ -511,7 +521,8 @@ mod tests {
         assert_eq!(s.theme_mode, "dark");
         assert_eq!(s.background_check_interval, 60_000);
         assert_eq!(s.background_check_idle_interval, 300_000, "闲时巡检默认 5min");
-        assert_eq!(s.config_schema_version, 5, "新装即当前版本,不触发迁移");
+        assert_eq!(s.latency_test_interval, 600_000, "质量间隔默认 600s(2026-09-20)");
+        assert_eq!(s.config_schema_version, 6, "新装即当前版本,不触发迁移");
         assert_eq!(s.campus_check_end_minutes, 1380, "检测时段终点默认 23:00");
         assert_eq!(s.max_disconnect_reconnect, 3);
         assert!(s.self_hello_enabled);
@@ -555,7 +566,8 @@ mod tests {
         assert!(!back.enable_network_quality, "v3 迁移应关闭质量检测");
         assert_eq!(back.background_check_idle_interval, 300_000, "v4 迁移应补闲时间隔");
         assert_eq!(back.campus_check_end_minutes, 1380, "v5 迁移应刷检测时段终点旧默认 0→23:00");
-        assert_eq!(back.config_schema_version, 5);
+        assert_eq!(back.latency_test_interval, 600_000, "v6 迁移应刷质量间隔旧默认 60s→600s");
+        assert_eq!(back.config_schema_version, 6);
         // 迁移已落盘:此后用户主动设回 15s/开质量检测是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.background_check_interval = 15_000;
@@ -581,8 +593,38 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 30_000, "非旧默认值不迁移");
-        assert_eq!(back.config_schema_version, 5);
+        assert_eq!(back.config_schema_version, 6);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn 迁移_v5质量间隔旧默认刷v6且用户值不被覆盖() {
+        let dir = tmp_dir("migrate-v6");
+        let bridge = fake_bridge();
+        // 构造 v5 旧配置:质量间隔 60s(旧默认)
+        let mut old = sample_settings();
+        old.config_schema_version = 5;
+        old.latency_test_interval = 60_000;
+        save_to(&dir, &bridge, &old).await.unwrap();
+        let back = load_from(&dir, &bridge).await.unwrap();
+        assert_eq!(back.latency_test_interval, 600_000, "v6 迁移应刷质量间隔旧默认");
+        assert_eq!(back.config_schema_version, 6);
+        // 迁移已落盘:用户主动设回 60s 是明确意图,不再被覆盖
+        let mut manual = back.clone();
+        manual.latency_test_interval = 60_000;
+        save_to(&dir, &bridge, &manual).await.unwrap();
+        let back2 = load_from(&dir, &bridge).await.unwrap();
+        assert_eq!(back2.latency_test_interval, 60_000, "迁移后用户主动设回 60s 不被覆盖");
+        // 用户显式设过的其他值(300s)迁移时保持不动
+        let dir2 = tmp_dir("migrate-v6-keep");
+        let mut custom = sample_settings();
+        custom.config_schema_version = 5;
+        custom.latency_test_interval = 300_000;
+        save_to(&dir2, &bridge, &custom).await.unwrap();
+        let back3 = load_from(&dir2, &bridge).await.unwrap();
+        assert_eq!(back3.latency_test_interval, 300_000, "非旧默认值不迁移");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&dir2).ok();
     }
 
     #[test]

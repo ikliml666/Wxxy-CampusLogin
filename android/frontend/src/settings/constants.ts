@@ -17,7 +17,8 @@ export const DEFAULT_CONFIG: Config = {
   adapter2: '',
   dualAdapter: false,
   autoLoginOnStart: true,
-  autoExitAfterLogin: true,
+  // 2026-09-20 与桌面默认值对齐(安卓后端 Settings 无此二字段,仅前端本地值)
+  autoExitAfterLogin: false,
   minimizeToTray: false,
   hiddenStart: false,
   autoLaunch: true,
@@ -27,12 +28,13 @@ export const DEFAULT_CONFIG: Config = {
   // 2026-09-13 起:闲时(蜂窝/灭屏)巡检 5min,与后端 Settings::default 一致
   backgroundCheckIdleInterval: 300000,
   autoLoginOnPreparation: true,
-  autoExitOnOnline: true,
+  autoExitOnOnline: false,
   themeMode: 'dark',
   enableNotification: true,
   activeAccount: '',
   enableLatencyTest: true,
-  latencyTestInterval: 60000,
+  // 2026-09-20 起 600s(与后端 Settings::default 一致,后台留存优化)
+  latencyTestInterval: 600000,
   customThemeColor: '#6366f1',
   defaultPanel: '',
   enableNetworkQuality: true,
@@ -53,8 +55,8 @@ export const DEFAULT_CONFIG: Config = {
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
-  // 2026-09-13 对齐后端 config_schema_version(此前漂移在 2)
-  configVersion: 5,
+  // 对齐后端 config_schema_version(2026-09-20 v5→v6:质量间隔 60s→600s 迁移)
+  configVersion: 6,
 }
 
 export const ISP_OPTIONS = [
