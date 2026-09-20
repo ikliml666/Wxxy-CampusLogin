@@ -121,7 +121,7 @@ pub fn build_tray(app: &tauri::AppHandle, install_dir: &Path) -> Result<(), Box<
 fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
         "show" => {
-            crate::app::window::show_and_focus_main(app);
+            crate::app::window::show_or_rebuild_main(app);
         }
         "quick-login" => {
             let app_h = app.clone();
@@ -214,7 +214,7 @@ fn handle_tray_icon_event(tray: &tauri::tray::TrayIcon, event: TrayIconEvent) {
     if let TrayIconEvent::Click { button, .. } = event {
         if button == tauri::tray::MouseButton::Left {
             let app = tray.app_handle();
-            crate::app::window::show_and_focus_main(app);
+            crate::app::window::show_or_rebuild_main(app);
         }
     }
 }

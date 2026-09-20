@@ -5,6 +5,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use tauri::Manager;
 
 /// 轻量化生效中：无 WebView 窗口、EcoQoS 已开启、检测间隔延长
 static LIGHTWEIGHT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -81,6 +82,52 @@ pub fn effective_background_interval_ms(base_ms: u64, lightweight: bool) -> u64 
 /// 轻量化期间质量检测间隔下限 1800s（纯函数；非轻量化原样返回）
 pub fn effective_quality_interval_ms(base_ms: u64, lightweight: bool) -> u64 {
     if lightweight { base_ms.max(1_800_000) } else { base_ms }
+}
+
+/// 前端就绪信号：notify_window_ready 命令置位，重建窗口的 ready 门消费
+static READY_SIGNALS: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+
+pub fn signal_window_ready(label: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    if let Ok(mut v) = READY_SIGNALS.lock() {
+        v.push((label.to_string(), now));
+    }
+}
+
+fn take_window_ready(label: &str) -> bool {
+    if let Ok(mut v) = READY_SIGNALS.lock() {
+        if let Some(pos) = v.iter().position(|(l, _)| l == label) {
+            v.remove(pos);
+            return true;
+        }
+    }
+    false
+}
+
+/// 等 ready 信号或 5s 超时后显示窗口（500ms 轮询；信号早到立即显示）。
+/// 防重建白闪：WebviewWindowBuilder 以 visible(false) 起步，前端挂载完成后
+/// invoke notify_window_ready，收到即显示；超时兜底防止前端异常时永远黑窗
+pub async fn wait_window_ready_and_show(app: &tauri::AppHandle, label: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if take_window_ready(label) {
+            crate::log_info!("lightweight", "前端就绪信号已收到，显示主窗口");
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            crate::log_warn!("lightweight", "等待前端就绪超时(5s)，兜底显示主窗口");
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.show();
+        let _ = w.set_focus();
+        let _ = w.unminimize();
+    }
 }
 
 #[cfg(test)]

@@ -199,7 +199,7 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: St
 
 #[tauri::command]
 pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
-    crate::app::window::show_and_focus_main(&app_handle);
+    crate::app::window::show_or_rebuild_main(&app_handle);
     Ok(())
 }
 

@@ -35,15 +35,14 @@ pub fn run(core_count: usize) {
             .build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if app.get_webview_window("main").is_some() {
-                crate::app::window::show_and_focus_main(app);
+                crate::app::window::show_or_rebuild_main(app);
             } else {
-                // 窗口可能尚未创建（NSIS安装器自动启动时可能出现此情况），延迟重试
+                // 窗口可能尚未创建（NSIS安装器自动启动）或已被轻量化销毁，
+                // 延迟后统一走重建入口（入口幂等：窗口在则显示、不在则重建）
                 let app_h = app.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    if app_h.get_webview_window("main").is_some() {
-                        crate::app::window::show_and_focus_main(&app_h);
-                    }
+                    crate::app::window::show_or_rebuild_main(&app_h);
                 });
             }
         }))
