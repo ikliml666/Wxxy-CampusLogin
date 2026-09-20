@@ -40,6 +40,10 @@ pub struct Config {
     pub auto_exit_after_login: bool,
     #[serde(rename = "minimizeToTray")]
     pub minimize_to_tray: bool,
+    /// 轻量化模式：关闭按钮销毁 WebView 仅留后端与托盘，重建前自动开 Windows
+    /// 效率模式并延长检测间隔。桌面专属平台能力，安卓 Settings 无此字段
+    #[serde(rename = "lightweightMode", default = "default_true")]
+    pub lightweight_mode: bool,
     #[serde(rename = "hiddenStart")]
     pub hidden_start: bool,
     #[serde(rename = "autoLaunch")]
@@ -202,22 +206,28 @@ impl Default for Config {
             adapter2_account: String::new(),
             dual_adapter: false,
             auto_login_on_start: true,
-            auto_exit_after_login: true,
+            // 2026-09-20 起默认关闭：配合夜切（登录成功即退出会让夜切后的进程
+            // 无法常驻，次日 06:30 恢复被推迟到下次启动）；存量显式值不迁移
+            auto_exit_after_login: false,
             minimize_to_tray: false,
+            lightweight_mode: true,
             hidden_start: false,
             auto_launch: true,
             enable_background_check: true,
-            background_check_interval: 15000,
+            // 2026-09-20 起 15s → 60s（后台留存优化），存量旧默认由 v3→v4 迁移刷新
+            background_check_interval: 60000,
             auto_login_on_preparation: true,
             enable_night_operator_switch: false,
             night_operator_restore: String::new(),
-            auto_exit_on_online: true,
+            // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移
+            auto_exit_on_online: false,
             theme_mode: "dark".to_string(),
             enable_notification: true,
             active_account: String::new(),
             display_name: String::new(),
             enable_latency_test: true,
-            latency_test_interval: 60000,
+            // 2026-09-20 起 60s → 600s（后台留存优化），存量旧默认由 v3→v4 迁移刷新
+            latency_test_interval: 600000,
             custom_theme_color: "#6366f1".to_string(),
             default_panel: String::new(),
             enable_network_quality: true,
@@ -240,7 +250,8 @@ impl Default for Config {
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             skip_sha256_when_missing: false,
-            config_version: 3,
+            // 2026-09-20 起 v4（间隔默认值迁移），见 validate.rs
+            config_version: 4,
         }
     }
 }

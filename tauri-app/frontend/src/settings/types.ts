@@ -21,6 +21,8 @@ export interface Config {
   autoLoginOnStart: boolean
   autoExitAfterLogin: boolean
   minimizeToTray: boolean
+  /** 轻量化模式：关闭窗口销毁界面仅留后端与托盘（桌面专属） */
+  lightweightMode: boolean
   hiddenStart: boolean
   autoLaunch: boolean
   enableBackgroundCheck: boolean

@@ -139,6 +139,19 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         }
         config.config_version = 3;
     }
+    // v3→v4（2026-09-20）：后台检测间隔旧默认 15000→60000、质量测试间隔旧默认
+    // 60000→600000（后台留存优化），存量文件里等于旧默认的值一并刷为新默认
+    // （与 v2→v3 先例一致）；auto_exit 双开关默认 true→false 属开关默认值变化，
+    // 存量显式落盘的 true 保持不动，由用户在设置页自行关闭
+    if config.config_version < 4 {
+        if config.background_check_interval == 15000 {
+            config.background_check_interval = 60000;
+        }
+        if config.latency_test_interval == 60000 {
+            config.latency_test_interval = 600000;
+        }
+        config.config_version = 4;
+    }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
     config.campus_check_end_minutes = config.campus_check_end_minutes.min(1439);
     config.campus_exit_start_minutes = config.campus_exit_start_minutes.min(1439);
@@ -528,7 +541,7 @@ mod tests {
         config.campus_check_start_minutes = 8; // 8 hours → 480 minutes
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_start_minutes, 480);
-        assert_eq!(result.config_version, 3);
+        assert_eq!(result.config_version, 4);
         assert_eq!(result.campus_check_end_minutes, 1380, "v1 旧配置 end=0 应随 v2→v3 迁移刷新");
     }
 
@@ -540,13 +553,59 @@ mod tests {
         config.campus_check_end_minutes = 0;
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_end_minutes, 1380);
-        assert_eq!(result.config_version, 3);
+        assert_eq!(result.config_version, 4);
         // 用户显式设过的非 0 值保持不动
         let mut custom = Config::default();
         custom.config_version = 2;
         custom.campus_check_end_minutes = 1200;
         let result = validate_config(custom).unwrap();
         assert_eq!(result.campus_check_end_minutes, 1200, "非旧默认值不迁移");
+    }
+
+    #[test]
+    fn validate_config_migrates_v3_intervals_to_v4() {
+        // v3→v4：等于旧默认的间隔刷为新默认（15000→60000、60000→600000）
+        let mut config = Config::default();
+        config.config_version = 3;
+        config.background_check_interval = 15000;
+        config.latency_test_interval = 60000;
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.background_check_interval, 60000);
+        assert_eq!(result.latency_test_interval, 600000);
+        assert_eq!(result.config_version, 4);
+        // 用户显式设置的其他值不动
+        let mut custom = Config::default();
+        custom.config_version = 3;
+        custom.background_check_interval = 120000;
+        custom.latency_test_interval = 300000;
+        let result = validate_config(custom).unwrap();
+        assert_eq!(result.background_check_interval, 120000, "非旧默认值不迁移");
+        assert_eq!(result.latency_test_interval, 300000, "非旧默认值不迁移");
+    }
+
+    #[test]
+    fn validate_config_preserves_explicit_auto_exit_flags() {
+        // auto_exit 双开关默认值 true→false 属开关默认值变化，存量显式 true 不迁移
+        let mut config = Config::default();
+        config.config_version = 3;
+        config.auto_exit_after_login = true;
+        config.auto_exit_on_online = true;
+        let result = validate_config(config).unwrap();
+        assert!(result.auto_exit_after_login);
+        assert!(result.auto_exit_on_online);
+        assert_eq!(result.config_version, 4);
+    }
+
+    #[test]
+    fn validate_config_new_defaults_are_v4() {
+        let config = Config::default();
+        assert_eq!(config.config_version, 4);
+        assert!(!config.auto_exit_after_login);
+        assert!(!config.auto_exit_on_online);
+        assert!(!config.minimize_to_tray);
+        assert_eq!(config.background_check_interval, 60000);
+        assert_eq!(config.latency_test_interval, 600000);
+        assert!(config.lightweight_mode);
     }
 
     #[test]

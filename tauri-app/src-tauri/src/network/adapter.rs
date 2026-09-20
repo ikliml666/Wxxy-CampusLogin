@@ -243,6 +243,7 @@ mod tests {
             auto_login_on_start: false,
             auto_exit_after_login: false,
             minimize_to_tray: false,
+            lightweight_mode: false,
             hidden_start: false,
             auto_launch: false,
             enable_background_check: false,
