@@ -4,6 +4,9 @@ pub mod console_output;
 // 桌面专属(Windows 为主):安卓 target 不编译
 #[cfg(desktop)]
 pub mod autostart;
+// Windows 效率模式（EcoQoS）：轻量化模式期间启用，非 Windows 为空实现
+#[cfg(desktop)]
+pub mod ecoqos;
 #[cfg(desktop)]
 pub mod dns_config;
 #[cfg(desktop)]
