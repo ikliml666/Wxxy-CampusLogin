@@ -52,6 +52,19 @@ impl<R: Runtime> CampusNetworkBind<R> {
         self.0
             .run_mobile_plugin::<serde_json::Value>("stopWifiWatcher", ())
     }
+
+    /// 取当前 WiFi SSID（只读，Kotlin 侧绝不弹权限框）：
+    /// `{"granted": bool, "ssid": String}`——未授权/低版本/未连 WiFi 时 ssid 为空串。
+    /// JNI 阻塞调用，调用方须走 spawn_blocking（同 bind_to_wifi）。
+    pub fn get_wifi_ssid(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("getWifiSsid", ())
+    }
+
+    /// 触发 NEARBY_WIFI_DEVICES 运行时权限请求（幂等）：已授权/低版本无感 resolve；
+    /// 未授权时弹系统授权框（须用户前台，由前端 UI 显式调用）。
+    pub fn request_wifi_ssid_permission(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("requestWifiSsidPermission", ())
+    }
 }
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`], [`tauri::WebviewWindow`], [`tauri::Webview`] and [`tauri::Window`] to access the network bind APIs.

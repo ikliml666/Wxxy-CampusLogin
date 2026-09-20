@@ -108,20 +108,26 @@ Kotlin 侧常量与辅助：`KEY_ALIAS = "campus_login_master"`（`KeystorePlugi
 | `fn accept_wifi_network(&self) -> Result<serde_json::Value>` | `network-bind/src/lib.rs:26` | 命令 `"acceptWifiNetwork"`，返回 `{accepted, path, reason?}` |
 | `fn start_wifi_watcher(&self, channel: tauri::ipc::Channel<serde_json::Value>)` | `network-bind/src/lib.rs:32-43` | 先 `run_mobile_plugin("registerListener", {event:"wifiChanged", handler: channel})`，再 `"startWifiWatcher"` |
 | `fn stop_wifi_watcher(&self, channel_id: u32)` | `network-bind/src/lib.rs:47-54` | 先 `"removeListener"`（**失败不阻断**，`:48`），再 `"stopWifiWatcher"` |
-| `trait CampusNetworkBindExt<R>` | `network-bind/src/lib.rs:58-66` | `campus_network_bind()` |
-| `pub fn init<R: Runtime>() -> TauriPlugin<R>` | `network-bind/src/lib.rs:69` | `Builder::new("campus-network-bind")`（`:70`）+ `register_android_plugin(PLUGIN_IDENTIFIER, "NetworkBindPlugin")`（`:73`） |
+| `fn get_wifi_ssid(&self) -> Result<serde_json::Value>` | `network-bind/src/lib.rs:56-61` | 命令 `"getWifiSsid"`（只读不弹框），返回 `{"granted": bool, "ssid": String}`；JNI 阻塞，调用方须 spawn_blocking（2026-09-20 SSID 通道） |
+| `fn request_wifi_ssid_permission(&self) -> Result<serde_json::Value>` | `network-bind/src/lib.rs:63-67` | 命令 `"requestWifiSsidPermission"`（幂等，已授权/低版本无感 resolve） |
+| `trait CampusNetworkBindExt<R>` | `network-bind/src/lib.rs:70-78` | `campus_network_bind()` |
+| `pub fn init<R: Runtime>() -> TauriPlugin<R>` | `network-bind/src/lib.rs:81` | `Builder::new("campus-network-bind")`（`:82`）+ `register_android_plugin(PLUGIN_IDENTIFIER, "NetworkBindPlugin")`（`:85`） |
 
 #### Kotlin 命令（`android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt`）
 
 | 命令 | 位置 | 入参 / 返回 | 实现要点 |
 |------|------|------------|----------|
-| `bindToWifi` | `NetworkBindPlugin.kt:54-143` | 无 → `{bound, path, reason}` | 快速路径：`allNetworks` 中优先取有 `NET_CAPABILITY_INTERNET` 的 WiFi、否则取任意 WiFi（`:78-80`）→ `bindProcessToNetwork`（`:84`）；与上次同网络回 `path="already_bound"`（`:85-87`）。失败回退 `requestNetwork`（显式 `removeCapability(NET_CAPABILITY_INTERNET)`，`:105`；3s 超时 `:132`）。失败原因两条分明（`allNetworks[..] requestNetwork[..]`，`:116/:125/:137-141`）。单次 resolve 保护 `AtomicBoolean`（`:57-67`） |
-| `unbind` | `NetworkBindPlugin.kt:145-153` | 无 | `bindProcessToNetwork(null)` + 注销持有的回调 + 清 `lastBoundNetwork`（清理 `already_bound` 记忆） |
-| `acceptWifiNetwork` | `NetworkBindPlugin.kt:169-216` | 无 → `{accepted, path, reason, hiddenApi}` | 三路径：`already_validated`（`:195-201`）→ 反射 `setAcceptUnvalidated`（`:203-209`，成功 `path="hidden_api"`）→ 写 `Settings.Global`（`:211-215`，`path="settings_global"` / `"none"`）；`hiddenApi` 字段无条件先探测（`:176`） |
-| `startWifiWatcher` | `NetworkBindPlugin.kt:307-343` | 无 | 幂等（已注册直接 resolve，`:309-312`）；注册 WiFi NetworkCallback，`onAvailable`→`available`、`onLost`→`lost`、`onCapabilitiesChanged` 仅在 `NET_CAPABILITY_VALIDATED` 翻转时发 `validated`/`unvalidated`（`:326-334`）；不取 SSID（免 `ACCESS_FINE_LOCATION`，`:305`） |
-| `stopWifiWatcher` | `NetworkBindPlugin.kt:345-356` | 无 | 注销回调 + 清 `lastValidated` |
+| 类注解 | `NetworkBindPlugin.kt:47-53` | — | `@TauriPlugin(permissions = [Permission(strings=[NEARBY_WIFI_DEVICES], alias="wifiSsid")])`——alias 供 `requestPermissionForAlias` 解析（2026-09-20） |
+| `bindToWifi` | `NetworkBindPlugin.kt:66-165` | 无 → `{bound, path, reason}` | 快速路径：`allNetworks` 中优先取有 `NET_CAPABILITY_INTERNET` 的 WiFi、否则取任意 WiFi（`:92-94`）→ `bindProcessToNetwork`（`:98`）；与上次同网络回 `path="already_bound"`（`:99-101`）。失败回退 `requestNetwork`（显式 `removeCapability(NET_CAPABILITY_INTERNET)`，`:119`；3s 超时 `:146`）。失败原因两条分明（`allNetworks[..] requestNetwork[..]`，`:130/:139/:151-155`）。单次 resolve 保护 `AtomicBoolean`（`:71-81`） |
+| `unbind` | `NetworkBindPlugin.kt:167-175` | 无 | `bindProcessToNetwork(null)` + 注销持有的回调 + 清 `lastBoundNetwork`（清理 `already_bound` 记忆） |
+| `acceptWifiNetwork` | `NetworkBindPlugin.kt:191-238` | 无 → `{accepted, path, reason, hiddenApi}` | 三路径：`already_validated`（`:217-223`）→ 反射 `setAcceptUnvalidated`（`:225-231`，成功 `path="hidden_api"`）→ 写 `Settings.Global`（`:233-237`，`path="settings_global"` / `"none"`）；`hiddenApi` 字段无条件先探测（`:198`） |
+| `getWifiSsid` | `NetworkBindPlugin.kt:380-407` | 无 → `{granted: bool, ssid: String}` | **只读，绝不弹框**（Rust 每拍探测调用，弹窗是骚扰）。API 33+ 且已授权（`activity.checkSelfPermission`，`:385-388`）才经 `readSsid()` 读 `WifiManager.connectionInfo`；API<33 恒 `granted=false`（取 SSID 需定位权限，本应用不引入） |
+| `requestWifiSsidPermission` | `NetworkBindPlugin.kt:409-419` | 无 | 幂等：已授权/低版本直接 resolve（`:411-415`）；否则 `requestPermissionForAlias("wifiSsid", invoke, "wifiSsidPermissionCallback")`（`:417`）弹"查找附近的设备"授权框，须用户前台（后台弹窗被系统静默拒绝） |
+| `wifiSsidPermissionCallback` | `NetworkBindPlugin.kt:421-425` | `@PermissionCallback` | 直接 resolve，授权状态由 SSID Badge 自证 |
+| `startWifiWatcher` | `NetworkBindPlugin.kt:329-365` | 无 | 幂等（已注册直接 resolve，`:331-334`）；注册 WiFi NetworkCallback，`onAvailable`→`available`、`onLost`→`lost`、`onCapabilitiesChanged` 仅在 `NET_CAPABILITY_VALIDATED` 翻转时发 `validated`/`unvalidated`（`:348-356`）。SSID 不在此读（`NetworkCapabilities.transportInfo` 在 Android 12+ 被系统抹掉 SSID），由 `getWifiSsid` 按需读取 |
+| `stopWifiWatcher` | `NetworkBindPlugin.kt:367-378` | 无 | 注销回调 + 清 `lastValidated` |
 
-Kotlin 私有辅助（非命令）：`canReachSetAcceptUnvalidated()`（`:219`）、`trySetAcceptUnvalidated()`（`:232-246`，反射 `setAcceptUnvalidated(Network, boolean, boolean)`）、`applyNetworkSettingsCompat()`（`:258-271`，写 `captive_portal_mode=0` 与 `network_avoid_bad_wifi=0`）、`describe()`（`:274-278`，能力摘要 `net/nonet + val/unval + cp`）、`hasVpn()`（`:281-287`）、`emitWifiEvent()`（`:296-300`，`trigger("wifiChanged", {event})`）；常量 `REQUEST_TIMEOUT_MS = 3000`（`:360`）。
+Kotlin 私有辅助（非命令）：`canReachSetAcceptUnvalidated()`（`:240`）、`trySetAcceptUnvalidated()`（`:253-267`，反射 `setAcceptUnvalidated(Network, boolean, boolean)`）、`applyNetworkSettingsCompat()`（`:279-292`，写 `captive_portal_mode=0` 与 `network_avoid_bad_wifi=0`）、`describe()`（`:295-299`，能力摘要 `net/nonet + val/unval + cp`）、`hasVpn()`（`:302-308`）、`emitWifiEvent()`（`:317-321`，`trigger("wifiChanged", {event})`）、`readSsid()`（`:427-438`，去两侧引号、`"<unknown ssid>"`/空统一为 `""`；`getConnectionInfo` 已 deprecated 但为普通应用取 SSID 唯一可行路径，`@Suppress("DEPRECATION")` 标注）；常量 `REQUEST_TIMEOUT_MS = 3000`（`:441`）、`WIFI_SSID_PERMISSION_ALIAS = "wifiSsid"`（`:444`）。
 
 #### 权限与构建文件
 
@@ -135,7 +141,7 @@ Kotlin 私有辅助（非命令）：`canReachSetAcceptUnvalidated()`（`:219`�
 | `Cargo.toml` | `network-bind/Cargo.toml:2`、`:6`、`:8-9`、`:11-14` | 包名 `tauri-plugin-campus-network-bind`；`links` 同名；build-dep `tauri-plugin` build feature；dep `serde`/`serde_json`/`tauri` |
 | `build.rs` | `network-bind/build.rs:1`、`:4-9` | `COMMANDS = &["bindToWifi", "unbind", "acceptWifiNetwork"]`（**缺 startWifiWatcher/stopWifiWatcher**，见 Known Issues） |
 | `android/build.gradle.kts` | `network-bind/android/build.gradle.kts` | `namespace = "com.campuslogin.plugin.networkbind"`、compileSdk 36、minSdk 24、JVM 17 |
-| `android/src/main/AndroidManifest.xml` | `network-bind/android/src/main/AndroidManifest.xml` | `ACCESS_NETWORK_STATE`、`ACCESS_WIFI_STATE`、`CHANGE_NETWORK_STATE`（后者带注释说明缺失会使 `requestNetwork` 抛 `SecurityException`） |
+| `android/src/main/AndroidManifest.xml` | `network-bind/android/src/main/AndroidManifest.xml` | `ACCESS_NETWORK_STATE`、`ACCESS_WIFI_STATE`、`CHANGE_NETWORK_STATE`（后者带注释说明缺失会使 `requestNetwork` 抛 `SecurityException`）、`NEARBY_WIFI_DEVICES` + `usesPermissionFlags="neverForLocation"`（2026-09-20：API 33+ 免定位权限/定位开关取 SSID；API<33 需 `ACCESS_FINE_LOCATION`+定位开关，不引入，恒「未获取」） |
 
 ### 插件三：foreground-service
 

@@ -1,13 +1,19 @@
 package com.campuslogin.plugin.networkbind
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.provider.Settings
 import app.tauri.annotation.Command
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
@@ -38,7 +44,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 生效范围：只影响此后**新建**的 socket（netd 在 socket 创建时打 fwmark），
  * Rust 侧绑定成功后必须清空 HTTP 连接池，见 `protocol_cmds::ensure_wifi_bound`。
  */
-@TauriPlugin
+@TauriPlugin(
+    permissions = [
+        Permission(
+            strings = [Manifest.permission.NEARBY_WIFI_DEVICES],
+            alias = "wifiSsid",
+        )
+    ]
+)
 class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
 
     /** requestNetwork 持有的回调：绑定期间保持注册，unbind 时注销 */
@@ -363,8 +376,71 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /**
+     * 取当前 WiFi SSID（只读，绝不弹权限框）：`{"granted": bool, "ssid": String}`。
+     *
+     * API 33+：依赖 NEARBY_WIFI_DEVICES + manifest neverForLocation 标记，**免定位权限、
+     * 免定位服务开关**；未授权时不弹框直接返回 granted=false——弹框只走
+     * requestWifiSsidPermission，本命令会被 Rust 每拍探测调用，高频路径弹窗是骚扰。
+     * API 24~32：取 SSID 需 ACCESS_FINE_LOCATION + 系统定位服务开关（Android 8.1 起），
+     * 本应用不引入定位权限（2026-09-20 决策），恒 granted=false，前端显示「未获取」。
+     *
+     * 注意 NetworkCallback.onCapabilitiesChanged 里的 WifiInfo 在 Android 12+ 被系统
+     * 抹掉位置信息（SSID 恒 <unknown ssid>），watcher 路径拿不到，必须走 WifiManager 主动查。
+     */
+    @Command
+    fun getWifiSsid(invoke: Invoke) {
+        val ret = JSObject()
+        val granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            activity.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
+            PackageManager.PERMISSION_GRANTED
+        ret.put("granted", granted)
+        ret.put("ssid", if (granted) readSsid() else "")
+        invoke.resolve(ret)
+    }
+
+    /**
+     * 请求 NEARBY_WIFI_DEVICES 运行时权限（幂等）：已授权或低版本直接 resolve；
+     * 否则弹系统授权框（"查找附近的设备"），结果经 wifiSsidPermissionCallback 返回。
+     * 只由前端 UI（名称检查开关、监控启动）在用户前台时调用——后台 Activity 的
+     * 权限弹窗被系统静默拒绝，拿不到结果。
+     */
+    @Command
+    fun requestWifiSsidPermission(invoke: Invoke) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            activity.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            invoke.resolve()
+            return
+        }
+        requestPermissionForAlias(WIFI_SSID_PERMISSION_ALIAS, invoke, "wifiSsidPermissionCallback")
+    }
+
+    @PermissionCallback
+    fun wifiSsidPermissionCallback(invoke: Invoke) {
+        // 授权结果不在此区分：SSID Badge（每拍探测自动刷新）自证状态，拒绝时恒「未获取」
+        invoke.resolve()
+    }
+
+    /** 读 SSID：系统返回带两侧引号；"<unknown ssid>"（未连 WiFi/无权限）与空串统一为 "" */
+    @Suppress("DEPRECATION")
+    private fun readSsid(): String = try {
+        // getConnectionInfo 虽标 deprecated，但替代渠道（NetworkCallback 的
+        // NetworkCapabilities.transportInfo）在 Android 12+ 被系统抹掉 SSID，
+        // 这里是普通应用取 SSID 的唯一可行路径
+        val wm = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val raw = wm.connectionInfo?.ssid ?: ""
+        if (raw == "<unknown ssid>" || raw.isEmpty()) "" else raw.removeSurrounding("\"")
+    } catch (e: Exception) {
+        ""
+    }
+
     companion object {
         /** requestNetwork 的超时（毫秒）：网络不可用时走 onUnavailable，避免调用方无限等待 */
         private const val REQUEST_TIMEOUT_MS = 3000
+
+        /** NEARBY_WIFI_DEVICES 在 @TauriPlugin(permissions) 注解里的 alias（requestPermissionForAlias 用） */
+        private const val WIFI_SSID_PERMISSION_ALIAS = "wifiSsid"
     }
 }

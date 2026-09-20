@@ -38,6 +38,15 @@ export function useMonitor() {
         } catch (e) {
           if (import.meta.env.DEV) console.warn('通知权限请求失败:', e)
         }
+        // 名称检查开启时顺带请求"附近的设备"权限(幂等,已授权/低版本无感):
+        // 覆盖存量用户——名称检查早已开启但从未触发过权限请求,SSID 恒「未获取」
+        if (useConfigStore.getState().config?.enableNetworkNameCheck) {
+          try {
+            await store.api.requestWifiSsidPermission?.()
+          } catch (e) {
+            if (import.meta.env.DEV) console.warn('SSID 权限请求失败:', e)
+          }
+        }
         await store.api.startBackgroundCheck?.()
       } else {
         await store.api.stopBackgroundCheck?.()

@@ -63,6 +63,7 @@ pub fn run() {
             protocol_cmds::check_portal_status,
             campus_detect::detect_campus,
             campus_detect::check_campus_status,
+            campus_detect::request_wifi_ssid_permission,
             config_state::get_config,
             config_state::save_config,
             self_service_cmds::verify_biometric_identity,
