@@ -397,10 +397,15 @@ async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<Str
         .filter(|s| !s.contains(".."))
         .unwrap_or_else(|| format!("campus-login-{}.apk", env!("CARGO_PKG_VERSION")));
 
+    // 目录约定必须与 MonitorServicePlugin.installApk 对齐:tauri 的 app_data_dir 在
+    // Android 解析为 dataDir(/data/user/0/<pkg>,见上游 PathPlugin.getDataDir),而
+    // 插件与 FileProvider(files-path)都按 filesDir/update 约定——必须拼 files 段,
+    // 否则下载成功但安装报"APK 文件不存在"(v2.3.9 真机实测)
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("获取数据目录失败: {e}"))?
+        .join("files")
         .join("update");
     tokio::fs::create_dir_all(&dir)
         .await
@@ -491,10 +496,15 @@ async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bool, String>
 #[tauri::command]
 pub async fn install_update(app: tauri::AppHandle, file_path: String) -> Result<bool, String> {
     use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+    // 目录约定必须与 MonitorServicePlugin.installApk 对齐:tauri 的 app_data_dir 在
+    // Android 解析为 dataDir(/data/user/0/<pkg>,见上游 PathPlugin.getDataDir),而
+    // 插件与 FileProvider(files-path)都按 filesDir/update 约定——必须拼 files 段,
+    // 否则下载成功但安装报"APK 文件不存在"(v2.3.9 真机实测)
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("获取数据目录失败: {e}"))?
+        .join("files")
         .join("update");
     let path = Path::new(&file_path);
     let canonical = path.canonicalize().map_err(|e| format!("路径无效: {e}"))?;
