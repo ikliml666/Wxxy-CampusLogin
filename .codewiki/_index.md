@@ -84,6 +84,7 @@
 - [[learnings\dual-tree-sync-human-discipline|双端同步依赖人工纪律，仓库里没有自动拦截]]
 - [[learnings\reqwest-panic-no-reactor-in-thread|子线程 reqwest panic "there is no reactor running"]]
 - [[learnings\android-white-screen-missing-init-fields|安卓 app 白屏：get_init_data 少字段，前端直接读不判空]]
+- [[learnings\android-async-command-large-future-stack-overflow|安卓 async tauri 命令携带大栈数组并发 future——JavaBridge 线程栈溢出闪退]]
 - [[learnings\android-frontend-no-unit-tests|安卓前端没有单元测试]]
 - [[learnings\android-notify-online-pinned-by-offline-guard|安卓常驻监控通知在线状态被离线护栏静默钉死]]
 - [[learnings\android-version-json-camelcase-parse-drift|安卓更新检测对 version.json 的解析契约（camelCase vs snake_case）]]
