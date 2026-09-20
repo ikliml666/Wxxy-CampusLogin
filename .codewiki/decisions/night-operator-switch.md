@@ -28,10 +28,10 @@ tags: [决策, 夜切, 运营商, 定时任务, 双端同构]
 
 | 字段 | 默认 | 含义 |
 | --- | --- | --- |
-| `enableNightOperatorSwitch` | `false` | 夜切总开关（AccountPanel 自动化开关卡第 5 个开关） |
+| `enableNightOperatorSwitch` | `true`（2026-09-20 起；旧默认 false 由桌面 v4→v5 / 安卓 v6→v7 迁移刷为 true） | 夜切总开关（AccountPanel 自动化开关卡第 5 个开关） |
 | `nightOperatorRestore` | `''` | 切至无锡学院前暂存的原运营商；非空即"处于切换态" |
 
-无 schema 版本迁移：serde 容器级 `default` 使旧配置缺字段回退默认值（与 `scheduledLoginMinutes` 落地先例一致，桌面 `configVersion` 保持 3、安卓保持 5）。
+字段落地时（2026-09-19）无 schema 版本迁移；2026-09-20 默认 false→true 随「旧默认值语义变化」走桌面 v4→v5 / 安卓 v6→v7 迁移一次性刷值（上线一天即改默认，显式设过 false 的极少数会被误刷，先例语义）。
 
 ### 时间表与判定（共享纯函数）
 

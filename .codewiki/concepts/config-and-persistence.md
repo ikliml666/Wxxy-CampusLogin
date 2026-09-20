@@ -230,6 +230,8 @@ struct EncodedSettings {
 - 桌面 v3→v4 迁移（`validate.rs`）：仅刷新**等于旧默认**的值（==15000→60000、==60000→600000），用户显式设置的其他值不动。
 - 安卓 v5→v6 迁移（`config_state.rs::migrate_legacy_defaults`）：`latency_test_interval == 60_000` → `600_000`、版本置 6（`Default` 同步 600_000/6）；新增回归测试 `迁移_v5质量间隔旧默认刷v6且用户值不被覆盖`。
 - 两端前端 `DEFAULT_CONFIG` 同步（`configVersion`/`configSchemaVersion` 对应段 4/6）；安卓前端幽灵常量 `autoExitAfterLogin`/`autoExitOnOnline` 对齐为 false（后端 Settings 本无此字段）。
+- **同日二批（定时动作哨兵化 + 夜切默认开）**：桌面 v4→v5 / 安卓 v6→v7——`enable_night_operator_switch` false→true；`scheduled_login_minutes`/`scheduled_logout_minutes` 的禁用值 0→**1440 哨兵**（0 变为真实的 00:00 时刻），`should_fire_scheduled_action` 判定改 `target_minutes >= 1440 → false`，桌面 validate clamp 相应放行 `.min(1440)`；安卓 `monitor_loop.rs` 双禁用短路同步 `>= 1440`。前端定时卡片加独立启用开关（关闭即哨兵 1440，开启时哨兵态给默认 08:00=480）。
+- **同日三批（固定匹配展示）**：`requiredNetworkName`/`campusGateway`/`fixedGateway` 三处前端手填入口（双端 MonitorPanel/SettingsPanel 共 6 处，草稿+blur 提交模式）改为固定只读展示具体值；后端字段、`deserialize_non_empty_or` 兜底与校验全部保留（配置仍可被导入/账号文件携带，只是 UI 不再提供编辑）。
 
 ## 关键约束
 
