@@ -134,6 +134,8 @@ interface TauriApi {
   setupDnsDoh: (family?: 'ipv4' | 'ipv6' | 'both') => Promise<DnsSetupResult>
   resetDns: () => Promise<CommandResult>
   renderHeartbeat: () => Promise<{ online: boolean; checking: boolean }>
+  /** 桌面专属：轻量化重建窗口的 ready 门信号，安卓无此机制 */
+  notifyWindowReady: () => Promise<CommandResult>
   getGpuInfo: () => Promise<GpuInfo>
   getLogRetentionDays: () => Promise<number>
   setLogRetentionDays: (days: number) => Promise<void>
@@ -291,6 +293,7 @@ const tauriApi: TauriApi = {
   setupDnsDoh: (_family) => desktopOnly<DnsSetupResult>("setup_dns_doh"),
   resetDns: () => desktopOnly<CommandResult>('reset_dns'),
   renderHeartbeat: () => desktopOnly<{ online: boolean; checking: boolean }>('render_heartbeat'),
+  notifyWindowReady: () => desktopOnly<CommandResult>('notify_window_ready'),
   getGpuInfo: () => desktopOnly<GpuInfo>('get_gpu_info'),
   getLogRetentionDays: () => invoke<number>('get_log_retention_days'),
   setLogRetentionDays: (days) => invoke<void>('set_log_retention_days', { days }),

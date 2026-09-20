@@ -384,6 +384,19 @@ export const SettingsPanel = memo(function SettingsPanel({
             <Separator />
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="lightweight-mode" className="text-sm font-medium cursor-pointer">{t('settings.lightweightMode')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.lightweightModeDesc')}</p>
+              </div>
+              <Switch
+                id="lightweight-mode"
+                checked={config.lightweightMode || false}
+                onCheckedChange={checked => onUpdateConfig({ lightweightMode: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="hidden-start" className="text-sm font-medium cursor-pointer">{t('settings.silentStart')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.silentStartDesc')}</p>
               </div>

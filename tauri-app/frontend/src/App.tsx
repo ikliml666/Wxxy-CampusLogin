@@ -144,6 +144,12 @@ function AppInner() {
   const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
   const api = useConfigStore.getState().api
 
+  useEffect(() => {
+    // 轻量化重建窗口的 ready 门信号：挂载完成即通知后端可显示窗口。
+    // 首次启动时该信号被 window_safety 兜底线程之前的等待方消费，无副作用
+    void api.notifyWindowReady?.().catch(() => {})
+  }, [])
+
   const updateConfig = useConfigStore((s) => s.updateConfig)
   const setActivePanel = useAdapterStore((s) => s.setActivePanel)
   const setUpdateAvailable = useQualityStore((s) => s.setUpdateAvailable)

@@ -108,6 +108,7 @@ pub fn run(core_count: usize) {
             crate::commands::system::set_log_retention_days,
             crate::commands::system::get_log_retention_days,
             crate::commands::system::export_diagnostics,
+            crate::commands::system::notify_window_ready,
             crate::commands::updater::check_update,
             crate::commands::updater::download_update,
             crate::commands::updater::install_update,

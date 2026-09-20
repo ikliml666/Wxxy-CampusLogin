@@ -278,3 +278,11 @@ pub fn export_diagnostics(
     crate::log_info!("system", "诊断包导出成功: {:?}", out_dir);
     Ok(out_dir.to_string_lossy().to_string())
 }
+
+/// 前端就绪信号（轻量化重建窗口的 ready 门用；首次启动路径由 window_safety
+/// 兜底不受影响）。幂等：多次调用只多记一条信号，等待方取走即清
+#[tauri::command]
+pub fn notify_window_ready(window: tauri::Window) -> CommandResult {
+    crate::app::lightweight::signal_window_ready(window.label());
+    CommandResult::ok_msg("ready")
+}
