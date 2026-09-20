@@ -7,4 +7,10 @@
          "was not granted either of these permissions: CHANGE_NETWORK_STATE, WRITE_SETTINGS"
          （2026-09-12 真机日志实证）——绑定因此在直绑失败后连回退也走不通。 -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <!-- WiFi SSID 获取（API 33+）：neverForLocation 标记使 getSSID 免定位权限、
+         免系统定位服务开关；运行时经 requestWifiSsidPermission 弹框请求。
+         API < 33 取 SSID 需 ACCESS_FINE_LOCATION + 定位开关，本应用不引入，恒「未获取」。 -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
 </manifest>

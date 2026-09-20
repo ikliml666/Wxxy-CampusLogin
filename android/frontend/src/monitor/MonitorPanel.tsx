@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { useAsyncLock } from '@/hooks/useAsyncLock'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useShallow } from 'zustand/react/shallow'
 
 // 安卓构建差异化渲染：Windows 专属的"退出应用/时段"类设置不渲染
@@ -306,7 +307,12 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 <Switch
                   id="network-name-check"
                   checked={config.enableNetworkNameCheck || false}
-                  onCheckedChange={checked => onUpdateConfig({ enableNetworkNameCheck: checked })}
+                  onCheckedChange={checked => {
+                    onUpdateConfig({ enableNetworkNameCheck: checked })
+                    // 开启即请求"附近的设备"权限（API 33+，幂等；已授权/低版本无感返回）：
+                    // 未授权时后端拿不到 SSID，Badge 恒显示「未获取」
+                    if (checked) void tauriApiWithRetry.requestWifiSsidPermission().catch(() => {})
+                  }}
                   className="shrink-0"
                 />
               </div>

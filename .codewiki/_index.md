@@ -20,6 +20,7 @@
 - [[decisions\protocol-core-single-source|协议核心单点共享（双端铁律）]]
 - [[decisions\deliberate-background-check-skips|后台巡检中被主动跳过的逻辑清单（易被误认为缺陷，实为设计）]]
 - [[decisions\ipc-command-name-alignment|命令面两端同名对齐（新增命令三处同改）]]
+- [[decisions\wifi-ssid-permission-route|安卓 SSID 获取走 NEARBY_WIFI_DEVICES 免定位路线]]
 - [[decisions\android-interval-default-schema-migration|安卓后台检测间隔默认 15s→60s + config_schema_version 迁移机制]]
 - [[decisions\android-exit-guard-renderer-policy|安卓后台留存：退出护栏、质量循环稳态退避与 renderer 优先级放行]]
 - [[decisions\android-persistent-notification-standard|安卓常驻通知走标准安卓协议，不做厂商私有 extras]]

@@ -26,7 +26,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 安卓端 Tauri 后端（crate `campus-login-android`，lib 名 `campus_login_android_lib`，见 `android/src-tauri/Cargo.toml:2` 与 `:8`）是桌面协议核心 crate `campus-login` 的**薄壳**：它通过 Cargo path 依赖（`android/src-tauri/Cargo.toml:34`，`campus-login = { path = "../../tauri-app/src-tauri" }`）复用桌面全部协议实现，**不复制任何协议逻辑**；协议核心 crate 的 `lib.rs:1-20` 把 `account/auth/config/infra/network/platform/self_service` 设为跨平台可见面，而 `app/commands/helper/monitor/update` 用 `#[cfg(desktop)]` 门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓 target 不编译。
 
-安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（49 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
+安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（50 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
 
 平台专属能力（AndroidKeyStore 加密、前台服务保活、进程绑 WiFi、绑小核、电池优化白名单、APK 安装）由 `android/plugins/` 下三个手写插件承接，见 [[android-plugins]]。
 
@@ -56,8 +56,9 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | 4 | `do_login` | `protocol_cmds.rs:10` | 手动登录；凭据空/掩码回退已存配置；写登录历史；成功清熔断与注销保护 | `commands/login.rs::do_login`（`startup.rs:67`） |
 | 5 | `do_logout` | `protocol_cmds.rs:88` | 两步注销；成功后设 60s 注销保护期 | `commands/login.rs::do_logout`（`startup.rs:68`） |
 | 6 | `check_portal_status` | `protocol_cmds.rs:139` | Portal 状态页探测（端口 80 页面特征判在线） | `commands/network_cmd.rs::check_portal_status`（`startup.rs:72`） |
-| 7 | `detect_campus` | `campus_detect.rs:124` | 阶段 1 检测卡（`onCampus`/`sourceIp`/`portalReachable`/`detail`） | 无（安卓独有；调用方见 Known Issues） |
-| 8 | `check_campus_status` | `campus_detect.rs:152` | 校园网判定，形状对齐桌面 `network_cmd.rs` | `commands/network_cmd.rs::check_campus_status`（`startup.rs:71`） |
+| 7 | `detect_campus` | `campus_detect.rs:187` | 阶段 1 检测卡（`onCampus`/`sourceIp`/`portalReachable`/`detail`） | 无（安卓独有；前端已无调用方） |
+| 8 | `check_campus_status` | `campus_detect.rs:216` | 校园网判定（SSID 感知，`currentSsid` 名称检查开启时为真实值），形状对齐桌面 `network_cmd.rs` | `commands/network_cmd.rs::check_campus_status`（`startup.rs:71`） |
+| 8b | `request_wifi_ssid_permission` | `campus_detect.rs:248` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等；前端名称检查开关/启动后台检测时调用） | 无（安卓独有） |
 | 9 | `get_config` | `config_state.rs:297` | 读配置并刷新内存态，出站掩码（`***`） | `commands/config_cmd.rs::get_config`（`startup.rs:64`） |
 | 10 | `save_config` | `config_state.rs:312` | 写配置；密码走 Keystore 密文落盘；空/掩码回退已存值 | `commands/config_cmd.rs::save_config`（`startup.rs:66`） |
 | 11 | `verify_biometric_identity` | `self_service_cmds.rs:63` | 前端 BiometricPrompt 成功后写验证门时间戳 | `commands/self_service.rs::verify_windows_identity`（`startup.rs:113`，名字不同、语义对应） |
@@ -141,19 +142,23 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `fn chrono_epoch_millis() -> u128` | `login_history.rs:43` | 备份名时间戳 |
 | `pub fn append(dir, success, message, user, login_type)` | `login_history.rs:51` | 头插 + 截断 100 + tmp/rename 原子写；`adapter` 固定 `"wlan0"`（`login_history.rs:62`） |
 
-#### campus_detect.rs（224 行）
+#### campus_detect.rs（316 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `const PORTAL_PORT: u16 = 80` / `const TCP_TIMEOUT = 3s` | `campus_detect.rs:8`、`:9` | 可达性探测参数 |
-| `pub fn pick_campus_source_ip(interfaces) -> Option<Ipv4Addr>` | `campus_detect.rs:14` | 排除 `rmnet*`/`ccmni*` 蜂窝、link-local/回环/unspecified；wlan0 优先，否则首个合法接口 |
-| `pub async fn portal_reachable(host, port, timeout) -> bool` | `campus_detect.rs:40` | TCP 连接可达（替代 ICMP） |
-| `struct CampusProbe` | `campus_detect.rs:48-53` | 一次探测结果 |
-| `pub async fn probe_campus(campus_gateway, portal_url) -> Result<CampusProbe, String>` | `campus_detect.rs:55` | 网卡枚举 → 源 IP → /18 子网判定（复用桌面 `network::subnet::is_same_subnet_18`，`campus_detect.rs:73`）→ Portal TCP → 网关 TCP 兜底 → `on_campus` 或运算 |
-| `pub fn portal_host_of(url) -> String` | `campus_detect.rs:101` | 从 URL 抠 host（去 scheme/端口/路径） |
-| `pub fn cache_source_ip(state, source)` | `campus_detect.rs:113` | 写入 `AndroidState.cached_source_ip` |
-| `#[tauri::command] detect_campus` | `campus_detect.rs:124` | 绑 WiFi → 读配置 → `probe_campus` → 缓存源 IP → 返回 `{onCampus, sourceIp, portalReachable, detail}` |
-| `#[tauri::command] check_campus_status` | `campus_detect.rs:152` | 同上探测，返回桌面形状 `{onCampusNetwork, currentSsid:"", campusMessage, enableNetworkNameCheck, requiredNetworkName, sourceIp, portalReachable}` |
+| `const PORTAL_PORT: u16 = 80` / `const TCP_TIMEOUT = 3s` | `campus_detect.rs:9`、`:10` | 可达性探测参数 |
+| `pub fn pick_campus_source_ip(interfaces) -> Option<Ipv4Addr>` | `campus_detect.rs:15` | 排除 `rmnet*`/`ccmni*` 蜂窝、link-local/回环/unspecified；wlan0 优先，否则首个合法接口 |
+| `pub async fn portal_reachable(host, port, timeout) -> bool` | `campus_detect.rs:44` | TCP 连接可达（替代 ICMP） |
+| `struct CampusProbe` | `campus_detect.rs:56-61` | 一次探测结果 |
+| `pub async fn probe_campus(campus_gateway, portal_url) -> Result<CampusProbe, String>` | `campus_detect.rs:63` | 网卡枚举 → 源 IP → /18 子网判定（复用桌面 `network::subnet::is_same_subnet_18`）→ Portal TCP → 网关 TCP 兜底 → `on_campus` 或运算（纯网络探测，不含 SSID） |
+| `pub fn portal_host_of(url) -> String` | `campus_detect.rs:113` | 从 URL 抠 host（去 scheme/端口/路径） |
+| `pub fn ssid_matches(ssid, required) -> bool` | `campus_detect.rs:126` | SSID 名称匹配（对齐桌面 `campus_check`：`eq_ignore_ascii_case`；required 为 `i-wxxy` 时特判 `iwxxy-2`/`iwxxy-3`），含单测 8 例（2026-09-20） |
+| `async fn current_wifi_ssid(app) -> Option<String>` | `campus_detect.rs:136` | 经 network-bind 插件 `get_wifi_ssid()` 读 WifiManager SSID（spawn_blocking 包 JNI）；未授权/低版本/未连 WiFi → None |
+| `pub(crate) async fn probe_campus_with_ssid(app, settings)` | `campus_detect.rs:158` | **SSID 感知探测入口**（自动登录链路与 `check_campus_status` 共用）：名称检查开启时取 SSID、命中直接 `on_campus=true`（不再依赖子网/TCP）；关闭时与 `probe_campus` 行为一致。返回 `(probe, ssid)` |
+| `pub fn cache_source_ip(state, source)` | `campus_detect.rs:176` | 写入 `AndroidState.cached_source_ip` |
+| `#[tauri::command] detect_campus` | `campus_detect.rs:187` | 阶段 1 兼容入口（前端已无调用方，未接 SSID，行为不变）：绑 WiFi → `probe_campus` → 返回 `{onCampus, sourceIp, portalReachable, detail}` |
+| `#[tauri::command] check_campus_status` | `campus_detect.rs:216` | 绑 WiFi → `probe_campus_with_ssid`，返回桌面形状 `{onCampusNetwork, currentSsid, campusMessage, enableNetworkNameCheck, requiredNetworkName, sourceIp, portalReachable}`——`currentSsid` 在名称检查开启时为真实值（2026-09-20 起，此前恒空串） |
+| `#[tauri::command] request_wifi_ssid_permission` | `campus_detect.rs:248` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等，须用户前台）；前端在名称检查开关开启与启动后台检测时调用 |
 
 #### protocol_cmds.rs（331 行）
 

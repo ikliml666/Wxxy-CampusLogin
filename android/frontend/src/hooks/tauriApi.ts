@@ -67,6 +67,7 @@ interface TauriApi {
   bindToWifi: () => Promise<{ bound: boolean }>
   checkPortalStatus: (adapterIp: string) => Promise<PortalStatusResult>
   checkCampusStatus: () => Promise<CampusStatusResult>
+  requestWifiSsidPermission: () => Promise<unknown>
   doLogin: (adapterName?: string) => Promise<LoginResult>
   doLogout: (adapterName?: string) => Promise<LoginResult>
   bindOperator: (params: { account: string; password: string; operator: string; phone: string; smsPassword: string }) => Promise<CommandResult>
@@ -185,6 +186,7 @@ const tauriApi: TauriApi = {
   bindToWifi: () => invoke<{ bound: boolean }>('bind_to_wifi'),
   checkPortalStatus: (adapterIp) => invoke<PortalStatusResult>('check_portal_status', { adapterIp }),
   checkCampusStatus: () => invoke<CampusStatusResult>('check_campus_status'),
+  requestWifiSsidPermission: () => invoke<unknown>('request_wifi_ssid_permission'),
   doLogin: (adapterName) => invoke<LoginResult>('do_login', { adapterName }),
   doLogout: (adapterName) => invoke<LoginResult>('do_logout', { adapterName }),
   bindOperator: (params) => invoke<CommandResult>('bind_operator', { ...params }),

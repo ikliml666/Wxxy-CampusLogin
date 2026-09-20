@@ -448,21 +448,25 @@ pub fn run_startup_tasks(app: tauri::AppHandle) {
 /// 启动探测:未确认校园网(探测失败/非校园网)时 3s 后重试一次——开机自启等
 /// 场景网络/DHCP 可能尚未就绪,启动就绪窗口收窄后更易撞上;重试仍不通过按
 /// 最后一次结果返回,语义与原单次探测一致(Err→判定失败,Ok 非 campus→跳过)。
+/// SSID 感知版:名称检查开启时 SSID 命中直接判在校园网(2026-09-20)。
 async fn probe_with_retry(
+    app: &tauri::AppHandle,
     settings: &crate::config_state::Settings,
-) -> Result<crate::campus_detect::CampusProbe, String> {
-    let first =
-        crate::campus_detect::probe_campus(&settings.campus_gateway, &settings.portal_url).await;
-    if first.as_ref().is_ok_and(|p| p.on_campus) {
+) -> (Result<crate::campus_detect::CampusProbe, String>, Option<String>) {
+    let first = crate::campus_detect::probe_campus_with_ssid(app, settings).await;
+    if first.0.as_ref().is_ok_and(|p| p.on_campus) {
         return first;
     }
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    let retry =
-        crate::campus_detect::probe_campus(&settings.campus_gateway, &settings.portal_url).await;
-    if retry.as_ref().is_ok_and(|p| p.on_campus) {
+    let retry = crate::campus_detect::probe_campus_with_ssid(app, settings).await;
+    if retry.0.as_ref().is_ok_and(|p| p.on_campus) {
         return retry;
     }
-    retry.or(first)
+    match retry.0 {
+        Ok(_) => retry,
+        // retry 为 Err(枚举网卡失败)时回退 first(probe 与 ssid 配套取首次结果)
+        Err(_) => first,
+    }
 }
 
 /// 自动登录成功走应用内通知(前端 auto-login-result 监听→应用内 toast):
@@ -485,9 +489,9 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
     // 探测/登录前强制绑 WiFi:WiFi+流量同开时默认路由可能落蜂窝,探测与登录走错网络
     crate::protocol_cmds::ensure_wifi_bound(app).await;
     let state = app.state::<crate::android_state::AndroidState>();
-    let probe = match probe_with_retry(settings).await {
-        Ok(p) => p,
-        Err(e) => {
+    let (probe, _ssid) = match probe_with_retry(app, settings).await {
+        (Ok(p), ssid) => (p, ssid),
+        (Err(e), _) => {
             emit_login_log(app, &format!("启动自动登录:校园网判定失败 {e}"), "warning");
             return;
         }
@@ -979,8 +983,9 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     crate::protocol_cmds::ensure_wifi_bound(app).await;
 
     // 1. 校园网判定(复用探针;源 IP 缓存同步更新——自动重登/质量测试绑定用,
-    //    此前后台链路不缓存,首次重登拿空/过期 IP 被协议拒)
-    let probe = crate::campus_detect::probe_campus(&settings.campus_gateway, &settings.portal_url).await;
+    //    此前后台链路不缓存,首次重登拿空/过期 IP 被协议拒)。
+    //    SSID 感知:名称检查开启时经插件取 WifiManager SSID 参与判定(2026-09-20)
+    let (probe, current_ssid) = crate::campus_detect::probe_campus_with_ssid(app, &settings).await;
     let (on_campus, source_ip) = match probe {
         Ok(p) => {
             crate::campus_detect::cache_source_ip(&app.state::<crate::android_state::AndroidState>(), p.source);
@@ -1096,6 +1101,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         "isRunning": is_running(),
         "onCampusNetwork": on_campus,
         "campusMessage": campus_message,
+        "currentSsid": current_ssid,
         "sourceIp": source_ip.map(|i| i.to_string()),
         "autoLogin": login_result,
     });

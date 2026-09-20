@@ -1,4 +1,5 @@
-//! 安卓侧校园网探针:本机 IPv4 枚举 + /18 子网判定(复用桌面纯函数)+ Portal TCP 可达。
+//! 安卓侧校园网探针:本机 IPv4 枚举 + /18 子网判定(复用桌面纯函数)+ Portal TCP 可达
+//! + WiFi SSID 判定(network-bind 插件经 WifiManager 读取,2026-09-20 起)。
 //! ICMP 原始 socket 在安卓被 SELinux 禁止(surge-ping 不可用),网关可达改用 Portal TCP 可达表达。
 
 use network_interface::NetworkInterfaceConfig;
@@ -120,6 +121,57 @@ pub fn portal_host_of(url: &str) -> String {
     }
 }
 
+/// SSID 是否命中配置的校园网名称(对齐桌面 campus_check 名称匹配语义):
+/// 相等即命中;required 为默认值 "i-wxxy" 时特判历史同源 SSID iwxxy-2/iwxxy-3。
+pub fn ssid_matches(ssid: &str, required: &str) -> bool {
+    ssid.eq_ignore_ascii_case(required)
+        || (required.eq_ignore_ascii_case("i-wxxy")
+            && (ssid.eq_ignore_ascii_case("iwxxy-2") || ssid.eq_ignore_ascii_case("iwxxy-3")))
+}
+
+/// 当前 WiFi SSID(经 network-bind 插件 Kotlin 侧 WifiManager 读取):
+/// 未授权(NEARBY_WIFI_DEVICES)/API<33/未连 WiFi 时为 None——Kotlin 侧只读不弹框,
+/// 权限请求走 request_wifi_ssid_permission 命令(前端 UI 显式触发)。
+/// JNI 阻塞调用走 spawn_blocking(同 ensure_wifi_bound)。
+async fn current_wifi_ssid(app: &tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+    let cloned = app.clone();
+    let v = tauri::async_runtime::spawn_blocking(move || {
+        cloned.campus_network_bind().get_wifi_ssid()
+    })
+    .await
+    .ok()?
+    .ok()?;
+    let ssid = v["ssid"].as_str().unwrap_or("");
+    if ssid.is_empty() {
+        None
+    } else {
+        Some(ssid.to_string())
+    }
+}
+
+/// probe_campus 的 SSID 感知版(自动登录链路与 check_campus_status 共用):
+/// 名称检查开启时取当前 SSID 并参与判定——名称命中直接判在校园网(对齐桌面
+/// campus_check:名称匹配不再探测网关),不命中/拿不到时退回原有子网/TCP 探测;
+/// 名称检查关闭时与原 probe_campus 行为完全一致。返回 (probe, ssid),
+/// ssid 仅名称检查开启时给出,供 check_campus_status / background-check-result 展示。
+pub(crate) async fn probe_campus_with_ssid(
+    app: &tauri::AppHandle,
+    settings: &crate::config_state::Settings,
+) -> (Result<CampusProbe, String>, Option<String>) {
+    let mut probe = probe_campus(&settings.campus_gateway, &settings.portal_url).await;
+    let mut ssid = None;
+    if settings.enable_network_name_check {
+        ssid = current_wifi_ssid(app).await;
+        if let (Ok(p), Some(s)) = (probe.as_mut(), ssid.as_deref()) {
+            if ssid_matches(s, &settings.required_network_name) {
+                p.on_campus = true;
+            }
+        }
+    }
+    (probe, ssid)
+}
+
 /// 缓存源 IP 供登录/注销的 adapter_ip 绑定使用
 pub fn cache_source_ip(
     state: &tauri::State<'_, crate::android_state::AndroidState>,
@@ -157,8 +209,9 @@ pub async fn detect_campus(
     }))
 }
 
-/// 桌面同名命令:形状对齐 network_cmd.rs check_campus_status
-/// (安卓无 netsh,SSID 取不到,currentSsid 恒空;enableNetworkNameCheck 关闭时跳过 SSID 判定)
+/// 桌面同名命令:形状对齐 network_cmd.rs check_campus_status。
+/// SSID 通道(2026-09-20):名称检查开启时经 network-bind 插件取 WifiManager SSID
+/// 参与判定并回传 currentSsid;名称检查关闭时跳过取值(对齐桌面:current_ssid=None)。
 #[tauri::command]
 pub async fn check_campus_status(
     app: tauri::AppHandle,
@@ -167,7 +220,8 @@ pub async fn check_campus_status(
     // 手动探测前强制绑 WiFi(同 detect_campus)
     crate::protocol_cmds::ensure_wifi_bound(&app).await;
     let settings = crate::config_state::current_settings(&app).await?;
-    let probe = probe_campus(&settings.campus_gateway, &settings.portal_url).await?;
+    let (probe, ssid) = probe_campus_with_ssid(&app, &settings).await;
+    let probe = probe?;
     cache_source_ip(&state, probe.source);
 
     let campus_message = if probe.on_campus {
@@ -178,13 +232,24 @@ pub async fn check_campus_status(
 
     Ok(serde_json::json!({
         "onCampusNetwork": probe.on_campus,
-        "currentSsid": "",
+        "currentSsid": ssid,
         "campusMessage": campus_message,
         "enableNetworkNameCheck": settings.enable_network_name_check,
         "requiredNetworkName": settings.required_network_name,
         "sourceIp": probe.source.map(|i| i.to_string()),
         "portalReachable": probe.portal_ok,
     }))
+}
+
+/// 触发 NEARBY_WIFI_DEVICES 运行时权限请求(幂等):已授权/API<33 无感返回;
+/// 未授权弹系统授权框("查找附近的设备"),须用户在前台——由前端名称检查开关
+/// 与监控启动链路显式调用,后台 Activity 的权限弹窗被系统静默拒绝。
+#[tauri::command]
+pub fn request_wifi_ssid_permission(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+    app.campus_network_bind()
+        .request_wifi_ssid_permission()
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -231,5 +296,21 @@ mod tests {
         assert_eq!(portal_host_of("http://10.1.99.100:8080/x"), "10.1.99.100");
         assert_eq!(portal_host_of("10.1.99.100"), "10.1.99.100");
         assert_eq!(portal_host_of("http://portal.example.com/"), "portal.example.com");
+    }
+
+    #[test]
+    fn ssid_匹配语义对齐桌面() {
+        // 精确匹配(大小写不敏感)
+        assert!(ssid_matches("i-wxxy", "i-wxxy"));
+        assert!(ssid_matches("I-WXXY", "i-wxxy"));
+        // 默认名称特判历史同源 SSID(对齐桌面 campus_check)
+        assert!(ssid_matches("iwxxy-2", "i-wxxy"));
+        assert!(ssid_matches("IWXXY-3", "i-wxxy"));
+        // 非默认名称不做特判
+        assert!(!ssid_matches("iwxxy-2", "other-net"));
+        // 不相关 SSID / 前缀不算命中
+        assert!(!ssid_matches("home-wifi", "i-wxxy"));
+        assert!(!ssid_matches("i-wxx", "i-wxxy"));
+        assert!(!ssid_matches("", "i-wxxy"));
     }
 }
