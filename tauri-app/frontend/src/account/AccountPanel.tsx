@@ -483,31 +483,9 @@ export const AccountPanel = memo(function AccountPanel({
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
               />
             </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">{t('account.autoExitAfterLogin')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoExitAfterLoginDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit"
-                checked={config.autoExitAfterLogin || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-online"
-                checked={config.autoExitOnOnline || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                className="shrink-0"
-              />
-            </div>
+            {/* 登录成功后退出/在线后自动退出：2026-09-20 起不再提供开关（默认 false
+                配合夜切与后台常驻；配置字段与后端生命周期逻辑保留，存量显式 true 仍生效）。
+                需要恢复入口时按 account.autoExitAfterLogin / settings.autoExitWhenOnline 键找回 */}
             <Separator />
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
