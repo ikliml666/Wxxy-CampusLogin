@@ -32,12 +32,8 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
     if config.enable_network_quality && config.enable_latency_test {
         let app_h = app_handle.clone();
         if let Err(e) = task_manager.spawn("startup_latency", |_cancel| async move {
-            let s = app_h.state::<AppState>();
-            let interval = {
-                let c = s.config.load();
-                if c.latency_test_interval < 10000 { 30000 } else { c.latency_test_interval }
-            };
-            if let Err(e) = spawn_latency_test_loop(&app_h, interval) {
+            // 间隔由循环内每轮重读（配置 + 轻量化系数），启动时无需读取
+            if let Err(e) = spawn_latency_test_loop(&app_h) {
                 crate::log_warn!("background", "启动定时测试循环失败: {}", e);
             }
         }) {

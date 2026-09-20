@@ -30,7 +30,11 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                 let interval_ms = {
                     let s = app_h.state::<AppState>();
                     let cfg = s.config.load();
-                    cfg.background_check_interval.max(10000)
+                    // 轻量化期间下限 300s（app/lightweight），非轻量化即配置值
+                    crate::app::lightweight::effective_background_interval_ms(
+                        cfg.background_check_interval.max(10000),
+                        crate::app::lightweight::is_lightweight_active(),
+                    )
                 };
                 let mut interval_timer = tokio::time::interval(Duration::from_millis(interval_ms));
                 interval_timer.tick().await;

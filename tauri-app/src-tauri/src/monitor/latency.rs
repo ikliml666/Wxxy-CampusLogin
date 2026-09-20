@@ -50,16 +50,36 @@ pub(super) fn notify_quality_change(app_handle: &AppHandle, kind: &str) {
     }
 }
 
-pub fn spawn_latency_test_loop(app_handle: &AppHandle, interval: u64) -> Result<(), String> {
+pub fn spawn_latency_test_loop(app_handle: &AppHandle) -> Result<(), String> {
     let app_h = app_handle.clone();
     app_handle.state::<AppState>().task_manager.spawn("latency_test", move |cancel_token| {
         async move {
-            let mut interval_timer = tokio::time::interval(Duration::from_millis(interval));
-            // 单轮检测耗时超过周期时默认 Burst 会连续补发错过的 tick 造成连发，
-            // 改为 Delay 保持固定周期、错过的不补发
+            // 间隔动态读取：每轮重读配置与轻量化系数（轻量化下限 1800s，
+            // 见 app/lightweight），设置页改间隔/进出轻量化即时生效。
+            // 既有缺陷修复：interval 在 spawn 时捕获一次，运行中修改直到
+            // 重启才生效。计时器按需重建，Delay 错过不补发
+            let mut current_interval_ms: u64 = 0;
+            let mut interval_timer = tokio::time::interval(Duration::from_millis(1));
             interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut first_run = true;
             loop {
+                let desired_ms = {
+                    let s = app_h.state::<AppState>();
+                    let cfg = s.config.load();
+                    crate::app::lightweight::effective_quality_interval_ms(
+                        cfg.latency_test_interval.max(10_000),
+                        crate::app::lightweight::is_lightweight_active(),
+                    )
+                };
+                if desired_ms != current_interval_ms {
+                    current_interval_ms = desired_ms;
+                    interval_timer = tokio::time::interval(Duration::from_millis(desired_ms));
+                    interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    if !first_run {
+                        // 重建后的首 tick 立即到期，吞掉避免连发
+                        interval_timer.tick().await;
+                    }
+                }
                 if !first_run {
                     tokio::select! {
                         _ = interval_timer.tick() => {}

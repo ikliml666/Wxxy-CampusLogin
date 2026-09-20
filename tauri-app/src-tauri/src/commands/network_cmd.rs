@@ -215,12 +215,8 @@ pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) ->
         }
         return Ok(CommandResult::ok_msg("质量检测总开关未启用，定时测试保持关闭"));
     }
-    let interval = {
-        let config = s.config.load();
-        if config.latency_test_interval < 10000 { 30000 } else { config.latency_test_interval }
-    };
-
-    if crate::monitor::latency::spawn_latency_test_loop(&app_handle, interval).is_err() {
+    // 间隔由循环内每轮重读（配置 + 轻量化系数），无需启动时读取
+    if crate::monitor::latency::spawn_latency_test_loop(&app_handle).is_err() {
         return Ok(CommandResult::ok_msg("延迟测试已在运行"));
     }
 
