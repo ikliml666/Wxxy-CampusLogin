@@ -105,6 +105,14 @@ pub fn run() {
             update_cmds::get_mirror_urls,
             update_cmds::install_update,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // 退出护栏：Tauri 默认「最后窗口关闭→process::exit(0)」会把前台服务
+            // 一起带走（tauri #15671 根因）。安卓语义：划掉任务只关 UI，进程随
+            // 前台服务常驻，巡检/夜切/定时动作继续；彻底退出走系统设置
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                api.prevent_exit();
+            }
+        });
 }
