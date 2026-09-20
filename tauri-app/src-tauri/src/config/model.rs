@@ -113,10 +113,10 @@ pub struct Config {
     /// 校园网检测时段终点（分钟数，1380=23:00；<= 开始时间时退化为仅开始时间限制）
     #[serde(rename = "campusCheckEndMinutes", default = "default_campus_check_end_minutes")]
     pub campus_check_end_minutes: u16,
-    /// 每日定时登录时刻（分钟数，0=禁用；到点即触发含过点补触发，判定见 config::schedule）
+    /// 每日定时登录时刻（分钟数，1440=禁用哨兵、0=真实的 00:00；到点即触发含过点补触发，判定见 config::schedule）
     #[serde(rename = "scheduledLoginMinutes", default)]
     pub scheduled_login_minutes: u16,
-    /// 每日定时注销时刻（分钟数，0=禁用；语义同 scheduled_login_minutes）
+    /// 每日定时注销时刻（分钟数，1440=禁用哨兵；语义同 scheduled_login_minutes）
     #[serde(rename = "scheduledLogoutMinutes", default)]
     pub scheduled_logout_minutes: u16,
     #[serde(rename = "logRetentionDays", default = "default_log_retention_days")]
@@ -217,7 +217,8 @@ impl Default for Config {
             // 2026-09-20 起 15s → 60s（后台留存优化），存量旧默认由 v3→v4 迁移刷新
             background_check_interval: 60000,
             auto_login_on_preparation: true,
-            enable_night_operator_switch: false,
+            // 2026-09-20 起默认开启（存量旧默认 false 由 v4→v5 迁移刷为 true）
+            enable_night_operator_switch: true,
             night_operator_restore: String::new(),
             // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移
             auto_exit_on_online: false,
@@ -244,14 +245,16 @@ impl Default for Config {
             campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 460,
             campus_check_end_minutes: 1380,
-            scheduled_login_minutes: 0,
-            scheduled_logout_minutes: 0,
+            // 每日定时登录/注销默认禁用（2026-09-20 起禁用哨兵为 1440，
+            // 0=真实的 00:00 时刻；存量 0 由 v4→v5 迁移刷为 1440）
+            scheduled_login_minutes: 1440,
+            scheduled_logout_minutes: 1440,
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             skip_sha256_when_missing: false,
-            // 2026-09-20 起 v4（间隔默认值迁移），见 validate.rs
-            config_version: 4,
+            // 2026-09-20 起 v5（夜切默认开启 + 定时动作禁用哨兵），见 validate.rs
+            config_version: 5,
         }
     }
 }

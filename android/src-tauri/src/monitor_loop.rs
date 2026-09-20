@@ -693,8 +693,8 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             campus_login_lib::config::night_switch::NightSwitchAction::None => {}
         }
     }
-    if settings.scheduled_login_minutes == 0 && settings.scheduled_logout_minutes == 0 {
-        return; // 双禁用:免读时钟早退
+    if settings.scheduled_login_minutes >= 1440 && settings.scheduled_logout_minutes >= 1440 {
+        return; // 双禁用(2026-09-20 起禁用哨兵 1440,0=真实的 00:00 时刻):免读时钟早退
     }
     let now = chrono::Local::now();
     let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;

@@ -4,7 +4,8 @@
 //! 安卓 monitor_loop 共用同一实现与同一组测试，保证两端判定语义单点一致。
 
 /// 定时动作当日触发判定（纯函数，双端同语义）：
-/// - `target_minutes = 0`：禁用，永不触发（与 campus_check_start_minutes 的 0=禁用约定一致）；
+/// - `target_minutes >= 1440`：禁用哨兵，永不触发（2026-09-20 起 0=真实的 00:00 时刻，
+///   禁用改用哨兵 1440；存量 0 由双端 schema 迁移一次性刷为 1440）；
 /// - `now_minutes < target_minutes`：未到点，不触发；
 /// - 已到点（`now_minutes >= target_minutes`，含过点补触发）且 `last_fired_day != today_day`
 ///   时触发；`last_fired_day == today_day` 表示当日已执行过，不重复触发。
@@ -15,7 +16,7 @@
 /// 「已到点即触发（而非严格等于配置分钟）」是有意为之：循环拍间隔/系统休眠
 /// 可能恰好错过配置分钟，等值比较会让定时动作整天静默失效。
 pub fn should_fire_scheduled_action(now_minutes: u16, target_minutes: u16, last_fired_day: i32, today_day: i32) -> bool {
-    if target_minutes == 0 {
+    if target_minutes >= 1440 {
         return false;
     }
     if now_minutes < target_minutes {
@@ -31,9 +32,18 @@ mod tests {
     const TODAY: i32 = 739_776;
 
     #[test]
-    fn 禁用值0_永不触发() {
-        assert!(!should_fire_scheduled_action(0, 0, i32::MIN, TODAY));
-        assert!(!should_fire_scheduled_action(600, 0, i32::MIN, TODAY));
+    fn 禁用哨兵1440_永不触发() {
+        assert!(!should_fire_scheduled_action(0, 1440, i32::MIN, TODAY));
+        assert!(!should_fire_scheduled_action(600, 1440, i32::MIN, TODAY));
+        assert!(!should_fire_scheduled_action(1439, u16::MAX, i32::MIN, TODAY));
+    }
+
+    #[test]
+    fn 目标00点0分_到点即触发() {
+        // 0 现在是真实的 00:00 时刻：当天任何一拍（now >= 0 恒真）都算过点补触发
+        assert!(should_fire_scheduled_action(0, 0, i32::MIN, TODAY));
+        assert!(should_fire_scheduled_action(600, 0, i32::MIN, TODAY));
+        assert!(should_fire_scheduled_action(1439, 0, i32::MIN, TODAY));
     }
 
     #[test]

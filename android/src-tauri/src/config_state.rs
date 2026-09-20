@@ -68,9 +68,9 @@ pub struct Settings {
     pub campus_check_start_minutes: u16,
     /// 校园网检测时段终点(当日分钟数,默认 1380=23:00;<= 开始时间时退化为仅开始时间限制),与桌面 campusCheckEndMinutes 同语义
     pub campus_check_end_minutes: u16,
-    /// 每日定时登录时刻(当日分钟数,0=禁用;到点即触发含过点补触发),与桌面 scheduledLoginMinutes 同语义
+    /// 每日定时登录时刻(当日分钟数,1440=禁用哨兵、0=真实的 00:00;到点即触发含过点补触发),与桌面 scheduledLoginMinutes 同语义
     pub scheduled_login_minutes: u16,
-    /// 每日定时注销时刻(当日分钟数,0=禁用;语义同 scheduled_login_minutes),与桌面 scheduledLogoutMinutes 同语义
+    /// 每日定时注销时刻(当日分钟数,1440=禁用哨兵;语义同 scheduled_login_minutes),与桌面 scheduledLogoutMinutes 同语义
     pub scheduled_logout_minutes: u16,
     // 更新
     /// 检查/下载更新渠道优先级:"mirror"(镜像加速优先,默认,国内主场景)|"github"(官方优先)
@@ -96,7 +96,8 @@ impl Default for Settings {
             self_reverify_each_action: false,
             allow_2d_face_verify: false,
             operator: String::new(),
-            enable_night_operator_switch: false,
+            // 2026-09-20 起默认开启(存量旧默认 false 由 v6→v7 迁移刷为 true)
+            enable_night_operator_switch: true,
             night_operator_restore: String::new(),
             auto_login_on_start: true,
             enable_background_check: true,
@@ -135,12 +136,14 @@ impl Default for Settings {
             // 旧配置由 migrate_legacy_defaults 按 schema 版本一次性迁移)
             campus_check_end_minutes: 1380,
             // 每日定时登录/注销默认禁用(0=禁用)
-            scheduled_login_minutes: 0,
-            scheduled_logout_minutes: 0,
+            // 每日定时登录/注销默认禁用(2026-09-20 起禁用哨兵为 1440,0=真实的 00:00 时刻;
+            // 存量 0 由 v6→v7 迁移刷为 1440)
+            scheduled_login_minutes: 1440,
+            scheduled_logout_minutes: 1440,
             update_source: "mirror".to_string(),
             log_retention_days: 7,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
-            config_schema_version: 6,
+            config_schema_version: 7,
         }
     }
 }
@@ -264,6 +267,8 @@ pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, St
 /// 统一开箱即用,显式设过 0 的极少数会被误刷);落盘后不再二次覆盖。
 /// v5→v6(2026-09-20):质量测试间隔旧默认 60s→600s(后台留存优化),存量等于
 /// 旧默认的值一并刷为新默认;落盘后不再二次覆盖。
+/// v6→v7(2026-09-20):夜切开关旧默认 false→true(上线一天即改默认);定时登录/
+/// 注销禁用值 0→1440(0 变为真实的 00:00 时刻,禁用改用哨兵 1440)。
 /// 迁移结果(含版本号)落盘,此后用户主动改回不会再次覆盖;
 /// 落盘失败静默:下次读盘重迁,幂等。
 async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Settings) {
@@ -303,6 +308,19 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.latency_test_interval = 600_000;
         }
         s.config_schema_version = 6;
+        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+    }
+    if s.config_schema_version < 7 {
+        if !s.enable_night_operator_switch {
+            s.enable_night_operator_switch = true;
+        }
+        if s.scheduled_login_minutes == 0 {
+            s.scheduled_login_minutes = 1440;
+        }
+        if s.scheduled_logout_minutes == 0 {
+            s.scheduled_logout_minutes = 1440;
+        }
+        s.config_schema_version = 7;
         let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
     }
 }
@@ -522,7 +540,10 @@ mod tests {
         assert_eq!(s.background_check_interval, 60_000);
         assert_eq!(s.background_check_idle_interval, 300_000, "闲时巡检默认 5min");
         assert_eq!(s.latency_test_interval, 600_000, "质量间隔默认 600s(2026-09-20)");
-        assert_eq!(s.config_schema_version, 6, "新装即当前版本,不触发迁移");
+        assert_eq!(s.config_schema_version, 7, "新装即当前版本,不触发迁移");
+        assert!(s.enable_night_operator_switch, "夜切默认开启(2026-09-20)");
+        assert_eq!(s.scheduled_login_minutes, 1440, "定时动作默认禁用哨兵 1440");
+        assert_eq!(s.scheduled_logout_minutes, 1440);
         assert_eq!(s.campus_check_end_minutes, 1380, "检测时段终点默认 23:00");
         assert_eq!(s.max_disconnect_reconnect, 3);
         assert!(s.self_hello_enabled);
@@ -567,7 +588,10 @@ mod tests {
         assert_eq!(back.background_check_idle_interval, 300_000, "v4 迁移应补闲时间隔");
         assert_eq!(back.campus_check_end_minutes, 1380, "v5 迁移应刷检测时段终点旧默认 0→23:00");
         assert_eq!(back.latency_test_interval, 600_000, "v6 迁移应刷质量间隔旧默认 60s→600s");
-        assert_eq!(back.config_schema_version, 6);
+        assert!(back.enable_night_operator_switch, "v7 迁移应夜切换默认开");
+        assert_eq!(back.scheduled_login_minutes, 1440, "v7 迁移应把禁用值 0 刷为哨兵 1440");
+        assert_eq!(back.scheduled_logout_minutes, 1440);
+        assert_eq!(back.config_schema_version, 7);
         // 迁移已落盘:此后用户主动设回 15s/开质量检测是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.background_check_interval = 15_000;
@@ -593,7 +617,7 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 30_000, "非旧默认值不迁移");
-        assert_eq!(back.config_schema_version, 6);
+        assert_eq!(back.config_schema_version, 7);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -608,13 +632,14 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.latency_test_interval, 600_000, "v6 迁移应刷质量间隔旧默认");
-        assert_eq!(back.config_schema_version, 6);
+        assert_eq!(back.config_schema_version, 7);
         // 迁移已落盘:用户主动设回 60s 是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.latency_test_interval = 60_000;
         save_to(&dir, &bridge, &manual).await.unwrap();
         let back2 = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back2.latency_test_interval, 60_000, "迁移后用户主动设回 60s 不被覆盖");
+        assert_eq!(back2.config_schema_version, 7);
         // 用户显式设过的其他值(300s)迁移时保持不动
         let dir2 = tmp_dir("migrate-v6-keep");
         let mut custom = sample_settings();

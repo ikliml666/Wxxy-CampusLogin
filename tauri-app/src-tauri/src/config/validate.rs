@@ -152,12 +152,28 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         }
         config.config_version = 4;
     }
+    // v4→v5（2026-09-20）：夜切开关旧默认 false→true（上线一天即改默认，显式
+    // 设过 false 的极少数会被误刷，先例语义）；定时登录/注销禁用值 0→1440
+    // （0 变为真实的 00:00 时刻，禁用改用哨兵 1440）
+    if config.config_version < 5 {
+        if !config.enable_night_operator_switch {
+            config.enable_night_operator_switch = true;
+        }
+        if config.scheduled_login_minutes == 0 {
+            config.scheduled_login_minutes = 1440;
+        }
+        if config.scheduled_logout_minutes == 0 {
+            config.scheduled_logout_minutes = 1440;
+        }
+        config.config_version = 5;
+    }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
     config.campus_check_end_minutes = config.campus_check_end_minutes.min(1439);
     config.campus_exit_start_minutes = config.campus_exit_start_minutes.min(1439);
     config.campus_exit_end_minutes = config.campus_exit_end_minutes.min(1439);
-    config.scheduled_login_minutes = config.scheduled_login_minutes.min(1439);
-    config.scheduled_logout_minutes = config.scheduled_logout_minutes.min(1439);
+    // 定时动作禁用哨兵 1440（2026-09-20 起 0=真实的 00:00 时刻），clamp 放行
+    config.scheduled_login_minutes = config.scheduled_login_minutes.min(1440);
+    config.scheduled_logout_minutes = config.scheduled_logout_minutes.min(1440);
     Ok(config)
 }
 
@@ -541,7 +557,7 @@ mod tests {
         config.campus_check_start_minutes = 8; // 8 hours → 480 minutes
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_start_minutes, 480);
-        assert_eq!(result.config_version, 4);
+        assert_eq!(result.config_version, 5);
         assert_eq!(result.campus_check_end_minutes, 1380, "v1 旧配置 end=0 应随 v2→v3 迁移刷新");
     }
 
@@ -553,7 +569,7 @@ mod tests {
         config.campus_check_end_minutes = 0;
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_end_minutes, 1380);
-        assert_eq!(result.config_version, 4);
+        assert_eq!(result.config_version, 5);
         // 用户显式设过的非 0 值保持不动
         let mut custom = Config::default();
         custom.config_version = 2;
@@ -572,7 +588,7 @@ mod tests {
         let result = validate_config(config).unwrap();
         assert_eq!(result.background_check_interval, 60000);
         assert_eq!(result.latency_test_interval, 600000);
-        assert_eq!(result.config_version, 4);
+        assert_eq!(result.config_version, 5);
         // 用户显式设置的其他值不动
         let mut custom = Config::default();
         custom.config_version = 3;
@@ -593,19 +609,44 @@ mod tests {
         let result = validate_config(config).unwrap();
         assert!(result.auto_exit_after_login);
         assert!(result.auto_exit_on_online);
-        assert_eq!(result.config_version, 4);
+        assert_eq!(result.config_version, 5);
     }
 
     #[test]
-    fn validate_config_new_defaults_are_v4() {
+    fn validate_config_new_defaults_are_v5() {
         let config = Config::default();
-        assert_eq!(config.config_version, 4);
+        assert_eq!(config.config_version, 5);
         assert!(!config.auto_exit_after_login);
         assert!(!config.auto_exit_on_online);
         assert!(!config.minimize_to_tray);
         assert_eq!(config.background_check_interval, 60000);
         assert_eq!(config.latency_test_interval, 600000);
         assert!(config.lightweight_mode);
+        assert!(config.enable_night_operator_switch, "夜切默认开启(2026-09-20)");
+        assert_eq!(config.scheduled_login_minutes, 1440, "定时动作默认禁用哨兵 1440");
+        assert_eq!(config.scheduled_logout_minutes, 1440);
+    }
+
+    #[test]
+    fn 迁移_v4夜切换默认开_定时禁用值刷哨兵() {
+        let mut config = Config::default();
+        config.config_version = 4;
+        config.enable_night_operator_switch = false;
+        config.scheduled_login_minutes = 0;
+        config.scheduled_logout_minutes = 0;
+        let result = validate_config(config).unwrap();
+        assert!(result.enable_night_operator_switch, "v5 迁移夜切换默认开");
+        assert_eq!(result.scheduled_login_minutes, 1440);
+        assert_eq!(result.scheduled_logout_minutes, 1440);
+        assert_eq!(result.config_version, 5);
+        // 用户显式设过的其他值不动
+        let mut custom = Config::default();
+        custom.config_version = 4;
+        custom.enable_night_operator_switch = false;
+        custom.scheduled_login_minutes = 480;
+        let result = validate_config(custom).unwrap();
+        assert!(result.enable_night_operator_switch);
+        assert_eq!(result.scheduled_login_minutes, 480, "非禁用值不迁移");
     }
 
     #[test]
