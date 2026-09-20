@@ -476,13 +476,26 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                       </div>
                     </div>
                     {/* Input 组件对 time 类型自带 relative w-full 包装层,直接作 flex 子项会吃满剩余空间使选择器悬中,外包 shrink-0 容器约束为内容宽 */}
-                    <div className="flex shrink-0 items-center">
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Switch
+                        aria-label={t('monitor.scheduledLoginEnable')}
+                        checked={(config.scheduledLoginMinutes ?? 1440) < 1440}
+                        onCheckedChange={checked => {
+                          // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
+                          if (!checked) { onUpdateConfig({ scheduledLoginMinutes: 1440 }); return }
+                          const cur = config.scheduledLoginMinutes ?? 1440
+                          onUpdateConfig({ scheduledLoginMinutes: cur >= 1440 ? 480 : cur })
+                        }}
+                        className="shrink-0"
+                      />
                       <Input
                         id="scheduled-login-time"
                         type="time"
                         aria-label={t('monitor.scheduledLoginTime')}
+                        disabled={(config.scheduledLoginMinutes ?? 1440) >= 1440}
                         value={(() => {
-                          const m = config.scheduledLoginMinutes ?? 0
+                          const m = config.scheduledLoginMinutes ?? 1440
+                          if (m >= 1440) return ''
                           return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
                         })()}
                         onChange={e => {
@@ -506,13 +519,26 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLogoutTimeDesc')}</p>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center">
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Switch
+                        aria-label={t('monitor.scheduledLogoutEnable')}
+                        checked={(config.scheduledLogoutMinutes ?? 1440) < 1440}
+                        onCheckedChange={checked => {
+                          // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
+                          if (!checked) { onUpdateConfig({ scheduledLogoutMinutes: 1440 }); return }
+                          const cur = config.scheduledLogoutMinutes ?? 1440
+                          onUpdateConfig({ scheduledLogoutMinutes: cur >= 1440 ? 480 : cur })
+                        }}
+                        className="shrink-0"
+                      />
                       <Input
                         id="scheduled-logout-time"
                         type="time"
                         aria-label={t('monitor.scheduledLogoutTime')}
+                        disabled={(config.scheduledLogoutMinutes ?? 1440) >= 1440}
                         value={(() => {
-                          const m = config.scheduledLogoutMinutes ?? 0
+                          const m = config.scheduledLogoutMinutes ?? 1440
+                          if (m >= 1440) return ''
                           return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
                         })()}
                         onChange={e => {

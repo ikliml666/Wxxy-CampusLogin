@@ -22,7 +22,7 @@ export const DEFAULT_CONFIG: Config = {
   enableBackgroundCheck: true,
   backgroundCheckInterval: 60000,
   autoLoginOnPreparation: true,
-  enableNightOperatorSwitch: false,
+  enableNightOperatorSwitch: true,
   nightOperatorRestore: '',
   autoExitOnOnline: false,
   themeMode: 'dark',
@@ -47,12 +47,13 @@ export const DEFAULT_CONFIG: Config = {
   campusCheckStartMinutes: 460,
   // 2026-09-13 起 1380=23:00(旧默认 0=仅开始时间限制),存量配置由后端 config_version v2→v3 迁移一次性刷新
   campusCheckEndMinutes: 1380,
-  scheduledLoginMinutes: 0,
-  scheduledLogoutMinutes: 0,
+  // 2026-09-20 起禁用哨兵 1440(0=真实的 00:00 时刻)
+  scheduledLoginMinutes: 1440,
+  scheduledLogoutMinutes: 1440,
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
-  configVersion: 4,
+  configVersion: 5,
 }
 
 export const ISP_OPTIONS = [

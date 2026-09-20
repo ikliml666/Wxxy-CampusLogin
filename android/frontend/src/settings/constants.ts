@@ -11,7 +11,7 @@ export const DEFAULT_CONFIG: Config = {
   selfReverifyEachAction: false,
   allow2dFaceVerify: false,
   operator: '',
-  enableNightOperatorSwitch: false,
+  enableNightOperatorSwitch: true,
   nightOperatorRestore: '',
   adapter1: AUTO_DETECT_ADAPTER,
   adapter2: '',
@@ -50,13 +50,14 @@ export const DEFAULT_CONFIG: Config = {
   campusCheckStartMinutes: 460,
   // 2026-09-13 起 1380=23:00(旧默认 0=仅开始时间限制),存量配置由 v4→v5 schema 迁移一次性刷新
   campusCheckEndMinutes: 1380,
-  scheduledLoginMinutes: 0,
-  scheduledLogoutMinutes: 0,
+  // 2026-09-20 起禁用哨兵 1440(0=真实的 00:00 时刻)
+  scheduledLoginMinutes: 1440,
+  scheduledLogoutMinutes: 1440,
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
   // 对齐后端 config_schema_version(2026-09-20 v5→v6:质量间隔 60s→600s 迁移)
-  configVersion: 6,
+  configVersion: 7,
 }
 
 export const ISP_OPTIONS = [
