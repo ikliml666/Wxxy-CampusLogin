@@ -1,6 +1,6 @@
 //! 晚间断网自动切换运营商的命中判定（纯函数，跨平台可见面）。
 //!
-//! 校园网运营商服务在周日晚/周一晚 23:00、周五晚/周六晚 23:30 下线，届时需把
+//! 校园网运营商服务在周日至周四晚 23:00、周五晚/周六晚 23:30 下线，届时需把
 //! 登录运营商切至"无锡学院"（operator = 空串）才能继续上网，次日早晨再切回。
 //! 判定与"谁调用、状态存哪"完全解耦：切换态由配置自身承载
 //! （`night_operator_restore` 非空 + `operator` 为空 = 当前处于无锡学院切换态），
@@ -21,11 +21,11 @@ pub enum NightSwitchAction {
     Restore,
 }
 
-/// 当日切换时刻：weekday 0=周日 … 6=周六；周日/周一 1380（23:00），
-/// 周五/周六 1410（23:30），其余日运营商服务不下线、无切换时刻
+/// 当日切换时刻：weekday 0=周日 … 6=周六；周日~周四 1380（23:00），
+/// 周五/周六 1410（23:30）（2026-09-20 需求方更正：周日至周四运营商 23:00 断网）
 fn switch_time_for(weekday: u32) -> Option<u32> {
     match weekday {
-        0 | 1 => Some(1380),
+        0..=4 => Some(1380),
         5 | 6 => Some(1410),
         _ => None,
     }
@@ -133,14 +133,16 @@ mod tests {
     }
 
     #[test]
-    fn 周一1380与周五周六1410命中_周二不切换() {
+    fn 周日至周四1380与周五周六1410命中() {
+        assert_eq!(eval(true, 0, 1380, TELECOM, ""), SwitchToCampus);
         assert_eq!(eval(true, 1, 1380, TELECOM, ""), SwitchToCampus);
+        assert_eq!(eval(true, 2, 1380, TELECOM, ""), SwitchToCampus);
+        assert_eq!(eval(true, 3, 1380, TELECOM, ""), SwitchToCampus);
+        assert_eq!(eval(true, 4, 1380, TELECOM, ""), SwitchToCampus);
         assert_eq!(eval(true, 5, 1410, TELECOM, ""), SwitchToCampus);
         assert_eq!(eval(true, 6, 1410, TELECOM, ""), SwitchToCampus);
-        // 周二~周四无切换时刻
-        assert_eq!(eval(true, 2, 1380, TELECOM, ""), None);
-        assert_eq!(eval(true, 3, 1439, TELECOM, ""), None);
-        assert_eq!(eval(true, 4, 1439, TELECOM, ""), None);
+        // 周五 1410 之前不触发
+        assert_eq!(eval(true, 5, 1399, TELECOM, ""), None);
     }
 
     #[test]
