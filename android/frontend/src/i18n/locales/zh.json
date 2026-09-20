@@ -125,7 +125,7 @@
     "autoLoginCampus": "自动登录校园网",
     "autoLoginCampusDesc": "程序启动后自动执行认证登录",
     "nightOperatorSwitch": "晚间断网自动切换",
-    "nightOperatorSwitchDesc": "周日、周一 23:00 与周五、周六 23:30 运营商断网时自动切至无锡学院，次日 6:30 起自动切回；需保持应用在后台运行",
+    "nightOperatorSwitchDesc": "周日至周四 23:00 与周五、周六 23:30 运营商断网时自动切至无锡学院，次日 6:30 起自动切回；需保持应用在后台运行",
     "autoExitAfterLogin": "登录成功后退出",
     "autoExitAfterLoginDesc": "认证通过后自动关闭本程序",
     "deleteAccountTitle": "删除账号",
