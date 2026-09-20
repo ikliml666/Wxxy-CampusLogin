@@ -471,7 +471,10 @@ async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bool, String>
     let mut file = tokio::fs::File::open(path).await.map_err(|e| format!("读取下载文件失败: {e}"))?;
     use tokio::io::AsyncReadExt;
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 65536];
+    // 必须堆分配(vec)而非栈数组:本函数是 async fn,[0u8; 65536] 会被并入 future
+    // 状态机,而 tauri 在 WebView 的 JavaBridge 线程(栈小)上构造该 future——
+    // 真机实测一进 download_update 即栈溢出闪退(SIGSEGV, 2026-09-20 tombstone)
+    let mut buf = vec![0u8; 65536];
     loop {
         let n = file.read(&mut buf).await.map_err(|e| format!("读取下载文件失败: {e}"))?;
         if n == 0 {
