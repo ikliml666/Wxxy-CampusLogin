@@ -221,6 +221,16 @@ struct EncodedSettings {
 
 **安卓（返回值驱动）**：`save_config` 返回 `Result<(), String>`（`config_state.rs:311-338`），不发事件；账号三命令返回 `AccountResult { success, message, activeAccount, config }`（`account_cmds.rs:25-47`），`config` 为 `masked_for_display` 后的 JSON（`:111`）——前端拿返回值直接替换本地配置。
 
+## 2026-09-20 增补：默认值调整、`lightweight_mode` 与 v3→v4 / v5→v6 迁移
+
+后台留存优化（[[lightweight-mode-desktop]]、[[android-exit-guard-renderer-policy]]）带来的配置面变化：
+
+- 桌面 `Config` 新增 `lightweight_mode`（JSON `lightweightMode`，字段级 `default = "default_true"`，**默认 true**，桌面独有；安卓 Settings 无此字段）。
+- 桌面 `Default for Config`：`auto_exit_after_login`/`auto_exit_on_online` true→false（存量显式值**不迁移**，`validate_config_migrates_v3_intervals_to_v4` 之外的开关测试 `validate_config_preserves_explicit_auto_exit_flags`）、`background_check_interval` 15000→60000、`latency_test_interval` 60000→600000、`config_version` 3→4。
+- 桌面 v3→v4 迁移（`validate.rs`）：仅刷新**等于旧默认**的值（==15000→60000、==60000→600000），用户显式设置的其他值不动。
+- 安卓 v5→v6 迁移（`config_state.rs::migrate_legacy_defaults`）：`latency_test_interval == 60_000` → `600_000`、版本置 6（`Default` 同步 600_000/6）；新增回归测试 `迁移_v5质量间隔旧默认刷v6且用户值不被覆盖`。
+- 两端前端 `DEFAULT_CONFIG` 同步（`configVersion`/`configSchemaVersion` 对应段 4/6）；安卓前端幽灵常量 `autoExitAfterLogin`/`autoExitOnOnline` 对齐为 false（后端 Settings 本无此字段）。
+
 ## 关键约束
 
 - **新增配置字段必须同时改 5 处**：桌面 `config/model.rs` 字段 + `Default for Config`；安卓 `config_state.rs` 字段 + `Default for Settings`；两端前端 `settings/types.ts` + `settings/constants.ts` 的 `DEFAULT_CONFIG`。漏掉 `Default` 会让旧配置文件反序列化出 `false`/`0` 而非业务默认值。

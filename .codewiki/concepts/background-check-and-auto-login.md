@@ -108,6 +108,13 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 
 **质量循环与告警**：`spawn_latency_test_loop`（`latency.rs:52-102`）用 `MissedTickBehavior::Delay`（`:59`），ready 前每 2s 短重试不消耗周期（`:79-90`），检测前固定等 1s（`:92-95`）；档位变化只在 `good → poor/bad` 或反向时告警（`latency.rs:16-36`，`BAD_LEVELS = ["poor","bad"]`），并经 `quality_scheduler` 复核。
 
+## 2026-09-20 增补：轻量化间隔延长与动态重读
+
+- **轻量化系数**：桌面 `app/lightweight.rs` 提供纯函数 `effective_background_interval_ms`（轻量化下限 300s）与 `effective_quality_interval_ms`（下限 1800s），语义为 `max(配置值, 下限)`——用户显式设过更大值则保持更大值。后台检测循环每拍读取（`background_task.rs`，本就动态重读）；轻量化标志是内存态 `LIGHTWEIGHT_ACTIVE`，进出由窗口销毁/重建驱动。
+- **质量循环动态重读（既有缺陷修复）**：桌面 `spawn_latency_test_loop` 从"spawn 时固定 interval"改为每轮重读配置 + 轻量化系数、按需重建计时器（吞掉重建后立即到期的首 tick 防连发），设置页改质量间隔不再需要重启。调用点 `watcher.rs` 与 `commands/network_cmd.rs::start_latency_test` 已去参。
+- **安卓稳态退避**：`quality_cmds.rs::latency_loop` 连续 5 拍 quality ∈ {excellent, great, good} 间隔翻倍、封顶 1800s；fair/poor/bad/unknown/busy 任一拍即恢复基础间隔（纯函数 `next_backoff_interval_ms`，常量 `GOOD_LEVELS`/`BACKOFF_STABLE_STREAK`/`BACKOFF_MAX_MS`）。见 [[android-exit-guard-renderer-policy]]。
+- 夜切 30s 循环不受影响（纯本地时钟判定，零网络开销）。
+
 ## 关键约束
 
 - **单飞保护**：`tasks.is_checking.try_acquire()`（`background_check.rs:18`）保证同一时刻只有一拍在跑；`trigger_background_check` 也先查 `is_checking.is_active()`（`commands/background.rs:30-32`）。

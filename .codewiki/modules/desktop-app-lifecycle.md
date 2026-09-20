@@ -361,6 +361,17 @@ attempt_webview_recovery (webview_recovery.rs:58)
 - [[desktop-frontend-hooks]]：前端侧的对应实现是 `useHeartbeat.ts`（心跳）、`tauriApi.ts:153-219`（事件监听与 `render_heartbeat` 调用）。
 - [[desktop-frontend-shared]]：托盘快速登录路径不经过前端，但结果通过 `auto-login-result` 事件（`tauriApi.ts:154`）回到前端。
 
+## 2026-09-20 增补：轻量化模式（关闭/守卫/重建/EcoQoS）
+
+详细决策见 [[lightweight-mode-desktop]]，此处只记结构位置：
+
+- **关闭三分支**（`app/shutdown.rs::handle_window_close_event`）：`lightweight_mode=true` → 记几何 + 置单次守卫 + `set_lightweight_active(true)` + `set_ecoqos(true)`，**不 prevent_close** 让窗口真销毁（WebView2 进程组退出）；否则按 `minimize_to_tray`（hide）或 `graceful_exit`（既有逻辑不变）。
+- **退出守卫**（`app/startup.rs`）：run 改 `build()` + `app.run(callback)` 两段式，`RunEvent::ExitRequested` 中 `should_prevent_exit(expecting, is_quitting)` 判定（单次守卫由 `app/lightweight.rs` 的 `arm/take_lightweight_exit_guard` 管理），仅拦截轻量化关闭导致的隐式退出；托盘"退出"与系统关机不拦。
+- **重建入口**（`app/window.rs::show_or_rebuild_main`，接 `&AppHandle`——`available_monitors` 是 AppHandle 固有方法）：窗口在则 show，不在则 `rebuild_main_window`：`WebviewWindowBuilder::from_config` 复刻 tauri.conf.json 窗口配置 + 几何恢复（离屏校验回退居中）+ `.visible(false)` + ready 门（新命令 `notify_window_ready` → `signal_window_ready`，500ms 轮询 5s 超时兜底 `show()`）；重建成功清轻量化标志并关 EcoQoS。接线五处：托盘 show 菜单（tray.rs:124）、托盘左键（:217）、single_instance 主路径与 2s 延迟分支（startup.rs:38/45）、`show_window` 命令（config_cmd.rs:202）。
+- **EcoQoS**（`platform/ecoqos.rs::set_ecoqos`，`#[cfg(desktop)]` 挂载、非 Windows 空实现）：`SetProcessInformation(ProcessPowerThrottling)` 三态写法，仅轻量化期间开启（WebView2 子进程继承宿主节流状态）；不叠 IDLE 优先级、不设 `IGNORE_TIMER_RESOLUTION`。
+- **运行态**（`app/lightweight.rs`，全部内存态）：`LIGHTWEIGHT_ACTIVE` / `EXPECT_LIGHTWEIGHT_EXIT` / 几何缓存 / ready 信号表 / 两个间隔系数纯函数。
+- 心跳线程对"窗口不存在"空转安全；`window_safety` 兜底线程仅在启动后 9s 内活动，与运行期销毁/重建无冲突。
+
 ## Known Issues
 
 1. **二进制与 lib 各编译一份模块树**：`main.rs:3-14` 用 `mod` 自行声明 12 个模块，`lib.rs:2-20` 另声明一份；`main.rs` 不通过 `campus_login_lib::` 复用。后果是同一份源码被编译两遍（构建时间翻倍），且 `#[macro_export]` 宏在 bin 与 lib 各有一份实例（`crate::log_info!` 与 `campus_login_lib::log_info!` 是不同实例）。改动公共模块时两端都会重新编译，无法只改一端。
