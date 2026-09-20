@@ -89,8 +89,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
   const [intervalDraft, setIntervalDraft] = useState<string | null>(null)
   // 文本输入本地草稿：blur/Enter 时一次性提交，
   // 避免每键写 store 触发级联渲染与防抖保存（与 intervalDraft 同模式）
-  const [networkNameDraft, setNetworkNameDraft] = useState<string | null>(null)
-  const [campusGatewayDraft, setCampusGatewayDraft] = useState<string | null>(null)
   const [isRefreshing, handleTriggerCheck] = useAsyncLock(async () => {
     await onTriggerCheck()
   }, 2000)
@@ -106,22 +104,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
       onUpdateConfig({ backgroundCheckInterval: v * 1000 })
     }
     setIntervalDraft(null)
-  }
-
-  const commitNetworkName = () => {
-    if (networkNameDraft === null) return
-    if (networkNameDraft !== (config.requiredNetworkName || '')) {
-      onUpdateConfig({ requiredNetworkName: networkNameDraft })
-    }
-    setNetworkNameDraft(null)
-  }
-
-  const commitCampusGateway = () => {
-    if (campusGatewayDraft === null) return
-    if (campusGatewayDraft !== (config.campusGateway || '')) {
-      onUpdateConfig({ campusGateway: campusGatewayDraft })
-    }
-    setCampusGatewayDraft(null)
   }
 
   return (
@@ -332,34 +314,18 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 <div className="space-y-3 ml-10">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium text-muted-foreground">{t('monitor.campusNetworkName')}</Label>
-                    <Input
-                      type="text"
-                      placeholder={t('monitor.campusNetworkNamePlaceholder')}
-                      value={networkNameDraft ?? (config.requiredNetworkName || '')}
-                      onChange={e => setNetworkNameDraft(e.target.value)}
-                      onBlur={commitNetworkName}
-                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      className="h-8 text-sm"
-                    />
+                    {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
+                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
+                      {config.requiredNetworkName || 'i-wxxy'}
+                    </div>
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusNetworkNameTip')}</p>
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium text-muted-foreground">{t('monitor.campusGateway')}</Label>
-                    <Input
-                      type="text"
-                      placeholder={t('monitor.campusGatewayPlaceholder')}
-                      value={campusGatewayDraft ?? (config.campusGateway || '')}
-                      onChange={e => {
-                        const v = e.target.value
-                        // 格式校验保持原语义：仅合法输入进入草稿（store 中永远不会有非法值）
-                        if (!v || /^(\d{1,3}\.){0,3}\d{0,3}$/.test(v)) {
-                          setCampusGatewayDraft(v)
-                        }
-                      }}
-                      onBlur={commitCampusGateway}
-                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                      className="h-8 text-sm"
-                    />
+                    {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
+                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
+                      {config.campusGateway || '10.2.127.254'}
+                    </div>
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusGatewayTip')}</p>
                   </div>
                   {!isAndroid && (

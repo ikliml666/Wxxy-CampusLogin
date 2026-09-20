@@ -78,7 +78,6 @@ export const SettingsPanel = memo(function SettingsPanel({
   }, [])
   // 固定网关文本输入本地草稿：blur/Enter 时一次性提交，
   // 避免每键写 store 触发级联渲染与防抖保存
-  const [fixedGatewayDraft, setFixedGatewayDraft] = useState<string | null>(null)
 
   const storeCustomColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
   const customColor = colorDraft ?? storeCustomColor
@@ -109,13 +108,6 @@ export const SettingsPanel = memo(function SettingsPanel({
     onUpdateConfig({ customThemeColor: c })
   }
 
-  const commitFixedGateway = () => {
-    if (fixedGatewayDraft === null) return
-    if (fixedGatewayDraft !== (config.fixedGateway || '')) {
-      onUpdateConfig({ fixedGateway: fixedGatewayDraft })
-    }
-    setFixedGatewayDraft(null)
-  }
 
   // 关闭安全开关（安全 → 宽松方向）必须先通过 Windows Hello 验证，
   // 防止绕过界面直接关闭保护；验证失败保持原状态（Switch 受控自动回弹）
@@ -655,24 +647,10 @@ export const SettingsPanel = memo(function SettingsPanel({
                 <p className="text-[11px] text-muted-foreground">{t('settings.fixedGatewayDesc')}</p>
               </div>
               <div className="flex items-center gap-2">
-                <input
-                  id="fixed-gateway"
-                  type="text"
-                  placeholder={t('settings.fixedGatewayPlaceholder')}
-                  value={fixedGatewayDraft ?? (config.fixedGateway || '')}
-                  onChange={e => setFixedGatewayDraft(e.target.value)}
-                  onBlur={commitFixedGateway}
-                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                  className="flex-1 h-8 px-3 text-sm bg-muted/50 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
-                />
-                {config.fixedGateway && (
-                  <button
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2"
-                    onClick={() => onUpdateConfig({ fixedGateway: '' })}
-                  >
-                    {t('settings.clear')}
-                  </button>
-                )}
+                {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
+                <div className="flex-1 h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
+                  {config.fixedGateway || '10.2.127.254'}
+                </div>
               </div>
             </div>
           </CardContent>
