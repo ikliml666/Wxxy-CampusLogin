@@ -124,10 +124,25 @@ pub fn run(core_count: usize) {
             crate::infra::logger::get_debug_mode,
         ]);
 
-    app.run(tauri::generate_context!()).unwrap_or_else(|e| {
-        crate::log_error!("startup", "TAURI 运行错误: {}", e);
+    let app = app.build(tauri::generate_context!()).unwrap_or_else(|e| {
+        crate::log_error!("startup", "TAURI 构建错误: {}", e);
         crate::infra::logger::flush();
         std::process::exit(1);
+    });
+    app.run(|_app, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            // 仅拦截「轻量化关闭导致最后一个窗口销毁」的隐式退出：
+            // 托盘退出（graceful_exit，is_quitting=true）与系统关机不拦截
+            let expecting = crate::app::lightweight::take_lightweight_exit_guard();
+            let is_quitting = _app
+                .try_state::<crate::infra::state::AppState>()
+                .map(|s| s.exit.is_quitting.load(std::sync::atomic::Ordering::Acquire))
+                .unwrap_or(false);
+            if crate::app::lightweight::should_prevent_exit(expecting, is_quitting) {
+                api.prevent_exit();
+                crate::log_info!("lightweight", "已拦截最后一个窗口销毁触发的进程退出，轻量化常驻");
+            }
+        }
     });
 }
 

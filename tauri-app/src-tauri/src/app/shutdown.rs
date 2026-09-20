@@ -15,14 +15,30 @@ pub fn graceful_exit(app_handle: &AppHandle, _state: &AppState) {
 
 /// 窗口关闭事件处理
 ///
-/// 根据配置决定是最小化到托盘还是执行优雅退出。
+/// 三分支：轻量化开启 → 放行销毁（WebView2 进程组退出，仅留后端与托盘）；
+/// minimize_to_tray → 隐藏；否则优雅退出。
 pub fn handle_window_close_event(window: &Window, event: &WindowEvent) {
     let WindowEvent::CloseRequested { api, .. } = event else {
         return;
     };
 
     let s = CommandContext::from_app(window.app_handle());
-    let minimize_to_tray = s.config.load().minimize_to_tray;
+    let config = s.config.load();
+    if config.lightweight_mode {
+        // 轻量化：记录几何 → 置单次退出守卫 → 开效率模式与轻量化标志 →
+        // 不 prevent_close，让 Tauri 真销毁窗口。窗口销毁成为最后一个窗口时
+        // Tauri 发 ExitRequested，由 startup.rs 的 run 回调消费守卫拦截退出
+        if let Some(ww) = window.app_handle().get_webview_window("main") {
+            crate::app::lightweight::capture_geometry(&ww);
+        }
+        crate::app::lightweight::arm_lightweight_exit_guard();
+        crate::app::lightweight::set_lightweight_active(true);
+        #[cfg(windows)]
+        crate::platform::ecoqos::set_ecoqos(true);
+        crate::log_info!("lightweight", "关闭窗口进入轻量化模式：界面已销毁，后端与托盘常驻");
+        return;
+    }
+    let minimize_to_tray = config.minimize_to_tray;
     if minimize_to_tray {
         api.prevent_close();
         if let Some(ww) = window.app_handle().get_webview_window("main") {
