@@ -139,7 +139,7 @@ pub fn enable_device(instance_id: &str, allow_uac_prompt: bool) -> Result<(), St
             Ok(()) => {}
             Err(com_err) => {
                 if !allow_uac_prompt {
-                    return Err(format!("COM静默提权pnputil失败(自动路径不弹UAC): {com_err}"));
+                    return Err(format!("COM静默提权pnputil失败(首试不弹UAC，重试将降级): {com_err}"));
                 }
                 crate::platform::elevation::run_elevated("pnputil", &pnputil_args)
                     .map_err(|e| format!("提权 pnputil 失败: COM={com_err}; UAC={e}"))?;

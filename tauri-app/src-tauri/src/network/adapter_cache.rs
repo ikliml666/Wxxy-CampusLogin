@@ -129,8 +129,9 @@ pub fn validate_adapter_name(name: &str) -> Result<(), String> {
 /// 启用指定适配器（netsh + 提权）。
 ///
 /// `allow_uac_prompt`：非管理员且 COM 静默提权失败时是否允许降级弹 UAC。
-/// 手动按钮路径传 true（保持可弹 UAC 的原行为）；监控循环自动启用路径传 false
-/// （后台静默执行，绝不弹窗，失败交给退避重试）。
+/// 手动按钮路径传 true；监控循环自动启用路径按失败计数决定——首试传 false
+/// （兼容 CMSTPLUA 可用的环境，零打扰），重试传 true（CMSTPLUA 已被系统封堵时
+/// 弹 UAC 是唯一恢复通道），弹窗频率由调用方的退避阶梯限制。
 #[cfg(desktop)]
 pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), String> {
     validate_adapter_name(adapter_name)?;
@@ -180,7 +181,7 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
             Err(com_err) => {
                 // 自动启用路径禁止弹 UAC：COM 静默提权失败即返回，由监控循环退避重试兜底
                 if !allow_uac_prompt {
-                    return Err(format!("COM静默提权启用失败(自动路径不弹UAC): {com_err}"));
+                    return Err(format!("COM静默提权启用失败(首试不弹UAC，重试将降级): {com_err}"));
                 }
                 // COM 失败：降级 ShellExecuteW runas（会弹 UAC）
                 crate::log_warn!("adapter", "COM ShellExec 失败: {}，降级到 ShellExecuteW runas", com_err);

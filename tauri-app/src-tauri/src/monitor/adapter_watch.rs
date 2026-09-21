@@ -155,7 +155,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
 
                 // 自动启用：用户手选的具体适配器被禁用时，静默尝试启用以恢复登录。
                 // "自动检测"模式不参与（configured_disabled_adapters 已过滤空串与哨兵）。
-                // 提权路径不弹 UAC（enable_adapter(…, false)），失败按退避阶梯重试。
+                // 首次静默（不弹 UAC）；失败后允许降级弹 UAC，频率由退避阶梯限制。
                 {
                     let s = app_h.state::<AppState>();
                     let c = s.config.load();
@@ -176,13 +176,18 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                         if now_ms.saturating_sub(stats.auto_enable_last_attempt_ms.load(Ordering::Relaxed)) >= backoff {
                             // 先记录尝试时间再执行，失败退避以本时刻为基准
                             stats.auto_enable_last_attempt_ms.store(now_ms, Ordering::Relaxed);
+                            // 提权降级策略：首次尝试保持静默（兼容 CMSTPLUA 静默提权可用的环境，
+                            // 零打扰）；失败计数 ≥1 后允许弹 UAC 降级——CMSTPLUA 已被系统封堵的
+                            // 环境（0x80080017「未将类配置为支持提升的激活」）下静默提权不可得，
+                            // 弹 UAC 是自动启用唯一的恢复通道，频率由退避阶梯限制（≥60s，300s 封顶）
+                            let allow_uac = stats.auto_enable_failure_count.load(Ordering::Relaxed) > 0;
                             for da in targets {
                                 let name = da.name.clone();
                                 crate::log_info!("adapter_watch", "检测到手选适配器 {} 被禁用，尝试自动启用", name);
                                 // netsh + 提权为阻塞调用，包进 spawn_blocking 不进 async 上下文
                                 let app_h_enable = app_h.clone();
                                 tauri::async_runtime::spawn_blocking(move || {
-                                    match crate::network::adapter_cache::enable_adapter(&name, false) {
+                                    match crate::network::adapter_cache::enable_adapter(&name, allow_uac) {
                                         Ok(()) => {
                                             crate::log_info!("adapter_watch", "自动启用适配器成功: {}", name);
                                             let s = app_h_enable.state::<AppState>();
