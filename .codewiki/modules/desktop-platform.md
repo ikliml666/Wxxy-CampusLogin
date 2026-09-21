@@ -113,10 +113,10 @@ tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 | `platform/elevation.rs:52-123` | `shell_exec_elevated` | `pub fn(file: &str, params: &str, hide_window: bool) -> Result<(), String>`：COM 静默提权主路径 | `#[cfg(target_os = "windows")]` |
 | `platform/elevation.rs:125-143` | `co_get_object_raw` | `unsafe fn(pszname, pbindoptions, riid, ppv) -> i32`（私有；`#[link(name = "ole32")]` 手写 `CoGetObject` 绑定） | `#[cfg(target_os = "windows")]` |
 | `platform/elevation.rs:145-165` | `parse_guid` | `pub(crate) fn(s: &str) -> Result<windows::core::GUID, String>`：解析带/不带花括号的 GUID，供 `dns_config.rs:111`、`dns_config.rs:253` 使用 | `#[cfg(target_os = "windows")]` |
-| `platform/elevation.rs:167-174` | `struct ICMLuaUtilVtbl` | `#[repr(C)]` 手工 vtable：`_query_interface`、`_add_ref`、`release`、`set_call_state`、`shell_exec`（私有） | 无 cfg |
-| `platform/elevation.rs:176-193` | `mod tests` | `vtbl_shell_exec_slot_is_4`（182-186，用 `offset_of!` 断言 slot 4）、`vtbl_set_call_state_slot_is_3`（188-192） | `#[cfg(test)]` |
+| `platform/elevation.rs` | `struct ICMLuaUtilVtbl` | `#[repr(C)]` 手工 vtable：`_query_interface`、`_add_ref`、`release`、`_slots_3_to_8`（SetRasCredentials~CreateLayerDirectory 六个真实方法占位）、`shell_exec`（slot 9，私有） | 无 cfg |
+| `platform/elevation.rs` | `mod tests` | `vtbl_shell_exec_slot_is_9`（`offset_of!` 断言 ShellExec 在 slot 9，UACMe elvint.h 权威布局）、`shell_exec_elevated_smoke`（`#[ignore]` 真实提权冒烟，本机手动 `cargo test -- --ignored`） | `#[cfg(test)]` |
 
-COM 提权链细节（`shell_exec_elevated`）：`CoInitializeEx(COINIT_APARTMENTTHREADED)`（65，按成功与否决定是否配对 `CoUninitialize`）→ moniker `Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}`（67）→ IID `{6EDD6D74-C007-4E75-B76A-E5740995E24C}`（70-72）→ `CoGetObject`（79-84）→ 取 vtable 调 `shell_exec(file, params, NULL, 0, n_show)`（99-106）→ `release`（108）→ 每个失败路径都配对 `CoUninitialize`（86-91、110-115、117-119）。
+COM 提权链细节（`shell_exec_elevated`）：`CoInitializeEx(COINIT_APARTMENTTHREADED)`（按成功与否决定是否配对 `CoUninitialize`）→ moniker `Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}` → IID `{6EDD6D74-C007-4E75-B76A-E5740995E24C}` → **`BIND_OPTS3{cbStruct=sizeof(BIND_OPTS3)（x64 48）, dwClassContext=CLSCTX_LOCAL_SERVER}`**（历史缺陷曾传 `BIND_OPTS` 16 字节，被 appinfo 判 0x80080017 拒绝，静默提权从未通过）→ `CoGetObject` → 取 vtable 调 `shell_exec(file, params, NULL, 0, n_show)`（ShellExec 真实 slot 9）→ `release` → 每个失败路径都配对 `CoUninitialize`。详见 `learnings/cmstplua-elevation-bind-opts3-and-vtable-slot`。
 
 ### gpu.rs — 硬件探测与 WebView2 参数
 

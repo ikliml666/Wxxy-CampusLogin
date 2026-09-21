@@ -58,6 +58,7 @@
 ## Learning
 
 - [[learnings\android-boot-autostart-notification-only|Android 10+ 开机自启只有通知没有界面]]
+- [[learnings\cmstplua-elevation-bind-opts3-and-vtable-slot|CMSTPLUA 静默提权从未通过——BIND_OPTS 传小与 vtable slot 错位的叠加]]
 - [[learnings\css-comma-selector-shared-body-pitfall|CSS 逗号选择器列表共享规则体（.anim-idle .animate-pulse 被 .scrollbar-none 吃掉）]]
 - [[learnings\cargo-lock-manual-bump-collateral-sed|Cargo.lock 手动升版：全文件 sed 误伤同版本第三方包，且 .lock 不被 --include=*.toml 匹配]]
 - [[learnings\windows-hello-gate-module-singleton|Hello 门是模块级单例，跨面板与向导共享一份时间戳]]

