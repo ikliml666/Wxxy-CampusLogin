@@ -14,6 +14,7 @@
 - [[decisions\release-asset-integrity|Release 资产完整性（安装包与 .sha256 同传、镜像 URL 原样拼接）]]
 - [[decisions\android-vpn-bypass-infeasible|VPN 旁路定调:Network API 层不可绕(netd EPERM),走内核 SO_BINDTODEVICE + 探针回退]]
 - [[decisions\webview2-args-minimal|WebView2 浏览器参数精简到单参数并恢复 vsync]]
+- [[decisions\windows-task-proxy-elevation|Windows 提权通道定稿——计划任务代理为首选层，CMSTPLUA 降为兜底]]
 - [[decisions\bin-lib-dual-module-tree|bin 与 lib 是两棵独立模块树，新增顶层模块必须两处声明]]
 - [[decisions\adapter-account-binding|主/副适配器各自指定账号登录（凭据副本方案）]]
 - [[decisions\remove-auth-layer-traits|删除 auth 层 trait 抽象（AdapterResolver/PortalChecker/ProtocolClient）]]

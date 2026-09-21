@@ -15,6 +15,9 @@ pub mod elevation;
 pub mod gpu;
 #[cfg(desktop)]
 pub mod helper_spawn;
+// 计划任务提权代理（SYSTEM 主体哑任务 + 请求文件协议）：提权通道的首选层
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod task_proxy;
 #[cfg(desktop)]
 pub mod identity;
 // RTSS(MSI Afterburner) hook 注入致 WebView 白屏崩溃的预防(写排除 profile)

@@ -300,7 +300,7 @@ pub async fn setup_dns_doh(app_handle: tauri::AppHandle, family: Option<String>)
             }
 
             crate::log_info!("dns", "非管理员运行，通过 --helper 提权设置DNS+DoH");
-            let result_path = crate::platform::helper_spawn::unique_result_path();
+            let result_name = crate::platform::helper_spawn::new_result_name();
             let mut arg_refs: Vec<String> = targets.clone();
             arg_refs.push("--family".to_string());
             arg_refs.push(family);
@@ -308,8 +308,9 @@ pub async fn setup_dns_doh(app_handle: tauri::AppHandle, family: Option<String>)
             match crate::platform::helper_spawn::spawn_elevated_helper(
                 "dns",
                 &arg_strs,
-                &result_path,
+                &result_name,
                 std::time::Duration::from_secs(30),
+                true,
             ) {
                 Ok(v) => {
                     // 把 helper details（完整 DNS 设置明细 dnsSuccess/dnsFailed/dohAdded/dohFailed）
@@ -392,13 +393,14 @@ pub async fn reset_dns(app_handle: tauri::AppHandle) -> Result<CommandResult, St
 
             // 非管理员：与 setup_dns_doh 同一提权路径（--helper clear_dns），UAC 取消/超时给出明确失败提示
             crate::log_info!("dns", "非管理员运行，通过 --helper 提权恢复DNS自动获取");
-            let result_path = crate::platform::helper_spawn::unique_result_path();
+            let result_name = crate::platform::helper_spawn::new_result_name();
             let guid_strs: Vec<&str> = targets.iter().map(|a| a.guid.as_str()).collect();
             match crate::platform::helper_spawn::spawn_elevated_helper(
                 "clear_dns",
                 &guid_strs,
-                &result_path,
+                &result_name,
                 std::time::Duration::from_secs(30),
+                true,
             ) {
                 Ok(v) => {
                     let success = v.get("success").and_then(|s| s.as_bool()).unwrap_or(false);

@@ -285,13 +285,14 @@ fn try_modify_mac(adapter: &Adapter, fake_mac: &str, _mac_dashed: &str) -> (bool
         }
     } else {
         crate::log_info!("adapter", "非管理员运行，通过 --helper 提权修改MAC: guid={}", adapter.guid);
-        let result_path = crate::platform::helper_spawn::unique_result_path();
+        let result_name = crate::platform::helper_spawn::new_result_name();
         let args = [adapter.guid.as_str(), fake_mac];
         match crate::platform::helper_spawn::spawn_elevated_helper(
             "mac",
             &args,
-            &result_path,
+            &result_name,
             std::time::Duration::from_secs(25),
+            true,
         ) {
             Ok(v) => {
                 let success = v.get("success").and_then(|s| s.as_bool()).unwrap_or(false);

@@ -121,7 +121,7 @@ pub fn get_adapter_details_cached() -> Result<Vec<AdapterDetail>, String> {
 pub fn validate_adapter_name(name: &str) -> Result<(), String> {
     if name.is_empty() { return Err("适配器名称不能为空".to_string()); }
     if name.len() > 128 { return Err("适配器名称过长".to_string()); }
-    const FORBIDDEN: &[char] = &['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '\n', '\r', '\0'];
+    const FORBIDDEN: &[char] = &['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '/', '\n', '\r', '\0'];
     if name.chars().any(|c| FORBIDDEN.contains(&c)) { return Err("适配器名称包含非法字符".to_string()); }
     Ok(())
 }
@@ -152,9 +152,6 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
         return Ok(());
     }
 
-    // netsh 命令行参数（适配器名含空格时需双引号包裹）
-    let netsh_args = format!("interface set interface \"{adapter_name}\" enable");
-
     if crate::platform::elevation::is_admin() {
         // 管理员：直接执行 netsh
         crate::log_info!("adapter", "管理员直写启用适配器: {}", adapter_name);
@@ -172,24 +169,25 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
             });
         }
     } else {
-        // 非管理员：COM 静默提权执行 netsh（不弹 UAC）
-        crate::log_info!("adapter", "非管理员运行，COM ShellExec 提权启用适配器: {}", adapter_name);
-        match crate::platform::elevation::shell_exec_elevated("netsh", &netsh_args, true) {
-            Ok(()) => {
-                crate::log_info!("adapter", "COM ShellExec 提权启用适配器成功: {}", adapter_name);
-            }
-            Err(com_err) => {
-                // 自动启用路径禁止弹 UAC：COM 静默提权失败即返回，由监控循环退避重试兜底
-                if !allow_uac_prompt {
-                    return Err(format!("COM静默提权启用失败(首试不弹UAC，重试将降级): {com_err}"));
-                }
-                // COM 失败：降级 ShellExecuteW runas（会弹 UAC）
-                crate::log_warn!("adapter", "COM ShellExec 失败: {}，降级到 ShellExecuteW runas", com_err);
-                crate::platform::elevation::run_elevated("netsh", &netsh_args)
-                    .map_err(|e| format!("提权启用适配器失败（COM 和 UAC 均失败）: COM错误={com_err}; UAC错误={e}"))?;
-                crate::log_info!("adapter", "ShellExecuteW runas 启用适配器成功: {}", adapter_name);
-            }
+        // 非管理员：经 helper 框架（计划任务代理 → CMSTPLUA 静默 → runas 弹 UAC），
+        // worker 内双校验（适配器名 + 存在性）后执行 netsh
+        crate::log_info!("adapter", "非管理员运行，经提权通道启用适配器: {}", adapter_name);
+        let result_name = crate::platform::helper_spawn::new_result_name();
+        let v = crate::platform::helper_spawn::spawn_elevated_helper(
+            "enable_adapter",
+            &[adapter_name],
+            &result_name,
+            std::time::Duration::from_secs(30),
+            allow_uac_prompt,
+        )?;
+        if !v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+            return Err(v
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("启用适配器失败（helper 无 message）")
+                .to_string());
         }
+        crate::log_info!("adapter", "提权启用适配器成功: {}", adapter_name);
     }
 
     // 启用后强制清缓存，让下次查询拿到最新状态

@@ -23,10 +23,17 @@ fn main() {
         eprintln!("panic: {info}");
     }));
 
+    let args: Vec<String> = std::env::args().collect();
+
+    // 计划任务 worker 模式：SYSTEM 主体任务拉起本 exe 处理提权请求目录，
+    // 优先于 --helper 拦截（无请求/目录不存在时空转安全退出）。
+    if args.iter().any(|a| a == "--helper-task") {
+        std::process::exit(helper::run_helper_task());
+    }
+
     // helper 模式：主进程以管理员身份重启自身执行提权操作（改 MAC / 设 DNS+DoH）。
     // 必须在 Tauri Builder / 单实例 / 托盘等装配之前拦截并退出，不进入正常应用流程。
     // 参数非法时不启动正常应用（避免 --helper 参数被误传导致正常 UI 启动）。
-    let args: Vec<String> = std::env::args().collect();
     match helper::parse_helper_args(&args) {
         Ok(Some((op, result_path))) => {
             std::process::exit(helper::run_helper(op, result_path));

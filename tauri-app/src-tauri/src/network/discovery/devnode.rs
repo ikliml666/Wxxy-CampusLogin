@@ -33,7 +33,7 @@ const ENABLE_VERIFY_INTERVAL_MS: u64 = 200;
 
 /// 读取设备实例的 problem code（无 problem 时返回 0）。
 /// Err 表示 devnode 不可定位或状态查询失败（含 USB 重枚举重建窗口）。
-fn devnode_problem(instance_id: &str) -> Result<u32, String> {
+pub(crate) fn devnode_problem(instance_id: &str) -> Result<u32, String> {
     let id_wide: Vec<u16> = instance_id
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -112,39 +112,43 @@ pub fn find_disabled_device(adapter_name: &str) -> Result<Option<String>, String
     }
 }
 
-/// 设备级启用（`pnputil /enable-device`，等价 SetupAPI DICS_ENABLE），
-/// 完成后轮询复核 problem 22 确实解除。
+/// 设备级启用：管理员进程内直跑 `pnputil /enable-device` + 复核；非管理员经
+/// helper 框架（计划任务代理 → CMSTPLUA → runas）由 SYSTEM worker 执行
+/// （worker 内含相同的字符集/存在性校验与 problem 22 解除复核）。
 ///
-/// 权限路径与 netsh 启用一致：管理员直跑；非管理员 COM 静默提权，
-/// 失败且 `allow_uac_prompt` 时降级 ShellExecuteW runas（弹 UAC）。
+/// 完成后轮询复核 problem 22 确实解除——不信命令返回值。
 pub fn enable_device(instance_id: &str, allow_uac_prompt: bool) -> Result<(), String> {
-    let pnputil_args = format!("/enable-device \"{instance_id}\"");
+    if !crate::platform::elevation::is_admin() {
+        let result_name = crate::platform::helper_spawn::new_result_name();
+        let v = crate::platform::helper_spawn::spawn_elevated_helper(
+            "enable_device",
+            &[instance_id],
+            &result_name,
+            std::time::Duration::from_secs(30),
+            allow_uac_prompt,
+        )?;
+        if !v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+            return Err(v
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("设备级启用失败（helper 无 message）")
+                .to_string());
+        }
+        return Ok(());
+    }
 
-    if crate::platform::elevation::is_admin() {
-        let output = super::new_command("pnputil")
-            .args(["/enable-device", instance_id])
-            .output()
-            .map_err(|e| format!("pnputil 执行失败: {e}"))?;
-        if !output.status.success() {
-            let stderr = crate::platform::console_output::decode_console_bytes(&output.stderr);
-            let detail = if stderr.trim().is_empty() {
-                crate::platform::console_output::decode_console_bytes(&output.stdout)
-            } else {
-                stderr
-            };
-            return Err(format!("pnputil /enable-device 返回非零: {}", detail.trim()));
-        }
-    } else {
-        match crate::platform::elevation::shell_exec_elevated("pnputil", &pnputil_args, true) {
-            Ok(()) => {}
-            Err(com_err) => {
-                if !allow_uac_prompt {
-                    return Err(format!("COM静默提权pnputil失败(首试不弹UAC，重试将降级): {com_err}"));
-                }
-                crate::platform::elevation::run_elevated("pnputil", &pnputil_args)
-                    .map_err(|e| format!("提权 pnputil 失败: COM={com_err}; UAC={e}"))?;
-            }
-        }
+    let output = super::new_command("pnputil")
+        .args(["/enable-device", instance_id])
+        .output()
+        .map_err(|e| format!("pnputil 执行失败: {e}"))?;
+    if !output.status.success() {
+        let stderr = crate::platform::console_output::decode_console_bytes(&output.stderr);
+        let detail = if stderr.trim().is_empty() {
+            crate::platform::console_output::decode_console_bytes(&output.stdout)
+        } else {
+            stderr
+        };
+        return Err(format!("pnputil /enable-device 返回非零: {}", detail.trim()));
     }
 
     // 复核：不信 pnputil 返回值。轮询期间 CM 查询失败（重枚举重建窗口）继续等，

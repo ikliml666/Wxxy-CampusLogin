@@ -9,6 +9,8 @@ source_files:
   - tauri-app/src-tauri/src/platform/elevation.rs
   - tauri-app/src-tauri/src/platform/gpu.rs
   - tauri-app/src-tauri/src/platform/helper_spawn.rs
+  - tauri-app/src-tauri/src/platform/task_proxy.rs
+  - tauri-app/src-tauri/windows/hooks.nsh
   - tauri-app/src-tauri/src/platform/identity.rs
   - tauri-app/src-tauri/src/platform/toast.rs
 tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
@@ -134,17 +136,32 @@ COM 提权链细节（`shell_exec_elevated`）：`CoInitializeEx(COINIT_APARTMEN
 
 `detect_gpu_info_inner` 的选择逻辑：跳过 `DXGI_ADAPTER_FLAG_SOFTWARE`（151-154），按 `VendorId` 归类（164-169：`0x10DE` NVIDIA、`0x8086` Intel、`0x1002`/`0x1022` AMD），分别记录 `best_integrated` / `best_nvidia` / `best_amd_discrete` / `best_other`，再按 `gpu_preference` 选主（203-207：1=核显优先，2 与默认同为独显优先），最后 `determine_tier` 定级并算 `is_integrated`（217-218）。日志穿插在 111-116（偏好）、130（工厂失败）、212（无已知厂商）、220（探测结果）。
 
-### helper_spawn.rs — 提权 helper 子进程与结果轮询
+### helper_spawn.rs — 提权 helper 三级通道与结果轮询
 
-| 行号 | 项 | 签名 | cfg |
-|---|---|---|---|
-| `platform/helper_spawn.rs:13-20` | `unique_result_path` | `pub fn() -> PathBuf`：`%TEMP%/campus-login-helper-<pid>-<ms>.json` | 无 |
-| `platform/helper_spawn.rs:23-35` | `read_helper_result` | `fn(content: &str, result_path: &Path) -> Result<serde_json::Value, String>`（私有）：解析 JSON、把 `logs` 数组逐条并入 `crate::log_info!("helper", ...)`（26-32）、删除结果文件（33） | 无 |
-| `platform/helper_spawn.rs:41-80` | `spawn_elevated_helper` | `pub fn(op: &str, args: &[&str], result_path: &Path, timeout: Duration) -> Result<serde_json::Value, String>` | 无 |
+| 项 | 签名 |
+|---|---|
+| `new_result_name` | `pub fn() -> String`：`r-<pid>-<纳秒>.json`（纯文件名，写入 `%ProgramData%\CampusLogin\results\` 固定目录；P0-2 收口——高权限 worker 绝不接受任意路径写） |
+| `read_helper_result` | 私有：解析结果 JSON、`logs` 并入日志、删除结果文件 |
+| `spawn_elevated_helper` | `pub fn(op, args: &[&str], result_name: &str, timeout, allow_uac_prompt: bool) -> Result<Value, String>`：**三级通道**——①计划任务代理（`task_proxy::proxy_usable()` Ready 时 `run_via_task`）；②未注册/不匹配时先 `task_proxy::ensure_registered()`（经提权注册+自检）再走代理；③兜底 `spawn_elevated_raw`（CMSTPLUA 静默 → runas 弹 UAC；`allow_uac_prompt=false` 时 runas 降级禁用，自动启用首试不弹窗） |
+| `spawn_elevated_raw` | 直走「CMSTPLUA → runas」链（代理注册动作自身与兜底用，防递归） |
 
-`spawn_elevated_helper` 的步骤：取 `current_exe`（47）→ 拼参数 `--helper <op> "<arg>"… --result "<path>"`，每个位置参数用双引号包裹以适应含空格适配器名（52-58）→ 先试 `elevation::shell_exec_elevated(exe, params, true)`（61），失败则记警告并降级 `elevation::run_elevated`（62-63）→ 每 100ms 轮询结果文件直到 `deadline`（67-73）→ 超时后再补查一次（74-78）→ 仍无则 `Err("提权操作超时，未收到helper结果")`（79）。
+调用方：`commands/network_cmd.rs`（DNS/clear_dns）、`network/dhcp.rs`（MAC）、`network/adapter_cache.rs::enable_adapter`（enable_adapter op）、`network/discovery/devnode.rs::enable_device`（enable_device op）。helper 侧实现见 `tauri-app/src-tauri/src/helper/mod.rs`，入口 `main.rs` / `lib.rs` 注册。
 
-调用方：`commands/network_cmd.rs:303`（DNS，30s 超时）、`network/dhcp.rs:288-290`（MAC 重置）。helper 侧实现见 `tauri-app/src-tauri/src/helper/mod.rs`（`HelperOp::Dns` / `HelperOp::Mac`，`helper/mod.rs:28-34`），入口在 `main.rs:13` / `lib.rs:16` 注册。
+### task_proxy.rs — 计划任务提权代理（Windows，提权首选层）
+
+SYSTEM 主体 + RunLevel=Highest 哑任务 `CampusLoginPowerOps`，action 固定 `自身exe --helper-task`；主进程「写请求文件（`%ProgramData%\CampusLogin\requests\req-*.json`，唯一名+同目录 tmp rename）→ `schtasks /run`（普通权限）→ 轮询 `results\-*.json`」，全程零 UAC。设计决策与安全边界（显式 SDDL、零触发器、路径收口、退避策略）见 `decisions/windows-task-proxy-elevation`。
+
+| 项 | 说明 |
+|---|---|
+| `proxy_usable()` | 通道是否可用（只读 COM 检测缓存 30s） |
+| `check_registration_state()` / `RegistrationProbe` | Ready / NeedsRegister / Disabled（注册失败 10min 退避，防 UAC 弹窗风暴） |
+| `ensure_registered()` | 提权注册（管理员直跑 COM / 非管理员经提权链跑 `register_task` op）+ **自检**（selfcheck 请求全链路验证） |
+| `register_task_via_com()` | `ITaskFolder::RegisterTaskDefinition`：SYSTEM 主体、`TASK_RUNLEVEL_HIGHEST`、**零触发器**、电源条件关闭、`ExecutionTimeLimit=PT5M`、`MultipleInstances=IgnoreNew`、显式 SDDL `D:P(A;;GRGX;;;BU)(A;;FA;;;BA)(A;;FA;;;SY)`（Users 仅可触发，/change /delete 被拒——评审实测） |
+| `run_via_task(op, args, timeout)` | 写请求（唯一名）→ `schtasks /run` → 100ms 轮询结果（超时兜底再查一次） |
+| `check_task_action()` | 校验任务 action == 当前 exe 且参数 `--helper-task`（路径漂移防护，不匹配自动重注册） |
+| `delete_task()` | 卸载清理（NSIS `windows/hooks.nsh` 的 `NSIS_HOOK_POSTUNINSTALL` 调 `schtasks /delete` 并清数据目录） |
+
+worker 端（`helper/mod.rs` `--helper-task` 模式，main.rs 最先拦截）：扫描请求目录取最旧请求 → 读入内存后立即删请求（防重复执行）→ `build_op_from_args`（与 `--helper` 命令行共用 op 构造）→ 执行 → 结果写固定目录。op 白名单：`dns` / `clear_dns` / `mac` / `enable_adapter`（适配器名双校验+存在性）/ `enable_device`（实例 ID 字符集白名单防 pnputil 开关注入 + devnode 存在性 + problem 22 解除复核）/ `register_task` / `selfcheck`。
 
 ### identity.rs — Windows Hello 身份验证
 
