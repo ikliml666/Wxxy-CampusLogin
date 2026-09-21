@@ -11,6 +11,7 @@ source_files:
   - tauri-app/src-tauri/src/network/discovery/mod.rs
   - tauri-app/src-tauri/src/network/discovery/windows.rs
   - tauri-app/src-tauri/src/network/discovery/registry.rs
+  - tauri-app/src-tauri/src/network/discovery/devnode.rs
 tags: [network, adapter, dhcp, mac-reset, discovery, windows, registry, tauri]
 ---
 
@@ -68,7 +69,7 @@ tags: [network, adapter, dhcp, mac-reset, discovery, windows, registry, tauri]
 - `pub fn is_blacklisted(name: &str) -> bool` — `network/discovery/mod.rs:103-105`，`BL_REGEX.is_match`。
 - `#[cfg(target_os = "windows")] pub(crate) fn prefix_len_to_mask(len: u32) -> String` — `network/discovery/mod.rs:109-119`，前缀长度 → 点分十进制掩码；`len > 32` 返回空串，`len == 0` 时掩码为 `0.0.0.0`。
 - `pub(crate) fn query_adapters_addresses() -> AdapterQueryResult` — `network/discovery/mod.rs:122-131`，平台分发：Windows 转 `self::windows::query_adapters_addresses()`（`network/discovery/mod.rs:125`）；**非 Windows 直接 `Ok((vec![], vec![], vec![]))`**（`network/discovery/mod.rs:128-130`）。
-- 平台子模块门控：`#[cfg(target_os = "windows")] pub mod windows;`（`network/discovery/mod.rs:13-14`）与 `#[cfg(target_os = "windows")] pub mod registry;`（`network/discovery/mod.rs:16-17`）。
+- 平台子模块门控：`#[cfg(target_os = "windows")] pub mod windows;`、`pub mod registry;`、`pub mod devnode;`（`network/discovery/mod.rs` 顶部三连声明）。
 - 单元测试 `mod tests` — `network/discovery/mod.rs:133-181`，4 个用例：`blacklist_word_boundary_does_not_match_legit_nics`（`140-150`）、`blacklist_word_boundary_still_matches_known_virtuals`（`152-161`）、`blacklist_chinese_virtual_keywords`（`163-173`，含 `本地连接` 命中断言）、`blacklist_does_not_match_legit_chinese_nics`（`175-180`）。
 
 ### 适配器发现：Windows 实现（`network/discovery/windows.rs`，共 308 行）
@@ -97,7 +98,17 @@ tags: [network, adapter, dhcp, mac-reset, discovery, windows, registry, tauri]
 - 私有辅助：`query_show_in_ncpa`（`network/discovery/registry.rs:89-102`，`ShowInNetworkConnections` 缺失或读取失败都视为可见）、`show_in_ncpa_cached`（`105-131`）、`build_class_subkey_cache`（`151-171`，遍历 Class 下全部子键取 `NetCfgInstanceId`（小写）+ `ConfigFlags`）、`ensure_cache_initialized`（`181-190`，双重检查锁定，build 在锁外）。
 - 单元测试 `mod tests` — `network/discovery/registry.rs:15-50`，4 个用例：空 GUID 返回 false（`18-21`）、不存在的 GUID 返回 false（`23-26`）、真实 WLAN GUID 为 true（`28-35`，环境不满足时仅打印 `[SKIP]` 不失败）、幽灵 GUID 数组返回 false（`37-49`）。
 
+### 适配器发现：PnP 设备级禁用检测与启用（`network/discovery/devnode.rs`）
+
+背景：Windows「网卡被禁用」是两层独立状态——NDIS admin 层（netsh 只翻这层）与 PnP 设备层（设备管理器式禁用，`CM_PROB_DISABLED` problem 22）。经系统设置/设备管理器禁用的外接 USB 网卡处于 PnP problem 22 态，netsh enable 只触发 miniport 重连（USB 表现为反复重连）而清不掉 PnP 禁用。详见 `learnings/usb-adapter-enable-pnp-vs-ndis-layers`。
+
+- `pub fn find_disabled_device(adapter_name) -> Result<Option<String>, String>` — 定位设备实例并判定 problem 22：适配器 `guid` → 注册表 `HKLM\SYSTEM\CurrentControlSet\Control\Network\{4D36E972-...}\<guid>\Connection\PnPInstanceId`（未文档化值，多工具在用），接口行缺失时回退按 `Connection\Name` 遍历匹配（`find_guid_by_name`）；`CM_Locate_DevNodeW(PHANTOM)` + `CM_Get_DevNode_Status` 判定。返回 `Some(instance_id)` 走设备级启用，`None`（未命中/定位失败）维持 netsh 原路径——**判态分流不可省**，对已启动设备做设备级启用会触发不必要的重枚举。
+- `pub fn enable_device(instance_id, allow_uac_prompt) -> Result<(), String>` — `pnputil /enable-device`（管理员直跑 / 非管理员 COM 静默提权 / runas 降级，权限框架与 netsh 路径一致），**轮询复核** problem 22 真正解除（3s 上限 200ms 间隔；不信命令返回值——PnP 状态落盘有百毫秒级时差，可能报成功却滞留 problem 22）。
+- 私有辅助：`devnode_problem`（cfgmgr32 查询）、`read_pnp_instance_id`、`find_guid_by_name`。
+- 单元测试 4 个：不存在适配器/GUID 的 None 与 Err 分支（真实注册表只读）。
+
 ### 适配器选择与登录前辅助（`network/adapter.rs`，共 382 行）
+
 
 - `pub fn find_by_name<'a>(adapters: &'a [Adapter], name: &str) -> Option<&'a Adapter>` — `network/adapter.rs:16-18`。
 - `pub fn find_with_valid_ip<'a>(adapters, name) -> Option<&'a Adapter>` — `network/adapter.rs:21-23`，名称匹配 **且** `!ip.is_empty()`。
@@ -122,7 +133,7 @@ tags: [network, adapter, dhcp, mac-reset, discovery, windows, registry, tauri]
 - `pub fn get_adapters_force()` — `network/adapter_cache.rs:102-105`，先 `ADAPTER_CACHE.write().take()` 清缓存再读。
 - `pub fn get_adapter_details_cached()` — `network/adapter_cache.rs:107-119`，只克隆 `details`。
 - `pub fn validate_adapter_name(name: &str) -> Result<(), String>` — `network/adapter_cache.rs:121-127`，非空、长度 ≤ 128、禁止字符集 `& | ; \` $ ( ) < > " ' \n \r \0`（`network/adapter_cache.rs:124`）。**所有把适配器名拼进命令行的路径的前置校验**。
-- `#[cfg(desktop)] pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), String>` — `network/adapter_cache.rs:135-190`。管理员直接跑 `netsh interface set interface <name> enable`（`network/adapter_cache.rs:144-147`）；非管理员走 `platform::elevation::shell_exec_elevated("netsh", &netsh_args, true)` COM 静默提权（`network/adapter_cache.rs:160`），`allow_uac_prompt == false` 时 COM 失败即返回不弹 UAC（`network/adapter_cache.rs:166-168`），为 true 时降级 `run_elevated`（弹 UAC，`network/adapter_cache.rs:171`）。成功后三重失效：清适配器缓存（`179`）、`refresh_class_subkey_cache()`（`181-182`）、`invalidate_show_in_ncpa_cache()`（`185-186`）。
+- `#[cfg(desktop)] pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), String>` — **入口先做 PnP 设备级禁用分流**：`devnode::find_disabled_device` 命中 problem 22 → `devnode::enable_device`（pnputil 设备级启用 + 复核）后失效两层缓存并返回；未命中继续 netsh 原路径。管理员直接跑 `netsh interface set interface <name> enable`；非管理员走 `platform::elevation::shell_exec_elevated("netsh", &netsh_args, true)` COM 静默提权，`allow_uac_prompt == false` 时 COM 失败即返回不弹 UAC（自动启用路径），为 true 时降级 `run_elevated`（弹 UAC）。成功后三重失效：清适配器缓存、`refresh_class_subkey_cache()`、`invalidate_show_in_ncpa_cache()`。手动按钮与 adapter_watch 15s 巡检自动启用共用本函数，分流一处生效。
 - `pub fn wait_for_adapter(max_wait_ms: u64, is_quitting: &AtomicBool) -> Result<Vec<Adapter>, String>` — `network/adapter_cache.rs:192-211`，指数退避 `1000ms → ×2 → cap 5000ms`；退出标志置位返回 `Ok(vec![])`；超时后返回最后一次 `get_adapters_cached()`。
 - `pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &AtomicBool) -> bool` — `network/adapter_cache.rs:213-238`，间隔固定 `300ms`（BE-A-04，原 100ms）；先记录初始 IP，只有"IP 非空 **且** 与初始值不同"才算成功（`network/adapter_cache.rs:220-233`）。
 - `const CACHE_REFRESH_INTERVAL_SECS: u64 = 4` — `network/adapter_cache.rs:242`。
