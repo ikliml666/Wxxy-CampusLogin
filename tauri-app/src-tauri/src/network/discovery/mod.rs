@@ -16,6 +16,9 @@ pub mod windows;
 #[cfg(target_os = "windows")]
 pub mod registry;
 
+#[cfg(target_os = "windows")]
+pub mod devnode;
+
 pub(crate) type AdapterQueryResult = Result<(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>), String>;
 
 lazy_static! {

@@ -135,6 +135,22 @@ pub fn validate_adapter_name(name: &str) -> Result<(), String> {
 pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), String> {
     validate_adapter_name(adapter_name)?;
 
+    // 设备级禁用（PnP problem 22）分流：netsh enable 只翻 NDIS admin 层，清不掉
+    // 设备管理器式禁用——外接 USB 网卡被系统禁用后，netsh 表现为反复重连却始终
+    // 不启用。命中时改走 pnputil 设备级启用（含 problem 22 解除复核），
+    // 未命中维持下方 netsh 原路径（NDIS admin 层，对已启动设备零重枚举）。
+    #[cfg(target_os = "windows")]
+    if let Some(instance_id) = crate::network::discovery::devnode::find_disabled_device(adapter_name)? {
+        crate::log_info!("adapter", "适配器处于设备级禁用(PnP problem 22)，走 pnputil 启用: {} ({})", adapter_name, instance_id);
+        crate::network::discovery::devnode::enable_device(&instance_id, allow_uac_prompt)?;
+        crate::log_info!("adapter", "设备级启用复核通过: {}", adapter_name);
+        // 与 netsh 路径一致：变更后失效两层缓存
+        ADAPTER_CACHE.write().take();
+        crate::network::discovery::registry::refresh_class_subkey_cache();
+        crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
+        return Ok(());
+    }
+
     // netsh 命令行参数（适配器名含空格时需双引号包裹）
     let netsh_args = format!("interface set interface \"{adapter_name}\" enable");
 
