@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
+import { requestNotificationPermission } from '@/lib/notificationPermission'
 import { useShallow } from 'zustand/react/shallow'
 
 export function useMonitor() {
@@ -31,13 +32,9 @@ export function useMonitor() {
         backgroundCheckInterval: intervalSec * 1000,
       })
       if (enabled) {
-        // Android 13+ 需运行时请求 POST_NOTIFICATIONS,否则前台服务通知不显示
-        try {
-          const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification')
-          if (!(await isPermissionGranted())) await requestPermission()
-        } catch (e) {
-          if (import.meta.env.DEV) console.warn('通知权限请求失败:', e)
-        }
+        // Android 13+ 需运行时请求 POST_NOTIFICATIONS,否则前台服务通知不显示;
+        // 只弹框不跳设置页(间接路径不打断流程,跳设置留给通知开关/首启引导)
+        await requestNotificationPermission()
         // 名称检查开启时顺带请求"附近的设备"权限(幂等,已授权/低版本无感):
         // 覆盖存量用户——名称检查早已开启但从未触发过权限请求,SSID 恒「未获取」
         if (useConfigStore.getState().config?.enableNetworkNameCheck) {

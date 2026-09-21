@@ -26,7 +26,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 安卓端 Tauri 后端（crate `campus-login-android`，lib 名 `campus_login_android_lib`，见 `android/src-tauri/Cargo.toml:2` 与 `:8`）是桌面协议核心 crate `campus-login` 的**薄壳**：它通过 Cargo path 依赖（`android/src-tauri/Cargo.toml:34`，`campus-login = { path = "../../tauri-app/src-tauri" }`）复用桌面全部协议实现，**不复制任何协议逻辑**；协议核心 crate 的 `lib.rs:1-20` 把 `account/auth/config/infra/network/platform/self_service` 设为跨平台可见面，而 `app/commands/helper/monitor/update` 用 `#[cfg(desktop)]` 门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓 target 不编译。
 
-安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（50 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
+安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（51 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
 
 平台专属能力（AndroidKeyStore 加密、前台服务保活、进程绑 WiFi、绑小核、电池优化白名单、APK 安装）由 `android/plugins/` 下三个手写插件承接，见 [[android-plugins]]。
 
@@ -93,13 +93,14 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | 39 | `get_battery_optimization_info` | `battery_cmds.rs:20` | 电池优化白名单状态（`ignoring`/`brand`/`hasVendorTarget`） | 无（平台专属，Windows 无对应 API） |
 | 40 | `request_ignore_battery_optimizations` | `battery_cmds.rs:46` | 一次性申请加入白名单（返回确认框是否弹出） | 无（平台专属） |
 | 41 | `open_vendor_battery_settings` | `battery_cmds.rs:65` | 跳厂商自启/省电页（降级链，返回 `{path,target,tried}`） | 无（平台专属） |
-| 42 | `check_network_quality` | `quality_cmds.rs:40` | 单次网络质量检测 | `commands/network_cmd.rs::check_network_quality`（`startup.rs:78`） |
-| 43 | `start_latency_test` | `quality_cmds.rs:45` | 启动定时质量测试循环（幂等） | `commands/network_cmd.rs::start_latency_test`（`startup.rs:79`） |
-| 44 | `stop_latency_test` | `quality_cmds.rs:56` | 停止定时质量测试 | `commands/network_cmd.rs::stop_latency_test`（`startup.rs:80`） |
-| 45 | `check_update` | `update_cmds.rs:126` | 检查更新（version.json 4 源降级 + GitHub API 拉 APK 资产） | `commands/updater.rs::check_update`（`startup.rs:107`） |
-| 46 | `download_update` | `update_cmds.rs:287` | 流式下载 APK（白名单 + 500MB 上限 + SHA256 校验） | `commands/updater.rs::download_update`（`startup.rs:108`） |
-| 47 | `get_mirror_urls` | `update_cmds.rs:271` | 生成 4 个下载源候选 | `commands/updater.rs::get_mirror_urls`（`startup.rs:110`） |
-| 48 | `install_update` | `update_cmds.rs:405` | 交系统包安装器安装 APK（路径限定更新目录） | `commands/updater.rs::install_update`（`startup.rs:109`） |
+| 42 | `open_notification_settings` | `battery_cmds.rs:87` | 跳应用通知设置页（降级链，13-/永久拒绝/ROM 关闭时引导开启） | 无（平台专属） |
+| 43 | `check_network_quality` | `quality_cmds.rs:40` | 单次网络质量检测 | `commands/network_cmd.rs::check_network_quality`（`startup.rs:78`） |
+| 44 | `start_latency_test` | `quality_cmds.rs:45` | 启动定时质量测试循环（幂等） | `commands/network_cmd.rs::start_latency_test`（`startup.rs:79`） |
+| 45 | `stop_latency_test` | `quality_cmds.rs:56` | 停止定时质量测试 | `commands/network_cmd.rs::stop_latency_test`（`startup.rs:80`） |
+| 46 | `check_update` | `update_cmds.rs:126` | 检查更新（version.json 4 源降级 + GitHub API 拉 APK 资产） | `commands/updater.rs::check_update`（`startup.rs:107`） |
+| 47 | `download_update` | `update_cmds.rs:287` | 流式下载 APK（白名单 + 500MB 上限 + SHA256 校验） | `commands/updater.rs::download_update`（`startup.rs:108`） |
+| 48 | `get_mirror_urls` | `update_cmds.rs:271` | 生成 4 个下载源候选 | `commands/updater.rs::get_mirror_urls`（`startup.rs:110`） |
+| 49 | `install_update` | `update_cmds.rs:405` | 交系统包安装器安装 APK（路径限定更新目录） | `commands/updater.rs::install_update`（`startup.rs:109`） |
 
 ### 公开函数 / 结构体 / 常量清单（按模块）
 
@@ -300,7 +301,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `async fn portal_probe_on_little_cores(ip)` | `monitor_loop.rs:573` | 裸线程 `portal-probe` + `Handle::enter()`（`:583`、`:587`）+ 绑小核（`:588`）+ `catch_unwind`（`:592-595`）；线程创建失败降级 `spawn_blocking`（`:603-607`） |
 | `pub async fn run_check_once(app)` | `monitor_loop.rs:681` | 单次检测五步（静默期门控+通知重建 → 校园网判定 → Portal 探测与三态消费 → 自动重登 → emit），详见 Data Flow |
 
-#### battery_cmds.rs（81 行）
+#### battery_cmds.rs（102 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
@@ -308,6 +309,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `#[tauri::command] get_battery_optimization_info` | `battery_cmds.rs:20` | 调插件 `get_battery_optimization_info`，取 `ignoring/brand/hasVendorTarget`；host 返回 Err（`:39`） |
 | `#[tauri::command] request_ignore_battery_optimizations` | `battery_cmds.rs:46` | 调插件，返回 `opened`（前端需延迟重查刷新状态） |
 | `#[tauri::command] open_vendor_battery_settings` | `battery_cmds.rs:65` | 透传插件 `{path,target,tried}` |
+| `#[tauri::command] open_notification_settings` | `battery_cmds.rs:87` | 透传插件 `opened`；13+ 弹框由 plugin-notification 负责，本命令服务 13 以下/永久拒绝/ROM 关闭场景 |
 
 #### quality_cmds.rs（73 行）
 

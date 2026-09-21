@@ -1,5 +1,6 @@
 import type { Config } from '@/settings'
 import type { PanelName, ThemeName } from '@/shared'
+import { requestNotificationPermission } from '@/lib/notificationPermission'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Switch } from '@/components/ui/switch'
@@ -397,7 +398,11 @@ export const SettingsPanel = memo(function SettingsPanel({
               <Switch
                 id="enable-notification"
                 checked={config.enableNotification !== false}
-                onCheckedChange={checked => onUpdateConfig({ enableNotification: checked })}
+                onCheckedChange={checked => {
+                  onUpdateConfig({ enableNotification: checked })
+                  // 用户明确要通知:13+ 弹系统框;13 以下/被永久拒绝/被 ROM 关闭时跳设置页
+                  if (checked) void requestNotificationPermission({ openSettingsIfDenied: true })
+                }}
                 className="shrink-0"
               />
             </div>

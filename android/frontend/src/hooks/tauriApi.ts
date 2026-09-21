@@ -112,6 +112,7 @@ interface TauriApi {
   getBatteryOptimizationInfo: () => Promise<BatteryOptimizationInfo>
   requestIgnoreBatteryOptimizations: () => Promise<boolean>
   openVendorBatterySettings: () => Promise<VendorSettingsResult>
+  openNotificationSettings: () => Promise<boolean>
   cancelAutoExit: () => Promise<CommandResult>
   onAutoExitCountdown: (cb: (data: AutoExitCountdownData) => void) => () => void
   onAutoExitCancelled: (cb: () => void) => () => void
@@ -272,6 +273,7 @@ const tauriApi: TauriApi = {
   getBatteryOptimizationInfo: () => invoke<BatteryOptimizationInfo>('get_battery_optimization_info'),
   requestIgnoreBatteryOptimizations: () => invoke<boolean>('request_ignore_battery_optimizations'),
   openVendorBatterySettings: () => invoke<VendorSettingsResult>('open_vendor_battery_settings'),
+  openNotificationSettings: () => invoke<boolean>('open_notification_settings'),
   cancelAutoExit: () => desktopOnly<CommandResult>('cancel_auto_exit'),
   onAutoExitCountdown: noopListener as TauriApi['onAutoExitCountdown'],
   onAutoExitCancelled: noopListener as TauriApi['onAutoExitCancelled'],

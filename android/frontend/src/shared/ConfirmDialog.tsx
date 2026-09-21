@@ -15,9 +15,12 @@ interface ConfirmDialogProps {
   message: string
   onConfirm: () => void
   onCancel: () => void
+  // 引导类确认(如首启开启通知)用正色按钮+自定义文案;缺省保持删除类的红色破坏样式
+  confirmLabel?: string
+  confirmVariant?: 'default' | 'destructive'
 }
 
-export function ConfirmDialog({ open, title, message, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel, confirmVariant = 'destructive' }: ConfirmDialogProps) {
   const { t } = useTranslation()
   // 历史缺陷：确认中按钮不禁用，快速双击会执行两次破坏性操作（如删除账号）。
   const [confirming, setConfirming] = useState(false)
@@ -38,10 +41,10 @@ export function ConfirmDialog({ open, title, message, onConfirm, onCancel }: Con
         </DialogHeader>
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" disabled={confirming} onClick={onCancel}>{t('confirmDialog.cancel')}</Button>
-          <Button variant="destructive" size="sm" disabled={confirming} onClick={() => {
+          <Button variant={confirmVariant} size="sm" disabled={confirming} onClick={() => {
             setConfirming(true)
             onConfirm()
-          }}>{t('confirmDialog.confirm')}</Button>
+          }}>{confirmLabel ?? t('confirmDialog.confirm')}</Button>
         </div>
       </DialogContent>
     </Dialog>

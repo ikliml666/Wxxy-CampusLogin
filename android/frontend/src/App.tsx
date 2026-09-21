@@ -17,6 +17,7 @@ import { useMonitor } from '@/monitor/useMonitor'
 import { useAccount } from '@/account/useAccount'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage, cn } from '@/lib/utils'
+import { requestNotificationPermission } from '@/lib/notificationPermission'
 import { AnimatePresence, m } from 'framer-motion'
 import { Settings, Palette, Info, Heart } from 'lucide-react'
 import { SponsorCard } from '@/shared/SponsorCard'
@@ -303,8 +304,39 @@ export default function App() {
         {formFactor === 'tablet' ? <TabletShell /> : <AppInner />}
         {/* 2D 人脸录入/验证弹窗单例:验证门(tauriApi)命令式驱动,双外壳共用 */}
         <FaceCaptureDialog />
+        <NotificationPermissionGate />
       </AnimationActiveProvider>
     </ErrorBoundary>
+  )
+}
+
+// 首启通知权限引导:Android 13+ 弹系统框,13 以下/国产 ROM 无弹框可弹,
+// 直接降级跳应用通知设置页。仅询问一次(点过任意按钮即标记),后续入口是
+// 设置页通知开关与后台检查启动;新手向导为后挂载的全屏覆盖层,天然先于
+// 本弹窗展示,无需额外时序协调。
+function NotificationPermissionGate() {
+  const { t } = useTranslation()
+  const [ask, setAsk] = useState(false)
+  useEffect(() => {
+    if (!safeStorage.get('campus-notification-prompt')) setAsk(true)
+  }, [])
+  const close = () => {
+    safeStorage.set('campus-notification-prompt', '1')
+    setAsk(false)
+  }
+  return (
+    <ConfirmDialog
+      open={ask}
+      title={t('settings.notificationPermissionTitle')}
+      message={t('settings.notificationPermissionMessage')}
+      confirmLabel={t('settings.notificationPermissionConfirm')}
+      confirmVariant="default"
+      onConfirm={() => {
+        close()
+        void requestNotificationPermission({ openSettingsIfDenied: true })
+      }}
+      onCancel={close}
+    />
   )
 }
 

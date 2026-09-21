@@ -4,6 +4,7 @@ import { useThemeStore } from '@/hooks/useThemeStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
+import { requestNotificationPermission } from '@/lib/notificationPermission'
 import i18next from 'i18next'
 import type { ThemeName } from '@/shared'
 
@@ -44,6 +45,8 @@ export function useSettings() {
     const next = configEnableNotification !== false ? false : true
     store.updateConfig({ enableNotification: next })
     try { await store.api.setNotificationEnabled?.(next) } catch (e) { if (import.meta.env.DEV) console.error('设置通知状态失败:', e) }
+    // 开启时确保系统有授权:13+ 弹框;13 以下/被永久拒绝跳设置页(TitleBar 铃铛入口)
+    if (next) void requestNotificationPermission({ openSettingsIfDenied: true })
   }, [configEnableNotification, store.updateConfig, store.api])
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {

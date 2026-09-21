@@ -98,6 +98,7 @@ pub fn run() {
             battery_cmds::get_battery_optimization_info,
             battery_cmds::request_ignore_battery_optimizations,
             battery_cmds::open_vendor_battery_settings,
+            battery_cmds::open_notification_settings,
             quality_cmds::check_network_quality,
             quality_cmds::start_latency_test,
             quality_cmds::stop_latency_test,

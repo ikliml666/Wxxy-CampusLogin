@@ -90,6 +90,11 @@ impl<R: Runtime> CampusMonitorService<R> {
     pub fn open_vendor_battery_settings(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("openVendorBatterySettings", ())
     }
+
+    /// 跳应用通知设置页(降级链);返回 {opened}
+    pub fn open_notification_settings(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("openNotificationSettings", ())
+    }
 }
 
 pub trait CampusMonitorServiceExt<R: Runtime> {

@@ -1,7 +1,7 @@
-//! 电池优化白名单:查询状态、一次性申请跳转、厂商自启/省电页跳转(含降级链)。
-//! 平台专属能力(Windows 无对应 API),桌面端无本模块;安卓经 foreground-service
-//! 插件命令面转发。厂商跳转候选表与降级链实现在 Kotlin 侧(插件:
-//! MonitorServicePlugin.vendorTargets / openVendorBatterySettings)。
+//! 安卓系统设置页跳转命令:电池优化白名单(查询/申请/厂商自启页降级链)与应用
+//! 通知设置页跳转。平台专属能力(Windows 无对应 API),桌面端无本模块;安卓经
+//! foreground-service 插件命令面转发。跳转候选表与降级链实现在 Kotlin 侧(插件:
+//! MonitorServicePlugin.vendorTargets / openVendorBatterySettings / openNotificationSettings)。
 
 use serde::Serialize;
 
@@ -77,5 +77,26 @@ pub async fn open_vendor_battery_settings(
     {
         let _ = &app;
         Err("厂商保活设置页仅安卓端可用".to_string())
+    }
+}
+
+/// 跳应用通知设置页(降级链);返回 true 表示系统页面已拉起。
+/// 13+ 运行时弹框由 tauri-plugin-notification 的 requestPermission 负责,
+/// 本命令覆盖 13 以下/被永久拒绝/被用户在设置关闭的场景。
+#[tauri::command]
+pub async fn open_notification_settings(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let v = app
+            .campus_monitor_service()
+            .open_notification_settings()
+            .map_err(|e| e.to_string())?;
+        return Ok(v["opened"].as_bool().unwrap_or(false));
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = &app;
+        Err("通知设置页跳转仅安卓端可用".to_string())
     }
 }

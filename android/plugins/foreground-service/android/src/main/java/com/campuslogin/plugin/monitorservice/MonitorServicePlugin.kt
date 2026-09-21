@@ -304,6 +304,47 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         invoke.resolve(ret)
     }
 
+    /**
+     * 跳应用通知设置页(降级链):① 应用通知设置页(API 26+ 标准 action;21-25 裸 action
+     * + app_package/app_uid,extra key 不是 Settings.EXTRA_*)→ ② 应用详情页 → ③ 通用设置。
+     * 服务"系统弹框不可得"的场景:Android 13 以下无 POST_NOTIFICATIONS 弹框、13+ 被拒绝
+     * 两次后永久拒绝(再 requestPermission 无弹框)、国产 ROM 用户在设置里关了通知——
+     * 唯一路径都是引导去设置页开启。13+ 的运行时弹框由 tauri-plugin-notification 负责。
+     * 不用 resolveActivity 预探测(同 openVendorBatterySettings 的包可见性坑)。
+     */
+    @Command
+    fun openNotificationSettings(invoke: Invoke) {
+        val intents = mutableListOf<Intent>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            intents.add(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            intents.add(
+                Intent("android.settings.APP_NOTIFICATION_SETTINGS")
+                    .putExtra("app_package", activity.packageName)
+                    .putExtra("app_uid", activity.applicationInfo.uid)
+            )
+        }
+        intents.add(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.fromParts("package", activity.packageName, null))
+        )
+        intents.add(Intent(Settings.ACTION_SETTINGS))
+
+        var opened = false
+        for (intent in intents) {
+            if (startSafely(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) {
+                opened = true
+                break
+            }
+        }
+        val ret = JSObject()
+        ret.put("opened", opened)
+        invoke.resolve(ret)
+    }
+
     @Command
     fun setBootAutostart(invoke: Invoke) {
         val args = invoke.parseArgs(BoolArgs::class.java)
