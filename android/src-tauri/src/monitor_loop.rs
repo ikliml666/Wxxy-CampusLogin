@@ -631,7 +631,9 @@ async fn latest_settings(
 /// 两个信号都未生效时按连续失败计数收敛(见 switch_logout_unconfirmed)
 async fn logout_for_outbound_switch(app: &tauri::AppHandle) -> bool {
     if !MONITOR.was_online.load(Ordering::Relaxed) {
-        // 本来就不在线:注销请求盲发必失败(评审 P2),跳过请求照常建立切换态
+        // 本来就不在线:注销请求盲发必失败(评审 P2),跳过请求照常建立切换态。
+        // 计数一并清零:本出口同样"确认离线",跨夜残留会让次夜的失败预算只剩 2 拍
+        OUTBOUND_SWITCH_FAIL_COUNT.store(0, Ordering::Relaxed);
         emit_login_log(app, "夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
         return true;
     }
@@ -1070,12 +1072,13 @@ async fn verify_night_switch(app: tauri::AppHandle, expected_operator: String) {
     }
     // 未生效:注销→再登录→复验一轮(复登前复查 operator,用户手动改走则止步,
     // 避免把用户刚改的配置又注销掉)
-    emit_login_log(&app, "夜切验证: 未生效, 注销重登后复验", "warning");
     // 复验轮前再查一次出站切换态(入口那次查在 15s 等待与首轮复验之前):等待期间
     // 若进入切换态,本轮的"注销→复登"会把账号登回切换态,打断出站等待窗口
     if outbound_switch_active(&app).await {
         return;
     }
+    // 日志在守卫之后:本行的承诺("注销重登后复验")必须以动作真的会发生为前提
+    emit_login_log(&app, "夜切验证: 未生效, 注销重登后复验", "warning");
     let settings = match crate::config_state::current_settings(&app).await {
         Ok(s) => s,
         Err(_) => return,
