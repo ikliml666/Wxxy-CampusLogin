@@ -17,6 +17,11 @@ lazy_static! {
 static OUTBOUND_RESTORE_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 连续还原失败上限(夜间 60s 一拍,留 3 拍给深夜网络抖动/portal 未就绪的自愈机会)
 const OUTBOUND_RESTORE_MAX_FAILS: u32 = 3;
+/// 夜间出站切换的连续注销失败计数(注销确认生效或达上限建态即清零)。注销请求在
+/// 网络断开时本来就发不出去,无限重试无意义——达上限按"断网规律"建态交系统侧验证
+static OUTBOUND_SWITCH_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
+/// 连续注销失败上限
+const OUTBOUND_SWITCH_MAX_FAILS: u32 = 3;
 
 #[derive(Default)]
 #[allow(dead_code)] // Task 4 循环体接线
@@ -618,6 +623,59 @@ async fn latest_settings(
         .unwrap_or_else(|_| fallback.clone())
 }
 
+/// 切换侧注销:返回"离线是否已生效"(true=可以建立出站切换态)。
+/// 前置在线检查:上一拍巡检判定不在线则跳过注销请求(离线时注销必失败)。
+/// 在线时"离线生效"判据取 `radiusOk || unbindOk`:MAC 解绑(ePortal 4.1.x 按
+/// wlan_user_ip 的破坏性踢下线)成功即本机已离线;只看 success(Radius 单边)会把
+/// (false, true) 组合误判为注销失败,从而掉线重连→再注销整夜摆动。
+/// 两个信号都未生效时按连续失败计数收敛(见 switch_logout_unconfirmed)
+async fn logout_for_outbound_switch(app: &tauri::AppHandle) -> bool {
+    if !MONITOR.was_online.load(Ordering::Relaxed) {
+        // 本来就不在线:注销请求盲发必失败(评审 P2),跳过请求照常建立切换态
+        emit_login_log(app, "夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
+        return true;
+    }
+    let state = app.state::<crate::android_state::AndroidState>();
+    match crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
+        Ok(v) => {
+            let radius_ok = v["radiusOk"].as_bool().unwrap_or(false);
+            let unbind_ok = v["unbindOk"].as_bool().unwrap_or(false);
+            if radius_ok || unbind_ok {
+                // 注销/踢下线生效是离线的权威证据:清失败计数并同步在线记忆(巡检
+                // 随即整轮跳过,晨间重登成功时由 night_switch_login 回置 true)
+                OUTBOUND_SWITCH_FAIL_COUNT.store(0, Ordering::Relaxed);
+                MONITOR.was_online.store(false, Ordering::Relaxed);
+                true
+            } else {
+                switch_logout_unconfirmed(app, v["message"].as_str().unwrap_or(""))
+            }
+        }
+        Err(e) => switch_logout_unconfirmed(app, &e),
+    }
+}
+
+/// 注销未确认生效(radiusOk/unbindOk 均未生效或执行失败)时的上限判定:
+/// 未达上限 → false(保持未切换态,下一拍整段重试);达上限 → true 并记 warn
+/// (注销请求在网络断开时本来就发不出去,照常建态交系统侧验证接管)
+fn switch_logout_unconfirmed(app: &tauri::AppHandle, reason: &str) -> bool {
+    let fails = OUTBOUND_SWITCH_FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if fails >= OUTBOUND_SWITCH_MAX_FAILS {
+        OUTBOUND_SWITCH_FAIL_COUNT.store(0, Ordering::Relaxed);
+        campus_login_lib::log_warn!(
+            "monitor",
+            "夜间出站切换: 注销未确认生效({reason},已连续 {fails} 次),按断网规律建态,系统侧验证接管"
+        );
+        true
+    } else {
+        emit_login_log(
+            app,
+            &format!("夜间出站切换: 注销未确认生效({reason}),保持未切换态下一拍重试"),
+            "warning",
+        );
+        false
+    }
+}
+
 /// 周期检测的 Portal 全量探测:专用短命线程执行并绑定小核(检测是 60s 一拍的
 /// 稳态周期任务,线程创建 ~1ms 可忽略)。tokio worker 与 spawn_blocking 池都是
 /// 共享的,直接绑会把登录等前台任务一并拖到小核——所以用独立线程。绑核失败
@@ -706,45 +764,9 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     };
     match outbound_action {
         NightOutboundAction::Switch => {
-            // 前置在线检查(评审 P2):注销请求在离线时必失败,上一拍巡检判定不在线则
-            // 跳过请求直接建立切换态;在线则必须先注销成功,才能建立切换态(见下)
-            let logged_out = if MONITOR.was_online.load(Ordering::Relaxed) {
-                let state = app.state::<crate::android_state::AndroidState>();
-                match crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
-                    Ok(v) if v["success"].as_bool().unwrap_or(false) => {
-                        // 注销成功是离线的权威证据:同步在线记忆(巡检随即整轮跳过,
-                        // 晨间重登成功时由 night_switch_login 回置 true)
-                        MONITOR.was_online.store(false, Ordering::Relaxed);
-                        true
-                    }
-                    Ok(v) => {
-                        emit_login_log(
-                            app,
-                            &format!(
-                                "夜间出站切换: 注销未生效({}),保持未切换态下一拍重试",
-                                v["message"].as_str().unwrap_or("")
-                            ),
-                            "warning",
-                        );
-                        false
-                    }
-                    Err(e) => {
-                        emit_login_log(
-                            app,
-                            &format!("夜间出站切换: 注销执行失败({e}),保持未切换态下一拍重试"),
-                            "warning",
-                        );
-                        false
-                    }
-                }
-            } else {
-                // 本来就不在线:注销请求盲发必失败(评审 P2),跳过请求照常建立切换态
-                emit_login_log(app, "夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
-                true
-            };
-            // 在线却注销失败时**不建立切换态**:账号仍在线 + 系统未必切到蜂窝,此时
-            // 跳过巡检会让掉线兜底一并失效;保持标记为空,下一拍整段重试(与落盘失败同语义)
-            if logged_out {
+            // 前置在线检查、注销与"离线生效"判据(radiusOk || unbindOk)、注销失败上限
+            // 全在 logout_for_outbound_switch 内(评审 P2 + N1)
+            if logout_for_outbound_switch(app).await {
                 // 标记落盘成功才触发系统重检:落盘失败即切换态未成立,下一拍重试整段
                 // (与运营商夜切"落盘失败即下一拍重试"同语义)
                 let mut switched = latest_settings(app, &settings).await;
@@ -1049,6 +1071,11 @@ async fn verify_night_switch(app: tauri::AppHandle, expected_operator: String) {
     // 未生效:注销→再登录→复验一轮(复登前复查 operator,用户手动改走则止步,
     // 避免把用户刚改的配置又注销掉)
     emit_login_log(&app, "夜切验证: 未生效, 注销重登后复验", "warning");
+    // 复验轮前再查一次出站切换态(入口那次查在 15s 等待与首轮复验之前):等待期间
+    // 若进入切换态,本轮的"注销→复登"会把账号登回切换态,打断出站等待窗口
+    if outbound_switch_active(&app).await {
+        return;
+    }
     let settings = match crate::config_state::current_settings(&app).await {
         Ok(s) => s,
         Err(_) => return,

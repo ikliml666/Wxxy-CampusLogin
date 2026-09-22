@@ -371,6 +371,13 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         "message": combined_msg,
         "success": any_radius_ok,
         "retryable": !any_radius_ok,
+        // 两个子步骤的原始结果（只增字段，向后兼容）：success 只取 Radius 单边（主
+        // 操作），但 MAC 解绑同样是破坏性踢下线（ePortal 4.1.x 按 wlan_user_ip 踢），
+        // 解绑成功即"本机已离线"。调用方判定"离线已生效"须取 radiusOk || unbindOk——
+        // 只看 success 会把 (false, true) 组合误判为注销失败（夜间出站切换的切换侧
+        // 依赖此判据，误判会导致掉线重连→再注销的整夜摆动）
+        "radiusOk": any_radius_ok,
+        "unbindOk": any_unbind_ok,
     }))
 }
 
