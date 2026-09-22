@@ -29,6 +29,18 @@ pub struct Settings {
     pub enable_night_operator_switch: bool,
     /// 夜间切换前的原运营商:切至无锡学院时暂存,次日恢复窗口取回后清空
     pub night_operator_restore: String,
+    /// 夜间出站自动切换总开关(默认关——修改系统路由属侵入性动作);字段随桌面
+    /// Config 同口径,安卓端暂不消费判定逻辑
+    pub enable_night_outbound_switch: bool,
+    /// 出站网卡优先级(友好名有序列表,首项=夜间出站目标);空=未排序,列表外网卡
+    /// 不参与夜间切换。安卓端不消费此字段
+    pub outbound_priority: Vec<String>,
+    /// 桌面出站切换态快照(仅目标卡 IPv4/IPv6 两族的 metric JSON);非空=桌面处于
+    /// 切换态。安卓端不消费此字段
+    pub outbound_metric_restore: String,
+    /// 安卓出站切换态标记(值恒 "logged_out",纯标记不暂存账号名):非空=处于出站
+    /// 切换态(已注销等待晨间重登);切账号时清空
+    pub night_outbound_restore: String,
     // 行为
     pub auto_login_on_start: bool,
     pub enable_background_check: bool,
@@ -99,6 +111,10 @@ impl Default for Settings {
             // 2026-09-20 起默认开启(存量旧默认 false 由 v6→v7 迁移刷为 true)
             enable_night_operator_switch: true,
             night_operator_restore: String::new(),
+            enable_night_outbound_switch: false,
+            outbound_priority: Vec::new(),
+            outbound_metric_restore: String::new(),
+            night_outbound_restore: String::new(),
             auto_login_on_start: true,
             enable_background_check: true,
             // 2026-09-09 起 60s:后台检测是稳态周期任务,15s 间隔空转耗电,
