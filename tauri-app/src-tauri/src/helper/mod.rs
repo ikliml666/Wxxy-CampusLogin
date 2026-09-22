@@ -86,6 +86,12 @@ pub enum HelperOp {
     /// PnP 设备级启用（pnputil /enable-device，含 problem 22 解除复核）
     #[cfg(target_os = "windows")]
     EnableDevice { instance_id: String },
+    /// 设置接口跃点（出站切换）：`rows` 为 "{guid}:{family}:{automatic}:{metric}"
+    /// 编码条目（family 2=IPv4/23=IPv6；automatic 1=恢复自动跃点、0=静态 metric）。
+    /// 对 guid 匹配到的接口逐条 SetIpInterfaceEntry（SitePrefixLength 置 0 防
+    /// ERROR_INVALID_PARAMETER，EasyTier/mullvad 同款实现）
+    #[cfg(target_os = "windows")]
+    SetMetric { rows: Vec<String> },
     /// 注册计划任务提权代理（仅计划任务 worker 内执行，本身处于提权上下文）
     #[cfg(target_os = "windows")]
     RegisterTaskProxy,
@@ -148,6 +154,8 @@ fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
             HelperOp::EnableDevice { instance_id }
         }
         #[cfg(target_os = "windows")]
+        "set_metric" => HelperOp::SetMetric { rows: positional },
+        #[cfg(target_os = "windows")]
         "register_task" => HelperOp::RegisterTaskProxy,
         "selfcheck" => HelperOp::SelfCheck,
         other => return Err(format!("未知 helper 操作: {other}")),
@@ -199,6 +207,8 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
         HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
         HelperOp::SelfCheck => HelperResult {
@@ -310,6 +320,8 @@ fn process_request(path: &std::path::Path) -> i32 {
                 HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
                 HelperOp::SelfCheck => HelperResult {
@@ -476,6 +488,126 @@ fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResul
             logs: std::mem::take(logs),
             details: None,
         },
+    }
+}
+
+/// 解码一条 set_metric 编码条目 `"{guid}:{family}:{automatic}:{metric}"`，返回
+/// （原始带花括号 GUID、协议栈 AF_INET=2/AF_INET6=23、是否自动跃点、静态跃点值）。
+/// 条目来自 ProgramData 下任何本地用户可写的请求文件，且执行方是 SYSTEM：
+/// 每个字段严格校验后才交给 Win32。
+fn decode_set_metric_row(row: &str) -> Result<(String, u16, bool, u32), String> {
+    let parts: Vec<&str> = row.split(':').collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "set_metric 条目格式非法: {row:?}（要求 guid:family:automatic:metric）"
+        ));
+    }
+    let family = match parts[1] {
+        "2" => 2u16,
+        "23" => 23u16,
+        other => {
+            return Err(format!(
+                "set_metric 协议栈非法: {other:?}（要求 2=IPv4 / 23=IPv6）"
+            ))
+        }
+    };
+    let automatic = match parts[2] {
+        "1" => true,
+        "0" => false,
+        other => {
+            return Err(format!("set_metric automatic 标志非法: {other:?}（要求 0 或 1）"))
+        }
+    };
+    let metric = parts[3]
+        .parse::<u32>()
+        .map_err(|e| format!("set_metric 跃点值非法: {:?} - {e}", parts[3]))?;
+    Ok((parts[0].to_string(), family, automatic, metric))
+}
+
+/// 设置接口跃点（夜间出站切换）：逐条解码 → 复用读路径的接口枚举按 (guid, family)
+/// 定位当前行 → 改副本后 SetIpInterfaceEntry。提权上下文内执行（主进程无接口写权限）。
+/// 任一条失败即整体失败，失败明细汇总进 message 与 logs。
+#[cfg(target_os = "windows")]
+fn run_set_metric(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
+    use windows::Win32::Foundation::{BOOLEAN, WIN32_ERROR};
+    use windows::Win32::NetworkManagement::IpHelper::SetIpInterfaceEntry;
+
+    let fail = |message: String, logs: &mut Vec<String>| HelperResult {
+        success: false,
+        message,
+        op: "set_metric".to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    };
+    // 空条目等于什么都没做，报成功会让调用方误判切换已生效
+    if rows.is_empty() {
+        return fail("set_metric 缺少条目".to_string(), logs);
+    }
+    logs.push(format!("helper: 开始设置接口跃点（{} 条）", rows.len()));
+
+    let mut applied = 0usize;
+    let mut failed: Vec<String> = Vec::new();
+    for row in rows {
+        let (guid, family, automatic, metric) = match decode_set_metric_row(row) {
+            Ok(v) => v,
+            Err(e) => {
+                logs.push(format!("helper: {e}"));
+                failed.push(e);
+                continue;
+            }
+        };
+        let candidates = match crate::platform::metric::interface_rows_for_guid(&guid) {
+            Ok(rows) => rows,
+            Err(e) => {
+                let e = format!("接口枚举失败: guid={guid} - {e}");
+                logs.push(format!("helper: {e}"));
+                failed.push(e);
+                continue;
+            }
+        };
+        // SetIpInterfaceEntry 要求 Family/InterfaceLuid/InterfaceIndex 等为接口当前值，
+        // 故直接取枚举到的整行改副本（等价 mullvad 的 GetIpInterfaceEntry + Set）
+        let Some(mut target) = candidates.into_iter().find(|r| r.Family.0 == family) else {
+            let e = format!("未找到接口行: guid={guid} family={family}");
+            logs.push(format!("helper: {e}"));
+            failed.push(e);
+            continue;
+        };
+        target.UseAutomaticMetric = BOOLEAN(automatic as u8);
+        target.Metric = metric;
+        // SitePrefixLength 必须为 0，否则 SetIpInterfaceEntry 报 ERROR_INVALID_PARAMETER
+        target.SitePrefixLength = 0;
+        let rc = unsafe { SetIpInterfaceEntry(&mut target) };
+        if rc != WIN32_ERROR(0) {
+            let e = format!(
+                "SetIpInterfaceEntry 失败: guid={guid} family={family} metric={metric} 错误码 {}",
+                rc.0
+            );
+            logs.push(format!("helper: {e}"));
+            failed.push(e);
+        } else {
+            applied += 1;
+            logs.push(format!(
+                "helper: 接口跃点已设置: guid={guid} family={family} automatic={automatic} metric={metric}"
+            ));
+        }
+    }
+
+    if failed.is_empty() {
+        let message = format!("接口跃点已设置（{applied} 条）");
+        logs.push(format!("helper: {message}"));
+        HelperResult {
+            success: true,
+            message,
+            op: "set_metric".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        }
+    } else {
+        fail(
+            format!("接口跃点设置失败（{} 条失败）: {}", failed.len(), failed.join("；")),
+            logs,
+        )
     }
 }
 
@@ -831,6 +963,57 @@ mod tests {
     #[test]
     fn build_op_unknown_is_err() {
         assert!(build_op_from_args("bogus", &[]).is_err());
+    }
+
+    // === set_metric（夜间出站切换）：编码条目 round-trip 与非法输入拒绝 ===
+
+    #[test]
+    fn set_metric_round_trip_and_reject() {
+        let args = vec![
+            "set_metric".to_string(),
+            "{ABC-DEF}:2:0:1".to_string(),
+            "{ABC-DEF}:23:1:0".to_string(),
+        ];
+        let (op, _) = parse_helper_args(
+            &["--helper".to_string()]
+                .iter()
+                .chain(args.iter())
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+        .unwrap();
+        match op {
+            HelperOp::SetMetric { rows } => {
+                assert_eq!(
+                    rows,
+                    vec!["{ABC-DEF}:2:0:1".to_string(), "{ABC-DEF}:23:1:0".to_string()]
+                );
+                // 解码器直接吃编码串（run_set_metric 内部同款解码逻辑抽成独立纯函数以便测试）
+                let (guid, family, automatic, metric) = decode_set_metric_row(&rows[0]).unwrap();
+                assert_eq!(
+                    (guid.as_str(), family, automatic, metric),
+                    ("{ABC-DEF}", 2u16, false, 1u32)
+                );
+                let (_, family6, automatic6, metric6) = decode_set_metric_row(&rows[1]).unwrap();
+                assert_eq!((family6, automatic6, metric6), (23u16, true, 0u32));
+            }
+            other => panic!("wrong op: {other:?}"),
+        }
+
+        // 非法条目一律拒绝：字段数不足/多余、协议栈非 2|23、automatic 非 0|1、跃点非 u32
+        for bad in [
+            "{ABC-DEF}:2:0",
+            "{ABC-DEF}:2:0:1:9",
+            "{ABC-DEF}:6:0:1",
+            "{ABC-DEF}:2:true:1",
+            "{ABC-DEF}:2:0:-1",
+            "{ABC-DEF}:2:0:abc",
+            "{ABC-DEF}:2:0:99999999999",
+            "",
+        ] {
+            assert!(decode_set_metric_row(bad).is_err(), "应拒绝: {bad:?}");
+        }
     }
 
     #[test]
