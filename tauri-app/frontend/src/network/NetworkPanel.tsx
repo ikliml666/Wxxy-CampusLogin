@@ -15,8 +15,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, ArrowUp, ArrowDown } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
+import { Switch } from '@/components/ui/switch'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -54,6 +55,25 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const config = useConfigStore(useShallow((s) => s.config))
   // 账号列表：适配器「指定账号」下拉的选项来源（id 为值、displayName 为显示）
   const accounts = useConfigStore((s) => s.accounts)
+
+  // 出站排序视图态：以 outboundPriority 为基座，未列入的适配器按发现顺序追加尾部；
+  // 展示列表 = 出站排序列 ∪ 当前适配器列表（保证新网卡可见可排）
+  const outboundOrder = config.outboundPriority?.length
+    ? [...config.outboundPriority.filter(n => adapters.some(a => a.name === n)),
+       ...adapters.map(a => a.name).filter(n => !config.outboundPriority?.includes(n))]
+    : adapters.map(a => a.name)
+  const orderedAdapters = outboundOrder
+    .map(name => adapters.find(a => a.name === name))
+    .filter((a): a is Adapter => !!a)
+  const moveAdapter = (name: string, dir: -1 | 1) => {
+    const list = [...outboundOrder]
+    const i = list.indexOf(name)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= list.length) return
+    ;[list[i], list[j]] = [list[j], list[i]]
+    onUpdateConfig({ outboundPriority: list })
+  }
+
   const [dohEnabling, setDohEnabling] = useState(false)
   const [dnsResetting, setDnsResetting] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
@@ -350,6 +370,80 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <MoonStar className="h-5 w-5 text-primary" />
+                </div>
+                <CardTitle className="whitespace-nowrap">{t('network.nightOutboundSwitch')}</CardTitle>
+              </div>
+              <Switch
+                checked={config.enableNightOutboundSwitch}
+                onCheckedChange={checked => onUpdateConfig({ enableNightOutboundSwitch: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {orderedAdapters.map((a, i) => (
+                <div key={a.name} className="flex items-center justify-between p-3.5 rounded-xl bg-muted/30">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                      {a.wireless ? (
+                        <Wifi className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Cable className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                    <span className="text-sm font-medium truncate">{a.name}</span>
+                    {a.ip && (
+                      <Badge variant="secondary" size="sm" className="font-mono shrink-0">
+                        {a.ip}
+                      </Badge>
+                    )}
+                    {outboundOrder[0] === a.name && (
+                      <Badge variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
+                        {t('network.outboundBadge')}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      disabled={i === 0}
+                      onClick={() => moveAdapter(a.name, -1)}
+                      title={t('network.outboundMoveUp')}
+                      aria-label={t('network.outboundMoveUp')}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      disabled={i === orderedAdapters.length - 1}
+                      onClick={() => moveAdapter(a.name, 1)}
+                      title={t('network.outboundMoveDown')}
+                      aria-label={t('network.outboundMoveDown')}
+                    >
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">{t('network.outboundAdminHint')}</p>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <Network className="h-5 w-5 text-primary" />
@@ -476,7 +570,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">

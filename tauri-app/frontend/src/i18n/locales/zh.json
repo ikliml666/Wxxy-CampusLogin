@@ -292,7 +292,13 @@
     "resettingDns": "恢复中...",
     "dnsResetSuccess": "已恢复DNS自动获取",
     "dnsResetFailed": "恢复自动获取失败",
-    "dhcpRenewFailed": "DHCP 续租失败"
+    "dhcpRenewFailed": "DHCP 续租失败",
+    "nightOutboundSwitch": "夜间出站切换",
+    "nightOutboundSwitchDesc": "周日至周四 23:00、周五六 23:30 自动把出站切到排序最前的非校园网网卡（热点/物联网卡），次日 6:30 起自动还原；需保持应用在后台运行",
+    "outboundBadge": "夜间出站目标",
+    "outboundMoveUp": "上移",
+    "outboundMoveDown": "下移",
+    "outboundAdminHint": "切换动作需要管理员权限（将通过 UAC 或计划任务代理静默完成）；排第一的网卡即夜间出站目标，列表外网卡不参与切换"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",
