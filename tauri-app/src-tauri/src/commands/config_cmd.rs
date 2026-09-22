@@ -178,6 +178,9 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: St
     let current = state.config.load();
     restore_imported_password_field(&mut config.password, password_encrypted, &current.password)?;
     restore_imported_password_field(&mut config.self_password, password_encrypted, &current.self_password)?;
+    // 切换态是本机系统状态（metric 快照/注销标记），不可随配置迁移到新机；导入即清
+    config.outbound_metric_restore = String::new();
+    config.night_outbound_restore = String::new();
 
     // 失败分列③：配置校验失败（严格版，与 save_config 同源）
     let config = match validate_config(config) {
