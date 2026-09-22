@@ -3,6 +3,7 @@ import type { Adapter } from '@/network'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Switch } from '@/components/ui/switch'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -15,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
@@ -160,6 +161,18 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     // 刷新适配器列表（启用后状态变化，需更新 adapters + disabledAdapters + details）
     await refreshAdapterData({ force: true, includeDisabled: true })
   }, [ipc, mountedRef, t])
+
+  // 夜间出站切换卡：复制 adb 引导命令到剪贴板，成功后短暂置位供按钮图标反馈；失败静默（WebView 剪贴板权限受限场景）
+  const [adbCopied, setAdbCopied] = useState(false)
+  const handleCopyAdbCommand = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(t('network.avoidBadWifiCommand'))
+      setAdbCopied(true)
+      setTimeout(() => setAdbCopied(false), 2000)
+    } catch {
+      // 剪贴板不可用时不弹提示，按钮未变为对勾即未复制成功
+    }
+  }, [t])
 
   const getDnsQuality = (
     adapter: {
@@ -319,6 +332,49 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <MoonStar className="h-5 w-5 text-primary" />
+                </div>
+                <CardTitle className="whitespace-nowrap">{t('network.nightOutboundSwitch')}</CardTitle>
+              </div>
+              <Switch
+                checked={config.enableNightOutboundSwitch}
+                onCheckedChange={checked => onUpdateConfig({ enableNightOutboundSwitch: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="p-3.5 rounded-xl bg-muted/30 space-y-2">
+              <p className="text-xs text-muted-foreground">{t('network.avoidBadWifiGuide')}</p>
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-xs font-mono text-foreground/80 break-all min-w-0">{t('network.avoidBadWifiCommand')}</code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[11px] gap-1 shrink-0"
+                  onClick={handleCopyAdbCommand}
+                  title={t('network.avoidBadWifiCommand')}
+                >
+                  {adbCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {adbCopied ? t('network.avoidBadWifiCopied') : t('network.avoidBadWifiCopy')}
+                </Button>
+              </div>
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <span className="text-xs text-amber-600">{t('network.avoidBadWifiCaveats')}</span>
+              </div>
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <Network className="h-5 w-5 text-primary" />
@@ -409,7 +465,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">

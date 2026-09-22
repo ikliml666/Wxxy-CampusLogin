@@ -124,8 +124,8 @@
     "noSavedAccountsTip": "点击上方按钮添加账号配置",
     "autoLoginCampus": "自动登录校园网",
     "autoLoginCampusDesc": "程序启动后自动执行认证登录",
-    "nightOperatorSwitch": "晚间断网自动切换",
-    "nightOperatorSwitchDesc": "周日至周四 23:00 与周五、周六 23:30 运营商断网时自动切至无锡学院，次日 6:30 起自动切回；需保持应用在后台运行",
+    "nightOperatorSwitch": "自动切换运营商",
+    "nightOperatorSwitchDesc": "周日至周四 23:00、周五六 23:30 运营商线路断网时自动切至无锡学院线路，次日 6:30 起自动切回；需保持应用在后台运行",
     "autoExitAfterLogin": "登录成功后退出",
     "autoExitAfterLoginDesc": "认证通过后自动关闭本程序",
     "deleteAccountTitle": "删除账号",
@@ -292,7 +292,14 @@
     "getNewIpFailedShort": "获取新IP失败",
     "dnsFamilyLabel": "优化目标",
     "dnsFamilyBoth": "IPv4 + IPv6",
-    "dhcpRenewFailed": "DHCP 续租失败"
+    "dhcpRenewFailed": "DHCP 续租失败",
+    "nightOutboundSwitch": "夜间出站切换",
+    "nightOutboundSwitchDesc": "周日至周四 23:00、周五六 23:30 自动注销校园网并触发系统 WiFi 重检，配合系统「避免烂 WiFi」机制自动切换移动数据，次日 6:30 起自动重新登录",
+    "avoidBadWifiGuide": "需系统开启「避免烂 WiFi」：adb 执行以下命令后重启手机（部分 ROM 已默认开启或提供「WLAN 助手」等私有开关，优先用系统自带功能）",
+    "avoidBadWifiCommand": "adb shell settings put global network_avoid_bad_wifi 1",
+    "avoidBadWifiCaveats": "注意：切换时机由系统探测决定；蜂窝数据关闭或无 SIM 时无路可切；该机制常开时白天网络卡顿也会自动切流量",
+    "avoidBadWifiCopy": "复制命令",
+    "avoidBadWifiCopied": "命令已复制"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",

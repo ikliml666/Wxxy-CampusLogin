@@ -124,8 +124,8 @@
     "noSavedAccountsTip": "Click the button above to add an account",
     "autoLoginCampus": "Auto Login to Campus Network",
     "autoLoginCampusDesc": "Automatically authenticate on app startup",
-    "nightOperatorSwitch": "Night Outage Auto Switch",
-    "nightOperatorSwitchDesc": "Auto-switches to the campus operator (Wuxi University) at 23:00 Sun-Thu and 23:30 on Fri/Sat; auto-restores from 6:30 next morning; keep the app running in the background",
+    "nightOperatorSwitch": "Auto Operator Switch",
+    "nightOperatorSwitchDesc": "Auto-switches to the campus operator line (Wuxi University) when ISP lines drop at 23:00 Sun-Thu and 23:30 Fri/Sat; auto-restores from 6:30 next morning; keep the app running in the background",
     "autoExitAfterLogin": "Exit After Login",
     "autoExitAfterLoginDesc": "Automatically close the app after authentication",
     "deleteAccountTitle": "Delete Account",
@@ -292,7 +292,14 @@
     "getNewIpFailedShort": "Failed to get new IP",
     "dnsFamilyLabel": "Target",
     "dnsFamilyBoth": "IPv4 + IPv6",
-    "dhcpRenewFailed": "DHCP renew failed"
+    "dhcpRenewFailed": "DHCP renew failed",
+    "nightOutboundSwitch": "Night Outbound Switch",
+    "nightOutboundSwitchDesc": "Auto-signs out of the campus network and triggers a system Wi-Fi re-check at 23:00 Sun-Thu and 23:30 Fri/Sat, letting the system 'Avoid Bad Wi-Fi' mechanism switch to mobile data automatically; auto-relogin from 6:30 next morning",
+    "avoidBadWifiGuide": "Requires the system 'Avoid Bad Wi-Fi' setting: run the command below via adb and reboot (some ROMs enable it by default or offer a private toggle like 'WLAN Assistant' — prefer the built-in system option)",
+    "avoidBadWifiCommand": "adb shell settings put global network_avoid_bad_wifi 1",
+    "avoidBadWifiCaveats": "Note: the switch timing is decided by system detection; there is no fallback when cellular data is off or no SIM is present; when always enabled, the system will also switch to cellular during daytime network slowdowns",
+    "avoidBadWifiCopy": "Copy command",
+    "avoidBadWifiCopied": "Command copied"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",
