@@ -15,7 +15,6 @@
 //! - 请求/结果文件均在固定目录内、文件名随机，worker 侧另有路径收口
 //!   （见 `helper::resolve_result_path`）。
 
-use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
