@@ -88,7 +88,7 @@ tags: [network, dns, doh, hickory-resolver, tls, timing, windows, netsh]
 
 ### DNS/DoH 一键设置（`network/dns_setup.rs`，共 207 行）
 
-- `#[cfg(target_os = "windows")] pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Value` — `network/dns_setup.rs:13-202`。从 `commands/network_cmd.rs` 的管理员分支抽出，管理员路径与提权 helper 路径共用同一实现（`helper/mod.rs:111`），避免两处逻辑漂移（注释 `network/dns_setup.rs:3-7`）。`family` 取值 `"ipv4"` / `"ipv6"` / 其它（视作 both，`network/dns_setup.rs:31-40`）。
+- `#[cfg(target_os = "windows")] pub fn setup_dns_doh_admin(targets: &[String], family: &str) -> serde_json::Value` — `network/dns_setup.rs:13-202`。从 `commands/network_cmd.rs` 的管理员分支抽出，管理员路径与提权 helper 路径共用同一实现（`helper/mod.rs:356`，dns op 分派 `helper/mod.rs:127`），避免两处逻辑漂移（注释 `network/dns_setup.rs:3-7`）。`family` 取值 `"ipv4"` / `"ipv6"` / 其它（视作 both，`network/dns_setup.rs:31-40`）。
 - `#[cfg(not(target_os = "windows"))] pub fn setup_dns_doh_admin(_targets, _family) -> serde_json::Value` — `network/dns_setup.rs:204-207`，恒返回 `{"success": false, "message": "仅支持Windows"}`。
 
 ### 平台 DNS 常量（`platform/dns_config.rs`，被 `dns_setup.rs` 引用）
@@ -227,7 +227,7 @@ measure_doh_timing(doh_server, doh_ip, query_domain, bind, timeout, skip_http)  
 ### DNS/DoH 一键设置链路（`setup_dns_doh_admin`）
 
 ```text
-commands/network_cmd.rs:299（管理员） 或 helper/mod.rs:111（提权 helper）
+commands/network_cmd.rs:299（管理员） 或 helper/mod.rs:356（提权 helper）
   → setup_dns_doh_admin(targets, family)                        [dns_setup.rs:13]
     ├─ get_adapters_force()  → 过滤 !ip.is_empty() && !is_blacklisted && name ∈ targets  [:17-21]
     │    空 → 返回 {"success": false, "message": "未找到目标网络适配器（主/副适配器均无活跃连接）"}  [:23-28]

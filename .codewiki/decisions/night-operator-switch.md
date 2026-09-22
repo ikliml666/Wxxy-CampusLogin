@@ -1,5 +1,5 @@
 ---
-title: "晚间断网自动切换运营商（夜切功能）"
+title: "自动切换运营商（原晚间断网自动切换）"
 type: decision
 source_files:
   - tauri-app/src-tauri/src/config/night_switch.rs
@@ -19,6 +19,8 @@ tags: [决策, 夜切, 运营商, 定时任务, 双端同构]
 ---
 
 ## 背景
+
+**改名说明（2026-09-22）**：本功能原 UI 名「晚间断网自动切换」，随「夜间出站自动切换」功能（[[night-outbound-switch]]）落地而更名为「自动切换运营商」——整体断网场景由出站切换接管，本功能只覆盖运营商线路断网，名字与语义对齐。**仅改文案与本文档标题，配置字段名 `nightOperatorSwitch` 等一律不变**（兼容性）；时间表与下文 [[night-outbound-switch]] 共用。
 
 校园网（无锡学院）的运营商线路有固定断网规律：**周日至周四 23:00 与周五、周六 23:30**之后，电信/移动/联通服务下线无法上网（2026-09-20 需求方更正时间表：原实现仅周日/周一 23:00，周二~周四无切换；`switch_time_for` 已改为 `0..=4 => 1380`、`5 | 6 => 1410`），需把登录运营商切到"无锡学院"（`config.operator = ''`）才能继续上网；次日早晨线路恢复后应切回原运营商。2026-09-19 与需求方确认形态为**自动定时切换**：一个开关（默认关），开启后到点自动切换，无需手动。
 
@@ -66,4 +68,4 @@ tags: [决策, 夜切, 运营商, 定时任务, 双端同构]
 
 ## Connections
 
-[[config-schedule-pure-function]]、[[scheduled-actions-outside-silent-window]]、[[dual-platform-sharing]]、[[config-field-sets-bidirectional-sync]]、[[learnings/gen-schemas-crlf-diff-noise]]
+[[config-schedule-pure-function]]、[[scheduled-actions-outside-silent-window]]、[[dual-platform-sharing]]、[[config-field-sets-bidirectional-sync]]、[[night-outbound-switch]]、[[learnings/gen-schemas-crlf-diff-noise]]

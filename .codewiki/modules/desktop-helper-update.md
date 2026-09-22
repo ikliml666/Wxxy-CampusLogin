@@ -32,7 +32,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
   - **MAC 格式前置校验**：必须 `len == 12` 且全部为 ASCII 十六进制字符，否则直接返回 `success:false` + `"MAC 格式非法: ..."`（`:434-441`）——防"非法格式静默写坏网卡配置"；
   - `network::get_adapters_force()` 枚举，按 `guid.eq_ignore_ascii_case` 找适配器（`:456`）；
   - `network::dhcp::apply_mac_change_via_registry(guid, &adapter.name, mac_no_dash)`（`:468`）；成功后**在同一管理员上下文内**调 `network::dhcp::remove_mac_from_registry(guid)` 清除 `NetworkAddress` 持久伪装值，失败只 push 一条日志、**不影响 success**（`:473-475`）。
-- `fn set_metric 相关` — 解码纯函数 `decode_set_metric_row(row: &str) -> Result<(String, u16, bool, u32), String>`（`helper/mod.rs:498-529`）：把 `"{guid}:{family}:{automatic}:{metric}"` 拆成带花括号 GUID / 协议栈 / 是否自动跃点 / 跃点值，字段格式（字段数、`family` 只认 2 与 23、`automatic` 只认 0 与 1、`metric` 必须 `u32`）**一律严格校验后才交给 Win32**（条目经 `%ProgramData%` 下的请求文件传入，任何本地用户可写而执行方是 SYSTEM）。`fn run_set_metric(rows, logs)`（`helper/mod.rs:531-615`，私有）：空 rows 直接失败（`:543`，"什么都没做"不能报成功）→ 逐条解码 → `platform::metric::interface_rows_for_guid` 取当前行（`:559-568`）→ 按 `Family` 命中该协议栈的行 → **整行改副本**（覆写 `UseAutomaticMetric`（`:576`）、`Metric`、`SitePrefixLength = 0`（`:579`，非 0 会报 `ERROR_INVALID_PARAMETER`））→ `SetIpInterfaceEntry`（`:580`）。任一条失败即整体 `success:false` 并把失败明细汇总进 `message` 与 `logs`。写入侧的坑见 [[set-ip-interface-entry-metric]]。
+- `fn set_metric 相关` — 解码纯函数 `decode_set_metric_row(row: &str) -> Result<(String, u16, bool, u32), String>`（`helper/mod.rs:498-529`）：把 `"{guid}:{family}:{automatic}:{metric}"` 拆成带花括号 GUID / 协议栈 / 是否自动跃点 / 跃点值，字段格式（字段数、`family` 只认 2 与 23、`automatic` 只认 0 与 1、`metric` 必须 `u32`）**一律严格校验后才交给 Win32**（条目经 `%ProgramData%` 下的请求文件传入，任何本地用户可写而执行方是 SYSTEM）。`fn run_set_metric(rows, logs)`（`helper/mod.rs:531-612`，私有）：空 rows 直接失败（`:543`，"什么都没做"不能报成功）→ 逐条解码 → `platform::metric::interface_rows_for_guid` 取当前行（`:559-568`）→ 按 `Family` 命中该协议栈的行 → **整行改副本**（覆写 `UseAutomaticMetric`（`:576`）、`Metric`、`SitePrefixLength = 0`（`:579`，非 0 会报 `ERROR_INVALID_PARAMETER`））→ `SetIpInterfaceEntry`（`:580`）。任一条失败即整体 `success:false` 并把失败明细汇总进 `message` 与 `logs`。写入侧的坑见 [[set-ip-interface-entry-metric]]。
 - `fn run_enable_adapter(name, logs)` / `fn run_enable_device(instance_id, logs)` — `helper/mod.rs:617-671` / `:673-741`（私有）。适配器名双校验（`validate_adapter_name` + 本机适配器列表存在性）；设备实例 ID 字符集白名单（防 pnputil 开关注入）+ `CM_Locate_DevNodeW` 存在性 + problem 22 解除轮询复核。
 - `fn run_register_task(logs)` — `helper/mod.rs:743-763`（私有）。`task_proxy::register_task_via_com`（COM 注册需管理员）。
 - `fn write_result_file(path, result)` — `helper/mod.rs:765-776`（私有）。先写 `"{path}.tmp"` 再 `std::fs::rename` 覆盖（原子写，避免主进程读到半截）；**两步的返回错误都被忽略**（`if ... is_ok()`，`:770-773`）。
@@ -89,7 +89,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
 
 ## 结构体与字段
 
-### `HelperResult`（`helper/mod.rs:60-70`）
+### `HelperResult`（`helper/mod.rs:61-70`）
 
 `#[derive(Debug, Clone, Serialize)]`；序列化键名**不加** `camelCase`，即字段名原样。
 
@@ -178,7 +178,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
            │         → dhcp::apply_mac_change_via_registry
            │         → dhcp::remove_mac_from_registry（清除持久伪装值）          helper/mod.rs:432-496
            └─ SetMetric → decode_set_metric_row → interface_rows_for_guid
-                     → 整行改副本（SitePrefixLength=0）→ SetIpInterfaceEntry    helper/mod.rs:531-615
+                     → 整行改副本（SitePrefixLength=0）→ SetIpInterfaceEntry    helper/mod.rs:531-612
         → write_result_file（.tmp → rename 原子替换）    helper/mod.rs:765-776
         → 退出码 0（成功）/ 1（失败）                     helper/mod.rs:222
      → 主进程 100ms 轮询结果文件（超时后再补查一次）      platform/helper_spawn.rs:66-78
@@ -310,4 +310,4 @@ checked via commands/updater.rs
 16. **HEAD 资产探测对镜像不通的环境偏保守** — `update/updater.rs:400-417`：探测请求失败（`Err`）时日志打 `log_debug!`（`:414`）并**维持** `has_update = true`，于是纯镜像网络下用户可能收到更新通知但下载走不到官方源（`download_update` 的 URL 由前端从 `assets[0].url` 选镜像，见 `commands/updater.rs:294-330` 的 `get_mirror_urls`）。
 17. **`do_update_check` 失败静默** — `update/updater.rs:309-311` 只有一行 `log_warn!("updater", "更新检查失败: {}", e)`，不向前端发事件、不写 `last_update_check_epoch_ms`（`:303-307` 仅在成功分支），设置界面的"上次检查时间"会停留在旧值。
 18. **`start_update_check_loop` 注册失败只告警** — `update/updater.rs:276`；`app/startup.rs:193` 的返回值被完全忽略，自动更新静默失效时无 UI 反馈。
-19. **`set_metric` 的成败粒度是整条 op，没有结构化明细** — `helper/mod.rs:531-615`：`run_set_metric` 对任一条条目失败即整体 `success:false`，失败明细只拼进 `message` 与 `logs`（`details` 恒为 `None`）。一次提交 IPv4+IPv6 两条而只成功一条时，调用方只能从中文 `message` 文本里分辨哪条生效；需要机读时必须给 `details` 补 `{applied, failed}`（TODO 留给消费方任务 5/6 按需加）。
+19. **`set_metric` 的成败粒度是整条 op，没有结构化明细** — `helper/mod.rs:531-612`：`run_set_metric` 对任一条条目失败即整体 `success:false`，失败明细只拼进 `message` 与 `logs`（`details` 恒为 `None`）。一次提交 IPv4+IPv6 两条而只成功一条时，调用方只能从中文 `message` 文本里分辨哪条生效；需要机读时必须给 `details` 补 `{applied, failed}`（TODO 留给消费方任务 5/6 按需加）。

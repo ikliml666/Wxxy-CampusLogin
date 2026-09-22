@@ -26,6 +26,8 @@ MAC 解绑先行 / 连发多轮注销——因实测无增益被弃用。
 
 注销调用点不应再加"连发补偿"。已知脆弱点：注销请求携带硬编码占位凭据（`protocol.rs:3-4` 的 `drcom`/`123`），只依赖 `wlan_user_ip`，Portal 收紧校验会静默退化；注销失败结果缺 `retryable` 字段，`unwrap_or(true)` 兜底导致恒可重试。
 
+**2026-09-22 复核增注**：①"缺 `retryable`"指 `do_logout_with_retry` 的 `Err` 分支与 `max_retries` 兜底 JSON——`do_logout_request` 的正常产出自 2026-09 起已带 `retryable`，该表述仍然准确；②结果 JSON 新增 `radiusOk`/`unbindOk` 两个子步骤信号（`protocol.rs:379-380`），"离线已生效"判据取 `radiusOk || unbindOk`（MAC 解绑同样是破坏性踢下线），不改变本决策"Radius 先行、成功即止"的顺序语义；③`do_logout_with_retry` 只保留最后一次结果，交替型失败场景的 `unbindOk` 可能失真——见 [[night-outbound-switch]] 已知限制。
+
 ## Connections
 
-[[portal-port-semantics]]、[[logout-placeholder-credentials]]
+[[portal-port-semantics]]、[[logout-placeholder-credentials]]、[[night-outbound-switch]]

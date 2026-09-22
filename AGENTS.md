@@ -12,7 +12,7 @@
 
 4. **验证以实际输出为准，不凭"应该没问题"**：
    - 前端：`npx tsc --noEmit --incremental`（在 `tauri-app/frontend` 下；**禁止 `tsc -b`**——tsconfig.node.json 为 composite 项目，会 emit 出 vite.config.js/.d.ts 污染文件）。涉及打包产物时 `npx vite build` 确认无警告。安卓前端同法（在 `android/frontend` 下执行）。
-   - 后端：`cargo test`（在 `tauri-app/src-tauri` 下；全绿基线 493 用例，以 CodeWiki 的 `decisions/verification-baseline` 为准）。
+   - 后端：`cargo test`（在 `tauri-app/src-tauri` 下；全绿基线 397 用例（lib 396 + 集成 1，2026-09-22 实测），以 CodeWiki 的 `decisions/verification-baseline` 为准）。
    - 安卓端：host `cargo check` / `cargo test` 在 `android/src-tauri` 基线即失败（mobile-only 插件门控）——Rust 改动只认 `cargo check --target aarch64-linux-android --all-targets`（需注入 NDK 工具链环境变量）或一键出包 `pwsh android/build-apk.ps1`（详见 CodeWiki 的 `decisions/verification-baseline` 与 `learnings/android-host-cargo-check-fails`）。
    - 布局 / 交互类改动需浏览器实测：向 `tauri-app/frontend/index.html` 临时注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后必须完整还原**（git diff 必须干净）。
 

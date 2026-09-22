@@ -48,11 +48,11 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 | `protocol.rs:98-153` | 私有 fn | `do_login_request(user, password, operator, adapter_ip: Option<&str>) -> Result<serde_json::Value, String>` | 单次登录请求：校验凭据 → 拼 URL → 发 GET → 限长读体 → 解析 |
 | `protocol.rs:155-188` | pub fn | `do_login_with_retry(user, password, operator, adapter_ip, max_retries: u32, is_quitting: &AtomicBool) -> Result<serde_json::Value, String>` | 登录重试循环；成功或 `retryable=false` 立即返回；重试间隔 2000ms 可中断 |
 | `protocol.rs:190-239` | 私有 fn | `parse_login_result(&str) -> Result<serde_json::Value, String>` | 解析登录 JSONP：按 `result` 0/1/2/3/4 与 `msg` 关键词映射为 `{code, message, success, retryable}` |
-| `protocol.rs:241-355` | 私有 fn | `do_logout_request(user, adapter_ip, is_quitting) -> Result<serde_json::Value, String>` | 单次注销：Radius 注销最多 2 轮（`logout` 优先）→ 成功后补一次 MAC 解绑 |
-| `protocol.rs:361-368` | pub fn | `merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'static str` | 合并 Radius 注销与 MAC 解绑的结果文案（4 种组合） |
-| `protocol.rs:373-375` | 私有 fn | `ip_to_eportal_int(ip: &str) -> Option<u32>` | 点分 IPv4 → ePortal 前端 `ip_to_int` 同语义的大端整数；非法/空返回 None |
-| `protocol.rs:377-409` | pub fn | `do_logout_with_retry(user, adapter_ip, max_retries: u32, is_quitting: &AtomicBool) -> Result<serde_json::Value, String>` | 注销重试循环，语义同登录侧 |
-| `protocol.rs:411-458` | 私有 fn | `parse_logout_result(&str) -> Result<serde_json::Value, String>` | 解析注销响应；JSON 解析失败时回退 HTML/文本关键词（"注销成功"/"下线成功"/"已下线"/"解绑成功"） |
+| `protocol.rs:278-384` | 私有 fn | `do_logout_request(user, adapter_ip, is_quitting) -> Result<serde_json::Value, String>` | 单次注销：Radius 注销最多 2 轮（`logout` 优先）→ 收尾 MAC 解绑；结果 JSON 含 `radiusOk`/`unbindOk`（2026-09-22） |
+| `protocol.rs:430-437` | pub fn | `merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'static str` | 合并 Radius 注销与 MAC 解绑的结果文案（4 种组合） |
+| `protocol.rs:442-445` | 私有 fn | `ip_to_eportal_int(ip: &str) -> Option<u32>` | 点分 IPv4 → ePortal 前端 `ip_to_int` 同语义的大端整数；非法/空返回 None |
+| `protocol.rs:446-478` | pub fn | `do_logout_with_retry(user, adapter_ip, max_retries: u32, is_quitting: &AtomicBool) -> Result<serde_json::Value, String>` | 注销重试循环，语义同登录侧；**只保留最后一次结果**（交替型失败如"第 N 轮 unbind 成功→后续轮全败"最终 `unbindOk=false`，出站切换由 3 次上限兜底，见 [[night-outbound-switch]]） |
+| `protocol.rs:480-532` | 私有 fn | `parse_logout_result(&str) -> Result<serde_json::Value, String>` | 解析注销响应；JSON 解析失败时回退 HTML/文本关键词（"注销成功"/"下线成功"/"已下线"/"解绑成功"） |
 
 ### auth/portal.rs
 
@@ -194,7 +194,9 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 | `code` | `String` | 业务码；`"0"` 成功、`"1"` 非法/失败、`"2"` 已在线、`"3"` 流量超限、`"4"` 账号禁用、`"ac_auth_failed"` AC 认证失败、`"parse_error"` 无法解析、`"unknown_failure"` 未识别 msg、`"max_retries"` 重试耗尽、`"error"` 请求异常 |
 | `message` | `String` | 展示文案（含服务端原文或本地兜底文案） |
 | `success` | `bool` | 是否成功 |
-| `retryable` | `bool` | 是否值得重试；缺失时调用方按 `true` 处理（`protocol.rs:168`、`protocol.rs:391`） |
+| `retryable` | `bool` | 是否值得重试；缺失时调用方按 `true` 处理（`protocol.rs:168`、`protocol.rs:454`） |
+| `radiusOk` | `bool` | **仅注销结果**（2026-09-22 新增，`protocol.rs:379`）：Radius 注销子步骤原始结果。`success` 只取 Radius 单边（主操作），见 `unbindOk` |
+| `unbindOk` | `bool` | **仅注销结果**（2026-09-22 新增，`protocol.rs:380`）：MAC 解绑子步骤原始结果。MAC 解绑（ePortal 4.1.x 按 `wlan_user_ip` 踢）同样是破坏性踢下线，解绑成功即本机已离线；调用方判定"离线已生效"须取 `radiusOk || unbindOk`——只看 `success` 会把 `(false, true)` 组合误判为注销失败（夜间出站切换的切换侧依赖此判据，误判会导致掉线重连→再注销的整夜摆动），见 [[night-outbound-switch]] |
 
 ## Data Flow
 
@@ -254,7 +256,9 @@ commands/login.rs:100 → auth::service::full_logout(state, app_handle, adapter_
             ├─ Radius 全败或成功后收尾：GET /eportal/portal/mac/unbind
             │     wlan_user_ip 走 ip_to_eportal_int 转整数（NAT 空串回退原样）
             └─ merge_logout_results(any_radius_ok, any_unbind_ok)
-                  → {"code": radius_ok?"0":"1", "success": any_radius_ok, "retryable": !any_radius_ok}
+                  → {"code": radius_ok?"0":"1", "success": any_radius_ok, "retryable": !any_radius_ok,
+                     "radiusOk": any_radius_ok, "unbindOk": any_unbind_ok}   ← 2026-09-22 新增两键
+                     （判定"离线已生效"取 radiusOk || unbindOk，见 [[night-outbound-switch]]）
   → 命令层 logout.rs 成功后调用 failure_tracker::reset_all(state)
 ```
 
@@ -282,7 +286,7 @@ monitor 后台巡检 / session 预检 / commands → portal::check_portal_full(a
 
 ## Known Issues
 
-1. **注销请求携带硬编码占位凭据**：`protocol.rs:3-4` 定义 `LOGOUT_PLACEHOLDER_ACCOUNT = "drcom"`、`LOGOUT_PLACEHOLDER_PASSWORD = "123"`，`do_logout_request` 在 `protocol.rs:273-274` 把它们填入 `user_account`/`user_password` —— 注销不校验身份凭据，只依赖 `wlan_user_ip`。若 Portal 侧收紧校验，注销会静默退化。
+1. **注销请求携带硬编码占位凭据**：`protocol.rs:3-4` 定义 `LOGOUT_PLACEHOLDER_ACCOUNT = "drcom"`、`LOGOUT_PLACEHOLDER_PASSWORD = "123"`，`do_logout_request` 在 `protocol.rs:317-319` 附近把它们填入 `user_account`/`user_password` —— 注销不校验身份凭据，只依赖 `wlan_user_ip`。若 Portal 侧收紧校验，注销会静默退化。
 2. **注销轮次间隔只覆盖第 1 轮**：`protocol.rs:298-310` 的 1.5s 等待写死在 `if round == 1` 分支内，第 2 轮失败后直接进入 MAC 解绑，没有间隔（首次请求与解绑请求几乎同时发出）。同一处还有 `protocol.rs:300` 的 `for _ in 0..15` 手写循环，与 `wait_cancellable`（`protocol.rs:87-96`）功能重复但不复用。
 3. **`wait_cancellable` 在 `duration_ms < 100` 时不等待**：`protocol.rs:88` 的 `let steps = duration_ms / 100;` 会得到 0，函数直接返回 `true`（未取消）。当前调用点都传 2000，暂未触发。
 4. **`result == 1` 且 `msg` 为空被判定为登录成功**：`protocol.rs:210-215`，空 msg 时落到 `else` 分支返回 `"Portal协议认证成功"`。若 Portal 改版后 `result=1` 语义变化且不带 msg，会把失败误报为成功。
