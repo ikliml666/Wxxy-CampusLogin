@@ -45,6 +45,12 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let now = chrono::Local::now();
     let now_min = now.hour() as u16 * 60 + now.minute() as u16;
+    // 出站切换态：巡检整体跳过（portal 检测走热点出站必失败，会累计触发 MAC 重置
+    // 提权与整夜告警；见 decisions/night-outbound-switch）。下一拍（30s）恢复。
+    if !config.outbound_metric_restore.is_empty() {
+        crate::log_debug!("background", "出站切换态，跳过本轮巡检");
+        return;
+    }
     let campus_result = if crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes) {
         let hour = config.campus_check_start_minutes / 60;
         let minute = config.campus_check_start_minutes % 60;
