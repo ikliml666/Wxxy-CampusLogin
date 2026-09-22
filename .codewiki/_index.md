@@ -68,6 +68,7 @@
 - [[learnings\portal-carrier-vs-local-suffix-systems|Portal 服务类型（carrier）与本地运营商后缀是两套机制]]
 - [[learnings\rtss-hook-injection-webview-crash|RTSS hook 注入导致 WebView2 白屏崩溃：根因、诊断与排除尝试的完整失败记录]]
 - [[learnings\radix-select-empty-string-value|Radix Select 报错/不渲染某项：Item 不接受空串 value]]
+- [[learnings\set-ip-interface-entry-metric|SetIpInterfaceEntry 写 metric 的必踩点与字段对照]]
 - [[learnings\usb-adapter-enable-pnp-vs-ndis-layers|USB 网卡启用失效——NDIS admin 层与 PnP 设备层禁用互不覆盖]]
 - [[learnings\platform-com-elevation-undocumented|Windows COM 提权依赖未公开接口，失效时降级为弹 UAC]]
 - [[learnings\contain-paint-clips-absolute-menu|absolute 定位的菜单/按钮被卡片裁掉（contain: paint）]]

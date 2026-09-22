@@ -74,8 +74,8 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 │ 基础层  infra/{state,logger,events,task_manager,lifecycle,notification,command_context,   │
 │         async_util}.rs · config/{model,persist,validate,schedule}.rs · network/（adapter,  │
 │         client,dhcp,dns,quality,subnet,timing,discovery）· platform/                      │
-│ 系统层  platform/{autostart,dns_config,elevation,gpu,helper_spawn,identity,toast}.rs     │
-│         （Win32 / WinRT / UAC / 注册表）+ network/dhcp.rs（netsh / MAC 重置）             │
+│ 系统层  platform/{autostart,dns_config,elevation,gpu,helper_spawn,identity,metric,toast}.rs │
+│         （Win32 / WinRT / UAC / 注册表 / 接口跃点 metric）+ network/dhcp.rs（netsh / MAC 重置） │
 └─────────────────────────────┬───────────────────────────────────────────────────────────┘
                               │ Cargo path 依赖（android/src-tauri/Cargo.toml:34）
                               ▼
@@ -140,13 +140,13 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 | 自助服务协议 | `self_service/mod.rs`（跨平台） | 包装：`self_service_cmds.rs` 六命令 |
 | 配置模型 | `config/{model,persist,validate,schedule}.rs`（跨平台，但 `persist` 依赖 DPAPI，安卓不用；`schedule` 是定时动作纯函数；桌面 `config_version` 3——2026-09-13 v2→v3 把 `campus_check_end_minutes` 旧默认 0 刷为 1380，`validate.rs:133-140`） | `config_state.rs`（`Settings` 37 字段 + Keystore 桥 + 迁移，当前 `config_schema_version` 5：v3→v4 新增 `background_check_idle_interval` 默认 300000 与 `scheduled_login/scheduled_logout_minutes`（0=禁用）；v4→v5 同日把 `campus_check_end_minutes` 旧默认 0 刷为 1380，`config_state.rs:277-281`） |
 | 更新 | `update/updater.rs`（exe/msi + 5 源 SHA256；自动检查失败按 `BACKOFF_RETRY_SECS = &[5*60, 15*60, 3600]` 退避重试，`lastCheckError`/`lastCheckTime` 随返回体回传前端） | `update_cmds.rs`（APK + GitHub API 资产；同样具备 24h 周期 + 失败退避） |
-| 提权 | `helper/mod.rs`（`--helper dns|clear_dns|mac`）+ `platform/elevation.rs`（COM ICMLuaUtil / ShellExecuteW） | 无（改为 `foreground-service` 插件 + 系统授权） |
+| 提权 | `helper/mod.rs`（`--helper dns|clear_dns|mac|enable_adapter|enable_device|set_metric|register_task|selfcheck`）+ `platform/elevation.rs`（COM ICMLuaUtil / ShellExecuteW） | 无（改为 `foreground-service` 插件 + 系统授权） |
 
 ### 系统交互层
 
 | 端 | 能力 | 位置 |
 |---|---|---|
-| 桌面 | 注册表自启、DNS/DoH 写入（`SetInterfaceDnsSettings`）、UAC 提权、DXGI/GDI 硬件探测、Windows Hello、WinRT Toast、`GetAdaptersAddresses` 网卡枚举、`netsh`/`ipconfig`/`surge_ping` | `platform/{autostart,dns_config,elevation,gpu,helper_spawn,identity,toast}.rs`、`network/{discovery,dhcp,subnet}.rs`；模块门控见 `platform/mod.rs:1-18`（唯一带 `target_os = "windows"` 的是 `toast`） |
+| 桌面 | 注册表自启、DNS/DoH 写入（`SetInterfaceDnsSettings`）、接口跃点读写（`GetIpInterfaceTable` / `SetIpInterfaceEntry`，夜间出站切换用）、UAC 提权、DXGI/GDI 硬件探测、Windows Hello、WinRT Toast、`GetAdaptersAddresses` 网卡枚举、`netsh`/`ipconfig`/`surge_ping` | `platform/{autostart,dns_config,elevation,gpu,helper_spawn,identity,metric,toast}.rs`、`network/{discovery,dhcp,subnet}.rs`；模块门控见 `platform/mod.rs:1-30`（带 `target_os = "windows"` 的是 `task_proxy` / `metric` / `rtss_compat` / `toast`） |
 | 安卓 | AndroidKeyStore、`bindProcessToNetwork` + WiFi NetworkCallback、前台服务 + **探针窗口内按需持有的** WifiLock/WakeLock、开机自启（BootReceiver）、APK 安装（FileProvider）、电池优化白名单（查询/申请/厂商自启页跳转）、绑小核（`sched_setaffinity`） | `android/plugins/{keystore,network-bind,foreground-service}/`（三个 crate 首行均 `#![cfg(mobile)]`，Rust 薄壳 + Kotlin 实现）、`android/src-tauri/src/battery_cmds.rs`、`cpu_affinity.rs` |
 
 ### 功耗与按需驱动约束

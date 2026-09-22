@@ -83,7 +83,7 @@ tags: [模式, 约定]
 
 - 共享边界：`tauri-app/src-tauri/src/lib.rs:2-8` 为跨平台可见面（`account`/`auth`/`config`/`infra`/`network`/`platform`/`self_service`），`:11-20` 的 `app`/`commands`/`helper`/`monitor`/`update` 全是 `#[cfg(desktop)]`。
 - 依赖声明：`android/src-tauri/Cargo.toml:34` 的 `campus-login = { path = "../../tauri-app/src-tauri" }`。
-- 平台内门控：`tauri-app/src-tauri/src/platform/mod.rs:1-18`（只有 `console_output` 跨平台，`toast` 是唯一的 `all(desktop, target_os = "windows")`）；`network/mod.rs:17-25` 用 `#[cfg(target_os = "windows")]` / `#[cfg(not(...))]` 给 `dhcp_release_renew_single` 提供真实实现与跨平台 stub。
+- 平台内门控：`tauri-app/src-tauri/src/platform/mod.rs:1-30`（只有 `console_output` 跨平台，`task_proxy`/`metric`/`rtss_compat`/`toast` 四个模块是 `all(desktop, target_os = "windows")`）；`network/mod.rs:17-25` 用 `#[cfg(target_os = "windows")]` / `#[cfg(not(...))]` 给 `dhcp_release_renew_single` 提供真实实现与跨平台 stub。
 - 安卓插件反向门控：三个插件 crate 首行都是 `#![cfg(mobile)]`（`android/plugins/keystore/src/lib.rs:1` 等），host 编译为空。
 - 平台分支桩：`account/crypto.rs:128-136` 在非 Windows 返回 `Err("加密存储仅桌面端支持")`，安卓改用 Keystore 插件。
 

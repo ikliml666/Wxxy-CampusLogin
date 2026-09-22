@@ -10,6 +10,7 @@ source_files:
   - tauri-app/src-tauri/src/platform/gpu.rs
   - tauri-app/src-tauri/src/platform/helper_spawn.rs
   - tauri-app/src-tauri/src/platform/task_proxy.rs
+  - tauri-app/src-tauri/src/platform/metric.rs
   - tauri-app/src-tauri/windows/hooks.nsh
   - tauri-app/src-tauri/src/platform/identity.rs
   - tauri-app/src-tauri/src/platform/toast.rs
@@ -18,9 +19,9 @@ tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 
 ## Overview
 
-`tauri-app/src-tauri/src/platform/` 是桌面端全部"与操作系统直接打交道"的代码：控制台输出与 HTTP 响应体解码（GBK/OEM 代码页）、注册表读写（开机自启、适配器 DNS 读取）、Win32 DNS 接口调用（`SetInterfaceDnsSettings` + DoH 属性）、UAC 提权（COM `ICMLuaUtil` 静默提权与 `ShellExecuteW runas` 降级）、提权 helper 子进程的启动与结果轮询、DXGI/GDI 硬件信息探测、Windows Hello 身份验证、WinRT Toast 通知。
+`tauri-app/src-tauri/src/platform/` 是桌面端全部"与操作系统直接打交道"的代码：控制台输出与 HTTP 响应体解码（GBK/OEM 代码页）、注册表读写（开机自启、适配器 DNS 读取）、Win32 DNS 接口调用（`SetInterfaceDnsSettings` + DoH 属性）、接口跃点（metric）读写（`GetIpInterfaceTable` 读 + helper `SetIpInterfaceEntry` 写）、UAC 提权（COM `ICMLuaUtil` 静默提权与 `ShellExecuteW runas` 降级）、提权 helper 子进程的启动与结果轮询、DXGI/GDI 硬件信息探测、Windows Hello 身份验证、WinRT Toast 通知。
 
-该层不持有业务状态（唯一例外是 `identity.rs` 的进程内验证时间戳），被 `commands/`、`network/`、`auth/`、`update/`、`app/` 调用；`platform/mod.rs:1-8` 用 `#[cfg(desktop)]` 把除 `console_output` 外的模块整体排除在安卓构建之外（安卓通过 Cargo path 依赖桌面 crate，只继承 `console_output` 等跨平台部分）。
+该层不持有业务状态（唯一例外是 `identity.rs` 的进程内验证时间戳），被 `commands/`、`network/`、`auth/`、`update/`、`app/` 调用；`platform/mod.rs:1-30` 用 `#[cfg(desktop)]` 把除 `console_output` 外的模块整体排除在安卓构建之外（安卓通过 Cargo path 依赖桌面 crate，只继承 `console_output` 等跨平台部分），其中 `task_proxy` / `metric` / `rtss_compat` / `toast` 四者额外锁 `target_os = "windows"`。
 
 ## Key Components
 
@@ -30,14 +31,18 @@ tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 |---|---|---|
 | `platform/mod.rs:1-2` | `pub mod console_output;`（注释：协议响应/子网查询共用，安卓侧同样需要 GBK 解码） | 无（全平台编译） |
 | `platform/mod.rs:5-6` | `pub mod autostart;` | `#[cfg(desktop)]` |
-| `platform/mod.rs:7-8` | `pub mod dns_config;` | `#[cfg(desktop)]` |
-| `platform/mod.rs:9-10` | `pub mod elevation;` | `#[cfg(desktop)]` |
-| `platform/mod.rs:11-12` | `pub mod gpu;` | `#[cfg(desktop)]` |
-| `platform/mod.rs:13-14` | `pub mod helper_spawn;` | `#[cfg(desktop)]` |
-| `platform/mod.rs:15-16` | `pub mod identity;` | `#[cfg(desktop)]` |
-| `platform/mod.rs:17-18` | `pub mod toast;` | `#[cfg(all(desktop, target_os = "windows"))]` |
+| `platform/mod.rs:8-9` | `pub mod ecoqos;`（Windows 效率模式） | `#[cfg(desktop)]` |
+| `platform/mod.rs:10-11` | `pub mod dns_config;` | `#[cfg(desktop)]` |
+| `platform/mod.rs:12-13` | `pub mod elevation;` | `#[cfg(desktop)]` |
+| `platform/mod.rs:14-15` | `pub mod gpu;` | `#[cfg(desktop)]` |
+| `platform/mod.rs:16-17` | `pub mod helper_spawn;` | `#[cfg(desktop)]` |
+| `platform/mod.rs:19-20` | `pub mod task_proxy;`（计划任务提权代理） | `#[cfg(all(desktop, target_os = "windows"))]` |
+| `platform/mod.rs:21-22` | `pub mod identity;` | `#[cfg(desktop)]` |
+| `platform/mod.rs:24-25` | `pub mod metric;`（接口跃点读写） | `#[cfg(all(desktop, target_os = "windows"))]` |
+| `platform/mod.rs:27-28` | `pub mod rtss_compat;`（RTSS hook 白屏预防） | `#[cfg(all(desktop, target_os = "windows"))]` |
+| `platform/mod.rs:29-30` | `pub mod toast;` | `#[cfg(all(desktop, target_os = "windows"))]` |
 
-注意：模块级门控只到 `desktop`；`autostart` / `gpu` / `helper_spawn` / `identity` / `toast` 内部**没有任何 `#[cfg]` 属性**（见下方逐文件清单），它们只在 Windows 桌面可用是"事实约束"而非编译期约束；`dns_config` / `elevation` / `console_output` 则在函数级带 `target_os = "windows"` 分支。
+注意：`autostart` / `gpu` / `helper_spawn` / `identity` 只有模块级 `#[cfg(desktop)]`，文件内部**没有任何 `#[cfg]` 属性**（见下方逐文件清单），它们只在 Windows 桌面可用是"事实约束"而非编译期约束；`dns_config` / `elevation` / `console_output` 在函数级带 `target_os = "windows"` 分支；`task_proxy` / `metric` / `rtss_compat` / `toast` 则在模块级就已锁 Windows。
 
 ### console_output.rs — 输出编码解码（全平台）
 
@@ -182,6 +187,19 @@ worker 端（`helper/mod.rs` `--helper-task` 模式，main.rs 最先拦截）：
 
 `verify_hello` 调用点：`UserConsentVerifier::CheckAvailabilityAsync()`（84）、`RequestVerificationAsync(&HSTRING)`（107）、interop 的 `RequestVerificationForWindowAsync(HWND, &HSTRING)`（139）。设备未配置 Hello 时直接返回引导文案且**不回退凭据对话框**（89-94，模块注释 3-5 行记录 2026-09-05 用户要求移除 CredUI 回退）。
 
+### metric.rs — 接口跃点（metric）读写（Windows）
+
+夜间出站自动切换的读写底座（2026-09-22 新增，SDD 任务 3）：读走 Iphlpapi 运行时值（无需提权），写经 helper `SetMetric` 提权执行。**不读持久层注册表**——metric 的注册表设置在系统重启后自动还原，与本功能"重启即还原"的策略一致；也正因如此，切换态快照必须由配置保存（`outbound_metric_restore`，见 [[desktop-config]]）。
+
+| 行号 | 项 | 签名 / 值 | cfg |
+|---|---|---|---|
+| `platform/metric.rs:14-18` | `MetricRow` | `pub struct { family: u16, automatic: bool, metric: u32 }`（`#[derive(Debug, Clone, Serialize)]`；`family` 取 `AF_INET=2` / `AF_INET6=23`） | 模块级 `all(desktop, target_os = "windows")` |
+| `platform/metric.rs:23-52` | `interface_rows_for_guid` | `pub(crate) fn(guid: &str) -> Result<Vec<MIB_IPINTERFACE_ROW>, String>`：`elevation::parse_guid` 解析入参 → `GetIpInterfaceTable(AF_UNSPEC)`（28）取全表 → 逐行 `ConvertInterfaceLuidToGuid`（40）与目标 GUID 比对（转换失败的行跳过）→ `FreeMibTable`（48）释放 → 返回**原始 Win32 行**。GUID 无匹配行返回空表（非错误） | 同上 |
+| `platform/metric.rs:54-64` | `read_interface_metrics` | `pub fn(guid: &str) -> Result<Vec<MetricRow>, String>`：把原始行映射为 `MetricRow`（`family = row.Family.0`、`automatic = row.UseAutomaticMetric.0 != 0`） | 同上 |
+| `platform/metric.rs:66-82` | `mod tests` | 1 个 `#[ignore]` 真机冒烟：`cargo test read_interface_metrics_smoke -- --ignored --nocapture`（取本机首个适配器读跃点；默认测试集不含真实网卡调用） | `#[cfg(test)]` |
+
+读与写共用 `interface_rows_for_guid`：helper 取到行后**整行改副本**（只覆写 `UseAutomaticMetric` / `Metric` / `SitePrefixLength`）再 `SetIpInterfaceEntry`，等价 mullvad 的 `GetIpInterfaceEntry` + `Set` 两步——`Family` / `InterfaceLuid` / `InterfaceIndex` 等必须为接口当前值，构造残缺结构体会参数校验失败。写入侧的坑见 [[set-ip-interface-entry-metric|SetIpInterfaceEntry 写 metric 的必踩点与字段对照]]。
+
 ### toast.rs — WinRT Toast（Windows 桌面）
 
 | 行号 | 项 | 签名 / 值 | cfg |
@@ -300,6 +318,8 @@ DNS 状态读取链：`invoke('check_dns_doh_status')` → `commands/network_cmd
 | `CreateDXGIFactory1` / `EnumAdapters1` / `GetDesc1` | `platform/gpu.rs:127`、`141`、`146` | GPU 枚举 |
 | `EnumDisplaySettingsW(ENUM_CURRENT_SETTINGS)` | `platform/gpu.rs:262-266` | 刷新率 |
 | `SetInterfaceDnsSettings`（IpHelper） | `platform/dns_config.rs:201`、`281` | 写/清 DNS + DoH |
+| `GetIpInterfaceTable` / `ConvertInterfaceLuidToGuid` / `FreeMibTable`（IpHelper） | `platform/metric.rs:28`、`40`、`48` | 枚举接口表并按 LUID→GUID 匹配目标接口（读 metric） |
+| `SetIpInterfaceEntry`（IpHelper） | `helper/mod.rs:580` | 写 metric（helper 提权上下文，见 [[desktop-helper-update]] 的 `SetMetric`） |
 | `UserConsentVerifier::CheckAvailabilityAsync` / `RequestVerificationAsync` | `platform/identity.rs:84`、`107` | Windows Hello |
 | `IUserConsentVerifierInterop::RequestVerificationForWindowAsync` | `platform/identity.rs:139` | Win11 主路径：Consent 绑定主窗口 HWND |
 | `FindWindowW` + `SetForegroundWindow` | `platform/identity.rs:164`、`166` | 兜底：Consent 对话框提前台 |
@@ -346,6 +366,7 @@ infra/notification.rs:46（cfg(all(desktop, target_os="windows"))）
 - [[desktop-network-dns]]：DNS/DoH 的业务编排（`network::dns_setup`）与本层的 `dns_config` 的分工边界。
 - [[desktop-network-core]]：`network/adapter_cache.rs`、`network/dhcp.rs` 对 `elevation` 与 `helper_spawn` 的另外两处调用（netsh 提权、MAC 重置）。
 - [[desktop-helper-update]]：helper 子进程协议（`helper/mod.rs` 的 `HelperOp`、结果文件格式）与更新包下载/校验的上层流程。
+- [[outbound-switch]]：夜间出站切换的判定纯函数层，桌面侧动作（改目标卡 metric）消费本层 `metric.rs` 的读与 helper `SetMetric` 的写。
 - [[desktop-auth]]：`auth/protocol.rs` 通过 `decode_charset_bytes` 解码 GBK 响应体做成败关键词判定。
 - [[desktop-infra]]：`crate::log_*` 宏、`EventBus`、`AppHandle` 资源的生命周期。
 - [[desktop-app-lifecycle]]：主窗口创建、`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 注入时机、`gpu-warmup` 预热线程与心跳线程。
@@ -354,7 +375,7 @@ infra/notification.rs:46（cfg(all(desktop, target_os="windows"))）
 
 ## Known Issues
 
-1. **模块门控只到 `desktop`，不锁 Windows**：`platform/mod.rs:4-16` 对 `autostart` / `dns_config` / `elevation` / `gpu` / `helper_spawn` / `identity` 只加 `#[cfg(desktop)]`（唯一带 `target_os = "windows"` 的是 `toast`，`platform/mod.rs:17`），而 `autostart.rs`、`gpu.rs`、`helper_spawn.rs`、`identity.rs` **文件内部没有任何 `#[cfg]`**（见逐文件清单），它们直接使用 `winreg` / `windows` crate；项目实际只支持 Windows 桌面 + 安卓，但该约束是事实约定而非编译期保证。
+1. **模块门控只到 `desktop`，不锁 Windows**：`platform/mod.rs:1-30` 对 `autostart` / `ecoqos` / `dns_config` / `elevation` / `gpu` / `helper_spawn` / `identity` 只加 `#[cfg(desktop)]`（带 `target_os = "windows"` 的是 `task_proxy`、`metric`、`rtss_compat`、`toast` 四个模块，`platform/mod.rs:19`/`24`/`27`/`29`），而 `autostart.rs`、`gpu.rs`、`helper_spawn.rs`、`identity.rs` **文件内部没有任何 `#[cfg]`**（见逐文件清单），它们直接使用 `winreg` / `windows` crate；项目实际只支持 Windows 桌面 + 安卓，但该约束是事实约定而非编译期保证。
 2. **`toast.rs` 借用 PowerShell 的 AUMID**：`platform/toast.rs:16` 使用 `{1AC14E77-...}\WindowsPowerShell\v1.0\powershell.exe`，是未打包应用进通知中心的取巧做法；应用改签名/打包方式或系统策略变化时通知可能静默不显示。
 3. **`identity.rs` 无 CredUI 回退**：`platform/identity.rs:89-94` 设备未配置 Windows Hello 时直接报错退出（模块注释 1-5 行说明 2026-09-05 用户要求移除输密码回退），未配置 Hello 的用户无法执行 reveal / bind 等敏感操作。
 4. **兜底路径的焦点轮询只有 3 秒**：`platform/identity.rs:159-170` 固定 12 次 × 250ms 后线程自行结束，若 Consent 对话框出现更晚（慢机/UAC 排队），就没有任何提前台兜底。
@@ -368,3 +389,5 @@ infra/notification.rs:46（cfg(all(desktop, target_os="windows"))）
 12. **COM 提权依赖未公开接口**：`platform/elevation.rs:67-72` 使用 `Elevation:Administrator!new:{3E5FC7F9-…}` 与手写 IID `{6EDD6D74-…}`，属未文档化 COM 提权路径；Windows 更新后失效时的表现是降级为弹 UAC（`platform/helper_spawn.rs:61-64`），不会静默失败。
 13. **`should_filter_ip` 会丢弃合法的 `198.18/198.19` 内网 DNS**：`platform/dns_config.rs:325-329` 把 `198.18.*`、`198.19.*` 一并过滤（原意是剔除基准测试网段），特殊校园网部署可能显示不出真实 DNS。
 14. **`read_adapter_dns_from_registry` 的 `dohSupported` 恒为 `true`**：`platform/dns_config.rs:541` 硬编码，未做系统能力探测。
+15. **写 metric 必须把 `SitePrefixLength` 置 0，且只能整行改副本**：`helper/mod.rs:570-580` 从 `interface_rows_for_guid` 取整行 → 覆写 `UseAutomaticMetric` / `Metric` / `SitePrefixLength`（579）→ `SetIpInterfaceEntry`（580）。`SitePrefixLength` 非 0 时 Win32 直接报 `ERROR_INVALID_PARAMETER`，错误信息不指向任何具体字段；`Family` / `InterfaceLuid` / `InterfaceIndex` 等若由调用方自行拼装（而非拷贝当前行）同样会参数校验失败。细节与字段对照见 [[set-ip-interface-entry-metric]]。
+16. **`read_interface_metrics` 对不存在的 GUID 返回空表而非错误**：`platform/metric.rs:23-52` 匹配不到即返回 `Ok(vec![])`，调用方须自行区分"该接口无此行"与"接口枚举失败"，否则会把空表当成"metric 已还原"。

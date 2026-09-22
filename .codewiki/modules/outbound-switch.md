@@ -13,6 +13,8 @@ tags: [夜间出站, 夜切, 纯函数, 跨平台, 时间表, config]
 
 本模块在 `tauri-app/src-tauri/src/config/mod.rs:3` 注册，随 `config` 模块对安卓端可见（path 依赖）。
 
+桌面侧的读写底座已落地（任务 3）：读 `platform::metric::read_interface_metrics`（免提权快照）、写经 helper `HelperOp::SetMetric` 提权执行 `SetIpInterfaceEntry`（见 [[desktop-platform]]、[[desktop-helper-update]]）；判定层与底座之间的接线在任务 5。字段对照与写入坑位见 [[set-ip-interface-entry-metric]]。
+
 ## Key Components
 
 | 位置 | 可见性 | 项 | 用途 |
@@ -30,4 +32,4 @@ tags: [夜间出站, 夜切, 纯函数, 跨平台, 时间表, config]
 
 ## Learnings
 
-- 纯函数层先于调用方落地时，`pub fn` 会报 `never used` 警告——属任务序列中间态，接线后消失，不加 `#[allow(dead_code)]` 掩盖。
+- 纯函数层先于调用方落地时，`pub fn` 会报 `never used` 警告——属任务序列中间态，接线后消失，不加 `#[allow(dead_code)]` 掩盖。同一序列的 `platform/metric.rs::read_interface_metrics` 与 `MetricRow` 同理（任务 3 落地、任务 5 消费），警告只出现在 bin target。
