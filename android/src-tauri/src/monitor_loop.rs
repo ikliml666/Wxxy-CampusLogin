@@ -585,10 +585,28 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
         if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective {
             continue;
         }
+        // 出站切换态(night_outbound_restore 非空):整轮巡检跳过——已注销等系统切
+        // 移动数据时 Portal 检测必失败,继续跑会每拍误报掉线并触发自动重登(桌面
+        // P0-1 修复同款语义;见 decisions/night-outbound-switch)。run_scheduled_actions
+        // 不跳(上方已调用):晨间还原判定必须在切换态下照常执行,下一拍即恢复巡检
+        if outbound_switch_active(&app).await {
+            campus_login_lib::log_debug!("monitor", "出站切换态,跳过本轮巡检");
+            last_probe_ms = now;
+            continue;
+        }
         last_probe_ms = now;
         run_check_once(&app).await;
     }
     MONITOR.running.store(false, Ordering::Relaxed);
+}
+
+/// 是否处于夜间出站切换态(night_outbound_restore 标记非空)。读配置命中内存
+/// 缓存,开销可忽略;读取失败按"未切换"处理——宁可多跑一轮巡检,不可漏检
+async fn outbound_switch_active(app: &tauri::AppHandle) -> bool {
+    crate::config_state::current_settings(app)
+        .await
+        .map(|s| !s.night_outbound_restore.is_empty())
+        .unwrap_or(false)
 }
 
 /// 周期检测的 Portal 全量探测:专用短命线程执行并绑定小核(检测是 60s 一拍的
@@ -651,12 +669,106 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         Ok(s) => s,
         Err(_) => return, // 配置读取失败:静默跳过,下一拍重试
     };
+    // ===== 夜间出站切换(判定先于运营商夜切;spec §2 顺序硬约束)=====
+    // 与桌面同构:动作拍不靠提前 return 跳过后续,互斥由下方 outbound_active 门控达成——
+    // 切换态成立(含 Restore 失败重试期)则运营商夜切让位;出站没切上则运营商夜切照常。
+    // 判定复用共享纯函数,切换态由 night_outbound_restore 标记自身承载(非空即切换态):
+    // 纯函数天然防重(非空不再 Switch、空不再 Restore),落盘即收敛,落盘失败状态未变
+    // 则下一拍重试整段。
+    use campus_login_lib::config::outbound_switch::{evaluate_night_outbound, NightOutboundAction};
+    let mut outbound_active = !settings.night_outbound_restore.is_empty();
+    let outbound_action = {
+        let now = chrono::Local::now();
+        let now_minutes = (now.hour() * 60 + now.minute()) as u32;
+        match evaluate_night_outbound(
+            settings.enable_night_outbound_switch,
+            now.weekday().num_days_from_sunday(),
+            now_minutes,
+            outbound_active,
+        ) {
+            // 功能已关(用户在切换态下关掉开关)但标记残留:按 Restore 立即还原并清标记。
+            // 缺这条兜底时残留标记没有出口——evaluate 的 !enabled 短路让判定恒 None,
+            // 巡检会永久跳过(桌面 outbound_action_for 同款兜底)
+            NightOutboundAction::None if outbound_active && !settings.enable_night_outbound_switch => {
+                NightOutboundAction::Restore
+            }
+            other => other,
+        }
+    };
+    match outbound_action {
+        NightOutboundAction::Switch => {
+            // 前置在线检查:注销请求在离线时必失败(评审 P2),上一拍巡检判定不在线
+            // 则跳过请求,只做切换标记与系统重检触发
+            if MONITOR.was_online.load(Ordering::Relaxed) {
+                let state = app.state::<crate::android_state::AndroidState>();
+                match crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
+                    Ok(v) if v["success"].as_bool().unwrap_or(false) => {
+                        // 注销成功是离线的权威证据:同步在线记忆(本拍起巡检已跳过,
+                        // 晨间重登成功时由 night_switch_login 回置 true)
+                        MONITOR.was_online.store(false, Ordering::Relaxed);
+                    }
+                    Ok(v) => emit_login_log(
+                        app,
+                        &format!(
+                            "夜间出站切换: 注销未生效({}),继续切换出站",
+                            v["message"].as_str().unwrap_or("")
+                        ),
+                        "warning",
+                    ),
+                    Err(e) => emit_login_log(
+                        app,
+                        &format!("夜间出站切换: 注销执行失败({e}),继续切换出站"),
+                        "warning",
+                    ),
+                }
+            } else {
+                emit_login_log(app, "夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
+            }
+            // 标记落盘成功才触发系统重检:落盘失败即切换态未成立,下一拍重试整段
+            // (与 :656 区运营商夜切"落盘失败即下一拍重试"同语义)
+            let mut switched = settings.clone();
+            switched.night_outbound_restore = "logged_out".to_string();
+            if persist_settings(app, &switched).await {
+                outbound_active = true;
+                // network_avoid_bad_wifi=1 是"系统自动把默认网络让给蜂窝"的前提
+                // (accept_wifi_network 的 settings_global 路径曾把它写成 0 且不回滚)。
+                // 该键属 Settings.Global 表,受 WRITE_SECURE_SETTINGS(signature|privileged)
+                // 保护,普通应用无法通过运行时授权获得(WRITE_SETTINGS 只覆盖 Settings.System),
+                // 插件与应用 manifest 均未声明该权限 → 写通道对本应用不可用,不做无效写入,
+                // 只提示用户手动开启(设置页文案提示;常开=1 对用户无害,本就应常开)
+                campus_login_lib::log_warn!(
+                    "monitor",
+                    "夜间出站切换: 无法程序化确保 network_avoid_bad_wifi=1(需 WRITE_SECURE_SETTINGS),若系统未自动切移动数据请手动开启"
+                );
+                trigger_wifi_recheck(app).await;
+                emit_login_log(app, "夜间出站切换: 已注销校园网，等待系统切换移动数据", "info");
+            }
+        }
+        NightOutboundAction::Restore => {
+            // 登录当前活跃账号(复用运营商夜切同款内核:无校园网探测闸,与桌面
+            // full_login 对齐);成功才清标记,失败保留切换态下一拍照常重试
+            if night_switch_login(app, &settings).await {
+                let mut restored = settings.clone();
+                restored.night_outbound_restore = String::new();
+                if persist_settings(app, &restored).await {
+                    outbound_active = false;
+                    emit_login_log(app, "夜间出站切换: 已恢复校园网登录", "success");
+                }
+            } else {
+                emit_login_log(app, "夜间出站切换: 恢复登录未成功,保留切换态下一拍重试", "warning");
+            }
+        }
+        NightOutboundAction::None => {}
+    }
     // 晚间断网自动切换运营商:纯函数依据当前 operator/restore 状态天然防重——
     // 已切换(operator 为空、restore 非空)不再返回 SwitchToCampus,已恢复
     // (restore 清空)不再返回 Restore,落盘即收敛,无需额外每日标记;落盘失败
     // 时状态未变,下一拍天然重试。登录走 night_switch_login 内核(无校园网探测闸,
     // 与桌面 full_login 对齐),不复用定时登录的 auto_login_on_start 全编排。
-    if settings.enable_night_operator_switch {
+    // 出站切换态让位(切换侧与恢复侧都让):切换态下切运营商需注销重登,必然打断
+    // 出站切换的"已注销等系统切蜂窝"状态;恢复侧标记非空即还原未成功(重试中),
+    // 也不允许运营商夜切恢复抢跑(桌面 gated_night_action 同语义)
+    if settings.enable_night_operator_switch && !outbound_active {
         let now = chrono::Local::now();
         let weekday = now.weekday().num_days_from_sunday();
         let now_minutes = now.hour() * 60 + now.minute();
@@ -674,7 +786,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 switched.operator = String::new();
                 emit_login_log(app, "晚间断网切换: 运营商已切至无锡学院", "info");
                 if persist_settings(app, &switched).await {
-                    night_switch_login(app, &switched).await;
+                    let _ = night_switch_login(app, &switched).await;
                     // 独立 tokio 任务验证登录是否生效,不阻塞监控循环
                     tauri::async_runtime::spawn(verify_night_switch(
                         app.clone(),
@@ -687,7 +799,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 switched.operator = std::mem::take(&mut switched.night_operator_restore);
                 emit_login_log(app, "晚间断网切换: 已恢复原运营商", "info");
                 if persist_settings(app, &switched).await {
-                    night_switch_login(app, &switched).await;
+                    let _ = night_switch_login(app, &switched).await;
                     tauri::async_runtime::spawn(verify_night_switch(
                         app.clone(),
                         switched.operator.clone(),
@@ -704,12 +816,17 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;
     let today_day = now.date_naive().num_days_from_ce() as i32;
 
-    if campus_login_lib::config::schedule::should_fire_scheduled_action(
-        now_minutes,
-        settings.scheduled_login_minutes,
-        MONITOR.scheduled_login_day.load(Ordering::Relaxed),
-        today_day,
-    ) {
+    // 切换态下定时登录跳过——但不消耗当日标记(短路在 should_fire 之前):过点补
+    // 触发语义要求还原成功后的下一拍仍能补登,当日登录额度不被静默吞掉(桌面
+    // evaluate_and_mark 的 gated_night_action 同语义)。定时注销不受影响
+    if !outbound_active
+        && campus_login_lib::config::schedule::should_fire_scheduled_action(
+            now_minutes,
+            settings.scheduled_login_minutes,
+            MONITOR.scheduled_login_day.load(Ordering::Relaxed),
+            today_day,
+        )
+    {
         MONITOR.scheduled_login_day.store(today_day, Ordering::Relaxed);
         emit_login_log(
             app,
@@ -782,10 +899,11 @@ async fn persist_settings(app: &tauri::AppHandle, s: &crate::config_state::Setti
 /// 夜切后的登录触发:直接走 run_login 内核(与桌面 full_login 无闸语义对齐)。
 /// 断网窗口内校园网探测可能不通过,auto_login_on_start 的"不在校园网则跳过"闸
 /// 会把登录无声吞掉;此处仅保留账号/密码为空不登的防御判断,失败照实记 error。
-async fn night_switch_login(app: &tauri::AppHandle, settings: &crate::config_state::Settings) {
+/// 返回是否登录成功:夜间出站切换的还原侧据此决定清不清切换态标记
+async fn night_switch_login(app: &tauri::AppHandle, settings: &crate::config_state::Settings) -> bool {
     if settings.user.is_empty() || settings.password.is_empty() {
         emit_login_log(app, "晚间断网切换: 账号或密码未配置,跳过登录", "warning");
-        return;
+        return false;
     }
     // 登录前强制绑 WiFi(同 auto_login_on_start;WiFi+流量同开时默认路由可能落蜂窝)
     crate::protocol_cmds::ensure_wifi_bound(app).await;
@@ -801,8 +919,30 @@ async fn night_switch_login(app: &tauri::AppHandle, settings: &crate::config_sta
                 MONITOR.was_online.store(true, Ordering::Relaxed);
                 MONITOR.logout_protected_until_ms.store(0, Ordering::Relaxed);
             }
+            success
         }
-        Err(e) => emit_login_log(app, &format!("晚间断网切换登录失败: {e}"), "error"),
+        Err(e) => {
+            emit_login_log(app, &format!("晚间断网切换登录失败: {e}"), "error");
+            false
+        }
+    }
+}
+
+/// 触发系统对当前 WiFi 重新验证(NetworkMonitor reportNetworkUnusable):验证失败后
+/// 系统按 network_avoid_bad_wifi 自行决定把默认网络切到蜂窝——这是应用侧唯一合法的
+/// "让出站口切蜂窝"通道(改跃点属桌面能力,安卓无权限)。JNI 阻塞调用必须
+/// spawn_blocking(插件 lib.rs 同名 API doc);失败只记日志,不影响已成立的切换态
+async fn trigger_wifi_recheck(app: &tauri::AppHandle) {
+    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+    let cloned = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        cloned.campus_network_bind().report_wifi_unusable()
+    })
+    .await;
+    match result {
+        Ok(Ok(v)) => campus_login_lib::log_info!("monitor", "夜间出站切换: 已触发系统 WiFi 重检 {v}"),
+        Ok(Err(e)) => campus_login_lib::log_warn!("monitor", "夜间出站切换: 触发系统 WiFi 重检失败: {e}"),
+        Err(e) => campus_login_lib::log_warn!("monitor", "夜间出站切换: WiFi 重检任务异常: {e}"),
     }
 }
 
@@ -862,7 +1002,7 @@ async fn verify_night_switch(app: tauri::AppHandle, expected_operator: String) {
     if let Err(e) = crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
         emit_login_log(&app, &format!("夜切验证: 注销失败, 继续复登: {e}"), "warning");
     }
-    night_switch_login(&app, &settings).await;
+    let _ = night_switch_login(&app, &settings).await;
     tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
     match night_switch_verify_round(&settings, &expected_operator).await {
         Ok(uid) => emit_login_log(&app, &format!("夜切验证: 已生效, 在线账号 {uid}"), "success"),

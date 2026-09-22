@@ -188,6 +188,9 @@ pub async fn switch_account(
     // 切账号后夜切恢复目标失效:restore 暂存的是旧账号的 ISP 后缀,残留会把
     // A 账号的运营商恢复到 B 账号上,置空使夜切回到未切换态(与桌面同构)
     merged.night_operator_restore = String::new();
+    // 切账号清出站切换态标记:纯标记、无恢复目标语义(值恒 "logged_out"),但残留会
+    // 让监控巡检整轮跳过(标记非空即切换态),切账号后必须回到未切换态
+    merged.night_outbound_restore = String::new();
     merged.display_name = if account_cfg.display_name.is_empty() {
         safe_name.clone()
     } else {
