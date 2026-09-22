@@ -1,5 +1,6 @@
 pub mod model;
 pub mod night_switch;
+pub mod outbound_switch;
 pub mod persist;
 pub mod schedule;
 pub mod validate;

@@ -7,9 +7,9 @@
 //! 因此无需当日去重标记，天然幂等——重复调用不会重复写配置。
 
 /// 恢复窗口起点 06:30（含）
-const RESTORE_START_MINUTES: u32 = 390;
+pub(crate) const RESTORE_START_MINUTES: u32 = 390;
 /// 恢复窗口终点 23:00（不含，恰为最早的切换时刻，两窗口无缝衔接）
-const RESTORE_END_MINUTES: u32 = 1380;
+pub(crate) const RESTORE_END_MINUTES: u32 = 1380;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NightSwitchAction {
@@ -23,7 +23,7 @@ pub enum NightSwitchAction {
 
 /// 当日切换时刻：weekday 0=周日 … 6=周六；周日~周四 1380（23:00），
 /// 周五/周六 1410（23:30）（2026-09-20 需求方更正：周日至周四运营商 23:00 断网）
-fn switch_time_for(weekday: u32) -> Option<u32> {
+pub(crate) fn switch_time_for(weekday: u32) -> Option<u32> {
     match weekday {
         0..=4 => Some(1380),
         5 | 6 => Some(1410),

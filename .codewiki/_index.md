@@ -122,6 +122,7 @@
 ## Module
 
 - [[modules\desktop-monitor|后台巡检：连通性检测、自动登录/断线重连与网络质量调度]]
+- [[modules\outbound-switch|夜间出站自动切换判定（outbound_switch）]]
 - [[modules\android-frontend-core|安卓前端 - 运行时核心（入口 / 领域 store / 钩子 / 外壳组件）]]
 - [[modules\android-frontend-panels|安卓前端 - 面板层（总览 / 账号 / 自助 / 监控 / 质量 / 设置 / 日志）]]
 - [[modules\android-backend|安卓端后端]]
