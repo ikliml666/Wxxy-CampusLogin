@@ -30,7 +30,8 @@ pub struct Settings {
     /// 夜间切换前的原运营商:切至无锡学院时暂存,次日恢复窗口取回后清空
     pub night_operator_restore: String,
     /// 夜间出站自动切换总开关(默认关——修改系统路由属侵入性动作);字段随桌面
-    /// Config 同口径,安卓端暂不消费判定逻辑
+    /// Config 同口径。安卓端由 monitor_loop 消费判定逻辑:到点注销校园网并触发
+    /// 系统 WiFi 重检(等系统把默认网络切蜂窝),晨间登录当前账号后清标记还原
     pub enable_night_outbound_switch: bool,
     /// 出站网卡优先级(友好名有序列表,首项=夜间出站目标);空=未排序,列表外网卡
     /// 不参与夜间切换。安卓端不消费此字段
@@ -39,7 +40,9 @@ pub struct Settings {
     /// 切换态。安卓端不消费此字段
     pub outbound_metric_restore: String,
     /// 安卓出站切换态标记(值恒 "logged_out",纯标记不暂存账号名):非空=处于出站
-    /// 切换态(已注销等待晨间重登);切账号时清空
+    /// 切换态(已注销等待晨间重登)。标记生效期间巡检整轮跳过、运营商夜切让位、
+    /// 定时登录跳过(见 monitor_loop::run_scheduled_actions);切账号、删除当前账号、
+    /// 关闭本功能或还原失败达上限时清空
     pub night_outbound_restore: String,
     // 行为
     pub auto_login_on_start: bool,

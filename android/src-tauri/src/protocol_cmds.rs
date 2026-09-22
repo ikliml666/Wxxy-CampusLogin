@@ -47,11 +47,14 @@ pub async fn do_login(
         let success = result["success"].as_bool().unwrap_or(false);
         let _ = crate::login_history::append(&dir, success, message, &user, "manual");
     }
-    // 手动登录成功:清除自动登录熔断与注销保护(否则手动救回来后自动重登仍被闸住)
+    // 手动登录成功:清除自动登录熔断与注销保护(否则手动救回来后自动重登仍被闸住),
+    // 并置 was_online——手动登录与启动自动登录同为在线的权威证据,漏置位会让夜间出站
+    // 切换的前置在线检查误判离线而跳过注销请求(如 22:50 手动登录后 23:00 到点切换)
     if result["success"].as_bool().unwrap_or(false) {
         use crate::monitor_loop::MONITOR;
         MONITOR.consecutive_failures.store(0, std::sync::atomic::Ordering::Relaxed);
         MONITOR.logout_protected_until_ms.store(0, std::sync::atomic::Ordering::Relaxed);
+        MONITOR.was_online.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     Ok(result)
 }

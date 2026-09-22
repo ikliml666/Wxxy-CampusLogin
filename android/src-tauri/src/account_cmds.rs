@@ -289,6 +289,9 @@ pub async fn delete_account(
     let mut current = config_state::current_settings(&app).await?;
     if current.active_account == safe_name {
         current.active_account.clear();
+        // 与切账号同位语义:出站切换态标记清空。残留标记会让监控巡检整轮跳过,
+        // 且还原所需账号已不存在
+        current.night_outbound_restore = String::new();
         let display = persist_current(&app, &current).await?;
         return Ok(AccountResult { success: true, message: None, active_account: Some(String::new()), display_name: None, config: Some(display) });
     }
