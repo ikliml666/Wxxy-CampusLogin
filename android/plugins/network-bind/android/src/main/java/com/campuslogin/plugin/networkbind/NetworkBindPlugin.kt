@@ -400,6 +400,47 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
+     * 报告当前 WiFi 网络不可用：触发系统 NetworkMonitor 对该网络的重新验证。
+     * 验证失败后，若 network_avoid_bad_wifi 开启，系统自动把默认网络切到蜂窝。
+     * reportNetworkConnectivity 为公开 API，无需任何权限。
+     * 返回值：`{reported, hasWifi, reason?}`——无 WiFi 网络或调用异常时 reported=false。
+     */
+    @Command
+    fun reportWifiUnusable(invoke: Invoke) {
+        val manager = cm
+        var reported = false
+        var hasWifi = false
+        var reason: String? = null
+        val wifi = try {
+            manager.allNetworks.firstOrNull { n ->
+                manager.getNetworkCapabilities(n)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+        } catch (e: Exception) {
+            // 异常类名必须带出（同 bindToWifi 的复盘教训），与 no_wifi_network 区分开
+            reason = "allNetworks[${e.javaClass.simpleName}:${e.message ?: ""}]"
+            null
+        }
+        if (wifi != null) {
+            hasWifi = true
+            reported = try {
+                manager.reportNetworkConnectivity(wifi, false)
+                true
+            } catch (e: Throwable) {
+                reason = "report[${e.javaClass.simpleName}:${e.message ?: ""}]"
+                false
+            }
+        } else if (reason == null) {
+            reason = "no_wifi_network"
+        }
+        val ret = JSObject()
+        ret.put("reported", reported)
+        ret.put("hasWifi", hasWifi)
+        reason?.let { ret.put("reason", it) }
+        invoke.resolve(ret)
+    }
+
+    /**
      * 请求 NEARBY_WIFI_DEVICES 运行时权限（幂等）：已授权或低版本直接 resolve；
      * 否则弹系统授权框（"查找附近的设备"），结果经 wifiSsidPermissionCallback 返回。
      * 只由前端 UI（名称检查开关、监控启动）在用户前台时调用——后台 Activity 的

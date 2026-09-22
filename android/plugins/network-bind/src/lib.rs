@@ -65,6 +65,14 @@ impl<R: Runtime> CampusNetworkBind<R> {
     pub fn request_wifi_ssid_permission(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("requestWifiSsidPermission", ())
     }
+
+    /// 报告当前 WiFi 网络不可用：触发系统 NetworkMonitor 对该网络重新验证，
+    /// 验证失败后由系统决定是否把默认网络切到蜂窝（network_avoid_bad_wifi）；
+    /// 返回 {"reported": bool, "hasWifi": bool, "reason"?: String}。
+    /// JNI 阻塞调用，调用方须走 spawn_blocking（同 bind_to_wifi）。
+    pub fn report_wifi_unusable(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("reportWifiUnusable", ())
+    }
 }
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`], [`tauri::WebviewWindow`], [`tauri::Webview`] and [`tauri::Window`] to access the network bind APIs.
