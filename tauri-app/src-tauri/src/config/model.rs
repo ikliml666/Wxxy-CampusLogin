@@ -54,7 +54,7 @@ pub struct Config {
     pub background_check_interval: u64,
     #[serde(rename = "autoLoginOnPreparation")]
     pub auto_login_on_preparation: bool,
-    /// 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院（空串），次日
+    /// 自动切换运营商（原晚间断网自动切换）总开关：到点把 operator 切至无锡学院（空串），次日
     /// 恢复窗口内切回；判定逻辑见 config::night_switch（跨平台纯函数）
     #[serde(rename = "enableNightOperatorSwitch", default)]
     pub enable_night_operator_switch: bool,

@@ -721,7 +721,7 @@ async fn portal_probe_on_little_cores(
     }
 }
 
-/// 定时登录/定时注销(P2-32)判定与执行,附晚间断网自动切换运营商:
+/// 定时登录/定时注销(P2-32)判定与执行,附自动切换运营商（原晚间断网自动切换）:
 /// - 判定复用桌面 crate 的跨平台纯函数 `campus_login_lib::config::schedule::should_fire_scheduled_action`
 ///   (与桌面 monitor::scheduled 同语义,到点即触发含过点补触发);
 /// - 定时登录复用 auto_login_on_start 全编排(凭据检查/强制绑 WiFi/校园网探测,
@@ -828,7 +828,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     // 出站动作可能刚改写标记(切换写/还原清):运营商夜切与后续定时登录改用**重读**的
     // 新鲜配置,避免用调用起点的 stale 快照克隆把刚清掉的 night_outbound_restore 复活写回
     let settings = latest_settings(app, &settings).await;
-    // 晚间断网自动切换运营商:纯函数依据当前 operator/restore 状态天然防重——
+    // 自动切换运营商（原晚间断网自动切换）:纯函数依据当前 operator/restore 状态天然防重——
     // 已切换(operator 为空、restore 非空)不再返回 SwitchToCampus,已恢复
     // (restore 清空)不再返回 Restore,落盘即收敛,无需额外每日标记;落盘失败
     // 时状态未变,下一拍天然重试。登录走 night_switch_login 内核(无校园网探测闸,

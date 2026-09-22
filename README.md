@@ -166,7 +166,7 @@ cd ../src-tauri && npx @tauri-apps/cli android build --target aarch64 --apk
 项目包含后端 Rust 测试和前端 TypeScript 测试，CI 前请确保全部通过。
 
 ```bash
-# 后端测试（369 个单元测试 + 1 个回归集成测试）
+# 后端测试（397 个单元测试 + 1 个回归集成测试）
 cd tauri-app/src-tauri
 cargo test
 

@@ -502,6 +502,9 @@ fn decode_set_metric_row(row: &str) -> Result<(String, u16, bool, u32), String> 
             "set_metric 条目格式非法: {row:?}（要求 guid:family:automatic:metric）"
         ));
     }
+    if parts[0].is_empty() {
+        return Err("set_metric 条目缺少 GUID".to_string());
+    }
     let family = match parts[1] {
         "2" => 2u16,
         "23" => 23u16,
@@ -1001,10 +1004,11 @@ mod tests {
             other => panic!("wrong op: {other:?}"),
         }
 
-        // 非法条目一律拒绝：字段数不足/多余、协议栈非 2|23、automatic 非 0|1、跃点非 u32
+        // 非法条目一律拒绝：字段数不足/多余、GUID 为空、协议栈非 2|23、automatic 非 0|1、跃点非 u32
         for bad in [
             "{ABC-DEF}:2:0",
             "{ABC-DEF}:2:0:1:9",
+            ":2:0:1",
             "{ABC-DEF}:6:0:1",
             "{ABC-DEF}:2:true:1",
             "{ABC-DEF}:2:0:-1",

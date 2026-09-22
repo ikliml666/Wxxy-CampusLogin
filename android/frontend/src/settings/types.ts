@@ -17,7 +17,7 @@ export interface Config {
   /** 2D 人脸验证开关（默认 false）：系统生物识别不可用且已录入人脸时，验证门回退应用内 2D 人脸比对（低安全） */
   allow2dFaceVerify: boolean
   operator: string
-  /** 晚间断网自动切换:周日/周一 23:00、周五/周六 23:30 运营商断网时切至无锡学院,次日 6:30 后恢复 */
+  /** 自动切换运营商（原晚间断网自动切换）:周日/周一 23:00、周五/周六 23:30 运营商断网时切至无锡学院,次日 6:30 后恢复 */
   enableNightOperatorSwitch: boolean
   /** 夜间切换前的原运营商:切至无锡学院时暂存,恢复时取回后清空 */
   nightOperatorRestore: string

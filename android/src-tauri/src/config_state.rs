@@ -23,7 +23,7 @@ pub struct Settings {
     /// 应用内 2D 人脸比对(低安全,照片可欺骗,开启时前端有风险告知)
     pub allow_2d_face_verify: bool,
     pub operator: String,
-    /// 晚间断网自动切换开关:周日/周一 23:00、周五/周六 23:30 电信/移动/联通服务
+    /// 自动切换运营商（原晚间断网自动切换）开关:周日/周一 23:00、周五/周六 23:30 电信/移动/联通服务
     /// 下线,到点自动把 operator 切至无锡学院(空串),次日 6:30 后恢复。判定复用
     /// 共享 crate 纯函数 config::night_switch(与桌面同契约,单点实现)。
     pub enable_night_operator_switch: bool,
