@@ -32,6 +32,10 @@ export interface Config {
   enableNightOperatorSwitch: boolean
   /** 切至无锡学院前暂存的原运营商；空 = 未处于切换态（后端内部状态） */
   nightOperatorRestore: string
+  enableNightOutboundSwitch: boolean
+  outboundPriority: string[]
+  outboundMetricRestore: string
+  nightOutboundRestore: string
   autoExitOnOnline: boolean
   themeMode: 'light' | 'dark' | 'system'
   enableNotification: boolean

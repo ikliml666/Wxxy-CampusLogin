@@ -61,6 +61,23 @@ pub struct Config {
     /// 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空
     #[serde(rename = "nightOperatorRestore", default)]
     pub night_operator_restore: String,
+    /// 夜间出站自动切换总开关：到点把出站切到排序中的非校园网网卡（默认关——
+    /// 修改系统路由属侵入性动作）；判定逻辑见 config::outbound_switch
+    #[serde(rename = "enableNightOutboundSwitch", default)]
+    pub enable_night_outbound_switch: bool,
+    /// 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序。
+    /// 列表外网卡不参与夜间切换。安卓端不消费此字段
+    #[serde(rename = "outboundPriority", default)]
+    pub outbound_priority: Vec<String>,
+    /// 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）。
+    /// 非空 = 桌面处于出站切换态。运行时修改重启即还原，快照跨应用重启仍有效。
+    /// 导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段
+    #[serde(rename = "outboundMetricRestore", default)]
+    pub outbound_metric_restore: String,
+    /// 安卓切换态标记：值恒 "logged_out"（纯标记，不暂存账号名）。非空 = 安卓处于
+    /// 出站切换态（已注销等待晨间重登）。切账号时清空。桌面端不消费此字段
+    #[serde(rename = "nightOutboundRestore", default)]
+    pub night_outbound_restore: String,
     #[serde(rename = "autoExitOnOnline")]
     pub auto_exit_on_online: bool,
     #[serde(rename = "themeMode")]
@@ -220,6 +237,10 @@ impl Default for Config {
             // 2026-09-20 起默认开启（存量旧默认 false 由 v4→v5 迁移刷为 true）
             enable_night_operator_switch: true,
             night_operator_restore: String::new(),
+            enable_night_outbound_switch: false,
+            outbound_priority: Vec::new(),
+            outbound_metric_restore: String::new(),
+            night_outbound_restore: String::new(),
             // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移
             auto_exit_on_online: false,
             theme_mode: "dark".to_string(),

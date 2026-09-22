@@ -11,7 +11,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 
 ## Overview
 
-本模块定义应用的全量配置数据结构 `Config`（49 个字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加 + 账号档案读写 + 自动建号落盘）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的敏感字段（`password`、`self_password`）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值；`config_version < 3` 时把 `campus_check_end_minutes` 旧默认 0 刷为 1380）。
+本模块定义应用的全量配置数据结构 `Config`（53 个字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加 + 账号档案读写 + 自动建号落盘）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的敏感字段（`password`、`self_password`）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值；`config_version < 3` 时把 `campus_check_end_minutes` 旧默认 0 刷为 1380）。
 
 本模块在 `tauri-app/src-tauri/src/lib.rs:4` 被声明为跨平台模块（安卓端经 path 依赖可见），但安卓端另有自己的配置结构 `android/src-tauri/src/config_state.rs`（注释声明"结构对齐桌面 config::Config 可适用子集"），并不复用 `persist.rs` 的落盘路径。
 
@@ -32,7 +32,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | --- | --- | --- | --- |
 | `model.rs:3` | pub const | `PASSWORD_MASK: &str = "***"` | 出站掩码占位符；前端回传该值表示"未修改密码" |
 | `model.rs:4` | pub const | `AUTO_DETECT_ADAPTER: &str = "自动检测"` | 适配器自动选择的哨兵值（`network::adapter` 与 `monitor::adapter_watch` 都用它做比较） |
-| `model.rs:10-122` | pub struct | `Config` | 全量配置（49 字段，见下表）；容器级 `#[serde(default)]` |
+| `model.rs:10-143` | pub struct | `Config` | 全量配置（53 字段，见下表）；容器级 `#[serde(default)]` |
 | `model.rs:112-122` | 私有 fn | `deserialize_non_empty_or<D>(deserializer, default_fn) -> Result<String, D::Error>` | 反序列化时把空串替换为指定默认值 |
 | `model.rs:124-129` | 私有 fn | `deserialize_campus_gateway<D>` | 组合上者，空串 → `default_campus_gateway()` |
 | `model.rs:131-136` | 私有 fn | `deserialize_required_network_name<D>` | 组合上者，空串 → `default_required_network_name()` |
@@ -48,7 +48,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:160-162` | pub fn | `default_portal_url() -> String` | `"http://10.1.99.100"`（`network::client::PORTAL_URL` 的初值也取它） |
 | `model.rs:164-166` | pub fn | `default_required_network_name() -> String` | `"i-wxxy"` |
 | `model.rs:168-170` | pub fn | `default_campus_gateway() -> String` | `"10.2.127.254"`（`commands/network_cmd.rs:105` 用作兜底） |
-| `model.rs:183-232` | impl | `Default for Config` | 49 个字段的默认值（见表） |
+| `model.rs:204-253` | impl | `Default for Config` | 53 个字段的默认值（见表） |
 | `model.rs:243-247` | pub fn | `Config::masked_for_display(&self) -> Config` | 克隆后掩码，原 struct 不变；**所有把 Config 发往前端的路径必须经此方法** |
 | `model.rs:249-256` | pub fn | `Config::mask_in_place(&mut self)` | 就地掩码：`password`/`self_password` 非空则置为 `PASSWORD_MASK` |
 
@@ -113,6 +113,12 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:48` | `enable_background_check` | `enableBackgroundCheck` | `bool` | `true` | 是否启用后台巡检（关闭后登录成功不再触发后台检查） |
 | `model.rs:50` | `background_check_interval` | `backgroundCheckInterval` | `u64` | `15000` | 后台巡检间隔（毫秒），clamp 到 `[10000, 3600000]` |
 | `model.rs:52` | `auto_login_on_preparation` | `autoLoginOnPreparation` | `bool` | `true` | "登录准备"模式：检测到未登录且可登录时自动登录（`monitor/auto_auth.rs:35,125`） |
+| `model.rs:57-60` | `enable_night_operator_switch` | `enableNightOperatorSwitch` | `bool` | `true`（2026-09-20 起默认开启） | 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院，次日恢复窗口切回（判定逻辑 `config::night_switch`，跨平台纯函数） |
+| `model.rs:61-63` | `night_operator_restore` | `nightOperatorRestore` | `String` | `""` | 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空（后端内部状态） |
+| `model.rs:64-67` | `enable_night_outbound_switch` | `enableNightOutboundSwitch` | `bool` | `false` | 夜间出站自动切换总开关：到点把出站切到排序中的非校园网网卡（默认关——修改系统路由属侵入性动作）；判定逻辑见 `config::outbound_switch` |
+| `model.rs:68-71` | `outbound_priority` | `outboundPriority` | `Vec<String>` | `[]` | 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，列表外网卡不参与夜间切换。安卓端不消费此字段 |
+| `model.rs:72-76` | `outbound_metric_restore` | `outboundMetricRestore` | `String` | `""` | 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）；非空 = 桌面处于出站切换态。运行时修改重启即还原，快照跨应用重启仍有效；导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段 |
+| `model.rs:77-80` | `night_outbound_restore` | `nightOutboundRestore` | `String` | `""` | 安卓切换态标记：值恒 `"logged_out"`（纯标记，不暂存账号名）；非空 = 安卓处于出站切换态（已注销等待晨间重登），切账号时清空。桌面端不消费此字段 |
 | `model.rs:54` | `auto_exit_on_online` | `autoExitOnOnline` | `bool` | `true` | 检测到在线后自动退出（`monitor/background_emit.rs:191`） |
 | `model.rs:56` | `theme_mode` | `themeMode` | `String` | `"dark"` | 主题：`"dark"`/`"light"`/`"system"` |
 | `model.rs:58` | `enable_notification` | `enableNotification` | `bool` | `true` | 是否发系统通知 |
@@ -156,6 +162,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:100` | `alias = "campusCheckStartHour"` | 兼容旧版字段名（配合 `config_version < 2` 的小时→分钟迁移） |
 | `model.rs:103` | `default = "default_campus_check_end_minutes"` | `campus_check_end_minutes` 缺字段时取 1380（2026-09-13 起旧默认 0） |
 | `model.rs:29-33`、`model.rs:62-64` | `rename = "adapter1Account"/"adapter2Account"/"displayName"` | 新字段手写 rename；缺字段靠容器级 `serde(default)` 补空串（测试 `serde_account_fields_json_names_and_defaults` 锁契约） |
+| `model.rs:64-80` | `rename = "enableNightOutboundSwitch"/"outboundPriority"/"outboundMetricRestore"/"nightOutboundRestore"` | 夜间出站切换四字段（2026-09-22 新增）手写 rename；缺字段靠容器级 `serde(default)` 兜底，纯新增、无 schema 迁移 |
 
 ## Data Flow
 

@@ -21,6 +21,10 @@ export interface Config {
   enableNightOperatorSwitch: boolean
   /** 夜间切换前的原运营商:切至无锡学院时暂存,恢复时取回后清空 */
   nightOperatorRestore: string
+  enableNightOutboundSwitch: boolean
+  outboundPriority: string[]
+  outboundMetricRestore: string
+  nightOutboundRestore: string
   adapter1: string
   adapter2: string
   dualAdapter: boolean
