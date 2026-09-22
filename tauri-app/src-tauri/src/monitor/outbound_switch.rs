@@ -151,6 +151,22 @@ mod tests {
     }
 
     #[test]
+    fn candidate_priority_name_absent_from_details_skips() {
+        // 优先级名在当前适配器列表里查不到（被拔出/禁用）→ 顺延到下一项
+        let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
+        let priority = vec!["已拔出的卡".to_string(), "WLAN".to_string()];
+        let picked = select_outbound_candidate(&priority, &[hotspot], "10.64.60.1", |_, _| false).unwrap();
+        assert_eq!(picked.name, "WLAN");
+    }
+
+    #[test]
+    fn candidate_empty_priority_returns_none() {
+        // 未排序（空列表）：没有白名单内的候选，不切换
+        let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
+        assert!(select_outbound_candidate(&[], &[hotspot], "10.64.60.1", no_probe()).is_none());
+    }
+
+    #[test]
     fn snapshot_json_round_trip_with_guid() {
         let rows = vec![
             MetricRow { family: 2, automatic: true, metric: 55 },
