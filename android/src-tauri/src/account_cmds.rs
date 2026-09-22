@@ -199,6 +199,9 @@ pub async fn switch_account(
     merged.active_account = safe_name.clone();
 
     let display = persist_current(&app, &merged).await?;
+    // 切账号也收尾 avoid_bad_wifi 快照:出站切换态标记已清,快照残留会让
+    // network_avoid_bad_wifi 停在 1(无快照时幂等无动作)
+    crate::monitor_loop::restore_avoid_bad_wifi(&app).await;
     Ok(AccountResult::ok_with_account(safe_name, display))
 }
 
@@ -293,6 +296,8 @@ pub async fn delete_account(
         // 且还原所需账号已不存在
         current.night_outbound_restore = String::new();
         let display = persist_current(&app, &current).await?;
+        // 与切账号同位:清标记后收尾 avoid_bad_wifi 快照(幂等)
+        crate::monitor_loop::restore_avoid_bad_wifi(&app).await;
         return Ok(AccountResult { success: true, message: None, active_account: Some(String::new()), display_name: None, config: Some(display) });
     }
     Ok(AccountResult::ok(config_state::masked_for_display(&current)))

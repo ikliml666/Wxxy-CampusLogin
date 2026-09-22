@@ -429,6 +429,12 @@ pub fn run_startup_tasks(app: tauri::AppHandle) {
                 let _ = start_background_check(app2).await;
             });
         }
+        // avoid_bad_wifi 快照兜底:出站切换态标记为空但插件快照仍待还原(上次切换态
+        // 收尾时应用被杀/功能被关等残留)→ 启动即还原,不停在 1。标记非空(切换态
+        // 进行中)则不动,等 Restore 分支收尾;无快照时插件幂等无动作
+        if settings.night_outbound_restore.is_empty() {
+            restore_avoid_bad_wifi(&app).await;
+        }
         if settings.enable_network_quality {
             let enable_latency = settings.enable_latency_test;
             let app2 = app.clone();
@@ -776,15 +782,11 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 if persist_settings(app, &switched).await {
                     outbound_active = true;
                     // network_avoid_bad_wifi=1 是"系统自动把默认网络让给蜂窝"的前提
-                    // (accept_wifi_network 的 settings_global 路径曾把它写成 0 且不回滚)。
-                    // 该键属 Settings.Global 表,受 WRITE_SECURE_SETTINGS(signature|privileged)
-                    // 保护,普通应用无法通过运行时授权获得(WRITE_SETTINGS 只覆盖 Settings.System),
-                    // 插件与应用 manifest 均未声明该权限 → 写通道对本应用不可用,不做无效写入,
-                    // 只提示用户手动开启(设置页文案提示;常开=1 对用户无害,本就应常开)
-                    campus_login_lib::log_warn!(
-                        "monitor",
-                        "夜间出站切换: 无法程序化确保 network_avoid_bad_wifi=1(需 WRITE_SECURE_SETTINGS),若系统未自动切移动数据请手动开启"
-                    );
+                    // (accept_wifi_network 的 settings_global 路径会把它写成 0)。
+                    // 应用声明 WRITE_SECURE_SETTINGS,用户 adb `pm grant` 授权后这里
+                    // 程序化确保=1(插件记录原值快照,晨间还原);未授权时 ensured=false,
+                    // 保留手动开启提示(设置页文案;常开=1 对用户无害,本就应常开)
+                    ensure_avoid_bad_wifi(app).await;
                     trigger_wifi_recheck(app).await;
                     emit_login_log(app, "夜间出站切换: 已注销校园网，等待系统切换移动数据", "info");
                 }
@@ -799,6 +801,9 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 restored.night_outbound_restore = String::new();
                 if persist_settings(app, &restored).await {
                     outbound_active = false;
+                    // 切换态收尾:若切换侧程序化写过 avoid_bad_wifi,按插件快照还原原值
+                    // (原值=1 时快照不存在,幂等无动作)
+                    restore_avoid_bad_wifi(app).await;
                     emit_login_log(app, "夜间出站切换: 已恢复校园网登录", "success");
                 }
             } else {
@@ -812,6 +817,8 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                     restored.night_outbound_restore = String::new();
                     if persist_settings(app, &restored).await {
                         outbound_active = false;
+                        // 放弃自动还原也收尾系统态:avoid_bad_wifi 不停在 1
+                        restore_avoid_bad_wifi(app).await;
                         emit_login_log(app, "夜间出站切换: 自动还原失败已放弃，请手动登录", "error");
                     }
                 } else {
@@ -1020,6 +1027,74 @@ async fn trigger_wifi_recheck(app: &tauri::AppHandle) {
         ),
         Ok(Err(e)) => campus_login_lib::log_warn!("monitor", "夜间出站切换: 触发系统 WiFi 重检失败: {e}"),
         Err(e) => campus_login_lib::log_warn!("monitor", "夜间出站切换: WiFi 重检任务异常: {e}"),
+    }
+}
+
+/// 程序化确保 network_avoid_bad_wifi=1(WRITE_SECURE_SETTINGS 经 adb pm grant 授权后生效):
+/// 插件侧记录原值快照,晨间由 restore_avoid_bad_wifi 还原。JNI 阻塞调用走 spawn_blocking;
+/// 未授权/写入失败只记日志,不影响已成立的切换态(系统探测未开启时用户手动开启兜底)。
+async fn ensure_avoid_bad_wifi(app: &tauri::AppHandle) {
+    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+    let cloned = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        cloned.campus_network_bind().ensure_avoid_bad_wifi()
+    })
+    .await;
+    match result {
+        Ok(Ok(v)) if v["ensured"].as_bool().unwrap_or(false) => {
+            if v["changed"].as_bool().unwrap_or(false) {
+                campus_login_lib::log_info!(
+                    "monitor",
+                    "夜间出站切换: 已程序化开启 network_avoid_bad_wifi=1(原值 {},晨间还原)",
+                    v["previous"].as_i64().unwrap_or(-1)
+                );
+            } else {
+                campus_login_lib::log_info!(
+                    "monitor",
+                    "夜间出站切换: network_avoid_bad_wifi 已开启,无需写入"
+                );
+            }
+        }
+        Ok(Ok(v)) => campus_login_lib::log_warn!(
+            "monitor",
+            "夜间出站切换: 无法程序化开启 network_avoid_bad_wifi({}),若系统未自动切移动数据请手动开启",
+            v["reason"].as_str().unwrap_or("未知原因")
+        ),
+        Ok(Err(e)) => campus_login_lib::log_warn!(
+            "monitor",
+            "夜间出站切换: ensure network_avoid_bad_wifi 调用失败: {e}"
+        ),
+        Err(e) => campus_login_lib::log_warn!(
+            "monitor",
+            "夜间出站切换: ensure network_avoid_bad_wifi 任务异常: {e}"
+        ),
+    }
+}
+
+/// 按插件快照还原 network_avoid_bad_wifi(切换态收尾时调用;无快照幂等无动作)。
+pub(crate) async fn restore_avoid_bad_wifi(app: &tauri::AppHandle) {
+    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+    let cloned = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        cloned.campus_network_bind().restore_avoid_bad_wifi()
+    })
+    .await;
+    match result {
+        Ok(Ok(v)) if v["restored"].as_bool().unwrap_or(false) => {
+            campus_login_lib::log_info!(
+                "monitor",
+                "夜间出站切换: network_avoid_bad_wifi 已还原(原值 {})",
+                v["previous"].as_i64().unwrap_or(-1)
+            );
+        }
+        // restored=false:无快照(未程序化写过),正常路径,不打日志
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => {
+            campus_login_lib::log_warn!("monitor", "夜间出站切换: 还原 network_avoid_bad_wifi 调用失败: {e}")
+        }
+        Err(e) => {
+            campus_login_lib::log_warn!("monitor", "夜间出站切换: 还原 network_avoid_bad_wifi 任务异常: {e}")
+        }
     }
 }
 

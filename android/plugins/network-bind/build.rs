@@ -1,4 +1,12 @@
-const COMMANDS: &[&str] = &["bindToWifi", "unbind", "acceptWifiNetwork"];
+const COMMANDS: &[&str] = &[
+    "bindToWifi",
+    "unbind",
+    "acceptWifiNetwork",
+    "ensureAvoidBadWifi",
+    "restoreAvoidBadWifi",
+    "restoreWrittenSettings",
+    "getSecureSettingsStatus",
+];
 
 fn main() {
     let result = tauri_plugin::Builder::new(COMMANDS)

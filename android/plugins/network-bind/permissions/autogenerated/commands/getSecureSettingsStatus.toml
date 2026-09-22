@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-getSecureSettingsStatus"
+description = "Enables the getSecureSettingsStatus command without any pre-configured scope."
+commands.allow = ["getSecureSettingsStatus"]
+
+[[permission]]
+identifier = "deny-getSecureSettingsStatus"
+description = "Denies the getSecureSettingsStatus command without any pre-configured scope."
+commands.deny = ["getSecureSettingsStatus"]

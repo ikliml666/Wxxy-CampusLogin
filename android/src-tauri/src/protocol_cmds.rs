@@ -208,6 +208,47 @@ pub fn accept_wifi_network(app: tauri::AppHandle) -> Result<serde_json::Value, S
     }
 }
 
+/// 查询 Settings.Global 写通道状态（前端夜间出站切换引导块显示）：
+/// WRITE_SECURE_SETTINGS 是否已授权（adb pm grant 后）、当前 avoid_bad_wifi 值、
+/// 插件是否有待还原快照。JNI 阻塞调用走 spawn_blocking。
+#[tauri::command]
+pub async fn get_avoid_bad_wifi_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+        let outcome =
+            tauri::async_runtime::spawn_blocking(move || app.campus_network_bind().get_secure_settings_status())
+                .await
+                .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("仅安卓端支持".to_string())
+    }
+}
+
+/// 还原本应用写入的系统网络设置（手动出口：captive_portal_mode=0 /
+/// network_avoid_bad_wifi=0 / 出站切换写的 avoid_bad_wifi 覆盖，按插件快照写回原值）。
+#[tauri::command]
+pub async fn restore_written_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+        let outcome =
+            tauri::async_runtime::spawn_blocking(move || app.campus_network_bind().restore_written_settings())
+                .await
+                .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("仅安卓端支持".to_string())
+    }
+}
+
 /// 全链路(启动自动登录/周期检测/断线重连/注销/手动登录/手动探测)执行前确保进程已绑 WiFi。
 ///
 /// 根因：WiFi 未认证时被安卓网络评分降权，WiFi+流量同开下默认路由可能落到蜂窝，

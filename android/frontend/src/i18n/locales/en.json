@@ -295,11 +295,19 @@
     "dhcpRenewFailed": "DHCP renew failed",
     "nightOutboundSwitch": "Night Outbound Switch",
     "nightOutboundSwitchDesc": "Auto-signs out of the campus network and triggers a system Wi-Fi re-check at 23:00 Sun-Thu and 23:30 Fri/Sat, letting the system 'Avoid Bad Wi-Fi' mechanism switch to mobile data automatically; auto-relogin from 6:30 next morning",
-    "avoidBadWifiGuide": "Requires the system 'Avoid Bad Wi-Fi' setting: run the command below via adb and reboot (some ROMs enable it by default or offer a private toggle like 'WLAN Assistant' — prefer the built-in system option)",
+    "avoidBadWifiGuide": "Requires the system 'Avoid Bad Wi-Fi' setting: run the grant command below via adb and reboot (some ROMs enable it by default or offer a private toggle like 'WLAN Assistant' — prefer the built-in system option)",
     "avoidBadWifiCommand": "adb shell settings put global network_avoid_bad_wifi 1",
+    "avoidBadWifiGrantCommand": "adb shell pm grant com.campuslogin.client android.permission.WRITE_SECURE_SETTINGS",
+    "avoidBadWifiGranted": "Auto-management granted: the app enables 'Avoid Bad Wi-Fi' at switch time and restores the original value in the morning — no manual steps needed",
+    "avoidBadWifiAltGuide": "Or keep the manual approach: run the command below to enable it (the app cannot auto-restore)",
     "avoidBadWifiCaveats": "Note: the switch timing is decided by system detection; there is no fallback when cellular data is off or no SIM is present; when always enabled, the system will also switch to cellular during daytime network slowdowns",
     "avoidBadWifiCopy": "Copy command",
-    "avoidBadWifiCopied": "Command copied"
+    "avoidBadWifiCopied": "Command copied",
+    "secureSettingsRestore": "Restore system defaults",
+    "secureSettingsRestoreHint": "System network settings written by the app (including switch leftovers) can be reverted in one tap",
+    "secureSettingsRestored": "System settings written by the app have been restored",
+    "secureSettingsNothingToRestore": "Nothing to restore",
+    "secureSettingsRestoreFailed": "Restore failed"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",

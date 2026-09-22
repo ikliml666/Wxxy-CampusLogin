@@ -8,6 +8,10 @@
 - `allow-bind-to-wifi`
 - `allow-unbind`
 - `allow-accept-wifi-network`
+- `allow-ensure-avoid-bad-wifi`
+- `allow-restore-avoid-bad-wifi`
+- `allow-restore-written-settings`
+- `allow-get-secure-settings-status`
 
 ## Permission Table
 
@@ -66,6 +70,110 @@ Enables the bindToWifi command without any pre-configured scope.
 <td>
 
 Denies the bindToWifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:allow-ensureAvoidBadWifi`
+
+</td>
+<td>
+
+Enables the ensureAvoidBadWifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:deny-ensureAvoidBadWifi`
+
+</td>
+<td>
+
+Denies the ensureAvoidBadWifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:allow-getSecureSettingsStatus`
+
+</td>
+<td>
+
+Enables the getSecureSettingsStatus command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:deny-getSecureSettingsStatus`
+
+</td>
+<td>
+
+Denies the getSecureSettingsStatus command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:allow-restoreAvoidBadWifi`
+
+</td>
+<td>
+
+Enables the restoreAvoidBadWifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:deny-restoreAvoidBadWifi`
+
+</td>
+<td>
+
+Denies the restoreAvoidBadWifi command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:allow-restoreWrittenSettings`
+
+</td>
+<td>
+
+Enables the restoreWrittenSettings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-network-bind:deny-restoreWrittenSettings`
+
+</td>
+<td>
+
+Denies the restoreWrittenSettings command without any pre-configured scope.
 
 </td>
 </tr>

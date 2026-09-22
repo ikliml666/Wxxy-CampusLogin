@@ -141,6 +141,26 @@ interface TauriApi {
   getGpuInfo: () => Promise<GpuInfo>
   getLogRetentionDays: () => Promise<number>
   setLogRetentionDays: (days: number) => Promise<void>
+  /** Settings.Global 写通道状态（WRITE_SECURE_SETTINGS 是否经 adb 授权 + 待还原快照） */
+  getAvoidBadWifiStatus: () => Promise<AvoidBadWifiStatus>
+  /** 还原本应用写入的系统网络设置（captive_portal_mode / network_avoid_bad_wifi 快照写回） */
+  restoreWrittenSettings: () => Promise<RestoreWrittenSettingsResult>
+}
+
+export interface AvoidBadWifiStatus {
+  /** WRITE_SECURE_SETTINGS 是否已授予（用户 adb pm grant 后为 true） */
+  granted: boolean
+  /** 当前 network_avoid_bad_wifi 值（-1 = 读不到） */
+  avoidBadWifi: number
+  /** 插件快照：avoid_bad_wifi 待还原（夜间出站切换写入的原值） */
+  pendingRestoreAvoid: boolean
+  /** 插件快照：captive_portal_mode 待还原（接受此 WiFi 写入的原值） */
+  pendingRestoreCaptive: boolean
+}
+
+export interface RestoreWrittenSettingsResult {
+  restored: Record<string, boolean>
+  reason?: string
 }
 
 const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => () => void) => {
@@ -301,6 +321,8 @@ const tauriApi: TauriApi = {
   getGpuInfo: () => desktopOnly<GpuInfo>('get_gpu_info'),
   getLogRetentionDays: () => invoke<number>('get_log_retention_days'),
   setLogRetentionDays: (days) => invoke<void>('set_log_retention_days', { days }),
+  getAvoidBadWifiStatus: () => invoke<AvoidBadWifiStatus>('get_avoid_bad_wifi_status'),
+  restoreWrittenSettings: () => invoke<RestoreWrittenSettingsResult>('restore_written_settings'),
 }
 
 function isRetryableError(e: unknown): boolean {

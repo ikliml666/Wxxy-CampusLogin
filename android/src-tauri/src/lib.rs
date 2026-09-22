@@ -58,6 +58,8 @@ pub fn run() {
             protocol_cmds::ping_test,
             protocol_cmds::bind_to_wifi,
             protocol_cmds::accept_wifi_network,
+            protocol_cmds::get_avoid_bad_wifi_status,
+            protocol_cmds::restore_written_settings,
             protocol_cmds::do_login,
             protocol_cmds::do_logout,
             protocol_cmds::check_portal_status,

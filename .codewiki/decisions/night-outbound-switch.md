@@ -15,9 +15,14 @@ source_files:
   - android/src-tauri/src/monitor_loop.rs
   - android/src-tauri/src/account_cmds.rs
   - android/src-tauri/src/config_state.rs
+  - android/src-tauri/src/protocol_cmds.rs
+  - android/src-tauri/src/lib.rs
+  - android/src-tauri/gen/android/app/src/main/AndroidManifest.xml
+  - android/plugins/network-bind/build.rs
   - android/plugins/network-bind/src/lib.rs
   - android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt
   - android/frontend/src/network/NetworkPanel.tsx
+  - android/frontend/src/hooks/tauriApi.ts
 tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 ---
 
@@ -114,12 +119,23 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 ## 已知限制（有意不修/待办，记录避免重查）
 
 1. **`auto_login_on_start` 未过出站闸**（双端同构限制）：启动自动登录链路（桌面 `monitor/auto_auth.rs::run_auto_login_on_start`、安卓 `monitor_loop.rs::auto_login_on_start`）不判切换态——切换态内重启应用会重登校园网。桌面登录失败无害（启动对账会在夜间窗口重放切换）；安卓重登成功则流量回 WiFi、切换态名存实亡但标记仍在，06:30 恢复窗口会再登一次并清标记自愈。未修原因：启动登录是独立编排，加闸要动两端的启动路径，收益（用户恰在切换态内重启的低频场景）不抵评审面扩大。
-2. **`network_avoid_bad_wifi` 写通道不可用**：该键属 `Settings.Global`，受 `WRITE_SECURE_SETTINGS`（signature|privileged）保护，普通应用无法经运行时授权获得（`WRITE_SETTINGS` 只覆盖 `Settings.System`）——一期只引导用户手动开启（adb/系统设置）。且既有 `acceptWifiNetwork` 命令的 `applyNetworkSettingsCompat`（NetworkBindPlugin.kt:279-292）会写 `captive_portal_mode=0` 与 **`network_avoid_bad_wifi=0` 且不回滚**，与出站切换的系统前提直接冲突（该命令与本功能无人同时使用，但属隐患）——两件事（WRITE_SECURE_SETTINGS 自动写增强 + acceptWifiNetwork 回滚）作为独立事项待办。
+2. ~~**`network_avoid_bad_wifi` 写通道不可用**~~（2026-09-22 已解决，见「WRITE_SECURE_SETTINGS 自动写增强」节）：一期只引导手动开启（adb/系统设置），且既有 `acceptWifiNetwork` 命令的 `applyNetworkSettingsCompat`（NetworkBindPlugin.kt:279-292）写 `captive_portal_mode=0` 与 `network_avoid_bad_wifi=0` 不回滚——两件事已随自动写增强一并落地（快照还原机制同时覆盖兜底路径的回滚出口）。
 3. **桌面 `nightOutboundRestore` 字段是死字段**：为满足「字段集双端同构」纪律（[[config-field-sets-bidirectional-sync]]）而存在；桌面真实切换态字段是 `outboundMetricRestore`，桌面代码不消费 `nightOutboundRestore`（反之安卓不消费 `outboundMetricRestore`/`outboundPriority`）。仅导入配置清空逻辑触达它。
 4. **安卓同拍双登可能**：出站 Restore 成功当拍置 `outbound_active=false`，同拍随后的定时登录判定（`!outbound_active && should_fire_scheduled_action`）可能再登一次——恢复窗口恰好压着定时登录时刻时出现。后果轻（重复登录幂等），不为此引入拍内去重。桌面无此问题（定时登录判定在出站动作之前取拍首状态）。
 5. **功能已关+态残留的兜底判据内联不重构**：桌面抽为可测纯函数 `outbound_action_for`（`scheduled.rs:214`，10 个单测），安卓在 `run_scheduled_actions` 内联同款三行——刻意不抽公共纯函数（安卓编排本就独立于桌面 monitor 模块，抽取需扩大桌面 crate 的 pub 面，收益小）。两端行为必须保持同步，改动时人工对照。
 6. **captive portal 白名单误判风险**：个别校园网部署放行系统探测 URL——安卓注销后系统验证仍"通过"，`avoid_bad_wifi` 不切流量。真机实测项；命中则二期改"注销+提示"降级。
 7. **切换时机由系统探测周期决定**（安卓）：`reportNetworkConnectivity` 后系统按自身节奏重验证，不保证 23:00 整点切蜂窝，与"自动衔接"语义相容但非秒级。
+
+## WRITE_SECURE_SETTINGS 自动写增强（2026-09-22 二期）
+
+一期已知限制②的落地（设计同日批准，方案：还原**原值**而非默认值，语义同桌面 metric 快照）：
+
+- **manifest**：`AndroidManifest.xml` 声明 `WRITE_SECURE_SETTINGS`（`tools:ignore="ProtectedPermissions"`）。仍受 signature|privileged 保护，需用户 adb `pm grant com.campuslogin.client android.permission.WRITE_SECURE_SETTINGS` **一次性授权**；授权后应用可静默写 `Settings.Global`，`network_avoid_bad_wifi=1` 免手动。
+- **快照还原机制**（`NetworkBindPlugin.kt`）：`applyNetworkSettingsCompat` 写两键（`network_avoid_bad_wifi`/`captive_portal_mode`）前先记原值到插件私有 SharedPreferences（`network_settings_guard`，`prev_` 前缀；原值=1 视为系统默认不记录；已有快照不覆盖——首次写入为准；读取异常按 1 处理）。这同时给出 `acceptWifiNetwork` 兜底路径写 `captive_portal_mode=0 + avoid_bad_wifi=0` 的**回滚出口**（原已知限制②后半）。
+- **新命令 4 个**（Kotlin @Command + 插件 Rust 封装）：`ensureAvoidBadWifi`（权限检查→幂等写 1→记快照）、`restoreAvoidBadWifi`（快照写回；写失败保留快照待重试）、`restoreWrittenSettings`（两键全量手动还原）、`getSecureSettingsStatus`（授权/当前值/待还原查询）。插件 `build.rs` 的 `COMMANDS` 数组必须同步补命令名（tauri_plugin 据此生成权限脚手架，见 [[plugin-permission-dangling-refs]]——手写 ACL 三件套会被构建再生覆盖，`default.toml` 才是权限集 source of truth，kebab-case 引用经归一化解析）。
+- **Rust 编排四触发点**（`monitor_loop.rs`/`account_cmds.rs`）：①Switch 分支落标记成功后自动 ensure（替代原「无法程序化确保」warn）；②Restore 两处清标记后自动还原；③启动兜底——标记空但有快照即还原（覆盖崩溃/强杀错过恢复窗口）；④切账号/删当前账号清标记后还原。
+- **前端**（`NetworkPanel.tsx`）：引导块升级状态感知——已授权绿框「已授权自动管理」；未授权显示 `pm grant` 一键复制（原 `settings put` 手动命令降为备选）；「还原系统设置」按钮（成功/无操作/失败 toast）。
+- 桌面不涉及（Settings.Global 为安卓特有）。
 
 ## 已排除路线（避免重查）
 

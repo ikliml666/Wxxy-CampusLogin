@@ -22,7 +22,7 @@ import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
-import { tauriApiWithRetry } from '@/hooks/tauriApi'
+import { tauriApiWithRetry, type AvoidBadWifiStatus } from '@/hooks/tauriApi'
 import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
@@ -173,6 +173,54 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       // 剪贴板不可用时不弹提示，按钮未变为对勾即未复制成功
     }
   }, [t])
+
+  // Settings.Global 写通道状态：WRITE_SECURE_SETTINGS 授权与否决定引导块显示
+  // "自动管理"还是 adb 命令；快照存在时显示手动还原按钮
+  const [secureStatus, setSecureStatus] = useState<AvoidBadWifiStatus | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const refreshSecureStatus = useCallback(async () => {
+    try {
+      const status = await ipc.getAvoidBadWifiStatus()
+      if (mountedRef.current) setSecureStatus(status)
+    } catch {
+      // 查询失败（旧包/桌面）保持 null，引导块回落到 adb 命令形态
+      if (mountedRef.current) setSecureStatus(null)
+    }
+  }, [ipc])
+  useEffect(() => {
+    void refreshSecureStatus()
+  }, [refreshSecureStatus])
+
+  const handleCopyGrantCommand = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(t('network.avoidBadWifiGrantCommand'))
+      setAdbCopied(true)
+      setTimeout(() => setAdbCopied(false), 2000)
+    } catch {
+      // 同上,静默
+    }
+  }, [t])
+
+  const handleRestoreWritten = useCallback(async () => {
+    setRestoring(true)
+    try {
+      const result = await ipc.restoreWrittenSettings()
+      if (!mountedRef.current) return
+      const anyOk = Object.values(result?.restored ?? {}).some(Boolean)
+      if (anyOk) {
+        useLogToastStore.getState().addToast(t('network.secureSettingsRestored'), 'success')
+      } else {
+        useLogToastStore.getState().addToast(t('network.secureSettingsNothingToRestore'), 'info')
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        useLogToastStore.getState().addToast(t('network.secureSettingsRestoreFailed'), 'error', extractErrorMessage(e))
+      }
+    } finally {
+      if (mountedRef.current) setRestoring(false)
+      await refreshSecureStatus()
+    }
+  }, [ipc, mountedRef, t, refreshSecureStatus])
 
   const getDnsQuality = (
     adapter: {
@@ -349,23 +397,59 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
           </CardHeader>
           <CardContent>
             <div className="p-3.5 rounded-xl bg-muted/30 space-y-2">
-              <p className="text-xs text-muted-foreground">{t('network.avoidBadWifiGuide')}</p>
-              <div className="flex items-center justify-between gap-2">
-                <code className="text-xs font-mono text-foreground/80 break-all min-w-0">{t('network.avoidBadWifiCommand')}</code>
+              {secureStatus?.granted ? (
+                <div className="flex items-start gap-2 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                  <span className="text-xs text-emerald-600">{t('network.avoidBadWifiGranted')}</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">{t('network.avoidBadWifiGuide')}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="text-xs font-mono text-foreground/80 break-all min-w-0">{t('network.avoidBadWifiGrantCommand')}</code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[11px] gap-1 shrink-0"
+                      onClick={handleCopyGrantCommand}
+                      title={t('network.avoidBadWifiGrantCommand')}
+                    >
+                      {adbCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      {adbCopied ? t('network.avoidBadWifiCopied') : t('network.avoidBadWifiCopy')}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t('network.avoidBadWifiAltGuide')}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="text-xs font-mono text-foreground/80 break-all min-w-0">{t('network.avoidBadWifiCommand')}</code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[11px] gap-1 shrink-0"
+                      onClick={handleCopyAdbCommand}
+                      title={t('network.avoidBadWifiCommand')}
+                    >
+                      {adbCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      {adbCopied ? t('network.avoidBadWifiCopied') : t('network.avoidBadWifiCopy')}
+                    </Button>
+                  </div>
+                </>
+              )}
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <span className="text-xs text-amber-600">{t('network.avoidBadWifiCaveats')}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-xs text-muted-foreground">{t('network.secureSettingsRestoreHint')}</span>
                 <Button
                   variant="outline"
                   size="sm"
                   className="h-7 text-[11px] gap-1 shrink-0"
-                  onClick={handleCopyAdbCommand}
-                  title={t('network.avoidBadWifiCommand')}
+                  onClick={handleRestoreWritten}
+                  disabled={restoring}
                 >
-                  {adbCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                  {adbCopied ? t('network.avoidBadWifiCopied') : t('network.avoidBadWifiCopy')}
+                  {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  {t('network.secureSettingsRestore')}
                 </Button>
-              </div>
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-xs text-amber-600">{t('network.avoidBadWifiCaveats')}</span>
               </div>
             </div>
           </CardContent>

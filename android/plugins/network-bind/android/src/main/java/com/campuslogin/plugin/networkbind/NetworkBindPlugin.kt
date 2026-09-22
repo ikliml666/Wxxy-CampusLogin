@@ -10,6 +10,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.content.SharedPreferences
 import android.provider.Settings
 import app.tauri.annotation.Command
 import app.tauri.annotation.Permission
@@ -271,16 +272,21 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
      *
      * 权限层级：Global 表由 `WRITE_SECURE_SETTINGS`（signature|privileged）保护，
      * 普通签名应用**无法通过用户授权获得**，因此这条路径对普通用户实际不可用，
-     * 仅在 root / Shizuku / 系统预装场景生效。此前先用 `Settings.System.canWrite()`
+     * 仅在 root / Shizuku / adb pm grant 场景生效。此前先用 `Settings.System.canWrite()`
      * 提前返回——它检查的是 System 表的 `WRITE_SETTINGS`，与本处写 Global 无关，
      * 恒定 false 且把真实原因（SecurityException）挡在门外，属误判。
      * 现在直接试写，由系统给出真实结论。
+     *
+     * 回滚出口（2026-09-22）：写入前把两键当前值记录进 SharedPreferences 快照
+     * （`prev_*` 存在即待还原），配合 restoreWrittenSettings 提供恢复系统默认的出口；
+     * 同键已有快照时不覆盖（保留最早的还原目标，避免嵌套写入互相冲掉）。
      */
     private fun applyNetworkSettingsCompat(context: Context): String? {
         val cr = context.contentResolver
         return try {
-            // IGNORE：系统不做 captive portal 判定，也就不再弹"无法访问互联网"
+            snapshotGlobalKey(context, KEY_CAPTIVE_PORTAL_MODE)
             Settings.Global.putInt(cr, "captive_portal_mode", 0)
+            snapshotGlobalKey(context, KEY_AVOID_BAD_WIFI)
             // 不"躲开"无网 WiFi，避免系统把默认路由切回蜂窝
             Settings.Global.putInt(cr, "network_avoid_bad_wifi", 0)
             null
@@ -290,6 +296,177 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
             e.javaClass.simpleName + ":" + (e.message ?: "")
         }
     }
+
+    // ===== Settings.Global 写通道与快照还原（夜间出站切换 + acceptWifiNetwork 共用）=====
+    //
+    // 应用声明 WRITE_SECURE_SETTINGS 后可经 adb `pm grant` 获得该权限（signature|privileged
+    // 权限的标准 adb 授予法，Tasker/MacroDroid 同款引导），届时：
+    // - 出站切换到点由 monitor_loop 调 ensureAvoidBadWifi 程序化确保 avoid_bad_wifi=1；
+    // - acceptWifiNetwork 的 settings_global 路径真正可写（此前普通设备恒 SecurityException）。
+    // 两条路径写前都经 snapshotGlobalKey 记录原值，restore 系列命令按快照写回——
+    // 还原的是"记录前的真实值"（含用户自定义），不是系统默认值。
+
+    private val guardPrefs: SharedPreferences by lazy {
+        activity.applicationContext.getSharedPreferences("network_settings_guard", Context.MODE_PRIVATE)
+    }
+
+    /** 快照键：存在即"待还原"，值为写入前读到的真实原值 */
+    private val KEY_AVOID_BAD_WIFI = "network_avoid_bad_wifi"
+    private val KEY_CAPTIVE_PORTAL_MODE = "captive_portal_mode"
+    private val PREF_PREFIX = "prev_"
+
+    /**
+     * 记录 Global 键写入前的当前值（已有快照不覆盖——保留最早的还原目标）。
+     * 读不到当前值时按 AOSP 默认值 1 记录（avoid_bad_wifi/captive_portal_mode 默认均为 1）。
+     */
+    private fun snapshotGlobalKey(context: Context, key: String) {
+        if (guardPrefs.contains(PREF_PREFIX + key)) return
+        val cr = context.contentResolver
+        val prev = try {
+            Settings.Global.getInt(cr, key, 1)
+        } catch (_: Throwable) {
+            1
+        }
+        guardPrefs.edit().putInt(PREF_PREFIX + key, prev).apply()
+    }
+
+    /** 是否拥有 WRITE_SECURE_SETTINGS（adb pm grant 后为 true；未声明/未授予为 false） */
+    private fun hasWriteSecureSettings(): Boolean =
+        activity.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** 快照是否存在（任一键待还原） */
+    private fun hasPendingRestore(): Boolean =
+        guardPrefs.contains(PREF_PREFIX + KEY_AVOID_BAD_WIFI) ||
+            guardPrefs.contains(PREF_PREFIX + KEY_CAPTIVE_PORTAL_MODE)
+
+    /**
+     * 按快照写回一个键并清快照；无快照返回 null（幂等）。
+     * 写失败保留快照（还原目标不能丢），由调用方记录原因后下次再试。
+     */
+    private fun restoreGlobalKey(context: Context, key: String): String? {
+        if (!guardPrefs.contains(PREF_PREFIX + key)) return null
+        val prev = guardPrefs.getInt(PREF_PREFIX + key, 1)
+        val cr = context.contentResolver
+        return try {
+            Settings.Global.putInt(cr, key, prev)
+            guardPrefs.edit().remove(PREF_PREFIX + key).apply()
+            null
+        } catch (e: Throwable) {
+            e.javaClass.simpleName + ":" + (e.message ?: "")
+        }
+    }
+
+    /**
+     * 程序化确保 `network_avoid_bad_wifi=1`（夜间出站切换的系统前提）。
+     * 返回 `{ensured, changed, previous?, reason?}`：已=1 幂等返回 changed=false；
+     * ≠1 时记录快照后写 1；无权限 ensured=false。
+     */
+    @Command
+    fun ensureAvoidBadWifi(invoke: Invoke) {
+        val ret = JSObject()
+        if (!hasWriteSecureSettings()) {
+            ret.put("ensured", false)
+            ret.put("reason", "no_permission")
+            invoke.resolve(ret)
+            return
+        }
+        val context = activity.applicationContext
+        val current = try {
+            Settings.Global.getInt(context.contentResolver, KEY_AVOID_BAD_WIFI, 1)
+        } catch (e: Throwable) {
+            ret.put("ensured", false)
+            ret.put("reason", "read[${e.javaClass.simpleName}]")
+            invoke.resolve(ret)
+            return
+        }
+        if (current == 1) {
+            ret.put("ensured", true)
+            ret.put("changed", false)
+            invoke.resolve(ret)
+            return
+        }
+        try {
+            snapshotGlobalKey(context, KEY_AVOID_BAD_WIFI)
+            Settings.Global.putInt(context.contentResolver, KEY_AVOID_BAD_WIFI, 1)
+        } catch (e: Throwable) {
+            ret.put("ensured", false)
+            ret.put("reason", "write[${e.javaClass.simpleName}:${e.message ?: ""}]")
+            invoke.resolve(ret)
+            return
+        }
+        ret.put("ensured", true)
+        ret.put("changed", true)
+        ret.put("previous", current)
+        invoke.resolve(ret)
+    }
+
+    /**
+     * 按快照还原 `network_avoid_bad_wifi`（夜间出站切换晨间收尾）。
+     * 返回 `{restored, previous?, reason?}`；无快照时 restored=false（幂等无动作）。
+     */
+    @Command
+    fun restoreAvoidBadWifi(invoke: Invoke) {
+        val ret = JSObject()
+        if (!guardPrefs.contains(PREF_PREFIX + KEY_AVOID_BAD_WIFI)) {
+            ret.put("restored", false)
+            invoke.resolve(ret)
+            return
+        }
+        ret.put("previous", guardPrefs.getInt(PREF_PREFIX + KEY_AVOID_BAD_WIFI, 1))
+        val err = restoreGlobalKey(activity.applicationContext, KEY_AVOID_BAD_WIFI)
+        ret.put("restored", err == null)
+        err?.let { ret.put("reason", it) }
+        invoke.resolve(ret)
+    }
+
+    /**
+     * 还原本应用写入的全部系统网络设置（手动出口：acceptWifiNetwork 的
+     * captive_portal_mode=0/avoid_bad_wifi=0 与出站切换的 avoid_bad_wifi 覆盖）。
+     * 返回 `{restored: {key: bool}, reason?}`。
+     */
+    @Command
+    fun restoreWrittenSettings(invoke: Invoke) {
+        val context = activity.applicationContext
+        val restored = JSObject()
+        var anyFail: String? = null
+        for (key in arrayOf(KEY_CAPTIVE_PORTAL_MODE, KEY_AVOID_BAD_WIFI)) {
+            if (!guardPrefs.contains(PREF_PREFIX + key)) {
+                restored.put(key, false)
+                continue
+            }
+            val err = restoreGlobalKey(context, key)
+            restored.put(key, err == null)
+            if (err != null) anyFail = err
+        }
+        val ret = JSObject()
+        ret.put("restored", restored)
+        anyFail?.let { ret.put("reason", it) }
+        invoke.resolve(ret)
+    }
+
+    /**
+     * 查询 Settings.Global 写通道状态（前端引导块显示）：
+     * `{granted, avoidBadWifi, pendingRestoreAvoid, pendingRestoreCaptive}`。
+     * granted=false 时 avoidBadWifi 仍尽量返回当前值（-1=读不到）。
+     */
+    @Command
+    fun getSecureSettingsStatus(invoke: Invoke) {
+        val ret = JSObject()
+        ret.put("granted", hasWriteSecureSettings())
+        ret.put(
+            "avoidBadWifi",
+            try {
+                Settings.Global.getInt(activity.applicationContext.contentResolver, KEY_AVOID_BAD_WIFI, 1)
+            } catch (_: Throwable) {
+                -1
+            }
+        )
+        ret.put("pendingRestoreAvoid", guardPrefs.contains(PREF_PREFIX + KEY_AVOID_BAD_WIFI))
+        ret.put("pendingRestoreCaptive", guardPrefs.contains(PREF_PREFIX + KEY_CAPTIVE_PORTAL_MODE))
+        invoke.resolve(ret)
+    }
+
 
     /** 网络能力摘要：net/nonet（是否有互联网能力）+ val/unval（是否已验证）+ cp（captive portal） */
     private fun describe(caps: NetworkCapabilities): String = buildString {

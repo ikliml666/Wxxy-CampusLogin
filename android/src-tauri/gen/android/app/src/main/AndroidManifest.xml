@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -14,6 +14,12 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 2D 人脸验证(应用内自实现,WebView getUserMedia 前置摄像头) -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Settings.Global 写通道(夜间出站切换 ensure avoid_bad_wifi / acceptWifiNetwork 兜底):
+         signature|privileged 权限,普通安装流程不会授予,仅用户 adb `pm grant` 后生效;
+         未授予时 checkSelfPermission 恒 DENIED,写路径自然回落到"无权限"分支,无副作用 -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
