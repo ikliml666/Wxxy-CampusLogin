@@ -66,6 +66,10 @@ static OUTBOUND_SWITCH_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 出站**还原**动作退避状态（独立记账：两者失败原因不同，退避不互相拖慢）
 static OUTBOUND_RESTORE_LAST_FAIL_MS: AtomicU64 = AtomicU64::new(0);
 static OUTBOUND_RESTORE_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
+/// 提权通道失败计数：仅"没拿到 helper 结果"（UAC 拒绝/超时/结果文件缺失）类失败自增。
+/// 计数非零才允许出站动作降级弹 UAC——业务性失败（跃点行不存在等）弹 UAC 解决不了；
+/// 任一次 helper 成功即清零（通道可用）
+static OUTBOUND_CHANNEL_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// 循环体：由 watcher::run_startup_tasks 经 task_manager.spawn 拉起并跟踪
 pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) {
@@ -85,7 +89,10 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                 break;
             }
         }
-        // AppState 守卫不跨 await 持有：本轮有多个 await 点（见 is_quitting 注释）
+        // AppState 守卫不跨 await 持有：本轮有多个 await 点（见 is_quitting 注释）。
+        // 已知偏差（本轮不治理、不改行为）：apply_night_switch_action 内含同步落盘与托盘
+        // 刷新，仍直接跑在 async worker 线程上（既有实现）；本任务新增的出站动作一律经
+        // run_outbound_blocking 进阻塞线程池
         if is_quitting(&app_h) {
             break;
         }
@@ -96,13 +103,15 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             let s = app_h.state::<AppState>();
             s.config.load_full()
         };
+        // 出站切换态（快照非空）下定时登录跳过——且**不消耗当日标记**（gated_night_action
+        // 内部直接返回 false，调用方不置标记）：否则当日登录额度被静默吞掉，
+        // 而"过点补触发"语义要求还原成功后的下一拍仍能补登
+        let outbound_active_at_tick = outbound_switch_active(&app_h);
         let (fire_login, fire_logout) = {
             let s = app_h.state::<AppState>();
-            evaluate_and_mark(&s, now_minutes, today_day)
+            evaluate_and_mark(&s, now_minutes, today_day, outbound_active_at_tick)
         };
-        // 切换态下定时登录注定失败（校园网 portal 从热点出站不可达）→ 本拍跳过；
-        // 定时注销无害、照常执行（当日标记已在上面置位，跳过会变成"标记了却没执行"）
-        if fire_login && config_snapshot.outbound_metric_restore.is_empty() {
+        if fire_login {
             run_scheduled_login(&app_h, now_minutes);
         }
         if fire_logout {
@@ -129,8 +138,11 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             }
             NightOutboundAction::None => {
                 // 切换态下的"未生效补齐"：helper 部分失败时快照已保留（切换态成立），
-                // Switch 分支不会再触发（restore_active 下判定恒为 None）→ 由这里按退避重试
-                if !config_snapshot.outbound_metric_restore.is_empty() {
+                // Switch 分支不会再触发（restore_active 下判定恒为 None）→ 由这里按退避重试。
+                // 终止条件看 needs_replay：切换成功后失败计数清零，稳态（夜间约 900 拍）
+                // 不再每拍提权重写跃点/刷日志——只有确实留有失败历史才补
+                let switch_fails = OUTBOUND_SWITCH_FAIL_COUNT.load(Ordering::Acquire);
+                if needs_replay(&config_snapshot.outbound_metric_restore, switch_fails) {
                     let _ = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), |h, c| {
                         replay_outbound_switch_metric(h, c);
                         false
@@ -269,6 +281,30 @@ fn clear_outbound_failure(last_fail_ms: &AtomicU64, fail_count: &AtomicU32) {
     last_fail_ms.store(0, Ordering::Release);
 }
 
+/// 是否允许降级弹 UAC：仅提权通道失败过才放行（首试保持静默，零打扰）
+fn outbound_allow_uac() -> bool {
+    OUTBOUND_CHANNEL_FAIL_COUNT.load(Ordering::Acquire) > 0
+}
+
+/// 提权通道失败才抬高 UAC 放行计数；业务性失败不抬（弹 UAC 无意义且打扰用户）
+fn note_channel_failure(failure: &SetMetricFailure) {
+    if failure.channel {
+        OUTBOUND_CHANNEL_FAIL_COUNT.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+/// 提权通道可用（helper 成功）：UAC 放行计数归零，下次仍先走静默通道
+fn clear_outbound_channel_failure() {
+    OUTBOUND_CHANNEL_FAIL_COUNT.store(0, Ordering::Release);
+}
+
+/// 是否需要走"未生效补齐"重放（纯函数）：处于切换态（快照非空）**且**切换侧留有失败
+/// 历史时才需要。切换成功后失败计数已清零、快照仍在 → 稳态下恒为 false，
+/// 避免夜间窗口约 900 拍重复提权写跃点、刷日志
+fn needs_replay(snapshot: &str, fail_count: u32) -> bool {
+    !snapshot.is_empty() && fail_count > 0
+}
+
 /// 切换态快照条目（对应 `monitor::outbound_switch::snapshot_json` 的序列化结构
 /// `[{guid, family, automatic, metric}]`）
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -287,37 +323,62 @@ fn parse_outbound_snapshot(snapshot: &str) -> Result<Vec<OutboundSnapshotRow>, S
     serde_json::from_str(snapshot).map_err(|e| e.to_string())
 }
 
+/// `set_metric` helper 的失败分类
+struct SetMetricFailure {
+    /// 失败原因（helper message 或提权通道错误）
+    reason: String,
+    /// 是否属提权/执行通道失败（没拿到 helper 结果：UAC 拒绝、超时、结果文件缺失）。
+    /// 只有这类失败抬高 UAC 放行计数才有意义——helper 正常跑完但逐条失败（跃点行不存在等）
+    /// 属业务失败，弹 UAC 解决不了
+    channel: bool,
+}
+
 /// 调提权 helper 写跃点条目（编码 `"{guid}:{family}:{automatic}:{metric}"`，见 helper/mod.rs）。
-/// Ok=helper 报告全部成功；Err=失败原因（提权通道失败、超时，或 helper 逐条失败汇总）
-fn run_set_metric_helper(encoded: &[String], allow_uac_prompt: bool) -> Result<(), String> {
+/// Ok=helper 报告全部成功；Err=分类失败（提权通道失败 / helper 逐条失败）
+fn run_set_metric_helper(encoded: &[String], allow_uac_prompt: bool) -> Result<(), SetMetricFailure> {
     let rows: Vec<&str> = encoded.iter().map(|s| s.as_str()).collect();
     let result_name = crate::platform::helper_spawn::new_result_name();
-    let v = crate::platform::helper_spawn::spawn_elevated_helper(
+    let v = match crate::platform::helper_spawn::spawn_elevated_helper(
         "set_metric",
         &rows,
         &result_name,
         Duration::from_secs(OUTBOUND_HELPER_TIMEOUT_SECS),
         allow_uac_prompt,
-    )?;
+    ) {
+        Ok(v) => v,
+        // 未拿到结果文件：提权通道（计划任务代理/COM/runas）或超时失败
+        Err(e) => return Err(SetMetricFailure { reason: e, channel: true }),
+    };
     if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
         Ok(())
     } else {
-        Err(v
-            .get("message")
-            .and_then(|m| m.as_str())
-            .unwrap_or("跃点设置失败(helper 无 message)")
-            .to_string())
+        Err(SetMetricFailure {
+            reason: v
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("跃点设置失败(helper 无 message)")
+                .to_string(),
+            channel: false,
+        })
     }
 }
 
 /// 把目标卡指定协议栈的跃点写为 Metric=1（切换动作与"未生效补齐"共用，幂等）。
-/// 成功：清退避 + info 日志 + 系统通知；失败：记退避 + warn 日志，首次失败额外通知一次。
+/// 成功：清退避 + info 日志 +（`notify_success` 时）系统通知；失败：记退避 + warn 日志，
+/// 首次失败额外通知一次。
 /// 提权降级策略照 adapter_watch 的自动启用：首试静默（CMSTPLUA 可用时零 UAC 打扰），
-/// 已有失败历史时允许降级弹 UAC（静默通道被系统封堵时 UAC 是唯一恢复通道），
+/// 仅在**确因提权通道失败**后允许降级弹 UAC（静默通道被系统封堵时 UAC 是唯一恢复通道），
 /// 频率由退避阶梯限制。
-fn write_outbound_metric(app_handle: &AppHandle, name: &str, guid: &str, families: &[u16]) -> bool {
+fn write_outbound_metric(
+    app_handle: &AppHandle,
+    name: &str,
+    guid: &str,
+    families: &[u16],
+    notify_success: bool,
+) -> bool {
     if families.is_empty() {
-        // 卡在但跃点行缺失：写不进去。同样记退避，避免 30s 一拍刷日志
+        // 卡在但跃点行缺失：写不进去。同样记退避，避免 30s 一拍刷日志；
+        // 不属提权通道失败，不抬高 UAC 放行计数
         let count = mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
         crate::log_warn!(
             "outbound",
@@ -330,25 +391,32 @@ fn write_outbound_metric(app_handle: &AppHandle, name: &str, guid: &str, familie
         .iter()
         .map(|family| format!("{guid}:{family}:0:1"))
         .collect();
-    let allow_uac = OUTBOUND_SWITCH_FAIL_COUNT.load(Ordering::Acquire) > 0;
+    let allow_uac = outbound_allow_uac();
     match run_set_metric_helper(&encoded, allow_uac) {
         Ok(()) => {
+            clear_outbound_channel_failure();
             clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
             crate::log_info!("outbound", "夜间出站切换: 已切换出站到 {name}");
-            crate::infra::notification::emit_notification(
-                app_handle,
-                "夜间出站切换",
-                &format!("已切换出站到 {name}"),
-                "mascot-portrait",
-            );
+            // 通知只在切换态**首次建立**（apply_outbound_switch）发；补齐/重放路径只记日志，
+            // 避免稳态下每拍重复弹同一通知
+            if notify_success {
+                crate::infra::notification::emit_notification(
+                    app_handle,
+                    "夜间出站切换",
+                    &format!("已切换出站到 {name}"),
+                    "mascot-portrait",
+                );
+            }
             true
         }
-        Err(e) => {
+        Err(failure) => {
+            note_channel_failure(&failure);
             let count = mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
             crate::log_warn!(
                 "outbound",
-                "夜间出站切换: {name} 跃点设置失败(第 {count} 次)，{}s 后重试: {e}",
-                outbound_backoff_ms(count) / 1000
+                "夜间出站切换: {name} 跃点设置失败(第 {count} 次)，{}s 后重试: {}",
+                outbound_backoff_ms(count) / 1000,
+                failure.reason
             );
             if count == 1 {
                 crate::infra::notification::emit_notification(
@@ -365,15 +433,14 @@ fn write_outbound_metric(app_handle: &AppHandle, name: &str, guid: &str, familie
 
 /// 夜间出站切换动作（须在 spawn_blocking 线程内执行）：退避闸 → 选目标卡 → 读两族跃点
 /// → 快照落盘（切换态成立的唯一凭据，落盘成功才进内存）→ helper 写 Metric=1。
-/// 返回 true=已处于切换态（含"快照已保留、helper 待退避重试"），false=本拍未建立切换态。
+/// 返回 true=快照已落盘且 helper 全部成功（本拍完成切换）；false=本拍未建立切换态
+/// （无候选/读跃点失败/落盘失败/helper 失败；快照可能已保留，由补齐路径续写）。
 ///
 /// 快照在 helper 之前落盘；helper 失败**不清快照**（裁决 Important-2：若 v4 已改成功而
 /// v6 失败，清快照会让已改的跃点无从还原）——切换态保留 + 退避重试写回，重试幂等。
+/// 本函数只由 `Switch` 动作调用（`evaluate_night_outbound` 仅在 restore_active=false 时
+/// 产出 `Switch`），故入口无需再判快照。
 fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> bool {
-    // 已是切换态（含 helper 部分失败后的重试期）：不重选目标卡，交补齐路径重写目标值
-    if !config.outbound_metric_restore.is_empty() {
-        return true;
-    }
     if !switch_gate_open() {
         crate::log_debug!("outbound", "夜间出站切换: 退避窗内，本拍跳过");
         return false;
@@ -441,13 +508,17 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
         target.guid
     );
     let families: Vec<u16> = rows.iter().map(|r| r.family).collect();
-    write_outbound_metric(app_handle, &target.name, &target.guid, &families)
+    // 切换态首次建立：成功通知在此发（重放/补齐路径只记日志，见 write_outbound_metric）
+    write_outbound_metric(app_handle, &target.name, &target.guid, &families, true)
 }
 
 /// 补齐/重放切换动作：只写"快照记录过原值 + 当前仍存在"的协议栈的 Metric=1，
 /// 不动快照原值（幂等，可反复调用）。两个入口共用：
-/// ① 循环内切换态下的"未生效补齐"（helper 部分失败后的退避重试）；
-/// ② 启动对账的夜间窗口分支（上次运行被杀，切换没写完）。
+/// ① 循环内切换态下的"未生效补齐"（helper 部分失败后的退避重试；循环已用
+///    [`needs_replay`] 判过失败历史，此处不再判）；
+/// ② 启动对账的夜间窗口分支（上次运行被杀，切换没写完——此时进程内失败计数为 0，
+///    不能以 `needs_replay` 拦，否则重启后的重放失效）。
+/// 成功只记 info 日志、**不发系统通知**（稳态/多拍重放不应重复弹窗）。
 fn replay_outbound_switch_metric(app_handle: &AppHandle, config: &crate::config::Config) {
     let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
         Ok(rows) if !rows.is_empty() => rows,
@@ -482,7 +553,7 @@ fn replay_outbound_switch_metric(app_handle: &AppHandle, config: &crate::config:
             .map(|a| a.name.clone())
             .unwrap_or_else(|| guid.clone())
     };
-    write_outbound_metric(app_handle, &name, &guid, &families);
+    write_outbound_metric(app_handle, &name, &guid, &families, false);
 }
 
 /// 夜间出站还原动作（须在 spawn_blocking 线程内执行）：按快照把目标卡跃点原样写回
@@ -497,12 +568,12 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
             // 数据损坏：动作无从执行。清掉快照避免切换态永久卡住（还原被跳过、
             // 巡检整轮让位、运营商夜切永久让位），坏数据本身也没有可还原的信息
             crate::log_warn!("outbound", "夜间出站还原: 快照解析失败，清空快照: {e}");
-            return clear_outbound_snapshot(app_handle);
+            return finish_outbound_restore(app_handle);
         }
     };
     if snapshot.is_empty() {
         // 空串（非切换态）或空数组（无条目可还原）：都按已还原收尾
-        return clear_outbound_snapshot(app_handle);
+        return finish_outbound_restore(app_handle);
     }
     if !restore_gate_open() {
         crate::log_debug!("outbound", "夜间出站还原: 退避窗内，本拍跳过");
@@ -527,10 +598,11 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
         crate::log_info!("outbound", "夜间出站还原: 目标卡跃点行已消失，视为已还原");
         return finish_outbound_restore(app_handle);
     }
-    let allow_uac = OUTBOUND_RESTORE_FAIL_COUNT.load(Ordering::Acquire) > 0;
+    let allow_uac = outbound_allow_uac();
     match run_set_metric_helper(&encoded, allow_uac) {
         Ok(()) => {
-            crate::log_info!("outbound", "夜间出站切换: 已还原目标卡跃点设置");
+            clear_outbound_channel_failure();
+            crate::log_info!("outbound", "夜间出站还原: 已恢复目标卡跃点设置");
             crate::infra::notification::emit_notification(
                 app_handle,
                 "夜间出站切换",
@@ -539,12 +611,14 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
             );
             finish_outbound_restore(app_handle)
         }
-        Err(e) => {
+        Err(failure) => {
+            note_channel_failure(&failure);
             let count = mark_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
             crate::log_warn!(
                 "outbound",
-                "夜间出站还原失败(第 {count} 次)，{}s 后重试: {e}",
-                outbound_backoff_ms(count) / 1000
+                "夜间出站还原失败(第 {count} 次)，{}s 后重试: {}",
+                outbound_backoff_ms(count) / 1000,
+                failure.reason
             );
             if count == OUTBOUND_RESTORE_ALERT_FAILS {
                 crate::infra::notification::emit_notification(
@@ -559,10 +633,18 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
     }
 }
 
-/// 还原收尾：清退避状态 + 清快照（落盘成功才进内存）；返回快照是否已清
+/// 还原收尾：先清快照（落盘成功才进内存），**确认清掉之后**才清退避状态。
+/// 磁盘持续故障时快照清不掉：记一次失败让退避闸继续关住重放（不记失败的话
+/// 下次判定"无失败历史"会立刻再试，形成每拍写一次跃点的重放风暴）。
+/// 此处不计提权通道失败（跃点写入本身可能已成功，问题在配置落盘），
+/// 也不会触发"请手动恢复跃点"告警（该告警只在 helper 失败分支发）。
 fn finish_outbound_restore(app_handle: &AppHandle) -> bool {
+    if !clear_outbound_snapshot(app_handle) {
+        mark_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
+        return false;
+    }
     clear_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
-    clear_outbound_snapshot(app_handle)
+    true
 }
 
 /// 清空切换态快照（落盘成功才 store 内存——与切换写入同款语义，避免"内存已还原、
@@ -638,27 +720,47 @@ fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
 
 /// 单拍判定并置当日标记：命中即标记（无论后续动作成败），当日不重试；
 /// 跨天后 today_day 变化，旧标记不再相等，视为未执行（纯函数语义）。
-/// 返回 (应登录, 应注销)。
-fn evaluate_and_mark(state: &AppState, now_minutes: u16, today_day: i32) -> (bool, bool) {
+/// 判定本身见 [`gated_night_action`]（含出站切换态互斥）。返回 (应登录, 应注销)。
+fn evaluate_and_mark(state: &AppState, now_minutes: u16, today_day: i32, outbound_active: bool) -> (bool, bool) {
     let config = state.config.load_full();
-    let fire_login = should_fire_scheduled_action(
+    let (fire_login, fire_logout) = gated_night_action(
+        outbound_active,
         now_minutes,
         config.scheduled_login_minutes,
-        state.scheduled.login_day.load(Ordering::Acquire),
-        today_day,
-    );
-    if fire_login {
-        state.scheduled.login_day.store(today_day, Ordering::Release);
-    }
-    let fire_logout = should_fire_scheduled_action(
-        now_minutes,
         config.scheduled_logout_minutes,
+        state.scheduled.login_day.load(Ordering::Acquire),
         state.scheduled.logout_day.load(Ordering::Acquire),
         today_day,
     );
+    // 只有真正要发起动作的拍才耗掉当日额度：切换态下 fire_login=false 且不置标记，
+    // 出站还原成功后的下一拍仍走"过点补触发"补上今日登录
+    if fire_login {
+        state.scheduled.login_day.store(today_day, Ordering::Release);
+    }
     if fire_logout {
         state.scheduled.logout_day.store(today_day, Ordering::Release);
     }
+    (fire_login, fire_logout)
+}
+
+/// 每拍定时动作的最终判定（纯函数，供单测直接断言）：调用 [`should_fire_scheduled_action`]
+/// 后再叠加出站互斥——切换态（快照非空）下定时登录注定失败（校园网 portal 从热点出站
+/// 不可达），返回 `false` 且调用方不置当日标记（跳过的拍不消耗额度）；定时注销无害，
+/// 不受切换态影响。
+#[allow(clippy::too_many_arguments)] // 纯函数透传判定所需的 7 个入参，拆结构体只为少两个参数不值
+fn gated_night_action(
+    outbound_active: bool,
+    now_minutes: u16,
+    login_target_minutes: u16,
+    logout_target_minutes: u16,
+    login_day: i32,
+    logout_day: i32,
+    today_day: i32,
+) -> (bool, bool) {
+    let fire_login =
+        !outbound_active && should_fire_scheduled_action(now_minutes, login_target_minutes, login_day, today_day);
+    let fire_logout =
+        should_fire_scheduled_action(now_minutes, logout_target_minutes, logout_day, today_day);
     (fire_login, fire_logout)
 }
 
@@ -912,7 +1014,7 @@ mod tests {
     #[test]
     fn 禁用目标_不触发_不置标记() {
         let state = AppState::new();
-        let (login, logout) = evaluate_and_mark(&state, 600, TODAY);
+        let (login, logout) = evaluate_and_mark(&state, 600, TODAY, false);
         assert!(!login);
         assert!(!logout);
         assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), i32::MIN);
@@ -927,15 +1029,15 @@ mod tests {
             c.scheduled_logout_minutes = 23 * 60 + 30;
         });
         // 未到点
-        assert!(!evaluate_and_mark(&state, 460 - 1, TODAY).0);
+        assert!(!evaluate_and_mark(&state, 460 - 1, TODAY, false).0);
         // 过点补触发（循环拍错过精确分钟）
-        assert!(evaluate_and_mark(&state, 505, TODAY).0);
+        assert!(evaluate_and_mark(&state, 505, TODAY, false).0);
         assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), TODAY);
         // 同日不重复
-        assert!(!evaluate_and_mark(&state, 600, TODAY).0);
+        assert!(!evaluate_and_mark(&state, 600, TODAY, false).0);
         // 注销同款
-        assert!(!evaluate_and_mark(&state, 23 * 60 + 29, TODAY).1);
-        assert!(evaluate_and_mark(&state, 23 * 60 + 30, TODAY).1);
+        assert!(!evaluate_and_mark(&state, 23 * 60 + 29, TODAY, false).1);
+        assert!(evaluate_and_mark(&state, 23 * 60 + 30, TODAY, false).1);
         assert_eq!(state.scheduled.logout_day.load(AOrd::Acquire), TODAY);
     }
 
@@ -946,7 +1048,46 @@ mod tests {
             c.scheduled_login_minutes = 7 * 60 + 40;
         });
         state.scheduled.login_day.store(TODAY - 1, AOrd::Release);
-        assert!(evaluate_and_mark(&state, 460, TODAY).0);
+        assert!(evaluate_and_mark(&state, 460, TODAY, false).0);
+    }
+
+    #[test]
+    fn 切换态_跳过定时登录且不消耗当日标记_注销照常() {
+        let state = AppState::new();
+        state.config.update(|c| {
+            c.scheduled_login_minutes = 7 * 60 + 40;
+            c.scheduled_logout_minutes = 23 * 60 + 30;
+        });
+        // 切换态下过点（07:40 已过、23:30 未到）：登录被跳过，且 login_day 未被置位
+        let (login, logout) = evaluate_and_mark(&state, 505, TODAY, true);
+        assert!(!login, "切换态下定时登录应跳过");
+        assert!(!logout, "未到注销时刻");
+        assert_eq!(
+            state.scheduled.login_day.load(AOrd::Acquire),
+            i32::MIN,
+            "跳过的拍不得消耗当日登录标记（否则还原后无法过点补触发）"
+        );
+        // 注销到点：切换态下照常触发并置位
+        let (login, logout) = evaluate_and_mark(&state, 23 * 60 + 30, TODAY, true);
+        assert!(!login, "切换态下定时登录仍应跳过");
+        assert!(logout, "定时注销在切换态下照常执行");
+        assert_eq!(state.scheduled.logout_day.load(AOrd::Acquire), TODAY);
+        // 还原成功后的下一拍（outbound_active=false）：过点补触发补上今日登录
+        let (login_after, _) = evaluate_and_mark(&state, 23 * 60 + 31, TODAY, false);
+        assert!(login_after, "还原成功后应补触发当日定时登录");
+        assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), TODAY);
+    }
+
+    #[test]
+    fn gated_night_action_透传注销判定_仅登录受切换态门控() {
+        // 纯函数直测：登录目标 460、注销目标 1410，今日未触发
+        assert_eq!(gated_night_action(false, 460, 460, 1410, i32::MIN, i32::MIN, TODAY), (true, false));
+        assert_eq!(gated_night_action(true, 460, 460, 1410, i32::MIN, i32::MIN, TODAY), (false, false));
+        assert_eq!(gated_night_action(true, 1410, 460, 1410, i32::MIN, i32::MIN, TODAY), (false, true));
+        // 未到点：两者皆否
+        assert_eq!(gated_night_action(false, 459, 460, 1410, i32::MIN, i32::MIN, TODAY), (false, false));
+        // 当日已触发：不再重复
+        assert_eq!(gated_night_action(false, 460, 460, 1410, TODAY, TODAY, TODAY), (false, false));
     }
 
     #[test]
@@ -956,6 +1097,19 @@ mod tests {
     }
 
     // === 夜间出站切换：退避阶梯与编排策略（纯函数）===
+
+    #[test]
+    fn 重放闸_仅切换态且留有失败历史时才补齐() {
+        // 非切换态：无论有无失败历史都不重放
+        assert!(!needs_replay("", 0));
+        assert!(!needs_replay("", 3));
+        // 切换态但无失败历史（切换已成功、计数已清零）→ 稳态不重放
+        // （C1 回归拦截：否则夜间窗口约 900 拍每拍提权重写跃点 + 重复通知）
+        assert!(!needs_replay(SNAPSHOT_ONE_ROW, 0));
+        // 切换态 + 失败历史 → 补齐
+        assert!(needs_replay(SNAPSHOT_ONE_ROW, 1));
+        assert!(needs_replay(SNAPSHOT_ONE_ROW, u32::MAX));
+    }
 
     #[test]
     fn 退避窗_起步六十秒_每失败翻倍封顶三百秒() {
