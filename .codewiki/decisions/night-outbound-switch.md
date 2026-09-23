@@ -12,6 +12,7 @@ source_files:
   - tauri-app/src-tauri/src/commands/config_cmd.rs
   - tauri-app/src-tauri/src/auth/protocol.rs
   - tauri-app/frontend/src/network/NetworkPanel.tsx
+  - tauri-app/frontend/src/network/outboundOrder.ts
   - android/src-tauri/src/monitor_loop.rs
   - android/src-tauri/src/account_cmds.rs
   - android/src-tauri/src/config_state.rs
@@ -112,7 +113,7 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 
 ## 前端（双端）
 
-- **桌面 NetworkPanel** 新「夜间出站切换」卡：开关（默认关——改系统路由属侵入性动作）+ 网卡排序列表（↑/↓ 按钮，不引入拖拽避免安卓 WebView 滚动冲突与新增依赖）+ **排第一的卡常显「夜间出站目标」徽标**（不受开关影响，开关只控夜间自动动作）+ 管理员权限提示。排序落 `outboundPriority`（完整顺序列表，新出现的网卡追加尾部）。
+- **桌面 NetworkPanel** 新「夜间出站切换」卡：开关（默认关——改系统路由属侵入性动作）+ 网卡排序列表 + **排第一的卡常显「夜间出站目标」徽标**（不受开关影响，开关只控夜间自动动作）+ 管理员权限提示。排序落 `outboundPriority`（完整顺序列表，新出现的网卡追加尾部）。一期用 ↑/↓ 按钮；2026-09-23 起改为长按/把手拖拽排序并与适配器卡合并（见「桌面卡片合并与拖拽排序（2026-09-23 三期）」节）。
 - **安卓 NetworkPanel** 新同名卡：开关 + `network_avoid_bad_wifi` 引导块（原理说明 + adb 命令复制按钮 + 边界提示：部分 ROM 有私有等价开关优先用系统自带；蜂窝关闭/无 SIM 无路可切；常开白天卡顿也切流量的副作用如实说明）。
 - i18n zh/en 双语言包双端同步；「晚间断网自动切换」文案改名「自动切换运营商」。
 
@@ -140,6 +141,16 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 ## 已排除路线（避免重查）
 
 `WRITE_SECURE_SETTINGS` 写 `Settings.Global.WIFI_ON`（AOSP 源码证伪：仅 @Readable，"Only the Wi-Fi service should touch this"）；Shizuku 提权 `svc wifi disable`（需第三方应用+重启重激活）；Device Owner 豁免（已有账号设备被拒）；VpnService tun 转发 / 无障碍模拟点击（过重/脆弱）。
+
+## 桌面卡片合并与拖拽排序（2026-09-23 三期）
+
+一期前端节里「不引入拖拽」的决策撤销（当时顾虑安卓 WebView 滚动冲突与新增依赖——实际仅桌面引入，且 framer-motion ^12.38.0 桌面 frontend 已有、`Reorder.Group/Item + useDragControls` 是其内置能力，零新依赖；安卓排序 UI 不存在，滚动冲突前提不成立）。用户需求：网络适配器卡与夜间出站切换卡合并为一张卡；↑/↓ 按钮改长按拖拽。**仅桌面**（安卓端 NetworkPanel 不动）。
+
+- **合并卡结构**：`tauri-app/frontend/src/network/NetworkPanel.tsx`——头部左「网络适配器 + 检测数」、右 MoonStar 图标 + Switch（夜间出站切换总开关，title/aria-label=nightOutboundSwitch）；头部下方整行 nightOutboundSwitchDesc 小字（沿 DNS 卡描述下移先例）；列表 = 适配器统一列表，每行把手（GripVertical 按钮）+ 图标（Wifi/Cable）+ 名称/IP(mono)/速度 + 徽标（主适配器/副适配器/无线/状态/夜间出站目标）+ 行按钮（启用/获取新IP/刷新DHCP）。原「主适配器排最前」的自动排序取消——主/副由徽标表达，顺序完全由用户拖拽决定（`outboundPriority` 语义不变：出站优先序 ∪ 新检测网卡追加尾部）。
+- **顺序构建纯函数** `outboundOrder.ts::buildOutboundOrder(priority, detected)`：priority 非空 → 按 priority 过滤掉已拔出网卡后排序、detected 中新卡按发现顺序追加尾部；priority 空 → 直接用发现顺序。7 个 vitest 用例（空 priority/乱序/失效过滤/新卡追加/全失效/去重/纯函数不变参）。
+- **拖拽交互双通道**：①行体任意处长按 250ms（`DRAG_LONG_PRESS_MS`）起拖，移动超 8px 死区（`DRAG_DEAD_ZONE_PX`）取消长按——保护滚动与点击；②左侧把手 pointerdown 立即起拖（stopPropagation+preventDefault，不需长按）。`Reorder.Item` 挂 `dragListener={false}` + `dragControls`，行级 pointer 处理器统一管理；行内按钮区包一层 `onPointerDown stopPropagation` 防点按钮误触长按。拖拽中用本地 state（`dragOrder`）渲染，`onDragEnd` 才一次性提交 `onUpdateConfig({outboundPriority})`（拖拽期间外部顺序同步被 `isDraggingRef` 屏蔽，异步回显不打断手势）；`whileDrag` 抬起态（scale 1.02 + 阴影）。
+- **验证**：tsc 0 错误、vitest 96/96、vite build 通过；Playwright（仓库外临时环境 + 临时 dev mock shim，已删）真浏览器实测 4 场景全过——初始序渲染、长按拖 WLAN→顶（`save_config` 恰一次、`outboundPriority=["WLAN","以太网","以太网 2"]`）、快速滑动不重排不提交、把手拖以太网 2→顶正确。
+- 顺序提交语义与夜间出站切换的候选选择（`select_outbound_candidate` 按列表顺序）天然衔接：拖到第一位的卡即夜间出站目标徽标行。
 
 ## Connections
 
