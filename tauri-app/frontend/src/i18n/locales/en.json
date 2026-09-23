@@ -296,8 +296,7 @@
     "nightOutboundSwitch": "Night Outbound Switch",
     "nightOutboundSwitchDesc": "Auto-switches the outbound route to the top non-campus adapter (hotspot/IoT SIM) at 23:00 Sun-Thu and 23:30 Fri/Sat; auto-restores from 6:30 next morning; keep the app running in the background",
     "outboundBadge": "Night Outbound Target",
-    "outboundMoveUp": "Move up",
-    "outboundMoveDown": "Move down",
+    "outboundDragHint": "Long-press an entry and drag to reorder, or drag the handle on the left",
     "outboundAdminHint": "Switching requires administrator rights (via UAC or the scheduled-task proxy silently); the first adapter in the list is the night outbound target; adapters not listed are excluded"
   },
   "monitor": {

@@ -15,13 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, ArrowUp, ArrowDown } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { m } from 'framer-motion'
+import { m, Reorder, useDragControls } from 'framer-motion'
+import { buildOutboundOrder } from './outboundOrder'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
@@ -47,6 +48,139 @@ function formatSpeed(bps?: number): string {
   return `${Math.round(bps / 1e3)} Kbps`
 }
 
+/** 长按触发拖拽的时长（ms）；行体按下后移出死区即取消，防止滚动/点击误触发 */
+const DRAG_LONG_PRESS_MS = 250
+/** 长按等待期内允许的位移死区（px），超出视为滚动意图并取消长按 */
+const DRAG_DEAD_ZONE_PX = 8
+
+interface SortableAdapterRowProps {
+  adapter: Adapter
+  isOutboundTarget: boolean
+  /** 拖拽结束提交顺序（父组件统一落盘 outboundPriority） */
+  onDragEndCommit: () => void
+  /** 起拖标记（父组件同步 isDraggingRef，屏蔽外部顺序同步） */
+  onDragStart: () => void
+  children: React.ReactNode
+}
+
+/**
+ * 可拖拽行：把手（GripVertical）按下立即起拖；行体长按 DRAG_LONG_PRESS_MS 起拖
+ * （移动超死区或松开取消，避免滚动/点击误触发）。children = 行右侧按钮区
+ * （按钮内部需自行 stopPropagation 的 pointerdown，防止点按钮拖走整行）。
+ */
+const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, onDragEndCommit, onDragStart, children }: SortableAdapterRowProps) {
+  const { t } = useTranslation()
+  const controls = useDragControls()
+  const longPressTimer = useRef<number | null>(null)
+  const longPressArmed = useRef(false)
+  const pressOrigin = useRef<{ x: number; y: number } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+
+  const clearLongPress = useCallback(() => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+    longPressArmed.current = false
+    pressOrigin.current = null
+  }, [])
+
+  const startDrag = useCallback((e: React.PointerEvent) => {
+    clearLongPress()
+    setIsDragging(true)
+    onDragStart()
+    controls.start(e, { snapToCursor: false })
+  }, [controls, onDragStart, clearLongPress])
+
+  // 行体按下：布置长按定时器并记录起点；移动超死区或松开则取消
+  const handleRowPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    longPressArmed.current = true
+    pressOrigin.current = { x: e.clientX, y: e.clientY }
+    const originEvent = e
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTimer.current = null
+      if (longPressArmed.current) startDrag(originEvent)
+    }, DRAG_LONG_PRESS_MS)
+  }, [startDrag])
+
+  const handleRowPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!longPressArmed.current) return
+    const origin = pressOrigin.current
+    if (origin && Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > DRAG_DEAD_ZONE_PX) {
+      clearLongPress()
+    }
+  }, [clearLongPress])
+
+  // 松开/离开/取消：未起拖则清定时器（起拖后的清理交给 onDragEnd）
+  const handleRowPointerCancel = useCallback(() => {
+    if (!isDragging) clearLongPress()
+  }, [clearLongPress])
+
+  return (
+    <Reorder.Item
+      value={adapter.name}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={() => {
+        setIsDragging(false)
+        onDragEndCommit()
+      }}
+      whileDrag={{ scale: 1.02, boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
+      onPointerDown={handleRowPointerDown}
+      onPointerMove={handleRowPointerMove}
+      onPointerUp={handleRowPointerCancel}
+      onPointerLeave={handleRowPointerCancel}
+      onPointerCancel={handleRowPointerCancel}
+      className={cn(
+        'flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 select-none',
+        isOutboundTarget ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : 'bg-muted/30',
+      )}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          type="button"
+          aria-label={t('network.outboundDragHint')}
+          title={t('network.outboundDragHint')}
+          className="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground shrink-0 touch-none"
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+            startDrag(e)
+          }}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <div className={cn(
+          'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
+          isOutboundTarget ? 'bg-primary/15' : 'bg-muted',
+        )}>
+          {adapter.wireless ? (
+            <Wifi className={cn('h-5 w-5', isOutboundTarget ? 'text-primary' : 'text-muted-foreground')} />
+          ) : (
+            <Cable className={cn('h-5 w-5', isOutboundTarget ? 'text-primary' : 'text-muted-foreground')} />
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-medium truncate">{adapter.name}</div>
+          <div className="text-xs text-muted-foreground font-mono">{adapter.ip || t('network.noIp')}</div>
+          {formatSpeed(adapter.linkSpeed) && (
+            <div className="text-[11px] text-muted-foreground/70">
+              {t('network.linkSpeed', { speed: formatSpeed(adapter.linkSpeed) })}
+            </div>
+          )}
+        </div>
+      </div>
+      <div
+        className="flex items-center gap-2 shrink-0"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </Reorder.Item>
+  )
+})
+
 export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfig }: NetworkPanelProps) {
   const { t } = useTranslation()
   const disabledAdapters = useAdapterStore((s) => s.disabledAdapters)
@@ -56,23 +190,51 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 账号列表：适配器「指定账号」下拉的选项来源（id 为值、displayName 为显示）
   const accounts = useConfigStore((s) => s.accounts)
 
-  // 出站排序视图态：以 outboundPriority 为基座，未列入的适配器按发现顺序追加尾部；
-  // 展示列表 = 出站排序列 ∪ 当前适配器列表（保证新网卡可见可排）
-  const outboundOrder = config.outboundPriority?.length
-    ? [...config.outboundPriority.filter(n => adapters.some(a => a.name === n)),
-       ...adapters.map(a => a.name).filter(n => !config.outboundPriority?.includes(n))]
-    : adapters.map(a => a.name)
-  const orderedAdapters = outboundOrder
+  // 出站排序：以 outboundPriority 为基座构建完整顺序（见 outboundOrder.ts），
+  // 展示列表 = 出站排序列 ∪ 当前适配器列表（保证新网卡可见可排）。
+  // 拖拽期间用本地顺序渲染（outboundPriority 落盘是异步回显，不能让外部顺序打断拖拽）；
+  // onDragEnd 才一次性提交 outboundPriority。外部顺序变化且非拖拽中 → 重置本地态。
+  const outboundOrder = buildOutboundOrder(config.outboundPriority, adapters.map(a => a.name))
+  const outboundOrderKey = outboundOrder.join('\n')
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null)
+  const isDraggingRef = useRef(false)
+  const dragOrderRef = useRef<string[]>(outboundOrder)
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      dragOrderRef.current = outboundOrder
+      setDragOrder(null)
+    }
+    // 依赖用顺序键：outboundOrder 每渲染都是新数组，直接依赖会死循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outboundOrderKey])
+  const displayedOrder = dragOrder ?? outboundOrder
+  const orderedAdapters = displayedOrder
     .map(name => adapters.find(a => a.name === name))
     .filter((a): a is Adapter => !!a)
-  const moveAdapter = (name: string, dir: -1 | 1) => {
-    const list = [...outboundOrder]
-    const i = list.indexOf(name)
-    const j = i + dir
-    if (i < 0 || j < 0 || j >= list.length) return
-    ;[list[i], list[j]] = [list[j], list[i]]
-    onUpdateConfig({ outboundPriority: list })
-  }
+
+  // 起拖：标记拖拽中，屏蔽外部顺序同步（effect 不再重置本地态）
+  const handleDragStart = useCallback(() => {
+    isDraggingRef.current = true
+  }, [])
+
+  // 拖拽中每帧回调：仅写本地态渲染，不落盘（onDragEnd 才提交）
+  const handleReorder = useCallback((order: string[]) => {
+    isDraggingRef.current = true
+    dragOrderRef.current = order
+    setDragOrder(order)
+  }, [])
+
+  // 拖拽结束：提交最新顺序并解除本地态持有（回显到达前 dragOrder 保持，
+  // 避免闪烁回旧序；外部顺序到达后由上方 effect 重置）
+  const handleDragEnd = useCallback(() => {
+    isDraggingRef.current = false
+    const committed = dragOrderRef.current
+    // 顺序未变化（误触长按未移动）不落盘
+    if (committed.join('\n') !== outboundOrderKey) {
+      onUpdateConfig({ outboundPriority: committed })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outboundOrderKey])
 
   const [dohEnabling, setDohEnabling] = useState(false)
   const [dnsResetting, setDnsResetting] = useState(false)
@@ -238,17 +400,30 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Router className="h-5 w-5 text-primary" />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Router className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <CardTitle>{t('network.networkAdapters')}</CardTitle>
+                  <CardDescription>
+                    {disabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: disabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
+                  </CardDescription>
+                </div>
               </div>
-              <div>
-                <CardTitle>{t('network.networkAdapters')}</CardTitle>
-                <CardDescription>
-                  {disabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: disabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
-                </CardDescription>
+              <div className="flex items-center gap-2 shrink-0">
+                <MoonStar className="h-4 w-4 text-primary" />
+                <Switch
+                  checked={config.enableNightOutboundSwitch}
+                  onCheckedChange={checked => onUpdateConfig({ enableNightOutboundSwitch: checked })}
+                  title={t('network.nightOutboundSwitch')}
+                  aria-label={t('network.nightOutboundSwitch')}
+                />
               </div>
             </div>
+            {/* 功能描述移到标题行下方整行显示（沿 DNS 卡先例） */}
+            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             {adapters.length === 0 && disabledAdapters.length === 0 ? (
@@ -258,109 +433,101 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 <p className="text-xs text-muted-foreground/60 mt-1">{t('network.noAdaptersTip')}</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {[...adapters].sort((a, b) => {
-                  if (a.name === config.adapter1) return -1
-                  if (b.name === config.adapter1) return 1
-                  if (a.name === config.adapter2 && config.dualAdapter) return -1
-                  if (b.name === config.adapter2 && config.dualAdapter) return 1
-                  return 0
-                }).map((a) => (
-                  <div key={a.name} className={cn(
-                      'flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200',
-                      a.name === config.adapter1
-                        ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
-                        : 'bg-muted/30 hover:bg-muted/50 list-item-interactive'
-                    )}
+              <Reorder.Group
+                axis="y"
+                values={displayedOrder}
+                onReorder={handleReorder}
+                className="space-y-2"
+                as="div"
+              >
+                {orderedAdapters.map((a) => (
+                  <SortableAdapterRow
+                    key={a.name}
+                    adapter={a}
+                    isOutboundTarget={displayedOrder[0] === a.name}
+                    onDragStart={handleDragStart}
+                    onDragEndCommit={handleDragEnd}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className={cn(
-                        'w-10 h-10 rounded-lg flex items-center justify-center',
-                        a.name === config.adapter1 ? 'bg-primary/15' : 'bg-muted'
-                      )}>
-                        {a.wireless ? (
-                          <Wifi className={cn('h-5 w-5', a.name === config.adapter1 ? 'text-primary' : 'text-muted-foreground')} />
-                        ) : (
-                          <Cable className={cn('h-5 w-5', a.name === config.adapter1 ? 'text-primary' : 'text-muted-foreground')} />
-                        )}
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium">{a.name}</div>
-                        <div className="text-xs text-muted-foreground font-mono">{a.ip || t('network.noIp')}</div>
-                        {formatSpeed(a.linkSpeed) && (
-                          <div className="text-[11px] text-muted-foreground/70">
-                            {t('network.linkSpeed', { speed: formatSpeed(a.linkSpeed) })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {a.name === config.adapter1 && (
-                        <Badge variant="outline" size="sm" className="border-primary/30 text-primary">
-                          {t('network.primary')}
-                        </Badge>
-                      )}
-                      {a.name === config.adapter2 && config.dualAdapter && (
-                        <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">
-                          {t('network.secondary')}
-                        </Badge>
-                      )}
-                      <Badge variant="secondary" size="sm">
-                        {a.wireless ? t('network.wireless') : t('network.wired')}
+                    {a.name === config.adapter1 && (
+                      <Badge key="primary" variant="outline" size="sm" className="border-primary/30 text-primary">
+                        {t('network.primary')}
                       </Badge>
-                      {a.status && a.status !== 'connected' && (
-                        <Badge variant="outline" size="sm" className={cn(
-                          a.status === 'disabled' && 'border-red-500/30 text-red-600',
-                          a.status === 'disconnected' && 'border-gray-500/30 text-gray-500',
-                          a.status === 'enabledNoIp' && 'border-amber-500/30 text-amber-600',
-                        )}>
-                          {t(`network.status.${a.status}`)}
-                        </Badge>
-                      )}
-                      {a.status === 'disabled' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] gap-1 border-green-500/30 text-green-600 hover:text-green-700 hover:bg-green-500/10 hover:border-green-500/50"
-                          onClick={() => handleEnableAdapter(a.name)}
-                          disabled={enablingAdapter === a.name}
-                        >
-                          {enablingAdapter === a.name ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Shield className="h-3 w-3" />
-                          )}
-                          {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
-                        </Button>
-                      )}
-                      {a.ip ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
-                          onClick={() => handleGetNewIpForAdapter(a.name)}
-                          disabled={gettingNewIpAdapter === a.name}
-                        >
-                          <RefreshCw className={cn('h-3 w-3', gettingNewIpAdapter === a.name && 'animate-spin')} />
-                          {gettingNewIpAdapter === a.name ? t('dashboard.gettingNewIp') : t('network.getNewIp')}
-                        </Button>
-                      ) : a.status === 'enabledNoIp' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
-                          onClick={() => refreshAdapters()}
-                          disabled={isRefreshingAdapters}
-                        >
-                          <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
-                          {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
+                    )}
+                    {a.name === config.adapter2 && config.dualAdapter && (
+                      <Badge key="secondary" variant="outline" size="sm" className="border-amber-500/30 text-amber-600">
+                        {t('network.secondary')}
+                      </Badge>
+                    )}
+                    <Badge key="conn-type" variant="secondary" size="sm">
+                      {a.wireless ? t('network.wireless') : t('network.wired')}
+                    </Badge>
+                    {a.status && a.status !== 'connected' && (
+                      <Badge key="status" variant="outline" size="sm" className={cn(
+                        a.status === 'disabled' && 'border-red-500/30 text-red-600',
+                        a.status === 'disconnected' && 'border-gray-500/30 text-gray-500',
+                        a.status === 'enabledNoIp' && 'border-amber-500/30 text-amber-600',
+                      )}>
+                        {t(`network.status.${a.status}`)}
+                      </Badge>
+                    )}
+                    {a.status === 'disabled' && (
+                      <Button
+                        key="enable"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 border-green-500/30 text-green-600 hover:text-green-700 hover:bg-green-500/10 hover:border-green-500/50"
+                        onClick={() => handleEnableAdapter(a.name)}
+                        disabled={enablingAdapter === a.name}
+                      >
+                        {enablingAdapter === a.name ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Shield className="h-3 w-3" />
+                        )}
+                        {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
+                      </Button>
+                    )}
+                    {a.ip ? (
+                      <Button
+                        key="new-ip"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
+                        onClick={() => handleGetNewIpForAdapter(a.name)}
+                        disabled={gettingNewIpAdapter === a.name}
+                      >
+                        <RefreshCw className={cn('h-3 w-3', gettingNewIpAdapter === a.name && 'animate-spin')} />
+                        {gettingNewIpAdapter === a.name ? t('dashboard.gettingNewIp') : t('network.getNewIp')}
+                      </Button>
+                    ) : a.status === 'enabledNoIp' && (
+                      <Button
+                        key="refresh-dhcp"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
+                        onClick={() => refreshAdapters()}
+                        disabled={isRefreshingAdapters}
+                      >
+                        <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
+                        {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
+                      </Button>
+                    )}
+                    {displayedOrder[0] === a.name && (
+                      <Badge key="outbound-target" variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
+                        {t('network.outboundBadge')}
+                      </Badge>
+                    )}
+                  </SortableAdapterRow>
                 ))}
-
-
+              </Reorder.Group>
+            )}
+            {adapters.length > 0 && (
+              <div className="mt-3 space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <GripVertical className="h-3 w-3 shrink-0" />
+                  {t('network.outboundDragHint')}
+                </p>
+                <p className="text-xs text-muted-foreground">{t('network.outboundAdminHint')}</p>
               </div>
             )}
           </CardContent>
@@ -368,80 +535,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       </div>
 
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <MoonStar className="h-5 w-5 text-primary" />
-                </div>
-                <CardTitle className="whitespace-nowrap">{t('network.nightOutboundSwitch')}</CardTitle>
-              </div>
-              <Switch
-                checked={config.enableNightOutboundSwitch}
-                onCheckedChange={checked => onUpdateConfig({ enableNightOutboundSwitch: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {orderedAdapters.map((a, i) => (
-                <div key={a.name} className="flex items-center justify-between p-3.5 rounded-xl bg-muted/30">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
-                      {a.wireless ? (
-                        <Wifi className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Cable className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
-                    <span className="text-sm font-medium truncate">{a.name}</span>
-                    {a.ip && (
-                      <Badge variant="secondary" size="sm" className="font-mono shrink-0">
-                        {a.ip}
-                      </Badge>
-                    )}
-                    {outboundOrder[0] === a.name && (
-                      <Badge variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
-                        {t('network.outboundBadge')}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      disabled={i === 0}
-                      onClick={() => moveAdapter(a.name, -1)}
-                      title={t('network.outboundMoveUp')}
-                      aria-label={t('network.outboundMoveUp')}
-                    >
-                      <ArrowUp className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      disabled={i === orderedAdapters.length - 1}
-                      onClick={() => moveAdapter(a.name, 1)}
-                      title={t('network.outboundMoveDown')}
-                      aria-label={t('network.outboundMoveDown')}
-                    >
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">{t('network.outboundAdminHint')}</p>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -570,7 +663,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">

@@ -296,8 +296,7 @@
     "nightOutboundSwitch": "夜间出站切换",
     "nightOutboundSwitchDesc": "周日至周四 23:00、周五六 23:30 自动把出站切到排序最前的非校园网网卡（热点/物联网卡），次日 6:30 起自动还原；需保持应用在后台运行",
     "outboundBadge": "夜间出站目标",
-    "outboundMoveUp": "上移",
-    "outboundMoveDown": "下移",
+    "outboundDragHint": "长按条目拖动调整顺序，也可拖动左侧把手",
     "outboundAdminHint": "切换动作需要管理员权限（将通过 UAC 或计划任务代理静默完成）；排第一的网卡即夜间出站目标，列表外网卡不参与切换"
   },
   "monitor": {
