@@ -64,9 +64,9 @@ interface SortableAdapterRowProps {
 }
 
 /**
- * 可拖拽行：把手（GripVertical）按下立即起拖；行体长按 DRAG_LONG_PRESS_MS 起拖
- * （移动超死区或松开取消，避免滚动/点击误触发）。children = 行右侧按钮区
- * （按钮内部需自行 stopPropagation 的 pointerdown，防止点按钮拖走整行）。
+ * 可拖拽行：行体任意处长按 DRAG_LONG_PRESS_MS 起拖（移动超死区或松开取消，
+ * 避免滚动/点击误触发）。children = 行右侧按钮区（按钮区已统一
+ * stopPropagation 的 pointerdown，防止点按钮拖走整行）。
  */
 const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, onDragEndCommit, onDragStart, children }: SortableAdapterRowProps) {
   const { t } = useTranslation()
@@ -138,19 +138,6 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
       )}
     >
       <div className="flex items-center gap-3 min-w-0">
-        <button
-          type="button"
-          aria-label={t('network.outboundDragHint')}
-          title={t('network.outboundDragHint')}
-          className="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground shrink-0 touch-none"
-          onPointerDown={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-            startDrag(e)
-          }}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
         <div className={cn(
           'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
           isOutboundTarget ? 'bg-primary/15' : 'bg-muted',
