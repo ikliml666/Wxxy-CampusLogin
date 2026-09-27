@@ -303,7 +303,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区（手动分栏均衡）：左=启动设置+数据管理；右=通知与安全+质量检测+引导。
+      {/* 两列区（手动分栏均衡）：左=启动设置+数据管理；右=通知与安全+质量检测。
           两列各自 flex 紧密堆叠；不用 justify-between 拉伸——大卡配小卡会在卡间拉出大片空洞 */}
       <div className="grid gap-4 items-start md:grid-cols-2">
       <div className="flex flex-col gap-4">
@@ -678,7 +678,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                   'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
                 )}
               >
-                <Compass className="h-4 w-4" />
                 {t('settings.openOnboardingGuide')}
               </button>
             </CardContent>
