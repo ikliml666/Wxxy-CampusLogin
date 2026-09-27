@@ -37,6 +37,23 @@ pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, re
     }
 }
 
+/// 夜间出站切换的守护窗口判定（纯函数，桌面巡检闸门用）：
+/// 当日切换时刻（含过点补触发语义）起，至次日 06:30 恢复窗开为止。
+/// 用户在切换前手动禁用的手选适配器无 IP、进不了六期闸门名单
+/// （select 只收有 IP 的卡），名单为空时闸门失效，巡检自动启用会顶掉
+/// 切换（2026-09-27 夜实证）；窗口内巡检一律不出自动启用目标，还原交给
+/// 恢复窗的 scheduled.rs。凌晨分支（now < 06:30）覆盖前一晚切换时刻
+/// （23:00/23:30）之后的全部时段，跨日天然成立。
+pub fn is_night_outbound_guard_window(enabled: bool, weekday: u32, now_minutes: u32) -> bool {
+    if !enabled {
+        return false;
+    }
+    if now_minutes < RESTORE_START_MINUTES {
+        return true;
+    }
+    switch_time_for(weekday).is_some_and(|t| now_minutes >= t)
+}
+
 /// 夜间出站切换的切换态判定（纯函数，桌面）：
 /// metric 快照 / 禁用名单 / 兜底路由三份快照任一非空即处于切换态。
 /// 六期起切换动作=写 metric + 禁校园网卡 + 加兜底路由三件套一次落盘，
@@ -49,6 +66,26 @@ pub fn outbound_restore_active(metric_restore: &str, disabled_adapters: &str, st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 七期守护窗口：[当日切换时刻, 次日 06:30 恢复窗开)
+    #[test]
+    fn guard_window_covers_switch_time_to_restore_start() {
+        // 周日 23:00 起守护，22:59 不守护
+        assert!(is_night_outbound_guard_window(true, 0, 1380));
+        assert!(!is_night_outbound_guard_window(true, 0, 1379));
+        // 周五/周六 23:30 起，23:29 不守护
+        assert!(is_night_outbound_guard_window(true, 5, 1410));
+        assert!(!is_night_outbound_guard_window(true, 5, 1409));
+        // 凌晨跨日：前一晚切换后凌晨仍守护，06:30 恢复窗开即出窗
+        assert!(is_night_outbound_guard_window(true, 0, 0));
+        assert!(is_night_outbound_guard_window(true, 6, 389));
+        assert!(!is_night_outbound_guard_window(true, 0, 390));
+        // 白天不守护
+        assert!(!is_night_outbound_guard_window(true, 0, 600));
+        // 功能关闭一律不守护
+        assert!(!is_night_outbound_guard_window(false, 0, 1380));
+        assert!(!is_night_outbound_guard_window(false, 0, 10));
+    }
 
     // 时间表：与运营商夜切共用（0..=4→1380，5|6→1410）
     #[test]

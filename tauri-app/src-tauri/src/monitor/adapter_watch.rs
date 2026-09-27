@@ -1,4 +1,5 @@
 use tauri::{AppHandle, Manager};
+use chrono::{Datelike, Timelike};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::network::{Adapter, DisabledAdapter, get_all_adapters_cached};
@@ -168,18 +169,38 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                 // 首次静默（不弹 UAC）；失败后允许降级弹 UAC，频率由退避阶梯限制。
                 // 夜间出站切换态下，本功能亲手禁用的校园网卡必须跳过（六期）：否则
                 // 启用会顶掉切换（昨晚实证 adapter_watch 23:31 自动启用了夜切准备禁用的卡）；
-                // 名单外被禁用的卡照常自动启用。
+                // 名单外的卡白天照常自动启用，夜间守护窗口内一律不启用（七期，见下）。
                 {
                     let s = app_h.state::<AppState>();
                     let c = s.config.load();
+                    // 七期：夜间出站切换守护窗口内（当日切换时刻→次日 06:30 恢复窗开）
+                    // 一律不出自动启用目标——用户在切换前手动禁用的手选适配器无 IP、
+                    // 进不了六期闸门名单（select 只收有 IP 的卡），名单空则闸门失效，
+                    // 自动启用会顶掉切换（2026-09-27 夜实证 23:04:57/23:12:33）。
+                    // 还原交给恢复窗的 scheduled.rs；白天照旧，保留「意外禁用→恢复登录」。
+                    let now = chrono::Local::now();
+                    let guard_window = crate::config::outbound_switch::is_night_outbound_guard_window(
+                        c.enable_night_outbound_switch,
+                        now.weekday().num_days_from_sunday(),
+                        now.hour() * 60 + now.minute(),
+                    );
+                    let candidates = crate::network::adapter::configured_disabled_adapters(&c, &disabled);
+                    if guard_window && !candidates.is_empty() {
+                        crate::log_debug!(
+                            "adapter_watch",
+                            "夜间出站切换守护窗口内，跳过 {} 张被禁手选适配器的自动启用",
+                            candidates.len()
+                        );
+                    }
                     let night_disabled: std::collections::HashSet<String> =
                         crate::monitor::outbound_switch::parse_disabled_adapters(&c.outbound_disabled_adapters)
                             .into_iter()
                             .map(|r| r.name)
                             .collect();
-                    let targets = crate::network::adapter::configured_disabled_adapters(&c, &disabled)
+                    let targets = candidates
                         .into_iter()
                         .filter(|da| !night_disabled.contains(&da.name))
+                        .filter(|_| !guard_window)
                         .collect::<Vec<_>>();
                     let stats = &s.update_stats;
                     if targets.is_empty() {
