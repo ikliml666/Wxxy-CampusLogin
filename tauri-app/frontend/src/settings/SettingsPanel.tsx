@@ -1,14 +1,15 @@
 import type { Config } from '@/settings'
 import type { PanelName, ThemeName } from '@/shared'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
+import { SettingRow } from '@/components/ui/setting-row'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass, ShieldCheck,
+  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass,
   Database, Upload, Download
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -200,10 +201,10 @@ export const SettingsPanel = memo(function SettingsPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <CardIcon>
                 <Palette className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('settings.appearance')}</CardTitle>
                 <CardDescription>{t('settings.appearanceDesc')}</CardDescription>
               </div>
@@ -291,246 +292,222 @@ export const SettingsPanel = memo(function SettingsPanel({
             )}
 
             <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label className="text-sm font-medium cursor-pointer flex items-center gap-2">
-                  {isLightMode ? <Sparkles className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-400" />}
-                  {isLightMode ? t('settings.lightMode') : t('settings.darkMode')}
-                </Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.switchTheme')}</p>
-              </div>
-              <Switch checked={isLightMode} onCheckedChange={onToggleLightMode} className="shrink-0" />
-            </div>
+            <SettingRow
+              icon={isLightMode ? <Sparkles className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-400" />}
+              label={isLightMode ? t('settings.lightMode') : t('settings.darkMode')}
+              description={t('settings.switchTheme')}
+            >
+              <Switch checked={isLightMode} onCheckedChange={onToggleLightMode} />
+            </SettingRow>
           </CardContent>
         </AnimatedCard>
       </div>
 
-      {/* 两列区：左=启动设置；右=通知+安全+引导（md 起两列，窄屏单列堆叠）。
+      {/* 两列区：左=启动设置；右=通知与安全+引导（md 起两列，窄屏单列堆叠）。
           右列经 stretch + justify-between 拉伸至与左列等高，剩余空间均分到卡片间隙 */}
       <div className="grid gap-4 md:grid-cols-2">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <Rocket className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('settings.startupSettings')}</CardTitle>
                 <CardDescription>{t('settings.startupSettingsDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-launch" className="text-sm font-medium cursor-pointer">{t('settings.autoLaunch')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoLaunchDesc')}</p>
-              </div>
-              <Switch
-                id="auto-launch"
-                checked={autoLaunch}
-                onCheckedChange={checked => onSetAutoLaunch(checked)}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-login-startup" className="text-sm font-medium cursor-pointer">{t('settings.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoLoginCampusDesc')}</p>
-              </div>
-              <Switch
-                id="auto-login-startup"
-                checked={config.autoLoginOnStart || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-login" className="text-sm font-medium cursor-pointer">{t('settings.autoExitAfterLogin')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitAfterLoginDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-login"
-                checked={config.autoExitAfterLogin || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-online"
-                checked={config.autoExitOnOnline || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="lightweight-mode" className="text-sm font-medium cursor-pointer">{t('settings.lightweightMode')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.lightweightModeDesc')}</p>
-              </div>
-              <Switch
-                id="lightweight-mode"
-                checked={config.lightweightMode || false}
-                onCheckedChange={checked => onUpdateConfig({ lightweightMode: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="hidden-start" className="text-sm font-medium cursor-pointer">{t('settings.silentStart')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.silentStartDesc')}</p>
-              </div>
-              <Switch
-                id="hidden-start"
-                checked={config.hiddenStart || false}
-                onCheckedChange={checked => onUpdateConfig({ hiddenStart: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="minimize-tray" className="text-sm font-medium cursor-pointer">{t('settings.minimizeToTray')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.minimizeToTrayDesc')}</p>
-              </div>
-              <Switch
-                id="minimize-tray"
-                checked={config.minimizeToTray !== false}
-                onCheckedChange={checked => onUpdateConfig({ minimizeToTray: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <LayoutList className="h-4 w-4 text-primary" />
-                <Label className="text-sm font-medium">{t('settings.defaultPanel')}</Label>
-              </div>
-              <p className="text-[11px] text-muted-foreground">{t('settings.defaultPanelDesc')}</p>
-              {/* '' 表示"记住上次"；Radix Item 不接受空串，用哨兵值映射 */}
-              <Select
-                value={config.defaultPanel || '__remember__'}
-                onValueChange={v => onUpdateConfig({ defaultPanel: v === '__remember__' ? '' : v as PanelName })}
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">{t('settings.groupStartup')}</p>
+              <SettingRow
+                htmlFor="auto-launch"
+                label={t('settings.autoLaunch')}
+                description={t('settings.autoLaunchDesc')}
               >
-                <SelectTrigger className="h-9 mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__remember__">{t('settings.rememberLast')}</SelectItem>
-                  {DEFAULT_PANEL_OPTIONS.filter(opt => config.enableNetworkQuality !== false || opt.value !== 'quality').map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>{t(opt.labelKey)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <Switch
+                  id="auto-launch"
+                  checked={autoLaunch}
+                  onCheckedChange={checked => onSetAutoLaunch(checked)}
+                />
+              </SettingRow>
+              <SettingRow
+                htmlFor="hidden-start"
+                label={t('settings.silentStart')}
+                description={t('settings.silentStartDesc')}
+              >
+                <Switch
+                  id="hidden-start"
+                  checked={config.hiddenStart || false}
+                  onCheckedChange={checked => onUpdateConfig({ hiddenStart: checked })}
+                />
+              </SettingRow>
+            </div>
+            <Separator />
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">{t('settings.groupLoginAutomation')}</p>
+              <SettingRow
+                htmlFor="auto-login-startup"
+                label={t('settings.autoLoginCampus')}
+                description={t('settings.autoLoginCampusDesc')}
+              >
+                <Switch
+                  id="auto-login-startup"
+                  checked={config.autoLoginOnStart || false}
+                  onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
+                />
+              </SettingRow>
+              <SettingRow
+                htmlFor="auto-exit-login"
+                label={t('settings.autoExitAfterLogin')}
+                description={t('settings.autoExitAfterLoginDesc')}
+              >
+                <Switch
+                  id="auto-exit-login"
+                  checked={config.autoExitAfterLogin || false}
+                  onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
+                />
+              </SettingRow>
+              <SettingRow
+                htmlFor="auto-exit-online"
+                label={t('settings.autoExitWhenOnline')}
+                description={t('settings.autoExitWhenOnlineDesc')}
+              >
+                <Switch
+                  id="auto-exit-online"
+                  checked={config.autoExitOnOnline || false}
+                  onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
+                />
+              </SettingRow>
+            </div>
+            <Separator />
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">{t('settings.groupWindowBehavior')}</p>
+              <SettingRow
+                htmlFor="lightweight-mode"
+                label={t('settings.lightweightMode')}
+                description={t('settings.lightweightModeDesc')}
+              >
+                <Switch
+                  id="lightweight-mode"
+                  checked={config.lightweightMode || false}
+                  onCheckedChange={checked => onUpdateConfig({ lightweightMode: checked })}
+                />
+              </SettingRow>
+              <SettingRow
+                htmlFor="minimize-tray"
+                label={t('settings.minimizeToTray')}
+                description={t('settings.minimizeToTrayDesc')}
+              >
+                <Switch
+                  id="minimize-tray"
+                  checked={config.minimizeToTray !== false}
+                  onCheckedChange={checked => onUpdateConfig({ minimizeToTray: checked })}
+                />
+              </SettingRow>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <LayoutList className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-medium">{t('settings.defaultPanel')}</Label>
+                </div>
+                <p className="text-[11px] text-muted-foreground">{t('settings.defaultPanelDesc')}</p>
+                {/* '' 表示"记住上次"；Radix Item 不接受空串，用哨兵值映射 */}
+                <Select
+                  value={config.defaultPanel || '__remember__'}
+                  onValueChange={v => onUpdateConfig({ defaultPanel: v === '__remember__' ? '' : v as PanelName })}
+                >
+                  <SelectTrigger className="h-9 mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__remember__">{t('settings.rememberLast')}</SelectItem>
+                    {DEFAULT_PANEL_OPTIONS.filter(opt => config.enableNetworkQuality !== false || opt.value !== 'quality').map(opt => (
+                      <SelectItem key={opt.value} value={opt.value}>{t(opt.labelKey)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CardContent>
         </AnimatedCard>
       </div>
 
       <div className="flex flex-col gap-4 justify-between">
+      {/* 通知与安全合并卡：组标题区分两段。安全组开关关闭方向（安全 → 宽松）
+          都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <Bell className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>{t('settings.notification')}</CardTitle>
-                <CardDescription>{t('settings.notificationDesc')}</CardDescription>
+              </CardIcon>
+              <div className="min-w-0">
+                <CardTitle>{t('settings.notificationSecurity')}</CardTitle>
+                <CardDescription>{t('settings.notificationSecurityDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="enable-notification" className="text-sm font-medium cursor-pointer">{t('settings.enableNotification')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.enableNotificationDesc')}</p>
-              </div>
+            <SettingRow
+              htmlFor="enable-notification"
+              label={t('settings.enableNotification')}
+              description={t('settings.enableNotificationDesc')}
+            >
               <Switch
                 id="enable-notification"
                 checked={config.enableNotification !== false}
                 onCheckedChange={checked => onUpdateConfig({ enableNotification: checked })}
-                className="shrink-0"
               />
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      {/* 安全设置：Windows Hello 相关开关。关闭任一开关（安全 → 宽松方向）
-          都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <ShieldCheck className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>{t('settings.security')}</CardTitle>
-                <CardDescription>{t('settings.securityDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="self-hello-enabled" className="text-sm font-medium cursor-pointer">{t('settings.selfHello')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.selfHelloDesc')}</p>
-              </div>
-              <Switch
-                id="self-hello-enabled"
-                checked={config.selfHelloEnabled !== false}
-                onCheckedChange={checked => {
-                  if (checked) { onUpdateConfig({ selfHelloEnabled: true }); return }
-                  void handleSecurityDisable(() => onUpdateConfig({ selfHelloEnabled: false }))
-                }}
-                className="shrink-0"
-              />
-            </div>
+            </SettingRow>
             <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="self-reverify" className="text-sm font-medium cursor-pointer">{t('settings.selfReverify')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.selfReverifyDesc')}</p>
-              </div>
-              <Switch
-                id="self-reverify"
-                disabled={config.selfHelloEnabled === false}
-                checked={config.selfReverifyEachAction === true}
-                onCheckedChange={checked => {
-                  if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
-                  void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
-                }}
-                className="shrink-0"
-              />
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">{t('settings.security')}</p>
+              <SettingRow
+                htmlFor="self-hello-enabled"
+                label={t('settings.selfHello')}
+                description={t('settings.selfHelloDesc')}
+              >
+                <Switch
+                  id="self-hello-enabled"
+                  checked={config.selfHelloEnabled !== false}
+                  onCheckedChange={checked => {
+                    if (checked) { onUpdateConfig({ selfHelloEnabled: true }); return }
+                    void handleSecurityDisable(() => onUpdateConfig({ selfHelloEnabled: false }))
+                  }}
+                />
+              </SettingRow>
+              <SettingRow
+                htmlFor="self-reverify"
+                label={t('settings.selfReverify')}
+                description={t('settings.selfReverifyDesc')}
+              >
+                <Switch
+                  id="self-reverify"
+                  disabled={config.selfHelloEnabled === false}
+                  checked={config.selfReverifyEachAction === true}
+                  onCheckedChange={checked => {
+                    if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
+                    void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
+                  }}
+                />
+              </SettingRow>
             </div>
           </CardContent>
         </AnimatedCard>
       </div>
 
       {onShowOnboarding && (
-        <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+        <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
           <AnimatedCard noEnterAnimation>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <CardIcon>
                   <Compass className="h-5 w-5 text-primary" />
-                </div>
-                <div>
+                </CardIcon>
+                <div className="min-w-0">
                   <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
                   <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
                 </div>
@@ -559,21 +536,21 @@ export const SettingsPanel = memo(function SettingsPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <Gauge className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('settings.qualityDetection')}</CardTitle>
                 <CardDescription>{t('settings.qualityDetectionDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="enable-quality" className="text-sm font-medium cursor-pointer">{t('settings.enableQualityDetection')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.enableQualityDetectionDesc')}</p>
-              </div>
+            <SettingRow
+              htmlFor="enable-quality"
+              label={t('settings.enableQualityDetection')}
+              description={t('settings.enableQualityDetectionDesc')}
+            >
               <Switch
                 id="enable-quality"
                 checked={config.enableNetworkQuality !== false}
@@ -596,37 +573,34 @@ export const SettingsPanel = memo(function SettingsPanel({
                   onUpdateConfig(patch)
                   if (activePanel === 'quality') setActivePanel('dashboard')
                 }}
-                className="shrink-0"
               />
-            </div>
+            </SettingRow>
             <Separator />
             <div className="space-y-3">
               <Label className="text-xs font-medium text-muted-foreground">{t('settings.latencyCalcOptions')}</Label>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5 min-w-0">
-                  <Label htmlFor="skip-ttfb" className="text-sm font-medium cursor-pointer">{t('settings.skipTtfb')}</Label>
-                  <p className="text-[11px] text-muted-foreground">{t('settings.skipTtfbDesc')}</p>
-                </div>
+              <SettingRow
+                htmlFor="skip-ttfb"
+                label={t('settings.skipTtfb')}
+                description={t('settings.skipTtfbDesc')}
+              >
                 <Switch
                   id="skip-ttfb"
                   checked={config.skipTtfbInLatency || false}
                   onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
-                  className="shrink-0"
                 />
-              </div>
+              </SettingRow>
               <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5 min-w-0">
-                  <Label htmlFor="skip-content" className="text-sm font-medium cursor-pointer">{t('settings.skipContent')}</Label>
-                  <p className="text-[11px] text-muted-foreground">{t('settings.skipContentDesc')}</p>
-                </div>
+              <SettingRow
+                htmlFor="skip-content"
+                label={t('settings.skipContent')}
+                description={t('settings.skipContentDesc')}
+              >
                 <Switch
                   id="skip-content"
                   checked={config.skipContentInLatency || false}
                   onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
-                  className="shrink-0"
                 />
-              </div>
+              </SettingRow>
             </div>
             <Separator />
             <div className="rounded-xl bg-muted/40 p-3 space-y-2">
@@ -641,18 +615,16 @@ export const SettingsPanel = memo(function SettingsPanel({
               </div>
             </div>
             <Separator />
-            <div className="space-y-2">
-              <div className="space-y-0.5">
-                <Label htmlFor="fixed-gateway" className="text-sm font-medium">{t('settings.fixedGateway')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.fixedGatewayDesc')}</p>
+            <SettingRow
+              htmlFor="fixed-gateway"
+              label={t('settings.fixedGateway')}
+              description={t('settings.fixedGatewayDesc')}
+            >
+              {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
+              <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground max-w-[220px]">
+                {config.fixedGateway || '10.2.127.254'}
               </div>
-              <div className="flex items-center gap-2">
-                {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-                <div className="flex-1 h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
-                  {config.fixedGateway || '10.2.127.254'}
-                </div>
-              </div>
-            </div>
+            </SettingRow>
           </CardContent>
         </AnimatedCard>
       </div>
@@ -663,28 +635,27 @@ export const SettingsPanel = memo(function SettingsPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <Database className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('settings.dataManagement')}</CardTitle>
                 <CardDescription>{t('settings.dataManagementDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="export-include-password" className="text-sm font-medium cursor-pointer">{t('settings.includePassword')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.includePasswordDesc')}</p>
-              </div>
+            <SettingRow
+              htmlFor="export-include-password"
+              label={t('settings.includePassword')}
+              description={t('settings.includePasswordDesc')}
+            >
               <Switch
                 id="export-include-password"
                 checked={exportWithPassword}
                 onCheckedChange={setExportWithPassword}
-                className="shrink-0"
               />
-            </div>
+            </SettingRow>
             <div className="flex gap-2">
               <button
                 onClick={handleExportConfig}

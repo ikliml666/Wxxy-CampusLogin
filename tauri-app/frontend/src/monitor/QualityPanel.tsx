@@ -1,6 +1,7 @@
 import type { Config } from '@/settings'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { SettingRow } from '@/components/ui/setting-row'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -210,10 +211,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
           <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className={cn('w-10 h-10 rounded-full flex items-center justify-center', qualityConfig?.bg ?? 'bg-muted')}>
+              <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', qualityConfig?.bg ?? 'bg-muted')}>
                 <Gauge className={cn('h-5 w-5', qualityConfig?.color ?? 'text-muted-foreground')} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <CardTitle>{t('quality.networkQuality')}</CardTitle>
                 <CardDescription>{t('quality.realtimeLatencyMonitor')}</CardDescription>
               </div>
@@ -265,10 +266,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <CardIcon>
                 <Clock className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('quality.scheduledTest')}</CardTitle>
                 <CardDescription>{t('quality.scheduledTestDesc')}</CardDescription>
               </div>
@@ -287,8 +288,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
             </div>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground shrink-0">{t('quality.testInterval')}</span>
+            <SettingRow label={t('quality.testInterval')}>
               <div className="flex items-center">
                 <Input
                   type="number"
@@ -307,7 +307,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                   {t('monitor.running')}
                 </Badge>
               )}
-            </div>
+            </SettingRow>
           </CardContent>
         </AnimatedCard>
       </div>
@@ -316,10 +316,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <Search className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('quality.testDetails')}</CardTitle>
                 <CardDescription>{t('quality.testDetailsDesc')}</CardDescription>
               </div>

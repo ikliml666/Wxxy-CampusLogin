@@ -45,4 +45,18 @@ const CardContent = React.forwardRef<
 ))
 CardContent.displayName = 'CardContent'
 
-export { CardHeader, CardTitle, CardDescription, CardContent }
+// 卡头图标片：统一尺寸/圆角/底色，替代各面板手写的 w-10 h-10 图标容器
+// （历史上 rounded-full 与 rounded-xl 混用）。色调覆盖经 className 传 bg-*/text-*。
+const CardIcon = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn('w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0', className)}
+    {...props}
+  />
+))
+CardIcon.displayName = 'CardIcon'
+
+export { CardHeader, CardTitle, CardDescription, CardContent, CardIcon }

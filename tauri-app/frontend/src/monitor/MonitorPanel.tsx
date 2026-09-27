@@ -1,6 +1,7 @@
 import type { Config } from '@/settings'
 import type { AdapterOnlineStatus } from '@/monitor'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { SettingRow } from '@/components/ui/setting-row'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -110,7 +111,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
                 <div className={cn(
-                  'w-10 h-10 rounded-full flex items-center justify-center shrink-0',
+                  'w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
                   bgStatus.isRunning ? 'bg-emerald-500/10' : 'bg-muted'
                 )}>
                   <Radar className={cn('h-5 w-5', bgStatus.isRunning ? 'text-emerald-500 animate-pulse' : 'text-muted-foreground')} />
@@ -194,149 +195,128 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <CardIcon>
                 <Settings2 className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('monitor.verificationSettings')}</CardTitle>
                 <CardDescription>{t('monitor.verificationSettingsDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <Rocket className="h-4 w-4 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor="bg-auto" className="text-sm font-medium cursor-pointer">{t('monitor.autoStartDetection')}</Label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.autoStartDetectionDesc')}</p>
-                </div>
-              </div>
+            <p className="text-xs font-medium text-muted-foreground">{t('monitor.groupAutomation')}</p>
+            <SettingRow
+              htmlFor="bg-auto"
+              icon={<Rocket className="h-4 w-4 text-primary" />}
+              label={t('monitor.autoStartDetection')}
+              description={t('monitor.autoStartDetectionDesc')}
+            >
               <Switch
                 id="bg-auto"
                 checked={config.enableBackgroundCheck || false}
                 onCheckedChange={checked => onUpdateConfig({ enableBackgroundCheck: checked })}
-                className="shrink-0"
               />
-            </div>
+            </SettingRow>
             <Separator />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
-                  <DoorOpen className="h-4 w-4 text-amber-500" />
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('monitor.autoExitWhenOnline')}</Label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.autoExitWhenOnlineDesc')}</p>
-                </div>
-              </div>
+            <SettingRow
+              htmlFor="auto-exit-online"
+              icon={<DoorOpen className="h-4 w-4 text-amber-500" />}
+              label={t('monitor.autoExitWhenOnline')}
+              description={t('monitor.autoExitWhenOnlineDesc')}
+            >
               <Switch
                 id="auto-exit-online"
                 checked={config.autoExitOnOnline || false}
                 onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                className="shrink-0"
               />
-            </div>
+            </SettingRow>
             <Separator />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
-                  <LogIn className="h-4 w-4 text-blue-500" />
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.autoLoginWhenReadyDesc')}</p>
-                </div>
-              </div>
+            <SettingRow
+              htmlFor="auto-login-ready"
+              icon={<LogIn className="h-4 w-4 text-blue-500" />}
+              label={t('monitor.autoLoginWhenReady')}
+              description={t('monitor.autoLoginWhenReadyDesc')}
+            >
               <Switch
                 id="auto-login-ready"
                 checked={config.autoLoginOnPreparation || false}
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
-                className="shrink-0"
               />
-            </div>
+            </SettingRow>
             <Separator />
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
-                    <Wifi className="h-4 w-4 text-violet-500" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <Label htmlFor="network-name-check" className="text-sm font-medium cursor-pointer">{t('monitor.campusNetworkVerification')}</Label>
-                      {/* 检测逻辑说明收进问号 Tooltip(与 QualityPanel 指标说明同模式),节约纵向空间 */}
-                      <TooltipProvider delayDuration={200}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={t('monitor.detectionLogic')}
-                              className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center shrink-0 hover:bg-muted transition-colors"
-                            >
-                              <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" align="start" className="max-w-[320px]">
-                            <div className="space-y-1 text-[11px]">
-                              <p className="font-medium">{t('monitor.detectionLogic')}</p>
-                              <p>{t('monitor.detectionLogicStep1')}</p>
-                              <p>{t('monitor.detectionLogicStep2')}</p>
-                              <p>{t('monitor.detectionLogicStep3')}</p>
-                              <p>{t('monitor.detectionLogicAny')}</p>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.campusNetworkVerificationDesc')}</p>
-                  </div>
-                </div>
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                {t('monitor.groupCampusCheck')}
+                {/* 检测逻辑说明收进问号 Tooltip(与 QualityPanel 指标说明同模式),节约纵向空间 */}
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t('monitor.detectionLogic')}
+                        className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center shrink-0 hover:bg-muted transition-colors"
+                      >
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="start" className="max-w-[320px]">
+                      <div className="space-y-1 text-[11px]">
+                        <p className="font-medium">{t('monitor.detectionLogic')}</p>
+                        <p>{t('monitor.detectionLogicStep1')}</p>
+                        <p>{t('monitor.detectionLogicStep2')}</p>
+                        <p>{t('monitor.detectionLogicStep3')}</p>
+                        <p>{t('monitor.detectionLogicAny')}</p>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </p>
+              <SettingRow
+                htmlFor="network-name-check"
+                icon={<Wifi className="h-4 w-4 text-violet-500" />}
+                label={t('monitor.campusNetworkVerification')}
+                description={t('monitor.campusNetworkVerificationDesc')}
+              >
                 <Switch
                   id="network-name-check"
                   checked={config.enableNetworkNameCheck || false}
                   onCheckedChange={checked => onUpdateConfig({ enableNetworkNameCheck: checked })}
-                  className="shrink-0"
                 />
-              </div>
+              </SettingRow>
               {config.enableNetworkNameCheck && (
                 <div className="space-y-3 ml-10">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground">{t('monitor.campusNetworkName')}</Label>
+                  <SettingRow
+                    label={t('monitor.campusNetworkName')}
+                    description={t('monitor.campusNetworkNameTip')}
+                  >
                     {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
+                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground max-w-[220px]">
                       {config.requiredNetworkName || 'i-wxxy'}
                     </div>
-                    <p className="text-[10px] text-muted-foreground">{t('monitor.campusNetworkNameTip')}</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-muted-foreground">{t('monitor.campusGateway')}</Label>
+                  </SettingRow>
+                  <SettingRow
+                    label={t('monitor.campusGateway')}
+                    description={t('monitor.campusGatewayTip')}
+                  >
                     {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
+                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground max-w-[220px]">
                       {config.campusGateway || '10.2.127.254'}
                     </div>
-                    <p className="text-[10px] text-muted-foreground">{t('monitor.campusGatewayTip')}</p>
-                  </div>
+                  </SettingRow>
                   <Separator className="my-2" />
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
-                        <PowerOff className="h-3.5 w-3.5 text-rose-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <Label htmlFor="campus-exit-on-fail" className="text-sm font-medium cursor-pointer">{t('monitor.autoExitNonCampus')}</Label>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.autoExitNonCampusDesc')}</p>
-                      </div>
-                    </div>
+                  <SettingRow
+                    htmlFor="campus-exit-on-fail"
+                    icon={<PowerOff className="h-4 w-4 text-rose-500" />}
+                    label={t('monitor.autoExitNonCampus')}
+                    description={t('monitor.autoExitNonCampusDesc')}
+                  >
                     <Switch
                       id="campus-exit-on-fail"
                       checked={config.campusExitOnFail ?? true}
                       onCheckedChange={checked => onUpdateConfig({ campusExitOnFail: checked })}
-                      className="shrink-0"
                     />
-                  </div>
+                  </SettingRow>
                   <Separator className="my-2" />
                   {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠(与安卓同构) */}
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

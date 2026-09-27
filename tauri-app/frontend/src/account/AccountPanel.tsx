@@ -1,8 +1,9 @@
 import type { Config } from '@/settings'
 import type { AccountItem } from '@/settings/types'
 import type { Adapter } from '@/network'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
+import { SettingRow } from '@/components/ui/setting-row'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -359,9 +360,9 @@ export const AccountPanel = memo(function AccountPanel({
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <KeyRound className="h-5 w-5 text-primary" />
-              </div>
+              </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('account.loginInfo')}</CardTitle>
                 <CardDescription>
@@ -462,9 +463,9 @@ export const AccountPanel = memo(function AccountPanel({
         <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <Zap className="h-5 w-5 text-primary" />
-              </div>
+              </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
                 <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
@@ -472,46 +473,44 @@ export const AccountPanel = memo(function AccountPanel({
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
-              </div>
+            <SettingRow
+              htmlFor="auto-login"
+              label={t('account.autoLoginCampus')}
+              description={t('account.autoLoginCampusDesc')}
+            >
               <Switch
                 id="auto-login"
                 checked={config.autoLoginOnStart || false}
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
               />
-            </div>
+            </SettingRow>
             {/* 登录成功后退出/在线后自动退出：2026-09-20 起不再提供开关（默认 false
                 配合夜切与后台常驻；配置字段与后端生命周期逻辑保留，存量显式 true 仍生效）。
                 需要恢复入口时按 account.autoExitAfterLogin / settings.autoExitWhenOnline 键找回 */}
             <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
-              </div>
+            <SettingRow
+              htmlFor="auto-login-ready"
+              label={t('monitor.autoLoginWhenReady')}
+              description={t('monitor.autoLoginWhenReadyDesc')}
+            >
               <Switch
                 id="auto-login-ready"
                 checked={config.autoLoginOnPreparation || false}
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
-                className="shrink-0"
               />
-            </div>
+            </SettingRow>
             <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="night-operator-switch" className="text-sm font-medium cursor-pointer">{t('account.nightOperatorSwitch')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.nightOperatorSwitchDesc')}</p>
-              </div>
+            <SettingRow
+              htmlFor="night-operator-switch"
+              label={t('account.nightOperatorSwitch')}
+              description={t('account.nightOperatorSwitchDesc')}
+            >
               <Switch
                 id="night-operator-switch"
                 checked={config.enableNightOperatorSwitch || false}
                 onCheckedChange={checked => onUpdateConfig({ enableNightOperatorSwitch: checked })}
-                className="shrink-0"
               />
-            </div>
+            </SettingRow>
           </CardContent>
         </AnimatedCard>
       </div>
@@ -521,9 +520,9 @@ export const AccountPanel = memo(function AccountPanel({
         <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <CardIcon>
                 <Link2 className="h-5 w-5 text-primary" />
-              </div>
+              </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
                 <CardDescription>{t('account.bindDesc')}</CardDescription>
@@ -691,9 +690,9 @@ export const AccountPanel = memo(function AccountPanel({
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <CardIcon>
                   <UserCircle className="h-5 w-5 text-primary" />
-                </div>
+                </CardIcon>
                 <div>
                   <CardTitle>{t('account.accountManage')}</CardTitle>
                 <CardDescription>{t('account.accountManageDesc')}</CardDescription>

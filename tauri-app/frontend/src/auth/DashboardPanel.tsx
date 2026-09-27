@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { Config } from '@/settings'
 import type { AccountItem } from '@/settings/types'
 import type { NetworkQuality } from '@/monitor'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -158,10 +158,10 @@ const QuickActionsCard = memo(function QuickActionsCard({
       )}
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+          <CardIcon>
             <Zap className="h-5 w-5 text-primary" />
-          </div>
-          <div>
+          </CardIcon>
+          <div className="min-w-0">
             <CardTitle>{t('dashboard.quickActions')}</CardTitle>
             <CardDescription>{t('dashboard.quickActionsDesc')}</CardDescription>
           </div>
@@ -299,10 +299,10 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+          <CardIcon>
             <UserCircle className="h-5 w-5 text-primary" />
-          </div>
-          <div>
+          </CardIcon>
+          <div className="min-w-0">
             <CardTitle>{t('dashboard.accountManage')}</CardTitle>
             <CardDescription>{t('dashboard.accountManageDesc')}</CardDescription>
           </div>
@@ -352,10 +352,10 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className={cn('w-10 h-10 rounded-full flex items-center justify-center', qualityConfig?.bg ?? 'bg-muted')}>
+          <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', qualityConfig?.bg ?? 'bg-muted')}>
             <Gauge className={cn('h-5 w-5', qualityConfig?.color ?? 'text-muted-foreground')} />
           </div>
-          <div>
+          <div className="min-w-0">
             <CardTitle>{t('dashboard.networkQuality')}</CardTitle>
             <CardDescription>{t('dashboard.networkQualityDesc')}</CardDescription>
           </div>
@@ -552,10 +552,10 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+          <CardIcon>
             <MonitorSmartphone className="h-5 w-5 text-primary" />
-          </div>
-          <div>
+          </CardIcon>
+          <div className="min-w-0">
             <CardTitle>{t('dashboard.selfOnline')}</CardTitle>
             <CardDescription>{t('dashboard.selfOnlineDesc')}</CardDescription>
           </div>
@@ -642,10 +642,10 @@ const SelfLogCard = memo(function SelfLogCard({ noAnimation, noEnterAnimation }:
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+          <CardIcon>
             <History className="h-5 w-5 text-primary" />
-          </div>
-          <div>
+          </CardIcon>
+          <div className="min-w-0">
             <CardTitle>{t('dashboard.selfLog')}</CardTitle>
             <CardDescription>{t('dashboard.selfLogDesc')}</CardDescription>
           </div>

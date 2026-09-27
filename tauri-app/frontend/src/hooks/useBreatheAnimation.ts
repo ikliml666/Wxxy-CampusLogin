@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { gsap } from 'gsap'
 import { useAnimationActive } from './usePageIdle'
 
@@ -12,8 +12,13 @@ interface BreatheOptions {
   maxRotation?: number
 }
 
+/**
+ * 回调 ref：条件渲染的元素卸载重建后（如 RightPanel 空态 空→非空→空），
+ * tween 会针对新元素重新建立；旧实现 ref.current 只在 hook 挂载时读取一次，
+ * 元素重建后动画静默失效（learnings/empty-state-breathe-after-remount）。
+ */
 export function useBreatheAnimation(options: BreatheOptions = {}) {
-  const ref = useRef<HTMLDivElement>(null)
+  const [node, setNode] = useState<HTMLDivElement | null>(null)
   const animActive = useAnimationActive()
   const tweenRef = useRef<gsap.core.Tween | null>(null)
   const {
@@ -27,13 +32,12 @@ export function useBreatheAnimation(options: BreatheOptions = {}) {
   } = options
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
+    if (!node) return
 
     // Set initial state
-    gsap.set(el, { opacity: maxOpacity, scale: maxScale, rotation: maxRotation, force3D: true })
+    gsap.set(node, { opacity: maxOpacity, scale: maxScale, rotation: maxRotation, force3D: true })
 
-    const tween = gsap.to(el, {
+    const tween = gsap.to(node, {
       opacity: minOpacity,
       scale: minScale,
       rotation: minRotation,
@@ -49,7 +53,7 @@ export function useBreatheAnimation(options: BreatheOptions = {}) {
       tween.kill()
       tweenRef.current = null
     }
-  }, [minOpacity, maxOpacity, duration, minScale, maxScale, minRotation, maxRotation])
+  }, [node, minOpacity, maxOpacity, duration, minScale, maxScale, minRotation, maxRotation])
 
   // 空闲时暂停，活跃时恢复
   useEffect(() => {
@@ -62,5 +66,5 @@ export function useBreatheAnimation(options: BreatheOptions = {}) {
     }
   }, [animActive])
 
-  return ref
+  return setNode
 }

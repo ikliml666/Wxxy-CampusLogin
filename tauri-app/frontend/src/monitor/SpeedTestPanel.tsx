@@ -1,4 +1,4 @@
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -118,9 +118,9 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <CardIcon>
                 <Zap className="h-5 w-5 text-primary" />
-              </div>
+              </CardIcon>
               <div>
                 <CardTitle>{t('speedtest.networkSpeedTest')}</CardTitle>
                 <CardDescription>{t('speedtest.speedTestDesc')}</CardDescription>
