@@ -29,11 +29,17 @@ use crate::config::night_switch::{
     evaluate_night_switch, parse_chkstatus, uid_matches, NightSwitchAction,
     RESTORE_END_MINUTES, RESTORE_START_MINUTES,
 };
-use crate::config::outbound_switch::{evaluate_night_outbound, NightOutboundAction};
+use crate::config::outbound_switch::{
+    evaluate_night_outbound, outbound_restore_active, NightOutboundAction,
+};
 use crate::config::schedule::should_fire_scheduled_action;
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
-use crate::monitor::outbound_switch::{is_campus_adapter, select_outbound_candidate, snapshot_json};
+use crate::monitor::outbound_switch::{
+    disabled_adapters_json, is_campus_adapter, parse_disabled_adapters, parse_standby_route,
+    select_campus_to_disable, select_outbound_candidate, snapshot_json, standby_route_json,
+    StandbyRoute,
+};
 use crate::network::Adapter;
 use crate::platform::metric::MetricRow;
 
@@ -48,8 +54,14 @@ const NIGHT_VERIFY_RETRY_SECS: u64 = 5;
 const NIGHT_VERIFY_ATTEMPTS: u32 = 3;
 const NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15;
 
-/// 夜间出站切换：提权 helper 执行超时（改跃点是即时操作，超时即判失败走退避）
+/// 夜间出站切换：提权 helper 执行超时（改跃点/禁网卡/加路由都是即时操作，超时即判失败走退避）
 const OUTBOUND_HELPER_TIMEOUT_SECS: u64 = 30;
+
+/// 兜底默认路由的跃点：必须排在既有默认路由之后（TUN 接管时为 0、物理卡自动跃点
+/// 通常 25+），仅当更高优先级的默认路由全部消失（TUN 退出、热点断开）时接管出站。
+/// 前缀同为 /0 时按最长前缀优先无优势，纯靠跃点做 failover，故取一个"比 TUN 大、
+/// 比一切物理卡自动跃点小"的值
+const OUTBOUND_STANDBY_ROUTE_METRIC: u32 = 2;
 
 /// 夜间出站切换退避阶梯：首败 60s 起步、每失败翻倍、封顶 300s
 /// （1→60s、2→120s、3→240s、≥4→300s）——避免 30s 循环整夜重试刷日志/弹通知
@@ -142,9 +154,14 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                 // 终止条件看 needs_replay：切换成功后失败计数清零，稳态（夜间约 900 拍）
                 // 不再每拍提权重写跃点/刷日志——只有确实留有失败历史才补
                 let switch_fails = OUTBOUND_SWITCH_FAIL_COUNT.load(Ordering::Acquire);
-                if needs_replay(&config_snapshot.outbound_metric_restore, switch_fails) {
+                if needs_replay(
+                    &config_snapshot.outbound_metric_restore,
+                    &config_snapshot.outbound_disabled_adapters,
+                    &config_snapshot.outbound_standby_route,
+                    switch_fails,
+                ) {
                     let _ = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), |h, c| {
-                        replay_outbound_switch_metric(h, c);
+                        replay_outbound_switch(h, c);
                         false
                     })
                     .await;
@@ -198,21 +215,26 @@ fn is_quitting(app_handle: &AppHandle) -> bool {
     app_handle.state::<AppState>().exit.is_quitting.load(Ordering::Acquire)
 }
 
-/// 是否处于出站切换态（快照非空即切换态；与判定纯函数的 restore_active 同语义）
+/// 是否处于出站切换态（三份快照任一非空即切换态；与判定纯函数的
+/// outbound_restore_active 同语义）：metric 快照/禁用名单/兜底路由
 fn outbound_switch_active(app_handle: &AppHandle) -> bool {
-    !app_handle
-        .state::<AppState>()
-        .config
-        .load_full()
-        .outbound_metric_restore
-        .is_empty()
+    let config = app_handle.state::<AppState>().config.load_full();
+    outbound_restore_active(
+        &config.outbound_metric_restore,
+        &config.outbound_disabled_adapters,
+        &config.outbound_standby_route,
+    )
 }
 
 /// 本拍出站动作：判定复用跨平台纯函数，外加一条编排策略——功能已关闭但快照残留
 /// （用户中途关掉开关、或导入了带切换态的旧配置）时按 Restore 处理，立即还原，
 /// 不留悬挂的跃点改动（否则跃点会一直停在被改过的值上，直到下次应用启动对账）
 fn outbound_action_for(config: &crate::config::Config, weekday: u32, now_minutes: u32) -> NightOutboundAction {
-    let restore_active = !config.outbound_metric_restore.is_empty();
+    let restore_active = outbound_restore_active(
+        &config.outbound_metric_restore,
+        &config.outbound_disabled_adapters,
+        &config.outbound_standby_route,
+    );
     match evaluate_night_outbound(config.enable_night_outbound_switch, weekday, now_minutes, restore_active) {
         NightOutboundAction::None if restore_active && !config.enable_night_outbound_switch => {
             NightOutboundAction::Restore
@@ -287,7 +309,7 @@ fn outbound_allow_uac() -> bool {
 }
 
 /// 提权通道失败才抬高 UAC 放行计数；业务性失败不抬（弹 UAC 无意义且打扰用户）
-fn note_channel_failure(failure: &SetMetricFailure) {
+fn note_channel_failure(failure: &HelperFailure) {
     if failure.channel {
         OUTBOUND_CHANNEL_FAIL_COUNT.fetch_add(1, Ordering::AcqRel);
     }
@@ -298,11 +320,11 @@ fn clear_outbound_channel_failure() {
     OUTBOUND_CHANNEL_FAIL_COUNT.store(0, Ordering::Release);
 }
 
-/// 是否需要走"未生效补齐"重放（纯函数）：处于切换态（快照非空）**且**切换侧留有失败
-/// 历史时才需要。切换成功后失败计数已清零、快照仍在 → 稳态下恒为 false，
-/// 避免夜间窗口约 900 拍重复提权写跃点、刷日志
-fn needs_replay(snapshot: &str, fail_count: u32) -> bool {
-    !snapshot.is_empty() && fail_count > 0
+/// 是否需要走"未生效补齐"重放（纯函数）：处于切换态（三份快照任一非空）**且**切换侧
+/// 留有失败历史时才需要。切换成功后失败计数已清零、快照仍在 → 稳态下恒为 false，
+/// 避免夜间窗口约 900 拍重复提权写跃点/禁网卡/加路由、刷日志
+fn needs_replay(metric_snapshot: &str, disabled_adapters: &str, standby_route: &str, fail_count: u32) -> bool {
+    outbound_restore_active(metric_snapshot, disabled_adapters, standby_route) && fail_count > 0
 }
 
 /// 切换态快照条目（对应 `monitor::outbound_switch::snapshot_json` 的序列化结构
@@ -323,8 +345,8 @@ fn parse_outbound_snapshot(snapshot: &str) -> Result<Vec<OutboundSnapshotRow>, S
     serde_json::from_str(snapshot).map_err(|e| e.to_string())
 }
 
-/// `set_metric` helper 的失败分类
-struct SetMetricFailure {
+/// 出站动作 helper 调用的失败分类
+struct HelperFailure {
     /// 失败原因（helper message 或提权通道错误）
     reason: String,
     /// 是否属提权/执行通道失败（没拿到 helper 结果：UAC 拒绝、超时、结果文件缺失）。
@@ -333,30 +355,32 @@ struct SetMetricFailure {
     channel: bool,
 }
 
-/// 调提权 helper 写跃点条目（编码 `"{guid}:{family}:{automatic}:{metric}"`，见 helper/mod.rs）。
-/// Ok=helper 报告全部成功；Err=分类失败（提权通道失败 / helper 逐条失败）
-fn run_set_metric_helper(encoded: &[String], allow_uac_prompt: bool) -> Result<(), SetMetricFailure> {
-    let rows: Vec<&str> = encoded.iter().map(|s| s.as_str()).collect();
+/// 调提权 helper 执行单个操作（op 名与参数编码见 helper/mod.rs `build_op_from_args`）。
+/// Ok=helper 报告成功；Err=分类失败（提权通道失败 / helper 报告失败）。
+/// 六期起出站动作不止写跃点（禁用网卡/加删路由同走此通道），故从
+/// run_set_metric_helper 泛化而来。
+fn run_helper_op(op: &str, args: &[String], allow_uac_prompt: bool) -> Result<(), HelperFailure> {
+    let argv: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let result_name = crate::platform::helper_spawn::new_result_name();
     let v = match crate::platform::helper_spawn::spawn_elevated_helper(
-        "set_metric",
-        &rows,
+        op,
+        &argv,
         &result_name,
         Duration::from_secs(OUTBOUND_HELPER_TIMEOUT_SECS),
         allow_uac_prompt,
     ) {
         Ok(v) => v,
         // 未拿到结果文件：提权通道（计划任务代理/COM/runas）或超时失败
-        Err(e) => return Err(SetMetricFailure { reason: e, channel: true }),
+        Err(e) => return Err(HelperFailure { reason: e, channel: true }),
     };
     if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
         Ok(())
     } else {
-        Err(SetMetricFailure {
+        Err(HelperFailure {
             reason: v
                 .get("message")
                 .and_then(|m| m.as_str())
-                .unwrap_or("跃点设置失败(helper 无 message)")
+                .unwrap_or("helper 操作失败(helper 无 message)")
                 .to_string(),
             channel: false,
         })
@@ -364,8 +388,8 @@ fn run_set_metric_helper(encoded: &[String], allow_uac_prompt: bool) -> Result<(
 }
 
 /// 把目标卡指定协议栈的跃点写为 Metric=1（切换动作与"未生效补齐"共用，幂等）。
-/// 成功：清退避 + info 日志 +（`notify_success` 时）系统通知；失败：记退避 + warn 日志，
-/// 首次失败额外通知一次。
+/// 成功：清退避 + info 日志 +（`notify_success` 时）系统通知（文案带 `notify_suffix`
+/// 尾注，如「已临时禁用2张校园网网卡」）；失败：记退避 + warn 日志，首次失败额外通知一次。
 /// 提权降级策略照 adapter_watch 的自动启用：首试静默（CMSTPLUA 可用时零 UAC 打扰），
 /// 仅在**确因提权通道失败**后允许降级弹 UAC（静默通道被系统封堵时 UAC 是唯一恢复通道），
 /// 频率由退避阶梯限制。
@@ -375,6 +399,7 @@ fn write_outbound_metric(
     guid: &str,
     families: &[u16],
     notify_success: bool,
+    notify_suffix: &str,
 ) -> bool {
     if families.is_empty() {
         // 卡在但跃点行缺失：写不进去。同样记退避，避免 30s 一拍刷日志；
@@ -392,18 +417,18 @@ fn write_outbound_metric(
         .map(|family| format!("{guid}:{family}:0:1"))
         .collect();
     let allow_uac = outbound_allow_uac();
-    match run_set_metric_helper(&encoded, allow_uac) {
+    match run_helper_op("set_metric", &encoded, allow_uac) {
         Ok(()) => {
             clear_outbound_channel_failure();
             clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
-            crate::log_info!("outbound", "夜间出站切换: 已切换出站到 {name}");
+            crate::log_info!("outbound", "夜间出站切换: 已切换出站到 {name}{notify_suffix}");
             // 通知只在切换态**首次建立**（apply_outbound_switch）发；补齐/重放路径只记日志，
             // 避免稳态下每拍重复弹同一通知
             if notify_success {
                 crate::infra::notification::emit_notification(
                     app_handle,
                     "夜间出站切换",
-                    &format!("已切换出站到 {name}"),
+                    &format!("已切换出站到 {name}{notify_suffix}"),
                     "mascot-portrait",
                 );
             }
@@ -432,14 +457,23 @@ fn write_outbound_metric(
 }
 
 /// 夜间出站切换动作（须在 spawn_blocking 线程内执行）：退避闸 → 选目标卡 → 读两族跃点
-/// → 快照落盘（切换态成立的唯一凭据，落盘成功才进内存）→ helper 写 Metric=1。
-/// 返回 true=快照已落盘且 helper 全部成功（本拍完成切换）；false=本拍未建立切换态
-/// （无候选/读跃点失败/落盘失败/helper 失败；快照可能已保留，由补齐路径续写）。
+/// → 三件套快照落盘（metric/禁用名单/兜底路由，切换态成立的唯一凭据，落盘成功才进内存）
+/// → helper 写 Metric=1 → helper 禁用校园网卡 → helper 加兜底路由。
+/// 返回 true=快照已落盘且三步 helper 全部成功（本拍完成切换）；false=本拍未完成
+/// （无候选/读跃点失败/落盘失败/任一 helper 失败；快照可能已保留，由补齐路径续写）。
 ///
 /// 快照在 helper 之前落盘；helper 失败**不清快照**（裁决 Important-2：若 v4 已改成功而
 /// v6 失败，清快照会让已改的跃点无从还原）——切换态保留 + 退避重试写回，重试幂等。
 /// 本函数只由 `Switch` 动作调用（`evaluate_night_outbound` 仅在 restore_active=false 时
 /// 产出 `Switch`），故入口无需再判快照。
+///
+/// 六期新增两步（TUN 代理并存时的实测复盘）：
+/// - 禁用校园网卡是主力：网卡级下线后其路由/DNS/跃点竞争全部消失，代理内核
+///   （FlClashCore auto-detect-interface）只能改绑热点；metric=1 单独压不住
+///   metric=0 的 TUN 默认路由，也不产生路由事件、代理不跟随。
+/// - 兜底默认路由：同前缀 /0 下 TUN 永远赢（跃点 0 vs 2），本路由只在 TUN/热点
+///   默认路由消失后接管，是代理退出后的 failover 保险。
+/// - USB 总线网卡绝不入禁用名单（用户实证：USB 网卡被禁用后下次开机无法正常启用）。
 fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> bool {
     if !switch_gate_open() {
         crate::log_debug!("outbound", "夜间出站切换: 退避窗内，本拍跳过");
@@ -492,10 +526,40 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
         crate::log_warn!("outbound", "夜间出站切换: {} 无 IPv4/IPv6 跃点行，本拍不切换", target.name);
         return false;
     }
+    // 要临时禁用的校园网卡：目标卡之外、在优先级列表内、在网且判定为校园网；
+    // USB 总线（或总线无法判定）一律跳过。usb_guard 平台注入（非 Windows 恒跳过，
+    // 本功能桌面侧仅 Windows 有完整实现）
+    #[cfg(target_os = "windows")]
+    let usb_guard: fn(&str) -> bool = crate::monitor::outbound_switch::unsafe_to_disable;
+    #[cfg(not(target_os = "windows"))]
+    let usb_guard: fn(&str) -> bool = |_| true;
+    let campus_to_disable = select_campus_to_disable(
+        &config.outbound_priority,
+        &candidates,
+        &config.campus_gateway,
+        &target.guid,
+        |gateway, source_ip| crate::network::check_gateway_reachable_from(gateway, Some(source_ip)),
+        usb_guard,
+    );
+    // 兜底默认路由：挂在目标卡（出站网卡）的网关+接口上；无网关（罕见）则不挂
+    let standby = candidates
+        .iter()
+        .find(|(a, _)| a.guid == target.guid)
+        .and_then(|(_, gateway)| {
+            (!gateway.is_empty()).then(|| StandbyRoute {
+                dest: "0.0.0.0".to_string(),
+                mask: "0.0.0.0".to_string(),
+                gateway: gateway.clone(),
+                metric: OUTBOUND_STANDBY_ROUTE_METRIC,
+                if_index: target.if_index,
+            })
+        });
     // 先落快照：落盘成功才认定切换态成立（沿夜切"落盘先行"语义，失败不 store 内存）
     let state = app_handle.state::<AppState>();
     let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
     fresh.outbound_metric_restore = snapshot_json(&target.guid, &rows);
+    fresh.outbound_disabled_adapters = disabled_adapters_json(&campus_to_disable);
+    fresh.outbound_standby_route = standby_route_json(standby.as_ref());
     if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &fresh) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照落盘失败: {e}");
         return false;
@@ -503,141 +567,328 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
     state.config.store(fresh);
     crate::log_info!(
         "outbound",
-        "夜间出站切换: 目标卡 {} ({}), 已记录两族跃点快照",
+        "夜间出站切换: 目标卡 {} ({}), 已记录两族跃点快照（待禁用校园网卡 {} 张、兜底路由 {}）",
         target.name,
-        target.guid
+        target.guid,
+        campus_to_disable.len(),
+        standby
+            .as_ref()
+            .map(|r| r.gateway.as_str())
+            .unwrap_or("无"),
     );
     let families: Vec<u16> = rows.iter().map(|r| r.family).collect();
-    // 切换态首次建立：成功通知在此发（重放/补齐路径只记日志，见 write_outbound_metric）
-    write_outbound_metric(app_handle, &target.name, &target.guid, &families, true)
+    let notify_suffix = if campus_to_disable.is_empty() {
+        String::new()
+    } else {
+        format!("，已临时禁用{}张校园网网卡", campus_to_disable.len())
+    };
+    let mut all_ok = write_outbound_metric(app_handle, &target.name, &target.guid, &families, true, &notify_suffix);
+    // 禁用校园网卡（幂等：已禁用的卡重复 disable 无副作用）。失败记切换退避，
+    // 由补齐路径重试——名单已落盘，重试只补失败的卡
+    for row in &campus_to_disable {
+        match run_helper_op("disable_adapter", std::slice::from_ref(&row.name), outbound_allow_uac()) {
+            Ok(()) => {
+                clear_outbound_channel_failure();
+                crate::log_info!("outbound", "夜间出站切换: 已临时禁用校园网卡 {}", row.name);
+            }
+            Err(failure) => {
+                note_channel_failure(&failure);
+                mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+                all_ok = false;
+                crate::log_warn!("outbound", "夜间出站切换: 禁用校园网卡 {} 失败: {}", row.name, failure.reason);
+            }
+        }
+    }
+    // 兜底默认路由（幂等：同参数重复 add 结果一致）
+    if let Some(route) = &standby {
+        match run_helper_op(
+            "route_add",
+            &[format!(
+                "{}|{}|{}|{}|{}",
+                route.dest, route.mask, route.gateway, route.metric, route.if_index
+            )],
+            outbound_allow_uac(),
+        ) {
+            Ok(()) => {
+                clear_outbound_channel_failure();
+                crate::log_info!(
+                    "outbound",
+                    "夜间出站切换: 已添加兜底默认路由 {} metric {} if {}",
+                    route.gateway,
+                    route.metric,
+                    route.if_index
+                );
+            }
+            Err(failure) => {
+                note_channel_failure(&failure);
+                mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+                all_ok = false;
+                crate::log_warn!("outbound", "夜间出站切换: 添加兜底路由失败: {}", failure.reason);
+            }
+        }
+    }
+    all_ok
 }
 
-/// 补齐/重放切换动作：只写"快照记录过原值 + 当前仍存在"的协议栈的 Metric=1，
-/// 不动快照原值（幂等，可反复调用）。两个入口共用：
+/// 补齐/重放切换动作：按三份快照把"切换没写完"的部分补齐，三个分支各自独立、
+/// 全部幂等（可反复调用），任一分支失败不影响其余分支：
+/// ① 跃点补写：只写"快照记录过原值 + 当前仍存在"的协议栈的 Metric=1，不动快照原值；
+/// ② 禁用补做：对名单内且当前存在的校园网卡重发 disable（已在禁用态的卡重复执行无副作用，
+///    卡已拔出/消失则跳过）；③ 路由补加：快照有兜底路由则按原参数重发 route add。
+/// 两个入口共用：
 /// ① 循环内切换态下的"未生效补齐"（helper 部分失败后的退避重试；循环已用
 ///    [`needs_replay`] 判过失败历史，此处不再判）；
 /// ② 启动对账的夜间窗口分支（上次运行被杀，切换没写完——此时进程内失败计数为 0，
 ///    不能以 `needs_replay` 拦，否则重启后的重放失效）。
 /// 成功只记 info 日志、**不发系统通知**（稳态/多拍重放不应重复弹窗）。
-fn replay_outbound_switch_metric(app_handle: &AppHandle, config: &crate::config::Config) {
-    let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
-        Ok(rows) if !rows.is_empty() => rows,
-        Ok(_) => return,
-        Err(e) => {
-            crate::log_warn!("outbound", "夜间出站切换: 快照解析失败，跳过补齐: {e}");
-            return;
-        }
-    };
+fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) {
     if !switch_gate_open() {
         return;
     }
-    let guid = snapshot[0].guid.clone();
-    let rows = match crate::platform::metric::read_interface_metrics(&guid) {
-        Ok(rows) => rows,
+    // —— 分支①：跃点补写 ——
+    let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
+        Ok(rows) if !rows.is_empty() => Some(rows),
+        Ok(_) => None,
         Err(e) => {
-            crate::log_warn!("outbound", "夜间出站切换: 读取目标卡({guid})跃点失败: {e}");
-            return;
+            crate::log_warn!("outbound", "夜间出站切换: 跃点快照解析失败，跳过补齐: {e}");
+            None
         }
     };
-    // 只写快照有原值、且当前确实存在的协议栈：保证"写过的都能按快照还原"
-    let families: Vec<u16> = snapshot
-        .iter()
-        .map(|r| r.family)
-        .filter(|family| rows.iter().any(|r| r.family == *family))
-        .collect();
-    let name = {
-        let adapters = crate::network::get_adapters_cached().unwrap_or_default();
-        adapters
+    if let Some(snapshot) = &snapshot {
+        let guid = snapshot[0].guid.clone();
+        let rows = match crate::platform::metric::read_interface_metrics(&guid) {
+            Ok(rows) => rows,
+            Err(e) => {
+                crate::log_warn!("outbound", "夜间出站切换: 读取目标卡({guid})跃点失败: {e}");
+                return;
+            }
+        };
+        // 只写快照有原值、且当前确实存在的协议栈：保证"写过的都能按快照还原"
+        let families: Vec<u16> = snapshot
             .iter()
-            .find(|a| a.guid == guid)
-            .map(|a| a.name.clone())
-            .unwrap_or_else(|| guid.clone())
-    };
-    write_outbound_metric(app_handle, &name, &guid, &families, false);
+            .map(|r| r.family)
+            .filter(|family| rows.iter().any(|r| r.family == *family))
+            .collect();
+        let name = {
+            let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+            adapters
+                .iter()
+                .find(|a| a.guid == guid)
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| guid.clone())
+        };
+        write_outbound_metric(app_handle, &name, &guid, &families, false, "");
+    }
+    // —— 分支②：禁用补做 ——
+    let disabled = parse_disabled_adapters(&config.outbound_disabled_adapters);
+    if !disabled.is_empty() {
+        let present: std::collections::HashSet<String> =
+            crate::network::get_adapters_cached().unwrap_or_default().into_iter().map(|a| a.name).collect();
+        for row in &disabled {
+            if !present.contains(&row.name) {
+                crate::log_debug!("outbound", "夜间出站切换: 禁用名单中的 {} 已不存在，跳过", row.name);
+                continue;
+            }
+            match run_helper_op("disable_adapter", std::slice::from_ref(&row.name), outbound_allow_uac()) {
+                Ok(()) => {
+                    clear_outbound_channel_failure();
+                    crate::log_info!("outbound", "夜间出站切换: 补做禁用校园网卡 {}", row.name);
+                }
+                Err(failure) => {
+                    note_channel_failure(&failure);
+                    mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+                    crate::log_warn!("outbound", "夜间出站切换: 补做禁用 {} 失败: {}", row.name, failure.reason);
+                }
+            }
+        }
+    }
+    // —— 分支③：兜底路由补加 ——
+    if let Some(route) = parse_standby_route(&config.outbound_standby_route) {
+        match run_helper_op(
+            "route_add",
+            &[format!(
+                "{}|{}|{}|{}|{}",
+                route.dest, route.mask, route.gateway, route.metric, route.if_index
+            )],
+            outbound_allow_uac(),
+        ) {
+            Ok(()) => {
+                clear_outbound_channel_failure();
+                crate::log_info!("outbound", "夜间出站切换: 补加兜底默认路由 {} metric {}", route.gateway, route.metric);
+            }
+            Err(failure) => {
+                note_channel_failure(&failure);
+                mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+                crate::log_warn!("outbound", "夜间出站切换: 补加兜底路由失败: {}", failure.reason);
+            }
+        }
+    }
 }
 
-/// 夜间出站还原动作（须在 spawn_blocking 线程内执行）：按快照把目标卡跃点原样写回
-/// （automatic 与 metric 都是快照原值）→ 成功后清快照 + 通知。
-/// 目标卡已不存在（终态出口）或跃点行已消失 → 视为已还原，同样清快照；
-/// 写入失败按退避重试，连续失败达 OUTBOUND_RESTORE_ALERT_FAILS 发一次告警通知并保留快照。
-/// 返回 true=快照已清（还原完成或无需还原）。
+/// 夜间出站还原动作（须在 spawn_blocking 线程内执行）。六期起切换态含三份快照，
+/// 还原按"反向顺序"执行，已完成的步骤幂等、重试无害；任一步失败保留整个切换态
+/// 按退避重试（重做已成功的步骤无副作用）：
+/// ① 删兜底路由：失败仅告警继续（runtime 路由重启即消失，不阻塞还原）；
+/// ② 按跃点快照把目标卡原样写回（automatic 与 metric 都是快照原值）；目标卡已不存在
+///    或跃点行已消失 → 视为已还原（终态出口）；
+/// ③ 重新启用名单内校园网卡（名单外的卡不碰；卡已拔出/消失则跳过）。
+/// 全部完成后清三份快照 + 通知；连续失败达 OUTBOUND_RESTORE_ALERT_FAILS 各发一次告警
+/// 并保留快照。返回 true=切换态已清（还原完成或无需还原）。
 fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config) -> bool {
     let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
         Ok(rows) => rows,
         Err(e) => {
-            // 数据损坏：动作无从执行。清掉快照避免切换态永久卡住（还原被跳过、
-            // 巡检整轮让位、运营商夜切永久让位），坏数据本身也没有可还原的信息
-            crate::log_warn!("outbound", "夜间出站还原: 快照解析失败，清空快照: {e}");
-            return finish_outbound_restore(app_handle);
+            // 跃点快照损坏：跃点无凭据可还原（按"已还原"处理），但禁用名单/兜底路由
+            // 仍要继续还原——不能在这里整体收尾，否则已禁用的网卡会永远停在禁用态
+            crate::log_warn!("outbound", "夜间出站还原: 跃点快照解析失败，按已还原继续: {e}");
+            Vec::new()
         }
     };
-    if snapshot.is_empty() {
-        // 空串（非切换态）或空数组（无条目可还原）：都按已还原收尾
+    if snapshot.is_empty()
+        && config.outbound_disabled_adapters.is_empty()
+        && config.outbound_standby_route.is_empty()
+    {
+        // 三份快照全空（非切换态）：按已还原收尾
         return finish_outbound_restore(app_handle);
     }
     if !restore_gate_open() {
         crate::log_debug!("outbound", "夜间出站还原: 退避窗内，本拍跳过");
         return false;
     }
-    let guid = snapshot[0].guid.clone();
-    let adapters = crate::network::get_adapters_cached().unwrap_or_default();
-    if !adapters.iter().any(|a| a.guid == guid) {
-        // 终态出口：网卡已拔出/禁用，跃点设置随接口消失，无对象可写回
-        crate::log_info!("outbound", "夜间出站还原: 目标卡({guid})已不存在，视为已还原");
-        return finish_outbound_restore(app_handle);
-    }
-    // 只写回"快照有原值 + 当前仍存在"的协议栈：跃点行消失的条目无对象可写，
-    // 系统重建该协议栈时按其默认值（与"已还原"同语义）
-    let current = crate::platform::metric::read_interface_metrics(&guid).unwrap_or_default();
-    let encoded: Vec<String> = snapshot
-        .iter()
-        .filter(|r| current.iter().any(|c| c.family == r.family))
-        .map(|r| format!("{}:{}:{}:{}", r.guid, r.family, u8::from(r.automatic), r.metric))
-        .collect();
-    if encoded.is_empty() {
-        crate::log_info!("outbound", "夜间出站还原: 目标卡跃点行已消失，视为已还原");
-        return finish_outbound_restore(app_handle);
-    }
     let allow_uac = outbound_allow_uac();
-    match run_set_metric_helper(&encoded, allow_uac) {
-        Ok(()) => {
-            clear_outbound_channel_failure();
-            crate::log_info!("outbound", "夜间出站还原: 已恢复目标卡跃点设置");
-            crate::infra::notification::emit_notification(
-                app_handle,
-                "夜间出站切换",
-                "已还原网卡跃点设置",
-                "mascot-portrait",
-            );
-            finish_outbound_restore(app_handle)
-        }
-        Err(failure) => {
-            note_channel_failure(&failure);
-            let count = mark_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
-            crate::log_warn!(
-                "outbound",
-                "夜间出站还原失败(第 {count} 次)，{}s 后重试: {}",
-                outbound_backoff_ms(count) / 1000,
-                failure.reason
-            );
-            if count == OUTBOUND_RESTORE_ALERT_FAILS {
-                crate::infra::notification::emit_notification(
-                    app_handle,
-                    "夜间出站还原失败",
-                    "网卡跃点未能自动恢复，请在系统「网络设置」中手动恢复跃点",
-                    "mascot-alert",
-                );
+    // ① 删兜底路由：找不到/not found 同样算成功（已不在）；其余失败不阻塞后续还原
+    if let Some(route) = parse_standby_route(&config.outbound_standby_route) {
+        let row = format!(
+            "{}|{}|{}|{}|{}",
+            route.dest, route.mask, route.gateway, route.metric, route.if_index
+        );
+        match run_helper_op("route_delete", &[row], allow_uac) {
+            Ok(()) => {
+                clear_outbound_channel_failure();
+                crate::log_info!("outbound", "夜间出站还原: 已删除兜底默认路由 {}", route.gateway);
             }
-            false
+            Err(failure) => {
+                note_channel_failure(&failure);
+                crate::log_warn!("outbound", "夜间出站还原: 删除兜底路由失败（不阻塞还原）: {}", failure.reason);
+            }
         }
     }
+    // ② 跃点写回（跃点快照非空才有此步）
+    let mut metric_ok = true;
+    if !snapshot.is_empty() {
+        let guid = snapshot[0].guid.clone();
+        let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+        if !adapters.iter().any(|a| a.guid == guid) {
+            // 终态出口：网卡已拔出/禁用，跃点设置随接口消失，无对象可写回
+            crate::log_info!("outbound", "夜间出站还原: 目标卡({guid})已不存在，视为已还原");
+        } else {
+            // 只写回"快照有原值 + 当前仍存在"的协议栈：跃点行消失的条目无对象可写，
+            // 系统重建该协议栈时按其默认值（与"已还原"同语义）
+            let current = crate::platform::metric::read_interface_metrics(&guid).unwrap_or_default();
+            let encoded: Vec<String> = snapshot
+                .iter()
+                .filter(|r| current.iter().any(|c| c.family == r.family))
+                .map(|r| format!("{}:{}:{}:{}", r.guid, r.family, u8::from(r.automatic), r.metric))
+                .collect();
+            if encoded.is_empty() {
+                crate::log_info!("outbound", "夜间出站还原: 目标卡跃点行已消失，视为已还原");
+            } else {
+                match run_helper_op("set_metric", &encoded, allow_uac) {
+                    Ok(()) => {
+                        clear_outbound_channel_failure();
+                        crate::log_info!("outbound", "夜间出站还原: 已恢复目标卡跃点设置");
+                    }
+                    Err(failure) => {
+                        note_channel_failure(&failure);
+                        let count = mark_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
+                        crate::log_warn!(
+                            "outbound",
+                            "夜间出站还原失败(第 {count} 次)，{}s 后重试: {}",
+                            outbound_backoff_ms(count) / 1000,
+                            failure.reason
+                        );
+                        if count == OUTBOUND_RESTORE_ALERT_FAILS {
+                            crate::infra::notification::emit_notification(
+                                app_handle,
+                                "夜间出站还原失败",
+                                "网卡跃点未能自动恢复，请在系统「网络设置」中手动恢复跃点",
+                                "mascot-alert",
+                            );
+                        }
+                        metric_ok = false;
+                    }
+                }
+            }
+        }
+    }
+    // ③ 重新启用校园网卡（名单内有且当前存在的卡）。启用失败=还原未完成：保留整个
+    // 切换态（含已写回的跃点快照，重试幂等）下一拍继续
+    let disabled = parse_disabled_adapters(&config.outbound_disabled_adapters);
+    let mut enable_ok = true;
+    let mut enabled_count = 0usize;
+    if !disabled.is_empty() {
+        let present: std::collections::HashSet<String> = crate::network::get_adapters_cached()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        for row in &disabled {
+            if !present.contains(&row.name) {
+                crate::log_debug!("outbound", "夜间出站还原: 禁用名单中的 {} 已不存在，跳过启用", row.name);
+                continue;
+            }
+            match run_helper_op("enable_adapter", std::slice::from_ref(&row.name), allow_uac) {
+                Ok(()) => {
+                    clear_outbound_channel_failure();
+                    enabled_count += 1;
+                    crate::log_info!("outbound", "夜间出站还原: 已重新启用校园网卡 {}", row.name);
+                }
+                Err(failure) => {
+                    note_channel_failure(&failure);
+                    let count = mark_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
+                    crate::log_warn!(
+                        "outbound",
+                        "夜间出站还原: 启用 {} 失败(第 {count} 次): {}",
+                        row.name,
+                        failure.reason
+                    );
+                    if count == OUTBOUND_RESTORE_ALERT_FAILS {
+                        crate::infra::notification::emit_notification(
+                            app_handle,
+                            "夜间出站还原失败",
+                            &format!("校园网网卡 {} 未能自动恢复启用，请在系统「网络设置」中手动启用", row.name),
+                            "mascot-alert",
+                        );
+                    }
+                    enable_ok = false;
+                }
+            }
+        }
+    }
+    if !(metric_ok && enable_ok) {
+        return false;
+    }
+    // 成功通知只发一次（全部步骤完成后）：文案区分是否真的启用了网卡
+    crate::log_info!("outbound", "夜间出站还原: 还原完成");
+    let restore_msg = if enabled_count > 0 {
+        format!("已还原网络设置（启用 {} 张校园网网卡）", enabled_count)
+    } else {
+        "已还原网卡跃点设置".to_string()
+    };
+    crate::infra::notification::emit_notification(
+        app_handle,
+        "夜间出站切换",
+        &restore_msg,
+        "mascot-portrait",
+    );
+    finish_outbound_restore(app_handle)
 }
 
-/// 还原收尾：先清快照（落盘成功才进内存），**确认清掉之后**才清退避状态。
+/// 还原收尾：先清切换态快照（三份一起清；落盘成功才进内存），**确认清掉之后**才清退避状态。
 /// 磁盘持续故障时快照清不掉：记一次失败让退避闸继续关住重放（不记失败的话
 /// 下次判定"无失败历史"会立刻再试，形成每拍写一次跃点的重放风暴）。
-/// 此处不计提权通道失败（跃点写入本身可能已成功，问题在配置落盘），
-/// 也不会触发"请手动恢复跃点"告警（该告警只在 helper 失败分支发）。
+/// 此处不计提权通道失败（还原动作本身可能已成功，问题在配置落盘），
+/// 也不会触发"还原失败"告警（该告警只在 helper 失败分支发）。
 fn finish_outbound_restore(app_handle: &AppHandle) -> bool {
     if !clear_outbound_snapshot(app_handle) {
         mark_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
@@ -647,15 +898,20 @@ fn finish_outbound_restore(app_handle: &AppHandle) -> bool {
     true
 }
 
-/// 清空切换态快照（落盘成功才 store 内存——与切换写入同款语义，避免"内存已还原、
-/// 重启后又回到切换态"的错位）；返回快照是否已清。
+/// 清空切换态快照（三份：跃点/禁用名单/兜底路由；落盘成功才 store 内存——与切换写入
+/// 同款语义，避免"内存已还原、重启后又回到切换态"的错位）；返回快照是否已清。
 fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
     let state = app_handle.state::<AppState>();
     let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
-    if fresh.outbound_metric_restore.is_empty() {
+    if fresh.outbound_metric_restore.is_empty()
+        && fresh.outbound_disabled_adapters.is_empty()
+        && fresh.outbound_standby_route.is_empty()
+    {
         return true;
     }
     fresh.outbound_metric_restore = String::new();
+    fresh.outbound_disabled_adapters = String::new();
+    fresh.outbound_standby_route = String::new();
     if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &fresh) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照清空落盘失败: {e}");
         return false;
@@ -664,17 +920,21 @@ fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
     true
 }
 
-/// 启动对账（循环启动前一次性、须在 spawn_blocking 线程内）：快照非空说明上次运行
-/// 留下了切换态（崩溃/被杀/睡眠跨过恢复点）——
+/// 启动对账（循环启动前一次性、须在 spawn_blocking 线程内）：三份快照任一非空说明上次
+/// 运行留下了切换态（崩溃/被杀/睡眠跨过恢复点）——
 /// ① 恢复窗口内、或功能已关闭 → 立即还原；
 /// ② 夜间窗口内，只有"目标卡仍在用且判定为非校园网"才重放切换（只写目标值、
-///    不动快照原值），否则直接还原、放弃本夜切换。
+///    不动快照原值；禁用补做与路由补加随重放一并幂等执行），否则直接还原、放弃本夜切换。
 fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
     let config: crate::config::Config = {
         let s = app_handle.state::<AppState>();
         (*s.config.load_full()).clone()
     };
-    if config.outbound_metric_restore.is_empty() {
+    if !outbound_restore_active(
+        &config.outbound_metric_restore,
+        &config.outbound_disabled_adapters,
+        &config.outbound_standby_route,
+    ) {
         return;
     }
     let now = chrono::Local::now();
@@ -684,10 +944,12 @@ fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
         apply_outbound_restore(app_handle, &config);
         return;
     }
+    // 夜间窗口分支依赖跃点快照确定目标卡；快照不可用（空/损坏）则按还原处理——
+    // 正常切换必然三份快照同时写入，缺跃点快照即状态不完整
     let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
         Ok(rows) if !rows.is_empty() => rows,
         _ => {
-            crate::log_warn!("outbound", "启动对账: 快照不可用，按还原处理");
+            crate::log_warn!("outbound", "启动对账: 跃点快照不可用，按还原处理");
             apply_outbound_restore(app_handle, &config);
             return;
         }
@@ -715,7 +977,7 @@ fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
         return;
     }
     crate::log_info!("outbound", "启动对账: 夜间窗口内重放未完成的出站切换(目标卡 {})", adapter.name);
-    replay_outbound_switch_metric(app_handle, &config);
+    replay_outbound_switch(app_handle, &config);
 }
 
 /// 单拍判定并置当日标记：命中即标记（无论后续动作成败），当日不重试；
@@ -1101,14 +1363,14 @@ mod tests {
     #[test]
     fn 重放闸_仅切换态且留有失败历史时才补齐() {
         // 非切换态：无论有无失败历史都不重放
-        assert!(!needs_replay("", 0));
-        assert!(!needs_replay("", 3));
+        assert!(!needs_replay("", "", "", 0));
+        assert!(!needs_replay("", "", "", 3));
         // 切换态但无失败历史（切换已成功、计数已清零）→ 稳态不重放
         // （C1 回归拦截：否则夜间窗口约 900 拍每拍提权重写跃点 + 重复通知）
-        assert!(!needs_replay(SNAPSHOT_ONE_ROW, 0));
+        assert!(!needs_replay(SNAPSHOT_ONE_ROW, "", "", 0));
         // 切换态 + 失败历史 → 补齐
-        assert!(needs_replay(SNAPSHOT_ONE_ROW, 1));
-        assert!(needs_replay(SNAPSHOT_ONE_ROW, u32::MAX));
+        assert!(needs_replay(SNAPSHOT_ONE_ROW, "", "", 1));
+        assert!(needs_replay(SNAPSHOT_ONE_ROW, "", "", u32::MAX));
     }
 
     #[test]

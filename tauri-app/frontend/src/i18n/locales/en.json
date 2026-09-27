@@ -294,7 +294,7 @@
     "dnsResetFailed": "Failed to Restore Auto DNS",
     "dhcpRenewFailed": "DHCP renew failed",
     "nightOutboundSwitch": "Night Outbound Switch",
-    "nightOutboundSwitchDesc": "Auto-switches the outbound route to a non-campus network at 23:00 Sun-Thu and 23:30 Fri/Sat; auto-restores from 6:30 next morning",
+    "nightOutboundSwitchDesc": "Auto-switches the outbound route to a non-campus network at 23:00 Sun-Thu and 23:30 Fri/Sat, temporarily disabling campus adapters; auto-restores from 6:30 next morning",
     "outboundBadge": "Night Outbound Target",
     "outboundDragHint": "Long-press anywhere on an entry and drag to reorder; the topmost non-campus adapter becomes the night switch target",
     "outboundAdminHint": "Switching requires administrator rights (via UAC or the scheduled-task proxy silently); adapters not listed are excluded"

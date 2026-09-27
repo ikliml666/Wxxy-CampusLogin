@@ -204,7 +204,25 @@ fn parse_adapter_addresses(
         // 禁用报 Down 的网卡被归为「未连接」，自动启用永远不触发。
         let admin_down = if is_up { None } else { is_admin_status_down(if_index) };
         let registry_disabled = if is_up { false } else { is_admin_disabled_via_registry(&guid) };
-        let status = classify_adapter_status(is_up, !ip.is_empty(), oper_status, admin_down, registry_disabled);
+        // 幽灵 USB 网卡误判修复（六期）：拔出 USB 网卡后接口行 AdminStatus 残留 Down、
+        // 注册表 ConfigFlags 残留 DISABLED 位，旧判定把「未连接」误报成「已禁用」。
+        // 先问 PnP 设备树：设备已不在活动状态（CM_Locate_DevNodeW 幽灵 或 状态查询失败）
+        // → 这些都是残影，按未连接处理。PnPInstanceId 都读不到（极旧/奇异设备）时
+        // 回退旧行为（None），不凭空改判。
+        let pnp_present = if is_up {
+            None
+        } else {
+            super::devnode::read_pnp_instance_id(&guid)
+                .map(|instance_id| super::devnode::devnode_problem(&instance_id).is_ok())
+        };
+        let status = classify_adapter_status(
+            is_up,
+            !ip.is_empty(),
+            oper_status,
+            admin_down,
+            registry_disabled,
+            pnp_present,
+        );
 
         // 所有适配器都推入 adapters 列表（带状态，便于前端统一展示和启用操作）
         adapters.push(Adapter {
@@ -315,19 +333,29 @@ fn is_admin_status_down(if_index: u32) -> Option<bool> {
 /// AdminStatus 是微软文档化的管理性禁用标志：禁用 → Down；拔线/媒体断开 → 保持 Up。
 /// `registry_disabled`：注册表 `ConfigFlags` 的 `CONFIGFLAG_DISABLED` 位（未文档化行为，
 /// 仅作 NotPresent 且查不到 AdminStatus 时的回退）。
+/// `pnp_present`：PnP 设备树存活判定（六期新增，`None` = 未查/查询路径不可用，回退旧行为）。
+/// `Some(false)` = 设备已不在活动状态（幽灵/未上电，CM_Locate_DevNodeW 定位失败或
+/// 设备状态查询失败）——此时 AdminStatus/ConfigFlags 全是残影，一律按「未连接」，
+/// 不再误报「已禁用」（USB 网卡拔出后的典型残像）。
 ///
-/// 历史缺陷：旧实现只在 `OperStatus == NotPresent` 时查 ConfigFlags 判禁用，
+/// 历史缺陷一：旧实现只在 `OperStatus == NotPresent` 时查 ConfigFlags 判禁用，
 /// 但文档明文禁用后 OperStatus「Down 或 NotPresent 两者皆可能」——
 /// 禁用报 Down 的网卡被归为「未连接」，自动启用永远不触发。
+/// 历史缺陷二（六期修复）：拔出 USB 网卡后接口行与注册表残值把「未连接」误判成「已禁用」。
 fn classify_adapter_status(
     is_up: bool,
     has_ip: bool,
     oper_status: windows::Win32::NetworkManagement::Ndis::IF_OPER_STATUS,
     admin_down: Option<bool>,
     registry_disabled: bool,
+    pnp_present: Option<bool>,
 ) -> AdapterStatus {
     if is_up {
         return if has_ip { AdapterStatus::Connected } else { AdapterStatus::EnabledNoIp };
+    }
+    // 幽灵设备先判：残影值不再参与禁用判定
+    if pnp_present == Some(false) {
+        return AdapterStatus::Disconnected;
     }
     if admin_down == Some(true) {
         return AdapterStatus::Disabled;
@@ -344,10 +372,13 @@ mod tests {
     use super::super::AdapterStatus;
     use windows::Win32::NetworkManagement::Ndis::{IfOperStatusDown, IfOperStatusNotPresent};
 
+    // 非 Up 场景测试的默认 PnP 存活值：设备在树中且可查询（正常物理存在）
+    const PRESENT: Option<bool> = Some(true);
+
     #[test]
     fn up_with_ip_is_connected() {
         assert_eq!(
-            classify_adapter_status(true, true, IfOperStatusDown, None, false),
+            classify_adapter_status(true, true, IfOperStatusDown, None, false, None),
             AdapterStatus::Connected
         );
     }
@@ -355,7 +386,7 @@ mod tests {
     #[test]
     fn up_without_ip_is_enabled_no_ip() {
         assert_eq!(
-            classify_adapter_status(true, false, IfOperStatusDown, None, false),
+            classify_adapter_status(true, false, IfOperStatusDown, None, false, None),
             AdapterStatus::EnabledNoIp
         );
     }
@@ -365,7 +396,7 @@ mod tests {
     #[test]
     fn down_with_admin_down_is_disabled() {
         assert_eq!(
-            classify_adapter_status(false, false, IfOperStatusDown, Some(true), false),
+            classify_adapter_status(false, false, IfOperStatusDown, Some(true), false, PRESENT),
             AdapterStatus::Disabled
         );
     }
@@ -374,7 +405,7 @@ mod tests {
     fn down_with_admin_up_is_disconnected() {
         // 拔线/媒体断开：AdminStatus 保持 Up
         assert_eq!(
-            classify_adapter_status(false, false, IfOperStatusDown, Some(false), false),
+            classify_adapter_status(false, false, IfOperStatusDown, Some(false), false, PRESENT),
             AdapterStatus::Disconnected
         );
     }
@@ -383,7 +414,7 @@ mod tests {
     fn down_with_admin_query_failed_is_disconnected() {
         // GetIfEntry2 查询失败：回退旧行为，不误判
         assert_eq!(
-            classify_adapter_status(false, false, IfOperStatusDown, None, false),
+            classify_adapter_status(false, false, IfOperStatusDown, None, false, PRESENT),
             AdapterStatus::Disconnected
         );
     }
@@ -392,7 +423,7 @@ mod tests {
     fn not_present_with_admin_down_is_disabled() {
         // NotPresent + AdminStatus=Down（ConfigFlags 可能被开机驱动重装洗掉）
         assert_eq!(
-            classify_adapter_status(false, false, IfOperStatusNotPresent, Some(true), false),
+            classify_adapter_status(false, false, IfOperStatusNotPresent, Some(true), false, PRESENT),
             AdapterStatus::Disabled
         );
     }
@@ -401,7 +432,7 @@ mod tests {
     fn not_present_with_registry_flag_is_disabled() {
         // 旧行为保持：NotPresent + ConfigFlags DISABLED 位
         assert_eq!(
-            classify_adapter_status(false, false, IfOperStatusNotPresent, None, true),
+            classify_adapter_status(false, false, IfOperStatusNotPresent, None, true, PRESENT),
             AdapterStatus::Disabled
         );
     }
@@ -410,7 +441,38 @@ mod tests {
     fn not_present_without_any_flag_is_disconnected() {
         // 幽灵虚拟副本（如 WLAN 2/5）：NotPresent 但非禁用
         assert_eq!(
-            classify_adapter_status(false, false, IfOperStatusNotPresent, None, false),
+            classify_adapter_status(false, false, IfOperStatusNotPresent, None, false, PRESENT),
+            AdapterStatus::Disconnected
+        );
+    }
+
+    // 六期修复：拔出 USB 网卡后的幽灵设备——AdminStatus 残留 Down / 注册表残留
+    // DISABLED 位都是残影，PnP 设备树已无活动 devnode 时一律按「未连接」
+    #[test]
+    fn phantom_device_with_admin_down_is_disconnected() {
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusDown, Some(true), false, Some(false)),
+            AdapterStatus::Disconnected
+        );
+    }
+
+    #[test]
+    fn phantom_device_with_registry_flag_is_disconnected() {
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusNotPresent, None, true, Some(false)),
+            AdapterStatus::Disconnected
+        );
+    }
+
+    #[test]
+    fn pnp_query_unavailable_falls_back_to_legacy() {
+        // PnPInstanceId 读不到（None）：回退旧行为，AdminStatus=Down 仍判禁用
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusDown, Some(true), false, None),
+            AdapterStatus::Disabled
+        );
+        assert_eq!(
+            classify_adapter_status(false, false, IfOperStatusDown, None, false, None),
             AdapterStatus::Disconnected
         );
     }

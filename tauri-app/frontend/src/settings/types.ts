@@ -35,6 +35,10 @@ export interface Config {
   enableNightOutboundSwitch: boolean
   outboundPriority: string[]
   outboundMetricRestore: string
+  /** 夜间切换时亲手禁用的校园网卡名单（DisabledRow JSON，后端内部状态，USB 网卡永不入名单） */
+  outboundDisabledAdapters: string
+  /** 夜间切换加的兜底默认路由（StandbyRoute JSON，runtime 路由重启即清，后端内部状态） */
+  outboundStandbyRoute: string
   nightOutboundRestore: string
   autoExitOnOnline: boolean
   themeMode: 'light' | 'dark' | 'system'

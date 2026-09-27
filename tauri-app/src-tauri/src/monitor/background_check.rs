@@ -45,9 +45,13 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let now = chrono::Local::now();
     let now_min = now.hour() as u16 * 60 + now.minute() as u16;
-    // 出站切换态：巡检整体跳过（portal 检测走热点出站必失败，会累计触发 MAC 重置
-    // 提权与整夜告警；见 decisions/night-outbound-switch）。下一拍（30s）恢复。
-    if !config.outbound_metric_restore.is_empty() {
+    // 出站切换态（三份快照任一非空）：巡检整体跳过（portal 检测走热点出站必失败，
+    // 会累计触发 MAC 重置提权与整夜告警；见 decisions/night-outbound-switch）。下一拍（30s）恢复。
+    if crate::config::outbound_switch::outbound_restore_active(
+        &config.outbound_metric_restore,
+        &config.outbound_disabled_adapters,
+        &config.outbound_standby_route,
+    ) {
         crate::log_debug!("background", "出站切换态，跳过本轮巡检");
         return;
     }

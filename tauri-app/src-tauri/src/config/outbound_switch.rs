@@ -37,6 +37,15 @@ pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, re
     }
 }
 
+/// 夜间出站切换的切换态判定（纯函数，桌面）：
+/// metric 快照 / 禁用名单 / 兜底路由三份快照任一非空即处于切换态。
+/// 六期起切换动作=写 metric + 禁校园网卡 + 加兜底路由三件套一次落盘，
+/// 任一残留都说明有待还原动作，避免 background_check/adapter_watch 只看
+/// metric 快照漏判。
+pub fn outbound_restore_active(metric_restore: &str, disabled_adapters: &str, standby_route: &str) -> bool {
+    !metric_restore.is_empty() || !disabled_adapters.is_empty() || !standby_route.is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -48,6 +57,15 @@ mod tests {
         assert_eq!(super::super::night_switch::switch_time_for(4), Some(1380)); // 周四
         assert_eq!(super::super::night_switch::switch_time_for(5), Some(1410)); // 周五
         assert_eq!(super::super::night_switch::switch_time_for(6), Some(1410)); // 周六
+    }
+
+    #[test]
+    fn restore_active_covers_all_three_snapshots() {
+        // 任一快照非空即切换态
+        assert!(outbound_restore_active("[{\"guid\":\"{G}\"}]", "", ""));
+        assert!(outbound_restore_active("", "[{\"guid\":\"{G}\",\"name\":\"以太网\"}]", ""));
+        assert!(outbound_restore_active("", "", "{\"dest\":\"0.0.0.0\"}"));
+        assert!(!outbound_restore_active("", "", ""));
     }
 
     #[test]

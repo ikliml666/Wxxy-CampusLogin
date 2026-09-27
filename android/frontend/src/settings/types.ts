@@ -24,6 +24,10 @@ export interface Config {
   enableNightOutboundSwitch: boolean
   outboundPriority: string[]
   outboundMetricRestore: string
+  /** 桌面夜间切换禁用名单（DisabledRow JSON）；安卓端无禁用动作，仅字段集同构 */
+  outboundDisabledAdapters: string
+  /** 桌面夜间切换兜底路由（StandbyRoute JSON）；安卓端不消费，仅字段集同构 */
+  outboundStandbyRoute: string
   nightOutboundRestore: string
   adapter1: string
   adapter2: string

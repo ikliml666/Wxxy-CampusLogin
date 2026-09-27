@@ -16,6 +16,8 @@ export const DEFAULT_CONFIG: Config = {
   enableNightOutboundSwitch: false,
   outboundPriority: [],
   outboundMetricRestore: '',
+  outboundDisabledAdapters: '',
+  outboundStandbyRoute: '',
   nightOutboundRestore: '',
   adapter1: AUTO_DETECT_ADAPTER,
   adapter2: '',

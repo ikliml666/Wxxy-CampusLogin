@@ -74,6 +74,17 @@ pub struct Config {
     /// 导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段
     #[serde(rename = "outboundMetricRestore", default)]
     pub outbound_metric_restore: String,
+    /// 夜间切换禁用的校园网卡快照：`[{guid, name}]` JSON（只记本功能亲手禁用的卡，
+    /// 还原与 adapter_watch 闸门都以这份名单为准，不按当前状态推断——USB 网卡
+    /// 状态判定不可靠且设备级操作会导致下次开机无法正常启用，USB 卡永不入名单）。
+    /// 非空 = 存在待还原的禁用动作。导入配置时清空。安卓端不消费此字段
+    #[serde(rename = "outboundDisabledAdapters", default)]
+    pub outbound_disabled_adapters: String,
+    /// 夜间切换新增的兜底默认路由快照：`{dest, mask, gateway, metric, ifIndex}` JSON
+    /// （runtime 路由，排在 TUN 等既有默认路由之后，仅当它们全部消失时接管出站）。
+    /// 空 = 未加路由。导入配置时清空。安卓端不消费此字段
+    #[serde(rename = "outboundStandbyRoute", default)]
+    pub outbound_standby_route: String,
     /// 安卓切换态标记：值恒 "logged_out"（纯标记，不暂存账号名）。非空 = 安卓处于
     /// 出站切换态（已注销等待晨间重登）。切账号时清空。桌面端不消费此字段
     #[serde(rename = "nightOutboundRestore", default)]
@@ -240,6 +251,8 @@ impl Default for Config {
             enable_night_outbound_switch: false,
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
+            outbound_disabled_adapters: String::new(),
+            outbound_standby_route: String::new(),
             night_outbound_restore: String::new(),
             // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移
             auto_exit_on_online: false,

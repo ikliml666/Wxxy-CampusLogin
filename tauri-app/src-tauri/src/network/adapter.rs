@@ -254,6 +254,8 @@ mod tests {
             enable_night_outbound_switch: false,
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
+            outbound_disabled_adapters: String::new(),
+            outbound_standby_route: String::new(),
             night_outbound_restore: String::new(),
             auto_exit_on_online: false,
             theme_mode: "light".to_string(),

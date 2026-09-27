@@ -83,6 +83,16 @@ pub enum HelperOp {
     /// 启用被禁用的网络适配器（netsh interface set interface enable）
     #[cfg(target_os = "windows")]
     EnableAdapter { name: String },
+    /// 禁用网络适配器（netsh interface set interface disable，夜间切换临时下线校园网卡）
+    #[cfg(target_os = "windows")]
+    DisableAdapter { name: String },
+    /// 新增兜底默认路由（route add）：`rows` 为
+    /// "{dest}|{mask}|{gateway}|{metric}|{if_index}" 编码条目（全部严格校验后执行）
+    #[cfg(target_os = "windows")]
+    RouteAdd { rows: Vec<String> },
+    /// 删除兜底默认路由（route delete，同 `rows` 编码；路由不存在视为成功，幂等）
+    #[cfg(target_os = "windows")]
+    RouteDelete { rows: Vec<String> },
     /// PnP 设备级启用（pnputil /enable-device，含 problem 22 解除复核）
     #[cfg(target_os = "windows")]
     EnableDevice { instance_id: String },
@@ -154,6 +164,18 @@ fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
             HelperOp::EnableDevice { instance_id }
         }
         #[cfg(target_os = "windows")]
+        "disable_adapter" => {
+            let name = positional
+                .first()
+                .ok_or_else(|| "helper disable_adapter 缺少适配器名".to_string())?
+                .clone();
+            HelperOp::DisableAdapter { name }
+        }
+        #[cfg(target_os = "windows")]
+        "route_add" => HelperOp::RouteAdd { rows: positional },
+        #[cfg(target_os = "windows")]
+        "route_delete" => HelperOp::RouteDelete { rows: positional },
+        #[cfg(target_os = "windows")]
         "set_metric" => HelperOp::SetMetric { rows: positional },
         #[cfg(target_os = "windows")]
         "register_task" => HelperOp::RegisterTaskProxy,
@@ -205,6 +227,12 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
         HelperOp::Mac { guid, mac_no_dash } => run_mac(guid, mac_no_dash, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
         #[cfg(target_os = "windows")]
@@ -318,6 +346,12 @@ fn process_request(path: &std::path::Path) -> i32 {
                 HelperOp::Mac { guid, mac_no_dash } => run_mac(guid, mac_no_dash, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
                 #[cfg(target_os = "windows")]
@@ -666,6 +700,190 @@ fn run_enable_adapter(name: &str, logs: &mut Vec<String>) -> HelperResult {
         op: "enable_adapter".to_string(),
         logs: std::mem::take(logs),
         details: None,
+    }
+}
+
+/// 禁用适配器（netsh disable，夜间切换临时下线校园网卡用）。
+/// 双校验与 [`run_enable_adapter`] 相同：适配器名字符集 + 必须存在于本机适配器列表。
+#[cfg(target_os = "windows")]
+fn run_disable_adapter(name: &str, logs: &mut Vec<String>) -> HelperResult {
+    if let Err(e) = crate::network::adapter_cache::validate_adapter_name(name) {
+        return HelperResult {
+            success: false,
+            message: format!("适配器名校验失败: {e}"),
+            op: "disable_adapter".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        };
+    }
+    let known = crate::network::get_adapters_force()
+        .map(|list| list.iter().any(|a| a.name == name))
+        .unwrap_or(false);
+    if !known {
+        return HelperResult {
+            success: false,
+            message: format!("未找到本机适配器: {name}"),
+            op: "disable_adapter".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        };
+    }
+    logs.push(format!("helper: netsh 禁用适配器: {name}"));
+    let output = crate::network::discovery::new_command("netsh")
+        .args(["interface", "set", "interface", name, "disable"])
+        .output();
+    let ok = matches!(&output, Ok(o) if o.status.success());
+    let message = match output {
+        Ok(o) if o.status.success() => format!("netsh 禁用适配器成功: {name}"),
+        Ok(o) => {
+            let detail = crate::platform::console_output::decode_console_bytes(&o.stderr);
+            let detail = detail.trim();
+            if detail.is_empty() {
+                "netsh 返回非零退出码但未输出错误信息".to_string()
+            } else {
+                format!("netsh 失败: {detail}")
+            }
+        }
+        Err(e) => format!("netsh 执行失败: {e}"),
+    };
+    if ok {
+        logs.push(format!("helper: {message}"));
+    }
+    HelperResult {
+        success: ok,
+        message,
+        op: "disable_adapter".to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    }
+}
+
+/// 解码兜底路由条目 "{dest}|{mask}|{gateway}|{metric}|{if_index}"。
+/// 三个地址必须是合法 IPv4 点分十进制（std 解析兜底，杜绝 route 参数注入），
+/// metric/if_index 必须是纯数字。
+#[cfg(target_os = "windows")]
+fn decode_route_row(row: &str) -> Result<(std::net::Ipv4Addr, std::net::Ipv4Addr, std::net::Ipv4Addr, u32, u32), String> {
+    let parts: Vec<&str> = row.split('|').collect();
+    if parts.len() != 5 {
+        return Err(format!("路由条目字段数错误: {row:?}"));
+    }
+    let parse_addr = |s: &str| -> Result<std::net::Ipv4Addr, String> {
+        s.parse::<std::net::Ipv4Addr>()
+            .map_err(|_| format!("非法 IPv4 地址: {s:?}"))
+    };
+    let dest = parse_addr(parts[0])?;
+    let mask = parse_addr(parts[1])?;
+    let gateway = parse_addr(parts[2])?;
+    let metric = parts[3]
+        .parse::<u32>()
+        .map_err(|_| format!("非法跃点数: {:?}", parts[3]))?;
+    let if_index = parts[4]
+        .parse::<u32>()
+        .map_err(|_| format!("非法接口索引: {:?}", parts[4]))?;
+    Ok((dest, mask, gateway, metric, if_index))
+}
+
+/// route.exe 的输出里出现这些字样 = 路由本就不存在，删除按成功处理（幂等还原）。
+#[cfg(target_os = "windows")]
+fn route_delete_miss(output_text: &str) -> bool {
+    let t = output_text.to_lowercase();
+    t.contains("找不到") || t.contains("not found") || t.contains("element not found")
+}
+
+/// 新增兜底默认路由（route add，worker 以 SYSTEM 身份运行）。
+#[cfg(target_os = "windows")]
+fn run_route_add(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
+    run_route_rows("route_add", "add", rows, logs)
+}
+
+/// 删除兜底默认路由（route delete）。路由不存在（route 输出「找不到」）视为成功。
+#[cfg(target_os = "windows")]
+fn run_route_delete(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
+    run_route_rows("route_delete", "delete", rows, logs)
+}
+
+/// route add/delete 的公共执行体：先全量校验再逐条执行。
+#[cfg(target_os = "windows")]
+fn run_route_rows(
+    op: &str,
+    action: &str,
+    rows: &[String],
+    logs: &mut Vec<String>,
+) -> HelperResult {
+    let fail = |message: String, logs: &mut Vec<String>| HelperResult {
+        success: false,
+        message,
+        op: op.to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    };
+    if rows.is_empty() {
+        return fail(format!("{op} 缺少路由条目"), logs);
+    }
+    let mut decoded = Vec::new();
+    for row in rows {
+        match decode_route_row(row) {
+            Ok(d) => decoded.push(d),
+            Err(e) => return fail(format!("{op} 参数校验失败: {e}"), logs),
+        }
+    }
+    let mut failed: Vec<String> = Vec::new();
+    for (dest, mask, gateway, metric, if_index) in &decoded {
+        logs.push(format!(
+            "helper: route {action} {dest} mask {mask} {gateway} metric {metric} if {if_index}"
+        ));
+        let output = crate::network::discovery::new_command("route")
+            .args([
+                action,
+                &dest.to_string(),
+                "mask",
+                &mask.to_string(),
+                &gateway.to_string(),
+                "metric",
+                &metric.to_string(),
+                "if",
+                &if_index.to_string(),
+            ])
+            .output();
+        let (ok, detail) = match output {
+            Ok(o) => {
+                let stdout = crate::platform::console_output::decode_console_bytes(&o.stdout);
+                let stderr = crate::platform::console_output::decode_console_bytes(&o.stderr);
+                let success = o.status.success()
+                    || (action == "delete" && route_delete_miss(&format!("{stdout}{stderr}")));
+                if success {
+                    (true, String::new())
+                } else {
+                    let text = stderr.trim();
+                    let detail = if text.is_empty() { stdout } else { text.to_string() };
+                    (false, detail)
+                }
+            }
+            Err(e) => {
+                failed.push(format!("route 执行失败: {e}"));
+                continue;
+            }
+        };
+        if !ok {
+            failed.push(if detail.trim().is_empty() {
+                format!("route {action} 返回非零退出码且无输出 ({dest})")
+            } else {
+                format!("route {action} 失败: {} ({dest})", detail.trim())
+            });
+        }
+    }
+    if failed.is_empty() {
+        let message = format!("路由已{}（{} 条）", if action == "add" { "添加" } else { "删除" }, decoded.len());
+        logs.push(format!("helper: {message}"));
+        HelperResult {
+            success: true,
+            message,
+            op: op.to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        }
+    } else {
+        fail(format!("路由操作失败: {}", failed.join("；")), logs)
     }
 }
 
@@ -1033,5 +1251,52 @@ mod tests {
         let req: TaskRequest =
             serde_json::from_str(r#"{"op":"selfcheck","result":"r.json"}"#).unwrap();
         assert!(req.args.is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn decode_route_row_accepts_valid_and_rejects_injection() {
+        let row = "0.0.0.0|0.0.0.0|192.168.6.1|2|14";
+        let (dest, mask, gateway, metric, if_index) = decode_route_row(row).unwrap();
+        assert_eq!(
+            (
+                dest.to_string(),
+                mask.to_string(),
+                gateway.to_string(),
+                metric,
+                if_index
+            ),
+            (
+                "0.0.0.0".to_string(),
+                "0.0.0.0".to_string(),
+                "192.168.6.1".to_string(),
+                2u32,
+                14u32
+            )
+        );
+        // 非法条目一律拒绝：字段数不足/多余、地址越界/非点分、metric/if 非数字、
+        // 注入尝试（空格/斜杠/dash 开关）全部挡在 std Ipv4Addr/数字解析
+        for bad in [
+            "0.0.0.0|0.0.0.0|192.168.6.1|2",
+            "0.0.0.0|0.0.0.0|192.168.6.1|2|14|9",
+            "0.0.0.0|0.0.0.0|256.168.6.1|2|14",
+            "0.0.0.0|0.0.0.0|192.168.6|2|14",
+            "0.0.0.0|0.0.0.0|192.168.6.1 -flag|2|14",
+            "0.0.0.0|0.0.0.0|/remove|2|14",
+            "0.0.0.0|0.0.0.0|192.168.6.1|abc|14",
+            "0.0.0.0|0.0.0.0|192.168.6.1|-2|14",
+            "0.0.0.0|0.0.0.0|192.168.6.1|2|abc",
+            "",
+        ] {
+            assert!(decode_route_row(bad).is_err(), "应拒绝: {bad:?}");
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn route_delete_miss_detection() {
+        assert!(route_delete_miss("找不到路由元素。"));
+        assert!(route_delete_miss("The route was not found"));
+        assert!(!route_delete_miss("OK!"));
     }
 }

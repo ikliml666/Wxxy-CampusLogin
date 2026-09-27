@@ -39,6 +39,12 @@ pub struct Settings {
     /// 桌面出站切换态快照(仅目标卡 IPv4/IPv6 两族的 metric JSON);非空=桌面处于
     /// 切换态。安卓端不消费此字段
     pub outbound_metric_restore: String,
+    /// 桌面夜间切换时亲手禁用的校园网卡名单(DisabledRow JSON,只记 GUID+名,USB 永不
+    /// 入名单);非空=桌面存在待还原的禁用网卡。安卓端无禁用动作,不消费此字段
+    pub outbound_disabled_adapters: String,
+    /// 桌面夜间切换加的兜底默认路由(StandbyRoute JSON,runtime 路由重启即清);
+    /// 非空=桌面存在待删除的兜底路由。安卓端不消费此字段
+    pub outbound_standby_route: String,
     /// 安卓出站切换态标记(值恒 "logged_out",纯标记不暂存账号名):非空=处于出站
     /// 切换态(已注销等待晨间重登)。标记生效期间巡检整轮跳过、运营商夜切让位、
     /// 定时登录跳过(见 monitor_loop::run_scheduled_actions);切账号、删除当前账号、
@@ -117,6 +123,8 @@ impl Default for Settings {
             enable_night_outbound_switch: false,
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
+            outbound_disabled_adapters: String::new(),
+            outbound_standby_route: String::new(),
             night_outbound_restore: String::new(),
             auto_login_on_start: true,
             enable_background_check: true,

@@ -142,8 +142,18 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                         } else {
                             vec![]
                         };
+                        // 夜间出站切换态下，本功能亲手禁用的校园网卡不发"被禁用"警告
+                        // （这是预期行为而非异常；名单只记切换时亲手禁用的卡，不按状态推断）
+                        let night_disabled: std::collections::HashSet<String> =
+                            crate::monitor::outbound_switch::parse_disabled_adapters(&c.outbound_disabled_adapters)
+                                .into_iter()
+                                .map(|r| r.name)
+                                .collect();
                         for da in &disabled {
-                            if !last_disabled.iter().any(|ld| ld.name == da.name) && configured_names.iter().any(|n| *n == da.name) {
+                            if !last_disabled.iter().any(|ld| ld.name == da.name)
+                                && configured_names.iter().any(|n| *n == da.name)
+                                && !night_disabled.contains(&da.name)
+                            {
                                 let message = format!("适配器{} 当前{}，请检查后重试", da.name, da.status);
                                 if let Err(e) = EventBus::new(&app_h).emit_adapter_disabled_warning(&da.name, &message) {
                                     crate::log_warn!("adapter_watch", "发送适配器禁用警告失败: {}", e);
@@ -156,10 +166,21 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                 // 自动启用：用户手选的具体适配器被禁用时，静默尝试启用以恢复登录。
                 // "自动检测"模式不参与（configured_disabled_adapters 已过滤空串与哨兵）。
                 // 首次静默（不弹 UAC）；失败后允许降级弹 UAC，频率由退避阶梯限制。
+                // 夜间出站切换态下，本功能亲手禁用的校园网卡必须跳过（六期）：否则
+                // 启用会顶掉切换（昨晚实证 adapter_watch 23:31 自动启用了夜切准备禁用的卡）；
+                // 名单外被禁用的卡照常自动启用。
                 {
                     let s = app_h.state::<AppState>();
                     let c = s.config.load();
-                    let targets = crate::network::adapter::configured_disabled_adapters(&c, &disabled);
+                    let night_disabled: std::collections::HashSet<String> =
+                        crate::monitor::outbound_switch::parse_disabled_adapters(&c.outbound_disabled_adapters)
+                            .into_iter()
+                            .map(|r| r.name)
+                            .collect();
+                    let targets = crate::network::adapter::configured_disabled_adapters(&c, &disabled)
+                        .into_iter()
+                        .filter(|da| !night_disabled.contains(&da.name))
+                        .collect::<Vec<_>>();
                     let stats = &s.update_stats;
                     if targets.is_empty() {
                         // 手选适配器全部恢复（或用户改回自动检测）：清零失败计数，退避从头计

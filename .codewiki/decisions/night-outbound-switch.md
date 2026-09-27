@@ -3,10 +3,14 @@ title: "夜间出站自动切换（出站层夜切）"
 type: decision
 source_files:
   - tauri-app/src-tauri/src/config/outbound_switch.rs
+  - tauri-app/src-tauri/src/config/model.rs
   - tauri-app/src-tauri/src/config/night_switch.rs
   - tauri-app/src-tauri/src/monitor/outbound_switch.rs
   - tauri-app/src-tauri/src/monitor/scheduled.rs
   - tauri-app/src-tauri/src/monitor/background_check.rs
+  - tauri-app/src-tauri/src/monitor/adapter_watch.rs
+  - tauri-app/src-tauri/src/discovery/devnode.rs
+  - tauri-app/src-tauri/src/discovery/windows.rs
   - tauri-app/src-tauri/src/platform/metric.rs
   - tauri-app/src-tauri/src/helper/mod.rs
   - tauri-app/src-tauri/src/commands/config_cmd.rs
@@ -126,7 +130,7 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 5. **功能已关+态残留的兜底判据内联不重构**：桌面抽为可测纯函数 `outbound_action_for`（`scheduled.rs:214`，10 个单测），安卓在 `run_scheduled_actions` 内联同款三行——刻意不抽公共纯函数（安卓编排本就独立于桌面 monitor 模块，抽取需扩大桌面 crate 的 pub 面，收益小）。两端行为必须保持同步，改动时人工对照。
 6. **captive portal 白名单误判风险**：个别校园网部署放行系统探测 URL——安卓注销后系统验证仍"通过"，`avoid_bad_wifi` 不切流量。真机实测项；命中则二期改"注销+提示"降级。
 7. **切换时机由系统探测周期决定**（安卓）：`reportNetworkConnectivity` 后系统按自身节奏重验证，不保证 23:00 整点切蜂窝，与"自动衔接"语义相容但非秒级。
-8. **与 TUN 代理（mihomo auto-route）并存时 metric=1 不接管整机流量**：FlClash 等以 `0.0.0.0/0` RouteMetric=0（Protocol=NetMgmt）霸占默认路由，物理卡低跃点赢不了；取证与二期候选方案见「文案精简与夜间断网实测复盘（2026-09-27 五期）」节。
+8. ~~**与 TUN 代理（mihomo auto-route）并存时 metric=1 不接管整机流量**~~（2026-09-27 六期已解决，机制与并存语义见「禁用+兜底路由方案落地（六期）」节）：纯跃点切换确实被 TUN 压制，六期改用禁用校园网网卡产生接口/路由事件迫使 mihomo 重选出站。
 
 ## WRITE_SECURE_SETTINGS 自动写增强（2026-09-22 二期）
 
@@ -176,6 +180,57 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 2. **切换后验证 + 通知**：写入成功的下一拍读回默认路由接口或对目标卡真实探测，未接管即告警通知——避免用户半夜才发现。
 3. **DNS 跟随**（冲突协调节二期欠账）：切换时把目标卡 DNS 置顶、系统解析跟随。
 4. **合并卡显示当前生效出站接口**（所见即所得）。
+
+## 禁用+兜底路由方案落地（2026-09-27 六期）
+
+用户 v2 提案（2026-09-27）否定纯跃点路线（原话大意：直接修改路由表新增一条排在 TUN 后面的路由，再增加操作把连接校园网的网卡禁用后再启用）。拍板方案与硬约束：
+
+- **方案**：「禁用校园网网卡 + 兜底路由 + 保留 metric」三件套（替换五期候选 1）；启用（还原）时机=6:30 恢复窗口（原机制不变）。
+- **硬约束①**：USB 网卡绝不禁用——禁用会导致 USB 网卡下次开机无法正常启用（Windows 提示「请安装网卡」）。
+- **硬约束②**：软件对 USB 网卡状态判断不准（截图实证：以太网 2 实为未连接却显示已禁用+启用按钮）→ 禁用名单只记**亲手禁用的 GUID**，绝不靠状态推断；状态误判本身一并修（见下「幽灵设备误判修复」）。
+
+### 切换动作（`apply_outbound_switch` 重写）
+
+目标卡选择与两族 metric=1 写入不变，新增两步：
+
+1. **禁用校园网网卡**（`monitor/outbound_switch.rs::select_campus_to_disable`）：候选=Connected + 判校园网 + priority 白名单内 + 有 GUID/IP + **非目标卡**（排除 `exclude_guid`，目标卡禁了就没人出站）+ **USB 守卫过滤**（`unsafe_to_disable`：PnPInstanceId 前缀 `USB\`（大小写不敏感）或读取失败一律 true=跳过，保守）。逐张 helper `disable_adapter`；名单 `DisabledRow{guid,name}` 序列化 `outboundDisabledAdapters`（`[{guid,name}]` JSON），**只记成功下发禁用的卡**。与 metric 快照、路由快照**一次落盘**（三快照成立切换态，落盘先行语义不变），再执行动作——失败不清快照退避重试的既有语义保留（`needs_replay` 三快照+失败计数联合判定，稳态夜间约 900 拍不重复提权）。
+2. **兜底路由**（`StandbyRoute{dest,mask,gateway,metric,if_index}` → `outboundStandbyRoute`）：`0.0.0.0/0` 指向目标卡网关、metric=2（`OUTBOUND_STANDBY_ROUTE_METRIC`）、IF 目标卡，helper `route_add` 下发。网关为空则不下发（None，纯 metric+禁用兜底）。
+
+通知文案：`write_outbound_metric` 加 `notify_suffix` 参数——「已切换出站到 X，已临时禁用 N 张校园网网卡」（N=0 时无后缀）。
+
+**为什么这套动作能接管流量**：FlClash TUN（0.0.0.0/0 metric 0）仍持有默认路由——兜底路由 metric=2 永远抢不了它，**唯一角色是 FlClash 退出后的 failover**。真正的主力是禁用：校园网卡禁用产生接口/路由删除事件，mihomo `auto-detect-interface` 重选出站接口——已禁的校园网卡从候选消失，TUN 出站落目标卡（热点）；路由/DNS/接口竞争同时全消。目标卡 metric=1 保留，是 mihomo 出站选择的依据（TUN 退出后默认路由由同卡的 metric 2 兜底路由顶上）。夜间并存语义：**FlClash 运行中**流量仍进 TUN、出口=热点（代理路径恰好可用）；**FlClash 退出**后默认路由=兜底路由（目标卡），直连热点。
+
+### 还原动作（`apply_outbound_restore` 重写）
+
+顺序固定：① `route_delete` 兜底路由——失败仅 warn **不阻塞还原**（运行时路由重启即清，非持久破坏）；② metric 按快照写回（终态出口语义不变：卡不存在/跃点行消失视为已还原；**metric 快照 JSON 损坏 → 清快照按已还原收尾**——禁用名单可能仍在但收尾优先，防坏数据永久压住巡检，与一期口径一致）；③ 逐卡 `enable_adapter`：仅名单内 GUID（名单外被禁的卡不碰）、卡已不存在跳过；**enable 失败=还原失败整体重试**（名单保留——禁用的卡不能放着不管）；④ 成功通知：`enabled_count>0` →「已还原网络设置（启用 N 张校园网网卡）」，否则沿用「已还原网卡跃点设置」。`clear_outbound_snapshot` 清三字段。
+
+### replay 三分支幂等补做
+
+`replay_outbound_switch`（原 `replay_outbound_switch_metric` 改名）三分支：metric 补写 / 禁用补做（卡不存在跳过）/ 路由补加——提权 gate 开头一次，各分支独立判定、全部幂等（重复禁用无害、同条目重复添加无害）。
+
+### helper 新 op（`helper/mod.rs`）
+
+`HelperOp::DisableAdapter{name}` / `RouteAdd{rows}` / `RouteDelete{rows}`（均 cfg windows）：`disable_adapter` 镜像 `enable_adapter`（validate + 强制重扫存在性校验 + `netsh interface set interface name=X admin=disable`）；路由行编码 `"{dest}|{mask}|{gateway}|{metric}|{if_index}"`，`Ipv4Addr` 严格解析（非法字符直接拒绝，防参数注入 netsh）；`route_delete` 找不到目标按成功处理（幂等）。`SetMetricFailure` 更名 `HelperFailure`（`run_set_metric_helper` 泛化为 `run_helper_op(op, args, allow_uac)`，三 op 共用 UAC 降级链）。
+
+### 幽灵设备误判修复（`discovery/windows.rs`）
+
+USB 网卡拔出后设备节点成幽灵（phantom）：`AdminStatus` 或 Class 注册表 `ConfigFlags` 残留 DISABLED 位 → 误分类「已禁用」（自动启用逻辑对着不存在的卡提权——用户「USB 判断不准」反馈的根源）。`classify_adapter_status` 加第 6 参 `pnp_present: Option<bool>`——`Some(false)`（经 `discovery/devnode.rs::read_pnp_instance_id`（改 `pub(crate)`）+ `devnode_problem` 判定）直接判 `Disconnected`；查询不可用（None）回退旧行为。
+
+### adapter_watch 冲突修复（09-26 实证）
+
+`adapter_watch.rs` 两处过滤 `night_disabled` 名单（`parse_disabled_adapters` 的 name 集合）：①禁用警告通知块——本功能夜间禁用不再告警；②自动启用块——名单内的卡不自动启用（09-26 23:31:35 实证 PnP problem 22 自动启用与夜切冲突，把刚禁的卡启回去）；名单外的卡照常自动启用（用户手动禁用行为不变）。
+
+### 配套状态
+
+- 切换态判定三快照联合（`config/outbound_switch.rs::outbound_restore_active(metric, disabled, standby)` 任一非空）：`scheduled.rs` 循环/启动对账、`background_check.rs` 巡检跳过均改用；`config_cmd.rs` 导入配置清三字段；`config/model.rs` 加 `outbound_disabled_adapters`/`outbound_standby_route`（默认空串，双端同构；安卓不消费）。
+- 前端：tauri-app/android 的 types.ts+constants.ts 补 `outboundDisabledAdapters`/`outboundStandbyRoute`；i18n `nightOutboundSwitchDesc`（桌面 zh/en `:297`）加「并临时禁用校园网网卡」语义（android 同 key 语义不同未动）。
+
+### 五期候选落实情况
+
+- **候选 1（压制竞争接口抬 metric 5000）**→ 被禁用方案替代：禁用比抬跃点彻底（路由/DNS/竞争全消），且 mihomo 事件感知可靠。
+- **候选 2（切换后验证+通知）**→ 未实施（禁用动作自带强信号，mihomo 接口事件必然触发；后续可加默认路由读回校验）。
+- **候选 3（DNS 跟随）**→ 未实施：校园网卡禁用后 DNS 竞争卡消失，热点 DNS 天然胜出，五期观察项基本消解。
+- **候选 4（合并卡显示生效出站）**→ 未实施。
 
 ## Connections
 

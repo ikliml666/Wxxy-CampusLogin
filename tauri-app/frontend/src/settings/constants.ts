@@ -27,6 +27,8 @@ export const DEFAULT_CONFIG: Config = {
   enableNightOutboundSwitch: false,
   outboundPriority: [],
   outboundMetricRestore: '',
+  outboundDisabledAdapters: '',
+  outboundStandbyRoute: '',
   nightOutboundRestore: '',
   autoExitOnOnline: false,
   themeMode: 'dark',

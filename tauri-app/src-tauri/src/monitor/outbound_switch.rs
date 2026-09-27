@@ -74,6 +74,105 @@ pub fn snapshot_json(guid: &str, rows: &[crate::platform::metric::MetricRow]) ->
     serde_json::to_string(&snapshot).unwrap_or_else(|_| "[]".to_string())
 }
 
+/// 待禁用校园网卡行（切换快照 `[{guid, name}]`）。
+/// 名单只记本功能亲手禁用的卡：还原与 adapter_watch 闸门都以它为准，绝不按
+/// 「看到禁用状态」推断归属——USB 网卡状态判定不可靠（未连接会被误判为已禁用）。
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DisabledRow {
+    pub guid: String,
+    pub name: String,
+}
+
+/// 序列化待禁用校园网卡名单为 JSON。纯数据结构序列化不会失败，兜底返回 "[]"。
+pub fn disabled_adapters_json(rows: &[DisabledRow]) -> String {
+    serde_json::to_string(rows).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// 解析禁用名单快照（空串/非法 JSON → 空名单，按「无禁用动作」处理）。
+pub fn parse_disabled_adapters(json: &str) -> Vec<DisabledRow> {
+    serde_json::from_str(json.trim()).unwrap_or_default()
+}
+
+/// 兜底默认路由快照（route add 的 runtime 路由，重启即清，落盘仅供程序内还原对账）。
+/// 排在既有默认路由（TUN metric=0、物理卡自动跃点）之后：最长前缀相同（/0）时
+/// 跃点只在同前缀内比较，本路由平时不接管流量，仅当更高优先级默认路由全部消失
+/// （如 TUN 退出、热点断开）时作为 failover 兜底。
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StandbyRoute {
+    pub dest: String,
+    pub mask: String,
+    pub gateway: String,
+    pub metric: u32,
+    #[serde(rename = "ifIndex")]
+    pub if_index: u32,
+}
+
+/// 序列化兜底路由快照（`None` → 空串）。
+pub fn standby_route_json(route: Option<&StandbyRoute>) -> String {
+    match route {
+        Some(r) => serde_json::to_string(r).unwrap_or_default(),
+        None => String::new(),
+    }
+}
+
+/// 解析兜底路由快照（空串/非法 JSON → `None`）。
+pub fn parse_standby_route(json: &str) -> Option<StandbyRoute> {
+    serde_json::from_str(json.trim()).ok()
+}
+
+/// USB 设备实例 ID 前缀口径（设备管理器同款）：`USB\VID_xxx&PID_xxx\...`。
+fn is_usb_instance_id(instance_id: &str) -> bool {
+    instance_id.to_ascii_uppercase().starts_with("USB\\")
+}
+
+/// 该卡是否不适合参与夜间禁用（USB 总线，或总线无法判定）。
+/// 用户实证：USB 网卡被禁用后下次开机 Windows 提示「请安装网卡」无法正常启用——
+/// USB 卡绝不禁用；实例 ID 都读不到的卡按「可能 USB」保守处理，同样跳过。
+#[cfg(target_os = "windows")]
+pub(crate) fn unsafe_to_disable(guid: &str) -> bool {
+    match crate::network::discovery::devnode::read_pnp_instance_id(guid) {
+        Some(id) => is_usb_instance_id(&id),
+        None => true,
+    }
+}
+
+/// 选出本次切换要临时禁用的校园网卡：在优先级列表内、已连接（有 IP）、判定为
+/// 校园网、有 GUID、非目标卡、非 USB 总线（经 `usb_guard` 注入，Windows 生产传
+/// [`unsafe_to_disable`]，单测传闭包），按优先级名序去重。
+pub fn select_campus_to_disable(
+    priority: &[String],
+    details: &[(Adapter, String)],
+    campus_gateway: &str,
+    exclude_guid: &str,
+    gateway_probe: impl Fn(&str, &str) -> bool,
+    usb_guard: impl Fn(&str) -> bool,
+) -> Vec<DisabledRow> {
+    let mut rows: Vec<DisabledRow> = Vec::new();
+    for name in priority {
+        if rows.iter().any(|r| r.name == *name) {
+            continue; // 同名卡只取第一张
+        }
+        let Some((adapter, gateway)) = details.iter().find(|(a, _)| a.name == *name) else {
+            continue;
+        };
+        if adapter.guid == exclude_guid || adapter.guid.is_empty() {
+            continue;
+        }
+        // 无 IP（已断开/被禁用）的卡不值得禁用，跳过
+        if adapter.ip.is_empty() {
+            continue;
+        }
+        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, &gateway_probe) {
+            continue;
+        }
+        if usb_guard(&adapter.guid) {
+            continue;
+        }
+        rows.push(DisabledRow { guid: adapter.guid.clone(), name: adapter.name.clone() });
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +284,111 @@ mod tests {
     fn snapshot_json_empty_rows() {
         // GUID 无匹配行时 read_interface_metrics 返回空表，快照应为合法空数组
         assert_eq!(snapshot_json("{G1}", &[]), "[]");
+    }
+
+    #[test]
+    fn disabled_adapters_json_round_trip() {
+        let rows = vec![
+            DisabledRow { guid: "{G1}".to_string(), name: "以太网".to_string() },
+            DisabledRow { guid: "{G2}".to_string(), name: "以太网 2".to_string() },
+        ];
+        let json = disabled_adapters_json(&rows);
+        assert_eq!(parse_disabled_adapters(&json), rows);
+        // 空串与非法 JSON → 空名单（按「无禁用动作」处理）
+        assert!(parse_disabled_adapters("").is_empty());
+        assert!(parse_disabled_adapters("not json").is_empty());
+        assert_eq!(disabled_adapters_json(&[]), "[]");
+    }
+
+    #[test]
+    fn standby_route_json_round_trip() {
+        let route = StandbyRoute {
+            dest: "0.0.0.0".to_string(),
+            mask: "0.0.0.0".to_string(),
+            gateway: "192.168.6.1".to_string(),
+            metric: 2,
+            if_index: 14,
+        };
+        let json = standby_route_json(Some(&route));
+        assert!(json.contains("\"ifIndex\":14"), "ifIndex 序列化应保持驼峰: {json}");
+        assert_eq!(parse_standby_route(&json), Some(route));
+        // 序列化字段名与 helper 编码字段一一对应
+        let back = parse_standby_route(&json).unwrap();
+        assert_eq!(
+            (back.dest.as_str(), back.mask.as_str(), back.gateway.as_str(), back.metric, back.if_index),
+            ("0.0.0.0", "0.0.0.0", "192.168.6.1", 2u32, 14u32)
+        );
+        assert_eq!(standby_route_json(None), "");
+        assert!(parse_standby_route("").is_none());
+        assert!(parse_standby_route("bad").is_none());
+    }
+
+    #[test]
+    fn select_campus_to_disable_filters_everything_non_campus() {
+        // 场景：priority=[WLAN(目标), 以太网(校园), 以太网 2(校园 USB), 以太网 3(非校园)]，
+        // 目标卡/非校园卡/无 IP 卡/USB 卡都不入名单
+        let target = (adapter("WLAN", "{GT}", "192.168.43.10", true), "192.168.43.1".to_string());
+        let campus = (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string());
+        let campus_usb = (adapter("以太网 2", "{G2}", "10.64.1.3", false), "10.64.60.1".to_string());
+        let off_campus = (adapter("以太网 3", "{G3}", "192.168.6.107", false), "192.168.6.1".to_string());
+        let ipless = (adapter("以太网 4", "{G4}", "", false), String::new());
+        let priority = vec![
+            "WLAN".to_string(),
+            "以太网".to_string(),
+            "以太网 2".to_string(),
+            "以太网 3".to_string(),
+            "以太网 4".to_string(),
+        ];
+        let details = vec![target, campus, campus_usb, off_campus, ipless];
+        let rows = select_campus_to_disable(
+            &priority,
+            &details,
+            "10.64.60.1",
+            "{GT}",
+            |_, _| false, // 非同段卡绑源探测不可达 → 非校园
+            |g| g == "{G2}", // USB guard：{G2} 视为 USB
+        );
+        assert_eq!(rows.len(), 1, "只应选中非目标的在网校园卡: {rows:?}");
+        assert_eq!(rows[0], DisabledRow { guid: "{G1}".to_string(), name: "以太网".to_string() });
+    }
+
+    #[test]
+    fn select_campus_to_disable_probe_reachable_counts_and_dedups() {
+        // 不同 /18 但绑源可达校园网关 → 视为校园入选；重复名只取第一张
+        let a1 = (adapter("以太网", "{G1}", "192.168.6.109", false), "192.168.6.1".to_string());
+        let priority = vec!["以太网".to_string(), "以太网".to_string()];
+        let rows = select_campus_to_disable(
+            &priority,
+            &[a1],
+            "10.64.60.1",
+            "{GT}",
+            |_, _| true,
+            |_| false,
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].guid, "{G1}");
+    }
+
+    #[test]
+    fn select_campus_to_disable_unknown_bus_is_skipped() {
+        // 实例 ID 读不到的卡按「可能 USB」保守处理：usb_guard 返回 true → 跳过
+        let campus = (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string());
+        let rows = select_campus_to_disable(
+            &["以太网".to_string()],
+            &[campus],
+            "10.64.60.1",
+            "{GT}",
+            |_, _| false,
+            |_| true,
+        );
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn usb_instance_id_prefix_matching() {
+        assert!(is_usb_instance_id(r"USB\VID_0BDA&PID_8156\4013000001"));
+        assert!(is_usb_instance_id(r"usb\vid_0bda&pid_8156\4013000001"));
+        assert!(!is_usb_instance_id(r"PCI\VEN_10EC&DEV_8168"));
+        assert!(!is_usb_instance_id(""));
     }
 }
