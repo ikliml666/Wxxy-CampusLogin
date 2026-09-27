@@ -179,11 +179,13 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: St
     restore_imported_password_field(&mut config.password, password_encrypted, &current.password)?;
     restore_imported_password_field(&mut config.self_password, password_encrypted, &current.self_password)?;
     // 切换态是本机系统状态（metric 快照/禁用名单/兜底路由/注销标记），不可随配置
-    // 迁移到新机；导入即清
-    config.outbound_metric_restore = String::new();
-    config.outbound_disabled_adapters = String::new();
-    config.outbound_standby_route = String::new();
-    config.night_outbound_restore = String::new();
+    // 迁移：导入文件里的四字段一律丢弃，改保留本机当前值。若直接清空，切换中导入
+    // 会把活跃快照整体顶掉——系统残留切换态（目标卡 metric=1/校园卡禁用/兜底路由）
+    // 却再无还原路径，原始跃点从此丢失，次夜还会把 metric=1 当原值快照（k2.8 审计 P1-1）
+    config.outbound_metric_restore = current.outbound_metric_restore.clone();
+    config.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
+    config.outbound_standby_route = current.outbound_standby_route.clone();
+    config.night_outbound_restore = current.night_outbound_restore.clone();
 
     // 失败分列③：配置校验失败（严格版，与 save_config 同源）
     let config = match validate_config(config) {

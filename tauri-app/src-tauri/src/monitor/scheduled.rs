@@ -68,9 +68,18 @@ const OUTBOUND_STANDBY_ROUTE_METRIC: u32 = 2;
 const OUTBOUND_BACKOFF_START_MS: u64 = 60_000;
 const OUTBOUND_BACKOFF_MAX_MS: u64 = 300_000;
 
-/// 出站还原连续失败达此次数 → 发一次告警通知（含手动恢复提示）；之后仍按退避重试，
-/// 但不再逐次通知——避免整夜刷通知
+/// 出站还原连续失败达此次数 → 发一次告警通知（含手动恢复提示）；此后每
+/// OUTBOUND_RESTORE_ALERT_REMIND_EVERY 次失败重复提醒一次——避免整夜刷通知，
+/// 也避免「只提醒一次、之后无限静默重试」（k2.8 审计 P3-1）
 const OUTBOUND_RESTORE_ALERT_FAILS: u32 = 3;
+/// 首次告警后的重复提醒间隔（失败次数）：300s 退避封顶时约每 100 分钟一次
+const OUTBOUND_RESTORE_ALERT_REMIND_EVERY: u32 = 20;
+
+/// 还原失败告警是否应发出：首次达阈值，此后每 REMIND_EVERY 次重复一次
+fn outbound_restore_alert_due(count: u32) -> bool {
+    count >= OUTBOUND_RESTORE_ALERT_FAILS
+        && (count - OUTBOUND_RESTORE_ALERT_FAILS) % OUTBOUND_RESTORE_ALERT_REMIND_EVERY == 0
+}
 
 /// 出站**切换**动作退避状态：上次失败时刻（epoch ms）+ 连续失败计数
 static OUTBOUND_SWITCH_LAST_FAIL_MS: AtomicU64 = AtomicU64::new(0);
@@ -756,7 +765,10 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
         return false;
     }
     let allow_uac = outbound_allow_uac();
-    // ① 删兜底路由：找不到/not found 同样算成功（已不在）；其余失败不阻塞后续还原
+    let mut route_ok = true;
+    // ① 删兜底路由：找不到/not found 同样算成功（已不在）；其余失败不阻塞本拍
+    // 后续还原步骤，但阻止收尾清快照——metric=2 兜底路由残留会持续改道流量，
+    // 不能按成功收尾（k2.8 审计 P1-2），下一拍整体幂等重试直到删掉为止
     if let Some(route) = parse_standby_route(&config.outbound_standby_route) {
         let row = format!(
             "{}|{}|{}|{}|{}",
@@ -769,7 +781,22 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
             }
             Err(failure) => {
                 note_channel_failure(&failure);
-                crate::log_warn!("outbound", "夜间出站还原: 删除兜底路由失败（不阻塞还原）: {}", failure.reason);
+                let count = mark_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
+                crate::log_warn!(
+                    "outbound",
+                    "夜间出站还原: 删除兜底路由失败(第 {count} 次)，{}s 后重试: {}",
+                    outbound_backoff_ms(count) / 1000,
+                    failure.reason
+                );
+                if outbound_restore_alert_due(count) {
+                    crate::infra::notification::emit_notification(
+                        app_handle,
+                        "夜间出站还原失败",
+                        "兜底路由未能自动删除，出站流量可能仍被改道；将自动重试，也可在系统路由表中手动删除",
+                        "mascot-alert",
+                    );
+                }
+                route_ok = false;
             }
         }
     }
@@ -807,7 +834,7 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
                             outbound_backoff_ms(count) / 1000,
                             failure.reason
                         );
-                        if count == OUTBOUND_RESTORE_ALERT_FAILS {
+                        if outbound_restore_alert_due(count) {
                             crate::infra::notification::emit_notification(
                                 app_handle,
                                 "夜间出站还原失败",
@@ -852,7 +879,7 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
                         row.name,
                         failure.reason
                     );
-                    if count == OUTBOUND_RESTORE_ALERT_FAILS {
+                    if outbound_restore_alert_due(count) {
                         crate::infra::notification::emit_notification(
                             app_handle,
                             "夜间出站还原失败",
@@ -865,7 +892,7 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
             }
         }
     }
-    if !(metric_ok && enable_ok) {
+    if !(metric_ok && enable_ok && route_ok) {
         return false;
     }
     // 成功通知只发一次（全部步骤完成后）：文案区分是否真的启用了网卡
@@ -1272,6 +1299,21 @@ mod tests {
     use std::sync::atomic::Ordering as AOrd;
 
     const TODAY: i32 = 739_776;
+
+    #[test]
+    fn 还原失败告警_首达阈值触发_此后周期重复() {
+        // 未达阈值不告警
+        assert!(!outbound_restore_alert_due(0));
+        assert!(!outbound_restore_alert_due(1));
+        assert!(!outbound_restore_alert_due(2));
+        // 首次达阈值（3）告警；此后每 20 次失败重复一次（23、43、…）
+        assert!(outbound_restore_alert_due(3));
+        assert!(!outbound_restore_alert_due(4));
+        assert!(!outbound_restore_alert_due(22));
+        assert!(outbound_restore_alert_due(23));
+        assert!(!outbound_restore_alert_due(42));
+        assert!(outbound_restore_alert_due(43));
+    }
 
     #[test]
     fn 禁用目标_不触发_不置标记() {

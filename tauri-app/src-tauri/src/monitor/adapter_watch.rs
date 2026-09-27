@@ -173,16 +173,23 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                 {
                     let s = app_h.state::<AppState>();
                     let c = s.config.load();
-                    // 七期：夜间出站切换守护窗口内（当日切换时刻→次日 06:30 恢复窗开）
-                    // 一律不出自动启用目标——用户在切换前手动禁用的手选适配器无 IP、
-                    // 进不了六期闸门名单（select 只收有 IP 的卡），名单空则闸门失效，
-                    // 自动启用会顶掉切换（2026-09-27 夜实证 23:04:57/23:12:33）。
-                    // 还原交给恢复窗的 scheduled.rs；白天照旧，保留「意外禁用→恢复登录」。
+                    // 七期：夜间出站切换守护窗（时间窗 ∧ 切换态）内一律不出自动启用
+                    // 目标——用户在切换前手动禁用的手选适配器无 IP、进不了六期闸门
+                    // 名单（select 只收有 IP 的卡），名单空则闸门失效，自动启用会顶掉
+                    // 切换（2026-09-27 夜实证 23:04:57/23:12:33）。叠加切换态判定：
+                    // 整夜休眠/应用未运行错过切换时无快照，凌晨不再误阻塞自动启用
+                    // （纯时间窗过宽，k2.8 审计 P3-2）；真实切换态三快照已落盘，
+                    // 重启 replay 亦覆盖。还原交给恢复窗的 scheduled.rs；
+                    // 白天照旧，保留「意外禁用→恢复登录」。
                     let now = chrono::Local::now();
                     let guard_window = crate::config::outbound_switch::is_night_outbound_guard_window(
                         c.enable_night_outbound_switch,
                         now.weekday().num_days_from_sunday(),
                         now.hour() * 60 + now.minute(),
+                    ) && crate::config::outbound_switch::outbound_restore_active(
+                        &c.outbound_metric_restore,
+                        &c.outbound_disabled_adapters,
+                        &c.outbound_standby_route,
                     );
                     let candidates = crate::network::adapter::configured_disabled_adapters(&c, &disabled);
                     if guard_window && !candidates.is_empty() {
