@@ -40,6 +40,8 @@ export interface Config {
   /** 夜间切换加的兜底默认路由（StandbyRoute JSON，runtime 路由重启即清，后端内部状态） */
   outboundStandbyRoute: string
   nightOutboundRestore: string
+  /** DNS 优化目标适配器名单（网卡名，可多选）；空 = 未选择，优化/恢复时后端提示先选择 */
+  dnsOptimizeAdapters: string[]
   autoExitOnOnline: boolean
   themeMode: 'light' | 'dark' | 'system'
   enableNotification: boolean

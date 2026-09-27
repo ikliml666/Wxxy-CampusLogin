@@ -19,7 +19,7 @@ import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCir
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { SegmentTabs } from '@/shared/SegmentTabs'
-import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useMemo, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m, Reorder, useDragControls } from 'framer-motion'
 import { buildOutboundOrder } from './outboundOrder'
@@ -248,6 +248,22 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     { key: 'ipv6', label: 'IPv6', icon: Globe, color: 'text-primary', bg: '' },
     { key: 'both', label: t('network.dnsFamilyBoth'), icon: Layers, color: 'text-primary', bg: '' },
   ]
+  // DNS 优化目标适配器（卡内多选，不再跟随适配器设置卡的主/副解析）：
+  // 候选 = 已选名单 ∪ 当前有 IP 的活跃卡（已选但当前不活跃的卡也显示，保证可取消选择）
+  const dnsAdapterCandidates = useMemo(() => {
+    const names: string[] = []
+    for (const name of config.dnsOptimizeAdapters) {
+      if (!names.includes(name)) names.push(name)
+    }
+    for (const a of adapters) {
+      if (a.ip && !names.includes(a.name)) names.push(a.name)
+    }
+    return names
+  }, [config.dnsOptimizeAdapters, adapters])
+  const toggleDnsAdapter = useCallback((name: string) => {
+    const cur = config.dnsOptimizeAdapters
+    onUpdateConfig({ dnsOptimizeAdapters: cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name] })
+  }, [config.dnsOptimizeAdapters, onUpdateConfig])
 
   const handleCheckDns = useCallback(async () => {
     useQualityStore.getState().setDnsChecking(true)
@@ -273,6 +289,10 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   }, [ipc])
 
   const handleSetupDnsDoh = useCallback(async () => {
+    if (config.dnsOptimizeAdapters.length === 0) {
+      useLogToastStore.getState().addLog(t('network.dnsNoAdapterSelected'), 'warning')
+      return
+    }
     setDohEnabling(true)
     try {
       const result = await ipc.setupDnsDoh(dnsFamily)
@@ -296,9 +316,13 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     } finally {
       if (mountedRef.current) setDohEnabling(false)
     }
-  }, [ipc, dnsFamily])
+  }, [ipc, dnsFamily, config.dnsOptimizeAdapters.length, t])
 
   const handleResetDns = useCallback(async () => {
+    if (config.dnsOptimizeAdapters.length === 0) {
+      useLogToastStore.getState().addLog(t('network.dnsNoAdapterSelected'), 'warning')
+      return
+    }
     setDnsResetting(true)
     try {
       const result = await ipc.resetDns()
@@ -322,7 +346,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     } finally {
       if (mountedRef.current) setDnsResetting(false)
     }
-  }, [ipc, t])
+  }, [ipc, config.dnsOptimizeAdapters.length, t])
 
   const handleGetNewIpForAdapter = useCallback(async (adapterName: string) => {
     setGettingNewIpAdapter(adapterName)
@@ -728,6 +752,38 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 activeKey={dnsFamily}
                 onTabChange={key => setDnsFamily(key as 'both' | 'ipv4' | 'ipv6')}
               />
+            </div>
+            {/* DNS 优化目标适配器：卡内 chip 多选，一键优化/恢复只作用于所选名单 */}
+            <div className="mb-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <Label className="text-xs font-medium text-muted-foreground shrink-0">{t('network.dnsAdapterLabel')}</Label>
+                <span className="text-[11px] text-muted-foreground/60 truncate">{t('network.dnsAdapterTip')}</span>
+              </div>
+              {dnsAdapterCandidates.length === 0 ? (
+                <p className="text-xs text-muted-foreground/60">{t('network.dnsAdapterEmpty')}</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {dnsAdapterCandidates.map(name => {
+                    const selected = config.dnsOptimizeAdapters.includes(name)
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => toggleDnsAdapter(name)}
+                        className={cn(
+                          'px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors backdrop-blur-sm',
+                          selected
+                            ? 'bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
+                            : 'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15',
+                          'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]'
+                        )}
+                      >
+                        {name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
             {!dnsStatus && !dnsChecking && (
               <div className="text-center py-6">

@@ -89,6 +89,11 @@ pub struct Config {
     /// 出站切换态（已注销等待晨间重登）。切账号时清空。桌面端不消费此字段
     #[serde(rename = "nightOutboundRestore", default)]
     pub night_outbound_restore: String,
+    /// DNS 优化目标适配器名单（网卡名）。一键优化/恢复 DNS 只作用于这份名单，
+    /// 不再跟随适配器设置卡的主/副解析；空 = 用户未选择，操作时提示先去卡片选择。
+    /// 安卓端不消费此字段（DNS 优化为桌面专属功能）
+    #[serde(rename = "dnsOptimizeAdapters", default)]
+    pub dns_optimize_adapters: Vec<String>,
     #[serde(rename = "autoExitOnOnline")]
     pub auto_exit_on_online: bool,
     #[serde(rename = "themeMode")]
@@ -253,6 +258,7 @@ impl Default for Config {
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
+            dns_optimize_adapters: Vec::new(),
             night_outbound_restore: String::new(),
             // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移
             auto_exit_on_online: false,

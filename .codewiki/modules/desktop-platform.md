@@ -204,10 +204,12 @@ worker 端（`helper/mod.rs` `--helper-task` 模式，main.rs 最先拦截）：
 
 | 行号 | 项 | 签名 / 值 | cfg |
 |---|---|---|---|
-| `platform/toast.rs:16` | `APP_ID` | `const &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe"`（私有；沿用 notify-rust 默认 AUMID，未打包应用才能进通知中心） | 无（模块级 `cfg(all(desktop, target_os = "windows"))`） |
-| `platform/toast.rs:19-26` | `resolve_resource_image` | `fn(app_handle: &AppHandle, relative: &str) -> Option<String>`（私有）：`resource_dir().join(relative)` 存在则转 `file:///` URL（反斜杠替换为正斜杠），否则 `None` | 无 |
-| `platform/toast.rs:30-43` | `show_system_toast` | `pub fn(app_handle: &AppHandle, title: &str, body: &str, mascot: &str) -> Result<(), String>`：`resources/mascot-toast/<mascot>.png` 作 `appLogoOverride`，`ToastNotificationManager::CreateToastNotifierWithId(APP_ID)` 后 `Show` | 无 |
-| `platform/toast.rs:47-78` | `show_update_toast` | `pub fn(app_handle: &AppHandle, version: &str) -> Result<(), String>`：固定文案"发现新版本 / 新版本 v{version} 可用，前往关于界面进行更新"，注册 `Activated` 回调（62-72）唤起主窗口并发 `update-notification-click` 事件 | 无 |
+| `platform/toast.rs:25-31` | AUMID 常量组 | `AUMID="com.campus.login"`（自有）、`FALLBACK_APP_ID`（PowerShell AUMID 兜底）、`APP_DISPLAY_NAME="校园网登录助手"`、`AUMID_ICON_RESOURCE="icons/128x128.png"` | 无（模块级 `cfg(all(desktop, target_os = "windows"))`） |
+| `platform/toast.rs:34-48` | `NOTIFIER_AUMID` + `notifier_aumid` | `static OnceLock<&'static str>` + `fn(app_handle) -> &'static str`：进程内只探一次，`register_aumid` 成功用自有 AUMID、失败 log_warn 回退 FALLBACK | 无 |
+| `platform/toast.rs:51-68` | `register_aumid` | `fn(app_handle) -> Result<(), String>`：HKCU `Software\Classes\AppUserModelId\<AUMID>` 写 `DisplayName` + `IconUri`（resource_dir 下 icons/128x128.png 存在才写；dev 无图标只缺角标），免提权 | 无 |
+| `platform/toast.rs:70-79` | `resolve_resource_image` | `fn(app_handle: &AppHandle, relative: &str) -> Option<String>`（私有）：`resource_dir().join(relative)` 存在则转 `file:///` URL（反斜杠替换为正斜杠），否则 `None` | 无 |
+| `platform/toast.rs:81-96` | `show_system_toast` | `pub fn(app_handle: &AppHandle, title: &str, body: &str, mascot: &str) -> Result<(), String>`：`resources/mascot-toast/<mascot>.png` 作 `appLogoOverride`，`ToastNotificationManager::CreateToastNotifierWithId(notifier_aumid(..))` 后 `Show` | 无 |
+| `platform/toast.rs:98-135` | `show_update_toast` | `pub fn(app_handle: &AppHandle, version: &str) -> Result<(), String>`：固定文案"发现新版本 / 新版本 v{version} 可用，前往关于界面进行更新"，注册 `Activated` 回调唤起主窗口并发 `update-notification-click` 事件 | 无 |
 
 ## 结构体与字段
 
@@ -376,7 +378,7 @@ infra/notification.rs:46（cfg(all(desktop, target_os="windows"))）
 ## Known Issues
 
 1. **模块门控只到 `desktop`，不锁 Windows**：`platform/mod.rs:1-30` 对 `autostart` / `ecoqos` / `dns_config` / `elevation` / `gpu` / `helper_spawn` / `identity` 只加 `#[cfg(desktop)]`（带 `target_os = "windows"` 的是 `task_proxy`、`metric`、`rtss_compat`、`toast` 四个模块，`platform/mod.rs:19`/`24`/`27`/`29`），而 `autostart.rs`、`gpu.rs`、`helper_spawn.rs`、`identity.rs` **文件内部没有任何 `#[cfg]`**（见逐文件清单），它们直接使用 `winreg` / `windows` crate；项目实际只支持 Windows 桌面 + 安卓，但该约束是事实约定而非编译期保证。
-2. **`toast.rs` 借用 PowerShell 的 AUMID**：`platform/toast.rs:16` 使用 `{1AC14E77-...}\WindowsPowerShell\v1.0\powershell.exe`，是未打包应用进通知中心的取巧做法；应用改签名/打包方式或系统策略变化时通知可能静默不显示。
+2. ~~**`toast.rs` 借用 PowerShell 的 AUMID**~~（2026-09-27 已解决）：自有 AUMID `com.campus.login` 注册到 HKCU `Software\Classes\AppUserModelId\`（DisplayName + IconUri，免提权），通知中心来源显示应用名与应用图标；注册失败自动回退 PowerShell AUMID。
 3. **`identity.rs` 无 CredUI 回退**：`platform/identity.rs:89-94` 设备未配置 Windows Hello 时直接报错退出（模块注释 1-5 行说明 2026-09-05 用户要求移除输密码回退），未配置 Hello 的用户无法执行 reveal / bind 等敏感操作。
 4. **兜底路径的焦点轮询只有 3 秒**：`platform/identity.rs:159-170` 固定 12 次 × 250ms 后线程自行结束，若 Consent 对话框出现更晚（慢机/UAC 排队），就没有任何提前台兜底。
 5. **身份验证时间戳是进程内全局**：`platform/identity.rs:28` 的 `AtomicU64` 随进程重启归零（0 = 从未验证），且是单用户单进程语义，多实例/多用户场景不共享。

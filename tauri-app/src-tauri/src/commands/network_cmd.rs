@@ -276,22 +276,27 @@ pub async fn setup_dns_doh(app_handle: tauri::AppHandle, family: Option<String>)
         {
             let adapters = crate::network::get_adapters_cached()
                 .unwrap_or_default();
-            // 操作范围白名单：只对 resolve 后的主/副适配器设置 DNS/DoH，
-            // 不再触碰系统里其他活跃适配器
+            // 操作范围：DNS 优化卡内显式选择的适配器名单（不再跟随适配器设置卡的
+            // 主/副解析）。校验名单内网卡仍存在，并滤掉黑名单卡
             let config = crate::infra::command_context::CommandContext::from_app(&app_handle)
                 .config
                 .load_full();
-            let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
-            let targets: Vec<String> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
-                .into_iter()
-                .filter(|a| !a.ip.is_empty() && !crate::network::is_blacklisted(&a.name))
-                .map(|a| a.name)
+            let targets: Vec<String> = config
+                .dns_optimize_adapters
+                .iter()
+                .filter(|n| adapters.iter().any(|a| &a.name == *n) && !crate::network::is_blacklisted(n))
+                .cloned()
                 .collect();
 
             if targets.is_empty() {
+                let message = if config.dns_optimize_adapters.is_empty() {
+                    "请先在 DNS 优化卡片选择要优化的适配器".to_string()
+                } else {
+                    "所选适配器均不可用（已断开或不存在），请重新选择".to_string()
+                };
                 return Ok(serde_json::json!({
                     "success": false,
-                    "message": "未找到目标网络适配器（主/副适配器均无活跃连接）".to_string(),
+                    "message": message,
                 }));
             }
 
@@ -352,18 +357,25 @@ pub async fn reset_dns(app_handle: tauri::AppHandle) -> Result<CommandResult, St
         #[cfg(target_os = "windows")]
         {
             let adapters = crate::network::get_adapters_cached().unwrap_or_default();
-            // 操作范围与 setup_dns_doh 一致：只对 resolve 后的主/副适配器清除 DNS
+            // 操作范围与 setup_dns_doh 一致：DNS 优化卡内显式选择的适配器名单
             let config = crate::infra::command_context::CommandContext::from_app(&app_handle)
                 .config
                 .load_full();
-            let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
-            let targets: Vec<Adapter> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
-                .into_iter()
-                .filter(|a| !a.ip.is_empty() && !crate::network::is_blacklisted(&a.name))
+            let targets: Vec<Adapter> = config
+                .dns_optimize_adapters
+                .iter()
+                .filter_map(|n| adapters.iter().find(|a| &a.name == n))
+                .filter(|a| !crate::network::is_blacklisted(&a.name))
+                .cloned()
                 .collect();
 
             if targets.is_empty() {
-                return Ok(CommandResult::err("未找到目标网络适配器（主/副适配器均无活跃连接）"));
+                let message = if config.dns_optimize_adapters.is_empty() {
+                    "请先在 DNS 优化卡片选择要恢复 DNS 的适配器"
+                } else {
+                    "所选适配器均不可用（已断开或不存在），请重新选择"
+                };
+                return Ok(CommandResult::err(message));
             }
 
             if elevation::is_admin() {

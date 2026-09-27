@@ -29,6 +29,8 @@ export interface Config {
   /** 桌面夜间切换兜底路由（StandbyRoute JSON）；安卓端不消费，仅字段集同构 */
   outboundStandbyRoute: string
   nightOutboundRestore: string
+  /** 桌面 DNS 优化目标适配器名单（安卓仅镜像配置结构，不消费） */
+  dnsOptimizeAdapters: string[]
   adapter1: string
   adapter2: string
   dualAdapter: boolean

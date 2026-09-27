@@ -3,6 +3,7 @@ title: 适配器操作范围只作用于主/副适配器（UI 展示遍历全部
 type: decision
 source_files:
   - tauri-app/src-tauri/src/network/adapter.rs
+  - tauri-app/src-tauri/src/commands/network_cmd.rs
   - tauri-app/frontend/src/network/adapters.ts
 tags: [决策, 网络, 适配器, 双端同源]
 ---
@@ -17,6 +18,8 @@ tags: [决策, 网络, 适配器, 双端同源]
 - UI 展示类**遍历全部**。
 
 前端 `network/adapters.ts::resolveAdapterNames` 与后端**同源规则**，改任一侧必须同步另一侧（`adapters.test.ts` 锁行为）。
+
+**2026-09-27 修订：DNS 设置/恢复摘出主/副范围**。一键优化 DNS（`setup_dns_doh`）与恢复 DNS（`reset_dns`）的目标改为配置字段 `dnsOptimizeAdapters`（DNS 优化卡内 chip 多选显式名单，可多选、可含非主/副卡）；空名单操作时提示先选择，名单内卡已断开/不存在则跳过（全不可用报「请重新选择」）。DHCP 续租（`dhcp_renew_all`/`dhcp_release_renew`）与检测/登录/注销仍走主/副范围，本修订不涉及。
 
 ## 理由
 

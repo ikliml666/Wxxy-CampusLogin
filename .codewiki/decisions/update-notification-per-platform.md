@@ -16,8 +16,10 @@ tags: [决策, 更新, 通知, 安卓, 桌面]
 
 2026-09-12：更新提醒**分端定制**——
 
-- 桌面：`windows crate` 自组 toast XML（AUMID 借 PowerShell 同款，与既有通知同源），支持点击跳转；失败降级普通通知；
+- 桌面：`windows crate` 自组 toast XML（2026-09-27 起用自有 AUMID，见下方修订），支持点击跳转；失败降级普通通知；
 - 安卓：补 `UpdateAvailableDialog` 应用内弹窗（双壳挂载）。
+
+**2026-09-27 修订：通知 AUMID 自有化**。原「AUMID 借 PowerShell 同款」导致通知中心来源显示 "Windows PowerShell" 而非应用名——首次发通知前向 HKCU `Software\Classes\AppUserModelId\com.campus.login` 写 `DisplayName`（校园网登录助手）与 `IconUri`（resource_dir 下 `icons/128x128.png`，已加入 bundle.resources；dev 模式无图标只缺角标），进程内 `OnceLock` 缓存只探一次；注册失败（策略封锁等）回退 PowerShell AUMID 保证通知仍能弹出。`show_system_toast` / `show_update_toast` 均改用该 AUMID。
 
 ## 理由
 
@@ -29,7 +31,7 @@ tags: [决策, 更新, 通知, 安卓, 桌面]
 
 ## 影响与约束
 
-桌面通知 AUMID 借用 PowerShell 的已注册 ID，应用改签名/打包方式或系统策略变化时通知可能静默不显示。更新提示只弹一次（`update/updater.rs:292` 的 `update_notified` 一次性门控，且**全仓库无重置点**）。
+~~桌面通知 AUMID 借用 PowerShell 的已注册 ID~~（2026-09-27 已自有化，见决策节修订）；残留限制：HKCU 注册被策略封锁时回退 PowerShell AUMID，来源名退回 "Windows PowerShell"。更新提示只弹一次（`update/updater.rs:292` 的 `update_notified` 一次性门控，且**全仓库无重置点**）。
 
 ## Connections
 

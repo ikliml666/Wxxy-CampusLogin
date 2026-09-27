@@ -50,6 +50,9 @@ pub struct Settings {
     /// 定时登录跳过(见 monitor_loop::run_scheduled_actions);切账号、删除当前账号、
     /// 关闭本功能或还原失败达上限时清空
     pub night_outbound_restore: String,
+    /// 桌面 DNS 优化目标适配器名单(网卡名,可多选)。DNS 优化为桌面专属功能,
+    /// 安卓端不消费此字段,仅镜像配置结构
+    pub dns_optimize_adapters: Vec<String>,
     // 行为
     pub auto_login_on_start: bool,
     pub enable_background_check: bool,
@@ -126,6 +129,7 @@ impl Default for Settings {
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
             night_outbound_restore: String::new(),
+            dns_optimize_adapters: Vec::new(),
             auto_login_on_start: true,
             enable_background_check: true,
             // 2026-09-09 起 60s:后台检测是稳态周期任务,15s 间隔空转耗电,

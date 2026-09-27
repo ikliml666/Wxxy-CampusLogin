@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG: Config = {
   outboundDisabledAdapters: '',
   outboundStandbyRoute: '',
   nightOutboundRestore: '',
+  dnsOptimizeAdapters: [],
   adapter1: AUTO_DETECT_ADAPTER,
   adapter2: '',
   dualAdapter: false,
