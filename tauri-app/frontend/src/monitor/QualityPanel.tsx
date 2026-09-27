@@ -6,7 +6,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Search, RefreshCw, Gauge, Clock, Play, Square, Router, Globe2, MonitorSmartphone, Gamepad2, Tv, HelpCircle } from 'lucide-react'
+import { Search, RefreshCw, Gauge, Clock, Play, Square, Router, Globe2, MonitorSmartphone, Gamepad2, Tv, HelpCircle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import { QUALITY_CONFIG } from '@/network/constants'
@@ -254,8 +254,23 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                 gatewayLatency={gatewayLatency}
                 externalLatency={externalLatency}
               />
-            ) : (
+            ) : isRefreshingQuality ? (
               <LatencyPair gatewayLatency={-1} externalLatency={-1} loading />
+            ) : (
+              // 首次进入无数据：四段式空态（图标+标题+原因+主行动），替代纯 loading 空转
+              <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-center">
+                <Gauge className="h-6 w-6 text-muted-foreground/50" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">{t('quality.emptyTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('quality.emptyDesc')}</p>
+                </div>
+                {onRefreshQuality && (
+                  <Button size="sm" className="h-8 rounded-lg text-xs gap-1.5" onClick={onRefreshQuality} disabled={isRefreshingQuality}>
+                    <RefreshCw className="h-3 w-3" />
+                    {t('quality.runTestNow')}
+                  </Button>
+                )}
+              </div>
             )}
           </CardContent>
         </AnimatedCard>
@@ -302,8 +317,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                 />
                 <span className="text-xs text-muted-foreground ml-1.5">{t('common.seconds')}</span>
               </div>
+              {/* 进行中不占色相：绿=终态成功，进行中=蓝+spinner（badge 语义规范） */}
               {config.enableLatencyTest && (
-                <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/20">
+                <Badge variant="outline" className="text-[10px] text-blue-600 dark:text-blue-400 border-blue-500/20 gap-1">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
                   {t('monitor.running')}
                 </Badge>
               )}
@@ -382,7 +399,22 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                 className="space-y-2"
               >
                 <TooltipProvider delayDuration={200}>
-                {activeItems.map(item => (
+                {!hasData && !isRefreshingQuality ? (
+                  // 无数据且非检测中：单块空态替代 5 行 "--" 占位，给出一键检测出口
+                  <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-8 text-center">
+                    <Search className="h-6 w-6 text-muted-foreground/50" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">{t('quality.emptyDetailsTitle')}</p>
+                      <p className="text-xs text-muted-foreground">{t('quality.emptyDetailsDesc')}</p>
+                    </div>
+                    {onRefreshQuality && (
+                      <Button size="sm" className="h-8 rounded-lg text-xs gap-1.5" onClick={onRefreshQuality} disabled={isRefreshingQuality}>
+                        <RefreshCw className="h-3 w-3" />
+                        {t('quality.runTestNow')}
+                      </Button>
+                    )}
+                  </div>
+                ) : activeItems.map(item => (
                   <m.div key={item.name} variants={tabItemVariants} custom={tabDirection}>
                     <Tooltip>
                       <TooltipTrigger asChild>

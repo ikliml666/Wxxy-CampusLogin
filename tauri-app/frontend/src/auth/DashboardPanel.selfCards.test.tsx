@@ -33,8 +33,8 @@ vi.mock('@/hooks/useConfigStore', () => ({
   ),
 }))
 vi.mock('@/hooks/useAuthStore', () => ({
-  useAuthStore: (selector: (s: { bgStatus: unknown }) => unknown) =>
-    selector({ bgStatus: { isRunning: false, checkCount: 0 } }),
+  useAuthStore: (selector: (s: { bgStatus: unknown; status: { text: string; state: string } }) => unknown) =>
+    selector({ bgStatus: { isRunning: false, checkCount: 0 }, status: { text: '', state: 'unknown' } }),
 }))
 vi.mock('@/hooks/useQualityStore', () => ({
   useQualityStore: (selector: (s: Record<string, unknown>) => unknown) =>

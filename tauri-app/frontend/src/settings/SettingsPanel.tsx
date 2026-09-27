@@ -303,9 +303,10 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区：左=启动设置；右=通知与安全+引导（md 起两列，窄屏单列堆叠）。
-          右列经 stretch + justify-between 拉伸至与左列等高，剩余空间均分到卡片间隙 */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* 两列区（手动分栏均衡）：左=启动设置+数据管理；右=通知与安全+质量检测+引导。
+          两列各自 flex 紧密堆叠；不用 justify-between 拉伸——大卡配小卡会在卡间拉出大片空洞 */}
+      <div className="grid gap-4 items-start md:grid-cols-2">
+      <div className="flex flex-col gap-4">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -434,7 +435,62 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      <div className="flex flex-col gap-4 justify-between">
+      {/* 数据管理：配置导出/导入（P2-30，桌面专属）。导出默认不含密码（掩码态）；
+          含密码导出走 DPAPI 密文仅本机可解。导入经严格校验 + 二次确认后覆盖当前配置 */}
+      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <CardIcon>
+                <Database className="h-5 w-5 text-primary" />
+              </CardIcon>
+              <div className="min-w-0">
+                <CardTitle>{t('settings.dataManagement')}</CardTitle>
+                <CardDescription>{t('settings.dataManagementDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <SettingRow
+              htmlFor="export-include-password"
+              label={t('settings.includePassword')}
+              description={t('settings.includePasswordDesc')}
+            >
+              <Switch
+                id="export-include-password"
+                checked={exportWithPassword}
+                onCheckedChange={setExportWithPassword}
+              />
+            </SettingRow>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExportConfig}
+                disabled={isExportingConfig}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
+                )}
+              >
+                <Upload className="h-4 w-4" />
+                {isExportingConfig ? t('settings.exporting') : t('settings.exportConfig')}
+              </button>
+              <button
+                onClick={() => { setImportPath(''); setImportDialogOpen(true) }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'border border-border text-foreground hover:bg-accent active:scale-[0.98]'
+                )}
+              >
+                <Download className="h-4 w-4" />
+                {t('settings.importConfig')}
+              </button>
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+      </div>
+
+      <div className="flex flex-col gap-4">
       {/* 通知与安全合并卡：组标题区分两段。安全组开关关闭方向（安全 → 宽松）
           都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
@@ -499,40 +555,8 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {onShowOnboarding && (
-        <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-          <AnimatedCard noEnterAnimation>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <CardIcon>
-                  <Compass className="h-5 w-5 text-primary" />
-                </CardIcon>
-                <div className="min-w-0">
-                  <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
-                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <button
-                onClick={onShowOnboarding}
-                className={cn(
-                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
-                )}
-              >
-                <Compass className="h-4 w-4" />
-                {t('settings.openOnboardingGuide')}
-              </button>
-            </CardContent>
-          </AnimatedCard>
-        </div>
-      )}
-
-      </div>
-      </div>
-
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+      {/* 质量检测卡（挪入右列，均衡两列高度；enableQuality 关闭联动 quality 面板引用清理） */}
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -629,59 +653,39 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 数据管理：配置导出/导入（P2-30，桌面专属）。导出默认不含密码（掩码态）；
-          含密码导出走 DPAPI 密文仅本机可解。导入经严格校验 + 二次确认后覆盖当前配置 */}
-      <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <Database className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('settings.dataManagement')}</CardTitle>
-                <CardDescription>{t('settings.dataManagementDesc')}</CardDescription>
+      {onShowOnboarding && (
+        <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
+          <AnimatedCard noEnterAnimation>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <CardIcon>
+                  <Compass className="h-5 w-5 text-primary" />
+                </CardIcon>
+                <div className="min-w-0">
+                  <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
+                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
+                </div>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <SettingRow
-              htmlFor="export-include-password"
-              label={t('settings.includePassword')}
-              description={t('settings.includePasswordDesc')}
-            >
-              <Switch
-                id="export-include-password"
-                checked={exportWithPassword}
-                onCheckedChange={setExportWithPassword}
-              />
-            </SettingRow>
-            <div className="flex gap-2">
+            </CardHeader>
+            <CardContent>
               <button
-                onClick={handleExportConfig}
-                disabled={isExportingConfig}
+                onClick={onShowOnboarding}
                 className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
+                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
                 )}
               >
-                <Upload className="h-4 w-4" />
-                {isExportingConfig ? t('settings.exporting') : t('settings.exportConfig')}
+                <Compass className="h-4 w-4" />
+                {t('settings.openOnboardingGuide')}
               </button>
-              <button
-                onClick={() => { setImportPath(''); setImportDialogOpen(true) }}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'border border-border text-foreground hover:bg-accent active:scale-[0.98]'
-                )}
-              >
-                <Download className="h-4 w-4" />
-                {t('settings.importConfig')}
-              </button>
-            </div>
-          </CardContent>
-        </AnimatedCard>
+            </CardContent>
+          </AnimatedCard>
+        </div>
+      )}
+
       </div>
+      </div>
+
 
       {/* 导入配置：拖放或粘贴文件路径（无 dialog 插件，用 Tauri 原生 drag-drop 拿真实路径） */}
       <Dialog open={importDialogOpen} onOpenChange={(open) => { if (!open) setImportDialogOpen(false) }}>

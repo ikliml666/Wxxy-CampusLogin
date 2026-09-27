@@ -41,6 +41,24 @@ tags: [前端, ui, 设计系统, 动画]
 - i18n 新增键：settings.notificationSecurity(+Desc)/groupStartup/groupLoginAutomation/groupWindowBehavior；monitor.groupAutomation/groupCampusCheck（zh/en 对齐）。
 - 验证：tsc 0 错误、vitest 96/96、vite build 通过；浏览器实测待用户（布局类改动）。
 
+## 第二轮：六项 UX 精修（2026-09-27 同日追加）
+
+基于 Atlassian 空态 / Polaris 徽标语义 / NN.g 渐进披露 / shadcn·Tremor 仪表盘判据的落地（用户批准的五项 + 设置页空洞填补）：
+
+1. **Dashboard 首屏摘要带**（DashboardPanel.tsx `DashboardSummaryBand`）：认证状态（useAuthStore.status，色板复制 StatusBar.statusConfig 需同步维护）/ 适配器在线数（`adapters.filter(a=>a.status==='connected').length`）/ 网络质量（resolveQualityDisplay）三段 KPI 行，点击各段经 `useAdapterStore.setActivePanel` 直达面板，质量段带就地刷新；enableNetworkQuality=false 整段隐藏。数据与 StatusBar 同源，不新起轮询。
+2. **Quality 四段式空态**：质量卡与明细卡无数据且非检测中 → 图标+标题+一句原因+「立即检测」主按钮（替代 5 行 "--" 占位与 loading 空转）；检测中保留行内 pulse skeleton。
+3. **Account 绑定卡渐进披露**：绑定状态区常驻，表单默认收起；披露入口 button（aria-expanded + 标签写明点开所见）+ AnimatePresence m.div（opacity/y ±6, 0.18s，不动 height 避免布局动画）；测试需先点 `account.bindFormToggle` 展开。
+4. **badge 语义色**：绿=终态成功、进行中=蓝+spinner（不占色相）——Quality 定时测试「运行中」badge 由绿改 `text-blue-600 dark:text-blue-400` + Loader2 spin；「已在线」绿保留。
+5. **可发现性**：Dashboard「获取新IP」双适配器时加 ChevronDown（rotate-180 联动菜单开合）；NetworkPanel 可排序行加常驻低对比 GripVertical 把手（长按起拖逻辑不变）；Dashboard 编辑按钮 ghost→outline。
+6. **SettingsPanel 两列均衡**：手动分栏 items-start——左=启动设置+数据管理导出卡、右=通知与安全+质量检测卡（enableQuality 联动逻辑原样迁移）+新手引导；禁 justify-between 拉伸。
+
+教训：JSX 注释放在 `&& (` 之后会报 TS2657，须置于条件块之前；DashboardPanel.selfCards 测试的 useAuthStore mock 需补 `status:{text:'',state:'unknown'}`（真 store 初值，mock 缺字段使摘要带崩）。
+
+## 后果（第二轮）
+
+- i18n 新增键：dashboard.bandAuth/bandAdapters/bandQuality/bandOnlineCount；quality.emptyTitle/emptyDesc/runTestNow/emptyDetailsTitle/emptyDetailsDesc；account.bindFormToggle(+Desc)（zh/en 对齐）。
+- 验证：tsc 0 错误、vitest 96/96（修 2 测试文件后）、vite build 通过；六项全部截图复验（含 reduced-motion 下 network 面板）。
+
 ## Connections
 
 [[deferred-panel-transition]]、[[input-time-wrapper-w-full]]、[[contain-paint-clips-absolute-menu]]、[[tablet-layout-alignment-audit]]

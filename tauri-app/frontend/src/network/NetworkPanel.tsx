@@ -133,11 +133,19 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
       onPointerLeave={handleRowPointerCancel}
       onPointerCancel={handleRowPointerCancel}
       className={cn(
-        'flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 select-none',
+        'group flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 select-none',
         isOutboundTarget ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : 'bg-muted/30',
       )}
     >
       <div className="flex items-center gap-3 min-w-0">
+        {/* 拖拽可发现性：把手常驻低对比，hover 亮起；纯视觉指示，长按起拖逻辑不变 */}
+        <GripVertical
+          aria-hidden
+          className={cn(
+            'h-4 w-4 shrink-0 cursor-grab text-muted-foreground/30 transition-colors duration-200 group-hover:text-muted-foreground/60 active:cursor-grabbing',
+            isDragging && 'text-muted-foreground',
+          )}
+        />
         <div className={cn(
           'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
           isOutboundTarget ? 'bg-primary/15' : 'bg-muted',
