@@ -77,8 +77,6 @@ async function renderPanel() {
 }
 
 async function fillBindCreds() {
-  // 绑定表单默认折叠（渐进披露）：先点披露入口展开再填写
-  fireEvent.click(screen.getByText('account.bindFormToggle'))
   fireEvent.change(screen.getByLabelText('onboarding.bindSelfAccount'), { target: { value: '24380002' } })
   fireEvent.change(screen.getByLabelText('onboarding.bindSelfPassword'), { target: { value: '123456' } })
 }

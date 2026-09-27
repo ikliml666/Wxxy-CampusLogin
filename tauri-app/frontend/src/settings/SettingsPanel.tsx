@@ -437,7 +437,7 @@ export const SettingsPanel = memo(function SettingsPanel({
 
       {/* 数据管理：配置导出/导入（P2-30，桌面专属）。导出默认不含密码（掩码态）；
           含密码导出走 DPAPI 密文仅本机可解。导入经严格校验 + 二次确认后覆盖当前配置 */}
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -556,7 +556,7 @@ export const SettingsPanel = memo(function SettingsPanel({
       </div>
 
       {/* 质量检测卡（挪入右列，均衡两列高度；enableQuality 关闭联动 quality 面板引用清理） */}
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -653,25 +653,28 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
+      </div>
+      </div>
+
+      {/* 新手指引：页面级紧凑横幅收口（替代右列底部孤立卡——纯 CTA 卡与重型配置卡
+          同级视觉重量会放大两列底缘参差；横幅不占列宽，下缘与两列底缘取齐） */}
       {onShowOnboarding && (
         <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
           <AnimatedCard noEnterAnimation>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
+            <CardContent className="p-4 flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <CardIcon>
                   <Compass className="h-5 w-5 text-primary" />
                 </CardIcon>
                 <div className="min-w-0">
-                  <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
-                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
+                  <p className="text-sm font-medium leading-tight">{t('settings.onboardingGuide')}</p>
+                  <p className="text-xs text-muted-foreground truncate">{t('settings.onboardingGuideDesc')}</p>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent>
               <button
                 onClick={onShowOnboarding}
                 className={cn(
-                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
                   'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
                 )}
               >
@@ -682,9 +685,6 @@ export const SettingsPanel = memo(function SettingsPanel({
           </AnimatedCard>
         </div>
       )}
-
-      </div>
-      </div>
 
 
       {/* 导入配置：拖放或粘贴文件路径（无 dialog 插件，用 Tauri 原生 drag-drop 拿真实路径） */}

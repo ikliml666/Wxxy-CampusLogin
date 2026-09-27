@@ -290,9 +290,16 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     label={t('monitor.campusNetworkName')}
                     description={t('monitor.campusNetworkNameTip')}
                   >
-                    {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground max-w-[220px]">
-                      {config.requiredNetworkName || 'i-wxxy'}
+                    {/* 固定匹配（2026-09-20）：不再提供手填入口；额外 SSID 与后端 campus_check 同步，仅默认名 i-wxxy 时追加 */}
+                    <div className="flex items-center gap-1.5">
+                      {[config.requiredNetworkName || 'i-wxxy', ...(config.requiredNetworkName || 'i-wxxy') === 'i-wxxy' ? ['iwxxy-2', 'iwxxy-3'] : []].map(name => (
+                        <span
+                          key={name}
+                          className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground"
+                        >
+                          {name}
+                        </span>
+                      ))}
                     </div>
                   </SettingRow>
                   <SettingRow

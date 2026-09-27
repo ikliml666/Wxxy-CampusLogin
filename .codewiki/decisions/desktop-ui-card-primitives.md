@@ -59,6 +59,11 @@ tags: [前端, ui, 设计系统, 动画]
 - i18n 新增键：dashboard.bandAuth/bandAdapters/bandQuality/bandOnlineCount；quality.emptyTitle/emptyDesc/runTestNow/emptyDetailsTitle/emptyDetailsDesc；account.bindFormToggle(+Desc)（zh/en 对齐）。
 - 验证：tsc 0 错误、vitest 96/96（修 2 测试文件后）、vite build 通过；六项全部截图复验（含 reduced-motion 下 network 面板）。
 
+## 第三轮：用户反馈修订（2026-09-27）
+
+- **渐进披露回退**：用户裁定绑定卡披露「多此一举」——低频≠低价值，状态查询与绑定表单同域同频，披露反而加一次点击。撤披露入口/AnimatePresence 包裹/bindFormOpen/framer import，表单恢复常开。教训：渐进披露适用于「查得多改得少」场景；查改同频时直接平铺。
+- **校园网络名称 chips**：单值框改三枚 chips（i-wxxy/iwxxy-2/iwxxy-3）。前端展示镜像后端 campus_check.rs 语义：extras 仅当 requiredNetworkName（或兜底 'i-wxxy'）==='i-wxxy' 时追加。tip 不再复述 SSID 清单（chips 即真相），改「命中以下任一名称即视为已连接校园网」。
+- **设置页横幅收口**（kimi-k2.8 分析师诊断落地）：孤立纯 CTA 卡（引导）与重型配置卡同级视觉重量，垫最长列底部放大两列底缘参差（约 110px）。改页面级紧凑横幅（grid 外、space-y-4 兄弟节点，CardContent 横向 flex + 按钮右置），全宽收口取齐下缘。stagger 修正：数据管理 4→3、质量检测 3→4（行序 Z 字惯例：左列第 N 卡先于右列第 N 卡）。
 ## Connections
 
 [[deferred-panel-transition]]、[[input-time-wrapper-w-full]]、[[contain-paint-clips-absolute-menu]]、[[tablet-layout-alignment-audit]]

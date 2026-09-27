@@ -18,9 +18,8 @@ import {
 } from '@/components/ui/select'
 import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap, Pencil, ChevronDown
+  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap, Pencil
 } from 'lucide-react'
-import { m, AnimatePresence } from 'framer-motion'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
@@ -218,8 +217,6 @@ export const AccountPanel = memo(function AccountPanel({
   const [queryingStatus, setQueryingStatus] = useState(false)
   const [revealedOp, setRevealedOp] = useState<string | null>(null)
   const [revealedPassword, setRevealedPassword] = useState('')
-  // 绑定表单渐进披露：状态区常驻，表单默认收起（低频操作降权，NN/g progressive disclosure）
-  const [bindFormOpen, setBindFormOpen] = useState(false)
 
   // config 异步加载完成后初始化一次（学号/运营商默认取当前配置；
   // 学号仅在共享 store 为空时预填，不覆盖用户在自助服务面板已输入的值）
@@ -589,28 +586,6 @@ export const AccountPanel = memo(function AccountPanel({
                 )}
               </Button>
             </div>
-            {/* 渐进披露入口：标签写明点开后所见；chevron 旋转表意 */}
-            <button
-              type="button"
-              onClick={() => setBindFormOpen(v => !v)}
-              aria-expanded={bindFormOpen}
-              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <span className="min-w-0 space-y-0.5">
-                <span className="block text-sm font-medium">{t('account.bindFormToggle')}</span>
-                <span className="block text-[11px] text-muted-foreground">{t('account.bindFormToggleDesc')}</span>
-              </span>
-              <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200', bindFormOpen && 'rotate-180')} />
-            </button>
-            <AnimatePresence initial={false}>
-              {bindFormOpen && (
-                <m.div
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.18 }}
-                  className="space-y-4"
-                >
             <div className="space-y-2">
               <Label htmlFor="bind-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
               <Input
@@ -705,9 +680,6 @@ export const AccountPanel = memo(function AccountPanel({
                 <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
               )}
             </Button>
-                </m.div>
-              )}
-            </AnimatePresence>
           </CardContent>
         </AnimatedCard>
       </div>
