@@ -745,6 +745,7 @@
     "refreshLatencyTest": "Refresh Latency Test",
     "detecting": "Detecting...",
     "refreshLatency": "Refresh Latency",
+    "gotoDashboard": "Open dashboard for network quality",
     "selfService": "User Self-Service",
     "openPortal": "Open Authentication Portal"
   },

@@ -745,6 +745,7 @@
     "refreshLatencyTest": "刷新延迟检测",
     "detecting": "正在检测...",
     "refreshLatency": "刷新延迟",
+    "gotoDashboard": "前往总览查看网络质量",
     "selfService": "用户自助服务",
     "openPortal": "打开认证门户"
   },

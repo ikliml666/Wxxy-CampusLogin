@@ -10,6 +10,7 @@ import { useAuthStore } from '@/hooks/useAuthStore'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
+import { useAdapterStore } from '@/hooks/useAdapterStore'
 
 // 模块级空数组常量：bgStatus.adapterStatuses 为 undefined 时复用同一引用，
 // 避免每次渲染 `?? []` 创建新数组触发订阅重渲染（历史缺陷 P2-F6）
@@ -142,7 +143,15 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
         <div className="flex items-center gap-2">
           {enableNetworkQuality && (
             <>
-              <NetworkQualityCapsule networkQuality={networkQuality} />
+              {/* 质量胶囊锚点：点击直达总览面板首屏的摘要带（hover 仍是明细弹层，互不冲突） */}
+              <button
+                type="button"
+                onClick={() => useAdapterStore.getState().setActivePanel('dashboard')}
+                className="cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-label={t('statusbar.gotoDashboard')}
+              >
+                <NetworkQualityCapsule networkQuality={networkQuality} />
+              </button>
 
               {refreshQuality && (
                 <Tooltip>
