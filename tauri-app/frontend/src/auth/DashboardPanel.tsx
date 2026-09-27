@@ -12,7 +12,7 @@ import { getRefreshIconClass } from '@/shared/RefreshButton'
 import {
   Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, Check, X,
-  Plus, Activity, Settings2, ChevronRight, ChevronDown,
+  Plus, Activity, Settings2, ChevronDown,
   Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff, LogOut
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
@@ -697,94 +697,6 @@ function renderCard(id: CardId, props: DashboardPanelProps, config: Config, _bgS
   }
 }
 
-// 首屏摘要带（2026-09-27）：认证状态 / 在线适配器 / 网络质量三段 KPI 行。
-// 数据与 StatusBar 同源（useAuthStore.status / useAdapterStore.adapters / useQualityStore），
-// 点各段直达对应面板；质量段可就地刷新，enableNetworkQuality 关闭时整段隐藏。
-// 色板复制自 StatusBar statusConfig，两处需同步维护
-const BAND_STATUS_DOTS: Record<string, string> = {
-  online: 'bg-emerald-500',
-  offline: 'bg-rose-500',
-  loading: 'bg-blue-500',
-  error: 'bg-rose-500',
-  unknown: 'bg-amber-500',
-}
-
-const BandSegment = ({ onClick, children }: {
-  onClick: () => void
-  children: React.ReactNode
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-4 py-2.5 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-  >
-    {children}
-    <ChevronRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100" />
-  </button>
-)
-
-const DashboardSummaryBand = memo(function DashboardSummaryBand({ onRefreshQuality }: {
-  onRefreshQuality?: () => Promise<void>
-}) {
-  const { t } = useTranslation()
-  const status = useAuthStore((s) => s.status)
-  const adapters = useAdapterStore((s) => s.adapters)
-  const setActivePanel = useAdapterStore((s) => s.setActivePanel)
-  const networkQuality = useQualityStore((s) => s.networkQuality)
-  const isRefreshingQuality = useQualityStore((s) => s.isRefreshingQuality)
-  const enableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality !== false)
-
-  const statusDot = BAND_STATUS_DOTS[status.state] ?? BAND_STATUS_DOTS.unknown
-  const onlineAdapters = useMemo(() => adapters.filter(a => a.status === 'connected').length, [adapters])
-  const { quality: effectiveQuality, displayLatency } = resolveQualityDisplay(networkQuality)
-  const qualityConfig = QUALITY_CONFIG[effectiveQuality] ?? QUALITY_CONFIG.unknown
-  const hasLatency = displayLatency >= 0
-
-  return (
-    <div className="card-enter flex items-stretch divide-x divide-border/50 rounded-2xl border border-border/60 bg-card" style={{ '--stagger-i': 0 } as React.CSSProperties}>
-      <BandSegment onClick={() => setActivePanel('monitor')}>
-        <span className="relative flex h-2 w-2 shrink-0">
-          <span className={cn('h-2 w-2 rounded-full', statusDot)} />
-          {status.state === 'loading' && (
-            <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-blue-500 opacity-60" />
-          )}
-        </span>
-        <span className="min-w-0 space-y-0.5">
-          <span className="block text-[11px] leading-none text-muted-foreground">{t('dashboard.bandAuth')}</span>
-          <span className="block truncate text-sm font-medium leading-tight">{status.text || t('common.unknown')}</span>
-        </span>
-      </BandSegment>
-      <BandSegment onClick={() => setActivePanel('network')}>
-        <Cable className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 space-y-0.5">
-          <span className="block text-[11px] leading-none text-muted-foreground">{t('dashboard.bandAdapters')}</span>
-          <span className="block truncate text-sm font-medium leading-tight">{t('dashboard.bandOnlineCount', { count: onlineAdapters })}</span>
-        </span>
-      </BandSegment>
-      {enableNetworkQuality && (
-        <>
-          <BandSegment onClick={() => setActivePanel('quality')}>
-            <Gauge className={cn('h-4 w-4 shrink-0', qualityConfig?.color ?? 'text-muted-foreground')} />
-            <span className="min-w-0 space-y-0.5">
-              <span className="block text-[11px] leading-none text-muted-foreground">{t('dashboard.bandQuality')}</span>
-              <span className={cn('block truncate text-sm font-medium leading-tight', hasLatency && qualityConfig?.color)}>
-                {hasLatency ? `${displayLatency} ms` : t(qualityConfig?.labelKey ?? 'common.unknown')}
-              </span>
-            </span>
-          </BandSegment>
-          {onRefreshQuality && (
-            <div className="flex items-center pr-2">
-              <Button variant="ghost" size="icon-sm" className="rounded-lg" onClick={onRefreshQuality} disabled={isRefreshingQuality} aria-label={t('dashboard.networkQuality')}>
-                <RefreshCw className={getRefreshIconClass(isRefreshingQuality, 'h-3.5 w-3.5')} />
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
-})
-
 export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanelProps) {
   const { t } = useTranslation()
   const [cards, setCards] = useState<CardId[]>(loadLayout)
@@ -824,7 +736,6 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
 
   return (
     <div className="space-y-3">
-      <DashboardSummaryBand onRefreshQuality={props.onRefreshQuality} />
       <div className="flex items-center justify-end">
         <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1.5 rounded-lg" onClick={() => setEditing(!editing)}>
           {editing ? <><X className="h-3 w-3" />{t('common.done')}</> : <><Settings2 className="h-3 w-3" />{t('common.edit')}</>}
