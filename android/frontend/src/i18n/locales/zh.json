@@ -762,6 +762,8 @@
     "noCards": "暂无卡片",
     "noCardsTip": "点击上方\"编辑\"添加卡片",
     "selfNotConfigured": "未配置自助服务凭据",
+    "selfServiceMergedTitle": "自助服务",
+    "selfServiceMergedDesc": "配置凭据后在此展示在线设备与上网记录",
     "selfNotConfiguredTip": "在自助服务页设置学号与密码后展示",
     "selfQueryFailed": "查询失败",
     "selfRetry": "重试",

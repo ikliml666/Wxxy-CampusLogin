@@ -143,6 +143,7 @@ export function MobileDashboard() {
       onRefreshQuality={refreshQuality}
       excludeCards={EXCLUDED_CARDS}
       extraCards={extraCards}
+      mergeSelfServiceEmpty
     />
   )
 }

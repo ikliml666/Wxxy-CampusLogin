@@ -157,7 +157,7 @@ export const SettingsPanel = memo(function SettingsPanel({
           <CardContent className="space-y-5">
             <div className="space-y-3">
               <Label className="text-xs font-medium text-muted-foreground">{t('settings.colorScheme')}</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {THEME_OPTIONS.map(theme => {
                   const isActive = themeName === theme.id
                   const displayColor = theme.id === 'custom' ? customColor : theme.color
@@ -175,7 +175,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                     >
                       <div
                         className={cn(
-                          'w-8 h-8 rounded-lg transition-transform duration-200',
+                          'w-10 h-10 rounded-lg transition-transform duration-200',
                           isActive && 'scale-110'
                         )}
                         style={{

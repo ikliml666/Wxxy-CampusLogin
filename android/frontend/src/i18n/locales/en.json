@@ -762,6 +762,8 @@
     "noCards": "No Cards",
     "noCardsTip": "Click \"Edit\" above to add cards",
     "selfNotConfigured": "Self-service credentials not set",
+    "selfServiceMergedTitle": "Self-Service",
+    "selfServiceMergedDesc": "Online devices and usage records appear here once credentials are set",
     "selfNotConfiguredTip": "Set your student ID and password on the Self-Service page first",
     "selfQueryFailed": "Query failed",
     "selfRetry": "Retry",

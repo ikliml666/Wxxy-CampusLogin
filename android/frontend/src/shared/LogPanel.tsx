@@ -405,7 +405,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   value={String(lineCount)}
                   onValueChange={(v) => setLineCount(Number(v))}
                 >
-                  <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border" aria-label={t('log.systemLog')}>
+                  <SelectTrigger className="h-11 text-xs gap-1 px-2 w-auto border-border" aria-label={t('log.systemLog')}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -418,7 +418,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   value={String(retentionDays)}
                   onValueChange={(v) => handleRetentionChange(Number(v))}
                 >
-                  <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border">
+                  <SelectTrigger className="h-11 text-xs gap-1 px-2 w-auto border-border">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -432,7 +432,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 text-[11px] gap-1 px-2"
+                  className="h-11 text-xs gap-1 px-2"
                   onClick={() => fetchLogs(true)}
                   disabled={isLoading}
                 >
@@ -442,7 +442,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <Button
                   variant="outline"
                   size="sm"
-                  className={cn('h-7 text-[11px] gap-1 px-2', debugMode && 'bg-amber-500/10 text-amber-500 border-amber-500/30')}
+                  className={cn('h-11 text-xs gap-1 px-2', debugMode && 'bg-amber-500/10 text-amber-500 border-amber-500/30')}
                   onClick={toggleDebugMode}
                 >
                   <Bug className="h-3 w-3" />
@@ -451,7 +451,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 text-[11px] gap-1 px-2 text-destructive hover:text-destructive"
+                  className="h-11 text-xs gap-1 px-2 text-destructive hover:text-destructive"
                   onClick={handleClear}
                   disabled={isClearing || displayedLines.length === 0}
                 >
@@ -470,7 +470,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   placeholder={t('log.searchPlaceholder')}
-                  className="w-full h-7 pl-7 pr-7 text-[11px] rounded-md border border-border bg-background/80 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  className="w-full h-11 pl-7 pr-7 text-xs rounded-md border border-border bg-background/80 focus:outline-none focus:ring-1 focus:ring-primary/30"
                 />
                 {searchText && (
                   <button
@@ -482,7 +482,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 )}
               </div>
               <Select value={filterModule} onValueChange={setFilterModule}>
-                <SelectTrigger className="h-7 text-[11px] gap-1 px-2 w-auto border-border">
+                <SelectTrigger className="h-11 text-xs gap-1 px-2 w-auto border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

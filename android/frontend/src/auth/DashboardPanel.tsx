@@ -36,6 +36,7 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
 import { formatEpoch, localDateStr, formatMac } from '@/account/SelfServicePanel'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useShallow } from 'zustand/react/shallow'
 
 type BuiltinCardId = 'quickActions' | 'accountManage' | 'selfOnline' | 'selfLog' | 'networkQuality'
@@ -109,6 +110,8 @@ interface DashboardPanelProps {
   onToggleBackgroundCheck?: (enabled: boolean, intervalSec: number) => Promise<void>
   /** 移动端复用时排除 Windows 专属卡片（如 quickActions 的 DHCP 续租依赖网卡枚举） */
   excludeCards?: CardId[]
+  /** 无自助凭据时将 selfOnline/selfLog 两张空卡合并为一张紧凑空态卡（移动端密度优化；编辑模式不合并） */
+  mergeSelfServiceEmpty?: boolean
   /** 宿主自定义卡片（总览 hero 状态卡/监控摘要卡等），进同一套编辑体系 */
   extraCards?: ExtraCardDef[]
 }
@@ -699,6 +702,30 @@ const SelfLogCard = memo(function SelfLogCard({ noAnimation, noEnterAnimation }:
   )
 })
 
+// 自助服务合并空态卡（移动端）:未配置凭据时替代 selfOnline/selfLog 两张整卡,
+// 空态指引只讲一遍;凭据配齐后仍渲染两张完整卡（render 循环按 hasCred 分流）
+function SelfServiceMergedEmptyCard() {
+  const { t } = useTranslation()
+  return (
+    <AnimatedCard>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <MonitorSmartphone className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <CardTitle>{t('dashboard.selfServiceMergedTitle')}</CardTitle>
+            <CardDescription className="truncate">{t('dashboard.selfServiceMergedDesc')}</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <EmptyState compact icon={MonitorSmartphone} title={t('dashboard.selfNotConfigured')} description={t('dashboard.selfNotConfiguredTip')} />
+      </CardContent>
+    </AnimatedCard>
+  )
+}
+
 function renderCard(id: CardId, props: DashboardPanelProps, config: Config, _bgStatus: { isRunning: boolean; checkCount: number }, networkQuality: NetworkQuality | null, isRefreshingQuality: boolean, editing: boolean, adapters: Adapter[]) {
   const noAnim = editing
   const noEnter = !editing
@@ -864,6 +891,9 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
+  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
+  // 无自助凭据时（mergeSelfServiceEmpty，移动端）:selfOnline/selfLog 两张整卡空态合并为一张紧凑卡
+  const mergeSelfEmpty = !!props.mergeSelfServiceEmpty && !(!!config.user && selfPasswordSaved)
 
   useEffect(() => { saveLayout(cards) }, [cards])
 
@@ -964,11 +994,22 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
         </div>
       ) : (
         <div className="space-y-3">
-          {visibleCards.map((id, idx) => (
-            <div key={id} className="card-enter relative group" style={{ '--stagger-i': idx } as React.CSSProperties}>
-              {renderCard(id, props, config, bgStatus, networkQuality, isRefreshingQuality, editing, adapters)}
-            </div>
-          ))}
+          {visibleCards.map((id, idx) => {
+            // 无凭据空态合并:merged 卡占 selfOnline 槽位,selfLog 槽位跳过
+            if (mergeSelfEmpty && id === 'selfOnline') {
+              return (
+                <div key={id} className="card-enter relative group" style={{ '--stagger-i': idx } as React.CSSProperties}>
+                  <SelfServiceMergedEmptyCard />
+                </div>
+              )
+            }
+            if (mergeSelfEmpty && id === 'selfLog') return null
+            return (
+              <div key={id} className="card-enter relative group" style={{ '--stagger-i': idx } as React.CSSProperties}>
+                {renderCard(id, props, config, bgStatus, networkQuality, isRefreshingQuality, editing, adapters)}
+              </div>
+            )
+          })}
         </div>
       )}
 

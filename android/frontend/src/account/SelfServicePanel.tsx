@@ -441,6 +441,8 @@ export function SelfServicePanel() {
         </AnimatedCard>
       </div>
 
+      {/* 凭据未配置时隐藏两张查询卡:指引集中在上方凭据卡,避免同文案多卡重复 */}
+      {hasCred && (
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -459,8 +461,6 @@ export function SelfServicePanel() {
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
               </p>
-            ) : !hasCred ? (
-              <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : history !== null && history.length > 0 ? (
               <div className="overflow-x-auto rounded-lg border border-border/50">
                 <table className="w-full text-xs">
@@ -507,11 +507,13 @@ export function SelfServicePanel() {
                 {history === null ? t('account.selfDashboardIdle') : t('account.selfHistoryEmpty')}
               </div>
             )}
-            <p className="text-[11px] text-muted-foreground/70">{t('account.selfDashboardUnitNote')}</p>
           </CardContent>
         </AnimatedCard>
       </div>
+      )}
 
+      {/* 同上:凭据未配置时隐藏日期查询卡 */}
+      {hasCred && (
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -570,8 +572,6 @@ export function SelfServicePanel() {
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
               </p>
-            ) : !hasCred ? (
-              <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
             ) : logQuerying && logRows === null ? (
               <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfLogQuerying')}
@@ -659,6 +659,7 @@ export function SelfServicePanel() {
           </CardContent>
         </AnimatedCard>
       </div>
+      )}
 
       <ConfirmDialog
         open={confirmTarget !== null}
