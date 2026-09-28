@@ -4,7 +4,7 @@
 // 桌面件(TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/Onboarding/Sponsor)在手机外壳不再渲染。
 // 动画:仅保留面板切换的 framer-motion 过渡(交互触发,天然活跃期);氛围动画见 useDeviceProfile。
 
-import { useState, useCallback, useEffect, useDeferredValue, lazy, Suspense } from 'react'
+import { useState, useRef, useMemo, useEffect, useDeferredValue, lazy, Suspense } from 'react'
 import { useAppInit } from '@/hooks/useAppInit'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -19,7 +19,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { safeStorage, cn } from '@/lib/utils'
 import { requestNotificationPermission } from '@/lib/notificationPermission'
 import { AnimatePresence, m } from 'framer-motion'
-import { Settings, Palette, Info, Heart } from 'lucide-react'
+import { Settings, Palette, Info, Heart, ArrowDown, Loader2 } from 'lucide-react'
 import { SponsorCard } from '@/shared/SponsorCard'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
@@ -39,6 +39,9 @@ import { MonitorPanel } from '@/monitor/MonitorPanel'
 import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
 import { AnimationActiveProvider } from '@/hooks/usePageIdle'
 import { useAdaptiveFramePace, markInteraction } from '@/hooks/useAdaptiveFramePace'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { createPanelAppleVariants } from '@/lib/animations'
+import { usePullToRefresh, PULL_HOLD_PX, PULL_TRIGGER_PX } from '@/hooks/usePullToRefresh'
 
 const AboutDialog = lazy(() => import('@/auth/AboutDialogMobile').then((mod) => ({ default: mod.AboutDialogMobile })))
 const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((mod) => ({ default: mod.ThemeDialog })))
@@ -63,6 +66,17 @@ function AppInner() {
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   const configLoaded = useConfigStore((s) => s.configLoaded)
+  // 方向性转场：底栏页签顺序（第 4 位随质量开关在 quality/monitor 间切换），索引差定方向
+  const tabOrder: MobileTab[] = [
+    'dashboard',
+    'account',
+    'selfservice',
+    configEnableNetworkQuality !== false ? 'quality' : 'monitor',
+    'more',
+  ]
+  const [navDir, setNavDir] = useState<-1 | 0 | 1>(0)
+  const tabRef = useRef(tab)
+  useEffect(() => { tabRef.current = tab })
   // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
   const status = useAuthStore((s) => s.status)
   const api = useConfigStore.getState().api
@@ -93,21 +107,33 @@ function AppInner() {
   const doLogin = useAuthStore((s) => s.doLogin)
   const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
 
-  const panelVariants = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } }
+  const { easing } = useAnimationProfile()
+  // 方向性面板转场：custom=navDir，AnimatePresence 把它转发给退出中的旧面板
+  const panelVariants = useMemo(() => createPanelAppleVariants(easing), [easing])
+  const refreshAdapters = useAdapterStore((s) => s.refreshAdapters)
+  // 下拉刷新（仅总览）：拉松过阈值触发 refreshAdapters，指示器浮层见 header 下方
+  const mainRef = useRef<HTMLElement>(null)
+  const { pull, refreshing } = usePullToRefresh(mainRef, {
+    enabled: deferredTab === 'dashboard',
+    onRefresh: refreshAdapters,
+  })
 
-  const handleTabChange = useCallback((next: MobileTab) => {
+  const handleTabChange = (next: MobileTab) => {
     markInteraction()
+    const prevIdx = tabOrder.indexOf(tabRef.current)
+    const nextIdx = tabOrder.indexOf(next)
+    setNavDir(prevIdx === -1 || nextIdx === -1 || prevIdx === nextIdx ? 0 : nextIdx > prevIdx ? 1 : -1)
+    tabRef.current = next
     setTab(next)
     safeStorage.set('campus-mobile-tab', next)
-  }, [])
+  }
 
   // 质量开启后 monitor 不再是可见页签（第 4 位切回 quality），跨会话恢复出的
   // monitor 会让底栏无高亮页签——配置就绪后归位到 quality（KI#14 配套）
   useEffect(() => {
     if (!configLoaded) return
     if (configEnableNetworkQuality !== false && tab === 'monitor') {
-      setTab('quality')
-      safeStorage.set('campus-mobile-tab', 'quality')
+      handleTabChange('quality')
     }
   }, [configLoaded, configEnableNetworkQuality, tab])
 
@@ -214,9 +240,33 @@ function AppInner() {
         </button>
       </header>
 
+      {/* 下拉刷新指示器（仅总览）：跟随拉距浮出的克制胶囊，过阈值箭头翻转、松手转圈 */}
+      {deferredTab === 'dashboard' && (pull > 0 || refreshing) && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 z-[5] flex justify-center"
+          style={{ top: 'calc(env(safe-area-inset-top) + 56px)' }}
+        >
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-card/90 shadow-sm backdrop-blur-sm transition-[transform,opacity] duration-150 motion-reduce:transition-none"
+            style={{ transform: `translateY(${pull - PULL_HOLD_PX}px)`, opacity: Math.min(pull / PULL_HOLD_PX, 1) }}
+          >
+            {refreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : (
+              <ArrowDown
+                className="h-4 w-4 text-primary"
+                style={{ transform: `rotate(${Math.min(pull / PULL_TRIGGER_PX, 1) * 180}deg)` }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* main 与 absolute header 同层：顶部内边距 = header 上间距(12px)+行高(40px)+下间距(12px)+呼吸间距(14px)，另加安全区 */}
       <main
-        className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden px-4"
+        ref={mainRef}
+        className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4"
         style={{
           paddingTop: 'calc(env(safe-area-inset-top) + 78px)',
           // 悬浮底栏(底缝12px+栏高68px)+安全区;首页另有快捷登录浮条(+92px底、48px高),多留一拍
@@ -226,14 +276,14 @@ function AppInner() {
         }}
       >
         <div className="mx-auto max-w-[560px]">
-          <AnimatePresence mode="wait" initial={false}>
+          <AnimatePresence mode="wait" initial={false} custom={navDir}>
             <m.div
               key={deferredTab}
               variants={panelVariants}
+              custom={navDir}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.18, ease: 'easeOut' }}
               style={{ contain: 'layout style' }}
             >
               <ErrorBoundary>
