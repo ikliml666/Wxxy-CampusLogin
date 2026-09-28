@@ -72,6 +72,20 @@ export function useEventListeners() {
       unlisteners.push(unlistenClose)
     })
 
+    // KI#7：安卓进程被杀不会触发 onCloseRequested，挂 webview 生命周期兜底——
+    // 切后台（visibilitychange→hidden）与页面卸载（pagehide）时冲刷待存配置。
+    // in-flight 同样限时 2s；后台化场景无需清理定时器（进程存活与否都不受影响）
+    const flushPendingNow = () => {
+      if (!hasPendingConfig()) return
+      const inFlight = flushPendingConfig()
+      if (inFlight) void Promise.race([inFlight, new Promise(r => { setTimeout(r, 2000) })])
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushPendingNow()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('pagehide', flushPendingNow)
+
     const unsub1 = api.onBackgroundCheckResult?.((data) => {
       if (!mountedRef.current) return
       if (!data) return
@@ -326,6 +340,8 @@ export function useEventListeners() {
 
     return () => {
       mountedRef.current = false
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('pagehide', flushPendingNow)
       unlisteners.forEach(fn => fn())
     }
   }, [])

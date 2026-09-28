@@ -52,7 +52,9 @@ function AppInner() {
 
   const [tab, setTab] = useState<MobileTab>(() => {
     const saved = safeStorage.get('campus-mobile-tab') as MobileTab | null
-    return saved && ['dashboard', 'account', 'selfservice', 'quality', 'more'].includes(saved) ? saved : 'dashboard'
+    // KI#14：白名单须覆盖 handleTabChange 可写入的全部页签（含 monitor），
+    // 否则停在后台检测页杀进程重开会回落 dashboard
+    return saved && ['dashboard', 'account', 'selfservice', 'quality', 'monitor', 'more'].includes(saved) ? saved : 'dashboard'
   })
   const deferredTab = useDeferredValue(tab)
 
@@ -60,6 +62,7 @@ function AppInner() {
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
+  const configLoaded = useConfigStore((s) => s.configLoaded)
   // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
   const status = useAuthStore((s) => s.status)
   const api = useConfigStore.getState().api
@@ -97,6 +100,16 @@ function AppInner() {
     setTab(next)
     safeStorage.set('campus-mobile-tab', next)
   }, [])
+
+  // 质量开启后 monitor 不再是可见页签（第 4 位切回 quality），跨会话恢复出的
+  // monitor 会让底栏无高亮页签——配置就绪后归位到 quality（KI#14 配套）
+  useEffect(() => {
+    if (!configLoaded) return
+    if (configEnableNetworkQuality !== false && tab === 'monitor') {
+      setTab('quality')
+      safeStorage.set('campus-mobile-tab', 'quality')
+    }
+  }, [configLoaded, configEnableNetworkQuality, tab])
 
   useEffect(() => {
     // 首次启动无账号 → 弹手机端新手向导（原实现是"直奔账号页"并立刻写
