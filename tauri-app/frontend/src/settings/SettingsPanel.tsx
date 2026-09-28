@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
   Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass,
-  Database, Upload, Download
+  Database, Upload, Download, ChevronDown
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
@@ -77,8 +77,6 @@ export const SettingsPanel = memo(function SettingsPanel({
   useEffect(() => {
     return () => { if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current) }
   }, [])
-  // 固定网关文本输入本地草稿：blur/Enter 时一次性提交，
-  // 避免每键写 store 触发级联渲染与防抖保存
 
   const storeCustomColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
   const customColor = colorDraft ?? storeCustomColor
@@ -137,6 +135,7 @@ export const SettingsPanel = memo(function SettingsPanel({
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [importPath, setImportPath] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const handleExportConfig = async () => {
     if (isExportingConfig) return
@@ -303,7 +302,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区（手动分栏均衡）：左=启动设置+数据管理；右=通知与安全+质量检测。
+      {/* 两列区（手动分栏均衡）：左=启动设置+质量检测；右=通知与安全+数据管理。
           两列各自 flex 紧密堆叠；不用 justify-between 拉伸——大卡配小卡会在卡间拉出大片空洞 */}
       <div className="grid gap-4 items-start md:grid-cols-2">
       <div className="flex flex-col gap-4">
@@ -435,56 +434,98 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 数据管理：配置导出/导入（P2-30，桌面专属）。导出默认不含密码（掩码态）；
-          含密码导出走 DPAPI 密文仅本机可解。导入经严格校验 + 二次确认后覆盖当前配置 */}
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+      {/* 质量检测卡（折叠后挪回左列，与数据管理右移共同均衡两列底缘；enableQuality 关闭联动 quality 面板引用清理） */}
+      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>
-                <Database className="h-5 w-5 text-primary" />
+                <Gauge className="h-5 w-5 text-primary" />
               </CardIcon>
               <div className="min-w-0">
-                <CardTitle>{t('settings.dataManagement')}</CardTitle>
-                <CardDescription>{t('settings.dataManagementDesc')}</CardDescription>
+                <CardTitle>{t('settings.qualityDetection')}</CardTitle>
+                <CardDescription>{t('settings.qualityDetectionDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <SettingRow
-              htmlFor="export-include-password"
-              label={t('settings.includePassword')}
-              description={t('settings.includePasswordDesc')}
+              htmlFor="enable-quality"
+              label={t('settings.enableQualityDetection')}
+              description={t('settings.enableQualityDetectionDesc')}
             >
               <Switch
-                id="export-include-password"
-                checked={exportWithPassword}
-                onCheckedChange={setExportWithPassword}
+                id="enable-quality"
+                checked={config.enableNetworkQuality !== false}
+                onCheckedChange={checked => {
+                  if (checked) {
+                    onUpdateConfig({ enableNetworkQuality: true })
+                    return
+                  }
+                  // 关闭质量检测时联动清理 quality 面板引用，否则 App 对该面板渲染 null、
+                  // Dock 隐藏入口，当前面板停留在 quality 时主区域空白
+                  const { activePanel, setActivePanel } = useAdapterStore.getState()
+                  const patch: Partial<Config> = { enableNetworkQuality: false }
+                  // 联动关闭定时测试：总开关关闭后不应继续全量外网检测（后端
+                  // start_latency_test 也有同向校验，双保险防止开关与任务分叉）
+                  if (config.enableLatencyTest) {
+                    patch.enableLatencyTest = false
+                    useConfigStore.getState().api.stopLatencyTest?.().catch(() => {})
+                  }
+                  if (config.defaultPanel === 'quality') patch.defaultPanel = ''
+                  onUpdateConfig(patch)
+                  if (activePanel === 'quality') setActivePanel('dashboard')
+                }}
               />
             </SettingRow>
-            <div className="flex gap-2">
-              <button
-                onClick={handleExportConfig}
-                disabled={isExportingConfig}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
-                )}
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen(v => !v)}
+              aria-expanded={advancedOpen}
+              className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t('settings.latencyCalcOptions')}
+              <ChevronDown className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {advancedOpen && (<>
+            <Separator />
+            <div className="space-y-3">
+              <SettingRow
+                htmlFor="skip-ttfb"
+                label={t('settings.skipTtfb')}
+                description={t('settings.skipTtfbDesc')}
               >
-                <Upload className="h-4 w-4" />
-                {isExportingConfig ? t('settings.exporting') : t('settings.exportConfig')}
-              </button>
-              <button
-                onClick={() => { setImportPath(''); setImportDialogOpen(true) }}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'border border-border text-foreground hover:bg-accent active:scale-[0.98]'
-                )}
+                <Switch
+                  id="skip-ttfb"
+                  checked={config.skipTtfbInLatency || false}
+                  onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
+                />
+              </SettingRow>
+              <Separator />
+              <SettingRow
+                htmlFor="skip-content"
+                label={t('settings.skipContent')}
+                description={t('settings.skipContentDesc')}
               >
-                <Download className="h-4 w-4" />
-                {t('settings.importConfig')}
-              </button>
+                <Switch
+                  id="skip-content"
+                  checked={config.skipContentInLatency || false}
+                  onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
+                />
+              </SettingRow>
             </div>
+            <Separator />
+            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="text-[11px] text-muted-foreground space-y-1">
+                  <p><span className="font-medium text-foreground/80">{t('settings.ttfbExplanation')}</span>{t('settings.ttfbExplanationDetail')}</p>
+                  <p><span className="font-medium text-emerald-500">{t('settings.contentTransferExplanation')}</span>{t('settings.contentTransferExplanationDetail')}</p>
+                  <p><span className="font-medium text-pink-400">{t('settings.networkLatencyExplanation')}</span>{t('settings.networkLatencyExplanationDetail')}</p>
+                </div>
+              </div>
+            </div>
+            </>)}
           </CardContent>
         </AnimatedCard>
       </div>
@@ -555,103 +596,59 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 质量检测卡（挪入右列，均衡两列高度；enableQuality 关闭联动 quality 面板引用清理） */}
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+      {/* 数据管理：配置导出/导入（P2-30，桌面专属）。导出默认不含密码（掩码态）；
+          含密码导出走 DPAPI 密文仅本机可解。导入经严格校验 + 二次确认后覆盖当前配置 */}
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>
-                <Gauge className="h-5 w-5 text-primary" />
+                <Database className="h-5 w-5 text-primary" />
               </CardIcon>
               <div className="min-w-0">
-                <CardTitle>{t('settings.qualityDetection')}</CardTitle>
-                <CardDescription>{t('settings.qualityDetectionDesc')}</CardDescription>
+                <CardTitle>{t('settings.dataManagement')}</CardTitle>
+                <CardDescription>{t('settings.dataManagementDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <SettingRow
-              htmlFor="enable-quality"
-              label={t('settings.enableQualityDetection')}
-              description={t('settings.enableQualityDetectionDesc')}
+              htmlFor="export-include-password"
+              label={t('settings.includePassword')}
+              description={t('settings.includePasswordDesc')}
             >
               <Switch
-                id="enable-quality"
-                checked={config.enableNetworkQuality !== false}
-                onCheckedChange={checked => {
-                  if (checked) {
-                    onUpdateConfig({ enableNetworkQuality: true })
-                    return
-                  }
-                  // 关闭质量检测时联动清理 quality 面板引用，否则 App 对该面板渲染 null、
-                  // Dock 隐藏入口，当前面板停留在 quality 时主区域空白
-                  const { activePanel, setActivePanel } = useAdapterStore.getState()
-                  const patch: Partial<Config> = { enableNetworkQuality: false }
-                  // 联动关闭定时测试：总开关关闭后不应继续全量外网检测（后端
-                  // start_latency_test 也有同向校验，双保险防止开关与任务分叉）
-                  if (config.enableLatencyTest) {
-                    patch.enableLatencyTest = false
-                    useConfigStore.getState().api.stopLatencyTest?.().catch(() => {})
-                  }
-                  if (config.defaultPanel === 'quality') patch.defaultPanel = ''
-                  onUpdateConfig(patch)
-                  if (activePanel === 'quality') setActivePanel('dashboard')
-                }}
+                id="export-include-password"
+                checked={exportWithPassword}
+                onCheckedChange={setExportWithPassword}
               />
             </SettingRow>
-            <Separator />
-            <div className="space-y-3">
-              <Label className="text-xs font-medium text-muted-foreground">{t('settings.latencyCalcOptions')}</Label>
-              <SettingRow
-                htmlFor="skip-ttfb"
-                label={t('settings.skipTtfb')}
-                description={t('settings.skipTtfbDesc')}
+            <div className="flex gap-2">
+              <button
+                onClick={handleExportConfig}
+                disabled={isExportingConfig}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
+                )}
               >
-                <Switch
-                  id="skip-ttfb"
-                  checked={config.skipTtfbInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
-                />
-              </SettingRow>
-              <Separator />
-              <SettingRow
-                htmlFor="skip-content"
-                label={t('settings.skipContent')}
-                description={t('settings.skipContentDesc')}
+                <Upload className="h-4 w-4" />
+                {isExportingConfig ? t('settings.exporting') : t('settings.exportConfig')}
+              </button>
+              <button
+                onClick={() => { setImportPath(''); setImportDialogOpen(true) }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'border border-border text-foreground hover:bg-accent active:scale-[0.98]'
+                )}
               >
-                <Switch
-                  id="skip-content"
-                  checked={config.skipContentInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
-                />
-              </SettingRow>
+                <Download className="h-4 w-4" />
+                {t('settings.importConfig')}
+              </button>
             </div>
-            <Separator />
-            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
-              <div className="flex items-start gap-2">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                <div className="text-[11px] text-muted-foreground space-y-1">
-                  <p><span className="font-medium text-foreground/80">{t('settings.ttfbExplanation')}</span>{t('settings.ttfbExplanationDetail')}</p>
-                  <p><span className="font-medium text-emerald-500">{t('settings.contentTransferExplanation')}</span>{t('settings.contentTransferExplanationDetail')}</p>
-                  <p><span className="font-medium text-pink-400">{t('settings.networkLatencyExplanation')}</span>{t('settings.networkLatencyExplanationDetail')}</p>
-                </div>
-              </div>
-            </div>
-            <Separator />
-            <SettingRow
-              htmlFor="fixed-gateway"
-              label={t('settings.fixedGateway')}
-              description={t('settings.fixedGatewayDesc')}
-            >
-              {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-              <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground max-w-[220px]">
-                {config.fixedGateway || '10.2.127.254'}
-              </div>
-            </SettingRow>
           </CardContent>
         </AnimatedCard>
       </div>
-
       </div>
       </div>
 

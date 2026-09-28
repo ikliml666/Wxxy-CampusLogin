@@ -75,6 +75,7 @@
 - [[learnings\platform-com-elevation-undocumented|Windows COM 提权依赖未公开接口，失效时降级为弹 UAC]]
 - [[learnings\contain-paint-clips-absolute-menu|absolute 定位的菜单/按钮被卡片裁掉（contain: paint）]]
 - [[learnings\build-rs-docsrs-masks-android-build-failure|build.rs 的 docsrs 特例掩盖 android 目标构建失败]]
+- [[learnings\hickory-resolver-drop-runtime-context-panic|hickory Resolver 在 runtime 上下文线程 drop 触发整进程 panic]]
 - [[learnings\android-host-cargo-check-fails|host cargo check 在 android/src-tauri 基线即失败]]
 - [[learnings\ipconfig-failure-exit-code-zero|ipconfig 失败但代码认为成功（失败退出码常为 0）]]
 - [[learnings\tsc-b-emits-contaminated-files|npx tsc -b 会 emit 出 vite.config.js 等污染文件]]
