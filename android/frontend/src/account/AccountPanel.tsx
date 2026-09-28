@@ -4,10 +4,8 @@ import type { Adapter } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import {
   Select,
   SelectContent,
@@ -17,7 +15,7 @@ import {
 } from '@/components/ui/select'
 import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap, Pencil
+  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Pencil
 } from 'lucide-react'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
@@ -55,8 +53,6 @@ export const AccountPanel = memo(function AccountPanel({
   onRenameAccount,
 }: AccountPanelProps) {
   const { t } = useTranslation()
-  // 安卓端无系统适配器概念,网络由系统托管;桌面专属 UI 按平台隐藏
-  const isAndroid = import.meta.env.VITE_PLATFORM === 'android'
   const passwordSaved = useConfigStore((s) => s.passwordSaved)
   const addToast = useLogToastStore((s) => s.addToast)
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
@@ -353,9 +349,9 @@ export const AccountPanel = memo(function AccountPanel({
 
   return (
     <div className="space-y-4">
-      {/* 登录信息+自动化开关（左列）与运营商绑定（右列）并列，底部对齐；<640px 单列，避免窄屏双列挤压 */}
+      {/* 登录信息（左列）与运营商绑定（右列）并列；<640px 单列，避免窄屏双列挤压 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {/* 左列：开关卡 flex-1 填满剩余高度，与右列绑定卡底部对齐 */}
+      {/* 左列：登录信息卡 */}
       <div className="flex flex-col gap-4">
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
@@ -455,90 +451,6 @@ export const AccountPanel = memo(function AccountPanel({
                 </SelectContent>
               </Select>
             </div>)}
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      {/* 自动化开关：flex-1 填满左列剩余高度；grid 使卡片包装层 stretch 占满宽度 */}
-      <div className="card-enter flex-1 grid" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Zap className="h-5 w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
-                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
-              </div>
-              <Switch
-                id="auto-login"
-                checked={config.autoLoginOnStart || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
-                className="shrink-0"
-              />
-            </div>
-            {!isAndroid && (<>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-exit" className="text-sm font-medium cursor-pointer">{t('account.autoExitAfterLogin')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoExitAfterLoginDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit"
-                checked={config.autoExitAfterLogin || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-online"
-                checked={config.autoExitOnOnline || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                className="shrink-0"
-              />
-            </div>
-            </>)}
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
-              </div>
-              <Switch
-                id="auto-login-ready"
-                checked={config.autoLoginOnPreparation || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="night-operator-switch" className="text-sm font-medium cursor-pointer">{t('account.nightOperatorSwitch')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.nightOperatorSwitchDesc')}</p>
-              </div>
-              <Switch
-                id="night-operator-switch"
-                checked={config.enableNightOperatorSwitch || false}
-                onCheckedChange={checked => onUpdateConfig({ enableNightOperatorSwitch: checked })}
-                className="shrink-0"
-              />
-            </div>
           </CardContent>
         </AnimatedCard>
       </div>

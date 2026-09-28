@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass, ShieldCheck
+  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Compass, ShieldCheck, Zap, ChevronDown
 } from 'lucide-react'
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
@@ -87,6 +87,8 @@ export const SettingsPanel = memo(function SettingsPanel({
   // 避免每键写 store 触发级联渲染与防抖保存
   // 2D 人脸开关的风险确认弹窗；录入走命令式 openFaceDialog
   const [faceRiskConfirmOpen, setFaceRiskConfirmOpen] = useState(false)
+  // 网络「高级设置」折叠态：默认收起，降低设置页首屏噪音
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const openFaceDialog = useFaceDialogStore((s) => s.openFaceDialog)
   const addToast = useLogToastStore.getState().addToast
 
@@ -261,8 +263,8 @@ export const SettingsPanel = memo(function SettingsPanel({
                 <Rocket className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>{t('settings.startupSettings')}</CardTitle>
-                <CardDescription>{t('settings.startupSettingsDesc')}</CardDescription>
+                <CardTitle>{t('settings.startupNotification')}</CardTitle>
+                <CardDescription>{t('settings.startupNotificationDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -292,34 +294,25 @@ export const SettingsPanel = memo(function SettingsPanel({
                 className="shrink-0"
               />
             </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="enable-notification" className="text-sm font-medium cursor-pointer">{t('settings.enableNotification')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.enableNotificationDesc')}</p>
+              </div>
+              <Switch
+                id="enable-notification"
+                checked={config.enableNotification !== false}
+                onCheckedChange={checked => {
+                  onUpdateConfig({ enableNotification: checked })
+                  // 用户明确要通知:13+ 弹系统框;13 以下/被永久拒绝/被 ROM 关闭时跳设置页
+                  if (checked) void requestNotificationPermission({ openSettingsIfDenied: true })
+                }}
+                className="shrink-0"
+              />
+            </div>
             {!isAndroid && (
             <>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-login" className="text-sm font-medium cursor-pointer">{t('settings.autoExitAfterLogin')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitAfterLoginDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-login"
-                checked={config.autoExitAfterLogin || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-online"
-                checked={config.autoExitOnOnline || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                className="shrink-0"
-              />
-            </div>
             <Separator />
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
@@ -376,36 +369,74 @@ export const SettingsPanel = memo(function SettingsPanel({
       </div>
 
       <div className="flex flex-col gap-4 justify-between">
+      {/* 自动化：自动登录时机与夜间运营商切换（原账号页「自动化设置」归位；桌面退出项从启动组迁入去重） */}
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <Bell className="h-5 w-5 text-primary" />
+                <Zap className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>{t('settings.notification')}</CardTitle>
-                <CardDescription>{t('settings.notificationDesc')}</CardDescription>
+                <CardTitle>{t('settings.automationGroup')}</CardTitle>
+                <CardDescription>{t('settings.automationGroupDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="enable-notification" className="text-sm font-medium cursor-pointer">{t('settings.enableNotification')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.enableNotificationDesc')}</p>
+                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
               </div>
               <Switch
-                id="enable-notification"
-                checked={config.enableNotification !== false}
-                onCheckedChange={checked => {
-                  onUpdateConfig({ enableNotification: checked })
-                  // 用户明确要通知:13+ 弹系统框;13 以下/被永久拒绝/被 ROM 关闭时跳设置页
-                  if (checked) void requestNotificationPermission({ openSettingsIfDenied: true })
-                }}
+                id="auto-login-ready"
+                checked={config.autoLoginOnPreparation || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
                 className="shrink-0"
               />
             </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="night-operator-switch" className="text-sm font-medium cursor-pointer">{t('account.nightOperatorSwitch')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.nightOperatorSwitchDesc')}</p>
+              </div>
+              <Switch
+                id="night-operator-switch"
+                checked={config.enableNightOperatorSwitch || false}
+                onCheckedChange={checked => onUpdateConfig({ enableNightOperatorSwitch: checked })}
+                className="shrink-0"
+              />
+            </div>
+            {!isAndroid && (<>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-exit-login" className="text-sm font-medium cursor-pointer">{t('settings.autoExitAfterLogin')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitAfterLoginDesc')}</p>
+              </div>
+              <Switch
+                id="auto-exit-login"
+                checked={config.autoExitAfterLogin || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
+              </div>
+              <Switch
+                id="auto-exit-online"
+                checked={config.autoExitOnOnline || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
+                className="shrink-0"
+              />
+            </div>
+            </>)}
           </CardContent>
         </AnimatedCard>
       </div>
@@ -566,8 +597,8 @@ export const SettingsPanel = memo(function SettingsPanel({
                 <Gauge className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <CardTitle>{t('settings.qualityDetection')}</CardTitle>
-                <CardDescription>{t('settings.qualityDetectionDesc')}</CardDescription>
+                <CardTitle>{t('settings.networkGroup')}</CardTitle>
+                <CardDescription>{t('settings.networkGroupDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -603,6 +634,17 @@ export const SettingsPanel = memo(function SettingsPanel({
               />
             </div>
             <Separator />
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen(v => !v)}
+              aria-expanded={advancedOpen}
+              className="flex w-full items-center gap-1.5 rounded-lg py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:text-foreground"
+            >
+              <ChevronDown className={cn('h-4 w-4 transition-transform duration-200', advancedOpen && 'rotate-180')} />
+              {t('settings.advancedSection')}
+            </button>
+            {advancedOpen && (
+            <>
             <div className="space-y-3">
               <Label className="text-xs font-medium text-muted-foreground">{t('settings.latencyCalcOptions')}</Label>
               <div className="flex items-center justify-between">
@@ -656,6 +698,8 @@ export const SettingsPanel = memo(function SettingsPanel({
                 </div>
               </div>
             </div>
+            </>
+            )}
           </CardContent>
         </AnimatedCard>
       </div>
