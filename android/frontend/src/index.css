@@ -207,6 +207,26 @@
     border-radius: 12px !important;
   }
 
+  /* 磨砂 tonal 按钮(快捷注销等):玻璃基底叠主色调;暗色档显著提亮(主色占比 26%),
+     避免与暗色卡片同色调糊底——M3 暗色 tonal container 即远亮于 surface 的做法 */
+  .btn-tonal-glass {
+    background: color-mix(
+      in srgb,
+      var(--primary) 12%,
+      color-mix(in srgb, var(--surface-main) 82%, transparent)
+    );
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+  }
+
+  .dark .btn-tonal-glass {
+    background: color-mix(
+      in srgb,
+      var(--primary) 26%,
+      color-mix(in srgb, var(--surface-main) 88%, transparent)
+    );
+  }
+
   .glass-dock {
     background: rgba(240, 243, 248, 0.82);
     border: 1px solid rgba(255, 255, 255, 0.5);
