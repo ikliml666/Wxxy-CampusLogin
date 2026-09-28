@@ -634,7 +634,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                   <p><span className="font-medium text-foreground/80">{t('settings.ttfbExplanation')}</span>{t('settings.ttfbExplanationDetail')}</p>
                   <p><span className="font-medium text-emerald-500">{t('settings.contentTransferExplanation')}</span>{t('settings.contentTransferExplanationDetail')}</p>
                   <p><span className="font-medium text-pink-400">{t('settings.networkLatencyExplanation')}</span>{t('settings.networkLatencyExplanationDetail')}</p>
-                  <p><span className="font-medium text-foreground/80">{t('settings.recommendation')}</span>{t('settings.recommendationDetail')}</p>
                 </div>
               </div>
             </div>

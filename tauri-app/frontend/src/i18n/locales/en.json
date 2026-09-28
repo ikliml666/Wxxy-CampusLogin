@@ -542,8 +542,6 @@
     "contentTransferExplanationDetail": " — Time to read the complete HTTP response body, significantly affected by page size (Baidu ~50ms, Bilibili ~200ms). Disabling greatly speeds up detection.",
     "networkLatencyExplanation": "Network Latency",
     "networkLatencyExplanationDetail": " — Application layer overhead beyond DNS/TCP/TLS/TTFB/content transfer. Usually caused by TCP retransmission, queuing delay, etc.",
-    "recommendation": "Recommendation: ",
-    "recommendationDetail": "For daily use, disable both for faster detection; enable when precise server performance analysis is needed.",
     "fixedGateway": "Fixed Gateway Address",
     "fixedGatewayDesc": "Fixed to gateway 10.2.127.254 as the quality check target",
     "fixedGatewayPlaceholder": "10.2.127.254 (default)",

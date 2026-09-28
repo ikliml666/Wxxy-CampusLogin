@@ -542,8 +542,6 @@
     "contentTransferExplanationDetail": " — 读取完整HTTP响应体的时间，受页面大小影响大（百度约50ms、B站约200ms）。禁用后检测速度大幅提升。",
     "networkLatencyExplanation": "网络延迟",
     "networkLatencyExplanationDetail": " — 除去DNS/TCP/TLS/TTFB/内容传输之外的应用层额外开销。通常由TCP重传、排队延迟等造成。",
-    "recommendation": "推荐：",
-    "recommendationDetail": "日常使用建议关闭两项以获得更快检测结果；需要精确分析服务器性能时开启。",
     "fixedGateway": "固定网关地址",
     "fixedGatewayDesc": "固定使用网关 10.2.127.254 作为质量检测目标",
     "fixedGatewayPlaceholder": "10.2.127.254（默认）",
