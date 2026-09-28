@@ -35,6 +35,13 @@ const DOH_FALLBACK_SERVERS: &[(&str, &str)] = &[
 // （quality Phase1 的 SystemDns 会并发解析多个域名，若串行会把离线超时
 // 逐域名累加），每个 key 维护一个小池，池满后轮转取用：
 // 既保证并发并行度，又避免重复建 Runtime。
+//
+// 【崩溃红线】hickory 同步 Resolver 内部持有 current-thread Tokio Runtime，
+// 其最后一份引用若在 tokio async 上下文（worker 线程等 Entered 线程）被 drop
+// 会 panic（tokio blocking/shutdown.rs:51 "Cannot drop a runtime..."，
+// 2026-09-28 进程崩溃根因；tests/repro_dns_runtime_drop.rs 四场景实证：
+// worker 线程必炸，spawn_blocking 线程与普通线程安全）。
+// 任何退役路径必须经 retire_resolvers 移交，禁止在 worker 线程上自然 drop。
 const RESOLVER_POOL_SIZE: usize = 4;
 const RESOLVER_CACHE_MAX_KEYS: usize = 16;
 
@@ -50,6 +57,22 @@ lazy_static::lazy_static! {
 
 fn resolver_cache_key(bind_addr: Option<IpAddr>, servers: &[String], timeout: Duration) -> String {
     format!("{:?}|{}|{}", bind_addr, servers.join(","), timeout.as_millis())
+}
+
+/// 退役 Resolver 的唯一安全回收点（见上方"崩溃红线"注释）。
+/// 当前线程在 runtime 上下文内（Handle::try_current 为 Ok，含 worker 线程与
+/// spawn_blocking 线程）时移交 blocking 线程 drop；无 runtime 上下文的普通线程
+/// 上 drop 本身安全，直接释放。运行时正在关闭导致 spawn 失败时，Resolver 泄漏
+/// 至进程退出，属可接受的最坏情况。
+fn retire_resolvers(resolvers: Vec<Arc<hickory_resolver::Resolver>>) {
+    if resolvers.is_empty() {
+        return;
+    }
+    if tokio::runtime::Handle::try_current().is_ok() {
+        let _ = tokio::task::spawn_blocking(move || drop(resolvers));
+    } else {
+        drop(resolvers);
+    }
 }
 
 /// 获取或创建 Resolver：池未满时按需扩容（首次调用建 1 个，最多 POOL_SIZE 个），
@@ -83,7 +106,13 @@ fn resolver_get_or_create(
     // push 前复查容量，重复构造的实例被丢弃而非覆盖，池本就允许多实例并存）
     let mut cache = RESOLVER_CACHE.lock();
     if cache.len() >= RESOLVER_CACHE_MAX_KEYS && !cache.contains_key(key) {
-        cache.clear();
+        // 超限整体重建：退役实例的内部 Runtime 不得在当前线程 drop
+        //（调用方可能是 worker 线程，见 retire_resolvers 注释）
+        let retired: Vec<Arc<hickory_resolver::Resolver>> = cache
+            .drain()
+            .flat_map(|(_, entry)| entry.resolvers)
+            .collect();
+        retire_resolvers(retired);
     }
     let entry = cache.entry(key.to_string()).or_insert_with(|| ResolverPoolEntry {
         resolvers: Vec::with_capacity(RESOLVER_POOL_SIZE),
@@ -95,6 +124,9 @@ fn resolver_get_or_create(
     } else {
         let idx = entry.next;
         entry.next = (entry.next + 1) % entry.resolvers.len();
+        // 并发期间池已被其他线程填满：锁外构造的多余实例不得在当前线程
+        //（可能为 worker 线程）drop，移交 retire_resolvers
+        retire_resolvers(vec![resolver]);
         Ok(entry.resolvers[idx].clone())
     }
 }
@@ -990,5 +1022,97 @@ mod tests {
         let result = parse_dns_response_wire(&data);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("QR"));
+    }
+
+    // ===== Resolver 池退役安全（2026-09-28 tokio shutdown.rs:51 崩溃回归）=====
+
+    fn make_test_resolver() -> Arc<hickory_resolver::Resolver> {
+        Arc::new(
+            hickory_resolver::Resolver::new(
+                hickory_resolver::config::ResolverConfig::default(),
+                hickory_resolver::config::ResolverOpts::default(),
+            )
+            .expect("构造测试 Resolver 失败"),
+        )
+    }
+
+    /// 核心契约：worker 线程（async 上下文）上退役 Resolver 不得 panic。
+    /// 若退役退化为直接 drop，会触发 tokio "Cannot drop a runtime..." panic。
+    #[test]
+    #[cfg(not(panic = "abort"))]
+    fn retire_resolvers_on_worker_thread_does_not_panic() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let resolvers = vec![make_test_resolver(), make_test_resolver()];
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                retire_resolvers(resolvers);
+            }));
+            assert!(res.is_ok(), "retire_resolvers 在 worker 线程上不得 panic");
+            // 留出 blocking 线程执行移交的 drop；即便未执行也只是延迟回收
+            tokio::task::yield_now().await;
+        });
+    }
+
+    /// 池超限重建路径（clear → drain + retire）：在 worker 线程把键数推过上限，
+    /// 全量退役不得 panic（2026-09-28 崩溃的直接触发点）。
+    #[test]
+    #[cfg(not(panic = "abort"))]
+    fn resolver_pool_overflow_retirement_on_worker_thread_does_not_panic() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            // 预填至键数上限（各 1 个实例），使下一个新键触发超限重建
+            for i in 0..RESOLVER_CACHE_MAX_KEYS {
+                RESOLVER_CACHE.lock().insert(
+                    format!("overflow_test_{i}|None|[]|1000"),
+                    ResolverPoolEntry {
+                        resolvers: vec![make_test_resolver()],
+                        next: 0,
+                    },
+                );
+            }
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = resolver_get_or_create(
+                    "overflow_test_new_key|None|[]|1000",
+                    hickory_resolver::config::ResolverConfig::default(),
+                    hickory_resolver::config::ResolverOpts::default(),
+                );
+            }));
+            assert!(res.is_ok(), "池超限退役在 worker 线程上不得 panic");
+            assert!(RESOLVER_CACHE.lock().len() <= RESOLVER_CACHE_MAX_KEYS);
+        });
+    }
+
+    /// 同键并发 get_or_create 压力：写回溢出 else 分支（retire 多余实例）与
+    /// 快路径轮转交织，任何任务都不得 panic（panic 会以 JoinError 暴露）。
+    #[test]
+    fn resolver_pool_concurrent_get_or_create_does_not_panic() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let mut handles = Vec::new();
+            for _ in 0..8 {
+                handles.push(tokio::task::spawn(async {
+                    resolver_get_or_create(
+                        "concurrent_test_key|None|[]|1000",
+                        hickory_resolver::config::ResolverConfig::default(),
+                        hickory_resolver::config::ResolverOpts::default(),
+                    )
+                }));
+            }
+            for h in handles {
+                assert!(h.await.is_ok(), "并发 get_or_create 不得 panic");
+            }
+        });
     }
 }
