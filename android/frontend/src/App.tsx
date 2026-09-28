@@ -203,8 +203,14 @@ function AppInner() {
 
       {/* main 与 absolute header 同层：顶部内边距 = header 上间距(12px)+行高(40px)+下间距(12px)+呼吸间距(14px)，另加安全区 */}
       <main
-        className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 78px)' }}
+        className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden px-4"
+        style={{
+          paddingTop: 'calc(env(safe-area-inset-top) + 78px)',
+          // 悬浮底栏(底缝12px+栏高68px)+安全区;首页另有快捷登录浮条(+92px底、48px高),多留一拍
+          paddingBottom: deferredTab === 'dashboard'
+            ? 'calc(env(safe-area-inset-bottom) + 148px)'
+            : 'calc(env(safe-area-inset-bottom) + 88px)',
+        }}
       >
         <div className="mx-auto max-w-[560px]">
           <AnimatePresence mode="wait" initial={false}>
@@ -339,4 +345,3 @@ function NotificationPermissionGate() {
     />
   )
 }
-
