@@ -108,7 +108,7 @@ function MobileMonitorCard() {
         <button
           type="button"
           onClick={() => handleTriggerCheck()}
-          className="w-full flex items-center justify-center gap-2 h-10 rounded-lg border border-border/60 text-sm text-muted-foreground active:scale-[0.99] transition-transform"
+          className="w-full flex items-center justify-center gap-2 h-10 rounded-xl bg-muted/60 text-sm text-muted-foreground active:scale-[0.99] active:bg-muted transition-[transform,background-color]"
         >
           <RefreshCw className="h-4 w-4" />
           {t('monitor.refreshNow')}

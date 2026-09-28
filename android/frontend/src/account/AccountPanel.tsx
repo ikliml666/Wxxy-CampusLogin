@@ -471,7 +471,7 @@ export const AccountPanel = memo(function AccountPanel({
           </CardHeader>
           <CardContent className="space-y-4">
             {/* 绑定状态区：后端返回掩码账号（前三后二），密码仅回是否设置 */}
-            <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
               {bindStatuses ? (
                 ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => {
                   const key = o.value.slice(1) as 'cmcc' | 'telecom' | 'unicom'
@@ -513,7 +513,7 @@ export const AccountPanel = memo(function AccountPanel({
                 <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
               )}
               <Button
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={fetchBindStatus}
                 disabled={!canQueryStatus || queryingStatus}

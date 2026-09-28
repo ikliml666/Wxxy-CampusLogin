@@ -400,7 +400,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                 <CardTitle>{t('log.systemLog')}</CardTitle>
                 <CardDescription>{t('log.systemLogDesc')}</CardDescription>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0 max-sm:basis-full">
                 <Select
                   value={String(lineCount)}
                   onValueChange={(v) => setLineCount(Number(v))}
