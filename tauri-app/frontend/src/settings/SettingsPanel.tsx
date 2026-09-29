@@ -302,7 +302,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区（手动分栏均衡）：左=启动设置+质量检测；右=通知与安全+数据管理。
+      {/* 两列区（手动分栏均衡）：左=启动设置；右=通知与安全+数据管理+质量检测（折叠）。
           两列各自 flex 紧密堆叠；不用 justify-between 拉伸——大卡配小卡会在卡间拉出大片空洞 */}
       <div className="grid gap-4 items-start md:grid-cols-2">
       <div className="flex flex-col gap-4">
@@ -434,101 +434,6 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 质量检测卡（折叠后挪回左列，与数据管理右移共同均衡两列底缘；enableQuality 关闭联动 quality 面板引用清理） */}
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <Gauge className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('settings.qualityDetection')}</CardTitle>
-                <CardDescription>{t('settings.qualityDetectionDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <SettingRow
-              htmlFor="enable-quality"
-              label={t('settings.enableQualityDetection')}
-              description={t('settings.enableQualityDetectionDesc')}
-            >
-              <Switch
-                id="enable-quality"
-                checked={config.enableNetworkQuality !== false}
-                onCheckedChange={checked => {
-                  if (checked) {
-                    onUpdateConfig({ enableNetworkQuality: true })
-                    return
-                  }
-                  // 关闭质量检测时联动清理 quality 面板引用，否则 App 对该面板渲染 null、
-                  // Dock 隐藏入口，当前面板停留在 quality 时主区域空白
-                  const { activePanel, setActivePanel } = useAdapterStore.getState()
-                  const patch: Partial<Config> = { enableNetworkQuality: false }
-                  // 联动关闭定时测试：总开关关闭后不应继续全量外网检测（后端
-                  // start_latency_test 也有同向校验，双保险防止开关与任务分叉）
-                  if (config.enableLatencyTest) {
-                    patch.enableLatencyTest = false
-                    useConfigStore.getState().api.stopLatencyTest?.().catch(() => {})
-                  }
-                  if (config.defaultPanel === 'quality') patch.defaultPanel = ''
-                  onUpdateConfig(patch)
-                  if (activePanel === 'quality') setActivePanel('dashboard')
-                }}
-              />
-            </SettingRow>
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen(v => !v)}
-              aria-expanded={advancedOpen}
-              className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {t('settings.latencyCalcOptions')}
-              <ChevronDown className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {advancedOpen && (<>
-            <Separator />
-            <div className="space-y-3">
-              <SettingRow
-                htmlFor="skip-ttfb"
-                label={t('settings.skipTtfb')}
-                description={t('settings.skipTtfbDesc')}
-              >
-                <Switch
-                  id="skip-ttfb"
-                  checked={config.skipTtfbInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
-                />
-              </SettingRow>
-              <Separator />
-              <SettingRow
-                htmlFor="skip-content"
-                label={t('settings.skipContent')}
-                description={t('settings.skipContentDesc')}
-              >
-                <Switch
-                  id="skip-content"
-                  checked={config.skipContentInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
-                />
-              </SettingRow>
-            </div>
-            <Separator />
-            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
-              <div className="flex items-start gap-2">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                <div className="text-[11px] text-muted-foreground space-y-1">
-                  <p><span className="font-medium text-foreground/80">{t('settings.ttfbExplanation')}</span>{t('settings.ttfbExplanationDetail')}</p>
-                  <p><span className="font-medium text-emerald-500">{t('settings.contentTransferExplanation')}</span>{t('settings.contentTransferExplanationDetail')}</p>
-                  <p><span className="font-medium text-pink-400">{t('settings.networkLatencyExplanation')}</span>{t('settings.networkLatencyExplanationDetail')}</p>
-                </div>
-              </div>
-            </div>
-            </>)}
-          </CardContent>
-        </AnimatedCard>
-      </div>
       </div>
 
       <div className="flex flex-col gap-4">
@@ -646,6 +551,101 @@ export const SettingsPanel = memo(function SettingsPanel({
                 {t('settings.importConfig')}
               </button>
             </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+      {/* 质量检测卡（右列收底，左列单卡（启动设置）对齐右列三卡底缘；enableQuality 关闭联动 quality 面板引用清理） */}
+      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <CardIcon>
+                <Gauge className="h-5 w-5 text-primary" />
+              </CardIcon>
+              <div className="min-w-0">
+                <CardTitle>{t('settings.qualityDetection')}</CardTitle>
+                <CardDescription>{t('settings.qualityDetectionDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <SettingRow
+              htmlFor="enable-quality"
+              label={t('settings.enableQualityDetection')}
+              description={t('settings.enableQualityDetectionDesc')}
+            >
+              <Switch
+                id="enable-quality"
+                checked={config.enableNetworkQuality !== false}
+                onCheckedChange={checked => {
+                  if (checked) {
+                    onUpdateConfig({ enableNetworkQuality: true })
+                    return
+                  }
+                  // 关闭质量检测时联动清理 quality 面板引用，否则 App 对该面板渲染 null、
+                  // Dock 隐藏入口，当前面板停留在 quality 时主区域空白
+                  const { activePanel, setActivePanel } = useAdapterStore.getState()
+                  const patch: Partial<Config> = { enableNetworkQuality: false }
+                  // 联动关闭定时测试：总开关关闭后不应继续全量外网检测（后端
+                  // start_latency_test 也有同向校验，双保险防止开关与任务分叉）
+                  if (config.enableLatencyTest) {
+                    patch.enableLatencyTest = false
+                    useConfigStore.getState().api.stopLatencyTest?.().catch(() => {})
+                  }
+                  if (config.defaultPanel === 'quality') patch.defaultPanel = ''
+                  onUpdateConfig(patch)
+                  if (activePanel === 'quality') setActivePanel('dashboard')
+                }}
+              />
+            </SettingRow>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen(v => !v)}
+              aria-expanded={advancedOpen}
+              className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t('settings.latencyCalcOptions')}
+              <ChevronDown className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {advancedOpen && (<>
+            <Separator />
+            <div className="space-y-3">
+              <SettingRow
+                htmlFor="skip-ttfb"
+                label={t('settings.skipTtfb')}
+                description={t('settings.skipTtfbDesc')}
+              >
+                <Switch
+                  id="skip-ttfb"
+                  checked={config.skipTtfbInLatency || false}
+                  onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
+                />
+              </SettingRow>
+              <Separator />
+              <SettingRow
+                htmlFor="skip-content"
+                label={t('settings.skipContent')}
+                description={t('settings.skipContentDesc')}
+              >
+                <Switch
+                  id="skip-content"
+                  checked={config.skipContentInLatency || false}
+                  onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
+                />
+              </SettingRow>
+            </div>
+            <Separator />
+            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="text-[11px] text-muted-foreground space-y-1">
+                  <p><span className="font-medium text-foreground/80">{t('settings.ttfbExplanation')}</span>{t('settings.ttfbExplanationDetail')}</p>
+                  <p><span className="font-medium text-emerald-500">{t('settings.contentTransferExplanation')}</span>{t('settings.contentTransferExplanationDetail')}</p>
+                  <p><span className="font-medium text-pink-400">{t('settings.networkLatencyExplanation')}</span>{t('settings.networkLatencyExplanationDetail')}</p>
+                </div>
+              </div>
+            </div>
+            </>)}
           </CardContent>
         </AnimatedCard>
       </div>
