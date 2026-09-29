@@ -75,7 +75,7 @@ const OUTBOUND_RESTORE_ALERT_FAILS: u32 = 3;
 /// 首次告警后的重复提醒间隔（失败次数）：300s 退避封顶时约每 100 分钟一次
 const OUTBOUND_RESTORE_ALERT_REMIND_EVERY: u32 = 20;
 /// 损坏快照的放弃阀：还原连续失败达此次数后，损坏的禁用名单按空名单放行收尾
-/// （300s 退避封顶时约 3.3 小时、期间已发约 3 次告警），避免快照损坏把还原
+/// （300s 退避封顶时约 3.3 小时、期间已发 2 次告警：计数 3 与 23），避免快照损坏把还原
 /// 流程永久卡死、告警无限循环——卡死比残留更糟，告警义务届时已尽
 const OUTBOUND_RESTORE_GIVE_UP_FAILS: u32 = 40;
 
@@ -195,8 +195,11 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                     .await;
                 }
                 // 夜间看门狗：guard 窗口 ∧ 切换态下复核禁用名单，名单内校园网卡被
-                // 外部重新启用（用户手动启用/网络重置/驱动重装）时重新禁用（P2-3）
-                watchdog_re_disable_campus(&app_h, &config_snapshot);
+                // 外部重新启用（用户手动启用/网络重置/驱动重装）时重新禁用（P2-3）。
+                // 提权结果轮询最长 30s/卡，与其他出站动作一样下放阻塞线程池
+                let _ =
+                    run_outbound_blocking(app_h.clone(), config_snapshot.clone(), watchdog_re_disable_campus)
+                        .await;
             }
         }
         // 切换态（快照非空）：运营商夜切让位——切侧从热点出站登录校园 portal 必然失败；
@@ -736,10 +739,13 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
 /// ② 启动对账的夜间窗口分支（上次运行被杀，切换没写完——此时进程内失败计数为 0，
 ///    不能以 `needs_replay` 拦，否则重启后的重放失效）。
 /// 成功只记 info 日志、**不发系统通知**（稳态/多拍重放不应重复弹窗）。
+/// 全部分支无新增失败时清切换失败计数，让 needs_replay 回稳态 false
+/// （否则任一遗留失败史都会让每拍 60s 重放 + 提权空转直到天亮）。
 fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) {
     if !switch_gate_open() {
         return;
     }
+    let mut any_fail = false;
     // —— 分支①：跃点补写 ——
     let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
         Ok(rows) if !rows.is_empty() => Some(rows),
@@ -754,8 +760,10 @@ fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config
         let rows = match crate::platform::metric::read_interface_metrics(&guid) {
             Ok(rows) => rows,
             Err(e) => {
+                // 读取失败只影响本分支：记失败后跳过补写，落回②③（不整体 return）
+                any_fail = true;
                 crate::log_warn!("outbound", "夜间出站切换: 读取目标卡({guid})跃点失败: {e}");
-                return;
+                Vec::new()
             }
         };
         // 只写快照有原值、且当前确实存在的协议栈：保证"写过的都能按快照还原"
@@ -772,7 +780,9 @@ fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| guid.clone())
         };
-        write_outbound_metric(app_handle, &name, &guid, &families, false, "");
+        if !families.is_empty() && !write_outbound_metric(app_handle, &name, &guid, &families, false, "") {
+            any_fail = true;
+        }
     }
     // —— 分支②：禁用补做 ——
     // 快照损坏：补不了（无从知道该禁用哪些卡），跳过——还原路径会告警并保留状态
@@ -798,6 +808,7 @@ fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config
                 }
                 Err(failure) => {
                     note_channel_failure(&failure);
+                    any_fail = true;
                     mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
                     crate::log_warn!("outbound", "夜间出站切换: 补做禁用 {} 失败: {}", row.name, failure.reason);
                 }
@@ -820,10 +831,16 @@ fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config
             }
             Err(failure) => {
                 note_channel_failure(&failure);
+                any_fail = true;
                 mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
                 crate::log_warn!("outbound", "夜间出站切换: 补加兜底路由失败: {}", failure.reason);
             }
         }
+    }
+    // 全部分支无新增失败：此前的失败已被补齐动作补救，清掉切换失败计数，
+    // needs_replay 回稳态 false（否则每拍 60s 重放 + 提权空转直到天亮）
+    if !any_fail {
+        clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     }
 }
 
@@ -833,7 +850,8 @@ fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config
 /// 禁用失败记切换退避，由"未生效补齐"重放路径按退避重做。仅 None 拍调用
 /// （Switch/Restore 拍各自忙）；白天 / 非切换态 / 退避窗内直接返回。
 /// 名单快照损坏时无从复核，返回（损坏由还原路径告警）。
-fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate::config::Config) {
+/// 返回值恒为 false，仅为适配 [`run_outbound_blocking`] 的 `fn` 指针签名。
+fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate::config::Config) -> bool {
     if !config.enable_night_outbound_switch
         || !outbound_restore_active(
             &config.outbound_metric_restore,
@@ -841,7 +859,7 @@ fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate::config::Co
             &config.outbound_standby_route,
         )
     {
-        return;
+        return false;
     }
     let now = chrono::Local::now();
     if !crate::config::outbound_switch::is_night_outbound_guard_window(
@@ -850,13 +868,13 @@ fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate::config::Co
         now.hour() * 60 + now.minute(),
     ) || !switch_gate_open()
     {
-        return;
+        return false;
     }
     let Ok(disabled) = parse_disabled_adapters(&config.outbound_disabled_adapters) else {
-        return;
+        return false;
     };
     if disabled.is_empty() {
-        return;
+        return false;
     }
     let adapters = crate::network::get_adapters_cached().unwrap_or_default();
     for row in &disabled {
@@ -892,6 +910,7 @@ fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate::config::Co
             }
         }
     }
+    false
 }
 
 /// 夜间出站还原动作（须在 spawn_blocking 线程内执行）。六期起切换态含三份快照，
@@ -1024,10 +1043,12 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
     // 切换态（含已写回的跃点快照，重试幂等）下一拍继续。
     // 名单快照损坏 ≠ 无禁用动作：按空处理会在收尾清快照后静默放走仍被 netsh
     // 持久禁用的校园卡（此后无人认领）→ 判还原失败走告警 + 保留状态重试；连续
-    // 失败达 OUTBOUND_RESTORE_GIVE_UP_FAILS（多次告警后约 3.3h）按空名单放行收尾，
+    // 失败达 OUTBOUND_RESTORE_GIVE_UP_FAILS（约 3.3h、期间告警 2 次）按空名单放行收尾，
     // 避免损坏快照把还原流程永久卡死（此时告警义务已尽，卡死比残留更糟）
     let mut enable_ok = true;
     let mut enabled_count = 0usize;
+    // 放弃阀放行 ≠ 还原成功：收尾通知需区分（放行后校园卡可能仍被持久禁用）
+    let mut gave_up_released = false;
     let give_up_corrupt =
         OUTBOUND_RESTORE_FAIL_COUNT.load(Ordering::Acquire) >= OUTBOUND_RESTORE_GIVE_UP_FAILS;
     let disabled = match parse_disabled_adapters(&config.outbound_disabled_adapters) {
@@ -1035,8 +1056,9 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
         Err(e) if give_up_corrupt => {
             crate::log_warn!(
                 "outbound",
-                "夜间出站还原: 禁用名单快照损坏且已多次告警，按空名单放行收尾: {e}"
+                "夜间出站还原: 禁用名单快照损坏，告警期已过，按空名单放行收尾: {e}"
             );
+            gave_up_released = true;
             Vec::new()
         }
         Err(e) => {
@@ -1096,19 +1118,31 @@ fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::config::Config
     if !(metric_ok && enable_ok && route_ok) {
         return false;
     }
-    // 成功通知只发一次（全部步骤完成后）：文案区分是否真的启用了网卡
-    crate::log_info!("outbound", "夜间出站还原: 还原完成");
-    let restore_msg = if enabled_count > 0 {
-        format!("已还原网络设置（启用 {} 张校园网网卡）", enabled_count)
+    // 收尾通知只发一次（全部步骤完成后）：文案区分是否真的启用了网卡；
+    // 放弃阀放行的拍不发「已还原」——校园卡可能仍被 netsh 持久禁用，
+    // 改发告警文案提醒手动启用，与此前「请手动启用」告警口径一致
+    if gave_up_released {
+        crate::log_info!("outbound", "夜间出站还原: 已按放弃阀放行收尾，校园网卡启用状态待人工确认");
+        crate::infra::notification::emit_notification(
+            app_handle,
+            "夜间出站还原",
+            "还原流程已收尾，但校园网网卡可能仍处于禁用状态（禁用名单快照损坏）；请在系统「网络设置」中手动检查并启用",
+            "mascot-alert",
+        );
     } else {
-        "已还原网卡跃点设置".to_string()
-    };
-    crate::infra::notification::emit_notification(
-        app_handle,
-        "夜间出站切换",
-        &restore_msg,
-        "mascot-portrait",
-    );
+        crate::log_info!("outbound", "夜间出站还原: 还原完成");
+        let restore_msg = if enabled_count > 0 {
+            format!("已还原网络设置（启用 {} 张校园网网卡）", enabled_count)
+        } else {
+            "已还原网卡跃点设置".to_string()
+        };
+        crate::infra::notification::emit_notification(
+            app_handle,
+            "夜间出站切换",
+            &restore_msg,
+            "mascot-portrait",
+        );
+    }
     finish_outbound_restore(app_handle)
 }
 
