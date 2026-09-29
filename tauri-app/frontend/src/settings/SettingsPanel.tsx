@@ -302,12 +302,12 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区（手动分栏均衡）：左=启动设置；右=通知与安全+数据管理+质量检测（折叠）。
-          两列各自 flex 紧密堆叠；不用 justify-between 拉伸——大卡配小卡会在卡间拉出大片空洞 */}
-      <div className="grid gap-4 items-start md:grid-cols-2">
+      {/* 两列区（手动分栏）：左=启动设置；右=通知与安全+数据管理+质量检测（折叠）。
+          两列等高：网格默认 stretch，两列末卡 grow 吃掉各自列的残差，底缘像素级对齐；不用 justify-between——卡间会拉出空洞 */}
+      <div className="grid gap-4 md:grid-cols-2">
       <div className="flex flex-col gap-4">
-      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
+      <div className="card-enter grow" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>
@@ -554,9 +554,9 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardContent>
         </AnimatedCard>
       </div>
-      {/* 质量检测卡（右列收底，左列单卡（启动设置）对齐右列三卡底缘；enableQuality 关闭联动 quality 面板引用清理） */}
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
+      {/* 质量检测卡（右列收底；末卡 grow 吃残差对齐底缘；enableQuality 关闭联动 quality 面板引用清理） */}
+      <div className="card-enter grow" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>
