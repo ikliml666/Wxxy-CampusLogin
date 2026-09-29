@@ -7,8 +7,9 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import {
-  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Compass, ShieldCheck, Zap, ChevronDown
+  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Compass, ShieldCheck, Zap, ChevronRight
 } from 'lucide-react'
 import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
@@ -83,12 +84,10 @@ export const SettingsPanel = memo(function SettingsPanel({
   useEffect(() => {
     return () => { if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current) }
   }, [])
-  // 固定网关文本输入本地草稿：blur/Enter 时一次性提交，
-  // 避免每键写 store 触发级联渲染与防抖保存
   // 2D 人脸开关的风险确认弹窗；录入走命令式 openFaceDialog
   const [faceRiskConfirmOpen, setFaceRiskConfirmOpen] = useState(false)
-  // 网络「高级设置」折叠态：默认收起，降低设置页首屏噪音
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  // 延迟计算选项 Modal：低频配置收进弹窗，卡面只留入口（同步桌面批次六方案）
+  const [latencyModalOpen, setLatencyModalOpen] = useState(false)
   const openFaceDialog = useFaceDialogStore((s) => s.openFaceDialog)
   const addToast = useLogToastStore.getState().addToast
 
@@ -639,45 +638,51 @@ export const SettingsPanel = memo(function SettingsPanel({
             <Separator />
             <button
               type="button"
-              onClick={() => setAdvancedOpen(v => !v)}
-              aria-expanded={advancedOpen}
-              className="flex w-full items-center gap-1.5 rounded-lg py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:text-foreground"
+              onClick={() => setLatencyModalOpen(true)}
+              aria-haspopup="dialog"
+              className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              <ChevronDown className={cn('h-4 w-4 transition-transform duration-200', advancedOpen && 'rotate-180')} />
-              {t('settings.advancedSection')}
+              {t('settings.latencyCalcOptions')}
+              <ChevronRight className="h-4 w-4" />
             </button>
-            {advancedOpen && (
-            <>
-            <div className="space-y-3">
-              <Label className="text-xs font-medium text-muted-foreground">{t('settings.latencyCalcOptions')}</Label>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5 min-w-0">
-                  <Label htmlFor="skip-ttfb" className="text-sm font-medium cursor-pointer">{t('settings.skipTtfb')}</Label>
-                  <p className="text-[11px] text-muted-foreground">{t('settings.skipTtfbDesc')}</p>
-                </div>
-                <Switch
-                  id="skip-ttfb"
-                  checked={config.skipTtfbInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
-                  className="shrink-0"
-                />
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      <Dialog open={latencyModalOpen} onOpenChange={setLatencyModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('settings.latencyCalcOptions')}</DialogTitle>
+            <DialogDescription>{t('settings.qualityDetectionDesc')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="skip-ttfb" className="text-sm font-medium cursor-pointer">{t('settings.skipTtfb')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.skipTtfbDesc')}</p>
               </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5 min-w-0">
-                  <Label htmlFor="skip-content" className="text-sm font-medium cursor-pointer">{t('settings.skipContent')}</Label>
-                  <p className="text-[11px] text-muted-foreground">{t('settings.skipContentDesc')}</p>
-                </div>
-                <Switch
-                  id="skip-content"
-                  checked={config.skipContentInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
-                  className="shrink-0"
-                />
-              </div>
+              <Switch
+                id="skip-ttfb"
+                checked={config.skipTtfbInLatency || false}
+                onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
+                className="shrink-0"
+              />
             </div>
             <Separator />
-            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="skip-content" className="text-sm font-medium cursor-pointer">{t('settings.skipContent')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.skipContentDesc')}</p>
+              </div>
+              <Switch
+                id="skip-content"
+                checked={config.skipContentInLatency || false}
+                onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="rounded-xl bg-muted/40 p-3">
               <div className="flex items-start gap-2">
                 <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
                 <div className="text-[11px] text-muted-foreground space-y-1">
@@ -688,24 +693,9 @@ export const SettingsPanel = memo(function SettingsPanel({
                 </div>
               </div>
             </div>
-            <Separator />
-            <div className="space-y-2">
-              <div className="space-y-0.5">
-                <Label htmlFor="fixed-gateway" className="text-sm font-medium">{t('settings.fixedGateway')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.fixedGatewayDesc')}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-                <div className="flex-1 h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
-                  {config.fixedGateway || '10.2.127.254'}
-                </div>
-              </div>
-            </div>
-            </>
-            )}
-          </CardContent>
-        </AnimatedCard>
-      </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
 {/* 背景看板娘:面板滚动末尾的低透明度装饰,不参与交互 */}
       <img

@@ -147,7 +147,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `SettingsPanel` | `settings/SettingsPanel.tsx:63` | 设置面板：外观（主题网格、自定义取色、浅色模式）、启动设置、通知、保活（安卓专属卡）、安全（生物开关、2D 人脸）、引导入口、质量检测（总开关、跳过项、固定网关） |
+| `SettingsPanel` | `settings/SettingsPanel.tsx:63` | 设置面板：外观（主题网格、自定义取色、浅色模式）、启动设置、通知、保活（安卓专属卡）、安全（生物开关、2D 人脸）、引导入口、质量检测（总开关 + 延迟计算选项触发行——2026-09-29 与桌面批次六同步：跳过项内联折叠改 Modal 弹窗、删「固定网关地址」展示行（后端字段与兜底逻辑保留），见 [[decisions/android-settings-latency-modal]]） |
 | `ThemeDialog` | `settings/ThemeDialog.tsx:27` | 主题弹窗（手机 header 的调色板入口，`App.tsx:256`） |
 | `OnboardingWizard` | `settings/OnboardingWizard.tsx:93` | 平板/宽屏向导（Dialog 形态，四步 + 顶部圆点进度） |
 | `OnboardingWizardMobile` | `settings/OnboardingWizardMobile.tsx:82` | 手机全屏向导（段式进度轨、底部固定操作区、输入高 48px、不含 autoFocus） |

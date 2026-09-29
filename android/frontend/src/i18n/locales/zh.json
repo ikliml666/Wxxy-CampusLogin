@@ -544,7 +544,7 @@
     "automationGroup": "自动化",
     "automationGroupDesc": "自动登录时机与夜间运营商切换",
     "networkGroup": "网络",
-    "networkGroupDesc": "延迟质量检测与固定网关",
+    "networkGroupDesc": "延迟质量检测",
     "advancedSection": "高级设置",
     "enableQualityDetection": "启用网络质量检测",
     "enableQualityDetectionDesc": "在总览和网络质量面板中显示延迟检测结果",

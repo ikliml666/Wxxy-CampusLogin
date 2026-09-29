@@ -544,7 +544,7 @@
     "automationGroup": "Automation",
     "automationGroupDesc": "Auto-login timing and night operator switch",
     "networkGroup": "Network",
-    "networkGroupDesc": "Latency quality tests and fixed gateway",
+    "networkGroupDesc": "Latency quality tests",
     "advancedSection": "Advanced settings",
     "enableQualityDetection": "Enable Network Quality Detection",
     "enableQualityDetectionDesc": "Show latency test results in Dashboard and Network Quality panels",
