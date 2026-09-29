@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
   Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass,
-  Database, Upload, Download, ChevronDown
+  Database, Upload, Download, ChevronDown, LogIn
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
@@ -302,12 +302,12 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区（手动分栏）：左=启动设置；右=通知与安全+数据管理+质量检测（折叠）。
+      {/* 两列区（手动分栏）：左=启动设置（拆三卡：启动/登录自动化/窗口与界面）；右=通知与安全+数据管理+质量检测（折叠）。
           两列等高：网格默认 stretch，两列末卡 grow 吃掉各自列的残差，底缘像素级对齐；不用 justify-between——卡间会拉出空洞 */}
       <div className="grid gap-4 md:grid-cols-2">
       <div className="flex flex-col gap-4">
-      <div className="card-enter grow" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>
@@ -319,94 +319,118 @@ export const SettingsPanel = memo(function SettingsPanel({
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">{t('settings.groupStartup')}</p>
-              <SettingRow
-                htmlFor="auto-launch"
-                label={t('settings.autoLaunch')}
-                description={t('settings.autoLaunchDesc')}
-              >
-                <Switch
-                  id="auto-launch"
-                  checked={autoLaunch}
-                  onCheckedChange={checked => onSetAutoLaunch(checked)}
-                />
-              </SettingRow>
-              <SettingRow
-                htmlFor="hidden-start"
-                label={t('settings.silentStart')}
-                description={t('settings.silentStartDesc')}
-              >
-                <Switch
-                  id="hidden-start"
-                  checked={config.hiddenStart || false}
-                  onCheckedChange={checked => onUpdateConfig({ hiddenStart: checked })}
-                />
-              </SettingRow>
+          <CardContent className="space-y-3">
+            <SettingRow
+              htmlFor="auto-launch"
+              label={t('settings.autoLaunch')}
+              description={t('settings.autoLaunchDesc')}
+            >
+              <Switch
+                id="auto-launch"
+                checked={autoLaunch}
+                onCheckedChange={checked => onSetAutoLaunch(checked)}
+              />
+            </SettingRow>
+            <SettingRow
+              htmlFor="hidden-start"
+              label={t('settings.silentStart')}
+              description={t('settings.silentStartDesc')}
+            >
+              <Switch
+                id="hidden-start"
+                checked={config.hiddenStart || false}
+                onCheckedChange={checked => onUpdateConfig({ hiddenStart: checked })}
+              />
+            </SettingRow>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <CardIcon>
+                <LogIn className="h-5 w-5 text-primary" />
+              </CardIcon>
+              <div className="min-w-0">
+                <CardTitle>{t('settings.groupLoginAutomation')}</CardTitle>
+              </div>
             </div>
-            <Separator />
-            <div className="space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">{t('settings.groupLoginAutomation')}</p>
-              <SettingRow
-                htmlFor="auto-login-startup"
-                label={t('settings.autoLoginCampus')}
-                description={t('settings.autoLoginCampusDesc')}
-              >
-                <Switch
-                  id="auto-login-startup"
-                  checked={config.autoLoginOnStart || false}
-                  onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
-                />
-              </SettingRow>
-              <SettingRow
-                htmlFor="auto-exit-login"
-                label={t('settings.autoExitAfterLogin')}
-                description={t('settings.autoExitAfterLoginDesc')}
-              >
-                <Switch
-                  id="auto-exit-login"
-                  checked={config.autoExitAfterLogin || false}
-                  onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-                />
-              </SettingRow>
-              <SettingRow
-                htmlFor="auto-exit-online"
-                label={t('settings.autoExitWhenOnline')}
-                description={t('settings.autoExitWhenOnlineDesc')}
-              >
-                <Switch
-                  id="auto-exit-online"
-                  checked={config.autoExitOnOnline || false}
-                  onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                />
-              </SettingRow>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SettingRow
+              htmlFor="auto-login-startup"
+              label={t('settings.autoLoginCampus')}
+              description={t('settings.autoLoginCampusDesc')}
+            >
+              <Switch
+                id="auto-login-startup"
+                checked={config.autoLoginOnStart || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
+              />
+            </SettingRow>
+            <SettingRow
+              htmlFor="auto-exit-login"
+              label={t('settings.autoExitAfterLogin')}
+              description={t('settings.autoExitAfterLoginDesc')}
+            >
+              <Switch
+                id="auto-exit-login"
+                checked={config.autoExitAfterLogin || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
+              />
+            </SettingRow>
+            <SettingRow
+              htmlFor="auto-exit-online"
+              label={t('settings.autoExitWhenOnline')}
+              description={t('settings.autoExitWhenOnlineDesc')}
+            >
+              <Switch
+                id="auto-exit-online"
+                checked={config.autoExitOnOnline || false}
+                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
+              />
+            </SettingRow>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      <div className="card-enter grow" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <CardIcon>
+                <LayoutList className="h-5 w-5 text-primary" />
+              </CardIcon>
+              <div className="min-w-0">
+                <CardTitle>{t('settings.groupWindowBehavior')}</CardTitle>
+              </div>
             </div>
-            <Separator />
-            <div className="space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">{t('settings.groupWindowBehavior')}</p>
-              <SettingRow
-                htmlFor="lightweight-mode"
-                label={t('settings.lightweightMode')}
-                description={t('settings.lightweightModeDesc')}
-              >
-                <Switch
-                  id="lightweight-mode"
-                  checked={config.lightweightMode || false}
-                  onCheckedChange={checked => onUpdateConfig({ lightweightMode: checked })}
-                />
-              </SettingRow>
-              <SettingRow
-                htmlFor="minimize-tray"
-                label={t('settings.minimizeToTray')}
-                description={t('settings.minimizeToTrayDesc')}
-              >
-                <Switch
-                  id="minimize-tray"
-                  checked={config.minimizeToTray !== false}
-                  onCheckedChange={checked => onUpdateConfig({ minimizeToTray: checked })}
-                />
-              </SettingRow>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SettingRow
+              htmlFor="lightweight-mode"
+              label={t('settings.lightweightMode')}
+              description={t('settings.lightweightModeDesc')}
+            >
+              <Switch
+                id="lightweight-mode"
+                checked={config.lightweightMode || false}
+                onCheckedChange={checked => onUpdateConfig({ lightweightMode: checked })}
+              />
+            </SettingRow>
+            <SettingRow
+              htmlFor="minimize-tray"
+              label={t('settings.minimizeToTray')}
+              description={t('settings.minimizeToTrayDesc')}
+            >
+              <Switch
+                id="minimize-tray"
+                checked={config.minimizeToTray !== false}
+                onCheckedChange={checked => onUpdateConfig({ minimizeToTray: checked })}
+              />
+            </SettingRow>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <LayoutList className="h-4 w-4 text-primary" />
@@ -429,7 +453,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                   </SelectContent>
                 </Select>
               </div>
-            </div>
           </CardContent>
         </AnimatedCard>
       </div>
@@ -439,7 +462,7 @@ export const SettingsPanel = memo(function SettingsPanel({
       <div className="flex flex-col gap-4">
       {/* 通知与安全合并卡：组标题区分两段。安全组开关关闭方向（安全 → 宽松）
           都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -503,7 +526,7 @@ export const SettingsPanel = memo(function SettingsPanel({
 
       {/* 数据管理：配置导出/导入（P2-30，桌面专属）。导出默认不含密码（掩码态）；
           含密码导出走 DPAPI 密文仅本机可解。导入经严格校验 + 二次确认后覆盖当前配置 */}
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -555,7 +578,7 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
       {/* 质量检测卡（右列收底；末卡 grow 吃残差对齐底缘；enableQuality 关闭联动 quality 面板引用清理） */}
-      <div className="card-enter grow" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+      <div className="card-enter grow" style={{ '--stagger-i': 6 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -655,7 +678,7 @@ export const SettingsPanel = memo(function SettingsPanel({
       {/* 新手指引：页面级紧凑横幅收口（替代右列底部孤立卡——纯 CTA 卡与重型配置卡
           同级视觉重量会放大两列底缘参差；横幅不占列宽，下缘与两列底缘取齐） */}
       {onShowOnboarding && (
-        <div className="card-enter" style={{ '--stagger-i': 5 } as React.CSSProperties}>
+        <div className="card-enter" style={{ '--stagger-i': 7 } as React.CSSProperties}>
           <AnimatedCard noEnterAnimation>
             <CardContent className="p-4 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
