@@ -64,6 +64,11 @@ tags: [前端, ui, 设计系统, 动画]
 - **渐进披露回退**：用户裁定绑定卡披露「多此一举」——低频≠低价值，状态查询与绑定表单同域同频，披露反而加一次点击。撤披露入口/AnimatePresence 包裹/bindFormOpen/framer import，表单恢复常开。教训：渐进披露适用于「查得多改得少」场景；查改同频时直接平铺。
 - **校园网络名称 chips**：单值框改三枚 chips（i-wxxy/iwxxy-2/iwxxy-3）。前端展示镜像后端 campus_check.rs 语义：extras 仅当 requiredNetworkName（或兜底 'i-wxxy'）==='i-wxxy' 时追加。tip 不再复述 SSID 清单（chips 即真相），改「命中以下任一名称即视为已连接校园网」。
 - **设置页横幅收口**（kimi-k2.8 分析师诊断落地）：孤立纯 CTA 卡（引导）与重型配置卡同级视觉重量，垫最长列底部放大两列底缘参差（约 110px）。改页面级紧凑横幅（grid 外、space-y-4 兄弟节点，CardContent 横向 flex + 按钮右置），全宽收口取齐下缘。stagger 修正：数据管理 4→3、质量检测 3→4（行序 Z 字惯例：左列第 N 卡先于右列第 N 卡）。
+
+## 第四轮：首屏摘要带撤销（2026-09-27）
+
+- **Dashboard 摘要带整体删除**：用户裁定「去除首页的这个样式设计没有必要」——三段 KPI 行（认证/适配器/质量）与首屏卡片列表信息重复，总览页本就以卡片为第一屏。撤 `DashboardSummaryBand` 组件、用法与仅其使用的 `ChevronRight` import；质量就地刷新入口保留在质量卡内；i18n 删 4 键（band*）。教训：摘要带类「第二入口」在面板数少、卡片已含同信息的页面是纯装饰，首屏纵向空间比导航捷径更值钱；同一日引入同日撤销，属快速试错闭环。
+
 ## Connections
 
 [[deferred-panel-transition]]、[[input-time-wrapper-w-full]]、[[contain-paint-clips-absolute-menu]]、[[tablet-layout-alignment-audit]]

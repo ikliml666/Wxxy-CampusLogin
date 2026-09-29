@@ -232,6 +232,37 @@ USB 网卡拔出后设备节点成幽灵（phantom）：`AdminStatus` 或 Class 
 - **候选 3（DNS 跟随）**→ 未实施：校园网卡禁用后 DNS 竞争卡消失，热点 DNS 天然胜出，五期观察项基本消解。
 - **候选 4（合并卡显示生效出站）**→ 未实施。
 
+## 七期：守护窗口闸门（2026-09-28）
+
+**现象**（09-27 夜日志）：用户切换前手动禁用校园网卡（无 IP）→ 23:04:57 / 23:12:33（重启 replay 后）adapter_watch 仍自动启用，与切换意图打架；07:43、19:11 白天亦有同款启用。
+
+**根因**：六期闸门只按 `outboundDisabledAdapters` 名单豁免；手动禁用的卡无 IP，`select_campus_to_disable` 无 IP 跳过不入名单 → 名单空 → 闸门失效。
+
+**修复**：`config/outbound_switch.rs` 新增纯函数 `is_night_outbound_guard_window(enabled, weekday, now_minutes)`——窗口=[当日切换时刻（周日~四 1380、周五六 1410）, 次日 06:30 恢复窗开)；`now < 390` 凌晨分支覆盖前一晚切换后全部时段（跨日天然成立）。`monitor/adapter_watch.rs` 自动启用块先算窗口，窗口内不出目标（log_debug 记跳过张数），名单闸门与白天「意外禁用→恢复登录」行为不变。
+
+**设计取舍**：否决「把已禁用卡也记进名单」——名单驱动 06:30 还原逐卡 enable，记进去会让还原误启用用户手动禁用的卡（制造新 bug）；纯时间窗闸门即可全覆盖三场景（重启 replay、启动中途、运行中禁用——都落窗口内）。白天是否收紧另行听取用户（本期内不动）。
+
+**验证**：cargo test lib 409/409（基线 408+1 新用例 `guard_window_covers_switch_time_to_restore_start`）；clippy 新增代码零告警。
+
+## 八期：k2.8 深度审计落地（2026-09-28）
+
+kimi-k2.8-preview 只读审计 src-tauri 后端（scheduled.rs 1471 行、helper/mod.rs 1302 行等）返回 7 条，逐条源码核实后处置：
+
+**实施 4 条**：
+
+- **P1-1 导入配置保留本机切换态**（`commands/config_cmd.rs`）：原「导入即清四快照」在切换中导入会把活跃快照顶掉——系统残留 metric=1/禁用卡/兜底路由却无还原路径，原始跃点永久丢失（次夜把 metric=1 当原值快照）。改为导入文件四字段一律丢弃、**保留本机当前值**（优于审计建议的「拒绝导入」：导入任何时刻可用，外部状态不迁入、本机状态不丢失）。
+- **P1-2 兜底路由删除失败阻断收尾**（`monitor/scheduled.rs`）：route_delete 失败原仅 warn、照常 finish 清三快照 → 孤儿 0.0.0.0/0 metric=2 路由持续改道流量而用户看到「已还原」。改为失败 mark_outbound_failure（进退避+告警）+ 阻止 finish，下一拍整体幂等重试。**推翻六期「失败不阻塞还原」决策**：当时论据「运行时路由重启即清」只对短期成立，静默假成功比延迟重试危险；卡启用/跃点写回不受影响（本拍继续执行，仅收尾被阻）。
+- **P3-1 还原失败告警周期化**（`scheduled.rs::outbound_restore_alert_due` 纯函数+测试）：原 `count == 3` 恰好一次后无限静默；改为 `count >= 3 && (count-3) % 20 == 0`（300s 封顶时约每 100 分钟），三处告警点（route/metric/enable）统一。
+- **P3-2 守护窗叠加切换态**（`adapter_watch.rs`）：七期纯时间窗在整夜休眠错过切换的凌晨会误阻塞自动启用；改为 `is_night_outbound_guard_window ∧ outbound_restore_active(三快照)`。原 bug 两实证场景（23:04:57 切换已写快照、23:12:33 重启 replay 读盘快照）切换态均成立，守护不弱化；无快照即无切换可顶掉，恢复白天行为。
+
+**延后/否决 3 条**：
+
+- **P2-1 helper 请求目录 ACL 加固**（`platform/task_proxy.rs` create_dir_all 继承 ProgramData ACL，同用户进程可写请求文件被 SYSTEM worker 执行）：真实提权面，但修复需设计 requests/results 两目录的属主矩阵（app 用户建 requests、SYSTEM worker 建 results，DACL 收口后互相读写均需放行），且必须真机 icacls 验证——记录方案（SetNamedSecurityInfoW/icacls 收口 + `Win32_Security_Authorization`/`Win32_Security_Acl` 特性）后延，不盲改提权链。
+- **P2-2 夜间手动置空运营商被次晨还原覆盖**（`config/night_switch.rs:61-65` 恢复条件无法区分应用置空与用户置空）：修复需引入哨兵值改配置语义、兼容存量快照，语义风险高，记为已知限制待专门设计。
+- **P3-3 UI enable_adapter 无切换态互斥**：**否决**——用户显式点击启用是用户意图，加互斥即「与用户意图打架」（与七期修复的原则同源）；状态不一致由用户自担，不加守护。
+
+**验证**：cargo test lib 410/410（+`还原失败告警_首达阈值触发_此后周期重复`）；clippy 12 条全在既有代码区，三改动文件零告警。
+
 ## Connections
 
 [[night-operator-switch]]、[[dual-platform-sharing]]、[[scheduled-actions-outside-silent-window]]、[[config-field-sets-bidirectional-sync]]、[[logout-radius-first]]、[[set-ip-interface-entry-metric]]、[[windows-task-proxy-elevation]]、[[outbound-switch]]、[[desktop-config]]
