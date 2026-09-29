@@ -1,4 +1,4 @@
-# 桌面设置页不对称修复：延迟计算选项折叠 + 两列重排（左三卡右三卡） + 删固定网关行
+# 桌面设置页不对称修复：两列重排（左三卡右三卡） + 删固定网关行 + 延迟计算选项折叠改 Modal
 
 日期：2026-09-28 ｜ 范围：tauri-app/frontend/src/settings/SettingsPanel.tsx（桌面端 Windows）
 
@@ -8,7 +8,7 @@
 
 ## 改动
 
-1. **「延迟计算选项」折叠**（低频表单折叠策略，Hindsight kp-743c7236）：质量检测卡内 enable-quality 行下新增折叠按钮（aria-expanded + ChevronDown rotate-180），默认收起，包住跳过TTFB/跳过内容开关组与 TTFB 解释框。头文本复用既有 i18n 键 `settings.latencyCalcOptions`，zh/en 零改动。质量卡高度 181px（折叠态）。
+1. **「延迟计算选项」折叠 → Modal（五轮收束）**：初版为折叠按钮（aria-expanded + ChevronDown rotate-180，默认收起，包住跳过TTFB/跳过内容开关组与 TTFB 解释框，头文本复用 `settings.latencyCalcOptions`）。后应用户要求「查看延迟选项改为弹出 modal 进行设置」，折叠改为 Modal：触发行样式沿用（ChevronRight 静态 + aria-haspopup="dialog"），点击打开 sm:max-w-md Dialog——标题 `settings.latencyCalcOptions`、描述 `settings.qualityDetectionDesc`，内含跳过TTFB/跳过内容两个 SettingRow+Switch（原绑定不动）与 TTFB/内容传输/网络延迟三行解释框（Clock 图标 bg-muted/40）。质量卡高度 181px 不变，justify-between 对齐机制不受影响。zh/en 零改动、零新依赖。
 2. **删「固定网关地址」行**及其前后两个 Separator；i18n 键 `settings.fixedGateway*` 留置不删（zh/en.json 另一会话在途，且后端字段保留）。
 3. **两列重排（四轮迭代，用户实测驱动）**：初版「数据管理↔质量检测互换列」（左=启动+质量检测折叠，右=通知与安全+数据管理）把底缘差收到 313px，但用户复看截图仍判「空了一大片」。二版左列=启动设置单卡，右列三卡，差收到 81px（六种整卡配比最小），用户仍判「没水平对齐」。三版网格 stretch + 末卡 grow 吃残差到 0px，残差藏进启动设置卡内底部。**四版采纳用户方案「启动设置拆成三个卡片垂直排列用卡片之间的空隙补上距离」**：左列=启动设置(187px, Rocket)+登录自动化(234px, LogIn 图标新 import)+窗口与界面(300px 自然高, LayoutList)，段内 Separator 与组小标题随拆卡消失（卡片标题即分组）；右列=通知与安全(320)+数据管理(231)+质量检测折叠(181)。两列 stretch 等高；左列 justify-between（gap-4 为最小间距）把环境残差摊进两个卡间空隙，卡内不再吸收余量；右列末卡 grow+h-full 兜底反向残差（左列反而更高时空隙收到 16 最小、由质量检测卡撑满）。
 4. 顺带删除孤儿注释（:80-81 固定网关草稿注释，其 state 早已不存在）。
@@ -16,8 +16,8 @@
 ## 结果与验证
 
 - 列底缘差 413px → 313px（初版换列）→ 81px（左单卡右三卡）→ 0px（stretch+grow 强制等高）→ **终版：拆卡 + 左列 justify-between 把残差摊进卡间空隙**。本机残差 11px → 左列空隙 21/22（右列恒 16/16），底缘 1414/1414 三档恒定；模拟用户环境（右列首卡 +30px）左列空隙自适应 36/36、「窗口与界面」底 == 「质量检测」底 1444/1444。不同环境字体渲染差异产生的十 px 级残差不再依赖单一环境调参，机制自适配。
-- `tsc --noEmit` exit 0；CDP 实测 d6b 24/24 + d6c 12/12 + d6d 18/18 + d6e 13/16（3 个 FAIL 均为脚本断言算术误差——按 0 残差假设断言 gap=16、按 30px 残差断言 gap=31，实际残差含既有 11px 为 41px 分摊 36/36；底缘等高/空隙自适应用户可见断言全过）+ 18 截图。
+- `tsc --noEmit` exit 0；CDP 实测 d6b 24/24 + d6c 12/12 + d6d 18/18 + d6e 13/16（3 个 FAIL 均为脚本断言算术误差——按 0 残差假设断言 gap=16、按 30px 残差断言 gap=31，实际残差含既有 11px 为 41px 分摊 36/36；底缘等高/空隙自适应用户可见断言全过）+ d6f 18/18（三档：左3右3卡、触发器行有/折叠块无、底缘 1414/1414、网关 ABSENT、Modal 开合+内容+描述+无裸键）+ 截图。
 
 ## 教训
 
-块移动脚本锚点把列闭合 `</div>` 一并吃进卡块 → 左列闭合落入右列内部，JSX 嵌套变成 grid>左列>[启动,Q,右列[N,D]]（tsc 仍通过、页面渲染成单列堆叠），列探针 `children.length>=2` 才暴露。**块级 DOM 搬移后必须断言网格 children 数与两列底缘，不能只看 tsc**；锚点一律从新鲜读取的字面行构建。另：DOM 断言用的文案串要先对 i18n 实文（zh.json 「跳过TTFB检测」无空格、「TTFB（首字节时间）」），否则断言空转（hasTtfbRow 恒 false 的假通过）。整卡配比只能把底缘差压小（81px 已是六种配比最小），用户要「水平对齐」就得 grow 吸收——`AnimatedCard className="h-full"` 是卡片撑满 grown wrapper 的关键（否则卡不跟 wrapper 长高，残差只是从卡间挪到卡下）。
+块移动脚本锚点把列闭合 `</div>` 一并吃进卡块 → 左列闭合落入右列内部，JSX 嵌套变成 grid>左列>[启动,Q,右列[N,D]]（tsc 仍通过、页面渲染成单列堆叠），列探针 `children.length>=2` 才暴露。**块级 DOM 搬移后必须断言网格 children 数与两列底缘，不能只看 tsc**；锚点一律从新鲜读取的字面行构建。另：DOM 断言用的文案串要先对 i18n 实文（zh.json 「跳过TTFB检测」无空格、「TTFB（首字节时间）」、「跳过内容传输」非「跳过内容检测」），否则断言空转（hasTtfbRow 恒 false 的假通过）。`t()` 键名必须先对 zh.json 实文与段位——DialogDescription 首版误用 dashboard 段的 `networkQualityDesc`，页面渲染出裸键名 `settings.networkQualityDesc`，CDP 断言（未断言 desc 文本）漏过、截图目检兜住。mock 捐赠弹窗同样是 `[role="dialog"]` 且每 profile 只弹一次，对话框探针要定向含目标文案的对话框而非 querySelector 首个。整卡配比只能把底缘差压小（81px 已是六种配比最小），用户要「水平对齐」就得 grow 吸收——`AnimatedCard className="h-full"` 是卡片撑满 grown wrapper 的关键（否则卡不跟 wrapper 长高，残差只是从卡间挪到卡下）。

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
   Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass,
-  Database, Upload, Download, ChevronDown, LogIn
+  Database, Upload, Download, ChevronRight, LogIn
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
@@ -135,7 +135,7 @@ export const SettingsPanel = memo(function SettingsPanel({
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [importPath, setImportPath] = useState('')
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [latencyModalOpen, setLatencyModalOpen] = useState(false)
 
   const handleExportConfig = async () => {
     if (isExportingConfig) return
@@ -624,52 +624,13 @@ export const SettingsPanel = memo(function SettingsPanel({
             </SettingRow>
             <button
               type="button"
-              onClick={() => setAdvancedOpen(v => !v)}
-              aria-expanded={advancedOpen}
+              onClick={() => setLatencyModalOpen(true)}
+              aria-haspopup="dialog"
               className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               {t('settings.latencyCalcOptions')}
-              <ChevronDown className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+              <ChevronRight className="h-4 w-4" />
             </button>
-            {advancedOpen && (<>
-            <Separator />
-            <div className="space-y-3">
-              <SettingRow
-                htmlFor="skip-ttfb"
-                label={t('settings.skipTtfb')}
-                description={t('settings.skipTtfbDesc')}
-              >
-                <Switch
-                  id="skip-ttfb"
-                  checked={config.skipTtfbInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
-                />
-              </SettingRow>
-              <Separator />
-              <SettingRow
-                htmlFor="skip-content"
-                label={t('settings.skipContent')}
-                description={t('settings.skipContentDesc')}
-              >
-                <Switch
-                  id="skip-content"
-                  checked={config.skipContentInLatency || false}
-                  onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
-                />
-              </SettingRow>
-            </div>
-            <Separator />
-            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
-              <div className="flex items-start gap-2">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                <div className="text-[11px] text-muted-foreground space-y-1">
-                  <p><span className="font-medium text-foreground/80">{t('settings.ttfbExplanation')}</span>{t('settings.ttfbExplanationDetail')}</p>
-                  <p><span className="font-medium text-emerald-500">{t('settings.contentTransferExplanation')}</span>{t('settings.contentTransferExplanationDetail')}</p>
-                  <p><span className="font-medium text-pink-400">{t('settings.networkLatencyExplanation')}</span>{t('settings.networkLatencyExplanationDetail')}</p>
-                </div>
-              </div>
-            </div>
-            </>)}
           </CardContent>
         </AnimatedCard>
       </div>
@@ -732,6 +693,51 @@ export const SettingsPanel = memo(function SettingsPanel({
             <Button size="sm" disabled={!importPath.trim()} onClick={() => { setImportDialogOpen(false); setShowImportConfirm(true) }}>
               {t('settings.importConfigNext')}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 延迟计算选项：低频配置收进 Modal（原内联折叠改弹窗，卡面只留入口；复用既有键零 i18n 改动） */}
+      <Dialog open={latencyModalOpen} onOpenChange={setLatencyModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('settings.latencyCalcOptions')}</DialogTitle>
+            <DialogDescription>{t('settings.qualityDetectionDesc')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <SettingRow
+              htmlFor="skip-ttfb"
+              label={t('settings.skipTtfb')}
+              description={t('settings.skipTtfbDesc')}
+            >
+              <Switch
+                id="skip-ttfb"
+                checked={config.skipTtfbInLatency || false}
+                onCheckedChange={checked => onUpdateConfig({ skipTtfbInLatency: checked })}
+              />
+            </SettingRow>
+            <Separator />
+            <SettingRow
+              htmlFor="skip-content"
+              label={t('settings.skipContent')}
+              description={t('settings.skipContentDesc')}
+            >
+              <Switch
+                id="skip-content"
+                checked={config.skipContentInLatency || false}
+                onCheckedChange={checked => onUpdateConfig({ skipContentInLatency: checked })}
+              />
+            </SettingRow>
+          </div>
+          <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="text-[11px] text-muted-foreground space-y-1">
+                <p><span className="font-medium text-foreground/80">{t('settings.ttfbExplanation')}</span>{t('settings.ttfbExplanationDetail')}</p>
+                <p><span className="font-medium text-emerald-500">{t('settings.contentTransferExplanation')}</span>{t('settings.contentTransferExplanationDetail')}</p>
+                <p><span className="font-medium text-pink-400">{t('settings.networkLatencyExplanation')}</span>{t('settings.networkLatencyExplanationDetail')}</p>
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
