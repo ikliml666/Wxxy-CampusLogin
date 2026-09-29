@@ -414,17 +414,3 @@ impl Drop for ComScope {
         }
     }
 }
-
-/// 删除计划任务（卸载清理）。需管理员；失败返回 Err 由调用方决定是否告警。
-pub fn delete_task() -> Result<(), String> {
-    let output = crate::network::discovery::new_command("schtasks")
-        .args(["/delete", "/tn", TASK_NAME, "/f"])
-        .output()
-        .map_err(|e| format!("schtasks 执行失败: {e}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        let detail = crate::platform::console_output::decode_console_bytes(&output.stderr);
-        Err(format!("删除任务失败: {}", detail.trim()))
-    }
-}
