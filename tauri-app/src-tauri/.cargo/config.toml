@@ -1,5 +1,10 @@
 [build]
 jobs = -1
+# 本机沙箱会给工作区树打 Low 完整性标签（Mandatory Label\Low (OI)(CI)(NW)），
+# 导致 target\ 下编译出的 build-script exe 以 Low IL 运行：无法写 %TEMP% 等非 Low
+# 对象 → cl 报 D8050「未能将命令行放入调试记录中」、cc-rs 报 os error 5。
+# 把 target 挪到标签树之外，使 build-script exe 以 Medium IL 运行。
+target-dir = 'E:\ik\Documents\trae_projects\cargo-target\campus-login'
 
 [profile.dev]
 opt-level = 0
