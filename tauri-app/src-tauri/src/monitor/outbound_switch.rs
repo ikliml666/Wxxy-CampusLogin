@@ -25,7 +25,9 @@ pub fn is_campus_adapter(
     if crate::network::is_same_subnet_18(ip, campus_gateway) {
         return true;
     }
-    !gateway.is_empty() && gateway_probe(campus_gateway, ip)
+    // 绑源探测做两次尝试：单发 ICMP 丢包会把在网校园卡误判成非校园——禁用步骤
+    // 静默跳过、整夜只切一半。任一次可达即判校园，容忍瞬时抖动。
+    !gateway.is_empty() && (gateway_probe(campus_gateway, ip) || gateway_probe(campus_gateway, ip))
 }
 
 /// 按优先级名序选出出站目标卡：跳过不在优先级列表、无 IP、处于校园网内的卡，
@@ -41,8 +43,15 @@ pub fn select_outbound_candidate(
         let Some((adapter, gateway)) = details.iter().find(|(a, _)| a.name == *name) else {
             continue; // 该优先级名当前无对应卡（被禁用/拔出等），顺延下一优先级
         };
-        // 无 IP 的卡不作出站目标；校园网卡跳过，只切非校园出口
-        if !adapter.ip.is_empty() && !is_campus_adapter(&adapter.ip, gateway, campus_gateway, &gateway_probe) {
+        // 无 IP 的卡不作出站目标；无网关的卡（APIPA/未完成 DHCP）出不了站，同样跳过
+        if adapter.ip.is_empty() || gateway.is_empty() {
+            continue;
+        }
+        // 校园网卡跳过，只切非校园出口；且候选自身网关必须可达——有 IP 有网关但
+        // 网关失联（热点开着上游已断）的卡切过去也是死路
+        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, &gateway_probe)
+            && gateway_probe(gateway, &adapter.ip)
+        {
             return Some(adapter.clone());
         }
     }
@@ -88,15 +97,22 @@ pub fn disabled_adapters_json(rows: &[DisabledRow]) -> String {
     serde_json::to_string(rows).unwrap_or_else(|_| "[]".to_string())
 }
 
-/// 解析禁用名单快照（空串/非法 JSON → 空名单，按「无禁用动作」处理）。
-pub fn parse_disabled_adapters(json: &str) -> Vec<DisabledRow> {
-    serde_json::from_str(json.trim()).unwrap_or_default()
+/// 解析禁用名单快照。空串 → 空名单（无禁用动作）；非法 JSON → Err——
+/// 「解析失败」≠「没有禁用动作」：按空处理会在快照损坏时静默放走仍被
+/// netsh 持久禁用的校园卡（还原流程会收尾清快照，此后无人认领），必须由
+/// 调用方区分处理（告警并保留状态重试）。
+pub fn parse_disabled_adapters(json: &str) -> Result<Vec<DisabledRow>, String> {
+    if json.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(json.trim()).map_err(|e| format!("禁用名单快照损坏: {e}"))
 }
 
 /// 兜底默认路由快照（route add 的 runtime 路由，重启即清，落盘仅供程序内还原对账）。
-/// 排在既有默认路由（TUN metric=0、物理卡自动跃点）之后：最长前缀相同（/0）时
-/// 跃点只在同前缀内比较，本路由平时不接管流量，仅当更高优先级默认路由全部消失
-/// （如 TUN 退出、热点断开）时作为 failover 兜底。
+/// 写完目标卡接口跃点=1 后，目标卡自身 DHCP 默认路由的有效跃点（路由 metric 0 +
+/// 接口 metric 1 = 1）优于本路由（路由 metric 2 + 接口 metric 1 = 3），因此本路由
+/// 平时不接管流量，仅在目标卡默认路由消失（DHCP 租约失效等）而链路仍在的窄场景
+/// 作为 failover 兜底——这是保险而非主路径，主出站路径由接口跃点决定。
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StandbyRoute {
     pub dest: String,
@@ -234,12 +250,14 @@ mod tests {
         let offline = (adapter("以太网 2", "{G3}", "", false), String::new());
         let priority = vec!["以太网 2".to_string(), "WLAN".to_string(), "以太网".to_string()];
         let details = vec![campus, offline, hotspot];
-        // 排序第一张无 IP → 跳过；第二张非校园网有 IP → 选中
-        let picked = select_outbound_candidate(&priority, &details, "10.64.60.1", |_, _| false).unwrap();
+        // 探测按网关区分：自身网关（192.168.43.1）可达、校园网关（10.64.60.1）不可达
+        let probe = |gw: &str, _: &str| gw == "192.168.43.1";
+        // 排序第一张无 IP → 跳过；第二张非校园网有 IP 且自身网关可达 → 选中
+        let picked = select_outbound_candidate(&priority, &details, "10.64.60.1", probe).unwrap();
         assert_eq!(picked.name, "WLAN");
         // 列表外不参与：优先级只含校园网卡 → None
         let only_campus = vec![(adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string())];
-        assert!(select_outbound_candidate(&["以太网".to_string()], &only_campus, "10.64.60.1", |_, _| false).is_none());
+        assert!(select_outbound_candidate(&["以太网".to_string()], &only_campus, "10.64.60.1", probe).is_none());
     }
 
     #[test]
@@ -254,7 +272,8 @@ mod tests {
         // 优先级名在当前适配器列表里查不到（被拔出/禁用）→ 顺延到下一项
         let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
         let priority = vec!["已拔出的卡".to_string(), "WLAN".to_string()];
-        let picked = select_outbound_candidate(&priority, &[hotspot], "10.64.60.1", |_, _| false).unwrap();
+        let picked = select_outbound_candidate(&priority, &[hotspot], "10.64.60.1", |gw: &str, _: &str| gw == "192.168.43.1")
+            .unwrap();
         assert_eq!(picked.name, "WLAN");
     }
 
@@ -263,6 +282,35 @@ mod tests {
         // 未排序（空列表）：没有白名单内的候选，不切换
         let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
         assert!(select_outbound_candidate(&[], &[hotspot], "10.64.60.1", no_probe()).is_none());
+    }
+
+    #[test]
+    fn candidate_skips_gatewayless_and_dead_gateway_cards() {
+        // 无网关（APIPA/未完成 DHCP）的卡出不了站 → 跳过；
+        // 自身网关不可达（热点开着上游已断）的卡切过去也是死路 → 跳过
+        let apipa = (adapter("以太网 2", "{G3}", "169.254.10.20", false), String::new());
+        let dead = (adapter("以太网 3", "{G4}", "192.168.7.10", false), "192.168.7.1".to_string());
+        let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
+        let priority = vec!["以太网 2".to_string(), "以太网 3".to_string(), "WLAN".to_string()];
+        let picked = select_outbound_candidate(
+            &priority,
+            &[apipa, dead, hotspot],
+            "10.64.60.1",
+            |gw: &str, _: &str| gw == "192.168.43.1",
+        )
+        .unwrap();
+        assert_eq!(picked.name, "WLAN", "无网关卡与网关失联卡都应顺延到健康候选");
+    }
+
+    #[test]
+    fn campus_probe_single_loss_still_counts_as_campus() {
+        // 绑源探测两发去抖：首发丢包、次发可达 → 仍判校园（降瞬时抖动误判）
+        let tried = std::sync::atomic::AtomicBool::new(false);
+        let flaky = move |_: &str, _: &str| {
+            !tried.swap(true, std::sync::atomic::Ordering::SeqCst) // 首发 false
+                || true // 次发 true
+        };
+        assert!(is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", flaky));
     }
 
     #[test]
@@ -293,10 +341,10 @@ mod tests {
             DisabledRow { guid: "{G2}".to_string(), name: "以太网 2".to_string() },
         ];
         let json = disabled_adapters_json(&rows);
-        assert_eq!(parse_disabled_adapters(&json), rows);
-        // 空串与非法 JSON → 空名单（按「无禁用动作」处理）
-        assert!(parse_disabled_adapters("").is_empty());
-        assert!(parse_disabled_adapters("not json").is_empty());
+        assert_eq!(parse_disabled_adapters(&json).unwrap(), rows);
+        // 空串 → 空名单（无禁用动作）；非法 JSON → Err（快照损坏，调用方须告警）
+        assert!(parse_disabled_adapters("").unwrap().is_empty());
+        assert!(parse_disabled_adapters("not json").is_err());
         assert_eq!(disabled_adapters_json(&[]), "[]");
     }
 

@@ -1,6 +1,8 @@
 //! 适配器接口跃点（metric）读取——快照与状态判定用（读不需管理员权限；
-//! 写经 helper SetMetric 提权执行）。Iphlpapi GetIpInterfaceTable 运行时值，
-//! 不读持久层注册表：系统重启自动还原，与本功能的还原策略一致。
+//! 写经 helper SetMetric 提权执行）。GetIpInterfaceTable 读到的是运行时生效值；
+//! 写路径 SetIpInterfaceEntry 落在接口的持久配置上（与 netsh set interface 的
+//! persistent 存储同层，重启不还原），因此快照还原是必需步骤而非可选优化：
+//! 切换/还原之间的崩溃残留由启动对账 apply_outbound_restore 收敛。
 
 use windows::Win32::Foundation::WIN32_ERROR;
 use windows::Win32::NetworkManagement::IpHelper::{

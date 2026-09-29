@@ -144,16 +144,17 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                             vec![]
                         };
                         // 夜间出站切换态下，本功能亲手禁用的校园网卡不发"被禁用"警告
-                        // （这是预期行为而非异常；名单只记切换时亲手禁用的卡，不按状态推断）
-                        let night_disabled: std::collections::HashSet<String> =
+                        // （这是预期行为而非异常；名单只记切换时亲手禁用的卡，不按状态推断）。
+                        // 快照损坏时按"未知"保守处理：一律不发警告（误漏报可忍，
+                        // 基于损坏名单误放告警不可忍；损坏本身由 scheduled.rs 还原路径告警）
+                        let night_disabled: Option<std::collections::HashSet<String>> =
                             crate::monitor::outbound_switch::parse_disabled_adapters(&c.outbound_disabled_adapters)
-                                .into_iter()
-                                .map(|r| r.name)
-                                .collect();
+                                .ok()
+                                .map(|rows| rows.into_iter().map(|r| r.name).collect());
                         for da in &disabled {
                             if !last_disabled.iter().any(|ld| ld.name == da.name)
                                 && configured_names.iter().any(|n| *n == da.name)
-                                && !night_disabled.contains(&da.name)
+                                && night_disabled.as_ref().is_some_and(|nd| !nd.contains(&da.name))
                             {
                                 let message = format!("适配器{} 当前{}，请检查后重试", da.name, da.status);
                                 if let Err(e) = EventBus::new(&app_h).emit_adapter_disabled_warning(&da.name, &message) {
@@ -199,14 +200,16 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                             candidates.len()
                         );
                     }
-                    let night_disabled: std::collections::HashSet<String> =
+                    // 快照损坏时按"全部拦截"保守处理：宁可白天少一次自动启用，
+                    // 也不能基于损坏名单把夜切亲手禁用的卡自动启用（顶掉切换）。
+                    // 损坏由 scheduled.rs 还原路径告警，放弃阀放行收尾后自动恢复
+                    let night_disabled: Option<std::collections::HashSet<String>> =
                         crate::monitor::outbound_switch::parse_disabled_adapters(&c.outbound_disabled_adapters)
-                            .into_iter()
-                            .map(|r| r.name)
-                            .collect();
+                            .ok()
+                            .map(|rows| rows.into_iter().map(|r| r.name).collect());
                     let targets = candidates
                         .into_iter()
-                        .filter(|da| !night_disabled.contains(&da.name))
+                        .filter(|da| night_disabled.as_ref().is_some_and(|nd| !nd.contains(&da.name)))
                         .filter(|_| !guard_window)
                         .collect::<Vec<_>>();
                     let stats = &s.update_stats;
