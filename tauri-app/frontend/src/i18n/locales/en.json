@@ -217,8 +217,8 @@
   },
   "network": {
     "networkAdapters": "Network Adapters",
-    "detectedCount": "{{count}} adapter(s) connected",
-    "detectedCountWithDisabled": "{{count}} connected, {{disabled}} disconnected/disabled",
+    "detectedCount": "{{count}} adapter(s) detected",
+    "detectedCountWithDisabled": "{{count}} adapter(s) detected, {{disabled}} disconnected/disabled",
     "noAdapters": "No Network Adapters Detected",
     "noAdaptersTip": "Please check your network connection",
     "noIp": "No IP",
@@ -298,7 +298,7 @@
     "dnsResetFailed": "Failed to Restore Auto DNS",
     "dhcpRenewFailed": "DHCP renew failed",
     "nightOutboundSwitch": "Night Outbound Switch",
-    "nightOutboundSwitchDesc": "Auto-switches the outbound route to a non-campus network at 23:00 Sun-Thu and 23:30 Fri/Sat, temporarily disabling campus adapters; auto-restores from 6:30 next morning",
+    "nightOutboundSwitchDesc": "Switches outbound and temporarily disables campus adapters at 23:00 Sun-Thu, 23:30 Fri/Sat; restores from 6:30 next morning",
     "outboundBadge": "Night Outbound Target",
     "outboundDragHint": "Long-press anywhere on an entry and drag to reorder; the topmost non-campus adapter becomes the night switch target",
     "outboundAdminHint": "Switching requires administrator rights (via UAC or the scheduled-task proxy silently); adapters not listed are excluded"
@@ -334,7 +334,7 @@
     "campusGatewayPlaceholder": "10.2.127.254 (default)",
     "campusGatewayTip": "Fixed to gateway 10.2.127.254 for campus gateway detection",
     "detectionLogic": "Detection Logic",
-    "detectionLogicStep1": "1. Network name check → Match i-wxxy, iwxxy-2, or iwxxy-3",
+    "detectionLogicStep1": "1. Network name check → Match the configured campus network name(s)",
     "detectionLogicStep2": "2. /18 subnet check → Whether adapter IP and campus gateway are in the same /18 subnet",
     "detectionLogicStep3": "3. Gateway ping check → Whether campus gateway is reachable (default: 10.2.127.254)",
     "detectionLogicAny": "Any one of the above conditions is met = on campus network",

@@ -116,6 +116,11 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if config.required_network_name.is_empty() {
         config.required_network_name = default_required_network_name();
     }
+    // 2026-09-27 迁移：旧版默认单值 "i-wxxy"（iwxxy-2/3 此前为代码内硬编码额外匹配），
+    // 硬编码已移除并入名单字段，旧值自动扩展为三值，避免升级后 SSID 匹配丢失
+    if config.required_network_name == "i-wxxy" {
+        config.required_network_name = default_required_network_name();
+    }
     // 0 表示永久保留（见 logger.rs cleanup_old_logs_by_time），仅限制上限，不重置为默认值
     if config.log_retention_days > 365 {
         config.log_retention_days = 365;
@@ -233,6 +238,9 @@ pub fn validate_config_lenient(mut config: Config) -> Config {
         config.campus_gateway = defaults.campus_gateway;
     }
     if config.required_network_name.is_empty() {
+        config.required_network_name = default_required_network_name();
+    }
+    if config.required_network_name == "i-wxxy" {
         config.required_network_name = default_required_network_name();
     }
 
@@ -481,6 +489,21 @@ mod tests {
         config.operator = "@cucc".to_string();
         let result = validate_config(config).unwrap();
         assert_eq!(result.operator, "@unicom");
+    }
+
+    #[test]
+    fn validate_config_migrates_old_single_network_name() {
+        // 旧版默认单值 i-wxxy（iwxxy-2/3 曾为代码硬编码额外匹配）升级后自动扩展为三值名单；
+        // 自定义值不受迁移影响
+        let mut config = Config::default();
+        config.required_network_name = "i-wxxy".to_string();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.required_network_name, "i-wxxy、iwxxy-2、iwxxy-3");
+
+        let mut config = Config::default();
+        config.required_network_name = "my-net".to_string();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.required_network_name, "my-net");
     }
 
     #[test]

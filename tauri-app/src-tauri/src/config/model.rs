@@ -217,7 +217,7 @@ pub fn default_portal_url() -> String {
 }
 
 pub fn default_required_network_name() -> String {
-    "i-wxxy".to_string()
+    "i-wxxy、iwxxy-2、iwxxy-3".to_string()
 }
 
 pub fn default_campus_gateway() -> String {
@@ -276,7 +276,7 @@ impl Default for Config {
             skip_content_in_latency: true,
             portal_url: "http://10.1.99.100".to_string(),
             fixed_gateway: "10.2.127.254".to_string(),
-            required_network_name: "i-wxxy".to_string(),
+            required_network_name: default_required_network_name(),
             enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
             update_source: "mirror".to_string(),

@@ -283,7 +283,8 @@ function ActionButtonWithMenu({
   const loadingPulseRef = usePulseAnimation({ type: 'loadingPulse' })
 
   const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
-  const showMenu = activeAdapters.length >= 1
+  // 仅一张在线卡时不弹选择浮层（点击直接以该卡执行）；两张及以上才需要用户选择
+  const showMenu = activeAdapters.length >= 2
 
   const scheduleOpen = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
@@ -312,8 +313,13 @@ function ActionButtonWithMenu({
     if (isLoading || isDisabled) return
     setMenuOpen(false)
     cancelTimers()
+    // 单张在线卡：显式指定该卡执行，避免走后端 resolve 时命中无 IP 的配置主卡
+    if (activeAdapters.length === 1) {
+      onAction(activeAdapters[0].name)
+      return
+    }
     onAction()
-  }, [isLoading, isDisabled, onAction, cancelTimers])
+  }, [isLoading, isDisabled, onAction, cancelTimers, activeAdapters])
 
   useEffect(() => {
     return () => {

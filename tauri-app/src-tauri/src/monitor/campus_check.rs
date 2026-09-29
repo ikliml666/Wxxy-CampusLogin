@@ -30,6 +30,16 @@ pub(super) fn adapter_campus_message(adapter_name: &str, adapters: &[Adapter], c
     adapter_campus_status(adapter_name, adapters, campus_result).map(|s| s.message.clone())
 }
 
+/// 校园网名称名单解析：配置值支持顿号/全半角逗号/分号/空白分隔多个名称
+/// （默认 "i-wxxy、iwxxy-2、iwxxy-3"），空项忽略
+fn campus_name_list(value: &str) -> Vec<&str> {
+    value
+        .split(['、', '，', ',', '；', ';', ' ', '\t'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[crate::network::Adapter]) -> CampusCheckResult {
     crate::log_debug!("campus", "[校园网检测] enable_network_name_check={}, required_network_name='{}', campus_gateway='{}'",
         config.enable_network_name_check, config.required_network_name, config.campus_gateway);
@@ -57,6 +67,8 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     }
 
     let required_name = &config.required_network_name;
+    // 名称名单：一次解析，WiFi 与有线匹配共用（多名称任一命中即算校园网）
+    let name_list = campus_name_list(required_name);
     let campus_gw = &config.campus_gateway;
 
     let wifi_ssid = crate::network::get_wireless_ssid().ok().flatten();
@@ -85,9 +97,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     let wifi_status = {
         let wifi_adapters: Vec<&crate::network::Adapter> = adapters.iter().filter(|a| a.wireless).collect();
         match &wifi_ssid {
-            Some(ssid) if ssid.eq_ignore_ascii_case(required_name)
-                || (required_name.eq_ignore_ascii_case("i-wxxy")
-                    && (ssid.eq_ignore_ascii_case("iwxxy-2") || ssid.eq_ignore_ascii_case("iwxxy-3"))) => {
+            Some(ssid) if name_list.iter().any(|n| ssid.eq_ignore_ascii_case(n)) => {
                 crate::log_debug!("campus", "[校园网检测] ✅ WiFi名称匹配: '{}'", ssid);
                 Some(ConnectionCampusStatus {
                     on_campus: true,
@@ -169,7 +179,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
             None
         } else {
             match &wired_profile {
-                Some(profile) if profile.eq_ignore_ascii_case(required_name) => {
+                Some(profile) if name_list.iter().any(|n| profile.eq_ignore_ascii_case(n)) => {
                     crate::log_debug!("campus", "[校园网检测] ✅ 有线名称匹配: '{}'", profile);
                     Some(ConnectionCampusStatus {
                         on_campus: true,
@@ -271,7 +281,18 @@ pub fn is_campus_check_silent(now_minutes: u16, start: u16, end: u16) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_campus_check_silent;
+    use super::{campus_name_list, is_campus_check_silent};
+
+    #[test]
+    fn 名称名单_解析多分隔符与空项() {
+        assert_eq!(
+            campus_name_list("i-wxxy、iwxxy-2、iwxxy-3"),
+            vec!["i-wxxy", "iwxxy-2", "iwxxy-3"]
+        );
+        assert_eq!(campus_name_list("a, b；c\td"), vec!["a", "b", "c", "d"]);
+        assert_eq!(campus_name_list("  、，; "), Vec::<&str>::new());
+        assert_eq!(campus_name_list("i-wxxy"), vec!["i-wxxy"]);
+    }
 
     #[test]
     fn 静默期判定_开始时间单边() {
