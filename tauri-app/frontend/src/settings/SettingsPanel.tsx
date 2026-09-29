@@ -303,9 +303,10 @@ export const SettingsPanel = memo(function SettingsPanel({
       </div>
 
       {/* 两列区（手动分栏）：左=启动设置（拆三卡：启动/登录自动化/窗口与界面）；右=通知与安全+数据管理+质量检测（折叠）。
-          两列等高：网格默认 stretch，两列末卡 grow 吃掉各自列的残差，底缘像素级对齐；不用 justify-between——卡间会拉出空洞 */}
+          两列等高：网格默认 stretch；左列 justify-between 把残差摊进卡间空隙（各环境字体渲染差异产生的十px级残差自适配），
+          右列末卡 grow 兜底反向残差；底缘像素级对齐 */}
       <div className="grid gap-4 md:grid-cols-2">
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col justify-between gap-4">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -396,8 +397,8 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      <div className="card-enter grow" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>
