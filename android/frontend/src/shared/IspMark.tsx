@@ -32,11 +32,11 @@ export const IspMark = memo(function IspMark({
           className
         )}
       >
-        <img src={src} alt="" aria-hidden="true" className="h-3 w-auto select-none" draggable={false} />
+        <img src={src} alt="" aria-hidden="true" className="h-3 w-auto max-w-none object-contain select-none" draggable={false} />
       </span>
     )
   }
   return (
-    <img src={src} alt="" aria-hidden="true" className={cn('h-3.5 w-auto shrink-0 select-none', className)} draggable={false} />
+    <img src={src} alt="" aria-hidden="true" className={cn('h-3.5 w-auto max-w-none object-contain shrink-0 select-none', className)} draggable={false} />
   )
 })
