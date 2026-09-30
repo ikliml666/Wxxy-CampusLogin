@@ -99,6 +99,7 @@
 - [[learnings\android-version-json-camelcase-parse-drift|安卓更新检测对 version.json 的解析契约（camelCase vs snake_case）]]
 - [[learnings\android-apk-not-updated-before-build-command|安卓构建后 APK 没更新：tauri CLI 不跑 beforeBuildCommand]]
 - [[learnings\android-gateway-icmp-unavailable|安卓检测不到网关存活：非 root 无 ICMP]]
+- [[learnings\android-renderer-priority-waived-silent-kill|安卓白屏：renderer 优先级放行被回收后 chromium 静默 SIGKILL 宿主]]
 - [[learnings\android-verify-timestamp-trusted-from-frontend|安卓验证门的时间戳信任前端]]
 - [[learnings\audit-findings-must-be-verified|审计结论必须回到代码核实：本轮 33 项中有 3 项描述与代码不符]]
 - [[learnings\tailwind-space-y-margin-specificity|容器内 margin 间距不生效（space-y-4 的 specificity 锁死 margin-bottom）]]
