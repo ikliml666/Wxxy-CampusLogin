@@ -9,8 +9,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 const statusState = { text: '已在线', state: 'online' as string }
 const bgStatusState: Record<string, unknown> = { isRunning: true, adapterStatuses: [], onlineOperator: '@telecom' }
 const configState: Record<string, unknown> = {
-  adapter1: null,
-  adapter2: null,
+  adapter1: 'WLAN',
+  adapter2: '以太网',
   dualAdapter: false,
   enableNetworkQuality: false,
   user: '20230001',
@@ -59,11 +59,12 @@ describe('StatusBar 在线运营商徽标', () => {
     configState.dualAdapter = false
   })
 
-  it('online 态且有可映射后缀时渲染 logo chip，夜切临时态 Moon 不再进 chip', () => {
-    // operator='' 且 nightOperatorRestore 非空 → 夜切临时态；chip 显示真实在线线路（电信 logo+名称）
+  it('online 态且有可映射后缀时渲染 logo chip（含登录适配器名），夜切临时态 Moon 不再进 chip', () => {
+    // operator='' 且 nightOperatorRestore 非空 → 夜切临时态；chip 显示真实在线线路（电信 logo+名称+适配器）
     renderBar()
     expect(screen.getByLabelText('statusbar.onlineOperator.badge')).toBeTruthy()
     expect(screen.getByText('settings.isp.telecom')).toBeTruthy()
+    expect(screen.getByText('· WLAN')).toBeTruthy()
     expect(document.querySelector('img[src="/isp/telecom.webp"]')).toBeTruthy()
     expect(document.querySelector('svg.lucide-moon')).toBeNull()
   })
@@ -86,6 +87,7 @@ describe('StatusBar 在线运营商徽标', () => {
     renderBar()
     expect(screen.getAllByLabelText('statusbar.onlineOperator.badge')).toHaveLength(2)
     expect(screen.getByText('settings.isp.unicom')).toBeTruthy()
+    expect(screen.getByText('· 以太网')).toBeTruthy()
     expect(document.querySelector('img[src="/isp/unicom.webp"]')).toBeTruthy()
   })
 

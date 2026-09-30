@@ -9,6 +9,8 @@ import { useAppInit } from '@/hooks/useAppInit'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
+import { operatorLabelKey } from '@/settings/constants'
+import { IspMark } from '@/shared/IspMark'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useThemeStore } from '@/hooks/useThemeStore'
@@ -79,6 +81,9 @@ function AppInner() {
   useEffect(() => { tabRef.current = tab })
   // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
   const status = useAuthStore((s) => s.status)
+  // 顶栏状态点旁的在线运营商标（手机壳 StatusBar 不渲染，此处为一眼可见位；详情在总览状态卡）
+  const onlineOperator = useAuthStore((s) => s.bgStatus.onlineOperator)
+  const onlineOperatorLabel = status?.state === 'online' ? operatorLabelKey(onlineOperator) : undefined
   const api = useConfigStore.getState().api
 
   const updateConfig = useConfigStore((s) => s.updateConfig)
@@ -214,6 +219,15 @@ function AppInner() {
             (status?.state === 'offline' || status?.state === 'error') && 'bg-zinc-500'
           )}
         />
+        {/* 在线运营商 logo 标（仅 logo 不带文字，顶栏空间有限；完整 chip 见总览状态卡） */}
+        {onlineOperatorLabel && (
+          <span
+            className="inline-flex items-center shrink-0"
+            aria-label={t('statusbar.onlineOperator.badge', { operator: t(onlineOperatorLabel) })}
+          >
+            <IspMark suffix={onlineOperator} />
+          </span>
+        )}
         {/* 应用名移除(用户要求);原位置放桌面版同款网络质量胶囊,点击进质量页看明细;质量关闭时同步隐藏 */}
         {configEnableNetworkQuality !== false && (
           <button

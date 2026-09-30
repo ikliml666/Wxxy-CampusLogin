@@ -28,6 +28,9 @@ import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { useAuthStore } from '@/hooks/useAuthStore'
+import { operatorLabelKey } from '@/settings/constants'
+import { IspMark } from '@/shared/IspMark'
 import { useShallow } from 'zustand/react/shallow'
 
 interface NetworkPanelProps {
@@ -184,6 +187,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const config = useConfigStore(useShallow((s) => s.config))
   // 账号列表：适配器「指定账号」下拉的选项来源（id 为值、displayName 为显示）
   const accounts = useConfigStore((s) => s.accounts)
+  // 在线运营商：主/副适配器行旁标注该卡当前登录的线路（仅 online 态；口径与 StatusBar 一致）
+  const statusState = useAuthStore((s) => s.status.state)
+  const onlineOperator = useAuthStore((s) => s.bgStatus.onlineOperator)
+  const secondaryOnlineOperator = useAuthStore((s) => s.bgStatus.secondaryOnlineOperator)
+  const onlineOperatorLabel = statusState === 'online' ? operatorLabelKey(onlineOperator) : undefined
+  const secondaryOperatorLabel = statusState === 'online' ? operatorLabelKey(secondaryOnlineOperator) : undefined
 
   // 出站排序：以 outboundPriority 为基座构建完整顺序（见 outboundOrder.ts），
   // 展示列表 = 出站排序列 ∪ 当前适配器列表（保证新网卡可见可排）。
@@ -472,9 +481,21 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         {t('network.primary')}
                       </Badge>
                     )}
+                    {a.name === config.adapter1 && onlineOperatorLabel && (
+                      <Badge key="op-primary" variant="secondary" size="sm" className="gap-1">
+                        <IspMark suffix={onlineOperator} />
+                        {t(onlineOperatorLabel)}
+                      </Badge>
+                    )}
                     {a.name === config.adapter2 && config.dualAdapter && (
                       <Badge key="secondary" variant="outline" size="sm" className="border-amber-500/30 text-amber-600">
                         {t('network.secondary')}
+                      </Badge>
+                    )}
+                    {a.name === config.adapter2 && config.dualAdapter && secondaryOperatorLabel && (
+                      <Badge key="op-secondary" variant="secondary" size="sm" className="gap-1">
+                        <IspMark suffix={secondaryOnlineOperator} />
+                        {t(secondaryOperatorLabel)}
                       </Badge>
                     )}
                     <Badge key="conn-type" variant="secondary" size="sm">

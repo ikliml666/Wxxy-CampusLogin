@@ -60,6 +60,9 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
     Boolean(dualAdapter) && secondaryOnlineOperator !== null && secondaryOnlineOperator !== undefined && secondaryOnlineOperator !== onlineOperator
   const secondaryLabel = showSecondaryBadge ? operatorLabelKey(secondaryOnlineOperator) : undefined
   const secondaryAccount = showSecondaryBadge ? `${configUser}${secondaryOnlineOperator ?? ''}` : undefined
+  // 徽标注明登录适配器：自动检测（未指定具体卡）时不显示适配器名
+  const primaryAdapterName = adapter1 && adapter1 !== AUTO_DETECT_ADAPTER ? adapter1 : null
+  const secondaryAdapterName = dualAdapter && adapter2 && adapter2 !== AUTO_DETECT_ADAPTER ? adapter2 : null
 
   useEffect(() => {
     prevStatusRef.current = statusState
@@ -168,6 +171,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
                   >
                     <IspMark suffix={onlineOperator} />
                     <span>{t(onlineOperatorLabel)}</span>
+                    {primaryAdapterName && <span className="text-muted-foreground/60">· {primaryAdapterName}</span>}
                   </span>
                   {showSecondaryBadge && secondaryLabel && (
                     <span
@@ -177,6 +181,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
                       <span className="h-3 w-px bg-muted-foreground/30" aria-hidden="true" />
                       <IspMark suffix={secondaryOnlineOperator} />
                       <span>{t(secondaryLabel)}</span>
+                      {secondaryAdapterName && <span className="text-muted-foreground/60">· {secondaryAdapterName}</span>}
                     </span>
                   )}
                 </div>
