@@ -96,8 +96,6 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
   const effectiveQuality = !isPending && (quality === 'busy' || quality === 'unknown')
     ? getLatencyLevel(displayLatency)
     : quality
-  const qualityConfigEntry = (QUALITY_CONFIG[effectiveQuality] ?? QUALITY_CONFIG.unknown)
-  const qualityLabel = t(qualityConfigEntry.labelKey)
   const capsuleBg = getQualityCapsuleBg(effectiveQuality)
   const capsuleText = (QUALITY_CONFIG[effectiveQuality] ?? QUALITY_CONFIG.unknown)?.color ?? 'text-muted-foreground'
   const latencyTextColor = displayLatency >= 0 ? getLatencyColor(displayLatency).text : capsuleText
@@ -195,12 +193,11 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
           }
           transition={{ duration: 0.35, ease: profile.easing.smooth as [number, number, number, number] }}
         >
-          <span className="font-sans text-[10px] font-medium whitespace-nowrap truncate min-w-[60px]">{t('quality.networkQualityLabel', { label: qualityLabel })}</span>
-          <span className="opacity-40">·</span>
+          {/* 顶栏窄空间：只显示延迟数值（用户要求去掉「网络质量」描述；详情见 hover 弹层/质量页） */}
           {isPending ? (
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
-            <span className={cn('font-sans font-semibold tabular-nums', latencyTextColor)}>
+            <span className={cn('font-sans font-semibold tabular-nums whitespace-nowrap', latencyTextColor)}>
               <AnimatedNumber value={displayLatency} unit="ms" decimals={0} duration={400} />
             </span>
           )}

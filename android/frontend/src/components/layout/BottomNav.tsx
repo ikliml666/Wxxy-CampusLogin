@@ -1,7 +1,7 @@
-// 移动端底部导航:单条磨砂玻璃圆角胶囊栏(酷安式):左侧页签群收窄排布,右侧为
+// 移动端底部导航:单条磨砂玻璃圆角胶囊栏(酷安式):左侧页签群排布,右侧为
 // 缩小版注销/登录按钮,两部分同排水平对齐;登录=实心主色胶囊,注销=描边灰胶囊。
-// 设计:每项 = 填充感图标在上 + 常驻文字标签在下;激活项背后一块柔和 tonal 药丸
-// (低饱和主色 ~12% 不透明,大圆角),用 framer-motion layoutId 在页签间滑动。
+// 设计:仅激活项显示图标+文字标签(背后全圆角 tonal 药丸,与栏身 rounded-full
+// 同形,framer-motion layoutId 滑动),非激活项只保留图标,窄屏不挤。
 // 纪律:底部避让 env(safe-area-inset-bottom);动画仅 transform/opacity,
 // 带 motion-reduce 降级;整体轻盈——无生硬描边,悬浮感靠阴影 + 磨砂。
 
@@ -55,13 +55,13 @@ function CompactAuthButtons() {
   }, [api, doLogin])
 
   const base = cn(
-    'flex h-9 items-center justify-center gap-1 rounded-full px-2.5 text-[11px] font-medium select-none',
+    'flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[10px] font-medium select-none',
     'transition-all motion-reduce:transition-none active:scale-[0.97] motion-reduce:active:scale-100',
     'disabled:opacity-50 disabled:shadow-none'
   )
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5 pl-1">
+    <div className="flex shrink-0 items-center gap-1 pl-0.5">
       <button
         type="button"
         disabled={busy}
@@ -69,7 +69,7 @@ function CompactAuthButtons() {
         aria-label={t('auth.logout')}
         className={cn(base, 'border border-border/70 text-muted-foreground hover:text-foreground')}
       >
-        <LogOut className="h-3.5 w-3.5" />
+        <LogOut className="h-3 w-3" />
         {isLoggingOut ? t('auth.loggingOut') : t('auth.logout')}
       </button>
       <button
@@ -79,7 +79,7 @@ function CompactAuthButtons() {
         aria-label={t('auth.login')}
         className={cn(base, 'bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(99,102,241,0.3)]')}
       >
-        <LogIn className="h-3.5 w-3.5" />
+        <LogIn className="h-3 w-3" />
         {isLoggingIn || isBinding ? t('auth.loggingIn') : t('auth.login')}
       </button>
     </div>
@@ -102,7 +102,7 @@ export function BottomNav({ tab, onChange }: {
     >
       <div
         className={cn(
-          'pointer-events-auto w-full max-w-[440px] flex items-center rounded-full p-1.5 select-none',
+          'pointer-events-auto w-full max-w-[440px] flex items-center rounded-full p-1 select-none',
           'border border-transparent shadow-[0_10px_36px_rgba(30,34,90,0.14),0_2px_10px_rgba(30,34,90,0.08)]',
           'dark:shadow-[0_10px_36px_rgba(0,0,0,0.42),0_2px_10px_rgba(0,0,0,0.28)]'
         )}
@@ -112,7 +112,7 @@ export function BottomNav({ tab, onChange }: {
           WebkitBackdropFilter: 'blur(24px) saturate(160%)',
         }}
       >
-        <div className="flex flex-1 min-w-0 items-center">
+        <div className="flex flex-1 min-w-0 items-center gap-0.5">
           {tabs.map(({ id, labelKey, Icon }) => {
             const active = tab === id
             return (
@@ -122,34 +122,30 @@ export function BottomNav({ tab, onChange }: {
                 onClick={() => onChange(id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5',
-                  'min-h-[56px] rounded-2xl px-0.5 py-1.5',
-                  'transition-colors motion-reduce:transition-none',
-                  active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
+                  'relative flex h-10 shrink-0 items-center justify-center rounded-full transition-colors motion-reduce:transition-none',
+                  active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-8 text-muted-foreground active:text-foreground'
                 )}
               >
                 {active && !reduceMotion && (
                   <motion.span
                     layoutId="nav-active-pill"
                     transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                    className="absolute inset-x-0.5 inset-y-0.5 rounded-2xl bg-primary/[0.12] dark:bg-primary/[0.16]"
+                    className="absolute inset-0 rounded-full bg-primary/[0.12] dark:bg-primary/[0.16]"
                   />
                 )}
                 {active && reduceMotion && (
-                  <span className="absolute inset-x-0.5 inset-y-0.5 rounded-2xl bg-primary/[0.12] dark:bg-primary/[0.16]" />
+                  <span className="absolute inset-0 rounded-full bg-primary/[0.12] dark:bg-primary/[0.16]" />
                 )}
                 <Icon
                   className="relative z-10 h-5 w-5 shrink-0"
                   strokeWidth={active ? 2.2 : 1.8}
                 />
-                <span
-                  className={cn(
-                    'relative z-10 truncate max-w-full text-[10px] leading-tight',
-                    active && 'font-medium'
-                  )}
-                >
-                  {t(labelKey)}
-                </span>
+                {/* 仅激活项显示标签(用户要求);窄屏挤压时标签先截断 */}
+                {active && (
+                  <span className="relative z-10 ml-1 truncate max-w-[64px] text-[10px] font-medium leading-tight">
+                    {t(labelKey)}
+                  </span>
+                )}
               </button>
             )
           })}
