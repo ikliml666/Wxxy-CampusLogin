@@ -9,6 +9,8 @@ pub(super) enum PortalCheckResult {
         message: String,
         reachable: bool,
         login_available: bool,
+        /// Portal 页面携带的 uid（完整在线账号=账号+运营商后缀）
+        uid: Option<String>,
     },
     Error {
         is_request_failed: bool,
@@ -45,6 +47,13 @@ impl PortalCheckResult {
             _ => false,
         }
     }
+
+    pub(super) fn uid(&self) -> Option<&str> {
+        match self {
+            PortalCheckResult::Success { uid, .. } => uid.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 pub(super) fn check_adapter_portal(
@@ -67,6 +76,7 @@ pub(super) fn check_adapter_portal(
                     message: ps.message,
                     reachable: ps.reachable,
                     login_available: ps.login_available,
+                    uid: ps.uid,
                 }
             }
         }

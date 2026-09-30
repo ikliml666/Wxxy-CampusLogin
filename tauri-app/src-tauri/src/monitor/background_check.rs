@@ -116,6 +116,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             app_handle, state,
             &BackgroundCheckResult {
                 online: false,
+                online_operator: None,
                 reachable: false,
                 login_available: false,
                 message: a1_campus.as_deref().unwrap_or(&campus_result.message),
@@ -256,6 +257,12 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             .unwrap_or_else(|| primary_result.message().to_string())
     };
     let online = if a1_has_ip { primary_online } else { false };
+    // 在线会话运营商口径：仅主适配器在线时，从 Portal 页 uid（完整在线账号）推导后缀
+    let online_operator = if online {
+        primary_result.uid().and_then(crate::auth::portal::operator_suffix_from_uid).map(str::to_string)
+    } else {
+        None
+    };
 
     let prev_online = state.network.load().any_adapter_online;
 
@@ -312,6 +319,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         app_handle, state,
         &BackgroundCheckResult {
             online,
+            online_operator,
             reachable,
             login_available,
             message: &message,

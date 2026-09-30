@@ -88,6 +88,9 @@ pub struct PortalStatus {
     pub online: bool,
     pub message: String,
     pub data_length: usize,
+    /// 在线时 Portal 页面携带的 uid（完整在线账号=账号+运营商后缀，如 "2023xxxx@telecom"）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
 }
@@ -104,8 +107,8 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result
     let page_result = check_portal_page(&client, portal_base);
 
     match page_result {
-        PageCheckResult::Determined(online) => {
-            let status = build_determined_status(online);
+        PageCheckResult::Determined(online, uid) => {
+            let status = build_determined_status(online, uid);
             log_portal_page_result(t0.elapsed(), adapter_name, adapter_ip, &status);
             Ok(status)
         }
@@ -134,6 +137,7 @@ fn handle_unknown_page_status(adapter_name: Option<&str>, adapter_ip: &str) -> P
         online: false,
         message: "Portal 页面无法判断登录状态，请手动确认".to_string(),
         data_length: 0,
+        uid: None,
         error_kind: Some("need_manual_check".to_string()),
     }
 }
@@ -148,7 +152,7 @@ fn parse_adapter_ip(adapter_ip: &str) -> Option<std::net::IpAddr> {
 }
 
 /// 构建"已确定登录状态"的 PortalStatus
-fn build_determined_status(online: bool) -> PortalStatus {
+fn build_determined_status(online: bool, uid: Option<String>) -> PortalStatus {
     let (online_val, login_available) = if online { (true, false) } else { (false, true) };
     PortalStatus {
         reachable: true,
@@ -156,6 +160,7 @@ fn build_determined_status(online: bool) -> PortalStatus {
         online: online_val,
         message: if online_val { "已在线".to_string() } else { "未登录".to_string() },
         data_length: 0,
+        uid: if online_val { uid } else { None },
         error_kind: None,
     }
 }
@@ -168,6 +173,7 @@ fn build_request_failed_status() -> PortalStatus {
         online: false,
         message: "Portal页面请求失败".to_string(),
         data_length: 0,
+        uid: None,
         error_kind: Some("request_failed".to_string()),
     }
 }
@@ -197,7 +203,8 @@ pub(crate) fn is_nat_private_ip(ip: &str) -> bool {
 }
 
 enum PageCheckResult {
-    Determined(bool),
+    /// (是否在线, 页面携带的 uid——完整在线账号=账号+运营商后缀)
+    Determined(bool, Option<String>),
     Unknown,
     Failed,
 }
@@ -271,14 +278,14 @@ fn analyze_portal_page_content(html: &str) -> PageCheckResult {
     for (indicator, is_online) in page_indicators {
         if html.contains(indicator) {
             log_page_indicator_found(indicator, is_online);
-            return PageCheckResult::Determined(is_online);
+            return PageCheckResult::Determined(is_online, extract_uid_from_html(html));
         }
     }
 
     // 检查用户会话信息特征
     if has_user_session_indicators(html) {
         crate::log_debug!("network", "Portal页面检测: 发现用户信息(uid/v4ip/oltime)，判定已在线");
-        return PageCheckResult::Determined(true);
+        return PageCheckResult::Determined(true, extract_uid_from_html(html));
     }
 
     // 后台巡检周期性触发，Unknown 属常见中间态（801 SPA 页面回退 80 前），降为 debug 防日志刷屏
@@ -292,6 +299,40 @@ fn has_user_session_indicators(html: &str) -> bool {
     let has_v4ip = html.contains("v4ip='") && !html.contains("v4ip='0.") && !html.contains("v4ip=''");
     let has_oltime = html.contains("oltime=") && !html.contains("oltime=0");
     has_uid || (has_v4ip && has_oltime)
+}
+
+/// 从 Portal 页面 HTML 提取 uid 值（完整在线账号=账号+运营商后缀，如 "2023xxxx@telecom"）。
+/// 页面内嵌 JS 形如 `uid='xxx'`；空占位 `uid=''` 跳过继续找，全部为空/缺失返回 None。
+fn extract_uid_from_html(html: &str) -> Option<String> {
+    let mut from = 0;
+    while let Some(rel) = html[from..].find("uid='") {
+        let start = from + rel + "uid='".len();
+        let rest = &html[start..];
+        match rest.find('\'') {
+            Some(end) if end > 0 => return Some(rest[..end].to_string()),
+            // uid=''：跳过空占位，继续找下一个出现位置
+            Some(_) => from = start + 1,
+            None => return None,
+        }
+    }
+    None
+}
+
+/// 从完整在线账号推导运营商后缀（与 config.operator 同口径）：`2023xxxx@telecom` → `@telecom`，
+/// 无 `@` → `""`（无锡学院默认线路）；空 uid 或未知后缀 → None（前端徽标隐藏）。
+pub fn operator_suffix_from_uid(uid: &str) -> Option<&str> {
+    if uid.is_empty() {
+        return None;
+    }
+    match uid.rsplit_once('@') {
+        Some((_, suffix)) => match suffix {
+            "telecom" => Some("@telecom"),
+            "unicom" => Some("@unicom"),
+            "cmcc" => Some("@cmcc"),
+            _ => None,
+        },
+        None => Some(""),
+    }
 }
 
 // ===== 日志辅助函数 =====
@@ -383,22 +424,26 @@ mod tests {
 
     #[test]
     fn build_determined_status_online() {
-        let status = build_determined_status(true);
+        let status = build_determined_status(true, Some("20230001@telecom".to_string()));
         assert!(status.online);
         assert!(!status.login_available);
         assert!(status.reachable);
         assert_eq!(status.message, "已在线");
         assert_eq!(status.data_length, 0);
         assert!(status.error_kind.is_none());
+        // 在线时保留解析出的 uid
+        assert_eq!(status.uid.as_deref(), Some("20230001@telecom"));
     }
 
     #[test]
     fn build_determined_status_offline() {
-        let status = build_determined_status(false);
+        // 离线判定时即使误携带 uid 也必须丢弃（徽标仅在线态渲染）
+        let status = build_determined_status(false, Some("20230001@telecom".to_string()));
         assert!(!status.online);
         assert!(status.login_available);
         assert!(status.reachable);
         assert_eq!(status.message, "未登录");
+        assert!(status.uid.is_none());
     }
 
     #[test]
@@ -434,49 +479,49 @@ mod tests {
     fn analyze_page_logout_indicator() {
         let html = "<html>Dr.COMWebLoginID_1</html>";
         let result = analyze_portal_page_content(html);
-        assert!(matches!(result, PageCheckResult::Determined(true)));
+        assert!(matches!(result, PageCheckResult::Determined(true, _)));
     }
 
     #[test]
     fn analyze_page_login_indicator_0() {
         let html = "<html>Dr.COMWebLoginID_0</html>";
         let result = analyze_portal_page_content(html);
-        assert!(matches!(result, PageCheckResult::Determined(false)));
+        assert!(matches!(result, PageCheckResult::Determined(false, _)));
     }
 
     #[test]
     fn analyze_page_login_indicator_2() {
         let html = "<html>Dr.COMWebLoginID_2</html>";
         let result = analyze_portal_page_content(html);
-        assert!(matches!(result, PageCheckResult::Determined(false)));
+        assert!(matches!(result, PageCheckResult::Determined(false, _)));
     }
 
     #[test]
     fn analyze_page_logout_title() {
         let html = "<html><title>注销页</title></html>";
         let result = analyze_portal_page_content(html);
-        assert!(matches!(result, PageCheckResult::Determined(true)));
+        assert!(matches!(result, PageCheckResult::Determined(true, _)));
     }
 
     #[test]
     fn analyze_page_login_title() {
         let html = "<html><title>登录页</title></html>";
         let result = analyze_portal_page_content(html);
-        assert!(matches!(result, PageCheckResult::Determined(false)));
+        assert!(matches!(result, PageCheckResult::Determined(false, _)));
     }
 
     #[test]
     fn analyze_page_user_session_uid() {
         let html = "<html>uid='user123'</html>";
         let result = analyze_portal_page_content(html);
-        assert!(matches!(result, PageCheckResult::Determined(true)));
+        assert!(matches!(result, PageCheckResult::Determined(true, _)));
     }
 
     #[test]
     fn analyze_page_user_session_v4ip_oltime() {
         let html = "<html>v4ip='192.168.1.1' oltime=100</html>";
         let result = analyze_portal_page_content(html);
-        assert!(matches!(result, PageCheckResult::Determined(true)));
+        assert!(matches!(result, PageCheckResult::Determined(true, _)));
     }
 
     #[test]
@@ -534,5 +579,54 @@ mod tests {
     fn has_user_session_indicators_no_indicators() {
         let html = "no session info";
         assert!(!has_user_session_indicators(html));
+    }
+
+    #[test]
+    fn extract_uid_在线页取值() {
+        let html = "var uid='20240001@cmcc';";
+        assert_eq!(extract_uid_from_html(html), Some("20240001@cmcc".to_string()));
+    }
+
+    #[test]
+    fn extract_uid_空占位跳过取后续值() {
+        let html = "uid='' uid='x@telecom'";
+        assert_eq!(extract_uid_from_html(html), Some("x@telecom".to_string()));
+    }
+
+    #[test]
+    fn extract_uid_仅空占位返回none() {
+        assert_eq!(extract_uid_from_html("uid=''"), None);
+    }
+
+    #[test]
+    fn extract_uid_无闭合引号返回none() {
+        assert_eq!(extract_uid_from_html("uid='abc"), None);
+    }
+
+    #[test]
+    fn extract_uid_缺失返回none() {
+        assert_eq!(extract_uid_from_html("<html>v4ip='1.2.3.4' oltime=9</html>"), None);
+    }
+
+    #[test]
+    fn operator_suffix_三家运营商() {
+        assert_eq!(operator_suffix_from_uid("20240001@telecom"), Some("@telecom"));
+        assert_eq!(operator_suffix_from_uid("20240001@unicom"), Some("@unicom"));
+        assert_eq!(operator_suffix_from_uid("20240001@cmcc"), Some("@cmcc"));
+    }
+
+    #[test]
+    fn operator_suffix_无at为默认线路() {
+        assert_eq!(operator_suffix_from_uid("20240001"), Some(""));
+    }
+
+    #[test]
+    fn operator_suffix_未知后缀返回none() {
+        assert_eq!(operator_suffix_from_uid("20240001@edu"), None);
+    }
+
+    #[test]
+    fn operator_suffix_空uid返回none() {
+        assert_eq!(operator_suffix_from_uid(""), None);
     }
 }
