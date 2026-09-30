@@ -19,7 +19,7 @@ import {
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared/ui-constants'
 import { m, useMotionValue, AnimatePresence } from 'framer-motion'
-import { memo, useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
+import { memo, useRef, useCallback, useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
@@ -47,7 +47,7 @@ const MAGNETIC_RANGE = 80
 const MAX_SCALE = 1.35
 const MAX_LIFT = -14
 
-function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mouseX, onLayout }: {
+function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mouseX }: {
   id: PanelName
   label: string
   icon: string
@@ -55,7 +55,6 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
   visibleCount: number
   onPanelChange: (id: PanelName) => void
   mouseX: ReturnType<typeof useMotionValue<number>>
-  onLayout?: (el: HTMLButtonElement | null) => void
 }) {
   const Icon = ICON_MAP[icon]
   const ref = useRef<HTMLButtonElement>(null)
@@ -67,8 +66,7 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
 
   const setRef = useCallback((el: HTMLButtonElement | null) => {
     (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
-    onLayout?.(el)
-  }, [onLayout])
+  }, [])
 
   useEffect(() => {
     const btn = ref.current
@@ -127,10 +125,11 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
       ref={setRef}
       onClick={() => onPanelChange(id)}
       className={cn(
-        'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl select-none group transition-colors duration-200',
+        // 激活项=全圆角药丸+图标+文字标签（与安卓底栏同款），非激活项只保留图标
+        'relative flex items-center gap-1 px-2.5 py-1.5 rounded-full select-none group transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
         isActive
-          ? 'text-primary bg-primary/10'
+          ? 'min-w-0 text-primary'
           : 'text-muted-foreground hover:text-foreground'
       )}
       style={{
@@ -140,13 +139,17 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
     >
       {isActive && (
         <m.div
-          className="absolute inset-0 rounded-xl bg-primary/8"
+          className="absolute inset-0 rounded-full bg-primary/10"
           initial={{ opacity: 0, scale: 0.92 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
         />
       )}
-      <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+      {/* 仅激活项显示标签（用户要求，同安卓底栏机制） */}
+      {isActive && (
+        <span className="relative text-[11px] font-medium whitespace-nowrap leading-none">{label}</span>
+      )}
       {/* 视觉 tooltip：按钮已有 aria-label（与文本相同），aria-hidden 防止屏幕阅读器双读 */}
       <span
         aria-hidden="true"
@@ -466,14 +469,6 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const animActive = useAnimationActive()
   const profile = useAnimationProfile()
   const mouseX = useMotionValue(-1000)
-  const itemRefs = useRef<Map<PanelName, HTMLButtonElement>>(new Map())
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setMounted(true), 800)
-    return () => clearTimeout(timer)
-  }, [])
 
   const rafRef = useRef<number>(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -493,37 +488,6 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   useEffect(() => {
     if (!animActive) mouseX.set(-1000)
   }, [animActive, mouseX])
-
-  const handleItemLayout = useCallback((id: PanelName) => (el: HTMLButtonElement | null) => {
-    if (el) {
-      itemRefs.current.set(id, el)
-    } else {
-      itemRefs.current.delete(id)
-    }
-  }, [])
-
-  useLayoutEffect(() => {
-    if (!mounted) return
-    const el = itemRefs.current.get(activePanel)
-    if (!el) return
-
-    const updateIndicator = () => {
-      setIndicator({
-        left: el.offsetLeft + (el.offsetWidth - 20) / 2,
-        width: 20,
-      })
-    }
-
-    updateIndicator()
-
-    const nav = el.closest('nav')
-    if (!nav) return
-
-    const observer = new ResizeObserver(updateIndicator)
-    observer.observe(nav)
-
-    return () => observer.disconnect()
-  }, [activePanel, mounted])
 
   return (
     <div
@@ -546,16 +510,8 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
             visibleCount={visibleItems.length}
             onPanelChange={onPanelChange}
             mouseX={mouseX}
-            onLayout={handleItemLayout(id)}
           />
         ))}
-
-        <m.div
-          className="absolute bottom-[3px] left-0 h-[3px] rounded-full bg-primary"
-          style={{ width: 20, originX: 0 }}
-          animate={{ x: indicator.left, scaleX: indicator.width / 20 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 34, mass: 0.8 }}
-        />
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
 
