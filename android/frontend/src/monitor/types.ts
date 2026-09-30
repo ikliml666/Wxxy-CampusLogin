@@ -19,6 +19,8 @@ export interface BackgroundStatus {
   online: boolean
   // 主适配器在线时的真实运营商后缀（''=校园网默认线路；null=离线/未知/注销保护期）
   onlineOperator?: string | null
+  // 副适配器在线时的真实运营商后缀（口径同上；null=副适配器离线/未启用/未知）
+  secondaryOnlineOperator?: string | null
   // 后端 status_value 展平的最近一次检测消息(驱动启动时状态点文案)
   message?: string
   adapterStatuses?: AdapterOnlineStatus[]

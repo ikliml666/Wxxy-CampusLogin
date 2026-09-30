@@ -9,8 +9,11 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
+import { useFormFactor } from '@/hooks/useFormFactor'
 import { useAccount } from '@/account/useAccount'
 import { useMonitor } from '@/monitor/useMonitor'
+import { operatorLabelKey } from '@/settings/constants'
+import { IspMark } from '@/shared/IspMark'
 import { DashboardPanel, type ExtraCardDef } from '@/auth/DashboardPanel'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
@@ -43,6 +46,16 @@ function MobileStatusCard() {
     : status?.state === 'loading' ? 'loading'
     : 'offline'
 
+  // 手机壳顶部条不渲染 StatusBar，在线会话运营商在此卡片展示；平板壳有 StatusBar
+  // 徽标(同源组件)会重复，故仅手机形态渲染（口径与桌面/平板 StatusBar 一致）
+  const formFactor = useFormFactor()
+  const { onlineOperator, secondaryOnlineOperator } = bgStatus
+  const onlineOperatorLabel = status?.state === 'online' ? operatorLabelKey(onlineOperator) : undefined
+  const showSecondary =
+    formFactor === 'phone' &&
+    Boolean(useConfigStore.getState().config.dualAdapter) && secondaryOnlineOperator != null && secondaryOnlineOperator !== onlineOperator
+  const secondaryLabel = showSecondary ? operatorLabelKey(secondaryOnlineOperator) : undefined
+
   return (
     <AnimatedCard>
       <CardHeader className="pb-3">
@@ -69,6 +82,23 @@ function MobileStatusCard() {
             <dt className="text-xs text-muted-foreground">{t('monitor.checkInterval')}</dt>
             <dd className="truncate">{t('mobile.checkCount', { count: bgStatus.checkCount ?? 0 })}</dd>
           </div>
+          {formFactor === 'phone' && onlineOperatorLabel && (
+            <div className="col-span-2 min-w-0">
+              <dt className="text-xs text-muted-foreground">{t('statusbar.onlineOperator.badge', { operator: t(onlineOperatorLabel) })}</dt>
+              <dd className="mt-1 flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium font-sans bg-muted/40 text-muted-foreground">
+                  <IspMark suffix={onlineOperator} />
+                  <span>{t(onlineOperatorLabel)}</span>
+                </span>
+                {showSecondary && secondaryLabel && (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium font-sans bg-muted/40 text-muted-foreground">
+                    <IspMark suffix={secondaryOnlineOperator} />
+                    <span>{t(secondaryLabel)}</span>
+                  </span>
+                )}
+              </dd>
+            </div>
+          )}
         </dl>
       </CardContent>
     </AnimatedCard>

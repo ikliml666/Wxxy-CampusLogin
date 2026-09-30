@@ -749,7 +749,8 @@
     "onlineOperator": {
       "badge": "当前在线运营商：{{operator}}",
       "account": "在线账号 {{account}}",
-      "nightShift": "夜间模式临时切换，结束后恢复为 {{operator}}"
+      "nightShift": "夜间模式临时切换，结束后恢复为 {{operator}}",
+      "accountSecondary": "副适配器在线账号 {{account}}"
     }
   },
   "dashboard": {

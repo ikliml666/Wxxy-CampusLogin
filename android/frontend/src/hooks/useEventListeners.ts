@@ -177,6 +177,7 @@ export function useEventListeners() {
             serverAvailable: data.serverAvailable ?? prev.serverAvailable,
             online: data.online ?? prev.online,
             onlineOperator: data.onlineOperator !== undefined ? data.onlineOperator : prev.onlineOperator,
+            secondaryOnlineOperator: data.secondaryOnlineOperator !== undefined ? data.secondaryOnlineOperator : prev.secondaryOnlineOperator,
             checkCount: data.checkCount ?? prev.checkCount,
             isRunning: data.isRunning ?? prev.isRunning,
             adapterStatuses: statuses.length > 0 ? statuses : (prev.adapterStatuses ?? EMPTY_ADAPTER_STATUSES),

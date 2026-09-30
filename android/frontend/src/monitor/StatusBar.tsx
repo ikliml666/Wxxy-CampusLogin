@@ -1,9 +1,10 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Loader2, ExternalLink, HeadsetIcon, Moon } from 'lucide-react'
+import { Loader2, ExternalLink, HeadsetIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { memo, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshButton } from '@/shared/RefreshButton'
+import { IspMark } from '@/shared/IspMark'
 import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
 import type { AdapterOnlineStatus } from '@/monitor'
 import { useAuthStore } from '@/hooks/useAuthStore'
@@ -38,6 +39,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   const networkQuality = useQualityStore((s) => s.networkQuality)
   const campusWifi = useAuthStore((s) => s.bgStatus.campusWifi)
   const onlineOperator = useAuthStore((s) => s.bgStatus.onlineOperator)
+  const secondaryOnlineOperator = useAuthStore((s) => s.bgStatus.secondaryOnlineOperator)
   const campusWired = useAuthStore((s) => s.bgStatus.campusWired)
   const onCampusNetwork = useAuthStore((s) => s.bgStatus.onCampusNetwork)
   const adapterStatuses = useAuthStore((s) => s.bgStatus.adapterStatuses) ?? EMPTY_ADAPTER_STATUSES
@@ -48,10 +50,15 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
 
   const onlineOperatorLabel = operatorLabelKey(onlineOperator)
   // 夜切临时态由前端按 config 自行检测（operator 为空且 restore 非空）：
-  // 徽标始终显示真实在线运营商，夜切仅以 Moon 图标 + tooltip 标注
+  // 徽标始终显示真实在线运营商，夜切仅在 tooltip 标注恢复目标
   const isNightShift = configOperator === '' && nightOperatorRestore !== ''
   const restoreLabelKey = isNightShift ? operatorLabelKey(nightOperatorRestore) : undefined
   const fullAccount = onlineOperator ? `${configUser}${onlineOperator}` : configUser
+  // 双适配器同运营商时不重复出徽标，副适配器会话进 tooltip
+  const showSecondaryBadge =
+    Boolean(dualAdapter) && secondaryOnlineOperator !== null && secondaryOnlineOperator !== undefined && secondaryOnlineOperator !== onlineOperator
+  const secondaryLabel = showSecondaryBadge ? operatorLabelKey(secondaryOnlineOperator) : undefined
+  const secondaryAccount = showSecondaryBadge ? `${configUser}${secondaryOnlineOperator ?? ''}` : undefined
 
   useEffect(() => {
     prevStatusRef.current = statusState
@@ -117,13 +124,13 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
         className="flex items-center justify-between min-h-9 px-4 shrink-0 text-xs z-10"
         style={{ background: 'var(--surface-top)' }}
       >
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <div
                 key={statusState}
                 className={cn(
-                  'relative inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default',
+                  'relative inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default min-w-0',
                   cfg.color,
                   statusState === 'offline'
                     ? 'status-offline-shake'
@@ -153,16 +160,31 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
           {statusState === 'online' && onlineOperatorLabel && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <div
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default bg-muted/40 text-muted-foreground"
-                  aria-label={t('statusbar.onlineOperator.badge', { operator: t(onlineOperatorLabel) })}
-                >
-                  {isNightShift && <Moon className="h-3 w-3 shrink-0" />}
-                  <span>{t(onlineOperatorLabel)}</span>
+                <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default bg-muted/40 text-muted-foreground shrink-0">
+                  <span
+                    className="inline-flex items-center gap-1"
+                    aria-label={t('statusbar.onlineOperator.badge', { operator: t(onlineOperatorLabel) })}
+                  >
+                    <IspMark suffix={onlineOperator} />
+                    <span>{t(onlineOperatorLabel)}</span>
+                  </span>
+                  {showSecondaryBadge && secondaryLabel && (
+                    <span
+                      className="inline-flex items-center gap-1"
+                      aria-label={t('statusbar.onlineOperator.badge', { operator: t(secondaryLabel) })}
+                    >
+                      <span className="h-3 w-px bg-muted-foreground/30" aria-hidden="true" />
+                      <IspMark suffix={secondaryOnlineOperator} />
+                      <span>{t(secondaryLabel)}</span>
+                    </span>
+                  )}
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p>{t('statusbar.onlineOperator.account', { account: fullAccount })}</p>
+                {showSecondaryBadge && secondaryAccount && (
+                  <p>{t('statusbar.onlineOperator.accountSecondary', { account: secondaryAccount })}</p>
+                )}
                 {isNightShift && restoreLabelKey && (
                   <p>{t('statusbar.onlineOperator.nightShift', { operator: t(restoreLabelKey) })}</p>
                 )}
@@ -171,7 +193,7 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {enableNetworkQuality && (
             <>
               <NetworkQualityCapsule networkQuality={networkQuality} />
