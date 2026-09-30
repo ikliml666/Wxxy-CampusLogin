@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -8,6 +8,15 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 // 各用例在 render 前改写状态（vi.mock 工厂闭包引用同一对象）。
 const statusState = { text: '已在线', state: 'online' as string }
 const bgStatusState: Record<string, unknown> = { isRunning: true, adapterStatuses: [], onlineOperator: '@telecom' }
+const configState: Record<string, unknown> = {
+  adapter1: null,
+  adapter2: null,
+  dualAdapter: false,
+  enableNetworkQuality: false,
+  user: '20230001',
+  operator: '',
+  nightOperatorRestore: '@unicom',
+}
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -17,18 +26,7 @@ vi.mock('@/hooks/useAuthStore', () => ({
     selector({ status: statusState, bgStatus: bgStatusState }),
 }))
 vi.mock('@/hooks/useConfigStore', () => ({
-  useConfigStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({
-      config: {
-        adapter1: null,
-        adapter2: null,
-        dualAdapter: false,
-        enableNetworkQuality: false,
-        user: '20230001',
-        operator: '',
-        nightOperatorRestore: '@unicom',
-      },
-    }),
+  useConfigStore: (selector: (s: Record<string, unknown>) => unknown) => selector({ config: configState }),
 }))
 vi.mock('@/hooks/useQualityStore', () => ({
   useQualityStore: (selector: (s: Record<string, unknown>) => unknown) =>
@@ -54,12 +52,20 @@ const renderBar = () =>
   )
 
 describe('StatusBar 在线运营商徽标', () => {
-  it('online 态且有可映射后缀时渲染徽标，夜切临时态带 Moon 图标', () => {
-    // operator='' 且 nightOperatorRestore 非空 → 夜切临时态；徽标仍显示真实在线线路（电信）
+  beforeEach(() => {
+    statusState.state = 'online'
+    bgStatusState.onlineOperator = '@telecom'
+    delete bgStatusState.secondaryOnlineOperator
+    configState.dualAdapter = false
+  })
+
+  it('online 态且有可映射后缀时渲染 logo chip，夜切临时态 Moon 不再进 chip', () => {
+    // operator='' 且 nightOperatorRestore 非空 → 夜切临时态；chip 显示真实在线线路（电信 logo+名称）
     renderBar()
     expect(screen.getByLabelText('statusbar.onlineOperator.badge')).toBeTruthy()
     expect(screen.getByText('settings.isp.telecom')).toBeTruthy()
-    expect(document.querySelector('svg.lucide-moon')).toBeTruthy()
+    expect(document.querySelector('img[src="/isp/telecom.webp"]')).toBeTruthy()
+    expect(document.querySelector('svg.lucide-moon')).toBeNull()
   })
 
   it('bgStatus 缺 onlineOperator 字段（旧后端）时不渲染徽标', () => {
@@ -69,9 +75,24 @@ describe('StatusBar 在线运营商徽标', () => {
   })
 
   it('非 online 态不渲染徽标（离线/未知口径为 null）', () => {
-    bgStatusState.onlineOperator = '@telecom'
     statusState.state = 'offline'
     renderBar()
     expect(screen.queryByLabelText('statusbar.onlineOperator.badge')).toBeNull()
+  })
+
+  it('双适配器且副适配器在线运营商不同时渲染第二枚 chip', () => {
+    bgStatusState.secondaryOnlineOperator = '@unicom'
+    configState.dualAdapter = true
+    renderBar()
+    expect(screen.getAllByLabelText('statusbar.onlineOperator.badge')).toHaveLength(2)
+    expect(screen.getByText('settings.isp.unicom')).toBeTruthy()
+    expect(document.querySelector('img[src="/isp/unicom.webp"]')).toBeTruthy()
+  })
+
+  it('双适配器但副适配器运营商与主相同时不重复渲染', () => {
+    bgStatusState.secondaryOnlineOperator = '@telecom'
+    configState.dualAdapter = true
+    renderBar()
+    expect(screen.getAllByLabelText('statusbar.onlineOperator.badge')).toHaveLength(1)
   })
 })

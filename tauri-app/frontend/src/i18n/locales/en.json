@@ -747,7 +747,8 @@
     "onlineOperator": {
       "badge": "Currently online ISP: {{operator}}",
       "account": "Online account {{account}}",
-      "nightShift": "Temporarily switched by night mode, will restore to {{operator}} after it ends"
+      "nightShift": "Temporarily switched by night mode, will restore to {{operator}} after it ends",
+      "accountSecondary": "Secondary adapter online account {{account}}"
     }
   },
   "dashboard": {
