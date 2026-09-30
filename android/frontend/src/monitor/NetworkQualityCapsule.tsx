@@ -174,12 +174,12 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
         ref={capsuleRef}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className="capsule-hover-wrap"
+        className="capsule-hover-wrap max-w-full min-w-0 overflow-hidden"
       >
         <m.div
           key={animKey}
           className={cn(
-            'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] cursor-help select-none',
+            'inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] cursor-help select-none max-w-full overflow-hidden',
             capsuleText,
           )}
           style={{
@@ -195,7 +195,7 @@ export const NetworkQualityCapsule = memo(function NetworkQualityCapsule({ netwo
           }
           transition={{ duration: 0.35, ease: profile.easing.smooth as [number, number, number, number] }}
         >
-          <span className="font-sans text-[10px] font-medium">{t('quality.networkQualityLabel', { label: qualityLabel })}</span>
+          <span className="font-sans text-[10px] font-medium whitespace-nowrap truncate min-w-[60px]">{t('quality.networkQualityLabel', { label: qualityLabel })}</span>
           <span className="opacity-40">·</span>
           {isPending ? (
             <Loader2 className="h-3 w-3 animate-spin" />

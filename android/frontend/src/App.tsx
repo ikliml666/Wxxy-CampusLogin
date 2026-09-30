@@ -47,7 +47,6 @@ import { usePullToRefresh, PULL_HOLD_PX, PULL_TRIGGER_PX } from '@/hooks/usePull
 
 const AboutDialog = lazy(() => import('@/auth/AboutDialogMobile').then((mod) => ({ default: mod.AboutDialogMobile })))
 const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((mod) => ({ default: mod.ThemeDialog })))
-const MobileQuickActions = lazy(() => import('@/components/mobile/MobileQuickActions').then((mod) => ({ default: mod.MobileQuickActions })))
 const OnboardingWizardMobile = lazy(() => import('@/settings/OnboardingWizardMobile').then((mod) => ({ default: mod.OnboardingWizardMobile })))
 
 function AppInner() {
@@ -219,13 +218,14 @@ function AppInner() {
             (status?.state === 'offline' || status?.state === 'error') && 'bg-zinc-500'
           )}
         />
-        {/* 在线运营商 logo 标（仅 logo 不带文字，顶栏空间有限；完整 chip 见总览状态卡） */}
+        {/* 在线运营商 chip（与桌面 StatusBar 同款：logo+名称；挤压时由质量胶囊让位） */}
         {onlineOperatorLabel && (
           <span
-            className="inline-flex items-center shrink-0"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium font-sans cursor-default bg-muted/40 text-muted-foreground shrink-0"
             aria-label={t('statusbar.onlineOperator.badge', { operator: t(onlineOperatorLabel) })}
           >
             <IspMark suffix={onlineOperator} />
+            <span>{t(onlineOperatorLabel)}</span>
           </span>
         )}
         {/* 应用名移除(用户要求);原位置放桌面版同款网络质量胶囊,点击进质量页看明细;质量关闭时同步隐藏 */}
@@ -240,16 +240,16 @@ function AppInner() {
           </button>
         )}
         {/* ml-auto:胶囊隐藏(质量关闭)时图标组仍固定右侧,由第一个图标接管 flex-1 的推开职责 */}
-        <button type="button" aria-label={t('titlebar.sponsor')} onClick={() => setSponsorOpen(true)} className="ml-auto p-2 text-muted-foreground active:text-rose-500">
+        <button type="button" aria-label={t('titlebar.sponsor')} onClick={() => setSponsorOpen(true)} className="ml-auto p-1.5 text-muted-foreground active:text-rose-500">
           <Heart className="h-5 w-5" />
         </button>
-        <button type="button" aria-label={t('panel.settings')} onClick={() => handleTabChange('more')} className="p-2 -mr-1 text-muted-foreground active:text-foreground">
+        <button type="button" aria-label={t('panel.settings')} onClick={() => handleTabChange('more')} className="p-1.5 -mr-1 text-muted-foreground active:text-foreground">
           <Settings className="h-5 w-5" />
         </button>
-        <button type="button" aria-label={t('titlebar.themeSettings')} onClick={() => setThemeOpen(true)} className="p-2 text-muted-foreground active:text-foreground">
+        <button type="button" aria-label={t('titlebar.themeSettings')} onClick={() => setThemeOpen(true)} className="p-1.5 text-muted-foreground active:text-foreground">
           <Palette className="h-5 w-5" />
         </button>
-        <button type="button" aria-label={t('titlebar.about')} onClick={() => setAboutOpen(true)} className="p-2 -ml-1 text-muted-foreground active:text-foreground">
+        <button type="button" aria-label={t('titlebar.about')} onClick={() => setAboutOpen(true)} className="p-1.5 -ml-1 text-muted-foreground active:text-foreground">
           <Info className="h-5 w-5" />
         </button>
       </header>
@@ -307,13 +307,6 @@ function AppInner() {
           </AnimatePresence>
         </div>
       </main>
-
-      {/* 首页快捷登录条:固定于底部导航之上,不随内容滚动 */}
-      {deferredTab === 'dashboard' && (
-        <Suspense fallback={null}>
-          <MobileQuickActions />
-        </Suspense>
-      )}
 
       <BottomNav tab={tab} onChange={handleTabChange} />
 
