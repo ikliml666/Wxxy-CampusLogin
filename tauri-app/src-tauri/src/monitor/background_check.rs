@@ -117,6 +117,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             &BackgroundCheckResult {
                 online: false,
                 online_operator: None,
+                secondary_online_operator: None,
                 reachable: false,
                 login_available: false,
                 message: a1_campus.as_deref().unwrap_or(&campus_result.message),
@@ -291,6 +292,14 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         }
     };
 
+    // 副适配器在线会话运营商口径：与主适配器同源（Portal uid 推导），仅副适配器在线时有值。
+    // 双适配器可用同一账号在不同时机登录，会话运营商可能瞬时不同（如夜切/手动重登交替期）。
+    let secondary_online_operator = if secondary_online == Some(true) {
+        secondary_result.as_ref().and_then(|r| r.uid()).and_then(crate::auth::portal::operator_suffix_from_uid).map(str::to_string)
+    } else {
+        None
+    };
+
     state.network.update(|s| s.last_a2_online = secondary_online == Some(true));
 
     // 历史缺陷：handle_status_change 传入的是仅主适配器的 online，
@@ -320,6 +329,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         &BackgroundCheckResult {
             online,
             online_operator,
+            secondary_online_operator,
             reachable,
             login_available,
             message: &message,

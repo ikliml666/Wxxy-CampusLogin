@@ -22,6 +22,8 @@ pub(super) struct BackgroundCheckResult<'a> {
     pub secondary_message: &'a str,
     /// 主适配器在线时从 Portal uid 推导的运营商后缀（""=无锡学院、@telecom/@unicom/@cmcc；None=离线/未知）
     pub online_operator: Option<String>,
+    /// 副适配器在线时从 Portal uid 推导的运营商后缀（口径同上；None=副适配器离线/未启用/未知）
+    pub secondary_online_operator: Option<String>,
     pub dual_adapter: bool,
     pub config: &'a crate::config::model::Config,
     pub campus_result: &'a CampusCheckResult,
@@ -142,6 +144,7 @@ pub(super) fn emit_background_check_result(
         "secondaryMessage": result.secondary_message,
         // 注销保护期内强制 null，与 effective_online=false 口径一致
         "onlineOperator": if is_logout_protected { None } else { result.online_operator.as_deref() },
+        "secondaryOnlineOperator": if is_logout_protected { None } else { result.secondary_online_operator.as_deref() },
         "timestamp": chrono::Utc::now().timestamp_millis(),
         "checkCount": check_count,
         "isRunning": is_running,
