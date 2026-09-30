@@ -17,6 +17,8 @@ export interface BackgroundStatus {
   checkCount: number
   serverAvailable: boolean
   online: boolean
+  /** 主适配器在线会话的运营商后缀：''=无锡学院、@telecom/@unicom/@cmcc；null=离线/未知/注销保护期 */
+  onlineOperator?: string | null
   adapterStatuses?: AdapterOnlineStatus[]
   currentSsid: string | null
   onCampusNetwork?: boolean

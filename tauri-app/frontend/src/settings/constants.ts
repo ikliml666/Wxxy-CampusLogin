@@ -70,6 +70,16 @@ export const ISP_OPTIONS = [
   { value: '@cmcc', label: '中国移动', labelKey: 'settings.isp.cmcc' },
 ] as const
 
+/**
+ * 运营商后缀 → i18n labelKey 映射。
+ * bgStatus.onlineOperator 用 '' 表示校园网默认线路（无锡学院），ISP_OPTIONS 用 '__default__' 作选择值；
+ * null/undefined（离线/未知）返回 undefined，调用方据此隐藏徽标。
+ */
+export const operatorLabelKey = (suffix: string | null | undefined): string | undefined =>
+  suffix === null || suffix === undefined
+    ? undefined
+    : ISP_OPTIONS.find((o) => o.value === (suffix === '' ? '__default__' : suffix))?.labelKey
+
 export const THEME_OPTIONS = [
   { id: 'default' as ThemeName, label: '默认蓝', labelKey: 'settings.defaultBlue', color: '#3b82f6' },
   { id: 'vibrant' as ThemeName, label: '活力紫', labelKey: 'settings.vibrantPurple', color: '#a855f7' },

@@ -743,7 +743,12 @@
     "refreshLatency": "Refresh Latency",
     "gotoDashboard": "Open dashboard for network quality",
     "selfService": "User Self-Service",
-    "openPortal": "Open Authentication Portal"
+    "openPortal": "Open Authentication Portal",
+    "onlineOperator": {
+      "badge": "Currently online ISP: {{operator}}",
+      "account": "Online account {{account}}",
+      "nightShift": "Temporarily switched by night mode, will restore to {{operator}} after it ends"
+    }
   },
   "dashboard": {
     "quickActions": "Quick Actions",

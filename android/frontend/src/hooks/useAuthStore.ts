@@ -116,7 +116,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
   isLoggingIn: false,
   isLoggingOut: false,
   status: { text: '正在检测...', state: 'loading' },
-  bgStatus: { isRunning: false, checkCount: 0, serverAvailable: false, online: false, adapterStatuses: [], currentSsid: null },
+  bgStatus: { isRunning: false, checkCount: 0, serverAvailable: false, online: false, onlineOperator: null, adapterStatuses: [], currentSsid: null },
 
   doLogin: async (adapterName?: string): Promise<boolean> => {
     const self = useAuthStore.getState()

@@ -20,6 +20,7 @@ import { resolveQualityDisplay } from '@/lib/latency'
 import { Reorder, m, AnimatePresence } from 'framer-motion'
 import { QUALITY_CONFIG } from '@/network/constants'
 import { resolveAdapterNames } from '@/network/adapters'
+import { operatorLabelKey } from '@/settings/constants'
 import type { Adapter } from '@/network'
 import { LatencyPair } from '@/monitor/LatencyComponents'
 import { safeStorage } from '@/lib/utils'
@@ -269,6 +270,9 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
 }) {
   const { t } = useTranslation()
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
+  // 在线会话运营商（仅主适配器）：离线/未知为 null，徽标随之隐藏
+  const onlineOperator = useAuthStore((s) => s.bgStatus.onlineOperator)
+  const onlineOperatorLabel = operatorLabelKey(onlineOperator)
   const mountedRef = useRef(true)
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
@@ -319,7 +323,10 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
               </div>
               <span className="text-sm font-medium font-sans">{activeDisplayName}</span>
             </div>
-            <Badge variant="default" className="text-[10px] h-5">{t('dashboard.current')}</Badge>
+            <div className="flex items-center gap-2">
+              {onlineOperatorLabel && <span className="text-[10px] text-muted-foreground">{t(onlineOperatorLabel)}</span>}
+              <Badge variant="default" className="text-[10px] h-5">{t('dashboard.current')}</Badge>
+            </div>
           </div>
         )}
         {otherAccounts.length > 0 && otherAccounts.map(item => (

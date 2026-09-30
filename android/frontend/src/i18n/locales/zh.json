@@ -745,7 +745,12 @@
     "detecting": "正在检测...",
     "refreshLatency": "刷新延迟",
     "selfService": "用户自助服务",
-    "openPortal": "打开认证门户"
+    "openPortal": "打开认证门户",
+    "onlineOperator": {
+      "badge": "当前在线运营商：{{operator}}",
+      "account": "在线账号 {{account}}",
+      "nightShift": "夜间模式临时切换，结束后恢复为 {{operator}}"
+    }
   },
   "dashboard": {
     "quickActions": "快捷操作",
