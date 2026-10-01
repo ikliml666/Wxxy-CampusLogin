@@ -386,16 +386,16 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `FaceChallenge` | `faceService.ts:35` | `'blink' \| 'turn'` |
 | `FaceFailReason` | `faceService.ts:37` | `'timeout' \| 'challenge' \| 'mismatch' \| 'camera'` |
 | `FaceVerifyResult` | `faceService.ts:38` | 判别联合结果 |
-| `openCamera` | `faceService.ts:80` | getUserMedia 前置摄像头 640×480 |
-| `closeCamera` | `faceService.ts:89` | 停全部 track 并清 `srcObject` |
-| `loadTemplate` | `faceService.ts:131` | 读 `campus-2d-face-template` 描述子 |
-| `hasTemplate` | `faceService.ts:142` | 是否已录入 |
-| `clearTemplate` | `faceService.ts:146` | 清空模板（开关关闭时调用） |
-| `enrollFace` | `faceService.ts:155` | 质量门控采 8 帧取均值存模板（`ENROLL_FRAMES=8` / `ENROLL_TIMEOUT_MS=20000` / `DETECT_SCORE_MIN=0.85`，`faceService.ts:26/28/33`） |
-| `verifyFace` | `faceService.ts:184` | 随机动作挑战（眨眼/转头）→ 同人比对 3 次机会（`MATCH_THRESHOLD=0.55`，`faceService.ts:23`） |
+| `openCamera` | `faceService.ts:117` | getUserMedia 前置摄像头 640×480 |
+| `closeCamera` | `faceService.ts:126` | 停全部 track 并清 `srcObject` |
+| `loadTemplate` | `faceService.ts:168` | 读 `campus-2d-face-template` 描述子 |
+| `hasTemplate` | `faceService.ts:179` | 是否已录入 |
+| `clearTemplate` | `faceService.ts:183` | 清空模板（开关关闭时调用） |
+| `enrollFace` | `faceService.ts:192` | 质量门控采 8 帧取均值存模板（`ENROLL_FRAMES=8` / `ENROLL_TIMEOUT_MS=20000` / `DETECT_SCORE_MIN=0.85`，`faceService.ts:26/28/33`） |
+| `verifyFace` | `faceService.ts:221` | 随机动作挑战（眨眼/转头）→ 同人比对 3 次机会（`MATCH_THRESHOLD=0.55`，`faceService.ts:23`） |
 | `FaceCaptureDialog` | `FaceCaptureDialog.tsx:28` | 单例弹窗（`Dialog` + `CaptureFlow`）；`CaptureFlow` 定义在 `FaceCaptureDialog.tsx:48`，必须放 `DialogContent` 内以拿到 video ref（`FaceCaptureDialog.tsx:5-8` 注释） |
 
-`faceService.ts` 内部私有：`getHuman`(45，单例懒加载 + warmup；human 库本体 v2.4.0 起经 `await import('@vladmandic/human')` 动态引入，首用人脸才加载)、`releaseFaceEngine`(88，`reset()` 卸模型 + `tf.disposeVariables()` 清残余张量后清空单例，由 `FaceCaptureDialog` 卸载清理调用)、`detectOnce`(125，含 human mesh 索引判眨眼)、`saveTemplate`(171)、各常量 `TEMPLATE_KEY`(20)/`POLL_INTERVAL_MS`(31)/`CHALLENGE_TIMEOUT_MS`(29)。
+`faceService.ts` 内部私有：`getHuman`(47，单例懒加载 + warmup；human 库本体 v2.4.0 起经 `await import('@vladmandic/human')` 动态引入，首用人脸才加载)、`releaseFaceEngine`(102，同步释放：同步置空单例并 `reset()` 卸模型 + `tf.disposeVariables()` 清残余张量；`engineGen`(43) 代际防"初始化期间被释放"的实例复活，由 `FaceCaptureDialog` 卸载清理调用)、`detectOnce`(141，含 human mesh 索引判眨眼)、`saveTemplate`(187)、各常量 `TEMPLATE_KEY`(20)/`POLL_INTERVAL_MS`(31)/`CHALLENGE_TIMEOUT_MS`(29)。
 
 ### index.css（无导出）
 
@@ -554,7 +554,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 `MobileQuickActions`（`MobileQuickActions.tsx:11`）→ `api.bindToWifi()`（25 → `tauriApi.ts:181`）→ `doLogin()`（27）→ `useAuthStore.doLogin`（`useAuthStore.ts:121`）→ `saveConfigDirect`（133）→ `withTimeout(api.doLogin(adapterName), 60000, ...)`（141 → `tauriApi.ts:184` `invoke('do_login')`）→ 成功置 online + 日志/toast（143-146）→ 质量联动：节流窗口外才 `checkNetworkQuality`（157-163 → `tauriApi.ts:245`）→ 失败才补一次 `checkOnline`（175-177）。平板 Dock 的登录/注销走 `DockNav.tsx:451-452` 的同一 store 动作，按 `resolveAdapterNames`（`network/adapters.ts:15`）限定菜单候选。
 
-审批/明文链路：`AccountPanel` 绑定卡与 `SelfServicePanel` 通过 `useHelloGate`（`account/selfServiceState.ts:85`）或 `useSelfServiceVerify`（125）→ `tauriApiWithRetry.verifyWindowsIdentity`（93/133 → `tauriApi.ts:188-219`）→ 2D 人脸回退走 `useFaceDialogStore.openFaceDialog('verify')`（`tauriApi.ts:197`）→ `FaceCaptureDialog`（`App.tsx:303` 挂载）→ `faceService.verifyFace`（`faceService.ts:184`）。
+审批/明文链路：`AccountPanel` 绑定卡与 `SelfServicePanel` 通过 `useHelloGate`（`account/selfServiceState.ts:85`）或 `useSelfServiceVerify`（125）→ `tauriApiWithRetry.verifyWindowsIdentity`（93/133 → `tauriApi.ts:188-219`）→ 2D 人脸回退走 `useFaceDialogStore.openFaceDialog('verify')`（`tauriApi.ts:197`）→ `FaceCaptureDialog`（`App.tsx:303` 挂载）→ `faceService.verifyFace`（`faceService.ts:221`）。
 
 ### 配置写回链路
 

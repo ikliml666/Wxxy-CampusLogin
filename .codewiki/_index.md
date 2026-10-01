@@ -124,6 +124,7 @@
 - [[learnings\adapter-visibility-cache-staleness|适配器可见性/禁用分类缓存陈旧（只在 enable_adapter 刷新）]]
 - [[learnings\adapter-linkspeed-u64-max|适配器速度显示 18446744073 Gbps]]
 - [[learnings\config-write-lock-coverage|配置文件并发写保护靠调用方持有锁（覆盖不全即互相覆盖）]]
+- [[learnings\face-engine-release-await-pending-race|释放函数 await 初始化 promise 会与重开流程竞态，复用被释放的引擎]]
 - [[learnings\airplane-mode-kills-wireless-adb|飞行模式一开无线 adb 即断且无法远程恢复]]
 ## Module
 
