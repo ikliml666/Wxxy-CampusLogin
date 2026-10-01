@@ -7,7 +7,7 @@
 
 import { useCallback, useState } from 'react'
 import { LayoutDashboard, UserCircle, Globe, Gauge, Radar, LayoutGrid, LogIn, LogOut } from 'lucide-react'
-import { motion, useReducedMotion } from 'framer-motion'
+import { m } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -92,7 +92,6 @@ export function BottomNav({ tab, onChange }: {
 }) {
   const { t } = useTranslation()
   const tabs = useNavTabs()
-  const reduceMotion = useReducedMotion()
 
   return (
     <nav
@@ -126,15 +125,13 @@ export function BottomNav({ tab, onChange }: {
                   active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-8 text-muted-foreground active:text-foreground'
                 )}
               >
-                {active && !reduceMotion && (
-                  <motion.span
+                {/* 系统减动态时由全局 MotionConfig reducedMotion="user" 关闭位移动画，无需手动兜底 */}
+                {active && (
+                  <m.span
                     layoutId="nav-active-pill"
                     transition={{ type: 'spring', stiffness: 420, damping: 34 }}
                     className="absolute inset-0 rounded-full bg-primary/[0.12] dark:bg-primary/[0.16]"
                   />
-                )}
-                {active && reduceMotion && (
-                  <span className="absolute inset-0 rounded-full bg-primary/[0.12] dark:bg-primary/[0.16]" />
                 )}
                 <Icon
                   className="relative z-10 h-5 w-5 shrink-0"

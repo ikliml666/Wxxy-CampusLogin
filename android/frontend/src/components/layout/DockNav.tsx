@@ -52,7 +52,6 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
 }) {
   const Icon = ICON_MAP[icon]
   const ref = useRef<HTMLButtonElement>(null)
-  const profile = useAnimationProfile()
   const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
   const rectRef = useRef<{ center: number }>({ center: -999 })
@@ -131,12 +130,12 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
       }}
       aria-label={label}
     >
+      {/* 激活药丸靠 layoutId 跨项共享布局：切换时从旧项位置滑向新项（弹簧与桌面同款） */}
       {isActive && (
         <m.div
+          layoutId="dock-active-pill"
+          transition={{ type: 'spring', stiffness: 420, damping: 34 }}
           className="absolute inset-0 rounded-full bg-primary/10"
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.3, ease: profile.easing.enter as [number, number, number, number] }}
         />
       )}
       <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
