@@ -121,9 +121,10 @@ export function BottomNav({ tab, onChange }: {
                 onClick={() => onChange(id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  // 纵排页签(图标在上/标签在下)统一抬高页签高度,激活药丸随之变高
+                  // 纵排页签(图标在上/标签在下)统一抬高页签高度,激活药丸随之变高;
+                  // 图标等比例放大 20→24px 方便点按,非激活项 w-9 同步保持 6px 图标边距
                   'relative flex h-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
-                  active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-8 text-muted-foreground active:text-foreground'
+                  active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-9 text-muted-foreground active:text-foreground'
                 )}
               >
                 {/* 系统减动态时由全局 MotionConfig reducedMotion="user" 关闭位移动画，无需手动兜底 */}
@@ -135,7 +136,7 @@ export function BottomNav({ tab, onChange }: {
                   />
                 )}
                 <Icon
-                  className="relative z-10 h-5 w-5 shrink-0"
+                  className="relative z-10 h-6 w-6 shrink-0"
                   strokeWidth={active ? 2.2 : 1.8}
                 />
                 {/* 仅激活项显示标签(图标下方,用户要求);窄屏挤压时标签先截断 */}
