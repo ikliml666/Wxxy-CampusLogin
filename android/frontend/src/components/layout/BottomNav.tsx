@@ -1,7 +1,7 @@
 // 移动端底部导航:单条磨砂玻璃圆角胶囊栏(酷安式):左侧页签群排布,右侧为
 // 缩小版注销/登录按钮,两部分同排水平对齐;登录=实心主色胶囊,注销=描边灰胶囊。
-// 设计:仅激活项显示图标+文字标签(背后全圆角 tonal 药丸,与栏身 rounded-full
-// 同形,framer-motion layoutId 滑动),非激活项只保留图标,窄屏不挤。
+// 设计:仅激活项显示图标+文字标签(图标在上、标签在下,背后全圆角 tonal 药丸,
+// 与栏身 rounded-full 同形,framer-motion layoutId 滑动),非激活项只保留图标。
 // 纪律:底部避让 env(safe-area-inset-bottom);动画仅 transform/opacity,
 // 带 motion-reduce 降级;整体轻盈——无生硬描边,悬浮感靠阴影 + 磨砂。
 
@@ -121,7 +121,8 @@ export function BottomNav({ tab, onChange }: {
                 onClick={() => onChange(id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'relative flex h-10 shrink-0 items-center justify-center rounded-full transition-colors motion-reduce:transition-none',
+                  // 纵排页签(图标在上/标签在下)统一抬高页签高度,激活药丸随之变高
+                  'relative flex h-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-8 text-muted-foreground active:text-foreground'
                 )}
               >
@@ -137,9 +138,9 @@ export function BottomNav({ tab, onChange }: {
                   className="relative z-10 h-5 w-5 shrink-0"
                   strokeWidth={active ? 2.2 : 1.8}
                 />
-                {/* 仅激活项显示标签(用户要求);窄屏挤压时标签先截断 */}
+                {/* 仅激活项显示标签(图标下方,用户要求);窄屏挤压时标签先截断 */}
                 {active && (
-                  <span className="relative z-10 ml-1 truncate max-w-[64px] text-[10px] font-medium leading-tight">
+                  <span className="relative z-10 truncate max-w-[64px] text-[10px] font-medium leading-tight">
                     {t(labelKey)}
                   </span>
                 )}

@@ -124,8 +124,8 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
       ref={setRef}
       onClick={() => onPanelChange(id)}
       className={cn(
-        // 激活项=全圆角药丸+图标+文字标签（与安卓底栏同款），非激活项只保留图标
-        'relative flex items-center gap-1 px-2.5 py-1.5 rounded-full select-none group transition-colors duration-200',
+        // 激活项=全圆角药丸+图标在上/文字标签在下（与安卓底栏同款），非激活项只保留图标
+        'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-full select-none group transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
         isActive
           ? 'min-w-0 text-primary'
@@ -145,7 +145,7 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
         />
       )}
       <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-      {/* 仅激活项显示标签（用户要求，同安卓底栏机制） */}
+      {/* 仅激活项显示标签（图标下方，用户要求，同安卓底栏机制） */}
       {isActive && (
         <span className="relative text-[11px] font-medium whitespace-nowrap leading-none">{label}</span>
       )}
