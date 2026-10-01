@@ -49,3 +49,12 @@ tauri-plugin-opener = "2"
 # 更新流:检查/流式下载(rustls 避免安卓 openssl 交叉编译问题)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 futures-util = "0.3"
+
+# 本 crate 是安卓构建的 workspace 根:release 档必须在此声明才会作用于全量依赖
+# (桌面端的 [profile.release] 不随 path 依赖生效)。缺省时走 Cargo 默认档,
+# .so 不 strip、无 LTO、panic unwind,体积可达配置后的近两倍
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
