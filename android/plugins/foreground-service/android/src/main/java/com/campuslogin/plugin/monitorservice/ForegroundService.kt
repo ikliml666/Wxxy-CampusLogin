@@ -3,6 +3,7 @@ package com.campuslogin.plugin.monitorservice
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -13,7 +14,9 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 
 /// 前台服务:只做保活(常驻通知 + WifiLock + PARTIAL_WAKE_LOCK)。
@@ -59,13 +62,28 @@ class ForegroundService : Service() {
             private set
 
         /**
-         * 服务本次运行的计时起点。Chronometer 从 when 起计,而监控 tick 每 15s
-         * 会 notify 同 ID 重建通知——若 when 每次取 now,运行时长永远小于一个
-         * 周期;固定为服务启动时刻,重建只更新文案不动计时。
+         * 常驻通知 Chronometer 的计时起点(= 通知 when)。2026-09-12 起 Rust 侧
+         * 只在线状态翻转时 notify,连接稳定时通知可数天不重建——澎湃OS 按"通知
+         * 过滤"评分(历史点击率为最大因子)把低分通知折叠进"更多消息",长期不
+         * 更新的通知更易落榜;服务侧定时刷新时把起点拨到 now,运行时长随之重计
+         * (见 REFRESH_INTERVAL_MS)。
          */
         @Volatile
         var startAtMs: Long = 0L
             private set
+
+        /** 最近一次构建通知的文案。服务与插件都经 buildNotification 单一漏斗,定时刷新据此重建 */
+        @Volatile
+        var lastText: String = "校园网监控运行中"
+            private set
+
+        /**
+         * 常驻通知定时刷新间隔。Rust 侧为省功耗只在状态翻转时 notify,通知可能
+         * 数天不更新;厂商 ROM(澎湃OS 通知过滤、按时间陈旧度折叠等)会把这样的
+         * 通知降权/收进"更多消息"。服务侧每 12h 重建一次(拨新 when + 复用当前
+         * 文案),功耗可忽略;运行时长 Chronometer 随 when 重计。
+         */
+        const val REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000L
 
         /**
          * 标准安卓协议常驻通知(2026-09-08 用户决策:不做厂商私有 extras,统一走
@@ -76,6 +94,7 @@ class ForegroundService : Service() {
          * 插件 updateNotification 与服务侧共用此构建,保证形态一致。
          */
         fun buildNotification(context: Context, text: String): Notification {
+            lastText = text
             val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Notification.Builder(context, CHANNEL_ID)
             } else {
@@ -84,6 +103,7 @@ class ForegroundService : Service() {
             }
             builder.setContentTitle("校园网登录助手")
                 .setContentText(text)
+                .setContentIntent(mainActivityIntent(context))
                 .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
@@ -92,12 +112,42 @@ class ForegroundService : Service() {
                 .setWhen(if (startAtMs == 0L) System.currentTimeMillis() else startAtMs)
             return builder.build()
         }
+
+        /**
+         * 点击通知回到应用。除常规交互外,这也是澎湃OS"通知过滤"评分的关键:
+         * 官方文档明确历史点击率是重要性评分影响最大的因子,不可点击的常驻
+         * 通知点击率恒为 0,迟早被折叠进"更多消息"(用户可左滑"设为重要"纠正)。
+         */
+        private fun mainActivityIntent(context: Context): PendingIntent =
+            PendingIntent.getActivity(
+                context,
+                0,
+                Intent()
+                    .setClassName(context.packageName, "${context.packageName}.MainActivity")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE
+            )
     }
 
     private var wifiLock: WifiManager.WifiLock? = null
     private var nudgeWakeLock: PowerManager.WakeLock? = null
     private var probeWakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    /**
+     * 定时刷新常驻通知:Rust 侧只在状态翻转时 notify,连接稳定时通知可数天
+     * 不更新,厂商 ROM(澎湃OS"通知过滤"按点击率/陈旧度评分)会因此把它折叠
+     * 进"更多消息"。每 REFRESH_INTERVAL_MS 重建一次(拨新 when + 复用当前文案)。
+     */
+    private val refreshHandler = Handler(Looper.getMainLooper())
+    private val refreshTick = object : Runnable {
+        override fun run() {
+            refreshHandler.postDelayed(this, REFRESH_INTERVAL_MS)
+            startAtMs = System.currentTimeMillis()
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIFICATION_ID, buildNotification(this@ForegroundService, lastText))
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -109,6 +159,7 @@ class ForegroundService : Service() {
         instance = this
         registerNetworkWatcher()
         isRunning = true
+        refreshHandler.postDelayed(refreshTick, REFRESH_INTERVAL_MS)
     }
 
     /**
@@ -246,6 +297,7 @@ class ForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        refreshHandler.removeCallbacks(refreshTick)
         releaseLocks()
         instance = null
         isRunning = false
