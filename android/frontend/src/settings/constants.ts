@@ -10,7 +10,7 @@ export const DEFAULT_CONFIG: Config = {
   selfReverifyEachAction: false,
   allow2dFaceVerify: false,
   operator: '',
-  enableNightOperatorSwitch: true,
+  enableNightOperatorSwitch: false,
   nightOperatorRestore: '',
   enableNightOutboundSwitch: false,
   outboundPriority: [],

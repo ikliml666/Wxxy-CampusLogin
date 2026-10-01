@@ -645,7 +645,7 @@ mod tests {
         assert_eq!(config.background_check_interval, 60000);
         assert_eq!(config.latency_test_interval, 600000);
         assert!(config.lightweight_mode);
-        assert!(config.enable_night_operator_switch, "夜切默认开启(2026-09-20)");
+        assert!(!config.enable_night_operator_switch, "夜切默认关闭(2026-10-02)");
         assert_eq!(config.scheduled_login_minutes, 1440, "定时动作默认禁用哨兵 1440");
         assert_eq!(config.scheduled_logout_minutes, 1440);
     }
