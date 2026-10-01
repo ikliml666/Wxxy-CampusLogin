@@ -55,9 +55,9 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   const isNightShift = configOperator === '' && nightOperatorRestore !== ''
   const restoreLabelKey = isNightShift ? operatorLabelKey(nightOperatorRestore) : undefined
   const fullAccount = onlineOperator ? `${configUser}${onlineOperator}` : configUser
-  // 双适配器同运营商时不重复出徽标，副适配器会话进 tooltip
+  // 主/副适配器各出一枚徽标，同运营商也不合并（靠「· 适配器名」区分），副适配器会话进 tooltip
   const showSecondaryBadge =
-    Boolean(dualAdapter) && secondaryOnlineOperator !== null && secondaryOnlineOperator !== undefined && secondaryOnlineOperator !== onlineOperator
+    Boolean(dualAdapter) && secondaryOnlineOperator !== null && secondaryOnlineOperator !== undefined
   const secondaryLabel = showSecondaryBadge ? operatorLabelKey(secondaryOnlineOperator) : undefined
   const secondaryAccount = showSecondaryBadge ? `${configUser}${secondaryOnlineOperator ?? ''}` : undefined
   // 徽标注明登录适配器：自动检测（未指定具体卡）时不显示适配器名

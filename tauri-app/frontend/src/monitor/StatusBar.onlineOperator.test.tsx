@@ -91,10 +91,12 @@ describe('StatusBar 在线运营商徽标', () => {
     expect(document.querySelector('img[src="/isp/unicom.webp"]')).toBeTruthy()
   })
 
-  it('双适配器但副适配器运营商与主相同时不重复渲染', () => {
+  it('双适配器副适配器运营商与主相同时仍渲染两枚 chip（靠适配器名区分）', () => {
     bgStatusState.secondaryOnlineOperator = '@telecom'
     configState.dualAdapter = true
     renderBar()
-    expect(screen.getAllByLabelText('statusbar.onlineOperator.badge')).toHaveLength(1)
+    expect(screen.getAllByLabelText('statusbar.onlineOperator.badge')).toHaveLength(2)
+    expect(screen.getAllByText('settings.isp.telecom')).toHaveLength(2)
+    expect(screen.getByText('· 以太网')).toBeTruthy()
   })
 })
