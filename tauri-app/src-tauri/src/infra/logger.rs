@@ -14,9 +14,18 @@ const FLUSH_INTERVAL_MS: u64 = 2000;
 const CHANNEL_CAPACITY: usize = 1024;
 
 static LOG_RETENTION_DAYS: AtomicU32 = AtomicU32::new(7);
+/// init_logger 记录的实际日志目录，供 set_log_retention_days 应用即清理用
+/// （clear_logs 重建 worker 时目录不变，无需更新）
+static LOG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 pub fn set_log_retention_days(days: u32) {
     LOG_RETENTION_DAYS.store(days, AtomicOrdering::Relaxed);
+    // 应用即清理一次：启动接线（桌面 startup.rs / 安卓 run_startup_tasks）、配置导入与
+    // 日志面板改保留天数都立即生效，不等 worker 首个 1 小时周期——重装/升级后旧日志
+    // 首次启动即被清掉（此前启动路径无任何清理）
+    if let Some(dir) = LOG_DIR.get() {
+        cleanup_old_logs_by_time(dir, days);
+    }
 }
 
 pub fn get_log_retention_days() -> u32 {
@@ -66,6 +75,7 @@ pub fn init_logger(log_dir: PathBuf) -> Result<(), String> {
     if let Err(e) = fs::create_dir_all(&log_dir) {
         eprintln!("创建日志目录失败: {e}");
     }
+    let _ = LOG_DIR.set(log_dir.clone());
     let today = Local::now().format("%Y-%m-%d").to_string();
     let log_path = log_dir.join(format!("app-{today}.log"));
 

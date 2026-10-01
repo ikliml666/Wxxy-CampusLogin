@@ -205,6 +205,7 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
 
     // 历史缺陷：logRetentionDays 仅保存不生效，重启后日志保留天数回退默认 7 天，
     // 直到用户再次进入日志面板触发 set_log_retention_days。启动时按配置应用。
+    // set 应用时即触发一次按天清理（见 logger），重装/升级后旧日志首次启动即被清。
     crate::infra::logger::set_log_retention_days(config.log_retention_days);
 
     crate::app::tray::build_tray(app.handle(), &install_dir)?;

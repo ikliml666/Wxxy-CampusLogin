@@ -423,6 +423,9 @@ pub fn run_startup_tasks(app: tauri::AppHandle) {
             Ok(s) => s,
             Err(_) => return,
         };
+        // 启动即应用持久化日志保留天数（set 内含一次按天清理）：此前安卓 retention 重启后
+        // 恒为默认 7（仅日志面板临时改），且首次按时间清理要等 worker 跑满 1 小时
+        campus_login_lib::infra::logger::set_log_retention_days(settings.log_retention_days);
         if settings.enable_background_check {
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
