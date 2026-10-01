@@ -23,7 +23,7 @@ interface ConnectionCampusStatus {
   message: string
 }
 
-/** 设备 SoC/性能信息(Rust get_soc_info);tier 驱动帧率档,型号仅调试日志用 */
+/** 设备 SoC/性能信息(Rust get_soc_info);恒高档后前端不再消费,命令保留 */
 export interface SocInfo {
   socModel: string
   deviceModel: string

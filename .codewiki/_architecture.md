@@ -117,7 +117,7 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 | 端 | 实现 | 位置 |
 |---|---|---|
 | 桌面前端 | 6 个 zustand 领域 store + 模块级锁变量 | `tauri-app/frontend/src/hooks/{useAuthStore,useConfigStore,useAdapterStore,useQualityStore,useLogToastStore,useThemeStore}.ts`；兼容壳 `useAppStore.ts:1-3` 仅 re-export |
-| 安卓前端 | 同名 6 个 store（独立复刻）+ 设备性能分档 | `android/frontend/src/hooks/` 同名文件；另有 `useDeviceProfile.ts`、`useAdaptiveFramePace.ts`（安卓独有） |
+| 安卓前端 | 同名 6 个 store（独立复刻）+ 氛围动画帧率节流（v2.4.0 恒高档） | `android/frontend/src/hooks/` 同名文件；另有 `useDeviceProfile.ts`、`useAdaptiveFramePace.ts`（安卓独有） |
 | 桌面后端 | `AppState` = `ConfigStore`(ArcSwap) + `TaskFlags`(5 个原子锁) + `BackgroundTaskManager` + `NetworkState` + `ExitStateStore` + `UpdateStats` + `ScheduledFired` | `tauri-app/src-tauri/src/infra/state/mod.rs:148-157`；托管点 `app/startup.rs:50` |
 | 安卓后端 | 两个进程级静态容器：`AndroidState`（源 IP + 配置内存态）与 `MONITOR`（14 个原子/互斥字段，2026-09-13 新增定时登录/注销当日触发标记 2 个） | `android/src-tauri/src/android_state.rs:8-13`、`android/src-tauri/src/monitor_loop.rs:12-49` |
 

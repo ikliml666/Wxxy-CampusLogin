@@ -14,7 +14,7 @@
  * 详见 THIRD-PARTY-NOTICES.md。
  */
 
-import { Human } from '@vladmandic/human'
+import type { Human } from '@vladmandic/human'
 import { safeStorage } from '@/lib/utils'
 
 const TEMPLATE_KEY = 'campus-2d-face-template'
@@ -40,11 +40,13 @@ export type FaceVerifyResult = { ok: true } | { ok: false; reason: FaceFailReaso
 let humanInstance: Human | null = null
 let humanInitPromise: Promise<Human> | null = null
 
-/** human 单例（懒加载 + warmup：WebGL 首帧 shader 编译秒级，须提前消化） */
+/** human 单例（懒加载 + warmup：WebGL 首帧 shader 编译秒级，须提前消化）。
+ * 库本体动态 import（v2.4.0）：人脸栈整体拆出主包，首次启用人脸时才加载 */
 async function getHuman(): Promise<Human> {
   if (humanInstance) return humanInstance
   if (!humanInitPromise) {
     humanInitPromise = (async () => {
+      const { Human } = await import('@vladmandic/human')
       const h = new Human({
         backend: 'webgl',
         modelBasePath: '/models',
@@ -75,6 +77,25 @@ async function getHuman(): Promise<Human> {
     })()
   }
   return humanInitPromise
+}
+
+/**
+ * 释放引擎：卸载模型/权重并清空单例（人脸弹窗关闭时调用，下次启用自动重建）。
+ * best-effort：失败只影响下次冷加载时长；WebGL 后端与 shader 缓存随 tfjs 模块
+ * 常驻、重建实例可复用，故不做 tf.removeBackend（会连工厂一并注销，
+ * 二次 setBackend('webgl') 失败）。
+ */
+export async function releaseFaceEngine(): Promise<void> {
+  const pending = humanInitPromise
+  if (pending) {
+    try { await pending } catch { /* 初始化失败即无可释放 */ }
+  }
+  const h = humanInstance
+  humanInstance = null
+  humanInitPromise = null
+  if (!h) return
+  try { h.reset() } catch { /* best-effort：reset unloads all models */ }
+  try { h.tf?.disposeVariables?.() } catch { /* best-effort */ }
 }
 
 export async function openCamera(video: HTMLVideoElement): Promise<void> {

@@ -238,10 +238,10 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `useGlobalShortcut` | `useGlobalShortcut.ts:4` | 全局 `Ctrl+Shift+C` → `cancelAutoExit`，可编辑元素内忽略（`useGlobalShortcut.ts:10-16`） |
 | `useFormFactor` | `useFormFactor.ts:38` | 短边 ≥600px 判平板（`useFormFactor.ts:13`），resize/orientationchange 重算（`useFormFactor.ts:24-36`） |
 | `useOrientation` | `useFormFactor.ts:43` | 宽≥高为 `landscape`（`useFormFactor.ts:19`） |
-| `useDeviceProfile` | `useDeviceProfile.ts:93` | 设备性能分级：同步用 WebGL renderer + 核数/内存（`useDeviceProfile.ts:43-67`），异步用 `getSocInfo` 只升不降（`useDeviceProfile.ts:72-91`） |
+| `useDeviceProfile` | `useDeviceProfile.ts:26` | v2.4.0 起恒返旗舰档常量（`idleFps:30`/`activeFps:60`）作氛围动画节流；GPU/核数/内存三档判定与 `getSocInfo` 精修已删（`decisions/animation-always-high-face-lazy.md`） |
 | `useAdaptiveFramePace` | `useAdaptiveFramePace.ts:51` | 把 `useDeviceProfile` 的 idle/active fps 落到 `gsap.ticker.fps()`，250ms 轮询回落、事件回调即时提帧 |
 | `markInteraction` | `useAdaptiveFramePace.ts:26` | 程序性交互（面板切换）主动推活跃窗口 |
-| `useAnimationProfile` | `useAnimationProfile.ts:73` | 由 `refreshRate`/`gpuInfo`/reduced-motion 解析动画档（`useAnimationProfile.ts:85-94`） |
+| `useAnimationProfile` | `useAnimationProfile.ts:51` | v2.4.0 起恒返 `HIGH_PROFILE` 满配档（仅 `refreshRate` 驱动 easing/节流数值）；standard/economy 分档已删，接口形状不变 |
 | `AnimationActiveProvider` | `usePageIdle.ts:85` | 全局单例注册「可见 + 有焦点 + 未空闲」判定，`useMemo` 稳定 value |
 | `useAnimationActive` | `usePageIdle.ts:95` | 消费上述 context |
 | `useBreatheAnimation` | `useBreatheAnimation.ts:15` | gsap yoyo 呼吸动画 ref，空闲暂停（`useBreatheAnimation.ts:55-63`） |
@@ -395,7 +395,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `verifyFace` | `faceService.ts:184` | 随机动作挑战（眨眼/转头）→ 同人比对 3 次机会（`MATCH_THRESHOLD=0.55`，`faceService.ts:23`） |
 | `FaceCaptureDialog` | `FaceCaptureDialog.tsx:28` | 单例弹窗（`Dialog` + `CaptureFlow`）；`CaptureFlow` 定义在 `FaceCaptureDialog.tsx:48`，必须放 `DialogContent` 内以拿到 video ref（`FaceCaptureDialog.tsx:5-8` 注释） |
 
-`faceService.ts` 内部私有：`getHuman`(44，单例懒加载 + warmup)、`detectOnce`(104，含 human mesh 索引判眨眼)、`saveTemplate`(150)、各常量 `TEMPLATE_KEY`(20)/`POLL_INTERVAL_MS`(31)/`CHALLENGE_TIMEOUT_MS`(29)。
+`faceService.ts` 内部私有：`getHuman`(45，单例懒加载 + warmup；human 库本体 v2.4.0 起经 `await import('@vladmandic/human')` 动态引入，首用人脸才加载)、`releaseFaceEngine`(88，`reset()` 卸模型 + `tf.disposeVariables()` 清残余张量后清空单例，由 `FaceCaptureDialog` 卸载清理调用)、`detectOnce`(125，含 human mesh 索引判眨眼)、`saveTemplate`(171)、各常量 `TEMPLATE_KEY`(20)/`POLL_INTERVAL_MS`(31)/`CHALLENGE_TIMEOUT_MS`(29)。
 
 ### index.css（无导出）
 
@@ -574,11 +574,11 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ## Known Issues
 
-1. **`useStartupBoost` 是死代码**：`hooks/useStartupBoost.ts:15` 定义后全仓无 import（仅 `hooks/useAnimationProfile.ts:51` 注释提及）。其 `StartupRefs` 字段（`useStartupBoost.ts:5-11`）指向桌面 TitleBar/StatusBar/DockNav/RightPanel，手机外壳根本不渲染这些元素——即便被调用也只会 `gsap.set` 到 null。
+1. **`useStartupBoost` 是死代码**：`hooks/useStartupBoost.ts:15` 定义后全仓无 import（v2.4.0 前仅 `ECONOMY_OVERRIDES` 注释提及，分档删除后全仓零提及）。其 `StartupRefs` 字段（`useStartupBoost.ts:5-11`）指向桌面 TitleBar/StatusBar/DockNav/RightPanel，手机外壳根本不渲染这些元素——即便被调用也只会 `gsap.set` 到 null。
 2. **`FluidBackground` 是死代码**：`shared/FluidBackground.tsx:1` 仅经 `shared/index.ts:7` 导出，全仓无渲染点；`App.tsx:4` 注释明确「桌面件（…/FluidBackground/…）在手机外壳不再渲染」。
 3. **`useAppStore` 兼容壳无人引用**：`hooks/useAppStore.ts:2-3` 只做 re-export，全仓无 import；引用清理后可直接删除。
 4. **`lib/animations.ts` 的 `createPanelAppleVariants` 在安卓无调用方**：`createPanelAppleVariants`（`lib/animations.ts:19`）；安卓面板过渡用 `App.tsx:92` 与 `TabletShell.tsx:133` 各自内联的轻量 variants（0.18s easeOut）。历史实现还有 `getPanelDirection`（旧 `lib/animations.ts:21`）与含 `'network'` 的 `PANEL_ORDER`（旧 `lib/animations.ts:19`），已随死代码清理 `1dda320` 双端删除。
-5. **`useQualityStore.gpuInfo` 在安卓永为 null**：唯一 setter `setGpuInfo`（`useQualityStore.ts:94`）全仓无调用；`getGpuInfo` 在安卓是 `desktopOnly` reject（`tauriApi.ts:291`），`useInitialDataLoad.ts:94-96` 注释也说明启动不再请求。因此 `useAnimationProfile` 的 `resolveTier(gpuInfo?.tier, reducedMotion)`（`hooks/useAnimationProfile.ts:88`）在安卓只会落 `'standard'` 或（reduced-motion 时）`'economy'`——设备性能分级实际由另一条链路 `useDeviceProfile` → `useAdaptiveFramePace` 承担（`useAdaptiveFramePace.ts:52`），两条分级互不打通。
+5. **`useQualityStore.gpuInfo` 在安卓永为 null**：唯一 setter `setGpuInfo`（`useQualityStore.ts:94`）全仓无调用；`getGpuInfo` 在安卓是 `desktopOnly` reject（`tauriApi.ts:291`），`useInitialDataLoad.ts:94-96` 注释也说明启动不再请求。v2.4.0 起 `useAnimationProfile` 恒最高档，`gpuInfo` 输入链不再有意义；设备侧帧率节流由 `useDeviceProfile`（恒旗舰档常量）→ `useAdaptiveFramePace` 承担。
 6. **`renderHeartbeat` 在安卓是 reject**：`tauriApi.ts:290` `desktopOnly('render_heartbeat')`，而 `useHeartbeat.ts:13/15` 无条件调用（仅吞掉 DEV 日志）。安卓没有后端按心跳丢失重载 WebView 的机制，`lib/renderLiveness.ts` 的探测只剩「配合 `main.tsx:95` 跳过心跳更新」这一处意义。
 7. **窗口关闭 flush 在安卓不生效**：`useEventListeners.ts:48` 依赖 `getCurrentWindow().onCloseRequested`，安卓进程被杀时不会有该事件；`hasPendingConfig`/`flushPendingConfig`（`useConfigStore.ts:183/190`）在安卓缺少触发时机（仅 `App.tsx:276` 删除账号等场景间接依赖 debounce），存在「最后一次配置改动未落盘」的窗口。
 8. **`useGlobalShortcut` 是桌面遗留**：`useGlobalShortcut.ts:17-21` 的 `Ctrl+Shift+C` → `cancelAutoExit`，而安卓 `cancelAutoExit` 为 `desktopOnly` reject（`tauriApi.ts:268`）、`onAutoExitCountdown` 为 no-op（`tauriApi.ts:269`）。键盘事件在手机上也不会触发。

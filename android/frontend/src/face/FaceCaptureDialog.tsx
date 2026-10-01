@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useFaceDialogStore } from './faceVerifyStore'
-import { openCamera, closeCamera, enrollFace, verifyFace, type FaceChallenge } from './faceService'
+import { openCamera, closeCamera, enrollFace, verifyFace, releaseFaceEngine, type FaceChallenge } from './faceService'
 
 const CHALLENGE_KEY: Record<FaceChallenge, string> = {
   blink: 'face.challengeBlink',
@@ -100,6 +100,8 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
     return () => {
       cancelled = true
       closeCamera(videoRef.current)
+      // 弹窗关闭即释放引擎（卸载模型/权重），下次启用自动重建
+      void releaseFaceEngine()
     }
   }, [mode, onClose])
 

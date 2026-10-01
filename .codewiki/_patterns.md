@@ -171,19 +171,19 @@ tags: [模式, 约定]
 
 ### 前端动画与性能分级（deviceProfile / animationProfile）
 
-**是什么**：动画不是全开或全关，而是由"设备能力 + 用户偏好"解析成一个档位（`high`/`standard`/`economy`），组件按档位字段决定是否加 `will-change`、是否禁用倾斜/入场动画、数字滚动时长等；两端各有**不同**的分级输入与降级链。
+**是什么**：动画不再分级（v2.4.0 裁定）：`useAnimationProfile` 双端恒返满配 `HIGH_PROFILE`，组件按字段消费、无档位分支可走；设备侧仅保留"静止 30fps / 交互不限帧"的氛围动画节流（`useDeviceProfile` 恒旗舰档常量 → `useAdaptiveFramePace`）。
 
 **在哪里出现**：
 
-- 桌面档位接口与解析：`tauri-app/frontend/src/hooks/useAnimationProfile.ts:9-27`（`AnimationProfile` 字段）、`:30-48`（`HIGH_PROFILE` 满配基线）、`:52-58`（`ECONOMY_OVERRIDES`，注释声明只覆盖"当前被组件消费的高开销字段"）、`:60-65`（`resolveTier`：reduced-motion 或 `low-igpu` → economy；`discrete`/`high-igpu` → high；其余 standard）、`:73-95`（hook 组装，输入是 `refreshRate` + `gpuInfo` + reduced-motion）。
+- 双端动画档（已折叠）：`useAnimationProfile.ts`（桌面 `tauri-app/frontend/src/hooks/` 与安卓 `android/frontend/src/hooks/` 逐字节相同）：`HIGH_PROFILE`（`:31`）恒定满配返回，仅 `refreshRate` 驱动 easing 与节流数值；`ECONOMY_OVERRIDES`/`resolveTier`/reduced-motion 监听已整体删除（决策与理由：`decisions/animation-always-high-face-lazy.md`）。
 - 消费点：`enableTilt`（`components/ui/animated-card.tsx:36`）、`startupBoost` 与 `startupStaggerDelay`（`useStartupBoost.ts:40/48/66/69`）、`numberDuration`（`shared/AnimatedNumber.tsx:23`）、`willChangeOrbs` 与 `easing`（`monitor/LatencyComponents.tsx:135/144/161`）。
 - 空闲/可见性闸门：`usePageIdle.ts:83-97` 的 `AnimationActiveProvider` + `useAnimationActive()`（顶层单例注册可见性/焦点/空闲判定，避免每个调用点各注册 8-9 个监听器）。
 - 帧率/缓动派生：`lib/easing-config.ts:27-29` 按 `refreshRate >= 120` 选两套贝塞尔基线。
-- 安卓的**另一条链路**：`useDeviceProfile.ts:93`（WebGL renderer + 核数/内存同步分级，异步用 `get_soc_info` 只升不降）→ `useAdaptiveFramePace.ts:38-45` 的 `applyPace()`（把 idle/active fps 落到 `gsap.ticker.fps()`，档位未变则空操作）被两处驱动：`setInterval(applyPace, PACE_POLL_MS=250)`（`:64`，常量 `:18`）负责松手后的静止回落，交互事件 `markInteraction()`（`:26-29`）负责即时提帧；移动端另有 `useFormFactor.ts:38` 的外壳二选一。
+- 安卓氛围动画节流链：`useDeviceProfile.ts:26`（恒旗舰档常量 `idleFps:30`/`activeFps:60`；v2.4.0 前的 GPU 字符串/核数/内存三档判定与 `get_soc_info` 只升不降精修已删）→ `useAdaptiveFramePace.ts:38-45` 的 `applyPace()`（把 idle/active fps 落到 `gsap.ticker.fps()`，档位未变则空操作）被两处驱动：`setInterval(applyPace, PACE_POLL_MS=250)`（`:64`，常量 `:18`）负责松手后的静止回落，交互事件 `markInteraction()`（`:26-29`）负责即时提帧；移动端另有 `useFormFactor.ts:38` 的外壳二选一。
 
-**为什么**：低端设备上满配动画会掉帧；`prefers-reduced-motion` 是用户明确的无障碍要求。把决策集中到 hook、把消费变成读字段，新动画只需读档位字段而不用自己探测设备。
+**为什么**：旧链路是"低端设备满配掉帧"的防御，但档位省下的 GPU 开销换来体验不一致，且安卓侧两条分级链（gpuInfo→animationProfile 与 deviceProfile→framePace）互不打通、gpuInfo 恒 null 使 economy 只剩 reduced-motion 单输入——维护成本高于收益，v2.4.0 翻转为恒满配。副作用：`prefers-reduced-motion` 不再自动降载（产品裁定），如需恢复应在消费点单独响应。
 
-**新增代码应如何遵循**：新动画先问"economy 档要不要降级"，要降级就在 `ECONOMY_OVERRIDES`（或消费点）读取对应字段；需要长驻动画的组件必须经 `useAnimationActive()` 判空闲，并保证 GSAP tween 的生命周期与挂载/卸载对齐。
+**新增代码应如何遵循**：新动画不问档位，直接读 `useAnimationProfile()` 字段（恒满配）；长驻动画必须经 `useAnimationActive()` 判空闲，并保证 GSAP tween 的生命周期与挂载/卸载对齐；氛围类常驻动画走 gsap ticker 驱动（被 `useAdaptiveFramePace` 统一限帧），不要自建 rAF 循环。
 
 ### 按需驱动替代常驻驱动（rAF 与系统锁都只在"用得到的那一刻"存在）
 
@@ -228,7 +228,7 @@ tags: [模式, 约定]
 3. **安卓不广播 `config-changed`**：`config_state.rs:311-338` 只落盘 + 刷 `AndroidState.config` 缓存。安卓前端却注册了监听（`android/frontend/src/hooks/useEventListeners.ts:350`），导致 `mergeConfigFromBackend`（`useConfigStore.ts:110`）的脏字段合并分支在安卓永不触发——"配置回流"这条模式在安卓只靠命令返回值维持。
 4. **前端锁释放方式"同仓两制"，且两端都没修干净**：桌面 `tauri-app/frontend/src/hooks/useAdapterStore.ts:65-69` 已改成"实际工作完成 + 最短展示 500ms 后释放"（注释自述这是对历史缺陷 `setTimeout(500)` 的修复，`useAuthStore.checkOnline` 同法），而 `tauri-app/frontend/src/hooks/useQualityStore.ts:68-72` 的 `refreshQuality` 仍是 `finally { setTimeout(() => { _qualityLockFlag = false; ... }, 500) }`；安卓复刻树同名同错（`android/frontend/src/hooks/useQualityStore.ts:72-77`）。`check_network_quality` 耗时超过 500ms 时锁提前释放，允许并发重入。
 5. **裸线程绕过 `BackgroundTaskManager`（3 处）**：`tauri-app/src-tauri/src/app/startup.rs:208-216` 的 `gpu-warmup` 预热线程（`shutdown_and_exit` 不会等它，进程退出时被直接终止）、`commands/login.rs:16-54` 的 `check_any_adapter_online`（两个裸 `std::thread::spawn` + 先 `tauri::async_runtime::handle().inner().enter()` 再发包）、`android/src-tauri/src/monitor_loop.rs:563-600` 的 `portal_probe_on_little_cores`（裸线程 + `catch_unwind` + 失败降级 `spawn_blocking`）。前两处没有任务名，无法被 `stop_*` 或退出流程管理。
-6. **`AnimationProfile` 近半字段无消费方**：`useAnimationProfile.ts:12-22` 的 `magneticOffset`、`magneticDuration`、`springStiffness`、`springDamping`、`powerPreference`、`prefersCssAnimation`、`enableGpuCompositing`、`enablePageSlide`、`enableBackdropBlur` 只出现在定义处；`components/ui/animated-card.tsx:6-12` 的 `AnimatedCardConfig`（`glowIntensity`/`hoverScale`/`stiffness`/`damping`/`mass`）同样全字段无消费方。`ECONOMY_OVERRIDES`（`:52-58`）的注释只声明它覆盖"被消费的字段"，未声明其余是死字段——改它们不会有任何效果。
+6. **`AnimationProfile` 近半字段无消费方**：`useAnimationProfile.ts:12-22` 的 `magneticOffset`、`magneticDuration`、`springStiffness`、`springDamping`、`powerPreference`、`prefersCssAnimation`、`enableGpuCompositing`、`enablePageSlide`、`enableBackdropBlur` 只出现在定义处；`components/ui/animated-card.tsx:6-12` 的 `AnimatedCardConfig`（`glowIntensity`/`hoverScale`/`stiffness`/`damping`/`mass`）同样全字段无消费方。v2.4.0 恒最高档后 `tier` 恒 `'high'`，消费方的 `tier === 'economy'` 分支（`shared/AnimatedNumber.tsx:83`、`shared/ToastContainer.tsx:33`、`components/layout/DockNav.tsx:476`）亦不可达，随死字段一并留待清理。
 7. **安卓前端存在成片死代码（复刻载荷）**：`android/frontend/src/hooks/useStartupBoost.ts:15`（无 import，其 refs 指向手机外壳根本不渲染的桌面元素）、`shared/FluidBackground.tsx:1`（无渲染点）、`network/NetworkPanel.tsx:47` 与 `network/useNetwork.ts:39`（面板层整体无入口）、`hooks/useAppStore.ts:1-3` 兼容壳（**两端**都无 import，可直接删除）。这些是"复刻后按平台裁剪"留下的尾巴，与桌面端 `useAppStore.ts` 的同类残留一致。
 8. **错误串未脱敏就进日志与返回值（掩码模式只覆盖了配置结构本身）**：脱敏函数 `auth/portal.rs:69` 的 `redact_credentials` 全仓只有一个调用点（`auth/protocol.rs:129`，登录请求失败路径）；自助服务的错误一路进 `CommandResult.message`，全是 `format!("...: {e}")` 形式——`self_service/mod.rs:143/179/185/186/284/285/294/296/308/343` 等十余处；Portal 探测失败时把 reqwest 错误文本原样写进日志与 `login-log` 事件（`monitor/portal_check.rs:56-62`）。结论：**新增出站路径若不显式脱敏，没有任何机制替你兜底**。
 9. **`persist::save_config_to_disk_encrypted` 的"非空即加密"依赖调用方把占位符换回真值**：`config/persist.rs:153-168` 刻意不排除 `"***"`（理由正当：真实密码可能就是 `***`），代价是任何把掩码值直接落盘的调用方，重启后会得到明文密码 `"***"`。当前只有 `commands/config_cmd.rs:107-123` 一处调用方，正确性靠它维持，属"约定无护栏"。

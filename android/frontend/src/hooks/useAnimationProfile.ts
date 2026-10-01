@@ -1,8 +1,7 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo } from 'react'
 import { useQualityStore } from './useQualityStore'
 import type { EasingConfig } from '@/lib/easing-config'
 import { getEasingConfig } from '@/lib/easing-config'
-import type { GpuTier } from '@/shared'
 
 type AnimationTier = 'high' | 'standard' | 'economy'
 
@@ -26,7 +25,9 @@ interface AnimationProfile {
   refreshRate: number
 }
 
-// 高档基线（discrete / high-igpu）— 满配动画
+// 恒最高档（v2.4.0 删除 standard/economy 分档及 prefers-reduced-motion / GPU
+// 判定链：档位省下的那点 GPU 开销换来的是体验不一致，不值）。tier 字段与
+// 接口形状原样保留，消费方零改动；refreshRate 仍驱动 easing 曲线与节流数值。
 const HIGH_PROFILE: AnimationProfile = {
   tier: 'high',
   willChangeOrbs: true,
@@ -47,49 +48,10 @@ const HIGH_PROFILE: AnimationProfile = {
   refreshRate: 60,
 }
 
-// 经济档覆盖项（low-igpu 或 prefers-reduced-motion）— 仅覆盖当前被组件消费的高开销字段
-// 生效字段：willChangeOrbs(LatencyComponents) / enableTilt(AnimatedCard) / startupBoost(useStartupBoost) / numberDuration(AnimatedNumber)
-const ECONOMY_OVERRIDES: Partial<AnimationProfile> = {
-  tier: 'economy',
-  willChangeOrbs: false,
-  enableTilt: false,
-  startupBoost: false,
-  numberDuration: 350,
-}
-
-function resolveTier(gpuTier: GpuTier | undefined, reducedMotion: boolean): AnimationTier {
-  if (reducedMotion || gpuTier === 'low-igpu') return 'economy'
-  if (gpuTier === 'discrete' || gpuTier === 'high-igpu') return 'high'
-  // mid-igpu / unknown 归标准档（中高端为主，保持满配体验）
-  return 'standard'
-}
-
-// 模块级 MediaQueryList：运行时切换 reduced-motion 经 change 事件驱动重算，
-// 避免只在 useMemo 重算瞬间读取造成切换不生效
-const reducedMotionQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-  ? window.matchMedia('(prefers-reduced-motion: reduce)')
-  : null
-
 export function useAnimationProfile(): AnimationProfile {
   const refreshRate = useQualityStore((s) => s.refreshRate)
-  const gpuInfo = useQualityStore((s) => s.gpuInfo)
-  const [reducedMotion, setReducedMotion] = useState(() => !!reducedMotionQuery?.matches)
-
-  useEffect(() => {
-    if (!reducedMotionQuery) return
-    const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches)
-    reducedMotionQuery.addEventListener('change', onChange)
-    return () => reducedMotionQuery.removeEventListener('change', onChange)
-  }, [])
-
   return useMemo(() => {
     const effectiveRefreshRate = refreshRate > 0 ? refreshRate : 120
-    const easing = getEasingConfig(effectiveRefreshRate)
-    const tier = resolveTier(gpuInfo?.tier, reducedMotion)
-    const base: AnimationProfile = { ...HIGH_PROFILE, tier, easing, refreshRate: effectiveRefreshRate }
-    if (tier === 'economy') {
-      return { ...base, ...ECONOMY_OVERRIDES }
-    }
-    return base
-  }, [refreshRate, gpuInfo, reducedMotion])
+    return { ...HIGH_PROFILE, easing: getEasingConfig(effectiveRefreshRate), refreshRate: effectiveRefreshRate }
+  }, [refreshRate])
 }

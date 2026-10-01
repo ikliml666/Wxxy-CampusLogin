@@ -40,7 +40,7 @@ function applyPace(): void {
   if (pace === appliedPace) return
   appliedPace = pace
   // 静止档:氛围 tween 已被 usePageIdle 暂停,gsap ticker 由 autoSleep(main.tsx:18)停摆;
-  // 60 表示不限帧(活跃档按设备档位限帧,低端机 45)
+  // 60 表示不限帧(设备恒按旗舰档供帧,v2.4.0 起无档位)
   gsap.ticker.fps(pace > 0 && pace < 60 ? pace : 60)
 }
 
