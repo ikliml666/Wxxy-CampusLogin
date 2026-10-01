@@ -158,7 +158,9 @@ impl Default for Settings {
             skip_content_in_latency: true,
             portal_url: "http://10.1.99.100".to_string(),
             fixed_gateway: "10.2.127.254".to_string(),
-            required_network_name: "i-wxxy".to_string(),
+            // 2026-10-01 对齐桌面三 SSID 名单(桌面 model default_required_network_name):
+        // iwxxy-2/3 曾在代码内硬编码额外匹配,并入名单字段
+        required_network_name: "i-wxxy、iwxxy-2、iwxxy-3".to_string(),
             enable_network_name_check: true,
             campus_gateway: "10.2.127.254".to_string(),
             // 与桌面 default_campus_check_start_minutes 同值(07:40)
@@ -282,6 +284,12 @@ pub async fn save_file(path: &Path, bridge: &CryptoBridge, s: &Settings) -> Resu
 pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, String> {
     let mut s = load_file(&dir.join(CONFIG_FILE), bridge).await?;
     migrate_legacy_defaults(dir, bridge, &mut s).await;
+    // 旧默认单值 "i-wxxy" 扩为三值(桌面 validate 2026-09-27 同语义:iwxxy-2/3 的
+    // 硬编码额外匹配已并入名单字段,旧值不扩会在升级后丢失 SSID 匹配)。
+    // 幂等:已是三值原样通过;用户主动收窄到单值会被再扩,与桌面接受过的取舍一致
+    if s.required_network_name == "i-wxxy" {
+        s.required_network_name = "i-wxxy、iwxxy-2、iwxxy-3".to_string();
+    }
     Ok(s)
 }
 
@@ -561,12 +569,32 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[tokio::test]
+    async fn 旧默认单值SSID_载入时扩为三值() {
+        let dir = tmp_dir("ssid-migrate");
+        let bridge = fake_bridge();
+        let mut s = sample_settings();
+        s.required_network_name = "i-wxxy".to_string();
+        save_to(&dir, &bridge, &s).await.expect("落盘应成功");
+        let back = load_from(&dir, &bridge).await.unwrap();
+        assert_eq!(
+            back.required_network_name,
+            "i-wxxy、iwxxy-2、iwxxy-3",
+            "旧默认单值载入时扩为三值(桌面 validate 同语义)"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn 默认值_业务语义() {
         let s = Settings::default();
         assert_eq!(s.portal_url, "http://10.1.99.100");
         assert_eq!(s.campus_gateway, "10.2.127.254");
-        assert_eq!(s.required_network_name, "i-wxxy");
+        assert_eq!(
+            s.required_network_name,
+            "i-wxxy、iwxxy-2、iwxxy-3",
+            "三 SSID 名单默认(2026-10-01 对齐桌面)"
+        );
         assert_eq!(s.theme_mode, "dark");
         assert_eq!(s.background_check_interval, 60_000);
         assert_eq!(s.background_check_idle_interval, 300_000, "闲时巡检默认 5min");

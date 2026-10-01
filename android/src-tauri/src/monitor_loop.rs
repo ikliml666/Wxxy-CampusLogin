@@ -128,7 +128,7 @@ pub fn status_value() -> serde_json::Value {
     // 状态点(首轮 emit 先于 WebView 监听建立,事件会丢,getInitData 是唯一
     // 可靠的启动初值来源)
     if let Some(last) = &last {
-        for key in ["online", "message", "serverAvailable", "onCampusNetwork"] {
+        for key in ["online", "message", "onlineOperator", "serverAvailable", "onCampusNetwork"] {
             if let Some(val) = last.get(key) {
                 v[key] = val.clone();
             }
@@ -486,9 +486,10 @@ async fn probe_with_retry(
     }
 }
 
-/// 自动登录成功走应用内通知(前端 auto-login-result 监听→应用内 toast):
-/// 启动自动登录与首拍自动重登常连续发生,系统通知重复轰炸(2026-09-09 真机
-/// 反馈);失败仍保留系统通知(锁屏感知)。日志记录由 login-log 负责,不重复。
+/// 自动登录结果走应用内通知(前端 auto-login-result 监听→应用内 toast):
+/// 成功与失败都发(失败此前只发系统通知,前端失败 toast 分支无数据源)。
+/// 系统通知仍仅失败侧保留(锁屏感知):启动自动登录与首拍自动重登常连续
+/// 发生,系统通知重复轰炸(2026-09-09 真机反馈)。日志记录由 login-log 负责,不重复。
 fn emit_auto_login_result(app: &tauri::AppHandle, success: bool, message: &str) {
     use tauri::Emitter;
     let _ = app.emit(
@@ -534,10 +535,12 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
             let msg = v["message"].as_str().unwrap_or("").to_string();
             emit_login_log(app, &format!("启动自动登录失败: {msg}"), "error");
             notify_system(app, settings.enable_notification, "启动自动登录失败", &with_vpn_hint(&msg), "mascot_offline");
+            emit_auto_login_result(app, false, &msg);
         }
         Err(e) => {
             emit_login_log(app, &format!("启动自动登录失败: {e}"), "error");
             notify_system(app, settings.enable_notification, "启动自动登录失败", &with_vpn_hint(&e), "mascot_offline");
+            emit_auto_login_result(app, false, &e);
         }
     }
 }
@@ -1391,6 +1394,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
                     // 协议返回失败(凭据错误等)与执行失败同计入熔断,达 5 次停止本会话自动重登
                     MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
                     notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&message), "mascot_offline");
+                    emit_auto_login_result(app, false, &message);
                 }
                 login_result = Some(v);
             }
@@ -1398,17 +1402,27 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
                 MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
                 emit_login_log(app, &format!("自动登录执行失败: {e}"), "error");
                 notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&e), "mascot_offline");
+                emit_auto_login_result(app, false, &e);
             }
         }
     }
 
     // 5. 组装 payload emit(字段名对齐桌面 background-check-result 可适用子集)
     let campus_message = if on_campus { "已连接校园网" } else { "未连接校园网" };
+    // 运营商徽标数据源:在线时从 Portal uid 推导后缀(@telecom/@unicom/@cmcc/""=
+    // 校方默认线路),离线/未知为 null,与桌面 background_emit 同口径——徽标为
+    // 双端同批特性,安卓此前只镜像了 UI、漏了后端字段
+    let online_operator = portal
+        .as_ref()
+        .ok()
+        .and_then(|s| s.uid.as_deref())
+        .and_then(campus_login_lib::auth::portal::operator_suffix_from_uid);
     let payload = serde_json::json!({
         "serverAvailable": portal_reachable,
         "loginAvailable": portal_login_available,
         "online": online,
         "message": if online { "在线".to_string() } else { portal_message.clone() },
+        "onlineOperator": online_operator,
         "timestamp": now,
         "checkCount": MONITOR.check_count.load(Ordering::Relaxed),
         "isRunning": is_running(),
@@ -1536,5 +1550,20 @@ mod tests {
     fn 期望运营商展示_空串为无锡学院_其余原样() {
         assert_eq!(expected_operator_display(""), "无锡学院");
         assert_eq!(expected_operator_display("@cmcc"), "@cmcc");
+    }
+
+    #[test]
+    fn status_value_展平最近一次检测含运营商() {
+        // 首轮 emit 先于 WebView 监听建立,启动初值只能从 status_value 拿,
+        // onlineOperator(徽标数据源)必须随之展平到顶层
+        if let Ok(mut last) = MONITOR.last_result.lock() {
+            *last = Some(serde_json::json!({
+                "online": true,
+                "onlineOperator": "@telecom",
+            }));
+        }
+        let v = status_value();
+        assert_eq!(v["onlineOperator"], "@telecom");
+        assert_eq!(v["online"], true);
     }
 }
