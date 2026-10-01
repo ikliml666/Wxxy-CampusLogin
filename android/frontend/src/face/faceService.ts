@@ -39,6 +39,8 @@ export type FaceVerifyResult = { ok: true } | { ok: false; reason: FaceFailReaso
 
 let humanInstance: Human | null = null
 let humanInitPromise: Promise<Human> | null = null
+/** 释放代际：release 自增；工厂完成时若代际已变（初始化期间被释放）则不进缓存 */
+let engineGen = 0
 
 /** human 单例（懒加载 + warmup：WebGL 首帧 shader 编译秒级，须提前消化）。
  * 库本体动态 import（v2.4.0）：人脸栈整体拆出主包，首次启用人脸时才加载 */
@@ -46,6 +48,7 @@ async function getHuman(): Promise<Human> {
   if (humanInstance) return humanInstance
   if (!humanInitPromise) {
     humanInitPromise = (async () => {
+      const myGen = engineGen
       const { Human } = await import('@vladmandic/human')
       const h = new Human({
         backend: 'webgl',
@@ -72,6 +75,8 @@ async function getHuman(): Promise<Human> {
       warm.width = 320
       warm.height = 320
       await h.detect(warm)
+      // 初始化期间被释放（取消后立刻重开）：不进缓存，孤儿实例由 release 的 detached 清理回收
+      if (myGen !== engineGen) return h
       humanInstance = h
       return h
     })()
@@ -79,23 +84,34 @@ async function getHuman(): Promise<Human> {
   return humanInitPromise
 }
 
+/** 已就绪引擎的确定性回收：reset 卸模型（human 的 reset 仅置 null 不 dispose），disposeVariables 回收孤儿权重 */
+function disposeEngine(h: Human): void {
+  try { h.reset() } catch { /* best-effort：reset unloads all models */ }
+  try { h.tf?.disposeVariables?.() } catch { /* best-effort */ }
+}
+
 /**
  * 释放引擎：卸载模型/权重并清空单例（人脸弹窗关闭时调用，下次启用自动重建）。
+ * 同步置空单例（v2.4.0 竞态修复）：重开流程立刻走全新工厂，绝不复用被释放实例。
+ * 旧版在初始化未完成时 await pending——与"取消后立刻重开"的流程共持同一
+ * promise，续体顺序使重开拿到已被 reset 的引擎，该次会话静默超时。
  * best-effort：失败只影响下次冷加载时长；WebGL 后端与 shader 缓存随 tfjs 模块
  * 常驻、重建实例可复用，故不做 tf.removeBackend（会连工厂一并注销，
  * 二次 setBackend('webgl') 失败）。
  */
-export async function releaseFaceEngine(): Promise<void> {
-  const pending = humanInitPromise
-  if (pending) {
-    try { await pending } catch { /* 初始化失败即无可释放 */ }
-  }
+export function releaseFaceEngine(): void {
+  engineGen++
   const h = humanInstance
+  const pending = humanInitPromise
   humanInstance = null
   humanInitPromise = null
-  if (!h) return
-  try { h.reset() } catch { /* best-effort：reset unloads all models */ }
-  try { h.tf?.disposeVariables?.() } catch { /* best-effort */ }
+  if (h) {
+    disposeEngine(h)
+  } else if (pending) {
+    // 初始化仍在途：不等待。孤儿实例等工厂完成后再 reset；此处刻意不调
+    // disposeVariables——它是引擎级全局操作，可能波及并发新工厂的加载
+    void pending.then((orphan) => { try { orphan.reset() } catch { /* best-effort */ } }).catch(() => {})
+  }
 }
 
 export async function openCamera(video: HTMLVideoElement): Promise<void> {
