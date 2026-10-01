@@ -17,6 +17,10 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    watch: {
+      // IDE/工具原子保存会生成 .*.tmpdir 临时目录，Windows 上 fs.watch 盯到它即 EBUSY 闪退
+      ignored: ['**/.*.tmpdir/**', '**/.*.tmpdir'],
+    },
   },
   build: {
     outDir: 'dist',

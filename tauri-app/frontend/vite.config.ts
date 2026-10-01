@@ -23,7 +23,12 @@ export default defineConfig({
       port: 5174,
     } : undefined,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      ignored: [
+        '**/src-tauri/**',
+        // IDE/工具原子保存会生成 .*.tmpdir 临时目录，Windows 上 fs.watch 盯到它即 EBUSY 闪退
+        '**/.*.tmpdir/**',
+        '**/.*.tmpdir',
+      ],
     },
   },
   build: {
