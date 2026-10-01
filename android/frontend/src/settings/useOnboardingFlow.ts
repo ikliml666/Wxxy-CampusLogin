@@ -38,7 +38,7 @@ export interface OnboardingFlowOptions {
   /** 向导是否可见；false → true 时重置全部状态为当前配置 */
   open: boolean
   onUpdateConfig: (partial: Partial<Config>) => void
-  onLogin: (adapterName?: string) => Promise<boolean>
+  onLogin: () => Promise<boolean>
   onClose: () => void
 }
 

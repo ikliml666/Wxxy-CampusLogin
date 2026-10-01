@@ -31,20 +31,14 @@ export interface Config {
   nightOutboundRestore: string
   /** 桌面 DNS 优化目标适配器名单（安卓仅镜像配置结构，不消费） */
   dnsOptimizeAdapters: string[]
-  adapter1: string
-  adapter2: string
-  dualAdapter: boolean
   autoLoginOnStart: boolean
-  autoExitAfterLogin: boolean
-  minimizeToTray: boolean
-  hiddenStart: boolean
-  autoLaunch: boolean
+  /** 开机自启（安卓经 set_boot_autostart 命令生效，后端实有字段） */
+  enableBootAutostart: boolean
   enableBackgroundCheck: boolean
   backgroundCheckInterval: number
   /** 闲时巡检间隔(ms):蜂窝网络或屏幕熄灭时的巡检周期(默认 300000=5min) */
   backgroundCheckIdleInterval: number
   autoLoginOnPreparation: boolean
-  autoExitOnOnline: boolean
   themeMode: 'light' | 'dark' | 'system'
   enableNotification: boolean
   activeAccount: string
@@ -62,7 +56,6 @@ export interface Config {
   campusGateway: string
   /** 检查/下载更新渠道优先级: mirror=镜像加速优先(默认) github=官方优先 */
   updateSource: 'mirror' | 'github'
-  campusExitOnFail: boolean
   /** 校园网检测时段起点（分钟数，默认 460=07:40；0=禁用门控） */
   campusCheckStartMinutes: number
   /** 校园网检测时段终点（分钟数，默认 1380=23:00；<= 开始时间时退化为仅开始时间限制） */
@@ -74,7 +67,7 @@ export interface Config {
   maxDisconnectReconnect: number
   autoLoginCooldownSecs: number
   logRetentionDays: number
-  configVersion: number
+  configSchemaVersion: number
   /** 当前激活账号的显示名（改名同步落盘）；空 → 回退用账号 id */
   displayName?: string
 }

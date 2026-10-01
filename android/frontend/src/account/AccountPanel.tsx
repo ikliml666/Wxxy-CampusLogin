@@ -1,6 +1,5 @@
 import type { Config } from '@/settings'
 import type { AccountItem } from '@/settings/types'
-import type { Adapter } from '@/network'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
@@ -20,7 +19,6 @@ import {
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useSelfCredStore, useHelloGate } from '@/account/selfServiceState'
@@ -31,7 +29,6 @@ import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 
 interface AccountPanelProps {
-  adapters: Adapter[]
   accounts: AccountItem[]
   activeAccount: string
   onUpdateConfig: (partial: Partial<Config>) => void
@@ -43,7 +40,6 @@ interface AccountPanelProps {
 }
 
 export const AccountPanel = memo(function AccountPanel({
-  adapters,
   accounts,
   activeAccount,
   onUpdateConfig,
@@ -434,23 +430,6 @@ export const AccountPanel = memo(function AccountPanel({
                 </SelectContent>
               </Select>
             </div>
-            {adapters.length > 0 && (<div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">{t('account.primaryAdapter')}</Label>
-              <Select
-                value={config.adapter1 || AUTO_DETECT_ADAPTER}
-                onValueChange={(value) => onUpdateConfig({ adapter1: value })}
-              >
-                <SelectTrigger aria-label={t('account.selectPrimaryAdapter')}>
-                  <SelectValue placeholder={t('account.selectPrimaryAdapter')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={AUTO_DETECT_ADAPTER}>{t('network.autoDetect')}</SelectItem>
-                  {adapters.map(a => (
-                    <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>)}
           </CardContent>
         </AnimatedCard>
       </div>

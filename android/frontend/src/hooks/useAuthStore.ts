@@ -2,14 +2,12 @@
 import { create } from 'zustand'
 import type { Config } from '@/settings'
 import type { StatusState } from '@/shared'
-import type { Adapter } from '@/network'
 import type { BackgroundStatus, NetworkQuality } from '@/monitor'
 import { extractErrorMessage } from '@/lib/utils'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { tauriApiWithRetry } from './tauriApi'
 import { useLogToastStore } from './useLogToastStore'
 import { useConfigStore } from './useConfigStore'
-import { useAdapterStore } from './useAdapterStore'
 import { useQualityStore, getLastQualityResultTime } from './useQualityStore'
 import i18next from 'i18next'
 
@@ -38,26 +36,13 @@ async function detectCampusNetwork(): Promise<CampusStatus | null> {
 
 // 根据校园网检测结果构造 bgStatus 补丁（纯函数，读取所需数据由参数传入）
 function buildCampusBgStatusPatch(
-  adapters: Adapter[],
-  adapter1: string,
-  adapter2: string,
   bgStatus: BackgroundStatus,
   campusStatus: CampusStatus
 ): Partial<BackgroundStatus> {
-  const a1Info = adapters.find(a => a.name === adapter1)
-  const a2Info = adapters.find(a => a.name === adapter2)
-  const a1OnCampus = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-  const a2OnCampus = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-  const a1CampusMessage = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
-  const a2CampusMessage = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
   return {
     onCampusNetwork: campusStatus.onCampusNetwork,
     campusWifi: campusStatus.campusWifi,
     campusWired: campusStatus.campusWired,
-    a1OnCampus: a1OnCampus ?? bgStatus.a1OnCampus,
-    a2OnCampus: a2OnCampus ?? bgStatus.a2OnCampus,
-    a1CampusMessage: a1CampusMessage ?? bgStatus.a1CampusMessage,
-    a2CampusMessage: a2CampusMessage ?? bgStatus.a2CampusMessage,
     enableNetworkNameCheck: campusStatus.enableNetworkNameCheck ?? bgStatus.enableNetworkNameCheck,
     requiredNetworkName: campusStatus.requiredNetworkName ?? bgStatus.requiredNetworkName,
   }
@@ -105,9 +90,9 @@ interface AuthStore {
   isLoggingOut: boolean
   status: { text: string; state: StatusState }
   bgStatus: BackgroundStatus
-  doLogin: (adapterName?: string) => Promise<boolean>
-  doLogout: (adapterName?: string) => Promise<void>
-  checkOnline: (cfg?: Partial<Config>, adps?: Adapter[]) => Promise<void>
+  doLogin: () => Promise<boolean>
+  doLogout: () => Promise<void>
+  checkOnline: (cfg?: Partial<Config>) => Promise<void>
   setStatus: (s: { text: string; state: StatusState }) => void
   setBgStatus: (s: BackgroundStatus | ((prev: BackgroundStatus) => BackgroundStatus)) => void
 }
@@ -116,17 +101,16 @@ export const useAuthStore = create<AuthStore>((set) => ({
   isLoggingIn: false,
   isLoggingOut: false,
   status: { text: '正在检测...', state: 'loading' },
-  bgStatus: { isRunning: false, checkCount: 0, serverAvailable: false, online: false, onlineOperator: null, secondaryOnlineOperator: null, adapterStatuses: [], currentSsid: null },
+  bgStatus: { isRunning: false, checkCount: 0, serverAvailable: false, online: false, onlineOperator: null, currentSsid: null },
 
-  doLogin: async (adapterName?: string): Promise<boolean> => {
+  doLogin: async (): Promise<boolean> => {
     const self = useAuthStore.getState()
     const config = useConfigStore.getState().config
     if (self.isLoggingIn || self.isLoggingOut || !config) return false
     const loginConfig = { ...config }
     set({ isLoggingIn: true })
-    const targetDesc = adapterName ? `${adapterName}` : i18next.t('auth.defaultAdapter')
     set({ status: { text: i18next.t('auth.loggingInToast'), state: 'loading' } })
-    useLogToastStore.getState().addLog(`开始登录 (${targetDesc})...`, 'info')
+    useLogToastStore.getState().addLog('开始登录...', 'info')
     useLogToastStore.getState().addToast(i18next.t('auth.loggingInToast'), 'info')
 
     try {
@@ -138,7 +122,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
 
     let success = false
     try {
-      const result = await withTimeout(api.doLogin(adapterName), 60000, i18next.t('auth.loginTimeout'))
+      const result = await withTimeout(api.doLogin(), 60000, i18next.t('auth.loginTimeout'))
       if (result?.success) {
         set({ status: { text: i18next.t('auth.loginSuccess'), state: 'online' } })
         useLogToastStore.getState().addLog(result.message || i18next.t('auth.loginSuccess'), 'success')
@@ -179,17 +163,16 @@ export const useAuthStore = create<AuthStore>((set) => ({
     return success
   },
 
-  doLogout: async (adapterName?: string) => {
+  doLogout: async () => {
     const self = useAuthStore.getState()
     if (self.isLoggingOut || self.isLoggingIn) return
     set({ isLoggingOut: true })
-    const targetDesc = adapterName ? `${adapterName}` : i18next.t('auth.allAdapters')
     set({ status: { text: i18next.t('auth.loggingOutToast'), state: 'loading' } })
-    useLogToastStore.getState().addLog(`开始注销 (${targetDesc})...`, 'info')
+    useLogToastStore.getState().addLog('开始注销...', 'info')
     useLogToastStore.getState().addToast(i18next.t('auth.loggingOutToast'), 'info')
 
     try {
-      const result = await withTimeout(api.doLogout(adapterName), 60000, i18next.t('auth.logoutTimeout'))
+      const result = await withTimeout(api.doLogout(), 60000, i18next.t('auth.logoutTimeout'))
       if (result?.success) {
         set({ status: { text: i18next.t('auth.logoutSuccess'), state: 'offline' } })
         useLogToastStore.getState().addLog(result.message || i18next.t('auth.logoutSuccess'), 'success')
@@ -210,7 +193,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({ isLoggingOut: false })
   },
 
-  checkOnline: async (cfg, _adps) => {
+  checkOnline: async (cfg) => {
     if (_checkOnlineLockFlag) return
     _checkOnlineLockFlag = true
     try {
@@ -225,19 +208,15 @@ export const useAuthStore = create<AuthStore>((set) => ({
           if (prevState !== 'offline' && campusStatus.campusMessage) {
             useLogToastStore.getState().addLog(campusStatus.campusMessage, 'warning')
           }
-          const adaptersSnap = useAdapterStore.getState().adapters
-          const configSnap = useConfigStore.getState().config
           set((st) => ({
-            bgStatus: { ...st.bgStatus, ...buildCampusBgStatusPatch(adaptersSnap, configSnap.adapter1, configSnap.adapter2, st.bgStatus, campusStatus) }
+            bgStatus: { ...st.bgStatus, ...buildCampusBgStatusPatch(st.bgStatus, campusStatus) }
           }))
           setStatusStable({ text: campusStatus.campusMessage || i18next.t('auth.notOnCampus'), state: 'offline' })
           return
         }
         if (campusStatus) {
-          const adaptersSnap = useAdapterStore.getState().adapters
-          const configSnap = useConfigStore.getState().config
           set((st) => ({
-            bgStatus: { ...st.bgStatus, ...buildCampusBgStatusPatch(adaptersSnap, configSnap.adapter1, configSnap.adapter2, st.bgStatus, campusStatus) }
+            bgStatus: { ...st.bgStatus, ...buildCampusBgStatusPatch(st.bgStatus, campusStatus) }
           }))
         }
       }

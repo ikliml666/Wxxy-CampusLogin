@@ -41,7 +41,6 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
   const { handleToggleLightMode, handleSetTheme, handleSetAutoLaunch } = useSettings()
   const api = useConfigStore.getState().api
   const addToast = useLogToastStore((s) => s.addToast)
-  const configAutoLaunch = useConfigStore((s) => s.config.autoLaunch)
   const updateConfig = useConfigStore((s) => s.updateConfig)
 
   return (
@@ -75,7 +74,6 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
       {sub === 'log' && <LogPanel api={api} addToast={addToast} />}
       {sub === 'settings' && (
         <SettingsPanel
-          autoLaunch={configAutoLaunch !== false}
           onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
           onToggleLightMode={handleToggleLightMode}

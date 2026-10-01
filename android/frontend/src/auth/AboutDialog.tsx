@@ -10,7 +10,7 @@ import {
   Check, ExternalLink, RefreshCw,
   Download, Globe, Server, Loader2,
   ChevronDown, XCircle, Package,
-  Zap, Users, Wifi, Sparkles, Heart
+  Users, Wifi, Sparkles, Heart
 } from'lucide-react'
 import { APP_NAME, APP_VERSION } from'@/shared/ui-constants'
 import { cn, extractErrorMessage } from'@/lib/utils'
@@ -36,7 +36,6 @@ type DownloadState ='idle' |'selecting' |'downloading' |'done' |'error'
 
 // 核心优势数据（无更新时展示）- 使用 i18n key
 const CORE_FEATURES = [
-  { icon: Zap, titleKey:'about.dualAdapterSupport', descKey:'about.dualAdapterSupportDesc' },
   { icon: Users, titleKey:'about.multiAccountManage', descKey:'about.multiAccountManageDesc' },
   { icon: Wifi, titleKey:'about.autoReconnect', descKey:'about.autoReconnectDesc' },
 ]

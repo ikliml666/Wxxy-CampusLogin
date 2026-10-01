@@ -1,5 +1,4 @@
 import type { PanelName } from '@/shared'
-import type { Adapter } from '@/network'
 import {
   LayoutDashboard,
   UserCircle,
@@ -11,25 +10,20 @@ import {
   FileText,
   LogIn,
   LogOut,
-  Cable,
-  Wifi as WifiIcon,
-  Check,
   Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared/ui-constants'
-import { m, useMotionValue, AnimatePresence } from 'framer-motion'
-import { memo, useRef, useCallback, useState, useEffect, useMemo } from 'react'
+import { m, useMotionValue } from 'framer-motion'
+import { memo, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
-import { resolveAdapterNames } from '@/network/adapters'
 import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { usePulseAnimation } from '@/hooks/usePulseAnimation'
-import { useShallow } from 'zustand/react/shallow'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -161,136 +155,13 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
   )
 }
 
-// 触屏设备无 hover:登录/注销按钮首次点击先弹适配器菜单(含"自动检测"项),
-// 鼠标设备保持原行为(直接执行,hover 弹菜单)
-const IS_TOUCH = typeof window !== 'undefined' && (window.matchMedia?.('(hover: none)').matches ?? false)
-
-interface AdapterMenuProps {
-  adapters: Adapter[]
-  selectedAdapter?: string
-  onSelect: (adapterName: string) => void
-  actionLabel: string
-  /** 与后端 resolve_adapter_names 同源算出的主适配器,菜单顶部"自动检测"项用它执行 */
-  autoDetectName?: string
-}
-
-function AdapterMenu({ adapters, selectedAdapter, onSelect, actionLabel, autoDetectName }: AdapterMenuProps) {
-  const { t } = useTranslation()
-  const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
-  const defaultAdapter = activeAdapters.length > 0 ? activeAdapters[0].name : undefined
-  const profile = useAnimationProfile()
-  const effectiveSelected = selectedAdapter || defaultAdapter
-
-  return (
-    <m.div
-      initial={{ opacity: 0, scale: 0.95, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97, y: 4 }}
-      transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
-      className="absolute bottom-full right-0 mb-3 min-w-[220px] py-2 px-1.5 rounded-2xl pointer-events-auto z-[60]"
-      style={{
-        background: 'hsl(var(--card) / 0.92)',
-        boxShadow: '0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06), inset 0 0.5px 0 hsl(var(--card) / 0.8), inset 0 0 20px hsl(var(--card) / 0.1)',
-        border: '1px solid hsl(var(--card) / 0.6)',
-        isolation: 'isolate',
-        contain: 'layout style',
-        transformOrigin: 'bottom right',
-      }}
-    >
-      <div
-        className="absolute inset-0 rounded-2xl pointer-events-none"
-        style={{
-          background: 'linear-gradient(165deg, hsl(var(--card) / 0.4) 0%, hsl(var(--card) / 0.1) 30%, transparent 55%, hsl(var(--card) / 0.08) 100%)',
-        }}
-      />
-      <div
-        className="absolute -bottom-[5px] right-6 w-2.5 h-2.5 rotate-45"
-        style={{
-          background: 'hsl(var(--card) / 0.85)',
-          borderRight: '1px solid hsl(var(--card) / 0.6)',
-          borderBottom: '1px solid hsl(var(--card) / 0.6)',
-        }}
-      />
-      <div className="px-3 py-1.5">
-        <span className="text-[11px] font-medium text-muted-foreground">{actionLabel} - {t('dock.selectAdapter')}</span>
-      </div>
-      {/* 触屏入口:无 hover 菜单时点击按钮即落在这里,首项保留"不指定适配器"的原桌面路径 */}
-      {autoDetectName && (
-        <button
-          onClick={() => onSelect(autoDetectName)}
-          className={cn(
-            'adapter-menu-item relative w-full flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium transition-all duration-200 rounded-xl',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-            !effectiveSelected
-              ? 'bg-primary/10 text-primary shadow-sm'
-              : 'hover:bg-muted/60 text-foreground'
-          )}
-        >
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-primary/10">
-            <Zap className={cn('h-3.5 w-3.5', !effectiveSelected ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />
-          </div>
-          <div className="flex flex-col items-start min-w-0">
-            <span className="truncate font-semibold">{t('dock.autoDetect')}</span>
-          </div>
-        </button>
-      )}
-      {activeAdapters.map((adapter, index) => {
-        const isSelected = effectiveSelected === adapter.name
-        return (
-          <m.div
-            key={adapter.name}
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.03, duration: 0.25, ease: profile.easing.snappy as [number, number, number, number] }}
-          >
-          <button
-            key={adapter.name}
-            onClick={() => onSelect(adapter.name)}
-            className={cn(
-              'adapter-menu-item relative w-full flex items-center gap-3 px-3 py-2.5 text-[13px] font-medium transition-all duration-200 rounded-xl',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-              isSelected
-                ? 'bg-primary/10 text-primary shadow-sm'
-                : 'hover:bg-muted/60 text-foreground'
-            )}
-          >
-            <div className={cn(
-              'w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors',
-              isSelected
-                ? adapter.wireless ? 'bg-blue-500/20' : 'bg-emerald-500/20'
-                : adapter.wireless ? 'bg-blue-500/10' : 'bg-emerald-500/10'
-            )}>
-              {adapter.wireless ? (
-                <WifiIcon className={cn('h-3.5 w-3.5', isSelected ? 'text-blue-600' : 'text-blue-500')} aria-hidden="true" />
-              ) : (
-                <Cable className={cn('h-3.5 w-3.5', isSelected ? 'text-emerald-600' : 'text-emerald-500')} aria-hidden="true" />
-              )}
-            </div>
-            <div className="flex flex-col items-start min-w-0">
-              <span className="truncate font-semibold">{adapter.name}</span>
-              <span className="text-[10px] text-muted-foreground font-mono">{adapter.ip}</span>
-            </div>
-            {isSelected && (
-              <div className="ml-auto w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
-                <Check className="h-3 w-3 text-white" strokeWidth={3} aria-hidden="true" />
-              </div>
-            )}
-          </button>
-          </m.div>
-        )
-      })}
-    </m.div>
-  )
-}
-
-function ActionButtonWithMenu({
+// 登录/注销按钮（安卓后端登录不指定适配器，无菜单）
+function ActionButton({
   label,
   loadingLabel,
   icon: ActionIcon,
   isLoading,
   isDisabled,
-  adapters,
-  autoDetectName,
   onAction,
   variant,
 }: {
@@ -299,66 +170,17 @@ function ActionButtonWithMenu({
   icon: typeof LogIn
   isLoading: boolean
   isDisabled: boolean
-  adapters: Adapter[]
-  autoDetectName?: string
-  onAction: (adapterName?: string) => void
+  onAction: () => void
   variant: 'primary' | 'outline'
 }) {
-  const [menuOpen, setMenuOpen] = useState(false)
   const profile = useAnimationProfile()
-  const [selectedAdapter, setSelectedAdapter] = useState<string | undefined>(undefined)
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
   const spinnerRef = useRef<HTMLSpanElement>(null)
   const loadingPulseRef = usePulseAnimation({ type: 'loadingPulse' })
 
-  const activeAdapters = adapters.filter(a => a.ip && a.ip.length > 0)
-  const showMenu = activeAdapters.length >= 1
-
-  const scheduleOpen = useCallback(() => {
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
-    hoverTimerRef.current = setTimeout(() => setMenuOpen(true), 150)
-  }, [])
-
-  const scheduleClose = useCallback(() => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
-    closeTimerRef.current = setTimeout(() => setMenuOpen(false), 300)
-  }, [])
-
-  const cancelTimers = useCallback(() => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
-  }, [])
-
-  const handleSelect = useCallback((adapterName: string) => {
-    setMenuOpen(false)
-    cancelTimers()
-    setSelectedAdapter(adapterName)
-    onAction(adapterName)
-  }, [onAction, cancelTimers])
-
   const handleClick = useCallback(() => {
     if (isLoading || isDisabled) return
-    // 触屏(hover:none)首次点击先弹菜单选适配器(或"自动检测"),已选过则直接执行;
-    // 鼠标设备保持原行为:直接执行,hover 弹菜单
-    if (IS_TOUCH && showMenu && !menuOpen && selectedAdapter === undefined) {
-      cancelTimers()
-      setMenuOpen(true)
-      return
-    }
-    setMenuOpen(false)
-    cancelTimers()
     onAction()
-  }, [isLoading, isDisabled, onAction, cancelTimers, showMenu, menuOpen, selectedAdapter])
-
-  useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
-      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
-    }
-  }, [])
+  }, [isLoading, isDisabled, onAction])
 
   useEffect(() => {
     if (!spinnerRef.current) return
@@ -373,65 +195,46 @@ function ActionButtonWithMenu({
   const isPrimary = variant === 'primary'
 
   return (
-    <div
-      className="relative"
-      onMouseEnter={showMenu ? scheduleOpen : undefined}
-      onMouseLeave={showMenu ? scheduleClose : undefined}
+    <m.button
+      onClick={handleClick}
+      disabled={isLoading || isDisabled}
+      animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
+      whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
+      whileTap={!isLoading ? { scale: 0.95 } : undefined}
+      transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
+      className={cn(
+        'relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] min-w-0 btn-physical overflow-visible',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+        isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
+        isPrimary
+          ? 'text-white'
+          : 'text-muted-foreground bg-transparent border border-border/60 hover:border-foreground/30 hover:text-foreground'
+      )}
+      style={isPrimary ? {
+        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+        boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
+      } : {}}
+      aria-label={loadingLabel}
     >
-      <m.button
-        ref={buttonRef}
-        onClick={handleClick}
-        disabled={isLoading || isDisabled}
-        animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
-        whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
-        whileTap={!isLoading ? { scale: 0.95 } : undefined}
-        transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
-        className={cn(
-          'relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl select-none font-semibold text-[12px] min-w-0 btn-physical overflow-visible',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-          isLoading ? 'opacity-80 cursor-wait' : 'cursor-pointer',
-          isPrimary
-            ? 'text-white'
-            : 'text-muted-foreground bg-transparent border border-border/60 hover:border-foreground/30 hover:text-foreground'
-        )}
-        style={isPrimary ? {
-          background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-          boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
-        } : {}}
-        aria-label={loadingLabel}
-      >
-        {isLoading && (
-          <div
-            ref={loadingPulseRef}
-            className="absolute -inset-1.5 rounded-xl border-2 border-primary/30 pointer-events-none"
-            style={{ opacity: 0 }}
-          />
-        )}
-        {isLoading ? (
-          <span
-            ref={spinnerRef}
-            className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-current border-r-transparent"
-            aria-hidden="true"
-          />
-        ) : (
-          <ActionIcon className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-        <span>{isLoading ? loadingLabel : label}</span>
-      </m.button>
-
-      <AnimatePresence>
-        {menuOpen && showMenu && !isLoading && !isDisabled && (
-          <AdapterMenu
-            adapters={adapters}
-            selectedAdapter={selectedAdapter}
-            onSelect={handleSelect}
-            actionLabel={label}
-            autoDetectName={autoDetectName}
-          />
-        )}
-      </AnimatePresence>
-    </div>
-  )
+      {isLoading && (
+        <div
+          ref={loadingPulseRef}
+          className="absolute -inset-1.5 rounded-xl border-2 border-primary/30 pointer-events-none"
+          style={{ opacity: 0 }}
+        />
+      )}
+      {isLoading ? (
+        <span
+          ref={spinnerRef}
+          className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-current border-r-transparent"
+          aria-hidden="true"
+        />
+      ) : (
+        <ActionIcon className="h-3.5 w-3.5" aria-hidden="true" />
+      )}
+      <span>{isLoading ? loadingLabel : label}</span>
+    </m.button>
+)
 }
 
 interface DockNavProps {
@@ -444,27 +247,10 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const activePanel = useAdapterStore((s) => s.activePanel)
   const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
   const isLoggingOut = useAuthStore((s) => s.isLoggingOut)
-  const adapters = useAdapterStore((s) => s.adapters)
   const enableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality !== false)
-  const { adapter1, adapter2, dualAdapter } = useConfigStore(useShallow((s) => ({
-    adapter1: s.config.adapter1,
-    adapter2: s.config.adapter2,
-    dualAdapter: s.config.dualAdapter,
-  })))
   const doLogin = useAuthStore((s) => s.doLogin)
   const doLogout = useAuthStore((s) => s.doLogout)
 
-  // 登录/注销的作用域就是"适配器设置"里的主/副适配器（与后端 resolve_adapter_names
-  // 同源规则，含自动检测与配置名失效降级），选择器不再列其余适配器。
-  // 直接点击按钮仍走后端 resolve，此列表只影响菜单选项。
-  const { scopedAdapters, autoDetectAdapter } = useMemo(() => {
-    const { primary, secondary } = resolveAdapterNames(adapters, { adapter1, adapter2, dualAdapter })
-    const names = new Set(secondary ? [primary, secondary] : [primary])
-    return {
-      scopedAdapters: adapters.filter(a => names.has(a.name) && a.ip),
-      autoDetectAdapter: primary,
-    }
-  }, [adapters, adapter1, adapter2, dualAdapter])
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
   const animActive = useAnimationActive()
   const profile = useAnimationProfile()
@@ -515,26 +301,22 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
 
-        <ActionButtonWithMenu
+        <ActionButton
           label={t('auth.logout')}
           loadingLabel={t('auth.loggingOut')}
           icon={LogOut}
           isLoading={isLoggingOut}
           isDisabled={isLoggingIn}
-          adapters={scopedAdapters}
-          autoDetectName={autoDetectAdapter}
           onAction={doLogout}
           variant="outline"
         />
 
-        <ActionButtonWithMenu
+        <ActionButton
           label={t('auth.login')}
           loadingLabel={t('auth.loggingIn')}
           icon={LogIn}
           isLoading={isLoggingIn}
           isDisabled={isLoggingOut}
-          adapters={scopedAdapters}
-          autoDetectName={autoDetectAdapter}
           onAction={doLogin}
           variant="primary"
         />

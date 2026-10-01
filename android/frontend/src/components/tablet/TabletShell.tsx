@@ -77,11 +77,9 @@ function TabletShellInner() {
 
   const activePanel = useAdapterStore((s) => s.activePanel)
   const deferredPanel = useDeferredValue(activePanel)
-  const adapters = useAdapterStore((s) => s.adapters)
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
-  const configAutoLaunch = useConfigStore((s) => s.config.autoLaunch)
   const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
   const api = useConfigStore.getState().api
 
@@ -166,7 +164,6 @@ function TabletShellInner() {
     case 'account':
       panelContent = (
         <AccountPanel
-          adapters={adapters}
           accounts={accounts}
           activeAccount={activeAccount}
           onUpdateConfig={updateConfig}
@@ -208,7 +205,6 @@ function TabletShellInner() {
     case 'settings':
       panelContent = (
         <SettingsPanel
-          autoLaunch={configAutoLaunch !== false}
           onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
           onToggleLightMode={handleToggleLightMode}

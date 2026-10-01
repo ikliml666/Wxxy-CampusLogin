@@ -44,7 +44,7 @@ interface OnboardingWizardMobileProps {
   open: boolean
   onClose: () => void
   onUpdateConfig: (partial: Partial<Config>) => void
-  onLogin: (adapterName?: string) => Promise<boolean>
+  onLogin: () => Promise<boolean>
   isLoggingIn: boolean
 }
 

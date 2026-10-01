@@ -1,17 +1,16 @@
 import type { Config } from '@/settings'
-import type { PanelName, ThemeName } from '@/shared'
+import type { ThemeName } from '@/shared'
 import { requestNotificationPermission } from '@/lib/notificationPermission'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import {
-  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Compass, ShieldCheck, Zap, ChevronRight
+  Rocket, Palette, Sparkles, Moon, Pipette, Gauge, Clock, Compass, ShieldCheck, Zap, ChevronRight
 } from 'lucide-react'
-import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
+import { THEME_OPTIONS } from '@/settings/constants'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { cn } from '@/lib/utils'
@@ -33,7 +32,6 @@ import { KeepAliveSettingsCard } from './KeepAliveSettingsCard'
 const isAndroid = import.meta.env.VITE_PLATFORM === 'android'
 
 interface SettingsPanelProps {
-  autoLaunch: boolean
   onUpdateConfig: (partial: Partial<Config>) => void
   onSetAutoLaunch: (enabled: boolean) => Promise<void>
   onToggleLightMode: () => void
@@ -63,7 +61,6 @@ const PRESET_COLOR_NAMES: Record<string, string> = {
 }
 
 export const SettingsPanel = memo(function SettingsPanel({
-  autoLaunch,
   onUpdateConfig,
   onSetAutoLaunch,
   onToggleLightMode,
@@ -277,7 +274,7 @@ export const SettingsPanel = memo(function SettingsPanel({
               </div>
               <Switch
                 id="auto-launch"
-                checked={autoLaunch}
+                checked={config.enableBootAutostart || false}
                 onCheckedChange={checked => onSetAutoLaunch(checked)}
                 className="shrink-0"
               />
@@ -312,59 +309,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                 className="shrink-0"
               />
             </div>
-            {!isAndroid && (
-            <>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="hidden-start" className="text-sm font-medium cursor-pointer">{t('settings.silentStart')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.silentStartDesc')}</p>
-              </div>
-              <Switch
-                id="hidden-start"
-                checked={config.hiddenStart || false}
-                onCheckedChange={checked => onUpdateConfig({ hiddenStart: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="minimize-tray" className="text-sm font-medium cursor-pointer">{t('settings.minimizeToTray')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.minimizeToTrayDesc')}</p>
-              </div>
-              <Switch
-                id="minimize-tray"
-                checked={config.minimizeToTray !== false}
-                onCheckedChange={checked => onUpdateConfig({ minimizeToTray: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <LayoutList className="h-4 w-4 text-primary" />
-                <Label className="text-sm font-medium">{t('settings.defaultPanel')}</Label>
-              </div>
-              <p className="text-[11px] text-muted-foreground">{t('settings.defaultPanelDesc')}</p>
-              {/* '' 表示"记住上次"；Radix Item 不接受空串，用哨兵值映射 */}
-              <Select
-                value={config.defaultPanel || '__remember__'}
-                onValueChange={v => onUpdateConfig({ defaultPanel: v === '__remember__' ? '' : v as PanelName })}
-              >
-                <SelectTrigger className="h-9 mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__remember__">{t('settings.rememberLast')}</SelectItem>
-                  {DEFAULT_PANEL_OPTIONS.filter(opt => config.enableNetworkQuality !== false || opt.value !== 'quality').map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>{t(opt.labelKey)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            </>
-            )}
           </CardContent>
         </AnimatedCard>
       </div>
@@ -409,34 +353,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                 className="shrink-0"
               />
             </div>
-            {!isAndroid && (<>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-login" className="text-sm font-medium cursor-pointer">{t('settings.autoExitAfterLogin')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitAfterLoginDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-login"
-                checked={config.autoExitAfterLogin || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitAfterLogin: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('settings.autoExitWhenOnline')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoExitWhenOnlineDesc')}</p>
-              </div>
-              <Switch
-                id="auto-exit-online"
-                checked={config.autoExitOnOnline || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                className="shrink-0"
-              />
-            </div>
-            </>)}
           </CardContent>
         </AnimatedCard>
       </div>

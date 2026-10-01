@@ -1,5 +1,4 @@
 import type { Config } from '@/settings'
-import type { AdapterOnlineStatus } from '@/monitor'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
@@ -8,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, LogOut, PowerOff, AlarmClock, HelpCircle } from 'lucide-react'
+import { Play, Square, Clock, Radar, Settings2, Rocket, Wifi, RefreshCw, LogIn, LogOut, AlarmClock, HelpCircle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
@@ -20,63 +19,11 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useShallow } from 'zustand/react/shallow'
 
-// 安卓构建差异化渲染：Windows 专属的"退出应用/时段"类设置不渲染
-// （安卓无退出概念；非校园网不登录已由 monitor_loop 的 on_campus 判定保证）
-const isAndroid = import.meta.env.VITE_PLATFORM === 'android'
-
 interface MonitorPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
   onToggleBackgroundCheck: (enabled: boolean, interval: number) => Promise<void>
   onTriggerCheck: () => Promise<void>
 }
-
-const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }: { status: AdapterOnlineStatus; isPrimary: boolean }) {
-  const { t } = useTranslation()
-  const statusText = status.online ? t('auth.online') : (status.message || t('auth.offline'))
-  return (
-    <div className={cn(
-      'flex flex-wrap items-center justify-between gap-y-2 p-3 rounded-xl transition-colors duration-200 border-l-2',
-      status.online
-        ? 'bg-emerald-500/8 border-l-emerald-500'
-        : 'bg-rose-500/8 border-l-rose-500'
-    )}>
-      <div className="flex items-center gap-3 min-w-0">
-        <div className={cn(
-          'w-8 h-8 rounded-full flex items-center justify-center shrink-0',
-          status.online ? 'bg-emerald-500/10' : 'bg-rose-500/10'
-        )}>
-          {status.wireless ? (
-            <Wifi className={cn('h-4 w-4', status.online ? 'text-emerald-500' : 'text-rose-500')} />
-          ) : (
-            <Cable className={cn('h-4 w-4', status.online ? 'text-emerald-500' : 'text-rose-500')} />
-          )}
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm font-medium truncate">{status.name}</span>
-            {isPrimary && (
-              <Badge variant="outline" className="text-[9px] h-4 px-1 border-primary/30 text-primary shrink-0">{t('monitor.primary')}</Badge>
-            )}
-          </div>
-          <span className="text-[11px] text-muted-foreground font-mono truncate block">{status.ip || t('auth.noIp')}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        {status.online ? (
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-        ) : (
-          <XCircle className="h-4 w-4 text-rose-500" />
-        )}
-        <span className={cn(
-          'text-xs font-medium',
-          status.online ? 'text-emerald-600' : 'text-rose-600'
-        )}>
-          {statusText}
-        </span>
-      </div>
-    </div>
-  )
-})
 
 export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggleBackgroundCheck, onTriggerCheck }: MonitorPanelProps) {
   const { t } = useTranslation()
@@ -179,18 +126,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
               </div>
             </div>
-
-            {(bgStatus.adapterStatuses ?? []).length > 0 && (
-              <div className="space-y-2 pt-2">
-                <Separator />
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-xs font-medium text-muted-foreground">{t('monitor.adapterOnlineStatus')}</span>
-                </div>
-                {(bgStatus.adapterStatuses ?? []).map((s) => (
-                  <AdapterStatusCard key={s.name} status={s} isPrimary={s.name === config.adapter1} />
-                ))}
-              </div>
-            )}
           </CardContent>
         </AnimatedCard>
       </div>
@@ -227,28 +162,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 className="shrink-0"
               />
             </div>
-            {!isAndroid && (
-            <>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
-                  <DoorOpen className="h-4 w-4 text-amber-500" />
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor="auto-exit-online" className="text-sm font-medium cursor-pointer">{t('monitor.autoExitWhenOnline')}</Label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{t('monitor.autoExitWhenOnlineDesc')}</p>
-                </div>
-              </div>
-              <Switch
-                id="auto-exit-online"
-                checked={config.autoExitOnOnline || false}
-                onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
-                className="shrink-0"
-              />
-            </div>
-            </>
-            )}
             <Separator />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -334,28 +247,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     </div>
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusGatewayTip')}</p>
                   </div>
-                  {!isAndroid && (
-                  <>
-                  <Separator className="my-2" />
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
-                        <PowerOff className="h-3.5 w-3.5 text-rose-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <Label htmlFor="campus-exit-on-fail" className="text-sm font-medium cursor-pointer">{t('monitor.autoExitNonCampus')}</Label>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.autoExitNonCampusDesc')}</p>
-                      </div>
-                    </div>
-                    <Switch
-                      id="campus-exit-on-fail"
-                      checked={config.campusExitOnFail ?? true}
-                      onCheckedChange={checked => onUpdateConfig({ campusExitOnFail: checked })}
-                      className="shrink-0"
-                    />
-                  </div>
-                  </>
-                  )}
                   {/* 检测时间段:安卓后端 run_check_once 同样消费 campusCheckStart/EndMinutes,两平台均显示 */}
                   {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠 */}
                   <Separator className="my-2" />
@@ -497,10 +388,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     {(() => {
                       if (bgStatus.currentSsid) {
                         return <Badge variant="outline" className="text-[10px]">{t('monitor.currentSsid', { ssid: bgStatus.currentSsid })}</Badge>
-                      }
-                      const primary = (bgStatus.adapterStatuses ?? []).find(a => a.online)
-                      if (primary && !primary.wireless) {
-                        return <Badge variant="outline" className="text-[10px]">{t('network.wired')}</Badge>
                       }
                       return <Badge variant="outline" className="text-[10px] text-muted-foreground">{t('monitor.ssidNotObtained')}</Badge>
                     })()}

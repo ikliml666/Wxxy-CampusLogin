@@ -1,7 +1,6 @@
 import { NAV_ITEMS } from '@/shared/ui-constants'
 import type { ThemeName } from '@/shared/ui-types'
 import type { Config } from '@/settings/types'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 
 export const DEFAULT_CONFIG: Config = {
   user: '',
@@ -20,22 +19,15 @@ export const DEFAULT_CONFIG: Config = {
   outboundStandbyRoute: '',
   nightOutboundRestore: '',
   dnsOptimizeAdapters: [],
-  adapter1: AUTO_DETECT_ADAPTER,
-  adapter2: '',
-  dualAdapter: false,
   autoLoginOnStart: true,
-  // 2026-09-20 与桌面默认值对齐(安卓后端 Settings 无此二字段,仅前端本地值)
-  autoExitAfterLogin: false,
-  minimizeToTray: false,
-  hiddenStart: false,
-  autoLaunch: true,
+  // 开机自启（set_boot_autostart 真实生效；后端 enable_boot_autostart 默认 false）
+  enableBootAutostart: false,
   enableBackgroundCheck: true,
   // 2026-09-09 起 60s(与后端 Settings::default 一致):稳态周期检测降功耗
   backgroundCheckInterval: 60000,
   // 2026-09-13 起:闲时(蜂窝/灭屏)巡检 5min,与后端 Settings::default 一致
   backgroundCheckIdleInterval: 300000,
   autoLoginOnPreparation: true,
-  autoExitOnOnline: false,
   themeMode: 'dark',
   enableNotification: true,
   activeAccount: '',
@@ -53,7 +45,6 @@ export const DEFAULT_CONFIG: Config = {
   enableNetworkNameCheck: true,
   campusGateway: '10.2.127.254',
   updateSource: 'mirror',
-  campusExitOnFail: true,
   campusCheckStartMinutes: 460,
   // 2026-09-13 起 1380=23:00(旧默认 0=仅开始时间限制),存量配置由 v4→v5 schema 迁移一次性刷新
   campusCheckEndMinutes: 1380,
@@ -64,7 +55,7 @@ export const DEFAULT_CONFIG: Config = {
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
   // 对齐后端 config_schema_version(2026-09-20 v5→v6:质量间隔 60s→600s 迁移)
-  configVersion: 7,
+  configSchemaVersion: 7,
 }
 
 export const ISP_OPTIONS = [

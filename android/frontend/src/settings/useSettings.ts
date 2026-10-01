@@ -50,7 +50,8 @@ export function useSettings() {
   }, [configEnableNotification, store.updateConfig, store.api])
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
-    store.updateConfig({ autoLaunch: enabled })
+    // 安卓后端 Settings 无 autoLaunch 字段,开机自启真实字段为 enableBootAutostart(set_boot_autostart)
+    store.updateConfig({ enableBootAutostart: enabled })
     // API 失败时 UI 已显示开启但注册表未生效，须提示用户
     try { await store.api.setAutoLaunch?.(enabled) } catch (e) {
       if (import.meta.env.DEV) console.error('设置开机自启失败:', e)

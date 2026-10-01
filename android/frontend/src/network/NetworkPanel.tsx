@@ -1,6 +1,5 @@
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
@@ -8,15 +7,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check } from 'lucide-react'
+import { Wifi, Cable, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check, Network } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
@@ -269,29 +260,14 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               </div>
             ) : (
               <div className="space-y-2">
-                {[...adapters].sort((a, b) => {
-                  if (a.name === config.adapter1) return -1
-                  if (b.name === config.adapter1) return 1
-                  if (a.name === config.adapter2 && config.dualAdapter) return -1
-                  if (b.name === config.adapter2 && config.dualAdapter) return 1
-                  return 0
-                }).map((a) => (
-                  <div key={a.name} className={cn(
-                      'flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200',
-                      a.name === config.adapter1
-                        ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
-                        : 'bg-muted/30 hover:bg-muted/50 list-item-interactive'
-                    )}
-                  >
+                {adapters.map((a) => (
+                  <div key={a.name} className="flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 bg-muted/30 hover:bg-muted/50 list-item-interactive">
                     <div className="flex items-center gap-3">
-                      <div className={cn(
-                        'w-10 h-10 rounded-lg flex items-center justify-center',
-                        a.name === config.adapter1 ? 'bg-primary/15' : 'bg-muted'
-                      )}>
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-muted">
                         {a.wireless ? (
-                          <Wifi className={cn('h-5 w-5', a.name === config.adapter1 ? 'text-primary' : 'text-muted-foreground')} />
+                          <Wifi className="h-5 w-5 text-muted-foreground" />
                         ) : (
-                          <Cable className={cn('h-5 w-5', a.name === config.adapter1 ? 'text-primary' : 'text-muted-foreground')} />
+                          <Cable className="h-5 w-5 text-muted-foreground" />
                         )}
                       </div>
                       <div>
@@ -305,16 +281,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {a.name === config.adapter1 && (
-                        <Badge variant="outline" size="sm" className="border-primary/30 text-primary">
-                          {t('network.primary')}
-                        </Badge>
-                      )}
-                      {a.name === config.adapter2 && config.dualAdapter && (
-                        <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">
-                          {t('network.secondary')}
-                        </Badge>
-                      )}
                       <Badge variant="secondary" size="sm">
                         {a.wireless ? t('network.wireless') : t('network.wired')}
                       </Badge>
@@ -450,99 +416,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                   {t('network.secureSettingsRestore')}
                 </Button>
-              </div>
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Network className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>{t('network.adapterSettings')}</CardTitle>
-                <CardDescription>{t('network.adapterSettingsDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">{t('network.primaryAdapter')}</Label>
-                <Select
-                  value={config.adapter1 || AUTO_DETECT_ADAPTER}
-                  onValueChange={(value) => onUpdateConfig({ adapter1: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('network.selectPrimaryAdapter')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={AUTO_DETECT_ADAPTER}>{t('network.autoDetect')}</SelectItem>
-                    {adapters.filter(a => a.ip).map(a => (
-                      <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
-                    ))}
-                    {adapters.some(a => !a.ip && a.status !== 'disabled') && (
-                      <>
-                        <SelectSeparator />
-                        {adapters.filter(a => !a.ip && a.status !== 'disabled').map(a => (
-                          <SelectItem key={a.name} value={a.name} disabled={a.status === 'disconnected'}>
-                            {a.name}{a.status === 'disconnected' ? `（${t('network.status.disconnected')}）` : t('network.noIpSuffix')}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    {disabledAdapters.length > 0 && (
-                      <SelectSeparator />
-                    )}
-                    {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{t(`network.status.${a.status}`)}）
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">{t('network.backupAdapter')}</Label>
-                <Select
-                  value={config.adapter2 || '__none__'}
-                  onValueChange={(value) => {
-                    const adapter2 = value
-                    onUpdateConfig({ adapter2, dualAdapter: value !== '__none__' })
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('network.selectBackupAdapter')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{t('common.none')}</SelectItem>
-                    {adapters.filter(a => a.ip).map(a => (
-                      <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
-                    ))}
-                    {adapters.some(a => !a.ip && a.status !== 'disabled') && (
-                      <>
-                        <SelectSeparator />
-                        {adapters.filter(a => !a.ip && a.status !== 'disabled').map(a => (
-                          <SelectItem key={a.name} value={a.name} disabled={a.status === 'disconnected'}>
-                            {a.name}{a.status === 'disconnected' ? `（${t('network.status.disconnected')}）` : t('network.noIpSuffix')}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    {disabledAdapters.length > 0 && (
-                      <SelectSeparator />
-                    )}
-                    {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{t(`network.status.${a.status}`)}）
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
           </CardContent>

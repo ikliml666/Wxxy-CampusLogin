@@ -57,8 +57,6 @@ export function useInitialDataLoad() {
 
           // 安卓端无窗口隐藏启动语义（桌面 showWindow 桌面专属，调用必 reject）
 
-          const adps = initData.adapters || []
-
           const bgResult = initData.backgroundStatus
           if (bgResult) {
             useAuthStore.setState({
@@ -69,7 +67,6 @@ export function useInitialDataLoad() {
                 checkCount: bgResult.checkCount ?? 0,
                 serverAvailable: bgResult.serverAvailable ?? false,
                 online: bgResult.online ?? false,
-                adapterStatuses: bgResult.adapterStatuses ?? [],
               },
             })
             // 启动即反映后端已知在线状态:后台检测先于 WebView 监听建立跑完首拍,
@@ -89,7 +86,7 @@ export function useInitialDataLoad() {
           const active = initData.activeAccount || ''
           if (active) useConfigStore.setState({ activeAccount: active })
 
-          useAuthStore.getState().checkOnline(cfg, adps)
+          useAuthStore.getState().checkOnline(cfg)
 
           // 安卓端删除了桌面遗留的四个启动补充请求(getAdapters/getDisabledAdapters/
           // getGpuInfo/checkDnsDohStatus):get_init_data 恒回空值,四者均为

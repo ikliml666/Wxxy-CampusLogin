@@ -6,16 +6,10 @@ import { useTranslation } from 'react-i18next'
 import { RefreshButton } from '@/shared/RefreshButton'
 import { IspMark } from '@/shared/IspMark'
 import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
-import type { AdapterOnlineStatus } from '@/monitor'
 import { useAuthStore } from '@/hooks/useAuthStore'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { operatorLabelKey } from '@/settings/constants'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
-
-// 模块级空数组常量：bgStatus.adapterStatuses 为 undefined 时复用同一引用，
-// 避免每次渲染 `?? []` 创建新数组触发订阅重渲染（历史缺陷 P2-F6）
-const EMPTY_ADAPTER_STATUSES: AdapterOnlineStatus[] = []
 
 interface StatusBarProps {
   onOpenPortal: () => void
@@ -25,11 +19,8 @@ interface StatusBarProps {
 export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfService }: StatusBarProps) {
   const { t } = useTranslation()
   const status = useAuthStore((s) => s.status)
-  // 粒度订阅：仅消费 adapter1/adapter2/dualAdapter 三个字段，
+  // 粒度订阅：仅消费用到的 config 字段，
   // 避免任意 config 字段变化（如主题色拖拽、文本输入）触发整条 StatusBar 重渲染
-  const adapter1 = useConfigStore((s) => s.config.adapter1)
-  const adapter2 = useConfigStore((s) => s.config.adapter2)
-  const dualAdapter = useConfigStore((s) => s.config.dualAdapter)
   const configUser = useConfigStore((s) => s.config.user)
   const configOperator = useConfigStore((s) => s.config.operator)
   const nightOperatorRestore = useConfigStore((s) => s.config.nightOperatorRestore)
@@ -39,10 +30,8 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   const networkQuality = useQualityStore((s) => s.networkQuality)
   const campusWifi = useAuthStore((s) => s.bgStatus.campusWifi)
   const onlineOperator = useAuthStore((s) => s.bgStatus.onlineOperator)
-  const secondaryOnlineOperator = useAuthStore((s) => s.bgStatus.secondaryOnlineOperator)
   const campusWired = useAuthStore((s) => s.bgStatus.campusWired)
   const onCampusNetwork = useAuthStore((s) => s.bgStatus.onCampusNetwork)
-  const adapterStatuses = useAuthStore((s) => s.bgStatus.adapterStatuses) ?? EMPTY_ADAPTER_STATUSES
   const statusText = status.text
   const statusState = status.state
   const prevStatusRef = useRef(statusState)
@@ -54,14 +43,6 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
   const isNightShift = configOperator === '' && nightOperatorRestore !== ''
   const restoreLabelKey = isNightShift ? operatorLabelKey(nightOperatorRestore) : undefined
   const fullAccount = onlineOperator ? `${configUser}${onlineOperator}` : configUser
-  // 双适配器同运营商时不重复出徽标，副适配器会话进 tooltip
-  const showSecondaryBadge =
-    Boolean(dualAdapter) && secondaryOnlineOperator !== null && secondaryOnlineOperator !== undefined && secondaryOnlineOperator !== onlineOperator
-  const secondaryLabel = showSecondaryBadge ? operatorLabelKey(secondaryOnlineOperator) : undefined
-  const secondaryAccount = showSecondaryBadge ? `${configUser}${secondaryOnlineOperator ?? ''}` : undefined
-  // 徽标注明登录适配器：自动检测（未指定具体卡）时不显示适配器名
-  const primaryAdapterName = adapter1 && adapter1 !== AUTO_DETECT_ADAPTER ? adapter1 : null
-  const secondaryAdapterName = dualAdapter && adapter2 && adapter2 !== AUTO_DETECT_ADAPTER ? adapter2 : null
 
   useEffect(() => {
     prevStatusRef.current = statusState
@@ -73,44 +54,15 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
       return { displayText: statusText, campusTooltip: null }
     }
 
-    const a1Name = adapter1 && adapter1 !== AUTO_DETECT_ADAPTER ? adapter1 : null
-    const a2Name = dualAdapter && adapter2 && adapter2 !== AUTO_DETECT_ADAPTER ? adapter2 : null
-
-    // 与 AdapterStatusCard 同源：使用 bgStatus.adapterStatuses 的 online 字段（来自 data.online/secondaryOnline）
-    // 之前用 a1OnCampus/a2OnCampus（来自 check_campus_network）导致"已在线"与卡片"未在线"撕裂
-    const entries: { name: string; online: boolean }[] = []
-
-    if (a1Name) {
-      const online = adapterStatuses.find(s => s.name === a1Name)?.online ?? false
-      entries.push({ name: a1Name, online })
-    }
-    if (a2Name && a2Name !== a1Name) {
-      const online = adapterStatuses.find(s => s.name === a2Name)?.online ?? false
-      entries.push({ name: a2Name, online })
-    }
-
-    if (entries.length === 0) {
-      return { displayText: onCampusNetwork ? t('auth.networkAdapterOnline') : t('auth.networkAdapterOffline'), campusTooltip: null }
-    }
-
-    const allOnline = entries.every(e => e.online)
-    const allOffline = entries.every(e => !e.online)
-
-    let text: string
-    if (allOnline) {
-      text = `${entries.map(e => e.name).join(', ')} ${t('auth.online')}`
-    } else if (allOffline) {
-      text = `${entries.map(e => e.name).join(', ')} ${t('auth.offline')}`
-    } else {
-      text = entries.map(e => `${e.name}${e.online ? t('auth.online') : t('auth.offline')}`).join(', ')
-    }
-
     const tooltipParts: string[] = []
     if (campusWifi) tooltipParts.push(campusWifi.message)
     if (campusWired) tooltipParts.push(campusWired.message)
 
-    return { displayText: text, campusTooltip: tooltipParts.length > 0 ? tooltipParts.join('\n') : null }
-  }, [statusText, statusState, adapter1, adapter2, dualAdapter, campusWifi, campusWired, onCampusNetwork, adapterStatuses, t])
+    return {
+      displayText: onCampusNetwork ? t('auth.networkAdapterOnline') : t('auth.networkAdapterOffline'),
+      campusTooltip: tooltipParts.length > 0 ? tooltipParts.join('\n') : null,
+    }
+  }, [statusText, statusState, campusWifi, campusWired, onCampusNetwork, t])
 
   const statusConfig = {
     online: { color: 'text-emerald-500', dot: 'bg-emerald-500', bg: 'rgba(16, 185, 129, 0.12)' },
@@ -170,26 +122,11 @@ export const StatusBar = memo(function StatusBar({ onOpenPortal, onOpenSelfServi
                   >
                     <IspMark suffix={onlineOperator} />
                     <span>{t(onlineOperatorLabel)}</span>
-                    {primaryAdapterName && <span className="text-muted-foreground/60">· {primaryAdapterName}</span>}
                   </span>
-                  {showSecondaryBadge && secondaryLabel && (
-                    <span
-                      className="inline-flex items-center gap-1"
-                      aria-label={t('statusbar.onlineOperator.badge', { operator: t(secondaryLabel) })}
-                    >
-                      <span className="h-3 w-px bg-muted-foreground/30" aria-hidden="true" />
-                      <IspMark suffix={secondaryOnlineOperator} />
-                      <span>{t(secondaryLabel)}</span>
-                      {secondaryAdapterName && <span className="text-muted-foreground/60">· {secondaryAdapterName}</span>}
-                    </span>
-                  )}
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p>{t('statusbar.onlineOperator.account', { account: fullAccount })}</p>
-                {showSecondaryBadge && secondaryAccount && (
-                  <p>{t('statusbar.onlineOperator.accountSecondary', { account: secondaryAccount })}</p>
-                )}
                 {isNightShift && restoreLabelKey && (
                   <p>{t('statusbar.onlineOperator.nightShift', { operator: t(restoreLabelKey) })}</p>
                 )}

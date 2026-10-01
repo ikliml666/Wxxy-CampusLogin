@@ -1,23 +1,16 @@
 import { useEffect, useRef } from 'react'
 import i18next from 'i18next'
 import type { LogType } from '@/shared'
-import type { BackgroundStatus, AdapterOnlineStatus, NetworkQuality } from '@/monitor'
+import type { BackgroundStatus, NetworkQuality } from '@/monitor'
 import { useConfigStore, flushPendingConfig, hasPendingConfig } from './useConfigStore'
-import { useAdapterStore } from './useAdapterStore'
 import { useAuthStore } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useLogToastStore } from './useLogToastStore'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
-// 模块级空数组常量：adapterStatuses 为空时复用同一引用，避免每次后台检测
-// 产生新数组导致 StatusBar 等订阅方整体重渲染（历史缺陷 P2-F6）
-const EMPTY_ADAPTER_STATUSES: AdapterOnlineStatus[] = []
-
 
 export function useEventListeners() {
-  const lastAdapterOnlineRef = useRef<Map<string, boolean>>(new Map())
-  const lastOnlineLogTimeRef = useRef(0)
   const lastBgCheckTimeRef = useRef(0)
   const mountedRef = useRef(true)
 
@@ -92,119 +85,30 @@ export function useEventListeners() {
       const now = Date.now()
       if (now - lastBgCheckTimeRef.current < 1000) return
       lastBgCheckTimeRef.current = now
-      {
-        const a1 = data.adapter1Name || ''
-        const a2 = data.adapter2Name || ''
-
-        const primaryChanged = (() => {
-          if (!data.message) return false
-          const key = '__primary__'
-          const prev = lastAdapterOnlineRef.current.get(key)
-          const curr = !!data.online
-          if (prev !== curr) {
-            lastAdapterOnlineRef.current.set(key, curr)
-            return true
-          }
-          return false
-        })()
-
-        const secondaryChanged = (() => {
-          if (data.secondaryOnline === null || data.secondaryOnline === undefined || !data.secondaryMessage) return false
-          const key = '__secondary__'
-          const prev = lastAdapterOnlineRef.current.get(key)
-          const curr = !!data.secondaryOnline
-          if (prev !== curr) {
-            lastAdapterOnlineRef.current.set(key, curr)
-            return true
-          }
-          return false
-        })()
-
-        if (primaryChanged || secondaryChanged) {
-          const now = Date.now()
-          const onlineAdapters: string[] = []
-          const offlineAdapters: string[] = []
-
-          if (primaryChanged) {
-            if (data.online) onlineAdapters.push(a1)
-            else offlineAdapters.push(a1)
-          }
-          if (secondaryChanged) {
-            if (data.secondaryOnline) onlineAdapters.push(a2)
-            else offlineAdapters.push(a2)
-          }
-
-          if (onlineAdapters.length > 0) {
-            if (now - lastOnlineLogTimeRef.current >= 5000) {
-              lt.getState().addLog(`已在线（${onlineAdapters.join('、')}）`, 'success')
-              lastOnlineLogTimeRef.current = now
-            }
-          }
-          if (offlineAdapters.length > 0) {
-            lt.getState().addLog(`${offlineAdapters.join('、')}: 已离线`, 'warning')
-          }
+      useAuthStore.getState().setBgStatus((prev: BackgroundStatus) => {
+        return {
+          ...prev,
+          serverAvailable: data.serverAvailable ?? prev.serverAvailable,
+          online: data.online ?? prev.online,
+          onlineOperator: data.onlineOperator !== undefined ? data.onlineOperator : prev.onlineOperator,
+          checkCount: data.checkCount ?? prev.checkCount,
+          isRunning: data.isRunning ?? prev.isRunning,
+          currentSsid: data.currentSsid ?? prev.currentSsid,
+          onCampusNetwork: data.onCampusNetwork ?? prev.onCampusNetwork,
+          enableNetworkNameCheck: data.enableNetworkNameCheck ?? prev.enableNetworkNameCheck,
+          requiredNetworkName: data.requiredNetworkName ?? prev.requiredNetworkName,
+          campusWifi: data.campusWifi !== undefined ? data.campusWifi : prev.campusWifi,
+          campusWired: data.campusWired !== undefined ? data.campusWired : prev.campusWired,
         }
-
-        useAuthStore.getState().setBgStatus((prev: BackgroundStatus) => {
-          const prevMap = new Map((prev.adapterStatuses ?? []).map(s => [s.name, s]))
-          const currentAdapters = useAdapterStore.getState().adapters
-          const adapterMap = new Map(currentAdapters.map(a => [a.name, a]))
-          const campusWifi = data.campusWifi !== undefined ? data.campusWifi : prev.campusWifi
-          const campusWired = data.campusWired !== undefined ? data.campusWired : prev.campusWired
-          const a1CampusMsg = data.a1CampusMessage !== undefined ? data.a1CampusMessage : prev.a1CampusMessage
-          const a2CampusMsg = data.a2CampusMessage !== undefined ? data.a2CampusMessage : prev.a2CampusMessage
-          const buildStatus = (name: string, online: boolean | null | undefined, msg: string | null | undefined, perAdapterCampusMsg?: string | null): AdapterOnlineStatus => {
-            const existing = prevMap.get(name)
-            const adapterInfo = adapterMap.get(name)
-            const isWireless = adapterInfo?.wireless ?? existing?.wireless ?? false
-            const matchedCampusMsg = isWireless ? campusWifi?.message : campusWired?.message
-            return {
-              name,
-              // 优先使用实时 adapterInfo（来自 store.adapters 的最新数据）
-              // 当 IP 变化或丢失时立即反映；只在实时数据缺失时回退到 existing
-              // 之前用 existing?.ip || adapterInfo?.ip 会"粘住"旧值（含空字符串）
-              ip: adapterInfo?.ip ?? existing?.ip ?? '',
-              wireless: isWireless,
-              online: !!online,
-              message: online ? (msg || '已在线') : (msg || perAdapterCampusMsg || matchedCampusMsg || (isWireless ? 'WiFi 未连接校园网' : '有线网络未连接校园网')),
-            }
-          }
-          const statuses: AdapterOnlineStatus[] = []
-          if (a1) statuses.push(buildStatus(a1, data.online, data.message, a1CampusMsg))
-          if (a2) statuses.push(buildStatus(a2, data.secondaryOnline, data.secondaryMessage, a2CampusMsg))
-          return {
-            ...prev,
-            serverAvailable: data.serverAvailable ?? prev.serverAvailable,
-            online: data.online ?? prev.online,
-            onlineOperator: data.onlineOperator !== undefined ? data.onlineOperator : prev.onlineOperator,
-            secondaryOnlineOperator: data.secondaryOnlineOperator !== undefined ? data.secondaryOnlineOperator : prev.secondaryOnlineOperator,
-            checkCount: data.checkCount ?? prev.checkCount,
-            isRunning: data.isRunning ?? prev.isRunning,
-            adapterStatuses: statuses.length > 0 ? statuses : (prev.adapterStatuses ?? EMPTY_ADAPTER_STATUSES),
-            currentSsid: data.currentSsid ?? prev.currentSsid,
-            onCampusNetwork: data.onCampusNetwork ?? prev.onCampusNetwork,
-            enableNetworkNameCheck: data.enableNetworkNameCheck ?? prev.enableNetworkNameCheck,
-            requiredNetworkName: data.requiredNetworkName ?? prev.requiredNetworkName,
-            campusWifi: data.campusWifi !== undefined ? data.campusWifi : prev.campusWifi,
-            campusWired: data.campusWired !== undefined ? data.campusWired : prev.campusWired,
-            a1CampusMessage: data.a1CampusMessage !== undefined ? data.a1CampusMessage : prev.a1CampusMessage,
-            a2CampusMessage: data.a2CampusMessage !== undefined ? data.a2CampusMessage : prev.a2CampusMessage,
-            a1OnCampus: data.a1OnCampus !== undefined ? data.a1OnCampus : prev.a1OnCampus,
-            a2OnCampus: data.a2OnCampus !== undefined ? data.a2OnCampus : prev.a2OnCampus,
-          }
-        })
-        if (data.online !== undefined && data.message) {
-          const anyOnline = data.online || data.secondaryOnline === true
-          const statusText = anyOnline
-            ? (data.online ? data.message : data.secondaryMessage || data.message)
-            : data.message
-          const statusState = anyOnline ? 'online' : 'offline'
-          // 历史缺陷：每次后台检测都无条件 setStatus 产生新对象，StatusBar 订阅 status
-          // 每次整卡重渲染。text/state 未变化时跳过，保持引用稳定。
-          const cur = useAuthStore.getState().status
-          if (cur.text !== statusText || cur.state !== statusState) {
-            useAuthStore.getState().setStatus({ text: statusText, state: statusState })
-          }
+      })
+      if (data.online !== undefined && data.message) {
+        const statusText = data.message
+        const statusState = data.online ? 'online' : 'offline'
+        // 历史缺陷：每次后台检测都无条件 setStatus 产生新对象，StatusBar 订阅 status
+        // 每次整卡重渲染。text/state 未变化时跳过，保持引用稳定。
+        const cur = useAuthStore.getState().status
+        if (cur.text !== statusText || cur.state !== statusState) {
+          useAuthStore.getState().setStatus({ text: statusText, state: statusState })
         }
       }
     }) ?? (() => {})
@@ -213,10 +117,7 @@ export function useEventListeners() {
     const unsub2 = api.onAutoLoginResult?.((result) => {
       if (!mountedRef.current) return
       if (!result) return
-      if (result.skipped) {
-        lt.getState().addLog(result.message, 'success')
-        lastOnlineLogTimeRef.current = Date.now()
-      } else if (result.success) {
+      if (result.success) {
         lt.getState().addToast(i18next.t('notify.autoLoginSuccess'), 'success', result.message)
       } else {
         lt.getState().addLog(i18next.t('notify.autoLoginFailedLog', { msg: result.message }), 'error')

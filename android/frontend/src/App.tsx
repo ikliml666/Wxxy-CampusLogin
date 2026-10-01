@@ -62,7 +62,6 @@ function AppInner() {
   })
   const deferredTab = useDeferredValue(tab)
 
-  const adapters = useAdapterStore((s) => s.adapters)
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
@@ -159,7 +158,6 @@ function AppInner() {
     case 'account':
       panelContent = (
         <AccountPanel
-          adapters={adapters}
           accounts={accounts}
           activeAccount={activeAccount}
           onUpdateConfig={updateConfig}

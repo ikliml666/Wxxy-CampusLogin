@@ -49,12 +49,8 @@ function MobileStatusCard() {
   // 手机壳顶部条不渲染 StatusBar，在线会话运营商在此卡片展示；平板壳有 StatusBar
   // 徽标(同源组件)会重复，故仅手机形态渲染（口径与桌面/平板 StatusBar 一致）
   const formFactor = useFormFactor()
-  const { onlineOperator, secondaryOnlineOperator } = bgStatus
+  const { onlineOperator } = bgStatus
   const onlineOperatorLabel = status?.state === 'online' ? operatorLabelKey(onlineOperator) : undefined
-  const showSecondary =
-    formFactor === 'phone' &&
-    Boolean(useConfigStore.getState().config.dualAdapter) && secondaryOnlineOperator != null && secondaryOnlineOperator !== onlineOperator
-  const secondaryLabel = showSecondary ? operatorLabelKey(secondaryOnlineOperator) : undefined
 
   return (
     <AnimatedCard>
@@ -90,12 +86,6 @@ function MobileStatusCard() {
                   <IspMark suffix={onlineOperator} />
                   <span>{t(onlineOperatorLabel)}</span>
                 </span>
-                {showSecondary && secondaryLabel && (
-                  <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium font-sans bg-muted/40 text-muted-foreground">
-                    <IspMark suffix={secondaryOnlineOperator} />
-                    <span>{t(secondaryLabel)}</span>
-                  </span>
-                )}
               </dd>
             </div>
           )}
@@ -169,7 +159,6 @@ export function MobileDashboard() {
       onSwitchAccount={handleSwitchAccount}
       onDhcpRenew={noopAsync}
       onDhcpReleaseRenew={noopAsync}
-      onDhcpReleaseRenewAdapter={noopAsync}
       onRefreshQuality={refreshQuality}
       excludeCards={EXCLUDED_CARDS}
       extraCards={extraCards}
