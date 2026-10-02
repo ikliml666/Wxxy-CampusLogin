@@ -1318,10 +1318,15 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
 
     // 2. Portal 探测(同步函数 → 绑小核的专用短命线程,稳态功耗)。
     //    WiFi 未连接短路(2026-10-02):无非蜂窝接口时内网 Portal 必不可达,
-    //    探测线程空转 3s 超时后报"未连接",无法区分 WiFi 已关闭——直接给出原因
-    let portal = match source_ip {
-        Some(src) => portal_probe_on_little_cores(src.to_string()).await,
-        None => Err("WiFi 未连接,跳过 Portal 探测".to_string()),
+    //    探测线程空转 3s 超时后报"未连接",无法区分 WiFi 已关闭——直接给出原因。
+    //    非校园网短路(2026-10-02):on_campus=false ⇒ 子网未命中且网关/Portal 两个
+    //    TCP 探测并行执行且全败(PORTAL_PORT=80),同一目标的 HTTP 请求必败,
+    //    不再空转至多 8s(portal_config::CLIENT_TIMEOUT)——离网拍 11s→3s。
+    //    校内 Portal 宕机(on_campus=true)仍走 HTTP 探测,由页面请求裁决。
+    let portal = match (source_ip, on_campus) {
+        (Some(src), true) => portal_probe_on_little_cores(src.to_string()).await,
+        (Some(_), false) => Err("不在校园网,跳过 Portal 探测".to_string()),
+        (None, _) => Err("WiFi 未连接,跳过 Portal 探测".to_string()),
     };
     let (portal_reachable, portal_login_available, portal_message) = match &portal {
         Ok(s) => (s.reachable, s.login_available, s.message.clone()),

@@ -567,9 +567,11 @@ check_count += 1 → current_settings
  探针窗口 guard（mobile，monitor_loop.rs:1214-1219）
  → ensure_wifi_bound（monitor_loop.rs:1222）
  ① probe_campus（源 IP 缓存刷新，monitor_loop.rs:1307）——wifi_off（source=None）时后续
-    Portal 探测短路为 Err「WiFi 未连接,跳过 Portal 探测」（monitor_loop.rs:1320-1326，
-    2026-10-02：WiFi 关闭不再每拍空跑小核线程，payload message/campusMessage 报「WiFi 未连接」）
- ② portal_probe_on_little_cores（裸线程 enter + 绑小核，仅 source=Some 时）
+    Portal 探测短路为 Err「WiFi 未连接,跳过 Portal 探测」；on_campus=false 时同样短路为
+    Err「不在校园网,跳过 Portal 探测」（monitor_loop.rs:1319-1329，2026-10-02：on_campus=false
+    ⇔ 子网未命中且网关/Portal 两个 3s TCP 探测已并行执行且全败，同目标 HTTP 必败，
+    不再空转至多 8s CLIENT_TIMEOUT——离网拍 11s→3s；on_campus=true 仍走 HTTP 由页面裁决）
+ ② portal_probe_on_little_cores（裸线程 enter + 绑小核，仅 source=Some 且 on_campus=true 时）
  ③ 三态消费（monitor_loop.rs:1245-1262）：
     Ok(s) 且 error_kind=None → 采用 s.online（确定判定）
     其余结果且 on_campus=true → 沿用 prev_online（校园网内探针失配不翻转，反误报）
