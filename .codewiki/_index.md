@@ -107,6 +107,7 @@
 - [[learnings\android-file-uri-install-failure|应用内下载 APK 后安装失败（Android 7+，file:// URI 被禁）]]
 - [[learnings\plugin-permission-dangling-refs|插件权限 default.toml 的悬空引用不会在构建期暴露]]
 - [[learnings\android-identifier-change-breaks-keystore|改包名后用户密码全部失效（AndroidKeyStore 密钥按包名隔离）]]
+- [[learnings\wireless-debugging-self-grant-research|无线调试自助授权可行性调研（WRITE_SECURE_SETTINGS 免电脑路径）]]
 - [[learnings\log-redaction-coverage|日志与错误信息没有统一脱敏钩子]]
 - [[learnings\config-missing-field-load-failure|旧配置文件缺一个字段导致整个 Config 加载失败]]
 - [[learnings\tauri-build-no-per-command-toml|本仓 tauri build.rs 不为新插件命令生成 per-command toml]]

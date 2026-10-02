@@ -22,7 +22,7 @@ export const DEFAULT_CONFIG: Config = {
   enableBackgroundCheck: true,
   backgroundCheckInterval: 60000,
   autoLoginOnPreparation: true,
-  enableNightOperatorSwitch: true,
+  enableNightOperatorSwitch: false,
   nightOperatorRestore: '',
   enableNightOutboundSwitch: false,
   outboundPriority: [],

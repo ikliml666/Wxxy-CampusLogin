@@ -113,7 +113,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:48` | `enable_background_check` | `enableBackgroundCheck` | `bool` | `true` | 是否启用后台巡检（关闭后登录成功不再触发后台检查） |
 | `model.rs:50` | `background_check_interval` | `backgroundCheckInterval` | `u64` | `15000` | 后台巡检间隔（毫秒），clamp 到 `[10000, 3600000]` |
 | `model.rs:52` | `auto_login_on_preparation` | `autoLoginOnPreparation` | `bool` | `true` | "登录准备"模式：检测到未登录且可登录时自动登录（`monitor/auto_auth.rs:35,125`） |
-| `model.rs:57-60` | `enable_night_operator_switch` | `enableNightOperatorSwitch` | `bool` | `true`（2026-09-20 起默认开启） | 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院，次日恢复窗口切回（判定逻辑 `config::night_switch`，跨平台纯函数） |
+| `model.rs:57-60` | `enable_night_operator_switch` | `enableNightOperatorSwitch` | `bool` | `false`（2026-10-02 起默认改回关闭；2026-09-20~10-01 期间默认开启，存量落盘 true 不迁移） | 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院，次日恢复窗口切回（判定逻辑 `config::night_switch`，跨平台纯函数） |
 | `model.rs:61-63` | `night_operator_restore` | `nightOperatorRestore` | `String` | `""` | 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空（后端内部状态） |
 | `model.rs:64-67` | `enable_night_outbound_switch` | `enableNightOutboundSwitch` | `bool` | `false` | 夜间出站自动切换总开关：到点把出站切到排序中的非校园网网卡（默认关——修改系统路由属侵入性动作）；判定逻辑见 `config::outbound_switch` |
 | `model.rs:68-71` | `outbound_priority` | `outboundPriority` | `Vec<String>` | `[]` | 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，列表外网卡不参与夜间切换。安卓端不消费此字段 |

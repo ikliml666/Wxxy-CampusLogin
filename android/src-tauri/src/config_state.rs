@@ -120,8 +120,9 @@ impl Default for Settings {
             self_reverify_each_action: false,
             allow_2d_face_verify: false,
             operator: String::new(),
-            // 2026-09-20 起默认开启(存量旧默认 false 由 v6→v7 迁移刷为 true)
-            enable_night_operator_switch: true,
+            // 2026-10-02 起默认改回关闭(2026-09-20 曾默认开启并经 v6→v7 迁移刷开存量；
+            // 本次存量已落盘的 true 不迁移,由用户在设置页自行关闭)
+            enable_night_operator_switch: false,
             night_operator_restore: String::new(),
             enable_night_outbound_switch: false,
             outbound_priority: Vec::new(),
@@ -600,7 +601,7 @@ mod tests {
         assert_eq!(s.background_check_idle_interval, 300_000, "闲时巡检默认 5min");
         assert_eq!(s.latency_test_interval, 600_000, "质量间隔默认 600s(2026-09-20)");
         assert_eq!(s.config_schema_version, 7, "新装即当前版本,不触发迁移");
-        assert!(s.enable_night_operator_switch, "夜切默认开启(2026-09-20)");
+        assert!(!s.enable_night_operator_switch, "夜切默认关闭(2026-10-02)");
         assert_eq!(s.scheduled_login_minutes, 1440, "定时动作默认禁用哨兵 1440");
         assert_eq!(s.scheduled_logout_minutes, 1440);
         assert_eq!(s.campus_check_end_minutes, 1380, "检测时段终点默认 23:00");

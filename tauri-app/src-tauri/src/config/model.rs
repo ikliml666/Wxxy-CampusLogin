@@ -250,8 +250,9 @@ impl Default for Config {
             // 2026-09-20 起 15s → 60s（后台留存优化），存量旧默认由 v3→v4 迁移刷新
             background_check_interval: 60000,
             auto_login_on_preparation: true,
-            // 2026-09-20 起默认开启（存量旧默认 false 由 v4→v5 迁移刷为 true）
-            enable_night_operator_switch: true,
+            // 2026-10-02 起默认改回关闭（2026-09-20 曾默认开启并经 v4→v5 迁移刷开存量；
+            // 本次存量已落盘的 true 不迁移，由用户在设置页自行关闭）
+            enable_night_operator_switch: false,
             night_operator_restore: String::new(),
             enable_night_outbound_switch: false,
             outbound_priority: Vec::new(),
