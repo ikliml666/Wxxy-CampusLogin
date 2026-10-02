@@ -1305,10 +1305,10 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     //    此前后台链路不缓存,首次重登拿空/过期 IP 被协议拒)。
     //    SSID 感知:名称检查开启时经插件取 WifiManager SSID 参与判定(2026-09-20)
     let (probe, current_ssid) = crate::campus_detect::probe_campus_with_ssid(app, &settings).await;
-    let (on_campus, source_ip) = match probe {
+    let (on_campus, source_ip, wifi_off) = match probe {
         Ok(p) => {
             crate::campus_detect::cache_source_ip(&app.state::<crate::android_state::AndroidState>(), p.source);
-            (p.on_campus, p.source)
+            (p.on_campus, p.source, p.wifi_off)
         }
         Err(e) => {
             emit_login_log(app, &format!("校园网检测失败: {e}"), "error");
@@ -1316,9 +1316,13 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         }
     };
 
-    // 2. Portal 探测(同步函数 → 绑小核的专用短命线程,稳态功耗)
-    let ip = source_ip.map(|i| i.to_string()).unwrap_or_default();
-    let portal = portal_probe_on_little_cores(ip).await;
+    // 2. Portal 探测(同步函数 → 绑小核的专用短命线程,稳态功耗)。
+    //    WiFi 未连接短路(2026-10-02):无非蜂窝接口时内网 Portal 必不可达,
+    //    探测线程空转 3s 超时后报"未连接",无法区分 WiFi 已关闭——直接给出原因
+    let portal = match source_ip {
+        Some(src) => portal_probe_on_little_cores(src.to_string()).await,
+        None => Err("WiFi 未连接,跳过 Portal 探测".to_string()),
+    };
     let (portal_reachable, portal_login_available, portal_message) = match &portal {
         Ok(s) => (s.reachable, s.login_available, s.message.clone()),
         Err(e) => (false, false, e.clone()),
@@ -1411,7 +1415,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     }
 
     // 5. 组装 payload emit(字段名对齐桌面 background-check-result 可适用子集)
-    let campus_message = if on_campus { "已连接校园网" } else { "未连接校园网" };
+    let campus_message = crate::campus_detect::campus_status_message(wifi_off, on_campus);
     // 运营商徽标数据源:在线时从 Portal uid 推导后缀(@telecom/@unicom/@cmcc/""=
     // 校方默认线路),离线/未知为 null,与桌面 background_emit 同口径——徽标为
     // 双端同批特性,安卓此前只镜像了 UI、漏了后端字段
@@ -1424,7 +1428,13 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         "serverAvailable": portal_reachable,
         "loginAvailable": portal_login_available,
         "online": online,
-        "message": if online { "在线".to_string() } else { portal_message.clone() },
+        "message": if online {
+            "在线".to_string()
+        } else if wifi_off {
+            "WiFi 未连接".to_string()
+        } else {
+            portal_message.clone()
+        },
         "onlineOperator": online_operator,
         "timestamp": now,
         "checkCount": MONITOR.check_count.load(Ordering::Relaxed),
@@ -1446,13 +1456,24 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     #[cfg(mobile)]
     {
         use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        let state_code = if online { 1u8 } else { 2 };
+        let (state_code, state) = notify_state(online, wifi_off);
         if MONITOR.notified_online.swap(state_code, Ordering::Relaxed) != state_code {
-            let state = if online { "在线" } else { "未连接" };
             let _ = app
                 .campus_monitor_service()
                 .update_notification(&format!("监控运行中 · {state}"));
         }
+    }
+}
+
+/// 常驻通知状态码与文案(纯函数,单测锁定):1=在线 2=未连接 4=WiFi 未连接;
+/// 3 已被"非检测时段"占用(2026-10-02 起新增 WiFi 短路态,不与既有码冲突)
+fn notify_state(online: bool, wifi_off: bool) -> (u8, &'static str) {
+    if online {
+        (1, "在线")
+    } else if wifi_off {
+        (4, "WiFi 未连接")
+    } else {
+        (2, "未连接")
     }
 }
 
@@ -1462,6 +1483,15 @@ mod tests {
     use super::*;
 
     const COOLDOWN: u64 = 60;
+
+    #[test]
+    fn 通知状态_wifi短路独立码() {
+        // 2026-10-02:WiFi 未连接新增状态码 4,与在线(1)/未连接(2)区分;
+        // 3 被"非检测时段"占用,不得复用
+        assert_eq!(notify_state(true, false), (1, "在线"));
+        assert_eq!(notify_state(false, true), (4, "WiFi 未连接"));
+        assert_eq!(notify_state(false, false), (2, "未连接"));
+    }
 
     #[test]
     fn 在线或非校园网_永不尝试() {

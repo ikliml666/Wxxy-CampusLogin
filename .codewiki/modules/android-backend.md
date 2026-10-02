@@ -150,8 +150,9 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `const PORTAL_PORT: u16 = 80` / `const TCP_TIMEOUT = 3s` | `campus_detect.rs:9`、`:10` | 可达性探测参数 |
 | `pub fn pick_campus_source_ip(interfaces) -> Option<Ipv4Addr>` | `campus_detect.rs:15` | 排除 `rmnet*`/`ccmni*` 蜂窝、link-local/回环/unspecified；wlan0 优先，否则首个合法接口 |
 | `pub async fn portal_reachable(host, port, timeout) -> bool` | `campus_detect.rs:44` | TCP 连接可达（替代 ICMP） |
-| `struct CampusProbe` | `campus_detect.rs:56-61` | 一次探测结果 |
-| `pub async fn probe_campus(campus_gateway, portal_url) -> Result<CampusProbe, String>` | `campus_detect.rs:63` | 网卡枚举 → 源 IP → /18 子网判定（复用桌面 `network::subnet::is_same_subnet_18`）→ Portal TCP → 网关 TCP 兜底 → `on_campus` 或运算（纯网络探测，不含 SSID） |
+| `struct CampusProbe` | `campus_detect.rs:56-64` | 一次探测结果（`wifi_off` 字段 2026-10-02 起） |
+| `pub async fn probe_campus(campus_gateway, portal_url) -> Result<CampusProbe, String>` | `campus_detect.rs:66` | 网卡枚举 → 源 IP → **WiFi 未连接短路**（source=None 即 WiFi 已关闭，立即返回全 false 不做 TCP 探测，2026-10-02）→ /18 子网判定（复用桌面 `network::subnet::is_same_subnet_18`）→ Portal TCP → 网关 TCP 兜底 → `on_campus` 或运算（纯网络探测，不含 SSID） |
+| `pub fn campus_status_message(wifi_off, on_campus) -> &'static str` | `campus_detect.rs:132` | 校园网状态文案（`check_campus_status` 与后台 payload `campusMessage` 共用）：wifi_off →「WiFi 未连接」（2026-10-02），否则已连接/未连接校园网 |
 | `pub fn portal_host_of(url) -> String` | `campus_detect.rs:113` | 从 URL 抠 host（去 scheme/端口/路径） |
 | `pub fn ssid_matches(ssid, required) -> bool` | `campus_detect.rs:126` | SSID 名称匹配（对齐桌面 `campus_check`：`eq_ignore_ascii_case`；required 为 `i-wxxy` 时特判 `iwxxy-2`/`iwxxy-3`），含单测 8 例（2026-09-20） |
 | `async fn current_wifi_ssid(app) -> Option<String>` | `campus_detect.rs:136` | 经 network-bind 插件 `get_wifi_ssid()` 读 WifiManager SSID（spawn_blocking 包 JNI）；未授权/低版本/未连 WiFi → None |
@@ -433,7 +434,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `user` | `String` | 学号 |
 | `login_type` | `String` | 序列化为 `"type"`：`"manual"` / `"auto"` |
 
-### `CampusProbe`（`campus_detect.rs:48-53`）
+### `CampusProbe`（`campus_detect.rs:56-64`）
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
@@ -441,6 +442,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `on_campus_by_subnet` | `bool` | `/18` 子网命中 |
 | `portal_ok` | `bool` | Portal TCP 可达 |
 | `on_campus` | `bool` | 综合判定（子网 ∨ 网关 TCP ∨ Portal TCP） |
+| `wifi_off` | `bool` | WiFi 未连接短路（=source 为 None，2026-10-02）：无非蜂窝 IPv4 接口即 WiFi 已关闭，探测在枚举网卡后直接返回，状态给出明确原因而非笼统「未连接校园网」 |
 
 ### `CommandResult`（`self_service_cmds.rs:7-14`）
 
@@ -475,7 +477,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `idle_interval_ms` | `AtomicU64` | 闲时间隔（从配置刷新） |
 | `logout_protected_until_ms` | `AtomicU64` | 注销保护期截止（epoch ms） |
 | `wifi_event_ms` | `AtomicU64` | 最近 WiFi 事件时间（去抖与“最后事件生效”） |
-| `notified_online` | `AtomicU8` | 常驻通知已展示状态（`0` 未展示 / `1` 在线 / `2` 未连接 / `3` 非检测时段，`monitor_loop.rs:35-38`），仅翻转时重建通知 |
+| `notified_online` | `AtomicU8` | 常驻通知已展示状态（`0` 未展示 / `1` 在线 / `2` 未连接 / `3` 非检测时段 / `4` WiFi 未连接（2026-10-02），`monitor_loop.rs:35-38`），仅翻转时重建通知 |
 
 ### `BatteryOptimizationInfo`（`battery_cmds.rs:10-17`）
 
@@ -564,8 +566,10 @@ check_count += 1 → current_settings
     文案「监控运行中 · 已暂停检测(非检测时段)」，状态码 3=非检测时段
  探针窗口 guard（mobile，monitor_loop.rs:1214-1219）
  → ensure_wifi_bound（monitor_loop.rs:1222）
- ① probe_campus（源 IP 缓存刷新，monitor_loop.rs:1227）
- ② portal_probe_on_little_cores（裸线程 enter + 绑小核，monitor_loop.rs:1241）
+ ① probe_campus（源 IP 缓存刷新，monitor_loop.rs:1307）——wifi_off（source=None）时后续
+    Portal 探测短路为 Err「WiFi 未连接,跳过 Portal 探测」（monitor_loop.rs:1320-1326，
+    2026-10-02：WiFi 关闭不再每拍空跑小核线程，payload message/campusMessage 报「WiFi 未连接」）
+ ② portal_probe_on_little_cores（裸线程 enter + 绑小核，仅 source=Some 时）
  ③ 三态消费（monitor_loop.rs:1245-1262）：
     Ok(s) 且 error_kind=None → 采用 s.online（确定判定）
     其余结果且 on_campus=true → 沿用 prev_online（校园网内探针失配不翻转，反误报）
@@ -577,7 +581,8 @@ check_count += 1 → current_settings
     → last_login_attempt_ms / reconnect_count++ → run_login → 历史落盘 → emit
       （monitor_loop.rs:1283-1328）
  ⑤ 组装 payload → MONITOR.last_result → emit "background-check-result"（monitor_loop.rs:1330-1350）
-    → notified_online 翻转时插件 update_notification（monitor_loop.rs:1356-1362）
+    → notified_online 翻转时插件 update_notification（monitor_loop.rs:1456-1465；
+    状态码 notify_state 纯函数 monitor_loop.rs:1470：1=在线 / 2=未连接 / 4=WiFi 未连接（2026-10-02））
 ```
 
 **登录（`protocol_cmds.rs:10`）**

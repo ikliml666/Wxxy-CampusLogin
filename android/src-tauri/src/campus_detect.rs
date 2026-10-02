@@ -58,6 +58,9 @@ pub struct CampusProbe {
     pub on_campus_by_subnet: bool,
     pub portal_ok: bool,
     pub on_campus: bool,
+    /// WiFi 未连接短路:无非蜂窝 IPv4 接口(蜂窝接口被刻意排除)= WiFi 已关闭,
+    /// 2026-10-02 起探测在枚举网卡后直接短路返回,给出明确状态而非笼统"未连接"
+    pub wifi_off: bool,
 }
 
 pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<CampusProbe, String> {
@@ -76,6 +79,20 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
         })
         .collect();
     let source = pick_campus_source_ip(&flat);
+
+    // WiFi 未连接短路(2026-10-02 真机反馈:WiFi 关闭后检测一直在继续):无
+    // wlan0/eth0 等非蜂窝 IPv4 接口即 WiFi 已关闭,内网网关/Portal TCP 探测
+    // 必走蜂窝且必失败——立即返回,不再空转 2×3s 探测、状态停在"未连接校园网"
+    let wifi_off = source.is_none();
+    if wifi_off {
+        return Ok(CampusProbe {
+            source,
+            on_campus_by_subnet: false,
+            portal_ok: false,
+            on_campus: false,
+            wifi_off,
+        });
+    }
 
     let on_campus_by_subnet = source
         .map(|ip| campus_login_lib::network::is_same_subnet_18(&ip.to_string(), campus_gateway))
@@ -106,7 +123,20 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
         on_campus_by_subnet,
         portal_ok,
         on_campus,
+        wifi_off,
     })
+}
+
+/// 校园网状态文案(check_campus_status 与后台 background-check-result 共用):
+/// WiFi 未连接短路时给出明确原因,不再笼统报"未连接校园网"(2026-10-02 缺陷修复)
+pub fn campus_status_message(wifi_off: bool, on_campus: bool) -> &'static str {
+    if wifi_off {
+        "WiFi 未连接"
+    } else if on_campus {
+        "已连接校园网"
+    } else {
+        "未连接校园网"
+    }
 }
 
 /// "http://10.1.99.100" -> "10.1.99.100"(去掉 scheme/端口/路径;解析失败回退原串)
@@ -194,11 +224,15 @@ pub async fn detect_campus(
     let probe = probe_campus(&settings.campus_gateway, &settings.portal_url).await?;
     cache_source_ip(&state, probe.source);
 
-    let detail = match (probe.on_campus_by_subnet, probe.portal_ok) {
-        (true, true) => "子网命中且 Portal 可达".to_string(),
-        (true, false) => "子网命中但 Portal 不可达".to_string(),
-        (false, true) => "已连接校园网(内网 Portal 可达,跨网段接入)".to_string(),
-        (false, false) => "未检测到校园网环境".to_string(),
+    let detail = if probe.wifi_off {
+        "WiFi 未连接,跳过探测".to_string()
+    } else {
+        match (probe.on_campus_by_subnet, probe.portal_ok) {
+            (true, true) => "子网命中且 Portal 可达".to_string(),
+            (true, false) => "子网命中但 Portal 不可达".to_string(),
+            (false, true) => "已连接校园网(内网 Portal 可达,跨网段接入)".to_string(),
+            (false, false) => "未检测到校园网环境".to_string(),
+        }
     };
 
     Ok(serde_json::json!({
@@ -224,11 +258,7 @@ pub async fn check_campus_status(
     let probe = probe?;
     cache_source_ip(&state, probe.source);
 
-    let campus_message = if probe.on_campus {
-        "已连接校园网".to_string()
-    } else {
-        "未连接校园网".to_string()
-    };
+    let campus_message = campus_status_message(probe.wifi_off, probe.on_campus).to_string();
 
     Ok(serde_json::json!({
         "onCampusNetwork": probe.on_campus,
@@ -296,6 +326,15 @@ mod tests {
         assert_eq!(portal_host_of("http://10.1.99.100:8080/x"), "10.1.99.100");
         assert_eq!(portal_host_of("10.1.99.100"), "10.1.99.100");
         assert_eq!(portal_host_of("http://portal.example.com/"), "portal.example.com");
+    }
+
+    #[test]
+    fn campus_状态文案_wifi短路优先() {
+        // WiFi 未连接短路:优先给出明确原因,不受 on_campus 影响
+        assert_eq!(campus_status_message(true, false), "WiFi 未连接");
+        // 正常三态
+        assert_eq!(campus_status_message(false, true), "已连接校园网");
+        assert_eq!(campus_status_message(false, false), "未连接校园网");
     }
 
     #[test]

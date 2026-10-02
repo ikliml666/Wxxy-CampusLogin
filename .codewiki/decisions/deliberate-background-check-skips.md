@@ -21,7 +21,8 @@ tags: [决策, 巡检, 监控, 有意为之]
 3. 校园网不通过但主副适配器均无 IP 时不退出、等待网络恢复（`monitor/background_check.rs:124-126`、`monitor/auto_auth.rs:322-324`）；
 4. 后台巡检不再触发全量质量检测（2026-09-04 收敛）（`monitor/background_check.rs:337-339`）；
 5. "自动检测"模式（适配器名为空或哨兵值）不参与自动启用（`monitor/adapter_watch.rs:145-151`，过滤在 `network/adapter.rs:53`）；
-6. 提权自动启用不弹 UAC（`enable_adapter(..., false)`）（`monitor/adapter_watch.rs:173`）。
+6. 提权自动启用不弹 UAC（`enable_adapter(..., false)`）（`monitor/adapter_watch.rs:173`）；
+7. （安卓，2026-10-02 起）WiFi 关闭（`pick_campus_source_ip` 无非蜂窝 IPv4 接口）时整拍短路：`probe_campus` 枚举网卡后直接返回全 false 不做网关/Portal TCP 探测，`run_check_once` 的 Portal 探测短路为 Err（`campus_detect.rs:83-95`、`monitor_loop.rs:1320-1326`）——WiFi 关闭不是「校园网探测失败」，没有可探测的对端；状态与通知走 `campus_status_message`/`notify_state` 的 wifi_off 分支（「WiFi 未连接」，通知状态码 4）。
 
 ## 理由
 
