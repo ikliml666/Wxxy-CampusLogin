@@ -124,30 +124,33 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
       ref={setRef}
       onClick={() => onPanelChange(id)}
       className={cn(
-        // 激活项=全圆角药丸+图标在上/文字标签在下（与安卓底栏同款），非激活项只保留图标
-        'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-full select-none group transition-colors duration-200',
+        // 激活项=图标在上/文字标签在下（与安卓底栏同款），非激活项只保留图标;
+        // 按钮宽由固定图标盒决定，五项自然等宽
+        'relative flex flex-col items-center gap-0.5 py-1.5 rounded-full select-none group transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-        isActive
-          ? 'min-w-0 text-primary'
-          : 'text-muted-foreground hover:text-foreground'
+        isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
       )}
       style={{
         zIndex: 10,
       }}
       aria-label={label}
     >
-      {/* 激活药丸靠 layoutId 跨项共享布局：切换时从旧项位置滑向新项（弹簧与安卓底栏同款） */}
+      {/* 图标盒 40×28 固定:药丸(inset-0)只包图标不包标签(M3 选中指示器,与安卓底栏
+          七轮同款),恒定体育场形——切换滑动时纯平移,不再随按钮宽缩放变形 */}
+      <span className="relative flex h-7 w-10 items-center justify-center">
+        {/* 激活药丸靠 layoutId 跨项共享布局：切换时从旧项位置滑向新项（弹簧与安卓底栏同款） */}
+        {isActive && (
+          <m.div
+            layoutId="dock-active-pill"
+            transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+            className="absolute inset-0 rounded-full bg-primary/10"
+          />
+        )}
+        <Icon className="relative z-10 h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+      </span>
+      {/* 仅激活项显示标签（图标下方、药丸外，同安卓底栏机制） */}
       {isActive && (
-        <m.div
-          layoutId="dock-active-pill"
-          transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-          className="absolute inset-0 rounded-full bg-primary/10"
-        />
-      )}
-      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-      {/* 仅激活项显示标签（图标下方，用户要求，同安卓底栏机制） */}
-      {isActive && (
-        <span className="relative text-[11px] font-medium whitespace-nowrap leading-none">{label}</span>
+        <span className="relative z-10 text-[11px] font-medium whitespace-nowrap leading-none">{label}</span>
       )}
       {/* 视觉 tooltip：按钮已有 aria-label（与文本相同），aria-hidden 防止屏幕阅读器双读 */}
       <span
