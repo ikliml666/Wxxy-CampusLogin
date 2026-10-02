@@ -122,9 +122,9 @@ export function BottomNav({ tab, onChange }: {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   // 纵排页签(图标在上/标签在下)统一抬高页签高度,激活药丸随之变高;
-                  // 栏体随之放大(p-1.5+栏高 68px),让 28px 图标在栏内比例协调
+                  // 图标 24px(M3 导航栏标准)在 56px 药丸内留足呼吸,放大感由栏体/间距/文案承担
                   'relative flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
-                  active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-9 text-muted-foreground active:text-foreground'
+                  active ? 'min-w-0 flex-initial px-2.5 text-primary' : 'w-9 text-muted-foreground active:text-foreground'
                 )}
               >
                 {/* 系统减动态时由全局 MotionConfig reducedMotion="user" 关闭位移动画，无需手动兜底 */}
@@ -136,8 +136,8 @@ export function BottomNav({ tab, onChange }: {
                   />
                 )}
                 <Icon
-                  className="relative z-10 h-7 w-7 shrink-0"
-                  strokeWidth={active ? 2.2 : 1.8}
+                  className="relative z-10 h-6 w-6 shrink-0"
+                  strokeWidth={active ? 2 : 1.8}
                 />
                 {/* 仅激活项显示标签(图标下方,用户要求);窄屏挤压时标签先截断 */}
                 {active && (
