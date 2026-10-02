@@ -175,17 +175,6 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-sm font-medium truncate">{adapter.name}</span>
-            {/* 夜间出站目标：名称旁月亮标记（行底色同色系；tooltip 兜底说明） */}
-            {isOutboundTarget && (
-              <span
-                role="img"
-                aria-label={t('network.outboundBadge')}
-                title={t('network.outboundBadge')}
-                className="inline-flex shrink-0"
-              >
-                <MoonStar className="h-3.5 w-3.5 text-primary" aria-hidden />
-              </span>
-            )}
           </div>
           <div className="text-xs text-muted-foreground">
             {roleLabel && <span className="shrink-0">{roleLabel} · </span>}
@@ -542,7 +531,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               <div className="flex items-center gap-2 shrink-0">
                 {/* 出站簇：当前出站徽标 + 立即切换/还原，收进一个胶囊分组（与右侧夜切开关区分语义） */}
                 {currentOutbound && (
-                  <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-1">
+                  <div className="flex items-center gap-1 rounded-full bg-muted/40 p-1">
                     <Badge
                       variant="outline"
                       size="sm"
@@ -678,6 +667,11 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
                         {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
                       </Button>
+                    )}
+                    {displayedOrder[0] === a.name && (
+                      <Badge key="outbound-target" variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
+                        {t('network.outboundBadge')}
+                      </Badge>
                     )}
                   </SortableAdapterRow>
                 ))}
