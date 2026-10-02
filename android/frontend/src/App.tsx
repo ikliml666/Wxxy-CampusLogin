@@ -46,6 +46,7 @@ import { createPanelAppleVariants } from '@/lib/animations'
 import { usePullToRefresh, PULL_HOLD_PX, PULL_TRIGGER_PX } from '@/hooks/usePullToRefresh'
 
 const AboutDialog = lazy(() => import('@/auth/AboutDialogMobile').then((mod) => ({ default: mod.AboutDialogMobile })))
+const MobileQuickActions = lazy(() => import('@/components/mobile/MobileQuickActions').then((mod) => ({ default: mod.MobileQuickActions })))
 const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((mod) => ({ default: mod.ThemeDialog })))
 const OnboardingWizardMobile = lazy(() => import('@/settings/OnboardingWizardMobile').then((mod) => ({ default: mod.OnboardingWizardMobile })))
 
@@ -253,6 +254,12 @@ function AppInner() {
       </header>
 
       {/* 下拉刷新指示器（仅总览）：跟随拉距浮出的克制胶囊，过阈值箭头翻转、松手转圈 */}
+      {/* 快捷登录浮条（仅总览）：底栏上方独立动作条，页签与登录/注销各归其位 */}
+      {deferredTab === 'dashboard' && (
+        <Suspense fallback={null}>
+          <MobileQuickActions />
+        </Suspense>
+      )}
       {deferredTab === 'dashboard' && (pull > 0 || refreshing) && (
         <div
           aria-hidden
@@ -281,9 +288,9 @@ function AppInner() {
         className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4"
         style={{
           paddingTop: 'calc(env(safe-area-inset-top) + 78px)',
-          // 悬浮底栏(底缝20px+栏高68px)+安全区;首页再多留一拍余量
+          // 悬浮底栏(底缝20px+栏高68px)+安全区;首页另有快捷登录浮条(底100px、条高48px)
           paddingBottom: deferredTab === 'dashboard'
-            ? 'calc(env(safe-area-inset-bottom) + 168px)'
+            ? 'calc(env(safe-area-inset-bottom) + 216px)'
             : 'calc(env(safe-area-inset-bottom) + 108px)',
         }}
       >
