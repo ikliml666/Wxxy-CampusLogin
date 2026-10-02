@@ -55,7 +55,7 @@ function CompactAuthButtons() {
   }, [api, doLogin])
 
   const base = cn(
-    'flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[10px] font-medium select-none',
+    'flex h-9 items-center justify-center gap-1 rounded-full px-2 text-[11px] font-medium select-none',
     'transition-all motion-reduce:transition-none active:scale-[0.97] motion-reduce:active:scale-100',
     'disabled:opacity-50 disabled:shadow-none'
   )
@@ -101,7 +101,7 @@ export function BottomNav({ tab, onChange }: {
     >
       <div
         className={cn(
-          'pointer-events-auto w-full max-w-[440px] flex items-center rounded-full p-1 select-none',
+          'pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none',
           'border border-transparent shadow-[0_10px_36px_rgba(30,34,90,0.14),0_2px_10px_rgba(30,34,90,0.08)]',
           'dark:shadow-[0_10px_36px_rgba(0,0,0,0.42),0_2px_10px_rgba(0,0,0,0.28)]'
         )}
@@ -122,8 +122,8 @@ export function BottomNav({ tab, onChange }: {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   // 纵排页签(图标在上/标签在下)统一抬高页签高度,激活药丸随之变高;
-                  // 图标等比例放大 24→28px 方便点按,页签间距 2→8px;非激活项 w-9 保持窄身
-                  'relative flex h-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
+                  // 栏体随之放大(p-1.5+栏高 68px),让 28px 图标在栏内比例协调
+                  'relative flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-9 text-muted-foreground active:text-foreground'
                 )}
               >
@@ -141,7 +141,7 @@ export function BottomNav({ tab, onChange }: {
                 />
                 {/* 仅激活项显示标签(图标下方,用户要求);窄屏挤压时标签先截断 */}
                 {active && (
-                  <span className="relative z-10 truncate max-w-[64px] text-[10px] font-medium leading-tight">
+                  <span className="relative z-10 truncate max-w-[64px] text-[11px] font-medium leading-tight">
                     {t(labelKey)}
                   </span>
                 )}
