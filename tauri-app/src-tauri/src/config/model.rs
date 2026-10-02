@@ -76,8 +76,8 @@ pub struct Config {
     pub outbound_metric_restore: String,
     /// 夜间切换禁用的校园网卡快照：`[{guid, name}]` JSON（只记本功能亲手禁用的卡，
     /// 还原与 adapter_watch 闸门都以这份名单为准，不按当前状态推断——USB 网卡
-    /// 状态判定不可靠且设备级操作会导致下次开机无法正常启用，USB 卡永不入名单）。
-    /// 非空 = 存在待还原的禁用动作。导入配置时清空。安卓端不消费此字段
+    /// 状态判定不可靠）。非空 = 存在待还原的禁用动作。导入配置时保留本机值。
+    /// 安卓端不消费此字段
     #[serde(rename = "outboundDisabledAdapters", default)]
     pub outbound_disabled_adapters: String,
     /// 夜间切换新增的兜底默认路由快照：`{dest, mask, gateway, metric, ifIndex}` JSON
@@ -85,6 +85,13 @@ pub struct Config {
     /// 空 = 未加路由。导入配置时清空。安卓端不消费此字段
     #[serde(rename = "outboundStandbyRoute", default)]
     pub outbound_standby_route: String,
+    /// 「立即切换」当日保持标记（num_days_from_ce；0=无）：手动立即切换先落盘
+    /// 当日值再执行动作，冻结当日的自动 Switch/Restore 判定（防 23:00 自动切换
+    /// 叠加成双重切换、防还原窗内自动还原撤销手动切换），次日 6:30 自动还原或
+    /// 手动还原成功后清零。与切换态快照同属本机系统状态，导入配置时保留本机值。
+    /// 安卓端不消费此字段
+    #[serde(rename = "outboundManualHoldDay", default)]
+    pub outbound_manual_hold_day: i32,
     /// 安卓切换态标记：值恒 "logged_out"（纯标记，不暂存账号名）。非空 = 安卓处于
     /// 出站切换态（已注销等待晨间重登）。切账号时清空。桌面端不消费此字段
     #[serde(rename = "nightOutboundRestore", default)]
@@ -259,6 +266,7 @@ impl Default for Config {
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
+            outbound_manual_hold_day: 0,
             dns_optimize_adapters: Vec::new(),
             night_outbound_restore: String::new(),
             // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移

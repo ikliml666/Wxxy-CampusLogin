@@ -136,24 +136,18 @@ pub fn parse_standby_route(json: &str) -> Option<StandbyRoute> {
     serde_json::from_str(json.trim()).ok()
 }
 
-/// USB 设备实例 ID 前缀口径（设备管理器同款）：`USB\VID_xxx&PID_xxx\...`。
-fn is_usb_instance_id(instance_id: &str) -> bool {
-    instance_id.to_ascii_uppercase().starts_with("USB\\")
-}
-
-/// 该卡是否不适合参与夜间禁用（USB 总线，或总线无法判定）。
-/// 用户实证：USB 网卡被禁用后下次开机 Windows 提示「请安装网卡」无法正常启用——
-/// USB 卡绝不禁用；实例 ID 都读不到的卡按「可能 USB」保守处理，同样跳过。
+/// 该卡是否不能参与夜间禁用：实例 ID 都读不到的卡（总线无法判定）保守跳过。
+/// 注：USB 总线网卡不再排除——用户明确要求夜间禁用副适配器（本机副卡即 USB
+/// 2.5G 网卡），运行期 netsh disable/enable 对称已实证（2026-10-01 夜切日志），
+/// 6:30 还原/启动对账/看门狗/手动启用按钮（含 pnputil 设备级启用兜底）构成
+/// 安全网；跨重启残留由启动对账收敛。
 #[cfg(target_os = "windows")]
 pub(crate) fn unsafe_to_disable(guid: &str) -> bool {
-    match crate::network::discovery::devnode::read_pnp_instance_id(guid) {
-        Some(id) => is_usb_instance_id(&id),
-        None => true,
-    }
+    crate::network::discovery::devnode::read_pnp_instance_id(guid).is_none()
 }
 
 /// 选出本次切换要临时禁用的校园网卡：在优先级列表内、已连接（有 IP）、判定为
-/// 校园网、有 GUID、非目标卡、非 USB 总线（经 `usb_guard` 注入，Windows 生产传
+/// 校园网、有 GUID、非目标卡、总线可判定（经 `bus_guard` 注入：生产传
 /// [`unsafe_to_disable`]，单测传闭包），按优先级名序去重。
 pub fn select_campus_to_disable(
     priority: &[String],
@@ -161,7 +155,7 @@ pub fn select_campus_to_disable(
     campus_gateway: &str,
     exclude_guid: &str,
     gateway_probe: impl Fn(&str, &str) -> bool,
-    usb_guard: impl Fn(&str) -> bool,
+    bus_guard: impl Fn(&str) -> bool,
 ) -> Vec<DisabledRow> {
     let mut rows: Vec<DisabledRow> = Vec::new();
     for name in priority {
@@ -181,7 +175,7 @@ pub fn select_campus_to_disable(
         if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, &gateway_probe) {
             continue;
         }
-        if usb_guard(&adapter.guid) {
+        if bus_guard(&adapter.guid) {
             continue;
         }
         rows.push(DisabledRow { guid: adapter.guid.clone(), name: adapter.name.clone() });
@@ -373,11 +367,11 @@ mod tests {
 
     #[test]
     fn select_campus_to_disable_filters_everything_non_campus() {
-        // 场景：priority=[WLAN(目标), 以太网(校园), 以太网 2(校园 USB), 以太网 3(非校园)]，
-        // 目标卡/非校园卡/无 IP 卡/USB 卡都不入名单
+        // 场景：priority=[WLAN(目标), 以太网(校园), 以太网 2(校园,guard 命中),
+        // 以太网 3(非校园)]；目标卡/非校园卡/无 IP 卡/guard 命中卡都不入名单
         let target = (adapter("WLAN", "{GT}", "192.168.43.10", true), "192.168.43.1".to_string());
         let campus = (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string());
-        let campus_usb = (adapter("以太网 2", "{G2}", "10.64.1.3", false), "10.64.60.1".to_string());
+        let campus_guarded = (adapter("以太网 2", "{G2}", "10.64.1.3", false), "10.64.60.1".to_string());
         let off_campus = (adapter("以太网 3", "{G3}", "192.168.6.107", false), "192.168.6.1".to_string());
         let ipless = (adapter("以太网 4", "{G4}", "", false), String::new());
         let priority = vec![
@@ -387,14 +381,14 @@ mod tests {
             "以太网 3".to_string(),
             "以太网 4".to_string(),
         ];
-        let details = vec![target, campus, campus_usb, off_campus, ipless];
+        let details = vec![target, campus, campus_guarded, off_campus, ipless];
         let rows = select_campus_to_disable(
             &priority,
             &details,
             "10.64.60.1",
             "{GT}",
             |_, _| false, // 非同段卡绑源探测不可达 → 非校园
-            |g| g == "{G2}", // USB guard：{G2} 视为 USB
+            |g| g == "{G2}", // bus guard：{G2} 视为总线不可判定
         );
         assert_eq!(rows.len(), 1, "只应选中非目标的在网校园卡: {rows:?}");
         assert_eq!(rows[0], DisabledRow { guid: "{G1}".to_string(), name: "以太网".to_string() });
@@ -419,7 +413,7 @@ mod tests {
 
     #[test]
     fn select_campus_to_disable_unknown_bus_is_skipped() {
-        // 实例 ID 读不到的卡按「可能 USB」保守处理：usb_guard 返回 true → 跳过
+        // 实例 ID 读不到的卡（总线无法判定）保守跳过：bus_guard 返回 true → 不入名单
         let campus = (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string());
         let rows = select_campus_to_disable(
             &["以太网".to_string()],
@@ -430,13 +424,5 @@ mod tests {
             |_| true,
         );
         assert!(rows.is_empty());
-    }
-
-    #[test]
-    fn usb_instance_id_prefix_matching() {
-        assert!(is_usb_instance_id(r"USB\VID_0BDA&PID_8156\4013000001"));
-        assert!(is_usb_instance_id(r"usb\vid_0bda&pid_8156\4013000001"));
-        assert!(!is_usb_instance_id(r"PCI\VEN_10EC&DEV_8168"));
-        assert!(!is_usb_instance_id(""));
     }
 }

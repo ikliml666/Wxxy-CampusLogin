@@ -45,6 +45,45 @@ pub async fn get_adapter_details() -> Result<Vec<AdapterDetail>, String> {
     tauri::async_runtime::spawn_blocking(get_adapter_details_cached).await.map_err(|e| e.to_string())?
 }
 
+/// 「立即切换出站」：用户显式触发，绕过自动切换的退避闸；失败时错误信息直达前端 toast。
+#[tauri::command]
+pub async fn outbound_switch_now(app_handle: AppHandle) -> Result<CommandResult, String> {
+    crate::log_info!("network", "手动触发立即切换出站");
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::monitor::scheduled::manual_outbound_switch(&app_handle)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map(|()| CommandResult::ok_msg("已切换出站"))
+}
+
+/// 「立即还原」：清当日保持标记并执行还原；还原未完成时快照保留，自动还原继续重试。
+#[tauri::command]
+pub async fn outbound_restore_now(app_handle: AppHandle) -> Result<CommandResult, String> {
+    crate::log_info!("network", "手动触发立即还原出站");
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::monitor::scheduled::manual_outbound_restore(&app_handle)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map(|()| CommandResult::ok_msg("已还原网络设置"))
+}
+
+/// 当前真实出站接口别名（默认路由 metric 求和最小者）；查询失败返回 None 软降级，
+/// 前端隐藏「当前出站」徽标即可。
+#[tauri::command]
+pub async fn get_current_outbound_name() -> Result<Option<String>, String> {
+    let outbound = tauri::async_runtime::spawn_blocking(|| {
+        crate::platform::best_route::current_outbound_v4().ok()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Some(o) = &outbound {
+        crate::log_debug!("network", "当前出站接口: {} (ifIndex {})", o.alias, o.if_index);
+    }
+    Ok(outbound.map(|o| o.alias))
+}
+
 #[tauri::command]
 pub async fn check_campus_status(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     let state = app_handle.state::<crate::infra::state::AppState>();

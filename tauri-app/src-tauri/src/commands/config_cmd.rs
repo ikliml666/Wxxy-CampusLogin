@@ -185,6 +185,7 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: St
     config.outbound_metric_restore = current.outbound_metric_restore.clone();
     config.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
     config.outbound_standby_route = current.outbound_standby_route.clone();
+    config.outbound_manual_hold_day = current.outbound_manual_hold_day;
     config.night_outbound_restore = current.night_outbound_restore.clone();
 
     // 失败分列③：配置校验失败（严格版，与 save_config 同源）

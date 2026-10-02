@@ -35,10 +35,12 @@ export interface Config {
   enableNightOutboundSwitch: boolean
   outboundPriority: string[]
   outboundMetricRestore: string
-  /** 夜间切换时亲手禁用的校园网卡名单（DisabledRow JSON，后端内部状态，USB 网卡永不入名单） */
+  /** 夜间切换时亲手禁用的校园网卡名单（DisabledRow JSON，后端内部状态，USB 网卡 2026-10 起纳入名单） */
   outboundDisabledAdapters: string
   /** 夜间切换加的兜底默认路由（StandbyRoute JSON，runtime 路由重启即清，后端内部状态） */
   outboundStandbyRoute: string
+  /** 「立即切换」当日保持标记（days since CE，后端内部状态；0=无保持——手动切换当日冻结自动 Switch/Restore，次日恢复） */
+  outboundManualHoldDay: number
   nightOutboundRestore: string
   /** DNS 优化目标适配器名单（网卡名，可多选）；空 = 未选择，优化/恢复时后端提示先选择 */
   dnsOptimizeAdapters: string[]

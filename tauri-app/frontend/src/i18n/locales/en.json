@@ -301,7 +301,17 @@
     "nightOutboundSwitchDesc": "Switches outbound and temporarily disables campus adapters at 23:00 Sun-Thu, 23:30 Fri/Sat; restores from 6:30 next morning",
     "outboundBadge": "Night Outbound Target",
     "outboundDragHint": "Long-press anywhere on an entry and drag to reorder; the topmost non-campus adapter becomes the night switch target",
-    "outboundAdminHint": "Switching requires administrator rights (via UAC or the scheduled-task proxy silently); adapters not listed are excluded"
+    "outboundAdminHint": "Switching requires administrator rights (via UAC or the scheduled-task proxy silently); adapters not listed are excluded",
+    "currentOutbound": "Current outbound: {{name}}",
+    "currentOutboundBadge": "Current Outbound",
+    "outboundSwitchNow": "Switch Outbound Now",
+    "outboundSwitchNowSuccess": "Outbound switched",
+    "outboundSwitchNowFailed": "Switch incomplete",
+    "outboundSwitching": "Switching...",
+    "outboundRestoreNow": "Restore Outbound Now",
+    "outboundRestoreNowSuccess": "Network settings restored",
+    "outboundRestoreNowFailed": "Restore incomplete",
+    "outboundRestoring": "Restoring..."
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",

@@ -163,7 +163,7 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
         // 两条要求因此同时成立：① 切换态成立（快照非空，含 helper 部分失败的重试期）
         // 则运营商夜切让位；② 出站没切上（无可用候选）则运营商夜切照常（spec §2），
         // 与安卓端 run_scheduled_actions 同构（同样以状态标记门控，而非提前返回）
-        match outbound_action_for(&config_snapshot, now.weekday().num_days_from_sunday(), now_minutes as u32) {
+        match outbound_action_for(&config_snapshot, now.weekday().num_days_from_sunday(), now_minutes as u32, today_day) {
             NightOutboundAction::Switch => {
                 let switched = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), apply_outbound_switch).await;
                 if switched {
@@ -260,21 +260,39 @@ fn outbound_switch_active(app_handle: &AppHandle) -> bool {
     )
 }
 
-/// 本拍出站动作：判定复用跨平台纯函数，外加一条编排策略——功能已关闭但快照残留
-/// （用户中途关掉开关、或导入了带切换态的旧配置）时按 Restore 处理，立即还原，
-/// 不留悬挂的跃点改动（否则跃点会一直停在被改过的值上，直到下次应用启动对账）
-fn outbound_action_for(config: &crate::config::Config, weekday: u32, now_minutes: u32) -> NightOutboundAction {
+/// 本拍出站动作：判定复用跨平台纯函数，外加两条编排策略——
+/// ① 功能已关闭但快照残留（用户中途关掉开关、或导入了带切换态的旧配置）时按
+/// Restore 处理，立即还原，不留悬挂的跃点改动（否则跃点会一直停在被改过的值上，
+/// 直到下次应用启动对账）；
+/// ② 「立即切换」当日保持：手动切换落盘的 hold 标记冻结当日的自动 Switch/Restore
+/// 判定（否则 23:00 自动切换会叠加成双重切换、还原窗内的自动还原会立即撤销
+/// 手动切换），次日 6:30 自动恢复原有生命周期。清理分支（①）不受冻结——
+/// 开关被关闭时清理必须能跑。
+fn outbound_action_for(
+    config: &crate::config::Config,
+    weekday: u32,
+    now_minutes: u32,
+    today_day: i32,
+) -> NightOutboundAction {
     let restore_active = outbound_restore_active(
         &config.outbound_metric_restore,
         &config.outbound_disabled_adapters,
         &config.outbound_standby_route,
     );
-    match evaluate_night_outbound(config.enable_night_outbound_switch, weekday, now_minutes, restore_active) {
-        NightOutboundAction::None if restore_active && !config.enable_night_outbound_switch => {
-            NightOutboundAction::Restore
-        }
-        other => other,
+    // 清理分支优先，不受 hold 冻结：功能已关闭但快照残留 → 立即还原
+    // （evaluate_night_outbound 在 !enabled 时恒为 None，故此条件成立时排程
+    // 产物必为 None，语义与原 match 守卫等价）
+    if restore_active && !config.enable_night_outbound_switch {
+        return NightOutboundAction::Restore;
     }
+    let evaluated =
+        evaluate_night_outbound(config.enable_night_outbound_switch, weekday, now_minutes, restore_active);
+    // 「立即切换」当日保持：hold 标记冻结当日的排程产物 Switch/Restore
+    // （hold=0 表示无保持；真实 today 取 num_days_from_ce 恒 >0，测试传 0 即无保持）
+    if config.outbound_manual_hold_day != 0 && config.outbound_manual_hold_day == today_day {
+        return NightOutboundAction::None;
+    }
+    evaluated
 }
 
 /// 恢复窗口 [06:30, 23:00)：窗内是"清晨还原期"，窗外是"夜间切换期"
@@ -507,7 +525,8 @@ fn write_outbound_metric(
 ///   metric=0 的 TUN 默认路由，也不产生路由事件、代理不跟随。
 /// - 兜底默认路由：同前缀 /0 下 TUN 永远赢（跃点 0 vs 2），本路由只在 TUN/热点
 ///   默认路由消失后接管，是代理退出后的 failover 保险。
-/// - USB 总线网卡绝不入禁用名单（用户实证：USB 网卡被禁用后下次开机无法正常启用）。
+/// - 禁用名单只跳过总线类型无法判定的卡（USB 卡 2026-10 起纳入禁用：用户确认
+///   其 USB 副卡应参与，运行期 disable/enable 对称性已实证）。
 /// - 切换完成后路由级验证（GetBestRoute）：到校园网关的最优路由仍指向校园卡
 ///   ifIndex 则判失败走重放；空禁用名单（误判漏禁）单独每天告警一次。
 fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> bool {
@@ -574,20 +593,22 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
         crate::log_warn!("outbound", "夜间出站切换: {} 无 IPv4/IPv6 跃点行，本拍不切换", target.name);
         return false;
     }
-    // 要临时禁用的校园网卡：目标卡之外、在优先级列表内、在网且判定为校园网；
-    // USB 总线（或总线无法判定）一律跳过。usb_guard 平台注入（非 Windows 恒跳过，
-    // 本功能桌面侧仅 Windows 有完整实现）
+    // 要临时禁用的校园网卡：目标卡之外、在优先级列表内、在网且判定为校园网。
+    // bus_guard 平台注入（非 Windows 恒放行，本功能桌面侧仅 Windows 有完整实现）：
+    // 仅跳过「总线类型无法判定」的卡——USB 网卡不再排除（2026-10 用户确认其
+    // USB 副卡应参与禁用；运行期 disable/enable 对称性已实证，且 6:30 还原、
+    // 启动对账、看门狗、手动启用构成多重安全网）
     #[cfg(target_os = "windows")]
-    let usb_guard: fn(&str) -> bool = crate::monitor::outbound_switch::unsafe_to_disable;
+    let bus_guard: fn(&str) -> bool = crate::monitor::outbound_switch::unsafe_to_disable;
     #[cfg(not(target_os = "windows"))]
-    let usb_guard: fn(&str) -> bool = |_| true;
+    let bus_guard: fn(&str) -> bool = |_| true;
     let campus_to_disable = select_campus_to_disable(
         &config.outbound_priority,
         &candidates,
         &config.campus_gateway,
         &target.guid,
         |gateway, source_ip| crate::network::check_gateway_reachable_from(gateway, Some(source_ip)),
-        usb_guard,
+        bus_guard,
     );
     // 空禁用名单告警：有目标卡但没识别到任何可禁用的校园网卡——多半是绑源探测
     // 把校园卡误判成非校园（网关禁 ICMP/瞬时丢包）或校园卡已离线。metric 写入对
@@ -1157,6 +1178,9 @@ fn finish_outbound_restore(app_handle: &AppHandle) -> bool {
         return false;
     }
     clear_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
+    // 还原成功即解除「立即切换」当日保持（hold 在还原窗内本就冻结自动还原，
+    // 此处覆盖手动还原路径与跨日自动还原路径，双保险归零）
+    clear_outbound_manual_hold(app_handle);
     true
 }
 
@@ -1180,6 +1204,69 @@ fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
     }
     state.config.store(fresh);
     true
+}
+
+/// 「立即切换」当日保持标记落盘（hold 只影响自动排程冻结；写路径与
+/// clear_outbound_snapshot 同款：load fresh → 改字段 → 加密落盘成功才 store 内存）。
+/// 落盘失败仅告警不阻断——最坏后果是当日 23:00 自动切换与手动切换叠加
+/// （apply 幂等性保障下可接受），不应因此拒绝手动切换。
+fn set_outbound_manual_hold(app_handle: &AppHandle, day: i32) {
+    let state = app_handle.state::<AppState>();
+    let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
+    if fresh.outbound_manual_hold_day == day {
+        return;
+    }
+    fresh.outbound_manual_hold_day = day;
+    if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &fresh) {
+        crate::log_warn!("outbound", "夜间出站切换: 立即切换保持标记落盘失败: {e}");
+    }
+    state.config.store(fresh);
+}
+
+/// 清 hold 标记（手动还原先行清；自动还原成功在 finish_outbound_restore 收尾清）。
+fn clear_outbound_manual_hold(app_handle: &AppHandle) {
+    set_outbound_manual_hold(app_handle, 0);
+}
+
+/// 「立即切换」命令入口（桌面）：用户显式触发，覆盖自动切换的退避闸。先落 hold
+/// 再执行切换（hold 落盘后即使切换中途崩溃，当日的自动 Switch 也不会叠加，
+/// 残留快照由启动对账收敛）。已处于切换态时拒绝——此时重跑会把已被改动的
+/// 跃点当原值重新快照，覆盖原始跃点导致还原写入错误值。
+pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), String> {
+    let config = app_handle.state::<AppState>().config.load_full();
+    if !config.enable_night_outbound_switch {
+        return Err("夜间出站切换未开启".to_string());
+    }
+    if outbound_switch_active(app_handle) {
+        return Err("已处于出站切换状态，如需重试请先还原".to_string());
+    }
+    let today = chrono::Local::now().date_naive().num_days_from_ce();
+    // 用户显式重试：清退避闸，不做自动路径的阶梯等待
+    clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+    set_outbound_manual_hold(app_handle, today);
+    if apply_outbound_switch(app_handle, &config) {
+        Ok(())
+    } else {
+        clear_outbound_manual_hold(app_handle);
+        Err("切换未完成，请查看日志或稍后重试".to_string())
+    }
+}
+
+/// 「立即还原」命令入口（桌面）：先清 hold 与还原退避（用户显式重试覆盖退避闸）
+/// 再执行还原；还原未完成时快照仍在，自动还原会在后续拍继续重试。
+pub(crate) fn manual_outbound_restore(app_handle: &AppHandle) -> Result<(), String> {
+    let config = app_handle.state::<AppState>().config.load_full();
+    if !outbound_switch_active(app_handle) {
+        return Err("当前未处于出站切换状态".to_string());
+    }
+    // hold 必须先清：否则还原失败后，还原窗内的自动重试会被 hold 一并冻结
+    clear_outbound_manual_hold(app_handle);
+    clear_outbound_failure(&OUTBOUND_RESTORE_LAST_FAIL_MS, &OUTBOUND_RESTORE_FAIL_COUNT);
+    if apply_outbound_restore(app_handle, &config) {
+        Ok(())
+    } else {
+        Err("还原未完成，系统将自动重试，请查看日志".to_string())
+    }
 }
 
 /// 启动对账（循环启动前一次性、须在 spawn_blocking 线程内）：三份快照任一非空说明上次
@@ -1721,28 +1808,57 @@ mod tests {
         }
     }
 
+    fn outbound_test_config_hold(enabled: bool, snapshot: &str, hold: i32) -> crate::config::Config {
+        crate::config::Config {
+            enable_night_outbound_switch: enabled,
+            outbound_metric_restore: snapshot.to_string(),
+            outbound_manual_hold_day: hold,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn 出站动作_功能关闭但快照残留按还原处理() {
         // 未处于切换态：关闭状态下无动作（既有语义）
         let idle = outbound_test_config(false, "");
-        assert_eq!(outbound_action_for(&idle, 0, 1380), NightOutboundAction::None);
+        assert_eq!(outbound_action_for(&idle, 0, 1380, 0), NightOutboundAction::None);
         // 快照残留（用户中途关掉开关）：立即还原，不留悬挂的跃点改动
         let leftover = outbound_test_config(false, SNAPSHOT_ONE_ROW);
-        assert_eq!(outbound_action_for(&leftover, 0, 1380), NightOutboundAction::Restore);
-        assert_eq!(outbound_action_for(&leftover, 0, 500), NightOutboundAction::Restore);
+        assert_eq!(outbound_action_for(&leftover, 0, 1380, 0), NightOutboundAction::Restore);
+        assert_eq!(outbound_action_for(&leftover, 0, 500, 0), NightOutboundAction::Restore);
     }
 
     #[test]
     fn 出站动作_开启时沿用跨平台判定() {
         let active = outbound_test_config(true, SNAPSHOT_ONE_ROW);
         // 夜间窗口内切换态：保持（由补齐路径负责重写目标值），不重复切换
-        assert_eq!(outbound_action_for(&active, 0, 1380), NightOutboundAction::None);
+        assert_eq!(outbound_action_for(&active, 0, 1380, 0), NightOutboundAction::None);
         // 恢复窗口内切换态：还原
-        assert_eq!(outbound_action_for(&active, 0, 390), NightOutboundAction::Restore);
+        assert_eq!(outbound_action_for(&active, 0, 390, 0), NightOutboundAction::Restore);
         // 未切换态且过点：切换
         let idle = outbound_test_config(true, "");
-        assert_eq!(outbound_action_for(&idle, 0, 1380), NightOutboundAction::Switch);
+        assert_eq!(outbound_action_for(&idle, 0, 1380, 0), NightOutboundAction::Switch);
         // 未到点：无动作
-        assert_eq!(outbound_action_for(&idle, 0, 1379), NightOutboundAction::None);
+        assert_eq!(outbound_action_for(&idle, 0, 1379, 0), NightOutboundAction::None);
+    }
+
+    #[test]
+    fn 出站动作_手动保持标记冻结当日自动动作() {
+        // hold=today（用户点过「立即切换」）：冻结 evaluate 产出的 Switch——
+        // 否则 23:00 自动切换会与手动切换叠加，把已改动的跃点当原值重新快照
+        let idle = outbound_test_config_hold(true, "", 7);
+        assert_eq!(outbound_action_for(&idle, 0, 1381, 7), NightOutboundAction::None);
+        // 凌晨补切同样被冻结
+        assert_eq!(outbound_action_for(&idle, 0, 200, 7), NightOutboundAction::None);
+        // 次日（hold≠today）：自动切换恢复
+        assert_eq!(outbound_action_for(&idle, 0, 1381, 8), NightOutboundAction::Switch);
+        // hold 不冻结清理分支：关开关时快照残留仍立即还原
+        let leftover = outbound_test_config_hold(false, SNAPSHOT_ONE_ROW, 7);
+        assert_eq!(outbound_action_for(&leftover, 0, 1381, 7), NightOutboundAction::Restore);
+        // hold 在恢复窗内冻结 Restore（用户手动切换当晚不被恢复窗自动还原撤销）
+        let active = outbound_test_config_hold(true, SNAPSHOT_ONE_ROW, 7);
+        assert_eq!(outbound_action_for(&active, 0, 390, 7), NightOutboundAction::None);
+        // hold=0（无保持）：窗口语义不变
+        assert_eq!(outbound_action_for(&active, 0, 390, 0), NightOutboundAction::Restore);
     }
 }
