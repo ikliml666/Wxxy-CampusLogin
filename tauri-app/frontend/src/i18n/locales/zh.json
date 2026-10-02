@@ -224,7 +224,6 @@
     "noIp": "未获取IP",
     "primary": "主适配器",
     "linkSpeed": "连接速度 {{speed}}",
-    "wireless": "无线",
     "wired": "有线",
     "adapterSettings": "适配器设置",
     "adapterSettingsDesc": "配置主副网络适配器",

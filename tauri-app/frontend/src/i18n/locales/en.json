@@ -224,7 +224,6 @@
     "noIp": "No IP",
     "primary": "Primary",
     "linkSpeed": "Link speed {{speed}}",
-    "wireless": "Wireless",
     "wired": "Wired",
     "adapterSettings": "Adapter Settings",
     "adapterSettingsDesc": "Configure primary and secondary network adapters",

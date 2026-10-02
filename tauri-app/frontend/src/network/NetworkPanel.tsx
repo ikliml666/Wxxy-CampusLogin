@@ -59,6 +59,10 @@ const DRAG_DEAD_ZONE_PX = 8
 interface SortableAdapterRowProps {
   adapter: Adapter
   isOutboundTarget: boolean
+  /** 当前系统出站落在本卡（图标角落翡翠圆点；全局态仍在头部徽标） */
+  isCurrentOutbound: boolean
+  /** 主/副适配器角色文案（meta 行前缀；未配置角色为 undefined） */
+  roleLabel?: string
   /** 拖拽结束提交顺序（父组件统一落盘 outboundPriority） */
   onDragEndCommit: () => void
   /** 起拖标记（父组件同步 isDraggingRef，屏蔽外部顺序同步） */
@@ -71,7 +75,7 @@ interface SortableAdapterRowProps {
  * 避免滚动/点击误触发）。children = 行右侧按钮区（按钮区已统一
  * stopPropagation 的 pointerdown，防止点按钮拖走整行）。
  */
-const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, onDragEndCommit, onDragStart, children }: SortableAdapterRowProps) {
+const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, isCurrentOutbound, roleLabel, onDragEndCommit, onDragStart, children }: SortableAdapterRowProps) {
   const { t } = useTranslation()
   const controls = useDragControls()
   const longPressTimer = useRef<number | null>(null)
@@ -150,7 +154,7 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
           )}
         />
         <div className={cn(
-          'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
+          'relative w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
           isOutboundTarget ? 'bg-primary/15' : 'bg-muted',
         )}>
           {adapter.wireless ? (
@@ -158,10 +162,35 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
           ) : (
             <Cable className={cn('h-5 w-5', isOutboundTarget ? 'text-primary' : 'text-muted-foreground')} />
           )}
+          {/* 当前出站：图标角落在线圆点（tooltip 说明；全局态由头部徽标承载） */}
+          {isCurrentOutbound && (
+            <span
+              role="img"
+              aria-label={t('network.currentOutboundBadge')}
+              title={t('network.currentOutboundBadge')}
+              className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-emerald-500 ring-2 ring-background"
+            />
+          )}
         </div>
         <div className="min-w-0">
-          <div className="text-sm font-medium truncate">{adapter.name}</div>
-          <div className="text-xs text-muted-foreground font-mono">{adapter.ip || t('network.noIp')}</div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-sm font-medium truncate">{adapter.name}</span>
+            {/* 夜间出站目标：名称旁月亮标记（行底色同色系；tooltip 兜底说明） */}
+            {isOutboundTarget && (
+              <span
+                role="img"
+                aria-label={t('network.outboundBadge')}
+                title={t('network.outboundBadge')}
+                className="inline-flex shrink-0"
+              >
+                <MoonStar className="h-3.5 w-3.5 text-primary" aria-hidden />
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {roleLabel && <span className="shrink-0">{roleLabel} · </span>}
+            <span className="font-mono">{adapter.ip || t('network.noIp')}</span>
+          </div>
           {formatSpeed(adapter.linkSpeed) && (
             <div className="text-[11px] text-muted-foreground/70">
               {t('network.linkSpeed', { speed: formatSpeed(adapter.linkSpeed) })}
@@ -511,33 +540,41 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {/* 出站簇：当前出站徽标 + 立即切换/还原，收进一个胶囊分组（与右侧夜切开关区分语义） */}
                 {currentOutbound && (
-                  <Badge variant="outline" size="sm" className="border-emerald-500/30 text-emerald-600 hidden md:inline-flex max-w-52 truncate" title={currentOutbound}>
-                    {t('network.currentOutbound', { name: currentOutbound })}
-                  </Badge>
+                  <div className="flex items-center gap-1 rounded-full border bg-muted/40 p-1">
+                    <Badge
+                      variant="outline"
+                      size="sm"
+                      className="border-emerald-500/30 text-emerald-600 bg-transparent hidden md:inline-flex max-w-52 truncate"
+                      title={currentOutbound}
+                    >
+                      {t('network.currentOutbound', { name: currentOutbound })}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={handleOutboundSwitchNow}
+                      disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
+                      title={t('network.outboundSwitchNow')}
+                      aria-label={t('network.outboundSwitchNow')}
+                    >
+                      {switchingOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 text-amber-600" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={handleOutboundRestoreNow}
+                      disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
+                      title={t('network.outboundRestoreNow')}
+                      aria-label={t('network.outboundRestoreNow')}
+                    >
+                      {restoringOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />}
+                    </Button>
+                  </div>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={handleOutboundSwitchNow}
-                  disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
-                  title={t('network.outboundSwitchNow')}
-                  aria-label={t('network.outboundSwitchNow')}
-                >
-                  {switchingOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 text-amber-600" />}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={handleOutboundRestoreNow}
-                  disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
-                  title={t('network.outboundRestoreNow')}
-                  aria-label={t('network.outboundRestoreNow')}
-                >
-                  {restoringOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />}
-                </Button>
                 <MoonStar className="h-4 w-4 text-primary" />
                 <Switch
                   checked={config.enableNightOutboundSwitch}
@@ -570,34 +607,27 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     key={a.name}
                     adapter={a}
                     isOutboundTarget={displayedOrder[0] === a.name}
+                    isCurrentOutbound={currentOutbound === a.name}
+                    roleLabel={a.name === config.adapter1
+                      ? t('network.primary')
+                      : a.name === config.adapter2 && config.dualAdapter
+                        ? t('network.secondary')
+                        : undefined}
                     onDragStart={handleDragStart}
                     onDragEndCommit={handleDragEnd}
                   >
-                    {a.name === config.adapter1 && (
-                      <Badge key="primary" variant="outline" size="sm" className="border-primary/30 text-primary">
-                        {t('network.primary')}
-                      </Badge>
-                    )}
                     {a.name === config.adapter1 && onlineOperatorLabel && (
-                      <Badge key="op-primary" variant="secondary" size="sm" className="gap-1">
+                      <Badge key="op-primary" variant="secondary" size="sm" className="gap-1" title={t(onlineOperatorLabel)}>
                         <IspMark suffix={onlineOperator} />
                         {t(onlineOperatorLabel)}
                       </Badge>
                     )}
-                    {a.name === config.adapter2 && config.dualAdapter && (
-                      <Badge key="secondary" variant="outline" size="sm" className="border-amber-500/30 text-amber-600">
-                        {t('network.secondary')}
-                      </Badge>
-                    )}
                     {a.name === config.adapter2 && config.dualAdapter && secondaryOperatorLabel && (
-                      <Badge key="op-secondary" variant="secondary" size="sm" className="gap-1">
+                      <Badge key="op-secondary" variant="secondary" size="sm" className="gap-1" title={t(secondaryOperatorLabel)}>
                         <IspMark suffix={secondaryOnlineOperator} />
                         {t(secondaryOperatorLabel)}
                       </Badge>
                     )}
-                    <Badge key="conn-type" variant="secondary" size="sm">
-                      {a.wireless ? t('network.wireless') : t('network.wired')}
-                    </Badge>
                     {a.status && a.status !== 'connected' && (
                       <Badge key="status" variant="outline" size="sm" className={cn(
                         a.status === 'disabled' && 'border-red-500/30 text-red-600',
@@ -648,16 +678,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
                         {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
                       </Button>
-                    )}
-                    {displayedOrder[0] === a.name && (
-                      <Badge key="outbound-target" variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
-                        {t('network.outboundBadge')}
-                      </Badge>
-                    )}
-                    {currentOutbound === a.name && (
-                      <Badge key="current-outbound" variant="outline" size="sm" className="border-emerald-500/30 text-emerald-600 shrink-0">
-                        {t('network.currentOutboundBadge')}
-                      </Badge>
                     )}
                   </SortableAdapterRow>
                 ))}
