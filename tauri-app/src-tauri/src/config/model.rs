@@ -87,7 +87,7 @@ pub struct Config {
     pub outbound_standby_route: String,
     /// 「立即切换」当日保持标记（num_days_from_ce；0=无）：手动立即切换先落盘
     /// 当日值再执行动作，冻结当日的自动 Switch/Restore 判定（防 23:00 自动切换
-    /// 叠加成双重切换、防还原窗内自动还原撤销手动切换），次日 6:30 自动还原或
+    /// 叠加成双重切换、防还原窗内自动还原撤销手动切换），次日 7:30 自动还原或
     /// 手动还原成功后清零。与切换态快照同属本机系统状态，导入配置时保留本机值。
     /// 安卓端不消费此字段
     #[serde(rename = "outboundManualHoldDay", default)]
@@ -247,7 +247,7 @@ impl Default for Config {
             dual_adapter: false,
             auto_login_on_start: true,
             // 2026-09-20 起默认关闭：配合夜切（登录成功即退出会让夜切后的进程
-            // 无法常驻，次日 06:30 恢复被推迟到下次启动）；存量显式值不迁移
+            // 无法常驻，次日 07:30 恢复被推迟到下次启动）；存量显式值不迁移
             auto_exit_after_login: false,
             minimize_to_tray: false,
             lightweight_mode: true,

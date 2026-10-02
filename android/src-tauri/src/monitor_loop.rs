@@ -743,7 +743,7 @@ async fn portal_probe_on_little_cores(
 /// - 标记独立存 MONITOR.scheduled_*_day,与掉线重连的 cooldown/熔断计数互不共享;
 ///   到点即置标记(每日单次,成败不重试,避免凭据错误时每拍重发请求刷通知);
 /// - 晚间断网切换判定复用共享纯函数 `config::night_switch::evaluate_night_switch`
-///   (周日/周一 23:00、周五/周六 23:30 切至无锡学院,次日 6:30 起恢复),位于
+///   (周日/周一 23:00、周五/周六 23:30 切至无锡学院,次日 7:30 起恢复),位于
 ///   定时动作双禁用早退之前(夜切开关独立于定时登录/注销)。
 async fn run_scheduled_actions(app: &tauri::AppHandle) {
     let settings = match crate::config_state::current_settings(app).await {

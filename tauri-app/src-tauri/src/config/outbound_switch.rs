@@ -18,10 +18,10 @@ pub enum NightOutboundAction {
 
 /// 夜间出站切换判定（纯函数）：
 /// - `!enabled` → None；
-/// - `restore_active`（切换态）且 now ∈ [390, 1380) → Restore；
-/// - `!restore_active` 且 now < 390（凌晨）→ Switch（补切：机器在切点前后
+/// - `restore_active`（切换态）且 now ∈ [450, 1380) → Restore；
+/// - `!restore_active` 且 now < 450（凌晨）→ Switch（补切：机器在切点前后
 ///   睡眠/关机错过切换时，凌晨视为前一晚切换窗口的尾部——此时校园线路已断、
-///   热点可用；06:30 恢复窗自会收敛，切在 06:29 也在 1 分钟后还原，无害）；
+///   热点可用；07:30 恢复窗自会收敛，切在 06:29 也在 1 分钟后还原，无害）；
 /// - `!restore_active` 且当日有切换时刻且 now >= 时刻（过点补触发）→ Switch；
 /// - 其余（白天、切换态夜间保持）→ None。
 pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, restore_active: bool) -> NightOutboundAction {
@@ -44,11 +44,11 @@ pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, re
 }
 
 /// 夜间出站切换的守护窗口判定（纯函数，桌面巡检闸门用）：
-/// 当日切换时刻（含过点补触发语义）起，至次日 06:30 恢复窗开为止。
+/// 当日切换时刻（含过点补触发语义）起，至次日 07:30 恢复窗开为止。
 /// 用户在切换前手动禁用的手选适配器无 IP、进不了六期闸门名单
 /// （select 只收有 IP 的卡），名单为空时闸门失效，巡检自动启用会顶掉
 /// 切换（2026-09-27 夜实证）；窗口内巡检一律不出自动启用目标，还原交给
-/// 恢复窗的 scheduled.rs。凌晨分支（now < 06:30）覆盖前一晚切换时刻
+/// 恢复窗的 scheduled.rs。凌晨分支（now < 07:30）覆盖前一晚切换时刻
 /// （23:00/23:30）之后的全部时段，跨日天然成立。
 pub fn is_night_outbound_guard_window(enabled: bool, weekday: u32, now_minutes: u32) -> bool {
     if !enabled {
@@ -73,7 +73,7 @@ pub fn outbound_restore_active(metric_restore: &str, disabled_adapters: &str, st
 mod tests {
     use super::*;
 
-    // 七期守护窗口：[当日切换时刻, 次日 06:30 恢复窗开)
+    // 七期守护窗口：[当日切换时刻, 次日 07:30 恢复窗开)
     #[test]
     fn guard_window_covers_switch_time_to_restore_start() {
         // 周日 23:00 起守护，22:59 不守护
@@ -82,10 +82,10 @@ mod tests {
         // 周五/周六 23:30 起，23:29 不守护
         assert!(is_night_outbound_guard_window(true, 5, 1410));
         assert!(!is_night_outbound_guard_window(true, 5, 1409));
-        // 凌晨跨日：前一晚切换后凌晨仍守护，06:30 恢复窗开即出窗
+        // 凌晨跨日：前一晚切换后凌晨仍守护，07:30 恢复窗开即出窗
         assert!(is_night_outbound_guard_window(true, 0, 0));
-        assert!(is_night_outbound_guard_window(true, 6, 389));
-        assert!(!is_night_outbound_guard_window(true, 0, 390));
+        assert!(is_night_outbound_guard_window(true, 6, 449));
+        assert!(!is_night_outbound_guard_window(true, 0, 450));
         // 白天不守护
         assert!(!is_night_outbound_guard_window(true, 0, 600));
         // 功能关闭一律不守护
@@ -125,11 +125,11 @@ mod tests {
 
     #[test]
     fn restore_fires_in_restore_window_only() {
-        // 06:30 起、restore 非空 → Restore
-        assert_eq!(evaluate_night_outbound(true, 0, 390, true), NightOutboundAction::Restore);
+        // 07:30 起、restore 非空 → Restore
+        assert_eq!(evaluate_night_outbound(true, 0, 450, true), NightOutboundAction::Restore);
         assert_eq!(evaluate_night_outbound(true, 3, 1379, true), NightOutboundAction::Restore);
         // 06:29 未到恢复窗口（切换态凌晨保持，不提前还原）
-        assert_eq!(evaluate_night_outbound(true, 0, 389, true), NightOutboundAction::None);
+        assert_eq!(evaluate_night_outbound(true, 0, 449, true), NightOutboundAction::None);
         // 恢复窗口内已还原（restore 空）
         assert_eq!(evaluate_night_outbound(true, 0, 500, false), NightOutboundAction::None);
     }
@@ -139,12 +139,12 @@ mod tests {
         // 凌晨（00:00–06:29）未处于切换态 → 视为前一晚窗口尾，补切
         assert_eq!(evaluate_night_outbound(true, 0, 0, false), NightOutboundAction::Switch);
         assert_eq!(evaluate_night_outbound(true, 5, 100, false), NightOutboundAction::Switch);
-        assert_eq!(evaluate_night_outbound(true, 0, 389, false), NightOutboundAction::Switch);
-        // 切换态凌晨保持（等 06:30 恢复窗），不重复切换
+        assert_eq!(evaluate_night_outbound(true, 0, 449, false), NightOutboundAction::Switch);
+        // 切换态凌晨保持（等 07:30 恢复窗），不重复切换
         assert_eq!(evaluate_night_outbound(true, 0, 100, true), NightOutboundAction::None);
         // 功能关闭不补切
         assert_eq!(evaluate_night_outbound(false, 0, 100, false), NightOutboundAction::None);
-        // 白天（≥390）未到切点仍不切
+        // 白天（≥450）未到切点仍不切
         assert_eq!(evaluate_night_outbound(true, 0, 600, false), NightOutboundAction::None);
     }
 }

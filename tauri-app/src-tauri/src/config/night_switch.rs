@@ -6,8 +6,8 @@
 //! （`night_operator_restore` 非空 + `operator` 为空 = 当前处于无锡学院切换态），
 //! 因此无需当日去重标记，天然幂等——重复调用不会重复写配置。
 
-/// 恢复窗口起点 06:30（含）
-pub(crate) const RESTORE_START_MINUTES: u32 = 390;
+/// 恢复窗口起点 07:30（含）
+pub(crate) const RESTORE_START_MINUTES: u32 = 450;
 /// 恢复窗口终点 23:00（不含，恰为最早的切换时刻，两窗口无缝衔接）
 pub(crate) const RESTORE_END_MINUTES: u32 = 1380;
 
@@ -42,7 +42,7 @@ fn is_switchable_operator(operator: &str) -> bool {
 /// - `!enabled`：功能关闭，一律 None；
 /// - 恢复：`restore_operator` 非空（处于切换态）且当前 operator 为空串（确实在
 ///   无锡学院态，用户手动切回的场景不误恢复）且 `now_minutes` 落在恢复窗口
-///   `[06:30, 23:00)` 内 → Restore；
+///   `[07:30, 23:00)` 内 → Restore；
 /// - 切换：当日有切换时刻且 `now_minutes >= 时刻`（含过点补触发，循环拍间隔/
 ///   系统休眠可能错过精确分钟）且当前 operator 为白名单 ISP 后缀
 ///   （`is_switchable_operator`：@telecom/@unicom/@cmcc；已是无锡学院（空串）
@@ -152,8 +152,8 @@ mod tests {
 
     #[test]
     fn 恢复窗口内_切换态_恢复() {
-        // 窗口起点 06:30、午间、终点前一分钟
-        assert_eq!(eval(true, 1, 390, "", TELECOM), Restore);
+        // 窗口起点 07:30、午间、终点前一分钟
+        assert_eq!(eval(true, 1, 450, "", TELECOM), Restore);
         assert_eq!(eval(true, 2, 600, "", TELECOM), Restore);
         assert_eq!(eval(true, 6, 1379, "", TELECOM), Restore);
     }
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn 恢复窗口外_不恢复() {
         // 06:29 尚未到窗口
-        assert_eq!(eval(true, 1, 389, "", TELECOM), None);
+        assert_eq!(eval(true, 1, 449, "", TELECOM), None);
         // 23:00 已出窗口（且恰好是切换时刻，但 operator 为空不重复切）
         assert_eq!(eval(true, 0, 1380, "", TELECOM), None);
         // 次日凌晨（周日 00:10）不恢复
@@ -204,10 +204,10 @@ mod tests {
     fn 已切换态_窗口内每拍持续判定为恢复_幂等不重复写配置() {
         // 判定语义：窗口内重复调用始终返回 Restore，由调用方在恢复成功后
         // 清空 restore 使下一拍回到 None，保证写配置只发生一次
-        let first = eval(true, 1, 390, "", TELECOM);
+        let first = eval(true, 1, 450, "", TELECOM);
         assert_eq!(first, Restore);
         // 模拟调用方已清空 restore 后的下一拍
-        assert_eq!(eval(true, 1, 390, "", ""), None);
+        assert_eq!(eval(true, 1, 450, "", ""), None);
     }
 
     // ===== chkstatus 解析与 uid 核对 =====

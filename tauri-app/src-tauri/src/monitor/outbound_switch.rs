@@ -139,7 +139,7 @@ pub fn parse_standby_route(json: &str) -> Option<StandbyRoute> {
 /// 该卡是否不能参与夜间禁用：实例 ID 都读不到的卡（总线无法判定）保守跳过。
 /// 注：USB 总线网卡不再排除——用户明确要求夜间禁用副适配器（本机副卡即 USB
 /// 2.5G 网卡），运行期 netsh disable/enable 对称已实证（2026-10-01 夜切日志），
-/// 6:30 还原/启动对账/看门狗/手动启用按钮（含 pnputil 设备级启用兜底）构成
+/// 7:30 还原/启动对账/看门狗/手动启用按钮（含 pnputil 设备级启用兜底）构成
 /// 安全网；跨重启残留由启动对账收敛。
 #[cfg(target_os = "windows")]
 pub(crate) fn unsafe_to_disable(guid: &str) -> bool {

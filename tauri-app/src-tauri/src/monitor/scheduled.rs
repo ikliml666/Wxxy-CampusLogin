@@ -266,7 +266,7 @@ fn outbound_switch_active(app_handle: &AppHandle) -> bool {
 /// 直到下次应用启动对账）；
 /// ② 「立即切换」当日保持：手动切换落盘的 hold 标记冻结当日的自动 Switch/Restore
 /// 判定（否则 23:00 自动切换会叠加成双重切换、还原窗内的自动还原会立即撤销
-/// 手动切换），次日 6:30 自动恢复原有生命周期。清理分支（①）不受冻结——
+/// 手动切换），次日 7:30 自动恢复原有生命周期。清理分支（①）不受冻结——
 /// 开关被关闭时清理必须能跑。
 fn outbound_action_for(
     config: &crate::config::Config,
@@ -295,7 +295,7 @@ fn outbound_action_for(
     evaluated
 }
 
-/// 恢复窗口 [06:30, 23:00)：窗内是"清晨还原期"，窗外是"夜间切换期"
+/// 恢复窗口 [07:30, 23:00)：窗内是"清晨还原期"，窗外是"夜间切换期"
 /// （时间表常量由 config::night_switch 承载，双端同源）
 fn in_outbound_restore_window(now_minutes: u32) -> bool {
     (RESTORE_START_MINUTES..RESTORE_END_MINUTES).contains(&now_minutes)
@@ -596,7 +596,7 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
     // 要临时禁用的校园网卡：目标卡之外、在优先级列表内、在网且判定为校园网。
     // bus_guard 平台注入（非 Windows 恒放行，本功能桌面侧仅 Windows 有完整实现）：
     // 仅跳过「总线类型无法判定」的卡——USB 网卡不再排除（2026-10 用户确认其
-    // USB 副卡应参与禁用；运行期 disable/enable 对称性已实证，且 6:30 还原、
+    // USB 副卡应参与禁用；运行期 disable/enable 对称性已实证，且 7:30 还原、
     // 启动对账、看门狗、手动启用构成多重安全网）
     #[cfg(target_os = "windows")]
     let bus_guard: fn(&str) -> bool = crate::monitor::outbound_switch::unsafe_to_disable;
@@ -1834,7 +1834,7 @@ mod tests {
         // 夜间窗口内切换态：保持（由补齐路径负责重写目标值），不重复切换
         assert_eq!(outbound_action_for(&active, 0, 1380, 0), NightOutboundAction::None);
         // 恢复窗口内切换态：还原
-        assert_eq!(outbound_action_for(&active, 0, 390, 0), NightOutboundAction::Restore);
+        assert_eq!(outbound_action_for(&active, 0, 450, 0), NightOutboundAction::Restore);
         // 未切换态且过点：切换
         let idle = outbound_test_config(true, "");
         assert_eq!(outbound_action_for(&idle, 0, 1380, 0), NightOutboundAction::Switch);
@@ -1857,8 +1857,8 @@ mod tests {
         assert_eq!(outbound_action_for(&leftover, 0, 1381, 7), NightOutboundAction::Restore);
         // hold 在恢复窗内冻结 Restore（用户手动切换当晚不被恢复窗自动还原撤销）
         let active = outbound_test_config_hold(true, SNAPSHOT_ONE_ROW, 7);
-        assert_eq!(outbound_action_for(&active, 0, 390, 7), NightOutboundAction::None);
+        assert_eq!(outbound_action_for(&active, 0, 450, 7), NightOutboundAction::None);
         // hold=0（无保持）：窗口语义不变
-        assert_eq!(outbound_action_for(&active, 0, 390, 0), NightOutboundAction::Restore);
+        assert_eq!(outbound_action_for(&active, 0, 450, 0), NightOutboundAction::Restore);
     }
 }
