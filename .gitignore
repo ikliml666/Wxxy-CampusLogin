@@ -43,6 +43,10 @@ temp/
 asar_check2/
 asar_restore/
 
+# 会话临时产物(截图预览/构建实验,2026-10-02 用户确认清理并忽略)
+preview-shots/
+target-tmp/
+
 # Runtime data
 config.json
 
