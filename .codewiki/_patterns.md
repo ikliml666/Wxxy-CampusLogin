@@ -193,9 +193,9 @@ tags: [模式, 约定]
 
 - 渲染存活判定（双端逐字相同，提交 `266624b`）：`lib/renderLiveness.ts:36-40` 的 `isRenderLoopAlive()` 距上次探测超过 `PROBE_REFRESH_MS = 4_000`（`:18`）才经 `startProbe()`（`:24-34`）开一个 2 帧（≈33ms）的 rAF 窗口刷新时间戳；`probing` 防重入、`PROBE_TIMEOUT_MS = 500`（`:20`）兜底复位，10s 停滞判定语义不变。桌面 `tauri-app/frontend/src/lib/renderLiveness.ts`、安卓 `android/frontend/src/lib/renderLiveness.ts`。
 - 帧率轮询（安卓独有，提交 `02b0a74`）：`android/frontend/src/hooks/useAdaptiveFramePace.ts:64` 用 `window.setInterval(applyPace, PACE_POLL_MS)`（`PACE_POLL_MS = 250`，`:18`）替代原 rAF 递归轮询；交互起始由 passive 监听回调 `markInteraction()`（`:26-29`）即时提帧，轮询只承担松手后的静止回落（档位未变时空操作，`:38-45`）。
-- 系统锁按需持有（安卓，提交 `fac6407`）：巡检每拍 `monitor_loop.rs:630-635` 调 `begin_probe_window()` 并挂 `ProbeWindowGuard`，Drop 必调 `end_probe_window()`（guard 定义 `:497-508`）；Kotlin 侧 `ForegroundService.acquireProbeLocks()`（`ForegroundService.kt:121-142`）持 `WIFI_MODE_FULL_HIGH_PERF` WifiLock + 带 30s 上限的 `PARTIAL_WAKE_LOCK`，`releaseProbeLocks()`（`:146-156`）在窗口外全部释放——原实现在 `onCreate` 里常驻 acquire。
-- 事件唤醒去重（安卓）：`ForegroundService.kt:198-206` 仅在"关注字段"（`TRANSPORT_WIFI` / `TRANSPORT_CELLULAR` / `NET_CAPABILITY_VALIDATED` 位掩码）翻转时才短持唤醒锁，5s 节流（`:36`）降为第二道闸（`onCapabilitiesChanged` 在弱信号下每秒多条连发）。
-- 巡检频率分档（安卓，提交 `07d7bf5`）：`monitor_loop.rs:61-68` 的纯函数 `effective_interval_ms(base, idle, screen_on, wifi_connected)`——唤醒周期恒为基础间隔（保证亮屏/回 WiFi 后最迟一拍恢复），蜂窝或灭屏时由循环体 `continue` 跳拍（`:544-553`）；电源状态经插件 `get_power_state()` 查询，失败按保守值 `(true, true)`（`monitor_loop.rs:510-524`）。
+- 系统锁按需持有（安卓，提交 `fac6407`）：巡检每拍 `monitor_loop.rs:1296-1297` 调 `begin_probe_window()` 并挂 `ProbeWindowGuard`，Drop 必调 `end_probe_window()`（guard 定义 `:554-561`）；Kotlin 侧 `ForegroundService.acquireProbeLocks()`（`ForegroundService.kt:172-194`）持 `WIFI_MODE_FULL_HIGH_PERF` WifiLock + 带 30s 上限的 `PARTIAL_WAKE_LOCK`，`releaseProbeLocks()`（`:196-206`）在窗口外全部释放——原实现在 `onCreate` 里常驻 acquire。
+- 事件唤醒去重（安卓）：`ForegroundService.kt:249-253`（`onCapabilitiesChanged`）仅在"关注字段"（`TRANSPORT_WIFI` / `TRANSPORT_CELLULAR` / `NET_CAPABILITY_VALIDATED` 位掩码，掩码构建 `:250-252`）翻转时才短持唤醒锁，5s 节流（`NUDGE_THROTTLE_MS` `:39`）降为第二道闸（`onCapabilitiesChanged` 在弱信号下每秒多条连发）。
+- 巡检频率分档（安卓，提交 `07d7bf5`）：`monitor_loop.rs:83` 的纯函数 `effective_interval_ms(base, idle, screen_on, wifi_connected)`——唤醒周期恒为基础间隔（保证亮屏/回 WiFi 后最迟一拍恢复），蜂窝或灭屏时由循环体 `continue` 跳拍（`:604-609`）；电源状态经插件 `get_power_state()` 查询，失败按保守值 `(true, true)`（`monitor_loop.rs:571`）。
 - 空闲冻结（安卓 CSS）：`.anim-idle .animate-pulse` 独立成规则（`android/frontend/src/index.css:718-720`），保证用户 2s 无输入后脉冲动画真的停（该规则此前因逗号选择器共享 body 而失效，见 [[css-comma-selector-shared-body-pitfall]]）。
 
 **为什么**：常驻 rAF 会让 Chromium 视页面为"有活跃动画"、按刷新率持续派发 BeginFrame，合成器永不休眠——**用 rAF 做的帧率控制器本身阻止了合成器休眠**；常驻 `WIFI_MODE_FULL_HIGH_PERF` 则让系统永不进入 WiFi 省电（CDD 对持锁期另有要求）。正确性护栏：能拉长/跳过的只能是"可重新发现"的检测——WiFi 事件仍即时触发检测、无明确离线证据时在线状态保持上一拍记忆、电源状态查询失败一律按最保守档处理（省电是优化项，漏检是功能缺陷）。
@@ -208,12 +208,12 @@ tags: [模式, 约定]
 
 **在哪里出现**：
 
-- 动态间隔：桌面 `monitor/background_task.rs:29-49`（每轮读 `cfg.background_check_interval.max(10000)` 重建计时器）、安卓 `monitor_loop.rs:538-543`（比对 `desired_interval_ms` 重建）。
-- 固定周期常量：`monitor/adapter_watch.rs:8` 的 `ADAPTER_WATCH_INTERVAL = 15000`、`network/adapter_cache.rs:242` 的 4s 缓存刷新、`app/heartbeat.rs:12-13` 的 5s 检测 + 20s 陈旧阈值。
-- 抗漂移/背压选择：`monitor/latency.rs:59` 用 `MissedTickBehavior::Delay`（避免耗时超周期时连发补 tick），`:79-90` 是"就绪前每 2s 短重试、不消耗周期"的内循环。
-- 节流常量：网络状态变更通知 60000ms（`monitor/background_emit.rs:95`，`Acquire`/`Release` 读写）、适配器禁用警告 60000ms（`monitor/adapter_watch.rs:110-116`，`Relaxed` 读写——见偏差清单）、自动启用退避阶梯 `0/60_000/120_000/300_000`（`monitor/adapter_watch.rs:223-230`）。
+- 动态间隔：桌面 `monitor/background_task.rs:29-49`（每轮读 `cfg.background_check_interval.max(10000)` 重建计时器）、安卓 `monitor_tick_loop.rs:596-615`（每轮从 `MONITOR` 重读 `desired_interval_ms`/`idle_interval_ms`，比对重建）。
+- 固定周期常量：`monitor/adapter_watch.rs:9` 的 `ADAPTER_WATCH_INTERVAL = 15000`、`network/adapter_cache.rs:242` 的 4s 缓存刷新、`app/heartbeat.rs:12-13` 的 5s 检测 + 20s 陈旧阈值。
+- 抗漂移/背压选择：`monitor/latency.rs:63` 用 `MissedTickBehavior::Delay`（避免耗时超周期时连发补 tick），`:97` 附近是"就绪前每 2s 短重试、不消耗周期"的内循环。
+- 节流常量：网络状态变更通知 60000ms（`monitor/background_emit.rs:99`，`Acquire`/`Release` 读写）、适配器禁用警告 60000ms（`monitor/adapter_watch.rs:129`，`Relaxed` 读写——见偏差清单）、自动启用退避阶梯 `0/60_000/120_000/300_000`（`monitor/adapter_watch.rs:292-299`）。
 - 复核窗口：`monitor/quality_scheduler.rs:12-13` 的 `SPIKE_CONFIRM_COUNT = 2` + `SPIKE_CONFIRM_INTERVAL_SECS = 15`（质量转差要连续两次确认才告警）。
-- 安卓侧同类：`monitor_loop.rs:44/47` 的 WiFi 事件延迟 2500ms + 去抖 1000ms、`:61-68` 的 `effective_interval_ms` 分档（基础间隔 + 闲时间隔双档）、`:163-166` 在 `start_background_check` 里把两个间隔一起从配置刷进 `MONITOR`（`desired_interval_ms` / `idle_interval_ms`），循环体逐 tick 重读（`:538-553`）。
+- 安卓侧同类：`monitor_loop.rs:61/:69` 的 WiFi 事件延迟 2500ms（`WIFI_EVENT_DELAY_MS`）+ 去抖 1000ms（`WIFI_EVENT_DEBOUNCE_MS`）、`:83` 的 `effective_interval_ms` 分档（基础间隔 + 闲时间隔双档）、`:197-199` 在 `start_background_check`（`:194`）里把两个间隔一起从配置刷进 `MONITOR`（`desired_interval_ms` / `idle_interval_ms`），循环体 `monitor_tick_loop`（`:580`）逐 tick 重读（`:596`/`:604`）。
 
 **为什么**：巡检是长驻循环，配置热更新与用户可感知的节流是"能不能长期挂着跑"的前提；`Delay` 语义与就绪内循环是"网络没起来时不刷屏、不空转计数"的取舍。
 

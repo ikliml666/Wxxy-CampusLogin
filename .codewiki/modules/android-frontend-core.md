@@ -90,14 +90,14 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `App`（default export） | `App.tsx:296` | 根组件。调用 `useFormFactor()`（`App.tsx:297`）判定形态，`tablet` 渲染 `<TabletShell />`、否则 `<AppInner />`（`App.tsx:301`）；外层包 `ErrorBoundary` + `AnimationActiveProvider`，并在双外壳之外单例挂载 `<FaceCaptureDialog />`（`App.tsx:303`） |
-| `AppInner`（未导出，模块内组件） | `App.tsx:47` | 手机移动外壳：顶部轻 header（安全点 + 质量胶囊 + 心跳赞助/设置/主题/关于四图标，`App.tsx:164-200`）、单列滚动主区（`App.tsx:203-224`）、首页快捷登录条（`App.tsx:227-231`）、`BottomNav`（`App.tsx:233`）、概览/账号/自助/质量/更多 五 tab 切换（`App.tsx:110-154`） |
+| `App`（default export） | `App.tsx:380` | 根组件。调用 `useFormFactor()`（`App.tsx:381`）判定形态，`tablet` 渲染 `<TabletShell />`、否则 `<AppInner />`（`App.tsx:385`）；外层包 `ErrorBoundary` + `AnimationActiveProvider`，并在双外壳之外单例挂载 `<FaceCaptureDialog />`（`App.tsx:387`） |
+| `AppInner`（未导出，模块内组件） | `App.tsx:53` | 手机移动外壳：顶部轻 header（安全点 + 质量胶囊 + 心跳赞助/设置/主题/关于四图标，`App.tsx:208-254`）、单列滚动主区（`App.tsx:286-314`）、首页快捷登录/注销条（`App.tsx:257-262`）、`BottomNav`（`App.tsx:316`）、概览/账号/自助/质量/监控/更多 六个面板切换（`App.tsx:154-198`） |
 
 `main.tsx` 无导出，执行顺序即其职责：
 
 | 位置 | 内容 |
 | --- | --- |
-| `main.tsx:17-19` | `gsap.defaults({ease:'expo.out'})`、`gsap.config({autoSleep:5,nullTargetWarn:false})`、`gsap.ticker.lagSmoothing(500,33)`；注释说明不设全局 `force3D` |
+| `main.tsx:16-19` | `gsap.defaults({ease:'expo.out'})`、`gsap.config({autoSleep:5,nullTargetWarn:false})`、`gsap.ticker.lagSmoothing(500,33)`；注释说明不设全局 `force3D` |
 | `main.tsx:21-25` | `prefers-reduced-motion` 命中时 `duration:0` + `lagSmoothing(0)` |
 | `main.tsx:27-41` / `main.tsx:43` | `initTheme()`：读 `campus-light-mode` 切 `dark` class 与 `data-light` 属性，读 `campus-theme` 加 `theme-<name>` class；模块加载即执行（防主题闪烁） |
 | `main.tsx:45-111` / `main.tsx:113` | `setupCrashRecovery()`：`root` 空且可见时重载（≤3 次，`main.tsx:59-66`）；`GPU/WebGL/SharedArrayBuffer` 报错重载（`main.tsx:68-74`）；可见性切换停/启 `gsap.globalTimeline`（`main.tsx:79-88`）；1s 心跳更新（渲染链失活则跳过，`main.tsx:90-100`）；2s 检测心跳丢失 >10s 触发恢复（`main.tsx:102-110`） |
@@ -113,95 +113,100 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `SocInfo` | `tauriApi.ts:27` | SoC 分级信息接口 |
 | `BatteryOptimizationInfo` | `tauriApi.ts:34` | 电池优化白名单状态接口 |
 | `VendorSettingsResult` | `tauriApi.ts:40` | 厂商省电页跳转结果接口 |
-| `tauriApiWithRetry` | `tauriApi.ts:326` | 生产使用的 API 对象：`...tauriApi` 展开后仅覆写 `saveConfig` 包重试（`tauriApi.ts:331`） |
+| `tauriApiWithRetry` | `tauriApi.ts:358` | 生产使用的 API 对象：`...tauriApi` 展开后仅覆写 `saveConfig` 包重试（`tauriApi.ts:363`） |
 
-内部（未导出，但被全仓引用的是 `tauriApiWithRetry`）：`desktopOnly`（`tauriApi.ts:14`，桌面专属命令统一 reject）、`noopListener`（`tauriApi.ts:18`，桌面专属事件返回 no-op 清理函数）、`ConnectionCampusStatus`（`tauriApi.ts:20`）、`CampusStatusResult`（`tauriApi.ts:46`）、`TauriApi` 接口（`tauriApi.ts:56-137`，含安卓恒 reject 的 `exportConfig`/`importConfig`/`exportDiagnostics`（60-62）与 `resetDns`（133））、`tauriApi` 常量实现对象（`tauriApi.ts:171-294`）、`createEventListener`（`tauriApi.ts:140`，具名事件订阅工厂，处理「listen 未完成即取消」）、`isRetryableError`（`tauriApi.ts:296`）、`withRetry`（`tauriApi.ts:308`）。
+内部（未导出，但被全仓引用的是 `tauriApiWithRetry`）：`desktopOnly`（`tauriApi.ts:14`，桌面专属命令统一 reject）、`noopListener`（`tauriApi.ts:18`，桌面专属事件返回 no-op 清理函数）、`ConnectionCampusStatus`（`tauriApi.ts:20`）、`CampusStatusResult`（`tauriApi.ts:46`）、`TauriApi` 接口（`tauriApi.ts:56-148`，含安卓恒 reject 的 `exportConfig`/`importConfig`/`exportDiagnostics`（60-62）与 `resetDns`（137））、`tauriApi` 常量实现对象（`tauriApi.ts:197-326`）、`createEventListener`（`tauriApi.ts:166`，具名事件订阅工厂，处理「listen 未完成即取消」）、`isRetryableError`（`tauriApi.ts:328`）、`withRetry`（`tauriApi.ts:340`）。
 
-`TauriApi` 全部方法（声明在 `tauriApi.ts:56-137`，实现在 `tauriApi.ts:171-294`）：
+`TauriApi` 全部方法（声明在 `tauriApi.ts:56-148`，实现在 `tauriApi.ts:197-326`）：
 
 | 方法 | 声明行 | 实现行 | 安卓行为 |
 | --- | --- | --- | --- |
-| `getConfig` | 57 | 172 | `invoke('get_config')` |
-| `saveConfig(config, clearPassword?, clearSelfPassword?)` | 58 | 173 | `invoke('save_config', {config, clearPassword, clearSelfPassword})` |
-| `getAdapters(force?)` | 63 | 177 | `desktopOnly` → reject |
-| `getDisabledAdapters` | 64 | 178 | `desktopOnly` → reject |
-| `enableAdapter(adapterName)` | 65 | 179 | `desktopOnly` → reject |
-| `getAdapterDetails` | 66 | 180 | `desktopOnly` → reject |
-| `bindToWifi` | 67 | 181 | `invoke('bind_to_wifi')`，返回 `{bound}` |
-| `checkPortalStatus(adapterIp)` | 68 | 182 | `invoke('check_portal_status',{adapterIp})`（安卓传空串走缓存源 IP） |
-| `checkCampusStatus` | 69 | 183 | `invoke('check_campus_status')` |
-| `doLogin(adapterName?)` | 70 | 184 | `invoke('do_login',{adapterName})` |
-| `doLogout(adapterName?)` | 71 | 185 | `invoke('do_logout',{adapterName})` |
-| `bindOperator(params)` | 72 | 186 | `invoke('bind_operator', ...params)` |
-| `getBindStatus(params)` | 73 | 187 | `invoke('query_bind_status', ...params)` |
-| `verifyWindowsIdentity(params)` | 74 | 188-219 | 生物识别门：`allow2dFaceVerify && hasTemplate()` 且系统生物识别不可用时走 2D 人脸（`tauriApi.ts:192-215`），否则 `biometricAuthenticate(msg,{allowDeviceCredential:true})`（`tauriApi.ts:217`）后 `invoke('verify_biometric_identity')`（`tauriApi.ts:218`） |
-| `revealOperatorCredential(params)` | 75 | 220 | `invoke('reveal_operator_credential', ...params)` |
-| `querySelfDashboard(params)` | 76 | 221 | `invoke('query_self_dashboard', ...params)` |
-| `selfOfflineSession(params)` | 77 | 222 | `invoke('self_offline_session', ...params)` |
-| `querySelfOnlineLog(params)` | 78 | 223 | `invoke('query_self_online_log', ...params)` |
-| `minimizeWindow` | 79 | 224 | `desktopOnly` → reject |
-| `closeWindow` | 80 | 225 | `desktopOnly` → reject |
-| `onBackgroundCheckResult(cb)` | 81 | 226 | `listen('background-check-result')` |
-| `onAutoLoginResult(cb)` | 82 | 227 | `listen('auto-login-result')` |
-| `onAdaptersChanged(cb)` | 83 | 228 | `noopListener`（永不触发） |
-| `onAdapterDetailsChanged(cb)` | 84 | 229 | `noopListener` |
-| `onDisabledAdaptersChanged(cb)` | 85 | 230 | `noopListener` |
-| `onAdapterDisabledWarning(cb)` | 86 | 231 | `noopListener` |
-| `onLoginLog(cb)` | 87 | 232 | `listen('login-log')` |
-| `listAccounts` | 88 | 235 | `invoke('list_accounts')` → `AccountItem[]`（`{id, displayName}`） |
-| `switchAccount(accountName)` | 89 | 236 | `invoke('switch_account',{accountName})` |
-| `saveCurrentAsAccount(accountName)` | 90 | 237 | `invoke('save_current_as_account',{accountName})` |
-| `deleteAccount(accountName)` | 91 | 238 | `invoke('delete_account',{accountName})` |
-| `renameAccount({accountId, displayName})` | 93 | 239 | `invoke('rename_account',{accountId,displayName})` → `AccountResult`（校验失败 `success=false`） |
-| `getActiveAccount` | 94 | 240 | `invoke('get_active_account')` |
-| `startBackgroundCheck` | 95 | 241 | `invoke('start_background_check')` |
-| `stopBackgroundCheck` | 96 | 242 | `invoke('stop_background_check')` |
-| `triggerBackgroundCheck` | 97 | 243 | `invoke('trigger_background_check')` |
-| `getBackgroundStatus` | 98 | 244 | `invoke('get_background_status')` |
-| `dhcpRenewAll` | 99 | 245 | `desktopOnly` → reject |
-| `dhcpReleaseRenew` | 100 | 246 | `desktopOnly` → reject |
-| `dhcpReleaseRenewAdapter(adapterName)` | 101 | 247 | `desktopOnly` → reject |
-| `checkNetworkQuality` | 102 | 248 | `invoke('check_network_quality')` |
-| `onNetworkQualityResult(cb)` | 103 | 249 | `listen('network-quality-result')` |
-| `startLatencyTest` | 104 | 250 | `invoke('start_latency_test')` |
-| `stopLatencyTest` | 105 | 251 | `invoke('stop_latency_test')` |
-| `openExternal(url)` | 106 | 252-262 | 校验协议（仅 http/https）、长度 ≤2048、`new URL` 可解析后调 `@tauri-apps/plugin-opener` 的 `openUrl` |
-| `getAutoLaunch` | 107 | 264 | `invoke('get_boot_autostart')` |
-| `setAutoLaunch(enabled)` | 108 | 265 | `invoke('set_boot_autostart')` 后包成 `{success:true}` |
-| `getNotificationEnabled` | 109 | 266 | `invoke('get_notification_enabled')` |
-| `setNotificationEnabled(enabled)` | 110 | 267 | `invoke('set_notification_enabled')` |
-| `getBatteryOptimizationInfo` | 111 | 268 | `invoke('get_battery_optimization_info')`（安卓专属） |
-| `requestIgnoreBatteryOptimizations` | 112 | 269 | `invoke('request_ignore_battery_optimizations')`（安卓专属） |
-| `openVendorBatterySettings` | 113 | 270 | `invoke('open_vendor_battery_settings')`（安卓专属） |
-| `cancelAutoExit` | 114 | 271 | `desktopOnly` → reject |
-| `onAutoExitCountdown(cb)` | 115 | 272 | `noopListener` |
-| `onAutoExitCancelled(cb)` | 116 | 273 | `noopListener` |
-| `onCampusExitCountdown(cb)` | 117 | 274 | `noopListener` |
-| `onCampusExitCancelled(cb)` | 118 | 275 | `noopListener` |
-| `onConfigChanged(cb)` | 119 | 276 | `listen('config-changed')` |
-| `showWindow` | 120 | 277 | `desktopOnly` → reject |
-| `getLogs(lines?)` | 121 | 278 | `invoke('get_logs',{lines})` |
-| `clearLogs` | 122 | 279 | `invoke('clear_logs')` |
-| `getDebugMode` | 123 | 280 | `invoke('get_debug_mode')` |
-| `setDebugMode(enabled)` | 124 | 281 | `invoke('set_debug_mode')` |
-| `getInitData` | 125 | 282 | `invoke('get_init_data')` |
-| `getSocInfo` | 126 | 283 | `invoke('get_soc_info')`（安卓专属） |
-| `checkUpdate` | 125 | 281 | `invoke('check_update')` |
-| `downloadUpdate(url)` | 126 | 282 | `invoke('download_update',{url})` |
-| `installUpdate(filePath, checksumUrl?)` | 127 | 283 | `invoke('install_update',{filePath, checksumUrl})` |
-| `getMirrorUrls(githubUrl)` | 128 | 284 | `invoke('get_mirror_urls',{githubUrl})` |
-| `onDownloadProgress(cb)` | 129 | 285 | `listen('update-download-progress')` |
-| `onUpdateAvailable(cb)` | 130 | 286 | `listen('update-available')` |
-| `checkDnsDohStatus` | 131 | 288 | `desktopOnly` → reject |
-| `setupDnsDoh(family?)` | 132 | 289 | `desktopOnly` → reject |
-| `renderHeartbeat` | 134 | 290 | `desktopOnly` → reject（安卓无后端重载 WebView 机制） |
-| `getGpuInfo` | 135 | 291 | `desktopOnly` → reject |
-| `getLogRetentionDays` | 136 | 292 | `invoke('get_log_retention_days')` |
-| `setLogRetentionDays(days)` | 137 | 293 | `invoke('set_log_retention_days',{days})` |
-| `exportConfig(includePassword?)` | 60 | 174-176 | `desktopOnly` → reject（桌面专属：导出配置） |
-| `importConfig(path)` | 61 | 174-176 | `desktopOnly` → reject（桌面专属：导入配置） |
-| `exportDiagnostics(days?)` | 62 | 174-176 | `desktopOnly` → reject（桌面专属：导出诊断包） |
-| `resetDns()` | 133 | 287 | `desktopOnly` → reject（桌面专属：恢复默认 DNS） |
+| `getConfig` | 57 | 198 | `invoke('get_config')` |
+| `saveConfig(config, clearPassword?, clearSelfPassword?)` | 58 | 199 | `invoke('save_config', {config, clearPassword, clearSelfPassword})` |
+| `getAdapters(force?)` | 63 | 203 | `desktopOnly` → reject |
+| `getDisabledAdapters` | 64 | 204 | `desktopOnly` → reject |
+| `enableAdapter(adapterName)` | 65 | 205 | `desktopOnly` → reject |
+| `getAdapterDetails` | 66 | 206 | `desktopOnly` → reject |
+| `bindToWifi` | 67 | 207 | `invoke('bind_to_wifi')`，返回 `{bound}` |
+| `checkPortalStatus(adapterIp)` | 68 | 208 | `invoke('check_portal_status',{adapterIp})`（安卓传空串走缓存源 IP） |
+| `checkCampusStatus` | 69 | 209 | `invoke('check_campus_status')` |
+| `requestWifiSsidPermission` | 70 | 210 | `invoke('request_wifi_ssid_permission')`（安卓专属：请求精确 Wi-Fi SSID 权限） |
+| `doLogin()` | 71 | 211 | `invoke('do_login', {})`（安卓后端登录不指定适配器） |
+| `doLogout()` | 72 | 212 | `invoke('do_logout', {})` |
+| `bindOperator(params)` | 73 | 213 | `invoke('bind_operator', ...params)` |
+| `getBindStatus(params)` | 74 | 214 | `invoke('query_bind_status', ...params)` |
+| `verifyWindowsIdentity(params)` | 75 | 215-246 | 生物识别门：`allow2dFaceVerify && hasTemplate()` 且系统生物识别不可用时走 2D 人脸（`tauriApi.ts:219-242`），否则 `biometricAuthenticate(msg,{allowDeviceCredential:true})`（`tauriApi.ts:244`）后 `invoke('verify_biometric_identity')`（`tauriApi.ts:245`） |
+| `revealOperatorCredential(params)` | 76 | 247 | `invoke('reveal_operator_credential', ...params)` |
+| `querySelfDashboard(params)` | 77 | 248 | `invoke('query_self_dashboard', ...params)` |
+| `selfOfflineSession(params)` | 78 | 249 | `invoke('self_offline_session', ...params)` |
+| `querySelfOnlineLog(params)` | 79 | 250 | `invoke('query_self_online_log', ...params)` |
+| `minimizeWindow` | 80 | 251 | `desktopOnly` → reject |
+| `closeWindow` | 81 | 252 | `desktopOnly` → reject |
+| `onBackgroundCheckResult(cb)` | 82 | 253 | `listen('background-check-result')` |
+| `onAutoLoginResult(cb)` | 83 | 254 | `listen('auto-login-result')` |
+| `onAdaptersChanged(cb)` | 84 | 255 | `noopListener`（永不触发） |
+| `onAdapterDetailsChanged(cb)` | 85 | 256 | `noopListener` |
+| `onDisabledAdaptersChanged(cb)` | 86 | 257 | `noopListener` |
+| `onAdapterDisabledWarning(cb)` | 87 | 258 | `noopListener` |
+| `onLoginLog(cb)` | 88 | 259 | `listen('login-log')` |
+| `listAccounts` | 89 | 260 | `invoke('list_accounts')` → `AccountItem[]`（`{id, displayName}`） |
+| `switchAccount(accountName)` | 90 | 261 | `invoke('switch_account',{accountName})` |
+| `saveCurrentAsAccount(accountName)` | 91 | 262 | `invoke('save_current_as_account',{accountName})` |
+| `deleteAccount(accountName)` | 92 | 263 | `invoke('delete_account',{accountName})` |
+| `renameAccount({accountId, displayName})` | 94 | 264 | `invoke('rename_account',{accountId,displayName})` → `AccountResult`（校验失败 `success=false`） |
+| `getActiveAccount` | 95 | 265 | `invoke('get_active_account')` |
+| `startBackgroundCheck` | 96 | 266 | `invoke('start_background_check')` |
+| `stopBackgroundCheck` | 97 | 267 | `invoke('stop_background_check')` |
+| `triggerBackgroundCheck` | 98 | 268 | `invoke('trigger_background_check')` |
+| `getBackgroundStatus` | 99 | 269 | `invoke('get_background_status')` |
+| `dhcpRenewAll` | 100 | 270 | `desktopOnly` → reject |
+| `dhcpReleaseRenew` | 101 | 271 | `desktopOnly` → reject |
+| `dhcpReleaseRenewAdapter(adapterName)` | 102 | 272 | `desktopOnly` → reject |
+| `checkNetworkQuality` | 103 | 273 | `invoke('check_network_quality')` |
+| `onNetworkQualityResult(cb)` | 104 | 274 | `listen('network-quality-result')` |
+| `startLatencyTest` | 105 | 275 | `invoke('start_latency_test')` |
+| `stopLatencyTest` | 106 | 276 | `invoke('stop_latency_test')` |
+| `openExternal(url)` | 107 | 277-288 | 校验协议（仅 http/https）、长度 ≤2048、`new URL` 可解析后调 `@tauri-apps/plugin-opener` 的 `openUrl` |
+| `getAutoLaunch` | 108 | 289 | `invoke('get_boot_autostart')` |
+| `setAutoLaunch(enabled)` | 109 | 290 | `invoke('set_boot_autostart')` 后包成 `{success:true}` |
+| `getNotificationEnabled` | 110 | 291 | `invoke('get_notification_enabled')` |
+| `setNotificationEnabled(enabled)` | 111 | 292 | `invoke('set_notification_enabled')` |
+| `getBatteryOptimizationInfo` | 112 | 293 | `invoke('get_battery_optimization_info')`（安卓专属） |
+| `requestIgnoreBatteryOptimizations` | 113 | 294 | `invoke('request_ignore_battery_optimizations')`（安卓专属） |
+| `openVendorBatterySettings` | 114 | 295 | `invoke('open_vendor_battery_settings')`（安卓专属） |
+| `openNotificationSettings` | 115 | 296 | `invoke('open_notification_settings')`（安卓专属：跳系统通知设置） |
+| `cancelAutoExit` | 116 | 297 | `desktopOnly` → reject |
+| `onAutoExitCountdown(cb)` | 117 | 298 | `noopListener` |
+| `onAutoExitCancelled(cb)` | 118 | 299 | `noopListener` |
+| `onCampusExitCountdown(cb)` | 119 | 300 | `noopListener` |
+| `onCampusExitCancelled(cb)` | 120 | 301 | `noopListener` |
+| `onConfigChanged(cb)` | 121 | 302 | `listen('config-changed')` |
+| `showWindow` | 122 | 303 | `desktopOnly` → reject |
+| `getLogs(lines?)` | 123 | 304 | `invoke('get_logs',{lines})` |
+| `clearLogs` | 124 | 305 | `invoke('clear_logs')` |
+| `getDebugMode` | 125 | 306 | `invoke('get_debug_mode')` |
+| `setDebugMode(enabled)` | 126 | 307 | `invoke('set_debug_mode')` |
+| `getInitData` | 127 | 308 | `invoke('get_init_data')` |
+| `getSocInfo` | 128 | 309 | `invoke('get_soc_info')`（安卓专属） |
+| `checkUpdate` | 129 | 310 | `invoke('check_update')` |
+| `downloadUpdate(url)` | 130 | 311 | `invoke('download_update',{url})` |
+| `installUpdate(filePath, checksumUrl?)` | 131 | 312 | `invoke('install_update',{filePath, checksumUrl})` |
+| `getMirrorUrls(githubUrl)` | 132 | 313 | `invoke('get_mirror_urls',{githubUrl})` |
+| `onDownloadProgress(cb)` | 133 | 314 | `listen('update-download-progress')` |
+| `onUpdateAvailable(cb)` | 134 | 315 | `listen('update-available')` |
+| `checkDnsDohStatus` | 135 | 316 | `desktopOnly` → reject |
+| `setupDnsDoh(family?)` | 136 | 317 | `desktopOnly` → reject |
+| `resetDns()` | 137 | 318 | `desktopOnly` → reject |
+| `renderHeartbeat` | 138 | 319 | `desktopOnly` → reject（安卓无后端重载 WebView 机制） |
+| `notifyWindowReady` | 140 | 320 | `desktopOnly` → reject |
+| `getGpuInfo` | 141 | 321 | `desktopOnly` → reject |
+| `getLogRetentionDays` | 142 | 322 | `invoke('get_log_retention_days')` |
+| `setLogRetentionDays(days)` | 143 | 323 | `invoke('set_log_retention_days',{days})` |
+| `getAvoidBadWifiStatus` | 145 | 324 | `invoke('get_avoid_bad_wifi_status')` |
+| `restoreWrittenSettings` | 147 | 325 | `invoke('restore_written_settings')` |
+| `exportConfig(includePassword?)` | 60 | 200 | `desktopOnly` → reject（桌面专属：导出配置） |
+| `importConfig(path)` | 61 | 201 | `desktopOnly` → reject（桌面专属：导入配置） |
+| `exportDiagnostics(days?)` | 62 | 202 | `desktopOnly` → reject（桌面专属：导出诊断包） |
 
 ### hooks/ — 六个领域 store
 
@@ -215,7 +220,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 模块级私有状态：`saveConfigTimer`(14) / `saveConfigPending`(15) / `saveConfigInFlight`(17) / `dirtyFields`(20) / `DIRTY_FAILURE_LIMIT=3`(24) / `dirtyFailureCounts`(25)。
 
-`useAuthStore`（认证域）：导出 `useAuthStore`（`useAuthStore.ts:115`），动作 `doLogin`(121) / `doLogout`(182) / `checkOnline`(213) / `setStatus`(266) / `setBgStatus`(267)；模块级私有：`_checkOnlineLockFlag`(18)、`QUALITY_MANUAL_THROTTLE_MS=60000`(23)、`detectCampusNetwork`(31)、`buildCampusBgStatusPatch`(40)、`queryPortalStatus`(71)、`withTimeout`(84，race settle 后 `finally` 清理输家定时器)、`setStatusStable`(97，text/state 未变不换新对象，保持引用稳定)。
+`useAuthStore`（认证域）：导出 `useAuthStore`（`useAuthStore.ts:100`），动作 `doLogin`(106) / `doLogout`(166) / `checkOnline`(196) / `setStatus`(245) / `setBgStatus`(246)；模块级私有：`_checkOnlineLockFlag`(16)、`QUALITY_MANUAL_THROTTLE_MS=60000`(21)、`detectCampusNetwork`(29)、`buildCampusBgStatusPatch`(38)、`queryPortalStatus`(56)、`withTimeout`(69，race settle 后 `finally` 清理输家定时器)、`setStatusStable`(82，text/state 未变不换新对象，保持引用稳定)。
 
 `useAdapterStore`（适配器域）：导出 `refreshAdapterData`（`useAdapterStore.ts:16`，并行拉 `getAdapters`/`getAdapterDetails`/可选 `getDisabledAdapters` 后写回 store，安卓下端三个命令均 reject 并被 `.catch(() => undefined)` 吞掉）、`useAdapterStore`（`useAdapterStore.ts:48`，状态 `adapters` / `disabledAdapters` / `adapterDetails` / `isRefreshingAdapters` / `activePanel`，动作 `refreshAdapters`(55) / `setAdapters`(72) / `setActivePanel`(73)）。
 
@@ -232,13 +237,13 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `useAppInit` | `useAppInit.ts:6` | 顺序调用 `useEventListeners` → `useInitialDataLoad` → `useHeartbeat` → `useGlobalShortcut`（`useAppInit.ts:7-10`） |
-| `useEventListeners` | `useEventListeners.ts:18` | 集中注册后端事件订阅（单 useEffect；适配器四类 no-op 事件已不再注册），含窗口关闭 flush（`useEventListeners.ts:48-73`） |
+| `useEventListeners` | `useEventListeners.ts:13` | 集中注册后端事件订阅（单 useEffect；适配器四类 no-op 事件已不再注册），含窗口关闭 flush（`useEventListeners.ts:41-67`） |
 | `useInitialDataLoad` | `useInitialDataLoad.ts:16` | 启动唯一编排入口（见 Data Flow） |
 | `useHeartbeat` | `useHeartbeat.ts:5` | 5s 一次 `renderHeartbeat`，隐藏或 `isRenderLoopAlive()` 为假时跳过（`useHeartbeat.ts:13`） |
-| `useGlobalShortcut` | `useGlobalShortcut.ts:4` | 全局 `Ctrl+Shift+C` → `cancelAutoExit`，可编辑元素内忽略（`useGlobalShortcut.ts:10-16`） |
+| `useGlobalShortcut` | `useGlobalShortcut.ts:4` | 全局 `Ctrl+Shift+C` → `cancelAutoExit`，可编辑元素内忽略（`useGlobalShortcut.ts:10-21`） |
 | `useFormFactor` | `useFormFactor.ts:38` | 短边 ≥600px 判平板（`useFormFactor.ts:13`），resize/orientationchange 重算（`useFormFactor.ts:24-36`） |
 | `useOrientation` | `useFormFactor.ts:43` | 宽≥高为 `landscape`（`useFormFactor.ts:19`） |
-| `useDeviceProfile` | `useDeviceProfile.ts:26` | v2.4.0 起恒返旗舰档常量（`idleFps:30`/`activeFps:60`）作氛围动画节流；GPU/核数/内存三档判定与 `getSocInfo` 精修已删（`decisions/animation-always-high-face-lazy.md`） |
+| `useDeviceProfile` | `useDeviceProfile.ts:25` | v2.4.0 起恒返旗舰档常量（`idleFps:30`/`activeFps:60`）作氛围动画节流；GPU/核数/内存三档判定与 `getSocInfo` 精修已删（`decisions/animation-always-high-face-lazy.md`） |
 | `useAdaptiveFramePace` | `useAdaptiveFramePace.ts:51` | 把 `useDeviceProfile` 的 idle/active fps 落到 `gsap.ticker.fps()`，250ms 轮询回落、事件回调即时提帧 |
 | `markInteraction` | `useAdaptiveFramePace.ts:26` | 程序性交互（面板切换）主动推活跃窗口 |
 | `useAnimationProfile` | `useAnimationProfile.ts:51` | v2.4.0 起恒返 `HIGH_PROFILE` 满配档（仅 `refreshRate` 驱动 easing/节流数值）；standard/economy 分档已删，接口形状不变 |
@@ -250,7 +255,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `useAsyncLock` | `useAsyncLock.ts:3` | 防重复提交锁，返回 `[isRunning, execute]`，`cooldownMs` 默认 1500 |
 | `useStartupBoost` | `useStartupBoost.ts:15` | 桌面启动入场序列（标题栏/状态栏/标题/Dock/右栏 gsap timeline）。**安卓无调用方**，见 Known Issues |
 
-`useAnimationProfile` 的档位解析：`HIGH_PROFILE`（`useAnimationProfile.ts:30`）、`ECONOMY_OVERRIDES`（`useAnimationProfile.ts:52`）、`resolveTier`（`useAnimationProfile.ts:60`，reduced-motion 或 `low-igpu` → economy，`discrete`/`high-igpu` → high，其余 standard）、模块级 `reducedMotionQuery`（`useAnimationProfile.ts:69`）。
+`useAnimationProfile` 的档位解析已随 v2.4.0 精简：仅剩 `HIGH_PROFILE` 满配档常量（`useAnimationProfile.ts:31`）；`ECONOMY_OVERRIDES`、`resolveTier`、模块级 `reducedMotionQuery` 均已删除。
 
 ### lib/
 
@@ -258,7 +263,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | --- | --- | --- |
 | `cn` | `lib/utils.ts:4` | `clsx` + `tailwind-merge` |
 | `extractErrorMessage` | `lib/utils.ts:8` | 字符串/Error/`{message}` 对象三态取消息（tauri 插件 reject 普通对象） |
-| `safeStorage` | `lib/utils.ts:31` | localStorage 包装，异常落内存 Map（`lib/utils.ts:20`） |
+| `safeStorage` | `lib/utils.ts:22`（导出 `:31`） | localStorage 包装，异常落内存 Map（`lib/utils.ts:20`） |
 | `hexToHsl` | `lib/color.ts:1` | 十六进制 → HSL，非法输入回退 `{h:230,s:70,l:55}` |
 | `EasingConfig` | `lib/easing-config.ts:3` | 5 组贝塞尔缓动字段接口 |
 | `EASING_120HZ` | `lib/easing-config.ts:19` | 120Hz 档缓动表 |
@@ -272,7 +277,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `resolveQualityDisplay` | `lib/latency.ts:66` | 卡片展示统一解析，`unknown`/`busy` 时按延迟推断等级 |
 | `isRenderLoopAlive` | `lib/renderLiveness.ts:36` | rAF 按需短探测判存活（阈值 `RENDER_STALL_THRESHOLD_MS=10000`，`lib/renderLiveness.ts:21`） |
 | `createLogEntryVariants` | `lib/animations.ts:3` | 日志条目进出场 variants |
-| `createPanelAppleVariants` | `lib/animations.ts:19` | 面板 Apple 风 variants（**安卓无调用方**）——历史实现还导出过 `getPanelDirection` 与含 `'network'` 的 `PANEL_ORDER`，已随死代码清理 `1dda320` 双端删除，现只剩两个导出（3-17、19-36） |
+| `createPanelAppleVariants` | `lib/animations.ts:19` | 面板 Apple 风 variants——`App.tsx:116` 用它生成面板过渡 variants；历史实现还导出过 `getPanelDirection` 与含 `'network'` 的 `PANEL_ORDER`，已随死代码清理 `1dda320` 双端删除，现只剩两个导出（3-17、19-42） |
 
 ### i18n
 
@@ -322,22 +327,22 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `MobileTab` | `BottomNav.tsx:9` | `'dashboard' \| 'account' \| 'selfservice' \| 'quality' \| 'monitor' \| 'more'` |
-| `BottomNav` | `BottomNav.tsx:23` | 移动底栏（五列 grid，`BottomNav.tsx:42`）；第 4 位动态：质量开启插 `QUALITY_TAB`，关闭插 `MONITOR_TAB`（`BottomNav.tsx:29-30`）；半透明 + backdrop-blur、`env(safe-area-inset-bottom)`（`BottomNav.tsx:35-39`） |
-| `DockNav` | `DockNav.tsx:439` | 平板悬浮 Dock（磁吸放大、指示条、注销/登录按钮带适配器菜单），`memo` 包裹。内部私有：`DockItem`(50)、`IS_TOUCH`(163)、`AdapterMenu`(174)、`ActionButtonWithMenu`(283)、`MAGNETIC_RANGE/MAX_SCALE/MAX_LIFT`(46-48)、`ICON_MAP`(34)；DockItem 视觉 tooltip 带 `aria-hidden` 防屏幕阅读器双读 |
-| `RightPanel` | `RightPanel.tsx:83` | 平板横屏右侧栏：运行日志卡 + 网络适配器卡。内部私有：`LOG_ICONS`(26)、`LOG_COLORS`(33)、`LOG_BG_COLORS`(40)、`LOG_BAR_COLORS`(47)、`RIGHT_PANEL_ANIM_THRESHOLD=50`(57)、`RIGHT_PANEL_ANIM_KEEP_COUNT=30`(58)、`getAdapterInfo`(60) |
+| `MobileTab` | `BottomNav.tsx:14` | `'dashboard' \| 'account' \| 'selfservice' \| 'quality' \| 'monitor' \| 'more'` |
+| `BottomNav` | `BottomNav.tsx:33` | 移动底栏：纯页签栏（登录/注销动作已拆到悬浮其上的 `MobileQuickActions`）；页签均布占满栏宽（`justify-around`，`BottomNav.tsx:59`）；第 4 位动态：质量开启插 `QUALITY_TAB`，关闭插 `MONITOR_TAB`（`useNavTabs` splice，`BottomNav.tsx:29`）；半透明 + backdrop-blur（`BottomNav.tsx:52-56`）、贴 `env(safe-area-inset-bottom)`（`BottomNav.tsx:44`）；选中项为固定尺寸体育场形药丸、只包图标（`BottomNav.tsx:77-84`，图标 26px、标签 11px） |
+| `DockNav` | `DockNav.tsx:244` | 平板悬浮 Dock（磁吸放大、指示条），`memo` 包裹。内部私有：`DockItem`(44)、`ActionButton`(158，安卓后端登录不指定适配器、无菜单，注释 `DockNav.tsx:157`)、`MAGNETIC_RANGE/MAX_SCALE/MAX_LIFT`(40-42)、`ICON_MAP`(28)；`visibleItems` 按质量开关过滤 quality 项（253）；DockItem 视觉 tooltip 带 `aria-hidden` 防屏幕阅读器双读 |
+| `RightPanel` | `RightPanel.tsx:54` | 平板横屏右侧栏：运行日志卡。内部私有：`LOG_ICONS`(20)、`LOG_COLORS`(27)、`LOG_BG_COLORS`(34)、`LOG_BAR_COLORS`(41)、`RIGHT_PANEL_ANIM_THRESHOLD=50`(51)、`RIGHT_PANEL_ANIM_KEEP_COUNT=30`(52) |
 | `TitleBar` | `TitleBar.tsx:52` | 平板顶栏：应用名/版本徽标、浅色/语言/通知/主题/赞助/关于按钮；`showWindowControls=false` 时隐藏最小化/最大化/关闭并禁用拖动与双击最大化（`TitleBar.tsx:73-90`）。内部私有图标组件 `MinimizeIcon`(26)/`MaximizeIcon`(32)/`RestoreIcon`(38)/`CloseIcon`(45) |
-| `MobileDashboard` | `MobileDashboard.tsx:121` | 手机总览：复用 `DashboardPanel`，注入两张移动专属卡（`MobileDashboard.tsx:129-132`），排除 `quickActions`（`MobileDashboard.tsx:32`）。内部私有：`MobileStatusCard`(35)、`MobileMonitorCard`(79)、`LAMP_COLOR`(21)、`noopAsync`(29) |
+| `MobileDashboard` | `MobileDashboard.tsx:141` | 手机总览：复用 `DashboardPanel`，注入两张移动专属卡（`MobileDashboard.tsx:151/163`），排除 `quickActions`（`MobileDashboard.tsx:35`）。内部私有：`MobileStatusCard`(38)、`MobileMonitorCard`(99)、`LAMP_COLOR`(24)、`noopAsync`(32) |
 | `MobileMore` | `MobileMore.tsx:32` | 「更多」聚合页：chips 切换 monitor/speedtest/log/settings 四个子页；质量关闭时移除 monitor 子页并派生降级到 speedtest（`MobileMore.tsx:36-39`）。私有 `MoreTab`(18)、`TABS`(20) |
-| `MobileQuickActions` | `MobileQuickActions.tsx:11` | 首页底部固定快捷登录/注销条；快捷登录先 `bindToWifi` 再 `doLogin`（`MobileQuickActions.tsx:25-26`） |
-| `TabletShell` | `TabletShell.tsx:386` | 平板外壳；`TabletShellInner`(73) 渲染 TitleBar（`TabletShell.tsx:238`）/ StatusBar（254）/ 主区（262-298，标题/描述与内容同向滑入的 `AnimatePresence`+`m.div` 块在 265-275）/ 横屏 RightPanel（300-305）/ 侧边看板娘（309-327）/ DockNav（329）/ 弹窗组。私有：`PANEL_TITLES`(53)、`PANEL_CONTAINER_STYLE`(65)、`TOPBAR_ZOOM=1.3`(70)、`CONTENT_ZOOM=0.9`(71)、`panelVariants`(133) |
+| `MobileQuickActions` | `MobileQuickActions.tsx:14` | 悬浮于底栏上方的快捷登录/注销条（`bottom: calc(env(safe-area-inset-bottom) + 100px)`，`MobileQuickActions.tsx:39`）；快捷登录先 `bindToWifi` 再 `doLogin`（`MobileQuickActions.tsx:28-29`） |
+| `TabletShell` | `TabletShell.tsx:384` | 平板外壳；`TabletShellInner`(73) 渲染 TitleBar（`TabletShell.tsx:235`）/ StatusBar（252）/ 主区（258 起，标题/描述与内容同向滑入的 `AnimatePresence`+`m.div` 块在 263-275、278-293）/ 横屏 RightPanel（298）/ 侧边看板娘（305 起）/ DockNav（326）/ 弹窗组。私有：`PANEL_TITLES`(53)、`PANEL_CONTAINER_STYLE`(65)、`TOPBAR_ZOOM=1.3`(70)、`CONTENT_ZOOM=0.9`(71)、`panelVariants`(131) |
 
 ### shared/（通用组件与常量）
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `AnimatedNumber` | `AnimatedNumber.tsx:14` | gsap quickTo 数字滚动 + 缩放弹跳（economy 档禁用弹跳，`AnimatedNumber.tsx:83`） |
-| `ConfirmDialog` | `ConfirmDialog.tsx:20` | 二次确认弹窗，确认期间禁用按钮防双击（`ConfirmDialog.tsx:23`），`open` 变 false 时由 effect 复位（26-28，替代旧 400ms 定时复位，防慢网络重复提交） |
+| `ConfirmDialog` | `ConfirmDialog.tsx:23` | 二次确认弹窗，确认期间禁用按钮防双击（`ConfirmDialog.tsx:25-26`），`open` 变 false 时由 effect 复位（29-31，替代旧 400ms 定时复位，防慢网络重复提交） |
 | `ErrorBoundary` | `ErrorBoundary.tsx:15` | 类组件错误边界，渲染 `MascotFigure variant="alert"` + 重载按钮（`ErrorBoundary.tsx:38-46`） |
 | `FluidBackground` | `FluidBackground.tsx:1` | 纯静态背景层（`var(--surface-main)`）。**安卓无调用方** |
 | `MascotVariant` | `MascotFigure.tsx:5` | 7 种看板娘变体 |
@@ -354,10 +359,10 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `UpdateAvailableDialog` | `UpdateAvailableDialog.tsx:18` | 新版本提醒弹窗，`onGoUpdate` 跳关于页；开合由 `useQualityStore.updatePromptOpen` 驱动 |
 | `UpdateAvailableData` | `types.ts:1` | 新版本事件载荷 |
 | `UpdateInfo` | `types.ts:7` | 检查更新结果 |
-| `DownloadProgress` | `types.ts:15` | 下载进度事件 |
-| `MirrorSource` | `types.ts:22` | 镜像源项 |
+| `DownloadProgress` | `types.ts:19` | 下载进度事件 |
+| `MirrorSource` | `types.ts:26` | 镜像源项 |
 | `MAX_LOG_ENTRIES` | `ui-constants.ts:1` | 300，日志条数上限 |
-| `APP_VERSION` | `ui-constants.ts:2` | `'2.3.6'`（与 `android/frontend/package.json` 的 `version` 同步处） |
+| `APP_VERSION` | `ui-constants.ts:2` | `'2.3.9'`（与 `android/frontend/package.json` 的 `version` 同步处） |
 | `APP_NAME` | `ui-constants.ts:3` | `'校园网登录助手'` |
 | `PASSWORD_MASK` | `ui-constants.ts:4` | `'***'`，后端掩码占位 |
 | `NAV_ITEMS` | `ui-constants.ts:7` | **8 项且不含 `network`**：dashboard(8)/account(9)/selfservice(10)/monitor(11)/quality(12)/speedtest(13)/settings(14)/log(15)；桌面版同数组含 network 项，安卓此处被裁剪 |
@@ -373,7 +378,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `AutoExitCountdownData` | `ui-types.ts:44` | 自动退出倒计时（安卓事件为 no-op） |
 | `SaveConfigResult` | `ui-types.ts:49` | 保存配置返回 |
 
-`shared/index.ts` 只导出 `LogPanel`(1)、`ConfirmDialog`(2)、`AnimatedNumber`(3)、`RefreshButton` 与 `getRefreshIconClass`(4)、`SegmentTabs` 与 `TabContent`(5)、`ToastContainer`(6)、`FluidBackground`(7)、`ErrorBoundary`(8)，并 `export *` 三个类型/常量文件（10-12）。**`MascotFigure`、`SponsorCard`、`UpdateAvailableDialog`、`dailyMascot` 不在 barrel 内**，调用方按文件路径导入（如 `App.tsx:22` 的 `@/shared/SponsorCard`），`main.tsx:8` 也刻意按路径导入 `ErrorBoundary` 以避免经 barrel 静态引入懒加载面板。
+`shared/index.ts` 只导出 `LogPanel`(1)、`ConfirmDialog`(2)、`AnimatedNumber`(3)、`RefreshButton` 与 `getRefreshIconClass`(4)、`SegmentTabs` 与 `TabContent`(5)、`ToastContainer`(6)、`FluidBackground`(7)、`ErrorBoundary`(8)，并 `export *` 三个类型/常量文件（10-12）。**`MascotFigure`、`SponsorCard`、`UpdateAvailableDialog`、`dailyMascot` 不在 barrel 内**，调用方按文件路径导入（如 `App.tsx:25` 的 `@/shared/SponsorCard`），`main.tsx:8` 也刻意按路径导入 `ErrorBoundary` 以避免经 barrel 静态引入懒加载面板。
 
 ### face/（安卓独有：应用内 2D 人脸验证）
 
@@ -391,7 +396,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `loadTemplate` | `faceService.ts:168` | 读 `campus-2d-face-template` 描述子 |
 | `hasTemplate` | `faceService.ts:179` | 是否已录入 |
 | `clearTemplate` | `faceService.ts:183` | 清空模板（开关关闭时调用） |
-| `enrollFace` | `faceService.ts:192` | 质量门控采 8 帧取均值存模板（`ENROLL_FRAMES=8` / `ENROLL_TIMEOUT_MS=20000` / `DETECT_SCORE_MIN=0.85`，`faceService.ts:26/28/33`） |
+| `enrollFace` | `faceService.ts:192` | 质量门控采 8 帧取均值存模板（`ENROLL_FRAMES=8` / `ENROLL_TIMEOUT_MS=20000` / `DETECT_SCORE_MIN=0.85`，`faceService.ts:25/27/33`） |
 | `verifyFace` | `faceService.ts:221` | 随机动作挑战（眨眼/转头）→ 同人比对 3 次机会（`MATCH_THRESHOLD=0.55`，`faceService.ts:23`） |
 | `FaceCaptureDialog` | `FaceCaptureDialog.tsx:28` | 单例弹窗（`Dialog` + `CaptureFlow`）；`CaptureFlow` 定义在 `FaceCaptureDialog.tsx:48`，必须放 `DialogContent` 内以拿到 video ref（`FaceCaptureDialog.tsx:5-8` 注释） |
 
@@ -399,7 +404,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### index.css（无导出）
 
-`@tailwind base/components/utilities`（`index.css:1-3`）；`@layer base`（5）内含浅色 `--surface-top/--surface-main/--surface-side`（`index.css:34-36`）、深色同名变量（68-70）、6 套主题变量（75-84）、`.force-light-dialog`（90，桌面 AboutDialog 复用）；`@layer components`（170）内含卡片/玻璃 Dock（`glass-dock` 210）/圆角贴面类（`app-outer-square` 284、`surface-top-square` 295、`surface-side-square` 300、`surface-main-square` 304）/按钮类（`btn-physical` 346、`btn-press` 382、`soft-btn` 420）/卡片交互（`animated-card-interactive` 473）/日志类（`log-entry-flash` 328、`log-entry-hover` 522）/`panel-content`（547）/`card-enter`（566）/对话框进出场（603-617）/状态点动画（`status-enter` 682、`status-offline-shake` 688）/数字与标签弹入（`label-bounce-in` 697、`num-scale-in` 705）；`@layer utilities`（710）内含 `.anim-idle .animate-pulse` 停动画（718）、`.scrollbar-none`（723）、信号条动画（`signal-bar-enter` 746、`signal-glow-idle` 751、`signal-glow-active` 765）、列表项交互（`list-item-interactive` 770），并有一段 `prefers-reduced-motion` 降级块（`index.css:799-830`，逐类置 `animation: none`）。
+`@tailwind base/components/utilities`（`index.css:1-3`）；`@layer base`（5）内含浅色 `--surface-top/--surface-main/--surface-side`（`index.css:34-36`）、深色同名变量（68-70）、6 套主题变量（75-84）、`.force-light-dialog`（90，桌面 AboutDialog 复用）；`@layer components`（170）内含卡片/玻璃 Dock（`glass-dock` 230）/圆角贴面类（`app-outer-square` 304、`surface-top-square` 315、`surface-side-square` 320、`surface-main-square` 324）/按钮类（`btn-physical` 366、`btn-press` 402、`soft-btn` 440）/卡片交互（`animated-card-interactive` 493）/日志类（`log-entry-flash` 348、`log-entry-hover` 542）/`panel-content`（567）/`card-enter`（586）/对话框进出场（603-617）/状态点动画（`status-enter` 702、`status-offline-shake` 708）/数字与标签弹入（`label-bounce-in` 717、`num-scale-in` 725）；`@layer utilities`（730）内含 `.anim-idle` 停动画（`.anim-idle .animate-pulse` 738）、`.scrollbar-none`（743）、信号条动画（`signal-bar-enter` 766、`signal-glow-idle` 771、`signal-glow-active` 785），并有一段 `prefers-reduced-motion` 降级块（`index.css:818` 起，逐类置 `animation: none`）。
 
 ## 结构体与字段（前端即 props 与 state 类型）
 
@@ -410,25 +415,25 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `config` | `Config` | 全量配置，初值 `DEFAULT_CONFIG`（`useConfigStore.ts:54`） |
-| `configLoaded` | `boolean` | `getInitData` 成功或降级完成（`useInitialDataLoad.ts:107` / `useInitialDataLoad.ts:113`） |
+| `configLoaded` | `boolean` | `getInitData` 成功或降级完成（`useInitialDataLoad.ts:104` / `useInitialDataLoad.ts:106-111`） |
 | `passwordSaved` | `boolean` | 登录密码已落盘（后端掩码态） |
 | `selfPasswordSaved` | `boolean` | 自助服务密码已落盘（独立布尔，避免读 `config.selfPassword` 的三态竞态，`useConfigStore.ts:34-36`） |
-| `accounts` | `string[]` | 账号名列表 |
+| `accounts` | `AccountItem[]` | 账号列表（`{id, displayName}`） |
 | `activeAccount` | `string` | 当前账号 |
 | `language` | `string` | 初值 `safeStorage.get('app-language') \|\| 'zh'`（`useConfigStore.ts:60`） |
 | `api` | `typeof tauriApiWithRetry` | store 内直通 IPC，供 `useXxx` 钩子复用 |
 
-`AuthStore`（`useAuthStore.ts:91-101`）：
+`AuthStore`（`useAuthStore.ts:88-99`）：
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `isLoggingIn` / `isLoggingOut` | `boolean` | 登录/注销进行中（按钮禁用与并发互斥） |
 | `status` | `{text: string; state: StatusState}` | 顶栏状态点文案与状态 |
-| `bgStatus` | `BackgroundStatus` | 后台巡检状态（初值 `useAuthStore.ts:107`：`isRunning/checkCount/serverAvailable/online/adapterStatuses/currentSsid`） |
-| `doLogin(adapterName?)` | `=> Promise<boolean>` | 登录，返回是否成功 |
-| `doLogout(adapterName?)` | `=> Promise<void>` | 注销 |
+| `bgStatus` | `BackgroundStatus` | 后台巡检状态（初值 `useAuthStore.ts:104`：`isRunning/checkCount/serverAvailable/online/onlineOperator/currentSsid`） |
+| `doLogin()` | `=> Promise<boolean>` | 登录，返回是否成功（后端不指定适配器） |
+| `doLogout()` | `=> Promise<void>` | 注销 |
 | `checkOnline(cfg?, adps?)` | `=> Promise<void>` | 校园网 + Portal 状态检测（有模块级锁 `_checkOnlineLockFlag`） |
-| `setStatus` / `setBgStatus` | setter | `setBgStatus` 支持函数式更新（`useAuthStore.ts:255`） |
+| `setStatus` / `setBgStatus` | setter | `setBgStatus` 支持函数式更新（`useAuthStore.ts:246`） |
 
 `AdapterStore`（`useAdapterStore.ts:37-46`）：`adapters: Adapter[]`、`disabledAdapters: DisabledAdapter[]`、`adapterDetails: AdapterDetail[]`、`isRefreshingAdapters: boolean`、`activePanel: PanelName`（初值 `'dashboard'`，`useAdapterStore.ts:53`）、`refreshAdapters(): Promise<void>`、`setAdapters(a)`、`setActivePanel(p)`。
 
@@ -450,9 +455,9 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `BadgeProps` | `badge.tsx:32` | HTML div 属性 + variant/size |
 | `InputProps` | `input.tsx:4` | `icon?: ReactNode`、`error?: string` + HTML input 属性 |
 | `TitleBarProps`（未导出） | `TitleBar.tsx:11` | `notificationEnabled`、`onToggleNotification`、`onShowTheme`、`onShowAbout`、`onShowSponsor`、`onToggleLightMode`、`onMinimize`、`onToggleMaximize`、`onClose`、`isMaximized`、`showWindowControls?`（默认 true） |
-| `DockNavProps`（未导出） | `DockNav.tsx:434` | `onPanelChange(panel)`、`outerRef?` |
-| `AdapterMenuProps`（未导出） | `DockNav.tsx:165` | `adapters`、`selectedAdapter?`、`onSelect`、`actionLabel`、`autoDetectName?` |
-| `RightPanelProps`（未导出） | `RightPanel.tsx:20` | `logs: LogEntry[]`、`onClearLogs?`、`outerRef?` |
+| `DockNavProps`（未导出） | `DockNav.tsx:239` | `onPanelChange(panel)`、`outerRef?` |
+| `AdapterMenuProps` | 已删除 | 安卓 `DockNav` 无适配器菜单（登录不指定适配器，`DockNav.tsx:157` 注释） |
+| `RightPanelProps`（未导出） | `RightPanel.tsx:14` | `logs: LogEntry[]`、`onClearLogs?`、`outerRef?` |
 | `MobileMoreProps`（未导出） | `MobileMore.tsx:27` | `onShowOnboarding?` |
 | `SegmentTabs` 的 `TabItem`（未导出） | `SegmentTabs.tsx:5` | `key`、`label`、`icon`、`color`、`bg` |
 | `ToastContainerProps`（未导出） | `ToastContainer.tsx:10` | `toasts`、`onRemove` |
@@ -462,7 +467,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### 领域类型
 
-`Config`（`settings/types.ts:3-56`，**45 个字段**；口径：接口本体（第 4-51 行）的字段总数，含 `configVersion` 标记字段，不含同文件另两个接口 `AutoLaunchResult` / `InitData`；安卓侧隐藏项见表内加粗标注）：
+`Config`（`settings/types.ts:9-73`，**47 个字段**；口径：接口本体（第 10-72 行）的字段总数，含 `configSchemaVersion` 标记字段，不含同文件另两个接口 `AutoLaunchResult` / `InitData`；安卓侧隐藏项见表内加粗标注）：
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
@@ -472,16 +477,13 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `selfReverifyEachAction` | `boolean` | 自助面板每次操作都验证（默认 false） |
 | `allow2dFaceVerify` | `boolean` | 2D 人脸回退开关（默认 false） |
 | `operator` | `string` | 运营商后缀（`''`/`@telecom`/`@unicom`/`@cmcc`） |
-| `adapter1` / `adapter2` / `dualAdapter` | `string`/`string`/`boolean` | 主/副适配器（安卓无枚举，恒 `自动检测` + 空；`DockNav` 仍按此解析作用域） |
+| `enableNightOperatorSwitch` / `nightOperatorRestore` / `enableNightOutboundSwitch` / `outboundPriority` / `outboundMetricRestore` / `outboundDisabledAdapters` / `outboundStandbyRoute` / `nightOutboundRestore` / `dnsOptimizeAdapters` | `boolean` / `number` / `string[]` | 夜间运营商切换（恢复 07:30）与夜间出站线路切换（优先级/度量恢复/禁用适配器/备用路由/恢复时刻）、DNS 优化适配器列表（`settings/types.ts:21-33`；2026-09-30~10-02 新增） |
 | `autoLoginOnStart` | `boolean` | 启动自动登录 |
-| `autoExitAfterLogin` | `boolean` | 登录后退（**安卓 UI 隐藏**） |
-| `minimizeToTray` / `hiddenStart` | `boolean` | 托盘/静默启动（**安卓 UI 隐藏**） |
-| `autoLaunch` | `boolean` | 开机自启 |
+| `enableBootAutostart` | `boolean` | 开机自启（`settings/types.ts:36`；原 `autoLaunch` 字段更名） |
 | `enableBackgroundCheck` | `boolean` | 后台巡检开关 |
-| `backgroundCheckInterval` | `number` | 稳态巡检间隔 ms（默认 60000，`settings/constants.ts:24`） |
-| `backgroundCheckIdleInterval` | `number` | 闲时巡检间隔 ms（默认 300000，`settings/constants.ts:26`） |
+| `backgroundCheckInterval` | `number` | 稳态巡检间隔 ms（默认 60000，`settings/constants.ts:27`） |
+| `backgroundCheckIdleInterval` | `number` | 闲时巡检间隔 ms（默认 300000，`settings/constants.ts:29`） |
 | `autoLoginOnPreparation` | `boolean` | 「可登录即自动登录」 |
-| `autoExitOnOnline` | `boolean` | 上线后自动退出（**安卓 UI 隐藏**） |
 | `themeMode` | `'light' \| 'dark' \| 'system'` | 主题模式 |
 | `enableNotification` | `boolean` | 通知总开关 |
 | `activeAccount` | `string` | 当前账号名 |
@@ -496,25 +498,24 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `enableNetworkNameCheck` | `boolean` | 校园网名校验 |
 | `campusGateway` | `string` | 校园网网关（默认 `10.2.127.254`） |
 | `updateSource` | `'mirror' \| 'github'` | 更新渠道优先级 |
-| `campusExitOnFail` | `boolean` | 非校园网时退出（**安卓 UI 隐藏**） |
 | `campusCheckStartMinutes` / `campusCheckEndMinutes` | `number` | 检测时间窗（分钟制，460=07:40，1380=23:00；2026-09-13 起终点旧默认 0 由后端 v4→v5 迁移与 `DEFAULT_CONFIG` 双源刷新） |
 | `scheduledLoginMinutes` / `scheduledLogoutMinutes` | `number` | 每日定时登录/注销时刻（分钟数，0=禁用；过点补触发，默认值 `settings/constants.ts` 同步新增） |
 | `maxDisconnectReconnect` | `number` | 断连重连上限 |
 | `autoLoginCooldownSecs` | `number` | 自动登录冷却 |
 | `logRetentionDays` | `number` | 日志保留天数 |
-| `configVersion` | `number` | 配置 schema 版本（当前 5） |
+| `configSchemaVersion` | `number` | 配置 schema 版本（当前 7，`settings/constants.ts:58`） |
 
-`InitData`（`settings/types.ts:74-89`）：`config: Partial<Config>`、`version: string`、`adapters: Adapter[]`、`adapterDetails: AdapterDetail[]`、`disabledAdapters: DisabledAdapter[]`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount: string`、`backgroundStatus: BackgroundStatus`、`isAutoStart: boolean`、`autoLaunch: boolean`、`notificationEnabled: boolean`、`gpuInfo?: GpuInfo`、`refreshRate?: number`（安卓仅消费 `config`/`backgroundStatus`/`accounts`/`activeAccount`/`refreshRate`）。同文件 2026-09 新增 `AccountItem {id, displayName}`（:4-7）与 `Config.displayName`（:65）。
+`InitData`（`settings/types.ts:80-94`）：`config: Partial<Config>`、`version: string`、`adapters: Adapter[]`、`adapterDetails: AdapterDetail[]`、`disabledAdapters: DisabledAdapter[]`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount: string`、`backgroundStatus: BackgroundStatus`、`isAutoStart: boolean`、`autoLaunch: boolean`、`notificationEnabled: boolean`、`gpuInfo?: GpuInfo`、`refreshRate?: number`（安卓仅消费 `config`/`backgroundStatus`/`accounts`/`activeAccount`/`refreshRate`）。同文件 2026-09 新增 `AccountItem {id, displayName}`（:4-7）与 `Config.displayName`（:72）。
 
 `AuthStore` 相关类型：`PortalStatusResult`（`auth/types.ts:1`：`online`、`message?`、`reachable?`、`loginAvailable?`）、`CommandResult`（`auth/types.ts:8`：`success`、`message?`、`data?`）、`LoginResult extends CommandResult`（`auth/types.ts:14`）。
 
-`BackgroundStatus`（`monitor/types.ts:15-36`）：`isRunning`、`checkCount`、`serverAvailable`、`online`、`message?`、`adapterStatuses?: AdapterOnlineStatus[]`、`currentSsid: string | null`、`onCampusNetwork?`、`enableNetworkNameCheck?`、`requiredNetworkName?`、`campusWifi?`、`campusWired?`（`ConnectionCampusStatus`，私有接口 `monitor/types.ts:9`：`onCampus`/`name`/`message`）、`a1CampusMessage?`、`a2CampusMessage?`、`a1OnCampus?`、`a2OnCampus?`、`loginPreparationMode?`、`interval?`、`enabled?`。
+`BackgroundStatus`（`monitor/types.ts:7-25`）：`isRunning`、`checkCount`、`serverAvailable`、`online`、`onlineOperator?: string \| null`（真实运营商后缀；`''`=默认线路、`null`=离线未登录）、`message?`、`currentSsid: string | null`、`onCampusNetwork?`、`enableNetworkNameCheck?`、`requiredNetworkName?`、`campusWifi?`、`campusWired?`（`ConnectionCampusStatus`，私有接口 `monitor/types.ts:1`：`onCampus`/`name`/`message`）、`loginPreparationMode?`、`interval?`、`enabled?`。
 
-`BackgroundCheckEventData = BackgroundStatus & {...}`（`monitor/types.ts:38-49`）：追加 `timestamp?`、`checkCount?`、`secondaryOnline?`、`secondaryMessage?`、`message?`、`online?`、`adapter1Name?`、`adapter2Name?`、`loginAvailable?`、`serverAvailable?`。
+`BackgroundCheckEventData = BackgroundStatus & {...}`（`monitor/types.ts:27-34`）：追加 `timestamp?`、`checkCount?`、`message?`、`online?`、`loginAvailable?`、`serverAvailable?`（原 `secondaryOnline`/`secondaryMessage`/`adapter1Name`/`adapter2Name` 已删）。
 
-`AdapterOnlineStatus`（`monitor/types.ts:1`）：`name`、`ip`、`wireless`、`online`、`message`。
+`AdapterOnlineStatus`：已删除（原 `BackgroundStatus.adapterStatuses` 的元素类型，随副适配器方案下线；当前 `monitor/types.ts` 已无此类型）。
 
-`NetworkQuality`（`monitor/types.ts:69-78`）：`gatewayLatency`、`externalLatency`、`averageExternalLatency`、`gateway`、`quality`（9 值含 `disabled`/`busy`）、`timestamp`、`details?`（`NetworkQualityDetail` 私有 `monitor/types.ts:51`：`target`/`latency`/`type` + `dnsLatency?`/`tcpLatency?`/`tlsLatency?`/`udpLatency?`/`networkLatency?`/`ttfbLatency?`/`contentLatency?`）、`metrics?`（私有 `NetworkQualityMetrics` `monitor/types.ts:64`：`totalElapsed`/`tests`）。
+`NetworkQuality`（`monitor/types.ts:54-63`）：`gatewayLatency`、`externalLatency`、`averageExternalLatency`、`gateway`、`quality`（9 值含 `disabled`/`busy`）、`timestamp`、`details?`（`NetworkQualityDetail` 私有 `monitor/types.ts:36`：`target`/`latency`/`type` + `dnsLatency?`/`tcpLatency?`/`tlsLatency?`/`udpLatency?`/`networkLatency?`/`ttfbLatency?`/`contentLatency?`）、`metrics?`（私有 `NetworkQualityMetrics` `monitor/types.ts:49`：`totalElapsed`/`tests`）。
 
 `AutoLoginEventData`（`monitor/types.ts:80`）：`success`、`message`、`skipped?`。
 
@@ -536,33 +537,33 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### 启动编排顺序（真实调用点）
 
-1. `main.tsx` 模块求值：gsap 全局配置（`main.tsx:17-19`）→ reduced-motion 降级（`main.tsx:21-25`）→ `initTheme()` 同步写 DOM class（`main.tsx:43`）→ `setupCrashRecovery()` 注册监听与定时器（`main.tsx:113`）→ `ReactDOM.createRoot(...).render`（`main.tsx:119`）。
-2. `App`（`App.tsx:296`）→ `useFormFactor()`（`App.tsx:297`）→ `AppInner`（`App.tsx:302`）或 `TabletShell`（`App.tsx:301`）。
-3. 双外壳第一句都是 `useAppInit()`（`App.tsx:48` / `TabletShell.tsx:74`），其内部固定顺序（`useAppInit.ts:7-10`）：
-   - `useEventListeners()`（`useEventListeners.ts:18`）：`const { api } = useConfigStore.getState()`（`useEventListeners.ts:29`）→ 注册 `getCurrentWindow().onCloseRequested`（`useEventListeners.ts:48`，安卓无窗口关闭语义）→ 依次订阅 `onBackgroundCheckResult`(75) / `onAutoLoginResult`(197) / `onLoginLog`(217) / `onAutoExitCountdown`(225，no-op) / `onAutoExitCancelled`(246，no-op) / `onCampusExitCountdown`(253，no-op) / `onCampusExitCancelled`(274，no-op) / `onNetworkQualityResult`(281) / `onUpdateAvailable`(289) / `onConfigChanged`(304)。适配器四类事件（`onAdaptersChanged` / `onAdapterDetailsChanged` / `onDisabledAdaptersChanged` / `onAdapterDisabledWarning`）的 no-op 订阅已删除（`useEventListeners.ts:213-215` 注释说明），不再空转注册。
-   - `useInitialDataLoad()`（`useInitialDataLoad.ts:16`）：`api.getInitData()`（`useInitialDataLoad.ts:31`，→ `tauriApi.ts:271` `invoke('get_init_data')`）→ 合并 `DEFAULT_CONFIG`（`useInitialDataLoad.ts:34`）→ 由 `PASSWORD_MASK` 同步 `passwordSaved`/`selfPasswordSaved`（`useInitialDataLoad.ts:35-42`）→ `useConfigStore.setState({config})`（43）→ `useThemeStore.initTheme(cfg)`（45）→ 恢复上次面板（47-56，质量关闭时跳过 quality）→ 从 `initData.backgroundStatus` 灌 `bgStatus` 并在 `online === true` 时直接置在线（`useInitialDataLoad.ts:62-84`）→ 灌 `accounts`/`activeAccount`（86-90）→ `useAuthStore.getState().checkOnline(cfg, adps)`（92）→ 灌 `refreshRate`（97-99）→ 置 `configLoaded: true`（107）。失败降级：`config: DEFAULT_CONFIG` + `configLoaded: true` + 错误 toast（`useInitialDataLoad.ts:108-114`）。
+1. `main.tsx` 模块求值：gsap 全局配置（`main.tsx:16-19`）→ reduced-motion 降级（`main.tsx:21-25`）→ `initTheme()` 同步写 DOM class（`main.tsx:43`）→ `setupCrashRecovery()` 注册监听与定时器（`main.tsx:45`）→ `ReactDOM.createRoot(...).render`（`main.tsx:119`）。
+2. `App`（`App.tsx:380`）→ `useFormFactor()`（`App.tsx:381`）→ 三元选 `AppInner` 或 `TabletShell`（`App.tsx:385`）。
+3. 双外壳第一句都是 `useAppInit()`（`App.tsx:54` / `TabletShell.tsx:74`），其内部固定顺序（`useAppInit.ts:7-10`）：
+   - `useEventListeners()`（`useEventListeners.ts:13`）：`const { api } = useConfigStore.getState()`（`useEventListeners.ts:22`）→ 注册 `getCurrentWindow().onCloseRequested`（`useEventListeners.ts:41`，安卓无窗口关闭语义）→ 依次订阅 `onBackgroundCheckResult`(82) / `onAutoLoginResult`(117) / `onLoginLog`(134) / `onAutoExitCountdown`(142，no-op) / `onAutoExitCancelled`(163，no-op) / `onCampusExitCountdown`(170，no-op) / `onCampusExitCancelled`(191，no-op) / `onNetworkQualityResult`(198) / `onUpdateAvailable`(206) / `onConfigChanged`(221)。适配器四类事件（`onAdaptersChanged` / `onAdapterDetailsChanged` / `onDisabledAdaptersChanged` / `onAdapterDisabledWarning`）的 no-op 订阅已删除（`useEventListeners.ts:131-133` 注释说明），不再空转注册。
+   - `useInitialDataLoad()`（`useInitialDataLoad.ts:16`）：`api.getInitData()`（`useInitialDataLoad.ts:31`，→ `tauriApi.ts:308` `invoke('get_init_data')`）→ 合并 `DEFAULT_CONFIG`（`useInitialDataLoad.ts:34`）→ 由 `PASSWORD_MASK` 同步 `passwordSaved`/`selfPasswordSaved`（`useInitialDataLoad.ts:35-42`）→ `useConfigStore.setState({config})`（43）→ `useThemeStore.initTheme(cfg)`（45）→ 恢复上次面板（47-56，质量关闭时跳过 quality）→ 从 `initData.backgroundStatus` 灌 `bgStatus` 并在 `online === true` 时直接置在线（`useInitialDataLoad.ts:62-84`）→ 灌 `accounts`/`activeAccount`（83-87）→ `useAuthStore.getState().checkOnline(cfg, adps)`（89）→ 灌 `refreshRate`（94-96）→ 置 `configLoaded: true`（104）。失败降级：`config: DEFAULT_CONFIG` + `configLoaded: true` + 错误 toast（`useInitialDataLoad.ts:106-111`）。
    - `useHeartbeat()`（`useHeartbeat.ts:5`）：立即一次 + 每 5s `api.renderHeartbeat()`（安卓为 `desktopOnly` reject，见 Known Issues）。
    - `useGlobalShortcut()`（`useGlobalShortcut.ts:4`）：注册 keydown。
 
-`checkOnline` 的内部数据流（`useAuthStore.ts:213-264`）：按 `enableNetworkNameCheck` 先 `checkCampusStatus`（`useAuthStore.ts:222` → `detectCampusNetwork` 31 → `tauriApi.ts:183`），不在校园网则写 `bgStatus` 补丁（`buildCampusBgStatusPatch` 40，调用点 231/240）并把 `status` 置 offline 后 return（233-234）；随后 `queryPortalStatus('')`（246 → `useAuthStore.ts:71` → `tauriApi.ts:182`）→ 用 `portal.online` 设 `status.state`（251-255）；结尾 `finally` 释放锁（262）。
+`checkOnline` 的内部数据流（`useAuthStore.ts:196-238`）：按 `enableNetworkNameCheck` 先 `checkCampusStatus`（`useAuthStore.ts:205` → `detectCampusNetwork` 29 → `tauriApi.ts:209`），不在校园网则写 `bgStatus` 补丁（`buildCampusBgStatusPatch` 38，调用点 212/219）并把 `status` 置 offline 后 return（214-215）；随后 `queryPortalStatus('')`（225 → `useAuthStore.ts:56` → `tauriApi.ts:208`）→ 用 `portal.online` 设 `status.state`（230-235）；结尾 `finally` 释放锁（236）。
 
 ### 状态点与后台巡检链路
 
-`background-check-result` 事件 → `useEventListeners.ts:75` 回调：1s 节流（79）→ 主/副适配器在线翻转日志（85-132）→ `useAuthStore.setBgStatus`（134-179，逐字段 `??` 合并）→ 仅在 text/state 变化时 `setStatus`（186-191）。
+`background-check-result` 事件 → `useEventListeners.ts:82` 回调：1s 节流（85-87）→ `useAuthStore.setBgStatus`（88-104，逐字段 `??` 合并）→ 仅在 text/state 变化时 `setStatus`（105-112）（原主/副适配器翻转日志块已随副适配器方案下线删除）。
 
 ### 登录/注销链路
 
-`MobileQuickActions`（`MobileQuickActions.tsx:11`）→ `api.bindToWifi()`（25 → `tauriApi.ts:181`）→ `doLogin()`（27）→ `useAuthStore.doLogin`（`useAuthStore.ts:121`）→ `saveConfigDirect`（133）→ `withTimeout(api.doLogin(adapterName), 60000, ...)`（141 → `tauriApi.ts:184` `invoke('do_login')`）→ 成功置 online + 日志/toast（143-146）→ 质量联动：节流窗口外才 `checkNetworkQuality`（157-163 → `tauriApi.ts:245`）→ 失败才补一次 `checkOnline`（175-177）。平板 Dock 的登录/注销走 `DockNav.tsx:451-452` 的同一 store 动作，按 `resolveAdapterNames`（`network/adapters.ts:15`）限定菜单候选。
+`MobileQuickActions`（`MobileQuickActions.tsx:14`）→ `api.bindToWifi()`（28 → `tauriApi.ts:207`）→ `doLogin()`（29）→ `useAuthStore.doLogin`（`useAuthStore.ts:106`）→ `saveConfigDirect`（117）→ `withTimeout(api.doLogin(), 60000, ...)`（125 → `tauriApi.ts:211` `invoke('do_login')`）→ 成功置 online + 日志/toast（127-131）→ 质量联动：节流窗口外才 `checkNetworkQuality`（142 → `tauriApi.ts:273`）→ 失败才补一次 `checkOnline`（156-160）。平板 Dock 的登录/注销走 `DockNav.tsx:309/319` 的同一 store 动作（安卓后端登录不指定适配器）。
 
-审批/明文链路：`AccountPanel` 绑定卡与 `SelfServicePanel` 通过 `useHelloGate`（`account/selfServiceState.ts:85`）或 `useSelfServiceVerify`（125）→ `tauriApiWithRetry.verifyWindowsIdentity`（93/133 → `tauriApi.ts:188-219`）→ 2D 人脸回退走 `useFaceDialogStore.openFaceDialog('verify')`（`tauriApi.ts:197`）→ `FaceCaptureDialog`（`App.tsx:303` 挂载）→ `faceService.verifyFace`（`faceService.ts:221`）。
+审批/明文链路：`AccountPanel` 绑定卡与 `SelfServicePanel` 通过 `useHelloGate`（`account/selfServiceState.ts:85`）或 `useSelfServiceVerify`（125）→ `tauriApiWithRetry.verifyWindowsIdentity`（93/133 → `tauriApi.ts:215-246`）→ 2D 人脸回退走 `useFaceDialogStore.openFaceDialog('verify')`（`tauriApi.ts:223`）→ `FaceCaptureDialog`（`App.tsx:387` 挂载）→ `faceService.verifyFace`（`faceService.ts:221`）。
 
 ### 配置写回链路
 
-组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:63`）：合并进 `config`（65）→ 标脏 `dirtyFields`（69-72）→ 累积 `saveConfigPending`（74-82）→ 500ms debounce 后 `saveConfigDirect(pending)`（84-93）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:132` → `tauriApi.ts:331` → `tauriApi.ts:173` `invoke('save_config')`）→ 成功后清脏（134-137）；失败累计到 3 次放弃脏标记（150-160）。后端回传经 `onConfigChanged`（`useEventListeners.ts:304`）→ `mergeConfigFromBackend`（`useConfigStore.ts:110`，跳过脏字段）。**与 `config` 并列的独立字段不随 merge 更新**：2026-09 起该监听分支额外从 `data.config.activeAccount` 比对后 `setActiveAccount`（317）、再拉 `listAccounts` 刷新列表（319-323）——与桌面同构的 R4 修复，见 [[account-switch-ui-state-desync]]。关窗前 `hasPendingConfig`（183）/`flushPendingConfig`（190）保证不丢（`useEventListeners.ts:48-73`）。
+组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:63`）：合并进 `config`（65）→ 标脏 `dirtyFields`（69-72）→ 累积 `saveConfigPending`（74-82）→ 500ms debounce 后 `saveConfigDirect(pending)`（84-93）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:132` → `tauriApi.ts:363` → `tauriApi.ts:199` `invoke('save_config')`）→ 成功后清脏（134-137）；失败累计到 3 次放弃脏标记（150-160）。后端回传经 `onConfigChanged`（`useEventListeners.ts:221`）→ `mergeConfigFromBackend`（`useConfigStore.ts:110`，跳过脏字段）。**与 `config` 并列的独立字段不随 merge 更新**：2026-09 起该监听分支额外从 `data.config.activeAccount` 比对后 `setActiveAccount`（232-235）、再拉 `listAccounts` 刷新列表（236-240）——与桌面同构的 R4 修复，见 [[account-switch-ui-state-desync]]。关窗前 `hasPendingConfig`（183）/`flushPendingConfig`（190）保证不丢（`useEventListeners.ts:41-67`）。
 
 ### 主题与 CSS 变量链路
 
-`initTheme`（`main.tsx:27`，首帧防闪）与 `useThemeStore.initTheme`（`useThemeStore.ts:27`，读存储/配置）→ store 订阅副作用（`useThemeStore.ts:53-86`）→ 切 `dark` class / 主题 class / `--primary` 等变量；`App.tsx:258-268` 与 `settings/useSettings.ts:35-41`、`settings/useSettings.ts:58-61` 是两个入口（手机外壳内联、平板走 `useSettings`）。
+`initTheme`（`main.tsx:27`，首帧防闪）与 `useThemeStore.initTheme`（`useThemeStore.ts:27`，读存储/配置）→ store 订阅副作用（`useThemeStore.ts:53-86`）→ 切 `dark` class / 主题 class / `--primary` 等变量；`App.tsx:337-353` 与 `settings/useSettings.ts:35-41`、`settings/useSettings.ts:63-66` 是两个入口（手机外壳内联、平板走 `useSettings`）。
 
 ## Connections
 
@@ -577,17 +578,17 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 1. **`useStartupBoost` 是死代码**：`hooks/useStartupBoost.ts:15` 定义后全仓无 import（v2.4.0 前仅 `ECONOMY_OVERRIDES` 注释提及，分档删除后全仓零提及）。其 `StartupRefs` 字段（`useStartupBoost.ts:5-11`）指向桌面 TitleBar/StatusBar/DockNav/RightPanel，手机外壳根本不渲染这些元素——即便被调用也只会 `gsap.set` 到 null。
 2. **`FluidBackground` 是死代码**：`shared/FluidBackground.tsx:1` 仅经 `shared/index.ts:7` 导出，全仓无渲染点；`App.tsx:4` 注释明确「桌面件（…/FluidBackground/…）在手机外壳不再渲染」。
 3. **`useAppStore` 兼容壳无人引用**：`hooks/useAppStore.ts:2-3` 只做 re-export，全仓无 import；引用清理后可直接删除。
-4. **`lib/animations.ts` 的 `createPanelAppleVariants` 在安卓无调用方**：`createPanelAppleVariants`（`lib/animations.ts:19`）；安卓面板过渡用 `App.tsx:92` 与 `TabletShell.tsx:133` 各自内联的轻量 variants（0.18s easeOut）。历史实现还有 `getPanelDirection`（旧 `lib/animations.ts:21`）与含 `'network'` 的 `PANEL_ORDER`（旧 `lib/animations.ts:19`），已随死代码清理 `1dda320` 双端删除。
-5. **`useQualityStore.gpuInfo` 在安卓永为 null**：唯一 setter `setGpuInfo`（`useQualityStore.ts:94`）全仓无调用；`getGpuInfo` 在安卓是 `desktopOnly` reject（`tauriApi.ts:291`），`useInitialDataLoad.ts:94-96` 注释也说明启动不再请求。v2.4.0 起 `useAnimationProfile` 恒最高档，`gpuInfo` 输入链不再有意义；设备侧帧率节流由 `useDeviceProfile`（恒旗舰档常量）→ `useAdaptiveFramePace` 承担。
-6. **`renderHeartbeat` 在安卓是 reject**：`tauriApi.ts:290` `desktopOnly('render_heartbeat')`，而 `useHeartbeat.ts:13/15` 无条件调用（仅吞掉 DEV 日志）。安卓没有后端按心跳丢失重载 WebView 的机制，`lib/renderLiveness.ts` 的探测只剩「配合 `main.tsx:95` 跳过心跳更新」这一处意义。
-7. **窗口关闭 flush 在安卓不生效**：`useEventListeners.ts:48` 依赖 `getCurrentWindow().onCloseRequested`，安卓进程被杀时不会有该事件；`hasPendingConfig`/`flushPendingConfig`（`useConfigStore.ts:183/190`）在安卓缺少触发时机（仅 `App.tsx:276` 删除账号等场景间接依赖 debounce），存在「最后一次配置改动未落盘」的窗口。
-8. **`useGlobalShortcut` 是桌面遗留**：`useGlobalShortcut.ts:17-21` 的 `Ctrl+Shift+C` → `cancelAutoExit`，而安卓 `cancelAutoExit` 为 `desktopOnly` reject（`tauriApi.ts:268`）、`onAutoExitCountdown` 为 no-op（`tauriApi.ts:269`）。键盘事件在手机上也不会触发。
-9. **`verifyWindowsIdentity` 的 catch 吞掉非人脸错误**：`tauriApi.ts:209-214` 只在 `code` 以 `face` 开头或等于 `userCancel` 时重抛；`plugin-biometric` 的 `biometryLockout`/`authenticationFailed` 等码会静默滑落到系统验证链路（`tauriApi.ts:217`），可能造成「一次人脸失败后立刻又弹一次系统验证」的双弹体验。
-10. **`TauriApi` 类型仍声明了安卓不可用的方法**：`TauriApi`（`tauriApi.ts:56-133`）保留 `getAdapters`/`dhcpRenewAll`/`setupDnsDoh`/`getGpuInfo`/`minimizeWindow`/`showWindow` 等桌面方法，调用方编译期无法察觉其恒 reject；例如 `useAdapterStore.refreshAdapters`（`useAdapterStore.ts:55`）在安卓每次都会走一遍 reject + `.catch(() => undefined)`（`useAdapterStore.ts:24-26`）的空转，`useNetwork.handleDhcpRenew`（`network/useNetwork.ts:65`）同因。
-11. **`NoopListener` 订阅方拿到的清理函数不安全**：`tauriApi.ts:18` 的 `noopListener` 每次调用返回**同一个无操作函数**（闭包常量）。历史实现曾在 `useEventListeners.ts` 逐个订阅并 push 这四类 no-op 事件，现已在订阅端整体删除（`useEventListeners.ts:213-215` 注释）；若未来有人重新订阅，逐个 `unlisteners.push` 后逐个调用没有问题，但把返回值当 key 去重会失效。
-12. **`index.css` 仍带桌面专用类**：`index.css:90` 的 `.force-light-dialog`、`index.css:310-326` 的 `.app-maximized` 系列（桌面最大化态）、`index.css:505` 的 `.animate-window-reveal`、`index.css:633-652` 的 titlebar 按钮类在安卓无使用点（`TitleBar` 以 `showWindowControls={false}` 渲染，`TabletShell.tsx:239`）。
-13. **`gpuInfo`/`dnsDohStatus`/`isRefreshingAdapters` 等字段在安卓恒为初值**：`useQualityStore.ts:48-49`（`dnsDohStatus: null`、`dnsChecking: false`）只有已废弃的 `network/NetworkPanel.tsx:82/95/112` 会写；`isRefreshingAdapters`（`useAdapterStore.ts:52`）只被桌面遗留的 `refreshAdapters`/`RightPanel.tsx:95` 使用。
-14. **手机外壳的 tab 持久化键未随面板裁剪迁移**：`App.tsx:52-55` 只接受 `dashboard/account/selfservice/quality/more`，历史存过 `monitor`（当前底栏动态 tab 之一，`BottomNav.tsx:21`）或 `speedtest` 的值会被丢弃回落 `dashboard`；而底栏点击 `monitor` 时 `handleTabChange` 会把 `'monitor'` 写回存储（`App.tsx:97`），下次启动该值又不在白名单里——一处跨会话不一致。
+4. **`lib/animations.ts` 只剩两个导出，`createPanelAppleVariants` 唯一调用方在手机外壳**：`createPanelAppleVariants`（`lib/animations.ts:19-42`）现由 `App.tsx:116`（`useMemo` 包裹）消费；平板 `TabletShell.tsx:131` 仍用各自内联的轻量 variants（0.18s easeOut，用于 266/281）。历史实现还有 `getPanelDirection`（旧 `lib/animations.ts:21`）与含 `'network'` 的 `PANEL_ORDER`（旧 `lib/animations.ts:19`），已随死代码清理 `1dda320` 双端删除。
+5. **`useQualityStore.gpuInfo` 在安卓永为 null**：唯一 setter `setGpuInfo`（`useQualityStore.ts:94`）全仓无调用；`getGpuInfo` 在安卓是 `desktopOnly` reject（`tauriApi.ts:321`），`useInitialDataLoad.ts:94-96` 注释也说明启动不再请求。v2.4.0 起 `useAnimationProfile` 恒最高档，`gpuInfo` 输入链不再有意义；设备侧帧率节流由 `useDeviceProfile`（恒旗舰档常量）→ `useAdaptiveFramePace` 承担。
+6. **`renderHeartbeat` 在安卓是 reject**：`tauriApi.ts:319` `desktopOnly('render_heartbeat')`，而 `useHeartbeat.ts:13/15` 无条件调用（仅吞掉 DEV 日志）。安卓没有后端按心跳丢失重载 WebView 的机制，`lib/renderLiveness.ts` 的探测只剩「配合 `main.tsx:95` 跳过心跳更新」这一处意义。
+7. **窗口关闭 flush 在安卓不生效**：`useEventListeners.ts:41` 依赖 `getCurrentWindow().onCloseRequested`，安卓进程被杀时不会有该事件；`hasPendingConfig`/`flushPendingConfig`（`useConfigStore.ts:183/190`）在安卓缺少触发时机（仅 `App.tsx:355` 删除账号确认弹窗等场景间接依赖 debounce），存在「最后一次配置改动未落盘」的窗口。
+8. **`useGlobalShortcut` 是桌面遗留**：`useGlobalShortcut.ts:17-21` 的 `Ctrl+Shift+C` → `cancelAutoExit`，而安卓 `cancelAutoExit` 为 `desktopOnly` reject（`tauriApi.ts:297`）、`onAutoExitCountdown` 为 no-op（`tauriApi.ts:298`）。键盘事件在手机上也不会触发。
+9. **`verifyWindowsIdentity` 的 catch 吞掉非人脸错误**：`tauriApi.ts:236-240` 只在 `code` 以 `face` 开头或等于 `userCancel` 时重抛；`plugin-biometric` 的 `biometryLockout`/`authenticationFailed` 等码会静默滑落到系统验证链路（`tauriApi.ts:244`），可能造成「一次人脸失败后立刻又弹一次系统验证」的双弹体验。
+10. **`TauriApi` 类型仍声明了安卓不可用的方法**：`TauriApi`（`tauriApi.ts:56-148`）保留 `getAdapters`/`dhcpRenewAll`/`setupDnsDoh`/`getGpuInfo`/`minimizeWindow`/`showWindow` 等桌面方法，调用方编译期无法察觉其恒 reject；例如 `useAdapterStore.refreshAdapters`（`useAdapterStore.ts:55`）在安卓每次都会走一遍 reject + `.catch(() => undefined)`（`useAdapterStore.ts:24-26`）的空转，`network/useNetwork.ts` 现只剩 `normalizeDhcpResults`/`announceDhcpResults` 两个纯函数（:9/:17），桌面遗留的 `handleDhcpRenew` 钩子已删除。
+11. **`NoopListener` 订阅方拿到的清理函数不安全**：`tauriApi.ts:18` 的 `noopListener` 每次调用返回**同一个无操作函数**（闭包常量）。历史实现曾在 `useEventListeners.ts` 逐个订阅并 push 这四类 no-op 事件，现已在订阅端整体删除（`useEventListeners.ts:131-133` 注释）；若未来有人重新订阅，逐个 `unlisteners.push` 后逐个调用没有问题，但把返回值当 key 去重会失效。
+12. **`index.css` 仍带桌面专用类**：`index.css:90` 的 `.force-light-dialog`、`index.css:330-344` 的 `.app-maximized` 系列（桌面最大化态）、`index.css:525` 的 `.animate-window-reveal`、`index.css:653` 起的 titlebar 按钮类在安卓无使用点（`TitleBar` 以 `showWindowControls={false}` 渲染，`TabletShell.tsx:235`）。
+13. **`gpuInfo`/`dnsDohStatus`/`isRefreshingAdapters` 等字段在安卓恒为初值**：`useQualityStore.ts:48-49`（`dnsDohStatus: null`、`dnsChecking: false`）只有已废弃的 `network/NetworkPanel.tsx:71/74/87/89/104` 会写；`isRefreshingAdapters`（`useAdapterStore.ts:52`）只被桌面遗留的 `refreshAdapters` 使用（`RightPanel` 现已无 `isRefreshingAdapters` 引用）。
+14. **手机外壳的 tab 持久化白名单已含 `monitor`，历史 `speedtest` 值仍会被丢弃**：白名单 `App.tsx:62` 现为 `dashboard/account/selfservice/quality/monitor/more`（`monitor` 已纳入并带注释，`App.tsx:60-61`），历史存过 `speedtest` 的值回落 `dashboard`；`handleTabChange` 写回存储在 `App.tsx:132`。配套归位逻辑：质量开启时恢复到 `monitor` 的值会被重定向到 `quality`（`App.tsx:135-142`），跨会话不一致已收敛。
 15. **`main.tsx` 的崩溃恢复计数不持久**：`crashCount` 是模块级变量（`main.tsx:46`），`window.location.reload()` 后归零，因此 `MAX_CRASH_RELOADS = 3`（`main.tsx:47`）实际退化为「单次页面生命周期内最多 3 次」；持续崩溃场景下会形成重载循环（`main.tsx:53`），只有「心跳丢失 > 10s」的 2s 检测（`main.tsx:102-110`）在反复触发。
-16. **安卓无任何单元测试**：`tauri-app/frontend/src` 有 13 个 `.test.ts(x)` 与 `test-setup.ts`，`android/frontend` 目录下**不存在** `test-setup.ts` 与任何测试文件（文件树对比），`android/frontend/package.json` 也没有 `test` 脚本；复刻分叉只能靠 `tsc --noEmit` + 真机验证发现。
-17. **`vite-env.d.ts` 极简**：`android/frontend/src/vite-env.d.ts:1` 只有 `/// <reference types="vite/client" />`，未声明 `VITE_PLATFORM` 等自定义环境变量类型，`import.meta.env.VITE_PLATFORM` 的取值依赖 `android/frontend/.env`（`VITE_PLATFORM=android`）与各处的 `=== 'android'` 字符串比较（`AccountPanel.tsx:55`、`MonitorPanel.tsx:23`、`SettingsPanel.tsx:31`、`LogPanel.tsx:63`）——写错字符串不会有类型报错。
+16. **安卓无任何单元测试**：`tauri-app/frontend/src` 有 17 个 `.test.ts(x)` 与 `test-setup.ts`，`android/frontend` 目录下**不存在** `test-setup.ts` 与任何测试文件（文件树对比），`android/frontend/package.json` 也没有 `test` 脚本；复刻分叉只能靠 `tsc --noEmit` + 真机验证发现。
+17. **`vite-env.d.ts` 极简**：`android/frontend/src/vite-env.d.ts:1` 只有 `/// <reference types="vite/client" />`，未声明 `VITE_PLATFORM` 等自定义环境变量类型，`import.meta.env.VITE_PLATFORM` 的取值依赖 `android/frontend/.env`（`VITE_PLATFORM=android`）与各处的 `=== 'android'` 字符串比较（`settings/SettingsPanel.tsx:32`、`shared/LogPanel.tsx:62`、`components/tablet/TabletShell.tsx:4` 注释；`AccountPanel`/`MonitorPanel` 内已无 `VITE_PLATFORM`/`isAndroid` 匹配）——写错字符串不会有类型报错。

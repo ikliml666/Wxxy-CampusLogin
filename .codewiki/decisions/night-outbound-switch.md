@@ -39,7 +39,7 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 - **安卓**：到点注销校园网认证并触发系统 WiFi 连通性重检，让系统 `network_avoid_bad_wifi` 机制自动把默认网络切到蜂窝；恢复窗口重登当前账号。
 - **改名**：原「晚间断网自动切换」更名为「自动切换运营商」（UI 文案与 wiki 标题，配置字段名 `nightOperatorSwitch` 不变），与新功能在名字上区分。
 
-时间表与运营商夜切**共用**（`config/night_switch.rs::switch_time_for`：0..=4→1380、5|6→1410；恢复窗口 `[390, 1380)`，2026-09-22 起提升为 `pub(crate)` 供出站侧复用，禁两处硬编码漂移）。
+时间表与运营商夜切**共用**（`config/night_switch.rs::switch_time_for`：0..=4→1380、5|6→1410；恢复窗口 `[450, 1380)`，2026-09-22 起提升为 `pub(crate)` 供出站侧复用，禁两处硬编码漂移）。
 
 ## 与运营商夜切的动作顺序（硬约束）
 
@@ -74,7 +74,7 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 ### 三重还原保障 + 终态出口
 
 1. **运行时修改天然兜底**：重启自动还原，无永久性破坏；
-2. **06:30 恢复窗口主动还原**（`apply_outbound_restore`）：按快照逐族写回原值（`automatic=true` 时显式恢复自动跃点），成功后清快照；
+2. **07:30 恢复窗口主动还原**（`apply_outbound_restore`）：按快照逐族写回原值（`automatic=true` 时显式恢复自动跃点），成功后清快照；
 3. **启动对账**（`reconcile_outbound_on_startup`，`scheduled.rs:672`）：残留切换态（崩溃/被杀/睡眠跨过恢复点）在恢复窗口内或功能已关 → 立即还原；夜间窗口内只有"目标卡仍在且判非校园网"才重放切换（只写目标值不动快照原值），目标卡消失或已回校园网 → 直接还原、放弃本夜切换。
 4. **终态出口**：目标卡 GUID 查不到（拔出/禁用）或跃点行消失 → **视为已还原，清空快照**（无对象可写、系统重建协议栈按默认值即还原语义）；快照 JSON 损坏同样清空（坏数据无还原信息，且不清会永久压住巡检与运营商夜切）。
 
@@ -123,7 +123,7 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 
 ## 已知限制（有意不修/待办，记录避免重查）
 
-1. **`auto_login_on_start` 未过出站闸**（双端同构限制）：启动自动登录链路（桌面 `monitor/auto_auth.rs::run_auto_login_on_start`、安卓 `monitor_loop.rs::auto_login_on_start`）不判切换态——切换态内重启应用会重登校园网。桌面登录失败无害（启动对账会在夜间窗口重放切换）；安卓重登成功则流量回 WiFi、切换态名存实亡但标记仍在，06:30 恢复窗口会再登一次并清标记自愈。未修原因：启动登录是独立编排，加闸要动两端的启动路径，收益（用户恰在切换态内重启的低频场景）不抵评审面扩大。
+1. **`auto_login_on_start` 未过出站闸**（双端同构限制）：启动自动登录链路（桌面 `monitor/auto_auth.rs::run_auto_login_on_start`、安卓 `monitor_loop.rs::auto_login_on_start`）不判切换态——切换态内重启应用会重登校园网。桌面登录失败无害（启动对账会在夜间窗口重放切换）；安卓重登成功则流量回 WiFi、切换态名存实亡但标记仍在，07:30 恢复窗口会再登一次并清标记自愈。未修原因：启动登录是独立编排，加闸要动两端的启动路径，收益（用户恰在切换态内重启的低频场景）不抵评审面扩大。
 2. ~~**`network_avoid_bad_wifi` 写通道不可用**~~（2026-09-22 已解决，见「WRITE_SECURE_SETTINGS 自动写增强」节）：一期只引导手动开启（adb/系统设置），且既有 `acceptWifiNetwork` 命令的 `applyNetworkSettingsCompat`（NetworkBindPlugin.kt:279-292）写 `captive_portal_mode=0` 与 `network_avoid_bad_wifi=0` 不回滚——两件事已随自动写增强一并落地（快照还原机制同时覆盖兜底路径的回滚出口）。
 3. **桌面 `nightOutboundRestore` 字段是死字段**：为满足「字段集双端同构」纪律（[[config-field-sets-bidirectional-sync]]）而存在；桌面真实切换态字段是 `outboundMetricRestore`，桌面代码不消费 `nightOutboundRestore`（反之安卓不消费 `outboundMetricRestore`/`outboundPriority`）。仅导入配置清空逻辑触达它。
 4. **安卓同拍双登可能**：出站 Restore 成功当拍置 `outbound_active=false`，同拍随后的定时登录判定（`!outbound_active && should_fire_scheduled_action`）可能再登一次——恢复窗口恰好压着定时登录时刻时出现。后果轻（重复登录幂等），不为此引入拍内去重。桌面无此问题（定时登录判定在出站动作之前取拍首状态）。
@@ -239,6 +239,8 @@ USB 网卡拔出后设备节点成幽灵（phantom）：`AdminStatus` 或 Class 
 **根因**：六期闸门只按 `outboundDisabledAdapters` 名单豁免；手动禁用的卡无 IP，`select_campus_to_disable` 无 IP 跳过不入名单 → 名单空 → 闸门失效。
 
 **修复**：`config/outbound_switch.rs` 新增纯函数 `is_night_outbound_guard_window(enabled, weekday, now_minutes)`——窗口=[当日切换时刻（周日~四 1380、周五六 1410）, 次日 06:30 恢复窗开)；`now < 390` 凌晨分支覆盖前一晚切换后全部时段（跨日天然成立）。`monitor/adapter_watch.rs` 自动启用块先算窗口，窗口内不出目标（log_debug 记跳过张数），名单闸门与白天「意外禁用→恢复登录」行为不变。
+
+> 2026-10-02 839d3a0：恢复窗起点由 06:30（`RESTORE_START_MINUTES=390`、`now < 390`）调整为 07:30（450）；本节为调整前记录。
 
 **设计取舍**：否决「把已禁用卡也记进名单」——名单驱动 06:30 还原逐卡 enable，记进去会让还原误启用用户手动禁用的卡（制造新 bug）；纯时间窗闸门即可全覆盖三场景（重启 replay、启动中途、运行中禁用——都落窗口内）。白天是否收紧另行听取用户（本期内不动）。
 

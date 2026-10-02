@@ -18,7 +18,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 `tauri-app/src-tauri/src/commands/` 是桌面端 Rust 后端对 webview 暴露的全部 IPC 命令面：前端经 `@tauri-apps/api/core` 的 `invoke('<snake_case 命令名>')` 调用，命令函数负责参数校验、并发互斥、状态读写，再转发到 `auth` / `network` / `config` / `monitor` / `self_service` / `update` / `platform` 等下层模块。
 
-本模块共 **59 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 15、`system.rs` 16、`account.rs` 6、`self_service.rs` 7、`updater.rs` 4），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **61 项**。
+本模块共 **63 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 18、`system.rs` 17、`account.rs` 6、`self_service.rs` 7、`updater.rs` 4），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **65 项**。
 
 ## Key Components
 
@@ -26,48 +26,48 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 端 | 注册位置 | 注册项数 | 说明 |
 |---|---|---|---|
-| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-125` | 61 | 59 条 `commands::*` + `infra::logger::set_debug_mode`（124 行）/ `get_debug_mode`（125 行） |
+| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:62-128` | 65 | 63 条 `commands::*` + `infra::logger::set_debug_mode`（126 行）/ `get_debug_mode`（127 行） |
 | 安卓 | `android/src-tauri/src/lib.rs:55-105` | 49 | 同名对齐的独立实现（`protocol_cmds` / `campus_detect` / `config_state` / `self_service_cmds` / `account_cmds` / `system_cmds` / `monitor_loop` / `quality_cmds` / `update_cmds`），不含桌面专属命令 |
 
 模块声明见 `tauri-app/src-tauri/src/commands/mod.rs:1-8`（8 个 `pub mod`，`self_service` 在 8 行）。
 
-命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword, clearSelfPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 59 个命令名。
+命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword, clearSelfPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 63 个命令名。
 
-### 命令总表（逐条，共 57 条）
+### 命令总表（逐条，共 63 条）
 
 #### config_cmd.rs（5 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `show_window` | `commands/config_cmd.rs:199-202` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
-| `get_config` | `commands/config_cmd.rs:205-207` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码两个密码字段 | 无（掩码是出站唯一出口） |
-| `save_config` | `commands/config_cmd.rs:210-266` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>`、`clear_self_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 → **落盘成功后自动建号/同步账号档案（R2，失败仅告警），实际写盘时补刷托盘菜单**（258-265） | `validate_config`（217）；`clear_password == Some(true)` 跳过兜底置空（227-228）；空/MASK 时回填当前内存密码（229-234、236-241） |
-| `export_config` | `commands/config_cmd.rs:134-152` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（89-117 行）有"明文不出站"回归测试（307 行起） |
-| `import_config` | `commands/config_cmd.rs:155-196` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
+| `show_window` | `commands/config_cmd.rs:209-212` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
+| `get_config` | `commands/config_cmd.rs:215-217` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码两个密码字段 | 无（掩码是出站唯一出口） |
+| `save_config` | `commands/config_cmd.rs:220-275` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>`、`clear_self_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 → **落盘成功后自动建号/同步账号档案（R2，失败仅告警），实际写盘时补刷托盘菜单**（271-273） | `validate_config`（228）；`clear_password == Some(true)` 跳过兜底置空（237-244）；空/MASK 时回填当前内存密码（245-252） |
+| `export_config` | `commands/config_cmd.rs:135-154` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（91-118 行）有"明文不出站"回归测试（288 行起） |
+| `import_config` | `commands/config_cmd.rs:156-207` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
 
 同文件非命令的公开辅助函数：
 
-- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:9-18`）：落盘 + 统一发射 `config-changed` 事件（掩码后发射，15-16 行）。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）。
-- `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:58-86`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（71-73 行）后返回默认配置。
-- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（89-117）、`restore_imported_password_field`（119-131，写盘方 MASK 责任的导入侧实现）。
+- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:9-23`）：落盘 + 统一发射 `config-changed` 事件（掩码后发射，17-18 行）。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）。
+- `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:60-83`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（71-74 行）后返回默认配置。
+- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（91-118）、`restore_imported_password_field`（121-132，写盘方 MASK 责任的导入侧实现）。
 
 #### login.rs（2 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `do_login` | `commands/login.rs:56-83` | `state: State<AppState>`、`app_handle: AppHandle`、`adapter_name: Option<String>` | `Result<CommandResult, String>` | 取消残留自动退出倒计时（58-60）后经 `spawn_blocking` 调用 `auth::service::full_login`，成功再跑 `post_login_handler`（78-80） | **并发互斥门** `tasks.is_logging_in.try_acquire()`（67-73）：已在登录则 `CommandResult::err("登录正在进行中")` |
-| `do_logout` | `commands/login.rs:85-180` | `_state`、`app_handle`、`adapter_name: Option<String>` | `Result<CommandResult, String>` | 调用 `auth::service::full_logout`，成功后 sleep 1s 复查各适配器 Portal 在线状态并写登录日志（102-121），再重置运行态 | **并发互斥门** `tasks.is_logging_out.try_acquire()`（92-98） |
+| `do_login` | `commands/login.rs:55-82` | `state: State<AppState>`、`app_handle: AppHandle`、`adapter_name: Option<String>` | `Result<CommandResult, String>` | 取消残留自动退出倒计时（57-59）后经 `spawn_blocking` 调用 `auth::service::full_login`，成功再跑 `post_login_handler`（78-80） | **并发互斥门** `tasks.is_logging_in.try_acquire()`（66-72）：已在登录则 `CommandResult::err("登录正在进行中")` |
+| `do_logout` | `commands/login.rs:84-93` | `_state`、`app_handle`、`adapter_name: Option<String>` | `Result<CommandResult, String>` | 薄壳：`spawn_blocking`（89）转入同文件 `perform_full_logout_sync`（90，98 行起），注销主体（互斥门/协议注销/复检/状态复位）全部在该同步函数内 | 互斥门在 `perform_full_logout_sync` 内（100） |
 
 #### background.rs（4 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
 | `start_background_check` | `commands/background.rs:7-11` | `app_handle`、`state` | `Result<CommandResult, String>` | 转发 `monitor::watcher::start_background_check_inner` 启动周期巡检 | 由 `watcher` 内部判定重复启动 |
-| `stop_background_check` | `commands/background.rs:13-25` | `_state`、`app_handle` | `Result<CommandResult, String>` | 取消 `background_check` 任务令牌 + 置 `enable_background_check=false` 并落盘（17-22） | 无 |
+| `stop_background_check` | `commands/background.rs:13-25` | `_state`、`app_handle` | `Result<CommandResult, String>` | 取消 `background_check` 任务令牌 + 置 `enable_background_check=false` 并落盘（17-23） | 无 |
 | `trigger_background_check` | `commands/background.rs:27-41` | `_state`、`app_handle` | `Result<CommandResult, String>` | 手动触发一次后台检测（`watcher::run_background_check`），在 tokio 任务中异步跑 | **并发门** `tasks.is_checking.is_active()`（30-32）：进行中直接返回 `err("检测正在进行中")` |
-| `get_background_status` | `commands/background.rs:112-116` | `app_handle` | `Result<serde_json::Value, String>` | 返回巡检状态快照（组装逻辑在同文件 `get_background_status_value`，43-110 行） | 无 |
+| `get_background_status` | `commands/background.rs:115-120` | `app_handle` | `Result<serde_json::Value, String>` | 返回巡检状态快照（组装逻辑在同文件 `get_background_status_value`，46-113 行） | 无 |
 
-#### network_cmd.rs（14 条）
+#### network_cmd.rs（18 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
@@ -75,18 +75,22 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `get_disabled_adapters` | `commands/network_cmd.rs:27-30` | — | `Result<Vec<DisabledAdapter>, String>` | 取被禁用的网卡列表 | 无 |
 | `enable_adapter` | `commands/network_cmd.rs:32-41` | `adapter_name: String` | `Result<CommandResult, String>` | 启用指定网卡（提权级操作） | `adapter_cache::validate_adapter_name`（35 行）；`enable_adapter_inner(name, true)` 允许 COM 提权失败后降级弹 UAC（37-38 行注释） |
 | `get_adapter_details` | `commands/network_cmd.rs:43-46` | — | `Result<Vec<AdapterDetail>, String>` | 取网卡详情（IP/掩码/网关/DNS 等） | 无 |
-| `check_campus_status` | `commands/network_cmd.rs:48-68` | `app_handle` | `Result<serde_json::Value, String>` | 强制刷新网卡后调用 `monitor::watcher::check_campus_network` 判定是否在校园网 | 无（内部强制刷新网卡列表，绕过缓存） |
-| `check_portal_status` | `commands/network_cmd.rs:70-100` | `adapter_ip: String`、`app_handle` | `Result<serde_json::Value, String>` | 探测 Portal 在线状态（只读，不带凭据） | **注销保护期门**（81-88）：`logout_protected_until` 未到期时直接返回 `online=false, message="已注销"`，避免 Portal 延迟误判；`adapter_ip` 为空提前返回（72-77） |
-| `dhcp_renew_all` | `commands/network_cmd.rs:112-129` | `app_handle` | `Result<serde_json::Value, String>` | 对 resolve 后的主/副适配器中有线者做 DHCP 续租（`dhcp_renew_wired_only`） | `filter_operation_adapters`（120-121）限定操作范围，不触碰其他网卡 |
-| `dhcp_release_renew` | `commands/network_cmd.rs:131-152` | `app_handle` | `Result<serde_json::Value, String>` | MAC 重置 + 释放/续租全部目标适配器（`dhcp_release_renew_all`），网关取 `get_campus_gateway`（102-106） | 同上（143-144） |
-| `dhcp_release_renew_adapter` | `commands/network_cmd.rs:154-170` | `adapter_name: String`、`app_handle` | `Result<serde_json::Value, String>` | 单个适配器释放/续租 | `validate_adapter_name`（157 行） |
-| `check_network_quality` | `commands/network_cmd.rs:172-198` | `app_handle` | `Result<serde_json::Value, String>` | 网络质量检测（网关/外网延迟等） | **总开关门**（176-178：`enable_network_quality=false` 返回 `empty_quality_json("disabled")`）+ **并发门** `is_quality_checking`（179-182，忙时返回 `"busy"`）；无可用 IP 返回 `"unknown"`（192-194） |
-| `start_latency_test` | `commands/network_cmd.rs:200-230` | `app_handle`、`_state` | `Result<CommandResult, String>` | 启动定时延迟测试循环（`monitor::latency::spawn_latency_test_loop`），间隔 <10000ms 时兜底 30000ms（214-217） | **总开关门**（207-213）：质量总开关关闭时把 `enable_latency_test` 落盘为 false 并返回提示，防 UI 与运行态分叉 |
-| `stop_latency_test` | `commands/network_cmd.rs:232-243` | `app_handle`、`state` | `Result<CommandResult, String>` | 取消 `latency_test` 任务 + 落盘 `enable_latency_test=false` | 无 |
-| `check_dns_doh_status` | `commands/network_cmd.rs:245-258` | — | `Result<serde_json::Value, String>` | 读注册表汇总各适配器 DNS 来源与 DoH 状态；非 Windows 返回空结构（253-256） | 无 |
-| `setup_dns_doh` | `commands/network_cmd.rs:260-340` | `app_handle`、`family: Option<String>`（`"ipv4"`/`"ipv6"`/`"both"`，非法回退 `both`，263-267） | `Result<serde_json::Value, String>` | 一键设置 DNS + DoH：管理员直调 `dns_setup::setup_dns_doh_admin`（298-300），否则经 `--helper dns` 提权（302-337） | 目标白名单：`resolve_adapter_names` + `filter_operation_adapters` + 非空 IP + `!is_blacklisted`（284-289）；无目标返回失败（291-296）；非 Windows 返回"仅支持Windows"（270-274） |
+| `check_campus_status` | `commands/network_cmd.rs:87-107` | `app_handle` | `Result<serde_json::Value, String>` | 强制刷新网卡后调用 `monitor::watcher::check_campus_network` 判定是否在校园网 | 无（内部强制刷新网卡列表，绕过缓存） |
+| `check_portal_status` | `commands/network_cmd.rs:109-139` | `adapter_ip: String`、`app_handle` | `Result<serde_json::Value, String>` | 探测 Portal 在线状态（只读，不带凭据） | **注销保护期门**（120-127）：`logout_protected_until` 未到期时直接返回 `online=false, message="已注销"`，避免 Portal 延迟误判；`adapter_ip` 为空提前返回（111-115） |
+| `dhcp_renew_all` | `commands/network_cmd.rs:151-168` | `app_handle` | `Result<serde_json::Value, String>` | 对 resolve 后的主/副适配器中有线者做 DHCP 续租（`dhcp_renew_wired_only`） | `filter_operation_adapters`（158-159）限定操作范围，不触碰其他网卡 |
+| `dhcp_release_renew` | `commands/network_cmd.rs:170-191` | `app_handle` | `Result<serde_json::Value, String>` | MAC 重置 + 释放/续租全部目标适配器（`dhcp_release_renew_all`），网关取 `get_campus_gateway`（141-144） | 同上（181-182） |
+| `dhcp_release_renew_adapter` | `commands/network_cmd.rs:193-209` | `adapter_name: String`、`app_handle` | `Result<serde_json::Value, String>` | 单个适配器释放/续租 | `validate_adapter_name`（196 行） |
+| `check_network_quality` | `commands/network_cmd.rs:211-241` | `app_handle` | `Result<serde_json::Value, String>` | 网络质量检测（网关/外网延迟等） | **总开关门**（215-216：`enable_network_quality=false` 返回 `empty_quality_json("disabled")`）+ **并发门** `is_quality_checking`（218-221，忙时返回 `"busy"`）；无可用 IP 返回 `"unknown"`（226-232） |
+| `start_latency_test` | `commands/network_cmd.rs:243-269` | `app_handle`、`_state` | `Result<CommandResult, String>` | 启动定时延迟测试循环（`monitor::latency::spawn_latency_test_loop`），间隔下限 10000ms 由循环内 `max(10_000)` 兜底（`monitor/latency.rs:70`） | **总开关门**（250-255）：质量总开关关闭时把 `enable_latency_test` 落盘为 false 并返回提示，防 UI 与运行态分叉 |
+| `stop_latency_test` | `commands/network_cmd.rs:271-282` | `app_handle`、`state` | `Result<CommandResult, String>` | 取消 `latency_test` 任务 + 落盘 `enable_latency_test=false` | 无 |
+| `check_dns_doh_status` | `commands/network_cmd.rs:284-297` | — | `Result<serde_json::Value, String>` | 读注册表汇总各适配器 DNS 来源与 DoH 状态；非 Windows 返回空结构（292-295） | 无 |
+| `setup_dns_doh` | `commands/network_cmd.rs:299-385` | `app_handle`、`family: Option<String>`（`"ipv4"`/`"ipv6"`/`"both"`，非法回退 `both`，302-306） | `Result<serde_json::Value, String>` | 一键设置 DNS + DoH：管理员直调 `dns_setup::setup_dns_doh_admin`（342-344），否则经 `--helper dns` 提权（346-384） | 目标白名单：`resolve_adapter_names` + `filter_operation_adapters` + 非空 IP + `!is_blacklisted`（324-329）；无目标返回失败（330-337）；非 Windows 返回"仅支持Windows"（311-313） |
+| `outbound_switch_now` | `commands/network_cmd.rs:49-58` | `app_handle` | `Result<CommandResult, String>` | 手动触发立即切换出站（platform 出站 apply 链，2271fc2 起失败原因经 `Result` 直透前端 toast） | 出站目标/总开关校验在 platform 出站模块内 |
+| `outbound_restore_now` | `commands/network_cmd.rs:61-70` | `app_handle` | `Result<CommandResult, String>` | 手动触发立即还原出站到夜间切换前的网卡（同样走 Result 化 apply 链） | 同上 |
+| `get_current_outbound_name` | `commands/network_cmd.rs:74-85` | — | `Result<Option<String>, String>` | 读当前出站网卡名（`spawn_blocking` 内查询，无出站记录时返回 `None`） | 无 |
+| `reset_dns` | `commands/network_cmd.rs:387-478` | `app_handle` | `Result<CommandResult, String>` | 恢复各适配器 DNS 为自动获取（DHCP），Windows 走注册表 + `ipconfig /flushdns` | 目标过滤与 `setup_dns_doh` 同一白名单；非 Windows 直接返回失败 |
 
-#### system.rs（16 条）
+#### system.rs（17 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
@@ -100,23 +104,24 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `cancel_auto_exit` | `commands/system.rs:91-98` | `app_handle`、`_state` | `Result<CommandResult, String>` | 统一取消自动退出 + 校园网退出（95-96） | 无 |
 | `get_logs` | `commands/system.rs:100-104` | `app_handle`、`lines: Option<usize>` | `Result<String, String>` | 读最近日志，默认 200 行 | 无 |
 | `clear_logs` | `commands/system.rs:106-110` | `app_handle` | `Result<bool, String>` | 清空日志文件 | 无 |
-| `get_init_data` | `commands/system.rs:113-155` | `state`、`app_handle` | `Result<serde_json::Value, String>` | 首屏聚合数据：掩码配置、账号条目列表（`AccountItem {id, displayName}`，121 行）、版本、自启、GPU、刷新率、网卡三列表、激活账号、通知开关、`--autostart` 判定（138 行）、后台状态（141 行复用 `background::get_background_status_value`） | `masked_for_display()` 是出站唯一出口（118 行，注释记录了 2026-09-06 漏掩 `self_password` 的真机缺陷） |
-| `render_heartbeat` | `commands/system.rs:153-168` | `state` | `Result<serde_json::Value, String>` | 前端心跳：写 `update_stats.last_render_heartbeat_ms` 供 main.rs 心跳线程检测 WebView 崩溃；返回 `online`/`checking` | 无 |
-| `get_gpu_info` | `commands/system.rs:170-174` | — | `Result<serde_json::Value, String>` | 单独取 GPU 信息（内部 `OnceLock` 缓存） | 无 |
-| `set_log_retention_days` | `commands/system.rs:176-180` | `days: u32` | `Result<(), String>` | 更新运行期日志保留天数 | 无 |
-| `get_log_retention_days` | `commands/system.rs:182-185` | — | `u32` | 读日志保留天数（**唯一不返回 Result 的命令**） | 无 |
-| `export_diagnostics` | `commands/system.rs:193-277` | `app_handle`、`state`、`days: Option<u32>`（默认 3，0=全部日志） | `Result<String, String>` | 导出诊断包到 `<data_dir>/diagnostics/diag-<ts>/`：近 N 天 `app-*.log`（先 `logger::flush()` 防截断）、`config-masked.json`、`adapters.json`、`gpu.json`、`manifest.json`；返回目录路径 | 掩码配置走 `masked_for_display()` 唯一出口；日志文件名过滤复用 `logger::is_app_log_file`（已改 pub） |
+| `get_init_data` | `commands/system.rs:113-155` | `state`、`app_handle` | `Result<serde_json::Value, String>` | 首屏聚合数据：掩码配置、账号条目列表（`AccountItem {id, displayName}`，121 行）、版本、自启、GPU、刷新率、网卡三列表、激活账号、通知开关、`--autostart` 判定（135 行）、后台状态（138 行复用 `background::get_background_status_value`） | `masked_for_display()` 是出站唯一出口（117 行，注释记录了 2026-09-06 漏掩 `self_password` 的真机缺陷） |
+| `render_heartbeat` | `commands/system.rs:157-172` | `state` | `Result<serde_json::Value, String>` | 前端心跳：写 `update_stats.last_render_heartbeat_ms` 供 main.rs 心跳线程检测 WebView 崩溃；返回 `online`/`checking` | 无 |
+| `get_gpu_info` | `commands/system.rs:174-178` | — | `Result<serde_json::Value, String>` | 单独取 GPU 信息（内部 `OnceLock` 缓存） | 无 |
+| `set_log_retention_days` | `commands/system.rs:180-184` | `days: u32` | `Result<(), String>` | 更新运行期日志保留天数 | 无 |
+| `get_log_retention_days` | `commands/system.rs:186-189` | — | `u32` | 读日志保留天数（**唯一不返回 Result 的命令**） | 无 |
+| `export_diagnostics` | `commands/system.rs:195-280` | `app_handle`、`state`、`days: Option<u32>`（默认 3，0=全部日志） | `Result<String, String>` | 导出诊断包到 `<data_dir>/diagnostics/diag-<ts>/`：近 N 天 `app-*.log`（先 `logger::flush()` 防截断）、`config-masked.json`、`adapters.json`、`gpu.json`、`manifest.json`；返回目录路径 | 掩码配置走 `masked_for_display()` 唯一出口；日志文件名过滤复用 `logger::is_app_log_file`（已改 pub） |
+| `notify_window_ready` | `commands/system.rs:284-288` | `window: Window` | `CommandResult` | 前端就绪信号（轻量化重建窗口的 ready 门用；首次启动路径由 window_safety 兜底不受影响）。幂等：多次调用只多记一条信号，等待方取走即清（转发 `app::lightweight::signal_window_ready`） | 无 |
 
 #### account.rs（6 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
 | `list_accounts` | `commands/account.rs:8-13` | `app_handle` | `Result<Vec<AccountItem>, String>` | 列出账号目录下的账号条目（`{id, displayName}`，displayName 空/文件损坏时兜底为 id） | 无 |
-| `switch_account` | `commands/account.rs:16-40` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 加载账号文件、合并登录字段到内存配置、落盘，返回**激活账号 id**（`ok_with_account`，成功时 `activeAccount` 必现）+ 掩码配置 | `validate_account_name`（47，失败返回 `AccountResult::err`）；账号不存在返回 `"账号不存在"` |
-| `save_current_as_account` | `commands/account.rs:82-214` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 另存为账号：先回存旧账号（83-113，经 `persist::load_account_config`/`save_account_config`），再写新账号文件，最后落盘 `active_account` | `validate_account_name`（83） |
-| `delete_account` | `commands/account.rs:216-259` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 删除账号文件；若删的是激活账号则清空并落盘（241-246）；最后统一刷新托盘菜单（256） | `validate_account_name`（217-218）：此处校验失败**直接 `Err` 传播**（与另几条命令返回 `AccountResult::err` 不一致） |
-| `get_active_account` | `commands/account.rs:261-264` | `state` | `Result<String, String>` | 读当前激活账号名 | 无 |
-| `rename_account` | `commands/account.rs:267-283` | `account_id: String`、`display_name: String`、`app_handle` | `Result<AccountResult, String>` | 只改账号档案的 `displayName`（id/文件名/激活态不动）；被改名账号是激活账号时同步主配置 `display_name` 并落盘（303）；成功返回新显示名（`AccountResult.display_name`）。业务错误走 IPC `Err(String)`，前端 try/catch toast | `validate_account_name` 防路径穿越（294 入口 + 321 核心层兜底）；`validate_display_name`（345，trim 后 1..=32 码点、禁控制字符）；重名拒绝（`rename_account_core`，316） |
+| `switch_account` | `commands/account.rs:15-35` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 加载账号文件、合并登录字段到内存配置、落盘，返回**激活账号 id**（`ok_with_account`，成功时 `activeAccount` 必现）+ 掩码配置 | `validate_account_name`（47，失败返回 `AccountResult::err`）；账号不存在返回 `"账号不存在"` |
+| `save_current_as_account` | `commands/account.rs:84-184` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 另存为账号：先回存旧账号（104-131，经 `persist::load_account_config`/`save_account_config`），再写新账号文件，最后落盘 `active_account`（177） | `validate_account_name`（86） |
+| `delete_account` | `commands/account.rs:218-261` | `account_name: String`、`app_handle`、`state` | `Result<AccountResult, String>` | 删除账号文件；若删的是激活账号则清空并落盘（240-248）；最后统一刷新托盘菜单（259） | `validate_account_name`（220）：此处校验失败**直接 `Err` 传播**（与另几条命令返回 `AccountResult::err` 不一致） |
+| `get_active_account` | `commands/account.rs:263-267` | `state` | `Result<String, String>` | 读当前激活账号名 | 无 |
+| `rename_account` | `commands/account.rs:268-283` | `account_id: String`、`display_name: String`、`app_handle` | `Result<AccountResult, String>` | 只改账号档案的 `displayName`（id/文件名/激活态不动）；被改名账号是激活账号时同步主配置 `display_name` 并落盘（306）；成功返回新显示名（`AccountResult.display_name`）。业务错误走 IPC `Err(String)`，前端 try/catch toast | `validate_account_name` 防路径穿越（297 入口 + 324 核心层兜底）；`validate_display_name`（348，trim 后 1..=32 码点、禁控制字符）；重名拒绝（`rename_account_core`，335-336） |
 
 #### self_service.rs（7 条）
 
@@ -134,10 +139,10 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `check_update` | `commands/updater.rs:7-21` | `app_handle`、`_state` | `Result<serde_json::Value, String>` | 检查更新（`update_source != "github"` 时镜像优先，10-11），并写 `last_update_check_epoch_ms` | 无 |
-| `download_update` | `commands/updater.rs:23-192` | `app_handle`、`url: String`、`_state` | `Result<String, String>` | 流式下载更新包到 `%TEMP%/campus-login-update/`，每 ≥200ms 或下载完成时发进度事件；返回本地文件路径 | **并发门** `is_downloading.try_acquire()`（31-32）；必须 https（33-35）；**主机白名单 13 项**（39-56）；文件名清洗非法字符与 `..`（60-72）；大小上限 500MB（74、97-100、125-129，写盘前判定） |
-| `install_update` | `commands/updater.rs:194-291` | `app_handle`、`file_path: String`、`checksum_url: Option<String>` | `Result<bool, String>` | 校验后启动安装：`.exe` 走 `open::that`（251-256），`.msi` 走 `msiexec /i`（257-287），成功后 `schedule_update_cleanup()` | 文件存在（197-199）；**canonical 路径必须落在临时目录内**（202-209）；**SHA256 强制校验**：`checksum_url` 为 `None`/空串直接拒绝（211-243），校验失败即删文件；`skipSha256WhenMissing` 默认关闭（220-225） |
-| `get_mirror_urls` | `commands/updater.rs:293-328` | `github_url: String` | `Result<Vec<serde_json::Value>, String>` | 生成 4 个镜像下载地址（官方 / ghfast.top / gh-proxy.com / ghproxy.net） | URL 必须 `https://github.com/` 或 `http://github.com/` 前缀（295-297）、不得含 `..` 或 `\`（298-300） |
+| `check_update` | `commands/updater.rs:7-18` | `app_handle`、`_state` | `Result<serde_json::Value, String>` | 检查更新（`update_source != "github"` 时镜像优先，10），并写 `last_update_check_epoch_ms` | 无 |
+| `download_update` | `commands/updater.rs:20-189` | `app_handle`、`url: String`、`_state` | `Result<String, String>` | 流式下载更新包到 `%TEMP%/campus-login-update/`，每 ≥200ms 或下载完成时发进度事件；返回本地文件路径 | **并发门** `is_downloading.try_acquire()`（28-29）；必须 https（30-32）；**主机白名单 13 项**（36-51）；文件名清洗非法字符与 `..`（57-69）；大小上限 500MB（71、94-96、119-125，写盘前判定） |
+| `install_update` | `commands/updater.rs:191-288` | `app_handle`、`file_path: String`、`checksum_url: Option<String>` | `Result<bool, String>` | 校验后启动安装：`.exe` 走 `open::that`（249-251），`.msi` 走 `msiexec /i`（262-281），成功后 `schedule_update_cleanup()` | 文件存在（194）；**canonical 路径必须落在临时目录内**（202-204）；**SHA256 强制校验**：`checksum_url` 为 `None`/空串直接拒绝（211-243），校验失败即删文件；`skipSha256WhenMissing` 默认关闭（220-225） |
+| `get_mirror_urls` | `commands/updater.rs:290-325` | `github_url: String` | `Result<Vec<serde_json::Value>, String>` | 生成 4 个镜像下载地址（官方 / ghfast.top / gh-proxy.com / ghproxy.net） | URL 必须 `https://github.com/` 或 `http://github.com/` 前缀（292-294）、不得含 `..` 或 `\`（295-297） |
 
 ## 结构体与字段
 
@@ -161,7 +166,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 |---|---|---|
 | `success` | `bool` | 同 `CommandResult` |
 | `message` | `Option<String>` | 失败原因 |
-| `active_account` | `Option<String>` | 变更后的激活账号 id（`switch_account` 成功时**必现**；`delete_account` 清空时显式返回空串，`commands/account.rs:253-254`） |
+| `active_account` | `Option<String>` | 变更后的激活账号 id（`switch_account` 成功时**必现**；`delete_account` 清空时显式返回空串，`commands/account.rs:255`） |
 | `display_name` | `Option<String>` | `rename_account` 成功时携带 trim 后的新显示名（`infra/state/mod.rs:309`） |
 | `config` | `Option<Config>` | 掩码后的最新配置（前端直接替换本地配置） |
 
@@ -169,7 +174,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 ### 命令层私有结构体
 
-`AdapterOnlineStatus`（`commands/login.rs:10-14`，仅 `login.rs` 内部使用）：
+`AdapterOnlineStatus`（`commands/login.rs:9-13`，仅 `login.rs` 内部使用）：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -179,14 +184,14 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 ### 命令参数涉及的跨模块结构体
 
-- `Config`（`config/model.rs`）：`save_config` / `get_config` / `AccountResult.config` 的载体，字段全集见 [[desktop-config]]。命令层只关心两个密码字段：`password`、`self_password`（空/MASK 语义见 `config_cmd.rs:111-123`）。
-- `BindParams<'a>`（`self_service/mod.rs:64-75`）：`bind_operator` 传给协议层的参数集合，字段为 `account`、`password`、`operator`、`phone`、`sms_password`（全为 `&'a str` 借用）。
-- `OperatorBinding`（`self_service/mod.rs:198-203`）：`query_bind_status` 的返回项，字段为 `masked_account: String`（手机号前三后二掩码）、`password_set: bool`；命令层把它转成 `{account, passwordSet}` JSON（`commands/self_service.rs:132-140`）。
-- `DownloadProgress`（`update/updater.rs:39-44`）：`download_update` 每 200ms 通过事件发给前端的进度结构，字段为 `downloaded: u64`、`total: u64`、`speed: u64`、`percent: f64`（`commands/updater.rs:150-155`、`181-188`）。
+- `Config`（`config/model.rs`）：`save_config` / `get_config` / `AccountResult.config` 的载体，字段全集见 [[desktop-config]]。命令层只关心两个密码字段：`password`、`self_password`（空/MASK 语义见 `config_cmd.rs:121-132`）。
+- `BindParams<'a>`（`self_service/mod.rs:66-77`）：`bind_operator` 传给协议层的参数集合，字段为 `account`、`password`、`operator`、`phone`、`sms_password`（全为 `&'a str` 借用）。
+- `OperatorBinding`（`self_service/mod.rs:200-205`）：`query_bind_status` 的返回项，字段为 `masked_account: String`（手机号前三后二掩码）、`password_set: bool`；命令层把它转成 `{account, passwordSet}` JSON（`commands/self_service.rs:132-140`）。
+- `DownloadProgress`（`update/updater.rs:59-64`）：`download_update` 每 200ms 通过事件发给前端的进度结构，字段为 `downloaded: u64`、`total: u64`、`speed: u64`、`percent: f64`（`commands/updater.rs:147-156`、`178`）。
 
 ### 命令返回的 JSON 结构（内联构造，无 Rust 结构体）
 
-`get_background_status`（构造点 `commands/background.rs:90-109`）：
+`get_background_status`（构造点 `commands/background.rs:93-113`）：
 
 | key | 来源 | 说明 |
 |---|---|---|
@@ -196,27 +201,27 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `isRunning` | `task_manager.is_running("background_check")` | 巡检是否在运行 |
 | `interval` | `config.background_check_interval` | 巡检间隔 |
 | `enabled` | `config.enable_background_check` | 总开关 |
-| `adapterStatuses` | 逐适配器组装（52-82） | 由 `watcher::adapter_status_entry` / `adapter_disconnected_entry` / `adapter_disabled_entry` 生成 |
-| `online` | 由 `adapterStatuses` 任一 `online=true` 推导（84） | 整体在线判定 |
+| `adapterStatuses` | 逐适配器组装（55-85） | 由 `watcher::adapter_status_entry` / `adapter_disconnected_entry` / `adapter_disabled_entry` 生成 |
+| `online` | 由 `adapterStatuses` 任一 `online=true` 推导（87） | 整体在线判定 |
 | `currentSsid` | `network.current_ssid` | 当前 SSID |
 | `onCampusNetwork` | `network.on_campus_network` | 是否校园网 |
 | `enableNetworkNameCheck` | `config.enable_network_name_check` | 网络名校验开关 |
 | `requiredNetworkName` | `config.required_network_name` | 要求的网络名 |
-| `campusWifi` / `campusWired` / `a1OnCampus` / `a2OnCampus` / `a1CampusMessage` / `a2CampusMessage` | 全部硬编码 `serde_json::Value::Null`（103-108） | 历史遗留占位，桌面端未填充（见 Known Issues） |
+| `campusWifi` / `campusWired` / `a1OnCampus` / `a2OnCampus` / `a1CampusMessage` / `a2CampusMessage` | 全部硬编码 `serde_json::Value::Null`（106-111） | 历史遗留占位，桌面端未填充（见 Known Issues） |
 
-`get_init_data`（构造点 `commands/system.rs:143-155`）：`config`（掩码）、`accounts`（`AccountItem[]`）、`version`（编译期 `env!("APP_VERSION")`）、`autoLaunch`、`gpuInfo`、`refreshRate`、`adapters`、`adapterDetails`、`disabledAdapters`、`activeAccount`、`notificationEnabled`、`isAutoStart`（进程参数含 `--autostart`）、`backgroundStatus`（内嵌上面的后台状态）。
+`get_init_data`（构造点 `commands/system.rs:140-155`）：`config`（掩码）、`accounts`（`AccountItem[]`）、`version`（编译期 `env!("APP_VERSION")`）、`autoLaunch`、`gpuInfo`、`refreshRate`、`adapters`、`adapterDetails`、`disabledAdapters`、`activeAccount`、`notificationEnabled`、`isAutoStart`（进程参数含 `--autostart`）、`backgroundStatus`（内嵌上面的后台状态）。
 
-`check_campus_status`（`commands/network_cmd.rs:59-67`）：`onCampusNetwork`、`currentSsid`、`campusMessage`、`enableNetworkNameCheck`、`requiredNetworkName`、`campusWifi`、`campusWired`。
+`check_campus_status`（`commands/network_cmd.rs:98-106`）：`onCampusNetwork`、`currentSsid`、`campusMessage`、`enableNetworkNameCheck`、`requiredNetworkName`、`campusWifi`、`campusWired`。
 
-`check_portal_status`（`commands/network_cmd.rs:73-77` 与 `93-98`）：`online`、`message`、`reachable`、`loginAvailable`（提前返回分支只有前两个 key）。
+`check_portal_status`（`commands/network_cmd.rs:111-115` 与 `132-138`）：`online`、`message`、`reachable`、`loginAvailable`（提前返回分支只有前两个 key）。
 
 `check_network_quality`：成功时序列化 `check_network_quality_async` 的结果结构；未运行分支由 `empty_quality_json(quality)` 生成（`commands/network_cmd.rs:15-17`），字段为 `gatewayLatency`、`externalLatency`、`averageExternalLatency`（均 -1）、`gateway`、`quality`、`timestamp`、`details`、`metrics`；`quality` 取值 `"disabled"` / `"busy"` / `"unknown"`。
 
 `check_dns_doh_status`（`platform/dns_config.rs:539-543` 为 Windows 分支产物）：`adapters`（数组，每项 `name`、`dnsSource`、`dnsServers[]`、`profileDnsServers[]`、`adapterDnsOverridesProfile`）、`dohSupported`、`autoDohEnabled`；非 Windows 为 `{adapters: [], dohSupported: false}`。
 
-`setup_dns_doh`：管理员路径直接返回 `dns_setup::setup_dns_doh_admin` 的 JSON（`network/dns_setup.rs:13`，非 Windows 版本在 205-207 恒返回失败）；helper 路径把结果文件 `details` 对象提升到顶层（`commands/network_cmd.rs:315-328`），保证两种路径结构一致。
+`setup_dns_doh`：管理员路径直接返回 `dns_setup::setup_dns_doh_admin` 的 JSON（`network/dns_setup.rs:13`，非 Windows 版本在 205-207 恒返回失败）；helper 路径把结果文件 `details` 对象提升到顶层（`commands/network_cmd.rs:360-366`），保证两种路径结构一致。
 
-`get_mirror_urls`：数组，每项 `{name, url, description}`（`commands/updater.rs:304-325`）。
+`get_mirror_urls`：数组，每项 `{name, url, description}`（`commands/updater.rs:301-325`）。
 
 ## Data Flow
 
@@ -224,21 +229,21 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 ```text
 前端 invoke('<snake_case 命令名>', { camelCase 参数 })
-  → tauri::generate_handler!（app/startup.rs:63-120）
+  → tauri::generate_handler!（app/startup.rs:62-128）
   → commands/<模块>.rs 的 #[tauri::command] 函数
       ├─ 参数校验（validate_* / is_iso_date / URL 前缀 …）
       ├─ 并发门（TaskLock::try_acquire / is_active）或身份门（identity_verified_recently）
-      ├─ 状态读写：AppState { config, tasks, task_manager, network, exit, update_stats }（infra/state/mod.rs:125-132）
+      ├─ 状态读写：AppState { config, tasks, task_manager, network, exit, update_stats, scheduled }（infra/state/mod.rs:164-172）
       └─ 转发到 auth / network / config / monitor / self_service / update / platform
   → Result<T, String>（Tauri 把 Err 变 rejected Promise，Ok 变 resolved）
 ```
 
-出站事件不经过命令返回值，而是 `AppHandleExt`（`infra/command_context.rs:38-52`）：
+出站事件不经过命令返回值，而是 `AppHandleExt`（`infra/command_context.rs:39-52`）：
 
-- `notify_config_changed(config)`：由 `save_config_to_disk_encrypted` 统一发射（`commands/config_cmd.rs:16`），保证 `save_config` / `switch_account` / `save_current_as_account` / `delete_account` / `rename_account`（仅激活账号被改名时）/ `set_auto_launch` / `set_notification_enabled` / `stop_background_check` / `start|stop_latency_test` 全部经同一出口通知前端，且发送的是**掩码后**配置。
-- `notify_update_download_progress(progress)`：`commands/updater.rs:150`、`181`。
+- `notify_config_changed(config)`：由 `save_config_to_disk_encrypted` 统一发射（`commands/config_cmd.rs:18`），保证 `save_config` / `switch_account` / `save_current_as_account` / `delete_account` / `rename_account`（仅激活账号被改名时）/ `set_auto_launch` / `set_notification_enabled` / `stop_background_check` / `start|stop_latency_test` 全部经同一出口通知前端，且发送的是**掩码后**配置。
+- `notify_update_download_progress(progress)`：`commands/updater.rs:147-156`、`178`。
 
-只读命令常通过 `CommandContext::from_app(&app_handle)`（`infra/command_context.rs:22-25`）在 `spawn_blocking` 闭包内重新取 `AppState`（因为 `State<'_, AppState>` 不能跨线程 move），例如 `commands/login.rs:66`、`commands/background.rs:15`、`commands/network_cmd.rs:118`。
+只读命令常通过 `CommandContext::from_app(&app_handle)`（`infra/command_context.rs:22-25`）在 `spawn_blocking` 闭包内重新取 `AppState`（因为 `State<'_, AppState>` 不能跨线程 move），例如 `commands/background.rs:15`、`commands/network_cmd.rs:157`、`commands/system.rs:93`。
 
 ### 关键调用链
 
@@ -246,54 +251,55 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 ```text
 invoke('do_login', {adapterName})
-  → commands/login.rs:57 do_login
-  → exit.auto_exit_cancelled = false；exit.set_deadline(None)（58-60）
-  → spawn_blocking（65）→ tasks.is_logging_in.try_acquire()（67）
-  → auth::service::full_login(&state, &app_handle, adapter)（74）
-  → 成功后 commands/login.rs:79 → auth::service::post_login_handler
+  → commands/login.rs:56 do_login
+  → exit.auto_exit_cancelled = false；exit.set_deadline(None)（57-59）
+  → spawn_blocking（64）→ tasks.is_logging_in.try_acquire()（66-72）
+  → auth::service::full_login(&state, &app_handle, adapter)（73）
+  → 成功后 commands/login.rs:78 → auth::service::post_login_handler
 ```
 
 注销与状态复位：
 
 ```text
 invoke('do_logout', {adapterName})
-  → commands/login.rs:86 → tasks.is_logging_out.try_acquire()（92）
-  → auth::service::full_logout（100）
-  → 成功：sleep 1s（103）→ check_any_adapter_online（104，见下）→ EventBus::emit_login_log（107/113）
-  → 返回后：adapter_name 为 None 时走"全量注销"（130-159：auto_exit_cancelled=true、failure_tracker::reset_all、
-     network 状态重置、logout_protected_until = now+60s）
-            否则走"单适配器注销"（160-177：只按检测结果重置 per-adapter 标志）
+  → commands/login.rs:85 do_logout（薄壳）→ spawn_blocking（89）转入同文件 perform_full_logout_sync（90，fn 98 起）
+  → tasks.is_logging_out.try_acquire()（100-105）
+  → auth::service::full_logout（108）
+  → 成功：sleep 1s（111）→ check_any_adapter_online（112，见下）→ EventBus::emit_login_log（115/121）
+  → 返回后：adapter_name 为 None 时走"全量注销"（131-147：auto_exit_cancelled=true（135-136）、failure_tracker::reset_all（137）、
+     network 状态重置与 logout_protected_until = now+60s（143-147））
+            否则走"单适配器注销"（150 起的 else：只按检测结果重置 per-adapter 标志）
 ```
 
-`check_any_adapter_online`（`commands/login.rs:16-54`）是命令层唯一的自建并发探测：两个裸 `std::thread::spawn` 并行 `check_portal_full`（38-47），每个线程先 `tauri::async_runtime::handle().inner().enter()`（30）以获得 Tokio runtime context（否则 reqwest 的 per-request 超时计时器会 panic，注释记录了 2026-09-05 注销崩溃事故）。
+`check_any_adapter_online`（`commands/login.rs:15-53`）是命令层唯一的自建并发探测：两个裸 `std::thread::spawn`（38、40）并行 `check_portal_full`，每个线程先 `tauri::async_runtime::handle().inner().enter()`（29）以获得 Tokio runtime context（否则 reqwest 的 per-request 超时计时器会 panic，注释记录了 2026-09-05 注销崩溃事故）。
 
 DNS / DoH 提权链：
 
 ```text
 invoke('setup_dns_doh', {family})
-  → commands/network_cmd.rs:261
-  → resolve_adapter_names + filter_operation_adapters + is_blacklisted（284-289）
-  → elevation::is_admin()（298）
-      ├─ 是：network::dns_setup::setup_dns_doh_admin(&targets, &family)（299）
-      └─ 否：helper_spawn::unique_result_path()（303）
-             → helper_spawn::spawn_elevated_helper("dns", [targets…, "--family", family], &result_path, 30s)（308-313）
+  → commands/network_cmd.rs:300
+  → resolve_adapter_names + filter_operation_adapters + is_blacklisted（324-329）
+  → elevation::is_admin()（342）
+      ├─ 是：network::dns_setup::setup_dns_doh_admin(&targets, &family)（343）
+      └─ 否：helper_spawn::resolve_result_path()（platform/helper_spawn.rs:129）
+             → helper_spawn::spawn_elevated_helper("dns", [targets…, "--family", family], &result_path, 30s)（352）
              → 子进程 --helper 模式（helper/mod.rs）写结果文件
-             → 结果 details 提升顶层后返回（315-328）
+             → 结果 details 提升顶层后返回（360-366）
 ```
 
 更新下载与安装：
 
 ```text
-invoke('download_update', {url}) → commands/updater.rs:24
-  → tasks.is_downloading.try_acquire（31）→ https + host 白名单（33-56）→ 文件名清洗（60-72）
-  → reqwest 流式下载到 %TEMP%/campus-login-update/<file>（104-171），每 200ms 发 DownloadProgress
+invoke('download_update', {url}) → commands/updater.rs:21
+  → tasks.is_downloading.try_acquire（28-29）→ https + host 白名单（30-51）→ 文件名清洗（57-69）
+  → reqwest 流式下载到 %TEMP%/campus-login-update/<file>（94-189），每 200ms 发 DownloadProgress
   → 返回路径字符串
 
-invoke('install_update', {filePath, checksumUrl}) → commands/updater.rs:195
-  → canonical 校验在临时目录内（202-209）→ verify_download_sha256（227）→ .exe/.msi 启动安装（251-287）
+invoke('install_update', {filePath, checksumUrl}) → commands/updater.rs:192
+  → canonical 校验在临时目录内（202-204）→ verify_download_sha256（224）→ .exe/.msi 启动安装（249-281）
 ```
 
-账户命令的状态一致性：改写配置的账户命令都遵循"写文件 → 更新内存 → 经 `save_config_to_disk_encrypted` 落盘并广播"（`commands/account.rs:56`、`174`、`244`、`303`）。另有两条不落主配置的旁路：`rename_account` 对非激活账号只写账号档案文件（`persist::save_account_config`）；`save_config` 落盘后的自动建号也只写账号档案（`config_cmd.rs:258-265`），但两者都会在写盘后补刷托盘菜单。
+账户命令的状态一致性：改写配置的账户命令都遵循"写文件 → 更新内存 → 经 `save_config_to_disk_encrypted` 落盘并广播"（`commands/account.rs:56`、`177`、`247`；`rename_account` 仅激活账号被改名时的同步落盘在 `306`）。另有两条不落主配置的旁路：`rename_account` 对非激活账号只写账号档案文件（`persist::save_account_config`）；`save_config` 落盘后的自动建号也只写账号档案（`config_cmd.rs:271-273`），但两者都会在写盘后补刷托盘菜单。
 
 ## Connections
 
@@ -313,15 +319,15 @@ invoke('install_update', {filePath, checksumUrl}) → commands/updater.rs:195
 
 ## Known Issues
 
-1. **后台状态 6 个字段恒为 `null`**：`commands/background.rs:103-108` 硬编码 `campusWifi` / `campusWired` / `a1OnCampus` / `a2OnCampus` / `a1CampusMessage` / `a2CampusMessage` 为 `serde_json::Value::Null`；安卓侧对应字段有实现（`android/src-tauri/src/monitor_loop.rs`），桌面端消费者必须容忍 null。
-2. **`check_any_adapter_online` 静默吞错**：`commands/login.rs:17-20`，`get_adapters_cached()` 失败直接返回"全部离线"，注销后的状态复位会据此把 `any_adapter_online` 写 false，可能掩盖真实在线状态。
+1. **后台状态 6 个字段恒为 `null`**：`commands/background.rs:106-111` 硬编码 `campusWifi` / `campusWired` / `a1OnCampus` / `a2OnCampus` / `a1CampusMessage` / `a2CampusMessage` 为 `serde_json::Value::Null`；安卓侧对应字段有实现（`android/src-tauri/src/monitor_loop.rs`），桌面端消费者必须容忍 null。
+2. **`check_any_adapter_online` 静默吞错**：`commands/login.rs:16-19`，`get_adapters_cached()` 失败直接返回"全部离线"，注销后的状态复位会据此把 `any_adapter_online` 写 false，可能掩盖真实在线状态。
 3. **`trigger_background_check` 的令牌可能游离**：`commands/background.rs:34-36`，`task_manager.cancel_token("background_check")` 不存在时新建一个 `CancellationToken` 并直接使用，该 token 未被登记到 `task_manager`；这类手动触发产生的任务无法被 `stop_background_check` 取消。
-4. **`delete_account` 的错误返回形态不一致**：`commands/account.rs:217-218` 校验失败直接 `Err(String)`，而 `switch_account`（47）/ `save_current_as_account`（83）返回 `Ok(AccountResult::err(...))`；前端两种失败路径需要分别处理。`rename_account` 则整体走 IPC `Err(String)`（第三种形态）。
-5. **`save_current_as_account` 回存旧账号失败仅告警**：`commands/account.rs:111`，旧账号写盘失败不阻断新账号保存，可能出现"旧账号未更新但已切换"的静默数据陈旧。
-6. **`disable` 后的 `install_update` 不可达分支**：`commands/updater.rs:276-287` 的 `#[cfg(not(target_os = "windows"))]` 分支仍调用 `msiexec`，非 Windows 桌面下必失败（该组合不在项目支持范围，但分支存在）。
-7. **`get_mirror_urls` 与下载白名单不一致**：镜像生成只给 4 个域名（`commands/updater.rs:304-325`），而 `download_update` 白名单有 13 项（39-53）；前端若自造镜像 URL，仍可能被下载命令接受但不在 UI 列表中。
-8. **`check_network_quality` 的 `busy` 语义**：`commands/network_cmd.rs:179-182` 忙时返回 `quality="busy"` 的成功响应（`success` 字段不存在），前端需按 `quality` 分支处理，不能只看命令是否 reject。
-9. **同步命令中的重活**：`get_init_data`（`commands/system.rs:113-155`）是 `fn`（非 `async`）却在内部做账号目录扫描（120-124）、网卡三列表枚举（131-133）、`detect_gpu_info()`（128）/`detect_display_refresh_rate()`（129）；GPU 与刷新率的首次 DXGI/GDI 枚举已由 `app/startup.rs:207-218` 的 `gpu-warmup` 后台线程预热（`platform/gpu.rs:14` 用 `OnceLock` 缓存），但网卡枚举与账号目录扫描仍在同步命令路径内执行，冷启动首次调用有阻塞风险。
-10. **`get_log_retention_days` 是唯一非 `Result` 返回的命令**（`commands/system.rs:182-185`），错误无法上报，前端类型定义需区别对待。
-11. **`download_update` 在 `content_length` 缺失时的上限判断**：`commands/updater.rs:97-100` 的早退只在服务端给长度时生效，实际保护依赖逐 chunk 判定（125-129），这部分逻辑正确但属于"无长度时无预检"。
-12. **`do_logout` 的 `_state` 参数未使用**（`commands/login.rs:86`）：函数通过 `app_handle` 重新取 state（91 行），签名保留 `state` 只为与前端调用保持一致。
+4. **`delete_account` 的错误返回形态不一致**：`commands/account.rs:220` 校验失败直接 `Err(String)`，而 `switch_account`（47）/ `save_current_as_account`（86）返回 `Ok(AccountResult::err(...))`；前端两种失败路径需要分别处理。`rename_account` 则整体走 IPC `Err(String)`（第三种形态）。
+5. **`save_current_as_account` 回存旧账号失败仅告警**：`commands/account.rs:130-131`，旧账号写盘失败不阻断新账号保存，可能出现"旧账号未更新但已切换"的静默数据陈旧。
+6. **`disable` 后的 `install_update` 不可达分支**：`commands/updater.rs:262-288` 的 `#[cfg(not(target_os = "windows"))]` 分支仍调用 `msiexec`，非 Windows 桌面下必失败（该组合不在项目支持范围，但分支存在）。
+7. **`get_mirror_urls` 与下载白名单不一致**：镜像生成只给 4 个域名（`commands/updater.rs:301-325`），而 `download_update` 白名单有 13 项（36-51）；前端若自造镜像 URL，仍可能被下载命令接受但不在 UI 列表中。
+8. **`check_network_quality` 的 `busy` 语义**：`commands/network_cmd.rs:218-221` 忙时返回 `quality="busy"` 的成功响应（`success` 字段不存在），前端需按 `quality` 分支处理，不能只看命令是否 reject。
+9. **同步命令中的重活**：`get_init_data`（`commands/system.rs:113-155`）是 `fn`（非 `async`）却在内部做账号目录扫描（119-121）、网卡三列表枚举（129-131）、`detect_gpu_info()`（126）/`detect_display_refresh_rate()`（127）；GPU 与刷新率的首次 DXGI/GDI 枚举已由 `app/startup.rs:239-247` 的 `gpu-warmup` 后台线程预热（`platform/gpu.rs:14` 用 `OnceLock` 缓存），但网卡枚举与账号目录扫描仍在同步命令路径内执行，冷启动首次调用有阻塞风险。
+10. **`get_log_retention_days` 是唯一非 `Result` 返回的命令**（`commands/system.rs:186-189`），错误无法上报，前端类型定义需区别对待。
+11. **`download_update` 在 `content_length` 缺失时的上限判断**：`commands/updater.rs:94-96` 的早退只在服务端给长度时生效，实际保护依赖逐 chunk 判定（119-125），这部分逻辑正确但属于"无长度时无预检"。
+12. **`do_logout` 的 `_state` 参数未使用**（`commands/login.rs:85-93`）：函数已改为薄壳，实际通过 `app_handle` 在 `perform_full_logout_sync` 内重新取 state（98 行起），签名保留 `_state` 只为与前端调用保持一致。

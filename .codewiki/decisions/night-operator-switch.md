@@ -40,7 +40,7 @@ tags: [决策, 夜切, 运营商, 定时任务, 双端同构]
 判定集中在桌面 crate 跨平台模块 `config/night_switch.rs::evaluate_night_switch(enabled, weekday, now_minutes, current_operator, restore_operator)`，安卓经 path 依赖复用，禁止复制：
 
 - 切换时刻：weekday（`num_days_from_sunday()`，0=周日）0..=4 → 1380 分钟（23:00，2026-09-20 起含周二~周四），5/6 → 1410 分钟（23:30），每天均有切换时刻。
-- 恢复窗口：每日 `[390, 1380)`（06:30 起、最早切换点 23:00 前），与切换时刻无缝衔接。
+- 恢复窗口：每日 `[450, 1380)`（07:30 起，2026-10-02 839d3a0 由 06:30 调整、最早切换点 23:00 前），与切换时刻无缝衔接。
 - 切换条件：开关开 + 当日有切换时刻 + `now_minutes >= 时刻` + **当前 operator 在白名单**（`@telecom`/`@unicom`/`@cmcc`）→ SwitchToCampus（当前值写入 restore、operator 置空）。
 - 恢复条件：开关开 + 恢复窗口内 + restore 非空 + 当前 operator 为空 → Restore（取回并清空 restore）。
 - 白名单拦截账号档案里的脏 operator 值（`switch_account` 不做 operator 校验，曾有测试夹具用 `"校园"`）。
@@ -62,7 +62,7 @@ tags: [决策, 夜切, 运营商, 定时任务, 双端同构]
 
 ## 已知边界（有意不修）
 
-- **午夜后不补触发**：00:00~06:30 之间启动 App 不会切换（当日切换时刻判定 `now_minutes >= 时刻` 只覆盖到当日 23:59），06:30 恢复窗口自愈。影响极小，不引入跨天状态。
+- **午夜后不补触发**：00:00~07:30 之间启动 App 不会切换（当日切换时刻判定 `now_minutes >= 时刻` 只覆盖到当日 23:59），07:30 恢复窗口自愈。影响极小，不引入跨天状态。
 - ~~**桌面 `autoExitAfterLogin` 默认 true**：夜切登录成功即自动退出，恢复被推迟到用户下次启动 App~~（2026-09-20 边界消除：该开关默认值随后台留存优化改为 false，见 [[lightweight-mode-desktop]]；存量配置显式落的 true 不迁移，需用户在设置页自行关闭）。
 - **安卓依赖后台检测循环**：`run_scheduled_actions` 由 `monitor_tick_loop` 驱动，`enableBackgroundCheck` 关闭则夜切不运行（桌面循环无条件启动）。文案已提示。
 

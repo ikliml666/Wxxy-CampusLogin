@@ -14,6 +14,7 @@ source_files:
   - android/src-tauri/src/monitor_loop.rs
   - android/src-tauri/src/protocol_cmds.rs
   - android/src-tauri/src/quality_cmds.rs
+  - android/src-tauri/src/quality_history.rs
   - android/src-tauri/src/self_service_cmds.rs
   - android/src-tauri/src/account_cmds.rs
   - android/src-tauri/src/system_cmds.rs
@@ -26,7 +27,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 安卓端 Tauri 后端（crate `campus-login-android`，lib 名 `campus_login_android_lib`，见 `android/src-tauri/Cargo.toml:2` 与 `:8`）是桌面协议核心 crate `campus-login` 的**薄壳**：它通过 Cargo path 依赖（`android/src-tauri/Cargo.toml:34`，`campus-login = { path = "../../tauri-app/src-tauri" }`）复用桌面全部协议实现，**不复制任何协议逻辑**；协议核心 crate 的 `lib.rs:1-20` 把 `account/auth/config/infra/network/platform/self_service` 设为跨平台可见面，而 `app/commands/helper/monitor/update` 用 `#[cfg(desktop)]` 门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓 target 不编译。
 
-安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（51 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
+安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（53 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
 
 平台专属能力（AndroidKeyStore 加密、前台服务保活、进程绑 WiFi、绑小核、电池优化白名单、APK 安装）由 `android/plugins/` 下三个手写插件承接，见 [[android-plugins]]。
 
@@ -36,31 +37,33 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `mod` 声明 14 个模块 | `android/src-tauri/src/lib.rs:10-23` | campus_detect / android_state / config_state / cpu_affinity / identity_gate / login_history / protocol_cmds / self_service_cmds / monitor_loop / account_cmds / system_cmds / quality_cmds / update_cmds / battery_cmds |
-| `pub fn run()` | `lib.rs:28` | `#[cfg_attr(mobile, tauri::mobile_entry_point)]` 入口；注册插件、`manage(AndroidState)`、setup、`generate_handler!`、`run` |
-| 插件注册（mobile） | `lib.rs:31-37` | 顺序：`campus-network-bind` → `campus-keystore` → `campus-monitor-service` → `tauri_plugin_biometric`（该 crate `#![cfg(mobile)]`，host 编译为空）→ `tauri_plugin_notification`；`manage(android_state::AndroidState::default())` |
-| 插件注册（host） | `lib.rs:38-39` | `#[cfg(not(mobile))]`：只 `manage(AndroidState)`，三个自定义插件不注册 |
-| `tauri_plugin_opener::init()` | `lib.rs:41` | 外链/APK 打开（非 mobile 门控，两端都注册） |
-| `setup` 闭包 | `lib.rs:42-53` | 日志目录 = `app_data_dir()/logs`（与桌面 `infra::logger::get_log_dir` 的 android 分支一致）→ `init_logger`（`lib.rs:49`）→ `monitor_loop::run_startup_tasks(app.handle().clone())`（`lib.rs:51`） |
-| `generate_handler!` 命令注册 | `lib.rs:55-104` | 共 **48** 个命令（清单见下节） |
+| `mod` 声明 15 个模块 | `android/src-tauri/src/lib.rs:11-25` | campus_detect / android_state / config_state / cpu_affinity / identity_gate / login_history / protocol_cmds / self_service_cmds / monitor_loop / account_cmds / system_cmds / quality_cmds / quality_history / update_cmds / battery_cmds |
+| `pub fn run()` | `lib.rs:29-30` | `#[cfg_attr(mobile, tauri::mobile_entry_point)]` 入口；注册插件、`manage(AndroidState)`、setup、`generate_handler!`、`run` |
+| 插件注册（mobile） | `lib.rs:32-39` | 顺序：`campus-network-bind` → `campus-keystore` → `campus-monitor-service` → `tauri_plugin_biometric`（该 crate `#![cfg(mobile)]`，host 编译为空）→ `tauri_plugin_notification`；`manage(android_state::AndroidState::default())` |
+| 插件注册（host） | `lib.rs:40-41` | `#[cfg(not(mobile))]`：只 `manage(AndroidState)`，三个自定义插件不注册 |
+| `tauri_plugin_opener::init()` | `lib.rs:43` | 外链/APK 打开（非 mobile 门控，两端都注册） |
+| `setup` 闭包 | `lib.rs:44-55` | 日志目录 = `app_data_dir()/logs`（与桌面 `infra::logger::get_log_dir` 的 android 分支一致）→ `init_logger`（`lib.rs:51`）→ `monitor_loop::run_startup_tasks(app.handle().clone())`（`lib.rs:53`） |
+| `generate_handler!` 命令注册 | `lib.rs:57-111` | 共 **53** 个命令（清单见下节） |
 
-### 命令总表（48 个，逐一）
+### 命令总表（53 个，逐一）
 
 “桌面对应物”列中 `startup.rs:N` 指注册位置 `tauri-app/src-tauri/src/app/startup.rs:N`。
 
 | # | 命令 | 定义位置 | 用途 | 桌面对应物 |
 |---|------|----------|------|-----------|
-| 1 | `ping_test` | `protocol_cmds.rs:169` | 返回 `"pong"` 的连通性自检 | 无（安卓独有） |
-| 2 | `bind_to_wifi` | `protocol_cmds.rs:175` | 进程网络绑定 WLAN；`cfg(mobile)` 调 network-bind 插件返回 `{"bound":..}` | 无（安卓独有） |
-| 3 | `accept_wifi_network` | `protocol_cmds.rs:193` | 让系统接受“无互联网”的 WiFi（captive portal） | 无（安卓独有） |
+| 1 | `ping_test` | `protocol_cmds.rs:172` | 返回 `"pong"` 的连通性自检 | 无（安卓独有） |
+| 2 | `bind_to_wifi` | `protocol_cmds.rs:178` | 进程网络绑定 WLAN；`cfg(mobile)` 调 network-bind 插件返回 `{"bound":..}` | 无（安卓独有） |
+| 3 | `accept_wifi_network` | `protocol_cmds.rs:196` | 让系统接受“无互联网”的 WiFi（captive portal） | 无（安卓独有） |
 | 4 | `do_login` | `protocol_cmds.rs:10` | 手动登录；凭据空/掩码回退已存配置；写登录历史；成功清熔断与注销保护 | `commands/login.rs::do_login`（`startup.rs:67`） |
-| 5 | `do_logout` | `protocol_cmds.rs:88` | 两步注销（结果 JSON 含 `radiusOk`/`unbindOk` 子步骤信号，2026-09-22 起；出站切换按任一踢下线生效判离线）；成功后设 60s 注销保护期 | `commands/login.rs::do_logout`（`startup.rs:68`） |
-| 6 | `check_portal_status` | `protocol_cmds.rs:139` | Portal 状态页探测（端口 80 页面特征判在线） | `commands/network_cmd.rs::check_portal_status`（`startup.rs:72`） |
-| 7 | `detect_campus` | `campus_detect.rs:187` | 阶段 1 检测卡（`onCampus`/`sourceIp`/`portalReachable`/`detail`） | 无（安卓独有；前端已无调用方） |
-| 8 | `check_campus_status` | `campus_detect.rs:216` | 校园网判定（SSID 感知，`currentSsid` 名称检查开启时为真实值），形状对齐桌面 `network_cmd.rs` | `commands/network_cmd.rs::check_campus_status`（`startup.rs:71`） |
-| 8b | `request_wifi_ssid_permission` | `campus_detect.rs:248` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等；前端名称检查开关/启动后台检测时调用） | 无（安卓独有） |
-| 9 | `get_config` | `config_state.rs:297` | 读配置并刷新内存态，出站掩码（`***`） | `commands/config_cmd.rs::get_config`（`startup.rs:64`） |
-| 10 | `save_config` | `config_state.rs:312` | 写配置；密码走 Keystore 密文落盘；空/掩码回退已存值 | `commands/config_cmd.rs::save_config`（`startup.rs:66`） |
+| 5 | `do_logout` | `protocol_cmds.rs:91` | 两步注销（结果 JSON 含 `radiusOk`/`unbindOk` 子步骤信号，2026-09-22 起；出站切换按任一踢下线生效判离线）；成功后设 60s 注销保护期 | `commands/login.rs::do_logout`（`startup.rs:68`） |
+| 6 | `check_portal_status` | `protocol_cmds.rs:142` | Portal 状态页探测（端口 80 页面特征判在线） | `commands/network_cmd.rs::check_portal_status`（`startup.rs:72`） |
+| 6b | `get_avoid_bad_wifi_status` | `protocol_cmds.rs:215` | 查询 network-bind 插件是否有待还原的设置快照（JNI 走 `spawn_blocking`） | 无（安卓独有） |
+| 6c | `restore_written_settings` | `protocol_cmds.rs:235` | 还原本应用写入的系统网络设置（`captive_portal_mode`/`network_avoid_bad_wifi`/出站切换写的覆盖，按插件快照写回原值） | 无（安卓独有） |
+| 7 | `detect_campus` | `campus_detect.rs:217` | 阶段 1 检测卡（`onCampus`/`sourceIp`/`portalReachable`/`detail`） | 无（安卓独有；前端已无调用方） |
+| 8 | `check_campus_status` | `campus_detect.rs:250` | 校园网判定（SSID 感知，`currentSsid` 名称检查开启时为真实值），形状对齐桌面 `network_cmd.rs` | `commands/network_cmd.rs::check_campus_status`（`startup.rs:71`） |
+| 8b | `request_wifi_ssid_permission` | `campus_detect.rs:278` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等；前端名称检查开关/启动后台检测时调用） | 无（安卓独有） |
+| 9 | `get_config` | `config_state.rs:406` | 读配置并刷新内存态，出站掩码（`***`） | `commands/config_cmd.rs::get_config`（`startup.rs:64`） |
+| 10 | `save_config` | `config_state.rs:421` | 写配置；密码走 Keystore 密文落盘；空/掩码回退已存值 | `commands/config_cmd.rs::save_config`（`startup.rs:66`） |
 | 11 | `verify_biometric_identity` | `self_service_cmds.rs:63` | 前端 BiometricPrompt 成功后写验证门时间戳 | `commands/self_service.rs::verify_windows_identity`（`startup.rs:113`，名字不同、语义对应） |
 | 12 | `bind_operator` | `self_service_cmds.rs:69` | 运营商绑定（设验证门） | `commands/self_service.rs::bind_operator`（`startup.rs:111`） |
 | 13 | `query_bind_status` | `self_service_cmds.rs:114` | 查询三运营商绑定状态（不设门） | `commands/self_service.rs::query_bind_status`（`startup.rs:112`） |
@@ -70,37 +73,37 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | 17 | `reveal_operator_credential` | `self_service_cmds.rs:244` | 明文揭示手机号/短信密码（**无论开关强制验证门**） | `commands/self_service.rs::reveal_operator_credential`（`startup.rs:114`） |
 | 18 | `list_accounts` | `account_cmds.rs:137` | 列举账号条目 `{id, displayName}`（过滤隐藏、按 id 排序；displayName 空/文件损坏兜底为 id） | `commands/account.rs::list_accounts`（`startup.rs:86`） |
 | 19 | `switch_account` | `account_cmds.rs:165` | 切换账号（合并 user/password/operator/adapter1/adapter2/dualAdapter/displayName/activeAccount；返回必带 activeAccount） | `commands/account.rs::switch_account`（`startup.rs:87`） |
-| 20 | `save_current_as_account` | `account_cmds.rs:200` | 当前配置另存为账号（保留自定义 displayName） | `commands/account.rs::save_current_as_account`（`startup.rs:89`） |
-| 21 | `delete_account` | `account_cmds.rs:267` | 删除账号文件；删的是当前账号则清 `activeAccount` | `commands/account.rs::delete_account`（`startup.rs:90`） |
-| 22 | `get_active_account` | `account_cmds.rs:293` | 取 `activeAccount` | `commands/account.rs::get_active_account`（`startup.rs:91`） |
-| 23 | `rename_account` | `account_cmds.rs:298` | 只改账号档案 `displayName`（id/激活态不动；激活账号被改名时同步主配置并落盘；重名拒绝；业务错误走 IPC `Err`） | `commands/account.rs::rename_account`（`startup.rs:88`） |
+| 20 | `save_current_as_account` | `account_cmds.rs:209` | 当前配置另存为账号（保留自定义 displayName） | `commands/account.rs::save_current_as_account`（`startup.rs:89`） |
+| 21 | `delete_account` | `account_cmds.rs:276` | 删除账号文件；删的是当前账号则清 `activeAccount` | `commands/account.rs::delete_account`（`startup.rs:90`） |
+| 22 | `get_active_account` | `account_cmds.rs:307` | 取 `activeAccount` | `commands/account.rs::get_active_account`（`startup.rs:91`） |
+| 23 | `rename_account` | `account_cmds.rs:312` | 只改账号档案 `displayName`（id/激活态不动；激活账号被改名时同步主配置并落盘；重名拒绝；业务错误走 IPC `Err`） | `commands/account.rs::rename_account`（`startup.rs:88`） |
 | 23 | `get_init_data` | `system_cmds.rs:6` | 启动聚合：config（掩码）+ accounts + version + backgroundStatus + 桌面专属字段空默认 | `commands/system.rs::get_init_data`（`startup.rs:102`） |
-| 24 | `get_soc_info` | `system_cmds.rs:71` | 设备 SoC 型号与性能分档 tier 0-3 | `commands/system.rs::get_gpu_info`（`startup.rs:104`，语义对应、名字不同） |
-| 25 | `get_logs` | `system_cmds.rs:30` | 读最近 N 行日志（默认 200） | `commands/system.rs::get_logs`（`startup.rs:100`） |
-| 26 | `clear_logs` | `system_cmds.rs:40` | 清空日志 | `commands/system.rs::clear_logs`（`startup.rs:101`） |
-| 27 | `get_log_retention_days` | `system_cmds.rs:47` | 读日志保留天数 | `commands/system.rs::get_log_retention_days`（`startup.rs:106`） |
-| 28 | `set_log_retention_days` | `system_cmds.rs:52` | 设日志保留天数 | `commands/system.rs::set_log_retention_days`（`startup.rs:105`） |
-| 29 | `get_debug_mode` | `system_cmds.rs:57` | 读调试模式 | `infra/logger.rs::get_debug_mode`（`startup.rs:119`） |
-| 30 | `set_debug_mode` | `system_cmds.rs:62` | 设调试模式 | `infra/logger.rs::set_debug_mode`（`startup.rs:118`） |
+| 24 | `get_soc_info` | `system_cmds.rs:72` | 设备 SoC 型号与性能分档 tier 0-3 | `commands/system.rs::get_gpu_info`（`startup.rs:104`，语义对应、名字不同） |
+| 25 | `get_logs` | `system_cmds.rs:31` | 读最近 N 行日志（默认 200） | `commands/system.rs::get_logs`（`startup.rs:100`） |
+| 26 | `clear_logs` | `system_cmds.rs:41` | 清空日志 | `commands/system.rs::clear_logs`（`startup.rs:101`） |
+| 27 | `get_log_retention_days` | `system_cmds.rs:48` | 读日志保留天数 | `commands/system.rs::get_log_retention_days`（`startup.rs:106`） |
+| 28 | `set_log_retention_days` | `system_cmds.rs:53` | 设日志保留天数 | `commands/system.rs::set_log_retention_days`（`startup.rs:105`） |
+| 29 | `get_debug_mode` | `system_cmds.rs:58` | 读调试模式 | `infra/logger.rs::get_debug_mode`（`startup.rs:119`） |
+| 30 | `set_debug_mode` | `system_cmds.rs:63` | 设调试模式 | `infra/logger.rs::set_debug_mode`（`startup.rs:118`） |
 | 31 | `start_background_check` | `monitor_loop.rs:194` | 启动后台监控（前台服务 + tokio 循环 + WiFi 监听），幂等；已跑则只刷新间隔 | `commands/background.rs::start_background_check`（`startup.rs:88`） |
 | 32 | `stop_background_check` | `monitor_loop.rs:231` | 停止监控（置 `running=false`、注销 WiFi 监听、停前台服务） | `commands/background.rs::stop_background_check`（`startup.rs:89`） |
-| 33 | `trigger_background_check` | `monitor_loop.rs:331` | 立即执行一次 `run_check_once` | `commands/background.rs::trigger_background_check`（`startup.rs:90`） |
-| 34 | `get_background_status` | `monitor_loop.rs:337` | 取监控状态快照（`status_value()`） | `commands/background.rs::get_background_status`（`startup.rs:91`） |
-| 35 | `get_boot_autostart` | `monitor_loop.rs:343` | 读开机自启（mobile 走插件，host 恒 `false`） | `commands/system.rs::get_auto_launch`（`startup.rs:92`，名字不同） |
-| 36 | `set_boot_autostart` | `monitor_loop.rs:360` | 设开机自启（插件组件启停 + 配置落盘，受 `config_io_lock`） | `commands/system.rs::set_auto_launch`（`startup.rs:93`） |
-| 37 | `get_notification_enabled` | `monitor_loop.rs:386` | 读通知开关 | `commands/system.rs::get_notification_enabled`（`startup.rs:94`） |
-| 38 | `set_notification_enabled` | `monitor_loop.rs:391` | 设通知开关（落盘 + 刷内存态） | `commands/system.rs::set_notification_enabled`（`startup.rs:95`） |
+| 33 | `trigger_background_check` | `monitor_loop.rs:332` | 立即执行一次 `run_check_once` | `commands/background.rs::trigger_background_check`（`startup.rs:90`） |
+| 34 | `get_background_status` | `monitor_loop.rs:338` | 取监控状态快照（`status_value()`） | `commands/background.rs::get_background_status`（`startup.rs:91`） |
+| 35 | `get_boot_autostart` | `monitor_loop.rs:344` | 读开机自启（mobile 走插件，host 恒 `false`） | `commands/system.rs::get_auto_launch`（`startup.rs:92`，名字不同） |
+| 36 | `set_boot_autostart` | `monitor_loop.rs:361` | 设开机自启（插件组件启停 + 配置落盘，受 `config_io_lock`） | `commands/system.rs::set_auto_launch`（`startup.rs:93`） |
+| 37 | `get_notification_enabled` | `monitor_loop.rs:387` | 读通知开关 | `commands/system.rs::get_notification_enabled`（`startup.rs:94`） |
+| 38 | `set_notification_enabled` | `monitor_loop.rs:392` | 设通知开关（落盘 + 刷内存态） | `commands/system.rs::set_notification_enabled`（`startup.rs:95`） |
 | 39 | `get_battery_optimization_info` | `battery_cmds.rs:20` | 电池优化白名单状态（`ignoring`/`brand`/`hasVendorTarget`） | 无（平台专属，Windows 无对应 API） |
 | 40 | `request_ignore_battery_optimizations` | `battery_cmds.rs:46` | 一次性申请加入白名单（返回确认框是否弹出） | 无（平台专属） |
 | 41 | `open_vendor_battery_settings` | `battery_cmds.rs:65` | 跳厂商自启/省电页（降级链，返回 `{path,target,tried}`） | 无（平台专属） |
 | 42 | `open_notification_settings` | `battery_cmds.rs:87` | 跳应用通知设置页（降级链，13-/永久拒绝/ROM 关闭时引导开启） | 无（平台专属） |
-| 43 | `check_network_quality` | `quality_cmds.rs:40` | 单次网络质量检测 | `commands/network_cmd.rs::check_network_quality`（`startup.rs:78`） |
-| 44 | `start_latency_test` | `quality_cmds.rs:45` | 启动定时质量测试循环（幂等） | `commands/network_cmd.rs::start_latency_test`（`startup.rs:79`） |
-| 45 | `stop_latency_test` | `quality_cmds.rs:56` | 停止定时质量测试 | `commands/network_cmd.rs::stop_latency_test`（`startup.rs:80`） |
-| 46 | `check_update` | `update_cmds.rs:126` | 检查更新（version.json 4 源降级 + GitHub API 拉 APK 资产） | `commands/updater.rs::check_update`（`startup.rs:107`） |
-| 47 | `download_update` | `update_cmds.rs:287` | 流式下载 APK（白名单 + 500MB 上限 + SHA256 校验） | `commands/updater.rs::download_update`（`startup.rs:108`） |
-| 48 | `get_mirror_urls` | `update_cmds.rs:271` | 生成 4 个下载源候选 | `commands/updater.rs::get_mirror_urls`（`startup.rs:110`） |
-| 49 | `install_update` | `update_cmds.rs:405` | 交系统包安装器安装 APK（路径限定更新目录） | `commands/updater.rs::install_update`（`startup.rs:109`） |
+| 43 | `check_network_quality` | `quality_cmds.rs:48` | 单次网络质量检测 | `commands/network_cmd.rs::check_network_quality`（`startup.rs:78`） |
+| 44 | `start_latency_test` | `quality_cmds.rs:53` | 启动定时质量测试循环（幂等） | `commands/network_cmd.rs::start_latency_test`（`startup.rs:79`） |
+| 45 | `stop_latency_test` | `quality_cmds.rs:64` | 停止定时质量测试 | `commands/network_cmd.rs::stop_latency_test`（`startup.rs:80`） |
+| 46 | `check_update` | `update_cmds.rs:145` | 检查更新（version.json 4 源降级 + GitHub API 拉 APK 资产） | `commands/updater.rs::check_update`（`startup.rs:107`） |
+| 47 | `download_update` | `update_cmds.rs:371` | 流式下载 APK（白名单 + 500MB 上限 + SHA256 校验） | `commands/updater.rs::download_update`（`startup.rs:108`） |
+| 48 | `get_mirror_urls` | `update_cmds.rs:355` | 生成 4 个下载源候选 | `commands/updater.rs::get_mirror_urls`（`startup.rs:110`） |
+| 49 | `install_update` | `update_cmds.rs:497` | 交系统包安装器安装 APK（路径限定更新目录） | `commands/updater.rs::install_update`（`startup.rs:109`） |
 
 ### 公开函数 / 结构体 / 常量清单（按模块）
 
@@ -143,7 +146,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `fn chrono_epoch_millis() -> u128` | `login_history.rs:43` | 备份名时间戳 |
 | `pub fn append(dir, success, message, user, login_type)` | `login_history.rs:51` | 头插 + 截断 100 + tmp/rename 原子写；`adapter` 固定 `"wlan0"`（`login_history.rs:62`） |
 
-#### campus_detect.rs（316 行）
+#### campus_detect.rs（355 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
@@ -153,51 +156,52 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `struct CampusProbe` | `campus_detect.rs:56-64` | 一次探测结果（`wifi_off` 字段 2026-10-02 起） |
 | `pub async fn probe_campus(campus_gateway, portal_url) -> Result<CampusProbe, String>` | `campus_detect.rs:66` | 网卡枚举 → 源 IP → **WiFi 未连接短路**（source=None 即 WiFi 已关闭，立即返回全 false 不做 TCP 探测，2026-10-02）→ /18 子网判定（复用桌面 `network::subnet::is_same_subnet_18`）→ Portal TCP → 网关 TCP 兜底 → `on_campus` 或运算（纯网络探测，不含 SSID） |
 | `pub fn campus_status_message(wifi_off, on_campus) -> &'static str` | `campus_detect.rs:132` | 校园网状态文案（`check_campus_status` 与后台 payload `campusMessage` 共用）：wifi_off →「WiFi 未连接」（2026-10-02），否则已连接/未连接校园网 |
-| `pub fn portal_host_of(url) -> String` | `campus_detect.rs:113` | 从 URL 抠 host（去 scheme/端口/路径） |
-| `pub fn ssid_matches(ssid, required) -> bool` | `campus_detect.rs:126` | SSID 名称匹配（对齐桌面 `campus_check`：`eq_ignore_ascii_case`；required 为 `i-wxxy` 时特判 `iwxxy-2`/`iwxxy-3`），含单测 8 例（2026-09-20） |
-| `async fn current_wifi_ssid(app) -> Option<String>` | `campus_detect.rs:136` | 经 network-bind 插件 `get_wifi_ssid()` 读 WifiManager SSID（spawn_blocking 包 JNI）；未授权/低版本/未连 WiFi → None |
-| `pub(crate) async fn probe_campus_with_ssid(app, settings)` | `campus_detect.rs:158` | **SSID 感知探测入口**（自动登录链路与 `check_campus_status` 共用）：名称检查开启时取 SSID、命中直接 `on_campus=true`（不再依赖子网/TCP）；关闭时与 `probe_campus` 行为一致。返回 `(probe, ssid)` |
-| `pub fn cache_source_ip(state, source)` | `campus_detect.rs:176` | 写入 `AndroidState.cached_source_ip` |
-| `#[tauri::command] detect_campus` | `campus_detect.rs:187` | 阶段 1 兼容入口（前端已无调用方，未接 SSID，行为不变）：绑 WiFi → `probe_campus` → 返回 `{onCampus, sourceIp, portalReachable, detail}` |
-| `#[tauri::command] check_campus_status` | `campus_detect.rs:216` | 绑 WiFi → `probe_campus_with_ssid`，返回桌面形状 `{onCampusNetwork, currentSsid, campusMessage, enableNetworkNameCheck, requiredNetworkName, sourceIp, portalReachable}`——`currentSsid` 在名称检查开启时为真实值（2026-09-20 起，此前恒空串） |
-| `#[tauri::command] request_wifi_ssid_permission` | `campus_detect.rs:248` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等，须用户前台）；前端在名称检查开关开启与启动后台检测时调用 |
+| `pub fn portal_host_of(url) -> String` | `campus_detect.rs:143` | 从 URL 抠 host（去 scheme/端口/路径） |
+| `pub fn ssid_matches(ssid, required) -> bool` | `campus_detect.rs:156` | SSID 名称匹配（对齐桌面 `campus_check`：`eq_ignore_ascii_case`；required 为 `i-wxxy` 时特判 `iwxxy-2`/`iwxxy-3`），含单测 8 例（2026-09-20） |
+| `async fn current_wifi_ssid(app) -> Option<String>` | `campus_detect.rs:166` | 经 network-bind 插件 `get_wifi_ssid()` 读 WifiManager SSID（spawn_blocking 包 JNI）；未授权/低版本/未连 WiFi → None |
+| `pub(crate) async fn probe_campus_with_ssid(app, settings)` | `campus_detect.rs:188` | **SSID 感知探测入口**（自动登录链路与 `check_campus_status` 共用）：名称检查开启时取 SSID、命中直接 `on_campus=true`（不再依赖子网/TCP）；关闭时与 `probe_campus` 行为一致。返回 `(probe, ssid)` |
+| `pub fn cache_source_ip(state, source)` | `campus_detect.rs:206` | 写入 `AndroidState.cached_source_ip` |
+| `#[tauri::command] detect_campus` | `campus_detect.rs:217` | 阶段 1 兼容入口（前端已无调用方，未接 SSID，行为不变）：绑 WiFi → `probe_campus` → 返回 `{onCampus, sourceIp, portalReachable, detail}` |
+| `#[tauri::command] check_campus_status` | `campus_detect.rs:250` | 绑 WiFi → `probe_campus_with_ssid`，返回桌面形状 `{onCampusNetwork, currentSsid, campusMessage, enableNetworkNameCheck, requiredNetworkName, sourceIp, portalReachable}`——`currentSsid` 在名称检查开启时为真实值（2026-09-20 起，此前恒空串） |
+| `#[tauri::command] request_wifi_ssid_permission` | `campus_detect.rs:278` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等，须用户前台）；前端在名称检查开关开启与启动后台检测时调用 |
 
-#### protocol_cmds.rs（331 行）
+#### protocol_cmds.rs（385 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
 | `#[tauri::command] do_login` | `protocol_cmds.rs:10` | 参数 `user/password/operator/adapter`（`adapter` 用 `let _ = adapter;` 丢弃，`protocol_cmds.rs:18`）；`ensure_wifi_bound` → 凭据回退配置 → `run_login` → 写历史 → 成功清 `consecutive_failures`/`logout_protected_until_ms` |
-| `pub async fn run_login(user, password, operator, state)` | `protocol_cmds.rs:60` | `spawn_blocking` 调桌面 `auth::protocol::do_login_with_retry(..., 3, ...)`（`protocol_cmds.rs:71-81`）；monitor_loop 自动重登复用 |
-| `#[tauri::command] do_logout` | `protocol_cmds.rs:88` | `spawn_blocking` 调 `do_logout_with_retry`（`protocol_cmds.rs:107-117`）→ 写历史 → 设 60s 保护期（`protocol_cmds.rs:127-133`） |
-| `#[tauri::command] check_portal_status` | `protocol_cmds.rs:139` | `spawn_blocking` 调桌面 `auth::portal::check_portal_full`（`protocol_cmds.rs:151-152`） |
-| `fn cached_adapter_ip(state) -> Option<String>` | `protocol_cmds.rs:158` | 读缓存源 IP 为字符串 |
-| `#[tauri::command] ping_test` | `protocol_cmds.rs:169` | `"pong"` |
-| `#[tauri::command] bind_to_wifi` | `protocol_cmds.rs:175` | mobile 调插件；host 返回 Err（`protocol_cmds.rs:183-187`） |
-| `#[tauri::command] accept_wifi_network` | `protocol_cmds.rs:193` | 同上模式 |
-| `pub(crate) async fn ensure_wifi_bound(app)` | `protocol_cmds.rs:220` | 全链路前置绑 WiFi；成功且 `path != "already_bound"` 时清 HTTP 客户端池（`protocol_cmds.rs:232-236`）；日志走 `log_info!/log_warn!` + `eprintln!`；成功后调 `accept_campus_wifi` |
-| `pub(crate) async fn accept_campus_wifi(app)` | `protocol_cmds.rs:291` | 代劳系统“仍然连接”确认，失败仅记日志 |
+| `pub async fn run_login(user, password, operator, state)` | `protocol_cmds.rs:63` | `spawn_blocking` 调桌面 `auth::protocol::do_login_with_retry(..., 3, ...)`（`protocol_cmds.rs:74-84`）；monitor_loop 自动重登复用 |
+| `#[tauri::command] do_logout` | `protocol_cmds.rs:91` | `spawn_blocking` 调 `do_logout_with_retry`（`protocol_cmds.rs:110-120`）→ 写历史 → 设 60s 保护期（`protocol_cmds.rs:135`） |
+| `#[tauri::command] check_portal_status` | `protocol_cmds.rs:142` | `spawn_blocking` 调桌面 `auth::portal::check_portal_full`（`protocol_cmds.rs:154-155`） |
+| `fn cached_adapter_ip(state) -> Option<String>` | `protocol_cmds.rs:161` | 读缓存源 IP 为字符串 |
+| `#[tauri::command] ping_test` | `protocol_cmds.rs:172` | `"pong"` |
+| `#[tauri::command] bind_to_wifi` | `protocol_cmds.rs:178` | mobile 调插件；host 返回 Err（`protocol_cmds.rs:186-190`） |
+| `#[tauri::command] accept_wifi_network` | `protocol_cmds.rs:196` | 同上模式 |
+| `pub(crate) async fn ensure_wifi_bound(app)` | `protocol_cmds.rs:264` | 全链路前置绑 WiFi；成功且 `path != "already_bound"` 时清 HTTP 客户端池（`protocol_cmds.rs:283-289`）；日志走 `log_info!/log_warn!` + `eprintln!`；成功后调 `accept_campus_wifi` |
+| `pub(crate) async fn accept_campus_wifi(app)` | `protocol_cmds.rs:345` | 代劳系统“仍然连接”确认，失败仅记日志 |
 
-#### config_state.rs（587 行）
+#### config_state.rs（765 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
 | `pub const PASSWORD_MASK: &str = "***"` | `config_state.rs:10` | 掩码占位符（与桌面同款） |
 | `const CONFIG_FILE: &str = "config.json"` | `config_state.rs:11` | 配置文件名 |
-| `struct Settings` | `config_state.rs:15-80` | 全量配置（38 字段，见下节；2026-09 新增 `display_name`，:43-46，与桌面 `Config.displayName` 同契约） |
-| `impl Default for Settings` | `config_state.rs:82-137` | 默认值（含 2026-09-09/12/13 的三次默认值调整，`campus_check_end_minutes: 1380`、`config_schema_version: 5`；`display_name` 默认空串 `:107`） |
-| `struct CryptoBridge` | `config_state.rs:141-144` | 加解密桥（`Arc<dyn Fn>` 便于 host 注入假实现） |
-| `impl CryptoBridge::from_app(app)` | `config_state.rs:146` | mobile 绑 keystore 插件；host 返回恒 Err 的实现（`config_state.rs:171-172`） |
-| `struct EncodedSettings` | `config_state.rs:182-186` | 落盘形态：`settings` + `passwordCipher` + `selfPasswordCipher`（账号文件同构，displayName 嵌在 `settings.displayName`） |
-| `pub async fn load_file(path, bridge)` | `config_state.rs:188` | 文件缺失 → `Settings::default()`；解密失败置空继续（`config_state.rs:197-201`） |
-| `pub async fn save_file(path, bridge, s)` | `config_state.rs:206` | 加密两密码 → `Settings` 内密码清空 → tmp + rename 原子写；**加密失败直接 Err 不落明文**（`config_state.rs:218`、`:224`） |
-| `pub async fn load_from(dir, bridge)` | `config_state.rs:239` | `load_file` + 迁移 |
-| `async fn migrate_legacy_defaults(dir, bridge, s)` | `config_state.rs:258` | schema v0→v3、v3→v4、v4→v5 一次性迁移并落盘（v4→v5：`campus_check_end_minutes` 旧默认 0 → 1380，`config_state.rs:283-287`）；`displayName` 新增未升版本（serde default 兼容） |
-| `pub async fn save_to(dir, bridge, s)` | `config_state.rs:292` | 写 `dir/config.json` |
-| `pub fn masked_for_display(s) -> serde_json::Value` | `config_state.rs:297` | 非空密码 → `***`；唯一出站出口 |
-| `pub fn resolve_password_field(incoming, current, clear) -> String` | `config_state.rs:309` | 空/掩码保留已存值，`clear` 显式清除 |
-| `#[tauri::command] get_config` | `config_state.rs:321` | 读盘 + 刷内存态 + 掩码出站 |
-| `#[tauri::command] save_config` | `config_state.rs:336` | 读当前 → 合并密码 → 落盘 → 刷内存态（**不联动后台/质量循环起停**，见 Known Issues）→ **落盘成功后 `auto_create_account_for_current` 自动建号/同步账号档案**（`config_state.rs:363`，失败仅告警；只调底层 `save_file` 不经命令层，无递归风险） |
-| `pub async fn current_settings(app) -> Result<Settings, String>` | `config_state.rs:366` | 缓存优先，未命中读盘（仍带 `#[allow(dead_code)] // Task 2 协议命令面接线` 陈旧标注） |
+| `struct Settings` | `config_state.rs:15-111` | 全量配置（47 字段，见下节；2026-09 新增 `display_name`，:76，与桌面 `Config.displayName` 同契约） |
+| `impl Default for Settings` | `config_state.rs:113-183` | 默认值（含 2026-09-09/12/13 的三次默认值调整，`campus_check_end_minutes: 1380`、`config_schema_version: 7`；`display_name` 默认空串） |
+| `struct CryptoBridge` | `config_state.rs:187` | 加解密桥（`Arc<dyn Fn>` 便于 host 注入假实现） |
+| `impl CryptoBridge::from_app(app)` | `config_state.rs:193` | mobile 绑 keystore 插件；host 返回恒 Err 的实现 |
+| `struct EncodedSettings` | `config_state.rs:228` | 落盘形态：`settings` + `passwordCipher` + `selfPasswordCipher`（账号文件同构，displayName 嵌在 `settings.displayName`） |
+| `pub async fn load_file(path, bridge)` | `config_state.rs:234` | 文件缺失 → `Settings::default()`；解密失败置空继续（`config_state.rs:243-247`） |
+| `pub async fn save_file(path, bridge, s)` | `config_state.rs:252` | 加密两密码 → `Settings` 内密码清空 → tmp + rename 原子写；**加密失败直接 Err 不落明文**（`config_state.rs:264`、`:270`） |
+| `pub async fn load_from(dir, bridge)` | `config_state.rs:285` | `load_file` + 迁移 |
+| `async fn migrate_legacy_defaults(dir, bridge, s)` | `config_state.rs:314` | schema v0→v3、v3→v4、v4→v5、v5→v6、v6→v7 一次性迁移并落盘（v4→v5：`campus_check_end_minutes` 旧默认 0 → 1380，`config_state.rs:339-343`；v6→v7：`enable_night_operator_switch` 旧文件 false → true，`config_state.rs:354-355`）；`displayName` 新增未升版本（serde default 兼容） |
+| `pub async fn save_to(dir, bridge, s)` | `config_state.rs:368` | 写 `dir/config.json` |
+| `pub fn masked_for_display(s) -> serde_json::Value` | `config_state.rs:373` | 非空密码 → `***`；唯一出站出口 |
+| `pub async fn emit_config_changed(app, s)` | `config_state.rs:388` | 落盘后广播 `config-changed`，payload `{ config: masked_for_display(s) }`（前端 store 同步依赖；`save_config` 于 `config_state.rs:451` 调用） |
+| `pub fn resolve_password_field(incoming, current, clear) -> String` | `config_state.rs:394` | 空/掩码保留已存值，`clear` 显式清除 |
+| `#[tauri::command] get_config` | `config_state.rs:406` | 读盘 + 刷内存态 + 掩码出站 |
+| `#[tauri::command] save_config` | `config_state.rs:421` | 读当前 → 合并密码 → 落盘 → 刷内存态（**不联动后台/质量循环起停**，见 Known Issues）→ **落盘成功后 `auto_create_account_for_current` 自动建号/同步账号档案**（`config_state.rs:448`，失败仅告警；只调底层 `save_file` 不经命令层，无递归风险）→ **广播 `config-changed`**（`config_state.rs:451`，见 `emit_config_changed`） |
+| `pub async fn current_settings(app) -> Result<Settings, String>` | `config_state.rs:457` | 缓存优先，未命中读盘（仍带 `#[allow(dead_code)] // Task 2 协议命令面接线` 陈旧标注） |
 
 #### self_service_cmds.rs（318 行）
 
@@ -218,7 +222,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `#[tauri::command] self_offline_session` | `self_service_cmds.rs:215` | 设门 + `session_id` 非空校验 |
 | `#[tauri::command] reveal_operator_credential` | `self_service_cmds.rs:244` | 无条件验门（`self_service_cmds.rs:257-259`） |
 
-#### account_cmds.rs（470 行，2026-09 扩展为与桌面 `commands/account.rs` 同构的 7 条命令 + 自动建号）
+#### account_cmds.rs（769 行，2026-09 扩展为与桌面 `commands/account.rs` 同构的 6 条命令 + 自动建号）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
@@ -236,40 +240,40 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `async fn load_account_file(path, bridge)` | `account_cmds.rs:144` | 不存在返回 None |
 | `async fn persist_current(app, merged)` | `account_cmds.rs:151` | 落盘 + 刷内存态 + 返回掩码 JSON |
 | `#[tauri::command] switch_account` | `account_cmds.rs:165` | 消毒 → `config_io_lock` → 载入账号 → 合并登录字段 + `displayName`（空兜底为 id，与桌面同构）+ `activeAccount`；**清 `nightOperatorRestore` 与 `nightOutboundRestore`**（恢复目标/切换态不跨账号残留，2026-09-22 起含出站标记）；成功返回必带 `activeAccount` |
-| `#[tauri::command] save_current_as_account` | `account_cmds.rs:200` | 当前配置写成账号文件 + 更新 `activeAccount`；`merge_save_as_target`（`:235`）处理另存场景副本 displayName 置空 |
-| `#[tauri::command] delete_account` | `account_cmds.rs:267` | 删文件；命中当前账号则清 `activeAccount` 并清 `nightOutboundRestore`（2026-09-22，对齐切账号同位语义） |
-| `#[tauri::command] get_active_account` | `account_cmds.rs:293` | 读 `activeAccount` |
-| `#[tauri::command] rename_account` | `account_cmds.rs:298` | `validate_display_name`（`:362`，trim 后 1..=32 码点、允许空格/emoji、禁控制字符）→ 重名检查 → 只改 `displayName` 写回；被改名账号是当前激活账号时同步主配置并落盘；业务错误走 IPC `Err(String)`（与桌面同构） |
-| `async fn rename_account_core(dir, bridge, account_id, display_name)` | `account_cmds.rs:333` | rename 核心（不依赖 AppHandle，可单测） |
-| `pub async fn auto_create_account_for_current(app, current)` | `account_cmds.rs:379` | R2 自动建号入口：由 `config_state.rs::save_config` 落盘后调用（失败仅告警；只调底层 `save_file`，不经命令层无递归）；**与桌面的差异：无托盘刷新（安卓无托盘）** |
-| `async fn auto_create_account_in(dir, bridge, current)` | `account_cmds.rs:401` | 与桌面同构五规则：无凭据跳过 → id=sanitize(user) → 不存在建号（displayName=原始 user 文本）→ `existing.user` 不一致撞库跳过不覆盖 → 一致则幂等短路/仅更新 password/operator 三字段保留 displayName |
-| `#[cfg(test)] mod tests` | `account_cmds.rs:442` | 覆盖 displayName 兜底、rename 校验/重名、自动建号幂等与撞库、无 displayName 字段旧文件兼容 |
+| `#[tauri::command] save_current_as_account` | `account_cmds.rs:209` | 当前配置写成账号文件 + 更新 `activeAccount`；`merge_save_as_target`（`:244`）处理另存场景副本 displayName 置空 |
+| `#[tauri::command] delete_account` | `account_cmds.rs:276` | 删文件；命中当前账号则清 `activeAccount` 并清 `nightOutboundRestore`（2026-09-22，对齐切账号同位语义） |
+| `#[tauri::command] get_active_account` | `account_cmds.rs:307` | 读 `activeAccount` |
+| `#[tauri::command] rename_account` | `account_cmds.rs:312` | `validate_display_name`（`:376`，trim 后 1..=32 码点、允许空格/emoji、禁控制字符）→ 重名检查 → 只改 `displayName` 写回；被改名账号是当前激活账号时同步主配置并落盘；业务错误走 IPC `Err(String)`（与桌面同构） |
+| `async fn rename_account_core(dir, bridge, account_id, display_name)` | `account_cmds.rs:347` | rename 核心（不依赖 AppHandle，可单测） |
+| `pub async fn auto_create_account_for_current(app, current)` | `account_cmds.rs:393` | R2 自动建号入口：由 `config_state.rs::save_config` 落盘后调用（失败仅告警；只调底层 `save_file`，不经命令层无递归）；**与桌面的差异：无托盘刷新（安卓无托盘）** |
+| `async fn auto_create_account_in(dir, bridge, current)` | `account_cmds.rs:415` | 与桌面同构五规则：无凭据跳过 → id=sanitize(user) → 不存在建号（displayName=原始 user 文本）→ `existing.user` 不一致撞库跳过不覆盖 → 一致则幂等短路/仅更新 password/operator 三字段保留 displayName |
+| `#[cfg(test)] mod tests` | `account_cmds.rs:456` | 覆盖 displayName 兜底、rename 校验/重名、自动建号幂等与撞库、无 displayName 字段旧文件兼容 |
 
 账号契约细节（两端同构部分）见 [[account-display-name-id-separation]] 与 [[account-switch-ui-state-desync]]。
 
-#### system_cmds.rs（160 行）
+#### system_cmds.rs（161 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `#[tauri::command] get_init_data` | `system_cmds.rs:6` | 聚合返回；桌面专属字段补空默认（`gpuInfo: null`、`refreshRate: 60`、`adapters: []` 等，`system_cmds.rs:16-25`）防前端读 `undefined` 崩溃 |
-| `#[tauri::command] get_logs` | `system_cmds.rs:30` | `spawn_blocking` 调桌面 `infra::logger::read_recent_logs` |
-| `#[tauri::command] clear_logs` | `system_cmds.rs:40` | 桌面 `logger::clear_logs` |
-| `#[tauri::command] get_log_retention_days` | `system_cmds.rs:47` | 桌面 `logger::get_log_retention_days` |
-| `#[tauri::command] set_log_retention_days` | `system_cmds.rs:52` | 桌面同名 |
-| `#[tauri::command] get_debug_mode` | `system_cmds.rs:57` | 桌面同名 |
-| `#[tauri::command] set_debug_mode` | `system_cmds.rs:62` | 桌面同名 |
-| `#[tauri::command] get_soc_info` | `system_cmds.rs:71` | `spawn_blocking(read_soc_info)` |
-| `fn read_soc_info()` | `system_cmds.rs:77` | android 读 `ro.soc.model`/`ro.product.model`（`android_system_properties`），host 置空 |
-| `fn count_big_cores() -> u32` | `system_cmds.rs:100` | ≥1.8GHz 计大核 |
-| `fn read_mem_total_mb() -> u64` | `system_cmds.rs:115` | 读 `/proc/meminfo` 首行 |
-| `fn tier_of(soc, big_cores, mem_mb) -> u32` | `system_cmds.rs:133` | 型号映射优先（骁龙 8 系 7 型 + 天玑 9300/9400 = 3；骁龙 7 系/天玑 8-9 系 = 2），空型号走启发式 |
+| `#[tauri::command] get_init_data` | `system_cmds.rs:6` | 聚合返回；桌面专属字段补空默认（`gpuInfo: null`、`refreshRate: 60`、`adapters: []` 等，`system_cmds.rs:17-27`）防前端读 `undefined` 崩溃 |
+| `#[tauri::command] get_logs` | `system_cmds.rs:31` | `spawn_blocking` 调桌面 `infra::logger::read_recent_logs` |
+| `#[tauri::command] clear_logs` | `system_cmds.rs:41` | 桌面 `logger::clear_logs` |
+| `#[tauri::command] get_log_retention_days` | `system_cmds.rs:48` | 桌面 `logger::get_log_retention_days` |
+| `#[tauri::command] set_log_retention_days` | `system_cmds.rs:53` | 桌面同名 |
+| `#[tauri::command] get_debug_mode` | `system_cmds.rs:58` | 桌面同名 |
+| `#[tauri::command] set_debug_mode` | `system_cmds.rs:63` | 桌面同名 |
+| `#[tauri::command] get_soc_info` | `system_cmds.rs:72` | `spawn_blocking(read_soc_info)` |
+| `fn read_soc_info()` | `system_cmds.rs:78` | android 读 `ro.soc.model`/`ro.product.model`（`android_system_properties`），host 置空 |
+| `fn count_big_cores() -> u32` | `system_cmds.rs:101` | ≥1.8GHz 计大核 |
+| `fn read_mem_total_mb() -> u64` | `system_cmds.rs:116` | 读 `/proc/meminfo` 首行 |
+| `fn tier_of(soc, big_cores, mem_mb) -> u32` | `system_cmds.rs:134` | 型号映射优先（骁龙 8 系 7 型 + 天玑 9300/9400 = 3；骁龙 7 系/天玑 8-9 系 = 2），空型号走启发式 |
 
-#### monitor_loop.rs（1465 行）
+#### monitor_loop.rs（1607 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `static MONITOR: MonitorState` | `monitor_loop.rs:11-13` | `lazy_static` 全局监控状态 |
-| `struct MonitorState` | `monitor_loop.rs:26-56` | 12 个原子/互斥字段（见下节）；另有 4 个出站切换静态计数（`OUTBOUND_RESTORE_FAIL_COUNT`/`OUTBOUND_RESTORE_MAX_FAILS`/`OUTBOUND_SWITCH_FAIL_COUNT`/`OUTBOUND_SWITCH_MAX_FAILS`，`monitor_loop.rs:17-24`，见 [[night-outbound-switch]]） |
+| `static MONITOR: MonitorState` | `monitor_loop.rs` | `lazy_static` 全局监控状态 |
+| `struct MonitorState` | `monitor_loop.rs:28-56` | 12 个原子/互斥字段（见下节）；另有 4 个出站切换静态计数（`OUTBOUND_RESTORE_FAIL_COUNT`/`OUTBOUND_RESTORE_MAX_FAILS`/`OUTBOUND_SWITCH_FAIL_COUNT`/`OUTBOUND_SWITCH_MAX_FAILS`，`monitor_loop.rs:17-24`，见 [[night-outbound-switch]]） |
 | `const WIFI_EVENT_DELAY_MS: u64 = 2500` | `monitor_loop.rs:61` | WiFi 事件触发检测的延迟（等 DHCP/路由就绪，兼风暴合并窗口） |
 | `const WIFI_EVENT_DEBOUNCE_MS: u64 = 1000` | `monitor_loop.rs:69` | 事件去抖窗口 |
 | `fn wifi_event_is_burst_start(last, now, debounce) -> bool` | `monitor_loop.rs:74` | 纯函数：首事件或窗口外为风暴起点 |
@@ -280,27 +284,27 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `fn epoch_ms() -> u64` | `monitor_loop.rs:145` | 当前毫秒时间戳 |
 | `fn emit_login_log(app, message, log_type)` | `monitor_loop.rs:152` | emit `login-log` |
 | `pub(crate) fn notify_system(app, enabled, title, body, mascot)` | `monitor_loop.rs:161` | 系统通知，`mascot` 为 drawable 资源名（大图失败降级纯文本，`monitor_loop.rs:175-177`） |
-| `#[tauri::command] start_background_check` | `monitor_loop.rs:166` | 刷新 `desired_interval_ms`/`idle_interval_ms`；已跑直接返回；否则起前台服务（失败即 Err 不留假运行态）→ `running=true` → 重置 `notified_online` → 起 WiFi 监听 → spawn `monitor_tick_loop` |
-| `#[tauri::command] stop_background_check` | `monitor_loop.rs:203` | `running=false` → 注销 WiFi 监听 → 停插件服务 → emit 日志 |
+| `#[tauri::command] start_background_check` | `monitor_loop.rs:194` | 刷新 `desired_interval_ms`/`idle_interval_ms`；已跑直接返回；否则起前台服务（失败即 Err 不留假运行态）→ `running=true` → 重置 `notified_online` → 起 WiFi 监听 → spawn `monitor_tick_loop` |
+| `#[tauri::command] stop_background_check` | `monitor_loop.rs:231` | `running=false` → 注销 WiFi 监听 → 停插件服务 → emit 日志 |
 | `static WIFI_WATCHER_CHANNEL_ID: AtomicU32` / `WIFI_WATCHER_ACTIVE: AtomicBool` | `monitor_loop.rs:245`、`:247` | mobile 专用监听句柄 |
 | `pub(crate) fn start_wifi_watcher(app)` | `monitor_loop.rs:252` | 注册 `tauri::ipc::Channel` 回调 → 插件 `start_wifi_watcher`；失败仅记日志（退化纯周期检测） |
 | `pub(crate) fn stop_wifi_watcher(app)` | `monitor_loop.rs:274` | `removeListener` + `stopWifiWatcher` |
 | `fn handle_wifi_event(app, body)` | `monitor_loop.rs:291` | 去抖 → 记录 `wifi_event_ms` → 延迟 2.5s → 时间戳未变才 `run_check_once`（风暴内最后安排者生效） |
-| `#[tauri::command] trigger_background_check` | `monitor_loop.rs:300` | 立即单次检测 |
-| `#[tauri::command] get_background_status` | `monitor_loop.rs:306` | `status_value()` |
-| `#[tauri::command] get_boot_autostart` | `monitor_loop.rs:312` | mobile 插件 / host `Ok(false)` |
-| `#[tauri::command] set_boot_autostart` | `monitor_loop.rs:329` | 插件组件启停 + `config_io_lock` 下落盘 + 刷内存态 |
-| `#[tauri::command] get_notification_enabled` | `monitor_loop.rs:355` | 读配置 |
-| `#[tauri::command] set_notification_enabled` | `monitor_loop.rs:360` | 落盘 + 刷内存态 |
-| `pub fn run_startup_tasks(app)` | `monitor_loop.rs:419` | 启动恢复：500ms 就绪窗口 → 读配置 → **并行 spawn** 三条链（后台检测 / 质量首测或定时测试，`monitor_loop.rs:432-444`）+ 更新检查循环（`monitor_loop.rs:446`）+ 启动自动登录（`monitor_loop.rs:447-455`） |
-| `async fn probe_with_retry(settings)` | `monitor_loop.rs:463` | 未确认校园网时 3s 后重试一次，仍失败返回最后一次结果 |
+| `#[tauri::command] trigger_background_check` | `monitor_loop.rs:332` | 立即单次检测 |
+| `#[tauri::command] get_background_status` | `monitor_loop.rs:338` | `status_value()` |
+| `#[tauri::command] get_boot_autostart` | `monitor_loop.rs:344` | mobile 插件 / host `Ok(false)` |
+| `#[tauri::command] set_boot_autostart` | `monitor_loop.rs:361` | 插件组件启停 + `config_io_lock` 下落盘 + 刷内存态 |
+| `#[tauri::command] get_notification_enabled` | `monitor_loop.rs:387` | 读配置 |
+| `#[tauri::command] set_notification_enabled` | `monitor_loop.rs:392` | 落盘 + 刷内存态 |
+| `pub fn run_startup_tasks(app)` | `monitor_loop.rs:419` | 启动恢复：500ms 就绪窗口 → 读配置 → 按持久化配置应用日志保留天数（`:428`）→ **并行 spawn** 后台检测链（`:429-434`）/ 质量首测或定时测试链（`:441-453`）+ 更新检查循环（`:455`）+ 启动自动登录（`:456-464`）；`night_outbound_restore` 为空时做 avoid_bad_wifi 快照兜底还原（`:438-440`） |
+| `async fn probe_with_retry(settings)` | `monitor_loop.rs:472` | 未确认校园网时 3s 后重试一次，仍失败返回最后一次结果 |
 | `fn emit_auto_login_result(app, success, message)` | `monitor_loop.rs:486` | emit `auto-login-result`（应用内 toast；系统通知只留失败场景） |
-| `async fn auto_login_on_start(app, settings)` | `monitor_loop.rs:496` | 无凭据返回；`ensure_wifi_bound` → 探测 + 缓存源 IP → 非校园网跳过 → `run_login` → 成功预置 `was_online=true` 并清保护期（`monitor_loop.rs:523-524`） |
-| `struct ProbeWindowGuard` + `Drop` | `monitor_loop.rs:542`、`:545` | 探针窗口锁 guard（mobile），Drop 必释放 |
-| `fn power_state(app) -> (bool, bool)` | `monitor_loop.rs:556`（mobile）/ `:564`（host 恒 `(true,true)`） | `(屏幕交互中, WiFi 连接中)`，查询失败按保守值 |
-| `async fn monitor_tick_loop(app, interval_ms)` | `monitor_loop.rs:568` | tick 循环：间隔热更新（`monitor_loop.rs:580-585`）、分档跳拍（`:588-594`）、`run_check_once`；出站切换编排不在此闸内（`run_scheduled_actions` 独立于巡检闸，见 [[night-outbound-switch]]） |
-| `async fn portal_probe_on_little_cores(ip)` | `monitor_loop.rs:685` | 裸线程 `portal-probe` + `Handle::enter()` + 绑小核 + `catch_unwind`；线程创建失败降级 `spawn_blocking` |
-| `pub async fn run_check_once(app)` | `monitor_loop.rs:1164` | 单次检测五步（**出站切换态整轮跳过闸 `monitor_loop.rs:1174-1184`，见 [[night-outbound-switch]]** → 静默期门控+通知重建 → 校园网判定 → Portal 探测与三态消费 → 自动重登 → emit），详见 Data Flow；闸放在本函数而非 tick 循环：周期拍、WiFi 变化事件与手动检测三入口共用 |
+| `async fn auto_login_on_start(app, settings)` | `monitor_loop.rs:506` | 无凭据返回；`ensure_wifi_bound` → 探测 + 缓存源 IP → 非校园网跳过 → `run_login` → 成功预置 `was_online=true` 并清保护期 |
+| `struct ProbeWindowGuard` + `Drop` | `monitor_loop.rs:554`、`:557-560` | 探针窗口锁 guard（mobile），Drop 必释放 |
+| `fn power_state(app) -> (bool, bool)` | `monitor_loop.rs:568`（mobile）/ `:576`（host 恒 `(true,true)`） | `(屏幕交互中, WiFi 连接中)`，查询失败按保守值 |
+| `async fn monitor_tick_loop(app, interval_ms)` | `monitor_loop.rs:580` | tick 循环：间隔热更新（`monitor_loop.rs:580-585`）、分档跳拍（`:588-594`）、`run_check_once`；出站切换编排不在此闸内（`run_scheduled_actions` 独立于巡检闸，见 [[night-outbound-switch]]） |
+| `async fn portal_probe_on_little_cores(ip)` | `monitor_loop.rs:697` | 裸线程 `portal-probe` + `Handle::enter()` + 绑小核 + `catch_unwind`；线程创建失败降级 `spawn_blocking` |
+| `pub async fn run_check_once(app)` | `monitor_loop.rs:1245` | 单次检测五步（**出站切换态整轮跳过闸 `monitor_loop.rs:1255-1262`，见 [[night-outbound-switch]]** → 静默期门控+通知重建 → 校园网判定 → Portal 探测与三态消费 → 自动重登 → emit），详见 Data Flow；闸放在本函数而非 tick 循环：周期拍、WiFi 变化事件与手动检测三入口共用 |
 
 #### battery_cmds.rs（102 行）
 
@@ -312,45 +316,46 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `#[tauri::command] open_vendor_battery_settings` | `battery_cmds.rs:65` | 透传插件 `{path,target,tried}` |
 | `#[tauri::command] open_notification_settings` | `battery_cmds.rs:87` | 透传插件 `opened`；13+ 弹框由 plugin-notification 负责，本命令服务 13 以下/永久拒绝/ROM 关闭场景 |
 
-#### quality_cmds.rs（73 行）
+#### quality_cmds.rs（149 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
 | `static LATENCY_RUNNING: AtomicBool` | `quality_cmds.rs:12` | 定时测试运行标志 |
-| `async fn run_quality_once(app) -> NetworkQualityResult` | `quality_cmds.rs:15` | 读配置 + 缓存源 IP → 调桌面 `network::quality::check_network_quality_async("wlan0", ...)`（`quality_cmds.rs:27-36`） |
-| `#[tauri::command] check_network_quality` | `quality_cmds.rs:40` | 单次检测 |
-| `#[tauri::command] start_latency_test` | `quality_cmds.rs:45` | `swap(true)` 幂等 → spawn `latency_loop` |
-| `#[tauri::command] stop_latency_test` | `quality_cmds.rs:56` | 置 false |
-| `async fn latency_loop(app, settings)` | `quality_cmds.rs:61` | 间隔 `latency_test_interval.max(10_000)`（`quality_cmds.rs:63`）；每拍 `run_quality_once`（内部经 EventBus emit `network-quality-result`） |
+| `async fn run_quality_once(app) -> NetworkQualityResult` | `quality_cmds.rs:15` | 读配置 + 缓存源 IP → 调桌面 `network::quality::check_network_quality_async("wlan0", ...)`（`quality_cmds.rs:27-36`）→ 落质量历史（`quality_history::append`，`quality_cmds.rs:40`） |
+| `#[tauri::command] check_network_quality` | `quality_cmds.rs:48` | 单次检测 |
+| `#[tauri::command] start_latency_test` | `quality_cmds.rs:53` | `swap(true)` 幂等 → spawn `latency_loop` |
+| `#[tauri::command] stop_latency_test` | `quality_cmds.rs:64` | 置 false |
+| `async fn latency_loop(app, settings)` | `quality_cmds.rs:87` | 基础间隔 `latency_test_interval.max(10_000)`（`quality_cmds.rs:88`）；每拍 `run_quality_once`（内部经 EventBus emit `network-quality-result`）；**稳态退避**（2026-09-20）：连续 5 拍 good 及以上间隔逐拍翻倍、封顶 1800s 且不低于基础间隔，波动/失败恢复基础间隔（`GOOD_LEVELS`/`BACKOFF_STABLE_STREAK`/`BACKOFF_MAX_MS` `quality_cmds.rs:73-75`，`next_backoff_interval_ms` `:79-85`，状态机 `:99-110`） |
 
-#### update_cmds.rs（481 行）
+#### update_cmds.rs（595 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
 | `static UPDATE_LOOP_RUNNING: AtomicBool` | `update_cmds.rs:14` | 24h 循环单例 |
 | `static UPDATE_CHECKSUM: Mutex<Option<String>>` | `update_cmds.rs:17` | 最近一次检查拿到的 SHA256（下载后比对） |
 | `const VERSION_FILE: &str` | `update_cmds.rs:20` | GitHub raw main 分支 version.json |
-| `const VERSION_MIRRORS: &[&str]` | `update_cmds.rs:22-26` | ghfast.top / gh-proxy.com / ghproxy.net 三个镜像 |
-| `const DOWNLOAD_ALLOWED_HOSTS: &[&str]` | `update_cmds.rs:29-38` | 8 个下载域名白名单（防 SSRF） |
-| `const MAX_DOWNLOAD_BYTES: u64 = 500 * 1024 * 1024` | `update_cmds.rs:40` | 下载上限 |
-| `struct ReleaseAsset` | `update_cmds.rs:42-47` | `{name, url, size}` |
-| `struct UpdateInfo` | `update_cmds.rs:49-57` | `{hasUpdate, latestVersion, releaseNotes, assets, sha256Checksum?}` |
-| `struct DownloadProgress` | `update_cmds.rs:59-65` | `{downloaded, total, speed, percent}` |
-| `pub fn has_newer_version(current, latest) -> bool` | `update_cmds.rs:68` | 去 `v` 前缀逐段数值比较（桌面 `compare_versions` 同语义） |
-| `fn http_client()` | `update_cmds.rs:90` | rustls；`connect_timeout=5s` + `timeout=30s`（不设连接超时会吃满总超时） |
-| `fn allowed_url(url)` | `update_cmds.rs:101` | 抠 host 并查白名单 |
-| `#[tauri::command] check_update` | `update_cmds.rs:126` | 包装 `check_update_inner` |
-| `fn version_urls(mirror_first) -> Vec<&'static str>` | `update_cmds.rs:130` | 按渠道排序 4 源 |
-| `struct VersionFile` | `update_cmds.rs:142-148` | **真身形状**：snake_case `version`/`notes`（不能用 `UpdateInfo` 反序列化） |
-| `async fn fetch_apk_assets(client, latest) -> (Vec<ReleaseAsset>, Option<String>)` | `update_cmds.rs:153` | GitHub API release 取 `.apk` 资产与 `digest` 的 `sha256:` 值；10s 超时、失败返回空 |
-| `async fn check_update_inner(app)` | `update_cmds.rs:198` | 按 `update_source` 排序逐源尝试 → 解析 `VersionFile` → 比较版本 → 拉资产 → 写 `UPDATE_CHECKSUM` |
-| `pub fn start_update_check_loop(app)` | `update_cmds.rs:242` | 启动后 5s 首查，之后每 24h；有新版 emit `update-available` + 系统通知 |
-| `#[tauri::command] get_mirror_urls` | `update_cmds.rs:271` | 返回 GitHub + 三镜像候选 |
-| `static DOWNLOAD_RUNNING: AtomicBool` | `update_cmds.rs:284` | 下载互斥 |
-| `#[tauri::command] download_update` | `update_cmds.rs:287` | 互斥包装 + 全路径复位标志 |
-| `async fn download_update_inner(app, url)` | `update_cmds.rs:296` | 白名单 → 流式写盘 → 200ms 节流 emit `update-download-progress` → SHA256 比对（失败删文件） |
-| `async fn verify_file_sha256(path, expected) -> Result<bool, String>` | `update_cmds.rs:376` | 流式 64KiB 分块；非 64 位 hex 视为未提供返回 `true` |
-| `#[tauri::command] install_update` | `update_cmds.rs:405` | `canonicalize` 限定 `app_data_dir/update/` 内 → 插件 `install_apk` |
+| `const AUTO_CHECK_INTERVAL_SECS` / `BACKOFF_RETRY_SECS` / `LAST_CHECK_TIME_MS` | `update_cmds.rs:22`、`:25`、`:33` | 检查周期与失败退避（2026-10-02 新增退避重试） |
+| `const VERSION_MIRRORS: &[&str]` | `update_cmds.rs:35-39` | ghfast.top / gh-proxy.com / ghproxy.net 三个镜像 |
+| `const DOWNLOAD_ALLOWED_HOSTS: &[&str]` | `update_cmds.rs:42-51` | 8 个下载域名白名单（防 SSRF） |
+| `const MAX_DOWNLOAD_BYTES: u64 = 500 * 1024 * 1024` | `update_cmds.rs:53` | 下载上限 |
+| `struct ReleaseAsset` | `update_cmds.rs:56-61` | `{name, url, size}` |
+| `struct UpdateInfo` | `update_cmds.rs:64-72` | `{hasUpdate, latestVersion, releaseNotes, assets, sha256Checksum?}` |
+| `struct DownloadProgress` | `update_cmds.rs:79-85` | `{downloaded, total, speed, percent}` |
+| `pub fn has_newer_version(current, latest) -> bool` | `update_cmds.rs:87` | 去 `v` 前缀逐段数值比较（桌面 `compare_versions` 同语义） |
+| `fn http_client()` | `update_cmds.rs:109` | rustls；`connect_timeout=5s` + `timeout=30s`（不设连接超时会吃满总超时） |
+| `fn allowed_url(url)` | `update_cmds.rs:120` | 抠 host 并查白名单 |
+| `#[tauri::command] check_update` | `update_cmds.rs:145` | 包装 `check_update_inner` |
+| `fn version_urls(mirror_first) -> Vec<&'static str>` | `update_cmds.rs:192` | 按渠道排序 4 源 |
+| `struct VersionFile` | `update_cmds.rs:205-211` | **真身形状**：snake_case `version`/`notes`（不能用 `UpdateInfo` 反序列化） |
+| `async fn fetch_apk_assets(client, latest) -> (Vec<ReleaseAsset>, Option<String>)` | `update_cmds.rs:215` | GitHub API release 取 `.apk` 资产与 `digest` 的 `sha256:` 值；10s 超时、失败返回空 |
+| `async fn check_update_inner(app)` | `update_cmds.rs:260` | 按 `update_source` 排序逐源尝试 → 解析 `VersionFile` → 比较版本 → 拉资产 → 写 `UPDATE_CHECKSUM` |
+| `pub fn start_update_check_loop(app)` | `update_cmds.rs:310` | 启动后 5s 首查（失败退避重试，2026-10-02），之后每 24h；有新版 emit `update-available` + 系统通知 |
+| `#[tauri::command] get_mirror_urls` | `update_cmds.rs:355` | 返回 GitHub + 三镜像候选 |
+| `static DOWNLOAD_RUNNING: AtomicBool` | `update_cmds.rs:368` | 下载互斥 |
+| `#[tauri::command] download_update` | `update_cmds.rs:371` | 互斥包装 + 全路径复位标志 |
+| `async fn download_update_inner(app, url)` | `update_cmds.rs:380` | 白名单 → 流式写盘 → 200ms 节流 emit `update-download-progress` → SHA256 比对（失败删文件） |
+| `async fn verify_file_sha256(path, expected) -> Result<bool, String>` | `update_cmds.rs:465` | 流式 64KiB 分块；非 64 位 hex 视为未提供返回 `true` |
+| `#[tauri::command] install_update` | `update_cmds.rs:497` | `canonicalize` 限定 `app_data_dir/update/` 内 → 插件 `install_apk` |
 
 ## 结构体与字段
 
@@ -361,7 +366,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `cached_source_ip` | `Mutex<Option<Ipv4Addr>>` | 检测阶段选出的 wlan0 源 IP；登录/注销/Portal/质量/自助服务共用 |
 | `config` | `Mutex<Option<Settings>>` | 明文配置内存态（含明文密码，仅内存，不落盘明文） |
 
-### `Settings`（`config_state.rs:15-102`，41 字段，`#[serde(rename_all = "camelCase", default)]`）
+### `Settings`（`config_state.rs:15-111`，47 字段，`#[serde(rename_all = "camelCase", default)]`）
 
 | 字段（Rust） | 类型 | 含义 / 默认值 |
 |--------------|------|---------------|
@@ -372,6 +377,11 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `self_reverify_each_action` | `bool` | 每动作重验证（默认 `false`） |
 | `allow_2d_face_verify` | `bool` | 2D 人脸回退（低安全，默认 `false`，注释见 `config_state.rs:22-23`） |
 | `operator` | `String` | 运营商后缀（如 `@cmcc`） |
+| `enable_night_operator_switch` | `bool` | 运营商夜切总开关（默认 `false`；v6→v7 迁移把旧文件值刷为 `true`，`config_state.rs:354-355`；桌面 Config 同名字段同构） |
+| `night_operator_restore` | `String` | 运营商夜切还原目标标记（切账号时清空） |
+| `outbound_disabled_adapters` | `String` | 出站排除网卡名单（**安卓不消费此字段**，仅为字段集同构保留） |
+| `outbound_standby_route` | `String` | 出站待命路由快照（**安卓不消费此字段**，仅为字段集同构保留） |
+| `dns_optimize_adapters` | `Vec<String>` | DNS 优化目标适配器名单（**安卓不消费此字段**，仅为字段集同构保留） |
 | `auto_login_on_start` | `bool` | 启动自动登录（默认 `true`） |
 | `enable_background_check` | `bool` | 后台检测总开关（默认 `true`） |
 | `background_check_interval` | `u64` | 基础巡检间隔 ms（默认 `60_000`，2026-09-09 由 15s 上调） |
@@ -387,39 +397,39 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `active_account` | `String` | 当前账号名（默认空） |
 | `enable_boot_autostart` | `bool` | 开机自启（默认 `false`，不属登录自动化） |
 | `enable_latency_test` | `bool` | 定时质量测试（默认 `false`） |
-| `latency_test_interval` | `u64` | 定时测试间隔 ms（默认 `60_000`，运行时下限 10s） |
+| `latency_test_interval` | `u64` | 定时测试间隔 ms（默认 `600_000`，2026-09-20 由 60s 上调，存量旧默认经 v5→v6 迁移刷新，`config_state.rs:153`；运行时下限 10s） |
 | `enable_network_quality` | `bool` | 启动即跑质量检测（默认 `false`，2026-09-12 关闭省电） |
 | `skip_ttfb_in_latency` | `bool` | 跳过 TTFB（默认 `true`） |
 | `skip_content_in_latency` | `bool` | 跳过内容下载（默认 `true`） |
 | `portal_url` | `String` | Portal 地址（默认 `http://10.1.99.100`） |
 | `fixed_gateway` | `String` | 固定网关（默认 `10.2.127.254`） |
-| `required_network_name` | `String` | 要求的 SSID（默认 `"i-wxxy"`，安卓取不到 SSID） |
+| `required_network_name` | `String` | 要求的 SSID 名单（顿号分隔，默认 `"i-wxxy、iwxxy-2、iwxxy-3"`，2026-10-01 对齐桌面三 SSID 名单，`config_state.rs:162-164`；安卓经 network-bind 插件可读 SSID） |
 | `enable_network_name_check` | `bool` | SSID 校验开关（默认 `true`） |
 | `campus_gateway` | `String` | 校园网关（默认 `10.2.127.254`） |
 | `campus_check_start_minutes` | `u16` | 检测时段起点（当日分钟，`0`=禁用，默认 `460`=07:40） |
 | `campus_check_end_minutes` | `u16` | 检测时段终点（`1380`=23:00，≤起点时退化为仅开始时间限制；默认 `1380`，2026-09-13 起旧默认 `0` 由 v4→v5 迁移刷新） |
-| `scheduled_login_minutes` | `u16` | 每日定时登录时刻（分钟数，`0`=禁用；到点即触发含过点补触发，2026-09-13 新增） |
-| `scheduled_logout_minutes` | `u16` | 每日定时注销时刻（分钟数，`0`=禁用，2026-09-13 新增） |
+| `scheduled_login_minutes` | `u16` | 每日定时登录时刻（分钟数；默认/禁用哨兵 `1440`，`0`=真实的 00:00 时刻，存量 `0` 由 v6→v7 迁移刷为 1440，`config_state.rs:173-175`、`monitor_loop.rs:893-894`；到点即触发含过点补触发，2026-09-13 新增） |
+| `scheduled_logout_minutes` | `u16` | 每日定时注销时刻（分钟数；默认/禁用哨兵 `1440`，`0`=真实的 00:00 时刻，同上） |
 | `enableNightOutboundSwitch` | `bool` | 夜间出站自动切换总开关（默认 `false`——改系统路由/注销属侵入性动作，2026-09-22 新增，随桌面 Config 同构；`config_state.rs:33-36`） |
 | `outboundPriority` | `Vec<String>` | 出站网卡优先级列表（首项=夜间出站目标）；**安卓不消费此字段**，仅为字段集同构保留 |
 | `outboundMetricRestore` | `String` | 桌面出站切换态快照（metric JSON）；**安卓不消费此字段**，仅为字段集同构保留 |
 | `nightOutboundRestore` | `String` | 安卓出站切换态标记（值恒 `"logged_out"`，纯标记不暂存账号名）；非空=切换态：巡检整轮跳过、运营商夜切让位、定时登录跳过（见 [[night-outbound-switch]]）；切账号、删除当前账号或还原失败达上限时清空（`config_state.rs:44-49`） |
 | `update_source` | `String` | 更新渠道 `"mirror"`/`"github"`（默认 `"mirror"`） |
 | `log_retention_days` | `u32` | 日志保留天数（默认 `7`） |
-| `config_schema_version` | `u32` | 配置结构版本（新装 `5`，旧文件缺省反序列化为 `0` 触发迁移） |
+| `config_schema_version` | `u32` | 配置结构版本（新装 `7`，旧文件缺省反序列化为 `0` 触发迁移） |
 
-### `CryptoBridge`（`config_state.rs:127-130`）
+### `CryptoBridge`（`config_state.rs:187-190`）
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
 | `encrypt` | `Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>` | 明文 → 密文（真机为 Keystore AES-GCM，host 测试为 base64 假桥） |
 | `decrypt` | `Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>` | 密文 → 明文 |
 
-### `EncodedSettings`（`config_state.rs:168-172`，落盘形态）
+### `EncodedSettings`（`config_state.rs:228-232`，落盘形态）
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
-| `settings` | `Settings` | 其余配置（其内 `password`/`self_password` 恒为空串，见 `config_state.rs:214`） |
+| `settings` | `Settings` | 其余配置（其内 `password`/`self_password` 恒为空串，见 `config_state.rs:258-263`） |
 | `password_cipher` | `String` | 登录密码密文（camelCase `passwordCipher`） |
 | `self_password_cipher` | `String` | 自助密码密文（camelCase `selfPasswordCipher`） |
 
@@ -433,6 +443,17 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `adapter` | `String` | 恒 `"wlan0"`（安卓无多适配器，对齐桌面契约） |
 | `user` | `String` | 学号 |
 | `login_type` | `String` | 序列化为 `"type"`：`"manual"` / `"auto"` |
+
+### `QualityHistoryEntry`（`quality_history.rs:16-22`）
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `timestamp` | `u64` | epoch ms（`quality_history.rs:44`） |
+| `gateway_latency` | `Option<i64>` | 网关延迟 ms（源数据 -1/未测 → `null`，区分"未测"与 0ms） |
+| `external_latency` | `Option<i64>` | 外网延迟 ms（同上） |
+| `quality` | `String` | 等级（excellent/great/good/fair/poor/bad/unknown/busy） |
+
+落盘 `data_dir/quality_history.json`：头插法上限 `QUALITY_HISTORY_MAX = 100` 条（`quality_history.rs:12`），损坏备份 `.corrupt-*.bak` 后重置；`read`（`quality_history.rs:29`）/`append`（`:52`），与 `login_history` 同构（2026-09-20 随质量历史落盘新增，157 行）。
 
 ### `CampusProbe`（`campus_detect.rs:56-64`）
 
@@ -462,7 +483,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `display_name` | `Option<String>` | rename 成功时的新显示名 |
 | `config` | `Option<serde_json::Value>` | 变更后的配置（已掩码） |
 
-### `MonitorState`（`monitor_loop.rs:17-39`）
+### `MonitorState`（`monitor_loop.rs:28-56`）
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
@@ -477,7 +498,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `idle_interval_ms` | `AtomicU64` | 闲时间隔（从配置刷新） |
 | `logout_protected_until_ms` | `AtomicU64` | 注销保护期截止（epoch ms） |
 | `wifi_event_ms` | `AtomicU64` | 最近 WiFi 事件时间（去抖与“最后事件生效”） |
-| `notified_online` | `AtomicU8` | 常驻通知已展示状态（`0` 未展示 / `1` 在线 / `2` 未连接 / `3` 非检测时段 / `4` WiFi 未连接（2026-10-02），`monitor_loop.rs:35-38`），仅翻转时重建通知 |
+| `notified_online` | `AtomicU8` | 常驻通知已展示状态（`0` 未展示 / `1` 在线 / `2` 未连接 / `3` 非检测时段 / `4` WiFi 未连接（2026-10-02），`monitor_loop.rs:49`），仅翻转时重建通知 |
 
 ### `BatteryOptimizationInfo`（`battery_cmds.rs:10-17`）
 
@@ -491,10 +512,10 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 | 结构体 | 位置 | 字段 |
 |--------|------|------|
-| `ReleaseAsset` | `update_cmds.rs:42-47` | `name: String`、`url: String`、`size: u64` |
-| `UpdateInfo` | `update_cmds.rs:49-57` | `has_update: bool`（`hasUpdate`）、`latest_version: String`、`release_notes: String`、`assets: Vec<ReleaseAsset>`、`sha256_checksum: Option<String>` |
-| `DownloadProgress` | `update_cmds.rs:59-65` | `downloaded: u64`、`total: u64`、`speed: u64`（字节/秒）、`percent: f64` |
-| `VersionFile` | `update_cmds.rs:142-148` | `version: String`（`#[serde(default)]`）、`notes: String`（同）——version.json 真实形状 |
+| `ReleaseAsset` | `update_cmds.rs:56-61` | `name: String`、`url: String`、`size: u64` |
+| `UpdateInfo` | `update_cmds.rs:64-72` | `has_update: bool`（`hasUpdate`）、`latest_version: String`、`release_notes: String`、`assets: Vec<ReleaseAsset>`、`sha256_checksum: Option<String>` |
+| `DownloadProgress` | `update_cmds.rs:79-85` | `downloaded: u64`、`total: u64`、`speed: u64`（字节/秒）、`percent: f64` |
+| `VersionFile` | `update_cmds.rs:205-211` | `version: String`（`#[serde(default)]`）、`notes: String`（同）——version.json 真实形状 |
 
 ## Data Flow
 
@@ -511,38 +532,38 @@ tauri-app/src-tauri/src/lib.rs:11-20  #[cfg(desktop)] 门控：app / commands / 
 
 | 安卓调用点 | 桌面实现位置 |
 |-----------|-------------|
-| `protocol_cmds.rs:73` `auth::protocol::do_login_with_retry` | `tauri-app/src-tauri/src/auth/protocol.rs:155` |
-| `protocol_cmds.rs:109` `auth::protocol::do_logout_with_retry` | `tauri-app/src-tauri/src/auth/protocol.rs:377` |
-| `protocol_cmds.rs:152` `auth::portal::check_portal_full` | `tauri-app/src-tauri/src/auth/portal.rs:95`（返回 `PortalStatus`，`auth/portal.rs:85-93`） |
-| `protocol_cmds.rs:235` `network::client::clear_client_pool` | `tauri-app/src-tauri/src/network/client.rs:137` |
-| `protocol_cmds.rs:239` `log_info!` / `:265` `log_warn!` | `tauri-app/src-tauri/src/infra/logger.rs:355`、`:362` |
-| `campus_detect.rs:73` `network::is_same_subnet_18` | `tauri-app/src-tauri/src/network/subnet.rs:174` |
-| `quality_cmds.rs:27` `network::quality::check_network_quality_async` | `tauri-app/src-tauri/src/network/quality.rs:451`（`NetworkQualityResult` 定义于 `network/quality.rs:9-18`） |
-| `self_service_cmds.rs:107/128/160/208/236/263` `self_service::{bind_operator,query_bind_status,query_dashboard,query_online_log,offline_session,reveal_credential}` | `tauri-app/src-tauri/src/self_service/mod.rs:148`、`:207`、`:377`、`:391`、`:431`、`:223`（`BindParams` `:64`、`OperatorBinding` `:198`） |
-| `system_cmds.rs:33/41/48/53/58/63` `infra::logger::{read_recent_logs,clear_logs,get/set_log_retention_days,get/set_debug_mode}` | `tauri-app/src-tauri/src/infra/logger.rs:399`、`:479`、`:22`、`:18`、`:343`、`:336` |
-| `lib.rs:49` `infra::logger::init_logger` | `tauri-app/src-tauri/src/infra/logger.rs:65` |
+| `protocol_cmds.rs:76` `auth::protocol::do_login_with_retry` | `tauri-app/src-tauri/src/auth/protocol.rs:192` |
+| `protocol_cmds.rs:112` `auth::protocol::do_logout_with_retry` | `tauri-app/src-tauri/src/auth/protocol.rs:446` |
+| `protocol_cmds.rs:155` `auth::portal::check_portal_full` | `tauri-app/src-tauri/src/auth/portal.rs:98`（返回 `PortalStatus`，`auth/portal.rs:85-93`） |
+| `protocol_cmds.rs:289` `network::client::clear_client_pool` | `tauri-app/src-tauri/src/network/client.rs:165` |
+| `protocol_cmds.rs:293`/`:358` `log_info!` / `:319`/`:327` `log_warn!` | `tauri-app/src-tauri/src/infra/logger.rs:365`、`:372` |
+| `campus_detect.rs:98` `network::is_same_subnet_18` | `tauri-app/src-tauri/src/network/subnet.rs:183` |
+| `quality_cmds.rs:27` `network::quality::check_network_quality_async` | `tauri-app/src-tauri/src/network/quality.rs:455`（`NetworkQualityResult` 定义于 `network/quality.rs:9-18`） |
+| `self_service_cmds.rs:107/128/160/208/236/263` `self_service::{bind_operator,query_bind_status,query_dashboard,query_online_log,offline_session,reveal_credential}` | `tauri-app/src-tauri/src/self_service/mod.rs:150`、`:209`、`:378`、`:392`、`:430`、`:225`（`BindParams` `:66`、`OperatorBinding` `:200`） |
+| `system_cmds.rs:34/42/49/54/59/64` `infra::logger::{read_recent_logs,clear_logs,get/set_log_retention_days,get/set_debug_mode}` | `tauri-app/src-tauri/src/infra/logger.rs:409`、`:496`、`:31`、`:21`、`:353`、`:346` |
+| `lib.rs:51` `infra::logger::init_logger` | `tauri-app/src-tauri/src/infra/logger.rs:74` |
 
-**注意**：桌面侧 `commands/login.rs`、`config/persist.rs`（`append_login_history`，`config/persist.rs:99`）、`platform/identity.rs`（`identity.rs:31/34/39`）属门控或跨平台模块，安卓**不直接调用桌面命令层**，而是复刻同语义的安卓实现（`login_history.rs`、`identity_gate.rs`）——这是"同构"而非"复用"，改桌面这两处时安卓需同步检查语义。
+**注意**：桌面侧 `commands/login.rs`、`config/persist.rs`（`append_login_history`，`config/persist.rs:160`）、`platform/identity.rs`（`identity.rs:31/34/39`）属门控或跨平台模块，安卓**不直接调用桌面命令层**，而是复刻同语义的安卓实现（`login_history.rs`、`identity_gate.rs`）——这是"同构"而非"复用"，改桌面这两处时安卓需同步检查语义。
 
 ### 2. 安卓独有实现（桌面无对应）
 
 | 能力 | 实现位置 | 关键点 |
 |------|----------|--------|
-| Keystore 加密落盘 | `config_state.rs:192-223` + keystore 插件 | 桌面用 DPAPI，安卓用 AndroidKeyStore AES-GCM；加密失败 Err、解密失败置空 |
-| 进程绑 WiFi | `protocol_cmds.rs:220-279` + network-bind 插件 | `bindProcessToNetwork` 进程级 fwmark；`already_bound` 时不清客户端池 |
-| 前台服务保活 | `monitor_loop.rs:166-207` + foreground-service 插件 | 常驻通知；WifiLock/WakeLock 改为探针窗口内按需持有（`begin_probe_window`/`end_probe_window`，见下行），nudge 唤醒锁按关注字段翻转去重 |
-| 探针窗口锁 | `monitor_loop.rs:505-514`、`:719-724` | `ProbeWindowGuard` Drop 必释放 |
-| 绑小核 | `cpu_affinity.rs:34` + `monitor_loop.rs:588` | 只绑专用短命线程，不绑共享 worker |
+| Keystore 加密落盘 | `config_state.rs:193`（`CryptoBridge::from_app`）+ keystore 插件 | 桌面用 DPAPI，安卓用 AndroidKeyStore AES-GCM；加密失败 Err、解密失败置空 |
+| 进程绑 WiFi | `protocol_cmds.rs:264` + network-bind 插件 | `bindProcessToNetwork` 进程级 fwmark；`already_bound` 时不清客户端池 |
+| 前台服务保活 | `monitor_loop.rs:194-231` + foreground-service 插件 | 常驻通知；WifiLock/WakeLock 改为探针窗口内按需持有（`begin_probe_window`/`end_probe_window`，见下行），nudge 唤醒锁按关注字段翻转去重 |
+| 探针窗口锁 | `monitor_loop.rs:554`、`:1296` | `ProbeWindowGuard` Drop 必释放 |
+| 绑小核 | `cpu_affinity.rs:34` + `monitor_loop.rs:697` | 只绑专用短命线程，不绑共享 worker |
 | 验证门 TTL | `identity_gate.rs:6-33` | 进程内 `AtomicU64`，600s，时钟回拨视为过期 |
-| 监控状态机 | `monitor_loop.rs:17-39`、`:681-869` | 三态消费、双闸、分档巡检 |
-| WiFi 事件驱动检测 | `monitor_loop.rs:224-297` | 去抖 + 2.5s 延迟 + 最后事件生效 |
+| 监控状态机 | `monitor_loop.rs:28-56`、`run_check_once`（`:1245` 起） | 三态消费、双闸、分档巡检 |
+| WiFi 事件驱动检测 | `monitor_loop.rs:245-291` | 去抖 + 2.5s 延迟 + 最后事件生效 |
 | 电池优化白名单 | `battery_cmds.rs:20-81` | 平台专属 API |
-| 设备分档 | `system_cmds.rs:77-160` | `ro.soc.model` + 大核/内存启发式 |
-| APK 安装 | `update_cmds.rs:405-422` | FileProvider content URI（桌面用 exe/msi） |
+| 设备分档 | `system_cmds.rs:78-161` | `ro.soc.model` + 大核/内存启发式 |
+| APK 安装 | `update_cmds.rs:497-512` | FileProvider content URI（桌面用 exe/msi） |
 
 ### 3. 关键调用链
 
-**启动（`lib.rs:51` → `monitor_loop.rs:387`）**
+**启动（`lib.rs:53` → `monitor_loop.rs:419`）**
 
 ```text
 tauri setup → init_logger(app_data_dir/logs)
@@ -556,35 +577,35 @@ tauri setup → init_logger(app_data_dir/logs)
                                            → cache_source_ip → run_login → emit auto-login-result
 ```
 
-**单次检测（`monitor_loop.rs:1164`）**
+**单次检测（`monitor_loop.rs:1245`）**
 
 ```text
 check_count += 1 → current_settings
- ⓪′ 出站切换态（night_outbound_restore 非空）整轮 return（monitor_loop.rs:1174-1184）——已注销等系统切蜂窝时 Portal 检测必失败，继续跑会每拍误报掉线并触发自动重登；run_scheduled_actions 不经过此闸（晨间还原须照常判定），见 [[night-outbound-switch]]
- ⓪ 检测静默期门控（campus_check_start/end_minutes，monitor_loop.rs:1185-1205）整拍 return；
-    return 前把常驻通知重建一次（仅 notified_online 从非 3 翻到 3 时，monitor_loop.rs:1199-1204），
+ ⓪′ 出站切换态（night_outbound_restore 非空）整轮 return（monitor_loop.rs:1255-1262）——已注销等系统切蜂窝时 Portal 检测必失败，继续跑会每拍误报掉线并触发自动重登；run_scheduled_actions 不经过此闸（晨间还原须照常判定），见 [[night-outbound-switch]]
+ ⓪ 检测静默期门控（campus_check_start/end_minutes，monitor_loop.rs:1265-1290）整拍 return；
+    return 前把常驻通知重建一次（仅 notified_online 从非 3 翻到 3 时，monitor_loop.rs:1284），
     文案「监控运行中 · 已暂停检测(非检测时段)」，状态码 3=非检测时段
- 探针窗口 guard（mobile，monitor_loop.rs:1214-1219）
- → ensure_wifi_bound（monitor_loop.rs:1222）
- ① probe_campus（源 IP 缓存刷新，monitor_loop.rs:1307）——wifi_off（source=None）时后续
+ 探针窗口 guard（mobile，monitor_loop.rs:1296）
+ → ensure_wifi_bound（monitor_loop.rs:1302）
+ ① probe_campus_with_ssid（源 IP 缓存刷新，monitor_loop.rs:1307）——wifi_off（source=None）时后续
     Portal 探测短路为 Err「WiFi 未连接,跳过 Portal 探测」；on_campus=false 时同样短路为
-    Err「不在校园网,跳过 Portal 探测」（monitor_loop.rs:1319-1329，2026-10-02：on_campus=false
+    Err「不在校园网,跳过 Portal 探测」（monitor_loop.rs:1328-1329，2026-10-02：on_campus=false
     ⇔ 子网未命中且网关/Portal 两个 3s TCP 探测已并行执行且全败，同目标 HTTP 必败，
     不再空转至多 8s CLIENT_TIMEOUT——离网拍 11s→3s；on_campus=true 仍走 HTTP 由页面裁决）
  ② portal_probe_on_little_cores（裸线程 enter + 绑小核，仅 source=Some 且 on_campus=true 时）
- ③ 三态消费（monitor_loop.rs:1245-1262）：
+ ③ 三态消费（monitor_loop.rs:1341-1349）：
     Ok(s) 且 error_kind=None → 采用 s.online（确定判定）
     其余结果且 on_campus=true → 沿用 prev_online（校园网内探针失配不翻转，反误报）
     其余结果且 on_campus=false → 判离线（三判据全否是"确定不在校园网"，
       2026-09-13 前该分支也沿用 prev_online，WiFi 断开走蜂窝后在线状态被永久钉死）
-    在线 → 清 reconnect/consecutive_failures/保护期（monitor_loop.rs:1265-1270）
-    was_online→offline 且 on_campus → notify_system("校园网连接掉线")（monitor_loop.rs:1273-1276）
+    在线 → 清 reconnect/consecutive_failures/保护期（monitor_loop.rs:1355-1356）
+    was_online→offline 且 on_campus → notify_system("校园网连接掉线")（monitor_loop.rs:1362）
  ④ should_attempt_login ∧ !logout_protected ∧ !failures_capped ∧ 凭据非空
     → last_login_attempt_ms / reconnect_count++ → run_login → 历史落盘 → emit
-      （monitor_loop.rs:1283-1328）
- ⑤ 组装 payload → MONITOR.last_result → emit "background-check-result"（monitor_loop.rs:1330-1350）
-    → notified_online 翻转时插件 update_notification（monitor_loop.rs:1456-1465；
-    状态码 notify_state 纯函数 monitor_loop.rs:1470：1=在线 / 2=未连接 / 4=WiFi 未连接（2026-10-02））
+      （monitor_loop.rs:1376 起，历史落盘 `:1400`）
+ ⑤ 组装 payload → MONITOR.last_result → emit "background-check-result"（monitor_loop.rs:1457）
+    → notified_online 翻转时插件 update_notification（monitor_loop.rs:1468；
+    状态码 notify_state 纯函数 monitor_loop.rs:1475：1=在线 / 2=未连接 / 4=WiFi 未连接（2026-10-02））
 ```
 
 **登录（`protocol_cmds.rs:10`）**
@@ -598,7 +619,7 @@ invoke do_login{user,password,operator,adapter}
  → 成功：consecutive_failures=0、logout_protected_until_ms=0
 ```
 
-**配置读写（`config_state.rs:297` / `:312`）**
+**配置读写（`config_state.rs:406` / `:421`）**
 
 ```text
 save_config{config,clearPassword?,clearSelfPassword?}
@@ -606,6 +627,7 @@ save_config{config,clearPassword?,clearSelfPassword?}
  → save_to → save_file：encrypt(password) / encrypt(selfPassword)（失败即 Err 不落明文）
  → Settings 内密码清空 + 密文位 → tmp + rename
  → AndroidState.config 内存态刷新
+ → emit `config-changed`（payload `{ config: 掩码后 }`，`config_state.rs:451`）
 出站：masked_for_display（password/selfPassword 非空 → "***"）
 ```
 
@@ -616,11 +638,11 @@ save_config{config,clearPassword?,clearSelfPassword?}
          verify_biometric_identity（self_service_cmds.rs:63）→ 写时间戳 → TTL 600s 内放行
 在线 ←(Portal 确定判定)→ 掉线：清 reconnect_count；was_online→false
 掉线 → 自动重连：reconnect_count++（达 max_disconnect_reconnect 通知上限）
-     → 连续失败 ≥5 熔断；手动登录成功（protocol_cmds.rs:51-55）清零熔断与保护期
-手动注销 → logout_protected_until_ms = now+60s（protocol_cmds.rs:127-133）
+     → 连续失败 ≥5 熔断；手动登录成功（protocol_cmds.rs:56）清零熔断与保护期
+手动注销 → logout_protected_until_ms = now+60s（protocol_cmds.rs:135）
 ```
 
-**事件出口（前端监听）**：`login-log`（`monitor_loop.rs:139`）、`auto-login-result`（`:452`）、`background-check-result`（`:855`）、`network-quality-result`（由桌面 `network::quality` 内部 emit）、`update-available`（`update_cmds.rs:251`）、`update-download-progress`（`:355`）。
+**事件出口（前端监听）**：`login-log`（`monitor_loop.rs:152`）、`auto-login-result`（`:496`）、`background-check-result`（`:1457`）、`network-quality-result`（由桌面 `network::quality` 内部 emit）、`config-changed`（`config_state.rs:388`）、`update-available`（`update_cmds.rs:323`）、`update-download-progress`（`:445`）。
 
 ## Connections
 
@@ -630,32 +652,32 @@ save_config{config,clearPassword?,clearSelfPassword?}
 - [[desktop-network-core]]：`is_same_subnet_18`、`clear_client_pool` 的复用点。
 - [[desktop-network-quality]]：`check_network_quality_async` 与 `NetworkQualityResult` 的复用点。
 - [[desktop-monitor]]：`should_attempt_login`、三态消费、注销保护期、熔断等状态机语义的桌面参考。
-- [[desktop-commands]]：桌面 48 个同名命令的注册与实现对照。
+- [[desktop-commands]]：桌面同名命令的注册与实现对照。
 - [[desktop-infra]]：`infra::logger`（日志读写、debug mode、retention）。
 - [[desktop-platform]]：`platform/identity.rs` 是 `identity_gate.rs` 的同构物（DPAPI 侧对应 Keystore）。
 - [[desktop-app-lifecycle]]：桌面启动编排（`watcher::run_startup_tasks`）是 `run_startup_tasks` 的对齐目标。
 - [[desktop-helper-update]]：更新检查/下载/安装的桌面版本（exe/msi vs APK）。
 - [[night-outbound-switch]]：安卓出站切换编排（`run_scheduled_actions` 出站分支、`run_check_once` 巡检闸、`logout_for_outbound_switch` 的 `radiusOk||unbindOk` 判据、失败上限与 `latest_settings` 防 stale）、共享判定纯函数 `config::outbound_switch`（path 依赖桌面 crate），2026-09-22 落地。
 - [[android-plugins]]：三个手写插件的 Rust 壳与 Kotlin 实现、权限文件。
-- [[android-frontend]]：调用本模块 48 个命令的安卓前端。
+- [[android-frontend]]：调用本模块 53 个命令的安卓前端。
 - [[android-notify-online-pinned-by-offline-guard]]：三态护栏与"仅翻转时更新通知"组合把在线状态静默钉死的教训（2026-09-13）。
 
 ## Known Issues
 
-1. **配置保存不联动循环起停**：`save_config`（`config_state.rs:336-366`）只落盘与刷内存态，不根据 `enable_background_check`/`enable_latency_test` 调用 `start/stop_background_check`、`start/stop_latency_test`。用户关掉开关后循环是否停止完全依赖前端另行发起命令（`android/frontend/src/hooks/tauriApi.ts:230-240` 提供了对应封装，但后端无兜底），后端层面存在"配置关、循环仍在跑"的窗口。
-2. **`config_io_lock` 覆盖不全**：锁在 `account_cmds.rs:17/21` 定义，`switch_account`/`save_current_as_account`/`delete_account`/`rename_account`（`account_cmds.rs` 各命令入口）、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）有取锁，但 **`save_config`（`config_state.rs:336`）完全没取锁**——正是注释里点名的并发读改写竞态对象之一；其落盘后的自动建号（`config_state.rs:363`）也在锁外，靠 `save_file` 原子写兜底。
-3. **`detect_campus` 已成死命令**：`campus_detect.rs:122` 注释称"前端旧 UI 仍在用"，但安卓前端全仓（`android/frontend/src/`）已无 `detect_campus`、`accept_wifi_network`、`ping_test` 的调用点（grep 仅命中 `set_boot_autostart`），三个命令与注释均属陈旧残留。
-4. **`UPDATE_CHECKSUM` 与下载目标未绑定**：校验值在 `check_update_inner`（`update_cmds.rs:221-223`）写入全局静态，`download_update`（`update_cmds.rs:364-370`）读取时**不校验该值属于哪个版本/资产**；前端若先手动 `check_update` 再下载其他 URL（或反过来先用旧校验值下载新包），要么误杀要么放行；校验值缺失时 fail-open（跳过校验）。
-5. **下载校验 fail-open**：`verify_file_sha256`（`update_cmds.rs:384-386`）在期望值不是 64 位 hex 时返回 `true`（视为未提供）；`update_cmds.rs:365` 的 `if let Some(expected)` 在 `None` 时直接跳过校验。发布流程未补 `digest` 时下载链路无完整性保护。
-6. **`install_update` 的时间窗边界**：`update_cmds.rs:414` 在 `update` 目录 canonicalize 失败时回退未规范化路径，此时 `starts_with` 校验基于非绝对规范化路径；目录不存在（从未下载过）属该分支的常规触发场景。
-7. **`check_campus_status` 的 SSID 语义错位**：安卓恒返回 `currentSsid: ""`（`campus_detect.rs:170`），却把 `enableNetworkNameCheck` 与 `requiredNetworkName` 原样透传（`campus_detect.rs:172-173`）。若前端按"开关开 + SSID 必须匹配"消费，会得到与 `onCampusNetwork` 矛盾的结果；本项目前端当前是否规避需在 [[android-frontend]] 侧确认。
-8. **`enable_network_name_check` 在安卓无效**：`probe_campus`（`campus_detect.rs:55-98`）完全未读取该字段，探测链只有 /18 子网 + 两个 TCP 兜底；配置项在安卓为死配置。
-9. **Portal 探测兜底可误判**：`campus_detect.rs:85-90` 在子网未命中时用 `portal_reachable(campus_gateway, 80)` 兜底，若 `portal_url` 配成公网域名，家宽环境也可能连通（源码注释 `campus_detect.rs:79-84` 自述为已知边界）。
-10. **`gateway_ok` 采用同端口语义**：网关 TCP 探测复用 `PORTAL_PORT = 80`（`campus_detect.rs:88`），网关不监听 80 的校园网环境下该兜底恒 false。
-11. **写历史的同步 IO 在 async 上下文**：`do_login`（`protocol_cmds.rs:48`）与 `do_logout`（`protocol_cmds.rs:122`）、`run_check_once`（`monitor_loop.rs:816`）直接在 async 任务里调用 `login_history::append`（内部 `std::fs` 同步读写，`login_history.rs:73-74`）。文件小、有 `LOGIN_HISTORY_LOCK` 串行，影响有限但会短时占用 async 线程。
+1. **配置保存不联动循环起停**：`save_config`（`config_state.rs:421`）只落盘与刷内存态，不根据 `enable_background_check`/`enable_latency_test` 调用 `start/stop_background_check`、`start/stop_latency_test`。用户关掉开关后循环是否停止完全依赖前端另行发起命令（`android/frontend/src/hooks/tauriApi.ts:266-268` 提供了对应封装，但后端无兜底），后端层面存在"配置关、循环仍在跑"的窗口。
+2. **`config_io_lock` 覆盖不全**：锁在 `account_cmds.rs:17/21` 定义，`switch_account`/`save_current_as_account`/`delete_account`/`rename_account`（`account_cmds.rs` 各命令入口）、`set_boot_autostart`（`monitor_loop.rs:361`）、`set_notification_enabled`（`monitor_loop.rs:392`）有取锁，但 **`save_config`（`config_state.rs:421`）完全没取锁**——正是注释里点名的并发读改写竞态对象之一；其落盘后的自动建号（`config_state.rs:448`）也在锁外，靠 `save_file` 原子写兜底。
+3. **`detect_campus` 已成死命令**：`campus_detect.rs:215` 注释称"前端旧 UI 仍在用"，但安卓前端全仓（`android/frontend/src/`）已无 `detect_campus`、`accept_wifi_network`、`ping_test` 的调用点（grep 仅命中 `set_boot_autostart`），三个命令与注释均属陈旧残留。
+4. **`UPDATE_CHECKSUM` 与下载目标未绑定**：校验值在 `check_update_inner`（`update_cmds.rs:283`）写入全局静态，`download_update`（`update_cmds.rs:453`）读取时**不校验该值属于哪个版本/资产**；前端若先手动 `check_update` 再下载其他 URL（或反过来先用旧校验值下载新包），要么误杀要么放行；校验值缺失时 fail-open（跳过校验）。
+5. **下载校验 fail-open**：`verify_file_sha256`（`update_cmds.rs:465`）在期望值不是 64 位 hex 时返回 `true`（视为未提供）；`update_cmds.rs:453` 的 `if let Some(expected)` 在 `None` 时直接跳过校验。发布流程未补 `digest` 时下载链路无完整性保护。
+6. **`install_update` 的时间窗边界**：`update_cmds.rs:510-512` 在 `update` 目录 canonicalize 失败时回退未规范化路径，此时 `starts_with` 校验基于非绝对规范化路径；目录不存在（从未下载过）属该分支的常规触发场景。
+7. **`check_campus_status` 的 SSID 语义错位（已解决，2026-09-20）**：`currentSsid` 现经 `probe_campus_with_ssid` 返回真实值（`campus_detect.rs:264`），与 `onCampusNetwork` 同源判定；原「恒返回空串却透传 `enableNetworkNameCheck`/`requiredNetworkName`」的错位不再存在。
+8. **`enable_network_name_check` 在安卓无效（已解决，2026-09-20）**：`probe_campus` 本体（`campus_detect.rs:66-141`）仍不读该字段，但探测入口已换成 `probe_campus_with_ssid`（`campus_detect.rs:188-203`）：开关开启时读 SSID，`ssid_matches` 命中直接判 `on_campus=true`（`campus_detect.rs:194-200`），配置项在安卓已生效。
+9. **Portal 探测兜底可误判**：`campus_detect.rs:110-118` 在子网未命中时用 `portal_reachable(campus_gateway, 80)` 兜底，若 `portal_url` 配成公网域名，家宽环境也可能连通（源码注释 `campus_detect.rs:108-112` 自述为已知边界）。
+10. **`gateway_ok` 采用同端口语义**：网关 TCP 探测复用 `PORTAL_PORT = 80`（`campus_detect.rs:116`），网关不监听 80 的校园网环境下该兜底恒 false。
+11. **写历史的同步 IO 在 async 上下文**：`do_login`（`protocol_cmds.rs:48`）与 `do_logout`（`protocol_cmds.rs:125`）、`run_check_once`（`monitor_loop.rs:1400`）直接在 async 任务里调用 `login_history::append`（内部 `std::fs` 同步读写，`login_history.rs:73-74`）。文件小、有 `LOGIN_HISTORY_LOCK` 串行，影响有限但会短时占用 async 线程。
 12. **`identity_gate` 用进程级静态**：`LAST_VERIFY_EPOCH_SECS`（`identity_gate.rs:6`）是全局静态而非 `AppHandle` 状态，验证门与"哪个 app 实例"无关；当前单实例架构下无问题，与桌面 `platform/identity.rs` 的实现选择一致。
-13. **陈旧 `#[allow(dead_code)]` 与注释**：`config_state.rs:359` 标 `#[allow(dead_code)] // Task 2 协议命令面接线`，但 `current_settings` 已被全部命令使用；`monitor_loop.rs:16/77/124` 标注 `// Task 4 循环体接线`，而循环体早已接线（`monitor_loop.rs:798` 调用 `should_attempt_login`）。`android_state.rs:1` 与 `lib.rs:8` 注释称 `AndroidState` 含"监控循环句柄"，实际只有两个字段（`android_state.rs:10-12`）——监控状态在 `monitor_loop.rs:12` 的 `MONITOR` 静态里。
-14. **`get_power_state` 查询失败按保守值**：`monitor_loop.rs:517-525` 失败回落 `(true, true)` 即"亮屏 + WiFi"，会持续按基础间隔巡检（源码注释说明这是刻意取舍：省电是优化、漏检是缺陷）。
-15. **`start_latency_test` 与 `check_network_quality` 共用全局标志**：`LATENCY_RUNNING`（`quality_cmds.rs:12`）是进程级 `static`，`stop_latency_test`（`quality_cmds.rs:56`）无 `app` 参数——多 app 实例/多 webview 场景下无法区分调用方；当前单实例架构下可接受。
-16. **前台服务启动失败已正确处理但顺序敏感**：`start_background_check`（`monitor_loop.rs:178-189`）先起 FGS 成功后才置 `running=true`，属刻意设计；但 `MONITOR.running` 与插件服务的状态在进程被杀后不同步恢复，只能靠 `run_startup_tasks`（`monitor_loop.rs:387`）重新对齐。
-17. **host 环境多处命令返回 `Err`**：`battery_cmds.rs:39/59/79`、`protocol_cmds.rs:186/204` 在 `not(mobile)` 分支返回错误字符串；`CryptoBridge::from_app` 在 host 下加解密恒失败（`config_state.rs:166-167`），host 上跑测试必须注入假桥（`config_state.rs:385`）。
+13. **陈旧 `#[allow(dead_code)]` 与注释**：`config_state.rs:456` 标 `#[allow(dead_code)] // Task 2 协议命令面接线`，但 `current_settings` 已被全部命令使用；`monitor_loop.rs` 内多处仍标注 `// Task 4 循环体接线`，而循环体早已接线（`monitor_loop.rs:1376` 调用 `should_attempt_login`）。`android_state.rs:1` 与 `lib.rs:9` 注释称 `AndroidState` 含"监控循环句柄"，实际只有两个字段（`android_state.rs:10-12`）——监控状态在 `MONITOR` 静态里。
+14. **`get_power_state` 查询失败按保守值**：`monitor_loop.rs:568-585` 失败回落 `(true, true)` 即"亮屏 + WiFi"，会持续按基础间隔巡检（源码注释说明这是刻意取舍：省电是优化、漏检是缺陷）。
+15. **`start_latency_test` 与 `check_network_quality` 共用全局标志**：`LATENCY_RUNNING`（`quality_cmds.rs:12`）是进程级 `static`，`stop_latency_test`（`quality_cmds.rs:64`）无 `app` 参数——多 app 实例/多 webview 场景下无法区分调用方；当前单实例架构下可接受。
+16. **前台服务启动失败已正确处理但顺序敏感**：`start_background_check`（`monitor_loop.rs:194-230`）先起 FGS 成功后才置 `running=true`，属刻意设计；但 `MONITOR.running` 与插件服务的状态在进程被杀后不同步恢复，只能靠 `run_startup_tasks`（`monitor_loop.rs:419`）重新对齐。
+17. **host 环境多处命令返回 `Err`**：`battery_cmds.rs:39/59/79`、`protocol_cmds.rs:186/204/225/245` 在 `not(mobile)` 分支返回错误字符串；`CryptoBridge::from_app`（`config_state.rs:193`）在 host 下加解密恒失败，host 上跑测试必须注入假桥。

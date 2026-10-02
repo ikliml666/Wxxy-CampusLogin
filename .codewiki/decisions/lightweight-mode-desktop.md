@@ -15,7 +15,7 @@ tags: [决策, 轻量化, EcoQoS, 托盘, WebView2, 双端同构]
 
 ## 背景
 
-夜切功能（[[night-operator-switch]]）要求进程整夜常驻（23:00 切换、06:30 恢复），但
+夜切功能（[[night-operator-switch]]）要求进程整夜常驻（23:00 切换、07:30 恢复），但
 `autoExitAfterLogin` 默认 true 会让夜切登录成功后进程退出；普通用户打游戏时后台
 WebView 占数百 MB 且调度可能影响游戏延迟。2026-09-20 需求方确认引入「轻量化模式」：
 点 X 销毁前端界面、Rust 后端 + 托盘常驻、自动开 Windows 效率模式并延长检测间隔，

@@ -47,7 +47,7 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 
 同构的实现方式不是代码共享，而是**协议单点 + 平台外壳**：登录/注销/Portal 探测/自助服务/网络质量等全部协议实现只存在于桌面协议核心 crate（`tauri-app/src-tauri`，package `campus-login`，lib `campus_login_lib`，见 `tauri-app/src-tauri/Cargo.toml:8-10`），安卓后端以 Cargo path 依赖引用它（`android/src-tauri/Cargo.toml:34`），禁止复制；桌面侧与平台耦合的模块用 `#[cfg(desktop)]` 整体门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓侧只补平台探针、状态管理与命令面包装。
 
-前端是两套**独立复刻树**（`tauri-app/frontend` 与 `android/frontend`），靠同形的 `tauriApi.ts` 接口与同名的 IPC 命令名保持行为一致——桌面 60 条命令（`app/startup.rs:63-124`）、安卓 48 条（`android/src-tauri/src/lib.rs:57-106`），命令名逐字对齐。
+前端是两套**独立复刻树**（`tauri-app/frontend` 与 `android/frontend`），靠同形的 `tauriApi.ts` 接口与同名的 IPC 命令名保持行为一致——桌面 63 条命令（`app/startup.rs:63-127`）、安卓 53 条（`android/src-tauri/src/lib.rs:57-111`），命令名逐字对齐。
 
 这一架构的代价集中在"加法要改几处"：通用改进必须在同一次提交内改两端（项目 `AGENTS.md` 第 3 条），而两端的配置字段、面板集合、命令集又是"交集 + 双向差集"关系，无法照抄（见 Known Issues）。
 
@@ -66,7 +66,7 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 ┌──────────────── tauri-app/src-tauri（crate campus-login / lib campus_login_lib）─────────┐
 │ 入口    main.rs(进程/helper 拦截/WebView2 参数) → app/startup.rs:23 run()                │
 │ 命令层  commands/{config_cmd,login,network_cmd,system,account,background,self_service,    │
-│         updater}.rs 58 条 + infra/logger.rs 2 条 = 60（startup.rs:63-124）               │
+│         updater}.rs 61 条 + infra/logger.rs 2 条 = 63（startup.rs:63-127）               │
 │ 业务层  auth/(service,session,protocol,portal,failure_tracker) · monitor/(background_check│
 │         auto_auth,latency,quality_scheduler,adapter_watch,scheduled) · self_service/ ·    │
 │         update/ · helper/（--helper 提权子进程）· app/（tray,window,shortcut,heartbeat,   │
@@ -81,7 +81,7 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
                               ▼
 ┌──────────────────── android/src-tauri（crate campus-login-android）─────────────────────┐
 │ 入口    lib.rs:30 run() → lib.rs:44-55 setup → monitor_loop::run_startup_tasks           │
-│ 命令层  48 条（lib.rs:57-106）：protocol_cmds · campus_detect · config_state ·            │
+│ 命令层  53 条（lib.rs:57-111）：protocol_cmds · campus_detect · config_state ·            │
 │         self_service_cmds · account_cmds · system_cmds · quality_cmds · update_cmds ·     │
 │         battery_cmds · monitor_loop                                                       │
 │ 状态层  android_state.rs（cached_source_ip + config 内存态）· monitor_loop::MONITOR 静态   │
@@ -125,9 +125,9 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 
 ### IPC 通信层
 
-- **命令通道**：`invoke('<snake_case 命令名>', { camelCase 参数 })`；注册表分别唯一存在于 `tauri-app/src-tauri/src/app/startup.rs:63-124`（60 条）与 `android/src-tauri/src/lib.rs:57-106`（48 条）。
+- **命令通道**：`invoke('<snake_case 命令名>', { camelCase 参数 })`；注册表分别唯一存在于 `tauri-app/src-tauri/src/app/startup.rs:63-127`（63 条）与 `android/src-tauri/src/lib.rs:57-111`（53 条）。
 - **前端出口**：桌面 `tauri-app/frontend/src/hooks/tauriApi.ts`（`interface TauriApi` 27-106，实现 140-234，含 60 invoke + 16 事件订阅）；安卓 `android/frontend/src/hooks/tauriApi.ts`（接口 56-137，实现 169-294，桌面专属项走 `desktopOnly` reject、`noopListener`）。
-- **事件通道**：桌面唯一实现 `tauri-app/src-tauri/src/infra/events.rs`（`EventBus`，16 个 `emit_*`，私有 `emit()` 在 `events.rs:18` —— 全仓唯一的 `.emit(` 调用点），消费侧 `useEventListeners.ts`；安卓后端没有 `events.rs`，5 处裸 `app.emit`（见 Known Issues）。
+- **事件通道**：桌面唯一实现 `tauri-app/src-tauri/src/infra/events.rs`（`EventBus`，16 个 `emit_*`，私有 `emit()` 在 `events.rs:18` —— 全仓唯一的 `.emit(` 调用点），消费侧 `useEventListeners.ts`；安卓后端没有 `events.rs`，6 处裸 `app.emit`（见 Known Issues）。
 - **返回契约**：通用三态 `CommandResult { success, message?, data? }`（桌面 `infra/state/mod.rs:238-244`；安卓自带同形定义 `android/src-tauri/src/self_service_cmds.rs:7-14`）。
 
 ### 业务逻辑层
@@ -136,9 +136,9 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 |---|---|---|
 | 登录/注销/Portal 协议 | `auth/{protocol,portal,failure_tracker}.rs`（跨平台，安卓经 path 依赖复用） | 只包装：`protocol_cmds.rs:73` 调 `auth::protocol::do_login_with_retry` |
 | 登录编排 | `auth/{service,session,dual_adapter_executor}.rs`（`#[cfg(desktop)]`） | 无（`monitor_loop.rs` 自行编排） |
-| 后台巡检与自动登录 | `monitor/`（`watcher` 门面 + `background_check` 主体 + `auto_auth` + `latency` + `quality_scheduler` + `adapter_watch` + `scheduled` 每日定时登录/注销），`lib.rs:17-18` 门控 | `monitor_loop.rs` 单文件（WiFi 事件驱动 + 前台服务保活 + **按电源状态分档**：WiFi 且亮屏走基础间隔，蜂窝/灭屏走闲时档 5min，纯函数 `effective_interval_ms`（`monitor_loop.rs:67-74`）；另含每日定时动作 `run_scheduled_actions`（`monitor_loop.rs:621`），判定复用共享 crate 的 `config::schedule::should_fire_scheduled_action`） |
+| 后台巡检与自动登录 | `monitor/`（`watcher` 门面 + `background_check` 主体 + `auto_auth` + `latency` + `quality_scheduler` + `adapter_watch` + `scheduled` 每日定时登录/注销），`lib.rs:17-18` 门控 | `monitor_loop.rs` 单文件（WiFi 事件驱动 + 前台服务保活 + **按电源状态分档**：WiFi 且亮屏走基础间隔，蜂窝/灭屏走闲时档 5min，纯函数 `effective_interval_ms`（`monitor_loop.rs:83`）；另含每日定时动作 `run_scheduled_actions`（`monitor_loop.rs:748`），判定复用共享 crate 的 `config::schedule::should_fire_scheduled_action`） |
 | 自助服务协议 | `self_service/mod.rs`（跨平台） | 包装：`self_service_cmds.rs` 六命令 |
-| 配置模型 | `config/{model,persist,validate,schedule}.rs`（跨平台，但 `persist` 依赖 DPAPI，安卓不用；`schedule` 是定时动作纯函数；桌面 `config_version` 3——2026-09-13 v2→v3 把 `campus_check_end_minutes` 旧默认 0 刷为 1380，`validate.rs:133-140`） | `config_state.rs`（`Settings` 37 字段 + Keystore 桥 + 迁移，当前 `config_schema_version` 5：v3→v4 新增 `background_check_idle_interval` 默认 300000 与 `scheduled_login/scheduled_logout_minutes`（0=禁用）；v4→v5 同日把 `campus_check_end_minutes` 旧默认 0 刷为 1380，`config_state.rs:277-281`） |
+| 配置模型 | `config/{model,persist,validate,schedule}.rs`（跨平台，但 `persist` 依赖 DPAPI，安卓不用；`schedule` 是定时动作纯函数；桌面 `config_version` 5（`config/model.rs:306`；2026-09-13 v2→v3 曾把 `campus_check_end_minutes` 旧默认 0 刷为 1380，`validate.rs:136-140`） | `config_state.rs`（`Settings` 47 字段 + Keystore 桥 + 迁移，当前 `config_schema_version` 7：v3→v4 新增 `background_check_idle_interval` 默认 300000 与 `scheduled_login/scheduled_logout_minutes`（0 原为禁用语义，v6→v7 起改禁用哨兵 1440、0=真实 00:00，存量 0 刷 1440，`config_state.rs:353-362`）；v4→v5 同日把 `campus_check_end_minutes` 旧默认 0 刷为 1380（`config_state.rs:339-343`）；v5→v6 把 `latency_test_interval` 旧默认 60000 刷为 600000） |
 | 更新 | `update/updater.rs`（exe/msi + 5 源 SHA256；自动检查失败按 `BACKOFF_RETRY_SECS = &[5*60, 15*60, 3600]` 退避重试，`lastCheckError`/`lastCheckTime` 随返回体回传前端） | `update_cmds.rs`（APK + GitHub API 资产；同样具备 24h 周期 + 失败退避） |
 | 提权 | `helper/mod.rs`（`--helper dns|clear_dns|mac|enable_adapter|enable_device|set_metric|register_task|selfcheck`）+ `platform/elevation.rs`（COM ICMLuaUtil / ShellExecuteW） | 无（改为 `foreground-service` 插件 + 系统授权） |
 
@@ -157,9 +157,9 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 |---|---|---|
 | 渲染存活判定不引入常驻 rAF | `tauri-app/frontend/src/lib/renderLiveness.ts:36-40`：距上次探测超过 `PROBE_REFRESH_MS=4_000`（`:18`）才经 `startProbe()`（`:24-34`）开一个 2 帧（≈33ms）窗口；10s 停滞判定阈值不变 | 同款实现 `android/frontend/src/lib/renderLiveness.ts:36-40` |
 | 帧率按需调整 | 无（桌面无帧控 hook） | `useAdaptiveFramePace.ts` 以 `setInterval(applyPace, PACE_POLL_MS=250)`（`:64`，常量 `:18`）替代 rAF 递归轮询，交互起始由 `markInteraction()`（`:26-29`）即时提帧 |
-| 系统锁按需持有 | 无 | 巡检每拍进入探针窗口：`begin_probe_window()` + `ProbeWindowGuard`（`monitor_loop.rs:709-713`），Drop（含 early return / panic）必调 `end_probe_window()`（guard 定义 `:506-514`）；Kotlin 侧 `acquireProbeLocks()` 持 `WIFI_MODE_FULL_HIGH_PERF` + 30s 超时 `PARTIAL_WAKE_LOCK` |
-| 事件唤醒去重 | 无 | `ForegroundService.kt:198-206` 仅在关注字段（`TRANSPORT_WIFI`/`TRANSPORT_CELLULAR`/`NET_CAPABILITY_VALIDATED` 位掩码）翻转时 nudge，5s 节流降为第二道闸 |
-| 巡检频率分档 | 无 | `effective_interval_ms(base, idle, screen_on, wifi_connected)`（`monitor_loop.rs:67-74`）：唤醒周期恒为基础间隔（保证亮屏/回 WiFi 最迟一拍恢复），蜂窝或灭屏时跳拍、实际间隔取闲时档（`background_check_idle_interval` 默认 300000），电源状态经插件 `get_power_state()` 查询、失败按 `(true, true)` 保守处理 |
+| 系统锁按需持有 | 无 | 巡检每拍进入探针窗口：`begin_probe_window()` + `ProbeWindowGuard`（`monitor_loop.rs:1296-1297`），Drop（含 early return / panic）必调 `end_probe_window()`（guard 定义 `:554-561`）；Kotlin 侧 `acquireProbeLocks()` 持 `WIFI_MODE_FULL_HIGH_PERF` + 30s 超时 `PARTIAL_WAKE_LOCK` |
+| 事件唤醒去重 | 无 | `ForegroundService.kt:250-252` 仅在关注字段（`TRANSPORT_WIFI`/`TRANSPORT_CELLULAR`/`NET_CAPABILITY_VALIDATED` 位掩码，掩码位定义 `:225`）翻转时 nudge，5s 节流（`NUDGE_THROTTLE_MS` `:39`）降为第二道闸 |
+| 巡检频率分档 | 无 | `effective_interval_ms(base, idle, screen_on, wifi_connected)`（`monitor_loop.rs:83`）：唤醒周期恒为基础间隔（保证亮屏/回 WiFi 最迟一拍恢复），蜂窝或灭屏时跳拍、实际间隔取闲时档（`background_check_idle_interval` 默认 300000），电源状态经插件 `get_power_state()` 查询、失败按 `(true, true)` 保守处理 |
 | 电池优化白名单命令面 | 无（平台专属，三命令均返回"仅安卓端可用"） | `android/src-tauri/src/battery_cmds.rs` 三命令（`get_battery_optimization_info` / `request_ignore_battery_optimizations` / `open_vendor_battery_settings`），经 foreground-service 插件转发 Kotlin（厂商页候选表 + 三级降级链）；`AndroidManifest.xml` 增 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` |
 
 ## 依赖图
@@ -283,7 +283,7 @@ monitor/background_task.rs:29-49 循环（每轮重读 config.background_check_i
 | 文章 | 一句话职责 |
 |---|---|
 | [[desktop-auth]] | 桌面 Dr.COM 协议唯一实现点：登录/注销/MAC 解绑/Portal 探测 + 双适配器编排 + 失败计数与 MAC 重置 |
-| [[desktop-config]] | `Config` 46 字段模型、原子写落盘、密码 DPAPI 加密、严格/宽松双校验与迁移 |
+| [[desktop-config]] | `Config` 60 字段模型、原子写落盘、密码 DPAPI 加密、严格/宽松双校验与迁移 |
 | [[desktop-account-selfservice]] | `account::crypto`（DPAPI FFI）与 Dr.COM Self（`/Self`）协议全流程 |
 | [[desktop-network-core]] | 适配器发现/5s 缓存/选择规则、DHCP、MAC 重置、子网与网关探测、HTTP 客户端池 |
 | [[desktop-network-dns]] | 智能域名解析（评分排序 + DoH 竞速 + 系统兜底）、分段计时、DNS/DoH 一键设置 |
@@ -319,13 +319,13 @@ monitor/background_task.rs:29-49 循环（每轮重读 config.background_check_i
 1. **"通用改进必须双端同步"没有自动化守门**：`AGENTS.md`（项目根）第 3 条要求前端 UI/文案/i18n/命令面/配置字段/事件类型的改动在同一次提交内双端各改一份，但仓库内无 CI 检查，脚本/git hook 都不拦截只改一端的提交；`git diff --stat` 自检是唯一手段。
 2. **前端是两套独立树，功能分叉持续累积**：桌面 `tauri-app/frontend/src/hooks/` 24 个文件、安卓 `android/frontend/src/hooks/` 23 个文件，差集为「安卓有 `useDeviceProfile.ts`/`useAdaptiveFramePace.ts`/`useFormFactor.ts`；桌面有 `useGpuCorrection.ts` + 3 个测试文件」。安卓前端全目录**不存在任何测试**（无 `test-setup.ts`、`package.json` 无 `test` 脚本），复刻分叉只能靠 `tsc --noEmit` 与真机验证发现。
 3. **配置字段集是"交集 + 双向差集"**：桌面 `Config` 46 字段（`config/model.rs:10-110`）、安卓 `Settings` 37 字段（`android/src-tauri/src/config_state.rs:15-76`），共有 33（2026-09-13 双端同加 `scheduled_login/scheduled_logout_minutes` 后由 31 增至 33）；而两套前端类型又各自是第三份定义（桌面 `settings/types.ts:3-56` 45 字段、安卓 `settings/types.ts:3-58` 45 字段，两者均指各自 `Config` 接口本体的字段总数）。新增字段无法照抄任何一端。
-4. **默认值分叉已实际发生**：`background_check_interval` 桌面 15000（`config/model.rs:190`）与安卓 60000（`android/src-tauri/src/config_state.rs:92`）不一致，且安卓迁移会把 15000 强刷为 60000（`config_state.rs:254-256`）；`default_panel` 桌面空串（`model.rs:199`）与安卓 `"dashboard"`（`config_state.rs:101`）不同。桌面 `validate.rs` 的 clamp 下限 10000（`config/validate.rs:103`）对不上安卓的 5000。**配置 schema 版本号也各走各的**：安卓前端 `android/frontend/src/settings/constants.ts:55` 的 `DEFAULT_CONFIG.configVersion` 曾照抄桌面的 2，2026-09-13 改为对齐安卓后端 `config_schema_version`（现 5，`config_state.rs:128`；v3→v4 新增 `background_check_idle_interval` 与 `scheduled_login/scheduled_logout_minutes`，v4→v5 同日把 `campus_check_end_minutes` 旧默认 0 刷为 1380）；桌面同名 `configVersion` 同日由 2 升至 3（`tauri-app/src-tauri/src/config/model.rs:220`、`tauri-app/frontend/src/settings/constants.ts:52`，v2→v3 同义迁移检测时段终点）。两端字段名近义（`config_version` ↔ `config_schema_version`）但语义独立，跨端对照时不可互推。
+4. **默认值分叉已实际发生**：`background_check_interval` 桌面默认 60000（`config/model.rs:258`）与安卓 60000（`android/src-tauri/src/config_state.rs:138`）已对齐（安卓迁移仍会把存量 15000 强刷为 60000，`config_state.rs:316-318`）；`default_panel` 桌面空串（`model.rs:282`）与安卓 `"dashboard"`（`config_state.rs:147`）不同。桌面 `validate.rs` 的 clamp 下限 10000（`config/validate.rs:103`）对不上安卓的 5000。**配置 schema 版本号也各走各的**：安卓前端 `android/frontend/src/settings/constants.ts:58` 的 `DEFAULT_CONFIG.configVersion`（现名 `configSchemaVersion`）曾照抄桌面的 2，2026-09-13 改为对齐安卓后端 `config_schema_version`（现 7，`config_state.rs:180`；v3→v4 新增 `background_check_idle_interval` 与 `scheduled_login/scheduled_logout_minutes`，v4→v5 同日把 `campus_check_end_minutes` 旧默认 0 刷为 1380，v5→v6 把 `latency_test_interval` 60s 刷为 600s，v6→v7 刷夜切开关默认并把定时 0 刷为 1440 禁用哨兵）；桌面同名 `configVersion` 同日由 2 升至 3（`tauri-app/src-tauri/src/config/model.rs:205`、`tauri-app/frontend/src/settings/constants.ts:64`，v2→v3 同义迁移检测时段终点），其后演进至 5（`config/model.rs:306`）。两端字段名近义（`config_version` ↔ `config_schema_version`）但语义独立，跨端对照时不可互推。
 5. **版本号有六个来源，无自动校验**：桌面 `env!("APP_VERSION")` 由 `tauri-app/src-tauri/build.rs:37` 从 `tauri.conf.json` 注入；安卓用 `env!("CARGO_PKG_VERSION")`（`android/src-tauri/src/system_cmds.rs:14`，安卓 `build.rs` 只有一行 `tauri_build::build()`）；两端 `Cargo.toml` 各有一个 `version`；两套前端手写常量 `tauri-app/frontend/src/shared/ui-constants.ts:2` 与 `android/frontend/src/shared/ui-constants.ts:2` 都硬编码 `'2.3.6'`。发布时需人工多处同步；发布侧主脚本是项目根 `make-release.ps1`（包装 `tauri-app/build.ps1`，从 `tauri-app/src-tauri/tauri.conf.json` 读版本，把安装包改名为 `Wxxy-CampusLogin_<版本>_x64-setup.exe` 并生成同名 `.sha256`，收集 APK 与 `RELEASE_NOTES_v<版本>.md`，最后打印 `gh release create/upload` 命令），它本身**不做版本号跨来源一致性校验**。
 
 ### 已发现的代码不一致
 
 6. **二进制与 lib 各编译一份模块树**：`tauri-app/src-tauri/src/main.rs:3-14` 用 `mod` 自行声明 12 个模块，`lib.rs:2-20` 另声明一份，`main.rs` 不通过 `campus_login_lib::` 复用。后果是同一份源码编译两遍，且 `#[macro_export]` 宏在 bin 与 lib 各有一份实例（`crate::log_info!` 与 `campus_login_lib::log_info!` 不是同一个东西）。
-7. **安卓后端 5 处裸 `app.emit` 绕过事件总线模式**：`android/src-tauri/src/monitor_loop.rs:139`、`:452`、`:838`、`android/src-tauri/src/update_cmds.rs:323`、`:439`；而安卓的 `network-quality-result` 又反而经共享 crate 走 `EventBus::new(ah).emit_network_quality_result`（`tauri-app/src-tauri/src/network/quality.rs:511/591/645`）。安卓没有集中登记点，事件名散落在各处。
+7. **安卓后端 6 处裸 `app.emit` 绕过事件总线模式**：`android/src-tauri/src/config_state.rs:390`、`android/src-tauri/src/monitor_loop.rs:155`、`:498`、`:1457`、`android/src-tauri/src/update_cmds.rs:323`、`:444`；而安卓的 `network-quality-result` 又反而经共享 crate 走 `EventBus::new(ah).emit_network_quality_result`（`tauri-app/src-tauri/src/network/quality.rs:511/591/645`）。安卓没有集中登记点，事件名散落在各处。
 8. **安卓不广播 `config-changed`**：`config_state.rs:319-345` 的 `save_config` 只落盘 + 刷 `AndroidState.config` 缓存，不发事件；但安卓前端仍注册监听（`android/frontend/src/hooks/useEventListeners.ts:304`），`mergeConfigFromBackend` 的分支在安卓永不触发。
 9. **安卓 `save_config` 未持 `CONFIG_IO_LOCK`**：锁定义在 `android/src-tauri/src/account_cmds.rs:17/21`，`switch_account`/`save_current_as_account`/`delete_account`（`account_cmds.rs:127/156/179`）、`set_boot_autostart`（`monitor_loop.rs:329`）都取锁，而读改写全量配置的 `save_config`（`config_state.rs:319-345`）没取——正是该锁要防的竞态对象。
 10. **安卓 `AndroidState` 文档与实现不符**：`android/src-tauri/src/lib.rs:9` 的模块说明写「android_state:进程态(源 IP 缓存/配置内存态/监控循环句柄)」，实际结构体只有 `cached_source_ip` 与 `config` 两个字段（`android_state.rs:10-12`），监控状态在 `monitor_loop.rs:12` 的 `MONITOR` 静态里。
