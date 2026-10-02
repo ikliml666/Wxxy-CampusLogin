@@ -55,7 +55,8 @@ export function BottomNav({ tab, onChange }: {
           WebkitBackdropFilter: 'blur(24px) saturate(160%)',
         }}
       >
-        <div className="flex flex-1 min-w-0 items-center gap-2">
+        {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底 */}
+        <div className="flex flex-1 min-w-0 items-center justify-around gap-2">
           {tabs.map(({ id, labelKey, Icon }) => {
             const active = tab === id
             return (
