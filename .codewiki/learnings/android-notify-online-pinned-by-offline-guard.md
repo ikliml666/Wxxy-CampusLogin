@@ -16,7 +16,7 @@ tags: [教训, 安卓, 状态机, 常驻通知, 在线判定]
 1. **在线判定护栏把"探测失败"折叠成"沿用上一拍在线"**：三态消费原实现是 `Ok(s) if error_kind.is_none() => s.online, _ => prev_online`——本意是反误报（校园网内 Portal 页面特征间歇失配时不翻转，2026-09-09 的修复），但 `_ => prev_online` 分支不区分"校园网内探测失败"与"根本不在校园网"。
 2. **常驻通知只在状态翻转时重建**：`notified_online` 记忆位 + 仅翻转时 `update_notification`（省电设计，不每拍重建）。状态不翻 ⇒ 通知永不更新。
 
-放大器：WiFi 断开后进程默认路由走蜂窝，`pick_campus_source_ip` 排除蜂窝接口（`campus_detect.rs:14`）返回 None，`probe_campus` 的三判据（/18 子网 ∥ 校园网关 TCP ∥ Portal TCP）全部不成立且 Portal HTTP 探测必失败 ⇒ `error_kind = Some(request_failed)` 恒成立 ⇒ 每拍都掉进 `_ => prev_online` 分支。而 `on_campus=false` 此前**不参与在线判定**（只用于自动重登门槛与掉线通知条件），无法纠正。
+放大器：WiFi 断开后进程默认路由走蜂窝，`pick_campus_source_ip` 排除蜂窝接口（`campus_detect.rs:14`）返回 None，`probe_campus` 的三判据（/18 子网 ∥ 校园网关 TCP ∥ Portal TCP）全部不成立且 Portal HTTP 探测必失败 ⇒ `error_kind = Some(request_failed)` 恒成立 ⇒ 每拍都掉进 `_ => prev_online` 分支。而 `on_campus=false` 此前**不参与在线判定**（只用于自动重登门槛与掉线通知条件），无法纠正。（2026-10-02 后续：WiFi **彻底关闭**（无非蜂窝 IPv4 接口）的场景已由 `CampusProbe.wifi_off` 短路单独建模——探测直接跳过、通知走独立状态码 4「WiFi 未连接」，见 [[deliberate-background-check-skips]] 第 7 条；本文的蜂窝在线场景不受影响。）
 
 ## 修复
 

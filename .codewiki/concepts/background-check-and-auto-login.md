@@ -102,7 +102,7 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 
 **注销保护期**：桌面 `logout_protected_until` 在 `emit_background_check_result` 里强制 `online=false`（`background_emit.rs:122-130`），并在 `update_network_state` 里跳过状态写回（`:170-176`）；自动登录与重连两条路径都检查它（`auto_auth.rs:56-60`、`:129-133`）。安卓用 `logout_protected_until_ms`，`run_check_once` 里判 `now < logout_protected_until_ms` 则 `should=false`（`monitor_loop.rs:688/693-695`）。
 
-**通知出口**：桌面 `emit_notification`（`infra/notification.rs:22-65`）只在"`enable_notification` 为真 且 主窗口不可见或已最小化"时弹系统通知（`:26-40`）；Windows 桌面用自组 WinRT toast 带看板娘，失败降级插件（`:53-60`）；`mascot` 变体名 `mascot-alert` / `mascot-celebrate` / `mascot-portrait` / `mascot-offline` / `mascot-busy`。安卓 `notify_system`（`monitor_loop.rs:145-162`）用 `large_icon`，两个在用大图 `mascot_alert` / `mascot_offline` 已随 APK 内置（`android/src-tauri/gen/android/app/src/main/res/drawable-xxhdpi/`），资源缺失时降级纯文本仅作兜底。安卓另有**常驻通知**（前台服务自带，非系统弹窗）：仅 `notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段，`monitor_loop.rs:35-38`、`:857-869`），静默期进入状态 3 重建为「已暂停检测(非检测时段)」（`:702-712`）。
+**通知出口**：桌面 `emit_notification`（`infra/notification.rs:22-65`）只在"`enable_notification` 为真 且 主窗口不可见或已最小化"时弹系统通知（`:26-40`）；Windows 桌面用自组 WinRT toast 带看板娘，失败降级插件（`:53-60`）；`mascot` 变体名 `mascot-alert` / `mascot-celebrate` / `mascot-portrait` / `mascot-offline` / `mascot-busy`。安卓 `notify_system`（`monitor_loop.rs:145-162`）用 `large_icon`，两个在用大图 `mascot_alert` / `mascot_offline` 已随 APK 内置（`android/src-tauri/gen/android/app/src/main/res/drawable-xxhdpi/`），资源缺失时降级纯文本仅作兜底。安卓另有**常驻通知**（前台服务自带，非系统弹窗）：仅 `notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段 / 4=WiFi 未连接（2026-10-02），`monitor_loop.rs:35-38`、`notify_state` :1470），静默期进入状态 3 重建为「已暂停检测(非检测时段)」（`:702-712`）；WiFi 关闭拍进入状态 4 重建为「WiFi 未连接」（2026-10-02 起，`run_check_once` 通知块 :1459）。
 
 **生命周期倒计时**：自动退出 `start_auto_exit`（`lifecycle.rs:183-264`）用 `auto_exit_deadline` + `auto_exit_cancelled` 双状态防重复触发；校园网退出 `start_campus_exit`（`lifecycle.rs:23-135`）先 CAS `campus_exit_started` 再设 deadline（注释 `:45-50` 记录原顺序导致的永久卡死缺陷），受 `campus_exit_on_fail` 与生效时段双重门控（`:25-41`）。两者退出前都 `task_manager.detach` 自身避免 shutdown 自等死锁（`:126`、`:256`）。
 
@@ -161,7 +161,7 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
 | 状态容器 | 全局 `lazy_static MONITOR: MonitorState`（进程内原子量），非桌面 `AppState` | `monitor_loop.rs:12-39` |
 | 分档省电 | `effective_interval_ms(base, idle, screen_on, wifi_connected)`：亮屏 + WiFi 用 base，否则 idle | `monitor_loop.rs:61-68` |
 | 事件驱动 | WiFi 变化监听（Kotlin NetworkCallback → Channel）触发即时检测，去抖 1000ms + 延迟 2500ms，风暴内最后一条生效 | `monitor_loop.rs:52-54`、`:224-297` |
-| 保活 | 前台服务常驻通知；`notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段），静默期进入 3 重建为「已暂停检测」，不每拍重建 | `monitor_loop.rs:166-201`、`:702-712`、`:857-869` |
+| 保活 | 前台服务常驻通知；`notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段 / 4=WiFi 未连接（2026-10-02，`notify_state` 纯函数）），静默期进入 3 重建为「已暂停检测」，WiFi 关闭拍进入 4 重建为「WiFi 未连接」，不每拍重建 | `monitor_loop.rs:166-201`、`:702-712`、`:1456-1470` |
 | 探针窗口锁 | `begin_probe_window` / `ProbeWindowGuard` Drop 保证 WifiLock + WakeLock 释放 | `monitor_loop.rs:505-514`、`:719-724` |
 | 绑 WiFi | 每拍探测与重登前 `ensure_wifi_bound` | `monitor_loop.rs:465`、`:728` |
 | 绑小核 | Portal 探测跑在专用短命线程并 `pin_current_thread_to_little_cores`（线程内 `handle.enter()` 补 reactor） | `monitor_loop.rs:573-610` |
