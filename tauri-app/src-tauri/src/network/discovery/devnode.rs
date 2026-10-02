@@ -60,8 +60,9 @@ pub(crate) fn devnode_problem(instance_id: &str) -> Result<u32, String> {
 
 /// 从注册表读接口 GUID 对应的 PnP 设备实例 ID（未文档化注册表值，多款工具在用）。
 /// `guid` 为带花括号的接口 GUID（IP_ADAPTER_ADDRESSES.AdapterName 格式）。
-/// pub(crate)：六期起 monitor 出站切换用实例 ID 判 USB 总线（USB 卡永不参与夜间禁用），
-/// windows.rs 幽灵误判修复也用它定位设备树。
+/// pub(crate)：monitor 出站切换用实例 ID 判总线可判定性（USB 卡自 2026-10 起不再
+/// 豁免夜间禁用，见 outbound_switch::unsafe_to_disable），windows.rs 幽灵误判修复
+/// 也用它定位设备树。
 pub(crate) fn read_pnp_instance_id(guid: &str) -> Option<String> {
     let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
     let key = hk
