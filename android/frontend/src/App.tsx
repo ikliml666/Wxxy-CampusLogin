@@ -281,10 +281,10 @@ function AppInner() {
         className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4"
         style={{
           paddingTop: 'calc(env(safe-area-inset-top) + 78px)',
-          // 悬浮底栏(底缝12px+栏高68px)+安全区;首页另有快捷登录浮条(+92px底、48px高),多留一拍
+          // 悬浮底栏(底缝20px+栏高68px)+安全区;首页再多留一拍余量
           paddingBottom: deferredTab === 'dashboard'
-            ? 'calc(env(safe-area-inset-bottom) + 148px)'
-            : 'calc(env(safe-area-inset-bottom) + 88px)',
+            ? 'calc(env(safe-area-inset-bottom) + 156px)'
+            : 'calc(env(safe-area-inset-bottom) + 96px)',
         }}
       >
         <div className="mx-auto max-w-[560px]">

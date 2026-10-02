@@ -97,7 +97,7 @@ export function BottomNav({ tab, onChange }: {
     <nav
       aria-label="primary"
       className="absolute inset-x-0 z-20 flex justify-center pointer-events-none px-3"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
+      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
     >
       <div
         className={cn(
@@ -111,7 +111,7 @@ export function BottomNav({ tab, onChange }: {
           WebkitBackdropFilter: 'blur(24px) saturate(160%)',
         }}
       >
-        <div className="flex flex-1 min-w-0 items-center gap-0.5">
+        <div className="flex flex-1 min-w-0 items-center gap-2">
           {tabs.map(({ id, labelKey, Icon }) => {
             const active = tab === id
             return (
@@ -122,7 +122,7 @@ export function BottomNav({ tab, onChange }: {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   // 纵排页签(图标在上/标签在下)统一抬高页签高度,激活药丸随之变高;
-                  // 图标等比例放大 20→24px 方便点按,非激活项 w-9 同步保持 6px 图标边距
+                  // 图标等比例放大 24→28px 方便点按,页签间距 2→8px;非激活项 w-9 保持窄身
                   'relative flex h-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'min-w-0 flex-initial px-2 text-primary' : 'w-9 text-muted-foreground active:text-foreground'
                 )}
@@ -136,7 +136,7 @@ export function BottomNav({ tab, onChange }: {
                   />
                 )}
                 <Icon
-                  className="relative z-10 h-6 w-6 shrink-0"
+                  className="relative z-10 h-7 w-7 shrink-0"
                   strokeWidth={active ? 2.2 : 1.8}
                 />
                 {/* 仅激活项显示标签(图标下方,用户要求);窄屏挤压时标签先截断 */}
