@@ -88,9 +88,10 @@ export function BottomNav({ tab, onChange }: {
                     strokeWidth={active ? 2 : 1.8}
                   />
                 </span>
-                {/* 仅激活项显示标签(图标下方、药丸外);窄屏挤压时标签先截断 */}
+                {/* 仅激活项显示标签(图标下方、药丸外);justify-around 有充足余量,
+                    「网络状态检测」6 字标签(66px)完整显示不截断(用户要求) */}
                 {active && (
-                  <span className="relative z-10 truncate max-w-[64px] text-[11px] font-medium leading-tight">
+                  <span className="relative z-10 whitespace-nowrap text-[11px] font-medium leading-tight">
                     {t(labelKey)}
                   </span>
                 )}
