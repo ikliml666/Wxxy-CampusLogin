@@ -67,7 +67,7 @@ export function BottomNav({ tab, onChange }: {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   // 纵排页签(图标在上/标签在下)统一抬高页签高度,激活药丸随之变高;
-                  // 图标 24px(M3 导航栏标准)在 56px 药丸内留足呼吸,放大感由栏体/间距/文案承担
+                  // 图标 26px(24 与 28 的折中:均布后 24 偏小、28 曾挤药丸),57% 药丸占比留足呼吸
                   'relative flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'min-w-0 flex-initial px-2.5 text-primary' : 'w-9 text-muted-foreground active:text-foreground'
                 )}
@@ -81,7 +81,7 @@ export function BottomNav({ tab, onChange }: {
                   />
                 )}
                 <Icon
-                  className="relative z-10 h-6 w-6 shrink-0"
+                  className="relative z-10 h-[26px] w-[26px] shrink-0"
                   strokeWidth={active ? 2 : 1.8}
                 />
                 {/* 仅激活项显示标签(图标下方,用户要求);窄屏挤压时标签先截断 */}
