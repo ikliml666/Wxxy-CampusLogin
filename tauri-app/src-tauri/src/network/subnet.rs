@@ -164,6 +164,15 @@ pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> b
     if gateway.is_empty() {
         return false;
     }
+    // Windows 优先走 IcmpSendEcho2Ex（官方探测通道，绑源可靠）：surge_ping 的
+    // socket2 绑源 DGRAM 在 TUN 环境下会系统性失败，导致校园网卡被误判为
+    // 非校园（夜间禁用名单漏卡），见 platform/icmp_probe.rs 模块注释。
+    // 仅替换 IPv4 路径；v6 网关与非 Windows 平台仍走下方 surge_ping。
+    #[cfg(target_os = "windows")]
+    if let Ok(dest) = gateway.parse::<std::net::Ipv4Addr>() {
+        let source = source_ip.and_then(|s| s.parse::<std::net::Ipv4Addr>().ok());
+        return crate::platform::icmp_probe::icmp_probe_v4(dest, source, 2000);
+    }
     // 调用链（campus_check / failure_tracker / background_check）均运行在
     // spawn_blocking 线程内：block_on_sync 用 Handle::block_on 驱动 async 探测，
     // 不会在 async worker 线程上执行（后者会导致 panic）。

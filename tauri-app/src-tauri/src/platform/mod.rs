@@ -26,6 +26,9 @@ pub mod metric;
 // 路由级切换验证（GetBestRoute，夜间出站切换完成后校验禁用效果）：仅 Windows
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod best_route;
+// ICMP 绑源探测（IcmpSendEcho2Ex，网关可达性判定）：仅 Windows
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod icmp_probe;
 // RTSS(MSI Afterburner) hook 注入致 WebView 白屏崩溃的预防(写排除 profile)
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod rtss_compat;
