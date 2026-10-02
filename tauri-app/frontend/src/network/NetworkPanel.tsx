@@ -529,9 +529,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* 出站簇：当前出站徽标 + 立即切换/还原，收进一个胶囊分组（与右侧夜切开关区分语义） */}
+                {/* 出站簇：当前出站徽标 + 切换/还原文字按钮（图标按钮不直观，用户反馈改文字） */}
                 {currentOutbound && (
-                  <div className="flex items-center gap-1 rounded-full bg-muted/40 p-1">
+                  <div className="flex items-center gap-1.5">
                     <Badge
                       variant="outline"
                       size="sm"
@@ -541,26 +541,26 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                       {t('network.currentOutbound', { name: currentOutbound })}
                     </Badge>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      className="h-7 text-xs gap-1 border-amber-500/40 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/60"
                       onClick={handleOutboundSwitchNow}
                       disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
                       title={t('network.outboundSwitchNow')}
-                      aria-label={t('network.outboundSwitchNow')}
                     >
-                      {switchingOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 text-amber-600" />}
+                      {switchingOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                      {t('network.outboundSwitchNow')}
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      className="h-7 text-xs gap-1"
                       onClick={handleOutboundRestoreNow}
                       disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
                       title={t('network.outboundRestoreNow')}
-                      aria-label={t('network.outboundRestoreNow')}
                     >
-                      {restoringOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />}
+                      {restoringOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                      {t('network.outboundRestoreNow')}
                     </Button>
                   </div>
                 )}
@@ -643,6 +643,11 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
                       </Button>
                     )}
+                    {displayedOrder[0] === a.name && (
+                      <Badge key="outbound-target" variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
+                        {t('network.outboundBadge')}
+                      </Badge>
+                    )}
                     {a.ip ? (
                       <Button
                         key="new-ip"
@@ -667,11 +672,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
                         {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
                       </Button>
-                    )}
-                    {displayedOrder[0] === a.name && (
-                      <Badge key="outbound-target" variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
-                        {t('network.outboundBadge')}
-                      </Badge>
                     )}
                   </SortableAdapterRow>
                 ))}

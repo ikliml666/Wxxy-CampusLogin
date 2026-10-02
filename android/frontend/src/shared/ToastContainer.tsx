@@ -36,7 +36,7 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
     : { type: 'spring' as const, stiffness: 400, damping: 25, mass: 0.8 }
 
   return (
-    <div className="fixed top-[84px] right-4 z-[100] flex flex-col gap-2 pointer-events-none" aria-live="polite" role="status">
+    <div className="fixed top-[84px] left-4 z-[100] flex flex-col gap-2 pointer-events-none" aria-live="polite" role="status">
       <AnimatePresence mode="popLayout">
         {toasts.map((toast) => {
           const mascot = toast.mascot ?? TOAST_MASCOTS[toast.type]
@@ -45,9 +45,9 @@ export const ToastContainer = memo(function ToastContainer({ toasts, onRemove }:
           return (
             <m.div
               key={`toast-${toast.id}`}
-              initial={{ opacity: 0, x: 100, scale: 0.9 }}
+              initial={{ opacity: 0, x: -100, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, scale: 1, transition: enterTransition }}
-              exit={{ opacity: 0, x: 80, scale: 0.9, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
+              exit={{ opacity: 0, x: -80, scale: 0.9, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
               className={cn(
                 'pointer-events-auto flex items-start gap-3 w-80 p-4 rounded-xl',
                 'shadow-[0_4px_20px_rgba(0,0,0,0.08),0_1px_4px_rgba(0,0,0,0.04)]',

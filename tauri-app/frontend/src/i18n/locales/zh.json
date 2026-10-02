@@ -303,11 +303,11 @@
     "outboundAdminHint": "切换动作需要管理员权限（将通过 UAC 或计划任务代理静默完成）；列表外网卡不参与切换",
     "currentOutbound": "当前出站: {{name}}",
     "currentOutboundBadge": "当前出站",
-    "outboundSwitchNow": "立即切换出站",
+    "outboundSwitchNow": "切换出站",
     "outboundSwitchNowSuccess": "已切换出站",
     "outboundSwitchNowFailed": "切换未完成",
     "outboundSwitching": "切换中...",
-    "outboundRestoreNow": "立即还原出站",
+    "outboundRestoreNow": "还原出站",
     "outboundRestoreNowSuccess": "已还原网络设置",
     "outboundRestoreNowFailed": "还原未完成",
     "outboundRestoring": "还原中..."
