@@ -36,9 +36,9 @@ use crate::config::schedule::should_fire_scheduled_action;
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use crate::monitor::outbound_switch::{
-    disabled_adapters_json, is_campus_adapter, parse_disabled_adapters, parse_standby_route,
-    portal_probe_host, select_campus_to_disable, select_outbound_candidate, snapshot_json,
-    standby_route_json,
+    disabled_adapters_json, effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
+    parse_standby_route, portal_probe_host, select_campus_to_disable, select_outbound_candidate,
+    snapshot_json, standby_route_json,
     StandbyRoute,
 };
 use crate::network::Adapter;
@@ -560,31 +560,28 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
             (a.clone(), gateway)
         })
         .collect();
-    // 候选只来自用户排序列表（outbound_priority），且必须有 IP 且判定为非校园网
+    // 候选来自出站优先级生效列表（用户已排序按原序；未排序默认无线卡优先，
+    // 见 effective_outbound_priority），且必须有 IP 且判定为非校园网
     let portal_host = portal_probe_host(&config.portal_url);
+    let priority = effective_outbound_priority(&config.outbound_priority, &candidates);
     let Some(target) = select_outbound_candidate(
-        &config.outbound_priority,
+        &priority,
         &candidates,
         &config.campus_gateway,
         &portal_host,
         |gateway, source_ip| crate::network::check_gateway_reachable_from(gateway, Some(source_ip)),
     ) else {
-        // 无可用候选（未排序 / 候选都是校园网卡 / 没有 IP / 自身网关不可达）：
-        // 不进退避，30s 后自然重试。配置了优先级却选不出候选多半是判定或环境
-        // 问题（如绑源探测把热点误判成校园网），每天提醒一次，避免整夜静默失效
-        if config.outbound_priority.is_empty() {
-            crate::log_debug!("outbound", "夜间出站切换: 未配置适配器优先级，本拍不切换");
-            return Err("尚未配置出站优先级，请先在适配器列表中拖动排序".to_string());
-        } else {
-            crate::log_warn!("outbound", "夜间出站切换: 优先级内无可用非校园网候选，本拍不切换");
-            notify_outbound_issue_once_per_day(
-                app_handle,
-                &OUTBOUND_NO_CANDIDATE_WARN_DAY,
-                "夜间出站切换未生效",
-                "优先级列表内未找到可用的非校园网网卡（可能被误判为校园网或网关不可达），出站未切换",
-            );
-            return Err("优先级列表内没有可用的非校园网网卡（可能被误判为校园网或网关不可达）".to_string());
-        }
+        // 无可用候选（候选都是校园网卡 / 没有 IP / 自身网关不可达）：不进退避，
+        // 30s 后自然重试。选不出候选多半是判定或环境问题（如绑源探测把热点
+        // 误判成校园网），每天提醒一次，避免整夜静默失效
+        crate::log_warn!("outbound", "夜间出站切换: 优先级内无可用非校园网候选，本拍不切换");
+        notify_outbound_issue_once_per_day(
+            app_handle,
+            &OUTBOUND_NO_CANDIDATE_WARN_DAY,
+            "夜间出站切换未生效",
+            "未找到可用的非校园网网卡（可能被误判为校园网或网关不可达），出站未切换",
+        );
+        return Err("没有可用的非校园网网卡（可能被误判为校园网或网关不可达）".to_string());
     };
     if target.guid.is_empty() {
         crate::log_warn!("outbound", "夜间出站切换: 目标卡 {} 无 GUID，无法设置跃点", target.name);
@@ -602,7 +599,8 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
         crate::log_warn!("outbound", "夜间出站切换: {} 无 IPv4/IPv6 跃点行，本拍不切换", target.name);
         return Err(format!("网卡 {} 没有 IPv4/IPv6 跃点配置行", target.name));
     }
-    // 要临时禁用的校园网卡：目标卡之外、在优先级列表内、在网且判定为校园网。
+    // 要临时禁用的校园网卡：目标卡之外、在生效优先级列表内（未排序默认无线
+    // 卡优先，全量参与）、在网且判定为校园网。
     // bus_guard 平台注入（非 Windows 恒放行，本功能桌面侧仅 Windows 有完整实现）：
     // 仅跳过「总线类型无法判定」的卡——USB 网卡不再排除（2026-10 用户确认其
     // USB 副卡应参与禁用；运行期 disable/enable 对称性已实证，且 7:30 还原、
@@ -612,7 +610,7 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
     #[cfg(not(target_os = "windows"))]
     let bus_guard: fn(&str) -> bool = |_| true;
     let campus_to_disable = select_campus_to_disable(
-        &config.outbound_priority,
+        &priority,
         &candidates,
         &config.campus_gateway,
         &portal_host,
@@ -626,7 +624,7 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
     // 优先级卡时每天提醒一次，让「整夜只切一半」可被发现（误判漏禁的唯一信号）
     if campus_to_disable.is_empty() {
         let others_present = candidates.iter().any(|(a, _)| {
-            a.guid != target.guid && !a.ip.is_empty() && config.outbound_priority.contains(&a.name)
+            a.guid != target.guid && !a.ip.is_empty() && priority.contains(&a.name)
         });
         if others_present {
             crate::log_warn!("outbound", "夜间出站切换: 有目标卡但未识别到校园网卡，本次未禁用任何网卡");

@@ -22,13 +22,13 @@ WifiLock 降级；本轮调研新增两项系统性修复。
 
 Tauri/tao 默认"最后窗口关闭 → `process::exit(0)`"会把前台服务一起带走
 （tauri #15671 根因分析：tao `src/platform_impl/android/mod.rs` run 循环末尾
-`process::exit(exit_code)`）。用户从最近任务划掉 Activity 时 Activity 销毁即触发
+`process::exit(exit_code)））。用户从最近任务划掉 Activity 时 Activity 销毁即触发
 该路径，巡检/夜切/定时动作全部消失。修复：`android/src-tauri/src/lib.rs` 的
-`run()`（`#[cfg_attr(mobile, tauri::mobile_entry_point)]`，lib.rs:29-30）由
+`run()`（`#[cfg_attr(mobile, tauri::mobile_entry_point)]`，lib.rs:30-31）由
 `Builder::run` 单段式改为 `build()` + `run(callback)`：`builder.build(tauri::generate_context!())`
-（lib.rs:112-113）后链式 `.run(|_app, event| …)`（lib.rs:114-121），回调内
+（lib.rs:115-116）后链式 `.run(|_app, event| …)`（lib.rs:117-124），回调内
 `if let tauri::RunEvent::ExitRequested { api, .. } = event { api.prevent_exit(); }`
-（lib.rs:118-120），代码处留 3 行注释说明缘由（lib.rs:115-117）。安卓语义：划掉
+（lib.rs:121-123），代码处留 3 行注释说明缘由（lib.rs:118-120）。安卓语义：划掉
 任务只关 UI，进程随前台服务常驻；彻底退出走系统设置（桌面侧的对应机制是轻量化
 单次守卫，见 [[lightweight-mode-desktop]]，两端语义不同故实现不同）。
 
@@ -52,7 +52,7 @@ Tauri/tao 默认"最后窗口关闭 → `process::exit(0)`"会把前台服务一
   来自 `config_state::current_settings`；递进序列随配置值而变（旧默认 60s 时
   60s→120s→240s→…；现默认 600s 时 600s→1200s→1800s 封顶）。
 - 启停：`start_latency_test` 幂等（`LATENCY_RUNNING.swap(true)`，命令体
-  quality_cmds.rs:52-61，swap 判断在 55-57），读当前配置（quality_cmds.rs:58）后
+  quality_cmds.rs:55-57），读当前配置（quality_cmds.rs:58）后
   `tauri::async_runtime::spawn(latency_loop(app, settings))`（quality_cmds.rs:59）；
   `stop_latency_test` 置 false（quality_cmds.rs:63-67）；循环退出前自行
   `LATENCY_RUNNING.store(false)` 收尾（quality_cmds.rs:112）。运行标志为
@@ -131,7 +131,7 @@ config_state.rs:604）。安卓前端的 `autoExitAfterLogin`/`autoExitOnOnline`
 
 **生态旁证**：wry 上游、Capacitor 从不调用 `setRendererPriorityPolicy`（Capacitor 仅提供 onRenderProcessGone 钩子），Cordova 退后台只 `onPause`+`pauseTimers`；官方 Managing WebView 文档 Warning：不要动 renderer 优先级除非配套 Termination Handling API，且 `reload()` 救不活、必须销毁重建。退后台 CPU/功耗抑制 wry 已内建（`WryActivity.kt:130-141` 调 `mWebView.onPause()/onResume()`），本策略买到的只有 renderer 常驻内存，代价即上述死亡链。
 
-**处置**：整体摘除 `MainActivity.kt` 的 `onWebViewCreate` 策略段（连同 Build/WebView import），回退为 wry 默认 IMPORTANT 常驻。当前文件仅 14 行：`class MainActivity : TauriActivity()` 只保留 `onCreate` 内 `enableEdgeToEdge()`（MainActivity.kt:9-14，import 仅 `android.os.Bundle` 与 `androidx.activity.enableEdgeToEdge`，MainActivity.kt:3-4），代码处留 3 行注释指向本文档防回添（MainActivity.kt:6-8）。回退目标「退出护栏 + 稳态退避」两件套不受影响。上游具备 renderer 恢复机制（tauri #15678，RunEvent::Resumed 重建 webview，未合并）之前不再考虑降优先级省内存。
+**处置**：整体摘除 `MainActivity.kt` 的 `onWebViewCreate` 策略段（连同 Build/WebView import），回退为 wry 默认 IMPORTANT 常驻。当前文件仅 14 行：`class MainActivity : TauriActivity()` 只保留 `onCreate` 内 `enableEdgeToEdge()`（MainActivity.kt:10-13，import 仅 `android.os.Bundle` 与 `androidx.activity.enableEdgeToEdge`，MainActivity.kt:3-4），代码处留 3 行注释指向本文档防回添（MainActivity.kt:6-8）。回退目标「退出护栏 + 稳态退避」两件套不受影响。上游具备 renderer 恢复机制（tauri #15678，RunEvent::Resumed 重建 webview，未合并）之前不再考虑降优先级省内存。
 
 **教训**：①优化 WebView 内核行为必须配套死亡处理链，官方文档 Warning 是硬约束不是建议；②真机验证当时只对比了 `dumpsys meminfo` 内存数字，未覆盖「长后台 → 回前台」生命周期场景——内存收益的验证设计漏掉了该优化唯一的风险面。
 
