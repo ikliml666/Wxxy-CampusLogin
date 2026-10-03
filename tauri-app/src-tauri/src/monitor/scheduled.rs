@@ -37,7 +37,8 @@ use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use crate::monitor::outbound_switch::{
     disabled_adapters_json, is_campus_adapter, parse_disabled_adapters, parse_standby_route,
-    select_campus_to_disable, select_outbound_candidate, snapshot_json, standby_route_json,
+    portal_probe_host, select_campus_to_disable, select_outbound_candidate, snapshot_json,
+    standby_route_json,
     StandbyRoute,
 };
 use crate::network::Adapter;
@@ -560,10 +561,12 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
         })
         .collect();
     // 候选只来自用户排序列表（outbound_priority），且必须有 IP 且判定为非校园网
+    let portal_host = portal_probe_host(&config.portal_url);
     let Some(target) = select_outbound_candidate(
         &config.outbound_priority,
         &candidates,
         &config.campus_gateway,
+        &portal_host,
         |gateway, source_ip| crate::network::check_gateway_reachable_from(gateway, Some(source_ip)),
     ) else {
         // 无可用候选（未排序 / 候选都是校园网卡 / 没有 IP / 自身网关不可达）：
@@ -612,6 +615,7 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
         &config.outbound_priority,
         &candidates,
         &config.campus_gateway,
+        &portal_host,
         &target.guid,
         |gateway, source_ip| crate::network::check_gateway_reachable_from(gateway, Some(source_ip)),
         bus_guard,
@@ -1348,10 +1352,15 @@ fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
         .find(|d| d.name == adapter.name)
         .map(|d| d.gateway.clone())
         .unwrap_or_default();
+    let portal_host = portal_probe_host(&config.portal_url);
     let back_on_campus = adapter.ip.is_empty()
-        || is_campus_adapter(&adapter.ip, &gateway, &config.campus_gateway, |gw, source_ip| {
-            crate::network::check_gateway_reachable_from(gw, Some(source_ip))
-        });
+        || is_campus_adapter(
+            &adapter.ip,
+            &gateway,
+            &config.campus_gateway,
+            &portal_host,
+            |gw, source_ip| crate::network::check_gateway_reachable_from(gw, Some(source_ip)),
+        );
     if back_on_campus {
         crate::log_info!("outbound", "启动对账: 目标卡 {} 已不可用或回到校园网，按还原处理", adapter.name);
         let _ = apply_outbound_restore(app_handle, &config);
@@ -1626,7 +1635,7 @@ async fn night_switch_check_once(
 
 /// portal_url 的 origin（chkstatus 与 portal 同源，eportal 按请求源 IP 判定本机）；
 /// 空值回退默认 portal 地址（config::model 的既有默认值）
-fn portal_origin(portal_url: &str) -> String {
+pub(crate) fn portal_origin(portal_url: &str) -> String {
     let url = if portal_url.is_empty() {
         crate::config::model::default_portal_url()
     } else {

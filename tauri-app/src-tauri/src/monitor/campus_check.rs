@@ -1,5 +1,6 @@
 use serde::Serialize;
 use crate::network::Adapter;
+use super::outbound_switch::portal_probe_host;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,21 +47,28 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
 
     if !config.enable_network_name_check {
         let gateway_ok = crate::network::check_gateway_reachable(&config.campus_gateway);
+        // portal 可达是与网关互相独立的校园证据（网关禁 ping 时 portal 仍可能在线）
+        let portal_host = portal_probe_host(&config.portal_url);
+        let portal_ok = !portal_host.is_empty() && crate::network::check_gateway_reachable(&portal_host);
         if gateway_ok {
             crate::log_debug!("campus", "[校园网检测] 名称检查已禁用，网关可达");
+        } else if portal_ok {
+            crate::log_debug!("campus", "[校园网检测] 名称检查已禁用，网关不可达但 portal 可达: {}", portal_host);
         } else {
             // 该分支提前返回、不经过末尾的结果日志，网关不可达（判定异常）在此单独告警
             crate::log_warn!("campus", "[校园网检测] 名称检查已禁用，网关不可达: {}", config.campus_gateway);
         }
         let msg = if gateway_ok {
             format!("网关{}可达", config.campus_gateway)
+        } else if portal_ok {
+            format!("网关不可达但 portal {portal_host} 可达")
         } else {
             "未连接到校园网络(网关不可达)".to_string()
         };
         return CampusCheckResult {
             wifi: None,
             wired: None,
-            on_campus: gateway_ok,
+            on_campus: gateway_ok || portal_ok,
             current_ssid: None,
             message: msg,
         };
@@ -70,6 +78,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     // 名称名单：一次解析，WiFi 与有线匹配共用（多名称任一命中即算校园网）
     let name_list = campus_name_list(required_name);
     let campus_gw = &config.campus_gateway;
+    let portal_host = portal_probe_host(&config.portal_url);
 
     let wifi_ssid = crate::network::get_wireless_ssid().ok().flatten();
     let wired_profile = crate::network::get_wired_network_profile().ok().flatten();
@@ -77,6 +86,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     crate::log_debug!("campus", "[校园网检测] wifi_ssid={:?}, wired_profile={:?}", wifi_ssid, wired_profile);
 
     let mut gateway_checked: Option<bool> = None;
+    let mut portal_checked: Option<bool> = None;
     let check_gateway = |gw: &str, cache: &mut Option<bool>| -> bool {
         if let Some(cached) = cache {
             crate::log_debug!("campus", "[校园网检测] 使用缓存的网关可达性: {}", cached);
@@ -89,6 +99,20 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
             } else {
                 // 探测失败：网关 ping 不通是归属判定失败的直接信号
                 crate::log_warn!("campus", "[校园网检测] 网关不可达: gw={}", gw);
+            }
+            ok
+        }
+    };
+    let check_portal = |cache: &mut Option<bool>| -> bool {
+        if let Some(cached) = cache {
+            crate::log_debug!("campus", "[校园网检测] 使用缓存的 portal 可达性: {}", cached);
+            *cached
+        } else {
+            // portal_url 无私网 IPv4 主机时该判定腿恒为否（portal_probe_host 返回空串）
+            let ok = !portal_host.is_empty() && crate::network::check_gateway_reachable(&portal_host);
+            *cache = Some(ok);
+            if ok {
+                crate::log_debug!("campus", "[校园网检测] portal 可达性检查: host={}, reachable=true", portal_host);
             }
             ok
         }
@@ -127,6 +151,10 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                         msg = format!("WiFi\"{ssid}\"名称不匹配但网关{campus_gw}可达");
                     }
                 }
+                if !found && check_portal(&mut portal_checked) {
+                    found = true;
+                    msg = format!("WiFi\"{ssid}\"名称不匹配但 portal {portal_host} 可达");
+                }
                 if found {
                     Some(ConnectionCampusStatus { on_campus: true, name: Some(ssid.clone()), message: msg })
                 } else {
@@ -161,6 +189,9 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                         if gateway_ok {
                             found = true;
                             msg = format!("WiFi通过网关{campus_gw}连接校园网");
+                        } else if check_portal(&mut portal_checked) {
+                            found = true;
+                            msg = format!("WiFi通过 portal {portal_host} 连接校园网");
                         }
                     }
                     if found {
@@ -208,6 +239,9 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
                         if gateway_ok {
                             found = true;
                             msg = format!("有线通过网关{campus_gw}连接校园网");
+                        } else if check_portal(&mut portal_checked) {
+                            found = true;
+                            msg = format!("有线通过 portal {portal_host} 连接校园网");
                         }
                     }
                     if found {

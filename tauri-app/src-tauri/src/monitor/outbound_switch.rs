@@ -1,6 +1,7 @@
 //! 夜间出站切换的桌面侧动作层：目标卡选择、逐卡校园网判定、快照序列化。
 //! 判定规则与 campus_check 同源但按适配器粒度：/18 网段匹配 || 绑该卡源 IP 的
-//! 网关可达（check_gateway_reachable_from；不绑源会多卡归因错位）。SSID 不参与
+//! 网关可达 || 绑该卡源 IP 的 portal 主机可达（check_gateway_reachable_from；
+//! 不绑源会多卡归因错位）。SSID 不参与
 //! 逐卡判定——netsh wlan 只报当前连接的单个 SSID，多无线卡下归因不可靠。
 //!
 //! 网关可达探测经 `gateway_probe` 闭包注入：生产调用方传
@@ -10,13 +11,14 @@
 use crate::network::discovery::Adapter;
 
 /// 逐卡判定该适配器是否处于校园网内：
-/// IP 与校园网关同 /18 网段，或该卡有网关且从该卡源 IP 可达校园网关（经 probe 注入）。
+/// IP 与校园网关同 /18 网段，或绑该卡源 IP 可达校园网关/portal 主机（经 probe 注入）。
 /// IP 为空直接判否；campus_gateway 为空时 is_same_subnet_18 解析失败返回 false、
 /// probe 传空网关也判否，行为安全。
 pub fn is_campus_adapter(
     ip: &str,
     gateway: &str,
     campus_gateway: &str,
+    portal_host: &str,
     gateway_probe: impl Fn(&str, &str) -> bool,
 ) -> bool {
     if ip.is_empty() {
@@ -27,7 +29,30 @@ pub fn is_campus_adapter(
     }
     // 绑源探测做两次尝试：单发 ICMP 丢包会把在网校园卡误判成非校园——禁用步骤
     // 静默跳过、整夜只切一半。任一次可达即判校园，容忍瞬时抖动。
-    !gateway.is_empty() && (gateway_probe(campus_gateway, ip) || gateway_probe(campus_gateway, ip))
+    // 校园网关之外再加 portal 主机（portal_probe_host 保证仅私网 IPv4 非空）：
+    // 宿舍路由器 NAT 下的卡不在校园 /18、网关也常禁 ICMP（10.2.127.254 实测
+    // 三源全丢包），但 portal 可达同样是「流量从校园侧出」的证据。
+    (!gateway.is_empty()
+        && (gateway_probe(campus_gateway, ip) || gateway_probe(campus_gateway, ip)))
+        || (!portal_host.is_empty()
+            && (gateway_probe(portal_host, ip) || gateway_probe(portal_host, ip)))
+}
+
+/// 从 portal_url 提取可作绑源探测目标的私网 IPv4 主机（`http://10.1.99.100` →
+/// `10.1.99.100`）。域名、公网地址、IPv6、空值一律返回空串：portal 可达性是
+/// 「从校园侧出口」的证据，公网 portal 会把任意外网网卡都误判成校园。
+pub fn portal_probe_host(portal_url: &str) -> String {
+    let rest = portal_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(portal_url);
+    let host_port = rest.split('/').next().unwrap_or("");
+    let host = host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port);
+    if host.parse::<std::net::Ipv4Addr>().is_ok() && crate::auth::portal::is_nat_private_ip(host) {
+        host.to_string()
+    } else {
+        String::new()
+    }
 }
 
 /// 按优先级名序选出出站目标卡：跳过不在优先级列表、无 IP、处于校园网内的卡，
@@ -37,6 +62,7 @@ pub fn select_outbound_candidate(
     priority: &[String],
     details: &[(Adapter, String)],
     campus_gateway: &str,
+    portal_host: &str,
     gateway_probe: impl Fn(&str, &str) -> bool,
 ) -> Option<Adapter> {
     for name in priority {
@@ -49,7 +75,7 @@ pub fn select_outbound_candidate(
         }
         // 校园网卡跳过，只切非校园出口；且候选自身网关必须可达——有 IP 有网关但
         // 网关失联（热点开着上游已断）的卡切过去也是死路
-        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, &gateway_probe)
+        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, portal_host, &gateway_probe)
             && gateway_probe(gateway, &adapter.ip)
         {
             return Some(adapter.clone());
@@ -153,6 +179,7 @@ pub fn select_campus_to_disable(
     priority: &[String],
     details: &[(Adapter, String)],
     campus_gateway: &str,
+    portal_host: &str,
     exclude_guid: &str,
     gateway_probe: impl Fn(&str, &str) -> bool,
     bus_guard: impl Fn(&str) -> bool,
@@ -172,7 +199,7 @@ pub fn select_campus_to_disable(
         if adapter.ip.is_empty() {
             continue;
         }
-        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, &gateway_probe) {
+        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, portal_host, &gateway_probe) {
             continue;
         }
         if bus_guard(&adapter.guid) {
@@ -211,30 +238,30 @@ mod tests {
     #[test]
     fn campus_adapter_by_subnet() {
         // 10.64.1.2 与 10.64.60.1 同 /18（10.64.0.0 - 10.64.63.255）→ 校园网卡
-        assert!(is_campus_adapter("10.64.1.2", "10.64.60.1", "10.64.60.1", no_probe()));
+        assert!(is_campus_adapter("10.64.1.2", "10.64.60.1", "10.64.60.1", "", no_probe()));
     }
 
     #[test]
     fn campus_adapter_off_subnet_probe_reachable() {
         // 不同 /18，但校园网关从该卡源 IP 可达（probe 注入 true）→ 仍判校园
-        assert!(is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", |_, _| true));
+        assert!(is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", "", |_, _| true));
     }
 
     #[test]
     fn campus_adapter_off_subnet_probe_unreachable() {
         // 不同 /18 且 probe 判不可达 → 非校园
-        assert!(!is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", |_, _| false));
+        assert!(!is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", "", |_, _| false));
     }
 
     #[test]
     fn campus_adapter_empty_ip_is_false() {
-        assert!(!is_campus_adapter("", "", "10.64.60.1", no_probe()));
+        assert!(!is_campus_adapter("", "", "10.64.60.1", "", no_probe()));
     }
 
     #[test]
     fn campus_adapter_empty_gateway_skips_probe() {
         // 不同段且该卡无网关 → 无法做绑源可达判定，直接判否（probe 不应触达）
-        assert!(!is_campus_adapter("192.168.43.10", "", "10.64.60.1", no_probe()));
+        assert!(!is_campus_adapter("192.168.43.10", "", "10.64.60.1", "", no_probe()));
     }
 
     #[test]
@@ -247,18 +274,18 @@ mod tests {
         // 探测按网关区分：自身网关（192.168.43.1）可达、校园网关（10.64.60.1）不可达
         let probe = |gw: &str, _: &str| gw == "192.168.43.1";
         // 排序第一张无 IP → 跳过；第二张非校园网有 IP 且自身网关可达 → 选中
-        let picked = select_outbound_candidate(&priority, &details, "10.64.60.1", probe).unwrap();
+        let picked = select_outbound_candidate(&priority, &details, "10.64.60.1", "", probe).unwrap();
         assert_eq!(picked.name, "WLAN");
         // 列表外不参与：优先级只含校园网卡 → None
         let only_campus = vec![(adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string())];
-        assert!(select_outbound_candidate(&["以太网".to_string()], &only_campus, "10.64.60.1", probe).is_none());
+        assert!(select_outbound_candidate(&["以太网".to_string()], &only_campus, "10.64.60.1", "", probe).is_none());
     }
 
     #[test]
     fn candidate_probe_reachable_means_campus_skipped() {
         // 唯一候选不同段但绑源可达校园网关 → 视为校园网卡 → 跳过 → None
         let only = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
-        assert!(select_outbound_candidate(&["WLAN".to_string()], &[only], "10.64.60.1", |_, _| true).is_none());
+        assert!(select_outbound_candidate(&["WLAN".to_string()], &[only], "10.64.60.1", "", |_, _| true).is_none());
     }
 
     #[test]
@@ -266,7 +293,7 @@ mod tests {
         // 优先级名在当前适配器列表里查不到（被拔出/禁用）→ 顺延到下一项
         let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
         let priority = vec!["已拔出的卡".to_string(), "WLAN".to_string()];
-        let picked = select_outbound_candidate(&priority, &[hotspot], "10.64.60.1", |gw: &str, _: &str| gw == "192.168.43.1")
+        let picked = select_outbound_candidate(&priority, &[hotspot], "10.64.60.1", "", |gw: &str, _: &str| gw == "192.168.43.1")
             .unwrap();
         assert_eq!(picked.name, "WLAN");
     }
@@ -275,7 +302,7 @@ mod tests {
     fn candidate_empty_priority_returns_none() {
         // 未排序（空列表）：没有白名单内的候选，不切换
         let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
-        assert!(select_outbound_candidate(&[], &[hotspot], "10.64.60.1", no_probe()).is_none());
+        assert!(select_outbound_candidate(&[], &[hotspot], "10.64.60.1", "", no_probe()).is_none());
     }
 
     #[test]
@@ -290,6 +317,7 @@ mod tests {
             &priority,
             &[apipa, dead, hotspot],
             "10.64.60.1",
+            "",
             |gw: &str, _: &str| gw == "192.168.43.1",
         )
         .unwrap();
@@ -304,7 +332,7 @@ mod tests {
             !tried.swap(true, std::sync::atomic::Ordering::SeqCst) // 首发 false
                 || true // 次发 true
         };
-        assert!(is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", flaky));
+        assert!(is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", "", flaky));
     }
 
     #[test]
@@ -386,6 +414,7 @@ mod tests {
             &priority,
             &details,
             "10.64.60.1",
+            "",
             "{GT}",
             |_, _| false, // 非同段卡绑源探测不可达 → 非校园
             |g| g == "{G2}", // bus guard：{G2} 视为总线不可判定
@@ -403,6 +432,7 @@ mod tests {
             &priority,
             &[a1],
             "10.64.60.1",
+            "",
             "{GT}",
             |_, _| true,
             |_| false,
@@ -419,10 +449,74 @@ mod tests {
             &["以太网".to_string()],
             &[campus],
             "10.64.60.1",
+            "",
             "{GT}",
             |_, _| false,
             |_| true,
         );
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn campus_adapter_portal_probe_reachable() {
+        // 宿舍路由器 NAT 场景：不同 /18、绑源网关不可达，但绑源 portal 可达 → 校园
+        // （2026-10-03 实测：10.2.127.254 三源全丢包，portal 10.1.99.100 绑源可达）
+        let probe = |target: &str, _: &str| target == "10.1.99.100";
+        assert!(is_campus_adapter(
+            "192.168.6.109",
+            "192.168.6.1",
+            "10.2.127.254",
+            "10.1.99.100",
+            probe
+        ));
+    }
+
+    #[test]
+    fn campus_adapter_portal_unreachable_stays_non_campus() {
+        // 两目标都不可达 → 非校园：portal 只是新增证据，不放宽判定
+        let probe = |_: &str, _: &str| false;
+        assert!(!is_campus_adapter(
+            "192.168.6.109",
+            "192.168.6.1",
+            "10.2.127.254",
+            "10.1.99.100",
+            probe
+        ));
+    }
+
+    #[test]
+    fn campus_adapter_portal_probe_single_loss_still_counts() {
+        // portal 目标同样享受两发去抖：网关两发都不可达、portal 首发丢包次发可达
+        let tried = std::sync::atomic::AtomicBool::new(false);
+        let flaky = move |target: &str, _: &str| {
+            if target != "10.1.99.100" {
+                return false; // 网关两发都不可达
+            }
+            !tried.swap(true, std::sync::atomic::Ordering::SeqCst) || true
+        };
+        assert!(is_campus_adapter(
+            "192.168.6.109",
+            "192.168.6.1",
+            "10.2.127.254",
+            "10.1.99.100",
+            flaky
+        ));
+    }
+
+    #[test]
+    fn campus_adapter_empty_gateway_portal_reachable() {
+        // 无网关卡（NAT 下未下发网关等）portal 可达仍判校园
+        assert!(is_campus_adapter("192.168.6.109", "", "10.2.127.254", "10.1.99.100", |_, _| true));
+    }
+
+    #[test]
+    fn portal_probe_host_extracts_private_ipv4() {
+        assert_eq!(portal_probe_host("http://10.1.99.100"), "10.1.99.100");
+        assert_eq!(portal_probe_host("http://10.1.99.100:801/eportal/"), "10.1.99.100");
+        assert_eq!(portal_probe_host("10.1.99.100"), "10.1.99.100");
+        // 域名/公网地址/空值不产生探测目标（公网 portal 会把任意外网卡误判成校园）
+        assert_eq!(portal_probe_host("http://portal.wxu.edu.cn"), "");
+        assert_eq!(portal_probe_host("http://8.8.8.8"), "");
+        assert_eq!(portal_probe_host(""), "");
     }
 }

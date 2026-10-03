@@ -79,6 +79,9 @@ pub fn evaluate_night_switch(
 pub struct ChkStatusInfo {
     pub online: bool,
     pub uid: String,
+    /// 会话在线时长（秒）；字段缺失/离线时为 None。监测轮用它识别会话重连
+    /// （oltime 回退）与停摆（逐轮 JSONL 可见）。
+    pub oltime: Option<i64>,
 }
 
 /// 解析 eportal chkstatus 的 JSONP 响应（`dr1003({...})`，可能带 UTF-8 BOM 与
@@ -96,6 +99,7 @@ pub fn parse_chkstatus(body: &str) -> Option<ChkStatusInfo> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
             .to_string(),
+        oltime: value.get("oltime").and_then(serde_json::Value::as_i64),
     })
 }
 
@@ -220,6 +224,16 @@ mod tests {
         let info = parse_chkstatus(CHKSTATUS_ONLINE).expect("实测样例应可解析");
         assert!(info.online);
         assert_eq!(info.uid, "24385214@cmcc");
+        assert!(info.oltime.is_none());
+    }
+
+    #[test]
+    fn parse_chkstatus_带oltime_监测可读会话时长() {
+        // 2026-10-03 实测样例（oltime=会话在线秒数）
+        let info = parse_chkstatus(r#"dr1003({"result":1,"oltime":186320,"uid":"24385214@cmcc"})"#)
+            .expect("带 oltime 可解析");
+        assert!(info.online);
+        assert_eq!(info.oltime, Some(186320));
     }
 
     #[test]

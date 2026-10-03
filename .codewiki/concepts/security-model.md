@@ -1,6 +1,14 @@
 ---
 title: 安全体系（凭据出站、加密与验证门）
 type: concept
+tags:
+  - 概念
+  - 安全
+  - 掩码
+  - dpapi
+  - keystore
+  - 验证门
+  - 凭据
 source_files:
   - tauri-app/src-tauri/src/config/model.rs
   - tauri-app/src-tauri/src/config/persist.rs
@@ -21,200 +29,163 @@ source_files:
   - android/src-tauri/src/login_history.rs
   - android/plugins/keystore/src/lib.rs
   - android/plugins/keystore/android/src/main/java/com/campuslogin/plugin/keystore/KeystorePlugin.kt
-tags: [概念, 安全, 掩码, dpapi, keystore, 验证门, 凭据]
 ---
+
+# 安全体系（凭据出站、加密与验证门）
 
 ## Overview
 
-安全体系围绕三条线：**凭据出站的唯一出口**（所有把配置发往前端的路径必须经掩码方法）、**落盘加密**（桌面 DPAPI / 安卓 AndroidKeyStore AES-256-GCM）、**敏感操作验证门**（后端 TTL 时间戳，webview 无法伪造）。掩码语义统一为 `PASSWORD_MASK = "***"`：空串表示"未设置"原样保留，非空一律替换；`clear` 标志用于显式清除。违反任一条的后果是明文密码经 IPC、日志或事件流泄漏。
+安全体系围绕三条主线展开，桌面（Tauri + Windows）与安卓（Tauri + AndroidKeyStore）双端同构：
 
-## 机制说明
+1. **凭据出站唯一出口**：任何把配置发往前端/日志的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，桌面 `config/model.rs:3`、安卓 `config_state.rs:10`）。桌面收敛点为 `Config::masked_for_display`（`config/model.rs:315-319`），安卓收敛点为 `masked_for_display(&Settings) -> serde_json::Value`（`config_state.rs:372-382`）。
+2. **落盘加密**：密码写入磁盘前必经加密——桌面 DPAPI（当前用户作用域，`account/crypto.rs:75-111`），安卓 AndroidKeyStore AES-256-GCM（`KeystorePlugin.kt:39-89`）。"非空即加密，不排除掩码占位符"（`config/persist.rs:278-281`）。
+3. **后端验证门**：敏感自助操作前要求本机身份验证，TTL 600 秒、时间戳只存后端内存（桌面 `platform/identity.rs:28-31`，安卓 `identity_gate.rs:6-8`）。`reveal_operator_credential` 无论总开关如何都强制设门（桌面 `commands/self_service.rs:300-304`，安卓 `self_service_cmds.rs:257-259`）。
 
-### 敏感信息出站唯一出口
+配套机制：登录请求错误日志脱敏 `redact_credentials`（`auth/portal.rs:67-81`）；状态探测是只读操作、绝不携带密码（`portal.rs:125-143`）；登录历史不含密码字段（桌面 `persist.rs:160-212`、安卓 `login_history.rs:51-76` 且测试锁定 `:139`）；账号 id 白名单防路径穿越（桌面 `commands/account.rs:620-632`，安卓 `account_cmds.rs:79-87`）。
 
-**桌面**：`Config::masked_for_display()` / `mask_in_place()`（`tauri-app/src-tauri/src/config/model.rs:217-230`），掩掉 `password` 与 `self_password` 两个字段，空值保留。
+### 术语与不变量
 
-```rust
-pub fn mask_in_place(&mut self) {
-    if !self.password.is_empty() { self.password = PASSWORD_MASK.to_string(); }
-    if !self.self_password.is_empty() { self.self_password = PASSWORD_MASK.to_string(); }
-}
-```
+| 术语 | 含义 | 不变量 |
+| --- | --- | --- |
+| `PASSWORD_MASK` | 出站掩码占位符 `"***"` | 用户真实密码恰为 `***` 时不得排除加密（`persist.rs:278-281`） |
+| `masked_for_display` | 敏感信息出站唯一出口 | 空→空（未设置语义），非空→`***`（`model.rs:312-319`） |
+| `EncodedSettings` | 安卓密文容器 | `passwordCipher`/`selfPasswordCipher` 之外体内字段置空，settings 体内不含明文（`config_state.rs:226-232`、`:274`） |
+| `IDENTITY_VERIFY_TTL_SECS` | 验证门有效期 600s | 时间戳 0=从未验证；时钟回拨视为过期（`identity.rs:45-47`、`identity_gate.rs:29-31`） |
+| `redact_credentials` | 日志/错误脱敏 | URL 与明文密码均替换为 `***`（`portal.rs:70-80`） |
+| `validate_account_name` | 账号 id 白名单 | 拒绝 `../`、`/`、`\` 等路径穿越字符（`account_cmds.rs:79-87`） |
 
-`model.rs:214-215` 的注释把它定义为唯一出口约定："不得手工逐字段打码——漏一个字段就是一次明文泄露，account 三命令即前车之鉴。"
+## 机制说明（Key Components）
 
-全部调用点（桌面）：
+### 1. 掩码与出站唯一出口
 
-| 出口 | 位置 |
-|---|---|
-| `get_config` | `commands/config_cmd.rs:88` |
-| `get_init_data` | `commands/system.rs:117`（注释说明漏掩会同时导致前端 `selfPasswordSaved` 永假） |
-| `switch_account` 返回 | `commands/account.rs:47` |
-| `save_current_as_account` 返回 | `commands/account.rs:188` |
-| `delete_account` 返回 | `commands/account.rs:227` |
-| `config-changed` 事件载荷 | `commands/config_cmd.rs:15-16` |
+桌面 `Config::masked_for_display`（`config/model.rs:315-319`，clone 后调 `mask_in_place`）是约定上的唯一出口，doc 注释（`model.rs:312-314`）明确"漏一个字段就是一次明文泄露，account 三命令即前车之鉴"。`mask_in_place`（`model.rs:321-328`）对 `password` 与 `self_password` 非空 → `"***"`。
 
-**安卓**：`config_state::masked_for_display(&Settings) -> serde_json::Value`（`android/src-tauri/src/config_state.rs:273-282`），语义与桌面同构。调用点：`get_config`（`config_state.rs:308`）、`account_cmds::persist_current`（`account_cmds.rs:111`）、`delete_account`（`account_cmds.rs:190`）。
+实际出站调用点（已逐一核对）：
 
-**锁死它的回归测试**：
+| 出站路径 | 掩码调用点 |
+| --- | --- |
+| `get_config` | `commands/config_cmd.rs:217` |
+| 配置变更广播 | `config_cmd.rs:17-18`（`save_config_to_disk_encrypted` 内统一掩码 + `notify_config_changed`，事件体 `{"config": …}` 包裹） |
+| `get_init_data` | `commands/system.rs:117`（注释 `:114-116` 记 2026-09-06 真机缺陷：漏掩码 → 前端 `selfPasswordSaved` 永为 false → 重启后密码框空、自动 Hello 永不触发） |
+| 配置导出（不含密码态） | `config_cmd.rs:103` |
+| 诊断包 | `system.rs:239-243`（`config-masked.json`） |
+| 账号命令出站 | `account.rs:28`（switch）、`:181-183`（save_as）、`:252-253`（delete）、`:309-311`（rename） |
+| 自助查询出站 | `self_service.rs:132-140`（`query_bind_status` 只回 `masked_account` + `password_set`，不回密码本身） |
 
-- 桌面 `commands/config_cmd.rs:148-164` `masked_for_display_masks_both_password_fields`：同时断言两个字段被掩、空值保留为空串、原 struct 不被就地修改。测试注释（`:143-147`）记录历史缺陷 `fe000de`：修 `get_init_data`/`get_config` 时漏掉 account 三命令，明文 `selfPassword` 随 IPC 出站。
-- 安卓 `config_state.rs:548-558` `掩码出口_非空变星号_空保持空`：断言 `v["password"] == "***"`、`v["selfPassword"] == "***"`、整体 JSON 不含明文。
+安卓出口收敛为 `serde_json::Value`（`config_state.rs:372-382`），调用点：`get_config`（`config_state.rs:417`）、`emit_config_changed`（`:384-391`，注释 `:384-387` 要求"掩码必须复用 masked_for_display，不得另写序列化"）、账号命令出站（`account_cmds.rs:161`、`:303`、`:338`）。事件通道 `events.rs:107-109` 的 `emit_config_changed` 对 payload 原样透传——掩码责任在调用方。
 
-### 密码掩码语义：MASK 常量 / 空串回退 / clear 标志
+### 2. 密码回退与清除语义
 
-常量：桌面 `model.rs:3` `pub const PASSWORD_MASK: &str = "***"`；安卓 `config_state.rs:10` 同值。
+三态输入（明文 / `***` / 空）+ `clear` 开关，双端同构：
 
-**桌面 `save_config`**（`commands/config_cmd.rs:92-139`）：
+- 桌面 `save_config`（`config_cmd.rs:220-276`）：`clear_password==Some(true)` → 置空（`:238-239`）；空或 `***` → 保留已存值（`:240-244`）；`self_password` 同构（`:247-252`）。`resolve_self_password`（`commands/self_service.rs:47-61`）同语义：非空非掩码用前端传入，否则回退已存值，皆无 → `None`。
+- 安卓 `resolve_password_field`（`config_state.rs:393-403`）：clear → 空、空/掩码 → 已存、否则新值；`save_config`（`config_state.rs:420-453`）在 `:434-440` 对两个字段执行 resolve。
+- 导入还原 `restore_imported_password_field`（`config_cmd.rs:115-131`）：空/掩码 → 保留本机当前值（`:122-125`）；密文 → 解密还原，失败报错 `"密码密文解密失败（含密码导出仅限本机导入）: {e}"`（`:126-129`）；doc（`:115-120`）引用 learnings/mask-placeholder-persisted-as-plaintext——MASK 占位符不得直接落盘。
+- 解密失败宽容：桌面 `load_config_from_file` 解密失败清空该字段保留其他配置（`config_cmd.rs:36-45`，条件 `!empty && != PASSWORD_MASK`）；安卓 `load_file` 解密失败 `unwrap_or_default` 置空（`config_state.rs:243-248`，测试 `:557-570`）。
+- 密码校验 `validate_password`（`config/validate.rs:31-39`）：仅要求非空且 ≤128 字符，无复杂度要求；掩码密码跳过校验（`validate.rs:92`、`:199`，测试 `validate_config_skips_password_when_masked` `:734`）。
 
-| 输入 | 行为 |
-|---|---|
-| `clear_password == Some(true)` | 跳过兜底直接置空（`:109-110`） |
-| `password` 为空串或 `"***"` | 回退 `state.config.load().password`，避免前端未传密码时旧密码被覆盖（`:111-115`） |
-| 其他 | 采用新值 |
-| `clear_self_password` / `self_password` | 同规则（`:118-123`） |
+### 3. 落盘加密
 
-**安卓 `save_config`**：同语义收在纯函数里。
+**桌面 DPAPI**（`account/crypto.rs`）：`CryptProtectData/CryptUnprotectData`（`:11-32`，`#[link(name="crypt32")]`，flags 传 0 = 当前用户作用域 `:85`/`:104`），`LocalFree` 释放缓冲（`:34-37`），`call_dpapi` 失败路径判空释放（`:57-64`）。对外 `encrypt`（`:114-122`，base64 STANDARD）/`decrypt`（`:124-130`）；非 Windows 桩返回 Err（`:133-141`）。
 
-```rust
-// config_state.rs:285-294
-pub fn resolve_password_field(incoming: &str, current: &str, clear: bool) -> String {
-    if clear { return String::new(); }
-    if incoming.is_empty() || incoming == PASSWORD_MASK { current.to_string() } else { incoming.to_string() }
-}
-```
+- 主配置 `save_config_to_disk_encrypted`（`config/persist.rs:276-291`）：注释（`:278-281`）明确"任何非空密码一律 DPAPI 加密落盘。注意：不得排除 `PASSWORD_MASK("***")`——若用户真实密码恰为 `***`，排除判断会使其明文落盘"；`password` 加密 `:282-284`、`self_password` `:285-287`，经 `atomic_write`（`:12-43`，临时文件 + rename 重试）落盘。
+- 账号档案 `save_account_config`（`persist.rs:98-112`）：仅加密 `password`（`:105-108`），`self_password` 透传（Known Issues 1）。
+- 测试：掩码字面量必须加密 `persist.rs:304-320`、空密码保持空 `:322-333`、roundtrip `:434-456`；导出载荷无明文 `config_cmd.rs:308-334`；导入还原语义 `config_cmd.rs:338-363`。
 
-调用点 `config_state.rs:325-331`；回归测试 `config_state.rs:560-572` `密码字段回退语义_与桌面同构` 覆盖 5 种组合。
+**安卓 AndroidKeyStore**（`KeystorePlugin.kt`）：密钥别名 `campus_login_master`（`:34`），AES/GCM/NoPadding、256 位（`:39-54`），未设置 `setUserAuthenticationRequired`——密钥不绑定生物识别；`encrypt` 输出 `base64(iv + ciphertext)`（`:56-71`），`decrypt` 校验长度并拒绝 GCM 认证失败（`:73-89`）。Rust 侧经 `CryptoBridge`（`config_state.rs:186-223`）接入插件（`plugins/keystore/src/lib.rs:42-50` 的 `CampusKeystoreExt`，注册名 `com.campuslogin.plugin.keystore` `:11-12`）。
 
-**落盘加密不排除 MASK**：桌面 `config/persist.rs:153-168` 只判断"非空即加密"（`persist.rs:155-158` 注释明确不得排除 `"***"`，否则真实密码恰为 `***` 的用户会明文落盘）；回归测试 `persist.rs:181-197` `literal_star_password_is_encrypted_on_disk` 断言磁盘内容不含 `"password":"***"`，与 `persist.rs:199-210` `empty_password_stays_empty`。
+- `save_file`（`config_state.rs:252-283`）：`password`/`self_password` 分别加密（`:261-272`），**加密失败 → Err 拒绝落盘**（`:260` 的 eprintln 不含明文）；`EncodedSettings`（`:226-232`）体内两密码字段置空（`:274`），密文放独立字段。
+- 迁移路径 `migrate_legacy_defaults`（`config_state.rs:314-366`）落盘同样经 `save_file` 加密。
+- 测试：落盘文件不含明文（`config_state.rs:541-555`，断言 `!raw.contains("secret_pass")`/`"self_secret"`）、空密码不写密文位（`:752-764`）。
 
-### 落盘加密：DPAPI 与 Android Keystore
+### 4. 后端验证门（TTL 600s）
 
-**桌面 DPAPI**（`tauri-app/src-tauri/src/account/crypto.rs`）：
+桌面 `platform/identity.rs`：模块 doc（`:1-17`）记录决策——仅 Windows Hello、不回退 CredUI（`:3-5`，2026-09-05）；Win11 interop 主路径（`:97-102`，`RequestVerificationForWindowAsync` `:139`）、Win10 兜底轮询（`:104-116`）；非阻塞 `SetCompleted` + oneshot（`:176-204`）。状态：`LAST_VERIFY_EPOCH_SECS`（`:28`，0=从未验证）、`IDENTITY_VERIFY_TTL_SECS = 600`（`:31`）、`note_identity_verified`（`:34-36`）、`identity_verified_recently`（`:39-42`）、`is_within_ttl`（`:45-47`，纯函数：0 哨兵拒绝 + 时钟回拨拒绝，测试 `identity_ttl_boundary` `:206-223`）。`verify_windows_identity`（`commands/self_service.rs:254-279`）取主窗口 HWND（`:264-270`）→ `verify_identity`（`:272`）→ `note_identity_verified`（`:274`）；空文案兜底 `DEFAULT_CONSENT_MESSAGE`（`identity.rs:24`、`:64-68`）。
 
-- 直接 `#[link(name = "crypt32")]` 声明 `CryptProtectData` / `CryptUnprotectData`（`:13-31`），flags 传 `0`（当前用户作用域，不带 `CRYPTPROTECT_LOCAL_MACHINE`）。
-- 通用 helper `call_dpapi`（`:41-68`）统一 DataBlob 构造、返回码检查、`LocalFree` 释放。
-- 对外 `encrypt(&str) -> base64`（`:110-117`）、`decrypt(base64) -> String`（`:120-125`）。
-- 非 Windows 平台返回 `Err("加密存储仅桌面端支持")`（`:128-136`）。
+安卓 `identity_gate.rs`：同构实现（模块注释 `:1-2`），`note_identity_verified`（`:18-20`）、`identity_verified_recently`（`:23-33`，回拨视为过期 `:29-31`）、TTL `:8`。
 
-**安卓 Keystore**（`android/plugins/keystore/`）：
+设门策略（双端一致）：
 
-| 项 | 值 | 位置 |
-|---|---|---|
-| key alias | `campus_login_master` | `KeystorePlugin.kt:34` |
-| 算法 | `AES/GCM/NoPadding` | `KeystorePlugin.kt:60/79` |
-| 密钥长度 | 256 位 | `KeystorePlugin.kt:50` |
-| IV 长度 | 12 字节（`IV_LEN`） | `KeystorePlugin.kt:35` |
-| 密文格式 | `Base64(iv + ciphertext)` | `KeystorePlugin.kt:65` |
-| 认证标签 | GCM 128 位（`GCMParameterSpec(128, raw, 0, IV_LEN)`） | `KeystorePlugin.kt:80` |
+| 命令 | 门 | 位置 |
+| --- | --- | --- |
+| `bind_operator` | 需门 | 桌面 `self_service.rs:82-84`；安卓 `self_service_cmds.rs:87-89` |
+| `self_offline_session` | 需门 | 桌面 `:231-233`；安卓 `:227-229` |
+| `reveal_operator_credential` | **强制门**（无论 `self_hello_enabled`） | 桌面 `:300-304`；安卓 `:257-259`（直接检查 `identity_verified_recently`，不经 `ensure_identity_gate`） |
+| 查询类（bind_status/dashboard/online_log） | 有意不设门 | 桌面注释 `self_service.rs:11-14`（总览卡自动刷新依赖免验证拉取）；安卓同样不设门 |
+| 验证本身 | 记录时间戳 | 桌面 `verify_windows_identity` `:272-274`（走系统 API）；安卓 `verify_biometric_identity` `self_service_cmds.rs:61-66`（信任前端结果，Known Issues 3） |
 
-Rust 侧桥 `CryptoBridge { encrypt, decrypt }`（`config_state.rs:126-163`）：`#[cfg(mobile)]` 取插件句柄，`#[cfg(not(mobile))]` 返回 Err 便于 host 测试注入 `fake_bridge()`（`config_state.rs:367-376`，base64 假加密）。
+`self_hello_enabled` 总开关关闭时 `ensure_identity_gate` 直接放行（桌面 `self_service.rs:16-18`，安卓 `self_service_cmds.rs:39-41`）；开启但未验证/过期时拦截，文案分别为"Windows 身份验证已过期…"（桌面 `:22`）与"生物识别验证已过期,请重新验证"（安卓 `:45`）。
 
-**磁盘形态**：安卓 `EncodedSettings { settings, password_cipher, self_password_cipher }`（`config_state.rs:166-172`），`save_file`（`:192-223`）把密码字段从 `settings` 里清空后单独取密文写两个 `*_cipher` 位；加密失败直接 `return Err`（`:204/210`），**绝不落明文**。桌面则是就地把两个字段替换为密文后整体 `atomic_write`（`persist.rs:159-167`）。
+### 5. 登录请求脱敏与只读探测
 
-**失败降级语义**（都不清空整份配置）：
+- `redact_credentials`（`auth/portal.rs:67-81`）：完整 URL → `{base_url}?***`（`:70-72`）、URL 编码密码 → `***`（`:73-76`）、明文密码 → `***`（`:77-80`）。doc（`:67-68`）说明动因：reqwest 错误的 Display 会携带完整请求 URL（含 `user_password`）。
+- `do_login_request`（`auth/protocol.rs:124-190`）：URL 携带 `user_password={urlencode(password)}`（`:132-138`），但开始日志只打 user/operator/adapterIp（`:142-143`）；错误消息必经 `redact_credentials`（`:163-168`，全仓库唯一调用点）+ `safe_truncate` 200；完成日志只打 `safe_url`（`:140`、`:186-187`）。
+- 响应体 1MB 上限：`MAX_HTTP_BODY`（`protocol.rs:14`）、同步 `:21-41`、异步 `:46-63`、登录路径内联 `:173-182`。
+- 只读探测 `handle_unknown_page_status`（`portal.rs:125-143`）：doc（`:125-131`）安全约束"状态探测是只读操作，绝不允许携带用户密码调用登录端点"（两类风险：错误凭据轮询触发账号锁定；正确凭据被静默登录误报未登录），签名（`:132`）不含密码，测试锁定 `handle_unknown_page_status_is_readonly_no_credentials`（`:459-466`）。
+- 登出使用占位凭据 `drcom`/`123`（`protocol.rs:3-4`，拼进 URL `:317-318`）。
+- `open_external`（`commands/system.rs:24-36`）：仅允许 http/https（`:25-27`）、长度 ≤2048（`:28-30`）、拒绝携带用户名/密码的 URL（`:32-34`）。
+- 防路径穿越：桌面 `validate_account_name` + 测试 `rename_account_core_rejects_illegal_id_without_disk_writes`（`account.rs:620-632`，`../config`、`a/b` 拒绝且不落盘）；安卓 `ACCOUNT_NAME_RE`（`account_cmds.rs:13-14`，`^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$`）+ `validate_account_name`（`:79-87`），测试 `:466-473`。
+- 登录历史不含密码：桌面 `append_login_history`（`persist.rs:160-212`，字段仅 time/success/message/adapter/user/type `:193-200`，上限 100 `:202-204`）；安卓 `login_history.rs:51-76`（adapter 固定 `wlan0` `:62`），测试 `:139` 断言 `!raw.contains("password")`。
 
-- 桌面：解密失败仅清空该密码字段（`commands/config_cmd.rs:34-38`、`:45-49`）。
-- 安卓：`load_file` 解密失败置空（`config_state.rs:182-188`），回归测试 `解密失败时置空_配置仍可加载`（`config_state.rs:442-456`）。
+### 6. 事件与日志通道
 
-### 验证门分级（bind_operator / self_offline_session / 明文查看）
-
-**桌面**（`commands/self_service.rs`）：
-
-```rust
-// :15-23
-fn ensure_identity_gate(state: &AppState) -> Option<String> {
-    if !state.config.load().self_hello_enabled { return None; }
-    if crate::platform::identity::identity_verified_recently() { return None; }
-    Some("Windows 身份验证已过期，请重新验证后再操作".to_string())
-}
-```
-
-分级结果：
-
-| 命令 | 是否设门 | 位置 |
-|---|---|---|
-| `bind_operator` | 是（受 `self_hello_enabled` 开关） | `self_service.rs:82-84` |
-| `self_offline_session` | 是（受开关） | `self_service.rs:231-233` |
-| `reveal_operator_credential` | **强制**，不受开关影响 | `self_service.rs:300-304` |
-| `query_bind_status` / `query_self_dashboard` / `query_self_online_log` | 有意不设门 | 注释 `self_service.rs:11-14`：总览卡自动刷新依赖免验证拉取，数据本存本机 |
-
-**安卓**（`self_service_cmds.rs`）：`ensure_identity_gate`（`:38-47`）结构同构；`bind_operator`（`:87-89`）与 `self_offline_session`（`:227-229`）设门；`reveal_operator_credential`（`:257-259`）强制验证，注释明确"无论总开关如何都强制验证门（桌面同构,防 webview 侧绕过）"。
-
-**TTL 值（两端都是 600 秒）**：
-
-| 端 | 常量 | 判定函数 | 边界语义 |
-|---|---|---|---|
-| 桌面 | `platform/identity.rs:31` `IDENTITY_VERIFY_TTL_SECS = 600` | `is_within_ttl(verified_at, now, ttl)`（`:45-47`） | `0` 哨兵（从未验证）拒绝；`now < verified_at`（时钟回拨）拒绝；`now - verified_at <= 600` 通过 |
-| 安卓 | `identity_gate.rs:8` `IDENTITY_VERIFY_TTL_SECS = 600` | `identity_verified_recently()`（`:23-33`） | 同上三条（`:24-32`） |
-
-时间戳写入：桌面在 `verify_windows_identity` 成功后由后端自己写（`commands/self_service.rs:274` → `identity.rs:34-36`），命令内部亲自调 WinRT `UserConsentVerifier`（`identity.rs:78-117`）；安卓 `verify_biometric_identity`（`self_service_cmds.rs:62-66`）**只记时间戳**，实际 BiometricPrompt 由前端 `@tauri-apps/plugin-biometric` 调用（`android/frontend/src/hooks/tauriApi.ts:180-211`），后端信任前端调用成功。
-
-### 日志与事件载荷禁止携带密码
-
-- **HTTP 错误串脱敏**：`auth/portal.rs:69-80` `redact_credentials(msg, url, base_url, password)` 做三次替换——完整 URL → `{base_url}?***`、URL 编码后的密码 → `***`、明文密码 → `***`。这是唯一出口，唯一调用点 `auth/protocol.rs:127-131`（登录请求失败路径）。
-- **登录日志只打脱敏 URL**：`protocol.rs:119-120` 打 `user` / `operator` / `adapterIp`，`:145-146` 打 `safe_url`（`protocol.rs:111` 构造为 `{base_url}?***`）；请求 URL 本身从不进日志。
-- **命令返回值不含凭据**：`query_bind_status` 只回 `masked_account` 与 `password_set` 布尔（`commands/self_service.rs:132-140`，安卓 `self_service_cmds.rs:130-138`）；`reveal_operator_credential` 是唯一返回明文的命令，且必须过强制验证门。
-- **凭据只过内存**：`bind_operator` / `self_offline_session` / `reveal_operator_credential` 的文档注释三处明写"凭据仅本次请求内存传递，不写入配置、不落盘、不写日志"（`commands/self_service.rs:64/218/284`）。
-- **登录历史不带密码**：安卓回归测试 `记录字段_序列化形状对齐桌面` 里 `assert!(!raw.contains("password"), "历史不得含密码字段")`（`android/src-tauri/src/login_history.rs:139`）。
-- **加密过程日志不含明文/密文**：安卓只打长度（`config_state.rs:200-211`，`eprintln!("[save_config] password encrypt ok len={}", c.len())`）。
-- **`EventBus` 是事件唯一封装**：`infra/events.rs:6` 与 `commands/config_cmd.rs:13-14` 规定配置事件必须掩码后发。
+- `emit_config_changed`（`infra/events.rs:107-109`）原样透传 payload；`save_config_to_disk_encrypted`（`config_cmd.rs:9-23`）统一负责掩码（`:17`）与 `{"config": …}` 包裹（`:18`，注释 `:13-16`："直发裸 Config 会让前端监听静默失效"），随后刷新托盘（`:19-21`）。安卓同构：`emit_config_changed`（`config_state.rs:384-391`）。
+- `infra/logger.rs`：单文件 5MB × 5 个（`:11-12`），`rotate_if_needed`（`:224`，`app-<stamp>.log`）、按保留天数清理 `cleanup_old_logs_by_time`（`:288`，0=跳过）、`pub fn log()`（`:314`）直写、`read_recent_logs`（`:409`）、`clear_logs`（`:496`）。日志通道无统一脱敏钩子（Known Issues 8）。
+- 诊断包导出（`system.rs:191-280`）中配置以掩码形态写 `config-masked.json`（`:239-243`），manifest 记录导出清单（`:262-276`）。
 
 ## 关键约束
 
-- **所有 Config 出站必须走 `masked_for_display()`**，不得手工逐字段打码；新增敏感字段必须同时改 `mask_in_place`（`model.rs:223-230`）与安卓 `masked_for_display`（`config_state.rs:273-282`），否则回归测试不会覆盖到它。
-- **空值语义不可改**：空串 = "未设置"，必须原样透传（前端据此显示"未保存"占位）；把空串也替换成 `"***"` 会让前端误判"已保存"。
-- **`clear` 标志优先级高于掩码回退**：`clear_password == Some(true)` 必须先于 MASK 判断（`config_cmd.rs:109`、`config_state.rs:286`）。
-- **落盘"非空即加密"，不得排除 `"***"`**（`persist.rs:155-158`）。
-- **`reveal_operator_credential` 的门不受 `self_hello_enabled` 影响**（`self_service.rs:300`、`self_service_cmds.rs:257`），注释说明"防止一键关闭保护后明文裸奔"。
-- **TTL 判定必须拒绝时钟回拨**（`identity.rs:46` 的 `now >= verified_at`、`identity_gate.rs:29-31`），否则回拨可无限延长验证有效期。
-- **新增 IPC 出口必须自问掩码**：`get_init_data` / `get_config` / account 三命令 / `config-changed` 是现有六个出口，任何新的"把配置发给前端"的路径都属于同一类风险。
-- **Windows Hello 不回退凭据对话框**：`platform/identity.rs:3-5` 明确设备未配置 Hello 时直接返回错误引导，不回退 CredUI 输密码（2026-09-05 用户要求）。
+1. 任何 `Config`/`Settings` 出站（事件、`get_config`、`get_init_data`、导出、诊断）必经 `masked_for_display`；事件体必须 `{"config": …}` 包裹（`config_cmd.rs:13-18`）。
+2. 落盘加密"非空即加密"，不得排除 `PASSWORD_MASK`（`persist.rs:278-281`）；安卓加密失败必须 Err 拒绝落盘，不得明文兜底（`config_state.rs:260-272`）。
+3. 密码输入三态语义：明文直用、`***`/空回退已存值、`clear` 置空；掩码占位符绝不落盘（`config_cmd.rs:238-252`、`config_state.rs:393-403`、导入还原 `config_cmd.rs:115-131`）。
+4. 验证门时间戳只存后端进程内存，TTL 600s；时钟回拨视为过期（`identity.rs:45-47`、`identity_gate.rs:29-31`）。
+5. `reveal_operator_credential` 强制设门且与明文返回在同一后端函数内关联，不依赖前端编排（桌面 `self_service.rs:281-315`，安卓 `self_service_cmds.rs:242-271`）。
+6. 状态探测不带密码（`portal.rs:125-143`）；登录错误日志必经 `redact_credentials`（`protocol.rs:163-168`）。
+7. 账号 id 必须过白名单（防路径穿越），显示名单独校验（1-32 字符、允许空格 emoji）；登录历史与质量历史不含密码。
+8. 含密码导出仅限本机导入还原，密文解密失败即拒绝导入（`config_cmd.rs:126-129`）；导入大小上限 1MB（`config_cmd.rs:158-163`）。
 
-## Data Flow
+## Architecture（Data Flow）
 
-```text
-前端输入明文密码
-  → save_config(config, clearPassword, clearSelfPassword)     IPC
-    ├─ clear 标志 → 置空
-    ├─ 空 / "***"  → 回退 state.config 内存明文
-    └─ 新值 → 采用
-      → update_portal_url / set_log_retention_days 等运行期同步（config_cmd.rs:127-130）
-      → 加密落盘
-         桌面: persist::save_config_to_disk_encrypted → crypto::encrypt(DPAPI) → atomic_write
-         安卓: config_state::save_file → CryptoBridge → KeystorePlugin AES-GCM → tmp+rename
-      → 内存态更新（state.config.store / AndroidState.config 缓存）
-      → 掩码后广播 config-changed（桌面 config_cmd.rs:15-16；安卓当前不广播）
+**桌面保存流**：前端 `save_config` → `validate_config`（`config_cmd.rs:228-234`，掩码密码跳过 `validate.rs:92`）→ 三态回退（`:238-252`）→ 先落盘后更新内存（`:261-264`）→ `save_config_to_disk_encrypted`：DPAPI 加密 → `atomic_write` → 掩码广播 `config-changed` → 托盘刷新（`persist.rs:276-291` + `config_cmd.rs:9-23`）→ R2 自动建号（`config_cmd.rs:271-273` → `account.rs:366-376`/`:389-423`，撞库跳过绝不覆盖）。
 
-前端读配置
-  → get_config / get_init_data / account 三命令 / switch_account
-    → masked_for_display()  ← 唯一出口
-      → password / selfPassword 均为 "***" 或 ""
+**桌面导入导出流**：导出 `build_config_export_payload`（`config_cmd.rs:85-113`）——不含密码态直接掩码（`:103`），含密码态两字段 DPAPI 密文 + `passwordEncrypted: true` 标志（`:94-100`、`:110`）；导入 `import_config`（`:152-207`）——1MB 上限（`:158-163`）→ 还原密码先于校验（`:176-180`）→ 五个切换态字段保留本机（`outbound_metric_restore`/`outbound_disabled_adapters`/`outbound_standby_route`/`outbound_manual_hold_day`/`night_outbound_restore`，`:181-189`）→ 严格校验（`:191-195`）→ 落盘广播（`:197-203`）。
 
-敏感操作
-  → verify_windows_identity | verify_biometric_identity
-    → 后端记 LAST_VERIFY_EPOCH_SECS（TTL 600s，时钟回拨=过期）
-  → bind_operator / self_offline_session / reveal_operator_credential
-    → ensure_identity_gate（前两者受 self_hello_enabled 开关；reveal 强制）
-      → 未过门：返回 CommandResult::err，不发起网络请求
-```
+**桌面账号切换流**：`switch_account`（`account.rs:15-35`）→ `perform_switch_account_sync`（`:42-60`）→ `load_account_config`（`persist.rs:73-96`，不存在 Err"账号不存在"，解密失败 Err"账号密码解密失败"）→ `merge_account_into_config`（`account.rs:62-82`，6 个登录字段 + 夜切恢复目标置空 `:70-72`，排除 `adapter1/2_account` 设备级字段）→ 加密落盘（`:56`）→ 掩码出站（`:28`）。另存 `save_current_as_account`（`:85-184`）旧账号回存后经 `merge_save_as_target`（`:194-216`，解密失败可宽松整档覆盖自救 `:205-213`，测试 `account.rs:637-658`）。
+
+**安卓保存流**：前端 `save_config` → `resolve_password_field` ×2（`config_state.rs:434-440`）→ `save_file`（`:252-283`）：两密码字段经 `CryptoBridge`（Keystore AES-GCM）加密，失败 Err 拒绝落盘 → `EncodedSettings`（体内置空、密文独立字段）→ tmp+rename → 缓存更新 → R2 自动建号（`:446-448`）→ `emit_config_changed` 掩码广播（`:449-451`）。
+
+**安卓账号流**：`switch_account`（`account_cmds.rs:164-206`，tokio 异步 I/O 锁 `:17`/`:177`）→ `load_account_file`（Keystore 解密）→ 合并登录字段 + 夜切两恢复字段置空（`:185-193`）→ `persist_current`（`:151-162`，掩码出站 `:161`）。改名 `rename_account`（`:311-343`）核心 `:347-371`（重名 Err"名称已存在"，只改 display_name）；读 `read_display_name`（`:99-103`）不解密、不走 Keystore。
+
+**验证门时序**：前端调 `verify_windows_identity`/`verify_biometric_identity` → 系统 Hello / BiometricPrompt → 成功后 `note_identity_verified` 写时间戳（桌面 `self_service.rs:272-274`，安卓 `self_service_cmds.rs:63-64`）→ 后续敏感命令经 `ensure_identity_gate`：`self_hello_enabled` 关 → 放行；`identity_verified_recently`（TTL 600s 内且无回拨）→ 放行；否则拦截。`reveal_operator_credential` 绕过开关强制检查（桌面 `:300-304`，安卓 `:257-259`）。
+
+**双端加密对照**：
+
+| 维度 | 桌面 | 安卓 |
+| --- | --- | --- |
+| 算法 | DPAPI（CryptProtectData，当前用户作用域） | AndroidKeyStore AES-256-GCM |
+| 落盘形态 | `config.json` 字段内存 base64 密文 | `passwordCipher`/`selfPasswordCipher` 独立密文字段 |
+| 加密失败 | 报错（DPAPI 失败即 Err） | Err 拒绝落盘（不落明文） |
+| 空密码 | 保持空串（`persist.rs:322-333`） | 不写密文位（`config_state.rs:752-764`） |
+| 解密失败（读取时） | 清空字段保留其余配置（`config_cmd.rs:36-45`） | `unwrap_or_default` 置空（`config_state.rs:243-248`） |
+| `self_password`（账号档案） | **明文透传**（`persist.rs:105-108`，Known Issues 1） | 密文（与主配置一致） |
 
 ## Connections
 
-- [[desktop-config]] — `Config` 字段定义与 `masked_for_display` 所在模块
-- [[desktop-account-selfservice]] — 六条自助服务命令与 DPAPI 加密的调用方
-- [[android-backend]] — `config_state.rs` 的 Keystore 桥与验证门实现
-- [[android-plugins]] — Keystore 插件 Kotlin/Rust 双侧细节
-- [[ipc-command-surface]] — 命令返回值与事件载荷的传输通道
-- [[config-and-persistence]] — 掩码出口与落盘加密在持久化链路中的位置
-- [[dual-platform-sharing]] — DPAPI 与 Keystore 的对应关系、`self_hello_enabled` 双端同步
+- [[page:desktop-config]] — 配置模型、`save_config` 三态语义与 `config-changed` 广播的完整链路。
+- [[page:desktop-account-selfservice]] — 自助命令面（绑定/总览/下线/凭据查看）与验证门的交互时序。
+- [[page:android-backend]] — 安卓命令面与状态缓存（`AndroidState`）。
+- [[page:android-plugins]] — keystore 插件的 Rust/Kotlin 双侧接口。
+- [[page:ipc-command-surface]] — 双端命令注册总表（含 `verify_biometric_identity` 注册点 `android/src-tauri/src/lib.rs:71`）。
+- [[page:config-and-persistence]] — 配置结构与原子写、迁移机制。
+- [[page:dual-platform-sharing]] — 双端同构约定（回退语义、验证门、掩码出口的镜像实现）。
 
 ## Known Issues
 
-- **`self_reverify_each_action` 无后端消费方**：字段定义于 `config/model.rs:23-24` 与 `android/src-tauri/src/config_state.rs:21`，但后端从未读取；只有前端 `tauri-app/frontend/src/account/selfServiceState.ts:102` / `android/frontend/src/account/selfServiceState.ts:130` 使用。也就是说"每次操作都二次验证"纯属前端编排，绕过 webview 直调 `invoke` 即失效。
-- **安卓验证门的时间戳信任前端**：`verify_biometric_identity`（`android/src-tauri/src/self_service_cmds.rs:62-66`）无条件写时间戳，不校验生物识别是否真的通过。webview 内直接 `invoke('verify_biometric_identity')` 即可拿到 600s 窗口——桌面端在同一位置是命令内亲自调 WinRT（`platform/identity.rs:78-117`），强度不对等。
-- **`redact_credentials` 只覆盖登录请求一条路径**：`auth/portal.rs:69` 是唯一定义、`auth/protocol.rs:129` 是唯一调用点。Portal 探测把 reqwest 的 `Display`（可能含完整请求 URL）原样写进日志与 `login-log` 事件（`monitor/portal_check.rs:56/74`），自助服务把同类错误串原样塞进 `CommandResult.message` 返回前端（`self_service/mod.rs:179/186/308` 等十余处 `format!("...: {e}")`），均无脱敏。
-- **密码长度异常只在前后端校验**：`validate_password`（`config/validate.rs:31-39`）只查非空与 ≤128，无复杂度要求；安卓 `config_state.rs` 完全不做密码校验。
-- **安卓 `query_bind_status` 无验证门但会带密码发请求**：`self_service_cmds.rs:114-143` 未设门，而密码通过 `resolve_self_password` 逐个尝试回退（`:125-127`），与桌面同设计（桌面注释 `self_service.rs:11-14` 明确有意为之），但当用户已保存明文自助密码时，任意 webview 脚本可高频触发对自助服务系统的认证。
-- **`Config::mask_in_place` 是 `pub`**：`model.rs:223` 对外公开，任何调用方都可以就地破坏内存中的明文配置对象；类型系统不阻止误用（`masked_for_display` 走 clone 路径是安全的）。
-- **日志无统一脱敏钩子**：`infra/logger.rs:304` 的 `log(level, module, message)` 与 `:348/355/362/369` 的四个宏对内容零过滤，只有调用方纪律；新增日志语句若直接打 `config.password` 不会有任何拦截。
+1. **桌面账号档案 `self_password` 明文落盘**：`save_account_config` 仅加密 `password`（`persist.rs:105-108`），`self_password` 透传明文——与主配置 `save_config_to_disk_encrypted`（`:282-287`）不一致；安卓侧两字段均加密（`config_state.rs:261-272`），无双端对齐。
+2. **`self_reverify_each_action` 无后端消费方**：桌面仅字段定义（`model.rs:24`）、Default false（`:241`）与构造默认值（`network/adapter.rs:235`）三处；安卓仅 `config_state.rs:21`/`:120`。字段存在但任何"每次操作重新验证"的策略都未实现。
+3. **安卓验证门信任前端**：`verify_biometric_identity` 被调用即写时间戳（`self_service_cmds.rs:61-66`），后端不校验 BiometricPrompt 真实结果；桌面走系统 API（`self_service.rs:272-274`）相对可信。webview 侧伪造调用即可解锁 TTL 窗口。
+4. **`redact_credentials` 覆盖面窄**：全仓库唯一调用点在登录请求错误路径（`protocol.rs:166`）；其余网络错误、诊断信息、日志均无自动脱敏。
+5. **密码校验无复杂度要求**：`validate_password` 仅非空且 ≤128 字符（`config/validate.rs:31-39`）。
+6. **查询类命令携带密码出设备**：`query_bind_status`/`query_self_dashboard`/`query_self_online_log` 有意不设门（桌面注释 `self_service.rs:11-14`），凭据经 `resolve_self_password`（`:47-61`）随请求发往校园网关——数据本就存于本机，属有意设计而非缺陷，但意味着总览卡自动刷新会周期性使用密码。
+7. **掩码出口类型收敛不对称**：桌面 `masked_for_display` 返回同构 `Config`（`model.rs:315-319`），`mask_in_place` 是 `pub`（`:321-328`）可被绕过直接调用；安卓返回 `serde_json::Value`（`config_state.rs:372-382`），出站即丢失类型。两侧类型系统都无法在编译期强制"必经出口"。
+8. **日志通道无统一脱敏钩子**：`pub fn log()`（`infra/logger.rs:314`）直写不检查内容，依赖调用方自律（登录路径靠 `protocol.rs:163-168` 手动 redact）。
