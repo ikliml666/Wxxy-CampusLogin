@@ -41,7 +41,7 @@ tags: [概念, 后台巡检, 自动登录, 断线重连, 生命周期, 通知]
 app/startup.rs:229 run_startup_tasks（setup_app 内直挂）
  └ monitor/watcher.rs:15-59 按 config 分四路 spawn：
     ├ :20-30  "startup_bg_check"     → background_task.rs:7-64 start_background_check_inner
-    │           （写 enable_background_check=true 并落盘 :8-13，spawn 循环 :16-55）
+    │           （写 enable_background_check=true 并落盘 :8-13，spawn :16）
     │           background_task.rs:29-53 周期循环：每 tick 重读间隔 :30-38，
     │           interval_timer+select(cancel) :39-47，is_quitting/任务被取消则退出 :48-51
     │           → 单拍主体 background_check.rs:370-378 run_background_check（spawn_blocking 包装）
@@ -63,7 +63,7 @@ lib.rs:44-55 setup 内调 monitor_loop.rs:419-466 run_startup_tasks
     │         ├ :596-601 间隔热更新（desired_interval_ms 变化重建计时器）
     │         └ :604-611 巡检分档（亮屏+WiFi 走基础间隔，其余走闲时间隔跳拍）
     │              → 单拍主体 run_check_once :1245-1471
-    ├ enable_network_quality → quality_cmds.rs:52-67 start_latency_test（关则单次 check_network_quality）
+    ├ enable_network_quality → quality_cmds.rs:52-61 start_latency_test（关则单次 check_network_quality :47-50）
     ├ update_cmds::start_update_check_loop :455
     └ auto_login_on_start → auto_login_on_start :506-549（探测失败 3s 重试一次 :472-490）
 WiFi 变化事件（mobile）：monitor_loop.rs:244-329 start_wifi_watcher/handle_wifi_event，
@@ -96,11 +96,11 @@ WiFi 变化事件（mobile）：monitor_loop.rs:244-329 start_wifi_watcher/handl
 
 **闸门顺序（每拍先于一切探测）**：桌面单拍入口 `run_background_check_blocking`（background_check.rs:15）先做 is_quitting/cancel 早退（:16-18）与单飞保护 `is_checking.try_acquire`（:19-21），随后按序过两道闸：①出站切换态闸 `outbound_restore_active`（background_check.rs:50-57，非空快照即切换态，直接 return，见 [[decisions/night-outbound-switch]]）；②检测时段静默闸（:58-82）。安卓 `run_check_once`（monitor_loop.rs:1245）同样先查出站切换态整轮跳过（:1260-1263，注释明确周期拍/WiFi 事件/手动检测三路径共用此闸 :1255-1259），再查静默期（:1269-1289）；且 `run_scheduled_actions` 刻意不经过此闸（晨间还原须在切换态下照常执行）。
 
-**检测时段静默**：桌面纯函数 `is_campus_check_silent`（campus_check.rs:272-280）——start=0 视为禁用（恒不静默）、now<start 静默、`end>start && now>=end` 静默，即窗口 [start,end)，end<=start 退化为单边；静默拍伪造 `CampusCheckResult{on_campus:true}` 并 `cancel_campus_exit`（background_check.rs:75）。安卓内联同退化规则（monitor_loop.rs:1269-1274），静默拍把常驻通知置为状态码 3「已暂停检测(非检测时段)」（仅翻转时重建 :1281-1285）。
+**检测时段静默**：桌面纯函数 `is_campus_check_silent`（campus_check.rs:306-314）——start=0 视为禁用（恒不静默）、now<start 静默、`end>start && now>=end` 静默，即窗口 [start,end)，end<=start 退化为单边；静默拍伪造 `CampusCheckResult{on_campus:true}` 并 `cancel_campus_exit`（background_check.rs:75）。安卓内联同退化规则（monitor_loop.rs:1269-1274），静默拍把常驻通知置为状态码 3「已暂停检测(非检测时段)」（仅翻转时重建 :1281-1285）。
 
-**校园网判定**：桌面 `check_campus_network`（campus_check.rs:43-266）三级判据——SSID/有线 profile 名称匹配优先（:100-107、:182-189），/18 子网 `is_same_subnet_18` 次之（:112-122、:144-156、:193-203），网关可达兜底（闭包带缓存 :79-95），且仅当该类网卡有 IP 才归因（:159-165、:206-212）；名称名单支持多分隔符（:35-41）。判定失败且开了名称检查时置 `campus_check_failed`（background_check.rs:90），网络态同步 `any_adapter_online=false、last_a1_online=false、has_logged_online=false`（:91-103），并进入校园网退出分支：emit 结果、无配置 IP（`a1.is_none()&&a2.is_none()` :138）则跳过退出，否则 `start_campus_exit`（:143）。安卓判定在 `campus_detect::probe_campus_with_ssid`（monitor_loop.rs:1307，2026-09-20 SSID 感知），失败仅记日志退出本轮。
+**校园网判定**：桌面 `check_campus_network`（campus_check.rs:44-300）——名称检查关闭时走网关+Portal 双腿独立判定（:48-75，`on_campus = gateway_ok || portal_ok` :71，各腿闭包带缓存 :88-119）；名称检查开启时按卡分腿：SSID/有线 profile 名称名单匹配优先（wifi :124-131、wired :213-220，名单支持多分隔符 :36-42），/18 子网 `is_same_subnet_18` 次之（:136-147、:174-184、:224-234），网关可达（:148-153、:237-246）与 Portal 可达（:154-157）兜底，SSID 缺失分支仅当该卡有 IP 才采信网关/Portal（:187-196）；汇总 `on_campus = wifi || wired`（:261-262）。判定失败且开了名称检查时置 `campus_check_failed`（background_check.rs:90），网络态同步 `any_adapter_online=false、last_a1_online=false、has_logged_online=false`（:91-103），并进入校园网退出分支：emit 结果、无配置 IP（`a1.is_none()&&a2.is_none()` :138）则跳过退出，否则 `start_campus_exit`（:143）。安卓判定在 `campus_detect::probe_campus_with_ssid`（monitor_loop.rs:1307，2026-09-20 SSID 感知），失败仅记日志退出本轮。
 
-**Portal 探测**：桌面 `check_adapter_portal`（portal_check.rs:59-93，request_failed 区分 :65-72）；双卡且两卡均有 IP 时 `block_on` 内两个 spawn_blocking 并行 `join!`（background_check.rs:163-175），否则顺序/跳过（:177-190）；任一卡请求级失败走 `handle_portal_request_failure`（:194-220 → failure_tracker.rs:204-281），探测成功则重置对应卡认证失败计数（:222-247）。安卓 Portal 探测跑在绑小核的专用短命线程（monitor_loop.rs:697-734，先取 reactor Handle 线程内 enter 防裸线程 panic，catch_unwind 兜底，线程创建失败降级共享阻塞池），且有两级短路：非校园网或 WiFi 未连接直接给出原因不再空转（:1326-1330，2026-10-02 离网拍 11s→3s）。
+**Portal 探测**：桌面 `check_adapter_portal`（portal_check.rs:59-93，request_failed 区分 :65-72）；双卡且两卡均有 IP 时 `block_on` 内两个 spawn_blocking 并行 `join!`（background_check.rs:163-175），否则顺序/跳过（:177-190）；任一卡请求级失败走 `handle_portal_request_failure`（调用块 background_check.rs:199-220，主卡 :206-211、副卡 :214-219 → failure_tracker.rs:204-281），探测成功则重置对应卡认证失败计数（:225-247，合并单次 update）。安卓 Portal 探测跑在绑小核的专用短命线程（monitor_loop.rs:697-734，先取 reactor Handle 线程内 enter 防裸线程 panic，catch_unwind 兜底，线程创建失败降级共享阻塞池），且有两级短路：非校园网或 WiFi 未连接直接给出原因不再空转（:1326-1330，2026-10-02 离网拍 11s→3s）。
 
 **状态机与在线判定**：桌面 `online=a1_has_ip&&primary_online`（background_check.rs:260），双卡聚合 `any_online=online||secondary_online==Some(true)`（:310）；运营商徽标从 Portal uid 推导后缀（主卡 :262-266，副卡聚合 :277-293）。`handle_status_change`（background_emit.rs:68-107）只在线→离线翻转且允许通知时弹通知，60s 节流（:92-103）。`emit_background_check_result`（:109-164）内 checkCount 用 CAS 自增（:116-119），注销保护期内强制 `online=false、secondaryOnline=Some(false)` 且运营商置 null（:127-134、:146-147）；`update_network_state`（:166-202）保护期跳过写回（:177-183），在线时清 `disconnect_reconnect_count`（:185-191），`reachable&&!has_logged_online&&online` 时置 has_logged_online 并可触发 auto_exit（:193-201）。安卓为三态消费：仅 Portal `error_kind=None` 的确定判定才翻转在线，Unknown/Failed 保持上一拍记忆；非校园网一律判离线（monitor_loop.rs:1341-1351，防 2026-09-13「断网仍显示在线」）。在线拍清重连计数/熔断/保护期（:1354-1358），`was_online` swap（:1359）翻转且在校园网时弹掉线通知（:1361-1363）。
 
@@ -112,9 +112,9 @@ WiFi 变化事件（mobile）：monitor_loop.rs:244-329 start_wifi_watcher/handl
 
 **质量循环与告警**：桌面 `spawn_latency_test_loop`（latency.rs:53-123）每轮重读轻量化间隔（:61-82），就绪等待（选卡出 IP 且在线，2s 重试 :100-111）后执行质量检测并经 `classify_quality_change`（:17-37）分级——恶化到 bad 经 quality_scheduler 复核后弹「网络拥堵」，从 bad 恢复弹「网络恢复」（:43-51）。安卓 `latency_loop`（quality_cmds.rs:87-113）带 good 连稳 5 拍翻倍的退避（:79-85），结果落 quality_history（:39-43）。
 
-**定时动作与夜间出站切换**：桌面 30s 循环（scheduled.rs:116-233）同拍顺序为「出站动作 → 运营商夜切 → 定时登录/注销」：`outbound_action_for`（:276-301）先看还原态（restore_active 且未开夜出站则 Restore 清理优先 :290-292）与手动冻结日（:297-299），Switch 走 `apply_outbound_switch`（:538-772，快照三字段**先落盘再执行** :654-664，禁用循环 :690-703+兜底路由 :706-733+路由级验证 :739-766），Restore 走 `apply_outbound_restore`（:969-1204，删路由 :1008-1043→写回跃点 :1046-1092→重启用校园卡 :1099-1170，损坏快照按 give-up 阀 40 次收尾 :1103-1104），None 且 needs_replay 则 `replay_outbound_switch` 三分支补做（:787-888）+ `watchdog_re_disable_campus`（:897-957）；运营商夜切被切换态门控（`gated_night_action` :1403-1417，定时注销不受门控），执行后独立任务验证 `verify_night_switch`（:1540-1577，chkstatus 核对 uid :1610-1634）；定时登录在切换态下跳过但不消耗当日标记（`evaluate_and_mark` :1376-1396，过点补触发），注销入口 `perform_logout` 统一置 60s 保护期并复位计数（:1505-1534）。安卓完全同构于 `run_scheduled_actions`（monitor_loop.rs:748-950）：出站判定先于运营商夜切（:753-758 硬约束注释），切换靠注销 + `network_avoid_bad_wifi` 程序化置 1 + `report_wifi_unusable` 触发系统切蜂窝（:780-799、:1016-1078），还原走 `night_switch_login` 成功才清标记、连续 3 拍放弃（:801-838）；出站动作后**重读**新鲜配置再判运营商夜切（:843 防旧快照复活标记）；切换态下定时登录跳过不耗标记（:903-911）。
+**定时动作与夜间出站切换**：桌面 30s 循环（scheduled.rs:116-233）同拍顺序为「出站动作 → 运营商夜切 → 定时登录/注销」：`outbound_action_for`（:276-301）先看还原态（restore_active 且未开夜出站则 Restore 清理优先 :290-292）与手动冻结日（:297-299），Switch 走 `apply_outbound_switch`（:538-772，快照三字段**先落盘再执行** :654-664，禁用循环 :690-703+兜底路由 :706-733+路由级验证 :739-766），Restore 走 `apply_outbound_restore`（:969-1204，删路由 :1008-1043→写回跃点 :1044-1092→重启用校园卡 :1093-1170，损坏快照按 give-up 阀 40 次收尾 :1103-1104），None 且 needs_replay 则 `replay_outbound_switch` 三分支补做（:787-888）+ `watchdog_re_disable_campus`（:897-957）；运营商夜切被切换态门控（`gated_night_action` :1403-1417，定时注销不受门控），执行后独立任务验证 `verify_night_switch`（:1540-1577，chkstatus 核对 uid :1610-1634）；定时登录在切换态下跳过但不消耗当日标记（`evaluate_and_mark` :1376-1396，过点补触发），注销入口 `perform_logout` 统一置 60s 保护期并复位计数（:1505-1534）。安卓完全同构于 `run_scheduled_actions`（monitor_loop.rs:748-950）：出站判定先于运营商夜切（:753-758 硬约束注释），切换靠注销 + `network_avoid_bad_wifi` 程序化置 1 + `report_wifi_unusable` 触发系统切蜂窝（:780-799、:1016-1078），还原走 `night_switch_login` 成功才清标记、连续 3 拍放弃（:801-838）；出站动作后**重读**新鲜配置再判运营商夜切（:843 防旧快照复活标记）；切换态下定时登录跳过不耗标记（:903-911）。
 
-**失败追踪与 MAC 重置（桌面专属）**：`update_auth_failure_count`（failure_tracker.rs:47-95）按认证失败码（["ac_auth_failed","1","4"] :9）CAS 计数，单卡/双卡/Portal 请求失败三条路（:112-179、:204-281）计数达 5 时执行 `dhcp_release_renew_single` 释放 MAC 并 DHCP 续租（:73-93、:154-178、:246-280）；网关不可达时不计数并清零（:213-226）。`reset_all`（:182-191）在手动注销时全清。
+**失败追踪与 MAC 重置（桌面专属）**：`update_auth_failure_count`（failure_tracker.rs:47-95）按认证失败码（["ac_auth_failed","1","4"] :9）CAS 计数，单卡/双卡/Portal 请求失败三条路（:112-179、:204-281）计数达 5 时执行 `dhcp_release_renew_single` 释放 MAC 并 DHCP 续租（:73-93、:154-178、:250-280）；网关不可达时不计数并清零（:213-226）。`reset_all`（:182-191）在手动注销时全清。
 
 ## 2026-09-20 增补：轻量化间隔延长与动态重读
 
@@ -133,7 +133,7 @@ WiFi 变化事件（mobile）：monitor_loop.rs:244-329 start_wifi_watcher/handl
 - 只有重连成功才上报 `reconnected=true`（auto_auth.rs:25-27、:217），失败静默等待下一拍。
 - 间隔是动态值：每 tick 重读而非缓存（background_task.rs:30-38、latency.rs:61-82、monitor_loop.rs:596-611）。
 - 出站切换态是最高优先级闸门：单拍跳过（background_check.rs:50-57、monitor_loop.rs:1260-1263），且同拍动作顺序硬约束为「出站先于运营商夜切」（scheduled.rs:1-21 模块注释、monitor_loop.rs:753-758）。
-- 出站快照先落盘再执行（scheduled.rs:654-664），安卓切换标记同样"落盘成功才触发系统重检"（monitor_loop.rs:787-788）；还原侧"重读新鲜配置"防旧快照复活已清字段（scheduled.rs:212-221、monitor_loop.rs:843）。
+- 出站快照先落盘再执行（scheduled.rs:654-664），安卓切换标记同样"落盘成功才触发系统重检"（monitor_loop.rs:787-788）；出站动作后重读新鲜配置再判运营商夜切，防旧快照复活已清字段（scheduled.rs:212-221、monitor_loop.rs:843）。
 - 通知重复抑制三件套：掉线通知 60s 节流（background_emit.rs:92-103）、出站故障每日一次去重（scheduled.rs:91-97）、安卓常驻通知仅状态码翻转时重建（monitor_loop.rs:1461-1470）。
 - 桌面 shutdown 限时 10s 强制退出（lifecycle.rs:311-320）；安卓前台服务常驻、ExitRequested 一律 prevent_exit（lib.rs:114-121）。
 - 通知文案中文硬编码为有意决策（notification.rs:14-15）。
@@ -155,7 +155,7 @@ WiFi 变化事件（mobile）：monitor_loop.rs:244-329 start_wifi_watcher/handl
             检测静默期：background_check.rs:58-82（伪 on_campus=true）
                        monitor_loop.rs:1269-1289（常驻通知码 3）
      │
-校园网判定   campus_check.rs:43-266（名称>/18 子网/网关，IP 归因门槛）
+校园网判定   campus_check.rs:44-300（名称>/18 子网/网关，IP 归因门槛）
             campus_detect::probe_campus_with_ssid（SSID 感知）
      │
 Portal 探测  portal_check.rs:59-93；双卡并行（background_check.rs:163-175）
@@ -208,11 +208,11 @@ Portal 探测  portal_check.rs:59-93；双卡并行（background_check.rs:163-17
 
 ## Known Issues
 
-- 安卓无 MAC 重置链路：认证失败计数达 5 时桌面走 `dhcp_release_renew_single`（failure_tracker.rs:73-93、:154-178、:246-280），安卓只有 `consecutive_failures` 熔断（monitor_loop.rs:1373、:1407/:1414），凭据型失败无法自愈。
+- 安卓无 MAC 重置链路：认证失败计数达 5 时桌面走 `dhcp_release_renew_single`（failure_tracker.rs:73-93、:154-178、:250-280），安卓只有 `consecutive_failures` 熔断（monitor_loop.rs:1373、:1407/:1414），凭据型失败无法自愈。
 - 安卓重连上限两处重复判：纯函数 `should_attempt_login`（monitor_loop.rs:111-113）与通知侧 `count >= max_disconnect_reconnect`（:1390-1392）各判一次，语义靠约定保持一致。
 - `CAMPUS_MINIMIZE_DELAY_MS=30000`、`CAMPUS_EXIT_DELAY_MS=60000`、`AUTO_EXIT_DELAY_MS=20000` 硬编码不可配（lifecycle.rs:12-13、state/mod.rs:13）。
 - 更新检查循环装配位置两端不同：桌面 setup_app 直挂（startup.rs:227），安卓在 run_startup_tasks 内（monitor_loop.rs:455）。
 - 检测静默期语义差异：桌面静默拍伪造 `on_campus=true` 并撤销校园网退出（background_check.rs:58-82），安卓整拍跳过仅置通知码 3（monitor_loop.rs:1269-1289）；在线记忆的保持方式不同。
 - 状态命令不携带每卡校园网明细：桌面 payload 对应字段恒 Null（commands/background.rs:106-111），安卓 payload 无 adapterStatuses（monitor_loop.rs:1432-1452），前端逐卡明细已无后端来源。
 - `try_disconnect_reconnect` 参数多达 10 个（auto_auth.rs:109-121），靠 `#[allow(clippy::too_many_arguments)]` 压制告警。
-- 检测时段门控判定双端重复实现：桌面纯函数 `is_campus_check_silent`（campus_check.rs:272-280），安卓内联同规则（monitor_loop.rs:1269-1274），未像定时判定那样下沉共享 crate，改动需双端同步。
+- 检测时段门控判定双端重复实现：桌面纯函数 `is_campus_check_silent`（campus_check.rs:306-314），安卓内联同规则（monitor_loop.rs:1269-1274），未像定时判定那样下沉共享 crate，改动需双端同步。
