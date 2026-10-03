@@ -205,7 +205,7 @@ struct EncodedSettings {
     → tray::refresh_tray_menu_state（仅命令面补刷；监控层路径无此步）
       → EventBus.emit_config_changed("config-changed")               infra/events.rs:107-109
         → 前端 api.onConfigChanged                                   hooks/tauriApi.ts:203
-          → useConfigStore.mergeConfigFromBackend                    hooks/useConfigStore.ts:110-117
+          → useConfigStore.mergeConfigFromBackend                    hooks/useConfigStore.ts:109-116
 ```
 
 `mergeConfigFromBackend` 逐字段合并，**跳过 `dirtyFields` 中的字段**（`:113-115`）——本地已改未确认的值不被后端旧快照回滚。

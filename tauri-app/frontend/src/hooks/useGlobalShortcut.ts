@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
-import { useConfigStore } from './useConfigStore'
+import { tauriApiWithRetry as api } from './tauriApi'
 
 export function useGlobalShortcut() {
   useEffect(() => {
-    const { api } = useConfigStore.getState()
     const handleKeyDown = (e: KeyboardEvent) => {
       // 历史缺陷：输入框/文本域中键入 Ctrl+Shift+C（复制）也触发取消自动退出，
       // 会静默取消正在进行的自动退出倒计时。忽略可编辑元素目标。

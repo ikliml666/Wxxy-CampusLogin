@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -12,21 +13,18 @@ export function useAuth() {
     doLogout: s.doLogout,
     checkOnline: s.checkOnline,
   })))
-  const configStore = useConfigStore(useShallow((s) => ({
-    api: s.api,
-  })))
-  const store = { ...authStore, ...configStore }
+  const store = { ...authStore }
 
   const configPortalUrl = useConfigStore((s) => s.config.portalUrl)
 
   const handleOpenPortal = useCallback(() => {
     const url = configPortalUrl || 'http://10.1.99.100'
-    store.api.openExternal?.(url)
-  }, [store.api, configPortalUrl])
+    api.openExternal?.(url)
+  }, [api, configPortalUrl])
 
   const handleOpenSelfService = useCallback(() => {
-    store.api.openExternal?.('http://10.1.80.200:8080/Self/login/?302=LI')
-  }, [store.api])
+    api.openExternal?.('http://10.1.80.200:8080/Self/login/?302=LI')
+  }, [api])
 
   return {
     ...store,

@@ -5,6 +5,7 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useAuth } from '@/auth/useAuth'
 import { useMonitor } from '@/monitor/useMonitor'
 import { useNetwork } from '@/network/useNetwork'
@@ -142,7 +143,6 @@ function AppInner() {
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   const configAutoLaunch = useConfigStore((s) => s.config.autoLaunch)
   const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
-  const api = useConfigStore.getState().api
 
   useEffect(() => {
     // 轻量化重建窗口的 ready 门信号：挂载完成即通知后端可显示窗口。

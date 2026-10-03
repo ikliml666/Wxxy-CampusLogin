@@ -1,10 +1,9 @@
 import { useEffect } from 'react'
-import { useConfigStore } from './useConfigStore'
+import { tauriApiWithRetry as api } from './tauriApi'
 import { isRenderLoopAlive } from '@/lib/renderLiveness'
 
 export function useHeartbeat() {
   useEffect(() => {
-    const { api } = useConfigStore.getState()
     let paused = document.hidden
     const onVisChange = () => { paused = document.hidden }
     document.addEventListener('visibilitychange', onVisChange)

@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useThemeStore } from '@/hooks/useThemeStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -14,7 +15,6 @@ export function useSettings() {
     saveConfigDirect: s.saveConfigDirect,
     passwordSaved: s.passwordSaved,
     syncPasswordSaved: s.syncPasswordSaved,
-    api: s.api,
   })))
   const themeStore = useThemeStore(useShallow((s) => ({
     themeName: s.themeName,
@@ -43,17 +43,17 @@ export function useSettings() {
   const handleToggleNotification = useCallback(async () => {
     const next = configEnableNotification !== false ? false : true
     store.updateConfig({ enableNotification: next })
-    try { await store.api.setNotificationEnabled?.(next) } catch (e) { if (import.meta.env.DEV) console.error('设置通知状态失败:', e) }
-  }, [configEnableNotification, store.updateConfig, store.api])
+    try { await api.setNotificationEnabled?.(next) } catch (e) { if (import.meta.env.DEV) console.error('设置通知状态失败:', e) }
+  }, [configEnableNotification, store.updateConfig, api])
 
   const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
     store.updateConfig({ autoLaunch: enabled })
     // API 失败时 UI 已显示开启但注册表未生效，须提示用户
-    try { await store.api.setAutoLaunch?.(enabled) } catch (e) {
+    try { await api.setAutoLaunch?.(enabled) } catch (e) {
       if (import.meta.env.DEV) console.error('设置开机自启失败:', e)
       store.addToast(i18next.t('settings.autoLaunchFailed'), 'error')
     }
-  }, [store.updateConfig, store.api, store.addToast])
+  }, [store.updateConfig, api, store.addToast])
 
   const handleSetTheme = useCallback((name: string) => {
     store.setThemeName(name as ThemeName)

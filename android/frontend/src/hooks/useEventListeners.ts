@@ -6,6 +6,7 @@ import { useConfigStore, flushPendingConfig, hasPendingConfig } from './useConfi
 import { useAuthStore } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useLogToastStore } from './useLogToastStore'
+import { tauriApiWithRetry as api } from './tauriApi'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
@@ -19,7 +20,6 @@ export function useEventListeners() {
     // 否则 cleanup 置 false 后所有事件 handler 全部静默失效（仅 dev 模式出现）
     mountedRef.current = true
     const lt = useLogToastStore
-    const { api } = useConfigStore.getState()
     const unlisteners: Array<() => void> = []
 
     const handleQualityBadAlert = (filtered: NetworkQuality, prev: NetworkQuality | null) => {
@@ -233,7 +233,7 @@ export function useEventListeners() {
         if (typeof incomingActive === 'string' && incomingActive !== cs.activeAccount) {
           cs.setActiveAccount(incomingActive)
         }
-        cs.api.listAccounts?.().then((accs) => {
+        api.listAccounts?.().then((accs) => {
           if (!mountedRef.current) return
           useConfigStore.getState().setAccounts(accs || [])
         }).catch((e) => { if (import.meta.env.DEV) console.error('刷新账号列表失败:', e) })

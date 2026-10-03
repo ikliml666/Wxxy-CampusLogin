@@ -14,7 +14,6 @@ const h = vi.hoisted(() => {
   const storeState = {
     accounts: [] as unknown[],
     activeAccount: '',
-    api: { switchAccount, renameAccount, listAccounts } as Record<string, unknown>,
     updateConfig,
     setAccounts,
     setActiveAccount,
@@ -32,6 +31,13 @@ vi.mock('@/hooks/useConfigStore', () => ({
     (selector: (s: typeof h.storeState) => unknown) => selector(h.storeState),
     { getState: () => h.storeState },
   ),
+}))
+vi.mock('@/hooks/tauriApi', () => ({
+  tauriApiWithRetry: {
+    switchAccount: h.switchAccount,
+    renameAccount: h.renameAccount,
+    listAccounts: h.listAccounts,
+  },
 }))
 
 // 动态导入被测模块：mock factory 惰性执行后才引用顶层状态（同 helloGate 测试模式）

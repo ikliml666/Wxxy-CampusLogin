@@ -9,7 +9,7 @@ import { LogIn, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/hooks/useAuthStore'
-import { useConfigStore } from '@/hooks/useConfigStore'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 
 export function MobileQuickActions() {
   const { t } = useTranslation()
@@ -18,7 +18,6 @@ export function MobileQuickActions() {
   const isLoggingOut = useAuthStore((s) => s.isLoggingOut)
   const doLogin = useAuthStore((s) => s.doLogin)
   const doLogout = useAuthStore((s) => s.doLogout)
-  const api = useConfigStore.getState().api
 
   const busy = isLoggingIn || isLoggingOut || isBinding
 

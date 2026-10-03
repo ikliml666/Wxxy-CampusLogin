@@ -209,15 +209,15 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 | 导出 | 位置 | 说明 |
 | --- | --- | --- |
-| `useConfigStore` | `useConfigStore.ts:53` | 状态：`config` / `configLoaded` / `passwordSaved` / `selfPasswordSaved` / `accounts`（`AccountItem[]`）/ `activeAccount` / `language` / `api`；动作：`updateConfig`(63) / `updateConfigLocal`(97) / `mergeConfigFromBackend`(110) / `clearDirtyFields`(119) / `syncPasswordSaved`(124) / `syncSelfPasswordSaved`(126) / `saveConfigDirect`(128) / `setAccounts`(173) / `setActiveAccount`(174) / `setLanguage`(176) |
-| `hasPendingConfig` | `useConfigStore.ts:183` | debounce 待存或 in-flight 保存存在即 true（关窗前判定） |
-| `flushPendingConfig` | `useConfigStore.ts:190` | 清 debounce 定时器、立即发出待存配置、返回需等待的 Promise（含 in-flight） |
+| `useConfigStore` | `useConfigStore.ts:52` | 状态：`config` / `configLoaded` / `passwordSaved` / `selfPasswordSaved` / `accounts`（`AccountItem[]`）/ `activeAccount` / `language`；动作：`updateConfig`(62) / `updateConfigLocal`(96) / `mergeConfigFromBackend`(109) / `clearDirtyFields`(118) / `syncPasswordSaved`(123) / `syncSelfPasswordSaved`(125) / `saveConfigDirect`(127) / `setAccounts`(172) / `setActiveAccount`(173) / `setLanguage`(175)。（原 `api` 字段已删，2026-10-03：IPC 客户端由消费方静态导入 `tauriApiWithRetry`） |
+| `hasPendingConfig` | `useConfigStore.ts:181` | debounce 待存或 in-flight 保存存在即 true（关窗前判定） |
+| `flushPendingConfig` | `useConfigStore.ts:188` | 清 debounce 定时器、立即发出待存配置、返回需等待的 Promise（含 in-flight） |
 
 模块级私有状态：`saveConfigTimer`(14) / `saveConfigPending`(15) / `saveConfigInFlight`(17) / `dirtyFields`(20) / `DIRTY_FAILURE_LIMIT=3`(24) / `dirtyFailureCounts`(25)。
 
 `useAuthStore`（认证域）：导出 `useAuthStore`（`useAuthStore.ts:115`），动作 `doLogin`(121) / `doLogout`(182) / `checkOnline`(213) / `setStatus`(266) / `setBgStatus`(267)；模块级私有：`_checkOnlineLockFlag`(18)、`QUALITY_MANUAL_THROTTLE_MS=60000`(23)、`detectCampusNetwork`(31)、`buildCampusBgStatusPatch`(40)、`queryPortalStatus`(71)、`withTimeout`(84，race settle 后 `finally` 清理输家定时器)、`setStatusStable`(97，text/state 未变不换新对象，保持引用稳定)。
 
-`useAdapterStore`（适配器域）：导出 `refreshAdapterData`（`useAdapterStore.ts:16`，并行拉 `getAdapters`/`getAdapterDetails`/可选 `getDisabledAdapters` 后写回 store，安卓下端三个命令均 reject 并被 `.catch(() => undefined)` 吞掉）、`useAdapterStore`（`useAdapterStore.ts:48`，状态 `adapters` / `disabledAdapters` / `adapterDetails` / `isRefreshingAdapters` / `activePanel`，动作 `refreshAdapters`(55) / `setAdapters`(72) / `setActivePanel`(73)）。
+`useAdapterStore`（适配器域）：导出 `refreshAdapterData`（`useAdapterStore.ts:16`，并行拉 `getAdapters`/`getAdapterDetails`/可选 `getDisabledAdapters` 后经 `setAdapters`/`setAdapterDetails`/`setDisabledAdapters` actions 写回 store，安卓下端三个命令均 reject 并被 `.catch(() => undefined)` 吞掉）、`useAdapterStore`（`useAdapterStore.ts:50`，状态 `adapters` / `disabledAdapters` / `adapterDetails` / `isRefreshingAdapters` / `activePanel`，动作 `refreshAdapters`(54) / `setAdapters`(74) / `setAdapterDetails`(75) / `setDisabledAdapters`(76) / `setActivePanel`(77)）。
 
 `useQualityStore`（质量与更新域）：导出 `getLastQualityResultTime`（`useQualityStore.ts:19`）、`useQualityStore`（`useQualityStore.ts:46`，状态 `networkQuality` / `dnsDohStatus` / `dnsChecking` / `isRefreshingQuality` / `updateAvailable` / `latestVersion` / `releaseNotes` / `updatePromptOpen` / `gpuInfo` / `refreshRate`，动作 `refreshQuality`(58) / `setNetworkQuality`(82) / `setDnsDohStatus`(87) / `setDnsChecking`(88) / `setUpdateAvailable`(89) / `setLatestVersion`(90) / `setReleaseNotes`(91) / `setUpdatePromptOpen`(92) / `setGpuInfo`(94)）。
 
@@ -405,18 +405,17 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### 各 store 的 state 字段
 
-`ConfigStore`（声明 `useConfigStore.ts:27-51`）：
+`ConfigStore`（声明 `useConfigStore.ts:27-50`）：
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `config` | `Config` | 全量配置，初值 `DEFAULT_CONFIG`（`useConfigStore.ts:54`） |
+| `config` | `Config` | 全量配置，初值 `DEFAULT_CONFIG`（`useConfigStore.ts:53`） |
 | `configLoaded` | `boolean` | `getInitData` 成功或降级完成（`useInitialDataLoad.ts:107` / `useInitialDataLoad.ts:113`） |
 | `passwordSaved` | `boolean` | 登录密码已落盘（后端掩码态） |
 | `selfPasswordSaved` | `boolean` | 自助服务密码已落盘（独立布尔，避免读 `config.selfPassword` 的三态竞态，`useConfigStore.ts:34-36`） |
 | `accounts` | `string[]` | 账号名列表 |
 | `activeAccount` | `string` | 当前账号 |
 | `language` | `string` | 初值 `safeStorage.get('app-language') \|\| 'zh'`（`useConfigStore.ts:60`） |
-| `api` | `typeof tauriApiWithRetry` | store 内直通 IPC，供 `useXxx` 钩子复用 |
 
 `AuthStore`（`useAuthStore.ts:91-101`）：
 
@@ -430,7 +429,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `checkOnline(cfg?, adps?)` | `=> Promise<void>` | 校园网 + Portal 状态检测（有模块级锁 `_checkOnlineLockFlag`） |
 | `setStatus` / `setBgStatus` | setter | `setBgStatus` 支持函数式更新（`useAuthStore.ts:255`） |
 
-`AdapterStore`（`useAdapterStore.ts:37-46`）：`adapters: Adapter[]`、`disabledAdapters: DisabledAdapter[]`、`adapterDetails: AdapterDetail[]`、`isRefreshingAdapters: boolean`、`activePanel: PanelName`（初值 `'dashboard'`，`useAdapterStore.ts:53`）、`refreshAdapters(): Promise<void>`、`setAdapters(a)`、`setActivePanel(p)`。
+`AdapterStore`（`useAdapterStore.ts:37-47`）：`adapters: Adapter[]`、`disabledAdapters: DisabledAdapter[]`、`adapterDetails: AdapterDetail[]`、`isRefreshingAdapters: boolean`、`activePanel: PanelName`（初值 `'dashboard'`，`useAdapterStore.ts:52`）、`refreshAdapters(): Promise<void>`、`setAdapters(a)`、`setAdapterDetails(d)`、`setDisabledAdapters(d)`、`setActivePanel(p)`。
 
 `QualityStore`（`useQualityStore.ts:23-44`）：`networkQuality: NetworkQuality | null`、`dnsDohStatus: DnsDohStatus | null`、`dnsChecking: boolean`、`isRefreshingQuality: boolean`、`updateAvailable: boolean`、`latestVersion: string`、`releaseNotes: string`、`updatePromptOpen: boolean`、`gpuInfo: GpuInfo | null`、`refreshRate: number`（初值 0，`useQualityStore.ts:56`）。
 
@@ -558,7 +557,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### 配置写回链路
 
-组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:63`）：合并进 `config`（65）→ 标脏 `dirtyFields`（69-72）→ 累积 `saveConfigPending`（74-82）→ 500ms debounce 后 `saveConfigDirect(pending)`（84-93）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:132` → `tauriApi.ts:331` → `tauriApi.ts:173` `invoke('save_config')`）→ 成功后清脏（134-137）；失败累计到 3 次放弃脏标记（150-160）。后端回传经 `onConfigChanged`（`useEventListeners.ts:304`）→ `mergeConfigFromBackend`（`useConfigStore.ts:110`，跳过脏字段）。**与 `config` 并列的独立字段不随 merge 更新**：2026-09 起该监听分支额外从 `data.config.activeAccount` 比对后 `setActiveAccount`（317）、再拉 `listAccounts` 刷新列表（319-323）——与桌面同构的 R4 修复，见 [[account-switch-ui-state-desync]]。关窗前 `hasPendingConfig`（183）/`flushPendingConfig`（190）保证不丢（`useEventListeners.ts:48-73`）。
+组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:62`）：合并进 `config`（64）→ 标脏 `dirtyFields`（68-71）→ 累积 `saveConfigPending`（73-81）→ 500ms debounce 后 `saveConfigDirect(pending)`（83-92）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:131` → `tauriApi.ts:331` → `tauriApi.ts:173` `invoke('save_config')`）→ 成功后清脏（133-136）；失败累计到 3 次放弃脏标记（149-159）。后端回传经 `onConfigChanged`（`useEventListeners.ts:304`）→ `mergeConfigFromBackend`（`useConfigStore.ts:109`，跳过脏字段）。**与 `config` 并列的独立字段不随 merge 更新**：2026-09 起该监听分支额外从 `data.config.activeAccount` 比对后 `setActiveAccount`（317）、再拉 `listAccounts` 刷新列表（319-323）——与桌面同构的 R4 修复，见 [[account-switch-ui-state-desync]]。关窗前 `hasPendingConfig`（181）/`flushPendingConfig`（188）保证不丢（`useEventListeners.ts:48-73`）。
 
 ### 主题与 CSS 变量链路
 

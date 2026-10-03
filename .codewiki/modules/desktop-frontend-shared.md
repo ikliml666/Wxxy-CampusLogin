@@ -213,10 +213,10 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | `latency.ts:5` | `type LatencyType` | `'gateway' \| 'external'` |
 | `latency.ts:7-15` | `getLatencyLevel(latency)` | 负数→bad；≤20 excellent；≤50 great；≤100 good；≤200 fair；≤400 poor；其余 bad |
 | `latency.ts:17-23` | `getLatencyColor(latency)` | 负数→rose 三件套；其余查 `QUALITY_CONFIG`（`network/constants.ts:1-11`）的 `color`/`bg`/`borderBg` |
-| `latency.ts:25-29` | `mergeNetworkQuality(old, incoming)` | `disabled`/`busy` 保留旧值（26）；旧值为空或 `unknown` 时直接用新值（27）；否则合并 `details`（新覆盖旧）并保留 `metrics`（28） |
-| `latency.ts:31-36` | `extractGatewayLatency(nq)` | `gatewayLatency >= 0` 优先，回退 `details['gateway'].latency`，否则 `-1` |
-| `latency.ts:38-52` | `extractExternalLatency(nq)` | `averageExternalLatency >= 0` → 次之 `externalLatency` → 次之 `details` 中非 gateway 的中位数（46-50）→ 否则 `-1` |
-| `latency.ts:59-69` | `resolveQualityDisplay(nq)` | 统一展示解析：`displayLatency`（外部优先，退化到网关）；`quality` 在 `unknown`/`busy` 且 `displayLatency >= 0` 时按延迟推断（64-67） |
+| `latency.ts:25-36` | `mergeNetworkQuality(old, incoming)` | `disabled` 保留旧值（26）；`busy`=后端增量推送：无旧值→`unknown` 兜底（30），旧值 busy→刷新 details 保持 busy（31），否则增量合并 `details` 但不采纳等级（32，慢网络下终态迟迟不到，采纳 busy 会让胶囊永远显示"检测中"，真机 2026-09-09）；旧值为空或 `unknown` 时直接用新值（34）；否则合并 `details`（新覆盖旧）并保留 `metrics`（35） |
+| `latency.ts:38-43` | `extractGatewayLatency(nq)` | `gatewayLatency >= 0` 优先，回退 `details['gateway'].latency`，否则 `-1` |
+| `latency.ts:45-59` | `extractExternalLatency(nq)` | `averageExternalLatency >= 0` → 次之 `externalLatency` → 次之 `details` 中非 gateway 的中位数（54-57）→ 否则 `-1` |
+| `latency.ts:66-76` | `resolveQualityDisplay(nq)` | 统一展示解析：`displayLatency`（外部优先，退化到网关）；`quality` 在 `unknown`/`busy` 且 `displayLatency >= 0` 时按延迟推断（72-73） |
 | `renderLiveness.ts:14-15` | `lastRafTime` + `probing` | 模块级状态：上次探测时间戳 + 探测进行中标志（**无常驻 rAF 循环**，2026-09-13 功耗改造） |
 | `renderLiveness.ts:18` / `20` / `21` | `PROBE_REFRESH_MS=4_000` / `PROBE_TIMEOUT_MS=500` / `RENDER_STALL_THRESHOLD_MS=10_000` | 重开探测窗口阈值（< 判定阈值一半）/ 开窗兜底复位 / 停滞判定阈值 |
 | `renderLiveness.ts:24-34` | `startProbe()` | 开一个 2 帧（≈33ms）rAF 窗口刷新 `lastRafTime`；`probing` 防重入 + `setTimeout(500ms)` 兜底复位（半死状态） |

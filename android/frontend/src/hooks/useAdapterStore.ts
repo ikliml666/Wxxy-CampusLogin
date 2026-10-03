@@ -25,9 +25,9 @@ export async function refreshAdapterData(options: {
       api.getAdapterDetails?.().catch(() => undefined),
       includeDisabled ? api.getDisabledAdapters?.().catch(() => undefined) : Promise.resolve(undefined),
     ])
-    if (adapters) useAdapterStore.setState({ adapters })
-    if (details) useAdapterStore.setState({ adapterDetails: details })
-    if (disabled) useAdapterStore.setState({ disabledAdapters: disabled })
+    if (adapters) useAdapterStore.getState().setAdapters(adapters)
+    if (details) useAdapterStore.getState().setAdapterDetails(details)
+    if (disabled) useAdapterStore.getState().setDisabledAdapters(disabled)
     if (triggerCheck) api.triggerBackgroundCheck?.().catch(() => {})
   } catch (e) {
     if (import.meta.env.DEV) console.error('[refreshAdapterData]', e)
@@ -42,6 +42,8 @@ interface AdapterStore {
   activePanel: PanelName
   refreshAdapters: () => Promise<void>
   setAdapters: (a: Adapter[]) => void
+  setAdapterDetails: (d: AdapterDetail[]) => void
+  setDisabledAdapters: (d: DisabledAdapter[]) => void
   setActivePanel: (p: PanelName) => void
 }
 
@@ -70,5 +72,7 @@ export const useAdapterStore = create<AdapterStore>((set) => ({
   },
 
   setAdapters: (a) => set({ adapters: a }),
+  setAdapterDetails: (d) => set({ adapterDetails: d }),
+  setDisabledAdapters: (d) => set({ disabledAdapters: d }),
   setActivePanel: (p) => set({ activePanel: p }),
 }))

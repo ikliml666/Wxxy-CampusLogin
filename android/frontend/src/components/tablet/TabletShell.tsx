@@ -13,6 +13,7 @@ import { useState, useCallback, useEffect, useRef, useDeferredValue, lazy, Suspe
 import { useAppInit } from '@/hooks/useAppInit'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useMonitor } from '@/monitor/useMonitor'
@@ -81,7 +82,6 @@ function TabletShellInner() {
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
-  const api = useConfigStore.getState().api
 
   const updateConfig = useConfigStore((s) => s.updateConfig)
   const setActivePanel = useAdapterStore((s) => s.setActivePanel)

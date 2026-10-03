@@ -37,7 +37,6 @@ interface ConfigStore {
   accounts: AccountItem[]
   activeAccount: string
   language: string
-  api: typeof api
   updateConfig: (partial: Partial<Config>) => void
   updateConfigLocal: (partial: Partial<Config>) => void
   mergeConfigFromBackend: (incoming: Partial<Config>) => void
@@ -58,7 +57,6 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   accounts: [],
   activeAccount: '',
   language: safeStorage.get('app-language') || 'zh',
-  api,
 
   updateConfig: (partial) => {
     const { config, saveConfigDirect } = get()
@@ -202,7 +200,6 @@ export function flushPendingConfig(): Promise<unknown> | null {
     }
     // 保留 store 中的 PASSWORD_MASK 原样发送给后端，让后端识别并保留原密码
     const fullConfig = { ...useConfigStore.getState().config, ...sanitized }
-    const api = useConfigStore.getState().api
     // 历史缺陷：本次新发出的保存不经 in-flight 跟踪，返回的却是旧引用，
     // 仅有 debounce 待存时调用方拿到 null 直接关窗，本次保存随窗口销毁丢失。
     // 修复：flush 发出的保存纳入返回值，由调用方一并等待。

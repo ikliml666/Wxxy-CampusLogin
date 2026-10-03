@@ -363,12 +363,12 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 质量：定时测试启停 | `QualityPanel.tsx:282` | `useMonitor.handleToggleLatencyTest`（`useMonitor.ts:60`） | `tauriApi.ts:239` / `tauriApi.ts:240` | `start_latency_test` / `stop_latency_test` |
 | 设置：开机自启 | `SettingsPanel.tsx:285` | `useSettings.handleSetAutoLaunch`（`useSettings.ts:52`） | `tauriApi.ts:254` | `set_boot_autostart` |
 | 设置：通知开关 | `SettingsPanel.tsx:408` | `updateConfig`；标题栏/平板走 `useSettings.handleToggleNotification`（`useSettings.ts:46`） | `tauriApi.ts:256` | `set_notification_enabled` |
-| 设置：关闭质量检测（联动） | `SettingsPanel.tsx:586-604` | 直接 `useConfigStore.getState().api.stopLatencyTest()`（`SettingsPanel.tsx:599`） | `tauriApi.ts:240` | `stop_latency_test` |
+| 设置：关闭质量检测（联动） | `SettingsPanel.tsx:586-604` | 直接 `tauriApiWithRetry.stopLatencyTest()`（`SettingsPanel.tsx:599`，2026-10-03 重构后不再经 store 的 api 字段） | `tauriApi.ts:240` | `stop_latency_test` |
 | 设置：2D 人脸录入 | `SettingsPanel.tsx:504` | `useFaceDialogStore.openFaceDialog('enroll')` | `faceService.ts:155`（本地，无 IPC） | —— |
 | 保活：申请电池白名单 | `KeepAliveSettingsCard.tsx:52` | 直调 | `tauriApi.ts:258` | `request_ignore_battery_optimizations` |
 | 保活：厂商省电页 | `KeepAliveSettingsCard.tsx:65` | 直调 | `tauriApi.ts:259` | `open_vendor_battery_settings` |
 | 保活：状态读取 | `KeepAliveSettingsCard.tsx:34` | 直调 | `tauriApi.ts:257` | `get_battery_optimization_info` |
-| 日志：拉取/清空/调试/保留 | `LogPanel.tsx:125` / `329` / `184` / `200`（另有 `158` 读调试模式、`162` 读保留天数） | 直调 `api`：外壳注入 `useConfigStore.getState().api`（手机经 `components/mobile/MobileMore.tsx:42`，平板经 `components/tablet/TabletShell.tsx:86`） | `tauriApi.ts:267` / `268` / `269` / `270` / `283` / `284` | `get_logs` / `clear_logs` / `get_debug_mode` / `set_debug_mode` / `get_log_retention_days` / `set_log_retention_days` |
+| 日志：拉取/清空/调试/保留 | `LogPanel.tsx:125` / `329` / `184` / `200`（另有 `158` 读调试模式、`162` 读保留天数） | 直调 `api`：外壳静态导入 `tauriApiWithRetry` 注入（手机经 `components/mobile/MobileMore.tsx:42`，平板经 `components/tablet/TabletShell.tsx:86`） | `tauriApi.ts:267` / `268` / `269` / `270` / `283` / `284` | `get_logs` / `clear_logs` / `get_debug_mode` / `set_debug_mode` / `get_log_retention_days` / `set_log_retention_days` |
 | 关于：检查更新 / 下载 / 安装 | `AboutDialogMobile.tsx:54` / `87` / `106`；`AboutDialog.tsx:126` / `189` / `220` | 直调 | `tauriApi.ts:273` / `274` / `275` | `check_update` / `download_update` / `install_update` |
 | 关于：镜像源列表 | `AboutDialogMobile.tsx:78`；`AboutDialog.tsx:250`/`476` | 直调 | `tauriApi.ts:276` | `get_mirror_urls` |
 | 向导：绑定 + 登录 | `useOnboardingFlow.ts:120` / `193` | `onLogin` 由外壳传入 `useAuthStore.doLogin`（`App.tsx:288`、`TabletShell.tsx:380`） | `tauriApi.ts:178` / `176` | `bind_operator` / `do_login` |
@@ -379,7 +379,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 - `network-quality-result` → `useEventListeners.ts:327` → `handleQualityBadAlert`（`useEventListeners.ts:34`，质量转差时弹警告 toast）→ `useQualityStore.setNetworkQuality` → `QualityPanel`（`QualityPanel.tsx:111`）/`NetworkQualityCapsule`（`NetworkQualityCapsule.tsx:92`）/`MobileDashboard` 的 `NetworkQualityCard`（`DashboardPanel.tsx:365`）。
 - `update-available` → `useEventListeners.ts:335` → `useQualityStore.setUpdatePromptOpen(true)` → `UpdateAvailableDialog`（`shared/UpdateAvailableDialog.tsx:20`）→ `onGoUpdate` 打开关于页（`App.tsx:253`、`TabletShell.tsx:354`）。
 - `login-log` → `useEventListeners.ts:263` → `useLogToastStore.addLog` → `LogPanel`/`RightPanel`/`ToastContainer` 的日志与 toast 面。
-- `config-changed` → `useEventListeners.ts:350` → `mergeConfigFromBackend`（`useConfigStore.ts:110`）→ 各面板受控输入回读（脏字段跳过）。
+- `config-changed` → `useEventListeners.ts:350` → `mergeConfigFromBackend`（`useConfigStore.ts:109`）→ 各面板受控输入回读（脏字段跳过）。
 
 ### 向导流程（两端共用状态机）
 

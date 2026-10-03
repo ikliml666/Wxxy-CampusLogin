@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
-import { useConfigStore } from '@/hooks/useConfigStore'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -48,13 +48,10 @@ export function useNetwork() {
     setDnsDohStatus: s.setDnsDohStatus,
     setDnsChecking: s.setDnsChecking,
   })))
-  const configStore = useConfigStore(useShallow((s) => ({
-    api: s.api,
-  })))
   const logToastStore = useLogToastStore(useShallow((s) => ({
     addToast: s.addToast,
   })))
-  const store = { ...adapterStore, ...qualityStore, ...configStore, ...logToastStore }
+  const store = { ...adapterStore, ...qualityStore, ...logToastStore }
 
   const refreshAdapterInfo = useCallback(async () => {
     // 复用 useAdapterStore 公共刷新动作，消除三处重复实现（历史缺陷 P2-F10）
@@ -62,37 +59,37 @@ export function useNetwork() {
   }, [])
 
   const handleDhcpRenew = useCallback(async () => {
-    try { await store.api.dhcpRenewAll?.() } catch (e) {
+    try { await api.dhcpRenewAll?.() } catch (e) {
       if (import.meta.env.DEV) console.error('DHCP 续租失败:', e)
       store.addToast(i18next.t('network.dhcpRenewFailed'), 'error')
     }
     await refreshAdapterInfo()
-    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
-  }, [store.api, store.addToast, refreshAdapterInfo])
+    api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
+  }, [api, store.addToast, refreshAdapterInfo])
 
   const handleDhcpReleaseRenew = useCallback(async () => {
     try {
-      const result = await store.api.dhcpReleaseRenew?.()
+      const result = await api.dhcpReleaseRenew?.()
       if (result) announceDhcpResults(normalizeDhcpResults(result), store.addToast)
     } catch (e) {
       if (import.meta.env.DEV) console.error('获取新IP失败:', e)
       store.addToast(i18next.t('network.getNewIpFailedShort'), 'error')
     }
     await refreshAdapterInfo()
-    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
-  }, [store.api, store.addToast, refreshAdapterInfo])
+    api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
+  }, [api, store.addToast, refreshAdapterInfo])
 
   const handleDhcpReleaseRenewAdapter = useCallback(async (adapterName: string) => {
     try {
-      const result = await store.api.dhcpReleaseRenewAdapter?.(adapterName)
+      const result = await api.dhcpReleaseRenewAdapter?.(adapterName)
       if (result) announceDhcpResults(normalizeDhcpResults(result), store.addToast)
     } catch (e) {
       if (import.meta.env.DEV) console.error('获取新IP失败:', e)
       store.addToast(i18next.t('network.getNewIpFailedShort'), 'error')
     }
     await refreshAdapterInfo()
-    store.api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
-  }, [store.api, store.addToast, refreshAdapterInfo])
+    api.triggerBackgroundCheck?.().catch((e) => { if (import.meta.env.DEV) console.error(e) })
+  }, [api, store.addToast, refreshAdapterInfo])
 
   return {
     ...store,

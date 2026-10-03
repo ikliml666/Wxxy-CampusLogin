@@ -542,7 +542,7 @@ export const SettingsPanel = memo(function SettingsPanel({
                   // start_latency_test 也有同向校验，双保险防止开关与任务分叉）
                   if (config.enableLatencyTest) {
                     patch.enableLatencyTest = false
-                    useConfigStore.getState().api.stopLatencyTest?.().catch(() => {})
+                    tauriApiWithRetry.stopLatencyTest?.().catch(() => {})
                   }
                   if (config.defaultPanel === 'quality') patch.defaultPanel = ''
                   onUpdateConfig(patch)
