@@ -3,6 +3,7 @@ title: "RTSS hook 注入导致 WebView2 白屏崩溃：根因、诊断与排除�
 type: learning
 source_files:
   - tauri-app/src-tauri/src/platform/rtss_compat.rs
+  - tauri-app/src-tauri/src/platform/mod.rs
   - tauri-app/src-tauri/src/main.rs
   - tauri-app/src-tauri/src/app/startup.rs
 tags:
@@ -25,7 +26,7 @@ RivaTuner Statistics Server（RTSS，MSI Afterburner 组件）运行时向 WebVi
 
 诊断手段：main.rs 在 WebView2 环境创建之前向 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
 追加 `--enable-crash-reporter --crash-dumps-dir="…\com.campus.login\crashdumps"`
-（main.rs:57-67，写 env 在 main.rs:68），让 Crashpad 首次抓到 minidump；
+（main.rs:60-67，写 env 在 main.rs:68），让 Crashpad 首次抓到 minidump；
 **`EBWebView/Crashpad/watson_metadata`（ASCII 可读）直接给出
 ApplicationName/ModuleName/SubCode/WV 宿主名**，比解析 .dmp 便宜得多，优先读它。
 注意：即使追加了 `--crash-dumps-dir`，实测转储仍落在 `EBWebView/Crashpad/reports/`，
@@ -89,12 +90,12 @@ startup.rs:194 一处注释残留，安装器脚本内已无任何 RTSS 写入�
 3. main.rs:56-68：`gpu::build_browser_args()` 组基础浏览器参数，追加 crash 转储参数
    （目标目录 `data_dir\com.campus.login\crashdumps`，与 app_data_dir 同源，main.rs:61-66），
    整体写入 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`（main.rs:68）。
-4. Tauri setup → `setup_app`（startup.rs:152-253）：先初始化 logger（startup.rs:181），
+4. Tauri setup → `setup_app`（startup.rs:152-249）：先初始化 logger（startup.rs:181），
    再于 startup.rs:195-196（同样 cfg 限定 desktop+windows）调用
    `rtss_compat::log_preinit_outcome()` 完成留痕；随后 startup.rs:198-202 补记
    `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 实际值（含 crash 转储参数），构成白屏诊断
-   证据链（配合 `webview_recovery` 的运行时版本记录 startup.rs:233 与
-   ProcessFailed 订阅 startup.rs:234-235）。
+   证据链（配合 `webview_recovery` 的运行时版本记录 startup.rs:230 与
+   ProcessFailed 订阅 startup.rs:231-232）。
 
 已知过时残留（行为不受影响，读代码时勿被误导）：
 

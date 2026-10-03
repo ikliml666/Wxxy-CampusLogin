@@ -25,7 +25,6 @@ source_files:
   - tauri-app/src-tauri/src/monitor/latency.rs
   - tauri-app/src-tauri/src/monitor/quality_scheduler.rs
   - tauri-app/src-tauri/src/monitor/portal_check.rs
-  - tauri-app/src-tauri/src/monitor/portal_watch.rs
   - tauri-app/src-tauri/src/monitor/watcher.rs
   - tauri-app/src-tauri/src/monitor/auto_auth.rs
   - tauri-app/src-tauri/src/network/client.rs
@@ -105,7 +104,7 @@ source_files:
 
 所有长生命周期后台任务走 `infra/task_manager.rs`：`BackgroundTaskManager` `:15-17`，`spawn` `:33-64`（同名拒绝 `:40-42`；任务结束自动 remove 且 `ptr_eq` 防误删新实例 `:53-55`），`cancel` `:67-75`、`detach` `:81-83`、`shutdown` `:86-98`、`is_running` `:101-103`。当前 15 个命名任务：
 
-heartbeat（`app/heartbeat.rs:11`）、window_safety（`app/heartbeat.rs:68`）、campus_exit（`infra/lifecycle.rs:78`）、auto_exit（`infra/lifecycle.rs:228`）、update_check_loop（`update/updater.rs:312`）、startup_bg_check / startup_latency / startup_auto_login / scheduled_actions（`monitor/watcher.rs:22`/`:34`/`:45`/`:54`）、portal_watch（`monitor/portal_watch.rs:59`）、latency_test（`monitor/latency.rs:55`）、background_check（`monitor/background_task.rs:16`）、adapter_cache_refresh（`network/adapter_cache.rs:267`）、adapter_watch（`monitor/adapter_watch.rs:19`）、auto_login_on_start（`monitor/auto_auth.rs:236`）。例外清单见偏差 5。
+heartbeat（`app/heartbeat.rs:11`）、window_safety（`app/heartbeat.rs:68`）、campus_exit（`infra/lifecycle.rs:78`）、auto_exit（`infra/lifecycle.rs:228`）、update_check_loop（`update/updater.rs:312`）、startup_bg_check / startup_latency / startup_auto_login / scheduled_actions（`monitor/watcher.rs:22`/`:34`/`:45`/`:54`）、latency_test（`monitor/latency.rs:55`）、background_check（`monitor/background_task.rs:16`）、adapter_cache_refresh（`network/adapter_cache.rs:267`）、adapter_watch（`monitor/adapter_watch.rs:19`）、auto_login_on_start（`monitor/auto_auth.rs:236`）。例外清单见偏差 5。
 
 ### 6. 事件统一走 EventBus（桌面）
 

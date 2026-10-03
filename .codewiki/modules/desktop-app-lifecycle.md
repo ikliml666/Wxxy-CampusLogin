@@ -78,7 +78,7 @@ tags: [桌面端, 应用生命周期, 启动装配, 托盘, 窗口, 全局快捷
 | --- | --- | --- | --- |
 | `startup.rs:6` | pub fn | `build_runtime(core_count: usize) -> tokio::runtime::Runtime` | worker = `clamp(2, 8)`，max_blocking = `core_count*4 clamp(8, 64)`，线程名前缀 `campus-worker`，`enable_all()`；建失败打印并 `exit(1)`（`startup.rs:16-19`） |
 | `startup.rs:23` | pub fn | `run(core_count: usize)` | 构造 `tauri::Builder`、注册插件/命令；两段式收尾：`app.build`（`130-134`，失败 `log_error!` + `logger::flush()` + `exit(1)`）→ `app.run` 回调处理 `RunEvent::ExitRequested`（`135-149`，轻量化退出守卫见 2026-09-20 增补） |
-| `startup.rs:152` | 私有 fn | `setup_app(app, core_count) -> Result<(), Box<dyn Error>>` | `setup` 回调实体，见 Data Flow 启动顺序 |
+| `startup.rs:152` | 私有 fn | `setup_app(app, core_count) -> Result<(), Box<dyn Error>>` | `setup` 回调实体，见 Data Flow 启动顺序（函数体 `startup.rs:152-250`） |
 | `startup.rs:62-128` | 宏调用 | `invoke_handler(tauri::generate_handler![...])` | **唯一的命令注册表**（`generate_handler!` 内共 65 项：63 条命令 + 2 条日志命令，行号区间 63-127），详见下方"命令注册表" |
 
 `run()` 内的装配点逐行：
@@ -121,7 +121,7 @@ tags: [桌面端, 应用生命周期, 启动装配, 托盘, 窗口, 全局快捷
 
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
-| `shortcut.rs:6` | 私有 static | `CANCEL_KEY: OnceLock<Option<Shortcut>>` | `CANCEL_EXIT_SHORTCUT`（定义于 `infra/state`，`shortcut.rs:2` 引入）的解析缓存，首次按键解析一次，失败则永久视为无快捷键 |
+| `shortcut.rs:6` | 私有 static | `CANCEL_KEY: OnceLock<Option<Shortcut>>` | `CANCEL_EXIT_SHORTCUT`（定义于 `infra/state/mod.rs:14`，值 `"CommandOrControl+Shift+C"`，`shortcut.rs:2` 引入）的解析缓存，首次按键解析一次，失败则永久视为无快捷键 |
 | `shortcut.rs:9` | pub fn | `handle_shortcut_event(app, shortcut: &Shortcut, event: ShortcutEvent)` | 只处理 `Pressed`（:11-13）；解析缓存（:15-19）后与按键比较，不匹配直接返回（:21-23）；命中后 `spawn_blocking` 内先 `cancel_auto_exit_inner` 再 `cancel_campus_exit_with_notification`（`shortcut.rs:26-31`） |
 
 ### app/heartbeat.rs
@@ -158,7 +158,7 @@ tags: [桌面端, 应用生命周期, 启动装配, 托盘, 窗口, 全局快捷
 | `webview_recovery.rs:132` | 私有 fn | `restart_guard_read(path) -> Vec<u64>` | 逐行解析 epoch ms，缺失/损坏按空 |
 | `webview_recovery.rs:140` | 私有 fn | `restart_guard_allow(app, now_ms) -> bool` | 读判定写回一体；`app_data_dir()` 取不到或 IO 失败均按放行（宁可多试一次） |
 | `webview_recovery.rs:157` | pub fn | `attempt_app_restart(app: &AppHandle, reason: &str)` | 跨进程限流通过后：`logger::flush()`（先刷诊断证据）→ `app.restart()` |
-| `webview_recovery.rs:180` | pub fn（`#[cfg(target_os = "windows")]`） | `subscribe_process_failed(app: &AppHandle)` | 经 `with_webview` 拿 `ICoreWebView2_4::add_ProcessFailed`；主窗口不存在记 WARN 跳过（:181-184），缺 `ICoreWebView2_4` 时记 WARN 跳过（`webview_recovery.rs:199-208`），订阅失败记 ERROR（`:227-229`） |
+| `webview_recovery.rs:180` | pub fn（`#[cfg(target_os = "windows")]`） | `subscribe_process_failed(app: &AppHandle)` | 经 `with_webview` 拿 `ICoreWebView2_4::add_ProcessFailed`；主窗口不存在记 WARN 跳过（:181-184），缺 `ICoreWebView2_4` 时记 WARN 跳过（`webview_recovery.rs:199-208`），订阅失败记 ERROR（`:227-229`），`with_webview` 本身失败也记 ERROR（`:231-235`） |
 | `webview_recovery.rs:246` | 私有 fn（`#[cfg(target_os = "windows")]`） | `handle_process_failed(app, kind, reason, exit_code)` | 分级：`BROWSER_PROCESS_EXITED` → `attempt_app_restart`；`RENDER_PROCESS_EXITED` / `FRAME_RENDER_PROCESS_EXITED` → `attempt_webview_recovery`；其余只记 WARN 交运行时自愈（`webview_recovery.rs:258-268`） |
 | `webview_recovery.rs:274` | 私有 fn（`#[cfg(target_os = "windows")]`） | `describe_process_failed(kind, reason, exit_code) -> String` | 组装 `"<种类>, reason=<n> (<语义>), exitCode=<n>"` |
 | `webview_recovery.rs:290` | 私有 fn（`#[cfg(target_os = "windows")]`） | `describe_process_failed_reason(reason: i32) -> &'static str` | Reason → 中文语义（崩溃/启动失败/内存不足/用户数据目录被删除/被外部终止/未预期退出/无响应/原因未知） |
@@ -185,7 +185,7 @@ tags: [桌面端, 应用生命周期, 启动装配, 托盘, 窗口, 全局快捷
 
 ## 结构体与字段
 
-`app/` 目录基本只含函数：`mod.rs` 有 8 个 `pub mod`，唯一定义的 struct 是 `lightweight.rs:20` 的 `WindowGeometry`（2026-09-20 增补）。本模块承载状态的载体是两处进程级静态、一个磁盘文件格式，以及它读写的 `infra` 侧字段：
+`app/` 目录基本只含函数：`mod.rs` 有 8 个 `pub mod`，唯一定义的 struct 是 `lightweight.rs:19-25` 的 `WindowGeometry`（2026-09-20 增补）。本模块承载状态的载体是两处进程级静态、一个磁盘文件格式，以及它读写的 `infra` 侧字段：
 
 ### 进程级静态
 
@@ -256,7 +256,7 @@ main() (main.rs:16)
   8. logger::flush() → logger::shutdown() → runtime.shutdown_timeout(5s) (main.rs:78-80)
 ```
 
-`setup_app` 内部顺序（`startup.rs:152-253`，顺序即依赖关系）：
+`setup_app` 内部顺序（`startup.rs:152-250`，顺序即依赖关系）：
 
 ```text
 1. data_dir = app.path().app_data_dir() 或 dirs::data_dir() (153-155)，创建失败仅 WARN (156-158)
@@ -273,18 +273,17 @@ main() (main.rs:16)
 11. logger::set_log_retention_days(config.log_retention_days) (212)
 12. app::tray::build_tray(&install_dir) (214) —— `?` 传播失败，会中断启动
 13. monitor::adapter_watch::start_adapter_watch (217-219)
-14. monitor::portal_watch::start_portal_watch (220-222)
-15. network::adapter_cache::start_cache_refresh_task (223-225)
-16. update::updater::start_update_check_loop (227)
-17. monitor::watcher::run_startup_tasks (229)
-18. app::webview_recovery::record_webview2_runtime_version() (233)
-19. app::webview_recovery::subscribe_process_failed() (234-235，仅 Windows)
-20. app::heartbeat::spawn_heartbeat_thread (237)
-21. app::heartbeat::spawn_window_safety_thread (238)
-22. std::thread "gpu-warmup"：detect_gpu_info + detect_display_refresh_rate (242-250)
+14. network::adapter_cache::start_cache_refresh_task (220-222)
+15. update::updater::start_update_check_loop (224)
+16. monitor::watcher::run_startup_tasks (226)
+17. app::webview_recovery::record_webview2_runtime_version() (230)
+18. app::webview_recovery::subscribe_process_failed() (231-232，仅 Windows)
+19. app::heartbeat::spawn_heartbeat_thread (234)
+20. app::heartbeat::spawn_window_safety_thread (235)
+21. std::thread "gpu-warmup"：detect_gpu_info + detect_display_refresh_rate (239-247)
 ```
 
-第 13、14、15 步返回 `Result` 且失败只记 WARN，不中断（`startup.rs:218-224`）；第 16、17 步返回 `()`，没有失败出口（`startup.rs:227,229`）；第 12 步失败会返回 `Err`（`startup.rs:214` 用 `?`）。第 13-21 步启动的所有后台任务都注册进同一个 `AppState::task_manager`（`infra/state/mod.rs:164-172`），因此退出时被统一取消。
+第 13、14 步返回 `Result` 且失败只记 WARN，不中断（`startup.rs:217-222`）；第 15、16 步返回 `()`，没有失败出口（`startup.rs:224,226`）；第 12 步失败会返回 `Err`（`startup.rs:214` 用 `?`）。第 13-20 步启动的所有后台任务都注册进同一个 `AppState::task_manager`（`infra/state/mod.rs:164-172`），因此退出时被统一取消。
 
 ### 退出链路
 
@@ -323,7 +322,7 @@ graceful_exit (app/shutdown.rs:8) → spawn → infra::lifecycle::shutdown_and_e
 托盘左键单击 (app/tray.rs:213-220) → window::show_or_rebuild_main
 
 全局快捷键 (startup.rs:31-35 注册 handler → app/shortcut.rs:9)
-  Pressed + 等于 CANCEL_EXIT_SHORTCUT（shortcut.rs:11-23，值定义于 infra/state）
+  Pressed + 等于 CANCEL_EXIT_SHORTCUT（shortcut.rs:11-23，值定义于 infra/state/mod.rs:14）
   → spawn_blocking: cancel_auto_exit_inner (shortcut.rs:29) → cancel_campus_exit_with_notification (30)
      （两条取消都实现于 infra/lifecycle.rs:266 / :157）
 ```
@@ -332,7 +331,7 @@ graceful_exit (app/shutdown.rs:8) → spawn → infra::lifecycle::shutdown_and_e
 
 ```text
 前端 useHeartbeat (frontend/src/hooks/useHeartbeat.ts:11-14, setInterval 5000ms,
-  document.hidden (:8-9) 或 isRenderLoopAlive() 为假时跳过 :13)
+  document.hidden (:8-9) 或 isRenderLoopAlive() 为假时跳过 :13；挂载时立即发一次 :15)
   → invoke render_heartbeat (frontend/src/hooks/tauriApi.ts:243)
   → commands/system.rs:158 → update_stats.last_render_heartbeat_ms.store(now) (system.rs:164)
 
@@ -362,21 +361,21 @@ attempt_webview_recovery (webview_recovery.rs:58)
 
 - **新增 Tauri 命令**：在 `tauri-app/src-tauri/src/commands/` 下写 `#[tauri::command]` 函数，**必须**加入 `tauri-app/src-tauri/src/app/startup.rs:62-128` 的 `invoke_handler(tauri::generate_handler![...])`，否则前端 `invoke` 会报 "command not found"；安卓端命令注册在 `android/src-tauri/src/lib.rs`（独立文件），双端需各注册一次。前端包装加在 `tauri-app/frontend/src/hooks/tauriApi.ts`。
 - **新增插件**：`.plugin(...)` 链在 `app/startup.rs:25-35`；`single_instance` 必须保持在最后（`startup.rs:36-48` 注释说明其回调依赖窗口已存在）。
-- **新增启动期服务**：在 `setup_app` 的 `startup.rs:214-250` 区间内追加，并在前后保持"先 logger 再 config、先 config 再依赖 config 的服务"的顺序约束。
+- **新增启动期服务**：在 `setup_app` 的 `startup.rs:214-247` 区间内追加，并在前后保持"先 logger 再 config、先 config 再依赖 config 的服务"的顺序约束。
 - **新增托盘菜单项**：`app/tray.rs:34-39` 建菜单项 + `app/tray.rs:122-210` 的 `match` 加分支；id 是字符串字面量，没有集中常量表，改名需两处同步。
 - **新增平台专属窗口事件处理**：`app/startup.rs:53-61` 的 `on_window_event` 闭包内追加 `WindowEvent` 分支；Windows 专属处理需再套 `#[cfg(target_os = "windows")]`（参照 `startup.rs:57-60`），并注意 `app/window.rs:5` 与 `:37` 两个签名必须一致才能被同一调用点使用。
-- **新增启动期后台任务**：一律用 `state.task_manager.spawn("唯一名字", ...)`（参照 `app/heartbeat.rs:11`），不要裸起线程——裸线程（如 `startup.rs:242` 的 `gpu-warmup`）不会被 `shutdown_and_exit` 等待。
+- **新增启动期后台任务**：一律用 `state.task_manager.spawn("唯一名字", ...)`（参照 `app/heartbeat.rs:11`），不要裸起线程——裸线程（如 `startup.rs:239-247` 的 `gpu-warmup`）不会被 `shutdown_and_exit` 等待。
 
 ## Connections
 
 - [[desktop-infra]]：本模块是 `AppState` 的唯一托管点（`startup.rs:49`）；`shutdown_and_exit`、`BackgroundTaskManager`、`EventBus`、`TaskLock`、`emit_notification` 全在 infra。
 - [[desktop-config]]：`load_config_from_disk_or_default`（`startup.rs:185`）、`state.config.store`（`startup.rs:206`）、`minimize_to_tray`（`app/shutdown.rs:41`）、`log_retention_days`（`startup.rs:212`）。
 - [[desktop-commands]]：命令表注册点 `startup.rs:62-128` 是命令层与生命周期的接缝；`commands/system.rs:158` 的 `render_heartbeat`、`:8` 的 `minimize_window`、`:13` 的 `close_window` 直接服务本模块；`commands/config_cmd.rs:210-211` 的 `show_window` 走 `show_or_rebuild_main`。
-- [[desktop-monitor]]：`setup_app` 启动 `adapter_watch`（`startup.rs:217`）、`portal_watch`（`:220`）、`adapter_cache`（`:223`）、`run_startup_tasks`（`:229`）；托盘快速登录调用 `auth::service::full_login`。
+- [[desktop-monitor]]：`setup_app` 启动 `adapter_watch`（`startup.rs:217`）、`adapter_cache`（`:220`）、`run_startup_tasks`（`:226`）；托盘快速登录调用 `auth::service::full_login`。
 - [[desktop-auth]]：`app/tray.rs:126-153` 的快速登录链路（`full_login` + `post_login_handler`）。
-- [[desktop-helper-update]]：`helper::parse_helper_args` / `run_helper` 在 `main.rs:37-46` 拦截；`update::updater::start_update_check_loop` 在 `startup.rs:227`。
-- [[desktop-platform]]：`platform::gpu::build_browser_args` / `detect_gpu_info`（`main.rs:56`、`startup.rs:242-250`）、`platform::rtss_compat::preinit_detect` / `log_preinit_outcome`（`main.rs:52`、`startup.rs:196`）、`platform::ecoqos`（`app/shutdown.rs:37`、`app/window.rs:104`）、`platform::toast`（系统通知，经 [[desktop-infra]] 的 `emit_notification`）。
-- [[desktop-network-core]]：`network::update_portal_url`（`startup.rs:207`）、`network::adapter_cache`（`startup.rs:223`）。
+- [[desktop-helper-update]]：`helper::parse_helper_args` / `run_helper` 在 `main.rs:37-46` 拦截；`update::updater::start_update_check_loop` 在 `startup.rs:224`。
+- [[desktop-platform]]：`platform::gpu::build_browser_args` / `detect_gpu_info`（`main.rs:56`、`startup.rs:239-247`）、`platform::rtss_compat::preinit_detect` / `log_preinit_outcome`（`main.rs:52`、`startup.rs:196`）、`platform::ecoqos`（`app/shutdown.rs:37`、`app/window.rs:104`）、`platform::toast`（系统通知，经 [[desktop-infra]] 的 `emit_notification`）。
+- [[desktop-network-core]]：`network::update_portal_url`（`startup.rs:207`）、`network::adapter_cache`（`startup.rs:220`）。
 - [[android-backend]]：安卓端不编译 `app/`（`lib.rs:11-12` 的 `#[cfg(desktop)]`），有独立的启动装配与命令注册。
 - [[desktop-frontend-hooks]]：前端侧的对应实现是 `useHeartbeat.ts`（心跳，interval 定义 `useHeartbeat.ts:11-14`）、`tauriApi.ts:243`（`render_heartbeat` 调用）。
 - [[desktop-frontend-shared]]：托盘快速登录路径不经过前端，但结果通过 `auto-login-result` 事件（`tauriApi.ts:173`）回到前端。
@@ -385,11 +384,11 @@ attempt_webview_recovery (webview_recovery.rs:58)
 
 详细决策见 [[lightweight-mode-desktop]]，此处只记结构位置：
 
-- **关闭三分支**（`app/shutdown.rs:20-55` 的 `handle_window_close_event`）：`lightweight_mode=true`（:27-40）→ 记几何（`capture_geometry`，:32）+ 置单次守卫（:34）+ `set_lightweight_active(true)`（:35）+ `set_ecoqos(true)`（:36-38），**不 prevent_close** 让窗口真销毁（WebView2 进程组退出）；否则按 `minimize_to_tray`（:42-46，hide）或 `graceful_exit`（:47-55，既有逻辑不变）。
+- **关闭三分支**（`app/shutdown.rs:20-55` 的 `handle_window_close_event`）：`lightweight_mode=true`（:27-40）→ 记几何（`capture_geometry`，:32）+ 置单次守卫（:34）+ `set_lightweight_active(true)`（:35）+ `set_ecoqos(true)`（:36-37），**不 prevent_close** 让窗口真销毁（WebView2 进程组退出）；否则按 `minimize_to_tray`（:42-46，hide）或 `graceful_exit`（:47-55，既有逻辑不变）。
 - **退出守卫**（`app/startup.rs:135-149`）：run 改 `build()` + `app.run(callback)` 两段式，`RunEvent::ExitRequested` 中 `should_prevent_exit(expecting, is_quitting)` 判定（单次守卫由 `app/lightweight.rs` 的 `arm/take_lightweight_exit_guard`（:35/:39）管理），仅拦截轻量化关闭导致的隐式退出；托盘"退出"与系统关机不拦。
 - **重建入口**（`app/window.rs:53` 的 `show_or_rebuild_main`，接具体 `&AppHandle`——`available_monitors` 是 AppHandle 固有方法）：窗口在则 show，不在则 `rebuild_main_window`（`window.rs:67-113`）：`WebviewWindowBuilder::from_config` 复刻 tauri.conf.json 窗口配置（:77）+ 几何恢复（离屏校验回退居中，:79-97）+ `.visible(false)` + ready 门（新命令 `notify_window_ready` → `signal_window_ready`（`lightweight.rs:90`），500ms 轮询 5s 超时兜底 `show()`，`lightweight.rs:113-131`）；重建成功清轻量化标志并关 EcoQoS（:102-104）。接线五处：托盘 show 菜单（tray.rs:124）、托盘左键（tray.rs:217）、single_instance 主路径与 2s 延迟分支（startup.rs:38/45）、`show_window` 命令（config_cmd.rs:210-211）。
 - **EcoQoS**（`platform/ecoqos.rs::set_ecoqos`，`#[cfg(desktop)]` 挂载、非 Windows 空实现）：`SetProcessInformation(ProcessPowerThrottling)` 三态写法，仅轻量化期间开启（WebView2 子进程继承宿主节流状态）；不叠 IDLE 优先级、不设 `IGNORE_TIMER_RESOLUTION`。
-- **运行态**（`app/lightweight.rs`，全部内存态）：`LIGHTWEIGHT_ACTIVE`（:11）/ `EXPECT_LIGHTWEIGHT_EXIT`（:15）/ 几何缓存（:17）/ ready 信号表（:88）/ 两个间隔系数纯函数（:78、:83）。
+- **运行态**（`app/lightweight.rs`，全部内存态）：`LIGHTWEIGHT_ACTIVE`（:11）/ `EXPECT_LIGHTWEIGHT_EXIT`（:15）/ 几何缓存（:17）/ ready 信号表（:88）/ 两个间隔系数纯函数（:78、:83）；配套单测在 `lightweight.rs:133-171`（4 个用例：守卫判定、间隔下限、几何离屏、退出守卫单次语义）。
 - 心跳线程对"窗口不存在"空转安全（`app/heartbeat.rs:30-32`）；`window_safety` 兜底线程仅在启动后 9s 内活动（3s 首检 + 3 次 × 3s 间隔，:71-87），与运行期销毁/重建无冲突。
 
 ## Known Issues
@@ -402,12 +401,12 @@ attempt_webview_recovery (webview_recovery.rs:58)
 6. **`attempt_app_restart` 前的 `logger::flush()` 是最后一次机会**：`app/webview_recovery.rs:174` 之后立即 `app.restart()`（`:175`），此路径**不会**经过 `main.rs:78-80` 的 `logger::shutdown()` 与 `runtime.shutdown_timeout(5s)`，也不会走 `shutdown_and_exit` 的任务排空；崩溃链日志靠那一次 `flush()` 保住。
 7. **`now_ms.saturating_sub(window_start_ms)` 对系统时钟回拨敏感**：`recovery_gate`（`app/webview_recovery.rs:40`）与 `restart_guard_decide`（`:122`）都用饱和减法比较时间；时钟被回拨时差值变小甚至为 0，会延长限流窗口（拒绝服务时间变长），时钟前跳则窗口提前过期。
 8. **`restart_guard_allow` 只写回"放行时的列表"**（`app/webview_recovery.rs:140-152`）：被拒绝时不落盘，磁盘上的旧记录会保留到下一次放行才被清理；`restart_guard_read` 失败按空列表处理即视为放行（`:132-136`）。
-9. **`record_webview2_runtime_version` 在非 Windows 是空函数但调用点无 cfg**（`app/startup.rs:233` vs `app/webview_recovery.rs:363-364`）：非 Windows 编译时该行是无副作用的空调用。
+9. **`record_webview2_runtime_version` 在非 Windows 是空函数但调用点无 cfg**（`app/startup.rs:230` vs `app/webview_recovery.rs:363-364`）：非 Windows 编译时该行是无副作用的空调用。
 10. **`app/startup.rs:166-177` 的日志目录探测依赖 `.log_probe` 写入**：`create_dir_all` 对已存在目录恒返回 `Ok`，真正判定可写的是写空文件那一步（`:168`）；若写入成功但随后被 ACL 拒绝（或磁盘满），日志仍会静默走 `writer=None` 分支（`infra/logger.rs:89-91` 只 `eprintln!` 一行警告）。
 11. **`build_tray` 的错误粒度不一致**：`TrayIconBuilder::build` 的错误被忽略（`app/tray.rs:108` 的 `let _ =`，注释标注"托盘图标创建失败不影响应用运行"），但菜单构建用 `?`（`build_tray_menu` 内多处）会向上传播并在 `app/startup.rs:214` 中断整个启动。改这里的容错策略需要同时看两处。
 12. **托盘菜单 id 是裸字符串**：`"show"` / `"quick-login"` / `"quick-logout"` / `"quit"` 分散在 `app/tray.rs:34-39` 与 `:123,126,154,204`，没有常量表（仅 `SWITCH_ITEM_PREFIX` 有常量，`tray.rs:14`）；`_ => {}`（`tray.rs:208`）会静默吞掉拼写错误。
 13. **`graceful_exit` 的 `_state` 参数被忽略**（`app/shutdown.rs:8`）：内部在异步任务里重新 `app_h.state::<AppState>()`（`:11`），调用方传入的 `&AppState` 只用于保持签名一致；改造时别以为传进去的状态会被使用。
 14. **`RunEvent::ExitRequested` 回调只做轻量化守卫拦截，不做任务排空**（`app/startup.rs:135-149`）：进程退出的正常路径只有 `infra/lifecycle.rs:319` 的 `app_handle.exit(0)`（带任务排空与 flush）与 `app/webview_recovery.rs:175` 的 `app.restart()`（只 flush），任何其他方式结束进程（系统强杀、panic 之外的中断）都会跳过任务排空与日志 flush；`on_window_event` 也未处理 `WindowEvent::Destroyed`。
-15. **`spawn_window_safety_thread` 3 次失败后彻底放弃**（`app/heartbeat.rs:66-91`）：此后若窗口仍不可见，没有任何重试机制，只能重建进程。
-16. **`startup.rs:242-250` 的 `gpu-warmup` 是裸线程**：不注册进 `BackgroundTaskManager`，`shutdown_and_exit` 不会等待它，进程退出时该线程被直接终止（其日志可能丢失）。
+15. **`spawn_window_safety_thread` 3 次失败后彻底放弃**（`app/heartbeat.rs:66-92`）：此后若窗口仍不可见，没有任何重试机制，只能重建进程。
+16. **`startup.rs:239-247` 的 `gpu-warmup` 是裸线程**：不注册进 `BackgroundTaskManager`，`shutdown_and_exit` 不会等待它，进程退出时该线程被直接终止（其日志可能丢失）。
 17. **`render_heartbeat` 的心跳在窗口隐藏/最小化时不由后端补偿**：前端 `useHeartbeat` 在 `document.hidden` 时暂停（`frontend/src/hooks/useHeartbeat.ts:8-14`），后端靠 `monitorable` 判定清零计数（`app/heartbeat.rs:24-25`）避免误重载；两边判定必须同时成立，改任一侧都会引入误判抖动。

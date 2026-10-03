@@ -9,7 +9,6 @@ source_files:
   - tauri-app/src-tauri/src/monitor/background_emit.rs
   - tauri-app/src-tauri/src/monitor/campus_check.rs
   - tauri-app/src-tauri/src/monitor/portal_check.rs
-  - tauri-app/src-tauri/src/monitor/portal_watch.rs
   - tauri-app/src-tauri/src/monitor/auto_auth.rs
   - tauri-app/src-tauri/src/monitor/latency.rs
   - tauri-app/src-tauri/src/monitor/quality_scheduler.rs
@@ -21,7 +20,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ## Overview
 
-本模块是桌面端的"后台巡检中枢"：一个可配置周期（默认 60000ms、下限 10000ms、轻量态自动放宽）的巡检循环先做校园网环境判定（网关或校园 portal 主机可达均判在校；静默期、出站切换态内跳过），再做主/副适配器的 Portal 连通性检测，据结果驱动"准备自动登录""断线重连""注销保护""校园网退出倒计时""网络状态变更通知"等后续动作；另有四个独立循环——15000ms 的适配器监听（变更事件、被禁用手选适配器的自动启用、class subkey 缓存周期刷新）、用户可配置周期的网络质量定时测试（poor/bad 档位两轮复核与拥堵通知）、30s 一拍的定时动作循环（`scheduled.rs`：定时登录/注销 + 运营商夜切 + 夜间出站切换编排，决策见 [[night-outbound-switch]]、[[night-operator-switch]]），以及 300s 一拍的 Portal 常驻监测（`portal_watch.rs`：逐卡只读探测，JSONL 落盘 + 状态变化事件日志）。
+本模块是桌面端的"后台巡检中枢"：一个可配置周期（默认 60000ms、下限 10000ms、轻量态自动放宽）的巡检循环先做校园网环境判定（网关或校园 portal 主机可达均判在校；静默期、出站切换态内跳过），再做主/副适配器的 Portal 连通性检测，据结果驱动"准备自动登录""断线重连""注销保护""校园网退出倒计时""网络状态变更通知"等后续动作；另有三个独立循环——15000ms 的适配器监听（变更事件、被禁用手选适配器的自动启用、class subkey 缓存周期刷新）、用户可配置周期的网络质量定时测试（poor/bad 档位两轮复核与拥堵通知）、30s 一拍的定时动作循环（`scheduled.rs`：定时登录/注销 + 运营商夜切 + 夜间出站切换编排，决策见 [[night-outbound-switch]]、[[night-operator-switch]]）。
 
 `monitor` 整体在 `lib.rs:17-18` 以 `#[cfg(desktop)]` 门控（17 行属性、18 行 `pub mod monitor;`），安卓 target 完全不编译本模块（安卓有自己的 `android/src-tauri/src/monitor_loop.rs`）。本模块内部**几乎没有 `#[cfg]` 平台门控**：`campus_check.rs` 里直接调用 `get_wireless_ssid()` / `get_wired_network_profile()` / `check_gateway_reachable()` 等，这些平台相关的实现由 `network` 层自行门控，`monitor` 只消费跨平台接口；仅有的例外是夜间禁用的"总线可判定"闸——`outbound_switch.rs:170-173` 的 `#[cfg(target_os = "windows")] unsafe_to_disable`（经 `network::discovery::devnode::read_pnp_instance_id` 实现）与 `scheduled.rs:610-613` 的 `bus_guard` 注入（非 Windows 恒放行）。
 
@@ -31,7 +30,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ### 模块装配（`monitor/mod.rs`、`monitor/watcher.rs`）
 
-- `monitor/mod.rs:1-13` 仅做子模块声明，顺序为 `watcher:1`、`auto_auth:2`、`latency:3`、`adapter_watch:4`、`campus_check:5`、`outbound_switch:6`、`portal_check:7`、`portal_watch:8`、`quality_scheduler:9`、`background_emit:10`、`background_check:11`、`background_task:12`、`scheduled:13`；无任何 `pub use`。
+- `monitor/mod.rs:1-12` 仅做子模块声明，顺序为 `watcher:1`、`auto_auth:2`、`latency:3`、`adapter_watch:4`、`campus_check:5`、`outbound_switch:6`、`portal_check:7`、`quality_scheduler:8`、`background_emit:9`、`background_check:10`、`background_task:11`、`scheduled:12`；无任何 `pub use`。
 - `watcher.rs`（59 行）负责 re-export 与启动挂载：
   - `pub use super::background_check::run_background_check;` — `monitor/watcher.rs:8`，保持旧路径 `watcher::run_background_check` 可用。
   - `pub use super::background_task::start_background_check_inner;` — `monitor/watcher.rs:9`。
@@ -152,23 +151,6 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 - `pub(super) enum PortalCheckResult` — `portal_check.rs:6-19`：`Success { online, message, reachable, login_available, uid: Option<String> }`、`Error { is_request_failed: bool }`、`NotFound`；`impl` 取值器 `:21-57`（`Error` → "检测失败"、`NotFound` → "未找到主适配器"）。
 - `pub(super) fn check_adapter_portal(adapter: &Adapter, app_handle) -> PortalCheckResult` — `portal_check.rs:59-93`：调 `check_portal_full(&adapter.ip, Some(&adapter.name))`（`:63`）；`error_kind == Some("request_failed")` → `log_warn` + `emit_login_log(error)` + `Error { is_request_failed: true }`（`:65-72`）；`Ok` → `Success { ps.online, ps.message, ps.reachable, ps.login_available, ps.uid }`（`:74-81`）；其他 `Err` → 同样 `log_warn` + `emit_login_log(error)` 后返回 `Error { is_request_failed: false }`（`:83-91`）。
 
-### Portal 常驻监测（`monitor/portal_watch.rs`，404 行）
-
-模块文档（`portal_watch.rs:1-11`）：Portal 常驻监测——300s 采样、JSONL 落盘 `portal-watch-*.jsonl`（随日志保留天数清理）、状态变化写事件日志；**只读探测绝不携凭据**；ICMP 复用 `check_gateway_reachable_from`（须阻塞线程）；页面/会话复用 `create_safe_http_client`（8s 超时，对齐 `auth::portal` 共享连接池）+ `read_bounded_body`(1MB) + `config::night_switch::parse_chkstatus`；oltime 停摆不发事件。
-
-- 常量：`SAMPLE_INTERVAL_SECS=300`（`portal_watch.rs:25`）、`CLIENT_TIMEOUT_SECS=8`（`:28`）、`REQUEST_TIMEOUT_SECS=3`（`:31`）、`WATCH_FILE_PREFIX="portal-watch-"`（`:33`）。
-- `struct Sample` — `portal_watch.rs:37-52`，字段即 JSONL 行字段：`adapter`、`ip`、`icmp`（绑源 ICMP 可达）、`http`（页面 2xx 且非空）、`online`（chkstatus `result==1`）、`uid`、`oltime: Option<i64>`、`carriers`（页面运营商服务列表签名）。
-- `pub fn start_portal_watch(app_handle) -> Result<(), String>` — `portal_watch.rs:54-88`：`spawn("portal_watch")`（`:59`）；`interval(300s)` + `MissedTickBehavior::Delay`（`:62-64`）；基线 `last: HashMap<String, Sample>`（`:65`）；循环 `select!` tick/取消（`:67-70`）、`is_quitting` 退出（`:71-78`）；整轮 `spawn_blocking(run_round)` → `apply_events`（`:81-82`，join 失败 `log_warn` `:83`）。
-- `fn run_round(app) -> Vec<Sample>` — `portal_watch.rs:92-113`：`portal_url` 为空回落 `default_portal_url`（`:94-98`）；`portal_probe_host` 为空则空轮（`:99-102`）；`get_adapters_cached`（`:103`）；有 IP 的卡逐卡 `sample_adapter`（`:104-108`）；非空则 `write_jsonl(&infra::logger::get_log_dir(app), &samples)`（`:109-111`）。
-- `fn sample_adapter(portal_url, portal_host, adapter) -> Sample` — `portal_watch.rs:118-170`：`local_addr = adapter.ip.parse::<IpAddr>()`（`:119`）；`icmp = check_gateway_reachable_from(portal_host, Some(&adapter.ip))`（`:120`）；`create_safe_http_client(8s, local_addr)`（`:122-140`，构造失败 → 全 false 的 Sample `:127-139`）；页面 GET `{base}/`（`:143-148`）；chkstatus GET `{base}/drcom/chkstatus?callback=dr1003`（`:149-154`）；`parse_chkstatus` → `(online, uid, oltime)`，解析失败按 `(false, "", None)`（`:155-158`）；`carriers = carriers_signature(&page)`（`:168`）。
-- `fn fetch_text(client, url, label, adapter_name) -> String` — `portal_watch.rs:174-198`：`block_on(send + 3s timeout)`（`:175-180`）；2xx → `auth::protocol::read_bounded_body`（`:182-187`）；其余/失败仅记 debug 返回空串（`:189-197`，避免 5 分钟粒度刷屏）。
-- `fn carriers_signature(html) -> String` — `portal_watch.rs:205-215`：`html.split("{\"id\"")` 逐段取 `name`+`suffix` 以 `|` 拼接——Dr.COM 服务列表内嵌在页面 JS 里，运营商（如 `@cmcc`）服务下架会立即反映为签名变化；`json_string_field(chunk, key)` — `portal_watch.rs:218-224`。
-- `fn write_jsonl(dir, samples)` — `portal_watch.rs:228-254`：按天文件 `portal-watch-{YYYY-MM-DD}.jsonl` 追加，行字段 `ts/adapter/ip/icmp/http/online/uid/oltime/carriers`（`:234-244`）；`create_dir_all` + `OpenOptions::append`（`:248-252`）；`cleanup_watch_files`（`:253`）。
-- `fn cleanup_watch_files(dir)` — `portal_watch.rs:257-285`：按 `get_log_retention_days`，0 = 永久保留；`cutoff = now - days*86400`；只删 `WATCH_FILE_PREFIX` 前缀且 `.jsonl` 后缀的文件（`:271-284`）。
-- `fn apply_events(last: &mut HashMap<String, Sample>, samples)` — `portal_watch.rs:289-297`：逐卡写基线 + `diff_events` → `log_info("[监测] {adapter}: {ev}")`（`:290-295`）；`retain` 只留本轮出现的卡（`:296`）。
-- `fn diff_events(prev: Option<&Sample>, cur) -> Vec<String>` — `portal_watch.rs:300-325`：首样只建基线不发事件（`:301-303`）；http 断 → "portal 页面不可达（http 断，icmp={}）"（`:305-306`）；恢复 → "portal 页面恢复可达"（`:307-308`）；会话掉线 "会话掉线（uid 空，oltime={:?}）"/检测到在线 "检测到在线会话 {uid}"（`:310-313`）；oltime 回退 → "会话重连（oltime {} → {}）"（`:315-319`）；carriers 双非空且不同 → "portal 运营商配置变更: {} → {}"（`:321-323`）。
-- 测试：`portal_watch.rs:327-404` 共 8 个（carriers 签名 3 例 `:334-353`，其中 `PAGE_CARRIERS` 常量 `:332` 为 2026-10-03 实测 4 项服务列表；diff_events 5 例 `:368-403`，helper `sample()` `:355-366`）。
-
 ### 自动登录与断线重连（`monitor/auto_auth.rs`，492 行）
 
 - 常量：`RECONNECT_REMINDER_INTERVAL: u32 = 10` — `auto_auth.rs:14`；`PREP_LOGIN_MAX_FAILURES: u32 = 5` — `auto_auth.rs:19`（文档 `:16-18`：防无限重试 + 周期性 DHCP 断网）。
@@ -214,7 +196,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ### 测试辅助项
 
-各文件 `#[cfg(test)]` 内嵌测试共 62 个：`campus_check.rs:316-355`（4）、`portal_check.rs`（无）、`portal_watch.rs:327-404`（8）、`auto_auth.rs:471-492`（3）、`latency.rs:125-162`（5）、`quality_scheduler.rs`（无）、`adapter_watch.rs:301-314`（1）、`scheduled.rs:1659-1905`（18）、`outbound_switch.rs:213-522`（23）。测试风格：纯函数直接断言；涉状态的用临时 `AppState`/构造 config（如 `scheduled.rs:1841-1859` 的 `SNAPSHOT_ONE_ROW`/`outbound_test_config(_hold)`、`outbound_switch.rs:220-231` 的 `adapter()` 与 `:234-236` 的 `no_probe()` panic 闭包）；涉外发的（emit/通知）不覆盖。
+各文件 `#[cfg(test)]` 内嵌测试共 54 个：`campus_check.rs:316-355`（4）、`portal_check.rs`（无）、`auto_auth.rs:471-492`（3）、`latency.rs:125-162`（5）、`quality_scheduler.rs`（无）、`adapter_watch.rs:301-314`（1）、`scheduled.rs:1659-1905`（18）、`outbound_switch.rs:213-522`（23）。测试风格：纯函数直接断言；涉状态的用临时 `AppState`/构造 config（如 `scheduled.rs:1841-1859` 的 `SNAPSHOT_ONE_ROW`/`outbound_test_config(_hold)`、`outbound_switch.rs:220-231` 的 `adapter()` 与 `:234-236` 的 `no_probe()` panic 闭包）；涉外发的（emit/通知）不覆盖。
 
 ## 结构体与字段
 
@@ -224,7 +206,6 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 | `ConnectionCampusStatus` | `campus_check.rs:7-11` | `on_campus: bool`、`name: Option<String>`、`message: String` |
 | `CampusCheckResult` | `campus_check.rs:13-21` | `wifi`/`wired: Option<ConnectionCampusStatus>`、`on_campus: bool`、`current_ssid: Option<String>`、`message: String` |
 | `PortalCheckResult` | `portal_check.rs:6-19` | enum：`Success { online, message, reachable, login_available, uid: Option<String> }`、`Error { is_request_failed: bool }`、`NotFound` |
-| `Sample` | `portal_watch.rs:37-52` | `adapter`、`ip`、`icmp: bool`、`http: bool`、`online: bool`、`uid: String`、`oltime: Option<i64>`、`carriers: String` |
 | `OutboundSnapshotRow` | `scheduled.rs:389-395` | `guid`、`family: u16`、`automatic: bool`、`metric: u32`（跃点快照行，JSON 编码 `guid:family:automatic:metric`） |
 | `HelperFailure` | `scheduled.rs:406-413` | `reason: String`、`channel: bool`（true = 提权通道/UAC 层失败） |
 | `SnapshotRow` | `outbound_switch.rs:90-95` | 私有：`guid`、`family`、`automatic`、`metric`（序列化经 `snapshot_json`，`:99-110`，空行兜底 `"[]"`） |
@@ -235,7 +216,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ### 启动挂载
 
-`lib.rs` → `run_startup_tasks`（`watcher.rs:15-59`）按上表注册四个任务；`scheduled_actions` 无条件启动并在首拍前做一次出站对账（`scheduled.rs:122-123`）；`portal_watch` 由 `start_portal_watch`（`portal_watch.rs:54-88`）独立常驻。巡检循环内部每拍动态重读间隔与轻量态（`background_task.rs:30-38`）。
+`lib.rs` → `run_startup_tasks`（`watcher.rs:15-59`）按上表注册四个任务；`scheduled_actions` 无条件启动并在首拍前做一次出站对账（`scheduled.rs:122-123`）。巡检循环内部每拍动态重读间隔与轻量态（`background_task.rs:30-38`）。
 
 ### 单轮巡检主链
 
@@ -275,10 +256,6 @@ run_background_check (spawn_blocking, background_check.rs:370-378)
 
 `start_adapter_watch`（`adapter_watch.rs:17-288`）15s 一拍：DNS 缓存清理 → 每 4 轮刷新 class subkey 缓存 → 读适配器快照 → 差分比较 → `emit_adapters_changed`/`emit_adapter_details_changed`/`emit_disabled_adapters_changed` → 恢复卡且离线时补跑一轮巡检 → 禁用告警（60s 节流）→ 自动启用（guard 窗 ∧ 切换态跳过；夜切名单拦截；退避阶梯 0/60s/120s/300s；失败后才允许 UAC）。
 
-### Portal 常驻监测链
-
-`start_portal_watch`（`portal_watch.rs:54-88`）300s 一拍：`run_round`（`:92-113`）逐卡 `sample_adapter`（`:118-170`，绑源 ICMP + 绑源 HTTP 页面 + chkstatus 会话）→ `write_jsonl`（`:228-254`）→ `apply_events`（`:289-297`）→ `diff_events`（`:300-325`）状态变化写事件日志（页面断联/恢复、会话掉线/在线、oltime 回退重连、运营商配置变更）。
-
 ### 周期与阈值常量
 
 | 常量 | 值 | 位置 |
@@ -289,7 +266,6 @@ run_background_check (spawn_blocking, background_check.rs:370-378)
 | 定时动作 tick | 30000ms | `scheduled.rs:49` |
 | 质量循环默认间隔 | 600s（`latency_test_interval` 默认，下限 10s，轻量态放宽） | `latency.rs:66-73` |
 | 质量复核 | 2 轮 × 15s | `quality_scheduler.rs:12-13` |
-| Portal 常驻监测采样 | 300s（请求 3s / 客户端 8s 超时） | `portal_watch.rs:25,28,31` |
 | 出站 helper 超时 | 30s | `scheduled.rs:59` |
 | 出站退避 | 60s 起步翻倍封顶 300s | `scheduled.rs:69-70` |
 | 出站还原告警 | 首达 3 次、此后每 20 次 | `scheduled.rs:75,77` |
@@ -331,8 +307,7 @@ run_background_check (spawn_blocking, background_check.rs:370-378)
 9. **出站切换以磁盘快照为唯一真源**：`apply_outbound_switch` 三快照落盘失败即整链失败且不进内存（`scheduled.rs:655-664`）；还原收尾同样依赖 `clear_outbound_snapshot` 落盘成功（`scheduled.rs:1225-1243`），`save_config_to_disk_encrypted` 故障期间切换/还原/重放全部受阻。
 10. **give-up 放行的残余风险**：还原时禁用名单损坏且失败达 `OUTBOUND_RESTORE_GIVE_UP_FAILS`(40) 次后按空名单放行收尾（`scheduled.rs:1103-1114`），校园网卡可能保持禁用，仅收到一次告警。
 11. **路由验证仅 IPv4**：`apply_outbound_switch` 的 GetBestRoute 验证只查 `best_route_if_index_v4`（`scheduled.rs:739-766`），IPv6 默认路由是否切换成功不在验证范围。
-12. **Portal 常驻监测的延迟与静默失败**：300s 采样粒度（`portal_watch.rs:25`）使事件最多延迟 5 分钟；`fetch_text` 对非 2xx/请求失败只记 debug（`portal_watch.rs:189-197`），连续故障无告警；JSONL 清理跟随日志保留天数（`portal_watch.rs:257-285`），`retention=0` 时文件永久累积。
-13. **质量复核互斥冲突时静默放弃**：复核轮拿不到 `is_quality_checking` 锁按"未确认"处理，不通知也不落状态（`quality_scheduler.rs:96-101`），极端情况下一次真实拥堵可能不触发"网络拥堵"通知。
-14. **主动跳过/改写清单**：出站切换态跳过整轮（`background_check.rs:50-57`）、静默期直接置在线（`background_check.rs:58-82`）、注销保护期强制 `online=false` 并对 `onlineOperator` 置 None（`background_emit.rs:126-134`）、`update_network_state` 保护期跳过（`background_emit.rs:177-183`）——前端在这些窗口看到的是受控状态而非实测结果。
-15. **helper 通道失败只告警**：`run_helper_op` 的 UAC/超时/结果文件缺失类失败记入 `OUTBOUND_CHANNEL_FAIL_COUNT` 并走退避 + 告警（`scheduled.rs:419-445`、`:369-373`），无跨拍自动重试编排，依赖下一拍重放；适配器查询失败同样只 `log_warn` 等下一轮（`adapter_watch.rs:277-284`）。
-16. **portal 可达腿依赖私网 IPv4 配置**：campus_check 与 outbound_switch 的 portal 判定目标均经 `portal_probe_host` 提取（`campus_check.rs:81`、`outbound_switch.rs:44-56`），仅接受私网 IPv4；portal_url 配置为域名/公网地址时该腿恒不可达，校园判定退化为 /18 网段 + 网关探测，用户无感知。
+12. **质量复核互斥冲突时静默放弃**：复核轮拿不到 `is_quality_checking` 锁按"未确认"处理，不通知也不落状态（`quality_scheduler.rs:96-101`），极端情况下一次真实拥堵可能不触发"网络拥堵"通知。
+13. **主动跳过/改写清单**：出站切换态跳过整轮（`background_check.rs:50-57`）、静默期直接置在线（`background_check.rs:58-82`）、注销保护期强制 `online=false` 并对 `onlineOperator` 置 None（`background_emit.rs:126-134`）、`update_network_state` 保护期跳过（`background_emit.rs:177-183`）——前端在这些窗口看到的是受控状态而非实测结果。
+14. **helper 通道失败只告警**：`run_helper_op` 的 UAC/超时/结果文件缺失类失败记入 `OUTBOUND_CHANNEL_FAIL_COUNT` 并走退避 + 告警（`scheduled.rs:419-445`、`:369-373`），无跨拍自动重试编排，依赖下一拍重放；适配器查询失败同样只 `log_warn` 等下一轮（`adapter_watch.rs:277-284`）。
+15. **portal 可达腿依赖私网 IPv4 配置**：campus_check 与 outbound_switch 的 portal 判定目标均经 `portal_probe_host` 提取（`campus_check.rs:81`、`outbound_switch.rs:44-56`），仅接受私网 IPv4；portal_url 配置为域名/公网地址时该腿恒不可达，校园判定退化为 /18 网段 + 网关探测，用户无感知。

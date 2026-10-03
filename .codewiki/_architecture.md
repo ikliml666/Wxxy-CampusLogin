@@ -270,7 +270,7 @@ monitor/background_task.rs:7 start_background_check_inner 循环（每轮重读 
   → monitor/background_check.rs:370 run_background_check（spawn_blocking）
       → :15 run_background_check_blocking
           :19 is_checking.try_acquire（单飞）
-          → monitor/campus_check.rs:43 check_campus_network（SSID/有线 profile/子网/网关）
+          → monitor/campus_check.rs:44 check_campus_network（SSID/有线 profile/子网/网关/portal）
           → Portal 探测（双适配器并行）→ auth/portal.rs:98 check_portal_full
           → 请求失败计数（阈值 5 → MAC 重置）
           → monitor/background_emit.rs:109 emit_background_check_result
