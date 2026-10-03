@@ -217,9 +217,6 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     if let Err(e) = crate::monitor::adapter_watch::start_adapter_watch(&app_h) {
         crate::log_warn!("startup", "启动适配器监听失败: {}", e);
     }
-    if let Err(e) = crate::monitor::portal_watch::start_portal_watch(&app_h) {
-        crate::log_warn!("startup", "启动 portal 监测失败: {}", e);
-    }
     if let Err(e) = crate::network::adapter_cache::start_cache_refresh_task(&state.task_manager) {
         crate::log_warn!("startup", "启动适配器缓存后台刷新失败: {}", e);
     }
