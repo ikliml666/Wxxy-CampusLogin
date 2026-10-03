@@ -2,7 +2,6 @@ use tauri::{AppHandle, State};
 use crate::infra::command_context::{AppHandleExt, CommandContext};
 use crate::infra::state::AppState;
 use crate::update::updater::DownloadProgress;
-use std::sync::atomic::Ordering;
 
 #[tauri::command]
 pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
@@ -10,9 +9,6 @@ pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) ->
     let mirror_first = CommandContext::from_app(&app_handle).config.load().update_source != "github";
     // check_and_record 统一记录最近检查状态（lastCheckError/lastCheckTime 随返回体回传前端）
     let info = crate::update::updater::check_and_record(mirror_first).await?;
-
-    let state = CommandContext::from_app(&app_handle);
-    state.update_stats.last_update_check_epoch_ms.store(crate::update::updater::now_epoch_ms(), Ordering::Release);
 
     serde_json::to_value(info).map_err(|e| format!("序列化更新信息失败: {e}"))
 }

@@ -40,7 +40,7 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
        │         ├─ spawn "background_check" 任务
        │         │    ├─ 立即首拍 run_background_check                               (:24)
        │         │    └─ loop：每 tick 重读 interval.max(10000) 重建计时器            (:29-49)
-       │         └─ save_config_to_disk_encrypted（落盘 + config-changed）           (:55-57)
+       │         └─ persist::save_config_and_broadcast（落盘 + config-changed，不刷托盘）  (:55-57)
        ├─ [enable_network_quality && enable_latency_test]  spawn "startup_latency"
        │    └─ monitor/latency.rs:52-102  spawn_latency_test_loop
        └─ spawn "startup_auto_login"

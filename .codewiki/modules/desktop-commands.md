@@ -47,7 +47,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 同文件非命令的公开辅助函数：
 
-- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:9-18`）：落盘 + 统一发射 `config-changed` 事件（掩码后发射，15-16 行）。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）。
+- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:7-14`）：包装 `persist::save_config_and_broadcast`（落盘+掩码广播 `config-changed`，persist 层统一出口）并补刷托盘菜单。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）；监控层不经此包装，直接调 persist 出口（不刷托盘）。
 - `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:58-86`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（71-73 行）后返回默认配置。
 - 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（89-117）、`restore_imported_password_field`（119-131，写盘方 MASK 责任的导入侧实现）。
 
@@ -134,7 +134,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `check_update` | `commands/updater.rs:7-21` | `app_handle`、`_state` | `Result<serde_json::Value, String>` | 检查更新（`update_source != "github"` 时镜像优先，10-11），并写 `last_update_check_epoch_ms` | 无 |
+| `check_update` | `commands/updater.rs:7-21` | `app_handle`、`_state` | `Result<serde_json::Value, String>` | 检查更新（`update_source != "github"` 时镜像优先，10-11）；检查时间由 `update/updater.rs` 的 `LAST_CHECK_TIME_MS` 静态量记录 | 无 |
 | `download_update` | `commands/updater.rs:23-192` | `app_handle`、`url: String`、`_state` | `Result<String, String>` | 流式下载更新包到 `%TEMP%/campus-login-update/`，每 ≥200ms 或下载完成时发进度事件；返回本地文件路径 | **并发门** `is_downloading.try_acquire()`（31-32）；必须 https（33-35）；**主机白名单 13 项**（39-56）；文件名清洗非法字符与 `..`（60-72）；大小上限 500MB（74、97-100、125-129，写盘前判定） |
 | `install_update` | `commands/updater.rs:194-291` | `app_handle`、`file_path: String`、`checksum_url: Option<String>` | `Result<bool, String>` | 校验后启动安装：`.exe` 走 `open::that`（251-256），`.msi` 走 `msiexec /i`（257-287），成功后 `schedule_update_cleanup()` | 文件存在（197-199）；**canonical 路径必须落在临时目录内**（202-209）；**SHA256 强制校验**：`checksum_url` 为 `None`/空串直接拒绝（211-243），校验失败即删文件；`skipSha256WhenMissing` 默认关闭（220-225） |
 | `get_mirror_urls` | `commands/updater.rs:293-328` | `github_url: String` | `Result<Vec<serde_json::Value>, String>` | 生成 4 个镜像下载地址（官方 / ghfast.top / gh-proxy.com / ghproxy.net） | URL 必须 `https://github.com/` 或 `http://github.com/` 前缀（295-297）、不得含 `..` 或 `\`（298-300） |
@@ -235,7 +235,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 出站事件不经过命令返回值，而是 `AppHandleExt`（`infra/command_context.rs:38-52`）：
 
-- `notify_config_changed(config)`：由 `save_config_to_disk_encrypted` 统一发射（`commands/config_cmd.rs:16`），保证 `save_config` / `switch_account` / `save_current_as_account` / `delete_account` / `rename_account`（仅激活账号被改名时）/ `set_auto_launch` / `set_notification_enabled` / `stop_background_check` / `start|stop_latency_test` 全部经同一出口通知前端，且发送的是**掩码后**配置。
+- `notify_config_changed(config)`：由 `persist::save_config_and_broadcast` 统一发射（`config/persist.rs:289`；commands 包装与监控层落盘路径共用），保证 `save_config` / `switch_account` / `save_current_as_account` / `delete_account` / `rename_account`（仅激活账号被改名时）/ `set_auto_launch` / `set_notification_enabled` / `stop_background_check` / `start|stop_latency_test` 全部经同一出口通知前端，且发送的是**掩码后**配置。
 - `notify_update_download_progress(progress)`：`commands/updater.rs:150`、`181`。
 
 只读命令常通过 `CommandContext::from_app(&app_handle)`（`infra/command_context.rs:22-25`）在 `spawn_blocking` 闭包内重新取 `AppState`（因为 `State<'_, AppState>` 不能跨线程 move），例如 `commands/login.rs:66`、`commands/background.rs:15`、`commands/network_cmd.rs:118`。

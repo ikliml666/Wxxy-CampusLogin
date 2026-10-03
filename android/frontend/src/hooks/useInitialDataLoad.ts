@@ -6,6 +6,7 @@ import { useAuthStore } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useThemeStore } from './useThemeStore'
 import { useLogToastStore } from './useLogToastStore'
+import { tauriApiWithRetry as api } from './tauriApi'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import i18next from 'i18next'
 import { NAV_ITEMS, PASSWORD_MASK } from '@/shared/ui-constants'
@@ -24,7 +25,6 @@ export function useInitialDataLoad() {
     mountedRef.current = true
 
     const lt = useLogToastStore
-    const { api } = useConfigStore.getState()
 
     ;(async () => {
       try {

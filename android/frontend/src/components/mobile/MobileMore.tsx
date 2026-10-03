@@ -12,6 +12,7 @@ import { LogPanel } from '@/shared/LogPanel'
 import { useMonitor } from '@/monitor/useMonitor'
 import { useSettings } from '@/settings/useSettings'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useMemo } from 'react'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 
@@ -39,7 +40,6 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
   const sub = !qualityEnabled && subRaw === 'monitor' ? 'settings' : subRaw
   const { handleToggleBackgroundCheck, handleTriggerCheck } = useMonitor()
   const { handleToggleLightMode, handleSetTheme, handleSetAutoLaunch } = useSettings()
-  const api = useConfigStore.getState().api
   const addToast = useLogToastStore((s) => s.addToast)
   const updateConfig = useConfigStore((s) => s.updateConfig)
 

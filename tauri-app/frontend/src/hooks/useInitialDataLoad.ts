@@ -7,6 +7,7 @@ import { useAuthStore } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useThemeStore } from './useThemeStore'
 import { useLogToastStore } from './useLogToastStore'
+import { tauriApiWithRetry as api } from './tauriApi'
 import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import i18next from 'i18next'
 import { NAV_ITEMS, PASSWORD_MASK } from '@/shared/ui-constants'
@@ -27,7 +28,6 @@ export function useInitialDataLoad() {
     mountedRef.current = true
 
     const lt = useLogToastStore
-    const { api } = useConfigStore.getState()
 
     ;(async () => {
       try {
@@ -66,11 +66,11 @@ export function useInitialDataLoad() {
 
           const adps = initData.adapters || []
           if (adps.length > 0) {
-            useAdapterStore.setState({ adapters: adps })
+            useAdapterStore.getState().setAdapters(adps)
           } else {
             api.getAdapters?.(false).then((freshAdps) => {
               if (freshAdps && freshAdps.length > 0 && mountedRef.current) {
-                useAdapterStore.setState({ adapters: freshAdps })
+                useAdapterStore.getState().setAdapters(freshAdps)
               }
             }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
           }
@@ -91,11 +91,11 @@ export function useInitialDataLoad() {
           }
 
           const details = initData.adapterDetails || []
-          if (details.length > 0) useAdapterStore.setState({ adapterDetails: details })
+          if (details.length > 0) useAdapterStore.getState().setAdapterDetails(details)
 
           api.getDisabledAdapters?.().then((disabled) => {
             if (disabled && disabled.length > 0 && mountedRef.current) {
-              useAdapterStore.setState({ disabledAdapters: disabled })
+              useAdapterStore.getState().setDisabledAdapters(disabled)
             }
           }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
 

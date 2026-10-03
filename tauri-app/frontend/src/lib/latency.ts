@@ -23,7 +23,14 @@ export function getLatencyColor(latency: number) {
 }
 
 export function mergeNetworkQuality(old: NetworkQuality | null, incoming: NetworkQuality): NetworkQuality {
-  if (incoming.quality === 'disabled' || incoming.quality === 'busy') return old ?? incoming
+  if (incoming.quality === 'disabled') return old ?? incoming
+  // busy=后端增量推送（Phase1/每批 HTTPS 完成）：合并明细但等级字段不采纳——
+  // 慢网络下终态迟迟不到，采纳 busy 会让胶囊永远显示"检测中"（真机 2026-09-09）
+  if (incoming.quality === 'busy') {
+    if (!old) return { ...incoming, quality: 'unknown' }
+    if (old.quality === 'busy') return { ...incoming, quality: 'busy' }
+    return { ...old, details: { ...old.details, ...incoming.details }, metrics: incoming.metrics ?? old.metrics }
+  }
   if (!old || old.quality === 'unknown') return incoming
   return { ...incoming, details: { ...old.details, ...incoming.details }, metrics: incoming.metrics ?? old.metrics }
 }

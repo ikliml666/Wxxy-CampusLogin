@@ -64,7 +64,7 @@ tags: [前端, 面板, react]
 - 面板容器样式（限制 `contain` 到 `layout style` 而非 `paint`，避免裁掉编辑态卡片右上角删除按钮）：`PANEL_CONTAINER_STYLE`（`App.tsx:81`）。
 - 侧边看板娘每日随机：`SIDE_MASCOT_POOL`（`App.tsx:84-88`，14 项）、`pickDailySideMascots`（`App.tsx:90-98`，14×13=182 种有序组合按天序号轮转）。
 - 懒加载骨架：`PanelSkeleton`（`App.tsx:101-111`）。
-- 壳层状态订阅与下发：`useAppInit()`（`App.tsx:114`）；`dailySideMascots` 状态与每分钟跨天比对（`App.tsx:117-127`）；`activePanel`（`App.tsx:129`）；`deferredPanel = useDeferredValue(activePanel)`（`App.tsx:132`）；`adapters`（`App.tsx:133`）；`accounts` / `activeAccount`（`App.tsx:134-135`）；`isLoggingIn`（`App.tsx:136`）；粒度订阅的 4 个 config 字段 `configUser` / `configEnableNetworkQuality` / `configAutoLaunch` / `configEnableNotification`（`App.tsx:141-144`）；`api = useConfigStore.getState().api`（`App.tsx:145`）。
+- 壳层状态订阅与下发：`useAppInit()`（`App.tsx:114`）；`dailySideMascots` 状态与每分钟跨天比对（`App.tsx:117-127`）；`activePanel`（`App.tsx:129`）；`deferredPanel = useDeferredValue(activePanel)`（`App.tsx:132`）；`adapters`（`App.tsx:133`）；`accounts` / `activeAccount`（`App.tsx:134-135`）；`isLoggingIn`（`App.tsx:136`）；粒度订阅的 4 个 config 字段 `configUser` / `configEnableNetworkQuality` / `configAutoLaunch` / `configEnableNotification`（`App.tsx:141-144`）；`api` 静态导入 `tauriApiWithRetry`（2026-10-03 重构删除 store 的 api 字段）。
 - store action 订阅：`updateConfig`（`App.tsx:147`）、`setActivePanel`（`App.tsx:148`）、`setUpdateAvailable` / `setLatestVersion` / `setReleaseNotes`（`App.tsx:149-151`）、响应式读 `latestVersion` / `releaseNotes` / `qualityUpdateAvailable`（`App.tsx:153-155`）、`addToast`（`App.tsx:156`）、`doLogin`（`App.tsx:157`）、`refreshQuality`（`App.tsx:158`）。
 - 五个业务 hook 解构（面板 props 的唯一来源）：`useAuth`（`App.tsx:160`）、`useMonitor`（`App.tsx:161`）、`useNetwork`（`App.tsx:162`）、`useAccount`（`App.tsx:163`）、`useSettings`（`App.tsx:164`）。
 - 日志区 `useShallow` 订阅 `logs` / `toasts` / `removeToast` / `setLogs`（`App.tsx:166-173`）。
@@ -380,7 +380,7 @@ tags: [前端, 面板, react]
 ### 流程一：登录（向导内的启动登录）
 
 1. 用户点「开始登录」（`settings/OnboardingWizard.tsx:669-685`）→ `handleLoginAndFinish`（`settings/OnboardingWizard.tsx:238-279`）做最终校验（账号必填、双适配器必须选副适配器，`settings/OnboardingWizard.tsx:242-250`）。
-2. 先写配置：`onUpdateConfig(updateData)`（`settings/OnboardingWizard.tsx:261`）→ `App.tsx:355` 传入的 `updateConfig` → `useConfigStore.updateConfig`（`hooks/useConfigStore.ts:63-95`，标脏 + 500ms debounce）。
+2. 先写配置：`onUpdateConfig(updateData)`（`settings/OnboardingWizard.tsx:261`）→ `App.tsx:355` 传入的 `updateConfig` → `useConfigStore.updateConfig`（`hooks/useConfigStore.ts:62-94`，标脏 + 500ms debounce）。
 3. 再触发登录：`onLogin(adapter1 === AUTO_DETECT_ADAPTER ? undefined : adapter1)`（`settings/OnboardingWizard.tsx:263`）→ `App.tsx:523` 传入的 `doLogin` → `useAuthStore.doLogin`（`hooks/useAuthStore.ts:145-204`）。
 4. 登录前落盘：`saveConfigDirect(loginConfig)`（`hooks/useAuthStore.ts:157`）→ `hooks/useConfigStore.ts:128-171` → `api.saveConfig`（`hooks/tauriApi.ts:271` 的 retry 包装）→ `invoke('save_config', { config, clearPassword, clearSelfPassword })`（`hooks/tauriApi.ts:142`）。
 5. 真实登录：`withTimeout(api.doLogin(adapterName), 60000, ...)`（`hooks/useAuthStore.ts:165`）→ `invoke('do_login', { adapterName })`（`hooks/tauriApi.ts:152`）；成功后置 `status = { text: 登录成功, state: 'online' }`（`hooks/useAuthStore.ts:167`）并写日志/toast（`hooks/useAuthStore.ts:168-169`）。
@@ -390,9 +390,9 @@ tags: [前端, 面板, react]
 ### 流程二：配置保存（开关类改动）
 
 1. 用户拨动任一 `Switch`，例如 `account/AccountPanel.tsx:481-485`（开机自动登录）、`settings/SettingsPanel.tsx:351-356`（同语义的另一入口）或 `settings/SettingsPanel.tsx:403-408`（最小化到托盘）；开机自启走例外路径：`settings/SettingsPanel.tsx:338-343` 的 `onSetAutoLaunch` 直接 `invoke('set_auto_launch')`，不经过 config debounce。
-2. `App.tsx:147` 注入的 `updateConfig` → `useConfigStore.updateConfig`（`hooks/useConfigStore.ts:63`）：先 `set({ config: next })` 与标脏（`hooks/useConfigStore.ts:66-72`），并入 `saveConfigPending`（`hooks/useConfigStore.ts:74-82`），500ms debounce 后调 `saveConfigDirect`（`hooks/useConfigStore.ts:83-93`）。
+2. `App.tsx:147` 注入的 `updateConfig` → `useConfigStore.updateConfig`（`hooks/useConfigStore.ts:62`）：先 `set({ config: next })` 与标脏（`hooks/useConfigStore.ts:65-71`），并入 `saveConfigPending`（`hooks/useConfigStore.ts:73-81`），500ms debounce 后调 `saveConfigDirect`（`hooks/useConfigStore.ts:82-92`）。
 3. `saveConfigDirect`（`hooks/useConfigStore.ts:128-171`）把 pending 浅合并进完整 config → `api.saveConfig`（`hooks/tauriApi.ts:260`，仅此方法带指数退避重试）→ `invoke('save_config', ...)`（`hooks/tauriApi.ts:135`）；成功后清脏标记并按需置 `passwordSaved` / `selfPasswordSaved`（`hooks/useConfigStore.ts:134-145`）。
-4. 反向回流：后端 `config-changed` 事件（`hooks/tauriApi.ts:203`）→ `mergeConfigFromBackend`（`hooks/useConfigStore.ts:110-117`）跳过 `dirtyFields`，避免旧快照覆盖本地新值。
+4. 反向回流：后端 `config-changed` 事件（`hooks/tauriApi.ts:203`）→ `mergeConfigFromBackend`（`hooks/useConfigStore.ts:109-116`）跳过 `dirtyFields`，避免旧快照覆盖本地新值。
 5. **绕过 debounce 的立即保存路径**（清密码、blur 时提交草稿、启停检测）：`AccountPanel.tsx:106`（`saveConfigDirect({password:''}, true)`）、`AccountPanel.tsx:242`（`saveConfigDirect({selfPassword})`）、`SelfServicePanel.tsx:175`、`SelfServicePanel.tsx:185`、`useMonitor.ts:29-32`、`useMonitor.ts:53-56`。
 6. 文本/数字输入的「本地草稿 + blur/Enter 提交」模式统一避免每键写 store：`AccountPanel.tsx:117-123`、`AccountPanel.tsx:85-97`、`MonitorPanel.tsx:98-121`、`QualityPanel.tsx:160-167`、`SettingsPanel.tsx:86-118`、`SettingsPanel.tsx:112-118`。
 
@@ -444,7 +444,7 @@ tags: [前端, 面板, react]
 1. **关闭质量检测后 quality 面板渲染 `null`**：`App.tsx:343-351` 在 `configEnableNetworkQuality === false` 时返回 `null`，若当前正停留在 `quality` 主区域空白。当前靠 `SettingsPanel.tsx:582-592` 联动切走（`setActivePanel('dashboard')`）兜底，但任何其他路径（如外部改配置、`config-changed` 回流）关闭该开关时仍会空白。
 2. **`deferredPanel` 与 `activePanel` 的瞬时分歧**：主区内容与标题用 `deferredPanel`（`App.tsx:290`、`App.tsx:293`、`App.tsx:427`），而 `DockNav` 高亮用 `activePanel`（`components/layout/DockNav.tsx:405`）——并发渲染延迟期间会出现「Dock 已切换、内容还是旧面板」，属预期取舍但应在排查视觉问题时先想到。
 3. **切换锁时长与动画时长硬耦合**：`App.tsx:287` 的 60ms 锁硬编码，注释明确它只覆盖 `mode="wait"` 的退出动画 0.04s（`lib/animations.ts:32`）；任一侧改动都会静默失配（锁过短→快速点击穿插旧内容，过长→吞点击）。
-4. **渲染期取 store 快照的非响应式写法**：`App.tsx:145` 用 `useConfigStore.getState().api` 在 render 中取值。`api` 恒定故无实际缺陷，但同文件 `App.tsx:152` 的注释恰恰记录了「此前在 JSX props 里 `getState()` 取快照，非响应式」这一历史问题；本行是同类写法残留。
+4. **渲染期取 store 快照的非响应式写法（已解决）**：原 `App.tsx:145` 用 `useConfigStore.getState().api` 在 render 中取值——`api` 恒定故无实际缺陷，但同文件 `App.tsx:152` 的注释记录了「此前在 JSX props 里 `getState()` 取快照，非响应式」这一历史问题，本行是同类写法残留；2026-10-03 重构删除 `useConfigStore.api` 字段后，`App.tsx` 改静态导入 `tauriApiWithRetry`，该残留随之消失。
 5. **`LogPanel` 已回归静态导入但注释保留旧结论**：`App.tsx:46-48` 的注释说明 `LogPanel` 从 `lazy` 回归静态导入的原因（`React.lazy` + `Suspense` 让切换从 ~65ms 恶化到 ~366ms），而 `App.tsx:20` 仍是静态导入、`App.tsx:29` 注释称「仅低频的 LogPanel/对话框保留懒加载」——注释与实现不一致。
 6. **生产环境不启用 `StrictMode`**：`main.tsx:115-117` 仅 DEV 包 `StrictMode`。因此面板里大量「StrictMode setup→cleanup→setup 恢复 mountedRef」的防御（`AccountPanel.tsx:72-77`、`DashboardPanel.tsx:271-279`、`NetworkPanel.tsx:59-64`、`hooks/useAsyncLock.ts:12-17`）在生产不受考验，但也意味着这些 double-invoke 类问题只在 DEV 暴露。
 7. **崩溃自恢复只处理三类特征**：`main.tsx:68-74` 只匹配 `GPU` / `WebGL` / `SharedArrayBuffer`；其他渲染进程错误不触发重载，只靠心跳（`main.tsx:90-110`）。心跳阈值 10s（`main.tsx:106`）在长任务阻塞场景下是刻意放宽的权衡。
@@ -461,7 +461,7 @@ tags: [前端, 面板, react]
 
 ### account 域
 
-16. **清登录密码按钮缺少 `mousedown` 拦截（竞态）**：`account/AccountPanel.tsx:389-396` 的「清除已保存密码」按钮只有 `onClick={handleClearPassword}`（`account/AccountPanel.tsx:393`），没有 `onMouseDown={(e) => e.preventDefault()}`；若用户此刻在密码框里刚输入了草稿，点击按钮会先触发 `handlePasswordBlur`（`account/AccountPanel.tsx:94-102`）提交 `onUpdateConfig({ password: draft })`（进入 500ms debounce，`hooks/useConfigStore.ts:83-93`），随后才执行清空保存。后果：清除操作被随后触发的 debounce 保存覆盖（后端「空密码=保留旧密码」语义下，密码并没有被真正清除）。同文件的自助密码清除按钮（`account/AccountPanel.tsx:616`）在 `handleClearSelfPassword` 内用 `setBindSelfPassword('')` 缓解了同类竞态（`account/AccountPanel.tsx:113-115`），`account/SelfServicePanel.tsx:336-343`（清除按钮）与 `account/SelfServicePanel.tsx:357-365`（眼睛按钮）则都显式加了 `onMouseDown={(e) => e.preventDefault()}`——本处的登录密码清除按钮是唯一遗漏。
+16. **清登录密码按钮缺少 `mousedown` 拦截（竞态）**：`account/AccountPanel.tsx:389-396` 的「清除已保存密码」按钮只有 `onClick={handleClearPassword}`（`account/AccountPanel.tsx:393`），没有 `onMouseDown={(e) => e.preventDefault()}`；若用户此刻在密码框里刚输入了草稿，点击按钮会先触发 `handlePasswordBlur`（`account/AccountPanel.tsx:94-102`）提交 `onUpdateConfig({ password: draft })`（进入 500ms debounce，`hooks/useConfigStore.ts:82-92`），随后才执行清空保存。后果：清除操作被随后触发的 debounce 保存覆盖（后端「空密码=保留旧密码」语义下，密码并没有被真正清除）。同文件的自助密码清除按钮（`account/AccountPanel.tsx:616`）在 `handleClearSelfPassword` 内用 `setBindSelfPassword('')` 缓解了同类竞态（`account/AccountPanel.tsx:113-115`），`account/SelfServicePanel.tsx:336-343`（清除按钮）与 `account/SelfServicePanel.tsx:357-365`（眼睛按钮）则都显式加了 `onMouseDown={(e) => e.preventDefault()}`——本处的登录密码清除按钮是唯一遗漏。
 17. **`BIND_OPERATOR_NONE` 定义在组件体内**：`account/AccountPanel.tsx:191` 每次渲染重建（值恒定为 `'__none__'`，无功能影响）；同语义常量在 `settings/OnboardingWizard.tsx:49` 是模块级，位置不一致。
 18. **`switchingAccount` 清态无 mounted 守卫**：`account/AccountPanel.tsx:149` 的 `finally { setSwitchingAccount(null) }` 未判 `mountedRef.current`，而同文件新增账号路径在 `account/AccountPanel.tsx:139` 做了守卫——异步返回时组件已卸载会触发一次无意义的 setState。
 19. **Hello 门是模块级单例，无显式重置入口**：`account/selfServiceState.ts:55`（绑定门）与 `account/selfServiceState.ts:89`（会话门）都是模块级变量，生产代码只能等 `VERIFY_TTL_MS`（`account/selfServiceState.ts:46`，570s）过期或时钟回拨（`account/selfServiceState.ts:50-54`）；测试必须 `vi.resetModules()` 重置（`account/AccountPanel.helloGate.test.tsx:55`、`auth/DashboardPanel.selfCards.test.tsx:79`）。副作用：向导内绑定验证（`settings/OnboardingWizard.tsx:120`）与账户面板绑定卡共用同一门，任一处验证通过后另一处不再验证。

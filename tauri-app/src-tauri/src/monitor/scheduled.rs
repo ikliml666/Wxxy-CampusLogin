@@ -653,7 +653,7 @@ fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config)
     fresh.outbound_metric_restore = snapshot_json(&target.guid, &rows);
     fresh.outbound_disabled_adapters = disabled_adapters_json(&campus_to_disable);
     fresh.outbound_standby_route = standby_route_json(standby.as_ref());
-    if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &fresh) {
+    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照落盘失败: {e}");
         return Err(format!("切换状态快照写入失败: {e}"));
     }
@@ -1230,7 +1230,7 @@ fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
     fresh.outbound_metric_restore = String::new();
     fresh.outbound_disabled_adapters = String::new();
     fresh.outbound_standby_route = String::new();
-    if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &fresh) {
+    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照清空落盘失败: {e}");
         return false;
     }
@@ -1249,7 +1249,7 @@ fn set_outbound_manual_hold(app_handle: &AppHandle, day: i32) {
         return;
     }
     fresh.outbound_manual_hold_day = day;
-    if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &fresh) {
+    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
         crate::log_warn!("outbound", "夜间出站切换: 立即切换保持标记落盘失败: {e}");
     }
     state.config.store(fresh);
@@ -1467,7 +1467,7 @@ fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) 
             "晚间断网切换: 已恢复原运营商".to_string()
         }
     };
-    if let Err(e) = crate::commands::config_cmd::save_config_to_disk_encrypted(app_handle, &config) {
+    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &config) {
         // 落盘失败不 store 内存（避免"内存已切换、重启后回退"的错位），下拍重试
         crate::log_warn!("scheduled", "晚间断网切换配置落盘失败: {e}");
         return;

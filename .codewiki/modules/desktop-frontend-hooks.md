@@ -195,10 +195,10 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `useConfigStore.ts:20` | `dirtyFields: Set<string>` | 本地已改未确认字段，`config-changed` 回传时跳过 |
 | `useConfigStore.ts:24` | `DIRTY_FAILURE_LIMIT = 3` | 连续失败阈值，超限放弃脏标记 |
 | `useConfigStore.ts:25` | `dirtyFailureCounts` | 每字段连续失败计数 |
-| `useConfigStore.ts:27-51` | `interface ConfigStore` | store 契约 |
-| `useConfigStore.ts:53-181` | `useConfigStore` | store 实体 |
-| `useConfigStore.ts:183-188` | `hasPendingConfig()` | `saveConfigPending !== null \|\| saveConfigInFlight !== null` |
-| `useConfigStore.ts:190-220` | `flushPendingConfig()` | 清 debounce 定时器 → 发出待存配置（`PASSWORD_MASK` 字段删除后再拼全量，200-204）→ 与 in-flight 一起 `Promise.allSettled` 返回 |
+| `useConfigStore.ts:27-50` | `interface ConfigStore` | store 契约 |
+| `useConfigStore.ts:52-180` | `useConfigStore` | store 实体 |
+| `useConfigStore.ts:181-186` | `hasPendingConfig()` | `saveConfigPending !== null \|\| saveConfigInFlight !== null` |
+| `useConfigStore.ts:188-218` | `flushPendingConfig()` | 清 debounce 定时器 → 发出待存配置（`PASSWORD_MASK` 字段删除后再拼全量，198-202）→ 与 in-flight 一起 `Promise.allSettled` 返回 |
 
 #### useAdapterStore.ts（适配器数据 / 当前面板）
 
@@ -313,7 +313,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `setStatus(s)` | `(s) => void` | 295 |
 | `setBgStatus(s)` | 值或更新函数 | 296 |
 
-### `ConfigStore`（`useConfigStore.ts:27-51`）
+### `ConfigStore`（`useConfigStore.ts:27-50`）
 
 | 字段 / action | 类型 | 含义 |
 |---|---|---|
@@ -324,29 +324,32 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `accounts` | `AccountItem[]` | 账号列表（初值 `[]`，58；每项 `{id, displayName}`，displayName 为空时后端已兜底为 id） |
 | `activeAccount` | `string` | 当前账号（初值 `''`，59） |
 | `language` | `string` | 初值 `safeStorage.get('app-language') \|\| 'zh'`（60） |
-| `api` | `typeof api`（即 `TauriApi`） | store 内缓存 IPC 对象（61），供 `useInitialDataLoad`/`useEventListeners`/`useHeartbeat`/`useGlobalShortcut` 取用 |
-| `updateConfig(partial)` | `(p: Partial<Config>) => void` | 63-95：立即 `set` + 标脏 + 500ms debounce 保存（84-93）；`customThemeColor` 同步给 `useThemeStore`（94） |
-| `updateConfigLocal(partial)` | 同上 | 97-106：只改本地与标脏，不落盘 |
-| `mergeConfigFromBackend(incoming)` | `(p: Partial<Config>) => void` | 110-117：跳过 `dirtyFields` 中的键 |
-| `clearDirtyFields()` | `() => void` | 119-122 |
-| `syncPasswordSaved(saved)` | `(b: boolean) => void` | 124 |
-| `syncSelfPasswordSaved(saved)` | `(b: boolean) => void` | 126 |
-| `saveConfigDirect(cfg, clearPassword?, clearSelfPassword?)` | `=> Promise<void>` | 128-171：全量合并后调 `api.saveConfig`；成功清脏（134-137）并按需置 `passwordSaved`/`selfPasswordSaved`（140-145）；失败记日志，连续失败达 `DIRTY_FAILURE_LIMIT` 时放弃脏标记（150-160） |
-| `setAccounts(a)` / `setActiveAccount(a)` | `=> void` | 173-174 |
-| `setLanguage(lang)` | `=> void` | 176-180：写 `safeStorage` + `i18next.changeLanguage` |
+| `updateConfig(partial)` | `(p: Partial<Config>) => void` | 62-94：立即 `set` + 标脏 + 500ms debounce 保存（83-92）；`customThemeColor` 同步给 `useThemeStore`（93） |
+| `updateConfigLocal(partial)` | 同上 | 96-105：只改本地与标脏，不落盘 |
+| `mergeConfigFromBackend(incoming)` | `(p: Partial<Config>) => void` | 109-116：跳过 `dirtyFields` 中的键 |
+| `clearDirtyFields()` | `() => void` | 118-121 |
+| `syncPasswordSaved(saved)` | `(b: boolean) => void` | 123 |
+| `syncSelfPasswordSaved(saved)` | `(b: boolean) => void` | 125 |
+| `saveConfigDirect(cfg, clearPassword?, clearSelfPassword?)` | `=> Promise<void>` | 127-170：全量合并后调 `api.saveConfig`；成功清脏（133-136）并按需置 `passwordSaved`/`selfPasswordSaved`（139-144）；失败记日志，连续失败达 `DIRTY_FAILURE_LIMIT` 时放弃脏标记（149-159） |
+| `setAccounts(a)` / `setActiveAccount(a)` | `=> void` | 172-173 |
+| `setLanguage(lang)` | `=> void` | 175-179：写 `safeStorage` + `i18next.changeLanguage` |
 
-### `AdapterStore`（`useAdapterStore.ts:37-46`）
+（原 `api` 字段已于 2026-10-03 重构删除：IPC 客户端 `tauriApiWithRetry` 一律由消费方静态 `import { tauriApiWithRetry as api } from './tauriApi'`，不再经 store 中转；`useConfigStore`/`useQualityStore`/`useAdapterStore` 内部的 `const api = tauriApiWithRetry` 保留。）
+
+### `AdapterStore`（`useAdapterStore.ts:37-47`）
 
 | 字段 / action | 类型 | 含义 |
 |---|---|---|
-| `adapters` | `Adapter[]` | 初值 `[]`（49） |
-| `disabledAdapters` | `DisabledAdapter[]` | 50 |
-| `adapterDetails` | `AdapterDetail[]` | 51 |
-| `isRefreshingAdapters` | `boolean` | 52；`refreshAdapters` 最少保持 true 500ms（67） |
-| `activePanel` | `PanelName` | 初值 `'dashboard'`（53） |
-| `refreshAdapters()` | `=> Promise<void>` | 55-70：锁 → `refreshAdapterData({force:true, triggerCheck:true})` → 并行等 500ms → 释放锁 |
-| `setAdapters(a)` | `=> void` | 72 |
-| `setActivePanel(p)` | `=> void` | 73 |
+| `adapters` | `Adapter[]` | 初值 `[]`（48） |
+| `disabledAdapters` | `DisabledAdapter[]` | 49 |
+| `adapterDetails` | `AdapterDetail[]` | 50 |
+| `isRefreshingAdapters` | `boolean` | 51；`refreshAdapters` 最少保持 true 500ms（66） |
+| `activePanel` | `PanelName` | 初值 `'dashboard'`（52） |
+| `refreshAdapters()` | `=> Promise<void>` | 54-69：锁 → `refreshAdapterData({force:true, triggerCheck:true})` → 并行等 500ms → 释放锁 |
+| `setAdapters(a)` | `=> void` | 74 |
+| `setAdapterDetails(d)` | `=> void` | 75 |
+| `setDisabledAdapters(d)` | `=> void` | 76 |
+| `setActivePanel(p)` | `=> void` | 77 |
 
 ### `QualityStore`（`useQualityStore.ts:23-41`）
 
@@ -430,13 +433,13 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 
 ### 链路一：组件 → store → tauriApi.invoke → IPC → Rust
 
-1. **取 api**：store 内统一 `const api = tauriApiWithRetry`（`useAuthStore.ts:17`、`useConfigStore.ts:12`、`useAdapterStore.ts:7`、`useQualityStore.ts:10`）；hook/组件侧从 `useConfigStore.getState().api` 取（`useInitialDataLoad.ts:30`、`useEventListeners.ts:31`、`useHeartbeat.ts:7`、`useGlobalShortcut.ts:6`），或直接静态导入（`account/AccountPanel.tsx:26`、`account/selfServiceState.ts:5`、`auth/DashboardPanel.tsx:32`）。
+1. **取 api**：store 内统一 `const api = tauriApiWithRetry`（`useAuthStore.ts:17`、`useConfigStore.ts:12`、`useAdapterStore.ts:7`、`useQualityStore.ts:10`）；hook/组件侧一律静态导入 `import { tauriApiWithRetry as api } from './tauriApi'`（`useInitialDataLoad.ts`、`useEventListeners.ts`、`useHeartbeat.ts`、`useGlobalShortcut.ts`、各 `useXxx` 钩子、`App.tsx`、`SettingsPanel.tsx` 等；2026-10-03 重构移除了 `useConfigStore` 的 `api` 字段，不再经 store 中转），或直接静态导入（`account/AccountPanel.tsx:26`、`account/selfServiceState.ts:5`、`auth/DashboardPanel.tsx:32`）。
 2. **组件触发**：`DockNav` 取 `useAuthStore(s => s.doLogin)`（`components/layout/DockNav.tsx:413`）并交给登录按钮 `onAction`（539）。
 3. **store 内编排**：`doLogin`（`useAuthStore.ts:133-192`）→ 先 `saveConfigDirect`（145）→ `withTimeout(api.doLogin(adapterName), 60000, ...)`（153）→ 写 `status` 与日志/toast（155-163）→ 按 `QUALITY_MANUAL_THROTTLE_MS` 节流后调 `api.checkNetworkQuality()`（169-175）→ 失败才复查 `checkOnline()`（187-189）。
 4. **出 IPC**：`tauriApi.doLogin` → `invoke<LoginResult>('do_login', { adapterName })`（`tauriApi.ts:142`）。Rust 侧的 `do_login` 命令见 [[desktop-commands]] 与 [[desktop-auth]]。
 5. **返回后写回 store**，组件通过选择器订阅（如 `useAuthStore((s) => s.isLoggingIn)`，`DockNav.tsx:404`）重渲染。
 
-配置写盘的完整链路（防抖 + 脏字段 + in-flight + 关窗 flush）：`updateConfig`（`useConfigStore.ts:63-95`）→ 500ms debounce → `saveConfigDirect`（128）→ `api.saveConfig`（`tauriApi.ts:135`，带重试 260）→ Rust `save_config` 落盘；失败时 `dirtyFailureCounts` 累计，达 3 次放弃脏标记（150-160）。
+配置写盘的完整链路（防抖 + 脏字段 + in-flight + 关窗 flush）：`updateConfig`（`useConfigStore.ts:62-94`）→ 500ms debounce → `saveConfigDirect`（127）→ `api.saveConfig`（`tauriApi.ts:135`，带重试 260）→ Rust `save_config` 落盘；失败时 `dirtyFailureCounts` 累计，达 3 次放弃脏标记（149-159）。
 
 ### 链路二：Rust emit → listen → store → UI
 
@@ -498,7 +501,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
    getXxx: (arg) => invoke<XxxResult>('get_xxx', { arg }),
    ```
 3. 若该命令需要重试：`tauri-app/frontend/src/hooks/tauriApi.ts:255-261` 的 `tauriApiWithRetry` 里覆盖（当前仅 `saveConfig`）。
-4. 消费侧 store：在目标 store 的 `interface`（如 `useConfigStore.ts:27-51`、`useAuthStore.ts:115-125`）加 action 签名，并在 store 实体（`useConfigStore.ts:53-181`、`useAuthStore.ts:127-297`）内实现。
+4. 消费侧 store：在目标 store 的 `interface`（如 `useConfigStore.ts:27-50`、`useAuthStore.ts:115-125`）加 action 签名，并在 store 实体（`useConfigStore.ts:52-180`、`useAuthStore.ts:127-297`）内实现。
 5. 只读数据若属于启动批次：在 `useInitialDataLoad.ts:32-167` 的 `getInitData` 分支内 `set` 到对应 store；若 Rust 侧 `init_data` 不含该字段，则在此追加一次独立 `api.xxx()` 调用（参照 `getDisabledAdapters` 的写法 96-100）。
 6. Rust 侧需在 `invoke_handler` 注册（见 [[desktop-commands]]）。
 
@@ -519,7 +522,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 - [[desktop-account-selfservice]]：`list_accounts`/`switch_account`/`save_current_as_account`/`delete_account` 与自助服务 6 个命令（`bind_operator`、`query_self_*`、`self_offline_session` 等）。
 - [[desktop-helper-update]]：`check_update`/`download_update`/`install_update`/`get_mirror_urls` 与 `update-available`/`update-download-progress`/`update-notification-click` 事件。
 - [[desktop-commands]]：本模块是全部 IPC 命令的前端唯一入口，命令面清单与之对齐。
-- [[desktop-app-lifecycle]]：`render_heartbeat`（`useHeartbeat.ts`）与关窗 flush（`useEventListeners.ts:50-75` + `useConfigStore.ts:190-220`）对应后端生命周期与 WebView 重载。
+- [[desktop-app-lifecycle]]：`render_heartbeat`（`useHeartbeat.ts`）与关窗 flush（`useEventListeners.ts:50-75` + `useConfigStore.ts:188-218`）对应后端生命周期与 WebView 重载。
 - [[desktop-platform]]：`open_external` 的 shell 插件回退（`tauriApi.ts:185-191`）与平台能力相关。
 - [[desktop-infra]]：事件名/payload 契约由后端 `events.rs` 定义，前端在此镜像。
 

@@ -23,7 +23,6 @@ const h = vi.hoisted(() => {
     syncSelfPasswordSaved: () => {},
     accounts: [] as unknown[],
     activeAccount: 'a1',
-    api: { switchAccount, renameAccount, listAccounts } as Record<string, unknown>,
     updateConfig,
     setAccounts,
     setActiveAccount,

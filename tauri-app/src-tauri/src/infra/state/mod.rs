@@ -123,7 +123,6 @@ impl ScheduledFired {
 /// 将原 AppState 顶层的 4 个原子标志合并为语义内聚的子结构体。
 /// 所有字段保持原有原子语义（Acquire/Release/Relaxed ordering）。
 pub struct UpdateStats {
-    pub last_update_check_epoch_ms: AtomicU64,
     pub update_notified: AtomicBool,
     pub last_disabled_notification_ms: AtomicU64,
     pub last_network_change_notification_ms: AtomicU64,
@@ -148,7 +147,6 @@ impl Default for UpdateStats {
 impl UpdateStats {
     pub fn new() -> Self {
         Self {
-            last_update_check_epoch_ms: AtomicU64::new(0),
             update_notified: AtomicBool::new(false),
             last_disabled_notification_ms: AtomicU64::new(0),
             last_network_change_notification_ms: AtomicU64::new(0),

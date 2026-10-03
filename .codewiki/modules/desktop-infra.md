@@ -59,7 +59,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `state/mod.rs:64` | pub fn | `validate_account_name(&str) -> Result<String, String>` | 账号名 1-32 字符 + 字符集校验 |
 | `state/mod.rs:77` | pub fn | `sanitize_account_id(user: &str) -> String` | 自动建号的 id 生成（R2）：字符集与 `validate_account_name` 一致，非法字符替换 `_`、按字符截断 32（宽松替换版，任何输入有确定输出不报错） |
 | `state/mod.rs:91-97` | pub struct | `TaskFlags` | 5 个任务互斥锁的聚合 |
-| `state/mod.rs:103-118` | pub struct | `UpdateStats` | 更新/通知/心跳/恢复/自动启用的 9 个原子统计字段 |
+| `state/mod.rs:125-139` | pub struct | `UpdateStats` | 更新/通知/心跳/恢复/自动启用的 8 个原子统计字段 |
 | `state/mod.rs:120-124` | impl | `Default for UpdateStats` | 委托 `new` |
 | `state/mod.rs:127` | pub fn | `UpdateStats::new() -> Self` | 全部置 0/false |
 | `state/mod.rs:142-149` | pub struct | `AppState` | 全局状态根，Tauri 托管对象 |
@@ -263,7 +263,6 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 
 | 字段 | 类型 | 行号 | 含义与使用点 |
 | --- | --- | --- | --- |
-| `last_update_check_epoch_ms` | `AtomicU64` | `state/mod.rs:104` | 上次更新检查时间；`commands/updater.rs:18`、`update/updater.rs:307` 写 |
 | `update_notified` | `AtomicBool` | `state/mod.rs:105` | 本会话是否已弹过"发现新版本"（CAS 去重）；`update/updater.rs:292` |
 | `last_disabled_notification_ms` | `AtomicU64` | `state/mod.rs:106` | 适配器被禁用的通知节流；`monitor/adapter_watch.rs:111,122` |
 | `last_network_change_notification_ms` | `AtomicU64` | `state/mod.rs:107` | 网络状态变更通知节流（60s）；`monitor/background_emit.rs:95-96` |

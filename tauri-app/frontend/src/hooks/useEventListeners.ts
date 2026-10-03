@@ -7,6 +7,7 @@ import { useAdapterStore } from './useAdapterStore'
 import { useAuthStore } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useLogToastStore } from './useLogToastStore'
+import { tauriApiWithRetry as api } from './tauriApi'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
@@ -28,7 +29,6 @@ export function useEventListeners() {
     // 否则 cleanup 置 false 后所有事件 handler 全部静默失效（仅 dev 模式出现）
     mountedRef.current = true
     const lt = useLogToastStore
-    const { api } = useConfigStore.getState()
     const unlisteners: Array<() => void> = []
 
     const handleQualityBadAlert = (filtered: NetworkQuality, prev: NetworkQuality | null) => {
@@ -218,7 +218,7 @@ export function useEventListeners() {
       if (!mountedRef.current) return
       if (!adps) return
       const applyAdapters = (next: typeof adps) => {
-        useAdapterStore.setState({ adapters: next })
+        useAdapterStore.getState().setAdapters(next)
         const { status } = useAuthStore.getState()
         if (status.state === 'offline' || status.state === 'loading') {
           useAuthStore.getState().checkOnline(undefined, next).catch((e) => { if (import.meta.env.DEV) console.error(e) })
@@ -247,13 +247,13 @@ export function useEventListeners() {
       // 后端每次推送新数组对象，内容未变时跳过 setState，保持引用稳定
       const prev = useAdapterStore.getState().adapterDetails
       if (prev && JSON.stringify(prev) === JSON.stringify(details)) return
-      useAdapterStore.setState({ adapterDetails: details })
+      useAdapterStore.getState().setAdapterDetails(details)
     }) ?? (() => {})
     if (unsub3a) unlisteners.push(unsub3a)
 
     const unsub3b = api.onDisabledAdaptersChanged?.((disabled) => {
       if (!mountedRef.current) return
-      if (disabled) useAdapterStore.setState({ disabledAdapters: disabled })
+      if (disabled) useAdapterStore.getState().setDisabledAdapters(disabled)
     }) ?? (() => {})
     if (unsub3b) unlisteners.push(unsub3b)
 
@@ -366,7 +366,7 @@ export function useEventListeners() {
         if (typeof incomingActive === 'string' && incomingActive !== cs.activeAccount) {
           cs.setActiveAccount(incomingActive)
         }
-        cs.api.listAccounts?.().then((accs) => {
+        api.listAccounts?.().then((accs) => {
           if (!mountedRef.current) return
           useConfigStore.getState().setAccounts(accs || [])
         }).catch((e) => { if (import.meta.env.DEV) console.error('刷新账号列表失败:', e) })

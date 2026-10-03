@@ -12,6 +12,7 @@ import { useAuthStore } from '@/hooks/useAuthStore'
 import { operatorLabelKey } from '@/settings/constants'
 import { IspMark } from '@/shared/IspMark'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useThemeStore } from '@/hooks/useThemeStore'
 import type { ThemeName } from '@/shared'
@@ -83,7 +84,6 @@ function AppInner() {
   // 顶栏状态点旁的在线运营商标（手机壳 StatusBar 不渲染，此处为一眼可见位；详情在总览状态卡）
   const onlineOperator = useAuthStore((s) => s.bgStatus.onlineOperator)
   const onlineOperatorLabel = status?.state === 'online' ? operatorLabelKey(onlineOperator) : undefined
-  const api = useConfigStore.getState().api
 
   const updateConfig = useConfigStore((s) => s.updateConfig)
   const refreshQuality = useQualityStore((s) => s.refreshQuality)

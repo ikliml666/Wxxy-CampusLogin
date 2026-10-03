@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
@@ -17,7 +18,6 @@ export function useMonitor() {
     refreshQuality: s.refreshQuality,
   })))
   const configStore = useConfigStore(useShallow((s) => ({
-    api: s.api,
     updateConfigLocal: s.updateConfigLocal,
     saveConfigDirect: s.saveConfigDirect,
   })))
@@ -39,25 +39,25 @@ export function useMonitor() {
         // 覆盖存量用户——名称检查早已开启但从未触发过权限请求,SSID 恒「未获取」
         if (useConfigStore.getState().config?.enableNetworkNameCheck) {
           try {
-            await store.api.requestWifiSsidPermission?.()
+            await api.requestWifiSsidPermission?.()
           } catch (e) {
             if (import.meta.env.DEV) console.warn('SSID 权限请求失败:', e)
           }
         }
-        await store.api.startBackgroundCheck?.()
+        await api.startBackgroundCheck?.()
       } else {
-        await store.api.stopBackgroundCheck?.()
+        await api.stopBackgroundCheck?.()
       }
       store.updateConfigLocal({ enableBackgroundCheck: enabled, backgroundCheckInterval: intervalSec * 1000 })
       store.setBgStatus(prev => ({ ...prev, isRunning: enabled }))
     } catch (e) {
       if (import.meta.env.DEV) console.error('切换后台检查失败:', e)
     }
-  }, [store.api, store.updateConfigLocal, store.setBgStatus, store.saveConfigDirect])
+  }, [api, store.updateConfigLocal, store.setBgStatus, store.saveConfigDirect])
 
   const handleTriggerCheck = useCallback(async () => {
-    try { await store.api.triggerBackgroundCheck?.() } catch (e) { if (import.meta.env.DEV) console.error('触发后台检查失败:', e) }
-  }, [store.api])
+    try { await api.triggerBackgroundCheck?.() } catch (e) { if (import.meta.env.DEV) console.error('触发后台检查失败:', e) }
+  }, [api])
 
   const handleToggleLatencyTest = useCallback(async (enabled: boolean, intervalSec: number) => {
     try {
@@ -68,15 +68,15 @@ export function useMonitor() {
         latencyTestInterval: intervalSec * 1000,
       })
       if (enabled) {
-        await store.api.startLatencyTest?.()
+        await api.startLatencyTest?.()
       } else {
-        await store.api.stopLatencyTest?.()
+        await api.stopLatencyTest?.()
       }
       store.updateConfigLocal({ enableLatencyTest: enabled, latencyTestInterval: intervalSec * 1000 })
     } catch (e) {
       if (import.meta.env.DEV) console.error('切换延迟测试失败:', e)
     }
-  }, [store.api, store.updateConfigLocal, store.saveConfigDirect])
+  }, [api, store.updateConfigLocal, store.saveConfigDirect])
 
   return {
     ...store,

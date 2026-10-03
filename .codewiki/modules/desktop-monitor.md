@@ -51,7 +51,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
   - `state.config.update`：置 `enable_background_check = true`；若 `background_check_interval < 10000` 则改写为 `15000`（`monitor/background_task.rs:8-13`）。
   - `task_manager.spawn("background_check", ...)`（`:16`）注册跟踪任务；内部先判 cancel（`:20-22`），然后**立即执行首轮** `run_background_check`（`:24`）。
   - 之后进入循环（`:29-49`）：每轮重新读配置 `background_check_interval.max(10000)`（`:30-34`）——间隔修改即时生效，不需要重启任务；`tokio::time::interval` 先 `tick().await` 吃掉即时首 tick（`:36`），再 `select!` 等下一 tick 或 cancel（`:37-43`）；退出条件为 `!task_manager.is_running("background_check") || exit.is_quitting`（`:44-47`）。
-  - 注册成功后走 `commands::config_cmd::save_config_to_disk_encrypted` 落盘（`:55-57`），失败只告警；返回 `CommandResult::ok_msg("后台检测已启动")`（`:59`）。
+  - 注册成功后走 `config::persist::save_config_and_broadcast` 落盘+广播（`:55-57`，不刷托盘——监控层不再反向依赖 commands），失败只告警；返回 `CommandResult::ok_msg("后台检测已启动")`（`:59`）。
 
 ### 巡检主体（`monitor/background_check.rs`）
 
@@ -417,7 +417,7 @@ tick（background_check_interval，下限 10000ms）
 - [[desktop-network-dns]]：`adapter_watch.rs` 每轮调 `cleanup_expired_dns_cache`；`discovery::registry::refresh_class_subkey_cache`。
 - [[desktop-network-quality]]：`quality_scheduler::perform_quality_check` 调 `check_network_quality_async`，并把结果发 `emit_network_quality_result`。
 - [[desktop-config]]：本模块读取的全部配置字段（`enable_background_check`、`background_check_interval`、`enable_latency_test`、`latency_test_interval`、`enable_network_quality`、`auto_login_on_preparation`、`auto_login_on_start`、`auto_login_cooldown_secs`、`max_disconnect_reconnect`、`enable_network_name_check`、`required_network_name`、`campus_check_start_minutes`/`campus_check_end_minutes`、`enable_notification`、`auto_exit_on_online`、`auto_exit_after_login`、`skip_ttfb_in_latency`、`skip_content_in_latency`、`fixed_gateway`）。
-- [[desktop-commands]]：`commands/background.rs`（启动巡检）、`commands/config_cmd.rs::save_config_to_disk_encrypted`（配置落盘并广播 `config-changed`）。
+- [[desktop-commands]]：`commands/background.rs`（启动巡检）；[[desktop-config]]：`config::persist::save_config_and_broadcast`（配置落盘并广播 `config-changed`，监控层统一出口、不刷托盘）。
 - [[desktop-app-lifecycle]]：`infra::lifecycle::{start_campus_exit, cancel_campus_exit, start_auto_exit}` 的 30s 最小化 / 60s 退出 / 20s 自动退出倒计时；`app/startup.rs` 的挂载点。
 - [[desktop-infra]]：`infra::state`（`AppState`/`NetworkSnapshot`/`UpdateStats`/`TaskFlags`）、`infra::task_manager`、`infra::events::EventBus`、`infra::notification::emit_notification`、`infra::command_context::CommandContext`。
 - [[desktop-platform]]：托盘与系统通知的落地实现（本模块只调 `emit_notification`）。

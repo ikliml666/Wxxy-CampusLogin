@@ -67,7 +67,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
   - 计算实际哈希：`tokio::task::spawn_blocking` 内以 **64KB buffer** 流式读取（`:211-228`，注释说明避免 50MB+ 安装包一次性读入造成内存峰值）；最终返回 `actual_hash == expected_hash`（`:230`）。
 - `pub fn schedule_update_cleanup()` — `:233-244`。`spawn` 一个任务：`sleep(24 * 3600)` 后 `spawn_blocking(remove_dir_all(temp_dir))`，`temp_dir = %TEMP%/campus-login-update`（`:234`）；完成后 `log_debug!("updater", "更新临时目录已清理")`（`:242`）。注释说明原值为 600s，因用户可能在 UAC 等待/稍后安装时被提前删除，改 24h（`:236-237`）。
 - `pub fn start_update_check_loop(app_handle: &tauri::AppHandle)` — `:246-278`。任务名 `update_check_loop`（`:249`），注册失败只 `log_warn!`（`:276`）。流程：先 `select!` 等 `STARTUP_CHECK_DELAY_SECS`（5s）或 cancel（`:253-256`）；进入 `loop` 判 cancel / `is_quitting`（`:258-260`）→ `do_update_check`（`:261`）→ **5 秒步进**累计到 `AUTO_CHECK_INTERVAL_SECS`（86400，`:264-273`），步进间同时监听 cancel 与 `is_quitting`。调用方 `app/startup.rs:193`。
-- `async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState)` — `:281-313`（私有）。`mirror_first = config.update_source != "github"`（`:282`，默认 `update_source = "mirror"`，见 `config/model.rs:198`，即默认镜像优先）；`check_update_inner` 成功后发 `emit_update_available(has_update, latest_version, release_notes)`（`:285-289`）；有更新且 `update_stats.update_notified` 的 `compare_exchange(false, true, Acquire, Relaxed)` 成功时弹通知（`:292`）：Windows 桌面走 `platform::toast::show_update_toast`（可点击跳转关于界面）**失败降级**为 `emit_notification(app_h, "发现新版本", body, "mascot-update")`（`:295-299`，`#[cfg(all(desktop, target_os = "windows"))]`），非该组合直接走普通通知（`:300-301`）；最后写 `last_update_check_epoch_ms`（`:303-307`）。失败只 `log_warn!`（`:309-311`）。
+- `async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState)` — `:281-313`（私有）。`mirror_first = config.update_source != "github"`（`:282`，默认 `update_source = "mirror"`，见 `config/model.rs:198`，即默认镜像优先）；`check_update_inner` 成功后发 `emit_update_available(has_update, latest_version, release_notes)`（`:285-289`）；有更新且 `update_stats.update_notified` 的 `compare_exchange(false, true, Acquire, Relaxed)` 成功时弹通知（`:292`）：Windows 桌面走 `platform::toast::show_update_toast`（可点击跳转关于界面）**失败降级**为 `emit_notification(app_h, "发现新版本", body, "mascot-update")`（`:295-299`，`#[cfg(all(desktop, target_os = "windows"))]`），非该组合直接走普通通知（`:300-301`））。失败只 `log_warn!`（`:309-311`）。
 - `pub async fn fetch_latest_release(mirror_first: bool) -> Result<(bool, String, String, Option<String>), String>` — `:317-343`。按 `mirror_first` 排源顺序（`:318-322`，镜像优先时 `[M0, M1, M2, 官方]`，否则 `[官方, M0, M1, M2]`），顺序尝试 `fetch_version_from_url`；首个成功即返回（降级生效时 `i > 0` 记 `log_info!`，`:328`）；全失败返回 `Err("所有更新源均失败（首选: {primary_err}）")`（`:342`）。
 - `async fn fetch_version_from_url(url: &str) -> Result<(bool, String, String, Option<String>), String>` — `:345-384`（私有）。带 `User-Agent: CampusLogin-UpdateChecker` 请求；非 2xx → `Err("version.json不可用: HTTP {status}")`；`data["version"]` 去 `v` 前缀，空 → `Err("version.json中缺少版本号")`（`:364-372`）；`current = env!("APP_VERSION")`（编译期由 `tauri-app/src-tauri/build.rs:37` 从 `tauri.conf.json` 注入）；`has_update = compare_versions(current, &latest_tag)`；`notes` 缺省 `""`（`:378`），`asset` 缺省 `None`（`:381`）。返回四元组 `(has_update, latest_tag, notes, asset)`。
 - `pub async fn check_update_inner(mirror_first: bool) -> Result<UpdateInfo, String>` — `:388-452`。步骤：
@@ -212,11 +212,10 @@ app/startup.rs:193  start_update_check_loop
         → if has_update && update_notified.CAS(false→true) 成功
              Windows 桌面：platform::toast::show_update_toast（失败降级 emit_notification）  updater.rs:295-301
              其他：emit_notification("发现新版本", ..., "mascot-update")
-        → update_stats.last_update_check_epoch_ms = now
      → 5s 步进 × 86400s（每步监听 cancel / is_quitting）
 ```
 
-手动检查走 `commands/updater.rs:8-22`（`check_update` 命令，同样 `check_update_inner`，并写 `last_update_check_epoch_ms`）。
+手动检查走 `commands/updater.rs:8-22`（`check_update` 命令，同样 `check_update_inner`；检查时间由 `update/updater.rs` 的 `LAST_CHECK_TIME_MS` 静态量记录）。
 
 ### update：下载 → 校验 → 安装 → 清理链路
 
