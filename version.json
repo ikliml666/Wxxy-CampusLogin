@@ -1,4 +1,4 @@
 {
-  "version": "v2.3.9",
-  "notes": "📥 下载提醒：下载安装包请前往 GitHub Releases 或夸克网盘；应用内下载缓慢或失败时务必改用这两条渠道！\n· GitHub：https://github.com/ikliml666/Wxxy-CampusLogin/releases\n· 夸克网盘：https://pan.quark.cn/s/c46f67bc2658\n\n### 安卓校园网识别增强\n- 新增 WiFi 名称（SSID）系统级读取：名称检查开启时，连接 i-wxxy / iwxxy-2 / iwxxy-3 直接判定在校园网；未命中或无法读取时自动退回原有「子网 → 网关 → 门户」探测\n- 后台检测与监控面板开始返回真实 SSID，不再恒显「未获取」（Android 12+ 免定位权限；更低版本不支持，仍显示「未获取」）\n\n### 缺陷修复\n- 修复安卓端点击「一键下载更新」必现闪退的问题（v2.3.8 起，检查更新正常但下载即崩；本版本起可正常应用内下载安装）\n- 修复应用内更新「下载成功但安装提示 APK 文件不存在」的问题（下载目录与安装器目录约定错位所致）"
+  "version": "v2.4.0",
+  "notes": "📥 下载提醒：下载安装包请前往 GitHub Releases 或夸克网盘；应用内下载缓慢或失败时务必改用这两条渠道！\n· GitHub：https://github.com/ikliml666/Wxxy-CampusLogin/releases\n· 夸克网盘：https://pan.quark.cn/s/c46f67bc2658\n\n### 本版本最重要的变化\n- **夜间出站切换（双端）**：周日至周四 23:00（周五六 23:30）自动把出站切到非校园网网卡（如热点），次日 7:30 自动还原\n- **状态栏在线运营商徽标**：头部直接显示当前真实在线运营商（电信/联通/移动/校方），双适配器并排显示\n- **安卓安装包大幅瘦身**：43MB → 约 20MB（Rust 编译优化 + 人脸模型移出安装包按需下载）\n- **校园网检测提速**：11 秒 → 3 秒；Windows 静默提权修复（计划任务代理，不再弹 UAC）\n\n完整变更见 Release Notes（GitHub Releases 页面）。"
 }
