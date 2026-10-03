@@ -5,7 +5,7 @@
 // 纪律:底部避让 env(safe-area-inset-bottom);动画仅 transform/opacity,
 // 带 motion-reduce 降级;整体轻盈——无生硬描边,悬浮感靠阴影 + 磨砂。
 
-import { LayoutDashboard, UserCircle, Globe, Gauge, Radar, LayoutGrid } from 'lucide-react'
+import { LayoutDashboard, UserCircle, Globe, Signal, Activity, Ellipsis } from 'lucide-react'
 import { m } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
@@ -17,11 +17,11 @@ const TABS: { id: MobileTab; labelKey: string; Icon: typeof LayoutDashboard }[] 
   { id: 'dashboard', labelKey: 'nav.dashboard', Icon: LayoutDashboard },
   { id: 'account', labelKey: 'nav.account', Icon: UserCircle },
   { id: 'selfservice', labelKey: 'nav.selfservice', Icon: Globe },
-  { id: 'more', labelKey: 'nav.more', Icon: LayoutGrid },
+  { id: 'more', labelKey: 'nav.more', Icon: Ellipsis },
 ]
 
-const QUALITY_TAB = { id: 'quality' as const, labelKey: 'nav.quality', Icon: Gauge }
-const MONITOR_TAB = { id: 'monitor' as const, labelKey: 'nav.monitor', Icon: Radar }
+const QUALITY_TAB = { id: 'quality' as const, labelKey: 'nav.quality', Icon: Signal }
+const MONITOR_TAB = { id: 'monitor' as const, labelKey: 'nav.monitor', Icon: Activity }
 
 function useNavTabs(): { id: MobileTab; labelKey: string; Icon: typeof LayoutDashboard }[] {
   const qualityEnabled = useConfigStore((s) => s.config.enableNetworkQuality !== false)

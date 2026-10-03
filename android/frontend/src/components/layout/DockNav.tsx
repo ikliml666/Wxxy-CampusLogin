@@ -2,12 +2,11 @@ import type { PanelName } from '@/shared'
 import {
   LayoutDashboard,
   UserCircle,
-  Wifi,
-  Radar,
+  Activity,
+  Signal,
   Gauge,
-  Zap,
+  ScrollText,
   Settings,
-  FileText,
   LogIn,
   LogOut,
   Globe,
@@ -29,12 +28,11 @@ const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
   UserCircle,
   Globe,
-  Wifi,
-  Radar,
+  Activity,
+  Signal,
   Gauge,
-  Zap,
+  ScrollText,
   Settings,
-  FileText,
 }
 
 const MAGNETIC_RANGE = 80

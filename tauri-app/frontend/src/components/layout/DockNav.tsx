@@ -3,12 +3,12 @@ import type { Adapter } from '@/network'
 import {
   LayoutDashboard,
   UserCircle,
-  Wifi,
-  Radar,
+  Network,
+  Activity,
+  Signal,
   Gauge,
-  Zap,
+  ScrollText,
   Settings,
-  FileText,
   LogIn,
   LogOut,
   Cable,
@@ -35,12 +35,12 @@ const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
   UserCircle,
   Globe,
-  Wifi,
-  Radar,
+  Network,
+  Activity,
+  Signal,
   Gauge,
-  Zap,
+  ScrollText,
   Settings,
-  FileText,
 }
 
 const MAGNETIC_RANGE = 80
