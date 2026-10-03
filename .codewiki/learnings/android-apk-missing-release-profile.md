@@ -1,5 +1,5 @@
 ---
-title: 安卓 APK 体积 87.5% 是单个 .so——android workspace 根缺失 [profile.release]
+title: 安卓 APK 体积优化——android workspace 根需独立 [profile.release]
 type: learning
 source_files:
   - android/src-tauri/Cargo.toml
@@ -15,7 +15,7 @@ tags: [教训, 安卓, cargo-profile, 打包体积, tauri]
 
 ## 根因
 
-`android/src-tauri` 是安卓构建的独立 workspace 根（Cargo.toml 无 `[workspace]` 段），其 Cargo.toml **完全没有 `[profile.release]`**。桌面端 `tauri-app/src-tauri/Cargo.toml` 的 profile（lto=thin、strip=true、panic=abort）随 path 依赖引入 android crate 时**不传播**——profile 只在编译时的 workspace 根生效。于是安卓一直走 Cargo 默认 release 档：无 LTO、符号表不 strip、panic unwind，.so 膨胀到 37.8 MB。
+`android/src-tauri` 是安卓构建的独立 workspace 根（Cargo.toml 无 `[workspace]` 段），其 Cargo.toml **原无** `[profile.release]`。桌面端 `tauri-app/src-tauri/Cargo.toml` 的 profile（lto=thin、strip=true、panic=abort）随 path 依赖引入 android crate 时**不传播**——profile 只在编译时的 workspace 根生效。于是安卓一直走 Cargo 默认 release 档：无 LTO、符号表不 strip、panic unwind，.so 膨胀到 37.8 MB。
 
 ## 修复
 
@@ -28,6 +28,8 @@ codegen-units = 1
 strip = true
 panic = "abort"   # 与桌面一致
 ```
+
+见 `android/src-tauri/Cargo.toml:56-60`；桌面端配置在 `tauri-app/src-tauri/Cargo.toml:89-94`（lto=thin，codegen-units=16）。两端的 profile 各自独立声明，不再互相依赖。
 
 ## 验证
 

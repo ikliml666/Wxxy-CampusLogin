@@ -94,7 +94,7 @@
 - [[learnings\dual-tree-sync-human-discipline|双端同步依赖人工纪律，仓库里没有自动拦截]]
 - [[learnings\tauri-assetprotocol-needs-protocol-asset-feature|启用 assetProtocol 必须同步给 tauri 依赖加 protocol-asset feature]]
 - [[learnings\reqwest-panic-no-reactor-in-thread|子线程 reqwest panic "there is no reactor running"]]
-- [[learnings\android-apk-missing-release-profile|安卓 APK 体积 87.5% 是单个 .so——android workspace 根缺失 [profile.release]]]
+- [[learnings\android-apk-missing-release-profile|安卓 APK 体积优化——android workspace 根需独立 [profile.release]]]
 - [[learnings\android-white-screen-missing-init-fields|安卓 app 白屏：get_init_data 少字段，前端直接读不判空]]
 - [[learnings\android-async-command-large-future-stack-overflow|安卓 async tauri 命令携带大栈数组并发 future——JavaBridge 线程栈溢出闪退]]
 - [[learnings\android-app-data-dir-vs-filesdir-mismatch|安卓 tauri app_data_dir 与 filesDir 错位——应用内更新下载成功但安装报 APK 文件不存在]]

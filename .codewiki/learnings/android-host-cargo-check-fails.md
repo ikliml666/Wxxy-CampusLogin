@@ -3,6 +3,7 @@ title: host cargo check 在 android/src-tauri 基线即失败
 type: learning
 source_files:
   - android/src-tauri/Cargo.toml
+  - android/src-tauri/src/lib.rs
 tags: [教训, 安卓, 构建, 验证]
 ---
 
@@ -12,7 +13,9 @@ tags: [教训, 安卓, 构建, 验证]
 
 ## 根因
 
-mobile-only 插件的权限在 host 环境收集不全（相关实现都是 `#![cfg(mobile)]`）。
+安卓专属 crate（`campus-login-android`）通过 path 依赖桌面协议核心 `campus-login`（`Cargo.toml:34`），且其 `src/lib.rs` 中大量使用 `#![cfg(mobile)]` 门控：`lib.rs:33-39` 的 `#[cfg(mobile)]` 块注册网络绑定、Keystore、前台服务、生物识别与通知插件；`lib.rs:41-42` 的 `#[cfg(not(mobile))]` 分支仅 manage state 不注册任何插件。host 编译时走 `not(mobile)` 路径，缺少这些插件初始化会导致链接失败或命令面不完整——因此基线就无法通过 host cargo check。
+
+此外 `Cargo.toml:28-31` 的 `[target.'cfg(target_os = "android")'.dependencies]` 段声明了仅 android 目标编译的依赖（`android_system_properties`、`libc`），host 环境同样收集不到这些符号。
 
 ## 解决
 

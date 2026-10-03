@@ -25,6 +25,12 @@ tauri build script 在编译期校验 `tauri.conf.json` 的 allowlist 与 `Cargo
 
 `android/src-tauri/Cargo.toml:15` 加 `protocol-asset` feature。
 
+## 代码现状
+
+- `android/src-tauri/tauri.conf.json:20-23` — `"security.assetProtocol": { "enable": true, "scope": ["$APPDATA/files/face-models/**"] }`
+- `android/src-tauri/tauri.conf.json:24` — `"dangerousDisableAssetCspModification": ["style-src"]`（禁用 CSP 中对 style-src 的自动修改）
+- `android/src-tauri/Cargo.toml:15` — `tauri = { version = "2", features = ["protocol-asset"] }`（已同步）
+
 ## 教训
 
 conf 里每启用一个需要 feature 支撑的协议/能力，先同步 Cargo.toml features 再跑验证；tauri 的这类耦合错误信息里已给出修复答案（"add the `protocol-asset` feature"），照做即可，别去翻文档绕路。
