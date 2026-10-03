@@ -193,22 +193,22 @@ Kotlin 私有辅助（非命令）：`canReachSetAcceptUnvalidated()`（`:240`�
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `CHANNEL_ID = "campus_monitor"`、`NOTIFICATION_ID = 0xCAFE`、`EXTRA_TEXT`、`ACTION_UPDATE`、`ACTION_STOP` | `ForegroundService.kt:24-28` | 通知通道/ID/意图常量 |
-| `NUDGE_THROTTLE_MS = 5000L` | `ForegroundService.kt:36` | nudge 唤醒锁最小间隔（第二道闸） |
-| `NUDGE_WAKE_MS = 3000L` | `ForegroundService.kt:39` | nudge 持锁时长（覆盖 Rust 侧 2.5s 事件延迟 + 一次探针） |
-| `PROBE_WINDOW_TIMEOUT_MS = 30_000L` | `ForegroundService.kt:42` | 探针窗口唤醒锁上限（防 `endProbeWindow` 漏调泄漏） |
-| `instance: ForegroundService?` | `ForegroundService.kt:49` | 静态实例引用（探针窗口直调） |
-| `fun beginProbeWindow()` / `endProbeWindow()` | `ForegroundService.kt:52`、`:55` | `instance?.acquireProbeLocks()` / `releaseProbeLocks()` |
-| `isRunning` / `startAtMs` | `ForegroundService.kt:58`、`:67` | 运行标志 / Chronometer 计时起点 |
-| `fun buildNotification(context, text)` | `ForegroundService.kt:78-94` | ongoing + `setOnlyAlertOnce(true)` + `CATEGORY_SERVICE` + `setUsesChronometer(true)` + `setWhen(startAtMs)` |
-| `onCreate()` | `ForegroundService.kt:102-112` | 记 `startAtMs` → `startForegroundWithText` → `instance = this` → `registerNetworkWatcher` → `isRunning = true` |
-| `acquireProbeLocks()` | `ForegroundService.kt:120-142` | `WIFI_MODE_FULL_HIGH_PERF` WifiLock（`setReferenceCounted(false)`，`:129`）+ `PARTIAL_WAKE_LOCK "campus:probe"`（带 30s 超时，`:138-141`） |
-| `releaseProbeLocks()` | `ForegroundService.kt:145-156` | 释放两锁（幂等） |
-| `registerNetworkWatcher()` | `ForegroundService.kt:168-215` | 网络回调：`onAvailable` nudge（`:191`）、`onLost` 重置掩码 + nudge（`:193-196`）、`onCapabilitiesChanged` 仅关注字段（WIFI/CELLULAR/VALIDATED 位掩码）翻转时 nudge（`:198-206`）；nudge 内部 5s 节流（`:177-189`） |
-| `releaseLocks()` | `ForegroundService.kt:218-233` | 释放探针锁 + nudge 锁 + 注销网络回调 |
-| `onStartCommand()` | `ForegroundService.kt:235-246` | `ACTION_STOP` → `stopSelf()` 返回 `START_NOT_STICKY`（`:237-240`）；否则按 `EXTRA_TEXT` 更新通知并返回 `START_STICKY` |
-| `onDestroy()` | `ForegroundService.kt:248-254` | `releaseLocks()` + 清 `instance`/`isRunning`/`startAtMs` |
-| `startForegroundWithText()` | `ForegroundService.kt:258-271` | 建通道（`IMPORTANCE_LOW`，`:261-263`）→ API 34+ 用 `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`（`:266-267`） |
+| `CHANNEL_ID = "campus_monitor_v2"`、`NOTIFICATION_ID = 0xCAFE`、`EXTRA_TEXT`、`ACTION_UPDATE`、`ACTION_STOP` | `ForegroundService.kt:34-38` | 通知通道/ID/意图常量；通道 v2（importance 不可变，IMPORTANCE_LOW→DEFAULT 只能换 ID 重建，见 [[android-notification-channel-v2-migration]]） |
+| `NUDGE_THROTTLE_MS = 5000L` | `ForegroundService.kt:46` | nudge 唤醒锁最小间隔（第二道闸） |
+| `NUDGE_WAKE_MS = 3000L` | `ForegroundService.kt:49` | nudge 持锁时长（覆盖 Rust 侧 2.5s 事件延迟 + 一次探针） |
+| `PROBE_WINDOW_TIMEOUT_MS = 30_000L` | `ForegroundService.kt:52` | 探针窗口唤醒锁上限（防 `endProbeWindow` 漏调泄漏） |
+| `instance: ForegroundService?` | `ForegroundService.kt:59` | 静态实例引用（探针窗口直调） |
+| `fun beginProbeWindow()` / `endProbeWindow()` | `ForegroundService.kt:62`、`:65` | `instance?.acquireProbeLocks()` / `releaseProbeLocks()` |
+| `isRunning` / `startAtMs` | `ForegroundService.kt:68`、`:79` | 运行标志 / Chronometer 计时起点 |
+| `fun buildNotification(context, text)` | `ForegroundService.kt:103-121` | ongoing + `setOnlyAlertOnce(true)` + `CATEGORY_SERVICE` + `setUsesChronometer(true)` + `setWhen(startAtMs)` |
+| `onCreate()` | `ForegroundService.kt:159-170` | 记 `startAtMs` → `startForegroundWithText` → `instance = this` → `registerNetworkWatcher` → `isRunning = true` |
+| `acquireProbeLocks()` | `ForegroundService.kt:179-200` | `WIFI_MODE_FULL_HIGH_PERF` WifiLock（`setReferenceCounted(false)`，`:187`）+ `PARTIAL_WAKE_LOCK "campus:probe"`（带 30s 超时，`:196-199`） |
+| `releaseProbeLocks()` | `ForegroundService.kt:204-214` | 释放两锁（幂等） |
+| `registerNetworkWatcher()` | `ForegroundService.kt:226-273` | 网络回调：`onAvailable` nudge（`:249`）、`onLost` 重置掩码 + nudge（`:251-254`）、`onCapabilitiesChanged` 仅关注字段（WIFI/CELLULAR/VALIDATED 位掩码）翻转时 nudge（`:256-264`）；nudge 内部 5s 节流（`:235-247`） |
+| `releaseLocks()` | `ForegroundService.kt:276-291` | 释放探针锁 + nudge 锁 + 注销网络回调 |
+| `onStartCommand()` | `ForegroundService.kt:293-304` | `ACTION_STOP` → `stopSelf()` 返回 `START_NOT_STICKY`（`:295-298`）；否则按 `EXTRA_TEXT` 更新通知并返回 `START_STICKY` |
+| `onDestroy()` | `ForegroundService.kt:306-313` | `releaseLocks()` + 清 `instance`/`isRunning`/`startAtMs` |
+| `startForegroundWithText()` | `ForegroundService.kt:317-338` | 建通道 `campus_monitor_v2`（`IMPORTANCE_DEFAULT` + `setSound(null,null)` + `setShowBadge(false)`，`:320-330`）→ API 34+ 用 `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`（`:334`） |
 
 #### 权限与构建文件
 
@@ -345,8 +345,8 @@ foreground-service:
 5. **`acceptWifiNetwork` 两条底层路径对普通签名应用实际不可用**：反射 `setAcceptUnvalidated` 需 `CONNECTIVITY_INTERNAL` 且受 hidden API 名单限制（`NetworkBindPlugin.kt:161-164`），`Settings.Global` 写入受 `WRITE_SECURE_SETTINGS`（signature|privileged）保护（`NetworkBindPlugin.kt:251-255`）→ 返回多为 `accepted=false`、`path="none"`。Rust 侧只记日志不阻断（`protocol_cmds.rs:296-330`），不影响主链路。
 6. **`bindProcessToNetwork` 只影响此后新建的 socket**（`NetworkBindPlugin.kt:38-39` 类注释）：绑定生效依赖 Rust 侧清空连接池（`protocol_cmds.rs:232-236`），且 `already_bound` 分支刻意不清池；任何绕过 `ensure_wifi_bound` 的新建连接都可能落回默认路由。
 7. **`unbind` 无 Rust 调用方**：`NetworkBindPlugin.kt:145` 的 `unbind` 命令在 `android/src-tauri/src/` 中无任何调用点（grep 未命中），`default.toml:7` 却授予其权限——属预留能力（`unbind` 也是唯一清空 `lastBoundNetwork` 记忆的入口，见 `NetworkBindPlugin.kt:151`）。
-8. **探针窗口在服务未启动时静默失效**：`ForegroundService.kt:52/55` 用 `instance?.` 安全调用，`instance` 仅在 `onCreate`（`:109`）到 `onDestroy`（`:250`）之间非空。若 `beginProbeWindow` 早于服务创建（或服务被杀），Rust 侧拿不到锁也不报错，探针窗口退化为无锁运行（功能不受影响，省电优化失效）。
-9. **`updateNotification` 依赖服务已建通道**：`MonitorServicePlugin.kt:71-75` 直接 `notify(NOTIFICATION_ID, ...)`，通道由服务侧 `startForegroundWithText` 创建（`ForegroundService.kt:261-263`）；服务未启动时在 Android 8+ 上通知会被丢弃（无报错）。Rust 侧调用点 `monitor_loop.rs:771` 亦忽略返回值。
+8. **探针窗口在服务未启动时静默失效**：`ForegroundService.kt:62/65` 用 `instance?.` 安全调用，`instance` 仅在 `onCreate`（`:166`）到 `onDestroy`（`:309`）之间非空。若 `beginProbeWindow` 早于服务创建（或服务被杀），Rust 侧拿不到锁也不报错，探针窗口退化为无锁运行（功能不受影响，省电优化失效）。
+9. **`updateNotification` 依赖服务已建通道**：`MonitorServicePlugin.kt:71-75` 直接 `notify(NOTIFICATION_ID, ...)`，通道由服务侧 `startForegroundWithText` 创建（`ForegroundService.kt:320-330`）；服务未启动时在 Android 8+ 上通知会被丢弃（无报错）。Rust 侧调用点 `monitor_loop.rs:771` 亦忽略返回值。
 10. **`TextArgs` 被两个语义不同的命令共用**：`installApk`（`MonitorServicePlugin.kt:84`）与 `updateNotification`（`:69`）都解析 `TextArgs{text}`，Rust 壳也统一传 `{"text": ...}`（`foreground-service/src/lib.rs:43`、`:76`）——参数键名错用不会被类型系统拦住。
 11. **`installApk` 的双重路径约束**：Rust 侧先 `canonicalize` 限定 `app_data_dir/update/`（`update_cmds.rs:412-417`），Kotlin 侧再用 `File(args.text).name` 重拼 `filesDir/update/`（`MonitorServicePlugin.kt:86-87`）。两端假设同一目录（`app_data_dir` == `filesDir`）；`install_update` 在 `update` 目录 canonicalize 失败时回退未规范化路径（`update_cmds.rs:414`），此时 Rust 侧校验基于非规范化路径。
 12. **FileProvider authority 硬编码 `${applicationId}.fileprovider`**（`android/src-tauri/gen/android/app/src/main/AndroidManifest.xml:62`）与 Kotlin 的 `${activity.packageName}.fileprovider`（`MonitorServicePlugin.kt:93`）必须一致；更改 applicationId 后需同时确认两处与 `file_paths.xml`（`android/src-tauri/gen/android/app/src/main/res/xml/file_paths.xml`，含 `<files-path name="update" path="update/"/>`）仍成立。注意这三处都在 `android/src-tauri/gen/` 生成目录内或依赖其配置。

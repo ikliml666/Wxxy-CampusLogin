@@ -386,16 +386,17 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | `FaceChallenge` | `faceService.ts:35` | `'blink' \| 'turn'` |
 | `FaceFailReason` | `faceService.ts:37` | `'timeout' \| 'challenge' \| 'mismatch' \| 'camera'` |
 | `FaceVerifyResult` | `faceService.ts:38` | 判别联合结果 |
-| `openCamera` | `faceService.ts:117` | getUserMedia 前置摄像头 640×480 |
-| `closeCamera` | `faceService.ts:126` | 停全部 track 并清 `srcObject` |
-| `loadTemplate` | `faceService.ts:168` | 读 `campus-2d-face-template` 描述子 |
-| `hasTemplate` | `faceService.ts:179` | 是否已录入 |
-| `clearTemplate` | `faceService.ts:183` | 清空模板（开关关闭时调用） |
-| `enrollFace` | `faceService.ts:192` | 质量门控采 8 帧取均值存模板（`ENROLL_FRAMES=8` / `ENROLL_TIMEOUT_MS=20000` / `DETECT_SCORE_MIN=0.85`，`faceService.ts:26/28/33`） |
-| `verifyFace` | `faceService.ts:221` | 随机动作挑战（眨眼/转头）→ 同人比对 3 次机会（`MATCH_THRESHOLD=0.55`，`faceService.ts:23`） |
-| `FaceCaptureDialog` | `FaceCaptureDialog.tsx:28` | 单例弹窗（`Dialog` + `CaptureFlow`）；`CaptureFlow` 定义在 `FaceCaptureDialog.tsx:48`，必须放 `DialogContent` 内以拿到 video ref（`FaceCaptureDialog.tsx:5-8` 注释） |
+| `openCamera` | `faceService.ts:179` | getUserMedia 前置摄像头 640×480 |
+| `closeCamera` | `faceService.ts:188` | 停全部 track 并清 `srcObject` |
+| `loadTemplate` | `faceService.ts:230` | 读 `campus-2d-face-template` 描述子 |
+| `hasTemplate` | `faceService.ts:241` | 是否已录入 |
+| `clearTemplate` | `faceService.ts:245` | 清空模板（开关关闭时调用） |
+| `enrollFace` | `faceService.ts:254` | 质量门控采 8 帧取均值存模板（`ENROLL_FRAMES=8` / `ENROLL_TIMEOUT_MS=20000` / `DETECT_SCORE_MIN=0.85`，`faceService.ts:27/29/35`） |
+| `verifyFace` | `faceService.ts:283` | 随机动作挑战（眨眼/转头）→ 同人比对 3 次机会（`MATCH_THRESHOLD=0.55`，`faceService.ts:25`） |
+| `ensureFaceModels` | `faceService.ts:70` | v2.4.0：模型按需下载门（共享 in-flight `modelEnsurePromise`:62，失败清占位可重试），返回模型目录供 `convertFileSrc`；onProgress 折算六文件整体 0-100% |
+| `FaceCaptureDialog` | `FaceCaptureDialog.tsx:28` | 单例弹窗（`Dialog` + `CaptureFlow`）；`CaptureFlow` 定义在 `FaceCaptureDialog.tsx:48`，必须放 `DialogContent` 内以拿到 video ref（`FaceCaptureDialog.tsx:5-8` 注释）；v2.4.0 起流程前置 `ensureFaceModels`（失败不开相机直接报错，`attempt`:59 + effect deps `[mode,onClose,attempt]`:122 支撑「重试」），下载进度/错误文案经 i18n `face.modelDownloading/modelDownloadError/retry` |
 
-`faceService.ts` 内部私有：`getHuman`(47，单例懒加载 + warmup；human 库本体 v2.4.0 起经 `await import('@vladmandic/human')` 动态引入，首用人脸才加载)、`releaseFaceEngine`(102，同步释放：同步置空单例并 `reset()` 卸模型 + `tf.disposeVariables()` 清残余张量；`engineGen`(43) 代际防"初始化期间被释放"的实例复活，由 `FaceCaptureDialog` 卸载清理调用)、`detectOnce`(141，含 human mesh 索引判眨眼)、`saveTemplate`(187)、各常量 `TEMPLATE_KEY`(20)/`POLL_INTERVAL_MS`(31)/`CHALLENGE_TIMEOUT_MS`(29)。
+`faceService.ts` 内部私有：`getHuman`(105，单例懒加载 + warmup；human 库本体 v2.4.0 起经 `await import('@vladmandic/human')` 动态引入，首用人脸才加载；模型目录 v2.4.0 起不进 APK——先 `await ensureFaceModels()` 再 `modelBasePath: convertFileSrc(modelDir)`(`faceService.ts:112/114`，human 的 URL 拼接对无尾斜杠 base 自动补 `/`)，init 失败清占位可重试)、`releaseFaceEngine`(164，同步释放：同步置空单例并 `reset()` 卸模型 + `tf.disposeVariables()` 清残余张量；`engineGen`(45) 代际防"初始化期间被释放"的实例复活，由 `FaceCaptureDialog` 卸载清理调用)、`detectOnce`(203，含 human mesh 索引判眨眼)、`saveTemplate`(249)、各常量 `TEMPLATE_KEY`(22)/`POLL_INTERVAL_MS`(33)/`CHALLENGE_TIMEOUT_MS`(31)。
 
 ### index.css（无导出）
 

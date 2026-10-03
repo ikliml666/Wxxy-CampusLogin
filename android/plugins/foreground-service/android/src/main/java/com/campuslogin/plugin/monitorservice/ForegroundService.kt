@@ -24,7 +24,14 @@ import android.os.PowerManager
 class ForegroundService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "campus_monitor"
+        /**
+         * 通道 ID 版本化(v2,2026-10-03):NotificationChannel 的 importance 创建后
+         * 不可变,旧 "campus_monitor" 是 IMPORTANCE_LOW——importance<DEFAULT 在
+         * AOSP 归入静默通知桶,也正是国产 ROM(澎湃OS 通知过滤)把常驻通知折叠进
+         * "更多消息"的底层判据;改 importance 只能换新 ID 重建通道(见
+         * startForegroundWithText:新通道 IMPORTANCE_DEFAULT,旧通道删除)。
+         */
+        const val CHANNEL_ID = "campus_monitor_v2"
         const val NOTIFICATION_ID = 0xCAFE
         const val EXTRA_TEXT = "text"
         const val ACTION_UPDATE = "com.campuslogin.plugin.monitorservice.UPDATE"
@@ -310,9 +317,17 @@ class ForegroundService : Service() {
     private fun startForegroundWithText(text: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "校园网后台监控", NotificationManager.IMPORTANCE_LOW)
+            // IMPORTANCE_DEFAULT 是通知进入常规列表(而非静默桶/国产 ROM"更多消息"
+            // 折叠区)的最低档;铃声置空 + 免角标保住"安静常驻"体验。DEFAULT 不会
+            // 触发 heads-up 横幅(那需要 HIGH),打扰面不变。
+            val channel = NotificationChannel(
+                CHANNEL_ID, "校园网后台监控", NotificationManager.IMPORTANCE_DEFAULT
             )
+            channel.setSound(null, null)
+            channel.setShowBadge(false)
+            manager.createNotificationChannel(channel)
+            // 删除旧 IMPORTANCE_LOW 通道:升级后老通道不再存在,系统设置与折叠区干净
+            manager.deleteNotificationChannel("campus_monitor")
         }
         val notification = buildNotification(this, text)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

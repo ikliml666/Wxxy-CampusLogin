@@ -16,7 +16,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:",
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://asset.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/files/face-models/**"]
+      },
       "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
