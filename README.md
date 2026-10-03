@@ -10,7 +10,7 @@
 
 ## 下载安装
 
-前往 [Releases](https://github.com/ikliml666/Wxxy-CampusLogin/releases) 下载最新版本：
+前往 [Releases](https://github.com/ikliml666/Wxxy-CampusLogin/releases) 或 [夸克网盘](https://pan.quark.cn/s/c46f67bc2658) 下载最新版本：
 
 - **Windows**：`Wxxy-CampusLogin_{版本}_x64-setup.exe`，双击安装即可
 - **Android**：`Wxxy-CampusLogin_{版本}.apk`，安装需允许"未知来源应用"（系统版本要求 Android 10+）
@@ -22,12 +22,14 @@
 - **一键登录** — 自动检测网络适配器、DHCP 续租、可重试失败智能重试
 - **一键注销** — 两步注销：Radius 注销 + MAC 解绑，支持指定适配器或全部注销
 - **自动重连** — 后台巡检断线检测，最多 3 次自动重连；网卡被禁用时自动重新启用（免 UAC 提权）
-- **夜间定时切换** — 周日至周四 23:00 自动切换到校园网账号、次日 7:30 恢复原运营商，切换后自动核验在线状态；支持每日定时登录/定时注销
+- **自动切换运营商** — 周日至周四 23:00 自动切换到校园网账号、次日 7:30 恢复原运营商，切换后自动核验在线状态；支持每日定时登录/定时注销
+- **夜间出站切换** — 校园网整体断网时段（周日至周四 23:00、周五六 23:30 后）自动把默认出站切到非校园网网卡（热点/物联网卡），次日 7:30 起自动还原；网络适配器页长按拖拽指定目标网卡，头部常显当前出站、支持一键切换/还原
 - **校园网检测** — WiFi/有线独立检测：网络名称匹配 → /18 子网匹配 → 网关 Ping 可达，非校园网环境自动退出
 - **DNS 智能解析** — 动态评分选择最优 DNS 服务器，应用级 DoH 解析（RFC 8484），三级智能解析策略
 - **DNS 优化** — 检测当前 DNS/DoH 配置，一键设置推荐 DNS（IPv4/IPv6/双栈）+ 启用 DoH 加密
 - **网络质量监测** — 网关/DNS/DoH/HTTPS 延迟并发测试，DNS 解析专项测试，结果增量推送；"网络拥堵"通知经 15s 间隔两次复核确认，避免瞬时抖动误报
 - **双适配器支持** — 有线 + 无线同时管理，Dock 栏适配器选择菜单
+- **在线运营商显示** — 状态栏徽标实时显示当前真实在线的运营商（电信/联通/移动/校方），双适配器并排各显一枚，悬停查看完整账号
 - **多账号管理** — DPAPI 加密存储、快速切换
 - **运营商账号绑定** — 对接校园网自助服务系统，绑定/查询运营商账号，绑定状态一目了然
 - **Windows Hello 验证** — 查看运营商密码明文、踢设备下线等敏感操作需本地生物识别/PIN 验证，后端时效复核
@@ -42,11 +44,11 @@
 
 **安卓端**（`android/`，与桌面端共享同一 Rust 协议核心，功能同名对齐）：
 
-- 一键登录 / 两步注销、后台断线自动重登（前台服务 + 常驻通知 + WifiLock 保活）、夜间定时切换
+- 一键登录 / 两步注销、后台断线自动重登（前台服务 + 常驻通知 + WifiLock 保活）、自动切换运营商、夜间出站切换（到点自动注销触发系统切至蜂窝，次日 7:30 重登恢复）
 - 校园网检测（WiFi 名称匹配 + /18 子网匹配 + Portal 可达性探测，Android 12+ 免定位读取 SSID）、网络质量监测与定时测试
-- 多账号管理（AndroidKeyStore AES-GCM 加密存储）、运营商账号绑定与自助服务查询（敏感操作经系统 BiometricPrompt 生物识别验证）
+- 多账号管理（AndroidKeyStore AES-GCM 加密存储）、运营商账号绑定与自助服务查询（敏感操作经系统 BiometricPrompt 生物识别验证，可选应用内 2D 人脸比对回退，人脸模型首次使用时按需下载并经 SHA256 校验）
 - 开机自启、运行日志面板、通知权限索取引导（含跳转系统设置）、应用内更新（下载 APK 唤起系统安装器）
-- 平台差异：系统托盘、Windows Hello、DNS 优化、双适配器/有线管理为桌面专属；安卓端登录流量强制绑定 WLAN（`bindProcessToNetwork`，不走蜂窝数据）
+- 平台差异：系统托盘、Windows Hello、DNS 优化、双适配器/有线管理、出站徽标与手动切换为桌面专属，人脸录入为安卓专属；安卓端登录流量强制绑定 WLAN（`bindProcessToNetwork`，不走蜂窝数据）
 
 ## 技术栈
 
@@ -87,12 +89,12 @@ Wxxy-CampusLogin/
 │       ├── src/
 │       │   ├── commands/    # Tauri 命令（模块化拆分）
 │       │   ├── network/     # 网络模块（适配器与 PnP 设备启停/DNS/质量检测/缓存/HTTP计时）
-│       │   ├── config/      # 配置管理（model/persist/validate/夜间切换）
+│       │   ├── config/      # 配置管理（model/persist/validate/夜间切换/出站切换）
 │       │   ├── auth/        # 认证模块（Portal检测/登录注销协议/会话管理）
 │       │   ├── account/     # 账号模块（crypto.rs DPAPI 加密）
 │       │   ├── monitor/     # 监控模块（后台巡检/自动登录/延迟测试/适配器监控）
 │       │   ├── infra/       # 基础设施（状态管理/日志/事件总线/退出生命周期/通知）
-│       │   ├── platform/    # 平台交互（DNS配置/提权通道与计划任务代理/GPU检测/开机自启/Windows Hello验证）
+│       │   ├── platform/    # 平台交互（DNS配置/提权通道与计划任务代理/ICMP探测/出站路由/GPU检测/开机自启/Windows Hello验证）
 │       │   ├── helper/      # 提权辅助子进程（改 MAC/设 DNS，无 PowerShell 依赖）
 │       │   ├── app/         # 应用生命周期（启动/托盘/窗口/快捷键/心跳）
 │       │   └── update/      # 更新模块（检查/下载/安装/SHA256校验）
@@ -103,12 +105,12 @@ Wxxy-CampusLogin/
     ├── frontend/            # React 前端（桌面复刻 + 移动裁剪，底部导航布局）
     ├── src-tauri/           # 安卓 Rust 后端（监控循环/加密配置/校园网探针/更新）
     │   ├── src/
-    │   │   ├── lib.rs           # 入口（51 个 Tauri 命令，与桌面同名对齐）
+    │   │   ├── lib.rs           # 入口（55 个 Tauri 命令，与桌面同名对齐）
     │   │   ├── protocol_cmds.rs # 登录/注销/Portal 探测（复用桌面协议核心）
-    │   │   ├── campus_detect.rs # 校园网探针（SSID 名称匹配 + 子网匹配 + Portal TCP 可达）
+    │   │   ├── campus_detect.rs # 校园网探针（SSID 名称匹配 + 子网匹配 + 网关/Portal 可达探测）
     │   │   ├── config_state.rs  # 配置管理（AndroidKeyStore 加密落盘）
-    │   │   ├── monitor_loop.rs  # 后台检测 + 断线自动重登状态机
-    │   │   └── ...              # 自助服务/账号/日志/更新/SoC 分档等
+    │   │   ├── monitor_loop.rs  # 后台检测 + 断线自动重登 + 夜间自动切换状态机
+    │   │   └── ...              # 自助服务/账号/日志/更新/人脸模型下载/SoC 分档等
     │   └── gen/android/     # Tauri 生成的 Gradle 工程（产物不入库）
     └── plugins/             # 手写 Tauri 插件（keystore / foreground-service / network-bind）
 ```
@@ -166,14 +168,14 @@ cd ../src-tauri && npx @tauri-apps/cli android build --target aarch64 --apk
 项目包含后端 Rust 测试和前端 TypeScript 测试，CI 前请确保全部通过。
 
 ```bash
-# 后端测试（397 个单元测试 + 1 个回归集成测试）
+# 后端测试（432 个单元测试 + 4 个集成测试）
 cd tauri-app/src-tauri
 cargo test
 
 # 后端 lint
 cargo clippy --all-targets -- -D warnings
 
-# 前端测试（89 个测试）
+# 前端测试（103 个测试）
 cd ../frontend
 npm test
 
