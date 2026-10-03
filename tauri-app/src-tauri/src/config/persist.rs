@@ -1,8 +1,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use parking_lot::Mutex;
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 use crate::config::model::Config;
+use crate::infra::command_context::AppHandleExt;
 use crate::account::crypto;
 
 // 登录历史的读-改-写全程互斥：自动登录与手动登录并发追加时，
@@ -270,6 +271,22 @@ pub fn append_quality_history_to(data_dir: &Path, result: &crate::network::quali
 
     atomic_write(&history_path, &json)?;
 
+    Ok(())
+}
+
+/// 落盘 + 掩码广播 config-changed 的统一出口（不刷托盘）。
+///
+/// 监控层与 commands 层共用：持久化成功后把掩码配置以 { config: Config } 包裹
+/// 广播给前端。托盘菜单刷新不在此处——托盘仅依赖 user/active_account，监控
+/// 写路径（快照/运营商/巡检间隔）不触及，无需重建菜单；commands 层的
+/// save_config_to_disk_encrypted 包装在此之上叠加托盘刷新。
+pub fn save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
+    let data_dir = get_data_dir(app_handle);
+    save_config_to_disk_encrypted(&data_dir, config)?;
+    // 必须掩码后再发射，避免泄露真实密码；事件体必须带 config 包裹，
+    // 直发裸 Config 会让前端监听静默失效
+    let emit_cfg = config.masked_for_display();
+    let _ = app_handle.notify_config_changed(&serde_json::json!({ "config": emit_cfg }));
     Ok(())
 }
 

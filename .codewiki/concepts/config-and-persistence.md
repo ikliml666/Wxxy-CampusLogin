@@ -122,14 +122,14 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
   → validate_config（严格）
   → clear_password / 空串 / "***" 三态处理（:227-241）
   → network::update_portal_url（:245） + logger::set_log_retention_days（:248）
-  → save_config_to_disk_encrypted（先落盘）（:253）
+  → save_config_to_disk_encrypted（wrapper：persist::save_config_and_broadcast + 刷托盘）
   → state.config.store（内存）（:255）
   → auto_create_account_for_current 自动建号/同步账号档案，实际写盘时补刷托盘（:258-265）
 ```
 
 顺序上"先落盘再更新内存"（`:256-257` 注释）：磁盘失败时命令返回 Err 且运行态不变，避免"保存失败但内存已生效、重启后回退"的错位。
 
-`save_config_to_disk_encrypted`（`:9-18`）是**所有配置写入的公共出口**，职责有二：① 加密切片（委托 `persist::save_config_to_disk_encrypted`）；② 掩码后广播 `config-changed`。调用方覆盖：`save_config`、`switch_account`（`account.rs:56`）、`save_current_as_account`（`:174`）、`delete_account`（`:244`）、`rename_account`（仅激活账号被改名，`:303`）、`set_auto_launch`（`system.rs:61`）、`set_notification_enabled`（`system.rs:84`）、`start_background_check_inner`（`background_task.rs:55`）、`stop_background_check`（`commands/background.rs:20`）、`set_boot_autostart`（安卓）等。自动建号与"非激活账号改名"只写账号档案文件（`persist::save_account_config`），不经此出口。
+配置写入的公共出口下沉为 `persist::save_config_and_broadcast`（`config/persist.rs:283-291`），职责有二：① `get_data_dir` + `persist::save_config_to_disk_encrypted` 加密切片落盘；② 掩码后广播 `config-changed`。它**不刷托盘**——托盘刷新仅依赖 user/active_account，而监控层写路径只改出站快照/运营商/巡检间隔。`commands::config_cmd::save_config_to_disk_encrypted`（`:7-14`）在其上加托盘刷新，供命令面使用；监控层（`monitor/background_task.rs`、`monitor/scheduled.rs` ×4）直接调 persist 出口，不再反向 import commands。命令面调用方覆盖：`save_config`、`switch_account`（`account.rs:56`）、`save_current_as_account`（`:174`）、`delete_account`（`:244`）、`rename_account`（仅激活账号被改名，`:303`）、`set_auto_launch`（`system.rs:61`）、`set_notification_enabled`（`system.rs:84`）、`start_background_check_inner`（`background_task.rs:55`，经 persist 出口）、`stop_background_check`（`commands/background.rs:20`）等。自动建号与"非激活账号改名"只写账号档案文件（`persist::save_account_config`），不经此出口。
 
 ### 账号与登录历史存储
 
@@ -198,9 +198,11 @@ struct EncodedSettings {
 
 ```text
 任意写配置路径
-  → save_config_to_disk_encrypted                                  commands/config_cmd.rs:9-18
-    → 加密落盘
-    → app_handle.notify_config_changed(config.masked_for_display())  :15-16
+  → commands::config_cmd::save_config_to_disk_encrypted（wrapper，:7-14）
+    → persist::save_config_and_broadcast（config/persist.rs:283-291，监控层共用出口）
+      → 加密落盘（save_config_to_disk_encrypted）
+      → app_handle.notify_config_changed(config.masked_for_display())  persist.rs:289
+    → tray::refresh_tray_menu_state（仅命令面补刷；监控层路径无此步）
       → EventBus.emit_config_changed("config-changed")               infra/events.rs:107-109
         → 前端 api.onConfigChanged                                   hooks/tauriApi.ts:203
           → useConfigStore.mergeConfigFromBackend                    hooks/useConfigStore.ts:110-117
@@ -239,7 +241,7 @@ struct EncodedSettings {
 - **容器级 `#[serde(default)]` 不可删**（`model.rs:9`）：否则新增字段会让所有存量配置文件整体反序列化失败 → 全量重置丢配置。
 - **加普通字段不需要升 schema 版本**：两端结构都无 `deny_unknown_fields` + 有容器级 `serde(default)`（桌面 `model.rs:9`、安卓 `config_state.rs:14`），旧文件缺新字段自动补默认值（2026-09 的 `displayName`/`adapter1Account`/`adapter2Account` 均未升版本、无迁移；桌面契约锁测试 `serde_account_fields_json_names_and_defaults`）。只有"旧默认值语义变化"才需要迁移（如 v2→v3 / v4→v5 的时段终点刷值）。
 - **校验严格/宽松双路径不可混用**：启动读盘用 `validate_config_lenient`（`config_cmd.rs:57`），保存 / 导入用 `validate_config`（`:99`）。把宽松版用在保存路径会让非法输入静默落盘。
-- **所有配置写入必须经 `save_config_to_disk_encrypted`**：它同时承担加密与 `config-changed` 广播（`config_cmd.rs:13-14` 注释）。绕过它的写入（直接 `persist::save_config_to_disk_encrypted` 或自己写 JSON）不会通知前端。
+- **所有配置写入必须经 `persist::save_config_and_broadcast`**：它同时承担加密落盘与 `config-changed` 广播（`persist.rs:286-287` 注释）。命令面经 `commands` 包装（多一层托盘刷新），监控层直接调 persist 出口；绕过它（直接 `persist::save_config_to_disk_encrypted` 或自己写 JSON）的写入不会通知前端。
 - **先落盘再更新内存**（`config_cmd.rs:132-133`）：顺序反了会出现"保存失败但内存已生效"。
 - **账号名必须消毒**：桌面 `infra/state/mod.rs:64-72`、安卓 `account_cmds.rs:50-58`，防路径穿越（`../`、`/`、`\` 全被白名单正则拒绝）。
 - **安卓配置读改写必须持 `CONFIG_IO_LOCK`**（`account_cmds.rs:21-23`）：`tokio::sync::Mutex` 而非 `parking_lot`，因为 guard 要跨 await 覆盖整个 load→merge→save 序列。
@@ -267,9 +269,9 @@ struct EncodedSettings {
    ┌──────────────────────┴────────────────────────┐
    │ 出站（读）                                      │ 写入
    ↓                                                ↓
-masked_for_display()                       桌面 save_config_to_disk_encrypted
+masked_for_display()                       桌面 persist::save_config_and_broadcast
   → get_config / get_init_data               ├─ crypto::encrypt → persist::atomic_write
-  → account 三命令返回                        └─ notify_config_changed(masked)
+  → account 三命令返回                        └─ notify_config_changed(masked)（commands 包装另刷托盘）
   → config-changed 事件 payload                   → 前端 mergeConfigFromBackend（跳过 dirtyFields）
                                             安卓 save_to（持 CONFIG_IO_LOCK）
                                               └─ 无事件，靠命令返回值

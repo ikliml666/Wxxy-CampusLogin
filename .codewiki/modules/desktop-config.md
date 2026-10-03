@@ -69,7 +69,8 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `persist.rs:117-154` | pub fn | `list_account_items(data_dir) -> Vec<AccountItem>` | 枚举 `accounts/*.json` 为 `{id, displayName}`（过滤 `.` 前缀与空名，按 id 排序）；displayName 为空/文件损坏时兜底为 id 并 `log_warn` |
 | `persist.rs:156-158` | pub fn | `get_login_history_path(data_dir) -> PathBuf` | `{data_dir}/login-history.json` |
 | `persist.rs:160-212` | pub fn | `append_login_history(app_handle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String>` | 加锁 → 读现有历史（读/解析失败 rename 为 `.bak` 后重置）→ 头部插入新记录 → 截断至 100 条 → `atomic_write` |
-| `persist.rs:276-291` | pub fn | `save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String>` | 克隆配置 → 非空 `password`/`self_password` 逐一 `crypto::encrypt` → `serde_json::to_string_pretty` → `atomic_write`；**不做任何校验** |
+| `persist.rs:283-291` | pub fn | `save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Result<(), String>` | `get_data_dir` → `save_config_to_disk_encrypted` → 掩码后 `notify_config_changed`（`{"config": …}` 包裹）；**不刷托盘**——「落盘+广播」统一出口，commands 包装与监控层共用 |
+| `persist.rs:293-308` | pub fn | `save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String>` | 克隆配置 → 非空 `password`/`self_password` 逐一 `crypto::encrypt` → `serde_json::to_string_pretty` → `atomic_write`；**不做任何校验** |
 
 ### config/validate.rs
 
@@ -194,14 +195,15 @@ app/startup.rs:162（安卓端另有自实现 config_state.rs）
       ├─ clear_password / MASK 占位符处理：保留 state.config 中的旧密码      (config_cmd.rs:227-241)
       ├─ network::update_portal_url(&config.portal_url)                    (config_cmd.rs:245)
       ├─ infra::logger::set_log_retention_days(config.log_retention_days)  (config_cmd.rs:248)
-      ├─ save_config_to_disk_encrypted(app_handle, &config)
+      ├─ persist::save_config_and_broadcast(app_handle, &config)  （commands 包装与监控层共用出口）
       │     ├─ 非空 password/self_password → account::crypto::encrypt（DPAPI → base64）
       │     ├─ serde_json::to_string_pretty
-      │     └─ persist::atomic_write：临时文件 → sync_all → rename（3 次重试）
+      │     ├─ persist::atomic_write：临时文件 → sync_all → rename（3 次重试）
+      │     └─ notify_config_changed(config.masked_for_display())  掩码后发事件（不刷托盘）
       ├─ state.config.store(config.clone())   先落盘再更新内存               (config_cmd.rs:253-255)
       ├─ auto_create_account_for_current(state, app_handle)  落盘成功后自动建号  (config_cmd.rs:258-265)
       │     └─ 实际写盘 → tray::refresh_tray_menu_state 补刷托盘子菜单
-      └─ notify_config_changed(config.masked_for_display())  掩码后发事件    (config_cmd.rs:15-16)
+      └─ commands 包装仅补 tray::refresh_tray_menu_state（监控层路径无此步）
 ```
 
 ### 登录历史追加
@@ -244,7 +246,7 @@ auth::session::adapter_action_with_log / monitor::auto_auth.rs:187
 7. **宽松校验的最终兜底会丢全部配置**：`validate.rs:200-206`，降级后仍失败时直接返回 `Config::default()`（仅 `log_warn!` 告警，用户无感知）。这是"逐字段降级"设计之外的整份回退路径。
 8. **`validate_config_lenient` 不做 interval clamp 之外的数值归一**：`validate.rs:143-207` 未处理 `background_check_interval` / `latency_test_interval` / `log_retention_days`，依赖末尾的 `validate_config` 兜底完成 clamp（`validate.rs:103-104`、`validate.rs:120-122`）。
 9. **`atomic_write` 的临时文件名会替换原扩展名**：`persist.rs:14-20` 用 `path.with_extension("json.tmp.{nanos}")`，对 `config.json` 得到 `config.json.tmp.123`；若传入无扩展名的路径，语义会变成"替换整个文件名"。另 `rename` 仅重试 3×100ms（`persist.rs:32-39`），Windows 上被索引/杀软占用时失败即删除临时文件并返回 Err（原文件保持完整）。
-10. **`save_config_to_disk_encrypted` 不做校验且会对 MASK 加密**：`persist.rs:276-291` 直接落盘传入的 `Config`；`persist.rs:282-287` 明确不排除 `PASSWORD_MASK`（注释 `persist.rs:278-281` 说明：若真实密码恰为 `"***"`，排除判断会让它明文落盘）。代价是：任何把 MASK 占位符直接落盘的调用方，重启后会得到明文密码 `"***"`（当前调用方 `commands/config_cmd.rs:227-241` 已在落盘前还原真值，属依赖调用方正确性）。`save_account_config`（`persist.rs:101-115`）沿用同一约定。
+10. **`save_config_to_disk_encrypted` 不做校验且会对 MASK 加密**：`persist.rs:293-308` 直接落盘传入的 `Config`；`persist.rs:299-304` 明确不排除 `PASSWORD_MASK`（注释 `persist.rs:295-298` 说明：若真实密码恰为 `"***"`，排除判断会让它明文落盘）。代价是：任何把 MASK 占位符直接落盘的调用方，重启后会得到明文密码 `"***"`（当前调用方 `commands/config_cmd.rs:227-241` 已在落盘前还原真值，属依赖调用方正确性）。`save_account_config`（`persist.rs:101-115`）沿用同一约定。
 11. **登录历史锁只覆盖 `append_login_history`**：`persist.rs:10` 的 `LOGIN_HISTORY_LOCK` 仅在 `persist.rs:161` 加锁；`commands/system.rs` 等若存在其他读写 `login-history.json` 的路径，将不受保护。另历史为"全量读 → 写"（`persist.rs:165-211`），每次追加都是 O(100) 次序列化。账号档案的读写（`load_account_config`/`save_account_config`/`list_account_items`）没有对应的静态锁，靠命令层 `spawn_blocking` 串行化与调用方纪律。
 12. **登录历史读取失败/解析失败只做 `.bak` 改名后重置**：`persist.rs:171`、`persist.rs:182` 的备份路径用 `format!("{}.bak", ...)`（固定名，第二次失败会覆盖上一次备份），且失败被静默忽略（`let _ =`）。
 13. **配置迁移是链式的 `config_version` 递增**：`validate.rs:123-140` 现有两段——v1→v2：`campus_check_start_minutes` 在 `(0, 24)` 视为小时值 ×60（`validate.rs:125-131`，条件不含 0/24 边界，旧版用户恰好设 24 以上会跳过迁移并被 clamp 截到 1439）；v2→v3（2026-09-13）：`campus_check_end_minutes == 0`（旧默认）刷为 1380 并置 `config_version = 3`（`validate.rs:133-140`），用户显式改回的其他值不动。两段迁移对同一份旧配置会连续执行（v1 文件先走小时→分钟再走终点刷值，`validate.rs:525-533` 有回归测试）；v3 为当前版本，迁移完成后不再变化。
