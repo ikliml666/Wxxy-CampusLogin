@@ -15,6 +15,8 @@
  */
 
 import type { Human } from '@vladmandic/human'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { safeStorage } from '@/lib/utils'
 
 const TEMPLATE_KEY = 'campus-2d-face-template'
@@ -42,17 +44,74 @@ let humanInitPromise: Promise<Human> | null = null
 /** 释放代际：release 自增；工厂完成时若代际已变（初始化期间被释放）则不进缓存 */
 let engineGen = 0
 
+/** 人脸模型目录状态（face_model_cmds.rs）：六文件哈希全过即 ready */
+interface FaceModelsState {
+  ready: boolean
+  dir: string
+  files: { name: string; size: number; ok: boolean }[]
+}
+
+/** face-models-download-progress 事件载荷（face_model_cmds.rs FaceModelProgress） */
+interface FaceModelProgressEvt {
+  file: string
+  downloaded: number
+  total: number
+  percent: number
+}
+
+let modelEnsurePromise: Promise<string> | null = null
+
+/**
+ * 确保人脸模型就位并返回模型目录（模型不打包 APK，v2.4.0）：ready 直接返回；
+ * 否则经 face_models_download 从 GitHub/镜像下载到应用私有目录，并把六个文件的
+ * 下载进度折算成整体百分比转发。共享在途 Promise：并发调用（弹窗先行 +
+ * getHuman 兜底）不会触发两次下载；失败清空缓存以便重试。
+ */
+export function ensureFaceModels(onProgress?: (percent: number) => void): Promise<string> {
+  if (!modelEnsurePromise) {
+    modelEnsurePromise = downloadModels(onProgress).catch((e) => {
+      modelEnsurePromise = null
+      throw e
+    })
+  }
+  return modelEnsurePromise
+}
+
+async function downloadModels(onProgress?: (percent: number) => void): Promise<string> {
+  const state = await invoke<FaceModelsState>('face_models_state')
+  if (state.ready) return state.dir
+  const names = state.files.map((f) => f.name)
+  let unlisten: UnlistenFn | null = null
+  if (onProgress) {
+    unlisten = await listen<FaceModelProgressEvt>('face-models-download-progress', (e) => {
+      // 六文件顺序下载：整体进度 =（当前文件序 + 文件内百分比）/ 文件数
+      const index = Math.max(0, names.indexOf(e.payload.file))
+      const overall = ((index + e.payload.percent / 100) / Math.max(1, names.length)) * 100
+      onProgress(Math.round(overall))
+    })
+  }
+  try {
+    const done = await invoke<FaceModelsState>('face_models_download')
+    return done.dir
+  } finally {
+    unlisten?.()
+  }
+}
+
 /** human 单例（懒加载 + warmup：WebGL 首帧 shader 编译秒级，须提前消化）。
- * 库本体动态 import（v2.4.0）：人脸栈整体拆出主包，首次启用人脸时才加载 */
+ * 库本体动态 import（v2.4.0）：人脸栈整体拆出主包，首次启用人脸时才加载；
+ * 模型文件（v2.4.0）同样不进 APK——ensureFaceModels 从 GitHub/镜像拉取后经
+ * asset 协议（tauri.conf.json assetProtocol scope）喂给 human */
 async function getHuman(): Promise<Human> {
   if (humanInstance) return humanInstance
   if (!humanInitPromise) {
-    humanInitPromise = (async () => {
+    const init = (async () => {
       const myGen = engineGen
       const { Human } = await import('@vladmandic/human')
+      const modelDir = await ensureFaceModels()
       const h = new Human({
         backend: 'webgl',
-        modelBasePath: '/models',
+        modelBasePath: convertFileSrc(modelDir),
         face: {
           enabled: true,
           detector: { enabled: true, rotation: false },
@@ -80,6 +139,9 @@ async function getHuman(): Promise<Human> {
       humanInstance = h
       return h
     })()
+    humanInitPromise = init
+    // v2.4.0：模型下载是网络路径，失败须可重试——清空占位（拒绝态仍抛给调用方）
+    init.catch(() => { if (humanInitPromise === init) humanInitPromise = null })
   }
   return humanInitPromise
 }

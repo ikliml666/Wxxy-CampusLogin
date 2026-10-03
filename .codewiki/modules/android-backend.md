@@ -36,7 +36,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `mod` 声明 14 个模块 | `android/src-tauri/src/lib.rs:10-23` | campus_detect / android_state / config_state / cpu_affinity / identity_gate / login_history / protocol_cmds / self_service_cmds / monitor_loop / account_cmds / system_cmds / quality_cmds / update_cmds / battery_cmds |
+| `mod` 声明 16 个模块 | `android/src-tauri/src/lib.rs:10-26` | campus_detect / android_state / config_state / cpu_affinity / identity_gate / login_history / protocol_cmds / self_service_cmds / monitor_loop / account_cmds / system_cmds / quality_cmds / quality_history / update_cmds / face_model_cmds / battery_cmds |
 | `pub fn run()` | `lib.rs:28` | `#[cfg_attr(mobile, tauri::mobile_entry_point)]` 入口；注册插件、`manage(AndroidState)`、setup、`generate_handler!`、`run` |
 | 插件注册（mobile） | `lib.rs:31-37` | 顺序：`campus-network-bind` → `campus-keystore` → `campus-monitor-service` → `tauri_plugin_biometric`（该 crate `#![cfg(mobile)]`，host 编译为空）→ `tauri_plugin_notification`；`manage(android_state::AndroidState::default())` |
 | 插件注册（host） | `lib.rs:38-39` | `#[cfg(not(mobile))]`：只 `manage(AndroidState)`，三个自定义插件不注册 |
@@ -101,6 +101,8 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | 47 | `download_update` | `update_cmds.rs:287` | 流式下载 APK（白名单 + 500MB 上限 + SHA256 校验） | `commands/updater.rs::download_update`（`startup.rs:108`） |
 | 48 | `get_mirror_urls` | `update_cmds.rs:271` | 生成 4 个下载源候选 | `commands/updater.rs::get_mirror_urls`（`startup.rs:110`） |
 | 49 | `install_update` | `update_cmds.rs:405` | 交系统包安装器安装 APK（路径限定更新目录） | `commands/updater.rs::install_update`（`startup.rs:109`） |
+| 50 | `face_models_state` | `face_model_cmds.rs:121` | 六模型文件就位状态（size>0 且 sha256 匹配才 ok） | `face/FaceCaptureDialog.tsx` 经 `ensureFaceModels` |
+| 51 | `face_models_download` | `face_model_cmds.rs:126` | 按需下载人脸模型（GitHub+镜像，200ms 节流 emit `face-models-download-progress`） | 同上；失败可重试 |
 
 ### 公开函数 / 结构体 / 常量清单（按模块）
 
@@ -323,7 +325,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `#[tauri::command] stop_latency_test` | `quality_cmds.rs:56` | 置 false |
 | `async fn latency_loop(app, settings)` | `quality_cmds.rs:61` | 间隔 `latency_test_interval.max(10_000)`（`quality_cmds.rs:63`）；每拍 `run_quality_once`（内部经 EventBus emit `network-quality-result`） |
 
-#### update_cmds.rs（481 行）
+#### update_cmds.rs（597 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
@@ -338,7 +340,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `struct DownloadProgress` | `update_cmds.rs:59-65` | `{downloaded, total, speed, percent}` |
 | `pub fn has_newer_version(current, latest) -> bool` | `update_cmds.rs:68` | 去 `v` 前缀逐段数值比较（桌面 `compare_versions` 同语义） |
 | `fn http_client()` | `update_cmds.rs:90` | rustls；`connect_timeout=5s` + `timeout=30s`（不设连接超时会吃满总超时） |
-| `fn allowed_url(url)` | `update_cmds.rs:101` | 抠 host 并查白名单 |
+| `fn allowed_url(url)` | `update_cmds.rs:121`，`pub(crate)` | 抠 host 并查白名单——**下载白名单唯一漏斗**，更新链与 face_model_cmds 共用（勿复制） |
 | `#[tauri::command] check_update` | `update_cmds.rs:126` | 包装 `check_update_inner` |
 | `fn version_urls(mirror_first) -> Vec<&'static str>` | `update_cmds.rs:130` | 按渠道排序 4 源 |
 | `struct VersionFile` | `update_cmds.rs:142-148` | **真身形状**：snake_case `version`/`notes`（不能用 `UpdateInfo` 反序列化） |
@@ -349,8 +351,27 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `static DOWNLOAD_RUNNING: AtomicBool` | `update_cmds.rs:284` | 下载互斥 |
 | `#[tauri::command] download_update` | `update_cmds.rs:287` | 互斥包装 + 全路径复位标志 |
 | `async fn download_update_inner(app, url)` | `update_cmds.rs:296` | 白名单 → 流式写盘 → 200ms 节流 emit `update-download-progress` → SHA256 比对（失败删文件） |
-| `async fn verify_file_sha256(path, expected) -> Result<bool, String>` | `update_cmds.rs:376` | 流式 64KiB 分块；非 64 位 hex 视为未提供返回 `true` |
-| `#[tauri::command] install_update` | `update_cmds.rs:405` | `canonicalize` 限定 `app_data_dir/update/` 内 → 插件 `install_apk` |
+| `async fn verify_file_sha256(path, expected) -> Result<bool, String>` | `update_cmds.rs:467`，`pub(crate)` | 流式 64KiB 分块；非 64 位 hex 视为未提供返回 `true`；face_model_cmds 共用 |
+| `#[tauri::command] install_update` | `update_cmds.rs:499` | `canonicalize` 限定 `app_data_dir/update/` 内 → 插件 `install_apk` |
+
+#### face_model_cmds.rs（275 行，v2.4.0 新增：人脸模型按需下载）
+
+模型不进 APK（APK 减重约 8.9MB），首次启用人脸录入时下载到 `app_data_dir/files/face-models`。决策与安全语义见 [[face-models-github-on-demand]]。
+
+| 名称 | 位置 | 用途 |
+|------|------|------|
+| `const FACE_MODEL_BASE: &str` | `face_model_cmds.rs:18` | `https://raw.githubusercontent.com/vladmandic/human/master/models/`（上游无 3.3.6 tag，master 与 npm 3.3.6 实测逐字节一致） |
+| `const FACE_MODEL_MIRRORS: &[&str]` | `face_model_cmds.rs:20-24` | ghfast.top / gh-proxy.com / ghproxy.net 三个前缀代理（与 `VERSION_MIRRORS` 同构） |
+| `const FACE_MODEL_FILES: &[(&str, &str)]` | `face_model_cmds.rs:26-52` | 六模型文件 + 硬编码 sha256（内容锁死 3.3.6 语义，前缀代理失败常返回 HTML 错误页，哈希是唯一真伪判据） |
+| `static FACE_DL_RUNNING: AtomicBool` | `face_model_cmds.rs:54` | 下载互斥（`swap(true)` 拒重入） |
+| `struct FaceModelFileState / FaceModelsState / FaceModelProgress` | `face_model_cmds.rs:58-82` | `{name,size,ok}` / `{ready,dir,files}` / `{file,downloaded,total,percent}`（serde camelCase） |
+| `fn models_dir(app)` | `face_model_cmds.rs:86` | `app_data_dir/files/face-models`（必须拼 `files` 段，Android app_data_dir=dataDir） |
+| `async fn state_inner(app)` | `face_model_cmds.rs:96` | 逐文件 size+sha256 校验，任一失配 `ready=false` |
+| `#[tauri::command] face_models_state` | `face_model_cmds.rs:121` | 就位状态查询 |
+| `#[tauri::command] face_models_download` | `face_model_cmds.rs:126` | 互斥包装 + inner 复位标志 |
+| `async fn download_models(app)` | `face_model_cmds.rs:135` | 源序跟随 `update_source`（镜像优先时镜像在前）；逐文件：已就位且哈希匹配跳过（断点续传语义）→ 按 sources 序 `allowed_url` + 下载 → sha256 失配删文件报错 |
+| `async fn download_one(client, url, dest, name, app)` | `face_model_cmds.rs:187` | 写 `{name}.part` → 200ms 节流 emit `face-models-download-progress` → 原子改名（半截不留正式名） |
+| `mod tests` | `face_model_cmds.rs:247-275` | 镜像前缀形式不变式 / 源排序语义 |
 
 ## 结构体与字段
 

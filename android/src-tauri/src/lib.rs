@@ -22,6 +22,7 @@ mod system_cmds;
 mod quality_cmds;
 mod quality_history;
 mod update_cmds;
+mod face_model_cmds;
 mod battery_cmds;
 
 use tauri::Manager;
@@ -108,6 +109,8 @@ pub fn run() {
             update_cmds::download_update,
             update_cmds::get_mirror_urls,
             update_cmds::install_update,
+            face_model_cmds::face_models_state,
+            face_model_cmds::face_models_download,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

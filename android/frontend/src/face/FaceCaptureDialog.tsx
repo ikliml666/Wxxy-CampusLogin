@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useFaceDialogStore } from './faceVerifyStore'
-import { openCamera, closeCamera, enrollFace, verifyFace, releaseFaceEngine, type FaceChallenge } from './faceService'
+import { openCamera, closeCamera, enrollFace, verifyFace, releaseFaceEngine, ensureFaceModels, type FaceChallenge } from './faceService'
 
 const CHALLENGE_KEY: Record<FaceChallenge, string> = {
   blink: 'face.challengeBlink',
@@ -53,11 +53,27 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
   const [progress, setProgress] = useState(0)
   const [challenge, setChallenge] = useState<FaceChallenge | null>(null)
   const [errorKey, setErrorKey] = useState<string>('')
+  /** 人脸模型整体下载进度（0-100，null=不在下载）；模型不打包 APK（v2.4.0） */
+  const [modelPercent, setModelPercent] = useState<number | null>(null)
+  /** 重试计数：失败面板的重试按钮借此重跑整个流程 effect */
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
 
     const run = async () => {
+      try {
+        // 首次启用人脸先取模型（共享 in-flight Promise；失败即刻报错，不开相机）
+        await ensureFaceModels((p) => { if (!cancelled) setModelPercent(p) })
+      } catch {
+        if (!cancelled) {
+          setPhase('error')
+          setErrorKey('face.modelDownloadError')
+        }
+        return
+      }
+      if (cancelled) return
+      setModelPercent(null)
       const video = videoRef.current
       if (!video) return
       try {
@@ -103,7 +119,7 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
       // 弹窗关闭即释放引擎（卸载模型/权重），下次启用自动重建
       void releaseFaceEngine()
     }
-  }, [mode, onClose])
+  }, [mode, onClose, attempt])
 
   return (
     <div className="space-y-3">
@@ -119,7 +135,11 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
         {phase === 'starting' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin" />
-            <p className="text-xs">{t('face.startingCamera')}</p>
+            <p className="text-xs">
+              {modelPercent !== null
+                ? t('face.modelDownloading', { percent: modelPercent })
+                : t('face.startingCamera')}
+            </p>
           </div>
         )}
         {phase === 'success' && (
@@ -132,6 +152,14 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground px-4 text-center">
             <Camera className="h-6 w-6" />
             <p className="text-xs">{t(errorKey || 'face.cameraError')}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-1"
+              onClick={() => { setModelPercent(null); setErrorKey(''); setPhase('starting'); setAttempt((a) => a + 1) }}
+            >
+              {t('face.retry')}
+            </Button>
           </div>
         )}
       </div>

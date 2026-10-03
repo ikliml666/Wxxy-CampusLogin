@@ -117,7 +117,8 @@ pub(crate) fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))
 }
 
-fn allowed_url(url: &str) -> Result<(), String> {
+/// 白名单校验唯一漏斗:更新链与人脸模型下载共用(face_model_cmds 复用,勿复制)
+pub(crate) fn allowed_url(url: &str) -> Result<(), String> {
     let host = url
         .split("://")
         .nth(1)
@@ -461,8 +462,9 @@ async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<Str
 }
 
 /// 流式计算文件 SHA256 并与期望值比对;期望值容忍 "hex filename" 格式与大小写,
-/// 非 64 位十六进制时视为未提供校验值,返回 true 跳过(不误杀)
-async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bool, String> {
+/// 非 64 位十六进制时视为未提供校验值,返回 true 跳过(不误杀)。
+/// pub(crate):人脸模型下载(face_model_cmds)按同语义复用
+pub(crate) async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bool, String> {
     use sha2::{Digest, Sha256};
     let clean = expected
         .split_whitespace()
