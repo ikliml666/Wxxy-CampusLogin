@@ -55,6 +55,32 @@ pub fn portal_probe_host(portal_url: &str) -> String {
     }
 }
 
+/// 出站优先级的生效列表：用户已排序（非空）按原序透传；未排序（空）默认
+/// 「无线卡优先、有线卡随后」，组内保持发现顺序——未拖动排序时夜间切换目标
+/// 默认落在 WLAN/无线出口上，校园有线出口不会成为首选目标。该顺序同时是
+/// [`select_campus_to_disable`] 的禁用白名单：未排序时在网校园卡同样纳入禁用，
+/// 与已排序语义一致。
+pub fn effective_outbound_priority(
+    priority: &[String],
+    details: &[(Adapter, String)],
+) -> Vec<String> {
+    if !priority.is_empty() {
+        return priority.to_vec();
+    }
+    let mut order: Vec<String> = details
+        .iter()
+        .filter(|(a, _)| a.wireless)
+        .map(|(a, _)| a.name.clone())
+        .collect();
+    order.extend(
+        details
+            .iter()
+            .filter(|(a, _)| !a.wireless)
+            .map(|(a, _)| a.name.clone()),
+    );
+    order
+}
+
 /// 按优先级名序选出出站目标卡：跳过不在优先级列表、无 IP、处于校园网内的卡，
 /// 返回第一张可用卡。`details` 为（适配器, 该卡网关）对——Adapter 无 gateway 字段，
 /// 由调用方经 adapter_cache 的明细查询逐卡补齐。判定口径见 [`is_campus_adapter`]。
@@ -301,8 +327,54 @@ mod tests {
     #[test]
     fn candidate_empty_priority_returns_none() {
         // 未排序（空列表）：没有白名单内的候选，不切换
+        // （调用方 scheduled.rs 会先经 effective_outbound_priority 展开默认序再传入）
         let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
         assert!(select_outbound_candidate(&[], &[hotspot], "10.64.60.1", "", no_probe()).is_none());
+    }
+
+    #[test]
+    fn effective_priority_non_empty_passthrough() {
+        // 用户已排序：原序透传，不做无线优先重排
+        let details = vec![
+            (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string()),
+            (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string()),
+        ];
+        let priority = vec!["以太网".to_string(), "WLAN".to_string()];
+        assert_eq!(effective_outbound_priority(&priority, &details), priority);
+    }
+
+    #[test]
+    fn effective_priority_empty_defaults_wireless_first() {
+        // 未排序：无线卡优先（组内保发现序），有线卡随后（保发现序）
+        let details = vec![
+            (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string()),
+            (adapter("以太网 2", "{G3}", "192.168.6.109", false), "192.168.6.1".to_string()),
+            (adapter("WLAN", "{G2}", "192.168.6.115", true), "192.168.6.1".to_string()),
+        ];
+        assert_eq!(
+            effective_outbound_priority(&[], &details),
+            vec!["WLAN".to_string(), "以太网".to_string(), "以太网 2".to_string()]
+        );
+    }
+
+    #[test]
+    fn effective_priority_empty_multiple_wireless_keep_discovery_order() {
+        // 多张无线卡同样按发现顺序排列在有线卡之前
+        let details = vec![
+            (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string()),
+            (adapter("WLAN 2", "{G4}", "192.168.7.10", true), "192.168.7.1".to_string()),
+            (adapter("WLAN", "{G2}", "192.168.6.115", true), "192.168.6.1".to_string()),
+        ];
+        assert_eq!(
+            effective_outbound_priority(&[], &details),
+            vec!["WLAN 2".to_string(), "WLAN".to_string(), "以太网".to_string()]
+        );
+    }
+
+    #[test]
+    fn effective_priority_empty_no_adapters_is_empty() {
+        // 没有适配器：默认序为空，select 侧自然得到 None（后续走无候选告警）
+        assert!(effective_outbound_priority(&[], &[]).is_empty());
     }
 
     #[test]

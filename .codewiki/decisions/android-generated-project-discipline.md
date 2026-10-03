@@ -13,6 +13,59 @@ tags: [决策, 安卓, gradle, 签名, 包名]
 
 Tauri 的安卓工程由 CLI 生成（`gen/android/`），生成物与手改内容混在一起，且包名/签名证书直接决定用户侧数据能否延续。
 
+## 当前代码快照
+
+### build.gradle.kts（`android/src-tauri/gen/android/app/build.gradle.kts`）
+
+- **插件**：`com.android.application`、`org.jetbrains.kotlin.android`、`rust`（第 3–7 行）。
+- **namespace / applicationId**：均为 `com.campuslogin.client`（第 18、21 行）。
+- **SDK 版本**：compileSdk=36、targetSdk=36、minSdk=29（第 17、22–23 行）。
+- **版本号**：从 `tauri.properties` 读取 `tauri.android.versionCode` / `tauri.android.versionName`（第 24–25 行）。
+- **签名配置**（第 29–35 行）：release 使用本机 `~/.android/debug.keystore`，别名 `androiddebugkey`，密码 `android`——注释说明"个人分发"策略，构建产出即发布物。
+- **产物命名**（第 38–43 行）：`applicationVariants.all` 块将 APK 文件名改为 `Wxxy-CampusLogin_${versionName}.apk`。
+- **buildTypes**（第 45–66 行）：
+  - debug：`usesCleartextTraffic=true`、可调试/JNI 调试、不缩小；jniLibs 保留所有架构（arm64-v8a、armeabi-v7a、x86、x86_64）的 `.so` 调试符号（第 51–54 行）。
+  - release：启用 minify，proguard 从项目目录收集 `*.pro` + `proguard-android-optimize.txt`（第 57–64 行）。
+- **依赖**（第 79–94 行）：
+  - WebView：`androidx.webkit:webkit:1.14.0`
+  - AppCompat：`androidx.appcompat:appcompat:1.7.1`
+  - Activity KTX：`androidx.activity:activity-ktx:1.10.1`
+  - Material：`com.google.android.material:material:1.12.0`
+  - Lifecycle process：`androidx.lifecycle:lifecycle-process:2.10.0`
+  - 手写插件模块（path dependency）：`:tauri-plugin-campus-network-bind`、`:tauri-plugin-campus-keystore`、`:tauri-plugin-campus-monitor-service`、`:tauri-plugin-biometric`、`:tauri-plugin-opener`（第 87–91 行）。
+- **Rust 集成**：末尾 `apply(from = "tauri.build.gradle.kts")`（第 97 行）。
+
+### AndroidManifest.xml（`android/src-tauri/gen/android/app/src/main/AndroidManifest.xml`）
+
+- **权限声明**（第 3–22 行）：
+  - `INTERNET`、`POST_NOTIFICATIONS`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_SPECIAL_USE`、`RECEIVE_BOOT_COMPLETED`、`WAKE_LOCK`
+  - `REQUEST_INSTALL_PACKAGES`（APK 更新安装）
+  - `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`（电池优化白名单，需前端引导确认）
+  - `CAMERA`（2D 人脸验证）
+  - `WRITE_SECURE_SETTINGS`（带 `tools:ignore="ProtectedPermissions"`，仅 adb grant 生效）
+- **应用主题**：`@style/Theme.campus_login_android`（第 30 行）。
+- **MainActivity**：`.MainActivity`、`singleTask` launchMode、`exported=true`（第 32–43 行），支持 LEANBACK_LAUNCHER。
+- **ForegroundService**（第 48–53 行）：`com.campuslogin.plugin.monitorservice.ForegroundService`，类型为 `specialUse`，property `android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE=campus-network-monitor-keepalive`。
+- **BootReceiver**（第 57–63 行）：`com.campuslogin.plugin.monitorservice.BootReceiver`，默认 `enabled=false`。
+- **FileProvider**（第 66–74 行）：authority 为 `${applicationId}.fileprovider`，resource 引用 `@xml/file_paths`。
+
+### foreground-service 权限清单（`android/plugins/foreground-service/permissions/default.toml`）
+
+9 个 Rust 命令暴露给 JS：`allow-startMonitor`、`allow-stopMonitor`、`allow-updateNotification`、`allow-setBootAutostart`、`allow-isBootAutostartEnabled`、`allow-installApk`、`allow-beginProbeWindow`、`allow-endProbeWindow`、`allow-getPowerState`、`allow-getBatteryOptimizationInfo`、`allow-requestIgnoreBatteryOptimizations`、`allow-openVendorBatterySettings`（共 12 项，第 7–19 行）。
+
+### acl-manifests.json（`android/src-tauri/gen/schemas/acl-manifests.json`）
+
+16 个 plugin manifest key（一行 JSON）：
+`biometric`、`campus-keystore`、`campus-monitor-service`、`campus-network-bind`、`core`、`core:app`、`core:event`、`core:image`、`core:menu`、`core:path`、`core:resources`、`core:tray`、`core:webview`、`core:window`、`notification`、`opener`。
+
+各插件默认权限与命令面见上节 bash 输出，核心要点：
+- `campus-monitor-service`：12 个 default permission，覆盖前台服务控制、开机自启、APK 安装、电池优化、探针窗口等全部命令。
+- `campus-network-bind`：7 个 default permission，含 WiFi 绑定/解绑、坏网规避设置读写、安全设置状态查询。
+- `campus-keystore`：2 个 default permission（encrypt/decrypt），对应 AndroidKeyStore AES-GCM。
+- `biometric`：2 个 default permission（authenticate/status）。
+- `notification`：14 个 default permission，完整通知管理。
+- Tauri core modules（`core:*`）各自携带其标准命令集。
+
 ## 决策
 
 - `gen/android/` **版本化提交**，但 build 产物不入库；

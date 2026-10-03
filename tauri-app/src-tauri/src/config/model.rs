@@ -65,8 +65,10 @@ pub struct Config {
     /// 修改系统路由属侵入性动作）；判定逻辑见 config::outbound_switch
     #[serde(rename = "enableNightOutboundSwitch", default)]
     pub enable_night_outbound_switch: bool,
-    /// 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序。
-    /// 列表外网卡不参与夜间切换。安卓端不消费此字段
+    /// 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，
+    /// 默认「无线卡优先、有线卡随后」（见 monitor::outbound_switch::
+    /// effective_outbound_priority），即未排序时夜间出站目标默认 WLAN/无线出口。
+    /// 安卓端不消费此字段
     #[serde(rename = "outboundPriority", default)]
     pub outbound_priority: Vec<String>,
     /// 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）。

@@ -117,7 +117,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:57-60` | `enable_night_operator_switch` | `enableNightOperatorSwitch` | `bool` | `false`（2026-10-02 起默认改回关闭；2026-09-20~10-01 期间默认开启，存量落盘 true 不迁移） | 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院，次日恢复窗口切回（判定逻辑 `config::night_switch`，跨平台纯函数） |
 | `model.rs:61-63` | `night_operator_restore` | `nightOperatorRestore` | `String` | `""` | 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空（后端内部状态） |
 | `model.rs:64-67` | `enable_night_outbound_switch` | `enableNightOutboundSwitch` | `bool` | `false` | 夜间出站自动切换总开关：到点把出站切到排序中的非校园网网卡（默认关——修改系统路由属侵入性动作）；判定逻辑见 `config::outbound_switch` |
-| `model.rs:68-71` | `outbound_priority` | `outboundPriority` | `Vec<String>` | `[]` | 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，列表外网卡不参与夜间切换。安卓端不消费此字段 |
+| `model.rs:68-72` | `outbound_priority` | `outboundPriority` | `Vec<String>` | `[]` | 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，默认「无线卡优先、有线卡随后」（十期语义，见 `monitor::outbound_switch::effective_outbound_priority`）。安卓端不消费此字段 |
 | `model.rs:72-76` | `outbound_metric_restore` | `outboundMetricRestore` | `String` | `""` | 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）；非空 = 桌面处于出站切换态。运行时修改重启即还原，快照跨应用重启仍有效；导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段 |
 | `model.rs:77-80` | `night_outbound_restore` | `nightOutboundRestore` | `String` | `""` | 安卓切换态标记：值恒 `"logged_out"`（纯标记，不暂存账号名）；非空 = 安卓处于出站切换态（已注销等待晨间重登），切账号时清空。桌面端不消费此字段 |
 | `model.rs:54` | `auto_exit_on_online` | `autoExitOnOnline` | `bool` | `true` | 检测到在线后自动退出（`monitor/background_emit.rs:191`） |

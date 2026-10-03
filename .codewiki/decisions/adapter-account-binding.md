@@ -35,7 +35,7 @@ tags: [决策, 账号, 适配器, 双适配器, 凭据]
 
 **手动网卡的角色匹配也有单测锁定**：`service.rs:391` `manual_adapter_account_matches_role`（==主适配器 → 主账号、==副适配器 → 副账号、否则 → 空串跟随全局）。
 
-UI 在网络面板适配器设置区各加一个"指定账号"下拉（`NetworkPanel.tsx`，主适配器恒显示 `742-756` 行、副适配器仅在选择副适配器后显示 `795-814` 行，条件在 796 行 `config.adapter2`）；选项来源为账号列表 `accounts`（`NetworkPanel.tsx:207`，id 为值、displayName 为显示）；因 Radix Select 不允许空串 `value`，前端用哨兵 `__follow__` 表示"跟随当前账号"，落盘时转回空串（`NetworkPanel.tsx:45` `FOLLOW_CURRENT_ACCOUNT`，选择回调 745/801 行转空串）。卡片底部附说明文案（`NetworkPanel.tsx:817` `network.adapterAccountTip`；i18n 词条在 `i18n/locales/zh.json:235-238` 与 `en.json:235-238`）。
+UI 在网络面板适配器设置区各加一个"指定账号"下拉（`NetworkPanel.tsx`，主适配器恒显示 `746-760` 行、副适配器仅在选择副适配器后显示 `802-817` 行，条件在 800 行 `config.adapter2`）；选项来源为账号列表 `accounts`（`NetworkPanel.tsx:207`，id 为值、displayName 为显示）；因 Radix Select 不允许空串 `value`，前端用哨兵 `__follow__` 表示"跟随当前账号"，落盘时转回空串（`NetworkPanel.tsx:45` `FOLLOW_CURRENT_ACCOUNT`，选择回调 749/805 行转空串）。卡片底部附说明文案（`NetworkPanel.tsx:821` `network.adapterAccountTip`；i18n 词条在 `i18n/locales/zh.json:235-238` 与 `en.json:235-238`）。
 
 ## 理由（为什么不用改 `session.rs` 签名的方案）
 
@@ -51,7 +51,7 @@ UI 在网络面板适配器设置区各加一个"指定账号"下拉（`NetworkP
 
 ## 影响与约束
 
-- 两个新字段是**桌面专属**：`Config` 的 serde 契约虽双端同源，安卓 `Settings` 不含这两个字段（设备级例外，见 [[dual-platform-sharing]]）；字段加进桌面 `Config` 后经"无 `deny_unknown_fields` + 容器级 `serde(default)`"机制向后兼容，**未升 schema 版本、无迁移**（契约锁测试 `config/model.rs:367` `serde_account_fields_json_names_and_defaults`，缺省回退空串）。
+- 两个新字段是**桌面专属**：`Config` 的 serde 契约虽双端同源，安卓 `Settings` 不含这两个字段（设备级例外，见 [[dual-platform-sharing]]）；字段加进桌面 `Config` 后经"无 `deny_unknown_fields` + 容器级 `serde(default)`"机制向后兼容，**未升 schema 版本、无迁移**（契约锁测试 `config/model.rs:369` `serde_account_fields_json_names_and_defaults`，缺省回退空串）。
 - 登录日志/登录历史从副本的 `user` 取值（`login_adapter_with_log` 用 effective_config 记录实际使用的账号；`append_login_history` 调用点在 `session.rs:41`/`51`（成功/失败路径）与 `session.rs:90`（预检"已在线"直通路径）），双适配器下两条历史可分别对应不同账号。
 - 失败计数（`failure_tracker`）的 `campus_gateway` 取自 base 配置（`service.rs:150` 提前克隆，不受账号档案影响）。
 - 前端 `Config` 类型同步加了 `adapter1Account`/`adapter2Account`（`tauri-app/frontend/src/settings/types.ts:83-86`，可选字段，注释明确"切账号不改动"）。

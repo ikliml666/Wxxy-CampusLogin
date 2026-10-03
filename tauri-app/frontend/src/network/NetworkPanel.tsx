@@ -216,7 +216,11 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 展示列表 = 出站排序列 ∪ 当前适配器列表（保证新网卡可见可排）。
   // 拖拽期间用本地顺序渲染（outboundPriority 落盘是异步回显，不能让外部顺序打断拖拽）；
   // onDragEnd 才一次性提交 outboundPriority。外部顺序变化且非拖拽中 → 重置本地态。
-  const outboundOrder = buildOutboundOrder(config.outboundPriority, adapters.map(a => a.name))
+  const outboundOrder = buildOutboundOrder(
+    config.outboundPriority,
+    adapters.map(a => a.name),
+    adapters.filter(a => a.wireless).map(a => a.name),
+  )
   const outboundOrderKey = outboundOrder.join('\n')
   const [dragOrder, setDragOrder] = useState<string[] | null>(null)
   const isDraggingRef = useRef(false)

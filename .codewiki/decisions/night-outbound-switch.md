@@ -60,7 +60,7 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 
 ### 目标卡选择与逐卡判定
 
-`monitor/outbound_switch.rs`：`select_outbound_candidate`（`:61-85`）候选只来自用户排序列表 `outboundPriority`（白名单天然规避虚拟网卡），要求有 IP 且判定为**非校园网**，并新增两道过滤：**无网关卡跳过**（`:73-75`）与**自身网关不可达（死路）卡跳过**（`:76-82`，网关探不通的卡切过去也出不了网）。逐卡判定 `is_campus_adapter`（`:17-39`）与 `campus_check.rs` 同源：与 `campus_gateway` 同 /18 网段，或**绑该卡源 IP** 的网关可达（`check_gateway_reachable_from`，避免多卡归因错位；两发去抖，任一次可达即判校园 `:35-36`），六期后另增 **portal 域名绑源探测证据**（`:37-38`：`portal_probe_host` 解析出的私网 IPv4 从该卡路由可达即判校园）。`portal_probe_host(portal_url)`（`:44-56`）从 portal URL 提取私网 IPv4 作为探测目标，域名/公网/IPv6 返回空串。**SSID 不参与逐卡判定**——`netsh wlan` 只报当前连接的单个 SSID，多无线卡下归因不可靠。无可用候选不进退避，发**每日一次**提醒（`notify_outbound_issue_once_per_day`，`scheduled.rs:91`，三枚独立日戳原子量 `:111-113`；调用点 `apply_outbound_switch:575-587`），30s 循环天然支持热点半夜开启后自动补切。
+`monitor/outbound_switch.rs`：`effective_outbound_priority`（`:58-80`，十期新增）先把排序配置展开为**生效列表**——用户已排序（非空）按原序透传；未排序默认「无线卡优先、有线卡随后」（组内保发现序），即夜间出站目标默认 WLAN/无线出口（校园有线出口不会成为首选目标）。`select_outbound_candidate`（`:87-111`）候选来自该生效列表（白名单天然规避虚拟网卡），要求有 IP 且判定为**非校园网**，并保留两道过滤：**无网关卡跳过**与**自身网关不可达（死路）卡跳过**（网关探不通的卡切过去也出不了网）。逐卡判定 `is_campus_adapter`（`:17-39`）与 `campus_check.rs` 同源：与 `campus_gateway` 同 /18 网段，或**绑该卡源 IP** 的网关可达（`check_gateway_reachable_from`，避免多卡归因错位；两发去抖，任一次可达即判校园 `:35-36`），六期后另增 **portal 域名绑源探测证据**（`:37-38`：`portal_probe_host` 解析出的私网 IPv4 从该卡路由可达即判校园）。`portal_probe_host(portal_url)`（`:44-56`）从 portal URL 提取私网 IPv4 作为探测目标，域名/公网/IPv6 返回空串。**SSID 不参与逐卡判定**——`netsh wlan` 只报当前连接的单个 SSID，多无线卡下归因不可靠。无可用候选不进退避，发**每日一次**提醒（`notify_outbound_issue_once_per_day`，`scheduled.rs:91`，三枚独立日戳原子量 `:111-113`；调用点 `apply_outbound_switch:574-586`——十期起未排序不再静默跳过，统一走此告警，详见十期节），30s 循环天然支持热点半夜开启后自动补切。
 
 ### metric 读写底座
 
@@ -153,7 +153,7 @@ Switch/Restore 分支（`:780-799`/`:801-837`）：Switch = persist（`:787-788`
 
 ## 前端（双端）
 
-- **桌面 NetworkPanel**（`tauri-app/frontend/src/network/NetworkPanel.tsx`）合并卡：开关（默认关——改系统路由属侵入性动作，`:569-572`）+ 网卡排序列表 + **排第一的卡常显「夜间出站目标」徽标**（`:647-648`，不受开关影响）+ 当前出站徽标（`currentOutboundBadge`，`:166-171`）+「立即切换/立即还原」按钮（见九期节）+ 管理员权限提示（`:686`）。排序落 `outboundPriority`：`buildOutboundOrder`（`outboundOrder.ts:9-20`）——priority 非空按其过滤保序、未列入的当前卡追加尾部；拖拽期间本地态渲染（`dragOrderRef:223`），`onDragEnd` 才一次性提交（`:254-258`）；长按起拖常量 `:54-56`，`SortableAdapterRow:78`。
+- **桌面 NetworkPanel**（`tauri-app/frontend/src/network/NetworkPanel.tsx`）合并卡：开关（默认关——改系统路由属侵入性动作，`:573-576`）+ 网卡排序列表 + **排第一的卡常显「夜间出站目标」徽标**（`:650-653`，不受开关影响）+ 当前出站徽标（`currentOutboundBadge`，`:170-175`）+「立即切换/立即还原」按钮（见九期节）+ 管理员权限提示（`:690`）。排序落 `outboundPriority`：`buildOutboundOrder`（`outboundOrder.ts:9-30`）——priority 非空按其过滤保序、未列入的当前卡追加尾部；priority 空 → **无线网卡优先默认序**（第三参 `wirelessNames`，十期语义，与后端 `effective_outbound_priority` 对齐）；拖拽期间本地态渲染（`dragOrderRef:227`），`onDragEnd` 才一次性提交（`:255-263`）；长按起拖常量 `:54-56`，`SortableAdapterRow:78`。
 - **安卓 NetworkPanel**（`android/frontend/src/network/NetworkPanel.tsx`）同名卡：开关（`:357-358`）+ `network_avoid_bad_wifi` 引导块状态感知（`:354-405`）——`getAvoidBadWifiStatus` 查询（`:170-183`，授权绿框/未授权 `pm grant` 一键复制 `:185-193`/原 `settings put` 命令降为备选）+「还原系统设置」按钮（`handleRestoreWritten:195-214`，成功/无操作/失败 toast）。类型与封装在 `hooks/tauriApi.ts`（`AvoidBadWifiStatus:150-158`、`RestoreWrittenSettingsResult:161`、invoke 绑定 `:324-325`）。
 - i18n zh/en 双语言包双端同步；「晚间断网自动切换」文案改名「自动切换运营商」。
 
@@ -188,8 +188,8 @@ Switch/Restore 分支（`:780-799`/`:801-837`）：Switch = persist（`:787-788`
 
 一期前端节里「不引入拖拽」的决策撤销（当时顾虑安卓 WebView 滚动冲突与新增依赖——实际仅桌面引入，且 framer-motion ^12.38.0 桌面 frontend 已有、`Reorder.Group/Item + useDragControls` 是其内置能力，零新依赖；安卓排序 UI 不存在，滚动冲突前提不成立）。用户需求：网络适配器卡与夜间出站切换卡合并为一张卡；↑/↓ 按钮改长按拖拽。**仅桌面**（安卓端 NetworkPanel 不动）。
 
-- **合并卡结构**：`tauri-app/frontend/src/network/NetworkPanel.tsx`——头部左「网络适配器 + 检测数」、右 MoonStar 图标 + Switch（夜间出站切换总开关）；头部下方整行 nightOutboundSwitchDesc 小字；列表 = 适配器统一列表，每行图标（Wifi/Cable）+ 名称/IP(mono)/速度 + 徽标（主适配器/副适配器/无线/状态/夜间出站目标/当前出站）+ 行按钮（启用/获取新IP/刷新DHCP）。原「主适配器排最前」的自动排序取消——主/副由徽标表达，顺序完全由用户拖拽决定（`outboundPriority` 语义不变）。
-- **顺序构建纯函数** `outboundOrder.ts::buildOutboundOrder(priority, detected)`（`:9-20`）：priority 非空 → 按 priority 过滤掉已拔出网卡后排序、detected 中新卡按发现顺序追加尾部；priority 空 → 直接用发现顺序。7 个 vitest 用例（空 priority/乱序/失效过滤/新卡追加/全失效/去重/纯函数不变参）。
+- **合并卡结构**：`tauri-app/frontend/src/network/NetworkPanel.tsx`——头部左「网络适配器 + 检测数」、右 MoonStar 图标 + Switch（夜间出站切换总开关）；头部下方整行 nightOutboundSwitchDesc 小字；列表 = 适配器统一列表，每行图标（Wifi/Cable）+ 名称/IP(mono)/速度 + 徽标（主适配器/副适配器/无线/状态/夜间出站目标/当前出站）+ 行按钮（启用/获取新IP/刷新DHCP）。原「主适配器排最前」的自动排序取消——主/副由徽标表达，顺序由用户拖拽决定（十期起未排序有默认生效序，见下）。
+- **顺序构建纯函数** `outboundOrder.ts::buildOutboundOrder(priority, detected)`（三期时 `:9-20`）：priority 非空 → 按 priority 过滤掉已拔出网卡后排序、detected 中新卡按发现顺序追加尾部；priority 空 → 直接用发现顺序。7 个 vitest 用例（空 priority/乱序/失效过滤/新卡追加/全失效/去重/纯函数不变参）。（十期注：空 priority 语义已改为无线网卡优先默认序并增加第三参，见十期节。）
 - **拖拽交互**：行体任意处长按 250ms（`DRAG_LONG_PRESS_MS`）起拖，移动超 8px 死区（`DRAG_DEAD_ZONE_PX`）取消长按——保护滚动与点击（常量 `:54-56`）。`Reorder.Item` 挂 `dragListener={false}` + `dragControls`；行内按钮区包一层 `onPointerDown stopPropagation` 防点按钮误触长按。拖拽中用本地 state（`dragOrderRef:223`）渲染，`onDragEnd` 才一次性提交 `onUpdateConfig({outboundPriority})`（`:254-258`，拖拽期间外部顺序同步被屏蔽，异步回显不打断手势）；`whileDrag` 抬起态（scale 1.02 + 阴影）。（四期注：把手通道已撤销，仅保留长按通道，见下节。）
 - **验证**：tsc 0 错误、vitest 96/96、vite build 通过；Playwright（仓库外临时环境 + 临时 dev mock shim，已删）真浏览器实测 4 场景全过。
 - 顺序提交语义与夜间出站切换的候选选择（`select_outbound_candidate` 按列表顺序）天然衔接：拖到第一位的卡即夜间出站目标徽标行。
@@ -287,6 +287,15 @@ kimi-k2.8-preview 只读审计 src-tauri 后端返回 7 条，逐条源码核实
 - **metric 持久层口径修正**（`platform/metric.rs:1-5`）：`SetIpInterfaceEntry` 写持久配置、重启不还原——「重启自动还原」的旧认知作废，快照还原是必需步骤。行为未变（本就按快照还原实现），修正的是文档与风险模型（崩溃残留不会自愈 → 启动对账/恢复窗是唯一收敛路径；导入保留本机切换态从「保险」升格为「必需」）。
 - **还原放弃阀**（`OUTBOUND_RESTORE_GIVE_UP_FAILS=40`，`scheduled.rs:81`/`:1103-1114`）：禁用名单损坏等无法自明的失败连续 40 次后按空名单放行 `gave_up_released`——防止坏名单把还原永久锁死（逃生口语义，与安卓 MAX_FAILS=3 同源不同值：桌面单次还原动作内重试粒度更细）。
 - **恢复窗 06:30→07:30**（839d3a0，`night_switch.rs:10`）：桌面恢复窗、守护窗终点、凌晨补切边界随常量自动联动。
+
+## 十期：夜间出站目标默认 WLAN——空优先级的默认生效序（2026-10-03）
+
+用户需求：「将夜间出战目标默认调整为wlan」。此前未拖动排序（`outboundPriority` 为空）时夜间切换**静默不动作**（debug 日志 + 「尚未配置出站优先级」错误），出站生效序退化为适配器发现顺序——新装/清配置环境下目标可能落在有线卡上。名字硬编码默认（写死 "WLAN"）在英文系统（"Wi-Fi"）与多网卡环境不成立，泛化为「无线优先」：本机恰产生与用户既有落盘 `["WLAN", "以太网", "以太网 2"]` 一致的顺序。**仅桌面**（适配器跃点切换为 Windows 专属能力，安卓夜间出站语义=注销+WiFi 重检）。
+
+- **生效列表纯函数** `effective_outbound_priority(priority, details) -> Vec<String>`（`outbound_switch.rs:58-80`）：非空透传；空 → 无线卡优先、有线卡随后（组内保发现序，按 `Adapter.wireless`）。调用点 `apply_outbound_switch` 计算一次（`scheduled.rs:566`），同时供 `select_outbound_candidate`（`:567`）/ `select_campus_to_disable`（`:612`）/ 空禁用名单告警 `others_present`（`:626-627`）消费——**生效序即禁用白名单**，未排序时在网校园卡同样纳入夜间禁用，与已排序语义一致。
+- **未排序静默分支移除**：原 `config.outbound_priority.is_empty()` → debug 日志 + Err("尚未配置出站优先级，请先在适配器列表中拖动排序") 的特判删除，统一并入「无可用候选」warn + 每日一次通知（文案改为「未找到可用的非校园网网卡（可能被误判为校园网或网关不可达），出站未切换」）。理由：默认序使未排序用户真实参与切换，失败即环境问题，应可见（手动「切换出站」按钮同样受益：未排序时不再报错，直接切到无线优先目标）。
+- **前端同语义**：`buildOutboundOrder(priority, detected, wirelessNames?)`（`outboundOrder.ts:9-30`）第三参为无线卡名列表——priority 空且 wirelessNames 非空 → Set 过滤的无线优先序；`NetworkPanel.tsx:219-223` 传 `adapters.filter(a => a.wireless).map(a => a.name)`，拖拽列表与「夜间出站目标」徽标（`displayedOrder[0]`，`:650-653`）自动同语义。i18n：`outboundDragHint` 补「未排序时默认无线网卡（WLAN）优先」；`outboundAdminHint` 删除已失真的「列表外网卡不参与切换」（未排序时全部检测到的网卡默认参与）。
+- **验证**：`cargo test` 全绿 447 用例 0 失败（新增 `effective_outbound_priority` 单测 4 个：非空透传/无线优先保发现序/多无线卡保序/空列表）；双端 `npx tsc --noEmit --incremental` 0 errors；`outboundOrder.test.ts` vitest 10/10。既有 `select_*` 单测未动（select 语义未变，默认序在调用点展开）。提交 0a2baf5。
 
 ## Connections
 
