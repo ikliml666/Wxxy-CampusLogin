@@ -15,8 +15,12 @@
 ///
 /// 「已到点即触发（而非严格等于配置分钟）」是有意为之：循环拍间隔/系统休眠
 /// 可能恰好错过配置分钟，等值比较会让定时动作整天静默失效。
+/// 禁用哨兵：`target_minutes >= 该值` 视为禁用、永不触发（一天分钟数上限，
+/// 真实时刻最大 1439；0 是合法的 00:00 时刻）。双端共享单点，调用方勿再硬编码 1440。
+pub const SCHEDULED_DISABLED_MINUTES: u16 = 1440;
+
 pub fn should_fire_scheduled_action(now_minutes: u16, target_minutes: u16, last_fired_day: i32, today_day: i32) -> bool {
-    if target_minutes >= 1440 {
+    if target_minutes >= SCHEDULED_DISABLED_MINUTES {
         return false;
     }
     if now_minutes < target_minutes {

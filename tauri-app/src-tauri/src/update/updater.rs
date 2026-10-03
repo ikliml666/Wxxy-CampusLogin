@@ -369,7 +369,6 @@ async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState) -> bool {
                 #[cfg(not(all(desktop, target_os = "windows")))]
                 emit_notification(app_h, "发现新版本", &body, "mascot-update");
             }
-            state.update_stats.last_update_check_epoch_ms.store(now_epoch_ms(), Ordering::Release);
             true
         }
         Err(e) => {
