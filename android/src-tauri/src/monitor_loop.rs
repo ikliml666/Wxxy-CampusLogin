@@ -890,8 +890,9 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             campus_login_lib::config::night_switch::NightSwitchAction::None => {}
         }
     }
-    if settings.scheduled_login_minutes >= 1440 && settings.scheduled_logout_minutes >= 1440 {
-        return; // 双禁用(2026-09-20 起禁用哨兵 1440,0=真实的 00:00 时刻):免读时钟早退
+    let disabled = campus_login_lib::config::schedule::SCHEDULED_DISABLED_MINUTES;
+    if settings.scheduled_login_minutes >= disabled && settings.scheduled_logout_minutes >= disabled {
+        return; // 双禁用(禁用哨兵见共享 config::schedule 文档,0=真实的 00:00 时刻):免读时钟早退
     }
     let now = chrono::Local::now();
     let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;
@@ -1113,9 +1114,16 @@ const NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15;
 
 /// portal_url 的 origin(chkstatus 与 portal 同源,eportal 按请求源 IP 判定本机)
 fn portal_origin(portal_url: &str) -> String {
-    match portal_url.split_once("://") {
+    // 空值回退默认 portal 地址(与桌面 monitor/scheduled.rs 同款,双端语义一致):
+    // eportal 按请求源 IP 判定本机,空 origin 会让 chkstatus 验证请求落空
+    let url = if portal_url.is_empty() {
+        campus_login_lib::config::model::default_portal_url()
+    } else {
+        portal_url.to_string()
+    };
+    match url.split_once("://") {
         Some((scheme, rest)) => format!("{scheme}://{}", rest.split('/').next().unwrap_or("")),
-        None => portal_url.split('/').next().unwrap_or("").to_string(),
+        None => url.split('/').next().unwrap_or("").to_string(),
     }
 }
 
