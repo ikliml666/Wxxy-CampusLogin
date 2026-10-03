@@ -6,12 +6,13 @@
 ![platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20Android-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-<p>
-  <img alt="桌面端总览" src="assets/screenshot-desktop-overview.png" width="49.5%" />
-  <img alt="桌面端网络适配器" src="assets/screenshot-desktop-adapters.png" width="49.5%" />
+<p align="center">
+  <img alt="桌面端总览" src="assets/screenshot-desktop-overview.png" width="100%" />
 </p>
-<p>
-  <img alt="Android 端总览" src="assets/screenshot-android-overview.png" width="32%" />
+<p align="center">
+  <img alt="桌面端网络适配器" src="assets/screenshot-desktop-adapters.png" width="78%" />
+  &nbsp;
+  <img alt="Android 端总览" src="assets/screenshot-android-overview.png" width="20%" />
 </p>
 
 ## 下载安装
