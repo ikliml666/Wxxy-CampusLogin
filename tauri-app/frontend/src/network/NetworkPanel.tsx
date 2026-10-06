@@ -293,6 +293,29 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     return () => window.clearInterval(timer)
   }, [refreshCurrentOutbound])
 
+  // WebView2 最小化时定时器被节流，且夜间自动切换（改路由 metric/临时禁卡）多数
+  // 不改变适配器数量——恢复窗口时常看到陈旧的当前出站徽标与适配器列表。
+  // visibilitychange/focus 恢复时强制重探；两事件可能连发，5s 节流去重。
+  const lastFocusSyncRef = useRef(0)
+  const syncOnRestore = useCallback(() => {
+    const now = Date.now()
+    if (now - lastFocusSyncRef.current < 5_000) return
+    lastFocusSyncRef.current = now
+    void refreshAdapterData({ force: true, includeDisabled: true })
+    void refreshCurrentOutbound()
+  }, [refreshCurrentOutbound])
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') syncOnRestore()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', syncOnRestore)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', syncOnRestore)
+    }
+  }, [syncOnRestore])
+
   useEffect(() => {
     // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
     // 否则 async handler 内的 setState 在 dev 模式下全部被丢弃

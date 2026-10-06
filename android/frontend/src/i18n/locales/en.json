@@ -39,13 +39,13 @@
     "reload": "Reload"
   },
   "nav": {
-    "dashboard": "Dashboard",
+    "dashboard": "Home",
     "account": "Account",
-    "selfservice": "Self-Service",
-    "network": "Network Adapters",
-    "monitor": "Network Monitor",
-    "quality": "Network Quality",
-    "speedtest": "Speed Test",
+    "selfservice": "Service",
+    "network": "Network",
+    "monitor": "Monitor",
+    "quality": "Quality",
+    "speedtest": "Speed",
     "settings": "Settings",
     "log": "Logs",
     "more": "More"

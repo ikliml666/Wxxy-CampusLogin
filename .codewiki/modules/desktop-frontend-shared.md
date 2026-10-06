@@ -151,12 +151,12 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 |---|---|---|
 | `DockNav.tsx:34-44` | `ICON_MAP` | `NAV_ITEMS[].icon` 字符串 → lucide 组件的映射表（新增导航项必须同步此表） |
 | `DockNav.tsx:46-48` | `MAGNETIC_RANGE=80` / `MAX_SCALE=1.35` / `MAX_LIFT=-14` | 磁吸参数 |
-| `DockNav.tsx:50-164` | `DockItem`（内部组件） | 单图标项：`gsap.quickTo` 建 scale/y 两条通道（74-75），订阅 `mouseX` 做距离衰减（95-113，变化 <2px 跳过 96-98）；`visibleCount` 变化时重算磁吸中心（120）；激活项在图标盒（140，40×28）内渲染共享 `layoutId="dock-active-pill"` 药丸（141-148，spring 420/34）并在下方显示标签（151-154）；视觉 tooltip `aria-hidden="true"` 防屏幕阅读器双读（155-161，按钮自身已有 `aria-label`） |
-| `DockNav.tsx:166-171` | `interface AdapterMenuProps` | `adapters`、`selectedAdapter?`、`onSelect`、`actionLabel` |
-| `DockNav.tsx:173-260` | `AdapterMenu`（内部组件） | 登录/注销的适配器选择浮层，仅列 `a.ip` 非空的适配器（175）；默认选中第一个（176） |
-| `DockNav.tsx:262-407` | `ActionButtonWithMenu`（内部组件） | 按钮 + hover 150ms 开、300ms 关（294-303）；仅一张在线卡时不弹选择浮层、点击直接以该卡执行（290-292、317-327），两张及以上才弹菜单；加载态：spinner `gsap` 旋转（336-344）+ `loadingPulse` 边框（288,376-382） |
-| `DockNav.tsx:409-412` | `interface DockNavProps` | `onPanelChange: (panel: PanelName) => void`、`outerRef?` |
-| `DockNav.tsx:414-511` | `DockNav`（`memo`） | 读 `activePanel`/`isLoggingIn`/`isLoggingOut`/`adapters`/`enableNetworkQuality`/`adapter1,adapter2,dualAdapter`（416-425，后三项用 `useShallow` 421-425）；`scopedAdapters` 用 `resolveAdapterNames` 限定作用域（432-436）；`visibleItems` 过滤 `quality`（437）；`economy` 档禁用磁吸（444-445）+ RAF 节流（447-450）；激活指示由 `DockItem` 内药丸 `layoutId` 跨项滑动承担（141-148），无独立指示条与 `mounted` 测量 |
+| `DockNav.tsx:50-152` | `DockItem`（内部组件） | 单图标项（FlClash 式页签）：`gsap.quickTo` 建 scale/y 两条通道（74-75），订阅 `mouseX` 做距离衰减（103-113，变化 <2px 跳过）；`visibleCount` 变化时重算磁吸中心（119-120）；图标+短标签竖排**常显**（非激活也带标签，`text-[11px]`，150），按钮等宽 `w-[52px]`（130）；激活药丸 `layoutId="dock-active-pill"` 为按钮级 `absolute inset-0 rounded-full bg-primary/10` 包整项（143-148，spring 250/28——等宽按钮间纯平移零变形）；`aria-current="page"` 标激活（138）；无 tooltip（原 aria-hidden 视觉 tooltip 已随标签常显删除） |
+| `DockNav.tsx:155-160` | `interface AdapterMenuProps` | `adapters`、`selectedAdapter?`、`onSelect`、`actionLabel` |
+| `DockNav.tsx:162-249` | `AdapterMenu`（内部组件） | 登录/注销的适配器选择浮层，仅列 `a.ip` 非空的适配器（175）；默认选中第一个（176） |
+| `DockNav.tsx:251-396` | `ActionButtonWithMenu`（内部组件） | 按钮 + hover 150ms 开、300ms 关（294-303）；仅一张在线卡时不弹选择浮层、点击直接以该卡执行（290-292、317-327），两张及以上才弹菜单；加载态：spinner `gsap` 旋转（336-344）+ `loadingPulse` 边框（288,376-382） |
+| `DockNav.tsx:398-401` | `interface DockNavProps` | `onPanelChange: (panel: PanelName) => void`、`outerRef?` |
+| `DockNav.tsx:403-500` | `DockNav`（`memo`） | 读 `activePanel`/`isLoggingIn`/`isLoggingOut`/`adapters`/`enableNetworkQuality`/`adapter1,adapter2,dualAdapter`（416-425，后三项用 `useShallow` 421-425）；`scopedAdapters` 用 `resolveAdapterNames` 限定作用域（432-436）；`visibleItems` 过滤 `quality`（437）；`economy` 档禁用磁吸（444-445）+ RAF 节流（447-450）；激活指示由 `DockItem` 内药丸 `layoutId` 跨项滑动承担（143-148），无独立指示条与 `mounted` 测量 |
 | `RightPanel.tsx:20-24` | `interface RightPanelProps` | `logs: LogEntry[]`、`onClearLogs?`、`outerRef?` |
 | `RightPanel.tsx:26-31` / `33-38` / `40-45` / `47-52` | `LOG_ICONS` / `LOG_COLORS` / `LOG_BG_COLORS` / `LOG_BAR_COLORS` | 四类日志的图标/文字色/底色/左条色 |
 | `RightPanel.tsx:57-58` | `RIGHT_PANEL_ANIM_THRESHOLD=50` / `RIGHT_PANEL_ANIM_KEEP_COUNT=30` | 分片阈值：>50 条时只有最后 30 条走 `m.div` |
@@ -281,8 +281,8 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | `TabContentProps` | `SegmentTabs.tsx:56-58` | `children: React.ReactNode` |
 | `SponsorCardProps` | `SponsorCard.tsx:7-10` | `open: boolean`、`onClose: () => void` |
 | `ToastContainerProps` | `ToastContainer.tsx:10-13` | `toasts: ToastMessage[]`、`onRemove: (id: string) => void` |
-| `DockNavProps` | `DockNav.tsx:409-412` | `onPanelChange: (panel: PanelName) => void`、`outerRef?: (el: HTMLDivElement \| null) => void` |
-| `AdapterMenuProps` | `DockNav.tsx:166-171` | `adapters: Adapter[]`、`selectedAdapter?: string`、`onSelect: (adapterName: string) => void`、`actionLabel: string` |
+| `DockNavProps` | `DockNav.tsx:398-401` | `onPanelChange: (panel: PanelName) => void`、`outerRef?: (el: HTMLDivElement \| null) => void` |
+| `AdapterMenuProps` | `DockNav.tsx:155-160` | `adapters: Adapter[]`、`selectedAdapter?: string`、`onSelect: (adapterName: string) => void`、`actionLabel: string` |
 | `RightPanelProps` | `RightPanel.tsx:20-24` | `logs: LogEntry[]`、`onClearLogs?: () => void`、`outerRef?: (el: HTMLDivElement \| null) => void` |
 | `TitleBarProps` | `TitleBar.tsx:11-22` | `notificationEnabled: boolean`、`onToggleNotification: () => void`、`onShowTheme: () => void`、`onShowAbout: () => void`、`onShowSponsor: () => void`、`onToggleLightMode: () => void`、`onMinimize: () => void`、`onToggleMaximize: () => void`、`onClose: () => void`、`isMaximized: boolean` |
 | `AnimatedCardConfig` | `animated-card.tsx:6-12` | `glowIntensity?: number`、`hoverScale?: number`、`stiffness?: number`、`damping?: number`、`mass?: number`（当前无消费方，见 Known Issues 5） |
