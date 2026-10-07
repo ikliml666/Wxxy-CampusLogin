@@ -1,0 +1,7 @@
+{
+  "name": "campus-login-ios-xcode",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri"
+  }
+}
