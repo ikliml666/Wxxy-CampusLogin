@@ -69,6 +69,12 @@ jobs:
           CARGO_TARGET_DIR: ${{ github.workspace }}/ios-target
         run: npx tauri ios build --target aarch64-sim --debug -v
 
+      - name: Debug build failure (rerun xcodebuild for phase stderr)
+        if: failure()
+        working-directory: ios/src-tauri/gen/apple
+        run: |
+          xcodebuild -allowProvisioningUpdates -scheme campus-login-ios_iOS -workspace campus-login-ios.xcodeproj/project.xcworkspace/ -sdk iphonesimulator -configuration debug build 2>&1 | grep -B 2 -A 25 -E "error:|Error:|PhaseScriptExecution" | tail -120
+
       - name: Smoke test on simulator
         run: |
           set -e
