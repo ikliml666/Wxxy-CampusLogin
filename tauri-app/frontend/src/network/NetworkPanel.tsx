@@ -200,6 +200,18 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
 export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfig }: NetworkPanelProps) {
   const { t } = useTranslation()
   const disabledAdapters = useAdapterStore((s) => s.disabledAdapters)
+  // 禁用段直接从 adapters 单通道派生：后端把所有卡（含禁用）都推入 adapters
+  // （discovery/windows.rs「所有适配器都推入 adapters 列表」，禁用卡 status='disabled'、
+  // 无 IP），而 adapters 的刷新通道（60s 轮询 + onAdaptersChanged 推送 + 操作后 force
+  // 刷新 + 挂载/恢复对账）远比 disabledAdapters（部分时机拉取 + 差分推送，WebView2
+  // 最小化期间事件可能丢失）活跃。单源派生后，两条通道短暂不一致影响不到下拉——
+  // 历史缺陷：双通道合并渲染曾致 SelectItem value 撞车、双勾选与触发器文本拼接。
+  // 三段互斥：①有 IP ②无 IP 且非 disabled 态 ③disabled 态。disabledAdapters store
+  // 仅保留给空态判断等兜底场景。
+  const effectiveDisabledAdapters = useMemo(
+    () => adapters.filter(a => a.status === 'disabled'),
+    [adapters],
+  )
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
@@ -315,6 +327,13 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       window.removeEventListener('focus', syncOnRestore)
     }
   }, [syncOnRestore])
+
+  // 挂载对账：本面板可能在其他页签停留期间错过 disabled/adapters 事件（页签切换
+  // 不触发 visibilitychange/focus），挂载时重拉一次对齐 store（不带 force，500ms
+  // 缓存内与启动加载合并，避免双拉）。
+  useEffect(() => {
+    void refreshAdapterData({ includeDisabled: true })
+  }, [])
 
   useEffect(() => {
     // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
@@ -551,7 +570,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 <div className="min-w-0">
                   <CardTitle>{t('network.networkAdapters')}</CardTitle>
                   <CardDescription>
-                    {disabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: disabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
+                    {effectiveDisabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: effectiveDisabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
                   </CardDescription>
                 </div>
               </div>
@@ -756,12 +775,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         ))}
                       </>
                     )}
-                    {disabledAdapters.length > 0 && (
+                    {effectiveDisabledAdapters.length > 0 && (
                       <SelectSeparator />
                     )}
-                    {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{t(`network.status.${a.status}`)}）
+                    {effectiveDisabledAdapters.map(a => (
+                      <SelectItem key={a.name} value={a.name} disabled>
+                        {a.name}（{t('network.status.disabled')}）
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -809,12 +828,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         ))}
                       </>
                     )}
-                    {disabledAdapters.length > 0 && (
+                    {effectiveDisabledAdapters.length > 0 && (
                       <SelectSeparator />
                     )}
-                    {disabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled={a.status === 'disabled'}>
-                        {a.name}（{t(`network.status.${a.status}`)}）
+                    {effectiveDisabledAdapters.map(a => (
+                      <SelectItem key={a.name} value={a.name} disabled>
+                        {a.name}（{t('network.status.disabled')}）
                       </SelectItem>
                     ))}
                   </SelectContent>
