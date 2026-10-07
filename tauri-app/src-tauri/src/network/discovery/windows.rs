@@ -270,7 +270,7 @@ fn parse_adapter_addresses(
             AdapterStatus::Disabled => {
                 disabled.push(DisabledAdapter {
                     name,
-                    status: status.as_str().to_string(),
+                    status,
                     description,
                 });
             }

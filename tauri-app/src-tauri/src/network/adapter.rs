@@ -347,7 +347,7 @@ mod tests {
     fn make_disabled(name: &str) -> DisabledAdapter {
         DisabledAdapter {
             name: name.to_string(),
-            status: "Disabled".to_string(),
+            status: AdapterStatus::Disabled,
             description: String::new(),
         }
     }

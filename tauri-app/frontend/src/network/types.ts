@@ -14,7 +14,7 @@ export interface Adapter {
 
 export interface DisabledAdapter {
   name: string
-  status: string
+  status: AdapterStatus
   description: string
 }
 

@@ -45,17 +45,6 @@ pub enum AdapterStatus {
     Connected,
 }
 
-impl AdapterStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AdapterStatus::Disabled => "已禁用",
-            AdapterStatus::Disconnected => "未连接",
-            AdapterStatus::EnabledNoIp => "未禁用无IP",
-            AdapterStatus::Connected => "已连接",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Adapter {
@@ -90,7 +79,9 @@ pub struct AdapterDetail {
 #[serde(rename_all = "camelCase")]
 pub struct DisabledAdapter {
     pub name: String,
-    pub status: String,
+    /// 与 Adapter.status 同源：serde 序列化为英文枚举 key（"disabled" 等），
+    /// 文案由前端 i18n（network.status.*）渲染，后端不携带本地化字符串。
+    pub status: AdapterStatus,
     pub description: String,
 }
 
@@ -180,5 +171,21 @@ mod tests {
         assert!(!is_blacklisted("以太网"));
         assert!(!is_blacklisted("WLAN"));
         assert!(!is_blacklisted("校园网认证"));
+    }
+
+    // === DisabledAdapter.status 序列化回归 ===
+    // 历史缺陷：status 曾存中文文案（as_str()），前端按 i18n key 拼接
+    // `network.status.${status}` 后回退显示原始 key「network.status.已禁用」。
+    // 现与 Adapter.status 同源序列化为英文枚举 key，此测试锁住该契约。
+    #[test]
+    fn disabled_adapter_status_serializes_as_enum_key() {
+        let d = DisabledAdapter {
+            name: "以太网".to_string(),
+            status: AdapterStatus::Disabled,
+            description: String::new(),
+        };
+        let json = serde_json::to_value(&d).unwrap();
+        assert_eq!(json["status"], "disabled");
+        assert!(json["status"].as_str().is_some());
     }
 }

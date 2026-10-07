@@ -20,6 +20,10 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
         async move {
             let mut last_adapters: Vec<Adapter> = Vec::new();
             let mut last_disabled: Vec<DisabledAdapter> = Vec::new();
+            // 启动竞态：前端初始加载可能在本任务首轮之前拉取快照（如启动对账随后的
+            // 夜间还原改变了禁用状态），而本任务 baseline 自首轮查询起算、感知不到
+            // 那次变更——首轮无条件推送一次，把前端快照强制对齐到启动后真实状态。
+            let mut first_round = true;
             let mut class_refresh_round: u32 = 0;
             let mut interval_timer = tokio::time::interval(Duration::from_millis(ADAPTER_WATCH_INTERVAL));
             // 单轮检测耗时超过周期时默认 Burst 会连续补发错过的 tick 造成连发，
@@ -71,7 +75,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                     sorted_last.sort_by(|a, b| a.name.cmp(&b.name));
                     sorted_current.len() != sorted_last.len()
                         || sorted_current.iter().zip(sorted_last.iter()).any(|(a, b)| a.name != b.name || a.ip != b.ip)
-                };
+                } || first_round;
 
                 // 历史缺陷：GetAdaptersAddresses 返回顺序不稳定，disabled 直接 zip 比较会
                 // 因顺序变化误报 changed；与上方 adapters 一致按 name 排序后再比较。
@@ -82,7 +86,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                     sorted_last.sort_by(|a, b| a.name.cmp(&b.name));
                     sorted_cur.len() != sorted_last.len()
                         || sorted_cur.iter().zip(sorted_last.iter()).any(|(a, b)| a.name != b.name || a.status != b.status)
-                };
+                } || first_round;
 
                 if adapters_changed {
                     if let Err(e) = EventBus::new(&app_h).emit_adapters_changed(&adapters) {
@@ -156,7 +160,9 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                                 && configured_names.iter().any(|n| *n == da.name)
                                 && night_disabled.as_ref().is_some_and(|nd| !nd.contains(&da.name))
                             {
-                                let message = format!("适配器{} 当前{}，请检查后重试", da.name, da.status);
+                                // DisabledAdapter.status 是枚举（文案归前端 i18n），
+                                // 这条 toast 文案在用户配置的卡被外部禁用等场景恒为「已禁用」。
+                                let message = format!("适配器{} 当前已禁用，请检查后重试", da.name);
                                 if let Err(e) = EventBus::new(&app_h).emit_adapter_disabled_warning(&da.name, &message) {
                                     crate::log_warn!("adapter_watch", "发送适配器禁用警告失败: {}", e);
                                 }
@@ -272,6 +278,7 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                     }
                 }
 
+                first_round = false;
                 last_adapters = adapters;
                 last_disabled = disabled;
                 } else {

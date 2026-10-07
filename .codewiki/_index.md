@@ -66,6 +66,7 @@
 - [[learnings\cmstplua-elevation-bind-opts3-and-vtable-slot|CMSTPLUA 静默提权从未通过——BIND_OPTS 传小与 vtable slot 错位的叠加]]
 - [[learnings\css-comma-selector-shared-body-pitfall|CSS 逗号选择器列表共享规则体（.anim-idle .animate-pulse 被 .scrollbar-none 吃掉）]]
 - [[learnings\cargo-lock-manual-bump-collateral-sed|Cargo.lock 手动升版：全文件 sed 误伤同版本第三方包，且 .lock 不被 --include=*.toml 匹配]]
+- [[learnings\disabled-adapter-status-enum-and-startup-race|DisabledAdapter.status 中文文案断裂 i18n + 轮询差分启动竞态冻结快照 → 下拉双勾选与原始 key]]
 - [[learnings\windows-hello-gate-module-singleton|Hello 门是模块级单例，跨面板与向导共享一份时间戳]]
 - [[learnings\input-time-wrapper-w-full|Input 组件 time 类型自带 relative w-full 包装层]]
 - [[learnings\mask-placeholder-persisted-as-plaintext|MASK 占位符被直接落盘会变明文密码 "***"]]
