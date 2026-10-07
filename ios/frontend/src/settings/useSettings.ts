@@ -1,0 +1,74 @@
+import { useCallback } from 'react'
+import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
+import { useConfigStore } from '@/hooks/useConfigStore'
+import { useThemeStore } from '@/hooks/useThemeStore'
+import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { useShallow } from 'zustand/react/shallow'
+import { safeStorage } from '@/lib/utils'
+import { requestNotificationPermission } from '@/lib/notificationPermission'
+import i18next from 'i18next'
+import type { ThemeName } from '@/shared'
+
+export function useSettings() {
+  const configStore = useConfigStore(useShallow((s) => ({
+    config: s.config,
+    updateConfig: s.updateConfig,
+    saveConfigDirect: s.saveConfigDirect,
+    passwordSaved: s.passwordSaved,
+    syncPasswordSaved: s.syncPasswordSaved,
+  })))
+  const themeStore = useThemeStore(useShallow((s) => ({
+    themeName: s.themeName,
+    isLightMode: s.isLightMode,
+    customThemeColor: s.customThemeColor,
+    setThemeName: s.setThemeName,
+    setIsLightMode: s.setIsLightMode,
+    initTheme: s.initTheme,
+    setCustomThemeColor: s.setCustomThemeColor,
+  })))
+  const logToastStore = useLogToastStore(useShallow((s) => ({
+    addToast: s.addToast,
+  })))
+  const store = { ...configStore, ...themeStore, ...logToastStore }
+
+  const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
+
+  const handleToggleLightMode = useCallback(() => {
+    const current = useThemeStore.getState().isLightMode
+    const next = !current
+    useThemeStore.getState().setIsLightMode(next)
+    useConfigStore.getState().updateConfig({ themeMode: next ? 'light' : 'dark' })
+    safeStorage.set('campus-light-mode', next ? '1' : '0')
+  }, [])
+
+  const handleToggleNotification = useCallback(async () => {
+    const next = configEnableNotification !== false ? false : true
+    store.updateConfig({ enableNotification: next })
+    try { await api.setNotificationEnabled?.(next) } catch (e) { if (import.meta.env.DEV) console.error('设置通知状态失败:', e) }
+    // 开启时确保系统有授权:13+ 弹框;13 以下/被永久拒绝跳设置页(TitleBar 铃铛入口)
+    if (next) void requestNotificationPermission({ openSettingsIfDenied: true })
+  }, [configEnableNotification, store.updateConfig, api])
+
+  const handleSetAutoLaunch = useCallback(async (enabled: boolean) => {
+    // 安卓后端 Settings 无 autoLaunch 字段,开机自启真实字段为 enableBootAutostart(set_boot_autostart)
+    store.updateConfig({ enableBootAutostart: enabled })
+    // API 失败时 UI 已显示开启但注册表未生效，须提示用户
+    try { await api.setAutoLaunch?.(enabled) } catch (e) {
+      if (import.meta.env.DEV) console.error('设置开机自启失败:', e)
+      store.addToast(i18next.t('settings.autoLaunchFailed'), 'error')
+    }
+  }, [store.updateConfig, api, store.addToast])
+
+  const handleSetTheme = useCallback((name: string) => {
+    store.setThemeName(name as ThemeName)
+    safeStorage.set('campus-theme', name)
+  }, [store.setThemeName])
+
+  return {
+    ...store,
+    handleToggleLightMode,
+    handleToggleNotification,
+    handleSetAutoLaunch,
+    handleSetTheme,
+  }
+}

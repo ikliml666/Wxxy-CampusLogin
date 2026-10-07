@@ -1,0 +1,95 @@
+# iOS 端 CI(specs/ios-port-spec.md §8):macOS runner 模拟器构建 + 冒烟截图。
+# 首跑生成 gen/apple 并自动提交回 main([skip ci] 防循环),后续直接用入仓工程。
+name: ci-ios
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ci-ios.yml", "tauri-app/src-tauri/**"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ci-ios.yml", "tauri-app/src-tauri/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-sim-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ios/src-tauri
+
+      - name: Install tauri-cli and xcodegen
+        run: |
+          npm install -g @tauri-apps/cli
+          brew install xcodegen
+
+      - name: Build frontend
+        working-directory: ios/frontend
+        run: npm ci && npm run build
+
+      - name: Generate Xcode project (first run only)
+        id: gen
+        working-directory: ios
+        run: |
+          if [ ! -d src-tauri/gen/apple ]; then
+            npx tauri ios init
+            echo "generated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit generated project back to main
+        if: steps.gen.outputs.generated == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ios/src-tauri/gen
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(ios): sync tauri ios init generated Xcode project [skip ci]"
+            git push
+          fi
+
+      - name: Build simulator app (debug)
+        working-directory: ios
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/ios-target
+        run: npx tauri ios build --target aarch64-apple-ios-sim --debug
+
+      - name: Smoke test on simulator
+        run: |
+          set -e
+          UDID=$(xcrun simctl list devices available | grep -m1 "iPhone" | sed -E 's/.*\(([A-F0-9-]{36})\).*/\1/')
+          echo "Booting simulator $UDID"
+          xcrun simctl boot "$UDID"
+          APP=$(find ios-target -type d -name "*.app" -path "*iphonesimulator*" | head -1)
+          echo "Installing $APP"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.campuslogin.client
+          sleep 10
+          xcrun simctl io "$UDID" screenshot ios-smoke.png
+          xcrun simctl terminate "$UDID" com.campuslogin.client || true
+
+      - name: Check build log for foreign target-dir leakage
+        run: |
+          if grep -ri "E:\\ik" ios-target/debug 2>/dev/null | head -3; then
+            echo "::warning::found absolute target-dir path from desktop crate config leakage"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-smoke
+          path: ios-smoke.png

@@ -1,0 +1,279 @@
+import type { LogEntry } from '@/shared'
+import { AnimatedCard } from '@/components/ui/animated-card'
+import { Button } from '@/components/ui/button'
+import { ScrollText, CheckCircle2, AlertCircle, Info, AlertTriangle, Trash2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useRef, useEffect, useCallback, memo, useMemo, useState } from 'react'
+import gsap from 'gsap'
+import { m, AnimatePresence } from 'framer-motion'
+import { createLogEntryVariants } from '@/lib/animations'
+import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useBreatheAnimation } from '@/hooks/useBreatheAnimation'
+import { useTranslation } from 'react-i18next'
+
+interface RightPanelProps {
+  logs: LogEntry[]
+  onClearLogs?: () => void
+  outerRef?: (el: HTMLDivElement | null) => void
+}
+
+const LOG_ICONS: Record<LogEntry['type'], typeof Info> = {
+  info: Info,
+  success: CheckCircle2,
+  error: AlertCircle,
+  warning: AlertTriangle,
+}
+
+const LOG_COLORS: Record<LogEntry['type'], string> = {
+  info: 'text-sky-500',
+  success: 'text-emerald-500',
+  error: 'text-destructive',
+  warning: 'text-amber-500',
+}
+
+const LOG_BG_COLORS: Record<LogEntry['type'], string> = {
+  info: 'bg-sky-500/6',
+  success: 'bg-emerald-500/8',
+  error: 'bg-destructive/8',
+  warning: 'bg-amber-500/8',
+}
+
+const LOG_BAR_COLORS: Record<LogEntry['type'], string> = {
+  info: 'bg-sky-400',
+  success: 'bg-emerald-500',
+  error: 'bg-rose-500',
+  warning: 'bg-amber-500',
+}
+
+// FP-4: 日志条数超过阈值时降级，旧条目用普通 div 替代 m.div，
+// 避免 MAX_LOG_ENTRIES=300 上限下大量 framer-motion 组件 reconciliation。
+// 与 shared/LogPanel.tsx 中 "displayedLines.length <= 30 才启用动画" 的策略保持一致。
+const RIGHT_PANEL_ANIM_THRESHOLD = 50
+const RIGHT_PANEL_ANIM_KEEP_COUNT = 30
+
+export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef }: RightPanelProps) {
+  const { t } = useTranslation()
+  const profile = useAnimationProfile()
+  const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
+  const emptyBreatheRef = useBreatheAnimation({ minOpacity: 0.2, maxOpacity: 0.4, minScale: 1, maxScale: 1.05, minRotation: 3, maxRotation: 0, duration: 6 })
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const isAutoScrollRef = useRef(true)
+  const prevLogCountRef = useRef(0)
+  const [isClearing, setIsClearing] = useState(false)
+
+  const handleClearWithAnimation = useCallback(() => {
+    if (isClearing || !onClearLogs || logs.length === 0) return
+    setIsClearing(true)
+
+    // 统一用 GSAP 对当前可见的 DOM 元素做一条一条删除动画
+    const container = scrollRef.current
+    if (container) {
+      const entries = container.querySelectorAll('.log-entry-hover')
+      if (entries.length > 0) {
+        // 动态 stagger：条目越多间隔越短，总时长封顶（与 LogPanel 同策略），
+        // 否则日志满 300 条时清空动画 ≈ 60 秒且期间按钮禁用无法取消
+        const staggerEach = entries.length > 8 ? 0.05 : entries.length > 4 ? 0.1 : 0.2
+        let settled = false
+        let failsafe: ReturnType<typeof setTimeout> | undefined
+        const finishClear = () => {
+          if (settled) return
+          settled = true
+          if (failsafe) clearTimeout(failsafe)
+          // 不 revert：条目 DOM 交由 React 在 logs=[] 后卸载；
+          // revert 会先把条目恢复可见再卸载，产生"日志重现"闪现
+          onClearLogs()
+          setIsClearing(false)
+        }
+        const ctx = gsap.context(() => {
+          gsap.to(entries, {
+            autoAlpha: 0,
+            x: 50,
+            scaleX: 0.8,
+            stagger: { each: staggerEach, from: 'start' },
+            duration: 0.4,
+            ease: 'back.out(1.2)',
+            force3D: true,
+            // 历史缺陷：tween 被中断（组件卸载等）时 onComplete 不执行，
+            // isClearing 永久 true、清空按钮禁用。onInterrupt 复位（放弃本次清空）。
+            onComplete: finishClear,
+            onInterrupt: () => {
+              if (settled) return
+              settled = true
+              if (failsafe) clearTimeout(failsafe)
+              ctx.revert()
+              setIsClearing(false)
+            },
+          })
+        }, container)
+        // GSAP 回调依赖 rAF ticker：安卓 WebView 后台/遮挡时 rAF 停摆，
+        // tween 冻结，onComplete/onInterrupt 均不触发，isClearing 卡死、
+        // 已隐藏条目还会被 framer-motion 重渲染拉回可见（表现为"日志又出现了"）。
+        // setTimeout 不受 rAF 影响，到点按"完成"兜底（幂等），与动画时序解耦。
+        failsafe = setTimeout(() => {
+          // 先结算再 revert：revert kill 冻结的 tween 会同步触发 onInterrupt，
+          // 顺序颠倒会让 onInterrupt 抢先置 settled，onClearLogs 被跳过
+          finishClear()
+          ctx.revert()
+        }, (0.4 + staggerEach * (entries.length - 1)) * 1000 + 600)
+        return
+      }
+    }
+
+    // fallback: 无 DOM 元素时直接清空
+    onClearLogs()
+    setIsClearing(false)
+  }, [isClearing, onClearLogs, logs.length])
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+    isAutoScrollRef.current = scrollHeight - scrollTop - clientHeight < 40
+  }, [])
+
+
+  useEffect(() => {
+    if (scrollRef.current && isAutoScrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [logs])
+
+  const [isNewLog, setIsNewLog] = useState(false)
+  useEffect(() => {
+    setIsNewLog(logs.length > prevLogCountRef.current)
+    prevLogCountRef.current = logs.length
+  }, [logs.length])
+
+  // FP-4: 日志分片。logs.length > 50 时，前段用普通 div 渲染（无进出场动画），
+  // 最近 30 条保留 m.div + AnimatePresence 动画。降低 300 条日志频繁追加时的 reconciliation 成本。
+  const { staticLogs, animLogs, staticCount } = useMemo(() => {
+    const enableAnim = logs.length <= RIGHT_PANEL_ANIM_THRESHOLD
+    const animCount = enableAnim ? logs.length : RIGHT_PANEL_ANIM_KEEP_COUNT
+    const staticCount = logs.length - animCount
+    return {
+      staticLogs: staticCount > 0 ? logs.slice(0, staticCount) : [],
+      animLogs: enableAnim ? logs : logs.slice(staticCount),
+      staticCount,
+    }
+  }, [logs])
+
+  return (
+    <div
+      ref={outerRef}
+      className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square"
+      style={{ background: 'var(--surface-side)' }}
+    >
+      <AnimatedCard noHover noAnimation className="relative overflow-hidden mx-2 mt-3 mb-1.5 flex flex-col flex-1 min-h-0 rounded-2xl">
+        <div className="flex items-center justify-between px-4 py-3 shrink-0">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
+            <ScrollText className="h-3.5 w-3.5" />
+            <span>{t('rightPanel.runtimeLog')}</span>
+            {logs.length > 0 && (
+              <m.span
+                key={logs.length}
+                className="text-[11px] px-1.5 py-0.5 rounded-full bg-accent text-muted-foreground"
+                initial={{ scale: 1.2, opacity: 0.5 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
+              >
+                {logs.length}
+              </m.span>
+            )}
+          </div>
+          {onClearLogs && logs.length > 0 && (
+            <Button variant="ghost" size="icon-sm" className="h-6 w-6 text-muted-foreground hover:text-destructive btn-physical" onClick={handleClearWithAnimation} disabled={isClearing} aria-label={t('rightPanel.clearLog')}>
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+
+        {/* 运行日志卡背景看板娘:卡片内底部的水印装饰,日志条目少时从空白处露出,不参与交互(对齐桌面) */}
+        <img
+          src="/girl/mascot-bg-tea.webp"
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          loading="lazy"
+          className="pointer-events-none select-none absolute bottom-3 left-1/2 -translate-x-1/2 w-40 opacity-[0.08] dark:opacity-[0.05] z-0"
+        />
+
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className={cn('relative z-10 overflow-y-auto px-4 pb-3 min-h-0', logs.length > 0 ? 'flex-1' : '')}
+          style={{
+            overscrollBehavior: 'contain',
+          }}
+        >
+          {logs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground/40">
+              <div ref={emptyBreatheRef}>
+                <ScrollText className="h-8 w-8 mb-2" />
+              </div>
+              <p className="text-[11px]">{t('rightPanel.noLogs')}</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+            {staticLogs.map((log) => {
+              const Icon = LOG_ICONS[log.type] ?? Info
+              return (
+                <div
+                  key={log.id}
+                  className={cn(
+                    'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover flex-shrink-0',
+                    LOG_BG_COLORS[log.type] ?? '',
+                  )}
+                >
+                  <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type] ?? 'bg-zinc-400')} />
+                  <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                    {(log.count ?? 1) > 1 && (
+                      <span className="ml-1 inline-block text-[9px] leading-none px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono align-middle">
+                        ×{log.count}
+                      </span>
+                    )}
+                    <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
+                  </div>
+                </div>
+              )
+            })}
+            <AnimatePresence initial={false}>
+              {animLogs.map((log, i) => {
+                const Icon = LOG_ICONS[log.type] ?? Info
+                const idx = staticCount + i
+                const isLatest = isNewLog && idx === logs.length - 1
+                return (
+                  <m.div
+                    key={log.id}
+                    variants={logVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className={cn(
+                      'flex items-start gap-1.5 text-[11px] py-1 px-1.5 rounded-xl relative overflow-hidden log-entry-hover flex-shrink-0',
+                      LOG_BG_COLORS[log.type] ?? '',
+                      isLatest && 'log-entry-flash'
+                    )}
+                  >
+                    <div className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full log-left-bar', LOG_BAR_COLORS[log.type] ?? 'bg-zinc-400')} />
+                    <Icon className={cn('h-3 w-3 shrink-0 mt-0.5 ml-0.5', LOG_COLORS[log.type])} />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-muted-foreground/50 font-mono">{log.time}</span>
+                      {(log.count ?? 1) > 1 && (
+                        <span className="ml-1 inline-block text-[9px] leading-none px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono align-middle">
+                          ×{log.count}
+                        </span>
+                      )}
+                      <span className={cn('ml-1 break-words', LOG_COLORS[log.type])}>{log.message}</span>
+                    </div>
+                  </m.div>
+                )
+              })}
+            </AnimatePresence>
+            </div>
+          )}
+        </div>
+      </AnimatedCard>
+    </div>
+  )
+})

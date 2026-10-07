@@ -1,0 +1,93 @@
+import { NAV_ITEMS } from '@/shared/ui-constants'
+import type { ThemeName } from '@/shared/ui-types'
+import type { Config } from '@/settings/types'
+
+export const DEFAULT_CONFIG: Config = {
+  user: '',
+  password: '',
+  selfPassword: '',
+  selfHelloEnabled: true,
+  selfReverifyEachAction: false,
+  allow2dFaceVerify: false,
+  operator: '',
+  enableNightOperatorSwitch: false,
+  nightOperatorRestore: '',
+  enableNightOutboundSwitch: false,
+  outboundPriority: [],
+  outboundMetricRestore: '',
+  outboundDisabledAdapters: '',
+  outboundStandbyRoute: '',
+  nightOutboundRestore: '',
+  dnsOptimizeAdapters: [],
+  autoLoginOnStart: true,
+  // 开机自启（set_boot_autostart 真实生效；后端 enable_boot_autostart 默认 false）
+  enableBootAutostart: false,
+  enableBackgroundCheck: true,
+  // 2026-09-09 起 60s(与后端 Settings::default 一致):稳态周期检测降功耗
+  backgroundCheckInterval: 60000,
+  // 2026-09-13 起:闲时(蜂窝/灭屏)巡检 5min,与后端 Settings::default 一致
+  backgroundCheckIdleInterval: 300000,
+  autoLoginOnPreparation: true,
+  themeMode: 'dark',
+  enableNotification: true,
+  activeAccount: '',
+  enableLatencyTest: true,
+  // 2026-09-20 起 600s(与后端 Settings::default 一致,后台留存优化)
+  latencyTestInterval: 600000,
+  customThemeColor: '#6366f1',
+  defaultPanel: '',
+  enableNetworkQuality: true,
+  skipTtfbInLatency: true,
+  skipContentInLatency: true,
+  portalUrl: 'http://10.1.99.100',
+  fixedGateway: '10.2.127.254',
+  requiredNetworkName: 'i-wxxy',
+  enableNetworkNameCheck: true,
+  campusGateway: '10.2.127.254',
+  updateSource: 'mirror',
+  campusCheckStartMinutes: 460,
+  // 2026-09-13 起 1380=23:00(旧默认 0=仅开始时间限制),存量配置由 v4→v5 schema 迁移一次性刷新
+  campusCheckEndMinutes: 1380,
+  // 2026-09-20 起禁用哨兵 1440(0=真实的 00:00 时刻)
+  scheduledLoginMinutes: 1440,
+  scheduledLogoutMinutes: 1440,
+  maxDisconnectReconnect: 3,
+  autoLoginCooldownSecs: 60,
+  logRetentionDays: 7,
+  // 对齐后端 config_schema_version(2026-09-20 v5→v6:质量间隔 60s→600s 迁移)
+  configSchemaVersion: 7,
+}
+
+export const ISP_OPTIONS = [
+  { value: '__default__', label: '无锡学院', labelKey: 'settings.isp.wxxy' },
+  { value: '@telecom', label: '中国电信', labelKey: 'settings.isp.telecom' },
+  { value: '@unicom', label: '中国联通', labelKey: 'settings.isp.unicom' },
+  { value: '@cmcc', label: '中国移动', labelKey: 'settings.isp.cmcc' },
+] as const
+
+/**
+ * 运营商后缀 → i18n labelKey 映射。
+ * bgStatus.onlineOperator 用 '' 表示校园网默认线路（无锡学院），ISP_OPTIONS 用 '__default__' 作选择值；
+ * null/undefined（离线/未知）返回 undefined，调用方据此隐藏徽标。
+ */
+export const operatorLabelKey = (suffix: string | null | undefined): string | undefined =>
+  suffix === null || suffix === undefined
+    ? undefined
+    : ISP_OPTIONS.find((o) => o.value === (suffix === '' ? '__default__' : suffix))?.labelKey
+
+export const THEME_OPTIONS = [
+  { id: 'default' as ThemeName, label: '默认蓝', labelKey: 'settings.defaultBlue', color: '#3b82f6' },
+  { id: 'vibrant' as ThemeName, label: '活力紫', labelKey: 'settings.vibrantPurple', color: '#a855f7' },
+  { id: 'forest' as ThemeName, label: '森林绿', labelKey: 'settings.forestGreen', color: '#22c55e' },
+  { id: 'midnight' as ThemeName, label: '午夜橙', labelKey: 'settings.midnightOrange', color: '#f97316' },
+  { id: 'ocean' as ThemeName, label: '海洋青', labelKey: 'settings.oceanCyan', color: '#06b6d4' },
+  { id: 'cherry' as ThemeName, label: '樱桃红', labelKey: 'settings.cherryRed', color: '#f43f5e' },
+  { id: 'custom' as ThemeName, label: '自定义', labelKey: 'settings.custom', color: '#6366f1' },
+] as const
+
+export const VALID_THEMES: ThemeName[] = ['default', 'vibrant', 'forest', 'midnight', 'ocean', 'cherry', 'custom']
+
+export const DEFAULT_PANEL_OPTIONS = NAV_ITEMS.map(item => ({
+  value: item.id,
+  labelKey: item.labelKey,
+}))

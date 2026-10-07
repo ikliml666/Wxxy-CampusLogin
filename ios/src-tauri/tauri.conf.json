@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CampusLogin",
+  "version": "2.4.0",
+  "identifier": "com.campuslogin.client",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:5175"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CampusLogin",
+        "width": 400,
+        "height": 800
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://asset.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/files/face-models/**"]
+      },
+      "dangerousDisableAssetCspModification": ["style-src"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "ios": {
+      "minimumSystemVersion": "15.0"
+    }
+  }
+}

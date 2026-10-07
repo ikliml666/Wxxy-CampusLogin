@@ -91,3 +91,6 @@ android/build-apk.ps1
 # 浏览器实测用 mock 注入脚本(两端前端 public/,故意不入库)
 mock-tauri*.js
 .zcode/
+
+# iOS 壳 crate 构建产物(ios/src-tauri/.cargo/config.toml 指定)
+ios/src-tauri/target-ios/
