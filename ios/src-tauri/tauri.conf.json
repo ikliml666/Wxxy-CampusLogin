@@ -19,16 +19,17 @@
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://asset.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/files/face-models/**"]
+        "scope": [
+          "$APPDATA/files/face-models/**"
+        ]
       },
-      "dangerousDisableAssetCspModification": ["style-src"]
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "ios": {
-      "minimumSystemVersion": "15.0"
-    }
+    "targets": "all"
   }
 }
