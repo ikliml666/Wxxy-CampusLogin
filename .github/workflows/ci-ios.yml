@@ -67,7 +67,7 @@ jobs:
         working-directory: ios
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/ios-target
-        run: npx tauri ios build --target aarch64-sim --debug
+        run: npx tauri ios build --target aarch64-sim --debug -v
 
       - name: Smoke test on simulator
         run: |
