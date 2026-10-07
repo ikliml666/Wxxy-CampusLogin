@@ -73,7 +73,7 @@ jobs:
         if: failure()
         working-directory: ios/src-tauri/gen/apple
         run: |
-          RUST_BACKTRACE=full npm run --silent -- tauri ios xcode-script -v --platform "iOS Simulator" --sdk-root "$(xcrun --sdk iphonesimulator --show-sdk-path)" --framework-search-paths "" --header-search-paths "" --gcc-preprocessor-definitions "" --configuration Debug 2>&1 | tail -80
+          RUST_BACKTRACE=full npm run --silent -- tauri ios xcode-script -v --platform "iOS Simulator" --sdk-root "$(xcrun --sdk iphonesimulator --show-sdk-path)" --framework-search-paths "" --header-search-paths "" --gcc-preprocessor-definitions "" --configuration Debug arm64 2>&1 | tail -80
 
       - name: Smoke test on simulator
         run: |
