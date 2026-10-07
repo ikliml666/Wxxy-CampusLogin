@@ -322,8 +322,8 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `MobileTab` | `BottomNav.tsx:9` | `'dashboard' \| 'account' \| 'selfservice' \| 'quality' \| 'monitor' \| 'more'` |
-| `BottomNav` | `BottomNav.tsx:23` | 移动底栏（五列 grid，`BottomNav.tsx:42`）；第 4 位动态：质量开启插 `QUALITY_TAB`，关闭插 `MONITOR_TAB`（`BottomNav.tsx:29-30`）；半透明 + backdrop-blur、`env(safe-area-inset-bottom)`（`BottomNav.tsx:35-39`） |
+| `MobileTab` | `BottomNav.tsx:14` | `'dashboard' \| 'account' \| 'selfservice' \| 'quality' \| 'monitor' \| 'more'` |
+| `BottomNav` | `BottomNav.tsx:33` | 移动底栏（胶囊容器 justify-around 均布，`BottomNav.tsx:41-56`，`max-w-[460px]`）；第 4 位动态：质量开启插 `QUALITY_TAB`，关闭插 `MONITOR_TAB`（`BottomNav.tsx:29`）；半透明 + backdrop-blur(24px) saturate(160%)、`env(safe-area-inset-bottom)+20px`（`BottomNav.tsx:41-44`）；页签 FlClash 式：图标+短标签竖排常显，按钮等宽 `h-14 w-16`（69-90），激活药丸 `layoutId="nav-active-pill"` 按钮级 `inset-0` 包整项（spring 250/28） |
 | `DockNav` | `DockNav.tsx:439` | 平板悬浮 Dock（磁吸放大、指示条、注销/登录按钮带适配器菜单），`memo` 包裹。内部私有：`DockItem`(50)、`IS_TOUCH`(163)、`AdapterMenu`(174)、`ActionButtonWithMenu`(283)、`MAGNETIC_RANGE/MAX_SCALE/MAX_LIFT`(46-48)、`ICON_MAP`(34)；DockItem 视觉 tooltip 带 `aria-hidden` 防屏幕阅读器双读 |
 | `RightPanel` | `RightPanel.tsx:83` | 平板横屏右侧栏：运行日志卡 + 网络适配器卡。内部私有：`LOG_ICONS`(26)、`LOG_COLORS`(33)、`LOG_BG_COLORS`(40)、`LOG_BAR_COLORS`(47)、`RIGHT_PANEL_ANIM_THRESHOLD=50`(57)、`RIGHT_PANEL_ANIM_KEEP_COUNT=30`(58)、`getAdapterInfo`(60) |
 | `TitleBar` | `TitleBar.tsx:52` | 平板顶栏：应用名/版本徽标、浅色/语言/通知/主题/赞助/关于按钮；`showWindowControls=false` 时隐藏最小化/最大化/关闭并禁用拖动与双击最大化（`TitleBar.tsx:73-90`）。内部私有图标组件 `MinimizeIcon`(26)/`MaximizeIcon`(32)/`RestoreIcon`(38)/`CloseIcon`(45) |
@@ -587,7 +587,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 11. **`NoopListener` 订阅方拿到的清理函数不安全**：`tauriApi.ts:18` 的 `noopListener` 每次调用返回**同一个无操作函数**（闭包常量）。历史实现曾在 `useEventListeners.ts` 逐个订阅并 push 这四类 no-op 事件，现已在订阅端整体删除（`useEventListeners.ts:213-215` 注释）；若未来有人重新订阅，逐个 `unlisteners.push` 后逐个调用没有问题，但把返回值当 key 去重会失效。
 12. **`index.css` 仍带桌面专用类**：`index.css:90` 的 `.force-light-dialog`、`index.css:310-326` 的 `.app-maximized` 系列（桌面最大化态）、`index.css:505` 的 `.animate-window-reveal`、`index.css:633-652` 的 titlebar 按钮类在安卓无使用点（`TitleBar` 以 `showWindowControls={false}` 渲染，`TabletShell.tsx:239`）。
 13. **`gpuInfo`/`dnsDohStatus`/`isRefreshingAdapters` 等字段在安卓恒为初值**：`useQualityStore.ts:48-49`（`dnsDohStatus: null`、`dnsChecking: false`）只有已废弃的 `network/NetworkPanel.tsx:82/95/112` 会写；`isRefreshingAdapters`（`useAdapterStore.ts:52`）只被桌面遗留的 `refreshAdapters`/`RightPanel.tsx:95` 使用。
-14. **手机外壳的 tab 持久化键未随面板裁剪迁移**：`App.tsx:52-55` 只接受 `dashboard/account/selfservice/quality/more`，历史存过 `monitor`（当前底栏动态 tab 之一，`BottomNav.tsx:21`）或 `speedtest` 的值会被丢弃回落 `dashboard`；而底栏点击 `monitor` 时 `handleTabChange` 会把 `'monitor'` 写回存储（`App.tsx:97`），下次启动该值又不在白名单里——一处跨会话不一致。
+14. **手机外壳的 tab 持久化键未随面板裁剪迁移**：`App.tsx:52-55` 只接受 `dashboard/account/selfservice/quality/more`，历史存过 `monitor`（当前底栏动态 tab 之一，`BottomNav.tsx:23`）或 `speedtest` 的值会被丢弃回落 `dashboard`；而底栏点击 `monitor` 时 `handleTabChange` 会把 `'monitor'` 写回存储（`App.tsx:97`），下次启动该值又不在白名单里——一处跨会话不一致。
 15. **`main.tsx` 的崩溃恢复计数不持久**：`crashCount` 是模块级变量（`main.tsx:46`），`window.location.reload()` 后归零，因此 `MAX_CRASH_RELOADS = 3`（`main.tsx:47`）实际退化为「单次页面生命周期内最多 3 次」；持续崩溃场景下会形成重载循环（`main.tsx:53`），只有「心跳丢失 > 10s」的 2s 检测（`main.tsx:102-110`）在反复触发。
 16. **安卓无任何单元测试**：`tauri-app/frontend/src` 有 13 个 `.test.ts(x)` 与 `test-setup.ts`，`android/frontend` 目录下**不存在** `test-setup.ts` 与任何测试文件（文件树对比），`android/frontend/package.json` 也没有 `test` 脚本；复刻分叉只能靠 `tsc --noEmit` + 真机验证发现。
 17. **`vite-env.d.ts` 极简**：`android/frontend/src/vite-env.d.ts:1` 只有 `/// <reference types="vite/client" />`，未声明 `VITE_PLATFORM` 等自定义环境变量类型，`import.meta.env.VITE_PLATFORM` 的取值依赖 `android/frontend/.env`（`VITE_PLATFORM=android`）与各处的 `=== 'android'` 字符串比较（`AccountPanel.tsx:55`、`MonitorPanel.tsx:23`、`SettingsPanel.tsx:31`、`LogPanel.tsx:63`）——写错字符串不会有类型报错。

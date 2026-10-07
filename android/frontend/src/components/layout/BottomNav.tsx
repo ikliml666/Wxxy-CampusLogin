@@ -1,7 +1,7 @@
 // 移动端底部导航:单条磨砂玻璃圆角胶囊栏(酷安式),只承载页签;登录/注销独立成
 // MobileQuickActions 动作条悬浮于本栏上方(M3「目的地与动作分离」),不再挤占页签空间。
-// 设计:仅激活项显示图标+文字标签(图标在上、标签在下);选中指示药丸只包图标
-// (M3 式固定 52×32 圆角胶囊,标签在药丸外),framer-motion layoutId 滑动零变形,
+// 设计:FlClash 式页签——图标+短标签竖排常显(非激活也带标签),按钮等宽 w-16;
+// 选中指示药丸(inset-0)包整项,等宽保证 layoutId 滑动纯平移零变形,弹簧放慢可感知。
 // 纪律:底部避让 env(safe-area-inset-bottom);动画仅 transform/opacity,
 // 带 motion-reduce 降级;整体轻盈——无生硬描边,悬浮感靠阴影 + 磨砂。
 
@@ -66,35 +66,27 @@ export function BottomNav({ tab, onChange }: {
                 onClick={() => onChange(id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  // 纵排页签(图标在上/标签在下)统一抬高页签高度;
-                  // 图标 26px(24 与 28 的折中:均布后 24 偏小、28 曾挤药丸)
-                  'relative flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
+                  // 等宽 w-16:五项 justify-around 均布后药丸(inset-0 包整项)恒定,
+                  // 切换滑动纯平移;图标 26px(24 与 28 的折中:均布后 24 偏小)
+                  'relative flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
                 )}
               >
-                {/* 图标盒 52×32 固定:药丸(inset-0)只包图标不包标签(M3 选中指示器),
-                    恒定体育场形——切换滑动时纯平移,不再随按钮宽缩放变形 */}
-                <span className="relative flex h-8 w-[52px] items-center justify-center">
-                  {/* 系统减动态时由全局 MotionConfig reducedMotion="user" 关闭位移动画，无需手动兜底 */}
-                  {active && (
-                    <m.span
-                      layoutId="nav-active-pill"
-                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                      className="absolute inset-0 rounded-full bg-primary/[0.12] dark:bg-primary/[0.16]"
-                    />
-                  )}
-                  <Icon
-                    className="relative z-10 h-[26px] w-[26px] shrink-0"
-                    strokeWidth={active ? 2 : 1.8}
-                  />
-                </span>
-                {/* 仅激活项显示标签(图标下方、药丸外);justify-around 有充足余量,
-                    「网络状态检测」6 字标签(66px)完整显示不截断(用户要求) */}
+                {/* 系统减动态时由全局 MotionConfig reducedMotion="user" 关闭位移动画，无需手动兜底 */}
                 {active && (
-                  <span className="relative z-10 whitespace-nowrap text-[11px] font-medium leading-tight">
-                    {t(labelKey)}
-                  </span>
+                  <m.span
+                    layoutId="nav-active-pill"
+                    transition={{ type: 'spring', stiffness: 250, damping: 28 }}
+                    className="absolute inset-0 rounded-full bg-primary/[0.12] dark:bg-primary/[0.16]"
+                  />
                 )}
+                <Icon
+                  className="relative z-10 h-[26px] w-[26px] shrink-0"
+                  strokeWidth={active ? 2 : 1.8}
+                />
+                <span className="relative z-10 whitespace-nowrap text-[11px] font-medium leading-tight">
+                  {t(labelKey)}
+                </span>
               </button>
             )
           })}
