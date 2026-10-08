@@ -1,4 +1,4 @@
 {
-  "version": "v2.4.0",
-  "notes": "📥 下载提醒：下载安装包请前往 GitHub Releases 或夸克网盘；应用内下载缓慢或失败时务必改用这两条渠道！\n· GitHub：https://github.com/ikliml666/Wxxy-CampusLogin/releases\n· 夸克网盘：https://pan.quark.cn/s/c46f67bc2658\n\n### 本版本最重要的变化\n- **夜间出站切换（双端）**：周日至周四 23:00（周五六 23:30）自动把出站切到非校园网网卡（如热点），次日 7:30 自动还原\n- **状态栏在线运营商徽标**：头部直接显示当前真实在线运营商（电信/联通/移动/校方），双适配器并排显示\n- **安卓安装包大幅瘦身**：43MB → 约 20MB（Rust 编译优化 + 人脸模型移出安装包按需下载）\n- **校园网检测提速**：11 秒 → 3 秒；Windows 静默提权修复（计划任务代理，不再弹 UAC）\n\n完整变更见 Release Notes（GitHub Releases 页面）。"
+  "version": "v2.4.1",
+  "notes": "📥 下载提醒：下载安装包请前往 GitHub Releases 或夸克网盘；应用内下载缓慢或失败时务必改用这两条渠道！\n· GitHub：https://github.com/ikliml666/Wxxy-CampusLogin/releases\n· 夸克网盘：https://pan.quark.cn/s/c46f67bc2658\n\n### 本版本最重要的变化\n- **双端悬浮导航栏 FlClash 形态**：页签改为「图标+短标签」竖排常显，选中药丸纯平移零变形，桌面新增毛玻璃质感\n- **修复适配器下拉三类异常（桌面）**：未翻译状态码「network.status.已禁用」、同名卡双分组双勾选、选择框文字拼接，已彻底根治\n- **修复最小化恢复后出站面板陈旧（桌面）**：最小化期间发生夜间自动切换后，恢复窗口即刻强制刷新当前出站与适配器列表\n\n完整变更见 Release Notes（GitHub Releases 页面）。"
 }
