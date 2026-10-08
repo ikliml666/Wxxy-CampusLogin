@@ -93,4 +93,3 @@ mock-tauri*.js
 .zcode/
 
 # iOS 壳 crate 构建产物(ios/src-tauri/.cargo/config.toml 指定)
-ios/src-tauri/target-ios/

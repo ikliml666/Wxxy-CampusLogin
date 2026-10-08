@@ -1,6 +1,0 @@
-# iOS 壳 crate 专属 cargo 配置(specs/ios-port-spec.md §4 双保险之本地侧):
-# 显式 target-dir,避免依赖任何宿主机全局/绝对路径配置(桌面 crate 的
-# .cargo/config.toml 指向仓库外绝对路径,不在本目录祖先链,但 CI 侧仍用
-# CARGO_TARGET_DIR 再保一层)。
-[build]
-target-dir = "target-ios"
