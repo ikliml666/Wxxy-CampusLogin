@@ -142,8 +142,8 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
               ref={r === 0 ? firstRef : undefined}
               className={
                 r === 0
-                  ? 'absolute inset-x-0 top-0'
-                  : 'absolute inset-x-0 top-0 rounded-xl ring-1 ring-foreground/15'
+                  ? 'absolute inset-x-0 top-0 rounded-xl shadow-[0_0_28px_hsl(var(--primary)/0.18)]'
+                  : 'absolute inset-x-0 top-0 rounded-xl shadow-[0_0_16px_hsl(var(--primary)/0.08)]'
               }
               style={style}
               aria-hidden={r !== 0}
@@ -182,7 +182,8 @@ export interface OnlineDeviceStackCardProps {
   terminalType: string
   offlineDisabled?: boolean
   offlineLoading?: boolean
-  onOffline: () => void
+  // 缺省时不渲染注销按钮（总览卡掩码态：验证通过前不提供注销入口）
+  onOffline?: () => void
 }
 
 export function OnlineDeviceStackCard({
@@ -198,7 +199,7 @@ export function OnlineDeviceStackCard({
 }: OnlineDeviceStackCardProps) {
   const { t } = useTranslation()
   return (
-    <div className="rounded-xl bg-card p-3 shadow-md">
+    <div className="rounded-xl bg-muted/60 p-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
@@ -210,11 +211,11 @@ export function OnlineDeviceStackCard({
       </div>
       {/* IP / MAC 垂直芯片：IP 在上、MAC 垂直对齐在下 */}
       <div className="mt-2.5 space-y-2">
-        <div className="min-w-0 rounded-lg bg-muted/60 px-2.5 py-1.5">
+        <div className="min-w-0 rounded-lg bg-card px-2.5 py-1.5">
           <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colIp')}</p>
           <p className="truncate font-mono text-xs leading-5 text-foreground">{ip}</p>
         </div>
-        <div className="min-w-0 rounded-lg bg-muted/60 px-2.5 py-1.5">
+        <div className="min-w-0 rounded-lg bg-card px-2.5 py-1.5">
           <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colMac')}</p>
           <p className="truncate font-mono text-xs leading-5 text-foreground">{mac}</p>
         </div>
@@ -233,16 +234,18 @@ export function OnlineDeviceStackCard({
             <p className="font-mono text-xs font-medium text-foreground">{durationMin}</p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-          disabled={offlineDisabled}
-          onClick={onOffline}
-        >
-          {offlineLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <LogOut className="h-3 w-3" />}
-          {t('account.selfOffline')}
-        </Button>
+        {onOffline && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={offlineDisabled}
+            onClick={onOffline}
+          >
+            {offlineLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <LogOut className="h-3 w-3" />}
+            {t('account.selfOffline')}
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -321,9 +324,9 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
       suppressClick.current = false
       return
     }
-    // 点左侧露条 = 上一张；其余区域 = 下一张
+    // 以中线划分点击区：左半 = 上一张，右半 = 下一张
     const rect = e.currentTarget.getBoundingClientRect()
-    if (e.clientX - rect.left < rect.width * 0.12) go(index - 1)
+    if (e.clientX - rect.left < rect.width * 0.5) go(index - 1)
     else go(index + 1)
   }
 
@@ -374,7 +377,11 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className={side ? 'absolute top-0 rounded-xl ring-1 ring-foreground/15' : 'absolute top-0'}
+              className={
+                side
+                  ? 'absolute top-0 rounded-xl shadow-[0_0_16px_hsl(var(--primary)/0.08)]'
+                  : 'absolute top-0 rounded-xl shadow-[0_0_28px_hsl(var(--primary)/0.18)]'
+              }
               style={style}
               aria-hidden={side}
             >

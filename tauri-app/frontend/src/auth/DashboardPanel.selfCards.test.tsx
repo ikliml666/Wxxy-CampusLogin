@@ -109,10 +109,13 @@ describe('DashboardPanel 自助卡（在线信息 + 近期上网记录）', () =
     expect(querySelfDashboard).toHaveBeenCalledTimes(1)
     expect(querySelfDashboard).toHaveBeenCalledWith({ account: '24380002', password: '' })
     expect(querySelfOnlineLog).toHaveBeenCalledTimes(1)
-    // 在线信息卡：IP/主机名/时间行掩码；设备数概览可见
+    // 在线信息卡（卡片化后）：IP/MAC/时间掩码于卡内芯片；设备数概览可见
     expect(screen.getByText('••••••')).toBeTruthy()
+    expect(screen.getByText('••:••:••:••:••:••')).toBeTruthy()
     expect(screen.queryByText('10.1.2.3')).toBeNull()
     expect(screen.queryByText('DESKTOP-1')).toBeNull()
+    // 掩码态不渲染注销按钮
+    expect(screen.queryByRole('button', { name: 'account.selfOffline' })).toBeNull()
     expect(screen.getByText('dashboard.selfDeviceCount')).toBeTruthy()
     // 上网记录卡：时间/时长/流量掩码；条数概览可见
     expect(screen.getByText('••••-••-•• ••:••')).toBeTruthy()
@@ -128,7 +131,7 @@ describe('DashboardPanel 自助卡（在线信息 + 近期上网记录）', () =
     await act(async () => { fireEvent.click(eyeBtns()[0]) })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
     expect(screen.getByText('10.1.2.3')).toBeTruthy()
-    // 在线信息卡精简后（2026-09-09）：每行 IP+MAC+上线时间+行内注销
+    // 在线信息卡卡片化（2026-10-09）：卡内展示 IP+MAC+上线时间+卡内注销
     expect(screen.getByText('aa-bb-cc-dd-ee-ff')).toBeTruthy()
     expect(screen.getByText('2026-09-06 10:00:00')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: 'account.selfOffline' }).length).toBeGreaterThan(0)

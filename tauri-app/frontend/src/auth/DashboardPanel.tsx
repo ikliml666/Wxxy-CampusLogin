@@ -13,7 +13,7 @@ import {
   Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, Check, X,
   Plus, Activity, Settings2, ChevronDown,
-  Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff, LogOut
+  Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { resolveQualityDisplay } from '@/lib/latency'
@@ -33,7 +33,8 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
-import { formatEpoch, localDateStr, formatMac } from '@/account/selfServiceTypes'
+import { formatEpoch, localDateStr, formatMac, formatTerminalType, formatUseTimeMinutes, formatFlowMb } from '@/account/selfServiceTypes'
+import { OnlineDeviceCard, OnlineDeviceCardStack } from '@/account/SelfOnlineCards'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -531,24 +532,23 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
           <span className="text-xs text-muted-foreground">{t('dashboard.selfDeviceCount', { count: onlineList?.length ?? 0 })}</span>
           {!revealed && <span className="text-[10px] text-muted-foreground/60">{t('dashboard.selfMaskedHint')}</span>}
         </div>
-        {(onlineList ?? []).slice(0, 3).map(item => (
-          <div key={item.sessionId || item.ip + '-' + item.loginTime} className="p-3 rounded-xl bg-muted/30 flex items-center gap-2">
-            <div className="flex-1 min-w-0 space-y-0.5">
-              <div className="text-sm font-medium font-mono truncate">{revealed ? item.ip : '••••••'}</div>
-              <div className="text-[11px] text-muted-foreground font-mono truncate">{revealed ? formatMac(item.mac) : '••:••:••:••:••:••'}</div>
-              <div className="text-[11px] text-muted-foreground font-mono">{revealed ? item.loginTime : '••••-••-•• ••:••:••'}</div>
-            </div>
-            {revealed && (
-              <Button variant="ghost" size="sm" className="shrink-0 h-8 gap-1.5 text-[11px] text-muted-foreground hover:text-destructive"
-                disabled={offlineBusy} onClick={() => setOfflineTarget(item)}>
-                <LogOut className="h-3 w-3" />
-                {t('account.selfOffline')}
-              </Button>
-            )}
-          </div>
-        ))}
-        {(onlineList?.length ?? 0) > 3 && (
-          <div className="text-center text-[11px] text-muted-foreground">+{onlineList!.length - 3}</div>
+        {(onlineList ?? []).length > 0 && (
+          <OnlineDeviceCardStack>
+            {(onlineList ?? []).map(item => (
+              <OnlineDeviceCard
+                key={item.sessionId || item.ip + '-' + item.loginTime}
+                loginTime={revealed ? item.loginTime : '••••-••-•• ••:••:••'}
+                ip={revealed ? (item.ip || '-') : '••••••'}
+                mac={revealed ? (item.mac ? formatMac(item.mac) : '-') : '••:••:••:••:••:••'}
+                flowMb={formatFlowMb(item.downFlow, item.upFlow)}
+                durationMin={formatUseTimeMinutes(item.useTime)}
+                terminalType={formatTerminalType(item.terminalType)}
+                offlineDisabled={offlineBusy}
+                offlineLoading={offlineBusy && offlineTarget?.sessionId === item.sessionId}
+                onOffline={revealed ? () => setOfflineTarget(item) : undefined}
+              />
+            ))}
+          </OnlineDeviceCardStack>
         )}
         {onlineList?.length === 0 && (
           <div className="text-center py-3 text-xs text-muted-foreground">{t('dashboard.selfNoOnline')}</div>
