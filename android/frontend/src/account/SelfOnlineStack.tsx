@@ -3,21 +3,21 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-// —— 安卓端「在线信息」扇形牌堆（参考 card-stack.lrnz.work）——
+// —— 安卓端「在线信息」堆叠卡（上下露出式）——
 // 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
 // 切换 = 整副牌连续滚动一格：所有槽位的卡常挂载并带 transform 过渡，
-// 当前卡居中，相邻卡以轻微旋转+横移从左右两侧露出整卡侧边（扇形），
-// 翻页时旧当前卡旋转着滚入侧位、新当前卡从另一侧转入中央——像从牌堆里抽牌。
+// 当前卡居中，下一张从顶部露出顶边、上一张从底部露出底边（卡片不旋转、不倾斜），
+// 翻页时整叠卡一起向切换方向滚一格。
 // 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
-const FAN_X = 4 // 相邻卡横移（% 卡宽）
-const FAN_ROT = 2.2 // 相邻卡旋转角（deg）
+const PEEK_TOP = 28 // 顶部露出下一张卡顶边的高度（px）
+const PEEK_BOTTOM = 28 // 底部露出上一张卡底边的高度（px）
 const DRAG_THRESHOLD = 60
 // 拖拽行程上限：限制视觉拉伸幅度，超过阈值即翻页，松手后由 transform 过渡补完切换动画
 const DRAG_MIN = -110
 const DRAG_MAX = 70
-const SLIDE_MS = 340
+const SLIDE_MS = 500
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-// 水平堆叠（桌面/平板）：封面流扇形轮播——中间卡完整清晰，两侧相邻/次邻缩小压暗并轻微旋转（扇形感）；
+// 水平堆叠（桌面/平板）：封面流轮播——中间卡完整清晰，两侧相邻/次邻缩小压暗（不旋转）；
 // 卡宽收窄为舞台 56%（左右各留 22%），最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
 const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
 const CF_INSET = '22%' // 卡宽 = 舞台 56%
@@ -59,7 +59,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   if (count === 0) return null
   const rel = (i: number) => (i - index + count) % count
   // 整副牌连续滚动：各槽位的卡都常挂载并带 transform/opacity 过渡，切换 = index 平移一格，
-  // 全部卡同时滚向新槽位（旧当前卡滚入底部露出位并压暗保持可见，新当前卡从顶部露出位滚入中央），
+  // 全部卡同时滚向新槽位（旧当前卡滚入底部露出位保持可见，新当前卡从顶部露出位滚入中央），
   // 无「离场淡出」——视觉上就是整叠卡片在滚动
   const go = (next: number) => {
     const target = ((next % count) + count) % count
@@ -114,7 +114,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
     <div>
       <div
         className="relative select-none"
-        style={{ height: cardH != null ? cardH : 200, touchAction: 'none' }}
+        style={{ height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + PEEK_BOTTOM : 0) : 220, touchAction: 'none' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -124,14 +124,14 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const r = rel(i)
-          // 扇形槽位姿势表：中央（当前）+ 左右相邻（同尺寸微旋转，露出整卡侧边）+
+          // 上下露出槽位姿势表：中央（当前）+ 顶部露出下一张顶边 + 底部露出上一张底边 +
           // 紧邻隐藏槽位（透明常挂载，翻页时平滑滚入/滚出），更深的卡不挂载
-          let pose: { x: number; rot: number; scale: number; z: number; opacity: number } | null = null
-          if (r === 0) pose = { x: 0, rot: 0, scale: 1, z: 30, opacity: 1 }
-          else if (r === 1) pose = { x: FAN_X, rot: FAN_ROT, scale: 0.98, z: 20, opacity: 1 }
-          else if (count > 2 && r === count - 1) pose = { x: -FAN_X, rot: -FAN_ROT, scale: 0.98, z: 20, opacity: 1 }
-          else if (count > 3 && r === count - 2) pose = { x: -FAN_X * 2, rot: -FAN_ROT * 2, scale: 0.96, z: 10, opacity: 0 }
-          else if (count > 4 && r === 2) pose = { x: FAN_X * 2, rot: FAN_ROT * 2, scale: 0.96, z: 10, opacity: 0 }
+          let pose: { top: number; scale: number; z: number; opacity: number } | null = null
+          if (r === 0) pose = { top: count > 1 ? PEEK_TOP : 0, scale: 1, z: 30, opacity: 1 }
+          else if (r === 1) pose = { top: 0, scale: 1, z: 20, opacity: 1 }
+          else if (count > 2 && r === count - 1) pose = { top: PEEK_TOP + PEEK_BOTTOM, scale: 1, z: 10, opacity: 1 }
+          else if (count > 3 && r === count - 2) pose = { top: PEEK_TOP + PEEK_BOTTOM + 44, scale: 1, z: 10, opacity: 0 }
+          else if (count > 4 && r === 2) pose = { top: -44, scale: 1, z: 10, opacity: 0 }
           if (!pose) return null
           const isDraggingTop = r === 0 && dragging
           const style: React.CSSProperties = isDraggingTop
@@ -142,10 +142,10 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
                 opacity: 1,
               }
             : {
-                transform: `translateX(${pose.x}%) rotate(${pose.rot}deg) scale(${pose.scale})`,
+                transform: `translateY(${pose.top}px)`,
                 opacity: pose.opacity,
                 zIndex: pose.z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 250ms ease`,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 300ms ease`,
               }
           return (
             <div
@@ -363,23 +363,23 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const s = sd(i)
-          // 封面流扇形槽位姿势表：中央 + 左右相邻/次邻（缩小压暗 + 轻微旋转成扇形）+
+          // 封面流槽位姿势表：中央 + 左右相邻/次邻（缩小压暗，不旋转）+
           // 紧邻隐藏槽位（透明常挂载，≥6 张时翻页平滑滚入/滚出），更深的卡不挂载
-          let pos: { x: number; rot: number; scale: number; z: number; opacity: number } | null = null
-          if (s === 0) pos = { x: 0, rot: 0, scale: 1, z: 30, opacity: 1 }
-          else if (s === 1) pos = { x: CF_X[0], rot: 2.5, scale: SIDE_SCALE, z: 20, opacity: 0.85 }
-          else if (count >= 5 && s === 2) pos = { x: CF_X[1], rot: 4.5, scale: 0.7, z: 10, opacity: 0.55 }
-          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], rot: -2.5, scale: SIDE_SCALE, z: 20, opacity: 0.85 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], rot: -4.5, scale: 0.7, z: 10, opacity: 0.55 }
-          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 16, rot: 6.5, scale: 0.64, z: 5, opacity: 0 }
-          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 16, rot: -6.5, scale: 0.64, z: 5, opacity: 0 }
+          let pos: { x: number; scale: number; z: number; opacity: number } | null = null
+          if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
+          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
+          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
+          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
+          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
+          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 16, scale: 0.64, z: 5, opacity: 0 }
+          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 16, scale: 0.64, z: 5, opacity: 0 }
           if (!pos) return null
           const side = s !== 0
           const style: React.CSSProperties = dragging && s === 0
             ? {
                 left: CF_INSET,
                 right: CF_INSET,
-                transform: `translateX(calc(${pos.x}% + ${dragX}px)) rotate(${pos.rot}deg) scale(${pos.scale})`,
+                transform: `translateX(calc(${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
                 transition: 'none',
                 zIndex: 40,
                 opacity: 1,
@@ -387,10 +387,10 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
             : {
                 left: CF_INSET,
                 right: CF_INSET,
-                transform: `translateX(${pos.x}%) rotate(${pos.rot}deg) scale(${pos.scale})`,
+                transform: `translateX(${pos.x}%) scale(${pos.scale})`,
                 opacity: pos.opacity,
                 zIndex: pos.z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 250ms ease`,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 300ms ease`,
               }
           return (
             <div

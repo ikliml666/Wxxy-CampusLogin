@@ -84,15 +84,15 @@ export function OnlineDeviceCard({
   )
 }
 
-// 桌面端水平堆叠：封面流扇形轮播（参考 card-stack.lrnz.work）——中间卡完整清晰，
-// 两侧相邻/次邻缩小压暗并轻微旋转（扇形感）；切换 = 整副牌连续滚动一格（所有卡同时滚向新槽位，无离场淡出）。
+// 桌面端水平堆叠：封面流轮播——中间卡完整清晰，
+// 两侧相邻/次邻缩小压暗（不旋转）；切换 = 整副牌连续滚动一格（所有卡同时滚向新槽位，无离场淡出）。
 // 卡宽收窄为舞台 56%（左右各留 22%），最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
 const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
 const CF_INSET = '22%' // 卡宽 = 舞台 56%
 const SIDE_SCALE = 0.76
 const DRAG_THRESHOLD = 60
 const DRAG_CLAMP = 80
-const SLIDE_MS = 340
+const SLIDE_MS = 500
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
 export function OnlineDeviceCardStack({ children }: { children: React.ReactNode }) {
@@ -126,7 +126,7 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
   if (count === 0) return null
   const sd = (i: number) => (i - index + count) % count
   // 整副牌连续滚动：所有槽位常挂载 + transform 过渡，切换只改 index——
-  // 旧当前卡旋转着滚入侧位、新当前卡从另一侧转入中央（扇形抽牌），无离场淡出
+  // 旧当前卡滚入侧位、新当前卡转入中央，无离场淡出
   const go = (next: number) => {
     const target = ((next % count) + count) % count
     if (target === index) return
@@ -197,23 +197,23 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
       >
         {cards.map((node, i) => {
           const s = sd(i)
-          // 封面流扇形槽位姿势表：中央 + 左右相邻/次邻（缩小压暗 + 轻微旋转成扇形）+
+          // 封面流槽位姿势表：中央 + 左右相邻/次邻（缩小压暗，不旋转）+
           // 紧邻隐藏槽位（透明常挂载，≥6 张时翻页平滑滚入/滚出），更深的卡不挂载
-          let pos: { x: number; rot: number; scale: number; z: number; opacity: number } | null = null
-          if (s === 0) pos = { x: 0, rot: 0, scale: 1, z: 30, opacity: 1 }
-          else if (s === 1) pos = { x: CF_X[0], rot: 2.5, scale: SIDE_SCALE, z: 20, opacity: 0.85 }
-          else if (count >= 5 && s === 2) pos = { x: CF_X[1], rot: 4.5, scale: 0.7, z: 10, opacity: 0.55 }
-          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], rot: -2.5, scale: SIDE_SCALE, z: 20, opacity: 0.85 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], rot: -4.5, scale: 0.7, z: 10, opacity: 0.55 }
-          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 16, rot: 6.5, scale: 0.64, z: 5, opacity: 0 }
-          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 16, rot: -6.5, scale: 0.64, z: 5, opacity: 0 }
+          let pos: { x: number; scale: number; z: number; opacity: number } | null = null
+          if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
+          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
+          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
+          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
+          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
+          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 16, scale: 0.64, z: 5, opacity: 0 }
+          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 16, scale: 0.64, z: 5, opacity: 0 }
           if (!pos) return null
           const side = s !== 0
           const style: React.CSSProperties = dragging && s === 0
             ? {
                 left: CF_INSET,
                 right: CF_INSET,
-                transform: `translateX(calc(${pos.x}% + ${dragX}px)) rotate(${pos.rot}deg) scale(${pos.scale})`,
+                transform: `translateX(calc(${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
                 transition: 'none',
                 zIndex: 40,
                 opacity: 1,
@@ -221,10 +221,10 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
             : {
                 left: CF_INSET,
                 right: CF_INSET,
-                transform: `translateX(${pos.x}%) rotate(${pos.rot}deg) scale(${pos.scale})`,
+                transform: `translateX(${pos.x}%) scale(${pos.scale})`,
                 opacity: pos.opacity,
                 zIndex: pos.z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 250ms ease`,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 300ms ease`,
               }
           return (
             <div
