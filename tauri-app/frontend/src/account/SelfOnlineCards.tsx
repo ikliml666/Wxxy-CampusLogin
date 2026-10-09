@@ -40,8 +40,8 @@ export function OnlineDeviceCard({
           {terminalType}
         </span>
       </div>
-      {/* IP / MAC 垂直对齐：IP 在上、MAC 在下（不同列） */}
-      <div className="mt-2.5 space-y-2">
+      {/* IP / MAC 双列芯片（原方案 A 风格） */}
+      <div className="mt-2.5 grid grid-cols-2 gap-2">
         <div className="min-w-0 rounded-lg bg-muted/60 px-2.5 py-1.5">
           <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colIp')}</p>
           <p className="truncate font-mono text-xs leading-5 text-foreground">{ip}</p>

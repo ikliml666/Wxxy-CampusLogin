@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button'
 
 // —— 安卓端「在线信息」小组件式堆叠（V1 边缘露出）——
 // 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
-// 最多三张可见：当前卡为主卡，下层底缘交替露出 50/100px，其余卡不渲染；
+// 最多三张可见：当前卡为主卡，下层底缘交替露出（首层 28px、次层再 28px），其余卡不渲染；
 // 翻页前可瞥见下一张的流量行与注销按钮。
 // 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
-const PEEK = [50, 100] as const
+const PEEK = [28, 56] as const
 const DRAG_THRESHOLD = 60
 const DRAG_MIN = -160
 const DRAG_MAX = 80
@@ -191,8 +191,8 @@ export function OnlineDeviceStackCard({
           {terminalType}
         </span>
       </div>
-      {/* IP / MAC 垂直对齐：IP 在上、MAC 在下（不同列） */}
-      <div className="mt-2.5 space-y-2">
+      {/* IP / MAC 双列芯片（原方案 A 风格） */}
+      <div className="mt-2.5 grid grid-cols-2 gap-2">
         <div className="min-w-0 rounded-lg bg-muted/60 px-2.5 py-1.5">
           <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colIp')}</p>
           <p className="truncate font-mono text-xs leading-5 text-foreground">{ip}</p>
