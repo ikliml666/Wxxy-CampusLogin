@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, useDeferredValue } from 'react'
 import { useAppInit } from '@/hooks/useAppInit'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
-import { useConfigStore } from '@/hooks/useConfigStore'
+import { useConfigStore, flushPendingConfig } from '@/hooks/useConfigStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
@@ -279,6 +279,33 @@ function AppInner() {
     }
   }, [])
 
+  // 关窗前 flush 防抖配置（上限 2s）。历史缺陷：此前依赖全局 onCloseRequested
+  // JS 监听收尾——Tauri core 只要检测到该监听存在就无条件 prevent_close
+  // （tauri-2.11.0 src/manager/window.rs:170-174），窗口销毁被转嫁给 JS 异步
+  // 收尾链，一旦未完成窗口即永久留存（v2.4.2 实测 6 连击关闭无效）。
+  // 现约定：前端不注册 onCloseRequested，flush 由关闭发起方就地完成，
+  // 销毁控制权回归 Rust（app/shutdown.rs 三分支）。
+  const handleCloseWindow = useCallback(async () => {
+    try {
+      const inFlight = flushPendingConfig()
+      if (inFlight) {
+        // 等待保存完成（最多 2s，避免卡死关闭）；race 输掉的定时器须清理
+        let timeoutId: ReturnType<typeof setTimeout> | null = null
+        try {
+          await Promise.race([
+            inFlight,
+            new Promise(r => { timeoutId = setTimeout(r, 2000) }),
+          ])
+        } finally {
+          if (timeoutId !== null) clearTimeout(timeoutId)
+        }
+      }
+    } catch {
+      // flush 失败不阻塞关窗（轻量化待机仅销毁界面，进程内保存仍可能已完成）
+    }
+    await api.closeWindow?.()
+  }, [])
+
   const handleClearLogs = useCallback(() => {
     setLogs([])
   }, [setLogs])
@@ -398,7 +425,7 @@ function AppInner() {
           onMinimize={() => api.minimizeWindow?.()}
           onToggleMaximize={handleToggleMaximize}
           isMaximized={isMaximized}
-          onClose={() => api.closeWindow?.()}
+          onClose={handleCloseWindow}
         />
       </div>
 

@@ -2,14 +2,13 @@ import { useEffect, useRef } from 'react'
 import i18next from 'i18next'
 import type { LogType } from '@/shared'
 import type { BackgroundStatus, AdapterOnlineStatus, NetworkQuality } from '@/monitor'
-import { useConfigStore, flushPendingConfig, hasPendingConfig } from './useConfigStore'
+import { useConfigStore, flushPendingConfig } from './useConfigStore'
 import { useAdapterStore } from './useAdapterStore'
 import { useAuthStore } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useLogToastStore } from './useLogToastStore'
 import { tauriApiWithRetry as api } from './tauriApi'
 import { mergeNetworkQuality } from '@/lib/latency'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 
 // 模块级空数组常量：adapterStatuses 为空时复用同一引用，避免每次后台检测
 // 产生新数组导致 StatusBar 等订阅方整体重渲染（历史缺陷 P2-F6）
@@ -47,32 +46,15 @@ export function useEventListeners() {
       }
     }
 
-    getCurrentWindow().onCloseRequested(async (event) => {
-      if (hasPendingConfig()) {
-        event.preventDefault()
-        // 历史缺陷：flushPendingConfig 仅发送 debounce 待存数据且不 await，
-        // in-flight 保存（invoke 未 resolve）被丢弃。现在 await 返回的 in-flight promise。
-        const inFlight = flushPendingConfig()
-        if (inFlight) {
-          // 等待保存完成（最多 2s，避免卡死关闭）；race 输掉的定时器须清理，
-          // 否则定时器悬挂 2s 内阻止进程收尾
-          let timeoutId: ReturnType<typeof setTimeout> | null = null
-          try {
-            await Promise.race([
-              inFlight,
-              new Promise(r => { timeoutId = setTimeout(r, 2000) }),
-            ])
-          } finally {
-            if (timeoutId !== null) clearTimeout(timeoutId)
-          }
-        }
-        await getCurrentWindow().close()
-      } else {
-        flushPendingConfig()
-      }
-    }).then(unlistenClose => {
-      unlisteners.push(unlistenClose)
-    })
+    // 【勿注册 onCloseRequested】Tauri core 只要检测到 JS 关闭监听存在就无条件
+    // prevent_close（tauri-2.11.0 src/manager/window.rs:170-174），窗口销毁被
+    // 转嫁给 JS 异步收尾链（handler resolve 后 API 才 destroy），收尾一旦未
+    // 完成窗口即永久留存——v2.4.2 实测关闭按钮 6 连击无效的根因。
+    // 配置 flush 由关闭发起方（App.tsx handleCloseWindow）就地完成；
+    // 此处仅做失焦兜底 flush，覆盖 Alt+F4 等不经前端按钮的关闭时序。
+    const handleWindowBlur = () => { flushPendingConfig() }
+    window.addEventListener('blur', handleWindowBlur)
+    unlisteners.push(() => window.removeEventListener('blur', handleWindowBlur))
 
     const unsub1 = api.onBackgroundCheckResult?.((data) => {
       if (!mountedRef.current) return
