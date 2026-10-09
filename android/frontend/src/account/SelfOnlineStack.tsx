@@ -1,0 +1,225 @@
+import React, { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Loader2, LogOut } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
+// —— 安卓端「在线信息」小组件式堆叠（V1 边缘露出）——
+// 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
+// 下层底缘露出 50/100px，翻页前可瞥见下一张的流量行与注销按钮。
+// 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
+const PEEK = [50, 100] as const
+const DRAG_THRESHOLD = 60
+const DRAG_MIN = -160
+const DRAG_MAX = 80
+const SLIDE_MS = 300
+const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+export interface OnlineDeviceStackProps {
+  cards: React.ReactNode[]
+}
+
+export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
+  const count = cards.length
+  const [index, setIndex] = useState(0)
+  const [dragY, setDragY] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const [cardH, setCardH] = useState<number | null>(null)
+  const firstRef = useRef<HTMLDivElement | null>(null)
+  const drag = useRef<{ startY: number; moved: boolean } | null>(null)
+  const suppressClick = useRef(false)
+
+  // 列表变短（如注销成功）时夹住当前页码
+  useEffect(() => {
+    setIndex((i) => Math.min(i, Math.max(0, count - 1)))
+  }, [count])
+
+  // 量高：首卡自然高度 + 最大露出量；jsdom 无 ResizeObserver 时退化为一次性量高
+  useEffect(() => {
+    const el = firstRef.current
+    if (!el) return
+    const update = () => setCardH(el.offsetHeight)
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [cards])
+
+  if (count === 0) return null
+  const rel = (i: number) => (i - index + count) % count
+  const go = (next: number) => setIndex(((next % count) + count) % count)
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    suppressClick.current = false
+    drag.current = { startY: e.clientY, moved: false }
+    setDragging(true)
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      // jsdom 等环境无 pointer capture，忽略
+    }
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return
+    const dy = e.clientY - drag.current.startY
+    if (Math.abs(dy) > 6) drag.current.moved = true
+    setDragY(Math.max(DRAG_MIN, Math.min(DRAG_MAX, dy)))
+  }
+  const endDrag = () => {
+    if (!drag.current) return
+    const moved = drag.current.moved
+    drag.current = null
+    setDragging(false)
+    const dy = dragY
+    setDragY(0)
+    if (Math.abs(dy) >= DRAG_THRESHOLD) {
+      suppressClick.current = true
+      if (dy < 0) go(index + 1)
+      else go(index - 1)
+    } else if (moved) {
+      // 拖而未翻：吞掉紧随的 click，避免松手误触切换
+      suppressClick.current = true
+    }
+  }
+  const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
+    go(index + 1)
+  }
+
+  const single = count === 1
+  return (
+    <div>
+      <div
+        className="relative select-none"
+        style={{ height: cardH != null ? cardH + (single ? 0 : PEEK[1]) : 200, touchAction: 'none' }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onClick={onClick}
+        role="group"
+      >
+        {cards.map((node, i) => {
+          const r = rel(i)
+          const top = r === 0 ? 0 : r === 1 ? PEEK[0] : PEEK[1]
+          const z = r === 0 ? 30 : r === 1 ? 20 : 10
+          const isDraggingTop = r === 0 && dragging
+          const style: React.CSSProperties = isDraggingTop
+            ? {
+                transform: `translateY(${dragY}px)`,
+                transition: 'none',
+                zIndex: 40,
+                opacity: Math.max(0.4, Math.min(1, 1 + dragY / 240)),
+              }
+            : { transform: `translateY(${top}px)`, zIndex: z, transition: `transform ${SLIDE_MS}ms ${EASE}` }
+          return (
+            <div
+              key={i}
+              ref={i === 0 ? firstRef : undefined}
+              className="absolute inset-x-0 top-0"
+              style={style}
+              aria-hidden={r !== 0}
+            >
+              <div className={r === 0 ? '' : 'pointer-events-none'}>{node}</div>
+            </div>
+          )
+        })}
+      </div>
+      {count > 1 && (
+        <div className="mt-2.5 flex items-center justify-center gap-1.5">
+          {cards.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`${i + 1} / ${count}`}
+              onClick={() => go(i)}
+              className={`h-1.5 rounded-full transition-all duration-200 ${
+                i === index ? 'w-4 bg-primary' : 'w-1.5 bg-muted-foreground/30'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 堆叠卡片内容（方案 A 规格，与桌面端 OnlineDeviceCard 同构；安卓端上线时间只显示 HH:mm:ss，由面板截取后传入）
+export interface OnlineDeviceStackCardProps {
+  loginTime: string
+  ip: string
+  mac: string
+  flowMb: string
+  durationMin: string
+  terminalType: string
+  offlineDisabled?: boolean
+  offlineLoading?: boolean
+  onOffline: () => void
+}
+
+export function OnlineDeviceStackCard({
+  loginTime,
+  ip,
+  mac,
+  flowMb,
+  durationMin,
+  terminalType,
+  offlineDisabled = false,
+  offlineLoading = false,
+  onOffline,
+}: OnlineDeviceStackCardProps) {
+  const { t } = useTranslation()
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-3 shadow-md">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+          <span className="truncate">{loginTime || '-'}</span>
+        </span>
+        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+          {terminalType}
+        </span>
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-2">
+        <div className="min-w-0 rounded-lg bg-muted/60 px-2.5 py-1.5">
+          <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colIp')}</p>
+          <p className="truncate font-mono text-xs leading-5 text-foreground">{ip}</p>
+        </div>
+        <div className="min-w-0 rounded-lg bg-muted/60 px-2.5 py-1.5">
+          <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colMac')}</p>
+          <p className="truncate font-mono text-xs leading-5 text-foreground">{mac}</p>
+        </div>
+      </div>
+      <div className="mt-2.5 flex items-end justify-between gap-2">
+        <div className="flex gap-4">
+          <div>
+            <p className="text-[10px] text-muted-foreground">{t('account.colUseFlow')}</p>
+            <p className="font-mono text-xs font-medium text-foreground">
+              {flowMb}
+              <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">M</span>
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground">{t('account.colUseTime')}</p>
+            <p className="font-mono text-xs font-medium text-foreground">{durationMin}</p>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          disabled={offlineDisabled}
+          onClick={onOffline}
+        >
+          {offlineLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <LogOut className="h-3 w-3" />}
+          {t('account.selfOffline')}
+        </Button>
+      </div>
+    </div>
+  )
+}

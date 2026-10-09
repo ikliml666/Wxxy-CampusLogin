@@ -3,8 +3,9 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Eye, EyeOff, Globe, History, KeyRound, Loader2, LogOut, RefreshCw, ScrollText, Search, UserCircle } from 'lucide-react'
+import { Eye, EyeOff, Globe, History, KeyRound, Loader2, RefreshCw, ScrollText, Search, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { OnlineDeviceStack, OnlineDeviceStackCard } from './SelfOnlineStack'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
@@ -386,51 +387,22 @@ export function SelfServicePanel() {
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfDashboardQuerying')}
               </div>
             ) : onlineList !== null && onlineList.length > 0 ? (
-              <div className="overflow-x-auto rounded-lg border border-border/50">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/30 text-muted-foreground">
-                    <tr>
-                      <th className={thClass}>{t('account.colLoginTime')}</th>
-                      <th className={thClass}>{t('account.colIp')}</th>
-                      <th className={thClass}>{t('account.colMac')}</th>
-                      <th className={thClass}>{t('account.colUseTime')}</th>
-                      <th className={thClass}>{t('account.colUseFlow')}</th>
-                      <th className={thClass}>{t('account.colHostName')}</th>
-                      <th className={thClass}>{t('account.colTerminalType')}</th>
-                      <th className={thClass}>{t('account.colAction')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {onlineList.map((item) => (
-                      <tr key={item.sessionId} className="border-t border-border/40">
-                        <td className={tdClass}>{item.loginTime || '-'}</td>
-                        <td className={tdClass}>{item.ip || '-'}</td>
-                        <td className={tdClass}>{item.mac ? formatMac(item.mac) : '-'}</td>
-                        <td className={tdClass}>{formatUseTimeMinutes(item.useTime)}</td>
-                        <td className={tdClass}>{formatFlowMb(item.downFlow, item.upFlow)}</td>
-                        <td className={tdClass}>{item.hostName || '-'}</td>
-                        <td className={tdClass}>{formatTerminalType(item.terminalType)}</td>
-                        <td className="px-2 py-2 whitespace-nowrap">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                            disabled={offlineSessionId !== null}
-                            onClick={() => setConfirmTarget(item)}
-                          >
-                            {offlineSessionId === item.sessionId ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <LogOut className="h-3 w-3" />
-                            )}
-                            {t('account.selfOffline')}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <OnlineDeviceStack
+                cards={onlineList.map((item) => (
+                  <OnlineDeviceStackCard
+                    key={item.sessionId}
+                    loginTime={item.loginTime?.split(' ')[1] || item.loginTime || '-'}
+                    ip={item.ip || '-'}
+                    mac={item.mac ? formatMac(item.mac) : '-'}
+                    flowMb={formatFlowMb(item.downFlow, item.upFlow)}
+                    durationMin={formatUseTimeMinutes(item.useTime)}
+                    terminalType={formatTerminalType(item.terminalType)}
+                    offlineDisabled={offlineSessionId !== null}
+                    offlineLoading={offlineSessionId === item.sessionId}
+                    onOffline={() => setConfirmTarget(item)}
+                  />
+                ))}
+              />
             ) : (
               <div className="text-center py-4 text-xs text-muted-foreground">
                 {onlineList === null ? t('account.selfDashboardIdle') : t('account.selfDashboardEmpty')}
