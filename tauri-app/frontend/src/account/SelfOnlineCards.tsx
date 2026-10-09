@@ -31,7 +31,8 @@ export function OnlineDeviceCard({
 }: OnlineDeviceCardProps) {
   const { t } = useTranslation()
   return (
-    <div className="rounded-xl bg-muted p-3 shadow-sm">
+    // 卡面：浅色主题用纯白卡面（比背景亮、经典分组卡片式），深色主题用 muted（比背景稍亮）
+    <div className="rounded-xl bg-card p-3 shadow-sm dark:bg-muted">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
@@ -41,13 +42,13 @@ export function OnlineDeviceCard({
           {terminalType}
         </span>
       </div>
-      {/* IP / MAC 垂直芯片：IP 在上、MAC 垂直对齐在下 */}
+      {/* IP / MAC 垂直芯片：IP 在上、MAC 垂直对齐在下；芯片与卡面互为反色保持层次 */}
       <div className="mt-2.5 space-y-2">
-        <div className="min-w-0 rounded-lg bg-card px-2.5 py-1.5">
+        <div className="min-w-0 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
           <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colIp')}</p>
           <p className="truncate font-mono text-xs leading-5 text-foreground">{ip}</p>
         </div>
-        <div className="min-w-0 rounded-lg bg-card px-2.5 py-1.5">
+        <div className="min-w-0 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
           <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colMac')}</p>
           <p className="truncate font-mono text-xs leading-5 text-foreground">{mac}</p>
         </div>
@@ -102,6 +103,8 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
   const [cardH, setCardH] = useState<number | null>(null)
   const [leaving, setLeaving] = useState<number | null>(null)
   const [snapping, setSnapping] = useState<number | null>(null)
+  // 方向感知 deck 动效：1 = 下一张（牌堆向左滚），-1 = 上一张（牌堆向右滚）
+  const [dir, setDir] = useState<1 | -1>(1)
   const firstRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startX: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
@@ -133,11 +136,14 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
 
   if (count === 0) return null
   const sd = (i: number) => (i - index + count) % count
-  // deck 动效：切换时旧当前卡“切下”（自中央下落淡出），其余卡照常过渡到新位；
-  // SLIDE_MS 后旧卡在目标槽位无过渡复位、再快速淡入（Tinder 牌堆式弃牌 + 补位）
-  const go = (next: number) => {
+  // deck 动效（方向感知）：整副牌朝切换方向滚动一格——旧当前卡滚向它的下一个槽位
+  // （下一张 → 左侧位、上一张 → 右侧位）并淡出，新当前卡从对侧滚入；
+  // SLIDE_MS 后旧卡在目标槽位无过渡复位、再快速淡入
+  const go = (next: number, d?: 1 | -1) => {
     const target = ((next % count) + count) % count
     if (target === index) return
+    // 未显式给方向时按最短路径推定（页点直达）
+    setDir(d ?? (((target - index + count) % count) <= count / 2 ? 1 : -1))
     setLeaving(index)
     if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
     if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
@@ -175,8 +181,9 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
     setDragX(0)
     if (Math.abs(dx) >= DRAG_THRESHOLD) {
       suppressClick.current = true
-      if (dx < 0) go(index + 1)
-      else go(index - 1)
+      // 左拖 = 下一张（牌堆左滚），右拖 = 上一张（牌堆右滚）——方向随手指
+      if (dx < 0) go(index + 1, 1)
+      else go(index - 1, -1)
     } else if (moved) {
       // 拖而未翻：吞掉紧随的 click，避免松手误触切换
       suppressClick.current = true
@@ -188,10 +195,10 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
       suppressClick.current = false
       return
     }
-    // 以中线划分点击区：左半 = 上一张，右半 = 下一张
+    // 以中线划分点击区：左半 = 上一张（牌堆右滚），右半 = 下一张（牌堆左滚）
     const rect = e.currentTarget.getBoundingClientRect()
-    if (e.clientX - rect.left < rect.width * 0.5) go(index - 1)
-    else go(index + 1)
+    if (e.clientX - rect.left < rect.width * 0.5) go(index - 1, -1)
+    else go(index + 1, 1)
   }
 
   return (
@@ -233,10 +240,10 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
               }
             : isLeaving
               ? {
-                  // deck 离场：旧当前卡自中央向下坠落并淡出
+                  // deck 离场（方向感知）：旧当前卡朝切换方向滚出（下一张 → 左侧、上一张 → 右侧）并淡出
                   left: CF_INSET,
                   right: CF_INSET,
-                  transform: 'translateY(72px) scale(0.9)',
+                  transform: `translateX(${dir === 1 ? -64 : 64}px) scale(0.9)`,
                   opacity: 0,
                   zIndex: 35,
                   transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${SLIDE_MS}ms ${EASE}`,
