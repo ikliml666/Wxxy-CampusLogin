@@ -3,21 +3,22 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-// —— 安卓端「在线信息」小组件式堆叠（上下边缘各露出）——
+// —— 安卓端「在线信息」扇形牌堆（参考 card-stack.lrnz.work）——
 // 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
-// 最多三张可见：当前卡为主卡，上方露出下一张顶部、下方露出上一张底部（各 28px），其余卡不渲染；
-// 非当前卡以描边区分边界（不做蒙层压暗）。
+// 切换 = 整副牌连续滚动一格：所有槽位的卡常挂载并带 transform 过渡，
+// 当前卡居中，相邻卡以轻微旋转+横移从左右两侧露出整卡侧边（扇形），
+// 翻页时旧当前卡旋转着滚入侧位、新当前卡从另一侧转入中央——像从牌堆里抽牌。
 // 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
-const PEEK_TOP = 28
-const PEEK_BOTTOM = 28
+const FAN_X = 4 // 相邻卡横移（% 卡宽）
+const FAN_ROT = 2.2 // 相邻卡旋转角（deg）
 const DRAG_THRESHOLD = 60
 // 拖拽行程上限：限制视觉拉伸幅度，超过阈值即翻页，松手后由 transform 过渡补完切换动画
 const DRAG_MIN = -110
 const DRAG_MAX = 70
-const SLIDE_MS = 300
+const SLIDE_MS = 340
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-// 水平堆叠（桌面/平板）：封面流轮播——中间卡完整清晰，两侧相邻卡缩小、以描边区分边界（不蒙层压暗）；
-// 卡宽收窄为舞台 56%（左右各留 22%），最多五张可见（中间 + 左右各两张），其余隐藏；点击左侧露条 = 上一张，其余区域 = 下一张。
+// 水平堆叠（桌面/平板）：封面流扇形轮播——中间卡完整清晰，两侧相邻/次邻缩小压暗并轻微旋转（扇形感）；
+// 卡宽收窄为舞台 56%（左右各留 22%），最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
 const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
 const CF_INSET = '22%' // 卡宽 = 舞台 56%
 const SIDE_SCALE = 0.76
@@ -33,26 +34,14 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   const [dragY, setDragY] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
-  const [leaving, setLeaving] = useState<number | null>(null)
-  const [snapping, setSnapping] = useState<number | null>(null)
-  // 方向感知 deck 动效：1 = 下一张（牌堆向下滚），-1 = 上一张（牌堆向上滚）
-  const [dir, setDir] = useState<1 | -1>(1)
   const firstRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startY: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
-  const leaveTimer = useRef<number | null>(null)
-  const snapTimer = useRef<number | null>(null)
 
   // 列表变短（如注销成功）时夹住当前页码
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
-
-  // 卸载时清理 deck 动效计时器
-  useEffect(() => () => {
-    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
-    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
-  }, [])
 
   // 量高：当前卡自然高度（各卡内容同构）+ 最大露出量；jsdom 无 ResizeObserver 时退化为一次性量高。
   // ref 挂在当前卡上，翻页后随 index 重建观察
@@ -69,22 +58,12 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
 
   if (count === 0) return null
   const rel = (i: number) => (i - index + count) % count
-  // deck 动效（方向感知）：整副牌朝切换方向滚动一格——旧当前卡滚向它的下一个槽位
-  // （下一张 → 底部露出位、上一张 → 顶部露出位）并淡出，新当前卡从对侧露出位滚入；
-  // SLIDE_MS 后旧卡在目标槽位无过渡复位、再快速淡入
-  const go = (next: number, d?: 1 | -1) => {
+  // 整副牌连续滚动：各槽位的卡都常挂载并带 transform/opacity 过渡，切换 = index 平移一格，
+  // 全部卡同时滚向新槽位（旧当前卡滚入底部露出位并压暗保持可见，新当前卡从顶部露出位滚入中央），
+  // 无「离场淡出」——视觉上就是整叠卡片在滚动
+  const go = (next: number) => {
     const target = ((next % count) + count) % count
     if (target === index) return
-    // 未显式给方向时按最短路径推定（页点直达）
-    setDir(d ?? (((target - index + count) % count) <= count / 2 ? 1 : -1))
-    setLeaving(index)
-    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
-    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
-    leaveTimer.current = window.setTimeout(() => {
-      setLeaving(null)
-      setSnapping(index)
-      snapTimer.current = window.setTimeout(() => setSnapping(null), 30)
-    }, SLIDE_MS)
     setIndex(target)
   }
 
@@ -114,9 +93,9 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
     setDragY(0)
     if (Math.abs(dy) >= DRAG_THRESHOLD) {
       suppressClick.current = true
-      // 上滑 = 下一张（牌堆下滚），下滑 = 上一张（牌堆上滚）——方向随手指
-      if (dy < 0) go(index + 1, 1)
-      else go(index - 1, -1)
+      // 上滑 = 下一张，下滑 = 上一张——方向随手指，整副牌朝该方向滚一格
+      if (dy < 0) go(index + 1)
+      else go(index - 1)
     } else if (moved) {
       // 拖而未翻：吞掉紧随的 click，避免松手误触切换
       suppressClick.current = true
@@ -128,15 +107,14 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       suppressClick.current = false
       return
     }
-    go(index + 1, 1)
+    go(index + 1)
   }
 
-  const single = count === 1
   return (
     <div>
       <div
         className="relative select-none"
-        style={{ height: cardH != null ? cardH + (single ? 0 : PEEK_TOP + PEEK_BOTTOM) : 200, touchAction: 'none' }}
+        style={{ height: cardH != null ? cardH : 200, touchAction: 'none' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -146,44 +124,29 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const r = rel(i)
-          // 最多三张：当前卡 + 上方（下一张顶部）+ 下方（上一张底部），其余隐藏
-          let top: number | null = null
-          if (r === 0) top = PEEK_TOP
-          else if (r === 1) top = 0
-          else if (count > 2 && r === count - 1) top = PEEK_TOP + PEEK_BOTTOM
-          if (top == null) return null
-          const z = r === 0 ? 30 : 20
+          // 扇形槽位姿势表：中央（当前）+ 左右相邻（同尺寸微旋转，露出整卡侧边）+
+          // 紧邻隐藏槽位（透明常挂载，翻页时平滑滚入/滚出），更深的卡不挂载
+          let pose: { x: number; rot: number; scale: number; z: number; opacity: number } | null = null
+          if (r === 0) pose = { x: 0, rot: 0, scale: 1, z: 30, opacity: 1 }
+          else if (r === 1) pose = { x: FAN_X, rot: FAN_ROT, scale: 0.98, z: 20, opacity: 1 }
+          else if (count > 2 && r === count - 1) pose = { x: -FAN_X, rot: -FAN_ROT, scale: 0.98, z: 20, opacity: 1 }
+          else if (count > 3 && r === count - 2) pose = { x: -FAN_X * 2, rot: -FAN_ROT * 2, scale: 0.96, z: 10, opacity: 0 }
+          else if (count > 4 && r === 2) pose = { x: FAN_X * 2, rot: FAN_ROT * 2, scale: 0.96, z: 10, opacity: 0 }
+          if (!pose) return null
           const isDraggingTop = r === 0 && dragging
-          const isLeaving = i === leaving && r !== 0
           const style: React.CSSProperties = isDraggingTop
             ? {
                 transform: `translateY(${dragY}px)`,
                 transition: 'none',
                 zIndex: 40,
-                opacity: Math.max(0.4, Math.min(1, 1 - dragY / 240)),
+                opacity: 1,
               }
-            : isLeaving
-              ? {
-                  // deck 离场（方向感知）：旧当前卡滚向它的下一个槽位——
-                  // 下一张 → 底部露出位（向下滚），上一张 → 顶部露出位（向上滚）
-                  transform: `translateY(${dir === 1 ? PEEK_TOP + 88 : -88}px) scale(0.96)`,
-                  opacity: 0,
-                  zIndex: 35,
-                  transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${SLIDE_MS}ms ${EASE}`,
-                }
-              : i === snapping
-                ? {
-                    // 离场结束：在目标槽位无过渡复位（仍透明），下一帧快速淡入
-                    transform: `translateY(${top}px) scale(${r === 0 ? 1 : 0.96})`,
-                    opacity: 0,
-                    zIndex: z,
-                    transition: 'none',
-                  }
-                : {
-                    transform: `translateY(${top}px) scale(${r === 0 ? 1 : 0.96})`,
-                    zIndex: z,
-                    transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 200ms ${EASE}`,
-                  }
+            : {
+                transform: `translateX(${pose.x}%) rotate(${pose.rot}deg) scale(${pose.scale})`,
+                opacity: pose.opacity,
+                zIndex: pose.z,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 250ms ease`,
+              }
           return (
             <div
               key={i}
@@ -297,34 +260,23 @@ export function OnlineDeviceStackCard({
 }
 
 // —— 水平堆叠（平板）：左右切换，机制与手机垂直堆叠一致 ——
-// 当前卡居中为主卡，左露上一张边缘、右露下一张边缘（最多三张可见，其余不渲染）；
-// 点击 = 下一张（点左缘露边 = 上一张），水平拖拽 ±60px 判翻页；页点可直接跳转。
+// 封面流轮播 + 整副牌连续滚动：当前卡居中，左右相邻/次邻缩小压暗，
+// 切换 = 全部卡同时向目标槽位滚动一格（无离场淡出）；
+// 点击左半 = 上一张、右半 = 下一张，水平拖拽 ±60px 判翻页；页点可直接跳转。
 export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
   const count = cards.length
   const [index, setIndex] = useState(0)
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
-  const [leaving, setLeaving] = useState<number | null>(null)
-  const [snapping, setSnapping] = useState<number | null>(null)
-  // 方向感知 deck 动效：1 = 下一张（牌堆向左滚），-1 = 上一张（牌堆向右滚）
-  const [dir, setDir] = useState<1 | -1>(1)
   const firstRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startX: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
-  const leaveTimer = useRef<number | null>(null)
-  const snapTimer = useRef<number | null>(null)
 
   // 列表变短（如注销成功）时夹住当前页码
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
-
-  // 卸载时清理 deck 动效计时器
-  useEffect(() => () => {
-    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
-    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
-  }, [])
 
   // 量高：当前卡自然高度（各卡内容同构）；ref 随 index 重建观察
   useEffect(() => {
@@ -340,22 +292,10 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
 
   if (count === 0) return null
   const sd = (i: number) => (i - index + count) % count
-  // deck 动效（方向感知）：整副牌朝切换方向滚动一格——旧当前卡滚向它的下一个槽位
-  // （下一张 → 左侧位、上一张 → 右侧位）并淡出，新当前卡从对侧滚入；
-  // SLIDE_MS 后旧卡在目标槽位无过渡复位、再快速淡入
-  const go = (next: number, d?: 1 | -1) => {
+  // 整副牌连续滚动：与垂直堆叠同构——所有槽位常挂载 + transform 过渡，切换只改 index
+  const go = (next: number) => {
     const target = ((next % count) + count) % count
     if (target === index) return
-    // 未显式给方向时按最短路径推定（页点直达）
-    setDir(d ?? (((target - index + count) % count) <= count / 2 ? 1 : -1))
-    setLeaving(index)
-    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
-    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
-    leaveTimer.current = window.setTimeout(() => {
-      setLeaving(null)
-      setSnapping(index)
-      snapTimer.current = window.setTimeout(() => setSnapping(null), 30)
-    }, SLIDE_MS)
     setIndex(target)
   }
 
@@ -385,9 +325,9 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
     setDragX(0)
     if (Math.abs(dx) >= DRAG_THRESHOLD) {
       suppressClick.current = true
-      // 左拖 = 下一张（牌堆左滚），右拖 = 上一张（牌堆右滚）——方向随手指
-      if (dx < 0) go(index + 1, 1)
-      else go(index - 1, -1)
+      // 左拖 = 下一张，右拖 = 上一张——方向随手指，整副牌朝该方向滚一格
+      if (dx < 0) go(index + 1)
+      else go(index - 1)
     } else if (moved) {
       // 拖而未翻：吞掉紧随的 click，避免松手误触切换
       suppressClick.current = true
@@ -401,8 +341,8 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
     }
     // 以中线划分点击区：左半 = 上一张，右半 = 下一张
     const rect = e.currentTarget.getBoundingClientRect()
-    if (e.clientX - rect.left < rect.width * 0.5) go(index - 1, -1)
-    else go(index + 1, 1)
+    if (e.clientX - rect.left < rect.width * 0.5) go(index - 1)
+    else go(index + 1)
   }
 
   return (
@@ -423,53 +363,35 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const s = sd(i)
-          // 封面流：中间 + 两侧相邻/次邻，最多五张可见，其余隐藏
-          let pos: { x: number; scale: number; z: number } | null = null
-          if (s === 0) pos = { x: 0, scale: 1, z: 30 }
-          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20 }
-          else if (s === 2 && count >= 4) pos = { x: CF_X[1], scale: SIDE_SCALE, z: 10 }
-          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE, z: 10 }
+          // 封面流扇形槽位姿势表：中央 + 左右相邻/次邻（缩小压暗 + 轻微旋转成扇形）+
+          // 紧邻隐藏槽位（透明常挂载，≥6 张时翻页平滑滚入/滚出），更深的卡不挂载
+          let pos: { x: number; rot: number; scale: number; z: number; opacity: number } | null = null
+          if (s === 0) pos = { x: 0, rot: 0, scale: 1, z: 30, opacity: 1 }
+          else if (s === 1) pos = { x: CF_X[0], rot: 2.5, scale: SIDE_SCALE, z: 20, opacity: 0.85 }
+          else if (count >= 5 && s === 2) pos = { x: CF_X[1], rot: 4.5, scale: 0.7, z: 10, opacity: 0.55 }
+          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], rot: -2.5, scale: SIDE_SCALE, z: 20, opacity: 0.85 }
+          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], rot: -4.5, scale: 0.7, z: 10, opacity: 0.55 }
+          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 16, rot: 6.5, scale: 0.64, z: 5, opacity: 0 }
+          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 16, rot: -6.5, scale: 0.64, z: 5, opacity: 0 }
           if (!pos) return null
           const side = s !== 0
-          const isLeaving = i === leaving && s !== 0
-          const style: React.CSSProperties = dragging
+          const style: React.CSSProperties = dragging && s === 0
             ? {
                 left: CF_INSET,
                 right: CF_INSET,
-                transform: `translateX(calc(${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
+                transform: `translateX(calc(${pos.x}% + ${dragX}px)) rotate(${pos.rot}deg) scale(${pos.scale})`,
                 transition: 'none',
-                zIndex: s === 0 ? 40 : pos.z,
-                opacity: s === 0 ? Math.max(0.4, Math.min(1, 1 - Math.abs(dragX) / 240)) : 1,
+                zIndex: 40,
+                opacity: 1,
               }
-            : isLeaving
-              ? {
-                  // deck 离场（方向感知）：旧当前卡滚向它的下一个槽位——
-                  // 下一张 → 左侧位（向左滚），上一张 → 右侧位（向右滚）
-                  left: CF_INSET,
-                  right: CF_INSET,
-                  transform: `translateX(${dir === 1 ? -64 : 64}px) scale(0.9)`,
-                  opacity: 0,
-                  zIndex: 35,
-                  transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${SLIDE_MS}ms ${EASE}`,
-                }
-              : i === snapping
-                ? {
-                    // 离场结束：目标槽位无过渡复位（仍透明），下一帧快速淡入
-                    left: CF_INSET,
-                    right: CF_INSET,
-                    transform: `translateX(${pos.x}%) scale(${pos.scale})`,
-                    opacity: 0,
-                    zIndex: pos.z,
-                    transition: 'none',
-                  }
-                : {
-                    left: CF_INSET,
-                    right: CF_INSET,
-                    transform: `translateX(${pos.x}%) scale(${pos.scale})`,
-                    zIndex: pos.z,
-                    transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 200ms ${EASE}`,
-                  }
+            : {
+                left: CF_INSET,
+                right: CF_INSET,
+                transform: `translateX(${pos.x}%) rotate(${pos.rot}deg) scale(${pos.scale})`,
+                opacity: pos.opacity,
+                zIndex: pos.z,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 250ms ease`,
+              }
           return (
             <div
               key={i}
