@@ -205,8 +205,9 @@ export function OnlineDeviceStackCard({
 }: OnlineDeviceStackCardProps) {
   const { t } = useTranslation()
   return (
-    // 卡面：浅色主题用纯白卡面（比背景亮、经典分组卡片式），深色主题用 muted（比背景稍亮）
-    <div className="rounded-xl bg-card shadow-sm dark:bg-muted">
+    // 卡面：浅色主题用纯白卡面（比背景亮、经典分组卡片式），深色主题用 muted（比背景稍亮）；
+    // p-3 内边距与桌面端 OnlineDeviceCard 同构（8da3b1c 曾误删导致内容贴边/字体溢出）
+    <div className="rounded-xl bg-card p-3 shadow-sm dark:bg-muted">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
