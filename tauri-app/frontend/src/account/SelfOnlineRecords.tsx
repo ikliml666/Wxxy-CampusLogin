@@ -234,7 +234,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                     ['selfLogSumMoney', logSummary.COSTMONEY],
                     ['selfLogSumCount', logSummary.COU],
                   ] as const).map(([key, value]) => (
-                    <div key={key} className="rounded-lg border border-border/50 bg-muted/20 px-2 py-1.5">
+                    <div key={key} className="rounded-lg bg-muted/60 px-2 py-1.5">
                       <div className="text-[10px] text-muted-foreground">{t(`account.${key}`)}</div>
                       <div className="font-mono text-[11px] font-medium">
                         {key === 'selfLogSumCount' ? String(Number(value ?? 0)) : fmt2(value)}
@@ -299,7 +299,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                   ['selfLogSumMoney', recentStats.costMoney, (v: number) => fmt2(v)],
                   ['selfLogSumCount', recentStats.count, (v: number) => String(v)],
                 ] as const).map(([key, value, fmt]) => (
-                  <div key={key} className="rounded-lg border border-border/50 bg-muted/20 px-2 py-1.5">
+                  <div key={key} className="rounded-lg bg-muted/60 px-2 py-1.5">
                     <div className="text-[10px] text-muted-foreground">{t(`account.${key}`)}</div>
                     <div className="font-mono text-[11px] font-medium">{fmt(value)}</div>
                   </div>

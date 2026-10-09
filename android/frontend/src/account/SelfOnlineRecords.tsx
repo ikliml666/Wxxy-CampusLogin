@@ -237,7 +237,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                     ['selfLogSumMoney', logSummary.COSTMONEY],
                     ['selfLogSumCount', logSummary.COU],
                   ] as const).map(([key, value]) => (
-                    <div key={key} className="rounded-lg border border-border/50 bg-muted/20 px-2 py-1.5">
+                    <div key={key} className="rounded-lg bg-muted/60 px-2 py-1.5">
                       <div className="text-[10px] text-muted-foreground">{t(`account.${key}`)}</div>
                       <div className="font-mono text-[11px] font-medium">
                         {key === 'selfLogSumCount' ? String(Number(value ?? 0)) : fmt2(value)}
@@ -255,7 +255,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                         <span className="h-px flex-1 bg-border/60" />
                       </div>
                       {g.rows.map(row => (
-                        <div key={row.key} className="rounded-xl border border-border/60 bg-card/50 px-3 py-2.5 space-y-2">
+                        <div key={row.key} className="rounded-xl bg-muted/30 px-3 py-2.5 space-y-2">
                           <div className="text-xs font-medium font-mono">
                             {formatEpoch(row.loginTime).slice(11)}
                             {' – '}
@@ -303,7 +303,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                   ['selfLogSumMoney', stats.costMoney, (v: number) => fmt2(v)],
                   ['selfLogSumCount', stats.count, (v: number) => String(v)],
                 ] as const).map(([key, value, fmt]) => (
-                  <div key={key} className="rounded-lg border border-border/50 bg-muted/20 px-2 py-1.5">
+                  <div key={key} className="rounded-lg bg-muted/60 px-2 py-1.5">
                     <div className="text-[10px] text-muted-foreground">{t(`account.${key}`)}</div>
                     <div className="font-mono text-[11px] font-medium">{fmt(value)}</div>
                   </div>
@@ -319,7 +319,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                     {g.rows.map(row => {
                       const pay = payStyleText(t, row.payStyle)
                       return (
-                        <div key={row.key} className="rounded-xl border border-border/60 bg-card/50 px-3 py-2.5 space-y-2">
+                        <div key={row.key} className="rounded-xl bg-muted/30 px-3 py-2.5 space-y-2">
                           <div className="text-xs font-medium font-mono">
                             {formatEpoch(row.loginTime).slice(11)}
                             {' – '}

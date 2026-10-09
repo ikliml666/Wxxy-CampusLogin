@@ -460,7 +460,8 @@ export const SettingsPanel = memo(function SettingsPanel({
 
       </div>
 
-      <div className="flex flex-col gap-4">
+      {/* 右列 justify-between 摊开残差：末卡（质量检测）贴住底缘，与左列底对齐 */}
+      <div className="flex flex-col justify-between gap-4">
       {/* 通知与安全合并卡：组标题区分两段。安全组开关关闭方向（安全 → 宽松）
           都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
       <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
@@ -578,9 +579,9 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardContent>
         </AnimatedCard>
       </div>
-      {/* 质量检测卡（右列收底；末卡 grow 吃残差对齐底缘；enableQuality 关闭联动 quality 面板引用清理） */}
-      <div className="card-enter grow" style={{ '--stagger-i': 6 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
+      {/* 质量检测卡（右列收底；残差由右列 justify-between 摊开；enableQuality 关闭联动 quality 面板引用清理） */}
+      <div className="card-enter" style={{ '--stagger-i': 6 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>

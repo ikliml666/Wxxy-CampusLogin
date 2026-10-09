@@ -1,6 +1,6 @@
 import { it, expect, vi, afterEach } from 'vitest'
 import { render, fireEvent, cleanup } from '@testing-library/react'
-import { OnlineDeviceCard, OnlineDeviceCardGrid } from './SelfOnlineCards'
+import { OnlineDeviceCard, OnlineDeviceCardStack } from './SelfOnlineCards'
 
 // t 直接回键名：断言 i18n 键参与渲染
 vi.mock('react-i18next', () => ({
@@ -50,13 +50,13 @@ it('offlineDisabled 时按钮禁用；offlineLoading 时按钮仍渲染', () => 
   expect(onOffline).not.toHaveBeenCalled()
 })
 
-it('网格渲染全部子卡', () => {
+it('堆叠渲染全部子卡', () => {
   const { container } = render(
-    <OnlineDeviceCardGrid>
+    <OnlineDeviceCardStack>
       {[1, 2, 3].map((i) => (
         <OnlineDeviceCard key={i} {...base} ip={`10.0.0.${i}`} />
       ))}
-    </OnlineDeviceCardGrid>,
+    </OnlineDeviceCardStack>,
   )
   expect(container.textContent).toContain('10.0.0.1')
   expect(container.textContent).toContain('10.0.0.2')

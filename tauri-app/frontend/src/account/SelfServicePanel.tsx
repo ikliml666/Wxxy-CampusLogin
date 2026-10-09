@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Eye, EyeOff, Globe, KeyRound, Loader2, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
-import { OnlineDeviceCard, OnlineDeviceCardGrid } from './SelfOnlineCards'
+import { OnlineDeviceCard, OnlineDeviceCardStack } from './SelfOnlineCards'
 import { SelfOnlineRecords } from './SelfOnlineRecords'
 import {
   extractErrorMessage,
@@ -307,7 +307,7 @@ export function SelfServicePanel() {
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfDashboardQuerying')}
               </div>
             ) : onlineList !== null && onlineList.length > 0 ? (
-              <OnlineDeviceCardGrid>
+              <OnlineDeviceCardStack>
                 {onlineList.map((item) => (
                   <OnlineDeviceCard
                     key={item.sessionId}
@@ -322,7 +322,7 @@ export function SelfServicePanel() {
                     onOffline={() => setConfirmTarget(item)}
                   />
                 ))}
-              </OnlineDeviceCardGrid>
+              </OnlineDeviceCardStack>
             ) : (
               <div className="text-center py-4 text-xs text-muted-foreground">
                 {onlineList === null ? t('account.selfDashboardIdle') : t('account.selfDashboardEmpty')}

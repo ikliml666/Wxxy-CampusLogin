@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Eye, EyeOff, Globe, KeyRound, Loader2, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
-import { OnlineDeviceStack, OnlineDeviceStackCard } from './SelfOnlineStack'
+import { OnlineDeviceStack, OnlineDeviceStackCard, OnlineDeviceStackH } from './SelfOnlineStack'
 import { SelfOnlineRecords } from './SelfOnlineRecords'
 import {
   type SelfHistoryRow,
@@ -14,6 +14,7 @@ import {
 } from './selfServiceTypes'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
+import { useFormFactor } from '@/hooks/useFormFactor'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
@@ -88,6 +89,7 @@ export function SelfServicePanel() {
   const [showPassword, setShowPassword] = useState(false)
   const credInitedRef = useRef(false)
   const [onlineList, setOnlineList] = useState<SelfOnlineItem[] | null>(null)
+  const formFactor = useFormFactor()
   const [history, setHistory] = useState<SelfHistoryRow[] | null>(null)
   const [querying, setQuerying] = useState(false)
   const [offlineSessionId, setOfflineSessionId] = useState<string | null>(null)
@@ -345,22 +347,41 @@ export function SelfServicePanel() {
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfDashboardQuerying')}
               </div>
             ) : onlineList !== null && onlineList.length > 0 ? (
-              <OnlineDeviceStack
-                cards={onlineList.map((item) => (
-                  <OnlineDeviceStackCard
-                    key={item.sessionId}
-                    loginTime={item.loginTime?.split(' ')[1] || item.loginTime || '-'}
-                    ip={item.ip || '-'}
-                    mac={item.mac ? formatMac(item.mac) : '-'}
-                    flowMb={formatFlowMb(item.downFlow, item.upFlow)}
-                    durationMin={formatUseTimeMinutes(item.useTime)}
-                    terminalType={formatTerminalType(item.terminalType)}
-                    offlineDisabled={offlineSessionId !== null}
-                    offlineLoading={offlineSessionId === item.sessionId}
-                    onOffline={() => setConfirmTarget(item)}
-                  />
-                ))}
-              />
+              formFactor === 'tablet' ? (
+                <OnlineDeviceStackH
+                  cards={onlineList.map((item) => (
+                    <OnlineDeviceStackCard
+                      key={item.sessionId}
+                      loginTime={item.loginTime?.split(' ')[1] || item.loginTime || '-'}
+                      ip={item.ip || '-'}
+                      mac={item.mac ? formatMac(item.mac) : '-'}
+                      flowMb={formatFlowMb(item.downFlow, item.upFlow)}
+                      durationMin={formatUseTimeMinutes(item.useTime)}
+                      terminalType={formatTerminalType(item.terminalType)}
+                      offlineDisabled={offlineSessionId !== null}
+                      offlineLoading={offlineSessionId === item.sessionId}
+                      onOffline={() => setConfirmTarget(item)}
+                    />
+                  ))}
+                />
+              ) : (
+                <OnlineDeviceStack
+                  cards={onlineList.map((item) => (
+                    <OnlineDeviceStackCard
+                      key={item.sessionId}
+                      loginTime={item.loginTime?.split(' ')[1] || item.loginTime || '-'}
+                      ip={item.ip || '-'}
+                      mac={item.mac ? formatMac(item.mac) : '-'}
+                      flowMb={formatFlowMb(item.downFlow, item.upFlow)}
+                      durationMin={formatUseTimeMinutes(item.useTime)}
+                      terminalType={formatTerminalType(item.terminalType)}
+                      offlineDisabled={offlineSessionId !== null}
+                      offlineLoading={offlineSessionId === item.sessionId}
+                      onOffline={() => setConfirmTarget(item)}
+                    />
+                  ))}
+                />
+              )
             ) : (
               <div className="text-center py-4 text-xs text-muted-foreground">
                 {onlineList === null ? t('account.selfDashboardIdle') : t('account.selfDashboardEmpty')}

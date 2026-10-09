@@ -248,11 +248,11 @@ export const SettingsPanel = memo(function SettingsPanel({
         </AnimatedCard>
       </div>
 
-      {/* 两列区（对齐桌面端做法）：两列各自 flex 紧堆、items-start 不拉伸——
-          大卡配小卡不会在卡间拉出空洞；左=启动与通知+自动化+保活，右=安全+引导。
+      {/* 两列区（对齐桌面端做法）：两列各自 flex 紧堆、md 起 justify-between 摊开残差——
+          大卡配小卡不会在卡间拉出空洞，末卡贴住底缘；左=启动与通知+自动化+保活，右=安全+引导。
           md 起两列，窄屏单列堆叠（外层 flex-col，单列顺序与手机一致） */}
-      <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:items-start">
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 md:grid md:grid-cols-2">
+      <div className="flex flex-col md:justify-between gap-4">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
@@ -368,7 +368,7 @@ export const SettingsPanel = memo(function SettingsPanel({
       )}
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col md:justify-between gap-4">
       {/* 安全设置：Windows Hello 相关开关。关闭任一开关（安全 → 宽松方向）
           都必须先通过 Hello 验证，防止绕过界面一键关闭保护；开启方向不需要 */}
       <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
