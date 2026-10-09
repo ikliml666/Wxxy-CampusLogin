@@ -80,10 +80,10 @@ export function OnlineDeviceCard({
   )
 }
 
-// 桌面端水平堆叠：左右切换（机制与安卓手机垂直堆叠一致）。
-// 当前卡居中为主卡，左露上一张边缘、右露下一张边缘（最多三张可见，其余不渲染）；
-// 点击 = 下一张（点左缘露边 = 上一张），水平拖拽 ±60px 判翻页；页点可直接跳转。
-const PEEK_X = 14
+// 桌面端水平堆叠：封面流轮播——中间卡完整清晰，两侧相邻卡缩小变淡交替排开；
+// 最多五张可见（中间 + 左右各两张），其余隐藏；点击左侧露条 = 上一张，其余区域 = 下一张。
+const CF_X = [12, 16] as const // 相邻/次邻横向偏移（% 卡宽）
+const SIDE_SCALE = 0.76
 const DRAG_THRESHOLD = 60
 const DRAG_CLAMP = 120
 const SLIDE_MS = 300
@@ -118,7 +118,6 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
   }, [cards, index])
 
   if (count === 0) return null
-  const inset = count > 1 ? PEEK_X : 0
   const sd = (i: number) => (i - index + count) % count
   const go = (next: number) => setIndex(((next % count) + count) % count)
 
@@ -161,9 +160,9 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
       suppressClick.current = false
       return
     }
-    // 点左缘露边 = 上一张；其余区域 = 下一张
+    // 点左侧露条 = 上一张；其余区域 = 下一张
     const rect = e.currentTarget.getBoundingClientRect()
-    if (count > 2 && e.clientX - rect.left < PEEK_X) go(index - 1)
+    if (e.clientX - rect.left < rect.width * 0.12) go(index - 1)
     else go(index + 1)
   }
 
@@ -171,7 +170,11 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
     <div>
       <div
         className="relative select-none"
-        style={{ height: cardH != null ? cardH : 200, touchAction: 'none' }}
+        style={{
+          height: cardH != null ? cardH : 200,
+          touchAction: 'none',
+          marginInline: count > 1 ? 32 : 0,
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -181,29 +184,33 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
       >
         {cards.map((node, i) => {
           const s = sd(i)
-          // 最多三张：当前 + 左右相邻各一张，其余隐藏
-          if (!(s === 0 || s === 1 || (count > 2 && s === count - 1))) return null
-          const base = s === 0 ? 0 : s === 1 ? inset : -inset
-          const z = s === 0 ? 30 : s === 1 ? 20 : 10
+          // 封面流：中间 + 两侧相邻/次邻，最多五张可见，其余隐藏
+          let pos: { x: number; scale: number; op: number; z: number } | null = null
+          if (s === 0) pos = { x: 0, scale: 1, op: 1, z: 30 }
+          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, op: 0.55, z: 20 }
+          else if (s === 2 && count >= 4) pos = { x: CF_X[1], scale: SIDE_SCALE, op: 0.3, z: 10 }
+          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, op: 0.55, z: 20 }
+          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE, op: 0.3, z: 10 }
+          if (!pos) return null
           const style: React.CSSProperties = dragging
             ? {
-                transform: `translateX(${base + dragX}px)`,
+                transform: `translateX(calc(${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
                 transition: 'none',
-                zIndex: s === 0 ? 40 : z,
-                opacity: s === 0 ? Math.max(0.4, Math.min(1, 1 - Math.abs(dragX) / 240)) : 1,
+                zIndex: s === 0 ? 40 : pos.z,
+                opacity: s === 0 ? Math.max(0.4, Math.min(1, 1 - Math.abs(dragX) / 240)) : pos.op,
               }
             : {
-                transform: `translateX(${base}px)`,
-                zIndex: z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, filter ${SLIDE_MS}ms ${EASE}`,
-                filter: s === 0 ? 'none' : 'brightness(0.88)',
+                transform: `translateX(${pos.x}%) scale(${pos.scale})`,
+                zIndex: pos.z,
+                opacity: pos.op,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${SLIDE_MS}ms ${EASE}`,
               }
           return (
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className="absolute top-0"
-              style={{ left: inset, right: inset, ...style }}
+              className="absolute inset-x-0 top-0"
+              style={style}
               aria-hidden={s !== 0}
             >
               <div className={s === 0 ? '' : 'pointer-events-none'}>{node}</div>
