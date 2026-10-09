@@ -5,8 +5,15 @@ use crate::infra::state::{AppState, CommandResult};
 use crate::platform::autostart;
 
 #[tauri::command]
-pub fn minimize_window(window: Window) -> Result<(), String> {
-    window.minimize().map_err(|e| e.to_string())
+pub fn minimize_window(window: Window, state: State<'_, AppState>) -> Result<(), String> {
+    // minimize_to_tray=true：最小化按钮改为隐藏到托盘（wry 在 hide() 时会
+    // SetIsVisible(false) 挂起 WebView2 渲染，且贴合该配置「不可见即省资源」
+    // 的语义）；否则保持任务栏最小化，渲染挂起由 Resized 事件同步兜底。
+    if state.config.load().minimize_to_tray {
+        window.hide().map_err(|e| e.to_string())
+    } else {
+        window.minimize().map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]

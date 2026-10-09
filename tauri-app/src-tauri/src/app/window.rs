@@ -36,6 +36,43 @@ pub fn handle_window_focus_event(window: &Window, event: &WindowEvent) {
 #[cfg(not(target_os = "windows"))]
 pub fn handle_window_focus_event(_window: &tauri::WebviewWindow, _event: &WindowEvent) {}
 
+/// 上次同步给 WebView2 的最小化状态。Resized 事件高频（拖拽调整尺寸逐像素
+/// 触发），仅在 is_minimized 翻转时才触碰 COM，其余事件直接跳过。
+#[cfg(target_os = "windows")]
+static LAST_MINIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 窗口最小化状态翻转时同步 WebView2 可见性：最小化挂起渲染，还原时恢复。
+///
+/// 背景：wry 只在显式 hide()/show() 时调 controller.SetIsVisible（见 wry
+/// 0.55.1 webview2/mod.rs，SetIsVisible 仅创建时与 set_visible 两处调用），
+/// 窗口最小化不会触发任何通知；WebView2 默认也不做原生遮挡检测（微软要求
+/// 宿主在窗口不可见时主动 PutIsVisible(false)）。结果页面长期处于「半挂起」：
+/// 定时器被节流但渲染合成继续派发，最小化后 rAF/CSS 动画/合成器全速空转，
+/// v2.4.1 为 .glass-dock 加 backdrop-filter 后每帧成本陡增，问题显性化。
+#[cfg(target_os = "windows")]
+pub fn handle_window_resized_event(window: &Window, event: &WindowEvent) {
+    let WindowEvent::Resized(_) = event else {
+        return;
+    };
+
+    let minimized = window.is_minimized().unwrap_or(false);
+    use std::sync::atomic::Ordering;
+    if LAST_MINIMIZED.swap(minimized, Ordering::Relaxed) == minimized {
+        return;
+    }
+
+    if let Some(ww) = window.app_handle().get_webview_window("main") {
+        let _ = ww.as_ref().with_webview(move |pw| {
+            let controller = pw.controller();
+            let _ = unsafe { controller.SetIsVisible(!minimized) };
+        });
+    }
+}
+
+/// 非 Windows 平台为空实现
+#[cfg(not(target_os = "windows"))]
+pub fn handle_window_resized_event(_window: &tauri::WebviewWindow, _event: &WindowEvent) {}
+
 /// 显示并聚焦主窗口。窗口不存在或操作失败时静默忽略。
 /// 包含 unminimize 操作（对已显示窗口是 no-op，确保统一入口）。
 pub fn show_and_focus_main<M: tauri::Manager<tauri::Wry>>(app: &M) {

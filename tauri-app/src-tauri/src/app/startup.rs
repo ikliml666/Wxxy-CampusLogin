@@ -58,6 +58,10 @@ pub fn run(core_count: usize) {
             if matches!(event, WindowEvent::Focused(_)) {
                 crate::app::window::handle_window_focus_event(window, event);
             }
+            #[cfg(target_os = "windows")]
+            if matches!(event, WindowEvent::Resized(_)) {
+                crate::app::window::handle_window_resized_event(window, event);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             crate::commands::config_cmd::get_config,

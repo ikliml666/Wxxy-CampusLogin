@@ -75,6 +75,7 @@
 - [[learnings\radix-select-empty-string-value|Radix Select 报错/不渲染某项：Item 不接受空串 value]]
 - [[learnings\set-ip-interface-entry-metric|SetIpInterfaceEntry 写 metric 的必踩点与字段对照]]
 - [[learnings\usb-adapter-enable-pnp-vs-ndis-layers|USB 网卡启用失效——NDIS admin 层与 PnP 设备层禁用互不覆盖]]
+- [[learnings\webview2-minimize-render-suspend|WebView2 最小化渲染不挂起——宿主必须同步 PutIsVisible（wry 缺口 + backdrop-filter 放大）]]
 - [[learnings\webview-minimize-timer-throttle-stale-panel|WebView2 最小化节流定时器 + 出站切换无事件 → 恢复窗口面板陈旧]]
 - [[learnings\platform-com-elevation-undocumented|Windows COM 提权依赖未公开接口，失效时降级为弹 UAC]]
 - [[learnings\contain-paint-clips-absolute-menu|absolute 定位的菜单/按钮被卡片裁掉（contain: paint）]]
