@@ -33,14 +33,24 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   const [dragY, setDragY] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
+  const [leaving, setLeaving] = useState<number | null>(null)
+  const [snapping, setSnapping] = useState<number | null>(null)
   const firstRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startY: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
+  const leaveTimer = useRef<number | null>(null)
+  const snapTimer = useRef<number | null>(null)
 
   // 列表变短（如注销成功）时夹住当前页码
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
+
+  // 卸载时清理 deck 动效计时器
+  useEffect(() => () => {
+    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
+    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
+  }, [])
 
   // 量高：当前卡自然高度（各卡内容同构）+ 最大露出量；jsdom 无 ResizeObserver 时退化为一次性量高。
   // ref 挂在当前卡上，翻页后随 index 重建观察
@@ -57,7 +67,21 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
 
   if (count === 0) return null
   const rel = (i: number) => (i - index + count) % count
-  const go = (next: number) => setIndex(((next % count) + count) % count)
+  // deck 动效：切换时旧当前卡“切下”（下落淡出），其余卡照常过渡到新位；
+  // SLIDE_MS 后旧卡在目标槽位无过渡复位、再快速淡入（Tinder 牌堆式弃牌 + 补位）
+  const go = (next: number) => {
+    const target = ((next % count) + count) % count
+    if (target === index) return
+    setLeaving(index)
+    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
+    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
+    leaveTimer.current = window.setTimeout(() => {
+      setLeaving(null)
+      setSnapping(index)
+      snapTimer.current = window.setTimeout(() => setSnapping(null), 30)
+    }, SLIDE_MS)
+    setIndex(target)
+  }
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button')) return
@@ -124,6 +148,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
           if (top == null) return null
           const z = r === 0 ? 30 : 20
           const isDraggingTop = r === 0 && dragging
+          const isLeaving = i === leaving && r !== 0
           const style: React.CSSProperties = isDraggingTop
             ? {
                 transform: `translateY(${dragY}px)`,
@@ -131,20 +156,32 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
                 zIndex: 40,
                 opacity: Math.max(0.4, Math.min(1, 1 - dragY / 240)),
               }
-            : {
-                transform: `translateY(${top}px)`,
-                zIndex: z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}`,
-              }
+            : isLeaving
+              ? {
+                  // deck 离场：旧当前卡向下坠落并淡出
+                  transform: `translateY(${PEEK_TOP + 88}px) scale(0.96)`,
+                  opacity: 0,
+                  zIndex: 35,
+                  transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${SLIDE_MS}ms ${EASE}`,
+                }
+              : i === snapping
+                ? {
+                    // 离场结束：在目标槽位无过渡复位（仍透明），下一帧快速淡入
+                    transform: `translateY(${top}px) scale(${r === 0 ? 1 : 0.96})`,
+                    opacity: 0,
+                    zIndex: z,
+                    transition: 'none',
+                  }
+                : {
+                    transform: `translateY(${top}px) scale(${r === 0 ? 1 : 0.96})`,
+                    zIndex: z,
+                    transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 200ms ${EASE}`,
+                  }
           return (
             <div
               key={i}
               ref={r === 0 ? firstRef : undefined}
-              className={
-                r === 0
-                  ? 'absolute inset-x-0 top-0 rounded-xl shadow-[0_0_28px_hsl(var(--primary)/0.18)]'
-                  : 'absolute inset-x-0 top-0 rounded-xl shadow-[0_0_16px_hsl(var(--primary)/0.08)]'
-              }
+              className="absolute inset-x-0 top-0 rounded-xl shadow-md"
               style={style}
               aria-hidden={r !== 0}
             >
@@ -199,7 +236,7 @@ export function OnlineDeviceStackCard({
 }: OnlineDeviceStackCardProps) {
   const { t } = useTranslation()
   return (
-    <div className="rounded-xl bg-muted/60 p-3 shadow-sm">
+    <div className="rounded-xl bg-muted p-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
@@ -260,14 +297,24 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
+  const [leaving, setLeaving] = useState<number | null>(null)
+  const [snapping, setSnapping] = useState<number | null>(null)
   const firstRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startX: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
+  const leaveTimer = useRef<number | null>(null)
+  const snapTimer = useRef<number | null>(null)
 
   // 列表变短（如注销成功）时夹住当前页码
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
+
+  // 卸载时清理 deck 动效计时器
+  useEffect(() => () => {
+    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
+    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
+  }, [])
 
   // 量高：当前卡自然高度（各卡内容同构）；ref 随 index 重建观察
   useEffect(() => {
@@ -283,7 +330,21 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
 
   if (count === 0) return null
   const sd = (i: number) => (i - index + count) % count
-  const go = (next: number) => setIndex(((next % count) + count) % count)
+  // deck 动效：切换时旧当前卡“切下”（自中央下落淡出），其余卡照常过渡到新位；
+  // SLIDE_MS 后旧卡在目标槽位无过渡复位、再快速淡入（Tinder 牌堆式弃牌 + 补位）
+  const go = (next: number) => {
+    const target = ((next % count) + count) % count
+    if (target === index) return
+    setLeaving(index)
+    if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current)
+    if (snapTimer.current != null) window.clearTimeout(snapTimer.current)
+    leaveTimer.current = window.setTimeout(() => {
+      setLeaving(null)
+      setSnapping(index)
+      snapTimer.current = window.setTimeout(() => setSnapping(null), 30)
+    }, SLIDE_MS)
+    setIndex(target)
+  }
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button')) return
@@ -357,6 +418,7 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
           else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE, z: 10 }
           if (!pos) return null
           const side = s !== 0
+          const isLeaving = i === leaving && s !== 0
           const style: React.CSSProperties = dragging
             ? {
                 left: CF_INSET,
@@ -366,22 +428,38 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
                 zIndex: s === 0 ? 40 : pos.z,
                 opacity: s === 0 ? Math.max(0.4, Math.min(1, 1 - Math.abs(dragX) / 240)) : 1,
               }
-            : {
-                left: CF_INSET,
-                right: CF_INSET,
-                transform: `translateX(${pos.x}%) scale(${pos.scale})`,
-                zIndex: pos.z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}`,
-              }
+            : isLeaving
+              ? {
+                  // deck 离场：旧当前卡自中央向下坠落并淡出
+                  left: CF_INSET,
+                  right: CF_INSET,
+                  transform: 'translateY(72px) scale(0.9)',
+                  opacity: 0,
+                  zIndex: 35,
+                  transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${SLIDE_MS}ms ${EASE}`,
+                }
+              : i === snapping
+                ? {
+                    // 离场结束：目标槽位无过渡复位（仍透明），下一帧快速淡入
+                    left: CF_INSET,
+                    right: CF_INSET,
+                    transform: `translateX(${pos.x}%) scale(${pos.scale})`,
+                    opacity: 0,
+                    zIndex: pos.z,
+                    transition: 'none',
+                  }
+                : {
+                    left: CF_INSET,
+                    right: CF_INSET,
+                    transform: `translateX(${pos.x}%) scale(${pos.scale})`,
+                    zIndex: pos.z,
+                    transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 200ms ${EASE}`,
+                  }
           return (
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className={
-                side
-                  ? 'absolute top-0 rounded-xl shadow-[0_0_16px_hsl(var(--primary)/0.08)]'
-                  : 'absolute top-0 rounded-xl shadow-[0_0_28px_hsl(var(--primary)/0.18)]'
-              }
+              className="absolute top-0 rounded-xl shadow-md"
               style={style}
               aria-hidden={side}
             >
