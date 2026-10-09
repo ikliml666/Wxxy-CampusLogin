@@ -3,10 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-// —— 安卓端「在线信息」小组件式堆叠（V1 边缘露出）——
+// —— 安卓端「在线信息」小组件式堆叠（顶部边缘露出）——
 // 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
-// 最多三张可见：当前卡为主卡，下层底缘交替露出（首层 28px、次层再 28px），其余卡不渲染；
-// 翻页前可瞥见下一张的流量行与注销按钮。
+// 最多三张可见：当前卡为主卡，上层顶缘交替露出（首层 28px、次层再 28px），其余卡不渲染；
+// 非当前卡压暗（brightness 滤镜）区分层次。
 // 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
 const PEEK = [28, 56] as const
 const DRAG_THRESHOLD = 60
@@ -111,8 +111,8 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const r = rel(i)
-          if (r > 2) return null // 最多三张：当前 + 下方两张交替折叠，其余隐藏
-          const top = r === 0 ? 0 : r === 1 ? PEEK[0] : PEEK[1]
+          if (r > 2) return null // 最多三张：当前 + 上方两张交替折叠，其余隐藏
+          const top = r === 0 ? 0 : r === 1 ? -PEEK[0] : -PEEK[1]
           const z = r === 0 ? 30 : r === 1 ? 20 : 10
           const isDraggingTop = r === 0 && dragging
           const style: React.CSSProperties = isDraggingTop
@@ -120,14 +120,19 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
                 transform: `translateY(${dragY}px)`,
                 transition: 'none',
                 zIndex: 40,
-                opacity: Math.max(0.4, Math.min(1, 1 + dragY / 240)),
+                opacity: Math.max(0.4, Math.min(1, 1 - dragY / 240)),
               }
-            : { transform: `translateY(${top}px)`, zIndex: z, transition: `transform ${SLIDE_MS}ms ${EASE}` }
+            : {
+                transform: `translateY(${top}px)`,
+                zIndex: z,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, filter ${SLIDE_MS}ms ${EASE}`,
+                filter: r === 0 ? 'none' : 'brightness(0.88)',
+              }
           return (
             <div
               key={i}
               ref={r === 0 ? firstRef : undefined}
-              className="absolute inset-x-0 top-0"
+              className="absolute inset-x-0 bottom-0"
               style={style}
               aria-hidden={r !== 0}
             >
@@ -191,8 +196,8 @@ export function OnlineDeviceStackCard({
           {terminalType}
         </span>
       </div>
-      {/* IP / MAC 双列芯片（原方案 A 风格） */}
-      <div className="mt-2.5 grid grid-cols-2 gap-2">
+      {/* IP / MAC 垂直芯片：IP 在上、MAC 垂直对齐在下 */}
+      <div className="mt-2.5 space-y-2">
         <div className="min-w-0 rounded-lg bg-muted/60 px-2.5 py-1.5">
           <p className="text-[10px] leading-4 text-muted-foreground">{t('account.colIp')}</p>
           <p className="truncate font-mono text-xs leading-5 text-foreground">{ip}</p>
@@ -339,7 +344,8 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
             : {
                 transform: `translateX(${base}px)`,
                 zIndex: z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}`,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, filter ${SLIDE_MS}ms ${EASE}`,
+                filter: s === 0 ? 'none' : 'brightness(0.88)',
               }
           return (
             <div
