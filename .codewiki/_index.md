@@ -93,6 +93,7 @@
 - [[learnings\vendored-tauri-api-manual-sync|三份 vendored tauri-api 需人工跟进上游]]
 - [[learnings\com-init-in-windows-crate|不要手动 COM init（会破坏 windows crate 的 factory cache 自愈）]]
 - [[learnings\config-field-sets-bidirectional-sync|两端配置字段集不是子集关系，而是交集 + 双向差集]]
+- [[learnings\close-window-precedence-conflict|关闭按钮轻量化被短路——命令层与事件层的配置优先级矛盾（重复分支所有权的代价）]]
 - [[learnings\account-switch-ui-state-desync|切换账号后 UI 不刷新——三条路径全部断链的静默契约断裂]]
 - [[learnings\dual-tree-sync-human-discipline|双端同步依赖人工纪律，仓库里没有自动拦截]]
 - [[learnings\tauri-assetprotocol-needs-protocol-asset-feature|启用 assetProtocol 必须同步给 tauri 依赖加 protocol-asset feature]]

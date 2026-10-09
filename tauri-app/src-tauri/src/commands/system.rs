@@ -18,6 +18,15 @@ pub fn minimize_window(window: Window, state: State<'_, AppState>) -> Result<(),
 
 #[tauri::command]
 pub fn close_window(window: Window, state: State<'_, AppState>) -> Result<(), String> {
+    // 轻量化优先：与 shutdown::handle_window_close_event 的三分支保持同一
+    // 优先级。此前 minimize_to_tray 在此先判，双开配置下标题栏关闭按钮永远
+    // hide() 短路 lightweight_mode——CloseRequested 不触发、WebView 不销毁，
+    // 与 Alt+F4 路径（shutdown.rs 轻量化优先）行为互相矛盾。轻量化分支不置
+    // is_quitting（真退出标志，置位会中止全部后台监控），由 CloseRequested
+    // → shutdown.rs 轻量化分支走销毁+守卫流程。
+    if state.config.load().lightweight_mode {
+        return window.close().map_err(|e| e.to_string());
+    }
     let minimize_to_tray = state.config.load().minimize_to_tray;
     if minimize_to_tray {
         window.hide().map_err(|e| e.to_string())
