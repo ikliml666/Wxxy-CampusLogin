@@ -14,8 +14,10 @@ import {
 } from '@/components/ui/select'
 import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Pencil
+  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Pencil, Zap
 } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { Separator } from '@/components/ui/separator'
 import { ISP_OPTIONS } from '@/settings/constants'
 import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
@@ -429,6 +431,64 @@ export const AccountPanel = memo(function AccountPanel({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      {/* 自动化开关卡：与桌面账号页同步（桌面 AccountPanel 左列同款三开关；
+          行样式沿用安卓设置页裸行结构，三字段安卓后端 config_state.rs 均支持） */}
+      <div className="card-enter flex-1 grid" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
+                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login"
+                checked={config.autoLoginOnStart || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login-ready"
+                checked={config.autoLoginOnPreparation || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="night-operator-switch" className="text-sm font-medium cursor-pointer">{t('account.nightOperatorSwitch')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.nightOperatorSwitchDesc')}</p>
+              </div>
+              <Switch
+                id="night-operator-switch"
+                checked={config.enableNightOperatorSwitch || false}
+                onCheckedChange={checked => onUpdateConfig({ enableNightOperatorSwitch: checked })}
+                className="shrink-0"
+              />
             </div>
           </CardContent>
         </AnimatedCard>
