@@ -213,7 +213,10 @@
     "selfLogColCnDown": "国内下行(MB)",
     "selfLogColNasIp": "NAS IP",
     "selfLogColNasPort": "NAS 端口",
-    "identityVerifyPrompt": "进行敏感操作前，请完成 Windows 身份验证"
+    "identityVerifyPrompt": "进行敏感操作前，请完成 Windows 身份验证",
+    "selfOnlineBadge": "在线",
+    "selfMinBadge": "分",
+    "selfMoneyBadge": "元"
   },
   "network": {
     "networkAdapters": "网络适配器",

@@ -3,16 +3,29 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Eye, EyeOff, Globe, History, KeyRound, Loader2, RefreshCw, ScrollText, Search, UserCircle } from 'lucide-react'
+import { Eye, EyeOff, Globe, KeyRound, Loader2, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { OnlineDeviceCard, OnlineDeviceCardGrid } from './SelfOnlineCards'
-import { extractErrorMessage } from '@/lib/utils'
+import { SelfOnlineRecords } from './SelfOnlineRecords'
+import {
+  extractErrorMessage,
+} from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useSelfCredStore, useSelfServiceVerify, resetSelfSessionGate } from '@/account/selfServiceState'
+import {
+  type SelfHistoryRow,
+  type SelfLogRow,
+  type SelfLogSummary,
+  formatMac,
+  formatUseTimeMinutes,
+  formatFlowMb,
+  formatTerminalType,
+  localDateStr,
+} from './selfServiceTypes'
 
 // 自助服务 dashboard 协议字段（逆向于 2026-09-05 页面 JS，原始 JSON 透传）
 interface SelfOnlineItem {
@@ -25,87 +38,6 @@ interface SelfOnlineItem {
   hostName: string
   terminalType: string // "#PC" 带 # 前缀
   sessionId: string
-}
-// 近期上网记录行：上线/注销时间 epoch ms、ip、mac、时长(分)、流量(M)、计费方式 1/2/3、金额、主机名、终端类型
-type SelfHistoryRow = [number, number, string, string, number, number, number, number, string | null, string, ...unknown[]]
-
-// 上网记录账单行（/Self/bill/getUserOnlineLog，2026-09-06 逆向，原始 JSON 透传）：
-// 时间 epoch 毫秒、时长分钟、流量/金额数值（MB/元）、IP/NAS 字符串
-interface SelfLogRow {
-  loginTime: number
-  logoutTime: number
-  time: number
-  flow: number
-  costMoney: number
-  internetUpFlow: number
-  internetDownFlow: number
-  chinanetUpFlow: number
-  chinanetDownFlow: number
-  userIp: string
-  nasIp: string
-  nasPort: string | number
-}
-// 页面顶部"汇总数据"卡（键大写，单位 MB/元/分钟；COU 为记录数）
-interface SelfLogSummary {
-  INTERNETUPFLOW: number
-  INTERNETDOWNFLOW: number
-  CHINANETUPFLOW: number
-  CHINANETDOWNFLOW: number
-  FLOW: number
-  TIME: number
-  COSTMONEY: number
-  COU: number
-}
-
-export const formatMac = (mac: string) => {
-  const pairs = mac.match(/.{2}/g)
-  return pairs ? pairs.join('-') : mac
-}
-
-export const formatEpoch = (ms: unknown) => {
-  const d = new Date(Number(ms))
-  if (Number.isNaN(d.getTime())) return '-'
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
-
-// "#PC" → "PC"；空值 → "-"
-const formatTerminalType = (value: string | null | undefined) => {
-  if (!value) return '-'
-  return value.startsWith('#') ? value.slice(1) : value
-}
-
-const toInt = (value: unknown) => {
-  const n = parseInt(String(value ?? ''), 10)
-  return Number.isNaN(n) ? null : n
-}
-
-// 使用时长：秒 → 分钟（原站 parseInt/60 取整，floor 与其一致；round 会把 90 秒显示成 2 分钟）
-export const formatUseTimeMinutes = (seconds: string) => {
-  const n = toInt(seconds)
-  return n === null ? '--' : String(Math.floor(n / 60))
-}
-
-// 使用流量：(下行+上行) KB → M，保留 3 位（原站同公式）
-export const formatFlowMb = (downFlow: string, upFlow: string) => {
-  const down = toInt(downFlow) ?? 0
-  const up = toInt(upFlow) ?? 0
-  return ((down + up) / 1024).toFixed(3)
-}
-
-// 上网记录数值格式化（原站 toFixed(2)；null/undefined 兜底 0.00）
-const fmt2 = (value: unknown) => Number(value ?? 0).toFixed(2)
-// 金额列：保留服务端原始精度（历史行金额可能带小数，toInt 会把 0.50 截成 0）；
-// null/空 → '-'，非数值 → '-'
-const fmtMoney = (value: unknown) => {
-  if (value == null || value === '') return '-'
-  const n = Number(value)
-  return Number.isFinite(n) ? String(n) : '-'
-}
-// 本地日期 YYYY-MM-DD（toISOString 是 UTC，跨时区会偏一天）
-export const localDateStr = (d = new Date()) => {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 export function SelfServicePanel() {
@@ -254,9 +186,6 @@ export function SelfServicePanel() {
     }
   }, [offlineSessionId, ensureSelfVerified, selfPasswordForSubmit, account, addToast, t])
 
-  const thClass = 'px-2 py-2 font-medium whitespace-nowrap text-left'
-  const tdClass = 'px-2 py-2 whitespace-nowrap font-mono text-[11px]'
-
   const fetchOnlineLog = useCallback(async () => {
     if (!hasCred || logQuerying) return
     if (!(await ensureSelfVerified())) return
@@ -404,224 +333,19 @@ export function SelfServicePanel() {
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <History className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('account.selfHistoryTitle')}</CardTitle>
-                <CardDescription>{t('account.selfHistoryDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {!configLoaded ? (
-              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
-              </p>
-            ) : !hasCred ? (
-              <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
-            ) : history !== null && history.length > 0 ? (
-              <div className="overflow-x-auto rounded-lg border border-border/50">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/30 text-muted-foreground">
-                    <tr>
-                      <th className={thClass}>{t('account.colLoginTime')}</th>
-                      <th className={thClass}>{t('account.colLogoutTime')}</th>
-                      <th className={thClass}>{t('account.colIp')}</th>
-                      <th className={thClass}>{t('account.colMac')}</th>
-                      <th className={thClass}>{t('account.colUseTime')}</th>
-                      <th className={thClass}>{t('account.colUseFlow')}</th>
-                      <th className={thClass}>{t('account.colPayStyle')}</th>
-                      <th className={thClass}>{t('account.colPayMoney')}</th>
-                      <th className={thClass}>{t('account.colHostName')}</th>
-                      <th className={thClass}>{t('account.colTerminalType')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((row, idx) => (
-                      <tr key={idx} className="border-t border-border/40">
-                        <td className={tdClass}>{formatEpoch(row[0])}</td>
-                        <td className={tdClass}>{formatEpoch(row[1])}</td>
-                        <td className={tdClass}>{row[2] || '-'}</td>
-                        <td className={tdClass}>{row[3] ? formatMac(String(row[3])) : '-'}</td>
-                        <td className={tdClass}>{toInt(row[4]) ?? '-'}</td>
-                        <td className={tdClass}>{toInt(row[5]) ?? '-'}</td>
-                        <td className={tdClass}>
-                          {row[6] === 1 ? t('account.payStyleTime')
-                            : row[6] === 2 ? t('account.payStyleFlow')
-                            : row[6] === 3 ? t('account.payStyleMonth')
-                            : ''}
-                        </td>
-                        <td className={tdClass}>{fmtMoney(row[7])}</td>
-                        <td className={tdClass}>{row[8] || '-'}</td>
-                        <td className={tdClass}>{formatTerminalType(row[9] as string | null)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
-                <Eye className="h-3.5 w-3.5" />
-                {history === null ? t('account.selfDashboardIdle') : t('account.selfHistoryEmpty')}
-              </div>
-            )}
-            <p className="text-[11px] text-muted-foreground/70">{t('account.selfDashboardUnitNote')}</p>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <CardIcon>
-                  <ScrollText className="h-5 w-5 text-primary" />
-                </CardIcon>
-                <div className="min-w-0">
-                  <CardTitle>{t('account.selfLogTitle')}</CardTitle>
-                  <CardDescription>{t('account.selfLogDesc')}</CardDescription>
-                </div>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* 日期范围（默认今天）+ 查询按钮 */}
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1">
-                <Label htmlFor="log-start" className="text-xs font-medium text-muted-foreground">{t('account.selfLogDateStart')}</Label>
-                <Input
-                  id="log-start"
-                  type="date"
-                  value={logStart}
-                  onChange={e => setLogStart(e.target.value)}
-                  className="h-8 w-36 text-xs"
-                />
-              </div>
-              <span className="pb-2 text-xs text-muted-foreground">{t('account.selfLogDateTo')}</span>
-              <div className="space-y-1">
-                <Label htmlFor="log-end" className="text-xs font-medium text-muted-foreground">{t('account.selfLogDateEnd')}</Label>
-                <Input
-                  id="log-end"
-                  type="date"
-                  value={logEnd}
-                  onChange={e => setLogEnd(e.target.value)}
-                  className="h-8 w-36 text-xs"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchOnlineLog}
-                disabled={!hasCred || logQuerying || !logStart || !logEnd}
-                className="gap-1.5 h-8 shrink-0 mb-0.5"
-                title={hasCred ? undefined : t('account.selfDashboardNeedCred')}
-              >
-                {logQuerying ? (
-                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.selfLogQuerying')}</>
-                ) : (
-                  <><Search className="h-3.5 w-3.5" /> {t('account.selfLogQuery')}</>
-                )}
-              </Button>
-            </div>
-            {!configLoaded ? (
-              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
-              </p>
-            ) : !hasCred ? (
-              <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
-            ) : logQuerying && logRows === null ? (
-              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfLogQuerying')}
-              </div>
-            ) : logRows !== null ? (
-              <>
-                {/* 汇总数据（与原站"汇总数据"卡一致：国际/国内上下行、使用流量、使用时长、计费金额） */}
-                {logSummary && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    {([
-                      ['selfLogSumIntlUp', logSummary.INTERNETUPFLOW],
-                      ['selfLogSumIntlDown', logSummary.INTERNETDOWNFLOW],
-                      ['selfLogSumCnUp', logSummary.CHINANETUPFLOW],
-                      ['selfLogSumCnDown', logSummary.CHINANETDOWNFLOW],
-                      ['selfLogSumFlow', logSummary.FLOW],
-                      ['selfLogSumTime', logSummary.TIME],
-                      ['selfLogSumMoney', logSummary.COSTMONEY],
-                      ['selfLogSumCount', logSummary.COU],
-                    ] as const).map(([key, value]) => (
-                      <div key={key} className="rounded-lg border border-border/50 bg-muted/20 px-2 py-1.5">
-                        <div className="text-[10px] text-muted-foreground">{t(`account.${key}`)}</div>
-                        {/* 记录数是整数计数，其余为 MB/元/分钟数值保留两位 */}
-                        <div className="font-mono text-[11px] font-medium">
-                          {key === 'selfLogSumCount' ? String(Number(value ?? 0)) : fmt2(value)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {logRows.length > 0 ? (
-                  <>
-                    <div className="overflow-x-auto rounded-lg border border-border/50">
-                      <table className="w-full text-xs">
-                        <thead className="bg-muted/30 text-muted-foreground">
-                          <tr>
-                            <th className={thClass}>{t('account.colLoginTime')}</th>
-                            <th className={thClass}>{t('account.colLogoutTime')}</th>
-                            <th className={thClass}>{t('account.colUseTime')}</th>
-                            <th className={thClass}>{t('account.colUseFlow')}</th>
-                            <th className={thClass}>{t('account.colPayMoney')}</th>
-                            <th className={thClass}>{t('account.selfLogColIntlUp')}</th>
-                            <th className={thClass}>{t('account.selfLogColIntlDown')}</th>
-                            <th className={thClass}>{t('account.selfLogColCnUp')}</th>
-                            <th className={thClass}>{t('account.selfLogColCnDown')}</th>
-                            <th className={thClass}>{t('account.colIp')}</th>
-                            <th className={thClass}>{t('account.selfLogColNasIp')}</th>
-                            <th className={thClass}>{t('account.selfLogColNasPort')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {logRows.map((row, idx) => (
-                            <tr key={idx} className="border-t border-border/40">
-                              <td className={tdClass}>{formatEpoch(row.loginTime)}</td>
-                              <td className={tdClass}>{row.logoutTime ? formatEpoch(row.logoutTime) : '-'}</td>
-                              <td className={tdClass}>{toInt(row.time) ?? '-'}</td>
-                              <td className={tdClass}>{fmt2(row.flow)}</td>
-                              <td className={tdClass}>{fmt2(row.costMoney)}</td>
-                              <td className={tdClass}>{fmt2(row.internetUpFlow)}</td>
-                              <td className={tdClass}>{fmt2(row.internetDownFlow)}</td>
-                              <td className={tdClass}>{fmt2(row.chinanetUpFlow)}</td>
-                              <td className={tdClass}>{fmt2(row.chinanetDownFlow)}</td>
-                              <td className={tdClass}>{row.userIp || '-'}</td>
-                              <td className={tdClass}>{row.nasIp || '-'}</td>
-                              <td className={tdClass}>{row.nasPort ?? '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {logRows.length >= 500 && (
-                      <p className="text-[11px] text-muted-foreground">{t('account.selfLogOverflow')}</p>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-center py-6 text-xs text-muted-foreground">
-                    {t('account.selfLogEmpty')}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center py-4 text-xs text-muted-foreground">
-                {t('account.selfLogHint')}
-              </div>
-            )}
-          </CardContent>
-        </AnimatedCard>
-      </div>
+      <SelfOnlineRecords
+        configLoaded={configLoaded}
+        hasCred={hasCred}
+        history={history}
+        logStart={logStart}
+        logEnd={logEnd}
+        logQuerying={logQuerying}
+        logRows={logRows}
+        logSummary={logSummary}
+        onLogStartChange={setLogStart}
+        onLogEndChange={setLogEnd}
+        onQuery={fetchOnlineLog}
+      />
 
       <ConfirmDialog
         open={confirmTarget !== null}

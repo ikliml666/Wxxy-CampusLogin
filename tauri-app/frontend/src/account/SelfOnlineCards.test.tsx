@@ -1,5 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
-import React from 'react'
+import { it, expect, vi, afterEach } from 'vitest'
 import { render, fireEvent, cleanup } from '@testing-library/react'
 import { OnlineDeviceCard, OnlineDeviceCardGrid } from './SelfOnlineCards'
 

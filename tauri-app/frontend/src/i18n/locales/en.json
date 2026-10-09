@@ -213,7 +213,10 @@
     "selfLogColCnDown": "Domestic Down(MB)",
     "selfLogColNasIp": "NAS IP",
     "selfLogColNasPort": "NAS Port",
-    "identityVerifyPrompt": "Verify your Windows identity before performing sensitive actions"
+    "identityVerifyPrompt": "Verify your Windows identity before performing sensitive actions",
+    "selfOnlineBadge": "online",
+    "selfMinBadge": "min",
+    "selfMoneyBadge": "CNY"
   },
   "network": {
     "networkAdapters": "Network Adapters",

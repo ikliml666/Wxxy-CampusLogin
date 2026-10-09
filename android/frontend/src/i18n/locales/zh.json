@@ -212,7 +212,10 @@
     "faceTimeout": "人脸验证超时，请重试",
     "faceChallenge": "动作验证未完成，请重试",
     "faceMismatch": "人脸比对未通过",
-    "faceCamera": "无法访问相机，请检查系统权限设置"
+    "faceCamera": "无法访问相机，请检查系统权限设置",
+    "selfOnlineBadge": "在线",
+    "selfMinBadge": "分",
+    "selfMoneyBadge": "元"
   },
   "network": {
     "networkAdapters": "网络适配器",

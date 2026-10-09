@@ -33,7 +33,7 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
-import { formatEpoch, localDateStr, formatMac } from '@/account/SelfServicePanel'
+import { formatEpoch, localDateStr, formatMac } from '@/account/selfServiceTypes'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { useShallow } from 'zustand/react/shallow'
 

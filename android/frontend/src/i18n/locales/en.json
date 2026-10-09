@@ -212,7 +212,10 @@
     "faceTimeout": "Face verification timed out, please retry",
     "faceChallenge": "Action challenge not completed, please retry",
     "faceMismatch": "Face match failed",
-    "faceCamera": "Cannot access the camera, please check system permission settings"
+    "faceCamera": "Cannot access the camera, please check system permission settings",
+    "selfOnlineBadge": "online",
+    "selfMinBadge": "min",
+    "selfMoneyBadge": "CNY"
   },
   "network": {
     "networkAdapters": "Network Adapters",
