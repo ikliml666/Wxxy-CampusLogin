@@ -3,24 +3,31 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-// —— 安卓端「在线信息」堆叠卡（顶部露出式）——
+// —— 安卓端「在线信息」堆叠卡（竖排封面流）——
 // 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
 // 切换 = 整副牌连续滚动一格：所有槽位的卡常挂载并带 transform 过渡，
-// 当前卡居中，下一张从顶部露出顶边，上一张不露出（滚入底部隐藏槽淡出，底部干净；卡片不旋转、不倾斜），
+// 当前卡居中完整清晰，下一张从顶部露出缩小压暗的顶边、上一张从底部露出缩小压暗的底边
+// （与桌面水平封面流同逻辑竖排版：缩放 + 压暗区分当前卡与露出边，卡片不旋转、不倾斜），
 // 翻页时整叠卡一起向切换方向滚一格。
 // 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
-const PEEK_TOP = 28 // 顶部露出下一张卡顶边的高度（px）
+const PEEK_TOP = 44 // 顶部露出下一张卡露出边的高度（px）
+const PEEK_BOTTOM = 44 // 底部露出上一张卡露出边的高度（px）
 const DRAG_THRESHOLD = 60
 // 拖拽行程上限：限制视觉拉伸幅度，超过阈值即翻页，松手后由 transform 过渡补完切换动画
 const DRAG_MIN = -110
 const DRAG_MAX = 70
 const SLIDE_MS = 500
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+// 竖排封面流缩放：露出边 0.75（水平封面流用 0.6；竖排只露约 38px 边条，缩放过小字太小，取偏大值保证可读）
+const V_SIDE_SCALE = 0.75
 // 水平堆叠（桌面/平板）：封面流轮播——中间卡完整清晰，两侧相邻/次邻缩小压暗（不旋转）；
-// 卡宽收窄为舞台 56%（左右各留 22%），最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
-const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
-const CF_INSET = '22%' // 卡宽 = 舞台 56%
-const SIDE_SCALE = 0.76
+// 卡宽收窄为舞台 46%（左右各留 27%），相邻/次邻卡外推至 60%/85% 卡宽、缩至 0.6/0.45，
+// 让侧卡内容露出卡外填满整行（与桌面 SelfOnlineCards.tsx OnlineDeviceCardStack 同构同参数）；
+// 最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
+const CF_X = [60, 85] as const // 相邻/次邻横向偏移（% 卡宽）
+const CF_INSET = '27%' // 卡宽 = 舞台 46%
+const SIDE_SCALE = 0.6
+const SIDE_SCALE_2 = 0.45
 const DRAG_CLAMP = 80
 
 export interface OnlineDeviceStackProps {
@@ -58,7 +65,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   if (count === 0) return null
   const rel = (i: number) => (i - index + count) % count
   // 整副牌连续滚动：各槽位的卡都常挂载并带 transform/opacity 过渡，切换 = index 平移一格，
-  // 全部卡同时滚向新槽位（旧当前卡向下滚入底部隐藏槽淡出，新当前卡从顶部露出位滚入中央），
+  // 全部卡同时滚向新槽位（旧当前卡向下滚入底部露出位并缩小压暗，新当前卡从顶部露出位放大滚入中央），
   // 无「离场淡出」——视觉上就是整叠卡片在滚动
   const go = (next: number) => {
     const target = ((next % count) + count) % count
@@ -113,7 +120,10 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
     <div>
       <div
         className="relative select-none"
-        style={{ height: cardH != null ? cardH + (count > 1 ? PEEK_TOP : 0) : 220, touchAction: 'none' }}
+        style={{
+          height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + PEEK_BOTTOM : 0) : 220,
+          touchAction: 'none',
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -123,25 +133,29 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const r = rel(i)
-          // 顶部露出槽位姿势表：中央（当前）+ 顶部露出下一张顶边 +
-          // 底部隐藏槽（透明常挂载，翻页时旧当前卡向下滚出淡出）+ 顶部隐藏缓冲，更深的卡不挂载
+          // 竖排封面流槽位姿势表：中央（当前）+ 顶部露出下一张 + 底部露出上一张（缩小压暗）+
+          // 上下隐藏槽（透明常挂载，翻页时旧当前卡滚入隐藏槽淡出）+ 隐藏缓冲，更深的卡不挂载。
+          // 露出边与当前卡区分 = 缩放 V_SIDE_SCALE + 压暗 0.5（与水平封面流同构；露出卡内侧对齐当前卡内侧，无梯形拼贴感）。
+          // 底部露出卡用卡高推导 top，使其缩放后的底边对齐容器底（露出底边 = PEEK_BOTTOM）
+          const ch = cardH ?? 220
+          const bottomTop = ch * (1 - V_SIDE_SCALE) + PEEK_TOP + PEEK_BOTTOM
           let pose: { top: number; scale: number; z: number; opacity: number } | null = null
           if (r === 0) pose = { top: count > 1 ? PEEK_TOP : 0, scale: 1, z: 30, opacity: 1 }
-          else if (r === 1) pose = { top: 0, scale: 1, z: 20, opacity: 1 }
-          else if (count > 2 && r === count - 1) pose = { top: PEEK_TOP + 44, scale: 1, z: 10, opacity: 0 }
-          else if (count > 3 && r === count - 2) pose = { top: PEEK_TOP + 88, scale: 1, z: 10, opacity: 0 }
-          else if (count > 4 && r === 2) pose = { top: -44, scale: 1, z: 10, opacity: 0 }
+          else if (r === 1) pose = { top: 0, scale: V_SIDE_SCALE, z: 20, opacity: 0.5 }
+          else if (count > 2 && r === count - 1) pose = { top: bottomTop, scale: V_SIDE_SCALE, z: 20, opacity: 0.5 }
+          else if (count > 3 && r === count - 2) pose = { top: bottomTop + 60, scale: V_SIDE_SCALE, z: 10, opacity: 0 }
+          else if (count > 4 && r === 2) pose = { top: 20, scale: V_SIDE_SCALE, z: 10, opacity: 0 }
           if (!pose) return null
           const isDraggingTop = r === 0 && dragging
           const style: React.CSSProperties = isDraggingTop
             ? {
-                transform: `translateY(${dragY}px)`,
+                transform: `translateY(calc(${pose.top}px + ${dragY}px)) scale(${pose.scale})`,
                 transition: 'none',
                 zIndex: 40,
-                opacity: 1,
+                opacity: pose.opacity,
               }
             : {
-                transform: `translateY(${pose.top}px)`,
+                transform: `translateY(${pose.top}px) scale(${pose.scale})`,
                 opacity: pose.opacity,
                 zIndex: pose.z,
                 transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 300ms ease`,
@@ -150,7 +164,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
             <div
               key={i}
               ref={r === 0 ? firstRef : undefined}
-              className="absolute inset-x-0 top-0 rounded-xl shadow-md"
+              className="absolute inset-x-0 top-0 origin-top rounded-xl shadow-md"
               style={style}
               aria-hidden={r !== 0}
             >
@@ -368,11 +382,11 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
           let pos: { x: number; scale: number; z: number; opacity: number } | null = null
           if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
           else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
+          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
           else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
-          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 16, scale: 0.64, z: 5, opacity: 0 }
-          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 16, scale: 0.64, z: 5, opacity: 0 }
+          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
+          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 20, scale: 0.4, z: 5, opacity: 0 }
+          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 20, scale: 0.4, z: 5, opacity: 0 }
           if (!pos) return null
           const side = s !== 0
           const style: React.CSSProperties = dragging && s === 0

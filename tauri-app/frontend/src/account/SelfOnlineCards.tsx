@@ -86,10 +86,12 @@ export function OnlineDeviceCard({
 
 // 桌面端水平堆叠：封面流轮播——中间卡完整清晰，
 // 两侧相邻/次邻缩小压暗（不旋转）；切换 = 整副牌连续滚动一格（所有卡同时滚向新槽位，无离场淡出）。
-// 卡宽收窄为舞台 56%（左右各留 22%），最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
-const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
-const CF_INSET = '22%' // 卡宽 = 舞台 56%
-const SIDE_SCALE = 0.76
+// 卡宽收窄为舞台 46%（左右各留 27%），相邻/次邻卡外推至 60%/85% 卡宽、缩至 0.6/0.45，
+// 让侧卡内容（注销按钮等）露出卡外填满整行，避免大卡 + 两侧空条；最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
+const CF_X = [60, 85] as const // 相邻/次邻横向偏移（% 卡宽）
+const CF_INSET = '27%' // 卡宽 = 舞台 46%
+const SIDE_SCALE = 0.6
+const SIDE_SCALE_2 = 0.45
 const DRAG_THRESHOLD = 60
 const DRAG_CLAMP = 80
 const SLIDE_MS = 500
@@ -202,11 +204,11 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
           let pos: { x: number; scale: number; z: number; opacity: number } | null = null
           if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
           else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
+          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
           else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: 0.7, z: 10, opacity: 0.45 }
-          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 16, scale: 0.64, z: 5, opacity: 0 }
-          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 16, scale: 0.64, z: 5, opacity: 0 }
+          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
+          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 20, scale: 0.4, z: 5, opacity: 0 }
+          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 20, scale: 0.4, z: 5, opacity: 0 }
           if (!pos) return null
           const side = s !== 0
           const style: React.CSSProperties = dragging && s === 0
