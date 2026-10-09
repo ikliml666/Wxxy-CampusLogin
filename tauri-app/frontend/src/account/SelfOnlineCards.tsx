@@ -86,7 +86,7 @@ const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
 const CF_INSET = '22%' // 卡宽 = 舞台 56%
 const SIDE_SCALE = 0.76
 const DRAG_THRESHOLD = 60
-const DRAG_CLAMP = 120
+const DRAG_CLAMP = 80
 const SLIDE_MS = 300
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
@@ -214,7 +214,7 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className={side ? 'absolute top-0 rounded-xl ring-1 ring-border/60' : 'absolute top-0'}
+              className={side ? 'absolute top-0 rounded-xl ring-1 ring-foreground/15' : 'absolute top-0'}
               style={style}
               aria-hidden={side}
             >

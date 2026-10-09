@@ -11,8 +11,9 @@ import { Button } from '@/components/ui/button'
 const PEEK_TOP = 28
 const PEEK_BOTTOM = 28
 const DRAG_THRESHOLD = 60
-const DRAG_MIN = -160
-const DRAG_MAX = 80
+// 拖拽行程上限：限制视觉拉伸幅度，超过阈值即翻页，松手后由 transform 过渡补完切换动画
+const DRAG_MIN = -110
+const DRAG_MAX = 70
 const SLIDE_MS = 300
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 // 水平堆叠（桌面/平板）：封面流轮播——中间卡完整清晰，两侧相邻卡缩小、以描边区分边界（不蒙层压暗）；
@@ -20,7 +21,7 @@ const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
 const CF_INSET = '22%' // 卡宽 = 舞台 56%
 const SIDE_SCALE = 0.76
-const DRAG_CLAMP = 120
+const DRAG_CLAMP = 80
 
 export interface OnlineDeviceStackProps {
   cards: React.ReactNode[]
@@ -142,7 +143,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
               className={
                 r === 0
                   ? 'absolute inset-x-0 top-0'
-                  : 'absolute inset-x-0 top-0 rounded-xl ring-1 ring-border/60'
+                  : 'absolute inset-x-0 top-0 rounded-xl ring-1 ring-foreground/15'
               }
               style={style}
               aria-hidden={r !== 0}
@@ -373,7 +374,7 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className={side ? 'absolute top-0 rounded-xl ring-1 ring-border/60' : 'absolute top-0'}
+              className={side ? 'absolute top-0 rounded-xl ring-1 ring-foreground/15' : 'absolute top-0'}
               style={style}
               aria-hidden={side}
             >
