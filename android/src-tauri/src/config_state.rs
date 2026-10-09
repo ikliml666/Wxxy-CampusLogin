@@ -53,6 +53,11 @@ pub struct Settings {
     /// 桌面 DNS 优化目标适配器名单(网卡名,可多选)。DNS 优化为桌面专属功能,
     /// 安卓端不消费此字段,仅镜像配置结构
     pub dns_optimize_adapters: Vec<String>,
+    /// 在线设备自定义名字(键 = 12 位 hex MAC,值 = 显示别名;自助服务面板设备卡
+    /// 卡头展示)。与桌面 Config.deviceAliases 同构同契约;serde(default) 容器级
+    /// 兜底保证旧配置文件缺字段向后兼容,无需 schema 版本迁移
+    #[serde(default)]
+    pub device_aliases: std::collections::HashMap<String, String>,
     // 行为
     pub auto_login_on_start: bool,
     pub enable_background_check: bool,
@@ -131,6 +136,7 @@ impl Default for Settings {
             outbound_standby_route: String::new(),
             night_outbound_restore: String::new(),
             dns_optimize_adapters: Vec::new(),
+            device_aliases: std::collections::HashMap::new(),
             auto_login_on_start: true,
             enable_background_check: true,
             // 2026-09-09 起 60s:后台检测是稳态周期任务,15s 间隔空转耗电,

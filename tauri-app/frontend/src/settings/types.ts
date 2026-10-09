@@ -44,6 +44,8 @@ export interface Config {
   nightOutboundRestore: string
   /** DNS 优化目标适配器名单（网卡名，可多选）；空 = 未选择，优化/恢复时后端提示先选择 */
   dnsOptimizeAdapters: string[]
+  /** 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡卡头展示） */
+  deviceAliases?: Record<string, string>
   autoExitOnOnline: boolean
   themeMode: 'light' | 'dark' | 'system'
   enableNotification: boolean

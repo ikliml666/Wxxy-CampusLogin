@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Eye, EyeOff, Globe, KeyRound, Loader2, RefreshCw, UserCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { DeviceAliasDialog } from './DeviceAliasDialog'
 import { OnlineDeviceStack, OnlineDeviceStackCard, OnlineDeviceStackH } from './SelfOnlineStack'
 import { SelfOnlineRecords } from './SelfOnlineRecords'
 import {
@@ -94,6 +95,9 @@ export function SelfServicePanel() {
   const [querying, setQuerying] = useState(false)
   const [offlineSessionId, setOfflineSessionId] = useState<string | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<SelfOnlineItem | null>(null)
+  // 设备改名：aliasTarget = 正在编辑的设备（null 关弹窗）；deviceAliases 持久化在 config
+  const [aliasTarget, setAliasTarget] = useState<SelfOnlineItem | null>(null)
+  const deviceAliases = useConfigStore((s) => s.config.deviceAliases)
   // 上网记录卡片：日期范围默认今天；logRows === null 表示从未查询
   const [logStart, setLogStart] = useState(() => localDateStr())
   const [logEnd, setLogEnd] = useState(() => localDateStr())
@@ -225,6 +229,26 @@ export function SelfServicePanel() {
       }
     }
   }, [offlineSessionId, ensureSelfVerified, selfPasswordForSubmit, account, addToast, t])
+
+  // 保存设备名字：写 config.deviceAliases[mac]（留空 = 删除该键），saveConfigDirect 合并落盘
+  const handleSaveAlias = useCallback(async (mac: string, name: string) => {
+    const store = useConfigStore.getState()
+    const next = { ...(store.config.deviceAliases ?? {}) }
+    if (name) next[mac] = name
+    else delete next[mac]
+    try {
+      await store.saveConfigDirect({ deviceAliases: next })
+      if (mountedRef.current) {
+        setAliasTarget(null)
+        addToast(t('account.deviceAliasSaved'), 'success')
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        addToast(extractErrorMessage(err) || t('account.deviceAliasSaveFailed'), 'error')
+        throw err
+      }
+    }
+  }, [addToast, t])
 
   const fetchOnlineLog = useCallback(async () => {
     if (!hasCred || logQuerying) return
@@ -358,6 +382,8 @@ export function SelfServicePanel() {
                       flowMb={formatFlowMb(item.downFlow, item.upFlow)}
                       durationMin={formatUseTimeMinutes(item.useTime)}
                       terminalType={formatTerminalType(item.terminalType)}
+                      alias={item.mac ? deviceAliases?.[item.mac] : undefined}
+                      onRename={() => setAliasTarget(item)}
                       offlineDisabled={offlineSessionId !== null}
                       offlineLoading={offlineSessionId === item.sessionId}
                       onOffline={() => setConfirmTarget(item)}
@@ -375,6 +401,8 @@ export function SelfServicePanel() {
                       flowMb={formatFlowMb(item.downFlow, item.upFlow)}
                       durationMin={formatUseTimeMinutes(item.useTime)}
                       terminalType={formatTerminalType(item.terminalType)}
+                      alias={item.mac ? deviceAliases?.[item.mac] : undefined}
+                      onRename={() => setAliasTarget(item)}
                       offlineDisabled={offlineSessionId !== null}
                       offlineLoading={offlineSessionId === item.sessionId}
                       onOffline={() => setConfirmTarget(item)}
@@ -414,6 +442,13 @@ export function SelfServicePanel() {
         message={t('account.selfOfflineConfirmDesc')}
         onConfirm={() => { if (confirmTarget) void handleOffline(confirmTarget) }}
         onCancel={() => setConfirmTarget(null)}
+      />
+      <DeviceAliasDialog
+        open={aliasTarget !== null}
+        mac={aliasTarget?.mac ? formatMac(aliasTarget.mac) : '-'}
+        initialName={aliasTarget?.mac ? (deviceAliases?.[aliasTarget.mac] ?? '') : ''}
+        onSave={(name) => handleSaveAlias(aliasTarget?.mac ?? '', name)}
+        onCancel={() => setAliasTarget(null)}
       />
     </div>
   )

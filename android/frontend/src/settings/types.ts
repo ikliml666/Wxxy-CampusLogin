@@ -31,6 +31,8 @@ export interface Config {
   nightOutboundRestore: string
   /** 桌面 DNS 优化目标适配器名单（安卓仅镜像配置结构，不消费） */
   dnsOptimizeAdapters: string[]
+  /** 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡卡头展示） */
+  deviceAliases?: Record<string, string>
   autoLoginOnStart: boolean
   /** 开机自启（安卓经 set_boot_autostart 命令生效，后端实有字段） */
   enableBootAutostart: boolean

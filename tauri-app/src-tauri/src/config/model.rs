@@ -103,6 +103,11 @@ pub struct Config {
     /// 安卓端不消费此字段（DNS 优化为桌面专属功能）
     #[serde(rename = "dnsOptimizeAdapters", default)]
     pub dns_optimize_adapters: Vec<String>,
+    /// 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡
+    /// 卡头展示）。与安卓 Settings.deviceAliases 同构同契约；default 保证旧配置
+    /// 文件缺字段向后兼容，无需版本迁移
+    #[serde(rename = "deviceAliases", default)]
+    pub device_aliases: std::collections::HashMap<String, String>,
     #[serde(rename = "autoExitOnOnline")]
     pub auto_exit_on_online: bool,
     #[serde(rename = "themeMode")]
@@ -270,6 +275,7 @@ impl Default for Config {
             outbound_standby_route: String::new(),
             outbound_manual_hold_day: 0,
             dns_optimize_adapters: Vec::new(),
+            device_aliases: std::collections::HashMap::new(),
             night_outbound_restore: String::new(),
             // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移
             auto_exit_on_online: false,

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, LogOut } from 'lucide-react'
+import { Loader2, LogOut, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // —— 安卓端「在线信息」堆叠卡（竖排封面流）——
@@ -206,6 +206,10 @@ export interface OnlineDeviceStackCardProps {
   flowMb: string
   durationMin: string
   terminalType: string
+  /** 设备自定义名字（config.deviceAliases[mac 原始 12 位 hex]）；空 = 未命名，卡头只显示时间 */
+  alias?: string
+  /** 点铅笔弹改名弹窗；缺省不渲染铅笔（总览卡掩码态不提供编辑入口） */
+  onRename?: () => void
   offlineDisabled?: boolean
   offlineLoading?: boolean
   // 缺省时不渲染注销按钮（总览卡掩码态：验证通过前不提供注销入口）
@@ -219,6 +223,8 @@ export function OnlineDeviceStackCard({
   flowMb,
   durationMin,
   terminalType,
+  alias,
+  onRename,
   offlineDisabled = false,
   offlineLoading = false,
   onOffline,
@@ -233,8 +239,25 @@ export function OnlineDeviceStackCard({
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
           <span className="truncate">{loginTime || '-'}</span>
         </span>
-        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-          {terminalType}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {alias && (
+            <span className="max-w-[7em] truncate rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-foreground">
+              {alias}
+            </span>
+          )}
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+            {terminalType}
+          </span>
+          {onRename && (
+            <button
+              type="button"
+              className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-card"
+              aria-label={t('account.deviceAliasEdit')}
+              onClick={onRename}
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          )}
         </span>
       </div>
       {/* IP / MAC 垂直芯片：IP 在上、MAC 垂直对齐在下；芯片与卡面互为反色保持层次 */}
