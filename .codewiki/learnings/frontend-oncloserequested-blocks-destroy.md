@@ -27,6 +27,17 @@ WindowEvent::CloseRequested { api } => {
 - 无「已拦截最后一个窗口销毁触发的进程退出」（ExitRequested 未触发——窗口从未真正销毁）；无重建、无错误日志。
 - JS 收尾链失败的具体环节无法从应用日志观测（前端 console 不落盘），但 6/6 全部失败 + 13 分钟零后续说明是系统性断裂而非偶发。
 
+## 根因闭环（2026-10-09 代码审核确认：ACL 权限拒绝）
+
+上表「具体环节」已定位——**destroy 的 IPC 调用被 Tauri ACL 拒绝**，证据链：
+
+1. `src-tauri/capabilities/default.json` 仅授予 `core:default`（window 部分只有 getter）、`core:window:allow-start-dragging`、`core:window:allow-toggle-maximize`；desktop.json 只有 shell/global-shortcut/autostart。**无 `core:window:allow-destroy`、无 `allow-close`**。
+2. 官方文档（v2.tauri.app/reference/javascript/api/namespacewindow/）：`core:window:default` 只启用 getter，「every method that changes one needs its own permission」；core-permissions 页明确 `core:window:allow-destroy`/`allow-close` 是独立权限。默认「所有插件命令都被阻止」（ACL 文档/窗口自定义文档）。
+3. JS `destroy()` → `invoke('plugin:window|destroy')`（window.cjs L1109-1113）→ 未授予 → invoke reject → `onCloseRequested` 包装器的 `await this.destroy()` 抛出（unhandled rejection，仅 webview console 可见）→ 窗口永不销毁。同构案例：tauri issue #8928「webview.close not allowed」。
+4. 反向印证：全应用前端唯一能用的窗口变更 API 是 `toggleMaximize()`（App.tsx:274）与 `startDragging()`（TitleBar.tsx:81）——恰好是仅有的两项授权；`isMaximized`/`onResized` 走 default getter/listen 通道。旧 onCloseRequested 的 if 分支里 `getCurrentWindow().close()` 同样未授权——该链路自引入起从未工作过。
+
+推论：修复方向（销毁控制权收回 Rust 自定义命令）与全应用既有架构一致（最小化/隐藏/显示全部走 Rust 命令，前端只持 getter 权限）。若未来前端需要直接调用窗口变更 API，必须在 capabilities 显式加对应 `core:window:allow-*`，否则 invoke 静默拒绝（错误只见于 webview console）。
+
 ## 修复约定（本项目）
 
 - **前端永不注册 onCloseRequested / tauri://close-requested 监听**。配置 flush 由关闭发起方就地完成（`App.tsx handleCloseWindow`：flush ≤2s → `invoke('close_window')`），另加 `window blur` 兜底 flush 覆盖 Alt+F4 时序。
@@ -36,5 +47,6 @@ WindowEvent::CloseRequested { api } => {
 ## 排查手法备忘
 
 - 「CloseRequested 处理器执行了但窗口没销毁」先查 `has_js_listener`：`grep -rn "onCloseRequested\|WINDOW_CLOSE_REQUESTED" frontend/src/`。
+- 第二必查项：`src-tauri/capabilities/*.json` 是否授予了收尾链用到的 `core:window:allow-close`/`allow-destroy`——未授予的 invoke 拒绝只出现在 webview console（生产不落盘），极易误判为「偶发」。
 - Tauri 源码在本地 `~/.cargo/registry/src/index.crates.io-*/tauri-2.11.0/`（core）与 `tauri-runtime-wry-2.11.0/`、`tao-0.35.2/`（窗口生命周期）可直接 grep，勿凭记忆猜内部实现。
 - JS 侧 API 真实行为以 `frontend/node_modules/@tauri-apps/api/window.cjs` 为准（文档措辞「接受关闭将照常关闭」掩盖了「接受=JS 主动 destroy」的实现）。
