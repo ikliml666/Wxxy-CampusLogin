@@ -3,20 +3,22 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-// —— 安卓端「在线信息」小组件式堆叠（顶部边缘露出）——
+// —— 安卓端「在线信息」小组件式堆叠（上下边缘各露出）——
 // 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
-// 最多三张可见：当前卡为主卡，上层顶缘交替露出（首层 28px、次层再 28px），其余卡不渲染；
-// 非当前卡压暗（brightness 滤镜）区分层次。
+// 最多三张可见：当前卡为主卡，上方露出下一张顶部、下方露出上一张底部（各 28px），其余卡不渲染；
+// 非当前卡以描边区分边界（不做蒙层压暗）。
 // 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
-const PEEK = [28, 56] as const
+const PEEK_TOP = 28
+const PEEK_BOTTOM = 28
 const DRAG_THRESHOLD = 60
 const DRAG_MIN = -160
 const DRAG_MAX = 80
 const SLIDE_MS = 300
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-// 水平堆叠（桌面/平板）：封面流轮播——中间卡完整清晰，两侧相邻卡缩小变淡交替排开；
-// 最多五张可见（中间 + 左右各两张），其余隐藏；点击左侧露条 = 上一张，其余区域 = 下一张。
-const CF_X = [12, 16] as const // 相邻/次邻横向偏移（% 卡宽）
+// 水平堆叠（桌面/平板）：封面流轮播——中间卡完整清晰，两侧相邻卡缩小、以描边区分边界（不蒙层压暗）；
+// 卡宽收窄为舞台 56%（左右各留 22%），最多五张可见（中间 + 左右各两张），其余隐藏；点击左侧露条 = 上一张，其余区域 = 下一张。
+const CF_X = [34, 50] as const // 相邻/次邻横向偏移（% 卡宽）
+const CF_INSET = '22%' // 卡宽 = 舞台 56%
 const SIDE_SCALE = 0.76
 const DRAG_CLAMP = 120
 
@@ -103,7 +105,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
     <div>
       <div
         className="relative select-none"
-        style={{ height: cardH != null ? cardH + (single ? 0 : PEEK[1]) : 200, touchAction: 'none' }}
+        style={{ height: cardH != null ? cardH + (single ? 0 : PEEK_TOP + PEEK_BOTTOM) : 200, touchAction: 'none' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -113,9 +115,13 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const r = rel(i)
-          if (r > 2) return null // 最多三张：当前 + 上方两张交替折叠，其余隐藏
-          const top = r === 0 ? 0 : r === 1 ? -PEEK[0] : -PEEK[1]
-          const z = r === 0 ? 30 : r === 1 ? 20 : 10
+          // 最多三张：当前卡 + 上方（下一张顶部）+ 下方（上一张底部），其余隐藏
+          let top: number | null = null
+          if (r === 0) top = PEEK_TOP
+          else if (r === 1) top = 0
+          else if (count > 2 && r === count - 1) top = PEEK_TOP + PEEK_BOTTOM
+          if (top == null) return null
+          const z = r === 0 ? 30 : 20
           const isDraggingTop = r === 0 && dragging
           const style: React.CSSProperties = isDraggingTop
             ? {
@@ -127,14 +133,17 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
             : {
                 transform: `translateY(${top}px)`,
                 zIndex: z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, filter ${SLIDE_MS}ms ${EASE}`,
-                filter: r === 0 ? 'none' : 'brightness(0.88)',
+                transition: `transform ${SLIDE_MS}ms ${EASE}`,
               }
           return (
             <div
               key={i}
               ref={r === 0 ? firstRef : undefined}
-              className="absolute inset-x-0 bottom-0"
+              className={
+                r === 0
+                  ? 'absolute inset-x-0 top-0'
+                  : 'absolute inset-x-0 top-0 rounded-xl ring-1 ring-border/60'
+              }
               style={style}
               aria-hidden={r !== 0}
             >
@@ -336,35 +345,39 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
         {cards.map((node, i) => {
           const s = sd(i)
           // 封面流：中间 + 两侧相邻/次邻，最多五张可见，其余隐藏
-          let pos: { x: number; scale: number; op: number; z: number } | null = null
-          if (s === 0) pos = { x: 0, scale: 1, op: 1, z: 30 }
-          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, op: 0.55, z: 20 }
-          else if (s === 2 && count >= 4) pos = { x: CF_X[1], scale: SIDE_SCALE, op: 0.3, z: 10 }
-          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, op: 0.55, z: 20 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE, op: 0.3, z: 10 }
+          let pos: { x: number; scale: number; z: number } | null = null
+          if (s === 0) pos = { x: 0, scale: 1, z: 30 }
+          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20 }
+          else if (s === 2 && count >= 4) pos = { x: CF_X[1], scale: SIDE_SCALE, z: 10 }
+          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20 }
+          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE, z: 10 }
           if (!pos) return null
+          const side = s !== 0
           const style: React.CSSProperties = dragging
             ? {
+                left: CF_INSET,
+                right: CF_INSET,
                 transform: `translateX(calc(${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
                 transition: 'none',
                 zIndex: s === 0 ? 40 : pos.z,
-                opacity: s === 0 ? Math.max(0.4, Math.min(1, 1 - Math.abs(dragX) / 240)) : pos.op,
+                opacity: s === 0 ? Math.max(0.4, Math.min(1, 1 - Math.abs(dragX) / 240)) : 1,
               }
             : {
+                left: CF_INSET,
+                right: CF_INSET,
                 transform: `translateX(${pos.x}%) scale(${pos.scale})`,
                 zIndex: pos.z,
-                opacity: pos.op,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${SLIDE_MS}ms ${EASE}`,
+                transition: `transform ${SLIDE_MS}ms ${EASE}`,
               }
           return (
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className="absolute inset-x-0 top-0"
+              className={side ? 'absolute top-0 rounded-xl ring-1 ring-border/60' : 'absolute top-0'}
               style={style}
-              aria-hidden={s !== 0}
+              aria-hidden={side}
             >
-              <div className={s === 0 ? '' : 'pointer-events-none'}>{node}</div>
+              <div className={side ? 'pointer-events-none' : ''}>{node}</div>
             </div>
           )
         })}
