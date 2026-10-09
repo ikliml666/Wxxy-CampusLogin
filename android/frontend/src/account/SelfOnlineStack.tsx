@@ -4,7 +4,8 @@ import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // —— 安卓端「在线信息」堆叠卡（竖排封面流）——
-// 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
+// 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张；
+// 点击以中线划分：上半 = 上一张、下半 = 下一张，与水平堆叠左右分区同构）；
 // 切换 = 整副牌连续滚动一格：所有槽位的卡常挂载并带 transform 过渡，
 // 当前卡居中完整清晰，下一张从顶部露出缩小压暗的顶边、上一张从底部露出缩小压暗的底边
 // （与桌面水平封面流同逻辑竖排版：缩放 + 压暗区分当前卡与露出边，卡片不旋转、不倾斜），
@@ -63,6 +64,8 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   }, [cards, index])
 
   if (count === 0) return null
+  // 两张时无底部露出卡，容器高度只保留顶部露出，避免底部空出 44px
+  const peekBottom = count === 2 ? 0 : PEEK_BOTTOM
   const rel = (i: number) => (i - index + count) % count
   // 整副牌连续滚动：各槽位的卡都常挂载并带 transform/opacity 过渡，切换 = index 平移一格，
   // 全部卡同时滚向新槽位（旧当前卡向下滚入底部露出位并缩小压暗，新当前卡从顶部露出位放大滚入中央），
@@ -113,7 +116,10 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       suppressClick.current = false
       return
     }
-    go(index + 1)
+    // 以中线划分点击区（与水平堆叠左右分区同构）：上半 = 上一张，下半 = 下一张
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (e.clientY - rect.top < rect.height * 0.5) go(index - 1)
+    else go(index + 1)
   }
 
   return (
@@ -121,7 +127,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       <div
         className="relative select-none"
         style={{
-          height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + PEEK_BOTTOM : 0) : 220,
+          height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + peekBottom : 0) : 220,
           touchAction: 'none',
         }}
         onPointerDown={onPointerDown}
