@@ -3,14 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-// —— 安卓端「在线信息」堆叠卡（上下露出式）——
+// —— 安卓端「在线信息」堆叠卡（顶部露出式）——
 // 多卡叠同一位置：点击卡片或上下滑动切换（上滑下一张 / 下滑上一张）；
 // 切换 = 整副牌连续滚动一格：所有槽位的卡常挂载并带 transform 过渡，
-// 当前卡居中，下一张从顶部露出顶边、上一张从底部露出底边（卡片不旋转、不倾斜），
+// 当前卡居中，下一张从顶部露出顶边，上一张不露出（滚入底部隐藏槽淡出，底部干净；卡片不旋转、不倾斜），
 // 翻页时整叠卡一起向切换方向滚一格。
 // 纵向手势与 WebView 页面滚动冲突 → 容器 touch-action:none，页面滚动请触堆叠以外区域。
 const PEEK_TOP = 28 // 顶部露出下一张卡顶边的高度（px）
-const PEEK_BOTTOM = 28 // 底部露出上一张卡底边的高度（px）
 const DRAG_THRESHOLD = 60
 // 拖拽行程上限：限制视觉拉伸幅度，超过阈值即翻页，松手后由 transform 过渡补完切换动画
 const DRAG_MIN = -110
@@ -59,7 +58,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   if (count === 0) return null
   const rel = (i: number) => (i - index + count) % count
   // 整副牌连续滚动：各槽位的卡都常挂载并带 transform/opacity 过渡，切换 = index 平移一格，
-  // 全部卡同时滚向新槽位（旧当前卡滚入底部露出位保持可见，新当前卡从顶部露出位滚入中央），
+  // 全部卡同时滚向新槽位（旧当前卡向下滚入底部隐藏槽淡出，新当前卡从顶部露出位滚入中央），
   // 无「离场淡出」——视觉上就是整叠卡片在滚动
   const go = (next: number) => {
     const target = ((next % count) + count) % count
@@ -114,7 +113,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
     <div>
       <div
         className="relative select-none"
-        style={{ height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + PEEK_BOTTOM : 0) : 220, touchAction: 'none' }}
+        style={{ height: cardH != null ? cardH + (count > 1 ? PEEK_TOP : 0) : 220, touchAction: 'none' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -124,13 +123,13 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
       >
         {cards.map((node, i) => {
           const r = rel(i)
-          // 上下露出槽位姿势表：中央（当前）+ 顶部露出下一张顶边 + 底部露出上一张底边 +
-          // 紧邻隐藏槽位（透明常挂载，翻页时平滑滚入/滚出），更深的卡不挂载
+          // 顶部露出槽位姿势表：中央（当前）+ 顶部露出下一张顶边 +
+          // 底部隐藏槽（透明常挂载，翻页时旧当前卡向下滚出淡出）+ 顶部隐藏缓冲，更深的卡不挂载
           let pose: { top: number; scale: number; z: number; opacity: number } | null = null
           if (r === 0) pose = { top: count > 1 ? PEEK_TOP : 0, scale: 1, z: 30, opacity: 1 }
           else if (r === 1) pose = { top: 0, scale: 1, z: 20, opacity: 1 }
-          else if (count > 2 && r === count - 1) pose = { top: PEEK_TOP + PEEK_BOTTOM, scale: 1, z: 10, opacity: 1 }
-          else if (count > 3 && r === count - 2) pose = { top: PEEK_TOP + PEEK_BOTTOM + 44, scale: 1, z: 10, opacity: 0 }
+          else if (count > 2 && r === count - 1) pose = { top: PEEK_TOP + 44, scale: 1, z: 10, opacity: 0 }
+          else if (count > 3 && r === count - 2) pose = { top: PEEK_TOP + 88, scale: 1, z: 10, opacity: 0 }
           else if (count > 4 && r === 2) pose = { top: -44, scale: 1, z: 10, opacity: 0 }
           if (!pose) return null
           const isDraggingTop = r === 0 && dragging
