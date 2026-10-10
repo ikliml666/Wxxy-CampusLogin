@@ -36,16 +36,6 @@ fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
         }
     }
 
-    if !config.self_password.is_empty() && config.self_password != crate::config::model::PASSWORD_MASK {
-        match crypto::decrypt(&config.self_password) {
-            Ok(decrypted) => config.self_password = decrypted,
-            Err(e) => {
-                crate::log_warn!("config", "自助服务密码解密失败，清除保留其他配置: {}", e);
-                config.self_password = String::new();
-            }
-        }
-    }
-
     Ok(config)
 }
 
@@ -83,12 +73,11 @@ pub fn load_config_from_disk_or_default(app_handle: &AppHandle) -> Config {
 fn build_config_export_payload(current: &Config, include_password: bool) -> Result<serde_json::Value, String> {
     let config = if include_password {
         let mut c = current.clone();
-        for pwd in [&mut c.password, &mut c.self_password] {
-            if pwd.is_empty() || *pwd == crate::config::model::PASSWORD_MASK {
-                pwd.clear();
-            } else {
-                *pwd = crypto::encrypt(pwd)?;
-            }
+        let pwd = &mut c.password;
+        if pwd.is_empty() || *pwd == crate::config::model::PASSWORD_MASK {
+            pwd.clear();
+        } else {
+            *pwd = crypto::encrypt(pwd)?;
         }
         c
     } else {
@@ -169,7 +158,6 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: St
     // 长度必然超过 validate_password 的 128 上限，先还原成明文再校验
     let current = state.config.load();
     restore_imported_password_field(&mut config.password, password_encrypted, &current.password)?;
-    restore_imported_password_field(&mut config.self_password, password_encrypted, &current.self_password)?;
     // 切换态是本机系统状态（metric 快照/禁用名单/兜底路由/注销标记），不可随配置
     // 迁移：导入文件里的四字段一律丢弃，改保留本机当前值。若直接清空，切换中导入
     // 会把活跃快照整体顶掉——系统残留切换态（目标卡 metric=1/校园卡禁用/兜底路由）
@@ -215,7 +203,6 @@ pub fn save_config(
     app_handle: AppHandle,
     config: Config,
     clear_password: Option<bool>,
-    clear_self_password: Option<bool>,
 ) -> Result<CommandResult, String> {
     let validated = match validate_config(config) {
         Ok(c) => c,
@@ -233,14 +220,6 @@ pub fn save_config(
         // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
         let current = state.config.load();
         config.password = current.password.clone();
-    }
-    // 自助服务密码同规则：空/MASK 占位符时保留已保存值（前端仅在用户重输时传新值）；
-    // 显式清除（clearSelfPassword，与 clear_password 同语义）跳过兜底直接置空
-    if clear_self_password == Some(true) {
-        config.self_password = String::new();
-    } else if config.self_password.is_empty() || config.self_password == crate::config::model::PASSWORD_MASK {
-        let current = state.config.load();
-        config.self_password = current.self_password.clone();
     }
 
     // 历史缺陷：修改 Portal URL 仅存配置，不更新进程全局 PORTAL_URL，
@@ -271,27 +250,23 @@ pub fn save_config(
 mod tests {
     use super::{build_config_export_payload, restore_imported_password_field};
 
-    /// 出站掩码回归锁：masked_for_display 必须同时掩掉 password 与 self_password
-    /// 两个敏感字段（空=未设置语义保留）。历史缺陷：fe000de 修 get_init_data/
-    /// get_config 漏掩 self_password 时漏掉了 account 三命令（switch/save_as/
-    /// delete），它们经 masked_for_display 组装返回值，明文 selfPassword 随 IPC
+    /// 出站掩码回归锁：masked_for_display 必须掩掉 password 敏感字段
+    /// （空=未设置语义保留）。历史缺陷：fe000de 修 get_init_data/
+    /// get_config 漏掩 password 时漏掉了 account 三命令（switch/save_as/
+    /// delete），它们经 masked_for_display 组装返回值，明文 password 随 IPC
     /// 出站到 webview——掩码逻辑收敛到 Config 自身后该类遗漏即被类型锁死。
     #[test]
-    fn masked_for_display_masks_both_password_fields() {
+    fn masked_for_display_masks_password() {
         let mut cfg = crate::config::model::Config::default();
         // 空值 = 未设置，保留（前端据此显示"未保存"）
         let masked = cfg.masked_for_display();
         assert_eq!(masked.password, "");
-        assert_eq!(masked.self_password, "");
-        // 非空（明文）必须双双掩码
+        // 非空（明文）必须掩码
         cfg.password = "login-secret".to_string();
-        cfg.self_password = "self-secret".to_string();
         let masked = cfg.masked_for_display();
         assert_eq!(masked.password, crate::config::model::PASSWORD_MASK);
-        assert_eq!(masked.self_password, crate::config::model::PASSWORD_MASK);
         // 原 struct 不被就地修改
         assert_eq!(cfg.password, "login-secret");
-        assert_eq!(cfg.self_password, "self-secret");
     }
 
     /// 导出安全回归锁（P2-30）：无论 include_password 取值如何，导出 payload 都
@@ -302,7 +277,6 @@ mod tests {
     fn export_payload_never_contains_plaintext_password() {
         let cfg = crate::config::model::Config {
             password: "login-secret".to_string(),
-            self_password: "self-secret".to_string(),
             ..Default::default()
         };
 
@@ -317,12 +291,9 @@ mod tests {
         let enc = build_config_export_payload(&cfg, true).unwrap();
         let enc_str = enc.to_string();
         assert!(!enc_str.contains("login-secret"), "含密码导出泄露明文: {enc_str}");
-        assert!(!enc_str.contains("self-secret"), "含密码导出泄露自助密码明文: {enc_str}");
         assert_eq!(enc["passwordEncrypted"], true);
         let cipher = enc["config"]["password"].as_str().unwrap();
         assert_eq!(crate::account::crypto::decrypt(cipher).unwrap(), "login-secret");
-        let self_cipher = enc["config"]["selfPassword"].as_str().unwrap();
-        assert_eq!(crate::account::crypto::decrypt(self_cipher).unwrap(), "self-secret");
     }
 
     /// 导入密码字段还原语义：空/MASK 保留当前已存值（MASK 占位不得落盘变明文 "***"）；

@@ -44,15 +44,16 @@ fn is_iso_date(s: &str) -> bool {
         && matches!(s[8..10].parse::<u8>(), Ok(d) if (1..=31).contains(&d))
 }
 
-/// 解析自助服务密码：前端传入非 MASK 明文优先（用户刚重输的新密码）；
-/// 空/MASK 占位符时回退已保存的 config.self_password（加载时已 DPAPI 解密的
-/// 内存明文，磁盘上加密存储）。两者皆无返回 None（调用方提示输入密码）。
-fn resolve_self_password(state: &AppState, password: &str) -> Option<String> {
+/// 解析自助服务凭据密码：前端传入非 MASK 明文优先；空/MASK 占位符时回退
+/// 已保存的登录密码 config.password（加载时已 DPAPI 解密的内存明文，磁盘上
+/// 加密存储）——校园网登录与自助服务系统共用同一套学号密码。两者皆无返回
+/// None（调用方提示先在登录信息填写并保存密码）。
+fn resolve_credential_password(state: &AppState, password: &str) -> Option<String> {
     let p = password.trim();
     if !p.is_empty() && p != crate::config::model::PASSWORD_MASK {
         return Some(p.to_string());
     }
-    let saved = state.config.load_full().self_password.clone();
+    let saved = state.config.load_full().password.clone();
     let saved = saved.trim();
     if !saved.is_empty() && saved != crate::config::model::PASSWORD_MASK {
         return Some(saved.to_string());
@@ -83,8 +84,8 @@ pub async fn bind_operator(
         return Ok(CommandResult::err(&msg));
     }
     // 自助服务密码：前端未重输时回退已保存值（MASK/空串语义）
-    let Some(password) = resolve_self_password(&state, &password) else {
-        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    let Some(password) = resolve_credential_password(&state, &password) else {
+        return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
     };
     if phone.len() != 11 || !phone.chars().all(|c| c.is_ascii_digit()) {
         return Ok(CommandResult::err("请输入 11 位手机号"));
@@ -122,8 +123,8 @@ pub async fn query_bind_status(
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    let Some(password) = resolve_self_password(&state, &password) else {
-        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    let Some(password) = resolve_credential_password(&state, &password) else {
+        return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
     };
 
     let local_addr = resolve_campus_bind_addr(&state);
@@ -159,8 +160,8 @@ pub async fn query_self_dashboard(
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    let Some(password) = resolve_self_password(&state, &password) else {
-        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    let Some(password) = resolve_credential_password(&state, &password) else {
+        return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
     };
 
     let local_addr = resolve_campus_bind_addr(&state);
@@ -191,8 +192,8 @@ pub async fn query_self_online_log(
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    let Some(password) = resolve_self_password(&state, &password) else {
-        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    let Some(password) = resolve_credential_password(&state, &password) else {
+        return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
     };
     let start_time = start_time.trim();
     let end_time = end_time.trim();
@@ -231,8 +232,8 @@ pub async fn self_offline_session(
     if let Some(msg) = ensure_identity_gate(&state) {
         return Ok(CommandResult::err(&msg));
     }
-    let Some(password) = resolve_self_password(&state, &password) else {
-        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    let Some(password) = resolve_credential_password(&state, &password) else {
+        return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
     };
     if session_id.is_empty() {
         return Ok(CommandResult::err("缺少会话标识"));
@@ -294,8 +295,8 @@ pub async fn reveal_operator_credential(
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    let Some(password) = resolve_self_password(&state, &password) else {
-        return Ok(CommandResult::err("请先填写自助服务系统密码"));
+    let Some(password) = resolve_credential_password(&state, &password) else {
+        return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
     };
     if !crate::platform::identity::identity_verified_recently() {
         return Ok(CommandResult::err(

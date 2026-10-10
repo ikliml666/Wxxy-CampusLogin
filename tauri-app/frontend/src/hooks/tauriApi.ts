@@ -26,7 +26,7 @@ interface CampusStatusResult {
 
 interface TauriApi {
   getConfig: () => Promise<Config>
-  saveConfig: (config: Config, clearPassword?: boolean, clearSelfPassword?: boolean) => Promise<SaveConfigResult>
+  saveConfig: (config: Config, clearPassword?: boolean) => Promise<SaveConfigResult>
   /** 导出配置到 <dataDir>/exports/，返回文件路径；includePassword=true 时密码以本机 DPAPI 密文导出（桌面专属） */
   exportConfig: (includePassword?: boolean) => Promise<string>
   /** 从 JSON 文件导入配置（严格校验后走 save_config 同路径落盘，桌面专属） */
@@ -148,7 +148,7 @@ const createEventListener = <T>(eventName: string): ((cb: (data: T) => void) => 
 
 const tauriApi: TauriApi = {
   getConfig: () => invoke<Config>('get_config'),
-  saveConfig: (config, clearPassword, clearSelfPassword) => invoke<SaveConfigResult>('save_config', { config, clearPassword, clearSelfPassword }),
+  saveConfig: (config, clearPassword) => invoke<SaveConfigResult>('save_config', { config, clearPassword }),
   exportConfig: (includePassword) => invoke<string>('export_config', { includePassword }),
   importConfig: (path) => invoke<CommandResult>('import_config', { path }),
   exportDiagnostics: (days) => invoke<string>('export_diagnostics', { days }),
@@ -282,5 +282,5 @@ export const tauriApiWithRetry: TauriApi = {
   // 仅 saveConfig 保留重试：保存是一次性关键操作、无其他兜底机制。
   // checkPortalStatus 由 checkOnline 高频调用且后台检测循环本身周期性重试，
   // checkNetworkQuality 有后端 latency loop 事件流兜底，包 3 次指数退避重试会放大高频调用流量
-  saveConfig: (config, clearPassword, clearSelfPassword) => withRetry(() => tauriApi.saveConfig(config, clearPassword, clearSelfPassword)),
+  saveConfig: (config, clearPassword) => withRetry(() => tauriApi.saveConfig(config, clearPassword)),
 }

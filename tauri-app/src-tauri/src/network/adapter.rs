@@ -230,7 +230,6 @@ mod tests {
         crate::config::Config {
             user: String::new(),
             password: String::new(),
-            self_password: String::new(),
             self_hello_enabled: true,
             self_reverify_each_action: false,
             operator: String::new(),

@@ -23,7 +23,7 @@ import { PASSWORD_MASK } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
-import { useSelfCredStore, useHelloGate } from '@/account/selfServiceState'
+import { useHelloGate } from '@/account/selfServiceState'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -104,16 +104,6 @@ export const AccountPanel = memo(function AccountPanel({
     addToast(t('account.passwordCleared'), 'success')
   }, [addToast, t])
 
-  // 清除已保存的自助服务密码：同上，后端空值语义是"保留"，必须显式 clearSelfPassword；
-  // 顺带清空本地草稿，否则失焦时 blur 兜底会把草稿又存回去
-  const handleClearSelfPassword = useCallback(async () => {
-    const store = useConfigStore.getState()
-    setBindSelfPassword('')
-    await store.saveConfigDirect({ selfPassword: '' }, undefined, true)
-    store.syncSelfPasswordSaved(false)
-    addToast(t('account.selfPasswordCleared'), 'success')
-  }, [addToast, t])
-
   const commitUsername = () => {
     if (usernameDraft === null) return
     if (usernameDraft !== (config.user || '')) {
@@ -182,23 +172,9 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }, [renamingId, renaming, renameDraft, onRenameAccount, cancelRename, addToast, t])
 
-  // 自助服务系统凭据：跨面板共享 store（与自助服务面板同一份输入，切换面板不丢失；
-  // 仅内存保留不落盘，退出应用即清空）
+  // 绑定运营商凭据统一取登录信息（config.user + config.password，唯一凭据源）：
+  // 本卡不再收集学号/自助服务密码，未保存登录密码时命令按钮禁用
   const BIND_OPERATOR_NONE = '__none__'
-  const bindSelfAccount = useSelfCredStore((s) => s.account)
-  const setBindSelfAccount = useSelfCredStore((s) => s.setAccount)
-  // 自助服务密码持久化（与登录信息密码同措施）：config.selfPassword DPAPI 加密落盘，
-  // 前端只见 MASK；store 中的 password 是聚焦期草稿（跨面板同步），blur 时提交保存。
-  // "已保存"读独立布尔而非 config.selfPassword === MASK：blur 保存到 config-changed
-  // 回传 MASK 之间存在窗口期/竞态，依赖该字段判断会让输入框闪空甚至永久空白
-  const bindSelfPassword = useSelfCredStore((s) => s.password)
-  const setBindSelfPassword = useSelfCredStore((s) => s.setPassword)
-  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
-  const [bindPwdFocused, setBindPwdFocused] = useState(false)
-  const displayBindPassword = bindPwdFocused
-    ? bindSelfPassword
-    : (selfPasswordSaved ? '••••••••' : '')
-  const [showBindPassword, setShowBindPassword] = useState(false)
   const [bindOp, setBindOp] = useState(BIND_OPERATOR_NONE)
   const [bindPhone, setBindPhone] = useState('')
   const [bindSms, setBindSms] = useState('')
@@ -213,44 +189,23 @@ export const AccountPanel = memo(function AccountPanel({
   const [revealedOp, setRevealedOp] = useState<string | null>(null)
   const [revealedPassword, setRevealedPassword] = useState('')
 
-  // config 异步加载完成后初始化一次（学号/运营商默认取当前配置；
-  // 学号仅在共享 store 为空时预填，不覆盖用户在自助服务面板已输入的值）
+  // config 异步加载完成后初始化一次（运营商默认取当前配置）
   useEffect(() => {
-    if (!bindInitedRef.current && config.user) {
-      if (!useSelfCredStore.getState().account) {
-        setBindSelfAccount(config.user)
-      }
-      if (config.operator) setBindOp(config.operator)
+    if (!bindInitedRef.current && config.operator) {
+      setBindOp(config.operator)
       bindInitedRef.current = true
     }
-  }, [config.user, config.operator, setBindSelfAccount])
+  }, [config.operator])
 
-  // 聚焦清空草稿开始新输入；blur 时草稿非空则直接落盘（与自助服务面板同路径：
-  // saveConfigDirect 只发送不写本地 config——走 updateConfig 会把明文写进
-  // config.selfPassword 且标记 dirty，既挡住后端回传的 MASK 又让输入框闪空）
-  const handleBindPwdFocus = () => {
-    setBindPwdFocused(true)
-    setBindSelfPassword('')
-  }
-  const handleBindPwdBlur = () => {
-    setBindPwdFocused(false)
-    if (bindSelfPassword) {
-      void useConfigStore.getState().saveConfigDirect({ selfPassword: bindSelfPassword })
-      setBindSelfPassword('')
-    }
-  }
-
-  // 提交命令用的密码：重输的新草稿优先，否则空串（后端回退已保存值）
-  const selfPasswordForSubmit = bindSelfPassword.trim()
-
-  const canBind = bindSelfAccount.trim().length > 0
-    && (bindSelfPassword.trim().length > 0 || selfPasswordSaved)
+  // 绑定/查询命令凭据取登录信息：account=config.user、password 空串由后端
+  // resolve_self_password 回退已存登录密码；未保存登录密码（passwordSaved=false）时按钮禁用
+  const canBind = !!config.user
+    && passwordSaved
     && bindOp !== BIND_OPERATOR_NONE
     && /^1\d{10}$/.test(bindPhone.trim())
     && bindSms.trim().length > 0
 
-  const canQueryStatus = bindSelfAccount.trim().length > 0
-    && (bindSelfPassword.trim().length > 0 || selfPasswordSaved)
+  const canQueryStatus = !!config.user && passwordSaved
 
   // 绑定/查询/dashboard 共用的 Hello 验证门（实现见 selfServiceState.ts）：
   // 首次免验，之后需验证且一次通过全局共用
@@ -262,8 +217,8 @@ export const AccountPanel = memo(function AccountPanel({
     setQueryingStatus(true)
     try {
       const result = await tauriApiWithRetry.getBindStatus({
-        account: bindSelfAccount.trim(),
-        password: selfPasswordForSubmit,
+        account: config.user.trim(),
+        password: '',
       })
       if (!mountedRef.current) return
       if (result.success && result.data) {
@@ -281,7 +236,7 @@ export const AccountPanel = memo(function AccountPanel({
     } finally {
       if (mountedRef.current) setQueryingStatus(false)
     }
-  }, [queryingStatus, ensureHelloVerified, selfPasswordForSubmit, bindSelfAccount, addToast, t])
+  }, [queryingStatus, ensureHelloVerified, config.user, addToast, t])
 
   // 查看明文密码：与绑定/查询共用同一验证门（2026-09-06 用户要求：查询验证后
   // 查看不再二次验证）。ignoreToggle：明文特权操作在 Hello 总开关关闭时仍强制
@@ -296,8 +251,8 @@ export const AccountPanel = memo(function AccountPanel({
     try {
       if (!(await ensureRevealVerified())) return
       const r = await tauriApiWithRetry.revealOperatorCredential({
-        account: bindSelfAccount.trim(),
-        password: selfPasswordForSubmit,
+        account: config.user.trim(),
+        password: '',
         operator: opValue,
       })
       if (!mountedRef.current) return
@@ -311,7 +266,7 @@ export const AccountPanel = memo(function AccountPanel({
     } catch (err) {
       if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
     }
-  }, [revealedOp, bindSelfAccount, selfPasswordForSubmit, ensureRevealVerified, addToast, t])
+  }, [revealedOp, config.user, ensureRevealVerified, addToast, t])
 
   const handleBindOperator = useCallback(async () => {
     if (binding || !canBind) return
@@ -319,8 +274,8 @@ export const AccountPanel = memo(function AccountPanel({
     setBinding(true)
     try {
       const result = await tauriApiWithRetry.bindOperator({
-        account: bindSelfAccount.trim(),
-        password: selfPasswordForSubmit,
+        account: config.user.trim(),
+        password: '',
         operator: bindOp,
         phone: bindPhone.trim(),
         smsPassword: bindSms.trim(),
@@ -328,7 +283,7 @@ export const AccountPanel = memo(function AccountPanel({
       if (mountedRef.current) {
         if (result.success) {
           addToast(result.message || t('onboarding.bindSuccess'), 'success')
-          // 成功后清空运营商账户密码（自助服务密码已持久化保存，不清）
+          // 成功后清空运营商账户密码（凭据取登录信息，无需重输）
           setBindSms('')
           // 绑定成功后自动刷新状态区（凭据本次有效）
           void fetchBindStatus()
@@ -343,7 +298,7 @@ export const AccountPanel = memo(function AccountPanel({
     } finally {
       if (mountedRef.current) setBinding(false)
     }
-  }, [binding, canBind, ensureHelloVerified, selfPasswordForSubmit, bindSelfAccount, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
+  }, [binding, canBind, ensureHelloVerified, config.user, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
 
   return (
     <div className="space-y-4">
@@ -564,53 +519,6 @@ export const AccountPanel = memo(function AccountPanel({
                   <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
                 )}
               </Button>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
-              <Input
-                id="bind-account"
-                type="text"
-                value={bindSelfAccount}
-                onChange={e => setBindSelfAccount(e.target.value)}
-                placeholder={t('onboarding.bindSelfAccountPlaceholder')}
-                icon={<UserCircle className="h-4 w-4" />}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="bind-self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
-                {selfPasswordSaved && (
-                  <button
-                    type="button"
-                    onClick={handleClearSelfPassword}
-                    className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
-                  >
-                    {t('account.clearPassword')}
-                  </button>
-                )}
-              </div>
-              <div className="relative">
-                <Input
-                  id="bind-self-password"
-                  type={showBindPassword ? 'text' : 'password'}
-                  value={displayBindPassword}
-                  onChange={e => setBindSelfPassword(e.target.value)}
-                  onFocus={handleBindPwdFocus}
-                  onBlur={handleBindPwdBlur}
-                  placeholder={selfPasswordSaved ? t('account.passwordSavedPlaceholder') : t('onboarding.bindSelfPasswordPlaceholder')}
-                  icon={<KeyRound className="h-4 w-4" />}
-                  className="[&::-ms-reveal]:hidden pr-10"
-                />
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setShowBindPassword(!showBindPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label={showBindPassword ? t('account.hidePassword') : t('account.showPassword')}
-                >
-                  {showBindPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>

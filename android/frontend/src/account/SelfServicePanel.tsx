@@ -1,9 +1,7 @@
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { Eye, EyeOff, Globe, KeyRound, Loader2, RefreshCw, UserCircle } from 'lucide-react'
+import { Globe, Loader2, RefreshCw } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { DeviceAliasDialog } from './DeviceAliasDialog'
 import { OnlineDeviceStack, OnlineDeviceStackCard, OnlineDeviceStackH } from './SelfOnlineStack'
@@ -17,10 +15,11 @@ import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useFormFactor } from '@/hooks/useFormFactor'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
-import { useSelfCredStore, useSelfServiceVerify, resetSelfSessionGate } from '@/account/selfServiceState'
+import { useSelfServiceVerify, resetSelfSessionGate } from '@/account/selfServiceState'
 
 // 自助服务 dashboard 协议字段（逆向于 2026-09-05 页面 JS，原始 JSON 透传）
 interface SelfOnlineItem {
@@ -74,21 +73,10 @@ export const localDateStr = (d = new Date()) => {
 export function SelfServicePanel() {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
-  // 凭据与账号面板绑定卡共享同一 store（切换面板不丢失；仅内存保留不落盘）
-  const account = useSelfCredStore((s) => s.account)
-  const setAccount = useSelfCredStore((s) => s.setAccount)
-  // 自助服务密码已持久化（config.selfPassword DPAPI 加密落盘，前端只见 MASK）；
-  // store 中的 password 是聚焦期草稿，blur 时保存到配置
-  const password = useSelfCredStore((s) => s.password)
-  const setPassword = useSelfCredStore((s) => s.setPassword)
-  // "已保存"读独立布尔而非 config.selfPassword === MASK（与 AccountPanel 同因同修，
-  // 2026-09-06）：blur 保存到 config-changed 回传 MASK 之间存在窗口期/竞态，
-  // 依赖该字段判断会让输入框闪空甚至永久空白
-  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
-  const [pwdFocused, setPwdFocused] = useState(false)
-  const displayPassword = pwdFocused ? password : (selfPasswordSaved ? '••••••••' : '')
-  const [showPassword, setShowPassword] = useState(false)
-  const credInitedRef = useRef(false)
+  // 凭据统一取登录信息（config.user + passwordSaved，唯一凭据源）：
+  // 本面板不再收集学号/自助服务密码
+  const configUser = useConfigStore(useShallow((s) => s.config.user))
+  const passwordSaved = useConfigStore((s) => s.passwordSaved)
   const [onlineList, setOnlineList] = useState<SelfOnlineItem[] | null>(null)
   const formFactor = useFormFactor()
   const [history, setHistory] = useState<SelfHistoryRow[] | null>(null)
@@ -108,8 +96,6 @@ export function SelfServicePanel() {
   // 切入面板验证一次后操作共用；面板卸载时重置会话门
   const ensureSelfVerified = useSelfServiceVerify()
   const autoRefreshedRef = useRef(false)
-  // 本轮面板会话内用户是否动过密码框（见切入自动刷新 effect 的守卫说明）
-  const pwdTouchedRef = useRef(false)
   // 初始配置是否已加载（getInitData 完成）：加载窗口期内不判断凭据/不弹验证
   const configLoaded = useConfigStore((s) => s.configLoaded)
 
@@ -123,46 +109,8 @@ export function SelfServicePanel() {
     }
   }, [])
 
-  // 配置异步加载完成后预填一次学号（store 为空时才填，与绑定卡预填同模式）
-  const configUser = useConfigStore((s) => s.config.user)
-  useEffect(() => {
-    if (!credInitedRef.current && configUser) {
-      if (!useSelfCredStore.getState().account) {
-        setAccount(configUser)
-      }
-      credInitedRef.current = true
-    }
-  }, [configUser, setAccount])
-
-  // 聚焦清空草稿开始新输入；blur 时草稿非空则保存到配置（与登录信息密码同模式）
-  const handlePwdFocus = () => {
-    setPwdFocused(true)
-    setPassword('')
-    // 本轮会话用户动过密码框：切入面板的自动查询（会弹验证门）不再自动执行，
-    // 避免输入第一个字符就触发"登录+生物识别"打断输入（2026-09-08 真机反馈）
-    pwdTouchedRef.current = true
-  }
-  const handlePwdBlur = () => {
-    setPwdFocused(false)
-    if (password) {
-      void useConfigStore.getState().saveConfigDirect({ selfPassword: password })
-      setPassword('')
-    }
-  }
-
-  // 清除已保存的自助服务密码：后端空值语义是"保留"，必须显式 clearSelfPassword；
-  // 顺带清空本地草稿，否则失焦时 blur 兜底会把草稿又存回去
-  const handleClearSelfPassword = useCallback(async () => {
-    const store = useConfigStore.getState()
-    setPassword('')
-    await store.saveConfigDirect({ selfPassword: '' }, undefined, true)
-    store.syncSelfPasswordSaved(false)
-    addToast(t('account.selfPasswordCleared'), 'success')
-  }, [addToast, t])
-
-  // 提交命令用的密码：重输的新草稿优先，否则空串（后端回退已保存值）
-  const selfPasswordForSubmit = password.trim()
-  const hasCred = account.trim().length > 0 && (selfPasswordForSubmit.length > 0 || selfPasswordSaved)
+  // 凭据就绪：学号非空且登录密码已保存（后端 resolve_self_password 用空串回退已存密码）
+  const hasCred = !!configUser.trim() && passwordSaved
 
   const fetchDashboard = useCallback(async () => {
     if (!hasCred || querying) return
@@ -170,8 +118,8 @@ export function SelfServicePanel() {
     setQuerying(true)
     try {
       const result = await tauriApiWithRetry.querySelfDashboard({
-        account: account.trim(),
-        password: selfPasswordForSubmit,
+        account: configUser.trim(),
+        password: '',
       })
       if (!mountedRef.current) return
       if (result.success && result.data) {
@@ -186,7 +134,7 @@ export function SelfServicePanel() {
     } finally {
       if (mountedRef.current) setQuerying(false)
     }
-  }, [hasCred, querying, ensureSelfVerified, selfPasswordForSubmit, account, addToast, t])
+  }, [hasCred, querying, ensureSelfVerified, configUser, addToast, t])
 
   // 切入面板自动验证并刷新（2026-09-06 用户要求）：凭据就绪后弹 Hello，
   // 通过即自动拉取在线信息与近期上网记录；验证取消/失败则等用户手动刷新。
@@ -194,14 +142,11 @@ export function SelfServicePanel() {
   // selfReverifyEachAction=true 的用户切入面板连弹两次 Hello。
   useEffect(() => {
     // 配置未加载完（启动后立刻切过来）时凭据判断不可靠，等 configLoaded 再启动。
-    // 凭据只认已保存密码（selfPasswordSaved），不含未落盘的草稿——否则无已存密码时
-    // 输入第一个字符就把凭据从"无"翻"有"触发自动查询+验证门；用户本轮动过密码框
-    // （正在输入/刚保存）也不再自动弹验证，改为手动刷新（2026-09-08 真机反馈⑥）
-    if (autoRefreshedRef.current || !configLoaded || pwdTouchedRef.current) return
-    if (!(account.trim() && selfPasswordSaved)) return
+    if (autoRefreshedRef.current || !configLoaded) return
+    if (!hasCred) return
     autoRefreshedRef.current = true
     void fetchDashboard()
-  }, [configLoaded, account, selfPasswordSaved, fetchDashboard])
+  }, [configLoaded, hasCred, fetchDashboard])
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineSessionId) return
@@ -209,8 +154,8 @@ export function SelfServicePanel() {
     setOfflineSessionId(item.sessionId)
     try {
       const result = await tauriApiWithRetry.selfOfflineSession({
-        account: account.trim(),
-        password: selfPasswordForSubmit,
+        account: configUser.trim(),
+        password: '',
         sessionId: item.sessionId,
       })
       if (!mountedRef.current) return
@@ -228,7 +173,7 @@ export function SelfServicePanel() {
         setConfirmTarget(null)
       }
     }
-  }, [offlineSessionId, ensureSelfVerified, selfPasswordForSubmit, account, addToast, t])
+  }, [offlineSessionId, ensureSelfVerified, configUser, addToast, t])
 
   // 保存设备名字：写 config.deviceAliases[mac]（留空 = 删除该键），saveConfigDirect 合并落盘
   const handleSaveAlias = useCallback(async (mac: string, name: string) => {
@@ -256,8 +201,8 @@ export function SelfServicePanel() {
     setLogQuerying(true)
     try {
       const result = await tauriApiWithRetry.querySelfOnlineLog({
-        account: account.trim(),
-        password: selfPasswordForSubmit,
+        account: configUser.trim(),
+        password: '',
         startTime: logStart,
         endTime: logEnd,
       })
@@ -274,7 +219,7 @@ export function SelfServicePanel() {
     } finally {
       if (mountedRef.current) setLogQuerying(false)
     }
-  }, [hasCred, logQuerying, ensureSelfVerified, selfPasswordForSubmit, account, logStart, logEnd, addToast, t])
+  }, [hasCred, logQuerying, ensureSelfVerified, configUser, logStart, logEnd, addToast, t])
 
   // 根容器 space-y-4 对齐全局面板卡片间距标准（AccountPanel/SettingsPanel 同款）
   return (
@@ -309,63 +254,13 @@ export function SelfServicePanel() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* 凭据区：与账号面板绑定卡共用同一 store；两列并排压缩纵向空间 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="self-account" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfAccount')}</Label>
-                <Input
-                  id="self-account"
-                  type="text"
-                  value={account}
-                  onChange={e => setAccount(e.target.value)}
-                  placeholder={t('onboarding.bindSelfAccountPlaceholder')}
-                  icon={<UserCircle className="h-4 w-4" />}
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="self-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSelfPassword')}</Label>
-                  {selfPasswordSaved && (
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={handleClearSelfPassword}
-                      className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
-                    >
-                      {t('account.clearPassword')}
-                    </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <Input
-                    id="self-password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={displayPassword}
-                    onChange={e => setPassword(e.target.value)}
-                    onFocus={handlePwdFocus}
-                    onBlur={handlePwdBlur}
-                    placeholder={selfPasswordSaved ? t('account.passwordSavedPlaceholder') : t('onboarding.bindSelfPasswordPlaceholder')}
-                    icon={<KeyRound className="h-4 w-4" />}
-                    className="[&::-ms-reveal]:hidden pr-10"
-                  />
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label={showPassword ? t('account.hidePassword') : t('account.showPassword')}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-            </div>
+            {/* 凭据统一：不再收集学号/自助服务密码，凭据取自登录信息（config.user + 已保存登录密码） */}
             {!configLoaded ? (
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> {t('account.selfConfigLoading')}
               </p>
             ) : !hasCred ? (
-              <p className="text-[11px] text-muted-foreground">{t('account.selfDashboardNeedCred')}</p>
+              <p className="text-[11px] text-muted-foreground">{t('account.needLoginPassword')}</p>
             ) : querying && onlineList === null ? (
               <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('account.selfDashboardQuerying')}

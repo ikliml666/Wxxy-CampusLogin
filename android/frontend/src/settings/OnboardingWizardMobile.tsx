@@ -161,42 +161,17 @@ export function OnboardingWizardMobile({
                 </div>
               )}
 
-              {f.step === 1 && (
+              {f.step === 2 && (
                 <div className="space-y-4 pt-1">
                   <div className="space-y-1.5">
                     <h3 className="text-base font-semibold">{t('onboarding.bindOperatorTitle')}</h3>
                     <p className="text-xs text-muted-foreground">{t('onboarding.bindOperatorDesc')}</p>
                   </div>
                   <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="m-bind-account" className={cn('text-xs font-medium', !f.selfAccount.trim() && 'text-destructive')}>
-                        {t('onboarding.bindSelfAccount')}
-                      </Label>
-                      <Input
-                        id="m-bind-account"
-                        name="bind-account"
-                        autoComplete="username"
-                        spellCheck={false}
-                        value={f.selfAccount}
-                        onChange={(e) => f.setSelfAccount(e.target.value)}
-                        placeholder={t('onboarding.bindSelfAccountPlaceholder')}
-                        icon={<UserCircle className="h-4 w-4" />}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="m-bind-self-password" className={cn('text-xs font-medium', !f.selfPassword.trim() && 'text-destructive')}>
-                        {t('onboarding.bindSelfPassword')}
-                      </Label>
-                      <Input
-                        id="m-bind-self-password"
-                        type="password"
-                        value={f.selfPassword}
-                        onChange={(e) => f.setSelfPassword(e.target.value)}
-                        placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
-                        icon={<KeyRound className="h-4 w-4" />}
-                        className={cn('[&::-ms-reveal]:hidden', inputClass)}
-                      />
+                    {/* 凭据统一：绑定取登录信息（accountInfo 步草稿），不再单独收集学号/自助服务密码 */}
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/40 border border-border/50 px-3 py-2.5 rounded-lg text-left">
+                      <Link2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
+                      {t('onboarding.useLoginCredentials')}
                     </div>
                     <div className="space-y-1.5">
                       <Label className={cn('text-xs font-medium', f.bindOperatorValue === BIND_OPERATOR_NONE && 'text-destructive')}>
@@ -273,7 +248,7 @@ export function OnboardingWizardMobile({
                 </div>
               )}
 
-              {f.step === 2 && (
+              {f.step === 1 && (
                 <div className="space-y-4 pt-1">
                   <div className="space-y-1.5">
                     <h3 className="text-base font-semibold">{t('onboarding.fillLoginInfo')}</h3>
@@ -402,10 +377,10 @@ export function OnboardingWizardMobile({
         {f.step < 3 && (
           <Button
             onClick={f.goNext}
-            disabled={f.step === 2 && !f.canProceedAccount}
+            disabled={f.step === 1 && !f.canProceedAccount}
             className={cn('gap-1.5', f.step === 0 ? 'w-full' : 'flex-[1.6]', actionButtonClass)}
           >
-            {f.step === 2 && !f.canProceedAccount ? (
+            {f.step === 1 && !f.canProceedAccount ? (
               <>{t('onboarding.pleaseComplete')} <ArrowRight className="h-4 w-4" /></>
             ) : (
               <>{t('onboarding.next')} <ArrowRight className="h-4 w-4" /></>

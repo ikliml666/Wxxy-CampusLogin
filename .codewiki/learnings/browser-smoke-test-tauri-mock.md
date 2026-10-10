@@ -6,7 +6,7 @@
 
 2. **无头截图会抓在入场动画中途**。`--headless=new --screenshot --virtual-time-budget=N` 只推进虚拟时间，合成器动画不跟随，截到的是 stagger 入场/backwards 填充的中间帧（表现为卡片消失、整页半透明、面板转场残影）。必须加 `--run-all-compositor-stages-before-draw --disable-threaded-animation`，动画才会在虚拟时间预算内完成。
 
-3. **mock 数据要喂到「置位信号」而非业务字段**。仪表盘自助卡显示「未配置自助服务凭据」的门槛不是 `config.selfPassword` 非空，而是：`useInitialDataLoad.ts:43` 要求 `cfg.selfPassword === PASSWORD_MASK`（字面 `'***'`，ui-constants.ts:4）才置 `selfPasswordSaved=true`；`DashboardPanel.tsx:390` 还要求 `!!config.user`。mock 的 `get_init_data.config` 需给 `{ selfPassword: '***', user: '<学号>', password: '***' }`。
+3. **mock 数据要喂到「置位信号」而非业务字段**。仪表盘自助卡显示「未配置凭据」的门槛不是业务字段非空，而是：`useInitialDataLoad.ts:38` 要求 `cfg.password === PASSWORD_MASK`（字面 `'***'`，ui-constants.ts:4）才置 `passwordSaved=true`；`DashboardPanel.tsx:401` 还要求 `!!config.user`（凭据统一后仅登录信息一套凭据，见 [[credential-single-source]]）。mock 的 `get_init_data.config` 需给 `{ password: '***', user: '<学号>' }`。
 
 可用技巧：mock 里读 `?panel=<PanelName>` 写入 `initData.config.defaultPanel`（useInitialDataLoad.ts:56 会 setActivePanel）+ 预种 `localStorage['campus-onboarding-done']='1'`，可直达任意面板、跳过首启引导，配合无头截图逐面板留档。
 

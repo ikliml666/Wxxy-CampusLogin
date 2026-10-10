@@ -11,7 +11,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 
 ## Overview
 
-本模块定义应用的全量配置数据结构 `Config`（53 个字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加 + 账号档案读写 + 自动建号落盘）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的敏感字段（`password`、`self_password`）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值；`config_version < 3` 时把 `campus_check_end_minutes` 旧默认 0 刷为 1380）。
+本模块定义应用的全量配置数据结构 `Config`（53 个字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加 + 账号档案读写 + 自动建号落盘）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的唯一敏感字段（`password`，凭据统一后为唯一密码字段，历史独立自助密码字段已删除，见 [[credential-single-source]]）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值；`config_version < 3` 时把 `campus_check_end_minutes` 旧默认 0 刷为 1380）。
 
 本模块在 `tauri-app/src-tauri/src/lib.rs:4` 被声明为跨平台模块（安卓端经 path 依赖可见），但安卓端另有自己的配置结构 `android/src-tauri/src/config_state.rs`（注释声明"结构对齐桌面 config::Config 可适用子集"），并不复用 `persist.rs` 的落盘路径。
 
@@ -49,8 +49,8 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:164-166` | pub fn | `default_required_network_name() -> String` | `"i-wxxy"` |
 | `model.rs:168-170` | pub fn | `default_campus_gateway() -> String` | `"10.2.127.254"`（`commands/network_cmd.rs:105` 用作兜底） |
 | `model.rs:204-253` | impl | `Default for Config` | 53 个字段的默认值（见表） |
-| `model.rs:243-247` | pub fn | `Config::masked_for_display(&self) -> Config` | 克隆后掩码，原 struct 不变；**所有把 Config 发往前端的路径必须经此方法** |
-| `model.rs:249-256` | pub fn | `Config::mask_in_place(&mut self)` | 就地掩码：`password`/`self_password` 非空则置为 `PASSWORD_MASK` |
+| `model.rs:319-323` | pub fn | `Config::masked_for_display(&self) -> Config` | 克隆后掩码，原 struct 不变；**所有把 Config 发往前端的路径必须经此方法** |
+| `model.rs:325-328` | pub fn | `Config::mask_in_place(&mut self)` | 就地掩码：`password` 非空则置为 `PASSWORD_MASK`（凭据统一后仅此一个敏感字段） |
 
 本模块未定义任何 `trait`（只实现对 `Default` 的 `impl`）。
 
@@ -65,12 +65,12 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `persist.rs:64-66` | pub fn | `get_accounts_dir(data_dir) -> PathBuf` | `{data_dir}/accounts` |
 | `persist.rs:69-72` | pub fn | `get_account_path(data_dir, account_id) -> PathBuf` | 账号档案文件路径 `{accounts_dir}/<id>.json`（id = 文件名 stem） |
 | `persist.rs:75-99` | pub fn | `load_account_config(data_dir, account_id) -> Result<Config, String>` | 读账号档案（扁平 Config JSON）：文件不存在返回 `Err("账号不存在")`；读盘/解析失败返回 Err；非空密码 DPAPI 解密（失败 `log_error` + Err）。供切换/改名/适配器绑定凭据解析共用 |
-| `persist.rs:101-115` | pub fn | `save_account_config(data_dir, account_id, config) -> Result<(), String>` | 写账号档案：创建目录 → 非空密码 DPAPI 加密 → `to_string_pretty` → `atomic_write`（与 `save_config_to_disk_encrypted` 同一加密约定） |
+| `persist.rs:101-112` | pub fn | `save_account_config(data_dir, account_id, config) -> Result<(), String>` | 写账号档案：创建目录 → 非空密码 DPAPI 加密 → `to_string_pretty` → `atomic_write`（与 `save_config_to_disk_encrypted` 同一加密约定） |
 | `persist.rs:117-154` | pub fn | `list_account_items(data_dir) -> Vec<AccountItem>` | 枚举 `accounts/*.json` 为 `{id, displayName}`（过滤 `.` 前缀与空名，按 id 排序）；displayName 为空/文件损坏时兜底为 id 并 `log_warn` |
 | `persist.rs:156-158` | pub fn | `get_login_history_path(data_dir) -> PathBuf` | `{data_dir}/login-history.json` |
 | `persist.rs:160-212` | pub fn | `append_login_history(app_handle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String>` | 加锁 → 读现有历史（读/解析失败 rename 为 `.bak` 后重置）→ 头部插入新记录 → 截断至 100 条 → `atomic_write` |
-| `persist.rs:283-291` | pub fn | `save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Result<(), String>` | `get_data_dir` → `save_config_to_disk_encrypted` → 掩码后 `notify_config_changed`（`{"config": …}` 包裹）；**不刷托盘**——「落盘+广播」统一出口，commands 包装与监控层共用 |
-| `persist.rs:293-308` | pub fn | `save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String>` | 克隆配置 → 非空 `password`/`self_password` 逐一 `crypto::encrypt` → `serde_json::to_string_pretty` → `atomic_write`；**不做任何校验** |
+| `persist.rs:282` | pub fn | `save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Result<(), String>` | `get_data_dir` → `save_config_to_disk_encrypted` → 掩码后 `notify_config_changed`（`{"config": …}` 包裹）；**不刷托盘**——「落盘+广播」统一出口，commands 包装与监控层共用 |
+| `persist.rs:292-303` | pub fn | `save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String>` | 克隆配置 → 非空 `password` → `crypto::encrypt`（仅此一个密码字段，加密分支 `persist.rs:299-301`） → `serde_json::to_string_pretty` → `atomic_write`；**不做任何校验** |
 
 ### config/validate.rs
 
@@ -96,10 +96,9 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | 位置 | Rust 字段 | JSON 键 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- | --- | --- |
 | `model.rs:11` | `user` | `user` | `String` | `""` | 校园网登录账号（学号） |
-| `model.rs:13` | `password` | `password` | `String` | `""` | 登录密码；内存明文 / 磁盘 DPAPI 密文 / 出站 MASK |
-| `model.rs:16` | `self_password` | `selfPassword` | `String` | `""` | 自助服务系统登录密码（同上三态） |
-| `model.rs:21` | `self_hello_enabled` | `selfHelloEnabled` | `bool` | `true`（`default_true`） | 是否启用 Windows Hello 操作验证门；关闭后"查看运营商账号密码"仍强制验证（后端 TTL 独立） |
-| `model.rs:24` | `self_reverify_each_action` | `selfReverifyEachAction` | `bool` | `false` | 自助服务面板是否每次操作都二次验证（否则切入面板验证一次后共用）；**仅前端消费** |
+| `model.rs:13` | `password` | `password` | `String` | `""` | 登录密码；内存明文 / 磁盘 DPAPI 密文 / 出站 MASK；**唯一密码字段**（凭据统一后，见 [[credential-single-source]]） |
+| `model.rs:18` | `self_hello_enabled` | `selfHelloEnabled` | `bool` | `true`（`default_true`） | 是否启用 Windows Hello 操作验证门；关闭后"查看运营商账号密码"仍强制验证（后端 TTL 独立） |
+| `model.rs:21` | `self_reverify_each_action` | `selfReverifyEachAction` | `bool` | `false` | 自助服务面板是否每次操作都二次验证（否则切入面板验证一次后共用）；**仅前端消费** |
 | `model.rs:25` | `operator` | `operator` | `String` | `""` | 运营商后缀：`""`/`@telecom`/`@unicom`/`@cmcc` |
 | `model.rs:26` | `adapter1` | `adapter1` | `String` | `"自动检测"` | 主适配器名或自动检测哨兵 |
 | `model.rs:27` | `adapter2` | `adapter2` | `String` | `""` | 副适配器名（双适配器模式使用） |
@@ -157,7 +156,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | --- | --- | --- |
 | `model.rs:9` | `#[serde(default)]`（容器级） | 任一字段缺失即用 `Default` 补齐；否则单字段缺失会导致整份配置反序列化失败 |
 | `model.rs:12` | `password` 上的 `#[serde(default)]` | 与容器级重复，冗余但无害 |
-| `model.rs:20` | `default = "default_true"` | `self_hello_enabled` 默认 `true` |
+| `model.rs:17` | `default = "default_true"` | `self_hello_enabled` 默认 `true` |
 | `model.rs:75`、`model.rs:77` | `default = "default_true"` | 两个 skip 开关默认 `true` |
 | `model.rs:83`、`model.rs:87` | `deserialize_with = "deserialize_...` | 空串替换为 `"i-wxxy"` / `"10.2.127.254"` |
 | `model.rs:100` | `alias = "campusCheckStartHour"` | 兼容旧版字段名（配合 `config_version < 2` 的小时→分钟迁移） |
@@ -175,9 +174,8 @@ app/startup.rs:162（安卓端另有自实现 config_state.rs）
       ├─ load_config_from_file: get_data_dir → get_config_path → 读文件
       │     ├─ 文件不存在 → Config::default()
       │     ├─ serde_json::from_str::<Config>（容器级 default 补齐缺失字段）
-      │     ├─ password 非空且 != PASSWORD_MASK → account::crypto::decrypt
-      │     │     失败 → 仅清空 password，保留其余配置                     (config_cmd.rs:31-40)
-      │     └─ self_password 同上                                        (config_cmd.rs:42-50)
+      │     └─ password 非空且 != PASSWORD_MASK → account::crypto::decrypt
+      │           失败 → 仅清空 password，保留其余配置                     (config_cmd.rs:28-33)
       └─ 成功 → config::validate::validate_config_lenient(config)
             逐字段降级 → 末尾 validate_config 兜底 → 仍失败则 Config::default()
       ← 失败（解析/读取异常）→ 原文件复制为 config.json.corrupt-{epoch}.bak + Config::default()
@@ -191,17 +189,17 @@ app/startup.rs:162（安卓端另有自实现 config_state.rs）
 ```
 前端 save_config IPC / commands::{account,background,network_cmd,system,config_cmd}.rs
   → commands::config_cmd::save_config
-      ├─ validate_config(config)  非法 → CommandResult::err，不落盘         (config_cmd.rs:217-223)
-      ├─ clear_password / MASK 占位符处理：保留 state.config 中的旧密码      (config_cmd.rs:227-241)
-      ├─ network::update_portal_url(&config.portal_url)                    (config_cmd.rs:245)
-      ├─ infra::logger::set_log_retention_days(config.log_retention_days)  (config_cmd.rs:248)
+      ├─ validate_config(config)  非法 → CommandResult::err，不落盘         (config_cmd.rs:207)
+      ├─ clear_password / MASK 占位符处理：保留 state.config 中的旧密码      (config_cmd.rs:217-222)
+      ├─ network::update_portal_url(&config.portal_url)                    (config_cmd.rs:227)
+      ├─ infra::logger::set_log_retention_days(config.log_retention_days)  (config_cmd.rs:230)
       ├─ persist::save_config_and_broadcast(app_handle, &config)  （commands 包装与监控层共用出口）
-      │     ├─ 非空 password/self_password → account::crypto::encrypt（DPAPI → base64）
+      │     ├─ 非空 password → account::crypto::encrypt（DPAPI → base64，仅此一个密码字段）
       │     ├─ serde_json::to_string_pretty
       │     ├─ persist::atomic_write：临时文件 → sync_all → rename（3 次重试）
       │     └─ notify_config_changed(config.masked_for_display())  掩码后发事件（不刷托盘）
-      ├─ state.config.store(config.clone())   先落盘再更新内存               (config_cmd.rs:253-255)
-      ├─ auto_create_account_for_current(state, app_handle)  落盘成功后自动建号  (config_cmd.rs:258-265)
+      ├─ state.config.store(config.clone())   先落盘再更新内存               (config_cmd.rs:235)
+      ├─ auto_create_account_for_current(state, app_handle)  落盘成功后自动建号  (config_cmd.rs:242-243)
       │     └─ 实际写盘 → tray::refresh_tray_menu_state 补刷托盘子菜单
       └─ commands 包装仅补 tray::refresh_tray_menu_state（监控层路径无此步）
 ```
@@ -221,9 +219,9 @@ auth::session::adapter_action_with_log / monitor::auto_auth.rs:187
 ```
 任意把 Config 发往前端的路径
   → Config::masked_for_display()
-       password 非空 → "***"；self_password 非空 → "***"；空值保留（"未设置"语义）
-使用点：commands/config_cmd.rs:15,101,206、commands/account.rs:28,178,249,306、
-        commands/system.rs:117,240、commands/config_cmd.rs 回归测试 :280,286
+       password 非空 → "***"（凭据统一后唯一敏感字段）；空值保留（"未设置"语义）
+使用点：commands/config_cmd.rs:84,197、commands/account.rs:28,181,252,309、
+        commands/system.rs:133,256、commands/config_cmd.rs 回归测试 :262,266
 ```
 
 ## Connections
@@ -233,11 +231,11 @@ auth::session::adapter_action_with_log / monitor::auto_auth.rs:187
 - [[desktop-monitor]] — `enable_background_check` / `background_check_interval` / `auto_login_on_preparation` / `auto_exit_on_online` / `enable_network_name_check` / `required_network_name` / `max_disconnect_reconnect` / `auto_login_cooldown_secs` / `enable_network_quality` 的全部消费点。
 - [[desktop-network-core]] — `network::client::PORTAL_URL`（`client.rs:8` 用 `default_portal_url()` 初始化）、`network::update_portal_url`、`network::adapter` 中的 `AUTO_DETECT_ADAPTER` 比较、`network::quality` 消费 `fixed_gateway`/`skip_*_in_latency`。
 - [[desktop-infra]] — `infra::state::store`（`state.config.load()/load_full()/update()`）、`infra::logger`（`set_log_retention_days`、坏配置 `log_warn!`）、`infra::lifecycle`（`campus_exit_on_fail` / `campus_exit_*_minutes`）。
-- [[desktop-account-selfservice]] — `config/persist.rs:6` 依赖 `account::crypto`；`self_password` / `self_hello_enabled` / `self_reverify_each_action` 是自助服务面板的配置面。
+- [[desktop-account-selfservice]] — `config/persist.rs:6` 依赖 `account::crypto`；`self_hello_enabled`（`model.rs:18`）与 `self_reverify_each_action`（`model.rs:21`）是自助服务面板的配置面（凭据统一后唯一凭据源见 [[credential-single-source]]）。
 
 ## Known Issues
 
-1. **`self_password` 完全没有校验**：`validate.rs` 全文无 `self_password` 出现（`grep -rn "self_password" src/config/validate.rs` 零命中），既无长度上限也无格式检查；`validate_config` 只在 `validate.rs:92-94` 校验 `password`。
+1. **密码校验面收敛到单字段**：凭据统一后唯一密码字段是 `password`，`validate_config` 只在 `validate.rs:92-94` 校验它；历史独立自助密码字段"既无长度上限也无格式检查"的问题随字段删除消解（见 [[credential-single-source]]）。
 2. **`update_source` 无取值校验**：`model.rs:78-80` 只声明 `default`，`validate.rs` 不校验其取值；消费点 `commands/updater.rs:10` 与 `update/updater.rs:282` 用 `!= "github"` 判定，任何拼写错误（如 `"Github"`）都会静默走镜像优先。
 3. **`normalize_portal_url` 只认一个字面值**：`validate.rs:81-85` 硬比较 `"http://10.1.99.100:801"` 与空串。用户填其他带 `:801` 的地址（例如校园网改版后的 EPortal 地址）不会被归一化，会与 `auth/portal.rs:206-213` 记录的"页面探测不能探 `:801`"约束冲突。
 4. **容器级 `serde(default)` 让字段名错误静默降级**：`model.rs:9` 无 `deny_unknown_fields`，前端若传 `"portalURL"` 这类拼错键，反序列化不报错、值静默丢成默认值。同因，`Config` 的 JSON 键名靠 46 处手写 `rename` 维护（仅 `user`/`password`/`operator`/`adapter1`/`adapter2` 用原名），新增字段漏加 `rename` 无编译期保护——2026-09 起新账号字段的 JSON 名有契约锁测试 `serde_account_fields_json_names_and_defaults`（`model.rs:291` 起）兜底，但其余字段仍裸奔。
@@ -246,7 +244,7 @@ auth::session::adapter_action_with_log / monitor::auto_auth.rs:187
 7. **宽松校验的最终兜底会丢全部配置**：`validate.rs:200-206`，降级后仍失败时直接返回 `Config::default()`（仅 `log_warn!` 告警，用户无感知）。这是"逐字段降级"设计之外的整份回退路径。
 8. **`validate_config_lenient` 不做 interval clamp 之外的数值归一**：`validate.rs:143-207` 未处理 `background_check_interval` / `latency_test_interval` / `log_retention_days`，依赖末尾的 `validate_config` 兜底完成 clamp（`validate.rs:103-104`、`validate.rs:120-122`）。
 9. **`atomic_write` 的临时文件名会替换原扩展名**：`persist.rs:14-20` 用 `path.with_extension("json.tmp.{nanos}")`，对 `config.json` 得到 `config.json.tmp.123`；若传入无扩展名的路径，语义会变成"替换整个文件名"。另 `rename` 仅重试 3×100ms（`persist.rs:32-39`），Windows 上被索引/杀软占用时失败即删除临时文件并返回 Err（原文件保持完整）。
-10. **`save_config_to_disk_encrypted` 不做校验且会对 MASK 加密**：`persist.rs:293-308` 直接落盘传入的 `Config`；`persist.rs:299-304` 明确不排除 `PASSWORD_MASK`（注释 `persist.rs:295-298` 说明：若真实密码恰为 `"***"`，排除判断会让它明文落盘）。代价是：任何把 MASK 占位符直接落盘的调用方，重启后会得到明文密码 `"***"`（当前调用方 `commands/config_cmd.rs:227-241` 已在落盘前还原真值，属依赖调用方正确性）。`save_account_config`（`persist.rs:101-115`）沿用同一约定。
+10. **`save_config_to_disk_encrypted` 不做校验且会对 MASK 加密**：`persist.rs:292-303` 直接落盘传入的 `Config`；`persist.rs:299-301` 明确不排除 `PASSWORD_MASK`（注释 `persist.rs:294-298` 说明：若真实密码恰为 `"***"`，排除判断会让它明文落盘）。代价是：任何把 MASK 占位符直接落盘的调用方，重启后会得到明文密码 `"***"`（当前调用方 `commands/config_cmd.rs:217-222` 已在落盘前还原真值，属依赖调用方正确性）。`save_account_config`（`persist.rs:101-112`）沿用同一约定。
 11. **登录历史锁只覆盖 `append_login_history`**：`persist.rs:10` 的 `LOGIN_HISTORY_LOCK` 仅在 `persist.rs:161` 加锁；`commands/system.rs` 等若存在其他读写 `login-history.json` 的路径，将不受保护。另历史为"全量读 → 写"（`persist.rs:165-211`），每次追加都是 O(100) 次序列化。账号档案的读写（`load_account_config`/`save_account_config`/`list_account_items`）没有对应的静态锁，靠命令层 `spawn_blocking` 串行化与调用方纪律。
 12. **登录历史读取失败/解析失败只做 `.bak` 改名后重置**：`persist.rs:171`、`persist.rs:182` 的备份路径用 `format!("{}.bak", ...)`（固定名，第二次失败会覆盖上一次备份），且失败被静默忽略（`let _ =`）。
 13. **配置迁移是链式的 `config_version` 递增**：`validate.rs:123-140` 现有两段——v1→v2：`campus_check_start_minutes` 在 `(0, 24)` 视为小时值 ×60（`validate.rs:125-131`，条件不含 0/24 边界，旧版用户恰好设 24 以上会跳过迁移并被 clamp 截到 1439）；v2→v3（2026-09-13）：`campus_check_end_minutes == 0`（旧默认）刷为 1380 并置 `config_version = 3`（`validate.rs:133-140`），用户显式改回的其他值不动。两段迁移对同一份旧配置会连续执行（v1 文件先走小时→分钟再走终点刷值，`validate.rs:525-533` 有回归测试）；v3 为当前版本，迁移完成后不再变化。

@@ -38,7 +38,7 @@ interface OnboardingWizardProps {
   isLoggingIn: boolean
 }
 
-const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.bindOperator', 'onboarding.accountInfo', 'onboarding.setupComplete'] as const
+const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.bindOperator', 'onboarding.setupComplete'] as const
 
 const slideVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 30 : -30, opacity: 0 }),
@@ -96,7 +96,6 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
     step, advance, goNext, handleSkip, handleLoginAndFinish, direction,
     username, setUsername, password, setPassword, showPassword, setShowPassword, passwordSaved,
     operator, setOperator,
-    selfAccount, setSelfAccount, selfPassword, setSelfPassword,
     bindOperatorValue, setBindOperatorValue, phone, setPhone,
     smsPassword, setSmsPassword, bindState, bindError, handleBind,
     language, setLanguage,
@@ -138,37 +137,17 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
               </div>
             )}
 
-            {step === 1 && (
+            {step === 2 && (
               <div className="space-y-4 py-2">
                 <div className="space-y-1.5">
                   <h3 className="text-base font-semibold">{t('onboarding.bindOperatorTitle')}</h3>
                   <p className="text-xs text-muted-foreground">{t('onboarding.bindOperatorDesc')}</p>
                 </div>
                 <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bind-account" className={cn("text-xs font-medium", !selfAccount.trim() && "text-destructive")}>{t('onboarding.bindSelfAccount')}</Label>
-                    <Input
-                      id="bind-account"
-                      name="bind-account"
-                      autoComplete="username"
-                      spellCheck={false}
-                      value={selfAccount}
-                      onChange={e => setSelfAccount(e.target.value)}
-                      placeholder={t('onboarding.bindSelfAccountPlaceholder')}
-                      icon={<UserCircle className="h-4 w-4" />}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bind-self-password" className={cn("text-xs font-medium", !selfPassword.trim() && "text-destructive")}>{t('onboarding.bindSelfPassword')}</Label>
-                    <Input
-                      id="bind-self-password"
-                      type="password"
-                      value={selfPassword}
-                      onChange={e => setSelfPassword(e.target.value)}
-                      placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
-                      icon={<KeyRound className="h-4 w-4" />}
-                      className="[&::-ms-reveal]:hidden"
-                    />
+                  {/* 凭据统一：绑定取登录信息（accountInfo 步草稿），不再单独收集学号/自助服务密码 */}
+                  <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/40 border border-border/50 px-3 py-2 rounded-lg">
+                    <Link2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
+                    {t('onboarding.useLoginCredentials')}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
@@ -236,7 +215,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
               </div>
             )}
 
-            {step === 2 && (
+            {step === 1 && (
               <div className="space-y-4 py-2">
                 <div className="space-y-1.5">
                   <h3 className="text-base font-semibold">{t('onboarding.fillLoginInfo')}</h3>
@@ -374,13 +353,13 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
             {step < 3 && (
               <Button
                 onClick={goNext}
-                disabled={step === 2 && !canProceedAccount}
+                disabled={step === 1 && !canProceedAccount}
                 className={cn(
                   "gap-1.5 min-w-[100px] transition-[background-color,color,box-shadow,transform] duration-200",
-                  step === 2 && !canProceedAccount && "opacity-50 cursor-not-allowed"
+                  step === 1 && !canProceedAccount && "opacity-50 cursor-not-allowed"
                 )}
               >
-                {step === 2 && !canProceedAccount ? (
+                {step === 1 && !canProceedAccount ? (
                   <>{t('onboarding.pleaseComplete')} <ArrowRight className="h-3.5 w-3.5" /></>
                 ) : (
                   <>{t('onboarding.next')} <ArrowRight className="h-3.5 w-3.5" /></>

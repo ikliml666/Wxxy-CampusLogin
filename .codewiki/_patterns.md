@@ -143,16 +143,16 @@ tags: [模式, 约定]
 
 **在哪里出现**：
 
-- 桌面出口：`config/model.rs:214-230`（注释明确"唯一出口约定：不得手工逐字段打码——漏一个字段就是一次明文泄露，account 三命令即前车之鉴"），`masked_for_display()` 走 clone 后掩码，`mask_in_place()` 就地掩码。
-- 桌面调用点：`commands/config_cmd.rs:15`（`config-changed` 载荷）与 `:88`（`get_config`）、`commands/system.rs:117`（`get_init_data`）、`commands/account.rs:47/188/227`（账号三命令）。
-- 安卓出口：`config_state.rs:273` 的 `masked_for_display(&Settings) -> serde_json::Value`，调用点 `config_state.rs:308`、`account_cmds.rs:111`、`account_cmds.rs:190`。
-- 写侧对偶（掩码回退）：桌面 `commands/config_cmd.rs:109-123` 的三态处理；安卓收敛为纯函数 `config_state.rs:285` 的 `resolve_password_field(incoming, current, clear)`。
-- 回归锁：桌面 `commands/config_cmd.rs:143-147` 的测试注释记录了历史缺陷 `fe000de`（修 `get_init_data`/`get_config` 时漏掉 account 三命令，明文 `selfPassword` 随 IPC 出站），测试体在 `:149-164`；安卓对应 `config_state.rs:548-558`。
-- 相关约定：落盘"非空即加密"，**不得排除 `"***"`**（`config/persist.rs:155-158` 注释说明：若真实密码恰为 `***`，排除判断会让它明文落盘）。
+- 桌面出口：`config/model.rs:319-328`（注释 `config/model.rs:313-315` 明确"唯一出口约定：不得手工逐字段打码——漏一个字段就是一次明文泄露，account 三命令即前车之鉴"），`masked_for_display()` 走 clone 后掩码（`:319-323`），`mask_in_place()` 就地掩码（`:325-328`）。
+- 桌面调用点：`commands/config_cmd.rs:84`（`config-changed` 载荷）与 `:197`（`get_config`）、`commands/system.rs:133/256`（出站点，含 `get_init_data`）、`commands/account.rs:28/181/252/309`（账号命令群）。
+- 安卓出口：`config_state.rs:365` 的 `masked_for_display(&Settings) -> serde_json::Value`，调用点 `config_state.rs:379`（`config-changed` 载荷）、`:406`（`get_config`）、`account_cmds.rs:161/303/338`。
+- 写侧对偶（掩码回退）：桌面 `commands/config_cmd.rs:217-222` 的三态处理（空/`***` 回填、`clear` 置空）；安卓收敛为纯函数 `config_state.rs:383` 的 `resolve_password_field(incoming, current, clear)`。
+- 回归锁：桌面 `commands/config_cmd.rs:277` 起的回归测试（注释 `commands/config_cmd.rs:254` 记录历史缺陷 `fe000de`：修 `get_init_data`/`get_config` 时漏掉账号命令群，明文密码字段随 IPC 出站）；安卓对应 `config_state.rs:705-715`。
+- 相关约定：落盘"非空即加密"，**不得排除 `"***"`**（`config/persist.rs:294-298` 注释说明：若真实密码恰为 `***`，排除判断会让它明文落盘）。
 
 **为什么**：`Config` 会经 IPC、事件、日志三条路出站，手工逐字段打码在加字段时必然漏。把掩码收敛到类型自身的方法上，新字段只需改一处（但要改对两处：桌面 `mask_in_place` + 安卓 `masked_for_display`）。
 
-**新增代码应如何遵循**：新增敏感字段要同时改 `model.rs:223-230` 与 `config_state.rs:273-282`；新增任何"把配置发给前端"的路径一律走掩码方法；不要新增第三个出口。
+**新增代码应如何遵循**：新增敏感字段要同时改 `model.rs:319-328` 与 `config_state.rs:365-369`；新增任何"把配置发给前端"的路径一律走掩码方法；不要新增第三个出口。
 
 ### 配置原子写（atomic_write + fsync + 重试）
 

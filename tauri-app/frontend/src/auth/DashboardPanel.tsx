@@ -396,9 +396,9 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
 // 应用内所有自助卡同时解锁；再点切回掩码不需要验证
 function useSelfCardReveal() {
   const config = useConfigStore(useShallow((s) => s.config))
-  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
+  const passwordSaved = useConfigStore((s) => s.passwordSaved)
   const ensureHelloVerified = useHelloGate()
-  const hasCred = !!config.user && selfPasswordSaved
+  const hasCred = !!config.user && passwordSaved
   const [revealed, setRevealed] = useState(false)
   const toggleReveal = useCallback(async () => {
     if (revealed) { setRevealed(false); return }
@@ -510,7 +510,7 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     if (offlineBusy) return
     setOfflineBusy(true)
     try {
-      // 密码空串，后端 resolve_self_password 回退已保存自助密码
+      // 密码空串，后端 resolve_credential_password 回退登录信息中已保存的密码
       const r = await tauriApiWithRetry.selfOfflineSession({
         account: config.user.trim(), password: '', sessionId: item.sessionId,
       })

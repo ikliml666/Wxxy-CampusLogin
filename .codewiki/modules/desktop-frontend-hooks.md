@@ -12,7 +12,6 @@ source_files:
   - tauri-app/frontend/src/hooks/useAuthStore.ts
   - tauri-app/frontend/src/hooks/useBreatheAnimation.ts
   - tauri-app/frontend/src/hooks/useConfigStore.ts
-  - tauri-app/frontend/src/hooks/useConfigStore.selfPassword.test.ts
   - tauri-app/frontend/src/hooks/useEventListeners.ts
   - tauri-app/frontend/src/hooks/useGlobalShortcut.ts
   - tauri-app/frontend/src/hooks/useGlowAnimation.ts
@@ -37,7 +36,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 
 ## Key Components
 
-### 目录总览（24 个文件）
+### 目录总览（23 个文件）
 
 | 文件 | 类别 | 主要导出（行号） |
 |---|---|---|
@@ -63,7 +62,6 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `useAsyncLock.ts` | 工具 | `useAsyncLock`(3) |
 | `useAppStore.ts` | 兼容壳 | 仅 re-export（1-3） |
 | `useAsyncLock.test.tsx` | 测试 | 1 个用例（20-40） |
-| `useConfigStore.selfPassword.test.ts` | 测试 | 3 个用例（24-46） |
 | `useLogToastStore.test.ts` | 测试 | 7 个用例（9-95） |
 
 ### tauriApi.ts — 唯一 IPC 出口
@@ -77,14 +75,14 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `tauriApi.ts:133-223` | `const tauriApi: TauriApi` | 逐方法实现：`invoke<返回类型>('命令名', { 参数 })` 或 `createEventListener<载荷>('事件名')` |
 | `tauriApi.ts:225-235` | `isRetryableError(e)` | 小写化后匹配 `timeout`/`network`/`fetch`/`connection` 四个子串 |
 | `tauriApi.ts:237-253` | `withRetry(fn, maxRetries=2, baseDelay=500)` | 指数退避 + 0-200ms 抖动（245） |
-| `tauriApi.ts:255-261` | `tauriApiWithRetry` | `{...tauriApi}` 后**只**覆盖 `saveConfig`（260）。257-259 注释明确说明为何不再包 `checkPortalStatus`/`checkNetworkQuality` |
+| `tauriApi.ts:255-261` | `tauriApiWithRetry` | `{...tauriApi}` 后**只**覆盖 `saveConfig`（285）。282-284 注释明确说明为何不再包 `checkPortalStatus`/`checkNetworkQuality` |
 
 #### 请求-响应 API（56 个，全部逐条列出）
 
 | 行号 | 前端方法 | IPC 命令 | 参数 / 返回 |
 |---|---|---|---|
 | 134 | `getConfig()` | `get_config` | → `Config` |
-| 135 | `saveConfig(config, clearPassword?, clearSelfPassword?)` | `save_config` | → `SaveConfigResult` |
+| 151 | `saveConfig(config, clearPassword?)` | `save_config` | → `SaveConfigResult` |
 | 136 | `getAdapters(force?)` | `get_adapters` | → `Adapter[]` |
 | 137 | `getDisabledAdapters()` | `get_disabled_adapters` | → `DisabledAdapter[]` |
 | 138 | `enableAdapter(adapterName)` | `enable_adapter` | → `EnableAdapterResult` |
@@ -292,8 +290,6 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 |---|---|---|
 | `useAppStore.ts:1-3` | re-export | 仅 `useAppInit`、`hasPendingConfig`、`flushPendingConfig` 三个 re-export，文件首行自述"已拆分为领域 store，此文件仅保留 re-export 以兼容旧引用" |
 | `useAsyncLock.test.tsx:20-40` | 用例 | StrictMode 下锁仍能释放、可重复触发（验证 `mountedRef` 二次 setup 恢复） |
-| `useConfigStore.selfPassword.test.ts:8-13` | `vi.mock('@/hooks/tauriApi')` | 只 mock `tauriApiWithRetry.saveConfig` |
-| `useConfigStore.selfPassword.test.ts:24-46` | 3 个用例 | 非空 `selfPassword` 成功置 `true`(24)；空串不置位(35)；失败不置位(40) |
 | `useLogToastStore.test.ts:9-35` | 3 个用例 | 连续重复折叠计数 / 中断连续性 / 级别参与判定 |
 | `useLogToastStore.test.ts:43-95` | 4 个用例 | 同 title 去重(43)、带按钮版互斥(52)、超 `MAX_TOASTS` 淘汰(67)、窗口非前台普通 toast 不入队(76) |
 
@@ -317,10 +313,9 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 
 | 字段 / action | 类型 | 含义 |
 |---|---|---|
-| `config` | `Config` | 初值 `DEFAULT_CONFIG`（54）；`Config` 定义在 `settings/types.ts`，含 46 个字段（2026-09 新增 `displayName`/`adapter1Account`/`adapter2Account` 三个可选字段；同文件另有 `AccountItem {id, displayName}` 与 `InitData.accounts: AccountItem[]`），例如 `user`/`password`/`selfPassword`/`adapter1`/`adapter2`/`dualAdapter`/`themeMode`/`defaultPanel`/`enableNetworkQuality`/`logRetentionDays` 等 |
+| `config` | `Config` | 初值 `DEFAULT_CONFIG`（54）；`Config` 定义在 `settings/types.ts`，含 46 个字段（2026-09 新增 `displayName`/`adapter1Account`/`adapter2Account` 三个可选字段；同文件另有 `AccountItem {id, displayName}` 与 `InitData.accounts: AccountItem[]`），例如 `user`/`password`/`adapter1`/`adapter2`/`dualAdapter`/`themeMode`/`defaultPanel`/`enableNetworkQuality`/`logRetentionDays` 等（`password` 为唯一密码字段，凭据统一后见 [[credential-single-source]]） |
 | `configLoaded` | `boolean` | 初始配置是否装载完成（成功或降级都置 true，见 `useInitialDataLoad.ts:157,165`） |
-| `passwordSaved` | `boolean` | 登录密码已保存（决定密码框显示"已保存"占位） |
-| `selfPasswordSaved` | `boolean` | 自助服务密码已保存（**独立布尔**，不依赖 `config.selfPassword` 的值，见 34-35 注释） |
+| `passwordSaved` | `boolean` | 登录密码已保存（决定密码框显示"已保存"占位；凭据统一后唯一保存态） |
 | `accounts` | `AccountItem[]` | 账号列表（初值 `[]`，58；每项 `{id, displayName}`，displayName 为空时后端已兜底为 id） |
 | `activeAccount` | `string` | 当前账号（初值 `''`，59） |
 | `language` | `string` | 初值 `safeStorage.get('app-language') \|\| 'zh'`（60） |
@@ -328,9 +323,8 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `updateConfigLocal(partial)` | 同上 | 96-105：只改本地与标脏，不落盘 |
 | `mergeConfigFromBackend(incoming)` | `(p: Partial<Config>) => void` | 109-116：跳过 `dirtyFields` 中的键 |
 | `clearDirtyFields()` | `() => void` | 118-121 |
-| `syncPasswordSaved(saved)` | `(b: boolean) => void` | 123 |
-| `syncSelfPasswordSaved(saved)` | `(b: boolean) => void` | 125 |
-| `saveConfigDirect(cfg, clearPassword?, clearSelfPassword?)` | `=> Promise<void>` | 127-170：全量合并后调 `api.saveConfig`；成功清脏（133-136）并按需置 `passwordSaved`/`selfPasswordSaved`（139-144）；失败记日志，连续失败达 `DIRTY_FAILURE_LIMIT` 时放弃脏标记（149-159） |
+| `syncPasswordSaved(saved)` | `(b: boolean) => void` | 41（契约）/117（实现） |
+| `saveConfigDirect(cfg, clearPassword?)` | `=> Promise<void>` | 42（契约）/119 起（实现）：全量合并后调 `api.saveConfig`；成功清脏并按需置 `passwordSaved`（117-132 附近，含历史缺陷注释 129）；失败记日志，连续失败达 `DIRTY_FAILURE_LIMIT` 时放弃脏标记 |
 | `setAccounts(a)` / `setActiveAccount(a)` | `=> void` | 172-173 |
 | `setLanguage(lang)` | `=> void` | 175-179：写 `safeStorage` + `i18next.changeLanguage` |
 
@@ -439,7 +433,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 4. **出 IPC**：`tauriApi.doLogin` → `invoke<LoginResult>('do_login', { adapterName })`（`tauriApi.ts:142`）。Rust 侧的 `do_login` 命令见 [[desktop-commands]] 与 [[desktop-auth]]。
 5. **返回后写回 store**，组件通过选择器订阅（如 `useAuthStore((s) => s.isLoggingIn)`，`DockNav.tsx:404`）重渲染。
 
-配置写盘的完整链路（防抖 + 脏字段 + in-flight + 关窗 flush）：`updateConfig`（`useConfigStore.ts:62-94`）→ 500ms debounce → `saveConfigDirect`（127）→ `api.saveConfig`（`tauriApi.ts:135`，带重试 260）→ Rust `save_config` 落盘；失败时 `dirtyFailureCounts` 累计，达 3 次放弃脏标记（149-159）。
+配置写盘的完整链路（防抖 + 脏字段 + in-flight + 关窗 flush）：`updateConfig`（`useConfigStore.ts:62-94`）→ 500ms debounce → `saveConfigDirect`（119 起）→ `api.saveConfig`（`tauriApi.ts:151`，带重试 285）→ Rust `save_config` 落盘；失败时 `dirtyFailureCounts` 累计，达 3 次放弃脏标记。
 
 ### 链路二：Rust emit → listen → store → UI
 
@@ -469,7 +463,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 1. `useEventListeners()`（`useAppInit.ts:7`）：**先**注册事件与窗口关闭拦截，保证后续初始化过程中的后端推送不丢。
 2. `useInitialDataLoad()`（8），在 `useEffect` 内（`useInitialDataLoad.ts:22-172`）按下列顺序执行：
    1. `api.getInitData()`（34）；
-   2. `configLoaded` 之前先按 `PASSWORD_MASK` 判定 `passwordSaved`/`selfPasswordSaved`（38-45）；
+   2. `configLoaded` 之前先按 `PASSWORD_MASK` 判定 `passwordSaved`（38；凭据统一后仅登录密码一个保存态，见 [[credential-single-source]]）；
    3. `useConfigStore.setState({ config: {...DEFAULT_CONFIG, ...initData.config} })`（37,46）；
    4. `useThemeStore.getState().initTheme(cfg)`（48）；
    5. 恢复/应用活动面板（50-59）：`localStorage` 的 `campus-active-panel` 或 `cfg.defaultPanel`，`enableNetworkQuality === false` 时跳过 `quality`；

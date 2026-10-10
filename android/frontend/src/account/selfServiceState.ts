@@ -1,29 +1,9 @@
-import { create } from 'zustand'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
-
-/**
- * 自助服务系统凭据共享 store（学号 + 自助服务密码）。
- * 应用生命周期内存保留：账号面板绑定卡与自助服务面板共用同一份输入，
- * 切换面板不丢失；不落盘、不写日志（退出应用即清空）。
- */
-interface SelfCredState {
-  account: string
-  password: string
-  setAccount: (account: string) => void
-  setPassword: (password: string) => void
-}
-
-export const useSelfCredStore = create<SelfCredState>((set) => ({
-  account: '',
-  password: '',
-  setAccount: (account) => set({ account }),
-  setPassword: (password) => set({ password }),
-}))
 
 // Windows Hello 操作验证总开关（config.selfHelloEnabled，缺失视为开启——
 // 旧配置/测试 mock 未写该字段时保持验证行为）。查看明文密码的验证不走门，不受此开关限制。

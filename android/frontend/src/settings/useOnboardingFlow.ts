@@ -8,7 +8,8 @@
  * 无适配器步骤：安卓网络出口由系统决定（后端 do_login 丢弃 adapter 参数），
  * 选择网络适配器在安卓上不生效，2026-09-12 起从指引中移除。
  *
- * 凭据纪律：绑定步骤的自助服务密码仅内存传递，不写入配置、不进日志。
+ * 凭据纪律：登录信息（username/password）是唯一凭据源，绑定步骤复用账号步草稿，
+ * 不再单独收集学号/自助服务密码；密码留空（已保存掩码态）时后端回退已存密码。
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react'
@@ -21,7 +22,7 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
 import type { Config } from '@/settings'
 
-/** 步骤总数：欢迎 → 绑定运营商 → 账号 → 完成 */
+/** 步骤总数：欢迎 → 账号 → 绑定运营商 → 完成 */
 export const ONBOARDING_STEP_COUNT = 4
 /** 绑定步骤运营商下拉的未选择哨兵（Radix SelectItem value 禁止空串） */
 export const BIND_OPERATOR_NONE = '__none__'
@@ -57,9 +58,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
   const [loginSuccess, setLoginSuccess] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
 
-  // 绑定运营商账号步骤（step 1）状态；凭据仅内存传递，不写入配置
-  const [selfAccount, setSelfAccount] = useState(config.user || '')
-  const [selfPassword, setSelfPassword] = useState('')
+  // 绑定运营商账号步骤（step 2）状态；凭据复用账号步的 username/password，不单独收集
   const [bindOperatorValue, setBindOperatorValue] = useState(BIND_OPERATOR_NONE)
   const [phone, setPhone] = useState('')
   const [smsPassword, setSmsPassword] = useState('')
@@ -82,8 +81,6 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
       setOperator(config.operator || DEFAULT_OPERATOR)
       setLoginSuccess(false)
-      setSelfAccount(config.user || '')
-      setSelfPassword('')
       setBindOperatorValue(BIND_OPERATOR_NONE)
       setPhone('')
       setSmsPassword('')
@@ -105,8 +102,9 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
     setStep(nextStep)
   }, [step])
 
-  const canBind = selfAccount.trim().length > 0
-    && selfPassword.trim().length > 0
+  // 绑定凭据沿用登录信息（accountInfo 步草稿；密码留空时后端回退已保存值）
+  const canBind = username.trim().length > 0
+    && (password.trim().length > 0 || config.password === PASSWORD_MASK)
     && bindOperatorValue !== BIND_OPERATOR_NONE
     && /^1\d{10}$/.test(phone.trim())
     && smsPassword.trim().length > 0
@@ -118,8 +116,8 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
     setBindState('loading')
     try {
       const result = await tauriApiWithRetry.bindOperator({
-        account: selfAccount.trim(),
-        password: selfPassword.trim(),
+        account: username.trim(),
+        password: password.trim(),
         operator: bindOperatorValue,
         phone: phone.trim(),
         smsPassword: smsPassword.trim(),
@@ -129,7 +127,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
         if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
         bindTimerRef.current = setTimeout(() => {
           direction.current = 1
-          setStep(2)
+          setStep(3)
           setBindState('idle')
         }, BIND_SUCCESS_ADVANCE_MS)
       } else {
@@ -140,13 +138,13 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       setBindError(extractErrorMessage(err) || t('onboarding.bindFailed'))
       setBindState('error')
     }
-  }, [bindState, selfAccount, selfPassword, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
+  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
 
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
   /** 账号步骤的"下一步"落盘；返回是否放行（账号步骤不满足则留在原地） */
   const handleNext = useCallback(() => {
-    if (step === 2) {
+    if (step === 1) {
       if (!canProceedAccount) return false
       const updateData: Partial<Config> = {
         user: username.trim(),
@@ -217,8 +215,6 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
     password, setPassword, showPassword, setShowPassword,
     operator, setOperator,
     // 绑定步骤
-    selfAccount, setSelfAccount,
-    selfPassword, setSelfPassword,
     bindOperatorValue, setBindOperatorValue,
     phone, setPhone,
     smsPassword, setSmsPassword,

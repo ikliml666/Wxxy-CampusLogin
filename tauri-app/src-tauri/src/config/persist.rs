@@ -97,8 +97,7 @@ pub fn load_account_config(data_dir: &Path, account_id: &str) -> Result<Config, 
 }
 
 /// 写入账号档案（扁平 Config JSON）：非空密码 DPAPI 加密后落盘（与主配置
-/// save_config_to_disk_encrypted 同一加密约定；self_password 沿用既有账号文件
-/// 行为透传，见 list_account_items / load_account_config 的既有语义）。
+/// save_config_to_disk_encrypted 同一加密约定）。
 pub fn save_account_config(data_dir: &Path, account_id: &str, config: &Config) -> Result<(), String> {
     let accounts_dir = get_accounts_dir(data_dir);
     std::fs::create_dir_all(&accounts_dir).map_err(|e| format!("创建账号目录失败: {e}"))?;
@@ -298,9 +297,6 @@ pub fn save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result
     // 此处只负责"非空即加密"。
     if !disk_config.password.is_empty() {
         disk_config.password = crypto::encrypt(&disk_config.password)?;
-    }
-    if !disk_config.self_password.is_empty() {
-        disk_config.self_password = crypto::encrypt(&disk_config.self_password)?;
     }
     let config_path = get_config_path(data_dir);
     let json = serde_json::to_string_pretty(&disk_config).map_err(|e| format!("序列化配置失败: {e}"))?;

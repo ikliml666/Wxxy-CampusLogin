@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
-import { render, fireEvent, act, cleanup, screen } from '@testing-library/react'
+import { render, fireEvent, act, cleanup } from '@testing-library/react'
 
 // Hello 验证门（模块级状态）：首次操作即验证 → 通过后共用。
 // 门状态为模块级单例，每个用例经 vi.resetModules + 动态 import 重置。
@@ -25,12 +25,10 @@ vi.mock('@/hooks/useLogToastStore', () => ({
 }))
 const storeState = {
   configLoaded: true,
-  passwordSaved: false,
-  selfPasswordSaved: false,
+  passwordSaved: true,
   config: { user: '24380002', operator: '', adapter1: '', selfHelloEnabled: true, selfReverifyEachAction: false },
   saveConfigDirect: () => Promise.resolve({} as never),
   syncPasswordSaved: () => {},
-  syncSelfPasswordSaved: () => {},
 }
 vi.mock('@/hooks/useConfigStore', () => ({
   useConfigStore: Object.assign(
@@ -76,9 +74,10 @@ async function renderPanel() {
   )
 }
 
+// 凭据统一后绑定卡不再收集学号/自助服务密码：凭据取自登录信息
+// （storeState.config.user + passwordSaved=true），查询按钮直接可用
 async function fillBindCreds() {
-  fireEvent.change(screen.getByLabelText('onboarding.bindSelfAccount'), { target: { value: '24380002' } })
-  fireEvent.change(screen.getByLabelText('onboarding.bindSelfPassword'), { target: { value: '123456' } })
+  /* 凭据来自登录信息，无需输入 */
 }
 
 describe('AccountPanel Windows Hello 验证门', () => {

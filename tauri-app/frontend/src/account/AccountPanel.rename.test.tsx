@@ -16,11 +16,9 @@ const h = vi.hoisted(() => {
   const storeState = {
     configLoaded: true,
     passwordSaved: false,
-    selfPasswordSaved: false,
     config: { user: '24380002', operator: '', adapter1: '', selfHelloEnabled: true, selfReverifyEachAction: false },
     saveConfigDirect: () => Promise.resolve({} as never),
     syncPasswordSaved: () => {},
-    syncSelfPasswordSaved: () => {},
     accounts: [] as unknown[],
     activeAccount: 'a1',
     updateConfig,

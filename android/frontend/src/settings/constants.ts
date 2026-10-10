@@ -5,7 +5,6 @@ import type { Config } from '@/settings/types'
 export const DEFAULT_CONFIG: Config = {
   user: '',
   password: '',
-  selfPassword: '',
   selfHelloEnabled: true,
   selfReverifyEachAction: false,
   allow2dFaceVerify: false,

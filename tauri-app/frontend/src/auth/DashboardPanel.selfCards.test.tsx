@@ -24,7 +24,7 @@ vi.mock('@/hooks/useLogToastStore', () => ({
 }))
 const storeState = {
   config: { user: '24380002', selfHelloEnabled: true } as Record<string, unknown>,
-  selfPasswordSaved: true,
+  passwordSaved: true,
 }
 vi.mock('@/hooks/useConfigStore', () => ({
   useConfigStore: Object.assign(
@@ -73,7 +73,7 @@ beforeEach(() => {
     data: { rows: [{ loginTime: 1788000000000, time: 65, flow: 123.45 }], total: 1 },
   })
   storeState.config = { user: '24380002', selfHelloEnabled: true }
-  storeState.selfPasswordSaved = true
+  storeState.passwordSaved = true
   // 只挂两张自助卡，隔离其他卡片的数据依赖
   localStorage.setItem('campus-dashboard-layout', JSON.stringify(['selfOnline', 'selfLog']))
   vi.resetModules()
@@ -162,7 +162,7 @@ describe('DashboardPanel 自助卡（在线信息 + 近期上网记录）', () =
   })
 
   it('未配置凭据：不查询并显示未配置提示', async () => {
-    storeState.selfPasswordSaved = false
+    storeState.passwordSaved = false
     await renderPanel()
     await act(async () => {})
     expect(querySelfDashboard).not.toHaveBeenCalled()

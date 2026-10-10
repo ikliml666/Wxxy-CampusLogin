@@ -79,11 +79,10 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | --- | --- | --- |
 | `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡（含 2026-09-19 新增的夜切开关 `enableNightOperatorSwitch`，两端可见，见 [[decisions/night-operator-switch]]）、运营商绑定卡（绑定状态查询/查看明文/绑定表单，其下拉**故意排除无锡学院**，见 [[learnings/binding-operator-select-excludes-campus]]）、账号管理卡（新增/切换/改名/删除） |
 | `useAccount` | `account/useAccount.ts:8` | 账号动作集合：`refreshAccounts`(23)、`handleAddAccount`(33，返回是否成功)、`handleDeleteAccount`(53)、`handleSwitchAccount`(73，守卫用 `!== undefined` 而非真值判断——R4 修复)、`handleRenameAccount`(95，成功返回是否成功供退出内联编辑) |
-| `useSelfCredStore` | `account/selfServiceState.ts:21` | 自助服务凭据共享 store（`account` / `password` + setter），账号面板绑定卡与自助面板共用，仅内存不落盘 |
-| `biometricFailMessage` | `account/selfServiceState.ts:54` | 按插件 reject 的 `code` 翻译验证失败文案（错误码表 `BIOMETRIC_ERROR_KEY`，`selfServiceState.ts:39-52`） |
-| `useHelloGate` | `account/selfServiceState.ts:85` | 绑定/查看类操作的验证门（TTL 570s，`selfServiceState.ts:74`；`ignoreToggle` 语义见 `selfServiceState.ts:60-73`） |
-| `resetSelfSessionGate` | `account/selfServiceState.ts:120` | 重置自助面板会话门（面板卸载时调用） |
-| `useSelfServiceVerify` | `account/selfServiceState.ts:125` | 自助面板操作验证门（尊重 `selfReverifyEachAction`） |
+| `useHelloGate` | `account/selfServiceState.ts:65` | 绑定/查看类操作的验证门（TTL 570s，`VERIFY_TTL_MS` 在 `selfServiceState.ts:54`；`ignoreToggle` 形参见 `selfServiceState.ts:65-66`） |
+| `biometricFailMessage` | `account/selfServiceState.ts:34` | 按插件 reject 的 `code` 翻译验证失败文案（错误码表 `BIOMETRIC_ERROR_KEY`，`selfServiceState.ts:19` 起） |
+| `resetSelfSessionGate` | `account/selfServiceState.ts:100` | 重置自助面板会话门（面板卸载时调用） |
+| `useSelfServiceVerify` | `account/selfServiceState.ts:105` | 自助面板操作验证门（尊重 `selfReverifyEachAction`） |
 | `formatMac` | `account/SelfServicePanel.tsx:59` | 12 位 hex → `AA-BB-...` |
 | `formatEpoch` | `account/SelfServicePanel.tsx:64` | epoch ms → `YYYY-MM-DD HH:mm:ss`（非法返回 `-`） |
 | `formatUseTimeMinutes` | `account/SelfServicePanel.tsx:83` | 秒 → 分钟（floor，与原站一致） |
@@ -188,12 +187,11 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 ## 结构体与字段（前端即 props 与 state 类型）
 
-### `Config`（`settings/types.ts:9-67`，47 字段；口径：接口本体（第 10-66 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`。注意：桌面端同位置已新增可选的 `adapter1Account` / `adapter2Account` 适配器指定账号字段，安卓这份副本未同步——安卓 `NetworkPanel` 无入口，见下文 network/ 分叉说明。2026-09-19 双端同加夜切 2 字段 `enableNightOperatorSwitch` / `nightOperatorRestore`）
+### `Config`（`settings/types.ts:9-74`，46 字段；口径：接口本体（第 10-73 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`。凭据统一后独立自助密码字段已删除（见 [[credential-single-source]]）。注意：桌面端同位置已新增可选的 `adapter1Account` / `adapter2Account` 适配器指定账号字段，安卓这份副本未同步——安卓 `NetworkPanel` 无入口，见下文 network/ 分叉说明。2026-09-19 双端同加夜切 2 字段 `enableNightOperatorSwitch` / `nightOperatorRestore`）
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `user` / `password` | `string` | 登录账号 / 密码（密码后端存掩码 `***`，`shared/ui-constants.ts:4`） |
-| `selfPassword` | `string` | 自助服务密码（加密落盘，前端只见掩码） |
 | `selfHelloEnabled` | `boolean` | 生物/Hello 操作验证总开关（默认 `true`） |
 | `selfReverifyEachAction` | `boolean` | 自助面板每次操作都验证（默认 `false`） |
 | `allow2dFaceVerify` | `boolean` | 2D 人脸回退开关（默认 `false`） |
@@ -255,7 +253,6 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `SwitchAccountResult` | `account/types.ts:3` | `success`、`message?`、`activeAccount?`、`config?: Config` |
 | `DeleteAccountResult` | `account/types.ts:10` | `success`、`message?`、`activeAccount?`、`config?: Config` |
 | `SaveAccountResult` | `account/types.ts:17` | `success`、`activeAccount?`、`config?`、`message?` |
-| `SelfCredState`（私有） | `account/selfServiceState.ts:14` | `account`、`password`、`setAccount`、`setPassword` |
 
 ### monitor/ 类型
 
@@ -317,8 +314,6 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `username` / `setUsername` | `string` |
 | `password` / `setPassword` / `showPassword` / `setShowPassword` | `string` / `boolean` |
 | `operator` / `setOperator` | `string` |
-| `selfAccount` / `setSelfAccount` | `string`（自助凭据，仅内存） |
-| `selfPassword` / `setSelfPassword` | `string`（同上） |
 | `bindOperatorValue` / `setBindOperatorValue` | `string` |
 | `phone` / `setPhone` | `string` |
 | `smsPassword` / `setSmsPassword` | `string` |
@@ -353,7 +348,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 账号：绑定状态查询 | `AccountPanel.tsx:265`（先过 `useHelloGate`） | 直调 | `tauriApi.ts:179` | `query_bind_status` |
 | 账号：查看运营商明文密码 | `AccountPanel.tsx:296`（`ensureRevealVerified`，`ignoreToggle`） | `useHelloGate({ignoreToggle:true})`（`AccountPanel.tsx:295`） | `tauriApi.ts:212` | `reveal_operator_credential` |
 | 账号/向导：绑定运营商 | `AccountPanel.tsx:322`；`useOnboardingFlow.ts:120` | `useHelloGate`（`AccountPanel.tsx:263`；`useOnboardingFlow.ts:71`） | `tauriApi.ts:178` | `bind_operator` |
-| 账号：清除已保存密码 | `AccountPanel.tsx:106` / `AccountPanel.tsx:115` | `saveConfigDirect({password:''}, true)` / `({selfPassword:''}, undefined, true)` | `tauriApi.ts:168` | `save_config`（`clearPassword` / `clearSelfPassword`） |
+| 账号：清除已保存密码 | `AccountPanel.tsx:100-105`（`handleClearPassword`，`:102`） | `saveConfigDirect({password:''}, true)`（凭据统一后仅登录密码一个清除动作，见 [[credential-single-source]]） | `tauriApi.ts:199` | `save_config`（`clearPassword`） |
 | 自助：查询在线信息 | `SelfServicePanel.tsx:204` | `useSelfServiceVerify`（`SelfServicePanel.tsx:141`） | `tauriApi.ts:213` | `query_self_dashboard` |
 | 自助：踢下线 | `SelfServicePanel.tsx:243` | 同上 | `tauriApi.ts:214` | `self_offline_session` |
 | 自助：使用记录查询 | `SelfServicePanel.tsx:273` | 同上 | `tauriApi.ts:215` | `query_self_online_log` |
@@ -408,9 +403,9 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 9. **`StatusBar` 的 `wasOffline` 在渲染期读 ref**：`monitor/StatusBar.tsx:42` 在 render 中读取 `prevStatusRef.current`，而该 ref 在 `useEffect`（`StatusBar.tsx:44-46`）里更新；React 严格模式下渲染可能被丢弃重放，此时基于 ref 的「刚从离线恢复」判定可能与实际提交节奏不一致（只影响 `status-enter-from-offline` 动画类，不影响状态语义）。另外手机外壳自绘 header 的状态点（`App.tsx:168-175`）与 `StatusBar` 的胶囊（`StatusBar.tsx:110-130`）是两套实现，颜色映射写了两遍。
 10. **`about` 两个弹窗重复实现同一后端链路**：`AboutDialog`（平板）与 `AboutDialogMobile`（手机）各自实现 `checkUpdate` → `getMirrorUrls` → `downloadUpdate` → `installUpdate`（`auth/AboutDialog.tsx:122-264`、`auth/AboutDialogMobile.tsx:50-110`），错误文案映射（403/404 分支）也各写一份（`auth/AboutDialog.tsx:133-137`、`auth/AboutDialogMobile.tsx:59-61`）；`AboutDialogMobile` 的镜像顺序由 `updateSource` 决定（`auth/AboutDialogMobile.tsx:79-81`），`AboutDialog` 无此逻辑（`auth/AboutDialog.tsx:253` 固定选非 GitHub 源）。
 11. **2D 人脸开关与模板的持久化不一致会产生不可达功能**：`allow2dFaceVerify` 存于后端配置，模板存于 `safeStorage`（`face/faceService.ts:20` 的 `campus-2d-face-template`）。关闭开关时前端清模板（`settings/SettingsPanel.tsx:487-489`），但若 WebView 数据被清（或换设备恢复配置），会出现 `allow2dFaceVerify = true` 而 `hasTemplate() = false`，此时 `shouldUseFaceFallback()`（`face/faceVerifyStore.ts:44-46`）返回 false，验证落到系统 `BiometricPrompt`（`tauriApi.ts:209`）——在只有 Class 1 2D 人脸的设备上该链路不可用（`face/faceService.ts:5-8` 注释说明的场景），用户无从察觉，只能去设置页重录。
-12. **自助面板的「切入自动验证」有多重前置条件，条件不全时用户看不到任何提示**：`SelfServicePanel.tsx:227-236` 要求 `configLoaded && !pwdTouchedRef.current && account.trim() && selfPasswordSaved` 才自动查询；任一不满足就静默等待手动刷新（`SelfServicePanel.tsx:313`）。其中 `configLoaded`（`useConfigStore.ts:32`）在 `getInitData` 失败降级时也置 true（`hooks/useInitialDataLoad.ts:113`），此时面板会以默认空凭据渲染而非报错。
-13. **`useSelfCardReveal` 的验证门与查看明文门是同一个状态机、但语义不同**：`auth/DashboardPanel.tsx:416-430` 走 `useHelloGate()`（默认无 `ignoreToggle`，总开关关闭时直接放行），而 `AccountPanel` 查看明文走 `useHelloGate({ignoreToggle:true})`（`account/AccountPanel.tsx:295`，总开关关闭仍强制验证）。两处「点眼睛查看」的验证强度不同，容易被误认为同一个门。
-14. **`useHelloGate` 的门是模块级单例，跨面板共享一份时间戳**：`account/selfServiceState.ts:83`（绑定门）与 `account/selfServiceState.ts:117`（自助会话门）是两个独立变量，但**绑定门只有一个**：账号面板绑定卡（`AccountPanel.tsx:263`）与两个向导（`useOnboardingFlow.ts:71`）共用 `helloGateVerifiedAt`，所以在向导里验证过一次后，账号面板的绑定/查询在 TTL 内不再验证；反之亦然。注释（`account/selfServiceState.ts:60-64`）只声明「与自助服务面板的门独立」，未声明面板与向导之间共享。
+12. **自助面板的「切入自动验证」有多重前置条件，条件不全时用户看不到任何提示**：`SelfServicePanel.tsx:139-149`（注释 `:139-143`）要求 `configLoaded && hasCred`（`config.user.trim() && passwordSaved`，`SelfServicePanel.tsx:113`）才自动查询；任一不满足就静默等待手动刷新。其中 `configLoaded`（`useConfigStore.ts`）在 `getInitData` 失败降级时也置 true（`hooks/useInitialDataLoad.ts:113`），此时面板会以默认空凭据渲染而非报错。（自动验证原有的额外前置条件已随凭据统一移除，现仅剩双状态判定，见 [[credential-single-source]]）
+13. **`useSelfCardReveal` 的验证门与查看明文门是同一个状态机、但语义不同**：`auth/DashboardPanel.tsx:312-323` 走 `useHelloGate()`（默认无 `ignoreToggle`，总开关关闭时直接放行），而 `AccountPanel` 查看明文走 `useHelloGate({ignoreToggle:true})`（`account/AccountPanel.tsx:244`，总开关关闭仍强制验证）。两处「点眼睛查看」的验证强度不同，容易被误认为同一个门。
+14. **`useHelloGate` 的门是模块级单例，跨面板共享一份时间戳**：`account/selfServiceState.ts:63`（绑定门）与 `account/selfServiceState.ts:97`（自助会话门）是两个独立变量，但**绑定门只有一个**：账号面板绑定卡（`AccountPanel.tsx:212`）与两个向导（`useOnboardingFlow.ts:70`）共用 `helloGateVerifiedAt`，所以在向导里验证过一次后，账号面板的绑定/查询在 TTL 内不再验证；反之亦然。注释（`account/selfServiceState.ts:40-47`）只声明「与自助服务面板的门独立」，未声明面板与向导之间共享。
 15. **`MonitorPanel` 与 `MobileDashboard` 对同一后台检测状态有两套展示与两套动作**：`MonitorPanel.tsx:166` 与 `MobileDashboard.tsx:102` 都调 `handleToggleBackgroundCheck`，但前者传 `intervalSec = config/1000`（`MonitorPanel.tsx:86`，可能为 60），后者传 `Math.max(5, ...)`（`MobileDashboard.tsx:85`）——从总览卡切开关会用「下限 5s 的值」覆盖配置，可能与监控页显示值不同。
 16. **`LogPanel` 的调试模式与保留天数在安卓行为依赖后端命令**：`getLogRetentionDays`/`setLogRetentionDays` 是安卓可用命令（`hooks/tauriApi.ts:283-284`），但 `AboutDialog`/`LogPanel` 之外无其他入口；`LogPanel` 的失败回滚逻辑（`shared/LogPanel.tsx:196-207`）依赖 `setLogRetentionDays` reject，若后端静默成功但未落盘则 UI 与磁盘不一致（无可验证前端的确认信号）。
 17. **`SpeedTestPanel` 的 8 个测速站是硬编码常量**：`monitor/SpeedTestPanel.tsx:28-101`，桌面端若为同一份数据，站点增删需双端各改一次（本文件在两端都是复刻副本，不属于共享 crate）。

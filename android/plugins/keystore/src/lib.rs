@@ -1,6 +1,6 @@
 #![cfg(mobile)]
 //! 移动插件:AndroidKeyStore AES-GCM 加解密原语。
-//! 用途与桌面 DPAPI 同构:password/selfPassword 落盘前加密、读出后解密,前端无感知。
+//! 用途与桌面 DPAPI 同构:password 落盘前加密、读出后解密,前端无感知。
 
 use serde::Deserialize;
 use tauri::{

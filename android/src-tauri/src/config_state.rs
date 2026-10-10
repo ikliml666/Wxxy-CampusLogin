@@ -1,5 +1,5 @@
 //! 安卓端全量配置:结构对齐桌面 config::Config 可适用子集(camelCase IPC 契约)。
-//! password/selfPassword 落盘前经 AndroidKeyStore AES-GCM 加密(替代桌面 DPAPI),
+//! password 落盘前经 AndroidKeyStore AES-GCM 加密(替代桌面 DPAPI),
 //! 出站一律掩码;空/MASK 占位符回退已存值语义与桌面 save_config 同构。
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,6 @@ pub struct Settings {
     // 账号与凭据(密码字段落盘必经加密)
     pub user: String,
     pub password: String,
-    pub self_password: String,
     pub self_hello_enabled: bool,
     pub self_reverify_each_action: bool,
     /// 2D 人脸验证开关(默认关):系统生物识别不可用且已录入人脸时,验证门回退到
@@ -120,7 +119,6 @@ impl Default for Settings {
         Self {
             user: String::new(),
             password: String::new(),
-            self_password: String::new(),
             self_hello_enabled: true,
             self_reverify_each_action: false,
             allow_2d_face_verify: false,
@@ -234,7 +232,6 @@ impl CryptoBridge {
 struct EncodedSettings {
     settings: Settings,
     password_cipher: String,
-    self_password_cipher: String,
 }
 
 pub async fn load_file(path: &Path, bridge: &CryptoBridge) -> Result<Settings, String> {
@@ -249,9 +246,6 @@ pub async fn load_file(path: &Path, bridge: &CryptoBridge) -> Result<Settings, S
     if !encoded.password_cipher.is_empty() {
         s.password = (bridge.decrypt)(&encoded.password_cipher).unwrap_or_default();
     }
-    if !encoded.self_password_cipher.is_empty() {
-        s.self_password = (bridge.decrypt)(&encoded.self_password_cipher).unwrap_or_default();
-    }
     Ok(s)
 }
 
@@ -262,7 +256,6 @@ pub async fn save_file(path: &Path, bridge: &CryptoBridge, s: &Settings) -> Resu
             .map_err(|e| format!("创建配置目录失败: {e}"))?;
     }
     let mut password_cipher = String::new();
-    let mut self_password_cipher = String::new();
     // 真机排障:加密成败打 stderr(logcat RustStdoutStderr),不打印明文/密文
     if !s.password.is_empty() {
         match (bridge.encrypt)(&s.password) {
@@ -270,16 +263,9 @@ pub async fn save_file(path: &Path, bridge: &CryptoBridge, s: &Settings) -> Resu
             Err(e) => { eprintln!("[save_config] password encrypt FAILED: {e}"); return Err(format!("password encrypt: {e}")); }
         }
     }
-    if !s.self_password.is_empty() {
-        match (bridge.encrypt)(&s.self_password) {
-            Ok(c) => { eprintln!("[save_config] selfPassword encrypt ok len={}", c.len()); self_password_cipher = c; }
-            Err(e) => { eprintln!("[save_config] selfPassword encrypt FAILED: {e}"); return Err(format!("selfPassword encrypt: {e}")); }
-        }
-    }
     let encoded = EncodedSettings {
-        settings: Settings { password: String::new(), self_password: String::new(), ..s.clone() },
+        settings: Settings { password: String::new(), ..s.clone() },
         password_cipher,
-        self_password_cipher,
     };
     let json = serde_json::to_string_pretty(&encoded).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
@@ -381,9 +367,6 @@ pub fn masked_for_display(s: &Settings) -> serde_json::Value {
     if !m.password.is_empty() {
         m.password = PASSWORD_MASK.to_string();
     }
-    if !m.self_password.is_empty() {
-        m.self_password = PASSWORD_MASK.to_string();
-    }
     serde_json::to_value(&m).unwrap_or(serde_json::Value::Null)
 }
 
@@ -428,7 +411,6 @@ pub async fn save_config(
     app: tauri::AppHandle,
     config: Settings,
     clear_password: Option<bool>,
-    clear_self_password: Option<bool>,
 ) -> Result<(), String> {
     let bridge = CryptoBridge::from_app(&app);
     let dir = app
@@ -439,11 +421,6 @@ pub async fn save_config(
     let mut merged = config;
     merged.password =
         resolve_password_field(&merged.password, &current.password, clear_password == Some(true));
-    merged.self_password = resolve_password_field(
-        &merged.self_password,
-        &current.self_password,
-        clear_self_password == Some(true),
-    );
     save_to(&dir, &bridge, &merged).await?;
     let state = app.state::<crate::android_state::AndroidState>();
     if let Ok(mut cache) = state.config.lock() {
@@ -537,7 +514,6 @@ mod tests {
         Settings {
             user: "2024001".to_string(),
             password: "secret_pass密码".to_string(),
-            self_password: "self_secret".to_string(),
             operator: "@cmcc".to_string(),
             background_check_interval: 15_000,
             ..Settings::default()
@@ -552,10 +528,8 @@ mod tests {
         save_to(&dir, &bridge, &s).await.expect("落盘应成功");
         let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
         assert!(!raw.contains("secret_pass"), "磁盘文件不得含明文密码: {raw}");
-        assert!(!raw.contains("self_secret"), "磁盘文件不得含明文自助密码: {raw}");
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.password, "secret_pass密码");
-        assert_eq!(back.self_password, "self_secret");
         assert_eq!(back.user, "2024001");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -722,7 +696,6 @@ mod tests {
     fn camelCase_序列化契约() {
         let s = sample_settings();
         let json = serde_json::to_string(&s).unwrap();
-        assert!(json.contains("\"selfPassword\""), "camelCase 契约: {json}");
         assert!(json.contains("\"backgroundCheckInterval\""));
         assert!(json.contains("\"enableNetworkNameCheck\""));
         let back: Settings = serde_json::from_str(&json).unwrap();
@@ -734,7 +707,6 @@ mod tests {
         let mut s = sample_settings();
         let v = masked_for_display(&s);
         assert_eq!(v["password"], "***");
-        assert_eq!(v["selfPassword"], "***");
         assert!(!v.to_string().contains("secret_pass"));
         s.password.clear();
         let v = masked_for_display(&s);
@@ -761,7 +733,6 @@ mod tests {
         let bridge = fake_bridge();
         let mut s = sample_settings();
         s.password.clear();
-        s.self_password.clear();
         save_to(&dir, &bridge, &s).await.unwrap();
         let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
         assert!(!raw.contains("passwordCipher") || raw.contains("\"passwordCipher\": \"\""),

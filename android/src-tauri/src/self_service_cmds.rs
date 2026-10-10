@@ -22,15 +22,16 @@ impl CommandResult {
     }
 }
 
-/// 自助密码回退:前端传 MASK/空时用已存值;两者皆无返回 None(提示输入)
+/// 自助密码回退:前端传 MASK/空时回退登录信息密码(config.password,凭据唯一源);
+/// 两者皆无返回 None(提示输入)
 fn resolve_self_password(incoming: &str, settings: &crate::config_state::Settings) -> Option<String> {
     if !incoming.is_empty() && incoming != crate::config_state::PASSWORD_MASK {
         return Some(incoming.to_string());
     }
-    if settings.self_password.is_empty() {
+    if settings.password.is_empty() {
         None
     } else {
-        Some(settings.self_password.clone())
+        Some(settings.password.clone())
     }
 }
 
@@ -275,28 +276,28 @@ pub async fn reveal_operator_credential(
 mod tests {
     use super::*;
 
-    fn settings_with_self_password(pw: &str) -> crate::config_state::Settings {
+    fn settings_with_password(pw: &str) -> crate::config_state::Settings {
         crate::config_state::Settings {
-            self_password: pw.to_string(),
+            password: pw.to_string(),
             ..Default::default()
         }
     }
 
     #[test]
     fn 自助密码回退_掩码与空回退_新值直用() {
-        let s = settings_with_self_password("stored");
+        let s = settings_with_password("stored");
         assert_eq!(resolve_self_password("***", &s), Some("stored".into()));
         assert_eq!(resolve_self_password("", &s), Some("stored".into()));
         assert_eq!(resolve_self_password("fresh", &s), Some("fresh".into()));
         // 已存为空 → None(提示输入)
-        assert_eq!(resolve_self_password("***", &settings_with_self_password("")), None);
+        assert_eq!(resolve_self_password("***", &settings_with_password("")), None);
     }
 
     #[test]
     fn 验证门_总开关关闭放行_开启走TTL() {
         crate::identity_gate::reset_for_tests();
         // 开关关 → 放行
-        let mut s = settings_with_self_password("");
+        let mut s = settings_with_password("");
         s.self_hello_enabled = false;
         assert_eq!(ensure_identity_gate(&s), None);
         // 开关开 + 未验证 → 拦截

@@ -59,15 +59,15 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | 7 | `detect_campus` | `campus_detect.rs:187` | 阶段 1 检测卡（`onCampus`/`sourceIp`/`portalReachable`/`detail`） | 无（安卓独有；前端已无调用方） |
 | 8 | `check_campus_status` | `campus_detect.rs:216` | 校园网判定（SSID 感知，`currentSsid` 名称检查开启时为真实值），形状对齐桌面 `network_cmd.rs` | `commands/network_cmd.rs::check_campus_status`（`startup.rs:71`） |
 | 8b | `request_wifi_ssid_permission` | `campus_detect.rs:248` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等；前端名称检查开关/启动后台检测时调用） | 无（安卓独有） |
-| 9 | `get_config` | `config_state.rs:297` | 读配置并刷新内存态，出站掩码（`***`） | `commands/config_cmd.rs::get_config`（`startup.rs:64`） |
-| 10 | `save_config` | `config_state.rs:312` | 写配置；密码走 Keystore 密文落盘；空/掩码回退已存值 | `commands/config_cmd.rs::save_config`（`startup.rs:66`） |
-| 11 | `verify_biometric_identity` | `self_service_cmds.rs:63` | 前端 BiometricPrompt 成功后写验证门时间戳 | `commands/self_service.rs::verify_windows_identity`（`startup.rs:113`，名字不同、语义对应） |
-| 12 | `bind_operator` | `self_service_cmds.rs:69` | 运营商绑定（设验证门） | `commands/self_service.rs::bind_operator`（`startup.rs:111`） |
+| 9 | `get_config` | `config_state.rs:395` | 读配置并刷新内存态，出站掩码（`***`） | `commands/config_cmd.rs::get_config`（`startup.rs:64`） |
+| 10 | `save_config` | `config_state.rs:410` | 写配置；密码走 Keystore 密文落盘；空/掩码回退已存值 | `commands/config_cmd.rs::save_config`（`startup.rs:66`） |
+| 11 | `verify_biometric_identity` | `self_service_cmds.rs:64` | 前端 BiometricPrompt 成功后写验证门时间戳 | `commands/self_service.rs::verify_windows_identity`（`startup.rs:113`，名字不同、语义对应） |
+| 12 | `bind_operator` | `self_service_cmds.rs:70` | 运营商绑定（设验证门） | `commands/self_service.rs::bind_operator`（`startup.rs:111`） |
 | 13 | `query_bind_status` | `self_service_cmds.rs:114` | 查询三运营商绑定状态（不设门） | `commands/self_service.rs::query_bind_status`（`startup.rs:112`） |
-| 14 | `query_self_dashboard` | `self_service_cmds.rs:146` | 在线列表 + 登录历史（不设门） | `commands/self_service.rs::query_self_dashboard`（`startup.rs:115`） |
-| 15 | `query_self_online_log` | `self_service_cmds.rs:186` | 指定日期区间在线日志（不设门） | `commands/self_service.rs::query_self_online_log`（`startup.rs:116`） |
-| 16 | `self_offline_session` | `self_service_cmds.rs:215` | 强制下线会话（设验证门） | `commands/self_service.rs::self_offline_session`（`startup.rs:117`） |
-| 17 | `reveal_operator_credential` | `self_service_cmds.rs:244` | 明文揭示手机号/短信密码（**无论开关强制验证门**） | `commands/self_service.rs::reveal_operator_credential`（`startup.rs:114`） |
+| 14 | `query_self_dashboard` | `self_service_cmds.rs:147` | 在线列表 + 登录历史（不设门） | `commands/self_service.rs::query_self_dashboard`（`startup.rs:115`） |
+| 15 | `query_self_online_log` | `self_service_cmds.rs:187` | 指定日期区间在线日志（不设门） | `commands/self_service.rs::query_self_online_log`（`startup.rs:116`） |
+| 16 | `self_offline_session` | `self_service_cmds.rs:216` | 强制下线会话（设验证门） | `commands/self_service.rs::self_offline_session`（`startup.rs:117`） |
+| 17 | `reveal_operator_credential` | `self_service_cmds.rs:245` | 明文揭示手机号/短信密码（**无论开关强制验证门**） | `commands/self_service.rs::reveal_operator_credential`（`startup.rs:114`） |
 | 18 | `list_accounts` | `account_cmds.rs:137` | 列举账号条目 `{id, displayName}`（过滤隐藏、按 id 排序；displayName 空/文件损坏兜底为 id） | `commands/account.rs::list_accounts`（`startup.rs:86`） |
 | 19 | `switch_account` | `account_cmds.rs:165` | 切换账号（合并 user/password/operator/adapter1/adapter2/dualAdapter/displayName/activeAccount；返回必带 activeAccount） | `commands/account.rs::switch_account`（`startup.rs:87`） |
 | 20 | `save_current_as_account` | `account_cmds.rs:200` | 当前配置另存为账号（保留自定义 displayName） | `commands/account.rs::save_current_as_account`（`startup.rs:89`） |
@@ -188,37 +188,37 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `struct Settings` | `config_state.rs:15-80` | 全量配置（38 字段，见下节；2026-09 新增 `display_name`，:43-46，与桌面 `Config.displayName` 同契约） |
 | `impl Default for Settings` | `config_state.rs:82-137` | 默认值（含 2026-09-09/12/13 的三次默认值调整，`campus_check_end_minutes: 1380`、`config_schema_version: 5`；`display_name` 默认空串 `:107`） |
 | `struct CryptoBridge` | `config_state.rs:141-144` | 加解密桥（`Arc<dyn Fn>` 便于 host 注入假实现） |
-| `impl CryptoBridge::from_app(app)` | `config_state.rs:146` | mobile 绑 keystore 插件；host 返回恒 Err 的实现（`config_state.rs:171-172`） |
-| `struct EncodedSettings` | `config_state.rs:182-186` | 落盘形态：`settings` + `passwordCipher` + `selfPasswordCipher`（账号文件同构，displayName 嵌在 `settings.displayName`） |
-| `pub async fn load_file(path, bridge)` | `config_state.rs:188` | 文件缺失 → `Settings::default()`；解密失败置空继续（`config_state.rs:197-201`） |
-| `pub async fn save_file(path, bridge, s)` | `config_state.rs:206` | 加密两密码 → `Settings` 内密码清空 → tmp + rename 原子写；**加密失败直接 Err 不落明文**（`config_state.rs:218`、`:224`） |
-| `pub async fn load_from(dir, bridge)` | `config_state.rs:239` | `load_file` + 迁移 |
-| `async fn migrate_legacy_defaults(dir, bridge, s)` | `config_state.rs:258` | schema v0→v3、v3→v4、v4→v5 一次性迁移并落盘（v4→v5：`campus_check_end_minutes` 旧默认 0 → 1380，`config_state.rs:283-287`）；`displayName` 新增未升版本（serde default 兼容） |
-| `pub async fn save_to(dir, bridge, s)` | `config_state.rs:292` | 写 `dir/config.json` |
-| `pub fn masked_for_display(s) -> serde_json::Value` | `config_state.rs:297` | 非空密码 → `***`；唯一出站出口 |
-| `pub fn resolve_password_field(incoming, current, clear) -> String` | `config_state.rs:309` | 空/掩码保留已存值，`clear` 显式清除 |
-| `#[tauri::command] get_config` | `config_state.rs:321` | 读盘 + 刷内存态 + 掩码出站 |
-| `#[tauri::command] save_config` | `config_state.rs:336` | 读当前 → 合并密码 → 落盘 → 刷内存态（**不联动后台/质量循环起停**，见 Known Issues）→ **落盘成功后 `auto_create_account_for_current` 自动建号/同步账号档案**（`config_state.rs:363`，失败仅告警；只调底层 `save_file` 不经命令层，无递归风险） |
-| `pub async fn current_settings(app) -> Result<Settings, String>` | `config_state.rs:366` | 缓存优先，未命中读盘（仍带 `#[allow(dead_code)] // Task 2 协议命令面接线` 陈旧标注） |
+| `impl CryptoBridge::from_app(app)` | `config_state.rs:197` | mobile 绑 keystore 插件；host 返回恒 Err 的实现 |
+| `struct EncodedSettings` | `config_state.rs:232-235` | 落盘形态：`settings` + `passwordCipher` 双字段（凭据统一后仅剩登录密码一个密文位；账号文件同构，displayName 嵌在 `settings.displayName`，见 [[credential-single-source]]） |
+| `pub async fn load_file(path, bridge)` | `config_state.rs:237` | 文件缺失 → `Settings::default()`；解密失败置空继续（`config_state.rs:243-248`） |
+| `pub async fn save_file(path, bridge, s)` | `config_state.rs:252` | 加密密码 → `Settings` 内密码清空 → tmp + rename 原子写；**加密失败直接 Err 不落明文**（`config_state.rs:259-264`、体内置空 `:267`） |
+| `pub async fn load_from(dir, bridge)` | `config_state.rs:277` | `load_file` + 迁移 |
+| `async fn migrate_legacy_defaults(dir, bridge, s)` | `config_state.rs:306` | schema v0→v3、v3→v4、v4→v5 一次性迁移并落盘（v4→v5：`campus_check_end_minutes` 旧默认 0 → 1380）；`displayName` 新增未升版本（serde default 兼容） |
+| `pub async fn save_to(dir, bridge, s)` | `config_state.rs:360` | 写 `dir/config.json` |
+| `pub fn masked_for_display(s) -> serde_json::Value` | `config_state.rs:365` | 非空密码 → `***`；唯一出站出口 |
+| `pub fn resolve_password_field(incoming, current, clear) -> String` | `config_state.rs:383` | 空/掩码保留已存值，`clear` 显式清除 |
+| `#[tauri::command] get_config` | `config_state.rs:395` | 读盘 + 刷内存态 + 掩码出站 |
+| `#[tauri::command] save_config` | `config_state.rs:410` | 读当前 → 单密码三态合并 → 落盘 → 刷内存态（**不联动后台/质量循环起停**，见 Known Issues）→ **落盘成功后 `auto_create_account_for_current` 自动建号/同步账号档案**（失败仅告警；只调底层 `save_file` 不经命令层，无递归风险） |
+| `pub async fn current_settings(app) -> Result<Settings, String>` | `config_state.rs:440` | 缓存优先，未命中读盘（仍带 `#[allow(dead_code)] // Task 2 协议命令面接线` 陈旧标注） |
 
 #### self_service_cmds.rs（318 行）
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `struct CommandResult` | `self_service_cmds.rs:7-14` | `{success, message?, data?}`（`skip_serializing_if`） |
-| `impl CommandResult::{ok_msg, err}` | `self_service_cmds.rs:17`、`:20` | 构造器 |
-| `fn resolve_self_password(incoming, settings) -> Option<String>` | `self_service_cmds.rs:26` | 空/`***` 回退 `self_password`，皆无返回 None |
-| `fn ensure_identity_gate(settings) -> Option<String>` | `self_service_cmds.rs:38` | `self_hello_enabled=false` 放行；否则要求 TTL 内已验证 |
-| `async fn load_settings(app)` | `self_service_cmds.rs:49` | 包装 `current_settings` |
-| `fn local_addr_of(state) -> Option<IpAddr>` | `self_service_cmds.rs:53` | 缓存源 IP → `IpAddr` |
-| `#[tauri::command] verify_biometric_identity` | `self_service_cmds.rs:63` | 写 TTL 时间戳（`_consent_message` 不收） |
-| `#[tauri::command] bind_operator` | `self_service_cmds.rs:69` | 校验学号/11 位手机号/短信密码 → 设门 → 调桌面 `self_service::bind_operator` |
-| `#[tauri::command] query_bind_status` | `self_service_cmds.rs:114` | 三运营商结果转 `{cmcc,telecom,unicom}` JSON（`self_service_cmds.rs:130-138`） |
-| `#[tauri::command] query_self_dashboard` | `self_service_cmds.rs:146` | 返回 `{onlineList, loginHistory}` |
-| `fn is_iso_date(s) -> bool` | `self_service_cmds.rs:171` | `YYYY-MM-DD` 严格校验（桌面同构） |
-| `#[tauri::command] query_self_online_log` | `self_service_cmds.rs:186` | 日期格式与顺序校验后调协议 |
-| `#[tauri::command] self_offline_session` | `self_service_cmds.rs:215` | 设门 + `session_id` 非空校验 |
-| `#[tauri::command] reveal_operator_credential` | `self_service_cmds.rs:244` | 无条件验门（`self_service_cmds.rs:257-259`） |
+| `struct CommandResult` | `self_service_cmds.rs:8-15` | `{success, message?, data?}`（`skip_serializing_if`） |
+| `impl CommandResult::{ok_msg, err}` | `self_service_cmds.rs:18`、`:21` | 构造器 |
+| `fn resolve_self_password(incoming, settings) -> Option<String>` | `self_service_cmds.rs:27-36` | 空/`***` 回退已保存登录密码（`settings.password`，注释 `:25-26`），皆无返回 None；函数名沿用历史、回退源已随凭据统一切换（见 [[credential-single-source]]） |
+| `fn ensure_identity_gate(settings) -> Option<String>` | `self_service_cmds.rs:39-48` | `self_hello_enabled=false` 放行；否则要求 TTL 内已验证 |
+| `async fn load_settings(app)` | `self_service_cmds.rs:50` | 包装 `current_settings` |
+| `fn local_addr_of(state) -> Option<IpAddr>` | `self_service_cmds.rs:54` | 缓存源 IP → `IpAddr` |
+| `#[tauri::command] verify_biometric_identity` | `self_service_cmds.rs:64` | 写 TTL 时间戳（`_consent_message` 不收） |
+| `#[tauri::command] bind_operator` | `self_service_cmds.rs:70` | 校验学号/11 位手机号/短信密码 → 设门 → 调桌面 `self_service::bind_operator` |
+| `#[tauri::command] query_bind_status` | `self_service_cmds.rs:115` | 三运营商结果转 `{cmcc,telecom,unicom}` JSON（`self_service_cmds.rs:131-139`） |
+| `#[tauri::command] query_self_dashboard` | `self_service_cmds.rs:147` | 返回 `{onlineList, loginHistory}` |
+| `fn is_iso_date(s) -> bool` | `self_service_cmds.rs:172` | `YYYY-MM-DD` 严格校验（桌面同构） |
+| `#[tauri::command] query_self_online_log` | `self_service_cmds.rs:187` | 日期格式与顺序校验后调协议 |
+| `#[tauri::command] self_offline_session` | `self_service_cmds.rs:216` | 设门 + `session_id` 非空校验 |
+| `#[tauri::command] reveal_operator_credential` | `self_service_cmds.rs:245` | 无条件验门（`self_service_cmds.rs:258-260`） |
 
 #### account_cmds.rs（470 行，2026-09 扩展为与桌面 `commands/account.rs` 同构的 7 条命令 + 自动建号）
 
@@ -388,7 +388,6 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 |--------------|------|---------------|
 | `user` | `String` | 学号（默认空） |
 | `password` | `String` | 登录密码（内存明文，落盘为密文） |
-| `self_password` | `String` | 自助服务系统密码（同上） |
 | `self_hello_enabled` | `bool` | 生物识别验证门总开关（默认 `true`） |
 | `self_reverify_each_action` | `bool` | 每动作重验证（默认 `false`） |
 | `allow_2d_face_verify` | `bool` | 2D 人脸回退（低安全，默认 `false`，注释见 `config_state.rs:22-23`） |
@@ -436,13 +435,12 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `encrypt` | `Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>` | 明文 → 密文（真机为 Keystore AES-GCM，host 测试为 base64 假桥） |
 | `decrypt` | `Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>` | 密文 → 明文 |
 
-### `EncodedSettings`（`config_state.rs:168-172`，落盘形态）
+### `EncodedSettings`（`config_state.rs:232-235`，落盘形态）
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
-| `settings` | `Settings` | 其余配置（其内 `password`/`self_password` 恒为空串，见 `config_state.rs:214`） |
+| `settings` | `Settings` | 其余配置（其内 `password` 恒为空串——凭据统一后唯一密码字段，见 `config_state.rs:267` 与 [[credential-single-source]]） |
 | `password_cipher` | `String` | 登录密码密文（camelCase `passwordCipher`） |
-| `self_password_cipher` | `String` | 自助密码密文（camelCase `selfPasswordCipher`） |
 
 ### `LoginHistoryEntry`（`login_history.rs:12-21`）
 
@@ -549,7 +547,7 @@ tauri-app/src-tauri/src/lib.rs:11-20  #[cfg(desktop)] 门控：app / commands / 
 
 | 能力 | 实现位置 | 关键点 |
 |------|----------|--------|
-| Keystore 加密落盘 | `config_state.rs:192-223` + keystore 插件 | 桌面用 DPAPI，安卓用 AndroidKeyStore AES-GCM；加密失败 Err、解密失败置空 |
+| Keystore 加密落盘 | `config_state.rs:252-273` + keystore 插件 | 桌面用 DPAPI，安卓用 AndroidKeyStore AES-GCM；加密失败 Err、解密失败置空 |
 | 进程绑 WiFi | `protocol_cmds.rs:220-279` + network-bind 插件 | `bindProcessToNetwork` 进程级 fwmark；`already_bound` 时不清客户端池 |
 | 前台服务保活 | `monitor_loop.rs:166-207` + foreground-service 插件 | 常驻通知；WifiLock/WakeLock 改为探针窗口内按需持有（`begin_probe_window`/`end_probe_window`，见下行），nudge 唤醒锁按关注字段翻转去重 |
 | 探针窗口锁 | `monitor_loop.rs:505-514`、`:719-724` | `ProbeWindowGuard` Drop 必释放 |
@@ -619,22 +617,22 @@ invoke do_login{user,password,operator,adapter}
  → 成功：consecutive_failures=0、logout_protected_until_ms=0
 ```
 
-**配置读写（`config_state.rs:297` / `:312`）**
+**配置读写（`config_state.rs:395` / `:410-453`）**
 
 ```text
-save_config{config,clearPassword?,clearSelfPassword?}
- → load_from（含迁移）→ resolve_password_field 合并两密码
- → save_to → save_file：encrypt(password) / encrypt(selfPassword)（失败即 Err 不落明文）
+save_config{config,clearPassword?}
+ → load_from（含迁移）→ resolve_password_field 单密码三态解析
+ → save_to → save_file：encrypt(password)（失败即 Err 不落明文）
  → Settings 内密码清空 + 密文位 → tmp + rename
  → AndroidState.config 内存态刷新
-出站：masked_for_display（password/selfPassword 非空 → "***"）
+出站：masked_for_display（password 非空 → "***"）
 ```
 
 **监控状态迁移（`monitor_loop.rs`）**
 
 ```text
 未验证 → identity_verified_recently=false → reveal/bind/offline 被拦
-         verify_biometric_identity（self_service_cmds.rs:63）→ 写时间戳 → TTL 600s 内放行
+         verify_biometric_identity（self_service_cmds.rs:64）→ 写时间戳 → TTL 600s 内放行
 在线 ←(Portal 确定判定)→ 掉线：清 reconnect_count；was_online→false
 掉线 → 自动重连：reconnect_count++（达 max_disconnect_reconnect 通知上限）
      → 连续失败 ≥5 熔断；手动登录成功（protocol_cmds.rs:51-55）清零熔断与保护期
@@ -663,8 +661,8 @@ save_config{config,clearPassword?,clearSelfPassword?}
 
 ## Known Issues
 
-1. **配置保存不联动循环起停**：`save_config`（`config_state.rs:336-366`）只落盘与刷内存态，不根据 `enable_background_check`/`enable_latency_test` 调用 `start/stop_background_check`、`start/stop_latency_test`。用户关掉开关后循环是否停止完全依赖前端另行发起命令（`android/frontend/src/hooks/tauriApi.ts:230-240` 提供了对应封装，但后端无兜底），后端层面存在"配置关、循环仍在跑"的窗口。
-2. **`config_io_lock` 覆盖不全**：锁在 `account_cmds.rs:17/21` 定义，`switch_account`/`save_current_as_account`/`delete_account`/`rename_account`（`account_cmds.rs` 各命令入口）、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）有取锁，但 **`save_config`（`config_state.rs:336`）完全没取锁**——正是注释里点名的并发读改写竞态对象之一；其落盘后的自动建号（`config_state.rs:363`）也在锁外，靠 `save_file` 原子写兜底。
+1. **配置保存不联动循环起停**：`save_config`（`config_state.rs:410-453`）只落盘与刷内存态，不根据 `enable_background_check`/`enable_latency_test` 调用 `start/stop_background_check`、`start/stop_latency_test`。用户关掉开关后循环是否停止完全依赖前端另行发起命令（`android/frontend/src/hooks/tauriApi.ts:230-240` 提供了对应封装，但后端无兜底），后端层面存在"配置关、循环仍在跑"的窗口。
+2. **`config_io_lock` 覆盖不全**：锁在 `account_cmds.rs:17/21` 定义，`switch_account`/`save_current_as_account`/`delete_account`/`rename_account`（`account_cmds.rs` 各命令入口）、`set_boot_autostart`（`monitor_loop.rs:337`）、`set_notification_enabled`（`monitor_loop.rs:361`）有取锁，但 **`save_config`（`config_state.rs:410`）完全没取锁**——正是注释里点名的并发读改写竞态对象之一；其落盘后的自动建号也在锁外，靠 `save_file` 原子写兜底。
 3. **`detect_campus` 已成死命令**：`campus_detect.rs:122` 注释称"前端旧 UI 仍在用"，但安卓前端全仓（`android/frontend/src/`）已无 `detect_campus`、`accept_wifi_network`、`ping_test` 的调用点（grep 仅命中 `set_boot_autostart`），三个命令与注释均属陈旧残留。
 4. **`UPDATE_CHECKSUM` 与下载目标未绑定**：校验值在 `check_update_inner`（`update_cmds.rs:221-223`）写入全局静态，`download_update`（`update_cmds.rs:364-370`）读取时**不校验该值属于哪个版本/资产**；前端若先手动 `check_update` 再下载其他 URL（或反过来先用旧校验值下载新包），要么误杀要么放行；校验值缺失时 fail-open（跳过校验）。
 5. **下载校验 fail-open**：`verify_file_sha256`（`update_cmds.rs:384-386`）在期望值不是 64 位 hex 时返回 `true`（视为未提供）；`update_cmds.rs:365` 的 `if let Some(expected)` 在 `None` 时直接跳过校验。发布流程未补 `digest` 时下载链路无完整性保护。
@@ -675,8 +673,8 @@ save_config{config,clearPassword?,clearSelfPassword?}
 10. **`gateway_ok` 采用同端口语义**：网关 TCP 探测复用 `PORTAL_PORT = 80`（`campus_detect.rs:88`），网关不监听 80 的校园网环境下该兜底恒 false。
 11. **写历史的同步 IO 在 async 上下文**：`do_login`（`protocol_cmds.rs:48`）与 `do_logout`（`protocol_cmds.rs:122`）、`run_check_once`（`monitor_loop.rs:816`）直接在 async 任务里调用 `login_history::append`（内部 `std::fs` 同步读写，`login_history.rs:73-74`）。文件小、有 `LOGIN_HISTORY_LOCK` 串行，影响有限但会短时占用 async 线程。
 12. **`identity_gate` 用进程级静态**：`LAST_VERIFY_EPOCH_SECS`（`identity_gate.rs:6`）是全局静态而非 `AppHandle` 状态，验证门与"哪个 app 实例"无关；当前单实例架构下无问题，与桌面 `platform/identity.rs` 的实现选择一致。
-13. **陈旧 `#[allow(dead_code)]` 与注释**：`config_state.rs:359` 标 `#[allow(dead_code)] // Task 2 协议命令面接线`，但 `current_settings` 已被全部命令使用；`monitor_loop.rs:16/77/124` 标注 `// Task 4 循环体接线`，而循环体早已接线（`monitor_loop.rs:798` 调用 `should_attempt_login`）。`android_state.rs:1` 与 `lib.rs:8` 注释称 `AndroidState` 含"监控循环句柄"，实际只有两个字段（`android_state.rs:10-12`）——监控状态在 `monitor_loop.rs:12` 的 `MONITOR` 静态里。
+13. **陈旧 `#[allow(dead_code)]` 与注释**：`config_state.rs:439` 标 `#[allow(dead_code)] // Task 2 协议命令面接线`，但 `current_settings` 已被全部命令使用；`monitor_loop.rs:16/77/124` 标注 `// Task 4 循环体接线`，而循环体早已接线（`monitor_loop.rs:798` 调用 `should_attempt_login`）。`android_state.rs:1` 与 `lib.rs:8` 注释称 `AndroidState` 含"监控循环句柄"，实际只有两个字段（`android_state.rs:10-12`）——监控状态在 `monitor_loop.rs:12` 的 `MONITOR` 静态里。
 14. **`get_power_state` 查询失败按保守值**：`monitor_loop.rs:517-525` 失败回落 `(true, true)` 即"亮屏 + WiFi"，会持续按基础间隔巡检（源码注释说明这是刻意取舍：省电是优化、漏检是缺陷）。
 15. **`start_latency_test` 与 `check_network_quality` 共用全局标志**：`LATENCY_RUNNING`（`quality_cmds.rs:12`）是进程级 `static`，`stop_latency_test`（`quality_cmds.rs:56`）无 `app` 参数——多 app 实例/多 webview 场景下无法区分调用方；当前单实例架构下可接受。
 16. **前台服务启动失败已正确处理但顺序敏感**：`start_background_check`（`monitor_loop.rs:178-189`）先起 FGS 成功后才置 `running=true`，属刻意设计；但 `MONITOR.running` 与插件服务的状态在进程被杀后不同步恢复，只能靠 `run_startup_tasks`（`monitor_loop.rs:387`）重新对齐。
-17. **host 环境多处命令返回 `Err`**：`battery_cmds.rs:39/59/79`、`protocol_cmds.rs:186/204` 在 `not(mobile)` 分支返回错误字符串；`CryptoBridge::from_app` 在 host 下加解密恒失败（`config_state.rs:166-167`），host 上跑测试必须注入假桥（`config_state.rs:385`）。
+17. **host 环境多处命令返回 `Err`**：`battery_cmds.rs:39/59/79`、`protocol_cmds.rs:186/204` 在 `not(mobile)` 分支返回错误字符串；`CryptoBridge::from_app` 在 host 下加解密恒失败（`config_state.rs:197`），host 上跑测试必须注入假桥（`config_state.rs:461`，`fake_bridge:465`）。

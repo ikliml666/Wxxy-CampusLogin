@@ -46,9 +46,9 @@ pub struct Config {
 | 类别 | 字段 | 说明 |
 |---|---|---|
 | 必需（无 `default`，缺即整体失败但被容器级 default 兜住） | `user` `operator` `adapter1` `adapter2` `dual_adapter` `auto_login_on_start` `auto_exit_after_login` `minimize_to_tray` `hidden_start` `auto_launch` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `auto_exit_on_online` `theme_mode` `enable_notification` `active_account` `enable_latency_test` `latency_test_interval` `custom_theme_color` `default_panel` `enable_network_quality` | 走容器级 `Default` |
-| 字段级 `default = "fn"` | `password` `self_password` `self_hello_enabled`(`default_true`) `self_reverify_each_action` `skip_ttfb_in_latency`(`true`) `skip_content_in_latency`(`true`) `portal_url` `fixed_gateway` `required_network_name`(+`deserialize_with`) `enable_network_name_check`(`true`) `campus_gateway`(+`deserialize_with`) `update_source` `campus_exit_on_fail`(`true`) `campus_exit_start_minutes`(480) `campus_exit_end_minutes`(1380) `campus_check_start_minutes`(460, `alias = "campusCheckStartHour"`) `campus_check_end_minutes`(1380，2026-09-13 起旧默认 0 由 v2→v3 迁移刷新) `log_retention_days`(7) `max_disconnect_reconnect`(3) `auto_login_cooldown_secs`(60) `skip_sha256_when_missing` `config_version`(0→Default 里为 3) | 逐字段兜底 |
+| 字段级 `default = "fn"` | `password` `self_hello_enabled`(`default_true`) `self_reverify_each_action` `skip_ttfb_in_latency`(`true`) `skip_content_in_latency`(`true`) `portal_url` `fixed_gateway` `required_network_name`(+`deserialize_with`) `enable_network_name_check`(`true`) `campus_gateway`(+`deserialize_with`) `update_source` `campus_exit_on_fail`(`true`) `campus_exit_start_minutes`(480) `campus_exit_end_minutes`(1380) `campus_check_start_minutes`(460, `alias = "campusCheckStartHour"`) `campus_check_end_minutes`(1380，2026-09-13 起旧默认 0 由 v2→v3 迁移刷新) `log_retention_days`(7) `max_disconnect_reconnect`(3) `auto_login_cooldown_secs`(60) `skip_sha256_when_missing` `config_version`(0→Default 里为 3) | 逐字段兜底 |
 
-命名契约：Rust snake_case + `#[serde(rename = "camelCase")]`，与前端 TS 类型逐字对应（例：`self_password` → `selfPassword`、`background_check_interval` → `backgroundCheckInterval`、`campus_check_start_minutes` → `campusCheckStartMinutes`）。
+命名契约：Rust snake_case + `#[serde(rename = "camelCase")]`，与前端 TS 类型逐字对应（例：`self_hello_enabled` → `selfHelloEnabled`、`background_check_interval` → `backgroundCheckInterval`、`campus_check_start_minutes` → `campusCheckStartMinutes`）。历史独立自助密码字段（双端）已随凭据统一删除（见 [[credential-single-source]]）。
 
 特殊反序列化：`deserialize_non_empty_or`（`model.rs:106-116`）用于 `required_network_name` 与 `campus_gateway`——空串回退默认值（`i-wxxy` / `10.2.127.254`）。
 
@@ -71,7 +71,7 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
 
 | 文件 | 路径函数 | 内容 |
 |---|---|---|
-| 主配置 | `get_config_path` → `<data>/config.json`（`persist.rs:60-62`） | `Config` JSON，`password` / `selfPassword` 为 DPAPI 密文（base64） |
+| 主配置 | `get_config_path` → `<data>/config.json`（`persist.rs:60-62`） | `Config` JSON，`password` 为 DPAPI 密文（base64） |
 | 账号 | `get_accounts_dir` → `<data>/accounts/<id>.json`（`persist.rs:64-66`、`get_account_path` `:69-72`） | 与主配置同格式的扁平 `Config`（id = 文件名 stem）；密码密文 |
 | 登录历史 | `get_login_history_path` → `<data>/login-history.json`（`persist.rs:156-158`） | JSON 数组，头插，**上限 100 条**（`:202-204`） |
 
@@ -107,29 +107,28 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
 
 ```text
 启动：app/startup.rs:158-163
-  → commands/config_cmd.rs:55-78  load_config_from_disk_or_default
-       → load_config_from_file（:20-53）
+  → commands/config_cmd.rs:43-62  load_config_from_disk_or_default
+       → load_config_from_file（:17）
             ├─ 文件不存在 → Config::default()（:23-25）
             ├─ serde_json 解析
-            ├─ password != 空/非 "***" → crypto::decrypt，失败仅清空该字段（:31-40）
-            ├─ self_password 同规则（:42-50）
-            └─ 解析/解密异常 → 原文件备份为 config.json.corrupt-<秒级时间戳>.bak 后返回默认（:59-76）
-       → validate_config_lenient（:57）
+            ├─ password != 空/非 "***" → crypto::decrypt，失败仅清空该字段（:28-33）
+            └─ 解析/解密异常 → 原文件备份为 config.json.corrupt-<秒级时间戳>.bak 后返回默认（:46-62）
+       → validate_config_lenient（:45）
   → state.config.store(config)（startup.rs:176）
   → network::update_portal_url + logger::set_log_retention_days（startup.rs:177-181）
 
-保存：commands/config_cmd.rs:210-266  save_config
+保存：commands/config_cmd.rs:201-247  save_config
   → validate_config（严格）
-  → clear_password / 空串 / "***" 三态处理（:227-241）
-  → network::update_portal_url（:245） + logger::set_log_retention_days（:248）
+  → clear_password / 空串 / "***" 三态处理（:217-222）
+  → network::update_portal_url + logger::set_log_retention_days（同步全局态）
   → save_config_to_disk_encrypted（wrapper：persist::save_config_and_broadcast + 刷托盘）
-  → state.config.store（内存）（:255）
-  → auto_create_account_for_current 自动建号/同步账号档案，实际写盘时补刷托盘（:258-265）
+  → state.config.store（内存）
+  → auto_create_account_for_current 自动建号/同步账号档案，实际写盘时补刷托盘（:242-243）
 ```
 
-顺序上"先落盘再更新内存"（`:256-257` 注释）：磁盘失败时命令返回 Err 且运行态不变，避免"保存失败但内存已生效、重启后回退"的错位。
+顺序上"先落盘再更新内存"（`config_cmd.rs` save_config 内注释）：磁盘失败时命令返回 Err 且运行态不变，避免"保存失败但内存已生效、重启后回退"的错位。
 
-配置写入的公共出口下沉为 `persist::save_config_and_broadcast`（`config/persist.rs:283-291`），职责有二：① `get_data_dir` + `persist::save_config_to_disk_encrypted` 加密切片落盘；② 掩码后广播 `config-changed`。它**不刷托盘**——托盘刷新仅依赖 user/active_account，而监控层写路径只改出站快照/运营商/巡检间隔。`commands::config_cmd::save_config_to_disk_encrypted`（`:7-14`）在其上加托盘刷新，供命令面使用；监控层（`monitor/background_task.rs`、`monitor/scheduled.rs` ×4）直接调 persist 出口，不再反向 import commands。命令面调用方覆盖：`save_config`、`switch_account`（`account.rs:56`）、`save_current_as_account`（`:174`）、`delete_account`（`:244`）、`rename_account`（仅激活账号被改名，`:303`）、`set_auto_launch`（`system.rs:61`）、`set_notification_enabled`（`system.rs:84`）、`start_background_check_inner`（`background_task.rs:55`，经 persist 出口）、`stop_background_check`（`commands/background.rs:20`）等。自动建号与"非激活账号改名"只写账号档案文件（`persist::save_account_config`），不经此出口。
+配置写入的公共出口下沉为 `persist::save_config_and_broadcast`（`config/persist.rs:282` 起），职责有二：① `get_data_dir` + `persist::save_config_to_disk_encrypted` 加密切片落盘；② 掩码后广播 `config-changed`。它**不刷托盘**——托盘刷新仅依赖 user/active_account，而监控层写路径只改出站快照/运营商/巡检间隔。`commands::config_cmd::save_config_to_disk_encrypted`（`:8`）在其上加托盘刷新，供命令面使用；监控层（`monitor/background_task.rs`、`monitor/scheduled.rs` ×4）直接调 persist 出口，不再反向 import commands。命令面调用方覆盖：`save_config`、`switch_account`（`account.rs:56`）、`save_current_as_account`（`:174`）、`delete_account`（`:244`）、`rename_account`（仅激活账号被改名，`:303`）、`set_auto_launch`（`system.rs:61`）、`set_notification_enabled`（`system.rs:84`）、`start_background_check_inner`（`background_task.rs:55`，经 persist 出口）、`stop_background_check`（`commands/background.rs:20`）等。自动建号与"非激活账号改名"只写账号档案文件（`persist::save_account_config`），不经此出口。
 
 ### 账号与登录历史存储
 
@@ -140,7 +139,7 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
 - `rename_account`（`:267-283`）：只改账号档案 `displayName`；激活账号被改名时同步主配置并经公共出口落盘（`:303`）。
 - `save_current_as_account`（`:82-214`）：先把上一个 active 账号的登录字段回写（经 `persist::{load_account_config,save_account_config}`，保留该账号文件里已有的主题等非登录字段与自定义 displayName），再写当前账号；最后持久化 `active_account`。
 - `delete_account`（`:216-259`）：删文件；若删的是当前账号则清 `active_account` 并持久化 + 广播（`:241-246`，注释记录"仅内存更新不落盘，重启后仍指向已删除账号"的历史缺陷）。
-- **自动建号（R2）**：`save_config` 落盘成功后 `auto_create_account_for_current`（`config_cmd.rs:258-265` → `account.rs:363`/`:386`）：输入了 user+password 即自动创建/同步同名账号档案（id=sanitize(user)、幂等短路、撞库跳过、保留自定义 displayName），失败仅告警，实际写盘时补刷托盘菜单。契约见 [[account-display-name-id-separation]]。
+- **自动建号（R2）**：`save_config` 落盘成功后 `auto_create_account_for_current`（`config_cmd.rs:242-243` → `account.rs:363`/`:386`）：输入了 user+password 即自动创建/同步同名账号档案（id=sanitize(user)、幂等短路、撞库跳过、保留自定义 displayName），失败仅告警，实际写盘时补刷托盘菜单。契约见 [[account-display-name-id-separation]]。
 - 账号文件格式 = 扁平 `Config`（`model.rs`），因此也带全部 49 字段与容器级 default。
 
 **安卓**（`android/src-tauri/src/account_cmds.rs`）：
@@ -167,19 +166,18 @@ let _ = std::fs::remove_file(&tmp_path); Err("重命名临时文件失败（重�
 | `campus_exit_on_fail` `campus_exit_start_minutes` `campus_exit_end_minutes` | |
 | `skip_sha256_when_missing` `config_version` | |
 
-共有（命名一致）：`password` `self_password` `self_hello_enabled` `self_reverify_each_action` `operator` `auto_login_on_start` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `max_disconnect_reconnect` `auto_login_cooldown_secs` `theme_mode` `enable_notification` `custom_theme_color` `default_panel` `display_name` `active_account` `enable_latency_test` `latency_test_interval` `enable_network_quality` `skip_ttfb_in_latency` `skip_content_in_latency` `portal_url` `fixed_gateway` `required_network_name` `enable_network_name_check` `campus_gateway` `campus_check_start_minutes` `campus_check_end_minutes` `scheduled_login_minutes` `scheduled_logout_minutes` `update_source` `log_retention_days` `user`。
+共有（命名一致）：`password` `self_hello_enabled` `self_reverify_each_action` `operator` `auto_login_on_start` `enable_background_check` `background_check_interval` `auto_login_on_preparation` `max_disconnect_reconnect` `auto_login_cooldown_secs` `theme_mode` `enable_notification` `custom_theme_color` `default_panel` `display_name` `active_account` `enable_latency_test` `latency_test_interval` `enable_network_quality` `skip_ttfb_in_latency` `skip_content_in_latency` `portal_url` `fixed_gateway` `required_network_name` `enable_network_name_check` `campus_gateway` `campus_check_start_minutes` `campus_check_end_minutes` `scheduled_login_minutes` `scheduled_logout_minutes` `update_source` `log_retention_days` `user`（历史共有的独立自助密码字段已随凭据统一双端删除，见 [[credential-single-source]]）。
 
-**磁盘格式 `EncodedSettings`**（`:176-180`）：
+**磁盘格式 `EncodedSettings`**（`:232-235`）：
 
 ```rust
 struct EncodedSettings {
-    settings: Settings,            // password / self_password 已被置空
+    settings: Settings,            // password 已被置空
     password_cipher: String,
-    self_password_cipher: String,
 }
 ```
 
-`save_file`（`:200-231`）加密后构造（`:221-225`），写 `.json.tmp` 再 rename（`:227-229`），**没有 `sync_all`、没有 rename 重试、tmp 名固定**——并发保护靠调用方的 `CONFIG_IO_LOCK`。空密码不产生密文位（回归测试 `空密码不写密文位` `:597`）。
+`save_file`（`:252-273`）加密后构造（`:266-269`），写 `.json.tmp` 再 rename（save_file 尾部），**没有 `sync_all`、没有 rename 重试、tmp 名固定**——并发保护靠调用方的 `CONFIG_IO_LOCK`。空密码不产生密文位（回归测试 `空密码不写密文位` `:731-740`）。
 
 **安卓迁移**（`migrate_legacy_defaults` `:252-283`，由 `load_from` `:233` 调用）：
 
@@ -198,10 +196,10 @@ struct EncodedSettings {
 
 ```text
 任意写配置路径
-  → commands::config_cmd::save_config_to_disk_encrypted（wrapper，:7-14）
-    → persist::save_config_and_broadcast（config/persist.rs:283-291，监控层共用出口）
+  → commands::config_cmd::save_config_to_disk_encrypted（wrapper，:8）
+    → persist::save_config_and_broadcast（config/persist.rs:282 起，监控层共用出口）
       → 加密落盘（save_config_to_disk_encrypted）
-      → app_handle.notify_config_changed(config.masked_for_display())  persist.rs:289
+      → app_handle.notify_config_changed(config.masked_for_display())  persist.rs:288
     → tray::refresh_tray_menu_state（仅命令面补刷；监控层路径无此步）
       → EventBus.emit_config_changed("config-changed")               infra/events.rs:107-109
         → 前端 api.onConfigChanged                                   hooks/tauriApi.ts:203
@@ -219,9 +217,9 @@ struct EncodedSettings {
 | 脏字段失败放弃阈值 | `DIRTY_FAILURE_LIMIT = 3`（`:24`，计数逻辑 `:150-160`） |
 | 重试封装 | 只有 `saveConfig` 包 `withRetry`（2 次，500ms 起指数退避）（`hooks/tauriApi.ts:237-261`） |
 | 关窗等待 | `flushPendingConfig` + `Promise.race` 最多 2000 ms（`hooks/useEventListeners.ts:50-75`） |
-| 启动首载 | `useInitialDataLoad.ts:34` `api.getInitData()`；`password === PASSWORD_MASK` → `syncPasswordSaved(true)`（`:37-44`） |
+| 启动首载 | `useInitialDataLoad.ts:34` `api.getInitData()`；`password === PASSWORD_MASK` → `syncPasswordSaved(true)`（`:38`） |
 
-**安卓（返回值驱动）**：`save_config` 返回 `Result<(), String>`（`config_state.rs:311-338`），不发事件；账号三命令返回 `AccountResult { success, message, activeAccount, config }`（`account_cmds.rs:25-47`），`config` 为 `masked_for_display` 后的 JSON（`:111`）——前端拿返回值直接替换本地配置。
+**安卓（返回值驱动）**：`save_config` 返回 `Result<(), String>`（`config_state.rs:410-453`），不发事件；账号三命令返回 `AccountResult { success, message, activeAccount, config }`（`account_cmds.rs:25-47`），`config` 为 `masked_for_display` 后的 JSON（`:111`）——前端拿返回值直接替换本地配置。
 
 ## 2026-09-20 增补：默认值调整、`lightweight_mode` 与 v3→v4 / v5→v6 迁移
 
@@ -245,7 +243,7 @@ struct EncodedSettings {
 - **先落盘再更新内存**（`config_cmd.rs:132-133`）：顺序反了会出现"保存失败但内存已生效"。
 - **账号名必须消毒**：桌面 `infra/state/mod.rs:64-72`、安卓 `account_cmds.rs:50-58`，防路径穿越（`../`、`/`、`\` 全被白名单正则拒绝）。
 - **安卓配置读改写必须持 `CONFIG_IO_LOCK`**（`account_cmds.rs:21-23`）：`tokio::sync::Mutex` 而非 `parking_lot`，因为 guard 要跨 await 覆盖整个 load→merge→save 序列。
-- **空密码不产生密文位**：安卓 `save_file:201-212` 只在非空时加密；桌面 `persist.rs:159-163` 同理。
+- **空密码不产生密文位**：安卓 `save_file:259-264` 只在非空时加密；桌面 `persist.rs:299-301` 同理。
 - **登录历史上限 100 条**：桌面 `persist.rs:141-143`、安卓 `login_history.rs:10/67`。
 - **`config_version`（桌面）与 `config_schema_version`（安卓）是两套独立机制**：桌面管小时→分钟（v1→v2）与检测时段终点旧默认（v2→v3）迁移（`validate.rs:123-140`），安卓管默认值批次迁移（`config_state.rs:252-283`），两者语义与触发时机都不同，不可互相套用。
 
@@ -288,7 +286,7 @@ masked_for_display()                       桌面 persist::save_config_and_broad
 - [[desktop-frontend-hooks]] — `useConfigStore` 的脏字段合并与 debounce 保存
 - [[dual-platform-sharing]] — 字段同步约定与两端配置面差异
 - [[background-check-and-auto-login]] — 间隔 / 阈值 / 时段字段的消费方
-- [[desktop-account-selfservice]] — 账号存储与自助服务密码的读取路径
+- [[desktop-account-selfservice]] — 账号存储与凭据的读取路径（凭据统一后唯一凭据源为登录信息，见 [[credential-single-source]]）
 
 ## Known Issues
 

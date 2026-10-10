@@ -93,11 +93,11 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 ### 命令命名与参数契约
 
 - **命令名 = Rust 函数名的 snake_case**。前端 JS 侧用 camelCase 包装（如 `tauriApi.ts` 里 `doLogin`、`saveConfig`）。
-- **参数自动映射**：前端 camelCase 实参由 Tauri 自动映射回 Rust snake_case 形参。例如安卓 `saveConfig(config, clearPassword, clearSelfPassword)` → invoke `save_config` 带 `{ config, clearPassword, clearSelfPassword }`（android/frontend/src/hooks/tauriApi.ts:199），对应 `config_state.rs:420-453` 的 `clear_password`/`clear_self_password` 形参。
+- **参数自动映射**：前端 camelCase 实参由 Tauri 自动映射回 Rust snake_case 形参。例如安卓 `saveConfig(config, clearPassword?)` → invoke `save_config` 带 `{ config, clearPassword }`（android/frontend/src/hooks/tauriApi.ts:199），对应 `config_state.rs:410-453` 的 `clear_password` 形参。
 - 桌面前端入口集中在 `tauri-app/frontend/src/hooks/tauriApi.ts`（`invoke('do_login', ...)` 在 161 行）；安卓在 `android/frontend/src/hooks/tauriApi.ts`。
 - **统一返回结构 `CommandResult { success, message?, data? }`**：桌面定义在 `infra/state/mod.rs:272`；安卓同形定义在 `android/src-tauri/src/self_service_cmds.rs:7-23`（struct 7-14，`message`/`data` 带 `skip_serializing_if = "Option::is_none"`，`ok/err` 构造器在 impl 16-23：`ok_msg` 17、`err` 20）。账号命令另有 `AccountResult`，携带可选 `activeAccount`/`displayName`，其 IPC 出站形状由 `commands/account.rs` 测试锁定（720-744：`switch_success_result_carries_active_account`、`account_item_json_shape`）。
 - **能力门控不覆盖自有命令**：`tauri-app/src-tauri/capabilities/default.json`（14 行，7 项权限）只声明 `core:default`、`core:window:allow-start-dragging`、`core:window:allow-toggle-maximize` 与 notification 系列（`notification:default` + allow-is-permission-granted/allow-request-permission/allow-notify），全部 65 条自有命令不经能力系统，注册即可调用。
-- **敏感字段掩码统一走 `masked_for_display`**：桌面在 `config/model.rs:315`（`pub fn masked_for_display(&self) -> Config`），安卓在 `config_state.rs:373`（`pub fn masked_for_display(s: &Settings) -> serde_json::Value`，仅替换 `password`/`self_password` 为 `"***"`，见 372-382）。任何出站配置都必须经过它，不得另写序列化（安卓 386-387 行注释为唯一出口语义）。
+- **敏感字段掩码统一走 `masked_for_display`**：桌面在 `config/model.rs:319`（`pub fn masked_for_display(&self) -> Config`），安卓在 `config_state.rs:365`（`pub fn masked_for_display(s: &Settings) -> serde_json::Value`，仅替换 `password` 为 `"***"`，见 364-369）。任何出站配置都必须经过它，不得另写序列化（安卓 :376 行注释为唯一出口语义）。
 
 ### 两端命令名不完全一致的三处
 
@@ -105,14 +105,14 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 | --- | --- | --- | --- |
 | 1 | `verify_windows_identity`（startup.rs:121） | `verify_biometric_identity`（lib.rs:71） | 安卓 `tauriApi.ts:215-246`：先走 2D 人脸回退（`shouldUseFaceFallback`，219-242）或系统 BiometricPrompt（244，`allowDeviceCredential`），再 `invoke('verify_biometric_identity')`——同一封装内有两处 invoke（234、245）。桌面前端直接 invoke `verify_windows_identity` |
 | 2 | `get_auto_launch` / `set_auto_launch`（startup.rs:98-99） | `get_boot_autostart` / `set_boot_autostart`（lib.rs:96-97） | 安卓 `tauriApi.ts:289-290`：前端成员仍叫 `getAutoLaunch`/`setAutoLaunch`，内部换名 invoke；set 侧把安卓返回包装成桌面形状 `AutoLaunchResult` |
-| 3 | `get_config` 掩码 | `get_config` 同名 | 双端同名但都各自掩码：桌面 `commands/config_cmd.rs:215-218`（`masked_for_display`），安卓 `config_state.rs:405-418`（417 行 `Ok(masked_for_display(&s))`） |
+| 3 | `get_config` 掩码 | `get_config` 同名 | 双端同名但都各自掩码：桌面 `commands/config_cmd.rs:196-199`（`masked_for_display`），安卓 `config_state.rs:395`（`Ok(masked_for_display(&s))`） |
 
 ### 桌面独有与安卓独有命令
 
 **桌面独有 24 条**（安卓前端用 `desktopOnly` 桩显式拒绝，见下文）：
 
-- 窗口/托盘类：`show_window`（config_cmd.rs:209-213）、`minimize_window`（system.rs:7-10）、`close_window`（system.rs:12-21）、`notify_window_ready`（system.rs:284-288）、`render_heartbeat`（system.rs:157-172）、`cancel_auto_exit`（system.rs:91-98）
-- 配置导出/导入/诊断：`export_config`（config_cmd.rs:135-150）、`import_config`（config_cmd.rs:156-207）、`export_diagnostics`（system.rs:195-280）
+- 窗口/托盘类：`show_window`（config_cmd.rs:209-213）、`minimize_window`（system.rs:7-10）、`close_window`（system.rs:12-21）、`notify_window_ready`（system.rs:284-288）、`render_heartbeat`（system.rs:174-189）、`cancel_auto_exit`（system.rs:91-98）
+- 配置导出/导入/诊断：`export_config`（config_cmd.rs:117-136）、`import_config`（config_cmd.rs:138-195）、`export_diagnostics`（system.rs:195-280）
 - 网卡 4 条：`get_adapters`（network_cmd.rs:19-25）、`get_adapter_details`（43-46）、`get_disabled_adapters`（27-30）、`enable_adapter`（32-41）
 - DHCP 3 条：`dhcp_renew_all`（151-168）、`dhcp_release_renew`（170-191）、`dhcp_release_renew_adapter`（193-209）
 - DNS/DoH 3 条：`check_dns_doh_status`（284-297）、`setup_dns_doh`（299-385）、`reset_dns`（387-478）
@@ -174,7 +174,7 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 | campus-exit-cancelled | 89-91 | `{}` | infra/lifecycle.rs:178 | 326 | noop（301） |
 | auto-exit-countdown | 94-99 | `{delay, shortcut}` | infra/lifecycle.rs:204（快捷键 "Ctrl+Shift+C"） | 277 | noop（298） |
 | auto-exit-cancelled | 102-104 | `{}` | infra/lifecycle.rs:285 | 298 | noop（299） |
-| config-changed | 107-109 | `{config: 掩码后配置}` | 统一出口 commands/config_cmd.rs:18（`save_config_to_disk_encrypted` 9-23 内经 `AppHandleExt::notify_config_changed`）；account.rs 的 switch/delete 落盘、system.rs 的 set_auto_launch/set_notification_enabled 也经同一函数 | useEventListeners.ts:354 | config_state.rs:388-391 `emit_config_changed`（emit 390）；save_config 451 与 monitor_loop.rs:976（persist_settings）调用 |
+| config-changed | 107-109 | `{config: 掩码后配置}` | 统一出口 commands/config_cmd.rs:8（`save_config_to_disk_encrypted` 内经 `AppHandleExt::notify_config_changed`）；account.rs 的 switch/delete 落盘、system.rs 的 set_auto_launch/set_notification_enabled 也经同一函数 | useEventListeners.ts:354 | config_state.rs:377 `emit_config_changed`；save_config :451 与 monitor_loop.rs:976（persist_settings）调用 |
 | adapters-changed | 112-114 | Adapter[] | adapter_watch.rs:88 | 217 | noop（255） |
 | update-download-progress | 117-119 | 下载进度 | commands/updater.rs:147/178（200ms 节流 + 完成 100%，经 `AppHandleExt::notify_update_download_progress`） | AboutDialog.tsx:159（下载期动态注册） | update_cmds.rs:444-447 直发；消费在 android AboutDialog.tsx:185 / AboutDialogMobile.tsx:86 |
 
@@ -192,7 +192,7 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 2. 新模块时在 `commands/mod.rs:1-8` 加 `pub mod`；
 3. `app/startup.rs:62-128` 的 `generate_handler!` 登记命令名（漏掉即 command not found）；
 4. 桌面前端 `tauriApi.ts`：接口 `TauriApi`（27-116）加成员声明 + 实现（149-248）加 invoke；
-5. 若命令改配置：走 `save_config_to_disk_encrypted`（config_cmd.rs:9-23）落盘——它在第 17-18 行先 `masked_for_display()` 再发 `config-changed`，前端才能同步 store。
+5. 若命令改配置：走 `save_config_to_disk_encrypted`（config_cmd.rs:8）落盘——它先 `masked_for_display()` 再发 `config-changed`，前端才能同步 store。
 
 **安卓（5 步）**：
 
@@ -200,7 +200,7 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 2. `android/src-tauri/src/lib.rs:11-25` 挂模块（新模块时）；
 3. `lib.rs:57-111` `generate_handler!` 登记；
 4. 安卓 `tauriApi.ts`：接口（56-148）+ 实现（197-326）；桌面专属能力就写成 `desktopOnly`（14-15）桩，不要留 undefined；
-5. 若命令改配置：走 `config_state::save_to` + 更新 `AndroidState.config` 缓存 + **显式调用** `emit_config_changed`（config_state.rs:388-391）——安卓没有统一落盘出口，参考 `save_config`（420-453）与 `monitor_loop.rs:955-978`（persist_settings：save_to 964、缓存写回 968-971、自动建号 972、广播 976）。
+5. 若命令改配置：走 `config_state::save_to` + 更新 `AndroidState.config` 缓存 + **显式调用** `emit_config_changed`（config_state.rs:377）——安卓没有统一落盘出口，参考 `save_config`（410-453）与 `monitor_loop.rs:955-978`（persist_settings：save_to 964、缓存写回 968-971、自动建号 972、广播 976）。
 
 **新增事件（3 步）**：`events.rs` 加 `emit_*` 方法 → 桌面前端 `createEventListener`（或 useEventListeners.ts 订阅）→ 安卓侧单独裸 emit（payload 必须对齐桌面契约）或接 `noopListener`（android tauriApi.ts:18）。
 
@@ -210,7 +210,7 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 2. **两端命令名逐字相同**，仅 3 对跨端映射例外（见上表）。前端成员名可以跨端一致（如 `verifyWindowsIdentity`），但 invoke 的命令字符串必须与后端函数名一致。
 3. **事件名是字符串常量、无编译期校验**：`events.rs` 方法内的事件名、前端 `createEventListener('...')` 的字符串、安卓裸 emit 的字面量，三处必须手工同步；安卓同一事件可能有多个字面量点，新代码应优先走包装函数（如 `emit_login_log`）收敛。
 4. **桌面事件必须经 EventBus**：业务代码不得直接 `app.emit`；配置与下载进度必须经 `AppHandleExt` 的 `notify_config_changed`/`notify_update_download_progress`（command_context.rs:38-51）。安卓无此约束，但 payload 形状必须与桌面前端契约一致。
-5. **配置变更必须先掩码再广播**：桌面唯一落盘出口 `save_config_to_disk_encrypted`（config_cmd.rs:9-23，emit 在 17-18）；`get_config`（215-218）与 `get_init_data`（system.rs:112-155，掩码在 117）同样掩码。安卓唯一出口 `masked_for_display`（config_state.rs:373，386-387 注释强调不得另写序列化）；`get_config`（405-418）、`get_init_data`（system_cmds.rs:5-28，掩码在 13）、账号命令出站（account_cmds.rs:161/303/338）全部复用它。
+5. **配置变更必须先掩码再广播**：桌面唯一落盘出口 `save_config_to_disk_encrypted`（config_cmd.rs:8）；`get_config`（:196-199）与 `get_init_data`（system.rs:129-172，掩码在 133）同样掩码。安卓唯一出口 `masked_for_display`（config_state.rs:365，:376 注释强调不得另写序列化）；`get_config`（:395 起）、`get_init_data`（system_cmds.rs:5-28，掩码在 13）、账号命令出站（account_cmds.rs:161/303/338）全部复用它。
 6. **安卓 `get_init_data` 必须补齐桌面专属字段**（system_cmds.rs:16-22 注释）：`autoLaunch`、`gpuInfo: null`、`refreshRate: 60`、`adapters/adapterDetails/disabledAdapters` 空数组——否则前端 `useInitialDataLoad` 读到 undefined 崩溃。
 7. **前端必须处理「监听建立前丢事件」**：安卓把当前状态展平进 `status_value`（monitor_loop.rs:118-138），随 `get_init_data` 的 `backgroundStatus`（system_cmds.rs:26）首拉；桌面 `get_init_data` 同样携带快照。事件只做增量，初值靠拉。
 
@@ -221,11 +221,11 @@ tags: [概念, ipc, tauri, 命令, 事件总线, 双端]
 ```text
 React 组件 → zustand store（debounce 聚合）→ tauriApiWithRetry.saveConfig
   → invoke('save_config') → save_config 命令
-    桌面: config_cmd.rs save_config(220-276) → save_config_to_disk_encrypted(9-23)
+    桌面: config_cmd.rs save_config(201-247) → save_config_to_disk_encrypted(8)
           → 加密落盘 + notify_config_changed → EventBus::emit_config_changed({config: 掩码})
-    安卓: config_state.rs save_config(420-453) → resolve_password_field(394-403) → save_to(441)
-          → AndroidState.config 缓存(442-445) → auto_create_account_for_current(448)
-          → emit_config_changed(451, emit 390)
+    安卓: config_state.rs save_config(410-453) → resolve_password_field(383-390) → save_to(360)
+          → AndroidState.config 缓存 → auto_create_account_for_current
+          → emit_config_changed(:451)
   → 前端 onConfigChanged（桌面 tauriApi.ts:226 / 安卓 302）
   → useEventListeners.ts:354 / 221 → mergeConfigFromBackend（跳过本地脏字段）→ store → UI
 ```

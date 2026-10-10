@@ -11,9 +11,6 @@ pub struct Config {
     pub user: String,
     #[serde(default)]
     pub password: String,
-    /// 自助服务系统登录密码（内存明文，磁盘 DPAPI 加密；回传前端时替换为 MASK）
-    #[serde(rename = "selfPassword", default)]
-    pub self_password: String,
     /// 是否启用 Windows Hello 操作验证（默认 true）。关闭后自助服务面板与绑定
     /// 操作不再弹验证，但"查看运营商账户密码"仍强制验证（后端 TTL 校验不受此
     /// 开关影响，防止一键关闭保护后明文裸奔）
@@ -243,7 +240,6 @@ impl Default for Config {
         Self {
             user: String::new(),
             password: String::new(),
-            self_password: String::new(),
             self_hello_enabled: true,
             self_reverify_each_action: false,
             operator: String::new(),
@@ -329,9 +325,6 @@ impl Config {
     pub fn mask_in_place(&mut self) {
         if !self.password.is_empty() {
             self.password = PASSWORD_MASK.to_string();
-        }
-        if !self.self_password.is_empty() {
-            self.self_password = PASSWORD_MASK.to_string();
         }
     }
 }

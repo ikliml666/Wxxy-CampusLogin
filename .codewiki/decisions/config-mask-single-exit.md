@@ -29,24 +29,24 @@ tags: [决策, 安全, 配置, 脱敏]
 
 ### 桌面端（tauri-app/src-tauri/src/config/model.rs）
 
-- `Config::masked_for_display(&self) -> Config`（line 317）：clone + mask，安全路径
-- `Config::mask_in_place(&mut self)`（line 323）：就地破坏明文，`pub` 可见——任何调用方都能破坏内存中的明文配置对象，类型系统不阻止误用；`masked_for_display` 走 clone 路径是安全的
-- 掩码逻辑：`password` 和 `self_password` 非空时替换为 `PASSWORD_MASK`（`"***"`，line 3）
-- `Config` 结构体含 40+ 字段（line 10-173），其中 `password`（line 12-13）和 `self_password`（line 14-16）为敏感字段
+- `Config::masked_for_display(&self) -> Config`（line 319）：clone + mask，安全路径
+- `Config::mask_in_place(&mut self)`（line 325）：就地破坏明文，`pub` 可见——任何调用方都能破坏内存中的明文配置对象，类型系统不阻止误用；`masked_for_display` 走 clone 路径是安全的
+- 掩码逻辑：`password` 非空时替换为 `PASSWORD_MASK`（`"***"`，line 3；凭据统一后仅此一个敏感密码字段，见 [[credential-single-source]]）
+- `Config` 结构体含 40+ 字段（line 10-173），其中 `password`（line 13）为唯一敏感密码字段（历史独立自助密码字段已随凭据统一删除）
 
 ### 安卓端（android/src-tauri/src/config_state.rs）
 
-- `masked_for_display(s: &Settings) -> serde_json::Value`（line 373）：返回 JSON Value 而非 Settings clone，内部同样做 mask 后序列化
-- `emit_config_changed(app, s)`（line 388）：广播 `config-changed` 事件，payload 为 `{ "config": masked_for_display(s) }`，前端依赖该事件同步 store
-- `resolve_password_field(incoming, current, clear)`（line 394）：空串/MASK 视为"未修改"回退已存值，clear=true 则置空
-- `current_settings(app)`（line 457）：缓存优先读取，供登录/自助服务等命令回退已存凭据
-- `Settings` 结构体含 30+ 字段（line 15-111），`password`（line 18）和 `self_password`（line 19）为敏感字段
-- 密码落盘经 AndroidKeyStore AES-GCM 加密（替代桌面 DPAPI），磁盘形态由 `EncodedSettings`（line 228）承载
+- `masked_for_display(s: &Settings) -> serde_json::Value`（line 365）：返回 JSON Value 而非 Settings clone，内部同样做 mask 后序列化
+- `emit_config_changed(app, s)`（line 377）：广播 `config-changed` 事件，payload 为 `{ "config": masked_for_display(s) }`，前端依赖该事件同步 store
+- `resolve_password_field(incoming, current, clear)`（line 383）：空串/MASK 视为"未修改"回退已存值，clear=true 则置空
+- `current_settings(app)`（line 440）：缓存优先读取，供登录/自助服务等命令回退已存凭据
+- `Settings` 结构体含 30+ 字段（line 15-111），`password`（line 18）为唯一敏感密码字段（历史独立自助密码字段已随凭据统一删除）
+- 密码落盘经 AndroidKeyStore AES-GCM 加密（替代桌面 DPAPI），磁盘形态由 `EncodedSettings`（line 232）承载
 
 ### 已知漏洞面
 
-`Config::mask_in_place` 是 `pub`（model.rs:323），任何调用方都能就地破坏内存中的明文配置对象，类型系统不阻止误用（`masked_for_display` 走 clone 路径是安全的）。
+`Config::mask_in_place` 是 `pub`（model.rs:325），任何调用方都能就地破坏内存中的明文配置对象，类型系统不阻止误用（`masked_for_display` 走 clone 路径是安全的）。
 
 ## Connections
 
-[[mask-placeholder-persisted-as-plaintext]]、[[log-redaction-coverage]]、[[android-identifier-change-breaks-keystore]]
+[[mask-placeholder-persisted-as-plaintext]]、[[log-redaction-coverage]]、[[android-identifier-change-breaks-keystore]]、[[credential-single-source]]

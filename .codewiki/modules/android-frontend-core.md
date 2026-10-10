@@ -122,7 +122,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | 方法 | 声明行 | 实现行 | 安卓行为 |
 | --- | --- | --- | --- |
 | `getConfig` | 57 | 172 | `invoke('get_config')` |
-| `saveConfig(config, clearPassword?, clearSelfPassword?)` | 58 | 173 | `invoke('save_config', {config, clearPassword, clearSelfPassword})` |
+| `saveConfig(config, clearPassword?)` | 58 | 199 | `invoke('save_config', {config, clearPassword})` |
 | `getAdapters(force?)` | 63 | 177 | `desktopOnly` → reject |
 | `getDisabledAdapters` | 64 | 178 | `desktopOnly` → reject |
 | `enableAdapter(adapterName)` | 65 | 179 | `desktopOnly` → reject |
@@ -209,7 +209,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 | 导出 | 位置 | 说明 |
 | --- | --- | --- |
-| `useConfigStore` | `useConfigStore.ts:52` | 状态：`config` / `configLoaded` / `passwordSaved` / `selfPasswordSaved` / `accounts`（`AccountItem[]`）/ `activeAccount` / `language`；动作：`updateConfig`(62) / `updateConfigLocal`(96) / `mergeConfigFromBackend`(109) / `clearDirtyFields`(118) / `syncPasswordSaved`(123) / `syncSelfPasswordSaved`(125) / `saveConfigDirect`(127) / `setAccounts`(172) / `setActiveAccount`(173) / `setLanguage`(175)。（原 `api` 字段已删，2026-10-03：IPC 客户端由消费方静态导入 `tauriApiWithRetry`） |
+| `useConfigStore` | `useConfigStore.ts:52` | 状态：`config` / `configLoaded` / `passwordSaved`（凭据统一后唯一密码保存态，见 [[credential-single-source]]）/ `accounts`（`AccountItem[]`）/ `activeAccount` / `language`；动作：`updateConfig`(62) / `updateConfigLocal`(96) / `mergeConfigFromBackend`(109) / `clearDirtyFields`(118) / `syncPasswordSaved`(41/117) / `saveConfigDirect`(42/119) / `setAccounts`(172) / `setActiveAccount`(173) / `setLanguage`(175)。（原 `api` 字段已删，2026-10-03：IPC 客户端由消费方静态导入 `tauriApiWithRetry`） |
 | `hasPendingConfig` | `useConfigStore.ts:181` | debounce 待存或 in-flight 保存存在即 true（关窗前判定） |
 | `flushPendingConfig` | `useConfigStore.ts:188` | 清 debounce 定时器、立即发出待存配置、返回需等待的 Promise（含 in-flight） |
 
@@ -412,8 +412,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 | --- | --- | --- |
 | `config` | `Config` | 全量配置，初值 `DEFAULT_CONFIG`（`useConfigStore.ts:53`） |
 | `configLoaded` | `boolean` | `getInitData` 成功或降级完成（`useInitialDataLoad.ts:107` / `useInitialDataLoad.ts:113`） |
-| `passwordSaved` | `boolean` | 登录密码已落盘（后端掩码态） |
-| `selfPasswordSaved` | `boolean` | 自助服务密码已落盘（独立布尔，避免读 `config.selfPassword` 的三态竞态，`useConfigStore.ts:34-36`） |
+| `passwordSaved` | `boolean` | 登录密码已落盘（后端掩码态；凭据统一后唯一密码保存态，见 [[credential-single-source]]） |
 | `accounts` | `string[]` | 账号名列表 |
 | `activeAccount` | `string` | 当前账号 |
 | `language` | `string` | 初值 `safeStorage.get('app-language') \|\| 'zh'`（`useConfigStore.ts:60`） |
@@ -462,12 +461,11 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### 领域类型
 
-`Config`（`settings/types.ts:3-56`，**45 个字段**；口径：接口本体（第 4-51 行）的字段总数，含 `configVersion` 标记字段，不含同文件另两个接口 `AutoLaunchResult` / `InitData`；安卓侧隐藏项见表内加粗标注）：
+`Config`（`settings/types.ts:9-74`，**46 个字段**；口径：接口本体（第 10-73 行）的字段总数，含 `configVersion` 标记字段，不含同文件另两个接口 `AutoLaunchResult` / `InitData`；凭据统一后独立自助密码字段已删除，见 [[credential-single-source]]；安卓侧隐藏项见表内加粗标注）：
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `user` / `password` | `string` | 登录账号/密码（密码后端存掩码） |
-| `selfPassword` | `string` | 自助服务密码（DPAPI/Keystore 落盘，前端见掩码） |
 | `selfHelloEnabled` | `boolean` | 生物验证总开关（默认 true） |
 | `selfReverifyEachAction` | `boolean` | 自助面板每次操作都验证（默认 false） |
 | `allow2dFaceVerify` | `boolean` | 2D 人脸回退开关（默认 false） |
@@ -540,7 +538,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 2. `App`（`App.tsx:296`）→ `useFormFactor()`（`App.tsx:297`）→ `AppInner`（`App.tsx:302`）或 `TabletShell`（`App.tsx:301`）。
 3. 双外壳第一句都是 `useAppInit()`（`App.tsx:48` / `TabletShell.tsx:74`），其内部固定顺序（`useAppInit.ts:7-10`）：
    - `useEventListeners()`（`useEventListeners.ts:18`）：`const { api } = useConfigStore.getState()`（`useEventListeners.ts:29`）→ 注册 `getCurrentWindow().onCloseRequested`（`useEventListeners.ts:48`，安卓无窗口关闭语义）→ 依次订阅 `onBackgroundCheckResult`(75) / `onAutoLoginResult`(197) / `onLoginLog`(217) / `onAutoExitCountdown`(225，no-op) / `onAutoExitCancelled`(246，no-op) / `onCampusExitCountdown`(253，no-op) / `onCampusExitCancelled`(274，no-op) / `onNetworkQualityResult`(281) / `onUpdateAvailable`(289) / `onConfigChanged`(304)。适配器四类事件（`onAdaptersChanged` / `onAdapterDetailsChanged` / `onDisabledAdaptersChanged` / `onAdapterDisabledWarning`）的 no-op 订阅已删除（`useEventListeners.ts:213-215` 注释说明），不再空转注册。
-   - `useInitialDataLoad()`（`useInitialDataLoad.ts:16`）：`api.getInitData()`（`useInitialDataLoad.ts:31`，→ `tauriApi.ts:271` `invoke('get_init_data')`）→ 合并 `DEFAULT_CONFIG`（`useInitialDataLoad.ts:34`）→ 由 `PASSWORD_MASK` 同步 `passwordSaved`/`selfPasswordSaved`（`useInitialDataLoad.ts:35-42`）→ `useConfigStore.setState({config})`（43）→ `useThemeStore.initTheme(cfg)`（45）→ 恢复上次面板（47-56，质量关闭时跳过 quality）→ 从 `initData.backgroundStatus` 灌 `bgStatus` 并在 `online === true` 时直接置在线（`useInitialDataLoad.ts:62-84`）→ 灌 `accounts`/`activeAccount`（86-90）→ `useAuthStore.getState().checkOnline(cfg, adps)`（92）→ 灌 `refreshRate`（97-99）→ 置 `configLoaded: true`（107）。失败降级：`config: DEFAULT_CONFIG` + `configLoaded: true` + 错误 toast（`useInitialDataLoad.ts:108-114`）。
+   - `useInitialDataLoad()`（`useInitialDataLoad.ts:16`）：`api.getInitData()`（`useInitialDataLoad.ts:31`，→ `tauriApi.ts:271` `invoke('get_init_data')`）→ 合并 `DEFAULT_CONFIG`（`useInitialDataLoad.ts:34`）→ 由 `PASSWORD_MASK` 同步 `passwordSaved`（`useInitialDataLoad.ts:35`，凭据统一后仅登录密码一个保存态，见 [[credential-single-source]]）→ `useConfigStore.setState({config})`（43）→ `useThemeStore.initTheme(cfg)`（45）→ 恢复上次面板（47-56，质量关闭时跳过 quality）→ 从 `initData.backgroundStatus` 灌 `bgStatus` 并在 `online === true` 时直接置在线（`useInitialDataLoad.ts:62-84`）→ 灌 `accounts`/`activeAccount`（86-90）→ `useAuthStore.getState().checkOnline(cfg, adps)`（92）→ 灌 `refreshRate`（97-99）→ 置 `configLoaded: true`（107）。失败降级：`config: DEFAULT_CONFIG` + `configLoaded: true` + 错误 toast（`useInitialDataLoad.ts:108-114`）。
    - `useHeartbeat()`（`useHeartbeat.ts:5`）：立即一次 + 每 5s `api.renderHeartbeat()`（安卓为 `desktopOnly` reject，见 Known Issues）。
    - `useGlobalShortcut()`（`useGlobalShortcut.ts:4`）：注册 keydown。
 
@@ -558,7 +556,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 ### 配置写回链路
 
-组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:62`）：合并进 `config`（64）→ 标脏 `dirtyFields`（68-71）→ 累积 `saveConfigPending`（73-81）→ 500ms debounce 后 `saveConfigDirect(pending)`（83-92）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:131` → `tauriApi.ts:331` → `tauriApi.ts:173` `invoke('save_config')`）→ 成功后清脏（133-136）；失败累计到 3 次放弃脏标记（149-159）。后端回传经 `onConfigChanged`（`useEventListeners.ts:304`）→ `mergeConfigFromBackend`（`useConfigStore.ts:109`，跳过脏字段）。**与 `config` 并列的独立字段不随 merge 更新**：2026-09 起该监听分支额外从 `data.config.activeAccount` 比对后 `setActiveAccount`（317）、再拉 `listAccounts` 刷新列表（319-323）——与桌面同构的 R4 修复，见 [[account-switch-ui-state-desync]]。关窗前 `hasPendingConfig`（181）/`flushPendingConfig`（188）保证不丢（`useEventListeners.ts:48-73`）。
+组件 → `useConfigStore.updateConfig(partial)`（`useConfigStore.ts:62`）：合并进 `config`（64）→ 标脏 `dirtyFields`（68-71）→ 累积 `saveConfigPending`（73-81）→ 500ms debounce 后 `saveConfigDirect(pending)`（83-92）→ `tauriApiWithRetry.saveConfig`（`useConfigStore.ts:131` → `tauriApi.ts:331` → `tauriApi.ts:199` `invoke('save_config')`）→ 成功后清脏（133-136）；失败累计到 3 次放弃脏标记（149-159）。后端回传经 `onConfigChanged`（`useEventListeners.ts:304`）→ `mergeConfigFromBackend`（`useConfigStore.ts:109`，跳过脏字段）。**与 `config` 并列的独立字段不随 merge 更新**：2026-09 起该监听分支额外从 `data.config.activeAccount` 比对后 `setActiveAccount`（317）、再拉 `listAccounts` 刷新列表（319-323）——与桌面同构的 R4 修复，见 [[account-switch-ui-state-desync]]。关窗前 `hasPendingConfig`（181）/`flushPendingConfig`（188）保证不丢（`useEventListeners.ts:48-73`）。
 
 ### 主题与 CSS 变量链路
 

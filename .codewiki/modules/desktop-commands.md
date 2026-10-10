@@ -31,7 +31,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 模块声明见 `tauri-app/src-tauri/src/commands/mod.rs:1-8`（8 个 `pub mod`，`self_service` 在 8 行）。
 
-命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword, clearSelfPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 59 个命令名。
+命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 59 个命令名。
 
 ### 命令总表（逐条，共 57 条）
 
@@ -39,17 +39,17 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `show_window` | `commands/config_cmd.rs:199-202` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
-| `get_config` | `commands/config_cmd.rs:205-207` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码两个密码字段 | 无（掩码是出站唯一出口） |
-| `save_config` | `commands/config_cmd.rs:210-266` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>`、`clear_self_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 → **落盘成功后自动建号/同步账号档案（R2，失败仅告警），实际写盘时补刷托盘菜单**（258-265） | `validate_config`（217）；`clear_password == Some(true)` 跳过兜底置空（227-228）；空/MASK 时回填当前内存密码（229-234、236-241） |
-| `export_config` | `commands/config_cmd.rs:134-152` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（89-117 行）有"明文不出站"回归测试（307 行起） |
-| `import_config` | `commands/config_cmd.rs:155-196` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
+| `show_window` | `commands/config_cmd.rs:190-193` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_and_focus_main`） | 无 |
+| `get_config` | `commands/config_cmd.rs:196-199` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码密码字段 | 无（掩码是出站唯一出口） |
+| `save_config` | `commands/config_cmd.rs:201-247` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 → **落盘成功后自动建号/同步账号档案（R2，失败仅告警），实际写盘时补刷托盘菜单**（242-243） | `validate_config`（207）；`clear_password == Some(true)` 跳过兜底置空（217-218）；空/MASK 时回填当前内存密码（219-222） |
+| `export_config` | `commands/config_cmd.rs:117-136` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（73-100 行）有"明文不出站"回归测试（277 行起） |
+| `import_config` | `commands/config_cmd.rs:138` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
 
 同文件非命令的公开辅助函数：
 
-- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:7-14`）：包装 `persist::save_config_and_broadcast`（落盘+掩码广播 `config-changed`，persist 层统一出口）并补刷托盘菜单。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）；监控层不经此包装，直接调 persist 出口（不刷托盘）。
-- `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:58-86`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（71-73 行）后返回默认配置。
-- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（89-117）、`restore_imported_password_field`（119-131，写盘方 MASK 责任的导入侧实现）。
+- `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:8`）：包装 `persist::save_config_and_broadcast`（落盘+掩码广播 `config-changed`，persist 层统一出口）并补刷托盘菜单。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）；监控层不经此包装，直接调 persist 出口（不刷托盘）。
+- `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:43-62`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（55-60 行）后返回默认配置。
+- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（73-100）、`restore_imported_password_field`（97-114，写盘方 MASK 责任的导入侧实现）。
 
 #### login.rs（2 条）
 
@@ -99,9 +99,9 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `set_notification_enabled` | `commands/system.rs:79-89` | `enabled: bool`、`state`、`app_handle` | `Result<bool, String>` | 更新通知开关并落盘 | 无 |
 | `cancel_auto_exit` | `commands/system.rs:91-98` | `app_handle`、`_state` | `Result<CommandResult, String>` | 统一取消自动退出 + 校园网退出（95-96） | 无 |
 | `get_logs` | `commands/system.rs:100-104` | `app_handle`、`lines: Option<usize>` | `Result<String, String>` | 读最近日志，默认 200 行 | 无 |
-| `clear_logs` | `commands/system.rs:106-110` | `app_handle` | `Result<bool, String>` | 清空日志文件 | 无 |
-| `get_init_data` | `commands/system.rs:113-155` | `state`、`app_handle` | `Result<serde_json::Value, String>` | 首屏聚合数据：掩码配置、账号条目列表（`AccountItem {id, displayName}`，121 行）、版本、自启、GPU、刷新率、网卡三列表、激活账号、通知开关、`--autostart` 判定（138 行）、后台状态（141 行复用 `background::get_background_status_value`） | `masked_for_display()` 是出站唯一出口（118 行，注释记录了 2026-09-06 漏掩 `self_password` 的真机缺陷） |
-| `render_heartbeat` | `commands/system.rs:153-168` | `state` | `Result<serde_json::Value, String>` | 前端心跳：写 `update_stats.last_render_heartbeat_ms` 供 main.rs 心跳线程检测 WebView 崩溃；返回 `online`/`checking` | 无 |
+| `clear_logs` | `commands/system.rs:123-127` | `app_handle` | `Result<bool, String>` | 清空日志文件 | 无 |
+| `get_init_data` | `commands/system.rs:129-172` | `state`、`app_handle` | `Result<serde_json::Value, String>` | 首屏聚合数据：掩码配置、账号条目列表（`list_account_items` → `AccountItem {id, displayName}`）、版本、自启、GPU、刷新率、网卡三列表、激活账号、通知开关、`--autostart` 判定（151 行）、后台状态（154 行复用 `background::get_background_status_value`） | `masked_for_display()` 是出站唯一出口（133 行，注释 :130-132 记录了 2026-09-06 漏掩码的真机缺陷） |
+| `render_heartbeat` | `commands/system.rs:174-189` | `state` | `Result<serde_json::Value, String>` | 前端心跳：写 `update_stats.last_render_heartbeat_ms` 供 main.rs 心跳线程检测 WebView 崩溃；返回 `online`/`checking` | 无 |
 | `get_gpu_info` | `commands/system.rs:170-174` | — | `Result<serde_json::Value, String>` | 单独取 GPU 信息（内部 `OnceLock` 缓存） | 无 |
 | `set_log_retention_days` | `commands/system.rs:176-180` | `days: u32` | `Result<(), String>` | 更新运行期日志保留天数 | 无 |
 | `get_log_retention_days` | `commands/system.rs:182-185` | — | `u32` | 读日志保留天数（**唯一不返回 Result 的命令**） | 无 |
@@ -122,13 +122,13 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `bind_operator` | `commands/self_service.rs:65-112` | `state`、`account: String`、`password: String`、`operator: String`、`phone: String`、`sms_password: String` | `Result<CommandResult, String>` | 绑定运营商账号（凭据仅本次请求内存传递，不落盘不写日志） | **身份验证门** `ensure_identity_gate`（82-84）；手机号必须 11 位纯数字（89-91）；`sms_password` 非空（92-94）；学号非空（79-81）；自助密码经 `resolve_self_password` 回退（86-88） |
-| `query_bind_status` | `commands/self_service.rs:115-148` | `state`、`account`、`password` | `Result<CommandResult, String>` | 查各运营商绑定状态（手机号掩码 + `passwordSet`） | **有意不设身份门**（模块注释 13-14）：查询类命令依赖免验证自动刷新；学号/密码非空校验（122-127） |
-| `query_self_dashboard` | `commands/self_service.rs:152-178` | `state`、`account`、`password` | `Result<CommandResult, String>` | 查在线信息 + 近期上网记录（原始数组透传前端格式化） | 同上，无身份门；学号/密码校验（158-164） |
-| `query_self_online_log` | `commands/self_service.rs:182-215` | `state`、`account`、`password`、`start_time: String`、`end_time: String` | `Result<CommandResult, String>` | 查"上网记录"账单页数据 | 无身份门；**严格 ISO 日期校验** `is_iso_date`（37-45、199-201）+ 起止先后比较（203-205） |
-| `self_offline_session` | `commands/self_service.rs:219-252` | `state`、`account`、`password`、`session_id: String` | `Result<CommandResult, String>` | 注销指定自助服务在线会话（改变外部状态） | **身份验证门**（231-233）；`session_id` 非空（237-239） |
-| `verify_windows_identity` | `commands/self_service.rs:259-279` | `app: AppHandle`、`consent_message: Option<String>` | `Result<CommandResult, String>` | 触发 Windows Hello 验证；主窗口带到前台并取 HWND 绑定 Consent UI（266-270），成功后 `note_identity_verified()` 写时间戳（273-276） | 本身即验证动作；`consent_message` 由前端按 i18n 场景传入 |
-| `reveal_operator_credential` | `commands/self_service.rs:285-315` | `state`、`account`、`password`、`operator: String` | `Result<CommandResult, String>` | 返回指定运营商明文凭据（`phone` + `smsPassword`） | **身份验证门** `identity_verified_recently()`（300-304）：TTL 600s 内才能查看，webview 无法绕过 |
+| `bind_operator` | `commands/self_service.rs:66-114` | `state`、`account: String`、`password: String`、`operator: String`、`phone: String`、`sms_password: String` | `Result<CommandResult, String>` | 绑定运营商账号（凭据仅本次请求内存传递，不落盘不写日志） | **身份验证门** `ensure_identity_gate`（83-85）；手机号必须 11 位纯数字（90-92）；`sms_password` 非空（93-95）；学号非空（80-82）；密码经 `resolve_credential_password` 回退登录密码（87-89） |
+| `query_bind_status` | `commands/self_service.rs:117-146` | `state`、`account`、`password` | `Result<CommandResult, String>` | 查各运营商绑定状态（手机号掩码 + `passwordSet`） | **有意不设身份门**（模块注释 10-13）：查询类命令依赖免验证自动刷新；学号/密码非空校验（121-127） |
+| `query_self_dashboard` | `commands/self_service.rs:147-186` | `state`、`account`、`password` | `Result<CommandResult, String>` | 查在线信息 + 近期上网记录（原始数组透传前端格式化） | 同上，无身份门；学号/密码校验（153-159） |
+| `query_self_online_log` | `commands/self_service.rs:187-215` | `state`、`account`、`password`、`start_time: String`、`end_time: String` | `Result<CommandResult, String>` | 查"上网记录"账单页数据 | 无身份门；**严格 ISO 日期校验** `is_iso_date`（37-45、199-201）+ 起止先后比较（203-205） |
+| `self_offline_session` | `commands/self_service.rs:216-249` | `state`、`account`、`password`、`session_id: String` | `Result<CommandResult, String>` | 注销指定自助服务在线会话（改变外部状态） | **身份验证门**（231-233）；`session_id` 非空（237-239） |
+| `verify_windows_identity` | `commands/self_service.rs:261-281` | `app: AppHandle`、`consent_message: Option<String>` | `Result<CommandResult, String>` | 触发 Windows Hello 验证；主窗口带到前台并取 HWND 绑定 Consent UI（266-270），成功后 `note_identity_verified()` 写时间戳（273-276） | 本身即验证动作；`consent_message` 由前端按 i18n 场景传入 |
+| `reveal_operator_credential` | `commands/self_service.rs:287-317` | `state`、`account`、`password`、`operator: String` | `Result<CommandResult, String>` | 返回指定运营商明文凭据（`phone` + `smsPassword`） | **身份验证门** `identity_verified_recently()`（299-303）：TTL 600s 内才能查看，webview 无法绕过 |
 
 #### updater.rs（4 条）
 
@@ -179,7 +179,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 ### 命令参数涉及的跨模块结构体
 
-- `Config`（`config/model.rs`）：`save_config` / `get_config` / `AccountResult.config` 的载体，字段全集见 [[desktop-config]]。命令层只关心两个密码字段：`password`、`self_password`（空/MASK 语义见 `config_cmd.rs:111-123`）。
+- `Config`（`config/model.rs`）：`save_config` / `get_config` / `AccountResult.config` 的载体，字段全集见 [[desktop-config]]。命令层只关心唯一密码字段：`password`（空/MASK 语义见 `config_cmd.rs:217-222`）；独立的自助密码字段已随凭据统一删除，唯一凭据源见 [[credential-single-source]]。
 - `BindParams<'a>`（`self_service/mod.rs:64-75`）：`bind_operator` 传给协议层的参数集合，字段为 `account`、`password`、`operator`、`phone`、`sms_password`（全为 `&'a str` 借用）。
 - `OperatorBinding`（`self_service/mod.rs:198-203`）：`query_bind_status` 的返回项，字段为 `masked_account: String`（手机号前三后二掩码）、`password_set: bool`；命令层把它转成 `{account, passwordSet}` JSON（`commands/self_service.rs:132-140`）。
 - `DownloadProgress`（`update/updater.rs:39-44`）：`download_update` 每 200ms 通过事件发给前端的进度结构，字段为 `downloaded: u64`、`total: u64`、`speed: u64`、`percent: f64`（`commands/updater.rs:150-155`、`181-188`）。
@@ -293,7 +293,7 @@ invoke('install_update', {filePath, checksumUrl}) → commands/updater.rs:195
   → canonical 校验在临时目录内（202-209）→ verify_download_sha256（227）→ .exe/.msi 启动安装（251-287）
 ```
 
-账户命令的状态一致性：改写配置的账户命令都遵循"写文件 → 更新内存 → 经 `save_config_to_disk_encrypted` 落盘并广播"（`commands/account.rs:56`、`174`、`244`、`303`）。另有两条不落主配置的旁路：`rename_account` 对非激活账号只写账号档案文件（`persist::save_account_config`）；`save_config` 落盘后的自动建号也只写账号档案（`config_cmd.rs:258-265`），但两者都会在写盘后补刷托盘菜单。
+账户命令的状态一致性：改写配置的账户命令都遵循"写文件 → 更新内存 → 经 `save_config_to_disk_encrypted` 落盘并广播"（`commands/account.rs:56`、`174`、`244`、`303`）。另有两条不落主配置的旁路：`rename_account` 对非激活账号只写账号档案文件（`persist::save_account_config`）；`save_config` 落盘后的自动建号也只写账号档案（`config_cmd.rs:242-243`），但两者都会在写盘后补刷托盘菜单。
 
 ## Connections
 
@@ -321,7 +321,7 @@ invoke('install_update', {filePath, checksumUrl}) → commands/updater.rs:195
 6. **`disable` 后的 `install_update` 不可达分支**：`commands/updater.rs:276-287` 的 `#[cfg(not(target_os = "windows"))]` 分支仍调用 `msiexec`，非 Windows 桌面下必失败（该组合不在项目支持范围，但分支存在）。
 7. **`get_mirror_urls` 与下载白名单不一致**：镜像生成只给 4 个域名（`commands/updater.rs:304-325`），而 `download_update` 白名单有 13 项（39-53）；前端若自造镜像 URL，仍可能被下载命令接受但不在 UI 列表中。
 8. **`check_network_quality` 的 `busy` 语义**：`commands/network_cmd.rs:179-182` 忙时返回 `quality="busy"` 的成功响应（`success` 字段不存在），前端需按 `quality` 分支处理，不能只看命令是否 reject。
-9. **同步命令中的重活**：`get_init_data`（`commands/system.rs:113-155`）是 `fn`（非 `async`）却在内部做账号目录扫描（120-124）、网卡三列表枚举（131-133）、`detect_gpu_info()`（128）/`detect_display_refresh_rate()`（129）；GPU 与刷新率的首次 DXGI/GDI 枚举已由 `app/startup.rs:207-218` 的 `gpu-warmup` 后台线程预热（`platform/gpu.rs:14` 用 `OnceLock` 缓存），但网卡枚举与账号目录扫描仍在同步命令路径内执行，冷启动首次调用有阻塞风险。
+9. **同步命令中的重活**：`get_init_data`（`commands/system.rs:129-172`）是 `fn`（非 `async`）却在内部做账号目录扫描（120-124）、网卡三列表枚举（131-133）、`detect_gpu_info()`（128）/`detect_display_refresh_rate()`（129）；GPU 与刷新率的首次 DXGI/GDI 枚举已由 `app/startup.rs:207-218` 的 `gpu-warmup` 后台线程预热（`platform/gpu.rs:14` 用 `OnceLock` 缓存），但网卡枚举与账号目录扫描仍在同步命令路径内执行，冷启动首次调用有阻塞风险。
 10. **`get_log_retention_days` 是唯一非 `Result` 返回的命令**（`commands/system.rs:182-185`），错误无法上报，前端类型定义需区别对待。
 11. **`download_update` 在 `content_length` 缺失时的上限判断**：`commands/updater.rs:97-100` 的早退只在服务端给长度时生效，实际保护依赖逐 chunk 判定（125-129），这部分逻辑正确但属于"无长度时无预检"。
 12. **`do_logout` 的 `_state` 参数未使用**（`commands/login.rs:86`）：函数通过 `app_handle` 重新取 state（91 行），签名保留 `state` 只为与前端调用保持一致。

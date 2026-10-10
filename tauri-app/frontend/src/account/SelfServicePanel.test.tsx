@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
-import { render, fireEvent, act, waitFor, screen, cleanup, createEvent } from '@testing-library/react'
+import { render, fireEvent, act, waitFor, screen, cleanup } from '@testing-library/react'
 import { SelfServicePanel } from './SelfServicePanel'
 import { resetSelfSessionGate } from './selfServiceState'
 
@@ -22,13 +22,13 @@ vi.mock('react-i18next', () => ({
 vi.mock('@/components/ui/animated-card', () => ({
   AnimatedCard: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }))
-// config store：学号默认取配置（凭据初始化逻辑依赖）+ Hello 策略开关
+// config store：凭据取自登录信息（config.user + passwordSaved），不再单独收集
 const mockConfigUser = { current: '' }
 const mockHelloEnabled = { current: true }
 const mockReverifyEach = { current: false }
 const storeState = {
   configLoaded: true,
-  selfPasswordSaved: false,
+  passwordSaved: true,
   config: { user: '', selfHelloEnabled: true, selfReverifyEachAction: false },
 }
 vi.mock('@/hooks/useConfigStore', () => ({
@@ -58,6 +58,7 @@ beforeEach(() => {
   mockHelloEnabled.current = true
   mockReverifyEach.current = false
   storeState.configLoaded = true
+  storeState.passwordSaved = true
   storeState.config.user = ''
   storeState.config.selfHelloEnabled = true
   storeState.config.selfReverifyEachAction = false
@@ -70,24 +71,20 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-// 凭据经面板自带输入框填入（trim 后提交）
-async function fillCreds(account = ' 24380001 ', password = ' 123456 ') {
-  const accInput = screen.getByLabelText('onboarding.bindSelfAccount')
-  const pwdInput = screen.getByLabelText('onboarding.bindSelfPassword')
-  fireEvent.change(accInput, { target: { value: account } })
-  fireEvent.change(pwdInput, { target: { value: password } })
-}
-
+// 凭据统一：无凭据输入框，凭据取自登录信息（config.user + passwordSaved=true 时
+// 命令密码传空串由后端回退已保存值），无需填写
 describe('SelfServicePanel', () => {
-  it('未填凭据时提示且刷新按钮禁用', () => {
+  it('凭据未就绪（学号未填）时提示且刷新按钮禁用', () => {
+    storeState.passwordSaved = true
     const { container } = render(<SelfServicePanel />)
-    expect(screen.getAllByText('account.selfDashboardNeedCred').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('account.needLoginPassword').length).toBeGreaterThan(0)
     const refreshBtn = container.querySelector('button')!
     expect(refreshBtn.disabled).toBe(true)
     expect(querySelfDashboard).not.toHaveBeenCalled()
   })
 
-  it('学号默认取 config.user；刷新后表格渲染并按协议格式化（MAC/时长/流量/终端类型/计费方式）', async () => {
+  it('凭据取自 config.user；刷新后表格渲染并按协议格式化（MAC/时长/流量/终端类型/计费方式）', async () => {
+    storeState.passwordSaved = true
     mockConfigUser.current = '24380002'
     storeState.config.user = '24380002'
     querySelfDashboard.mockResolvedValue({
@@ -95,17 +92,16 @@ describe('SelfServicePanel', () => {
       data: { onlineList: ONLINE, loginHistory: HISTORY },
     })
     const { container } = render(<SelfServicePanel />)
-    const accInput = screen.getByLabelText('onboarding.bindSelfAccount') as HTMLInputElement
-    expect(accInput.value).toBe('24380002')
-    // 只需补密码（学号已预填）
-    await fillCreds(' 24380002 ', ' 123456 ')
     const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
+    expect(refreshBtn.disabled).toBe(false)
+    // 等切入面板的自动验证+刷新结算完，再手动点击（否则点击与挂起验证并发，重复弹验证）
+    await act(async () => { await Promise.resolve() })
     await act(async () => {
       fireEvent.click(refreshBtn)
       await Promise.resolve()
     })
-    expect(querySelfDashboard).toHaveBeenCalledWith({ account: '24380002', password: '123456' })
-    // 每次刷新都要求 Windows Hello 验证（不免首次、不与绑定卡门共用）
+    expect(querySelfDashboard).toHaveBeenCalledWith({ account: '24380002', password: '' })
+    // 挂载自动验证 1 次；TTL 内手动刷新共用会话门，不重复验证
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
 
     // MAC 每 2 字符加连字符；useTime 秒→分钟；(down+up) KB→M 三位小数；# 前缀截掉
@@ -121,10 +117,10 @@ describe('SelfServicePanel', () => {
   })
 
   it('验证失败时不执行刷新查询（进入面板/点击刷新都过 Hello 验证）', async () => {
+    storeState.config.user = '24380002'
     verifyWindowsIdentity.mockResolvedValue({ success: false, message: '验证未通过' })
     querySelfDashboard.mockResolvedValue({ success: true, data: { onlineList: [], loginHistory: [] } })
     const { container } = render(<SelfServicePanel />)
-    await fillCreds()
     const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
     await act(async () => {
       fireEvent.click(refreshBtn)
@@ -137,9 +133,9 @@ describe('SelfServicePanel', () => {
 
   it('Windows Hello 总开关关闭时不弹验证直接查询', async () => {
     storeState.config.selfHelloEnabled = false
+    storeState.config.user = '24380002'
     querySelfDashboard.mockResolvedValue({ success: true, data: { onlineList: [], loginHistory: [] } })
     const { container } = render(<SelfServicePanel />)
-    await fillCreds()
     const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
     await act(async () => {
       fireEvent.click(refreshBtn)
@@ -150,12 +146,12 @@ describe('SelfServicePanel', () => {
   })
 
   it('验证一次后面板内操作共用（不再二次验证）', async () => {
+    storeState.config.user = '24380002'
     querySelfDashboard.mockResolvedValue({
       success: true,
       data: { onlineList: ONLINE, loginHistory: [] },
     })
     const { container } = render(<SelfServicePanel />)
-    await fillCreds()
     const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
     await act(async () => {
       fireEvent.click(refreshBtn)
@@ -172,33 +168,16 @@ describe('SelfServicePanel', () => {
     expect(querySelfDashboard).toHaveBeenCalledTimes(3)
   })
 
-  it('密码眼睛按钮不夺取输入框焦点（mousedown preventDefault），修改时点眼睛不会因 blur 清草稿而显示空', async () => {
-    render(<SelfServicePanel />)
-    await fillCreds()
-    const pwdInput = screen.getByLabelText('onboarding.bindSelfPassword')
-    // 输入框旁的眼睛按钮（Input 内部有一层 relative 包装，向上找第一个含按钮的祖先）
-    let host: HTMLElement | null = pwdInput.closest('div')
-    let eyeBtn: HTMLButtonElement | null = null
-    while (host && !eyeBtn) {
-      eyeBtn = host.querySelector('button')
-      if (!eyeBtn) host = host.parentElement
-    }
-    expect(eyeBtn).toBeTruthy()
-    // mousedown 必须被 preventDefault：否则真实浏览器中点击眼睛会先夺焦 →
-    // 触发 blur → 草稿被清空/提交，用户看到空输入框（历史缺陷）
-    const event = createEvent.mouseDown(eyeBtn!)
-    fireEvent(eyeBtn!, event)
-    expect(event.defaultPrevented).toBe(true)
-  })
-
   it('注销需确认，确认后调用接口并移除对应行', async () => {
+    storeState.passwordSaved = true
+    mockConfigUser.current = '24380002'
+    storeState.config.user = '24380002'
     querySelfDashboard.mockResolvedValue({
       success: true,
       data: { onlineList: ONLINE, loginHistory: [] },
     })
     selfOfflineSession.mockResolvedValue({ success: true, message: '注销成功' })
     const { container } = render(<SelfServicePanel />)
-    await fillCreds()
     const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
     await act(async () => {
       fireEvent.click(refreshBtn)
@@ -215,7 +194,7 @@ describe('SelfServicePanel', () => {
 
     await waitFor(() => {
       expect(selfOfflineSession).toHaveBeenCalledWith({
-        account: '24380001', password: '123456', sessionId: '42',
+        account: '24380002', password: '', sessionId: '42',
       })
     })
     // 成功后该会话行从表格移除

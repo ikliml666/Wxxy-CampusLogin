@@ -9,7 +9,6 @@ export interface AccountItem {
 export interface Config {
   user: string
   password: string
-  selfPassword: string
   /** Windows Hello 操作验证总开关（默认 true）；查看明文密码不受此开关限制 */
   selfHelloEnabled: boolean
   /** 自助服务面板每次操作都二次验证（默认 false：切入面板验证一次后共用） */

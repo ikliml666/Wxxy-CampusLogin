@@ -43,7 +43,7 @@ interface OnboardingWizardProps {
   isLoggingIn: boolean
 }
 
-const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.bindOperator', 'onboarding.accountInfo', 'onboarding.networkAdapter', 'onboarding.setupComplete'] as const
+const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.bindOperator', 'onboarding.networkAdapter', 'onboarding.setupComplete'] as const
 
 // 绑定步骤运营商下拉的未选择哨兵（Radix SelectItem value 禁止空串）
 const BIND_OPERATOR_NONE = '__none__'
@@ -119,9 +119,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   // 后端命令有验证门（Hello 开启时要求 TTL 内已验证），前端先行验证保证一次通过
   const ensureBindHello = useHelloGate()
 
-  // 绑定运营商账号步骤（step 1）状态；凭据仅内存传递，不写入配置
-  const [selfAccount, setSelfAccount] = useState(config.user || '')
-  const [selfPassword, setSelfPassword] = useState('')
+  // 绑定运营商账号步骤（step 2）状态；凭据取自 accountInfo 步草稿/已落盘配置，
+  // 不再单独收集学号与自助服务密码
   const [bindOperatorValue, setBindOperatorValue] = useState(BIND_OPERATOR_NONE)
   const [phone, setPhone] = useState('')
   const [smsPassword, setSmsPassword] = useState('')
@@ -139,8 +138,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setAdapter2(config.adapter2 || AUTO_DETECT_ADAPTER)
       setDualAdapter(!!config.dualAdapter)
       setLoginSuccess(false)
-      setSelfAccount(config.user || '')
-      setSelfPassword('')
       setBindOperatorValue(BIND_OPERATOR_NONE)
       setPhone('')
       setSmsPassword('')
@@ -150,8 +147,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     prevOpenRef.current = open
   }, [open, config.user, config.password, config.operator, config.adapter1, config.adapter2, config.dualAdapter])
 
-  const canBind = selfAccount.trim().length > 0
-    && selfPassword.trim().length > 0
+  // 绑定凭据沿用登录信息（accountInfo 步草稿；密码留空时后端回退已保存值）
+  const canBind = username.trim().length > 0
+    && (password.trim().length > 0 || config.password === PASSWORD_MASK)
     && bindOperatorValue !== BIND_OPERATOR_NONE
     && /^1\d{10}$/.test(phone.trim())
     && smsPassword.trim().length > 0
@@ -163,8 +161,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     setBindState('loading')
     try {
       const result = await tauriApiWithRetry.bindOperator({
-        account: selfAccount.trim(),
-        password: selfPassword.trim(),
+        account: username.trim(),
+        password: password.trim(),
         operator: bindOperatorValue,
         phone: phone.trim(),
         smsPassword: smsPassword.trim(),
@@ -174,7 +172,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
         if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
         bindTimerRef.current = setTimeout(() => {
           direction.current = 1
-          setStep(2)
+          setStep(3)
           setBindState('idle')
         }, BIND_SUCCESS_ADVANCE_MS)
       } else {
@@ -185,7 +183,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setBindError(extractErrorMessage(err) || t('onboarding.bindFailed'))
       setBindState('error')
     }
-  }, [bindState, selfAccount, selfPassword, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
+  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
 
   useEffect(() => {
     return () => {
@@ -196,7 +194,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
   const handleNext = useCallback(() => {
-    if (step === 2) {
+    if (step === 1) {
       if (!canProceedAccount) return false
       const updateData: Partial<Config> = {
         user: username.trim(),
@@ -317,38 +315,13 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
               </div>
             )}
 
-            {step === 1 && (
+            {step === 2 && (
               <div className="space-y-4 py-2">
                 <div className="space-y-1.5">
                   <h3 className="text-base font-semibold">{t('onboarding.bindOperatorTitle')}</h3>
                   <p className="text-xs text-muted-foreground">{t('onboarding.bindOperatorDesc')}</p>
                 </div>
                 <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bind-account" className={cn("text-xs font-medium", !selfAccount.trim() && "text-destructive")}>{t('onboarding.bindSelfAccount')}</Label>
-                    <Input
-                      id="bind-account"
-                      name="bind-account"
-                      autoComplete="username"
-                      spellCheck={false}
-                      value={selfAccount}
-                      onChange={e => setSelfAccount(e.target.value)}
-                      placeholder={t('onboarding.bindSelfAccountPlaceholder')}
-                      icon={<UserCircle className="h-4 w-4" />}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bind-self-password" className={cn("text-xs font-medium", !selfPassword.trim() && "text-destructive")}>{t('onboarding.bindSelfPassword')}</Label>
-                    <Input
-                      id="bind-self-password"
-                      type="password"
-                      value={selfPassword}
-                      onChange={e => setSelfPassword(e.target.value)}
-                      placeholder={t('onboarding.bindSelfPasswordPlaceholder')}
-                      icon={<KeyRound className="h-4 w-4" />}
-                      className="[&::-ms-reveal]:hidden"
-                    />
-                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className={cn("text-xs font-medium", bindOperatorValue === BIND_OPERATOR_NONE && "text-destructive")}>{t('onboarding.bindIsp')}</Label>
@@ -415,7 +388,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
               </div>
             )}
 
-            {step === 2 && (
+            {step === 1 && (
               <div className="space-y-4 py-2">
                 <div className="space-y-1.5">
                   <h3 className="text-base font-semibold">{t('onboarding.fillLoginInfo')}</h3>
@@ -653,13 +626,13 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
             {step < 4 && (
               <Button
                 onClick={() => { if (handleNext()) advance(step + 1) }}
-                disabled={step === 2 && !canProceedAccount}
+                disabled={step === 1 && !canProceedAccount}
                 className={cn(
                   "gap-1.5 min-w-[100px] transition-[background-color,color,box-shadow,transform] duration-200",
-                  step === 2 && !canProceedAccount && "opacity-50 cursor-not-allowed"
+                  step === 1 && !canProceedAccount && "opacity-50 cursor-not-allowed"
                 )}
               >
-                {step === 2 && !canProceedAccount ? (
+                {step === 1 && !canProceedAccount ? (
                   <>{t('onboarding.pleaseComplete')} <ArrowRight className="h-3.5 w-3.5" /></>
                 ) : (
                   <>{t('onboarding.next')} <ArrowRight className="h-3.5 w-3.5" /></>

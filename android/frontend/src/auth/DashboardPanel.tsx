@@ -311,9 +311,9 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
 // 应用内所有自助卡同时解锁；再点切回掩码不需要验证
 function useSelfCardReveal() {
   const config = useConfigStore(useShallow((s) => s.config))
-  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
+  const passwordSaved = useConfigStore((s) => s.passwordSaved)
   const ensureHelloVerified = useHelloGate()
-  const hasCred = !!config.user && selfPasswordSaved
+  const hasCred = !!config.user && passwordSaved
   const [revealed, setRevealed] = useState(false)
   const toggleReveal = useCallback(async () => {
     if (revealed) { setRevealed(false); return }
@@ -426,7 +426,7 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     if (offlineBusy) return
     setOfflineBusy(true)
     try {
-      // 密码空串，后端 resolve_self_password 回退已保存自助密码
+      // 密码空串，后端 resolve_self_password 回退已存登录密码
       const r = await tauriApiWithRetry.selfOfflineSession({
         account: config.user.trim(), password: '', sessionId: item.sessionId,
       })
@@ -823,9 +823,9 @@ export const DashboardPanel = memo(function DashboardPanel(props: DashboardPanel
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
-  const selfPasswordSaved = useConfigStore((s) => s.selfPasswordSaved)
+  const passwordSaved = useConfigStore((s) => s.passwordSaved)
   // 无自助凭据时（mergeSelfServiceEmpty，移动端）:selfOnline/selfLog 两张整卡空态合并为一张紧凑卡
-  const mergeSelfEmpty = !!props.mergeSelfServiceEmpty && !(!!config.user && selfPasswordSaved)
+  const mergeSelfEmpty = !!props.mergeSelfServiceEmpty && !(!!config.user && passwordSaved)
 
   useEffect(() => { saveLayout(cards) }, [cards])
 
