@@ -1,4 +1,4 @@
-import { m, AnimatePresence } from 'framer-motion'
+import { m } from 'framer-motion'
 import { useId } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -49,20 +49,6 @@ export function SegmentTabs({ tabs, activeKey, onTabChange }: SegmentTabsProps) 
           </button>
         )
       })}
-    </div>
-  )
-}
-
-interface TabContentProps {
-  children: React.ReactNode
-}
-
-export function TabContent({ children }: TabContentProps) {
-  return (
-    <div>
-      <AnimatePresence mode="wait" initial={false}>
-        {children}
-      </AnimatePresence>
     </div>
   )
 }

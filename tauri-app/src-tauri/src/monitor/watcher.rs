@@ -2,7 +2,7 @@ use tauri::{AppHandle, Manager};
 use crate::infra::command_context::CommandContext;
 use crate::infra::state::AppState;
 use super::auto_auth::run_auto_login_on_start;
-use super::latency::spawn_latency_test_loop;
+use super::latency::{run_startup_quality_once, spawn_latency_test_loop};
 
 // 后台检测主体（拆分自原 watcher.rs 大文件）
 pub use super::background_check::run_background_check;
@@ -38,6 +38,15 @@ pub fn run_startup_tasks(app_handle: &AppHandle) {
             }
         }) {
             crate::log_warn!("background", "注册 startup_latency 跟踪任务失败: {}", e);
+        }
+    } else if config.enable_network_quality {
+        // 定时测试关闭但总开关开启：启动即测一次（v2.4.2 需求「启动应用时就检测一次，
+        // 后面按照设定间隔自动检测」的前半段；周期检测由用户手动开启定时测试承接）
+        let app_h = app_handle.clone();
+        if let Err(e) = task_manager.spawn("startup_quality_once", move |cancel_token| async move {
+            run_startup_quality_once(app_h, cancel_token).await;
+        }) {
+            crate::log_warn!("background", "注册 startup_quality_once 跟踪任务失败: {}", e);
         }
     }
 

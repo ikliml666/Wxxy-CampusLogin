@@ -2,6 +2,7 @@ use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use crate::network::get_adapters_cached_async;
 use crate::infra::state::AppState;
 use crate::infra::notification::emit_notification;
@@ -50,6 +51,30 @@ pub(super) fn notify_quality_change(app_handle: &AppHandle, kind: &str) {
     }
 }
 
+/// 就绪等待：适配器未解析出 IP、或 Portal 尚未认证（此时外网 HTTPS
+/// 必被拦截全超时，检测结果无意义且会误报"网络拥堵"）时无法产出
+/// 有效质量数据，每 2s 短重试。条件一旦满足立即返回，让启动后首次
+/// 结果缩短到数秒内。返回 None 表示取消令牌触发，调用方应直接退出。
+pub(super) async fn wait_for_adapter_ready(
+    app_handle: &AppHandle,
+    cancel_token: &CancellationToken,
+) -> Option<(String, String)> {
+    loop {
+        let s = app_handle.state::<AppState>();
+        let config = s.config.load();
+        let adapters = get_adapters_cached_async().await.unwrap_or_default();
+        let (ip, name) = crate::network::select_adapter(&adapters, &config);
+        if !ip.is_empty() && s.network.load().any_adapter_online {
+            return Some((name, ip));
+        }
+        drop(s);
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            _ = cancel_token.cancelled() => return None,
+        }
+    }
+}
+
 pub fn spawn_latency_test_loop(app_handle: &AppHandle) -> Result<(), String> {
     let app_h = app_handle.clone();
     app_handle.state::<AppState>().task_manager.spawn("latency_test", move |cancel_token| {
@@ -92,21 +117,12 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle) -> Result<(), String> {
                     || s.exit.is_quitting.load(Ordering::Acquire) {
                     break;
                 }
-                // 就绪等待：适配器未解析出 IP、或 Portal 尚未认证（此时外网 HTTPS
-                // 必被拦截全超时，检测结果无意义且会误报"网络拥堵"）时无法产出
-                // 有效质量数据，每 2s 短重试且不消耗周期 tick。此前未就绪走 continue，
-                // 会立刻耗尽 interval 的即时首 tick，之后干等完整周期——启动后首次
-                // 结果要 30s+；现在条件一旦满足立即检测，首结果缩短到数秒内
-                let (adapter_ip, adapter_name) = loop {
-                    let config = s.config.load();
-                    let adapters = get_adapters_cached_async().await.unwrap_or_default();
-                    let (ip, name) = crate::network::select_adapter(&adapters, &config);
-                    if !ip.is_empty() && s.network.load().any_adapter_online {
-                        break (ip, name);
-                    }
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
-                        _ = cancel_token.cancelled() => return,
+                // 就绪等待复用 wait_for_adapter_ready（此前未就绪走 continue，
+                // 会立刻耗尽 interval 的即时首 tick，之后干等完整周期）
+                let (adapter_ip, adapter_name) = {
+                    match wait_for_adapter_ready(&app_h, &cancel_token).await {
+                        Some(pair) => pair,
+                        None => return,
                     }
                 };
                 // 检测前等待1秒，避免网络未稳定时HTTPS测试延迟异常
@@ -120,6 +136,27 @@ pub fn spawn_latency_test_loop(app_handle: &AppHandle) -> Result<(), String> {
             }
         }
     })
+}
+
+/// 启动即测一次（v2.4.2）：定时测试关闭但质量检测总开关开启时，应用启动后
+/// 等网络就绪执行一次全量检测（结果经 EventBus 推前端），然后任务退出。
+/// 定时周期检测仍由 spawn_latency_test_loop 负责；此处只补"启动首测"。
+pub(super) async fn run_startup_quality_once(app_handle: AppHandle, cancel_token: Arc<CancellationToken>) {
+    // 就绪等待与主循环一致：适配器无 IP / Portal 未认证时重试
+    let Some((adapter_name, adapter_ip)) = wait_for_adapter_ready(&app_handle, &cancel_token).await else {
+        return;
+    };
+    // 退出/任务被取消时不做无意义检测
+    let s = app_handle.state::<AppState>();
+    if s.exit.is_quitting.load(Ordering::Acquire) {
+        return;
+    }
+    // 与主循环一致：检测前等待1秒，避免网络未稳定时 HTTPS 测试延迟异常
+    tokio::select! {
+        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+        _ = cancel_token.cancelled() => return,
+    }
+    run_quality_check(&app_handle, &adapter_name, &adapter_ip, Some(&cancel_token)).await;
 }
 
 #[cfg(test)]

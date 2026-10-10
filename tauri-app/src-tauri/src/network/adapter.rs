@@ -239,6 +239,7 @@ mod tests {
             adapter1_account: String::new(),
             adapter2_account: String::new(),
             display_name: String::new(),
+            device_aliases: std::collections::HashMap::new(),
             dual_adapter: dual,
             auto_login_on_start: false,
             auto_exit_after_login: false,
