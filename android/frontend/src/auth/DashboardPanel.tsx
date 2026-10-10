@@ -32,6 +32,7 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
 import { formatEpoch, localDateStr, formatMac, formatTerminalType, formatUseTimeMinutes, formatFlowMb } from '@/account/selfServiceTypes'
 import { OnlineDeviceStack, OnlineDeviceStackH, OnlineDeviceStackCard } from '@/account/SelfOnlineStack'
+import { DeviceAliasDialog } from '@/account/DeviceAliasDialog'
 import { useFormFactor } from '@/hooks/useFormFactor'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -391,6 +392,19 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
   const addToast = useLogToastStore((s) => s.addToast)
   const [offlineTarget, setOfflineTarget] = useState<SelfOnlineItem | null>(null)
   const [offlineBusy, setOfflineBusy] = useState(false)
+  // 设备别名：与自助服务页同源（config.deviceAliases，键 = 原始 12 位 hex MAC）
+  const deviceAliases = useConfigStore((s) => s.config.deviceAliases)
+  const saveConfigDirect = useConfigStore((s) => s.saveConfigDirect)
+  const { t: tAlias } = useTranslation()
+  const [aliasTarget, setAliasTarget] = useState<SelfOnlineItem | null>(null)
+
+  const handleSaveAlias = useCallback(async (mac: string, name: string) => {
+    const next = { ...(deviceAliases ?? {}) }
+    if (name) next[mac] = name
+    else delete next[mac]
+    await saveConfigDirect({ deviceAliases: next })
+    addToast(tAlias('account.deviceAliasSaved'), 'success')
+  }, [deviceAliases, saveConfigDirect, addToast, tAlias])
   const fetchOnline = useCallback(async (account: string) => {
     // 密码传空串，后端回退已保存凭据（与绑定卡查询同路径）
     const r = await tauriApiWithRetry.querySelfDashboard({ account, password: '' })
@@ -460,6 +474,8 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
                   flowMb={formatFlowMb(item.downFlow, item.upFlow)}
                   durationMin={formatUseTimeMinutes(item.useTime)}
                   terminalType={formatTerminalType(item.terminalType)}
+                  alias={item.mac ? deviceAliases?.[item.mac] : undefined}
+                  onRename={revealed && item.mac ? () => setAliasTarget(item) : undefined}
                   offlineDisabled={offlineBusy}
                   offlineLoading={offlineBusy && offlineTarget?.sessionId === item.sessionId}
                   onOffline={revealed ? () => setOfflineTarget(item) : undefined}
@@ -477,6 +493,8 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
                   flowMb={formatFlowMb(item.downFlow, item.upFlow)}
                   durationMin={formatUseTimeMinutes(item.useTime)}
                   terminalType={formatTerminalType(item.terminalType)}
+                  alias={item.mac ? deviceAliases?.[item.mac] : undefined}
+                  onRename={revealed && item.mac ? () => setAliasTarget(item) : undefined}
                   offlineDisabled={offlineBusy}
                   offlineLoading={offlineBusy && offlineTarget?.sessionId === item.sessionId}
                   onOffline={revealed ? () => setOfflineTarget(item) : undefined}
@@ -524,6 +542,13 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
         message={t('account.selfOfflineConfirmDesc')}
         onConfirm={() => { if (offlineTarget) void handleOffline(offlineTarget) }}
         onCancel={() => setOfflineTarget(null)} />
+      <DeviceAliasDialog
+        open={aliasTarget !== null}
+        mac={aliasTarget?.mac ?? ''}
+        initialName={aliasTarget?.mac ? (deviceAliases?.[aliasTarget.mac] ?? '') : ''}
+        onSave={async (name) => { if (aliasTarget?.mac) await handleSaveAlias(aliasTarget.mac, name); setAliasTarget(null) }}
+        onCancel={() => setAliasTarget(null)}
+      />
     </AnimatedCard>
   )
 })

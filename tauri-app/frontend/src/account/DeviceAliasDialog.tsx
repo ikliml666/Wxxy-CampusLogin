@@ -45,8 +45,8 @@ export function DeviceAliasDialog({ open, mac, initialName, onSave, onCancel }: 
 
   return (
     <Dialog open={open} onOpenChange={() => { if (!saving) onCancel() }}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
+      <DialogContent className="w-[calc(100vw-3rem)] min-w-72 sm:w-full sm:max-w-sm">
+        <DialogHeader className="space-y-2">
           <DialogTitle>{t('account.deviceAliasEdit')}</DialogTitle>
           <DialogDescription className="font-mono">{mac}</DialogDescription>
         </DialogHeader>
@@ -55,13 +55,14 @@ export function DeviceAliasDialog({ open, mac, initialName, onSave, onCancel }: 
           onChange={(e) => setName(e.target.value)}
           placeholder={t('account.deviceAliasPlaceholder')}
           maxLength={30}
+          className="mt-2 h-10"
           onKeyDown={(e) => { if (e.key === 'Enter') void submit() }}
         />
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" disabled={saving} onClick={onCancel}>
+        <div className="mt-3 flex justify-end gap-3">
+          <Button variant="outline" disabled={saving} onClick={onCancel} className="min-w-20">
             {t('account.deviceAliasCancel')}
           </Button>
-          <Button size="sm" disabled={saving} onClick={() => void submit()}>
+          <Button disabled={saving} onClick={() => void submit()} className="min-w-20">
             {t('account.deviceAliasSave')}
           </Button>
         </div>
