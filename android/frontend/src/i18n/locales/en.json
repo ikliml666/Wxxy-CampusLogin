@@ -374,6 +374,7 @@
     "medianLatency": "Median Latency",
     "systemDnsResolution": "System DNS Resolution",
     "testInterval": "Test Interval",
+    "autoCheck": "Auto Check",
     "testDetails": "Test Details",
     "testDetailsDesc": "Latency test results for each node",
     "refreshQualityTest": "Refresh Network Quality Test",

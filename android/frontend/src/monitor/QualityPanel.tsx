@@ -5,7 +5,8 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Search, RefreshCw, Gauge, Clock, Play, Square, Router, MonitorSmartphone, Gamepad2, Tv, HelpCircle, Loader2 } from 'lucide-react'
+import { Search, RefreshCw, Gauge, Clock, Router, MonitorSmartphone, Gamepad2, Tv, HelpCircle, Timer } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import { QUALITY_CONFIG } from '@/network/constants'
@@ -33,13 +34,14 @@ interface QualityPanelProps {
 }
 
 // 定时测试卡与测试详情卡合并（v2.4.2）：网关 + DNS 合为一类；
-// dnsResolve（系统 DNS 解析聚合，非 DoH/直连探测）不再展示，后端探测保留（首页 Capsule 仍消费）
+// DNS 服务器直连项（aliDns/tencentDns/xinfengDns）不展示，恢复系统 DNS 解析聚合项（v2.4.1 形态）；
+// 后端探测全部保留（首页 Capsule 仍消费 dnsResolve/aliDns 等 details 键）
 const DETAIL_CATEGORIES = [
   {
     key: 'gatewayDns',
     labelKey: 'quality.gatewayDns',
     icon: Router,
-    names: ['gateway', 'aliDoh', 'tencentDoh', 'aliDns', 'tencentDns', 'xinfengDns'],
+    names: ['gateway', 'aliDoh', 'tencentDoh', 'dnsResolve'],
     color: 'text-blue-500',
     bg: 'bg-blue-500/10',
     border: 'border-blue-500/20',
@@ -306,21 +308,30 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                 </TooltipProvider>
                 <Button
                   size="sm"
-                  variant={config.enableLatencyTest ? 'destructive' : 'default'}
+                  variant="outline"
                   className="h-8 text-xs gap-1.5"
-                  onClick={handleToggleLatencyTest}
-                  disabled={!onToggleLatencyTest || isTogglingLatency}
+                  onClick={onRefreshQuality}
+                  disabled={isRefreshingQuality}
                 >
-                  {config.enableLatencyTest ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                  {config.enableLatencyTest ? t('monitor.stop') : t('monitor.start')}
+                  <RefreshCw className={cn('h-3 w-3', isRefreshingQuality && 'animate-spin')} />
+                  {t('quality.runTestNow')}
                 </Button>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground shrink-0">{t('quality.testInterval')}</span>
-              <div className="flex items-center">
+            {/* 控制条：自动检测开关 + 检测间隔输入（同条圆角容器） */}
+            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
+              <Timer className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground shrink-0">{t('quality.autoCheck')}</span>
+              <Switch
+                checked={config.enableLatencyTest}
+                onCheckedChange={() => handleToggleLatencyTest()}
+                disabled={!onToggleLatencyTest || isTogglingLatency}
+                className="scale-75 -mx-1"
+                aria-label={t('quality.autoCheck')}
+              />
+              <div className="ml-auto flex items-center gap-1.5">
                 <Input
                   type="number"
                   min={10}
@@ -329,17 +340,11 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                   onChange={e => setIntervalDraft(e.target.value)}
                   onBlur={commitInterval}
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                  className="w-16 h-8 text-center font-mono tabular-nums"
+                  className="w-14 h-7 text-center font-mono tabular-nums text-xs"
+                  aria-label={t('quality.testInterval')}
                 />
-                <span className="text-xs text-muted-foreground ml-1.5">{t('common.seconds')}</span>
+                <span className="text-xs text-muted-foreground shrink-0">{t('common.seconds')}</span>
               </div>
-              {/* 进行中不占色相：绿=终态成功，进行中=蓝+spinner（badge 语义规范） */}
-              {config.enableLatencyTest && (
-                <Badge variant="outline" className="text-[10px] text-blue-600 dark:text-blue-400 border-blue-500/20 gap-1">
-                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                  {t('monitor.running')}
-                </Badge>
-              )}
             </div>
 
             {/* 顶部标签栏：等宽 4 格 + 指示条连续跟随 */}

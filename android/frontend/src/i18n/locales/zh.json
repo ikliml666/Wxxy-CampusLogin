@@ -374,6 +374,7 @@
     "medianLatency": "中位数延迟",
     "systemDnsResolution": "系统DNS解析",
     "testInterval": "测试间隔",
+    "autoCheck": "自动检测",
     "testDetails": "测试详情",
     "testDetailsDesc": "各节点延迟检测结果",
     "refreshQualityTest": "刷新网络质量检测",
