@@ -75,6 +75,7 @@ pub fn run() {
             self_service_cmds::query_self_dashboard,
             self_service_cmds::query_self_online_log,
             self_service_cmds::self_offline_session,
+            self_service_cmds::change_self_password,
             self_service_cmds::reveal_operator_credential,
             account_cmds::list_accounts,
             account_cmds::switch_account,

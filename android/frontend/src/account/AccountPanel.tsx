@@ -24,6 +24,7 @@ import { MascotFigure } from '@/shared/MascotFigure'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
+import { ChangePasswordDialog } from '@/account/ChangePasswordDialog'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -300,6 +301,37 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }, [binding, canBind, ensureHelloVerified, config.user, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
 
+  // 修改密码弹窗（旧密码取已保存登录密码，后端 resolve 回退）：成功后把本地登录
+  // 密码同步为新密码（与手输密码同一持久化路径），否则自动登录将用旧密码失败。
+  // 返回 true 供弹窗关闭/清错，false 保留草稿重试（原因已 toast）。
+  const [chpwdOpen, setChpwdOpen] = useState(false)
+  const handleChangePassword = useCallback(async (newPassword: string): Promise<boolean> => {
+    try {
+      if (!(await ensureHelloVerified())) return false
+      const result = await tauriApiWithRetry.changeSelfPassword({
+        account: config.user,
+        password: '',
+        newPassword,
+      })
+      if (!mountedRef.current) return false
+      if (!result.success) {
+        addToast(result.message || t('account.changePasswordFailed'), 'error')
+        return false
+      }
+      const store = useConfigStore.getState()
+      await store.saveConfigDirect({ password: newPassword }, false)
+      store.syncPasswordSaved(true)
+      if (mountedRef.current) addToast(t('account.changePasswordSuccess'), 'success')
+      setChpwdOpen(false)
+      return true
+    } catch (err) {
+      if (mountedRef.current) {
+        addToast(extractErrorMessage(err) || t('account.changePasswordFailed'), 'error')
+      }
+      return false
+    }
+  }, [ensureHelloVerified, config.user, addToast, t])
+
   return (
     <div className="space-y-4">
       {/* 登录信息（左列）与运营商绑定（右列）并列；<640px 单列，避免窄屏双列挤压 */}
@@ -338,15 +370,26 @@ export const AccountPanel = memo(function AccountPanel({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('account.password')}</Label>
-                {passwordSaved && (
-                  <button
-                    type="button"
-                    onClick={handleClearPassword}
-                    className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
-                  >
-                    {t('account.clearPassword')}
-                  </button>
-                )}
+                <div className="flex items-center gap-3">
+                  {passwordSaved && (
+                    <button
+                      type="button"
+                      onClick={() => setChpwdOpen(true)}
+                      className="text-[11px] text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      {t('account.changePassword')}
+                    </button>
+                  )}
+                  {passwordSaved && (
+                    <button
+                      type="button"
+                      onClick={handleClearPassword}
+                      className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
+                    >
+                      {t('account.clearPassword')}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="relative">
                 <Input
@@ -712,6 +755,13 @@ export const AccountPanel = memo(function AccountPanel({
           </CardContent>
         </AnimatedCard>
       </div>
+
+      {/* 修改校园网密码（= 登录密码）：成功后本地登录密码同步更新 */}
+      <ChangePasswordDialog
+        open={chpwdOpen}
+        onSave={handleChangePassword}
+        onCancel={() => setChpwdOpen(false)}
+      />
 
     </div>
   )

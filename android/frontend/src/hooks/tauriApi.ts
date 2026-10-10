@@ -77,6 +77,7 @@ interface TauriApi {
   querySelfDashboard: (params: { account: string; password: string }) => Promise<CommandResult>
   selfOfflineSession: (params: { account: string; password: string; sessionId: string }) => Promise<CommandResult>
   querySelfOnlineLog: (params: { account: string; password: string; startTime: string; endTime: string }) => Promise<CommandResult>
+  changeSelfPassword: (params: { account: string; password: string; newPassword: string }) => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -248,6 +249,7 @@ const tauriApi: TauriApi = {
   querySelfDashboard: (params) => invoke<CommandResult>('query_self_dashboard', { ...params }),
   selfOfflineSession: (params) => invoke<CommandResult>('self_offline_session', { ...params }),
   querySelfOnlineLog: (params) => invoke<CommandResult>('query_self_online_log', { ...params }),
+  changeSelfPassword: (params) => invoke<CommandResult>('change_self_password', { ...params }),
   minimizeWindow: () => desktopOnly<void>('minimize_window'),
   closeWindow: () => desktopOnly<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),

@@ -39,6 +39,17 @@
 //!    （页面未展示）；summary 键大写下划线（INTERNETUPFLOW/INTERNETDOWNFLOW/
 //!    CHINANETUPFLOW/CHINANETDOWNFLOW/FLOW/TIME/COSTMONEY/COU=记录数），与页面
 //!    顶部"汇总数据"卡一致。原始 JSON 透传前端，展示格式化不做在后端
+//!
+//! 修改密码协议（逆向于 2026-10-10 /Self/setting/changePassword 页内嵌表单 + 实测）：
+//! 10. `GET  /Self/setting/changePassword`      GBK 页面，hidden `csrftoken`（UUID）
+//! 11. `POST /Self/setting/changePasswordMethod` `csrftoken + oldPassword +
+//!     newPassword + confirmPassword`（jQuery serialize，明文表单）
+//!     → `{"state":"success"}` 成功（服务端 swal"修改成功"，2 秒后跳
+//!     /Self/login/logout **强制下线**，会话与在线状态全部失效）；
+//!     `{"state":"fail","data":原因}` 失败；其余结构视为失败。
+//!     页内校验：新密码 6–11 位数字/英文、不得含空白；旧密码 maxlength 16。
+//!     旧密码即当前登录密码（凭据统一语义，见 decisions/credential-single-source）；
+//!     实测改密成功后短时间内重新登录会被服务端节流，属预期自愈。
 
 use std::net::IpAddr;
 
@@ -238,6 +249,73 @@ pub async fn reveal_credential(
         return Err("该运营商尚未绑定".to_string());
     }
     Ok((phone, sms_password))
+}
+
+/// 解析 changePasswordMethod 的 JSON 响应：`{"state":"success"}` 成功；
+/// `{"state":"fail","data":原因}` 失败（data 为服务端原文，如"旧密码错误"）；
+/// 其余结构视为失败。独立成函数便于单测（服务端三种返回形状均有实测样本）。
+fn parse_change_password_response(text: &str) -> Result<String, String> {
+    let value: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| format!("修改密码结果解析失败: {e}"))?;
+    match value.get("state").and_then(|s| s.as_str()) {
+        Some("success") => Ok("密码修改成功".to_string()),
+        Some("fail") => Err(value
+            .get("data")
+            .and_then(|d| d.as_str())
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .unwrap_or("修改失败")
+            .to_string()),
+        _ => Err("修改失败：服务端未返回明确结果".to_string()),
+    }
+}
+
+/// 修改自助服务系统密码（= 校园网登录密码，凭据统一语义）。旧密码固定为
+/// `password`（即登录密码，前端不再收集旧密码）；成功后服务端强制下线，调用方
+/// 必须同步更新本地保存的登录密码，否则后续自动登录将失败。
+pub async fn change_password(
+    account: &str,
+    password: &str,
+    new_password: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<String, String> {
+    let client = login_session(account, password, local_addr).await?;
+
+    // 改密页取 csrftoken（302 = 登录会话失效）
+    let page_resp = client
+        .get(format!("{}/setting/changePassword", SELF_BASE_URL))
+        .send().await
+        .map_err(|e| format!("打开修改密码页失败: {e}"))?;
+    if page_resp.status().is_redirection() {
+        return Err("登录会话失效，请重试".to_string());
+    }
+    let page_resp = page_resp
+        .error_for_status()
+        .map_err(|e| format!("打开修改密码页失败: {e}"))?;
+    let page_html = read_bounded_body_async(page_resp, "修改密码页").await?;
+    let csrftoken = extract_csrftoken(&page_html)
+        .ok_or_else(|| "修改密码页解析失败（csrftoken 缺失）".to_string())?;
+
+    // 提交改密（旧密码即登录密码，明文表单；服务端成功即强制下线）
+    let resp = client
+        .post(format!("{}/setting/changePasswordMethod", SELF_BASE_URL))
+        .header(reqwest::header::REFERER, format!("{}/setting/changePassword", SELF_BASE_URL))
+        .form(&[
+            ("csrftoken", csrftoken.as_str()),
+            ("oldPassword", password),
+            ("newPassword", new_password),
+            ("confirmPassword", new_password),
+        ])
+        .send().await
+        .map_err(|e| format!("提交修改密码请求失败: {e}"))?;
+    if resp.status().is_redirection() {
+        return Err("登录会话失效，请重试".to_string());
+    }
+    let resp = resp
+        .error_for_status()
+        .map_err(|e| format!("提交修改密码请求失败: {e}"))?;
+    let text = read_bounded_body_async(resp, "修改密码结果").await?;
+    parse_change_password_response(&text)
 }
 
 /// 账号隐私掩码：11 位手机号前 3 后 2（中间 6 位打码）；其他格式 ≥8 位前 2 后 2、
@@ -462,6 +540,36 @@ mod tests {
         assert_eq!(md5_hex(""), "d41d8cd98f00b204e9800998ecf8427e");
         assert_eq!(md5_hex("abc"), "900150983cd24fb0d6963f7d28e17f72");
         assert_eq!(md5_hex("123456"), "e10adc3949ba59abbe56e057f20f883e");
+    }
+
+    #[test]
+    fn parse_change_password_response_shapes() {
+        // 成功（实测形状：仅 state 字段）
+        assert_eq!(
+            parse_change_password_response(r#"{"state":"success"}"#),
+            Ok("密码修改成功".to_string())
+        );
+        // 失败 + 服务端原因（data 为原文，如旧密码错误）
+        assert_eq!(
+            parse_change_password_response(r#"{"state":"fail","data":"旧密码错误！"}"#)
+                .unwrap_err(),
+            "旧密码错误！"
+        );
+        // 失败但 data 缺失/空白 → 兜底文案
+        assert_eq!(
+            parse_change_password_response(r#"{"state":"fail"}"#).unwrap_err(),
+            "修改失败"
+        );
+        assert_eq!(
+            parse_change_password_response(r#"{"state":"fail","data":"  "}"#).unwrap_err(),
+            "修改失败"
+        );
+        // 未知结构（如 HTML 错误页意外通过 status 检查）→ 兜底失败
+        assert!(parse_change_password_response("<html>err</html>").is_err());
+        assert_eq!(
+            parse_change_password_response(r#"{"code":500}"#).unwrap_err(),
+            "修改失败：服务端未返回明确结果"
+        );
     }
 
     #[test]

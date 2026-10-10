@@ -240,6 +240,47 @@ pub async fn self_offline_session(
     }
 }
 
+/// 修改自助服务系统密码(= 校园网登录密码,凭据统一语义,桌面 change_self_password 同构)。
+/// 旧密码取已保存登录密码(resolve_self_password 回退);成功后服务端强制下线,
+/// 前端负责把本地登录密码同步为新密码。改状态敏感操作,与 bind/offline 同源走验证门。
+/// 新密码校验与桌面完全同口径:6-11 位、仅 ASCII 字母数字(改密页内嵌 jQuery validate)。
+#[tauri::command]
+pub async fn change_self_password(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::android_state::AndroidState>,
+    account: String,
+    password: String,
+    new_password: String,
+) -> Result<CommandResult, String> {
+    let settings = load_settings(&app).await?;
+    let account = account.trim().to_string();
+    let new_password = new_password.trim().to_string();
+    if account.is_empty() {
+        return Ok(CommandResult::err("请输入学号"));
+    }
+    if let Some(msg) = ensure_identity_gate(&settings) {
+        return Ok(CommandResult::err(&msg));
+    }
+    let Some(password) = resolve_self_password(&password, &settings) else {
+        return Ok(CommandResult::err("请输入自助服务系统密码"));
+    };
+    let is_valid_new = (6..=11).contains(&new_password.len())
+        && new_password.chars().all(|c| c.is_ascii_alphanumeric());
+    if !is_valid_new {
+        return Ok(CommandResult::err("新密码应为 6-11 位数字或英文"));
+    }
+    match campus_login_lib::self_service::change_password(&account, &password, &new_password, local_addr_of(&state)).await {
+        Ok(msg) => {
+            campus_login_lib::log_info!("self", "修改自助服务密码成功");
+            Ok(CommandResult::ok_msg(&msg))
+        }
+        Err(e) => {
+            campus_login_lib::log_warn!("self", "修改自助服务密码失败: {}", e);
+            Ok(CommandResult::err(&e))
+        }
+    }
+}
+
 /// 明文揭示手机号/短信密码:无论总开关如何都强制验证门(桌面同构,防 webview 侧绕过)
 #[tauri::command]
 pub async fn reveal_operator_credential(

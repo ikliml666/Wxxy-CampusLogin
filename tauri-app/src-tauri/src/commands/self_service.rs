@@ -252,6 +252,48 @@ pub async fn self_offline_session(
     }
 }
 
+/// 修改自助服务系统密码（= 校园网登录密码，/Self/setting/changePassword）。
+/// 旧密码固定取已保存登录密码（凭据统一语义，前端弹窗只收集新密码）；成功后
+/// 服务端强制下线，前端负责把本地登录密码同步更新为新密码。改状态敏感操作，
+/// 与绑定/注销同源走身份验证门。新密码校验口径 = 改密页内嵌 jQuery validate：
+/// 6–11 位、仅数字与英文、不得含空白。
+#[tauri::command]
+pub async fn change_self_password(
+    state: State<'_, AppState>,
+    account: String,
+    password: String,
+    new_password: String,
+) -> Result<CommandResult, String> {
+    let account = account.trim();
+    let new_password = new_password.trim();
+    if account.is_empty() {
+        return Ok(CommandResult::err("请输入学号"));
+    }
+    if let Some(msg) = ensure_identity_gate(&state) {
+        return Ok(CommandResult::err(&msg));
+    }
+    let Some(password) = resolve_credential_password(&state, &password) else {
+        return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
+    };
+    let is_valid_new = (6..=11).contains(&new_password.len())
+        && new_password.chars().all(|c| c.is_ascii_alphanumeric());
+    if !is_valid_new {
+        return Ok(CommandResult::err("新密码应为 6-11 位数字或英文"));
+    }
+
+    let local_addr = resolve_campus_bind_addr(&state);
+    match self_service::change_password(account, &password, new_password, local_addr).await {
+        Ok(msg) => {
+            crate::log_info!("self", "修改自助服务密码成功");
+            Ok(CommandResult::ok_msg(&msg))
+        }
+        Err(e) => {
+            crate::log_warn!("self", "修改自助服务密码失败: {e}");
+            Ok(CommandResult::err(&e))
+        }
+    }
+}
+
 /// Windows 本地身份验证（仅 Windows Hello，设备未配置时返回引导文案）。
 /// 弹窗文案由前端按场景传入（i18n）；主路径用官方 interop 接口把 Consent
 /// 对话框绑定到主窗口 HWND（Win11 天然置前，见 identity.rs 模块注释）；
