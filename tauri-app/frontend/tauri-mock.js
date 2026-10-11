@@ -283,8 +283,11 @@
       probeN++
       var slots = document.querySelectorAll('div[style*="max-content"]')
       var cur = null
+      var sideCards = 0
       for (var k = 0; k < slots.length; k++) {
-        if (slots[k].style.opacity === '1' && slots[k].parentElement) { cur = slots[k]; break }
+        var op = parseFloat(slots[k].style.opacity)
+        if (op >= 1 && cur === null) { cur = slots[k] }
+        else if (op > 0 && op < 1) { sideCards++ }
       }
       if (cur) {
         var st = cur.parentElement.getBoundingClientRect()
@@ -294,7 +297,7 @@
         document.documentElement.setAttribute('data-pager-probe', JSON.stringify({
           stageCX: Math.round((st.left + st.right) / 2), cardCX: Math.round((cr.left + cr.right) / 2),
           dx: Math.round((cr.left + cr.right) / 2 - (st.left + st.right) / 2),
-          cardW: Math.round(cr.width), arrows: arrows, dots: dots, n: probeN,
+          cardW: Math.round(cr.width), sideCards: sideCards, arrows: arrows, dots: dots, n: probeN,
           transform: cur.style.transform }))
         clearInterval(probeTimer)
       } else if (probeN > 60) {

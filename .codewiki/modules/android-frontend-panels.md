@@ -77,7 +77,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡（含 2026-09-19 新增的夜切开关 `enableNightOperatorSwitch`，两端可见，见 [[decisions/night-operator-switch]]）、运营商绑定卡（绑定状态查询/查看明文/绑定表单，其下拉**故意排除无锡学院**，见 [[learnings/binding-operator-select-excludes-campus]]）、账号管理卡（新增/**堆叠卡 pager**：2026-10-11 起手机/平板统一 `OnlineDeviceStackH variant="pager"` 窄卡左右切换，卡宽 max-content+30px、单卡居中禁拖禁切，双端同构见 [[learnings/translatex-sum-requires-calc]]/切换/改名/删除） |
+| `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡（含 2026-09-19 新增的夜切开关 `enableNightOperatorSwitch`，两端可见，见 [[decisions/night-operator-switch]]）、运营商绑定卡（绑定状态查询/查看明文/绑定表单，其下拉**故意排除无锡学院**，见 [[learnings/binding-operator-select-excludes-campus]]）、账号管理卡（新增/**堆叠卡 narrow**：2026-10-11 起手机/平板统一 `OnlineDeviceStackH variant="narrow"` 窄卡封面流，卡宽 min 213px、姿势同 coverflow 侧卡可见压暗、单卡居中禁拖禁切，双端同构见 [[learnings/translatex-sum-requires-calc]]/切换/改名/删除） |
 | `useAccount` | `account/useAccount.ts:8` | 账号动作集合：`refreshAccounts`(23)、`handleAddAccount`(33，返回是否成功)、`handleDeleteAccount`(53)、`handleSwitchAccount`(73，守卫用 `!== undefined` 而非真值判断——R4 修复)、`handleRenameAccount`(95，成功返回是否成功供退出内联编辑) |
 | `useHelloGate` | `account/selfServiceState.ts:65` | 绑定/查看类操作的验证门（TTL 570s，`VERIFY_TTL_MS` 在 `selfServiceState.ts:54`；`ignoreToggle` 形参见 `selfServiceState.ts:65-66`） |
 | `biometricFailMessage` | `account/selfServiceState.ts:34` | 按插件 reject 的 `code` 翻译验证失败文案（错误码表 `BIOMETRIC_ERROR_KEY`，`selfServiceState.ts:19` 起） |

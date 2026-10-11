@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight, Loader2, LogOut, Pencil } from 'lucide-react'
+import { Loader2, LogOut, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // —— 安卓端「在线信息」堆叠卡（竖排封面流）——
@@ -30,16 +30,15 @@ const CF_INSET = '27%' // 卡宽 = 舞台 46%
 const SIDE_SCALE = 0.6
 const SIDE_SCALE_2 = 0.45
 const DRAG_CLAMP = 80
-// pager 变体（账号管理堆叠卡专用，与桌面 SelfOnlineCards.tsx OnlineDeviceCardStack 同构）：
-// 卡宽 = max-content（由学号行撑开，刚好容纳内容），只显示当前卡居中，
-// 邻卡待命于两侧 ±170% 卡宽外（透明），翻页时整副牌连续滚动一格
-// ——当前卡滑出对侧淡出、新卡从手势方向滑入，即标准「左右切换」轮播；
-// 保留拖拽与点击半区切换，另加左右箭头按钮。在线信息设备卡维持封面流不变。
-const PAGER_STANDBY_X = 170 // 待命位横向偏移（% 卡宽，滑出可视区）
+// narrow 变体（账号管理堆叠卡专用，与桌面 SelfOnlineCards.tsx OnlineDeviceCardStack 同构）：
+// 卡宽 = max(213px, max-content)（学号行自然宽 ~133 + 80px 留白），
+// 形态与 coverflow 同构（中央卡全亮 + 侧卡缩小压暗可见、点击半区/拖拽/圆点切换），仅卡宽定位不同：
+// 以 left 50% + translateX(-50% + 姿势偏移) 居中定位。在线信息设备卡维持百分比卡宽的 coverflow 不变。
+const NARROW_MIN_W = 213
 
 export interface OnlineDeviceStackProps {
   cards: React.ReactNode[]
-  variant?: 'coverflow' | 'pager'
+  variant?: 'coverflow' | 'narrow'
 }
 
 export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
@@ -316,8 +315,7 @@ export function OnlineDeviceStackCard({
 // 切换 = 全部卡同时向目标槽位滚动一格（无离场淡出）；
 // 点击左半 = 上一张、右半 = 下一张，水平拖拽 ±60px 判翻页；页点可直接跳转。
 export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDeviceStackProps) {
-  const { t } = useTranslation()
-  const pager = variant === 'pager'
+  const narrow = variant === 'narrow'
   const count = cards.length
   const [index, setIndex] = useState(0)
   const [dragX, setDragX] = useState(0)
@@ -408,7 +406,7 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
         style={{
           height: cardH != null ? cardH : 200,
           touchAction: 'none',
-          marginInline: count > 1 && !pager ? 32 : 0,
+          marginInline: count > 1 && !narrow ? 32 : 0,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -419,17 +417,11 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
       >
         {cards.map((node, i) => {
           const s = sd(i)
-          // 槽位姿势表。
-          // pager：只有当前卡可见居中，邻卡待命于 ±170% 卡宽外（透明常挂载），
-          // 翻页 = 当前卡滑向对侧淡出 + 新卡从手势方向滑入；其余卡不挂载。
-          // coverflow：中央 + 左右相邻/次邻（缩小压暗，不旋转）+
+          // 槽位姿势表（coverflow 与 narrow 共用）：
+          // 中央 + 左右相邻/次邻（缩小压暗，不旋转）+
           // 紧邻隐藏槽位（透明常挂载，≥6 张时翻页平滑滚入/滚出），更深的卡不挂载
           let pos: { x: number; scale: number; z: number; opacity: number } | null = null
-          if (pager) {
-            if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
-            else if (s === 1) pos = { x: PAGER_STANDBY_X, scale: 1, z: 20, opacity: 0 }
-            else if (s === count - 1) pos = { x: -PAGER_STANDBY_X, scale: 1, z: 20, opacity: 0 }
-          } else {
+          {
             if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
             else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
             else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
@@ -440,9 +432,10 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
           }
           if (!pos) return null
           const side = s !== 0
-          // pager 卡定位：left 50% + max-content + 30px 留白（paddingInline）+ translateX 以卡自身宽度为基准（-50% 居中）
-          const base: React.CSSProperties = pager
-            ? { left: '50%', width: 'max-content', maxWidth: '100%', paddingInline: 15 }
+          // narrow 卡定位：left 50% + min 213px（学号行 ~133 + 80px 留白）+ translateX 以卡自身宽度为基准（-50% 居中）；
+          // coverflow 卡宽由 CF_INSET 百分比撑出，不参与居中换算
+          const base: React.CSSProperties = narrow
+            ? { left: '50%', width: 'max-content', maxWidth: '100%', minWidth: NARROW_MIN_W }
             : { left: CF_INSET, right: CF_INSET }
           // 水平偏移直接在 JS 里合并（-50 居中 + 槽位偏移）：
           // 不能写裸 "translateX(-50% + x%)" —— 无 calc() 包装的求和会被浏览器整条丢弃，卡退化为左缘贴中线（右偏半个卡宽）
@@ -450,17 +443,17 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
           const style: React.CSSProperties = dragging && s === 0
             ? {
                 ...base,
-                transform: `translateX(calc(${pager ? `${pageX}%` : `${pos.x}%`} + ${dragX}px)) scale(${pos.scale})`,
+                transform: `translateX(calc(${narrow ? `${pageX}%` : `${pos.x}%`} + ${dragX}px)) scale(${pos.scale})`,
                 transition: 'none',
                 zIndex: 40,
                 opacity: 1,
               }
             : {
                 ...base,
-                transform: `translateX(${pager ? `${pageX}%` : `${pos.x}%`}) scale(${pos.scale})`,
+                transform: `translateX(${narrow ? `${pageX}%` : `${pos.x}%`}) scale(${pos.scale})`,
                 opacity: pos.opacity,
                 zIndex: pos.z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${pager ? SLIDE_MS : 300}ms ease`,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 300ms ease`,
               }
           return (
             <div
@@ -474,26 +467,6 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
             </div>
           )
         })}
-        {pager && count > 1 && (
-          <>
-            <button
-              type="button"
-              aria-label={t('common.prevCard')}
-              onClick={(e) => { e.stopPropagation(); go(index - 1) }}
-              className="absolute left-0 top-1/2 z-40 -translate-y-1/2 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-card"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              aria-label={t('common.nextCard')}
-              onClick={(e) => { e.stopPropagation(); go(index + 1) }}
-              className="absolute right-0 top-1/2 z-40 -translate-y-1/2 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-card"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </>
-        )}
       </div>
       {count > 1 && (
         <div className="mt-2.5 flex items-center justify-center gap-1.5">
