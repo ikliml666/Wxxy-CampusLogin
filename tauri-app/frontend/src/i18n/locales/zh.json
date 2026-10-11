@@ -259,6 +259,8 @@
     "adapterAccountSecondary": "副适配器账号",
     "followCurrentAccount": "跟随当前账号",
     "adapterAccountTip": "该适配器登录时使用的账号，留空则跟随当前账号",
+    "adapterGroupSelect": "适配器选择",
+    "adapterGroupAccount": "账号绑定",
     "noIpSuffix": "（未获取IP）",
     "status": {
       "disabled": "已禁用",

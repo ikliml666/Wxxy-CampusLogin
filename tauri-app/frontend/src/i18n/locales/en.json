@@ -259,6 +259,8 @@
     "adapterAccountSecondary": "Secondary Adapter Account",
     "followCurrentAccount": "Follow Current Account",
     "adapterAccountTip": "Account used to log in on this adapter; leave empty to follow the current account",
+    "adapterGroupSelect": "Adapter Selection",
+    "adapterGroupAccount": "Account Binding",
     "noIpSuffix": "(No IP)",
     "status": {
       "disabled": "Disabled",
