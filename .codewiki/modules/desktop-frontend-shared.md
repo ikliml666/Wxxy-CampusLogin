@@ -17,38 +17,21 @@ source_files:
   - tauri-app/frontend/src/shared/SponsorCard.tsx
   - tauri-app/frontend/src/shared/ToastContainer.tsx
   - tauri-app/frontend/src/components/layout/DockNav.tsx
-  - tauri-app/frontend/src/components/layout/RightPanel.tsx
   - tauri-app/frontend/src/components/layout/TitleBar.tsx
   - tauri-app/frontend/src/components/ui/animated-card.tsx
-  - tauri-app/frontend/src/components/ui/badge.tsx
-  - tauri-app/frontend/src/components/ui/button.tsx
-  - tauri-app/frontend/src/components/ui/button.test.tsx
-  - tauri-app/frontend/src/components/ui/card.tsx
-  - tauri-app/frontend/src/components/ui/dialog.tsx
-  - tauri-app/frontend/src/components/ui/input.tsx
-  - tauri-app/frontend/src/components/ui/label.tsx
-  - tauri-app/frontend/src/components/ui/select.tsx
-  - tauri-app/frontend/src/components/ui/separator.tsx
-  - tauri-app/frontend/src/components/ui/switch.tsx
-  - tauri-app/frontend/src/components/ui/tooltip.tsx
-  - tauri-app/frontend/src/lib/animations.ts
-  - tauri-app/frontend/src/lib/color.ts
-  - tauri-app/frontend/src/lib/color.test.ts
-  - tauri-app/frontend/src/lib/easing-config.ts
-  - tauri-app/frontend/src/lib/latency.ts
-  - tauri-app/frontend/src/lib/latency.test.ts
-  - tauri-app/frontend/src/lib/renderLiveness.ts
   - tauri-app/frontend/src/lib/utils.ts
-  - tauri-app/frontend/src/lib/utils.test.ts
+  - tauri-app/frontend/src/lib/color.ts
+  - tauri-app/frontend/src/lib/easing-config.ts
+  - tauri-app/frontend/src/lib/animations.ts
+  - tauri-app/frontend/src/lib/latency.ts
+  - tauri-app/frontend/src/lib/renderLiveness.ts
   - tauri-app/frontend/src/i18n/index.ts
-  - tauri-app/frontend/src/i18n/locales/zh.json
-  - tauri-app/frontend/src/i18n/locales/en.json
-tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i18n, 工具函数, 布局]
+tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i18n, 布局]
 ---
 
 ## Overview
 
-本模块是桌面前端的"展示层与工具层"：`shared/` 放跨面板复用的业务组件（日志面板、确认框、toast 容器、看板娘、赞助浮层等），`components/ui/` 是基于 Radix UI + `class-variance-authority` 的无样式原语，`components/layout/` 是应用三段式骨架（标题栏 / 左侧 Dock / 右侧面板），`lib/` 是零状态的纯函数与常量（缓动、颜色、延迟解析、渲染存活判定、cn/错误提取/安全存储），`i18n/` 是 i18next 初始化与 zh/en 双语词条（各 800 条叶子键）。
+本模块是桌面前端的"展示层与工具层"：`shared/` 放跨面板复用的业务组件（日志面板、确认框、toast 容器、看板娘、赞助浮层等），`components/ui/` 是基于 Radix UI + `class-variance-authority` 的无样式原语，`components/layout/` 是应用三段式骨架（标题栏 / 左侧 Dock），`lib/` 是零状态的纯函数与常量（缓动、颜色、延迟解析、渲染存活判定、cn/错误提取/安全存储），`i18n/` 是 i18next 初始化与 zh/en 双语词条。
 
 依赖方向单向：`components/*` 与 `shared/*` 从 `lib/*`、`i18n` 和 [[desktop-frontend-hooks]] 的 store/hook 取数据，反向不成立（`lib/*` 只依赖 `@/monitor`、`@/network/constants` 的类型与常量）。安卓前端是独立复刻树，本模块描述的是桌面端实现（`tauri-app/frontend/src/`）。
 
@@ -62,7 +45,7 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | 2 | `ConfirmDialog` |
 | 3 | `AnimatedNumber` |
 | 4 | `RefreshButton, getRefreshIconClass` |
-| 5 | `SegmentTabs, TabContent` |
+| 5 | `SegmentTabs` |
 | 6 | `ToastContainer` |
 | 7 | `FluidBackground` |
 | 8 | `ErrorBoundary` |
@@ -102,7 +85,7 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | 行号 | 常量 | 值 / 用途 |
 |---|---|---|
 | 1 | `MAX_LOG_ENTRIES` | `300`（日志环形上限，`useLogToastStore` 与 `LogPanel` 共用） |
-| 2 | `APP_VERSION` | `'2.3.6'`（`TitleBar.tsx:112,119` 展示） |
+| 2 | `APP_VERSION` | `'2.4.1'`（`TitleBar.tsx:112,119` 展示） |
 | 3 | `APP_NAME` | `'校园网登录助手'` |
 | 4 | `PASSWORD_MASK` | `'***'`（配置回传掩码，`useConfigStore` 与 `useInitialDataLoad` 判定） |
 | 7-17 | `NAV_ITEMS` | 9 项导航定义（`as const`）：`dashboard`/`account`/`selfservice`(快捷键 9)/`network`/`monitor`/`quality`/`speedtest`/`settings`/`log`，每项含 `id`、`labelKey`、`icon`（lucide 组件名）、`shortcut` |
@@ -135,7 +118,6 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | `SegmentTabs.tsx:5-11` | `interface TabItem` | `key`、`label`、`icon: React.ComponentType<{className?:string}>`、`color`、`bg` |
 | `SegmentTabs.tsx:13-17` | `interface SegmentTabsProps` | `tabs`、`activeKey`、`onTabChange` |
 | `SegmentTabs.tsx:19-54` | `SegmentTabs` | `useId()` 生成 `layoutId` 前缀（22，防多实例共享 `"activeTab"` 导致跨实例布局动画错乱） |
-| `SegmentTabs.tsx:56-58` / `60-68` | `interface TabContentProps` / `TabContent` | 仅包一层 `AnimatePresence mode="wait" initial={false}` |
 | `SponsorCard.tsx:7-10` | `interface SponsorCardProps` | `open`、`onClose` |
 | `SponsorCard.tsx:24-128` | `SponsorCard` | 锚定标题栏下方的非模态浮层；位置由打开/resize 时实测赞助按钮 `getBoundingClientRect()` 得出（`SponsorAnchor` 14-18、`measure` 33-44，窗口 resize 重算），锚点契约为 TitleBar 赞助按钮上的 `data-sponsor-anchor` 数据属性（`TitleBar.tsx:206`），不依赖 aria-label 文案与 locale；捕获阶段 `pointerdown` 外部点击 + `Esc` 关闭（63-76）；收款码 `/sponsor-weixin.png`、`/sponsor-alipay.jpg`（109-116） |
 | `ToastContainer.tsx:10-13` | `interface ToastContainerProps` | `toasts: ToastMessage[]`、`onRemove: (id) => void` |
@@ -157,11 +139,6 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | `DockNav.tsx:251-396` | `ActionButtonWithMenu`（内部组件） | 按钮 + hover 150ms 开、300ms 关（294-303）；仅一张在线卡时不弹选择浮层、点击直接以该卡执行（290-292、317-327），两张及以上才弹菜单；加载态：spinner `gsap` 旋转（336-344）+ `loadingPulse` 边框（288,376-382） |
 | `DockNav.tsx:398-401` | `interface DockNavProps` | `onPanelChange: (panel: PanelName) => void`、`outerRef?` |
 | `DockNav.tsx:403-500` | `DockNav`（`memo`） | 读 `activePanel`/`isLoggingIn`/`isLoggingOut`/`adapters`/`enableNetworkQuality`/`adapter1,adapter2,dualAdapter`（416-425，后三项用 `useShallow` 421-425）；`scopedAdapters` 用 `resolveAdapterNames` 限定作用域（432-436）；`visibleItems` 过滤 `quality`（437）；`economy` 档禁用磁吸（444-445）+ RAF 节流（447-450）；激活指示由 `DockItem` 内药丸 `layoutId` 跨项滑动承担（143-148），无独立指示条与 `mounted` 测量 |
-| `RightPanel.tsx:20-24` | `interface RightPanelProps` | `logs: LogEntry[]`、`onClearLogs?`、`outerRef?` |
-| `RightPanel.tsx:26-31` / `33-38` / `40-45` / `47-52` | `LOG_ICONS` / `LOG_COLORS` / `LOG_BG_COLORS` / `LOG_BAR_COLORS` | 四类日志的图标/文字色/底色/左条色 |
-| `RightPanel.tsx:57-58` | `RIGHT_PANEL_ANIM_THRESHOLD=50` / `RIGHT_PANEL_ANIM_KEEP_COUNT=30` | 分片阈值：>50 条时只有最后 30 条走 `m.div` |
-| `RightPanel.tsx:60-81` | `getAdapterInfo(adapterName, adapterDetails, adapters)` | 优先精确匹配 `adapterDetails`，逐级回退（有线 → 任一有 IP → `adapters` 里的有线 → 任一有 IP），都无返回 `null` |
-| `RightPanel.tsx:83-428` | `RightPanel`（`memo`） | 运行日志卡（217-327）+ 网络适配器卡（329-424）；适配器多网卡信息网格（407-414）；`displayAdapters` 由 `adapter1`/`adapter2`+`dualAdapter` 决定（185-195） |
 | `TitleBar.tsx:11-22` | `interface TitleBarProps` | 10 个 props：通知开关、主题/关于/赞助回调、浅色切换、最小化/最大化/关闭、`isMaximized` |
 | `TitleBar.tsx:24-48` | `MinimizeIcon` / `MaximizeIcon` / `RestoreIcon` / `CloseIcon` | 4 个内联 SVG（10×10，`strokeWidth` 1.2/1.4） |
 | `TitleBar.tsx:50-270` | `TitleBar`（`memo`） | 无边框窗口拖拽区：`startDragging()` 带 300ms 双击防抖（70-82）；双击切换最大化（84-86）；图标按钮组（141-267），赞助按钮标 `data-sponsor-anchor="true"`（206，供 `SponsorCard` 稳定定位） |
@@ -174,26 +151,6 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | `animated-card.tsx:14-21` | `interface AnimatedCardProps` | 继承 `HTMLAttributes<HTMLDivElement>`，加 `animationConfig?`、`noHover?`、`noAnimation?`、`noEnterAnimation?`、`enableTilt?`、`staggerIndex?` |
 | `animated-card.tsx:23` / `27-29` | `REST_SHADOW` / `reducedMotionQuery` | 静止阴影常量；模块级 `MediaQueryList` |
 | `animated-card.tsx:31-151` | `AnimatedCard`（`memo`+`forwardRef`） | 3D 倾斜：`rotateY/rotateX` 两条 `quickTo`（46-47），`ResizeObserver` 失效 rect 缓存（49-50），RAF 节流且回调内只用同步捕获的坐标（65-89）；cleanup 取消 RAF 与 delayedCall（51-62） |
-| `badge.tsx:5-30` | `badgeVariants` | 8 个 `variant`（default/secondary/destructive/outline/success/warning/info/ghost）× 3 个 `size`（default/sm/lg） |
-| `badge.tsx:32-34` / `36-40` | `interface BadgeProps` / `Badge` | 渲染 `<div>` |
-| `button.tsx:6-34` | `buttonVariants` | 9 个 `variant`（default/destructive/outline/secondary/ghost/link/glass/soft）/ 6 个 `size`（default/sm/lg/icon/icon-sm/icon-lg） |
-| `button.tsx:36-41` | `interface ButtonProps` | 加 `asChild?`、`isLoading?` |
-| `button.tsx:43-170` | `Button`（`forwardRef`） | `asChild` 走 Radix `Slot`（45-84）；普通分支 `btn-press` class（107）+ 鼠标位置写 `--mouse-x/--mouse-y`（110-137，3px 去抖、RAF 节流、cleanup 取消 RAF 99-103） |
-| `card.tsx:4-14` / `16-26` / `28-38` / `40-46` | `CardHeader` / `CardTitle` / `CardDescription` / `CardContent` | 四个 `forwardRef` 容器（**没有** `Card` 与 `CardFooter`；卡片外框由 `AnimatedCard` 承担） |
-| `dialog.tsx:7` / `9` / `11-24` | `Dialog` / `DialogPortal` / `DialogOverlay` | Root/Portal/Overlay（后两者**未导出**） |
-| `dialog.tsx:26-54` | `DialogContent` | 加 `showClose?: boolean`（默认 true，43-48）；自己组 Portal + Overlay + 居中容器（32-33） |
-| `dialog.tsx:56-68` / `70-83` / `85-95` | `DialogHeader` / `DialogTitle` / `DialogDescription` | 头部/T标题/描述 |
-| `input.tsx:4-8` | `interface InputProps` | 加 `icon?: ReactNode`、`error?: string` |
-| `input.tsx:10-38` | `Input`（`forwardRef`） | 有 `icon` 时 `pl-10`（23）；`error` 时补边框宽度（24-26，注释说明基础类无 border 宽度）+ 错误文案（31-33） |
-| `label.tsx:6-8` | `labelVariants` | 单一样式串 |
-| `label.tsx:10-24` | `Label`（`forwardRef`） | 加 `required?: boolean` → 追加红色 `*`（21） |
-| `select.tsx:6` / `8` / `10-34` | `Select` / `SelectValue` / `SelectTrigger` | Trigger 加 `icon?`（12,23-27） |
-| `select.tsx:36-64` / `66-86` / `88-98` | `SelectContent` / `SelectItem` / `SelectSeparator` | Content 默认 `position='popper'`（39） |
-| `separator.tsx:5-26` | `Separator`（`forwardRef`） | 支持 `orientation`，默认 `horizontal`、`decorative=true` |
-| `switch.tsx:5-32` | `Switch`（`forwardRef`） | 加 `size?: 'default' \| 'sm' \| 'lg'`（7-9），三档尺寸与滑块位移一一对应（24-27） |
-| `tooltip.tsx:5` / `7` / `9` / `11` | `TooltipProvider` / `Tooltip` / `TooltipTrigger` / `TooltipPortal` | 前三个导出；`TooltipPortal` **未导出**（11） |
-| `tooltip.tsx:13-29` | `TooltipContent`（`forwardRef`） | 内建 Portal（17），默认 `sideOffset=4`；导出清单见 31（无 `TooltipPortal`） |
-| `button.test.tsx:12-24` | 用例 | 断言 `onMouseMove` 的 RAF 回调不访问 React 已置 null 的 `currentTarget`，且 `--mouse-x/--mouse-y` 被写入 |
 
 ### lib 工具与常量
 
@@ -221,9 +178,6 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | `renderLiveness.ts:18` / `20` / `21` | `PROBE_REFRESH_MS=4_000` / `PROBE_TIMEOUT_MS=500` / `RENDER_STALL_THRESHOLD_MS=10_000` | 重开探测窗口阈值（< 判定阈值一半）/ 开窗兜底复位 / 停滞判定阈值 |
 | `renderLiveness.ts:24-34` | `startProbe()` | 开一个 2 帧（≈33ms）rAF 窗口刷新 `lastRafTime`；`probing` 防重入 + `setTimeout(500ms)` 兜底复位（半死状态） |
 | `renderLiveness.ts:36-40` | `isRenderLoopAlive()` | `document.hidden` 直接返回 `true`（37）；距上次探测 > 4s 时 `startProbe()`（38）；返回 `performance.now() - lastRafTime <= 10s`；调用方仍须先做可见性短路（11-13 注释） |
-| `latency.test.ts:23-181` | 测试 | 覆盖 `getLatencyLevel`(23-53)、`getLatencyColor`(55-79)、`mergeNetworkQuality`(81-121)、`extractGatewayLatency`(123-145)、`extractExternalLatency`(147-181) |
-| `color.test.ts:4-40` | 测试 | 三原色/黑白/非法输入/短 hex/无 `#` 共 9 例 |
-| `utils.test.ts:4-38` | 测试 | `cn` 4 例（5-20）、`extractErrorMessage` 4 例（22-38） |
 
 ### i18n
 
@@ -264,54 +218,40 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 
 词条同时经两种方式消费：`react-i18next` 的 `useTranslation()`（组件内，如 `TitleBar.tsx:62`）与直接 `i18next.t(...)`（非组件上下文，如 `useAuthStore.ts:139`、`useEventListeners.ts:41`、`ErrorBoundary.tsx:34`）。
 
-## 结构体与字段
+## Architecture
 
-### 组件 Props 结构（按文件）
-
-| 类型 | 行号 | 字段与类型 |
-|---|---|---|
-| `AnimatedNumberProps` | `AnimatedNumber.tsx:6-12` | `value: number`、`unit?: string = 'ms'`、`decimals?: number = 0`、`className?: string = ''`、`duration?: number`（缺省取 `profile.numberDuration`，23） |
-| `ConfirmDialogProps` | `ConfirmDialog.tsx:12-18` | `open: boolean`、`title: string`、`message: string`、`onConfirm: () => void`、`onCancel: () => void` |
-| `Props` / `State`（ErrorBoundary） | `ErrorBoundary.tsx:6-8` / `10-13` | `children: ReactNode` / `hasError: boolean`、`error: Error \| null` |
-| `LogPanelProps` | `LogPanel.tsx:28-40` | `api.getLogs(lines?: number): Promise<string>`、`api.clearLogs(): Promise<boolean>`、`api.getDebugMode(): Promise<boolean>`、`api.setDebugMode(enabled: boolean): Promise<boolean>`、`api.getLogRetentionDays?(): Promise<number>`、`api.setLogRetentionDays?(days: number): Promise<void>`、`api.exportDiagnostics?(days?: number): Promise<string>`（桌面专属，安卓不传）、`addToast(message: string, type: 'info'\|'success'\|'error'\|'warning', description?: string): void` |
-| `ParsedLogLine` | `LogPanel.tsx:44-50` | `timestamp: string`、`level: LogLevel`、`module: string`、`message: string`、`raw: string` |
-| `RefreshButtonProps` | `RefreshButton.tsx:7-11` | `isRefreshing: boolean`、`iconClassName?: string`、`showCheck?: boolean` + `ButtonHTMLAttributes<HTMLButtonElement>` |
-| `TabItem` | `SegmentTabs.tsx:5-11` | `key: string`、`label: string`、`icon: React.ComponentType<{className?: string}>`、`color: string`、`bg: string` |
-| `SegmentTabsProps` | `SegmentTabs.tsx:13-17` | `tabs: TabItem[]`、`activeKey: string`、`onTabChange: (key: string) => void` |
-| `TabContentProps` | `SegmentTabs.tsx:56-58` | `children: React.ReactNode` |
-| `SponsorCardProps` | `SponsorCard.tsx:7-10` | `open: boolean`、`onClose: () => void` |
-| `ToastContainerProps` | `ToastContainer.tsx:10-13` | `toasts: ToastMessage[]`、`onRemove: (id: string) => void` |
-| `DockNavProps` | `DockNav.tsx:398-401` | `onPanelChange: (panel: PanelName) => void`、`outerRef?: (el: HTMLDivElement \| null) => void` |
-| `AdapterMenuProps` | `DockNav.tsx:155-160` | `adapters: Adapter[]`、`selectedAdapter?: string`、`onSelect: (adapterName: string) => void`、`actionLabel: string` |
-| `RightPanelProps` | `RightPanel.tsx:20-24` | `logs: LogEntry[]`、`onClearLogs?: () => void`、`outerRef?: (el: HTMLDivElement \| null) => void` |
-| `TitleBarProps` | `TitleBar.tsx:11-22` | `notificationEnabled: boolean`、`onToggleNotification: () => void`、`onShowTheme: () => void`、`onShowAbout: () => void`、`onShowSponsor: () => void`、`onToggleLightMode: () => void`、`onMinimize: () => void`、`onToggleMaximize: () => void`、`onClose: () => void`、`isMaximized: boolean` |
-| `AnimatedCardConfig` | `animated-card.tsx:6-12` | `glowIntensity?: number`、`hoverScale?: number`、`stiffness?: number`、`damping?: number`、`mass?: number`（当前无消费方，见 Known Issues 5） |
-| `AnimatedCardProps` | `animated-card.tsx:14-21` | `animationConfig?: AnimatedCardConfig`、`noHover?: boolean`、`noAnimation?: boolean`、`noEnterAnimation?: boolean`、`enableTilt?: boolean`（缺省取 `profile.enableTilt`，36）、`staggerIndex?: number`（写入 `--stagger-i`，127） + `HTMLAttributes<HTMLDivElement>` |
-| `BadgeProps` | `badge.tsx:32-34` | `HTMLAttributes<HTMLDivElement>` + `VariantProps<typeof badgeVariants>`（`variant`、`size`） |
-| `ButtonProps` | `button.tsx:36-41` | `ButtonHTMLAttributes<HTMLButtonElement>` + `VariantProps`（`variant`、`size`）+ `asChild?: boolean`、`isLoading?: boolean` |
-| `InputProps` | `input.tsx:4-8` | `InputHTMLAttributes<HTMLInputElement>` + `icon?: React.ReactNode`、`error?: string` |
-| `Switch` 内联 props | `switch.tsx:7-9` | `size?: 'default' \| 'sm' \| 'lg'` |
-
-### 常量与联合类型
-
-| 名称 | 行号 | 值 |
-|---|---|---|
-| `MAX_LOG_ENTRIES` | `ui-constants.ts:1` | `300` |
-| `APP_VERSION` | `ui-constants.ts:2` | `'2.3.6'` |
-| `APP_NAME` | `ui-constants.ts:3` | `'校园网登录助手'` |
-| `PASSWORD_MASK` | `ui-constants.ts:4` | `'***'` |
-| `NAV_ITEMS` | `ui-constants.ts:7-17` | 9 项，字段 `id` / `labelKey` / `icon` / `shortcut` |
-| `PanelName` | `ui-types.ts:2` | 9 个面板 id |
-| `MascotVariant` | `MascotFigure.tsx:5` | 7 个：`portrait`/`welcome`/`empty`/`celebrate`/`sponsor`/`offline`/`alert` |
-| `ToastMessage['mascot']` | `ui-types.ts:32` | 5 个：`portrait`/`celebrate`/`offline`/`alert`/`update`（比 `MascotVariant` 多 `update`，少 `welcome`、`empty`、`sponsor`） |
-| `LogLevel` | `LogPanel.tsx:42` | `'DEBUG' \| 'INFO' \| 'WARN' \| 'ERROR'` |
-| `MAX_DISPLAY_LINES` | `LogPanel.tsx:82` | `200` |
-| `EasingConfig` | `easing-config.ts:3-9` | 5 条贝塞尔曲线（`enter`/`exit`/`smooth`/`snappy`/`overshoot`） |
-| `RIGHT_PANEL_ANIM_THRESHOLD` / `_KEEP_COUNT` | `RightPanel.tsx:57-58` | `50` / `30` |
-| `TOAST_MASCOTS` | `ToastContainer.tsx:16-21` | `LogType → ToastMessage['mascot']` 映射 |
-| `TOAST_STYLES` | `ToastContainer.tsx:23-28` | `LogType → 底色 class` |
-| `ICON_MAP` | `DockNav.tsx:34-44` | 9 个 lucide 组件（含重复导入的 `Wifi`/`WifiIcon`，3-18） |
-| `LOG_ICONS` / `LOG_COLORS` / `LOG_BG_COLORS` / `LOG_BAR_COLORS` | `RightPanel.tsx:26-31` / `33-38` / `40-45` / `47-52` | `LogEntry['type']` → 图标/文字色/底色/左条色 |
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    Tauri App Frontend                       │
+│                                                             │
+│  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐  │
+│  │   TitleBar   │   │    DockNav   │   │     Shared     │  │
+│  │ TitleBar.tsx │   │ DockNav.tsx  │   │  LogPanel.tsx  │  │
+│  │              │   │              │   │  ConfirmDialog │  │
+│  │ 赞助按钮      │   │ 磁吸 Dock    │   │  FluidBG       │  │
+│  │ data-sponsor │   │ layoutId     │   │  MascotFig     │  │
+│  │ anchor="true"│   │ pill anim    │   │  ToastCont     │  │
+│  └──────┬───────┘   └──────┬───────┘   └───────┬────────┘  │
+│         │                  │                    │           │
+│         ▼                  ▼                    ▼           │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                 components/ui/                      │    │
+│  │  AnimatedCard (tilt) Badge Button Input Select...   │    │
+│  └─────────────────────────────────────────────────────┘    │
+│         │                                                    │
+│         ▼                                                    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                     lib/                            │    │
+│  │  cn utils color latency renderLiveness animations   │    │
+│  └─────────────────────────────────────────────────────┘    │
+│         │                                                    │
+│         ▼                                                    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                   i18n/                             │    │
+│  │  zh.json en.json init(i18next)                      │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Data Flow
 

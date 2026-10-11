@@ -6,21 +6,7 @@ source_files:
   - tauri-app/src-tauri/src/config/model.rs
   - tauri-app/src-tauri/src/config/validate.rs
   - tauri-app/src-tauri/src/config/outbound_switch.rs
-  - tauri-app/src-tauri/src/monitor/scheduled.rs
-  - tauri-app/src-tauri/src/commands/account.rs
-  - tauri-app/src-tauri/src/commands/config_cmd.rs
   - tauri-app/frontend/src/settings/types.ts
-  - tauri-app/frontend/src/settings/constants.ts
-  - tauri-app/frontend/src/account/AccountPanel.tsx
-  - tauri-app/frontend/src/monitor/StatusBar.tsx
-  - tauri-app/frontend/src/monitor/StatusBar.onlineOperator.test.tsx
-  - android/src-tauri/src/config_state.rs
-  - android/src-tauri/src/monitor_loop.rs
-  - android/src-tauri/src/account_cmds.rs
-  - android/frontend/src/settings/types.ts
-  - android/frontend/src/settings/constants.ts
-  - android/frontend/src/settings/SettingsPanel.tsx
-  - android/frontend/src/monitor/StatusBar.tsx
 tags: [决策, 夜切, 运营商, 定时任务, 双端同构]
 ---
 
@@ -61,7 +47,7 @@ tags: [决策, 夜切, 运营商, 定时任务, 双端同构]
 
 ### 接入点（两端不同，动作语义一致）
 
-- **桌面**：`monitor/scheduled.rs` 的 30s 无条件循环 `run_scheduled_action_loop`（:116-233，与后台检测开关无关，见 [[scheduled-actions-outside-silent-window]]）。出站切换动作先行（:167-209），其后 `outbound_switch_active` 成立时运营商夜切让位（:212-218），否则 `evaluate_night_switch` 判定（:221-227）并 `apply_night_switch_action`（:229-231）。`apply_night_switch_action`（:1464-1491）：SwitchToCampus 时暂存 operator→置空、Restore 时取回 restore，经 `save_config_to_disk_encrypted` 落盘（内含 config-changed 广播与托盘刷新）后 `spawn_login_action`（:1435-1459，`is_logging_in` 互斥、`full_login` 无探测闸，与定时登录共用执行体）并 spawn 验证任务。
+- **桌面**：`monitor/scheduled.rs` 的 30s 无条件循环 `run_scheduled_action_loop`（:116-233，与后台检测开关无关，见 [[scheduled-actions-outside-silent-window]]）。出站切换动作先行（:167-209），其后 `outbound_switch_active` 成立时运营商夜切让位（:212-218），否则 `evaluate_night_switch` 判定（:221-227）并 `apply_night_switch_action`（:229-231）。`apply_night_switch_action`（:1464-1491）：SwitchToCampus 时暂存 operator→置空，Restore 时取回 restore，经 `save_config_to_disk_encrypted` 落盘（内含 config-changed 广播与托盘刷新）后 `spawn_login_action`（:1435-1459，`is_logging_in` 互斥、`full_login` 无探测闸，与定时登录共用执行体）并 spawn 验证任务。
 - **安卓**：`monitor_loop.rs::run_scheduled_actions`（:748，由 `monitor_tick_loop` :580-604 每拍驱动 :593，位于分档跳拍与静默期闸门之前）。出站判定先行（:753-778，含"功能关但标记残留→Restore 兜底"），出站动作后重读最新配置（:841-843，`latest_settings` :629-636 防陈旧快照复活标记）；运营商夜切段门控 `if settings.enable_night_operator_switch && !outbound_active`（:852），`evaluate_night_switch`（:856-862）后按动作分支：SwitchToCampus :864-877 / Restore :878-888——改动内存快照 → `persist_settings`（:955-978：`save_to` 密文落盘 :964 + `AndroidState.config` 缓存刷新 :968-971 + `auto_create_account_for_current` 账号档案同步 :972 + `emit_config_changed` 广播 :976）成功才执行 `night_switch_login`（:984-1010，**直接登录**保留账号为空防御 :985-988、强制绑 WiFi :990、`run_login` 内核 :992，成功置 `was_online` 并清注销保护期 :1000-1001）**有意绕过 `auto_login_on_start` 的"不在校园网则跳过"探测闸**——夜切语义是"强制重新认证"，静默跳过会让功能无声失效。
 - **登录生效自动验证（双端同构）**：等 15s（eportal 在线表非即时）→ 查 `{portal_origin}/drcom/chkstatus?callback=dr1003` 核对在线账号 uid 与期望运营商后缀（重试 3 次、间隔 5s、单次超时 15s；桌面常量 `monitor/scheduled.rs:51-56`、安卓 `monitor_loop.rs:1109-1112`）→ 仍不符则注销重登一轮再复验（复登前复查 operator 防用户已手动改走）→ 最终不符发 warning 日志 + 系统通知「夜切验证失败」，生效写 success 日志。实现：桌面 `verify_night_switch` :1540-1577、`night_switch_verify_round` :1589-1607、`night_switch_check_once` :1610-1634；安卓 `verify_night_switch` :1135-1189（另加出站切换态双闸 :1138-1140/:1158-1160，避免打断出站等待窗口）、`night_switch_verify_round` :1193-1210、`night_switch_check_once` :1213-1242。uid 核对复用共享纯函数 `config::night_switch::{parse_chkstatus, uid_matches}`。
 

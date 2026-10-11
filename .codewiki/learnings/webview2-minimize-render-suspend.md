@@ -1,31 +1,130 @@
 ---
-title: WebView2 最小化渲染不挂起——宿主必须同步 PutIsVisible（wry 缺口 + backdrop-filter 放大）
+title: WebView2 最小化渲染挂起与内存目标管理
 type: learning
 source_files:
   - tauri-app/src-tauri/src/app/window.rs
   - tauri-app/src-tauri/src/app/startup.rs
   - tauri-app/src-tauri/src/commands/system.rs
-  - tauri-app/frontend/src/index.css
 tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 ---
 
-## 现象
+## Overview
 
-窗口最小化后 WebView2 进程组仍持续占 CPU 4.9%（渲染进程 2.2% + GPU 进程 2.7%）与 GPU 45.6%（v2.4.1 之后用户报「轻量化模式没有按设计工作」）；两日运行日志无任何轻量化记录——用户日常点的是最小化按钮，而轻量化设计只覆盖关闭窗口（真销毁 WebView）。
+本文档记录了 Tauri (wry) 应用在 Windows 平台上，针对 WebView2 引擎在窗口最小化场景下导致的 CPU/GPU 空转与高内存占用的根因分析及解决方案。核心问题在于 wry 库未自动处理窗口最小化时的 `SetIsVisible` 调用，导致 Chromium 渲染进程持续工作。同时，引入了基于 `ICoreWebView2_19` 接口的内存使用目标级别（Memory Usage Target Level）动态调整机制，以配合焦点变化进一步优化资源使用。
 
-## 根因
+## Key Components
 
-1. **wry 不在最小化时通知 WebView2**：wry 0.55.1 的 `controller.SetIsVisible` 仅两处调用——创建时 `attributes.visible`（webview2/mod.rs L544）与显式 `set_visible()`（L1477-1487，由 Tauri `hide()`/`show()` 触发）。窗口最小化（Win32 尺寸变化）不触发任何 `PutIsVisible`。
-2. **WebView2 默认不做原生遮挡检测**：微软文档要求宿主在窗口不可见时主动 `PutIsVisible(false)`。缺省行为导致页面长期「半挂起」：定时器被节流（页面判定 hidden，60s 兜底轮询失效），但渲染合成仍在派发——rAF/CSS 动画/合成器全速空转。
-3. **v2.4.1 的 `backdrop-filter: blur(16px) saturate(150%)`（`.glass-dock`）放大成本**：每帧动画都要重算背后内容的模糊，GPU 陡增到可感知（45.6%），让既有缺口显性化。即「修 webview 问题引出新 bug」的真正机制是同提交的 blur 改动放大旧缺口，`syncOnRestore` 本身无害。
+### `src/app/window.rs`
 
-## 解决
+#### `handle_window_focus_event`
+- **位置**: L6-L38 (Windows), L40-L41 (Non-Windows)
+- **用途**: 监听窗口焦点变化 (`WindowEvent::Focused`)。当窗口失去焦点时，将 WebView2 的内存使用目标级别设置为 `LOW`；获得焦点时恢复为 `NORMAL`。
+- **实现细节**:
+    - 使用 `webview2_com_sys` 获取 `ICoreWebView2_19` 接口。
+    - 调用 `SetMemoryUsageTargetLevel`。
+    - 非 Windows 平台为空实现。
 
-- **A · Resized 事件同步可见性**：`on_window_event` 加 `WindowEvent::Resized` 分发 → `window.rs` `handle_window_resized_event`：`is_minimized()` 翻转时（`LAST_MINIMIZED` AtomicBool 去重逐像素高频事件）`with_webview` 调 `controller.SetIsVisible(!minimized)`。最小化挂起渲染，还原恢复。与 `hide()` 路径无冲突（wry 已自带 `SetIsVisible(false)`，且隐藏不触发 Resized）。
-- **B · 最小化按钮分流**：`minimize_window` 命令在 `minimize_to_tray=true` 时改 `hide()`（进托盘，贴合配置语义），否则保持最小化（A 兜底）。
+#### `handle_window_resized_event`
+- **位置**: L53-L82 (Windows), L84-L85 (Non-Windows)
+- **用途**: 监听窗口大小变化事件 (`WindowEvent::Resized`)。用于检测窗口最小化状态翻转，并同步 WebView2 的可见性。
+- **关键逻辑**:
+    - 使用静态原子布尔值 `LAST_MINIMIZED` (L53) 记录上次同步的最小化状态。
+    - 仅在 `is_minimized()` 返回值发生翻转时执行后续操作，避免拖拽窗口时的高频 COM 调用风暴。
+    - 通过 `controller.SetIsVisible(!minimized)` 通知 WebView2 挂起或恢复渲染。
+    - **背景注释**: 解释了为何需要此手动干预——wry 仅在显式 hide/show 时调用 SetIsVisible，最小化不会触发任何通知，且 WebView2 默认无原生遮挡检测。
 
-## 教训
+#### `show_and_focus_main`
+- **位置**: L87-L93
+- **用途**: 统一入口，显示并聚焦主窗口。包含 `unminimize` 操作，确保无论窗口当前状态如何都能正确展示。
 
-- **WebView2 的可见性是宿主的义务**：最小化/遮挡时宿主不调 `PutIsVisible(false)`，Chromium 就认为页面可渲染。定时器节流 ≠ 渲染挂起——两者通道不同，「页面半挂起」是 WebView2 长驻应用的常态陷阱。
-- **给常驻 UI 加 `backdrop-filter` 前先确认最小化渲染路径**：blur 把每帧合成成本放大数倍，任何「最小化后还在产帧」的缺口都会被它放大到用户可感知。
-- **`Resized` 事件逐像素高频触发**：任何挂上去的处理器都要先做状态翻转去重（AtomicBool swap），否则拖拽窗口时 COM 调用风暴。
+#### `show_or_rebuild_main`
+- **位置**: L98-L108
+- **用途**: 高级入口。如果窗口存在则显示聚焦；如果窗口不存在（例如被轻量化销毁），则重建窗口。
+- **依赖**: 使用 `AppHandle` 来获取显示器信息以恢复窗口几何位置。
+
+#### `rebuild_main_window`
+- **位置**: L113-L165
+- **用途**: 从 `tauri.conf.json` 配置重建主窗口。
+- **关键细节**:
+    - 绝不使用 `WindowBuilder` 直接创建，而是使用 `WebviewWindowBuilder::from_config` 以避免白屏 (Tauri issue #9307)。
+    - 窗口初始状态为 `visible(false)`，等待前端发送 `notify_window_ready` 信号或 5 秒超时后才显示，防止重建时出现白闪。
+    - 恢复窗口几何位置：检查记忆的位置是否仍在可用显示器范围内。
+    - 退出轻量化态：重置标志并关闭 EcoQoS。
+
+### `src/app/startup.rs`
+
+#### `run`
+- **位置**: L22-L136
+- **用途**: 应用启动入口，注册全局窗口事件处理器。
+- **关键配置**:
+    - 在 `.on_window_event` 回调中 (L67-L76)，分发 `WindowEvent::Focused` 和 `WindowEvent::Resized` 到 `window.rs` 中的对应处理函数。
+    - 处理 `single_instance` 回调，确保单实例启动时能正确显示或重建主窗口。
+
+#### `setup_app`
+- **位置**: L138-L216
+- **用途**: 应用初始化设置。
+- **关键日志**: 记录 WebView2 浏览器参数 (L183)，用于诊断 GPU 加速相关问题。
+
+### `src/commands/system.rs`
+
+#### `minimize_window`
+- **位置**: L12-L22
+- **用途**: 处理最小化命令。
+- **逻辑**:
+    - 如果配置 `minimize_to_tray` 为真，调用 `window.hide()`。这会导致 wry 内部调用 `SetIsVisible(false)`，从而挂起 WebView2 渲染。
+    - 否则调用 `window.minimize()`。此时需依赖 `handle_window_resized_event` 中的逻辑来同步可见性。
+
+#### `close_window`
+- **位置**: L25-L42
+- **用途**: 处理关闭窗口命令。
+- **逻辑**:
+    - 优先遵循 `minimize_to_tray` 配置，改为隐藏到托盘而非真正关闭，以保留页面状态并节省重建开销。
+    - 仅在轻量化模式开启或非托盘模式下才执行真正的窗口关闭。
+
+## Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                       Tauri App Runtime                      │
+│                                                              │
+│  ┌─────────────────┐     ┌───────────────────────────────┐   │
+│  │  Window Events   │────►│  src/app/window.rs            │   │
+│  │  (Startup.rs)    │     │                               │   │
+│  │                  │     │  handle_window_resized_event  │───┼──► SetIsVisible (!minimized)
+│  │  Resized Event   │     │  (Syncs Visibility on Min/Unm)│   │      (CoreWebView2 Controller)
+│  │  Focused Event   │     │                               │   │
+│  └─────────────────┘     │  handle_window_focus_event    │───┼──► SetMemoryUsageTargetLevel
+│                          │  (Adjusts Memory Target)        │   │      (ICoreWebView2_19)
+│  ┌─────────────────┐     └───────────────────────────────┘   │
+│  │  System Cmds    │                                         │
+│  │                  │     ┌───────────────────────────────┐   │
+│  │  minimize()     │────►│  wry / WebView2 Engine        │   │
+│  │  hide()         │────►│                               │   │
+│  └─────────────────┘     │  - Renders if Visible=true    │   │
+│                          │  - Suspends if Visible=false  │   │
+│                          └───────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Data Flow
+
+1.  **用户操作**: 用户点击最小化按钮或系统触发最小化。
+2.  **Tauri 事件**: 触发 `WindowEvent::Resized`。
+3.  **路由**: `startup.rs` 中的 `on_window_event` 捕获该事件，转发给 `window.rs` 的 `handle_window_resized_event`。
+4.  **去重与判断**:
+    *   读取 `window.is_minimized()`。
+    *   与 `LAST_MINIMIZED` 原子变量比较。
+    *   如果状态未翻转（例如只是调整大小），直接返回，不消耗 COM 资源。
+    *   如果状态翻转（最小化 -> 非最小化，或反之），更新 `LAST_MINIMIZED`。
+5.  **WebView2 同步**:
+    *   获取 WebView 控制器。
+    *   调用 `controller.SetIsVisible(!minimized)`。
+    *   若最小化，`SetIsVisible(false)` 告诉 Chromium 停止渲染合成，挂起定时器。
+6.  **焦点优化 (并行)**:
+    *   若触发 `WindowEvent::Focused`，`handle_window_focus_event` 根据焦点状态调用 `SetMemoryUsageTargetLevel`，在后台运行时降低内存优先级。
+
+## Connections
+
+- 与 [[learnings/webview2-recovery]] 相关：最小化后的恢复依赖于正确的可见性状态同步，避免崩溃后无法恢复。
+- 与 [[learnings/lightweight-mode]] 相关：轻量化模式下的窗口销毁与重建流程 (`rebuild_main_window`) 与此处的可见性管理互补。
+- 与 [[learnings/gpu-performance]] 相关：`backdrop-filter` 的性能问题在此处通过强制挂起渲染得到缓解。

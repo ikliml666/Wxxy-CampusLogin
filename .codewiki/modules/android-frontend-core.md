@@ -4,76 +4,17 @@ type: module
 source_files:
   - android/frontend/src/App.tsx
   - android/frontend/src/main.tsx
-  - android/frontend/src/index.css
   - android/frontend/src/vite-env.d.ts
-  - android/frontend/src/hooks/tauriApi.ts
   - android/frontend/src/hooks/useAdapterStore.ts
   - android/frontend/src/hooks/useAdaptiveFramePace.ts
   - android/frontend/src/hooks/useAnimationProfile.ts
   - android/frontend/src/hooks/useAppInit.ts
   - android/frontend/src/hooks/useAppStore.ts
   - android/frontend/src/hooks/useAsyncLock.ts
-  - android/frontend/src/hooks/useAuthStore.ts
   - android/frontend/src/hooks/useBreatheAnimation.ts
-  - android/frontend/src/hooks/useConfigStore.ts
   - android/frontend/src/hooks/useDeviceProfile.ts
-  - android/frontend/src/hooks/useEventListeners.ts
   - android/frontend/src/hooks/useFormFactor.ts
-  - android/frontend/src/hooks/useGlobalShortcut.ts
-  - android/frontend/src/hooks/useGlowAnimation.ts
-  - android/frontend/src/hooks/useHeartbeat.ts
-  - android/frontend/src/hooks/useInitialDataLoad.ts
-  - android/frontend/src/hooks/useLogToastStore.ts
-  - android/frontend/src/hooks/usePageIdle.ts
-  - android/frontend/src/hooks/usePulseAnimation.ts
-  - android/frontend/src/hooks/useQualityStore.ts
-  - android/frontend/src/hooks/useStartupBoost.ts
-  - android/frontend/src/hooks/useThemeStore.ts
-  - android/frontend/src/lib/animations.ts
-  - android/frontend/src/lib/color.ts
-  - android/frontend/src/lib/easing-config.ts
-  - android/frontend/src/lib/latency.ts
-  - android/frontend/src/lib/renderLiveness.ts
-  - android/frontend/src/lib/utils.ts
-  - android/frontend/src/i18n/index.ts
-  - android/frontend/src/components/ui/animated-card.tsx
-  - android/frontend/src/components/ui/badge.tsx
-  - android/frontend/src/components/ui/button.tsx
-  - android/frontend/src/components/ui/card.tsx
-  - android/frontend/src/components/ui/dialog.tsx
-  - android/frontend/src/components/ui/input.tsx
-  - android/frontend/src/components/ui/label.tsx
-  - android/frontend/src/components/ui/select.tsx
-  - android/frontend/src/components/ui/separator.tsx
-  - android/frontend/src/components/ui/switch.tsx
-  - android/frontend/src/components/ui/tooltip.tsx
-  - android/frontend/src/components/layout/BottomNav.tsx
-  - android/frontend/src/components/layout/DockNav.tsx
-  - android/frontend/src/components/layout/RightPanel.tsx
-  - android/frontend/src/components/layout/TitleBar.tsx
-  - android/frontend/src/components/mobile/MobileDashboard.tsx
-  - android/frontend/src/components/mobile/MobileMore.tsx
-  - android/frontend/src/components/mobile/MobileQuickActions.tsx
-  - android/frontend/src/components/tablet/TabletShell.tsx
-  - android/frontend/src/shared/AnimatedNumber.tsx
-  - android/frontend/src/shared/ConfirmDialog.tsx
-  - android/frontend/src/shared/ErrorBoundary.tsx
-  - android/frontend/src/shared/FluidBackground.tsx
-  - android/frontend/src/shared/MascotFigure.tsx
-  - android/frontend/src/shared/RefreshButton.tsx
-  - android/frontend/src/shared/SegmentTabs.tsx
-  - android/frontend/src/shared/SponsorCard.tsx
-  - android/frontend/src/shared/ToastContainer.tsx
-  - android/frontend/src/shared/UpdateAvailableDialog.tsx
-  - android/frontend/src/shared/dailyMascot.ts
-  - android/frontend/src/shared/index.ts
-  - android/frontend/src/shared/types.ts
-  - android/frontend/src/shared/ui-constants.ts
-  - android/frontend/src/shared/ui-types.ts
-  - android/frontend/src/face/FaceCaptureDialog.tsx
-  - android/frontend/src/face/faceService.ts
-  - android/frontend/src/face/faceVerifyStore.ts
-tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳, 人脸验证, 双端同构]
+tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 ---
 
 ## Overview
@@ -82,16 +23,14 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳, 人脸验证, 双
 
 与桌面前端的根本差异：安卓前端是 `tauri-app/frontend/src` 的**独立复刻代码库**（同构不等于共享代码），文件级差异见 Known Issues；安卓独有目录为 `components/{mobile,tablet}`、`face/`、`hooks/{useDeviceProfile,useAdaptiveFramePace,useFormFactor}`、`shared/dailyMascot.ts`、`shared/UpdateAvailableDialog.tsx`、`settings/OnboardingWizardMobile.tsx`、`settings/useOnboardingFlow.ts`、`settings/KeepAliveSettingsCard.tsx`。
 
-IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配器枚举、DHCP、DNS DoH、窗口与托盘、GPU 信息）统一改成显式 reject 或 no-op 监听（`desktopOnly` / `noopListener`，`tauriApi.ts:14` / `tauriApi.ts:18`），并新增 `getSocInfo` / 电池优化 / 厂商省电页等安卓专属命令。
-
 ## Key Components
 
 ### 入口与根组件
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `App`（default export） | `App.tsx:296` | 根组件。调用 `useFormFactor()`（`App.tsx:297`）判定形态，`tablet` 渲染 `<TabletShell />`、否则 `<AppInner />`（`App.tsx:301`）；外层包 `ErrorBoundary` + `AnimationActiveProvider`，并在双外壳之外单例挂载 `<FaceCaptureDialog />`（`App.tsx:303`） |
-| `AppInner`（未导出，模块内组件） | `App.tsx:47` | 手机移动外壳：顶部轻 header（安全点 + 质量胶囊 + 心跳赞助/设置/主题/关于四图标，`App.tsx:164-200`）、单列滚动主区（`App.tsx:203-224`）、首页快捷登录条（`App.tsx:227-231`）、`BottomNav`（`App.tsx:233`）、概览/账号/自助/质量/更多 五 tab 切换（`App.tsx:110-154`） |
+| `App`（default export） | `App.tsx:312` | 根组件。调用 `useFormFactor()`（`App.tsx:313`）判定形态，`tablet` 渲染 `<TabletShell />`、否则 `<AppInner />`（`App.tsx:314`）；外层包 `ErrorBoundary` + `AnimationActiveProvider`，并在双外壳之外单例挂载 `<FaceCaptureDialog />`（`App.tsx:316`）以及通知权限引导 `NotificationPermissionGate` |
+| `AppInner`（未导出，模块内组件） | `App.tsx:58` | 手机移动外壳：顶部轻 header（安全点 + 质量胶囊 + 赞助/设置/主题/关于四图标，`App.tsx:179-226`）、单列滚动主区（`App.tsx:242-265`）、首页快捷登录条（`App.tsx:233-239`）、`BottomNav`（`App.tsx:270`）、概览/账号/自助/质量/更多 五 tab 切换（`App.tsx:121-176`） |
 
 `main.tsx` 无导出，执行顺序即其职责：
 
@@ -402,140 +341,51 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 `@tailwind base/components/utilities`（`index.css:1-3`）；`@layer base`（5）内含浅色 `--surface-top/--surface-main/--surface-side`（`index.css:34-36`）、深色同名变量（68-70）、6 套主题变量（75-84）、`.force-light-dialog`（90，桌面 AboutDialog 复用）；`@layer components`（170）内含卡片/玻璃 Dock（`glass-dock` 210）/圆角贴面类（`app-outer-square` 284、`surface-top-square` 295、`surface-side-square` 300、`surface-main-square` 304）/按钮类（`btn-physical` 346、`btn-press` 382、`soft-btn` 420）/卡片交互（`animated-card-interactive` 473）/日志类（`log-entry-flash` 328、`log-entry-hover` 522）/`panel-content`（547）/`card-enter`（566）/对话框进出场（603-617）/状态点动画（`status-enter` 682、`status-offline-shake` 688）/数字与标签弹入（`label-bounce-in` 697、`num-scale-in` 705）；`@layer utilities`（710）内含 `.anim-idle .animate-pulse` 停动画（718）、`.scrollbar-none`（723）、信号条动画（`signal-bar-enter` 746、`signal-glow-idle` 751、`signal-glow-active` 765）、列表项交互（`list-item-interactive` 770），并有一段 `prefers-reduced-motion` 降级块（`index.css:799-830`，逐类置 `animation: none`）。
 
-## 结构体与字段（前端即 props 与 state 类型）
+## Architecture
 
-### 各 store 的 state 字段
-
-`ConfigStore`（声明 `useConfigStore.ts:27-50`）：
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| `config` | `Config` | 全量配置，初值 `DEFAULT_CONFIG`（`useConfigStore.ts:53`） |
-| `configLoaded` | `boolean` | `getInitData` 成功或降级完成（`useInitialDataLoad.ts:107` / `useInitialDataLoad.ts:113`） |
-| `passwordSaved` | `boolean` | 登录密码已落盘（后端掩码态；凭据统一后唯一密码保存态，见 [[credential-single-source]]） |
-| `accounts` | `string[]` | 账号名列表 |
-| `activeAccount` | `string` | 当前账号 |
-| `language` | `string` | 初值 `safeStorage.get('app-language') \|\| 'zh'`（`useConfigStore.ts:60`） |
-
-`AuthStore`（`useAuthStore.ts:91-101`）：
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| `isLoggingIn` / `isLoggingOut` | `boolean` | 登录/注销进行中（按钮禁用与并发互斥） |
-| `status` | `{text: string; state: StatusState}` | 顶栏状态点文案与状态 |
-| `bgStatus` | `BackgroundStatus` | 后台巡检状态（初值 `useAuthStore.ts:107`：`isRunning/checkCount/serverAvailable/online/adapterStatuses/currentSsid`） |
-| `doLogin(adapterName?)` | `=> Promise<boolean>` | 登录，返回是否成功 |
-| `doLogout(adapterName?)` | `=> Promise<void>` | 注销 |
-| `checkOnline(cfg?, adps?)` | `=> Promise<void>` | 校园网 + Portal 状态检测（有模块级锁 `_checkOnlineLockFlag`） |
-| `setStatus` / `setBgStatus` | setter | `setBgStatus` 支持函数式更新（`useAuthStore.ts:255`） |
-
-`AdapterStore`（`useAdapterStore.ts:37-47`）：`adapters: Adapter[]`、`disabledAdapters: DisabledAdapter[]`、`adapterDetails: AdapterDetail[]`、`isRefreshingAdapters: boolean`、`activePanel: PanelName`（初值 `'dashboard'`，`useAdapterStore.ts:52`）、`refreshAdapters(): Promise<void>`、`setAdapters(a)`、`setAdapterDetails(d)`、`setDisabledAdapters(d)`、`setActivePanel(p)`。
-
-`QualityStore`（`useQualityStore.ts:23-44`）：`networkQuality: NetworkQuality | null`、`dnsDohStatus: DnsDohStatus | null`、`dnsChecking: boolean`、`isRefreshingQuality: boolean`、`updateAvailable: boolean`、`latestVersion: string`、`releaseNotes: string`、`updatePromptOpen: boolean`、`gpuInfo: GpuInfo | null`、`refreshRate: number`（初值 0，`useQualityStore.ts:56`）。
-
-`LogToastStore`（`useLogToastStore.ts:15-26`）：`logs: LogEntry[]`、`toasts: ToastMessage[]`、`addLog(message, type?)`、`addToast(title, type?, description?, duration?, mascot?)`、`addToastWithAction(toast)`、`removeToast(id)`、`removeToastsByPrefix(prefix)`、`setLogs(logs)`、`cleanupToasts()`。
-
-`ThemeStore`（`useThemeStore.ts:9-17`）：`themeName: ThemeName`（`'default'`）、`isLightMode: boolean`（初值由 `campus-light-mode` 推导，`useThemeStore.ts:21`）、`customThemeColor: string`（`'#6366f1'`）。
-
-`FaceDialogState`（`faceVerifyStore.ts:17-23`）：`open: boolean`、`mode: FaceDialogMode`、`resolve: ((r) => void) | null`、`openFaceDialog(mode)`、`closeFaceDialog(r)`。
-
-### 组件 props
-
-| 类型 | 位置 | 字段 |
-| --- | --- | --- |
-| `AnimatedCardProps`（未导出） | `animated-card.tsx:14` | `animationConfig?`、`noHover?`、`noAnimation?`、`noEnterAnimation?`、`enableTilt?`、`staggerIndex?`（继承 `HTMLAttributes<HTMLDivElement>`） |
-| `AnimatedCardConfig`（未导出） | `animated-card.tsx:6` | `glowIntensity?`、`hoverScale?`、`stiffness?`、`damping?`、`mass?` |
-| `ButtonProps` | `button.tsx:36` | `asChild?`、`isLoading?` + HTML button 属性 + variant/size |
-| `BadgeProps` | `badge.tsx:32` | HTML div 属性 + variant/size |
-| `InputProps` | `input.tsx:4` | `icon?: ReactNode`、`error?: string` + HTML input 属性 |
-| `TitleBarProps`（未导出） | `TitleBar.tsx:11` | `notificationEnabled`、`onToggleNotification`、`onShowTheme`、`onShowAbout`、`onShowSponsor`、`onToggleLightMode`、`onMinimize`、`onToggleMaximize`、`onClose`、`isMaximized`、`showWindowControls?`（默认 true） |
-| `DockNavProps`（未导出） | `DockNav.tsx:434` | `onPanelChange(panel)`、`outerRef?` |
-| `AdapterMenuProps`（未导出） | `DockNav.tsx:165` | `adapters`、`selectedAdapter?`、`onSelect`、`actionLabel`、`autoDetectName?` |
-| `RightPanelProps`（未导出） | `RightPanel.tsx:20` | `logs: LogEntry[]`、`onClearLogs?`、`outerRef?` |
-| `MobileMoreProps`（未导出） | `MobileMore.tsx:27` | `onShowOnboarding?` |
-| `SegmentTabs` 的 `TabItem`（未导出） | `SegmentTabs.tsx:5` | `key`、`label`、`icon`、`color`、`bg` |
-| `ToastContainerProps`（未导出） | `ToastContainer.tsx:10` | `toasts`、`onRemove` |
-| `ConfirmDialogProps`（未导出） | `ConfirmDialog.tsx:12` | `open`、`title`、`message`、`onConfirm`、`onCancel` |
-| `FaceCaptureDialog` 的 `CaptureFlow` props | `FaceCaptureDialog.tsx:48` | `mode`、`onClose(r)` |
-| `MascotFigure` props | `MascotFigure.tsx:8` | `variant`、`size?`、`className?` |
-
-### 领域类型
-
-`Config`（`settings/types.ts:9-74`，**46 个字段**；口径：接口本体（第 10-73 行）的字段总数，含 `configVersion` 标记字段，不含同文件另两个接口 `AutoLaunchResult` / `InitData`；凭据统一后独立自助密码字段已删除，见 [[credential-single-source]]；安卓侧隐藏项见表内加粗标注）：
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| `user` / `password` | `string` | 登录账号/密码（密码后端存掩码） |
-| `selfHelloEnabled` | `boolean` | 生物验证总开关（默认 true） |
-| `selfReverifyEachAction` | `boolean` | 自助面板每次操作都验证（默认 false） |
-| `allow2dFaceVerify` | `boolean` | 2D 人脸回退开关（默认 false） |
-| `operator` | `string` | 运营商后缀（`''`/`@telecom`/`@unicom`/`@cmcc`） |
-| `adapter1` / `adapter2` / `dualAdapter` | `string`/`string`/`boolean` | 主/副适配器（安卓无枚举，恒 `自动检测` + 空；`DockNav` 仍按此解析作用域） |
-| `autoLoginOnStart` | `boolean` | 启动自动登录 |
-| `autoExitAfterLogin` | `boolean` | 登录后退（**安卓 UI 隐藏**） |
-| `minimizeToTray` / `hiddenStart` | `boolean` | 托盘/静默启动（**安卓 UI 隐藏**） |
-| `autoLaunch` | `boolean` | 开机自启 |
-| `enableBackgroundCheck` | `boolean` | 后台巡检开关 |
-| `backgroundCheckInterval` | `number` | 稳态巡检间隔 ms（默认 60000，`settings/constants.ts:24`） |
-| `backgroundCheckIdleInterval` | `number` | 闲时巡检间隔 ms（默认 300000，`settings/constants.ts:26`） |
-| `autoLoginOnPreparation` | `boolean` | 「可登录即自动登录」 |
-| `autoExitOnOnline` | `boolean` | 上线后自动退出（**安卓 UI 隐藏**） |
-| `themeMode` | `'light' \| 'dark' \| 'system'` | 主题模式 |
-| `enableNotification` | `boolean` | 通知总开关 |
-| `activeAccount` | `string` | 当前账号名 |
-| `enableLatencyTest` / `latencyTestInterval` | `boolean`/`number` | 定时延迟测试与间隔 |
-| `customThemeColor` | `string` | 自定义主题色 |
-| `defaultPanel` | `PanelName \| ''` | 默认面板（**安卓 UI 隐藏**） |
-| `enableNetworkQuality` | `boolean` | 质量检测总开关（默认 true；前端按 `!== false` 判定，桌面/安卓后端默认可能为关） |
-| `skipTtfbInLatency` / `skipContentInLatency` | `boolean` | 延迟计算跳过项 |
-| `portalUrl` | `string` | Portal 地址（默认 `http://10.1.99.100`） |
-| `fixedGateway` | `string` | 固定网关（桌面 DNS 优化用） |
-| `requiredNetworkName` | `string` | 校园网 SSID（默认 `i-wxxy`） |
-| `enableNetworkNameCheck` | `boolean` | 校园网名校验 |
-| `campusGateway` | `string` | 校园网网关（默认 `10.2.127.254`） |
-| `updateSource` | `'mirror' \| 'github'` | 更新渠道优先级 |
-| `campusExitOnFail` | `boolean` | 非校园网时退出（**安卓 UI 隐藏**） |
-| `campusCheckStartMinutes` / `campusCheckEndMinutes` | `number` | 检测时间窗（分钟制，460=07:40，1380=23:00；2026-09-13 起终点旧默认 0 由后端 v4→v5 迁移与 `DEFAULT_CONFIG` 双源刷新） |
-| `scheduledLoginMinutes` / `scheduledLogoutMinutes` | `number` | 每日定时登录/注销时刻（分钟数，0=禁用；过点补触发，默认值 `settings/constants.ts` 同步新增） |
-| `maxDisconnectReconnect` | `number` | 断连重连上限 |
-| `autoLoginCooldownSecs` | `number` | 自动登录冷却 |
-| `logRetentionDays` | `number` | 日志保留天数 |
-| `configVersion` | `number` | 配置 schema 版本（当前 5） |
-
-`InitData`（`settings/types.ts:74-89`）：`config: Partial<Config>`、`version: string`、`adapters: Adapter[]`、`adapterDetails: AdapterDetail[]`、`disabledAdapters: DisabledAdapter[]`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount: string`、`backgroundStatus: BackgroundStatus`、`isAutoStart: boolean`、`autoLaunch: boolean`、`notificationEnabled: boolean`、`gpuInfo?: GpuInfo`、`refreshRate?: number`（安卓仅消费 `config`/`backgroundStatus`/`accounts`/`activeAccount`/`refreshRate`）。同文件 2026-09 新增 `AccountItem {id, displayName}`（:4-7）与 `Config.displayName`（:65）。
-
-`AuthStore` 相关类型：`PortalStatusResult`（`auth/types.ts:1`：`online`、`message?`、`reachable?`、`loginAvailable?`）、`CommandResult`（`auth/types.ts:8`：`success`、`message?`、`data?`）、`LoginResult extends CommandResult`（`auth/types.ts:14`）。
-
-`BackgroundStatus`（`monitor/types.ts:15-36`）：`isRunning`、`checkCount`、`serverAvailable`、`online`、`message?`、`adapterStatuses?: AdapterOnlineStatus[]`、`currentSsid: string | null`、`onCampusNetwork?`、`enableNetworkNameCheck?`、`requiredNetworkName?`、`campusWifi?`、`campusWired?`（`ConnectionCampusStatus`，私有接口 `monitor/types.ts:9`：`onCampus`/`name`/`message`）、`a1CampusMessage?`、`a2CampusMessage?`、`a1OnCampus?`、`a2OnCampus?`、`loginPreparationMode?`、`interval?`、`enabled?`。
-
-`BackgroundCheckEventData = BackgroundStatus & {...}`（`monitor/types.ts:38-49`）：追加 `timestamp?`、`checkCount?`、`secondaryOnline?`、`secondaryMessage?`、`message?`、`online?`、`adapter1Name?`、`adapter2Name?`、`loginAvailable?`、`serverAvailable?`。
-
-`AdapterOnlineStatus`（`monitor/types.ts:1`）：`name`、`ip`、`wireless`、`online`、`message`。
-
-`NetworkQuality`（`monitor/types.ts:69-78`）：`gatewayLatency`、`externalLatency`、`averageExternalLatency`、`gateway`、`quality`（9 值含 `disabled`/`busy`）、`timestamp`、`details?`（`NetworkQualityDetail` 私有 `monitor/types.ts:51`：`target`/`latency`/`type` + `dnsLatency?`/`tcpLatency?`/`tlsLatency?`/`udpLatency?`/`networkLatency?`/`ttfbLatency?`/`contentLatency?`）、`metrics?`（私有 `NetworkQualityMetrics` `monitor/types.ts:64`：`totalElapsed`/`tests`）。
-
-`AutoLoginEventData`（`monitor/types.ts:80`）：`success`、`message`、`skipped?`。
-
-`Adapter`（`network/types.ts:3`）：`name`、`ip`、`wireless`、`guid?`、`mac`、`ifIndex`、`status: AdapterStatus`、`linkSpeed?`；`AdapterStatus`（`network/types.ts:1`）= `'disabled'|'disconnected'|'enabledNoIp'|'connected'`；`DisabledAdapter`（15）、`AdapterDetail`（21，追加 `subnetMask`/`gateway`/`dhcpServer`）、`DnsServerInfo`（35，私有）、`DnsAdapterInfo`（42：`name`/`dnsSource`/`dnsServers`/`profileDnsServers`/`adapterDnsOverridesProfile`）、`DnsDohStatus`（50）、`DhcpRenewResult`（57）、`DhcpReleaseRenewResult`（62，含 `skipped`/`reason`）、`DnsSetupResult`（67）、`EnableAdapterResult`（76）——后五者安卓侧仅剩类型定义（命令已 reject）。
-
-`SocInfo`（`hooks/tauriApi.ts:27`）：`socModel`、`deviceModel`、`tier`（0 未知/1 入门/2 中高/3 旗舰）；`BatteryOptimizationInfo`（`hooks/tauriApi.ts:34`）：`ignoring`、`brand`、`hasVendorTarget`；`VendorSettingsResult`（`hooks/tauriApi.ts:40`）：`path`（`'vendor'|'vendor_action'|'app_details'|'settings'|'none'`）、`target`、`tried: string[]`。
-
-`DeviceProfile`（`hooks/useDeviceProfile.ts:12`）：`tier: DeviceTier`（`'high'|'mid'|'low'`）、`gpuVendor`（`'adreno'|'mali'|'immortalis'|'power vr'|'other'`）、`idleFps`、`activeFps`。
-
-`AnimationProfile`（未导出，`hooks/useAnimationProfile.ts:9-27`）：`tier`（`'high'|'standard'|'economy'`）、`willChangeOrbs`、`magneticOffset`、`magneticDuration`、`numberDuration`、`springStiffness`、`springDamping`、`powerPreference`、`prefersCssAnimation`、`enableGpuCompositing`、`enablePageSlide`、`enableTilt`、`enableBackdropBlur`、`startupBoost`、`startupStaggerDelay`、`easing: EasingConfig`、`refreshRate`。
-
-`EasingConfig`（`lib/easing-config.ts:3`）：`enter`、`exit`、`smooth`、`snappy`、`overshoot`，均为 4 元贝塞尔数组。
-
-`UpdateInfo`（`shared/types.ts:7-17`）：`hasUpdate`、`latestVersion`、`releaseNotes`、`assets: {name,url,size}[]`、`sha256Checksum?`、`lastCheckError: string | null`（14）、`lastCheckTime: number | null`（16）；`DownloadProgress`（19）：`downloaded`、`total`、`speed`、`percent`；`MirrorSource`（26）：`name`、`url`、`description`；`UpdateAvailableData`（1）：`hasUpdate`、`latestVersion`、`releaseNotes?`。
-
-`LogEntry` / `ToastMessage`：见上文 `shared/ui-types.ts` 条目（`ToastMessage.action = { label, onClick }`，`shared/ui-types.ts:33-36`）。
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│                         main.tsx (Entry)                             │
+│  initTheme() / setupCrashRecovery() / ReactDOM.createRoot(...)       │
+└───────────────────────┬──────────────────────────────────────────────┘
+                        │ render
+                        ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                           App (Root)                                 │
+│  useFormFactor() ──► tablet ? TabletShell : AppInner                 │
+└───────────────────────┬──────────────────────────────────────────────┘
+                        │
+      ┌─────────────────┴─────────────────┐
+      ▼                                   ▼
+┌──────────────┐                   ┌──────────────┐
+│  AppInner    │                   │  TabletShell │
+│ (Phone Shell)│                   │ (Desktop Dock│
+├──────────────┤                   │  Layout)     │
+│ Header       │                   ├──────────────┤
+│ Main (Scroll)│                   │ TitleBar     │
+│ BottomNav    │                   │ Main         │
+│              │                   │ RightPanel   │
+│ Panels:      │                   │ DockNav      │
+│ Dashboard    │                   └──────────────┘
+│ Account      │
+│ SelfService  │
+│ Quality/Monitor│
+│ More         │
+└──────────────┘
+      ▲
+      │ useAppInit()
+      ├── useEventListeners()
+      ├── useInitialDataLoad()
+      ├── useHeartbeat()
+      └── useGlobalShortcut()
+```
 
 ## Data Flow
 
 ### 启动编排顺序（真实调用点）
 
 1. `main.tsx` 模块求值：gsap 全局配置（`main.tsx:17-19`）→ reduced-motion 降级（`main.tsx:21-25`）→ `initTheme()` 同步写 DOM class（`main.tsx:43`）→ `setupCrashRecovery()` 注册监听与定时器（`main.tsx:113`）→ `ReactDOM.createRoot(...).render`（`main.tsx:119`）。
-2. `App`（`App.tsx:296`）→ `useFormFactor()`（`App.tsx:297`）→ `AppInner`（`App.tsx:302`）或 `TabletShell`（`App.tsx:301`）。
+2. `App`（`App.tsx:312`）→ `useFormFactor()`（`App.tsx:313`）→ `AppInner`（`App.tsx:314`）或 `TabletShell`（`App.tsx:313`）。
 3. 双外壳第一句都是 `useAppInit()`（`App.tsx:48` / `TabletShell.tsx:74`），其内部固定顺序（`useAppInit.ts:7-10`）：
    - `useEventListeners()`（`useEventListeners.ts:18`）：`const { api } = useConfigStore.getState()`（`useEventListeners.ts:29`）→ 注册 `getCurrentWindow().onCloseRequested`（`useEventListeners.ts:48`，安卓无窗口关闭语义）→ 依次订阅 `onBackgroundCheckResult`(75) / `onAutoLoginResult`(197) / `onLoginLog`(217) / `onAutoExitCountdown`(225，no-op) / `onAutoExitCancelled`(246，no-op) / `onCampusExitCountdown`(253，no-op) / `onCampusExitCancelled`(274，no-op) / `onNetworkQualityResult`(281) / `onUpdateAvailable`(289) / `onConfigChanged`(304)。适配器四类事件（`onAdaptersChanged` / `onAdapterDetailsChanged` / `onDisabledAdaptersChanged` / `onAdapterDisabledWarning`）的 no-op 订阅已删除（`useEventListeners.ts:213-215` 注释说明），不再空转注册。
    - `useInitialDataLoad()`（`useInitialDataLoad.ts:16`）：`api.getInitData()`（`useInitialDataLoad.ts:31`，→ `tauriApi.ts:271` `invoke('get_init_data')`）→ 合并 `DEFAULT_CONFIG`（`useInitialDataLoad.ts:34`）→ 由 `PASSWORD_MASK` 同步 `passwordSaved`（`useInitialDataLoad.ts:35`，凭据统一后仅登录密码一个保存态，见 [[credential-single-source]]）→ `useConfigStore.setState({config})`（43）→ `useThemeStore.initTheme(cfg)`（45）→ 恢复上次面板（47-56，质量关闭时跳过 quality）→ 从 `initData.backgroundStatus` 灌 `bgStatus` 并在 `online === true` 时直接置在线（`useInitialDataLoad.ts:62-84`）→ 灌 `accounts`/`activeAccount`（86-90）→ `useAuthStore.getState().checkOnline(cfg, adps)`（92）→ 灌 `refreshRate`（97-99）→ 置 `configLoaded: true`（107）。失败降级：`config: DEFAULT_CONFIG` + `configLoaded: true` + 错误 toast（`useInitialDataLoad.ts:108-114`）。
@@ -552,7 +402,7 @@ IPC 面同样是分叉的：`hooks/tauriApi.ts` 把桌面专有能力（适配�
 
 `MobileQuickActions`（`MobileQuickActions.tsx:11`）→ `api.bindToWifi()`（25 → `tauriApi.ts:181`）→ `doLogin()`（27）→ `useAuthStore.doLogin`（`useAuthStore.ts:121`）→ `saveConfigDirect`（133）→ `withTimeout(api.doLogin(adapterName), 60000, ...)`（141 → `tauriApi.ts:184` `invoke('do_login')`）→ 成功置 online + 日志/toast（143-146）→ 质量联动：节流窗口外才 `checkNetworkQuality`（157-163 → `tauriApi.ts:245`）→ 失败才补一次 `checkOnline`（175-177）。平板 Dock 的登录/注销走 `DockNav.tsx:451-452` 的同一 store 动作，按 `resolveAdapterNames`（`network/adapters.ts:15`）限定菜单候选。
 
-审批/明文链路：`AccountPanel` 绑定卡与 `SelfServicePanel` 通过 `useHelloGate`（`account/selfServiceState.ts:85`）或 `useSelfServiceVerify`（125）→ `tauriApiWithRetry.verifyWindowsIdentity`（93/133 → `tauriApi.ts:188-219`）→ 2D 人脸回退走 `useFaceDialogStore.openFaceDialog('verify')`（`tauriApi.ts:197`）→ `FaceCaptureDialog`（`App.tsx:303` 挂载）→ `faceService.verifyFace`（`faceService.ts:221`）。
+审批/明文链路：`AccountPanel` 绑定卡与 `SelfServicePanel` 通过 `useHelloGate`（`account/selfServiceState.ts:85`）或 `useSelfServiceVerify`（125）→ `tauriApiWithRetry.verifyWindowsIdentity`（93/133 → `tauriApi.ts:188-219`）→ 2D 人脸回退走 `useFaceDialogStore.openFaceDialog('verify')`（`tauriApi.ts:197`）→ `FaceCaptureDialog`（`App.tsx:316` 挂载）→ `faceService.verifyFace`（`faceService.ts:221`）。
 
 ### 配置写回链路
 

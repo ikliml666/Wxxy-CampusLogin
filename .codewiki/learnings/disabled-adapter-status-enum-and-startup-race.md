@@ -1,43 +1,133 @@
 ---
-title: DisabledAdapter.status 中文文案断裂 i18n + 轮询差分启动竞态冻结快照 → 下拉双勾选与原始 key
+title: DisabledAdapter.status 枚举序列化与适配器状态轮询机制
 type: learning
 source_files:
   - tauri-app/src-tauri/src/network/discovery/mod.rs
   - tauri-app/src-tauri/src/network/discovery/windows.rs
   - tauri-app/src-tauri/src/monitor/adapter_watch.rs
   - tauri-app/frontend/src/network/types.ts
-  - tauri-app/frontend/src/network/NetworkPanel.tsx
   - android/frontend/src/network/types.ts
 tags: [教训, i18n, 枚举序列化, 启动竞态, 事件推送, Radix Select, 跨端契约]
 ---
 
-## 现象
+## Overview
 
-适配器下拉出现三类异常：① 选项文本显示未翻译原始 key「network.status.已禁用」；② 同一张卡（以太网）同时出现在「有 IP」段与「已禁用」段，两个选项同时打勾；③ 关闭态触发器显示拼接文本「以太网以太网（network.status.已禁用）」。而网络卡片列表本身状态正确。
+本文档记录了 `DisabledAdapter` 状态字段从中文字符串改为枚举序列化的修复过程，以及 `adapter_watch` 模块中解决启动竞态、差分推送漏发和自动启用逻辑的技术细节。核心问题在于后端 `DisabledAdapter.status` 曾存储中文文案导致前端 i18n 键值断裂，同时 `adapter_watch` 的差分推送机制在应用启动初期因基线为空导致禁用列表快照永久冻结。
 
-## 根因（三层叠加，缺一不现）
+## Key Components
 
-1. **跨端契约字段存了展示文案**：后端 `DisabledAdapter.status: String` 存中文「已禁用」（`AdapterStatus::as_str()`，windows.rs 唯一调用点），而前端统一按 `t(\`network.status.${a.status}\`)` 拼 i18n key——key 变成 `network.status.已禁用`，翻译表无此条目，t() 回退显示原始 key。同结构的 `Adapter.status` 一直是 serde camelCase 枚举（→ `'disabled'`）所以从未出事：**两个平行类型不同源，是这类断裂的温床**。
-2. **差分推送的启动竞态**：`adapter_watch` 15s 轮询按 baseline 差分才推 `onDisabledAdaptersChanged`。时间线：09:20:32.5 启动对账期间前端初始加载拉到 disabled=[以太网, 以太网 2]（两卡当时禁用中）→ 09:20:33.6–34.4 netsh 启用两卡 → 轮询首轮查询到的已是启用态，`disabled_changed=false`，此后永远不再变化也不再推送 → **前端禁用列表从启动起永久冻结在陈旧快照**（NetworkPanel 挂载不拉 disabled，`syncOnRestore` 只在 visibilitychange/focus 触发）。
-3. **Radix Select value 撞车**：陈旧的 disabled 列表与新鲜的 adapters 列表各有一个「以太网」→ 下拉渲染两个 `value='以太网'` 的 SelectItem → Radix 认为两个都选中（双勾选），`SelectValue` 把多条选中项拼成一个字符串 → 「以太网以太网（network.status.已禁用）」。
+### `tauri-app/src-tauri/src/network/discovery/mod.rs`
 
-## 解决
+- **`AdapterStatus` 枚举** (行 37-42): 四分类状态：`Disabled`（已禁用）、`Disconnected`（未连接）、`EnabledNoIp`（未禁用无IP）、`Connected`（已连接）。使用 `#[serde(rename_all = "camelCase")]` 确保序列化后为英文 key（如 `'disabled'`），供前端 i18n 映射。
+- **`Adapter` struct** (行 44-56): 包含 `name`, `ip`, `wireless`, `guid`, `mac`, `if_index`, `status`, `link_speed`。所有适配器（含禁用）均推入此列表。
+- **`AdapterDetail` struct** (行 58-70): 仅包含 `Connected` 和 `EnabledNoIp` 状态的适配器详情。
+- **`DisabledAdapter` struct** (行 72-79): 仅包含 `Disabled` 状态的适配器。**关键变更**：`status` 字段类型从 `String` 改为 `AdapterStatus`，确保与 `Adapter` 同源序列化。
+- **`BL_REGEX`** (行 23-26): 名称/描述黑名单正则，用于过滤虚拟网卡、VPN 等。
+- **`is_blacklisted(name: &str)`** (行 96-98): 检查适配器名称是否命中黑名单。
+- **`query_adapters_addresses()`** (行 109-117): 平台分发函数，Windows 调用 `windows::query_adapters_addresses`，其他平台返回空。
 
-1. **类型同源**：`DisabledAdapter.status: String → AdapterStatus`（serde camelCase 序列化为 `disabled`，与 Adapter 一致；文案归前端 i18n）。windows.rs 直接赋枚举，删除 `as_str()`；连带点 adapter_watch.rs:163 的 toast 文案由插值改字面量「已禁用」（该列表只收 Disabled，语义恒定）。新增序列化契约测试 `disabled_adapter_status_serializes_as_enum_key` 锁住 `json["status"] == "disabled"`。双端前端 types.ts 同步收窄类型。
-2. **首轮强制推送**：轮询加 `first_round` 标志，`adapters_changed`/`disabled_changed` 各 `|| first_round`，baseline 更新前复位——差分基线初始为空的实现，消费者启动早于首个变更时必漏发首轮，这是差分推送的标准对策。
-3. **下拉禁用段单源派生（根治渲染层）**：`effectiveDisabledAdapters = adapters.filter(a => a.status === 'disabled')`——后端把**所有**卡（含禁用）都推入 adapters（windows.rs「所有适配器都推入 adapters 列表」，禁用卡 status='disabled'、无 IP），adapters 的刷新通道（60s 轮询 + onAdaptersChanged 推送 + 操作后 force 刷新）远比 disabledAdapters（部分时机拉取 + 差分推送，WebView2 最小化期间事件可能丢失）活跃。下拉从双通道合并改为单源派生后，两条通道短暂不一致影响不到下拉；disabledAdapters store 仅保留给空态判断等兜底。三段互斥由构造保证：①有 IP ②无 IP 且非 disabled 态 ③disabled 态，Select value 全局唯一（禁用段 item 恒 `disabled`，文案用字面 key `network.status.disabled`）。计数行与下拉同源。
-4. **挂载对账兜底**：NetworkPanel 挂载时 `refreshAdapterData({ includeDisabled: true })`（不带 force，500ms 缓存内与启动加载合并）——页签切换不触发 visibilitychange/focus，在其他页签停留期间错过的事件靠挂载对账补齐；窗口级恢复仍走 syncOnRestore。
+### `tauri-app/src-tauri/src/network/discovery/windows.rs`
 
-## 中间方案的教训（审核发现后推翻重做）
+- **`query_adapters_addresses()`** (行 22-66): 调用 Win32 `GetAdaptersAddresses` 获取适配器列表。处理缓冲区扩容重试逻辑。
+- **`parse_adapter_addresses()`** (行 68-196): 解析 C API 返回的数据。
+    - **适配流程**：遍历 `IP_ADAPTER_ADDRESSES_LH` 链表，过滤非以太网/WLAN 类型、物理地址长度为 0 的项。
+    - **可见性检查**：调用 `super::registry::is_visible_in_ncpa` 检查注册表可见性。
+    - **黑名单检查**：调用 `super::is_blacklisted` 检查名称和描述。
+    - **状态计算**：调用 `classify_adapter_status` 计算 `AdapterStatus`。
+    - **列表分配**：
+        - 所有通过过滤的适配器均加入 `adapters` 列表（行 178-186）。
+        - `Connected` 和 `EnabledNoIp` 加入 `details`（行 188-206）。
+        - `Disabled` 加入 `disabled` 列表（行 208-212）。
+- **`classify_adapter_status()`** (行 233-256): 纯函数，根据 `is_up`, `has_ip`, `oper_status`, `admin_down`, `registry_disabled`, `pnp_present` 判定状态。
+    - **幽灵设备修复**：若 `pnp_present == Some(false)`（PnP 设备树无活动节点），强制返回 `Disconnected`，避免将拔出 USB 网卡的残影误判为 `Disabled`。
+    - **AdminStatus 优先**：若 `admin_down == Some(true)`，直接返回 `Disabled`，解决旧实现中 `OperStatus=Down` 但非 `NotPresent` 时被误判为 `Disconnected` 的问题。
+- **`auto_enable_backoff_ms()`** (行 265-272): 自动启用失败退避算法：0→0ms, 1→60s, 2→120s, ≥3→300s。
 
-第一版修复用「双通道合并 + 渲染前过滤」兜底（剔除同名已启用的卡），审核发现过滤条件按「有 IP」判断会在卡处于已启用但未连接（disconnected、无 IP）态时漏剔、value 撞车复现；放宽为「已启用即剔」后仍是补丁形态——只要渲染依赖双通道合并，每个不一致场景都要逐一堵。正确形态是**让渲染只依赖更活跃的那条通道**，第二通道退化为兜底，不一致从根上不进渲染。
+### `tauri-app/src-tauri/src/monitor/adapter_watch.rs`
 
-## 验证
+- **`start_adapter_watch()`** (行 15-266): 启动适配器监控后台任务。
+    - **首轮强制推送** (行 54-56): 引入 `first_round` 标志，首轮查询结果无条件触发 `adapters_changed` 和 `disabled_changed` 事件，解决启动竞态导致的快照冻结。
+    - **注册表缓存刷新** (行 73-81): 每 `CLASS_SUBKEY_REFRESH_ROUNDS` (4轮，即 60s) 刷新一次 `CLASS_SUBKEY_CACHE`，确保禁用状态检测新鲜度。
+    - **差分推送逻辑** (行 88-116): 对比当前与上一轮 (`last_adapters`, `last_disabled`) 的名称/IP/状态变化。排序后比较以避免 `GetAdaptersAddresses` 返回顺序不稳定导致的误报。
+    - **禁用恢复触发重检** (行 123-135): 当检测到适配器从禁用恢复时，触发一次性后台检查，而非重启用户停止的巡检。
+    - **禁用警告通知** (行 136-175): 每分钟限制发送一次禁用警告。排除夜间出站切换期间本功能亲手禁用的卡。
+    - **自动启用逻辑** (行 180-245):
+        - **夜间守护窗口** (行 193-203): 在夜间出站切换守护窗口内，跳过手选适配器的自动启用，防止顶掉切换。
+        - **退避策略** (行 218-225): 基于 `auto_enable_failure_count` 计算退避时间。
+        - **提权降级** (行 227-230): 首次尝试静默提权，失败后允许弹 UAC。
+        - **成功处理** (行 232-242): 成功后清零失败计数，并触发一次性后台检查。
 
-cargo check --all-targets 0 错误；cargo test 443 passed/0 failed；双端 tsc --noEmit 0 错误。
+### `tauri-app/frontend/src/network/types.ts` & `android/frontend/src/network/types.ts`
 
-## 教训
+- **`AdapterStatus`** (行 1): 联合类型 `'disabled' | 'disconnected' | 'enabledNoIp' | 'connected'`。
+- **`Adapter`** (行 3-13): 对应后端 `Adapter` struct。
+- **`DisabledAdapter`** (行 15-19): 对应后端 `DisabledAdapter` struct，`status` 字段类型为 `AdapterStatus` 而非 `string`。
+- **`AdapterDetail`** (行 21-32): 对应后端 `AdapterDetail` struct。
 
-- 跨端契约字段**禁止存展示文案**——文案一律枚举/稳定 key，翻译是展示层职责；两个平行类型表达同一语义时优先抽出共享枚举而不是各自为政。
-- 差分推送（baseline 对比）在「消费者先拉快照 + 生产者首轮即等于快照后续态」时会静默漏发：首轮强制推送应成为默认。
-- Radix Select 的 value 需全局唯一；多来源列表合并渲染时先去重/过滤再渲染，不指望 store 层永远一致。
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                     Frontend (React)                        │
+│  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐  │
+│  │ NetworkPanel │──▶│ SelectItems  │   │ Store (adapters│  │
+│  │              │   │ (value=unique)│   │  disabledAdapters│  │
+│  └──────────────┘   └──────────────┘   └────────────────┘  │
+│         ▲                    ▲                   ▲          │
+│         │                    │                   │          │
+│         │       ┌────────────▼────────────┐      │          │
+│         │       │     EventBus            │      │          │
+│         │       │ onAdaptersChanged       │      │          │
+│         │       │ onDisabledAdaptersChgd  │      │          │
+│         │       └────────────┬────────────┘      │          │
+└─────────┼────────────────────┼───────────────────┼──────────┘
+          │                    │                   │
+          │                    ▼                   │
+┌─────────┼────────────────────────────────────────┼──────────┐
+│         │           Rust Backend (Tauri)         │          │
+│         │                                        │          │
+│         │  ┌─────────────────────────────────┐   │          │
+│         │  │ adapter_watch (monitor)         │◀┼──┐        │
+│         │  │ - first_round push              │   │        │
+│         │  │ - diff detection                │   │        │
+│         │  │ - auto-enable (backoff/UAC)     │   │        │
+│         │  └──────────────┬──────────────────┘   │        │
+│         │                 │                      │        │
+│         │  ┌──────────────▼──────────────────┐   │        │
+│         │  │ discovery (network)             │   │        │
+│         │  │ - query_adapters_addresses()    │   │        │
+│         │  │ - classify_adapter_status()     │   │        │
+│         │  │ - AdapterStatus enum serialization│   │        │
+│         │  └──────────────┬──────────────────┘   │        │
+│         │                 │                      │        │
+│         │  ┌──────────────▼──────────────────┐   │        │
+│         │  │ Windows API / Registry          │   │        │
+│         │  │ GetAdaptersAddresses            │   │        │
+│         │  │ is_admin_disabled_via_registry  │   │        │
+│         │  └─────────────────────────────────┘   │        │
+│         └────────────────────────────────────────┘        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Data Flow
+
+1. **发现阶段**: `adapter_watch` 定时调用 `get_all_adapters_cached` → `windows::query_adapters_addresses` → `parse_adapter_addresses`。
+2. **状态判定**: `parse_adapter_addresses` 对每个适配器调用 `classify_adapter_status`，结合 `OperStatus`、`AdminStatus`、注册表 `ConfigFlags` 和 PnP 设备树状态，得出 `AdapterStatus` 枚举。
+3. **分类存储**: 结果分为 `adapters` (全部)、`details` (Connected/EnabledNoIp)、`disabled` (Disabled) 三个向量。
+4. **差分推送**: `adapter_watch` 对比本轮与上轮数据。若 `first_round` 或数据变化，通过 `EventBus` 发出 `onAdaptersChanged` 和 `onDisabledAdaptersChanged` 事件。
+5. **前端更新**: 前端 Store 接收事件，更新 `adapters` 和 `disabledAdapters`。下拉菜单从 `adapters` 派生禁用项，确保 value 唯一。
+6. **自动启用**: 若检测到配置的手选适配器进入 `disabled` 状态，且不在夜间守护窗口，`adapter_watch` 尝试调用 `enable_adapter` 恢复。失败则记录计数并退避。
+
+## Connections
+
+- [[NetworkPanel]]: 前端网络面板组件，消费适配器数据。
+- [[adapter_cache]]: 负责适配器缓存刷新。
+- [[dhcp]]: 负责 DHCP 租约管理。
+- [[subnet]]: 负责子网掩码计算。
+
+## Known Issues
+
+- **历史缺陷已修复**: `DisabledAdapter.status` 曾存中文文案导致 i18n 断裂，现已改为枚举序列化。
+- **历史缺陷已修复**: `adapter_watch` 启动竞态导致禁用列表冻结，现已通过首轮强制推送解决。
+- **历史缺陷已修复**: Radix Select value 撞车导致双勾选，现已改为单源派生。
+- **幽灵设备误判**: 拔出 USB 网卡后，若 PnP 设备树查询失败（`None`），会回退到旧行为（可能误判为 `Disabled`）。代码注释指出这是已知回退路径，但在大多数现代 Windows 系统上 PnP 查询应能正常工作。

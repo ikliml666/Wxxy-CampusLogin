@@ -6,7 +6,6 @@ source_files:
   - android/frontend/src/lib/renderLiveness.ts
   - tauri-app/frontend/src/lib/renderLiveness.ts
   - android/frontend/src/index.css
-  - android/src-tauri/src/monitor_loop.rs
   - android/src-tauri/src/battery_cmds.rs
   - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/ForegroundService.kt
 tags: [决策, 安卓, 省电, 帧率, 后台巡检]
