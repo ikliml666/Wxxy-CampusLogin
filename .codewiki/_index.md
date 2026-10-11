@@ -87,6 +87,7 @@
 - [[learnings/tsc-b-emits-contaminated-files|npx tsc -b 会 emit 出 vite.config.js 等污染文件]]
 - [[learnings/nonblocking-connect-einprogress-not-wouldblock|std 不把 EINPROGRESS 映射为 WouldBlock,非阻塞 connect 判定须按 raw errno]]
 - [[learnings/tauri-android-build-report-path-missing|tauri android build 完成报告指向的 APK 文件不存在]]
+- [[learnings/translatex-sum-requires-calc|translateX 多值求和必须包 calc()——裸 "-50% + x%" 被浏览器整条丢弃]]
 - [[learnings/broken-types-package-in-root-node-modules|tsc 全量检查必报错 exit 2：自动加载了工作区根 node_modules 里损坏的 @types/yauzl]]
 - [[learnings/portal-801-forced-probe-regression|v2.2.x 强制探 :801 SPA 页面导致 Portal 状态必然 Unknown（已回退）]]
 - [[learnings/version-json-push-before-release-404|version.json 推送后全员收到更新通知但下载 404]]
