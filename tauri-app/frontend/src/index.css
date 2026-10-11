@@ -285,6 +285,16 @@
     );
   }
 
+  /* 质量页检测间隔输入框：number spinner 常驻显示（Chromium 默认 hover 才显示） */
+  .interval-spin::-webkit-inner-spin-button,
+  .interval-spin::-webkit-outer-spin-button {
+    opacity: 1;
+  }
+
+  .dark .interval-spin {
+    color-scheme: dark;
+  }
+
   .app-outer-square {
     border-radius: 16px !important;
     box-shadow: 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
