@@ -285,14 +285,16 @@
     );
   }
 
-  /* 质量页检测间隔输入框：number spinner 常驻显示（Chromium 默认 hover 才显示） */
-  .interval-spin::-webkit-inner-spin-button,
-  .interval-spin::-webkit-outer-spin-button {
-    opacity: 1;
+  /* 质量页检测间隔输入框：隐藏 number spinner 上下按钮（浏览器原生箭头与卡面语言不符，数值靠键入） */
+  .interval-input::-webkit-inner-spin-button,
+  .interval-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 
-  .dark .interval-spin {
-    color-scheme: dark;
+  .interval-input {
+    appearance: textfield;
+    -moz-appearance: textfield;
   }
 
   .app-outer-square {
