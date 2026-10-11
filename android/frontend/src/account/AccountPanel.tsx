@@ -499,90 +499,8 @@ export const AccountPanel = memo(function AccountPanel({
       </div>
       </div>
 
-      <div className="card-enter grid" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Link2 className="h-5 w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
-                <CardDescription>{t('account.bindDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* 绑定状态改弹窗展示（2026-10-10）：卡内只留一行凭据说明，降低卡高 */}
-            <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
-              <Select value={bindOp} onValueChange={setBindOp}>
-                <SelectTrigger aria-label={t('onboarding.bindIsp')}>
-                  <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
-                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
-              <Input
-                id="bind-phone"
-                type="tel"
-                maxLength={11}
-                value={bindPhone}
-                onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
-                placeholder={t('onboarding.bindPhonePlaceholder')}
-                icon={<Smartphone className="h-4 w-4" />}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
-              <Input
-                id="bind-sms-password"
-                value={bindSms}
-                onChange={e => setBindSms(e.target.value)}
-                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
-                icon={<KeyRound className="h-4 w-4" />}
-              />
-              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
-            </div>
-            <Button
-              onClick={handleBindOperator}
-              disabled={!canBind || binding}
-              className="w-full gap-1.5"
-            >
-              {binding ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
-              ) : (
-                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
-              )}
-            </Button>
-            {/* 查询绑定状态：次按钮，点击弹窗展示 */}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => { setStatusOpen(true); void fetchBindStatus() }}
-              disabled={!canQueryStatus || queryingStatus}
-              className="w-full gap-1.5 h-8"
-            >
-              {queryingStatus ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
-              ) : (
-                <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
-              )}
-            </Button>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-      </div>
-
-      {/* 账号管理：堆叠卡形态（参照在线信息卡），置于绑定卡下方 */}
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+      {/* 账号管理：堆叠卡形态（参照在线信息卡），置于绑定卡上方 */}
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <div className="mb-2 flex items-center justify-between gap-2 px-1">
           <div className="flex min-w-0 items-center gap-2">
             <Layers className="h-4 w-4 shrink-0 text-primary" />
@@ -714,6 +632,87 @@ export const AccountPanel = memo(function AccountPanel({
             <p className="mt-1 text-xs text-muted-foreground/60">{t('account.noSavedAccountsTip')}</p>
           </div>
         )}
+      </div>
+      </div>
+      <div className="card-enter grid" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Link2 className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
+                <CardDescription>{t('account.bindDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* 绑定状态改弹窗展示（2026-10-10）：卡内只留一行凭据说明，降低卡高 */}
+            <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
+              <Select value={bindOp} onValueChange={setBindOp}>
+                <SelectTrigger aria-label={t('onboarding.bindIsp')}>
+                  <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
+                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
+              <Input
+                id="bind-phone"
+                type="tel"
+                maxLength={11}
+                value={bindPhone}
+                onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
+                placeholder={t('onboarding.bindPhonePlaceholder')}
+                icon={<Smartphone className="h-4 w-4" />}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
+              <Input
+                id="bind-sms-password"
+                value={bindSms}
+                onChange={e => setBindSms(e.target.value)}
+                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
+                icon={<KeyRound className="h-4 w-4" />}
+              />
+              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
+            </div>
+            <Button
+              onClick={handleBindOperator}
+              disabled={!canBind || binding}
+              className="w-full gap-1.5"
+            >
+              {binding ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
+              ) : (
+                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
+              )}
+            </Button>
+            {/* 查询绑定状态：次按钮，点击弹窗展示 */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setStatusOpen(true); void fetchBindStatus() }}
+              disabled={!canQueryStatus || queryingStatus}
+              className="w-full gap-1.5 h-8"
+            >
+              {queryingStatus ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
+              ) : (
+                <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
+              )}
+            </Button>
+          </CardContent>
+        </AnimatedCard>
       </div>
 
       {/* 绑定状态弹窗：结果（掩码账号）在弹窗内渲染，明文 reveal 交互随行内保留 */}

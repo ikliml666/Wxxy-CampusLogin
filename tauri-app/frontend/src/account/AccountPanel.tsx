@@ -527,93 +527,10 @@ export const AccountPanel = memo(function AccountPanel({
       </div>
       </div>
 
-      {/* 右列：绑定卡 + 底部账号管理堆叠卡；列底=grid 行底，与左列自动化卡底部对齐 */}
+      {/* 右列：账号管理堆叠卡 + 底部绑定卡；列底=grid 行底，与左列自动化卡底部对齐 */}
       <div className="flex flex-col gap-4">
-      <div className="card-enter grid" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <Link2 className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
-                <CardDescription>{t('account.bindDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* 绑定状态改为弹窗展示（2026-10-10）：卡内只留一行凭据说明，降低卡高；
-                查询入口移到绑定按钮下方（次按钮），点击弹窗内查询并展示掩码结果 */}
-            <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
-            {/* 凭据来自登录信息（见状态区提示），单独段落已删（2026-10-10 精简） */}
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
-              <Select value={bindOp} onValueChange={setBindOp}>
-                <SelectTrigger aria-label={t('onboarding.bindIsp')}>
-                  <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
-                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
-              <Input
-                id="bind-phone"
-                type="tel"
-                maxLength={11}
-                value={bindPhone}
-                onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
-                placeholder={t('onboarding.bindPhonePlaceholder')}
-                icon={<Smartphone className="h-4 w-4" />}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
-              <Input
-                id="bind-sms-password"
-                value={bindSms}
-                onChange={e => setBindSms(e.target.value)}
-                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
-                icon={<KeyRound className="h-4 w-4" />}
-              />
-              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
-            </div>
-            <Button
-              onClick={handleBindOperator}
-              disabled={!canBind || binding}
-              className="w-full gap-1.5"
-            >
-              {binding ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
-              ) : (
-                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
-              )}
-            </Button>
-            {/* 查询绑定状态：次按钮，点击弹窗展示（结果在弹窗内查询+渲染） */}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => { setStatusOpen(true); void fetchBindStatus({ openDialog: true }) }}
-              disabled={!canQueryStatus || queryingStatus}
-              className="w-full gap-1.5 h-8"
-            >
-              {queryingStatus ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
-              ) : (
-                <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
-              )}
-            </Button>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      {/* 账号管理：与其他卡统一白底 AnimatedCard 容器 + CardHeader 头部；堆叠卡在 CardContent 内 */}
-      <div className="card-enter flex min-h-0 flex-1 flex-col" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+      {/* 账号管理：与其他卡统一白底 AnimatedCard 容器 + CardHeader 头部；堆叠卡在 CardContent 内（置于绑定卡上方） */}
+      <div className="card-enter flex min-h-0 flex-1 flex-col" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation className="flex min-h-0 flex-1 flex-col">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2">
@@ -751,6 +668,89 @@ export const AccountPanel = memo(function AccountPanel({
           )}
           </CardContent>
         </AnimatedCard>
+      <div className="card-enter grid" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation className="h-full">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <CardIcon>
+                <Link2 className="h-5 w-5 text-primary" />
+              </CardIcon>
+              <div className="min-w-0">
+                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
+                <CardDescription>{t('account.bindDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* 绑定状态改为弹窗展示（2026-10-10）：卡内只留一行凭据说明，降低卡高；
+                查询入口移到绑定按钮下方（次按钮），点击弹窗内查询并展示掩码结果 */}
+            <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
+            {/* 凭据来自登录信息（见状态区提示），单独段落已删（2026-10-10 精简） */}
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
+              <Select value={bindOp} onValueChange={setBindOp}>
+                <SelectTrigger aria-label={t('onboarding.bindIsp')}>
+                  <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
+                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
+              <Input
+                id="bind-phone"
+                type="tel"
+                maxLength={11}
+                value={bindPhone}
+                onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
+                placeholder={t('onboarding.bindPhonePlaceholder')}
+                icon={<Smartphone className="h-4 w-4" />}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
+              <Input
+                id="bind-sms-password"
+                value={bindSms}
+                onChange={e => setBindSms(e.target.value)}
+                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
+                icon={<KeyRound className="h-4 w-4" />}
+              />
+              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
+            </div>
+            <Button
+              onClick={handleBindOperator}
+              disabled={!canBind || binding}
+              className="w-full gap-1.5"
+            >
+              {binding ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
+              ) : (
+                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
+              )}
+            </Button>
+            {/* 查询绑定状态：次按钮，点击弹窗展示（结果在弹窗内查询+渲染） */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setStatusOpen(true); void fetchBindStatus({ openDialog: true }) }}
+              disabled={!canQueryStatus || queryingStatus}
+              className="w-full gap-1.5 h-8"
+            >
+              {queryingStatus ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
+              ) : (
+                <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
+              )}
+            </Button>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
       </div>
       </div>
 
