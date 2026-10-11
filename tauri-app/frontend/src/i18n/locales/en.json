@@ -112,7 +112,7 @@
     "primaryAdapter": "Primary Adapter",
     "selectPrimaryAdapter": "Select Primary Adapter",
     "accountManage": "Account Management",
-    "accountManageDesc": "Switch or manage saved login profiles",
+    "accountManageDesc": "Manage login accounts used by auto-login settings",
     "addAccount": "Add",
     "accountName": "Account Name",
     "switchAccount": "Switch Account",

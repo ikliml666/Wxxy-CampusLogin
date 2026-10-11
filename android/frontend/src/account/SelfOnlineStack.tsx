@@ -170,7 +170,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
             <div
               key={i}
               ref={r === 0 ? firstRef : undefined}
-              className="absolute inset-x-0 top-0 origin-top rounded-xl shadow-md"
+              className="absolute top-0 origin-top rounded-xl shadow-md inset-x-[7%] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={r !== 0}
             >
@@ -439,8 +439,7 @@ export function OnlineDeviceStackH({ cards }: OnlineDeviceStackProps) {
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className="absolute top-0 rounded-xl shadow-md"
-              style={style}
+              className="absolute top-0 rounded-xl shadow-md ring-1 ring-black/5 dark:ring-white/10"              style={style}
               aria-hidden={side}
             >
               <div className={side ? 'pointer-events-none' : ''}>{node}</div>

@@ -21,6 +21,19 @@
     deviceAliases: { B025AA6CA580: '实验室台式机' },
   }
 
+  // ---- mock 账号列表（对应 AccountItem {id, displayName}；id 为账号键非学号）----
+  // URL 带 ?mockempty=1 时返回空列表（验证空态样式）
+  var emptyAccounts = false
+  try { emptyAccounts = window.location.search.indexOf('mockempty') >= 0 } catch (e) {}
+  var mockAccounts = [
+    { id: 'acc-main', displayName: '主账号', user: '24385214' },
+    { id: 'acc-dorm', displayName: '宿舍台式机', user: '24385215' },
+    { id: 'acc-lab', displayName: '实验室笔记本', user: '24385216' },
+  ]
+  if (emptyAccounts) mockAccounts = []
+  var activeAccountName = emptyAccounts ? '' : 'acc-main'
+  var accountSeq = 0
+
   // ---- mock 在线设备（可变：注销即移除）----
   var onlineList = [
     { loginTime: '2026-10-09 07:51:48', ip: '10.2.103.127', mac: 'B025AA6CA580', useTime: '12180', downFlow: '282648', upFlow: '1', hostName: '', terminalType: '#PC', sessionId: 'mock-sess-1' },
@@ -58,7 +71,7 @@
           return { name: a.name, ip: a.ip, wireless: a.wireless, subnetMask: '255.255.255.0', gateway: '10.2.0.1', dnsServers: ['10.10.10.10'], status: a.status, mac: a.mac }
         }),
         disabledAdapters: [],
-        accounts: [], activeAccount: '', backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
+        accounts: mockAccounts.map(function (a) { return { id: a.id, displayName: a.displayName } }), activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
         isAutoStart: false, autoLaunch: false, notificationEnabled: false, gpuInfo: undefined, refreshRate: undefined
       }
     },
@@ -98,8 +111,49 @@
     },
     check_portal_status: function () { return ok({ reachable: true, online: true, message: 'Portal 可达（mock）' }) },
     render_heartbeat: function () { return { online: true, checking: false } },
-    get_active_account: function () { return '' },
-    list_accounts: function () { return [] },
+    get_active_account: function () { return activeAccountName },
+    list_accounts: function () {
+      return mockAccounts.map(function (a) { return { id: a.id, displayName: a.displayName } })
+    },
+    // 另存当前配置为新账号：真后端落盘后广播 config-changed；mock 同构
+    save_current_as_account: function (args) {
+      var name = (args && args.accountName || '').trim()
+      if (!name) return { success: false, message: '账号名称不能为空（mock）' }
+      accountSeq += 1
+      var id = 'acc-new-' + accountSeq
+      mockAccounts.push({ id: id, displayName: name, user: config.user })
+      activeAccountName = id
+      setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
+      return { success: true, message: '已保存（mock）', config: config, activeAccount: id }
+    },
+    switch_account: function (args) {
+      var name = args && args.accountName
+      var acc = mockAccounts.find(function (a) { return a.id === name || a.displayName === name })
+      if (!acc) return { success: false, message: '账号不存在（mock）' }
+      activeAccountName = acc.id
+      if (acc.user) config.user = acc.user
+      setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
+      return { success: true, message: '已切换（mock）', config: config, activeAccount: acc.id }
+    },
+    delete_account: function (args) {
+      var name = args && args.accountName
+      var before = mockAccounts.length
+      mockAccounts = mockAccounts.filter(function (a) { return a.id !== name && a.displayName !== name })
+      if (mockAccounts.length === before) return { success: false, message: '账号不存在（mock）' }
+      if (activeAccountName === name) activeAccountName = mockAccounts.length ? mockAccounts[0].id : ''
+      setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
+      return { success: true, message: '已删除（mock）', config: config, activeAccount: activeAccountName }
+    },
+    rename_account: function (args) {
+      var id = args && args.accountId
+      var displayName = (args && args.displayName || '').trim()
+      if (!displayName) return { success: false, message: '显示名不能为空（mock）' }
+      var acc = mockAccounts.find(function (a) { return a.id === id })
+      if (!acc) return { success: false, message: '账号不存在（mock）' }
+      acc.displayName = displayName
+      setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
+      return { success: true, message: '已改名（mock）', config: config, activeAccount: activeAccountName }
+    },
     get_disabled_adapters: function () { return [] },
     get_adapters: function () { return mockAdapters },
     // 网络质量：返回带 details 的完整结果（验证合并卡 4 标签横滑）

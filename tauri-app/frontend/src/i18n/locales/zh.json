@@ -112,7 +112,7 @@
     "primaryAdapter": "主适配器",
     "selectPrimaryAdapter": "选择主适配器",
     "accountManage": "账号管理",
-    "accountManageDesc": "切换或管理保存的登录配置",
+    "accountManageDesc": "管理自动登录设置的登录账号",
     "addAccount": "添加",
     "accountName": "账号名称",
     "switchAccount": "切换账号",

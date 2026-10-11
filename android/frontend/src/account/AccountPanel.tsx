@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select'
 import {
   UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Pencil, Zap
+  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Pencil, Zap, Layers
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
@@ -25,6 +25,9 @@ import { cn, extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
 import { ChangePasswordDialog } from '@/account/ChangePasswordDialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { OnlineDeviceStack, OnlineDeviceStackH } from '@/account/SelfOnlineStack'
+import { useFormFactor } from '@/hooks/useFormFactor'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -186,6 +189,9 @@ export const AccountPanel = memo(function AccountPanel({
   interface OperatorBindingInfo { account: string; passwordSet: boolean }
   type BindStatuses = Record<'cmcc' | 'telecom' | 'unicom', OperatorBindingInfo | null>
   const [bindStatuses, setBindStatuses] = useState<BindStatuses | null>(null)
+  // 绑定状态弹窗（2026-10-10）：卡内状态区改弹窗展示，查询入口移到绑定按钮下方
+  const [statusOpen, setStatusOpen] = useState(false)
+  const formFactor = useFormFactor()
   const [queryingStatus, setQueryingStatus] = useState(false)
   const [revealedOp, setRevealedOp] = useState<string | null>(null)
   const [revealedPassword, setRevealedPassword] = useState('')
@@ -229,6 +235,7 @@ export const AccountPanel = memo(function AccountPanel({
           telecom: d.telecom ?? null,
           unicom: d.unicom ?? null,
         })
+        setStatusOpen(true)
       } else {
         addToast(result.message || t('onboarding.bindFailed'), 'error')
       }
@@ -507,62 +514,8 @@ export const AccountPanel = memo(function AccountPanel({
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* 绑定状态区：后端返回掩码账号（前三后二），密码仅回是否设置 */}
-            <div className="rounded-xl bg-muted/40 p-3 space-y-2">
-              {bindStatuses ? (
-                ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => {
-                  const key = o.value.slice(1) as 'cmcc' | 'telecom' | 'unicom'
-                  const info = bindStatuses[key]
-                  return (
-                    <div key={o.value} className="flex items-center justify-between text-xs gap-2">
-                      <span className="text-muted-foreground shrink-0">{t(o.labelKey)}</span>
-                      {info ? (
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                          <span className="font-medium font-mono truncate">{info.account}</span>
-                          {info.passwordSet && (
-                            revealedOp === o.value ? (
-                              <button
-                                type="button"
-                                onClick={() => handleReveal(o.value)}
-                                className="font-mono text-[11px] text-primary hover:text-primary/80 transition-colors"
-                              >
-                                {revealedPassword || '••••••'}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleReveal(o.value)}
-                                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
-                              >
-                                {t('account.bindStatusReveal')}
-                              </button>
-                            )
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/60">{t('account.bindStatusNotBound')}</span>
-                      )}
-                    </div>
-                  )
-                })
-              ) : (
-                <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
-              )}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={fetchBindStatus}
-                disabled={!canQueryStatus || queryingStatus}
-                className="w-full gap-1.5 h-8"
-              >
-                {queryingStatus ? (
-                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
-                ) : (
-                  <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
-                )}
-              </Button>
-            </div>
+            {/* 绑定状态改弹窗展示（2026-10-10）：卡内只留一行凭据说明，降低卡高 */}
+            <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
               <Select value={bindOp} onValueChange={setBindOp}>
@@ -610,151 +563,319 @@ export const AccountPanel = memo(function AccountPanel({
                 <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
               )}
             </Button>
+            {/* 查询绑定状态：次按钮，点击弹窗展示 */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setStatusOpen(true); void fetchBindStatus() }}
+              disabled={!canQueryStatus || queryingStatus}
+              className="w-full gap-1.5 h-8"
+            >
+              {queryingStatus ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
+              ) : (
+                <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
+              )}
+            </Button>
           </CardContent>
         </AnimatedCard>
       </div>
       </div>
 
+      {/* 账号管理：堆叠卡形态（参照在线信息卡），置于绑定卡下方 */}
       <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <UserCircle className="h-5 w-5 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <CardTitle>{t('account.accountManage')}</CardTitle>
-                <CardDescription>{t('account.accountManageDesc')}</CardDescription>
-                </div>
-              </div>
-              {!showAddInput ? (
-                <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => setShowAddInput(true)}>
-                  <Plus className="h-3.5 w-3.5" /> {t('account.addAccount')}
-                </Button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={newAccountName}
-                    onChange={e => setNewAccountName(e.target.value)}
-                    placeholder={t('account.accountName')}
-                    className="w-32 h-8 text-xs"
-                    onKeyDown={e => e.key === 'Enter' && handleAddAccount()}
-                    autoFocus
-                  />
-                  <Button size="icon-sm" variant="ghost" onClick={handleAddAccount}>
-                    <Check className="h-3.5 w-3.5 text-emerald-500" />
-                  </Button>
-                  <Button size="icon-sm" variant="ghost" onClick={() => { setShowAddInput(false); setNewAccountName('') }}>
-                    <X className="h-3.5 w-3.5 text-muted-foreground" />
-                  </Button>
-                </div>
-              )}
+        <div className="mb-2 flex items-center justify-between gap-2 px-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <Layers className="h-4 w-4 shrink-0 text-primary" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-5">{t('account.accountManage')}</p>
+              <p className="truncate text-xs text-muted-foreground">{t('account.accountManageDesc')}</p>
             </div>
-          </CardHeader>
-          <CardContent>
-            {accounts.length > 0 ? (
-              <div className="space-y-1.5">
-                {accounts.map((item) => {
-                  const isActive = item.id === activeAccount
-                  return (
-                    <div key={item.id} className={cn(
-                        'flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors duration-200',
-                        isActive
-                          ? 'bg-primary/8 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
-                          : 'hover:bg-accent/60 list-item-interactive'
-                      )}
-                    >
-                      {renamingId === item.id ? (
-                        <div className="flex items-center gap-2 w-full min-w-0">
-                          <Input
-                            value={renameDraft}
-                            onChange={e => setRenameDraft(e.target.value)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') { e.preventDefault(); void submitRename() }
-                              if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
-                            }}
-                            placeholder={t('account.renameInputPlaceholder')}
-                            maxLength={64}
-                            className="h-8 flex-1 min-w-0 text-xs"
-                            disabled={renaming}
-                            autoFocus
-                          />
-                          <Button size="icon-sm" variant="ghost" onClick={() => void submitRename()} disabled={renaming}>
-                            <Check className="h-3.5 w-3.5 text-emerald-500" />
-                          </Button>
-                          <Button size="icon-sm" variant="ghost" onClick={cancelRename} disabled={renaming}>
-                            <X className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className={cn(
-                              'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-                              isActive ? 'bg-primary/15' : 'bg-muted'
-                            )}>
-                              <UserCircle className={cn('h-4 w-4', isActive ? 'text-primary' : 'text-muted-foreground')} />
-                            </div>
-                            <div className="min-w-0 flex items-center">
-                              <span className="font-medium truncate">{item.displayName}</span>
-                              {isActive && (
-                                <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
-                                  {t('account.currentInUse')}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex gap-0.5 shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="rounded-lg"
-                              onClick={() => startRename(item)}
-                              disabled={switchingAccount !== null || renamingId !== null}
-                              aria-label={t('account.renameAccount')}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            {!isActive && (
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="rounded-lg"
-                                onClick={() => handleSwitchAccount(item.id)}
-                                disabled={switchingAccount !== null || renamingId !== null}
-                                aria-label={t('account.switchAccount')}
-                              >
-                                <ArrowRightLeft className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="rounded-lg hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => onDeleteAccount(item.id, item.displayName)}
-                              disabled={renamingId !== null}
-                              aria-label={t('account.deleteAccount')}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </>
+          </div>
+          {!showAddInput && (
+            <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1 px-2 text-xs" onClick={() => setShowAddInput(true)}>
+              <Plus className="h-3 w-3" /> {t('account.addAccount')}
+            </Button>
+          )}
+        </div>
+        {showAddInput && (
+          <div className="mb-2 flex items-center gap-2">
+            <Input
+              value={newAccountName}
+              onChange={e => setNewAccountName(e.target.value)}
+              placeholder={t('account.accountName')}
+              className="h-8 flex-1 min-w-0 text-xs"
+              onKeyDown={e => e.key === 'Enter' && handleAddAccount()}
+              autoFocus
+            />
+            <Button size="icon-sm" variant="ghost" onClick={handleAddAccount}>
+              <Check className="h-3.5 w-3.5 text-emerald-500" />
+            </Button>
+            <Button size="icon-sm" variant="ghost" onClick={() => { setShowAddInput(false); setNewAccountName('') }}>
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
+          </div>
+        )}
+        {accounts.length > 0 ? (
+          formFactor === 'tablet' ? (
+            <OnlineDeviceStackH
+              cards={accounts.map((item) => {
+                const isActive = item.id === activeAccount
+                const isRenaming = renamingId === item.id
+                return (
+                  <div key={item.id} className={cn(
+                    'rounded-xl p-3 shadow-sm bg-card dark:bg-muted',
+                    isActive && 'ring-1 ring-primary/40'
+                  )}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
+                        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
+                        <span className="truncate">{item.displayName}</span>
+                      </span>
+                      {isActive && (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                          {t('account.currentInUse')}
+                        </span>
                       )}
                     </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <MascotFigure variant="empty" size="md" className="mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">{t('account.noSavedAccounts')}</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">{t('account.noSavedAccountsTip')}</p>
-              </div>
-            )}
-          </CardContent>
-        </AnimatedCard>
+                    <div className="mt-2.5 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                      <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
+                      <p className="truncate font-mono text-xs leading-5 text-foreground">
+                        {isActive ? (config.user || activeDisplayName) : '-'}
+                      </p>
+                    </div>
+                    {isRenaming ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Input
+                          value={renameDraft}
+                          onChange={e => setRenameDraft(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { e.preventDefault(); void submitRename() }
+                            if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+                          }}
+                          placeholder={t('account.renameInputPlaceholder')}
+                          maxLength={64}
+                          className="h-8 flex-1 min-w-0 text-xs"
+                          disabled={renaming}
+                          autoFocus
+                        />
+                        <Button size="icon-sm" variant="ghost" onClick={() => void submitRename()} disabled={renaming}>
+                          <Check className="h-3.5 w-3.5 text-emerald-500" />
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" onClick={cancelRename} disabled={renaming}>
+                          <X className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="rounded-lg"
+                          onClick={() => startRename(item)}
+                          disabled={switchingAccount !== null || renamingId !== null}
+                          aria-label={t('account.renameAccount')}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {!isActive && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="rounded-lg"
+                            onClick={() => handleSwitchAccount(item.id)}
+                            disabled={switchingAccount !== null || renamingId !== null}
+                            aria-label={t('account.switchAccount')}
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="rounded-lg hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => onDeleteAccount(item.id, item.displayName)}
+                          disabled={renamingId !== null}
+                          aria-label={t('account.deleteAccount')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            />
+          ) : (
+            <OnlineDeviceStack
+              cards={accounts.map((item) => {
+                const isActive = item.id === activeAccount
+                const isRenaming = renamingId === item.id
+                return (
+                  <div key={item.id} className={cn(
+                    'rounded-xl p-3 shadow-sm bg-card dark:bg-muted',
+                    isActive && 'ring-1 ring-primary/40'
+                  )}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
+                        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
+                        <span className="truncate">{item.displayName}</span>
+                      </span>
+                      {isActive && (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                          {t('account.currentInUse')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2.5 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                      <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
+                      <p className="truncate font-mono text-xs leading-5 text-foreground">
+                        {isActive ? (config.user || activeDisplayName) : '-'}
+                      </p>
+                    </div>
+                    {isRenaming ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Input
+                          value={renameDraft}
+                          onChange={e => setRenameDraft(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { e.preventDefault(); void submitRename() }
+                            if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+                          }}
+                          placeholder={t('account.renameInputPlaceholder')}
+                          maxLength={64}
+                          className="h-8 flex-1 min-w-0 text-xs"
+                          disabled={renaming}
+                          autoFocus
+                        />
+                        <Button size="icon-sm" variant="ghost" onClick={() => void submitRename()} disabled={renaming}>
+                          <Check className="h-3.5 w-3.5 text-emerald-500" />
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" onClick={cancelRename} disabled={renaming}>
+                          <X className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="rounded-lg"
+                          onClick={() => startRename(item)}
+                          disabled={switchingAccount !== null || renamingId !== null}
+                          aria-label={t('account.renameAccount')}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {!isActive && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="rounded-lg"
+                            onClick={() => handleSwitchAccount(item.id)}
+                            disabled={switchingAccount !== null || renamingId !== null}
+                            aria-label={t('account.switchAccount')}
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="rounded-lg hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => onDeleteAccount(item.id, item.displayName)}
+                          disabled={renamingId !== null}
+                          aria-label={t('account.deleteAccount')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            />
+          )
+        ) : (
+          <div className="rounded-xl bg-card p-3 text-center shadow-sm dark:bg-muted">
+            <MascotFigure variant="empty" size="sm" className="mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">{t('account.noSavedAccounts')}</p>
+            <p className="mt-1 text-xs text-muted-foreground/60">{t('account.noSavedAccountsTip')}</p>
+          </div>
+        )}
       </div>
+
+      {/* 绑定状态弹窗：结果（掩码账号）在弹窗内渲染，明文 reveal 交互随行内保留 */}
+      <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('account.bindStatusQuery')}</DialogTitle>
+            <DialogDescription>{t('account.bindStatusHint')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-3">
+            {queryingStatus ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> {t('account.bindStatusQuerying')}
+              </div>
+            ) : bindStatuses ? (
+              ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => {
+                const key = o.value.slice(1) as 'cmcc' | 'telecom' | 'unicom'
+                const info = bindStatuses[key]
+                return (
+                  <div key={o.value} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted px-4 py-3 text-xs dark:bg-card">
+                    <span className="shrink-0 text-muted-foreground">{t(o.labelKey)}</span>
+                    {info ? (
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                        <span className="min-w-0 truncate font-mono font-medium">{info.account}</span>
+                        {info.passwordSet && (
+                          revealedOp === o.value ? (
+                            <button
+                              type="button"
+                              onClick={() => handleReveal(o.value)}
+                              className="shrink-0 font-mono text-[11px] text-primary transition-colors hover:text-primary/80"
+                            >
+                              {revealedPassword || '••••••'}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleReveal(o.value)}
+                              className="shrink-0 text-[11px] text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+                            >
+                              {t('account.bindStatusReveal')}
+                            </button>
+                          )
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/60">{t('account.bindStatusNotBound')}</span>
+                    )}
+                  </div>
+                )
+              })
+            ) : (
+              <p className="py-10 text-center text-xs text-muted-foreground">{t('account.bindStatusNotBound')}</p>
+            )}
+          </div>
+          <div className="mt-5 flex items-center justify-end gap-3 border-t border-border/60 pt-4">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void fetchBindStatus()}
+              disabled={!canQueryStatus || queryingStatus}
+              className="gap-1.5"
+            >
+              {queryingStatus ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
+              ) : (
+                <><Eye className="h-3.5 w-3.5" /> {t('common.retry')}</>
+              )}
+            </Button>
+            <Button size="sm" onClick={() => setStatusOpen(false)}>{t('common.close')}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 修改校园网密码（= 登录密码）：成功后本地登录密码同步更新 */}
       <ChangePasswordDialog

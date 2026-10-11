@@ -113,13 +113,15 @@ describe('AccountPanel Windows Hello 验证门', () => {
     expect(queryBindStatus).toHaveBeenCalledTimes(1)
 
     // 查看明文（cmcc 行 passwordSet=true）：门已验证，直接调 reveal，不再弹验证
-    const revealBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusReveal'))!
+    // 绑定状态已移入弹窗（Radix portal 挂 document.body），须从 body 查找
+    await act(async () => { await Promise.resolve() })
+    const revealBtn = [...document.body.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusReveal'))!
     await act(async () => { fireEvent.click(revealBtn) })
     await act(async () => { await Promise.resolve() })
     expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
     expect(revealOperatorCredential).toHaveBeenCalledTimes(1)
     // 明文渲染在按钮内
-    expect(container.textContent).toContain('654321')
+    expect(document.body.textContent).toContain('654321')
   })
 
   it('验证未通过时不执行操作，且下次仍需验证', async () => {
