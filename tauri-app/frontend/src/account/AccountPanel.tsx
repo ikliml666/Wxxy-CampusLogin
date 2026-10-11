@@ -672,19 +672,11 @@ export const AccountPanel = memo(function AccountPanel({
                       </span>
                     )}
                   </div>
-                  <div className="mt-2.5 grid grid-cols-2 gap-2">
-                    <div className="min-w-0 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
-                      <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
-                      <p className="truncate font-mono text-xs leading-5 text-foreground">
-                        {isActive ? (config.user || activeDisplayName) : '-'}
-                      </p>
-                    </div>
-                    <div className="min-w-0 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
-                      <p className="text-[10px] leading-4 text-muted-foreground">{t('account.accountPasswordRow')}</p>
-                      <p className={cn('truncate text-xs leading-5', passwordSaved ? 'font-medium text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground/60')}>
-                        {passwordSaved ? t('account.accountPasswordSaved') : t('account.accountPasswordEmpty')}
-                      </p>
-                    </div>
+                  <div className="mt-2.5 max-w-[12rem] rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                    <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
+                    <p className="truncate font-mono text-xs leading-5 text-foreground">
+                      {isActive ? (config.user || activeDisplayName) : '-'}
+                    </p>
                   </div>
                   {isRenaming ? (
                     <div className="mt-2 flex items-center gap-2">
