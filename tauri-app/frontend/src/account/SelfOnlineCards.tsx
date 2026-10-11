@@ -38,7 +38,7 @@ export function OnlineDeviceCard({
   const { t } = useTranslation()
   return (
     // 卡面：浅色主题用纯白卡面（比背景亮、经典分组卡片式），深色主题用 muted（比背景稍亮）
-    <div className="rounded-xl bg-card p-3 shadow-sm dark:bg-muted">
+    <div className="rounded-xl bg-card p-3 shadow-sm shadow-black/5 ring-1 ring-black/[0.04] ring-inset dark:bg-muted dark:ring-white/[0.06]">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
@@ -107,28 +107,30 @@ export function OnlineDeviceCard({
   )
 }
 
-// 桌面端水平堆叠：封面流轮播——中间卡完整清晰，
-// 两侧相邻/次邻缩小压暗（不旋转）；切换 = 整副牌连续滚动一格（所有卡同时滚向新槽位，无离场淡出）。
-// 卡宽收窄为舞台 46%（左右各留 27%），相邻/次邻卡外推至 60%/85% 卡宽、缩至 0.6/0.45，
-// 让侧卡内容（注销按钮等）露出卡外填满整行，避免大卡 + 两侧空条；最多五张可见（中间 + 左右各两张），其余隐藏；点击左半 = 上一张，右半 = 下一张。
-const CF_X = [60, 85] as const // 相邻/次邻横向偏移（% 卡宽）
-const CF_INSET = '27%' // 卡宽 = 舞台 46%
-const SIDE_SCALE = 0.6
-const SIDE_SCALE_2 = 0.45
+// 桌面端竖排堆叠（与安卓 OnlineDeviceStack 同构同参）：上下切换的卡片堆——
+// 当前卡完整清晰，顶部露出下一张、底部露出上一张（缩小压暗）；
+// 切换 = 整副牌连续滚动一格（所有卡同时滚向新槽位，无离场淡出）；
+// 上滑 = 下一张，下滑 = 上一张（方向随手指）；点击上半 = 上一张，下半 = 下一张。
+const PEEK_TOP = 44 // 顶部露出下一张卡露出边的高度（px）
+const PEEK_BOTTOM = 44 // 底部露出上一张卡露出边的高度（px）
 const DRAG_THRESHOLD = 60
-const DRAG_CLAMP = 80
+// 拖拽行程上限：限制视觉拉伸幅度，超过阈值即翻页，松手后由 transform 过渡补完切换动画
+const DRAG_MIN = -110
+const DRAG_MAX = 70
+// 竖排封面流缩放：露出边 0.75（只露约 38px 边条，缩放过小字太小，取偏大值保证可读）
+const V_SIDE_SCALE = 0.75
 const SLIDE_MS = 500
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
-export function OnlineDeviceCardStack({ children }: { children: React.ReactNode }) {
+export function OnlineDeviceCardStack({ children, className }: { children: React.ReactNode; className?: string }) {
   const cards = React.Children.toArray(children)
   const count = cards.length
   const [index, setIndex] = useState(0)
-  const [dragX, setDragX] = useState(0)
+  const [dragY, setDragY] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
   const firstRef = useRef<HTMLDivElement | null>(null)
-  const drag = useRef<{ startX: number; moved: boolean } | null>(null)
+  const drag = useRef<{ startY: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
 
   // 列表变短（如注销成功）时夹住当前页码
@@ -149,6 +151,8 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
   }, [cards, index])
 
   if (count === 0) return null
+  // 两张时无底部露出卡，容器高度只保留顶部露出，避免底部空出 44px
+  const peekBottom = count === 2 ? 0 : PEEK_BOTTOM
   const sd = (i: number) => (i - index + count) % count
   // 整副牌连续滚动：所有槽位常挂载 + transform 过渡，切换只改 index——
   // 旧当前卡滚入侧位、新当前卡转入中央，无离场淡出
@@ -161,7 +165,7 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button')) return
     suppressClick.current = false
-    drag.current = { startX: e.clientX, moved: false }
+    drag.current = { startY: e.clientY, moved: false }
     setDragging(true)
     try {
       e.currentTarget.setPointerCapture(e.pointerId)
@@ -171,21 +175,21 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
   }
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return
-    const dx = e.clientX - drag.current.startX
-    if (Math.abs(dx) > 6) drag.current.moved = true
-    setDragX(Math.max(-DRAG_CLAMP, Math.min(DRAG_CLAMP, dx)))
+    const dy = e.clientY - drag.current.startY
+    if (Math.abs(dy) > 6) drag.current.moved = true
+    setDragY(Math.max(DRAG_MIN, Math.min(DRAG_MAX, dy)))
   }
   const endDrag = () => {
     if (!drag.current) return
     const moved = drag.current.moved
     drag.current = null
     setDragging(false)
-    const dx = dragX
-    setDragX(0)
-    if (Math.abs(dx) >= DRAG_THRESHOLD) {
+    const dy = dragY
+    setDragY(0)
+    if (Math.abs(dy) >= DRAG_THRESHOLD) {
       suppressClick.current = true
-      // 左拖 = 下一张，右拖 = 上一张——方向随手指，整副牌朝该方向滚一格
-      if (dx < 0) go(index + 1)
+      // 上滑 = 下一张，下滑 = 上一张——方向随手指，整副牌朝该方向滚一格
+      if (dy < 0) go(index + 1)
       else go(index - 1)
     } else if (moved) {
       // 拖而未翻：吞掉紧随的 click，避免松手误触切换
@@ -198,20 +202,19 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
       suppressClick.current = false
       return
     }
-    // 以中线划分点击区：左半 = 上一张，右半 = 下一张
+    // 以中线划分点击区（与水平堆叠左右分区同构）：上半 = 上一张，下半 = 下一张
     const rect = e.currentTarget.getBoundingClientRect()
-    if (e.clientX - rect.left < rect.width * 0.5) go(index - 1)
+    if (e.clientY - rect.top < rect.height * 0.5) go(index - 1)
     else go(index + 1)
   }
 
   return (
-    <div>
+    <div className={className}>
       <div
         className="relative select-none"
         style={{
-          height: cardH != null ? cardH : 200,
+          height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + peekBottom : 0) : 220,
           touchAction: 'none',
-          marginInline: count > 1 ? 32 : 0,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -222,31 +225,29 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
       >
         {cards.map((node, i) => {
           const s = sd(i)
-          // 封面流槽位姿势表：中央 + 左右相邻/次邻（缩小压暗，不旋转）+
-          // 紧邻隐藏槽位（透明常挂载，≥6 张时翻页平滑滚入/滚出），更深的卡不挂载
-          let pos: { x: number; scale: number; z: number; opacity: number } | null = null
-          if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
-          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
-          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
-          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 20, scale: 0.4, z: 5, opacity: 0 }
-          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 20, scale: 0.4, z: 5, opacity: 0 }
+          // 竖排封面流槽位姿势表：中央（当前）+ 顶部露出下一张 + 底部露出上一张（缩小压暗）+
+          // 上下隐藏槽（透明常挂载，翻页时旧当前卡滚入隐藏槽淡出）+ 隐藏缓冲，更深的卡不挂载。
+          // 露出边与当前卡区分 = 缩放 V_SIDE_SCALE + 压暗 0.5（露出卡内侧对齐当前卡内侧，无梯形拼贴感）。
+          // 底部露出卡用卡高推导 top，使其缩放后的底边对齐容器底（露出底边 = PEEK_BOTTOM）
+          const ch = cardH ?? 220
+          const bottomTop = ch * (1 - V_SIDE_SCALE) + PEEK_TOP + PEEK_BOTTOM
+          let pos: { top: number; scale: number; z: number; opacity: number } | null = null
+          if (s === 0) pos = { top: count > 1 ? PEEK_TOP : 0, scale: 1, z: 30, opacity: 1 }
+          else if (s === 1) pos = { top: 0, scale: V_SIDE_SCALE, z: 20, opacity: 0.5 }
+          else if (count > 2 && s === count - 1) pos = { top: bottomTop, scale: V_SIDE_SCALE, z: 20, opacity: 0.5 }
+          else if (count > 3 && s === count - 2) pos = { top: bottomTop + 60, scale: V_SIDE_SCALE, z: 10, opacity: 0 }
+          else if (count > 4 && s === 2) pos = { top: 20, scale: V_SIDE_SCALE, z: 10, opacity: 0 }
           if (!pos) return null
-          const side = s !== 0
-          const style: React.CSSProperties = dragging && s === 0
+          const isDraggingTop = s === 0 && dragging
+          const style: React.CSSProperties = isDraggingTop
             ? {
-                left: CF_INSET,
-                right: CF_INSET,
-                transform: `translateX(calc(${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
+                transform: `translateY(calc(${pos.top}px + ${dragY}px)) scale(${pos.scale})`,
                 transition: 'none',
                 zIndex: 40,
-                opacity: 1,
+                opacity: pos.opacity,
               }
             : {
-                left: CF_INSET,
-                right: CF_INSET,
-                transform: `translateX(${pos.x}%) scale(${pos.scale})`,
+                transform: `translateY(${pos.top}px) scale(${pos.scale})`,
                 opacity: pos.opacity,
                 zIndex: pos.z,
                 transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 300ms ease`,
@@ -255,11 +256,11 @@ export function OnlineDeviceCardStack({ children }: { children: React.ReactNode 
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className="absolute top-0 rounded-xl shadow-md"
+              className="absolute top-0 origin-top rounded-xl shadow-md inset-x-[7%] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
-              aria-hidden={side}
+              aria-hidden={s !== 0}
             >
-              <div className={side ? 'pointer-events-none' : ''}>{node}</div>
+              <div className={s !== 0 ? 'pointer-events-none' : ''}>{node}</div>
             </div>
           )
         })}
