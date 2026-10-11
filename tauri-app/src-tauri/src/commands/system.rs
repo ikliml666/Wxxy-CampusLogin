@@ -18,22 +18,21 @@ pub fn minimize_window(window: Window, state: State<'_, AppState>) -> Result<(),
 
 #[tauri::command]
 pub fn close_window(window: Window, state: State<'_, AppState>) -> Result<(), String> {
-    // 轻量化优先：与 shutdown::handle_window_close_event 的三分支保持同一
-    // 优先级。此前 minimize_to_tray 在此先判，双开配置下标题栏关闭按钮永远
-    // hide() 短路 lightweight_mode——CloseRequested 不触发、WebView 不销毁，
-    // 与 Alt+F4 路径（shutdown.rs 轻量化优先）行为互相矛盾。轻量化分支不置
-    // is_quitting（真退出标志，置位会中止全部后台监控），由 CloseRequested
-    // → shutdown.rs 轻量化分支走销毁+守卫流程。
+    // minimize_to_tray 优先（2026-10-11 用户实测决策）：方案 A 落地后最小化/
+    // 隐藏稳态 WebView2 树自动 trim 到 ~26.7MB + 主进程 ~15.2MB、0% CPU/GPU，
+    // 销毁重建只能再省 ~27MB，代价却是 1-2s 重载 + 页面状态丢失，得不偿失。
+    // 关闭按钮改为隐藏到托盘（秒恢复、状态全保留）；轻量化销毁仅保留在
+    // Alt+F4 / 系统关闭路径（shutdown.rs 轻量化分支不动）。轻量化分支不置
+    // is_quitting（真退出标志，置位会中止全部后台监控）。
+    let minimize_to_tray = state.config.load().minimize_to_tray;
+    if minimize_to_tray {
+        return window.hide().map_err(|e| e.to_string());
+    }
     if state.config.load().lightweight_mode {
         return window.close().map_err(|e| e.to_string());
     }
-    let minimize_to_tray = state.config.load().minimize_to_tray;
-    if minimize_to_tray {
-        window.hide().map_err(|e| e.to_string())
-    } else {
-        state.exit.is_quitting.store(true, Ordering::Release);
-        window.close().map_err(|e| e.to_string())
-    }
+    state.exit.is_quitting.store(true, Ordering::Release);
+    window.close().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
