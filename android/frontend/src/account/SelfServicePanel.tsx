@@ -112,7 +112,7 @@ export function SelfServicePanel() {
   // 凭据就绪：学号非空且登录密码已保存（后端 resolve_self_password 用空串回退已存密码）
   const hasCred = !!configUser.trim() && passwordSaved
 
-  const fetchDashboard = useCallback(async () => {
+  const fetchDashboard = useCallback(async (opts?: { silent?: boolean }) => {
     if (!hasCred || querying) return
     if (!(await ensureSelfVerified())) return
     setQuerying(true)
@@ -126,11 +126,13 @@ export function SelfServicePanel() {
         const d = result.data as { onlineList?: unknown; loginHistory?: unknown }
         setOnlineList(Array.isArray(d.onlineList) ? (d.onlineList as SelfOnlineItem[]) : [])
         setHistory(Array.isArray(d.loginHistory) ? (d.loginHistory as SelfHistoryRow[]) : [])
-      } else {
+      } else if (!opts?.silent) {
+        // 校园网外/夜间出站切换时自助服务系统不可达，自动预热失败静默降级，
+        // 不弹错误通知打扰；手动刷新失败才提示
         addToast(result.message || t('account.selfDashboardFailed'), 'error')
       }
     } catch (err) {
-      if (mountedRef.current) addToast(extractErrorMessage(err) || t('account.selfDashboardFailed'), 'error')
+      if (mountedRef.current && !opts?.silent) addToast(extractErrorMessage(err) || t('account.selfDashboardFailed'), 'error')
     } finally {
       if (mountedRef.current) setQuerying(false)
     }
@@ -145,7 +147,7 @@ export function SelfServicePanel() {
     if (autoRefreshedRef.current || !configLoaded) return
     if (!hasCred) return
     autoRefreshedRef.current = true
-    void fetchDashboard()
+    void fetchDashboard({ silent: true })
   }, [configLoaded, hasCred, fetchDashboard])
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
@@ -240,7 +242,7 @@ export function SelfServicePanel() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={fetchDashboard}
+                onClick={() => void fetchDashboard()}
                 disabled={!hasCred || querying}
                 className="gap-1.5 h-8 shrink-0"
                 title={hasCred ? undefined : t('account.selfDashboardNeedCred')}

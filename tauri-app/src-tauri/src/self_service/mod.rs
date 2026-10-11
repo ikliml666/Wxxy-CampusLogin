@@ -371,7 +371,7 @@ async fn login_session(
         .get(format!("{}/login/randomCode", SELF_BASE_URL))
         .query(&[("t", "1")])
         .send().await
-        .map_err(|e| format!("预热验证码失败: {e}"))?
+        .map_err(|e| format!("无法连接自助服务系统（预热验证码）: {e}"))?
         .error_for_status()
         .map_err(|e| format!("预热验证码失败: {e}"))?;
 

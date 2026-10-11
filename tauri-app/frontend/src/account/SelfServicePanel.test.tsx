@@ -168,6 +168,33 @@ describe('SelfServicePanel', () => {
     expect(querySelfDashboard).toHaveBeenCalledTimes(3)
   })
 
+  it('切入面板自动刷新失败静默降级（不弹错误 toast），手动刷新失败才弹', async () => {
+    // ToastContainer 挂在 App 层不在本测试树内，直接断言全局 toast store 状态
+    const { useLogToastStore } = await import('@/hooks/useLogToastStore')
+    useLogToastStore.getState().cleanupToasts()
+    storeState.config.user = '24380002'
+    // 自动刷新失败（如校园网外自助服务系统不可达）
+    querySelfDashboard.mockResolvedValue({ success: false, message: '预热验证码失败: error sending request' })
+    render(<SelfServicePanel />)
+    await act(async () => { await Promise.resolve() })
+    expect(querySelfDashboard).toHaveBeenCalledTimes(1)
+    // silent 路径：不进 toast 队列
+    expect(useLogToastStore.getState().toasts).toHaveLength(0)
+    // 卸载重挂载（自动刷新再走一次 silent）后手动刷新：失败文案进入 toast 队列
+    cleanup()
+    resetSelfSessionGate()
+    render(<SelfServicePanel />)
+    await act(async () => { await Promise.resolve() })
+    expect(useLogToastStore.getState().toasts).toHaveLength(0)
+    const { container } = render(<SelfServicePanel />)
+    const refreshBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfDashboardRefresh'))!
+    await act(async () => {
+      fireEvent.click(refreshBtn)
+      await Promise.resolve()
+    })
+    expect(useLogToastStore.getState().toasts.some((t) => t.title.includes('预热验证码失败'))).toBe(true)
+  })
+
   it('注销需确认，确认后调用接口并移除对应行', async () => {
     storeState.passwordSaved = true
     mockConfigUser.current = '24380002'
