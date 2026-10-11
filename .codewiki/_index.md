@@ -130,6 +130,7 @@
 - [[learnings/mascot-asset-alpha-channel-check|看板娘图资产必须过 alpha 校验（VP8 无 alpha 导致深色模式刺眼）]]
 - [[learnings/adapter-disabled-classification-blindspot|禁用网卡分类盲区——只认 NotPresent+ConfigFlags 漏掉「禁用报 Down」]]
 - [[learnings/seconds-milliseconds-conversion-scatter|秒与毫秒的双向换算点分散在各处]]
+- [[learnings/quality-fallback-and-ssid-location-permission|质量检测回退活动适配器与 SSID 位置权限告警]]
 - [[learnings/android-log-type-enum-drift|跨树日志事件 type 必须对齐前端 LogType 枚举（"warn" vs "warning" 致白屏）]]
 - [[learnings/adapter-visibility-cache-staleness|适配器可见性/禁用分类缓存陈旧（只在 enable_adapter 刷新）]]
 - [[learnings/adapter-linkspeed-u64-max|适配器速度显示 18446744073 Gbps]]

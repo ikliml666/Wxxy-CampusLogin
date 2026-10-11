@@ -20,7 +20,7 @@ tags: [决策, 网络, 适配器, 双端同源]
 - 检测/登录/注销的作用点（当前代码锚点）：
   - 登录/注销：`auth/service.rs:133、252` 与 `commands/login.rs:21` 先 `resolve_adapter_names` 再只操作解析结果；
   - 后台巡检/自动重登：`monitor/background_check.rs:42、85`、`monitor/auto_auth.rs:285、302` 同样 resolve + filter；
-  - 网络质量检测：`select_adapter`（`adapter.rs:130-142`）只从解析出的**主适配器**取 IP，不回退到配置范围外的适配器（调用点 `network_cmd.rs:228`、`monitor/latency.rs:103`）；
+  - 网络质量检测：`select_adapter`（`adapter.rs:130-143`）只从解析出的**主适配器**取 IP，不回退到配置范围外的适配器；**2026-10-11 修订：质量检测改用 `select_adapter_for_quality`（`adapter.rs:145-160`）**——主适配器有 IP 直用（语义不变），全离线时回退到首个有 IP 且未被 `BL_REGEX` 黑名单命中的适配器（过滤 VMnet/TUN 等恒有 IP 的虚拟口），全无活动才返回空；调用点 `network_cmd.rs:228`（手动检测）、`monitor/latency.rs:66`（wait_for_adapter_ready 就绪等待）。登录出口语义仍由 `select_adapter` 承担，不回退；
   - 登录前以太网无 IP 补救 `ensure_ethernet_ip_for_login`（`adapter.rs:144-222`，调用点 `auth/service.rs:106`）：在主/副中筛出**有线且无 IP** 者逐个 `ipconfig /renew`，spawn 失败记日志而非误报续租超时（`:187-192`），轮询 5s 后 kill 子进程防残留（`:196-202`）；
   - 自助服务源 IP 绑定：`resolve_campus_bind_addr`（`commands/self_service.rs:27-33`）复用同源规则（`:30` resolve、`:31` `find_with_valid_ip` 取主卡 IP），保证自助请求从校园网侧发出；
 - DHCP 续租/释放重连仍走主/副范围：`dhcp_renew_all`（`network_cmd.rs:152-168`，resolve `:158` → filter `:159-160` → `dhcp_renew_wired_only` `:161`，只续租其中**有线**卡）；`dhcp_release_renew`（`:171-191`，resolve `:181` → filter `:182-183`，MAC 重置 + 释放/续租同样只限主/副）；单卡按钮 `dhcp_release_renew_adapter`（`:194-209`，`validate_adapter_name` 校验 `:196` 后走 `dhcp_release_renew_single` `:202`）与启用网卡 `enable_adapter`（`:33-41`，`validate_adapter_name` `:35`）都是用户显式点名的单适配器操作，不受主/副范围约束；

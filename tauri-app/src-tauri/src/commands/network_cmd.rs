@@ -4,7 +4,7 @@ use crate::network::{
     get_adapters_cached, get_adapters_force, get_disabled_adapters_cached,
     enable_adapter as enable_adapter_inner, get_adapter_details_cached,
     dhcp_renew_wired_only, dhcp_release_renew_all, dhcp_release_renew_single,
-    select_adapter,
+    select_adapter_for_quality,
     check_network_quality_async,
 };
 use crate::infra::command_context::CommandContext;
@@ -225,7 +225,7 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
             Ok(a) => a,
             Err(_) => return Ok(empty_quality_json("unknown")),
         };
-        let (ip, name) = select_adapter(&adapters, &config);
+        let (ip, name) = select_adapter_for_quality(&adapters, &config);
         (ip, name, config.skip_ttfb_in_latency, config.skip_content_in_latency, config.fixed_gateway.clone())
     };
     if adapter_ip.is_empty() {

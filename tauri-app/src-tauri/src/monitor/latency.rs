@@ -63,7 +63,7 @@ pub(super) async fn wait_for_adapter_ready(
         let s = app_handle.state::<AppState>();
         let config = s.config.load();
         let adapters = get_adapters_cached_async().await.unwrap_or_default();
-        let (ip, name) = crate::network::select_adapter(&adapters, &config);
+        let (ip, name) = crate::network::select_adapter_for_quality(&adapters, &config);
         if !ip.is_empty() && s.network.load().any_adapter_online {
             return Some((name, ip));
         }

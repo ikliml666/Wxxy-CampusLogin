@@ -141,6 +141,23 @@ pub fn select_adapter(adapters: &[Adapter], config: &crate::config::Config) -> (
     (String::new(), String::new())
 }
 
+/// 质量检测专用选择：主适配器无 IP 时回退到任意有 IP 的非黑名单适配器。
+/// 与 select_adapter（登录出口语义，不回退）不同，质量检测只关心"当前真实
+/// 出口"——配置适配器全部离线时（如拔线后只剩 WLAN），仍能对活动网络测速，
+/// 而不是静默返回 unknown。黑名单（BL_REGEX）过滤 VMware/蓝牙/TUN 等虚拟
+/// 或非出口网卡，避免选中 VMnet1 这类恒有 IP 的 NAT 内网口产出垃圾数据。
+/// 注意：回退网卡可能不在登录作用范围内，测得的不是登录网卡的线路质量。
+pub fn select_adapter_for_quality(adapters: &[Adapter], config: &crate::config::Config) -> (String, String) {
+    let (ip, name) = select_adapter(adapters, config);
+    if !ip.is_empty() {
+        return (ip, name);
+    }
+    match adapters.iter().find(|a| !a.ip.is_empty() && !crate::network::discovery::is_blacklisted(&a.name)) {
+        Some(a) => (a.ip.clone(), a.name.clone()),
+        None => (String::new(), String::new()),
+    }
+}
+
 pub fn ensure_ethernet_ip_for_login(
     app_handle: &AppHandle,
     adapters: &[Adapter],
@@ -394,5 +411,52 @@ mod tests {
         // 手选适配器不在禁用列表：不纳入
         let c = make_test_config("蓝牙", true, "WLAN2");
         assert!(configured_disabled_adapters(&c, &disabled).is_empty());
+    }
+
+    #[test]
+    fn quality_select_uses_primary_when_ip_present() {
+        let adapters = vec![
+            make_test_adapter("以太网", false, "10.2.0.1"),
+            make_test_adapter("WLAN", true, "10.196.145.246"),
+        ];
+        let config = make_test_config("以太网", false, "");
+        let (ip, name) = select_adapter_for_quality(&adapters, &config);
+        assert_eq!((ip.as_str(), name.as_str()), ("10.2.0.1", "以太网"));
+    }
+
+    #[test]
+    fn quality_select_falls_back_to_active_when_primary_offline() {
+        // 复刻 2026-10-11 场景：配置的以太网断开，只有 WLAN 活着
+        let adapters = vec![
+            make_test_adapter("以太网", false, ""),
+            make_test_adapter("WLAN", true, "10.196.145.246"),
+        ];
+        let config = make_test_config("以太网", false, "");
+        let (ip, name) = select_adapter_for_quality(&adapters, &config);
+        assert_eq!((ip.as_str(), name.as_str()), ("10.196.145.246", "WLAN"));
+    }
+
+    #[test]
+    fn quality_select_fallback_skips_virtual_adapters() {
+        // VMware VMnet 恒有 IP，裸回退会选中它测 NAT 内网——黑名单必须拦截
+        let adapters = vec![
+            make_test_adapter("以太网", false, ""),
+            make_test_adapter("VMware Network Adapter VMnet1", false, "192.168.83.1"),
+            make_test_adapter("WLAN", true, "10.196.145.246"),
+        ];
+        let config = make_test_config("以太网", false, "");
+        let (ip, name) = select_adapter_for_quality(&adapters, &config);
+        assert_eq!((ip.as_str(), name.as_str()), ("10.196.145.246", "WLAN"));
+    }
+
+    #[test]
+    fn quality_select_returns_empty_when_nothing_active() {
+        let adapters = vec![
+            make_test_adapter("以太网", false, ""),
+            make_test_adapter("VMware Network Adapter VMnet1", false, "192.168.83.1"),
+        ];
+        let config = make_test_config("以太网", false, "");
+        let (ip, name) = select_adapter_for_quality(&adapters, &config);
+        assert!(ip.is_empty() && name.is_empty());
     }
 }

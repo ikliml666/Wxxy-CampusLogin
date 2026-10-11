@@ -34,6 +34,16 @@ fn netsh_cache_put(cache: &NetshCache, val: Option<String>) {
     *cache.lock() = Some((Instant::now(), val));
 }
 
+/// SSID 查询失败告警只发一次（进程生命周期内）。Win11 关闭位置服务后
+/// netsh wlan 永久失败，后台巡检高频调用，重复告警会刷爆日志。
+static SSID_QUERY_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn warn_ssid_query_failed(reason: &str) {
+    if !SSID_QUERY_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        crate::log_warn!("campus", "[校园网检测] WiFi SSID 查询失败（{}）：WiFi 名称匹配判定腿失效，仅剩子网/网关/Portal 探测。Win11 需在系统设置→隐私和安全性→位置中开启位置服务", reason);
+    }
+}
+
 pub fn get_wireless_ssid() -> Result<Option<String>, String> {
     if let Some(cached) = netsh_cache_get(&SSID_CACHE) {
         return Ok(cached);
@@ -52,10 +62,16 @@ fn get_wireless_ssid_uncached() -> Result<Option<String>, String> {
         .map_err(|e| format!("获取无线网络信息失败: {e}"))?;
 
     if !output.status.success() {
+        warn_ssid_query_failed("netsh 退出码非 0");
         return Ok(None);
     }
 
     let stdout = crate::platform::console_output::decode_console_bytes(&output.stdout);
+    // Win11 位置服务关闭时 netsh wlan 可能正常退出但输出错误提示而非 SSID
+    if stdout.contains("位置权限") || stdout.to_lowercase().contains("location permission") {
+        warn_ssid_query_failed("系统位置服务未开启");
+        return Ok(None);
+    }
     for line in stdout.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") {
