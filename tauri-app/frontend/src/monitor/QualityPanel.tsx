@@ -98,6 +98,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
   }, [effectiveQuality])
 
   const intervalSec = useMemo(() => (config.latencyTestInterval || 30000) / 1000, [config.latencyTestInterval])
+  // 进度细线绑定真实倒计时：按上一轮检测完成时刻（timestamp）推算本周期已流逝比例，
+  // 切页重挂载时直接按值渲染，而非从零重爬
+  const lastTestAt = networkQuality?.timestamp ? new Date(networkQuality.timestamp).getTime() : 0
+  const elapsedSec = lastTestAt ? Math.min(intervalSec, Math.max(0, (Date.now() - lastTestAt) / 1000)) : 0
   // 数字输入本地草稿：blur/Enter 时 clamp 提交（历史缺陷 P1-F6）
   const [intervalDraft, setIntervalDraft] = useState<string | null>(null)
 
@@ -350,9 +354,9 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                   key={networkQuality?.timestamp ?? 'pending'}
                   aria-hidden
                   className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary/70 origin-left"
-                  initial={{ scaleX: 0 }}
+                  initial={{ scaleX: elapsedSec / intervalSec }}
                   animate={{ scaleX: 1 }}
-                  transition={{ duration: intervalSec, ease: 'linear' }}
+                  transition={{ duration: Math.max(0.001, intervalSec - elapsedSec), ease: 'linear' }}
                 />
               )}
             </div>
