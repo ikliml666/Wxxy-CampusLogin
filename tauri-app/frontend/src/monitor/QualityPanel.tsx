@@ -319,9 +319,10 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* 控制条：自动检测开关 + 检测间隔输入（glass-dock 悬浮栏风格，无描边） */}
-            <div className="glass-dock flex items-center gap-2 rounded-xl px-3 py-2">
-              <Timer className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            {/* 控制条：自动检测开关 + 检测间隔输入（实底 bg-muted 替代 glass-dock：
+                卡内不再叠玻璃层；开启时底缘细线按检测间隔匀速推进、每轮检测完成回卷重来——周期进度轨） */}
+            <div className="relative overflow-hidden flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
+              <Timer className={cn('h-3.5 w-3.5 shrink-0', config.enableLatencyTest ? 'text-primary' : 'text-muted-foreground')} />
               <span className="text-xs text-muted-foreground shrink-0">{t('quality.autoCheck')}</span>
               <Switch
                 checked={config.enableLatencyTest}
@@ -344,6 +345,16 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                 />
                 <span className="text-xs text-muted-foreground shrink-0">{t('common.seconds')}</span>
               </div>
+              {config.enableLatencyTest && (
+                <m.div
+                  key={networkQuality?.timestamp ?? 'pending'}
+                  aria-hidden
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary origin-left"
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: intervalSec, ease: 'linear' }}
+                />
+              )}
             </div>
 
             {/* 顶部标签栏：等宽 4 格 + 指示条连续跟随 */}
