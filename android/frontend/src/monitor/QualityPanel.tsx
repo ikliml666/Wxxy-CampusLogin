@@ -340,7 +340,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                   onChange={e => setIntervalDraft(e.target.value)}
                   onBlur={commitInterval}
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                  className="w-14 h-7 text-center font-mono tabular-nums text-xs"
+                  className="w-16 h-7 text-center font-mono tabular-nums text-xs"
                   aria-label={t('quality.testInterval')}
                 />
                 <span className="text-xs text-muted-foreground shrink-0">{t('common.seconds')}</span>
