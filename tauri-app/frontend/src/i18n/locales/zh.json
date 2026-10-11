@@ -324,7 +324,6 @@
     "outboundBadge": "夜间出站目标",
     "outboundDragHint": "长按条目任意位置拖动调整顺序，排最前的非校园网网卡即夜间切换目标；未排序时默认无线网卡（WLAN）优先",
     "outboundAdminHint": "切换动作需要管理员权限（将通过 UAC 或计划任务代理静默完成）",
-    "currentOutbound": "当前出站: {{name}}",
     "currentOutboundBadge": "当前出站",
     "outboundSwitchNow": "切换出站",
     "outboundSwitchNowSuccess": "已切换出站",

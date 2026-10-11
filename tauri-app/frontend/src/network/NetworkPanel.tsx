@@ -575,17 +575,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* 出站簇：当前出站徽标 + 切换/还原文字按钮（图标按钮不直观，用户反馈改文字） */}
+                {/* 出站簇：切换/还原文字按钮（图标按钮不直观，用户反馈改文字） */}
                 {currentOutbound && (
                   <div className="flex items-center gap-1.5">
-                    <Badge
-                      variant="outline"
-                      size="sm"
-                      className="border-emerald-500/30 text-emerald-600 bg-transparent hidden md:inline-flex max-w-52 truncate"
-                      title={currentOutbound}
-                    >
-                      {t('network.currentOutbound', { name: currentOutbound })}
-                    </Badge>
                     <Button
                       variant="outline"
                       size="sm"

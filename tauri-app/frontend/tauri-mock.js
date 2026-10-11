@@ -158,6 +158,7 @@
     },
     get_disabled_adapters: function () { return [] },
     get_adapters: function () { return mockAdapters },
+    get_current_outbound_name: function () { return '以太网 (Mock)' },
     // 网络质量：返回带 details 的完整结果（验证合并卡 4 标签横滑）
     check_network_quality: function () {
       return {

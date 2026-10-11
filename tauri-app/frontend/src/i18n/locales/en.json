@@ -324,7 +324,6 @@
     "outboundBadge": "Night Outbound Target",
     "outboundDragHint": "Long-press anywhere on an entry and drag to reorder; the topmost non-campus adapter becomes the night switch target. Unsorted lists default to wireless (WLAN) first",
     "outboundAdminHint": "Switching requires administrator rights (via UAC or the scheduled-task proxy silently)",
-    "currentOutbound": "Current outbound: {{name}}",
     "currentOutboundBadge": "Current Outbound",
     "outboundSwitchNow": "Switch Outbound",
     "outboundSwitchNowSuccess": "Outbound switched",
