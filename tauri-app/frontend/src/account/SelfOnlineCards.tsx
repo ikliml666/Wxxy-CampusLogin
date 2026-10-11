@@ -256,7 +256,7 @@ export function OnlineDeviceCardStack({ children, className }: { children: React
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className="absolute top-0 origin-top rounded-xl shadow-md inset-x-[7%] ring-1 ring-black/5 dark:ring-white/10"
+              className="absolute top-0 origin-top rounded-xl shadow-md inset-x-[18%] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={s !== 0}
             >

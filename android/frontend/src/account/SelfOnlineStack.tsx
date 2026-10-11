@@ -170,7 +170,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
             <div
               key={i}
               ref={r === 0 ? firstRef : undefined}
-              className="absolute top-0 origin-top rounded-xl shadow-md inset-x-[7%] ring-1 ring-black/5 dark:ring-white/10"
+              className="absolute top-0 origin-top rounded-xl shadow-md inset-x-[18%] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={r !== 0}
             >

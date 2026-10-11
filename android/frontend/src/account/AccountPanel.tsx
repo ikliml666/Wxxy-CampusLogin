@@ -638,7 +638,7 @@ export const AccountPanel = memo(function AccountPanel({
                         </span>
                       )}
                     </div>
-                    <div className="mt-2.5 max-w-[12rem] rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                    <div className="mt-2.5 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
                       <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
                       <p className="truncate font-mono text-xs leading-5 text-foreground">
                         {isActive ? (config.user || activeDisplayName) : '-'}
@@ -727,7 +727,7 @@ export const AccountPanel = memo(function AccountPanel({
                         </span>
                       )}
                     </div>
-                    <div className="mt-2.5 max-w-[12rem] rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                    <div className="mt-2.5 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
                       <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
                       <p className="truncate font-mono text-xs leading-5 text-foreground">
                         {isActive ? (config.user || activeDisplayName) : '-'}
