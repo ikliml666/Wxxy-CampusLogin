@@ -17,7 +17,7 @@ tags: [教训, 前端, 竞态, 表单, 密码, React]
 
 ## Key Components
 
-### `AccountPanel` (Line 63-487)
+### `AccountPanel` (Line 47-893)
 
 主组件，负责渲染账号配置、运营商绑定及多账号管理。
 
@@ -25,60 +25,60 @@ tags: [教训, 前端, 竞态, 表单, 密码, React]
 
 | 变量名 | 类型 | 行号范围 | 用途 |
 | :--- | :--- | :--- | :--- |
-| `passwordSaved` | `boolean` | L63 | 从 `useConfigStore` 订阅，标识是否已保存密码 |
-| `config` | `Config` | L66 | 使用 `useShallow` 浅比较订阅，避免非必要重渲染 |
-| `newAccountName` | `string` | L67 | 新增账号的输入草稿 |
-| `showAddInput` | `boolean` | L68 | 控制新增账号输入框的显示 |
-| `showPassword` | `boolean` | L69 | 控制密码可见性切换 |
-| `passwordFocused` | `boolean` | L70 | 标记密码框是否聚焦，用于决定是否启用草稿模式 |
-| `passwordDraft` | `string` | L74 | **关键**：聚焦期间的密码本地草稿，避免每键写 Store |
-| `usernameDraft` | `string \| null` | L78 | **关键**：用户名的本地草稿，Blur/Enter 时提交 |
-| `mountedRef` | `MutableRefObject<boolean>` | L80 | 防止 StrictMode 下异步 setState 失效 |
-| `switchingAccount` | `string \| null` | L118 | 防止重复提交切换账号请求 |
-| `renamingId` | `string \| null` | L134 | 当前正在改名的账号 ID |
-| `renameDraft` | `string` | L135 | 改名时的本地草稿 |
-| `renaming` | `boolean` | L136 | 改名操作中的忙碌状态 |
-| `bindOp` | `string` | L145 | 运营商绑定选择值 |
-| `bindPhone` | `string` | L146 | 绑定手机号草稿 |
-| `bindSms` | `string` | L147 | 绑定短信密码草稿 |
-| `binding` | `boolean` | L148 | 绑定操作中的忙碌状态 |
-| `bindInitedRef` | `MutableRefObject<boolean>` | L149 | 确保绑定状态初始化只执行一次 |
-| `bindStatuses` | `BindStatuses \| null` | L156 | 查询到的运营商绑定状态缓存 |
-| `queryingStatus` | `boolean` | L157 | 查询运营商绑定状态的忙碌状态 |
-| `revealedOp` | `string \| null` | L158 | 当前查看明文的运营商 |
-| `revealedPassword` | `string` | L159 | 查看明文时存储的密码 |
-| `statusOpen` | `boolean` | L161 | 绑定状态弹窗开关 |
-| `chpwdOpen` | `boolean` | L238 | 修改密码弹窗开关 |
+| `passwordSaved` | `boolean` | L66 | 从 `useConfigStore` 订阅，标识是否已保存密码 |
+| `config` | `Config` | L71 | 使用 `useShallow` 浅比较订阅，避免非必要重渲染 |
+| `newAccountName` | `string` | L72 | 新增账号的输入草稿 |
+| `showAddInput` | `boolean` | L73 | 控制新增账号输入框的显示 |
+| `showPassword` | `boolean` | L74 | 控制密码可见性切换 |
+| `passwordFocused` | `boolean` | L75 | 标记密码框是否聚焦，用于决定是否启用草稿模式 |
+| `passwordDraft` | `string` | L79 | **关键**：聚焦期间的密码本地草稿，避免每键写 Store |
+| `usernameDraft` | `string \| null` | L83 | **关键**：用户名的本地草稿，Blur/Enter 时提交 |
+| `mountedRef` | `MutableRefObject<boolean>` | L85 | 防止 StrictMode 下异步 setState 失效 |
+| `switchingAccount` | `string \| null` | L130 | 防止重复提交切换账号请求 |
+| `renamingId` | `string \| null` | L144 | 当前正在改名的账号 ID |
+| `renameDraft` | `string` | L145 | 改名时的本地草稿 |
+| `renaming` | `boolean` | L146 | 改名操作中的忙碌状态 |
+| `bindOp` | `string` | L156 | 运营商绑定选择值 |
+| `bindPhone` | `string` | L157 | 绑定手机号草稿 |
+| `bindSms` | `string` | L158 | 绑定短信密码草稿 |
+| `binding` | `boolean` | L159 | 绑定操作中的忙碌状态 |
+| `bindInitedRef` | `MutableRefObject<boolean>` | L161 | 确保绑定状态初始化只执行一次 |
+| `bindStatuses` | `BindStatuses \| null` | L171 | 查询到的运营商绑定状态缓存 |
+| `queryingStatus` | `boolean` | L172 | 查询运营商绑定状态的忙碌状态 |
+| `revealedOp` | `string \| null` | L173 | 当前查看明文的运营商 |
+| `revealedPassword` | `string` | L174 | 查看明文时存储的密码 |
+| `statusOpen` | `boolean` | L177 | 绑定状态弹窗开关 |
+| `chpwdOpen` | `boolean` | L292 | 修改密码弹窗开关 |
 
 #### Handlers & Callbacks
 
 | 函数名 | 行号范围 | 关键逻辑说明 |
 | :--- | :--- | :--- |
-| `handlePasswordFocus` | L83-L86 | 聚焦时开启草稿模式，清空 `passwordDraft` |
-| `handlePasswordBlur` | L88-L95 | **关键修复点**：仅在 `passwordDraft` 非空时提交 `onUpdateConfig`，否则忽略（避免覆盖已有密码） |
-| `handleClearPassword` | L98-L103 | 调用 Store 直接保存空密码并同步 `passwordSaved` 状态 |
-| `commitUsername` | L105-L110 | 将 `usernameDraft` 提交至 Config，仅当值变化时调用 `onUpdateConfig` |
-| `handleAddAccount` | L112-L124 | 校验名称格式，调用后端添加接口，成功则清空草稿 |
-| `handleSwitchAccount` | L127-L132 | 忙态锁，防止重复切换 |
-| `submitRename` | L141-L159 | 校验 displayName 长度及字符集，调用 `onRenameAccount` |
-| `fetchBindStatus` | L182-L207 | 查询运营商绑定状态，需经过 Hello Gate 验证 |
-| `handleReveal` | L210-L234 | 查看明文运营商密码，需经过独立的 Hello Gate (`ignoreToggle: true`) |
-| `handleBindOperator` | L237-L263 | 执行运营商绑定操作 |
-| `handleChangePassword` | L276-L305 | 修改登录密码，成功后同步更新本地 Store 中的密码字段 |
+| `handlePasswordFocus` | L88-L91 | 聚焦时开启草稿模式，清空 `passwordDraft` |
+| `handlePasswordBlur` | L93-L99 | **关键修复点**：仅在 `passwordDraft` 非空时提交 `onUpdateConfig`，否则忽略（避免覆盖已有密码） |
+| `handleClearPassword` | L102-L108 | 调用 Store 直接保存空密码并同步 `passwordSaved` 状态 |
+| `commitUsername` | L110-L116 | 将 `usernameDraft` 提交至 Config，仅当值变化时调用 `onUpdateConfig` |
+| `handleAddAccount` | L118-L130 | 校验名称格式，调用后端添加接口，成功则清空草稿 |
+| `handleSwitchAccount` | L132-L138 | 忙态锁，防止重复切换 |
+| `submitRename` | L152-L171 | 校验 displayName 长度及字符集，调用 `onRenameAccount` |
+| `fetchBindStatus` | L194-L223 | 查询运营商绑定状态，需经过 Hello Gate 验证 |
+| `handleReveal` | L234-L261 | 查看明文运营商密码，需经过独立的 Hello Gate (`ignoreToggle: true`) |
+| `handleBindOperator` | L264-L291 | 执行运营商绑定操作 |
+| `handleChangePassword` | L303-L333 | 修改登录密码，成功后同步更新本地 Store 中的密码字段 |
 
 #### Render Logic Highlights
 
-*   **密码显示计算 (L81-L82)**:
+*   **密码显示计算 (L86-L90)**:
     ```typescript
     const displayPassword = (() => {
-      if (passwordFocused) return passwordDraft // 聚焦时显示草稿
-      if (passwordSaved && (!config.password || config.password === PASSWORD_MASK)) return '••••••••' // 掩码
-      return config.password === PASSWORD_MASK ? '' : (config.password || '') // 其他情况
+      if (passwordFocused) return passwordDraft
+      if (passwordSaved && (!config.password || config.password === PASSWORD_MASK)) return '••••••••'
+      return config.password === PASSWORD_MASK ? '' : (config.password || '')
     })()
     ```
 *   **输入框绑定**:
-    *   Password Input (L256): `value={displayPassword}`, `onChange={e => setPasswordDraft(...)}`, `onBlur={handlePasswordBlur}`
-    *   Username Input (L243): `value={usernameDraft ?? (config.user || '')}`, `onChange={e => setUsernameDraft(...)}`, `onBlur={commitUsername}`
+    *   Password Input (L502): `value={displayPassword}`, `onChange={e => setPasswordDraft(...)}`, `onBlur={handlePasswordBlur}`
+    *   Username Input (L474): `value={usernameDraft ?? (config.user || '')}`, `onChange={e => setUsernameDraft(...)}`, `onBlur={commitUsername}`
 
 ## Architecture
 
@@ -124,7 +124,7 @@ tags: [教训, 前端, 竞态, 表单, 密码, React]
 3.  **特殊操作保护 (Special Actions)**:
     *   **Clear Password**: 点击清除按钮时，需阻止潜在的 Blur 提交。
     *   **Implementation**: 虽然当前代码中 `handleClearPassword` 是直接调用 Store，但在 UI 层面，旧版问题源于 Blur 先于 Click Handler 执行。
-    *   **Current Fix in Code**: 注意观察 `AccountPanel.tsx` 第 251-257 行的“眼睛”按钮：
+    *   **Current Fix in Code**: 注意观察 `AccountPanel.tsx` 第 510-516 行的“眼睛”按钮：
         ```tsx
         <button
           type="button"
@@ -137,7 +137,7 @@ tags: [教训, 前端, 竞态, 表单, 密码, React]
 ## Known Issues
 
 1.  **StrictMode Double Invoke**:
-    *   文件 `AccountPanel.tsx` L81-L84 使用 `mountedRef` 处理 React StrictMode 下的双重挂载/卸载问题。所有异步回调（如 `handleAddAccount`, `submitRename`）均在最后检查 `if (!mountedRef.current) return`，以防止在组件卸载后更新 State 导致的内存泄漏或错误。
+    *   文件 `AccountPanel.tsx` L87-L91 使用 `mountedRef` 处理 React StrictMode 下的双重挂载/卸载问题。所有异步回调（如 `handleAddAccount`, `submitRename`）均在最后检查 `if (!mountedRef.current) return`，以防止在组件卸载后更新 State 导致的内存泄漏或错误。
 
 2.  **Password Mask Wipe**:
     *   旧版缺陷 P1-F5 已修复。通过在 `passwordFocused` 期间完全接管 Input 的 `value` 来源（使用 `passwordDraft`），避免了 Store 回写的掩码字符串干扰输入光标和缓冲区。

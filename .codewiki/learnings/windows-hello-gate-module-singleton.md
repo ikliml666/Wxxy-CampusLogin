@@ -1,5 +1,5 @@
 ---
-title: Hello 验证门与自助服务会话门的状态管理
+title: Windows Hello 验证门与自助服务会话门的状态管理
 type: learning
 source_files:
   - tauri-app/frontend/src/account/selfServiceState.ts
