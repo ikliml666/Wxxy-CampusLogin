@@ -321,7 +321,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
           </CardHeader>
           <CardContent className="space-y-3">
             {/* 控制条：自动检测开关 + 检测间隔输入（同条圆角容器） */}
-            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
+            <div className="glass-dock flex items-center gap-2 rounded-xl px-3 py-2">
               <Timer className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="text-xs text-muted-foreground shrink-0">{t('quality.autoCheck')}</span>
               <Switch
@@ -352,7 +352,7 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
               <div className="relative grid grid-cols-4 p-1 rounded-xl bg-muted/40 backdrop-blur-sm select-none">
                 <m.div
                   aria-hidden
-                  className="absolute top-1 bottom-1 left-1 rounded-lg bg-background/60 shadow-sm border border-border/40"
+                  className="absolute top-1 bottom-1 left-1 rounded-lg bg-background shadow-md"
                   style={{ width: 'calc((100% - 8px) / 4)', transform: indicatorTransform }}
                 />
                 {DETAIL_CATEGORIES.map((cat, idx) => {
