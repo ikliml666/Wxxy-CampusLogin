@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, LogOut, Pencil } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, LogOut, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // 在线设备卡片（方案 A 规格）：上线时间左上、终端徽章右上、IP/MAC 芯片、流量/时长底部、注销右下；主机名列按需求移除。
@@ -120,7 +120,15 @@ const DRAG_CLAMP = 80
 const SLIDE_MS = 500
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
-export function OnlineDeviceCardStack({ children, className }: { children: React.ReactNode; className?: string }) {
+// pager 变体（账号管理堆叠卡专用）：卡宽 = max-content（由学号行撑开，刚好容纳内容），
+// 只显示当前卡居中，邻卡待命于两侧 ±170% 卡宽外（透明），翻页时整副牌连续滚动一格
+// ——当前卡滑出对侧淡出、新卡从手势方向滑入，即标准「左右切换」轮播；
+// 保留拖拽与点击半区切换，另加左右箭头按钮。在线信息设备卡维持封面流不变。
+const PAGER_STANDBY_X = 170 // 待命位横向偏移（% 卡宽，滑出可视区）
+
+export function OnlineDeviceCardStack({ children, className, variant = 'coverflow' }: { children: React.ReactNode; className?: string; variant?: 'coverflow' | 'pager' }) {
+  const { t } = useTranslation()
+  const pager = variant === 'pager'
   const cards = React.Children.toArray(children)
   const count = cards.length
   const [index, setIndex] = useState(0)
@@ -211,7 +219,7 @@ export function OnlineDeviceCardStack({ children, className }: { children: React
         style={{
           height: cardH != null ? cardH : 200,
           touchAction: 'none',
-          marginInline: count > 1 ? 32 : 0,
+          marginInline: count > 1 && !pager ? 32 : 0,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -222,34 +230,45 @@ export function OnlineDeviceCardStack({ children, className }: { children: React
       >
         {cards.map((node, i) => {
           const s = sd(i)
-          // 封面流槽位姿势表：中央 + 左右相邻/次邻（缩小压暗，不旋转）+
+          // 槽位姿势表。
+          // pager：只有当前卡可见居中，邻卡待命于 ±170% 卡宽外（透明常挂载），
+          // 翻页 = 当前卡滑向对侧淡出 + 新卡从手势方向滑入；其余卡不挂载。
+          // coverflow：中央 + 左右相邻/次邻（缩小压暗，不旋转）+
           // 紧邻隐藏槽位（透明常挂载，≥6 张时翻页平滑滚入/滚出），更深的卡不挂载
           let pos: { x: number; scale: number; z: number; opacity: number } | null = null
-          if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
-          else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
-          else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
-          else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
-          else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 20, scale: 0.4, z: 5, opacity: 0 }
-          else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 20, scale: 0.4, z: 5, opacity: 0 }
+          if (pager) {
+            if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
+            else if (s === 1) pos = { x: PAGER_STANDBY_X, scale: 1, z: 20, opacity: 0 }
+            else if (s === count - 1) pos = { x: -PAGER_STANDBY_X, scale: 1, z: 20, opacity: 0 }
+          } else {
+            if (s === 0) pos = { x: 0, scale: 1, z: 30, opacity: 1 }
+            else if (s === 1) pos = { x: CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
+            else if (count >= 5 && s === 2) pos = { x: CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
+            else if (count > 2 && s === count - 1) pos = { x: -CF_X[0], scale: SIDE_SCALE, z: 20, opacity: 0.7 }
+            else if (count > 4 && s === count - 2) pos = { x: -CF_X[1], scale: SIDE_SCALE_2, z: 10, opacity: 0.45 }
+            else if (count >= 6 && s === 3) pos = { x: CF_X[1] + 20, scale: 0.4, z: 5, opacity: 0 }
+            else if (count >= 6 && s === count - 3) pos = { x: -CF_X[1] - 20, scale: 0.4, z: 5, opacity: 0 }
+          }
           if (!pos) return null
           const side = s !== 0
+          // pager 卡定位：left 50% + max-content（宽度由学号等内容撑开）+ translateX 以卡自身宽度为基准（-50% 居中）
+          const base: React.CSSProperties = pager
+            ? { left: '50%', width: 'max-content', maxWidth: '100%' }
+            : { left: CF_INSET, right: CF_INSET }
           const style: React.CSSProperties = dragging && s === 0
             ? {
-                left: CF_INSET,
-                right: CF_INSET,
-                transform: `translateX(calc(${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
+                ...base,
+                transform: `translateX(calc(${pager ? '-50% + ' : ''}${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
                 transition: 'none',
                 zIndex: 40,
                 opacity: 1,
               }
             : {
-                left: CF_INSET,
-                right: CF_INSET,
-                transform: `translateX(${pos.x}%) scale(${pos.scale})`,
+                ...base,
+                transform: `translateX(${pager ? '-50% + ' : ''}${pos.x}%) scale(${pos.scale})`,
                 opacity: pos.opacity,
                 zIndex: pos.z,
-                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity 300ms ease`,
+                transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${pager ? SLIDE_MS : 300}ms ease`,
               }
           return (
             <div
@@ -263,6 +282,26 @@ export function OnlineDeviceCardStack({ children, className }: { children: React
             </div>
           )
         })}
+        {pager && count > 1 && (
+          <>
+            <button
+              type="button"
+              aria-label={t('common.prevCard')}
+              onClick={(e) => { e.stopPropagation(); go(index - 1) }}
+              className="absolute left-0 top-1/2 z-40 -translate-y-1/2 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-card"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label={t('common.nextCard')}
+              onClick={(e) => { e.stopPropagation(); go(index + 1) }}
+              className="absolute right-0 top-1/2 z-40 -translate-y-1/2 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-card"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
       </div>
       {count > 1 && (
         <div className="mt-2.5 flex items-center justify-center gap-1.5">

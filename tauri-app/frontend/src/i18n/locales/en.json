@@ -35,7 +35,9 @@
     "unknown": "Unknown",
     "renderError": "Page render error",
     "unknownError": "Unknown error",
-    "reload": "Reload"
+    "reload": "Reload",
+    "prevCard": "Previous card",
+    "nextCard": "Next card"
   },
   "nav": {
     "dashboard": "Home",

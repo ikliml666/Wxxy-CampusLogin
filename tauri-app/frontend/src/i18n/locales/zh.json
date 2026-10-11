@@ -35,7 +35,9 @@
     "unknown": "未知",
     "renderError": "页面渲染出错",
     "unknownError": "未知错误",
-    "reload": "重新加载"
+    "reload": "重新加载",
+    "prevCard": "上一张",
+    "nextCard": "下一张"
   },
   "nav": {
     "dashboard": "总览",

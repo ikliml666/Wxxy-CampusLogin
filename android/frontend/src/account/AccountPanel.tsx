@@ -26,8 +26,7 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useHelloGate } from '@/account/selfServiceState'
 import { ChangePasswordDialog } from '@/account/ChangePasswordDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { OnlineDeviceStack, OnlineDeviceStackH } from '@/account/SelfOnlineStack'
-import { useFormFactor } from '@/hooks/useFormFactor'
+import { OnlineDeviceStackH } from '@/account/SelfOnlineStack'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -191,7 +190,6 @@ export const AccountPanel = memo(function AccountPanel({
   const [bindStatuses, setBindStatuses] = useState<BindStatuses | null>(null)
   // 绑定状态弹窗（2026-10-10）：卡内状态区改弹窗展示，查询入口移到绑定按钮下方
   const [statusOpen, setStatusOpen] = useState(false)
-  const formFactor = useFormFactor()
   const [queryingStatus, setQueryingStatus] = useState(false)
   const [revealedOp, setRevealedOp] = useState<string | null>(null)
   const [revealedPassword, setRevealedPassword] = useState('')
@@ -617,9 +615,11 @@ export const AccountPanel = memo(function AccountPanel({
           </div>
         )}
         {accounts.length > 0 ? (
-          formFactor === 'tablet' ? (
-            <OnlineDeviceStackH
-              cards={accounts.map((item) => {
+          // pager 变体（手机/平板统一）：卡宽收窄至刚好容纳学号，只显示当前卡 + 左右箭头切换；
+          // 手机端由垂直堆叠改为左右切换，平板端由封面流改为 pager（窄卡放侧卡无意义）
+          <OnlineDeviceStackH
+            variant="pager"
+            cards={accounts.map((item) => {
                 const isActive = item.id === activeAccount
                 const isRenaming = renamingId === item.id
                 return (
@@ -705,97 +705,7 @@ export const AccountPanel = memo(function AccountPanel({
                   </div>
                 )
               })}
-            />
-          ) : (
-            <OnlineDeviceStack
-              cards={accounts.map((item) => {
-                const isActive = item.id === activeAccount
-                const isRenaming = renamingId === item.id
-                return (
-                  <div key={item.id} className={cn(
-                    'rounded-xl p-3 shadow-sm bg-card dark:bg-muted',
-                    isActive && 'ring-1 ring-primary/40'
-                  )}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
-                        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
-                        <span className="truncate">{item.displayName}</span>
-                      </span>
-                      {isActive && (
-                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                          {t('account.currentInUse')}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2.5 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
-                      <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
-                      <p className="truncate font-mono text-xs leading-5 text-foreground">
-                        {isActive ? (config.user || activeDisplayName) : '-'}
-                      </p>
-                    </div>
-                    {isRenaming ? (
-                      <div className="mt-2 flex items-center gap-2">
-                        <Input
-                          value={renameDraft}
-                          onChange={e => setRenameDraft(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') { e.preventDefault(); void submitRename() }
-                            if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
-                          }}
-                          placeholder={t('account.renameInputPlaceholder')}
-                          maxLength={64}
-                          className="h-8 flex-1 min-w-0 text-xs"
-                          disabled={renaming}
-                          autoFocus
-                        />
-                        <Button size="icon-sm" variant="ghost" onClick={() => void submitRename()} disabled={renaming}>
-                          <Check className="h-3.5 w-3.5 text-emerald-500" />
-                        </Button>
-                        <Button size="icon-sm" variant="ghost" onClick={cancelRename} disabled={renaming}>
-                          <X className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="mt-2 flex justify-end gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="rounded-lg"
-                          onClick={() => startRename(item)}
-                          disabled={switchingAccount !== null || renamingId !== null}
-                          aria-label={t('account.renameAccount')}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        {!isActive && (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="rounded-lg"
-                            onClick={() => handleSwitchAccount(item.id)}
-                            disabled={switchingAccount !== null || renamingId !== null}
-                            aria-label={t('account.switchAccount')}
-                          >
-                            <ArrowRightLeft className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="rounded-lg hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => onDeleteAccount(item.id, item.displayName)}
-                          disabled={renamingId !== null}
-                          aria-label={t('account.deleteAccount')}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            />
-          )
+          />
         ) : (
           <div className="rounded-xl bg-card p-3 text-center shadow-sm dark:bg-muted">
             <MascotFigure variant="empty" size="sm" className="mx-auto mb-2" />
