@@ -15,7 +15,7 @@
     user: '24385214',
     password: '***',
     selfHelloEnabled: true,
-    defaultPanel: 'selfservice', // 启动直接落在自助服务面板
+    defaultPanel: (function () { try { var m = window.location.search.match(/panel=(\w+)/); if (m) return m[1] } catch (e) {} return 'selfservice' })(), // ?panel= 覆盖启动面板
     enableNetworkNameCheck: false,
     // 设备别名：验证设备命名功能（键 = 原始 12 位 hex MAC）
     deviceAliases: { B025AA6CA580: '实验室台式机' },
@@ -31,6 +31,8 @@
     { id: 'acc-lab', displayName: '实验室笔记本', user: '24385216' },
   ]
   if (emptyAccounts) mockAccounts = []
+  // URL 带 ?mocksingle=1 时只留 1 个账号（验证单卡居中/禁拖）
+  try { if (window.location.search.indexOf('mocksingle') >= 0) mockAccounts = mockAccounts.slice(0, 1) } catch (e) {}
   var activeAccountName = emptyAccounts ? '' : 'acc-main'
   var accountSeq = 0
 
@@ -273,6 +275,34 @@
     },
     metadata: { currentWindow: { label: 'mock' }, currentWebview: { label: 'mock' } }
   }
+
+  // ?probe=1 几何探针：测 pager 槽位（style 含 max-content）与舞台中心差 dx，写入 <html data-pager-probe>
+  try { if (window.location.search.indexOf('probe=1') >= 0) {
+    var probeN = 0
+    var probeTimer = setInterval(function () {
+      probeN++
+      var slots = document.querySelectorAll('div[style*="max-content"]')
+      var cur = null
+      for (var k = 0; k < slots.length; k++) {
+        if (slots[k].style.opacity === '1' && slots[k].parentElement) { cur = slots[k]; break }
+      }
+      if (cur) {
+        var st = cur.parentElement.getBoundingClientRect()
+        var cr = cur.getBoundingClientRect()
+        var arrows = document.querySelectorAll('button[aria-label="' + (document.documentElement.lang === 'en' ? 'Next card' : '下一张') + '"]').length
+        var dots = document.querySelectorAll('button[aria-label^="1 / "]').length
+        document.documentElement.setAttribute('data-pager-probe', JSON.stringify({
+          stageCX: Math.round((st.left + st.right) / 2), cardCX: Math.round((cr.left + cr.right) / 2),
+          dx: Math.round((cr.left + cr.right) / 2 - (st.left + st.right) / 2),
+          cardW: Math.round(cr.width), arrows: arrows, dots: dots, n: probeN,
+          transform: cur.style.transform }))
+        clearInterval(probeTimer)
+      } else if (probeN > 60) {
+        document.documentElement.setAttribute('data-pager-probe', JSON.stringify({ error: 'no slot', n: probeN }))
+        clearInterval(probeTimer)
+      }
+    }, 250)
+  } } catch (e) {}
 
   console.info('[tauri-mock] 已注入 —— 浏览器 mock 环境激活，所有 Tauri 命令走内存实现')
 })()

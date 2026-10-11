@@ -167,6 +167,7 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
   }
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (count < 2) return // 单卡不可移动：居中定格，拖拽/点击换页全部失效
     if ((e.target as HTMLElement).closest('button')) return
     suppressClick.current = false
     drag.current = { startX: e.clientX, moved: false }
@@ -201,6 +202,7 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
     }
   }
   const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (count < 2) return // 单卡：点击区不换页
     if ((e.target as HTMLElement).closest('button')) return
     if (suppressClick.current) {
       suppressClick.current = false
@@ -251,21 +253,24 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
           }
           if (!pos) return null
           const side = s !== 0
-          // pager 卡定位：left 50% + max-content（宽度由学号等内容撑开）+ translateX 以卡自身宽度为基准（-50% 居中）
+          // pager 卡定位：left 50% + max-content + 30px 留白（paddingInline）+ translateX 以卡自身宽度为基准（-50% 居中）
           const base: React.CSSProperties = pager
-            ? { left: '50%', width: 'max-content', maxWidth: '100%' }
+            ? { left: '50%', width: 'max-content', maxWidth: '100%', paddingInline: 15 }
             : { left: CF_INSET, right: CF_INSET }
+          // 水平偏移直接在 JS 里合并（-50 居中 + 槽位偏移）：
+          // 不能写裸 "translateX(-50% + x%)" —— 无 calc() 包装的求和会被浏览器整条丢弃，卡退化为左缘贴中线（右偏半个卡宽）
+          const pageX = pos.x - 50
           const style: React.CSSProperties = dragging && s === 0
             ? {
                 ...base,
-                transform: `translateX(calc(${pager ? '-50% + ' : ''}${pos.x}% + ${dragX}px)) scale(${pos.scale})`,
+                transform: `translateX(calc(${pager ? `${pageX}%` : `${pos.x}%`} + ${dragX}px)) scale(${pos.scale})`,
                 transition: 'none',
                 zIndex: 40,
                 opacity: 1,
               }
             : {
                 ...base,
-                transform: `translateX(${pager ? '-50% + ' : ''}${pos.x}%) scale(${pos.scale})`,
+                transform: `translateX(${pager ? `${pageX}%` : `${pos.x}%`}) scale(${pos.scale})`,
                 opacity: pos.opacity,
                 zIndex: pos.z,
                 transition: `transform ${SLIDE_MS}ms ${EASE}, opacity ${pager ? SLIDE_MS : 300}ms ease`,
