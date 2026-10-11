@@ -16,7 +16,6 @@ source_files:
   - tauri-app/frontend/src/account/types.ts
   - tauri-app/frontend/src/monitor/index.ts
   - tauri-app/frontend/src/network/index.ts
-  - tauri-app/frontend/src/settings/index.ts
 tags: [前端, 面板, react]
 ---
 
@@ -38,7 +37,7 @@ tags: [前端, 面板, react]
 - **面板容器样式**（限制 `contain` 到 `layout style` 而非 `paint`，避免裁掉编辑态卡片右上角删除按钮）：`PANEL_CONTAINER_STYLE`。
 - **侧边看板娘每日随机**：`SIDE_MASCOT_POOL`（14 项）、`pickDailySideMascots`（14×13=182 种有序组合按天序号轮转）。
 - **懒加载骨架**：`PanelSkeleton`。
-- **壳层状态订阅与下发**：`useAppInit()`；`dailySideMascots` 状态与每分钟跨天比对；`activePanel`；`deferredPanel = useDeferredValue(activePanel)`；`adapters`；`accounts` / `activeAccount`；`isLoggingIn`；粒度订阅的 4 个 config 字段 `configUser` / `configEnableNetworkQuality` / `configAutoLaunch` / `configEnableNotification`；`api` 静态导入 `tauriApiWithRetry`（2026-10-03 重构删除 store 的 api 字段）。
+- **壳层状态订阅与下发**：`useAppInit()`；`dailySideMascots` 状态与每分钟跨天比对；`activePanel`；`deferredPanel = useDeferredValue(activePanel)`；`adapters`；`accounts` / `activeAccount`；`isLoggingIn`；粒度订阅的 4 个 config 字段 `configUser` / `configEnableNetworkQuality` / `configAutoLaunch` / `configEnableNotification`；`api` 静态导入 `tauriApiWithRetry`。
 - **store action 订阅**：`updateConfig`、`setActivePanel`、`setUpdateAvailable` / `setLatestVersion` / `setReleaseNotes`、响应式读 `latestVersion` / `releaseNotes` / `qualityUpdateAvailable`、`addToast`、`doLogin`、`refreshQuality`。
 - **五个业务 hook 解构**（面板 props 的唯一来源）：`useAuth`、`useMonitor`、`useNetwork`、`useAccount`、`useSettings`。
 - **日志区 `useShallow` 订阅** `logs` / `toasts` / `removeToast` / `setLogs`。
@@ -101,7 +100,7 @@ tags: [前端, 面板, react]
 
 `account/index.ts` 导出 `AccountPanel`、`ChangePasswordDialog`、`useAccount` 与 types。
 
-**OnlineDeviceCardStack（账号管理堆叠卡，narrow 变体）**：账号管理右列底部以窄卡封面流呈现登录账号——卡宽 `min-width:213px`（left 50% + max-content，学号行自然宽 + 80px 留白）；姿势表与在线信息 coverflow 共用（中央卡全亮，侧卡 ±60% 偏移缩小压暗可见），单卡时居中定格且禁拖禁切（`count < 2` 早退）；多账号经点击半区 / 拖拽 / 圆点分页切换，无箭头。transform 偏移在 JS 内数值求和（`pos.x - 50`），不可写裸 `translateX(-50% + x%)`（无 calc 包装会被浏览器整条丢弃，见 [[translatex-sum-requires-calc]]）。（注：源码 index 还导出了 `ChangePasswordDialog`，但文章主要聚焦 AccountPanel 和 SelfServicePanel，此处修正 index 描述以符合源码实际导出列表，但不展开未提供的 ChangePasswordDialog 细节以免臆测）。
+**OnlineDeviceCardStack（账号管理堆叠卡，narrow 变体）**：账号管理右列底部以窄卡封面流呈现登录账号——卡宽 `min-width:213px`（left 50% + max-content，学号行自然宽 + 80px 留白）；姿势表与在线信息 coverflow 共用（中央卡全亮，侧卡 ±60% 偏移缩小压暗可见），单卡时居中定格且禁拖禁切（`count < 2` 早退）；多账号经点击半区 / 拖拽 / 圆点分页切换，无箭头。transform 偏移在 JS 内数值求和（`pos.x - 50`），不可写裸 `translateX(-50% + x%)`（无 calc 包装会被浏览器整条丢弃，见 [[translatex-sum-requires-calc]]）。
 
 **SelfServicePanel.tsx（自助服务：在线会话 / 上网历史 / 上网记录账单）**
 

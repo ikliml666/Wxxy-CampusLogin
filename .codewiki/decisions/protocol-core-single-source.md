@@ -65,11 +65,12 @@ Dr.COM Self 自助服务系统协议实现，逆向于 2026-09-05。核心内容
   - `async fn bind_operator(params, local_addr) -> Result<String, String>`（行 150–197）：完整绑定流程
   - `async fn query_bind_status(account, password, local_addr) -> Result<[Option<OperatorBinding>; 3], String>`（行 209–221）：查询绑定状态
   - `async fn reveal_credential(account, password, operator, local_addr) -> Result<(String, String), String>`（行 225–241）：查看明文凭据（需身份验证）
-  - `async fn login_session(...) -> Result<reqwest::Client, String>`（行 274–329）：登录自助服务系统
-  - `async fn query_dashboard(account, password, local_addr) -> Result<(serde_json::Value, serde_json::Value), String>`（行 378–387）：查询在线信息 + 上网记录
-  - `async fn query_online_log(account, password, start_time, end_time, local_addr) -> Result<serde_json::Value, String>`（行 392–419）：查询账单页上网记录
-  - `async fn offline_session(account, password, session_id, local_addr) -> Result<(), String>`（行 430–454）：注销指定会话
-- **测试模块**（行 456–582）：`md5_hex_standard_vectors`、`extract_checkcode_from_login_page`、`extract_csrftoken_from_bind_page`、`extract_swal_msg_success_and_empty`、`bind_success_judgement`、`mask_account_phone_front3_back2`、`operator_fld_mapping`、`offline_success_parsing`、`extract_fld_values_prefilled_kept_for_other_operators`
+  - `async fn change_password(account, password, new_password, local_addr) -> Result<String, String>`（行 280–329）：修改密码
+  - `async fn login_session(...) -> Result<reqwest::Client, String>`（行 335–380）：登录自助服务系统
+  - `async fn query_dashboard(account, password, local_addr) -> Result<(serde_json::Value, serde_json::Value), String>`（行 420–430）：查询在线信息 + 上网记录
+  - `async fn query_online_log(account, password, start_time, end_time, local_addr) -> Result<serde_json::Value, String>`（行 435–460）：查询账单页上网记录
+  - `async fn offline_session(account, password, session_id, local_addr) -> Result<(), String>`（行 480–500）：注销指定会话
+- **测试模块**（行 456–582）：`md5_hex_standard_vectors`、`parse_change_password_response_shapes`、`extract_checkcode_from_login_page`、`extract_csrftoken_from_bind_page`、`extract_swal_msg_success_and_empty`、`bind_success_judgement`、`mask_account_phone_front3_back2`、`operator_fld_mapping`、`offline_success_parsing`、`extract_fld_values_prefilled_kept_for_other_operators`
 
 ### `network/quality.rs`（tauri-app/src-tauri/src/network/quality.rs:1–670）
 
