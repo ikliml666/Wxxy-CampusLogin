@@ -306,16 +306,17 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }, [binding, canBind, ensureHelloVerified, config.user, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
 
-  // 修改密码弹窗（旧密码取已保存登录密码，后端 resolve 回退）：成功后把本地登录
-  // 密码同步为新密码（与手输密码同一持久化路径），否则自动登录将用旧密码失败。
+  // 修改密码弹窗（旧密码默认取已保存登录密码，后端 resolve 回退；弹窗可展开手动
+  // 输入旧密码，用于密码已在别处改过而本地未同步的场景）：成功后把本地登录密码
+  // 同步为新密码（与手输密码同一持久化路径），否则自动登录将用旧密码失败。
   // 返回 true 供弹窗关闭/清错，false 保留草稿重试（原因已 toast）。
   const [chpwdOpen, setChpwdOpen] = useState(false)
-  const handleChangePassword = useCallback(async (newPassword: string): Promise<boolean> => {
+  const handleChangePassword = useCallback(async (newPassword: string, oldPassword: string): Promise<boolean> => {
     try {
       if (!(await ensureHelloVerified())) return false
       const result = await tauriApiWithRetry.changeSelfPassword({
         account: config.user,
-        password: '',
+        password: oldPassword,
         newPassword,
       })
       if (!mountedRef.current) return false

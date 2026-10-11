@@ -131,6 +131,8 @@
     "changePasswordNew": "New password",
     "changePasswordConfirm": "Confirm new password",
     "changePasswordPlaceholder": "6-11 letters or digits",
+    "changePasswordOld": "Old password",
+    "changePasswordOldToggle": "Old password wrong? Enter it manually",
     "changePasswordInvalid": "New password must be 6-11 letters or digits",
     "changePasswordMismatch": "Passwords do not match",
     "changePasswordSuccess": "Password changed; saved login password updated",

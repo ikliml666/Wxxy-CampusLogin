@@ -131,6 +131,8 @@
     "changePasswordNew": "新密码",
     "changePasswordConfirm": "确认新密码",
     "changePasswordPlaceholder": "6-11 位数字或英文",
+    "changePasswordOld": "旧密码",
+    "changePasswordOldToggle": "旧密码不正确？手动输入旧密码",
     "changePasswordInvalid": "新密码应为 6-11 位数字或英文",
     "changePasswordMismatch": "两次输入的密码不一致",
     "changePasswordSuccess": "密码修改成功，登录密码已同步更新",
