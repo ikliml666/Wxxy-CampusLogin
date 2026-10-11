@@ -8,132 +8,229 @@ source_files:
   - tauri-app/src-tauri/src/monitor/background_check.rs
   - tauri-app/src-tauri/src/monitor/background_emit.rs
   - tauri-app/src-tauri/src/monitor/auto_auth.rs
-  - tauri-app/src-tauri/src/monitor/campus_check.rs
-  - tauri-app/src-tauri/src/monitor/latency.rs
   - tauri-app/src-tauri/src/monitor/portal_check.rs
-  - tauri-app/src-tauri/src/auth/failure_tracker.rs
-  - tauri-app/src-tauri/src/infra/lifecycle.rs
   - tauri-app/src-tauri/src/infra/notification.rs
-  - tauri-app/src-tauri/src/infra/state/mod.rs
-  - tauri-app/src-tauri/src/commands/background.rs
-  - tauri-app/src-tauri/src/config/model.rs
-  - android/src-tauri/src/lib.rs
-  - android/src-tauri/src/monitor_loop.rs
-  - android/src-tauri/src/config_state.rs
 tags: [概念, 后台巡检, 自动登录, 断线重连, 生命周期, 通知]
 ---
 
 ## Overview
 
-后台巡检是一条"启动装配 → 周期 tick → 校园网判定 → Portal 探测 → 状态机 → 自动登录 / 断线重连 → 生命周期倒计时 / 通知"的长链路：桌面实现在 `monitor/` 模块群（`watcher` 门面 + `background_check` 主体），安卓实现在单个 `monitor_loop.rs`。两端共享同一套阈值语义（连续失败 5 次熔断、重连上限 3、冷却 60s、注销保护 60s），但周期常量、检测时段门控与省电分档策略不同。
+后台巡检是一条"启动装配 → 周期 tick → 校园网判定 → Portal 探测 → 状态机 → 自动登录 / 断线重连 → 生命周期倒计时 / 通知"的长链路。桌面端实现在 `monitor/` 模块群（`watcher` 门面 + `background_check` 主体），安卓端实现在单个 `monitor_loop.rs`。两端共享同一套阈值语义（连续失败 5 次熔断、重连上限 3、冷却 60s、注销保护 60s），但周期常量、检测时段门控与省电分档策略不同。
 
-## 机制说明
+## Key Components
 
-### 完整调用链
+### 核心结构体与枚举
+
+**`BackgroundCheckResult`** (`tauri-app/src-tauri/src/monitor/background_emit.rs:14-32`)
+后台检测结果聚合，封装 `emit_background_check_result` 所需的全部数据字段：
+- `online: bool`: 主适配器在线状态
+- `reachable: bool`: 服务器可达性
+- `login_available: bool`: 是否可登录
+- `message: &'a str`: 主适配器消息
+- `adapter1_name: &'a str`, `adapter2_name: &'a str`: 适配器名称
+- `secondary_online: Option<bool>`, `secondary_message: &'a str`: 副适配器状态
+- `online_operator: Option<String>`, `secondary_online_operator: Option<String>`: 从 Portal uid 推导的运营商后缀
+- `dual_adapter: bool`: 是否双适配器模式
+- `config: &'a crate::config::model::Config`: 配置引用
+- `campus_result: &'a CampusCheckResult`: 校园网检测结果
+- `a1_campus_msg: Option<&'a str>`, `a2_campus_msg: Option<&'a str>`: 适配器校园网消息
+- `a1_on_campus: Option<bool>`, `a2_on_campus: Option<bool>`: 适配器是否在校园网
+
+**`PortalCheckResult`** (`tauri-app/src-tauri/src/monitor/portal_check.rs:7-16`)
+Portal 探测结果枚举：
+- `Success { online, message, reachable, login_available, uid }`: 成功结果
+- `Error { is_request_failed }`: 错误结果（区分请求失败与其他异常）
+- `NotFound`: 未找到适配器
+
+**`CampusCheckResult`** (`tauri-app/src-tauri/src/monitor/campus_check.rs:11-18`)
+校园网检测结果：
+- `wifi: Option<ConnectionCampusStatus>`: WiFi 状态
+- `wired: Option<ConnectionCampusStatus>`: 有线状态
+- `on_campus: bool`: 是否在校园网
+- `current_ssid: Option<String>`: 当前 SSID 或有线 profile
+- `message: String`: 描述消息
+
+**`ConnectionCampusStatus`** (`tauri-app/src-tauri/src/monitor/campus_check.rs:5-9`)
+连接校园网状态：
+- `on_campus: bool`
+- `name: Option<String>`
+- `message: String`
+
+### 核心函数
+
+**`run_startup_tasks`** (`tauri-app/src-tauri/src/monitor/watcher.rs:19-73`)
+启动时装配所有后台任务：
+- 如果 `enable_background_check`，spawn "startup_bg_check" 跟踪任务
+- 如果 `enable_network_quality && enable_latency_test`，spawn "startup_latency"
+- 如果仅 `enable_network_quality`，spawn "startup_quality_once"
+- spawn "startup_auto_login"
+- spawn "scheduled_actions"（每日定时登录/注销，独立循环）
+
+**`start_background_check_inner`** (`tauri-app/src-tauri/src/monitor/background_task.rs:11-62`)
+启动后台检测循环：
+- 幂等置 `enable_background_check=true`；interval < 10000 时补 15000
+- spawn "background_check" 任务
+- 立即首拍执行 `run_background_check`
+- loop 每 tick 重读 `config.background_check_interval` 重建计时器
+- persist::save_config_and_broadcast（落盘 + config-changed）
+
+**`run_background_check`** (`tauri-app/src-tauri/src/monitor/background_check.rs:340-348`)
+后台巡检异步入口：spawn_blocking 包装阻塞函数
+
+**`run_background_check_blocking`** (`tauri-app/src-tauri/src/monitor/background_check.rs:14-335`)
+后台检测阻塞主体：
+- exit.is_quitting / cancel_token 早退
+- tasks.is_checking.try_acquire() 单飞保护
+- get_adapters_cached() 失败回退 get_adapters_force()
+- resolve_adapter_names + find_dual_adapters
+- is_campus_check_silent(now_min, start, end) 静默期判定
+- check_campus_network(&config, &op_adapters) 校园网检测
+- 状态写回 + campus fail 清 has_logged_online
+- [campus fail] emit background-check-result → 无 IP 跳过退出 / start_campus_exit
+- cancel_campus_exit
+- Portal 探测（dual_adapter 时两个 spawn_blocking + tokio::join! 并行）
+- [request_failed] handle_portal_request_failure（阈值 5 次 → MAC 重置）
+- [Success] 按适配器重置失败计数
+- handle_status_change（在线↔离线翻转 → 系统通知，60s 节流）
+- emit_background_check_result（checkCount / 注销保护期强制 online=false）
+- try_auto_login_on_preparation
+- try_disconnect_reconnect
+- update_network_state（auto_exit_on_online → start_auto_exit）
+
+**`try_auto_login_on_preparation`** (`tauri-app/src-tauri/src/monitor/auto_auth.rs:30-99`)
+准备自动登录：
+- 检查 login_available / online / auto_login_on_preparation 开关
+- 检查 has_logged_online
+- 检查 prep_login_failures >= PREP_LOGIN_MAX_FAILURES (5次)
+- 检查注销保护期
+- 检查冷却时间
+- 获取登录锁后执行 full_login
+- 成功则重置失败计数，失败则累加
+
+**`try_disconnect_reconnect`** (`tauri-app/src-tauri/src/monitor/auto_auth.rs:101-223`)
+断线重连：
+- 检查 any_offline / any_adapter_online / reachable / login_available
+- 检查注销保护期与冷却时间
+- 获取登录锁
+- 读-增-取值在单次 CAS 内完成 reconnect_count
+- within_limit 时执行 full_login
+- 成功则重置计数、any_adapter_online、has_logged_online
+- 超限则释放锁并提醒
+
+**`run_auto_login_on_start`** (`tauri-app/src-tauri/src/monitor/auto_auth.rs:219-468`)
+开机自启登录流程：
+- 检查 auto_login_on_start 开关
+- initial_delay: --autostart 时 5000ms，否则 1500ms
+- 获取适配器列表（--autostart 时最多重试 3 次 × 3000ms）
+- 校园网检测（静默期跳过 / 失败触发 start_campus_exit）
+- Portal 探测（双适配器并行）
+- 已在线则跳过登录
+- 执行 full_login
+
+**`check_campus_network`** (`tauri-app/src-tauri/src/monitor/campus_check.rs:35-170`)
+校园网名称名单解析与检测：
+- 支持顿号/全半角逗号/分号/空白分隔多个名称
+- WiFi SSID 匹配 → 子网检查 (/18) → 网关可达性 → portal 可达性
+- 有线 profile 匹配 → 子网检查 → 网关可达性 → portal 可达性
+- on_campus = wifi.on_campus || wired.on_campus
+
+**`is_campus_check_silent`** (`tauri-app/src-tauri/src/monitor/campus_check.rs:175-183`)
+校园网检测静默期判定：
+- start == 0 视为禁用
+- now_minutes < start 静默
+- end > start && now_minutes >= end 静默（end ≤ start 退化为仅受 start 限制）
+
+**`emit_notification`** (`tauri-app/src-tauri/src/infra/notification.rs:22-65`)
+发送系统通知：
+- 仅在 enable_notification 为真且主窗口不可见或已最小化时调用
+- Windows 桌面用自组 WinRT toast 带看板娘，失败降级插件
+- Android 用 large_icon，资源缺失时降级纯文本
+
+**`reconnect_should_report`** (`tauri-app/src-tauri/src/monitor/auto_auth.rs:24-26`)
+断线重连是否应向上报告"已重连成功"：
+- login_success && within_limit 返回 true
+
+### 测试模块
+
+**`auto_auth.rs` tests** (`tauri-app/src-tauri/src/monitor/auto_auth.rs:474-490`)
+- `reconnect_success_within_limit_reports_true`: 重连成功且未超限 → 必须返回 true
+- `reconnect_failure_never_reports_true`: 失败 never 返回 true
+- `reconnect_success_over_limit_reports_false`: 超过重连次数上限即使成功也不再上报
+
+**`campus_check.rs` tests** (`tauri-app/src-tauri/src/monitor/campus_check.rs:191-225`)
+- `名称名单_解析多分隔符与空项`: 验证 campus_name_list 解析
+- `静默期判定_开始时间单边`: start=0 禁用，早于 start 静默
+- `静默期判定_时间段双边`: 生效窗口 [07:40, 23:00) 外静默
+- `静默期判定_结束不晚于开始时退化为单边`: end <= start 时仅受 start 限制
+
+## Architecture
 
 ```text
-app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
-  └─ monitor/watcher.rs:15-54  run_startup_tasks
-       ├─ [enable_background_check]  spawn "startup_bg_check"
-       │    └─ monitor/background_task.rs:7-60  start_background_check_inner
-       │         ├─ 幂等置 enable_background_check=true；interval<10000 → 15000      (:8-13)
-       │         ├─ spawn "background_check" 任务
-       │         │    ├─ 立即首拍 run_background_check                               (:24)
-       │         │    └─ loop：每 tick 重读 interval.max(10000) 重建计时器            (:29-49)
-       │         └─ persist::save_config_and_broadcast（落盘 + config-changed，不刷托盘）  (:55-57)
-       ├─ [enable_network_quality && enable_latency_test]  spawn "startup_latency"
-       │    └─ monitor/latency.rs:52-102  spawn_latency_test_loop
-       └─ spawn "startup_auto_login"
-            └─ monitor/auto_auth.rs:219-468  run_auto_login_on_start
-
-单拍的主体
-  monitor/background_check.rs:340-348  run_background_check（spawn_blocking 包装）
-    └─ background_check.rs:14-335  run_background_check_blocking
-         ├─ exit.is_quitting / cancel_token 早退                                      (:15-17)
-         ├─ tasks.is_checking.try_acquire() 单飞（上一拍未完成直接返回）               (:18-20)
-         ├─ get_adapters_cached() 失败回退 get_adapters_force()                       (:28-37)
-         ├─ resolve_adapter_names + find_dual_adapters                                (:41-43)
-         ├─ is_campus_check_silent(now_min, start, end) 静默期 → 伪 on_campus + cancel_campus_exit (:46-70)
-         ├─ check_campus_network(&config, &op_adapters)                               (:74)
-         ├─ 状态写回 + campus fail 清 has_logged_online                                (:79-91)
-         ├─ [campus fail] emit background-check-result → 无 IP 跳过退出 / start_campus_exit → return (:103-132)
-         ├─ cancel_campus_exit                                                         (:136)
-         ├─ Portal 探测（dual_adapter 时两个 spawn_blocking + tokio::join! 并行）        (:143-176)
-         ├─ [request_failed] handle_portal_request_failure（阈值 5 次 → MAC 重置）      (:185-206)
-         ├─ [Success] 按适配器重置失败计数                                              (:211-233)
-         ├─ handle_status_change（在线↔离线翻转 → 系统通知，60s 节流）                   (:283-288)
-         ├─ emit_background_check_result（checkCount / 注销保护期强制 online=false）    (:299-318)
-         ├─ try_auto_login_on_preparation                                             (:320)
-         ├─ try_disconnect_reconnect                                                  (:322-326)
-         └─ update_network_state（auto_exit_on_online → start_auto_exit）              (:331)
+┌─────────────────────────────────────────────────────────────────┐
+│                        startup.rs                               │
+│  setup_app() ──► watcher::run_startup_tasks(app_h)              │
+└──────────────┬──────────────────────────────────────────────────┘
+               │
+       ┌───────┼───────────────┬───────────────┬───────────────┐
+       ▼       ▼               ▼               ▼               ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│background_  │ │   latency   │ │  auto_login │ │scheduled_   │ │ updater     │
+│task.rs      │ │   .rs       │ │   .rs       │ │ actions.rs  │ │ updater.rs│
+│             │ │             │ │             │ │             │ │             │
+│start_       │ │spawn_       │ │run_         │ │run_         │ │start_     │
+│background_  │ │latency_     │ │auto_login_  │ │scheduled_   │ │update_    │
+│check_inner  │ │test_loop    │ │on_start     │ │action_loop  │ │check_loop │
+└──────┬──────┘ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   background_check.rs                           │
+│                                                                 │
+│  run_background_check() ──► spawn_blocking                      │
+│       │                                                         │
+│       ▼                                                         │
+│  run_background_check_blocking()                                │
+│       ├─ is_checking.try_acquire() ◄── 单飞保护                  │
+│       ├─ get_adapters_cached()/force()                          │
+│       ├─ is_campus_check_silent() ──► check_campus_network()    │
+│       │       │                                                 │
+│       │       ├─ fail ──► start_campus_exit()                   │
+│       │       └─ pass                                           │
+│       │                                                         │
+│       ├─ check_adapter_portal() (dual: tokio::join!)            │
+│       │       │                                                 │
+│       │       ├─ request_failed×5 ──► handle_portal_request_    │
+│       │       │    failure()                                    │
+│       │       └─ Success ──► reset failure count                │
+│       │                                                         │
+│       ├─ handle_status_change() ──► emit_notification (60s节流) │
+│       ├─ emit_background_check_result()                         │
+│       │       │                                                 │
+│       │       ├─ logout_protected ──► force online=false        │
+│       │       └─ normal                                         │
+│       │                                                         │
+│       ├─ try_auto_login_on_preparation()                        │
+│       │       │                                                 │
+│       │       ├─ cooldown / protected / max_failures guard      │
+│       │       ├─ is_logging_in.try_acquire()                    │
+│       │       └─ full_login()                                   │
+│       │                                                         │
+│       ├─ try_disconnect_reconnect()                             │
+│       │       │                                                 │
+│       │       ├─ reconnect_count read-inc-CAS                   │
+│       │       ├─ within_limit ? full_login() : reminder         │
+│       │       └─ reconnect_should_report()                      │
+│       │                                                         │
+│       └─ update_network_state() ──► auto_exit_on_online?        │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-### 周期常量与阈值（具体值）
-
-| 项 | 桌面 | 安卓 | 位置 |
-|---|---|---|---|
-| 后台检测间隔默认 | 15000 ms | 60000 ms | 桌面 `config/model.rs:180`；安卓 `config_state.rs:88` |
-| 后台检测间隔下限 | 10000 ms（`start_background_check` 内 <10000 时补 15000） | 5000 ms | 桌面 `background_task.rs:10-12`；安卓 `monitor_loop.rs:162` |
-| 闲时巡检间隔 | 无（桌面不分档） | 300000 ms | 安卓 `config_state.rs:90`、`monitor_loop.rs:61-68` |
-| 质量测试间隔默认 | 60000 ms | 60000 ms | 桌面 `model.rs:187`；安卓 `config_state.rs:101` |
-| 质量测试间隔下限 | 10000 ms（启动时 <10000 → 30000） | 10000 ms | 桌面 `watcher.rs:38`、`validate.rs:104`；安卓 `quality_cmds.rs:63` |
-| 认证失败熔断（触发 MAC 重置） | 5 次 | 无此链路 | 桌面 `failure_tracker.rs:6` |
-| Portal 请求失败熔断 | 5 次（网关可达才计数） | 无 | 桌面 `failure_tracker.rs:194`、`:213-226` |
-| 准备自动登录失败熔断 | 5 次（本会话停止） | 5 次 | 桌面 `auto_auth.rs:18`；安卓 `monitor_loop.rs:694` |
-| 自动登录冷却 | `auto_login_cooldown_secs` 默认 60 s | 同 60 s | 桌面 `model.rs:148`；安卓 `config_state.rs:93` |
-| 断线重连次数上限 | `max_disconnect_reconnect` 默认 3 | 同 3 | 桌面 `model.rs:146`；安卓 `config_state.rs:92` |
-| 超限后重复提醒间隔 | 每 10 次 | 无 | 桌面 `auto_auth.rs:13`、`:202` |
-| 注销保护期 | 60 s（注释） | 60 s（注释与实现） | 安卓 `monitor_loop.rs:688` |
-| 网络状态变更通知节流 | 60000 ms | 无（按状态翻转） | 桌面 `background_emit.rs:95` |
-| 自动退出倒计时 | `AUTO_EXIT_DELAY_MS = 20000` | 无此能力 | 桌面 `infra/state/mod.rs:13` |
-| 校园网退出倒计时 | 最小化 30000 / 退出 60000 | 无此能力 | 桌面 `lifecycle.rs:12-13` |
-| 启动自动登录就绪延迟 | 1500 ms（`--autostart` 时 5000 ms） | 500 ms | 桌面 `auto_auth.rs:227-228`；安卓 `monitor_loop.rs:383` |
-| 开机自启适配器重试 | 3 次 × 3000 ms | 无 | 桌面 `auto_auth.rs:266-270` |
-| 检测时段默认窗口 | `campusCheckStartMinutes` 460（07:40）、`campusCheckEndMinutes` 1380（23:00，2026-09-13 起旧默认 0 由迁移刷新） | 同 460 / 1380 | 桌面 `model.rs:89-93`；安卓 `config_state.rs:58-60`（Default `:117-121`）、迁移 `config_state.rs:277-281` |
-| 校园网退出生效时段默认 | 480–1380（08:00–23:00） | 无 | 桌面 `model.rs:200-201` |
-| 取消退出快捷键 | `CommandOrControl+Shift+C` | 无 | 桌面 `infra/state/mod.rs:14` |
-| WiFi 事件延迟 / 去抖 | 无（无事件触发） | 2500 / 1000 ms | 安卓 `monitor_loop.rs:44/47` |
-
-### 各环节行为细节
-
-**检测时段门控**（桌面 `monitor/campus_check.rs:262-270`）：`start == 0` 视为禁用；早于 start 静默；`end > start && now >= end` 静默（end ≤ start 退化为仅受 start 限制）。静默期桌面构造 `on_campus: true` 的伪结果并 `cancel_campus_exit`（`background_check.rs:63-70`），安卓直接 `return` 整拍跳过（`monitor_loop.rs:695-715`），两者都保持上一拍在线记忆；2026-09-13 起安卓在 return 前把常驻通知重建为「监控运行中 · 已暂停检测(非检测时段)」（`monitor_loop.rs:702-712`，`notified_online` 状态码 3），不再展示上一拍的过期「在线」。
-
-**状态机与在线判定**：桌面 `prev_online` 取 `any_adapter_online`，`any_online = online || secondary_online == Some(true)`（`background_check.rs:248/282`），历史缺陷注释（`:277-281`）记录曾用"仅主适配器 online"比较导致双适配器"主断副通"每拍误报离线；campus fail 时桌面直接置 `any_adapter_online=false`（`background_check.rs:80-89`）——非校园网没有"校园网在线"可言。安卓 2026-09-13 起用同语义三态护栏：`Ok(s) 且 error_kind=None → s.online`；其余结果且 `on_campus=true` → 沿用 `prev_online`（校园网内探针失配不翻转，反误报）；其余结果且 `on_campus=false` → 判离线（`monitor_loop.rs:763-767`）。此前护栏把"探测失败（error_kind=Some）"一律折叠成沿用 `prev_online`，WiFi 断开走蜂窝后三判据全否且 Portal 探测必失败，在线状态被永久钉死（详见 [[android-notify-online-pinned-by-offline-guard]]）。
-
-**注销保护期**：桌面 `logout_protected_until` 在 `emit_background_check_result` 里强制 `online=false`（`background_emit.rs:122-130`），并在 `update_network_state` 里跳过状态写回（`:170-176`）；自动登录与重连两条路径都检查它（`auto_auth.rs:56-60`、`:129-133`）。安卓用 `logout_protected_until_ms`，`run_check_once` 里判 `now < logout_protected_until_ms` 则 `should=false`（`monitor_loop.rs:688/693-695`）。
-
-**通知出口**：桌面 `emit_notification`（`infra/notification.rs:22-65`）只在"`enable_notification` 为真 且 主窗口不可见或已最小化"时弹系统通知（`:26-40`）；Windows 桌面用自组 WinRT toast 带看板娘，失败降级插件（`:53-60`）；`mascot` 变体名 `mascot-alert` / `mascot-celebrate` / `mascot-portrait` / `mascot-offline` / `mascot-busy`。安卓 `notify_system`（`monitor_loop.rs:145-162`）用 `large_icon`，两个在用大图 `mascot_alert` / `mascot_offline` 已随 APK 内置（`android/src-tauri/gen/android/app/src/main/res/drawable-xxhdpi/`），资源缺失时降级纯文本仅作兜底。安卓另有**常驻通知**（前台服务自带，非系统弹窗）：仅 `notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段 / 4=WiFi 未连接（2026-10-02），`monitor_loop.rs:35-38`、`notify_state` :1470），静默期进入状态 3 重建为「已暂停检测(非检测时段)」（`:702-712`）；WiFi 关闭拍进入状态 4 重建为「WiFi 未连接」（2026-10-02 起，`run_check_once` 通知块 :1459）。
-
-**生命周期倒计时**：自动退出 `start_auto_exit`（`lifecycle.rs:183-264`）用 `auto_exit_deadline` + `auto_exit_cancelled` 双状态防重复触发；校园网退出 `start_campus_exit`（`lifecycle.rs:23-135`）先 CAS `campus_exit_started` 再设 deadline（注释 `:45-50` 记录原顺序导致的永久卡死缺陷），受 `campus_exit_on_fail` 与生效时段双重门控（`:25-41`）。两者退出前都 `task_manager.detach` 自身避免 shutdown 自等死锁（`:126`、`:256`）。
-
-**质量循环与告警**：`spawn_latency_test_loop`（`latency.rs:52-102`）用 `MissedTickBehavior::Delay`（`:59`），ready 前每 2s 短重试不消耗周期（`:79-90`），检测前固定等 1s（`:92-95`）；档位变化只在 `good → poor/bad` 或反向时告警（`latency.rs:16-36`，`BAD_LEVELS = ["poor","bad"]`），并经 `quality_scheduler` 复核。
-
-## 2026-09-20 增补：轻量化间隔延长与动态重读
-
-- **轻量化系数**：桌面 `app/lightweight.rs` 提供纯函数 `effective_background_interval_ms`（轻量化下限 300s）与 `effective_quality_interval_ms`（下限 1800s），语义为 `max(配置值, 下限)`——用户显式设过更大值则保持更大值。后台检测循环每拍读取（`background_task.rs`，本就动态重读）；轻量化标志是内存态 `LIGHTWEIGHT_ACTIVE`，进出由窗口销毁/重建驱动。
-- **质量循环动态重读（既有缺陷修复）**：桌面 `spawn_latency_test_loop` 从"spawn 时固定 interval"改为每轮重读配置 + 轻量化系数、按需重建计时器（吞掉重建后立即到期的首 tick 防连发），设置页改质量间隔不再需要重启。调用点 `watcher.rs` 与 `commands/network_cmd.rs::start_latency_test` 已去参。
-- **安卓稳态退避**：`quality_cmds.rs::latency_loop` 连续 5 拍 quality ∈ {excellent, great, good} 间隔翻倍、封顶 1800s；fair/poor/bad/unknown/busy 任一拍即恢复基础间隔（纯函数 `next_backoff_interval_ms`，常量 `GOOD_LEVELS`/`BACKOFF_STABLE_STREAK`/`BACKOFF_MAX_MS`）。见 [[android-exit-guard-renderer-policy]]。
-- 夜切 30s 循环不受影响（纯本地时钟判定，零网络开销）。
-
-## 关键约束
-
-- **单飞保护**：`tasks.is_checking.try_acquire()`（`background_check.rs:18`）保证同一时刻只有一拍在跑；`trigger_background_check` 也先查 `is_checking.is_active()`（`commands/background.rs:30-32`）。
-- **登录互斥**：所有登录路径（准备自动登录 / 断线重连 / 开机自启 / 手动）必须先拿 `tasks.is_logging_in.try_acquire()`（`auto_auth.rs:69/141/425`）。
-- **冷却与保护期必须在登录锁之前判**：`last_auto_login_attempt` 只在真正要登录前才更新（`auto_auth.rs:71`、`:172`、`:429`），否则跳过路径也会重置冷却。
-- **重连计数必须读-增-判定在同一 CAS 内**：`update_with_result`（`auto_auth.rs:151-154`、`failure_tracker.rs:64-67/137-146/230-239`），历史缺陷注释记录 load + update 两次快照导致双重触发 MAC 重置。
-- **campus fail 必须重置 `has_logged_online`**：`background_check.rs:85-89` 注释说明不重置会导致离开校园网再回来时准备自动登录被永久拦截。
-- **重连成功必须向上报告 `reconnected=true`**：`reconnect_should_report`（`auto_auth.rs:24-26`）与三处测试（`:474-490`）；否则调用方用重连前旧 Portal 快照覆盖 `any_adapter_online`，用户被困离线。
-- **间隔必须动态读取**：桌面 loop 每 tick 重读 `config.background_check_interval`（`background_task.rs:29-34`），安卓对比 `desired_interval_ms` 重建计时器（`monitor_loop.rs:544-549`），否则设置面板改间隔不生效。
-- **通知重复抑制**：桌面"自动登录成功"走应用内事件 `auto-login-result` 不留系统通知重复（`auto_auth.rs:93-95` 只在配置开启时发系统通知），状态变更通知 60s 节流（`background_emit.rs:88-99`）；安卓注释明确启动自动登录与首拍重登连续发生，成功走事件、失败才留系统通知（`monitor_loop.rs:447-449`）。
-- **弹窗文案与 i18n**：后端系统通知文案为中文硬编码（`infra/notification.rs:17-20` 说明后端无法感知前端语言，且仅在用户未看界面时出现）。
-- **shutdown 必须限时**：`shutdown_and_exit` 对 `task_manager.shutdown()` 加 10s 上限（`lifecycle.rs:315-317`）。
 
 ## Data Flow
 
 ```text
 配置(enable_background_check / interval)
   → 启动装配 run_startup_tasks
-    → 周期 tick（桌面 tokio::time::interval 动态重建 | 安卓 interval + 分档判定）
+    → 周期 tick（桌面 tokio::time::interval 动态重建）
       → 适配器解析（主/副，含 disabled/disconnected 降级文案）
       → 校园网判定（时段门控 → SSID/有线 profile/网关可达性）
          ├─ fail → campus-exit-countdown → 30000ms 最小化 → 60000ms 退出（可 Ctrl+Shift+C 取消）
@@ -141,7 +238,7 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
       → Portal 探测（只读，绝不携带凭据）
          ├─ request_failed ×5 → 该适配器 MAC 重置 + DHCP 续租
          └─ Success → 清零失败计数
-      → 状态机（any_online，注销保护期强制离线，安卓三态护栏）
+      → 状态机（any_online，注销保护期强制离线）
       → background-check-result 事件 + login-log
       → 情况分支
          ├─ 离线且 login 可用 → 准备自动登录（冷却 → 保护期 → 熔断 → 登录锁）
@@ -152,24 +249,6 @@ app/startup.rs:195  crate::monitor::watcher::run_startup_tasks(&app_h)
          └─ 在线恢复 → auto_exit_on_online → auto-exit-countdown(20000ms)
       → update_network_state（server_available / any_adapter_online / last_a1_online）
 ```
-
-### 安卓侧对应实现的差异（`android/src-tauri/src/monitor_loop.rs`）
-
-| 维度 | 安卓做法 | 位置 |
-|---|---|---|
-| 入口 | `lib.rs:51` → `run_startup_tasks`，先 sleep 500ms，再**并行** spawn 后台检测 / 质量 / 自动登录 / 更新检查循环 | `lib.rs:51`、`monitor_loop.rs:387-425` |
-| 状态容器 | 全局 `lazy_static MONITOR: MonitorState`（进程内原子量），非桌面 `AppState` | `monitor_loop.rs:12-39` |
-| 分档省电 | `effective_interval_ms(base, idle, screen_on, wifi_connected)`：亮屏 + WiFi 用 base，否则 idle | `monitor_loop.rs:61-68` |
-| 事件驱动 | WiFi 变化监听（Kotlin NetworkCallback → Channel）触发即时检测，去抖 1000ms + 延迟 2500ms，风暴内最后一条生效 | `monitor_loop.rs:52-54`、`:224-297` |
-| 保活 | 前台服务常驻通知；`notified_online` 状态翻转时 `update_notification`（0=未展示 / 1=在线 / 2=未连接 / 3=非检测时段 / 4=WiFi 未连接（2026-10-02，`notify_state` 纯函数）），静默期进入 3 重建为「已暂停检测」，WiFi 关闭拍进入 4 重建为「WiFi 未连接」，不每拍重建 | `monitor_loop.rs:166-201`、`:702-712`、`:1456-1470` |
-| 探针窗口锁 | `begin_probe_window` / `ProbeWindowGuard` Drop 保证 WifiLock + WakeLock 释放 | `monitor_loop.rs:505-514`、`:719-724` |
-| 绑 WiFi | 每拍探测与重登前 `ensure_wifi_bound` | `monitor_loop.rs:465`、`:728` |
-| 绑小核 | Portal 探测跑在专用短命线程并 `pin_current_thread_to_little_cores`（线程内 `handle.enter()` 补 reactor） | `monitor_loop.rs:573-610` |
-| 决策纯函数 | `should_attempt_login`（在线/非校园网/开关/上限/冷却五条件） | `monitor_loop.rs:72-93` |
-| 无多适配器 | payload 无 `secondaryOnline`，`adapter2Name` 恒空 | `monitor_loop.rs:836-848` |
-| 无退出倒计时 | 无校园网退出、无自动退出、无 MAC 重置链路 | — |
-| 启动自动登录 | `probe_with_retry`（3s 重试一次）→ 登录成功预置 `was_online=true` + 清注销保护期 | `monitor_loop.rs:430-445`、`:487-488` |
-| 状态初值 | `status_value()` 把最近一次结果展平到顶层，供 `get_init_data` 提供启动初值（首轮 emit 早于 WebView 监听建立） | `monitor_loop.rs:102-122` |
 
 ## Connections
 

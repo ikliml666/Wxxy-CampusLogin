@@ -3,46 +3,15 @@ title: 安卓前端 - 面板层（总览 / 账号 / 自助 / 监控 / 质量 / �
 type: module
 source_files:
   - android/frontend/src/auth/AboutDialog.tsx
-  - android/frontend/src/auth/AboutDialogMobile.tsx
-  - android/frontend/src/auth/DashboardPanel.tsx
   - android/frontend/src/auth/index.ts
   - android/frontend/src/auth/types.ts
   - android/frontend/src/auth/useAuth.ts
-  - android/frontend/src/account/AccountPanel.tsx
-  - android/frontend/src/account/SelfServicePanel.tsx
   - android/frontend/src/account/index.ts
-  - android/frontend/src/account/selfServiceState.ts
   - android/frontend/src/account/types.ts
-  - android/frontend/src/account/useAccount.ts
-  - android/frontend/src/monitor/LatencyComponents.tsx
-  - android/frontend/src/monitor/LatencyTimeline.tsx
-  - android/frontend/src/monitor/MonitorPanel.tsx
-  - android/frontend/src/monitor/NetworkQualityCapsule.tsx
-  - android/frontend/src/monitor/QualityPanel.tsx
-  - android/frontend/src/monitor/SpeedTestPanel.tsx
-  - android/frontend/src/monitor/StatusBar.tsx
   - android/frontend/src/monitor/index.ts
   - android/frontend/src/monitor/types.ts
-  - android/frontend/src/monitor/useMonitor.ts
-  - android/frontend/src/network/NetworkPanel.tsx
-  - android/frontend/src/network/adapters.ts
   - android/frontend/src/network/constants.ts
   - android/frontend/src/network/index.ts
-  - android/frontend/src/network/types.ts
-  - android/frontend/src/network/useNetwork.ts
-  - android/frontend/src/settings/KeepAliveSettingsCard.tsx
-  - android/frontend/src/settings/OnboardingWizard.tsx
-  - android/frontend/src/settings/OnboardingWizardMobile.tsx
-  - android/frontend/src/settings/SettingsPanel.tsx
-  - android/frontend/src/settings/ThemeDialog.tsx
-  - android/frontend/src/settings/constants.ts
-  - android/frontend/src/settings/index.ts
-  - android/frontend/src/settings/types.ts
-  - android/frontend/src/settings/useOnboardingFlow.ts
-  - android/frontend/src/settings/useSettings.ts
-  - android/frontend/src/shared/LogPanel.tsx
-  - android/frontend/src/i18n/locales/zh.json
-  - android/frontend/src/i18n/locales/en.json
 tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设置, 日志, 新手向导]
 ---
 
@@ -58,15 +27,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
-| `ExtraCardDef` | `auth/DashboardPanel.tsx:51` | 宿主注入卡片的契约：`id` / `label` / `icon` / `defaultPosition?: 'start' \| 'end'` / `render(editing)`；`MobileDashboard` 用它注入状态卡与监控摘要卡 |
-| `DashboardPanel` | `auth/DashboardPanel.tsx:835` | 总览看板（`memo`）：五张内置卡 + 宿主 extraCards 的统一编辑体系（增删/长按拖动排序/持久化） |
-
-`auth/DashboardPanel.tsx` 内部私有（读者最常需要的）：`BuiltinCardId`(41)、`CardId`(43，`string & {}` 泛化)、`CardDef`(45)、`ALL_CARDS`(61，five 张内置卡：`quickActions`/`accountManage`/`selfOnline`/`selfLog`/`networkQuality`)、`DEFAULT_LAYOUT`(69)、`loadLayout`(71)、`saveLayout`(82)、`EXTRA_REMOVED_KEY`(89，`campus-dashboard-extra-removed` 黑名单键)、`loadRemovedExtras`(91)、`DashboardPanelProps`(100)、`QuickActionsCard`(116，DHCP 续租/换 IP，含 `createPortal` 适配器菜单 231-287)、`AccountManageCard`(295，`accounts: AccountItem[]`——按 `item.id` 匹配激活态、展示 `item.displayName`，列表缺失时兜底 id)、`NetworkQualityCard`(371)、`useSelfCardReveal`(416，Hello 门 + 掩码切换)、`useSelfCardFetch`(432，自动查询 + 锁 + 错误态)、`SelfOnlineItem`(478)、`SelfOnlineCard`(490，60s 轮询 509-513)、`SelfLogRow`(619)、`SELF_LOG_LIMIT=5`(620)、`SelfLogCard`(622)、`renderCard`(702)、`LONG_PRESS_MS=350`(737)、`EditableCardItem`(739，自研长按拖动换序)。
-
-| 导出 | 位置 | 用途 |
-| --- | --- | --- |
 | `AboutDialog` | `auth/AboutDialog.tsx:99` | 平板/宽屏关于弹窗：320px 侧栏 + 更新仪表盘（releaseNotes 全文渲染）+ 赞助内嵌页；支持 `initialLatestVersion`/`initialReleaseNotes`/`initialUpdateAvailable` 缓存入参 |
-| `AboutDialogMobile` | `auth/AboutDialogMobile.tsx:32` | 手机竖版关于弹窗：应用信息 + 更新渠道切换 + 检查更新 + 应用内下载 APK（镜像依次重试）+ 安装；无 APK 资产时外链 Releases |
 | `useAuth` | `auth/useAuth.ts:6` | 组合 `useAuthStore` 与 `config.api`，派生 `handleOpenPortal`（读 `config.portalUrl`，兜底 `http://10.1.99.100`，`useAuth.ts:22-25`）与 `handleOpenSelfService`（硬编码 `http://10.1.80.200:8080/Self/login/?302=LI`，`useAuth.ts:27-29`） |
 
 `auth/index.ts` 只导出 `DashboardPanel`(1)、`AboutDialog`(2)、`useAuth`(3)、`export * from './types'`(5)。`AboutDialogMobile` 不在 barrel（`App.tsx:42` 按路径懒加载）。
@@ -79,24 +40,10 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | --- | --- | --- |
 | `AccountPanel` | `account/AccountPanel.tsx:44` | 账号面板（`memo`）：登录信息卡、自动化开关卡（含 2026-09-19 新增的夜切开关 `enableNightOperatorSwitch`，两端可见，见 [[decisions/night-operator-switch]]）、运营商绑定卡（绑定状态查询/查看明文/绑定表单，其下拉**故意排除无锡学院**，见 [[learnings/binding-operator-select-excludes-campus]]）、账号管理卡（新增/切换/改名/删除） |
 | `useAccount` | `account/useAccount.ts:8` | 账号动作集合：`refreshAccounts`(23)、`handleAddAccount`(33，返回是否成功)、`handleDeleteAccount`(53)、`handleSwitchAccount`(73，守卫用 `!== undefined` 而非真值判断——R4 修复)、`handleRenameAccount`(95，成功返回是否成功供退出内联编辑) |
-| `useHelloGate` | `account/selfServiceState.ts:65` | 绑定/查看类操作的验证门（TTL 570s，`VERIFY_TTL_MS` 在 `selfServiceState.ts:54`；`ignoreToggle` 形参见 `selfServiceState.ts:65-66`） |
-| `biometricFailMessage` | `account/selfServiceState.ts:34` | 按插件 reject 的 `code` 翻译验证失败文案（错误码表 `BIOMETRIC_ERROR_KEY`，`selfServiceState.ts:19` 起） |
-| `resetSelfSessionGate` | `account/selfServiceState.ts:100` | 重置自助面板会话门（面板卸载时调用） |
-| `useSelfServiceVerify` | `account/selfServiceState.ts:105` | 自助面板操作验证门（尊重 `selfReverifyEachAction`） |
-| `formatMac` | `account/SelfServicePanel.tsx:59` | 12 位 hex → `AA-BB-...` |
-| `formatEpoch` | `account/SelfServicePanel.tsx:64` | epoch ms → `YYYY-MM-DD HH:mm:ss`（非法返回 `-`） |
-| `formatUseTimeMinutes` | `account/SelfServicePanel.tsx:83` | 秒 → 分钟（floor，与原站一致） |
-| `formatFlowMb` | `account/SelfServicePanel.tsx:89` | (下行+上行) KB → M（3 位小数） |
-| `localDateStr` | `account/SelfServicePanel.tsx:105` | 本地 `YYYY-MM-DD`（避免 `toISOString` 的 UTC 偏一天） |
-| `SelfServicePanel` | `account/SelfServicePanel.tsx:110` | 自助服务面板：凭据区 + 在线设备表（可踢下线）+ 使用记录表（可查日期范围）+ 汇总数据卡 |
 
-`account/SelfServicePanel.tsx` 内部私有：`SelfOnlineItem`(17)、`SelfHistoryRow`(29，元组类型)、`SelfLogRow`(33)、`SelfLogSummary`(48)、`formatTerminalType`(72)、`toInt`(77)、`fmt2`(96)、`fmtMoney`(99)、`thClass`/`tdClass`(265/266)。
+`account/index.ts`：`AccountPanel`(1)、`ChangePasswordDialog`(2)、`useAccount`(3)、`export * from './types'`(5)；`SelfServicePanel` 与 `selfServiceState` 不在 barrel。
 
-`account/AccountPanel.tsx` 内部私有：`AccountPanelProps`(35)、`isAndroid`(59)、`BIND_OPERATOR_NONE='__none__'`(193)、`OperatorBindingInfo`(215)、`BindStatuses`(216)。
-
-`account/index.ts`：`AccountPanel`(1)、`useAccount`(2)、`export * from './types'`(4)；`SelfServicePanel` 与 `selfServiceState` 不在 barrel。
-
-`account/types.ts`：`SwitchAccountResult`(3)、`DeleteAccountResult`(10)、`SaveAccountResult`(17)。
+`account/types.ts`：`AccountResult`(12)、`SwitchAccountResult`(18)、`DeleteAccountResult`(25)、`SaveAccountResult`(32)。
 
 ### monitor/ — 状态栏、巡检、质量与测速
 
@@ -111,18 +58,6 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `LatencyTimeline` | `monitor/LatencyTimeline.tsx:42` | 单目标分段时间线（UDP/DNS/TCP/TLS/TTFB/内容/网络 + 总时长） |
 | `useMonitor` | `monitor/useMonitor.ts:7` | 巡检与延迟测试动作：`handleToggleBackgroundCheck`(25)、`handleTriggerCheck`(52)、`handleToggleLatencyTest`(56) |
 
-`monitor/MonitorPanel.tsx` 内部私有：`isAndroid`(24)、`MonitorPanelProps`(26)、`AdapterStatusCard`(32)。
-
-`monitor/QualityPanel.tsx` 内部私有：`QualityPanelProps`(30)、`DETAIL_CATEGORIES`(36-87，5 类明细分组名与后端 detail key 的映射)、`tabContainerVariants`(89)。
-
-`monitor/SpeedTestPanel.tsx` 内部私有：`SpeedTestSite`(18)、`SPEED_TEST_SITES`(28-101)、`SITE_CATEGORY_KEYS`(103)、`SpeedTestPanelProps`(105)。
-
-`monitor/NetworkQualityCapsule.tsx` 内部私有：`NetworkQualityCapsuleProps`(13)、`LatencyRowProps`(17)、`LatencyRow`(24)、`getQualityCapsuleBg`(44)。
-
-`monitor/LatencyComponents.tsx` 内部私有：`getSignalCfg`(11)、`BAR_SPECS`(24)、`SignalGlowDot`(33)、`SignalBars`(75)。
-
-`monitor/LatencyTimeline.tsx` 内部私有：`LatencyTimelineProps`(7)、`TimelineSegment`(19)、`SEGMENT_INFO`(23，键含后端原始 key `内容`/`网络`)、`LEVEL_BAR_COLOR`(33)。
-
 `monitor/index.ts`：`MonitorPanel`(1)、`QualityPanel`(2)、`SpeedTestPanel`(3)、`LatencyPair`(4)、`LatencyTimeline`(5)、`NetworkQualityCapsule`(6)、`StatusBar`(7)、`useMonitor`(8)、`export * from './types'`(10)。
 
 ### network/ — 适配器与 DNS（安卓无入口）
@@ -130,17 +65,9 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `NetworkPanel` | `network/NetworkPanel.tsx:47` | 适配器列表 + 适配器设置 + DNS 优化三卡面板；**安卓全仓无渲染点** |
-| `useNetwork` | `network/useNetwork.ts:39` | DHCP 动作集合（续租/换 IP/按适配器换 IP）+ `refreshAdapterInfo`(59，转调 `refreshAdapterData`) |
-| `normalizeDhcpResults` | `network/useNetwork.ts:15` | 单条/批量结果归一化为数组 |
-| `announceDhcpResults` | `network/useNetwork.ts:23` | DHCP 结果 → 成功/跳过/失败三类 toast |
-| `AUTO_DETECT_ADAPTER` | `network/adapters.ts:3` | `'自动检测'` 哨兵值 |
-| `AdapterScope` | `network/adapters.ts:5` | `{adapter1, adapter2, dualAdapter}` |
-| `resolveAdapterNames` | `network/adapters.ts:15` | 与后端 `resolve_adapter_names` 同源规则解析主/副适配器（有线有 IP > 任意有 IP > 第一个） |
 | `QUALITY_CONFIG` | `network/constants.ts:1` | 9 档质量展示配置（`excellent/great/good/fair/poor/bad/unknown/disabled/busy`，每档 `label`/`labelKey`/`color`/`bg`/`border`/`borderBg`/`icon`/`hex`/`activeBars`/`glow`） |
 
-`network/NetworkPanel.tsx` 内部私有：`NetworkPanelProps`(31)、`ALI_DNS`(36)、`TENCENT_DNS`(37)、`RECOMMENDED_DNS`(38)、`formatSpeed`(41)。**复刻分叉注意**：2026-09 桌面端为主/副适配器新增「指定账号」下拉（`adapter1Account`/`adapter2Account` 配置字段 + `FOLLOW_CURRENT_ACCOUNT` 哨兵，见 [[desktop-frontend-panels]]），安卓这份 NetworkPanel 副本**未同步**（该面板在安卓本无入口，属死代码），两端此文件已不再逐行同构。
-
-`network/useNetwork.ts` 内部私有：`DhcpResultItem`(11)、`AddToastFn`(12)。`network/index.ts`：`NetworkPanel`(1)、`useNetwork`(2)、`export * from './types'`(4)、`export * from './constants'`(5)。
+`network/index.ts`：`NetworkPanel`(1)、`export * from './types'`(2)、`export * from './constants'`(3)。
 
 ### settings/ — 设置、主题与新手向导
 
@@ -164,16 +91,6 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | `THEME_OPTIONS` | `settings/constants.ts:62` | 主题 7 项（含 `custom`） |
 | `VALID_THEMES` | `settings/constants.ts:72` | 主题名白名单（`main.tsx:38`、`useInitialDataLoad.ts:51` 用它校验存储值） |
 | `DEFAULT_PANEL_OPTIONS` | `settings/constants.ts:74` | 由 `NAV_ITEMS` 派生（因此**不含 `network`**） |
-
-`settings/SettingsPanel.tsx` 内部私有：`isAndroid`(31)、`SettingsPanelProps`(33)、`PRESET_COLORS`(42-46)、`PRESET_COLOR_NAMES`(48-61)。
-
-`settings/OnboardingWizard.tsx` 内部私有：`OnboardingWizardProps`(33)、`STEP_TITLE_KEYS`(41)、`slideVariants`(43)、`StepIndicator`(49)。
-
-`settings/OnboardingWizardMobile.tsx` 内部私有：`OnboardingWizardMobileProps`(43)、`slideVariants`(51)、`StepTrack`(58)。
-
-`settings/useOnboardingFlow.ts` 内部私有：`BIND_SUCCESS_ADVANCE_MS=1200`(31)、`LOGIN_SUCCESS_ADVANCE_MS=1500`(33)。
-
-`settings/ThemeDialog.tsx` 内部私有：`ThemeDialogProps`(20)。`settings/KeepAliveSettingsCard.tsx` 内部私有：`PROMPTED_KEY='campus-keepalive-prompted'`(23)。
 
 `settings/index.ts`：`SettingsPanel`(1)、`ThemeDialog`(2)、`OnboardingWizard`(3)、`OnboardingWizardMobile`(4)、`useSettings`(5)、`export * from './types'`(7)、`export * from './constants'`(8)。`KeepAliveSettingsCard` 与 `useOnboardingFlow` 不在 barrel（前者按相对路径导入，`SettingsPanel.tsx:28`；后者被两个向导相对导入）。
 
@@ -250,22 +167,19 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 类型 | 位置 | 字段 |
 | --- | --- | --- |
-| `SwitchAccountResult` | `account/types.ts:3` | `success`、`message?`、`activeAccount?`、`config?: Config` |
-| `DeleteAccountResult` | `account/types.ts:10` | `success`、`message?`、`activeAccount?`、`config?: Config` |
-| `SaveAccountResult` | `account/types.ts:17` | `success`、`activeAccount?`、`config?`、`message?` |
+| `AccountResult` | `account/types.ts:12` | `success`、`message?`、`activeAccount?`、`config?`、`displayName?` |
+| `SwitchAccountResult` | `account/types.ts:18` | `success`、`message?`、`activeAccount?`、`config?` |
+| `DeleteAccountResult` | `account/types.ts:25` | `success`、`message?`、`activeAccount?`、`config?` |
+| `SaveAccountResult` | `account/types.ts:32` | `success`、`activeAccount?`、`config?`、`message?` |
 
 ### monitor/ 类型
 
 | 类型 | 位置 | 字段 |
 | --- | --- | --- |
-| `AdapterOnlineStatus` | `monitor/types.ts:1` | `name`、`ip`、`wireless`、`online`、`message` |
-| `BackgroundStatus` | `monitor/types.ts:15` | `isRunning`、`checkCount`、`serverAvailable`、`online`、`message?`、`adapterStatuses?`、`currentSsid`、`onCampusNetwork?`、`enableNetworkNameCheck?`、`requiredNetworkName?`、`campusWifi?`、`campusWired?`、`a1CampusMessage?`、`a2CampusMessage?`、`a1OnCampus?`、`a2OnCampus?`、`loginPreparationMode?`、`interval?`、`enabled?` |
-| `BackgroundCheckEventData` | `monitor/types.ts:38` | `BackgroundStatus & { timestamp?, checkCount?, secondaryOnline?, secondaryMessage?, message?, online?, adapter1Name?, adapter2Name?, loginAvailable?, serverAvailable? }` |
-| `NetworkQuality` | `monitor/types.ts:69` | `gatewayLatency`、`externalLatency`、`averageExternalLatency`、`gateway`、`quality`（`excellent/great/good/fair/poor/bad/unknown/disabled/busy`）、`timestamp`、`details?`、`metrics?` |
-| `AutoLoginEventData` | `monitor/types.ts:80` | `success`、`message`、`skipped?` |
-| `ConnectionCampusStatus`（私有） | `monitor/types.ts:9` | `onCampus`、`name: string \| null`、`message` |
-| `NetworkQualityDetail`（私有） | `monitor/types.ts:51` | `target`、`latency`、`type` + `dnsLatency?`/`tcpLatency?`/`tlsLatency?`/`udpLatency?`/`networkLatency?`/`ttfbLatency?`/`contentLatency?` |
-| `NetworkQualityMetrics`（私有） | `monitor/types.ts:64` | `totalElapsed`、`tests: Record<string, {latency, type, elapsed}>` |
+| `BackgroundStatus` | `monitor/types.ts:12` | `isRunning`、`checkCount`、`serverAvailable`、`online`、`onlineOperator?`、`message?`、`currentSsid`、`onCampusNetwork?`、`enableNetworkNameCheck?`、`requiredNetworkName?`、`campusWifi?`、`campusWired?`、`loginPreparationMode?`、`interval?`、`enabled?` |
+| `BackgroundCheckEventData` | `monitor/types.ts:31` | `BackgroundStatus & { timestamp?, checkCount?, message?, online?, loginAvailable?, serverAvailable? }` |
+| `NetworkQuality` | `monitor/types.ts:39` | `gatewayLatency`、`externalLatency`、`averageExternalLatency`、`gateway`、`quality`（`excellent/great/good/fair/poor/bad/unknown/disabled/busy`）、`timestamp`、`details?`、`metrics?` |
+| `AutoLoginEventData` | `monitor/types.ts:50` | `success`、`message` |
 
 ### network/ 类型
 
@@ -287,9 +201,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 | 类型 | 位置 | 字段 |
 | --- | --- | --- |
-| `DashboardPanelProps`（私有） | `auth/DashboardPanel.tsx:100` | `accounts`、`activeAccount`、`onUpdateConfig`、`onSwitchAccount`、`onDhcpRenew`、`onDhcpReleaseRenew`、`onDhcpReleaseRenewAdapter`、`onRefreshQuality?`、`onToggleBackgroundCheck?`、`excludeCards?`、`extraCards?` |
 | `AboutDialogProps`（私有） | `auth/AboutDialog.tsx:23` | `open`、`onClose`、`openExternal?`、`onUpdateAvailable?`、`initialLatestVersion?`、`initialReleaseNotes?`、`initialUpdateAvailable?` |
-| `AboutDialogMobileProps`（私有） | `auth/AboutDialogMobile.tsx:23` | `open`、`onClose`、`openExternal?`、`onUpdateAvailable?` |
 | `AccountPanelProps`（私有） | `account/AccountPanel.tsx:35` | `adapters`、`accounts`（`AccountItem[]`）、`activeAccount`、`onUpdateConfig`、`onAddAccount`（返回 `Promise<boolean>`）、`onDeleteAccount`、`onSwitchAccount`、`onRenameAccount`（`:44`，返回 `Promise<boolean>`） |
 | `MonitorPanelProps`（私有） | `monitor/MonitorPanel.tsx:25` | `onUpdateConfig`、`onToggleBackgroundCheck(enabled, interval)`、`onTriggerCheck()` |
 | `QualityPanelProps`（私有） | `monitor/QualityPanel.tsx:30` | `onUpdateConfig`、`onRefreshQuality?`、`onToggleLatencyTest?` |

@@ -10,44 +10,22 @@ source_files:
   - tauri-app/src-tauri/src/config/persist.rs
   - tauri-app/src-tauri/src/infra/events.rs
   - tauri-app/src-tauri/src/infra/command_context.rs
-  - tauri-app/src-tauri/src/infra/state/mod.rs
   - tauri-app/src-tauri/src/infra/state/store.rs
   - tauri-app/src-tauri/src/infra/state/network.rs
-  - tauri-app/src-tauri/src/infra/task_manager.rs
-  - tauri-app/src-tauri/src/monitor/background_task.rs
-  - tauri-app/src-tauri/src/monitor/background_emit.rs
-  - tauri-app/src-tauri/src/monitor/adapter_watch.rs
-  - tauri-app/src-tauri/src/monitor/latency.rs
-  - tauri-app/src-tauri/src/network/client.rs
   - tauri-app/src-tauri/src/platform/mod.rs
-  - tauri-app/src-tauri/src/self_service/mod.rs
   - tauri-app/frontend/src/hooks/useAppStore.ts
-  - tauri-app/frontend/src/hooks/useQualityStore.ts
-  - tauri-app/frontend/src/hooks/useAdapterStore.ts
-  - tauri-app/frontend/src/hooks/useAnimationProfile.ts
-  - tauri-app/frontend/src/hooks/tauriApi.ts
-  - android/src-tauri/Cargo.toml
-  - android/src-tauri/src/lib.rs
-  - android/src-tauri/src/config_state.rs
-  - android/src-tauri/src/account_cmds.rs
-  - android/src-tauri/src/monitor_loop.rs
-  - android/frontend/src/hooks/useDeviceProfile.ts
-  - android/frontend/src/hooks/useAdaptiveFramePace.ts
-  - android/frontend/src/lib/renderLiveness.ts
-  - tauri-app/frontend/src/lib/renderLiveness.ts
-  - android/plugins/foreground-service/src/lib.rs
 tags: [模式, 约定]
 ---
 
 ## Overview
 
-本文收录这个代码库里**被反复遵守的工程模式**：每条给出定义、出现位置（`文件:行号`）、设计理由，以及新增代码要遵循的动作。末尾「反模式与已发现的偏差」列出没遵守这些模式的地方——那是本文最有价值的部分，因为模式本身在 `CODE_WIKI.md` 里已有记载，而偏差只能靠逐处核对发现。
+本文收录这个代码库里**被反复遵守的工程模式**。每条给出定义、出现位置（`文件:行号`）、设计理由，以及新增代码要遵循的动作。末尾「反模式与已发现的偏差」列出没遵守这些模式的地方——那是本文最有价值的部分，因为模式本身在 `CODE_WIKI.md` 里已有记载，而偏差只能靠逐处核对发现。
 
 ## 模式清单
 
 ### 领域 store 拆分（zustand 按域拆分 + 兼容壳）
 
-**是什么**：前端不维护单个巨型 store，而是按业务域拆成 6 个独立 zustand store；拆分后保留一个只做 re-export 的兼容壳文件，避免一次性改动所有调用点。
+**是什么**：前端不维护单个巨型 store，而是按业务域拆成独立 zustand store；拆分后保留一个只做 re-export 的兼容壳文件，避免一次性改动所有调用点。
 
 **在哪里出现**：
 

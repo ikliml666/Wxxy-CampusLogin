@@ -1,31 +1,119 @@
 ---
-title: WebView2 最小化节流定时器 + 出站切换无事件 → 恢复窗口面板陈旧
-type: learning
+title: NetworkPanel 网络适配器与出站管理面板
+type: module
 source_files:
   - tauri-app/frontend/src/network/NetworkPanel.tsx
   - tauri-app/src-tauri/src/commands/network_cmd.rs
-  - tauri-app/src-tauri/src/monitor/scheduled.rs
-tags: [教训, WebView2, 最小化节流, 出站切换, 时效性, 前端]
+tags: [前端, Tauri, 网络, DNS, 出站切换, WebView2]
 ---
 
-## 现象
+## Overview
 
-窗口最小化期间发生夜间自动出站切换后，恢复窗口时网络适配器面板的「当前出站」徽标与适配器列表仍显示切换前的状态，60s 兜底轮询也迟迟不纠正。
+`NetworkPanel` 是应用的核心网络配置界面，负责展示系统网络适配器列表、管理主/副适配器角色、执行夜间自动出站切换的手动干预（立即切换/还原）、以及提供 DNS/DoH 的一键优化与检测功能。
 
-## 根因
+该模块解决了 WebView2 最小化期间定时器节流导致的状态陈旧问题，通过 `visibilitychange` 和 `focus` 事件在窗口恢复时强制同步后端状态。它同时处理了适配器拖拽排序、DHCP 续租、禁用/启用适配器等复杂交互。
 
-三个因素叠加：
+## Key Components
 
-1. **WebView2 最小化时定时器被系统节流**——`setInterval`/`setTimeout` 降到分钟级甚至暂停，60s 兜底轮询（`refreshCurrentOutbound` interval）名存实亡；
-2. **夜间切换不改 `adapters.length`**——面板的挂载/列表变化刷新时机依赖 `adapters.length`，但自动切换只改路由 metric 与禁卡状态，数组长度不变则不触发；
-3. **后端 `outbound_switch_now` 完成后不向前端 emit 事件**（只发通知与登录日志），前端无从得知切换已发生。
+### Frontend: NetworkPanel.tsx
 
-## 解决
+**常量:**
+- `ALI_DNS`: 阿里云 DNS IP 集合 (`tauri-app/frontend/src/network/NetworkPanel.tsx:34`)
+- `TENCENT_DNS`: 腾讯云 DNS IP 集合 (`tauri-app/frontend/src/network/NetworkPanel.tsx:35`)
+- `RECOMMENDED_DNS`: 推荐 DNS 合集 (`tauri-app/frontend/src/network/NetworkPanel.tsx:36`)
+- `FOLLOW_CURRENT_ACCOUNT`: 适配器账号选择的哨兵值 `'__follow__'` (`tauri-app/frontend/src/network/NetworkPanel.tsx:39`)
+- `DRAG_LONG_PRESS_MS`: 长按起拖时长 250ms (`tauri-app/frontend/src/network/NetworkPanel.tsx:53`)
+- `DRAG_DEAD_ZONE_PX`: 长按死区 8px (`tauri-app/frontend/src/network/NetworkPanel.tsx:56`)
 
-恢复可见性时主动重探：`syncOnRestore`（`NetworkPanel.tsx:298-307`，`lastFocusSyncRef` 5s 节流去重）挂 `visibilitychange`（visible 时）+ `window focus` 两监听，触发即 `refreshAdapterData({force:true,includeDisabled:true})` + `refreshCurrentOutbound()`。5s 节流防两事件连发双探。
+**函数:**
+- `formatSpeed(bps)`: 格式化连接速度为 Mbps/Kbps (`tauri-app/frontend/src/network/NetworkPanel.tsx:42`)
+- `getDnsQuality(adapter, autoDohEnabled)`: 计算单个适配器的 DNS 质量等级 (`tauri-app/frontend/src/network/NetworkPanel.tsx:472`)
 
-## 教训
+**组件:**
+- `SortableAdapterRow`: 可拖拽的适配器行组件，实现长按起拖逻辑 (`tauri-app/frontend/src/network/NetworkPanel.tsx:72`)
+  - Props: `adapter`, `isOutboundTarget`, `isCurrentOutbound`, `roleLabel`, `onDragEndCommit`, `onDragStart`, `children`
+- `NetworkPanel`: 主面板组件 (`tauri-app/frontend/src/network/NetworkPanel.tsx:133`)
+  - Props: `adapters: Adapter[]`, `onUpdateConfig: (partial: Partial<Config>) => void`
 
-- 长驻桌面应用的 WebView 里，**定时器是「尽力而为」的**：任何依赖轮询兜底的时效性保证，最小化/后台时都会失效。状态陈旧类修复优先考虑「恢复可见性/聚焦时重探」这一与节流正交的时机。
-- 后端改变系统状态（路由 metric、禁卡）后若前端有对应展示，**要么 emit 事件，要么前端在可见性恢复时重探**——两者至少占一个，否则展示层与真实状态脱钩只能靠用户手动刷新。
-- mock 实测注：官方 `@tauri-apps/api/mocks` 的 `mockIPC(cb, {shouldMockEvents:true})` 是浏览器实测的前提（手写 `__TAURI_INTERNALS__` 会在 unlisten 时崩溃）；stub 数据必须与后端命令的真实返回结构逐字段对齐——空对象 `{}` 会穿透 `if (x)` 类真值保护后在 `x.field.length` 处崩（本次 `check_dns_doh_status: {}` → `dnsStatus.adapters.length` 崩溃即此）。
+**核心状态与逻辑:**
+- `effectiveDisabledAdapters`: 从 `adapters` 派生的禁用列表，避免双通道不一致 (`tauri-app/frontend/src/network/NetworkPanel.tsx:145`)
+- `outboundOrder` / `dragOrder`: 出站优先级排序，支持拖拽重排 (`tauri-app/frontend/src/network/NetworkPanel.tsx:168-205`)
+- `currentOutbound`: 当前真实出站接口名称，通过 `getCurrentOutboundName` 获取 (`tauri-app/frontend/src/network/NetworkPanel.tsx:213-222`)
+- `syncOnRestore`: 恢复可见性时的状态同步逻辑，含 5s 节流 (`tauri-app/frontend/src/network/NetworkPanel.tsx:238-244`)
+- `handleCheckDns`: 检测 DNS/DoH 状态 (`tauri-app/frontend/src/network/NetworkPanel.tsx:258`)
+- `handleSetupDnsDoh`: 一键设置 DNS+DoH (`tauri-app/frontend/src/network/NetworkPanel.tsx:276`)
+- `handleResetDns`: 重置 DNS 为自动获取 (`tauri-app/frontend/src/network/NetworkPanel.tsx:306`)
+- `handleGetNewIpForAdapter`: DHCP 释放/续租 (`tauri-app/frontend/src/network/NetworkPanel.tsx:336`)
+- `handleEnableAdapter`: 启用禁用适配器 (`tauri-app/frontend/src/network/NetworkPanel.tsx:352`)
+- `handleOutboundSwitchNow`: 手动触发立即切换出站 (`tauri-app/frontend/src/network/NetworkPanel.tsx:373`)
+- `handleOutboundRestoreNow`: 手动触发立即还原出站 (`tauri-app/frontend/src/network/NetworkPanel.tsx:394`)
+
+### Backend: network_cmd.rs
+
+**命令:**
+- `get_adapters(force)`: 获取适配器列表 (`tauri-app/src-tauri/src/commands/network_cmd.rs:18`)
+- `get_disabled_adapters()`: 获取禁用适配器列表 (`tauri-app/src-tauri/src/commands/network_cmd.rs:26`)
+- `enable_adapter(adapter_name)`: 启用指定适配器 (`tauri-app/src-tauri/src/commands/network_cmd.rs:31`)
+- `get_adapter_details()`: 获取适配器详情 (`tauri-app/src-tauri/src/commands/network_cmd.rs:41`)
+- `outbound_switch_now(app_handle)`: 手动立即切换出站 (`tauri-app/src-tauri/src/commands/network_cmd.rs:47`)
+- `outbound_restore_now(app_handle)`: 手动立即还原出站 (`tauri-app/src-tauri/src/commands/network_cmd.rs:58`)
+- `get_current_outbound_name()`: 获取当前真实出站接口名 (`tauri-app/src-tauri/src/commands/network_cmd.rs:69`)
+- `dhcp_release_renew_adapter(adapter_name, app_handle)`: 单适配器 DHCP 续租 (`tauri-app/src-tauri/src/commands/network_cmd.rs:135`)
+- `check_dns_doh_status()`: 检测 DNS/DoH 状态 (`tauri-app/src-tauri/src/commands/network_cmd.rs:178`)
+- `setup_dns_doh(app_handle, family)`: 一键设置 DNS+DoH (`tauri-app/src-tauri/src/commands/network_cmd.rs:186`)
+- `reset_dns(app_handle)`: 重置 DNS 自动获取 (`tauri-app/src-tauri/src/commands/network_cmd.rs:233`)
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                      NetworkPanel (Frontend)                │
+│  ┌─────────────────────┐  ┌──────────────────────────────┐ │
+│  │  Adapter List       │  │      DNS Optimization        │ │
+│  │  (Reorder.Group)    │  │  ┌──────────┐ ┌──────────┐  │ │
+│  │  • SortableRow      │  │  │ Check DNS│ │ Optimize │  │ │
+│  │  • Outbound Badge   │  │  └──────────┘ └──────────┘  │ │
+│  │  • Actions (IP/En.) │  │  • Family Tabs               │ │
+│  └─────────┬───────────┘  │  • Adapter Chips               │ │
+│            │              └──────────────────────────────┘ │
+│            │ IPC Calls                                     │
+└────────────┼───────────────────────────────────────────────┘
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Tauri Commands (Rust)                     │
+│  • get_adapters / enable_adapter                            │
+│  • outbound_switch_now / outbound_restore_now               │
+│  • check_dns_doh_status / setup_dns_doh / reset_dns         │
+└────────────┬────────────────────────────────────────────────┘
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  System Network API                         │
+│  • Windows Registry (DNS Config)                            │
+│  • Routing Table (Best Route)                               │
+│  • DHCP Client                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Data Flow
+
+1. **适配器列表同步**:
+   - 后端 `get_adapters` 定期轮询或通过 `onAdaptersChanged` 事件推送。
+   - 前端 `NetworkPanel` 订阅 `useAdapterStore`，在挂载、列表变化、或恢复可见性时调用 `refreshAdapterData`。
+   - `effectiveDisabledAdapters` 直接从 `adapters` 过滤生成，确保 UI 一致性。
+
+2. **出站切换**:
+   - 用户点击 "立即切换" -> `handleOutboundSwitchNow` -> `ipc.outboundSwitchNow` -> 后端 `manual_outbound_switch`。
+   - 后端修改路由 metric 后，前端通过 `refreshAdapterData({force:true})` 和 `refreshCurrentOutbound()` 刷新 UI。
+   - 恢复可见性时，`syncOnRestore` 强制触发上述刷新，解决 WebView2 最小化节流问题。
+
+3. **DNS 优化**:
+   - 用户选择目标适配器 -> `toggleDnsAdapter` 更新 `config.dnsOptimizeAdapters`。
+   - 点击 "一键优化" -> `handleSetupDnsDoh` -> `ipc.setupDnsDoh(family)`。
+   - 后端根据 `family` (ipv4/ipv6/both) 和选定的适配器名单，通过管理员权限或 Helper 进程修改注册表 DNS 设置。
+   - 优化完成后，前端自动调用 `checkDnsDohStatus` 刷新状态显示。
+
+## Connections
+
+- [[learnings/webview-minimize-timer-throttle-stale-panel]]: 详细记录了 WebView2 最小化导致状态陈旧的根因及 `syncOnRestore` 解决方案。
+- [[settings/config-store]]: `NetworkPanel` 通过 `useConfigStore` 读写 `adapter1`, `adapter2`, `dnsOptimizeAdapters` 等配置。
+- [[monitor/scheduled]]: 包含 `manual_outbound_switch` 和 `manual_outbound_restore` 的后端实现逻辑。

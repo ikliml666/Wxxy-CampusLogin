@@ -1,10 +1,9 @@
 ---
-title: "DNS 一键还原必须与一键设置一样走提权，否则功能只做一半"
+title: "DNS 重置必须走提权路径，确保设置/撤销能力对等"
 type: decision
 source_files:
   - tauri-app/src-tauri/src/commands/network_cmd.rs
   - tauri-app/src-tauri/src/helper/mod.rs
-  - tauri-app/src-tauri/src/platform/dns_config.rs
   - tauri-app/src-tauri/src/platform/helper_spawn.rs
 tags: [决策, DNS, 提权, helper, 可逆性]
 ---
