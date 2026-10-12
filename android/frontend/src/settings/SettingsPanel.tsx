@@ -72,6 +72,37 @@ export const SettingsPanel = memo(function SettingsPanel({
 
   return (
     <div className="space-y-4">
+      {/* 新手指引置顶：页面首元素引导新用户（对齐桌面端横幅置顶方案） */}
+      {onShowOnboarding && (
+        <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
+          <AnimatedCard noEnterAnimation>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <Compass className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
+                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <button
+                onClick={onShowOnboarding}
+                className={cn(
+                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
+                )}
+              >
+                <Compass className="h-4 w-4" />
+                {t('settings.openOnboardingGuide')}
+              </button>
+            </CardContent>
+          </AnimatedCard>
+        </div>
+      )}
+
       {/* 两列区（对齐桌面端做法）：两列各自 flex 紧堆、md 起 justify-between 摊开残差——
           大卡配小卡不会在卡间拉出空洞，末卡贴住底缘；左=启动与通知+自动化+保活，右=安全+引导。
           md 起两列，窄屏单列堆叠（外层 flex-col，单列顺序与手机一致） */}
@@ -297,36 +328,6 @@ export const SettingsPanel = memo(function SettingsPanel({
         }}
         onCancel={() => setFaceRiskConfirmOpen(false)}
       />
-
-      {onShowOnboarding && (
-        <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
-          <AnimatedCard noEnterAnimation>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                  <Compass className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
-                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <button
-                onClick={onShowOnboarding}
-                className={cn(
-                  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
-                )}
-              >
-                <Compass className="h-4 w-4" />
-                {t('settings.openOnboardingGuide')}
-              </button>
-            </CardContent>
-          </AnimatedCard>
-        </div>
-      )}
 
       </div>
       </div>

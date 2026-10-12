@@ -130,6 +130,35 @@ export const SettingsPanel = memo(function SettingsPanel({
 
   return (
     <div className="space-y-4">
+      {/* 新手指引：页面级紧凑横幅置顶（纯 CTA 卡与重型配置卡同级视觉重量会放大
+          两列底缘参差；横幅不占列宽，作为页面首元素引导新用户） */}
+      {onShowOnboarding && (
+        <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
+          <AnimatedCard noEnterAnimation>
+            <CardContent className="p-4 flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <CardIcon>
+                  <Compass className="h-5 w-5 text-primary" />
+                </CardIcon>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium leading-tight">{t('settings.onboardingGuide')}</p>
+                  <p className="text-xs text-muted-foreground truncate">{t('settings.onboardingGuideDesc')}</p>
+                </div>
+              </div>
+              <button
+                onClick={onShowOnboarding}
+                className={cn(
+                  'shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
+                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
+                )}
+              >
+                {t('settings.openOnboardingGuide')}
+              </button>
+            </CardContent>
+          </AnimatedCard>
+        </div>
+      )}
+
       {/* 两列区（手动分栏）：左=启动设置（拆三卡：启动/登录自动化/窗口与界面）；右=通知与安全+数据管理+质量检测（折叠）。
           两列等高：网格默认 stretch；左列 justify-between 把残差摊进卡间空隙（各环境字体渲染差异产生的十px级残差自适配），
           右列末卡 grow 兜底反向残差；底缘像素级对齐 */}
@@ -465,36 +494,6 @@ export const SettingsPanel = memo(function SettingsPanel({
       </div>
       </div>
       </div>
-
-      {/* 新手指引：页面级紧凑横幅收口（替代右列底部孤立卡——纯 CTA 卡与重型配置卡
-          同级视觉重量会放大两列底缘参差；横幅不占列宽，下缘与两列底缘取齐） */}
-      {onShowOnboarding && (
-        <div className="card-enter" style={{ '--stagger-i': 7 } as React.CSSProperties}>
-          <AnimatedCard noEnterAnimation>
-            <CardContent className="p-4 flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <CardIcon>
-                  <Compass className="h-5 w-5 text-primary" />
-                </CardIcon>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium leading-tight">{t('settings.onboardingGuide')}</p>
-                  <p className="text-xs text-muted-foreground truncate">{t('settings.onboardingGuideDesc')}</p>
-                </div>
-              </div>
-              <button
-                onClick={onShowOnboarding}
-                className={cn(
-                  'shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-[background-color,color,box-shadow,transform] duration-200',
-                  'bg-primary/10 text-primary hover:bg-primary/15 active:scale-[0.98]'
-                )}
-              >
-                {t('settings.openOnboardingGuide')}
-              </button>
-            </CardContent>
-          </AnimatedCard>
-        </div>
-      )}
-
 
       {/* 导入配置：拖放或粘贴文件路径（无 dialog 插件，用 Tauri 原生 drag-drop 拿真实路径） */}
       <Dialog open={importDialogOpen} onOpenChange={(open) => { if (!open) setImportDialogOpen(false) }}>
