@@ -13,7 +13,8 @@ import {
 import { cn } from '@/lib/utils'
 import React, { memo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { OnlineDeviceStackH } from '@/account/SelfOnlineStack'
+import { OnlineDeviceStack, OnlineDeviceStackH } from '@/account/SelfOnlineStack'
+import { useFormFactor } from '@/hooks/useFormFactor'
 
 interface SpeedTestSite {
   nameKey: string
@@ -109,6 +110,43 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
   const handleOpen = useCallback((url: string) => {
     openExternal(url)
   }, [openExternal])
+  // 手机 = 纵向上下堆叠（自助服务在线信息卡手机形态），平板 = 水平封面流（同桌面）
+  const formFactor = useFormFactor()
+  const siteCards = SPEED_TEST_SITES.map((site) => {
+    const Icon = site.icon
+    return (
+      <div
+        key={site.nameKey}
+        className="w-full h-fit rounded-xl bg-card dark:bg-muted p-3 shadow-sm shadow-black/5 ring-1 ring-black/[0.04] ring-inset dark:ring-white/[0.06] flex flex-col gap-2"
+      >
+        {/* 标题行：图标色块 + 站点名 + 分类徽章 */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', site.bg)}>
+            <Icon className={cn('h-4 w-4', site.color)} />
+          </div>
+          <div className="flex-1 min-w-0 flex items-center gap-1.5">
+            <span className="text-sm font-medium truncate">{t(site.nameKey)}</span>
+            <ArrowUpRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+          </div>
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+            {t(site.categoryKey)}
+          </Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">{t(site.descKey)}</p>
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px] gap-1 px-2"
+            onClick={() => handleOpen(site.url)}
+          >
+            <ExternalLink className="h-3 w-3" />
+            {t('common.open')}
+          </Button>
+        </div>
+      </div>
+    )
+  })
 
   return (
     <div className="space-y-4">
@@ -133,48 +171,16 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
         </AnimatedCard>
       </div>
 
-      {/* 网址堆叠卡（复用自助服务在线信息卡机制 OnlineDeviceStackH）：
-          每个测速网址一张卡，中央卡全亮、两侧缩小压暗，拖拽 / 半区点击 / 圆点翻页 */}
+      {/* 网址堆叠卡（复用自助服务在线信息卡机制）：手机 OnlineDeviceStack 纵向上下堆叠
+          （上/下露出边 44px、缩放 0.75，上滑/下滑/点上下半区翻页），平板 OnlineDeviceStackH 水平封面流 */}
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardContent className="pt-4">
-            <OnlineDeviceStackH
-              cards={SPEED_TEST_SITES.map((site) => {
-                const Icon = site.icon
-                return (
-                  <div
-                    key={site.nameKey}
-                    className="w-full h-fit rounded-xl bg-card dark:bg-muted p-3 shadow-sm shadow-black/5 ring-1 ring-black/[0.04] ring-inset dark:ring-white/[0.06] flex flex-col gap-2"
-                  >
-                    {/* 标题行：图标色块 + 站点名 + 分类徽章 */}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', site.bg)}>
-                        <Icon className={cn('h-4 w-4', site.color)} />
-                      </div>
-                      <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                        <span className="text-sm font-medium truncate">{t(site.nameKey)}</span>
-                        <ArrowUpRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                      </div>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                        {t(site.categoryKey)}
-                      </Badge>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">{t(site.descKey)}</p>
-                    <div className="flex justify-end">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] gap-1 px-2"
-                        onClick={() => handleOpen(site.url)}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        {t('common.open')}
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
-            />
+            {formFactor === 'tablet' ? (
+              <OnlineDeviceStackH cards={siteCards} />
+            ) : (
+              <OnlineDeviceStack cards={siteCards} />
+            )}
             <p className="mt-2 text-center text-[10px] text-muted-foreground/50">
               {t('speedtest.stackSwipeHint')}
             </p>
