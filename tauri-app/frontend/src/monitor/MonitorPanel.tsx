@@ -319,7 +319,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 <div className="space-y-3 ml-10">
                   <SettingRow
                     label={t('monitor.campusNetworkName')}
-                    description={t('monitor.campusNetworkNameTip')}
                   >
                     {/* 固定匹配（2026-09-20）：不再提供手填入口；额外 SSID 与后端 campus_check 同步，仅默认名 i-wxxy 时追加 */}
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -335,7 +334,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   </SettingRow>
                   <SettingRow
                     label={t('monitor.campusGateway')}
-                    description={t('monitor.campusGatewayTip')}
                   >
                     {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
                     <div className="h-7 flex items-center px-2.5 text-xs font-mono bg-muted/50 border border-border/50 rounded-lg text-muted-foreground max-w-[200px]">

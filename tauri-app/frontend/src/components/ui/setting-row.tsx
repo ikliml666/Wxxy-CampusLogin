@@ -26,7 +26,7 @@ export const SettingRow = React.forwardRef<HTMLDivElement, SettingRowProps>(
           {icon}
           <span className="truncate">{label}</span>
         </Label>
-        {description ? <p className="text-xs text-muted-foreground leading-snug">{description}</p> : null}
+        {description ? <p className="text-xs text-muted-foreground leading-snug [overflow-wrap:anywhere]">{description}</p> : null}
       </div>
       <div className="shrink-0 flex items-center gap-2">{children}</div>
     </div>
