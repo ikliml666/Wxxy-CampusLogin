@@ -227,6 +227,9 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     }
 
     crate::update::updater::start_update_check_loop(&app_h);
+    // 启动期兜底清理 %TEMP%/campus-login-update 残留安装包：schedule_update_cleanup
+    // 的 24h 定时挂在进程 runtime 上，用户提前退出即失效（见 updater.rs 注释）
+    crate::update::updater::cleanup_stale_update_dir();
 
     crate::monitor::watcher::run_startup_tasks(&app_h);
 

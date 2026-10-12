@@ -65,7 +65,8 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
   - 顺序尝试每个 URL（`:165-196`）：成功响应（`is_success`）→ 取文本 → `extract_checksum` 命中即 `break`；响应非成功 → 记录 `"HTTP {status}"`，且**非 4xx 时**把 `all_client_errors` 置 false（`:184-187`）；`send` 失败 → 置 `all_client_errors=false` 且 `had_transport_error=true`（`:189-194`）；
   - 全部失败 → 调 `decide_checksum_missing(...)`，`Ok(())` 时**直接返回 `Ok(true)`**（`:203`），`Err` 时包装最后错误返回（`:201-202`）；
   - 计算实际哈希：`tokio::task::spawn_blocking` 内以 **64KB buffer** 流式读取（`:211-228`，注释说明避免 50MB+ 安装包一次性读入造成内存峰值）；最终返回 `actual_hash == expected_hash`（`:230`）。
-- `pub fn schedule_update_cleanup()` — `:233-244`。`spawn` 一个任务：`sleep(24 * 3600)` 后 `spawn_blocking(remove_dir_all(temp_dir))`，`temp_dir = %TEMP%/campus-login-update`（`:234`）；完成后 `log_debug!("updater", "更新临时目录已清理")`（`:242`）。注释说明原值为 600s，因用户可能在 UAC 等待/稍后安装时被提前删除，改 24h（`:236-237`）。
+- `pub fn schedule_update_cleanup()` — `:233-244`。`spawn` 一个任务：`sleep(24 * 3600)` 后 `spawn_blocking(remove_dir_all(temp_dir))`，`temp_dir = %TEMP%/campus-login-update`（`:234`，经 `update_temp_dir()` 单点拼接，常量 `UPDATE_TEMP_DIR`）；完成后 `log_debug!("updater", "更新临时目录已清理")`（`:242`）。注释说明原值为 600s，因用户可能在 UAC 等待/稍后安装时被提前删除，改 24h（`:236-237`）。
+- `pub fn cleanup_stale_update_dir()` — `:268-299`（2026-10-15 新增）。`spawn_blocking` 扫 `update_temp_dir()`，删扩展名属 `exe`/`msi`/`sha256`（`UPDATE_ASSET_EXTS`，大小写不敏感，含 `.sha256` 附属校验文件）且 mtime 超 `UPDATE_STALE_SECS`（24h，与 `schedule_update_cleanup` 同档）的文件。定位为 `schedule_update_cleanup` 的**启动期兜底**：后者定时挂在进程 runtime 上，用户 24h 内退出即失效；目录不存在视为正常（从未下载过）。调用方 `app/startup.rs`（`start_update_check_loop` 之后）。
 - `pub fn start_update_check_loop(app_handle: &tauri::AppHandle)` — `:246-278`。任务名 `update_check_loop`（`:249`），注册失败只 `log_warn!`（`:276`）。流程：先 `select!` 等 `STARTUP_CHECK_DELAY_SECS`（5s）或 cancel（`:253-256`）；进入 `loop` 判 cancel / `is_quitting`（`:258-260`）→ `do_update_check`（`:261`）→ **5 秒步进**累计到 `AUTO_CHECK_INTERVAL_SECS`（86400，`:264-273`），步进间同时监听 cancel 与 `is_quitting`。调用方 `app/startup.rs:193`。
 - `async fn do_update_check(app_h: &tauri::AppHandle, state: &AppState)` — `:281-313`（私有）。`mirror_first = config.update_source != "github"`（`:282`，默认 `update_source = "mirror"`，见 `config/model.rs:198`，即默认镜像优先）；`check_update_inner` 成功后发 `emit_update_available(has_update, latest_version, release_notes)`（`:285-289`）；有更新且 `update_stats.update_notified` 的 `compare_exchange(false, true, Acquire, Relaxed)` 成功时弹通知（`:292`）：Windows 桌面走 `platform::toast::show_update_toast`（可点击跳转关于界面）**失败降级**为 `emit_notification(app_h, "发现新版本", body, "mascot-update")`（`:295-299`，`#[cfg(all(desktop, target_os = "windows"))]`），非该组合直接走普通通知（`:300-301`））。失败只 `log_warn!`（`:309-311`）。
 - `pub async fn fetch_latest_release(mirror_first: bool) -> Result<(bool, String, String, Option<String>), String>` — `:317-343`。按 `mirror_first` 排源顺序（`:318-322`，镜像优先时 `[M0, M1, M2, 官方]`，否则 `[官方, M0, M1, M2]`），顺序尝试 `fetch_version_from_url`；首个成功即返回（降级生效时 `i > 0` 记 `log_info!`，`:328`）；全失败返回 `Err("所有更新源均失败（首选: {primary_err}）")`（`:342`）。
@@ -226,12 +227,12 @@ checked via commands/updater.rs
      → is_downloading 互斥（:31-32）
      → 只允许 https + 域名白名单（13 项，含 github.com / ghfast.top / gh-proxy.com / ghproxy.net / moeyy.cn 等，:39-54）
      → 文件名取自 URL 末段，清洗 Windows 非法字符、含 ".." 或空则回退 "update.exe"
-     → 目标：%TEMP%/campus-login-update/<filename>（:76-78）
+     → 目标：%TEMP%/campus-login-update/<filename>（:76-78，目录经 update_temp_dir() 单点拼接）
      → MAX_DOWNLOAD_SIZE = 500MB（声明在 :74，响应头与逐块写入前各判一次）
      → reqwest 客户端：connect_timeout 30s / total timeout 1800s（:81-82）
      → tokio::fs 流式写；每 ≥200ms 或收满时发 DownloadProgress（:138 判定，:150-155 发送）
   install_update（:195-292）
-     → 路径必须 canonicalize 后位于 %TEMP%/campus-login-update 之内（先于校验）
+     → 路径必须 canonicalize 后位于 %TEMP%/campus-login-update 之内（先于校验；目录经 update_temp_dir() 单点拼接）
      → checksum_url 缺失/空 → Err("未提供SHA256校验和，安装已阻止")（:238-243）
      → verify_download_sha256(file_path, urls, config.skip_sha256_when_missing)（:222-227）   update/updater.rs:152
         ├─ Ok(true)  → 通过（可能来自"允许跳过且全部 4xx"的降级）  updater.rs:203
@@ -239,6 +240,9 @@ checked via commands/updater.rs
         └─ Err(e)    → 删文件 + Err("SHA256校验过程失败，安装已阻止: {e}")
      → 扩展名分派：exe → open::that；msi → msiexec /i（raw_arg，路径含引号则拒绝）
      → 成功后 schedule_update_cleanup()（24h 后删 %TEMP%/campus-login-update）  updater.rs:233
+   启动期兜底：app/startup.rs 在 start_update_check_loop（:229）后调 cleanup_stale_update_dir()（:231-233）
+     → 删 %TEMP%/campus-login-update 中 mtime 超 24h 的 exe/msi/sha256（含附属校验文件）
+     → 进行中的下载刷新 mtime 不受影响；目录名走 UPDATE_TEMP_DIR 常量（updater.rs:253）
 ```
 
 ### SHA256 多源解析与降级决策
@@ -272,6 +276,8 @@ checked via commands/updater.rs
 | 单文件下载上限 | `500 * 1024 * 1024` | `commands/updater.rs:73` |
 | 下载互斥 | `tasks.is_downloading` | `commands/updater.rs:33` |
 | 临时目录清理延迟 | `24 * 3600` s | `update/updater.rs:238` |
+| 残留安装包超龄阈值 | `24 * 3600` s | `update/updater.rs:265`（`UPDATE_STALE_SECS`，与上同档） |
+| 残留安装包扩展名白名单 | `exe`/`msi`/`sha256` | `update/updater.rs:267-268`（`UPDATE_ASSET_EXTS`） |
 | helper 结果轮询间隔 | `100` ms | `platform/helper_spawn.rs:72` |
 | helper 超时（DNS / MAC） | `30` s / `25` s | `commands/network_cmd.rs:314`、`network/dhcp.rs:293` |
 | SHA256 流式块大小 | `65536` 字节 | `update/updater.rs:218` |
@@ -298,7 +304,7 @@ checked via commands/updater.rs
 5. **`.sha256` 文本解析过窄** — `update/updater.rs:141-149` 只取"首个空白 token"或"最后一个 `=` 后的 token"，且不做 BOM 剥离/逐行扫描：文件中含 UTF-8 BOM、首行为注释、或采用多行 `<hash>  <file>` 列表（第二行起的目标文件）时均返回 `None`，继续降级到下一个源。
 6. **`VERSION_MIRRORS` 与可下载域名白名单不一致** — 检查阶段只走 3 个镜像（`update/updater.rs:15-19`），而 `commands/updater.rs:39-54` 的白名单列了 13 个域名（含 `gh-proxy.org`、`gh.ddlc.top`、`githubproxy.cc` 等）。新增镜像必须两处同步，否则会出现"能检查到版本但下载被拒绝"或反之。
 7. **`GITHUB_REPO` / `VERSION_FILE_URL` / `VERSION_MIRRORS` 硬编码，未从配置读取** — `update/updater.rs:8`、`:12`、`:15-19`。fork 或仓库改名需改源码，且 `--result`、`version.json` 的路径同样写死为 `main` 分支。
-8. **临时更新目录没有启动期清理** — 仅 `update/updater.rs:233-244` 的进程内 `sleep(24h)` 会删 `%TEMP%/campus-login-update`；应用在 24 小时内退出（或安装后用户一直不重启）时该目录残留，仓库内除 `commands/updater.rs:76`、`:202` 与 `update/updater.rs:234` 外没有任何扫尾逻辑（`grep "campus-login-update"` 只有这三处）。
+8. ~~**临时更新目录没有启动期清理**~~（**已修复 2026-10-15**，`fix/sess-session--apk-cleanup`，与安卓端 APK 清理同源）— 原缺口：仅进程内 `sleep(24h)` 会删，用户提前退出即残留。现新增 `update/updater.rs` 的 `cleanup_stale_update_dir()`，`app/startup.rs` 在 `start_update_check_loop` 后调用，启动时删 `%TEMP%/campus-login-update` 中 mtime 超 24h 的 `exe`/`msi`/`sha256`；目录名收敛为 `UPDATE_TEMP_DIR` 常量 + `update_temp_dir()`，`commands/updater.rs` 两处硬编码拼接改为复用。
 9. **`write_result_file` 忽略全部 IO 错误** — `helper/mod.rs:765-776`（写入与 rename 都不检查）。写失败时主进程只能等到 25s/30s 超时（`platform/helper_spawn.rs:79`），而 helper 侧因不初始化 logger（`helper/mod.rs:12-13`）不留任何落盘痕迹。
 10. **MAC 伪装值清除失败仍报成功** — `helper/mod.rs:470-479`：`remove_mac_from_registry` 失败只在 `logs` 里 push 一条中文提示，`success` 仍为 `true`。用户看到"MAC已修改并重启网卡"，但注册表 `NetworkAddress` 残留会使伪装 MAC 在重启后继续生效（该注释本身指出这是"用户无从恢复"的场景）。
 11. **helper 无自我超时、无重入保护** — `helper/mod.rs:200-218` 一旦进入 `run_dns`/`run_mac`/`run_set_metric` 就同步跑到结束；两个并发提权副本写同一 `--result` 路径时后写覆盖先写（路径含 pid+毫秒时间戳，`platform/helper_spawn.rs:13-19`，实际碰撞概率低但无锁）。

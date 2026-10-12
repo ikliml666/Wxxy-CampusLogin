@@ -66,7 +66,7 @@ pub async fn download_update(
 
     const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
 
-    let temp_dir = std::env::temp_dir().join("campus-login-update");
+    let temp_dir = crate::update::updater::update_temp_dir();
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
     let file_path = temp_dir.join(&filename);
 
@@ -192,7 +192,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, file_path: String, che
     }
 
     // 路径校验必须在 SHA256 校验之前，避免校验失败时删除非临时目录的文件
-    let temp_dir = std::env::temp_dir().join("campus-login-update");
+    let temp_dir = crate::update::updater::update_temp_dir();
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
 
     let canonical_path = path.canonicalize().map_err(|e| format!("无法解析文件路径: {e}"))?;

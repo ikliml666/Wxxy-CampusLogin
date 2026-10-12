@@ -250,8 +250,20 @@ pub async fn verify_download_sha256(file_path: &str, checksum_urls: &[String], a
     Ok(actual_hash == expected_hash)
 }
 
+/// 临时更新目录名（下载/安装/清理共用，避免三处各拼一次）
+pub const UPDATE_TEMP_DIR: &str = "campus-login-update";
+/// 残留安装包保留时长：与 schedule_update_cleanup 的 24h 同档（安装前用户
+/// 可能等待 UAC 或换镜像重下，过早删会破坏安装流程）
+const UPDATE_STALE_SECS: u64 = 24 * 3600;
+/// 安装产物扩展名（含校验值附属文件：只清 exe/msi 与 .sha256，不动其他文件）
+const UPDATE_ASSET_EXTS: &[&str] = &["exe", "msi", "sha256"];
+
+pub fn update_temp_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join(UPDATE_TEMP_DIR)
+}
+
 pub fn schedule_update_cleanup() {
-    let temp_dir = std::env::temp_dir().join("campus-login-update");
+    let temp_dir = update_temp_dir();
     tauri::async_runtime::spawn(async move {
         // 24h 后清理：原 600s 内用户可能尚未点击安装（UAC 等待/稍后安装），
         // 安装包会被提前删除
@@ -260,6 +272,45 @@ pub fn schedule_update_cleanup() {
             std::fs::remove_dir_all(&temp_dir)
         }).await;
         crate::log_debug!("updater", "更新临时目录已清理");
+    });
+}
+
+/// 启动期兜底清理：删除 `%TEMP%/campus-login-update` 中超过 24h 的残留安装包。
+///
+/// 与安卓端同构的两段式生命周期：进程内 `schedule_update_cleanup` 挂在 tokio
+/// runtime 上，用户 24h 内退出应用（托盘退出/关机）定时器即消亡，目录永久残留；
+/// 装完的安装器也不会回收 `%TEMP%` 里的原包。本函数在下一次启动时扫尾。
+/// 只删 exe/msi/sha256 且按 mtime 判定——进行中的下载会刷新 mtime，不受影响。
+pub fn cleanup_stale_update_dir() {
+    let dir = update_temp_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            // 目录不存在（从未下载过更新）：正常情况
+            Err(_) => return,
+        };
+        let now = std::time::SystemTime::now();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_asset = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| UPDATE_ASSET_EXTS.iter().any(|a| a.eq_ignore_ascii_case(e)))
+                .unwrap_or(false);
+            if !is_asset {
+                continue;
+            }
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|mtime| now.duration_since(mtime).ok())
+                .map(|age| age.as_secs() >= UPDATE_STALE_SECS)
+                .unwrap_or(false);
+            if stale && std::fs::remove_file(&path).is_ok() {
+                crate::log_debug!("updater", "清理残留安装包: {:?}", path.file_name().unwrap_or_default());
+            }
+        }
     });
 }
 
@@ -613,6 +664,31 @@ mod tests {
     }
 
     const HASH_LOWER: &str = "3c91004d01826e0211f6e95512192262baa7aeabc863317a6e7a1910531d5271";
+
+    #[test]
+    fn stale_update_asset_classification() {
+        // 残留判定按扩展名 + mtime：只认 exe/msi/sha256，大小写不敏感
+        let is_asset = |name: &str| {
+            std::path::Path::new(name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| UPDATE_ASSET_EXTS.iter().any(|a| a.eq_ignore_ascii_case(e)))
+                .unwrap_or(false)
+        };
+        assert!(is_asset("Wxxy-CampusLogin_2.4.2_x64-setup.exe"));
+        assert!(is_asset("setup.msi"));
+        assert!(is_asset("setup.exe.sha256"));
+        assert!(is_asset("SETUP.EXE"), "扩展名大小写不敏感");
+        assert!(!is_asset("notes.txt"));
+        assert!(!is_asset("update"), "无扩展名不碰");
+    }
+
+    #[test]
+    fn stale_update_dir_threshold_is_24h() {
+        // 与 schedule_update_cleanup 的 24h 同档：装前用户可能等 UAC / 换镜像重下
+        assert_eq!(UPDATE_STALE_SECS, 24 * 3600);
+        assert_eq!(update_temp_dir().join("a.exe"), std::env::temp_dir().join("campus-login-update").join("a.exe"));
+    }
 
     #[test]
     fn extract_checksum_from_github_api_json() {
