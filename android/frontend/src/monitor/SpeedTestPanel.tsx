@@ -2,7 +2,6 @@ import { CardContent, CardHeader, CardTitle, CardDescription } from '@/component
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import {
   ExternalLink,
   Globe,
@@ -14,6 +13,7 @@ import {
 import { cn } from '@/lib/utils'
 import React, { memo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { OnlineDeviceStackH } from '@/account/SelfOnlineStack'
 
 interface SpeedTestSite {
   nameKey: string
@@ -100,8 +100,6 @@ const SPEED_TEST_SITES: SpeedTestSite[] = [
   },
 ]
 
-const SITE_CATEGORY_KEYS = ['speedtest.comprehensiveTest', 'speedtest.educationNetwork', 'speedtest.lightweightTest'] as const
-
 interface SpeedTestPanelProps {
   openExternal: (url: string) => void
 }
@@ -135,56 +133,56 @@ export const SpeedTestPanel = memo(function SpeedTestPanel({ openExternal }: Spe
         </AnimatedCard>
       </div>
 
-      {SITE_CATEGORY_KEYS.map((categoryKey, catIdx) => {
-        const sites = SPEED_TEST_SITES.filter(s => s.categoryKey === categoryKey)
-        if (sites.length === 0) return null
-        return (
-          <div key={categoryKey} className="card-enter" style={{ '--stagger-i': catIdx + 1 } as React.CSSProperties}>
-            <AnimatedCard noEnterAnimation>
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[11px] px-2 py-0.5">
-                    {t(categoryKey)}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {sites.map((site, idx) => {
-                  const Icon = site.icon
-                  return (
-                    <div key={site.nameKey}>
-                      {idx > 0 && <Separator className="my-2" />}
-                      <div className="flex items-center gap-3 py-1">
-                        <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', site.bg)}>
-                          <Icon className={cn('h-4 w-4', site.color)} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-medium">{t(site.nameKey)}</span>
-                            <ArrowUpRight className="h-3 w-3 text-muted-foreground/40" />
-                          </div>
-                          <p className="text-[11px] text-muted-foreground line-clamp-2">{t(site.descKey)}</p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] gap-1 px-2 shrink-0"
-                          onClick={() => handleOpen(site.url)}
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          {t('common.open')}
-                        </Button>
+      {/* 网址堆叠卡（复用自助服务在线信息卡机制 OnlineDeviceStackH）：
+          每个测速网址一张卡，中央卡全亮、两侧缩小压暗，拖拽 / 半区点击 / 圆点翻页 */}
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardContent className="pt-4">
+            <OnlineDeviceStackH
+              cards={SPEED_TEST_SITES.map((site) => {
+                const Icon = site.icon
+                return (
+                  <div
+                    key={site.nameKey}
+                    className="w-full h-fit rounded-xl bg-card dark:bg-muted p-3 shadow-sm shadow-black/5 ring-1 ring-black/[0.04] ring-inset dark:ring-white/[0.06] flex flex-col gap-2"
+                  >
+                    {/* 标题行：图标色块 + 站点名 + 分类徽章 */}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', site.bg)}>
+                        <Icon className={cn('h-4 w-4', site.color)} />
                       </div>
+                      <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                        <span className="text-sm font-medium truncate">{t(site.nameKey)}</span>
+                        <ArrowUpRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                      </div>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                        {t(site.categoryKey)}
+                      </Badge>
                     </div>
-                  )
-                })}
-              </CardContent>
-            </AnimatedCard>
-          </div>
-        )
-      })}
+                    <p className="text-[11px] text-muted-foreground">{t(site.descKey)}</p>
+                    <div className="flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 px-2"
+                        onClick={() => handleOpen(site.url)}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {t('common.open')}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            />
+            <p className="mt-2 text-center text-[10px] text-muted-foreground/50">
+              {t('speedtest.stackSwipeHint')}
+            </p>
+          </CardContent>
+        </AnimatedCard>
+      </div>
 
-      <div className="card-enter" style={{ '--stagger-i': SITE_CATEGORY_KEYS.length + 1 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardContent className="pt-4">
             <div className="text-[11px] text-muted-foreground/60 space-y-1">

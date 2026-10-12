@@ -509,7 +509,8 @@
     "ipCnTest": "IP.cn测速",
     "ipCnTestDesc": "简洁测速工具，同时显示IP和DNS信息",
     "speedTestNote1": "测速结果受网络环境、服务器位置、运营商等因素影响，建议使用多个平台交叉对比。",
-    "speedTestNote2": "如需在校园网环境下测试，推荐使用中科大、东北大学、北邮等教育网测速站。"
+    "speedTestNote2": "如需在校园网环境下测试，推荐使用中科大、东北大学、北邮等教育网测速站。",
+    "stackSwipeHint": "左右拖拽或点击两侧卡片切换测速站点"
   },
   "settings": {
     "appearance": "外观设置",

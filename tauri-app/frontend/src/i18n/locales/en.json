@@ -509,7 +509,8 @@
     "ipCnTest": "IP.cn Speed Test",
     "ipCnTestDesc": "Simple speed test tool, also shows IP and DNS information",
     "speedTestNote1": "Speed test results are affected by network environment, server location, ISP, etc. It's recommended to cross-compare using multiple platforms.",
-    "speedTestNote2": "For campus network testing, USTC, NEU, and BUPT education network speed test sites are recommended."
+    "speedTestNote2": "For campus network testing, USTC, NEU, and BUPT education network speed test sites are recommended.",
+    "stackSwipeHint": "Drag or tap the side cards to switch speed test sites"
   },
   "settings": {
     "appearance": "Appearance",
