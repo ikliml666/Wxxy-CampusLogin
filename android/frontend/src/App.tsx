@@ -22,7 +22,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { safeStorage, cn } from '@/lib/utils'
 import { requestNotificationPermission } from '@/lib/notificationPermission'
 import { AnimatePresence, m } from 'framer-motion'
-import { Settings, Palette, Info, Heart, ArrowDown, Loader2 } from 'lucide-react'
+import { Settings, Palette, Info, Heart, ArrowDown, Loader2, ArrowUpCircle } from 'lucide-react'
 import { SponsorCard } from '@/shared/SponsorCard'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
@@ -91,6 +91,9 @@ function AppInner() {
   const setUpdateAvailable = useQualityStore((s) => s.setUpdateAvailable)
   const setLatestVersion = useQualityStore((s) => s.setLatestVersion)
   const setReleaseNotes = useQualityStore((s) => s.setReleaseNotes)
+  // 顶栏更新胶囊（与桌面 TitleBar 同款）：发现新版本时显示，点击弹出现有更新弹窗
+  const updateAvailable = useQualityStore((s) => s.updateAvailable)
+  const latestVersion = useQualityStore((s) => s.latestVersion)
 
   const { handleToggleLatencyTest, handleToggleBackgroundCheck, handleTriggerCheck } = useMonitor()
   const { handleAddAccount, handleDeleteAccount, handleSwitchAccount, handleRenameAccount } = useAccount()
@@ -226,6 +229,18 @@ function AppInner() {
             <IspMark suffix={onlineOperator} />
             <span>{t(onlineOperatorLabel)}</span>
           </span>
+        )}
+        {/* 更新提醒胶囊（与桌面 TitleBar 同款）：不再自动弹窗，点击弹出现有更新弹窗 */}
+        {updateAvailable && latestVersion && (
+          <button
+            type="button"
+            aria-label={t('titlebar.newVersionFound', { version: latestVersion })}
+            onClick={() => useQualityStore.getState().setUpdatePromptOpen(true)}
+            className="shrink-0 flex items-center gap-1 text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium rounded-full active:scale-[0.98] transition-transform"
+          >
+            <ArrowUpCircle className="h-3 w-3" aria-hidden="true" />
+            v{latestVersion}
+          </button>
         )}
         {/* 应用名移除(用户要求);原位置放桌面版同款网络质量胶囊,点击进质量页看明细;质量关闭时同步隐藏 */}
         {configEnableNetworkQuality !== false && (

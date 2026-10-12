@@ -211,8 +211,7 @@ export function useEventListeners() {
         if (data.releaseNotes) useQualityStore.getState().setReleaseNotes(data.releaseNotes)
         if (data.hasUpdate && data.latestVersion) {
           lt.getState().addLog(`发现新版本 v${data.latestVersion}`, 'info')
-          // 主动弹窗提醒（每次后端检查循环发现新版本时弹一次，关闭后不重复打扰）
-          useQualityStore.getState().setUpdatePromptOpen(true)
+          // 弹窗改由用户点击顶栏更新胶囊触发（与桌面版一致），不再自动弹出
         }
       }
     }) ?? (() => {})
