@@ -286,6 +286,8 @@
     "ali": "Alibaba",
     "tencent": "Tencent",
     "dohAvailable": "DoH Available",
+    "dohEncrypted": "Encrypted",
+    "dohNotEnabled": "Not Encrypted",
     "noDnsServers": "No DNS servers configured (using DHCP auto)",
     "dohNotSupported": "DoH configuration not supported on this system. You can still set recommended DNS servers",
     "pendingOptimization": "Needs Optimization",

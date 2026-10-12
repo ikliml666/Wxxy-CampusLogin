@@ -286,6 +286,8 @@
     "ali": "阿里",
     "tencent": "腾讯",
     "dohAvailable": "可启用DoH",
+    "dohEncrypted": "已加密",
+    "dohNotEnabled": "未加密",
     "noDnsServers": "未配置DNS服务器（使用DHCP自动获取）",
     "dohNotSupported": "当前系统不支持DoH配置，仍可设置推荐DNS服务器",
     "pendingOptimization": "待优化",

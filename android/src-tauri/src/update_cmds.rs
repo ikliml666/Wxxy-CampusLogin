@@ -523,16 +523,17 @@ pub async fn install_update(app: tauri::AppHandle, file_path: String) -> Result<
     app.campus_monitor_service()
         .install_apk(&canonical.to_string_lossy())
         .map_err(|e| format!("打开安装器失败: {e}"))?;
-    // 安装器已拉起:APK 使命完成,删除自身避免每次更新都在 files/update 里
-    // 堆一个几十 MB 的旧包(安卓没有"安装完自动清缓存"语义,且装完 app 进程
-    // 会被系统替换重启,更没有自删时机)。失败不影响安装流程,启动清理兜底
-    let _ = tokio::fs::remove_file(&canonical).await;
+    // 注意：此处不能立刻删 APK——install_apk 返回只代表系统安装器 UI 已拉起，
+    // FileProvider 的 content URI 由安装器进程异步读取，删早了会撞上 v2.3.9
+    // 「下载成功但装不上」同源竞态；用户取消/安装失败时更需要保留文件可重试。
+    // 收尾交给 cleanup_stale_apks（启动期删超 24h 的残留包）
     Ok(true)
 }
 
-/// 清理更新目录里超过 APK_STALE_SECS 的残留 APK:用户点了下载却没装/装失败,
-/// 或历史版本(≤v2.4.1)装完未删的旧包,下次启动时一次性收掉。
-/// 只删 .apk 且只删 mtime 超龄的文件——进行中的下载不受影响(写盘即刷新 mtime)
+/// 清理更新目录里超过 APK_STALE_SECS 的残留 APK:用户点了下载却没装/装失败/
+/// 取消安装,或历史版本装完未删的旧包(install_update 不再提前删,见其注释),
+/// 下次启动时一次性收掉。只删 .apk 且只删 mtime 超龄的文件——进行中的下载
+/// 不受影响(写盘即刷新 mtime)
 pub async fn cleanup_stale_apks(app: &tauri::AppHandle) {
     let Ok(dir) = update_dir(app) else { return };
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else { return };

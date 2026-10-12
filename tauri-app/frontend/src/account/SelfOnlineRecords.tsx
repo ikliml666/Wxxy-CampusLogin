@@ -126,15 +126,22 @@ export function groupByDay(rows: SessionRow[]): Array<{ day: string; rows: Sessi
   return groups
 }
 
-// 会话行时间区间：HH:MM:SS – HH:MM:SS，未注销以在线徽标收尾（日期由日分组头部承载）
+// 会话行时间区间：HH:MM:SS – HH:MM:SS，未注销以在线徽标收尾（日期由日分组头部承载；
+// 跨日会话的注销日不等于登录日，注销侧补 MM-DD 前缀避免日期归属歧义）
 function SessionTimeRange({ row }: { row: SessionRow }) {
   const { t } = useTranslation()
+  const login = formatEpoch(row.loginTime)
+  const logout = row.logoutTime ? formatEpoch(row.logoutTime) : null
+  const logoutDay = logout ? logout.slice(5, 10) : null
   return (
     <span className="text-xs font-medium font-mono whitespace-nowrap">
-      {formatEpoch(row.loginTime).slice(11)}
+      {login.slice(11)}
       {' – '}
-      {row.logoutTime ? (
-        formatEpoch(row.logoutTime).slice(11)
+      {logout ? (
+        <>
+          {logoutDay !== login.slice(5, 10) && <span className="text-muted-foreground/70">{logoutDay} </span>}
+          {logout.slice(11)}
+        </>
       ) : (
         <span className="ml-0.5 rounded-full bg-emerald-500/12 px-1.5 py-px text-[10px] font-medium text-emerald-600">
           {t('account.selfOnlineBadge')}

@@ -61,7 +61,9 @@
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms) }) }
 
   var mockAdapters = [
-    { name: '以太网 (Mock)', ip: '10.2.103.66', wireless: false, guid: 'mock-guid-1', mac: 'AA-BB-CC-DD-EE-FF', ifIndex: 1, status: 'connected', linkSpeed: 1000000000 }
+    { name: '以太网 (Mock)', ip: '10.2.103.66', wireless: false, guid: 'mock-guid-1', mac: 'AA-BB-CC-DD-EE-FF', ifIndex: 1, status: 'connected', linkSpeed: 1000000000 },
+    { name: 'WLAN', ip: '192.168.6.116', wireless: true, guid: 'mock-guid-2', mac: '11-22-33-44-55-66', ifIndex: 2, status: 'connected', linkSpeed: 2402000000 },
+    { name: '以太网 2', ip: '192.168.6.109', wireless: false, guid: 'mock-guid-3', mac: '77-88-99-AA-BB-CC', ifIndex: 3, status: 'connected', linkSpeed: 2500000000 }
   ]
 
   // ---- 命令分发 ----
@@ -199,7 +201,25 @@
       return ok(null, '延迟测试已停止')
     },
     get_gpu_info: function () { return { name: 'Mock GPU', vendor: 'mock' } },
-    check_dns_doh_status: function () { return { adapters: [] } },
+    check_dns_doh_status: function () { return { adapters: [
+      // 测试数据：3 张卡不同质量档，验证堆叠牌堆翻页与徽章（仅 mock，不影响构建）
+      { name: '以太网 (Mock)', dnsSource: 'manual', adapterDnsOverridesProfile: false,
+        dnsServers: [
+          { address: '223.5.5.5', dohAvailable: true, dohEnabled: true, dohTemplate: 'https://dns.alidns.com/dns-query' },
+          { address: '1.12.12.12', dohAvailable: true, dohEnabled: true, dohTemplate: 'https://doh.pub/dns-query' },
+        ], profileDnsServers: [] },
+      { name: 'WLAN', dnsSource: 'profile', adapterDnsOverridesProfile: false,
+        dnsServers: [
+          { address: '223.5.5.5', dohAvailable: true, dohEnabled: false, dohTemplate: 'https://dns.alidns.com/dns-query' },
+          { address: '10.10.10.10', dohAvailable: false, dohEnabled: false, dohTemplate: '' },
+        ], profileDnsServers: [
+          { address: '119.29.29.29', dohAvailable: true, dohEnabled: false, dohTemplate: '' },
+        ] },
+      { name: '以太网 2', dnsSource: 'dhcp', adapterDnsOverridesProfile: false,
+        dnsServers: [
+          { address: '192.168.6.1', dohAvailable: false, dohEnabled: false, dohTemplate: '' },
+        ], profileDnsServers: [] },
+    ], dohSupported: true, autoDohEnabled: false } },
     get_debug_mode: function () { return false },
     get_auto_launch: function () { return { enabled: false } },
     get_notification_enabled: function () { return false },

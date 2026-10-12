@@ -1,21 +1,14 @@
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
+import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, RotateCcw, UserRound, Info } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, RotateCcw, UserRound } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { SegmentTabs } from '@/shared/SegmentTabs'
@@ -27,6 +20,7 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
+import { OnlineDeviceCardStack } from '@/account/SelfOnlineCards'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { operatorLabelKey } from '@/settings/constants'
@@ -41,8 +35,9 @@ interface NetworkPanelProps {
 const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'])
 const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53', '2402:4e00::'])
 const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
-// 适配器指定账号的「跟随当前账号」哨兵值（Radix Select 不允许空串 value，落盘时空串）
+// 账号绑定下拉的「跟随当前账号」哨兵值（config 存空串，UI 层用哨兵渲染）
 const FOLLOW_CURRENT_ACCOUNT = '__follow__'
+const NO_BACKUP_ADAPTER = '__none__'
 
 /** 连接速度格式化：bit/s → 统一 Mbps 显示（如 "1000 Mbps"），低于 1 Mbps 用 Kbps，未知返回空串 */
 function formatSpeed(bps?: number): string {
@@ -215,7 +210,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
-  // 账号列表：适配器「指定账号」下拉的选项来源（id 为值、displayName 为显示）
   const accounts = useConfigStore((s) => s.accounts)
   // 在线运营商：主/副适配器行旁标注该卡当前登录的线路（仅 online 态；口径与 StatusBar 一致）
   const statusState = useAuthStore((s) => s.status.state)
@@ -348,13 +342,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const isRefreshingAdapters = useAdapterStore(s => s.isRefreshingAdapters)
   // DNS 优化目标：ipv4 / ipv6 / both（默认双栈）
   const [dnsFamily, setDnsFamily] = useState<'both' | 'ipv4' | 'ipv6'>('both')
-  // DNS 结果堆叠卡：手机端在线信息卡竖排堆叠范式（与安卓 SelfOnlineStack 同参数）
-  const [dnsDeckIndex, setDnsDeckIndex] = useState(0)
-  // 新检测结果到达（或卡数减少）时把堆叠索引收回顶部，避免越界与旧位置残留
+  // DNS 结果堆叠卡（OnlineDeviceCardStack 自管翻页索引）：新检测结果到达时以 key 重挂载复位到第一张
   const dnsAdapterCount = dnsStatus?.adapters.length ?? 0
-  useEffect(() => {
-    setDnsDeckIndex(0)
-  }, [dnsAdapterCount])
   const familyTabs = [
     { key: 'ipv4', label: 'IPv4', icon: Network, color: 'text-primary', bg: '' },
     { key: 'ipv6', label: 'IPv6', icon: Globe, color: 'text-primary', bg: '' },
@@ -723,48 +712,27 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               </Reorder.Group>
             )}
             {adapters.length > 0 && (
-              <div className="mt-3 space-y-1">
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <GripVertical className="h-3 w-3 shrink-0" />
-                  {t('network.outboundDragHint')}
-                </p>
-                <p className="text-xs text-muted-foreground">{t('network.outboundAdminHint')}</p>
-              </div>
+              <p className="mt-3 text-xs text-muted-foreground flex items-center gap-1.5">
+                <GripVertical className="h-3 w-3 shrink-0" />
+                {t('network.outboundDragHint')}
+              </p>
             )}
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      {/* 适配器设置 + DNS优化：水平并排各半宽（两卡等高，DNS 卡按钮沉底） */}
-      <div className="grid grid-cols-2 gap-4 items-stretch">
-      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <Network className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('network.adapterSettings')}</CardTitle>
-                <CardDescription>{t('network.adapterSettingsDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col flex-1">
-            {/* 分组一：适配器选择 —— 双卡并排后纵排填充高度，与账号绑定语义区分 */}
-            <div className="flex items-center gap-1.5 mb-2">
-              <Cable className="h-3 w-3 text-primary/70" />
-              <span className="text-[11px] font-semibold text-primary/90">{t('network.adapterGroupSelect')}</span>
-              <div className="flex-1 h-px bg-border/40" />
-            </div>
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">{t('network.primaryAdapter')}</Label>
+            {/* 登录网卡与账号绑定（原独立设置卡合并进来）：主/副适配器 + 各自登录账号，两列紧凑排布。
+                分组标识用 11px 主色小节标题（与 DNS 卡 chips 行同级的视觉语言），不用黑线分割 */}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+              <p className="col-span-full text-[11px] font-medium text-primary flex items-center gap-1">
+                <Cable className="h-3 w-3" />
+                {t('network.adapterGroupSelect')}
+              </p>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                  {t('network.primaryAdapter')}
+                </Label>
                 <Select
                   value={config.adapter1 || AUTO_DETECT_ADAPTER}
                   onValueChange={(value) => onUpdateConfig({ adapter1: value })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder={t('network.selectPrimaryAdapter')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -782,9 +750,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         ))}
                       </>
                     )}
-                    {effectiveDisabledAdapters.length > 0 && (
-                      <SelectSeparator />
-                    )}
+                    {effectiveDisabledAdapters.length > 0 && <SelectSeparator />}
                     {effectiveDisabledAdapters.map(a => (
                       <SelectItem key={a.name} value={a.name} disabled>
                         {a.name}（{t('network.status.disabled')}）
@@ -793,20 +759,23 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">{t('network.backupAdapter')}</Label>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                  <Cable className="h-3 w-3 text-muted-foreground/60" />
+                  {t('network.backupAdapter')}
+                </Label>
                 <Select
-                  value={config.adapter2 || '__none__'}
+                  value={config.adapter2 || NO_BACKUP_ADAPTER}
                   onValueChange={(value) => {
                     const adapter2 = value
-                    onUpdateConfig({ adapter2, dualAdapter: value !== '__none__' })
+                    onUpdateConfig({ adapter2, dualAdapter: value !== NO_BACKUP_ADAPTER })
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder={t('network.selectBackupAdapter')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">{t('common.none')}</SelectItem>
+                    <SelectItem value={NO_BACKUP_ADAPTER}>{t('common.none')}</SelectItem>
                     {adapters.filter(a => a.ip).map(a => (
                       <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
                     ))}
@@ -820,9 +789,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         ))}
                       </>
                     )}
-                    {effectiveDisabledAdapters.length > 0 && (
-                      <SelectSeparator />
-                    )}
+                    {effectiveDisabledAdapters.length > 0 && <SelectSeparator />}
                     {effectiveDisabledAdapters.map(a => (
                       <SelectItem key={a.name} value={a.name} disabled>
                         {a.name}（{t('network.status.disabled')}）
@@ -831,22 +798,19 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            {/* 分组二：账号绑定 —— 该卡登录时使用哪个账号 */}
-            <div className="flex items-center gap-1.5 mt-4 mb-2">
-              <UserRound className="h-3 w-3 text-primary/70" />
-              <span className="text-[11px] font-semibold text-primary/90">{t('network.adapterGroupAccount')}</span>
-              <div className="flex-1 h-px bg-border/40" />
-            </div>
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">{t('network.adapterAccountPrimary')}</Label>
+              <p className="col-span-full text-[11px] font-medium text-primary flex items-center gap-1 mt-1">
+                <UserRound className="h-3 w-3" />
+                {t('network.adapterGroupAccount')}
+              </p>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                  {t('network.adapterAccountPrimary')}
+                </Label>
                 <Select
                   value={config.adapter1Account || FOLLOW_CURRENT_ACCOUNT}
                   onValueChange={(value) => onUpdateConfig({ adapter1Account: value === FOLLOW_CURRENT_ACCOUNT ? '' : value })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder={t('network.adapterAccountPrimary')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -858,13 +822,15 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </Select>
               </div>
               {config.adapter2 && (
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground">{t('network.adapterAccountSecondary')}</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                    {t('network.adapterAccountSecondary')}
+                  </Label>
                   <Select
                     value={config.adapter2Account || FOLLOW_CURRENT_ACCOUNT}
                     onValueChange={(value) => onUpdateConfig({ adapter2Account: value === FOLLOW_CURRENT_ACCOUNT ? '' : value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="h-8 text-xs">
                       <SelectValue placeholder={t('network.adapterAccountSecondary')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -877,75 +843,56 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </div>
               )}
             </div>
-            <div className="mt-auto pt-3">
-              <p className="text-[11px] text-muted-foreground/70 flex items-start gap-1.5 rounded-lg bg-muted/40 px-2.5 py-2">
-                <Info className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/50" />
-                {t('network.adapterAccountTip')}
-              </p>
-            </div>
           </CardContent>
         </AnimatedCard>
       </div>
-      <div className="card-enter flex flex-col" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="flex flex-col flex-1">
+
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <CardIcon>
-                  <Shield className="h-5 w-5 text-primary" />
-                </CardIcon>
-                <div className="min-w-0">
-                  <CardTitle className="whitespace-nowrap">{t('network.dnsOptimization')}</CardTitle>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {/* 按钮 2026-10-11 移至卡底（双卡并排后标题行放不下三按钮） */}
+            <div className="flex items-center gap-3">
+              <CardIcon>
+                <Shield className="h-5 w-5 text-primary" />
+              </CardIcon>
+              <div className="min-w-0">
+                <CardTitle className="whitespace-nowrap">{t('network.dnsOptimization')}</CardTitle>
+                <CardDescription>{t('network.dnsOptimizationDesc')}</CardDescription>
               </div>
             </div>
-            {/* 功能描述移到标题行下方整行显示：原 CardDescription 占标题行宽度，
-                会把右侧"检测DNS/一键优化"按钮挤到折行 */}
-            <CardDescription className="mt-2">{t('network.dnsOptimizationDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
               <Label className="text-xs font-medium text-muted-foreground shrink-0">{t('network.dnsFamilyLabel')}</Label>
               <SegmentTabs
                 tabs={familyTabs}
                 activeKey={dnsFamily}
                 onTabChange={key => setDnsFamily(key as 'both' | 'ipv4' | 'ipv6')}
               />
-            </div>
-            {/* DNS 优化目标适配器：卡内 chip 多选，一键优化/恢复只作用于所选名单 */}
-            <div className="mb-3">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <Label className="text-xs font-medium text-muted-foreground shrink-0">{t('network.dnsAdapterLabel')}</Label>
-                <span className="text-[11px] text-muted-foreground/60 truncate">{t('network.dnsAdapterTip')}</span>
+              <div className="flex-1" />
+              {/* DNS 优化目标适配器：卡内 chip 多选，一键优化/恢复只作用于所选名单；收进同一行 */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {dnsAdapterCandidates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/60">{t('network.dnsAdapterEmpty')}</p>
+                ) : dnsAdapterCandidates.map(name => {
+                  const selected = config.dnsOptimizeAdapters.includes(name)
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => toggleDnsAdapter(name)}
+                      className={cn(
+                        'px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors backdrop-blur-sm',
+                        selected
+                          ? 'bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
+                          : 'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15',
+                        'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]'
+                      )}
+                    >
+                      {name}
+                    </button>
+                  )
+                })}
               </div>
-              {dnsAdapterCandidates.length === 0 ? (
-                <p className="text-xs text-muted-foreground/60">{t('network.dnsAdapterEmpty')}</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {dnsAdapterCandidates.map(name => {
-                    const selected = config.dnsOptimizeAdapters.includes(name)
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        onClick={() => toggleDnsAdapter(name)}
-                        className={cn(
-                          'px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors backdrop-blur-sm',
-                          selected
-                            ? 'bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
-                            : 'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15',
-                          'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]'
-                        )}
-                      >
-                        {name}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
             </div>
             {!dnsStatus && !dnsChecking && (
               <div className="text-center py-6">
@@ -960,141 +907,104 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 <p className="text-sm text-muted-foreground">{t('network.detectingDns')}</p>
               </div>
             )}
-            {dnsStatus && (() => {
-              // 竖排堆叠参数：与安卓 SelfOnlineStack 一致（PEEK 44 / V_SIDE_SCALE 0.75 / 压暗 0.5 / 500ms 缓动）
-              const PEEK = 44
-              const V_SIDE_SCALE = 0.75
-              const DECK_MS = 500
-              const DECK_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-              const total = dnsStatus.adapters.length
-              const safeIndex = Math.min(dnsDeckIndex, Math.max(total - 1, 0))
-              const cardH = 210 // 单张内容估高（含 padding）：容纳 3 行 DNS + 配置文件DNS 小节；固定高保证牌堆几何稳定
-              const deckH = total > 0 ? Math.min(total, 3) * PEEK + cardH : 0
-              return (
-                <div className="relative" style={{ height: deckH }}>
-                  {dnsStatus.adapters.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">{t('network.noActiveAdapters')}</p>
-                  )}
-                  {dnsStatus.adapters.map((adapter, r) => {
-                    const rel = r - safeIndex
-                    const quality = getDnsQuality(adapter, dnsStatus.autoDohEnabled)
-                    // 姿势表：当前卡原位；上方卡整张露出（peekTop）；下方卡压底露出（peekBottom）；
-                    // 超出相邻两张的更远卡完全隐藏。count==2 时不做底部露出（避免遮挡）。
-                    let top: number, scale: number, z: number, opacity: number
-                    if (rel === 0) { top = PEEK; scale = 1; z = 30; opacity = 1 }
-                    else if (rel === -1) { top = 0; scale = V_SIDE_SCALE; z = 20; opacity = 0.5 }
-                    else if (rel === 1) { top = cardH * (1 - V_SIDE_SCALE) + 2 * PEEK; scale = V_SIDE_SCALE; z = 20; opacity = 0.5 }
-                    else { top = rel < 0 ? 0 : cardH * (1 - V_SIDE_SCALE) + 2 * PEEK; scale = V_SIDE_SCALE * 0.9; z = 10; opacity = 0 }
+            {dnsStatus && (
+              // 水平 coverflow 堆叠：完全照搬 Windows 自助服务在线信息卡（OnlineDeviceCardStack）——
+              // 中央卡全亮、两侧缩小压暗（0.6/0.45）、整副牌连续滚动、中线分区点击 + 拖拽翻页 + 圆点指示器。
+              // 卡内容重排：标题行（适配器名+徽章）/ 服务器瓦片（IP+归属+DoH 一行、模板行）/ 配置文件 DNS 分区
+              <OnlineDeviceCardStack key={dnsAdapterCount} className="py-1">
+                {dnsStatus.adapters.map((adapter) => {
+                  const quality = getDnsQuality(adapter, dnsStatus.autoDohEnabled)
+                  const sourceBadge = adapter.dnsSource === 'profile'
+                    ? { label: t('network.perProfileDns'), cls: 'border-purple-500/30 text-purple-600' }
+                    : adapter.dnsSource === 'manual'
+                      ? { label: t('network.perAdapterDns'), cls: 'border-blue-500/30 text-blue-600' }
+                      : null
+                  // 服务器单行布局（替代原 IPv4+DoH 双灰瓦片，与安卓端行式结构对齐）：
+                  // IP 等宽字体居左作主信息、归属小字随后；DoH 状态右对齐成一列便于纵向扫读；
+                  // 模板 URL 作次行小字（判断加密配置是否正确的关键信息）
+                  const renderServerRow = (dns: { address: string; dohEnabled: boolean; dohAvailable: boolean; dohTemplate: string }) => {
+                    const recommended = RECOMMENDED_DNS.has(dns.address)
                     return (
-                      <div
-                        key={adapter.name}
-                        className="absolute inset-x-0 p-3.5 rounded-xl bg-background border border-border/40 shadow-sm space-y-2 cursor-pointer select-none overflow-hidden transition-[transform,opacity,top] ease-[cubic-bezier(0.22,1,0.36,1)]"
-                        style={{
-                          top,
-                          height: cardH,
-                          transform: `scale(${scale})`,
-                          transformOrigin: 'center top',
-                          zIndex: z,
-                          opacity,
-                          pointerEvents: Math.abs(rel) > 1 ? 'none' : 'auto',
-                          transitionDuration: `${DECK_MS}ms`,
-                          transitionTimingFunction: DECK_EASE,
-                        }}
-                        onClick={() => setDnsDeckIndex(r)}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                            <span className="text-sm font-medium whitespace-nowrap">{adapter.name}</span>
-                            {quality.level === 'excellent' && <Badge variant="outline" size="sm" className="border-green-500/30 text-green-600">DNS+DoH</Badge>}
-                            {quality.level === 'good' && <Badge variant="outline" size="sm" className="border-blue-500/30 text-blue-600">DNS</Badge>}
-                            {quality.level === 'basic' && <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">{t('network.pendingOptimization')}</Badge>}
-                            {quality.level === 'none' && <Badge variant="outline" size="sm" className="border-red-500/30 text-red-600">{t('network.notConfigured')}</Badge>}
-                            {adapter.dnsSource === 'profile' && (
-                              <Badge variant="outline" size="sm" className="border-purple-500/30 text-purple-600">{t('network.perProfileDns')}</Badge>
-                            )}
-                            {adapter.dnsSource === 'manual' && (
-                              <Badge variant="outline" size="sm" className="border-blue-500/30 text-blue-600">{t('network.perAdapterDns')}</Badge>
+                      <div key={dns.address} className="min-w-0 py-2 first:pt-0 last:pb-0">
+                        <div className="flex items-center justify-between gap-3 min-w-0">
+                          <div className="flex items-baseline gap-1.5 min-w-0">
+                            <span className={cn('font-mono text-[13px] leading-5 font-medium tabular-nums', recommended ? 'text-green-600' : 'text-foreground')}>
+                              {dns.address}
+                            </span>
+                            {recommended && (
+                              <span className="text-[10px] leading-4 text-muted-foreground/50 shrink-0">
+                                {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
+                              </span>
                             )}
                           </div>
-                          {/* 点状指示器：当前卡显示「第 x / n 张」+ 拉长激活点（与安卓在线卡一致） */}
-                          {r === safeIndex && total > 1 && (
-                            <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
-                              <span className="text-[10px] text-muted-foreground/60">{safeIndex + 1} / {total}</span>
-                              <span className="w-4 h-1.5 rounded-full bg-primary" />
-                              {Array.from({ length: total - 1 }).map((_, i) => (
-                                <span key={i} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/25" />
-                              ))}
-                            </div>
-                          )}
+                          <span className={cn(
+                            'flex items-center gap-1 text-[11px] leading-5 font-medium shrink-0',
+                            dns.dohEnabled ? 'text-green-600' : dns.dohAvailable ? 'text-amber-600' : 'text-muted-foreground/50'
+                          )}>
+                            {dns.dohEnabled ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <XCircle className="h-3 w-3 shrink-0" />}
+                            {dns.dohEnabled ? t('network.dohEncrypted') : dns.dohAvailable ? t('network.dohAvailable') : t('network.dohNotEnabled')}
+                          </span>
                         </div>
-                        <div className="space-y-1">
-                          {adapter.dnsServers.map((dns) => (
-                            <div key={dns.address} className="flex items-center gap-2 text-xs">
-                              <span className={cn("font-mono", RECOMMENDED_DNS.has(dns.address) ? "text-green-600" : "text-muted-foreground")}>
-                                {dns.address}
-                              </span>
-                              {RECOMMENDED_DNS.has(dns.address) && (
-                                <span className="text-muted-foreground/60">
-                                  {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
-                                </span>
-                              )}
-                              {dns.dohEnabled ? (
-                                <CheckCircle2 className="h-3 w-3 text-green-500" />
-                              ) : dns.dohAvailable ? (
-                                <XCircle className="h-3 w-3 text-amber-400" />
-                              ) : (
-                                <XCircle className="h-3 w-3 text-muted-foreground/30" />
-                              )}
-                              {dns.dohEnabled && dns.dohTemplate && (
-                                <span className="text-muted-foreground/40 truncate max-w-[180px]">{dns.dohTemplate}</span>
-                              )}
-                              {!dns.dohEnabled && dns.dohAvailable && (
-                                <span className="text-amber-500/60">{t('network.dohAvailable')}</span>
-                              )}
-                            </div>
-                          ))}
-                          {adapter.dnsServers.length === 0 && (
-                            <p className="text-xs text-muted-foreground/60">{t('network.noDnsServers')}</p>
-                          )}
-                          {/* 适配器级 DNS 覆盖配置文件级 DNS 警告 */}
-                          {adapter.adapterDnsOverridesProfile && adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
-                            <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                              <span className="text-xs text-amber-600">{t('network.adapterDnsOverridesProfileTip')}</span>
-                            </div>
-                          )}
-                          {/* 配置文件级 DNS */}
-                          {adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
-                            <div className="space-y-1 mt-1 pt-1 border-t border-border/30">
-                              <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">{t('network.profileDns')}</span>
-                              {adapter.profileDnsServers.map((dns) => (
-                                <div key={dns.address} className="flex items-center gap-2 text-xs">
-                                  <span className={cn("font-mono", RECOMMENDED_DNS.has(dns.address) ? "text-green-600" : "text-muted-foreground")}>
-                                    {dns.address}
-                                  </span>
-                                  {RECOMMENDED_DNS.has(dns.address) && (
-                                    <span className="text-muted-foreground/60">
-                                      {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
-                                    </span>
-                                  )}
-                                  {dns.dohEnabled ? (
-                                    <CheckCircle2 className="h-3 w-3 text-green-500" />
-                                  ) : dns.dohAvailable ? (
-                                    <XCircle className="h-3 w-3 text-amber-400" />
-                                  ) : (
-                                    <XCircle className="h-3 w-3 text-muted-foreground/30" />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        {dns.dohEnabled && dns.dohTemplate && (
+                          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground/50 font-mono truncate">{dns.dohTemplate}</p>
+                        )}
                       </div>
                     )
-                  })}
-                </div>
-              )
-            })()}
+                  }
+                  return (
+                    <div
+                      key={adapter.name}
+                      // 背景与边缘完全对齐在线信息卡：bg-card dark:bg-muted + 内阴影 ring；
+                      // 卡高自适应内容（OnlineDeviceCardStack 舞台跟随当前卡高度 + 高度过渡）
+                      className="w-full h-fit rounded-xl bg-card dark:bg-muted p-3 shadow-sm shadow-black/5 ring-1 ring-black/[0.04] ring-inset dark:ring-white/[0.06] flex flex-col justify-center gap-2 overflow-hidden"
+                    >
+                      {/* 标题行：适配器名 + 质量徽章 + DNS 来源徽章 */}
+                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        <span className="text-sm font-semibold">{adapter.name}</span>
+                        <Badge variant="outline" size="sm" className={cn(
+                          quality.level === 'excellent' && 'border-green-500/30 text-green-600',
+                          quality.level === 'good' && 'border-blue-500/30 text-blue-600',
+                          quality.level === 'basic' && 'border-amber-500/30 text-amber-600',
+                          quality.level === 'none' && 'border-red-500/30 text-red-600'
+                        )}>{quality.label}</Badge>
+                        {sourceBadge && <Badge variant="outline" size="sm" className={sourceBadge.cls}>{sourceBadge.label}</Badge>}
+                      </div>
+                      {/* 服务器列表 */}
+                      {adapter.dnsServers.length > 0 ? (
+                        <div className="flex flex-col divide-y divide-black/[0.05] dark:divide-white/[0.06]">
+                          {adapter.dnsServers.map((dns) => renderServerRow(dns))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground/60">{t('network.noDnsServers')}</p>
+                      )}
+                      {/* 适配器级 DNS 覆盖配置文件级 DNS 警告 */}
+                      {adapter.adapterDnsOverridesProfile && adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                          <span className="text-xs text-amber-600">{t('network.adapterDnsOverridesProfileTip')}</span>
+                        </div>
+                      )}
+                      {/* 配置文件级 DNS（被覆盖时仍在列，供对照）：紧凑单行摘要，不复制主区瓦片结构 */}
+                      {adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
+                        <div className="flex flex-col gap-0.5 pt-1.5 border-t border-border/30">
+                          <span className="text-[10px] leading-4 text-muted-foreground/60 font-medium">{t('network.profileDns')}</span>
+                          {adapter.profileDnsServers.map((dns) => (
+                            <div key={dns.address} className="flex items-center gap-2 text-xs leading-5 min-w-0">
+                              <span className="font-mono truncate">{dns.address}</span>
+                              {dns.dohEnabled ? (
+                                <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+                              ) : dns.dohAvailable ? (
+                                <span className="text-amber-600 text-[10px] shrink-0">{t('network.dohAvailable')}</span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </OnlineDeviceCardStack>
+            )}
             {dnsStatus && !dnsStatus.dohSupported && (
               <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -1102,7 +1012,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               </div>
             )}
             {/* 操作按钮沉底：检测 / 一键优化 / 恢复自动获取（原在标题行右侧，随双卡并排移至卡底） */}
-            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-border/40">
+            <div className="flex items-center gap-2 mt-4">
               <m.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -1156,7 +1066,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
             </div>
           </CardContent>
         </AnimatedCard>
-      </div>
       </div>
     </div>
   )

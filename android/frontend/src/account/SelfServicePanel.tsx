@@ -10,6 +10,7 @@ import {
   type SelfHistoryRow,
   type SelfLogRow,
   type SelfLogSummary,
+  formatMac,
 } from './selfServiceTypes'
 import { extractErrorMessage } from '@/lib/utils'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
@@ -34,10 +35,6 @@ interface SelfOnlineItem {
   sessionId: string
 }
 // 近期上网记录行：上线/注销时间 epoch ms、ip、mac、时长(分)、流量(M)、计费方式 1/2/3、金额、主机名、终端类型
-export const formatMac = (mac: string) => {
-  const pairs = mac.match(/.{2}/g)
-  return pairs ? pairs.join('-') : mac
-}
 
 const toInt = (value: unknown) => {
   const n = parseInt(String(value ?? ''), 10)
