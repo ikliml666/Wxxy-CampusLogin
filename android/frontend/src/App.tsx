@@ -230,15 +230,15 @@ function AppInner() {
             <span>{t(onlineOperatorLabel)}</span>
           </span>
         )}
-        {/* 更新提醒胶囊（与桌面 TitleBar 同款）：不再自动弹窗，点击弹出现有更新弹窗 */}
+        {/* 更新提醒胶囊（对齐桌面 TitleBar 同款并放大一档适配手机顶栏）：不再自动弹窗，点击弹出现有更新弹窗 */}
         {updateAvailable && latestVersion && (
           <button
             type="button"
             aria-label={t('titlebar.newVersionFound', { version: latestVersion })}
             onClick={() => useQualityStore.getState().setUpdatePromptOpen(true)}
-            className="shrink-0 flex items-center gap-1 text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium rounded-full active:scale-[0.98] transition-transform"
+            className="shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium rounded-full active:scale-[0.98] transition-transform"
           >
-            <ArrowUpCircle className="h-3 w-3" aria-hidden="true" />
+            <ArrowUpCircle className="h-3.5 w-3.5" aria-hidden="true" />
             v{latestVersion}
           </button>
         )}
