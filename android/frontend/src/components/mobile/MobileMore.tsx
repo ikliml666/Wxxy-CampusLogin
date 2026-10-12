@@ -39,7 +39,7 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
   // config 晚到时 qualityEnabled 翻转,已存的 monitor sub 需派生降级,避免 chips 与内容区不一致
   const sub = !qualityEnabled && subRaw === 'monitor' ? 'settings' : subRaw
   const { handleToggleBackgroundCheck, handleTriggerCheck } = useMonitor()
-  const { handleToggleLightMode, handleSetTheme, handleSetAutoLaunch } = useSettings()
+  const { handleSetAutoLaunch } = useSettings()
   const addToast = useLogToastStore((s) => s.addToast)
   const updateConfig = useConfigStore((s) => s.updateConfig)
 
@@ -76,8 +76,6 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
         <SettingsPanel
           onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
-          onToggleLightMode={handleToggleLightMode}
-          onSetTheme={handleSetTheme}
           onShowOnboarding={onShowOnboarding}
         />
       )}

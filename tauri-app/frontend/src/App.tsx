@@ -387,8 +387,6 @@ function AppInner() {
           autoLaunch={configAutoLaunch !== false}
           onUpdateConfig={updateConfig}
           onSetAutoLaunch={handleSetAutoLaunch}
-          onToggleLightMode={handleToggleLightMode}
-          onSetTheme={handleSetTheme}
           onShowOnboarding={() => setOnboardingOpen(true)}
         />
       )

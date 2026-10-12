@@ -1,5 +1,5 @@
 import type { Config } from '@/settings'
-import type { PanelName, ThemeName } from '@/shared'
+import type { PanelName } from '@/shared'
 import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { SettingRow } from '@/components/ui/setting-row'
@@ -9,18 +9,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Rocket, Palette, Sparkles, Moon, LayoutList, Pipette, Gauge, Clock, Bell, Compass,
+  Rocket, LayoutList, Gauge, Clock, Bell, Compass,
   Database, Upload, Download, ChevronRight, LogIn
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { THEME_OPTIONS, DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
+import { DEFAULT_PANEL_OPTIONS } from '@/settings/constants'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { cn, extractErrorMessage } from '@/lib/utils'
-import React, { memo, useMemo, useState, useRef, useEffect } from 'react'
-import { useThemeStore } from '@/hooks/useThemeStore'
+import React, { memo, useState, useEffect } from 'react'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -30,83 +29,18 @@ interface SettingsPanelProps {
   autoLaunch: boolean
   onUpdateConfig: (partial: Partial<Config>) => void
   onSetAutoLaunch: (enabled: boolean) => Promise<void>
-  onToggleLightMode: () => void
-  onSetTheme: (name: ThemeName) => void
   onShowOnboarding?: () => void
-}
-
-const PRESET_COLORS = [
-  '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7',
-  '#ec4899', '#f43f5e', '#ef4444', '#f97316',
-  '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
-]
-
-const PRESET_COLOR_NAMES: Record<string, string> = {
-  '#3b82f6': 'settings.colorBlue',
-  '#6366f1': 'settings.colorIndigo',
-  '#8b5cf6': 'settings.colorViolet',
-  '#a855f7': 'settings.colorPurple',
-  '#ec4899': 'settings.colorPink',
-  '#f43f5e': 'settings.colorRose',
-  '#ef4444': 'settings.colorRed',
-  '#f97316': 'settings.colorOrange',
-  '#eab308': 'settings.colorYellow',
-  '#22c55e': 'settings.colorGreen',
-  '#14b8a6': 'settings.colorTeal',
-  '#06b6d4': 'settings.colorCyan',
 }
 
 export const SettingsPanel = memo(function SettingsPanel({
   autoLaunch,
   onUpdateConfig,
   onSetAutoLaunch,
-  onToggleLightMode,
-  onSetTheme,
   onShowOnboarding,
 }: SettingsPanelProps) {
-  const isLightMode = useThemeStore((s) => s.isLightMode)
-  const themeName = useThemeStore((s) => s.themeName)
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
-  // 主题色取色器本地草稿：拖动取色时 onChange 每帧触发，
-  // 直接写 store 会高频触发级联渲染与全局 CSS 变量重算；
-  // 本地 state 保证取色预览流畅，停顿 80ms 后再写 store 持久化
-  const [colorDraft, setColorDraft] = useState<string | null>(null)
-  const colorCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    return () => { if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current) }
-  }, [])
-
-  const storeCustomColor = useMemo(() => config.customThemeColor || '#6366f1', [config.customThemeColor])
-  const customColor = colorDraft ?? storeCustomColor
-
-  const commitColorDraft = () => {
-    if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current)
-    colorCommitTimerRef.current = null
-    if (colorDraft !== null) {
-      onUpdateConfig({ customThemeColor: colorDraft })
-      setColorDraft(null)
-    }
-  }
-
-  const handleCustomColorChange = (v: string) => {
-    setColorDraft(v)
-    if (colorCommitTimerRef.current) clearTimeout(colorCommitTimerRef.current)
-    colorCommitTimerRef.current = setTimeout(() => {
-      colorCommitTimerRef.current = null
-      onUpdateConfig({ customThemeColor: v })
-      setColorDraft(null)
-    }, 80)
-  }
-
-  const handlePresetColor = (c: string) => {
-    // 点预设色时丢弃取色草稿并取消待提交的节流任务，避免旧取色值回写覆盖
-    if (colorCommitTimerRef.current) { clearTimeout(colorCommitTimerRef.current); colorCommitTimerRef.current = null }
-    setColorDraft(null)
-    onUpdateConfig({ customThemeColor: c })
-  }
-
 
   // 关闭安全开关（安全 → 宽松方向）必须先通过 Windows Hello 验证，
   // 防止绕过界面直接关闭保护；验证失败保持原状态（Switch 受控自动回弹）
@@ -196,112 +130,6 @@ export const SettingsPanel = memo(function SettingsPanel({
 
   return (
     <div className="space-y-4">
-      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <Palette className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('settings.appearance')}</CardTitle>
-                <CardDescription>{t('settings.appearanceDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="space-y-3">
-              <Label className="text-xs font-medium text-muted-foreground">{t('settings.colorScheme')}</Label>
-              <div className="grid grid-cols-3 gap-2">
-                {THEME_OPTIONS.map(theme => {
-                  const isActive = themeName === theme.id
-                  const displayColor = theme.id === 'custom' ? customColor : theme.color
-                  return (
-                    <button
-                      key={theme.id}
-                      onClick={() => onSetTheme(theme.id)}
-                      aria-pressed={isActive}
-                      className={cn(
-                        'flex flex-col items-center gap-2 px-2 py-2.5 rounded-xl text-xs transition-[background-color,color,box-shadow,transform] duration-200',
-                        isActive
-                          ? 'bg-primary/5 text-primary shadow-[0_0_0_1.5px_rgba(59,130,246,0.15)]'
-                          : 'hover:bg-accent text-foreground'
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          'w-8 h-8 rounded-lg transition-transform duration-200',
-                          isActive && 'scale-110'
-                        )}
-                        style={{
-                          backgroundColor: displayColor,
-                          boxShadow: isActive
-                            ? `0 0 0 2px hsl(var(--background)), 0 0 0 4px ${displayColor}`
-                            : `0 1px 3px rgba(0,0,0,0.15)`,
-                        }}
-                      />
-                      <span className="font-medium">{t(theme.labelKey)}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {themeName === 'custom' && (
-              <div className="space-y-3">
-                <Separator />
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                    <Pipette className="h-3 w-3" />
-                    {t('settings.customPrimaryColor')}
-                  </Label>
-                  <div className="flex items-center gap-3">
-                    <label className="relative cursor-pointer">
-                      <div
-                        className="w-10 h-10 rounded-xl shadow-[0_0_0_1px_rgba(0,0,0,0.04)] hover:scale-105 transition-transform"
-                        style={{ backgroundColor: customColor }}
-                      />
-                      <input
-                        type="color"
-                        value={customColor}
-                        onChange={e => handleCustomColorChange(e.target.value)}
-                        onBlur={commitColorDraft}
-                        className="absolute inset-0 opacity-0 cursor-pointer"
-                      />
-                    </label>
-                    <div className="flex-1">
-                      <div className="grid grid-cols-6 gap-1.5">
-                        {PRESET_COLORS.map(c => (
-                          <button
-                            key={c}
-                            onClick={() => handlePresetColor(c)}
-                            aria-label={t(PRESET_COLOR_NAMES[c] || c)}
-                            className={cn(
-                              'w-7 h-7 rounded-lg border-2 transition-transform hover:scale-110',
-                              customColor === c ? 'border-foreground scale-110' : 'border-transparent'
-                            )}
-                            style={{ backgroundColor: c }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <Separator />
-            <SettingRow
-              icon={isLightMode ? <Sparkles className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-slate-400" />}
-              label={isLightMode ? t('settings.lightMode') : t('settings.darkMode')}
-              description={t('settings.switchTheme')}
-            >
-              <Switch checked={isLightMode} onCheckedChange={onToggleLightMode} />
-            </SettingRow>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
       {/* 两列区（手动分栏）：左=启动设置（拆三卡：启动/登录自动化/窗口与界面）；右=通知与安全+数据管理+质量检测（折叠）。
           两列等高：网格默认 stretch；左列 justify-between 把残差摊进卡间空隙（各环境字体渲染差异产生的十px级残差自适配），
           右列末卡 grow 兜底反向残差；底缘像素级对齐 */}
