@@ -126,6 +126,95 @@ export function groupByDay(rows: SessionRow[]): Array<{ day: string; rows: Sessi
   return groups
 }
 
+// 会话行时间区间：HH:MM:SS – HH:MM:SS，未注销以在线徽标收尾（日期由日分组头部承载）
+function SessionTimeRange({ row }: { row: SessionRow }) {
+  const { t } = useTranslation()
+  return (
+    <span className="text-xs font-medium font-mono whitespace-nowrap">
+      {formatEpoch(row.loginTime).slice(11)}
+      {' – '}
+      {row.logoutTime ? (
+        formatEpoch(row.logoutTime).slice(11)
+      ) : (
+        <span className="ml-0.5 rounded-full bg-emerald-500/12 px-1.5 py-px text-[10px] font-medium text-emerald-600">
+          {t('account.selfOnlineBadge')}
+        </span>
+      )}
+    </span>
+  )
+}
+
+// 近期会话行：时间区间 + 右侧时长/流量/金额/计费；次行 IP/MAC/终端（全部数据一屏可读，免横滑）
+function RecentSessionRow({ row }: { row: SessionRow }) {
+  const { t } = useTranslation()
+  const pay = row.payStyle === 1 ? t('account.payStyleTime')
+    : row.payStyle === 2 ? t('account.payStyleFlow')
+    : row.payStyle === 3 ? t('account.payStyleMonth')
+    : null
+  return (
+    <div className="rounded-xl bg-muted/30 px-3.5 py-2.5 space-y-1.5">
+      <div className="flex items-baseline gap-x-2 gap-y-1 flex-wrap">
+        <SessionTimeRange row={row} />
+        <span className="ml-auto text-[11px] text-muted-foreground font-mono whitespace-nowrap">
+          <span className="text-foreground">{row.timeMin ?? '-'}</span> {t('account.selfMinBadge')}
+          {' · '}<span className="text-foreground">{row.flowMb == null ? '-' : fmt2(row.flowMb)}</span> M
+          {' · '}<span className="text-foreground">{fmtMoney(row.costMoney)}</span> {t('account.selfMoneyBadge')}
+          {pay && <> · {pay}</>}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap text-[10px] text-muted-foreground font-mono min-w-0">
+        <span className="shrink-0">{t('account.colIp')} {row.ip || '-'}</span>
+        <span className="truncate">{t('account.colMac')} {row.mac ? formatMac(row.mac) : '-'}</span>
+        <span className="ml-auto shrink-0">{t('account.colTerminalType')} {formatTerminalType(row.terminalType)}</span>
+      </div>
+    </div>
+  )
+}
+
+// 账单会话行：时间区间 + 右侧统计；IP 行 + 虚线详注行（上下行拆分/NAS 常驻，缺失落 '-'）
+function BillSessionRow({ row }: { row: SessionRow }) {
+  const { t } = useTranslation()
+  return (
+    <div className="rounded-xl bg-muted/30 px-3.5 py-2.5 space-y-1.5">
+      <div className="flex items-baseline gap-x-2 gap-y-1 flex-wrap">
+        <SessionTimeRange row={row} />
+        <span className="ml-auto text-[11px] text-muted-foreground font-mono whitespace-nowrap">
+          <span className="text-foreground">{row.timeMin ?? '-'}</span> {t('account.selfMinBadge')}
+          {' · '}<span className="text-foreground">{row.flowMb == null ? '-' : fmt2(row.flowMb)}</span> M
+          {' · '}<span className="text-foreground">{fmtMoney(row.costMoney)}</span> {t('account.selfMoneyBadge')}
+        </span>
+      </div>
+      <div className="text-[10px] text-muted-foreground font-mono truncate">{t('account.colIp')} {row.ip || '-'}</div>
+      <div className="border-t border-dashed border-border/50 pt-1.5 text-[10px] text-muted-foreground font-mono flex flex-wrap gap-x-4 gap-y-0.5">
+        <span>{t('account.selfLogColIntlUp')} {fmt2(row.intlUp)} / {t('account.selfLogColIntlDown')} {fmt2(row.intlDown)}</span>
+        <span>{t('account.selfLogColCnUp')} {fmt2(row.cnUp)} / {t('account.selfLogColCnDown')} {fmt2(row.cnDown)}</span>
+        <span>{t('account.selfLogColNasIp')} {row.nasIp || '-'}{row.nasPort ? `:${row.nasPort}` : ''}</span>
+      </div>
+    </div>
+  )
+}
+
+// 日分组行列表：桌面免横滑形态（2026-10-12 重设计，替代需横向滚动的宽表格）
+function SessionDayGroups({ sessions, renderRow }: {
+  sessions: SessionRow[]
+  renderRow: (row: SessionRow) => React.ReactNode
+}) {
+  const groups = useMemo(() => groupByDay(sessions), [sessions])
+  return (
+    <div className="space-y-3">
+      {groups.map(g => (
+        <div key={g.day} className="space-y-2">
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span className="font-medium">{g.day}</span>
+            <span className="h-px flex-1 bg-border/60" />
+          </div>
+          {g.rows.map(renderRow)}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 interface SelfOnlineRecordsProps {
   configLoaded: boolean
   hasCred: boolean
@@ -155,7 +244,6 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
     [queried, logRows, history],
   )
   const recentStats = useMemo(() => aggregateStats(sessions), [sessions])
-  const thClass = 'px-2 py-2 font-medium whitespace-nowrap text-left'
 
   return (
     <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
@@ -244,44 +332,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                 </div>
               )}
               {sessions.length > 0 ? (
-                <div className="overflow-x-auto rounded-lg border border-border/50">
-                  <table className="w-full text-xs">
-                    <thead className="bg-muted/30 text-muted-foreground">
-                      <tr>
-                        <th className={thClass}>{t('account.colLoginTime')}</th>
-                        <th className={thClass}>{t('account.colLogoutTime')}</th>
-                        <th className={thClass}>{t('account.colIp')}</th>
-                        <th className={thClass}>{t('account.colUseTime')}</th>
-                        <th className={thClass}>{t('account.colUseFlow')}</th>
-                        <th className={thClass}>{t('account.colPayMoney')}</th>
-                        <th className={thClass}>{t('account.selfLogColIntlUp')}</th>
-                        <th className={thClass}>{t('account.selfLogColIntlDown')}</th>
-                        <th className={thClass}>{t('account.selfLogColCnUp')}</th>
-                        <th className={thClass}>{t('account.selfLogColCnDown')}</th>
-                        <th className={thClass}>{t('account.selfLogColNasIp')}</th>
-                        <th className={thClass}>{t('account.selfLogColNasPort')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sessions.map(row => (
-                        <tr key={row.key} className="border-t border-border/40">
-                          <td className={thClass}>{formatEpoch(row.loginTime)}</td>
-                          <td className={thClass}>{row.logoutTime ? formatEpoch(row.logoutTime) : '-'}</td>
-                          <td className={thClass}>{row.ip || '-'}</td>
-                          <td className={thClass}>{row.timeMin ?? '-'}</td>
-                          <td className={thClass}>{row.flowMb == null ? '-' : fmt2(row.flowMb)}</td>
-                          <td className={thClass}>{fmtMoney(row.costMoney)}</td>
-                          <td className={thClass}>{fmt2(row.intlUp)}</td>
-                          <td className={thClass}>{fmt2(row.intlDown)}</td>
-                          <td className={thClass}>{fmt2(row.cnUp)}</td>
-                          <td className={thClass}>{fmt2(row.cnDown)}</td>
-                          <td className={thClass}>{row.nasIp || '-'}</td>
-                          <td className={thClass}>{row.nasPort ?? '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <SessionDayGroups sessions={sessions} renderRow={row => <BillSessionRow key={row.key} row={row} />} />
               ) : (
                 <div className="text-center py-6 text-xs text-muted-foreground">{t('account.selfLogEmpty')}</div>
               )}
@@ -305,43 +356,7 @@ export function SelfOnlineRecords(props: SelfOnlineRecordsProps) {
                   </div>
                 ))}
               </div>
-              <div className="overflow-x-auto rounded-lg border border-border/50">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/30 text-muted-foreground">
-                    <tr>
-                      <th className={thClass}>{t('account.colLoginTime')}</th>
-                      <th className={thClass}>{t('account.colLogoutTime')}</th>
-                      <th className={thClass}>{t('account.colIp')}</th>
-                      <th className={thClass}>{t('account.colMac')}</th>
-                      <th className={thClass}>{t('account.colUseTime')}</th>
-                      <th className={thClass}>{t('account.colUseFlow')}</th>
-                      <th className={thClass}>{t('account.colPayStyle')}</th>
-                      <th className={thClass}>{t('account.colPayMoney')}</th>
-                      <th className={thClass}>{t('account.colTerminalType')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessions.map(row => (
-                      <tr key={row.key} className="border-t border-border/40">
-                        <td className={thClass}>{formatEpoch(row.loginTime)}</td>
-                        <td className={thClass}>{row.logoutTime ? formatEpoch(row.logoutTime) : '-'}</td>
-                        <td className={thClass}>{row.ip || '-'}</td>
-                        <td className={thClass}>{row.mac ? formatMac(row.mac) : '-'}</td>
-                        <td className={thClass}>{row.timeMin ?? '-'}</td>
-                        <td className={thClass}>{row.flowMb == null ? '-' : fmt2(row.flowMb)}</td>
-                        <td className={thClass}>
-                          {row.payStyle === 1 ? t('account.payStyleTime')
-                            : row.payStyle === 2 ? t('account.payStyleFlow')
-                            : row.payStyle === 3 ? t('account.payStyleMonth')
-                            : ''}
-                        </td>
-                        <td className={thClass}>{fmtMoney(row.costMoney)}</td>
-                        <td className={thClass}>{formatTerminalType(row.terminalType)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <SessionDayGroups sessions={sessions} renderRow={row => <RecentSessionRow key={row.key} row={row} />} />
             </>
           ) : (
             <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">

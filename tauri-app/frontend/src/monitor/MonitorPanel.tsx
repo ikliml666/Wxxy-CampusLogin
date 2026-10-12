@@ -24,7 +24,8 @@ interface MonitorPanelProps {
   onTriggerCheck: () => Promise<void>
 }
 
-// 适配器在线状态迷你卡（2026-10-12 重设计）：横向小卡替代原左边框条目
+// 适配器在线状态迷你卡（2026-10-12 重设计）：横向小卡替代原左边框条目；在线态白底、
+// 状态以 emerald 边框/图标片/徽标着色（离线仍用 rose 底色提示异常）
 const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }: { status: AdapterOnlineStatus; isPrimary: boolean }) {
   const { t } = useTranslation()
   const statusText = status.online ? t('auth.online') : (status.message || t('auth.offline'))
@@ -32,7 +33,7 @@ const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }:
     <div className={cn(
       'flex items-center gap-3 p-3.5 rounded-2xl border transition-colors duration-200 min-w-0',
       status.online
-        ? 'bg-emerald-500/8 border-emerald-500/25'
+        ? 'bg-card border-emerald-500/25'
         : 'bg-rose-500/8 border-rose-500/25'
     )}>
       <div className={cn(
