@@ -193,8 +193,8 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
         </div>
       )}
 
-      {/* 设置区：两张独立卡片水平对齐（2026-10-12 重设计，行间不再画分隔线） */}
-      <div className="card-enter grid gap-4 lg:grid-cols-2 lg:items-start" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+      {/* 设置区：两张独立卡片上下排列、同宽（2026-10-12 重设计，行间不再画分隔线） */}
+      <div className="card-enter grid gap-4" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         {/* 左卡：自动化 */}
         <AnimatedCard noEnterAnimation>
           <GroupCardHeader
