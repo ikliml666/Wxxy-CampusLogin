@@ -133,7 +133,6 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
-  const firstRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startX: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
 
@@ -142,15 +141,23 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
 
-  // 量高：当前卡自然高度（各卡内容同构）；ref 随 index 重建观察
+  // 量高：取所有已挂载卡的最大自然高度——舞台高度固定（不随翻页变化）；
+  // 矮卡 h-fit 自然高度，从槽位顶部开始排
+  const stageRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    const el = firstRef.current
-    if (!el) return
-    const update = () => setCardH(el.offsetHeight)
+    const stage = stageRef.current
+    if (!stage) return
+    const update = () => {
+      let max = 0
+      stage.querySelectorAll(':scope > div > div').forEach((el) => {
+        max = Math.max(max, (el as HTMLElement).offsetHeight)
+      })
+      if (max > 0) setCardH(max)
+    }
     update()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(update)
-    ro.observe(el)
+    stage.querySelectorAll(':scope > div > div').forEach((el) => ro.observe(el))
     return () => ro.disconnect()
   }, [cards, index])
 
@@ -215,6 +222,7 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
   return (
     <div className={className}>
       <div
+        ref={stageRef}
         className="relative select-none"
         style={{
           height: cardH != null ? cardH : 200,
@@ -271,9 +279,9 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
           return (
             <div
               key={i}
-              ref={s === 0 ? firstRef : undefined}
-              className="absolute top-0 rounded-xl shadow-md"
-              style={style}
+              // 环境光层（0 偏置）让顶部与其余三边获得同等的阴影包裹，key 层保留向下的深度感
+              className="absolute inset-x-0 top-0 bottom-0 my-auto h-fit rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)]"
+              style={{ ...style }}
               aria-hidden={side}
             >
               <div className={side ? 'pointer-events-none' : ''}>{node}</div>

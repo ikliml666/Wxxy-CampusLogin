@@ -178,7 +178,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
             <div
               key={i}
               ref={r === 0 ? firstRef : undefined}
-              className="absolute top-0 origin-top rounded-xl shadow-md inset-x-[18%] ring-1 ring-black/5 dark:ring-white/10"
+              className="absolute top-0 origin-top rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] inset-x-[18%] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={r !== 0}
             >
@@ -459,7 +459,7 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
             <div
               key={i}
               ref={s === 0 ? firstRef : undefined}
-              className="absolute top-0 rounded-xl shadow-md ring-1 ring-black/5 dark:ring-white/10"
+              className="absolute top-0 rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={side}
             >
