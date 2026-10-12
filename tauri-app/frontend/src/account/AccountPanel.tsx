@@ -668,6 +668,7 @@ export const AccountPanel = memo(function AccountPanel({
           )}
           </CardContent>
         </AnimatedCard>
+      </div>
       <div className="card-enter grid" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation className="h-full">
           <CardHeader className="pb-3">
@@ -749,8 +750,6 @@ export const AccountPanel = memo(function AccountPanel({
             </Button>
           </CardContent>
         </AnimatedCard>
-      </div>
-
       </div>
       </div>
 
