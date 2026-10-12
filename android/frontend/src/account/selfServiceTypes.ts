@@ -34,8 +34,9 @@ export interface SelfLogSummary {
 }
 
 export const formatMac = (mac: string) => {
-  const pairs = mac.match(/.{2}/g)
-  return pairs ? pairs.join('-') : mac
+  // 接口可能返回连续 hex（B025AA6CA580）或带分隔符（B0-25-…/B0:25:…）——先剥非 hex 再配对归一
+  const pairs = mac.replace(/[^0-9a-fA-F]/g, '').match(/.{2}/g)
+  return pairs && pairs.length === 6 ? pairs.join('-') : mac
 }
 
 export const formatEpoch = (ms: unknown) => {
