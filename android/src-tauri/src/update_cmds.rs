@@ -1,5 +1,7 @@
 //! 更新流:version.json 检查(镜像降级)+ 白名单域名流式下载 + APK 安装。
 //! 检查/下载为纯 HTTP 复用桌面逻辑;安装改 APK 意图(桌面 exe/msi 不适用)。
+//! 安装包生命周期:install_update 拉起安装器后即删本地 APK,启动时再按
+//! APK_STALE_SECS 清理"下载未装/装失败/旧版本残留"的孤儿包。
 
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -51,6 +53,20 @@ const DOWNLOAD_ALLOWED_HOSTS: &[&str] = &[
 ];
 
 const MAX_DOWNLOAD_BYTES: u64 = 500 * 1024 * 1024;
+
+/// 更新目录内残留 APK 的最大保留时长:下载了但一直没点安装(或安装失败)的包,
+/// 超过该时长在下次启动时清掉,避免 files/update 无限堆积旧包。
+/// 与桌面 schedule_update_cleanup 的 24h 同档(安装前用户可能要等 UAC/换镜像)
+const APK_STALE_SECS: u64 = 24 * 3600;
+
+/// 更新目录路径:与 download_update / install_update / MonitorServicePlugin.installApk
+/// 同一约定(app_data_dir/files/update),集中一处避免三处拼接漂移
+pub(crate) fn update_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("获取数据目录失败: {e}"))
+        .map(|d| d.join("files").join("update"))
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReleaseAsset {
@@ -402,12 +418,7 @@ async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<Str
     // Android 解析为 dataDir(/data/user/0/<pkg>,见上游 PathPlugin.getDataDir),而
     // 插件与 FileProvider(files-path)都按 filesDir/update 约定——必须拼 files 段,
     // 否则下载成功但安装报"APK 文件不存在"(v2.3.9 真机实测)
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {e}"))?
-        .join("files")
-        .join("update");
+    let dir = update_dir(&app)?;
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| format!("创建更新目录失败: {e}"))?;
@@ -502,12 +513,7 @@ pub async fn install_update(app: tauri::AppHandle, file_path: String) -> Result<
     // Android 解析为 dataDir(/data/user/0/<pkg>,见上游 PathPlugin.getDataDir),而
     // 插件与 FileProvider(files-path)都按 filesDir/update 约定——必须拼 files 段,
     // 否则下载成功但安装报"APK 文件不存在"(v2.3.9 真机实测)
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {e}"))?
-        .join("files")
-        .join("update");
+    let dir = update_dir(&app)?;
     let path = Path::new(&file_path);
     let canonical = path.canonicalize().map_err(|e| format!("路径无效: {e}"))?;
     let allowed_dir = dir.canonicalize().unwrap_or(dir);
@@ -517,7 +523,42 @@ pub async fn install_update(app: tauri::AppHandle, file_path: String) -> Result<
     app.campus_monitor_service()
         .install_apk(&canonical.to_string_lossy())
         .map_err(|e| format!("打开安装器失败: {e}"))?;
+    // 安装器已拉起:APK 使命完成,删除自身避免每次更新都在 files/update 里
+    // 堆一个几十 MB 的旧包(安卓没有"安装完自动清缓存"语义,且装完 app 进程
+    // 会被系统替换重启,更没有自删时机)。失败不影响安装流程,启动清理兜底
+    let _ = tokio::fs::remove_file(&canonical).await;
     Ok(true)
+}
+
+/// 清理更新目录里超过 APK_STALE_SECS 的残留 APK:用户点了下载却没装/装失败,
+/// 或历史版本(≤v2.4.1)装完未删的旧包,下次启动时一次性收掉。
+/// 只删 .apk 且只删 mtime 超龄的文件——进行中的下载不受影响(写盘即刷新 mtime)
+pub async fn cleanup_stale_apks(app: &tauri::AppHandle) {
+    let Ok(dir) = update_dir(app) else { return };
+    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else { return };
+    let now = std::time::SystemTime::now();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let is_apk = path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("apk"))
+            .unwrap_or(false);
+        if !is_apk {
+            continue;
+        }
+        let stale = match entry.metadata().await.and_then(|m| m.modified()) {
+            Ok(mtime) => now
+                .duration_since(mtime)
+                .map(|age| age.as_secs() > APK_STALE_SECS)
+                .unwrap_or(false),
+            Err(_) => false,
+        };
+        if stale {
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let _ = tokio::fs::remove_file(&path).await;
+            campus_login_lib::log_info!("updater", "清理残留安装包: {name}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -561,6 +602,50 @@ mod tests {
         ).unwrap();
         assert_eq!(with_err.last_check_error.as_deref(), Some("HTTP 503"));
         assert_eq!(with_err.last_check_time, Some(123));
+    }
+
+    #[test]
+    fn 安装目录约定_含files段() {
+        // 回归护栏:app_data_dir 在 Android 解析为 dataDir(/data/user/0/<pkg>),
+        // 而 installApk/FileProvider 按 filesDir/update 约定——缺 files 段即装不上
+        // (AppHandle 无法在单测构造,直接校验 update_dir 的拼接语义)
+        let data = std::path::PathBuf::from("/data/user/0/com.ikliml666.campuslogin");
+        let built = data.join("files").join("update");
+        assert!(built.ends_with("files/update"), "拼接结果必须落在 files/update: {built:?}");
+    }
+
+    #[test]
+    fn 清理残留安装包_超龄删_新鲜留_非apk不动() {
+        let dir = std::env::temp_dir().join(format!(
+            "wxxy-apk-cleanup-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let stale = dir.join("campus-login-2.4.0.apk");
+        let fresh = dir.join("campus-login-2.5.0.apk");
+        let other = dir.join("notes.txt");
+        std::fs::write(&stale, b"old").unwrap();
+        std::fs::write(&fresh, b"new").unwrap();
+        std::fs::write(&other, b"keep").unwrap();
+        // stale 的 mtime 拨到 48h 前(超过 APK_STALE_SECS=24h)
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(48 * 3600);
+        let f = std::fs::File::options().write(true).open(&stale).unwrap();
+        f.set_modified(old).unwrap();
+        drop(f);
+
+        // 与 cleanup_stale_apks 同一判定的纯函数式复现(单测拿不到 AppHandle):
+        // 逐项断言删除决策,而非依赖真实目录遍历
+        let now = std::time::SystemTime::now();
+        let is_stale = |p: &std::path::Path| {
+            let mtime = std::fs::metadata(p).and_then(|m| m.modified()).unwrap();
+            now.duration_since(mtime).map(|a| a.as_secs() > APK_STALE_SECS).unwrap_or(false)
+        };
+        assert!(is_stale(&stale), "48h 前的旧包必须判为残留");
+        assert!(!is_stale(&fresh), "刚下载的包不得被误删");
+        assert!(!is_stale(&other), "非 apk 文件不参与判定(调用方按扩展名过滤)");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

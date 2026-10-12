@@ -453,6 +453,9 @@ pub fn run_startup_tasks(app: tauri::AppHandle) {
         }
         // 自动更新检查循环(桌面 24h 同语义):有新版本 emit + 系统通知
         crate::update_cmds::start_update_check_loop(app.clone());
+        // 清理历史残留安装包(下载未装/装失败/旧版本装完未删):只删超龄的,
+        // 本次刚下载的包 mtime 会被刷新,不受影响
+        crate::update_cmds::cleanup_stale_apks(&app).await;
         if settings.auto_login_on_start {
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
