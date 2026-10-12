@@ -1,16 +1,14 @@
 import type { Config } from '@/settings'
 import type { AdapterOnlineStatus } from '@/monitor'
 import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
-import { SettingRow } from '@/components/ui/setting-row'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, LogOut, PowerOff, AlarmClock, HelpCircle } from 'lucide-react'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { SettingRow } from '@/components/ui/setting-row'
+import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, LogOut, PowerOff, AlarmClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import React, { memo, useMemo, useState } from 'react'
@@ -26,51 +24,56 @@ interface MonitorPanelProps {
   onTriggerCheck: () => Promise<void>
 }
 
+// 适配器在线状态迷你卡（2026-10-12 重设计）：横向小卡替代原左边框条目
 const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }: { status: AdapterOnlineStatus; isPrimary: boolean }) {
   const { t } = useTranslation()
   const statusText = status.online ? t('auth.online') : (status.message || t('auth.offline'))
   return (
     <div className={cn(
-      'flex items-center justify-between p-3 rounded-xl transition-colors duration-200 border-l-2',
+      'flex items-center gap-3 p-3.5 rounded-2xl border transition-colors duration-200 min-w-0',
       status.online
-        ? 'bg-emerald-500/8 border-l-emerald-500'
-        : 'bg-rose-500/8 border-l-rose-500'
+        ? 'bg-emerald-500/8 border-emerald-500/25'
+        : 'bg-rose-500/8 border-rose-500/25'
     )}>
-      <div className="flex items-center gap-3">
-        <div className={cn(
-          'w-8 h-8 rounded-full flex items-center justify-center',
-          status.online ? 'bg-emerald-500/10' : 'bg-rose-500/10'
-        )}>
-          {status.wireless ? (
-            <Wifi className={cn('h-4 w-4', status.online ? 'text-emerald-500' : 'text-rose-500')} />
-          ) : (
-            <Cable className={cn('h-4 w-4', status.online ? 'text-emerald-500' : 'text-rose-500')} />
+      <div className={cn(
+        'w-9 h-9 rounded-xl flex items-center justify-center shrink-0',
+        status.online ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
+      )}>
+        {status.wireless ? <Wifi className="h-4 w-4" /> : <Cable className="h-4 w-4" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-semibold truncate">{status.name}</span>
+          {isPrimary && (
+            <Badge variant="outline" className="text-[9px] h-4 px-1 border-primary/30 text-primary">{t('monitor.primary')}</Badge>
           )}
         </div>
-        <div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-medium">{status.name}</span>
-            {isPrimary && (
-              <Badge variant="outline" className="text-[9px] h-4 px-1 border-primary/30 text-primary">{t('monitor.primary')}</Badge>
-            )}
-          </div>
-          <span className="text-[11px] text-muted-foreground font-mono">{status.ip || t('auth.noIp')}</span>
+        <span className="text-[11px] text-muted-foreground font-mono truncate block">{status.ip || t('auth.noIp')}</span>
+      </div>
+      <Badge variant="outline" className={cn(
+        'shrink-0 text-[10px] h-5 px-2 border-0 font-medium',
+        status.online ? 'bg-emerald-500/12 text-emerald-600' : 'bg-rose-500/12 text-rose-600'
+      )}>
+        {status.online ? <CheckCircle2 className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
+        {statusText}
+      </Badge>
+    </div>
+  )
+})
+
+// 设置卡片头：图标片 + 标题/副题（两张设置卡的统一卡头，替代原组标题行）
+const GroupCardHeader = memo(function GroupCardHeader({ icon, titleKey, descKey }: { icon: React.ReactNode; titleKey: string; descKey: string }) {
+  const { t } = useTranslation()
+  return (
+    <CardHeader className="pb-3">
+      <div className="flex items-center gap-3">
+        <CardIcon className="w-9 h-9 rounded-xl">{icon}</CardIcon>
+        <div className="min-w-0">
+          <CardTitle className="text-[15px]">{t(titleKey)}</CardTitle>
+          <CardDescription className="text-xs">{t(descKey)}</CardDescription>
         </div>
       </div>
-      <div className="flex items-center gap-1.5">
-        {status.online ? (
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-        ) : (
-          <XCircle className="h-4 w-4 text-rose-500" />
-        )}
-        <span className={cn(
-          'text-xs font-medium',
-          status.online ? 'text-emerald-600' : 'text-rose-600'
-        )}>
-          {statusText}
-        </span>
-      </div>
-    </div>
+    </CardHeader>
   )
 })
 
@@ -103,109 +106,103 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
     setIntervalDraft(null)
   }
 
+  const adapterStatuses = bgStatus.adapterStatuses ?? []
+
   return (
     <div className="space-y-4">
+      {/* 控制条：标题/徽章/开关/间隔/按钮 单卡收口（原两段式大卡压缩） */}
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1 basis-52">
+                <CardIcon className={cn(
                   bgStatus.isRunning ? 'bg-emerald-500/10' : 'bg-muted'
                 )}>
                   <Radar className={cn('h-5 w-5', bgStatus.isRunning ? 'text-emerald-500 animate-pulse' : 'text-muted-foreground')} />
-                </div>
+                </CardIcon>
                 <div className="min-w-0">
-                  <CardTitle>{t('monitor.networkStatusDetection')}</CardTitle>
-                  <CardDescription>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">{t('monitor.networkStatusDetection')}</CardTitle>
+                    <Badge variant={bgStatus.isRunning ? 'success' : 'secondary'} className="text-[10px] h-[20px]">
+                      <Clock className="h-2.5 w-2.5 mr-1" />
+                      {bgStatus.checkCount > 9999 ? `${(bgStatus.checkCount / 1000).toFixed(1)}k` : bgStatus.checkCount} {t('common.times')}
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs">
                     {bgStatus.isRunning ? t('monitor.detectionRunning') : t('monitor.detectionStopped')}
                   </CardDescription>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Badge variant={bgStatus.isRunning ? 'success' : 'secondary'} className="text-[10px] h-[20px]">
-                  <Clock className="h-2.5 w-2.5 mr-1" />
-                  {bgStatus.checkCount > 9999 ? `${(bgStatus.checkCount / 1000).toFixed(1)}k` : bgStatus.checkCount} {t('common.times')}
-                </Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs gap-1.5"
-                  onClick={handleTriggerCheck}
-                  disabled={isRefreshing}
-                >
-                  <RefreshCw className={getRefreshIconClass(isRefreshing, 'h-3 w-3')} />
-                  {isRefreshing ? t('monitor.detecting') : t('monitor.refreshNow')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={bgStatus.isRunning ? 'destructive' : 'default'}
-                  className="h-8 text-xs gap-1.5"
-                  onClick={() => toggleBackgroundCheck(!bgStatus.isRunning, intervalSec)}
-                  disabled={isTogglingDetection}
-                >
-                  {bgStatus.isRunning ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                  {bgStatus.isRunning ? t('monitor.stop') : t('monitor.start')}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center gap-5">
-              <div className="flex items-center gap-2.5">
-                <Switch
-                  checked={bgStatus.isRunning}
-                  onCheckedChange={(checked) => toggleBackgroundCheck(checked, intervalSec)}
-                />
-                <Label className="text-sm font-medium">{bgStatus.isRunning ? t('monitor.running') : t('monitor.stopped')}</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-xs text-muted-foreground shrink-0">{t('monitor.checkInterval')}</Label>
-                <Input
-                  type="number"
-                  min={10}
-                  max={600}
-                  value={intervalDraft ?? intervalSec}
-                  onChange={e => setIntervalDraft(e.target.value)}
-                  onBlur={commitInterval}
-                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                  className="w-16 h-8 text-center font-mono"
-                />
-                <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
-              </div>
-            </div>
-
-            {(bgStatus.adapterStatuses ?? []).length > 0 && (
-              <div className="space-y-2 pt-2">
-                <Separator />
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-xs font-medium text-muted-foreground">{t('monitor.adapterOnlineStatus')}</span>
+              <div className="flex items-center gap-4 shrink-0 max-sm:w-full max-sm:justify-between max-sm:flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <Switch
+                    checked={bgStatus.isRunning}
+                    onCheckedChange={(checked) => toggleBackgroundCheck(checked, intervalSec)}
+                  />
+                  <Label className="text-sm font-medium">{bgStatus.isRunning ? t('monitor.running') : t('monitor.stopped')}</Label>
                 </div>
-                {(bgStatus.adapterStatuses ?? []).map((s) => (
-                  <AdapterStatusCard key={s.name} status={s} isPrimary={s.name === config.adapter1} />
-                ))}
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground shrink-0">{t('monitor.checkInterval')}</Label>
+                  <Input
+                    type="number"
+                    min={10}
+                    max={600}
+                    value={intervalDraft ?? intervalSec}
+                    onChange={e => setIntervalDraft(e.target.value)}
+                    onBlur={commitInterval}
+                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    className="w-16 h-8 text-center font-mono"
+                  />
+                  <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+                </div>
+                <div className="flex items-center gap-2 max-sm:w-full">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs gap-1.5 flex-1"
+                    onClick={handleTriggerCheck}
+                    disabled={isRefreshing}
+                  >
+                    <RefreshCw className={getRefreshIconClass(isRefreshing, 'h-3 w-3')} />
+                    {isRefreshing ? t('monitor.detecting') : t('monitor.refreshNow')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={bgStatus.isRunning ? 'destructive' : 'default'}
+                    className="h-8 text-xs gap-1.5 flex-1"
+                    onClick={() => toggleBackgroundCheck(!bgStatus.isRunning, intervalSec)}
+                    disabled={isTogglingDetection}
+                  >
+                    {bgStatus.isRunning ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                    {bgStatus.isRunning ? t('monitor.stop') : t('monitor.start')}
+                  </Button>
+                </div>
               </div>
-            )}
+            </div>
           </CardContent>
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+      {/* 适配器在线状态：横向迷你卡两列（桌面端能力） */}
+      {adapterStatuses.length > 0 && (
+        <div className="card-enter grid gap-3 sm:grid-cols-2" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+          {adapterStatuses.map((s) => (
+            <AdapterStatusCard key={s.name} status={s} isPrimary={s.name === config.adapter1} />
+          ))}
+        </div>
+      )}
+
+      {/* 设置区：两张独立卡片水平对齐（2026-10-12 重设计，行间不再画分隔线） */}
+      <div className="card-enter grid gap-4 lg:grid-cols-2 lg:items-start" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+        {/* 左卡：自动化 */}
         <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <Settings2 className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('monitor.verificationSettings')}</CardTitle>
-                <CardDescription>{t('monitor.verificationSettingsDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
+          <GroupCardHeader
+            icon={<Rocket className="h-4 w-4 text-primary" />}
+            titleKey="monitor.groupAutomation"
+            descKey="monitor.groupAutomationDesc"
+          />
           <CardContent className="space-y-4">
-            <p className="text-xs font-medium text-muted-foreground">{t('monitor.groupAutomation')}</p>
             <SettingRow
               htmlFor="bg-auto"
               icon={<Rocket className="h-4 w-4 text-primary" />}
@@ -218,7 +215,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 onCheckedChange={checked => onUpdateConfig({ enableBackgroundCheck: checked })}
               />
             </SettingRow>
-            <Separator />
             <SettingRow
               htmlFor="auto-exit-online"
               icon={<DoorOpen className="h-4 w-4 text-amber-500" />}
@@ -231,7 +227,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 onCheckedChange={checked => onUpdateConfig({ autoExitOnOnline: checked })}
               />
             </SettingRow>
-            <Separator />
             <SettingRow
               htmlFor="auto-login-ready"
               icon={<LogIn className="h-4 w-4 text-blue-500" />}
@@ -244,58 +239,99 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
               />
             </SettingRow>
-            <Separator />
-            <div className="space-y-4">
-              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                {t('monitor.groupCampusCheck')}
-                {/* 检测逻辑说明收进问号 Tooltip(与 QualityPanel 指标说明同模式),节约纵向空间 */}
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t('monitor.detectionLogic')}
-                        className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center shrink-0 hover:bg-muted transition-colors"
-                      >
-                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" align="start" className="max-w-[320px]">
-                      <div className="space-y-1 text-[11px]">
-                        <p className="font-medium">{t('monitor.detectionLogic')}</p>
-                        <p>{t('monitor.detectionLogicStep1')}</p>
-                        <p>{t('monitor.detectionLogicStep2')}</p>
-                        <p>{t('monitor.detectionLogicStep3')}</p>
-                        <p>{t('monitor.detectionLogicAny')}</p>
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </p>
-              <SettingRow
-                htmlFor="network-name-check"
-                icon={<Wifi className="h-4 w-4 text-violet-500" />}
-                label={t('monitor.campusNetworkVerification')}
-                description={t('monitor.campusNetworkVerificationDesc')}
-              >
-                <Switch
-                  id="network-name-check"
-                  checked={config.enableNetworkNameCheck || false}
-                  onCheckedChange={checked => onUpdateConfig({ enableNetworkNameCheck: checked })}
+            <SettingRow
+              htmlFor="campus-exit-on-fail"
+              icon={<PowerOff className="h-4 w-4 text-rose-500" />}
+              label={t('monitor.autoExitNonCampus')}
+              description={t('monitor.autoExitNonCampusDesc')}
+            >
+              <Switch
+                id="campus-exit-on-fail"
+                checked={config.campusExitOnFail ?? true}
+                onCheckedChange={checked => onUpdateConfig({ campusExitOnFail: checked })}
+              />
+            </SettingRow>
+            {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠(与安卓同构) */}
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <div className="flex items-center gap-2.5 min-w-[140px] flex-1 basis-[140px]">
+                <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
+                  <AlarmClock className="h-3.5 w-3.5 text-rose-500" />
+                </div>
+                <div className="min-w-0">
+                  <Label htmlFor="campus-exit-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusExitTimeWindow')}</Label>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusExitTimeWindowDesc')}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Input
+                  id="campus-exit-start-time"
+                  type="time"
+                  value={(() => {
+                    const m = config.campusExitStartMinutes ?? 480
+                    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                  })()}
+                  onChange={e => {
+                    const [h, min] = e.target.value.split(':').map(Number)
+                    if (!isNaN(h) && !isNaN(min)) {
+                      onUpdateConfig({ campusExitStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                    }
+                  }}
+                  className="w-24 h-7 text-sm font-mono"
                 />
-              </SettingRow>
-              {config.enableNetworkNameCheck && (
+                <span className="text-xs text-muted-foreground">–</span>
+                <Input
+                  type="time"
+                  aria-label={t('monitor.campusExitWindowEnd')}
+                  value={(() => {
+                    const m = config.campusExitEndMinutes ?? 1380
+                    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                  })()}
+                  onChange={e => {
+                    const [h, min] = e.target.value.split(':').map(Number)
+                    if (!isNaN(h) && !isNaN(min)) {
+                      onUpdateConfig({ campusExitEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                    }
+                  }}
+                  className="w-24 h-7 text-sm font-mono"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </AnimatedCard>
+
+        {/* 右卡：校园网校验 */}
+        <AnimatedCard noEnterAnimation>
+          <GroupCardHeader
+            icon={<Settings2 className="h-5 w-5 text-primary" />}
+            titleKey="monitor.groupCampusCheck"
+            descKey="monitor.groupCampusCheckDesc"
+          />
+          <CardContent className="space-y-4">
+            <SettingRow
+              htmlFor="network-name-check"
+              icon={<Wifi className="h-4 w-4 text-violet-500" />}
+              label={t('monitor.campusNetworkVerification')}
+              description={t('monitor.campusNetworkVerificationDesc')}
+            >
+              <Switch
+                id="network-name-check"
+                checked={config.enableNetworkNameCheck || false}
+                onCheckedChange={checked => onUpdateConfig({ enableNetworkNameCheck: checked })}
+              />
+            </SettingRow>
+            {config.enableNetworkNameCheck && (
+              <>
                 <div className="space-y-3 ml-10">
                   <SettingRow
                     label={t('monitor.campusNetworkName')}
                     description={t('monitor.campusNetworkNameTip')}
                   >
                     {/* 固定匹配（2026-09-20）：不再提供手填入口；额外 SSID 与后端 campus_check 同步，仅默认名 i-wxxy 时追加 */}
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {[config.requiredNetworkName || 'i-wxxy', ...(config.requiredNetworkName || 'i-wxxy') === 'i-wxxy' ? ['iwxxy-2', 'iwxxy-3'] : []].map(name => (
                         <span
                           key={name}
-                          className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground"
+                          className="h-7 flex items-center px-2.5 text-xs font-mono bg-primary/8 border border-primary/20 rounded-lg text-primary"
                         >
                           {name}
                         </span>
@@ -307,221 +343,159 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     description={t('monitor.campusGatewayTip')}
                   >
                     {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground max-w-[220px]">
+                    <div className="h-7 flex items-center px-2.5 text-xs font-mono bg-muted/50 border border-border/50 rounded-lg text-muted-foreground max-w-[200px]">
                       {config.campusGateway || '10.2.127.254'}
                     </div>
                   </SettingRow>
-                  <Separator className="my-2" />
-                  <SettingRow
-                    htmlFor="campus-exit-on-fail"
-                    icon={<PowerOff className="h-4 w-4 text-rose-500" />}
-                    label={t('monitor.autoExitNonCampus')}
-                    description={t('monitor.autoExitNonCampusDesc')}
-                  >
-                    <Switch
-                      id="campus-exit-on-fail"
-                      checked={config.campusExitOnFail ?? true}
-                      onCheckedChange={checked => onUpdateConfig({ campusExitOnFail: checked })}
+                </div>
+                {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠(与安卓同构) */}
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
+                      <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckTimeRange')}</Label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusCheckTimeRangeDesc')}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Input
+                      id="campus-check-start-time"
+                      type="time"
+                      value={(() => {
+                        const m = config.campusCheckStartMinutes ?? 460
+                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                      })()}
+                      onChange={e => {
+                        const [h, min] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(min)) {
+                          onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                        }
+                      }}
+                      className="w-24 h-7 text-sm font-mono"
                     />
-                  </SettingRow>
-                  <Separator className="my-2" />
-                  {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠(与安卓同构) */}
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
-                        <AlarmClock className="h-3.5 w-3.5 text-rose-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <Label htmlFor="campus-exit-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusExitTimeWindow')}</Label>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusExitTimeWindowDesc')}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Input
-                        id="campus-exit-start-time"
-                        type="time"
-                        value={(() => {
-                          const m = config.campusExitStartMinutes ?? 480
-                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                        })()}
-                        onChange={e => {
-                          const [h, min] = e.target.value.split(':').map(Number)
-                          if (!isNaN(h) && !isNaN(min)) {
-                            onUpdateConfig({ campusExitStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                          }
-                        }}
-                        className="w-24 h-7 text-sm font-mono"
-                      />
-                      <span className="text-xs text-muted-foreground">–</span>
-                      <Input
-                        type="time"
-                        aria-label={t('monitor.campusExitWindowEnd')}
-                        value={(() => {
-                          const m = config.campusExitEndMinutes ?? 1380
-                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                        })()}
-                        onChange={e => {
-                          const [h, min] = e.target.value.split(':').map(Number)
-                          if (!isNaN(h) && !isNaN(min)) {
-                            onUpdateConfig({ campusExitEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                          }
-                        }}
-                        className="w-24 h-7 text-sm font-mono"
-                      />
-                    </div>
-                  </div>
-                  <Separator className="my-2" />
-                  {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠(与安卓同构) */}
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
-                        <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckTimeRange')}</Label>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusCheckTimeRangeDesc')}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Input
-                        id="campus-check-start-time"
-                        type="time"
-                        value={(() => {
-                          const m = config.campusCheckStartMinutes ?? 460
-                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                        })()}
-                        onChange={e => {
-                          const [h, min] = e.target.value.split(':').map(Number)
-                          if (!isNaN(h) && !isNaN(min)) {
-                            onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                          }
-                        }}
-                        className="w-24 h-7 text-sm font-mono"
-                      />
-                      <span className="text-xs text-muted-foreground">–</span>
-                      <Input
-                        type="time"
-                        aria-label={t('monitor.campusCheckWindowEnd')}
-                        value={(() => {
-                          // 兜底值与后端 Settings::default / DEFAULT_CONFIG 对齐(1380=23:00),避免字段缺失时 UI 显示 00:00 而后端按 23:00 判定(与安卓同构)
-                          const m = config.campusCheckEndMinutes ?? 1380
-                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                        })()}
-                        onChange={e => {
-                          const [h, min] = e.target.value.split(':').map(Number)
-                          if (!isNaN(h) && !isNaN(min)) {
-                            onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                          }
-                        }}
-                        className="w-24 h-7 text-sm font-mono"
-                      />
-                    </div>
-                  </div>
-                  <Separator className="my-2" />
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                        <LogIn className="h-3.5 w-3.5 text-emerald-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <Label htmlFor="scheduled-login-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLoginTime')}</Label>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLoginTimeDesc')}</p>
-                      </div>
-                    </div>
-                    {/* Input 组件对 time 类型自带 relative w-full 包装层,直接作 flex 子项会吃满剩余空间使选择器悬中,外包 shrink-0 容器约束为内容宽 */}
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Switch
-                        aria-label={t('monitor.scheduledLoginEnable')}
-                        checked={(config.scheduledLoginMinutes ?? 1440) < 1440}
-                        onCheckedChange={checked => {
-                          // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
-                          if (!checked) { onUpdateConfig({ scheduledLoginMinutes: 1440 }); return }
-                          const cur = config.scheduledLoginMinutes ?? 1440
-                          onUpdateConfig({ scheduledLoginMinutes: cur >= 1440 ? 480 : cur })
-                        }}
-                        className="shrink-0"
-                      />
-                      <Input
-                        id="scheduled-login-time"
-                        type="time"
-                        aria-label={t('monitor.scheduledLoginTime')}
-                        disabled={(config.scheduledLoginMinutes ?? 1440) >= 1440}
-                        value={(() => {
-                          const m = config.scheduledLoginMinutes ?? 1440
-                          if (m >= 1440) return ''
-                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                        })()}
-                        onChange={e => {
-                          const [h, min] = e.target.value.split(':').map(Number)
-                          if (!isNaN(h) && !isNaN(min)) {
-                            onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                          }
-                        }}
-                        className="w-24 h-7 text-sm font-mono"
-                      />
-                    </div>
-                  </div>
-                  <Separator className="my-2" />
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
-                        <LogOut className="h-3.5 w-3.5 text-rose-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <Label htmlFor="scheduled-logout-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLogoutTime')}</Label>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLogoutTimeDesc')}</p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Switch
-                        aria-label={t('monitor.scheduledLogoutEnable')}
-                        checked={(config.scheduledLogoutMinutes ?? 1440) < 1440}
-                        onCheckedChange={checked => {
-                          // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
-                          if (!checked) { onUpdateConfig({ scheduledLogoutMinutes: 1440 }); return }
-                          const cur = config.scheduledLogoutMinutes ?? 1440
-                          onUpdateConfig({ scheduledLogoutMinutes: cur >= 1440 ? 480 : cur })
-                        }}
-                        className="shrink-0"
-                      />
-                      <Input
-                        id="scheduled-logout-time"
-                        type="time"
-                        aria-label={t('monitor.scheduledLogoutTime')}
-                        disabled={(config.scheduledLogoutMinutes ?? 1440) >= 1440}
-                        value={(() => {
-                          const m = config.scheduledLogoutMinutes ?? 1440
-                          if (m >= 1440) return ''
-                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                        })()}
-                        onChange={e => {
-                          const [h, min] = e.target.value.split(':').map(Number)
-                          if (!isNaN(h) && !isNaN(min)) {
-                            onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                          }
-                        }}
-                        className="w-24 h-7 text-sm font-mono"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 pt-1">
-                    {(() => {
-                      if (bgStatus.currentSsid) {
-                        return <Badge variant="outline" className="text-[10px]">{t('monitor.currentSsid', { ssid: bgStatus.currentSsid })}</Badge>
-                      }
-                      const primary = (bgStatus.adapterStatuses ?? []).find(a => a.online)
-                      if (primary && !primary.wireless) {
-                        return <Badge variant="outline" className="text-[10px]">{t('network.wired')}</Badge>
-                      }
-                      return <Badge variant="outline" className="text-[10px] text-muted-foreground">{t('monitor.ssidNotObtained')}</Badge>
-                    })()}
-                    {bgStatus.onCampusNetwork !== undefined && (
-                      <Badge variant={bgStatus.onCampusNetwork ? 'success' : 'destructive'} className="text-[10px]">
-                        {bgStatus.onCampusNetwork ? t('monitor.connectedToCampus') : t('monitor.notCampusNetwork')}
-                      </Badge>
-                    )}
+                    <span className="text-xs text-muted-foreground">–</span>
+                    <Input
+                      type="time"
+                      aria-label={t('monitor.campusCheckWindowEnd')}
+                      value={(() => {
+                        // 兜底值与后端 Settings::default / DEFAULT_CONFIG 对齐(1380=23:00),避免字段缺失时 UI 显示 00:00 而后端按 23:00 判定(与安卓同构)
+                        const m = config.campusCheckEndMinutes ?? 1380
+                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                      })()}
+                      onChange={e => {
+                        const [h, min] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(min)) {
+                          onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                        }
+                      }}
+                      className="w-24 h-7 text-sm font-mono"
+                    />
                   </div>
                 </div>
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                      <LogIn className="h-3.5 w-3.5 text-emerald-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <Label htmlFor="scheduled-login-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLoginTime')}</Label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLoginTimeDesc')}</p>
+                    </div>
+                  </div>
+                  {/* Input 组件对 time 类型自带 relative w-full 包装层,直接作 flex 子项会吃满剩余空间使选择器悬中,外包 shrink-0 容器约束为内容宽 */}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Switch
+                      aria-label={t('monitor.scheduledLoginEnable')}
+                      checked={(config.scheduledLoginMinutes ?? 1440) < 1440}
+                      onCheckedChange={checked => {
+                        // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
+                        if (!checked) { onUpdateConfig({ scheduledLoginMinutes: 1440 }); return }
+                        const cur = config.scheduledLoginMinutes ?? 1440
+                        onUpdateConfig({ scheduledLoginMinutes: cur >= 1440 ? 480 : cur })
+                      }}
+                      className="shrink-0"
+                    />
+                    <Input
+                      id="scheduled-login-time"
+                      type="time"
+                      aria-label={t('monitor.scheduledLoginTime')}
+                      disabled={(config.scheduledLoginMinutes ?? 1440) >= 1440}
+                      value={(() => {
+                        const m = config.scheduledLoginMinutes ?? 1440
+                        if (m >= 1440) return ''
+                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                      })()}
+                      onChange={e => {
+                        const [h, min] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(min)) {
+                          onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                        }
+                      }}
+                      className="w-24 h-7 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
+                      <LogOut className="h-3.5 w-3.5 text-rose-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <Label htmlFor="scheduled-logout-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLogoutTime')}</Label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLogoutTimeDesc')}</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Switch
+                      aria-label={t('monitor.scheduledLogoutEnable')}
+                      checked={(config.scheduledLogoutMinutes ?? 1440) < 1440}
+                      onCheckedChange={checked => {
+                        // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
+                        if (!checked) { onUpdateConfig({ scheduledLogoutMinutes: 1440 }); return }
+                        const cur = config.scheduledLogoutMinutes ?? 1440
+                        onUpdateConfig({ scheduledLogoutMinutes: cur >= 1440 ? 480 : cur })
+                      }}
+                      className="shrink-0"
+                    />
+                    <Input
+                      id="scheduled-logout-time"
+                      type="time"
+                      aria-label={t('monitor.scheduledLogoutTime')}
+                      disabled={(config.scheduledLogoutMinutes ?? 1440) >= 1440}
+                      value={(() => {
+                        const m = config.scheduledLogoutMinutes ?? 1440
+                        if (m >= 1440) return ''
+                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                      })()}
+                      onChange={e => {
+                        const [h, min] = e.target.value.split(':').map(Number)
+                        if (!isNaN(h) && !isNaN(min)) {
+                          onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                        }
+                      }}
+                      className="w-24 h-7 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="flex items-center gap-2 pt-1">
+              {(() => {
+                if (bgStatus.currentSsid) {
+                  return <Badge variant="outline" className="text-[10px]">{t('monitor.currentSsid', { ssid: bgStatus.currentSsid })}</Badge>
+                }
+                const primary = adapterStatuses.find(a => a.online)
+                if (primary && !primary.wireless) {
+                  return <Badge variant="outline" className="text-[10px]">{t('network.wired')}</Badge>
+                }
+                return <Badge variant="outline" className="text-[10px] text-muted-foreground">{t('monitor.ssidNotObtained')}</Badge>
+              })()}
+              {bgStatus.onCampusNetwork !== undefined && (
+                <Badge variant={bgStatus.onCampusNetwork ? 'success' : 'destructive'} className="text-[10px]">
+                  {bgStatus.onCampusNetwork ? t('monitor.connectedToCampus') : t('monitor.notCampusNetwork')}
+                </Badge>
               )}
             </div>
           </CardContent>
