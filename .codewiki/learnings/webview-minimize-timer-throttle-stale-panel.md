@@ -18,35 +18,35 @@ tags: [前端, Tauri, 网络, DNS, 出站切换, WebView2]
 ### Frontend: NetworkPanel.tsx
 
 **常量:**
-- `ALI_DNS`: 阿里云 DNS IP 集合 (`tauri-app/frontend/src/network/NetworkPanel.tsx:34`)
-- `TENCENT_DNS`: 腾讯云 DNS IP 集合 (`tauri-app/frontend/src/network/NetworkPanel.tsx:35`)
-- `RECOMMENDED_DNS`: 推荐 DNS 合集 (`tauri-app/frontend/src/network/NetworkPanel.tsx:36`)
-- `FOLLOW_CURRENT_ACCOUNT`: 适配器账号选择的哨兵值 `'__follow__'` (`tauri-app/frontend/src/network/NetworkPanel.tsx:39`)
-- `DRAG_LONG_PRESS_MS`: 长按起拖时长 250ms (`tauri-app/frontend/src/network/NetworkPanel.tsx:53`)
-- `DRAG_DEAD_ZONE_PX`: 长按死区 8px (`tauri-app/frontend/src/network/NetworkPanel.tsx:56`)
+- `ALI_DNS`: 阿里云 DNS IP 集合 (`tauri-app/frontend/src/network/NetworkPanel.tsx:36`)
+- `TENCENT_DNS`: 腾讯云 DNS IP 集合 (`tauri-app/frontend/src/network/NetworkPanel.tsx:37`)
+- `RECOMMENDED_DNS`: 推荐 DNS 合集 (`tauri-app/frontend/src/network/NetworkPanel.tsx:38`)
+- `FOLLOW_CURRENT_ACCOUNT`: 适配器账号选择的哨兵值 `'__follow__'` (`tauri-app/frontend/src/network/NetworkPanel.tsx:41`)
+- `DRAG_LONG_PRESS_MS`: 长按起拖时长 250ms (`tauri-app/frontend/src/network/NetworkPanel.tsx:55`)
+- `DRAG_DEAD_ZONE_PX`: 长按死区 8px (`tauri-app/frontend/src/network/NetworkPanel.tsx:58`)
 
 **函数:**
-- `formatSpeed(bps)`: 格式化连接速度为 Mbps/Kbps (`tauri-app/frontend/src/network/NetworkPanel.tsx:42`)
-- `getDnsQuality(adapter, autoDohEnabled)`: 计算单个适配器的 DNS 质量等级 (`tauri-app/frontend/src/network/NetworkPanel.tsx:472`)
+- `formatSpeed(bps)`: 格式化连接速度为 Mbps/Kbps (`tauri-app/frontend/src/network/NetworkPanel.tsx:44`)
+- `getDnsQuality(adapter, autoDohEnabled)`: 计算单个适配器的 DNS 质量等级 (`tauri-app/frontend/src/network/NetworkPanel.tsx:495`)
 
 **组件:**
-- `SortableAdapterRow`: 可拖拽的适配器行组件，实现长按起拖逻辑 (`tauri-app/frontend/src/network/NetworkPanel.tsx:72`)
+- `SortableAdapterRow`: 可拖拽的适配器行组件，实现长按起拖逻辑 (`tauri-app/frontend/src/network/NetworkPanel.tsx:74`)
   - Props: `adapter`, `isOutboundTarget`, `isCurrentOutbound`, `roleLabel`, `onDragEndCommit`, `onDragStart`, `children`
-- `NetworkPanel`: 主面板组件 (`tauri-app/frontend/src/network/NetworkPanel.tsx:133`)
+- `NetworkPanel`: 主面板组件 (`tauri-app/frontend/src/network/NetworkPanel.tsx:135`)
   - Props: `adapters: Adapter[]`, `onUpdateConfig: (partial: Partial<Config>) => void`
 
 **核心状态与逻辑:**
-- `effectiveDisabledAdapters`: 从 `adapters` 派生的禁用列表，避免双通道不一致 (`tauri-app/frontend/src/network/NetworkPanel.tsx:145`)
-- `outboundOrder` / `dragOrder`: 出站优先级排序，支持拖拽重排 (`tauri-app/frontend/src/network/NetworkPanel.tsx:168-205`)
-- `currentOutbound`: 当前真实出站接口名称，通过 `getCurrentOutboundName` 获取 (`tauri-app/frontend/src/network/NetworkPanel.tsx:213-222`)
-- `syncOnRestore`: 恢复可见性时的状态同步逻辑，含 5s 节流 (`tauri-app/frontend/src/network/NetworkPanel.tsx:238-244`)
-- `handleCheckDns`: 检测 DNS/DoH 状态 (`tauri-app/frontend/src/network/NetworkPanel.tsx:258`)
-- `handleSetupDnsDoh`: 一键设置 DNS+DoH (`tauri-app/frontend/src/network/NetworkPanel.tsx:276`)
-- `handleResetDns`: 重置 DNS 为自动获取 (`tauri-app/frontend/src/network/NetworkPanel.tsx:306`)
-- `handleGetNewIpForAdapter`: DHCP 释放/续租 (`tauri-app/frontend/src/network/NetworkPanel.tsx:336`)
-- `handleEnableAdapter`: 启用禁用适配器 (`tauri-app/frontend/src/network/NetworkPanel.tsx:352`)
-- `handleOutboundSwitchNow`: 手动触发立即切换出站 (`tauri-app/frontend/src/network/NetworkPanel.tsx:373`)
-- `handleOutboundRestoreNow`: 手动触发立即还原出站 (`tauri-app/frontend/src/network/NetworkPanel.tsx:394`)
+- `effectiveDisabledAdapters`: 从 `adapters` 派生的禁用列表，避免双通道不一致 (`tauri-app/frontend/src/network/NetworkPanel.tsx:147`)
+- `outboundOrder` / `dragOrder`: 出站优先级排序，支持拖拽重排 (`tauri-app/frontend/src/network/NetworkPanel.tsx:170-207`)
+- `currentOutbound`: 当前真实出站接口名称，通过 `getCurrentOutboundName` 获取 (`tauri-app/frontend/src/network/NetworkPanel.tsx:215-224`)
+- `syncOnRestore`: 恢复可见性时的状态同步逻辑，含 5s 节流 (`tauri-app/frontend/src/network/NetworkPanel.tsx:240-246`)
+- `handleCheckDns`: 检测 DNS/DoH 状态 (`tauri-app/frontend/src/network/NetworkPanel.tsx:260`)
+- `handleSetupDnsDoh`: 一键设置 DNS+DoH (`tauri-app/frontend/src/network/NetworkPanel.tsx:278`)
+- `handleResetDns`: 重置 DNS 为自动获取 (`tauri-app/frontend/src/network/NetworkPanel.tsx:308`)
+- `handleGetNewIpForAdapter`: DHCP 释放/续租 (`tauri-app/frontend/src/network/NetworkPanel.tsx:338`)
+- `handleEnableAdapter`: 启用禁用适配器 (`tauri-app/frontend/src/network/NetworkPanel.tsx:354`)
+- `handleOutboundSwitchNow`: 手动触发立即切换出站 (`tauri-app/frontend/src/network/NetworkPanel.tsx:375`)
+- `handleOutboundRestoreNow`: 手动触发立即还原出站 (`tauri-app/frontend/src/network/NetworkPanel.tsx:396`)
 
 ### Backend: network_cmd.rs
 
