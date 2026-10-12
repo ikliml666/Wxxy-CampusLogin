@@ -582,6 +582,24 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
     let mut current = interval_ms.max(5000);
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(current));
     let mut last_probe_ms: u64 = 0;
+    // 启动对账(定时注销防冷启动误触发,与桌面 scheduled.rs 同语义):监控启动时若
+    // 当日注销时刻已过,「过点补触发」会让首拍立即注销——用户刚打开监控就被踢下线,
+    // 是意外而非预期。只消耗今日额度不执行动作;运行中的补触发不受影响。定时登录
+    // 不消耗:启动补登录=补上线,正是预期。读取失败静默跳过(下一拍判定照常)
+    if let Ok(settings) = crate::config_state::current_settings(&app).await {
+        let now = chrono::Local::now();
+        let now_minutes = (now.hour() * 60 + now.minute()) as u16;
+        let today_day = now.date_naive().num_days_from_ce() as i32;
+        if now_minutes >= settings.scheduled_logout_minutes {
+            MONITOR.scheduled_logout_day.store(today_day, Ordering::Relaxed);
+            campus_login_lib::log_info!(
+                "monitor",
+                "启动对账: 当日定时注销时刻已过({:02}:{:02})，消耗今日额度不执行",
+                settings.scheduled_logout_minutes / 60,
+                settings.scheduled_logout_minutes % 60
+            );
+        }
+    }
     loop {
         tick.tick().await;
         if !is_running() {

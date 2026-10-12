@@ -273,7 +273,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     onUpdateConfig({ campusExitStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                   }
                 }}
-                className="w-20 h-7 text-sm font-mono"
+                className="w-24 h-7 text-sm font-mono"
               />
               <span className="text-xs text-muted-foreground">–</span>
               <Input
@@ -289,7 +289,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     onUpdateConfig({ campusExitEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                   }
                 }}
-                className="w-20 h-7 text-sm font-mono"
+                className="w-24 h-7 text-sm font-mono"
               />
             </SettingRow>
           </CardContent>
@@ -362,7 +362,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                       }
                     }}
-                    className="w-20 h-7 text-sm font-mono"
+                    className="w-24 h-7 text-sm font-mono"
                   />
                   <span className="text-xs text-muted-foreground">–</span>
                   <Input
@@ -379,7 +379,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                       }
                     }}
-                    className="w-20 h-7 text-sm font-mono"
+                    className="w-24 h-7 text-sm font-mono"
                   />
                 </SettingRow>
                 {/* 每日定时登录(P2-32):SettingRow 横排,开关+time 同一右侧组(children 容器自带 shrink-0) */}
@@ -415,7 +415,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                       }
                     }}
-                    className="w-20 h-7 text-sm font-mono"
+                    className="w-24 h-7 text-sm font-mono"
                   />
                 </SettingRow>
                 {/* 每日定时注销(P2-32):SettingRow 横排,与定时登录行同构 */}
@@ -451,7 +451,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                         onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                       }
                     }}
-                    className="w-20 h-7 text-sm font-mono"
+                    className="w-24 h-7 text-sm font-mono"
                   />
                 </SettingRow>
               </>

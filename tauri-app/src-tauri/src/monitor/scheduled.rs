@@ -121,6 +121,8 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
     // （见 network/subnet.rs 的调用约束）
     let app_h_reconcile = app_h.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || reconcile_outbound_on_startup(&app_h_reconcile)).await;
+    // 定时注销启动对账：冷启动不补触发注销（见函数注释）
+    reconcile_scheduled_logout_on_startup(&app_h);
     let mut tick = tokio::time::interval(Duration::from_millis(SCHEDULED_TICK_MS));
     loop {
         tokio::select! {
@@ -252,6 +254,30 @@ async fn run_outbound_blocking(
 /// （循环各拍有多个 await 点，而该 future 必须 Send）
 fn is_quitting(app_handle: &AppHandle) -> bool {
     app_handle.state::<AppState>().exit.is_quitting.load(Ordering::Acquire)
+}
+
+/// 启动对账（定时注销防冷启动误触发）：应用启动时若当日注销时刻已过，「过点补触发」
+/// 语义会让首拍立即注销——用户刚打开应用就被踢下线，是意外而非预期。对账只消耗
+/// 当日额度（置 logout_day）不执行动作；运行中的休眠补触发/锁争用补触发不受影响。
+/// 定时登录不消耗：启动补登录 = 补上线，正是用户预期。注销禁用（哨兵 1440）时
+/// now_minutes 恒小于目标，条件天然不成立。
+/// 已知边界（不治理）：运行中把注销时刻改成已过时刻仍会立即触发——与「改完就想
+/// 立刻注销」无法区分意图，留待用户反馈。
+fn reconcile_scheduled_logout_on_startup(app_handle: &AppHandle) {
+    let s = app_handle.state::<AppState>();
+    let config = s.config.load_full();
+    let now = chrono::Local::now();
+    let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;
+    let today_day = now.date_naive().num_days_from_ce();
+    if now_minutes >= config.scheduled_logout_minutes {
+        s.scheduled.logout_day.store(today_day, Ordering::Release);
+        crate::log_info!(
+            "scheduled",
+            "启动对账: 当日定时注销时刻已过({:02}:{:02})，消耗今日额度不执行",
+            config.scheduled_logout_minutes / 60,
+            config.scheduled_logout_minutes % 60
+        );
+    }
 }
 
 /// 是否处于出站切换态（三份快照任一非空即切换态；与判定纯函数的
