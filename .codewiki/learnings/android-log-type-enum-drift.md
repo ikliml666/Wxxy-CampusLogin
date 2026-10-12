@@ -1,42 +1,64 @@
 ---
-title: 跨树日志事件 type 必须对齐前端 LogType 枚举（"warn" vs "warning" 致白屏）
+title: android-log-type-enum-drift
 type: learning
 source_files:
   - android/src-tauri/src/monitor_loop.rs
-  - android/frontend/src/hooks/useEventListeners.ts
-  - android/frontend/src/hooks/useLogToastStore.ts
-  - android/frontend/src/components/layout/RightPanel.tsx
   - android/frontend/src/shared/ui-types.ts
-  - tauri-app/src-tauri/src/infra/events.rs
-  - tauri-app/frontend/src/hooks/useEventListeners.ts
-  - tauri-app/frontend/src/components/layout/RightPanel.tsx
-tags: [教训, 安卓, 双端同步, 枚举, 白屏]
+tags: [教训, 安卓, 枚举, 契约]
 ---
 
-## 现象
+## Overview
+本文记录 Android 端后端日志事件 `type` 字段与前端 `LogType` 枚举的字符串字面量漂移问题。核心教训是：跨树（后端 → 前端）的事件 `type` 属于**字符串字面量契约**，后端发值必须落在前端枚举内，前端消费处需加兜底默认值，因为这类漂移不会触发 TS 编译错误（`as LogType` 断言会静默放行任意字符串）。
 
-安卓端白屏——启动自动登录判定失败可触发。
+## Key Components
 
-## 根因
+### 后端日志发射 (Android)
+- **文件**: `android/src-tauri/src/monitor_loop.rs`
+- **函数**: `emit_login_log(app: &tauri::AppHandle, message: &str, log_type: &str)` (约 L138-L141)
+  - **用途**: 向 Tauri 事件总线发射 `login-log` 事件。
+  - **Payload**: `{ "message": message, "type": log_type }`
+  - **当前状态**: 所有调用点（30+ 处）均使用 `'info'`, `'success'`, `'error'`, `'warning'` 四个值。
 
-安卓后端 `emit_login_log`（`android/src-tauri/src/monitor_loop.rs:152`，emit "login-log" 在 :155）发的事件 `type` 是 `"warn"`，而前端 `LogType` 枚举只有 `'info' | 'success' | 'error' | 'warning'`（`android/frontend/src/shared/ui-types.ts:4`）；`LOG_ICONS[type]` 取到 `undefined` 直接白屏。
+### 前端类型定义 (Android)
+- **文件**: `android/frontend/src/shared/ui-types.ts`
+- **类型**: `LogType` (L4)
+  - **定义**: `type LogType = 'info' | 'success' | 'error' | 'warning'`
 
-## 解决
+### 前端事件监听 (Android)
+- **文件**: `android/frontend/src/hooks/useEventListeners.ts`
+- **处理逻辑**: `api.onLoginLog?.((data) => { ... })` (约 L137)
+  - **转换**: `(data.type as LogType) || 'info'`
+  - **局限性**: 仅兜住 falsy 值（undefined/空串），无法拦截 truthy 的错误字面量（如旧版的 `"warn"`）。
 
-后端已改为 `'warning'`（现：`android/src-tauri/src/monitor_loop.rs:516` "启动自动登录:校园网判定失败"）。当前 `monitor_loop.rs` 全部 30+ 处 `emit_login_log` 调用只落 `info`/`success`/`error`/`warning` 四值，均在前端枚举内。
+## Architecture
 
-前端消费侧加三层兜底防再犯：
+```text
+┌──────────────────────────┐      ┌─────────────────────────────┐
+│   android/src-tauri      │      │   android/frontend          │
+│   monitor_loop.rs        │      │                             │
+│                          │ emit │   useEventListeners.ts      │
+│ emit_login_log(msg, type)│─────►│   onLoginLog(handler)       │
+│ (e.g., "warning")        │      │   data.type as LogType      │
+└──────────────────────────┘      └──────────────┬──────────────┘
+                                                 │
+                                                 ▼
+                                         ┌─────────────────────┐
+                                         │   ui-types.ts         │
+                                         │   LogType enum        │
+                                         │   (info|success|... ) │
+                                         └─────────────────────┘
+```
 
-1. `android/frontend/src/hooks/useEventListeners.ts:137`：`(data.type as LogType) || 'info'`——只兜住 undefined/空串等 falsy 值，兜不住 truthy 的错误字面量（如 `"warn"`）。
-2. `android/frontend/src/hooks/useLogToastStore.ts:32`：`addLog(message, type = 'info')` 参数默认值。
-3. `android/frontend/src/components/layout/RightPanel.tsx:217`、`:242`：`LOG_ICONS[log.type] ?? Info`（`LOG_ICONS` 定义于同文件 :20）——即使错误字面量穿透前两层，图标取 `Info`、`LOG_BG_COLORS[log.type] ?? ''`（:223/:254）与 `LOG_BAR_COLORS[log.type] ?? 'bg-zinc-400'`（:226/:258）兜住，`LOG_COLORS[log.type]`（:227/:235/:259/:267）取不到只是丢 class，均不再崩溃。
+## Data Flow
+1. **后端发射**: `monitor_loop.rs` 中的业务逻辑（如启动自动登录、定时注销等）调用 `emit_login_log`，携带 `log_type` 字符串。
+2. **Tauri 传输**: 事件通过 Tauri IPC 发送至前端 WebView。
+3. **前端接收**: `useEventListeners.ts` 中的 `onLoginLog` 回调接收到数据。
+4. **类型断言**: 将 `data.type` 强制转换为 `LogType`。
+5. **消费展示**: 日志存储组件根据 `LogType` 渲染图标和颜色。若类型不匹配且无兜底，可能导致 UI 崩溃或白屏。
 
-## 教训
-
-跨树（后端 → 前端）的事件 `type` 属于**字符串字面量契约**：后端发值必须落在前端枚举内，前端消费处一律加兜底默认值。这类漂移不会触发 TS 编译错误（`as LogType` 断言会静默放行任意字符串），只能靠契约纪律 + 分层兜底。
-
-兜底尚未对齐到桌面，桌面会重演同类白屏：`tauri-app/frontend/src/components/layout/RightPanel.tsx:268`、`:293` 仍是裸的 `LOG_ICONS[log.type]`（定义于同文件 :26，无 `?? Info`）——后端一旦引入新 type，图标取 `undefined` 直接崩。桌面后端 `tauri-app/src-tauri/src/infra/events.rs:22-27` 的 `EventBus::emit_login_log(&self, message: &str, log_type: &str)`（emit 在 :23）同样接受任意字符串。桌面侧只有 `tauri-app/frontend/src/hooks/useEventListeners.ts:272` 的 `|| 'info'` 一层兜底。
+## Known Issues
+- **桌面端隐患**: 桌面端 (`tauri-app`) 尚未完全对齐此防护。`RightPanel.tsx` 中仍存在裸的 `LOG_ICONS[log.type]` 访问，若后端引入新 type 可能导致白屏。
+- **类型安全缺失**: TypeScript 的 `as LogType` 断言允许任意字符串通过，缺乏编译期约束。
 
 ## Connections
-
 [[tablet-layout-alignment-audit]]、[[android-white-screen-missing-init-fields]]

@@ -4,7 +4,6 @@ type: decision
 source_files:
   - tauri-app/frontend/src/App.tsx
   - tauri-app/frontend/src/components/layout/DockNav.tsx
-  - tauri-app/frontend/src/lib/animations.ts
 tags: [决策, 前端, 面板转场, 并发渲染]
 ---
 

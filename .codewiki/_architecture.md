@@ -10,42 +10,15 @@ source_files:
   - tauri-app/src-tauri/src/app/heartbeat.rs
   - tauri-app/src-tauri/src/commands/login.rs
   - tauri-app/src-tauri/src/auth/service.rs
-  - tauri-app/src-tauri/src/auth/session.rs
-  - tauri-app/src-tauri/src/auth/protocol.rs
-  - tauri-app/src-tauri/src/network/client.rs
-  - tauri-app/src-tauri/src/config/model.rs
-  - tauri-app/src-tauri/src/config/persist.rs
-  - tauri-app/src-tauri/src/infra/events.rs
-  - tauri-app/src-tauri/src/infra/state/mod.rs
-  - tauri-app/src-tauri/src/infra/state/store.rs
-  - tauri-app/src-tauri/src/infra/task_manager.rs
-  - tauri-app/src-tauri/src/platform/mod.rs
-  - tauri-app/src-tauri/build.rs
-  - tauri-app/frontend/src/App.tsx
-  - tauri-app/frontend/src/hooks/tauriApi.ts
-  - tauri-app/frontend/src/hooks/useEventListeners.ts
-  - tauri-app/frontend/src/shared/ui-constants.ts
-  - android/src-tauri/Cargo.toml
-  - android/src-tauri/src/lib.rs
   - android/src-tauri/src/android_state.rs
-  - android/src-tauri/src/config_state.rs
-  - android/src-tauri/src/monitor_loop.rs
-  - android/src-tauri/src/system_cmds.rs
-  - android/src-tauri/src/update_cmds.rs
-  - android/src-tauri/src/battery_cmds.rs
-  - android/frontend/src/hooks/tauriApi.ts
-  - android/frontend/src/hooks/useAdaptiveFramePace.ts
-  - android/frontend/src/lib/renderLiveness.ts
-  - tauri-app/frontend/src/lib/renderLiveness.ts
-  - android/plugins/foreground-service/src/lib.rs
 tags: [架构, 总览]
 ---
 
 ## Overview
 
-Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录助手，由 **Windows 桌面端**与**安卓端**两个同构应用组成，均使用 Tauri 2（Rust 后端 + React 19 / TypeScript 前端）。当前版本 `2.3.9`（`tauri-app/src-tauri/Cargo.toml:2-3`、`android/src-tauri/Cargo.toml:2-3`）。
+Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录助手，由 **Windows 桌面端**与**安卓端**两个同构应用组成，均使用 Tauri 2（Rust 后端 + React 19 / TypeScript 前端）。当前版本 `2.4.1`（`tauri-app/src-tauri/Cargo.toml:3`；安卓端版本号通过 Cargo path 依赖共享，未独立声明）。
 
-同构的实现方式不是代码共享，而是**协议单点 + 平台外壳**：登录/注销/Portal 探测/自助服务/网络质量等全部协议实现只存在于桌面协议核心 crate（`tauri-app/src-tauri`，package `campus-login`，lib `campus_login_lib`，见 `tauri-app/src-tauri/Cargo.toml:8-10`），安卓后端以 Cargo path 依赖引用它（`android/src-tauri/Cargo.toml:34`），禁止复制；桌面侧与平台耦合的模块用 `#[cfg(desktop)]` 整体门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓侧只补平台探针、状态管理与命令面包装。
+同构的实现方式不是代码共享，而是**协议单点 + 平台外壳**：登录/注销/Portal 探测/自助服务/网络质量等全部协议实现只存在于桌面协议核心 crate（`tauri-app/src-tauri`，package `campus-login`，lib `campus_login_lib`，见 `tauri-app/src-tauri/Cargo.toml:8-10`），安卓后端以 Cargo path 依赖引用它（`android/src-tauri/Cargo.toml` 中 `campus-login = { path = "../../tauri-app/src-tauri" }`），禁止复制；桌面侧与平台耦合的模块用 `#[cfg(desktop)]` 整体门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓侧只补平台探针、状态管理与命令面包装。
 
 前端是两套**独立复刻树**（`tauri-app/frontend` 与 `android/frontend`），靠同形的 `tauriApi.ts` 接口与同名的 IPC 命令名保持行为一致——桌面 65 条命令（`app/startup.rs:63-127`）、安卓 53 条（`android/src-tauri/src/lib.rs:57-111`），命令名逐字对齐（仅三处刻意例外，见 Known Issues）。
 
@@ -77,7 +50,7 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 │ 系统层  platform/{autostart,dns_config,elevation,gpu,helper_spawn,identity,metric,toast}.rs │
 │         （Win32 / WinRT / UAC / 注册表 / 接口跃点 metric）+ network/dhcp.rs（netsh / MAC 重置） │
 └─────────────────────────────┬───────────────────────────────────────────────────────────┘
-                              │ Cargo path 依赖（android/src-tauri/Cargo.toml:34）
+                              │ Cargo path 依赖（android/src-tauri/Cargo.toml）
                               ▼
 ┌──────────────────── android/src-tauri（crate campus-login-android）─────────────────────┐
 │ 入口    lib.rs:30 run() → lib.rs:44-55 setup → monitor_loop::run_startup_tasks           │
@@ -180,7 +153,7 @@ Wxxy-CampusLogin 是无锡学院校园网（Dr.COM / ePortal）的自动登录�
 │                                          │ commands/ app/ monitor/ 调用共享模块       │
 └──────────────────────────────────────────┼──────────────────────────────────────────┘
                                            │ campus-login = { path = "../../tauri-app/src-tauri" }
-                                           │ （android/src-tauri/Cargo.toml:34）
+                                           │ （android/src-tauri/Cargo.toml）
 ┌──────────────────────────────────────────▼──────────────────────────────────────────┐
 │ android/src-tauri  package "campus-login-android" / lib "campus_login_android_lib"   │
 │   protocol_cmds ──→ auth::protocol / auth::portal                                    │

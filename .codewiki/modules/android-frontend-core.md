@@ -14,6 +14,7 @@ source_files:
   - android/frontend/src/hooks/useBreatheAnimation.ts
   - android/frontend/src/hooks/useDeviceProfile.ts
   - android/frontend/src/hooks/useFormFactor.ts
+  - android/frontend/src/hooks/tauriApi.ts
 tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 ---
 
