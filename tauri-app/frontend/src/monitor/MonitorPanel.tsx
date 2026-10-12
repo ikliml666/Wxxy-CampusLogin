@@ -252,50 +252,45 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               />
             </SettingRow>
             {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠(与安卓同构) */}
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-              <div className="flex items-center gap-2.5 min-w-[140px] flex-1 basis-[140px]">
-                <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
-                  <AlarmClock className="h-3.5 w-3.5 text-rose-500" />
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor="campus-exit-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusExitTimeWindow')}</Label>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusExitTimeWindowDesc')}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Input
-                  id="campus-exit-start-time"
-                  type="time"
-                  value={(() => {
-                    const m = config.campusExitStartMinutes ?? 480
-                    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                  })()}
-                  onChange={e => {
-                    const [h, min] = e.target.value.split(':').map(Number)
-                    if (!isNaN(h) && !isNaN(min)) {
-                      onUpdateConfig({ campusExitStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                    }
-                  }}
-                  className="w-24 h-7 text-sm font-mono"
-                />
-                <span className="text-xs text-muted-foreground">–</span>
-                <Input
-                  type="time"
-                  aria-label={t('monitor.campusExitWindowEnd')}
-                  value={(() => {
-                    const m = config.campusExitEndMinutes ?? 1380
-                    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                  })()}
-                  onChange={e => {
-                    const [h, min] = e.target.value.split(':').map(Number)
-                    if (!isNaN(h) && !isNaN(min)) {
-                      onUpdateConfig({ campusExitEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                    }
-                  }}
-                  className="w-24 h-7 text-sm font-mono"
-                />
-              </div>
-            </div>
+            {/* 退出生效时段：SettingRow 横排与卡内其他行同构；time 组整体作右侧 children */}
+            <SettingRow
+              htmlFor="campus-exit-start-time"
+              icon={<AlarmClock className="h-4 w-4 text-rose-500" />}
+              label={t('monitor.campusExitTimeWindow')}
+              description={t('monitor.campusExitTimeWindowDesc')}
+            >
+              <Input
+                id="campus-exit-start-time"
+                type="time"
+                value={(() => {
+                  const m = config.campusExitStartMinutes ?? 480
+                  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                })()}
+                onChange={e => {
+                  const [h, min] = e.target.value.split(':').map(Number)
+                  if (!isNaN(h) && !isNaN(min)) {
+                    onUpdateConfig({ campusExitStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                  }
+                }}
+                className="w-20 h-7 text-sm font-mono"
+              />
+              <span className="text-xs text-muted-foreground">–</span>
+              <Input
+                type="time"
+                aria-label={t('monitor.campusExitWindowEnd')}
+                value={(() => {
+                  const m = config.campusExitEndMinutes ?? 1380
+                  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                })()}
+                onChange={e => {
+                  const [h, min] = e.target.value.split(':').map(Number)
+                  if (!isNaN(h) && !isNaN(min)) {
+                    onUpdateConfig({ campusExitEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                  }
+                }}
+                className="w-20 h-7 text-sm font-mono"
+              />
+            </SettingRow>
           </CardContent>
         </AnimatedCard>
 
@@ -348,137 +343,118 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     </div>
                   </SettingRow>
                 </div>
-                {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠(与安卓同构) */}
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
-                      <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
-                    </div>
-                    <div className="min-w-0">
-                      <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckTimeRange')}</Label>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusCheckTimeRangeDesc')}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Input
-                      id="campus-check-start-time"
-                      type="time"
-                      value={(() => {
-                        const m = config.campusCheckStartMinutes ?? 460
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-24 h-7 text-sm font-mono"
-                    />
-                    <span className="text-xs text-muted-foreground">–</span>
-                    <Input
-                      type="time"
-                      aria-label={t('monitor.campusCheckWindowEnd')}
-                      value={(() => {
-                        // 兜底值与后端 Settings::default / DEFAULT_CONFIG 对齐(1380=23:00),避免字段缺失时 UI 显示 00:00 而后端按 23:00 判定(与安卓同构)
-                        const m = config.campusCheckEndMinutes ?? 1380
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-24 h-7 text-sm font-mono"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                      <LogIn className="h-3.5 w-3.5 text-emerald-500" />
-                    </div>
-                    <div className="min-w-0">
-                      <Label htmlFor="scheduled-login-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLoginTime')}</Label>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLoginTimeDesc')}</p>
-                    </div>
-                  </div>
-                  {/* Input 组件对 time 类型自带 relative w-full 包装层,直接作 flex 子项会吃满剩余空间使选择器悬中,外包 shrink-0 容器约束为内容宽 */}
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Switch
-                      aria-label={t('monitor.scheduledLoginEnable')}
-                      checked={(config.scheduledLoginMinutes ?? 1440) < 1440}
-                      onCheckedChange={checked => {
-                        // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
-                        if (!checked) { onUpdateConfig({ scheduledLoginMinutes: 1440 }); return }
-                        const cur = config.scheduledLoginMinutes ?? 1440
-                        onUpdateConfig({ scheduledLoginMinutes: cur >= 1440 ? 480 : cur })
-                      }}
-                      className="shrink-0"
-                    />
-                    <Input
-                      id="scheduled-login-time"
-                      type="time"
-                      aria-label={t('monitor.scheduledLoginTime')}
-                      disabled={(config.scheduledLoginMinutes ?? 1440) >= 1440}
-                      value={(() => {
-                        const m = config.scheduledLoginMinutes ?? 1440
-                        if (m >= 1440) return ''
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-24 h-7 text-sm font-mono"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
-                      <LogOut className="h-3.5 w-3.5 text-rose-500" />
-                    </div>
-                    <div className="min-w-0">
-                      <Label htmlFor="scheduled-logout-time" className="text-sm font-medium cursor-pointer">{t('monitor.scheduledLogoutTime')}</Label>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.scheduledLogoutTimeDesc')}</p>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Switch
-                      aria-label={t('monitor.scheduledLogoutEnable')}
-                      checked={(config.scheduledLogoutMinutes ?? 1440) < 1440}
-                      onCheckedChange={checked => {
-                        // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
-                        if (!checked) { onUpdateConfig({ scheduledLogoutMinutes: 1440 }); return }
-                        const cur = config.scheduledLogoutMinutes ?? 1440
-                        onUpdateConfig({ scheduledLogoutMinutes: cur >= 1440 ? 480 : cur })
-                      }}
-                      className="shrink-0"
-                    />
-                    <Input
-                      id="scheduled-logout-time"
-                      type="time"
-                      aria-label={t('monitor.scheduledLogoutTime')}
-                      disabled={(config.scheduledLogoutMinutes ?? 1440) >= 1440}
-                      value={(() => {
-                        const m = config.scheduledLogoutMinutes ?? 1440
-                        if (m >= 1440) return ''
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-24 h-7 text-sm font-mono"
-                    />
-                  </div>
-                </div>
+                {/* 校园网检测时间段：SettingRow 横排与卡内其他行同构（与左卡退出生效时段同款） */}
+                <SettingRow
+                  htmlFor="campus-check-start-time"
+                  icon={<AlarmClock className="h-4 w-4 text-sky-500" />}
+                  label={t('monitor.campusCheckTimeRange')}
+                  description={t('monitor.campusCheckTimeRangeDesc')}
+                >
+                  <Input
+                    id="campus-check-start-time"
+                    type="time"
+                    value={(() => {
+                      const m = config.campusCheckStartMinutes ?? 460
+                      return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                    })()}
+                    onChange={e => {
+                      const [h, min] = e.target.value.split(':').map(Number)
+                      if (!isNaN(h) && !isNaN(min)) {
+                        onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                      }
+                    }}
+                    className="w-20 h-7 text-sm font-mono"
+                  />
+                  <span className="text-xs text-muted-foreground">–</span>
+                  <Input
+                    type="time"
+                    aria-label={t('monitor.campusCheckWindowEnd')}
+                    value={(() => {
+                      // 兜底值与后端 Settings::default / DEFAULT_CONFIG 对齐(1380=23:00),避免字段缺失时 UI 显示 00:00 而后端按 23:00 判定(与安卓同构)
+                      const m = config.campusCheckEndMinutes ?? 1380
+                      return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                    })()}
+                    onChange={e => {
+                      const [h, min] = e.target.value.split(':').map(Number)
+                      if (!isNaN(h) && !isNaN(min)) {
+                        onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                      }
+                    }}
+                    className="w-20 h-7 text-sm font-mono"
+                  />
+                </SettingRow>
+                {/* 每日定时登录(P2-32):SettingRow 横排,开关+time 同一右侧组(children 容器自带 shrink-0) */}
+                <SettingRow
+                  htmlFor="scheduled-login-time"
+                  icon={<LogIn className="h-4 w-4 text-emerald-500" />}
+                  label={t('monitor.scheduledLoginTime')}
+                  description={t('monitor.scheduledLoginTimeDesc')}
+                >
+                  <Switch
+                    aria-label={t('monitor.scheduledLoginEnable')}
+                    checked={(config.scheduledLoginMinutes ?? 1440) < 1440}
+                    onCheckedChange={checked => {
+                      // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
+                      if (!checked) { onUpdateConfig({ scheduledLoginMinutes: 1440 }); return }
+                      const cur = config.scheduledLoginMinutes ?? 1440
+                      onUpdateConfig({ scheduledLoginMinutes: cur >= 1440 ? 480 : cur })
+                    }}
+                  />
+                  <Input
+                    id="scheduled-login-time"
+                    type="time"
+                    aria-label={t('monitor.scheduledLoginTime')}
+                    disabled={(config.scheduledLoginMinutes ?? 1440) >= 1440}
+                    value={(() => {
+                      const m = config.scheduledLoginMinutes ?? 1440
+                      if (m >= 1440) return ''
+                      return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                    })()}
+                    onChange={e => {
+                      const [h, min] = e.target.value.split(':').map(Number)
+                      if (!isNaN(h) && !isNaN(min)) {
+                        onUpdateConfig({ scheduledLoginMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                      }
+                    }}
+                    className="w-20 h-7 text-sm font-mono"
+                  />
+                </SettingRow>
+                {/* 每日定时注销(P2-32):SettingRow 横排,与定时登录行同构 */}
+                <SettingRow
+                  htmlFor="scheduled-logout-time"
+                  icon={<LogOut className="h-4 w-4 text-rose-500" />}
+                  label={t('monitor.scheduledLogoutTime')}
+                  description={t('monitor.scheduledLogoutTimeDesc')}
+                >
+                  <Switch
+                    aria-label={t('monitor.scheduledLogoutEnable')}
+                    checked={(config.scheduledLogoutMinutes ?? 1440) < 1440}
+                    onCheckedChange={checked => {
+                      // 关闭 → 哨兵 1440；开启时若仍是哨兵则给默认时刻 08:00
+                      if (!checked) { onUpdateConfig({ scheduledLogoutMinutes: 1440 }); return }
+                      const cur = config.scheduledLogoutMinutes ?? 1440
+                      onUpdateConfig({ scheduledLogoutMinutes: cur >= 1440 ? 480 : cur })
+                    }}
+                  />
+                  <Input
+                    id="scheduled-logout-time"
+                    type="time"
+                    aria-label={t('monitor.scheduledLogoutTime')}
+                    disabled={(config.scheduledLogoutMinutes ?? 1440) >= 1440}
+                    value={(() => {
+                      const m = config.scheduledLogoutMinutes ?? 1440
+                      if (m >= 1440) return ''
+                      return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                    })()}
+                    onChange={e => {
+                      const [h, min] = e.target.value.split(':').map(Number)
+                      if (!isNaN(h) && !isNaN(min)) {
+                        onUpdateConfig({ scheduledLogoutMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                      }
+                    }}
+                    className="w-20 h-7 text-sm font-mono"
+                  />
+                </SettingRow>
               </>
             )}
             <div className="flex items-center gap-2 pt-1">
