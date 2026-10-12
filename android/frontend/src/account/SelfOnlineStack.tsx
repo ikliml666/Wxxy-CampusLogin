@@ -47,7 +47,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   const [dragY, setDragY] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
-  const firstRef = useRef<HTMLDivElement | null>(null)
+  const stageRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startY: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
 
@@ -56,16 +56,23 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
 
-  // 量高：当前卡自然高度（各卡内容同构）+ 最大露出量；jsdom 无 ResizeObserver 时退化为一次性量高。
-  // ref 挂在当前卡上，翻页后随 index 重建观察
+  // 量高：取所有已挂载卡的最大自然高度（各槽位常挂载），舞台高度不随翻页跳变，
+  // 矮卡自然高度不裁切（与桌面 SelfOnlineCards 同步，b795a9f 漏移植的量高半边）。
+  // jsdom 无 ResizeObserver 时退化为一次性量高。
   useEffect(() => {
-    const el = firstRef.current
-    if (!el) return
-    const update = () => setCardH(el.offsetHeight)
+    const stage = stageRef.current
+    if (!stage) return
+    const update = () => {
+      let max = 0
+      stage.querySelectorAll<HTMLElement>(':scope > div').forEach((el) => {
+        max = Math.max(max, el.offsetHeight)
+      })
+      if (max > 0) setCardH(max)
+    }
     update()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(update)
-    ro.observe(el)
+    stage.querySelectorAll<HTMLElement>(':scope > div').forEach((el) => ro.observe(el))
     return () => ro.disconnect()
   }, [cards, index])
 
@@ -133,6 +140,7 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   return (
     <div>
       <div
+        ref={stageRef}
         className="relative select-none"
         style={{
           height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + peekBottom : 0) : 220,
@@ -177,7 +185,6 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
           return (
             <div
               key={i}
-              ref={r === 0 ? firstRef : undefined}
               className="absolute top-0 origin-top rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] inset-x-[18%] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={r !== 0}
@@ -321,7 +328,7 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [cardH, setCardH] = useState<number | null>(null)
-  const firstRef = useRef<HTMLDivElement | null>(null)
+  const stageRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startX: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
 
@@ -330,15 +337,21 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
 
-  // 量高：当前卡自然高度（各卡内容同构）；ref 随 index 重建观察
+  // 量高：取所有已挂载卡的最大自然高度，舞台高度不随翻页跳变（与桌面 SelfOnlineCards 同步）
   useEffect(() => {
-    const el = firstRef.current
-    if (!el) return
-    const update = () => setCardH(el.offsetHeight)
+    const stage = stageRef.current
+    if (!stage) return
+    const update = () => {
+      let max = 0
+      stage.querySelectorAll<HTMLElement>(':scope > div').forEach((el) => {
+        max = Math.max(max, el.offsetHeight)
+      })
+      if (max > 0) setCardH(max)
+    }
     update()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(update)
-    ro.observe(el)
+    stage.querySelectorAll<HTMLElement>(':scope > div').forEach((el) => ro.observe(el))
     return () => ro.disconnect()
   }, [cards, index])
 
@@ -402,6 +415,7 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
   return (
     <div>
       <div
+        ref={stageRef}
         className="relative select-none"
         style={{
           height: cardH != null ? cardH : 200,
@@ -458,7 +472,6 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
           return (
             <div
               key={i}
-              ref={s === 0 ? firstRef : undefined}
               className="absolute top-0 rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={side}

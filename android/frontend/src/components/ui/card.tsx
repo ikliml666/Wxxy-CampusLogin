@@ -45,4 +45,22 @@ const CardContent = React.forwardRef<
 ))
 CardContent.displayName = 'CardContent'
 
-export { CardHeader, CardTitle, CardDescription, CardContent }
+const CardIcon = ({
+  className,
+  children,
+}: {
+  className?: string
+  children: React.ReactNode
+}) => (
+  <div
+    className={cn(
+      'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary [&_svg]:size-5',
+      className
+    )}
+  >
+    {children}
+  </div>
+)
+CardIcon.displayName = 'CardIcon'
+
+export { CardIcon, CardHeader, CardTitle, CardDescription, CardContent }

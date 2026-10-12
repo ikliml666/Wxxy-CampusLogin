@@ -1,5 +1,5 @@
 import type { Config } from '@/settings'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -83,12 +83,9 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
         <AnimatedCard noEnterAnimation>
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className={cn(
-                'w-10 h-10 rounded-full flex items-center justify-center shrink-0',
-                bgStatus.isRunning ? 'bg-emerald-500/10' : 'bg-muted'
-              )}>
+              <CardIcon className={bgStatus.isRunning ? 'bg-emerald-500/10' : 'bg-muted'}>
                 <Radar className={cn('h-5 w-5', bgStatus.isRunning ? 'text-emerald-500 animate-pulse' : 'text-muted-foreground')} />
-              </div>
+              </CardIcon>
               <div className="min-w-0 flex-1">
                 <CardTitle>{t('monitor.networkStatusDetection')}</CardTitle>
                 <CardDescription>
@@ -154,10 +151,10 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <CardIcon>
                 <Rocket className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('monitor.groupAutomation')}</CardTitle>
                 <CardDescription>{t('monitor.groupAutomationDesc')}</CardDescription>
               </div>
@@ -199,10 +196,10 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <CardIcon>
                 <Settings2 className="h-5 w-5 text-primary" />
-              </div>
-              <div>
+              </CardIcon>
+              <div className="min-w-0">
                 <CardTitle>{t('monitor.groupCampusCheck')}</CardTitle>
                 <CardDescription>{t('monitor.groupCampusCheckDesc')}</CardDescription>
               </div>
