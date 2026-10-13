@@ -22,6 +22,10 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.Locale
 
+// 文件级 TAG:MonitorServicePlugin 与 BootReceiver(同文件顶层类)共用,
+// 放 Companion 会因 private 对 BootReceiver 不可见导致编译失败。
+private const val TAG = "CampusMonitorService"
+
 // 缺参安全:args 字段可空(parseArgs 对缺失键留 null),调用点判空后 log+reject,
 // 避免 lateinit 的 UninitializedPropertyAccessException 直接炸掉插件线程。
 @InvokeArg
@@ -41,10 +45,6 @@ class BoolArgs {
 
 @TauriPlugin
 class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(activity) {
-
-    companion object {
-        private const val TAG = "CampusMonitorService"
-    }
 
     @Command
     fun startMonitor(invoke: Invoke) {
@@ -429,7 +429,7 @@ class BootReceiver : BroadcastReceiver() {
                 context.startService(service)
             }
         } catch (e: IllegalStateException) {
-            Log.e(MonitorServicePlugin.TAG, "BootReceiver: 开机启动前台服务失败: ${e.javaClass.name}: ${e.message}", e)
+            Log.e(TAG, "BootReceiver: 开机启动前台服务失败: ${e.javaClass.name}: ${e.message}", e)
         }
         try {
             context.startActivity(
