@@ -6,7 +6,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, Wifi, RefreshCw, LogIn, LogOut, AlarmClock, HelpCircle } from 'lucide-react'
+import { Play, Square, Clock, Radar, Settings2, Rocket, Wifi, RefreshCw, LogIn, LogOut, AlarmClock, HelpCircle, AlertTriangle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
@@ -142,6 +142,14 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 </Button>
               </div>
             </div>
+            {/* watcher 降级提示：后端监控循环崩溃后仅前台服务的通知还在跑，
+                不提示用户会以为检测照常（status_value.watcherFailed，重启后端复位） */}
+            {bgStatus.watcherFailed === true && (
+              <div className="flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-[1px]" />
+                <span>{t('monitor.watcherFailed')}</span>
+              </div>
+            )}
           </CardContent>
         </AnimatedCard>
       </div>

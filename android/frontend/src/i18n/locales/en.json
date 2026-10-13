@@ -12,7 +12,10 @@
     "campusExitLog": "Not on campus network: minimize in {{minimize}}s, exit in {{exit}}s, press Ctrl+Shift+C to cancel",
     "campusExitCancelled": "Campus exit cancelled",
     "cancelExit": "Cancel exit",
-    "newVersionFoundLog": "New version found: v{{version}}"
+    "newVersionFoundLog": "New version found: v{{version}}",
+    "updateUnverified": "Update package integrity unverified",
+    "updateUnverifiedDesc": "The update source is temporarily unavailable; integrity of {{file}} could not be verified. Confirm the source is trusted before installing",
+    "updateUnverifiedLog": "Update package integrity unverified (update source unavailable): {{file}}"
   },
   "common": {
     "moveCard": "Drag to reorder",
@@ -123,6 +126,7 @@
     "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
     "clearPassword": "Clear saved password",
     "passwordCleared": "Saved password cleared",
+    "passwordClearFailed": "Failed to clear saved password",
     "changePassword": "Change Password",
     "changePasswordTitle": "Change Campus Network Password",
     "changePasswordDesc": "Changes your login password via the self-service system using the saved login password; the local login password updates automatically on success",
@@ -317,6 +321,7 @@
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",
+    "watcherFailed": "Background check service degraded: detection may have stopped. Restart the app to recover",
     "detectionRunning": "Network status detection service is running",
     "detectionStopped": "Network status detection service is stopped",
     "refreshNow": "Refresh Now",
@@ -847,6 +852,7 @@
     "enrollFailed": "Face enrollment not completed",
     "challengeTurn": "Turn your head left or right",
     "noFace": "No face detected — look straight at the screen",
-    "verifySuccess": "Verified"
+    "verifySuccess": "Verified",
+    "securityNotice": "2D face recognition is a convenience aid, not a strong security check"
   }
 }

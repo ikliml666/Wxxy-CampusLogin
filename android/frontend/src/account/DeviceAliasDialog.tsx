@@ -38,6 +38,9 @@ export function DeviceAliasDialog({ open, mac, initialName, onSave, onCancel }: 
     setSaving(true)
     try {
       await onSave(name.trim())
+    } catch {
+      // 失败 toast 已由调用方（handleSaveAlias）发出，这里吞掉仅为防 unhandled
+      // rejection；吞掉后弹窗保持打开，草稿保留供修改重试
     } finally {
       setSaving(false)
     }

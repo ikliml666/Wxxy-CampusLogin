@@ -133,6 +133,8 @@ interface TauriApi {
   getMirrorUrls: (githubUrl: string) => Promise<MirrorSource[]>
   onDownloadProgress: (cb: (data: DownloadProgress) => void) => () => void
   onUpdateAvailable: (cb: (data: UpdateAvailableData) => void) => () => void
+  /** 更新源 API 不可用时放行下载（无法校验完整性）的警示事件（payload 见 update_cmds.rs emit） */
+  onUpdateUnverified: (cb: (data: { url: string; file: string }) => void) => () => void
   checkDnsDohStatus: () => Promise<DnsDohStatus>
   setupDnsDoh: (family?: 'ipv4' | 'ipv6' | 'both') => Promise<DnsSetupResult>
   resetDns: () => Promise<CommandResult>
@@ -214,6 +216,16 @@ const tauriApi: TauriApi = {
   bindOperator: (params) => invoke<CommandResult>('bind_operator', { ...params }),
   getBindStatus: (params) => invoke<CommandResult>('query_bind_status', { ...params }),
   verifyWindowsIdentity: async (params) => {
+    // 验证门统一出口：无论哪条链路，都把真实结果上报后端 verify_biometric_identity
+    // ({success, method})。Rust 侧 success!=true 时不解锁验证门（返回 err/失败结果），
+    // 这里把失败归一化为 {success:false,...} 返回值，不当 IPC 故障抛出。
+    const report = async (success: boolean, method: 'biometric' | 'face2d'): Promise<CommandResult> => {
+      try {
+        return await invoke<CommandResult>('verify_biometric_identity', { success, method })
+      } catch (err) {
+        return { success: false, message: typeof err === 'string' ? err : '验证未通过' }
+      }
+    }
     // 2D 人脸回退：开关开启且已录入人脸、且系统生物识别不可用（国产平板 2D 人脸为
     // Class 1，BiometricPrompt 不可达）时走应用内人脸验证（动作挑战 + 本地比对）。
     // status 查询异常不阻断——回退到系统链路。
@@ -222,28 +234,24 @@ const tauriApi: TauriApi = {
         const status = await biometricCheckStatus()
         if (!status.isAvailable) {
           const r = await useFaceDialogStore.getState().openFaceDialog('verify')
+          // 比对失败/异常/用户取消一律上报 success=false（取消/失败不再区分错误码）
           if (!r.ok) {
-            const codeMap: Record<string, string> = {
-              cancel: 'userCancel',
-              timeout: 'faceTimeout',
-              challenge: 'faceChallenge',
-              mismatch: 'faceMismatch',
-              camera: 'faceCamera',
-            }
-            throw { code: codeMap[r.reason ?? ''] ?? 'userCancel', message: '2D face verify failed' }
+            return await report(false, 'face2d')
           }
-          return invoke<CommandResult>('verify_biometric_identity', { consentMessage: params.consentMessage })
+          return await report(true, 'face2d')
         }
-      } catch (err) {
-        // 人脸链自身的业务错误（face* 码与用户取消）原样抛出，由 biometricFailMessage
-        // 按 code 翻译；其余（status 查询等基础设施异常）落回系统验证链路
-        const code = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined
-        if (typeof code === 'string' && (code.startsWith('face') || code === 'userCancel')) throw err
+      } catch {
+        // status 查询等基础设施异常：人脸链未得出真实结果，落回系统验证链路
       }
     }
-    // 安卓等价物:系统 BiometricPrompt(支持锁屏凭据兜底)→ 后端记 TTL 时间戳
-    await biometricAuthenticate(params.consentMessage, { allowDeviceCredential: true })
-    return invoke<CommandResult>('verify_biometric_identity', { consentMessage: params.consentMessage })
+    // 安卓等价物:系统 BiometricPrompt(支持锁屏凭据兜底)→ 后端记 TTL 时间戳。
+    // 弹框取消/验证失败也是真实结果，上报 success=false 而非把异常抛成 IPC 故障。
+    try {
+      await biometricAuthenticate(params.consentMessage, { allowDeviceCredential: true })
+    } catch {
+      return await report(false, 'biometric')
+    }
+    return await report(true, 'biometric')
   },
   revealOperatorCredential: (params) => invoke<CommandResult>('reveal_operator_credential', { ...params }),
   querySelfDashboard: (params) => invoke<CommandResult>('query_self_dashboard', { ...params }),
@@ -315,6 +323,7 @@ const tauriApi: TauriApi = {
   getMirrorUrls: (githubUrl) => invoke<MirrorSource[]>('get_mirror_urls', { githubUrl }),
   onDownloadProgress: createEventListener<DownloadProgress>('update-download-progress'),
   onUpdateAvailable: createEventListener<UpdateAvailableData>('update-available'),
+  onUpdateUnverified: createEventListener<{ url: string; file: string }>('update-unverified'),
   checkDnsDohStatus: () => desktopOnly<DnsDohStatus>('check_dns_doh_status'),
   setupDnsDoh: (_family) => desktopOnly<DnsSetupResult>("setup_dns_doh"),
   resetDns: () => desktopOnly<CommandResult>('reset_dns'),

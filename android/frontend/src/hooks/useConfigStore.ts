@@ -134,6 +134,11 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       } catch (e: unknown) {
         const errMsg = extractErrorMessage(e)
         useLogToastStore.getState().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }), 'error')
+        // 保存失败但本次带着密码：后端没存进去，passwordSaved 不能残留 true
+        // （否则下次启动会跳过密码恢复）。与桌面端 saveConfigDirect 同款修复。
+        if (cfg.password !== undefined && cfg.password !== '') {
+          get().syncPasswordSaved(false)
+        }
         // 连续失败达阈值的字段放弃脏标记，后端回传可重新同步，避免永久脱节
         Object.keys(cfg).forEach(k => {
           if (!dirtyFields.has(k)) return
@@ -146,6 +151,9 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
             dirtyFailureCounts.set(k, count)
           }
         })
+        // 失败上抛：调用方各自走失败分支（失败 toast / 不显示成功提示），
+        // 不能静默吞掉让 UI 假成功。saveConfigInFlight 在 finally 里仍会清引用。
+        throw e
       }
     })()
     saveConfigInFlight = promise

@@ -11,6 +11,9 @@
     "campusExitDesc": "{{minimize}}秒后最小化，{{exit}}秒后退出，点击取消",
     "campusExitLog": "非校园网络，{{minimize}}秒后最小化，{{exit}}秒后退出，按 Ctrl+Shift+C 取消",
     "campusExitCancelled": "已取消校园网退出",
+    "updateUnverified": "更新包完整性未校验",
+    "updateUnverifiedDesc": "更新源暂时不可用，无法校验 {{file}} 的完整性，请确认来源可信后再安装",
+    "updateUnverifiedLog": "更新包完整性未校验（更新源不可用）: {{file}}",
     "newVersionFoundLog": "发现新版本 v{{version}}",
     "cancelExit": "取消退出"
   },
@@ -123,6 +126,7 @@
     "deleteAccountMessage": "确定要删除账号「{{name}}」吗？此操作不可撤销。",
     "clearPassword": "清除密码",
     "passwordCleared": "已清除保存的密码",
+    "passwordClearFailed": "清除已保存的密码失败",
     "changePassword": "修改密码",
     "changePasswordTitle": "修改校园网密码",
     "changePasswordDesc": "通过自助服务系统修改登录密码，旧密码取已保存的登录密码，成功后本地登录密码同步更新",
@@ -317,6 +321,7 @@
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",
+    "watcherFailed": "后台检测服务异常降级：检测可能已停止，建议重启应用恢复",
     "detectionRunning": "网络状态检测服务运行中",
     "detectionStopped": "网络状态检测服务已停止",
     "refreshNow": "立即刷新",
@@ -847,6 +852,7 @@
     "enrollFailed": "人脸录入未完成",
     "challengeTurn": "请向左或向右转头",
     "noFace": "未检测到人脸，请正对屏幕",
-    "verifySuccess": "验证通过"
+    "verifySuccess": "验证通过",
+    "securityNotice": "2D 人脸仅为便利性辅助识别，非强安全校验"
   }
 }

@@ -402,7 +402,13 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     const next = { ...(deviceAliases ?? {}) }
     if (name) next[mac] = name
     else delete next[mac]
-    await saveConfigDirect({ deviceAliases: next })
+    // saveConfigDirect 失败上抛：失败 toast 且不显示成功提示（throw 保弹窗开着供重试）
+    try {
+      await saveConfigDirect({ deviceAliases: next })
+    } catch (err) {
+      addToast(extractErrorMessage(err) || tAlias('account.deviceAliasSaveFailed'), 'error')
+      throw err
+    }
     addToast(tAlias('account.deviceAliasSaved'), 'success')
   }, [deviceAliases, saveConfigDirect, addToast, tAlias])
   const fetchOnline = useCallback(async (account: string) => {

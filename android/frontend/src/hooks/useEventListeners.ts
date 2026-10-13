@@ -240,6 +240,20 @@ export function useEventListeners() {
     }) ?? (() => {})
     if (unsub9) unlisteners.push(unsub9)
 
+    // 更新源 API 不可用时放行下载（无法校验完整性）→ 警示用户自行确认来源
+    const unsubUpdateUnverified = api.onUpdateUnverified?.((data) => {
+      if (!mountedRef.current) return
+      if (data) {
+        lt.getState().addLog(i18next.t('notify.updateUnverifiedLog', { file: data.file }), 'warning')
+        lt.getState().addToast(
+          i18next.t('notify.updateUnverified'),
+          'warning',
+          i18next.t('notify.updateUnverifiedDesc', { file: data.file })
+        )
+      }
+    }) ?? (() => {})
+    if (unsubUpdateUnverified) unlisteners.push(unsubUpdateUnverified)
+
     return () => {
       mountedRef.current = false
       document.removeEventListener('visibilitychange', onVisibilityChange)

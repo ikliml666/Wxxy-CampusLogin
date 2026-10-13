@@ -181,6 +181,8 @@ function CaptureFlow({ mode, onClose }: { mode: 'enroll' | 'verify'; onClose: (r
           </>
         )}
         {phase === 'starting' && <span className="text-xs text-muted-foreground">{t('face.pleaseHold')}</span>}
+        {/* 安全性披露：2D 人脸非强安全校验，录入/验证两模式全程可见 */}
+        <span className="text-[10px] text-muted-foreground">{t('face.securityNotice')}</span>
       </div>
       <Button
         variant="outline"

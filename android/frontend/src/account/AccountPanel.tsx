@@ -99,10 +99,16 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }
 
-  // 清除已保存密码：后端空密码语义是"保留旧密码"，必须走显式 clearPassword 标志
+  // 清除已保存密码：后端空密码语义是"保留旧密码"，必须走显式 clearPassword 标志。
+  // 失败不再静默假成功（saveConfigDirect 现在上抛）：失败 toast 且不显示"已清除"
   const handleClearPassword = useCallback(async () => {
     const store = useConfigStore.getState()
-    await store.saveConfigDirect({ password: '' }, true)
+    try {
+      await store.saveConfigDirect({ password: '' }, true)
+    } catch (e) {
+      addToast(extractErrorMessage(e) || t('account.passwordClearFailed'), 'error')
+      return
+    }
     store.syncPasswordSaved(false)
     addToast(t('account.passwordCleared'), 'success')
   }, [addToast, t])
@@ -193,6 +199,17 @@ export const AccountPanel = memo(function AccountPanel({
   const [queryingStatus, setQueryingStatus] = useState(false)
   const [revealedOp, setRevealedOp] = useState<string | null>(null)
   const [revealedPassword, setRevealedPassword] = useState('')
+
+  // 揭示的明文密码 30 秒自动清除：明文残留在 state 与屏幕上属暴露面，
+  // 依赖 [revealedPassword]，切到其他凭据也会重置计时（对齐桌面端）
+  useEffect(() => {
+    if (!revealedPassword) return
+    const timer = setTimeout(() => {
+      setRevealedPassword('')
+      setRevealedOp(null)
+    }, 30000)
+    return () => clearTimeout(timer)
+  }, [revealedPassword])
 
   // config 异步加载完成后初始化一次（运营商默认取当前配置）
   useEffect(() => {

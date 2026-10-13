@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -21,14 +22,16 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.Locale
 
+// 缺参安全:args 字段可空(parseArgs 对缺失键留 null),调用点判空后 log+reject,
+// 避免 lateinit 的 UninitializedPropertyAccessException 直接炸掉插件线程。
 @InvokeArg
 class StartArgs {
-  lateinit var title: String
+  var title: String? = null
 }
 
 @InvokeArg
 class TextArgs {
-  lateinit var text: String
+  var text: String? = null
 }
 
 @InvokeArg
@@ -39,15 +42,33 @@ class BoolArgs {
 @TauriPlugin
 class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(activity) {
 
+    companion object {
+        private const val TAG = "CampusMonitorService"
+    }
+
     @Command
     fun startMonitor(invoke: Invoke) {
         val args = invoke.parseArgs(StartArgs::class.java)
+        val title = args.title
+        if (title == null) {
+            Log.w(TAG, "startMonitor: 缺少参数 title")
+            invoke.reject("缺少参数 title")
+            return
+        }
         val intent = Intent(activity, ForegroundService::class.java)
-            .putExtra(ForegroundService.EXTRA_TEXT, args.title)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            activity.startForegroundService(intent)
-        } else {
-            activity.startService(intent)
+            .putExtra(ForegroundService.EXTRA_TEXT, title)
+        // 后台启 FGS 在部分 ROM/状态下抛 ForegroundServiceStartNotAllowedException
+        // (IllegalStateException 子类,catch 父类免低版本类引用问题)
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                activity.startForegroundService(intent)
+            } else {
+                activity.startService(intent)
+            }
+        } catch (e: IllegalStateException) {
+            Log.e(TAG, "startMonitor: 前台服务启动失败: ${e.javaClass.name}: ${e.message}", e)
+            invoke.reject("前台服务启动失败: ${e.message ?: e.javaClass.simpleName}")
+            return
         }
         val ret = JSObject()
         ret.put("started", true)
@@ -67,11 +88,17 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
     @Command
     fun updateNotification(invoke: Invoke) {
         val args = invoke.parseArgs(TextArgs::class.java)
+        val text = args.text
+        if (text == null) {
+            Log.w(TAG, "updateNotification: 缺少参数 text")
+            invoke.reject("缺少参数 text")
+            return
+        }
         val manager = activity.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         // 与服务侧同一构建(标准协议:计时器/免重复提醒),通道由服务创建
         manager.notify(
             ForegroundService.NOTIFICATION_ID,
-            ForegroundService.buildNotification(activity, args.text)
+            ForegroundService.buildNotification(activity, text)
         )
         invoke.resolve()
     }
@@ -82,9 +109,15 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
     @Command
     fun installApk(invoke: Invoke) {
         val args = invoke.parseArgs(TextArgs::class.java)
+        val text = args.text
+        if (text == null) {
+            Log.w(TAG, "installApk: 缺少参数 text")
+            invoke.reject("缺少参数 text")
+            return
+        }
         try {
             val dir = java.io.File(activity.filesDir, "update")
-            val apk = java.io.File(dir, java.io.File(args.text).name) // 只取文件名,防路径逃逸
+            val apk = java.io.File(dir, java.io.File(text).name) // 只取文件名,防路径逃逸
             if (!apk.exists()) {
                 invoke.reject("APK 文件不存在: ${apk.name}")
                 return
@@ -387,10 +420,16 @@ class BootReceiver : BroadcastReceiver() {
         if (!prefs.getBoolean("boot_autostart", false)) return
         val service = Intent(context, ForegroundService::class.java)
             .putExtra(ForegroundService.EXTRA_TEXT, "开机自启:监控运行中")
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            context.startForegroundService(service)
-        } else {
-            context.startService(service)
+        // 开机瞬间部分 ROM 仍可能拒绝 FGS 启动(IllegalStateException 系),只记日志
+        // 不能炸掉广播接收器——MainActivity 拉起链路照走
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(service)
+            } else {
+                context.startService(service)
+            }
+        } catch (e: IllegalStateException) {
+            Log.e(MonitorServicePlugin.TAG, "BootReceiver: 开机启动前台服务失败: ${e.javaClass.name}: ${e.message}", e)
         }
         try {
             context.startActivity(

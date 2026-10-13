@@ -6,6 +6,10 @@ import { useShallow } from 'zustand/react/shallow'
 import i18next from 'i18next'
 import { extractErrorMessage } from '@/lib/utils'
 
+// 切换账号去重：双击/并发触发时共享同一次切换，避免两次 switch_account
+// 交错落盘（与桌面端 useAccount 同款修复）
+let switchInFlight: Promise<void> | null = null
+
 export function useAccount() {
   const configStore = useConfigStore(useShallow((s) => ({
     accounts: s.accounts,
@@ -71,22 +75,31 @@ export function useAccount() {
   }, [api, store.setActiveAccount, store.updateConfig, store.addToast, refreshAccounts])
 
   const handleSwitchAccount = useCallback(async (name: string) => {
-    try {
-      const result = await api.switchAccount?.(name)
-      if (result?.success === false) {
-        store.addToast(i18next.t('account.switchFailed'), 'error', result.message || i18next.t('common.unknownError'))
-        return
+    if (switchInFlight) return switchInFlight
+    const exec = (async () => {
+      try {
+        const result = await api.switchAccount?.(name)
+        if (result?.success === false) {
+          store.addToast(i18next.t('account.switchFailed'), 'error', result.message || i18next.t('common.unknownError'))
+          return
+        }
+        if (result?.config) store.updateConfig(result.config)
+        // 历史缺陷（R4）：曾用 `if (result?.activeAccount)` 真值判断，后端返回空串
+        // （或字段缺失外的其他 falsy 值）时跳过 setActiveAccount，页面高亮不切换、
+        // 需手动刷新。改为与 handleDeleteAccount 一致的 `!== undefined` 判断。
+        if (result?.activeAccount !== undefined) store.setActiveAccount(result.activeAccount)
+        store.addToast(i18next.t('account.switchSuccess'), 'success')
+        await refreshAccounts()
+      } catch (e: unknown) {
+        const errMsg = extractErrorMessage(e)
+        store.addToast(i18next.t('account.switchFailed'), 'error', errMsg)
       }
-      if (result?.config) store.updateConfig(result.config)
-      // 历史缺陷（R4）：曾用 `if (result?.activeAccount)` 真值判断，后端返回空串
-      // （或字段缺失外的其他 falsy 值）时跳过 setActiveAccount，页面高亮不切换、
-      // 需手动刷新。改为与 handleDeleteAccount 一致的 `!== undefined` 判断。
-      if (result?.activeAccount !== undefined) store.setActiveAccount(result.activeAccount)
-      store.addToast(i18next.t('account.switchSuccess'), 'success')
-      await refreshAccounts()
-    } catch (e: unknown) {
-      const errMsg = extractErrorMessage(e)
-      store.addToast(i18next.t('account.switchFailed'), 'error', errMsg)
+    })()
+    switchInFlight = exec
+    try {
+      await exec
+    } finally {
+      if (switchInFlight === exec) switchInFlight = null
     }
   }, [api, store.updateConfig, store.setActiveAccount, store.addToast, refreshAccounts])
 
