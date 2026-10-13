@@ -173,6 +173,15 @@ export function AboutDialog({ open: isOpen, onClose, openExternal, onUpdateAvail
     }
   }, [api])
 
+  // 取消进行中的更新下载：后端中断任务使 downloadUpdate reject，UI 走 error 态
+  const handleCancelDownload = useCallback(async () => {
+    try {
+      await api.cancelDownloadUpdate()
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('取消下载失败:', e)
+    }
+  }, [api])
+
   // 一键下载前确保 updateInfo 完整：通知缓存路径构造的 updateInfo 缺 sha256Checksum
   // 与 assets，直接用会导致下载 404（兜底文件名不匹配）且安装被后端拒绝。
   // 刷新失败时退回缓存对象（可能仍缺 checksum，安装阶段会显示明确错误）。
@@ -605,6 +614,14 @@ function renderNotesLines(notes: string): ReactNode[] {
                       </div>
                     )}
                   </div>
+                  {/* 取消下载：中断后端下载任务，downloadUpdate promise 随后 reject，UI 转 error 态 */}
+                  <Button
+                    variant="outline"
+                    className="h-10 w-full rounded-xl text-sm"
+                    onClick={handleCancelDownload}
+                  >
+                    {t('about.cancelDownload')}
+                  </Button>
                 </div>
               </div>
             )}

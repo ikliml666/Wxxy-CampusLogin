@@ -112,6 +112,11 @@ const QuickActionsCard = memo(function QuickActionsCard({
   const [adapterMenuOpen, setAdapterMenuOpen] = useState(false)
   const menuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // 卸载时清掉挂起的菜单关闭定时器，避免卸载后 setState（React 18 严格模式警告源）
+  useEffect(() => () => {
+    if (menuCloseTimerRef.current) clearTimeout(menuCloseTimerRef.current)
+  }, [])
+
   const [isDhcpRenewing, handleDhcpRenew] = useAsyncLock(async () => {
     await onDhcpRenew()
   }, 5000)
@@ -486,7 +491,13 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     const next = { ...(deviceAliases ?? {}) }
     if (name) next[mac] = name
     else delete next[mac]
-    await saveConfigDirect({ deviceAliases: next })
+    try {
+      await saveConfigDirect({ deviceAliases: next })
+    } catch (err) {
+      // saveConfigDirect 已记日志，这里向用户提示失败并上抛（弹窗保持打开）
+      addToast(extractErrorMessage(err) || tAlias('account.deviceAliasSaveFailed'), 'error')
+      throw err
+    }
     addToast(tAlias('account.deviceAliasSaved'), 'success')
   }, [deviceAliases, saveConfigDirect, addToast, tAlias])
   const fetchOnline = useCallback(async (account: string) => {

@@ -12,7 +12,10 @@
     "campusExitLog": "非校园网络，{{minimize}}秒后最小化，{{exit}}秒后退出，按 Ctrl+Shift+C 取消",
     "campusExitCancelled": "已取消校园网退出",
     "newVersionFoundLog": "发现新版本 v{{version}}",
-    "cancelExit": "取消退出"
+    "cancelExit": "取消退出",
+    "scheduledLoginSkipped": "定时登录已跳过",
+    "scheduledLogoutSkipped": "定时退出已跳过",
+    "macResetCycle": "检测到 MAC 重置循环"
   },
   "common": {
     "refresh": "刷新",
@@ -34,6 +37,8 @@
     "times": "次",
     "unknown": "未知",
     "renderError": "页面渲染出错",
+    "renderErrorDesc": "应用界面遇到意外错误，点击下方按钮尝试恢复",
+    "errorDetails": "错误详情",
     "unknownError": "未知错误",
     "reload": "重新加载"
   },
@@ -132,6 +137,7 @@
     "deleteAccountMessage": "确定要删除账号「{{name}}」吗？此操作不可撤销。",
     "clearPassword": "清除密码",
     "passwordCleared": "已清除保存的密码",
+    "passwordClearFailed": "清除保存的密码失败",
     "changePassword": "修改密码",
     "changePasswordTitle": "修改校园网密码",
     "changePasswordDesc": "通过自助服务系统修改登录密码，旧密码取已保存的登录密码，成功后本地登录密码同步更新",
@@ -622,7 +628,8 @@
     "importConfigConfirmTitle": "确认导入配置",
     "importConfigConfirmMessage": "导入将覆盖当前全部配置（账号、网络与行为设置）。确定继续吗？",
     "importConfigDone": "配置导入成功",
-    "importConfigFailed": "配置导入失败"
+    "importConfigFailed": "配置导入失败",
+    "importConfigNotJson": "仅支持 .json 配置文件"
   },
   "log": {
     "systemLog": "系统日志",
@@ -660,6 +667,7 @@
     "dnsNotRecommendedLog": "未使用推荐DNS，建议在「网络」面板点击「一键优化DNS」设置阿里+腾讯DNS",
     "dnsDohNotEnabledLog": "DNS未启用DoH加密，建议在「网络」面板点击「一键优化DNS」启用，或在 Windows 设置 → 网络 → DNS 加密中手动开启",
     "flushSaveFailedLog": "关闭前保存配置失败: {{msg}}",
+    "dnsStatusFailedLog": "DNS 状态获取失败: {{msg}}",
     "retentionChangeFailed": "日志保留时长设置失败",
     "exportDiagnostics": "导出诊断",
     "exportDiagnosticsDesc": "打包日志、掩码配置与适配器/GPU 信息，便于报障附证据",
@@ -754,6 +762,7 @@
     "installUpdate": "安装更新",
     "installNote": "点击安装后将启动安装程序，当前应用可能需要关闭",
     "downloadFailed": "下载失败",
+    "cancelDownload": "取消下载",
     "retryDownload": "重试下载",
     "return": "返回",
     "waitingForCheck": "等待检查更新",

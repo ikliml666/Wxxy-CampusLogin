@@ -128,10 +128,11 @@ export function useInitialDataLoad() {
                 if (!mountedRef.current) return
                 useQualityStore.getState().setDnsDohStatus(status)
                 const RECOMMENDED_DNS = new Set(['223.5.5.5', '223.6.6.6', '1.12.12.12', '120.53.53.53'])
-                const hasRecommendedDns = status.adapters.some((a: DnsAdapterInfo) => a.dnsServers.some((d) => RECOMMENDED_DNS.has(d.address)))
-                const dohNotEnabled = status.adapters.some((a: DnsAdapterInfo) =>
-                  a.dnsServers.some((d) => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
-                )
+                // 可选链保护：后端字段缺失/形状变化时不至于整段 DNS 提示链路崩掉
+                const hasRecommendedDns = status.adapters?.some((a: DnsAdapterInfo) => a.dnsServers?.some((d) => RECOMMENDED_DNS.has(d.address))) ?? false
+                const dohNotEnabled = status.adapters?.some((a: DnsAdapterInfo) =>
+                  a.dnsServers?.some((d) => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
+                ) ?? false
                 if (!hasRecommendedDns) {
                   if (!mountedRef.current) return
                   lt.getState().addLog(i18next.t('log.dnsNotRecommendedLog'), 'warning')
@@ -140,13 +141,24 @@ export function useInitialDataLoad() {
                   lt.getState().addLog(i18next.t('log.dnsDohNotEnabledLog'), 'warning')
                 }
               }
-            } catch (e) { if (import.meta.env.DEV) console.error(e) }
+            } catch (e) {
+              if (import.meta.env.DEV) console.error(e)
+              // DNS 状态获取失败不再只进 DEV console：用户需要知道 DNS 提示不可用
+              if (mountedRef.current) {
+                lt.getState().addToast(i18next.t('log.dnsStatusFailedLog', { msg: extractErrorMessage(e) }), 'error')
+              }
+            }
           })()
 
           // 网络质量检测由后端 latency loop 统一管理（启动10秒后自动执行首次检测）
           // 前端不再主动调用 checkNetworkQuality，避免与后端重复触发
 
-          dnsPromise.catch((e) => { if (import.meta.env.DEV) console.error(e) })
+          dnsPromise.catch((e) => {
+            if (import.meta.env.DEV) console.error(e)
+            if (mountedRef.current) {
+              lt.getState().addToast(i18next.t('log.dnsStatusFailedLog', { msg: extractErrorMessage(e) }), 'error')
+            }
+          })
         }
 
         // 配置加载完成信号：依赖 config 的启动逻辑（自助服务面板自动验证/回显等）

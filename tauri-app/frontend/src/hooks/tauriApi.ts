@@ -92,6 +92,10 @@ interface TauriApi {
   onAutoExitCancelled: (cb: () => void) => () => void
   onCampusExitCountdown: (cb: (data: { minimizeDelay: number; exitDelay: number }) => void) => () => void
   onCampusExitCancelled: (cb: () => void) => () => void
+  /** 定时动作因静默窗口外被跳过（payload.kind 指明 login/logout） */
+  onScheduledActionSkipped: (cb: (data: { kind: 'login' | 'logout' }) => void) => () => void
+  /** MAC 重置循环事件（后端检测到 MAC 反复变化） */
+  onMacResetCycle: (cb: (data: Record<string, never>) => void) => () => void
   onConfigChanged: (cb: (data: { config: Config }) => void) => () => void
   showWindow: () => Promise<void>
   getLogs: (lines?: number) => Promise<string>
@@ -101,6 +105,8 @@ interface TauriApi {
   getInitData: () => Promise<InitData>
   checkUpdate: () => Promise<UpdateInfo>
   downloadUpdate: (url: string) => Promise<string>
+  /** 取消进行中的更新下载（后端中断下载任务）；返回是否成功发起取消 */
+  cancelDownloadUpdate: () => Promise<boolean>
   installUpdate: (filePath: string, checksumUrl?: string) => Promise<boolean>
   getMirrorUrls: (githubUrl: string) => Promise<MirrorSource[]>
   onDownloadProgress: (cb: (data: DownloadProgress) => void) => () => void
@@ -225,6 +231,8 @@ const tauriApi: TauriApi = {
   onAutoExitCancelled: createEventListener<Record<string, never>>('auto-exit-cancelled'),
   onCampusExitCountdown: createEventListener<{ minimizeDelay: number; exitDelay: number }>('campus-exit-countdown'),
   onCampusExitCancelled: createEventListener<Record<string, never>>('campus-exit-cancelled'),
+  onScheduledActionSkipped: createEventListener<{ kind: 'login' | 'logout' }>('scheduled-action-skipped'),
+  onMacResetCycle: createEventListener<Record<string, never>>('mac-reset-cycle'),
   onConfigChanged: createEventListener<{ config: Config }>('config-changed'),
   showWindow: () => invoke<void>('show_window'),
   getLogs: (lines) => invoke<string>('get_logs', { lines }),
@@ -234,6 +242,7 @@ const tauriApi: TauriApi = {
   getInitData: () => invoke<InitData>('get_init_data'),
   checkUpdate: () => invoke<UpdateInfo>('check_update'),
   downloadUpdate: (url) => invoke<string>('download_update', { url }),
+  cancelDownloadUpdate: () => invoke<boolean>('cancel_download_update'),
   installUpdate: (filePath, checksumUrl) => invoke<boolean>('install_update', { filePath, checksumUrl }),
   getMirrorUrls: (githubUrl) => invoke<MirrorSource[]>('get_mirror_urls', { githubUrl }),
   onDownloadProgress: createEventListener<DownloadProgress>('update-download-progress'),

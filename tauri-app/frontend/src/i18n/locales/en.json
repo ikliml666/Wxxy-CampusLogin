@@ -12,7 +12,10 @@
     "campusExitLog": "Not on campus network: minimize in {{minimize}}s, exit in {{exit}}s, press Ctrl+Shift+C to cancel",
     "campusExitCancelled": "Campus exit cancelled",
     "cancelExit": "Cancel exit",
-    "newVersionFoundLog": "New version found: v{{version}}"
+    "newVersionFoundLog": "New version found: v{{version}}",
+    "scheduledLoginSkipped": "Scheduled login skipped",
+    "scheduledLogoutSkipped": "Scheduled logout skipped",
+    "macResetCycle": "MAC reset cycle detected"
   },
   "common": {
     "refresh": "Refresh",
@@ -34,6 +37,8 @@
     "times": "times",
     "unknown": "Unknown",
     "renderError": "Page render error",
+    "renderErrorDesc": "The interface hit an unexpected error. Click the button below to recover.",
+    "errorDetails": "Error details",
     "unknownError": "Unknown error",
     "reload": "Reload"
   },
@@ -132,6 +137,7 @@
     "deleteAccountMessage": "Are you sure you want to delete account \"{{name}}\"? This action cannot be undone.",
     "clearPassword": "Clear saved password",
     "passwordCleared": "Saved password cleared",
+    "passwordClearFailed": "Failed to clear saved password",
     "changePassword": "Change Password",
     "changePasswordTitle": "Change Campus Network Password",
     "changePasswordDesc": "Changes your login password via the self-service system using the saved login password; the local login password updates automatically on success",
@@ -622,7 +628,8 @@
     "importConfigConfirmTitle": "Confirm import",
     "importConfigConfirmMessage": "Importing will overwrite ALL current settings (account, network and behavior). Continue?",
     "importConfigDone": "Configuration imported",
-    "importConfigFailed": "Failed to import configuration"
+    "importConfigFailed": "Failed to import configuration",
+    "importConfigNotJson": "Only .json config files are supported"
   },
   "log": {
     "systemLog": "System Logs",
@@ -660,6 +667,7 @@
     "dnsNotRecommendedLog": "Recommended DNS not in use. Open the Network panel and click 'One-click DNS Optimize' to set Alibaba + Tencent DNS",
     "dnsDohNotEnabledLog": "DNS DoH encryption not enabled. Click 'One-click DNS Optimize' in the Network panel, or enable it in Windows Settings → Network → DNS Encryption",
     "flushSaveFailedLog": "Failed to save config before close: {{msg}}",
+    "dnsStatusFailedLog": "Failed to get DNS status: {{msg}}",
     "retentionChangeFailed": "Failed to set log retention",
     "exportDiagnostics": "Export Diagnostics",
     "exportDiagnosticsDesc": "Bundle logs, masked config and adapter/GPU info for bug reports",
@@ -754,6 +762,7 @@
     "installUpdate": "Install Update",
     "installNote": "Clicking install will launch the installer. The current app may need to close",
     "downloadFailed": "Download Failed",
+    "cancelDownload": "Cancel download",
     "retryDownload": "Retry Download",
     "return": "Back",
     "waitingForCheck": "Waiting to check for updates",

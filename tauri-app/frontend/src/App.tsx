@@ -179,6 +179,11 @@ function AppInner() {
   )
 
   const panelChangeLock = useRef(false)
+  const panelLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 卸载时清掉挂起的锁释放定时器，避免卸载后写 ref 之外还拖着无主计时器
+  useEffect(() => () => {
+    if (panelLockTimerRef.current) clearTimeout(panelLockTimerRef.current)
+  }, [])
   const [aboutOpen, setAboutOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; name: string; displayName: string }>({ open: false, name: '', displayName: '' })
@@ -317,7 +322,8 @@ function AppInner() {
     safeStorage.set('campus-active-panel', p)
     // 锁只需覆盖 AnimatePresence mode="wait" 的退出动画时长（0.04s），
     // 原固定 500ms 会吞掉快速连续点击
-    setTimeout(() => { panelChangeLock.current = false }, 60)
+    if (panelLockTimerRef.current) clearTimeout(panelLockTimerRef.current)
+    panelLockTimerRef.current = setTimeout(() => { panelChangeLock.current = false }, 60)
   }, [setActivePanel])
 
   const panelInfo = PANEL_TITLES[deferredPanel] || PANEL_TITLES.dashboard

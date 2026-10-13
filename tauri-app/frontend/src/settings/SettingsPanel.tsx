@@ -518,7 +518,14 @@ export const SettingsPanel = memo(function SettingsPanel({
           />
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(false)}>{t('confirmDialog.cancel')}</Button>
-            <Button size="sm" disabled={!importPath.trim()} onClick={() => { setImportDialogOpen(false); setShowImportConfirm(true) }}>
+            <Button size="sm" disabled={!importPath.trim()} onClick={() => {
+              // 前端基础校验（后端仍有强校验兜底）：非 .json 在进入确认前就轻提示拦截
+              if (!importPath.trim().toLowerCase().endsWith('.json')) {
+                useLogToastStore.getState().addToast(t('settings.importConfigNotJson'), 'warning')
+                return
+              }
+              setImportDialogOpen(false); setShowImportConfirm(true)
+            }}>
               {t('settings.importConfigNext')}
             </Button>
           </div>

@@ -32,9 +32,18 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="flex flex-col items-center justify-center h-screen p-8 font-sans text-muted-foreground text-center bg-background">
           <AlertTriangle className="h-12 w-12 mb-4 text-amber-500" />
           <h2 className="text-xl font-semibold text-foreground mb-2">{i18next.t('common.renderError')}</h2>
-          <p className="text-sm max-w-md leading-relaxed mb-6">
-            {this.state.error?.message || i18next.t('common.unknownError')}
+          <p className="text-sm max-w-md leading-relaxed mb-3">
+            {i18next.t('common.renderErrorDesc')}
           </p>
+          {/* 原始报错对用户是噪声，折叠进 details 供报障时展开 */}
+          <details className="max-w-md mb-6 text-left">
+            <summary className="text-xs cursor-pointer select-none text-muted-foreground hover:text-foreground">
+              {i18next.t('common.errorDetails')}
+            </summary>
+            <pre className="mt-2 p-2 text-xs whitespace-pre-wrap break-all bg-muted/50 rounded-md text-muted-foreground">
+              {this.state.error?.message || i18next.t('common.unknownError')}
+            </pre>
+          </details>
           <Button
             variant="outline"
             onClick={() => {

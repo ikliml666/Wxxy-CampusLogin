@@ -134,6 +134,10 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       } catch (e: unknown) {
         const errMsg = extractErrorMessage(e)
         useLogToastStore.getState().addLog(i18next.t('auth.configSaveFailedLog', { msg: errMsg }), 'error')
+        // 密码保存失败必须联动 passwordSaved=false（credReady 依赖它判定凭证就绪）
+        if (cfg.password !== undefined && cfg.password !== '') {
+          get().syncPasswordSaved(false)
+        }
         // 连续失败达阈值的字段放弃脏标记，后端回传可重新同步，避免永久脱节
         Object.keys(cfg).forEach(k => {
           if (!dirtyFields.has(k)) return
@@ -146,6 +150,8 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
             dirtyFailureCounts.set(k, count)
           }
         })
+        // 失败必须上抛：调用方据此走失败分支（toast），不允许吞错造成假成功
+        throw e
       }
     })()
     saveConfigInFlight = promise

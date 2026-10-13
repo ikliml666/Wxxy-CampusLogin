@@ -278,6 +278,7 @@ export function useEventListeners() {
     if (unsub4) unlisteners.push(unsub4)
 
     const unsub5 = api.onAutoExitCancelled?.(() => {
+      if (!mountedRef.current) return
       lt.getState().addLog(i18next.t('notify.autoExitCancelled'), 'success')
       lt.getState().addToast(i18next.t('notify.autoExitCancelled'), 'success')
       lt.getState().removeToastsByPrefix('auto-exit-cancel-')
@@ -306,6 +307,7 @@ export function useEventListeners() {
     if (unsubCampusExit) unlisteners.push(unsubCampusExit)
 
     const unsubCampusExitCancelled = api.onCampusExitCancelled?.(() => {
+      if (!mountedRef.current) return
       lt.getState().addLog(i18next.t('notify.campusExitCancelled'), 'success')
       lt.getState().addToast(i18next.t('notify.campusExitCancelled'), 'success')
       lt.getState().removeToastsByPrefix('campus-exit-cancel-')
@@ -355,6 +357,22 @@ export function useEventListeners() {
       }
     }) ?? (() => {})
     if (unsub9) unlisteners.push(unsub9)
+
+    // C11：定时动作跳过（静默窗口外）与 MAC 重置循环 → 日志 + toast
+    const unsubScheduledActionSkipped = api.onScheduledActionSkipped?.((data) => {
+      if (!mountedRef.current) return
+      const key = data?.kind === 'logout' ? 'notify.scheduledLogoutSkipped' : 'notify.scheduledLoginSkipped'
+      lt.getState().addLog(i18next.t(key), 'info')
+      lt.getState().addToast(i18next.t(key), 'info')
+    }) ?? (() => {})
+    if (unsubScheduledActionSkipped) unlisteners.push(unsubScheduledActionSkipped)
+
+    const unsubMacResetCycle = api.onMacResetCycle?.(() => {
+      if (!mountedRef.current) return
+      lt.getState().addLog(i18next.t('notify.macResetCycle'), 'warning')
+      lt.getState().addToast(i18next.t('notify.macResetCycle'), 'warning')
+    }) ?? (() => {})
+    if (unsubMacResetCycle) unlisteners.push(unsubMacResetCycle)
 
     return () => {
       mountedRef.current = false
