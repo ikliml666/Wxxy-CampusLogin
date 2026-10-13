@@ -59,11 +59,26 @@ fn local_addr_of(state: &tauri::State<'_, crate::android_state::AndroidState>) -
         .and_then(|cached| cached.map(std::net::IpAddr::from))
 }
 
-/// 前端 BiometricPrompt 认证成功后调用;后端记 TTL 时间戳
+/// 前端在生物识别/2D 人脸**认证成功后**调用;后端据 success 记 TTL 时间戳。
+/// success != true 不得解锁验证门——原实现无此参数,前端任何 invoke(含异常路径
+/// 或被篡改的调用)都会直接 note_identity_verified(),验证门形同虚设;
+/// method 记录验证方式(系统生物识别 biometric / 2D 人脸 face2d)用于失败审计
 #[tauri::command]
-pub async fn verify_biometric_identity(_consent_message: Option<String>) -> Result<CommandResult, String> {
-    crate::identity_gate::note_identity_verified();
-    Ok(CommandResult::ok_msg("验证通过"))
+pub async fn verify_biometric_identity(
+    success: bool,
+    method: String,
+    _consent_message: Option<String>,
+) -> Result<CommandResult, String> {
+    if success {
+        crate::identity_gate::note_identity_verified();
+        Ok(CommandResult::ok_msg("验证通过"))
+    } else {
+        campus_login_lib::log_warn!(
+            "self-service",
+            "生物识别验证未通过,验证门不解锁(method={method})"
+        );
+        Ok(CommandResult::err("验证未通过"))
+    }
 }
 
 #[tauri::command]

@@ -33,7 +33,8 @@ pub async fn do_login(
         eprintln!("[do_login][v2] reject: user_empty={} password_empty={}", user.is_empty(), password.is_empty());
         return Err("账号与密码不能为空".to_string());
     }
-    eprintln!("[do_login] start: user_len={} operator={}", user.len(), operator);
+    // 运营商名不落日志:运营商归属可反推用户线路/宿舍区等敏感关联,只打长度
+    eprintln!("[do_login] start: user_len={} operator_len={}", user.len(), operator.len());
     let operator = if operator.is_empty() {
         crate::config_state::current_settings(&app).await?.operator
     } else {
@@ -45,7 +46,9 @@ pub async fn do_login(
     if let Ok(dir) = app.path().app_data_dir() {
         let message = result["message"].as_str().unwrap_or("");
         let success = result["success"].as_bool().unwrap_or(false);
-        let _ = crate::login_history::append(&dir, success, message, &user, "manual");
+        if let Err(e) = crate::login_history::append(&dir, success, message, &user, "manual") {
+            campus_login_lib::log_warn!("protocol", "手动登录历史记录失败: {e}");
+        }
     }
     // 手动登录成功:清除自动登录熔断与注销保护(否则手动救回来后自动重登仍被闸住),
     // 并置 was_online——手动登录与启动自动登录同为在线的权威证据,漏置位会让夜间出站
@@ -122,7 +125,9 @@ pub async fn do_logout(
     if let Ok(dir) = app.path().app_data_dir() {
         let message = inner["message"].as_str().unwrap_or("");
         let success = inner["success"].as_bool().unwrap_or(false);
-        let _ = crate::login_history::append(&dir, success, message, &user_for_history, "manual");
+        if let Err(e) = crate::login_history::append(&dir, success, message, &user_for_history, "manual") {
+            campus_login_lib::log_warn!("protocol", "注销历史记录失败: {e}");
+        }
     }
     // 注销保护期 60s:后台检测此前会在冷却后把用户自动登回,违背注销意图
     // (桌面 logout_protected_until 同语义;登录成功时清除)

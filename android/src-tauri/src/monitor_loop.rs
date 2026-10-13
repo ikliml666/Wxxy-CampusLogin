@@ -8,6 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, O
 use std::sync::Mutex;
 use tauri::Manager;
 
+// WiFi watcher 注册失败降级标志:android_state 进程级静态(status_value 无
+// State 也可读;register 结果由 start_wifi_watcher 记账)
+use crate::android_state::WATCHER_FAILED;
+
 lazy_static! {
     pub(crate) static ref MONITOR: MonitorState = MonitorState::default();
 }
@@ -22,6 +26,15 @@ const OUTBOUND_RESTORE_MAX_FAILS: u32 = 3;
 static OUTBOUND_SWITCH_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 连续注销失败上限
 const OUTBOUND_SWITCH_MAX_FAILS: u32 = 3;
+
+/// 监控循环代际 token:start/stop 各自 fetch_add 一次,循环持有启动时的代际值并
+/// 每拍校验——防 stop→start 竞速下「旧循环退出时误清新循环的 running 标志」
+static MONITOR_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// 自动登录读-判-写 attempt 段互斥:tick 循环、WiFi 事件、手动触发三条入口并发
+/// 跑 run_check_once 时,同拍重复探测/重复登录/计数错乱竞态由此串行化
+/// (仅覆盖"判在线→should_attempt_login→run_login→计数"段,探测 IO 不持锁)
+static LOGIN_ATTEMPT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Default)]
 #[allow(dead_code)] // Task 4 循环体接线
@@ -123,6 +136,7 @@ pub fn status_value() -> serde_json::Value {
         "consecutiveFailures": MONITOR.consecutive_failures.load(Ordering::Relaxed),
         "reconnectCount": MONITOR.reconnect_count.load(Ordering::Relaxed),
         "lastResult": last.as_ref(),
+        "watcherFailed": WATCHER_FAILED.load(Ordering::Relaxed),
     });
     // 展平最近一次检测的关键字段到顶层:前端启动时读 bgStatus.online 驱动
     // 状态点(首轮 emit 先于 WebView 监听建立,事件会丢,getInitData 是唯一
@@ -199,7 +213,18 @@ pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json:
         .idle_interval_ms
         .store(settings.background_check_idle_interval, Ordering::Relaxed);
     if is_running() {
-        // 已在跑:仅刷新目标间隔,循环体下 tick 重建计时器(改间隔立即生效)
+        // 已在跑:仅刷新目标间隔,循环体下 tick 重建计时器(改间隔立即生效)。
+        // Rust 循环活着不代表 FGS 活着(系统可单独回收前台服务):现有插件桥无
+        // isRunning 查询命令(Kotlin 侧无法在本组改动),降级为重发一次 start_monitor
+        // 保活——服务活着时 onStartCommand 只是刷新通知文案(START_STICKY 幂等),
+        // 服务被杀则重新拉起,失败仅记日志不中断
+        #[cfg(mobile)]
+        {
+            use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+            if let Err(e) = app.campus_monitor_service().start_monitor("校园网监控运行中") {
+                campus_login_lib::log_warn!("monitor", "运行中 FGS 保活重发失败: {e}");
+            }
+        }
         return Ok(serde_json::json!({ "isRunning": true }));
     }
 
@@ -222,13 +247,18 @@ pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json:
     #[cfg(mobile)]
     start_wifi_watcher(&app);
 
-    tauri::async_runtime::spawn(monitor_tick_loop(app.clone(), want));
+    // 代际 token:循环持有本代值,stop/下一次 start 推进代际后旧循环自退,
+    // 退出时只有代际匹配才清 running 标志(stop→start 竞速防误清)
+    let gen = MONITOR_GENERATION.fetch_add(1, Ordering::Relaxed);
+    tauri::async_runtime::spawn(monitor_tick_loop(app.clone(), want, gen));
     emit_login_log(&app, "后台监控已启动", "info");
     Ok(serde_json::json!({ "isRunning": true }))
 }
 
 #[tauri::command]
 pub async fn stop_background_check(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // 先推进代际再清标志:旧循环退出时 gen 已失配,不会把新一轮的 running 误清
+    MONITOR_GENERATION.fetch_add(1, Ordering::Relaxed);
     MONITOR.running.store(false, Ordering::Relaxed);
     stop_wifi_watcher(&app);
     #[cfg(mobile)]
@@ -261,9 +291,13 @@ pub(crate) fn start_wifi_watcher(app: &tauri::AppHandle) {
         Ok(_) => {
             WIFI_WATCHER_CHANNEL_ID.store(id, Ordering::Relaxed);
             WIFI_WATCHER_ACTIVE.store(true, Ordering::Relaxed);
+            WATCHER_FAILED.store(false, Ordering::Relaxed);
             campus_login_lib::log_info!("monitor", "WiFi 变化监听已启动(WiFi 变化即时触发检测)");
         }
         Err(e) => {
+            // 注册失败降级为纯周期检测:置失败标志经 get_background_status 暴露
+            // (前端可提示"变化即时感知不可用"),不静默
+            WATCHER_FAILED.store(true, Ordering::Relaxed);
             campus_login_lib::log_warn!("monitor", "WiFi 变化监听启动失败,退化为纯周期检测: {e}")
         }
     }
@@ -330,6 +364,11 @@ fn handle_wifi_event(
 
 #[tauri::command]
 pub async fn trigger_background_check(app: tauri::AppHandle) -> Result<(), String> {
+    // 仅在后台监控运行时放行:监控停着时手动触发会产生无 watch/无通知管理的
+    // 孤立检测(前端"立即检测"按钮语义即刷新当前监控状态),停跑时明确拒绝
+    if !is_running() {
+        return Err("后台监控未运行,无法触发检测".to_string());
+    }
     run_check_once(&app).await;
     Ok(())
 }
@@ -421,7 +460,28 @@ pub fn run_startup_tasks(app: tauri::AppHandle) {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let settings = match crate::config_state::current_settings(&app).await {
             Ok(s) => s,
-            Err(_) => return,
+            Err(e) => {
+                // 启动链读配置失败不得静默:自动登录/后台检测/定时质量全部不拉起,
+                // 用户看到的是"开关开着却不运行"而无任何解释。log_error + emit
+                // startup-failed 供前端提示
+                campus_login_lib::log_error!("monitor", "启动恢复失败(读取配置): {e}");
+                use tauri::Emitter;
+                let _ = app.emit(
+                    "startup-failed",
+                    serde_json::json!({ "reason": format!("读取配置失败: {e}") }),
+                );
+                // BootReceiver 可能已把 FGS 拉起(常驻通知"监控运行中"是假的):
+                // 停服务让通知消失,与真实状态一致;失败则留通知并已由上面的
+                // 事件与日志如实暴露(B4h: 尽力停服务)
+                #[cfg(mobile)]
+                {
+                    use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+                    if let Err(stop_err) = app.campus_monitor_service().stop_monitor() {
+                        campus_login_lib::log_warn!("monitor", "FGS 停止失败(启动恢复失败路径): {stop_err}");
+                    }
+                }
+                return;
+            }
         };
         // 启动即应用持久化日志保留天数（set 内含一次按天清理）：此前安卓 retention 重启后
         // 恒为默认 7（仅日志面板临时改），且首次按时间清理要等 worker 跑满 1 小时
@@ -580,7 +640,7 @@ fn power_state(_app: &tauri::AppHandle) -> (bool, bool) {
     (true, true)
 }
 
-async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
+async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64, gen: u64) {
     // 下限 5s:防误配超小间隔打爆探测
     let mut current = interval_ms.max(5000);
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(current));
@@ -605,7 +665,9 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
     }
     loop {
         tick.tick().await;
-        if !is_running() {
+        // 代际校验:stop/新一轮 start 推进代际后旧循环立即自退(比 running 标志
+        // 更强——running 可能已被新一轮置回 true,旧循环不得继续跑)
+        if !is_running() || MONITOR_GENERATION.load(Ordering::Relaxed) != gen {
             break;
         }
         // 定时登录/定时注销判定(P2-32):置于巡检分档跳拍与校园网检测静默期之前——
@@ -632,7 +694,11 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64) {
         last_probe_ms = now;
         run_check_once(&app).await;
     }
-    MONITOR.running.store(false, Ordering::Relaxed);
+    // 只有代际匹配才清 running 标志:stop 已推进代际时标志清理由 stop 自身负责
+    // (新一轮 start 可能已把 running 置回 true,旧循环退出不得误清)
+    if MONITOR_GENERATION.load(Ordering::Relaxed) == gen {
+        MONITOR.running.store(false, Ordering::Relaxed);
+    }
 }
 
 /// 是否处于夜间出站切换态(night_outbound_restore 标记非空)。读配置命中内存
@@ -1413,37 +1479,46 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         settings.auto_login_cooldown_secs,
     );
     if should && !settings.user.is_empty() && !settings.password.is_empty() {
+        // attempt 段互斥:tick/WiFi 事件/手动触发三条入口可能同拍进入,无锁时
+        // 会重复探测+重复登录+计数错乱。锁覆盖「记账→登录→计数收尾」整段
+        let _attempt_guard = LOGIN_ATTEMPT_LOCK.lock().await;
         MONITOR.last_login_attempt_ms.store(now, Ordering::Relaxed);
         MONITOR.reconnect_count.fetch_add(1, Ordering::Relaxed);
         let count = MONITOR.reconnect_count.load(Ordering::Relaxed);
         if count >= settings.max_disconnect_reconnect {
+            // 达上限只发通知,不再执行本轮 run_login(重试也注定失败且刷熔断计数)
             notify_system(app, settings.enable_notification, "自动重连已达上限", &with_vpn_hint("本轮在线周期内不再自动重登,请手动登录"), "mascot_offline");
-        }
-        let state = app.state::<crate::android_state::AndroidState>();
-        match crate::protocol_cmds::run_login(&settings.user, &settings.password, &settings.operator, &state).await {
-            Ok(v) => {
-                let success = v["success"].as_bool().unwrap_or(false);
-                let message = v["message"].as_str().unwrap_or("").to_string();
-                emit_login_log(app, &format!("自动登录: {message}"), if success { "info" } else { "error" });
-                if let Ok(dir) = app.path().app_data_dir() {
-                    let _ = crate::login_history::append(&dir, success, &message, &settings.user, "auto");
+        } else {
+            let state = app.state::<crate::android_state::AndroidState>();
+            match crate::protocol_cmds::run_login(&settings.user, &settings.password, &settings.operator, &state).await {
+                Ok(v) => {
+                    let success = v["success"].as_bool().unwrap_or(false);
+                    let message = v["message"].as_str().unwrap_or("").to_string();
+                    emit_login_log(app, &format!("自动登录: {message}"), if success { "info" } else { "error" });
+                    if let Ok(dir) = app.path().app_data_dir() {
+                        if let Err(e) =
+                            crate::login_history::append(&dir, success, &message, &settings.user, "auto")
+                        {
+                            campus_login_lib::log_warn!("monitor", "自动重登历史记录失败: {e}");
+                        }
+                    }
+                    if success {
+                        // 成功走应用内 toast(auto-login-result);系统通知仅保留失败场景
+                        emit_auto_login_result(app, true, &message);
+                    } else {
+                        // 协议返回失败(凭据错误等)与执行失败同计入熔断,达 5 次停止本会话自动重登
+                        MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
+                        notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&message), "mascot_offline");
+                        emit_auto_login_result(app, false, &message);
+                    }
+                    login_result = Some(v);
                 }
-                if success {
-                    // 成功走应用内 toast(auto-login-result);系统通知仅保留失败场景
-                    emit_auto_login_result(app, true, &message);
-                } else {
-                    // 协议返回失败(凭据错误等)与执行失败同计入熔断,达 5 次停止本会话自动重登
+                Err(e) => {
                     MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-                    notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&message), "mascot_offline");
-                    emit_auto_login_result(app, false, &message);
+                    emit_login_log(app, &format!("自动登录执行失败: {e}"), "error");
+                    notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&e), "mascot_offline");
+                    emit_auto_login_result(app, false, &e);
                 }
-                login_result = Some(v);
-            }
-            Err(e) => {
-                MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-                emit_login_log(app, &format!("自动登录执行失败: {e}"), "error");
-                notify_system(app, settings.enable_notification, "自动重登失败", &with_vpn_hint(&e), "mascot_offline");
-                emit_auto_login_result(app, false, &e);
             }
         }
     }

@@ -2,7 +2,7 @@
 //! surge_ping ICMP 兜底在安卓运行时静默失败,TCP 优先策略下不影响结果)。
 
 use lazy_static::lazy_static;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -11,6 +11,10 @@ use campus_login_lib::network::quality::{check_network_quality_async, NetworkQua
 lazy_static! {
     static ref LATENCY_RUNNING: AtomicBool = AtomicBool::new(false);
 }
+/// 延迟测试代际 token:start/stop 各自 fetch_add 一次,循环持有启动时的代际值,
+/// 每拍校验不一致即退出——防「旧循环误读新启动置位的 RUNNING 标志」的生命周期
+/// 竞态(stop 后立刻 start 时,旧循环可能把新循环的运行标志清掉)
+static LATENCY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
     let settings = crate::config_state::current_settings(app)
@@ -55,13 +59,25 @@ pub async fn start_latency_test(app: tauri::AppHandle) -> Result<(), String> {
     if LATENCY_RUNNING.swap(true, Ordering::Relaxed) {
         return Ok(());
     }
-    let settings = crate::config_state::current_settings(&app).await?;
-    tauri::async_runtime::spawn(latency_loop(app, settings));
+    let settings = match crate::config_state::current_settings(&app).await {
+        Ok(s) => s,
+        Err(e) => {
+            // 读取配置失败必须复位标志,否则 LATENCY_RUNNING 永久卡 true,
+            // 之后所有 start_latency_test 都被幂等闸吞掉(标志卡死缺陷)
+            LATENCY_RUNNING.store(false, Ordering::Relaxed);
+            return Err(e);
+        }
+    };
+    let gen = LATENCY_GENERATION.fetch_add(1, Ordering::Relaxed);
+    tauri::async_runtime::spawn(latency_loop(app, settings, gen));
     Ok(())
 }
 
 #[tauri::command]
 pub fn stop_latency_test() -> Result<(), String> {
+    // 先推进代际再清标志:代际不等会让旧循环的收尾 store(false) 失配跳过,
+    // 避免旧循环退出时误清新一轮刚置位的运行标志
+    LATENCY_GENERATION.fetch_add(1, Ordering::Relaxed);
     LATENCY_RUNNING.store(false, Ordering::Relaxed);
     Ok(())
 }
@@ -84,15 +100,15 @@ fn next_backoff_interval_ms(current_ms: u64, stable_good_streak: u32, base_ms: u
     }
 }
 
-async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Settings) {
+async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Settings, gen: u64) {
     let base_ms = settings.latency_test_interval.max(10_000);
     let mut current_ms = base_ms;
     let mut stable_good_streak: u32 = 0;
-    while LATENCY_RUNNING.load(Ordering::Relaxed) {
-        let mut tick = tokio::time::interval(std::time::Duration::from_millis(current_ms));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        tick.tick().await; // 新建计时器的首 tick 立即到期，吞掉避免连发
-        if !LATENCY_RUNNING.load(Ordering::Relaxed) {
+    // 「先检测、后 sleep 当前间隔」:原实现每轮循环内重建 interval 只 await 首
+    // tick(新建计时器首 tick 立即到期),等待从未真正发生——退避翻倍后仍按连发
+    // 节奏打外网。改用 sleep 放循环尾部,天然支持退避变周期,无首 tick 陷阱
+    loop {
+        if !LATENCY_RUNNING.load(Ordering::Relaxed) || LATENCY_GENERATION.load(Ordering::Relaxed) != gen {
             break;
         }
         let result = run_quality_once(&app).await; // quality 内部经 EventBus emit network-quality-result
@@ -108,8 +124,13 @@ async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Sett
             stable_good_streak = 0;
             current_ms = base_ms;
         }
+        tokio::time::sleep(std::time::Duration::from_millis(current_ms)).await;
     }
-    LATENCY_RUNNING.store(false, Ordering::Relaxed);
+    // 只有启动代际仍匹配才清运行标志:stop 已推进代际(或新一轮已启动)时,
+    // 标志归新持有者管理,旧循环不得误清
+    if LATENCY_GENERATION.load(Ordering::Relaxed) == gen {
+        LATENCY_RUNNING.store(false, Ordering::Relaxed);
+    }
 }
 
 #[cfg(test)]

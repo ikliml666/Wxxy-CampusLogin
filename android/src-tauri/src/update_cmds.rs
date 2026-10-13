@@ -14,9 +14,11 @@ use tauri::Manager;
 
 lazy_static! {
     static ref UPDATE_LOOP_RUNNING: AtomicBool = AtomicBool::new(false);
-    /// 最近一次 check_update 拿到的 version.json 校验值:download_update 完成后
-    /// 强制比对(version.json 未提供时为 None 跳过——发布流程需补该字段)
-    static ref UPDATE_CHECKSUM: Mutex<Option<String>> = Mutex::new(None);
+    /// 最近一次 check_update 记账的 (release tag, digest):download_update 按下载
+    /// URL 的 tag 取用——检查期 API 可用但拿不到 digest 时记 (tag, "") 哨兵,
+    /// 下载端据此拒绝安装(API 在线却无校验值 ≠ API 不可用降级,两者语义必须区分);
+    /// API 不可用时不记账,下载端放行但 emit update-unverified 明示未校验
+    static ref UPDATE_CHECKSUM: Mutex<Option<(String, String)>> = Mutex::new(None);
 }
 
 const VERSION_FILE: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
@@ -227,9 +229,12 @@ struct VersionFile {
 }
 
 /// 从 GitHub API release 拉取 APK 资产与官方 digest(服务端计算,最可信校验源)。
-/// API 失败/限流/无 APK 资产时返回空——前端降级为外链 Releases(与现状一致);
+/// 返回 (assets, checksum, api_ok):api_ok=true 表示 API 请求本身成功(含 HTTP 200
+/// 与 JSON 解析成功)——「API 可用但无 digest」与「API 不可用(网络/HTTP 错)」是
+/// 两种不同语义,前者下载端必须拒绝安装,后者降级放行但明示未校验(审计 B5)。
+/// API 失败/限流/无 APK 资产时 assets 为空——前端降级为外链 Releases(与现状一致);
 /// version.json 不含 assets,真实下载地址只能来自 API。
-async fn fetch_apk_assets(client: &reqwest::Client, latest: &str) -> (Vec<ReleaseAsset>, Option<String>) {
+async fn fetch_apk_assets(client: &reqwest::Client, latest: &str) -> (Vec<ReleaseAsset>, Option<String>, bool) {
     let url = format!("https://api.github.com/repos/ikliml666/Wxxy-CampusLogin/releases/tags/v{latest}");
     let Ok(resp) = client
         .get(&url)
@@ -241,13 +246,13 @@ async fn fetch_apk_assets(client: &reqwest::Client, latest: &str) -> (Vec<Releas
         .send()
         .await
     else {
-        return (Vec::new(), None);
+        return (Vec::new(), None, false);
     };
     if !resp.status().is_success() {
-        return (Vec::new(), None);
+        return (Vec::new(), None, false);
     }
     let Ok(raw) = resp.json::<serde_json::Value>().await else {
-        return (Vec::new(), None);
+        return (Vec::new(), None, false);
     };
     let mut assets = Vec::new();
     let mut checksum = None;
@@ -271,7 +276,7 @@ async fn fetch_apk_assets(client: &reqwest::Client, latest: &str) -> (Vec<Releas
             size: item.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
         });
     }
-    (assets, checksum)
+    (assets, checksum, true)
 }
 
 async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String> {
@@ -296,9 +301,17 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
                 let has_update = has_newer_version(current, &latest_version);
                 // APK 资产与校验值:校验值唯一来源 GitHub API digest(服务端计算),
                 // version.json 无 sha256 字段约定
-                let (assets, checksum) = fetch_apk_assets(&client, &latest_version).await;
+                let (assets, checksum, api_ok) = fetch_apk_assets(&client, &latest_version).await;
+                // digest 记账携带 tag:下载端按下载 URL 的 tag 取用(检查与下载的
+                // 版本可能不同——只记裸 digest 会把 A 版校验值误配到 B 版文件上)。
+                // 三态:有 digest → (tag, digest);API 在线但无 digest → (tag, "") 哨兵,
+                // 下载端据此拒绝;API 不可用 → 不记账,下载端放行但明示未校验
                 if let Ok(mut guard) = UPDATE_CHECKSUM.lock() {
-                    *guard = checksum.clone();
+                    *guard = match &checksum {
+                        Some(d) => Some((latest_version.clone(), d.clone())),
+                        None if api_ok => Some((latest_version.clone(), String::new())),
+                        None => None,
+                    };
                 }
                 return Ok(UpdateInfo {
                     has_update,
@@ -460,21 +473,47 @@ async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<Str
         }
     }
     file.flush().await.map_err(|e| format!("落盘失败: {e}"))?;
-    // SHA256 完整性校验:version.json 提供校验值时强制比对(防镜像投毒,
-    // 桌面 updater 同语义);未提供或格式异常时跳过不阻塞更新
-    let expected = UPDATE_CHECKSUM.lock().ok().and_then(|g| g.clone());
+    // SHA256 完整性校验(审计 B5):按下载 URL 的 tag 取检查期记账的 digest,三态:
+    // ①记账含该 tag 的非空 digest → 强制比对,不匹配即删除并报错;
+    // ②记账含该 tag 但 digest 为空(API 在线却拿不到校验值) → 拒绝安装;
+    // ③无记账或 tag 不匹配(API 不可用降级/手动 URL) → 放行但 emit update-unverified
+    //   + log_warn 明示未校验(此前 None 一律静默跳过,用户无从知晓完整性未验证)
+    let expected = match (UPDATE_CHECKSUM.lock().ok().and_then(|g| g.clone()), download_tag(&url)) {
+        (Some((t, digest)), Some(url_tag)) if t == url_tag && !digest.is_empty() => Some(digest),
+        (Some((t, _)), Some(url_tag)) if t == url_tag => {
+            let _ = tokio::fs::remove_file(&path).await;
+            return Err("无法获取校验值,拒绝安装".to_string());
+        }
+        _ => None,
+    };
     if let Some(expected) = expected {
         if !verify_file_sha256(&path, &expected).await? {
             let _ = tokio::fs::remove_file(&path).await;
             return Err("下载文件 SHA256 校验不匹配,已删除(下载源可能被篡改,请换镜像重试)".to_string());
         }
+    } else {
+        campus_login_lib::log_warn!("updater", "本次下载未取得校验值(检查期 API 不可用或版本不匹配),完整性未验证");
+        let _ = app.emit(
+            "update-unverified",
+            serde_json::json!({ "url": url, "file": file_name }),
+        );
     }
     Ok(path.to_string_lossy().to_string())
 }
 
+/// 从下载 URL 提取 release tag:官方与镜像链的资产 URL 都含
+/// `/releases/download/<tag>/` 段(镜像仅前缀拼接,不改变路径形状)
+fn download_tag(url: &str) -> Option<String> {
+    let rest = url.split("/releases/download/").nth(1)?;
+    let tag = rest.split('/').next()?;
+    (!tag.is_empty()).then(|| tag.to_string())
+}
+
 /// 流式计算文件 SHA256 并与期望值比对;期望值容忍 "hex filename" 格式与大小写,
-/// 非 64 位十六进制时视为未提供校验值,返回 true 跳过(不误杀)。
-/// pub(crate):人脸模型下载(face_model_cmds)按同语义复用
+/// 非 64 位十六进制 → Err(校验值格式非法必须显式失败——原实现返回 true 静默放行,
+/// 相当于损坏的校验值等于没有校验,审计 B5)。
+/// pub(crate):人脸模型下载(face_model_cmds)按同语义复用(face 侧 sha 恒为合法
+/// hex,Err 分支对其等价于「校验不通过」,调用方语义安全)
 pub(crate) async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bool, String> {
     use sha2::{Digest, Sha256};
     let clean = expected
@@ -484,7 +523,7 @@ pub(crate) async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bo
         .trim()
         .to_ascii_lowercase();
     if clean.len() != 64 || !clean.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Ok(true);
+        return Err(format!("校验值格式非法(非 64 位十六进制): {clean}"));
     }
     let mut file = tokio::fs::File::open(path).await.map_err(|e| format!("读取下载文件失败: {e}"))?;
     use tokio::io::AsyncReadExt;
@@ -535,6 +574,14 @@ pub async fn install_update(app: tauri::AppHandle, file_path: String) -> Result<
 /// 下次启动时一次性收掉。只删 .apk 且只删 mtime 超龄的文件——进行中的下载
 /// 不受影响(写盘即刷新 mtime)
 pub async fn cleanup_stale_apks(app: &tauri::AppHandle) {
+    // 与下载竞态防护(审计 B5):下载进行中直接跳过清理——mtime 判定虽对进行中
+    // 的文件天然"新鲜",但清理与下载并发遍历/删除同一目录仍是无谓的 IO 争用,
+    // 且极端情况下(下载启动前文件已存在且超龄,下载器尚未 create 截断)可能
+    // 删掉正要被复用的路径
+    if DOWNLOAD_RUNNING.load(Ordering::Relaxed) {
+        campus_login_lib::log_info!("updater", "下载任务进行中,本轮跳过残留安装包清理");
+        return;
+    }
     let Ok(dir) = update_dir(app) else { return };
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else { return };
     let now = std::time::SystemTime::now();
@@ -656,6 +703,15 @@ mod tests {
         assert_eq!(backoff_delay_secs(2), 15 * 60, "第 2 次连续失败 → 15min");
         assert_eq!(backoff_delay_secs(3), 3600, "第 3 次连续失败 → 1h");
         assert_eq!(backoff_delay_secs(4), AUTO_CHECK_INTERVAL_SECS, "退避用尽恢复 24h 周期");
+    }
+
+    #[test]
+    fn 下载url_tag提取() {
+        // 审计 B5:下载校验按当前 tag 取用,tag 提取是镜像前缀无关的
+        assert_eq!(download_tag("https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.4.1/app.apk").as_deref(), Some("v2.4.1"));
+        assert_eq!(download_tag("https://ghfast.top/https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.4.1/app.apk").as_deref(), Some("v2.4.1"), "镜像仅前缀拼接,tag 段不变");
+        assert!(download_tag("https://github.com/ikliml666/Wxxy-CampusLogin/raw/main/version.json").is_none(), "非 release 资产 URL 无 tag");
+        assert!(download_tag("https://github.com/x/releases/download/").is_none(), "tag 段为空不产出空 tag");
     }
 
     #[test]

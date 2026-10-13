@@ -3,12 +3,25 @@
 //! 出站一律掩码;空/MASK 占位符回退已存值语义与桌面 save_config 同构。
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::Manager;
 
 pub const PASSWORD_MASK: &str = "***";
 const CONFIG_FILE: &str = "config.json";
+
+// 配置 IO 串行锁(自 account_cmds.rs 迁入):防 save_config / switch / delete
+// 并发读改写竞态(tokio 异步锁:guard 需跨 await 持有,覆盖 load→merge→save 全序列)。
+// 定义在 config_state 是因为 save_config 自身也要持锁——锁在锁的使用者模块里
+// 会造成单向依赖扭曲
+lazy_static::lazy_static! {
+    static ref CONFIG_IO_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
+}
+
+/// 主配置/账号文件读改写互斥(跨命令共用;account_cmds::config_io_lock 转发至此)
+pub async fn config_io_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    CONFIG_IO_LOCK.lock().await
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
@@ -268,10 +281,33 @@ pub async fn save_file(path: &Path, bridge: &CryptoBridge, s: &Settings) -> Resu
         password_cipher,
     };
     let json = serde_json::to_string_pretty(&encoded).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
+    // 临时文件名带 pid:同名 tmp(如 config.json.tmp)在进程被杀后遗留时,新一轮
+    // 进程的重命名目标与之相同,陈旧内容可能顶替新写入;唯一名让遗留 tmp 只能
+    // 由 cleanup_stale_config_tmp 清走,不参与 rename 竞争
+    let tmp = path.with_file_name(format!(
+        "{}.{}.tmp",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("config.json"),
+        std::process::id()
+    ));
     tokio::fs::write(&tmp, json).await.map_err(|e| e.to_string())?;
     tokio::fs::rename(&tmp, path).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 清理进程崩溃遗留的配置临时文件(启动时调用一次):匹配 `*.json.<pid>.tmp`
+/// 形状的全部遗留,不区分 pid——能活过一次重启的 tmp 一定是孤儿(当前进程的
+/// tmp 写完即 rename 消失)。
+pub async fn cleanup_stale_config_tmp(dir: PathBuf) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with(&format!("{CONFIG_FILE}.")) && name.ends_with(".tmp") {
+            let _ = tokio::fs::remove_file(entry.path()).await;
+        }
+    }
 }
 
 pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, String> {
@@ -319,28 +355,36 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.enable_network_quality = false;
         }
         s.config_schema_version = 3;
-        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
+            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
+        }
     }
     if s.config_schema_version < 4 {
         if s.background_check_idle_interval == 0 {
             s.background_check_idle_interval = 300_000;
         }
         s.config_schema_version = 4;
-        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
+            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
+        }
     }
     if s.config_schema_version < 5 {
         if s.campus_check_end_minutes == 0 {
             s.campus_check_end_minutes = 1380;
         }
         s.config_schema_version = 5;
-        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
+            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
+        }
     }
     if s.config_schema_version < 6 {
         if s.latency_test_interval == 60_000 {
             s.latency_test_interval = 600_000;
         }
         s.config_schema_version = 6;
-        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
+            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
+        }
     }
     if s.config_schema_version < 7 {
         if !s.enable_night_operator_switch {
@@ -353,7 +397,9 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.scheduled_logout_minutes = 1440;
         }
         s.config_schema_version = 7;
-        let _ = save_file(&dir.join(CONFIG_FILE), bridge, s).await;
+        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
+            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
+        }
     }
 }
 
@@ -412,6 +458,10 @@ pub async fn save_config(
     config: Settings,
     clear_password: Option<bool>,
 ) -> Result<(), String> {
+    // 全程持配置 IO 锁:load→merge→save 整段与 switch/delete 等账号命令互斥,
+    // 防止「save_config 读旧配置→账号命令落盘→save_config 用旧基线覆盖」的
+    // 丢更新竞态(此前 save_config 是唯一不经锁的配置写路径)
+    let _io_guard = config_io_lock().await;
     let bridge = CryptoBridge::from_app(&app);
     let dir = app
         .path()

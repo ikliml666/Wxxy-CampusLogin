@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 共享路径白名单(收窄自原"整树 "." 全放行"):
+  - 外部私有图片目录:RustWebChromeClient.createImageFileUri 相机拍照回传用
+    (getExternalFilesDir(DIRECTORY_PICTURES) → external-files-path,非 external-path)
+  - files/update:MonitorServicePlugin.installApk 交系统安装器的 APK 唯一来源
+  原 external-path/cache-path path="." 把整个外部存储与 cache 根全量映射给
+  content URI(模板遗留,无消费方),越权暴露面收掉。
+-->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-  <external-path name="my_images" path="." />
-  <cache-path name="my_cache_images" path="." />
-  <files-path name="update" path="update/" />
+  <external-files-path
+    name="my_images"
+    path="Pictures/" />
+  <files-path
+    name="update"
+    path="update/" />
 </paths>

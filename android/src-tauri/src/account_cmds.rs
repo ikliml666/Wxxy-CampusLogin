@@ -12,14 +12,13 @@ use crate::config_state::{self, CryptoBridge, Settings};
 lazy_static! {
     static ref ACCOUNT_NAME_RE: Regex =
         Regex::new(r"^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$").expect("ACCOUNT_NAME_RE compilation failed");
-    /// 配置 IO 串行锁:防 save_config / switch / delete 并发读改写竞态
-    /// (tokio 异步锁:guard 需跨 await 持有,覆盖 load→merge→save 全序列)
-    static ref CONFIG_IO_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
 }
 
-/// 主配置/账号文件读改写互斥(跨命令共用)
+/// 主配置/账号文件读改写互斥(跨命令共用)。
+/// 锁本体已迁至 config_state::CONFIG_IO_LOCK(save_config 自身也要持锁,
+/// 定义在用户侧便于统一);此处保留转发保持既有调用点(monitor_loop 等)不变
 pub async fn config_io_lock() -> tokio::sync::MutexGuard<'static, ()> {
-    CONFIG_IO_LOCK.lock().await
+    crate::config_state::config_io_lock().await
 }
 
 /// 账号列表条目(R3,与桌面 AccountItem 同契约):id 为账号文件名 stem(稳定不变),

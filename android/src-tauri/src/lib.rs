@@ -49,9 +49,17 @@ pub fn run() {
             .app_data_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("logs");
-        let _ = campus_login_lib::infra::logger::init_logger(log_dir);
+        // logger 初始化失败(目录不可写)不得静默:log_* 宏依赖它,失败则一切
+        // 日志去向不明,排障无从下手
+        if let Err(e) = campus_login_lib::infra::logger::init_logger(log_dir) {
+            eprintln!("[startup] 日志初始化失败,日志将不可用: {e}");
+        }
         // 启动恢复:按持久化配置拉起后台检测/定时质量测试循环并执行启动自动登录
         monitor_loop::run_startup_tasks(app.handle().clone());
+        // 清理上次进程崩溃遗留的配置临时文件(孤儿 tmp 不参与 rename 竞争,纯垃圾)
+        if let Ok(dir) = app.path().app_data_dir() {
+            let _ = tauri::async_runtime::spawn(config_state::cleanup_stale_config_tmp(dir));
+        }
         Ok(())
     });
     builder
@@ -114,7 +122,7 @@ pub fn run() {
             face_model_cmds::face_models_download,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
+        .unwrap_or_else(|e| panic!("tauri 应用构建失败: {e:#}"))
         .run(|_app, event| {
             // 退出护栏：Tauri 默认「最后窗口关闭→process::exit(0)」会把前台服务
             // 一起带走（tauri #15671 根因）。安卓语义：划掉任务只关 UI，进程随

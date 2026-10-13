@@ -48,6 +48,7 @@ fn chrono_epoch_millis() -> u128 {
 }
 
 /// 追加一条登录历史(头插法,上限 100),原子写(tmp+rename)。
+/// 锁中毒不静默: Err 上抛给调用方记日志(吞掉会让「历史全丢」不可见)
 pub fn append(dir: &Path, success: bool, message: &str, user: &str, login_type: &str) -> Result<(), String> {
     let _guard = LOGIN_HISTORY_LOCK
         .lock()
