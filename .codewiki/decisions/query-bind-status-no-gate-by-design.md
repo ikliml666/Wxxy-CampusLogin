@@ -17,7 +17,7 @@ tags: [决策, 安全, 自助服务, 验证门]
 自助服务查询类命令**不设验证门**。
 
 同时，查询命令中的密码参数若为空或掩码占位符，会经由后端回退至已保存的登录密码：
-- **桌面端**：由 `tauri-app/src-tauri/src/commands/self_service.rs:54-67` 的 `resolve_credential_password` 函数实现。
+- **桌面端**：由 `tauri-app/src-tauri/src/commands/self_service.rs:48-60` 的 `resolve_credential_password` 函数实现。
 - **安卓端**：由 `android/src-tauri/src/self_service_cmds.rs:30-39` 的 `resolve_self_password` 函数实现。
 
 两者逻辑同构，均遵循“前端传入非 MASK 明文优先；空/MASK 时回退 config.password”的语义。这确保了凭据统一后作为唯一凭据源（见 `[[credential-single-source]]`），无需用户在每次查询时重新输入密码。

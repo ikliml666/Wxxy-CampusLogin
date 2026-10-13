@@ -6,8 +6,6 @@ source_files:
   - tauri-app/src-tauri/src/network/discovery/devnode.rs
   - tauri-app/src-tauri/src/network/discovery/mod.rs
   - tauri-app/src-tauri/src/helper/mod.rs
-  - tauri-app/src-tauri/src/network/discovery/windows.rs
-  - tauri-app/src-tauri/src/monitor/outbound_switch.rs
 tags: [教训, 适配器, 启用, 两层状态模型, netsh, PnP, USB, 历史缺陷]
 ---
 
@@ -41,18 +39,18 @@ DIF_PROPERTYCHANGE` 做设备级启用，不把 netsh 当主力。
 
 修复落在 `network/discovery/devnode.rs`（cfgmgr32 + pnputil）与 `enable_adapter`
 头部分流。手动按钮与监控循环自动启用共用 `enable_adapter` 单一路径
-（`tauri-app/src-tauri/src/network/adapter_cache.rs:135-205`），进入 netsh 前先判态分流
-（`tauri-app/src-tauri/src/network/adapter_cache.rs:143-153`）：
+（`tauri-app/src-tauri/src/network/adapter_cache.rs:93-160`），进入 netsh 前先判态分流
+（`tauri-app/src-tauri/src/network/adapter_cache.rs:101-111`）：
 
-1. **定位设备实例**：`find_disabled_device`（devnode.rs:96-116）优先从适配器列表取
-   `guid`——经 `adapter_cache::get_adapters_force()`（强制清缓存重查，devnode.rs:98-101）
+1. **定位设备实例**：`find_disabled_device`（devnode.rs:76-96）优先从适配器列表取
+   `guid`——经 `adapter_cache::get_adapters_force()`（强制清缓存重查，devnode.rs:78-81）
    按 `name` 匹配 `Adapter.guid`（`Adapter` 结构字段：name/ip/wireless/guid/mac/
-   if_index/status/link_speed，`tauri-app/src-tauri/src/network/discovery/mod.rs:59-71`）；
+   if_index/status/link_speed，`tauri-app/src-tauri/src/network/discovery/mod.rs:85-97`）；
    接口行缺失（设备禁用后可能不在 GetAdaptersAddresses 列表）时回退
-   `find_guid_by_name`（devnode.rs:76-90）遍历注册表
+   `find_guid_by_name`（devnode.rs:56-70）遍历注册表
    `HKLM\SYSTEM\CurrentControlSet\Control\Network\{4D36E972-...}`（类 GUID 与根路径常量
    devnode.rs:25-26）按 `Connection\Name` 匹配。拿到 guid 后读
-   `Connection\PnPInstanceId`（`read_pnp_instance_id`，devnode.rs:66-72；
+   `Connection\PnPInstanceId`（`read_pnp_instance_id`，devnode.rs:46-52；
    未文档化注册表值但多款工具在用）。
 2. **判态**：`devnode_problem`（devnode.rs:36-59）`CM_Locate_DevNodeW(PHANTOM)` +
    `CM_Get_DevNode_Status`：`DN_HAS_PROBLEM` 且 problem == `CM_PROB_DISABLED(22)`
@@ -63,25 +61,25 @@ DIF_PROPERTYCHANGE` 做设备级启用，不把 netsh 当主力。
    - 管理员进程内直跑（devnode.rs:143-155；stderr 为空时回退读 stdout 作错误详情）；
    - 非管理员经 helper 框架三级降级（计划任务代理 → CMSTPLUA 静默 → runas 弹 UAC，
      devnode.rs:124-141），由 SYSTEM worker 执行 `run_enable_device`
-     （`tauri-app/src-tauri/src/helper/mod.rs:894-959`）：worker 内含实例 ID 字符集
+     （`tauri-app/src-tauri/src/helper/mod.rs:934-958`）：worker 内含实例 ID 字符集
      白名单（≤200 字符、拒绝 `/`、空格与控制字符、禁止 `-` 开头，防 pnputil 开关
-     注入如 `/remove-device`，helper/mod.rs:895-911）、`CM_Locate_DevNodeW`
-     存在性复核（helper/mod.rs:912-920）与相同的 problem 22 解除复核
-     （helper/mod.rs:934-958）。
+     注入如 `/remove-device`，helper/mod.rs:935-951）、`CM_Locate_DevNodeW`
+     存在性复核（helper/mod.rs:952-960）与相同的 problem 22 解除复核
+     （helper/mod.rs:974-998）。
    - **轮询复核** problem 22 真正解除——不信命令返回值（实测 PnP 状态落盘与 devnode
      problem 状态有 96~330ms 时差，可能报成功却滞留 problem 22，devnode.rs:28-32）：
      管理员路径总时长 3s（`ENABLE_VERIFY_TOTAL_MS`）、间隔 200ms
      （`ENABLE_VERIFY_INTERVAL_MS`），轮询期 CM 查询失败（USB 重枚举重建窗口）
      继续等，超时仍 22 或持续查询失败则报错交上层重试（devnode.rs:157-168）；
-     worker 硬编码同参数（helper/mod.rs:934-935、957）。
+     worker 硬编码同参数（helper/mod.rs:974-975、997）。
 4. 命中分流启用成功后与 netsh 路径一致失效三层缓存：`ADAPTER_CACHE` +
    `registry::refresh_class_subkey_cache` + `registry::invalidate_show_in_ncpa_cache`
-   （adapter_cache.rs:148-151；netsh 路径同款失效在 adapter_cache.rs:193-201）。
-5. `allow_uac_prompt` 语义（adapter_cache.rs:131-134）：手动按钮路径传 true；监控循环
+   （adapter_cache.rs:106-109；netsh 路径同款失效在 adapter_cache.rs:153-160）。
+5. `allow_uac_prompt` 语义（adapter_cache.rs:99-100）：手动按钮路径传 true；监控循环
    自动启用按失败计数决定——首试传 false（兼容 CMSTPLUA 可用环境，零打扰），重试传
    true（CMSTPLUA 被系统封堵时弹 UAC 是唯一恢复通道），弹窗频率由调用方的退避阶梯限制。
 
-`read_pnp_instance_id` 自启用路径之外已扩散为 `pub(crate)`（devnode.rs:61-65），
+`read_pnp_instance_id` 自启用路径之外已扩散为 `pub(crate)`（devnode.rs:41-45），
 另有两个消费方：
 
 - **四分类幽灵误判修复**：非 Up 接口先问 PnP 设备树——`pnp_present` = 读得到实例 ID
@@ -93,8 +91,8 @@ DIF_PROPERTYCHANGE` 做设备级启用，不把 netsh 当主力。
   netsh disable/enable 对称已实证（2026-10-01 夜切日志），7:30 还原/启动对账/看门狗/
   手动启用按钮（含 pnputil 设备级启用兜底）构成安全网。
 
-netsh 原路径不变：管理员直写 netsh（adapter_cache.rs:155-170），非管理员
-`spawn_elevated_helper("enable_adapter", ...)`（adapter_cache.rs:171-191）。
+netsh 原路径不变：管理员直写 netsh（adapter_cache.rs:113-128），非管理员
+`spawn_elevated_helper("enable_adapter", ...)`（adapter_cache.rs:129-149）。
 测试：devnode.rs 内联 4 例（devnode.rs:171-200）——
 `find_guid_by_name_missing_returns_none`、`read_pnp_instance_id_missing_guid_returns_none`、
 `devnode_problem_nonexistent_instance_errors`、`find_disabled_device_missing_adapter_returns_none`；

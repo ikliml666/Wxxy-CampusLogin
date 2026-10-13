@@ -26,7 +26,7 @@ RivaTuner Statistics Server（RTSS，MSI Afterburner 组件）运行时向 WebVi
 
 诊断手段：main.rs 在 WebView2 环境创建之前向 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
 追加 `--enable-crash-reporter --crash-dumps-dir="…\com.campus.login\crashdumps"`
-（main.rs:60-67，写 env 在 main.rs:68），让 Crashpad 首次抓到 minidump；
+（main.rs:73-81，写 env 在 main.rs:82），让 Crashpad 首次抓到 minidump；
 **`EBWebView/Crashpad/watson_metadata`（ASCII 可读）直接给出
 ApplicationName/ModuleName/SubCode/WV 宿主名**，比解析 .dmp 便宜得多，优先读它。
 注意：即使追加了 `--crash-dumps-dir`，实测转储仍落在 `EBWebView/Crashpad/reports/`，
@@ -57,7 +57,7 @@ startup.rs:194 一处注释残留，安装器脚本内已无任何 RTSS 写入�
 
 应用侧保留的是**检测与告知**：装了 RTSS 就在启动日志里留风险说明与手动排除步骤，不写任何文件。
 
-模块 `platform/rtss_compat.rs`（经 platform/mod.rs:34 声明，130 行）：
+模块 `platform/rtss_compat.rs`（经 platform/mod.rs:32 声明，130 行）：
 
 - `enum RtssOutcome`（rtss_compat.rs:23-28，derive Debug/Clone/PartialEq/Eq）：变体
   `NotInstalled`（:25，所有候选 Profiles 目录都不存在）与 `Installed`（:27，任一存在）。

@@ -9,8 +9,6 @@ source_files:
   - tauri-app/src-tauri/src/commands/network_cmd.rs
   - tauri-app/src-tauri/src/commands/system.rs
   - tauri-app/src-tauri/src/commands/self_service.rs
-  - tauri-app/src-tauri/src/commands/account.rs
-  - tauri-app/src-tauri/src/commands/updater.rs
 tags: [desktop, tauri, ipc, commands, 命令面]
 ---
 
@@ -18,7 +16,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 `tauri-app/src-tauri/src/commands/` 是桌面端 Rust 后端对 webview 暴露的全部 IPC 命令面：前端经 `@tauri-apps/api/core` 的 `invoke('<snake_case 命令名>')` 调用，命令函数负责参数校验、并发互斥、状态读写，再转发到 `auth` / `network` / `config` / `monitor` / `self_service` / `update` / `platform` 等下层模块。
 
-本模块共 **56 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 13、`system.rs` 15、`self_service.rs` 8），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **58 项**。
+本模块共 **49 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 17、`system.rs` 16、`self_service.rs` 8），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **51 项**。
 
 ## Key Components
 
@@ -26,30 +24,30 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 端 | 注册位置 | 注册项数 | 说明 |
 |---|---|---|---|
-| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-120` | 58 | 56 条 `commands::*` + `infra::logger::set_debug_mode`（119 行）/ `get_debug_mode`（120 行） |
+| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-120` | 51 | 49 条 `commands::*` + `infra::logger::set_debug_mode`（119 行）/ `get_debug_mode`（120 行） |
 | 安卓 | `android/src-tauri/src/lib.rs:55-105` | 49 | 同名对齐的独立实现（`protocol_cmds` / `campus_detect` / `config_state` / `self_service_cmds` / `account_cmds` / `system_cmds` / `monitor_loop` / `quality_cmds` / `update_cmds`），不含桌面专属命令 |
 
 模块声明见 `tauri-app/src-tauri/src/commands/mod.rs:1-8`（8 个 `pub mod`，`self_service` 在 8 行）。
 
-命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 56 个命令名。
+命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 49 个命令名。
 
-### 命令总表（逐条，共 54 条）
+### 命令总表（逐条，共 49 条）
 
 #### config_cmd.rs（5 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
-| `show_window` | `commands/config_cmd.rs:179-181` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_or_rebuild_main`） | 无 |
-| `get_config` | `commands/config_cmd.rs:183-185` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码密码字段 | 无（掩码是出站唯一出口） |
-| `save_config` | `commands/config_cmd.rs:187-236` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 → **落盘成功后自动建号/同步账号档案（R2，失败仅告警），实际写盘时补刷托盘菜单**（231-232） | `validate_config`（193）；`clear_password == Some(true)` 跳过兜底置空（206-207）；空/MASK 时回填当前内存密码（208-211） |
-| `export_config` | `commands/config_cmd.rs:106-125` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（62-81 行）有"明文不出站"回归测试（266 行起） |
-| `import_config` | `commands/config_cmd.rs:127-176` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
+| `show_window` | `commands/config_cmd.rs:169-171` | `app_handle: AppHandle` | `Result<(), String>` | 显示并聚焦主窗口（转发 `app::window::show_or_rebuild_main`） | 无 |
+| `get_config` | `commands/config_cmd.rs:173-175` | `state: State<AppState>` | `Result<Config, String>` | 返回当前内存配置，出站前 `masked_for_display()` 掩码密码字段 | 无（掩码是出站唯一出口） |
+| `save_config` | `commands/config_cmd.rs:177-226` | `state`、`app_handle`、`config: Config`、`clear_password: Option<bool>` | `Result<CommandResult, String>` | 校验配置 → 处理密码保留/清除语义 → 同步全局 `PORTAL_URL` 与日志保留天数 → 先落盘再更新内存 → **落盘成功后自动建号/同步账号档案（R2，失败仅告警），实际写盘时补刷托盘菜单**（221-222） | `validate_config`（183）；`clear_password == Some(true)` 跳过兜底置空（196-197）；空/MASK 时回填当前内存密码（198-201） |
+| `export_config` | `commands/config_cmd.rs:96-115` | `state`、`app_handle`、`include_password: Option<bool>` | `Result<String, String>` | 导出配置 JSON 到 `<data_dir>/exports/config-<ts>.json`，返回文件路径；默认掩码态（`masked_for_display`），`include_password=true` 时密码经 `crypto::encrypt` 转本机 DPAPI 密文（wrapper 带 `passwordEncrypted` 标志），**任何分支不写明文** | 纯函数 `build_config_export_payload`（52-71 行）有"明文不出站"回归测试（256 行起） |
+| `import_config` | `commands/config_cmd.rs:117-166` | `state`、`app_handle`、`path: String` | `Result<CommandResult, String>` | 读 JSON（≤1MB）→ 密码还原（空/MASK 回填当前值；`passwordEncrypted=true` 先 `decrypt`，失败明确报错）→ 严格 `validate_config` → 与 `save_config` 同路径落盘+发事件+更新内存 | 失败分列：JSON 解析 / 结构无效 / 密码密文解密 / 配置校验 / 落盘；密码还原先于校验（base64 密文长度必超 128 上限） |
 
 同文件非命令的公开辅助函数：
 
 - `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:12`）：包装 `persist::save_config_and_broadcast`（落盘+掩码广播 `config-changed`，persist 层统一出口）并补刷托盘菜单。**所有改写配置的命令最终都经此路径通知前端**（import_config 也走它）；监控层不经此包装，直接调 persist 出口（不刷托盘）。
 - `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:32-51`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（44-49 行）后返回默认配置。
-- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（62-81）、`restore_imported_password_field`（83-95，写盘方 MASK 责任的导入侧实现）。
+- 私有纯函数（供导出/导入与单测复用）：`build_config_export_payload`（52-71）、`restore_imported_password_field`（73-85，写盘方 MASK 责任的导入侧实现）。
 
 #### login.rs（2 条）
 
@@ -67,7 +65,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `trigger_background_check` | `commands/background.rs:29-43` | `_state`、`app_handle` | `Result<CommandResult, String>` | 手动触发一次后台检测（`watcher::run_background_check`），在 tokio 任务中异步跑 | **并发门** `tasks.is_checking.is_active()`（32-34）：进行中直接返回 `err("检测正在进行中")` |
 | `get_background_status` | `commands/background.rs:121-125` | `app_handle` | `Result<serde_json::Value, String>` | 返回巡检状态快照（组装逻辑在同文件 `get_background_status_value`，42-119 行） | 无 |
 
-#### network_cmd.rs（13 条）
+#### network_cmd.rs（17 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
@@ -90,7 +88,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `setup_dns_doh` | `commands/network_cmd.rs:294-374` | `app_handle`、`family: Option<String>`（`"ipv4"`/`"ipv6"`/`"both"`，非法回退 `both`，297-301） | `Result<serde_json::Value, String>` | 一键设置 DNS + DoH：管理员直调 `dns_setup::setup_dns_doh_admin`（332-334），否则经 `--helper dns` 提权（336-368） | 目标白名单：`resolve_adapter_names` + `filter_operation_adapters` + 非空 IP + `!is_blacklisted`（318-323）；无目标返回失败（325-330）；非 Windows 返回"仅支持Windows"（303-305） |
 | `reset_dns` | `commands/network_cmd.rs:376-442` | `app_handle` | `Result<CommandResult, String>` | 恢复 DNS 自动获取（管理员直调 API，非管理员通过 `--helper clear_dns` 提权） | 同 `setup_dns_doh` 的目标白名单逻辑；非 Windows 返回失败 |
 
-#### system.rs（15 条）
+#### system.rs（16 条）
 
 | 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
 |---|---|---|---|---|---|
@@ -110,6 +108,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `set_log_retention_days` | `commands/system.rs:176-180` | `days: u32` | `Result<(), String>` | 更新运行期日志保留天数 | 无 |
 | `get_log_retention_days` | `commands/system.rs:182-185` | — | `u32` | 读日志保留天数（**唯一不返回 Result 的命令**） | 无 |
 | `export_diagnostics` | `commands/system.rs:193-277` | `app_handle`、`state`、`days: Option<u32>`（默认 3，0=全部日志） | `Result<String, String>` | 导出诊断包到 `<data_dir>/diagnostics/diag-<ts>/`：近 N 天 `app-*.log`（先 `logger::flush()` 防截断）、`config-masked.json`、`adapters.json`、`gpu.json`、`manifest.json`；返回目录路径 | 掩码配置走 `masked_for_display()` 唯一出口；日志文件名过滤复用 `logger::is_app_log_file`（已改 pub） |
+| `notify_window_ready` | `commands/system.rs:279-283` | `window: tauri::Window` | `CommandResult` | 前端就绪信号（轻量化重建窗口的 ready 门用；首次启动路径由 window_safety 兜底不受影响）。幂等：多次调用只多记一条信号，等待方取走即清 | 无 |
 
 #### self_service.rs（8 条）
 
@@ -161,6 +160,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `any_online` | `bool` | 任一适配器 Portal 在线 |
 | `a1_online` | `bool` | 主适配器在线 |
 | `a2_online` | `bool` | 副适配器在线（副适配器未启用时为 false） |
+| `probe_ok` | `bool` | 审计 A8：探测链路是否全部可用（所有已启用适配器的 Portal 探测均成功返回）。false 表示存在探测异常——"离线"结论不可信，不得断言已确认离线 |
 
 ### 命令参数涉及的跨模块结构体
 

@@ -15,7 +15,7 @@ tags: [前端, React, CSS, 双端, 组件]
 
 ### tauri-app/frontend/src/account/SelfOnlineCards.tsx
 
-#### OnlineDeviceCardProps (行 13-30)
+#### OnlineDeviceCardProps (行 12-30)
 定义单张设备卡片的 Props 接口。
 - `loginTime: string`: 上线时间字符串。
 - `ip: string`: IP 地址。

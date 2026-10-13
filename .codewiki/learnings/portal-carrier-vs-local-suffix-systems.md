@@ -13,11 +13,13 @@ tags: [教训, 协议逆向, 运营商, eportal, 自助服务]
 
 此外，模块还封装了登录会话管理、Dashboard 数据查询（在线设备、近期记录）、上网记录账单查询以及修改密码等功能。所有接口均基于 2026-09-05 至 2026-10-10 的 curl 与浏览器实测逆向得出。
 
+`auth/protocol.rs` 负责 Portal 认证层的登录/注销请求构建与响应解析，包含 JSONP 切片、重试逻辑及凭据脱敏，为上层提供可靠的网络通信基础。
+
 ## Key Components
 
-### 常量与正则表达式
+### 常量与正则表达式 (`self_service/mod.rs`)
 
-*   `SELF_BASE_URL`: `tauri-app/src-tauri/src/self_service/mod.rs:38` — 自助服务系统基地址 (`http://10.1.80.200:8080/Self`)，仅校园网内网可达。
+*   `SELF_BASE_URL`: `mod.rs:38` — 自助服务系统基地址 (`http://10.1.80.200:8080/Self`)，仅校园网内网可达。
 *   `RE_CHECKCODE`: `mod.rs:41` — 提取登录页 hidden `checkcode` (4位数字)。
 *   `RE_CSRFTOKEN`: `mod.rs:43` — 提取绑定页/改密页 hidden `csrftoken` (UUID)。
 *   `RE_FLD_VALUE`: `mod.rs:46` — 提取绑定页 FLDEXTRA1..6 预填值（value 属性在 name 之前，可能跨行）。
@@ -126,6 +128,11 @@ tags: [教训, 协议逆向, 运营商, eportal, 自助服务]
 3.  **提交改密**：`POST /Self/setting/changePasswordMethod`，提交 `csrftoken + oldPassword + newPassword + confirmPassword`。
 4.  **结果判定**：解析 JSON `{"state":"success"}` 或 `{"state":"fail","data":"原因"}`。
 5.  **副作用**：成功时服务端强制下线（2秒后跳 `/Self/login/logout`），调用方必须同步更新本地保存的登录密码。
+
+## Connections
+
+*   [[Portal 认证协议]] (`auth/protocol.rs`) — 底层登录/注销请求构建与解析
+*   [[Config 配置模块]] — 运营商后缀配置同源
 
 ## Known Issues
 

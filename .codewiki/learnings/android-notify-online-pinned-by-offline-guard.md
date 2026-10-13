@@ -1,58 +1,174 @@
 ---
-title: 安卓常驻监控通知在线状态被离线护栏静默钉死
-type: learning
+title: 安卓后台监控循环与在线状态机
+type: module
 source_files:
   - android/src-tauri/src/monitor_loop.rs
-  - android/src-tauri/src/campus_detect.rs
-  - tauri-app/src-tauri/src/monitor/background_check.rs
-tags: [教训, 安卓, 状态机, 常驻通知, 在线判定]
+tags: [安卓, 监控循环, 状态机, 夜间切换, 定时任务, 通知管理]
 ---
 
-## 现象
+## Overview
 
-安卓真机断开校园网 WiFi 后（进程走蜂窝或家用网络），常驻监控通知长时间仍显示「监控运行中 · 在线」，直到手动重启监控才翻转。
+`monitor_loop.rs` 是安卓端 Tauri 应用的后台监控核心，负责维持校园网连接的稳定性与可观测性。其核心职责包括：
+1. **周期性巡检**：根据 WiFi/屏幕状态动态调整检测间隔，执行校园网判定与 Portal 探测。
+2. **在线状态机**：基于三态护栏（确定判定/校园内失配/非校园）维护 `was_online` 状态，驱动掉线自动重连与通知更新。
+3. **夜间自动化**：处理夜间出站切换（注销校园网、等待系统切蜂窝、晨间还原）与晚间断网运营商自动切换。
+4. **定时任务**：执行定时登录/注销，并具备启动对账防误触机制。
+5. **WiFi 事件响应**：通过 Android NetworkCallback 实时触发检测，具备风暴去抖与延迟稳定机制。
 
-## 根因（两因叠加，缺一不复发；描述 2026-10-02 短路修复前的历史机制）
+## Key Components
 
-1. **在线判定护栏把"探测失败"折叠成"沿用上一拍在线"**：三态消费原实现是 `Ok(s) if error_kind.is_none() => s.online, _ => prev_online`——本意是反误报（校园网内 Portal 页面特征间歇失配时不翻转，2026-09-09 的修复），但 `_ => prev_online` 分支不区分"校园网内探测失败"与"根本不在校园网"。
-2. **常驻通知只在状态翻转时重建**：`notified_online` 记忆位（`monitor_loop.rs:49`）+ 仅翻转时 `update_notification`（翻转更新点 `monitor_loop.rs:1459-1470`；省电设计，不每拍重建）。状态不翻 ⇒ 通知永不更新。
+### MonitorState (monitor_loop.rs:28-76)
+监控全局状态，所有字段均为线程安全原子类型或 Mutex，供 tokio 循环与命令并发访问。
 
-放大器：WiFi 断开后进程默认路由走蜂窝，`pick_campus_source_ip` 排除蜂窝接口（`campus_detect.rs:15-37`；`rmnet*`/`ccmni*` 蜂窝判定在 `campus_detect.rs:17`）返回 None，`probe_campus` 的三判据（/18 子网 ∥ 校园网关 TCP ∥ Portal TCP，`campus_detect.rs:97-119`）全部不成立且 Portal HTTP 探测必失败 ⇒ `error_kind = Some("request_failed")`（变体构造见桌面 `tauri-app/src-tauri/src/auth/portal.rs:177`）恒成立 ⇒ 每拍都掉进 `_ => prev_online` 分支。而 `on_campus=false` 此前**不参与在线判定**（只用于自动重登门槛 `should_attempt_login` 的 `!on_campus` 短路 `monitor_loop.rs:104-105` 与掉线通知条件 `monitor_loop.rs:1361`），无法纠正。（2026-10-02 后续：该放大器已被两道短路结构性消除——① WiFi **彻底关闭**（无非蜂窝 IPv4 接口）由 `CampusProbe.wifi_off`（`campus_detect.rs:63`）建模，`probe_campus` 枚举网卡后立即短路返回（`campus_detect.rs:83-95`），不再空转 2×3s TCP 探测，通知走独立状态码 4「WiFi 未连接」（`notify_state`，`monitor_loop.rs:1475-1483`）；② `on_campus=false` 的拍子 Portal HTTP 探测同样短路（`monitor_loop.rs:1326-1330`），离网拍耗时 11s→3s。见 [[deliberate-background-check-skips]] 第 7 条。三态护栏本身不变：在线状态仍只在"确定判定"（error_kind=None）时翻转。）
+| 字段 | 类型 | 用途 |
+| :--- | :--- | :--- |
+| `running` | `AtomicBool` | 监控循环运行标志 |
+| `check_count` | `AtomicU64` | 累计检测次数 |
+| `consecutive_failures` | `AtomicU32` | 连续失败计数（用于熔断） |
+| `reconnect_count` | `AtomicU32` | 当前在线周期内的自动重连次数 |
+| `last_login_attempt_ms` | `AtomicU64` | 上次登录尝试时间戳（用于冷却控制） |
+| `was_online` | `AtomicBool` | 上一拍在线状态记忆（状态机核心） |
+| `last_result` | `Mutex<Option<serde_json::Value>>` | 最近一次检测结果缓存 |
+| `desired_interval_ms` | `AtomicU64` | 目标检测间隔（支持热更新） |
+| `idle_interval_ms` | `AtomicU64` | 闲时检测间隔（蜂窝/灭屏时使用） |
+| `logout_protected_until_ms` | `AtomicU64` | 注销保护期截止时间（防止注销后立即重登） |
+| `wifi_event_ms` | `AtomicU64` | 最近一次 WiFi 事件时间戳（用于去抖） |
+| `notified_online` | `AtomicU8` | 常驻通知已展示的状态码（仅翻转时重建通知以省电） |
+| `scheduled_login_day` | `AtomicI32` | 定时登录当日触发标记（防每日重复触发） |
+| `scheduled_logout_day` | `AtomicI32` | 定时注销当日触发标记 |
 
-## 修复
+### 常量与配置 (monitor_loop.rs:9-73)
 
-`monitor_loop.rs:1347-1351`（`run_check_once` 内，函数起于 `monitor_loop.rs:1245`）三态护栏（当前代码逐字）：
+| 常量/变量 | 值/说明 | 用途 |
+| :--- | :--- | :--- |
+| `OUTBOUND_RESTORE_MAX_FAILS` | `3` | 夜间出站还原连续失败上限，超限放弃自动还原 |
+| `OUTBOUND_SWITCH_MAX_FAILS` | `3` | 夜间出站切换注销确认连续失败上限 |
+| `WIFI_EVENT_DELAY_MS` | `2500` | WiFi 连接事件延迟检测时间（等 DHCP/路由稳定） |
+| `WIFI_LOST_EVENT_DELAY_MS` | `0` | WiFi 断开事件零延迟（断开即事实） |
+| `WIFI_EVENT_DEBOUNCE_MS` | `1000` | WiFi 事件去抖窗口（合并风暴事件） |
+| `NIGHT_VERIFY_WAIT_SECS` | `15` | 夜切验证等待时间（eportal 在线表同步延迟） |
+| `NIGHT_VERIFY_RETRY_SECS` | `5` | 夜切验证重试间隔 |
+| `NIGHT_VERIFY_ATTEMPTS` | `3` | 夜切验证最大重试次数 |
+| `NIGHT_VERIFY_HTTP_TIMEOUT_SECS` | `15` | 夜切验证单次 HTTP 超时 |
 
-```rust
-let online = match &portal {
-    Ok(s) if s.error_kind.is_none() => s.online,
-    _ if on_campus => prev_online,
-    _ => false,
-};
+### 核心函数
+
+#### `effective_interval_ms` (monitor_loop.rs:87-95)
+**用途**：计算当前 tick 的有效检测间隔。
+**逻辑**：
+- 基础间隔下限 5s。
+- WiFi 且亮屏：使用基础间隔。
+- 蜂窝或灭屏：使用闲时间隔，但不低于基础间隔。
+
+#### `should_attempt_login` (monitor_loop.rs:101-118)
+**用途**：纯函数，判定本 tick 是否应尝试自动登录。
+**条件**：
+1. 当前不在线 (`!online`) 且在校园网 (`on_campus`)。
+2. 若非掉线场景（启动即离线），需显式开启 `auto_login_on_preparation`。
+3. 重连次数未达上限 (`reconnect_count < max_reconnect`)。
+4. 距上次尝试超过冷却时间 (`cooldown_secs`)。
+
+#### `run_check_once` (monitor_loop.rs:1245-1445)
+**用途**：单次完整检测流程，是所有检测入口（周期、WiFi 事件、手动触发）的统一汇聚点。
+**流程**：
+1. **前置检查**：读取配置；若处于夜间出站切换态 (`night_outbound_restore` 非空)，整轮跳过。
+2. **静默期门控**：若在配置的非检测时段内，直接返回，但会更新通知为“已暂停检测”。
+3. **探针窗口**：获取 WifiLock/WakeLock 防止检测期间断流。
+4. **强制绑 WiFi**：确保流量走 WiFi 接口。
+5. **校园网判定**：调用 `probe_campus_with_ssid`，获取 `on_campus`, `source_ip`, `wifi_off`。
+6. **Portal 探测**：
+   - 若在校园网且有 IP，在新建短命线程中绑定小核执行 `check_portal_full`。
+   - 若不在校园网或无 IP，短路返回错误。
+7. **三态在线判定** (monitor_loop.rs:1347-1351)：
+   - `Ok(s) if s.error_kind.is_none()`: 取 Portal 判定的 `s.online`。
+   - `_ if on_campus`: 校园网内但探测异常（如页面特征失配），保持 `prev_online`（反误报）。
+   - `_` (else): 非校园网或探测彻底失败，判为 `false`（离线）。
+8. **状态机更新**：
+   - 在线：清零重连计数、失败计数、注销保护期。
+   - 掉线通知：若从在线翻离线且在校园网，发送系统通知。
+9. **自动登录**：
+   - 检查注销保护期与连续失败熔断。
+   - 满足条件则执行 `run_login`，记录结果并更新通知/日志。
+10. **结果 Emit**：组装 JSON payload 发射 `background-check-result` 事件。
+11. **通知更新**：仅当 `notified_online` 状态码翻转时，才重建常驻通知。
+
+#### `run_scheduled_actions` (monitor_loop.rs:856-1035)
+**用途**：执行定时登录、定时注销及夜间切换逻辑。
+**顺序约束**：
+1. **夜间出站切换**：判定 `evaluate_night_outbound`，执行 Switch（注销+切蜂窝）或 Restore（登录+还原）。
+2. **晚间断网运营商切换**：若未处于出站切换态，执行运营商切换逻辑。
+3. **定时登录/注销**：复用 `campus_login_lib::config::schedule` 判定，执行登录或注销。
+
+#### `start_background_check` / `stop_background_check` (monitor_loop.rs:185-225)
+**用途**：Tauri 命令，启停后台监控循环与前台服务保活。
+**细节**：启动时初始化间隔、注册 WiFi 监听、重置通知状态；停止时清理资源。
+
+#### `handle_wifi_event` (monitor_loop.rs:265-295)
+**用途**：处理 Android NetworkCallback 传来的 WiFi 变化事件。
+**逻辑**：
+- 校验监控运行中。
+- 解析事件类型 (`available/lost/validated/unvalidated`)。
+- 去抖判定：若是风暴内后续事件，忽略。
+- 延迟安排：`lost` 事件零延迟立即检测；`available` 事件延迟 2.5s 后检测。
+- 执行 `run_check_once`。
+
+#### `notify_system` / `with_vpn_hint` (monitor_loop.rs:155-180)
+**用途**：发送关键事件系统通知。
+**细节**：`with_vpn_hint` 检测 VPN 存在时，在通知正文追加 VPN 排除提示。
+
+#### `status_value` (monitor_loop.rs:110-128)
+**用途**：生成 `get_init_data` 和 `get_background_status` 的返回值。
+**细节**：展平 `last_result` 中的关键字段（`online`, `onlineOperator` 等）到顶层，供前端启动时读取。
+
+## Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                      MonitorLoop (tokio)                     │
+│                                                              │
+│  ┌─────────────┐   ┌──────────────┐   ┌──────────────────┐  │
+│  │ Interval    │   │ WiFi Event   │   │ Manual Trigger   │  │
+│  │ Tick        │   │ Handler      │   │ (Command)        │  │
+│  └──────┬──────┘   └──────┬───────┘   └────────┬─────────┘  │
+│         │                 │                     │            │
+│         ▼                 ▼                     ▼            │
+│  ┌─────────────────────────────────────────────────────┐     │
+│  │              run_check_once                         │     │
+│  │  ├─ Outbound Switch Gate (Skip if active)           │     │
+│  │  ├─ Silent Period Gate (Update Notify & Return)     │     │
+│  │  ├─ Probe Campus (SSID + Subnet/Gateway/Portal)     │     │
+│  │  ├─ Portal Probe (Little Core Thread)               │     │
+│  │  ├─ Online State Machine (3-State Logic)            │     │
+│  │  ├─ Auto Login (Cooldown + Fuse)                    │     │
+│  │  └─ Emit Result & Update Notification               │     │
+│  └─────────────────────────────────────────────────────┘     │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐     │
+│  │           run_scheduled_actions (per tick)          │     │
+│  │  ├─ Night Outbound Switch (Switch/Restore)          │     │
+│  │  ├─ Night Operator Switch                           │     │
+│  │  └─ Scheduled Login/Logout                          │     │
+│  └─────────────────────────────────────────────────────┘     │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-- `Ok + error_kind=None`：Portal 确定判定，取 `s.online`；
-- 其余（已在线页面特征失配 / 探测超时 / 探测 Err）且 `on_campus=true`：校园网内探针失配，保持上一拍（反误报保留）；
-- 其余且 `on_campus=false`：非校园网不存在"校园网在线"，判离线。
+## Data Flow
 
-语义依据：`on_campus=false` 是**确定结论**而非"无结论"——三判据全否即"确定不在校园网"（蜂窝接口被排除后不存在误判源）。桌面同语义早已存在（`tauri-app/src-tauri/src/monitor/background_check.rs:90-96`，`campus_check_failed` 即置 `any_adapter_online=false`，并连带重置 `last_a1_online`/`has_logged_online`），本轮安卓补齐对齐。2026-09-09 反误报修复的适用范围被正确收窄到"校园网内探针失配"（`on_campus=true` 分支），真掉线由 `Determined(false)`（Portal 返回登录页）翻转的路径也不受影响。
-
-## 教训与易踩点
-
-- **"无结论就不翻转"的护栏必须回答：旧值会在什么情况下被推翻？** 三态护栏（Unknown/Failed 保持 `prev_online`）与"仅翻转时更新通知"（省电）组合起来，一旦出现"每拍都是 Unknown/Failed"的稳态场景，状态就被静默钉死，且通知面没有任何手段打破。任何状态机引入"保持旧值"分支时，要枚举"旧值永远不被推翻"的输入组合是否存在——本例中"离开校园网 + 探测必失败"正是这个组合。
-- **"无结论"与"反向确定结论"要分开建模**：`error_kind=Some` 是"探测没做成"（无结论），`on_campus=false` 是"确定不在校园网"（反向结论）。把后者也塞进"无结论"分支，等于丢弃已知信息。
-- **静默期整拍 `return` 同样会让通知陈旧**：`campus_check_start/end_minutes` 门外整拍跳过探测（时间判定 `monitor_loop.rs:1269-1275`），上一拍的"在线"通知会一直挂着到次日。修复同日补齐：静默期 return 前把常驻通知重建为「监控运行中 · 已暂停检测(非检测时段)」（`notified_online` 状态码 3；`monitor_loop.rs:1276-1288`，`swap(3)` 判重在 1281、`update_notification` 在 1284），跳过的是探测、不是状态保鲜。
-- 排查此类问题先看**通知为什么不翻**而不是"为什么判在线"：状态记忆位（`was_online`，`monitor_loop.rs:35`）与通知记忆位（`notified_online`，`monitor_loop.rs:49`）是两级缓存，任一级不翻转都会冻结展示。
-
-## 真机验证（2026-09-13，小米 25060RK16C/HyperOS）
-
-- **无 VPN 环境**：关 WiFi 走蜂窝后约 **5 秒**通知翻转为「未连接」（当时事件时序：去抖 1s + 连上方向 `WIFI_EVENT_DELAY_MS=2500` 等路由稳定 + 探测耗时；现为 `monitor_loop.rs:61`）。此后断开方向改为零延迟 `WIFI_LOST_EVENT_DELAY_MS=0`（`monitor_loop.rs:66`，2026-09-14 用户要求断开感知 ≤1-2s），去抖窗口 `WIFI_EVENT_DEBOUNCE_MS=1000`（`monitor_loop.rs:69`）。此前版本在此场景被钉死为「在线」；2026-10-02 起关 WiFi 场景文案细化为「WiFi 未连接」（状态码 4，单测 `通知状态_wifi短路独立码` 锁定，`monitor_loop.rs:1492-1499`）。连回后恢复。
-- **用户家中特殊拓扑（曾误诊为"VPN 打穿"）**：用户家 WiFi 路由器上游级联校园网（路由器 WAN 口 10.2.x.x 自己挂着 Dr.COM 会话），手机连该 WiFi 时 Portal 经路由器 NAT **真实可达**，且 Portal 返回的是路由器 WAN 会话的「已在线」页（`uid='…@cmcc'; v4ip='10.2.79.90'; oltime≈48h`）→ 判「在线」。这在"能上网"语义下是真实判定（手机确实免登录可上网），不是误报。教训：**可达性 = 物理拓扑（级联/NAT）**，不等于"本机在校园 /18 内"；「在线」的产品语义（能上网 vs 本机在校园网）是两条不同的判定线，改动前要先确认用户要哪条。
-- **secure 全量 VPN 接管本应用时**（用户实测：开 Clash 不排除本应用则无法登录）：socket 类判定（网关/Portal TCP、Portal HTTP、登录请求）全部经隧道，判定与登录均不可用——这是平台边界（见 [[android-vpn-bypass-infeasible|不做"绕过 VPN 直连 WiFi"]]），唯一官方出口是 VPN 侧排除本应用。
+1. **配置加载**：`current_settings` 解密读取配置，影响间隔、开关、定时时间等。
+2. **探测数据**：
+   - `probe_campus_with_ssid` 返回 `CampusProbe` (包含 `on_campus`, `source_ip`, `wifi_off`)。
+   - `check_portal_full` 返回 `PortalStatus` (包含 `online`, `reachable`, `login_available`, `uid`, `error_kind`)。
+3. **状态决策**：
+   - `online` 由三态逻辑决定，更新 `MONITOR.was_online`。
+   - `login_result` 由 `should_attempt_login` 决定是否发起，结果回写 `MONITOR.last_result`。
+4. **输出**：
+   - `background-check-result` 事件携带完整状态供前端渲染。
+   - `login-log` 事件记录关键动作日志。
+   - 系统通知/常驻通知根据状态翻转更新。
 
 ## Connections
 
-- [[android-backend]] — `MonitorState` 的 `was_online`（`monitor_loop.rs:35`）/`notified_online`（`monitor_loop.rs:49`）与 `run_check_once`（`monitor_loop.rs:1245`）的三态消费（`monitor_loop.rs:1347-1351`）
-- [[background-check-and-auto-login]] — 两端在线判定与静默期语义对照
-- [[android-keepalive-fgs-architecture]] — 前台服务常驻通知与"仅翻转时重建"的省电约束（重建点 `monitor_loop.rs:1276-1288`、`monitor_loop.rs:1459-1470`）
-- [[android-vpn-bypass-infeasible|不做"绕过 VPN 直连 WiFi"]] — secure VPN 下判定不可信的平台边界与缓解路线
+- [[android-backend]] — `MonitorState` 的全局状态管理与命令接口
+- [[background-check-and-auto-login]] — 在线判定逻辑与自动重连策略
+- [[android-keepalive-fgs-architecture]] — 前台服务保活与常驻通知机制
+- [[android-vpn-bypass-infeasible|不做"绕过 VPN 直连 WiFi"]] — VPN 环境下的判定限制与提示

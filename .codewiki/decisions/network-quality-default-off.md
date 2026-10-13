@@ -1,77 +1,190 @@
 ---
-title: 网络质量检测默认关闭（schema v3→v7），质量页由后台检测状态代替
+title: 网络质量检测默认关闭（schema v3）及多端 UI 适配
 type: decision
 source_files:
   - android/src-tauri/src/config_state.rs
   - android/frontend/src/settings/constants.ts
   - tauri-app/frontend/src/App.tsx
-  - android/frontend/src/App.tsx
 tags: [决策, 质量检测, 默认值, 安卓, 双端同语义]
 ---
 
-## 背景
+## Overview
 
-`enable_network_quality` 是网络质量检测链路的总开关。旧版代码中该功能默认开启，但由于包含 12+ 外网目标探测且间隔较短（原 60s），是移动端主要功耗来源之一。因此决定将其默认值改为 `false`，并在前端 UI 层面提供替代状态展示方案。
+本决策记录 `enable_network_quality` 字段在 Android 端的默认值变更及其对前端 UI 布局、状态展示的影响。
 
-## 决策
+核心决策：2026-09-12 起，`enable_network_quality` **默认关闭 (false)**。
+理由：质量检测链路包含 12+ 外网目标探测，启动即跑一轮耗时数秒，功耗较高。关闭后，质量页由后台检测状态代替展示，提升省电体验。
 
-**核心决策**：将 `enable_network_quality` 的默认值从 `true` 改为 `false`。
+该决策通过后端 `config_schema_version` 迁移机制（v2→v3）落地，并同步调整了桌面端与移动端的前端交互逻辑。
 
-**实施细节**：
+## Key Components
 
-1. **后端默认值变更**：
-   - 在 `android/src-tauri/src/config_state.rs:185`，`Settings::default()` 实现中，`enable_network_quality` 初始化为 `false`。
-   - 注释明确说明："2026-09-12 起默认关闭(省电:质量检测含 12+ 外网目标,启动即跑一轮数秒;质量页改由后台检测状态代替展示)"。
+### 后端配置结构 (`android/src-tauri/src/config_state.rs`)
 
-2. **Schema 迁移机制**：
-   - 通过 `config_schema_version` 字段控制配置迁移（`config_state.rs:147-151`）。
-   - 当前版本为 `7`（`config_state.rs:217`）。
-   - 关键迁移步骤：
-     - **v2→v3 (2026-09-12)**：将存量配置的 `enable_network_quality` 强制刷为 `false`（`config_state.rs:280`）。
-     - **v3→v4**：新增 `background_check_idle_interval` 默认值。
-     - **v4→v5**：调整 `campus_check_end_minutes` 默认值。
-     - **v5→v6**：调整 `latency_test_interval` 从 60s 到 600s。
-     - **v6→v7**：调整夜间切换和定时登录/注销的默认值。
-   - 迁移逻辑位于 `migrate_legacy_defaults` 函数（`config_state.rs:257-305`），确保幂等性：用户主动修改后不再覆盖。
+**`Settings` Struct (Line 48-156)**
+定义全量配置结构，关键字段如下：
+- `enable_network_quality: bool` (Line 107): 网络质量检测总开关。
+- `enable_latency_test: bool` (Line 105): 定时质量测试开关（默认 false）。
+- `skip_ttfb_in_latency: bool` (Line 108): 延迟测试中跳过 TTFB（默认 true）。
+- `skip_content_in_latency: bool` (Line 109): 延迟测试中跳过内容加载（默认 true）。
+- `config_schema_version: u32` (Line 155): 配置结构版本，当前值为 7。用于触发一次性迁移。
 
-3. **前端常量同步**：
-   - `android/frontend/src/settings/constants.ts:41`：`DEFAULT_CONFIG.enableNetworkQuality = true`。**注意**：此处前端默认值仍为 `true`，与后端不一致。这可能是为了前端初始渲染或特定场景下的行为差异，但实际生效取决于后端下发的配置。根据后端代码，新安装用户将获得 `false`。
+**`Default` Impl (Line 158-220)**
+- `enable_network_quality`: 默认值设为 `false` (Line 199)。注释说明 2026-09-12 起默认关闭。
+- `enable_latency_test`: 默认值设为 `false` (Line 197)。
+- `skip_ttfb_in_latency`: 默认值设为 `true` (Line 200)。
+- `skip_content_in_latency`: 默认值设为 `true` (Line 201)。
 
-4. **UI 行为变更**：
-   - **桌面端 (tauri-app/frontend/src/App.tsx:193-198)**：当 `configEnableNetworkQuality !== false` 时渲染 `QualityPanel`，否则不渲染任何内容（返回 `null`）。
-   - **安卓手机端 (android/frontend/src/App.tsx:110-113, 145-150)**：
-     - 底栏 Tab 顺序动态调整：质量开启时第 4 位为 `quality`，关闭时为 `monitor`。
-     - 顶栏胶囊：质量开启时显示 `NetworkQualityCapsule`，关闭时隐藏并可能显示后台检测状态（具体由 `MobileDashboard` 或其他组件处理，此处 App.tsx 仅控制胶囊显隐）。
-     - `MonitorPanel` 在质量关闭时作为第 4 位 Tab 出现，提供后台检测状态的替代展示。
+**`migrate_legacy_defaults` Function (Line 284-343)**
+执行旧配置向新默认值的迁移。
+- **v2→v3 迁移 (Line 298-299)**: 如果 `config_schema_version < 3`，将 `enable_network_quality` 强制刷为 `false`。这是本决策的核心迁移逻辑。
 
-## 理由
+**`masked_for_display` Function (Line 374-381)**
+返回掩码后的配置 JSON，确保敏感信息不出站。
 
-1. **功耗优化**：质量检测链路涉及大量外网请求，频繁执行会显著增加电池消耗。默认关闭可延长设备续航。
-2. **用户体验**：用户更关注连接状态而非详细的质量指标。后台检测（Background Check）提供更稳定的在线状态感知，足以满足大多数用户需求。
-3. **向后兼容**：通过 Schema 迁移机制，确保旧版本用户的配置被正确更新为新默认值，同时尊重用户手动修改的设置。
+### 前端常量定义 (`android/frontend/src/settings/constants.ts`)
 
-## 备选方案
+**`DEFAULT_CONFIG` Object (Line 4-56)**
+- `enableNetworkQuality: true` (Line 33): **注意**：此处前端默认值仍为 `true`。
+  *分析*：前端 `constants.ts` 中的 `DEFAULT_CONFIG` 主要用于初始化 Store 或提供 UI 初始态参考。实际生效的配置来自后端 IPC 加载。后端加载时会经过 `load_from` -> `migrate_legacy_defaults`，最终 `enableNetworkQuality` 会根据后端迁移结果更新到前端 Store。前端组件逻辑需兼容后端下发的真实值。
 
-- **保持默认开启**：会导致高功耗，不符合移动端设计原则。
-- **降低检测频率**：虽能缓解功耗，但仍会增加不必要的数据传输和电量消耗，且无法完全解决启动时的瞬时高负载问题。
+### 桌面端应用入口 (`tauri-app/frontend/src/App.tsx`)
 
-## 影响与约束
+**`AppInner` Component (Line 152-430)**
+- **Quality Panel 渲染门控 (Line 318-324)**:
+  ```tsx
+  case 'quality':
+    panelContent = configEnableNetworkQuality !== false ? (
+      <QualityPanel ... />
+    ) : null
+  break
+  ```
+  当 `configEnableNetworkQuality` 为 `false` 时，不渲染 `QualityPanel`，返回 `null`。这导致桌面端侧边栏/菜单中“网络质量”选项可能不可见或点击无内容，具体取决于导航组件的实现（通常配合过滤逻辑）。
 
-1. **配置一致性**：
-   - 后端 (`config_state.rs`) 和前端 (`constants.ts`) 的默认值可能存在差异（前端仍为 `true`）。实际运行时，后端下发的配置优先级更高。需确保前端在接收到后端配置后正确更新状态。
-   - `config_schema_version` 必须与后端保持一致（当前为 `7`），否则可能导致迁移逻辑失效或重复迁移。
+- **Config 订阅 (Line 186)**:
+  ```tsx
+  const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
+  ```
+  App 外壳层仅订阅必要的配置字段，避免不必要的重渲染。
 
-2. **UI 结构依赖**：
-   - 安卓端的底栏 Tab 结构依赖于 `enable_network_quality` 开关。改变默认值会影响底栏的默认布局（`quality` vs `monitor`）。
-   - 桌面端的质量页签在关闭时将完全消失，用户需重新开启才能访问详细质量数据。
+### 移动端应用入口 (`android/frontend/src/App.tsx`)
 
-3. **迁移风险**：
-   - 迁移逻辑 (`migrate_legacy_defaults`) 必须严格保证幂等性和正确性。任何错误都可能导致用户配置丢失或行为异常。
-   - 特别是 v2→v3 的迁移，将存量配置强制刷为 `false`，需确保这是预期的行为。
+**`AppInner` Component (Line 30-250)**
+- **Tab 动态切换逻辑 (Line 53-56)**:
+  ```tsx
+  const tabOrder: MobileTab[] = [
+    'dashboard',
+    'account',
+    'selfservice',
+    configEnableNetworkQuality !== false ? 'quality' : 'monitor',
+    'more',
+  ]
+  ```
+  底栏第 4 位根据 `configEnableNetworkQuality` 动态决定显示 `'quality'` 还是 `'monitor'`。
+  - 开启：显示 "网络质量"。
+  - 关闭（默认）：显示 "后台检测/网络状态检测" (`MonitorPanel`)。
 
-4. **前端默认值滞后**：
-   - `constants.ts:41` 中的 `enableNetworkQuality: true` 可能与后端默认值 `false` 不同步。这可能导致首次启动时前端 UI 显示不一致，直到后端配置加载完成。建议检查前端是否会在后端配置加载前基于 `DEFAULT_CONFIG` 进行渲染。
+- **Panel 渲染逻辑 (Line 110-136)**:
+  ```tsx
+  case 'quality':
+    panelContent = configEnableNetworkQuality !== false ? (
+      <QualityPanel ... />
+    ) : null
+  break
+  case 'monitor':
+    panelContent = (
+      <MonitorPanel ... />
+    )
+  break
+  ```
+  - 当 Tab 为 `quality` 但后端配置关闭时，渲染 `null`（空页面）。
+  - 当 Tab 为 `monitor` 时，始终渲染 `MonitorPanel`，用于展示后台检测状态。
+
+- **配置就绪后的自动归位 (Line 97-103)**:
+  ```tsx
+  useEffect(() => {
+    if (!configLoaded) return
+    if (configEnableNetworkQuality !== false && tab === 'monitor') {
+      handleTabChange('quality')
+    }
+  }, [configLoaded, configEnableNetworkQuality, tab])
+  ```
+  如果配置加载完成且质量开关开启，而当前 Tab 是 `monitor`（例如用户之前手动切过），则自动跳回 `quality`。反之，如果质量关闭，保留在 `monitor` 或允许用户停留在 `monitor`。
+
+- **顶栏胶囊展示 (Line 78-82)**:
+  ```tsx
+  {configEnableNetworkQuality !== false && (
+    <button ... onClick={() => handleTabChange('quality')} ...>
+      <NetworkQualityCapsule networkQuality={networkQuality} />
+    </button>
+  )}
+  ```
+  仅在质量开启时显示网络质量胶囊。关闭时，顶栏左侧仅显示状态点（在线/离线/加载中）和运营商徽标，不再误导显示“未知”。
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                      Backend (Rust)                         │
+│  config_state.rs                                            │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Settings::default()                                   │  │
+│  │ enable_network_quality = false (Line 199)             │  │
+│  │ config_schema_version = 7                             │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ migrate_legacy_defaults()                             │  │
+│  │ v2→v3: enable_network_quality = false                 │  │
+│  └───────────────────────────────────────────────────────┘  │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ IPC: get_config / config-changed
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Frontend (React)                       │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Zustand Store (useConfigStore)                        │  │
+│  │ config.enableNetworkQuality                           │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Desktop App.tsx                                       │  │
+│  │ Quality Panel: 条件渲染 (Line 318)                    │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Mobile App.tsx                                        │  │
+│  │ BottomNav Tab Order: Dynamic Switch (Line 53)         │  │
+│  │ Header Capsule: Conditional Render (Line 78)          │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Data Flow
+
+1. **首次启动/升级**:
+   - 后端 `load_from` 读取旧配置文件。
+   - 若 `config_schema_version < 3`，调用 `migrate_legacy_defaults`。
+   - 迁移逻辑将 `enable_network_quality` 设置为 `false`，并将版本号提升至 3（后续逐步升至 7）。
+   - 保存修改后的配置到磁盘。
+   - 后端通过 `emit_config_changed` 广播事件。
+
+2. **前端接收**:
+   - 前端 Store 接收到新的配置对象。
+   - `configEnableNetworkQuality` 变为 `false`。
+
+3. **UI 响应**:
+   - **移动端**:
+     - `tabOrder` 数组第 4 项变为 `'monitor'`。
+     - 底栏显示 "后台检测" 图标。
+     - 顶栏隐藏 `NetworkQualityCapsule`。
+     - 若用户之前处于 `quality` 页，由于 `tabOrder` 变化，需确保 Tab 状态合法；代码中有逻辑处理 `tab === 'monitor'` 时的状态保持。
+   - **桌面端**:
+     - `QualityPanel` 渲染条件不满足，返回 `null`。
+     - 导航菜单中相关入口应被过滤或禁用（依赖 `DockNav` 或 `RightPanel` 的过滤实现，源码中 `App.tsx` 仅控制内容渲染）。
 
 ## Connections
 
-[[android-interval-default-schema-migration]]、[[quality-detail-key-contract]]、[[tablet-layout-alignment-audit]]
+[[android-interval-default-schema-migration]]: 关联背景，说明 schema 迁移机制的历史沿革（v0-v7）。
+[[quality-detail-key-contract]]: 关联质量检测数据的具体协议和展示细节。
+[[tablet-layout-alignment-audit]]: 关联平板布局与桌面布局的对齐审计，涉及 `enable_network_quality` 对布局的影响。

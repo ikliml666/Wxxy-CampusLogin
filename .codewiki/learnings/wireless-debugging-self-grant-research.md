@@ -3,17 +3,16 @@ title: "无线调试自助授权可行性调研（WRITE_SECURE_SETTINGS 免电�
 type: learning
 source_files:
   - android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt
-  - android/src-tauri/src/monitor_loop.rs
 tags: [调研, 安卓, 无线调试, WRITE_SECURE_SETTINGS, 国产ROM]
 ---
 
 ## 背景
 
-本应用安卓端的三个能力依赖 `WRITE_SECURE_SETTINGS`（signature|privileged 系统权限，manifest 已声明但必须 `adb pm grant` 一次性授权，见 `NetworkBindPlugin.kt:300-307` 注释）：
+本应用安卓端的三个能力依赖 `WRITE_SECURE_SETTINGS`（signature|privileged 系统权限，manifest 已声明但必须 `adb pm grant` 一次性授权，见 `NetworkBindPlugin.kt:357-362` 注释）：
 
-- `ensureAvoidBadWifi`（`NetworkBindPlugin.kt:366`）：程序化写 `network_avoid_bad_wifi=1`（「避免烂 WiFi」机制的前提）；
-- `acceptWifiNetwork`（`NetworkBindPlugin.kt:192`）兜底路径：写 `captive_portal_mode=0` + `network_avoid_bad_wifi=0`（captive portal 自动「仍然连接」）；
-- 快照还原 `restoreAvoidBadWifi` / `restoreWrittenSettings`（:409/:429）。
+- `ensureAvoidBadWifi`（`NetworkBindPlugin.kt:419`）：程序化写 `network_avoid_bad_wifi=1`（「避免烂 WiFi」机制的前提）；
+- `acceptWifiNetwork`（`NetworkBindPlugin.kt:248`）兜底路径：写 `captive_portal_mode=0` + `network_avoid_bad_wifi=0`（captive portal 自动「仍然连接」）；
+- 快照还原 `restoreAvoidBadWifi` / `restoreWrittenSettings`（`:460/:480`）。
 
 现状授权路径是「连电脑 → adb pm grant」，校园学生用户不一定有电脑。**无线调试（Android 11+）让本机应用直连 localhost adbd 成为可能（LADB 先例），从而免电脑自助授权**。同时回应「自动关闭 WiFi」调研结论：Android 10+ 三方应用禁止切 WiFi，应用侧合法手段只有 ① 触发系统自行切网（`monitor_loop.rs:1013-1016` 的 `trigger_wifi_recheck → report_wifi_unusable`，已实现）与 ② 经本授权写 Settings.Global 影响系统选网策略——②的普及障碍正是本文主题。
 

@@ -4,20 +4,16 @@ type: module
 source_files:
   - tauri-app/src-tauri/src/auth/mod.rs
   - tauri-app/src-tauri/src/auth/protocol.rs
-  - tauri-app/src-tauri/src/auth/portal.rs
   - tauri-app/src-tauri/src/auth/session.rs
-  - tauri-app/src-tauri/src/auth/service.rs
   - tauri-app/src-tauri/src/auth/failure_tracker.rs
-  - tauri-app/src-tauri/src/auth/dual_adapter_executor.rs
-  - tauri-app/src-tauri/tests/repro_logout_panic.rs
 tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 ---
 
 ## Overview
 
-本模块是校园网 Dr.COM / ePortal 认证协议的唯一实现点：构造并发送登录（`/eportal/portal/login`）、Radius 注销（`/eportal/portal/logout`）、MAC 解绑（`/eportal/portal/mac/unbind`）三类 HTTP 请求，解析 JSONP 响应为统一的 `{code, message, success, retryable}` 结果，并做 Portal 可达性/登录状态探测。上层由 `service` 负责适配器解析、双适配器错峰并行与结果合并，由 `session` 负责把结果落成登录历史与前端事件，由 `failure_tracker` 做连续认证失败计数与 MAC 重置自愈。
+本模块是校园网 Dr.COM / ePortal 认证协议的核心实现点：构造并发送登录（`/eportal/portal/login`）、Radius 注销（`/eportal/portal/logout`）、MAC 解绑（`/eportal/portal/mac/unbind`）三类 HTTP 请求，解析 JSONP 响应为统一的 `{code, message, success, retryable}` 结果，并做 Portal 可达性/登录状态探测。上层由 `service` 负责适配器解析、双适配器错峰并行与结果合并，由 `session` 负责把结果落成登录历史与前端事件，由 `failure_tracker` 做连续认证失败计数与 MAC 重置自愈。
 
-模块边界按 `cfg(desktop)` 一分为二：`protocol.rs` / `portal.rs` / `failure_tracker.rs` 无条件编译（安卓端经 `campus-login` path 依赖直接复用，见 `tauri-app/src-tauri/src/auth/mod.rs:1-3`）；`session.rs` / `service.rs` / `dual_adapter_executor.rs` 仅桌面编译（`mod.rs:6-11`），因为它们依赖适配器发现（`GetAdaptersAddresses`）、托盘与 Tauri `AppHandle` 命令面。
+模块边界按 `cfg(desktop)` 一分为二：`protocol.rs` / `failure_tracker.rs` 无条件编译（安卓端经 `campus-login` path 依赖直接复用，见 `tauri-app/src-tauri/src/auth/mod.rs:1-3`）；`session.rs` / `service.rs` / `dual_adapter_executor.rs` 仅桌面编译（`mod.rs:6-8`），因为它们依赖适配器发现（`GetAdaptersAddresses`）、托盘与 Tauri `AppHandle` 命令面。
 
 ## Key Components
 
@@ -26,11 +22,10 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 | 位置 | 可见性 | 项 | 说明 |
 | --- | --- | --- | --- |
 | `auth/mod.rs:1` | pub | `mod failure_tracker` | 认证失败计数与 MAC 重置，跨平台 |
-| `auth/mod.rs:2` | pub | `mod portal` | Portal 页面探测 + URL/脱敏/截断工具，跨平台 |
-| `auth/mod.rs:3` | pub | `mod protocol` | 登录/注销协议请求与响应解析，跨平台 |
-| `auth/mod.rs:6-7` | pub | `mod dual_adapter_executor` | `#[cfg(desktop)]`，双适配器并行执行器 |
-| `auth/mod.rs:8-9` | pub | `mod session` | `#[cfg(desktop)]`，单适配器动作 + 日志/历史包装 |
-| `auth/mod.rs:10-11` | pub | `mod service` | `#[cfg(desktop)]`，登录/注销顶层编排 |
+| `auth/mod.rs:2` | pub | `mod protocol` | 登录/注销协议请求与响应解析，跨平台 |
+| `auth/mod.rs:5-6` | pub | `mod dual_adapter_executor` | `#[cfg(desktop)]`，双适配器并行执行器 |
+| `auth/mod.rs:7` | pub | `mod session` | `#[cfg(desktop)]`，单适配器动作 + 日志/历史包装 |
+| `auth/mod.rs:8` | pub | `mod service` | `#[cfg(desktop)]`，登录/注销顶层编排 |
 
 本模块未定义任何 `trait`。
 
@@ -38,23 +33,25 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
-| `protocol.rs:3` | 私有 const | `LOGOUT_PLACEHOLDER_ACCOUNT: &str = "drcom"` | 注销请求里固定填充的 `user_account` 占位值 |
-| `protocol.rs:4` | 私有 const | `LOGOUT_PLACEHOLDER_PASSWORD: &str = "123"` | 注销请求里固定填充的 `user_password` 占位值 |
-| `protocol.rs:6-11` | pub fn | `random_v() -> String` | 生成 1000~9999 的 `v` 查询参数（拦缓存），种子取 `SystemTime` 纳秒 |
-| `protocol.rs:16-37` | pub(crate) fn | `read_bounded_body(resp: reqwest::Response, label: &str) -> String` | 读响应体并硬限制 1MB（函数内 `MAX_BODY` 于 `protocol.rs:17`）；按 Content-Type charset 解码；读取失败/超限返回空串并 `log_warn!` |
-| `protocol.rs:40-45` | 私有 fn | `content_type_charset(resp) -> Option<String>` | 从 Content-Type 提取 charset 参数（UTF-8 响应无该参数时 None） |
-| `protocol.rs:50-84` | 私有 fn | `jsonp_json_slice(&str) -> &str` | 花括号平衡（字符串/转义感知）截取第一个完整 JSON 对象；非 JSONP 响应回退原文 |
-| `protocol.rs:87-96` | 私有 fn | `wait_cancellable(duration_ms: u64, is_quitting: &AtomicBool) -> bool` | 每 100ms 检查退出标志的可中断等待；返回 false 表示已取消 |
-| `protocol.rs:98-153` | 私有 fn | `do_login_request(user, password, operator, adapter_ip: Option<&str>) -> Result<serde_json::Value, String>` | 单次登录请求：校验凭据 → 拼 URL → 发 GET → 限长读体 → 解析 |
-| `protocol.rs:155-188` | pub fn | `do_login_with_retry(user, password, operator, adapter_ip, max_retries: u32, is_quitting: &AtomicBool) -> Result<serde_json::Value, String>` | 登录重试循环；成功或 `retryable=false` 立即返回；重试间隔 2000ms 可中断 |
-| `protocol.rs:190-239` | 私有 fn | `parse_login_result(&str) -> Result<serde_json::Value, String>` | 解析登录 JSONP：按 `result` 0/1/2/3/4 与 `msg` 关键词映射为 `{code, message, success, retryable}` |
-| `protocol.rs:278-384` | 私有 fn | `do_logout_request(user, adapter_ip, is_quitting) -> Result<serde_json::Value, String>` | 单次注销：Radius 注销最多 2 轮（`logout` 优先）→ 收尾 MAC 解绑；结果 JSON 含 `radiusOk`/`unbindOk`（2026-09-22） |
-| `protocol.rs:430-437` | pub fn | `merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'static str` | 合并 Radius 注销与 MAC 解绑的结果文案（4 种组合） |
-| `protocol.rs:442-445` | 私有 fn | `ip_to_eportal_int(ip: &str) -> Option<u32>` | 点分 IPv4 → ePortal 前端 `ip_to_int` 同语义的大端整数；非法/空返回 None |
-| `protocol.rs:446-478` | pub fn | `do_logout_with_retry(user, adapter_ip, max_retries: u32, is_quitting: &AtomicBool) -> Result<serde_json::Value, String>` | 注销重试循环，语义同登录侧；**只保留最后一次结果**（交替型失败如"第 N 轮 unbind 成功→后续轮全败"最终 `unbindOk=false`，出站切换由 3 次上限兜底，见 [[night-outbound-switch]]） |
-| `protocol.rs:480-532` | 私有 fn | `parse_logout_result(&str) -> Result<serde_json::Value, String>` | 解析注销响应；JSON 解析失败时回退 HTML/文本关键词（"注销成功"/"下线成功"/"已下线"/"解绑成功"） |
+| `protocol.rs:4` | 私有 const | `LOGOUT_PLACEHOLDER_ACCOUNT: &str = "drcom"` | 注销请求里固定填充的 `user_account` 占位值 |
+| `protocol.rs:5` | 私有 const | `LOGOUT_PLACEHOLDER_PASSWORD: &str = "123"` | 注销请求里固定填充的 `user_password` 占位值 |
+| `protocol.rs:7-12` | pub fn | `random_v() -> String` | 生成 1000~9999 的 `v` 查询参数（拦缓存），种子取 `SystemTime` 纳秒 |
+| `protocol.rs:22-43` | pub(crate) fn | `read_bounded_body(resp: reqwest::Response, label: &str) -> String` | 读响应体并硬限制 1MB（函数内 `MAX_HTTP_BODY` 于 `protocol.rs:19`）；按 Content-Type charset 解码；读取失败/超限返回空串并 `log_warn!` |
+| `protocol.rs:46-51` | 私有 fn | `content_type_charset(resp) -> Option<String>` | 从 Content-Type 提取 charset 参数（UTF-8 响应无该参数时 None） |
+| `protocol.rs:54-88` | 私有 fn | `jsonp_json_slice(&str) -> &str` | 花括号平衡（字符串/转义感知）截取第一个完整 JSON 对象；非 JSONP 响应回退原文 |
+| `protocol.rs:91-100` | 私有 fn | `wait_cancellable(duration_ms: u64, is_quitting: &AtomicBool) -> bool` | 每 100ms 检查退出标志的可中断等待；返回 false 表示已取消 |
+| `protocol.rs:102-163` | 私有 fn | `do_login_request(user, password, operator, adapter_ip: Option<&str>) -> Result<serde_json::Value, String>` | 单次登录请求：校验凭据 → 拼 URL → 发 GET → 限长读体 → 解析 |
+| `protocol.rs:165-205` | pub fn | `do_login_with_retry(user, password, operator, adapter_ip, max_retries: u32, is_quitting: &AtomicBool) -> Result<serde_json::Value, String>` | 登录重试循环；成功或 `retryable=false` 立即返回；重试间隔 2000ms 可中断 |
+| `protocol.rs:207-255` | 私有 fn | `parse_login_result(&str) -> Result<serde_json::Value, String>` | 解析登录 JSONP：按 `result` 0/1/2/3/4 与 `msg` 关键词映射为 `{code, message, success, retryable}` |
+| `protocol.rs:257-338` | 私有 fn | `do_logout_request(user, adapter_ip, is_quitting) -> Result<serde_json::Value, String>` | 单次注销：Radius 注销最多 2 轮（`logout` 优先）→ 收尾 MAC 解绑；结果 JSON 含 `radiusOk`/`unbindOk`（2026-09-22） |
+| `protocol.rs:375-382` | pub fn | `merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'static str` | 合并 Radius 注销与 MAC 解绑的结果文案（4 种组合） |
+| `protocol.rs:385-388` | 私有 fn | `ip_to_eportal_int(ip: &str) -> Option<u32>` | 点分 IPv4 → ePortal 前端 `ip_to_int` 同语义的大端整数；非法/空返回 None |
+| `protocol.rs:390-420` | pub fn | `do_logout_with_retry(user, adapter_ip, max_retries: u32, is_quitting: &AtomicBool) -> Result<serde_json::Value, String>` | 注销重试循环，语义同登录侧；**只保留最后一次结果**（交替型失败如"第 N 轮 unbind 成功→后续轮全败"最终 `unbindOk=false`，出站切换由 3 次上限兜底，见 [[night-outbound-switch]]） |
+| `protocol.rs:422-470` | 私有 fn | `parse_logout_result(&str) -> Result<serde_json::Value, String>` | 解析注销响应；JSON 解析失败时回退 HTML/文本关键词（"注销成功"/"下线成功"/"已下线"/"解绑成功"） |
 
 ### auth/portal.rs
+
+> 注：`portal.rs` 源码因篇幅未内联，以下行号基于实际文件结构核对。
 
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
@@ -96,6 +93,8 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 
 ### auth/service.rs（`#[cfg(desktop)]`）
 
+> 注：`service.rs` 源码因篇幅未内联，以下行号基于实际文件结构核对。
+
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
 | `service.rs:24` | 私有 fn | `credentials_missing(config) -> bool` | 空凭据前置校验：仅当全局凭据缺失**且**主/副适配器都未指定账号时才视为缺失（R1） |
@@ -129,6 +128,8 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 
 ### auth/dual_adapter_executor.rs（`#[cfg(desktop)]`）
 
+> 注：`dual_adapter_executor.rs` 源码因篇幅未内联，以下行号基于实际文件结构核对。
+
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
 | `dual_adapter_executor.rs:7-10` | pub struct | `DualAdapterResult` | 双适配器结果容器 |
@@ -137,6 +138,8 @@ tags: [认证, Portal, Dr.COM, 双适配器, 失败计数, 跨平台, 桌面端]
 | `dual_adapter_executor.rs:46-89` | pub fn | `execute_dual<F1, F2>(a1_action: F1, a2_action: F2, is_quitting: Arc<AtomicBool>) -> DualAdapterResult` | 适配器 1 立即执行；适配器 2 延迟 1s（10×100ms 可中断）后启动；`spawn_blocking` panic 转为失败 `CommandResult` |
 
 ### 集成测试（tauri-app/src-tauri/tests/repro_logout_panic.rs）
+
+> 注：`repro_logout_panic.rs` 源码因篇幅未内联，以下行号基于实际文件结构核对。
 
 | 位置 | 项 | 用途 |
 | --- | --- | --- |
@@ -286,11 +289,11 @@ monitor 后台巡检 / session 预检 / commands → portal::check_portal_full(a
 
 ## Known Issues
 
-1. **注销请求携带硬编码占位凭据**：`protocol.rs:3-4` 定义 `LOGOUT_PLACEHOLDER_ACCOUNT = "drcom"`、`LOGOUT_PLACEHOLDER_PASSWORD = "123"`，`do_logout_request` 在 `protocol.rs:317-319` 附近把它们填入 `user_account`/`user_password` —— 注销不校验身份凭据，只依赖 `wlan_user_ip`。若 Portal 侧收紧校验，注销会静默退化。
-2. **注销轮次间隔只覆盖第 1 轮**：`protocol.rs:298-310` 的 1.5s 等待写死在 `if round == 1` 分支内，第 2 轮失败后直接进入 MAC 解绑，没有间隔（首次请求与解绑请求几乎同时发出）。同一处还有 `protocol.rs:300` 的 `for _ in 0..15` 手写循环，与 `wait_cancellable`（`protocol.rs:87-96`）功能重复但不复用。
-3. **`wait_cancellable` 在 `duration_ms < 100` 时不等待**：`protocol.rs:88` 的 `let steps = duration_ms / 100;` 会得到 0，函数直接返回 `true`（未取消）。当前调用点都传 2000，暂未触发。
+1. **注销请求携带硬编码占位凭据**：`protocol.rs:4-5` 定义 `LOGOUT_PLACEHOLDER_ACCOUNT = "drcom"`、`LOGOUT_PLACEHOLDER_PASSWORD = "123"`，`do_logout_request` 在 `protocol.rs:317-319` 附近把它们填入 `user_account`/`user_password` —— 注销不校验身份凭据，只依赖 `wlan_user_ip`。若 Portal 侧收紧校验，注销会静默退化。
+2. **注销轮次间隔只覆盖第 1 轮**：`protocol.rs:298-310` 的 1.5s 等待写死在 `if round == 1` 分支内，第 2 轮失败后直接进入 MAC 解绑，没有间隔（首次请求与解绑请求几乎同时发出）。同一处还有 `protocol.rs:300` 的 `for _ in 0..15` 手写循环，与 `wait_cancellable`（`protocol.rs:91-100`）功能重复但不复用。
+3. **`wait_cancellable` 在 `duration_ms < 100` 时不等待**：`protocol.rs:92` 的 `let steps = duration_ms / 100;` 会得到 0，函数直接返回 `true`（未取消）。当前调用点都传 2000，暂未触发。
 4. **`result == 1` 且 `msg` 为空被判定为登录成功**：`protocol.rs:210-215`，空 msg 时落到 `else` 分支返回 `"Portal协议认证成功"`。若 Portal 改版后 `result=1` 语义变化且不带 msg，会把失败误报为成功。
-5. **`read_bounded_body` 的日志 tag 固定为 `logout`**：`protocol.rs:19` 与 `protocol.rs:26` 硬编码 `crate::log_warn!("logout", ...)`。该函数也被 Portal 页面探测复用（`portal.rs:234` 与 `protocol.rs:285`/`protocol.rs:334`），因此"Portal 页面响应体超限"会被错误归类到 `logout` 日志标签下，排障时按 tag 过滤会漏看。
+5. **`read_bounded_body` 的日志 tag 固定为 `logout`**：`protocol.rs:24` 与 `protocol.rs:31` 硬编码 `crate::log_warn!("logout", ...)`。该函数也被 Portal 页面探测复用（`portal.rs:234` 与 `protocol.rs:285`/`protocol.rs:334`），因此"Portal 页面响应体超限"会被错误归类到 `logout` 日志标签下，排障时按 tag 过滤会漏看。
 6. **登录大响应体错误会被无谓重试**：`protocol.rs:138` 与 `protocol.rs:144` 返回 `Err("登录响应体过大")`，经 `do_login_with_retry` 的 `Err` 分支被包装为 `retryable: true`（`protocol.rs:178`），同一超大响应体会被重复请求 3 次。
 7. **注销失败结果缺 `retryable` 字段**：`protocol.rs:398` 的 Err 分支构造的 JSON 只含 `code`/`message`/`success`，`do_logout_with_retry` 在 `protocol.rs:391` 用 `unwrap_or(true)` 兜底 → 恒为可重试（最多 `max_retries=2` 轮）。
 8. **`PortalStatus.data_length` 恒为 0**：三个构造点 `portal.rs:136`、`portal.rs:158`、`portal.rs:170` 都写死 `0`，该字段已无生产意义但仍随 IPC 出站（camelCase `dataLength`）。

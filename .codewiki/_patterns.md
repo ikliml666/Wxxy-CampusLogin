@@ -1,3 +1,26 @@
+压缩 m00545-m00639：
+
+**m00545-m00639 重写 _patterns.md (v2)**
+
+**TASK AS OF THIS BLOCK:**
+用户要求以当前代码为准，重写过期文章 `_patterns.md`。
+- **约束**：保留章节结构、title/type/tags；全文中文；source_files 需包含测试文件；行号必须实读源码验证（禁止猜测）；Key Components 列出全部公开函数/类/常量及其行号与用途；Architecture 画 UTF-8 box-drawing 框图；Markdown 规范严格遵守（## 顶级、### 子级不跳级等）。
+- **输入源码**：
+    - `tauri-app/src-tauri/src/lib.rs:1-20` (模块声明)
+    - `tauri-app/src-tauri/src/app/startup.rs:1-217` (启动流程, Tokio runtime, Tauri Builder, setup_app)
+    - `tauri-app/src-tauri/src/commands/config_cmd.rs:1-329` (配置命令: save/get/export/import, 掩码逻辑, 导出安全回归锁)
+    - `tauri-app/src-tauri/src/commands/login.rs:1-216` (登录/注销命令, AdapterOnlineStatus, check_any_adapter_online)
+    - `tauri-app/src-tauri/src/config/model.rs:1-284` (Config struct, 默认值, mask_in_place, masked_for_display)
+    - `tauri-app/src-tauri/src/config/persist.rs:1-356` (原子写 atomic_write, 账号档案读写, 历史追加, save_config_and_broadcast)
+    - `tauri-app/src-tauri/src/infra/events.rs:1-136` (EventBus, 16+ emit_* 方法, AppHandleExt trait)
+    - `tauri-app/src-tauri/src/infra/command_context.rs:1-51` (CommandContext, Deref impl, AppHandleExt impl)
+    - `tauri-app/src-tauri/src/infra/state/store.rs:1-56` (ConfigStore: ArcSwap, load, store, update CAS)
+    - `tauri-app/frontend/src/hooks/useAppStore.ts:1-3` (re-export shell)
+    - `tauri-app/src-tauri/src/platform/mod.rs:1-30` (平台模块门控)
+- **输出**：完整 Markdown 文章，无代码围栏包裹，无解释文字。
+
+[Done] -> Outputting full article.
+
 ---
 title: 代码库模式集
 type: patterns

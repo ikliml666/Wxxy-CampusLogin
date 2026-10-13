@@ -1,3 +1,47 @@
+I will now update the article `concepts/dual-platform-sharing.md` based on the provided source code.
+
+1.  **Analyze Source Code**:
+    *   **Desktop (`tauri-app/src-tauri`)**:
+        *   `Cargo.toml`: `campus-login v2.4.1`. Dependencies include `reqwest`, `tokio`, `hickory-resolver`, `surge-ping`, `webview2-com` (Windows), etc. Desktop plugins: `shell`, `autostart`, `global-shortcut`, `single-instance`. Windows specific: `winreg`, `windows`. Release profile: thin LTO, panic=unwind.
+        *   `src/lib.rs`: Exports `account`, `auth`, `config`, `infra`, `network`, `platform`, `self_service`. Desktop only: `app`, `commands`, `helper`, `monitor`, `update`.
+        *   `src/main.rs`: Helper task interception (`--helper-task`, `--helper`), RTSS compat detection, WebView2 crash dump setup, Tokio runtime build.
+        *   `src/app/startup.rs`: Tauri builder with many plugins and commands (65+). Setup includes logger, tray, adapter watch, updater loop, heartbeat.
+        *   `src/config/model.rs`: `Config` struct with ~60 fields. Default implementation. Masking logic.
+        *   `src/commands/system.rs`: System commands like `minimize_window`, `close_window`, `get_init_data`, `export_diagnostics`.
+        *   `src/account/crypto.rs`: DPAPI encryption on Windows, stubs for non-Windows.
+        *   `src/platform/mod.rs`: Desktop platform modules (autostart, gpu, dns_config, etc.).
+        *   `src/auth/mod.rs`: Auth modules (failure_tracker, portal, protocol, dual_adapter_executor).
+        *   `src/network/mod.rs`: Network modules (adapter, bound_socket, client, dhcp, etc.).
+    *   **Android (`android/src-tauri`)**:
+        *   `Cargo.toml`: `campus-login-android v2.4.1`. Path dependency on `campus-login`. Android specific: `socket2`, `libc`, `network-interface`, `android_system_properties`. Plugins: `campus-network-bind`, `campus-keystore`, `campus-monitor-service`, `biometric`, `opener`. Release profile: fat LTO, panic=abort.
+        *   `src/lib.rs`: Android entry point. Registers plugins and commands (53 commands). Modules: `campus_detect`, `android_state`, `config_state`, `cpu_affinity`, `identity_gate`, `login_history`, `protocol_cmds`, `self_service_cmds`, `monitor_loop`, `account_cmds`, `system_cmds`, `quality_cmds`, `quality_history`, `update_cmds`, `face_model_cmds`, `battery_cmds`.
+        *   `plugins/keystore/src/lib.rs`: AndroidKeyStore AES-GCM wrapper.
+        *   `plugins/network-bind/src/lib.rs`: WiFi binding plugin (bindProcessToNetwork).
+    *   **Frontend Types**:
+        *   `tauri-app/frontend/src/settings/types.ts`: `Config` interface (~60 fields), `AccountItem`, `InitData`.
+
+2.  **Update Article Structure**:
+    *   **Title/Tags**: Keep as is.
+    *   **Overview**: Update version numbers (still 2.4.1), describe the shared core `campus-login` and Android shell `campus-login-android`. Mention the path dependency.
+    *   **Mechanism**:
+        *   **Shared Boundary**: Detail Cargo.toml differences (desktop vs android deps, profiles).
+        *   **Shared Modules**: List the 7 shared modules from `lib.rs` and what they do on both sides.
+        *   **Platform Specifics**: Detail desktop-only modules (`app`, `commands`, `helper`, `monitor`, `update`, `platform/*`) and Android-specific modules (`*_cmds`, `monitor_loop`, `config_state`, `campus_detect`, plugins).
+        *   **Sync Contracts**: Command alignment, Config field mapping (intersection/difference), persistence format.
+    *   **Key Constraints**: Security (DPAPI vs Keystore), Pure code requirements, Sync discipline.
+    *   **Data Flow**: ASCII diagram showing UI -> Shell -> Shared Core -> Platform specifics.
+    *   **Connections**: Link to related concepts.
+    *   **Known Issues**: Note manual sync risks, comment inconsistencies.
+
+3.  **Refine Content**:
+    *   Ensure all file paths are correct relative to repo root.
+    *   Verify line numbers where possible (based on provided snippets).
+    *   Highlight the "Single Point of Truth" for protocol logic in `campus-login`.
+    *   Clarify the Android plugin architecture (Kotlin bridge via Tauri mobile plugins).
+
+4.  **Final Output Generation**: Produce the markdown content.
+
+```markdown
 ---
 title: 双端同构与协议单点共享
 type: concept
@@ -28,26 +72,24 @@ source_files:
   - android/plugins/keystore/Cargo.toml
   - android/plugins/keystore/src/lib.rs
   - android/plugins/network-bind/src/lib.rs
-  - android/plugins/foreground-service/src/lib.rs
-  - android/frontend/src/settings/types.ts
 ---
 
 # 双端同构与协议单点共享
 
 ## Overview
 
-本项目用同一套登录协议服务两个前端：桌面（Windows）与安卓。**协议单点在桌面 crate `campus-login`**（`tauri-app/src-tauri`，v2.4.1），安卓壳 crate `campus-login-android`（`android/src-tauri`，v2.4.1）通过 Cargo path 依赖直接复用其模块（`android/src-tauri/Cargo.toml:36`），不复制任何协议代码。安卓端只补四类平台件：平台探针（`campus_detect.rs`）、监控与状态编排（`monitor_loop.rs` + `config_state.rs`/`android_state.rs`）、命令包装层（`*_cmds.rs`）与落盘记录（`login_history.rs`/`quality_history.rs`），再加三个 Tauri 插件（network-bind / keystore / foreground-service）承接 Kotlin 平台能力。前端为双复刻树：两端各自维护一份 `settings/types.ts`（桌面 60 字段 `tauri-app/frontend/src/settings/types.ts:9-87`，安卓 47 字段 `android/frontend/src/settings/types.ts:9-73`），与各自 Rust 配置结构同形。
+本项目用同一套登录协议服务两个前端：桌面（Windows）与安卓。**协议单点在桌面 crate `campus-login`**（`tauri-app/src-tauri`，v2.4.1），安卓壳 crate `campus-login-android`（`android/src-tauri`，v2.4.1）通过 Cargo path 依赖直接复用其模块（`android/src-tauri/Cargo.toml:36`），不复制任何协议代码。安卓端只补四类平台件：平台探针（`campus_detect.rs`）、监控与状态编排（`monitor_loop.rs` + `config_state.rs`/`android_state.rs`）、命令包装层（`*_cmds.rs`）与落盘记录（`login_history.rs`/`quality_history.rs`），再加三个 Tauri 插件（network-bind / keystore / foreground-service）承接 Kotlin 平台能力。前端为双复刻树：两端各自维护一份 `settings/types.ts`（桌面 `tauri-app/frontend/src/settings/types.ts`，安卓 `android/frontend/src/settings/types.ts`），与各自 Rust 配置结构同形。
 
 ## 机制说明
 
 ### 共享边界：Cargo path 依赖配置
 
-- 桌面 crate：`tauri-app/src-tauri/Cargo.toml:3` `campus-login v2.4.1`；lib name `campus_login_lib`，crate-type `cdylib + rlib`（`:8-10`）——rlib 是被安卓 path 依赖消费的前提。
-- 安卓 crate：`android/src-tauri/Cargo.toml:3` `campus-login-android v2.4.1`；`:36` `campus-login = { path = "../../tauri-app/src-tauri" }`（`:35` 注释「跨平台协议核心」）。
-- 安卓专属联网依赖挂在 `target.'cfg(target_os = "android")'` 段（`:48-52`：socket2 0.6 / libc 0.2 / network-interface 2），支撑 bound_socket 的 SO_BINDTODEVICE 旁路；桌面不引入。
-- 桌面专属插件挂在 `cfg(not(any(android, ios)))` 段（`tauri-app/src-tauri/Cargo.toml:55-59`：shell / autostart / global-shortcut / single-instance），安卓编译不可见。
-- release profile 不共享：桌面 `[profile.release]` 在 `tauri-app/src-tauri/Cargo.toml:91-96`（thin LTO）；安卓在 workspace 根（fat LTO + codegen-units=1，`:55-62`，注释说明桌面 profile 不随 path 依赖生效）。
-- 版本注入双轨：桌面由 `tauri-app/src-tauri/build.rs:12-37` 解析 tauri.conf.json 并注入 `APP_VERSION`（`startup.rs:189`、`commands/system.rs:124` 消费）；安卓直接用 `env!("CARGO_PKG_VERSION")`（`system_cmds.rs:15`、`update_cmds.rs:278`）。安卓 `build.rs` 仅 3 行 `tauri_build::build()`（`:1-3`）。
+- **桌面 crate**：`tauri-app/src-tauri/Cargo.toml:3` `campus-login v2.4.1`；lib name `campus_login_lib`，crate-type `cdylib + rlib`（`:8-10`）——rlib 是被安卓 path 依赖消费的前提。
+- **安卓 crate**：`android/src-tauri/Cargo.toml:3` `campus-login-android v2.4.1`；`:36` `campus-login = { path = "../../tauri-app/src-tauri" }`（`:35` 注释「跨平台协议核心」）。
+- **安卓专属联网依赖**挂在 `target.'cfg(target_os = "android")'` 段（`:48-52`：socket2 0.6 / libc 0.2 / network-interface 2），支撑 `bound_socket` 的 SO_BINDTODEVICE 旁路；桌面不引入。
+- **桌面专属插件**挂在 `cfg(not(any(android, ios)))` 段（`tauri-app/src-tauri/Cargo.toml:55-59`：shell / autostart / global-shortcut / single-instance），安卓编译不可见。
+- **Release Profile 不共享**：桌面 `[profile.release]` 在 `tauri-app/src-tauri/Cargo.toml:91-96`（thin LTO, panic=unwind）；安卓在 workspace 根（fat LTO + codegen-units=1, panic=abort，`:55-62`，注释说明桌面 profile 不随 path 依赖生效）。
+- **版本注入双轨**：桌面由 `tauri-app/src-tauri/build.rs:12-37` 解析 tauri.conf.json 并注入 `APP_VERSION`（`startup.rs:189`、`commands/system.rs:124` 消费）；安卓直接用 `env!("CARGO_PKG_VERSION")`（`system_cmds.rs:15`、`update_cmds.rs:278`）。安卓 `build.rs` 仅 3 行 `tauri_build::build()`（`:1-3`）。
 
 ### 哪些是共享的（桌面 crate 的模块表）
 
@@ -56,7 +98,7 @@ source_files:
 | 模块 | 桌面职责 | 安卓实际消费 |
 | --- | --- | --- |
 | `account` | 密码 DPAPI 加密（`account/crypto.rs:1-112`，仅 Windows） | 不消费加密路径；以 keystore 插件同构替代（`crypto.rs:132-141` 非平台存根显式 Err） |
-| `auth` | 跨平台 `failure_tracker`/`portal`/`protocol`（`:1-3`）；桌面门控 dual_adapter_executor/session/service（`:6-11`） | `protocol::do_login_with_retry`/`do_logout_with_retry`（`:76-83/:112-117`）、`portal::check_portal_full`（`:155`） |
+| `auth` | 跨平台 `failure_tracker`/`portal`/`protocol`（`:1-3`）；桌面门控 `dual_adapter_executor`/`session`/`service`（`:6-11`） | `protocol::do_login_with_retry`/`do_logout_with_retry`（`:76-83/:112-117`）、`portal::check_portal_full`（`:155`） |
 | `config` | Config 模型/校验/迁移/定时/夜切/出站 | `should_fire_scheduled_action`（`:904-909`）、`evaluate_night_switch`+`parse_chkstatus`+`uid_matches`（`:856-862/:1232-1234`）、`evaluate_night_outbound`（`:759-778`）、字段语义与哨兵值 |
 | `infra` | 日志/通知/生命周期/事件等（`:1-8`） | logger 全套：`read_recent_logs`/`clear_logs`/保留天数/debug 开关（`:34/:42/:49/:54`）、`log_info!`/`log_warn!` 宏（`:293/:319`）、安卓日志目录分支（`:385-394` app_data_dir/logs） |
 | `network` | 适配器/DHCP/DNS 等桌面网络面（`:1-13`） | `bound_socket::tcp_connect_bounded`（`:48`）、`bind_capability`（`:269-274`）、`vpn_tun_present`（`:185`）、`client::clear_client_pool`（`:286-290`）、`quality` 全套（`quality_cmds.rs:9`） |
@@ -65,22 +107,22 @@ source_files:
 
 ### 哪些是各端独有
 
-桌面独有（`#[cfg(desktop)]` 或仅桌面编译）：
+**桌面独有**（`#[cfg(desktop)]` 或仅桌面编译）：
 
-- 五个壳模块（`:11-20`）：`app`（`app/startup.rs`：build_runtime `:6-20`、run 插件注册与 65 命令 invoke_handler `:25-128`、setup_app `:152-249`）、`commands`（如 `commands/system.rs` get_init_data `:112-155`、export_diagnostics `:195-280`）、`helper`（`main.rs:30-46` --helper-task 拦截）、`monitor`、`update`（`:651` 行 exe/msi 更新器）。
-- platform 12 个桌面子模块（`:5-36`：autostart/ecoqos/dns_config/elevation/gpu/helper_spawn/task_proxy/identity/metric/best_route/icmp_probe/rtss_compat/toast）。
-- auth 桌面门控三模块（`:6-11`）；网络桌面/Windows 模块（`:22-23` dhcp 仅 Windows、`:48-49` enable_adapter 仅桌面）。
-- 桌面生命周期件：托盘/单实例/GPU 预热/RTSS 预检（`:214-247`、`main.rs:51-68`）、轻量化退出拦截（`:135-149`）、校园网离校窗口（`infra/lifecycle.rs:17-74`）。
+- **五个壳模块**（`:11-20`）：`app`（`app/startup.rs`：build_runtime `:6-20`、run 插件注册与 65 命令 invoke_handler `:25-128`、setup_app `:152-249`）、`commands`（如 `commands/system.rs` get_init_data `:112-155`、export_diagnostics `:195-280`）、`helper`（`main.rs:30-46` --helper-task 拦截）、`monitor`、`update`（`:651` 行 exe/msi 更新器）。
+- **platform 12 个桌面子模块**（`:5-36`：autostart/ecoqos/dns_config/elevation/gpu/helper_spawn/task_proxy/identity/metric/best_route/icmp_probe/rtss_compat/toast）。
+- **auth 桌面门控三模块**（`:6-11`）；网络桌面/Windows 模块（`:22-23` dhcp 仅 Windows、`:48-49` enable_adapter 仅桌面）。
+- **桌面生命周期件**：托盘/单实例/GPU 预热/RTSS 预检（`:214-247`、`main.rs:51-68`）、轻量化退出拦截（`:135-149`）、校园网离校窗口（`infra/lifecycle.rs:17-74`）。
 
-安卓独有（不进桌面编译面）：
+**安卓独有**（不进桌面编译面）：
 
-- 状态与配置壳：`config_state.rs`（Settings 47 字段 `:15-111`、CryptoBridge `:186-223`、编解码/迁移 v0→v7/掩码 `:234-403`、get/save_config `:405-453`、测试 `:476-765`）、`android_state.rs`（AndroidState 源 IP + 配置双缓存 `:8-13`）。
-- 监控编排：`monitor_loop.rs`（1607 行；tick 循环 `:580-615`、单次检测 `run_check_once :1245-1471`、定时/夜切 `run_scheduled_actions :748-950`、WiFi 事件 `:290-329`、小核探针线程 `:697-734`）。
-- 平台探针：`campus_detect.rs`（/18 子网 + Portal TCP + SSID 三层判定 `:66-128`）。
-- 命令包装层：`protocol_cmds.rs`/`self_service_cmds.rs`/`account_cmds.rs`/`system_cmds.rs`/`quality_cmds.rs`/`update_cmds.rs`/`battery_cmds.rs` + campus_detect/config_state/monitor_loop 命令，合计 53 条（`:57-111`）。
-- 落盘记录：`login_history.rs`（头插上限 100 `:51-76`）、`quality_history.rs`（`:52-75`）。
-- 平台工具：`cpu_affinity.rs`（cpuinfo_max_freq 分簇绑小核 `:8-50`）、`identity_gate.rs`（生物识别 TTL 600s `:8`）。
-- 三个 Tauri 插件（Kotlin 桥）：`plugins/network-bind/src/lib.rs`（WiFi 绑定/事件/SSID 权限 `:19-106`）、`plugins/keystore/src/lib.rs`（AndroidKeyStore AES-GCM `:24-50`，`:4`「替代桌面 DPAPI」）、`plugins/foreground-service/src/lib.rs`（前台服务/WifiLock/开机自启/APK 安装 `:33-97`，注释 `:1-3`「只负责让进程活着，监控/自动重登业务逻辑全在 Rust 侧 monitor_loop」）。
+- **状态与配置壳**：`config_state.rs`（Settings 47 字段 `:15-111`、CryptoBridge `:186-223`、编解码/迁移 v0→v7/掩码 `:234-403`、get/save_config `:405-453`、测试 `:476-765`）、`android_state.rs`（AndroidState 源 IP + 配置双缓存 `:8-13`）。
+- **监控编排**：`monitor_loop.rs`（1607 行；tick 循环 `:580-615`、单次检测 `run_check_once :1245-1471`、定时/夜切 `run_scheduled_actions :748-950`、WiFi 事件 `:290-329`、小核探针线程 `:697-734`）。
+- **平台探针**：`campus_detect.rs`（/18 子网 + Portal TCP + SSID 三层判定 `:66-128`）。
+- **命令包装层**：`protocol_cmds.rs`/`self_service_cmds.rs`/`account_cmds.rs`/`system_cmds.rs`/`quality_cmds.rs`/`update_cmds.rs`/`battery_cmds.rs` + campus_detect/config_state/monitor_loop 命令，合计 53 条（`:57-111`）。
+- **落盘记录**：`login_history.rs`（头插上限 100 `:51-76`）、`quality_history.rs`（`:52-75`）。
+- **平台工具**：`cpu_affinity.rs`（cpuinfo_max_freq 分簇绑小核 `:8-50`）、`identity_gate.rs`（生物识别 TTL 600s `:8`）。
+- **三个 Tauri 插件**（Kotlin 桥）：`plugins/network-bind/src/lib.rs`（WiFi 绑定/事件/SSID 权限 `:19-106`）、`plugins/keystore/src/lib.rs`（AndroidKeyStore AES-GCM `:24-50`，`:4`「替代桌面 DPAPI」）、`plugins/foreground-service/src/lib.rs`（前台服务/WifiLock/开机自启/APK 安装 `:33-97`，注释 `:1-3`「只负责让进程活着，监控/自动重登业务逻辑全在 Rust 侧 monitor_loop」）。
 
 ### 双端同步硬性约定
 
@@ -153,3 +195,4 @@ source_files:
 4. **配置面交集 + 双向差集靠注释纪律**：交集 43 字段、桌面独有 17、安卓独有 4，外加 5 个「同名不消费」镜像字段与 1 个反向标记字段（night_outbound_restore），全部靠逐字段注释维护，无编译期或测试期防漂移手段。
 5. **安卓网络探测平台缺口**：ICMP 被 SELinux 禁止后，网关可达性以 Portal TCP 可达表达（`:1-3/:103-110`），与桌面三层判定（SSID → /18 → ICMP）语义有差；surge_ping 在安卓静默失败（`:1-2`）。
 6. **双端同步靠人工纪律**：前端 types.ts 双份手工镜像、命令返回形状靠各端单测锁定（`:366-395`、`:716-724`、`:701-709`）；共享 crate 的函数签名变更有编译期保护，但注释承诺的「同构」语义（字段含义、事件名、错误文案）无自动校验。
+```

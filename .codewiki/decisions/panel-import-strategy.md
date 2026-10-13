@@ -1,50 +1,118 @@
-请提供需要更新的**文章文件路径**（例如 `decisions/panel-import-strategy.md` 或类似路径），以及该文件的**当前完整内容**。
-
-你刚才只提供了源码 (`App.tsx`) 和一段看起来像是“旧版文章内容”的文本，但没有明确指出：
-1.  **目标文件的确切路径**（用于 `source_files` 中的元数据引用，虽然这里主要是更新决策内容）。
-2.  **确认那段旧文就是需要被替换的全文**（我假设是的，但请确认）。
-
-此外，根据 CodeWiki 的规范，如果这是一篇 **Decision（决策）** 类型的文章，其结构通常包括 `title`, `type`, `tags`, `背景`, `决策`, `理由`, `备选方案`, `影响与约束`。你提供的旧文符合这个结构。
-
-我将基于你提供的 `App.tsx` 源码，重写这篇决策文档。以下是更新后的文章内容：
-
 ---
-title: 常用面板静态导入，仅 3 个低频对话框懒加载 + 启动预取
+title: App.tsx 面板加载策略与组件架构
 type: decision
 source_files:
   - tauri-app/frontend/src/App.tsx
-tags: [决策, 前端, 代码分割, 性能优化, React]
+tags: [决策, 前端, 代码分割, 首屏, 性能优化]
 ---
 
-## 背景
+## Overview
 
-早期出于首屏体积考虑，对部分面板使用了 `React.lazy` 进行分包。但在实际测试中发现，即使 Chunk 已命中缓存，`React.lazy` + `Suspense` 的切换开销依然显著，导致面板切换延迟从 ~65ms 恶化至 ~366ms。主要瓶颈在于 Suspense 挂载动画重入和额外的渲染周期。
+`App.tsx` 是 Tauri 应用的前端入口，负责初始化全局状态、管理窗口生命周期、协调面板切换逻辑以及定义懒加载策略。核心决策在于**放弃 `React.lazy` 对常用面板的分包**，转而采用静态导入以消除切换延迟，仅对低频对话框保留懒加载并通过启动预取优化体验。
 
-## 决策
+## Key Components
 
-自 **v2.4.x** 起（具体 commit 见 git log），调整代码分割策略：
-1.  **常用面板静态导入**：`AccountPanel`, `SelfServicePanel`, `NetworkPanel`, `MonitorPanel`, `QualityPanel`, `SpeedTestPanel`, `SettingsPanel`, `LogPanel` 等高频使用的面板改为直接静态导入 (`import ... from ...`)。
-2.  **低频对话框懒加载**：仅保留 `AboutDialog`, `ThemeDialog`, `OnboardingWizard` 三个低频使用的对话框组件使用 `React.lazy`。
-3.  **启动预取**：在应用启动序列 (`useStartupBoost`) 中并行预加载所有懒加载的对话框 Chunk，消除首次打开时的等待。
+### 常量与配置
+- **`PANEL_TITLES`** (L92-L103): 定义所有面板的国际化标题键 (`titleKey`) 和描述键 (`descKey`)。包含 `dashboard`, `account`, `selfservice`, `network`, `monitor`, `quality`, `speedtest`, `settings`, `log`。
+- **`SPONSOR_SHOW_DELAY_MS`** (L106): 赞助弹窗启动后弹出延迟，固定为 `1_000` ms。
+- **`SPONSOR_SHOW_INTERVAL_MS`** (L107): 赞助弹窗自动弹出的频控间隔，固定为 `7 * 24 * 60 * 60 * 1000` ms (7天)。
+- **`PANEL_CONTAINER_STYLE`** (L110-L111): 面板容器 CSS 样式对象。关键属性：`contain: 'layout style'`（防止 paint 溢出裁剪编辑模式按钮），`willChange: 'transform'`，`transform: 'translateZ(0)'`（强制 GPU 加速）。
+- **`SIDE_MASCOT_POOL`** (L114-L118): 看板娘图片池，包含 15 个字符串常量（如 `'side-wave'`, `'side-laptop'` 等）。
+- **`PanelSkeleton`** (L121-L132): 懒加载期间的骨架屏组件，使用 `animate-pulse` 动画。
 
-## 理由
+### 核心 Hooks 与工具函数
+- **`pickDailySideMascots(dayKey: string)`** (L120-L130): 根据日期字符串生成当日固定的左右两侧看板娘组合。算法基于 `(Math.floor(Date.parse(dayKey) / 86_400_000) % CYCLE)` 轮转，确保连续 182 天不重样。
+- **`preloadPanels()`** (L135-L139): 启动时并行预加载所有懒加载对话框 chunk 的工具函数。调用 `Promise.allSettled` 确保即使某个 loader 失败也不阻塞其他。
 
--   **切换性能**：实测数据显示，`LogPanel` 即使在 Chunk 缓存命中的情况下，经由 `React.lazy` 切换仍引入 ~300ms+ 的额外延迟。对于用户频繁切换的面板，这种延迟是可感知的卡顿。
--   **体积权衡**：`LogPanel` 等面板的拆分收益极小（约 13KB 或更少），远小于交互流畅性带来的用户体验提升。
--   **启动优化**：通过 `preloadPanels()` 函数在启动初期并行 `Promise.allSettled` 懒加载模块，确保用户在首次点击对话框时资源已就绪。
+### AppInner 组件内部状态与方法
+- **`activePanel`** (L143): 从 `useAdapterStore` 订阅当前激活的面板名称。
+- **`deferredPanel`** (L146): 通过 `useDeferredValue(activePanel)` 包装，实现低优先级渲染，避免快速连续切换时的挂载阻塞。
+- **`configUser/EnableNetworkQuality/AutoLaunch/EnableNotification`** (L158-L161): 粒度订阅 `useConfigStore` 中的四个特定字段，避免全局 config 变化（如文本输入）触发 App 外壳重渲染。
+- **`handlePanelChange(p: PanelName)`** (L248-L258): 面板切换处理函数。使用 `panelChangeLock` ref 和 60ms 定时器防止动画冲突，更新 `safeStorage` 记录偏好。
+- **`handleCloseWindow()`** (L223-L240): 关窗处理。调用 `flushPendingConfig()` 保存配置（最多等待 2s），然后调用 `api.closeWindow()`。**注意**：前端不再注册 `onCloseRequested`，销毁权回归 Rust。
+- **`handleToggleMaximize()`** (L210-L220): 窗口最大化切换，带错误捕获。
+- **`dailySideMascots`** (L134): 看板娘组合状态，每分钟比对日期跨天切换。
 
-## 备选方案
+### 懒加载模块
+- **`loadAboutDialog`** (L76): 加载 `@/auth/AboutDialog`。
+- **`loadThemeDialog`** (L77): 加载 `@/settings/ThemeDialog`。
+- **`loadOnboardingWizard`** (L78): 加载 `@/settings/OnboardingWizard`。
+- **`AboutDialog`**, **`ThemeDialog`**, **`OnboardingWizard`** (L80-L82): 上述 loader 的 `lazy` 实例。
 
--   **全部面板 `React.lazy`**：因上述性能问题被弃用。
--   **全静态导入**：未采用，因为 `AboutDialog` 等包含复杂逻辑且使用频率低，保留懒加载以略微减小初始 JS Bundle 大小，并通过预取弥补延迟。
+### 静态导入面板
+以下面板在 L30-L37 直接静态导入，**不使用** `React.lazy`：
+- `AccountPanel` (`@/account/AccountPanel`)
+- `SelfServicePanel` (`@/account/SelfServicePanel`)
+- `NetworkPanel` (`@/network/NetworkPanel`)
+- `MonitorPanel` (`@/monitor/MonitorPanel`)
+- `QualityPanel` (`@/monitor/QualityPanel`)
+- `SpeedTestPanel` (`@/monitor/SpeedTestPanel`)
+- `SettingsPanel` (`@/settings/SettingsPanel`)
+- `LogPanel` (`@/shared/LogPanel`) - **注意**：此前曾尝试 lazy，因切换延迟恶化回归静态导入。
 
-## 影响与约束
+## Architecture
 
--   **导入一致性**：`App.tsx` 中所有高频面板（第 37-42 行）均为静态导入。
--   **懒加载范围**：仅限 `AboutDialog` (第 50 行), `ThemeDialog` (第 51 行), `OnboardingWizard` (第 52 行)。
--   **预加载逻辑**：在 `AppInner` 组件的 `useEffect` 中，通过 `runStartupSequence` 触发 `preloadPanels()` (第 138-142 行)，确保在动画开始后尽早下载剩余 Chunk。
--   **注释更新**：原有关于 "LogPanel 保留懒加载" 的注释已失效并移除，现注释明确说明 "仅低频对话框保留懒加载"。
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                        App (Root)                            │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │                      AppInner                           │ │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │ │
+│  │  │ TitleBar    │  │ StatusBar    │  │ RightPanel     │ │ │
+│  │  │ (L275-285)  │  │ (L288-291)   │  │ (Logs/Toasts)  │ │ │
+│  │  └──────┬──────┘  └──────┬───────┘  └────────┬───────┘ │ │
+│  │         │                │                    │         │ │
+│  │  ┌──────▼────────────────▼────────────────────▼───────┐ │ │
+│  │  │                  Main Content Area                 │ │ │
+│  │  │  ┌──────────────────────────────────────────────┐  │ │ │
+│  │  │  │  AnimatePresence (mode="wait")               │  │ │ │
+│  │  │  │  ┌────────────────────────────────────────┐  │  │ │ │
+│  │  │  │  │  Suspense + ErrorBoundary              │  │  │ │ │
+│  │  │  │  │  ┌──────────────────────────────────┐  │  │  │ │ │
+│  │  │  │  │  │  DeferredPanelContent            │  │  │  │ │ │
+│  │  │  │  │  │  (Static Import for Speed)       │  │  │  │ │ │
+│  │  │  │  │  │  - DashboardPanel                │  │  │  │ │ │
+│  │  │  │  │  │  - AccountPanel                  │  │  │  │ │ │
+│  │  │  │  │  │  - LogPanel (Static, not Lazy)   │  │  │  │ │ │
+│  │  │  │  │  │  ...                             │  │  │  │ │ │
+│  │  │  │  │  └──────────────────────────────────┘  │  │  │ │ │
+│  │  │  │  └────────────────────────────────────────┘  │  │ │ │
+│  │  │  └──────────────────────────────────────────────┘  │ │ │
+│  │  └────────────────────────────────────────────────────┘ │ │
+│  │                                                         │ │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │ │
+│  │  │ DockNav     │  │ SponsorCard  │  │ Mascot Images  │ │ │
+│  │  │ (L312-314)  │  │ (L316-317)   │  │ (L298-309)     │ │ │
+│  │  └─────────────┘  └──────────────┘  └────────────────┘ │ │
+│  │                                                         │ │
+│  │  ┌──────────────────────────────────────────────────┐  │ │
+│  │  │  Lazy Dialogs (Preloaded at Startup)             │  │ │
+│  │  │  - AboutDialog (Suspense)                        │  │ │
+│  │  │  - ThemeDialog (Suspense)                        │  │ │
+│  │  │  - OnboardingWizard (Suspense)                   │  │ │
+│  │  └──────────────────────────────────────────────────┘  │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Data Flow
+
+1.  **初始化**: `App` 包裹 `AnimationActiveProvider` -> `AppInner` 执行 `useAppInit`。
+2.  **启动序列**: `requestAnimationFrame` 触发 `runStartupSequence()`，同时调用 `preloadPanels()` 异步下载懒加载 chunk。
+3.  **窗口就绪**: 挂载完成后调用 `api.notifyWindowReady()` 通知后端。
+4.  **面板切换**:
+    *   用户点击 `DockNav` -> `handlePanelChange`。
+    *   设置 `panelChangeLock`，更新 `useAdapterStore.activePanel`。
+    *   `deferredPanel` 延迟值更新，触发 `AnimatePresence` 退出旧面板，进入新面板。
+    *   新面板内容直接从静态导入的组件树渲染，无网络请求延迟。
+5.  **配置同步**: `AppInner` 仅订阅 `config` 中的四个关键字段。各 Panel 自行订阅完整 store。关闭时 `handleCloseWindow` 调用 `flushPendingConfig()` 确保落盘。
 
 ## Connections
 
-[[deferred-panel-transition]]、[[webview2-args-minimal]]、[[startup-sequence-optimization]]
+[[panel-import-strategy]] (本决策的详细背景)、[[tauri-window-management]]、[[zustand-store-architecture]]
+
+## Known Issues
+
+*   **注释不一致**: `App.tsx:35` 注释称"仅低频的 LogPanel/对话框保留懒加载"，但实际实现中 `LogPanel` (L37) 已回归静态导入。注释未同步更新。
+*   **赞助弹窗频控**: 赞助弹窗自动弹出依赖 `localStorage` (`sponsor-last-shown`)，若用户清除浏览器数据或更换环境，会重新触发。手动入口不受频控影响。
+*   **关窗超时**: `handleCloseWindow` 中 `flushPendingConfig` 最多等待 2s，若保存耗时超过此时长，窗口将强制关闭，可能导致配置丢失。

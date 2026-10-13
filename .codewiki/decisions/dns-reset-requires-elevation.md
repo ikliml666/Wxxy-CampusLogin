@@ -14,7 +14,7 @@ tags: [决策, DNS, 提权, helper, 可逆性]
 
 ## 决策
 
-新增 `reset_dns` 命令时，**必须同时补 helper 的 `clear_dns` op 并走与 `setup_dns_doh` 相同的提权路径**，而不是直接内联调用 `clear_adapter_dns_via_api`。
+新增 `reset_dns` 命令时，**必须同时补 helper 的 `ClearDns` op 并走与 `setup_dns_doh` 相同的提权路径**，而不是直接内联调用 `clear_adapter_dns_via_api`。
 
 ## 理由
 

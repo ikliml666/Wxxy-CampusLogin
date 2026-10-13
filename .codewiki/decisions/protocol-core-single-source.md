@@ -31,7 +31,7 @@ tags: [决策, 双端, 协议, 依赖]
 
 ## Key Components
 
-### `auth/mod.rs`（tauri-app/src-tauri/src/auth/mod.rs:1–11）
+### `auth/mod.rs`（tauri-app/src-tauri/src/auth/mod.rs:1–25）
 
 协议认证入口模块，声明子模块：
 

@@ -24,8 +24,8 @@ tags: [决策, 账号, 适配器, 双适配器, 凭据]
 | `adapter1_account` | `adapter1Account` | `String` | `""` | 主适配器绑定的账号 id（空=跟随当前激活账号） |
 | `adapter2_account` | `adapter2Account` | `String` | `""` | 副适配器绑定的账号 id（空=跟随当前激活账号） |
 
-*   **契约约束**：受容器级 `#[serde(default)]` 保护，旧版本配置文件缺失字段时回退为空串，无需 schema 迁移 (`model.rs:369-395`)。
-*   **前端同步**：`tauri-app/frontend/src/settings/types.ts:83-86` 增加同名可选字段，注释明确"仅桌面设备级配置，切账号不改动"。
+*   **契约约束**：受容器级 `#[serde(default)]` 保护，旧版本配置文件缺失字段时回退为空串，无需 schema 迁移 (`model.rs` 结构体定义处)。
+*   **前端同步**：`tauri-app/frontend/src/settings/types.ts` 增加同名可选字段，注释明确"仅桌面设备级配置，切账号不改动"。
 
 ### 认证服务层 (`tauri-app/src-tauri/src/auth/service.rs`)
 
@@ -49,7 +49,7 @@ tags: [决策, 账号, 适配器, 双适配器, 凭据]
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │                      Config Model                            │
-│  model.rs:10-235                                             │
+│  model.rs                                                      │
 │  ├─ user / password / operator (账号级)                       │
 │  └─ adapter1_account / adapter2_account (设备级)              │
 └──────────────────────────┬───────────────────────────────────┘
@@ -76,7 +76,7 @@ tags: [决策, 账号, 适配器, 双适配器, 凭据]
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                 Dual Adapter Executor                        │
-│  dual_adapter_executor.rs:52-96                              │
+│  dual_adapter_executor.rs                                    │
 │  execute_dual(a1_action, a2_action, is_quitting)             │
 │  ├─ spawn_blocking(a1_action)                                │
 │  └─ sleep(1s) -> spawn_blocking(a2_action)                   │

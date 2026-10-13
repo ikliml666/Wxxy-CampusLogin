@@ -20,7 +20,7 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 
 ## Overview
 
-本模块是安卓前端（`android/frontend`）的运行时骨架：`main.tsx` 负责渲染前初始化（主题、崩溃自恢复、gsap 全局配置），`App.tsx` 按短边 ≥600 CSS px 在「手机移动外壳」与「平板 Dock 外壳」之间二选一，`hooks/` 提供六个 zustand 领域 store、IPC 封装 `tauriApi` 与全部生命周期钩子，`components/{ui,layout,mobile,tablet}` 与 `shared/` 提供组件库与看板娘/弹窗/日志等通用件。
+本模块是安卓前端（`android/frontend`）的运行时骨架：`main.tsx` 负责渲染前初始化（主题、崩溃自恢复、gsap 全局配置），`App.tsx` 按短边 ≥600 CSS px 在「手机移动外壳」与「平板 Dock 外壳」之间二选一，`hooks/` 提供 zustand 领域 store、IPC 封装 `tauriApi` 与全部生命周期钩子，`components/{ui,layout,mobile,tablet}` 与 `shared/` 提供组件库与看板娘/弹窗/日志等通用件。
 
 与桌面前端的根本差异：安卓前端是 `tauri-app/frontend/src` 的**独立复刻代码库**（同构不等于共享代码），文件级差异见 Known Issues；安卓独有目录为 `components/{mobile,tablet}`、`face/`、`hooks/{useDeviceProfile,useAdaptiveFramePace,useFormFactor}`、`shared/dailyMascot.ts`、`shared/UpdateAvailableDialog.tsx`、`settings/OnboardingWizardMobile.tsx`、`settings/useOnboardingFlow.ts`、`settings/KeepAliveSettingsCard.tsx`。
 
@@ -125,18 +125,18 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 | `getDebugMode` | 123 | 280 | `invoke('get_debug_mode')` |
 | `setDebugMode(enabled)` | 124 | 281 | `invoke('set_debug_mode')` |
 | `getInitData` | 125 | 282 | `invoke('get_init_data')` |
-| `getSocInfo` | 126 | 283 | `invoke('get_soc_info')`（安卓专属） |
+| `getSocInfo` | 126 | 283 | `invoke('soc_info')`（安卓专属） |
 | `checkUpdate` | 125 | 281 | `invoke('check_update')` |
 | `downloadUpdate(url)` | 126 | 282 | `invoke('download_update',{url})` |
 | `installUpdate(filePath, checksumUrl?)` | 127 | 283 | `invoke('install_update',{filePath, checksumUrl})` |
-| `getMirrorUrls(githubUrl)` | 128 | 284 | `invoke('get_mirror_urls',{githubUrl})` |
+| `getMirrorUrls(githubUrl)` | 128 | 284 | `invoke('mirror_urls',{githubUrl})` |
 | `onDownloadProgress(cb)` | 129 | 285 | `listen('update-download-progress')` |
 | `onUpdateAvailable(cb)` | 130 | 286 | `listen('update-available')` |
 | `checkDnsDohStatus` | 131 | 288 | `desktopOnly` → reject |
 | `setupDnsDoh(family?)` | 132 | 289 | `desktopOnly` → reject |
 | `renderHeartbeat` | 134 | 290 | `desktopOnly` → reject（安卓无后端重载 WebView 机制） |
 | `getGpuInfo` | 135 | 291 | `desktopOnly` → reject |
-| `getLogRetentionDays` | 136 | 292 | `invoke('get_log_retention_days')` |
+| `getLogRetentionDays` | 136 | 292 | `invoke('log_retention_days')` |
 | `setLogRetentionDays(days)` | 137 | 293 | `invoke('set_log_retention_days',{days})` |
 | `exportConfig(includePassword?)` | 60 | 174-176 | `desktopOnly` → reject（桌面专属：导出配置） |
 | `importConfig(path)` | 61 | 174-176 | `desktopOnly` → reject（桌面专属：导入配置） |

@@ -12,6 +12,8 @@ source_files:
   - tauri-app/src-tauri/src/monitor/auto_auth.rs
   - tauri-app/src-tauri/src/monitor/latency.rs
   - tauri-app/src-tauri/src/monitor/quality_scheduler.rs
+  - tauri-app/src-tauri/src/monitor/scheduled.rs
+  - tauri-app/src-tauri/src/monitor/outbound_switch.rs
 tags: [monitor, background-check, auto-login, reconnect, campus-network, portal, latency, quality, scheduled-actions, night-outbound, tauri-events]
 ---
 
@@ -28,29 +30,30 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 ### 模块装配（`monitor/mod.rs`、`monitor/watcher.rs`）
 
 - `monitor/mod.rs:1-12` 仅做子模块声明，顺序为 `watcher`、`auto_auth`、`latency`、`adapter_watch`、`campus_check`、`outbound_switch`、`portal_check`、`quality_scheduler`、`background_emit`、`background_check`、`background_task`、`scheduled`；无任何公开项。
-- `pub use super::background_check::run_background_check;` — `monitor/watcher.rs:8`，re-export 保持旧路径 `watcher::run_background_check` 可用。
-- `pub use super::background_task::start_background_check_inner;` — `monitor/watcher.rs:9`。
-- `pub use super::campus_check::check_campus_network;` — `monitor/watcher.rs:12`（`auto_auth.rs:302` 就是经此路径调用的）。
-- `pub use super::background_emit::{adapter_status_entry, adapter_disabled_entry, adapter_disconnected_entry};` — `monitor/watcher.rs:13`。
-- `pub fn run_startup_tasks(app_handle: &AppHandle) -> ()` — `monitor/watcher.rs:15-54`，启动期唯一入口，注册四个跟踪任务：
+- `pub use super::background_task::start_background_check_inner;` — `monitor/watcher.rs:14`。
+- `pub use super::campus_check::check_campus_network;` — `monitor/watcher.rs:16`（`auto_auth.rs:302` 就是经此路径调用的）。
+- `pub use super::background_emit::{adapter_status_entry, adapter_disabled_entry, adapter_disconnected_entry};` — `monitor/watcher.rs:17`。
+- `pub fn run_startup_tasks(app_handle: &AppHandle) -> ()` — `monitor/watcher.rs:19-68`，启动期唯一入口，注册五个跟踪任务：
 
 | 条件 | 任务名 | 动作 | 位置 |
 |---|---|---|---|
-| `config.enable_background_check` | `startup_bg_check` | `start_background_check_inner(&app_h, &s)` | `monitor/watcher.rs:20-30` |
-| `config.enable_network_quality && config.enable_latency_test` | `startup_latency` | 取 `latency_test_interval`，`< 10000` 时回退 `30000`，调 `spawn_latency_test_loop` | `monitor/watcher.rs:32-46` |
-| `config.enable_network_quality` (且未开定时测试) | `startup_quality_once` | 启动即测一次（v2.4.2 需求，见 `latency.rs`） | `monitor/watcher.rs:47-55` |
-| 无条件 | `startup_auto_login` | `run_auto_login_on_start(&app_h)` | `monitor/watcher.rs:57-62` |
-| 无条件 | `scheduled_actions` | `super::scheduled::run_scheduled_action_loop(&app_h, cancel_token).await` | `monitor/watcher.rs:64-72` |
+| `config.enable_background_check` | `startup_bg_check` | `start_background_check_inner(&app_h, &s)` | `monitor/watcher.rs:23-33` |
+| `config.enable_network_quality && config.enable_latency_test` | `startup_latency` | 取 `latency_test_interval`，`< 10000` 时回退 `30000`，调 `spawn_latency_test_loop` | `monitor/watcher.rs:35-49` |
+| `config.enable_network_quality` (且未开定时测试) | `startup_quality_once` | 启动即测一次（v2.4.2 需求，见 `latency.rs`） | `monitor/watcher.rs:51-59` |
+| 无条件 | `startup_auto_login` | `run_auto_login_on_start(&app_h)` | `monitor/watcher.rs:61-66` |
+| 无条件 | `scheduled_actions` | `super::scheduled::run_scheduled_action_loop(&app_h, cancel_token).await` | `monitor/watcher.rs:68-76` |
 
-三个以上的 `task_manager.spawn` 注册失败都只 `log_warn!`（`monitor/watcher.rs:28`、`:44`、`:52`、`:60`、`:70`），不阻断启动。调用方是 `app/startup.rs:195`。
+三个以上的 `task_manager.spawn` 注册失败都只 `log_warn!`（`monitor/watcher.rs:31`、`:47`、`:57`、`:64`、`:74`），不阻断启动。调用方是 `app/startup.rs:195`。
 
 ### 巡检任务的生命周期（`monitor/background_task.rs`）
 
-- `pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String>` — `monitor/background_task.rs:7-60`，既是启动入口也是"重新开启"入口（`commands/background.rs:10` 的命令、`monitor/watcher.rs:24` 的启动路径都走这里）。行为：
-  - `state.config.update`：置 `enable_background_check = true`；若 `background_check_interval < 10000` 则改写为 `15000`（`monitor/background_task.rs:8-13`）。
-  - `task_manager.spawn("background_check", ...)`（`:16`）注册跟踪任务；内部先判 cancel（`:20-22`），然后**立即执行首轮** `run_background_check`（`:24`）。
-  - 之后进入循环（`:29-49`）：每轮重新读配置 `background_check_interval.max(10000)`（`:30-34`）——间隔修改即时生效，不需要重启任务；`tokio::time::interval` 先 `tick().await` 吃掉即时首 tick（`:36`），再 `select!` 等下一 tick 或 cancel（`:37-43`）；退出条件为 `!task_manager.is_running("background_check") || exit.is_quitting`（`:44-47`）。
-  - 注册成功后走 `config::persist::save_config_and_broadcast` 落盘+广播（`:55-57`，不刷托盘——监控层不再反向依赖 commands），失败只告警；返回 `CommandResult::ok_msg("后台检测已启动")`（`:59`）。
+- `pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String>` — `monitor/background_task.rs:11-66`，既是启动入口也是"重新开启"入口（`commands/background.rs:10` 的命令、`monitor/watcher.rs:27` 的启动路径都走这里）。行为：
+  - `state.config.update`：置 `enable_background_check = true`；若 `background_check_interval < 10000` 则改写为 `15000`（`monitor/background_task.rs:12-17`）。
+  - `task_manager.spawn("background_check", ...)`（`:20`）注册跟踪任务；内部先判 cancel（`:24-26`），然后**立即执行首轮** `run_background_check`（`:28`）。
+  - 之后进入循环（`:33-55`）：每轮重新读配置 `background_check_interval.max(10000)`（`:34-38`）——间隔修改即时生效，不需要重启任务；`tokio::time::interval` 先 `tick().await` 吃掉即时首 tick（`:42`），再 `select!` 等下一 tick 或 cancel（`:43-49`）；退出条件为 `!task_manager.is_running("background_check") || exit.is_quitting`（`:50-53`）。
+  - 注册成功后走 `config::persist::save_config_and_broadcast` 落盘+广播（`:59-61`，不刷托盘——监控层不再反向依赖 commands），失败只告警；返回 `CommandResult::ok_msg("后台检测已启动")`（`:64`）。
+
+- `pub fn spawn_background_check_once(app_handle: &AppHandle)` — `monitor/background_task.rs:71-101`，审计 A9 修复后的统一一次性发起入口。注册 `background_check_once` 任务，失败时复用其令牌补跑一轮（`is_checking` 信号量兜底并发安全）。
 
 ### 巡检主体（`monitor/background_check.rs`）
 

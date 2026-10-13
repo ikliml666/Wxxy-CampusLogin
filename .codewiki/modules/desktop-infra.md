@@ -19,7 +19,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 
 ## Overview
 
-本模块是双端应用共享的运行时基座：`state/` 提供配置（ArcSwap + CAS）、网络快照、退出状态三组原子状态与任务互斥锁；`logger.rs` 提供异步落盘的日志通道；`events.rs` 是唯一的事件发射出口（16 个事件）；`task_manager.rs` 统一托管周期性后台任务的取消与等待；`lifecycle.rs` 实现"非校园网自动退出 / 登录后自动退出"两条倒计时状态机与统一退出流程；`notification.rs` 是系统通知的唯一出口。
+本模块是双端应用共享的运行时基座：`state/` 提供配置（ArcSwap + CAS）、网络快照、退出状态三组原子状态与任务互斥锁；`logger.rs` 提供异步落盘的日志通道；`events.rs` 是唯一的事件发射出口（18 个事件）；`task_manager.rs` 统一托管周期性后台任务的取消与等待；`lifecycle.rs` 实现"非校园网自动退出 / 登录后自动退出"两条倒计时状态机与统一退出流程；`notification.rs` 是系统通知的唯一出口。
 
 模块声明于 `tauri-app/src-tauri/src/infra/mod.rs:1-8`，并按 `tauri-app/src-tauri/src/lib.rs:5` 中的 `pub mod infra;` 编入跨平台协议核心 crate（lib 名 `campus_login_lib`，见 `tauri-app/src-tauri/Cargo.toml:8-10`）。安卓端经 path 依赖可见本模块，但实际只用到 `logger`（证据：`android/src-tauri/src/lib.rs:48`、`android/src-tauri/src/system_cmds.rs:33,41,48,53,58,63`），`AppState` 在安卓端完全没有被引用（安卓有自己的 `android/src-tauri/src/android_state.rs`、`config_state.rs`）。
 
@@ -166,21 +166,23 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `events.rs:17-19` | 私有 fn | `emit<S: Serialize + Clone>(&self, &str, S) -> Result<(), String>` | 唯一底层发射，错误转 `String` |
 | `events.rs:22` | pub fn | `emit_login_log(&self, message: &str, log_type: &str)` | 事件 `login-log` |
 | `events.rs:30` | pub fn | `emit_background_check_result<S>(&self, payload: S)` | 事件 `background-check-result` |
-| `events.rs:35` | pub fn | `emit_auto_login_result(&self, success: bool, message: &str, skipped: bool)` | 事件 `auto-login-result` |
-| `events.rs:44` | pub fn | `emit_network_quality_result<S>(&self, payload: S)` | 事件 `network-quality-result` |
-| `events.rs:49` | pub fn | `emit_update_available(&self, has_update, latest_version, release_notes)` | 事件 `update-available` |
-| `events.rs:58` | pub fn | `emit_update_notification_click(&self)` | 事件 `update-notification-click`（`platform/toast.rs` 的 WinRT Activated 回调调用） |
-| `events.rs:63` | pub fn | `emit_adapter_details_changed<S>(&self, details: S)` | 事件 `adapter-details-changed` |
-| `events.rs:68` | pub fn | `emit_disabled_adapters_changed<S>(&self, disabled: S)` | 事件 `disabled-adapters-changed` |
-| `events.rs:73` | pub fn | `emit_adapter_disabled_warning(&self, name: &str, message: &str)` | 事件 `adapter-disabled-warning` |
-| `events.rs:81` | pub fn | `emit_campus_exit_countdown(&self, minimize_delay: u64, exit_delay: u64)` | 事件 `campus-exit-countdown` |
-| `events.rs:89` | pub fn | `emit_campus_exit_cancelled(&self)` | 事件 `campus-exit-cancelled` |
-| `events.rs:94` | pub fn | `emit_auto_exit_countdown(&self, delay: u64, shortcut: &str)` | 事件 `auto-exit-countdown` |
-| `events.rs:102` | pub fn | `emit_auto_exit_cancelled(&self)` | 事件 `auto-exit-cancelled` |
-| `events.rs:107` | pub fn | `emit_config_changed<S>(&self, payload: S)` | 事件 `config-changed` |
-| `events.rs:112` | pub fn | `emit_adapters_changed<S>(&self, adapters: S)` | 事件 `adapters-changed` |
-| `events.rs:117` | pub fn | `emit_update_download_progress<S>(&self, payload: S)` | 事件 `update-download-progress` |
-| `events.rs:122-135` | `#[cfg(test)]` mod | `tests` | 仅一个 `size_of` 编译期断言（`events.rs:131-134`），无行为测试 |
+| `events.rs:35` | pub fn | `emit_scheduled_action_skipped(&self, kind: &str)` | 事件 `scheduled-action-skipped`（审计 A7） |
+| `events.rs:39` | pub fn | `emit_mac_reset_cycle(&self)` | 事件 `mac-reset-cycle`（审计 A16） |
+| `events.rs:44` | pub fn | `emit_auto_login_result(&self, success: bool, message: &str, skipped: bool)` | 事件 `auto-login-result` |
+| `events.rs:53` | pub fn | `emit_network_quality_result<S>(&self, payload: S)` | 事件 `network-quality-result` |
+| `events.rs:58` | pub fn | `emit_update_available(&self, has_update, latest_version, release_notes)` | 事件 `update-available` |
+| `events.rs:67` | pub fn | `emit_update_notification_click(&self)` | 事件 `update-notification-click`（`platform/toast.rs` 的 WinRT Activated 回调调用） |
+| `events.rs:72` | pub fn | `emit_adapter_details_changed<S>(&self, details: S)` | 事件 `adapter-details-changed` |
+| `events.rs:77` | pub fn | `emit_disabled_adapters_changed<S>(&self, disabled: S)` | 事件 `disabled-adapters-changed` |
+| `events.rs:82` | pub fn | `emit_adapter_disabled_warning(&self, name: &str, message: &str)` | 事件 `adapter-disabled-warning` |
+| `events.rs:90` | pub fn | `emit_campus_exit_countdown(&self, minimize_delay: u64, exit_delay: u64)` | 事件 `campus-exit-countdown` |
+| `events.rs:98` | pub fn | `emit_campus_exit_cancelled(&self)` | 事件 `campus-exit-cancelled` |
+| `events.rs:103` | pub fn | `emit_auto_exit_countdown(&self, delay: u64, shortcut: &str)` | 事件 `auto-exit-countdown` |
+| `events.rs:111` | pub fn | `emit_auto_exit_cancelled(&self)` | 事件 `auto-exit-cancelled` |
+| `events.rs:116` | pub fn | `emit_config_changed<S>(&self, payload: S)` | 事件 `config-changed` |
+| `events.rs:121` | pub fn | `emit_adapters_changed<S>(&self, adapters: S)` | 事件 `adapters-changed` |
+| `events.rs:126` | pub fn | `emit_update_download_progress<S>(&self, payload: S)` | 事件 `update-download-progress` |
+| `events.rs:131-144` | `#[cfg(test)]` mod | `tests` | 仅一个 `size_of` 编译期断言（`events.rs:140-143`），无行为测试 |
 
 ### infra/task_manager.rs
 
@@ -239,132 +241,45 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `async_util.rs:24-32` | 私有 fn | `fallback_runtime() -> &'static Runtime` | `OnceLock` 多线程 Runtime（`enable_all`）兜底 |
 | `async_util.rs:39-44` | pub fn | `block_on_sync<F: Future>(future: F) -> F::Output` | 有 runtime context 走 `Handle::block_on`，否则走兜底 Runtime |
 
-## 结构体与字段
+## Architecture
 
-### TaskLock（`state/mod.rs:16-18`）
-
-| 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- |
-| `flag` | `AtomicBool`（私有） | `state/mod.rs:17` | `false` 空闲 / `true` 已占用；`compare_exchange(false, true, Acquire, Relaxed)` 抢锁，`Drop` 时 `Release` 清 |
-
-`TaskGuard<'a>`（`state/mod.rs:20-22`）唯一字段 `lock: &'a TaskLock`（`state/mod.rs:21`），是自动释放的依据；无 owner 标识、无重入（`mem::forget` 掉 guard 即永久占用）。
-
-### TaskFlags（`state/mod.rs:91-97`）
-
-| 字段 | 类型 | 行号 | 含义与使用点 |
-| --- | --- | --- | --- |
-| `is_checking` | `TaskLock` | `state/mod.rs:92` | 后台周期检测锁；`monitor/background_check.rs:18`、`commands/background.rs:30`、`commands/system.rs:163`（读 `is_active` 供前端显示） |
-| `is_logging_in` | `TaskLock` | `state/mod.rs:93` | 登录锁；`commands/login.rs:67`、`monitor/auto_auth.rs:69,141,425`、`app/tray.rs:58` |
-| `is_logging_out` | `TaskLock` | `state/mod.rs:94` | 注销锁；`commands/login.rs:92` |
-| `is_quality_checking` | `TaskLock` | `state/mod.rs:95` | 网络质量检测锁；`commands/network_cmd.rs:179`、`monitor/quality_scheduler.rs:23` |
-| `is_downloading` | `TaskLock` | `state/mod.rs:96` | 更新包下载锁；`commands/updater.rs:31` |
-
-### UpdateStats（`state/mod.rs:103-118`）
-
-| 字段 | 类型 | 行号 | 含义与使用点 |
-| --- | --- | --- | --- |
-| `update_notified` | `AtomicBool` | `state/mod.rs:105` | 本会话是否已弹过"发现新版本"（CAS 去重）；`update/updater.rs:292` |
-| `last_disabled_notification_ms` | `AtomicU64` | `state/mod.rs:106` | 适配器被禁用的通知节流；`monitor/adapter_watch.rs:111,122` |
-| `last_network_change_notification_ms` | `AtomicU64` | `state/mod.rs:107` | 网络状态变更通知节流（60s）；`monitor/background_emit.rs:95-96` |
-| `last_render_heartbeat_ms` | `AtomicU64` | `state/mod.rs:108` | 前端心跳时间戳；写 `commands/system.rs:160`，读 `app/heartbeat.rs:38` |
-| `webview_recovery_window_start_ms` | `AtomicU64` | `state/mod.rs:111` | WebView 恢复滑动窗口起点（0 = 未触发过）；`app/webview_recovery.rs:62-74` |
-| `webview_recovery_count` | `AtomicU32` | `state/mod.rs:113` | 当前窗口内已 reload 次数；`app/webview_recovery.rs:66-78` |
-| `auto_enable_last_attempt_ms` | `AtomicU64` | `state/mod.rs:115` | 自动启用被禁适配器的上次尝试时间；`monitor/adapter_watch.rs:164,166` |
-| `auto_enable_failure_count` | `AtomicU32` | `state/mod.rs:117` | 自动启用连续失败数（退避输入）；`monitor/adapter_watch.rs:154-191` |
-
-### AppState（`state/mod.rs:142-149`）
-
-| 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- |
-| `config` | `ConfigStore` | `state/mod.rs:143` | 配置快照（ArcSwap） |
-| `tasks` | `TaskFlags` | `state/mod.rs:144` | 5 个任务互斥锁 |
-| `task_manager` | `BackgroundTaskManager` | `state/mod.rs:145` | 后台任务表（`Clone` 后可跨线程持有） |
-| `network` | `NetworkState` | `state/mod.rs:146` | 网络状态快照 |
-| `exit` | `ExitStateStore` | `state/mod.rs:147` | 退出状态与截止时间 |
-| `update_stats` | `UpdateStats` | `state/mod.rs:148` | 更新/通知/心跳/恢复统计 |
-
-### ConfigStore（`state/store.rs:6-8`）
-
-| 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- |
-| `inner` | `ArcSwap<Config>`（私有） | `state/store.rs:7` | 配置的原子指针容器；`update` 用 `compare_and_swap` + `Arc::ptr_eq` 判胜出（`state/store.rs:44-48`） |
-
-### NetworkSnapshot（`state/network.rs:7-26`）
-
-| 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- |
-| `server_available` | `bool` | `state/network.rs:8` | 校园网服务端是否可达 |
-| `any_adapter_online` | `bool` | `state/network.rs:9` | 是否有适配器在线（前端 `render_heartbeat` 读它） |
-| `last_a1_online` | `bool` | `state/network.rs:10` | 适配器 1 上次在线状态 |
-| `last_a2_online` | `bool` | `state/network.rs:11` | 适配器 2 上次在线状态 |
-| `has_logged_online` | `bool` | `state/network.rs:12` | 本会话是否曾登录成功 |
-| `disconnect_reconnect_count` | `u32` | `state/network.rs:13` | 断线重连已试次数 |
-| `background_check_count` | `u32` | `state/network.rs:14` | 后台检测累计次数 |
-| `last_auto_login_attempt` | `Instant` | `state/network.rs:15` | 上次自动登录尝试时刻（默认 `Instant::now()`，`state/network.rs:39`） |
-| `last_network_quality` | `Option<String>` | `state/network.rs:16` | 上次网络质量等级 |
-| `current_ssid` | `Option<String>` | `state/network.rs:17` | 当前 WiFi SSID |
-| `on_campus_network` | `bool` | `state/network.rs:18` | 是否在校园网 |
-| `logout_protected_until` | `Instant` | `state/network.rs:19` | 注销保护截止时刻（默认 `Instant::now()`，`state/network.rs:43`） |
-| `portal_failure_count` | `u32` | `state/network.rs:20` | Portal 失败计数 |
-| `a1_auth_failure_count` | `u32` | `state/network.rs:21` | 适配器 1 认证失败计数 |
-| `a2_auth_failure_count` | `u32` | `state/network.rs:22` | 适配器 2 认证失败计数 |
-| `prep_login_failures` | `u32` | `state/network.rs:25` | 准备自动登录连续失败数（会话内，成功/重置清零；达上限停自动登录） |
-
-`NetworkState`（`state/network.rs:53-55`）唯一字段 `snapshot: ArcSwap<NetworkSnapshot>`（私有，`state/network.rs:54`）。
-
-### ExitStateStore（`state/exit.rs:7-13`）
-
-| 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- |
-| `is_quitting` | `Arc<AtomicBool>` | `state/exit.rs:8` | 退出中标志（`shutdown_and_exit` 置位；`lifecycle.rs:87` 用它跳过最小化） |
-| `auto_exit_deadline` | `Mutex<Option<Instant>>` | `state/exit.rs:9` | 自动退出截止时间；同时充当 `start_auto_exit` 的"是否已在跑"判据（`lifecycle.rs:189-198`）与快捷键 TOCTOU 临界区（`lifecycle.rs:121,150,172`） |
-| `auto_exit_cancelled` | `AtomicBool` | `state/exit.rs:10` | 用户已取消自动退出（`lifecycle.rs:185` 读、`274` 写、`194` 复位） |
-| `campus_exit_started` | `AtomicBool` | `state/exit.rs:11` | 校园网退出是否已启动（CAS 防重复触发，`lifecycle.rs:51,131,139,158`） |
-| `campus_exit_deadline` | `Mutex<Option<Instant>>` | `state/exit.rs:12` | 校园网退出截止时间（任务体二次/最终校验，`lifecycle.rs:86,104`） |
-
-### TaskHandle / BackgroundTaskManager（`task_manager.rs:8-17`）
-
-| 结构体 | 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- | --- |
-| `TaskHandle` | `cancel_token` | `Arc<CancellationToken>` | `task_manager.rs:9` | pub，取消用 |
-| `TaskHandle` | `join_handle` | `tauri::async_runtime::JoinHandle<()>`（私有） | `task_manager.rs:10` | `shutdown` 时 `await` 用 |
-| `BackgroundTaskManager` | `inner` | `Arc<Mutex<HashMap<String, TaskHandle>>>`（私有） | `task_manager.rs:16` | 任务名 → 句柄；`Clone` 共享同一表 |
-
-### logger 内部类型
-
-| 结构体/枚举 | 字段/变体 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- | --- |
-| `LogLevel` | `Debug` / `Info` / `Warn` / `Error` | — | `logger.rs:28-31` | 派生 `PartialOrd/Ord`，`logger.rs:305` 用它做阈值过滤；默认阈值 `Info`（`logger.rs:62`） |
-| `LogMessage` | `Entry { line: String }` | — | `logger.rs:46` | 待落盘的一整行（已含时间戳/级别/模块） |
-| `LogMessage` | `Flush { ack: Sender<()> }` | — | `logger.rs:47` | 要求立即 flush 并回 ack |
-| `LogMessage` | `Shutdown` | — | `logger.rs:48` | 让 worker 排空后退出线程 |
-| `LoggerState` | `log_dir` | `PathBuf` | `logger.rs:52` | 日志目录 |
-| `LoggerState` | `current_writer` | `Option<BufWriter<File>>` | `logger.rs:53` | `None` = 打不开（后续 `flush_messages` 走丢弃分支，`logger.rs:204-210`） |
-| `LoggerState` | `current_date` | `String` | `logger.rs:54` | 当前文件日期，跨天比对换文件 |
-| `LoggerState` | `last_flush` | `Instant` | `logger.rs:55` | 上次落盘时刻 |
-
-### EventBus / CommandContext
-
-| 结构体 | 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- | --- |
-| `EventBus<'a>` | `app_handle` | `&'a AppHandle`（私有） | `events.rs:9` | 仅持引用；`events.rs:133` 编译期断言其大小等于 `&AppHandle` |
-| `CommandContext<'a>` | `app` | `&'a AppHandle` | `command_context.rs:11` | pub |
-| `CommandContext<'a>` | `state` | `&'a AppState` | `command_context.rs:12` | pub，`Deref` 目标 |
-
-### 返回体结构（`state/mod.rs`）
-
-| 结构体 | 字段 | 类型 | 行号 | 含义 |
-| --- | --- | --- | --- | --- |
-| `CommandResult` | `success` | `bool` | `state/mod.rs:274` | 恒序列化 |
-| `CommandResult` | `message` | `Option<String>` | `state/mod.rs:276` | `skip_serializing_if = "Option::is_none"` |
-| `CommandResult` | `data` | `Option<serde_json::Value>` | `state/mod.rs:278` | 同上 |
-| `AccountItem` | `id` | `String` | `state/mod.rs:296` | 账号文件名 stem（稳定不变） |
-| `AccountItem` | `display_name` | `String` | `state/mod.rs:298`（JSON `displayName`） | 可读显示名（持久层兜底非空） |
-| `AccountResult` | `success` | `bool` | `state/mod.rs:305` | 恒序列化 |
-| `AccountResult` | `message` | `Option<String>` | `state/mod.rs:307` | 可选 |
-| `AccountResult` | `active_account` | `Option<String>` | `state/mod.rs:309` | 当前激活账号 id（switch 成功时必现） |
-| `AccountResult` | `display_name` | `Option<String>` | `state/mod.rs:311` | rename 成功时的新显示名 |
-| `AccountResult` | `config` | `Option<Config>` | `state/mod.rs:313` | 变更后的配置（注意：由调用方负责掩码，见 `desktop-config`） |
+```text
+┌───────────────────────┐     ┌───────────────────────┐
+│   app/startup.rs      │     │   main.rs             │
+│  .manage(AppState)    │     │  flush()              │
+└───────┬───────────────┘     └───────┬───────────────┘
+        │                            │
+        ▼                            ▼
+┌───────────────────────┐     ┌───────────────────────┐
+│  infra/state          │     │  infra/logger         │
+│  ├─ store (CAS)       │     │  init_logger()        │
+│  ├─ network (CAS)     │     │  logger-worker thread │
+│  └─ exit (deadlines)  │     │  channel (cap=8192)   │
+└───────┬───────────────┘     └───────────────────────┘
+        │
+        ▼
+┌───────────────────────┐     ┌───────────────────────┐
+│  infra/task_manager   │     │  infra/events         │
+│  BackgroundTaskMgr    │     │  EventBus             │
+│  spawn/cancel/detach  │     │  emit_xxx(...)        │
+└───────┬───────────────┘     └───────────────────────┘
+        │
+        ▼
+┌───────────────────────┐
+│  infra/lifecycle      │
+│  start_campus_exit    │
+│  start_auto_exit      │
+│  shutdown_and_exit    │
+└───────┬───────────────┘
+        │
+        ▼
+┌───────────────────────┐
+│  infra/notification   │
+│  emit_notification    │
+│  (Windows toast /     │
+│   plugin fallback)    │
+└───────────────────────┘
+```
 
 ## Data Flow
 
@@ -381,7 +296,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 log_info!/log_warn!/... (logger.rs:347-373)
   → logger::log(level, module, message) (logger.rs:304)  —— MIN_LOG_LEVEL 过滤 (logger.rs:305)
   → LOGGER_SENDER.send(LogMessage::Entry) (logger.rs:315)
-  → mpsc channel（容量无界，worker 侧 CHANNEL_CAPACITY=1024 控制单轮排空）
+  → mpsc channel（容量有界 8192，try_send 失败丢弃并计数，Warn 以上 eprint 兜底）
   → logger-worker 线程 logger_worker (logger.rs:118)
       recv_timeout(2s) → push buffer → drain_channel(:151)
       → 条件落盘 flush_messages(:158-161)：含 Flush 消息 / ≥32 条 / 距上次 ≥2s
@@ -392,7 +307,7 @@ log_info!/log_warn!/... (logger.rs:347-373)
 
 收尾链路：`main.rs:65-66` `flush()` → `shutdown()`（`logger.rs:443,462`）；panic 走 `main.rs:20-24` 的 hook → `flush_quick()`（`logger.rs:453`）。前端读日志经 `read_recent_logs`（`logger.rs:399`），清日志经 `clear_logs`（`logger.rs:479`）。
 
-### 事件总线（全部 16 个事件）
+### 事件总线（全部 18 个事件）
 
 所有桌面端 emit 都收敛在 `events.rs` 内——除 `events.rs:18` 外，全仓不存在其他 `.emit(` 调用（`grep -rn "\.emit(" src` 仅命中 `events.rs`）。前端消费点在 `tauri-app/frontend/src/hooks/tauriApi.ts`（监听装配在 `tauri-app/frontend/src/hooks/useEventListeners.ts`）。
 
@@ -400,20 +315,22 @@ log_info!/log_warn!/... (logger.rs:347-373)
 | --- | --- | --- | --- |
 | `login-log` | `message`, `type` | `events.rs:22-27` | `tauriApi.ts:159` |
 | `background-check-result` | 由调用方传入（`BackgroundStatus` 类） | `events.rs:30-32` | `tauriApi.ts:153` |
-| `auto-login-result` | `success`, `message`, `skipped` | `events.rs:35-41` | `tauriApi.ts:154` |
-| `network-quality-result` | 由调用方传入（`NetworkQuality`） | `events.rs:44-46` | `tauriApi.ts:173` |
-| `update-available` | `hasUpdate`, `latestVersion`, `releaseNotes` | `events.rs:49-55` | `tauriApi.ts:215` |
-| `update-notification-click` | `{}` | `events.rs:58-60`（`platform/toast.rs` 调用） | `tauriApi.ts:216` |
-| `adapter-details-changed` | 由调用方传入（`AdapterDetail[]`） | `events.rs:63-65` | `tauriApi.ts:156` |
-| `disabled-adapters-changed` | 由调用方传入（禁用适配器列表） | `events.rs:68-70` | `tauriApi.ts:157` |
-| `adapter-disabled-warning` | `name`, `message` | `events.rs:73-78` | `tauriApi.ts:158` |
+| `scheduled-action-skipped` | `kind` | `events.rs:35-37` | `tauriApi.ts:160` |
+| `mac-reset-cycle` | `{}` | `events.rs:39-41` | `tauriApi.ts:161` |
+| `auto-login-result` | `success`, `message`, `skipped` | `events.rs:44-50` | `tauriApi.ts:154` |
+| `network-quality-result` | 由调用方传入（`NetworkQuality`） | `events.rs:53-55` | `tauriApi.ts:173` |
+| `update-available` | `hasUpdate`, `latestVersion`, `releaseNotes` | `events.rs:58-64` | `tauriApi.ts:215` |
+| `update-notification-click` | `{}` | `events.rs:67-69`（`platform/toast.rs` 调用） | `tauriApi.ts:216` |
+| `adapter-details-changed` | 由调用方传入（`AdapterDetail[]`） | `events.rs:72-74` | `tauriApi.ts:156` |
+| `disabled-adapters-changed` | 由调用方传入（禁用适配器列表） | `events.rs:77-79` | `tauriApi.ts:157` |
+| `adapter-disabled-warning` | `name`, `message` | `events.rs:82-87` | `tauriApi.ts:158` |
 | `campus-exit-countdown` | `minimizeDelay`, `exitDelay` | `lifecycle.rs:59` | `tauriApi.ts:201` |
 | `campus-exit-cancelled` | `{}` | `lifecycle.rs:178` | `tauriApi.ts:202` |
 | `auto-exit-countdown` | `delay`, `shortcut` | `lifecycle.rs:204` | `tauriApi.ts:199` |
 | `auto-exit-cancelled` | `{}` | `lifecycle.rs:285` | `tauriApi.ts:200` |
-| `config-changed` | 由调用方传入（含完整 config） | `events.rs:107-109`（`command_context.rs:45` 是其中一条转发） | `tauriApi.ts:203` |
-| `adapters-changed` | 由调用方传入（`Adapter[]`） | `events.rs:112-114` | `tauriApi.ts:155` |
-| `update-download-progress` | 由调用方传入（`DownloadProgress`） | `events.rs:117-119`（`command_context.rs:49` 转发） | `tauriApi.ts:214` |
+| `config-changed` | 由调用方传入（含完整 config） | `events.rs:116-118`（`command_context.rs:45` 是其中一条转发） | `tauriApi.ts:203` |
+| `adapters-changed` | 由调用方传入（`Adapter[]`） | `events.rs:121-123` | `tauriApi.ts:155` |
+| `update-download-progress` | 由调用方传入（`DownloadProgress`） | `events.rs:126-128`（`command_context.rs:49` 转发） | `tauriApi.ts:214` |
 
 ### 退出生命周期状态机
 
@@ -454,7 +371,7 @@ emit_notification(app, title, body, mascot) (notification.rs:16)
 
 ### 扩展点（改动前必读）
 
-- **新增事件**：只允许在 `infra/events.rs:117` 之后追加 `emit_xxx` 方法，并在 `tauri-app/frontend/src/hooks/tauriApi.ts:153-216` 与 `useEventListeners.ts` 增加监听；不要绕过 `EventBus` 直接 `emit`（当前全仓无此先例）。
+- **新增事件**：只允许在 `infra/events.rs:126` 之后追加 `emit_xxx` 方法，并在 `tauri-app/frontend/src/hooks/tauriApi.ts:153-216` 与 `useEventListeners.ts` 增加监听；不要绕过 `EventBus` 直接 `emit`（当前全仓无此先例）。
 - **新增 `#[tauri::command]`**：命令体写在 `tauri-app/src-tauri/src/commands/` 下，函数上标 `#[tauri::command]`，然后必须加入 `tauri-app/src-tauri/src/app/startup.rs:63-120` 的 `invoke_handler(tauri::generate_handler![...])`；安卓端命令是独立注册（`android/src-tauri/src/lib.rs`），必须双端各注册一次。
 - **新增后台周期任务**：`state.task_manager.spawn("唯一名字", move |cancel_token| async move { ... })`，参考 `app/heartbeat.rs:11-58`；任务名重复会返回 `Err`；`tokio::select!` 里必须处理 `cancel_token.cancelled()`，否则退出时会等满 10s 上限。
 - **读取全局状态**：命令里用 `CommandContext::from_app(&app_handle)`（`command_context.rs:22`）或 `app_handle.state::<AppState>()`；两者都指向同一个 `.manage` 实例。
@@ -494,4 +411,3 @@ emit_notification(app, title, body, mascot) (notification.rs:16)
 15. **`EventBus` 无单元测试**（`events.rs:126-128` 注释）：只有 `size_of` 断言（`events.rs:131-134`），事件名/payload 契约靠人工核对，改名不会触发测试失败。
 16. **`shutdown_and_exit` 的 10s 上限可能截断后台任务**（`lifecycle.rs:315-317`）：超时后仅记 WARN 就 `exit(0)`；DHCP 子进程、长 HTTP 请求可能被留下。
 17. **`logger::flush()` 的 5s 超时静默返回**（`logger.rs:448`），日志线程卡死时调用方无法感知，`main.rs:65` 的收尾会继续往下走。
-

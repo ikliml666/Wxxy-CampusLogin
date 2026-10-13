@@ -18,13 +18,13 @@ tags: [决策, 轻量化, EcoQoS, 托盘, WebView2, 双端同构]
 
 桌面端此前对「关闭窗口」只有两种语义：隐藏到托盘（`minimize_to_tray`，WebView2 与整条渲染栈继续常驻内存）或优雅退出进程。配合夜间接入器 23:00/07:30 的定时自动切换（见 [[night-operator-switch]]），进程需要常驻，但用户游戏时对后台检测的调度抖动与资源占用敏感——隐藏窗口无法释放 WebView2 进程组的渲染资源，直接退出又断了常驻。
 
-2026-09-20（v2.3.8）引入「轻量化模式」：点关闭按钮把窗口**真销毁**（WebView2 进程组退出、窗口对象析构），Rust 后端核心功能（检测循环、自动登录、托盘、单实例）与托盘图标保留；唤回时经统一入口重建窗口。轻量化与「自动登录后退出」正交：`auto_exit_after_login` 默认值于同期从 true 调整为 false（`config/model.rs:410`），此后夜切总开关 `enable_night_operator_switch` 默认也调回关闭（`config/model.rs:415`，2026-10-02 起），轻量化作为独立的关闭按钮运行期行为继续存在。
+2026-09-20（v2.3.8）引入「轻量化模式」：点关闭按钮把窗口**真销毁**（WebView2 进程组退出、窗口对象析构），Rust 后端核心功能（检测循环、自动登录、托盘、单实例）与托盘图标保留；唤回时经统一入口重建窗口。轻量化与「自动登录后退出」正交：`auto_exit_after_login` 默认值于同期从 true 调整为 false（`config/model.rs:249-251`），此后夜切总开关 `enable_night_operator_switch` 默认也调回关闭（`config/model.rs:260-262`，2026-10-02 起），轻量化作为独立的关闭按钮运行期行为继续存在。
 
 ## 决策
 
 ### 1. 轻量化 = 窗口真销毁（不 hide、不挂起）
 
-字段定义在 `config/model.rs:54-56`：`lightweight_mode`（serde rename `lightweightMode`，`default = "default_true"`，注释标明桌面专属，双端同构配置容器见 [[config-and-persistence]]，容器级 `#[serde(default)]` 在 `model.rs:11`）。`Default` 实现给 `true`（`model.rs:403`），即新配置默认开启。
+字段定义在 `config/model.rs:43-46`：`lightweight_mode`（serde rename `lightweightMode`，`default = "default_true"`，注释标明桌面专属，双端同构配置容器见 [[config-and-persistence]]，容器级 `#[serde(default)]` 在 `model.rs:9`）。`Default` 实现给 `true`（`model.rs:253`），即新配置默认开启。
 
 窗口关闭事件处理在 `app/shutdown.rs:20-56` 的 `handle_window_close_event`，三分支互斥：
 
@@ -51,17 +51,17 @@ tags: [决策, 轻量化, EcoQoS, 托盘, WebView2, 双端同构]
 
 接入点在 `app/startup.rs:130-149`：`build` 先起 `tauri::Builder`（130-134），`app.run` 回调（135-149）里 `ExitRequested` → `take_lightweight_exit_guard()`（139）→ 从 `try_state::<AppState>()` 读 `exit.is_quitting`（140-143）→ `should_prevent_exit`（144）→ 拦截则 `api.prevent_exit()`（145-146）。两段式是必须的：`on_window_event`/托盘都需要 builder 先存在（参见 zebar/tauri #13511 的同类踩坑）。
 
-**关闭入口与守卫的交汇（当前代码实际行为）**：前端 X 按钮走 `close_window` 命令（`TitleBar.tsx` onClick → `api.closeWindow` → `commands/system.rs:23-32`）——该命令**感知 `lightweight_mode`**：`minimize_to_tray=true` 时仅 `hide()`（不触发 CloseRequested，轻量化不介入）；`lightweight_mode=true` 时直接 `window.close()`（29 行）→ CloseRequested 进轻量化分支（记几何/置守卫/开 ecoqos/不 prevent_close）→ 窗口销毁 → ExitRequested 时 `expecting=true` 且 `is_quitting=false` → `should_prevent_exit=true` → 拦截，进程轻量化常驻。若 `lightweight_mode=false` 且 `minimize_to_tray=false` 时，先置 `exit.is_quitting=true`（31 行）再 `window.close()`（32 行）→ CloseRequested 进 else 分支（47-55 行）→ 阻止默认关闭并优雅退出 → ExitRequested 时 `expecting=false` → 不拦截，进程正常退出。即**点 X 在 `lightweight_mode=true` 下能达到「轻量化常驻」**；常驻由不经 `close_window` 的原生关闭路径（Alt+F4，以及 `useEventListeners.ts` 的 `onCloseRequested` 处理完待存配置后调 `getCurrentWindow().close()`——两者同样进轻量化分支，守卫拦截生效）触发。此行为与 CHANGELOG_v2.3.8「点 X 常驻」的描述一致。
+**关闭入口与守卫的交汇（当前代码实际行为）**：前端 X 按钮走 `close_window` 命令（`TitleBar.tsx` onClick → `api.closeWindow` → `commands/system.rs:13-21`）——该命令**感知 `lightweight_mode`**：若 `minimize_to_tray=true` 则仅 `hide()`（不触发 CloseRequested，轻量化不介入）；若 `lightweight_mode=true` 则调用 `window.close()`（18 行）→ CloseRequested 仍进轻量化分支（记几何/置守卫/开 ecoqos/不 prevent_close）→ 窗口销毁 → ExitRequested 时 `expecting=true` 且 `is_quitting=false` → `should_prevent_exit=true` → 拦截，进程轻量常驻。即**点 X 在 `lightweight_mode=true` 时能达到「轻量化常驻」**；若 `minimize_to_tray=true` 则为隐藏托盘。此行为与 CHANGELOG_v2.3.8「点 X 常驻」的描述一致。
 
 ### 3. 重建路径：`show_or_rebuild_main` 唯一入口
 
-唤回统一走 `app/window.rs:93-100` 的 `show_or_rebuild_main`：窗口存在 → `show_and_focus_main`（79-85，show + set_focus + unminimize）；不存在 → `rebuild_main_window`（106-148）。**五处接线**已验证：托盘「显示主窗口」菜单（`tray.rs:124`）、托盘左键单击（`tray.rs:217`）、`single_instance` 主路径（`startup.rs:38`）与其 2s 延迟分支（`startup.rs:45`，给首实例留初始化时间）、`show_window` 命令（`config_cmd.rs:209-213`，接线 211 行）。
+唤回统一走 `app/window.rs:53-62` 的 `show_or_rebuild_main`：窗口存在 → `show_and_focus_main`（41-47，show + set_focus + unminimize）；不存在 → `rebuild_main_window`（67-113）。**五处接线**已验证：托盘「显示主窗口」菜单（`tray.rs:124`）、托盘左键单击（`tray.rs:217`）、`single_instance` 主路径（`startup.rs:38`）与其 2s 延迟分支（`startup.rs:45`，给首实例留初始化时间）、`show_window` 命令（`config_cmd.rs:209-213`，接线 211 行）。
 
 `rebuild_main_window` 关键点：
-- **必须 `WebviewWindowBuilder::from_config`**（113 行）——`tauri.conf.json` main 窗口配置 `visible:false`，从重建起就是隐藏的，避免白闪；
-- 几何恢复（115-133）：`take_geometry` 取回决策 1 存的几何，`AppHandle::available_monitors`（116-127）校验 `geometry_is_on_screen`（`lightweight.rs:69-75`，与任一显示器矩形相交才算有效）——显示器拓扑变了（拔扩展屏）则离屏回退，`log_warn`（132 行）放弃恢复由 `from_config` 用默认位置；
-- 重建成功即**清轻量化标志**（137-139）：`set_lightweight_active(false)` + `set_ecoqos(false)`；
-- **ready 门**（141-146）：spawn 等待任务调 `wait_window_ready_and_show`（`lightweight.rs:113-131`）——前端挂载完成 invoke `notify_window_ready`（`commands/system.rs:355-359`，`signal_window_ready(window.label())` 记 `(label, unix_ms)`，88-98 行；注册于 `startup.rs:114`；前端封装 `frontend/src/hooks/tauriApi.ts:244`），等待方 `take_window_ready` 取走即删（100-108）；每 500ms 轮询、deadline 5s（113-131）——超时则 `log_warn "等待前端就绪超时(5s)"` 兜底 show + set_focus + unminimize，防止前端异常时窗口永远不可见。
+- **必须 `WebviewWindowBuilder::from_config`**（77 行）——`tauri.conf.json` main 窗口配置 `visible:false`，从重建起就是隐藏的，避免白闪；
+- 几何恢复（79-97）：`take_geometry` 取回决策 1 存的几何，`AppHandle::available_monitors`（80-91）校验 `geometry_is_on_screen`（`lightweight.rs:69-75`，与任一显示器矩形相交才算有效）——显示器拓扑变了（拔扩展屏）则离屏回退，`log_warn`（95 行）放弃恢复由 `from_config` 用默认位置；
+- 重建成功即**清轻量化标志**（102-104）：`set_lightweight_active(false)` + `set_ecoqos(false)`；
+- **ready 门**（106-111）：spawn 等待任务调 `wait_window_ready_and_show`（`lightweight.rs:113-131`）——前端挂载完成 invoke `notify_window_ready`（`commands/system.rs:284-288`，`signal_window_ready(window.label())` 记 `(label, unix_ms)`，90-98 行；注册于 `startup.rs:114`；前端封装 `frontend/src/hooks/tauriApi.ts:244`），等待方 `take_window_ready` 取走即删（100-108）；每 500ms 轮询、deadline 5s（113-131）——超时则 `log_warn "等待前端就绪超时(5s)"` 兜底 show + set_focus + unminimize，防止前端异常时窗口永远不可见。
 
 后台线程对「窗口不存在」的兼容：心跳线程窗口拿不到时 `None → continue`（`monitor/heartbeat.rs:20-32`）；`window_safety` 线程（66-92）首查等 3s、此后每 3s 重试共 3 次（≈9s 内结束）兜底调 `show_and_focus_main`。
 
@@ -69,7 +69,7 @@ tags: [决策, 轻量化, EcoQoS, 托盘, WebView2, 双端同构]
 
 `platform/ecoqos.rs:79 行`，纯函数 `throttling_state(enable) -> POWER_THROTTLING_STATE`（38-53）：`Version = POWER_THROTTLING_PROCESS_VERSION`（CURRENT_VERSION）；开 = `ControlMask = StateMask = POWER_THROTTLING_EXECUTION_SPEED`（`EXECUTION_SPEED` 以裸 u32 常量定义，46-47）；关 = 双 mask 归零。`set_ecoqos`（15-30）对 `GetCurrentProcess()` 伪句柄调 `SetProcessInformation(ProcessPowerThrottling)`——伪句柄不 CloseHandle；非 Windows 空实现（32-33），双端同构不破编译。windows crate `0.58` 已内置所需 API（`Cargo.toml:63-76` 的 `Win32_System_Threading` feature），未引新依赖。tests 55-79（windows-only）覆盖三态。
 
-启用时机由调用点控制：仅轻量化分支进入时开（`shutdown.rs:36-37`）、重建清标志时关（`window.rs:137-139`）——**不长期开启**，避免影响前台渲染性能。写法参考 sunshine-control-panel。
+启用时机由调用点控制：仅轻量化分支进入时开（`shutdown.rs:36-37`）、重建清标志时关（`window.rs:102-104`）——**不长期开启**，避免影响前台渲染性能。写法参考 sunshine-control-panel。
 
 ### 5. 检测间隔延长（下限语义，非覆盖）
 
@@ -87,9 +87,9 @@ tags: [决策, 轻量化, EcoQoS, 托盘, WebView2, 双端同构]
 ## 影响与约束
 
 - **双端例外**：`notify_window_ready` 仅桌面注册；安卓端 `android/frontend/src/hooks/tauriApi.ts:320` 对其 `desktopOnly` reject，双端共享 `tauriApi.ts` 靠可选命令面兼容。
-- **存量配置不迁移**：`lightweight_mode` 依赖容器级 `#[serde(default)]`（`model.rs:11`）+ 字段级 `default_true`（56 行），旧配置文件反序列化即得 true，无需迁移脚本。
+- **存量配置不迁移**：`lightweight_mode` 依赖容器级 `#[serde(default)]`（`model.rs:9`）+ 字段级 `default_true`（45 行），旧配置文件反序列化即得 true，无需迁移脚本。
 - **设置页开关**：`frontend/src/settings/SettingsPanel.tsx:413-423`（「窗口与界面」卡，400-459），`checked={config.lightweightMode || false}`，切换即 `onUpdateConfig({lightweightMode})` 走统一配置持久化。
-- **当前关闭入口的行为出入**：X 按钮经 `close_window`（`system.rs:23-32`）在 `lightweight_mode=true` 下可达轻量化常驻（见决策 2 的交汇分析），真机验收时需同时核对 Alt+F4 路径；修复前 `minimize_to_tray=true` 的 X 行为是隐藏托盘。
+- **当前关闭入口的行为出入**：X 按钮经 `close_window`（`system.rs:13-21`）在 `lightweight_mode=true` 时能触发轻量化常驻；若 `minimize_to_tray=true` 则为隐藏托盘。真机验收时需同时核对 Alt+F4 路径。
 - 真机验证清单（WebView2 进程消失、任务管理器效率模式叶标、托盘重建）见 `changelogs/CHANGELOG_v2.3.8.md`。
 
 ## Connections

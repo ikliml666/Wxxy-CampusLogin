@@ -11,22 +11,15 @@ source_files:
   - android/src-tauri/src/cpu_affinity.rs
   - android/src-tauri/src/identity_gate.rs
   - android/src-tauri/src/login_history.rs
-  - android/src-tauri/src/monitor_loop.rs
   - android/src-tauri/src/protocol_cmds.rs
-  - android/src-tauri/src/quality_cmds.rs
-  - android/src-tauri/src/self_service_cmds.rs
-  - android/src-tauri/src/account_cmds.rs
-  - android/src-tauri/src/system_cmds.rs
-  - android/src-tauri/src/update_cmds.rs
-  - android/plugins/foreground-service/src/lib.rs
-tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
+tags: [安卓, Tauri, 命令面, 配置加密, 网络绑定]
 ---
 
 ## Overview
 
-安卓端 Tauri 后端（crate `campus-login-android`，lib 名 `campus_login_android_lib`，见 `android/src-tauri/Cargo.toml:2` 与 `:8`）是桌面协议核心 crate `campus-login` 的**薄壳**：它通过 Cargo path 依赖（`android/src-tauri/Cargo.toml:34`，`campus-login = { path = "../../tauri-app/src-tauri" }`）复用桌面全部协议实现，**不复制任何协议逻辑**；协议核心 crate 的 `lib.rs:1-20` 把 `account/auth/config/infra/network/platform/self_service` 设为跨平台可见面，而 `app/commands/helper/monitor/update` 用 `#[cfg(desktop)]` 门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓 target 不编译。
+安卓端 Tauri 后端（crate `campus-login-android`，lib 名 `campus_login_android_lib`，见 `android/src-tauri/Cargo.toml:2` 与 `:8`）是桌面协议核心 crate `campus-login` 的**薄壳**：它通过 Cargo path 依赖（`android/src-tauri/Cargo.toml:34`，`campus-login = { path = "../../tauri-app/src-tauri" }`）复用桌面全部协议实现，**不复制任何协议逻辑**；协议核心 crate 的 `lib.rs:1-8` 把 `account/auth/config/infra/network/platform/self_service` 设为跨平台可见面，而 `app/commands/helper/monitor/update` 用 `#[cfg(desktop)]` 门控（`tauri-app/src-tauri/src/lib.rs:11-20`），安卓 target 不编译。
 
-安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、监控状态机、验证门 TTL、多账号，`config_state.rs`/`monitor_loop.rs`/`identity_gate.rs`/`account_cmds.rs`）、**命令面包装**（51 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
+安卓侧只做三件事：**平台探针**（校园网判定与 wlan0 源 IP 选取，`campus_detect.rs`）、**状态管理**（Keystore 加密配置、验证门 TTL，`config_state.rs`/`identity_gate.rs`）、**命令面包装**（55 个 `#[tauri::command]`，与桌面同名对齐，前端 `tauriApi` 两端一致）。
 
 平台专属能力（AndroidKeyStore 加密、前台服务保活、进程绑 WiFi、绑小核、电池优化白名单、APK 安装）由 `android/plugins/` 下三个手写插件承接，见 [[android-plugins]]。
 
@@ -36,15 +29,15 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 
 | 名称 | 位置 | 用途 |
 |------|------|------|
-| `mod` 声明 16 个模块 | `android/src-tauri/src/lib.rs:10-26` | campus_detect / android_state / config_state / cpu_affinity / identity_gate / login_history / protocol_cmds / self_service_cmds / monitor_loop / account_cmds / system_cmds / quality_cmds / quality_history / update_cmds / face_model_cmds / battery_cmds |
+| `mod` 声明 17 个模块 | `android/src-tauri/src/lib.rs:10-26` | campus_detect / android_state / config_state / cpu_affinity / identity_gate / login_history / protocol_cmds / self_service_cmds / monitor_loop / account_cmds / system_cmds / quality_cmds / quality_history / update_cmds / face_model_cmds / battery_cmds |
 | `pub fn run()` | `lib.rs:28` | `#[cfg_attr(mobile, tauri::mobile_entry_point)]` 入口；注册插件、`manage(AndroidState)`、setup、`generate_handler!`、`run` |
 | 插件注册（mobile） | `lib.rs:31-37` | 顺序：`campus-network-bind` → `campus-keystore` → `campus-monitor-service` → `tauri_plugin_biometric`（该 crate `#![cfg(mobile)]`，host 编译为空）→ `tauri_plugin_notification`；`manage(android_state::AndroidState::default())` |
 | 插件注册（host） | `lib.rs:38-39` | `#[cfg(not(mobile))]`：只 `manage(AndroidState)`，三个自定义插件不注册 |
 | `tauri_plugin_opener::init()` | `lib.rs:41` | 外链/APK 打开（非 mobile 门控，两端都注册） |
 | `setup` 闭包 | `lib.rs:42-53` | 日志目录 = `app_data_dir()/logs`（与桌面 `infra::logger::get_log_dir` 的 android 分支一致）→ `init_logger`（`lib.rs:49`）→ `monitor_loop::run_startup_tasks(app.handle().clone())`（`lib.rs:51`） |
-| `generate_handler!` 命令注册 | `lib.rs:55-104` | 共 **48** 个命令（清单见下节） |
+| `generate_handler!` 命令注册 | `lib.rs:55-104` | 共 **55** 个命令（清单见下节） |
 
-### 命令总表（48 个，逐一）
+### 命令总表（55 个，逐一）
 
 “桌面对应物”列中 `startup.rs:N` 指注册位置 `tauri-app/src-tauri/src/app/startup.rs:N`。
 
@@ -59,50 +52,53 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | 7 | `detect_campus` | `campus_detect.rs:187` | 阶段 1 检测卡（`onCampus`/`sourceIp`/`portalReachable`/`detail`） | 无（安卓独有；前端已无调用方） |
 | 8 | `check_campus_status` | `campus_detect.rs:216` | 校园网判定（SSID 感知，`currentSsid` 名称检查开启时为真实值），形状对齐桌面 `network_cmd.rs` | `commands/network_cmd.rs::check_campus_status`（`startup.rs:71`） |
 | 8b | `request_wifi_ssid_permission` | `campus_detect.rs:248` | 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等；前端名称检查开关/启动后台检测时调用） | 无（安卓独有） |
-| 9 | `get_config` | `config_state.rs:395` | 读配置并刷新内存态，出站掩码（`***`） | `commands/config_cmd.rs::get_config`（`startup.rs:64`） |
-| 10 | `save_config` | `config_state.rs:410` | 写配置；密码走 Keystore 密文落盘；空/掩码回退已存值 | `commands/config_cmd.rs::save_config`（`startup.rs:66`） |
-| 11 | `verify_biometric_identity` | `self_service_cmds.rs:64` | 前端 BiometricPrompt 成功后写验证门时间戳 | `commands/self_service.rs::verify_windows_identity`（`startup.rs:113`，名字不同、语义对应） |
-| 12 | `bind_operator` | `self_service_cmds.rs:70` | 运营商绑定（设验证门） | `commands/self_service.rs::bind_operator`（`startup.rs:111`） |
-| 13 | `query_bind_status` | `self_service_cmds.rs:114` | 查询三运营商绑定状态（不设门） | `commands/self_service.rs::query_bind_status`（`startup.rs:112`） |
-| 14 | `query_self_dashboard` | `self_service_cmds.rs:147` | 在线列表 + 登录历史（不设门） | `commands/self_service.rs::query_self_dashboard`（`startup.rs:115`） |
-| 15 | `query_self_online_log` | `self_service_cmds.rs:187` | 指定日期区间在线日志（不设门） | `commands/self_service.rs::query_self_online_log`（`startup.rs:116`） |
-| 16 | `self_offline_session` | `self_service_cmds.rs:216` | 强制下线会话（设验证门） | `commands/self_service.rs::self_offline_session`（`startup.rs:117`） |
-| 17 | `reveal_operator_credential` | `self_service_cmds.rs:245` | 明文揭示手机号/短信密码（**无论开关强制验证门**） | `commands/self_service.rs::reveal_operator_credential`（`startup.rs:114`） |
-| 18 | `list_accounts` | `account_cmds.rs:137` | 列举账号条目 `{id, displayName}`（过滤隐藏、按 id 排序；displayName 空/文件损坏兜底为 id） | `commands/account.rs::list_accounts`（`startup.rs:86`） |
-| 19 | `switch_account` | `account_cmds.rs:165` | 切换账号（合并 user/password/operator/adapter1/adapter2/dualAdapter/displayName/activeAccount；返回必带 activeAccount） | `commands/account.rs::switch_account`（`startup.rs:87`） |
-| 20 | `save_current_as_account` | `account_cmds.rs:200` | 当前配置另存为账号（保留自定义 displayName） | `commands/account.rs::save_current_as_account`（`startup.rs:89`） |
-| 21 | `delete_account` | `account_cmds.rs:267` | 删除账号文件；删的是当前账号则清 `activeAccount` | `commands/account.rs::delete_account`（`startup.rs:90`） |
-| 22 | `get_active_account` | `account_cmds.rs:293` | 取 `activeAccount` | `commands/account.rs::get_active_account`（`startup.rs:91`） |
-| 23 | `rename_account` | `account_cmds.rs:298` | 只改账号档案 `displayName`（id/激活态不动；激活账号被改名时同步主配置并落盘；重名拒绝；业务错误走 IPC `Err`） | `commands/account.rs::rename_account`（`startup.rs:88`） |
-| 23 | `get_init_data` | `system_cmds.rs:6` | 启动聚合：config（掩码）+ accounts + version + backgroundStatus + 桌面专属字段空默认 | `commands/system.rs::get_init_data`（`startup.rs:102`） |
-| 24 | `get_soc_info` | `system_cmds.rs:71` | 设备 SoC 型号与性能分档 tier 0-3 | `commands/system.rs::get_gpu_info`（`startup.rs:104`，语义对应、名字不同） |
-| 25 | `get_logs` | `system_cmds.rs:30` | 读最近 N 行日志（默认 200） | `commands/system.rs::get_logs`（`startup.rs:100`） |
-| 26 | `clear_logs` | `system_cmds.rs:40` | 清空日志 | `commands/system.rs::clear_logs`（`startup.rs:101`） |
-| 27 | `get_log_retention_days` | `system_cmds.rs:47` | 读日志保留天数 | `commands/system.rs::get_log_retention_days`（`startup.rs:106`） |
-| 28 | `set_log_retention_days` | `system_cmds.rs:52` | 设日志保留天数 | `commands/system.rs::set_log_retention_days`（`startup.rs:105`） |
-| 29 | `get_debug_mode` | `system_cmds.rs:57` | 读调试模式 | `infra/logger.rs::get_debug_mode`（`startup.rs:119`） |
-| 30 | `set_debug_mode` | `system_cmds.rs:62` | 设调试模式 | `infra/logger.rs::set_debug_mode`（`startup.rs:118`） |
-| 31 | `start_background_check` | `monitor_loop.rs:194` | 启动后台监控（前台服务 + tokio 循环 + WiFi 监听），幂等；已跑则只刷新间隔 | `commands/background.rs::start_background_check`（`startup.rs:88`） |
-| 32 | `stop_background_check` | `monitor_loop.rs:231` | 停止监控（置 `running=false`、注销 WiFi 监听、停前台服务） | `commands/background.rs::stop_background_check`（`startup.rs:89`） |
-| 33 | `trigger_background_check` | `monitor_loop.rs:331` | 立即执行一次 `run_check_once` | `commands/background.rs::trigger_background_check`（`startup.rs:90`） |
-| 34 | `get_background_status` | `monitor_loop.rs:337` | 取监控状态快照（`status_value()`） | `commands/background.rs::get_background_status`（`startup.rs:91`） |
-| 35 | `get_boot_autostart` | `monitor_loop.rs:343` | 读开机自启（mobile 走插件，host 恒 `false`） | `commands/system.rs::get_auto_launch`（`startup.rs:92`，名字不同） |
-| 36 | `set_boot_autostart` | `monitor_loop.rs:360` | 设开机自启（插件组件启停 + 配置落盘，受 `config_io_lock`） | `commands/system.rs::set_auto_launch`（`startup.rs:93`） |
-| 37 | `get_notification_enabled` | `monitor_loop.rs:386` | 读通知开关 | `commands/system.rs::get_notification_enabled`（`startup.rs:94`） |
-| 38 | `set_notification_enabled` | `monitor_loop.rs:391` | 设通知开关（落盘 + 刷内存态） | `commands/system.rs::set_notification_enabled`（`startup.rs:95`） |
-| 39 | `get_battery_optimization_info` | `battery_cmds.rs:20` | 电池优化白名单状态（`ignoring`/`brand`/`hasVendorTarget`） | 无（平台专属，Windows 无对应 API） |
-| 40 | `request_ignore_battery_optimizations` | `battery_cmds.rs:46` | 一次性申请加入白名单（返回确认框是否弹出） | 无（平台专属） |
-| 41 | `open_vendor_battery_settings` | `battery_cmds.rs:65` | 跳厂商自启/省电页（降级链，返回 `{path,target,tried}`） | 无（平台专属） |
-| 42 | `open_notification_settings` | `battery_cmds.rs:87` | 跳应用通知设置页（降级链，13-/永久拒绝/ROM 关闭时引导开启） | 无（平台专属） |
-| 43 | `check_network_quality` | `quality_cmds.rs:40` | 单次网络质量检测 | `commands/network_cmd.rs::check_network_quality`（`startup.rs:78`） |
-| 44 | `start_latency_test` | `quality_cmds.rs:45` | 启动定时质量测试循环（幂等） | `commands/network_cmd.rs::start_latency_test`（`startup.rs:79`） |
-| 45 | `stop_latency_test` | `quality_cmds.rs:56` | 停止定时质量测试 | `commands/network_cmd.rs::stop_latency_test`（`startup.rs:80`） |
-| 46 | `check_update` | `update_cmds.rs:126` | 检查更新（version.json 4 源降级 + GitHub API 拉 APK 资产） | `commands/updater.rs::check_update`（`startup.rs:107`） |
-| 47 | `download_update` | `update_cmds.rs:287` | 流式下载 APK（白名单 + 500MB 上限 + SHA256 校验） | `commands/updater.rs::download_update`（`startup.rs:108`） |
-| 48 | `get_mirror_urls` | `update_cmds.rs:271` | 生成 4 个下载源候选 | `commands/updater.rs::get_mirror_urls`（`startup.rs:110`） |
-| 49 | `install_update` | `update_cmds.rs:405` | 交系统包安装器安装 APK（路径限定更新目录） | `commands/updater.rs::install_update`（`startup.rs:109`） |
-| 50 | `face_models_state` | `face_model_cmds.rs:121` | 六模型文件就位状态（size>0 且 sha256 匹配才 ok） | `face/FaceCaptureDialog.tsx` 经 `ensureFaceModels` |
-| 51 | `face_models_download` | `face_model_cmds.rs:126` | 按需下载人脸模型（GitHub+镜像，200ms 节流 emit `face-models-download-progress`） | 同上；失败可重试 |
+| 9 | `get_avoid_bad_wifi_status` | `protocol_cmds.rs:255` | 查询避免坏 WiFi 设置状态 | 无（安卓独有） |
+| 10 | `restore_written_settings` | `protocol_cmds.rs:263` | 恢复写入的设置（用于处理某些 ROM 修改后的恢复） | 无（安卓独有） |
+| 11 | `get_config` | `config_state.rs:395` | 读配置并刷新内存态，出站掩码（`***`） | `commands/config_cmd.rs::get_config`（`startup.rs:64`） |
+| 12 | `save_config` | `config_state.rs:410` | 写配置；密码走 Keystore 密文落盘；空/掩码回退已存值 | `commands/config_cmd.rs::save_config`（`startup.rs:66`） |
+| 13 | `verify_biometric_identity` | `self_service_cmds.rs:64` | 前端 BiometricPrompt 成功后写验证门时间戳 | `commands/self_service.rs::verify_windows_identity`（`startup.rs:113`，名字不同、语义对应） |
+| 14 | `bind_operator` | `self_service_cmds.rs:70` | 运营商绑定（设验证门） | `commands/self_service.rs::bind_operator`（`startup.rs:111`） |
+| 15 | `query_bind_status` | `self_service_cmds.rs:114` | 查询三运营商绑定状态（不设门） | `commands/self_service.rs::query_bind_status`（`startup.rs:112`） |
+| 16 | `query_self_dashboard` | `self_service_cmds.rs:147` | 在线列表 + 登录历史（不设门） | `commands/self_service.rs::query_self_dashboard`（`startup.rs:115`） |
+| 17 | `query_self_online_log` | `self_service_cmds.rs:187` | 指定日期区间在线日志（不设门） | `commands/self_service.rs::query_self_online_log`（`startup.rs:116`） |
+| 18 | `self_offline_session` | `self_service_cmds.rs:216` | 强制下线会话（设验证门） | `commands/self_service.rs::self_offline_session`（`startup.rs:117`） |
+| 19 | `change_self_password` | `self_service_cmds.rs:230` | 修改自服务密码（设验证门） | `commands/self_service.rs::change_self_password`（`startup.rs:118`） |
+| 20 | `reveal_operator_credential` | `self_service_cmds.rs:245` | 明文揭示手机号/短信密码（**无论开关强制验证门**） | `commands/self_service.rs::reveal_operator_credential`（`startup.rs:114`） |
+| 21 | `list_accounts` | `account_cmds.rs:137` | 列举账号条目 `{id, displayName}`（过滤隐藏、按 id 排序；displayName 空/文件损坏兜底为 id） | `commands/account.rs::list_accounts`（`startup.rs:86`） |
+| 22 | `switch_account` | `account_cmds.rs:165` | 切换账号（合并 user/password/operator/adapter1/adapter2/dualAdapter/displayName/activeAccount；返回必带 activeAccount） | `commands/account.rs::switch_account`（`startup.rs:87`） |
+| 23 | `save_current_as_account` | `account_cmds.rs:200` | 当前配置另存为账号（保留自定义 displayName） | `commands/account.rs::save_current_as_account`（`startup.rs:89`） |
+| 24 | `delete_account` | `account_cmds.rs:267` | 删除账号文件；删的是当前账号则清 `activeAccount` | `commands/account.rs::delete_account`（`startup.rs:90`） |
+| 25 | `get_active_account` | `account_cmds.rs:293` | 取 `activeAccount` | `commands/account.rs::get_active_account`（`startup.rs:91`） |
+| 26 | `rename_account` | `account_cmds.rs:298` | 只改账号档案 `displayName`（id/激活态不动；激活账号被改名时同步主配置并落盘；重名拒绝；业务错误走 IPC `Err`） | `commands/account.rs::rename_account`（`startup.rs:88`） |
+| 27 | `get_init_data` | `system_cmds.rs:6` | 启动聚合：config（掩码）+ accounts + version + backgroundStatus + 桌面专属字段空默认 | `commands/system.rs::get_init_data`（`startup.rs:102`） |
+| 28 | `get_soc_info` | `system_cmds.rs:71` | 设备 SoC 型号与性能分档 tier 0-3 | `commands/system.rs::get_gpu_info`（`startup.rs:104`，语义对应、名字不同） |
+| 29 | `get_logs` | `system_cmds.rs:30` | 读最近 N 行日志（默认 200） | `commands/system.rs::get_logs`（`startup.rs:100`） |
+| 30 | `clear_logs` | `system_cmds.rs:40` | 清空日志 | `commands/system.rs::clear_logs`（`startup.rs:101`） |
+| 31 | `get_log_retention_days` | `system_cmds.rs:47` | 读日志保留天数 | `commands/system.rs::get_log_retention_days`（`startup.rs:106`） |
+| 32 | `set_log_retention_days` | `system_cmds.rs:52` | 设日志保留天数 | `commands/system.rs::set_log_retention_days`（`startup.rs:105`） |
+| 33 | `get_debug_mode` | `system_cmds.rs:57` | 读调试模式 | `infra/logger.rs::get_debug_mode`（`startup.rs:119`） |
+| 34 | `set_debug_mode` | `system_cmds.rs:62` | 设调试模式 | `infra/logger.rs::set_debug_mode`（`startup.rs:118`） |
+| 35 | `start_background_check` | `monitor_loop.rs:194` | 启动后台监控（前台服务 + tokio 循环 + WiFi 监听），幂等；已跑则只刷新间隔 | `commands/background.rs::start_background_check`（`startup.rs:88`） |
+| 36 | `stop_background_check` | `monitor_loop.rs:231` | 停止监控（置 `running=false`、注销 WiFi 监听、停前台服务） | `commands/background.rs::stop_background_check`（`startup.rs:89`） |
+| 37 | `trigger_background_check` | `monitor_loop.rs:331` | 立即执行一次 `run_check_once` | `commands/background.rs::trigger_background_check`（`startup.rs:90`） |
+| 38 | `get_background_status` | `monitor_loop.rs:337` | 取监控状态快照（`status_value()`） | `commands/background.rs::get_background_status`（`startup.rs:91`） |
+| 39 | `get_boot_autostart` | `monitor_loop.rs:343` | 读开机自启（mobile 走插件，host 恒 `false`） | `commands/system.rs::get_auto_launch`（`startup.rs:92`，名字不同） |
+| 40 | `set_boot_autostart` | `monitor_loop.rs:360` | 设开机自启（插件组件启停 + 配置落盘，受 `config_io_lock`） | `commands/system.rs::set_auto_launch`（`startup.rs:93`） |
+| 41 | `get_notification_enabled` | `monitor_loop.rs:386` | 读通知开关 | `commands/system.rs::get_notification_enabled`（`startup.rs:94`） |
+| 42 | `set_notification_enabled` | `monitor_loop.rs:391` | 设通知开关（落盘 + 刷内存态） | `commands/system.rs::set_notification_enabled`（`startup.rs:95`） |
+| 43 | `get_battery_optimization_info` | `battery_cmds.rs:20` | 电池优化白名单状态（`ignoring`/`brand`/`hasVendorTarget`） | 无（平台专属，Windows 无对应 API） |
+| 44 | `request_ignore_battery_optimizations` | `battery_cmds.rs:46` | 一次性申请加入白名单（返回确认框是否弹出） | 无（平台专属） |
+| 45 | `open_vendor_battery_settings` | `battery_cmds.rs:65` | 跳厂商自启/省电页（降级链，返回 `{path,target,tried}`） | 无（平台专属） |
+| 46 | `open_notification_settings` | `battery_cmds.rs:87` | 跳应用通知设置页（降级链，13-/永久拒绝/ROM 关闭时引导开启） | 无（平台专属） |
+| 47 | `check_network_quality` | `quality_cmds.rs:40` | 单次网络质量检测 | `commands/network_cmd.rs::check_network_quality`（`startup.rs:78`） |
+| 48 | `start_latency_test` | `quality_cmds.rs:45` | 启动定时质量测试循环（幂等） | `commands/network_cmd.rs::start_latency_test`（`startup.rs:79`） |
+| 49 | `stop_latency_test` | `quality_cmds.rs:56` | 停止定时质量测试 | `commands/network_cmd.rs::stop_latency_test`（`startup.rs:80`） |
+| 50 | `check_update` | `update_cmds.rs:126` | 检查更新（version.json 4 源降级 + GitHub API 拉 APK 资产） | `commands/updater.rs::check_update`（`startup.rs:107`） |
+| 51 | `download_update` | `update_cmds.rs:287` | 流式下载 APK（白名单 + 500MB 上限 + SHA256 校验） | `commands/updater.rs::download_update`（`startup.rs:108`） |
+| 52 | `get_mirror_urls` | `update_cmds.rs:271` | 生成 4 个下载源候选 | `commands/updater.rs::get_mirror_urls`（`startup.rs:110`） |
+| 53 | `install_update` | `update_cmds.rs:405` | 交系统包安装器安装 APK（路径限定更新目录） | `commands/updater.rs::install_update`（`startup.rs:109`） |
+| 54 | `face_models_state` | `face_model_cmds.rs:121` | 六模型文件就位状态（size>0 且 sha256 匹配才 ok） | `face/FaceCaptureDialog.tsx` 经 `ensureFaceModels` |
+| 55 | `face_models_download` | `face_model_cmds.rs:126` | 按需下载人脸模型（GitHub+镜像，200ms 节流 emit `face-models-download-progress`） | 同上；失败可重试 |
 
 ### 公开函数 / 结构体 / 常量清单（按模块）
 
@@ -176,6 +172,8 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `#[tauri::command] ping_test` | `protocol_cmds.rs:169` | `"pong"` |
 | `#[tauri::command] bind_to_wifi` | `protocol_cmds.rs:175` | mobile 调插件；host 返回 Err（`protocol_cmds.rs:183-187`） |
 | `#[tauri::command] accept_wifi_network` | `protocol_cmds.rs:193` | 同上模式 |
+| `#[tauri::command] get_avoid_bad_wifi_status` | `protocol_cmds.rs:255` | 查询避免坏 WiFi 设置状态 |
+| `#[tauri::command] restore_written_settings` | `protocol_cmds.rs:263` | 恢复写入的设置 |
 | `pub(crate) async fn ensure_wifi_bound(app)` | `protocol_cmds.rs:220` | 全链路前置绑 WiFi；成功且 `path != "already_bound"` 时清 HTTP 客户端池（`protocol_cmds.rs:232-236`）；日志走 `log_info!/log_warn!` + `eprintln!`；成功后调 `accept_campus_wifi` |
 | `pub(crate) async fn accept_campus_wifi(app)` | `protocol_cmds.rs:291` | 代劳系统“仍然连接”确认，失败仅记日志 |
 
@@ -218,6 +216,7 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 | `fn is_iso_date(s) -> bool` | `self_service_cmds.rs:172` | `YYYY-MM-DD` 严格校验（桌面同构） |
 | `#[tauri::command] query_self_online_log` | `self_service_cmds.rs:187` | 日期格式与顺序校验后调协议 |
 | `#[tauri::command] self_offline_session` | `self_service_cmds.rs:216` | 设门 + `session_id` 非空校验 |
+| `#[tauri::command] change_self_password` | `self_service_cmds.rs:230` | 修改自服务密码（设验证门） |
 | `#[tauri::command] reveal_operator_credential` | `self_service_cmds.rs:245` | 无条件验门（`self_service_cmds.rs:258-260`） |
 
 #### account_cmds.rs（470 行，2026-09 扩展为与桌面 `commands/account.rs` 同构的 7 条命令 + 自动建号）
@@ -509,11 +508,53 @@ tags: [安卓, Tauri, 命令面, 配置加密, 后台监控, 网络绑定]
 ### `ReleaseAsset` / `UpdateInfo` / `DownloadProgress` / `VersionFile`（update_cmds.rs）
 
 | 结构体 | 位置 | 字段 |
-|--------|------|------|
+|--------|--------|------|
 | `ReleaseAsset` | `update_cmds.rs:42-47` | `name: String`、`url: String`、`size: u64` |
 | `UpdateInfo` | `update_cmds.rs:49-57` | `has_update: bool`（`hasUpdate`）、`latest_version: String`、`release_notes: String`、`assets: Vec<ReleaseAsset>`、`sha256_checksum: Option<String>` |
 | `DownloadProgress` | `update_cmds.rs:59-65` | `downloaded: u64`、`total: u64`、`speed: u64`（字节/秒）、`percent: f64` |
 | `VersionFile` | `update_cmds.rs:142-148` | `version: String`（`#[serde(default)]`）、`notes: String`（同）——version.json 真实形状 |
+
+## Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                     Frontend (Android UI)                    │
+│              invokes via tauri::invoke(...)                  │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                   lib.rs: run()                              │
+│  ┌─────────────┐ ┌──────────────┐ ┌───────────────────────┐ │
+│  │ Plugins     │ │ State        │ │ invoke_handler!       │ │
+│  │ (network,   │ │ AndroidState │ │ 55 commands           │ │
+│  │  keystore,  │ │ (IP/cache,  │ │                       │ │
+│  │  monitor,   │ │  config)     │ │► protocol_cmds        │ │
+│  │  opener)    │ └──────────────┘ │► campus_detect         │ │
+│  └─────────────┘                  │► config_state          │ │
+│                                  │► self_service_cmds      │ │
+│                                  │► account_cmds           │ │
+│                                  │► system_cmds            │ │
+│                                  │► monitor_loop           │ │
+│                                  │► quality_cmds           │ │
+│                                  │► update_cmds            │ │
+│                                  │► face_model_cmds        │ │
+│                                  │► battery_cmds           │ │
+│                                  └───────────────────────┘ │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+      ┌────────────────────┼────────────────────┐
+      │                    │                    │
+      ▼                    ▼                    ▼
+┌──────────────┐  ┌──────────────────┐  ┌──────────────────┐
+│ campus-login │  │ Android Plugins  │  │ Android OS APIs  │
+│ (path dep)   │  │ (network-bind,   │  │ (Wi-Fi, Battery,│
+│ auth::proto  │  │  keystore,       │  │  ForegroundSvc) │
+│ portal       │  │  foreground-svc) │  │                  │
+│ subnet       │  └──────────────────┘  └──────────────────┘
+│ quality      │
+└──────────────┘
+```
 
 ## Data Flow
 
@@ -656,7 +697,7 @@ save_config{config,clearPassword?}
 - [[desktop-helper-update]]：更新检查/下载/安装的桌面版本（exe/msi vs APK）。
 - [[night-outbound-switch]]：安卓出站切换编排（`run_scheduled_actions` 出站分支、`run_check_once` 巡检闸、`logout_for_outbound_switch` 的 `radiusOk||unbindOk` 判据、失败上限与 `latest_settings` 防 stale）、共享判定纯函数 `config::outbound_switch`（path 依赖桌面 crate），2026-09-22 落地。
 - [[android-plugins]]：三个手写插件的 Rust 壳与 Kotlin 实现、权限文件。
-- [[android-frontend]]：调用本模块 48 个命令的安卓前端。
+- [[android-frontend]]：调用本模块 55 个命令的安卓前端。
 - [[android-notify-online-pinned-by-offline-guard]]：三态护栏与"仅翻转时更新通知"组合把在线状态静默钉死的教训（2026-09-13）。
 
 ## Known Issues

@@ -17,13 +17,13 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 ## Overview
 
-本模块覆盖安卓前端的业务面板层：总览看板（`auth/DashboardPanel.tsx`，安卓经 `MobileDashboard` 复用）、账号与运营商绑定（`account/AccountPanel.tsx`）、自助服务（`account/SelfServicePanel.tsx` 与 `account/selfServiceState.ts` 验证门）、后台巡检与网络质量（`monitor/*`）、设置与新手向导（`settings/*`）、运行日志（`shared/LogPanel.tsx`），以及适配器/DNS 面板（`network/*`，安卓无入口但有类型与常量输出）。
+本模块覆盖安卓前端的业务面板层：关于与更新（`auth/AboutDialog.tsx`）、账号管理（`account/*`），以及适配器/DNS 面板的类型与常量定义（`network/*`，安卓无渲染入口但有类型输出）。
 
-与桌面前端的关系：本层文件多为**复刻同构**（同名文件同名组件、逐行近似），但面板装配、可见项与平台门控完全不同——手机壳只渲染 `MobileDashboard`/`AccountPanel`/`SelfServicePanel`/`QualityPanel`/`MonitorPanel`/`More 聚合页`（`App.tsx:111-154`、`components/mobile/MobileMore.tsx:67-85`），平板壳渲染八个 Dock 面板且不含 `network`（`components/tablet/TabletShell.tsx:162-229`）。
+与桌面前端的关系：本层文件多为**复刻同构**（同名文件同名组件、逐行近似），但面板装配、可见项与平台门控完全不同——手机壳只渲染 `MobileDashboard`/`AccountPanel`/`SelfServicePanel`/`QualityPanel`/`MonitorPanel`/`More 聚合页`，平板壳渲染八个 Dock 面板且不含 `network`。
 
 ## Key Components
 
-### auth/ — 总览与关于
+### auth/ — 关于与更新
 
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 | 导出 | 位置 | 用途 |
 | --- | --- | --- |
 | `StatusBar` | `monitor/StatusBar.tsx:23` | 平板顶栏状态条：状态胶囊（含离线/恢复动画 class）+ 质量胶囊 + 刷新 + 自助服务/门户外链（`onOpenSelfService` 可选） |
-| `MonitorPanel` | `monitor/MonitorPanel.tsx:80` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校验、检测时间窗）。校园网验证 Label 旁的问号 `HelpCircle`（`:298-319`）把检测逻辑四步说明收进 Tooltip（步骤① 文案：匹配 `i-wxxy`、`iwxxy-2` 或 `iwxxy-3`）（沿用 `QualityPanel` 指标问号同款模式，不占常驻空间）。检测时间段行（`:390-434`）窄屏（<640px）纵向堆叠——右侧两个 `w-24` 的 `<input type="time">` 合计约 200px 不可压缩，同行布局会把左侧 `min-w-0` 标题挤成逐字竖排（360-430px 手机实测标题 14×164px），容器用 `flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`，≥640px 恢复同一行；每日定时登录/注销两行（`:438-497`）同款堆叠，且单 time Input 外包 `flex shrink-0 items-center` 容器（Input 组件 time 类型自带 `relative w-full` 包装层会吃满剩余空间，见 `learnings/input-time-wrapper-w-full`） |
+| `MonitorPanel` | `monitor/MonitorPanel.tsx:80` | 后台检测面板：启停/立即检测/间隔输入、适配器在线状态卡列表、验证设置（自动检测、可登录即登录、校园网名校校验、检测时间窗）。校园网验证 Label 旁的问号 `HelpCircle`（`:298-319`）把检测逻辑四步说明收进 Tooltip（步骤① 文案：匹配 `i-wxxy`、`iwxxy-2` 或 `iwxxy-3`）（沿用 `QualityPanel` 指标问号同款模式，不占常驻空间）。检测时间段行（`:390-434`）窄屏（<640px）纵向堆叠——右侧两个 `w-24` 的 `<input type="time">` 合计约 200px 不可压缩，同行布局会把左侧 `min-w-0` 标题挤成逐字竖排（360-430px 手机实测标题 14×164px），容器用 `flex-col gap-2 sm:flex-row sm:items-center sm:justify-between`，≥640px 恢复同一行；每日定时登录/注销两行（`:438-497`）同款堆叠，且单 time Input 外包 `flex shrink-0 items-center` 容器（Input 组件 time 类型自带 `relative w-full` 包装层会吃满剩余空间，见 `learnings/input-time-wrapper-w-full`） |
 | `QualityPanel` | `monitor/QualityPanel.tsx:108` | 网络质量面板：质量指纹卡、定时测试卡、测试明细卡（5 类 tab + 每项时间线） |
 | `SpeedTestPanel` | `monitor/SpeedTestPanel.tsx:109` | 测速站点集合（8 个硬编码站点，3 个分类），点击经 `openExternal` 外开 |
 | `NetworkQualityCapsule` | `monitor/NetworkQualityCapsule.tsx:53` | 质量胶囊：延迟数字 + 悬停 portal 明细（网关/外网/DNS 三行），busy/unknown 时按延迟推断等级（`NetworkQualityCapsule.tsx:96-98`） |
@@ -69,170 +69,26 @@ tags: [安卓, 前端, 面板, 总览, 账号, 自助服务, 网络质量, 设�
 
 `network/index.ts`：`NetworkPanel`(1)、`export * from './types'`(2)、`export * from './constants'`(3)。
 
-### settings/ — 设置、主题与新手向导
+## Architecture
 
-| 导出 | 位置 | 用途 |
-| --- | --- | --- |
-| `SettingsPanel` | `settings/SettingsPanel.tsx:63` | 设置面板：外观（主题网格、自定义取色、浅色模式）、启动设置、通知、保活（安卓专属卡）、安全（生物开关、2D 人脸）、引导入口、质量检测（总开关 + 延迟计算选项触发行——2026-09-29 与桌面批次六同步：跳过项内联折叠改 Modal 弹窗、删「固定网关地址」展示行（后端字段与兜底逻辑保留），见 [[decisions/android-settings-latency-modal]]） |
-| `ThemeDialog` | `settings/ThemeDialog.tsx:27` | 主题弹窗（手机 header 的调色板入口，`App.tsx:256`） |
-| `OnboardingWizard` | `settings/OnboardingWizard.tsx:93` | 平板/宽屏向导（Dialog 形态，四步 + 顶部圆点进度） |
-| `OnboardingWizardMobile` | `settings/OnboardingWizardMobile.tsx:82` | 手机全屏向导（段式进度轨、底部固定操作区、输入高 48px、不含 autoFocus） |
-| `useSettings` | `settings/useSettings.ts:10` | 设置动作：`handleToggleLightMode`(35)、`handleToggleNotification`(43)、`handleSetAutoLaunch`(49)、`handleSetTheme`(58) |
-| `KeepAliveSettingsCard` | `settings/KeepAliveSettingsCard.tsx:25` | 安卓专属保活卡：电池优化白名单状态、一键申请（自家确认框 → 系统页）、厂商省电页跳转 |
-| `ONBOARDING_STEP_COUNT` | `settings/useOnboardingFlow.ts:25` | 4 步（欢迎 → 绑定运营商 → 账号 → 完成） |
-| `BIND_OPERATOR_NONE` | `settings/useOnboardingFlow.ts:27` | `'__none__'`（Radix SelectItem 禁空串） |
-| `DEFAULT_OPERATOR` | `settings/useOnboardingFlow.ts:29` | `'__default__'`（账号步骤运营商默认哨兵） |
-| `BindState` | `settings/useOnboardingFlow.ts:35` | `'idle' \| 'loading' \| 'success' \| 'error'` |
-| `OnboardingFlowOptions` | `settings/useOnboardingFlow.ts:37` | `{open, onUpdateConfig, onLogin, onClose}` |
-| `useOnboardingFlow` | `settings/useOnboardingFlow.ts:45` | 向导流程状态机（两套外壳共用的逻辑单点） |
-| `OnboardingFlow` | `settings/useOnboardingFlow.ts:233` | `ReturnType<typeof useOnboardingFlow>` |
-| `DEFAULT_CONFIG` | `settings/constants.ts:6` | 全部配置默认值（文件共 80 行，含 `backgroundCheckInterval:60000`、`backgroundCheckIdleInterval:300000`、`campusCheckEndMinutes:1380`（2026-09-13 起旧默认 0）、`configVersion:5`） |
-| `ISP_OPTIONS` | `settings/constants.ts:55` | 运营商 4 项（`__default__`/`@telecom`/`@unicom`/`@cmcc`） |
-| `THEME_OPTIONS` | `settings/constants.ts:62` | 主题 7 项（含 `custom`） |
-| `VALID_THEMES` | `settings/constants.ts:72` | 主题名白名单（`main.tsx:38`、`useInitialDataLoad.ts:51` 用它校验存储值） |
-| `DEFAULT_PANEL_OPTIONS` | `settings/constants.ts:74` | 由 `NAV_ITEMS` 派生（因此**不含 `network`**） |
-
-`settings/index.ts`：`SettingsPanel`(1)、`ThemeDialog`(2)、`OnboardingWizard`(3)、`OnboardingWizardMobile`(4)、`useSettings`(5)、`export * from './types'`(7)、`export * from './constants'`(8)。`KeepAliveSettingsCard` 与 `useOnboardingFlow` 不在 barrel（前者按相对路径导入，`SettingsPanel.tsx:28`；后者被两个向导相对导入）。
-
-### shared/LogPanel.tsx
-
-| 导出 | 位置 | 用途 |
-| --- | --- | --- |
-| `LogPanel` | `shared/LogPanel.tsx:86` | 运行日志面板（`memo`）：行数选择、保留天数、手动刷新、调试模式、搜索、模块/级别筛选、逐条清空动画、5s 轮询（可见性 + IntersectionObserver 双重门控） |
-
-内部私有：`LogPanelProps`(28，只依赖 `api` 子集与 `addToast`，便于复用)、`LogLevel`(40)、`ParsedLogLine`(42)、`DEFAULT_LEVEL_CONFIG`(50)、`LEVEL_CONFIG`(52)、`LOG_LINE_REGEX`(59)、`isAndroidBuild`(63，安卓改两行布局)、`parseLogLine`(65)、`LINE_OPTIONS`(77)、`MAX_DISPLAY_LINES=200`(84)。
-
-## 结构体与字段（前端即 props 与 state 类型）
-
-### `Config`（`settings/types.ts:9-74`，46 字段；口径：接口本体（第 10-73 行）字段总数，含 `configVersion` 标记字段，不含同文件 `AutoLaunchResult` / `InitData`。凭据统一后独立自助密码字段已删除（见 [[credential-single-source]]）。注意：桌面端同位置已新增可选的 `adapter1Account` / `adapter2Account` 适配器指定账号字段，安卓这份副本未同步——安卓 `NetworkPanel` 无入口，见下文 network/ 分叉说明。2026-09-19 双端同加夜切 2 字段 `enableNightOperatorSwitch` / `nightOperatorRestore`）
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| `user` / `password` | `string` | 登录账号 / 密码（密码后端存掩码 `***`，`shared/ui-constants.ts:4`） |
-| `selfHelloEnabled` | `boolean` | 生物/Hello 操作验证总开关（默认 `true`） |
-| `selfReverifyEachAction` | `boolean` | 自助面板每次操作都验证（默认 `false`） |
-| `allow2dFaceVerify` | `boolean` | 2D 人脸回退开关（默认 `false`） |
-| `operator` | `string` | 运营商后缀，`''` 表示默认（无锡学院） |
-| `enableNightOperatorSwitch` | `boolean` | 晚间断网自动切换总开关（默认 `false`，2026-09-19 新增，与桌面同名字段，见 [[decisions/night-operator-switch]]） |
-| `nightOperatorRestore` | `string` | 夜切暂存的原运营商；非空即"处于切换态"（默认 `''`，与桌面同名字段） |
-| `adapter1` / `adapter2` | `string` | 主/副适配器名（安卓无枚举，恒 `自动检测` / 空） |
-| `dualAdapter` | `boolean` | 启用备用适配器 |
-| `autoLoginOnStart` | `boolean` | 启动自动登录 |
-| `autoExitAfterLogin` | `boolean` | 登录成功后自动退出（安卓 UI 隐藏） |
-| `minimizeToTray` / `hiddenStart` | `boolean` | 最小化到托盘 / 静默启动（安卓 UI 隐藏） |
-| `autoLaunch` | `boolean` | 开机自启（安卓走 `set_boot_autostart`） |
-| `enableBackgroundCheck` | `boolean` | 后台巡检自动启动 |
-| `backgroundCheckInterval` | `number` | 稳态巡检间隔 ms（默认 60000） |
-| `backgroundCheckIdleInterval` | `number` | 闲时巡检间隔 ms（默认 300000） |
-| `autoLoginOnPreparation` | `boolean` | 可登录即自动登录 |
-| `autoExitOnOnline` | `boolean` | 上线后自动退出（安卓 UI 隐藏） |
-| `themeMode` | `'light' \| 'dark' \| 'system'` | 主题模式（默认 `dark`） |
-| `enableNotification` | `boolean` | 通知开关 |
-| `activeAccount` | `string` | 当前账号名 |
-| `enableLatencyTest` / `latencyTestInterval` | `boolean` / `number` | 定时延迟测试开关与间隔（默认 60000） |
-| `customThemeColor` | `string` | 自定义主题色（默认 `#6366f1`） |
-| `defaultPanel` | `PanelName \| ''` | 默认面板（安卓 UI 隐藏） |
-| `enableNetworkQuality` | `boolean` | 质量检测总开关（默认 true；前端一律按 `!== false` 判定） |
-| `skipTtfbInLatency` / `skipContentInLatency` | `boolean` | 延迟计算跳过 TTFB / 内容传输 |
-| `portalUrl` | `string` | 门户地址（默认 `http://10.1.99.100`） |
-| `fixedGateway` | `string` | 固定网关（默认 `10.2.127.254`） |
-| `requiredNetworkName` | `string` | 校园网 SSID（默认 `i-wxxy`；默认值下额外匹配 `iwxxy-2`/`iwxxy-3`，匹配逻辑在桌面 `campus_check.rs`，安卓无 SSID 检测通道） |
-| `enableNetworkNameCheck` | `boolean` | 校园网名校验 |
-| `campusGateway` | `string` | 校园网网关（默认 `10.2.127.254`） |
-| `updateSource` | `'mirror' \| 'github'` | 更新渠道优先级（默认 `mirror`） |
-| `campusExitOnFail` | `boolean` | 非校园网自动退出（安卓 UI 隐藏） |
-| `scheduledLoginMinutes` / `scheduledLogoutMinutes` | `number` | 每日定时登录/注销时刻（分钟制，`0`=禁用；安卓 `MonitorPanel` 展示、后端每拍判定） |
-| `campusCheckStartMinutes` / `campusCheckEndMinutes` | `number` | 检测时间窗（分钟制；默认 460=07:40 / 1380=23:00，2026-09-13 起终点旧默认 0 由后端 v4→v5 迁移与 `DEFAULT_CONFIG` 双源刷新） |
-| `maxDisconnectReconnect` | `number` | 断连重连上限（默认 3） |
-| `autoLoginCooldownSecs` | `number` | 自动登录冷却秒（默认 60） |
-| `logRetentionDays` | `number` | 日志保留天数（默认 7） |
-| `configVersion` | `number` | 配置 schema 版本（默认 5） |
-
-### 其余 settings/ 类型
-
-| 类型 | 位置 | 字段 |
-| --- | --- | --- |
-| `AutoLaunchResult` | `settings/types.ts:68` | `success`、`message?` |
-| `InitData` | `settings/types.ts:73` | `config: Partial<Config>`、`version`、`adapters`、`adapterDetails`、`disabledAdapters`、`accounts: AccountItem[]`（`{id, displayName}`）、`activeAccount`、`backgroundStatus`、`isAutoStart`、`autoLaunch`、`notificationEnabled`、`gpuInfo?`、`refreshRate?` |
-
-### auth/ 类型
-
-| 类型 | 位置 | 字段 |
-| --- | --- | --- |
-| `PortalStatusResult` | `auth/types.ts:1` | `online`、`message?`、`reachable?`、`loginAvailable?` |
-| `CommandResult` | `auth/types.ts:8` | `success`、`message?`、`data?: Record<string, unknown>` |
-| `LoginResult` | `auth/types.ts:14` | `extends CommandResult`（无新字段） |
-
-### account/ 类型与凭据 store
-
-| 类型 | 位置 | 字段 |
-| --- | --- | --- |
-| `AccountResult` | `account/types.ts:12` | `success`、`message?`、`activeAccount?`、`config?`、`displayName?` |
-| `SwitchAccountResult` | `account/types.ts:18` | `success`、`message?`、`activeAccount?`、`config?` |
-| `DeleteAccountResult` | `account/types.ts:25` | `success`、`message?`、`activeAccount?`、`config?` |
-| `SaveAccountResult` | `account/types.ts:32` | `success`、`activeAccount?`、`config?`、`message?` |
-
-### monitor/ 类型
-
-| 类型 | 位置 | 字段 |
-| --- | --- | --- |
-| `BackgroundStatus` | `monitor/types.ts:12` | `isRunning`、`checkCount`、`serverAvailable`、`online`、`onlineOperator?`、`message?`、`currentSsid`、`onCampusNetwork?`、`enableNetworkNameCheck?`、`requiredNetworkName?`、`campusWifi?`、`campusWired?`、`loginPreparationMode?`、`interval?`、`enabled?` |
-| `BackgroundCheckEventData` | `monitor/types.ts:31` | `BackgroundStatus & { timestamp?, checkCount?, message?, online?, loginAvailable?, serverAvailable? }` |
-| `NetworkQuality` | `monitor/types.ts:39` | `gatewayLatency`、`externalLatency`、`averageExternalLatency`、`gateway`、`quality`（`excellent/great/good/fair/poor/bad/unknown/disabled/busy`）、`timestamp`、`details?`、`metrics?` |
-| `AutoLoginEventData` | `monitor/types.ts:50` | `success`、`message` |
-
-### network/ 类型
-
-| 类型 | 位置 | 字段 |
-| --- | --- | --- |
-| `AdapterStatus` | `network/types.ts:1` | `'disabled' \| 'disconnected' \| 'enabledNoIp' \| 'connected'` |
-| `Adapter` | `network/types.ts:3` | `name`、`ip`、`wireless`、`guid?`、`mac`、`ifIndex`、`status`、`linkSpeed?` |
-| `DisabledAdapter` | `network/types.ts:15` | `name`、`status`、`description` |
-| `AdapterDetail` | `network/types.ts:21` | `name`、`ip`、`wireless`、`subnetMask`、`gateway`、`dhcpServer`、`mac`、`ifIndex`、`status`、`linkSpeed?` |
-| `DnsAdapterInfo` | `network/types.ts:42` | `name`、`dnsSource`、`dnsServers`、`profileDnsServers`、`adapterDnsOverridesProfile` |
-| `DnsDohStatus` | `network/types.ts:50` | `adapters`、`dohSupported`、`autoDohEnabled`、`dnsSource?` |
-| `DhcpRenewResult` | `network/types.ts:57` | `success`、`results: {name, success}[]` |
-| `DhcpReleaseRenewResult` | `network/types.ts:62` | `success`、`results: {name, wireless, ip, regOk, success, skipped, reason}[]` |
-| `DnsSetupResult` | `network/types.ts:67` | `success`、`message`、`dnsSuccess?`、`dnsFailed?`、`dohAdded?`、`dohFailed?` |
-| `EnableAdapterResult` | `network/types.ts:76` | `success`、`message?` |
-| `DnsServerInfo`（私有） | `network/types.ts:35` | `address`、`dohAvailable`、`dohEnabled`、`dohTemplate` |
-
-### 面板组件 props
-
-| 类型 | 位置 | 字段 |
-| --- | --- | --- |
-| `AboutDialogProps`（私有） | `auth/AboutDialog.tsx:23` | `open`、`onClose`、`openExternal?`、`onUpdateAvailable?`、`initialLatestVersion?`、`initialReleaseNotes?`、`initialUpdateAvailable?` |
-| `AccountPanelProps`（私有） | `account/AccountPanel.tsx:35` | `adapters`、`accounts`（`AccountItem[]`）、`activeAccount`、`onUpdateConfig`、`onAddAccount`（返回 `Promise<boolean>`）、`onDeleteAccount`、`onSwitchAccount`、`onRenameAccount`（`:44`，返回 `Promise<boolean>`） |
-| `MonitorPanelProps`（私有） | `monitor/MonitorPanel.tsx:25` | `onUpdateConfig`、`onToggleBackgroundCheck(enabled, interval)`、`onTriggerCheck()` |
-| `QualityPanelProps`（私有） | `monitor/QualityPanel.tsx:30` | `onUpdateConfig`、`onRefreshQuality?`、`onToggleLatencyTest?` |
-| `SpeedTestPanelProps`（私有） | `monitor/SpeedTestPanel.tsx:105` | `openExternal(url)` |
-| `StatusBarProps`（私有） | `monitor/StatusBar.tsx:18` | `onOpenPortal()`、`onOpenSelfService?()` |
-| `SettingsPanelProps`（私有） | `settings/SettingsPanel.tsx:33` | `autoLaunch`、`onUpdateConfig`、`onSetAutoLaunch`、`onToggleLightMode`、`onSetTheme`、`onShowOnboarding?` |
-| `ThemeDialogProps`（私有） | `settings/ThemeDialog.tsx:20` | `open`、`onClose`、`onSetTheme(name)`、`onToggleLightMode()` |
-| `OnboardingWizardProps`（私有） | `settings/OnboardingWizard.tsx:33` | `open`、`onClose`、`onUpdateConfig`、`onLogin(adapterName?)`、`isLoggingIn` |
-| `OnboardingWizardMobileProps`（私有） | `settings/OnboardingWizardMobile.tsx:43` | 同上 |
-| `NetworkPanelProps`（私有） | `network/NetworkPanel.tsx:31` | `adapters`、`onUpdateConfig` |
-| `LogPanelProps`（私有） | `shared/LogPanel.tsx:28` | `api`（`getLogs`/`clearLogs`/`getDebugMode`/`setDebugMode`/`getLogRetentionDays?`/`setLogRetentionDays?`）、`addToast(message, type, description?)` |
-
-### `useOnboardingFlow` 返回字段（`settings/useOnboardingFlow.ts:212-230`）
-
-| 字段 | 类型/含义 |
-| --- | --- |
-| `step` | `number`，当前步（0-3） |
-| `direction` | `Ref<1 \| -1>`，滑动方向（`useOnboardingFlow.ts:75`，供 `custom={direction.current}`） |
-| `canProceedAccount` | `boolean`，账号步骤是否可继续（`useOnboardingFlow.ts:145`） |
-| `canBind` | `boolean`，绑定表单完整性（`useOnboardingFlow.ts:108-112`，含手机号 `/^1\d{10}$/`） |
-| `passwordSaved` | `boolean`，完成页显示 `••••••••` 还是 `-`（`useOnboardingFlow.ts:210`） |
-| `username` / `setUsername` | `string` |
-| `password` / `setPassword` / `showPassword` / `setShowPassword` | `string` / `boolean` |
-| `operator` / `setOperator` | `string` |
-| `bindOperatorValue` / `setBindOperatorValue` | `string` |
-| `phone` / `setPhone` | `string` |
-| `smsPassword` / `setSmsPassword` | `string` |
-| `bindState` / `bindError` / `handleBind` | `BindState` / `string` / `() => Promise<void>` |
-| `language` / `setLanguage` | `string` / `(lang) => void`（读写 `useConfigStore` 的 `language`） |
-| `loginSuccess` / `showCloseConfirm` / `setShowCloseConfirm` | `boolean` |
-| `advance` / `goNext` / `handleSkip` / `handleLoginAndFinish` | 流程动作（`useOnboardingFlow.ts:103` / `164` / `168` / `177`） |
+```text
+┌───────────────────────────────────────────────────────────────────────┐
+│                         Android Frontend Panels                        │
+├──────────────┬──────────────┬──────────────┬──────────────────────────┤
+│   Auth       │   Account    │   Monitor    │      Network             │
+│              │              │              │                          │
+│ AboutDialog  │ AccountPanel │ MonitorPanel │ NetworkPanel (dead code) │
+│ useAuth      │ ChangePwdDlg │ QualityPanel │ QUALITY_CONFIG           │
+│ types        │ useAccount   │ SpeedTestPnl │ types                    │
+│              │ types        │ LatencyComp  │                          │
+└──────────────┴──────────────┴──────────────┴──────────────────────────┘
+         │              │              │
+         ▼              ▼              ▼
+   Tauri IPC        Tauri IPC      Tauri IPC
+   check_update     save_config    start_bg_check
+   download_update  switch_acct    check_quality
+   install_update   bind_operator  get_logs
+```
 
 ## Data Flow
 

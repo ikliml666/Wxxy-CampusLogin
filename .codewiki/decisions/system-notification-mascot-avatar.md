@@ -4,42 +4,70 @@ type: decision
 source_files:
   - tauri-app/src-tauri/src/infra/notification.rs
   - tauri-app/src-tauri/src/platform/toast.rs
-  - android/src-tauri/src/monitor_loop.rs
-  - android/src-tauri/gen/android/app/src/main/res/drawable-xxhdpi/mascot_alert.png
-  - android/src-tauri/gen/android/app/src/main/res/drawable-xxhdpi/mascot_offline.png
-  - tauri-app/src-tauri/resources/mascot-toast/mascot-alert.png
-  - tauri-app/src-tauri/resources/mascot-toast/mascot-busy.png
-  - tauri-app/src-tauri/resources/mascot-toast/mascot-celebrate.png
-  - tauri-app/src-tauri/resources/mascot-toast/mascot-offline.png
-  - tauri-app/src-tauri/resources/mascot-toast/mascot-portrait.png
-tags: [决策, 通知, 看板娘, winrt, 安卓]
+tags: [决策, 通知, 看板娘, winrt]
 ---
 
-## 背景
+## Overview
 
-系统通知原本只有纯文本，与应用的看板娘形象不一致。
+本决策记录系统通知携带"看板娘"头像的跨平台实现方案。桌面端（Windows）通过自组 WinRT Toast XML 实现 `appLogoOverride` 圆形头像；安卓端由独立模块补充系统通知能力。核心入口为 `tauri-app/src-tauri/src/infra/notification.rs::emit_notification`，该函数负责抑制判定与分发，Windows 端调用 `platform/toast.rs` 发送带图 Toast，非 Windows 端降级为插件纯文本通知。
 
-## 决策
+## Key Components
 
-`emit_notification(app, title, body, mascot)` 第 4 参为变体名（`mascot-alert` 等）。
+### 桌面端 (Windows)
 
-- **Windows 桌面**优先走 `platform/toast.rs::show_system_toast` 自组 WinRT toast（appLogoOverride 圆形头像），失败降级插件纯文本；
-- **安卓**该函数无图，安卓系统通知的娘大图由 `monitor_loop::notify_system` 的 `large_icon`（drawable 资源名）负责——传入值即资源名，用下划线形态（`mascot_alert` / `mascot_offline`），对应 PNG 放 `gen/android/app/src/main/res/drawable-xxhdpi/`（2026-09-13 补齐这两个，此前 `large_icon` 必抛 `Resources.NotFoundException`，每通知都白走一次"失败降级纯文本"）。
+**文件**: `tauri-app/src-tauri/src/infra/notification.rs`
+- **`pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str, mascot: &str)`** (`ln 24–73`)
+    - 系统通知唯一入口。
+    - 检查 `enable_notification` 配置。
+    - **抑制判定**: 若窗口可见且未最小化 (`is_visible && !is_minimized`)，视为用户可见，不弹系统通知。
+    - Windows 优先调用 `show_system_toast`，失败降级插件纯文本通知。
+    - 非 Windows 直接调用插件纯文本通知。
 
-头像 PNG 经 `bundle.resources` 打包（`resources/mascot-toast/`，**仅 PNG——toast 不支持 webp**），运行时 `resource_dir()` 拼成 `file:///` URL。
+**文件**: `tauri-app/src-tauri/src/platform/toast.rs`
+- **常量**:
+    - `AUMID: &str = "com.campus.login"` (`ln 35`): 自有 AUMID，用于注册表。
+    - `FALLBACK_APP_ID: &str` (`ln 37–38`): 兜底 AUMID (PowerShell)。
+    - `APP_DISPLAY_NAME: &str = "校园网登录助手"` (`ln 39`).
+    - `AUMID_ICON_RESOURCE: &str = "icons/128x128.png"` (`ln 41`): 来源角标图标。
+- **`fn notifier_aumid(app_handle: &AppHandle) -> &'static str`** (`ln 46–56`): 缓存注册结果，返回实际可用的 AUMID。
+- **`fn register_aumid(app_handle: &AppHandle) -> Result<(), String>`** (`ln 59–78`): 向 `HKCU\Software\Classes\AppUserModelId\<AUMID>` 写 DisplayName 与 IconUri。
+- **`fn resolve_resource_image(app_handle: &AppHandle, relative: &str) -> Option<String>`** (`ln 81–88`): 解析打包资源为 `file:///` URL。
+- **`pub fn show_system_toast(app_handle: &AppHandle, title: &str, body: &str, mascot: &str) -> Result<(), String>`** (`ln 91–107`):
+    - 构造带 `appLogoOverride` 圆形头像的 Toast XML。
+    - 头像路径: `resources/mascot-toast/{mascot}.png`。
+    - 使用 `ToastNotificationManager::CreateToastNotifierWithId` 发送。
+- **`pub fn show_update_toast(app_handle: &AppHandle, version: &str) -> Result<(), String>`** (`ln 110–148`):
+    - 发送"发现新版本" toast，点击回调唤起主窗口并触发前端事件。
+    - 头像路径: `resources/mascot-update-toast.png`。
 
-## 理由
+## Architecture
 
-插件 notify-rust 在 Windows 不暴露图片参数，带不出娘，因此桌面必须自组 toast XML。
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                      emit_notification                       │
+│              (tauri-app/infra/notification.rs)               │
+└──────────┬──────────────────────────────────┬───────────────┘
+           │                                  │
+           ▼                                  ▼
+   ┌─────────────────┐                ┌─────────────────┐
+   │   Windows       │                │   Non-Windows   │
+   │                 │                │                 │
+   │ show_system_toast│                │ Plugin Notify   │
+   │(platform/toast.rs)│               │ (Pure Text)     │
+   └────────┬────────┘                └─────────────────┘
+            │
+            ▼
+   ┌─────────────────┐
+   │ WinRT Toast XML │
+   │ + AppLogoOverride│
+   │ (Circle Avatar) │
+   └─────────────────┘
+```
 
-## 备选方案
+## Data Flow
 
-旧文档未记录（仅记录"失败降级插件纯文本"这一降级路径）。
-
-## 影响与约束
-
-新增通知变体要同时准备 PNG 资源并放进 `resources/mascot-toast/`（桌面，连字符命名）与 `gen/android/app/src/main/res/drawable-xxhdpi/`（安卓，文件名即 `large_icon` 传入的资源名，下划线命名）；webp 不可用于 toast。资源缺失时无兜底（`ToastContainer` 拼 `/girl/mascot-${mascot}.webp` 无 `onError`）。
-
-## Connections
-
-[[single-notification-channel]]、[[update-notification-per-platform]]、[[mascot-asset-alpha-channel-check]]
+1. **业务触发**: 后台监控、启动自动登录等场景检测到关键状态变化（掉线、重连失败、新版本等）。
+2. **构建参数**: 准备标题、正文、以及看板娘变体名（如 `mascot-alert`, `mascot-offline`）。
+3. **分发**:
+    - **Windows**: `emit_notification` → `show_system_toast` → 查找 `resources/mascot-toast/{mascot}.png` → 转为 `file:///` URL → 嵌入 XML `<image placement="appLogoOverride">` → WinRT API 发送。
+    - **Android**: 由独立模块处理系统通知大图逻辑（源码中未提供详细代码片段，但架构上对应 Android 侧的通知实现）。

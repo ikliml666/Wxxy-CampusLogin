@@ -22,7 +22,7 @@ WifiLock 降级；本轮调研新增两项系统性修复。
 
 Tauri/tao 默认"最后窗口关闭 → `process::exit(0)`"会把前台服务一起带走
 （tauri #15671 根因分析：tao `src/platform_impl/android/mod.rs` run 循环末尾
-`process::exit(exit_code)））。用户从最近任务划掉 Activity 时 Activity 销毁即触发
+`process::exit(exit_code)`)。用户从最近任务划掉 Activity 时 Activity 销毁即触发
 该路径，巡检/夜切/定时动作全部消失。修复：`android/src-tauri/src/lib.rs` 的
 `run()`（`#[cfg_attr(mobile, tauri::mobile_entry_point)]`，lib.rs:30-31）由
 `Builder::run` 单段式改为 `build()` + `run(callback)`：`builder.build(tauri::generate_context!())`

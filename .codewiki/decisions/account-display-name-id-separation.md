@@ -1,10 +1,11 @@
+以下是基于当前源码重写的文章。
+
 ---
 title: 账号显示名与内部 id 分离（含自动建号契约）
 type: decision
 source_files:
   - tauri-app/src-tauri/src/commands/account.rs
   - tauri-app/src-tauri/src/config/persist.rs
-  - android/src-tauri/src/account_cmds.rs
   - tauri-app/frontend/src/account/useAccount.ts
 tags: [决策, 账号, 显示名, 自动建号, 双端同构]
 ---
@@ -17,7 +18,7 @@ tags: [决策, 账号, 显示名, 自动建号, 双端同构]
 
 **id 与 displayName 分离**：
 
-- id = 账号文件名 stem（`<data_dir>/accounts/<id>.json`，`persist.rs:69` `get_account_path`），**稳定不变**，仍受 `validate_account_name` 白名单约束（防路径穿越：id 直接拼文件路径）；
+- id = 账号文件名 stem（`<data_dir>/accounts/<id>.json`，`persist.rs:45` `get_account_path`），**稳定不变**，仍受 `validate_account_name` 白名单约束（防路径穿越：id 直接拼文件路径）；
 - displayName 为新增持久化字段（桌面 `Config.displayName`、安卓 `Settings.displayName`，camelCase，默认空串），trim 后 1..=32 码点、允许空格与 emoji、禁止控制字符（`account.rs:345` `validate_display_name`；安卓同构 `account_cmds.rs:362`）；
 - **读取阶段兜底**：displayName 为空（含纯空白）或账号文件读取/解析失败时，列表项显示名兜底为 id（`persist.rs:117` `list_account_items`；安卓 `account_cmds.rs:99` `read_display_name` + `:107` `list_account_items_sync`），出站一律非空；
 - **命令面变化**：`list_accounts` 返回由 `Vec<String>` 改为 `Vec<AccountItem>`（`{id, displayName}`，`state/mod.rs:295`）；`get_init_data.accounts` 同步（`commands/system.rs:121`）；新增 `rename_account(accountId, displayName)` 命令（桌面 `account.rs:267`、安卓 `account_cmds.rs:298`，两端注册于 `app/startup.rs:88` 与 `lib.rs:77`）。

@@ -18,6 +18,13 @@ tags: [决策, 注销, 协议, radius, mac]
 
 实测证实 **unbind 不踢在线会话、连发无增益**；"注销后打不开登录页"属间歇性服务端/环境异常（23 次注销 0 僵尸）。主流实现（cqu-net-auth / eptools / Meirs）均"一次到位绝不连发"。
 
+核心机制变更见 `tauri-app/src-tauri/src/auth/protocol.rs`：
+
+*   **旧实现缺陷**：每轮"先 MAC 解绑再 Radius 注销"×2 轮，外层再重试 2 次（最坏 4+4 次）。ePortal 4.1.x 的 `mac/unbind` 是按 `wlan_user_ip` 踢下线的破坏性操作（社区 POC Eportalcutdown 利用其实现无鉴权断网），先 unbind 会让后续 logout 作用在被踢残的会话上，诱发网关在线表与 Radius 会话不一致的"僵尸"状态（注销后打不开登录页、换 MAC/换 IP 才恢复）。
+*   **新流程**：
+    1.  **Radius 注销先行**（主操作，最多 2 轮、成功即止）：见 `do_logout_request` (`protocol.rs:187-235`)。调用 `radius_logout_round` (`protocol.rs:240-259`)，仅当发送失败时降级继续下一轮；解析失败向上传 `Err`。
+    2.  **MAC 解绑收尾**（单次，best-effort）：见 `do_logout_request` (`protocol.rs:237-267`)。调用 `mac_unbind_request` (`protocol.rs:262-281`)。仅在 Radius 注销全败时作兜底踢下线。请求失败/端点不可用只记录不中断——注销成败以 Radius 结果为准。
+
 ## 备选方案
 
 MAC 解绑先行 / 连发多轮注销——因实测无增益被弃用。

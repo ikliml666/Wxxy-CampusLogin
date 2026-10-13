@@ -19,13 +19,6 @@ source_files:
   - tauri-app/frontend/src/components/layout/DockNav.tsx
   - tauri-app/frontend/src/components/layout/TitleBar.tsx
   - tauri-app/frontend/src/components/ui/animated-card.tsx
-  - tauri-app/frontend/src/lib/utils.ts
-  - tauri-app/frontend/src/lib/color.ts
-  - tauri-app/frontend/src/lib/easing-config.ts
-  - tauri-app/frontend/src/lib/animations.ts
-  - tauri-app/frontend/src/lib/latency.ts
-  - tauri-app/frontend/src/lib/renderLiveness.ts
-  - tauri-app/frontend/src/i18n/index.ts
 tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i18n, 布局]
 ---
 

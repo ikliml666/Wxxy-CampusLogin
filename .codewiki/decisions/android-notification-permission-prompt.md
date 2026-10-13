@@ -16,22 +16,22 @@ tags: [安卓, 通知, 权限, 国产ROM, 决策]
 
 ## 背景
 
-安卓 13+ 通知受 `POST_NOTIFICATIONS` 运行时权限管控；13 以下与国产 ROM（MIUI/EMUI/ColorOS/OriginOS 等）不存在任何能弹框的标准 API——用户在系统设置里关掉通知后，应用侧唯一手段是 `areNotificationsEnabled()` 检测 + 引导跳应用通知设置页。本项目此前只在「启动后台检查」时请求 13+ 弹框，「启用系统通知」开关不请求任何权限。
+安卓 13+ 通知受 `POST_NOTIFICATIONS` 运行时权限管控；13 以下与国产 ROM（MIUI/EMUI/ColorOS/OriginOS 等）不存在任何能弹框的标准 API——用户在系统设置里关掉通知后，应用侧唯一手段是引导跳应用通知设置页。本项目此前只在「启动后台检查」时请求 13+ 弹框，「启用系统通知」开关不请求任何权限。
 
 ## 决策
 
-通知权限索取收敛到单一 helper `android/frontend/src/lib/notificationPermission.ts` 的 `requestNotificationPermission({ openSettingsIfDenied? })`，三条触发路径：
+2026-09-21：通知权限索取收敛到单一 helper `android/frontend/src/lib/notificationPermission.ts` 的 `requestNotificationPermission({ openSettingsIfDenied? })`，三条触发路径：
 
-1. **首次进入**：App 顶层 `NotificationPermissionGate`（`App.tsx:L568-L592`），无 `campus-notification-prompt`（safeStorage）标记即弹引导弹窗（`App.tsx:L574-L576`），点「去开启」→ 13+ 系统弹框、仍无权限则跳设置页（`App.tsx:L582-L584`）；点任意按钮即标记 `close()`（`App.tsx:L577-L580`），不重复弹。`ConfirmDialog` 使用 `confirmLabel` + `confirmVariant="default"`（非默认 destructive 红色破坏样式，`App.tsx:L579`）。
-2. **通知开关打开**：存在两个独立调用点均传 `openSettingsIfDenied: true`——① 手机壳 `SettingsPanel.tsx:L297-L301` 内联 switch handler；② TabletShell 通过 `useSettings.handleToggleNotification`（`useSettings.ts:L44-L50`，`TabletShell.tsx:L100,L238` 传入 TitleBar 铃铛）。两者逻辑等价，均先更新配置再调 `requestNotificationPermission`。
-3. **启动后台检查**（`useMonitor`）：只弹框不跳设置——间接路径不打断操作流（`useMonitor.ts:L37`，调用时不传 `openSettingsIfDenied`）。
+1. **首次进入**：App 顶层 `NotificationPermissionGate`（`android/frontend/src/App.tsx:L748-L767`），无 `campus-notification-prompt`（safeStorage）标记即弹引导弹窗（`android/frontend/src/App.tsx:L750-L752`），点「去开启」→ 13+ 系统弹框、仍无权限则跳设置页（`android/frontend/src/App.tsx:L757-L758`）；点任意按钮即标记 `close()`（`android/frontend/src/App.tsx:L754-L756`），不重复弹。`ConfirmDialog` 使用 `confirmLabel` + `confirmVariant="default"`（非默认 destructive 红色破坏样式，`android/frontend/src/App.tsx:L759`）。
+2. **通知开关打开**：存在两个独立调用点均传 `openSettingsIfDenied: true`——① 手机壳 `SettingsPanel.tsx:L238-L240` 内联 switch handler；② TabletShell 通过 `useSettings.handleToggleNotification`（`android/frontend/src/settings/useSettings.ts:L44-L50`，`TabletShell.tsx:L100,L238` 传入 TitleBar 铃铛）。两者逻辑等价，均先更新配置再调 `requestNotificationPermission`。
+3. **启动后台检查**（`useMonitor`）：只弹框不跳设置——间接路径不打断操作流（`android/frontend/src/monitor/useMonitor.ts:L37`，调用时不传 `openSettingsIfDenied`）。
 
-跳设置页能力由新命令 `open_notification_settings`（battery_cmds → 插件 `MonitorServicePlugin.openNotificationSettings`）提供，降级链：API 26+ `ACTION_APP_NOTIFICATION_SETTINGS` + `EXTRA_APP_PACKAGE`（`MonitorServicePlugin.kt:L318-L322`）→ API 21-25 裸 action + `app_package`/`app_uid`（`MonitorServicePlugin.kt:L323-L328`）→ 应用详情页 → 通用设置，逐个 try/catch（沿用 `openVendorBatterySettings` 的「不用 resolveActivity 预探测」经验，`MonitorServicePlugin.kt:L307-L314` 注释说明包可见性坑）。
+跳设置页能力由新命令 `open_notification_settings`（battery_cmds → 插件 `MonitorServicePlugin.openNotificationSettings`）提供，降级链：API 26+ `ACTION_APP_NOTIFICATION_SETTINGS` + `EXTRA_APP_PACKAGE`（`android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/MonitorServicePlugin.kt:L318-L322`）→ API 21-25 裸 action + `app_package`/`app_uid`（`android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/MonitorServicePlugin.kt:L323-L328`）→ 应用详情页 → 通用设置，逐个 try/catch（沿用 `openVendorBatterySettings` 的「不用 resolveActivity 预探测」经验，`android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/MonitorServicePlugin.kt:L307-L314` 注释说明包可见性坑）。
 
 Rust 侧转发链：
-- `lib.rs:L104`：Tauri invoke_handler 注册 `battery_cmds::open_notification_settings`
-- `battery_cmds.rs:L87-L101`：`#[tauri::command] pub async fn open_notification_settings()` → `[cfg(mobile)]` 走插件，`[cfg(not(mobile))]` 返回 Err
-- `lib.rs:L95-L97`：`CampusMonitorService::open_notification_settings()` → `run_mobile_plugin("openNotificationSettings")`
+- `android/src-tauri/src/lib.rs:L121`：Tauri invoke_handler 注册 `battery_cmds::open_notification_settings`
+- `android/src-tauri/src/battery_cmds.rs:L87-L101`：`#[tauri::command] pub async fn open_notification_settings()` → `[cfg(mobile)]` 走插件，`[cfg(not(mobile))]` 返回 Err
+- `android/plugins/foreground-service/src/lib.rs:L145`：`CampusMonitorService::open_notification_settings()` → `run_mobile_plugin("openNotificationSettings")`
 
 ## 理由
 
@@ -49,7 +49,7 @@ Rust 侧转发链：
 
 - 桌面端不涉及（平台专属能力例外，`battery_cmds.rs` 桌面调用返回 Err）。
 - 新增跳转类命令归入 battery_cmds（模块定位已扩为「安卓系统设置页跳转命令」）。
-- `ConfirmDialog` 增加可选 `confirmLabel`/`confirmVariant`（缺省保持红色破坏样式，现有调用方零改动；Android 首启弹窗显式传 `confirmVariant="default"`，`App.tsx:L579`）。
+- `ConfirmDialog` 增加可选 `confirmLabel`/`confirmVariant`（缺省保持红色破坏样式，现有调用方零改动；Android 首启弹窗显式传 `confirmVariant="default"`，`App.tsx:L759`）。
 - 常驻通知协议本身不变（见 [[android-persistent-notification-standard]]）；通知渠道单通道语义不变（见 [[single-notification-channel]]）。
 
 ## Connections
