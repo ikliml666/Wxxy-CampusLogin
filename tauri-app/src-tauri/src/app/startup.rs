@@ -118,6 +118,7 @@ pub fn run(core_count: usize) {
             crate::commands::system::notify_window_ready,
             crate::commands::updater::check_update,
             crate::commands::updater::download_update,
+            crate::commands::updater::cancel_download_update,
             crate::commands::updater::install_update,
             crate::commands::updater::get_mirror_urls,
             crate::commands::self_service::bind_operator,

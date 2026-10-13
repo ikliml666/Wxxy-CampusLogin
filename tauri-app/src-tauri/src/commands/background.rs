@@ -1,6 +1,5 @@
 use tauri::{AppHandle, State};
 use crate::infra::command_context::CommandContext;
-use std::sync::Arc;
 use crate::infra::state::{AppState, CommandResult};
 use crate::monitor::watcher;
 
@@ -14,6 +13,9 @@ pub fn start_background_check(app_handle: AppHandle, state: State<'_, AppState>)
 pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle) -> Result<CommandResult, String> {
     let s = CommandContext::from_app(&app_handle);
     s.task_manager.cancel("background_check");
+    // 审计 A9：一次性检测也走 task_manager 注册（background_check_once），
+    // 停止时一并取消
+    s.task_manager.cancel("background_check_once");
     let cfg = s.config.update(|cfg| {
         cfg.enable_background_check = false;
     });
@@ -30,13 +32,9 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
     if s.tasks.is_checking.is_active() {
         return Ok(CommandResult::err("检测正在进行中"));
     }
-    let app_h = app_handle.clone();
-    let manual_cancel = s.task_manager
-        .cancel_token("background_check")
-        .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
-    tauri::async_runtime::spawn(async move {
-        watcher::run_background_check(&app_h, manual_cancel).await;
-    });
+    // 审计 A9：改走统一注册入口——检测任务经 task_manager 注册运行，
+    // 取消令牌全程可达（旧实现取不到周期任务令牌时新建孤儿令牌，不可取消）
+    crate::monitor::background_task::spawn_background_check_once(&app_handle);
     Ok(CommandResult::ok_msg("已触发后台检测"))
 }
 

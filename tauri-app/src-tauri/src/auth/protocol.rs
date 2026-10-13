@@ -129,6 +129,9 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let portal_base = PORTAL_URL.load().clone();
     let base_url = format!("{}/eportal/portal/login", crate::auth::portal::ensure_portal_port(&portal_base));
     let callback = "dr1003";
+    // 安全审计 A18：密码以 GET 查询参数明文传输是 Dr.COM/ePortal 协议与校园网
+    // 环境的固有限制（Portal 页面本身如此提交，无 HTTPS 替代），不改码。
+    // 威胁模型已评估，详见 changelogs/CHANGELOG_v2.4.2.md「设计决策与评估」节。
     let query_params = format!(
         "callback={}&login_method=1&user_account={}&user_password={}&wlan_user_ip=&wlan_user_ipv6=&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&terminal_type=1&lang=zh-cn&v={}&lang=zh",
         urlencoding::encode(callback),

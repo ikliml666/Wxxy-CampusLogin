@@ -1,7 +1,23 @@
+use std::sync::Arc;
 use tauri::{AppHandle, State};
+use tokio_util::sync::CancellationToken;
 use crate::infra::command_context::{AppHandleExt, CommandContext};
 use crate::infra::state::AppState;
 use crate::update::updater::DownloadProgress;
+
+/// 审计 A6：当前下载任务的取消令牌单槽。is_downloading TaskGuard 已保证
+/// 同时最多一个下载，这里只需一个槽位存放其令牌，cancel_download_update
+/// 命令随时取用。下载结束（含错误/取消路径）由 CancelSlotGuard RAII 清空。
+static DOWNLOAD_CANCEL_TOKEN: parking_lot::Mutex<Option<Arc<CancellationToken>>> =
+    parking_lot::Mutex::new(None);
+
+/// 审计 A6：下载结束时清空取消令牌槽（RAII，覆盖所有 return 路径与 panic 展开）。
+struct CancelSlotGuard;
+impl Drop for CancelSlotGuard {
+    fn drop(&mut self) {
+        *DOWNLOAD_CANCEL_TOKEN.lock() = None;
+    }
+}
 
 #[tauri::command]
 pub async fn check_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
@@ -23,6 +39,13 @@ pub async fn download_update(
     // 并发下载互斥：TaskGuard RAII 全路径自动释放，防止两个下载写同一临时文件互相覆盖
     let _download_guard = _state.tasks.is_downloading.try_acquire()
         .ok_or_else(|| "已有下载任务进行中，请等待完成".to_string())?;
+
+    // 审计 A6：注册本下载的取消令牌，cancel_download_update 命令通过它取消；
+    // 槽位由 CancelSlotGuard 在本命令所有退出路径上清空
+    let cancel_token = Arc::new(CancellationToken::new());
+    *DOWNLOAD_CANCEL_TOKEN.lock() = Some(Arc::clone(&cancel_token));
+    let _cancel_slot = CancelSlotGuard;
+
     if !url.starts_with("https://") {
         return Err("仅允许HTTPS协议下载更新包".to_string());
     }
@@ -76,12 +99,16 @@ pub async fn download_update(
         .build()
         .map_err(|e| format!("创建HTTP客户端失败: {e}"))?;
 
-    let mut response = client
-        .get(&url)
-        .header("User-Agent", "CampusLogin-Updater")
-        .send()
-        .await
-        .map_err(|e| format!("下载请求失败: {e}"))?;
+    // 审计 A6：send 也置于 select 下——取消时不必等 30s 连接超时
+    let mut response = tokio::select! {
+        r = client
+            .get(&url)
+            .header("User-Agent", "CampusLogin-Updater")
+            .send() => r.map_err(|e| format!("下载请求失败: {e}"))?,
+        _ = cancel_token.cancelled() => {
+            return Err("下载已取消".to_string());
+        }
+    };
 
     if !response.status().is_success() {
         return Err(format!("下载失败: HTTP {}", response.status()));
@@ -104,11 +131,24 @@ pub async fn download_update(
 
     use tokio::io::AsyncWriteExt;
     loop {
-        let chunk = match response.chunk().await {
-            Ok(c) => c,
-            Err(e) => {
+        // 审计 A6：每个 chunk 先查取消标志——已取消立即中止并清理半成品
+        if cancel_token.is_cancelled() {
+            let _ = std::fs::remove_file(&file_path);
+            return Err("下载已取消".to_string());
+        }
+        // 审计 A6：chunk 读取置于 select 下——卡死的连接上取消能立即生效，
+        // 而不必等 1800s 总超时
+        let chunk = tokio::select! {
+            c = response.chunk() => match c {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&file_path);
+                    return Err(format!("读取数据失败: {e}"));
+                }
+            },
+            _ = cancel_token.cancelled() => {
                 let _ = std::fs::remove_file(&file_path);
-                return Err(format!("读取数据失败: {e}"));
+                return Err("下载已取消".to_string());
             }
         };
 
@@ -184,6 +224,22 @@ pub async fn download_update(
     Ok(path_str)
 }
 
+/// 审计 A6：取消进行中的更新下载（接口约定命令名 cancel_download_update）。
+/// 下载侧收到取消后清理半成品文件并返回"下载已取消"；无下载进行中时
+/// 幂等返回 false。
+#[tauri::command]
+pub async fn cancel_download_update() -> Result<bool, String> {
+    let token = DOWNLOAD_CANCEL_TOKEN.lock().clone();
+    match token {
+        Some(t) => {
+            t.cancel();
+            crate::log_info!("updater", "收到更新下载取消请求");
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
 #[tauri::command]
 pub async fn install_update(app_handle: tauri::AppHandle, file_path: String, checksum_url: Option<String>) -> Result<bool, String> {
     let path = std::path::Path::new(&file_path);
@@ -244,7 +300,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, file_path: String, che
     if ext == "exe" {
         let result = open::that(canonical_path).map(|_| true).map_err(|e| format!("启动安装程序失败: {e}"));
         if result.is_ok() {
-            crate::update::updater::schedule_update_cleanup();
+            crate::update::updater::schedule_update_cleanup(&app_handle);
         }
         result
     } else if ext == "msi" {
@@ -262,7 +318,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, file_path: String, che
                 .map(|_| true)
                 .map_err(|e| format!("启动MSI安装失败: {e}"));
             if result.is_ok() {
-                crate::update::updater::schedule_update_cleanup();
+                crate::update::updater::schedule_update_cleanup(&app_handle);
             }
             result
         }
@@ -274,7 +330,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, file_path: String, che
                 .map(|_| true)
                 .map_err(|e| format!("启动MSI安装失败: {}", e));
             if result.is_ok() {
-                crate::update::updater::schedule_update_cleanup();
+                crate::update::updater::schedule_update_cleanup(&app_handle);
             }
             result
         }

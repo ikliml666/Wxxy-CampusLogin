@@ -114,13 +114,8 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                             // 的别名），会无条件重开用户已停止的后台巡检并持久化 enable_background_check=true，
                             // 用户明确关闭的巡检被适配器恢复事件悄悄重新开启。
                             // 改为只触发一次性检查（内部 is_checking 信号量防止并发）。
-                            let cancel = s.task_manager
-                                .cancel_token("background_check")
-                                .unwrap_or_else(|| std::sync::Arc::new(tokio_util::sync::CancellationToken::new()));
-                            let app_h_check = app_h.clone();
-                            tauri::async_runtime::spawn(async move {
-                                super::background_check::run_background_check(&app_h_check, cancel).await;
-                            });
+                            // 审计 A9：经统一注册入口发起，令牌全程可达
+                            crate::monitor::background_task::spawn_background_check_once(&app_h);
                         }
                     }
                     let should_notify = {
@@ -251,14 +246,12 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                                             let s = app_h_enable.state::<AppState>();
                                             s.update_stats.auto_enable_failure_count.store(0, Ordering::Relaxed);
                                             // 稍等适配器就绪后触发一次性检查以尽快恢复登录
-                                            //（沿用禁用恢复路径模式：不重开用户已停止的后台巡检）
-                                            let cancel = s.task_manager
-                                                .cancel_token("background_check")
-                                                .unwrap_or_else(|| std::sync::Arc::new(tokio_util::sync::CancellationToken::new()));
+                                            //（沿用禁用恢复路径模式：不重开用户已停止的后台巡检）。
+                                            // 审计 A9：经统一注册入口发起，令牌全程可达
                                             let app_h_check = app_h_enable.clone();
                                             tauri::async_runtime::spawn(async move {
                                                 tokio::time::sleep(Duration::from_secs(5)).await;
-                                                super::background_check::run_background_check(&app_h_check, cancel).await;
+                                                crate::monitor::background_task::spawn_background_check_once(&app_h_check);
                                             });
                                         }
                                         Err(e) => {

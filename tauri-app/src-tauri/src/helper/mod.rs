@@ -14,18 +14,60 @@
 
 use serde::Serialize;
 
+/// 审计 A11：校验 ProgramData 候选路径合法性（绝对、非相对、含盘符/根）。
+/// SHGetKnownFolderPath 与环境变量都可能被劫持/损坏，写入前提是路径可信。
+fn validate_programdata_path(p: &std::path::Path) -> bool {
+    if !p.is_absolute() || p.as_os_str().is_empty() {
+        return false;
+    }
+    // Windows 语义：首个成分必须是盘符前缀（C:\）或根目录（\\server\share）
+    matches!(
+        p.components().next(),
+        Some(std::path::Component::Prefix(_)) | Some(std::path::Component::RootDir)
+    )
+}
+
 /// 代理根目录（请求/结果/自检标记的固定位置）。
 pub fn proxy_base_dir() -> std::path::PathBuf {
     #[cfg(target_os = "windows")]
     {
-        std::env::var_os("PROGRAMDATA")
+        // 审计 A11：优先 SHGetKnownFolderPath(FOLDERID_ProgramData)（系统权威来源，
+        // 不受进程环境变量影响——提权 helper 与计划任务 worker 的环境未必带 PROGRAMDATA）；
+        // 失败或结果不合法时回退 PROGRAMDATA 环境变量；再不行退回硬编码 C:\ProgramData。
+        let from_known_folder = known_folder_programdata().filter(|p| validate_programdata_path(p));
+        let from_env = std::env::var_os("PROGRAMDATA")
             .map(std::path::PathBuf::from)
+            .filter(|p| validate_programdata_path(p));
+        from_known_folder
+            .or(from_env)
             .unwrap_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"))
             .join("CampusLogin")
     }
     #[cfg(not(target_os = "windows"))]
     {
         std::env::temp_dir().join("campus-login-proxy")
+    }
+}
+
+/// 审计 A11：经 SHGetKnownFolderPath 读取 ProgramData 实际位置（已有 windows
+/// Win32_UI_Shell feature，不新增依赖）。
+#[cfg(target_os = "windows")]
+fn known_folder_programdata() -> Option<std::path::PathBuf> {
+    unsafe {
+        // windows 0.58 签名：SHGetKnownFolderPath(rfid, dwflags, htoken) -> Result<PWSTR>，
+        // 成功时返回的 PWSTR 由调用方 CoTaskMemFree 释放
+        let path_ptr = windows::Win32::UI::Shell::SHGetKnownFolderPath(
+            &windows::Win32::UI::Shell::FOLDERID_ProgramData,
+            windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG(0),
+            windows::Win32::Foundation::HANDLE::default(),
+        )
+        .ok()?;
+        if path_ptr.is_null() {
+            return None;
+        }
+        let result = path_ptr.to_string().ok().map(std::path::PathBuf::from);
+        windows::Win32::System::Com::CoTaskMemFree(Some(path_ptr.as_ptr() as *const _));
+        result
     }
 }
 
@@ -998,6 +1040,17 @@ fn write_result_file(path: &std::path::Path, result: &HelperResult) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 审计 A11：ProgramData 路径合法性校验（绝对、非相对、含盘符/根）
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn validate_programdata_path_rules() {
+        assert!(validate_programdata_path(std::path::Path::new(r"C:\ProgramData")));
+        assert!(validate_programdata_path(std::path::Path::new(r"D:\")));
+        assert!(!validate_programdata_path(std::path::Path::new("ProgramData")));
+        assert!(!validate_programdata_path(std::path::Path::new(r"..\evil")));
+        assert!(!validate_programdata_path(std::path::Path::new("")));
+    }
 
     #[test]
     fn parse_no_helper_returns_none() {

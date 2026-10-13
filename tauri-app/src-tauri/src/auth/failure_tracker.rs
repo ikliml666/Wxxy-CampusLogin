@@ -74,6 +74,8 @@ pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_r
         crate::log_warn!("login", "连续{}次认证失败，触发{}的MAC重置+DHCP续租", new_count, adapter_name);
         let event_bus = EventBus::new(app_handle);
         let _ = event_bus.emit_login_log("连续5次认证失败，正在重置MAC并重新获取IP...", "warning");
+        // 审计 A16：MAC 重置循环发生，对外发事件（前端可提示/记录）
+        let _ = event_bus.emit_mac_reset_cycle();
         match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {
             Ok(r) => {
                 let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -158,6 +160,8 @@ fn handle_single_adapter_failure(
             &format!("{adapter_name} 连续5次认证失败，正在重置该适配器MAC..."),
             "warning",
         );
+        // 审计 A16：MAC 重置循环发生，对外发事件（前端可提示/记录）
+        let _ = event_bus.emit_mac_reset_cycle();
         match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {
             Ok(r) => {
                 let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -257,6 +261,8 @@ pub fn handle_portal_request_failure(
         &format!("{adapter_label} 连续{PORTAL_REQUEST_FAILURE_THRESHOLD}次 Portal 请求失败，正在重置该适配器MAC..."),
         "warning",
     );
+    // 审计 A16：MAC 重置循环发生，对外发事件（前端可提示/记录）
+    let _ = event_bus.emit_mac_reset_cycle();
 
     if let Some(adapter) = adapter_ref {
         match crate::network::dhcp_release_renew_single(&adapter.name, campus_gw) {

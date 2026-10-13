@@ -113,18 +113,24 @@ fn restore_imported_password_field(imported: &mut String, encrypted: bool, curre
 
 /// 导出当前配置到 <data_dir>/exports/config-<时间戳>.json，返回文件路径。
 /// 默认不含密码（掩码态）；include_password=true 时密码以本机 DPAPI 密文导出。
+/// 审计 A5：文件写入为阻塞 IO，移入 spawn_blocking，不再占用命令执行线程。
 #[tauri::command]
-pub fn export_config(state: State<'_, AppState>, app_handle: AppHandle, include_password: Option<bool>) -> Result<String, String> {
+pub async fn export_config(state: State<'_, AppState>, app_handle: AppHandle, include_password: Option<bool>) -> Result<String, String> {
     let current = state.config.load();
     let payload = build_config_export_payload(&current, include_password.unwrap_or(false))?;
     let json = serde_json::to_string_pretty(&payload).map_err(|e| format!("序列化配置失败: {e}"))?;
 
-    let data_dir = persist::get_data_dir(&app_handle);
-    let exports_dir = data_dir.join("exports");
-    std::fs::create_dir_all(&exports_dir).map_err(|e| format!("创建导出目录失败: {e}"))?;
-    let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let out_path = exports_dir.join(format!("config-{stamp}.json"));
-    std::fs::write(&out_path, json).map_err(|e| format!("写入导出文件失败: {e}"))?;
+    let exports_dir = persist::get_data_dir(&app_handle).join("exports");
+    let out_path = tauri::async_runtime::spawn_blocking(move || -> Result<std::path::PathBuf, String> {
+        std::fs::create_dir_all(&exports_dir).map_err(|e| format!("创建导出目录失败: {e}"))?;
+        let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let out_path = exports_dir.join(format!("config-{stamp}.json"));
+        // 审计 A12：改用原子写（temp+rename），避免崩溃/断电留下半成品导出文件
+        persist::atomic_write(&out_path, &json).map_err(|e| format!("写入导出文件失败: {e}"))?;
+        Ok(out_path)
+    })
+    .await
+    .map_err(|e| format!("导出任务失败: {e}"))??;
 
     crate::log_info!("config", "配置导出成功: {:?}", out_path);
     Ok(out_path.to_string_lossy().to_string())
@@ -134,15 +140,21 @@ pub fn export_config(state: State<'_, AppState>, app_handle: AppHandle, include_
 /// （另有密码密文解密失败，见 restore_imported_password_field）。
 /// 通过后走与 save_config 完全相同的落盘路径：update_portal_url → set_log_retention_days
 /// → save_config_to_disk_encrypted（内含 config-changed 事件）→ 更新内存 ConfigStore。
+/// 审计 A5：文件读取与 DPAPI+落盘为阻塞段，各移入 spawn_blocking。
 #[tauri::command]
-pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: String) -> Result<CommandResult, String> {
+pub async fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: String) -> Result<CommandResult, String> {
     // 大小防呆：配置文件不应超过 1MB，防止误选超大文件整读进内存
     const MAX_IMPORT_SIZE: u64 = 1024 * 1024;
-    let meta = std::fs::metadata(&path).map_err(|e| format!("读取配置文件失败: {e}"))?;
-    if meta.len() > MAX_IMPORT_SIZE {
-        return Err(format!("配置文件过大（{} 字节），超过 1MB 限制", meta.len()));
-    }
-    let content = std::fs::read_to_string(&path).map_err(|e| format!("读取配置文件失败: {e}"))?;
+    // 审计 A5：文件读取为阻塞 IO，移入 spawn_blocking
+    let content = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let meta = std::fs::metadata(&path).map_err(|e| format!("读取配置文件失败: {e}"))?;
+        if meta.len() > MAX_IMPORT_SIZE {
+            return Err(format!("配置文件过大（{} 字节），超过 1MB 限制", meta.len()));
+        }
+        std::fs::read_to_string(&path).map_err(|e| format!("读取配置文件失败: {e}"))
+    })
+    .await
+    .map_err(|e| format!("导入任务失败: {e}"))??;
 
     // 失败分列①：JSON 解析失败
     let value: serde_json::Value = serde_json::from_str(&content)
@@ -179,9 +191,15 @@ pub fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: St
     // 且运行态不变，避免"导入成功但内存未生效"的错位
     crate::network::update_portal_url(&config.portal_url);
     crate::infra::logger::set_log_retention_days(config.log_retention_days);
-    save_config_to_disk_encrypted(&app_handle, &config)?;
+    // 审计 A5：DPAPI+落盘+事件广播为阻塞段，移入 spawn_blocking
+    let app_h = app_handle.clone();
+    let config_for_save = config.clone();
+    tauri::async_runtime::spawn_blocking(move || save_config_to_disk_encrypted(&app_h, &config_for_save))
+        .await
+        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
     state.config.store(config.clone());
-    crate::log_info!("config", "配置导入成功, 用户: {}", config.user);
+    let user = config.user.clone();
+    crate::log_info!("config", "配置导入成功, 用户: {}", user);
 
     Ok(CommandResult::ok_msg("配置导入成功"))
 }
@@ -197,8 +215,11 @@ pub fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
     Ok(state.config.load().masked_for_display())
 }
 
+/// 先落盘再更新内存：磁盘失败（满/只读）时命令返回 Err 且运行态不变，
+/// 避免"保存失败但内存已生效、重启后回退"的错位。
+/// 审计 A5：DPAPI+落盘为阻塞段，移入 spawn_blocking。
 #[tauri::command]
-pub fn save_config(
+pub async fn save_config(
     state: State<'_, AppState>,
     app_handle: AppHandle,
     config: Config,
@@ -231,7 +252,12 @@ pub fn save_config(
 
     // 先落盘再更新内存：磁盘失败（满/只读）时命令返回 Err 且运行态不变，
     // 避免"保存失败但内存已生效、重启后回退"的错位
-    save_config_to_disk_encrypted(&app_handle, &config)?;
+    // 审计 A5：DPAPI+落盘+事件广播为阻塞段，移入 spawn_blocking
+    let app_h = app_handle.clone();
+    let config_for_save = config.clone();
+    tauri::async_runtime::spawn_blocking(move || save_config_to_disk_encrypted(&app_h, &config_for_save))
+        .await
+        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
     state.config.store(config.clone());
     crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
 

@@ -31,6 +31,17 @@ impl<'a> EventBus<'a> {
         self.emit("background-check-result", payload)
     }
 
+    /// 审计 A7：定时动作因互斥锁被占跳过时对外通知（kind: "login"/"logout"/"mac-reset"）。
+    /// 前端可据此提示用户"定时动作被手动操作占用而跳过"。
+    pub fn emit_scheduled_action_skipped(&self, kind: &str) -> Result<(), String> {
+        self.emit("scheduled-action-skipped", serde_json::json!({ "kind": kind }))
+    }
+
+    /// 审计 A16：连续认证失败触发 MAC 重置循环时对外通知。
+    pub fn emit_mac_reset_cycle(&self) -> Result<(), String> {
+        self.emit("mac-reset-cycle", serde_json::json!({}))
+    }
+
     /// 自动登录/断线重连结果事件
     pub fn emit_auto_login_result(&self, success: bool, message: &str, skipped: bool) -> Result<(), String> {
         self.emit("auto-login-result", serde_json::json!({

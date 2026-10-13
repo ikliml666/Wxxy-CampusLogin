@@ -315,10 +315,10 @@ pub fn post_login_handler(app_handle: &AppHandle, state: &AppState) {
             return;
         }
         if enable_bg {
-            let cancel_token = s.task_manager
-                .cancel_token("background_check")
-                .unwrap_or_else(|| Arc::new(tokio_util::sync::CancellationToken::new()));
-            crate::monitor::watcher::run_background_check(&app_h_bg, cancel_token).await;
+            // 审计 A9：改走统一注册入口——一次性检测经 task_manager 注册运行
+            // （"background_check_once"），取消令牌全程可达（旧实现取不到周期任务
+            // 令牌时新建孤儿令牌，任务不可取消）
+            crate::monitor::background_task::spawn_background_check_once(&app_h_bg);
         }
 
         if auto_exit && !s.exit.is_quitting.load(Ordering::Acquire) {

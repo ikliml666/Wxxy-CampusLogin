@@ -62,3 +62,33 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
 
     Ok(CommandResult::ok_msg("后台检测已启动"))
 }
+
+/// 审计 A9：一次性后台检测的统一发起入口——检测任务经 task_manager 注册运行
+/// （"background_check_once"），取消令牌全程可达，退出/关机时可被统一取消。
+/// 旧实现在三处调用点直接 `cancel_token("background_check").unwrap_or_else(新令牌)`
+/// 再裸 spawn：周期任务未启动时拿到的是从未注册的孤儿令牌，任务不可取消。
+///
+/// 注册策略：task_manager.spawn 失败（同名一次性检测已在跑）时，复用其令牌
+/// 再裸 spawn 一轮——is_checking 信号量由 run_background_check 内部 try_acquire
+/// 兜底，并发轮次安全跳过。
+pub fn spawn_background_check_once(app_handle: &AppHandle) {
+    let app_h = app_handle.clone();
+    let spawned = app_handle.state::<AppState>().task_manager.spawn(
+        "background_check_once",
+        move |cancel_token| async move {
+            run_background_check(&app_h, cancel_token.clone()).await;
+        },
+    );
+    if let Err(e) = spawned {
+        // 已有一次性检测在跑：复用其注册令牌补跑一轮（注册态可达，可被统一取消）
+        let s = app_handle.state::<AppState>();
+        if let Some(token) = s.task_manager.cancel_token("background_check_once") {
+            let app_h2 = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                super::background_check::run_background_check(&app_h2, token).await;
+            });
+        } else {
+            crate::log_warn!("background", "一次性后台检测注册失败且令牌缺失: {}", e);
+        }
+    }
+}

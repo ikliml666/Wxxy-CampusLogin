@@ -91,4 +91,5 @@ lto = "thin"
 codegen-units = 16
 opt-level = 3
 strip = true
-panic = "abort"
+# 审计 A1：不使用 panic="abort"——panic 改为展开（unwind），工作线程 panic 不再
+# 直接终止整个进程，第三方 panic 降级为单任务失败；体积代价可接受。

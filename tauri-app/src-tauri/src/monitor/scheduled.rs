@@ -152,13 +152,13 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
         let outbound_active_at_tick = outbound_switch_active(&app_h);
         let (fire_login, fire_logout) = {
             let s = app_h.state::<AppState>();
-            evaluate_and_mark(&s, now_minutes, today_day, outbound_active_at_tick)
+            evaluate_scheduled(&s, now_minutes, today_day, outbound_active_at_tick)
         };
         if fire_login {
-            run_scheduled_login(&app_h, now_minutes);
+            run_scheduled_login(&app_h, now_minutes, today_day);
         }
         if fire_logout {
-            run_scheduled_logout(&app_h, now_minutes);
+            run_scheduled_logout(&app_h, now_minutes, today_day);
         }
 
         // ===== 夜间出站切换（spec §2：出站动作先行，与运营商夜切互斥）=====
@@ -1395,12 +1395,13 @@ fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
     replay_outbound_switch(app_handle, &config);
 }
 
-/// 单拍判定并置当日标记：命中即标记（无论后续动作成败），当日不重试；
-/// 跨天后 today_day 变化，旧标记不再相等，视为未执行（纯函数语义）。
-/// 判定本身见 [`gated_night_action`]（含出站切换态互斥）。返回 (应登录, 应注销)。
-fn evaluate_and_mark(state: &AppState, now_minutes: u16, today_day: i32, outbound_active: bool) -> (bool, bool) {
+/// 单拍判定：命中返回 (应登录, 应注销)，不置任何标记。审计 A7 后额度标记
+/// 移到动作抢锁成功之后（见 [`mark_scheduled_day_fired`]）——被互斥锁跳过的
+/// 拍不消耗当日重试机会；跨天后 today_day 变化，旧标记不再相等，视为未执行
+/// （纯函数语义）。判定本身见 [`gated_night_action`]（含出站切换态互斥）。
+fn evaluate_scheduled(state: &AppState, now_minutes: u16, today_day: i32, outbound_active: bool) -> (bool, bool) {
     let config = state.config.load_full();
-    let (fire_login, fire_logout) = gated_night_action(
+    gated_night_action(
         outbound_active,
         now_minutes,
         config.scheduled_login_minutes,
@@ -1408,16 +1409,21 @@ fn evaluate_and_mark(state: &AppState, now_minutes: u16, today_day: i32, outboun
         state.scheduled.login_day.load(Ordering::Acquire),
         state.scheduled.logout_day.load(Ordering::Acquire),
         today_day,
-    );
-    // 只有真正要发起动作的拍才耗掉当日额度：切换态下 fire_login=false 且不置标记，
-    // 出站还原成功后的下一拍仍走"过点补触发"补上今日登录
+    )
+}
+
+/// 审计 A7：当日额度标记，在动作抢锁成功后置位（无论后续登录/注销成败，
+/// 当日不重试；切换态下 fire_login=false 不置标记，出站还原成功后的下一拍
+/// 仍走"过点补触发"补上今日登录）。生产路径在 spawn_login_action/perform_logout
+/// 的闭包内置位；本函数供单测模拟同一置位语义。
+#[cfg_attr(not(test), allow(dead_code))]
+fn mark_scheduled_day_fired(state: &AppState, fire_login: bool, fire_logout: bool, today_day: i32) {
     if fire_login {
         state.scheduled.login_day.store(today_day, Ordering::Release);
     }
     if fire_logout {
         state.scheduled.logout_day.store(today_day, Ordering::Release);
     }
-    (fire_login, fire_logout)
 }
 
 /// 每拍定时动作的最终判定（纯函数，供单测直接断言）：调用 [`should_fire_scheduled_action`]
@@ -1446,18 +1452,22 @@ fn format_minutes(minutes: u16) -> String {
 }
 
 /// 定时登录：复用 full_login（与手动/托盘登录同一互斥锁），成功后走
-/// post_login_handler（托盘快速登录同款编排，含解除保护期/延迟检测/自动退出）
-fn run_scheduled_login(app_handle: &AppHandle, target_minutes: u16) {
+/// post_login_handler（托盘快速登录同款编排，含解除保护期/延迟检测/自动退出）。
+/// today_day 用于抢锁成功后消耗当日登录额度（审计 A7）。
+fn run_scheduled_login(app_handle: &AppHandle, target_minutes: u16, today_day: i32) {
     spawn_login_action(
         app_handle,
         &format!("定时登录触发 (目标 {})", format_minutes(target_minutes)),
         "定时登录",
+        Some(today_day),
     );
 }
 
 /// 登录动作共用执行体（定时登录与晚间断网切换登录同款）：抢 `is_logging_in`
-/// 互斥锁，抢不到本拍跳过；日志/通知复用 emit_login_log（"success"/"error"）
-fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: &str) {
+/// 互斥锁，抢不到本拍跳过并对外发 scheduled-action-skipped 事件（审计 A7）；
+/// login_quota_day 传入 Some(当日) 时，抢锁成功后消耗定时登录当日额度
+/// （夜切触发路径传 None，不消耗额度）；日志/通知复用 emit_login_log（"success"/"error"）
+fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: &str, login_quota_day: Option<i32>) {
     crate::log_info!("scheduled", "{trigger_log}");
     let app_h = app_handle.clone();
     let result_prefix = result_prefix.to_string();
@@ -1465,12 +1475,18 @@ fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: 
         let s = app_h.state::<AppState>();
         let _guard = match s.tasks.is_logging_in.try_acquire() {
             Some(g) => g,
-            // 已有登录任务在跑：不重复发起
+            // 已有登录任务在跑：不重复发起。审计 A7：对外发跳过事件，
+            // 且本拍不消耗当日登录额度（额度标记移到抢锁成功之后）
             None => {
                 crate::log_warn!("scheduled", "登录动作跳过：已有登录任务进行中");
+                let _ = EventBus::new(&app_h).emit_scheduled_action_skipped("login");
                 return;
             }
         };
+        // 审计 A7：当日额度标记在抢锁成功之后置位——被互斥跳过的拍不白耗额度
+        if let Some(day) = login_quota_day {
+            s.scheduled.login_day.store(day, Ordering::Release);
+        }
         let result = crate::auth::service::full_login(&s, &app_h, None);
         let message = result.message.clone().unwrap_or_default();
         let _ = EventBus::new(&app_h).emit_login_log(
@@ -1508,7 +1524,7 @@ fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) 
     }
     s.config.store(config);
     crate::log_info!("scheduled", "{trigger_log}");
-    spawn_login_action(app_handle, &format!("{trigger_log}, 触发登录"), "晚间断网切换");
+    spawn_login_action(app_handle, &format!("{trigger_log}, 触发登录"), "晚间断网切换", None);
     // 独立 tokio 任务验证切换是否生效，不阻塞监控循环；期望值取落盘后的 config.operator
     // （SwitchToCampus 后为空串=无锡学院，Restore 后为恢复的后缀）
     let expected_operator = app_handle.state::<AppState>().config.load_full().operator.clone();
@@ -1519,24 +1535,33 @@ fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) 
 /// （commands::login_cmd::do_logout 的 adapter_name=None 分支）：取消登录后自动退出、
 /// 重置登录/重连状态并启动 60s 注销保护期——防止定时注销后被准备自动登录/
 /// 掉线重连立即登回（安卓端 do_logout 内置同款保护期语义）。
-fn run_scheduled_logout(app_handle: &AppHandle, target_minutes: u16) {
+/// today_day 用于抢锁成功后消耗当日注销额度（审计 A7）。
+fn run_scheduled_logout(app_handle: &AppHandle, target_minutes: u16, today_day: i32) {
     crate::log_info!("scheduled", "定时注销触发 (目标 {})", format_minutes(target_minutes));
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "定时注销"));
+    tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "定时注销", Some(today_day)));
 }
 
 /// 注销执行体（定时注销与夜切验证复登前的注销同款）：抢 `is_logging_out` 互斥锁，
-/// 抢不到本拍跳过；成功后取消登录后自动退出、重置登录/重连状态并启动 60s 注销保护期。
-fn perform_logout(app_handle: &AppHandle, result_prefix: &str) {
+/// 抢不到本拍跳过并对外发 scheduled-action-skipped 事件（审计 A7）；
+/// logout_quota_day 传入 Some(当日) 时，抢锁成功后消耗定时注销当日额度
+/// （夜切验证路径传 None）；成功后取消登录后自动退出、重置登录/重连状态并
+/// 启动 60s 注销保护期。
+fn perform_logout(app_handle: &AppHandle, result_prefix: &str, logout_quota_day: Option<i32>) {
     let s = app_handle.state::<AppState>();
     let result = {
         let _guard = match s.tasks.is_logging_out.try_acquire() {
             Some(g) => g,
             None => {
                 crate::log_warn!("scheduled", "{result_prefix}跳过：已有注销任务进行中");
+                let _ = EventBus::new(app_handle).emit_scheduled_action_skipped("logout");
                 return;
             }
         };
+        // 审计 A7：当日额度标记在抢锁成功之后置位——被互斥跳过的拍不白耗额度
+        if let Some(day) = logout_quota_day {
+            s.scheduled.logout_day.store(day, Ordering::Release);
+        }
         crate::auth::service::full_logout(&s, app_handle, None)
     };
     let message = result.message.clone().unwrap_or_default();
@@ -1580,8 +1605,8 @@ async fn verify_night_switch(app_handle: AppHandle, expected_operator: String) {
         return;
     };
     let app_h = app_handle.clone();
-    let _ = tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "夜切验证注销")).await;
-    spawn_login_action(&app_handle, "夜切验证复登", "夜切验证");
+    let _ = tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "夜切验证注销", None)).await;
+    spawn_login_action(&app_handle, "夜切验证复登", "夜切验证", None);
     tokio::time::sleep(Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
     match night_switch_verify_round(&config, &expected_operator).await {
         Ok(uid) => {
@@ -1706,7 +1731,7 @@ mod tests {
     #[test]
     fn 禁用目标_不触发_不置标记() {
         let state = AppState::new();
-        let (login, logout) = evaluate_and_mark(&state, 600, TODAY, false);
+        let (login, logout) = evaluate_scheduled(&state, 600, TODAY, false);
         assert!(!login);
         assert!(!logout);
         assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), i32::MIN);
@@ -1721,15 +1746,17 @@ mod tests {
             c.scheduled_logout_minutes = 23 * 60 + 30;
         });
         // 未到点
-        assert!(!evaluate_and_mark(&state, 460 - 1, TODAY, false).0);
-        // 过点补触发（循环拍错过精确分钟）
-        assert!(evaluate_and_mark(&state, 505, TODAY, false).0);
+        assert!(!evaluate_scheduled(&state, 460 - 1, TODAY, false).0);
+        // 过点补触发（循环拍错过精确分钟）→ 抢锁成功后置当日标记（审计 A7）
+        assert!(evaluate_scheduled(&state, 505, TODAY, false).0);
+        mark_scheduled_day_fired(&state, true, false, TODAY);
         assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), TODAY);
         // 同日不重复
-        assert!(!evaluate_and_mark(&state, 600, TODAY, false).0);
+        assert!(!evaluate_scheduled(&state, 600, TODAY, false).0);
         // 注销同款
-        assert!(!evaluate_and_mark(&state, 23 * 60 + 29, TODAY, false).1);
-        assert!(evaluate_and_mark(&state, 23 * 60 + 30, TODAY, false).1);
+        assert!(!evaluate_scheduled(&state, 23 * 60 + 29, TODAY, false).1);
+        assert!(evaluate_scheduled(&state, 23 * 60 + 30, TODAY, false).1);
+        mark_scheduled_day_fired(&state, false, true, TODAY);
         assert_eq!(state.scheduled.logout_day.load(AOrd::Acquire), TODAY);
     }
 
@@ -1740,7 +1767,7 @@ mod tests {
             c.scheduled_login_minutes = 7 * 60 + 40;
         });
         state.scheduled.login_day.store(TODAY - 1, AOrd::Release);
-        assert!(evaluate_and_mark(&state, 460, TODAY, false).0);
+        assert!(evaluate_scheduled(&state, 460, TODAY, false).0);
     }
 
     #[test]
@@ -1751,7 +1778,7 @@ mod tests {
             c.scheduled_logout_minutes = 23 * 60 + 30;
         });
         // 切换态下过点（07:40 已过、23:30 未到）：登录被跳过，且 login_day 未被置位
-        let (login, logout) = evaluate_and_mark(&state, 505, TODAY, true);
+        let (login, logout) = evaluate_scheduled(&state, 505, TODAY, true);
         assert!(!login, "切换态下定时登录应跳过");
         assert!(!logout, "未到注销时刻");
         assert_eq!(
@@ -1760,13 +1787,15 @@ mod tests {
             "跳过的拍不得消耗当日登录标记（否则还原后无法过点补触发）"
         );
         // 注销到点：切换态下照常触发并置位
-        let (login, logout) = evaluate_and_mark(&state, 23 * 60 + 30, TODAY, true);
+        let (login, logout) = evaluate_scheduled(&state, 23 * 60 + 30, TODAY, true);
         assert!(!login, "切换态下定时登录仍应跳过");
         assert!(logout, "定时注销在切换态下照常执行");
+        mark_scheduled_day_fired(&state, false, true, TODAY);
         assert_eq!(state.scheduled.logout_day.load(AOrd::Acquire), TODAY);
         // 还原成功后的下一拍（outbound_active=false）：过点补触发补上今日登录
-        let (login_after, _) = evaluate_and_mark(&state, 23 * 60 + 31, TODAY, false);
+        let (login_after, _) = evaluate_scheduled(&state, 23 * 60 + 31, TODAY, false);
         assert!(login_after, "还原成功后应补触发当日定时登录");
+        mark_scheduled_day_fired(&state, true, false, TODAY);
         assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), TODAY);
     }
 

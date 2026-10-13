@@ -5,7 +5,8 @@ use super::auto_auth::run_auto_login_on_start;
 use super::latency::{run_startup_quality_once, spawn_latency_test_loop};
 
 // 后台检测主体（拆分自原 watcher.rs 大文件）
-pub use super::background_check::run_background_check;
+// 审计 A9：run_background_check 的外部调用已统一走 background_task::
+// spawn_background_check_once，原 re-export 无使用者，移除
 pub use super::background_task::start_background_check_inner;
 
 // 已有 re-export（保持外部 watcher::X 调用路径不变）

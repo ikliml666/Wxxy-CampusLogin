@@ -1,8 +1,8 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Sender, TryRecvError};
-use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+use std::sync::mpsc::{sync_channel, Sender, SyncSender, TryRecvError};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering as AtomicOrdering};
 use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 use std::time::Instant;
@@ -12,6 +12,14 @@ const MAX_LOG_SIZE: u64 = 5 * 1024 * 1024;
 const MAX_LOG_FILES: usize = 5;
 const FLUSH_INTERVAL_MS: u64 = 2000;
 const CHANNEL_CAPACITY: usize = 1024;
+/// 审计 A17：日志通道改为有界（原为无界 channel——写盘卡顿时队列无上限增长，
+/// 潜在内存放大）。容量 8192 条（每条约 200B，满载约 1.6MB 上限）。
+const LOG_CHANNEL_CAPACITY: usize = 8192;
+/// 审计 A17：发送端丢弃计数——通道满时 try_send 失败即丢弃（不阻塞调用方），
+/// worker 周期性汇总。丢弃报告条件：距上次报告 ≥30s 或累计 ≥1000 条。
+const DROP_REPORT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+const DROP_REPORT_THRESHOLD: u64 = 1000;
+static LOG_DROPPED: AtomicU64 = AtomicU64::new(0);
 
 static LOG_RETENTION_DAYS: AtomicU32 = AtomicU32::new(7);
 /// init_logger 记录的实际日志目录，供 set_log_retention_days 应用即清理用
@@ -65,7 +73,7 @@ struct LoggerState {
 }
 
 lazy_static::lazy_static! {
-    static ref LOGGER_SENDER: ArcSwap<Option<Sender<LogMessage>>> = ArcSwap::from(std::sync::Arc::new(None));
+    static ref LOGGER_SENDER: ArcSwap<Option<SyncSender<LogMessage>>> = ArcSwap::from(std::sync::Arc::new(None));
     static ref CLEAR_LOGS_MUTEX: Mutex<()> = Mutex::new(());
     static ref LOGGER_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
     static ref MIN_LOG_LEVEL: ArcSwap<LogLevel> = ArcSwap::from(std::sync::Arc::new(LogLevel::Info));
@@ -90,7 +98,8 @@ pub fn init_logger(log_dir: PathBuf) -> Result<(), String> {
         eprintln!("[WARN] 无法打开日志文件: {log_path:?}");
     }
 
-    let (sender, receiver) = channel::<LogMessage>();
+    // 审计 A17：有界通道——写盘慢时上游不堆积，超限由发送端丢弃并计数
+    let (sender, receiver) = sync_channel::<LogMessage>(LOG_CHANNEL_CAPACITY);
 
     {
         let old = LOGGER_SENDER.swap(std::sync::Arc::new(Some(sender)));
@@ -128,6 +137,8 @@ pub fn init_logger(log_dir: PathBuf) -> Result<(), String> {
 fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<LogMessage>) {
     let mut buffer: Vec<LogMessage> = Vec::with_capacity(64);
     let mut last_cleanup = std::time::Instant::now();
+    // 审计 A17：丢弃计数周期汇总的计时起点
+    let mut last_drop_report = std::time::Instant::now();
     const CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3600);
     // BE-C-01: 批量落盘阈值——累计到该条数或距上次落盘超过 FLUSH_INTERVAL_MS 才写盘，
     // 避免低速时每条日志都触发一次 write+flush 使 BufWriter 形同虚设。
@@ -159,6 +170,25 @@ fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<Log
         }
 
         drain_channel(&receiver, &mut buffer);
+
+        // 审计 A17：周期汇总发送端丢弃的日志条数（≥30s 或 ≥1000 条触发一次），
+        // 取 swap(0) 原子清零，报告本身走通道，若因通道满被丢弃自然并入下一轮计数
+        let dropped_pending = LOG_DROPPED.load(AtomicOrdering::Relaxed);
+        if dropped_pending > 0
+            && (last_drop_report.elapsed() >= DROP_REPORT_INTERVAL
+                || dropped_pending >= DROP_REPORT_THRESHOLD)
+        {
+            let dropped = LOG_DROPPED.swap(0, AtomicOrdering::Relaxed);
+            if dropped > 0 {
+                crate::log_warn!(
+                    "logger",
+                    "日志通道已满，已丢弃 {} 条日志（容量 {} 条，通常意味着写盘持续阻塞）",
+                    dropped,
+                    LOG_CHANNEL_CAPACITY
+                );
+            }
+            last_drop_report = std::time::Instant::now();
+        }
 
         // 批量落盘条件：Flush{ack} 必须立即刷（flush() 等待 ack，超时 5s）；
         // 其余消息累计到阈值或距上次落盘超过间隔才刷。
@@ -320,11 +350,16 @@ pub fn log(level: LogLevel, module: &str, message: &str) {
     let line = format!("[{}] [{}] [{}] {}\n", timestamp, level.as_str(), module, message);
 
     if let Some(sender) = LOGGER_SENDER.load().as_ref().clone() {
-        // BE-C-01: send 失败时 SendError 会把未发送的 LogMessage 归还（e.0），
-        // 直接取回其中的 line 打印，避免额外 clone 一份 line。
-        if let Err(e) = sender.send(LogMessage::Entry { line }) {
+        // 审计 A17：try_send 非阻塞——通道满时丢弃本条并计数（worker 周期性汇总），
+        // 绝不阻塞调用方（原 send 在有界通道满时会卡死任意调用线程）。
+        // Warn 及以上仍落 stderr 兜底，高优先级日志不因通道满而彻底丢失。
+        if let Err(e) = sender.try_send(LogMessage::Entry { line }) {
+            LOG_DROPPED.fetch_add(1, AtomicOrdering::Relaxed);
             if level >= LogLevel::Warn {
-                if let LogMessage::Entry { line } = e.0 {
+                if let LogMessage::Entry { line } = match e {
+                    std::sync::mpsc::TrySendError::Full(m)
+                    | std::sync::mpsc::TrySendError::Disconnected(m) => m,
+                } {
                     eprint!("{line}");
                 }
             }
@@ -454,6 +489,8 @@ pub fn flush() {
     let sender_arc = LOGGER_SENDER.load();
     if let Some(sender) = sender_arc.as_ref() {
         let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
+        // 审计 A17：Flush 是控制消息，必须送达——用阻塞 send（通道满时等 worker
+        // 排空腾位，worker 每轮循环都在 drain，等待有界）；Entry 才用 try_send 丢弃。
         let _ = sender.send(LogMessage::Flush { ack: ack_tx });
         let _ = ack_rx.recv_timeout(std::time::Duration::from_secs(5));
     }
@@ -464,6 +501,7 @@ pub fn flush_quick() {
     let sender_arc = LOGGER_SENDER.load();
     if let Some(sender) = sender_arc.as_ref() {
         let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
+        // 同 flush()：控制消息必须送达，阻塞 send（注释见上）
         let _ = sender.send(LogMessage::Flush { ack: ack_tx });
         let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(500));
     }
@@ -508,9 +546,10 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
         }
     }
 
-    type OldLoggerHandle = (Option<std::sync::Arc<Option<Sender<LogMessage>>>>, Option<std::thread::JoinHandle<()>>);
+    type OldLoggerHandle = (Option<std::sync::Arc<Option<SyncSender<LogMessage>>>>, Option<std::thread::JoinHandle<()>>);
     let (old_sender, old_thread): OldLoggerHandle = {
-        let (new_sender, new_receiver) = channel::<LogMessage>();
+        // 审计 A17：有界通道（同 init_logger）
+        let (new_sender, new_receiver) = sync_channel::<LogMessage>(LOG_CHANNEL_CAPACITY);
         let new_state = LoggerState {
             log_dir: get_log_dir(app_handle),
             current_writer: None,

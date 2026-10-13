@@ -262,12 +262,26 @@ pub fn update_temp_dir() -> std::path::PathBuf {
     std::env::temp_dir().join(UPDATE_TEMP_DIR)
 }
 
-pub fn schedule_update_cleanup() {
+/// 审计 A13：24h 后清理临时目录；remove_dir_all 前检查下载进行中标志，
+/// 若用户正在下载新安装包，跳过本轮（残留目录由下次安装后的清理或启动期
+/// cleanup_stale_update_dir 兜底回收）。
+pub fn schedule_update_cleanup(app_handle: &tauri::AppHandle) {
     let temp_dir = update_temp_dir();
+    let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         // 24h 后清理：原 600s 内用户可能尚未点击安装（UAC 等待/稍后安装），
         // 安装包会被提前删除
         tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+        // 审计 A13：下载进行中不删目录，避免删掉正在写入的半成品安装包
+        let downloading = app_h
+            .state::<AppState>()
+            .tasks
+            .is_downloading
+            .is_active();
+        if downloading {
+            crate::log_info!("updater", "检测到更新下载进行中，本轮临时目录清理跳过");
+            return;
+        }
         let _ = tauri::async_runtime::spawn_blocking(move || {
             std::fs::remove_dir_all(&temp_dir)
         }).await;
