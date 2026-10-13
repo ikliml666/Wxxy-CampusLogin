@@ -104,6 +104,24 @@ describe('useAccount 切换账号守卫（R4）', () => {
     expect(h.setAccounts).toHaveBeenCalledWith(items)
   })
 
+  it('并发连点两个账号：switchInFlight 去重，api.switchAccount 只发一次', async () => {
+    // 模拟后端切换耗时：promise 挂起期间第二次点击必须复用同一 in-flight
+    h.switchAccount.mockImplementation(() =>
+      new Promise((res) => setTimeout(() => res({ success: true, activeAccount: 'x' }), 30)),
+    )
+    render(<Probe />)
+    await act(async () => {
+      const p1 = captured!.handleSwitchAccount('a1')
+      const p2 = captured!.handleSwitchAccount('a2')
+      await Promise.all([p1, p2])
+    })
+    expect(h.switchAccount).toHaveBeenCalledTimes(1)
+    expect(h.switchAccount).toHaveBeenCalledWith('a1')
+    // 去重后切换仍正常收尾：激活账号同步 + 成功 toast
+    expect(h.setActiveAccount).toHaveBeenCalledWith('x')
+    expect(h.addToast).toHaveBeenCalledWith('account.switchSuccess', 'success')
+  })
+
   it('后端 success=false 时不改激活账号，把 message 透给 toast', async () => {
     h.switchAccount.mockResolvedValue({ success: false, message: '账号不存在' })
     render(<Probe />)
