@@ -7,8 +7,8 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, RotateCcw, UserRound } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, RotateCcw, UserRound } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { SegmentTabs } from '@/shared/SegmentTabs'
@@ -16,6 +16,10 @@ import React, { useState, useCallback, useMemo, memo, useRef, useEffect } from '
 import { useTranslation } from 'react-i18next'
 import { m, Reorder, useDragControls } from 'framer-motion'
 import { buildOutboundOrder } from './outboundOrder'
+import { AdapterSelect } from './AdapterSelect'
+import { useDnsSetup } from './useDnsSetup'
+import { useOutboundManual } from './useOutboundManual'
+import { DnsAdapterCard } from './DnsAdapterCard'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
@@ -32,10 +36,6 @@ interface NetworkPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
 }
 
-const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'])
-const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53', '2402:4e00::'])
-const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
-// 账号绑定下拉的「跟随当前账号」哨兵值（config 存空串，UI 层用哨兵渲染）
 const FOLLOW_CURRENT_ACCOUNT = '__follow__'
 const NO_BACKUP_ADAPTER = '__none__'
 
@@ -268,36 +268,13 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outboundOrderKey])
 
-  const [dohEnabling, setDohEnabling] = useState(false)
-  const [dnsResetting, setDnsResetting] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
-  // 当前真实出站接口（后端 GetIpForwardTable2 默认路由 metric 求和判定）：
-  // 行内徽标按名字匹配；不在适配器列表（TUN/虚拟网卡）时仅头部 chip 展示别名。
-  // 查询失败软降级为 null（徽标隐藏，不影响其他功能）。
-  const [currentOutbound, setCurrentOutbound] = useState<string | null>(null)
-  const [switchingOutbound, setSwitchingOutbound] = useState(false)
-  const [restoringOutbound, setRestoringOutbound] = useState(false)
   const ipc = tauriApiWithRetry
   const mountedRef = useRef(true)
 
-  const refreshCurrentOutbound = useCallback(async () => {
-    try {
-      const name = await ipc.getCurrentOutboundName?.()
-      if (mountedRef.current) setCurrentOutbound(name ?? null)
-    } catch {
-      if (mountedRef.current) setCurrentOutbound(null)
-    }
-  }, [ipc])
-
-  // 挂载、适配器列表变化（禁用/启用/DHCP 续租都会改变出站）、60s 兜底轮询各查一次
-  useEffect(() => {
-    void refreshCurrentOutbound()
-  }, [refreshCurrentOutbound, adapters.length])
-  useEffect(() => {
-    const timer = window.setInterval(() => { void refreshCurrentOutbound() }, 60_000)
-    return () => window.clearInterval(timer)
-  }, [refreshCurrentOutbound])
+  // 出站查询/轮询与手动切换/还原（useOutboundManual.ts）
+  const { currentOutbound, switchingOutbound, restoringOutbound, refreshCurrentOutbound, handleOutboundSwitchNow, handleOutboundRestoreNow } = useOutboundManual(adapters.length)
 
   // WebView2 最小化时定时器被节流，且夜间自动切换（改路由 metric/临时禁卡）多数
   // 不改变适配器数量——恢复窗口时常看到陈旧的当前出站徽标与适配器列表。
@@ -340,8 +317,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const dnsChecking = useQualityStore(s => s.dnsChecking)
   const refreshAdapters = useAdapterStore(s => s.refreshAdapters)
   const isRefreshingAdapters = useAdapterStore(s => s.isRefreshingAdapters)
-  // DNS 优化目标：ipv4 / ipv6 / both（默认双栈）
-  const [dnsFamily, setDnsFamily] = useState<'both' | 'ipv4' | 'ipv6'>('both')
+  // DNS 检测/一键优化/恢复逻辑与 busy 态（useDnsSetup.ts）
+  const { dnsFamily, setDnsFamily, dohEnabling, dnsResetting, handleCheckDns, handleSetupDnsDoh, handleResetDns } = useDnsSetup(config.dnsOptimizeAdapters.length)
   // DNS 结果堆叠卡（OnlineDeviceCardStack 自管翻页索引）：新检测结果到达时以 key 重挂载复位到第一张
   const dnsAdapterCount = dnsStatus?.adapters.length ?? 0
   const familyTabs = [
@@ -365,89 +342,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     const cur = config.dnsOptimizeAdapters
     onUpdateConfig({ dnsOptimizeAdapters: cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name] })
   }, [config.dnsOptimizeAdapters, onUpdateConfig])
-
-  const handleCheckDns = useCallback(async () => {
-    useQualityStore.getState().setDnsChecking(true)
-    try {
-      const status = await ipc.checkDnsDohStatus()
-      useQualityStore.getState().setDnsDohStatus(status)
-      if (status) {
-        const hasRecommendedDns = status.adapters?.some(a => a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address))) ?? false
-        const dohNotEnabled = status.adapters?.some(a =>
-          a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
-        ) ?? false
-        if (!hasRecommendedDns) {
-          useLogToastStore.getState().addLog(t('network.dnsNotRecommended'), 'warning')
-        } else if (dohNotEnabled) {
-          useLogToastStore.getState().addLog(t('network.dnsDohNotEnabled'), 'warning')
-        }
-      }
-    } catch {
-      useQualityStore.getState().setDnsDohStatus(null)
-    } finally {
-      useQualityStore.getState().setDnsChecking(false)
-    }
-  }, [ipc])
-
-  const handleSetupDnsDoh = useCallback(async () => {
-    if (config.dnsOptimizeAdapters.length === 0) {
-      useLogToastStore.getState().addLog(t('network.dnsNoAdapterSelected'), 'warning')
-      return
-    }
-    setDohEnabling(true)
-    try {
-      const result = await ipc.setupDnsDoh(dnsFamily)
-      if (!mountedRef.current) return
-      if (result.success) {
-        useLogToastStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
-        // 检测刷新独立捕获：其失败不应落入外层 catch 再弹一次"优化失败"与上面的成功 toast 矛盾
-        try {
-          const status = await ipc.checkDnsDohStatus()
-          if (!mountedRef.current) return
-          useQualityStore.getState().setDnsDohStatus(status)
-        } catch (e) {
-          if (import.meta.env.DEV) console.error('[setupDnsDoh] 刷新DNS状态失败:', e)
-        }
-      } else {
-        useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', result.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setDohEnabling(false)
-    }
-  }, [ipc, dnsFamily, config.dnsOptimizeAdapters.length, t])
-
-  const handleResetDns = useCallback(async () => {
-    if (config.dnsOptimizeAdapters.length === 0) {
-      useLogToastStore.getState().addLog(t('network.dnsNoAdapterSelected'), 'warning')
-      return
-    }
-    setDnsResetting(true)
-    try {
-      const result = await ipc.resetDns()
-      if (!mountedRef.current) return
-      if (result.success) {
-        useLogToastStore.getState().addToast(t('network.dnsResetSuccess'), 'success', result.message)
-        // 检测刷新独立捕获：其失败不应落入外层 catch 再弹一次"恢复失败"与上面的成功 toast 矛盾
-        try {
-          const status = await ipc.checkDnsDohStatus()
-          if (!mountedRef.current) return
-          useQualityStore.getState().setDnsDohStatus(status)
-        } catch (e) {
-          if (import.meta.env.DEV) console.error('[resetDns] 刷新DNS状态失败:', e)
-        }
-      } else {
-        useLogToastStore.getState().addToast(t('network.dnsResetFailed'), 'error', result.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.dnsResetFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setDnsResetting(false)
-    }
-  }, [ipc, config.dnsOptimizeAdapters.length, t])
 
   const handleGetNewIpForAdapter = useCallback(async (adapterName: string) => {
     setGettingNewIpAdapter(adapterName)
@@ -486,72 +380,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     await refreshAdapterData({ force: true, includeDisabled: true })
   }, [ipc, mountedRef, t])
 
-  // 「立即切换出站」：绕过自动切换的退避闸手动触发；完成后刷新列表与出站徽标
-  const handleOutboundSwitchNow = useCallback(async () => {
-    setSwitchingOutbound(true)
-    try {
-      const result = await ipc.outboundSwitchNow?.()
-      if (!mountedRef.current) return
-      if (result?.success) {
-        useLogToastStore.getState().addToast(t('network.outboundSwitchNowSuccess'), 'success', result.message)
-      } else {
-        useLogToastStore.getState().addToast(t('network.outboundSwitchNowFailed'), 'error', result?.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.outboundSwitchNowFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) {
-        setSwitchingOutbound(false)
-        void refreshAdapterData({ force: true, includeDisabled: true })
-        void refreshCurrentOutbound()
-      }
-    }
-  }, [ipc, mountedRef, t, refreshCurrentOutbound])
-
-  // 「立即还原出站」：清当日保持标记并还原；失败时快照仍在，自动还原会继续重试
-  const handleOutboundRestoreNow = useCallback(async () => {
-    setRestoringOutbound(true)
-    try {
-      const result = await ipc.outboundRestoreNow?.()
-      if (!mountedRef.current) return
-      if (result?.success) {
-        useLogToastStore.getState().addToast(t('network.outboundRestoreNowSuccess'), 'success', result.message)
-      } else {
-        useLogToastStore.getState().addToast(t('network.outboundRestoreNowFailed'), 'error', result?.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.outboundRestoreNowFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) {
-        setRestoringOutbound(false)
-        void refreshAdapterData({ force: true, includeDisabled: true })
-        void refreshCurrentOutbound()
-      }
-    }
-  }, [ipc, mountedRef, t, refreshCurrentOutbound])
-
-  const getDnsQuality = (
-    adapter: {
-      dnsSource?: string;
-      dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
-      profileDnsServers?: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
-      adapterDnsOverridesProfile?: boolean;
-    },
-    autoDohEnabled: boolean
-  ) => {
-    const servers = adapter.dnsServers || []
-    const profileServers = adapter.profileDnsServers || []
-    const effectiveServers = adapter.adapterDnsOverridesProfile ? servers : (servers.length > 0 ? servers : profileServers)
-
-    if (effectiveServers.length === 0 || adapter.dnsSource === 'dhcp') return { level: 'none' as const, label: t('network.dnsNotConfigured') }
-    const hasRecommended = effectiveServers.some(s => RECOMMENDED_DNS.has(s.address))
-    const dohActive = autoDohEnabled || effectiveServers.filter(s => RECOMMENDED_DNS.has(s.address)).every(s => s.dohEnabled)
-    if (hasRecommended && dohActive) return { level: 'excellent' as const, label: t('network.dnsRecommendedWithDoh') }
-    if (hasRecommended) return { level: 'good' as const, label: t('network.dnsRecommendedNoDoh') }
-    return { level: 'basic' as const, label: t('network.dnsNotRecommendedShort') }
-  }
+  // 「立即切换出站」…已外移 useOutboundManual.ts
 
   return (
     <div className="space-y-4">
@@ -728,75 +557,31 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
                   {t('network.primaryAdapter')}
                 </Label>
-                <Select
+                <AdapterSelect
                   value={config.adapter1 || AUTO_DETECT_ADAPTER}
                   onValueChange={(value) => onUpdateConfig({ adapter1: value })}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder={t('network.selectPrimaryAdapter')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={AUTO_DETECT_ADAPTER}>{t('network.autoDetect')}</SelectItem>
-                    {adapters.filter(a => a.ip).map(a => (
-                      <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
-                    ))}
-                    {adapters.some(a => !a.ip && a.status !== 'disabled') && (
-                      <>
-                        <SelectSeparator />
-                        {adapters.filter(a => !a.ip && a.status !== 'disabled').map(a => (
-                          <SelectItem key={a.name} value={a.name} disabled={a.status === 'disconnected'}>
-                            {a.name}{a.status === 'disconnected' ? `（${t('network.status.disconnected')}）` : t('network.noIpSuffix')}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    {effectiveDisabledAdapters.length > 0 && <SelectSeparator />}
-                    {effectiveDisabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled>
-                        {a.name}（{t('network.status.disabled')}）
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  adapters={adapters}
+                  disabledAdapters={effectiveDisabledAdapters}
+                  placeholder={t('network.selectPrimaryAdapter')}
+                  noneItem={{ value: AUTO_DETECT_ADAPTER, label: t('network.autoDetect') }}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
                   <Cable className="h-3 w-3 text-muted-foreground/60" />
                   {t('network.backupAdapter')}
                 </Label>
-                <Select
+                <AdapterSelect
                   value={config.adapter2 || NO_BACKUP_ADAPTER}
                   onValueChange={(value) => {
                     const adapter2 = value
                     onUpdateConfig({ adapter2, dualAdapter: value !== NO_BACKUP_ADAPTER })
                   }}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder={t('network.selectBackupAdapter')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_BACKUP_ADAPTER}>{t('common.none')}</SelectItem>
-                    {adapters.filter(a => a.ip).map(a => (
-                      <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
-                    ))}
-                    {adapters.some(a => !a.ip && a.status !== 'disabled') && (
-                      <>
-                        <SelectSeparator />
-                        {adapters.filter(a => !a.ip && a.status !== 'disabled').map(a => (
-                          <SelectItem key={a.name} value={a.name} disabled={a.status === 'disconnected'}>
-                            {a.name}{a.status === 'disconnected' ? `（${t('network.status.disconnected')}）` : t('network.noIpSuffix')}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    {effectiveDisabledAdapters.length > 0 && <SelectSeparator />}
-                    {effectiveDisabledAdapters.map(a => (
-                      <SelectItem key={a.name} value={a.name} disabled>
-                        {a.name}（{t('network.status.disabled')}）
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  adapters={adapters}
+                  disabledAdapters={effectiveDisabledAdapters}
+                  placeholder={t('network.selectBackupAdapter')}
+                  noneItem={{ value: NO_BACKUP_ADAPTER, label: t('common.none') }}
+                />
               </div>
               <p className="col-span-full text-[11px] font-medium text-primary flex items-center gap-1 mt-1">
                 <UserRound className="h-3 w-3" />
@@ -912,97 +697,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               // 中央卡全亮、两侧缩小压暗（0.6/0.45）、整副牌连续滚动、中线分区点击 + 拖拽翻页 + 圆点指示器。
               // 卡内容重排：标题行（适配器名+徽章）/ 服务器瓦片（IP+归属+DoH 一行、模板行）/ 配置文件 DNS 分区
               <OnlineDeviceCardStack key={dnsAdapterCount} className="py-1">
-                {dnsStatus.adapters.map((adapter) => {
-                  const quality = getDnsQuality(adapter, dnsStatus.autoDohEnabled)
-                  const sourceBadge = adapter.dnsSource === 'profile'
-                    ? { label: t('network.perProfileDns'), cls: 'border-purple-500/30 text-purple-600' }
-                    : adapter.dnsSource === 'manual'
-                      ? { label: t('network.perAdapterDns'), cls: 'border-blue-500/30 text-blue-600' }
-                      : null
-                  // 服务器单行布局（替代原 IPv4+DoH 双灰瓦片，与安卓端行式结构对齐）：
-                  // IP 等宽字体居左作主信息、归属小字随后；DoH 状态右对齐成一列便于纵向扫读；
-                  // 模板 URL 作次行小字（判断加密配置是否正确的关键信息）
-                  const renderServerRow = (dns: { address: string; dohEnabled: boolean; dohAvailable: boolean; dohTemplate: string }) => {
-                    const recommended = RECOMMENDED_DNS.has(dns.address)
-                    return (
-                      <div key={dns.address} className="min-w-0 py-2 first:pt-0 last:pb-0">
-                        <div className="flex items-center justify-between gap-3 min-w-0">
-                          <div className="flex items-baseline gap-1.5 min-w-0">
-                            <span className={cn('font-mono text-[13px] leading-5 font-medium tabular-nums', recommended ? 'text-green-600' : 'text-foreground')}>
-                              {dns.address}
-                            </span>
-                            {recommended && (
-                              <span className="text-[10px] leading-4 text-muted-foreground/50 shrink-0">
-                                {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
-                              </span>
-                            )}
-                          </div>
-                          <span className={cn(
-                            'flex items-center gap-1 text-[11px] leading-5 font-medium shrink-0',
-                            dns.dohEnabled ? 'text-green-600' : dns.dohAvailable ? 'text-amber-600' : 'text-muted-foreground/50'
-                          )}>
-                            {dns.dohEnabled ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <XCircle className="h-3 w-3 shrink-0" />}
-                            {dns.dohEnabled ? t('network.dohEncrypted') : dns.dohAvailable ? t('network.dohAvailable') : t('network.dohNotEnabled')}
-                          </span>
-                        </div>
-                        {dns.dohEnabled && dns.dohTemplate && (
-                          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground/50 font-mono truncate">{dns.dohTemplate}</p>
-                        )}
-                      </div>
-                    )
-                  }
-                  return (
-                    <div
-                      key={adapter.name}
-                      // 背景与边缘完全对齐在线信息卡：bg-card dark:bg-muted + 内阴影 ring；
-                      // 卡高自适应内容（OnlineDeviceCardStack 舞台跟随当前卡高度 + 高度过渡）
-                      className="w-full h-fit rounded-xl bg-card dark:bg-muted p-3 shadow-sm shadow-black/5 ring-1 ring-black/[0.04] ring-inset dark:ring-white/[0.06] flex flex-col justify-center gap-2 overflow-hidden"
-                    >
-                      {/* 标题行：适配器名 + 质量徽章 + DNS 来源徽章 */}
-                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        <span className="text-sm font-semibold">{adapter.name}</span>
-                        <Badge variant="outline" size="sm" className={cn(
-                          quality.level === 'excellent' && 'border-green-500/30 text-green-600',
-                          quality.level === 'good' && 'border-blue-500/30 text-blue-600',
-                          quality.level === 'basic' && 'border-amber-500/30 text-amber-600',
-                          quality.level === 'none' && 'border-red-500/30 text-red-600'
-                        )}>{quality.label}</Badge>
-                        {sourceBadge && <Badge variant="outline" size="sm" className={sourceBadge.cls}>{sourceBadge.label}</Badge>}
-                      </div>
-                      {/* 服务器列表 */}
-                      {adapter.dnsServers.length > 0 ? (
-                        <div className="flex flex-col divide-y divide-black/[0.05] dark:divide-white/[0.06]">
-                          {adapter.dnsServers.map((dns) => renderServerRow(dns))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground/60">{t('network.noDnsServers')}</p>
-                      )}
-                      {/* 适配器级 DNS 覆盖配置文件级 DNS 警告 */}
-                      {adapter.adapterDnsOverridesProfile && adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
-                        <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                          <span className="text-xs text-amber-600">{t('network.adapterDnsOverridesProfileTip')}</span>
-                        </div>
-                      )}
-                      {/* 配置文件级 DNS（被覆盖时仍在列，供对照）：紧凑单行摘要，不复制主区瓦片结构 */}
-                      {adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
-                        <div className="flex flex-col gap-0.5 pt-1.5 border-t border-border/30">
-                          <span className="text-[10px] leading-4 text-muted-foreground/60 font-medium">{t('network.profileDns')}</span>
-                          {adapter.profileDnsServers.map((dns) => (
-                            <div key={dns.address} className="flex items-center gap-2 text-xs leading-5 min-w-0">
-                              <span className="font-mono truncate">{dns.address}</span>
-                              {dns.dohEnabled ? (
-                                <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
-                              ) : dns.dohAvailable ? (
-                                <span className="text-amber-600 text-[10px] shrink-0">{t('network.dohAvailable')}</span>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+                {dnsStatus.adapters.map((adapter) => (
+                  <DnsAdapterCard key={adapter.name} adapter={adapter} autoDohEnabled={dnsStatus.autoDohEnabled} />
+                ))}
               </OnlineDeviceCardStack>
             )}
             {dnsStatus && !dnsStatus.dohSupported && (

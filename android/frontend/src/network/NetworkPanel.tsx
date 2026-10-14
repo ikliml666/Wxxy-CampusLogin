@@ -7,7 +7,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, Cable, Router, AlertTriangle, Shield, CheckCircle2, XCircle, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check, Network } from 'lucide-react'
+import { Wifi, Cable, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check, Network } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
@@ -19,15 +19,13 @@ import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
+import { useDnsSetup } from './useDnsSetup'
+import { DnsAdapterCard } from './DnsAdapterCard'
 
 interface NetworkPanelProps {
   adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
 }
-
-const ALI_DNS = new Set(['223.5.5.5', '223.6.6.6', '2400:3200::1', '2400:3200:baba::1'])
-const TENCENT_DNS = new Set(['1.12.12.12', '120.53.53.53', '2402:4e00::'])
-const RECOMMENDED_DNS = new Set([...ALI_DNS, ...TENCENT_DNS])
 
 /** 连接速度格式化：bit/s → 统一 Mbps 显示（如 "1000 Mbps"），低于 1 Mbps 用 Kbps，未知返回空串 */
 function formatSpeed(bps?: number): string {
@@ -42,7 +40,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
-  const [dohEnabling, setDohEnabling] = useState(false)
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
   const ipc = tauriApiWithRetry
@@ -59,62 +56,13 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const dnsChecking = useQualityStore(s => s.dnsChecking)
   const refreshAdapters = useAdapterStore(s => s.refreshAdapters)
   const isRefreshingAdapters = useAdapterStore(s => s.isRefreshingAdapters)
-  // DNS 优化目标：ipv4 / ipv6 / both（默认双栈）
-  const [dnsFamily, setDnsFamily] = useState<'both' | 'ipv4' | 'ipv6'>('both')
+  // DNS 检测/一键优化逻辑与 busy 态（useDnsSetup.ts）
+  const { dnsFamily, setDnsFamily, dohEnabling, handleCheckDns, handleSetupDnsDoh } = useDnsSetup()
   const familyTabs = [
     { key: 'ipv4', label: 'IPv4', icon: Network, color: 'text-primary', bg: '' },
     { key: 'ipv6', label: 'IPv6', icon: Globe, color: 'text-primary', bg: '' },
     { key: 'both', label: t('network.dnsFamilyBoth'), icon: Layers, color: 'text-primary', bg: '' },
   ]
-
-  const handleCheckDns = useCallback(async () => {
-    useQualityStore.getState().setDnsChecking(true)
-    try {
-      const status = await ipc.checkDnsDohStatus()
-      useQualityStore.getState().setDnsDohStatus(status)
-      if (status) {
-        const hasRecommendedDns = status.adapters?.some(a => a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address))) ?? false
-        const dohNotEnabled = status.adapters?.some(a =>
-          a.dnsServers.some(d => RECOMMENDED_DNS.has(d.address) && d.dohAvailable && !d.dohEnabled)
-        ) ?? false
-        if (!hasRecommendedDns) {
-          useLogToastStore.getState().addLog(t('network.dnsNotRecommended'), 'warning')
-        } else if (dohNotEnabled) {
-          useLogToastStore.getState().addLog(t('network.dnsDohNotEnabled'), 'warning')
-        }
-      }
-    } catch {
-      useQualityStore.getState().setDnsDohStatus(null)
-    } finally {
-      useQualityStore.getState().setDnsChecking(false)
-    }
-  }, [ipc])
-
-  const handleSetupDnsDoh = useCallback(async () => {
-    setDohEnabling(true)
-    try {
-      const result = await ipc.setupDnsDoh(dnsFamily)
-      if (!mountedRef.current) return
-      if (result.success) {
-        useLogToastStore.getState().addToast(t('network.dnsOptSuccess'), 'success', result.message)
-        // 检测刷新独立捕获：其失败不应落入外层 catch 再弹一次"优化失败"与上面的成功 toast 矛盾
-        try {
-          const status = await ipc.checkDnsDohStatus()
-          if (!mountedRef.current) return
-          useQualityStore.getState().setDnsDohStatus(status)
-        } catch (e) {
-          if (import.meta.env.DEV) console.error('[setupDnsDoh] 刷新DNS状态失败:', e)
-        }
-      } else {
-        useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', result.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.dnsOptFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setDohEnabling(false)
-    }
-  }, [ipc, dnsFamily])
 
   const handleGetNewIpForAdapter = useCallback(async (adapterName: string) => {
     setGettingNewIpAdapter(adapterName)
@@ -212,27 +160,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       await refreshSecureStatus()
     }
   }, [ipc, mountedRef, t, refreshSecureStatus])
-
-  const getDnsQuality = (
-    adapter: {
-      dnsSource?: string;
-      dnsServers: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
-      profileDnsServers?: { address: string; dohAvailable: boolean; dohEnabled: boolean }[];
-      adapterDnsOverridesProfile?: boolean;
-    },
-    autoDohEnabled: boolean
-  ) => {
-    const servers = adapter.dnsServers || []
-    const profileServers = adapter.profileDnsServers || []
-    const effectiveServers = adapter.adapterDnsOverridesProfile ? servers : (servers.length > 0 ? servers : profileServers)
-
-    if (effectiveServers.length === 0 || adapter.dnsSource === 'dhcp') return { level: 'none' as const, label: t('network.dnsNotConfigured') }
-    const hasRecommended = effectiveServers.some(s => RECOMMENDED_DNS.has(s.address))
-    const dohActive = autoDohEnabled || effectiveServers.filter(s => RECOMMENDED_DNS.has(s.address)).every(s => s.dohEnabled)
-    if (hasRecommended && dohActive) return { level: 'excellent' as const, label: t('network.dnsRecommendedWithDoh') }
-    if (hasRecommended) return { level: 'good' as const, label: t('network.dnsRecommendedNoDoh') }
-    return { level: 'basic' as const, label: t('network.dnsNotRecommendedShort') }
-  }
 
   return (
     <div className="space-y-4">
@@ -503,90 +430,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 {dnsStatus.adapters.length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-4">{t('network.noActiveAdapters')}</p>
                 )}
-                {dnsStatus.adapters.map((adapter) => {
-                  const quality = getDnsQuality(adapter, dnsStatus.autoDohEnabled)
-                  return (
-                    <div key={adapter.name} className="p-3.5 rounded-xl bg-muted/30 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{adapter.name}</span>
-                          {quality.level === 'excellent' && <Badge variant="outline" size="sm" className="border-green-500/30 text-green-600">DNS+DoH</Badge>}
-                          {quality.level === 'good' && <Badge variant="outline" size="sm" className="border-blue-500/30 text-blue-600">DNS</Badge>}
-                          {quality.level === 'basic' && <Badge variant="outline" size="sm" className="border-amber-500/30 text-amber-600">{t('network.pendingOptimization')}</Badge>}
-                          {quality.level === 'none' && <Badge variant="outline" size="sm" className="border-red-500/30 text-red-600">{t('network.notConfigured')}</Badge>}
-                          {adapter.dnsSource === 'profile' && (
-                            <Badge variant="outline" size="sm" className="border-purple-500/30 text-purple-600">{t('network.perProfileDns')}</Badge>
-                          )}
-                          {adapter.dnsSource === 'manual' && (
-                            <Badge variant="outline" size="sm" className="border-blue-500/30 text-blue-600">{t('network.perAdapterDns')}</Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        {adapter.dnsServers.map((dns) => (
-                          <div key={dns.address} className="flex items-center gap-2 text-xs">
-                            <span className={cn("font-mono", RECOMMENDED_DNS.has(dns.address) ? "text-green-600" : "text-muted-foreground")}>
-                              {dns.address}
-                            </span>
-                            {RECOMMENDED_DNS.has(dns.address) && (
-                              <span className="text-muted-foreground/60">
-                                {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
-                              </span>
-                            )}
-                            {dns.dohEnabled ? (
-                              <CheckCircle2 className="h-3 w-3 text-green-500" />
-                            ) : dns.dohAvailable ? (
-                              <XCircle className="h-3 w-3 text-amber-400" />
-                            ) : (
-                              <XCircle className="h-3 w-3 text-muted-foreground/30" />
-                            )}
-                            {dns.dohEnabled && dns.dohTemplate && (
-                              <span className="text-muted-foreground/40 truncate max-w-[180px]">{dns.dohTemplate}</span>
-                            )}
-                            {!dns.dohEnabled && dns.dohAvailable && (
-                              <span className="text-amber-500/60">{t('network.dohAvailable')}</span>
-                            )}
-                          </div>
-                        ))}
-                        {adapter.dnsServers.length === 0 && (
-                          <p className="text-xs text-muted-foreground/60">{t('network.noDnsServers')}</p>
-                        )}
-                        {/* 适配器级 DNS 覆盖配置文件级 DNS 警告 */}
-                        {adapter.adapterDnsOverridesProfile && adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
-                          <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                            <span className="text-xs text-amber-600">{t('network.adapterDnsOverridesProfileTip')}</span>
-                          </div>
-                        )}
-                        {/* 配置文件级 DNS */}
-                        {adapter.profileDnsServers && adapter.profileDnsServers.length > 0 && (
-                          <div className="space-y-1 mt-1 pt-1 border-t border-border/30">
-                            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">{t('network.profileDns')}</span>
-                            {adapter.profileDnsServers.map((dns) => (
-                              <div key={dns.address} className="flex items-center gap-2 text-xs">
-                                <span className={cn("font-mono", RECOMMENDED_DNS.has(dns.address) ? "text-green-600" : "text-muted-foreground")}>
-                                  {dns.address}
-                                </span>
-                                {RECOMMENDED_DNS.has(dns.address) && (
-                                  <span className="text-muted-foreground/60">
-                                    {ALI_DNS.has(dns.address) ? t('network.ali') : t('network.tencent')}
-                                  </span>
-                                )}
-                                {dns.dohEnabled ? (
-                                  <CheckCircle2 className="h-3 w-3 text-green-500" />
-                                ) : dns.dohAvailable ? (
-                                  <XCircle className="h-3 w-3 text-amber-400" />
-                                ) : (
-                                  <XCircle className="h-3 w-3 text-muted-foreground/30" />
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+                {dnsStatus.adapters.map((adapter) => (
+                  <DnsAdapterCard key={adapter.name} adapter={adapter} autoDohEnabled={dnsStatus.autoDohEnabled} />
+                ))}
                 {!dnsStatus.dohSupported && (
                   <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
