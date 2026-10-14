@@ -481,7 +481,6 @@ dependencies = [
 name = "campus-login-android"
 version = "2.4.1"
 dependencies = [
- "android_system_properties",
  "campus-login",
  "chrono",
  "futures-util",
