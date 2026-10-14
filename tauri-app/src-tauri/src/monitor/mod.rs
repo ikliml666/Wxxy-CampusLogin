@@ -9,4 +9,5 @@ pub mod quality_scheduler;
 pub mod background_emit;
 pub mod background_check;
 pub mod background_task;
+pub mod outbound_night;
 pub mod scheduled;

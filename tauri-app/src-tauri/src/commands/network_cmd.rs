@@ -50,7 +50,7 @@ pub async fn get_adapter_details() -> Result<Vec<AdapterDetail>, String> {
 pub async fn outbound_switch_now(app_handle: AppHandle) -> Result<CommandResult, String> {
     crate::log_info!("network", "手动触发立即切换出站");
     tauri::async_runtime::spawn_blocking(move || {
-        crate::monitor::scheduled::manual_outbound_switch(&app_handle)
+        crate::monitor::outbound_night::manual_outbound_switch(&app_handle)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -62,7 +62,7 @@ pub async fn outbound_switch_now(app_handle: AppHandle) -> Result<CommandResult,
 pub async fn outbound_restore_now(app_handle: AppHandle) -> Result<CommandResult, String> {
     crate::log_info!("network", "手动触发立即还原出站");
     tauri::async_runtime::spawn_blocking(move || {
-        crate::monitor::scheduled::manual_outbound_restore(&app_handle)
+        crate::monitor::outbound_night::manual_outbound_restore(&app_handle)
     })
     .await
     .map_err(|e| e.to_string())?
