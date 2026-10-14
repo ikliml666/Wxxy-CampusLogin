@@ -8,7 +8,7 @@ import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewRe
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult, AccountItem } from '@/settings'
-import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult, GpuInfo } from '@/shared'
+import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult } from '@/shared'
 
 /** 桌面专属能力在安卓端无对应物(适配器/DHCP/DNS/窗口/托盘),统一显式拒绝 */
 const desktopOnly = <T>(name: string): Promise<T> =>
@@ -21,14 +21,6 @@ interface ConnectionCampusStatus {
   onCampus: boolean
   name: string | null
   message: string
-}
-
-/** 设备 SoC/性能信息(Rust get_soc_info);恒高档后前端不再消费,命令保留 */
-export interface SocInfo {
-  socModel: string
-  deviceModel: string
-  /** 0 未知 / 1 入门 / 2 中高 / 3 旗舰 */
-  tier: number
 }
 
 export interface BatteryOptimizationInfo {
@@ -126,7 +118,6 @@ interface TauriApi {
   getDebugMode: () => Promise<boolean>
   setDebugMode: (enabled: boolean) => Promise<boolean>
   getInitData: () => Promise<InitData>
-  getSocInfo: () => Promise<SocInfo>
   checkUpdate: () => Promise<UpdateInfo>
   downloadUpdate: (url: string) => Promise<string>
   installUpdate: (filePath: string, checksumUrl?: string) => Promise<boolean>
@@ -141,7 +132,6 @@ interface TauriApi {
   renderHeartbeat: () => Promise<{ online: boolean; checking: boolean }>
   /** 桌面专属：轻量化重建窗口的 ready 门信号，安卓无此机制 */
   notifyWindowReady: () => Promise<CommandResult>
-  getGpuInfo: () => Promise<GpuInfo>
   getLogRetentionDays: () => Promise<number>
   setLogRetentionDays: (days: number) => Promise<void>
   /** Settings.Global 写通道状态（WRITE_SECURE_SETTINGS 是否经 adb 授权 + 待还原快照） */
@@ -316,7 +306,6 @@ const tauriApi: TauriApi = {
   getDebugMode: () => invoke<boolean>('get_debug_mode'),
   setDebugMode: (enabled) => invoke<boolean>('set_debug_mode', { enabled }),
   getInitData: () => invoke<InitData>('get_init_data'),
-  getSocInfo: () => invoke<SocInfo>('get_soc_info'),
   checkUpdate: () => invoke<UpdateInfo>('check_update'),
   downloadUpdate: (url) => invoke<string>('download_update', { url }),
   installUpdate: (filePath, checksumUrl) => invoke<boolean>('install_update', { filePath, checksumUrl }),
@@ -329,7 +318,6 @@ const tauriApi: TauriApi = {
   resetDns: () => desktopOnly<CommandResult>('reset_dns'),
   renderHeartbeat: () => desktopOnly<{ online: boolean; checking: boolean }>('render_heartbeat'),
   notifyWindowReady: () => desktopOnly<CommandResult>('notify_window_ready'),
-  getGpuInfo: () => desktopOnly<GpuInfo>('get_gpu_info'),
   getLogRetentionDays: () => invoke<number>('get_log_retention_days'),
   setLogRetentionDays: (days) => invoke<void>('set_log_retention_days', { days }),
   getAvoidBadWifiStatus: () => invoke<AvoidBadWifiStatus>('get_avoid_bad_wifi_status'),

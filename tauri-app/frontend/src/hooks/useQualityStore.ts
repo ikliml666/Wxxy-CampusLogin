@@ -1,8 +1,7 @@
-// 网络质量领域 store：负责网络质量、DNS DoH、版本更新、GPU 信息
+// 网络质量领域 store：负责网络质量、DNS DoH、版本更新
 import { create } from 'zustand'
 import type { DnsDohStatus } from '@/network'
 import type { NetworkQuality } from '@/monitor'
-import type { GpuInfo } from '@/shared'
 import { mergeNetworkQuality } from '@/lib/latency'
 import { tauriApiWithRetry } from './tauriApi'
 import { useConfigStore } from './useConfigStore'
@@ -28,7 +27,6 @@ interface QualityStore {
   updateAvailable: boolean
   latestVersion: string
   releaseNotes: string
-  gpuInfo: GpuInfo | null
   refreshRate: number
   refreshQuality: () => Promise<void>
   setNetworkQuality: (q: NetworkQuality | null | ((prev: NetworkQuality | null) => NetworkQuality | null)) => void
@@ -37,7 +35,6 @@ interface QualityStore {
   setUpdateAvailable: (v: boolean) => void
   setLatestVersion: (v: string) => void
   setReleaseNotes: (v: string) => void
-  setGpuInfo: (info: GpuInfo) => void
 }
 
 export const useQualityStore = create<QualityStore>((set, get) => ({
@@ -48,7 +45,6 @@ export const useQualityStore = create<QualityStore>((set, get) => ({
   updateAvailable: false,
   latestVersion: '',
   releaseNotes: '',
-  gpuInfo: null,
   refreshRate: 0,
 
   refreshQuality: async () => {
@@ -85,6 +81,4 @@ export const useQualityStore = create<QualityStore>((set, get) => ({
   setUpdateAvailable: (v) => set({ updateAvailable: v }),
   setLatestVersion: (v) => set({ latestVersion: v }),
   setReleaseNotes: (v) => set({ releaseNotes: v }),
-
-  setGpuInfo: (info) => set({ gpuInfo: info }),
 }))

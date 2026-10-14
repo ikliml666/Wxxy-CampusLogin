@@ -85,8 +85,8 @@ export function useInitialDataLoad() {
 
           useAuthStore.getState().checkOnline(cfg)
 
-          // 安卓端删除了桌面遗留的四个启动补充请求(getAdapters/getDisabledAdapters/
-          // getGpuInfo/checkDnsDohStatus):get_init_data 恒回空值,四者均为
+          // 安卓端删除了桌面遗留的启动补充请求(getAdapters/getDisabledAdapters/
+          // GPU 信息/DNS DoH 状态):get_init_data 恒回空值,四者均为
           // desktopOnly 必 reject 的空转,白耗启动窗口
           if (initData.refreshRate) {
             useQualityStore.setState({ refreshRate: initData.refreshRate })

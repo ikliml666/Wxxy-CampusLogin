@@ -111,7 +111,6 @@ pub fn run(core_count: usize) {
             crate::commands::system::clear_logs,
             crate::commands::system::get_init_data,
             crate::commands::system::render_heartbeat,
-            crate::commands::system::get_gpu_info,
             crate::commands::system::set_log_retention_days,
             crate::commands::system::get_log_retention_days,
             crate::commands::system::export_diagnostics,

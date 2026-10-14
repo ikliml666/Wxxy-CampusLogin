@@ -87,7 +87,6 @@ pub struct PortalStatus {
     pub login_available: bool,
     pub online: bool,
     pub message: String,
-    pub data_length: usize,
     /// 在线时 Portal 页面携带的 uid（完整在线账号=账号+运营商后缀，如 "2023xxxx@telecom"）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uid: Option<String>,
@@ -136,7 +135,6 @@ fn handle_unknown_page_status(adapter_name: Option<&str>, adapter_ip: &str) -> P
         login_available: true,
         online: false,
         message: "Portal 页面无法判断登录状态，请手动确认".to_string(),
-        data_length: 0,
         uid: None,
         error_kind: Some("need_manual_check".to_string()),
     }
@@ -159,7 +157,6 @@ fn build_determined_status(online: bool, uid: Option<String>) -> PortalStatus {
         login_available,
         online: online_val,
         message: if online_val { "已在线".to_string() } else { "未登录".to_string() },
-        data_length: 0,
         uid: if online_val { uid } else { None },
         error_kind: None,
     }
@@ -172,7 +169,6 @@ fn build_request_failed_status() -> PortalStatus {
         login_available: false,
         online: false,
         message: "Portal页面请求失败".to_string(),
-        data_length: 0,
         uid: None,
         error_kind: Some("request_failed".to_string()),
     }
@@ -429,7 +425,6 @@ mod tests {
         assert!(!status.login_available);
         assert!(status.reachable);
         assert_eq!(status.message, "已在线");
-        assert_eq!(status.data_length, 0);
         assert!(status.error_kind.is_none());
         // 在线时保留解析出的 uid
         assert_eq!(status.uid.as_deref(), Some("20230001@telecom"));

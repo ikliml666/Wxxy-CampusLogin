@@ -76,7 +76,7 @@
         }),
         disabledAdapters: [],
         accounts: mockAccounts.map(function (a) { return { id: a.id, displayName: a.displayName } }), activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
-        isAutoStart: false, autoLaunch: false, notificationEnabled: false, gpuInfo: undefined, refreshRate: undefined
+        isAutoStart: false, autoLaunch: false, notificationEnabled: false, refreshRate: undefined
       }
     },
     get_config: function () { return config },

@@ -12,13 +12,11 @@ import { safeStorage, extractErrorMessage } from '@/lib/utils'
 import i18next from 'i18next'
 import { NAV_ITEMS, PASSWORD_MASK } from '@/shared/ui-constants'
 import { DEFAULT_CONFIG } from '@/settings/constants'
-import { useGpuCorrection } from './useGpuCorrection'
 
 const VALID_PANELS: PanelName[] = NAV_ITEMS.map(item => item.id)
 
 export function useInitialDataLoad() {
   const mountedRef = useRef(true)
-  const correctGpuInfo = useGpuCorrection()
 
   useEffect(() => {
     // StrictMode 下 effect 会执行 setup→cleanup→setup。
@@ -103,18 +101,6 @@ export function useInitialDataLoad() {
           if (active) useConfigStore.setState({ activeAccount: active })
 
           useAuthStore.getState().checkOnline(cfg, adps)
-
-          if (initData.gpuInfo) {
-            const corrected = correctGpuInfo(initData.gpuInfo)
-            useQualityStore.getState().setGpuInfo(corrected)
-          } else {
-            api.getGpuInfo?.().then((info) => {
-              if (info && mountedRef.current) {
-                const corrected = correctGpuInfo(info)
-                useQualityStore.getState().setGpuInfo(corrected)
-              }
-            }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
-          }
 
           if (initData.refreshRate) {
             useQualityStore.setState({ refreshRate: initData.refreshRate })

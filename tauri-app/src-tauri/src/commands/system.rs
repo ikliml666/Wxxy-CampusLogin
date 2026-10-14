@@ -170,7 +170,6 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
 
     let version = env!("APP_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
-    let gpu_info = crate::platform::gpu::detect_gpu_info();
     let refresh_rate = crate::platform::gpu::detect_display_refresh_rate();
 
     let adapters = crate::network::get_adapters_cached().unwrap_or_default();
@@ -189,7 +188,6 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
         "accounts": accounts,
         "version": version,
         "autoLaunch": auto_launch,
-        "gpuInfo": gpu_info,
         "refreshRate": refresh_rate,
         "adapters": adapters,
         "adapterDetails": adapter_details,
@@ -216,12 +214,6 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
         "online": online,
         "checking": checking,
     }))
-}
-
-#[tauri::command]
-pub fn get_gpu_info() -> Result<serde_json::Value, String> {
-    let info = crate::platform::gpu::detect_gpu_info();
-    Ok(serde_json::to_value(info).unwrap_or(serde_json::json!({ "gpu": "unknown" })))
 }
 
 #[tauri::command]

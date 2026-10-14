@@ -212,37 +212,6 @@ pub fn cache_source_ip(
     }
 }
 
-/// 阶段 1 兼容入口:检测卡详情(前端旧 UI 仍在用)
-#[tauri::command]
-pub async fn detect_campus(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, crate::android_state::AndroidState>,
-) -> Result<serde_json::Value, String> {
-    // 手动探测前强制绑 WiFi:WiFi+流量同开时默认路由可能落蜂窝,探测走错网络
-    crate::protocol_cmds::ensure_wifi_bound(&app).await;
-    let settings = crate::config_state::current_settings(&app).await?;
-    let probe = probe_campus(&settings.campus_gateway, &settings.portal_url).await?;
-    cache_source_ip(&state, probe.source);
-
-    let detail = if probe.wifi_off {
-        "WiFi 未连接,跳过探测".to_string()
-    } else {
-        match (probe.on_campus_by_subnet, probe.portal_ok) {
-            (true, true) => "子网命中且 Portal 可达".to_string(),
-            (true, false) => "子网命中但 Portal 不可达".to_string(),
-            (false, true) => "已连接校园网(内网 Portal 可达,跨网段接入)".to_string(),
-            (false, false) => "未检测到校园网环境".to_string(),
-        }
-    };
-
-    Ok(serde_json::json!({
-        "onCampus": probe.on_campus,
-        "sourceIp": probe.source.map(|i| i.to_string()),
-        "portalReachable": probe.portal_ok,
-        "detail": detail,
-    }))
-}
-
 /// 桌面同名命令:形状对齐 network_cmd.rs check_campus_status。
 /// SSID 通道(2026-09-20):名称检查开启时经 network-bind 插件取 WifiManager SSID
 /// 参与判定并回传 currentSsid;名称检查关闭时跳过取值(对齐桌面:current_ssid=None)。
@@ -251,7 +220,7 @@ pub async fn check_campus_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<serde_json::Value, String> {
-    // 手动探测前强制绑 WiFi(同 detect_campus)
+    // 手动探测前强制绑 WiFi
     crate::protocol_cmds::ensure_wifi_bound(&app).await;
     let settings = crate::config_state::current_settings(&app).await?;
     let (probe, ssid) = probe_campus_with_ssid(&app, &settings).await;

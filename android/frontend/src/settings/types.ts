@@ -1,4 +1,4 @@
-import type { PanelName, GpuInfo } from '@/shared/ui-types'
+import type { PanelName } from '@/shared/ui-types'
 
 /** 账号列表项：id 是账号文件名 stem（稳定不变），displayName 是可编辑显示名（后端已兜底非空） */
 export interface AccountItem {
@@ -90,6 +90,5 @@ export interface InitData {
   isAutoStart: boolean
   autoLaunch: boolean
   notificationEnabled: boolean
-  gpuInfo?: GpuInfo
   refreshRate?: number
 }

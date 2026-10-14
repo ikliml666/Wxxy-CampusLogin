@@ -6,7 +6,7 @@ import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewRe
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult, AccountItem } from '@/settings'
-import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult, GpuInfo } from '@/shared'
+import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult } from '@/shared'
 
 interface ConnectionCampusStatus {
   onCampus: boolean
@@ -117,7 +117,6 @@ interface TauriApi {
   resetDns: () => Promise<CommandResult>
   renderHeartbeat: () => Promise<{ online: boolean; checking: boolean }>
   notifyWindowReady: () => Promise<CommandResult>
-  getGpuInfo: () => Promise<GpuInfo>
   getLogRetentionDays: () => Promise<number>
   setLogRetentionDays: (days: number) => Promise<void>
 }
@@ -253,7 +252,6 @@ const tauriApi: TauriApi = {
   resetDns: () => invoke<CommandResult>('reset_dns'),
   renderHeartbeat: () => invoke<{ online: boolean; checking: boolean }>('render_heartbeat'),
   notifyWindowReady: () => invoke<CommandResult>('notify_window_ready'),
-  getGpuInfo: () => invoke<GpuInfo>('get_gpu_info'),
   getLogRetentionDays: () => invoke<number>('get_log_retention_days'),
   setLogRetentionDays: (days) => invoke<void>('set_log_retention_days', { days }),
 }

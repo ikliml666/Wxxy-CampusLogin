@@ -368,9 +368,9 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
             let portal_elapsed = t_portal.elapsed();
 
             if let (Ok(Ok(portal_status)), sec_res) = &portal_result {
-                crate::log_info!("auto_login", "Portal检测结果: {}[ip={}] → online={}, reachable={}, loginAvailable={}, dataLen={}, 耗时{}ms; 副适配器→ {:?}",
+                crate::log_info!("auto_login", "Portal检测结果: {}[ip={}] → online={}, reachable={}, loginAvailable={}, 耗时{}ms; 副适配器→ {:?}",
                     name1_for_msg, ip1_for_log, portal_status.online, portal_status.reachable,
-                    portal_status.login_available, portal_status.data_length,
+                    portal_status.login_available,
                     portal_elapsed.as_millis(),
                     sec_res.as_ref().map(|r| match r {
                         Ok(Ok(s)) => format!("online={}, msg={}", s.online, s.message),
