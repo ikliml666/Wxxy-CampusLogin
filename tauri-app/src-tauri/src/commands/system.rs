@@ -51,12 +51,6 @@ pub fn open_external(url: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn get_auto_launch() -> Result<serde_json::Value, String> {
-    let enabled = autostart::get_auto_launch_enabled();
-    Ok(serde_json::json!({ "enabled": enabled }))
-}
-
-#[tauri::command]
 pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let exe_str = std::env::current_exe()
         .map_err(|e| format!("获取程序路径失败: {e}"))?
@@ -107,11 +101,6 @@ pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<
             Err(format!("设置开机自启失败: {}", e))
         }
     }
-}
-
-#[tauri::command]
-pub fn get_notification_enabled(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.config.load().enable_notification)
 }
 
 #[tauri::command]
@@ -179,6 +168,10 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     let notification_enabled = cfg.enable_notification;
 
     let is_auto_start = std::env::args().any(|a| a == "--autostart");
+    // 原四条一次性只读命令（get_log_retention_days/get_debug_mode 等）并入本返回体，
+    // 与 autoLaunch/notificationEnabled（早已在此）同构：读 logger 运行期真实值
+    let log_retention_days = crate::infra::logger::get_log_retention_days();
+    let debug_mode = crate::infra::logger::get_debug_mode().unwrap_or(false);
 
     // 复用上方已取好的适配器快照，避免 get_background_status_value 内部重复全量取一次
     let bg_status = super::background::get_background_status_value(&state, &app_handle, &adapters);
@@ -194,6 +187,8 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
         "disabledAdapters": disabled_adapters,
         "activeAccount": active_account,
         "notificationEnabled": notification_enabled,
+        "logRetentionDays": log_retention_days,
+        "debugMode": debug_mode,
         "isAutoStart": is_auto_start,
         "backgroundStatus": bg_status,
     }))
@@ -220,11 +215,6 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
 pub fn set_log_retention_days(days: u32) -> Result<(), String> {
     crate::infra::logger::set_log_retention_days(days);
     Ok(())
-}
-
-#[tauri::command]
-pub fn get_log_retention_days() -> u32 {
-    crate::infra::logger::get_log_retention_days()
 }
 
 /// 导出诊断包到 <data_dir>/diagnostics/diag-<时间戳>/，返回目录路径（P2-29）。

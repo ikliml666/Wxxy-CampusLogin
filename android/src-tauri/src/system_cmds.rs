@@ -22,6 +22,9 @@ pub async fn get_init_data(app: tauri::AppHandle) -> Result<serde_json::Value, S
         "disabledAdapters": [],
         "activeAccount": settings.active_account,
         "notificationEnabled": settings.enable_notification,
+        // 与桌面 get_init_data 同形：原一次性 get 命令并入返回体（logger 运行期真实值）
+        "logRetentionDays": campus_login_lib::infra::logger::get_log_retention_days(),
+        "debugMode": campus_login_lib::infra::logger::get_debug_mode().unwrap_or(false),
         "isAutoStart": settings.enable_boot_autostart,
         "backgroundStatus": crate::monitor_loop::status_value(),
     }))

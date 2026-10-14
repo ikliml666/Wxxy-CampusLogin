@@ -29,13 +29,14 @@ interface LogPanelProps {
   api: {
     getLogs: (lines?: number) => Promise<string>
     clearLogs: () => Promise<boolean>
-    getDebugMode: () => Promise<boolean>
     setDebugMode: (enabled: boolean) => Promise<boolean>
-    getLogRetentionDays?: () => Promise<number>
     setLogRetentionDays?: (days: number) => Promise<void>
     /** 导出诊断包（桌面专属，安卓不传） */
     exportDiagnostics?: (days?: number) => Promise<string>
   }
+  /** 初始值来自 get_init_data（logger 运行期真实值）；缺省用后端默认 */
+  initialDebugMode?: boolean
+  initialLogRetentionDays?: number
   addToast: (message: string, type: 'info' | 'success' | 'error' | 'warning', description?: string) => void
 }
 
@@ -81,7 +82,7 @@ const LINE_OPTIONS = [
 
 const MAX_DISPLAY_LINES = 200
 
-export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
+export const LogPanel = memo(function LogPanel({ api, initialDebugMode, initialLogRetentionDays, addToast }: LogPanelProps) {
   const profile = useAnimationProfile()
   const { t } = useTranslation()
   const logVariants = useMemo(() => createLogEntryVariants(profile.easing), [profile.easing])
@@ -92,8 +93,8 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
   const [searchText, setSearchText] = useState('')
   const [filterModule, setFilterModule] = useState<string>('ALL')
-  const [debugMode, setDebugMode] = useState(false)
-  const [retentionDays, setRetentionDays] = useState(7)
+  const [debugMode, setDebugMode] = useState(initialDebugMode ?? false)
+  const [retentionDays, setRetentionDays] = useState(initialLogRetentionDays ?? 7)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -150,16 +151,6 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
-
-  useEffect(() => {
-    api.getDebugMode().then(v => { if (mountedRef.current) setDebugMode(v) }).catch(() => {})
-  }, [api])
-
-  useEffect(() => {
-    api.getLogRetentionDays?.().then((days) => {
-      if (days !== undefined) setRetentionDays(days)
-    }).catch(() => {})
-  }, [api])
 
   useEffect(() => {
     // 轮询叠加窗口可见性门控（FE-A-09）：与 useHeartbeat 的 visibilitychange 检查写法一致，

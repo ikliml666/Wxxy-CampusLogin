@@ -76,7 +76,8 @@
         }),
         disabledAdapters: [],
         accounts: mockAccounts.map(function (a) { return { id: a.id, displayName: a.displayName } }), activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
-        isAutoStart: false, autoLaunch: false, notificationEnabled: false, refreshRate: undefined
+        isAutoStart: false, autoLaunch: false, notificationEnabled: false,
+        logRetentionDays: 7, debugMode: false, refreshRate: undefined
       }
     },
     get_config: function () { return config },
@@ -220,10 +221,6 @@
           { address: '192.168.6.1', dohAvailable: false, dohEnabled: false, dohTemplate: '' },
         ], profileDnsServers: [] },
     ], dohSupported: true, autoDohEnabled: false } },
-    get_debug_mode: function () { return false },
-    get_auto_launch: function () { return { enabled: false } },
-    get_notification_enabled: function () { return false },
-    get_log_retention_days: function () { return 7 },
     get_logs: function () { return '[mock] 无日志' },
     check_update: function () { return { available: false } },
     start_background_check: function () { return ok() },

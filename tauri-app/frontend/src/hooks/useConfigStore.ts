@@ -31,6 +31,9 @@ interface ConfigStore {
   // 避免在加载窗口期做出错误判断或提前消耗一次性流程。
   configLoaded: boolean
   passwordSaved: boolean
+  /** get_init_data 携带的日志面板初始值（logger 运行期真实值，非 config 快照）；InitData 未到前 undefined */
+  initDebugMode?: boolean
+  initLogRetentionDays?: number
   accounts: AccountItem[]
   activeAccount: string
   language: string

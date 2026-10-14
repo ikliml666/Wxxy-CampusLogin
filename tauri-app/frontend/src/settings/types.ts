@@ -104,5 +104,9 @@ export interface InitData {
   isAutoStart: boolean
   autoLaunch: boolean
   notificationEnabled: boolean
+  /** 原一次性 get_log_retention_days 命令并入此处：logger 运行期真实值 */
+  logRetentionDays: number
+  /** 原一次性 get_debug_mode 命令并入此处 */
+  debugMode: boolean
   refreshRate?: number
 }

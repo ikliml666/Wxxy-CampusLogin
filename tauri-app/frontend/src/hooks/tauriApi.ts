@@ -83,9 +83,7 @@ interface TauriApi {
   startLatencyTest: () => Promise<CommandResult>
   stopLatencyTest: () => Promise<CommandResult>
   openExternal: (url: string) => Promise<boolean>
-  getAutoLaunch: () => Promise<{ enabled: boolean }>
   setAutoLaunch: (enabled: boolean) => Promise<AutoLaunchResult>
-  getNotificationEnabled: () => Promise<boolean>
   setNotificationEnabled: (enabled: boolean) => Promise<boolean>
   cancelAutoExit: () => Promise<CommandResult>
   onAutoExitCountdown: (cb: (data: AutoExitCountdownData) => void) => () => void
@@ -100,7 +98,6 @@ interface TauriApi {
   showWindow: () => Promise<void>
   getLogs: (lines?: number) => Promise<string>
   clearLogs: () => Promise<boolean>
-  getDebugMode: () => Promise<boolean>
   setDebugMode: (enabled: boolean) => Promise<boolean>
   getInitData: () => Promise<InitData>
   checkUpdate: () => Promise<UpdateInfo>
@@ -117,7 +114,6 @@ interface TauriApi {
   resetDns: () => Promise<CommandResult>
   renderHeartbeat: () => Promise<{ online: boolean; checking: boolean }>
   notifyWindowReady: () => Promise<CommandResult>
-  getLogRetentionDays: () => Promise<number>
   setLogRetentionDays: (days: number) => Promise<void>
 }
 
@@ -221,9 +217,7 @@ const tauriApi: TauriApi = {
       }
     }
   },
-  getAutoLaunch: () => invoke<{ enabled: boolean }>('get_auto_launch'),
   setAutoLaunch: (enabled) => invoke<AutoLaunchResult>('set_auto_launch', { enabled }),
-  getNotificationEnabled: () => invoke<boolean>('get_notification_enabled'),
   setNotificationEnabled: (enabled) => invoke<boolean>('set_notification_enabled', { enabled }),
   cancelAutoExit: () => invoke<CommandResult>('cancel_auto_exit'),
   onAutoExitCountdown: createEventListener<AutoExitCountdownData>('auto-exit-countdown'),
@@ -236,7 +230,6 @@ const tauriApi: TauriApi = {
   showWindow: () => invoke<void>('show_window'),
   getLogs: (lines) => invoke<string>('get_logs', { lines }),
   clearLogs: () => invoke<boolean>('clear_logs'),
-  getDebugMode: () => invoke<boolean>('get_debug_mode'),
   setDebugMode: (enabled) => invoke<boolean>('set_debug_mode', { enabled }),
   getInitData: () => invoke<InitData>('get_init_data'),
   checkUpdate: () => invoke<UpdateInfo>('check_update'),
@@ -252,7 +245,6 @@ const tauriApi: TauriApi = {
   resetDns: () => invoke<CommandResult>('reset_dns'),
   renderHeartbeat: () => invoke<{ online: boolean; checking: boolean }>('render_heartbeat'),
   notifyWindowReady: () => invoke<CommandResult>('notify_window_ready'),
-  getLogRetentionDays: () => invoke<number>('get_log_retention_days'),
   setLogRetentionDays: (days) => invoke<void>('set_log_retention_days', { days }),
 }
 

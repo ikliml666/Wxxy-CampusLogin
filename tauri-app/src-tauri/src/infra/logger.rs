@@ -384,7 +384,8 @@ pub fn set_debug_mode(enabled: bool) -> Result<bool, String> {
     Ok(enabled)
 }
 
-#[tauri::command]
+/// debug 开关 getter：原一次性 get_debug_mode 命令已并入 get_init_data 的 debugMode
+/// 字段（桌面）与安卓 system_cmds 复用，仅保留普通函数供后端内部调用
 pub fn get_debug_mode() -> Result<bool, String> {
     Ok(get_log_level() == LogLevel::Debug)
 }

@@ -99,9 +99,7 @@ pub fn run(core_count: usize) {
             crate::commands::background::stop_background_check,
             crate::commands::background::trigger_background_check,
             crate::commands::background::get_background_status,
-            crate::commands::system::get_auto_launch,
             crate::commands::system::set_auto_launch,
-            crate::commands::system::get_notification_enabled,
             crate::commands::system::set_notification_enabled,
             crate::commands::system::cancel_auto_exit,
             crate::commands::system::minimize_window,
@@ -112,7 +110,6 @@ pub fn run(core_count: usize) {
             crate::commands::system::get_init_data,
             crate::commands::system::render_heartbeat,
             crate::commands::system::set_log_retention_days,
-            crate::commands::system::get_log_retention_days,
             crate::commands::system::export_diagnostics,
             crate::commands::system::notify_window_ready,
             crate::commands::updater::check_update,
@@ -129,7 +126,6 @@ pub fn run(core_count: usize) {
             crate::commands::self_service::self_offline_session,
             crate::commands::self_service::change_self_password,
             crate::infra::logger::set_debug_mode,
-            crate::infra::logger::get_debug_mode,
         ]);
 
     let app = app.build(tauri::generate_context!()).unwrap_or_else(|e| {

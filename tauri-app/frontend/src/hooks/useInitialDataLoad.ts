@@ -39,6 +39,12 @@ export function useInitialDataLoad() {
             useConfigStore.getState().syncPasswordSaved(false)
           }
           useConfigStore.setState({ config: cfg })
+          // 日志面板初始值（debug 开关/保留天数，logger 运行期真实值）：
+          // 原四条一次性只读命令已并入 get_init_data，读点就近落 store
+          useConfigStore.setState({
+            initDebugMode: initData.debugMode === true,
+            initLogRetentionDays: initData.logRetentionDays,
+          })
 
           useThemeStore.getState().initTheme(cfg)
 
