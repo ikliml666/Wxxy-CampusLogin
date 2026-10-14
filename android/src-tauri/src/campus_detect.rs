@@ -55,7 +55,6 @@ pub async fn portal_reachable(host: &str, port: u16, timeout: Duration) -> bool 
 /// 一次校园网探测结果(检测命令与 check_campus_status 共用)
 pub struct CampusProbe {
     pub source: Option<Ipv4Addr>,
-    pub on_campus_by_subnet: bool,
     pub portal_ok: bool,
     pub on_campus: bool,
     /// WiFi 未连接短路:无非蜂窝 IPv4 接口(蜂窝接口被刻意排除)= WiFi 已关闭,
@@ -87,7 +86,6 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
     if wifi_off {
         return Ok(CampusProbe {
             source,
-            on_campus_by_subnet: false,
             portal_ok: false,
             on_campus: false,
             wifi_off,
@@ -120,7 +118,6 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
 
     Ok(CampusProbe {
         source,
-        on_campus_by_subnet,
         portal_ok,
         on_campus,
         wifi_off,
