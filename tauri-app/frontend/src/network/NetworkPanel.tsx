@@ -194,15 +194,11 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
 
 export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfig }: NetworkPanelProps) {
   const { t } = useTranslation()
-  const disabledAdapters = useAdapterStore((s) => s.disabledAdapters)
   // 禁用段直接从 adapters 单通道派生：后端把所有卡（含禁用）都推入 adapters
   // （discovery/windows.rs「所有适配器都推入 adapters 列表」，禁用卡 status='disabled'、
   // 无 IP），而 adapters 的刷新通道（60s 轮询 + onAdaptersChanged 推送 + 操作后 force
-  // 刷新 + 挂载/恢复对账）远比 disabledAdapters（部分时机拉取 + 差分推送，WebView2
-  // 最小化期间事件可能丢失）活跃。单源派生后，两条通道短暂不一致影响不到下拉——
-  // 历史缺陷：双通道合并渲染曾致 SelectItem value 撞车、双勾选与触发器文本拼接。
-  // 三段互斥：①有 IP ②无 IP 且非 disabled 态 ③disabled 态。disabledAdapters store
-  // 仅保留给空态判断等兜底场景。
+  // 刷新 + 挂载/恢复对账）远比独立的禁用拉取通道活跃。
+  // 三段互斥：①有 IP ②无 IP 且非 disabled 态 ③disabled 态。
   const effectiveDisabledAdapters = useMemo(
     () => adapters.filter(a => a.status === 'disabled'),
     [adapters],
@@ -284,7 +280,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     const now = Date.now()
     if (now - lastFocusSyncRef.current < 5_000) return
     lastFocusSyncRef.current = now
-    void refreshAdapterData({ force: true, includeDisabled: true })
+    void refreshAdapterData({ force: true })
     void refreshCurrentOutbound()
   }, [refreshCurrentOutbound])
   useEffect(() => {
@@ -299,11 +295,11 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     }
   }, [syncOnRestore])
 
-  // 挂载对账：本面板可能在其他页签停留期间错过 disabled/adapters 事件（页签切换
+  // 挂载对账：本面板可能在其他页签停留期间错过 adapters 事件（页签切换
   // 不触发 visibilitychange/focus），挂载时重拉一次对齐 store（不带 force，500ms
   // 缓存内与启动加载合并，避免双拉）。
   useEffect(() => {
-    void refreshAdapterData({ includeDisabled: true })
+    void refreshAdapterData()
   }, [])
 
   useEffect(() => {
@@ -376,8 +372,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     } finally {
       if (mountedRef.current) setEnablingAdapter(null)
     }
-    // 刷新适配器列表（启用后状态变化，需更新 adapters + disabledAdapters + details）
-    await refreshAdapterData({ force: true, includeDisabled: true })
+    // 刷新适配器列表（启用后状态变化，需更新 adapters + details）
+    await refreshAdapterData({ force: true })
   }, [ipc, mountedRef, t])
 
   // 「立即切换出站」…已外移 useOutboundManual.ts
@@ -440,7 +436,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
             <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
-            {adapters.length === 0 && disabledAdapters.length === 0 ? (
+            {adapters.length === 0 ? (
               <div className="text-center py-8">
                 <Wifi className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">{t('network.noAdapters')}</p>

@@ -75,11 +75,6 @@ impl<'a> EventBus<'a> {
         self.emit("adapter-details-changed", details)
     }
 
-    /// 禁用适配器列表变更事件
-    pub fn emit_disabled_adapters_changed<S: Serialize + Clone>(&self, disabled: S) -> Result<(), String> {
-        self.emit("disabled-adapters-changed", disabled)
-    }
-
     /// 适配器禁用警告事件
     pub fn emit_adapter_disabled_warning(&self, name: &str, message: &str) -> Result<(), String> {
         self.emit("adapter-disabled-warning", serde_json::json!({

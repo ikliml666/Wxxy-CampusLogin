@@ -94,12 +94,6 @@ export function useInitialDataLoad() {
           const details = initData.adapterDetails || []
           if (details.length > 0) useAdapterStore.getState().setAdapterDetails(details)
 
-          api.getDisabledAdapters?.().then((disabled) => {
-            if (disabled && disabled.length > 0 && mountedRef.current) {
-              useAdapterStore.getState().setDisabledAdapters(disabled)
-            }
-          }).catch((e) => { if (import.meta.env.DEV) console.error(e) })
-
           const accs = initData.accounts || []
           if (accs.length > 0) useConfigStore.setState({ accounts: accs })
 

@@ -100,9 +100,6 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                 }
 
                 if disabled_changed {
-                    if let Err(e) = EventBus::new(&app_h).emit_disabled_adapters_changed(&disabled) {
-                        crate::log_warn!("adapter_watch", "发送禁用适配器变更事件失败: {}", e);
-                    }
                     let adapter_recovered = last_disabled.iter().any(|ld| {
                         !disabled.iter().any(|d| d.name == ld.name)
                     });

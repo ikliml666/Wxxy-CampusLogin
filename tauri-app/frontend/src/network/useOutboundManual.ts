@@ -63,7 +63,7 @@ export function useOutboundManual(adaptersCount: number) {
     } finally {
       if (mountedRef.current) {
         setSwitchingOutbound(false)
-        void refreshAdapterData({ force: true, includeDisabled: true })
+        void refreshAdapterData({ force: true })
         void refreshCurrentOutbound()
       }
     }
@@ -86,7 +86,7 @@ export function useOutboundManual(adaptersCount: number) {
     } finally {
       if (mountedRef.current) {
         setRestoringOutbound(false)
-        void refreshAdapterData({ force: true, includeDisabled: true })
+        void refreshAdapterData({ force: true })
         void refreshCurrentOutbound()
       }
     }

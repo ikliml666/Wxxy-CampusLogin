@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
-import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
+import type { Adapter, AdapterDetail, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult, AccountItem } from '@/settings'
@@ -34,7 +34,6 @@ interface TauriApi {
   /** 导出诊断包（日志+掩码配置+适配器+GPU）到 <dataDir>/diagnostics/，返回目录路径（桌面专属） */
   exportDiagnostics: (days?: number) => Promise<string>
   getAdapters: (force?: boolean) => Promise<Adapter[]>
-  getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
   getAdapterDetails: () => Promise<AdapterDetail[]>
   checkPortalStatus: (adapterIp: string) => Promise<PortalStatusResult>
@@ -55,7 +54,6 @@ interface TauriApi {
   onAutoLoginResult: (cb: (data: AutoLoginEventData) => void) => () => void
   onAdaptersChanged: (cb: (data: Adapter[]) => void) => () => void
   onAdapterDetailsChanged: (cb: (data: AdapterDetail[]) => void) => () => void
-  onDisabledAdaptersChanged: (cb: (data: DisabledAdapter[]) => void) => () => void
   onAdapterDisabledWarning: (cb: (data: AdapterDisabledWarningData) => void) => () => void
   onLoginLog: (cb: (data: { message: string; type: string }) => void) => () => void
   listAccounts: () => Promise<AccountItem[]>
@@ -155,7 +153,6 @@ const tauriApi: TauriApi = {
   importConfig: (path) => invoke<CommandResult>('import_config', { path }),
   exportDiagnostics: (days) => invoke<string>('export_diagnostics', { days }),
   getAdapters: (force) => invoke<Adapter[]>('get_adapters', { force }),
-  getDisabledAdapters: () => invoke<DisabledAdapter[]>('get_disabled_adapters'),
   enableAdapter: (adapterName) => invoke<EnableAdapterResult>('enable_adapter', { adapterName }),
   getAdapterDetails: () => invoke<AdapterDetail[]>('get_adapter_details'),
   checkPortalStatus: (adapterIp) => invoke<PortalStatusResult>('check_portal_status', { adapterIp }),
@@ -176,7 +173,6 @@ const tauriApi: TauriApi = {
   onAutoLoginResult: createEventListener<AutoLoginEventData>('auto-login-result'),
   onAdaptersChanged: createEventListener<Adapter[]>('adapters-changed'),
   onAdapterDetailsChanged: createEventListener<AdapterDetail[]>('adapter-details-changed'),
-  onDisabledAdaptersChanged: createEventListener<DisabledAdapter[]>('disabled-adapters-changed'),
   onAdapterDisabledWarning: createEventListener<AdapterDisabledWarningData>('adapter-disabled-warning'),
   onLoginLog: createEventListener<{ message: string; type: string }>('login-log'),
   listAccounts: () => invoke<AccountItem[]>('list_accounts'),

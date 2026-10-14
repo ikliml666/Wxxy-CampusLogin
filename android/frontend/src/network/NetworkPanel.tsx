@@ -1,20 +1,16 @@
 import type { Config } from '@/settings'
-import type { Adapter } from '@/network'
-import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, Cable, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check, Network } from 'lucide-react'
+import { AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check, Network } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { m } from 'framer-motion'
 import { tauriApiWithRetry, type AvoidBadWifiStatus } from '@/hooks/tauriApi'
-import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -23,25 +19,14 @@ import { useDnsSetup } from './useDnsSetup'
 import { DnsAdapterCard } from './DnsAdapterCard'
 
 interface NetworkPanelProps {
-  adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
 }
 
-/** 连接速度格式化：bit/s → 统一 Mbps 显示（如 "1000 Mbps"），低于 1 Mbps 用 Kbps，未知返回空串 */
-function formatSpeed(bps?: number): string {
-  if (!bps || bps <= 0) return ''
-  if (bps >= 1e6) return `${Math.round(bps / 1e6)} Mbps`
-  return `${Math.round(bps / 1e3)} Kbps`
-}
-
-export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfig }: NetworkPanelProps) {
+export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: NetworkPanelProps) {
   const { t } = useTranslation()
-  const disabledAdapters = useAdapterStore((s) => s.disabledAdapters)
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
-  const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
-  const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
   const ipc = tauriApiWithRetry
   const mountedRef = useRef(true)
 
@@ -54,8 +39,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
 
   const dnsStatus = useQualityStore(s => s.dnsDohStatus)
   const dnsChecking = useQualityStore(s => s.dnsChecking)
-  const refreshAdapters = useAdapterStore(s => s.refreshAdapters)
-  const isRefreshingAdapters = useAdapterStore(s => s.isRefreshingAdapters)
   // DNS 检测/一键优化逻辑与 busy 态（useDnsSetup.ts）
   const { dnsFamily, setDnsFamily, dohEnabling, handleCheckDns, handleSetupDnsDoh } = useDnsSetup()
   const familyTabs = [
@@ -63,43 +46,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     { key: 'ipv6', label: 'IPv6', icon: Globe, color: 'text-primary', bg: '' },
     { key: 'both', label: t('network.dnsFamilyBoth'), icon: Layers, color: 'text-primary', bg: '' },
   ]
-
-  const handleGetNewIpForAdapter = useCallback(async (adapterName: string) => {
-    setGettingNewIpAdapter(adapterName)
-    try {
-      const result = await ipc.dhcpReleaseRenewAdapter?.(adapterName)
-      if (result) {
-        // 结果归一化与 成功/跳过/失败 分类提示统一走 useNetwork 导出实现（两入口共用同一套文案）
-        announceDhcpResults(normalizeDhcpResults(result), useLogToastStore.getState().addToast)
-      }
-    } catch (e) {
-      useLogToastStore.getState().addToast(t('network.getNewIpFailedShort'), 'error')
-    } finally {
-      if (mountedRef.current) setGettingNewIpAdapter(null)
-    }
-    // 复用公共刷新动作，消除内联重复（历史缺陷 P2-F10）
-    await refreshAdapterData()
-  }, [ipc, mountedRef, t])
-
-  const handleEnableAdapter = useCallback(async (adapterName: string) => {
-    setEnablingAdapter(adapterName)
-    try {
-      const result = await ipc.enableAdapter?.(adapterName)
-      if (!mountedRef.current) return
-      if (result?.success) {
-        useLogToastStore.getState().addToast(t('network.adapterEnabled', { name: adapterName }), 'success', result.message)
-      } else {
-        useLogToastStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', result?.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.adapterEnableFailed', { name: adapterName }), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setEnablingAdapter(null)
-    }
-    // 刷新适配器列表（启用后状态变化，需更新 adapters + disabledAdapters + details）
-    await refreshAdapterData({ force: true, includeDisabled: true })
-  }, [ipc, mountedRef, t])
 
   // 夜间出站切换卡：复制 adb 引导命令到剪贴板，成功后短暂置位供按钮图标反馈；失败静默（WebView 剪贴板权限受限场景）
   const [adbCopied, setAdbCopied] = useState(false)
@@ -163,113 +109,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
 
   return (
     <div className="space-y-4">
-      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Router className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>{t('network.networkAdapters')}</CardTitle>
-                <CardDescription>
-                  {disabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: disabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {adapters.length === 0 && disabledAdapters.length === 0 ? (
-              <div className="text-center py-8">
-                <Wifi className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">{t('network.noAdapters')}</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">{t('network.noAdaptersTip')}</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {adapters.map((a) => (
-                  <div key={a.name} className="flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 bg-muted/30 hover:bg-muted/50 list-item-interactive">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-muted">
-                        {a.wireless ? (
-                          <Wifi className="h-5 w-5 text-muted-foreground" />
-                        ) : (
-                          <Cable className="h-5 w-5 text-muted-foreground" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium">{a.name}</div>
-                        <div className="text-xs text-muted-foreground font-mono">{a.ip || t('network.noIp')}</div>
-                        {formatSpeed(a.linkSpeed) && (
-                          <div className="text-[11px] text-muted-foreground/70">
-                            {t('network.linkSpeed', { speed: formatSpeed(a.linkSpeed) })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" size="sm">
-                        {a.wireless ? t('network.wireless') : t('network.wired')}
-                      </Badge>
-                      {a.status && a.status !== 'connected' && (
-                        <Badge variant="outline" size="sm" className={cn(
-                          a.status === 'disabled' && 'border-red-500/30 text-red-600',
-                          a.status === 'disconnected' && 'border-gray-500/30 text-gray-500',
-                          a.status === 'enabledNoIp' && 'border-amber-500/30 text-amber-600',
-                        )}>
-                          {t(`network.status.${a.status}`)}
-                        </Badge>
-                      )}
-                      {a.status === 'disabled' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] gap-1 border-green-500/30 text-green-600 hover:text-green-700 hover:bg-green-500/10 hover:border-green-500/50"
-                          onClick={() => handleEnableAdapter(a.name)}
-                          disabled={enablingAdapter === a.name}
-                        >
-                          {enablingAdapter === a.name ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Shield className="h-3 w-3" />
-                          )}
-                          {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
-                        </Button>
-                      )}
-                      {a.ip ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
-                          onClick={() => handleGetNewIpForAdapter(a.name)}
-                          disabled={gettingNewIpAdapter === a.name}
-                        >
-                          <RefreshCw className={cn('h-3 w-3', gettingNewIpAdapter === a.name && 'animate-spin')} />
-                          {gettingNewIpAdapter === a.name ? t('dashboard.gettingNewIp') : t('network.getNewIp')}
-                        </Button>
-                      ) : a.status === 'enabledNoIp' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
-                          onClick={() => refreshAdapters()}
-                          disabled={isRefreshingAdapters}
-                        >
-                          <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
-                          {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-
-              </div>
-            )}
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">

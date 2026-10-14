@@ -85,20 +85,6 @@ pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
         .map_err(|e| format!("适配器查询任务失败: {e}"))?
 }
 
-pub fn get_disabled_adapters_cached() -> Result<Vec<DisabledAdapter>, String> {
-    // 命中路径仅克隆 disabled（BE-B-04）
-    {
-        let cache = ADAPTER_CACHE.read();
-        if let Some((_, _, disabled, ts)) = cache.as_ref() {
-            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok(disabled.clone());
-            }
-        }
-    }
-    let (_, _, disabled) = query_adapters_cached_inner()?;
-    Ok(disabled)
-}
-
 pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
     ADAPTER_CACHE.write().take();
     get_adapters_cached()

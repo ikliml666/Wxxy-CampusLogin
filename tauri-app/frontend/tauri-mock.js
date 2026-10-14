@@ -74,7 +74,6 @@
         adapterDetails: mockAdapters.map(function (a) {
           return { name: a.name, ip: a.ip, wireless: a.wireless, subnetMask: '255.255.255.0', gateway: '10.2.0.1', dnsServers: ['10.10.10.10'], status: a.status, mac: a.mac }
         }),
-        disabledAdapters: [],
         accounts: mockAccounts.map(function (a) { return { id: a.id, displayName: a.displayName } }), activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
         isAutoStart: false, autoLaunch: false, notificationEnabled: false,
         logRetentionDays: 7, debugMode: false, refreshRate: undefined
@@ -159,7 +158,6 @@
       setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
       return { success: true, message: '已改名（mock）', config: config, activeAccount: activeAccountName }
     },
-    get_disabled_adapters: function () { return [] },
     get_adapters: function () { return mockAdapters },
     get_current_outbound_name: function () { return '以太网 (Mock)' },
     // 网络质量：返回带 details 的完整结果（验证合并卡 4 标签横滑）

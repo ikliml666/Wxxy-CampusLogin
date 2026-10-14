@@ -127,9 +127,9 @@ export function useEventListeners() {
     }) ?? (() => {})
     if (unsub2) unlisteners.push(unsub2)
 
-    // 安卓端 onAdaptersChanged / onAdapterDetailsChanged / onDisabledAdaptersChanged /
+    // 安卓端 onAdaptersChanged / onAdapterDetailsChanged /
     // onAdapterDisabledWarning 在 tauriApi 中均为 noopListener（适配器是桌面专属概念，
-    // 后端从不发这四类事件），注册对应 handler 属无效订阅，不注册。
+    // 后端从不发这三类事件），注册对应 handler 属无效订阅，不注册。
 
     const unsub3d = api.onLoginLog?.((data) => {
       if (!mountedRef.current) return

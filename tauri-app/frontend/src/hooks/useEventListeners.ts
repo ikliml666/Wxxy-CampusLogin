@@ -233,12 +233,6 @@ export function useEventListeners() {
     }) ?? (() => {})
     if (unsub3a) unlisteners.push(unsub3a)
 
-    const unsub3b = api.onDisabledAdaptersChanged?.((disabled) => {
-      if (!mountedRef.current) return
-      if (disabled) useAdapterStore.getState().setDisabledAdapters(disabled)
-    }) ?? (() => {})
-    if (unsub3b) unlisteners.push(unsub3b)
-
     const unsub3c = api.onAdapterDisabledWarning?.((data) => {
       if (!mountedRef.current) return
       if (data) {

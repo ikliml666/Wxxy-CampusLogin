@@ -4,7 +4,7 @@ import { authenticate as biometricAuthenticate, checkStatus as biometricCheckSta
 import { openUrl as openerOpenUrl } from '@tauri-apps/plugin-opener'
 import { shouldUseFaceFallback, useFaceDialogStore } from '@/face/faceVerifyStore'
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
-import type { Adapter, AdapterDetail, DisabledAdapter, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
+import type { Adapter, AdapterDetail, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult, AccountItem } from '@/settings'
@@ -53,7 +53,6 @@ interface TauriApi {
   importConfig: (path: string) => Promise<CommandResult>
   exportDiagnostics: (days?: number) => Promise<string>
   getAdapters: (force?: boolean) => Promise<Adapter[]>
-  getDisabledAdapters: () => Promise<DisabledAdapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
   getAdapterDetails: () => Promise<AdapterDetail[]>
   bindToWifi: () => Promise<{ bound: boolean }>
@@ -76,7 +75,6 @@ interface TauriApi {
   onAutoLoginResult: (cb: (data: AutoLoginEventData) => void) => () => void
   onAdaptersChanged: (cb: (data: Adapter[]) => void) => () => void
   onAdapterDetailsChanged: (cb: (data: AdapterDetail[]) => void) => () => void
-  onDisabledAdaptersChanged: (cb: (data: DisabledAdapter[]) => void) => () => void
   onAdapterDisabledWarning: (cb: (data: AdapterDisabledWarningData) => void) => () => void
   onLoginLog: (cb: (data: { message: string; type: string }) => void) => () => void
   listAccounts: () => Promise<AccountItem[]>
@@ -194,7 +192,6 @@ const tauriApi: TauriApi = {
   importConfig: (_path) => desktopOnly<CommandResult>('import_config'),
   exportDiagnostics: (_days) => desktopOnly<string>('export_diagnostics'),
   getAdapters: () => desktopOnly<Adapter[]>('get_adapters'),
-  getDisabledAdapters: () => desktopOnly<DisabledAdapter[]>('get_disabled_adapters'),
   enableAdapter: (_adapterName) => desktopOnly<EnableAdapterResult>("enable_adapter"),
   getAdapterDetails: () => desktopOnly<AdapterDetail[]>('get_adapter_details'),
   bindToWifi: () => invoke<{ bound: boolean }>('bind_to_wifi'),
@@ -254,7 +251,6 @@ const tauriApi: TauriApi = {
   onAutoLoginResult: createEventListener<AutoLoginEventData>('auto-login-result'),
   onAdaptersChanged: noopListener as TauriApi['onAdaptersChanged'],
   onAdapterDetailsChanged: noopListener as TauriApi['onAdapterDetailsChanged'],
-  onDisabledAdaptersChanged: noopListener as TauriApi['onDisabledAdaptersChanged'],
   onAdapterDisabledWarning: noopListener as TauriApi['onAdapterDisabledWarning'],
   onLoginLog: createEventListener<{ message: string; type: string }>('login-log'),
   listAccounts: () => invoke<AccountItem[]>('list_accounts'),

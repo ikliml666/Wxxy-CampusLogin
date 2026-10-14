@@ -163,7 +163,6 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
 
     let adapters = crate::network::get_adapters_cached().unwrap_or_default();
     let adapter_details = crate::network::get_adapter_details_cached().unwrap_or_default();
-    let disabled_adapters = crate::network::get_disabled_adapters_cached().unwrap_or_default();
     let active_account = cfg.active_account.clone();
     let notification_enabled = cfg.enable_notification;
 
@@ -184,7 +183,6 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
         "refreshRate": refresh_rate,
         "adapters": adapters,
         "adapterDetails": adapter_details,
-        "disabledAdapters": disabled_adapters,
         "activeAccount": active_account,
         "notificationEnabled": notification_enabled,
         "logRetentionDays": log_retention_days,

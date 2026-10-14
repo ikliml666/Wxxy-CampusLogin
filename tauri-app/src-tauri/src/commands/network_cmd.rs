@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Manager, State};
 use crate::network::{
-    Adapter, AdapterDetail, DisabledAdapter,
-    get_adapters_cached, get_adapters_force, get_disabled_adapters_cached,
+    Adapter, AdapterDetail,
+    get_adapters_cached, get_adapters_force,
     enable_adapter as enable_adapter_inner, get_adapter_details_cached,
     dhcp_renew_wired_only, dhcp_release_renew_all, dhcp_release_renew_single,
     select_adapter_for_quality,
@@ -22,11 +22,6 @@ pub async fn get_adapters(force: Option<bool>) -> Result<Vec<Adapter>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         if f { get_adapters_force() } else { get_adapters_cached() }
     }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn get_disabled_adapters() -> Result<Vec<DisabledAdapter>, String> {
-    tauri::async_runtime::spawn_blocking(get_disabled_adapters_cached).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

@@ -40,7 +40,7 @@ pub use adapter::{
 
 pub use adapter_cache::{
     get_adapters_cached, get_adapters_cached_async, get_adapters_force,
-    get_disabled_adapters_cached, get_adapter_details_cached,
+    get_adapter_details_cached,
     get_all_adapters_cached,
     wait_for_adapter,
 };

@@ -75,7 +75,6 @@ pub fn run(core_count: usize) {
             crate::commands::network_cmd::get_adapter_details,
             crate::commands::network_cmd::check_campus_status,
             crate::commands::network_cmd::check_portal_status,
-            crate::commands::network_cmd::get_disabled_adapters,
             crate::commands::network_cmd::enable_adapter,
             crate::commands::network_cmd::dhcp_renew_all,
             crate::commands::network_cmd::dhcp_release_renew,

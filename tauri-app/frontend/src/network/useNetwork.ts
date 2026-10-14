@@ -39,7 +39,6 @@ export function announceDhcpResults(results: DhcpResultItem[], addToast: AddToas
 export function useNetwork() {
   const adapterStore = useAdapterStore(useShallow((s) => ({
     adapters: s.adapters,
-    disabledAdapters: s.disabledAdapters,
     adapterDetails: s.adapterDetails,
   })))
   const qualityStore = useQualityStore(useShallow((s) => ({

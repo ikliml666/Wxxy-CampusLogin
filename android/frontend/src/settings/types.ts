@@ -83,7 +83,6 @@ export interface InitData {
   version: string
   adapters: import('@/network').Adapter[]
   adapterDetails: import('@/network').AdapterDetail[]
-  disabledAdapters: import('@/network').DisabledAdapter[]
   accounts: AccountItem[]
   activeAccount: string
   backgroundStatus: import('@/monitor').BackgroundStatus

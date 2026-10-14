@@ -12,12 +12,6 @@ export interface Adapter {
   linkSpeed?: number
 }
 
-export interface DisabledAdapter {
-  name: string
-  status: AdapterStatus
-  description: string
-}
-
 export interface AdapterDetail {
   name: string
   ip: string

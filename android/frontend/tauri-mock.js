@@ -62,7 +62,6 @@
         adapterDetails: mockAdapters.map(function (a) {
           return { name: a.name, ip: a.ip, wireless: a.wireless, subnetMask: '255.255.255.0', gateway: '10.2.0.1', dnsServers: ['10.10.10.10'], status: a.status, mac: a.mac }
         }),
-        disabledAdapters: [],
         accounts: [], activeAccount: '', backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
         isAutoStart: false, autoLaunch: false, notificationEnabled: false, refreshRate: undefined
       }
@@ -101,7 +100,6 @@
     render_heartbeat: function () { return { online: true, checking: false } },
     get_active_account: function () { return '' },
     list_accounts: function () { return [] },
-    get_disabled_adapters: function () { return [] },
     get_adapters: function () { return mockAdapters },
     get_gpu_info: function () { return { name: 'Mock GPU', vendor: 'mock' } },
     check_dns_doh_status: function () { return { adapters: [] } },
