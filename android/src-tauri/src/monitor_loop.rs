@@ -843,25 +843,24 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     // 判定复用共享纯函数,切换态由 night_outbound_restore 标记自身承载(非空即切换态):
     // 纯函数天然防重(非空不再 Switch、空不再 Restore),落盘即收敛,落盘失败状态未变
     // 则下一拍重试整段。
-    use campus_login_lib::config::outbound_switch::{evaluate_night_outbound, NightOutboundAction};
+    use campus_login_lib::config::outbound_switch::NightOutboundAction;
+    use campus_login_lib::config::scheduled_tick::evaluate_outbound_action;
     let mut outbound_active = !settings.night_outbound_restore.is_empty();
     let outbound_action = {
         let now = chrono::Local::now();
         let now_minutes = (now.hour() * 60 + now.minute()) as u32;
-        match evaluate_night_outbound(
+        let today_day = now.date_naive().num_days_from_ce() as i32;
+        // 判定走共享编排函数（双端单点）：关闭兜底（切换态残留按 Restore 立即
+        // 还原并清标记——缺这条兜底时残留标记没有出口，巡检会永久跳过）在函数内；
+        // hold 参数安卓恒传 0（「立即切换」当日保持是桌面独有输入）
+        evaluate_outbound_action(
             settings.enable_night_outbound_switch,
             now.weekday().num_days_from_sunday(),
             now_minutes,
             outbound_active,
-        ) {
-            // 功能已关(用户在切换态下关掉开关)但标记残留:按 Restore 立即还原并清标记。
-            // 缺这条兜底时残留标记没有出口——evaluate 的 !enabled 短路让判定恒 None,
-            // 巡检会永久跳过(桌面 outbound_action_for 同款兜底)
-            NightOutboundAction::None if outbound_active && !settings.enable_night_outbound_switch => {
-                NightOutboundAction::Restore
-            }
-            other => other,
-        }
+            0,
+            today_day,
+        )
     };
     match outbound_action {
         NightOutboundAction::Switch => {
@@ -935,17 +934,19 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     // 与桌面 full_login 对齐),不复用定时登录的 auto_login_on_start 全编排。
     // 出站切换态让位(切换侧与恢复侧都让):切换态下切运营商需注销重登,必然打断
     // 出站切换的"已注销等系统切蜂窝"状态;恢复侧标记非空即还原未成功(重试中),
-    // 也不允许运营商夜切恢复抢跑(桌面 gated_night_action 同语义)
-    if settings.enable_night_operator_switch && !outbound_active {
+    // 也不允许运营商夜切恢复抢跑。门控与判定都在共享编排函数内(双端单点):
+    // enabled=false 或切换态成立时恒返回 None,直接 match 即可
+    {
         let now = chrono::Local::now();
         let weekday = now.weekday().num_days_from_sunday();
         let now_minutes = now.hour() * 60 + now.minute();
-        let action = campus_login_lib::config::night_switch::evaluate_night_switch(
+        let action = campus_login_lib::config::scheduled_tick::evaluate_night_switch_gated(
             settings.enable_night_operator_switch,
             weekday,
             now_minutes,
             &settings.operator,
             &settings.night_operator_restore,
+            outbound_active,
         );
         match action {
             campus_login_lib::config::night_switch::NightSwitchAction::SwitchToCampus => {
@@ -985,17 +986,20 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;
     let today_day = now.date_naive().num_days_from_ce() as i32;
 
-    // 切换态下定时登录跳过——但不消耗当日标记(短路在 should_fire 之前):过点补
-    // 触发语义要求还原成功后的下一拍仍能补登,当日登录额度不被静默吞掉(桌面
-    // evaluate_and_mark 的 gated_night_action 同语义)。定时注销不受影响
-    if !outbound_active
-        && campus_login_lib::config::schedule::should_fire_scheduled_action(
-            now_minutes,
-            settings.scheduled_login_minutes,
-            MONITOR.scheduled_login_day.load(Ordering::Relaxed),
-            today_day,
-        )
-    {
+    // 定时动作判定走共享编排函数（双端单点）。切换态下定时登录跳过——但不消耗
+    // 当日标记(短路在 should_fire 之前):过点补触发语义要求还原成功后的下一拍仍能
+    // 补登,当日登录额度不被静默吞掉。定时注销不受影响。门控注入**拍后**切换态:
+    // 本端定时判定在出站动作之后,传执行后的最新值（两端时点差异见共享模块文档）
+    let (fire_login, fire_logout) = campus_login_lib::config::scheduled_tick::evaluate_scheduled_actions(
+        now_minutes,
+        today_day,
+        settings.scheduled_login_minutes,
+        settings.scheduled_logout_minutes,
+        MONITOR.scheduled_login_day.load(Ordering::Relaxed),
+        MONITOR.scheduled_logout_day.load(Ordering::Relaxed),
+        outbound_active,
+    );
+    if fire_login {
         MONITOR.scheduled_login_day.store(today_day, Ordering::Relaxed);
         emit_login_log(
             app,
@@ -1009,12 +1013,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         auto_login_on_start(app, &settings).await;
     }
 
-    if campus_login_lib::config::schedule::should_fire_scheduled_action(
-        now_minutes,
-        settings.scheduled_logout_minutes,
-        MONITOR.scheduled_logout_day.load(Ordering::Relaxed),
-        today_day,
-    ) {
+    if fire_logout {
         MONITOR.scheduled_logout_day.store(today_day, Ordering::Relaxed);
         emit_login_log(
             app,

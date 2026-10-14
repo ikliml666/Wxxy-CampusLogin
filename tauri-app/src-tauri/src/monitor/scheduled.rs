@@ -25,15 +25,15 @@ use std::sync::Arc;
 use std::time::Duration;
 use chrono::{Datelike, Timelike};
 use tauri::{AppHandle, Manager};
-use crate::config::night_switch::{evaluate_night_switch, parse_chkstatus, uid_matches, NightSwitchAction};
-use crate::config::outbound_switch::NightOutboundAction;
-use crate::config::schedule::should_fire_scheduled_action;
+use crate::config::night_switch::{parse_chkstatus, uid_matches, NightSwitchAction};
+use crate::config::outbound_switch::{outbound_restore_active, NightOutboundAction};
+use crate::config::scheduled_tick::{evaluate_night_switch_gated, evaluate_outbound_action, evaluate_scheduled_actions};
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use super::outbound_night::{
-    apply_outbound_restore, apply_outbound_switch, needs_replay, outbound_action_for,
-    outbound_switch_active, reconcile_outbound_on_startup, replay_outbound_switch,
-    run_outbound_blocking, watchdog_re_disable_campus, OUTBOUND_SWITCH_FAIL_COUNT,
+    apply_outbound_restore, apply_outbound_switch, needs_replay, outbound_switch_active,
+    reconcile_outbound_on_startup, replay_outbound_switch, run_outbound_blocking, watchdog_re_disable_campus,
+    OUTBOUND_SWITCH_FAIL_COUNT,
 };
 
 /// 判定拍间隔：分钟粒度判定，30s 保证最多半分钟偏差；错过（休眠/拍间隔）由
@@ -81,9 +81,9 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             let s = app_h.state::<AppState>();
             s.config.load_full()
         };
-        // 出站切换态（快照非空）下定时登录跳过——且**不消耗当日标记**（gated_night_action
-        // 内部直接返回 false，调用方不置标记）：否则当日登录额度被静默吞掉，
-        // 而"过点补触发"语义要求还原成功后的下一拍仍能补登
+        // 出站切换态（快照非空）下定时登录跳过——且**不消耗当日标记**（共享编排
+        // 函数 evaluate_scheduled_actions 内部直接返回 false，调用方不置标记）：
+        // 否则当日登录额度被静默吞掉，而"过点补触发"语义要求还原成功后的下一拍仍能补登
         let outbound_active_at_tick = outbound_switch_active(&app_h);
         let (fire_login, fire_logout) = {
             let s = app_h.state::<AppState>();
@@ -101,7 +101,21 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
         // 两条要求因此同时成立：① 切换态成立（快照非空，含 helper 部分失败的重试期）
         // 则运营商夜切让位；② 出站没切上（无可用候选）则运营商夜切照常（spec §2），
         // 与安卓端 run_scheduled_actions 同构（同样以状态标记门控，而非提前返回）
-        match outbound_action_for(&config_snapshot, now.weekday().num_days_from_sunday(), now_minutes as u32, today_day) {
+        // 出站动作判定走共享编排函数（双端单点）：切换态快照（拍前）、关闭兜底、
+        // 「立即切换」hold 冻结都在函数内
+        let restore_active = outbound_restore_active(
+            &config_snapshot.outbound_metric_restore,
+            &config_snapshot.outbound_disabled_adapters,
+            &config_snapshot.outbound_standby_route,
+        );
+        match evaluate_outbound_action(
+            config_snapshot.enable_night_outbound_switch,
+            now.weekday().num_days_from_sunday(),
+            now_minutes as u32,
+            restore_active,
+            config_snapshot.outbound_manual_hold_day,
+            today_day,
+        ) {
             NightOutboundAction::Switch => {
                 let switched = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), apply_outbound_switch)
                     .await
@@ -150,17 +164,18 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
         // 晚间断网切换：判定独立于当日标记（切换态由配置自身承载，纯函数幂等），
         // 与定时动作同循环、同"独立于静默期闸门"的取位（见
         // .codewiki/decisions/scheduled-actions-outside-silent-window）
-        let night_action = if outbound_active {
-            NightSwitchAction::None
-        } else {
+        let night_action = {
             let s = app_h.state::<AppState>();
+            // 出站动作可能刚改写切换态，判定用重读的新鲜配置；门控用**拍后**
+            // 切换态（出站动作执行后重取，见 :149 注释）
             let config = s.config.load_full();
-            evaluate_night_switch(
+            evaluate_night_switch_gated(
                 config.enable_night_operator_switch,
                 now.weekday().num_days_from_sunday(),
                 now_minutes as u32,
                 &config.operator,
                 &config.night_operator_restore,
+                outbound_active,
             )
         };
         if night_action != NightSwitchAction::None {
@@ -203,17 +218,20 @@ fn reconcile_scheduled_logout_on_startup(app_handle: &AppHandle) {
 /// 单拍判定：命中返回 (应登录, 应注销)，不置任何标记。审计 A7 后额度标记
 /// 移到动作抢锁成功之后（见 [`mark_scheduled_day_fired`]）——被互斥锁跳过的
 /// 拍不消耗当日重试机会；跨天后 today_day 变化，旧标记不再相等，视为未执行
-/// （纯函数语义）。判定本身见 [`gated_night_action`]（含出站切换态互斥）。
+/// （纯函数语义）。判定本体是共享 crate 的 [`evaluate_scheduled_actions`]
+/// （双端单点，含出站切换态互斥），本函数只负责从 AppState 装配输入。
+/// 门控用**拍前**切换态：定时判定先于本拍出站动作（安卓在出站动作之后判定，
+/// 传执行后值——两端时点差异见 config::scheduled_tick 模块文档）。
 fn evaluate_scheduled(state: &AppState, now_minutes: u16, today_day: i32, outbound_active: bool) -> (bool, bool) {
     let config = state.config.load_full();
-    gated_night_action(
-        outbound_active,
+    evaluate_scheduled_actions(
         now_minutes,
+        today_day,
         config.scheduled_login_minutes,
         config.scheduled_logout_minutes,
         state.scheduled.login_day.load(Ordering::Acquire),
         state.scheduled.logout_day.load(Ordering::Acquire),
-        today_day,
+        outbound_active,
     )
 }
 
@@ -229,27 +247,6 @@ fn mark_scheduled_day_fired(state: &AppState, fire_login: bool, fire_logout: boo
     if fire_logout {
         state.scheduled.logout_day.store(today_day, Ordering::Release);
     }
-}
-
-/// 每拍定时动作的最终判定（纯函数，供单测直接断言）：调用 [`should_fire_scheduled_action`]
-/// 后再叠加出站互斥——切换态（快照非空）下定时登录注定失败（校园网 portal 从热点出站
-/// 不可达），返回 `false` 且调用方不置当日标记（跳过的拍不消耗额度）；定时注销无害，
-/// 不受切换态影响。
-#[allow(clippy::too_many_arguments)] // 纯函数透传判定所需的 7 个入参，拆结构体只为少两个参数不值
-fn gated_night_action(
-    outbound_active: bool,
-    now_minutes: u16,
-    login_target_minutes: u16,
-    logout_target_minutes: u16,
-    login_day: i32,
-    logout_day: i32,
-    today_day: i32,
-) -> (bool, bool) {
-    let fire_login =
-        !outbound_active && should_fire_scheduled_action(now_minutes, login_target_minutes, login_day, today_day);
-    let fire_logout =
-        should_fire_scheduled_action(now_minutes, logout_target_minutes, logout_day, today_day);
-    (fire_login, fire_logout)
 }
 
 fn format_minutes(minutes: u16) -> String {
@@ -587,18 +584,6 @@ mod tests {
         assert!(login_after, "还原成功后应补触发当日定时登录");
         mark_scheduled_day_fired(&state, true, false, TODAY);
         assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), TODAY);
-    }
-
-    #[test]
-    fn gated_night_action_透传注销判定_仅登录受切换态门控() {
-        // 纯函数直测：登录目标 460、注销目标 1410，今日未触发
-        assert_eq!(gated_night_action(false, 460, 460, 1410, i32::MIN, i32::MIN, TODAY), (true, false));
-        assert_eq!(gated_night_action(true, 460, 460, 1410, i32::MIN, i32::MIN, TODAY), (false, false));
-        assert_eq!(gated_night_action(true, 1410, 460, 1410, i32::MIN, i32::MIN, TODAY), (false, true));
-        // 未到点：两者皆否
-        assert_eq!(gated_night_action(false, 459, 460, 1410, i32::MIN, i32::MIN, TODAY), (false, false));
-        // 当日已触发：不再重复
-        assert_eq!(gated_night_action(false, 460, 460, 1410, TODAY, TODAY, TODAY), (false, false));
     }
 
     #[test]
