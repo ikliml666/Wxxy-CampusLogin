@@ -15,11 +15,9 @@ pub async fn get_init_data(app: tauri::AppHandle) -> Result<serde_json::Value, S
         "version": env!("CARGO_PKG_VERSION"),
         // 桌面专属字段补空默认,避免前端 useInitialDataLoad 读到 undefined 崩溃
         "autoLaunch": settings.enable_boot_autostart,
-        "gpuInfo": serde_json::Value::Null,
         "refreshRate": 60,
         "adapters": [],
         "adapterDetails": [],
-        "disabledAdapters": [],
         "activeAccount": settings.active_account,
         "notificationEnabled": settings.enable_notification,
         // 与桌面 get_init_data 同形：原一次性 get 命令并入返回体（logger 运行期真实值）

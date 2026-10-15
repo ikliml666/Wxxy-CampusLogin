@@ -101,7 +101,6 @@
     get_active_account: function () { return '' },
     list_accounts: function () { return [] },
     get_adapters: function () { return mockAdapters },
-    get_gpu_info: function () { return { name: 'Mock GPU', vendor: 'mock' } },
     check_dns_doh_status: function () { return { adapters: [] } },
     get_debug_mode: function () { return false },
     get_auto_launch: function () { return { enabled: false } },

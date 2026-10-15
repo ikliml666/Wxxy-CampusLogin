@@ -199,7 +199,6 @@
       setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
       return ok(null, '延迟测试已停止')
     },
-    get_gpu_info: function () { return { name: 'Mock GPU', vendor: 'mock' } },
     check_dns_doh_status: function () { return { adapters: [
       // 测试数据：3 张卡不同质量档，验证堆叠牌堆翻页与徽章（仅 mock，不影响构建）
       { name: '以太网 (Mock)', dnsSource: 'manual', adapterDnsOverridesProfile: false,
