@@ -245,6 +245,29 @@ fn run_helper_op(op: &str, args: &[String], allow_uac_prompt: bool) -> Result<()
     }
 }
 
+/// 重新启用一张校园网卡（夜间还原第三步）。
+///
+/// 不复用 run_helper_op("enable_adapter")：helper 内只有 netsh enable，只翻 NDIS
+/// admin 层，清不掉设备管理器式禁用（PnP problem 22）——USB 网卡被禁用后
+/// netsh 表现为反复重连却始终不启用，用户只能重装驱动（v2.4.2 用户实测）。
+/// 改走 adapter_cache::enable_adapter：先做 problem 22 分流，命中则 pnputil
+/// 设备级启用（含 problem 22 解除复核），未命中才回落 netsh（管理员直跑 /
+/// 非管理员 helper）。与 adapter_watch 的自动启用同一入口，两处启用语义一致。
+#[cfg(desktop)]
+fn enable_campus_adapter(name: &str, allow_uac_prompt: bool) -> Result<(), HelperFailure> {
+    crate::network::adapter_cache::enable_adapter(name, allow_uac_prompt)
+        .map_err(|reason| HelperFailure { reason, channel: false })
+}
+
+/// 非桌面（安卓）不执行夜间出站还原；同签名 stub 让调用点免 cfg
+#[cfg(not(desktop))]
+fn enable_campus_adapter(_name: &str, _allow_uac_prompt: bool) -> Result<(), HelperFailure> {
+    Err(HelperFailure {
+        reason: "当前平台不支持适配器启用".to_string(),
+        channel: false,
+    })
+}
+
 /// 把目标卡指定协议栈的跃点写为 Metric=1（切换动作与"未生效补齐"共用，幂等）。
 /// 成功：清退避 + info 日志 +（`notify_success` 时）系统通知（文案带 `notify_suffix`
 /// 尾注，如「已临时禁用2张校园网网卡」）；失败：记退避 + warn 日志，首次失败额外通知一次。
@@ -938,7 +961,7 @@ pub(super) fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::con
                 crate::log_debug!("outbound", "夜间出站还原: 禁用名单中的 {} 已不存在，跳过启用", row.name);
                 continue;
             }
-            match run_helper_op("enable_adapter", std::slice::from_ref(&row.name), allow_uac) {
+            match enable_campus_adapter(&row.name, allow_uac) {
                 Ok(()) => {
                     clear_outbound_channel_failure();
                     enabled_count += 1;
