@@ -181,6 +181,8 @@
     "bindCredManualHint": "仅本次绑定使用，不保存",
     "passwordSavedYes": "已保存",
     "passwordNotSet": "未设置",
+    "passwordChipSaved": "密码已保存",
+    "passwordChipUnset": "密码未设置",
     "operatorUnset": "未选择",
     "loginInfoIncomplete": "待补全登录信息，点 ✎ 填写",
     "selfDashboardTitle": "在线信息",

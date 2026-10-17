@@ -5,6 +5,15 @@
   'use strict'
   if (window.__TAURI_INTERNALS__) return // 已有真 Tauri（或重复注入）时让位
 
+  // ?nomotion=1：headless 截图时禁用入场/过渡动画（虚拟时间下动画可能停在起点，整屏偏暗）
+  try {
+    if (window.location.search.indexOf('nomotion') >= 0) {
+      var nomotionStyle = document.createElement('style')
+      nomotionStyle.textContent = '*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important}'
+      document.documentElement.appendChild(nomotionStyle)
+    }
+  } catch (e) { /* 忽略 */ }
+
   // 跳过安卓首启引导与系统通知弹窗（浏览器测试不需要）；直接落在账号页
   // （?panel= 可覆盖，如 ?panel=selfservice）
   try {
@@ -26,6 +35,8 @@
     operator: '@cmcc',
     selfHelloEnabled: true,
     defaultPanel: (function () { try { var m = window.location.search.match(/panel=(\w+)/); if (m) return m[1] } catch (e) {} return 'account' })(), // ?panel= 覆盖启动面板
+    // ?theme=light|dark 覆盖主题（浅色截图验证用；缺省走系统 prefers-color-scheme）
+    themeMode: (function () { try { var m = window.location.search.match(/theme=(\w+)/); if (m && (m[1] === 'light' || m[1] === 'dark')) return m[1] } catch (e) {} return 'system' })(),
     // 设备别名：验证设备命名功能（键 = 原始 12 位 hex MAC）
     deviceAliases: { B025AA6CA580: '实验室台式机' },
   }

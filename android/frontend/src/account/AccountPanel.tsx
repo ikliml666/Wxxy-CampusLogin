@@ -27,6 +27,20 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 
+/** 运营商后缀 → 品牌色 chip 样式（移动天蓝 / 电信蓝 / 联通橙 / 其他中性），让账号卡一眼可辨运营商 */
+function operatorChipClass(operator: string | null | undefined): string {
+  switch (operator) {
+    case '@cmcc':
+      return 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+    case '@telecom':
+      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+    case '@unicom':
+      return 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
+    default:
+      return 'bg-muted text-muted-foreground'
+  }
+}
+
 interface AccountPanelProps {
   accounts: AccountItem[]
   activeAccount: string
@@ -221,66 +235,9 @@ export const AccountPanel = memo(function AccountPanel({
 
   return (
     <div className="space-y-4">
-      {/* 自动化设置卡（上）：三开关逻辑零改动，仅卡片位置保持安卓现有靠上 */}
-      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Zap className="h-5 w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
-                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
-              </div>
-              <Switch
-                id="auto-login"
-                checked={config.autoLoginOnStart || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
-              </div>
-              <Switch
-                id="auto-login-ready"
-                checked={config.autoLoginOnPreparation || false}
-                onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="night-operator-switch" className="text-sm font-medium cursor-pointer">{t('account.nightOperatorSwitch')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.nightOperatorSwitchDesc')}</p>
-              </div>
-              <Switch
-                id="night-operator-switch"
-                checked={config.enableNightOperatorSwitch || false}
-                onCheckedChange={checked => onUpdateConfig({ enableNightOperatorSwitch: checked })}
-                className="shrink-0"
-              />
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      {/* 账号管理卡（下）：卡头（图标+标题+描述+通栏「＋添加登录信息」）+
+      {/* 账号管理卡（上）：卡头（图标+标题+描述+通栏「＋添加登录信息」）+
           堆叠账号卡（OnlineDeviceStack 竖排封面流，机制原样）+ 卡尾快捷操作区 */}
-      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
@@ -305,9 +262,10 @@ export const AccountPanel = memo(function AccountPanel({
                   const isRenaming = renamingId === item.id
                   return (
                     <div key={item.id} className={cn(
-                      'rounded-xl p-3 shadow-sm bg-card dark:bg-muted',
-                      isActive && 'ring-1 ring-primary/40'
+                      'relative overflow-hidden rounded-xl bg-card p-3 ring-1 ring-border dark:bg-muted dark:ring-white/10',
+                      isActive && 'ring-primary/40'
                     )}>
+                      {/* 激活卡边框泛主色（无叠加装饰） */}
                       {/* 行1：在线点 + 显示名（空则 id，后端已兜底非空）+「使用中」徽章 */}
                       <div className="flex items-center justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
@@ -320,26 +278,27 @@ export const AccountPanel = memo(function AccountPanel({
                           </span>
                         )}
                       </div>
-                      {/* 信息区三行：学号/运营商/密码（只显状态不显明文） */}
-                      <div className="mt-2.5 space-y-1 rounded-lg bg-muted px-2.5 py-2 dark:bg-card">
-                        <div className="flex items-center justify-between gap-2 text-[11px] leading-4">
-                          <span className="shrink-0 text-muted-foreground">{t('account.username')}</span>
-                          <span className={cn('min-w-0 truncate font-mono', item.user ? 'text-foreground' : 'text-muted-foreground/60')}>
-                            {item.user || '-'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 text-[11px] leading-4">
-                          <span className="shrink-0 text-muted-foreground">{t('account.operator')}</span>
-                          <span className={cn('min-w-0 truncate', item.operator ? 'text-foreground' : 'text-muted-foreground/60')}>
-                            {item.operator ? t(operatorLabelKey(item.operator) ?? '') || item.operator : t('account.operatorUnset')}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 text-[11px] leading-4">
-                          <span className="shrink-0 text-muted-foreground">{t('account.password')}</span>
-                          <span className={item.passwordSaved ? 'font-medium text-emerald-500' : 'text-muted-foreground/60'}>
-                            {item.passwordSaved ? t('account.passwordSavedYes') : t('account.passwordNotSet')}
-                          </span>
-                        </div>
+                      {/* 学号：标签在上、值以大字等宽字体作为主体标识 */}
+                      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
+                      <p className="truncate font-mono text-lg font-semibold leading-6 tracking-wide text-foreground">
+                        {item.user || '-'}
+                      </p>
+                      {/* 运营商品牌色 chip + 密码状态 chip（不再堆灰度表单块） */}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className={cn(
+                          'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                          operatorChipClass(item.operator)
+                        )}>
+                          {item.operator ? (t(operatorLabelKey(item.operator) ?? '') || item.operator) : t('account.operatorUnset')}
+                        </span>
+                        <span className={cn(
+                          'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                          item.passwordSaved
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-muted text-muted-foreground'
+                        )}>
+                          {item.passwordSaved ? t('account.passwordChipSaved') : t('account.passwordChipUnset')}
+                        </span>
                       </div>
                       {incomplete && (
                         <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground/60">
@@ -370,7 +329,7 @@ export const AccountPanel = memo(function AccountPanel({
                         </div>
                       ) : (
                         /* 操作行：✎编辑（弹窗A编辑态）/ 改名 / ⇄切换（仅非激活卡）/ 🗑删除 */
-                        <div className="mt-2 flex justify-end gap-0.5">
+                        <div className="mt-3 flex justify-end gap-0.5 border-t border-border/50 pt-2">
                           <Button
                             variant="ghost"
                             size="icon-sm"
@@ -454,6 +413,63 @@ export const AccountPanel = memo(function AccountPanel({
                   <p className="truncate text-[11px] text-muted-foreground">{t('account.bindDesc')}</p>
                 </div>
               </button>
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      {/* 自动化设置卡（下）：三开关逻辑零改动 */}
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
+                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login"
+                checked={config.autoLoginOnStart || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnStart: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
+              </div>
+              <Switch
+                id="auto-login-ready"
+                checked={config.autoLoginOnPreparation || false}
+                onCheckedChange={checked => onUpdateConfig({ autoLoginOnPreparation: checked })}
+                className="shrink-0"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="night-operator-switch" className="text-sm font-medium cursor-pointer">{t('account.nightOperatorSwitch')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('account.nightOperatorSwitchDesc')}</p>
+              </div>
+              <Switch
+                id="night-operator-switch"
+                checked={config.enableNightOperatorSwitch || false}
+                onCheckedChange={checked => onUpdateConfig({ enableNightOperatorSwitch: checked })}
+                className="shrink-0"
+              />
             </div>
           </CardContent>
         </AnimatedCard>

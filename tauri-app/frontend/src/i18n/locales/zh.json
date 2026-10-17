@@ -128,6 +128,8 @@
     "accountNamePlaceholder": "档案显示名，如「宿舍电信」",
     "passwordStatusSaved": "已保存",
     "passwordStatusUnset": "未设置",
+    "passwordChipSaved": "密码已保存",
+    "passwordChipUnset": "密码未设置",
     "bindCredTitle": "绑定凭据",
     "bindCredFromLogin": "登录信息",
     "bindCredManual": "手动填写",

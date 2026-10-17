@@ -128,6 +128,8 @@
     "accountNamePlaceholder": "Profile display name, e.g. \"Dorm Telecom\"",
     "passwordStatusSaved": "Saved",
     "passwordStatusUnset": "Not set",
+    "passwordChipSaved": "Password saved",
+    "passwordChipUnset": "Password not set",
     "bindCredTitle": "Binding Credentials",
     "bindCredFromLogin": "Login Info",
     "bindCredManual": "Manual Entry",

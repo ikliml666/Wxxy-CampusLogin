@@ -35,6 +35,20 @@ import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 
+/** 运营商后缀 → 品牌色 chip 样式（移动天蓝 / 电信蓝 / 联通橙 / 其他中性），让账号卡一眼可辨运营商 */
+function operatorChipClass(operator: string | null | undefined): string {
+  switch (operator) {
+    case '@cmcc':
+      return 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+    case '@telecom':
+      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+    case '@unicom':
+      return 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
+    default:
+      return 'bg-muted text-muted-foreground'
+  }
+}
+
 interface AccountPanelProps {
   adapters: Adapter[]
   accounts: AccountItem[]
@@ -240,9 +254,10 @@ export const AccountPanel = memo(function AccountPanel({
                 const operatorKey = operatorLabelKey(item.operator ?? '')
                 return (
                   <div key={item.id} className={cn(
-                    'rounded-xl p-3 shadow-sm bg-card dark:bg-muted',
-                    isActive && 'ring-1 ring-primary/40'
+                    'relative overflow-hidden rounded-xl bg-card p-3 ring-1 ring-border dark:bg-muted dark:ring-white/10',
+                    isActive && 'ring-primary/40'
                   )}>
+                    {/* 激活卡边框泛主色（无叠加装饰） */}
                     {/* 行1：在线点 + 显示名 + 使用中徽章（仅激活卡） */}
                     <div className="flex items-center justify-between gap-2">
                       <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
@@ -255,27 +270,27 @@ export const AccountPanel = memo(function AccountPanel({
                         </span>
                       )}
                     </div>
-                    {/* 信息区三行脱敏：学号 / 运营商 / 密码（只显状态不显明文） */}
-                    <div className="mt-2.5 space-y-2">
-                      <div className="rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
-                        <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
-                        <p className="truncate font-mono text-xs leading-5 text-foreground">{item.user || '-'}</p>
-                      </div>
-                      <div className="rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
-                        <p className="text-[10px] leading-4 text-muted-foreground">{t('account.operator')}</p>
-                        <p className="truncate font-mono text-xs leading-5 text-foreground">
-                          {operatorKey ? t(operatorKey) : '-'}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
-                        <p className="text-[10px] leading-4 text-muted-foreground">{t('account.password')}</p>
-                        <p className={cn(
-                          'truncate font-mono text-xs leading-5',
-                          item.passwordSaved ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'
-                        )}>
-                          {item.passwordSaved ? t('account.passwordStatusSaved') : t('account.passwordStatusUnset')}
-                        </p>
-                      </div>
+                    {/* 学号：标签在上、值以大字等宽字体作为主体标识 */}
+                    <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
+                    <p className="truncate font-mono text-lg font-semibold leading-6 tracking-wide text-foreground">
+                      {item.user || '-'}
+                    </p>
+                    {/* 运营商品牌色 chip + 密码状态 chip（不再堆灰度表单块） */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className={cn(
+                        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                        operatorChipClass(item.operator)
+                      )}>
+                        {operatorKey ? t(operatorKey) : '-'}
+                      </span>
+                      <span className={cn(
+                        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                        item.passwordSaved
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-muted text-muted-foreground'
+                      )}>
+                        {item.passwordSaved ? t('account.passwordChipSaved') : t('account.passwordChipUnset')}
+                      </span>
                     </div>
                     {isRenaming ? (
                       <div className="mt-2 flex items-center gap-2">
@@ -301,7 +316,7 @@ export const AccountPanel = memo(function AccountPanel({
                       </div>
                     ) : (
                       /* 操作行：✎编辑登录信息（弹窗A编辑态）/ 改名 / ⇄切换（仅非激活卡）/ 🗑删除 */
-                      <div className="mt-2 flex justify-end gap-0.5">
+                      <div className="mt-3 flex justify-end gap-0.5 border-t border-border/50 pt-2">
                         <Button
                           variant="ghost"
                           size="icon-sm"

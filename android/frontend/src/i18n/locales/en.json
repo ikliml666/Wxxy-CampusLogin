@@ -181,6 +181,8 @@
     "bindCredManualHint": "Used for this binding only, not saved",
     "passwordSavedYes": "Saved",
     "passwordNotSet": "Not set",
+    "passwordChipSaved": "Password saved",
+    "passwordChipUnset": "Password not set",
     "operatorUnset": "Not selected",
     "loginInfoIncomplete": "Login info incomplete, tap ✎ to fill in",
     "selfDashboardTitle": "Online Info",
