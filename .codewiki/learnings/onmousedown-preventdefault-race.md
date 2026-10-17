@@ -39,9 +39,9 @@ tags: [前端, React, Tauri, 账号管理, 运营商绑定, 竞态保护]
 
 | 变量名 | 类型 | 行号范围 | 用途 |
 | :--- | :--- | :--- | :--- |
-| `passwordSaved` | `boolean` | L77 | 从 `useConfigStore` 订阅，标识是否已保存密码 |
-| `config` | `Config` | L82 | 使用 `useShallow` 浅比较订阅，避免非必要重渲染 |
-| `mountedRef` | `MutableRefObject<boolean>` | L85 | 防止 StrictMode 下异步 setState 失效 |
+| `passwordSaved` | `boolean` | L87 | 从 `useConfigStore` 订阅，标识是否已保存密码 |
+| `config` | `Config` | L91 | 使用 `useShallow` 浅比较订阅，避免非必要重渲染 |
+| `mountedRef` | `MutableRefObject<boolean>` | L93 | 防止 StrictMode 下异步 setState 失效 |
 | `switchingAccount` | `string \| null` | L109 | 忙态锁，防止重复切换账号请求 |
 | `renamingId` | `string \| null` | L121 | 当前正在改名的账号 ID |
 | `renameDraft` | `string` | L122 | 改名时的本地草稿 |
@@ -56,11 +56,11 @@ tags: [前端, React, Tauri, 账号管理, 运营商绑定, 竞态保护]
 
 | 函数名 | 行号范围 | 关键逻辑说明 |
 | :--- | :--- | :--- |
-| `handleClearPassword` | L88-L106 | 调用 `saveConfigDirect({ password: '' }, true)` 显式清除密码，同步 `passwordSaved` 状态 |
-| `handleSwitchAccount` | L111-L118 | 忙态锁保护，若 `switchingAccount !== null` 则忽略再次点击 |
-| `startRename` | L125-L128 | 初始化改名状态，设置 `renamingId` 和 `renameDraft` |
-| `cancelRename` | L130-L133 | 重置改名状态 |
-| `submitRename` | L135-L154 | 校验显示名合法性，调用 `onRenameAccount`，失败保留草稿供重试 |
+| `handleClearPassword` | L96-L114 | 调用 `saveConfigDirect({ password: '' }, true)` 显式清除密码，同步 `passwordSaved` 状态 |
+| `handleSwitchAccount` | L116-L121 | 忙态锁保护，若 `switchingAccount !== null` 则忽略再次点击 |
+| `startRename` | L124-L127 | 初始化改名状态，设置 `renamingId` 和 `renameDraft` |
+| `cancelRename` | L129-L132 | 重置改名状态 |
+| `submitRename` | L134-L154 | 校验显示名合法性，调用 `onRenameAccount`，失败保留草稿供重试 |
 | `handleSaveLoginInfo` | L176-L215 | 处理登录信息保存：<br>- **新建态**：调用 `tauriApiWithRetry.createAccount`，成功后刷新列表<br>- **编辑态**：先 `saveConfigDirect` 提交 user/password/operator，再调用 `onAddAccount` 回写激活档案 |
 | `refreshAccounts` | L217-L225 | 调用 `tauriApiWithRetry.listAccounts` 刷新账号列表 |
 
@@ -168,7 +168,7 @@ tags: [前端, React, Tauri, 账号管理, 运营商绑定, 竞态保护]
 ## Known Issues
 
 1.  **StrictMode Double Invoke**:
-    *   文件 `AccountPanel.tsx` L87-L91 使用 `mountedRef` 处理 React StrictMode 下的双重挂载/卸载问题。所有异步回调（如 `handleAddAccount`, `submitRename`）均在最后检查 `if (!mountedRef.current) return`，以防止在组件卸载后更新 State 导致的内存泄漏或错误。
+    *   文件 `AccountPanel.tsx` L93-L97 使用 `mountedRef` 处理 React StrictMode 下的双重挂载/卸载问题。所有异步回调（如 `handleAddAccount`, `submitRename`）均在最后检查 `if (!mountedRef.current) return`，以防止在组件卸载后更新 State 导致的内存泄漏或错误。
 
 2.  **Operator Binding Status Cache**:
     *   `bindStatuses` 状态在弹窗关闭后不会被自动清除，除非重新触发查询或刷新页面。这可能导致用户看到过期的绑定状态。建议在 `Dialog` 关闭回调中考虑重置 `bindStatuses` 或 `queryingStatus`（当前实现未显式重置，依赖下次查询覆盖）。

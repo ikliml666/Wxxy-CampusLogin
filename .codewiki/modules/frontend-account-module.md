@@ -8,29 +8,28 @@ source_files:
   - android/frontend/src/account/SelfOnlineRecords.tsx
   - android/frontend/src/account/SelfOnlineStack.tsx
   - android/frontend/src/account/selfServiceState.ts
-  - android/frontend/src/account/selfServiceTypes.ts
   - android/frontend/src/account/types.ts
   - android/frontend/src/account/validators.ts
 tags: [account, ui, self-service, validation, biometric]
 ---
 
 ## Overview
-`frontend-account-module` 负责 Android/Tauri 应用中的用户账户管理、自助服务面板及在线状态展示。核心功能包括：多账号切换与管理（增删改查）、登录凭据（用户名/密码）的安全存储与编辑、运营商绑定（ISP Binding）、校园网密码修改、上网记录查询与可视化，以及在线设备的堆叠式交互展示。
+`frontend-account-module` 负责 Android/Tauri 应用中的用户账户管理、自助服务面板及在线状态展示。核心功能包括：多账号切换与管理（增删改查）、登录凭据（用户名/密码）的安全存储与编辑、运营商绑定（ISP Binding）、校园网密码修改，以及在线设备的堆叠式交互展示。
 
 该模块采用 Zustand 进行状态管理，利用自定义 Hooks (`useOperatorBind`, `useHelloGate`) 处理复杂的业务逻辑与安全验证。UI 层通过 `AnimatedCard` 和自定义堆叠组件 (`OnlineDeviceStack`) 提供流畅的移动端体验。
 
 ## Key Components
 
 ### AccountPanel (android/frontend/src/account/AccountPanel.tsx)
-主面板组件，聚合了登录信息、自动化设置、账号管理和运营商绑定 UI。
+主面板组件，聚合了自动化设置、账号管理和运营商绑定 UI。
 - **Props**:
   - `accounts`: `AccountItem[]`，当前保存的账号列表。
   - `activeAccount`: `string`，当前激活账号 ID。
   - `onUpdateConfig`: `(partial: Partial<Config>) => void`，配置更新回调。
-  - `onAddAccount`: `(name: string) => Promise<boolean>`，添加账号。
   - `onDeleteAccount`: `(id: string, displayName: string) => void`，删除账号。
   - `onSwitchAccount`: `(name: string) => Promise<void>`，切换账号。
   - `onRenameAccount`: `(accountId: string, displayName: string) => Promise<boolean>`，重命名账号。
+  - `onAddAccount`: `(name: string) => Promise<boolean>`，添加账号（源码定义中）。
 - **State & Logic**:
   - **挂载守卫**: `mountedRef` 用于处理 React StrictMode 下的双挂载，确保异步 Handler 内的 setState 不被丢弃 (Lines 57-62)。
   - **密码清除**: `handleClearPassword` 调用 `saveConfigDirect({ password: '' }, true)` 显式清除标志，失败时 toast 且不显示"已清除" (Lines 80-91)。
