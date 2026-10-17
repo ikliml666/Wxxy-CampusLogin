@@ -18,13 +18,13 @@ tags: [决策, 轻量化, EcoQoS, 托盘, WebView2, 双端同构]
 
 桌面端此前对「关闭窗口」只有两种语义：隐藏到托盘（`minimize_to_tray`，WebView2 与整条渲染栈继续常驻内存）或优雅退出进程。配合夜间接入器 23:00/07:30 的定时自动切换（见 [[night-operator-switch]]），进程需要常驻，但用户游戏时对后台检测的调度抖动与资源占用敏感——隐藏窗口无法释放 WebView2 进程组的渲染资源，直接退出又断了常驻。
 
-2026-09-20（v2.3.8）引入「轻量化模式」：点关闭按钮把窗口**真销毁**（WebView2 进程组退出、窗口对象析构），Rust 后端核心功能（检测循环、自动登录、托盘、单实例）与托盘图标保留；唤回时经统一入口重建窗口。轻量化与「自动登录后退出」正交：`auto_exit_after_login` 默认值于同期从 true 调整为 false（`config/model.rs:249-251`），此后夜切总开关 `enable_night_operator_switch` 默认也调回关闭（`config/model.rs:260-262`，2026-10-02 起），轻量化作为独立的关闭按钮运行期行为继续存在。
+2026-09-20（v2.3.8）引入「轻量化模式」：点关闭按钮把窗口**真销毁**（WebView2 进程组退出、窗口对象析构），Rust 后端核心功能（检测循环、自动登录、托盘、单实例）与托盘图标保留；唤回时经统一入口重建窗口。轻量化与「自动登录后退出」正交：`auto_exit_after_login` 默认值于同期从 true 调整为 false（`config/model.rs:345-347`），此后夜切总开关 `enable_night_operator_switch` 默认也调回关闭（`config/model.rs:350-352`，2026-10-02 起），轻量化作为独立的关闭按钮运行期行为继续存在。
 
 ## 决策
 
 ### 1. 轻量化 = 窗口真销毁（不 hide、不挂起）
 
-字段定义在 `config/model.rs:43-46`：`lightweight_mode`（serde rename `lightweightMode`，`default = "default_true"`，注释标明桌面专属，双端同构配置容器见 [[config-and-persistence]]，容器级 `#[serde(default)]` 在 `model.rs:9`）。`Default` 实现给 `true`（`model.rs:253`），即新配置默认开启。
+字段定义在 `config/model.rs:43-46`：`lightweight_mode`（serde rename `lightweightMode`，`default = "default_true"`，注释标明桌面专属，双端同构配置容器见 [[config-and-persistence]]，容器级 `#[serde(default)]` 在 `model.rs:9`）。`Default` 实现给 `true`（`model.rs:345`），即新配置默认开启。
 
 窗口关闭事件处理在 `app/shutdown.rs:20-56` 的 `handle_window_close_event`，三分支互斥：
 

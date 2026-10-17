@@ -24,7 +24,7 @@ source_files:
 
 安全体系围绕三条主线展开，桌面（Tauri + Windows DPAPI）与安卓（Tauri + AndroidKeyStore AES-GCM）双端同构：
 
-1. **凭据出站唯一出口**：任何把配置发往前端/日志的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，桌面 `config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:309-313`）。
+1. **凭据出站唯一出口**：任何把配置发往前端/日志的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，桌面 `config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:296-300`）。
 2. **落盘加密**：密码写入磁盘前必经加密——桌面 DPAPI（当前用户作用域，`account/crypto.rs:114-130`），安卓 AndroidKeyStore AES-256-GCM（`plugins/keystore/src/lib.rs:26-30` 的 `CampusKeystoreExt`）。"非空即加密，不排除掩码占位符"（`config/persist.rs:318-321`）。
 3. **后端验证门**：敏感自助操作前要求本机身份验证，TTL 600 秒、时间戳只存后端内存（桌面 `platform/identity.rs`，安卓 `identity_gate.rs:8-10`）。`reveal_operator_credential` 无论总开关如何都强制设门（桌面 `commands/self_service.rs`）。
 
@@ -35,7 +35,7 @@ source_files:
 | 术语 | 含义 | 不变量 |
 | --- | --- | --- |
 | `PASSWORD_MASK` | 出站掩码占位符 `"***"` | 用户真实密码恰为 `***` 时不得排除加密（`persist.rs:318-321`） |
-| `masked_for_display` | 敏感信息出站唯一出口 | 空→空（未设置语义），非空→`***`（`model.rs:313-317`） |
+| `masked_for_display` | 敏感信息出站唯一出口 | 空→空（未设置语义），非空→`***`（`model.rs:300`） |
 | `IDENTITY_VERIFY_TTL_SECS` | 验证门有效期 600s | 时间戳 0=从未验证；时钟回拨视为过期（`identity_gate.rs:10-12`） |
 | `redact_credentials` | 日志/错误脱敏 | URL 与明文密码均替换为 `***`（`portal.rs`） |
 | `validate_account_name` | 账号 id 白名单 | 拒绝 `../`、`/`、`\` 等路径穿越字符（`account_cmds.rs`） |
@@ -107,8 +107,8 @@ source_files:
 
 关键方法：
 
-*   `Config::masked_for_display(&self) -> Config` (行 309-313): 返回一个密码被掩码的新 Config 实例。这是所有配置数据发往前端的唯一出口。
-*   `Config::mask_in_place(&mut self)` (行 315-319): 将当前实例的 `password` 字段（如果非空）修改为 `PASSWORD_MASK`。
+*   `Config::masked_for_display(&self) -> Config` (行 296-300): 返回一个密码被掩码的新 Config 实例。这是所有配置数据发往前端的唯一出口。
+*   `Config::mask_in_place(&mut self)` (行 302-306): 将当前实例的 `password` 字段（如果非空）修改为 `PASSWORD_MASK`。
 
 常量：
 
@@ -203,7 +203,7 @@ source_files:
 
 *   `encrypt(text: &str) -> Result<String, String>` (行 114-122): 使用 DPAPI 加密文本，返回 base64 编码。
 *   `decrypt(data: &str) -> Result<String, String>` (行 124-130): 解密 base64 编码的 DPAPI 密文。
-*   `call_dpapi(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String>` (行 56-73): 底层调用 CryptProtectData/CryptUnprotectData。
+*   `call_dpapi(input: &[8], encrypt: bool) -> Result<Vec<u8>, String>` (行 56-73): 底层调用 CryptProtectData/CryptUnprotectData。
 
 ### 7. 桌面身份验证 (`tauri-app/src-tauri/src/platform/identity.rs`)
 
@@ -231,9 +231,9 @@ source_files:
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                        Frontend (Webview)                   │
-└──────────────┬──────────────────────────────┬───────────────┘
-               │ Tauri Commands               │ Events
-               ▼                              ▲
+└──────┬──────────────────────────────┬───────────────────────┘
+       │ Tauri Commands               │ Events
+       ▼                              ▲
 ┌─────────────────────────────────────────────────────────────┐
 │                     Tauri Backend                           │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
@@ -310,5 +310,5 @@ source_files:
 4.  **`redact_credentials` 覆盖面窄**：全仓库唯一调用点在登录请求错误路径（`protocol.rs:166`）；其余网络错误、诊断信息、日志均无自动脱敏。
 5.  **密码校验无复杂度要求**：`validate_password` 仅非空且 ≤128 字符（`config/validate.rs:31-39`）。
 6.  **查询类命令携带密码出设备**：`query_bind_status`/`query_self_dashboard`/`query_self_online_log` 有意不设门（桌面注释 `self_service.rs:10-13`），凭据经 `resolve_credential_password`（`:51-62`）回退登录密码并随请求发往校园网关——数据本就存于本机，属有意设计而非缺陷，但意味着总览卡自动刷新会周期性使用密码。
-7.  **掩码出口类型收敛不对称**：桌面 `masked_for_display` 返回同构 `Config`（`model.rs:313-317`），`mask_in_place` 是 `pub`（`:319-323`）可被绕过直接调用；安卓返回 `serde_json::Value`（`config_state.rs:364-369`），出站即丢失类型。两侧类型系统都无法在编译期强制"必经出口"。
+7.  **掩码出口类型收敛不对称**：桌面 `masked_for_display` 返回同构 `Config`（`model.rs:300`），`mask_in_place` 是 `pub`（`:302-306`）可被绕过直接调用；安卓返回 `serde_json::Value`（`config_state.rs:364-369`），出站即丢失类型。两侧类型系统都无法在编译期强制"必经出口"。
 8.  **日志通道无统一脱敏钩子**：`pub fn log()`（`infra/logger.rs:314`）直写不检查内容，依赖调用方自律（登录路径靠 `protocol.rs:163-168` 手动 redact）。

@@ -9,6 +9,8 @@ source_files:
   - tauri-app/src-tauri/src/commands/network_cmd.rs
   - tauri-app/src-tauri/src/commands/system.rs
   - tauri-app/src-tauri/src/commands/self_service.rs
+  - tauri-app/src-tauri/src/commands/account.rs
+  - tauri-app/src-tauri/src/commands/updater.rs
 tags: [desktop, tauri, ipc, commands, 命令面]
 ---
 
