@@ -5,7 +5,6 @@
 - [[concepts/cross-platform-adaptive-layout|cross-platform-adaptive-layout]]
 - [[concepts/permission-schemas|permission-schemas]]
 - [[concepts/tauri-plugin-architecture|tauri-plugin-architecture]]
-- [[concepts/zustand-state-management|zustand-state-management]]
 - [[concepts/background-check-and-auto-login|后台巡检与自动登录全链路]]
 - [[concepts/security-model|安全体系（凭据出站、加密与验证门）]]
 ## Decision
@@ -37,7 +36,6 @@
 - [[decisions/update-notification-per-platform|更新提醒分端定制：桌面 WinRT 自写 toast + 安卓应用内弹窗]]
 - [[decisions/changelog-per-version-files|更新日志按版本文件维护（changelogs/，默认写入下一版号）]]
 - [[decisions/desktop-ui-card-primitives|桌面 UI 精修：SettingRow/CardIcon 基元与参数重分组（2026-09-27）]]
-- [[decisions/lightweight-mode-desktop|桌面轻量化模式：销毁 WebView、EcoQoS 与退出守卫]]
 - [[decisions/logout-radius-first|注销协议改为 Radius 注销先行、成功即止，MAC 解绑收尾]]
 - [[decisions/version-single-source-build-rs|版本号以 tauri.conf.json 为唯一权威源，build.rs 编译期注入]]
 - [[decisions/strictmode-dev-only|生产环境不启用 StrictMode]]
@@ -47,7 +45,6 @@
 - [[decisions/network-quality-default-off|网络质量检测默认关闭（schema v3）及多端 UI 适配]]
 - [[decisions/night-operator-switch|自动切换运营商（原晚间断网自动切换）]]
 - [[decisions/query-bind-status-no-gate-by-design|自助服务查询命令的"无验证门 + 密码逐个回退"是有意设计]]
-- [[decisions/quality-history-persistence|质量检测结果落盘：复用 login_history 范式，双端 JSON 形状一致]]
 - [[decisions/windows-hello-only-identity|身份验证仅用 Windows Hello，删除 CredUI/SSPI 回退]]
 - [[decisions/adapter-account-binding|适配器-账号绑定（凭据副本方案）]]
 - [[decisions/adapter-operation-scope|适配器操作范围与解析规则]]
@@ -56,11 +53,11 @@
 - [[decisions/verification-gate-tiers|验证门分级（改变外部状态的命令才设门）]]
 ## Learning
 
-- [[learnings/onmousedown-preventdefault-race|AccountPanel 密码输入草稿与竞态处理]]
 - [[learnings/android-boot-autostart-notification-only|Android 开机自启与通知保活机制]]
 - [[learnings/android-identifier-change-breaks-keystore|AndroidKeyStore 密钥按包名隔离导致改 identifier 后密码失效]]
 - [[learnings/cmstplua-elevation-bind-opts3-and-vtable-slot|CMSTPLUA 静默提权从未通过——BIND_OPTS 传小与 vtable slot 错位的叠加]]
 - [[learnings/css-comma-selector-shared-body-pitfall|CSS 逗号选择器列表共享规则体陷阱与修复]]
+- [[learnings/config-missing-field-load-failure|Config 模型与持久化机制]]
 - [[learnings/disabled-adapter-status-enum-and-startup-race|DisabledAdapter.status 枚举序列化与适配器状态轮询机制]]
 - [[learnings/input-time-wrapper-w-full|MonitorPanel 双端组件架构与布局约束]]
 - [[learnings/rtss-hook-injection-webview-crash|RTSS hook 注入导致 WebView2 白屏崩溃：根因、诊断与排除尝试的完整失败记录]]
@@ -70,7 +67,6 @@
 - [[learnings/usb-adapter-enable-pnp-vs-ndis-layers|USB 网卡启用失效——NDIS admin 层与 PnP 设备层禁用互不覆盖]]
 - [[learnings/webview2-minimize-render-suspend|WebView2 最小化渲染挂起与内存目标管理]]
 - [[learnings/platform-com-elevation-undocumented|Windows COM 提权依赖未公开接口，失效时降级为弹 UAC]]
-- [[learnings/windows-hello-gate-module-singleton|Windows Hello 验证门与自助服务会话门的状态管理]]
 - [[learnings/adapter-disabled-classification-blindspot|Windows 适配器发现与监控——四分类决策、幽灵设备修复与自动启用守护]]
 - [[learnings/android-log-type-enum-drift|android-log-type-enum-drift]]
 - [[learnings/android-host-cargo-check-fails|android/src-tauri 安卓端 Rust 模块基线与架构]]
@@ -98,7 +94,6 @@
 - [[learnings/config-write-lock-coverage|安卓端配置与账号文件的并发写保护（IO锁）]]
 - [[learnings/plugin-permission-dangling-refs|插件权限 default.toml 的悬空引用不会在构建期暴露]]
 - [[learnings/wireless-debugging-self-grant-research|无线调试自助授权可行性调研（WRITE_SECURE_SETTINGS 免电脑路径）]]
-- [[learnings/config-missing-field-load-failure|旧配置文件缺一个字段导致整个 Config 加载失败]]
 - [[learnings/tauri-build-no-per-command-toml|本仓 tauri build.rs 不为新插件命令生成 per-command toml]]
 - [[learnings/gsap-tween-stale-ref-after-remount|条件渲染元素重建后 GSAP tween/timeline 静默失效（ref 陈旧）]]
 - [[learnings/gen-schemas-crlf-diff-noise|构建再生的 gen/ schemas 与插件 permissions 出现全文件 \r\n 差异（噪音）]]
@@ -115,6 +110,7 @@
 - [[learnings/airplane-mode-kills-wireless-adb|飞行模式一开无线 adb 即断且无法远程恢复]]
 ## Module
 
+- [[learnings/onmousedown-preventdefault-race|AccountPanel 账号管理面板架构与状态流]]
 - [[learnings/webview-minimize-timer-throttle-stale-panel|NetworkPanel 网络适配器与出站管理面板]]
 - [[modules/build-scripts-and-root|build-scripts-and-root]]
 - [[modules/docs-and-design|docs-and-design]]

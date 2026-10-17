@@ -70,6 +70,9 @@ tags: [Tauri, Rust, Android, Backend, Config, Account, Network]
     *   `AccountItem` (L24-L28): 账号列表条目。
         *   `id`: 账号文件名 stem。
         *   `displayName`: 可读显示名。
+        *   `user`: 学号/用户名展示字段。
+        *   `operator`: 运营商展示字段。
+        *   `passwordSaved`: 密码是否已保存布尔值。
     *   `AccountResult` (L30-L40): 账号操作返回结果。
         *   `success`: bool。
         *   `message`: Option<String>。
@@ -81,11 +84,12 @@ tags: [Tauri, Rust, Android, Backend, Config, Account, Network]
     *   `sanitize_account_id(user)` (L63-L73): 账号 ID 消毒，非法字符替换为 `_`，截断至 32 字符。
     *   `validate_account_name(name)` (L75-L82): 校验账号名称 (字母/数字/下划线/中文/连字符，1-32 字符)。
     *   `accounts_dir(app)` (L84-L88): 获取账号目录路径。
-    *   `read_display_name(path)` (L90-L97): 从 JSON 读取 `displayName`，失败兜底。
+    *   `read_account_card_info(path)` (L90-L97): 从 JSON 读取展示字段 (displayName, user, operator, passwordSaved)，失败兜底。
     *   `list_account_items_sync(dir)` (L99-L123): 同步列举账号，过滤隐藏文件，排序，空显示名兜底为 ID。
     *   `list_accounts(app)` (L125-L129): [Command] 异步列举账号。
     *   `switch_account(app, account_name)` (L147-L189): [Command] 切换账号。合并登录字段，清空夜切恢复标记，收尾 `avoid_bad_wifi` 快照。
     *   `save_current_as_account(app, account_name)` (L191-L218): [Command] 另存当前配置为账号。处理覆盖写逻辑，防止显示名串号。
+    *   `create_account(app, account_name, user, password, operator)` (L220-L251): [Command] 新建账号档案。
     *   `merge_save_as_target(current, existing, safe_name)` (L220-L251): 纯函数，决定另存时的合并规则。
     *   `delete_account(app, account_name)` (L253-L282): [Command] 删除账号。若为当前账号，清空 `active_account` 和夜切标记。
     *   `get_active_account(app)` (L284-L286): [Command] 获取当前激活账号 ID。
@@ -217,3 +221,8 @@ tags: [Tauri, Rust, Android, Backend, Config, Account, Network]
 *   [[face_model_cmds.rs]]: 依赖 `config_state` 获取 `allow_2d_face_verify` 配置。
 *   [[system_cmds.rs]]: 可能调用 `cpu_affinity` 进行性能调优或状态查询。
 *   [[update_cmds.rs]]: 独立模块，依赖 `config_state` 获取 `update_source`。
+
+## Known Issues
+*   **CPU 亲和性硬编码上限**：`cpu_affinity.rs` 中 `little_core_ids()` 硬编码遍历核数上限为 16 (`0..16u32`)。对于超过 16 核的设备，超出部分将被忽略，可能导致绑核不完整。
+*   **同构误判阈值**：`cpu_affinity.rs` 中使用 `max_freq * 100 < min_freq * 130`（频率差 < 30%）作为无大小核异构的判断标准。这在某些能效比接近的现代 SoC 上可能过于激进，导致无法利用绑核优化。
+*   **静默失败策略**：`cpu_affinity.rs` 中任何 `read_to_string` 失败、`parse` 失败、`sysfs` 节点不存在，均被 `if let Ok(...)` 忽略，不 panic，不报错。`sched_setaffinity` 失败时也仅返回 `false`。这确保了容错性，但可能掩盖潜在的权限或文件系统问题。

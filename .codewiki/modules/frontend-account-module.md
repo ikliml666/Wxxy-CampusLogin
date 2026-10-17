@@ -32,11 +32,12 @@ tags: [account, ui, self-service, validation, biometric]
   - `onSwitchAccount`: `(name: string) => Promise<void>`，切换账号。
   - `onRenameAccount`: `(accountId: string, displayName: string) => Promise<boolean>`，重命名账号。
 - **State & Logic**:
-  - **密码输入防抖与草稿**: 使用 `passwordDraft` 和 `usernameDraft` 本地状态，仅在 `blur` 或 `Enter` 时提交到 Store，避免频繁触发级联渲染 (Lines 65-90)。
-  - **密码清除**: `handleClearPassword` 调用 `saveConfigDirect` 并同步 `syncPasswordSaved` (Lines 97-108)。
-  - **账号切换防重复**: `switchingAccount` 状态防止并发切换请求 (Lines 123-129)。
-  - **账号改名**: `startRename`, `cancelRename`, `submitRename` 处理内联编辑，集成 `isValidDisplayName` 校验 (Lines 135-163)。
-  - **运营商绑定集成**: 通过 `useOperatorBind` Hook 获取绑定状态和操作句柄，渲染绑定表单和弹窗 (Lines 169-177)。
+  - **挂载守卫**: `mountedRef` 用于处理 React StrictMode 下的双挂载，确保异步 Handler 内的 setState 不被丢弃 (Lines 57-62)。
+  - **密码清除**: `handleClearPassword` 调用 `saveConfigDirect({ password: '' }, true)` 显式清除标志，失败时 toast 且不显示"已清除" (Lines 80-91)。
+  - **账号切换防重复**: `switchingAccount` 状态防止并发切换请求 (Lines 94-99)。
+  - **账号改名**: `startRename`, `cancelRename`, `submitRename` 处理内联编辑，集成 `isValidDisplayName` 校验 (Lines 115-135)。
+  - **弹窗A (LoginInfoDialog)**: 处理新建/编辑登录信息。新建走 `create_account`；编辑走 `save_config` + `save_current_as_account` (Lines 150-196)。
+  - **弹窗B (BindOperatorDialog)**: 绑定运营商，凭据可分段手动填写 (Lines 199-203)。
 
 ### ChangePasswordDialog (android/frontend/src/account/ChangePasswordDialog.tsx)
 修改校园网密码的模态框。

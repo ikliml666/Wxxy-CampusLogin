@@ -15,7 +15,6 @@ source_files:
   - tauri-app/frontend/src/hooks/useEventListeners.ts
   - tauri-app/frontend/src/hooks/useGlobalShortcut.ts
   - tauri-app/frontend/src/hooks/useGlowAnimation.ts
-  - tauri-app/frontend/src/hooks/useGpuCorrection.ts
   - tauri-app/frontend/src/hooks/useHeartbeat.ts
   - tauri-app/frontend/src/hooks/useInitialDataLoad.ts
   - tauri-app/frontend/src/hooks/useLogToastStore.ts
@@ -24,13 +23,13 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 
 ## Overview
 
-`tauri-app/frontend/src/hooks/` 是桌面前端的"业务内核"：`tauriApi.ts` 是全应用唯一的 IPC 出口（包含请求-响应命令与事件订阅）；其余文件按领域拆成多个 zustand store（auth / config / adapter / log-toast），加上动画档位、GPU 校正、渲染心跳、初始化编排等横切 hook。
+`tauri-app/frontend/src/hooks/` 是桌面前端的"业务内核"：`tauriApi.ts` 是全应用唯一的 IPC 出口（包含请求-响应命令与事件订阅）；其余文件按领域拆成多个 zustand store（auth / config / adapter / log-toast），加上动画档位、渲染心跳、初始化编排等横切 hook。
 
 本目录不渲染 UI，只负责三件事：把 Rust 后端的能力包装成 Promise API、把后端推送的事件折叠成 store 状态、在启动时按固定顺序组装这些 store（`useAppInit`）。所有 UI 组件都通过 store 订阅或 `tauriApiWithRetry` 直接调用来消费本模块。
 
 ## Key Components
 
-### 目录总览（18 个文件）
+### 目录总览（17 个文件）
 
 | 文件 | 类别 | 主要导出（行号） |
 |---|---|---|
@@ -47,7 +46,6 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `useAnimationProfile.ts` | 性能/动画 | `useAnimationProfile`(52) |
 | `useBreatheAnimation.ts` | 动画 | `useBreatheAnimation`(15) |
 | `useGlowAnimation.ts` | 动画 | `useGlowAnimation`(11) |
-| `useGpuCorrection.ts` | 硬件探测 | `useGpuCorrection`(80) |
 | `useAsyncLock.ts` | 工具 | `useAsyncLock`(3) |
 | `useAppStore.ts` | 兼容壳 | 仅 re-export（1-3） |
 | `useAsyncLock.test.tsx` | 测试 | 1 个用例（20-40） |
@@ -82,67 +80,61 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | 77 | `importConfig(path)` | `import_config` | → `CommandResult` |
 | 78 | `exportDiagnostics(days?)` | `export_diagnostics` | → `string` |
 | 79 | `getAdapters(force?)` | `get_adapters` | → `Adapter[]` |
-| 80 | `getDisabledAdapters()` | `get_disabled_adapters` | → `DisabledAdapter[]` |
-| 81 | `enableAdapter(adapterName)` | `enable_adapter` | → `EnableAdapterResult` |
-| 82 | `getAdapterDetails()` | `get_adapter_details` | → `AdapterDetail[]` |
-| 83 | `checkPortalStatus(adapterIp)` | `check_portal_status` | → `PortalStatusResult` |
-| 84 | `checkCampusStatus()` | `check_campus_status` | → `CampusStatusResult` |
-| 85 | `doLogin(adapterName?)` | `do_login` | → `LoginResult` |
-| 86 | `doLogout(adapterName?)` | `do_logout` | → `LoginResult` |
-| 87 | `bindOperator({account,password,operator,phone,smsPassword})` | `bind_operator` | → `CommandResult` |
-| 88 | `getBindStatus({account,password})` | `query_bind_status` | → `CommandResult` |
-| 89 | `verifyWindowsIdentity({consentMessage})` | `verify_windows_identity` | → `CommandResult` |
-| 90 | `revealOperatorCredential({account,password,operator})` | `reveal_operator_credential` | → `CommandResult` |
-| 91 | `querySelfDashboard({account,password})` | `query_self_dashboard` | → `CommandResult` |
-| 92 | `selfOfflineSession({account,password,sessionId})` | `self_offline_session` | → `CommandResult` |
-| 93 | `querySelfOnlineLog({account,password,startTime,endTime})` | `query_self_online_log` | → `CommandResult` |
-| 94 | `changeSelfPassword({account,password,newPassword})` | `change_self_password` | → `CommandResult` |
-| 95 | `minimizeWindow()` | `minimize_window` | → `void` |
-| 96 | `closeWindow()` | `close_window` | → `void` |
-| 97 | `listAccounts()` | `list_accounts` | → `AccountItem[]`（`{id, displayName}`） |
-| 98 | `switchAccount(accountName)` | `switch_account` | → `SwitchAccountResult` |
-| 99 | `saveCurrentAsAccount(accountName)` | `save_current_as_account` | → `SaveAccountResult` |
-| 100 | `deleteAccount(accountName)` | `delete_account` | → `DeleteAccountResult` |
-| 101 | `renameAccount({accountId, displayName})` | `rename_account` | → `AccountResult`（重名等校验失败 `success=false`） |
-| 102 | `getActiveAccount()` | `get_active_account` | → `string` |
-| 103 | `startBackgroundCheck()` | `start_background_check` | → `CommandResult` |
-| 104 | `stopBackgroundCheck()` | `stop_background_check` | → `CommandResult` |
-| 105 | `triggerBackgroundCheck()` | `trigger_background_check` | → `CommandResult` |
-| 106 | `getBackgroundStatus()` | `get_background_status` | → `BackgroundStatus` |
-| 107 | `dhcpRenewAll()` | `dhcp_renew_all` | → `DhcpRenewResult` |
-| 108 | `dhcpReleaseRenew()` | `dhcp_release_renew` | → `DhcpReleaseRenewResult` |
-| 109 | `dhcpReleaseRenewAdapter(adapterName)` | `dhcp_release_renew_adapter` | → `DhcpReleaseRenewResult` |
-| 110 | `outboundSwitchNow()` | `outbound_switch_now` | → `CommandResult`（绕过自动切换退避闸） |
-| 111 | `outboundRestoreNow()` | `outbound_restore_now` | → `CommandResult`（清当日保持标记并还原） |
-| 112 | `getCurrentOutboundName()` | `get_current_outbound_name` | → `string \| null`（默认路由 metric 求和最小者） |
-| 113 | `checkNetworkQuality()` | `check_network_quality` | → `NetworkQuality` |
-| 114 | `startLatencyTest()` | `start_latency_test` | → `CommandResult` |
-| 115 | `stopLatencyTest()` | `stop_latency_test` | → `CommandResult` |
-| 116 | `openExternal(url)` | `open_external` | 前置校验：仅 `http://`/`https://`、长度 ≤2048、`new URL()` 可解析；invoke 失败时回退 `@tauri-apps/plugin-shell` 的 `open`，两者都失败返回 `false` |
-| 117 | `getAutoLaunch()` | `get_auto_launch` | → `{ enabled: boolean }` |
-| 118 | `setAutoLaunch(enabled)` | `set_auto_launch` | → `AutoLaunchResult` |
-| 119 | `getNotificationEnabled()` | `get_notification_enabled` | → `boolean` |
-| 120 | `setNotificationEnabled(enabled)` | `set_notification_enabled` | → `boolean` |
-| 121 | `cancelAutoExit()` | `cancel_auto_exit` | → `CommandResult` |
-| 122 | `showWindow()` | `show_window` | → `void` |
-| 123 | `getLogs(lines?)` | `get_logs` | → `string`（整块文本） |
-| 124 | `clearLogs()` | `clear_logs` | → `boolean` |
-| 125 | `getDebugMode()` | `get_debug_mode` | → `boolean` |
-| 126 | `setDebugMode(enabled)` | `set_debug_mode` | → `boolean` |
-| 127 | `getInitData()` | `get_init_data` | → `InitData` |
-| 128 | `checkUpdate()` | `check_update` | → `UpdateInfo` |
-| 129 | `downloadUpdate(url)` | `download_update` | → `string`（落盘路径） |
-| 130 | `cancelDownloadUpdate()` | `cancel_download_update` | → `boolean` |
-| 131 | `installUpdate(filePath, checksumUrl?)` | `install_update` | → `boolean` |
-| 132 | `getMirrorUrls(githubUrl)` | `get_mirror_urls` | → `MirrorSource[]` |
-| 133 | `checkDnsDohStatus()` | `check_dns_doh_status` | → `DnsDohStatus` |
-| 134 | `setupDnsDoh(family?)` | `setup_dns_doh` | `family?: 'ipv4'\|'ipv6'\|'both'` → `DnsSetupResult` |
-| 135 | `resetDns()` | `reset_dns` | → `CommandResult` |
-| 136 | `renderHeartbeat()` | `render_heartbeat` | → `{ online: boolean; checking: boolean }` |
-| 137 | `notifyWindowReady()` | `notify_window_ready` | → `CommandResult` |
-| 138 | `getGpuInfo()` | `get_gpu_info` | → `GpuInfo` |
-| 139 | `getLogRetentionDays()` | `get_log_retention_days` | → `number` |
-| 140 | `setLogRetentionDays(days)` | `set_log_retention_days` | → `void` |
+| 80 | `enableAdapter(adapterName)` | `enable_adapter` | → `EnableAdapterResult` |
+| 81 | `getAdapterDetails()` | `get_adapter_details` | → `AdapterDetail[]` |
+| 82 | `checkPortalStatus(adapterIp)` | `check_portal_status` | → `PortalStatusResult` |
+| 83 | `checkCampusStatus()` | `check_campus_status` | → `CampusStatusResult` |
+| 84 | `doLogin(adapterName?)` | `do_login` | → `LoginResult` |
+| 85 | `doLogout(adapterName?)` | `do_logout` | → `LoginResult` |
+| 86 | `bindOperator({account,password,operator,phone,smsPassword})` | `bind_operator` | → `CommandResult` |
+| 87 | `getBindStatus({account,password})` | `query_bind_status` | → `CommandResult` |
+| 88 | `verifyWindowsIdentity({consentMessage})` | `verify_windows_identity` | → `CommandResult` |
+| 89 | `revealOperatorCredential({account,password,operator})` | `reveal_operator_credential` | → `CommandResult` |
+| 90 | `querySelfDashboard({account,password})` | `query_self_dashboard` | → `CommandResult` |
+| 91 | `selfOfflineSession({account,password,sessionId})` | `self_offline_session` | → `CommandResult` |
+| 92 | `querySelfOnlineLog({account,password,startTime,endTime})` | `query_self_online_log` | → `CommandResult` |
+| 93 | `changeSelfPassword({account,password,newPassword})` | `change_self_password` | → `CommandResult` |
+| 94 | `minimizeWindow()` | `minimize_window` | → `void` |
+| 95 | `closeWindow()` | `close_window` | → `void` |
+| 96 | `listAccounts()` | `list_accounts` | → `AccountItem[]`（`{id, displayName}`） |
+| 97 | `switchAccount(accountName)` | `switch_account` | → `SwitchAccountResult` |
+| 98 | `saveCurrentAsAccount(accountName)` | `save_current_as_account` | → `SaveAccountResult` |
+| 99 | `deleteAccount(accountName)` | `delete_account` | → `DeleteAccountResult` |
+| 100 | `renameAccount({accountId, displayName})` | `rename_account` | → `AccountResult`（重名等校验失败 `success=false`） |
+| 101 | `getActiveAccount()` | `get_active_account` | → `string` |
+| 102 | `startBackgroundCheck()` | `start_background_check` | → `CommandResult` |
+| 103 | `stopBackgroundCheck()` | `stop_background_check` | → `CommandResult` |
+| 104 | `triggerBackgroundCheck()` | `trigger_background_check` | → `CommandResult` |
+| 105 | `getBackgroundStatus()` | `get_background_status` | → `BackgroundStatus` |
+| 106 | `dhcpRenewAll()` | `dhcp_renew_all` | → `DhcpRenewResult` |
+| 107 | `dhcpReleaseRenew()` | `dhcp_release_renew` | → `DhcpReleaseRenewResult` |
+| 108 | `dhcpReleaseRenewAdapter(adapterName)` | `dhcp_release_renew_adapter` | → `DhcpReleaseRenewResult` |
+| 109 | `outboundSwitchNow()` | `outbound_switch_now` | → `CommandResult`（绕过自动切换退避闸） |
+| 110 | `outboundRestoreNow()` | `outbound_restore_now` | → `CommandResult`（清当日保持标记并还原） |
+| 111 | `getCurrentOutboundName()` | `get_current_outbound_name` | → `string \| null`（默认路由 metric 求和最小者） |
+| 112 | `checkNetworkQuality()` | `check_network_quality` | → `NetworkQuality` |
+| 113 | `startLatencyTest()` | `start_latency_test` | → `CommandResult` |
+| 114 | `stopLatencyTest()` | `stop_latency_test` | → `CommandResult` |
+| 115 | `openExternal(url)` | `open_external` | 前置校验：仅 `http://`/`https://`、长度 ≤2048、`new URL()` 可解析；invoke 失败时回退 `@tauri-apps/plugin-shell` 的 `open`，两者都失败返回 `false` |
+| 116 | `setAutoLaunch(enabled)` | `set_auto_launch` | → `AutoLaunchResult` |
+| 117 | `setNotificationEnabled(enabled)` | `set_notification_enabled` | → `boolean` |
+| 118 | `cancelAutoExit()` | `cancel_auto_exit` | → `CommandResult` |
+| 119 | `showWindow()` | `show_window` | → `void` |
+| 120 | `getLogs(lines?)` | `get_logs` | → `string`（整块文本） |
+| 121 | `clearLogs()` | `clear_logs` | → `boolean` |
+| 122 | `setDebugMode(enabled)` | `set_debug_mode` | → `boolean` |
+| 123 | `getInitData()` | `get_init_data` | → `InitData` |
+| 124 | `checkUpdate()` | `check_update` | → `UpdateInfo` |
+| 125 | `downloadUpdate(url)` | `download_update` | → `string`（落盘路径） |
+| 126 | `cancelDownloadUpdate()` | `cancel_download_update` | → `boolean` |
+| 127 | `installUpdate(filePath, checksumUrl?)` | `install_update` | → `boolean` |
+| 128 | `getMirrorUrls(githubUrl)` | `get_mirror_urls` | → `MirrorSource[]` |
+| 129 | `checkDnsDohStatus()` | `check_dns_doh_status` | → `DnsDohStatus` |
+| 130 | `setupDnsDoh(family?)` | `setup_dns_doh` | `family?: 'ipv4'\|'ipv6'\|'both'` → `DnsSetupResult` |
+| 131 | `resetDns()` | `reset_dns` | → `CommandResult` |
+| 132 | `renderHeartbeat()` | `render_heartbeat` | → `{ online: boolean; checking: boolean }` |
+| 133 | `notifyWindowReady()` | `notify_window_ready` | → `CommandResult` |
+| 134 | `setLogRetentionDays(days)` | `set_log_retention_days` | → `void` |
 
 #### 事件订阅
 
@@ -152,20 +144,19 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | 108 | `onAutoLoginResult` | `auto-login-result` | `AutoLoginEventData` | `useEventListeners.ts` |
 | 109 | `onAdaptersChanged` | `adapters-changed` | `Adapter[]` | `useEventListeners.ts` |
 | 110 | `onAdapterDetailsChanged` | `adapter-details-changed` | `AdapterDetail[]` | `useEventListeners.ts` |
-| 111 | `onDisabledAdaptersChanged` | `disabled-adapters-changed` | `DisabledAdapter[]` | `useEventListeners.ts` |
-| 112 | `onAdapterDisabledWarning` | `adapter-disabled-warning` | `AdapterDisabledWarningData` | `useEventListeners.ts` |
-| 113 | `onLoginLog` | `login-log` | `{ message: string; type: string }` | `useEventListeners.ts` |
-| 114 | `onNetworkQualityResult` | `network-quality-result` | `NetworkQuality` | `useEventListeners.ts` |
-| 115 | `onAutoExitCountdown` | `auto-exit-countdown` | `AutoExitCountdownData` | `useEventListeners.ts` |
-| 116 | `onAutoExitCancelled` | `auto-exit-cancelled` | `Record<string, never>`（无载荷） | `useEventListeners.ts` |
-| 117 | `onCampusExitCountdown` | `campus-exit-countdown` | `{ minimizeDelay: number; exitDelay: number }` | `useEventListeners.ts` |
-| 118 | `onCampusExitCancelled` | `campus-exit-cancelled` | `Record<string, never>`（无载荷） | `useEventListeners.ts` |
-| 119 | `onScheduledActionSkipped` | `scheduled-action-skipped` | `{ kind: 'login' \| 'logout' }` | `useEventListeners.ts` |
-| 120 | `onMacResetCycle` | `mac-reset-cycle` | `Record<string, never>`（无载荷） | `useEventListeners.ts` |
-| 121 | `onConfigChanged` | `config-changed` | `{ config: Config }` | `useEventListeners.ts` |
-| 122 | `onDownloadProgress` | `update-download-progress` | `DownloadProgress` | `auth/AboutDialog.tsx` |
-| 123 | `onUpdateAvailable` | `update-available` | `UpdateAvailableData` | `useEventListeners.ts` |
-| 124 | `onUpdateNotificationClick` | `update-notification-click` | `unknown` | `App.tsx` |
+| 111 | `onAdapterDisabledWarning` | `adapter-disabled-warning` | `AdapterDisabledWarningData` | `useEventListeners.ts` |
+| 112 | `onLoginLog` | `login-log` | `{ message: string; type: string }` | `useEventListeners.ts` |
+| 113 | `onNetworkQualityResult` | `network-quality-result` | `NetworkQuality` | `useEventListeners.ts` |
+| 114 | `onAutoExitCountdown` | `auto-exit-countdown` | `AutoExitCountdownData` | `useEventListeners.ts` |
+| 115 | `onAutoExitCancelled` | `auto-exit-cancelled` | `Record<string, never>`（无载荷） | `useEventListeners.ts` |
+| 116 | `onCampusExitCountdown` | `campus-exit-countdown` | `{ minimizeDelay: number; exitDelay: number }` | `useEventListeners.ts` |
+| 117 | `onCampusExitCancelled` | `campus-exit-cancelled` | `Record<string, never>`（无载荷） | `useEventListeners.ts` |
+| 118 | `onScheduledActionSkipped` | `scheduled-action-skipped` | `{ kind: 'login' \| 'logout' }` | `useEventListeners.ts` |
+| 119 | `onMacResetCycle` | `mac-reset-cycle` | `Record<string, never>`（无载荷） | `useEventListeners.ts` |
+| 120 | `onConfigChanged` | `config-changed` | `{ config: Config }` | `useEventListeners.ts` |
+| 121 | `onDownloadProgress` | `update-download-progress` | `DownloadProgress` | `auth/AboutDialog.tsx` |
+| 122 | `onUpdateAvailable` | `update-available` | `UpdateAvailableData` | `useEventListeners.ts` |
+| 123 | `onUpdateNotificationClick` | `update-notification-click` | `unknown` | `App.tsx` |
 
 > 16 个事件中 14 个由 `useEventListeners` 统一注册；`onDownloadProgress`（弹窗内进度）与 `onUpdateNotificationClick`（点击系统通知后打开"关于"）在各自组件内按需注册。
 
@@ -210,7 +201,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | 位置 | 项 | 说明 |
 |---|---|---|
 | `useAdapterStore.ts:9` | `_adapterLockFlag` | `refreshAdapters` 互斥锁 |
-| `useAdapterStore.ts:16-35` | `refreshAdapterData({force, includeDisabled, triggerCheck})` | 公共刷新动作：并行 `getAdapters`/`getAdapterDetails`/`getDisabledAdapters`（23-27），写回 store（28-30），可选触发后台检测（31）。收敛了历史上三处重复实现（P2-F10） |
+| `useAdapterStore.ts:16-35` | `refreshAdapterData({force, triggerCheck})` | 公共刷新动作：并行 `getAdapters`/`getAdapterDetails`（23-27），写回 store（28-30），可选触发后台检测（31）。收敛了历史上三处重复实现（P2-F10） |
 | `useAdapterStore.ts:37-46` | `interface AdapterStore` | store 契约 |
 | `useAdapterStore.ts:48-74` | `useAdapterStore` | store 实体 |
 
@@ -239,12 +230,6 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | `useBreatheAnimation.ts:15-66` | `useBreatheAnimation(options)` | `yoyo + repeat:-1` 呼吸动画；回调 ref 模式支持条件渲染重建 |
 | `useGlowAnimation.ts:5-9` | `interface GlowOptions` | 时长、最大缩放、最大透明度 |
 | `useGlowAnimation.ts:11-53` | `useGlowAnimation(options)` | 光晕脉冲；回调 ref 模式支持条件渲染重建 |
-| `useGpuCorrection.ts:5` | `cachedWebGlRenderer` | 会话级缓存（WebGL context 有数量上限） |
-| `useGpuCorrection.ts:7-24` | `getWebGlRenderer()` | 优先 `webgl`、回退 `experimental-webgl`，读 `WEBGL_debug_renderer_info` |
-| `useGpuCorrection.ts:26-30` | `parseWebGlGpu(renderer)` | 从 `ANGLE (vendor, model...)` 中正则提取 |
-| `useGpuCorrection.ts:32-54` | `classifyTierFromWebGl(vendor, model)` | 按厂商/型号关键字映射到 `GpuTier` |
-| `useGpuCorrection.ts:56-78` | `correctGpuInfoWithWebGl(wmiInfo)` | WMI 报独显但 WebGL 报别家（集显）时以 WebGL 结果为准 |
-| `useGpuCorrection.ts:80-82` | `useGpuCorrection()` | 返回 `correctGpuInfoWithWebGl`（无状态，纯函数包装） |
 | `useAsyncLock.ts:3-27` | `useAsyncLock(fn, cooldownMs = 1500)` | 返回 `[isRunning, execute]`；`lockRef` 短路重入（19），`finally` 内 `setTimeout` 释放（22-24）；effect 二次 setup 恢复 `mountedRef`（12-17） |
 
 ### 初始化与全局副作用
@@ -320,7 +305,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
    - `background-check-result`（`useEventListeners.ts:77-196`）：1s 节流（81）→ 主/副适配器在线状态变化检测（87-134，含"已在线"日志 5s 节流 126）→ `useAuthStore.getState().setBgStatus(prev => ...)`（136-181）→ 文本未变则不写 `status`（190-193）。
    - `auto-login-result`（199-212）：写日志/toast 后 `checkOnline()`（211）。
    - `adapters-changed`（215-238）：500ms 节流 + trailing 定时器（226-237）→ 写 `useAdapterStore.setState({ adapters })`（219）；当 `status.state` 为 `offline`/`loading` 时补一次 `checkOnline(undefined, next)`（220-223）。
-   - `adapter-details-changed`（242-245）/`disabled-adapters-changed`（248-251）：直接 `useAdapterStore.setState`。
+   - `adapter-details-changed`（242-245）：直接 `useAdapterStore.setState`。
    - `adapter-disabled-warning`（254-260）：warning toast + 日志。
    - `login-log`（263-268）：`useLogToastStore.getState().addLog(data.message, data.type ?? 'info')`。
    - `auto-exit-countdown`（271-289）：日志 + `addToastWithAction`，`id` 前缀 `auto-exit-cancel-`，动作按钮调 `api.cancelAutoExit()`（284）。
@@ -348,9 +333,9 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
    5. 恢复/应用活动面板（50-59）：`localStorage` 的 `campus-active-panel` 或 `cfg.defaultPanel`，`enableNetworkQuality === false` 时跳过 `quality`；
    6. 窗口显示（61-65）：`isAutoStart && cfg.hiddenStart` 时不 `showWindow`；
    7. 适配器（67-76）：`initData.adapters` 为空才回退 `getAdapters(false)`；
-   8. 后台状态（78-91）、适配器详情（93-94）、禁用列表（96-100）、账号（102-106）；
+   8. 后台状态（78-91）、适配器详情（93-94）、账号（102-106）；
    9. `useAuthStore.getState().checkOnline(cfg, adps)`（108）；
-   10. GPU 信息（110-120，经 `useGpuCorrection` 校正）、`refreshRate`（122-124）；
+   10. `refreshRate`（122-124）；
    11. DNS/DoH 后台探测（126-147，失败或已有值即跳过）；
    12. 末尾置 `configLoaded: true`（157）；异常路径 `showWindow()` + 默认配置 + `configLoaded: true`（162-165）。
 3. `useHeartbeat()`（`useAppInit.ts:9`）：立即发一次心跳 + 每 5s 一次。
@@ -382,7 +367,7 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 
 1. `tauriApi.ts:27-72` 加 `onXxx: (cb: (data: T) => void) => () => void`；`tauriApi.ts:73-223` 加 `onXxx: createEventListener<T>('xxx-event')`。
 2. `useEventListeners.ts:26-367` 的 effect 内注册并 `unlisteners.push(...)`（如 107-113 的写法）。
-3. store 写回点：`setBgStatus`（`useEventListeners.ts:136`）/`useAdapterStore.setState`（219、244、250）/`useQualityStore.getState().setXxx`（331、338-340）/`mergeConfigFromBackend`（358）+ `setActiveAccount`（365）+ `setAccounts`（368）。
+3. store 写回点：`setBgStatus`（`useEventListeners.ts:136`）/`useAdapterStore.setState`（219、244）/`useQualityStore.getState().setXxx`（331、338-340）/`mergeConfigFromBackend`（358）+ `setActiveAccount`（365）+ `setAccounts`（368）。
 4. 在 `mountedRef.current` 检查与（必要时）节流（参照 81、226）后写状态；Rust 侧 emit 见 [[desktop-infra]]。
 
 ## Connections
@@ -402,19 +387,17 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 ## Known Issues
 
 1. **`useAppStore.ts` 是零消费者的死兼容壳**：文件仅 3 行 re-export（`useAppStore.ts:1-3`），全仓库除自身外无任何引用（`grep -rn "useAppStore"` 只命中该文件第 1 行）。可安全删除，但删前需确认没有外部/动态引用。
-2. **`useQualityStore.refreshQuality` 的锁释放仍用 `setTimeout(500)`**（`useQualityStore.ts:69-72`）：与 `checkOnline`（`useAuthStore.ts:286-292`）和 `refreshAdapters`（`useAdapterStore.ts:65-69`）已改为"实际完成即释放"的模式不一致；若 `check_network_quality` 耗时超过 500ms，锁可能提前释放并允许并发进入。
-3. **`_checkOnlineLockFlag` / `_adapterLockFlag` 是模块级变量**（`useAuthStore.ts:19`、`useAdapterStore.ts:9`）：多窗口或多 store 实例场景下共享，且窗口销毁不会复位。当前为单窗口设计（`App.tsx` 单实例），扩展多窗口时必须改造。
-4. **`addToastWithAction` 的定时器以 `toast.id` 为键登记**（`useLogToastStore.ts:108`）：若调用方传入的 `id` 与已有 toast 重复，`toastTimers.set` 会覆盖旧定时器引用，旧定时器不再被 `removeToast` 清理（`useEventListeners.ts:275`、`303` 用 `Date.now()` 组 id 规避，但约定未在 store 层强制）。
-5. **`addToast` 在窗口非前台时静默丢弃**（`useLogToastStore.ts:57`）：信息依赖调用方同步写日志兜底；`addToastWithAction` 例外（承载操作入口）。若新增"必须让用户看到"的普通 toast，会在后台被静默吞掉。
-6. **`onAutoExitCancelled` / `onCampusExitCancelled` 的 handler 缺 `mountedRef.current` 检查**（`useEventListeners.ts:292-296`、`320-325`）：其余 handler 一律以 `if (!mountedRef.current) return` 开头（如 271、299、327、335），这两个没有；卸载后事件到达仍会写 `useLogToastStore`（`addLog`/`addToast`/`removeToastsByPrefix`）。单人单窗口下影响仅是"卸载后仍弹 toast"，但这是同文件内唯一的不一致点。
-7. **api 方法缺失时静默失效**：所有注册点写成 `api.onX?.(...) ?? (() => {})`（如 `useEventListeners.ts:77/196`、`199/212`、`215/239`），若 `TauriApi` 中某方法被改名或删除，`unlisteners` 里推入的是空函数，无任何报错、也无事件——只有实际推送时才会发现"UI 不更新"。
-8. **`withTimeout` 不会取消底层 invoke**（`useAuthStore.ts:108-113`）：超时只是让前端提前解禁按钮，`do_login` 仍在后端继续执行，可能出现"前端已显示超时失败、后端实际登录成功"的错位（由随后的 `checkOnline` 纠正显示）。
-9. **`useGpuCorrection` 的 WebGL 结果会话级缓存**（`useGpuCorrection.ts:5`）：`cachedWebGlRenderer` 一旦为 `null`（首次取 context 失败）便永久返回 `null`，驱动/GPU 恢复后不会再探测。
-10. **`useGlobalShortcut` 的快捷键硬编码**（`useGlobalShortcut.ts:17`）：`Ctrl+Shift+C` 不支持配置，`Config` 中也没有快捷键字段；前端侧 `cancel_auto_exit` 仅三个入口——`useGlobalShortcut.ts:20`、`useEventListeners.ts:284`（自动退出 toast 按钮）、`useEventListeners.ts:312`（校园网退出 toast 按钮）。
-11. **`AnimationProfile` 近半数字段没有消费方**：实测被消费的只有 `tier`、`easing`、`willChangeOrbs`（`monitor/LatencyComponents.tsx:135,144,161`）、`enableTilt`（`components/ui/animated-card.tsx:36`）、`startupBoost`（`useStartupBoost.ts:40,48,69`）、`numberDuration`（`shared/AnimatedNumber.tsx:23`）、`startupStaggerDelay`（`useStartupBoost.ts:66`）。以下字段全仓库仅出现在 `useAnimationProfile.ts` 定义处：`magneticOffset`(12)、`magneticDuration`(13)、`springStiffness`(15)、`springDamping`(16)、`powerPreference`(17)、`prefersCssAnimation`(18)、`enableGpuCompositing`(19)、`enablePageSlide`(20)、`enableBackdropBlur`(22)。50-51 行的注释只声明 `ECONOMY_OVERRIDES` 覆盖"当前被组件消费的高开销字段"，但未声明这些字段是死字段——新消费方接入前，改它们不会有任何效果。同理 `AnimationProfile.refreshRate`(26) 也无外部消费方（仅 `useAnimationProfile.ts:86-89` 内部用于算 `easing`）。
-12. **`useStartupBoost` 的 `boostedRef` 只在卸载时复位**（`useStartupBoost.ts:128-134`）：`StrictMode` 下 setup→cleanup→setup 会复位并允许重跑，但生产环境一旦 `runStartupSequence` 执行过，再次调用即被短路（62-63）——面板切换不会重播入场动画属预期行为。
-13. **`useInitialDataLoad` 的 DNS 探测失败静默**（`useInitialDataLoad.ts:146`）：仅 DEV 下 `console.error`，没有用户可见提示（与 `getInitData` 失败路径不同，后者写日志 164）。
-14. **`useEventListeners` 的 `mountedRef` 依赖手工复位**（`useEventListeners.ts:29`，注释 27-28）：任何新增 effect 若忘记在 setup 时置 `true`，dev 模式下所有事件 handler 会静默失效（`useAsyncLock.ts:12-17` 是同类修复的第二处，`shared/LogPanel.tsx:106-113` 是第三处）。
+2. **`_checkOnlineLockFlag` / `_adapterLockFlag` 是模块级变量**（`useAuthStore.ts:19`、`useAdapterStore.ts:9`）：多窗口或多 store 实例场景下共享，且窗口销毁不会复位。当前为单窗口设计（`App.tsx` 单实例），扩展多窗口时必须改造。
+3. **`addToastWithAction` 的定时器以 `toast.id` 为键登记**（`useLogToastStore.ts:108`）：若调用方传入的 `id` 与已有 toast 重复，`toastTimers.set` 会覆盖旧定时器引用，旧定时器不再被 `removeToast` 清理（`useEventListeners.ts:275`、`303` 用 `Date.now()` 组 id 规避，但约定未在 store 层强制）。
+4. **`addToast` 在窗口非前台时静默丢弃**（`useLogToastStore.ts:57`）：信息依赖调用方同步写日志兜底；`addToastWithAction` 例外（承载操作入口）。若新增"必须让用户看到"的普通 toast，会在后台被静默吞掉。
+5. **`onAutoExitCancelled` / `onCampusExitCancelled` 的 handler 缺 `mountedRef.current` 检查**（`useEventListeners.ts:292-296`、`320-325`）：其余 handler 一律以 `if (!mountedRef.current) return` 开头（如 271、299、327、335），这两个没有；卸载后事件到达仍会写 `useLogToastStore`（`addLog`/`addToast`/`removeToastsByPrefix`）。单人单窗口下影响仅是"卸载后仍弹 toast"，但这是同文件内唯一的不一致点。
+6. **api 方法缺失时静默失效**：所有注册点写成 `api.onX?.(...) ?? (() => {})`（如 `useEventListeners.ts:77/196`、`199/212`、`215/239`），若 `TauriApi` 中某方法被改名或删除，`unlisteners` 里推入的是空函数，无任何报错、也无事件——只有实际推送时才会发现"UI 不更新"。
+7. **`withTimeout` 不会取消底层 invoke**（`useAuthStore.ts:108-113`）：超时只是让前端提前解禁按钮，`do_login` 仍在后端继续执行，可能出现"前端已显示超时失败、后端实际登录成功"的错位（由随后的 `checkOnline` 纠正显示）。
+8. **`useGlobalShortcut` 的快捷键硬编码**（`useGlobalShortcut.ts:17`）：`Ctrl+Shift+C` 不支持配置，`Config` 中也没有快捷键字段；前端侧 `cancel_auto_exit` 仅三个入口——`useGlobalShortcut.ts:20`、`useEventListeners.ts:284`（自动退出 toast 按钮）、`useEventListeners.ts:312`（校园网退出 toast 按钮）。
+9. **`AnimationProfile` 近半数字段没有消费方**：实测被消费的只有 `tier`、`easing`、`willChangeOrbs`（`monitor/LatencyComponents.tsx:135,144,161`）、`enableTilt`（`components/ui/animated-card.tsx:36`）、`startupBoost`（`useStartupBoost.ts:40,48,69`）、`numberDuration`（`shared/AnimatedNumber.tsx:23`）、`startupStaggerDelay`（`useStartupBoost.ts:66`）。以下字段全仓库仅出现在 `useAnimationProfile.ts` 定义处：`magneticOffset`(12)、`magneticDuration`(13)、`springStiffness`(15)、`springDamping`(16)、`powerPreference`(17)、`prefersCssAnimation`(18)、`enableGpuCompositing`(19)、`enablePageSlide`(20)、`enableBackdropBlur`(22)。50-51 行的注释只声明 `ECONOMY_OVERRIDES` 覆盖"当前被组件消费的高开销字段"，但未声明这些字段是死字段——新消费方接入前，改它们不会有任何效果。同理 `AnimationProfile.refreshRate`(26) 也无外部消费方（仅 `useAnimationProfile.ts:86-89` 内部用于算 `easing`）。
+10. **`useStartupBoost` 的 `boostedRef` 只在卸载时复位**（`useStartupBoost.ts:128-134`）：`StrictMode` 下 setup→cleanup→setup 会复位并允许重跑，但生产环境一旦 `runStartupSequence` 执行过，再次调用即被短路（62-63）——面板切换不会重播入场动画属预期行为。
+11. **`useInitialDataLoad` 的 DNS 探测失败静默**（`useInitialDataLoad.ts:146`）：仅 DEV 下 `console.error`，没有用户可见提示（与 `getInitData` 失败路径不同，后者写日志 164）。
+12. **`useEventListeners` 的 `mountedRef` 依赖手工复位**（`useEventListeners.ts:29`，注释 27-28）：任何新增 effect 若忘记在 setup 时置 `true`，dev 模式下所有事件 handler 会静默失效（`useAsyncLock.ts:12-17` 是同类修复的第二处，`shared/LogPanel.tsx:106-113` 是第三处）。
 
 ## 结构体与字段（前端即类型与 state 结构）
 
@@ -458,14 +441,12 @@ tags: [前端, hooks, zustand, IPC, Tauri, 事件监听, 状态管理, 初始化
 | 字段 / action | 类型 | 含义 |
 |---|---|---|
 | `adapters` | `Adapter[]` | 初值 `[]`（48） |
-| `disabledAdapters` | `DisabledAdapter[]` | 49 |
 | `adapterDetails` | `AdapterDetail[]` | 50 |
 | `isRefreshingAdapters` | `boolean` | 51；`refreshAdapters` 最少保持 true 500ms（66） |
 | `activePanel` | `PanelName` | 初值 `'dashboard'`（52） |
 | `refreshAdapters()` | `=> Promise<void>` | 54-69：锁 → `refreshAdapterData({force:true, triggerCheck:true})` → 并行等 500ms → 释放锁 |
 | `setAdapters(a)` | `=> void` | 74 |
 | `setAdapterDetails(d)` | `=> void` | 75 |
-| `setDisabledAdapters(d)` | `=> void` | 76 |
 | `setActivePanel(p)` | `=> void` | 77 |
 
 ### `LogToastStore`（`useLogToastStore.ts:15-26`）

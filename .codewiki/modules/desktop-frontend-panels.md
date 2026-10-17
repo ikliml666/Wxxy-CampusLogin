@@ -56,7 +56,7 @@ tags: [前端, 面板, react]
 | `'monitor'` | `MonitorPanel` | `onUpdateConfig`、`onToggleBackgroundCheck`、`onTriggerCheck` | 无额外条件 |
 | `'quality'` | `QualityPanel` | `onUpdateConfig`、`onRefreshQuality`、`onToggleLatencyTest` | `configEnableNetworkQuality !== false`，否则渲染 `null`（主区域空白，靠 `SettingsPanel.tsx` 联动切走兜底） |
 | `'settings'` | `SettingsPanel` | `autoLaunch`、`onUpdateConfig`、`onSetAutoLaunch`、`onShowOnboarding` | 无额外条件 |
-| `'log'` | `LogPanel`（静态导入） | `api`、`addToast` | 无额外条件 |
+| `'log'` | `LogPanel`（静态导入） | `api`、`addToast`、`initialDebugMode`、`initialLogRetentionDays` | 无额外条件 |
 | `'speedtest'` | `SpeedTestPanel` | `openExternal` | 无额外条件 |
 | 默认 | `null` | — | 当 `deferredPanel` 不在上述 9 个键内时渲染空白 |
 

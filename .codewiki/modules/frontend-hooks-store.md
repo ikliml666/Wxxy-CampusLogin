@@ -36,16 +36,16 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 提供与后端 Rust 逻辑交互的统一接口。由于安卓端缺乏桌面端的硬件抽象（如网卡、窗口管理），大部分桌面专属功能被显式拒绝或返回空操作。
 
 - **常量与辅助函数**:
-  - `desktopOnly<T>(name: string)`: (L38) 返回被拒绝的 Promise，用于标记安卓端不可用的桌面功能。
-  - `noopListener()`: (L42) 返回无操作的清理函数，用于安卓端不存在的桌面事件监听。
-  - `createEventListener<T>()`: (L79-L101) 创建安全的 Tauri 事件监听器，处理异步 listen 和取消订阅。
-  - `isRetryableError(e: unknown)`: (L185-L196) 判断错误是否可重试（包含 timeout/network/fetch/connection 关键字）。
-  - `withRetry<T>()`: (L198-L215) 指数退避重试机制，仅用于 `saveConfig`。
+  - `desktopOnly<T>(name: string)`: (L16-L18) 返回被拒绝的 Promise，用于标记安卓端不可用的桌面功能。
+  - `noopListener()`: (L21-L22) 返回无操作的清理函数，用于安卓端不存在的桌面事件监听。
+  - `createEventListener<T>()`: (L74-L98) 创建安全的 Tauri 事件监听器，处理异步 listen 和取消订阅。
+  - `isRetryableError(e: unknown)`: (L193-L205) 判断错误是否可重试（包含 timeout/network/fetch/connection 关键字）。
+  - `withRetry<T>()`: (L207-L224) 指数退避重试机制，仅用于 `saveConfig`。
 
 - **接口定义**:
-  - `interface TauriApi`: (L44-L128) 定义了所有后端 RPC 方法的类型签名，包括配置、认证、网络、更新等。
-  - `interface AvoidBadWifiStatus`: (L130-L139) 描述系统网络设置写入权限及快照状态。
-  - `interface RestoreWrittenSettingsResult`: (L141-L144) 还原系统设置的结果。
+  - `interface TauriApi`: (L26-L100) 定义了所有后端 RPC 方法的类型签名，包括配置、认证、网络、更新等。
+  - `interface AvoidBadWifiStatus`: (L102-L111) 描述系统网络设置写入权限及快照状态。
+  - `interface RestoreWrittenSettingsResult`: (L113-L116) 还原系统设置的结果。
 
 - **实现对象 `tauriApi`**: (L103-L183)
   - `getConfig`, `saveConfig`: (L104-L105) 配置读写。

@@ -1,3 +1,6 @@
+m01156–m01243 重写 zustand-state-management.md
+TASK AS OF THIS BLOCK: 已根据最新源码（`useAuthStore.ts`, `useConfigStore.ts`, `useQualityStore.ts`, `useLogToastStore.ts`, `useThemeStore.ts`, `useAdapterStore.ts`, `tauriApi.ts`, `useDnsSetup.ts`）重写了 `concepts/zustand-state-management.md`。文章详细记录了各 Store 的状态结构、关键 Action 逻辑（如防抖保存、脏标记、节流探测）、IPC 封装及 DNS 优化流程，并补充了架构框图与已知历史缺陷修复记录。
+
 ---
 type: concept
 title: zustand-state-management
@@ -25,7 +28,7 @@ tags:
 1.  **原子化 Store**：按领域（Domain）拆分 Store，避免单体臃肿。
 2.  **响应式订阅**：UI 组件通过 Hook 订阅特定状态切片，实现细粒度重渲染控制。
 3.  **副作用隔离**：状态变更逻辑与 Tauri IPC 调用封装在 Actions 中，保持 Store 纯净。
-4.  **性能优化**：利用 `useShallow` 等工具减少不必要的组件更新，结合自适应帧率策略降低功耗。
+4.  **性能优化**：利用引用稳定检查（如 `setStatusStable`）、防抖（debounce）、节流（throttle）及去重逻辑减少不必要的组件更新和资源浪费。
 
 ## Involved Modules
 
@@ -33,21 +36,17 @@ tags:
 
 ### 1. 核心状态定义层 (`frontend-hooks-store`)
 这是状态管理的基石，定义了所有全局 Store 及其初始状态。
-*   **`android/frontend/src/hooks/useAuthStore.ts`**: 管理用户认证状态、在线检测及后台检查。
-*   **`android/frontend/src/hooks/useConfigStore`**: 管理应用配置、密码、账号列表及语言设置。
-*   **`android/frontend/src/hooks/useQualityStore.ts`**: 管理网络质量数据、DNS DoH 状态及版本更新信息。
-*   **`android/frontend/src/hooks/useLogToastStore.ts`**: 管理日志条目队列与 Toast 通知堆栈。
-*   **`android/frontend/src/hooks/useThemeStore.ts`**: 管理主题名称、亮暗模式及自定义颜色。
-*   **`android/frontend/src/hooks/useAdapterStore.ts`**: 管理面板导航状态（安卓端仅保留 activePanel）。
+*   **`android/frontend/src/hooks/useAuthStore.ts`**: 管理用户认证状态、在线检测及后台检查。包含登录/注销流程、校园网/Portal 状态检测、登录后质量探测节流等逻辑。
+*   **`android/frontend/src/hooks/useConfigStore.ts`**: 管理应用配置、密码保存状态、账号列表及语言设置。内置防抖保存、脏标记（Dirty Fields）机制以防止后端旧快照覆盖本地新值，以及连续失败重置逻辑。
+*   **`android/frontend/src/hooks/useQualityStore.ts`**: 管理网络质量数据、DNS DoH 状态、版本更新信息及刷新速率。记录最近一次质量结果时间戳用于节流判断。
+*   **`android/frontend/src/hooks/useLogToastStore.ts`**: 管理日志条目队列与 Toast 通知堆栈。限制最大日志数和 Toast 数，支持同题去重和时间窗口自动淘汰。
+*   **`android/frontend/src/hooks/useThemeStore.ts`**: 管理主题名称、亮暗模式及自定义颜色。处理 DOM class 切换与 CSS 变量注入。
+*   **`android/frontend/src/hooks/useAdapterStore.ts`**: 管理面板导航状态（安卓端仅保留 `activePanel`，网卡相关功能已移除）。
 
 ### 2. 业务逻辑集成层
 这些模块消费上述 Store，并将业务逻辑与状态更新绑定。
-*   **`android/frontend/src/network/useDnsSetup.ts`**: DNS 设置逻辑，依赖 `useConfigStore` 和 `useQualityStore` 进行读写。
-*   **`android/frontend/src/auth/DashboardPanel.tsx`**: 认证仪表盘，直接订阅 `useAuthStore` 和 `useConfigStore` 以渲染用户界面。
-*   **`android/frontend/src/account/AccountPanel.tsx`**: 账户管理面板，使用 `useShallow` 订阅 `useConfigStore` 以优化性能。
-
-### 3. 基础设施层
-*   **`android/frontend/src/hooks/tauriApi.ts`**: 提供 `tauriApi` 对象及 `tauriApiWithRetry`，作为 Store Actions 中执行后端 RPC 调用的统一入口。
+*   **`android/frontend/src/network/useDnsSetup.ts`**: DNS 设置逻辑，依赖 `useConfigStore` 和 `useQualityStore` 进行读写。提供 DNS 检测与一键优化（DoH 启用）两动作。
+*   **`android/frontend/src/hooks/tauriApi.ts`**: 提供 `tauriApi` 对象及 `tauriApiWithRetry`，作为 Store Actions 中执行后端 RPC 调用的统一入口。对桌面专属功能进行显式拒绝或空监听适配。
 
 ## Flow
 
@@ -81,8 +80,8 @@ tags:
 
 ### 4. 状态订阅与性能优化
 *   **常规订阅**: 组件直接使用 `const status = useAuthStore(s => s.status)`。
-*   **浅层订阅**: 在 `AccountPanel.tsx` 中，使用 `useShallow` 订阅 `useConfigStore` 的特定字段，确保只有当目标字段真正变化时才触发重渲染，避免级联更新。
-*   **防抖与节流**: `useConfigStore` 的 `updateConfig` 内置防抖逻辑，配合 `dirtyFields` 防止高频操作导致的状态覆盖或后端旧快照问题。
+*   **引用稳定**: `useAuthStore` 中的 `setStatusStable` 函数在 text/state 未变化时不换新对象，保持引用稳定，避免 StatusBar 等组件无效重渲染。
+*   **防抖与节流**: `useConfigStore` 的 `updateConfig` 内置 500ms 防抖逻辑，配合 `dirtyFields` 防止高频操作导致的状态覆盖或后端旧快照问题。`useAuthStore` 登录后手动质量探测引入 60s 节流，避免与后端 latency loop 重复全量检测。
 
 ## Implementation Map
 
@@ -100,3 +99,98 @@ tags:
 | **消费示例** | `android/frontend/src/auth/DashboardPanel.tsx` | N/A | 通过 `useAuthStore` 获取认证状态渲染 UI。 |
 | **消费示例** | `android/frontend/src/account/AccountPanel.tsx` | N/A | 使用 `useShallow` 优化配置状态订阅。 |
 | **业务逻辑** | `android/frontend/src/network/useDnsSetup.ts` | L18-L82 | DNS 设置 Hook，协调 Store 与 Tauri API。 |
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Frontend Application                        │
+│                                                                     │
+│  ┌──────────────────┐   ┌──────────────────┐   ┌────────────────┐  │
+│  │   UI Components  │   │   Business Logic │   │   Global Store │  │
+│  │                  │   │                  │   │                │  │
+│  │ DashboardPanel   │──►│ useDnsSetup      │   │ useAuthStore   │  │
+│  │ SettingsPanel    │   │                  │   │ useConfigStore │  │
+│  │ AccountPanel     │──►│                  │   │ useQualityStore│  │
+│  │ QualityPanel     │   │                  │   │ useLogToastStore│  │
+│  └────────┬─────────┘   └────────┬─────────┘   │ useThemeStore  │  │
+│           │                     │              │ useAdapterStore│  │
+│           │                     │              └───────┬────────┘  │
+│           │                     │                      │           │
+│           │                     │              ┌───────▼────────┐  │
+│           │                     │              │  tauriApi      │  │
+│           │                     │              │ withRetry      │  │
+│           │                     │              └───────┬────────┘  │
+│           │                     │                      │           │
+│           │                     │              ┌───────▼────────┐  │
+│           │                     │              │  Tauri Backend │  │
+│           │                     │              │  (Rust)        │  │
+│           │                     │              └────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Data Flow
+
+### 1. 认证流程 (`useAuthStore`)
+*   **登录 (`doLogin`)**:
+    1.  检查锁状态 (`isLoggingIn`/`isLoggingOut`)。
+    2.  尝试保存配置（失败则警告并使用已有配置）。
+    3.  调用 `api.doLogin()`，带 60s 超时保护。
+    4.  若成功，更新状态为 `online`，记录日志，并在 60s 节流窗口外触发一次网络质量探测。
+    5.  若失败，触发 `checkOnline()` 复查确认状态。
+*   **注销 (`doLogout`)**:
+    1.  调用 `api.doLogout()`，带 60s 超时保护。
+    2.  更新状态为 `offline`，记录日志。
+    3.  触发 `checkOnline()` 复查确认状态。
+*   **在线检测 (`checkOnline`)**:
+    1.  使用 `_checkOnlineLockFlag` 防止并发冗余 invoke。
+    2.  若启用校园网检测 (`enableNetworkNameCheck`)，调用 `detectCampusNetwork()`。若不在校园网，直接返回 `offline` 并更新 `bgStatus`。
+    3.  调用 `queryPortalStatus('')`（安卓无 adapterIp，后端回退缓存源 IP/默认路由）。
+    4.  根据 Portal 返回结果更新 `status`，使用 `setStatusStable` 避免无效重渲染。
+
+### 2. 配置保存流程 (`useConfigStore`)
+*   **更新配置 (`updateConfig`)**:
+    1.  合并新配置到当前 `config`，更新 Store 状态。
+    2.  将修改字段加入 `dirtyFields`，重置其连续失败计数。
+    3.  清除现有定时器，设置新的 500ms 防抖定时器。
+    4.  定时器触发时，调用 `saveConfigDirect`。
+*   **直接保存 (`saveConfigDirect`)**:
+    1.  调用 `api.saveConfig()`。
+    2.  若成功，清除 `dirtyFields` 中对应字段的标记，若含密码则同步 `passwordSaved` 为 `true`。
+    3.  若失败，增加 `dirtyFailureCounts`，若连续失败达 3 次则放弃脏标记，允许后端回传重新同步。
+*   **脏标记机制**: `mergeConfigFromBackend` 会跳过 `dirtyFields` 中的字段，防止后端旧快照覆盖本地未确认的新值。
+
+### 3. 网络质量流程 (`useQualityStore`)
+*   **刷新质量 (`refreshQuality`)**:
+    1.  检查 `_qualityLockFlag` 和 `config.enableNetworkQuality`。
+    2.  调用 `api.checkNetworkQuality()`。
+    3.  若返回数据，调用 `setNetworkQuality` 合并并更新 `lastQualityResultTime`。
+*   **设置质量 (`setNetworkQuality`)**:
+    1.  若新值为非 null，更新 `lastQualityResultTime` 为当前时间戳。
+    2.  更新 `networkQuality` 状态。
+
+### 4. 日志与通知流程 (`useLogToastStore`)
+*   **添加日志 (`addLog`)**:
+    1.  若最后一条日志内容与类型相同，更新时间戳并增加 `count`。
+    2.  否则追加新条目，保持最多 `MAX_LOG_ENTRIES` 条。
+*   **添加 Toast (`addToast`)**:
+    1.  若非前台且无操作按钮，直接跳过。
+    2.  若标题重复，跳过新增。
+    3.  若超过 `MAX_TOASTS`，淘汰最旧 Toast 及其定时器。
+    4.  设置新定时器，到期后移除 Toast。
+
+### 5. 主题切换流程 (`useThemeStore`)
+*   **初始化 (`initTheme`)**:
+    1.  读取 `safeStorage` 中的 `campus-theme` 和 `campus-light-mode`。
+    2.  若配置中有 `themeMode`，则覆盖并持久化到 `safeStorage`。
+*   **订阅副作用**:
+    1.  监听 `isLightMode`、`themeName`、`customThemeColor` 变化。
+    2.  切换 `document.documentElement` 的 `dark` class 和 `data-light` attribute。
+    3.  若为自定义主题，计算 HSL 值并设置 CSS 变量 (`--primary`, `--ring`, `--accent`, `--accent-foreground`)。
+
+## Connections
+
+*   [[auth-flow]]: 认证流程依赖于 `useAuthStore` 和 `useConfigStore`。
+*   [[network-monitoring]]: 网络监控依赖于 `useQualityStore` 和 `useAuthStore`。
+*   [[ui-theming]]: UI 主题依赖于 `useThemeStore` 和 `useConfigStore`。
+*   [[backend-ipc]]: 所有 Store 的异步操作均通过 `tauriApi` 与后端通信。

@@ -173,8 +173,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `events.rs:58` | pub fn | `emit_update_available(&self, has_update, latest_version, release_notes)` | 事件 `update-available` |
 | `events.rs:67` | pub fn | `emit_update_notification_click(&self)` | 事件 `update-notification-click`（`platform/toast.rs` 的 WinRT Activated 回调调用） |
 | `events.rs:72` | pub fn | `emit_adapter_details_changed<S>(&self, details: S)` | 事件 `adapter-details-changed` |
-| `events.rs:77` | pub fn | `emit_disabled_adapters_changed<S>(&self, disabled: S)` | 事件 `disabled-adapters-changed` |
-| `events.rs:82` | pub fn | `emit_adapter_disabled_warning(&self, name: &str, message: &str)` | 事件 `adapter-disabled-warning` |
+| `events.rs:77` | pub fn | `emit_adapter_disabled_warning(&self, name: &str, message: &str)` | 事件 `adapter-disabled-warning` |
 | `events.rs:90` | pub fn | `emit_campus_exit_countdown(&self, minimize_delay: u64, exit_delay: u64)` | 事件 `campus-exit-countdown` |
 | `events.rs:98` | pub fn | `emit_campus_exit_cancelled(&self)` | 事件 `campus-exit-cancelled` |
 | `events.rs:103` | pub fn | `emit_auto_exit_countdown(&self, delay: u64, shortcut: &str)` | 事件 `auto-exit-countdown` |

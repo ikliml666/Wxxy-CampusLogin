@@ -18,11 +18,6 @@ source_files:
   - tauri-app/frontend/public/mock-tauri-addon.js
   - tauri-app/frontend/public/mock-tauri.js
   - tauri-app/frontend/src/account/AccountPanel.helloGate.test.tsx
-  - tauri-app/frontend/src/account/DeviceAliasDialog.tsx
-  - tauri-app/frontend/src/account/index.ts
-  - tauri-app/frontend/src/account/types.ts
-  - tauri-app/frontend/src/auth/index.ts
-  - tauri-app/frontend/src/auth/types.ts
 tags: [构建, 发布, 根目录, Tauri, 前端结构]
 ---
 
@@ -89,28 +84,6 @@ Mock 场景注入器（叠加在 mock-tauri.js 之上）。
 - **关键逻辑行号**：
   - 参数解析与状态覆盖：第 8-25 行。
   - 定时事件发射：第 56-63 行。
-
-### 类型与组件接口
-#### `tauri-app/frontend/src/account/types.ts`
-账号相关类型定义。
-- **`AccountResult`**：第 10-16 行（包含 `success`, `activeAccount`, `displayName`）。
-- **`SwitchAccountResult`**：第 18-23 行。
-- **`DeleteAccountResult`**：第 25-30 行。
-- **`SaveAccountResult`**：第 32-37 行。
-
-#### `tauri-app/frontend/src/auth/types.ts`
-认证相关类型定义。
-- **`PortalStatusResult`**：第 1-6 行（`online`, `reachable`, `loginAvailable`）。
-- **`CommandResult`**：第 8-12 行。
-- **`LoginResult`**：第 14 行（继承 `CommandResult`）。
-
-#### `tauri-app/frontend/src/account/DeviceAliasDialog.tsx`
-在线设备改名弹窗组件。
-- **Props**：`open`, `mac` (12位hex), `initialName`, `onSave`, `onCancel`。
-- **逻辑**：第 24-26 行（打开时同步草稿，关闭时重置 saving 状态）；第 28-40 行（提交防抖与错误处理）。
-
-#### `tauri-app/frontend/src/account/index.ts` & `tauri-app/frontend/src/auth/index.ts`
-模块导出入口，分别导出面板、Hooks 和类型。
 
 ## Architecture
 

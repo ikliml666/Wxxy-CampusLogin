@@ -11,7 +11,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 
 ## Overview
 
-本模块定义应用的全量配置数据结构 `Config`（53 个字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加 + 账号档案读写 + 自动建号落盘）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的唯一敏感字段（`password`，凭据统一后为唯一密码字段，历史独立自助密码字段已删除，见 [[credential-single-source]]）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值；`config_version < 3` 时把 `campus_check_end_minutes` 旧默认 0 刷为 1380）。
+本模块定义应用的全量配置数据结构 `Config`（60+ 字段，camelCase IPC 契约）、磁盘持久化（原子写 + 密码 DPAPI 加密 + 登录历史追加 + 质量历史追加 + 账号档案读写）、以及两条校验通道：严格版 `validate_config`（保存/导入入口，非法即拒绝）与宽松版 `validate_config_lenient`（加载入口，逐字段降级到默认值）。配置同时承载"内存明文、磁盘密文"的唯一敏感字段（`password`，凭据统一后为唯一密码字段，历史独立自助密码字段已删除，见 [[credential-single-source]]）与一套配置版本迁移逻辑（`config_version < 2` 时把小时值折算为分钟值；`config_version < 3` 时把 `campus_check_end_minutes` 旧默认 0 刷为 1380；`config_version < 4` 刷新后台检测与延迟测试间隔默认值；`config_version < 5` 处理夜切开关默认值变化与定时动作禁用哨兵更新）。
 
 本模块在 `tauri-app/src-tauri/src/lib.rs:4` 被声明为跨平台模块（安卓端经 path 依赖可见），但安卓端另有自己的配置结构 `android/src-tauri/src/config_state.rs`（注释声明"结构对齐桌面 config::Config 可适用子集"），并不复用 `persist.rs` 的落盘路径。
 
@@ -21,10 +21,8 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
-| `config/mod.rs:1` | pub | `mod model` | 配置模型与默认值 |
-| `config/mod.rs:2` | pub | `mod persist` | 路径解析、原子写、加密落盘、登录历史 |
-| `config/mod.rs:3` | pub | `mod validate` | 严格/宽松校验与字段迁移 |
-| `config/mod.rs:5` | pub use | `Config` | 对外单点导出 `model::Config` |
+| `mod.rs:1-7` | pub mod | `model`, `night_switch`, `outbound_switch`, `persist`, `schedule`, `scheduled_tick`, `validate` | 子模块声明 |
+| `mod.rs:9` | pub use | `model::Config` | 对外单点导出 `model::Config` |
 
 ### config/model.rs
 
@@ -32,7 +30,7 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | --- | --- | --- | --- |
 | `model.rs:3` | pub const | `PASSWORD_MASK: &str = "***"` | 出站掩码占位符；前端回传该值表示"未修改密码" |
 | `model.rs:4` | pub const | `AUTO_DETECT_ADAPTER: &str = "自动检测"` | 适配器自动选择的哨兵值（`network::adapter` 与 `monitor::adapter_watch` 都用它做比较） |
-| `model.rs:10-143` | pub struct | `Config` | 全量配置（53 字段，见下表）；容器级 `#[serde(default)]` |
+| `model.rs:10-143` | pub struct | `Config` | 全量配置（60+ 字段，见下表）；容器级 `#[serde(default)]` |
 | `model.rs:112-122` | 私有 fn | `deserialize_non_empty_or<D>(deserializer, default_fn) -> Result<String, D::Error>` | 反序列化时把空串替换为指定默认值 |
 | `model.rs:124-129` | 私有 fn | `deserialize_campus_gateway<D>` | 组合上者，空串 → `default_campus_gateway()` |
 | `model.rs:131-136` | 私有 fn | `deserialize_required_network_name<D>` | 组合上者，空串 → `default_required_network_name()` |
@@ -46,9 +44,9 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `model.rs:156` | 私有 fn | `default_max_disconnect_reconnect() -> u32` | 3 |
 | `model.rs:158` | 私有 fn | `default_auto_login_cooldown_secs() -> u64` | 60 |
 | `model.rs:160-162` | pub fn | `default_portal_url() -> String` | `"http://10.1.99.100"`（`network::client::PORTAL_URL` 的初值也取它） |
-| `model.rs:164-166` | pub fn | `default_required_network_name() -> String` | `"i-wxxy"` |
+| `model.rs:164-166` | pub fn | `default_required_network_name() -> String` | `"i-wxxy、iwxxy-2、iwxxy-3"` |
 | `model.rs:168-170` | pub fn | `default_campus_gateway() -> String` | `"10.2.127.254"`（`commands/network_cmd.rs:105` 用作兜底） |
-| `model.rs:204-253` | impl | `Default for Config` | 53 个字段的默认值（见表） |
+| `model.rs:204-253` | impl | `Default for Config` | 60+ 个字段的默认值（见表） |
 | `model.rs:319-323` | pub fn | `Config::masked_for_display(&self) -> Config` | 克隆后掩码，原 struct 不变；**所有把 Config 发往前端的路径必须经此方法** |
 | `model.rs:325-328` | pub fn | `Config::mask_in_place(&mut self)` | 就地掩码：`password` 非空则置为 `PASSWORD_MASK`（凭据统一后仅此一个敏感字段） |
 
@@ -69,6 +67,9 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `persist.rs:117-154` | pub fn | `list_account_items(data_dir) -> Vec<AccountItem>` | 枚举 `accounts/*.json` 为 `{id, displayName}`（过滤 `.` 前缀与空名，按 id 排序）；displayName 为空/文件损坏时兜底为 id 并 `log_warn` |
 | `persist.rs:156-158` | pub fn | `get_login_history_path(data_dir) -> PathBuf` | `{data_dir}/login-history.json` |
 | `persist.rs:160-212` | pub fn | `append_login_history(app_handle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String>` | 加锁 → 读现有历史（读/解析失败 rename 为 `.bak` 后重置）→ 头部插入新记录 → 截断至 100 条 → `atomic_write` |
+| `persist.rs:218-220` | pub fn | `get_quality_history_path(data_dir) -> PathBuf` | `{data_dir}/quality_history.json` |
+| `persist.rs:226-228` | pub fn | `append_quality_history(app_handle, result: &NetworkQualityResult) -> Result<(), String>` | 委托给 `append_quality_history_to(get_data_dir(...), result)` |
+| `persist.rs:230-279` | pub fn | `append_quality_history_to(data_dir, result: &NetworkQualityResult) -> Result<(), String>` | 加锁 → 读现有历史（读/解析失败 rename 为 `.bak` 后重置）→ 头插法加入 `{timestamp, gatewayLatency, externalLatency, quality}`（延迟 <0 落盘为 null）→ 截断至 100 条 → `atomic_write` |
 | `persist.rs:282` | pub fn | `save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Result<(), String>` | `get_data_dir` → `save_config_to_disk_encrypted` → 掩码后 `notify_config_changed`（`{"config": …}` 包裹）；**不刷托盘**——「落盘+广播」统一出口，commands 包装与监控层共用 |
 | `persist.rs:292-303` | pub fn | `save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String>` | 克隆配置 → 非空 `password` → `crypto::encrypt`（仅此一个密码字段，加密分支 `persist.rs:299-301`） → `serde_json::to_string_pretty` → `atomic_write`；**不做任何校验** |
 
@@ -84,85 +85,31 @@ tags: [配置, 持久化, 原子写, DPAPI, 校验, 迁移, 跨平台]
 | `validate.rs:42-71` | 私有 fn | `validate_portal_url(url: &str) -> Result<(), String>` | 协议限 http/https；host 必须是内网 IPv4 / 回环 IPv6 / 字面量 `localhost`；**域名一律拒绝** |
 | `validate.rs:73-79` | 私有 fn | `migrate_operator(op: &mut String)` | `@ctcc`→`@telecom`、`@cucc`→`@unicom` |
 | `validate.rs:81-85` | 私有 fn | `normalize_portal_url(url: &mut String)` | 空串或字面值 `"http://10.1.99.100:801"` → `"http://10.1.99.100"` |
-| `validate.rs:87-150` | pub fn | `validate_config(config: Config) -> Result<Config, String>` | 严格校验 + 迁移（v1→v2 小时→分钟、v2→v3 检测时段终点旧默认）+ clamp；任一项非法即 `Err` |
+| `validate.rs:87-150` | pub fn | `validate_config(config: Config) -> Result<Config, String>` | 严格校验 + 迁移（v1→v2 小时→分钟、v2→v3 检测时段终点旧默认、v3→v4 间隔默认值、v4→v5 夜切默认与定时哨兵）+ clamp；任一项非法即 `Err` |
 | `validate.rs:154-218` | pub fn | `validate_config_lenient(mut config: Config) -> Config` | 逐字段降级：无效字段回退 `Config::default()` 对应值并 `log_warn!`；末尾再跑一次严格版，仍失败则整份返回 `Config::default()` |
 
-## 结构体与字段
+## Architecture
 
-### `Config`（`model.rs:10-109`）
-
-`#[derive(Debug, Clone, Serialize, Deserialize)]`（`model.rs:6`）+ 容器级 `#[serde(default)]`（`model.rs:9`）。JSON 键名无统一 `rename_all`，未标 `rename` 的字段保持 Rust 原名（`user`、`password`、`operator`、`adapter1`、`adapter2`），其余均为显式 camelCase。
-
-| 位置 | Rust 字段 | JSON 键 | 类型 | 默认值 | 含义 |
-| --- | --- | --- | --- | --- | --- |
-| `model.rs:11` | `user` | `user` | `String` | `""` | 校园网登录账号（学号） |
-| `model.rs:13` | `password` | `password` | `String` | `""` | 登录密码；内存明文 / 磁盘 DPAPI 密文 / 出站 MASK；**唯一密码字段**（凭据统一后，见 [[credential-single-source]]） |
-| `model.rs:18` | `self_hello_enabled` | `selfHelloEnabled` | `bool` | `true`（`default_true`） | 是否启用 Windows Hello 操作验证门；关闭后"查看运营商账号密码"仍强制验证（后端 TTL 独立） |
-| `model.rs:21` | `self_reverify_each_action` | `selfReverifyEachAction` | `bool` | `false` | 自助服务面板是否每次操作都二次验证（否则切入面板验证一次后共用）；**仅前端消费** |
-| `model.rs:25` | `operator` | `operator` | `String` | `""` | 运营商后缀：`""`/`@telecom`/`@unicom`/`@cmcc` |
-| `model.rs:26` | `adapter1` | `adapter1` | `String` | `"自动检测"` | 主适配器名或自动检测哨兵 |
-| `model.rs:27` | `adapter2` | `adapter2` | `String` | `""` | 副适配器名（双适配器模式使用） |
-| `model.rs:28-31` | `adapter1_account` | `adapter1Account` | `String` | `""` | 主适配器绑定的账号 id（设备级，仅桌面；空=跟随当前激活账号；切账号不覆盖，见 [[adapter-account-binding]]） |
-| `model.rs:32-34` | `adapter2_account` | `adapter2Account` | `String` | `""` | 副适配器绑定的账号 id，语义同上 |
-| `model.rs:36` | `dual_adapter` | `dualAdapter` | `bool` | `false` | 是否启用双适配器同时登录 |
-| `model.rs:38` | `auto_login_on_start` | `autoLoginOnStart` | `bool` | `true` | 启动时自动登录 |
-| `model.rs:40` | `auto_exit_after_login` | `autoExitAfterLogin` | `bool` | `true` | 登录成功后自动退出程序（由 `auth::service::post_login_handler` 消费） |
-| `model.rs:42` | `minimize_to_tray` | `minimizeToTray` | `bool` | `false` | 关闭窗口时最小化到托盘 |
-| `model.rs:44` | `hidden_start` | `hiddenStart` | `bool` | `false` | 启动时不显示主窗口 |
-| `model.rs:46` | `auto_launch` | `autoLaunch` | `bool` | `true` | 开机自启 |
-| `model.rs:48` | `enable_background_check` | `enableBackgroundCheck` | `bool` | `true` | 是否启用后台巡检（关闭后登录成功不再触发后台检查） |
-| `model.rs:50` | `background_check_interval` | `backgroundCheckInterval` | `u64` | `15000` | 后台巡检间隔（毫秒），clamp 到 `[10000, 3600000]` |
-| `model.rs:52` | `auto_login_on_preparation` | `autoLoginOnPreparation` | `bool` | `true` | "登录准备"模式：检测到未登录且可登录时自动登录（`monitor/auto_auth.rs:35,125`） |
-| `model.rs:57-60` | `enable_night_operator_switch` | `enableNightOperatorSwitch` | `bool` | `false`（2026-10-02 起默认改回关闭；2026-09-20~10-01 期间默认开启，存量落盘 true 不迁移） | 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院，次日恢复窗口切回（判定逻辑 `config::night_switch`，跨平台纯函数） |
-| `model.rs:61-63` | `night_operator_restore` | `nightOperatorRestore` | `String` | `""` | 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空（后端内部状态） |
-| `model.rs:64-67` | `enable_night_outbound_switch` | `enableNightOutboundSwitch` | `bool` | `false` | 夜间出站自动切换总开关：到点把出站切到排序中的非校园网网卡（默认关——修改系统路由属侵入性动作）；判定逻辑见 `config::outbound_switch` |
-| `model.rs:68-72` | `outbound_priority` | `outboundPriority` | `Vec<String>` | `[]` | 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，默认「无线卡优先、有线卡随后」（十期语义，见 `monitor::outbound_switch::effective_outbound_priority`）。安卓端不消费此字段 |
-| `model.rs:72-76` | `outbound_metric_restore` | `outboundMetricRestore` | `String` | `""` | 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）；非空 = 桌面处于出站切换态。运行时修改重启即还原，快照跨应用重启仍有效；导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段 |
-| `model.rs:77-80` | `night_outbound_restore` | `nightOutboundRestore` | `String` | `""` | 安卓切换态标记：值恒 `"logged_out"`（纯标记，不暂存账号名）；非空 = 安卓处于出站切换态（已注销等待晨间重登），切账号时清空。桌面端不消费此字段 |
-| `model.rs:54` | `auto_exit_on_online` | `autoExitOnOnline` | `bool` | `true` | 检测到在线后自动退出（`monitor/background_emit.rs:191`） |
-| `model.rs:56` | `theme_mode` | `themeMode` | `String` | `"dark"` | 主题：`"dark"`/`"light"`/`"system"` |
-| `model.rs:58` | `enable_notification` | `enableNotification` | `bool` | `true` | 是否发系统通知 |
-| `model.rs:60` | `active_account` | `activeAccount` | `String` | `""` | 当前生效的账号档案名（`accounts/*.json` 的文件名词干） |
-| `model.rs:61-64` | `display_name` | `displayName` | `String` | `""` | 本文件所属账号的显示名（R3，可含空格/emoji；空→读取阶段兜底用账号 id，见 [[account-display-name-id-separation]]） |
-| `model.rs:65` | `enable_latency_test` | `enableLatencyTest` | `bool` | `true` | 是否启用延迟测试 |
-| `model.rs:67` | `latency_test_interval` | `latencyTestInterval` | `u64` | `60000` | 延迟测试间隔（毫秒），clamp 到 `[10000, 3600000]` |
-| `model.rs:69` | `custom_theme_color` | `customThemeColor` | `String` | `"#6366f1"` | 自定义主题色（`#RRGGBB`） |
-| `model.rs:71` | `default_panel` | `defaultPanel` | `String` | `""` | 启动时默认显示的面板；**仅前端消费，生产代码 Rust 侧不消费**（`grep -rn "default_panel" src/` 命中 `model.rs:71` 字段声明与 `model.rs:200` 的 `impl Default` 之外，另命中 `network/adapter.rs` 测试夹具——位于 `#[cfg(test)] mod tests` 的 `make_test_config` 内，非生产路径；安卓侧同名独立字段见 `android/src-tauri/src/config_state.rs`） |
-| `model.rs:73` | `enable_network_quality` | `enableNetworkQuality` | `bool` | `true` | 是否启用网络质量检测（`monitor/watcher.rs:32`） |
-| `model.rs:75` | `skip_ttfb_in_latency` | `skipTtfbInLatency` | `bool` | `true` | 延迟测试跳过 TTFB 指标 |
-| `model.rs:77` | `skip_content_in_latency` | `skipContentInLatency` | `bool` | `true` | 延迟测试跳过内容下载指标 |
-| `model.rs:79` | `portal_url` | `portalUrl` | `String` | `"http://10.1.99.100"` | Portal 基地址；保存时同步到全局 `network::client::PORTAL_URL` |
-| `model.rs:81` | `fixed_gateway` | `fixedGateway` | `String` | `"10.2.127.254"` | 固定网关地址（延迟/质量测试目标，`network::quality`） |
-| `model.rs:83` | `required_network_name` | `requiredNetworkName` | `String` | `"i-wxxy"` | 校园 WiFi SSID；空串反序列化回默认 |
-| `model.rs:85` | `enable_network_name_check` | `enableNetworkNameCheck` | `bool` | `true` | 是否启用 SSID 判定（`monitor/background_check.rs:78`、`auto_auth.rs:286`） |
-| `model.rs:87` | `campus_gateway` | `campusGateway` | `String` | `"10.2.127.254"` | 校园网关（MAC 重置 / 可达性判定的目标）；空串反序列化回默认 |
-| `model.rs:90` | `update_source` | `updateSource` | `String` | `"mirror"` | 更新渠道优先级：`"mirror"`=镜像优先 / `"github"`=官方优先 |
-| `model.rs:92` | `campus_exit_on_fail` | `campusExitOnFail` | `bool` | `true` | 非校园网时是否自动退出（`infra/lifecycle.rs:25`） |
-| `model.rs:95` | `campus_exit_start_minutes` | `campusExitStartMinutes` | `u16` | `480`（08:00） | 非校园网自动退出生效时段起点（当日分钟数） |
-| `model.rs:98` | `campus_exit_end_minutes` | `campusExitEndMinutes` | `u16` | `1380`（23:00） | 生效时段终点（不含该时刻；结束 ≤ 起点时退化为仅受起点限制） |
-| `model.rs:100` | `campus_check_start_minutes` | `campusCheckStartMinutes`（alias `campusCheckStartHour`） | `u16` | `460`（07:40） | 校园网检测时段起点 |
-| `model.rs:103` | `campus_check_end_minutes` | `campusCheckEndMinutes` | `u16` | `1380`（23:00，2026-09-13 起旧默认 `0`） | 检测时段终点；≤ 起点时退化为仅起点限制；旧默认 `0` 由 `config_version` v2→v3 迁移刷为 1380 |
-| `model.rs:106` | `scheduled_login_minutes` | `scheduledLoginMinutes` | `u16` | `0` | 每日定时登录时刻（分钟数，`0`=禁用；到点即触发含过点补触发） |
-| `model.rs:109` | `scheduled_logout_minutes` | `scheduledLogoutMinutes` | `u16` | `0` | 每日定时注销时刻（分钟数，`0`=禁用） |
-| `model.rs:111` | `log_retention_days` | `logRetentionDays` | `u32` | `7` | 日志保留天数；`0`=永久保留；上限 365 |
-| `model.rs:113` | `max_disconnect_reconnect` | `maxDisconnectReconnect` | `u32` | `3` | 断线重连次数上限（`monitor/auto_auth.rs:155`） |
-| `model.rs:115` | `auto_login_cooldown_secs` | `autoLoginCooldownSecs` | `u64` | `60` | 自动登录冷却秒数（`monitor/auto_auth.rs:63`） |
-| `model.rs:117` | `skip_sha256_when_missing` | `skipSha256WhenMissing` | `bool` | `false` | 更新包缺少 sha256 时是否跳过校验（`commands/updater.rs:225`） |
-| `model.rs:120` | `config_version` | `configVersion` | `u32` | `3` | 配置版本号，驱动小时→分钟（v1→v2）与检测时段终点旧默认（v2→v3）迁移；`displayName`/`adapter1Account`/`adapter2Account` 新增**未升版本、无迁移**（容器级 serde(default) 兼容，契约锁测试 `serde_account_fields_json_names_and_defaults`） |
-
-### `Config` 的 serde 属性要点
-
-| 位置 | 属性 | 作用 |
-| --- | --- | --- |
-| `model.rs:9` | `#[serde(default)]`（容器级） | 任一字段缺失即用 `Default` 补齐；否则单字段缺失会导致整份配置反序列化失败 |
-| `model.rs:12` | `password` 上的 `#[serde(default)]` | 与容器级重复，冗余但无害 |
-| `model.rs:17` | `default = "default_true"` | `self_hello_enabled` 默认 `true` |
-| `model.rs:75`、`model.rs:77` | `default = "default_true"` | 两个 skip 开关默认 `true` |
-| `model.rs:83`、`model.rs:87` | `deserialize_with = "deserialize_...` | 空串替换为 `"i-wxxy"` / `"10.2.127.254"` |
-| `model.rs:100` | `alias = "campusCheckStartHour"` | 兼容旧版字段名（配合 `config_version < 2` 的小时→分钟迁移） |
-| `model.rs:103` | `default = "default_campus_check_end_minutes"` | `campus_check_end_minutes` 缺字段时取 1380（2026-09-13 起旧默认 0） |
-| `model.rs:29-33`、`model.rs:62-64` | `rename = "adapter1Account"/"adapter2Account"/"displayName"` | 新字段手写 rename；缺字段靠容器级 `serde(default)` 补空串（测试 `serde_account_fields_json_names_and_defaults` 锁契约） |
-| `model.rs:64-80` | `rename = "enableNightOutboundSwitch"/"outboundPriority"/"outboundMetricRestore"/"nightOutboundRestore"` | 夜间出站切换四字段（2026-09-22 新增）手写 rename；缺字段靠容器级 `serde(default)` 兜底，纯新增、无 schema 迁移 |
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Config Module (config/)                       │
+│                                                                      │
+│  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐ │
+│  │  model.rs    │   │  persist.rs  │   │      validate.rs         │ │
+│  │              │   │              │   │                          │ │
+│  │  struct      │──►│  atomic_write│──►│  validate_config         │ │
+│  │  Config      │   │  save_*_enc  │   │  validate_config_lenient │ │
+│  │              │   │  load_*_cfg  │   │  migrate_*               │ │
+│  │  Default     │   │  append_*_hist│  │                          │ │
+│  │  masked_*    │   │  get_*_path  │   │  USERNAME_RE             │ │
+│  └──────────────┘   └──────────────┘   │  CUSTOM_COLOR_RE         │ │
+│                                        └──────────────────────────┘ │
+│                                                                      │
+│  Data Flow:                                                          │
+│  Load: disk ► serde ► lenient ► strict ► state.store                 │
+│  Save: frontend ► strict ► encrypt ► atomic_write ► broadcast        │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
 ## Data Flow
 
@@ -214,6 +161,16 @@ auth::session::adapter_action_with_log / monitor::auto_auth.rs:187
       → 超过 100 条则 truncate(100) → atomic_write
 ```
 
+### 网络质量历史追加
+
+```
+monitor::watcher.rs / network::quality 检测完成后
+  → config::persist::append_quality_history(app_handle, result)
+      QUALITY_HISTORY_LOCK → 读 quality_history.json（坏文件 → *.bak 重置）
+      → history.insert(0, {timestamp, gatewayLatency, externalLatency, quality})
+      → 超过 100 条则 truncate(100) → atomic_write
+```
+
 ### 出站掩码（唯一出口）
 
 ```
@@ -252,3 +209,85 @@ auth::session::adapter_action_with_log / monitor::auto_auth.rs:187
 15. **`validate_portal_url` 的 IPv6 分支只允许回环**：`validate.rs:57-61`，非 `::1` 的 IPv6 一律拒绝，错误文案却写"仅允许内网IPv4或localhost"。
 16. **`campus_check_*` / `campus_exit_*` / `scheduled_*_minutes` 只做 `min(1439)` 钳制**：`validate.rs:142-147`，无"起点晚于终点"的纠正（语义上允许，退化为仅受起点限制，见 `model.rs:88-93` 注释），但 UI 与日志可能展示出反直觉的时段。
 17. **`fixed_gateway` 允许空串**：`validate.rs:107-109` 仅在非空时校验 IP，空值语义（是否启用固定网关）没有显式开关，由消费方 `network::quality` 自行解释。
+
+## 结构体与字段
+
+### `Config`（`model.rs:10-109`）
+
+`#[derive(Debug, Clone, Serialize, Deserialize)]`（`model.rs:6`）+ 容器级 `#[serde(default)]`（`model.rs:9`）。JSON 键名无统一 `rename_all`，未标 `rename` 的字段保持 Rust 原名（`user`、`password`、`operator`、`adapter1`、`adapter2`），其余均为显式 camelCase。
+
+| 位置 | Rust 字段 | JSON 键 | 类型 | 默认值 | 含义 |
+| --- | --- | --- | --- | --- | --- |
+| `model.rs:11` | `user` | `user` | `String` | `""` | 校园网登录账号（学号） |
+| `model.rs:13` | `password` | `password` | `String` | `""` | 登录密码；内存明文 / 磁盘 DPAPI 密文 / 出站 MASK；**唯一密码字段**（凭据统一后，见 [[credential-single-source]]） |
+| `model.rs:18` | `self_hello_enabled` | `selfHelloEnabled` | `bool` | `true`（`default_true`） | 是否启用 Windows Hello 操作验证门；关闭后"查看运营商账号密码"仍强制验证（后端 TTL 独立） |
+| `model.rs:21` | `self_reverify_each_action` | `selfReverifyEachAction` | `bool` | `false` | 自助服务面板是否每次操作都二次验证（否则切入面板验证一次后共用）；**仅前端消费** |
+| `model.rs:25` | `operator` | `operator` | `String` | `""` | 运营商后缀：`""`/`@telecom`/`@unicom`/`@cmcc` |
+| `model.rs:26` | `adapter1` | `adapter1` | `String` | `"自动检测"` | 主适配器名或自动检测哨兵 |
+| `model.rs:27` | `adapter2` | `adapter2` | `String` | `""` | 副适配器名（双适配器模式使用） |
+| `model.rs:28-31` | `adapter1_account` | `adapter1Account` | `String` | `""` | 主适配器绑定的账号 id（设备级，仅桌面；空=跟随当前激活账号；切账号不覆盖，见 [[adapter-account-binding]]） |
+| `model.rs:32-34` | `adapter2_account` | `adapter2Account` | `String` | `""` | 副适配器绑定的账号 id，语义同上 |
+| `model.rs:36` | `dual_adapter` | `dualAdapter` | `bool` | `false` | 是否启用双适配器同时登录 |
+| `model.rs:38` | `auto_login_on_start` | `autoLoginOnStart` | `bool` | `true` | 启动时自动登录 |
+| `model.rs:40` | `auto_exit_after_login` | `autoExitAfterLogin` | `bool` | `false`（2026-09-20 起默认关闭：配合夜切，登录成功即退出会让夜切后的进程无法常驻，次日 07:30 恢复被推迟到下次启动；存量显式值不迁移） | 登录成功后自动退出程序（由 `auth::service::post_login_handler` 消费） |
+| `model.rs:42` | `minimize_to_tray` | `minimizeToTray` | `bool` | `false` | 关闭窗口时最小化到托盘 |
+| `model.rs:44` | `hidden_start` | `hiddenStart` | `bool` | `false` | 启动时不显示主窗口 |
+| `model.rs:46` | `auto_launch` | `autoLaunch` | `bool` | `true` | 开机自启 |
+| `model.rs:48` | `enable_background_check` | `enableBackgroundCheck` | `bool` | `true` | 是否启用后台巡检（关闭后登录成功不再触发后台检查） |
+| `model.rs:50` | `background_check_interval` | `backgroundCheckInterval` | `u64` | `60000`（2026-09-20 起 15s → 60s 后台留存优化，存量旧默认由 v3→v4 迁移刷新） | 后台巡检间隔（毫秒），clamp 到 `[10000, 3600000]` |
+| `model.rs:52` | `auto_login_on_preparation` | `autoLoginOnPreparation` | `bool` | `true` | "登录准备"模式：检测到未登录且可登录时自动登录（`monitor/auto_auth.rs:35,125`） |
+| `model.rs:57-60` | `enable_night_operator_switch` | `enableNightOperatorSwitch` | `bool` | `false`（2026-10-02 起默认改回关闭；2026-09-20~10-01 期间默认开启并经 v4→v5 迁移刷开存量；本次存量已落盘的 true 不迁移，由用户在设置页自行关闭） | 晚间断网自动切换运营商总开关：到点把 operator 切至无锡学院，次日恢复窗口切回（判定逻辑 `config::night_switch`，跨平台纯函数） |
+| `model.rs:61-63` | `night_operator_restore` | `nightOperatorRestore` | `String` | `""` | 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空（后端内部状态） |
+| `model.rs:64-67` | `enable_night_outbound_switch` | `enableNightOutboundSwitch` | `bool` | `false` | 夜间出站自动切换总开关：到点把出站切到排序中的非校园网网卡（默认关——修改系统路由属侵入性动作）；判定逻辑见 `config::outbound_switch` |
+| `model.rs:68-72` | `outbound_priority` | `outboundPriority` | `Vec<String>` | `[]` | 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，默认「无线卡优先、有线卡随后」（十期语义，见 `monitor::outbound_switch::effective_outbound_priority`）。安卓端不消费此字段 |
+| `model.rs:72-76` | `outbound_metric_restore` | `outboundMetricRestore` | `String` | `""` | 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）；非空 = 桌面处于出站切换态。运行时修改重启即还原，快照跨应用重启仍有效；导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段 |
+| `model.rs:77-80` | `outbound_disabled_adapters` | `outboundDisabledAdapters` | `String` | `""` | 夜间切换禁用的校园网卡快照：`[{guid, name}]` JSON（只记本功能亲手禁用的卡，还原与 adapter_watch 闸门都以这份名单为准，不按当前状态推断——USB 网卡状态判定不可靠）。非空 = 存在待还原的禁用动作。导入配置时保留本机值。安卓端不消费此字段 |
+| `model.rs:81-85` | `outbound_standby_route` | `outboundStandbyRoute` | `String` | `""` | 夜间切换新增的兜底默认路由快照：`{dest, mask, gateway, metric, ifIndex}` JSON（runtime 路由，排在 TUN 等既有默认路由之后，仅当它们全部消失时接管出站）。空 = 未加路由。导入配置时清空。安卓端不消费此字段 |
+| `model.rs:86-90` | `outbound_manual_hold_day` | `outboundManualHoldDay` | `i32` | `0` | 「立即切换」当日保持标记（num_days_from_ce；0=无）：手动立即切换先落盘当日值再执行动作，冻结当日的自动 Switch/Restore 判定（防 23:00 自动切换叠加成双重切换、防还原窗内自动还原撤销手动切换），次日 7:30 自动还原或手动还原成功后清零。与切换态快照同属本机系统状态，导入配置时保留本机值。安卓端不消费此字段 |
+| `model.rs:91-94` | `night_outbound_restore` | `nightOutboundRestore` | `String` | `""` | 安卓切换态标记：值恒 `"logged_out"`（纯标记，不暂存账号名）；非空 = 安卓处于出站切换态（已注销等待晨间重登）。切账号时清空。桌面端不消费此字段 |
+| `model.rs:95-99` | `dns_optimize_adapters` | `dnsOptimizeAdapters` | `Vec<String>` | `[]` | DNS 优化目标适配器名单（网卡名）。一键优化/恢复 DNS 只作用于这份名单，不再跟随适配器设置卡的主/副解析；空 = 用户未选择，操作时提示先去卡片选择。安卓端不消费此字段（DNS 优化为桌面专属功能） |
+| `model.rs:100-104` | `device_aliases` | `deviceAliases` | `HashMap<String, String>` | `{}` | 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡卡头展示）。与安卓 Settings.deviceAliases 同构同契约；default 保证旧配置文件缺字段向后兼容，无需版本迁移 |
+| `model.rs:105` | `auto_exit_on_online` | `autoExitOnOnline` | `bool` | `false`（2026-09-20 起默认关闭，与 auto_exit_after_login 同因；存量不迁移） | 检测到在线后自动退出（`monitor/background_emit.rs:191`） |
+| `model.rs:106` | `theme_mode` | `themeMode` | `String` | `"dark"` | 主题：`"dark"`/`"light"`/`"system"` |
+| `model.rs:107` | `enable_notification` | `enableNotification` | `bool` | `true` | 是否发系统通知 |
+| `model.rs:108` | `active_account` | `activeAccount` | `String` | `""` | 当前生效的账号档案名（`accounts/*.json` 的文件名词干） |
+| `model.rs:109-112` | `display_name` | `displayName` | `String` | `""` | 本文件所属账号的显示名（R3，与内部 id 分离，可含空格/emoji 等任意字符）；空 → 读取阶段兜底用账号 id |
+| `model.rs:113` | `enable_latency_test` | `enableLatencyTest` | `bool` | `true` | 是否启用延迟测试 |
+| `model.rs:115` | `latency_test_interval` | `latencyTestInterval` | `u64` | `600000`（2026-09-20 起 60s → 600s 后台留存优化，存量旧默认由 v3→v4 迁移刷新） | 延迟测试间隔（毫秒），clamp 到 `[10000, 3600000]` |
+| `model.rs:117` | `custom_theme_color` | `customThemeColor` | `String` | `"#6366f1"` | 自定义主题色（`#RRGGBB`） |
+| `model.rs:118` | `default_panel` | `defaultPanel` | `String` | `""` | 启动时默认显示的面板；**仅前端消费，生产代码 Rust 侧不消费**（`grep -rn "default_panel" src/` 命中 `model.rs:118` 字段声明与 `model.rs:200` 的 `impl Default` 之外，另命中 `network/adapter.rs` 测试夹具——位于 `#[cfg(test)] mod tests` 的 `make_test_config` 内，非生产路径；安卓侧同名独立字段见 `android/src-tauri/src/config_state.rs`） |
+| `model.rs:119` | `enable_network_quality` | `enableNetworkQuality` | `bool` | `true` | 是否启用网络质量检测（`monitor/watcher.rs:32`） |
+| `model.rs:121` | `skip_ttfb_in_latency` | `skipTtfbInLatency` | `bool` | `true`（`default_true`） | 延迟测试跳过 TTFB 指标 |
+| `model.rs:123` | `skip_content_in_latency` | `skipContentInLatency` | `bool` | `true`（`default_true`） | 延迟测试跳过内容下载指标 |
+| `model.rs:125` | `portal_url` | `portalUrl` | `String` | `"http://10.1.99.100"`（`default_portal_url`） | Portal 基地址；保存时同步到全局 `network::client::PORTAL_URL` |
+| `model.rs:127` | `fixed_gateway` | `fixedGateway` | `String` | `"10.2.127.254"`（`default_fixed_gateway`） | 固定网关地址（延迟/质量测试目标，`network::quality`） |
+| `model.rs:129` | `required_network_name` | `requiredNetworkName` | `String` | `"i-wxxy、iwxxy-2、iwxxy-3"`（`default_required_network_name`） | 校园 WiFi SSID；空串反序列化回默认 |
+| `model.rs:131` | `enable_network_name_check` | `enableNetworkNameCheck` | `bool` | `true`（`default_true`） | 是否启用 SSID 判定（`monitor/background_check.rs:78`、`auto_auth.rs:286`） |
+| `model.rs:133` | `campus_gateway` | `campusGateway` | `String` | `"10.2.127.254"`（`default_campus_gateway`） | 校园网关（MAC 重置 / 可达性判定的目标）；空串反序列化回默认 |
+| `model.rs:136` | `update_source` | `updateSource` | `String` | `"mirror"` | 更新渠道优先级：`"mirror"`=镜像优先 / `"github"`=官方优先 |
+| `model.rs:138` | `campus_exit_on_fail` | `campusExitOnFail` | `bool` | `true`（`default_true`） | 非校园网时是否自动退出（`infra/lifecycle.rs:25`） |
+| `model.rs:141` | `campus_exit_start_minutes` | `campusExitStartMinutes` | `u16` | `480`（08:00，`default_campus_exit_start_minutes`） | 非校园网自动退出生效时段起点（当日分钟数） |
+| `model.rs:144` | `campus_exit_end_minutes` | `campusExitEndMinutes` | `u16` | `1380`（23:00，`default_campus_exit_end_minutes`） | 生效时段终点（不含该时刻；结束 ≤ 起点时退化为仅受起点限制） |
+| `model.rs:146` | `campus_check_start_minutes` | `campusCheckStartMinutes`（alias `campusCheckStartHour`） | `u16` | `460`（07:40，`default_campus_check_start_minutes`） | 校园网检测时段起点 |
+| `model.rs:149` | `campus_check_end_minutes` | `campusCheckEndMinutes` | `u16` | `1380`（23:00，`default_campus_check_end_minutes`，2026-09-13 起旧默认 `0`） | 检测时段终点；≤ 起点时退化为仅起点限制；旧默认 `0` 由 `config_version` v2→v3 迁移刷为 1380 |
+| `model.rs:152` | `scheduled_login_minutes` | `scheduledLoginMinutes` | `u16` | `1440`（每日定时登录时刻，1440=禁用哨兵、0=真实的 00:00；2026-09-20 起禁用哨兵为 1440，0=真实的 00:00 时刻；存量 0 由 v4→v5 迁移刷为 1440） | 到点即触发含过点补触发，判定见 `config::schedule` |
+| `model.rs:155` | `scheduled_logout_minutes` | `scheduledLogoutMinutes` | `u16` | `1440`（每日定时注销时刻，1440=禁用哨兵；语义同 scheduled_login_minutes） | 到点即触发含过点补触发，判定见 `config::schedule` |
+| `model.rs:157` | `log_retention_days` | `logRetentionDays` | `u32` | `7`（`default_log_retention_days`） | 日志保留天数；`0`=永久保留；上限 365 |
+| `model.rs:159` | `max_disconnect_reconnect` | `maxDisconnectReconnect` | `u32` | `3`（`default_max_disconnect_reconnect`） | 断线重连次数上限（`monitor/auto_auth.rs:155`） |
+| `model.rs:161` | `auto_login_cooldown_secs` | `autoLoginCooldownSecs` | `u64` | `60`（`default_auto_login_cooldown_secs`） | 自动登录冷却秒数（`monitor/auto_auth.rs:63`） |
+| `model.rs:163` | `skip_sha256_when_missing` | `skipSha256WhenMissing` | `bool` | `false` | 更新包缺少 sha256 时是否跳过校验（`commands/updater.rs:225`） |
+| `model.rs:165` | `config_version` | `configVersion` | `u32` | `5`（2026-09-20 起 v5，夜切默认开启 + 定时动作禁用哨兵，见 `validate.rs`） | 配置版本号，驱动小时→分钟（v1→v2）、检测时段终点旧默认（v2→v3）、间隔默认值（v3→v4）、夜切默认与定时哨兵（v4→v5）迁移；`displayName`/`adapter1Account`/`adapter2Account` 新增**未升版本、无迁移**（容器级 serde(default) 兼容，契约锁测试 `serde_account_fields_json_names_and_defaults`） |
+
+### `Config` 的 serde 属性要点
+
+| 位置 | 属性 | 作用 |
+| --- | --- | --- |
+| `model.rs:9` | `#[serde(default)]`（容器级） | 任一字段缺失即用 `Default` 补齐；否则单字段缺失会导致整份配置反序列化失败 |
+| `model.rs:12` | `password` 上的 `#[serde(default)]` | 与容器级重复，冗余但无害 |
+| `model.rs:17` | `default = "default_true"` | `self_hello_enabled` 默认 `true` |
+| `model.rs:121`、`model.rs:123` | `default = "default_true"` | 两个 skip 开关默认 `true` |
+| `model.rs:129`、`model.rs:133` | `deserialize_with = "deserialize_...` | 空串替换为 `"i-wxxy、iwxxy-2、iwxxy-3"` / `"10.2.127.254"` |
+| `model.rs:146` | `alias = "campusCheckStartHour"` | 兼容旧版字段名（配合 `config_version < 2` 的小时→分钟迁移） |
+| `model.rs:149` | `default = "default_campus_check_end_minutes"` | `campus_check_end_minutes` 缺字段时取 1380（2026-09-13 起旧默认 0） |
+| `model.rs:28-34`、`model.rs:109-112` | `rename = "adapter1Account"/"adapter2Account"/"displayName"` | 新字段手写 rename；缺字段靠容器级 `serde(default)` 补空串（测试 `serde_account_fields_json_names_and_defaults` 锁契约） |
+| `model.rs:64-90` | `rename = "enableNightOutboundSwitch"/"outboundPriority"/"outboundMetricRestore"/"outboundDisabledAdapters"/"outboundStandbyRoute"/"outboundManualHoldDay"/"nightOutboundRestore"` | 夜间出站切换多字段（2026-09-22 新增及后续迭代）手写 rename；缺字段靠容器级 `serde(default)` 兜底，纯新增、无 schema 迁移 |

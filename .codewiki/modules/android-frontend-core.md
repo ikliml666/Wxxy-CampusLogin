@@ -20,9 +20,9 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 
 ## Overview
 
-本模块是安卓前端（`android/frontend`）的运行时骨架：`main.tsx` 负责渲染前初始化（主题、崩溃自恢复、gsap 全局配置），`App.tsx` 按短边 ≥600 CSS px 在「手机移动外壳」与「平板 Dock 外壳」之间二选一，`hooks/` 提供 zustand 领域 store、IPC 封装 `tauriApi` 与全部生命周期钩子，`components/{ui,layout,mobile,tablet}` 与 `shared/` 提供组件库与看板娘/弹窗/日志等通用件。
+本模块是安卓前端（`android/frontend`）的运行时骨架：`main.tsx` 负责渲染前初始化（主题、崩溃自恢复、gsap 全局配置），`App.tsx` 按短边 ≥600 CSS px 在「手机移动外壳」与「平板 Dock 外壳」之间二选一，`hooks/` 提供 zustand 领域 store、IPC 封装 `tauriApi` 与全部生命周期钩子。
 
-与桌面前端的根本差异：安卓前端是 `tauri-app/frontend/src` 的**独立复刻代码库**（同构不等于共享代码），文件级差异见 Known Issues；安卓独有目录为 `components/{mobile,tablet}`、`face/`、`hooks/{useDeviceProfile,useAdaptiveFramePace,useFormFactor}`、`shared/dailyMascot.ts`、`shared/UpdateAvailableDialog.tsx`、`settings/OnboardingWizardMobile.tsx`、`settings/useOnboardingFlow.ts`、`settings/KeepAliveSettingsCard.tsx`。
+与桌面前端的根本差异：安卓前端是 `tauri-app/frontend/src` 的**独立复刻代码库**（同构不等于共享代码）。安卓独有目录为 `components/{mobile,tablet}`、`face/`、`hooks/{useDeviceProfile,useAdaptiveFramePace,useFormFactor}`、`shared/UpdateAvailableDialog.tsx`、`settings/OnboardingWizardMobile.tsx`。
 
 ## Key Components
 
@@ -50,9 +50,10 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 
 | 导出 | 位置 | 说明 |
 | --- | --- | --- |
-| `SocInfo` | `tauriApi.ts:27` | SoC 分级信息接口 |
 | `BatteryOptimizationInfo` | `tauriApi.ts:34` | 电池优化白名单状态接口 |
 | `VendorSettingsResult` | `tauriApi.ts:40` | 厂商省电页跳转结果接口 |
+| `AvoidBadWifiStatus` | `tauriApi.ts:140` | WRITE_SECURE_SETTINGS 授权状态与快照 |
+| `RestoreWrittenSettingsResult` | `tauriApi.ts:146` | 系统网络设置还原本结果 |
 | `tauriApiWithRetry` | `tauriApi.ts:326` | 生产使用的 API 对象：`...tauriApi` 展开后仅覆写 `saveConfig` 包重试（`tauriApi.ts:331`） |
 
 内部（未导出，但被全仓引用的是 `tauriApiWithRetry`）：`desktopOnly`（`tauriApi.ts:14`，桌面专属命令统一 reject）、`noopListener`（`tauriApi.ts:18`，桌面专属事件返回 no-op 清理函数）、`ConnectionCampusStatus`（`tauriApi.ts:20`）、`CampusStatusResult`（`tauriApi.ts:46`）、`TauriApi` 接口（`tauriApi.ts:56-137`，含安卓恒 reject 的 `exportConfig`/`importConfig`/`exportDiagnostics`（60-62）与 `resetDns`（133））、`tauriApi` 常量实现对象（`tauriApi.ts:171-294`）、`createEventListener`（`tauriApi.ts:140`，具名事件订阅工厂，处理「listen 未完成即取消」）、`isRetryableError`（`tauriApi.ts:296`）、`withRetry`（`tauriApi.ts:308`）。
@@ -64,100 +65,107 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 | `getConfig` | 57 | 172 | `invoke('get_config')` |
 | `saveConfig(config, clearPassword?)` | 58 | 199 | `invoke('save_config', {config, clearPassword})` |
 | `getAdapters(force?)` | 63 | 177 | `desktopOnly` → reject |
-| `getDisabledAdapters` | 64 | 178 | `desktopOnly` → reject |
 | `enableAdapter(adapterName)` | 65 | 179 | `desktopOnly` → reject |
 | `getAdapterDetails` | 66 | 180 | `desktopOnly` → reject |
 | `bindToWifi` | 67 | 181 | `invoke('bind_to_wifi')`，返回 `{bound}` |
 | `checkPortalStatus(adapterIp)` | 68 | 182 | `invoke('check_portal_status',{adapterIp})`（安卓传空串走缓存源 IP） |
 | `checkCampusStatus` | 69 | 183 | `invoke('check_campus_status')` |
-| `doLogin(adapterName?)` | 70 | 184 | `invoke('do_login',{adapterName})` |
-| `doLogout(adapterName?)` | 71 | 185 | `invoke('do_logout',{adapterName})` |
-| `bindOperator(params)` | 72 | 186 | `invoke('bind_operator', ...params)` |
-| `getBindStatus(params)` | 73 | 187 | `invoke('query_bind_status', ...params)` |
-| `verifyWindowsIdentity(params)` | 74 | 188-219 | 生物识别门：`allow2dFaceVerify && hasTemplate()` 且系统生物识别不可用时走 2D 人脸（`tauriApi.ts:192-215`），否则 `biometricAuthenticate(msg,{allowDeviceCredential:true})`（`tauriApi.ts:217`）后 `invoke('verify_biometric_identity')`（`tauriApi.ts:218`） |
-| `revealOperatorCredential(params)` | 75 | 220 | `invoke('reveal_operator_credential', ...params)` |
-| `querySelfDashboard(params)` | 76 | 221 | `invoke('query_self_dashboard', ...params)` |
-| `selfOfflineSession(params)` | 77 | 222 | `invoke('self_offline_session', ...params)` |
-| `querySelfOnlineLog(params)` | 78 | 223 | `invoke('query_self_online_log', ...params)` |
-| `minimizeWindow` | 79 | 224 | `desktopOnly` → reject |
-| `closeWindow` | 80 | 225 | `desktopOnly` → reject |
-| `onBackgroundCheckResult(cb)` | 81 | 226 | `listen('background-check-result')` |
-| `onAutoLoginResult(cb)` | 82 | 227 | `listen('auto-login-result')` |
-| `onAdaptersChanged(cb)` | 83 | 228 | `noopListener`（永不触发） |
-| `onAdapterDetailsChanged(cb)` | 84 | 229 | `noopListener` |
-| `onDisabledAdaptersChanged(cb)` | 85 | 230 | `noopListener` |
-| `onAdapterDisabledWarning(cb)` | 86 | 231 | `noopListener` |
-| `onLoginLog(cb)` | 87 | 232 | `listen('login-log')` |
-| `listAccounts` | 88 | 235 | `invoke('list_accounts')` → `AccountItem[]`（`{id, displayName}`） |
-| `switchAccount(accountName)` | 89 | 236 | `invoke('switch_account',{accountName})` |
-| `saveCurrentAsAccount(accountName)` | 90 | 237 | `invoke('save_current_as_account',{accountName})` |
-| `deleteAccount(accountName)` | 91 | 238 | `invoke('delete_account',{accountName})` |
-| `renameAccount({accountId, displayName})` | 93 | 239 | `invoke('rename_account',{accountId,displayName})` → `AccountResult`（校验失败 `success=false`） |
-| `getActiveAccount` | 94 | 240 | `invoke('get_active_account')` |
-| `startBackgroundCheck` | 95 | 241 | `invoke('start_background_check')` |
-| `stopBackgroundCheck` | 96 | 242 | `invoke('stop_background_check')` |
-| `triggerBackgroundCheck` | 97 | 243 | `invoke('trigger_background_check')` |
-| `getBackgroundStatus` | 98 | 244 | `invoke('get_background_status')` |
-| `dhcpRenewAll` | 99 | 245 | `desktopOnly` → reject |
-| `dhcpReleaseRenew` | 100 | 246 | `desktopOnly` → reject |
-| `dhcpReleaseRenewAdapter(adapterName)` | 101 | 247 | `desktopOnly` → reject |
-| `checkNetworkQuality` | 102 | 248 | `invoke('check_network_quality')` |
-| `onNetworkQualityResult(cb)` | 103 | 249 | `listen('network-quality-result')` |
-| `startLatencyTest` | 104 | 250 | `invoke('start_latency_test')` |
-| `stopLatencyTest` | 105 | 251 | `invoke('stop_latency_test')` |
-| `openExternal(url)` | 106 | 252-262 | 校验协议（仅 http/https）、长度 ≤2048、`new URL` 可解析后调 `@tauri-apps/plugin-opener` 的 `openUrl` |
-| `getAutoLaunch` | 107 | 264 | `invoke('get_boot_autostart')` |
-| `setAutoLaunch(enabled)` | 108 | 265 | `invoke('set_boot_autostart')` 后包成 `{success:true}` |
-| `getNotificationEnabled` | 109 | 266 | `invoke('get_notification_enabled')` |
-| `setNotificationEnabled(enabled)` | 110 | 267 | `invoke('set_notification_enabled')` |
-| `getBatteryOptimizationInfo` | 111 | 268 | `invoke('get_battery_optimization_info')`（安卓专属） |
-| `requestIgnoreBatteryOptimizations` | 112 | 269 | `invoke('request_ignore_battery_optimizations')`（安卓专属） |
-| `openVendorBatterySettings` | 113 | 270 | `invoke('open_vendor_battery_settings')`（安卓专属） |
-| `cancelAutoExit` | 114 | 271 | `desktopOnly` → reject |
-| `onAutoExitCountdown(cb)` | 115 | 272 | `noopListener` |
-| `onAutoExitCancelled(cb)` | 116 | 273 | `noopListener` |
-| `onCampusExitCountdown(cb)` | 117 | 274 | `noopListener` |
-| `onCampusExitCancelled(cb)` | 118 | 275 | `noopListener` |
-| `onConfigChanged(cb)` | 119 | 276 | `listen('config-changed')` |
-| `showWindow` | 120 | 277 | `desktopOnly` → reject |
-| `getLogs(lines?)` | 121 | 278 | `invoke('get_logs',{lines})` |
-| `clearLogs` | 122 | 279 | `invoke('clear_logs')` |
-| `getDebugMode` | 123 | 280 | `invoke('get_debug_mode')` |
-| `setDebugMode(enabled)` | 124 | 281 | `invoke('set_debug_mode')` |
-| `getInitData` | 125 | 282 | `invoke('get_init_data')` |
-| `getSocInfo` | 126 | 283 | `invoke('soc_info')`（安卓专属） |
-| `checkUpdate` | 125 | 281 | `invoke('check_update')` |
-| `downloadUpdate(url)` | 126 | 282 | `invoke('download_update',{url})` |
-| `installUpdate(filePath, checksumUrl?)` | 127 | 283 | `invoke('install_update',{filePath, checksumUrl})` |
-| `getMirrorUrls(githubUrl)` | 128 | 284 | `invoke('mirror_urls',{githubUrl})` |
-| `onDownloadProgress(cb)` | 129 | 285 | `listen('update-download-progress')` |
-| `onUpdateAvailable(cb)` | 130 | 286 | `listen('update-available')` |
-| `checkDnsDohStatus` | 131 | 288 | `desktopOnly` → reject |
-| `setupDnsDoh(family?)` | 132 | 289 | `desktopOnly` → reject |
-| `renderHeartbeat` | 134 | 290 | `desktopOnly` → reject（安卓无后端重载 WebView 机制） |
-| `getGpuInfo` | 135 | 291 | `desktopOnly` → reject |
-| `getLogRetentionDays` | 136 | 292 | `invoke('log_retention_days')` |
-| `setLogRetentionDays(days)` | 137 | 293 | `invoke('set_log_retention_days',{days})` |
+| `requestWifiSsidPermission` | 70 | 184 | `invoke('request_wifi_ssid_permission')` |
+| `doLogin` | 71 | 185 | `invoke('do_login', {})` |
+| `doLogout` | 72 | 186 | `invoke('do_logout', {})` |
+| `bindOperator(params)` | 73 | 187 | `invoke('bind_operator', ...params)` |
+| `getBindStatus(params)` | 74 | 188 | `invoke('query_bind_status', ...params)` |
+| `verifyWindowsIdentity(params)` | 75 | 189-220 | 生物识别门：`allow2dFaceVerify && hasTemplate()` 且系统生物识别不可用时走 2D 人脸（`tauriApi.ts:193-216`），否则 `biometricAuthenticate(msg,{allowDeviceCredential:true})`（`tauriApi.ts:218`）后 `invoke('verify_biometric_identity')`（`tauriApi.ts:219`） |
+| `revealOperatorCredential(params)` | 76 | 221 | `invoke('reveal_operator_credential', ...params)` |
+| `querySelfDashboard(params)` | 77 | 222 | `invoke('query_self_dashboard', ...params)` |
+| `selfOfflineSession(params)` | 78 | 223 | `invoke('self_offline_session', ...params)` |
+| `querySelfOnlineLog(params)` | 79 | 224 | `invoke('query_self_online_log', ...params)` |
+| `changeSelfPassword(params)` | 80 | 225 | `invoke('change_self_password', ...params)` |
+| `minimizeWindow` | 81 | 226 | `desktopOnly` → reject |
+| `closeWindow` | 82 | 227 | `desktopOnly` → reject |
+| `onBackgroundCheckResult(cb)` | 83 | 228 | `listen('background-check-result')` |
+| `onAutoLoginResult(cb)` | 84 | 229 | `listen('auto-login-result')` |
+| `onAdaptersChanged(cb)` | 85 | 230 | `noopListener`（永不触发） |
+| `onAdapterDetailsChanged(cb)` | 86 | 231 | `noopListener` |
+| `onAdapterDisabledWarning(cb)` | 87 | 232 | `noopListener` |
+| `onLoginLog(cb)` | 88 | 233 | `listen('login-log')` |
+| `listAccounts` | 89 | 236 | `invoke('list_accounts')` → `AccountItem[]`（`{id, displayName}`） |
+| `createAccount(params)` | 90 | 237 | `invoke('create_account', ...params)` → `AccountResult` |
+| `switchAccount(accountName)` | 91 | 238 | `invoke('switch_account',{accountName})` |
+| `saveCurrentAsAccount(accountName)` | 92 | 239 | `invoke('save_current_as_account',{accountName})` |
+| `deleteAccount(accountName)` | 93 | 240 | `invoke('delete_account',{accountName})` |
+| `renameAccount({accountId, displayName})` | 95 | 241 | `invoke('rename_account',{accountId,displayName})` → `AccountResult`（校验失败 `success=false`） |
+| `getActiveAccount` | 96 | 242 | `invoke('get_active_account')` |
+| `startBackgroundCheck` | 97 | 243 | `invoke('start_background_check')` |
+| `stopBackgroundCheck` | 98 | 244 | `invoke('stop_background_check')` |
+| `triggerBackgroundCheck` | 99 | 245 | `invoke('trigger_background_check')` |
+| `getBackgroundStatus` | 100 | 246 | `invoke('get_background_status')` |
+| `dhcpRenewAll` | 101 | 247 | `desktopOnly` → reject |
+| `dhcpReleaseRenew` | 102 | 248 | `desktopOnly` → reject |
+| `dhcpReleaseRenewAdapter(adapterName)` | 103 | 249 | `desktopOnly` → reject |
+| `checkNetworkQuality` | 104 | 250 | `invoke('check_network_quality')` |
+| `onNetworkQualityResult(cb)` | 105 | 251 | `listen('network-quality-result')` |
+| `startLatencyTest` | 106 | 252 | `invoke('start_latency_test')` |
+| `stopLatencyTest` | 107 | 253 | `invoke('stop_latency_test')` |
+| `openExternal(url)` | 108 | 254-264 | 校验协议（仅 http/https）、长度 ≤2048、`new URL` 可解析后调 `@tauri-apps/plugin-opener` 的 `openUrl` |
+| `getAutoLaunch` | 109 | 266 | `invoke('get_boot_autostart')` |
+| `setAutoLaunch(enabled)` | 110 | 267 | `invoke('set_boot_autostart')` 后包成 `{success:true}` |
+| `getNotificationEnabled` | 111 | 268 | `invoke('get_notification_enabled')` |
+| `setNotificationEnabled(enabled)` | 112 | 269 | `invoke('set_notification_enabled')` |
+| `getBatteryOptimizationInfo` | 113 | 270 | `invoke('get_battery_optimization_info')`（安卓专属） |
+| `requestIgnoreBatteryOptimizations` | 114 | 271 | `invoke('request_ignore_battery_optimizations')`（安卓专属） |
+| `openVendorBatterySettings` | 115 | 272 | `invoke('open_vendor_battery_settings')`（安卓专属） |
+| `cancelAutoExit` | 116 | 273 | `desktopOnly` → reject |
+| `onAutoExitCountdown(cb)` | 117 | 274 | `noopListener` |
+| `onAutoExitCancelled(cb)` | 118 | 275 | `noopListener` |
+| `onCampusExitCountdown(cb)` | 119 | 276 | `noopListener` |
+| `onCampusExitCancelled(cb)` | 120 | 277 | `noopListener` |
+| `onConfigChanged(cb)` | 121 | 278 | `listen('config-changed')` |
+| `showWindow` | 122 | 279 | `desktopOnly` → reject |
+| `getLogs(lines?)` | 123 | 280 | `invoke('get_logs',{lines})` |
+| `clearLogs` | 124 | 281 | `invoke('clear_logs')` |
+| `getDebugMode` | 125 | 282 | `invoke('get_debug_mode')` |
+| `setDebugMode(enabled)` | 126 | 283 | `invoke('set_debug_mode')` |
+| `getInitData` | 127 | 284 | `invoke('get_init_data')` |
+| `checkUpdate` | 128 | 285 | `invoke('check_update')` |
+| `downloadUpdate(url)` | 129 | 286 | `invoke('download_update',{url})` |
+| `installUpdate(filePath, checksumUrl?)` | 130 | 287 | `invoke('install_update',{filePath, checksumUrl})` |
+| `getMirrorUrls(githubUrl)` | 131 | 288 | `invoke('mirror_urls',{githubUrl})` |
+| `onDownloadProgress(cb)` | 132 | 289 | `listen('update-download-progress')` |
+| `onUpdateAvailable(cb)` | 133 | 290 | `listen('update-available')` |
+| `onUpdateUnverified(cb)` | 134 | 291 | `listen('update-unverified')` |
+| `checkDnsDohStatus` | 135 | 293 | `desktopOnly` → reject |
+| `setupDnsDoh(family?)` | 136 | 294 | `desktopOnly` → reject |
+| `resetDns()` | 137 | 295 | `desktopOnly` → reject（桌面专属：恢复默认 DNS） |
+| `renderHeartbeat` | 139 | 297 | `desktopOnly` → reject（安卓无后端重载 WebView 机制） |
+| `notifyWindowReady` | 140 | 298 | `desktopOnly` → reject |
+| `getLogRetentionDays` | 141 | 299 | `invoke('log_retention_days')` |
+| `setLogRetentionDays(days)` | 142 | 300 | `invoke('set_log_retention_days',{days})` |
+| `getAvoidBadWifiStatus` | 143 | 301 | `invoke('get_avoid_bad_wifi_status')` |
+| `restoreWrittenSettings` | 144 | 302 | `invoke('restore_written_settings')` |
 | `exportConfig(includePassword?)` | 60 | 174-176 | `desktopOnly` → reject（桌面专属：导出配置） |
 | `importConfig(path)` | 61 | 174-176 | `desktopOnly` → reject（桌面专属：导入配置） |
 | `exportDiagnostics(days?)` | 62 | 174-176 | `desktopOnly` → reject（桌面专属：导出诊断包） |
-| `resetDns()` | 133 | 287 | `desktopOnly` → reject（桌面专属：恢复默认 DNS） |
 
-### hooks/ — 六个领域 store
+### hooks/ — 领域 store
+
+`useAdapterStore`（面板导航域）：
+
+| 导出 | 位置 | 说明 |
+| --- | --- | --- |
+| `useAdapterStore` | `useAdapterStore.ts:10` | 状态：`activePanel`（`PanelName`）；动作：`setActivePanel`(11)。安卓端网卡数据链已删除（adapters 列表恒为空、面板不渲染网卡卡），仅保留激活面板状态供 DockNav/TabletShell/SettingsPanel 导航用 |
 
 `useConfigStore`（配置域）：
 
 | 导出 | 位置 | 说明 |
 | --- | --- | --- |
-| `useConfigStore` | `useConfigStore.ts:52` | 状态：`config` / `configLoaded` / `passwordSaved`（凭据统一后唯一密码保存态，见 [[credential-single-source]]）/ `accounts`（`AccountItem[]`）/ `activeAccount` / `language`；动作：`updateConfig`(62) / `updateConfigLocal`(96) / `mergeConfigFromBackend`(109) / `clearDirtyFields`(118) / `syncPasswordSaved`(41/117) / `saveConfigDirect`(42/119) / `setAccounts`(172) / `setActiveAccount`(173) / `setLanguage`(175)。（原 `api` 字段已删，2026-10-03：IPC 客户端由消费方静态导入 `tauriApiWithRetry`） |
 | `hasPendingConfig` | `useConfigStore.ts:181` | debounce 待存或 in-flight 保存存在即 true（关窗前判定） |
 | `flushPendingConfig` | `useConfigStore.ts:188` | 清 debounce 定时器、立即发出待存配置、返回需等待的 Promise（含 in-flight） |
+| `useConfigStore` | `useConfigStore.ts:52` | 状态：`config` / `configLoaded` / `passwordSaved`（凭据统一后唯一密码保存态）/ `accounts`（`AccountItem[]`）/ `activeAccount` / `language`；动作：`updateConfig`(62) / `updateConfigLocal`(96) / `mergeConfigFromBackend`(109) / `clearDirtyFields`(118) / `syncPasswordSaved`(41/117) / `saveConfigDirect`(42/119) / `setAccounts`(172) / `setActiveAccount`(173) / `setLanguage`(175)。（原 `api` 字段已删，2026-10-03：IPC 客户端由消费方静态导入 `tauriApiWithRetry`） |
 
 模块级私有状态：`saveConfigTimer`(14) / `saveConfigPending`(15) / `saveConfigInFlight`(17) / `dirtyFields`(20) / `DIRTY_FAILURE_LIMIT=3`(24) / `dirtyFailureCounts`(25)。
 
 `useAuthStore`（认证域）：导出 `useAuthStore`（`useAuthStore.ts:115`），动作 `doLogin`(121) / `doLogout`(182) / `checkOnline`(213) / `setStatus`(266) / `setBgStatus`(267)；模块级私有：`_checkOnlineLockFlag`(18)、`QUALITY_MANUAL_THROTTLE_MS=60000`(23)、`detectCampusNetwork`(31)、`buildCampusBgStatusPatch`(40)、`queryPortalStatus`(71)、`withTimeout`(84，race settle 后 `finally` 清理输家定时器)、`setStatusStable`(97，text/state 未变不换新对象，保持引用稳定)。
-
-`useAdapterStore`（适配器域）：导出 `refreshAdapterData`（`useAdapterStore.ts:16`，并行拉 `getAdapters`/`getAdapterDetails`/可选 `getDisabledAdapters` 后经 `setAdapters`/`setAdapterDetails`/`setDisabledAdapters` actions 写回 store，安卓下端三个命令均 reject 并被 `.catch(() => undefined)` 吞掉）、`useAdapterStore`（`useAdapterStore.ts:50`，状态 `adapters` / `disabledAdapters` / `adapterDetails` / `isRefreshingAdapters` / `activePanel`，动作 `refreshAdapters`(54) / `setAdapters`(74) / `setAdapterDetails`(75) / `setDisabledAdapters`(76) / `setActivePanel`(77)）。
 
 `useQualityStore`（质量与更新域）：导出 `getLastQualityResultTime`（`useQualityStore.ts:19`）、`useQualityStore`（`useQualityStore.ts:46`，状态 `networkQuality` / `dnsDohStatus` / `dnsChecking` / `isRefreshingQuality` / `updateAvailable` / `latestVersion` / `releaseNotes` / `updatePromptOpen` / `gpuInfo` / `refreshRate`，动作 `refreshQuality`(58) / `setNetworkQuality`(82) / `setDnsDohStatus`(87) / `setDnsChecking`(88) / `setUpdateAvailable`(89) / `setLatestVersion`(90) / `setReleaseNotes`(91) / `setUpdatePromptOpen`(92) / `setGpuInfo`(94)）。
 
@@ -185,12 +193,7 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 | `AnimationActiveProvider` | `usePageIdle.ts:85` | 全局单例注册「可见 + 有焦点 + 未空闲」判定，`useMemo` 稳定 value |
 | `useAnimationActive` | `usePageIdle.ts:95` | 消费上述 context |
 | `useBreatheAnimation` | `useBreatheAnimation.ts:15` | gsap yoyo 呼吸动画 ref，空闲暂停（`useBreatheAnimation.ts:55-63`） |
-| `useGlowAnimation` | `useGlowAnimation.ts:11` | 发光脉冲动画 ref，空闲暂停（`useGlowAnimation.ts:42-50`） |
-| `usePulseAnimation` | `usePulseAnimation.ts:15` | 三种脉冲时间线（heartbeat/statusPulse/loadingPulse，`usePulseAnimation.ts:27-52`），空闲暂停 |
 | `useAsyncLock` | `useAsyncLock.ts:3` | 防重复提交锁，返回 `[isRunning, execute]`，`cooldownMs` 默认 1500 |
-| `useStartupBoost` | `useStartupBoost.ts:15` | 桌面启动入场序列（标题栏/状态栏/标题/Dock/右栏 gsap timeline）。**安卓无调用方**，见 Known Issues |
-
-`useAnimationProfile` 的档位解析：`HIGH_PROFILE`（`useAnimationProfile.ts:30`）、`ECONOMY_OVERRIDES`（`useAnimationProfile.ts:52`）、`resolveTier`（`useAnimationProfile.ts:60`，reduced-motion 或 `low-igpu` → economy，`discrete`/`high-igpu` → high，其余 standard）、模块级 `reducedMotionQuery`（`useAnimationProfile.ts:69`）。
 
 ### lib/
 
@@ -219,44 +222,6 @@ tags: [安卓, 前端, 运行时核心, store, 钩子, 外壳]
 | 导出 | 位置 | 说明 |
 | --- | --- | --- |
 | default（`i18n` 实例） | `i18n/index.ts:28` | `LanguageDetector` + `initReactI18next`，资源 `zh`/`en`（`i18n/index.ts:12-15`），`fallbackLng:'zh'`，localStorage key `app-language`（`i18n/index.ts:17-22`）；由 `main.tsx:13` 侧载 |
-
-### components/ui/（Radix + CVA 基础件）
-
-| 导出 | 定义位置 | 导出位置 | 说明 |
-| --- | --- | --- | --- |
-| `AnimatedCard` | `animated-card.tsx:31` | 同左 | 卡片容器：倾斜（gsap quickTo rotateX/Y）、入场 class、`noHover`/`noAnimation`/`noEnterAnimation`/`enableTilt`/`staggerIndex` |
-| `Button` | `button.tsx:43` | `button.tsx:173` | 变体 8 种（`default/destructive/outline/secondary/ghost/link/glass/soft`，`button.tsx:10-19`）、尺寸 6 种（`button.tsx:20-27`）、`asChild`/`isLoading`、鼠标坐标写 CSS 变量 |
-| `buttonVariants` | `button.tsx:6` | `button.tsx:173` | CVA 变体表 |
-| `Badge` | `badge.tsx:36` | `badge.tsx:42` | 变体 8 种（`badge.tsx:9-18`）、尺寸 3 种（`badge.tsx:19-23`） |
-| `badgeVariants` | `badge.tsx:5` | `badge.tsx:42` | CVA 变体表 |
-| `CardHeader` | `card.tsx:4` | `card.tsx:48` | `p-5` 头容器 |
-| `CardTitle` | `card.tsx:16` | `card.tsx:48` | `h3` 标题 |
-| `CardDescription` | `card.tsx:28` | `card.tsx:48` | `p` 描述 |
-| `CardContent` | `card.tsx:40` | `card.tsx:48` | `p-5 pt-0` 内容 |
-| `Dialog` | `dialog.tsx:7` | `dialog.tsx:97` | Radix Root 别名 |
-| `DialogPortal` | `dialog.tsx:9` | **未导出** | Radix Portal 别名 |
-| `DialogOverlay` | `dialog.tsx:11` | **未导出** | 遮罩（仅内部用于 `DialogContent`） |
-| `DialogContent` | `dialog.tsx:26` | `dialog.tsx:97` | 自定义居中容器（`dialog.tsx:32-33`）+ 关闭钮（`dialog.tsx:43-48`，`showClose` 可关） |
-| `DialogHeader` | `dialog.tsx:56` | `dialog.tsx:97` | 头部布局 |
-| `DialogTitle` | `dialog.tsx:70` | `dialog.tsx:97` | Radix Title |
-| `DialogDescription` | `dialog.tsx:85` | `dialog.tsx:97` | Radix Description |
-| `Input` | `input.tsx:10` | `input.tsx:40` | 带 `icon` 与 `error`（错误态补边框宽度，`input.tsx:24-25`） |
-| `Label` | `label.tsx:10` | `label.tsx:26` | 支持 `required` 星号（`label.tsx:21`） |
-| `Select` | `select.tsx:6` | `select.tsx:100` | Radix Root 别名 |
-| `SelectValue` | `select.tsx:8` | `select.tsx:100` | Radix Value 别名 |
-| `SelectTrigger` | `select.tsx:10` | `select.tsx:100` | 支持 `icon`（`select.tsx:23-27`） |
-| `SelectContent` | `select.tsx:36` | `select.tsx:100` | Portal + popper 定位 |
-| `SelectItem` | `select.tsx:66` | `select.tsx:100` | 带选中勾 |
-| `SelectSeparator` | `select.tsx:88` | `select.tsx:100` | 分组分隔线 |
-| `Separator` | `separator.tsx:5` | `separator.tsx:28` | 水平/垂直 |
-| `Switch` | `switch.tsx:5` | `switch.tsx:34` | 尺寸 `default/sm/lg`（`switch.tsx:14-16`） |
-| `TooltipProvider` | `tooltip.tsx:5` | `tooltip.tsx:31` | Radix Provider 别名 |
-| `Tooltip` | `tooltip.tsx:7` | `tooltip.tsx:31` | Radix Root 别名 |
-| `TooltipTrigger` | `tooltip.tsx:9` | `tooltip.tsx:31` | Radix Trigger 别名 |
-| `TooltipPortal` | `tooltip.tsx:11` | **未导出** | Radix Portal 别名 |
-| `TooltipContent` | `tooltip.tsx:13` | `tooltip.tsx:31` | 内容容器 + 进出场动画 |
-
-`animated-card.tsx` 内部私有：`AnimatedCardConfig`(6)、`AnimatedCardProps`(14)、`REST_SHADOW`(23)、模块级 `reducedMotionQuery`(27)。
 
 ### components/layout/、components/mobile/、components/tablet/
 

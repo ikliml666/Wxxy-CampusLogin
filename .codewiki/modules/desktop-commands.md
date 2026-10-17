@@ -18,7 +18,7 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 `tauri-app/src-tauri/src/commands/` 是桌面端 Rust 后端对 webview 暴露的全部 IPC 命令面：前端经 `@tauri-apps/api/core` 的 `invoke('<snake_case 命令名>')` 调用，命令函数负责参数校验、并发互斥、状态读写，再转发到 `auth` / `network` / `config` / `monitor` / `self_service` / `update` / `platform` 等下层模块。
 
-本模块共 **49 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 17、`system.rs` 16、`self_service.rs` 8），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **51 项**。
+本模块共 **51 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 17、`system.rs` 16、`self_service.rs` 8、`account.rs` 8、`updater.rs` 3），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **53 项**。
 
 ## Key Components
 
@@ -26,14 +26,14 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 | 端 | 注册位置 | 注册项数 | 说明 |
 |---|---|---|---|
-| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-120` | 51 | 49 条 `commands::*` + `infra::logger::set_debug_mode`（119 行）/ `get_debug_mode`（120 行） |
+| 桌面 | `tauri-app/src-tauri/src/app/startup.rs:63-120` | 53 | 51 条 `commands::*` + `infra::logger::set_debug_mode`（119 行）/ `get_debug_mode`（120 行） |
 | 安卓 | `android/src-tauri/src/lib.rs:55-105` | 49 | 同名对齐的独立实现（`protocol_cmds` / `campus_detect` / `config_state` / `self_service_cmds` / `account_cmds` / `system_cmds` / `monitor_loop` / `quality_cmds` / `update_cmds`），不含桌面专属命令 |
 
 模块声明见 `tauri-app/src-tauri/src/commands/mod.rs:1-8`（8 个 `pub mod`，`self_service` 在 8 行）。
 
-命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 49 个命令名。
+命令命名约定：Rust 函数名即前端 `invoke` 名，保持 snake_case（例如 `invoke<Config>('get_config')`，见 `tauri-app/frontend/src/hooks/tauriApi.ts:134`）；命令**参数**在 IPC 上按 camelCase 传递（Tauri 2 默认行为），例如 `save_config(config, clearPassword)`（`tauriApi.ts:135`）。`tauriApi.ts` 覆盖了上述全部 51 个命令名。
 
-### 命令总表（逐条，共 49 条）
+### 命令总表（逐条，共 51 条）
 
 #### config_cmd.rs（5 条）
 
@@ -125,7 +125,35 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 | `verify_windows_identity` | `commands/self_service.rs:297-317` | `app: AppHandle`、`consent_message: Option<String>` | `Result<CommandResult, String>` | 触发 Windows Hello 验证；主窗口带到前台并取 HWND 绑定 Consent UI（302-306），成功后 `note_identity_verified()` 写时间戳（310-313） | 本身即验证动作；`consent_message` 由前端按 i18n 场景传入 |
 | `reveal_operator_credential` | `commands/self_service.rs:323-353` | `state`、`account`、`password`、`operator: String` | `Result<CommandResult, String>` | 返回指定运营商明文凭据（`phone` + `smsPassword`） | **身份验证门** `identity_verified_recently()`（336-340）：TTL 600s 内才能查看，webview 无法绕过 |
 
-## 结构体与字段
+#### account.rs（8 条）
+
+| 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
+|---|---|---|---|---|---|
+| `list_accounts` | `commands/account.rs:19-23` | `state: State<AppState>` | `Result<Vec<AccountItem>, String>` | 列出所有账号档案条目（ID + display_name） | `spawn_blocking` 调用 `persist::list_account_items` |
+| `switch_account` | `commands/account.rs:25-45` | `state`、`app_handle`、`account_name: String` | `Result<AccountResult, String>` | 切换激活账号（覆盖登录凭据，排除设备级绑定字段） | **互斥锁 A4** `try_account_op_lock`（13）；核心逻辑委托 `perform_switch_account_sync`（47） |
+| `save_current_as_account` | `commands/account.rs:100-154` | `state`、`app_handle`、`account_name: String` | `Result<AccountResult, String>` | 将当前主配置保存为新账号档案（或覆盖已有档案） | **互斥锁 A4**；若覆盖激活账号，先回存旧账号凭据（A3）；持久化失败返回业务错误（A3） |
+| `create_account` | `commands/account.rs:182-218` | `state`、`app_handle`、`account_name: String`、`user: String` | `Result<CommandResult, String>` | 新建账号档案 | `user` 必填；档案已存在拒绝；读取失败（损坏/解密）拒绝；成功后刷新托盘 |
+| `delete_account` | `commands/account.rs:220-264` | `state`、`app_handle`、`account_name: String` | `Result<AccountResult, String>` | 删除账号档案 | **互斥锁 A4**；若删除的是当前激活账号，清空内存 `active_account` 并**必须落盘**（A4）；落盘失败返回业务错误（A3） |
+| `get_active_account` | `commands/account.rs:266-268` | `state: State<AppState>` | `Result<Option<String>, String>` | 直接读取 `state.config.load().active_account` | 同步命令 |
+| `rename_account` | `commands/account.rs:270-301` | `state`、`app_handle`、`account_name: String`、`display_name: String` | `Result<AccountResult, String>` | 重命名账号档案（不改文件名） | **互斥锁 A4**；错误通道以 `Err(String)` 返回（而非 `AccountResult::err`），由前端 try/catch 捕获 toast |
+| `auto_create_account_for_current` | `commands/account.rs:363-375` | `state`、`app_handle` | `Result<bool, String>` | 自动建号入口（供 `save_config` 落盘后调用） | 失败仅 log_warn，返回 `bool` |
+
+核心同步函数（非命令，但由命令调用）：
+
+- `perform_switch_account_sync(app_handle, state, account_name)`（`commands/account.rs:47-98`）：同步核心。获取 `try_account_op_lock` -> `validate_account_name` -> `merge_account_into_config`（覆盖 6 个登录字段 + `display_name` + `active_account`，**排除** `adapter1_account/adapter2_account`）-> 落盘 `save_config_to_disk_encrypted` -> 更新内存。
+- `merge_save_as_target(current, target_path)`（`commands/account.rs:156-180`）：纯函数。档案存在：保留非登录字段，覆盖登录字段。宽松回退 (F3): 解密失败或文件不存在时，log_warn 并用当前配置整档覆盖。JSON 解析失败：硬错误中止。
+- `perform_rename_account_sync(app_handle, state, account_name, display_name)`（`commands/account.rs:287-310`）：同步核心。获取互斥锁 -> `rename_account_core` -> 若改名为当前激活账号，先落盘候选 `candidate.display_name`，再更新内存（A2）。
+- `rename_account_core(target_path, new_display_name)`（`commands/account.rs:312-340`）：纯函数。`validate_display_name` -> `validate_account_name`（防路径穿越）-> 重名检查（遍历 `list_account_items`，排除自身，对方空显示名兜底为 id）。
+- `validate_display_name(display_name)`（`commands/account.rs:342-361`）：R3 校验。Trim 后 1..=32 字符。禁止控制字符/换行。允许空格/Emoji。不做文件名字符集校验。
+- `auto_create_account_in(config, target_path)`（`commands/account.rs:377-424`）：自动建号核心。规则：无凭据跳过；ID 为空跳过；不存在则创建，`displayName = raw user`；撞库保护 (F7): 已存在且 `user` 原文不同 → 跳过并 warn；幂等短路: `user/password/operator` 一致则跳过；差异更新: 仅更新凭据，保留 `display_name`。
+
+#### updater.rs（3 条）
+
+| 命令 | 位置 | 参数 | 返回 | 用途 | 前置门 / 校验 |
+|---|---|---|---|---|---|
+| `download_update` | `commands/updater.rs:24-193` | `app_handle`、`url: String` | `Result<String, String>` | 下载更新包到 `%TEMP%/campus-login-update/<file>`，返回文件路径 | **并发门** `tasks.is_downloading.try_acquire`（31）；HTTPS + host 白名单（33-56）；文件名清洗（60-72）；支持 `CancellationToken` 取消机制 |
+| `install_update` | `commands/updater.rs:195-293` | `app_handle`、`file_path: String`、`checksum_url: String` | `Result<CommandResult, String>` | 校验 SHA256 -> 启动安装程序（.exe/.msi） | `canonical` 校验在临时目录内（202-209）；`verify_download_sha256`（227）；`.exe/.msi` 启动安装（251-287） |
+| `get_mirror_urls` | `commands/updater.rs:304-325` | — | `Result<Vec<MirrorUrl>, String>` | 返回可用的镜像源列表（4 个域名） | 无 |
 
 ### 命令返回值类型（定义在 `infra/state/mod.rs`，命令层大量复用）
 
@@ -204,6 +232,33 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 `setup_dns_doh`：管理员路径直接返回 `dns_setup::setup_dns_doh_admin` 的 JSON（`network/dns_setup.rs:13`，非 Windows 版本在 205-207 恒返回失败）；helper 路径把结果文件 `details` 对象提升到顶层（`commands/network_cmd.rs:315-328`），保证两种路径结构一致。
 
 `get_mirror_urls`：数组，每项 `{name, url, description}`（`commands/updater.rs:304-325`）。
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Desktop Commands Layer                           │
+│  tauri-app/src-tauri/src/commands/                                          │
+│                                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │ config_cmd   │  │ login        │  │ background   │  │ network_cmd  │   │
+│  │ (5 cmds)     │  │ (2 cmds)     │  │ (4 cmds)     │  │ (17 cmds)    │   │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘   │
+│         │                 │                  │                │            │
+│  ┌──────▼───────┐  ┌──────▼───────┐  ┌──────▼───────┐  ┌──────▼───────┐   │
+│  │ system       │  │ self_service │  │ account      │  │ updater      │   │
+│  │ (16 cmds)    │  │ (8 cmds)     │  │ (8 cmds)     │  │ (3 cmds)     │   │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘   │
+│         │                 │                  │                │            │
+│  ┌──────▼─────────────────────────────────────────────────────────────────┐│
+│  │                         Shared Infrastructure                          ││
+│  │  • TaskLock / CancellationToken (并发互斥)                             ││
+│  │  • spawn_blocking (IO/DPAPI/注册表隔离)                                ││
+│  │  • save_config_to_disk_encrypted (落盘+广播)                           ││
+│  │  • masked_for_display (密码安全出站)                                   ││
+│  └────────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Data Flow
 
