@@ -2,6 +2,10 @@
 
 ## Concept
 
+- [[concepts/cross-platform-adaptive-layout|cross-platform-adaptive-layout]]
+- [[concepts/permission-schemas|permission-schemas]]
+- [[concepts/tauri-plugin-architecture|tauri-plugin-architecture]]
+- [[concepts/zustand-state-management|zustand-state-management]]
 - [[concepts/background-check-and-auto-login|后台巡检与自动登录全链路]]
 - [[concepts/security-model|安全体系（凭据出站、加密与验证门）]]
 ## Decision
@@ -112,6 +116,23 @@
 ## Module
 
 - [[learnings/webview-minimize-timer-throttle-stale-panel|NetworkPanel 网络适配器与出站管理面板]]
+- [[modules/build-scripts-and-root|build-scripts-and-root]]
+- [[modules/docs-and-design|docs-and-design]]
+- [[modules/frontend-account-module|frontend-account-module]]
+- [[modules/frontend-auth-module|frontend-auth-module]]
+- [[modules/frontend-build-config|frontend-build-config]]
+- [[modules/frontend-hooks-store|frontend-hooks-store]]
+- [[modules/frontend-lib-i18n|frontend-lib-i18n]]
+- [[modules/frontend-monitor-module|frontend-monitor-module]]
+- [[modules/frontend-network-module|frontend-network-module]]
+- [[modules/frontend-settings-module|frontend-settings-module]]
+- [[modules/frontend-shared-ui|frontend-shared-ui]]
+- [[modules/frontend-ui-shell|frontend-ui-shell]]
+- [[modules/rust-backend-core|rust-backend-core]]
+- [[modules/rust-plugins-foreground-service|rust-plugins-foreground-service]]
+- [[modules/rust-plugins-keystore|rust-plugins-keystore]]
+- [[modules/rust-plugins-network-bind|rust-plugins-network-bind]]
+- [[modules/rust-tauri-project|rust-tauri-project]]
 - [[learnings/ipconfig-failure-exit-code-zero|subnet 模块：子网计算、SSID 处理与网关可达性检查]]
 - [[modules/desktop-monitor|后台巡检：连通性检测、自动登录/断线重连与网络质量调度]]
 - [[modules/outbound-switch|夜间出站自动切换判定（outbound_switch）]]

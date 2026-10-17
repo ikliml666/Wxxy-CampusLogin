@@ -20,7 +20,7 @@ tags: [桌面端, 应用生命周期, 启动装配, 托盘, 窗口, 全局快捷
 
 本模块掌管桌面端进程从 `main()` 到 `app.run()` 的全部装配与运行期维护：`main.rs` 负责早期环境注入（WebView2 浏览器参数、Crashpad 转储目录）、helper 提权模式拦截、Tokio runtime 创建与收尾；`app/startup.rs` 的 `run()` 完成插件注册、`AppState` 托管、命令注册表（`invoke_handler`）与 `setup_app` 中的一整套后台服务启动；`app/` 其余文件分别承担托盘、窗口焦点内存策略、全局快捷键、前端心跳与窗口兜底显示、优雅退出、轻量化模式运行态、WebView2 崩溃订阅与自愈。
 
-模块整体被 `tauri-app/src-tauri/src/lib.rs:11-12` 的 `#[cfg(desktop)] pub mod app;` 限定为**桌面专属**，安卓 target 不编译（安卓端有独立的 `android/src-tauri/src/lib.rs`）。进程入口是 `tauri-app/src-tauri/src/main.rs`，它不通过 `campus_login_lib` 复用模块，而是在 `main.rs:3-14` 自行 `mod` 声明一份完整的模块树（见 Known Issues 第 1 条）。
+模块整体被 `tauri-app/src-tauri/src/lib.rs:11-20` 的 `#[cfg(desktop)]` 限定为**桌面专属**，安卓 target 不编译（安卓端有独立的 `android/src-tauri/src/lib.rs`）。进程入口是 `tauri-app/src-tauri/src/main.rs`，它不通过 `campus_login_lib` 复用模块，而是在 `main.rs:3-14` 自行 `mod` 声明一份完整的模块树（见 Known Issues 第 1 条）。
 
 ## Key Components
 
@@ -52,12 +52,7 @@ tags: [桌面端, 应用生命周期, 启动装配, 托盘, 窗口, 全局快捷
 | `lib.rs:6` | pub mod | `network` | 网络探测与适配器 |
 | `lib.rs:7` | pub mod | `platform` | `mod.rs` 内已按文件拆分，`console_output` 跨平台、其余 desktop |
 | `lib.rs:8` | pub mod | `self_service` | 自助服务 |
-| `lib.rs:11-12` | pub mod（`#[cfg(desktop)]`） | `app` | 本文章主体，安卓不编译 |
-| `lib.rs:13-14` | pub mod（`#[cfg(desktop)]`） | `commands` | Tauri 命令层 |
-| `lib.rs:15-16` | pub mod（`#[cfg(desktop)]`） | `helper` | 提权 helper 模式 |
-| `lib.rs:17-18` | pub mod（`#[cfg(desktop)]`） | `monitor` | 后台监控 |
-| `lib.rs:19-20` | pub mod（`#[cfg(desktop)]`） | `update` | 更新 |
-| `tauri-app/src-tauri/Cargo.toml:8-10` | — | `[lib] name = "campus_login_lib"`, `crate-type = ["cdylib", "rlib"]` | 安卓端以 `campus_login_lib::...` 引用（如 `android/src-tauri/src/lib.rs:48`） |
+| `lib.rs:11-20` | pub mod（`#[cfg(desktop)]`） | `app` / `commands` / `helper` / `monitor` / `update` | 桌面专属模块，安卓不编译 |
 
 ### app/mod.rs
 
@@ -175,13 +170,13 @@ tags: [桌面端, 应用生命周期, 启动装配, 托盘, 窗口, 全局快捷
 | --- | --- | --- |
 | `commands::config_cmd` | `get_config`, `show_window`, `save_config`, `export_config`, `import_config` | `startup.rs:63-67` |
 | `commands::login` | `do_login`, `do_logout` | `startup.rs:68-69` |
-| `commands::network_cmd` | `get_adapters`, `get_adapter_details`, `check_campus_status`, `check_portal_status`, `get_disabled_adapters`, `enable_adapter`, `dhcp_renew_all`, `dhcp_release_renew`, `dhcp_release_renew_adapter`, `check_network_quality`, `start_latency_test`, `stop_latency_test`, `check_dns_doh_status`, `setup_dns_doh`, `reset_dns`, `outbound_switch_now`, `outbound_restore_now`, `get_current_outbound_name` | `startup.rs:70-87` |
+| `commands::network_cmd` | `get_adapters`, `get_adapter_details`, `check_campus_status`, `check_portal_status`, `check_network_quality`, `start_latency_test`, `stop_latency_test`, `check_dns_doh_status`, `setup_dns_doh`, `reset_dns`, `outbound_switch_now`, `outbound_restore_now`, `get_current_outbound_name` | `startup.rs:70-87` |
 | `commands::account` | `list_accounts`, `switch_account`, `rename_account`, `save_current_as_account`, `delete_account`, `get_active_account` | `startup.rs:88-93` |
 | `commands::background` | `start_background_check`, `stop_background_check`, `trigger_background_check`, `get_background_status` | `startup.rs:94-97` |
-| `commands::system` | `get_auto_launch`, `set_auto_launch`, `get_notification_enabled`, `set_notification_enabled`, `cancel_auto_exit`, `minimize_window`, `close_window`, `open_external`, `get_logs`, `clear_logs`, `get_init_data`, `render_heartbeat`, `get_gpu_info`, `set_log_retention_days`, `get_log_retention_days`, `export_diagnostics`, `notify_window_ready` | `startup.rs:98-114` |
+| `commands::system` | `set_auto_launch`, `set_notification_enabled`, `cancel_auto_exit`, `minimize_window`, `close_window`, `open_external`, `get_logs`, `clear_logs`, `get_init_data`, `render_heartbeat`, `set_log_retention_days`, `export_diagnostics`, `notify_window_ready` | `startup.rs:98-114` |
 | `commands::updater` | `check_update`, `download_update`, `cancel_download_update`, `install_update`, `get_mirror_urls` | `startup.rs:115-119` |
 | `commands::self_service` | `bind_operator`, `query_bind_status`, `verify_windows_identity`, `reveal_operator_credential`, `query_self_dashboard`, `query_self_online_log`, `self_offline_session`, `change_self_password` | `startup.rs:120-127` |
-| `infra::logger` | `set_debug_mode`, `get_debug_mode` | `startup.rs:128-129` |
+| `infra::logger` | `set_debug_mode` | `startup.rs:128-129` |
 
 ## Architecture
 
@@ -364,7 +359,7 @@ attempt_webview_recovery (webview_recovery.rs:58)
 - [[desktop-helper-update]]：`helper::parse_helper_args` / `run_helper` 在 `main.rs:37-46` 拦截；`update::updater::start_update_check_loop` 在 `startup.rs:224`。
 - [[desktop-platform]]：`platform::gpu::build_browser_args` / `detect_gpu_info`（`main.rs:56`、`startup.rs:239-247`）、`platform::rtss_compat::preinit_detect` / `log_preinit_outcome`（`main.rs:52`、`startup.rs:196`）、`platform::ecoqos`（`app/shutdown.rs:37`、`app/window.rs:104`）、`platform::toast`（系统通知，经 [[desktop-infra]] 的 `emit_notification`）。
 - [[desktop-network-core]]：`network::update_portal_url`（`startup.rs:207`）、`network::adapter_cache`（`startup.rs:220`）。
-- [[android-backend]]：安卓端不编译 `app/`（`lib.rs:11-12` 的 `#[cfg(desktop)]`），有独立的启动装配与命令注册。
+- [[android-backend]]：安卓端不编译 `app/`（`lib.rs:11-20` 的 `#[cfg(desktop)]`），有独立的启动装配与命令注册。
 - [[desktop-frontend-hooks]]：前端侧的对应实现是 `useHeartbeat.ts`（心跳，interval 定义 `useHeartbeat.ts:11-14`）、`tauriApi.ts:243`（`render_heartbeat` 调用）。
 - [[desktop-frontend-shared]]：托盘快速登录路径不经过前端，但结果通过 `auto-login-result` 事件（`tauriApi.ts:173`）回到前端。
 
