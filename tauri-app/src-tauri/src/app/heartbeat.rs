@@ -73,9 +73,9 @@ pub fn spawn_window_safety_thread(app_handle: AppHandle) {
         for attempt in 1..=3 {
             if let Some(window) = app_handle.get_webview_window("main") {
                 // is_visible 在 Win32 下最小化时仍为 true（IsWindowVisible 语义），
-                // 不可见 ≠ 需要强制显示；真正要兜底的是「既不可见又未最小化」。
-                // 若把最小化判为不可见而强制显示，启动后 3~9s 内用户最小化会被
-                // show_and_focus_main 的 unminimize（SW_RESTORE）弹回前台（v2.4.2 修复）。
+                // 故仅查 is_visible 的旧判定本不会在最小化时触发。显式补 is_minimized
+                // 是纵深防御：若未来 is_visible 语义变化把最小化判为不可见，这里仍
+                // 不会把用户刚最小化的窗口强制弹回前台（v2.4.2）。
                 let is_visible = window.is_visible().unwrap_or(false);
                 let is_minimized = window.is_minimized().unwrap_or(false);
                 if is_visible || is_minimized {

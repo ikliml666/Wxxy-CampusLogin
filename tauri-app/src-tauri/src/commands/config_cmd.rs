@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use crate::config::model::Config;
 use crate::config::persist;
 use crate::config::validate::{validate_config, validate_config_lenient};
@@ -206,6 +206,15 @@ pub async fn import_config(state: State<'_, AppState>, app_handle: AppHandle, pa
 
 #[tauri::command]
 pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
+    // 启动期自动显示路径（前端 getInitData 完成即调，v2.4.2 修复①）的最小化保护：
+    // 用户在启动后短时间内最小化窗口时，不把窗口弹回前台——show_and_focus_main
+    // 的 unminimize 会发 SW_RESTORE 还原窗口。用户主动唤起（托盘单击、single_instance
+    // 二次启动）不经本命令，仍正常还原最小化窗口。
+    if let Some(window) = app_handle.get_webview_window("main") {
+        if window.is_minimized().unwrap_or(false) {
+            return Ok(());
+        }
+    }
     crate::app::window::show_or_rebuild_main(&app_handle);
     Ok(())
 }

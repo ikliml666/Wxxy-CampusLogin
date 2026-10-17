@@ -73,20 +73,15 @@ pub fn handle_window_resized_event(window: &Window, event: &WindowEvent) {
 #[cfg(not(target_os = "windows"))]
 pub fn handle_window_resized_event(_window: &tauri::WebviewWindow, _event: &WindowEvent) {}
 
-/// 显示主窗口。窗口不存在或操作失败时静默忽略。
+/// 显示主窗口并聚焦。窗口不存在或操作失败时静默忽略。
 ///
-/// **最小化保护**：窗口已最小化时不调 set_focus/unminimize——set_focus 在最小化
-/// 下虽是 no-op（tao 有 is_minimized 守卫），unminimize 会清 MINIMIZED flag 发
-/// SW_RESTORE 把窗口拉回前台。启动后短时间内用户最小化，前端 getInitData 完成
-/// 即调 show_window（v2.4.2 前）会经由本函数把窗口弹回，故最小化态只 show()
-/// 恢复渲染、不还原窗口。用户主动唤起场景（托盘单击等）需要还原时，另行显式
-/// 调 unminimize（本仓库现有主动路径均经由 show_and_focus_main，暂不放开）。
+/// 对已最小化的窗口会 unminimize（SW_RESTORE）还原到前台——这是托盘单击、
+/// single_instance 二次启动等用户主动唤起路径的期望语义。前端启动期自动显示
+/// （getInitData 完成后调 show_window 命令）不允许打扰用户最小化，最小化保护
+/// 在该命令内做（commands/config_cmd.rs show_window）。
 pub fn show_and_focus_main<M: tauri::Manager<tauri::Wry>>(app: &M) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
-        if window.is_minimized().unwrap_or(false) {
-            return;
-        }
         let _ = window.set_focus();
         let _ = window.unminimize();
     }

@@ -255,8 +255,16 @@ fn run_helper_op(op: &str, args: &[String], allow_uac_prompt: bool) -> Result<()
 /// 非管理员 helper）。与 adapter_watch 的自动启用同一入口，两处启用语义一致。
 #[cfg(desktop)]
 fn enable_campus_adapter(name: &str, allow_uac_prompt: bool) -> Result<(), HelperFailure> {
+    // adapter_cache::enable_adapter 的错误只有 String，无法区分提权通道失败
+    // （UAC 拒绝/超时/结果文件缺失）与业务失败；按提权状态近似分类：
+    // 管理员全程本地直跑（netsh/pnputil），失败必属业务失败；非管理员的
+    // netsh 与 pnputil 都经 helper 提权通道。ponytail: 非管理员一律标
+    // channel=true 属过度标注，后果有界——抬计数只是让重试允许弹 UAC，
+    // 静默通道（CMSTPLUA）可用时并不真弹窗；反过来欠标注会让还原重试
+    // 永远静默，UAC 放行机制失明（v2.4.2 评审修正）。
+    let channel = !crate::platform::elevation::is_admin();
     crate::network::adapter_cache::enable_adapter(name, allow_uac_prompt)
-        .map_err(|reason| HelperFailure { reason, channel: false })
+        .map_err(|reason| HelperFailure { reason, channel })
 }
 
 /// 非桌面（安卓）不执行夜间出站还原；同签名 stub 让调用点免 cfg
