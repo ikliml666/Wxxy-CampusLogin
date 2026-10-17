@@ -111,9 +111,10 @@ pub fn save_account_config(data_dir: &Path, account_id: &str, config: &Config) -
     atomic_write(&get_account_path(data_dir, account_id), &json)
 }
 
-/// 枚举账号档案为 AccountItem（id + display_name）。
+/// 枚举账号档案为 AccountItem（id + display_name + 脱敏展示字段）。
 /// - 过滤：`.` 前缀与空名跳过（与旧 list_account_names 一致），按 id 排序；
-/// - display_name：为空（含纯空白）兜底为 id；文件读取/解析失败同样兜底为 id 并 log_warn。
+/// - display_name：为空（含纯空白）兜底为 id；文件读取/解析失败同样兜底为 id 并 log_warn；
+/// - user/operator/password_saved：取自档案原文（此处不解密，只判空），读取失败兜底为空/未保存。
 pub fn list_account_items(data_dir: &Path) -> Vec<crate::infra::state::AccountItem> {
     let accounts_dir = get_accounts_dir(data_dir);
     if !accounts_dir.exists() {
@@ -134,18 +135,31 @@ pub fn list_account_items(data_dir: &Path) -> Vec<crate::infra::state::AccountIt
             if id.starts_with('.') || id.is_empty() {
                 continue;
             }
-            let display_name = match std::fs::read_to_string(entry.path())
+            // 一次读档同时取 display_name 与展示字段；解密在此不必要（只判密码是否非空）
+            let (display_name, user, operator, password_saved) = match std::fs::read_to_string(entry.path())
                 .map_err(|e| e.to_string())
                 .and_then(|c| serde_json::from_str::<Config>(&c).map_err(|e| e.to_string()))
             {
-                Ok(config) if !config.display_name.trim().is_empty() => config.display_name,
-                Ok(_) => id.to_string(),
+                Ok(config) => {
+                    let dn = if config.display_name.trim().is_empty() {
+                        id.to_string()
+                    } else {
+                        config.display_name
+                    };
+                    (dn, config.user, config.operator, !config.password.is_empty())
+                }
                 Err(e) => {
-                    crate::log_warn!("account", "读取账号文件失败，显示名兜底为 id: {} ({})", id, e);
-                    id.to_string()
+                    crate::log_warn!("account", "读取账号文件失败，展示字段兜底为空: {} ({})", id, e);
+                    (id.to_string(), String::new(), String::new(), false)
                 }
             };
-            items.push(crate::infra::state::AccountItem { id: id.to_string(), display_name });
+            items.push(crate::infra::state::AccountItem {
+                id: id.to_string(),
+                display_name,
+                user,
+                operator,
+                password_saved,
+            });
         }
     }
 
@@ -436,9 +450,9 @@ mod tests {
 
         let items = list_account_items(&dir);
         assert_eq!(items, vec![
-            AccountItem { id: "acc-a".to_string(), display_name: "我的甲".to_string() },
-            AccountItem { id: "acc-b".to_string(), display_name: "acc-b".to_string() },
-            AccountItem { id: "acc-c".to_string(), display_name: "acc-c".to_string() },
+            AccountItem { id: "acc-a".to_string(), display_name: "我的甲".to_string(), user: String::new(), operator: String::new(), password_saved: false },
+            AccountItem { id: "acc-b".to_string(), display_name: "acc-b".to_string(), user: String::new(), operator: String::new(), password_saved: false },
+            AccountItem { id: "acc-c".to_string(), display_name: "acc-c".to_string(), user: String::new(), operator: String::new(), password_saved: false },
         ], "应按 id 排序、空显示名与损坏文件兜底为 id、过滤隐藏/非json");
         let _ = std::fs::remove_dir_all(&dir);
     }

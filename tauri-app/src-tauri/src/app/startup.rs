@@ -92,6 +92,7 @@ pub fn run(core_count: usize) {
             crate::commands::account::switch_account,
             crate::commands::account::rename_account,
             crate::commands::account::save_current_as_account,
+            crate::commands::account::create_account,
             crate::commands::account::delete_account,
             crate::commands::account::get_active_account,
             crate::commands::background::start_background_check,

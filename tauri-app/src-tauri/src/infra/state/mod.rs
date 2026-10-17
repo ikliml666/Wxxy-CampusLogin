@@ -294,6 +294,14 @@ pub struct AccountItem {
     pub id: String,
     #[serde(rename = "displayName")]
     pub display_name: String,
+    /// 账号档案脱敏展示字段（账号页卡片信息行）：学号 / 运营商 / 密码是否已保存。
+    /// 密码只出布尔，明文/掩码均不出站。
+    #[serde(default)]
+    pub user: String,
+    #[serde(default)]
+    pub operator: String,
+    #[serde(rename = "passwordSaved", default)]
+    pub password_saved: bool,
 }
 
 #[derive(Serialize)]

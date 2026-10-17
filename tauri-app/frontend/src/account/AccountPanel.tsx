@@ -6,23 +6,13 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { SettingRow } from '@/components/ui/setting-row'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  UserCircle, Plus, Trash2, ArrowRightLeft, KeyRound,
-  Check, X, Eye, EyeOff, Link2, Loader2, Smartphone, Zap, Pencil,
-  Layers
+  Plus, Trash2, ArrowRightLeft, Link2, Loader2,
+  Check, X, Eye, Zap, Pencil, Layers, KeyRound
 } from 'lucide-react'
-import { ISP_OPTIONS } from '@/settings/constants'
-import { PASSWORD_MASK } from '@/shared/ui-constants'
+import { ISP_OPTIONS, operatorLabelKey } from '@/settings/constants'
 import { MascotFigure } from '@/shared/MascotFigure'
 import { OnlineDeviceCardStack } from '@/account/SelfOnlineCards'
 import {
@@ -32,13 +22,15 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { ChangePasswordDialog } from '@/account/ChangePasswordDialog'
+import { LoginInfoDialog, type LoginInfoFormValues } from '@/account/LoginInfoDialog'
+import { BindOperatorDialog, type BindCredSource } from '@/account/BindOperatorDialog'
 import { useOperatorBind } from '@/account/useOperatorBind'
 import { isValidDisplayName } from '@/account/validators'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
@@ -56,7 +48,7 @@ interface AccountPanelProps {
 }
 
 export const AccountPanel = memo(function AccountPanel({
-  adapters,
+  adapters: _adapters, // 主网卡字段按设计删除（保持自动检测）；prop 保留以兼容 App 传参
   accounts,
   activeAccount,
   onUpdateConfig,
@@ -71,17 +63,6 @@ export const AccountPanel = memo(function AccountPanel({
   // 自订阅 config（useShallow 浅比较，语义与原先 App 传入 config prop 一致），
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
-  const [newAccountName, setNewAccountName] = useState('')
-  const [showAddInput, setShowAddInput] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
-  const [passwordFocused, setPasswordFocused] = useState(false)
-  // 聚焦时的本地草稿：避免输入暂停 >500ms 后 store 被 config-changed 回写
-  // MASK 导致密码框 wipe、后续输入截断（历史缺陷 P1-F5）。
-  // 输入期间不写 store，blur 时一次性提交。
-  const [passwordDraft, setPasswordDraft] = useState('')
-  // 用户名文本输入本地草稿：blur/Enter 时提交（与 passwordDraft 同模式），
-  // 避免每键写 store 触发级联渲染与防抖保存
-  const [usernameDraft, setUsernameDraft] = useState<string | null>(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -90,26 +71,6 @@ export const AccountPanel = memo(function AccountPanel({
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
-
-  const displayPassword = (() => {
-    if (passwordFocused) return passwordDraft
-    if (passwordSaved && (!config.password || config.password === PASSWORD_MASK)) return '••••••••'
-    return config.password === PASSWORD_MASK ? '' : (config.password || '')
-  })()
-
-  const handlePasswordFocus = () => {
-    setPasswordFocused(true)
-    setPasswordDraft('')
-  }
-
-  const handlePasswordBlur = () => {
-    setPasswordFocused(false)
-    // 聚焦期间输入了非空草稿 -> 提交保存
-    if (passwordDraft) {
-      onUpdateConfig({ password: passwordDraft })
-      setPasswordDraft('')
-    }
-  }
 
   // 清除已保存密码：后端空密码语义是"保留旧密码"，必须走显式 clearPassword 标志
   const handleClearPassword = useCallback(async () => {
@@ -125,29 +86,6 @@ export const AccountPanel = memo(function AccountPanel({
     addToast(t('account.passwordCleared'), 'success')
   }, [addToast, t])
 
-  const commitUsername = () => {
-    if (usernameDraft === null) return
-    if (usernameDraft !== (config.user || '')) {
-      onUpdateConfig({ user: usernameDraft })
-    }
-    setUsernameDraft(null)
-  }
-
-  const handleAddAccount = async () => {
-    const trimmed = newAccountName.trim()
-    if (!trimmed) return
-    if (trimmed.length > 32 || !/^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/.test(trimmed)) {
-      // 校验失败给出明确反馈（此前静默 return，点击确认像没反应）
-      addToast(t('account.invalidAccountName'), 'error')
-      return
-    }
-    // 仅保存成功时清空输入并收起输入 UI，失败保留内容供修改重试
-    const ok = await onAddAccount(trimmed)
-    if (!ok || !mountedRef.current) return
-    setNewAccountName('')
-    setShowAddInput(false)
-  }
-
   // busy 态防重复提交：切换进行中忽略再次点击（对照 DashboardPanel switchingAccount 模式）
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
   const handleSwitchAccount = useCallback(async (name: string) => {
@@ -155,9 +93,6 @@ export const AccountPanel = memo(function AccountPanel({
     setSwitchingAccount(name)
     try { await onSwitchAccount(name) } finally { setSwitchingAccount(null) }
   }, [activeAccount, onSwitchAccount, switchingAccount])
-
-  // 当前激活账号的显示名：列表里能找到就用 displayName，否则兜底 id（列表尚未加载时）
-  const activeDisplayName = accounts.find(a => a.id === activeAccount)?.displayName ?? activeAccount
 
   // 账号改名（内联编辑）：renamingId 指向编辑中的账号 id；失败保留草稿供修改重试
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -192,136 +127,262 @@ export const AccountPanel = memo(function AccountPanel({
     }
   }, [renamingId, renaming, renameDraft, onRenameAccount, cancelRename, addToast, t])
 
-  // 运营商绑定流（状态/绑定/查询/揭示/改密逻辑外移 useOperatorBind.ts）
+  // 弹窗A「添加/编辑登录信息」：open=关闭；create=添加；edit=编辑激活账号
+  const [loginInfoMode, setLoginInfoMode] = useState<'create' | 'edit' | null>(null)
+  // 弹窗B「绑定运营商」
+  const [bindOpen, setBindOpen] = useState(false)
+  // 弹窗B 凭据分段：登录信息（默认）| 手动填写（仅本次使用不保存，关闭弹窗即清）
+  const [bindCredSource, setBindCredSource] = useState<BindCredSource>('login')
+  const [manualAccount, setManualAccount] = useState('')
+  const [manualPassword, setManualPassword] = useState('')
+
+  // 运营商绑定流（状态/绑定/查询/揭示/改密逻辑外移 useOperatorBind.ts）；
+  // 手动填写分段时凭据覆盖传弹窗值（不保存），登录信息分段传 config 值
   const {
     bindOp, setBindOp, bindPhone, setBindPhone, bindSms, setBindSms,
     binding, bindStatuses, queryingStatus, revealedOp, revealedPassword,
     statusOpen, setStatusOpen, chpwdOpen, setChpwdOpen,
     canBind, canQueryStatus, fetchBindStatus, handleReveal, handleBindOperator, handleChangePassword,
-  } = useOperatorBind(config.user, config.operator, passwordSaved)
+  } = useOperatorBind(
+    config.user,
+    config.operator,
+    passwordSaved,
+    bindCredSource === 'manual' ? { account: manualAccount, password: manualPassword } : null,
+  )
+
+  const refreshAccounts = useCallback(async () => {
+    try {
+      const accs = await tauriApiWithRetry.listAccounts()
+      useConfigStore.getState().setAccounts(accs)
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('刷新账号列表失败:', e)
+    }
+  }, [])
+
+  // 弹窗A 保存：新建态 → create_account（账号已存在 success=false）；
+  // 编辑态 → 两连发：saveConfigDirect 提交 user/password/operator（密码留空=依赖后端
+  // "保留当前密码"语义，不发 password 字段），成功后 save_current_as_account 把主配置
+  // 回写激活档案（修"切账号把配置搬走"bug 的前端配合，经 onAddAccount 既有路径）
+  const handleSaveLoginInfo = useCallback(async (values: LoginInfoFormValues): Promise<boolean> => {
+    if (loginInfoMode === 'create') {
+      try {
+        const result = await tauriApiWithRetry.createAccount({
+          accountName: values.accountName,
+          user: values.user,
+          password: values.password,
+          operator: values.operator,
+        })
+        if (result?.success === false) {
+          addToast(t('account.saveFailed'), 'error', result.message || t('common.unknownError'))
+          return false
+        }
+        const store = useConfigStore.getState()
+        if (result?.config) store.updateConfig(result.config)
+        if (result?.activeAccount !== undefined) store.setActiveAccount(result.activeAccount)
+        addToast(t('account.saveSuccess'), 'success')
+        await refreshAccounts()
+        if (mountedRef.current) setLoginInfoMode(null)
+        return true
+      } catch (e) {
+        addToast(t('account.saveFailed'), 'error', extractErrorMessage(e))
+        return false
+      }
+    }
+    // 编辑态
+    const store = useConfigStore.getState()
+    const partial: Partial<Config> = { user: values.user, operator: values.operator }
+    if (values.password) partial.password = values.password
+    try {
+      await store.saveConfigDirect(partial)
+    } catch (e) {
+      addToast(extractErrorMessage(e) || t('auth.configSaveFailed'), 'error')
+      return false
+    }
+    const ok = await onAddAccount(activeAccount)
+    if (!ok || !mountedRef.current) return ok
+    setLoginInfoMode(null)
+    return true
+  }, [loginInfoMode, activeAccount, onAddAccount, addToast, refreshAccounts, t])
 
   return (
     <div className="space-y-4">
-      {/* 登录信息+自动化开关（左列）与运营商绑定（右列）并列，底部对齐 */}
-      <div className="grid grid-cols-2 gap-4">
-      {/* 左列：开关卡 flex-1 填满剩余高度，与右列绑定卡底部对齐 */}
-      <div className="flex flex-col gap-4">
+      {/* 单列纵排：账号管理卡（整合登录信息+绑定入口）在上，自动化设置卡在下 */}
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <KeyRound className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('account.loginInfo')}</CardTitle>
-                <CardDescription>
-                  {activeAccount ? t('account.currentAccount', { name: activeDisplayName }) : t('account.loginInfoDesc')}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('account.username')}</Label>
-              <Input
-                id="username"
-                type="text"
-                value={usernameDraft ?? (config.user || '')}
-                onChange={e => setUsernameDraft(e.target.value)}
-                onBlur={commitUsername}
-                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                placeholder={t('account.usernamePlaceholder')}
-                icon={<UserCircle className="h-4 w-4" />}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('account.password')}</Label>
-                <div className="flex items-center gap-3">
-                  {passwordSaved && (
-                    <button
-                      type="button"
-                      onClick={() => setChpwdOpen(true)}
-                      className="text-[11px] text-muted-foreground hover:text-primary transition-colors"
-                    >
-                      {t('account.changePassword')}
-                    </button>
-                  )}
-                  {passwordSaved && (
-                    <button
-                      type="button"
-                      onClick={handleClearPassword}
-                      className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors"
-                    >
-                      {t('account.clearPassword')}
-                    </button>
-                  )}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-3">
+                <CardIcon>
+                  <Layers className="h-5 w-5 text-primary" />
+                </CardIcon>
+                <div className="min-w-0">
+                  <CardTitle>{t('account.accountManage')}</CardTitle>
+                  <CardDescription>{t('account.accountManageDesc')}</CardDescription>
                 </div>
               </div>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={displayPassword}
-                  onChange={e => setPasswordDraft(e.target.value)}
-                  onFocus={handlePasswordFocus}
-                  onBlur={handlePasswordBlur}
-                  placeholder={passwordSaved ? t('account.passwordSavedPlaceholder') : t('account.passwordPlaceholder')}
-                  icon={<KeyRound className="h-4 w-4" />}
-                  className="[&::-ms-reveal]:hidden pr-10"
-                />
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label={showPassword ? t('account.hidePassword') : t('account.showPassword')}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 gap-1 px-2 text-xs"
+                onClick={() => setLoginInfoMode('create')}
+              >
+                <Plus className="h-3 w-3" /> {t('account.addLoginInfo')}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {accounts.length > 0 ? (
+              // pager 变体：卡宽收窄至刚好容纳学号，只显示当前卡 + 左右箭头切换（窄卡放封面流侧卡无意义）
+              <OnlineDeviceCardStack variant="narrow">
+                {accounts.map((item) => {
+                const isActive = item.id === activeAccount
+                const isRenaming = renamingId === item.id
+                const operatorKey = operatorLabelKey(item.operator ?? '')
+                return (
+                  <div key={item.id} className={cn(
+                    'rounded-xl p-3 shadow-sm bg-card dark:bg-muted',
+                    isActive && 'ring-1 ring-primary/40'
+                  )}>
+                    {/* 行1：在线点 + 显示名 + 使用中徽章（仅激活卡） */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
+                        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
+                        <span className="truncate">{item.displayName || item.id}</span>
+                      </span>
+                      {isActive && (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                          {t('account.currentInUse')}
+                        </span>
+                      )}
+                    </div>
+                    {/* 信息区三行脱敏：学号 / 运营商 / 密码（只显状态不显明文） */}
+                    <div className="mt-2.5 space-y-2">
+                      <div className="rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                        <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
+                        <p className="truncate font-mono text-xs leading-5 text-foreground">{item.user || '-'}</p>
+                      </div>
+                      <div className="rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                        <p className="text-[10px] leading-4 text-muted-foreground">{t('account.operator')}</p>
+                        <p className="truncate font-mono text-xs leading-5 text-foreground">
+                          {operatorKey ? t(operatorKey) : '-'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
+                        <p className="text-[10px] leading-4 text-muted-foreground">{t('account.password')}</p>
+                        <p className={cn(
+                          'truncate font-mono text-xs leading-5',
+                          item.passwordSaved ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'
+                        )}>
+                          {item.passwordSaved ? t('account.passwordStatusSaved') : t('account.passwordStatusUnset')}
+                        </p>
+                      </div>
+                    </div>
+                    {isRenaming ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Input
+                          value={renameDraft}
+                          onChange={e => setRenameDraft(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { e.preventDefault(); void submitRename() }
+                            if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+                          }}
+                          placeholder={t('account.renameInputPlaceholder')}
+                          maxLength={64}
+                          className="h-8 flex-1 min-w-0 text-xs"
+                          disabled={renaming}
+                          autoFocus
+                        />
+                        <Button size="icon-sm" variant="ghost" onClick={() => void submitRename()} disabled={renaming}>
+                          <Check className="h-3.5 w-3.5 text-emerald-500" />
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" onClick={cancelRename} disabled={renaming}>
+                          <X className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ) : (
+                      /* 操作行：✎编辑登录信息（弹窗A编辑态）/ 改名 / ⇄切换（仅非激活卡）/ 🗑删除 */
+                      <div className="mt-2 flex justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="rounded-lg"
+                          onClick={() => setLoginInfoMode('edit')}
+                          disabled={switchingAccount !== null || renamingId !== null}
+                          aria-label={t('account.editLoginInfo')}
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="rounded-lg"
+                          onClick={() => startRename(item)}
+                          disabled={switchingAccount !== null || renamingId !== null}
+                          aria-label={t('account.renameAccount')}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {!isActive && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="rounded-lg"
+                            onClick={() => handleSwitchAccount(item.id)}
+                            disabled={switchingAccount !== null || renamingId !== null}
+                            aria-label={t('account.switchAccount')}
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="rounded-lg hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => onDeleteAccount(item.id, item.displayName)}
+                          disabled={renamingId !== null}
+                          aria-label={t('account.deleteAccount')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              </OnlineDeviceCardStack>
+            ) : (
+              <div className="flex min-h-[9rem] flex-col items-center justify-center rounded-xl bg-muted p-3 text-center dark:bg-card">
+                <MascotFigure variant="empty" size="sm" className="mb-2" />
+                <p className="text-sm text-muted-foreground">{t('account.noSavedAccounts')}</p>
+                <p className="mt-1 text-xs text-muted-foreground/60">{t('account.noSavedAccountsTip')}</p>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">{t('account.operator')}</Label>
-              <Select
-                value={config.operator || '__default__'}
-                onValueChange={(value) => onUpdateConfig({ operator: value === '__default__' ? '' : value })}
+            )}
+            {/* 卡尾快捷操作区：编辑登录信息 / 绑定运营商 */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setLoginInfoMode('edit')}
               >
-                <SelectTrigger aria-label={t('account.selectOperator')}>
-                  <SelectValue placeholder={t('account.selectOperator')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {ISP_OPTIONS.map(o => (
-                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">{t('account.primaryAdapter')}</Label>
-              <Select
-                value={config.adapter1 || AUTO_DETECT_ADAPTER}
-                onValueChange={(value) => onUpdateConfig({ adapter1: value })}
+                <KeyRound className="h-3.5 w-3.5" /> {t('account.editLoginInfo')}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setBindOpen(true)}
               >
-                <SelectTrigger aria-label={t('account.selectPrimaryAdapter')}>
-                  <SelectValue placeholder={t('account.selectPrimaryAdapter')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={AUTO_DETECT_ADAPTER}>{t('network.autoDetect')}</SelectItem>
-                  {adapters.map(a => (
-                    <SelectItem key={a.name} value={a.name}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <Link2 className="h-3.5 w-3.5" /> {t('account.bindOperator')}
+              </Button>
             </div>
           </CardContent>
         </AnimatedCard>
       </div>
 
-      {/* 自动化开关：flex-1 填满左列剩余高度；grid 使卡片包装层 stretch 占满宽度 */}
-      <div className="card-enter flex-1 grid" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
+      {/* 自动化设置卡：内容原样（自动登录三开关） */}
+      <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               <CardIcon>
@@ -375,233 +436,44 @@ export const AccountPanel = memo(function AccountPanel({
           </CardContent>
         </AnimatedCard>
       </div>
-      </div>
 
-      {/* 右列：账号管理堆叠卡 + 底部绑定卡；列底=grid 行底，与左列自动化卡底部对齐 */}
-      <div className="flex flex-col gap-4">
-      {/* 账号管理：与其他卡统一白底 AnimatedCard 容器 + CardHeader 头部；堆叠卡在 CardContent 内（置于绑定卡上方） */}
-      <div className="card-enter flex min-h-0 flex-1 flex-col" style={{ '--stagger-i': 2 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="flex min-h-0 flex-1 flex-col">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-3">
-                <CardIcon>
-                  <Layers className="h-5 w-5 text-primary" />
-                </CardIcon>
-                <div className="min-w-0">
-                  <CardTitle>{t('account.accountManage')}</CardTitle>
-                  <CardDescription>{t('account.accountManageDesc')}</CardDescription>
-                </div>
-              </div>
-              {!showAddInput && (
-                <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-xs" onClick={() => setShowAddInput(true)}>
-                  <Plus className="h-3 w-3" /> {t('account.addAccount')}
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col">
-            {showAddInput && (
-              <div className="mb-2 flex items-center gap-2">
-                <Input
-                  value={newAccountName}
-                  onChange={e => setNewAccountName(e.target.value)}
-                  placeholder={t('account.accountName')}
-                  className="h-8 flex-1 min-w-0 text-xs"
-                  onKeyDown={e => e.key === 'Enter' && handleAddAccount()}
-                  autoFocus
-                />
-                <Button size="icon-sm" variant="ghost" onClick={handleAddAccount}>
-                  <Check className="h-3.5 w-3.5 text-emerald-500" />
-                </Button>
-                <Button size="icon-sm" variant="ghost" onClick={() => { setShowAddInput(false); setNewAccountName('') }}>
-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </div>
-            )}
-          {accounts.length > 0 ? (
-            // pager 变体：卡宽收窄至刚好容纳学号，只显示当前卡 + 左右箭头切换（窄卡放封面流侧卡无意义）
-            <OnlineDeviceCardStack variant="narrow" className="h-full flex-1">
-              {accounts.map((item) => {
-              const isActive = item.id === activeAccount
-              const isRenaming = renamingId === item.id
-              return (
-                <div key={item.id} className={cn(
-                  'rounded-xl p-3 shadow-sm bg-card dark:bg-muted',
-                  isActive && 'ring-1 ring-primary/40'
-                )}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-foreground">
-                      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
-                      <span className="truncate">{item.displayName}</span>
-                    </span>
-                    {isActive && (
-                      <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                        {t('account.currentInUse')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2.5 rounded-lg bg-muted px-2.5 py-1.5 dark:bg-card">
-                    <p className="text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
-                    <p className="truncate font-mono text-xs leading-5 text-foreground">
-                      {isActive ? (config.user || activeDisplayName) : '-'}
-                    </p>
-                  </div>
-                  {isRenaming ? (
-                    <div className="mt-2 flex items-center gap-2">
-                      <Input
-                        value={renameDraft}
-                        onChange={e => setRenameDraft(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') { e.preventDefault(); void submitRename() }
-                          if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
-                        }}
-                        placeholder={t('account.renameInputPlaceholder')}
-                        maxLength={64}
-                        className="h-8 flex-1 min-w-0 text-xs"
-                        disabled={renaming}
-                        autoFocus
-                      />
-                      <Button size="icon-sm" variant="ghost" onClick={() => void submitRename()} disabled={renaming}>
-                        <Check className="h-3.5 w-3.5 text-emerald-500" />
-                      </Button>
-                      <Button size="icon-sm" variant="ghost" onClick={cancelRename} disabled={renaming}>
-                        <X className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="mt-2 flex justify-end gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="rounded-lg"
-                        onClick={() => startRename(item)}
-                        disabled={switchingAccount !== null || renamingId !== null}
-                        aria-label={t('account.renameAccount')}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      {!isActive && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="rounded-lg"
-                          onClick={() => handleSwitchAccount(item.id)}
-                          disabled={switchingAccount !== null || renamingId !== null}
-                          aria-label={t('account.switchAccount')}
-                        >
-                          <ArrowRightLeft className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="rounded-lg hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => onDeleteAccount(item.id, item.displayName)}
-                        disabled={renamingId !== null}
-                        aria-label={t('account.deleteAccount')}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-            </OnlineDeviceCardStack>
-          ) : (
-            <div className="flex h-full min-h-[9rem] flex-1 flex-col items-center justify-center rounded-xl bg-muted p-3 text-center dark:bg-card">
-              <MascotFigure variant="empty" size="sm" className="mb-2" />
-              <p className="text-sm text-muted-foreground">{t('account.noSavedAccounts')}</p>
-              <p className="mt-1 text-xs text-muted-foreground/60">{t('account.noSavedAccountsTip')}</p>
-            </div>
-          )}
-          </CardContent>
-        </AnimatedCard>
-      </div>
-      <div className="card-enter grid" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation className="h-full">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <CardIcon>
-                <Link2 className="h-5 w-5 text-primary" />
-              </CardIcon>
-              <div className="min-w-0">
-                <CardTitle>{t('onboarding.bindOperatorTitle')}</CardTitle>
-                <CardDescription>{t('account.bindDesc')}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* 绑定状态改为弹窗展示（2026-10-10）：卡内只留一行凭据说明，降低卡高；
-                查询入口移到绑定按钮下方（次按钮），点击弹窗内查询并展示掩码结果 */}
-            <p className="text-[11px] text-muted-foreground">{t('account.bindStatusHint')}</p>
-            {/* 凭据来自登录信息（见状态区提示），单独段落已删（2026-10-10 精简） */}
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">{t('onboarding.bindIsp')}</Label>
-              <Select value={bindOp} onValueChange={setBindOp}>
-                <SelectTrigger aria-label={t('onboarding.bindIsp')}>
-                  <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
-                    <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-phone" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindPhone')}</Label>
-              <Input
-                id="bind-phone"
-                type="tel"
-                maxLength={11}
-                value={bindPhone}
-                onChange={e => setBindPhone(e.target.value.replace(/\D/g, ''))}
-                placeholder={t('onboarding.bindPhonePlaceholder')}
-                icon={<Smartphone className="h-4 w-4" />}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="bind-sms-password" className="text-xs font-medium text-muted-foreground">{t('onboarding.bindSmsPassword')}</Label>
-              <Input
-                id="bind-sms-password"
-                value={bindSms}
-                onChange={e => setBindSms(e.target.value)}
-                placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
-                icon={<KeyRound className="h-4 w-4" />}
-              />
-              <p className="text-[11px] text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
-            </div>
-            <Button
-              onClick={handleBindOperator}
-              disabled={!canBind || binding}
-              className="w-full gap-1.5"
-            >
-              {binding ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
-              ) : (
-                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
-              )}
-            </Button>
-            {/* 查询绑定状态：次按钮，点击弹窗展示（结果在弹窗内查询+渲染） */}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => { setStatusOpen(true); void fetchBindStatus({ openDialog: true }) }}
-              disabled={!canQueryStatus || queryingStatus}
-              className="w-full gap-1.5 h-8"
-            >
-              {queryingStatus ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.bindStatusQuerying')}</>
-              ) : (
-                <><Eye className="h-3.5 w-3.5" /> {t('account.bindStatusQuery')}</>
-              )}
-            </Button>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-      </div>
+      {/* 弹窗A：添加/编辑登录信息（修改/清除密码入口收编于编辑态密码字段旁） */}
+      <LoginInfoDialog
+        open={loginInfoMode !== null}
+        onOpenChange={(o) => { if (!o) setLoginInfoMode(null) }}
+        mode={loginInfoMode ?? 'edit'}
+        initial={{ user: config.user || '', operator: config.operator || '' }}
+        passwordSaved={passwordSaved}
+        onSave={handleSaveLoginInfo}
+        onChangePassword={() => setChpwdOpen(true)}
+        onClearPassword={() => void handleClearPassword()}
+      />
+
+      {/* 弹窗B：绑定运营商（凭据分段：登录信息 / 手动填写） */}
+      <BindOperatorDialog
+        open={bindOpen}
+        onOpenChange={setBindOpen}
+        credSource={bindCredSource}
+        onCredSourceChange={setBindCredSource}
+        manualAccount={manualAccount}
+        manualPassword={manualPassword}
+        onManualAccountChange={setManualAccount}
+        onManualPasswordChange={setManualPassword}
+        loginUser={config.user || ''}
+        loginCredReady={(config.user || '').trim().length > 0 && passwordSaved}
+        bindOp={bindOp}
+        setBindOp={setBindOp}
+        bindPhone={bindPhone}
+        setBindPhone={setBindPhone}
+        bindSms={bindSms}
+        setBindSms={setBindSms}
+        binding={binding}
+        queryingStatus={queryingStatus}
+        canBind={canBind}
+        canQueryStatus={canQueryStatus}
+        onBind={() => void handleBindOperator()}
+        onQueryStatus={() => void fetchBindStatus({ openDialog: true })}
+      />
 
       {/* 修改校园网密码（= 登录密码）：成功后本地登录密码同步更新 */}
       <ChangePasswordDialog
@@ -682,7 +554,6 @@ export const AccountPanel = memo(function AccountPanel({
         </DialogContent>
       </Dialog>
 
-    </div>
     </div>
   )
 })

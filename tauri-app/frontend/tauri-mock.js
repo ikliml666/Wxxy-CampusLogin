@@ -14,21 +14,23 @@
   var config = {
     user: '24385214',
     password: '***',
+    operator: '@cmcc',
     selfHelloEnabled: true,
-    defaultPanel: (function () { try { var m = window.location.search.match(/panel=(\w+)/); if (m) return m[1] } catch (e) {} return 'selfservice' })(), // ?panel= 覆盖启动面板
+    defaultPanel: (function () { try { var m = window.location.search.match(/panel=(\w+)/); if (m) return m[1] } catch (e) {} return 'account' })(), // ?panel= 覆盖启动面板
     enableNetworkNameCheck: false,
     // 设备别名：验证设备命名功能（键 = 原始 12 位 hex MAC）
     deviceAliases: { B025AA6CA580: '实验室台式机' },
   }
 
-  // ---- mock 账号列表（对应 AccountItem {id, displayName}；id 为账号键非学号）----
+  // ---- mock 账号列表（AccountItem {id, displayName, user, operator, passwordSaved}；
+  //      id 为账号键非学号）----
   // URL 带 ?mockempty=1 时返回空列表（验证空态样式）
   var emptyAccounts = false
   try { emptyAccounts = window.location.search.indexOf('mockempty') >= 0 } catch (e) {}
   var mockAccounts = [
-    { id: 'acc-main', displayName: '主账号', user: '24385214' },
-    { id: 'acc-dorm', displayName: '宿舍台式机', user: '24385215' },
-    { id: 'acc-lab', displayName: '实验室笔记本', user: '24385216' },
+    { id: 'acc-main', displayName: '主账号', user: '24385214', operator: '@cmcc', passwordSaved: true },
+    { id: 'acc-dorm', displayName: '宿舍台式机', user: '24385215', operator: '@telecom', passwordSaved: true },
+    { id: 'acc-lab', displayName: '实验室笔记本', user: '', operator: '', passwordSaved: false },
   ]
   if (emptyAccounts) mockAccounts = []
   // URL 带 ?mocksingle=1 时只留 1 个账号（验证单卡居中/禁拖）
@@ -74,7 +76,7 @@
         adapterDetails: mockAdapters.map(function (a) {
           return { name: a.name, ip: a.ip, wireless: a.wireless, subnetMask: '255.255.255.0', gateway: '10.2.0.1', dnsServers: ['10.10.10.10'], status: a.status, mac: a.mac }
         }),
-        accounts: mockAccounts.map(function (a) { return { id: a.id, displayName: a.displayName } }), activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
+        accounts: mockAccounts, activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
         isAutoStart: false, autoLaunch: false, notificationEnabled: false,
         logRetentionDays: 7, debugMode: false, refreshRate: undefined
       }
@@ -117,25 +119,43 @@
     render_heartbeat: function () { return { online: true, checking: false } },
     get_active_account: function () { return activeAccountName },
     list_accounts: function () {
-      return mockAccounts.map(function (a) { return { id: a.id, displayName: a.displayName } })
+      return mockAccounts
     },
-    // 另存当前配置为新账号：真后端落盘后广播 config-changed；mock 同构
+    // 添加登录信息（弹窗A新建态）：落新账号档案，不切换激活账号（与真后端
+    // create_account 语义一致；返回 AccountResult camelCase 形状）
+    create_account: function (args) {
+      var name = (args && args.accountName || '').trim()
+      if (!name) return { success: false, message: '账号名称不能为空（mock）' }
+      if (mockAccounts.some(function (a) { return a.id === name })) {
+        return { success: false, message: '账号已存在: ' + name + '（mock）' }
+      }
+      var user = (args && args.user || '').trim()
+      if (!user) return { success: false, message: '学号不能为空（mock）' }
+      mockAccounts.push({
+        id: name, displayName: name, user: user,
+        operator: (args && args.operator || ''), passwordSaved: !!(args && args.password),
+      })
+      return { success: true, message: '已添加（mock）', activeAccount: name, config: config }
+    },
+    // 另存/回写激活账号档案：真后端落盘后广播 config-changed；mock 同构
     save_current_as_account: function (args) {
       var name = (args && args.accountName || '').trim()
       if (!name) return { success: false, message: '账号名称不能为空（mock）' }
-      accountSeq += 1
-      var id = 'acc-new-' + accountSeq
-      mockAccounts.push({ id: id, displayName: name, user: config.user })
-      activeAccountName = id
+      var acc = mockAccounts.find(function (a) { return a.id === name })
+      if (!acc) return { success: false, message: '账号不存在（mock）' }
+      acc.user = config.user
+      acc.operator = config.operator || ''
+      acc.passwordSaved = config.password === '***' || !!config.password
       setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
-      return { success: true, message: '已保存（mock）', config: config, activeAccount: id }
+      return { success: true, message: '已保存（mock）', config: config, activeAccount: acc.id }
     },
     switch_account: function (args) {
       var name = args && args.accountName
       var acc = mockAccounts.find(function (a) { return a.id === name || a.displayName === name })
       if (!acc) return { success: false, message: '账号不存在（mock）' }
       activeAccountName = acc.id
-      if (acc.user) config.user = acc.user
+      config.user = acc.user
+      config.operator = acc.operator || ''
       setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
       return { success: true, message: '已切换（mock）', config: config, activeAccount: acc.id }
     },
@@ -321,6 +341,24 @@
       }
     }, 250)
   } } catch (e) {}
+
+  // ---- 截图辅助：?dialog=create|edit|bind 延时自动点击对应入口按钮（headless 截图用）----
+  // 用一次性 setTimeout（而非轮询）：避免任务风暴挤掉 React deferred 渲染
+  try {
+    var dm = window.location.search.match(/dialog=(\w+)/)
+    if (dm) {
+      var want = { create: '添加登录信息', edit: '编辑登录信息', bind: '绑定运营商' }[dm[1]]
+      setTimeout(function () {
+        var btns = document.querySelectorAll('button')
+        for (var i = 0; i < btns.length; i += 1) {
+          if (btns[i].textContent && btns[i].textContent.indexOf(want) >= 0) {
+            btns[i].click()
+            return
+          }
+        }
+      }, 4000)
+    }
+  } catch (e) {}
 
   console.info('[tauri-mock] 已注入 —— 浏览器 mock 环境激活，所有 Tauri 命令走内存实现')
 })()

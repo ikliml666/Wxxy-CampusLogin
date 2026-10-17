@@ -29,6 +29,14 @@ pub struct AccountItem {
     pub id: String,
     #[serde(rename = "displayName")]
     pub display_name: String,
+    /// 账号档案脱敏展示字段(与桌面 AccountItem 同契约,账号页卡片信息行):
+    /// 学号 / 运营商 / 密码是否已保存。密码只出布尔,明文/密文均不出站。
+    #[serde(default)]
+    pub user: String,
+    #[serde(default)]
+    pub operator: String,
+    #[serde(rename = "passwordSaved", default)]
+    pub password_saved: bool,
 }
 
 #[derive(Serialize)]
@@ -93,16 +101,24 @@ pub fn accounts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("accounts"))
 }
 
-/// 从账号文件 JSON 读 settings.displayName(不解密:display_name 非敏感字段,
-/// 列举路径无需走 Keystore)。读取失败返回 Err 由调用方 log_warn 后兜底。
-fn read_display_name(path: &std::path::Path) -> Result<String, String> {
+/// 从账号文件 JSON 读展示字段(不解密:user/operator 非敏感,password 只判非空,
+/// 列举路径无需走 Keystore)。返回 (display_name, user, operator, password_saved)。
+/// 读取失败返回 Err 由调用方 log_warn 后兜底。
+fn read_account_card_info(path: &std::path::Path) -> Result<(String, String, String, bool), String> {
     let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    Ok(v["settings"]["displayName"].as_str().unwrap_or("").to_string())
+    let s = &v["settings"];
+    Ok((
+        s["displayName"].as_str().unwrap_or("").to_string(),
+        s["user"].as_str().unwrap_or("").to_string(),
+        s["operator"].as_str().unwrap_or("").to_string(),
+        s["password"].as_str().map(|p| !p.is_empty()).unwrap_or(false),
+    ))
 }
 
 /// 同步列举账号条目:按 id 排序、过滤隐藏文件;display_name 从账号文件读,
-/// 为空/读取失败/解析失败时兜底为 id(读取失败仅 log_warn,不让整次列举失败)。
+/// 为空/读取失败/解析失败时兜底为 id(读取失败仅 log_warn,不让整次列举失败);
+/// user/operator/password_saved 展示字段同源同兜底。
 pub fn list_account_items_sync(dir: &std::path::Path) -> Vec<AccountItem> {
     let mut items = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -117,15 +133,17 @@ pub fn list_account_items_sync(dir: &std::path::Path) -> Vec<AccountItem> {
             if id.starts_with('.') || id.is_empty() {
                 continue;
             }
-            let display = match read_display_name(&path) {
-                Ok(d) if !d.trim().is_empty() => d,
-                Ok(_) => id.to_string(),
+            let (display, user, operator, password_saved) = match read_account_card_info(&path) {
+                Ok((d, u, o, p)) => {
+                    let display = if d.trim().is_empty() { id.to_string() } else { d };
+                    (display, u, o, p)
+                }
                 Err(e) => {
-                    campus_login_lib::log_warn!("account", "读取账号文件显示名失败,兜底为 id: {id}: {e}");
-                    id.to_string()
+                    campus_login_lib::log_warn!("account", "读取账号文件展示字段失败,兜底为空: {id}: {e}");
+                    (id.to_string(), String::new(), String::new(), false)
                 }
             };
-            items.push(AccountItem { id: id.to_string(), display_name: display });
+            items.push(AccountItem { id: id.to_string(), display_name: display, user, operator, password_saved });
         }
     }
     items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -232,6 +250,43 @@ pub async fn save_current_as_account(
     updated.display_name = final_display;
     let display = persist_current(&app, &updated).await?;
     Ok(AccountResult::ok_with_account(safe_name, display))
+}
+
+#[tauri::command]
+pub async fn create_account(
+    app: tauri::AppHandle,
+    account_name: String,
+    user: String,
+    password: String,
+    operator: String,
+) -> Result<AccountResult, String> {
+    let safe_name = match validate_account_name(&account_name) {
+        Ok(n) => n,
+        Err(e) => return Ok(AccountResult::err(&e)),
+    };
+    if user.trim().is_empty() {
+        return Ok(AccountResult::err("学号不能为空"));
+    }
+    let dir = accounts_dir(&app)?;
+    let bridge = CryptoBridge::from_app(&app);
+    let path = dir.join(format!("{safe_name}.json"));
+
+    let _io = config_io_lock().await;
+    if path.exists() {
+        return Ok(AccountResult::err(&format!("账号已存在: {safe_name}")));
+    }
+    // 新建档案:仅登录字段+显示名,不切换、不动主配置(与桌面 create_account 同构)
+    let account = Settings {
+        user: user.trim().to_string(),
+        password,
+        operator,
+        display_name: safe_name.clone(),
+        active_account: safe_name.clone(),
+        ..Settings::default()
+    };
+    config_state::save_file(&path, &bridge, &account).await?;
+    campus_login_lib::log_info!("account", "新建账号档案: {}", safe_name);
+    Ok(AccountResult::ok_with_account(safe_name, serde_json::Value::Null))
 }
 
 /// 另存账号合并规则(纯函数,与桌面 save_current_as_account 同构,可单测)。
@@ -491,8 +546,8 @@ mod tests {
         assert_eq!(
             items,
             vec![
-                AccountItem { id: "a".to_string(), display_name: "a".to_string() },
-                AccountItem { id: "b".to_string(), display_name: "b".to_string() },
+                AccountItem { id: "a".to_string(), display_name: "a".to_string(), user: String::new(), operator: String::new(), password_saved: false },
+                AccountItem { id: "b".to_string(), display_name: "b".to_string(), user: String::new(), operator: String::new(), password_saved: false },
             ],
             "按 id 排序、过滤隐藏与非 json、空 displayName 兜底为 id"
         );
@@ -697,14 +752,25 @@ mod tests {
         assert!(rename_account_core(&dir, &bridge, "acc-a", "甲").await.is_ok());
     }
 
-    /// IPC 出站形状锁:AccountItem 序列化为 { id, displayName },不得出现 snake_case 冗余键
+    /// IPC 出站形状锁:AccountItem 序列化为 { id, displayName, user, operator, passwordSaved },
+    /// 不得出现 snake_case 冗余键
     #[test]
     fn 账号条目_json形状() {
-        let item = AccountItem { id: "acc-1".to_string(), display_name: "显示名".to_string() };
+        let item = AccountItem {
+            id: "acc-1".to_string(),
+            display_name: "显示名".to_string(),
+            user: "2025001".to_string(),
+            operator: "校园".to_string(),
+            password_saved: true,
+        };
         let json = serde_json::to_value(&item).unwrap();
         assert_eq!(json["id"], "acc-1");
         assert_eq!(json["displayName"], "显示名");
+        assert_eq!(json["user"], "2025001");
+        assert_eq!(json["operator"], "校园");
+        assert_eq!(json["passwordSaved"], true);
         assert!(json.get("display_name").is_none());
+        assert!(json.get("password_saved").is_none());
     }
 
     /// F2 另存账号显示名不串号:另存场景落盘档案 display_name 置空(读取兜底为 id),

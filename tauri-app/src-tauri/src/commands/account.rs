@@ -254,6 +254,58 @@ fn merge_save_as_target(existing: Result<Config, String>, account_data: &Config)
     }
 }
 
+/// 新建账号档案（不切换、不动主配置）：账号页「添加登录信息」弹窗（新建态）专用。
+/// - accountName 过文件名白名单后作为档案 id，同时作为初始显示名（可后续改名）；
+/// - user 必填（学号），password/operator 可空；
+/// - 档案已存在 → 拒绝（新建不覆盖）；存在但读不了（损坏/解密失败）→ 一并拒绝防覆盖。
+#[tauri::command]
+pub async fn create_account(
+    account_name: String,
+    user: String,
+    password: String,
+    operator: String,
+    app_handle: AppHandle,
+) -> Result<AccountResult, String> {
+    let safe_name = match crate::infra::state::validate_account_name(&account_name) {
+        Ok(n) => n,
+        Err(e) => return Ok(AccountResult::err(&e)),
+    };
+    if user.trim().is_empty() {
+        return Ok(AccountResult::err("学号不能为空"));
+    }
+
+    let app_h = app_handle.clone();
+    let safe_name_for_log = safe_name.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let data_dir = persist::get_data_dir(&app_h);
+        match persist::load_account_config(&data_dir, &safe_name) {
+            Ok(_) => return Err(format!("账号已存在: {safe_name}")),
+            Err(e) if e == "账号不存在" => {}
+            Err(e) => return Err(format!("同名账号档案读取失败，拒绝覆盖：{e}")),
+        }
+        let account = Config {
+            user: user.trim().to_string(),
+            password,
+            operator,
+            display_name: safe_name.clone(),
+            active_account: safe_name.clone(),
+            ..Default::default()
+        };
+        persist::save_account_config(&data_dir, &safe_name, &account)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match result {
+        Ok(()) => {
+            crate::app::tray::refresh_tray_menu_state(&app_handle);
+            crate::log_info!("account", "新建账号档案: {}", safe_name_for_log);
+            Ok(AccountResult::ok_with_account(safe_name_for_log, crate::config::model::Config::default()))
+        }
+        Err(e) => Ok(AccountResult::err(&e)),
+    }
+}
+
 #[tauri::command]
 pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Result<AccountResult, String> {
     let account_name = crate::infra::state::validate_account_name(&account_name)
@@ -788,13 +840,23 @@ mod tests {
         assert!(err_json.get("activeAccount").is_none());
     }
 
-    /// IPC 出站形状锁：AccountItem 序列化为 { id, displayName }
+    /// IPC 出站形状锁：AccountItem 序列化为 { id, displayName, user, operator, passwordSaved }
     #[test]
     fn account_item_json_shape() {
-        let item = AccountItem { id: "acc-1".to_string(), display_name: "显示名".to_string() };
+        let item = AccountItem {
+            id: "acc-1".to_string(),
+            display_name: "显示名".to_string(),
+            user: "2025001".to_string(),
+            operator: "校园".to_string(),
+            password_saved: true,
+        };
         let json = serde_json::to_value(&item).unwrap();
         assert_eq!(json["id"], "acc-1");
         assert_eq!(json["displayName"], "显示名");
+        assert_eq!(json["user"], "2025001");
+        assert_eq!(json["operator"], "校园");
+        assert_eq!(json["passwordSaved"], true);
         assert!(json.get("display_name").is_none(), "不得出现 snake_case 冗余键");
+        assert!(json.get("password_saved").is_none(), "不得出现 snake_case 冗余键");
     }
 }

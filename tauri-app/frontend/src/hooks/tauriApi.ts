@@ -57,6 +57,8 @@ interface TauriApi {
   onAdapterDisabledWarning: (cb: (data: AdapterDisabledWarningData) => void) => () => void
   onLoginLog: (cb: (data: { message: string; type: string }) => void) => () => void
   listAccounts: () => Promise<AccountItem[]>
+  /** 新建账号档案（携带完整登录信息）；账号已存在时 success=false */
+  createAccount: (params: { accountName: string; user: string; password: string; operator: string }) => Promise<AccountResult>
   switchAccount: (accountName: string) => Promise<SwitchAccountResult>
   saveCurrentAsAccount: (accountName: string) => Promise<SaveAccountResult>
   deleteAccount: (accountName: string) => Promise<DeleteAccountResult>
@@ -176,6 +178,7 @@ const tauriApi: TauriApi = {
   onAdapterDisabledWarning: createEventListener<AdapterDisabledWarningData>('adapter-disabled-warning'),
   onLoginLog: createEventListener<{ message: string; type: string }>('login-log'),
   listAccounts: () => invoke<AccountItem[]>('list_accounts'),
+  createAccount: (params) => invoke<AccountResult>('create_account', { ...params }),
   switchAccount: (accountName) => invoke<SwitchAccountResult>('switch_account', { accountName }),
   saveCurrentAsAccount: (accountName) => invoke<SaveAccountResult>('save_current_as_account', { accountName }),
   deleteAccount: (accountName) => invoke<DeleteAccountResult>('delete_account', { accountName }),

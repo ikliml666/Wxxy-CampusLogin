@@ -19,8 +19,15 @@ export type BindStatuses = Record<'cmcc' | 'telecom' | 'unicom', OperatorBinding
  * config.user.trim()、初始化 effect 门=config.operator）逐行保留。
  *
  * user / operator / passwordSaved 由面板传入（面板自订阅 config）。
+ * credOverride：手动填写凭据（绑定弹窗"手动填写"分段，仅本次使用不保存）；
+ * 传入后绑定/查询/揭示/改密的凭据与就绪判定均改取手动值。
  */
-export function useOperatorBind(user: string, operator: string | undefined, passwordSaved: boolean) {
+export function useOperatorBind(
+  user: string,
+  operator: string | undefined,
+  passwordSaved: boolean,
+  credOverride?: { account: string; password: string } | null,
+) {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
   const mountedRef = useRef(true)
@@ -62,15 +69,22 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     }
   }, [operator])
 
-  // 绑定/查询命令凭据取登录信息：account=config.user、password 空串由后端
-  // resolve_self_password 回退已存登录密码；未保存登录密码（passwordSaved=false）时按钮禁用
-  const canBind = !!user
-    && passwordSaved
+  // 绑定/查询命令凭据默认取登录信息：account=config.user、password 空串由后端
+  // resolve_self_password 回退已存登录密码；未保存登录密码（passwordSaved=false）时按钮禁用。
+  // 手动填写模式改取手动输入（账号非空 + 密码非空）
+  const credReady = credOverride
+    ? credOverride.account.trim().length > 0 && credOverride.password.length > 0
+    : !!user && passwordSaved
+  // 实际发给后端的凭据（手动优先，缺省回退登录信息）
+  const credAccount = credOverride ? credOverride.account.trim() : user
+  const credPassword = credOverride ? credOverride.password : ''
+
+  const canBind = credReady
     && bindOp !== BIND_OPERATOR_NONE
     && /^1\d{10}$/.test(bindPhone.trim())
     && bindSms.trim().length > 0
 
-  const canQueryStatus = !!user && passwordSaved
+  const canQueryStatus = credReady
 
   // 绑定/查询/dashboard 共用的 Hello 验证门（实现见 selfServiceState.ts）：
   // 首次免验，之后需验证且一次通过全局共用
@@ -82,8 +96,8 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     setQueryingStatus(true)
     try {
       const result = await tauriApiWithRetry.getBindStatus({
-        account: user.trim(),
-        password: '',
+        account: credAccount.trim(),
+        password: credPassword,
       })
       if (!mountedRef.current) return
       if (result.success && result.data) {
@@ -102,7 +116,7 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     } finally {
       if (mountedRef.current) setQueryingStatus(false)
     }
-  }, [queryingStatus, ensureHelloVerified, user, addToast, t])
+  }, [queryingStatus, ensureHelloVerified, credAccount, credPassword, addToast, t])
 
   // 查看明文密码：与绑定/查询共用同一验证门（2026-09-06 用户要求：查询验证后
   // 查看不再二次验证）。ignoreToggle：明文特权操作在 Hello 总开关关闭时仍强制
@@ -117,8 +131,8 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     try {
       if (!(await ensureRevealVerified())) return
       const r = await tauriApiWithRetry.revealOperatorCredential({
-        account: user.trim(),
-        password: '',
+        account: credAccount.trim(),
+        password: credPassword,
         operator: opValue,
       })
       if (!mountedRef.current) return
@@ -132,7 +146,7 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     } catch (err) {
       if (mountedRef.current) addToast(extractErrorMessage(err) || t('onboarding.bindFailed'), 'error')
     }
-  }, [revealedOp, user, ensureRevealVerified, addToast, t])
+  }, [revealedOp, credAccount, credPassword, ensureRevealVerified, addToast, t])
 
   const handleBindOperator = useCallback(async () => {
     if (binding || !canBind) return
@@ -140,8 +154,8 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     setBinding(true)
     try {
       const result = await tauriApiWithRetry.bindOperator({
-        account: user.trim(),
-        password: '',
+        account: credAccount.trim(),
+        password: credPassword,
         operator: bindOp,
         phone: bindPhone.trim(),
         smsPassword: bindSms.trim(),
@@ -164,7 +178,7 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     } finally {
       if (mountedRef.current) setBinding(false)
     }
-  }, [binding, canBind, ensureHelloVerified, user, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
+  }, [binding, canBind, ensureHelloVerified, credAccount, credPassword, bindOp, bindPhone, bindSms, addToast, t, fetchBindStatus])
 
   // 修改密码弹窗（旧密码默认取已保存登录密码，后端 resolve 回退；弹窗可展开手动
   // 输入旧密码，用于密码已在别处改过而本地未同步的场景）：成功后把本地登录密码
@@ -175,7 +189,7 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
     try {
       if (!(await ensureHelloVerified())) return false
       const result = await tauriApiWithRetry.changeSelfPassword({
-        account: user,
+        account: credAccount,
         password: oldPassword,
         newPassword,
       })
@@ -196,7 +210,7 @@ export function useOperatorBind(user: string, operator: string | undefined, pass
       }
       return false
     }
-  }, [ensureHelloVerified, user, addToast, t])
+  }, [ensureHelloVerified, credAccount, addToast, t])
 
   return {
     bindOp, setBindOp, bindPhone, setBindPhone, bindSms, setBindSms,

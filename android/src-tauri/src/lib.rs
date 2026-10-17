@@ -88,6 +88,7 @@ pub fn run() {
             account_cmds::switch_account,
             account_cmds::rename_account,
             account_cmds::save_current_as_account,
+            account_cmds::create_account,
             account_cmds::delete_account,
             account_cmds::get_active_account,
             system_cmds::get_init_data,

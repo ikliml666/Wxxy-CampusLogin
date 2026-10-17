@@ -4,6 +4,12 @@ import type { PanelName } from '@/shared/ui-types'
 export interface AccountItem {
   id: string
   displayName: string
+  /** 档案内保存的学号（list_accounts 扩展字段；旧后端缺省时 UI 显示占位） */
+  user?: string
+  /** 档案内保存的运营商后缀（'' / '@telecom' 等） */
+  operator?: string
+  /** 档案内是否已保存密码（只显状态不显明文） */
+  passwordSaved?: boolean
 }
 
 export interface Config {

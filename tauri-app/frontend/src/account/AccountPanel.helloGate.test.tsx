@@ -75,17 +75,23 @@ async function renderPanel() {
 }
 
 // 凭据统一后绑定卡不再收集学号/自助服务密码：凭据取自登录信息
-// （storeState.config.user + passwordSaved=true），查询按钮直接可用
-async function fillBindCreds() {
-  /* 凭据来自登录信息，无需输入 */
+// （storeState.config.user + passwordSaved=true），查询按钮直接可用。
+// 绑定表单已移入弹窗B（点卡尾「绑定运营商」打开，Radix portal 挂 document.body），
+// 查询按钮在弹窗内，须从 body 查找。
+async function openBindDialog(container: HTMLElement) {
+  const openBtn = [...container.querySelectorAll('button')].find((b) =>
+    b.textContent?.includes('account.bindOperator'),
+  )!
+  await act(async () => { fireEvent.click(openBtn) })
 }
+const findQueryBtn = () =>
+  [...document.body.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusQuery'))!
 
 describe('AccountPanel Windows Hello 验证门', () => {
   it('首次查询即触发验证；通过后后续查询共用不再验证（与自助服务门独立）', async () => {
     const { container } = await renderPanel()
-    await fillBindCreds()
-    const queryBtn = () =>
-      [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusQuery'))!
+    await openBindDialog(container)
+    const queryBtn = findQueryBtn
 
     // 第一次：即触发验证
     verifyWindowsIdentity.mockResolvedValue({ success: true })
@@ -102,9 +108,8 @@ describe('AccountPanel Windows Hello 验证门', () => {
 
   it('查询验证通过后，查看明文密码不再二次验证（共用同一门）', async () => {
     const { container } = await renderPanel()
-    await fillBindCreds()
-    const queryBtn = () =>
-      [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusQuery'))!
+    await openBindDialog(container)
+    const queryBtn = findQueryBtn
 
     // 查询绑定状态：触发一次验证
     verifyWindowsIdentity.mockResolvedValue({ success: true })
@@ -126,9 +131,8 @@ describe('AccountPanel Windows Hello 验证门', () => {
 
   it('验证未通过时不执行操作，且下次仍需验证', async () => {
     const { container } = await renderPanel()
-    await fillBindCreds()
-    const queryBtn = () =>
-      [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusQuery'))!
+    await openBindDialog(container)
+    const queryBtn = findQueryBtn
 
     // 第一次：验证失败 → 不执行查询
     verifyWindowsIdentity.mockResolvedValue({ success: false, message: '身份验证未通过' })

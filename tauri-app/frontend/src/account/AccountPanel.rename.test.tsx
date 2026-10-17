@@ -110,8 +110,6 @@ describe('AccountPanel 账号列表（AccountItem）', () => {
     )
     expect(container.textContent).toContain('我的账号')
     expect(container.textContent).toContain('备用号')
-    // 头部"当前账号"显示 displayName 而非 id
-    expect(container.textContent).toContain('account.currentAccount')
     // 非激活账号有切换按钮，激活账号没有
     const switchBtns = [...container.querySelectorAll('button')].filter(
       (b) => b.getAttribute('aria-label') === 'account.switchAccount',
