@@ -10,7 +10,7 @@ tags: [决策, 版本号, 构建, 发布]
 
 ## Overview
 
-本模块确立了应用版本号的单一事实来源（Single Source of Truth）机制。`tauri.conf.json` 中的 `version` 字段是唯一的权威源；桌面端通过 `build.rs` 在编译期将其提取并注入为 Rust 环境变量 `APP_VERSION`，代码中统一使用 `env!("APP_VERSION")` 引用。安卓端通过 `Cargo.toml` 独立声明版本号，并通过 path 依赖共享桌面端的协议核心库。
+本模块确立了应用版本号的单一事实来源（Single Source of Truth）机制。`tauri-app/src-tauri/tauri.conf.json` 中的 `version` 字段是唯一的权威源；桌面端通过 `build.rs` 在编译期将其提取并注入为 Rust 环境变量 `APP_VERSION`，代码中统一使用 `env!("APP_VERSION")` 引用。安卓端通过 `android/src-tauri/Cargo.toml` 独立声明版本号，并通过 path 依赖共享桌面端的协议核心库。
 
 ## Key Components
 
@@ -18,8 +18,8 @@ tags: [决策, 版本号, 构建, 发布]
 - **Line 2**: `"version": "2.4.1"` — 版本号定义处，所有桌面端构建的版本号均源自此字符串。
 
 ### tauri-app/src-tauri/build.rs
-- **Line 5–39**: `main()` 函数 — 构建脚本入口。
-    - **Line 6**: `tauri_build::build();` — 调用 Tauri 原生构建逻辑。
+- **Line 3–39**: `main()` 函数 — 构建脚本入口。
+    - **Line 5**: `tauri_build::build();` — 调用 Tauri 原生构建逻辑。
     - **Line 17–30**: JSON 解析逻辑 — 手动遍历文件行，查找以 `"version"` 开头的行，提取冒号后的值并去除引号和逗号。这是获取版本号的核心算法。
     - **Line 33**: `println!("cargo:rerun-if-changed=tauri.conf.json");` — 依赖监听，仅当配置文件变化时触发重编译。
     - **Line 35**: `println!("cargo:rustc-env=APP_VERSION={version}");` — 将提取的版本号注入 Rust 编译环境变量。
