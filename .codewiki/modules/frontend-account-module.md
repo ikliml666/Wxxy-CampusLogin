@@ -14,7 +14,7 @@ tags: [account, ui, self-service, validation, biometric]
 ---
 
 ## Overview
-`frontend-account-module` 负责 Android/Tauri 应用中的用户账户管理、自助服务面板及在线状态展示。核心功能包括：多账号切换与管理（增删改查）、登录凭据（用户名/密码）的安全存储与编辑、运营商绑定（ISP Binding）、校园网密码修改，以及在线设备的堆叠式交互展示。
+`frontend-account-module` 负责 Android/Tauri 应用中的用户账户管理、自助服务面板及在线状态展示。核心功能包括：多账号切换与管理（增删改查）、登录凭据的安全存储与编辑、运营商绑定（ISP Binding）、校园网密码修改，以及在线设备的堆叠式交互展示。
 
 该模块采用 Zustand 进行状态管理，利用自定义 Hooks (`useOperatorBind`, `useHelloGate`) 处理复杂的业务逻辑与安全验证。UI 层通过 `AnimatedCard` 和自定义堆叠组件 (`OnlineDeviceStack`) 提供流畅的移动端体验。
 

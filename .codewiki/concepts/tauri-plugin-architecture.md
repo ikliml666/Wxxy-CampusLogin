@@ -1,6 +1,6 @@
 ---
-type: concept
 title: tauri-plugin-architecture
+type: concept
 source_files:
   - android/frontend/src/hooks/tauriApi.ts
   - android/frontend/src/network/useDnsSetup.ts
@@ -28,82 +28,127 @@ tags: [Tauri, IPC, Plugin, Android, Architecture]
 ## Key Components
 
 ### Frontend Hooks & Store (`android/frontend/src/hooks/tauriApi.ts`)
-- **`desktopOnly<T>(name)`**: 返回 `Promise.reject`，用于适配器/DHCP/DNS/窗口等安卓无对应物的功能。
-- **`noopListener`**: 返回 no-op 清理函数，用于安卓无对应的事件订阅（如 `onAdaptersChanged`）。
-- **`TauriApi` 接口**: 定义全部 IPC 方法签名。
-- **`verifyWindowsIdentity`**: **核心验证门逻辑**。统一出口：先检查 `shouldUseFaceFallback()`，若开启且系统生物识别不可用（国产平板 Class 1），则走应用内 2D 人脸比对 (`useFaceDialogStore`)；否则走系统 `biometricAuthenticate`。无论哪条链路，最终都调用后端 `verify_biometric_identity` 上报 `{success, method}`。失败归一化为 `CommandResult` 而非抛出 IPC 异常。
-- **`openExternal`**: URL 安全校验（协议白名单、长度<2048、`new URL` 解析），通过 `openerOpenUrl` 打开。
-- **`isRetryableError`**: 判断错误是否可重试（包含 'timeout/network/fetch/connection'）。
-- **`withRetry`**: 指数退避重试（基础 500ms，最大 2 次）。
-- **`tauriApiWithRetry`**: 仅对 `saveConfig` 启用重试（一次性关键操作）；其他高频接口由业务层或后端事件流兜底。
+- **`desktopOnly<T>(name)`**: 返回被拒绝的 Promise，用于安卓端无对应物的桌面功能（如 DHCP、DNS、窗口管理）。
+- **`noopListener()`**: 返回空操作清理函数，用于安卓端不支持的事件订阅。
+- **`createEventListener<T>(eventName)`**: 事件监听工厂。处理 `listen` 异步初始化过程中的取消逻辑，防止内存泄漏或未触发回调。
+- **`isRetryableError(e)`**: 判断错误是否可重试（包含 'timeout', 'network', 'fetch', 'connection'）。
+- **`withRetry(fn, maxRetries=2, baseDelay=500)`**: 指数退避重试逻辑。仅 `saveConfig` 使用此包装器 (`tauriApiWithRetry`)，其他高频接口（如 `checkPortalStatus`）由业务层自行控制频率。
+- **`export interface TauriApi`**: 定义所有 IPC 方法签名。
+    - **配置类**: `getConfig`, `saveConfig`, `getInitData`.
+    - **网络类**: `bindToWifi`, `checkPortalStatus`, `checkCampusStatus`, `dhcpRenewAll` (桌面专属), `checkNetworkQuality`.
+    - **认证/生物识别**: `doLogin`, `doLogout`, `verifyWindowsIdentity`.
+        - *关键实现*: `verifyWindowsIdentity`。统一出口：若启用人脸回退 (`shouldUseFaceFallback`) 且系统生物识别不可用，则调用 `useFaceDialogStore` 进行 2D 人脸验证；否则走系统 `biometricAuthenticate`。无论成功失败，均通过 `invoke('verify_biometric_identity')` 上报结果 `{success, method}`，失败归一化为 `{success: false}` 而非抛出异常。
+    - **账号类**: `listAccounts`, `createAccount`, `switchAccount`, `deleteAccount`, `renameAccount`, `getActiveAccount`.
+    - **后台检测/延迟测试**: `startBackgroundCheck`, `stopBackgroundCheck`, `triggerBackgroundCheck`, `startLatencyTest`, `stopLatencyTest`.
+    - **更新类**: `checkUpdate`, `downloadUpdate`, `installUpdate`, `getMirrorUrls`.
+    - **系统设置类**: `getAutoLaunch`, `setAutoLaunch`, `getBatteryOptimizationInfo`, `requestIgnoreBatteryOptimizations`, `openVendorBatterySettings`, `getAvoidBadWifiStatus`, `restoreWrittenSettings`.
+- **`export const tauriApiWithRetry`**: 扩展自 `tauriApi`，仅重写 `saveConfig` 增加重试逻辑。
+- **`export interface AvoidBadWifiStatus`**: 包含 `granted` (WRITE_SECURE_SETTINGS 权限), `avoidBadWifi` 值, `pendingRestoreAvoid/Captive` 快照状态。
+- **`export interface RestoreWrittenSettingsResult`**: 包含 `restored` 记录及可选 `reason`。
 
 ### Network Module (`android/frontend/src/network/useDnsSetup.ts`)
-- **`ALI_DNS`**: 阿里公共 DNS (`223.5.5.5`, `223.6.6.6` 等)。
-- **`RECOMMENDED_DNS`**: 阿里 + 腾讯 DNSPod 集合，用于判定“是否推荐 DNS / DoH 是否已启用”。
-- **`handleCheckDns`**: 调用 `checkDnsDohStatus`，若未使用推荐 DNS 或推荐 DNS 但未启用 DoH，记录 warning toast。
-- **`handleSetupDnsDoh`**: 调用 `setupDnsDoh(dnsFamily)`，成功后独立捕获刷新状态（避免外层 catch 重复报错），失败记录 error toast。
+- **`ALI_DNS`**: 阿里 DNS IP 集合。
+- **`TENCENT_DNS`**: 腾讯 DNS Pod IP 集合。
+- **`RECOMMENDED_DNS`**: 合并后的推荐 DNS 集合，用于判定“是否推荐 DNS”及“DoH 是否已启用”。
+- **`export function useDnsSetup()`**:
+    - 状态: `dohEnabling` (忙锁), `dnsFamily` ('both' | 'ipv4' | 'ipv6').
+    - `handleCheckDns`: 调用 `ipc.checkDnsDohStatus()`。若未配置推荐 DNS，添加警告日志；若配置了但未启用 DoH，添加警告日志。
+    - `handleSetupDnsDoh`: 调用 `ipc.setupDnsDoh(dnsFamily)`。成功后立即刷新状态并 toast 成功；失败或异常 toast 错误。使用 `mountedRef` 防止 StrictMode 下的状态更新丢弃。
 
 ### Auth & Dashboard (`android/frontend/src/auth/DashboardPanel.tsx`)
-- **`DashboardPanelProps`**: 含 `excludeCards`（排除 Windows 专属卡）、`mergeSelfServiceEmpty`（无凭据时合并 selfOnline/selfLog 为空态卡）、`extraCards`（宿主自定义卡片）。
-- **`ExtraCardDef`**: 自定义卡片定义，含 `render` 函数。
-- **`ALL_CARDS`**: 内置卡片列表 (`quickActions`, `accountManage`, `selfOnline`, `selfLog`, `networkQuality`)。
-- **`DEFAULT_LAYOUT`**: 默认顺序。
-- **`QuickActionsCard`**: DHCP 续租与换 IP 按钮，网络质量差时触发危险光晕动画。
-- **`AccountManageCard`**: 账号切换列表，当前账号高亮，切换时显示 loading 状态。
-- **`NetworkQualityCard`**: 显示网关/外网延迟，支持手动刷新。
-- **`SelfOnlineCard`**: 在线设备概览。数据每 60s 轮询以处理设备踢下线。支持掩码/查看切换（需通过 `useHelloGate` 验证门）。支持设备别名编辑与单设备注销。
-- **`SelfLogCard`**: 近期上网记录，最多展示 5 条。同样支持掩码/查看切换。
-- **`SelfServiceMergedEmptyCard`**: 移动端无凭据时的合并空态卡。
-- **`EditableCardItem`**: 编辑模式下的单卡容器，实现自研长按拖动交换（350ms 激活，touchmove 防滚动接管，vibrate 反馈）。
-- **`DashboardPanel`**: 主容器。管理卡片布局持久化（`safeStorage`）、黑名单（`EXTRA_REMOVED_KEY`）、可用卡片过滤、渲染逻辑。
+- **`type CardId`**: 内置卡 ID 或自定义卡 ID。
+- **`interface ExtraCardDef`**: 宿主注入的自定义卡片定义，含 `render` 函数。
+- **`ALL_CARDS`**: 内置卡片列表：`quickActions`, `accountManage`, `selfOnline`, `selfLog`, `networkQuality`.
+- **`DEFAULT_LAYOUT`**: 默认布局顺序。
+- **`EXTRA_REMOVED_KEY`**: localStorage key，记录用户显式删除的自定义卡 ID，防止迁移时复活。
+- **`LONG_PRESS_MS`**: 编辑模式下激活拖拽的长按时间 (350ms)。
+- **`DashboardPanelProps`**: 包含 `accounts`, `activeAccount`, `onSwitchAccount`, `onDhcpRenew`, `excludeCards` (移动端排除某些卡), `mergeSelfServiceEmpty` (移动端合并空态卡).
+- **`QuickActionsCard`**: DHCP 续租与释放重获按钮。使用 `useAsyncLock` 防止重复点击。
+- **`AccountManageCard`**: 账号切换列表。使用 `switchTimerRef` 和 `mountedRef` 处理切换状态显示。
+- **`NetworkQualityCard`**: 展示网络质量指标与延迟对。
+- **`useSelfCardReveal`**: 自助服务卡的数据揭示 Hook。依赖 `useHelloGate` 进行生物识别验证，验证通过后解锁敏感数据（IP/MAC等）。
+- **`useSelfCardFetch`**: 自助服务卡数据获取 Hook。自动根据 account 变化发起请求，支持手动 refetch。
+- **`SelfOnlineCard`**: 当前在线设备列表。
+    - 数据源：`tauriApiWithRetry.querySelfDashboard`。
+    - 轮询：凭据齐备时每 60s 自动刷新一次 (`useEffect`)。
+    - 交互：支持设备别名修改 (`handleSaveAlias`) 和单设备注销 (`handleOffline`)。
+    - 渲染：平板使用 `OnlineDeviceStackH`，手机使用 `OnlineDeviceStack`。
+- **`SelfLogCard`**: 近期上网记录。限制显示最近 5 条 (`SELF_LOG_LIMIT = 5`)。
+- **`SelfServiceMergedEmptyCard`**: 移动端无凭据时的合并空态提示卡。
+- **`EditableCardItem`**: 编辑模式下的单个卡片容器。实现自定义长按拖拽手势（非 framer-motion drag），支持 `onSwap` (交换位置) 和 `onRemove` (删除)。
+- **`DashboardPanel`**: 主组件。
+    - 布局持久化：从 `safeStorage` 加载/保存布局。
+    - 编辑模式：允许添加/删除/排序卡片。
+    - 条件渲染：根据 `config.enableNetworkQuality` 隐藏质量卡；根据 `mergeSelfServiceEmpty` 合并自助服务空态卡。
 
 ### Auth Hook (`android/frontend/src/auth/useAuth.ts`)
-- **`handleOpenPortal`**: 打开 Portal 页（默认 `http://10.1.99.100`）。
-- **`handleOpenSelfService`**: 打开自助服务页（`http://10.1.80.200:8080/Self/login/?302=LI`）。
+- **`useAuth()`**:
+    - 从 `useAuthStore` 获取登录/登出/检查在线状态。
+    - `handleOpenPortal`: 打开门户 URL (默认 `http://10.1.99.100`)。
+    - `handleOpenSelfService`: 打开自助服务页面 (`http://10.1.80.200:8080/Self/login/?302=LI`)。
 
 ### Account Stack (`android/frontend/src/account/SelfOnlineStack.tsx`)
-- **`PEEK_TOP/BOTTOM`**: 露出边高度 44px。
-- **`DRAG_THRESHOLD`**: 60px 翻页阈值。
-- **`V_SIDE_SCALE`**: 竖排侧卡缩放 0.75。
-- **`SIDE_SCALE/SIDE_SCALE_2`**: 水平侧卡缩放 0.6/0.45。
-- **`CF_X`**: 相邻/次邻横向偏移 60%/85%。
-- **`NARROW_MIN_W`**: 窄屏最小宽度 213px。
-- **`OnlineDeviceStack`**: 垂直堆叠。整副牌连续滚动，当前卡居中，上下露出边缩小压暗。支持指针拖拽与点击分区换页。
-- **`OnlineDeviceStackCard`**: 单张设备卡内容。显示登录时间、IP/MAC 芯片、流量/时长、别名标签、注销按钮。
-- **`OnlineDeviceStackH`**: 水平堆叠。机制同垂直，但方向为左右。支持 `coverflow` 与 `narrow` 变体。
+- **`PEEK_TOP/BOTTOM`**: 露出边高度 (44px)。
+- **`DRAG_THRESHOLD`**: 拖拽翻页阈值 (60px)。
+- **`V_SIDE_SCALE`**: 竖排侧卡缩放比例 (0.75)。
+- **`CF_X`**: 水平堆叠相邻/次邻偏移百分比。
+- **`SIDE_SCALE/SIDE_SCALE_2`**: 水平堆叠侧卡缩放比例 (0.6 / 0.45)。
+- **`NARROW_MIN_W`**: 窄版变体最小宽度 (213px)。
+- **`OnlineDeviceStack`**: 垂直堆叠。
+    - 手势：上下拖拽翻页，点击上下半区翻页。
+    - 动画：整副牌连续滚动，当前卡居中清晰，侧卡缩小压暗。
+    - 量高：使用 `ResizeObserver` 动态计算舞台高度。
+- **`OnlineDeviceStackCard`**: 单张设备卡片内容。展示登录时间、IP、MAC、流量、时长、终端类型、别名。支持改名和注销按钮。
+- **`OnlineDeviceStackH`**: 水平堆叠（平板/桌面）。
+    - 手势：左右拖拽翻页，点击左右半区翻页。
+    - 变体：支持 `coverflow` 和 `narrow` (窄版，用于账号管理场景)。
+    - 定位：`narrow` 模式下使用 `left: 50%` + `translateX` 居中，配合 `min-width`。
 
 ### Self Service State (`android/frontend/src/account/selfServiceState.ts`)
-- **`helloEnabled()`**: 读取 `config.selfHelloEnabled !== false`，缺失视为开启。
-- **`BIOMETRIC_ERROR_KEY`**: 映射错误码到 i18n key，包括 `userCancel`, `systemCancel`, `biometryNotEnrolled`, `faceTimeout` 等。
-- **`biometricFailMessage(err, t)`**: 根据错误码返回翻译后的失败消息，否则回退原始消息或默认文案。
-- **`VERIFY_TTL_MS = 570_000`**: 验证有效期 570s，对齐后端 600s TTL，留 30s 余量。
-- **`gateFresh(verifiedAt)`**: 判定门是否新鲜（TTL 内且时钟未回拨 `elapsed >= 0`）。
-- **`useHelloGate(options?)`**: Hook，返回验证函数。支持 `ignoreToggle: true`（强制验证，无视总开关）。首次操作验证，成功后缓存 `helloGateVerifiedAt`。
-- **`resetSelfSessionGate()`**: 重置自助服务会话门。
-- **`useSelfServiceVerify()`**: 自助服务面板专用验证门。支持 `selfReverifyEachAction` 配置（每次操作都验证）。
+- **`VERIFY_TTL_MS = 570_000`**：验证有效期 9.5 分钟，对齐后端 `IDENTITY_VERIFY_TTL_SECS=600s` 并留 30s 余量。
+- **`BIOMETRIC_ERROR_KEY`**：映射错误码到 i18n key，涵盖 `userCancel`, `biometryNotEnrolled`, `faceTimeout` 等。
+- **`helloEnabled()`**：读取 `config.selfHelloEnabled`，缺失视为 `true`（兼容旧配置）。
+- **`biometricFailMessage(err, t)`**：解析错误对象中的 `code` 字段，返回翻译后的错误文案或原始消息。
+- **`gateFresh(verifiedAt)`**：判定门是否新鲜。检查 `elapsed >= 0 && elapsed < VERIFY_TTL_MS`，防止时钟回拨导致死锁。
+- **`useHelloGate(options?)`**：Hook。返回异步验证函数。
+    - 若 `ignoreToggle: true`（如查看明文密码），强制绕过总开关进行真实验证。
+    - 若门新鲜则直接返回 `true`。
+    - 调用 `tauriApiWithRetry.verifyWindowsIdentity`，成功则更新 `helloGateVerifiedAt = Date.now()`。
+- **`resetSelfSessionGate()`**：重置自助服务面板的验证状态（面板卸载时调用）。
+- **`useSelfServiceVerify()`**：Hook。用于自助服务面板内操作前的验证。支持 `config.selfReverifyEachAction` 配置，若为 `true` 则每次操作都验证，否则复用 TTL 内的验证结果。
 
 ### Settings Panel (`android/frontend/src/settings/SettingsPanel.tsx`)
-- **`isAndroid`**: 区分平台，仅安卓渲染保活卡片。
-- **`handleSecurityDisable`**: 关闭安全开关前需通过 Windows Hello 验证。使用 `tauriApiWithRetry.verifyWindowsIdentity`。
-- **安全设置**:
-    - `selfHelloEnabled`: 切换需验证（关闭时）。
-    - `selfReverifyEachAction`: 依赖 `selfHelloEnabled`，关闭时需验证。
-    - `allow2dFaceVerify`: 开启前弹风险确认弹窗 (`ConfirmDialog`)；关闭时清除人脸模板 (`clearTemplate()`)。
-- **网络质量检测**:
-    - 关闭 `enableNetworkQuality` 时联动关闭 `enableLatencyTest` 并清理面板引用。
-    - 打开延迟计算选项 Modal (`latencyModalOpen`)，包含 `skipTtfbInLatency` 和 `skipContentInLatency` 开关。
-- **自订阅 config**: 使用 `useConfigStore(useShallow(...))` 避免不必要的重渲染。
+- **平台差异**：`isAndroid = import.meta.env.VITE_PLATFORM === 'android'`，仅安卓渲染 `KeepAliveSettingsCard` 及特定安全开关。
+- **状态管理**：使用 `useConfigStore(useShallow(...))` 订阅配置，避免非相关字段变化导致的级联重渲染。
+- **安全控制逻辑**：
+    - `handleSecurityDisable(apply)`：关闭安全开关（如 `selfHelloEnabled`）时，强制调用 `verifyWindowsIdentity`。失败则保持原状态（Switch 受控回弹）。
+    - `selfReverify` 开关：依赖 `selfHelloEnabled`，若 Hello 关闭则禁用该开关。
+- **2D 人脸逻辑**：
+    - 开启时需弹出 `ConfirmDialog` (`faceRiskConfirmOpen`) 告知风险。
+    - 关闭时调用 `clearTemplate()` 清除本地人脸模板，并更新配置。
+    - 显示录入状态按钮，调用 `openFaceDialog('enroll')`。
+- **网络质量检测联动**：
+    - 关闭 `enableNetworkQuality` 时，联动关闭 `enableLatencyTest`（若开启），停止后端测试任务 (`stopLatencyTest`)。
+    - 若当前活跃面板为 `quality`，切换回 `dashboard`，并清空 `defaultPanel`。
+- **UI 结构**：响应式两列布局（`md:grid-cols-2`），左侧为启动/自动化/保活，右侧为安全/引导。底部有看板娘装饰图。
 
 ### Onboarding Flow (`android/frontend/src/settings/useOnboardingFlow.ts`)
-- **`ONBOARDING_STEP_COUNT = 4`**
-- **`BIND_OPERATOR_NONE = '__none__'`**
-- **`DEFAULT_OPERATOR = '__default__'`**
-- **`BIND_SUCCESS_ADVANCE_MS = 1200`**, **`LOGIN_SUCCESS_ADVANCE_MS = 1500`**
-- **`handleNext(step=1)`**: 落盘账号信息（用户名、运营商、密码），避免空密码覆盖已保存值。
-- **`handleBind`**: 绑定运营商账号。先通过 `ensureBindHello()` 验证，再调用 `tauriApiWithRetry.bindOperator`。凭据复用账号步输入。
-- **`handleLoginAndFinish`**: 最终校验账号完整性，执行登录，成功后设置标记并关闭向导。
-- **`canBind`**: 校验绑定表单完整性（用户名、密码/掩码、运营商、手机号格式、短信密码）。
-- **`passwordSaved`**: 判断密码是否已保存（用于显示掩码或占位符）。
+- **常量**：
+    - `ONBOARDING_STEP_COUNT = 4`。
+    - `BIND_OPERATOR_NONE = '__none__'`, `DEFAULT_OPERATOR = '__default__'`。
+    - `BIND_SUCCESS_ADVANCE_MS = 1200`, `LOGIN_SUCCESS_ADVANCE_MS = 1500`。
+- **状态机**：
+    - `step`: 0 (欢迎) → 1 (账号) → 2 (绑定运营商) → 3 (完成)。
+    - `direction`: 记录步骤前进/后退方向，用于动画。
+- **关键 Hook/函数**：
+    - `useOnboardingFlow(options)`：主 Hook。
+    - `ensureBindHello`：绑定步骤专用的 Hello 验证门，复用 `useHelloGate`。
+    - `handleBind`：执行运营商绑定。校验凭据完整性 (`canBind`)，调用 `tauriApiWithRetry.bindOperator`。成功后延迟进入下一步。
+    - `handleNext`：账号步骤保存逻辑。仅当输入新密码时才更新 `password` 字段，避免覆盖已保存的掩码密码。
+    - `handleLoginAndFinish`：最终登录。重新校验账号密码存在性，调用 `onLogin()`。成功后标记 `campus-onboarding-done` 并关闭向导。
+- **边界条件**：
+    - 密码处理：区分明文输入与后端掩码态 (`PASSWORD_MASK`)。
+    - 定时器清理：在 `useEffect` cleanup 中清除 `bindTimerRef` 和 `finishTimerRef`。
 
 ### Keystore Plugin (`android/plugins/keystore/...`)
 - **`KEY_ALIAS = "campus_login_master"`** (`KeystorePlugin.kt`): 密钥别名。
