@@ -33,7 +33,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 - `pub use super::background_task::start_background_check_inner;` — `monitor/watcher.rs:14`。
 - `pub use super::campus_check::check_campus_network;` — `monitor/watcher.rs:16`（`auto_auth.rs:302` 就是经此路径调用的）。
 - `pub use super::background_emit::{adapter_status_entry, adapter_disabled_entry, adapter_disconnected_entry};` — `monitor/watcher.rs:17`。
-- `pub fn run_startup_tasks(app_handle: &AppHandle) -> ()` — `monitor/watcher.rs:19-76`，启动期唯一入口，注册五个跟踪任务：
+- `pub fn run_startup_tasks(app_handle: &AppHandle)` — `monitor/watcher.rs:19-76`，启动期唯一入口，注册五个跟踪任务：
 
 | 条件 | 任务名 | 动作 | 位置 |
 |---|---|---|---|
@@ -154,6 +154,17 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 - `const SPIKE_CONFIRM_COUNT: usize = 2;` — `monitor/quality_scheduler.rs:12`；`const SPIKE_CONFIRM_INTERVAL_SECS: u64 = 15;` — `:13`。
 - `async fn perform_quality_check(app_handle, adapter_name, adapter_ip) -> Option<serde_json::Value>` — `monitor/quality_scheduler.rs:17-39`（私有）：读 `skip_ttfb_in_latency`/`skip_content_in_latency`/`fixed_gateway`，抢 `is_quality_checking` 信号量（抢不到返回 `None`），调 `check_network_quality_async(adapter_name, adapter_ip, skip_ttfb, skip_content, &fixed_gateway, exit.is_quitting, Some(app_handle))`，序列化失败返回 `None`，随后 `emit_network_quality_result`。
 - `pub(super) async fn run_quality_check(app_handle, adapter_name, adapter_ip, cancel: Option<&CancellationToken>)` — `monitor/quality_scheduler.rs:47-111`，模块唯一对外入口（`latency.rs:98` 调用）。逻辑：取消预检（`:50-52`）→ 首测（`:53-55`）→ 取 `quality` 字段（缺省 `"unknown"`）与 `last_network_quality` → `classify_quality_change`；命中 `"bad"` 时进入复核：最多 `SPIKE_CONFIRM_COUNT`（2）次、每次先等 `SPIKE_CONFIRM_INTERVAL_SECS`（15 秒，可被 cancel 打断，`:66-75`），再 `perform_quality_check`；任一非 bad 或复核失败（`None`）即 `confirmed = false` 并 break（`:84-95`）；`confirmed` 才 `notify_quality_change(app_handle, "bad")`（`:97-99`），最后用 `record` 更新档位（`:100-102`）。非 bad 分支：`Some(k)` 时直接通知，并记录当前档位（`:104-109`）。
+
+### 夜间出站切换动作层（`monitor/outbound_switch.rs`）
+
+- `pub(super) fn is_campus_adapter(ip, gateway, campus_gateway, portal_host, gateway_probe)` — `monitor/outbound_switch.rs:20-43`，三重判定：IP 为空则 false；`/18` 同段匹配则 true；绑源探测（`gateway_probe` 闭包）若可达则 true（容忍单次丢包，探测两次）；否则 false。
+- `pub(super) fn portal_probe_host(portal_url)` — `monitor/outbound_switch.rs:45-58`，从 URL 提取私网 IPv4 主机名，用于绑源探测。
+- `pub(super) fn effective_outbound_priority(priority, details)` — `monitor/outbound_switch.rs:60-73`，用户已排序透传；未排序则无线卡优先（保序），有线卡随后（保序）。
+- `pub(super) fn select_outbound_candidate(priority, details, ...)` — `monitor/outbound_switch.rs:75-103`，按优先级遍历，跳过校园网卡、无 IP 卡、网关不可达卡，返回第一张可用非校园卡。
+- `pub(super) fn snapshot_json(guid, rows)` — `monitor/outbound_switch.rs:105-118`，序列化接口跃点快照 (`{guid, family, automatic, metric}`)。
+- `pub(super) fn disabled_adapters_json(rows)` / `parse_disabled_adapters(json)` — `monitor/outbound_switch.rs:120-133` / `:135-163`，序列化/解析待禁用校园卡名单。
+- `pub(super) fn standby_cleanup_decision(same_key_metrics, standby_metric, rows_outside_exact)` — `monitor/outbound_switch.rs:165-193`，判定历史兜底路由是否可安全删除。若存在且是唯一默认路由 → `LastDefaultPath` (保留)；若存在且有其他默认路由 → `Safe` (删除)；若不存在或非本应用创建 → `AlreadyGone`/`ForeignRowKept`。
+- `pub(super) fn select_campus_to_disable(priority, details, ...)` — `monitor/outbound_switch.rs:195-223`，选出需禁用的校园网卡。过滤：目标卡、非校园卡、无 IP 卡、总线不可判定卡 (`bus_guard`)。去重：同名卡只取第一张。
 
 ### `#[cfg(test)]` 测试辅助项
 

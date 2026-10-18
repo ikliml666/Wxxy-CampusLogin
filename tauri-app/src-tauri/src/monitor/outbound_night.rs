@@ -383,7 +383,7 @@ fn write_outbound_metric(
 /// - 原「兜底默认路由」第三步已于 2026-10-18 事故后彻底删除：它与目标卡自己的 DHCP
 ///   默认路由共享「下一跳+接口」、只差跃点，Windows 判重不看跃点 → 加不上（每夜重放），
 ///   而删除同样不看跃点 → 会误删用户自己的默认路由（WLAN 直接断网）。详见
-///   `platform/route_table` 模块注释与 `.codewiki/learnings/` 对应文章。
+///   `platform/route_table` 模块注释与 `.codewiki/decisions/night-outbound-switch`。
 /// - 禁用名单只跳过总线类型无法判定的卡（USB 卡 2026-10 起纳入禁用：用户确认
 ///   其 USB 副卡应参与，运行期 disable/enable 对称性已实证）。
 /// - 切换完成后路由级验证（GetBestRoute）：到校园网关的最优路由仍指向校园卡
@@ -601,6 +601,15 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
     if !switch_gate_open() {
         return;
     }
+    // 与手动入口/还原互斥：重放会写 metric=1 并禁用校园卡，若与还原并发，最坏是
+    // 还原清完快照后重放又把跃点写回 1（无快照可还原的静默丢失）。拿不到闸就记一次
+    // 切换失败：启动对账这一发失败计数为 0，不记则 needs_replay 永假、这一发被静默
+    // 丢掉；记了它就是一次普通失败，退避窗后由循环补做。
+    let Some(_busy) = OutboundActionGuard::try_acquire() else {
+        mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+        crate::log_debug!("outbound", "夜间出站切换: 另有出站动作进行中，本次重放顺延");
+        return;
+    };
     let mut any_fail = false;
     // —— 分支①：跃点补写 ——
     let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
@@ -686,6 +695,11 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
 /// 名单快照损坏时无从复核，返回（损坏由还原路径告警）。
 /// 返回值恒为 Ok(())，仅为适配 [`run_outbound_blocking`] 的 `fn` 指针签名。
 pub(super) fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
+    // 同 replay：看门狗会重新禁用校园卡，与还原/手动切换并发会打乱快照状态。
+    // 每拍都会再调，拿不到闸直接跳过一次即可。
+    let Some(_busy) = OutboundActionGuard::try_acquire() else {
+        return Ok(());
+    };
     if !config.enable_night_outbound_switch
         || !outbound_restore_active(
             &config.outbound_metric_restore,
@@ -1330,6 +1344,23 @@ mod tests {
         assert_eq!(rows[0].family, 2);
         assert!(rows[0].automatic);
         assert_eq!(rows[0].metric, 55);
+    }
+
+    /// 单飞闸：同一时刻只放一个出站动作（切换/还原/重放/看门狗共用一把），
+    /// RAII 释放后立即可再取——防「还原清快照后重放又写回 metric=1」的并发静默丢失。
+    #[test]
+    fn 单飞闸_同一时刻只放一个出站动作_释放后可再取() {
+        let first = OutboundActionGuard::try_acquire();
+        assert!(first.is_some(), "首次获取应成功");
+        assert!(
+            OutboundActionGuard::try_acquire().is_none(),
+            "占用期间第二次获取应失败（互斥）"
+        );
+        drop(first);
+        assert!(
+            OutboundActionGuard::try_acquire().is_some(),
+            "释放后应可再次获取"
+        );
     }
 
     /// 单条目快照（与 monitor::outbound_switch::snapshot_json 的同构输出）
