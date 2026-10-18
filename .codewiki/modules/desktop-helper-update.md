@@ -10,7 +10,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
 
 ## Overview
 
-本模块文档覆盖两块桌面端能力：**helper**（`tauri-app/src-tauri/src/helper/mod.rs`）——以管理员身份重启自身执行"改 MAC""设 DNS+DoH""改接口跃点（metric）"的提权子进程入口，负责参数解析、执行、原子落结果文件；**update**（`tauri-app/src-tauri/src/update/mod.rs` + `tauri-app/src-tauri/src/update/updater.rs`）——版本比较、多源 version.json 拉取、Release 资产探测、SHA256 多源校验、24h 周期自检循环与临时目录清理。
+本模块文档覆盖两块桌面端能力：**helper**（`tauri-app/src-tauri/src/helper/mod.rs`）——以管理员身份重启自身执行“改 MAC”“设 DNS+DoH”“改接口跃点（metric）”“路由清理”等提权操作的子进程入口，负责参数解析、执行、原子落结果文件；**update**（`tauri-app/src-tauri/src/update/mod.rs` + `tauri-app/src-tauri/src/update/updater.rs`）——版本比较、多源 `version.json` 拉取、Release 资产探测、SHA256 多源校验、24h 周期自检循环与临时目录清理。
 
 两者都在 `lib.rs:15-20` 以 `#[cfg(desktop)]` 门控，**安卓 target 完全不编译**（安卓有独立的 `android/src-tauri/src/update_cmds.rs` 与 `monitor_loop.rs`，`android/src-tauri/Cargo.toml:34` 以 path 依赖 `campus-login` crate 时只会拿到跨平台协议核心）。helper 额外在桌面二进制入口 `main.rs:13` 声明，并在 `main.rs:30-39` **早于 Tauri Builder、单实例、托盘装配**拦截 `--helper` 参数。
 
@@ -24,26 +24,27 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
 - `pub fn helper_results_dir() -> PathBuf` — `helper/mod.rs:67-69`。结果文件固定目录：`proxy_base_dir().join("results")`。
 - `pub fn helper_requests_dir() -> PathBuf` — `helper/mod.rs:72-74`。请求文件目录：`proxy_base_dir().join("requests")`。
 - `pub fn resolve_result_path(name: &str) -> Result<PathBuf, String>` — `helper/mod.rs:82-93`。校验结果文件名并拼接到固定结果目录。只接受纯文件名（拒绝路径分隔符、`..`、空串、`.` 开头、非 ASCII 字母数字/`-_`），杜绝请求方把 SYSTEM 写重定向到任意路径。
-- `pub struct HelperResult` — `helper/mod.rs:96-106`，`#[derive(Debug, Clone, Serialize)]`（**无** `camelCase` 重命名）。
-- `pub enum HelperOp` — `helper/mod.rs:109-135`，`#[derive(Debug, Clone, PartialEq)]`，9 个变体：`Dns { targets, family }`、`ClearDns { targets }`、`Mac { guid, mac_no_dash }`、`EnableAdapter { name }`、`DisableAdapter { name }`、`EnableDevice { instance_id }`、`SetMetric { rows }`、`RouteAdd { rows }`、`RouteDelete { rows }`、`RegisterTaskProxy`、`SelfCheck`；后九个（含 `SetMetric`/`Route*`/`EnableAdapter`/`DisableAdapter`/`EnableDevice`/`RegisterTaskProxy`）带 `#[cfg(target_os = "windows")]`。
-- `fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String>` — `helper/mod.rs:138-199`（私有）。命令行 `--helper` 与计划任务请求 JSON 共用：先扫描出位置参数与 `--family <v>`（`--family` 缺值 → `Err`，默认 `"both"`，`:141-152`），再按 op 名分派（`:153-195`）：`dns` / `clear_dns` / `mac`（位置参数 0=GUID、1=MAC，任一缺失 → `Err`，`:156-166`）/ `enable_adapter`（`:168-174`）/ `disable_adapter`（`:176-182`）/ `enable_device`（`:184-190`）/ `route_add` / `route_delete`（`:192-193`）/ `set_metric`（rows = 全部位置参数，`:194`）/ `register_task` / `selfcheck`；其他 → `Err("未知 helper 操作: {other}")`（`:198`）。
+- `pub struct HelperResult` — `helper/mod.rs:96-106`，`#[derive(Debug, Clone, Serialize)]`（**无** `camelCase` 重命名）。字段：`success: bool`、`message: String`、`op: String`、`logs: Vec<String>`（空时跳过序列化）、`details: Option<serde_json::Value>`（None 时跳过序列化）。
+- `pub enum HelperOp` — `helper/mod.rs:109-135`，`#[derive(Debug, Clone, PartialEq)]`，变体：`Dns { targets: Vec<String>, family: String }`、`ClearDns { targets: Vec<String> }`、`Mac { guid: String, mac_no_dash: String }`、`EnableAdapter { name: String }`（仅 Windows）、`DisableAdapter { name: String }`（仅 Windows）、`RouteDelete { rows: Vec<String> }`（仅 Windows）、`EnableDevice { instance_id: String }`（仅 Windows）、`SetMetric { rows: Vec<String> }`（仅 Windows）、`RegisterTaskProxy`（仅 Windows）、`SelfCheck`。
+- `fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String>` — `helper/mod.rs:138-199`（私有）。命令行 `--helper` 与计划任务请求 JSON 共用：先扫描出位置参数与 `--family <v>`（`--family` 缺值 → `Err`，默认 `"both"`，`:141-152`），再按 op 名分派（`:153-195`）：`dns` / `clear_dns` / `mac`（位置参数 0=GUID、1=MAC，任一缺失 → `Err`，`:156-166`）/ `enable_adapter`（`:168-174`）/ `disable_adapter`（`:176-182`）/ `enable_device`（`:184-190`）/ `route_delete`（`:192`）/ `set_metric`（rows = 全部位置参数，`:194`）/ `register_task` / `selfcheck`；其他 → `Err("未知 helper 操作: {other}")`（`:198`）。
 - `pub fn parse_helper_args(args: &[String]) -> Result<Option<(HelperOp, Option<String>)>, String>` — `helper/mod.rs:202-232`。语义：未出现 `--helper` → `Ok(None)`（`:203-205`）；出现但参数非法 → `Err`（调用方不启动正常应用）。扫描 op 之后到 `--result` 之间的参数交 `build_op_from_args`（`:206-221`），`--result` 缺值 → `Err`（`:218`）。
 - `pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32` — `helper/mod.rs:235-253`。按变体分派到各 `run_*`（`:239-250`，三处 match 的另一处见 `process_request:368-385`）；`result_path` 为 `Some` 时经 `resolve_result_path` 收口后写结果文件（`:251-256`）；**返回退出码 0（成功）/ 1（失败）**（`:257`）。
 - `pub fn run_helper_task() -> i32` — `helper/mod.rs:275-289`。计划任务 worker（`--helper-task`，main.rs 最先拦截）：扫 `requests/` 取最旧 `req-*.json` → `process_request`（`:316-371`：读入内存后立即删请求文件防重复执行 → `build_op_from_args` → 执行 → 结果写固定目录）；连续 3 次空扫后退出（每次间隔 400ms，兜住连续触发的竞态）。
-- `fn run_dns(targets, family, logs)` — `helper/mod.rs:391-413`（私有）。写一条起始日志，调 `network::dns_setup::setup_dns_doh_admin(targets, family)`（`:396`），取返回 JSON 的 `success`/`message`（缺省 `"设置DNS+DoH完成"`），把整个 JSON 塞进 `details`。
-- `fn run_clear_dns(targets, logs)` — `helper/mod.rs:415-470`（私有）。逐 GUID 调 `dns_config::clear_adapter_dns_via_api`，明细进 `details.{restored,failed}`，三态汇总文案（全成功/部分失败/全失败）。
-- `fn run_mac(guid, mac_no_dash, logs)` — `helper/mod.rs:472-536`（私有）：
-  - **MAC 格式前置校验**：必须 `len == 12` 且全部为 ASCII 十六进制字符，否则直接返回 `success:false` + `"MAC 格式非法: ..."`（`:474-481`）——防"非法格式静默写坏网卡配置"；
+- `fn run_dns(targets: &[String], family: &str, logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:391-413`（私有）。写一条起始日志，调 `network::dns_setup::setup_dns_doh_admin(targets, family)`（`:396`），取返回 JSON 的 `success`/`message`（缺省 `"设置DNS+DoH完成"`），把整个 JSON 塞进 `details`。
+- `fn run_clear_dns(targets: &[String], logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:415-470`（私有）。逐 GUID 调 `dns_config::clear_adapter_dns_via_api`，明细进 `details.{restored,failed}`，三态汇总文案（全成功/部分失败/全失败）。
+- `fn run_mac(guid: &str, mac_no_dash: &str, logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:472-536`（私有）：
+  - **MAC 格式前置校验**：必须 `len == 12` 且全部为 ASCII 十六进制字符，否则直接返回 `success:false` + `"MAC 格式非法: ..."`（`:474-481`）——防“非法格式静默写坏网卡配置”；
   - `network::get_adapters_force()` 枚举，按 `guid.eq_ignore_ascii_case` 找适配器（`:497`）；
   - `network::dhcp::apply_mac_change_via_registry(guid, &adapter.name, mac_no_dash)`（`:509`）；成功后**在同一管理员上下文内**调 `network::dhcp::remove_mac_from_registry(guid)` 清除 `NetworkAddress` 持久伪装值，失败只 push 一条日志、**不影响 success**（`:514-516`）。
 - `fn decode_set_metric_row(row: &str) -> Result<(String, u16, bool, u32), String>` — `helper/mod.rs:538-569`（私有）。把 `"{guid}:{family}:{automatic}:{metric}"` 拆成带花括号 GUID / 协议栈 / 是否自动跃点 / 跃点值，字段格式（字段数、`family` 只认 2 与 23、`automatic` 只认 0 与 1、`metric` 必须 `u32`）**一律严格校验后才交给 Win32**。
-- `fn run_set_metric(rows, logs)` — `helper/mod.rs:571-652`（私有）：空 rows 直接失败（`:583`，"什么都没做"不能报成功）→ 逐条解码 → `platform::metric::interface_rows_for_guid` 取当前行（`:599-608`）→ 按 `Family` 命中该协议栈的行 → **整行改副本**（覆写 `UseAutomaticMetric`（`:616`）、`Metric`、`SitePrefixLength = 0`（`:619`，非 0 会报 `ERROR_INVALID_PARAMETER`））→ `SetIpInterfaceEntry`（`:620`）。任一条失败即整体 `success:false` 并把失败明细汇总进 `message` 与 `logs`。
-- `fn run_enable_adapter(name, logs)` / `fn run_disable_adapter(name, logs)` — `helper/mod.rs:654-708` / `:710-764`（私有）。适配器名双校验（`validate_adapter_name` + 本机适配器列表存在性）；逻辑相同，仅 `netsh` 参数 `enable`/`disable` 不同。
-- `fn run_route_add(rows, logs)` / `fn run_route_delete(rows, logs)` — `helper/mod.rs:780-785` / `:787-792`（私有）。公共执行体 `run_route_rows`（`:794-865`）：先全量校验 `decode_route_row`（`:812-819`，要求 5 段 IPv4 点分十进制 + 数字 metric/if_index）再逐条执行 `route add/delete`；删除时若输出包含"找不到"/"not found"视为成功（幂等还原，`:796-799`）。
-- `fn run_enable_device(instance_id, logs)` — `helper/mod.rs:867-927`（私有）。PnP 设备级启用（`pnputil /enable-device`）：字符集白名单（防 pnputil 开关注入）+ `CM_Locate_DevNodeW(PHANTOM)` 存在性复核 + problem 22 解除轮询复核（3s 上限，`:897-926`）。
-- `fn run_register_task(logs)` — `helper/mod.rs:929-949`（私有）。`task_proxy::register_task_via_com`（COM 注册需管理员）。
-- `fn write_result_file(path, result)` — `helper/mod.rs:951-962`（私有）。先写 `"{path}.tmp"` 再 `std::fs::rename` 覆盖（原子写，避免主进程读到半截）；**两步的返回错误都被忽略**（`if ... is_ok()`，`:956-959`）。
-- `#[cfg(test)]` 用例 **22 个**（`helper/mod.rs:965-1135`）：解析类（`parse_no_helper_returns_none` / `parse_dns_with_result` / `parse_dns_with_targets_and_family` / `parse_clear_dns_with_targets` / `parse_mac` / `parse_mac_missing_args_is_err` / `parse_unknown_op_is_err`）、构造类（`build_op_enable_adapter` / `build_op_enable_device` / `build_op_selfcheck_and_register_task` / `build_op_unknown_is_err`）、结果文件与序列化（`helper_result_roundtrip` / `helper_result_omits_empty_logs_and_details` / `resolve_result_path_accepts_plain_name` / `resolve_result_path_rejects_traversal_and_absolute` / `task_request_json_roundtrip`）、`set_metric_round_trip_and_reject`（编码条目 round-trip + 8 种非法条目拒绝）、`decode_route_row_accepts_valid_and_rejects_injection`（路由条目校验 + 注入尝试）、`route_delete_miss_detection`（幂等删除检测）。**Windows API 的真实调用不在单测覆盖**（需真实网卡/提权环境），真机冒烟在发布前手工执行。
+- `fn run_set_metric(rows: &[String], logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:571-652`（私有）：空 rows 直接失败（`:583`，“什么都没做”不能报成功）→ 逐条解码 → `platform::metric::interface_rows_for_guid` 取当前行（`:599-608`）→ 按 `Family` 命中该协议栈的行 → **整行改副本**（覆写 `UseAutomaticMetric`（`:616`）、`Metric`、`SitePrefixLength = 0`（`:619`，非 0 会报 `ERROR_INVALID_PARAMETER`））→ `SetIpInterfaceEntry`（`:620`）。任一条失败即整体 `success:false` 并把失败明细汇总进 `message` 与 `logs`。
+- `fn run_enable_adapter(name: &str, logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:654-708`（私有）。适配器名双校验（`validate_adapter_name` + 本机适配器列表存在性）；逻辑相同，仅 `netsh` 参数 `enable`/`disable` 不同。
+- `fn run_disable_adapter(name: &str, logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:710-764`（私有）。同上，仅 `netsh` 参数 `disable`。
+- `fn run_route_delete(rows: &[String], logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:787-792`（私有）。公共执行体 `decode_route_row`（`:780-785`）：先全量校验要求 5 段 IPv4 点分十进制 + 数字 metric/if_index 再逐条执行 `delete_route_exact`；删除时若已不在表中视为成功（幂等还原，`:787-792`）。
+- `fn run_enable_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:867-927`（私有）。PnP 设备级启用（`pnputil /enable-device`）：字符集白名单（防 pnputil 开关注入）+ `CM_Locate_DevNodeW(PHANTOM)` 存在性复核 + problem 22 解除轮询复核（3s 上限，`:897-926`）。
+- `fn run_register_task(logs: &mut Vec<String>) -> HelperResult` — `helper/mod.rs:929-949`（私有）。`task_proxy::register_task_via_com`（COM 注册需管理员）。
+- `fn write_result_file(path: &Path, result: &HelperResult)` — `helper/mod.rs:951-962`（私有）。先写 `"{path}.tmp"` 再 `std::fs::rename` 覆盖（原子写，避免主进程读到半截）；**两步的返回错误都被忽略**（`if ... is_ok()`，`:956-959`）。
+- `#[cfg(test)] mod tests` — `helper/mod.rs:965-1135`。**22 个用例**：解析类（`parse_no_helper_returns_none` / `parse_dns_with_result` / `parse_dns_with_targets_and_family` / `parse_clear_dns_with_targets` / `parse_mac` / `parse_mac_missing_args_is_err` / `parse_unknown_op_is_err`）、构造类（`build_op_enable_adapter` / `build_op_enable_device` / `build_op_selfcheck_and_register_task` / `build_op_unknown_is_err`）、结果文件与序列化（`helper_result_roundtrip` / `helper_result_omits_empty_logs_and_details` / `resolve_result_path_accepts_plain_name` / `resolve_result_path_rejects_traversal_and_absolute` / `task_request_json_roundtrip`）、`set_metric_round_trip_and_reject`（编码条目 round-trip + 8 种非法条目拒绝）、`decode_route_row_accepts_valid_and_rejects_injection`（路由条目校验 + 注入尝试）、`validate_programdata_path_rules`（Windows 路径合法性校验）。**Windows API 的真实调用不在单测覆盖**（需真实网卡/提权环境），真机冒烟在发布前手工执行。
 
 ### `update/mod.rs`
 
@@ -57,7 +58,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
 | `AUTO_CHECK_INTERVAL_SECS` | `86400`（24h） | `update/updater.rs:9` | 私有 |
 | `BACKOFF_RETRY_SECS` | `[300, 900, 3600]`（5min/15min/1h） | `update/updater.rs:11` | 私有 |
 | `STARTUP_CHECK_DELAY_SECS` | `5` | `update/updater.rs:13` | 私有 |
-| `VERSION_FILE_URL` | `https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json` | `update/updater.rs:15` | 私有 |
+| `VERSION_FILE_URL` | `https://raw.githubusercontent.com/.../main/version.json` | `update/updater.rs:15` | 私有 |
 | `VERSION_MIRRORS` | 3 项：`ghfast.top`、`gh-proxy.com`、`ghproxy.net` 前缀 + 官方 raw URL | `update/updater.rs:18-22` | 私有 |
 | `LAST_CHECK_ERROR` | `Mutex<Option<String>>` | `update/updater.rs:25` | 私有 static |
 | `LAST_CHECK_TIME_MS` | `AtomicU64` | `update/updater.rs:27` | 私有 static |
@@ -92,7 +93,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
   - 拉取版本（`:477`）；
   - 安装包名：`asset.unwrap_or_else(|| format!("Wxxy-CampusLogin_{latest_tag}_x64-setup.exe"))`（`:479`）——仓库根 `version.json` 当前只有 `{"version": "v2.3.6"}`，所以实际走回退命名；
   - 构造 `github_exe_url = https://github.com/{GITHUB_REPO}/releases/download/v{tag}/{exe_name}`（`:480-482`）；
-  - **资产存在性探测**：`client.head(&github_exe_url)` 返回 `404` 时把 `has_update` 置 false 并 `log_warn!`（`:486-488`，防"version.json 先行、Release 未发布"导致用户下载必败）；其他状态码视为存在；`Err`（网络失败）**保守维持** `has_update`（`:491-493`）；
+  - **资产存在性探测**：`client.head(&github_exe_url)` 返回 `404` 时把 `has_update` 置 false 并 `log_warn!`（`:486-488`，防“version.json 先行、Release 未发布”导致用户下载必败）；其他状态码视为存在；`Err`（网络失败）**保守维持** `has_update`（`:491-493`）；
   - 构造 5 个校验和 URL（`:499-510`）：GitHub API `releases/tags/v{tag}`、`{github_exe_url}.sha256`、3 个镜像前缀版本；
   - 组装 `UpdateInfo`（`:512-538`）：`assets` 固定两个条目（exe 与 `"{exe_name}.sha256"`，`size` 均为 `0`），`sha256_checksum = Some(serde_json::to_string(&sha256_urls))`（`:536`，即把 5 个 URL 序列化成 JSON 字符串放在该字段里）。
 - `#[cfg(test)]`：常量 `HASH_LOWER`（`:547`）与 8 个用例（`:460-548`）。
@@ -139,7 +140,7 @@ tags: [helper, elevation, uac, mac, dns, doh, metric, 跃点, 夜间出站, upda
 │  │  │ run_helper   │  │  │ run_* ops                      │    │    │   │
 │  │  │ (single-run) │  │  │ dns / clear_dns / mac          │    │    │   │
 │  │  └──────┬───────┘  │  │ enable/disable adapter         │    │    │   │
-│  │         │          │  │ route add/delete               │    │    │   │
+│  │         │          │  │ route delete                   │    │    │   │
 │  │         │          │  │ set_metric                     │    │    │   │
 │  │         │          │  │ register_task / selfcheck      │    │    │   │
 │  │         │          │  └────────────────────────────────┘    │    │   │

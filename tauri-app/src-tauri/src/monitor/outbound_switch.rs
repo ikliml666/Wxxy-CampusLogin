@@ -160,11 +160,11 @@ pub fn parse_disabled_adapters(json: &str) -> Result<Vec<DisabledRow>, String> {
     serde_json::from_str(json.trim()).map_err(|e| format!("禁用名单快照损坏: {e}"))
 }
 
-/// 兜底默认路由快照（route add 的 runtime 路由，重启即清，落盘仅供程序内还原对账）。
-/// 写完目标卡接口跃点=1 后，目标卡自身 DHCP 默认路由的有效跃点（路由 metric 0 +
-/// 接口 metric 1 = 1）优于本路由（路由 metric 2 + 接口 metric 1 = 3），因此本路由
-/// 平时不接管流量，仅在目标卡默认路由消失（DHCP 租约失效等）而链路仍在的窄场景
-/// 作为 failover 兜底——这是保险而非主路径，主出站路径由接口跃点决定。
+/// 历史兜底默认路由快照（v2.4.1 及更早版本切换时写入的 runtime 路由）。
+/// 2026-10-18 事故后该路由不再创建：它与目标卡自己的 DHCP 默认路由共享
+/// 「下一跳 + 接口」、只差跃点，而 Windows 判重与删除都不看跃点——既加不上（同键
+/// 重复），删的时候又会误删用户自己的默认路由。本类型只保留"解析历史配置"能力，
+/// 供还原步骤①按四元组精确清理残留。
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StandbyRoute {
     pub dest: String,
@@ -175,17 +175,81 @@ pub struct StandbyRoute {
     pub if_index: u32,
 }
 
-/// 序列化兜底路由快照（`None` → 空串）。
-pub fn standby_route_json(route: Option<&StandbyRoute>) -> String {
-    match route {
-        Some(r) => serde_json::to_string(r).unwrap_or_default(),
-        None => String::new(),
-    }
-}
-
 /// 解析兜底路由快照（空串/非法 JSON → `None`）。
 pub fn parse_standby_route(json: &str) -> Option<StandbyRoute> {
     serde_json::from_str(json.trim()).ok()
+}
+
+/// 历史兜底路由的现存状态（还原时据此决定删不删）。
+/// 2026-10-18 事故后不再创建该路由（同网关+接口无法与 DHCP 默认路由共存，见
+/// `platform/route_table` 模块注释），本判定只用于清理历史残留与「绝不误删」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandbyCleanup {
+    /// 表里没有这一行：从未创建成功（route add 恒报「已存在」）或已被系统移除
+    AlreadyGone,
+    /// 同网关+接口有默认路由，但跃点与本应用记录的不符 → 不是我们创建的，保留不动
+    ForeignRowKept,
+    /// 精确匹配存在，但它是当前唯一的默认路由 → 删除等于直接断网，保留
+    LastDefaultPath,
+    /// 精确匹配存在且删除后仍有其他默认路由 → 可安全删除
+    Safe,
+}
+
+/// 兜底路由删除判定（纯函数，跨端可测）。
+/// `same_key_metrics` = 同（网关, 接口）的默认路由跃点列表：DHCP 默认路由与我们
+/// 记录的行共享网关+接口、只差跃点，因此必须按跃点列表判定"哪一行是我们的"——
+/// route.exe 与 DeleteIpForwardEntry2 的匹配键都不含跃点，正是它们误删用户路由的根源。
+/// `rows_outside_exact` = 除"我们那一行"以外的默认路由条数（删除后还剩几条）。
+pub fn standby_cleanup_decision(
+    same_key_metrics: &[u32],
+    standby_metric: u32,
+    rows_outside_exact: usize,
+) -> StandbyCleanup {
+    if !same_key_metrics.contains(&standby_metric) {
+        return if same_key_metrics.is_empty() {
+            StandbyCleanup::AlreadyGone
+        } else {
+            StandbyCleanup::ForeignRowKept
+        };
+    }
+    if rows_outside_exact == 0 {
+        StandbyCleanup::LastDefaultPath
+    } else {
+        StandbyCleanup::Safe
+    }
+}
+
+/// 读实时路由表判定历史兜底路由状态（Windows）。
+#[cfg(target_os = "windows")]
+pub fn standby_route_cleanup(route: &StandbyRoute) -> Result<StandbyCleanup, String> {
+    let gateway: std::net::Ipv4Addr = route
+        .gateway
+        .trim()
+        .parse()
+        .map_err(|_| format!("兜底路由快照网关非法: {:?}", route.gateway))?;
+    let rows = crate::platform::route_table::ipv4_forward_rows()?;
+    let mut same_key_metrics: Vec<u32> = Vec::new();
+    let mut rows_outside_exact = 0usize;
+    for row in rows.iter().filter(|r| r.prefix_len == 0) {
+        let same_key = row.next_hop == gateway && row.if_index == route.if_index;
+        if same_key {
+            same_key_metrics.push(row.metric);
+        }
+        if !(same_key && row.metric == route.metric) {
+            rows_outside_exact += 1;
+        }
+    }
+    Ok(standby_cleanup_decision(
+        &same_key_metrics,
+        route.metric,
+        rows_outside_exact,
+    ))
+}
+
+/// 非 Windows 平台没有该机制（切换态快照只由 Windows 桌面写入），按"已不存在"处理。
+#[cfg(not(target_os = "windows"))]
+pub fn standby_route_cleanup(_route: &StandbyRoute) -> Result<StandbyCleanup, String> {
+    Ok(StandbyCleanup::AlreadyGone)
 }
 
 /// 该卡是否不能参与夜间禁用：实例 ID 都读不到的卡（总线无法判定）保守跳过。
@@ -443,24 +507,21 @@ mod tests {
     }
 
     #[test]
-    fn standby_route_json_round_trip() {
-        let route = StandbyRoute {
-            dest: "0.0.0.0".to_string(),
-            mask: "0.0.0.0".to_string(),
-            gateway: "192.168.6.1".to_string(),
-            metric: 2,
-            if_index: 14,
-        };
-        let json = standby_route_json(Some(&route));
-        assert!(json.contains("\"ifIndex\":14"), "ifIndex 序列化应保持驼峰: {json}");
-        assert_eq!(parse_standby_route(&json), Some(route));
-        // 序列化字段名与 helper 编码字段一一对应
-        let back = parse_standby_route(&json).unwrap();
+    fn standby_route_snapshot_parses_legacy_config_json() {
+        // 历史配置的实际形态（2026-10-18 事故机器上的 outboundStandbyRoute 原文）：
+        // 旧版本只读这个字段，本版本仍要能解析出四元组供精确清理
+        let json = r#"{"dest":"0.0.0.0","mask":"0.0.0.0","gateway":"10.196.145.27","metric":2,"ifIndex":12}"#;
+        let route = parse_standby_route(json).expect("历史快照应可解析");
         assert_eq!(
-            (back.dest.as_str(), back.mask.as_str(), back.gateway.as_str(), back.metric, back.if_index),
-            ("0.0.0.0", "0.0.0.0", "192.168.6.1", 2u32, 14u32)
+            (
+                route.dest.as_str(),
+                route.mask.as_str(),
+                route.gateway.as_str(),
+                route.metric,
+                route.if_index,
+            ),
+            ("0.0.0.0", "0.0.0.0", "10.196.145.27", 2u32, 12u32)
         );
-        assert_eq!(standby_route_json(None), "");
         assert!(parse_standby_route("").is_none());
         assert!(parse_standby_route("bad").is_none());
     }
@@ -590,5 +651,24 @@ mod tests {
         assert_eq!(portal_probe_host("http://portal.wxu.edu.cn"), "");
         assert_eq!(portal_probe_host("http://8.8.8.8"), "");
         assert_eq!(portal_probe_host(""), "");
+    }
+
+    #[test]
+    fn standby_cleanup_never_deletes_foreign_or_last_default_route() {
+        use super::{standby_cleanup_decision, StandbyCleanup};
+        // 表里没有我们那行（本次事故的现场：route add 从未成功过）→ 不删
+        assert_eq!(standby_cleanup_decision(&[], 2, 1), StandbyCleanup::AlreadyGone);
+        // 同网关+接口只有 DHCP 默认路由（跃点 60）→ 不是我们的，不删
+        assert_eq!(
+            standby_cleanup_decision(&[60], 2, 1),
+            StandbyCleanup::ForeignRowKept
+        );
+        // 只剩我们那一行 → 删除即断网（2026-10-18 用户 WLAN 被断的直接成因）
+        assert_eq!(
+            standby_cleanup_decision(&[2], 2, 0),
+            StandbyCleanup::LastDefaultPath
+        );
+        // 我们的行 + 目标卡自己的默认路由 → 删我们那行安全
+        assert_eq!(standby_cleanup_decision(&[2, 60], 2, 1), StandbyCleanup::Safe);
     }
 }

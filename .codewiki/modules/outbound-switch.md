@@ -26,15 +26,46 @@ tags: [夜间出站, 夜切, 纯函数, 跨平台, 时间表, config]
 | `night_switch.rs:10-12` | pub(crate) const | `RESTORE_START_MINUTES=450` / `RESTORE_END_MINUTES=1380` | 恢复窗口 [07:30, 23:00)，两端共用 |
 | `night_switch.rs:26` | pub(crate) fn | `switch_time_for(weekday)` | 时间表：weekday 0..=4 → 1380（23:00），5/6 → 1410（23:30），其余 None |
 
-## Patterns & Conventions
+## Architecture
 
-- **时间表单点**：出站切换与运营商夜切共用 `switch_time_for`，禁止两处硬编码漂移；运营商时刻调整时只改 `night_switch.rs` 一处。
-- **判定与状态解耦**：纯函数只吃 `restore_active: bool`（调用方用 `outbound_restore_active` 把配置中三份快照折算传入，见 scheduled.rs:259 的 `outbound_switch_active`），本模块不直接读配置，方便单测与跨端复用。
-- **边界语义**：恢复窗口 [07:30, 23:00) 下界 450 含、上界 1380 不含（恰为最早切换时刻，两窗口无缝衔接）。凌晨（now < 450）未切换态补切 Switch——与运营商夜切"凌晨不补"刻意不同：出站线路上凌晨校园线路已断、热点可用，切在 06:29 也会在 1 分钟后随恢复窗还原，无害（`outbound_switch.rs:22-24` 注释）。
-- **守护窗口与恢复窗口的分工**：守护窗口 [当日切换时刻（含过点补触发），次日 07:30 恢复窗开) 内，巡检闸门（adapter_watch 自动启用、夜间看门狗）不出自动启用目标、只做禁用复核；还原统一交给恢复窗的 scheduled.rs（`outbound_switch.rs:46-52` 注释）。
+```text
+┌──────────────────────────┐       ┌──────────────────────────┐
+│ outbound_switch.rs       │       │ night_switch.rs          │
+│                          │       │                          │
+│ NightOutboundAction      │◄──────│ switch_time_for()        │
+│ evaluate_night_outbound()│       │ RESTORE_START/END_MINS   │
+│ is_night_outbound_guard_ │       │                          │
+│ window()                 │       │                          │
+│ outbound_restore_active()│       │                          │
+└──────────┬───────────────┘       └──────────┬───────────────┘
+           │                                   │
+           │ consumes                          │ shares schedule
+           ▼                                   ▼
+┌──────────────────────────┐       ┌──────────────────────────┐
+│ monitor/scheduled.rs     │       │ monitor/adapter_watch.rs │
+│                          │       │                          │
+│ outbound_action_for()    │       │ adapter_watch.rs:186     │
+│ needs_replay()           │       │ (guard window check)     │
+│ watchdog_re_disable...() │       │ background_check.rs:50   │
+│ reconcile_outbound...()  │       │ (skip if active)         │
+└──────────────────────────┘       └──────────────────────────┘
+```
 
-## Learnings
+## Data Flow
 
-- 判定纯函数层先于调用方落地时，`pub fn` 会报 `never used` 警告——属任务序列中间态；接线（scheduled / adapter_watch / background_check）完成后消失，未加 `#[allow(dead_code)]` 掩盖。同序列的 `platform/metric.rs::read_interface_metrics` 与 `MetricRow` 同理。
-- 守护窗口的由来（2026-09-27 夜实证）：用户在切换前手动禁用的手选适配器无 IP、进不了六期巡检闸门名单（select 只收有 IP 的卡），名单为空时闸门失效，adapter_watch 的自动启用会顶掉切换——故改为时间窗 ∧ 切换态双条件（adapter_watch.rs:177-194），叠加切换态判定避免整夜休眠/应用未运行错过切换时凌晨误阻塞自动启用（纯时间窗过宽，k2.8 审计 P3-2）。
-- 测试内联于源文件，无独立测试文件：`outbound_switch.rs:72-150` 六个用例（守护窗口边界 / 时间表与运营商夜切共用 / 三快照任一非空即切换态 / 过点切换与幂等 / 恢复窗口触发与窗口外不还原 / 凌晨补切）；`night_switch.rs:112-291` 为运营商夜切与 chkstatus 解析用例（归属 [[night-operator-switch|夜间运营商切换决策]]）。
+1. **状态输入**：调用方（如 `scheduled.rs`）读取配置中的三份快照（`outbound_metric_restore`, `outbound_disabled_adapters`, `outbound_standby_route`），通过 `outbound_restore_active` 折算为布尔值 `restore_active`。
+2. **时间计算**：获取当前星期几 `weekday` 和分钟数 `now_minutes`。
+3. **判定逻辑**：
+   - 若功能关闭，返回 `None`。
+   - 若处于切换态 (`restore_active=true`)：检查是否在恢复窗口 `[450, 1380)` 内。若在，返回 `Restore`；否则返回 `None`。
+   - 若未处于切换态 (`restore_active=false`)：
+     - 若 `now_minutes < 450`（凌晨），返回 `Switch`（补切机制）。
+     - 否则，查询 `switch_time_for(weekday)` 获取当日切换时刻。若 `now_minutes >= 时刻`，返回 `Switch`；否则返回 `None`。
+4. **输出执行**：根据 `NightOutboundAction` 枚举，调用方执行相应的平台特定操作（桌面修改 metric/禁用网卡，安卓注销账号）。
+
+## Connections
+
+- [[night-operator-switch|夜间运营商切换决策]]：共用 `night_switch.rs` 中的时间表常量与函数。
+- [[desktop-platform]]：桌面端 metric 读取与写入接口。
+- [[desktop-helper-update]]：桌面端提权执行网络配置变更。
+- [[set-ip-interface-entry-metric]]：metric 设置的具体字段对照与注意事项。

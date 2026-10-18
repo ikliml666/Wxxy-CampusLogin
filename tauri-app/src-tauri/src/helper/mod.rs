@@ -128,11 +128,10 @@ pub enum HelperOp {
     /// 禁用网络适配器（netsh interface set interface disable，夜间切换临时下线校园网卡）
     #[cfg(target_os = "windows")]
     DisableAdapter { name: String },
-    /// 新增兜底默认路由（route add）：`rows` 为
-    /// "{dest}|{mask}|{gateway}|{metric}|{if_index}" 编码条目（全部严格校验后执行）
-    #[cfg(target_os = "windows")]
-    RouteAdd { rows: Vec<String> },
-    /// 删除兜底默认路由（route delete，同 `rows` 编码；路由不存在视为成功，幂等）
+    /// 删除历史兜底默认路由（精确四元组删除）：`rows` 为
+    /// "{dest}|{mask}|{gateway}|{metric}|{if_index}" 编码条目（全部严格校验后执行）。
+    /// 2026-10-18 事故后不再提供 route_add：同网关+接口的默认路由无法与目标卡
+    /// 自己的 DHCP 默认路由共存（Windows 判重复），兜底路由这一设计已废弃
     #[cfg(target_os = "windows")]
     RouteDelete { rows: Vec<String> },
     /// PnP 设备级启用（pnputil /enable-device，含 problem 22 解除复核）
@@ -214,8 +213,6 @@ fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
             HelperOp::DisableAdapter { name }
         }
         #[cfg(target_os = "windows")]
-        "route_add" => HelperOp::RouteAdd { rows: positional },
-        #[cfg(target_os = "windows")]
         "route_delete" => HelperOp::RouteDelete { rows: positional },
         #[cfg(target_os = "windows")]
         "set_metric" => HelperOp::SetMetric { rows: positional },
@@ -271,8 +268,6 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
         HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
-        #[cfg(target_os = "windows")]
-        HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
         #[cfg(target_os = "windows")]
@@ -390,8 +385,6 @@ fn process_request(path: &std::path::Path) -> i32 {
                 HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
                 #[cfg(target_os = "windows")]
@@ -825,107 +818,75 @@ fn decode_route_row(row: &str) -> Result<(std::net::Ipv4Addr, std::net::Ipv4Addr
     Ok((dest, mask, gateway, metric, if_index))
 }
 
-/// route.exe 的输出里出现这些字样 = 路由本就不存在，删除按成功处理（幂等还原）。
-#[cfg(target_os = "windows")]
-fn route_delete_miss(output_text: &str) -> bool {
-    let t = output_text.to_lowercase();
-    t.contains("找不到") || t.contains("not found") || t.contains("element not found")
-}
-
-/// 新增兜底默认路由（route add，worker 以 SYSTEM 身份运行）。
-#[cfg(target_os = "windows")]
-fn run_route_add(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
-    run_route_rows("route_add", "add", rows, logs)
-}
-
-/// 删除兜底默认路由（route delete）。路由不存在（route 输出「找不到」）视为成功。
+/// 删除历史兜底默认路由（worker 以 SYSTEM 身份运行）：按四元组精确删除。
+///
+/// route.exe 的 delete 只按（目的+掩码+网关+接口）匹配、跃点不参与，会把目标卡
+/// 自己的 DHCP 默认路由一起删掉（2026-10-18 事故：WLAN 失去默认路由，只能重连
+/// 恢复），因此改用 IpHelper 精确删除：只在路由表里找到「前缀+下一跳+接口+跃点」
+/// 全等的行才删，同网关+接口的其他跃点行永不匹配。删除门禁（是否仍在用、是否为
+/// 当前唯一默认路径）由调用方按实时路由表判定后才会发起本操作。
 #[cfg(target_os = "windows")]
 fn run_route_delete(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
-    run_route_rows("route_delete", "delete", rows, logs)
-}
-
-/// route add/delete 的公共执行体：先全量校验再逐条执行。
-#[cfg(target_os = "windows")]
-fn run_route_rows(
-    op: &str,
-    action: &str,
-    rows: &[String],
-    logs: &mut Vec<String>,
-) -> HelperResult {
     let fail = |message: String, logs: &mut Vec<String>| HelperResult {
         success: false,
         message,
-        op: op.to_string(),
+        op: "route_delete".to_string(),
         logs: std::mem::take(logs),
         details: None,
     };
     if rows.is_empty() {
-        return fail(format!("{op} 缺少路由条目"), logs);
+        return fail("route_delete 缺少路由条目".to_string(), logs);
     }
     let mut decoded = Vec::new();
     for row in rows {
         match decode_route_row(row) {
             Ok(d) => decoded.push(d),
-            Err(e) => return fail(format!("{op} 参数校验失败: {e}"), logs),
+            Err(e) => return fail(format!("route_delete 参数校验失败: {e}"), logs),
         }
     }
     let mut failed: Vec<String> = Vec::new();
+    let mut deleted = 0usize;
     for (dest, mask, gateway, metric, if_index) in &decoded {
-        logs.push(format!(
-            "helper: route {action} {dest} mask {mask} {gateway} metric {metric} if {if_index}"
-        ));
-        let output = crate::network::discovery::new_command("route")
-            .args([
-                action,
-                &dest.to_string(),
-                "mask",
-                &mask.to_string(),
-                &gateway.to_string(),
-                "metric",
-                &metric.to_string(),
-                "if",
-                &if_index.to_string(),
-            ])
-            .output();
-        let (ok, detail) = match output {
-            Ok(o) => {
-                let stdout = crate::platform::console_output::decode_console_bytes(&o.stdout);
-                let stderr = crate::platform::console_output::decode_console_bytes(&o.stderr);
-                let success = o.status.success()
-                    || (action == "delete" && route_delete_miss(&format!("{stdout}{stderr}")));
-                if success {
-                    (true, String::new())
-                } else {
-                    let text = stderr.trim();
-                    let detail = if text.is_empty() { stdout } else { text.to_string() };
-                    (false, detail)
-                }
-            }
+        let prefix_len = match crate::platform::route_table::mask_to_prefix_len(*mask) {
+            Ok(p) => p,
             Err(e) => {
-                failed.push(format!("route 执行失败: {e}"));
+                failed.push(format!("{dest} mask {mask}: {e}"));
                 continue;
             }
         };
-        if !ok {
-            failed.push(if detail.trim().is_empty() {
-                format!("route {action} 返回非零退出码且无输出 ({dest})")
-            } else {
-                format!("route {action} 失败: {} ({dest})", detail.trim())
-            });
+        match crate::platform::route_table::delete_route_exact(
+            *dest,
+            prefix_len,
+            *gateway,
+            *if_index,
+            *metric,
+        ) {
+            Ok(crate::platform::route_table::DeleteExact::Deleted) => {
+                deleted += 1;
+                logs.push(format!(
+                    "helper: 已精确删除路由 {dest}/{prefix_len} via {gateway} if {if_index} metric {metric}"
+                ));
+            }
+            Ok(crate::platform::route_table::DeleteExact::AlreadyGone) => {
+                logs.push(format!(
+                    "helper: 路由 {dest}/{prefix_len} via {gateway} if {if_index} metric {metric} 不在表中（同网关+接口的其他跃点行不删除）"
+                ));
+            }
+            Err(e) => failed.push(format!("{dest}/{prefix_len} via {gateway}: {e}")),
         }
     }
     if failed.is_empty() {
-        let message = format!("路由已{}（{} 条）", if action == "add" { "添加" } else { "删除" }, decoded.len());
+        let message = format!("路由清理完成（精确删除 {deleted} 条，其余已不在表中）");
         logs.push(format!("helper: {message}"));
         HelperResult {
             success: true,
             message,
-            op: op.to_string(),
+            op: "route_delete".to_string(),
             logs: std::mem::take(logs),
             details: None,
         }
     } else {
-        fail(format!("路由操作失败: {}", failed.join("；")), logs)
+        fail(format!("路由删除失败: {}", failed.join("；")), logs)
     }
 }
 
@@ -1343,13 +1304,5 @@ mod tests {
         ] {
             assert!(decode_route_row(bad).is_err(), "应拒绝: {bad:?}");
         }
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn route_delete_miss_detection() {
-        assert!(route_delete_miss("找不到路由元素。"));
-        assert!(route_delete_miss("The route was not found"));
-        assert!(!route_delete_miss("OK!"));
     }
 }

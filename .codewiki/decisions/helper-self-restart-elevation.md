@@ -37,8 +37,7 @@ tags: [提权, helper, windows, dns, mac]
     - `Mac { guid: String, mac_no_dash: String }`：修改适配器 MAC。
     - `EnableAdapter { name: String }`：启用被禁用的网络适配器。
     - `DisableAdapter { name: String }`：禁用网络适配器。
-    - `RouteAdd { rows: Vec<String> }`：新增兜底默认路由。
-    - `RouteDelete { rows: Vec<String> }`：删除兜底默认路由。
+    - `RouteDelete { rows: Vec<String> }`：删除兜底默认路由。（注：已废弃 RouteAdd）
     - `EnableDevice { instance_id: String }`：PnP 设备级启用。
     - `SetMetric { rows: Vec<String> }`：设置接口跃点。
     - `RegisterTaskProxy`：注册计划任务提权代理。
@@ -66,10 +65,7 @@ tags: [提权, helper, windows, dns, mac]
 - `run_enable_adapter(name: &str, logs: &mut Vec<String>)` (`mod.rs:508-546`)：启用适配器。双校验（名字合法 + 存在于本机列表）。
 - `run_disable_adapter(name: &str, logs: &mut Vec<String>)` (`mod.rs:549-587`)：禁用适配器。
 - `decode_route_row(row: &str)` (`mod.rs:590-615`)：解码路由条目。严格校验 IPv4 地址、跃点数、接口索引。
-- `route_delete_miss(output_text: &str)` (`mod.rs:618-622`)：判断 route delete 输出是否为“找不到”，用于幂等处理。
-- `run_route_add(rows: &[String], logs: &mut Vec<String>)` (`mod.rs:625-628`)：新增路由。
-- `run_route_delete(rows: &[String], logs: &mut Vec<String>)` (`mod.rs:631-634`)：删除路由。
-- `run_route_rows(op: &str, action: &str, rows: &[String], logs: &mut Vec<String>)` (`mod.rs:637-697`)：路由操作的公共执行体。全量校验后逐条执行 `route.exe`。
+- `run_route_delete(rows: &[String], logs: &mut Vec<String>)` (`mod.rs:618-697`)：删除路由。精确四元组删除，不再提供 route_add。
 - `run_enable_device(instance_id: &str, logs: &mut Vec<String>)` (`mod.rs:700-752`)：PnP 设备启用。字符集白名单校验 + 存在性复核 + 轮询 problem 22 解除。
 - `run_register_task(logs: &mut Vec<String>)` (`mod.rs:755-773`)：注册计划任务代理。
 - `write_result_file(path: &Path, result: &HelperResult)` (`mod.rs:776-784`)：原子写结果文件。先写 `.tmp` 再 rename。
@@ -138,7 +134,7 @@ tags: [提权, helper, windows, dns, mac]
 │  │   ├─ Dns / ClearDns                                                   │  │
 │  │   ├─ Mac                                                            │  │
 │  │   ├─ EnableAdapter / DisableAdapter                                   │  │
-│  │   ├─ RouteAdd / RouteDelete                                           │  │
+│  │   ├─ RouteDelete                                                    │  │
 │  │   ├─ EnableDevice                                                   │  │
 │  │   ├─ SetMetric                                                      │  │
 │  │   └─ RegisterTaskProxy                                              │  │

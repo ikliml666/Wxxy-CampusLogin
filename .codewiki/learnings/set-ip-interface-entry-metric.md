@@ -7,7 +7,7 @@ source_files:
 tags: [learning, metric, 跃点, iphlpapi, SetIpInterfaceEntry, GetIpInterfaceTable, 夜间出站, windows]
 ---
 
-## 现象
+## Overview
 
 夜间出站切换需要把目标网卡的接口跃点（metric）改成 1 让它优先出站。写入走 `SetIpInterfaceEntry`，读走 `GetIpInterfaceTable`。第一版实现的两个典型失败：
 

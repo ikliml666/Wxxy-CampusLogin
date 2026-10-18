@@ -14,14 +14,15 @@ source_files:
   - tauri-app/src-tauri/windows/hooks.nsh
   - tauri-app/src-tauri/src/platform/identity.rs
   - tauri-app/src-tauri/src/platform/toast.rs
+  - tauri-app/src-tauri/src/platform/route_table.rs
 tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 ---
 
 ## Overview
 
-`tauri-app/src-tauri/src/platform/` 是桌面端全部"与操作系统直接打交道"的代码：控制台输出与 HTTP 响应体解码（GBK/OEM 代码页）、注册表读写（开机自启、适配器 DNS 读取、Toast AUMID 注册）、Win32 DNS 接口调用（`SetInterfaceDnsSettings` + DoH 属性）、接口跃点（metric）读写（`GetIpInterfaceTable` 读 + helper `SetIpInterfaceEntry` 写）、UAC 提权（COM `ICMLuaUtil` 静默提权、`ShellExecuteW runas` 降级、计划任务提权代理三级通道）、提权 helper 子进程的启动与结果轮询、DXGI/GDI 硬件信息探测、Windows Hello 身份验证、WinRT Toast 通知。
+`tauri-app/src-tauri/src/platform/` 是桌面端全部“与操作系统直接打交道”的代码：控制台输出与 HTTP 响应体解码（GBK/OEM 代码页）、注册表读写（开机自启、适配器 DNS 读取、Toast AUMID 注册）、Win32 DNS 接口调用（`SetInterfaceDnsSettings` + DoH 属性）、接口跃点（metric）读写（`GetIpInterfaceTable` 读 + helper `SetIpInterfaceEntry` 写）、UAC 提权（COM `ICMLuaUtil` 静默提权、`ShellExecuteW runas` 降级、计划任务提权代理三级通道）、提权 helper 子进程的启动与结果轮询、DXGI/GDI 硬件信息探测、Windows Hello 身份验证、WinRT Toast 通知。
 
-该层不持有业务状态（唯一例外是 `identity.rs` 的进程内验证时间戳与 `task_proxy.rs` 的通道状态缓存），被 `commands/`、`network/`、`auth/`、`update/`、`app/`、`monitor/` 调用；`platform/mod.rs:1-36` 用 `#[cfg(desktop)]` 把除 `console_output` 外的模块整体排除在安卓构建之外（安卓通过 Cargo path 依赖桌面 crate，只继承 `console_output` 等跨平台部分），其中 `task_proxy`（19-20）、`metric`（24-25）、`best_route`（27-28）、`icmp_probe`（30-31）、`rtss_compat`（33-34）、`toast`（35-36）六个模块额外锁 `target_os = "windows"`。`best_route` / `icmp_probe` 是夜间出站切换的路由级验证与网关可达性探测底座（模块注释见 `platform/mod.rs:26-31`，业务侧见 [[outbound-switch]]）。
+该层不持有业务状态（唯一例外是 `identity.rs` 的进程内验证时间戳与 `task_proxy.rs` 的通道状态缓存），被 `commands/`、`network/`、`auth/`、`update/`、`app/`、`monitor/` 调用；`platform/mod.rs:1-36` 用 `#[cfg(desktop)]` 把除 `console_output` 外的模块整体排除在安卓构建之外（安卓通过 Cargo path 依赖桌面 crate，只继承 `console_output` 等跨平台部分），其中 `task_proxy`（19-20）、`metric`（24-25）、`best_route`（27-28）、`route_table`（29-30）、`icmp_probe`（31-32）、`rtss_compat`（33-34）、`toast`（35-36）六个模块额外锁 `target_os = "windows"`。`best_route` / `route_table` / `icmp_probe` 是夜间出站切换的路由级验证、历史兜底路由清理与网关可达性探测底座（模块注释见 `platform/mod.rs:26-32`，业务侧见 [[outbound-switch]]）。
 
 ## Key Components
 
@@ -40,11 +41,12 @@ tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 | `platform/mod.rs:21-22` | `pub mod identity;` | `#[cfg(desktop)]` |
 | `platform/mod.rs:24-25` | `pub mod metric;`（接口跃点读写，注释 23：全量 Win32 IpHelper） | `#[cfg(all(desktop, target_os = "windows"))]` |
 | `platform/mod.rs:27-28` | `pub mod best_route;`（路由级切换验证：GetBestRoute，夜间出站切换完成后校验禁用效果） | `#[cfg(all(desktop, target_os = "windows"))]` |
-| `platform/mod.rs:30-31` | `pub mod icmp_probe;`（ICMP 绑源探测：IcmpSendEcho2Ex，网关可达性判定） | `#[cfg(all(desktop, target_os = "windows"))]` |
+| `platform/mod.rs:29-30` | `pub mod route_table;`（IPv4 路由表读取 + 四元组精确删除，清理历史兜底路由） | `#[cfg(all(desktop, target_os = "windows"))]` |
+| `platform/mod.rs:31-32` | `pub mod icmp_probe;`（ICMP 绑源探测：IcmpSendEcho2Ex，网关可达性判定） | `#[cfg(all(desktop, target_os = "windows"))]` |
 | `platform/mod.rs:33-34` | `pub mod rtss_compat;`（RTSS hook 白屏预防） | `#[cfg(all(desktop, target_os = "windows"))]` |
 | `platform/mod.rs:35-36` | `pub mod toast;` | `#[cfg(all(desktop, target_os = "windows"))]` |
 
-注意：`autostart` / `gpu` / `helper_spawn` / `identity` 只有模块级 `#[cfg(desktop)]`，文件内部**没有任何 `#[cfg]` 属性**（见下方逐文件清单），它们只在 Windows 桌面可用是"事实约束"而非编译期约束；`dns_config` / `elevation` / `console_output` 在函数级带 `target_os = "windows"` 分支；`task_proxy` / `metric` / `best_route` / `icmp_probe` / `rtss_compat` / `toast` 则在模块级就已锁 Windows。
+注意：`autostart` / `gpu` / `helper_spawn` / `identity` 只有模块级 `#[cfg(desktop)]`，文件内部**没有任何 `#[cfg]` 属性**（见下方逐文件清单），它们只在 Windows 桌面可用是“事实约束”而非编译期约束；`dns_config` / `elevation` / `console_output` 在函数级带 `target_os = "windows"` 分支；`task_proxy` / `metric` / `best_route` / `route_table` / `icmp_probe` / `rtss_compat` / `toast` 则在模块级就已锁 Windows。
 
 ### console_output.rs — 输出编码解码（全平台）
 
@@ -80,14 +82,14 @@ tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 | `platform/dns_config.rs:9` | `SECONDARY_DNS_V6` | `"2402:4e00::"`（腾讯 DNSPod IPv6） |
 | `platform/dns_config.rs:12-21` | `DOH_SERVERS: &[(&str, &str)]` | 7 组服务器 IP → DoH 模板映射：`223.5.5.5`/`223.6.6.6`/`2400:3200::1`/`2400:3200:baba::1` → `https://dns.alidns.com/dns-query`；`1.12.12.12`/`120.53.53.53`/`2402:4e00::` → `https://doh.pub/dns-query` |
 | `platform/dns_config.rs:24` | `DNS_PROPERTY_TYPE_DOH` | `const i32 = 1`（私有） |
-| `platform/dns_config.rs:26-28` | `DNS_SETTING_PROFILE_NAMESERVER` | `const u64 = 0x0200`（私有，带 `#[allow(dead_code)]` + 注释"在 set_profile_dns_via_api 中使用，编译器因条件编译误报"；实际在 `set_dns_stack` 的 profile 分支使用） |
+| `platform/dns_config.rs:26-28` | `DNS_SETTING_PROFILE_NAMESERVER` | `const u64 = 0x0200`（私有，带 `#[allow(dead_code)]` + 注释“在 set_profile_dns_via_api 中使用，编译器因条件编译误报”；实际在 `set_dns_stack` 的 profile 分支使用） |
 | `platform/dns_config.rs:29-31` | `DNS_SETTING_DOH_PROFILE` | `const u64 = 0x2000`（私有，同上） |
 
 私有函数与枚举：
 
 | 行号 | 项 | 签名 | cfg |
 |---|---|---|---|
-| `platform/dns_config.rs:39-50` | `doh_bindings` | `fn(dns_servers: &[&str], doh_templates: &[(&str, &str)]) -> Vec<(usize, &str)>`：只为"实际存在于 NameServer 列表且配了模板"的服务器生成 `(ServerIndex, 模板)` | 无 |
+| `platform/dns_config.rs:39-50` | `doh_bindings` | `fn(dns_servers: &[&str], doh_templates: &[(&str, &str)]) -> Vec<(usize, &str)>`：只为“实际存在于 NameServer 列表且配了模板”的服务器生成 `(ServerIndex, 模板)` | 无 |
 | `platform/dns_config.rs:54-59` | `enum DnsTarget` | `{ Interface, Profile }`（`#[derive(Clone, Copy)]`，私有） | `#[cfg(target_os = "windows")]` |
 | `platform/dns_config.rs:65-70` | `split_families` | `fn(dns_servers: &[&str]) -> (Vec<&str>, Vec<&str>)`：按是否含 `:` 分 IPv4/IPv6 | 无 |
 | `platform/dns_config.rs:72-93` | `set_dns_inner` | `fn(target: DnsTarget, adapter_guid: &str, dns_servers: &[&str], doh_templates: &[(&str, &str)], err_label: &str) -> Result<(), String>`：两个栈分别调用 `set_dns_stack`，错误用 `；` 拼接（92） | `#[cfg(target_os = "windows")]` |
@@ -109,7 +111,7 @@ tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 |---|---|---|
 | `platform/dns_config.rs:311-331` | `should_filter_ip` | 过滤空串、非点分四段、末段 0/255、`127.*`、`169.254.*`、`198.18.*`/`198.19.*` |
 | `platform/dns_config.rs:333-340` | `parse_dns_list` | 按 `,`/空格/`;` 切分并过滤 |
-| `platform/dns_config.rs:342-428` | `check_doh_for_ips` | 调 `netsh dns show encryption`（345-348），逐行解析服务器 IP 与模板/自动升级字段，与 `DOH_SERVERS` 内置表合并（403-425），返回 `HashMap<String, (available, enabled, template)>`。IP 识别按"可解析为 `Ipv4Addr`/`Ipv6Addr` 的 token"匹配（365-367，注释 362-364 记录 IPv6 条目解析不到与模板串染的修复），DoH 属性字段名中英双语匹配（386-388），行结尾 flush（395-398） |
+| `platform/dns_config.rs:342-428` | `check_doh_for_ips` | 调 `netsh dns show encryption`（345-348），逐行解析服务器 IP 与模板/自动升级字段，与 `DOH_SERVERS` 内置表合并（403-425），返回 `HashMap<String, (available, enabled, template)>`。IP 识别按“可解析为 `Ipv4Addr`/`Ipv6Addr` 的 token”匹配（365-367，注释 362-364 记录 IPv6 条目解析不到与模板串染的修复），DoH 属性字段名中英双语匹配（386-388），行结尾 flush（395-398） |
 
 DNS 读优先级为 manual > profile > dhcp（456-464）；`ProfileNameServer` 单独读取（454）并计入 profile 地址列表（477-482）。产物：适配器级 JSON 含 `name`/`dnsSource`/`dnsServers`/`profileDnsServers`/`adapterDnsOverridesProfile`（530-536，535 行：manual 且 profile 非空时 true）；顶层 `adapters[]`、`dohSupported: true`（541）、`autoDohEnabled`（539-543）。
 
@@ -127,7 +129,7 @@ DNS 读优先级为 manual > profile > dhcp（456-464）；`ProfileNameServer` �
 | `platform/elevation.rs:174-185` | `struct ICMLuaUtilVtbl` | `#[repr(C)]` 手工 vtable（私有，见下节字段表） | 无 cfg |
 | `platform/elevation.rs:188-212` | `mod tests` | `vtbl_shell_exec_slot_is_9`（197-201，`offset_of!` 断言 ShellExec 在 slot 9，UACMe elvint.h 权威布局）、`shell_exec_elevated_smoke`（206-211，`#[ignore]` 真实提权冒烟 `cmd.exe /c exit`，本机手动 `cargo test -- --ignored`） | `#[cfg(test)]` |
 
-COM 提权链细节（`shell_exec_elevated`，53-129）：`CoInitializeEx(COINIT_APARTMENTTHREADED)`（65，按成功与否决定是否配对 `CoUninitialize`，失败路径 93-95/116-119/123-125）→ moniker `Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}`（67）→ IID `{6EDD6D74-C007-4E75-B76A-E5740995E24C}`（70-72）→ **`BIND_OPTS3{cbStruct=sizeof(BIND_OPTS3)（79-80）, dwClassContext=CLSCTX_LOCAL_SERVER（81）}`**（历史缺陷：曾传 `BIND_OPTS` 16 字节，cbStruct 过小被 appinfo 按"提升激活配置无效"拒绝 0x80080017，静默提权从未通过；注释 74-77）→ `CoGetObject`（85-90）→ 取 vtable 调 `shell_exec(file, params, NULL, 0, n_show)`（105-112）→ `release`（114）。详见 `learnings/cmstplua-elevation-bind-opts3-and-vtable-slot`。
+COM 提权链细节（`shell_exec_elevated`，53-129）：`CoInitializeEx(COINIT_APARTMENTTHREADED)`（65，按成功与否决定是否配对 `CoUninitialize`，失败路径 93-95/116-119/123-125）→ moniker `Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}`（67）→ IID `{6EDD6D74-C007-4E75-B76A-E5740995E24C}`（70-72）→ **`BIND_OPTS3{cbStruct=sizeof(BIND_OPTS3)（79-80）, dwClassContext=CLSCTX_LOCAL_SERVER（81）}`**（历史缺陷：曾传 `BIND_OPTS` 16 字节，cbStruct 过小被 appinfo 按“提升激活配置无效”拒绝 0x80080017，静默提权从未通过；注释 74-77）→ `CoGetObject`（85-90）→ 取 vtable 调 `shell_exec(file, params, NULL, 0, n_show)`（105-112）→ `release`（114）。详见 `learnings/cmstplua-elevation-bind-opts3-and-vtable-slot`。
 
 ### gpu.rs — 硬件探测与 WebView2 参数
 
@@ -147,14 +149,14 @@ COM 提权链细节（`shell_exec_elevated`，53-129）：`CoInitializeEx(COINIT
 
 ### helper_spawn.rs — 提权 helper 三级通道与结果轮询
 
-模块注释 1-13 记录三级通道设计与"结果文件名统一由 `new_result_name` 生成、worker 侧经 `resolve_result_path` 收口到固定目录"的协议约束。
+模块注释 1-13 记录三级通道设计与“结果文件名统一由 `new_result_name` 生成、worker 侧经 `resolve_result_path` 收口到固定目录”的协议约束。
 
 | 行号 | 项 | 签名 / 说明 |
 |---|---|---|
 | `platform/helper_spawn.rs:21-28` | `new_result_name` | `pub fn() -> String`：`r-<pid>-<纳秒>.json`（纯文件名，写入 `%ProgramData%\CampusLogin\results\` 固定目录；P0-2 收口——高权限 worker 绝不接受任意路径写） |
 | `platform/helper_spawn.rs:31-43` | `read_helper_result` | 私有 `fn(content, result_path)`：解析结果 JSON、`logs` 并入日志（34-40）、删除结果文件（41） |
 | `platform/helper_spawn.rs:51-92` | `spawn_elevated_helper` | `pub fn(op, args: &[&str], result_name: &str, timeout, allow_uac_prompt: bool) -> Result<Value, String>`：**三级通道**——①代理可用（`task_proxy::proxy_usable` 59）时直走 `run_via_task`（62），失败失效代理缓存（67）；②未就绪时 `ensure_registered`（75，经提权注册+自检）后再试 `run_via_task`（78），失败失效缓存（82）；③兜底 `spawn_elevated_raw`（91） |
-| `platform/helper_spawn.rs:98-143` | `spawn_elevated_raw` | 直走「CMSTPLUA 静默 → runas 弹 UAC」链（代理注册动作自身 96 注释、与代理不可用兜底用，防递归）：拼 `--helper <op>` 引号参数（110-115）+ ` --result "<result_name>"`（117）→ `elevation::shell_exec_elevated`（120）失败时 `allow_uac_prompt=false` 直接报错（122-124）→ `run_elevated`（125）→ `helper::resolve_result_path`（129）→ 100ms 轮询结果文件（131-136）→ 超时兜底再查一次（137-141）→ Err"提权操作超时，未收到helper结果"（142） |
+| `platform/helper_spawn.rs:98-143` | `spawn_elevated_raw` | 直走「CMSTPLUA 静默 → runas 弹 UAC」链（代理注册动作自身 96 注释、与代理不可用兜底用，防递归）：拼 `--helper <op>` 引号参数（110-115）+ ` --result "<result_name>"`（117）→ `elevation::shell_exec_elevated`（120）失败时 `allow_uac_prompt=false` 直接报错（122-124）→ `run_elevated`（125）→ `helper::resolve_result_path`（129）→ 100ms 轮询结果文件（131-136）→ 超时兜底再查一次（137-141）→ Err“提权操作超时，未收到helper结果”（142） |
 
 调用方：`commands/network_cmd.rs:352`（`setup_dns_doh` 的 `dns` op）与 `:449`（`reset_dns` 的 `clear_dns` op）、`network/dhcp.rs:290`（MAC 重置）、`network/adapter_cache.rs:176`（enable_adapter op）、`network/discovery/devnode.rs:125`（enable_device op）、`monitor/scheduled.rs:421`（出站切换动作通道 `run_helper_op`，414-417 注释：六期起出站动作不止写跃点，禁用网卡/加删路由同走此通道）。helper 侧实现见 `tauri-app/src-tauri/src/helper/mod.rs`（结果目录 `helper_results_dir` 33 / 请求目录 `helper_requests_dir` 38 / 路径收口 `resolve_result_path` 46-57）。
 
@@ -226,63 +228,45 @@ worker 端（`helper/mod.rs` `--helper-task` 模式，`main.rs:30` 最先拦截�
 | `platform/toast.rs:51-67` | `register_aumid` | `fn(app_handle) -> Result<(), String>`：HKCU `Software\Classes\AppUserModelId\<AUMID>`（54）写 `DisplayName`（56）+ `IconUri`（仅 resource_dir 下 icons/128x128.png 存在才写，58-64；dev 无图标只缺角标），免提权 | 无 |
 | `platform/toast.rs:70-77` | `resolve_resource_image` | `fn(app_handle: &AppHandle, relative: &str) -> Option<String>`（私有）：`resource_dir().join(relative)` 存在则转 `file:///` URL（反斜杠替换为正斜杠，75-76），否则 `None` | 无 |
 | `platform/toast.rs:81-94` | `show_system_toast` | `pub fn(app_handle: &AppHandle, title: &str, body: &str, mascot: &str) -> Result<(), String>`：`resources/mascot-toast/<mascot>.png`（82）作 `appLogoOverride hint-crop="circle"`（83），`XmlDocument` + `LoadXml`（88-89）→ `ToastNotification::CreateToastNotification`（90）→ `CreateToastNotifierWithId(notifier_aumid(..))`（91-92）→ `Show`（93） | 无 |
-| `platform/toast.rs:98-129` | `show_update_toast` | `pub fn(app_handle: &AppHandle, version: &str) -> Result<(), String>`：`resources/mascot-update-toast.png`（101）作头像，固定文案"发现新版本 / 新版本 v{version} 可用，前往关于界面进行更新"（105），注册 `Activated` 回调（112-124）唤起主窗口并向前端发 `update-notification-click` 事件 | 无 |
+| `platform/toast.rs:98-129` | `show_update_toast` | `pub fn(app_handle: &AppHandle, version: &str) -> Result<(), String>`：`resources/mascot-update-toast.png`（101）作头像，固定文案“发现新版本 / 新版本 v{version} 可用，前往关于界面进行更新”（105），注册 `Activated` 回调（112-124）唤起主窗口并向前端发 `update-notification-click` 事件 | 无 |
 
-## 结构体与字段
+## Architecture
 
-### `GpuInfo`（`platform/gpu.rs:4-12`）
-
-| 字段 | 类型 | 含义 |
-|---|---|---|
-| `vendor` | `String` | 厂商名：`"NVIDIA"` / `"Intel"` / `"AMD"` / `"Unknown(0xXXXX)"`（164-169）/ `"unknown"`（兜底，118-125） |
-| `model` | `String` | DXGI `Description` 去尾部 `\0`（157-159） |
-| `vram_mb` | `u64` | `DedicatedVideoMemory / 1024 / 1024`（160-161） |
-| `is_integrated` | `bool` | 由 `tier` 推导（71-73、218） |
-| `tier` | `String` | `discrete` / `high-igpu` / `mid-igpu` / `low-igpu` / `unknown` |
-| `gpu_preference` | `u8` | 读自注册表：0=系统默认、1=节能(核显)、2=高性能(独显)（111-116 的日志映射） |
-
-序列化后即 `get_gpu_info` / `get_init_data.gpuInfo` 的返回体。
-
-### `ICMLuaUtilVtbl`（`platform/elevation.rs:174-185`）
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `_query_interface` | `usize` | slot 0（未调用） |
-| `_add_ref` | `usize` | slot 1（未调用） |
-| `release` | `unsafe extern "system" fn(*mut c_void) -> u32` | slot 2（177） |
-| `_slots_3_to_8` | `[usize; 6]` | slot 3~8 占位对齐：SetRasCredentials / SetRasEntryProperties / DeleteRasEntry / LaunchInfSection / LaunchInfSectionEx / CreateLayerDirectory（183，注释 178-182） |
-| `shell_exec` | `unsafe extern "system" fn(*mut c_void, *const u16, *const u16, *const u16, u32, u32) -> HRESULT` | **slot 9**（184；真实布局以 UACMe elvint.h 的 ICMLuaUtilVtbl 为准） |
-
-历史缺陷（注释 178-182 记录）：slot 3~8 曾被当作“纯占位”砍掉，`shell_exec` 错排到 slot 4——slot 4 实为 SetRasEntryProperties，参数 marshaling 不匹配报 `RPC_X_BAD_STUB_DATA`（0x800706F4）。`vtbl_shell_exec_slot_is_9`（`platform/elevation.rs:197-201`）用 `offset_of!` 锁死该布局。
-
-### `DnsTarget`（`platform/dns_config.rs:54-59`）
-
-| 变体 | 说明 |
-|---|---|
-| `Interface` | 写 `NameServer` + `DNS_SETTING_NAMESERVER` flags，DoH 属性进 `ServerProperties`（`DNS_SETTING_DOH`） |
-| `Profile` | 写 `ProfileNameServer` + `DNS_SETTING_PROFILE_NAMESERVER` flags，DoH 属性进 `ProfileServerProperties`（`DNS_SETTING_DOH_PROFILE`） |
-
-### `DNS_INTERFACE_SETTINGS3` 填充字段（`platform/dns_config.rs:181-198`）
-
-| 字段 | 置值 | 说明 |
-|---|---|---|
-| `Version` | `DNS_INTERFACE_SETTINGS_VERSION3` | 必须匹配结构体版本 |
-| `Flags` | `ns_flag`（按 target，160-163）\| 可能的 `DNS_SETTING_IPV6`（165-167）\| 可能的 DoH flag（168-173） | 一次调用只作用一个协议栈 |
-| `Domain` | `PWSTR::null()` | 不改 |
-| `NameServer` | Interface 时为 `ns_wide` 指针，否则 null（154-158） | 逗号分隔的地址串（113-114） |
-| `SearchList` | `PWSTR::null()` | 不改 |
-| `RegistrationEnabled` / `RegisterAdapterName` / `EnableLLMNR` / `QueryAdapterName` | 全 0 | 不改 |
-| `ProfileNameServer` | Profile 时为 `ns_wide` 指针，否则 null | 按 WiFi profile 生效 |
-| `DisableUnconstrainedQueries` | 0 | 不改 |
-| `SupplementalSearchList` | `PWSTR::null()` | 不改 |
-| `cServerProperties` / `ServerProperties` | 按 target 二选一赋 `doh_bindings` 指针与长度（175-179） | 未使用的槽恒为 NULL |
-| `cProfileServerProperties` / `ProfileServerProperties` | 同上互补 | — |
-
-`clear_dns_stack` 里的同结构体只需 `Flags = DNS_SETTING_NAMESERVER [| DNS_SETTING_IPV6]` 与 `NameServer = 空串`（248-292 内）。
-
-### DNS/DoH 相关的进程内枚举与常量
-
-`platform/dns_config.rs:132-135` 构造的 `DNS_DOH_SERVER_SETTINGS.Flags` 固定为 `DNS_DOH_SERVER_SETTINGS_ENABLE_AUTO | DNS_DOH_SERVER_SETTINGS_ENABLE | DNS_DOH_SERVER_SETTINGS_FALLBACK_TO_UDP`（自动升级 + 启用 + 回退 UDP）；两阶段组参保证宽字符串指针稳定性（注释 139-141）。
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│                         前端 Command Layer                           │
+│  invoke('setup_dns_doh', ...) / verify_windows_identity / ...        │
+└───────────────────────────┬──────────────────────────────────────────┘
+                            │
+      ┌─────────────────────┼─────────────────────┐
+      ▼                     ▼                     ▼
+┌──────────────┐   ┌──────────────────┐   ┌────────────────────┐
+│  dns_config  │   │    elevation     │   │    identity        │
+│              │   │                  │   │                    │
+│ SetInterface │   │ is_admin         │   │ verify_identity    │
+│ DnsSettings  │   │ shell_exec_elev  │   │ (Hello/Interop)    │
+│              │   │ run_elevated     │   │                    │
+└──────┬───────┘   └────────┬─────────┘   └────────┬───────────┘
+       │                    │                       │
+       │             ┌──────┴──────┐                │
+       │             │ helper_spawn│                │
+       │             │             │                │
+       │      ┌──────┴──────┐      │                │
+       │      │ task_proxy  │      │                │
+       │      │ (Task Sched)│      │                │
+       │      └──────┬──────┘      │                │
+       │             │             │                │
+       │      ┌──────┴──────┐      │                │
+       │      │ COM Moniker │      │                │
+       │      │ (ICMLuaUtil)│      │                │
+       │      └─────────────┘      │                │
+       │                           │                │
+       ▼                           ▼                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                      OS Services & APIs                              │
+│  Task Scheduler / AppInfo Service / UserConsentVerifier / DNS API    │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
 ## Data Flow
 
@@ -378,7 +362,7 @@ GPU 信息流：`app/startup.rs:240-243` 后台 `gpu-warmup` 线程先调 `detec
 后续敏感命令（reveal 等）→ platform/identity.rs:39 identity_verified_recently()（TTL 600s）
 ```
 
-敏感命令门实例：`commands/self_service.rs:286 reveal_operator_credential` 在执行前校验 `identity_verified_recently()`（300-304，过期提示"Windows 身份验证已过期，请重新验证后再查看"）。
+敏感命令门实例：`commands/self_service.rs:286 reveal_operator_credential` 在执行前校验 `identity_verified_recently()`（300-304，过期提示“Windows 身份验证已过期，请重新验证后再查看”）。
 
 ### Toast 数据流
 
@@ -396,7 +380,7 @@ infra/notification.rs:46 → platform/toast.rs:81 show_system_toast(...)
 - [[desktop-network-dns]]：DNS/DoH 的业务编排（`network::dns_setup`）与本层的 `dns_config` 的分工边界。
 - [[desktop-network-core]]：`network/adapter_cache.rs`、`network/dhcp.rs` 对 `elevation` 与 `helper_spawn` 的另外两处调用（netsh 提权、MAC 重置）。
 - [[desktop-helper-update]]：helper 子进程协议（`helper/mod.rs` 的 `HelperOp`、结果文件格式、`resolve_result_path` 收口）与更新包下载/校验的上层流程。
-- [[outbound-switch]]：夜间出站切换的判定纯函数层，桌面侧动作经 `monitor/scheduled.rs:418 run_helper_op` 消费本层 `metric.rs` 的读与 helper `SetMetric` 的写；`best_route` / `icmp_probe`（`platform/mod.rs:27-31`）为其路由验证与网关探测底座。
+- [[outbound-switch]]：夜间出站切换的判定纯函数层，桌面侧动作经 `monitor/scheduled.rs:418 run_helper_op` 消费本层 `metric.rs` 的读与 helper `SetMetric` 的写；`best_route` / `route_table` / `icmp_probe`（`platform/mod.rs:27-32`）为其路由验证、历史兜底清理与网关探测底座。
 - [[desktop-auth]]：`auth/protocol.rs` 通过 `decode_charset_bytes` 解码 GBK 响应体做成败关键词判定。
 - [[desktop-infra]]：`crate::log_*` 宏、`EventBus`（`infra/events.rs:58 emit_update_notification_click`）、`AppHandle` 资源的生命周期。
 - [[desktop-app-lifecycle]]：主窗口创建、`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 注入时机（`main.rs:68`）、`gpu-warmup` 预热线程与心跳线程。
@@ -405,7 +389,7 @@ infra/notification.rs:46 → platform/toast.rs:81 show_system_toast(...)
 
 ## Known Issues
 
-1. **模块门控只到 `desktop`，不锁 Windows**：`platform/mod.rs:1-36` 对 `autostart` / `ecoqos` / `dns_config` / `elevation` / `gpu` / `helper_spawn` / `identity` 只加 `#[cfg(desktop)]`（带 `target_os = "windows"` 的是 `task_proxy`、`metric`、`best_route`、`icmp_probe`、`rtss_compat`、`toast` 六个模块，`platform/mod.rs:19-36`），而 `autostart.rs`、`gpu.rs`、`helper_spawn.rs`、`identity.rs` **文件内部没有任何 `#[cfg]`**（见逐文件清单），它们直接使用 `winreg` / `windows` crate；项目实际只支持 Windows 桌面 + 安卓，但该约束是事实约定而非编译期保证。
+1. **模块门控只到 `desktop`，不锁 Windows**：`platform/mod.rs:1-36` 对 `autostart` / `ecoqos` / `dns_config` / `elevation` / `gpu` / `helper_spawn` / `identity` 只加 `#[cfg(desktop)]`（带 `target_os = "windows"` 的是 `task_proxy`、`metric`、`best_route`、`route_table`、`icmp_probe`、`rtss_compat`、`toast` 七个模块，`platform/mod.rs:19-36`），而 `autostart.rs`、`gpu.rs`、`helper_spawn.rs`、`identity.rs` **文件内部没有任何 `#[cfg]`**（见逐文件清单），它们直接使用 `winreg` / `windows` crate；项目实际只支持 Windows 桌面 + 安卓，但该约束是事实约定而非编译期保证。
 2. ~~**`toast.rs` 借用 PowerShell 的 AUMID**~~（2026-09-27 已解决）：自有 AUMID `com.campus.login` 注册到 HKCU `Software\Classes\AppUserModelId\`（DisplayName + IconUri，免提权），通知中心来源显示应用名与应用图标；注册失败自动回退 PowerShell AUMID。
 3. **`identity.rs` 无 CredUI 回退**：`platform/identity.rs:89-94` 设备未配置 Windows Hello 时直接报错退出（模块注释记录 2026-09-05 用户要求移除输密码回退），未配置 Hello 的用户无法执行 reveal 等敏感操作。
 4. **兜底路径的焦点轮询只有 3 秒**：`platform/identity.rs:155-172` 固定 12 次 × 250ms 后线程自行结束，若 Consent 对话框出现更晚（慢机/UAC 排队），就没有任何提前台兜底。
@@ -413,11 +397,11 @@ infra/notification.rs:46 → platform/toast.rs:81 show_system_toast(...)
 6. **`clear_adapter_dns_via_api` 的 IPv6 清理失败被吞**：`platform/dns_config.rs:242-244` 清除 v6 栈失败仅记 `log_warn`（doc 234-239 说明 "IPV6 flag + 空串" 的 API 接受性未经 Win11 实测确证），可能导致旧静态 v6 DNS 残留而接口级设置覆盖 profile DNS。
 7. **`build_browser_args` 只剩单个参数**：`platform/gpu.rs:236-248` 原先 11 个 Chromium 参数被精简为 `--js-flags=--max-old-space-size=512`（247），注释（237-246）逐项记录了删除理由；若日后确有性能增益需按 `ponytail:` 注释（244 行）逐项实测后加回。
 8. **`GPU_CACHE` 进程内不可刷新**：`platform/gpu.rs:14` 的 `OnceLock` 意味着运行期切换显卡偏好/热插拔不会反映到 `get_gpu_info` 结果，需重启应用。
-9. **`detect_gpu_info_inner` 的偏好分支冗余**：`platform/gpu.rs:203-207` 中 `gpu_preference == 2` 与默认分支（`_`）的选择顺序完全相同，实际只有 1（核显优先）与"其他"两种行为。
+9. **`detect_gpu_info_inner` 的偏好分支冗余**：`platform/gpu.rs:203-207` 中 `gpu_preference == 2` 与默认分支（`_`）的选择顺序完全相同，实际只有 1（核显优先）与“其他”两种行为。
 10. **注册表读取依赖 `netsh` 输出格式**：`platform/dns_config.rs:342-428` 逐行解析中英双语字段名（386-388 的 `autoupgrade`/`自动升级`），`netsh` 输出格式或系统语言变化会直接影响 `dohEnabled` 判定。IPv6 条目的 token 解析已修复（365-367，按 `Ipv4Addr`/`Ipv6Addr` 可解析匹配），但整体格式依赖仍在。
-11. **`helper_spawn` 无进程存活检查**：`platform/helper_spawn.rs:131-141` 只轮询结果文件，不感知提权子进程提前退出（例如用户在 UAC 弹窗点"否"），会一直等到超时（调用方 30s）才返回错误。
+11. **`helper_spawn` 无进程存活检查**：`platform/helper_spawn.rs:131-141` 只轮询结果文件，不感知提权子进程提前退出（例如用户在 UAC 弹窗点“否”），会一直等到超时（调用方 30s）才返回错误。
 12. **COM 提权依赖未公开接口**：`platform/elevation.rs:67-72` 使用 `Elevation:Administrator!new:{3E5FC7F9-…}` 与手写 IID `{6EDD6D74-…}`，属未文档化 COM 提权路径；Windows 更新后失效时的表现是降级为弹 UAC（`platform/helper_spawn.rs:120-125`），不会静默失败。
 13. **`should_filter_ip` 会丢弃合法的 `198.18/198.19` 内网 DNS**：`platform/dns_config.rs:311-331` 把 `198.18.*`、`198.19.*` 一并过滤（原意是剔除基准测试网段），特殊校园网部署可能显示不出真实 DNS。
 14. **`read_adapter_dns_from_registry` 的 `dohSupported` 恒为 `true`**：`platform/dns_config.rs:541` 硬编码，未做系统能力探测。
 15. **写 metric 必须把 `SitePrefixLength` 置 0，且只能整行改副本**：`helper/mod.rs:564-635` 从 `interface_rows_for_guid` 取整行 → 覆写 `UseAutomaticMetric` / `Metric` / `SitePrefixLength`（613-616）→ `SetIpInterfaceEntry`（617）。`SitePrefixLength` 非 0 时 Win32 直接报 `ERROR_INVALID_PARAMETER`（615 行注释），错误信息不指向任何具体字段；`Family` / `InterfaceLuid` / `InterfaceIndex` 等若由调用方自行拼装（而非拷贝当前行）同样会参数校验失败。细节与字段对照见 [[set-ip-interface-entry-metric]]。
-16. **`read_interface_metrics` 对不存在的 GUID 返回空表而非错误**：`platform/metric.rs:25-53` 匹配不到即返回 `Ok(vec![])`，调用方须自行区分"该接口无此行"与"接口枚举失败"，否则会把空表当成"metric 已还原"。
+16. **`read_interface_metrics` 对不存在的 GUID 返回空表而非错误**：`platform/metric.rs:25-53` 匹配不到即返回 `Ok(vec![])`，调用方须自行区分“该接口无此行”与“接口枚举失败”，否则会把空表当成“metric 已还原”。

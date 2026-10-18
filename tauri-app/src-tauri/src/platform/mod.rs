@@ -26,6 +26,9 @@ pub mod metric;
 // 路由级切换验证（GetBestRoute，夜间出站切换完成后校验禁用效果）：仅 Windows
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod best_route;
+// IPv4 路由表读取 + 四元组精确删除（清理历史兜底路由）：仅 Windows
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod route_table;
 // ICMP 绑源探测（IcmpSendEcho2Ex，网关可达性判定）：仅 Windows
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod icmp_probe;

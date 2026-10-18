@@ -62,9 +62,9 @@ pub fn is_night_outbound_guard_window(enabled: bool, weekday: u32, now_minutes: 
 
 /// 夜间出站切换的切换态判定（纯函数，桌面）：
 /// metric 快照 / 禁用名单 / 兜底路由三份快照任一非空即处于切换态。
-/// 六期起切换动作=写 metric + 禁校园网卡 + 加兜底路由三件套一次落盘，
-/// 任一残留都说明有待还原动作，避免 background_check/adapter_watch 只看
-/// metric 快照漏判。
+/// 六期起切换动作=写 metric + 禁校园网卡一次落盘；兜底路由自 2026-10-18 事故后
+/// 不再创建，但字段仍参与判定——历史残留要能被识别出来走精确清理，避免只删了
+/// metric 快照就把待还原动作漏掉。
 pub fn outbound_restore_active(metric_restore: &str, disabled_adapters: &str, standby_route: &str) -> bool {
     !metric_restore.is_empty() || !disabled_adapters.is_empty() || !standby_route.is_empty()
 }

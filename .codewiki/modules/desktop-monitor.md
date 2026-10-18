@@ -29,18 +29,18 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ### 模块装配（`monitor/mod.rs`、`monitor/watcher.rs`）
 
-- `monitor/mod.rs:1-12` 仅做子模块声明，顺序为 `watcher`、`auto_auth`、`latency`、`adapter_watch`、`campus_check`、`outbound_switch`、`portal_check`、`quality_scheduler`、`background_emit`、`background_check`、`background_task`、`scheduled`；无任何公开项。
+- `monitor/mod.rs:1-13` 仅做子模块声明，顺序为 `watcher`, `auto_auth`, `latency`, `adapter_watch`, `campus_check`, `outbound_switch`, `portal_check`, `quality_scheduler`, `background_emit`, `background_check`, `background_task`, `outbound_night`, `scheduled`；无任何公开项。
 - `pub use super::background_task::start_background_check_inner;` — `monitor/watcher.rs:14`。
 - `pub use super::campus_check::check_campus_network;` — `monitor/watcher.rs:16`（`auto_auth.rs:302` 就是经此路径调用的）。
 - `pub use super::background_emit::{adapter_status_entry, adapter_disabled_entry, adapter_disconnected_entry};` — `monitor/watcher.rs:17`。
-- `pub fn run_startup_tasks(app_handle: &AppHandle) -> ()` — `monitor/watcher.rs:19-68`，启动期唯一入口，注册五个跟踪任务：
+- `pub fn run_startup_tasks(app_handle: &AppHandle) -> ()` — `monitor/watcher.rs:19-76`，启动期唯一入口，注册五个跟踪任务：
 
 | 条件 | 任务名 | 动作 | 位置 |
 |---|---|---|---|
-| `config.enable_background_check` | `startup_bg_check` | `start_background_check_inner(&app_h, &s)` | `monitor/watcher.rs:23-33` |
-| `config.enable_network_quality && config.enable_latency_test` | `startup_latency` | 取 `latency_test_interval`，`< 10000` 时回退 `30000`，调 `spawn_latency_test_loop` | `monitor/watcher.rs:35-49` |
+| `config.enable_background_check` | `startup_bg_check` | `start_background_check_inner(&app_h, &s)` | `monitor/watcher.rs:27-36` |
+| `config.enable_network_quality && config.enable_latency_test` | `startup_latency` | 取 `latency_test_interval`，`< 10000` 时回退 `30000`，调 `spawn_latency_test_loop` | `monitor/watcher.rs:38-58` |
 | `config.enable_network_quality` (且未开定时测试) | `startup_quality_once` | 启动即测一次（v2.4.2 需求，见 `latency.rs`） | `monitor/watcher.rs:51-59` |
-| 无条件 | `startup_auto_login` | `run_auto_login_on_start(&app_h)` | `monitor/watcher.rs:61-66` |
+| 无条件 | `startup_auto_login` | `run_auto_login_on_start(&app_h)` | `monitor/watcher.rs:60-66` |
 | 无条件 | `scheduled_actions` | `super::scheduled::run_scheduled_action_loop(&app_h, cancel_token).await` | `monitor/watcher.rs:68-76` |
 
 三个以上的 `task_manager.spawn` 注册失败都只 `log_warn!`（`monitor/watcher.rs:31`、`:47`、`:57`、`:64`、`:74`），不阻断启动。调用方是 `app/startup.rs:195`。
