@@ -227,10 +227,27 @@ pub fn standby_route_cleanup(route: &StandbyRoute) -> Result<StandbyCleanup, Str
         .trim()
         .parse()
         .map_err(|_| format!("兜底路由快照网关非法: {:?}", route.gateway))?;
+    // 目的前缀也参与身份判定（与 `route_table::delete_route_exact` 同一口径）：
+    // 历史快照恒为 0.0.0.0/0，但快照若被改坏，按 0.0.0.0/0 去删就会落到别人的默认
+    // 路由上——宁可报错让还原保留状态重试（有放弃阀兜底）。
+    let dest: std::net::Ipv4Addr = route
+        .dest
+        .trim()
+        .parse()
+        .map_err(|_| format!("兜底路由快照目的地址非法: {:?}", route.dest))?;
+    let mask: std::net::Ipv4Addr = route
+        .mask
+        .trim()
+        .parse()
+        .map_err(|_| format!("兜底路由快照掩码非法: {:?}", route.mask))?;
+    let prefix_len = crate::platform::route_table::mask_to_prefix_len(mask)?;
     let rows = crate::platform::route_table::ipv4_forward_rows()?;
     let mut same_key_metrics: Vec<u32> = Vec::new();
     let mut rows_outside_exact = 0usize;
-    for row in rows.iter().filter(|r| r.prefix_len == 0) {
+    for row in rows
+        .iter()
+        .filter(|r| r.prefix_len == prefix_len && r.dest == dest)
+    {
         let same_key = row.next_hop == gateway && row.if_index == route.if_index;
         if same_key {
             same_key_metrics.push(row.metric);
