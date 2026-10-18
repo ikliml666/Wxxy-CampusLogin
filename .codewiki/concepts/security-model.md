@@ -24,7 +24,7 @@ source_files:
 
 安全体系围绕三条主线展开，桌面（Tauri + Windows DPAPI）与安卓（Tauri + AndroidKeyStore AES-GCM）双端同构：
 
-1. **凭据出站唯一出口**：任何把配置发往前端/日志的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，桌面 `config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:296-300`）。
+1. **凭据出站唯一出口**：任何把配置发往前端/日志的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，`config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:296-300`）。
 2. **落盘加密**：密码写入磁盘前必经加密——桌面 DPAPI（当前用户作用域，`account/crypto.rs:114-130`），安卓 AndroidKeyStore AES-256-GCM（`plugins/keystore/src/lib.rs:26-30` 的 `CampusKeystoreExt`）。"非空即加密，不排除掩码占位符"（`config/persist.rs:318-321`）。
 3. **后端验证门**：敏感自助操作前要求本机身份验证，TTL 600 秒、时间戳只存后端内存（桌面 `platform/identity.rs`，安卓 `identity_gate.rs:8-10`）。`reveal_operator_credential` 无论总开关如何都强制设门（桌面 `commands/self_service.rs`）。
 

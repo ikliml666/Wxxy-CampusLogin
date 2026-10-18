@@ -20,6 +20,8 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 本模块共 **51 条 `#[tauri::command]`**（按文件：`config_cmd.rs` 5、`login.rs` 2、`background.rs` 4、`network_cmd.rs` 17、`system.rs` 16、`self_service.rs` 8、`account.rs` 8、`updater.rs` 3），另有 2 条日志命令定义在 `infra/logger.rs` 并一同注册到桌面命令表——桌面端 `generate_handler!` 合计注册 **53 项**。
 
+核心特征包括：大量阻塞 IO（文件读写、注册表、网络探测）通过 `spawn_blocking` 卸载至后台线程；严格的敏感数据掩码策略（`masked_for_display` / DPAPI 密文导出）；以及基于 `AppState` 状态机的一致性保障。
+
 ## Key Components
 
 ### 命令注册位置（先读这一节）

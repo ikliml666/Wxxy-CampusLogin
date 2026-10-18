@@ -24,11 +24,16 @@ tags: [决策, 凭据, 配置, 安全, 引导]
 
 *   **常量**:
     *   `pub const PASSWORD_MASK: &str = "***"` (`model.rs:3`): 密码掩码标准值。
+    *   `pub const AUTO_DETECT_ADAPTER: &str = "自动检测"` (`model.rs:4`): 网卡自动检测标识。
 *   **结构体 `Config`**:
-    *   `pub password: String` (`model.rs:14`): 唯一的密码存储字段。
-    *   `pub self_hello_enabled: bool` (`model.rs:20`): 是否启用 Windows Hello 操作验证（默认 `true`）。
-    *   `pub self_reverify_each_action: bool` (`model.rs:25`): 自助服务面板每次操作都二次验证（默认 `false`）。
-    *   *注*: 旧的 `self_password` 字段已完全移除。
+    *   `pub user: String` (`model.rs:10`): 学号/用户名。
+    *   `pub password: String` (`model.rs:12`): **唯一的密码存储字段**。加载时由 DPAPI 解密，内存中为明文。
+    *   `pub self_hello_enabled: bool` (`model.rs:18`): 是否启用 Windows Hello 操作验证（默认 `true`）。
+    *   `pub self_reverify_each_action: bool` (`model.rs:23`): 自助服务面板每次操作都二次验证（默认 `false`）。
+    *   `pub adapter1_account: String` (`model.rs:32`): 主适配器绑定的账号 id。
+    *   `pub adapter2_account: String` (`model.rs:36`): 副适配器绑定的账号 id。
+    *   `pub display_name: String` (`model.rs:76`): 账号显示名。
+    *   *注*: 旧的 `self_password` 字段已完全移除，不再存在于结构体定义中。
 *   **方法**:
     *   `pub fn masked_for_display(&self) -> Config` (`model.rs:321-326`): 出站掩码出口。克隆配置并调用 `mask_in_place`。
     *   `pub fn mask_in_place(&mut self)` (`model.rs:328-331`): 原地掩码。仅当 `self.password` 非空时替换为 `PASSWORD_MASK`。这是敏感信息出站的唯一出口。
