@@ -244,6 +244,7 @@ export const AccountPanel = memo(function AccountPanel({
           <CardContent className="space-y-3">
             {accounts.length > 0 ? (
               <OnlineDeviceStack
+                focusIndex={accounts.findIndex(a => a.id === activeAccount)}
                 cards={accounts.map((item) => {
                   const isActive = item.id === activeAccount
                   const incomplete = !item.user || !item.passwordSaved

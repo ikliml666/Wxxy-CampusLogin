@@ -235,7 +235,7 @@ export const AccountPanel = memo(function AccountPanel({
           <CardContent className="space-y-3">
             {accounts.length > 0 ? (
               // pager 变体：卡宽收窄至刚好容纳学号，只显示当前卡 + 左右箭头切换（窄卡放封面流侧卡无意义）
-              <OnlineDeviceCardStack variant="narrow">
+              <OnlineDeviceCardStack variant="narrow" focusIndex={accounts.findIndex(a => a.id === activeAccount)}>
                 {accounts.map((item) => {
                 const isActive = item.id === activeAccount
                 const isRenaming = renamingId === item.id
