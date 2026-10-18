@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State, Window};
+use tauri::{AppHandle, Manager, State, Window};
 use std::sync::atomic::Ordering;
 use crate::infra::command_context::CommandContext;
 use crate::infra::state::{AppState, CommandResult};
@@ -6,10 +6,12 @@ use crate::platform::autostart;
 
 #[tauri::command]
 pub fn minimize_window(window: Window, state: State<'_, AppState>) -> Result<(), String> {
-    // minimize_to_tray=true：最小化按钮改为隐藏到托盘（wry 在 hide() 时会
-    // SetIsVisible(false) 挂起 WebView2 渲染，且贴合该配置「不可见即省资源」
-    // 的语义）；否则保持任务栏最小化，渲染挂起由 Resized 事件同步兜底。
+    // minimize_to_tray=true：最小化按钮改为隐藏到托盘。两条分支都立即挂起
+    // WebView2（hide 的 SetIsVisible(false) 只停合成，不停脚本定时器；最小化
+    // 分支的 Resized 事件另有兜底，这里同步做掉是为了「点下即停」，不等事件）。
     if state.config.load().minimize_to_tray {
+        crate::app::window::mark_hidden_by_design(true);
+        crate::app::window::set_main_webview_suspended(&window.app_handle(), true);
         window.hide().map_err(|e| e.to_string())
     } else {
         window.minimize().map_err(|e| e.to_string())
@@ -26,6 +28,8 @@ pub fn close_window(window: Window, state: State<'_, AppState>) -> Result<(), St
     // is_quitting（真退出标志，置位会中止全部后台监控）。
     let minimize_to_tray = state.config.load().minimize_to_tray;
     if minimize_to_tray {
+        crate::app::window::mark_hidden_by_design(true);
+        crate::app::window::set_main_webview_suspended(&window.app_handle(), true);
         return window.hide().map_err(|e| e.to_string());
     }
     if state.config.load().lightweight_mode {

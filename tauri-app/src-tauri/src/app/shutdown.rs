@@ -42,6 +42,11 @@ pub fn handle_window_close_event(window: &Window, event: &WindowEvent) {
     if minimize_to_tray {
         api.prevent_close();
         if let Some(ww) = window.app_handle().get_webview_window("main") {
+            // 隐藏前先挂起：hide() 的 SetIsVisible(false) 只停合成，CSS 无限
+            // 动画与脚本定时器仍要等 WebView2 自己判定才睡（实测数秒），
+            // TrySuspend 才是「点下即停」。
+            crate::app::window::mark_hidden_by_design(true);
+            crate::app::window::set_main_webview_suspended(&window.app_handle(), true);
             let _ = ww.hide(); // [忽略错误] 窗口可能已关闭
         }
     } else {

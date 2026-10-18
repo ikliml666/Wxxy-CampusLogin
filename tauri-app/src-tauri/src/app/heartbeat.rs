@@ -78,7 +78,9 @@ pub fn spawn_window_safety_thread(app_handle: AppHandle) {
                 // 不会把用户刚最小化的窗口强制弹回前台（v2.4.2）。
                 let is_visible = window.is_visible().unwrap_or(false);
                 let is_minimized = window.is_minimized().unwrap_or(false);
-                if is_visible || is_minimized {
+                // is_hidden_by_design：用户主动隐藏到托盘 / 静默启动期间，窗口
+                // 「该不可见」——兜底线程不得反驳用户意图（v2.4.2 强拉前台缺陷）
+                if is_visible || is_minimized || crate::app::window::is_hidden_by_design() {
                     return;
                 }
                 crate::log_warn!("startup", "窗口{}秒后仍不可见，第{}次强制显示", 3 * attempt, attempt);

@@ -5,7 +5,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::Manager;
 
 /// 轻量化生效中：无 WebView 窗口、EcoQoS 已开启、检测间隔延长
 static LIGHTWEIGHT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -123,11 +122,8 @@ pub async fn wait_window_ready_and_show(app: &tauri::AppHandle, label: &str) {
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-    if let Some(w) = app.get_webview_window(label) {
-        let _ = w.show();
-        let _ = w.set_focus();
-        let _ = w.unminimize();
-    }
+    // 复用统一显示路径：会先 Resume 挂起的渲染、清掉 hidden_by_design 标记
+    crate::app::window::show_and_focus_main(app);
 }
 
 #[cfg(test)]

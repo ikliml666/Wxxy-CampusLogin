@@ -212,6 +212,16 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     // set 应用时即触发一次按天清理（见 logger），重装/升级后旧日志首次启动即被清。
     crate::infra::logger::set_log_retention_days(config.log_retention_days);
 
+    // 静默启动（开机自启 + 启动时隐藏）：窗口 visible(false) 起步本就不显示，
+    // 兜底显示线程与前端 show_window 都须知道「这是用户要的隐藏」，否则被当成
+    // 启动黑屏强行拉前台（v2.4.2 强拉缺陷）
+    let silent_start =
+        config.hidden_start && std::env::args().any(|a| a == "--autostart");
+    if silent_start {
+        crate::app::window::mark_hidden_by_design(true);
+        crate::log_info!("startup", "静默启动：主窗口保持隐藏，后台完成启动任务");
+    }
+
     crate::app::tray::build_tray(app.handle(), &install_dir)?;
 
     let app_h = app.handle().clone();

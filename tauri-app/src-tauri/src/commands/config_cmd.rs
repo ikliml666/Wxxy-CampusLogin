@@ -214,6 +214,10 @@ pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
         if window.is_minimized().unwrap_or(false) {
             return Ok(());
         }
+        // 隐藏到托盘：用户主动收起，后台任务完成后不得弹回前台（v2.4.2 修复②）
+        if crate::app::window::is_hidden_by_design() {
+            return Ok(());
+        }
     }
     crate::app::window::show_or_rebuild_main(&app_handle);
     Ok(())

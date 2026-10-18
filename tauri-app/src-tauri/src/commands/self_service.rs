@@ -305,10 +305,15 @@ pub async fn verify_windows_identity(
     consent_message: Option<String>,
 ) -> Result<CommandResult, String> {
     // 主窗口带到前台（为兜底路径提供前台进程上下文）+ 取 HWND 供 Consent UI 绑定。
-    // HWND 取 isize 原始值：tauri 与本项目 windows crate 版本可能不同，跨类型不直通
+    // HWND 取 isize 原始值：tauri 与本项目 windows crate 版本可能不同，跨类型不直通。
+    // 已最小化/隐藏到托盘时不还原：本命令只能由用户点界面触发，此时窗口不可见
+    // 说明是后台误调，不得把用户收起的窗口弹回前台（v2.4.2 强拉缺陷）
     let owner_hwnd = app.get_webview_window("main").and_then(|win| {
-        let _ = win.show();
-        let _ = win.set_focus();
+        let minimized = win.is_minimized().unwrap_or(false);
+        if !minimized && !crate::app::window::is_hidden_by_design() {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
         win.hwnd().ok().map(|h| h.0 as isize)
     });
     let message = consent_message.unwrap_or_default();
