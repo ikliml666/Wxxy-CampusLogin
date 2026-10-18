@@ -6,14 +6,16 @@ use crate::platform::autostart;
 
 #[tauri::command]
 pub fn minimize_window(window: Window, state: State<'_, AppState>) -> Result<(), String> {
-    // minimize_to_tray=true：最小化按钮改为隐藏到托盘。两条分支都立即挂起
-    // WebView2（hide 的 SetIsVisible(false) 只停合成，不停脚本定时器；最小化
-    // 分支的 Resized 事件另有兜底，这里同步做掉是为了「点下即停」，不等事件）。
+    // 两条分支都立即挂起 WebView2：hide 自带 SetIsVisible(false) 只停合成不停
+    // 脚本定时器；minimize 要靠 WM_SIZE 的 Resized 事件才恢复挂起（亚秒延迟）。
+    // 这里同步做掉是为了「点下即停」，不等事件。
+    crate::app::window::set_main_webview_suspended(&window.app_handle(), true);
     if state.config.load().minimize_to_tray {
         crate::app::window::mark_hidden_by_design(true);
-        crate::app::window::set_main_webview_suspended(&window.app_handle(), true);
         window.hide().map_err(|e| e.to_string())
     } else {
+        // 同步挂起已发生，标注去抖态让随后的 Resized 事件不再重复触碰 COM
+        crate::app::window::note_minimized_synced();
         window.minimize().map_err(|e| e.to_string())
     }
 }

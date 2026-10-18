@@ -72,15 +72,11 @@ pub fn spawn_window_safety_thread(app_handle: AppHandle) {
         }
         for attempt in 1..=3 {
             if let Some(window) = app_handle.get_webview_window("main") {
-                // is_visible 在 Win32 下最小化时仍为 true（IsWindowVisible 语义），
-                // 故仅查 is_visible 的旧判定本不会在最小化时触发。显式补 is_minimized
-                // 是纵深防御：若未来 is_visible 语义变化把最小化判为不可见，这里仍
-                // 不会把用户刚最小化的窗口强制弹回前台（v2.4.2）。
-                let is_visible = window.is_visible().unwrap_or(false);
-                let is_minimized = window.is_minimized().unwrap_or(false);
                 // is_hidden_by_design：用户主动隐藏到托盘 / 静默启动期间，窗口
                 // 「该不可见」——兜底线程不得反驳用户意图（v2.4.2 强拉前台缺陷）
-                if is_visible || is_minimized || crate::app::window::is_hidden_by_design() {
+                if window.is_visible().unwrap_or(false)
+                    || crate::app::window::is_user_dismissed(&window)
+                {
                     return;
                 }
                 crate::log_warn!("startup", "窗口{}秒后仍不可见，第{}次强制显示", 3 * attempt, attempt);

@@ -309,8 +309,9 @@ pub async fn verify_windows_identity(
     // 已最小化/隐藏到托盘时不还原：本命令只能由用户点界面触发，此时窗口不可见
     // 说明是后台误调，不得把用户收起的窗口弹回前台（v2.4.2 强拉缺陷）
     let owner_hwnd = app.get_webview_window("main").and_then(|win| {
-        let minimized = win.is_minimized().unwrap_or(false);
-        if !minimized && !crate::app::window::is_hidden_by_design() {
+        // 已最小化/隐藏到托盘时不还原：本命令只能由用户点界面触发，此时窗口
+        // 不可见说明是后台误调，不得把用户收起的窗口弹回前台（v2.4.2 强拉缺陷）
+        if !crate::app::window::is_user_dismissed(&win) {
             let _ = win.show();
             let _ = win.set_focus();
         }

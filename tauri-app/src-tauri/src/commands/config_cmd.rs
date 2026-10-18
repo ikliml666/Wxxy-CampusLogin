@@ -211,11 +211,10 @@ pub fn show_window(app_handle: AppHandle) -> Result<(), String> {
     // 的 unminimize 会发 SW_RESTORE 还原窗口。用户主动唤起（托盘单击、single_instance
     // 二次启动）不经本命令，仍正常还原最小化窗口。
     if let Some(window) = app_handle.get_webview_window("main") {
-        if window.is_minimized().unwrap_or(false) {
-            return Ok(());
-        }
-        // 隐藏到托盘：用户主动收起，后台任务完成后不得弹回前台（v2.4.2 修复②）
-        if crate::app::window::is_hidden_by_design() {
+        // 用户在启动后短时间内最小化 / 收进托盘时，不把窗口弹回前台
+        // （show_and_focus_main 的 unminimize 会发 SW_RESTORE）。用户主动唤起
+        // （托盘单击、single_instance 二次启动）不经本命令，仍正常还原。
+        if crate::app::window::is_user_dismissed(&window) {
             return Ok(());
         }
     }

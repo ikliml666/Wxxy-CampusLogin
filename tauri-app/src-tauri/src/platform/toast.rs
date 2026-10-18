@@ -111,11 +111,8 @@ pub fn show_update_toast(app_handle: &AppHandle, version: &str) -> Result<(), St
     let app_h = app_handle.clone();
     toast
         .Activated(&TypedEventHandler::new(move |_, _| {
-            if let Some(win) = app_h.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.unminimize();
-                let _ = win.set_focus();
-            }
+            // 用户点通知即主动唤起：走统一入口，顺带解除挂起与隐藏标记
+            crate::app::window::show_and_focus_main(&app_h);
             if let Err(e) = crate::infra::events::EventBus::new(&app_h).emit_update_notification_click() {
                 crate::log_warn!("system", "通知点击事件发送失败: {}", e);
             }

@@ -15,6 +15,14 @@ pub fn is_hidden_by_design() -> bool {
     HIDDEN_BY_DESIGN.load(Ordering::Acquire)
 }
 
+/// 用户已主动收起窗口（最小化或隐藏到托盘 / 静默启动中）。
+///
+/// 后台任务看到 true 就应静默完成，不得把窗口拉回前台（v2.4.2 强拉缺陷）。
+/// 托盘单击、single_instance、通知点击等用户主动唤起路径不走本判定。
+pub fn is_user_dismissed(window: &tauri::WebviewWindow) -> bool {
+    window.is_minimized().unwrap_or(false) || is_hidden_by_design()
+}
+
 /// 挂起 / 恢复主 WebView2 渲染进程（最小化、隐藏到托盘、轻量化关闭共用）。
 ///
 /// 挂起走微软官方休眠范式：先把 controller.IsVisible 置 false（TrySuspend 的硬
@@ -26,7 +34,7 @@ pub fn set_main_webview_suspended(app: &tauri::AppHandle, suspended: bool) {
     if let Some(ww) = app.get_webview_window("main") {
         let _ = ww.as_ref().with_webview(move |pw| {
             // [忽略错误] COM 调用在窗口销毁竞态下失败无补救意义
-            let _ = unsafe { apply_webview_suspended(&pw, suspended) };
+            let _ = apply_webview_suspended(&pw, suspended);
         });
     }
     #[cfg(not(target_os = "windows"))]
@@ -34,7 +42,7 @@ pub fn set_main_webview_suspended(app: &tauri::AppHandle, suspended: bool) {
 }
 
 #[cfg(target_os = "windows")]
-unsafe fn apply_webview_suspended(
+fn apply_webview_suspended(
     pw: &tauri::webview::PlatformWebview,
     suspended: bool,
 ) -> windows_core::Result<()> {
@@ -80,7 +88,11 @@ unsafe fn apply_webview_suspended(
         ));
         unsafe { icw2_3.TrySuspend(&handler) }?;
     } else {
-        unsafe { icw2_3.Resume() }?;
+        // Resume 失败也必须恢复可见：否则窗口可见而 WebView 冻死，且此处错误被
+        // 调用方忽略（见 set_main_webview_suspended），用户只会看到白屏
+        if let Err(e) = unsafe { icw2_3.Resume() } {
+            crate::log_warn!("window", "WebView2 恢复失败（继续置可见）: {}", e);
+        }
         unsafe { controller.SetIsVisible(true) }?;
     }
     Ok(())
@@ -122,8 +134,8 @@ pub fn handle_window_focus_event(window: &Window, event: &WindowEvent) {
 #[cfg(not(target_os = "windows"))]
 pub fn handle_window_focus_event(_window: &tauri::WebviewWindow, _event: &WindowEvent) {}
 
-/// 上次同步给 WebView2 的最小化状态。Resized 事件高频（拖拽调整尺寸逐像素
-/// 触发），仅在 is_minimized 翻转时才触碰 COM，其余事件直接跳过。
+/// 上次同步给 WebView2 的「最小化」取值（即上一次挂起判定的输入）。Resized
+/// 事件高频（拖拽调整尺寸逐像素触发），仅在 is_minimized 翻转时才触碰 COM。
 #[cfg(target_os = "windows")]
 static LAST_MINIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -142,17 +154,26 @@ pub fn handle_window_resized_event(window: &Window, event: &WindowEvent) {
     };
 
     let minimized = window.is_minimized().unwrap_or(false);
-    if LAST_MINIMIZED.swap(minimized, Ordering::Relaxed) == minimized {
+
+    // 隐藏到托盘的窗口不归尺寸事件管：它本就挂起，别被还原事件顺手唤醒。
+    // 放在去抖之前，否则虚事件会污染 LAST_MINIMIZED 的「上次同步值」语义。
+    if !minimized && is_hidden_by_design() {
         return;
     }
 
-    // 隐藏到托盘的窗口不归尺寸事件管：它本就挂起，别被还原事件顺手唤醒
-    if !minimized && is_hidden_by_design() {
+    if LAST_MINIMIZED.swap(minimized, Ordering::Relaxed) == minimized {
         return;
     }
 
     // 最小化即整体挂起（停帧 + 暂停脚本定时器），还原即恢复
     set_main_webview_suspended(window.app_handle(), minimized);
+}
+
+/// 标注「最小化挂起已同步」，供 commands::system::minimize_window 在主动
+/// 挂起后调用，避免随后的 Resized 事件重复触碰 COM。非 Windows 空实现。
+pub fn note_minimized_synced() {
+    #[cfg(target_os = "windows")]
+    LAST_MINIMIZED.store(true, Ordering::Relaxed);
 }
 
 /// 非 Windows 平台为空实现
