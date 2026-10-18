@@ -23,6 +23,7 @@ source_files:
   - android/frontend/src/hooks/usePageIdle.ts
   - android/frontend/src/hooks/usePulseAnimation.ts
   - android/frontend/src/hooks/useQualityStore.ts
+  - android/frontend/src/hooks/useStartupBoost.ts
   - android/frontend/src/hooks/useThemeStore.ts
 tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, config]
 ---
@@ -36,25 +37,25 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 提供与后端 Rust 逻辑交互的统一接口。由于安卓端缺乏桌面端的硬件抽象（如网卡、窗口管理），大部分桌面专属功能被显式拒绝或返回空操作。
 
 - **常量与辅助函数**:
-  - `desktopOnly<T>(name: string)`: (L16-L18) 返回被拒绝的 Promise，用于标记安卓端不可用的桌面功能。
-  - `noopListener()`: (L21-L22) 返回无操作的清理函数，用于安卓端不存在的桌面事件监听。
-  - `createEventListener<T>()`: (L74-L98) 创建安全的 Tauri 事件监听器，处理异步 listen 和取消订阅。
-  - `isRetryableError(e: unknown)`: (L193-L205) 判断错误是否可重试（包含 timeout/network/fetch/connection 关键字）。
-  - `withRetry<T>()`: (L207-L224) 指数退避重试机制，仅用于 `saveConfig`。
+  - `desktopOnly<T>(name: string)`: (L30-L32) 返回被拒绝的 Promise，用于标记安卓端不可用的桌面功能。
+  - `noopListener()`: (L35-L36) 返回无操作的清理函数，用于安卓端不存在的桌面事件监听。
+  - `createEventListener<T>()`: (L198-L217) 创建安全的 Tauri 事件监听器，处理异步 listen 和取消订阅。
+  - `isRetryableError(e: unknown)`: (L328-L336) 判断错误是否可重试（包含 timeout/network/fetch/connection 关键字）。
+  - `withRetry<T>()`: (L338-L351) 指数退避重试机制，仅用于 `saveConfig`。
 
 - **接口定义**:
-  - `interface TauriApi`: (L26-L100) 定义了所有后端 RPC 方法的类型签名，包括配置、认证、网络、更新等。
+  - `interface TauriApi`: (L4-L28) 定义了所有后端 RPC 方法的类型签名，包括配置、认证、网络、更新等。
   - `interface AvoidBadWifiStatus`: (L102-L111) 描述系统网络设置写入权限及快照状态。
   - `interface RestoreWrittenSettingsResult`: (L113-L116) 还原系统设置的结果。
 
 - **实现对象 `tauriApi`**: (L103-L183)
   - `getConfig`, `saveConfig`: (L104-L105) 配置读写。
-  - `verifyWindowsIdentity`: (L118-L150) 生物识别验证门。安卓端使用 `biometricAuthenticate`，若失败或回退条件满足则调用 `useFaceDialogStore` 进行 2D 人脸验证。
+  - `verifyWindowsIdentity`: (L246-L283) 生物识别验证门。安卓端使用 `biometricAuthenticate`，若失败或回退条件满足则调用 `useFaceDialogStore` 进行 2D 人脸验证。
   - `openExternal`: (L165-L176) 安全地打开外部 URL，校验协议和长度。
   - `onBackgroundCheckResult`, `onLoginLog`, `onNetworkQualityResult` 等: (L151-L154, L160-L161) 使用 `createEventListener` 注册事件。
   - 桌面专属方法（如 `getAdapters`, `minimizeWindow`, `dhcpRenewAll` 等）均指向 `desktopOnly`。
 
-- **导出对象 `tauriApiWithRetry`**: (L217-L221)
+- **导出对象 `tauriApiWithRetry`**: (L353-L363)
   - 扩展 `tauriApi`，仅对 `saveConfig` 应用 `withRetry` 逻辑。
 
 ### 2. State Stores (Zustand)
@@ -69,9 +70,9 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
   - `bgStatus`: (L71) `BackgroundStatus`，后台检测的详细状态。
 
 - **Actions**:
-  - `doLogin()`: (L74-L128) 执行登录。包含超时包装 (`withTimeout`, 60s)、配置保存、质量探测节流（60s 内不重复全量检测）、状态稳定更新。登录成功跳过立即复查以防状态闪烁。
-  - `doLogout()`: (L130-L156) 执行注销。同样包含超时包装和状态更新。
-  - `checkOnline(cfg?)`: (L158-L198) 在线状态检测。包含校园网检测 (`detectCampusNetwork`) 和 Portal 状态查询 (`queryPortalStatus`)。使用 `_checkOnlineLockFlag` 串行化请求，防止并发冗余 invoke。
+  - `doLogin()`: (L98-L146) 执行登录。包含超时包装 (`withTimeout`, 60s)、配置保存、质量探测节流（60s 内不重复全量检测）、状态稳定更新。登录成功跳过立即复查以防状态闪烁。
+  - `doLogout()`: (L148-L176) 执行注销。同样包含超时包装和状态更新。
+  - `checkOnline(cfg?)`: (L178-L218) 在线状态检测。包含校园网检测 (`detectCampusNetwork`) 和 Portal 状态查询 (`queryPortalStatus`)。使用 `_checkOnlineLockFlag` 串行化请求，防止并发冗余 invoke。
   - `setStatus`, `setBgStatus`: (L200-L201) 状态设置器。
 
 #### `useConfigStore` (`useConfigStore.ts`)
@@ -88,10 +89,10 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 - **Actions**:
   - `updateConfig(partial)`: (L56-L82) 合并配置并触发防抖保存（500ms）。标记 `dirtyFields` 以防止后端旧快照覆盖本地未确认值。
   - `updateConfigLocal(partial)`: (L84-L92) 仅本地更新配置，不触发保存。
-  - `mergeConfigFromBackend(incoming)`: (L94-L101) 合并后端推送的配置，跳过脏字段。
-  - `saveConfigDirect(cfg, clearPassword?)`: (L108-L153) 直接调用后端保存。处理密码掩码、脏字段重置、连续失败计数（阈值 3 次后放弃脏标记以重新同步）。
-  - `hasPendingConfig()`: (L159-L162) 检查是否有待保存配置（pending 或 in-flight）。
-  - `flushPendingConfig()`: (L164-L190) 冲刷待保存配置，用于关闭窗口或切后台时。
+  - `mergeConfigFromBackend(incoming)`: (L90-L98) 合并后端推送的配置，跳过脏字段。
+  - `saveConfigDirect(cfg, clearPassword?)`: (L106-L146) 直接调用后端保存。处理密码掩码、脏字段重置、连续失败计数（阈值 3 次后放弃脏标记以重新同步）。
+  - `hasPendingConfig()`: (L168-L172) 检查是否有待保存配置（pending 或 in-flight）。
+  - `flushPendingConfig()`: (L174-L202) 冲刷待保存配置，用于关闭窗口或切后台时。
 
 #### `useQualityStore` (`useQualityStore.ts`)
 管理网络质量、DNS DoH 状态及版本更新信息。
@@ -103,8 +104,8 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
   - `updateAvailable`, `latestVersion`, `releaseNotes`, `updatePromptOpen`: (L39-L42) 更新相关状态。
 
 - **Actions**:
-  - `refreshQuality()`: (L45-L62) 手动刷新网络质量，受锁和配置开关保护。
-  - `setNetworkQuality(q)`: (L64-L68) 设置质量并更新时间戳 `lastQualityResultTime`，用于登录后节流判断。
+  - `refreshQuality()`: (L58-L73) 手动刷新网络质量，受锁和配置开关保护。
+  - `setNetworkQuality(q)`: (L75-L79) 设置质量并更新时间戳 `lastQualityResultTime`，用于登录后节流判断。
 
 #### `useLogToastStore` (`useLogToastStore.ts`)
 管理日志条目和 Toast 通知。
@@ -115,14 +116,14 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 
 - **Actions**:
   - `addLog(message, type)`: (L30-L50) 添加日志，支持去重和计数累计。
-  - `addToast(title, type, ...)`: (L52-L82) 添加 Toast，支持同题去重、容量淘汰、非前台过滤。
-  - `addToastWithAction(toast)`: (L84-L107) 添加带操作按钮的 Toast，非前台也入队。
+  - `addToast(title, type, ...)`: (L66-L90) 添加 Toast，支持同题去重、容量淘汰、非前台过滤。
+  - `addToastWithAction(toast)`: (L92-L113) 添加带操作按钮的 Toast，非前台也入队。
   - `removeToastsByPrefix(prefix)`: (L112-L121) 按前缀移除 Toast 及其定时器。
 
 #### `useThemeStore` (`useThemeStore.ts`)
 管理主题名称、亮暗模式及自定义颜色。
 
-- **Side Effects**: (L68-L96)
+- **Side Effects**: (L48-L80)
   - 订阅状态变化，动态修改 `document.documentElement` 的 class 和 CSS 变量。
   - 处理 `theme-custom` 时的 HSL 转换和内联样式注入。
 
@@ -134,14 +135,41 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 
 ### 3. Animation & Performance Hooks
 
+#### `useStartupBoost` (`useStartupBoost.ts`)
+管理应用启动时的 GSAP 入场动画序列，负责 GPU 图层预热（Warm-up）与冷却（Cool-down），以及根据用户偏好（减少运动模式、性能档位）跳过或执行动画。
+
+- **核心接口/类型**:
+  - `interface StartupRefs`: (L8-L14) 定义 5 个 DOM 引用键值对 (`titleBar`, `statusBar`, `title`, `dockNav`, `rightPanel`)，默认值为 `null`。
+  - `const TRANSFORM_KEYS`: (L16) 上述 5 个键的常量数组，用于批量操作样式。
+
+- **关键函数/导出**:
+  - `export function useStartupBoost()`: (L17) 主 Hook。
+    - **状态管理**: 使用 `useRef` 存储 `refs` (DOM 元素)、`timelineRef` (GSAP Timeline)、`boostedRef` (防重入锁)、`refCallbacks` (缓存回调函数以优化渲染) [行 18-23]。
+    - `setRef(key: K)`: (L25-L33) 返回一个稳定的回调函数，用于 React 组件挂载时绑定 DOM 元素。利用闭包缓存避免重复创建回调。
+    - `warmUpGpuLayers()`: (L35-L41) 遍历所有引用元素，设置 `willChange: 'transform, opacity'` 强制浏览器提升为合成层，前提条件为 `profile.startupBoost` 为真。
+    - `coolDownGpuLayers()`: (L43-L53) 清除 `willChange` 并重置 `transform` 样式，释放 GPU 资源，在动画完成时调用。
+    - `runStartupSequence()`: (L55-L106) 核心动画逻辑。
+      - **边界处理**: 若 `boostedRef.current` 为 true 则直接返回，防止重复触发 [行 56-57]。
+      - **快速回退策略**: 检测 `prefers-reduced-motion` 或 `!profile.startupBoost`，若满足则通过 `gsap.set` 瞬间将元素设为终态（opacity:1, y:0, scale:1, x:0），并立即调用 `coolDownGpuLayers` [行 61-69]。
+      - **动画时间轴**: 创建 GSAP Timeline，默认缓动为 `expo.out` [行 74-76]。
+      - **具体动画配置**:
+        - `titleBar`: 从 `{opacity:0, y:14}` 到终态，延迟 `stagger * 1`，时长 0.5s [行 78-83]。
+        - `statusBar`: 同上，延迟 `stagger * 3` [行 85-90]。
+        - `title`: 同上，延迟 `stagger * 5` [行 92-97]。
+        - `rightPanel`: 从 `{opacity:0, x:50}` 到终态，绝对时间偏移 `0.3`，时长 0.6s [行 99-104]。
+        - `dockNav`: 从 `{opacity:0, y:40, scale:0.85}` 到终态，绝对时间偏移 `0.45`，时长 0.6s，缓动 `back.out(1.2)` [行 106-112]。
+      - **副作用清理**: 保存 `timelineRef` 供后续销毁 [行 114]。
+    - **生命周期**: `useEffect` 仅在卸载时运行，调用 `timelineRef.kill()` 并重置标志位 [行 116-122]。
+  - **返回值**: (L124) `{ setRef, runStartupSequence, refs }`。
+
 #### `useAdaptiveFramePace` (`useAdaptiveFramePace.ts`)
 智能帧率控制，基于 GSAP ticker。
 
 - **Logic**:
-  - `markInteraction()`: (L33-L36) 标记交互发生，推高活跃窗口时间并立即提帧。
-  - `currentPace()`: (L38-L42) 根据 `lastActiveAt` 和页面可见性计算当前帧率（0/30/60）。
-  - `applyPace()`: (L44-L50) 应用帧率到 `gsap.ticker.fps()`。
-  - Hook 挂载: (L56-L78) 监听 `pointerdown`, `touchstart` 等事件重置活跃计时器，并使用 `setInterval` (250ms) 轮询回落帧率，避免常驻 rAF 导致的功耗问题。
+  - `markInteraction()`: (L27-L30) 标记交互发生，推高活跃窗口时间并立即提帧。
+  - `currentPace()`: (L32-L36) 根据 `lastActiveAt` 和页面可见性计算当前帧率（0/30/60）。
+  - `applyPace()`: (L39-L45) 应用帧率到 `gsap.ticker.fps()`。
+  - Hook 挂载: (L52-L75) 监听 `pointerdown`, `touchstart` 等事件重置活跃计时器，并使用 `setInterval` (PACE_POLL_MS=250ms) 轮询回落帧率，避免常驻 rAF 导致的功耗问题。
 
 #### `useAnimationProfile` (`useAnimationProfile.ts`)
 动画参数配置。恒最高档 (`HIGH_PROFILE`)，根据 `refreshRate` 调整 easing 曲线。
@@ -149,13 +177,13 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 #### `usePageIdle` (`usePageIdle.ts`)
 页面空闲检测与动画活性上下文。
 
-- `usePageIdle()`: (L3-L36) 检测用户空闲（2s 无交互），使用 interval 轮询而非频繁定时器重建。
-- `AnimationActiveProvider`: (L75-L83) 组合 `isVisible`, `isFocused`, `isIdle`，通过 Context 提供 `useAnimationActive()`。解决原实现中多个实例导致的大量监听器注册问题。
+- `usePageIdle()`: (L4-L45) 检测用户空闲（2s 无交互），使用 interval 轮询而非频繁定时器重建。
+- `AnimationActiveProvider`: (L86-L96) 组合 `isVisible`, `isFocused`, `isIdle`，通过 Context 提供 `useAnimationActive()`。解决原实现中多个实例导致的大量监听器注册问题。
 
 #### 具体动画 Hooks
-- `useBreatheAnimation` (`useBreatheAnimation.ts`, L1-L45): 呼吸效果（opacity/scale/rotation 循环），受 `useAnimationActive` 控制暂停/恢复。
-- `useGlowAnimation` (`useGlowAnimation.ts`, L1-L45): 发光效果（scale/opacity 循环），受 `useAnimationActive` 控制。
-- `usePulseAnimation` (`usePulseAnimation.ts`, L1-L82): 脉冲/心跳动画，支持 `heartbeat`, `statusPulse`, `loadingPulse` 三种类型。
+- `useBreatheAnimation` (`useBreatheAnimation.ts`, L9-L56): 呼吸效果（opacity/scale/rotation 循环），受 `useAnimationActive` 控制暂停/恢复。
+- `useGlowAnimation` (`useGlowAnimation.ts`, L9-L56): 发光效果（scale/opacity 循环），受 `useAnimationActive` 控制。
+- `usePulseAnimation` (`usePulseAnimation.ts`, L9-L84): 脉冲/心跳动画，支持 `heartbeat`, `statusPulse`, `loadingPulse` 三种类型。
 
 ### 4. Initialization & Lifecycle Hooks
 
@@ -171,7 +199,7 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 #### `useInitialDataLoad` (`useInitialDataLoad.ts`)
 首次数据加载。
 
-- **Logic**: (L16-L96)
+- **Logic**: (L16-L103)
   - 调用 `api.getInitData()` 获取配置、背景状态、账号列表、刷新率。
   - 处理密码掩码同步 `passwordSaved`。
   - 初始化主题和默认面板。
@@ -183,42 +211,42 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 全局事件监听管理器。
 
 - **Logic**: (L12-L198)
-  - **Close Request**: (L30-L46) 拦截窗口关闭，若有待保存配置则 `await flushPendingConfig()` (限时 2s)。
-  - **Visibility/PageHide**: (L48-L54) 切后台或卸载时冲刷配置。
+  - **Close Request**: (L43-L60) 拦截窗口关闭，若有待保存配置则 `await flushPendingConfig()` (限时 2s)。
+  - **Visibility/PageHide**: (L66-L70) 切后台或卸载时冲刷配置。
   - **Tauri Events**:
-    - `onBackgroundCheckResult`: (L56-L82) 更新 `bgStatus` 和 `status`，保持引用稳定。
+    - `onBackgroundCheckResult`: (L80-L105) 更新 `bgStatus` 和 `status`，保持引用稳定。
     - `onAutoLoginResult`: (L84-L94) 自动登录结果处理。
     - `onLoginLog`: (L96-L102) 登录日志处理。
     - `onAutoExitCountdown` / `onCampusExitCountdown`: (L104-L136) 倒计时通知，提供“取消退出”操作。
     - `onNetworkQualityResult`: (L138-L145) 更新质量并处理低质量告警。
     - `onUpdateAvailable`: (L147-L159) 更新可用通知。
-    - `onConfigChanged`: (L161-L178) 合并后端配置，同步激活账号和刷新账号列表。
+    - `onConfigChanged`: (L166-L183) 合并后端配置，同步激活账号和刷新账号列表。
     - `onUpdateUnverified`: (L180-L190) 更新源不可用警示。
 
 #### `useHeartbeat` (`useHeartbeat.ts`)
 渲染存活检测。
 
-- **Logic**: (L6-L16)
+- **Logic**: (L4-L16)
   - 每 5s 调用 `api.renderHeartbeat()`。
   - 若页面隐藏或渲染链失活 (`isRenderLoopAlive` 返回 false) 则跳过，让后端重载 WebView。
 
 #### `useGlobalShortcut` (`useGlobalShortcut.ts`)
 全局快捷键。
 
-- **Logic**: (L6-L20)
+- **Logic**: (L4-L20)
   - 监听 `Ctrl+Shift+C`，忽略可编辑元素目标，调用 `api.cancelAutoExit()`。
 
 #### `useAsyncLock` (`useAsyncLock.ts`)
 异步操作互斥锁。
 
-- **Logic**: (L4-L24)
+- **Logic**: (L4-L28)
   - 防止同一操作并发执行，包含冷却时间 (`cooldownMs`)。
   - 处理 StrictMode 下的双重挂载问题。
 
 #### `useFormFactor` (`useFormFactor.ts`)
 设备形态判定。
 
-- **Logic**: (L12-L38)
+- **Logic**: (L16-L34)
   - 基于 `window.innerWidth/Height` 短边 >= 600px 判定平板。
   - 响应 `resize` 和 `orientationchange` 事件。
 
@@ -299,7 +327,7 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
 ## Known Issues
 
 1.  **Desktop-Only Features on Android**:
-    *   Functions like `getAdapters`, `minimizeWindow`, `dhcpRenewAll`, `setupDnsDoh` are explicitly rejected via `desktopOnly` in `tauriApi.ts` (L106-L108, L151-L153, L162-L164, L179-L180). This is a deliberate degradation, not a bug, but requires UI components to handle potential errors or hide related features.
+    *   Functions like `getAdapters`, `minimizeWindow`, `dhcpRenewAll`, `setupDnsDoh` are explicitly rejected via `desktopOnly` in `tauriApi.ts` (L30-L32). This is a deliberate degradation, not a bug, but requires UI components to handle potential errors or hide related features.
 
 2.  **StrictMode Double Invocation**:
     *   `useInitialDataLoad`, `useEventListeners`, and `useAsyncLock` explicitly handle React StrictMode's double mount/unmount cycle using `mountedRef` to prevent async operations from being silently dropped during the second setup phase (see comments in `useInitialDataLoad.ts` L18-L22, `useEventListeners.ts` L15-L17, `useAsyncLock.ts` L11-L14).
@@ -308,7 +336,7 @@ tags: [frontend, hooks, zustand, tauri, state-management, animation, auth, confi
     *   Historically, `toasts` array had no limit. Fixed in `useLogToastStore.ts` (L27) by enforcing `MAX_TOASTS = 4` and evicting oldest entries.
 
 4.  **Inline Style Accumulation**:
-    *   `useThemeStore.ts` (L88-L93) previously used `cssText +=` which caused unbounded growth. Fixed by using `style.setProperty` and `style.removeProperty`.
+    *   `useThemeStore.ts` (L65-L66) previously used `cssText +=` which caused unbounded growth. Fixed by using `style.setProperty` and `style.removeProperty`.
 
 5.  **Race Conditions in `checkOnline`**:
     *   Previously used `setTimeout(500)` to release lock, allowing concurrent invocations. Fixed in `useAuthStore.ts` (L194-L197) by releasing lock immediately upon promise settlement.

@@ -1,276 +1,248 @@
 ---
 title: "夜间出站自动切换（出站层夜切）"
-type: decision
+type: module
 source_files:
   - tauri-app/src-tauri/src/config/outbound_switch.rs
   - tauri-app/src-tauri/src/config/model.rs
   - tauri-app/src-tauri/src/config/night_switch.rs
+  - tauri-app/src-tauri/src/monitor/outbound_switch.rs
+  - tauri-app/src-tauri/src/monitor/outbound_night.rs
   - tauri-app/src-tauri/src/platform/metric.rs
   - tauri-app/frontend/src/network/outboundOrder.ts
 tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 ---
 
-## 背景
-
-校园网（无锡学院）的断网是**校园网整体不可用**（周日至周四 23:00、周五六 23:30 之后），不是某条运营商线路的问题——[[night-operator-switch|自动切换运营商]]工作在登录凭据层，整体断网时切了运营商也登不上。本次在**出站层**新增自动切换：
-
-- **桌面**：到点把排序中的非校园网网卡（热点/物联网卡/随身 WiFi）的接口跃点（metric）调至 1，使其成为系统默认出站；次日恢复窗口按快照还原。升级为「禁用校园网网卡 + 兜底路由 + 保留 metric」三件套。
-- **安卓**：到点注销校园网认证并触发系统 WiFi 连通性重检，让系统 `network_avoid_bad_wifi` 机制自动把默认网络切到蜂窝；恢复窗口重登当前账号。
-- **改名**：原「晚间断网自动切换」更名为「自动切换运营商」（UI 文案与 wiki 标题，配置字段名 `enableNightOperatorSwitch` 不变），与新功能在名字上区分。
-
-时间表与运营商夜切**共用**（`config/night_switch.rs`：`switch_time_for` 0..=4→1380、5|6→1410；恢复窗口常量 `RESTORE_START_MINUTES=450`（07:30 起）、`RESTORE_END_MINUTES=1380`）。恢复窗起点由 06:30 调整为 07:30。
-
-## 与运营商夜切的动作顺序（硬约束）
-
-两者判定在同一循环相邻执行，动作语义正交，但顺序固定：
-
-- **切换侧**：先评出站切换——切入切换态成功则运营商夜切**跳过**（从热点出站登录校园 portal 必然失败，切了白切）；出站没切上（无可用候选）则运营商夜切照常。
-- **恢复侧**：先还原出站——还原成功才允许运营商夜切恢复执行；还原未完成（重试中）则同拍跳过运营商恢复。
-- **定时登录**：切换态期间跳过，且**不消耗当日标记**——"过点补触发"语义要求还原成功后的下一拍仍能补登。
-
-互斥不靠提前 return：桌面与安卓都以"动作后重读切换态"门控后续夜切判定，保证"没切上则夜切照常"与"切上则夜切让位"同时成立。
-
-## 桌面机制
-
-### 判定纯函数
-
-`config/outbound_switch.rs::evaluate_night_outbound(enabled, weekday, now_minutes, restore_active)`：`!enabled` → None；切换态（restore 非空）且 now ∈ [450, 1380) → Restore；非切换态且 `now < 450`（凌晨）→ **Switch（凌晨补切）**；非切换态且过当日切换时刻 → Switch（过点补触发）；其余 None。**切换态由配置自身承载，纯函数天然幂等防重**。
-
-### 目标卡选择与逐卡判定
-
-`monitor/outbound_switch.rs`：`effective_outbound_priority` 先把排序配置展开为**生效列表**——用户已排序（非空）按原序透传；未排序默认「无线卡优先、有线卡随后」（组内保发现序），即夜间出站目标默认 WLAN/无线出口。`select_outbound_candidate` 候选来自该生效列表，要求有 IP 且判定为**非校园网**，并保留两道过滤：**无网关卡跳过**与**自身网关不可达（死路）卡跳过**。
-
-逐卡判定 `is_campus_adapter` 与 `campus_check.rs` 同源：与 `campus_gateway` 同 /18 网段，或**绑该卡源 IP** 的网关可达（两发去抖，任一次可达即判校园），另增 **portal 域名绑源探测证据**（`portal_probe_host(config.portal_url)` 解析出的私网 IPv4 从该卡路由可达即判校园）。SSID 不参与逐卡判定。
-
-### metric 读写底座
-
-- **读**（免提权）：`platform/metric.rs::read_interface_metrics` 走 Iphlpapi `GetIpInterfaceTable(AF_UNSPEC)` 运行时值；`interface_rows_for_guid` 读快照与 helper 写 metric 共用同一枚举。
-- **写**（提权）：helper op `set_metric`（`HelperOp::SetMetric`，条目编码 `"{guid}:{family}:{automatic}:{metric}"`），worker 内逐条取整行改副本再 `SetIpInterfaceEntry`。已知坑：**`SitePrefixLength` 必须置 0**，否则 `ERROR_INVALID_PARAMETER`。
-- **持久层口径**：`SetIpInterfaceEntry` 写的是接口的**持久配置**（重启不还原）——因此快照还原是必需步骤而非可选优化，崩溃残留由启动对账收敛。
-
-### 快照与切换态时序
-
-切换前先读目标卡两族 metric → 快照 JSON（`[{guid, family, automatic, metric}]`）+ 禁用名单 + 兜底路由**三快照一次落盘** → **落盘成功才认定切换态成立** → 再执行 helper 动作。helper 失败**不清快照**，切换态保留 + 退避重试补写。
-
-### 切换动作（`apply_outbound_switch`）
-
-退避闸 → `get_adapters_cached` + details join 出候选 → `portal_probe_host(config.portal_url)` → `select_outbound_candidate` → `select_campus_to_disable` → StandbyRoute 挂目标卡网关 if_index → 三快照落盘 → `write_outbound_metric` → 逐卡 `disable_adapter` → `route_add` → **切换后路由级验证**（读最优路由，最优 ifIndex 仍属校园卡集合 → 判失败走重放）→ all_ok 汇总。
-
-### replay 三分支幂等补做（`replay_outbound_switch`）
-
-metric 补写 / 禁用补做 / 路由补加——提权 gate 开头一次，各分支独立判定、全部幂等；全部分支无新增失败清切换失败计数。
-
-### 夜间看门狗（`watchdog_re_disable_campus`）
-
-守护窗 ∧ 切换态 ∧ 退避闸内，解析禁用名单，发现名单内卡状态非 Disabled（被用户/外部重新启用）→ 重发 `disable_adapter` + 通知一次。仅在 None 拍调用，不与切换/还原动作竞争。
-
-### 还原动作（`apply_outbound_restore`）
-
-顺序固定：
-- **跃点快照损坏** → **按已还原继续但每天提醒一次**，不再整体收尾清三快照；
-- 三快照全空 → finish 收尾；restore_gate 退避；
-- ① `route_delete` 兜底路由——失败阻止 finish 收尾；② 跃点写回；③ 启用名单内校园卡——名单 JSON 损坏 ≠ 空名单，默认判失败保留状态重试+告警；连续失败达 `OUTBOUND_RESTORE_GIVE_UP_FAILS=40` 按空名单放行；
-- 收尾通知区分 `gave_up_released`；`finish_outbound_restore`（先清快照成功才清退避；并 `clear_outbound_manual_hold`）；`clear_outbound_snapshot`。
-
-### 三重还原保障 + 终态出口
-
-1. **07:30 恢复窗口主动还原**：按快照逐族写回原值，成功后清快照。注意 metric 写入落在持久配置层、重启不还原，本条是唯一可靠的主动收敛路径；
-2. **启动对账**（`reconcile_outbound_on_startup`）：恢复窗内或功能已关 → 立即还原；跃点快照不可用 → 还原；目标卡不存在 → 还原；夜间窗口内用 `portal_probe_host + is_campus_adapter` 判 `back_on_campus`，已回校园网 → 直接还原、放弃本夜切换，否则重放切换；
-3. **终态出口**：目标卡 GUID 查不到（拔出/禁用）或跃点行消失 → **视为已还原，清空快照**；
-4. **崩溃残留兜底**：持久层写入意味着崩溃/被杀后残留不会自愈，启动对账与次日恢复窗是仅有的收敛出口。
-
-### 手动立即切换/还原与当日保持标记
-
-- **命令**（`commands/network_cmd.rs`）：`outbound_switch_now`、`outbound_restore_now`、`get_current_outbound_name`。
-- **`manual_outbound_switch`**：立即切换——清退避 → **先落 hold 再 apply**；已切换态拒绝。
-- **`manual_outbound_restore`**：立即还原——清 hold + 还原退避，走标准 `apply_outbound_restore`。
-- **`outbound_manual_hold_day`**（`config/model.rs`，i32 `num_days_from_ce`，0=无）：冻结当日自动 Switch/Restore；**清理分支（功能关+残留）不受冻结**；次日 07:30 自动还原照常或手动还原清零。导入保留本机值、安卓不消费。
-
-### 退避与提权降级
-
-- 失败退避 `outbound_backoff_ms`：0 → 首试、60s → 120s → 240s → 300s 封顶；切换/还原独立计数，成功清零。
-- 告警周期化：`outbound_restore_alert_due`（首达触发、此后每 20 次重复），三处告警点统一。
-- UAC 降级照 adapter_watch 先例：首试静默，仅**确因提权通道失败**才允许弹 UAC。
-- 还原连续失败达 3 次 → 告警通知"请手动恢复跃点"并**保留快照**，配合 `GIVE_UP_FAILS=40` 放弃阀不无限刷。
-
-### 冲突协调（桌面）
-
-- **巡检整轮跳过**（`background_check.rs`）：切换态期间 `run_background_check_blocking` 直接 return——portal 检测走热点出站必失败，会累计触发 MAC 重置提权 + 整夜告警。判定用 `outbound_restore_active` 三快照。
-- **adapter_watch 双过滤**：①禁用警告通知块——名单内卡不发 `adapter_disabled_warning`，名单解析失败→None→保守全拦；②自动启用闸门——`is_night_outbound_guard_window` ∧ `outbound_restore_active` 双条件内不出自动启用目标，名单过滤，恢复登录触发。
-- 切换态与账号无关，`switch_account` 不清 `outboundMetricRestore`。
-- **导入配置五切换态字段一律保留本机值**：`outboundMetricRestore`/`outboundDisabledAdapters`/`outboundStandbyRoute`/`outboundManualHoldDay`/`nightOutboundRestore` 均不可迁移。`outboundPriority` 可迁移。
-- DNS 有意不随 metric 走（多网卡并发解析下热点 DNS 通常胜出；一期观察，校园网卡禁用后竞争卡消失）。
-
-## 安卓机制
-
-### 动作序列（切换侧）
-
-`monitor_loop.rs::run_scheduled_actions` 出站分支：
-
-1. **前置在线检查**：上一拍巡检判定不在线则跳过注销请求并清失败计数；
-2. **注销**：在线则走 `do_logout`，"离线已生效"判据取 **`radiusOk || unbindOk`**——MAC 解绑同样是破坏性踢下线，解绑成功即本机已离线；注销结果不确认 → `switch_logout_unconfirmed` 达 3 次按断网规律建态；
-3. **落标记**：`nightOutboundRestore = "logged_out"` 落盘成功才触发重检；
-4. **触发系统重检**：经 network-bind 插件 `reportWifiUnusable` → `ConnectivityManager.reportNetworkConnectivity(wifi, false)` → 系统 NetworkMonitor 重验证，`network_avoid_bad_wifi` 开启时系统自动把默认网络切到蜂窝。**应用侧不做任何 metric/开关写入**。
-
-Switch/Restore 分支：Switch = persist → ensure → recheck；Restore = `night_switch_login` 成功 → 清标记 + `restore_avoid_bad_wifi`，失败达 `OUTBOUND_RESTORE_MAX_FAILS=3` 放弃清标记。动作后 `latest_settings` 重读防 stale 复活。
-
-### 判据与上限
-
-- **注销失败上限 3**：注销请求在网络断开时本来就发不出去，无限重试无意义——达上限按"断网规律"照常建态，交系统侧重检验证接管。
-- **还原失败上限 3**：晨间 `night_switch_login` 连续 3 拍失败 → 放弃自动还原、清标记恢复巡检并发 error 日志要求手动登录。
-- **重试只保留最后一次结果**：交替型失败最终由 3 次上限兜底建态，不摆动。
-
-### 防 stale 与全入口巡检闸
-
-- **`latest_settings` 落盘前重读**：切换/还原写盘若基于拍首快照克隆，会把期间已改的字段用旧值覆盖回去。出站动作后运营商夜切与定时登录也改用重读的新鲜配置。
-- **巡检闸全入口**（`run_check_once` 开头）：闸放在 `run_check_once` 而非 tick 循环——周期拍、WiFi 变化事件、手动检测三条路径共用这一个闸（`night_outbound_restore` 非空 → 跳过整轮）。**`run_scheduled_actions` 不经过此闸**（晨间还原判定必须在切换态下照常执行）。
-- **`verify_night_switch` 双守卫**：运营商夜切验证的入口与复验轮之前各查一次切换态——等待窗内新建的切换态会被复验轮把账号登回，打断出站等待窗口。
-- **切账号/删除当前账号清 `nightOutboundRestore`**：纯标记无恢复目标语义，但残留会让巡检永久跳过；两处清标记后均 `restore_avoid_bad_wifi` 收尾快照。
-- **启动兜底**：标记空但插件有待还原快照 → 启动即 `restore_avoid_bad_wifi`（覆盖崩溃/强杀错过恢复窗口）。
-
-## 前端（双端）
-
-- **桌面 NetworkPanel**：合并卡：开关 + 网卡排序列表 + **排第一的卡常显「夜间出站目标」徽标** + 当前出站徽标 +「立即切换/立即还原」按钮 + 管理员权限提示。排序落 `outboundPriority`：`buildOutboundOrder`——priority 非空按其过滤保序、未列入的当前卡追加尾部；priority 空 → **无线网卡优先默认序**；拖拽期间本地态渲染，`onDragEnd` 才一次性提交。
-- **安卓 NetworkPanel**：同名卡：开关 + `network_avoid_bad_wifi` 引导块状态感知 +「还原系统设置」按钮。类型与封装在 `hooks/tauriApi.ts`。
-- i18n zh/en 双语言包双端同步；「晚间断网自动切换」文案改名「自动切换运营商」。
-
-## 已知限制（有意不修/待办，记录避免重查）
-
-1. **`auto_login_on_start` 未过出站闸**（双端同构限制）：启动自动登录链路不判切换态——切换态内重启应用会重登校园网。桌面登录失败无害（启动对账会在夜间窗口重放切换）；安卓重登成功则流量回 WiFi，切换态名存实亡但标记仍在，07:30 恢复窗口会再登一次并清标记自愈。未修原因：启动登录是独立编排，加闸要动两端的启动路径，收益不抵评审面扩大。
-2. ~~**`network_avoid_bad_wifi` 写通道不可用**~~（已解决，见「WRITE_SECURE_SETTINGS 自动写增强」节）：一期只引导手动开启，现经 adb pm grant 授权后可静默写。
-3. **桌面 `nightOutboundRestore` 字段是死字段**：为满足「字段集双端同构」纪律而存在；桌面真实切换态字段是 `outboundMetricRestore` 三快照，桌面代码不消费 `nightOutboundRestore`。仅导入保留逻辑与切账号清理触达它。
-4. **安卓同拍双登可能**：出站 Restore 成功当拍置 `outbound_active=false`，同拍随后的定时登录判定可能再登一次——恢复窗口恰好压着定时登录时刻时出现。后果轻（重复登录幂等），不为此引入拍内去重。桌面无此问题。
-5. **功能已关+态残留的兜底判据内联不重构**：桌面抽为可测纯函数 `outbound_action_for`，安卓在 `run_scheduled_actions` 内联同款三行——刻意不抽公共纯函数（安卓编排本就独立于桌面 monitor 模块，抽取需扩大桌面 crate 的 pub 面，收益小）。两端行为必须保持同步，改动时人工对照。
-6. **captive portal 白名单误判风险**：个别校园网部署放行系统探测 URL——安卓注销后系统验证仍"通过"，`avoid_bad_wifi` 不切流量。真机实测项；命中则改"注销+提示"降级。
-7. **切换时机由系统探测周期决定**（安卓）：`reportNetworkConnectivity` 后系统按自身节奏重验证，不保证 23:00 整点切蜂窝，与"自动衔接"语义相容但非秒级。
-8. ~~**与 TUN 代理（mihomo auto-route）并存时 metric=1 不接管整机流量**~~（六期已解决，机制与并存语义见「禁用+兜底路由方案落地」节）：纯跃点切换确实被 TUN 压制，六期改用禁用校园网网卡产生接口/路由事件迫使 mihomo 重选出站。
-9. **`config/model.rs` 与 `metric.rs` 注释口径冲突**：前者仍称「运行时修改重启即还原」，后者实证 `SetIpInterfaceEntry` 落持久层。文档以 `metric.rs` 为准，代码注释待顺手修（行为本身已由快照还原兜住）。
-
-## WRITE_SECURE_SETTINGS 自动写增强
-
-一期已知限制②的落地（设计同日批准，方案：还原**原值**而非默认值，语义同桌面 metric 快照）：
-
-- **manifest**：`AndroidManifest.xml` 声明 `WRITE_SECURE_SETTINGS`。仍受 signature|privileged 保护，需用户 adb `pm grant com.campuslogin.client android.permission.WRITE_SECURE_SETTINGS` **一次性授权**；授权后应用可静默写 `Settings.Global`，`network_avoid_bad_wifi=1` 免手动。
-- **快照还原机制**（`NetworkBindPlugin.kt`）：`applyNetworkSettingsCompat` 写两键（`captive_portal_mode`、`network_avoid_bad_wifi`）前先经 `snapshotGlobalKey` 记原值到插件私有 SharedPreferences（已有快照不覆盖——首次写入为准；读取异常按 1 处理）。这同时给出 `acceptWifiNetwork` 兜底路径的**回滚出口**。
-- **插件命令 7 个**（`build.rs` COMMANDS 数组：bindToWifi/unbind/acceptWifiNetwork/ensureAvoidBadWifi/restoreAvoidBadWifi/restoreWrittenSettings/getSecureSettingsStatus；tauri_plugin 据此生成权限脚手架）。Kotlin 实现：`ensureAvoidBadWifi`（幂等写 1+快照）、`restoreAvoidBadWifi`（无快照 restored=false 幂等）、`restoreWrittenSettings`（两键全量还原）、`getSecureSettingsStatus`（granted/avoidBadWifi/pendingRestore 查询）。Rust 封装 `network-bind/src/lib.rs`：`ensure_avoid_bad_wifi`、`restore_avoid_bad_wifi`、`restore_written_settings`、`get_secure_settings_status`。
-- **Rust 编排四触发点**（`monitor_loop.rs`/`account_cmds.rs`）：①Switch 分支落标记成功后自动 ensure；②Restore 清标记后自动还原；③启动兜底——标记空但有快照即还原；④切账号/删当前账号清标记后还原。Tauri 命令 `protocol_cmds.rs`：`get_avoid_bad_wifi_status`、`restore_written_settings`（均 JNI 阻塞走 spawn_blocking），注册于 `lib.rs`。
-- **前端**：见「前端（双端）」安卓条目。
-- 桌面不涉及（Settings.Global 为安卓特有）。
-
-## 已排除路线（避免重查）
-
-`WRITE_SECURE_SETTINGS` 写 `Settings.Global.WIFI_ON`（AOSP 源码证伪：仅 @Readable，"Only the Wi-Fi service should touch this"）；Shizuku 提权 `svc wifi disable`（需第三方应用+重启重激活）；Device Owner 豁免（已有账号设备被拒）；VpnService tun 转发 / 无障碍模拟点击（过重/脆弱）。
-
-## 桌面卡片合并与拖拽排序
-
-一期前端节里「不引入拖拽」的决策撤销（当时顾虑安卓 WebView 滚动冲突与新增依赖——实际仅桌面引入，且 framer-motion ^12.38.0 桌面 frontend 已有、`Reorder.Group/Item + useDragControls` 是其内置能力，零新依赖；安卓排序 UI 不存在，滚动冲突前提不成立）。用户需求：网络适配器卡与夜间出站切换卡合并为一张卡；↑/↓ 按钮改长按拖拽。**仅桌面**（安卓端 NetworkPanel 不动）。
-
-- **合并卡结构**：`tauri-app/frontend/src/network/NetworkPanel.tsx`——头部左「网络适配器 + 检测数」、右 MoonStar 图标 + Switch（夜间出站切换总开关）；头部下方整行 nightOutBoundSwitchDesc 小字；列表 = 适配器统一列表，每行图标（Wifi/Cable）+ 名称/IP(mono)/速度 + 徽标（主适配器/副适配器/无线/状态/夜间出站目标/当前出站）+ 行按钮（启用/获取新IP/刷新DHCP）。原「主适配器排最前」的自动排序取消——主/副由徽标表达，顺序由用户拖拽决定。
-- **顺序构建纯函数** `outboundOrder.ts::buildOutboundOrder(priority, detected)`：priority 非空 → 按 priority 过滤掉已拔出网卡后排序、detected 中新卡按发现顺序追加尾部；priority 空 → 直接用发现顺序。（十期注：空 priority 语义已改为无线网卡优先默认序并增加第三参，见十期节。）
-- **拖拽交互**：行体任意处长按 250ms（`DRAG_LONG_PRESS_MS`）起拖，移动超 8px 死区（`DRAG_DEAD_ZONE_PX`）取消长按——保护滚动与点击。`Reorder.Item` 挂 `dragListener={false}` + `dragControls`；行内按钮区包一层 `onPointerDown stopPropagation` 防点按钮误触长按。拖拽中用本地 state（`dragOrderRef`）渲染，`onDragEnd` 才一次性提交 `onUpdateConfig({outboundPriority})`；`whileDrag` 抬起态（scale 1.02 + 阴影）。
-- **验证**：tsc 0 错误、vitest 96/96、vite build 通过。
-
-## 桌面排序仅保留长按拖拽
-
-三期双通道交互上线当日的用户反馈迭代：去掉「点击特定卡片（把手）进行排列」，只留长按条目任意位置起拖；功能描述改「切换为非校园网」，并要求提示用户通过拖动决定切换目标。仅桌面（安卓端无排序 UI，不涉及）。
-
-- **把手通道撤销**：删除行内 GripVertical 把手按钮——「点击特定卡片排列」的操作模型认知负担高，且把手挤占行首视觉空间。长按 250ms + 8px 死区 + 行内按钮区 `stopPropagation` 三件套原样保留；`whileDrag` 抬起态、本地 `dragOrder` 渲染、`onDragEnd` 一次性提交语义全部不变。
-- **文案三层收敛**（zh/en 同步）：①`nightOutboundSwitchDesc`「…自动把出站切换为非校园网（热点/物联网卡）…」——从机制描述改为面向效果；②`outboundDragHint`「长按条目任意位置拖动调整顺序，排最前的非校园网网卡即夜间切换目标」；③`outboundAdminHint` 删去「排第一的网卡即夜间出站目标」。
-- **验证**：tsc 0 错误、vitest 96/96；Playwright 真浏览器实测 6 场景全过。
-
-## 文案精简与夜间断网实测复盘
-
-用户两项文案要求落地（`nightOutboundSwitchDesc` zh/en，现描述周日至周四 23:00、周五六 23:30 自动切换 + 次日自动还原——恢复时点文案随恢复窗调整为 07:30 口径）。同日复盘 2026-09-26（周五）夜间实测「时间到了没切换、无法上网」，日志取证：
-
-- **切换动作本身成功**：23:30:19 评出目标卡 WLAN（热点 192.168.6.109，判非校园网正确），helper 两族 metric=1 写入成功、快照落盘、通知「已切换出站到 WLAN」。23:31:35 adapter_watch 自动 pnputil 启用两张被 PnP 禁用的有线卡（此冲突由六期名单过滤与七期守护窗修复）。
-- **6:30 恢复窗口无进程执行**：09-27 日志首行 07:43:23「应用启动」，还原由启动对账补做（07:43:24 成功）。后台运行前提昨晚被违反（PC 关机或应用退出，原因未定位）。
-- **流量未跟随的机制**（本机路由表实测 + 同类实现调研）：FlClash（mihomo 内核）TUN auto-route 以 `0.0.0.0/0 → 198.18.0.2` RouteMetric=0（Protocol=NetMgmt）持有默认路由，物理卡 metric=1 在「应用→出口」这一段永远赢不了它；跃点修改不产生路由增删事件，探测若非轮询式重算则感知不到，出站焊死在已断的校园网卡即整夜断网——与用户观察「连接还在其他网卡上」吻合。独立候选：热点无上游（手机休眠/欠费）、DNS 不随 metric 走。
-- 用户原假设「适配器没被选择就不会被操作」对选择器成立（`select_outbound_candidate` 只操作列表内、有 IP、判非校园网的第一张卡），但本夜 WLAN 恰被选中并操作成功，断网另有原因。
-
-## 禁用+兜底路由方案落地
-
-用户 v2 提案否定纯跃点路线（原话大意：直接修改路由表新增一条排在 TUN 后面的路由，再增加操作把连接校园网的网卡禁用后再启用）。拍板方案：
-
-- **方案**：「禁用校园网网卡 + 兜底路由 + 保留 metric」三件套（替换五期候选 1）；启用（还原）时机=恢复窗口（现为 07:30）。
-- **硬约束①（已撤销）**：原约束「USB 网卡绝不禁用——禁用会导致 USB 网卡下次开机无法正常启用」**已按用户明确要求撤销**：USB 副卡参与夜间禁用，`unsafe_to_disable` 删除 USB 前缀豁免，仅 PnP 实例 ID 读不到才 true。历史上该守卫经 `bus_guard` 闭包传入 `select_campus_to_disable`，现为纯 PnP 可读性守卫。
-- **硬约束②（仍有效）**：软件对网卡状态判断不准 → 禁用名单只记**亲手禁用的 GUID**（`DisabledRow{guid,name}`，`monitor/outbound_switch.rs`），绝不靠状态推断；状态误判已修（见下「幽灵设备误判修复」）。
-
-### 切换动作要点
-
-`select_campus_to_disable`：候选=Connected + 判校园网 + priority 白名单内 + 有 GUID/IP + **非目标卡**（排除 `exclude_guid`，目标卡禁了就没人出站）+ **同名去重** + **bus_guard 命中跳过**。逐张 helper `disable_adapter`，**只记成功下发禁用的卡**；与 metric 快照、路由快照一次落盘（三快照成立切换态），失败不清快照退避重试。兜底路由 `StandbyRoute{dest,mask,gateway,metric,if_index}` → `outboundStandbyRoute`：`0.0.0.0/0` 指向目标卡网关、metric=2、IF 目标卡；网关为空则不下发。切换后路由级验证见桌面机制节。
-
-**为什么这套动作能接管流量**：FlClash TUN（0.0.0.0/0 metric 0）仍持有默认路由——兜底路由 metric=2 永远抢不了它，**唯一角色是 FlClash 退出后的 failover**。真正的主力是禁用：校园网卡禁用产生接口/路由删除事件，mihomo `auto-detect-interface` 重选出站接口——已禁的校园网卡从候选消失，TUN 出站落目标卡（热点）；路由/DNS/接口竞争同时全消。目标卡 metric=1 保留，是 mihomo 出站选择的依据（TUN 退出后默认路由由同卡的 metric 2 兜底路由顶上）。夜间并存语义：**FlClash 运行中**流量仍进 TUN、出口=热点（代理路径恰好可用）；**FlClash 退出**后默认路由=兜底路由（目标卡），直连热点。
-
-### 幽灵设备误判修复（`network/discovery/windows.rs`）
-
-USB 网卡拔出后设备节点成幽灵（phantom）：`AdminStatus` 或 Class 注册表 `ConfigFlags` 残留 DISABLED 位 → 误分类「已禁用」（自动启用逻辑对着不存在的卡提权——用户「USB 判断不准」反馈的根源）。`classify_adapter_status` 加第 6 参 `pnp_present: Option<bool>`（计算点 `devnode_problem` 判定）——`Some(false)` 直接判 `Disconnected`；查询不可用（None）回退旧行为。
-
-### 配套状态
-
-- 切换态判定三快照联合（`config/outbound_switch.rs::outbound_restore_active` 任一非空）：`scheduled.rs` 循环/启动对账、`background_check.rs` 巡检跳过、`adapter_watch.rs` 闸门均改用；`config/model.rs` 字段 `outbound_disabled_adapters`/`outbound_standby_route`/`outbound_manual_hold_day`（默认空/0，双端同构；安卓不消费——`android/src-tauri/src/config_state.rs` 仅五字段）。
-
-### 五期候选落实情况
-
-- **候选 1（压制竞争接口抬 metric 5000）**→ 被禁用方案替代：禁用比抬跃点彻底（路由/DNS/竞争全消），且 mihomo 事件感知可靠。
-- **候选 2（切换后验证+通知）**→ **已实施**：`apply_outbound_switch` 切换后路由级验证，未接管判失败走重放。
-- **候选 3（DNS 跟随）**→ 以禁用方案间接消解：校园网卡禁用后 DNS 竞争卡消失，热点 DNS 天然胜出。
-- **候选 4（合并卡显示生效出站）**→ **已实施**：`get_current_outbound_name` 60s 轮询 + 当前出站徽标。
-
-## 七期：守护窗口闸门
-
-**现象**：用户切换前手动禁用校园网卡（无 IP）→ 重启 replay 后 adapter_watch 仍自动启用，与切换意图打架；白天亦有同款启用。
-
-**根因**：六期闸门只按 `outboundDisabledAdapters` 名单豁免；手动禁用的卡无 IP，`select_campus_to_disable` 无 IP 跳过不入名单 → 名单空 → 闸门失效。
-
-**修复**：`config/outbound_switch.rs` 纯函数 `is_night_outbound_guard_window`——窗口=[当日切换时刻（周日~四 1380、周五六 1410）, 次日恢复窗开)；凌晨分支覆盖前一晚切换后全部时段（跨日天然成立）。`monitor/adapter_watch.rs` 自动启用块先算窗口，窗口内不出目标，名单闸门与白天「意外禁用→恢复登录」行为不变。
-
-> 2026-10-02：恢复窗起点由 06:30 调整为 07:30；上文本节时间表述已按现值改写。
-
-**设计取舍**：否决「把已禁用卡也记进名单」——名单驱动还原逐卡 enable，记进去会让还原误启用用户手动禁用的卡（制造新 bug）；纯时间窗闸门即可全覆盖三场景（重启 replay、启动中途、运行中禁用——都落窗口内）。八期 P3-2 起窗口再叠加切换态条件。
-
-## 八期：k2.8 深度审计落地
-
-kimi-k2.8-preview 只读审计 src-tauri 后端返回 7 条，逐条源码核实后处置：
-
-**实施 4 条**：
-
-- **P1-1 导入配置保留本机切换态**：原「导入即清快照」在切换中导入会把活跃快照顶掉——系统残留 metric=1/禁用卡/兜底路由却无还原路径，原始跃点永久丢失。改为导入文件切换态字段一律丢弃、**保留本机当前值**。九期起扩为五字段（+`outboundManualHoldDay`）。
-- **P1-2 兜底路由删除失败阻断收尾**：route_delete 失败原仅 warn、照常 finish 清三快照 → 孤儿 0.0.0.0/0 metric=2 路由持续改道流量而用户看到「已还原」。改为失败 mark_outbound_failure（进退避+告警）+ 阻止 finish，下一拍整体幂等重试。**推翻六期「失败不阻塞还原」决策**：当时论据「运行时路由重启即清」只对短期成立，静默假成功比延迟重试危险；卡启用/跃点写回不受影响（本拍继续执行，仅收尾被阻）。
-- **P3-1 还原失败告警周期化**：原 `count == 3` 恰好一次后无限静默；改为 `count >= 3 && (count-3) % 20 == 0`（300s 封顶时约每 100 分钟），三处告警点统一。
-- **P3-2 守护窗叠加切换态**：七期纯时间窗在整夜休眠错过切换的凌晨会误阻塞自动启用；改为 `is_night_outbound_guard_window ∧ outbound_restore_active(三快照)`。原 bug 两实证场景切换态均成立，守护不弱化；无快照即无切换可顶掉，恢复白天行为。
-
-**延后/否决 3 条**：
-
-- **P2-1 helper 请求目录 ACL 加固**：真实提权面，但修复需设计 requests/results 两目录的属主矩阵，且必须真机 icacls 验证——记录方案后延，不盲改提权链。
-- **P2-2 夜间手动置空运营商被次晨还原覆盖**：修复需引入哨兵值改配置语义、兼容存量快照，语义风险高，记为已知限制待专门设计。
-- **P3-3 UI enable_adapter 无切换态互斥**：**否决**——用户显式点击启用是用户意图，加互斥即「与用户意图打架」；状态不一致由用户自担，不加守护。
-  - 注：P3-3 的「夜间被外部重新启用」场景后由九期**看门狗**接管——不动用户 UI 操作，只在切换态内发现名单卡被启用时重禁用+通知一次。
-
-**验证**：cargo test lib 410/410；clippy 三改动文件零告警。
-
-## 九期：手动立即切换/守卫强化与持久层口径修正
-
-八期之后的连续迭代批次（各改动彼此独立落地，合并记录）：
-
-- **立即切换/立即还原 + 当日保持标记**：核心决策：hold **先于** apply 落盘（崩溃中途切换态可被清理分支接管）；清理分支（功能关+残留）不受 hold 冻结——保底出口永远在线。
-- **凌晨补切**（`evaluate_night_outbound`）：`!restore_active && now < 450` → Switch——机器在切点前后睡眠/关机错过切换时，凌晨视为前一晚切换窗口的尾部；07:30 恢复窗自会收敛（切在 07:29 也在 1 分钟后还原，无害）。hold 冻结凌晨补切。
-- **切换后路由级验证**：`route_add` 成功后 `best_route_if_index_v4` 读最优路由，最优 ifIndex 仍属校园卡集合 → 判失败走重放——把五期候选 2 的「静默假成功」告警升级为自动纠正。
-- **看门狗**：八期 P2-3 衍生，见八期节注。
-- **portal 域名绑源探测**：portal 走域名时逐卡判定补一条「portal 私网 IP 从该卡可达」证据，与网关探测互为备份，降低多卡归因误判。`select_outbound_candidate` 同步过滤无网关与网关死路的卡——切到一张出不了网的卡等于没切。
-- **USB 禁用豁免撤销**：运行期对称性实证：禁用态 USB 卡 enable 后可正常回来，「下次开机无法启用」未复现；用户明确要求副卡（USB 2.5G）参与夜间禁用。
-- **metric 持久层口径修正**：`SetIpInterfaceEntry` 写持久配置、重启不还原——「重启自动还原」的旧认知作废，快照还原是必需步骤。行为未变（本就按快照还原实现），修正的是文档与风险模型（崩溃残留不会自愈 → 启动对账/恢复窗是唯一收敛路径；导入保留本机切换态从「保险」升格为「必需」）。
-- **还原放弃阀**（`OUTBOUND_RESTORE_GIVE_UP_FAILS=40`）：禁用名单损坏等无法自明的失败连续 40 次后按空名单放行 `gave_up_released`——防止坏名单把还原永久锁死（逃生口语义，与安卓 MAX_FAILS=3 同源不同值：桌面单次还原动作内重试粒度更细）。
-- **恢复窗 06:30→07:30**：桌面恢复窗、守护窗终点、凌晨补切边界随常量自动联动。
-
-## 十期：夜间出站目标默认 WLAN——空优先级的默认生效序
-
-用户需求：「将夜间出战目标默认调整为wlan」。此前未拖动排序（`outboundPriority` 为空）时夜间切换**静默不动作**（debug 日志 + 「尚未配置出站优先级」错误），出站生效序退化为适配器发现顺序——新装/清配置环境下目标可能落在有线卡上。名字硬编码默认（写死 "WLAN"）在英文系统（"Wi-Fi"）与多网卡环境不成立，泛化为「无线优先」：本机恰产生与用户既有落盘 `["WLAN", "以太网", "以太网 2"]` 一致的顺序。**仅桌面**（适配器跃点切换为 Windows 专属能力，安卓夜间出站语义=注销+WiFi 重检）。
-
-- **生效列表纯函数** `effective_outbound_priority(priority, details) -> Vec<String>`（`outbound_switch.rs`）：非空透传；空 → 无线卡优先、有线卡随后（组内保发现序，按 `Adapter.wireless`）。调用点 `apply_outbound_switch` 计算一次，同时供 `select_outbound_candidate`/ `select_campus_to_disable`/ 空禁用名单告警 `others_present` 消费——**生效序即禁用白名单**，未排序时在网校园卡同样纳入夜间禁用，与已排序语义一致。
-- **未排序静默分支移除**：原 `config.outbound_priority.is_empty()` → debug 日志 + Err("尚未配置出站优先级，请先在适配器列表中拖动排序") 的特判删除，统一并入「无可用候选」warn + 每日一次通知（文案改为「未找到可用的非校园网网卡（可能被误判为校园网或网关不可达），出站未切换」）。理由：默认序使未排序用户真实参与切换，失败即环境问题，应可见（手动「切换出站」按钮同样受益：未排序时不再报错，直接切到无线优先目标）。
-- **前端同语义**：`buildOutboundOrder(priority, detected, wirelessNames?)` 第三参为无线卡名列表——priority 空且 wirelessNames 非空 → Set 过滤的无线优先序；`NetworkPanel.tsx` 传 `adapters.filter(a => a.wireless).map(a => a.name)`，拖拽列表与「夜间出站目标」徽标（`displayedOrder[0]`）自动同语义。i18n：`outboundDragHint` 补「未排序时默认无线网卡（WLAN）优先」；`outboundAdminHint` 删除已失真的「列表外网卡不参与切换」（未排序时全部检测到的网卡默认参与）。
-- **验证**：`cargo test` 全绿 447 用例 0 失败（新增 `effective_outbound_priority` 单测 4 个：非空透传/无线优先保发现序/多无线卡保序/空列表）；双端 `npx tsc --noEmit --incremental` 0 errors；`outboundOrder.test.ts` vitest 10/10。既有 `select_*` 单测未动（select 语义未变，默认序在调用点展开）。
+## Overview
+
+本模块实现**夜间出站自动切换**功能，解决校园网（无锡学院）在特定时间段（周日至周四 23:00、周五六 23:30）整体断网的问题。由于断网是运营商层面的，传统的「自动切换运营商」（`night-operator-switch`）无法生效。本模块工作在**网络接口层**，通过修改网卡跃点（Metric）、禁用校园网卡、管理兜底路由，将系统默认出站流量切换至非校园网（如热点、物联网卡）。
+
+核心特性：
+1.  **桌面端**：基于 Windows API 读写接口跃点，结合 `SetIpInterfaceEntry` 持久化配置。采用「禁用校园网 + 兜底路由 + 保留 Metric」三件套方案，确保即使代理软件（如 Mihomo/TUN）退出后也能正确路由。
+2.  **安卓端**：通过注销认证触发系统 `network_avoid_bad_wifi` 机制，自动切换至蜂窝网络。
+3.  **状态机与幂等性**：纯函数判定逻辑与有副作用的执行层分离。通过三份快照（Metric、禁用名单、兜底路由）承载切换态，支持崩溃恢复、启动对账与重放（Replay）。
+4.  **守护与防干扰**：引入守护窗口（Guard Window）防止后台巡检误操作；退避策略（Backoff）处理提权失败；看门狗（Watchdog）复核禁用状态。
+
+## Key Components
+
+### 1. `config/outbound_switch.rs`：纯函数判定层
+提供无副作用的状态机逻辑，决定是否需要执行 Switch 或 Restore。
+
+*   **枚举 `NightOutboundAction`** (`outbound_switch.rs`)
+    *   `None`: 无需动作。
+    *   `Switch`: 执行切换（切非校园网）。
+    *   `Restore`: 执行还原（恢复校园网）。
+*   **函数 `evaluate_night_outbound`** (`outbound_switch.rs:39`)
+    *   **签名**: `pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, restore_active: bool) -> NightOutboundAction`
+    *   **逻辑**:
+        *   若 `!enabled` → `None`。
+        *   若 `restore_active` 且 `now_minutes ∈ [450, 1380)` (07:30-23:00) → `Restore`。
+        *   若 `!restore_active` 且 `now_minutes < 450` (凌晨) → `Switch` (凌晨补切，处理睡眠错过切换时)。
+        *   若 `!restore_active` 且已过当日切换时刻 → `Switch` (过点补触发)。
+        *   其余 → `None`。
+*   **函数 `is_night_outbound_guard_window`** (`outbound_switch.rs:61`)
+    *   **签名**: `pub fn is_night_outbound_guard_window(enabled: bool, weekday: u32, now_minutes: u32) -> bool`
+    *   **逻辑**: 返回 `true` 表示处于守护窗口，从当日切换时刻起至次日 07:30 恢复窗开止。用于防止巡检自动启用目标卡。
+*   **函数 `outbound_restore_active`** (`outbound_switch.rs:78`)
+    *   **签名**: `pub fn outbound_restore_active(metric_restore: &str, disabled_adapters: &str, standby_route: &str) -> bool`
+    *   **逻辑**: 判断是否处于切换态。若三者任一非空即视为 `true`。
+
+### 2. `config/model.rs`：配置模型定义
+定义 `Config` 结构体中的夜间出站切换相关字段。
+
+*   **结构体 `Config`** (`model.rs`)
+    *   `enable_night_outbound_switch: bool`: 开关，默认 `false`。
+    *   `outbound_priority: Vec<String>`: 用户排序的网卡名称列表。空则默认无线优先。
+    *   `outbound_metric_restore: String`: JSON 快照，存储目标卡 Metric 信息（仅桌面）。
+    *   `outbound_disabled_adapters: String`: JSON 快照，存储需禁用的校园网卡 GUID 列表（仅桌面）。
+    *   `outbound_standby_route: String`: JSON 快照，存储历史兜底路由信息（仅桌面，兼容清理用）。
+    *   `outbound_manual_hold_day: i32`: 手动立即切换的冻结标记（`num_days_from_ce`），0 表示无。
+    *   `night_outbound_restore: String`: 安卓标记，恒为 `"logged_out"` 时表示已注销待重检。
+
+### 3. `config/night_switch.rs`：时间常数与工具
+提供昼夜切换共用的时间常量和解析工具。
+
+*   **常量**:
+    *   `RESTORE_START_MINUTES`: `450` (07:30)。
+    *   `RESTORE_END_MINUTES`: `1380` (23:00)。
+*   **函数 `switch_time_for`** (`night_switch.rs:30`)
+    *   **签名**: `pub(crate) fn switch_time_for(weekday: u32) -> Option<u32>`
+    *   **逻辑**: 返回切换分钟数。周日至周四 (0..=4) 返回 `Some(1380)` (23:00)；周五六 (5|6) 返回 `Some(1410)` (23:30)。
+*   **函数 `parse_chkstatus`** (`night_switch.rs:86`)
+    *   **签名**: `pub fn parse_chkstatus(body: &str) -> Option<ChkStatusInfo>`
+    *   **逻辑**: 解析 eportal JSONP 响应，提取 `online`, `uid`, `oltime`。容错 BOM 头和残缺壳。
+*   **函数 `uid_matches`** (`night_switch.rs:105`)
+    *   **签名**: `pub fn uid_matches(uid: &str, user: &str, expected_operator: &str) -> bool`
+    *   **逻辑**: 核对在线账号 UID 与期望账号（忽略大小写和空白）。注意源码中该函数签名为 `uid_matches(uid: &str, user: &str, expected_operator: &str)`，用于匹配 `学号+运营商后缀`。
+
+### 4. `monitor/outbound_switch.rs`：桌面侧动作执行与网卡选择
+负责具体的网卡筛选、校园网判定、快照序列化及路由清理决策。
+
+*   **函数 `is_campus_adapter`** (`outbound_switch.rs:20`)
+    *   **签名**: `pub fn is_campus_adapter(ip: &str, gateway: &str, campus_gateway: &str, portal_host: &str, gateway_probe: impl Fn(&str, &str) -> bool) -> bool`
+    *   **逻辑**: 逐卡判定是否在校园网。
+        *   IP 同 /18 网段。
+        *   绑源 IP 可达校园网关（两发去抖）。
+        *   绑源 IP 可达 Portal 主机私网 IPv4（若配置了域名解析出的私网 IP）。
+*   **函数 `portal_probe_host`** (`outbound_switch.rs:47`)
+    *   **签名**: `pub fn portal_probe_host(portal_url: &str) -> String`
+    *   **逻辑**: 从 portal URL 提取私网 IPv4 作为探测目标，过滤公网/域名。
+*   **函数 `effective_outbound_priority`** (`outbound_switch.rs:67`)
+    *   **签名**: `pub fn effective_outbound_priority(priority: &[String], details: &[(Adapter, String)]) -> Vec<String>`
+    *   **逻辑**: 生效优先级列表。用户已排序则透传；为空则按“无线优先、有线随后”生成默认序。
+*   **函数 `select_outbound_candidate`** (`outbound_switch.rs:93`)
+    *   **签名**: `pub fn select_outbound_candidate(priority: &[String], details: &[(Adapter, String)], campus_gateway: &str, portal_host: &str, gateway_probe: impl Fn(&str, &str) -> bool) -> Option<Adapter>`
+    *   **逻辑**: 选出第一个非校园、有 IP、网关可达的适配器作为切换目标。
+*   **函数 `snapshot_json`** (`outbound_switch.rs:131`)
+    *   **签名**: `pub fn snapshot_json(guid: &str, rows: &[crate::platform::metric::MetricRow]) -> String`
+    *   **逻辑**: 序列化接口跃点快照 `[{guid, family, automatic, metric}]`。
+*   **函数 `select_campus_to_disable`** (`outbound_switch.rs:208`)
+    *   **签名**: `pub fn select_campus_to_disable(priority: &[String], details: &[(Adapter, String)], campus_gateway: &str, portal_host: &str, exclude_guid: &str, gateway_probe: impl Fn(&str, &str) -> bool, bus_guard: impl Fn(&str) -> bool) -> Vec<DisabledRow>`
+    *   **逻辑**: 选出需临时禁用的校园网卡名单。排除目标卡、无 IP 卡、非校园卡、总线不可判定卡 (`bus_guard`)。
+*   **函数 `standby_cleanup_decision`** (`outbound_switch.rs:175`)
+    *   **签名**: `pub fn standby_cleanup_decision(same_key_metrics: &[u32], standby_metric: u32, rows_outside_exact: usize) -> StandbyCleanup`
+    *   **逻辑**: 历史兜底路由清理决策。返回 `StandbyCleanup` 枚举 (AlreadyGone, ForeignRowKept, LastDefaultPath, Safe)。基于同网关+接口的跃点列表精确匹配，防止误删用户默认路由。
+*   **函数 `standby_route_cleanup`** (`outbound_switch.rs:196`)
+    *   **签名**: `#[cfg(target_os = "windows")] pub fn standby_route_cleanup(route: &StandbyRoute) -> Result<StandbyCleanup, String>`
+    *   **逻辑**: Windows 平台实时路由表查询，调用上述决策逻辑进行安全清理。
+
+### 5. `monitor/outbound_night.rs`：生命周期管理与执行
+夜间出站切换的完整生命周期管理，包括切换、还原、重放、看门狗、启动对账及手动命令入口。
+
+*   **全局原子状态** (`outbound_night.rs`)
+    *   `OUTBOUND_SWITCH_LAST_FAIL_MS`: 切换动作最后失败时间戳。
+    *   `OUTBOUND_SWITCH_FAIL_COUNT`: 切换动作失败计数。
+    *   `OUTBOUND_RESTORE_LAST_FAIL_MS`: 还原动作最后失败时间戳。
+    *   `OUTBOUND_RESTORE_FAIL_COUNT`: 还原动作失败计数。
+    *   `OUTBOUND_CHANNEL_FAIL_COUNT`: 提权通道失败计数。
+    *   `OUTBOUND_ACTION_BUSY`: `AtomicBool`，单飞闸，防止并发冲突。
+*   **结构体 `OutboundActionGuard`** (`outbound_night.rs:118-L133`)
+    *   RAII 锁结构，确保互斥且 panic 安全释放。
+*   **函数 `apply_outbound_switch`** (`outbound_night.rs:256-L415`)
+    *   **逻辑**: 执行切换。流程：获取单飞闸 → 检查退避闸 → 选目标卡 → 读跃点快照 → **落盘快照** → 写 Metric=1 → 禁用校园网卡 → 路由验证。失败不清快照，由重放路径重试。
+*   **函数 `apply_outbound_restore`** (`outbound_night.rs:446-L635`)
+    *   **逻辑**: 执行还原。流程：获取单飞闸 → 解析快照 → ①清理历史兜底路由 → ②写回原跃点 → ③启用校园网卡 → 收尾清快照。支持损坏快照的降级处理（放弃阀机制）。
+*   **函数 `replay_outbound_switch`** (`outbound_night.rs:335-L443`)
+    *   **逻辑**: 补齐未完成的切换。分支①补写跃点，分支②补做禁用。幂等操作，无新增失败时清除切换失败计数。
+*   **函数 `watchdog_re_disable_campus`** (`outbound_night.rs:417-L444`)
+    *   **逻辑**: 夜间看门狗。在守护窗口内复核禁用名单，若校园网卡被外部重新启用则自动再次禁用。
+*   **函数 `manual_outbound_switch`** (`outbound_night.rs:663-L680`)
+    *   **逻辑**: 手动立即切换入口。覆盖退避闸，设置 `outbound_manual_hold_day` 标记。
+*   **函数 `manual_outbound_restore`** (`outbound_night.rs:682-L693`)
+    *   **逻辑**: 手动立即还原入口。清除 hold 标记，走标准还原流程。
+*   **函数 `reconcile_outbound_on_startup`** (`outbound_night.rs:695-L735`)
+    *   **逻辑**: 启动对账。残留切换态时，若在恢复窗口或功能关闭则立即还原；若在夜间窗口且目标卡可用则重放切换，否则还原。
+*   **函数 `run_helper_op`** (`outbound_night.rs:216-L244`)
+    *   **逻辑**: 通用提权 Helper 调用器。区分 `channel: true` (通道失败) 和 `channel: false` (业务失败)。
+*   **函数 `enable_campus_adapter`** (`outbound_night.rs:246-L263`)
+    *   **逻辑**: 启用网卡。桌面端走 `adapter_cache::enable_adapter` 以解决 USB 卡 PnP 禁用问题；非桌面端返回错误。
+*   **函数 `write_outbound_metric`** (`outbound_night.rs`)
+    *   **逻辑**: 封装 Helper 调用写 Metric=1，含通知逻辑（仅首次切换成功发通知）。
+*   **函数 `needs_replay`** (`outbound_night.rs`)
+    *   **逻辑**: 判断是否需要重放（切换态 + 有失败历史）。
+*   **函数 `outbound_restore_alert_due`** (`outbound_night.rs`)
+    *   **逻辑**: 计算是否应发送还原失败告警。
+*   **函数 `notify_outbound_issue_once_per_day`** (`outbound_night.rs`)
+    *   **逻辑**: 每日限频通知去重。
+*   **函数 `finish_outbound_restore`** (`outbound_night.rs`)
+    *   **逻辑**: 还原收尾，清快照并重置 hold 标记。
+*   **函数 `clear_outbound_snapshot`** (`outbound_night.rs`)
+    *   **逻辑**: 清空三份快照字段并持久化。
+*   **函数 `set_outbound_manual_hold` / `clear_outbound_manual_hold`** (`outbound_night.rs`)
+    *   **逻辑**: 管理“立即切换”当日保持标记。
+*   **常量**:
+    *   `OUTBOUND_HELPER_TIMEOUT_SECS`: `30`。
+    *   `OUTBOUND_BACKOFF_START_MS`: `60,000`。
+    *   `OUTBOUND_BACKOFF_MAX_MS`: `300,000`。
+    *   `OUTBOUND_RESTORE_ALERT_FAILS`: `3`。
+    *   `OUTBOUND_RESTORE_ALERT_REMIND_EVERY`: `20`。
+    *   `OUTBOUND_RESTORE_GIVE_UP_FAILS`: `40`。
+
+### 6. `platform/metric.rs`：Windows 平台接口跃点读取
+通过 Windows API 读取接口跃点信息。
+
+*   **结构体 `MetricRow`** (`metric.rs`)
+    *   `family: u16`: IP 族 (IPv4/IPv6)。
+    *   `automatic: bool`: 是否自动跃点。
+    *   `metric: u32`: 跃点值。
+*   **函数 `interface_rows_for_guid`** (`metric.rs`)
+    *   **逻辑**: 内部函数，直接调用 Win32 API 枚举并过滤 GUID。
+*   **函数 `read_interface_metrics`** (`metric.rs`)
+    *   **签名**: `fn read_interface_metrics(guid: &str) -> Result<Vec<MetricRow>, String>`
+    *   **逻辑**: 公开接口，转换 `MIB_IPINTERFACE_ROW` 为 `MetricRow`。使用 `AF_UNSPEC` 同时获取 IPv4 和 IPv6 栈的行。
+
+### 7. `frontend/src/network/outboundOrder.ts`：前端排序逻辑
+前端网络面板中用于拖拽排序网卡的逻辑。
+
+*   **函数 `buildOutboundOrder`** (`outboundOrder.ts`)
+    *   **签名**: `export function buildOutboundOrder(priority: string[] | undefined, detected: string[], wirelessNames?: string[]): string[]`
+    *   **逻辑**:
+        *   若 `priority` 非空：保留 `priority` 中存在的网卡，追加 `detected` 中剩余网卡。
+        *   若 `priority` 为空但有 `wirelessNames`：无线网卡优先，其余按发现顺序。
+        *   否则：直接返回 `detected` 顺序。
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         User / Scheduler / Startup                          │
+└───────────────────────────┬─────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     monitor/outbound_night.rs                               │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────────┐   │
+│  │ ApplySwitch  │ │ ApplyRestore │ │ ReplaySwitch │ │ Watchdog         │   │
+│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └────────┬─────────┘   │
+└─────────┼────────────────┼────────────────┼──────────────────┼─────────────┘
+          │                │                │                  │
+          ▼                ▼                ▼                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      config/outbound_switch.rs                              │
+│  ┌──────────────────────┐ ┌────────────────────────────┐                   │
+│  │ evaluate_night_      │ │ is_night_outbound_guard    │                   │
+│  │ outbound             │ │ window                     │                   │
+│  └──────────────────────┘ └────────────────────────────┘                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+          │                │                │                  │
+          ▼                ▼                ▼                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    monitor/outbound_switch.rs                               │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────────────┐   │
+│  │ select_candidate │ │ select_campus    │ │ standby_cleanup_decision │   │
+│  │                  │ │ _to_disable      │ │                          │   │
+│  └────────┬─────────┘ └────────┬─────────┘ └──────────┬───────────────┘   │
+└───────────┼────────────────────┼──────────────────────┼───────────────────┘
+            │                    │                      │
+            ▼                    ▼                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   platform/metric.rs / Helper Spawn                         │
+│  ┌──────────────────┐ ┌────────────────────────────────────────────────┐   │
+│  │ read_interface   │ │ run_helper_op (set_metric/disable/route_delete)│   │
+│  │ metrics          │ └────────────────────────────────────────────────┘   │
+│  └──────────────────┘                                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Data Flow
+
+1.  **触发**: `outbound_night.rs` 中的定时拍、启动对账或手动命令触发 `apply_outbound_switch` 或 `apply_outbound_restore`。
+2.  **状态检查**: 通过 `outbound_restore_active` 检查 `AppState` 中的三份快照（`metric_restore`, `disabled_adapters`, `standby_route`）是否非空。
+3.  **执行动作**:
+    *   **切换**: 读取当前跃点 (`read_interface_metrics`) → 生成快照 JSON → 写入 `Config` 并持久化 (`save_config_and_broadcast`) → 调用 `run_helper_op("set_metric")` 和 `"disable_adapter"`。
+    *   **还原**: 解析现有快照 → 调用 `run_helper_op("route_delete")` (如有兜底路由) → 调用 `run_helper_op("set_metric")` 写回原值 → 调用 `enable_campus_adapter` 启用网卡 → 清空快照字段并持久化。
+4.  **Helper 调用**: `run_helper_op` 封装了 `helper_spawn::spawn_elevated_helper`，处理提权、超时和结果解析。区分通道失败和业务失败，影响 `OUTBOUND_CHANNEL_FAIL_COUNT`。
+5.  **反馈**: 动作结果更新退避状态 (`mark_outbound_failure` / `clear_outbound_failure`)，并根据情况发送通知 (`emit_notification`)。
 
 ## Connections
 
 [[night-operator-switch]]、[[dual-platform-sharing]]、[[scheduled-actions-outside-silent-window]]、[[config-field-sets-bidirectional-sync]]、[[logout-radius-first]]、[[set-ip-interface-entry-metric]]、[[windows-task-proxy-elevation]]、[[outbound-switch]]、[[desktop-config]]
+
+## Known Issues
+
+1.  **`auto_login_on_start` 未过出站闸**: 启动自动登录链路不判切换态——切换态内重启应用会重登校园网。桌面登录失败无害（启动对账会在夜间窗口重放切换）；安卓重登成功则流量回 WiFi，切换态名存实亡但标记仍在，07:30 恢复窗口会再登一次并清标记自愈。
+2.  **桌面 `nightOutboundRestore` 字段是死字段**: 为满足「字段集双端同构」纪律而存在；桌面真实切换态字段是 `outboundMetricRestore` 三快照，桌面代码不消费 `nightOutboundRestore`。
+3.  **安卓同拍双登可能**: 出站 Restore 成功当拍置 `outbound_active=false`，同拍随后的定时登录判定可能再登一次——恢复窗口恰好压着定时登录时刻时出现。后果轻（重复登录幂等），不为此引入拍内去重。
+4.  **功能已关+态残留的兜底判据内联不重构**: 桌面抽为可测纯函数 `outbound_action_for`，安卓在 `run_scheduled_actions` 内联同款三行——刻意不抽公共纯函数（安卓编排本就独立于桌面 monitor 模块，抽取需扩大桌面 crate 的 pub 面，收益小）。两端行为必须保持同步，改动时人工对照。
+5.  **captive portal 白名单误判风险**: 个别校园网部署放行系统探测 URL——安卓注销后系统验证仍"通过"，`avoid_bad_wifi` 不切流量。真机实测项；命中则改"注销+提示"降级。
+6.  **切换时机由系统探测周期决定**: `reportNetworkConnectivity` 后系统按自身节奏重验证，不保证 23:00 整点切蜂窝，与"自动衔接"语义相容但非秒级。
+7.  **`config/model.rs` 与 `metric.rs` 注释口径冲突**: 前者仍称「运行时修改重启即还原」，后者实证 `SetIpInterfaceEntry` 落持久层。文档以 `metric.rs` 为准，代码注释待顺手修（行为本身已由快照还原兜住）。

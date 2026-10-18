@@ -43,7 +43,7 @@ tags: [android, foreground-service, monitor, wake-lock, boot-receiver, tauri-plu
 Tauri 插件入口，处理前端 JS 调用并转发至 Android 系统 API。
 
 **字段**:
-- `activity`: `android.app.Activity` (构造函数注入)
+- `activity`: `android.app.Activity` (构造函数注入，行 60)
 
 **方法**:
 - `startMonitor(invoke: Invoke)` (行 68-92): 启动前台服务。参数 `StartArgs` 包含 `title`。捕获 `IllegalStateException` 防止 FGS 启动失败导致崩溃。
