@@ -13,7 +13,7 @@ import {
   Zap, Gauge, RotateCcw,
   RefreshCw, UserCircle, X,
   Plus, Activity, Settings2,
-  MonitorSmartphone, History, Eye, EyeOff
+  MonitorSmartphone, History, Eye, EyeOff, ArrowRightLeft
 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { resolveQualityDisplay } from '@/lib/latency'
@@ -230,9 +230,12 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
-        {accounts.map(item => {
-          const isActive = item.id === activeAccount
-          const operatorKey = operatorLabelKey(item.operator ?? '')
+        {/* 账号卡直接复用账号页的竖排封面流堆叠卡（同卡面），不再纵向平铺 */}
+        {accounts.length > 0 && (
+          <OnlineDeviceStack
+            cards={accounts.map(item => {
+              const isActive = item.id === activeAccount
+              const operatorKey = operatorLabelKey(item.operator ?? '')
           const face = (
             <>
               {/* 行1：状态点 + 显示名 + 「当前」徽章 */}
@@ -262,27 +265,30 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
               </div>
             </>
           )
-          const cardClass = cn(
-            'relative w-full overflow-hidden rounded-xl bg-card p-3 text-left ring-1 ring-border dark:bg-muted dark:ring-white/10',
-            isActive && 'ring-primary/40'
-          )
-          return isActive ? (
-            <div key={item.id} className={cardClass}>{face}</div>
-          ) : (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => handleSwitchAccount(item.id)}
-              disabled={switchingAccount !== null}
-              className={cn(cardClass, 'transition-colors hover:ring-primary/40 disabled:opacity-50')}
-            >
-              {face}
-              <p className="mt-3 border-t border-border/50 pt-2 text-right text-[10px] text-muted-foreground">
-                {switchingAccount === item.id ? t('dashboard.switching') : t('dashboard.clickToSwitch')}
-              </p>
-            </button>
-          )
-        })}
+              const cardClass = cn(
+                'relative overflow-hidden rounded-xl bg-card p-3 text-left ring-1 ring-border dark:bg-muted dark:ring-white/10',
+                isActive && 'ring-primary/40'
+              )
+              return (
+                <div key={item.id} className={cardClass}>
+                  {face}
+                  {/* 堆叠卡只有中央卡可交互（侧卡 pointer-events-none），切换按钮随之落在当前居中卡上 */}
+                  {!isActive && (
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAccount(item.id)}
+                      disabled={switchingAccount !== null}
+                      className="mt-3 flex w-full items-center justify-center gap-1 border-t border-border/50 pt-2 text-[10px] text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+                    >
+                      <ArrowRightLeft className="h-3 w-3" />
+                      {switchingAccount === item.id ? t('dashboard.switching') : t('dashboard.clickToSwitch')}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          />
+        )}
         {accounts.length === 0 && <div className="text-center py-3 text-xs text-muted-foreground">{t('dashboard.noSavedAccounts')}</div>}
       </CardContent>
     </AnimatedCard>
