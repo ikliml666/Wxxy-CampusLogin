@@ -125,7 +125,7 @@ const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 // 以 left 50% + translateX(-50% + 姿势偏移) 居中定位，在线信息设备卡维持百分比卡宽的 coverflow 不变。
 const NARROW_MIN_W = 213
 
-export function OnlineDeviceCardStack({ children, className, variant = 'coverflow' }: { children: React.ReactNode; className?: string; variant?: 'coverflow' | 'narrow' }) {
+export function OnlineDeviceCardStack({ children, className, variant = 'coverflow', focusIndex }: { children: React.ReactNode; className?: string; variant?: 'coverflow' | 'narrow'; focusIndex?: number }) {
   const narrow = variant === 'narrow'
   const cards = React.Children.toArray(children)
   const count = cards.length
@@ -140,6 +140,12 @@ export function OnlineDeviceCardStack({ children, className, variant = 'coverflo
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
+
+  // 外部焦点（如切号后把激活卡滚到中央）：值变化才平移，用户手动翻页不受干扰
+  useEffect(() => {
+    if (focusIndex == null || focusIndex < 0 || focusIndex >= count) return
+    setIndex(focusIndex)
+  }, [focusIndex, count])
 
   // 量高：取所有已挂载卡的最大自然高度——舞台高度固定（不随翻页变化）；
   // 矮卡 h-fit 自然高度，从槽位顶部开始排

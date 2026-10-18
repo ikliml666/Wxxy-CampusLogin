@@ -47,6 +47,13 @@
     { id: 'acc-dorm', displayName: '宿舍台式机', user: '24385215', operator: '@telecom', passwordSaved: true },
     { id: 'acc-lab', displayName: '实验室笔记本', user: '', operator: '', passwordSaved: false },
   ]
+  // 激活账号要可变：写死 'acc-main' 会让切号后总览堆叠卡不跟随（桌面 mock 同构）
+  var activeAccountName = 'acc-main'
+  // URL 带 ?active=<账号id> 时预设激活账号，验证堆叠卡聚焦激活卡
+  try {
+    var am = window.location.search.match(/active=([\w-]+)/)
+    if (am && mockAccounts.some(function (a) { return a.id === am[1] })) activeAccountName = am[1]
+  } catch (e) {}
 
   // ---- mock 在线设备（可变：注销即移除）----
   var onlineList = [
@@ -84,7 +91,7 @@
         adapterDetails: mockAdapters.map(function (a) {
           return { name: a.name, ip: a.ip, wireless: a.wireless, subnetMask: '255.255.255.0', gateway: '10.2.0.1', dnsServers: ['10.10.10.10'], status: a.status, mac: a.mac }
         }),
-        accounts: mockAccounts, activeAccount: 'acc-main', backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
+        accounts: mockAccounts, activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
         isAutoStart: false, autoLaunch: false, notificationEnabled: false, refreshRate: undefined
       }
     },
@@ -120,7 +127,7 @@
     check_campus_status: function () { return { online: true, connected: true, onCampusNetwork: true, currentSsid: null, campusMessage: '校园网在线（mock）', enableNetworkNameCheck: true, requiredNetworkName: '', campusWifi: { onCampus: true, message: '校园网 Wi-Fi 在线（mock）' }, campusWired: { onCampus: true, message: '校园网有线在线（mock）' } } },
     check_portal_status: function () { return { online: true, reachable: true, loginAvailable: true, message: 'Portal 可达（mock）' } },
     render_heartbeat: function () { return { online: true, checking: false } },
-    get_active_account: function () { return 'acc-main' },
+    get_active_account: function () { return activeAccountName },
     list_accounts: function () { return mockAccounts },
     // 添加登录信息（弹窗A新建态）：与真后端 create_account 语义一致（不切换激活账号）
     create_account: function (args) {
@@ -158,6 +165,7 @@
     switch_account: function (args) {
       var acc = mockAccounts.find(function (a) { return a.id === (args && args.accountName) })
       if (!acc) return { success: false, message: '账号不存在（mock）' }
+      activeAccountName = acc.id
       config.user = acc.user
       config.operator = acc.operator || ''
       setTimeout(function () { emitEvent('config-changed', { config: config }) }, 0)
@@ -166,7 +174,8 @@
     delete_account: function (args) {
       var id = args && args.accountId
       mockAccounts = mockAccounts.filter(function (a) { return a.id !== id })
-      return { success: true, message: '已删除（mock）' }
+      if (activeAccountName === id) activeAccountName = mockAccounts.length ? mockAccounts[0].id : ''
+      return { success: true, message: '已删除（mock）', activeAccount: activeAccountName }
     },
     get_adapters: function () { return mockAdapters },
     check_dns_doh_status: function () { return { adapters: [] } },

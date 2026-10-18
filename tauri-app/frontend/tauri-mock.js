@@ -47,6 +47,11 @@
   // URL 带 ?mocksingle=1 时只留 1 个账号（验证单卡居中/禁拖）
   try { if (window.location.search.indexOf('mocksingle') >= 0) mockAccounts = mockAccounts.slice(0, 1) } catch (e) {}
   var activeAccountName = emptyAccounts ? '' : 'acc-main'
+  // URL 带 ?active=<账号id> 时预设激活账号（验证总览堆叠卡聚焦激活卡）
+  try {
+    var am = window.location.search.match(/active=([\w-]+)/)
+    if (am && mockAccounts.some(function (a) { return a.id === am[1] })) activeAccountName = am[1]
+  } catch (e) {}
   var accountSeq = 0
 
   // ---- mock 在线设备（可变：注销即移除）----

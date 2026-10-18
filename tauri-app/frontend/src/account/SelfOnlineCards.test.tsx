@@ -62,3 +62,21 @@ it('堆叠渲染全部子卡', () => {
   expect(container.textContent).toContain('10.0.0.2')
   expect(container.textContent).toContain('10.0.0.3')
 })
+
+it('focusIndex 指定中央槽位（切号后聚焦激活卡）', () => {
+  const stack = (focusIndex: number) => (
+    <OnlineDeviceCardStack focusIndex={focusIndex}>
+      {[1, 2, 3].map((i) => (
+        <OnlineDeviceCard key={i} {...base} ip={`10.0.1.${i}`} />
+      ))}
+    </OnlineDeviceCardStack>
+  )
+  const centerText = (c: HTMLElement) =>
+    c.querySelector('[aria-hidden="false"]')?.textContent ?? ''
+  const first = render(stack(0))
+  expect(centerText(first.container)).toContain('10.0.1.1')
+  first.unmount()
+
+  const third = render(stack(2))
+  expect(centerText(third.container)).toContain('10.0.1.3')
+})

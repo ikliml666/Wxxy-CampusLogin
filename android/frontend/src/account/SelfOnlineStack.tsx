@@ -39,9 +39,11 @@ const NARROW_MIN_W = 213
 export interface OnlineDeviceStackProps {
   cards: React.ReactNode[]
   variant?: 'coverflow' | 'narrow'
+  /** 外部焦点：变化时把该序号的卡滚到中央（切号后聚焦激活卡） */
+  focusIndex?: number
 }
 
-export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
+export function OnlineDeviceStack({ cards, focusIndex }: OnlineDeviceStackProps) {
   const count = cards.length
   const [index, setIndex] = useState(0)
   const [dragY, setDragY] = useState(0)
@@ -55,6 +57,12 @@ export function OnlineDeviceStack({ cards }: OnlineDeviceStackProps) {
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, count - 1)))
   }, [count])
+
+  // 外部焦点（如切号后把激活卡滚到中央）：值变化才平移，用户手动翻页不受干扰
+  useEffect(() => {
+    if (focusIndex == null || focusIndex < 0 || focusIndex >= count) return
+    setIndex(focusIndex)
+  }, [focusIndex, count])
 
   // 量高：取所有已挂载卡的最大自然高度（各槽位常挂载），舞台高度不随翻页跳变，
   // 矮卡自然高度不裁切（与桌面 SelfOnlineCards 同步，b795a9f 漏移植的量高半边）。

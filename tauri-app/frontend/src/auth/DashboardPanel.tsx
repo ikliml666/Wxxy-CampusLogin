@@ -314,7 +314,7 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
       </CardHeader>
       <CardContent className="space-y-2">
         {/* 账号卡直接复用账号页的封面流堆叠卡（同 narrow 变体、同卡面），不再纵向平铺 */}
-        {accounts.length > 0 && <OnlineDeviceCardStack variant="narrow">
+        {accounts.length > 0 && <OnlineDeviceCardStack variant="narrow" focusIndex={accounts.findIndex(a => a.id === activeAccount)}>
         {accounts.map(item => {
           const isActive = item.id === activeAccount
           const operatorKey = operatorLabelKey(item.operator ?? '')
