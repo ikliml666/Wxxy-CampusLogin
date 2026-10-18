@@ -9,7 +9,7 @@ tags: [夜间出站, 夜切, 纯函数, 跨平台, 时间表, config]
 
 ## Overview
 
-`config/outbound_switch.rs` 是「夜间出站自动切换」的跨平台判定纯函数层：与运营商夜切（`night_switch`，见 [[night-operator-switch|夜间运营商切换决策]]）共用同一时间表，但动作语义正交——本模块只产出 Switch/Restore 决策，"切到哪张卡（桌面：metric 压至 1 + 禁用校园网卡 + 加兜底路由）"与"注销+重检（安卓）"由各端调用方实现。切换态由配置自身承载：`outbound_metric_restore` / `outbound_disabled_adapters` / `outbound_standby_route` 三份快照任一非空即切换态（经 `outbound_restore_active` 折算），幂等无需去重标记。
+`config/outbound_switch.rs` 是「夜间出站自动切换」的跨平台判定纯函数层：与运营商夜切（`night_switch`，见 [[night-operator-switch|夜间运营商切换决策]]）共用同一时间表，但动作语义正交——本模块只产出 `Switch`/`Restore` 决策，"切到哪张卡（桌面：metric 压至 1 + 禁用校园网卡 + 加兜底路由）"与"注销+重检（安卓）"由各端调用方实现。切换态由配置自身承载：`outbound_metric_restore` / `outbound_disabled_adapters` / `outbound_standby_route` 三份快照任一非空即切换态（经 `outbound_restore_active` 折算），幂等无需去重标记。
 
 本模块在 `tauri-app/src-tauri/src/config/mod.rs:3` 注册，随 `config` 模块对安卓端可见（path 依赖）。
 

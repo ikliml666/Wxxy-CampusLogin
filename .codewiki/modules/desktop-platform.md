@@ -7,22 +7,15 @@ source_files:
   - tauri-app/src-tauri/src/platform/autostart.rs
   - tauri-app/src-tauri/src/platform/dns_config.rs
   - tauri-app/src-tauri/src/platform/elevation.rs
-  - tauri-app/src-tauri/src/platform/gpu.rs
-  - tauri-app/src-tauri/src/platform/helper_spawn.rs
-  - tauri-app/src-tauri/src/platform/task_proxy.rs
-  - tauri-app/src-tauri/src/platform/metric.rs
   - tauri-app/src-tauri/windows/hooks.nsh
-  - tauri-app/src-tauri/src/platform/identity.rs
-  - tauri-app/src-tauri/src/platform/toast.rs
-  - tauri-app/src-tauri/src/platform/route_table.rs
 tags: [desktop, windows, win32, winrt, registry, uac, 平台层]
 ---
 
 ## Overview
 
-`tauri-app/src-tauri/src/platform/` 是桌面端全部“与操作系统直接打交道”的代码：控制台输出与 HTTP 响应体解码（GBK/OEM 代码页）、注册表读写（开机自启、适配器 DNS 读取、Toast AUMID 注册）、Win32 DNS 接口调用（`SetInterfaceDnsSettings` + DoH 属性）、接口跃点（metric）读写（`GetIpInterfaceTable` 读 + helper `SetIpInterfaceEntry` 写）、UAC 提权（COM `ICMLuaUtil` 静默提权、`ShellExecuteW runas` 降级、计划任务提权代理三级通道）、提权 helper 子进程的启动与结果轮询、DXGI/GDI 硬件信息探测、Windows Hello 身份验证、WinRT Toast 通知。
+`tauri-app/src-tauri/src/platform/` 是桌面端全部“与操作系统直接打交道”的代码：控制台输出与 HTTP 响应体解码（GBK/OEM 代码页）、注册表读写（开机自启、适配器 DNS 读取、Toast AUMID 注册）、Win32 DNS 接口调用（`SetInterfaceDnsSettings` + DoH 属性）、UAC 提权（COM `ICMLuaUtil` 静默提权、`ShellExecuteW runas` 降级、计划任务提权代理三级通道）、提权 helper 子进程的启动与结果轮询、Windows Hello 身份验证、WinRT Toast 通知。
 
-该层不持有业务状态（唯一例外是 `identity.rs` 的进程内验证时间戳与 `task_proxy.rs` 的通道状态缓存），被 `commands/`、`network/`、`auth/`、`update/`、`app/`、`monitor/` 调用；`platform/mod.rs:1-36` 用 `#[cfg(desktop)]` 把除 `console_output` 外的模块整体排除在安卓构建之外（安卓通过 Cargo path 依赖桌面 crate，只继承 `console_output` 等跨平台部分），其中 `task_proxy`（19-20）、`metric`（24-25）、`best_route`（27-28）、`route_table`（29-30）、`icmp_probe`（31-32）、`rtss_compat`（33-34）、`toast`（35-36）六个模块额外锁 `target_os = "windows"`。`best_route` / `route_table` / `icmp_probe` 是夜间出站切换的路由级验证、历史兜底路由清理与网关可达性探测底座（模块注释见 `platform/mod.rs:26-32`，业务侧见 [[outbound-switch]]）。
+该层不持有业务状态（唯一例外是 `identity.rs` 的进程内验证时间戳），被 `commands/`、`network/`、`auth/`、`update/`、`app/`、`monitor/` 调用；`platform/mod.rs:1-36` 用 `#[cfg(desktop)]` 把除 `console_output` 外的模块整体排除在安卓构建之外（安卓通过 Cargo path 依赖桌面 crate，只继承 `console_output` 等跨平台部分），其中 `task_proxy`（19-20）、`metric`（24-25）、`best_route`（27-28）、`route_table`（29-30）、`icmp_probe`（31-32）、`rtss_compat`（33-34）、`toast`（35-36）七个模块额外锁 `target_os = "windows"`。
 
 ## Key Components
 
@@ -124,28 +117,12 @@ DNS 读优先级为 manual > profile > dhcp（456-464）；`ProfileNameServer` �
 | `platform/elevation.rs:1-24` | `is_admin` | `pub fn() -> bool`：`OpenProcessToken`（9）+ `GetTokenInformation(TokenElevation)`（14-20），`result.is_ok() && elevation != 0`（22）即管理员 | `#[cfg(target_os = "windows")]` |
 | `platform/elevation.rs:26-50` | `run_elevated` | `pub fn(cmd: &str, args: &str) -> Result<(), String>`：`ShellExecuteW(None, "runas", cmd, args, None, SW_HIDE)`（36-43），返回值 ≤32 视为失败（45-47） | `#[cfg(target_os = "windows")]` |
 | `platform/elevation.rs:52-129` | `shell_exec_elevated` | `pub fn(file: &str, params: &str, hide_window: bool) -> Result<(), String>`：COM 静默提权主路径 | `#[cfg(target_os = "windows")]` |
-| `platform/elevation.rs:131-149` | `co_get_object_raw` | `unsafe fn(pszname, pbindoptions, riid, ppv) -> i32`（私有；`#[link(name = "ole32")]` 手写 `CoGetObject` 绑定 139-148） | `#[cfg(target_os = "windows")]` |
+| `platform/elevation.rs:131-149` | `co_get_object_raw` | `unsafe fn(pszname, pbindoptions, riid, ppv) -> i32`（私有；`#[link(name = "ole32)]` 手写 `CoGetObject` 绑定 139-148） | `#[cfg(target_os = "windows")]` |
 | `platform/elevation.rs:151-171` | `parse_guid` | `pub(crate) fn(s: &str) -> Result<windows::core::GUID, String>`：解析带/不带花括号的 GUID（5 段校验 155-157、data4 16 hex 162-164），供 `dns_config.rs:111`、`dns_config.rs:253` 使用 | `#[cfg(target_os = "windows")]` |
 | `platform/elevation.rs:174-185` | `struct ICMLuaUtilVtbl` | `#[repr(C)]` 手工 vtable（私有，见下节字段表） | 无 cfg |
 | `platform/elevation.rs:188-212` | `mod tests` | `vtbl_shell_exec_slot_is_9`（197-201，`offset_of!` 断言 ShellExec 在 slot 9，UACMe elvint.h 权威布局）、`shell_exec_elevated_smoke`（206-211，`#[ignore]` 真实提权冒烟 `cmd.exe /c exit`，本机手动 `cargo test -- --ignored`） | `#[cfg(test)]` |
 
 COM 提权链细节（`shell_exec_elevated`，53-129）：`CoInitializeEx(COINIT_APARTMENTTHREADED)`（65，按成功与否决定是否配对 `CoUninitialize`，失败路径 93-95/116-119/123-125）→ moniker `Elevation:Administrator!new:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}`（67）→ IID `{6EDD6D74-C007-4E75-B76A-E5740995E24C}`（70-72）→ **`BIND_OPTS3{cbStruct=sizeof(BIND_OPTS3)（79-80）, dwClassContext=CLSCTX_LOCAL_SERVER（81）}`**（历史缺陷：曾传 `BIND_OPTS` 16 字节，cbStruct 过小被 appinfo 按“提升激活配置无效”拒绝 0x80080017，静默提权从未通过；注释 74-77）→ `CoGetObject`（85-90）→ 取 vtable 调 `shell_exec(file, params, NULL, 0, n_show)`（105-112）→ `release`（114）。详见 `learnings/cmstplua-elevation-bind-opts3-and-vtable-slot`。
-
-### gpu.rs — 硬件探测与 WebView2 参数
-
-| 行号 | 项 | 签名 / 值 | cfg |
-|---|---|---|---|
-| `platform/gpu.rs:4-12` | `struct GpuInfo` | `#[derive(Serialize)]`，6 字段（见下节） | 无 |
-| `platform/gpu.rs:14` | `GPU_CACHE` | `static OnceLock<GpuInfo>`（私有；进程内一次探测） | 无 |
-| `platform/gpu.rs:16-69` | `determine_tier` | `fn(vendor: &str, model: &str, _vram_mb: u64) -> String`：返回 `discrete` / `high-igpu` / `mid-igpu` / `low-igpu` / `unknown`。NVIDIA→`discrete`（20-22）；Intel：`arc`→`discrete`（24-27）、`iris`+`xe`→`mid-igpu`（28-30）、UHD 770/768/765/750/730→`mid-igpu`（31-36）、其余 UHD→`low-igpu`（37-39）、HD→`low-igpu`（40-42）、兜底 `low-igpu`（43）；AMD：`rx`/`pro`/`radeon pro`/`radeon rx`→`discrete`（46-49）、780m/760m/880m/890m→`high-igpu`（50-52）、680m/660m→`mid-igpu`（53-55）、Vega 10/11→`mid-igpu`（56-58）、`radeon graphics`→`mid-igpu`（59-61）、其余 Vega→`low-igpu`（62-64）、兜底 `mid-igpu`（65）；未知厂商兜底 `unknown`（68） | 无 |
-| `platform/gpu.rs:71-73` | `is_integrated_tier` | `fn(tier: &str) -> bool`：`matches!(tier, "low-igpu" \| "mid-igpu" \| "high-igpu")` | 无 |
-| `platform/gpu.rs:75-102` | `read_gpu_preference` | `fn() -> u8`：读 `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`（80）中当前 exe 路径的值，解析 `GpuPreference=<digit>`（93-99），无则 0 | 无 |
-| `platform/gpu.rs:104-230` | `detect_gpu_info_inner` | `fn() -> GpuInfo`：`CreateDXGIFactory1`（127）+ `EnumAdapters1` 循环（140-201） | 无 |
-| `platform/gpu.rs:232-234` | `detect_gpu_info` | `pub fn() -> &'static GpuInfo`：`GPU_CACHE.get_or_init(detect_gpu_info_inner)` | 无 |
-| `platform/gpu.rs:236-248` | `build_browser_args` | `pub fn() -> String`：恒返回 `"--js-flags=--max-old-space-size=512"`（247） | 无 |
-| `platform/gpu.rs:250-277` | `detect_display_refresh_rate` | `pub fn() -> u32`：`EnumDisplaySettingsW(ENUM_CURRENT_SETTINGS)`（261-267）取 `dmDisplayFrequency`，失败返回 0（273-276） | 无 |
-
-`detect_gpu_info_inner` 的选择逻辑：跳过 `DXGI_ADAPTER_FLAG_SOFTWARE`（151-154），按 `VendorId` 归类（164-169：`0x10DE` NVIDIA、`0x8086` Intel、`0x1002`/`0x1022` AMD、其余 `Unknown({vendor_id:#06X})`），分别记录 `best_integrated` / `best_nvidia` / `best_amd_discrete` / `best_other`（174-200），再按 `gpu_preference` 选主（203-207：1=核显优先 other→nvidia→amd，2 与默认同为独显优先 nvidia→amd→other→integrated），最后 `determine_tier` 定级并算 `is_integrated`（217-218）。日志穿插在 111-116（偏好）、130（工厂失败，返回 fallback 结构 118-125）、211-214（无已知厂商）、220（探测结果）。
 
 ### helper_spawn.rs — 提权 helper 三级通道与结果轮询
 
@@ -205,19 +182,6 @@ worker 端（`helper/mod.rs` `--helper-task` 模式，`main.rs:30` 最先拦截�
 | `platform/identity.rs:206-223` | `mod tests` | `identity_ttl_boundary`（211-222）：0 哨兵拒绝（214）、TTL 边界内通过（216-217）、超时 1 秒拒绝（219）、时钟回拨拒绝（221） | `#[cfg(test)]` |
 
 `verify_hello` 调用点：`UserConsentVerifier::CheckAvailabilityAsync()`（83-88）、`RequestVerificationAsync(&HSTRING)`（107）、interop 的 `RequestVerificationForWindowAsync(HWND, &HSTRING)`（139）。设备未配置 Hello 时直接返回引导文案且**不回退凭据对话框**（89-94，模块注释记录 2026-09-05 用户要求移除 CredUI 回退）。线程安全（注释 73-77）：不手动 `CoInitializeEx`——本文件所有 COM 入口都经 `windows::core::factory()`，windows-core 0.58 的 factory_cache 在撞到 `CO_E_NOTINITIALIZED` 时自动 `CoIncrementMTAUsage` 重试自愈（windows-rs#1169）。
-
-### metric.rs — 接口跃点（metric）读写（Windows）
-
-夜间出站自动切换的读写底座：读走 Iphlpapi 运行时值（无需提权），写经 helper `SetMetric` 提权执行。模块注释 1-5 明确：**写路径 `SetIpInterfaceEntry` 落在接口的持久配置上**（与 `netsh set interface` 的 persistent 存储同层，重启不会自动还原），因此切换态快照与还原是必需步骤而非可选优化；切换/还原之间的崩溃残留由启动对账 `apply_outbound_restore`（`monitor/scheduled.rs:965`，启动/多次兜底调用 1297-1357）收敛。快照随配置保存（`outbound_metric_restore`，见 [[desktop-config]]）。
-
-| 行号 | 项 | 签名 / 值 | cfg |
-|---|---|---|---|
-| `platform/metric.rs:15-20` | `MetricRow` | `pub struct { family: u16, automatic: bool, metric: u32 }`（`#[derive(Debug, Clone, Serialize)]`；`family` 取 `AF_INET=2` / `AF_INET6=23`，17 行注释） | 模块级 `all(desktop, target_os = "windows")` |
-| `platform/metric.rs:25-53` | `interface_rows_for_guid` | `pub(crate) fn(guid: &str) -> Result<Vec<MIB_IPINTERFACE_ROW>, String>`：`elevation::parse_guid` 解析入参 → `GetIpInterfaceTable(AF_UNSPEC)`（30）取全表 → 逐行 `ConvertInterfaceLuidToGuid`（42）与目标 GUID 比对（转换失败的行跳过 43）→ `FreeMibTable`（50）释放 → 返回**原始 Win32 行**。GUID 无匹配行返回空表（非错误） | 同上 |
-| `platform/metric.rs:56-65` | `read_interface_metrics` | `pub fn(guid: &str) -> Result<Vec<MetricRow>, String>`：把原始行映射为 `MetricRow`（`family = row.Family.0`、`automatic = row.UseAutomaticMetric.0 != 0`） | 同上 |
-| `platform/metric.rs:67-84` | `mod tests` | 1 个 `#[ignore]` 真机冒烟 `read_interface_metrics_smoke`（76-83）：断言非空（81）且 `family ∈ {2, 23}`（82）；`cargo test read_interface_metrics_smoke -- --ignored --nocapture` | `#[cfg(test)]` |
-
-读与写共用 `interface_rows_for_guid`：helper 取到行后**整行改副本**（只覆写 `UseAutomaticMetric` / `Metric` / `SitePrefixLength`）再 `SetIpInterfaceEntry`，等价 mullvad 的 `GetIpInterfaceEntry` + `Set` 两步——`Family` / `InterfaceLuid` / `InterfaceIndex` 等必须为接口当前值，构造残缺结构体会参数校验失败。写入侧实现见 `helper/mod.rs:564-635`（`run_set_metric`），写入侧的坑见 [[set-ip-interface-entry-metric|SetIpInterfaceEntry 写 metric 的必踩点与字段对照]]。
 
 ### toast.rs — WinRT Toast（Windows 桌面）
 
@@ -337,6 +301,7 @@ DNS 状态读取链：`invoke('check_dns_doh_status')` → `commands/network_cmd
 | `IUserConsentVerifierInterop::RequestVerificationForWindowAsync` | `platform/identity.rs:139` | Win11 主路径：Consent 绑定主窗口 HWND |
 | `FindWindowW` + `SetForegroundWindow` | `platform/identity.rs:164`、`166` | 兜底：Consent 对话框提前台 |
 | `XmlDocument::LoadXml` / `ToastNotification` / `ToastNotificationManager` | `platform/toast.rs:89`、`90/109`、`91-92/126` | 自组 Toast XML 并显示 |
+| `GetIpForwardTable2` / `FreeMibTable` / `DeleteIpForwardEntry2` | `platform/route_table.rs:59`、`82` | 读取与精确删除 IPv4 路由条目 |
 
 ### GPU / WebView2 参数流
 
@@ -403,5 +368,3 @@ infra/notification.rs:46 → platform/toast.rs:81 show_system_toast(...)
 12. **COM 提权依赖未公开接口**：`platform/elevation.rs:67-72` 使用 `Elevation:Administrator!new:{3E5FC7F9-…}` 与手写 IID `{6EDD6D74-…}`，属未文档化 COM 提权路径；Windows 更新后失效时的表现是降级为弹 UAC（`platform/helper_spawn.rs:120-125`），不会静默失败。
 13. **`should_filter_ip` 会丢弃合法的 `198.18/198.19` 内网 DNS**：`platform/dns_config.rs:311-331` 把 `198.18.*`、`198.19.*` 一并过滤（原意是剔除基准测试网段），特殊校园网部署可能显示不出真实 DNS。
 14. **`read_adapter_dns_from_registry` 的 `dohSupported` 恒为 `true`**：`platform/dns_config.rs:541` 硬编码，未做系统能力探测。
-15. **写 metric 必须把 `SitePrefixLength` 置 0，且只能整行改副本**：`helper/mod.rs:564-635` 从 `interface_rows_for_guid` 取整行 → 覆写 `UseAutomaticMetric` / `Metric` / `SitePrefixLength`（613-616）→ `SetIpInterfaceEntry`（617）。`SitePrefixLength` 非 0 时 Win32 直接报 `ERROR_INVALID_PARAMETER`（615 行注释），错误信息不指向任何具体字段；`Family` / `InterfaceLuid` / `InterfaceIndex` 等若由调用方自行拼装（而非拷贝当前行）同样会参数校验失败。细节与字段对照见 [[set-ip-interface-entry-metric]]。
-16. **`read_interface_metrics` 对不存在的 GUID 返回空表而非错误**：`platform/metric.rs:25-53` 匹配不到即返回 `Ok(vec![])`，调用方须自行区分“该接口无此行”与“接口枚举失败”，否则会把空表当成“metric 已还原”。

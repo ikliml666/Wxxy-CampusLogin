@@ -40,7 +40,7 @@ tags: [决策, 夜间出站, 出站切换, metric, 夜切, 双端同构]
 
 `monitor/outbound_switch.rs`：`effective_outbound_priority` 先把排序配置展开为**生效列表**——用户已排序（非空）按原序透传；未排序默认「无线卡优先、有线卡随后」（组内保发现序），即夜间出站目标默认 WLAN/无线出口。`select_outbound_candidate` 候选来自该生效列表，要求有 IP 且判定为**非校园网**，并保留两道过滤：**无网关卡跳过**与**自身网关不可达（死路）卡跳过**。
 
-逐卡判定 `is_campus_adapter` 与 `campus_check.rs` 同源：与 `campus_gateway` 同 /18 网段，或**绑该卡源 IP** 的网关可达（两发去抖，任一次可达即判校园），另增 **portal 域名绑源探测证据**（`portal_probe_host` 解析出的私网 IPv4 从该卡路由可达即判校园）。SSID 不参与逐卡判定。
+逐卡判定 `is_campus_adapter` 与 `campus_check.rs` 同源：与 `campus_gateway` 同 /18 网段，或**绑该卡源 IP** 的网关可达（两发去抖，任一次可达即判校园），另增 **portal 域名绑源探测证据**（`portal_probe_host(config.portal_url)` 解析出的私网 IPv4 从该卡路由可达即判校园）。SSID 不参与逐卡判定。
 
 ### metric 读写底座
 

@@ -71,3 +71,7 @@ tags: [决策, 通知, 看板娘, winrt]
 3. **分发**:
     - **Windows**: `emit_notification` → `show_system_toast` → 查找 `resources/mascot-toast/{mascot}.png` → 转为 `file:///` URL → 嵌入 XML `<image placement="appLogoOverride">` → WinRT API 发送。
     - **Android**: 由独立模块处理系统通知大图逻辑（源码中未提供详细代码片段，但架构上对应 Android 侧的通知实现）。
+
+## Connections
+
+- [[app-window-management]]

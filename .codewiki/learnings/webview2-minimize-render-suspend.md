@@ -72,8 +72,12 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
     - 若未最小化且 `is_hidden_by_design()` 为真，直接返回（隐藏到托盘的窗口不归尺寸事件管，它本就挂起，别被还原事件顺手唤醒）。
     - 调用 `set_main_webview_suspended` 同步状态。
 
+#### `note_minimized_synced()`
+- **位置**: L170-L172
+- **用途**: 标注「最小化挂起已同步」，供 `commands::system::minimize_window` 在主动挂起后调用，避免随后的 Resized 事件重复触碰 COM。非 Windows 平台为空实现。
+
 #### `show_and_focus_main<M: tauri::Manager<tauri::Wry>>(app: &M)`
-- **位置**: L170-L183
+- **位置**: L175-L188
 - **用途**: 显示主窗口并聚焦。窗口不存在或操作失败时静默忽略。
 - **修正说明**: 对已最小化的窗口会 unminimize（SW_RESTORE）还原到前台——这是托盘单击、single_instance 二次启动等用户主动唤起路径的期望语义。前端启动期自动显示不允许打扰用户最小化，最小化保护在该命令内做（commands/config_cmd.rs show_window）。
 - **实现细节**:
@@ -82,12 +86,12 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
     - 依次调用 `unminimize()`, `show()`, `set_focus()`。
 
 #### `show_or_rebuild_main(app: &tauri::AppHandle)`
-- **位置**: L188-L198
+- **位置**: L193-L203
 - **用途**: 统一入口：窗口在则显示聚焦；不在（轻量化已销毁）则重建。托盘「显示主窗口」、托盘左键单击、single_instance 回调三处共用。
 - **依赖**: 接 AppHandle：重建路径需要 available_monitors（AppHandle 固有方法，不在 Manager trait 上）。
 
 #### `rebuild_main_window(app: &tauri::AppHandle)`
-- **位置**: L203-L247
+- **位置**: L208-L252
 - **类型**: `fn` (内部私有)
 - **用途**: 从 tauri.conf.json 窗口配置重建主窗口。
 - **关键细节**:
