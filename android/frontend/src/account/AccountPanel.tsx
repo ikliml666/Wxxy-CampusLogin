@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  UserCircle, Plus, Trash2, ArrowRightLeft,
+  Plus, Trash2, ArrowRightLeft,
   Pencil, KeyRound, Check, X, Zap, Layers, Link2
 } from 'lucide-react'
 import { isValidDisplayName } from '@/account/validators'
@@ -27,19 +27,7 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useShallow } from 'zustand/react/shallow'
 
-/** 运营商后缀 → 品牌色 chip 样式（移动天蓝 / 电信蓝 / 联通橙 / 其他中性），让账号卡一眼可辨运营商 */
-function operatorChipClass(operator: string | null | undefined): string {
-  switch (operator) {
-    case '@cmcc':
-      return 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
-    case '@telecom':
-      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-    case '@unicom':
-      return 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
-    default:
-      return 'bg-muted text-muted-foreground'
-  }
-}
+import { operatorChipClass } from '@/account/operatorChip'
 
 interface AccountPanelProps {
   accounts: AccountItem[]
@@ -385,34 +373,24 @@ export const AccountPanel = memo(function AccountPanel({
                 <p className="mt-1 text-xs text-muted-foreground/60">{t('account.noSavedAccountsTip')}</p>
               </div>
             )}
-            {/* 卡尾快捷操作区：垂直单列两按钮 */}
-            <div className="space-y-2">
-              <button
-                type="button"
+            {/* 卡尾快捷操作区：与桌面同款（并排两枚 secondary 小按钮） */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 gap-1.5"
                 onClick={() => openLoginInfo('edit')}
-                className="flex w-full items-center gap-3 rounded-xl border border-border/60 px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                  <UserCircle className="h-4 w-4 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium leading-5">{t('account.editLoginInfo')}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{t('account.editLoginInfoDesc')}</p>
-                </div>
-              </button>
-              <button
-                type="button"
+                <KeyRound className="h-3.5 w-3.5" /> {t('account.editLoginInfo')}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 gap-1.5"
                 onClick={() => setBindOpen(true)}
-                className="flex w-full items-center gap-3 rounded-xl border border-border/60 px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                  <Link2 className="h-4 w-4 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium leading-5">{t('account.bindOperator')}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{t('account.bindDesc')}</p>
-                </div>
-              </button>
+                <Link2 className="h-3.5 w-3.5" /> {t('account.bindOperator')}
+              </Button>
             </div>
           </CardContent>
         </AnimatedCard>

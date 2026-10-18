@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import {
   Zap, Gauge, RotateCcw,
-  RefreshCw, UserCircle, Check, X,
+  RefreshCw, UserCircle, X,
   Plus, Activity, Settings2, ChevronDown,
   Wifi, Cable, MonitorSmartphone, History, Eye, EyeOff
 } from 'lucide-react'
@@ -36,6 +36,7 @@ import { useHelloGate } from '@/account/selfServiceState'
 import { formatEpoch, localDateStr, formatMac, formatTerminalType, formatUseTimeMinutes, formatFlowMb } from '@/account/selfServiceTypes'
 import { OnlineDeviceCard, OnlineDeviceCardStack } from '@/account/SelfOnlineCards'
 import { DeviceAliasDialog } from '@/account/DeviceAliasDialog'
+import { operatorChipClass } from '@/account/operatorChip'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -277,9 +278,6 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
 }) {
   const { t } = useTranslation()
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
-  // 在线会话运营商（仅主适配器）：离线/未知为 null，徽标随之隐藏
-  const onlineOperator = useAuthStore((s) => s.bgStatus.onlineOperator)
-  const onlineOperatorLabel = operatorLabelKey(onlineOperator)
   const mountedRef = useRef(true)
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
@@ -301,13 +299,6 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
     }
   }, [activeAccount, onSwitchAccount])
 
-  const otherAccounts = useMemo(() => accounts.filter(a => a.id !== activeAccount), [accounts, activeAccount])
-  // 当前账号显示名：列表里能找到就用 displayName，否则兜底 id（列表尚未加载时）
-  const activeDisplayName = useMemo(
-    () => accounts.find(a => a.id === activeAccount)?.displayName ?? activeAccount,
-    [accounts, activeAccount],
-  )
-
   return (
     <AnimatedCard noAnimation={noAnimation} noEnterAnimation={noEnterAnimation}>
       <CardHeader className="pb-3">
@@ -322,32 +313,59 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
-        {activeAccount && (
-          <div className="flex items-center justify-between p-3 rounded-xl bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.06)]">
-            <div className="flex items-center gap-2.5">
-              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
-                <Check className="h-3.5 w-3.5 text-primary" />
+        {accounts.map(item => {
+          const isActive = item.id === activeAccount
+          const operatorKey = operatorLabelKey(item.operator ?? '')
+          const face = (
+            <>
+              {/* 行1：状态点 + 显示名 + 「当前」徽章 */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5 text-[11px]">
+                  <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', isActive ? 'bg-emerald-500' : 'bg-muted-foreground/40')} aria-hidden />
+                  <span className="truncate font-mono text-foreground">{item.displayName || item.id}</span>
+                </span>
+                {isActive && (
+                  <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">{t('dashboard.current')}</span>
+                )}
               </div>
-              <span className="text-sm font-medium font-sans">{activeDisplayName}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {onlineOperatorLabel && <span className="text-[10px] text-muted-foreground">{t(onlineOperatorLabel)}</span>}
-              <Badge variant="default" className="text-[10px] h-5">{t('dashboard.current')}</Badge>
-            </div>
-          </div>
-        )}
-        {otherAccounts.length > 0 && otherAccounts.map(item => (
-          <button key={item.id} onClick={() => handleSwitchAccount(item.id)} disabled={switchingAccount !== null}
-            className="flex items-center justify-between w-full p-3 rounded-xl bg-muted/30 hover:bg-muted/60 transition-colors duration-200 text-left disabled:opacity-50">
-            <div className="flex items-center gap-2.5">
-              <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                <UserCircle className="h-3.5 w-3.5 text-muted-foreground" />
+              {/* 学号：标签在上、值大字 */}
+              <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{t('account.username')}</p>
+              <p className="truncate font-mono text-lg font-semibold leading-6 tracking-wide text-foreground">{item.user || '-'}</p>
+              {/* 运营商品牌 chip + 密码状态 chip（与账号页一致） */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium', operatorChipClass(item.operator))}>
+                  {operatorKey ? t(operatorKey) : '-'}
+                </span>
+                <span className={cn(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                  item.passwordSaved ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'
+                )}>
+                  {item.passwordSaved ? t('account.passwordChipSaved') : t('account.passwordChipUnset')}
+                </span>
               </div>
-              <span className="text-sm font-sans text-muted-foreground">{item.displayName}</span>
-            </div>
-            {switchingAccount === item.id ? <span className="text-[10px] text-primary">{t('dashboard.switching')}</span> : <span className="text-[10px] text-muted-foreground">{t('dashboard.clickToSwitch')}</span>}
-          </button>
-        ))}
+            </>
+          )
+          const cardClass = cn(
+            'relative w-full overflow-hidden rounded-xl bg-card p-3 text-left ring-1 ring-border dark:bg-muted dark:ring-white/10',
+            isActive && 'ring-primary/40'
+          )
+          return isActive ? (
+            <div key={item.id} className={cardClass}>{face}</div>
+          ) : (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleSwitchAccount(item.id)}
+              disabled={switchingAccount !== null}
+              className={cn(cardClass, 'transition-colors hover:ring-primary/40 disabled:opacity-50')}
+            >
+              {face}
+              <p className="mt-3 border-t border-border/50 pt-2 text-right text-[10px] text-muted-foreground">
+                {switchingAccount === item.id ? t('dashboard.switching') : t('dashboard.clickToSwitch')}
+              </p>
+            </button>
+          )
+        })}
         {accounts.length === 0 && <div className="text-center py-3 text-xs text-muted-foreground">{t('dashboard.noSavedAccounts')}</div>}
       </CardContent>
     </AnimatedCard>
