@@ -122,7 +122,7 @@ pub async fn wait_window_ready_and_show(app: &tauri::AppHandle, label: &str) {
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-    // 复用统一显示路径：会先 Resume 挂起的渲染、清掉 hidden_by_design 标记
+    // 复用统一显示路径：会先 show 窗口再 Resume 挂起的渲染、清掉 hidden_by_design 标记
     crate::app::window::show_and_focus_main(app);
 }
 
