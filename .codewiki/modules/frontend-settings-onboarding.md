@@ -26,7 +26,7 @@ tags: [settings, onboarding, theme, ui, android]
 
 **常量定义 (`constants.ts`)**
 *   **`DEFAULT_CONFIG: Config` (5-58)**: 默认配置对象，作为单一事实来源（Single Source of Truth），确保 UI 展示值与后端配置结构一致。
-    *   `configSchemaVersion: 7` (57): 配置版本迁移标记，注释提及 v4→v5, v5→v6 迁移历史。
+    *   `configSchemaVersion: 7` (57): 配置版本迁移标记，注释提及 v4→v5, v5→6 迁移历史。
     *   `backgroundCheckInterval: 60000` (26) & `backgroundCheckIdleInterval: 300000` (28): 后台检测周期，与后端 `Settings::default` 对齐。
     *   `latencyTestInterval: 600000` (35): 延迟测试间隔 600s。
     *   `campusCheckStartMinutes: 460` (47) / `EndMinutes: 1380` (49): 校园网检查时间窗口（约 07:40 - 23:00）。
@@ -34,7 +34,7 @@ tags: [settings, onboarding, theme, ui, android]
     *   `portalUrl`, `fixedGateway`, `campusGateway` (41-45): 硬编码的校园网网络参数。
 *   **`ISP_OPTIONS` (60-65)**: 运营商选项数组。特殊值 `__default__` 对应“无锡学院”（校园网默认线路），其余为 `@telecom`, `@unicom`, `@cmcc`。
 *   **`operatorLabelKey` (72-75)**: 工具函数，将后端返回的运营商后缀（如 `''` 或 `'@telecom'`）转换为 i18n 的 `labelKey`。空字符串 `''` 映射为 `__default__` 查找；`null/undefined` 返回 `undefined`（用于隐藏徽标）。
-*   **`THEME_OPTIONS` (77-85)**: 主题选项，包含 `id` (ThemeName), `labelKey`, `color`。包含 `custom` 主题，颜色由 `DEFAULT_CONFIG.customThemeColor` (`#6366f1`) 提供。
+*   **`THEME_OPTIONS` (77-85)**: 主题选项，包含 `id` (ThemeName), `label`, `labelKey`, `color`。包含 `custom` 主题，颜色由 `DEFAULT_CONFIG.customThemeColor` (`#6366f1`) 提供。
 *   **`VALID_THEMES` (87)**: 所有有效主题 ID 的数组，用于校验。
 *   **`DEFAULT_PANEL_OPTIONS` (89-92)**: 基于 `NAV_ITEMS` 动态生成的默认面板选项，仅提取 `value` 和 `labelKey`。
 

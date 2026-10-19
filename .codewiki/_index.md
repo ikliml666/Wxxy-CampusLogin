@@ -58,6 +58,7 @@
 
 - [[learnings/android-boot-autostart-notification-only|Android 开机自启与通知保活机制]]
 - [[learnings/android-identifier-change-breaks-keystore|AndroidKeyStore 密钥按包名隔离导致改 identifier 后密码失效]]
+- [[learnings/contain-paint-clips-absolute-menu|AnimatedCard 组件：3D 倾斜、入场动画与性能优化]]
 - [[learnings/cmstplua-elevation-bind-opts3-and-vtable-slot|CMSTPLUA 静默提权从未通过——BIND_OPTS 传小与 vtable slot 错位的叠加]]
 - [[learnings/css-comma-selector-shared-body-pitfall|CSS 逗号选择器列表共享规则体陷阱与修复]]
 - [[learnings/config-missing-field-load-failure|Config 模型与持久化机制]]
@@ -74,7 +75,6 @@
 - [[learnings/android-log-type-enum-drift|android-log-type-enum-drift]]
 - [[learnings/android-host-cargo-check-fails|android/src-tauri 安卓端 Rust 模块基线与架构]]
 - [[learnings/build-rs-docsrs-masks-android-build-failure|build.rs 的 docsrs 特例掩盖 android 目标构建失败]]
-- [[learnings/contain-paint-clips-absolute-menu|contain: paint 导致的绝对定位浮层裁剪与修复]]
 - [[learnings/hickory-resolver-drop-runtime-context-panic|hickory Resolver 在 runtime 上下文线程 drop 触发整进程 panic]]
 - [[learnings/tsc-b-emits-contaminated-files|npx tsc -b 会 emit 出 vite.config.js 等污染文件]]
 - [[learnings/nonblocking-connect-einprogress-not-wouldblock|std 不把 EINPROGRESS 映射为 WouldBlock,非阻塞 connect 判定须按 raw errno]]
