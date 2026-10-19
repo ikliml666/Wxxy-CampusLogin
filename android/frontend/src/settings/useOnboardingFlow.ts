@@ -35,6 +35,23 @@ const LOGIN_SUCCESS_ADVANCE_MS = 1500
 
 export type BindState = 'idle' | 'loading' | 'success' | 'error'
 
+/** query_bind_status 返回的三个运营商键 */
+export type OperatorKey = 'cmcc' | 'telecom' | 'unicom'
+export interface OperatorBindingInfo {
+  account: string
+  passwordSet: boolean
+}
+export type BindStatuses = Record<OperatorKey, OperatorBindingInfo | null>
+
+/** 绑定步骤下拉的 ISP 值 → query_bind_status 的键（与桌面端同规则） */
+export const OPERATOR_KEY_BY_VALUE: Record<string, OperatorKey> = {
+  '@telecom': 'telecom',
+  '@unicom': 'unicom',
+  '@cmcc': 'cmcc',
+}
+/** 展示顺序与运营商下拉一致（ISP_OPTIONS 剔除学校默认项后的顺序） */
+export const OPERATOR_STATUS_ORDER: OperatorKey[] = ['telecom', 'unicom', 'cmcc']
+
 export interface OnboardingFlowOptions {
   /** 向导是否可见；false → true 时重置全部状态为当前配置 */
   open: boolean
@@ -65,6 +82,14 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
   const [bindState, setBindState] = useState<BindState>('idle')
   const [bindError, setBindError] = useState('')
 
+  // 绑定状态检测：进入绑定步骤查全部三个运营商（一次 query_bind_status 返回全部），
+  // 选中运营商后由 UI 聚焦放大该运营商。
+  // 自动查询不挂 Hello 验证门：后端该命令本身无验证门，进步骤就弹 Hello 会打断引导。
+  const [bindStatuses, setBindStatuses] = useState<BindStatuses | null>(null)
+  const [statusQuerying, setStatusQuerying] = useState(false)
+  const [statusError, setStatusError] = useState('')
+  const [bindRefreshTick, setBindRefreshTick] = useState(0)
+
   // 绑定步骤的 Hello 验证门（与账户面板绑定卡同款）：绑定会改绑运营商账号，
   // 后端命令有验证门（Hello 开启时要求 TTL 内已验证），前端先行验证保证一次通过
   const ensureBindHello = useHelloGate()
@@ -86,6 +111,8 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       setSmsPassword('')
       setBindState('idle')
       setBindError('')
+      setBindStatuses(null)
+      setStatusError('')
     }
     prevOpenRef.current = open
   }, [open, config.user, config.password, config.operator])
@@ -124,6 +151,8 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       })
       if (result.success) {
         setBindState('success')
+        // 绑定成功会改变该运营商的绑定状态，让检测面板与事实一致
+        setBindRefreshTick((v) => v + 1)
         if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
         bindTimerRef.current = setTimeout(() => {
           direction.current = 1
@@ -141,6 +170,38 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
   }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
 
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
+
+  // 绑定状态自动检测：进入绑定步骤（step 2）查全部运营商；
+  // 掩码态密码留空交给后端回退已保存值（与 bindOperator 同纪律）
+  const bindCredPassword = password.trim() || (config.password === PASSWORD_MASK ? '' : (config.password || ''))
+
+  useEffect(() => {
+    if (!open || step !== 2 || !canProceedAccount) return
+    let cancelled = false
+    setStatusQuerying(true)
+    setStatusError('')
+    tauriApiWithRetry.getBindStatus({ account: username.trim(), password: bindCredPassword })
+      .then((result) => {
+        if (cancelled) return
+        if (result.success) {
+          const data = (result.data ?? {}) as Record<string, OperatorBindingInfo | null>
+          setBindStatuses({
+            cmcc: data.cmcc ?? null,
+            telecom: data.telecom ?? null,
+            unicom: data.unicom ?? null,
+          })
+        } else {
+          setStatusError(result.message || t('onboarding.bindStatusError'))
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setStatusError(extractErrorMessage(err) || t('onboarding.bindStatusError'))
+      })
+      .finally(() => {
+        if (!cancelled) setStatusQuerying(false)
+      })
+    return () => { cancelled = true }
+  }, [open, step, canProceedAccount, bindRefreshTick, username, bindCredPassword, t])
 
   /** 账号步骤的"下一步"落盘；返回是否放行（账号步骤不满足则留在原地） */
   const handleNext = useCallback(() => {
@@ -219,6 +280,9 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
     phone, setPhone,
     smsPassword, setSmsPassword,
     bindState, bindError, handleBind,
+    // 绑定状态检测
+    bindStatuses, statusQuerying, statusError,
+    setBindRefreshTick,
     // 流程
     language, setLanguage,
     loginSuccess, showCloseConfirm, setShowCloseConfirm,

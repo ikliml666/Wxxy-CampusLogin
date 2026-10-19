@@ -695,7 +695,17 @@
     "binding": "Binding...",
     "bindSuccess": "Bound successfully!",
     "bindFailed": "Bind failed",
-    "bindSkipHint": "Already bound? Click \"Next\" to skip"
+    "bindSkipHint": "Already bound? Click \"Next\" to skip",
+    "stepOf": "Step {{n}} of {{total}}",
+    "bindStatusTitle": "Binding status",
+    "bindStatusRetry": "Recheck",
+    "bindStatusChecking": "Checking operator binding for this account…",
+    "bindStatusBound": "Bound",
+    "bindStatusUnbound": "Not bound",
+    "bindStatusBoundDesc": "This account is already bound to this operator — you can continue",
+    "bindStatusUnboundDesc": "This account is not bound to this operator yet — fill in the form below",
+    "bindStatusNeedAccount": "Enter your student ID and password in the Account Info step first to check binding status",
+    "bindStatusError": "Failed to check binding status"
   },
   "updatePrompt": {
     "title": "New version v{{version}} available",

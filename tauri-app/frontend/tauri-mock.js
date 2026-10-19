@@ -122,7 +122,19 @@
     // 改密成功后真后端会强制下线（服务端语义）；mock 仅延时回成功消息
     change_self_password: function () { return sleep(800).then(function () { return ok(null, '密码修改成功') }) },
     verify_windows_identity: function () { return sleep(600).then(function () { return ok(null, 'Windows Hello 验证通过（mock）') }) },
-    query_bind_status: function () { return ok({ bound: false }) },
+    // 真契约：data = {cmcc, telecom, unicom}，每项 {account: 掩码账号, passwordSet} 或 null
+    // ?bound=none|cmcc|telecom|unicom（绑定状态场景覆盖，缺省 telecom 已绑、其余未绑）
+    query_bind_status: function () {
+      var scenario = (function () {
+        try { var m = window.location.search.match(/bound=(\w+)/); if (m) return m[1] } catch (e) {}
+        return 'telecom'
+      })()
+      var entry = function (key) {
+        if (scenario !== key) return null
+        return { account: key === 'cmcc' ? '139****8821' : key === 'telecom' ? '189****3376' : '156****2049', passwordSet: true }
+      }
+      return ok({ cmcc: entry('cmcc'), telecom: entry('telecom'), unicom: entry('unicom') })
+    },
     check_campus_status: function () {
       return ok({
         online: true, connected: true, enableNetworkNameCheck: false, requiredNetworkName: '',

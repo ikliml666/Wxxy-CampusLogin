@@ -121,7 +121,19 @@
     change_self_password: function () { return sleep(800).then(function () { return ok(null, '密码修改成功') }) },
     verify_windows_identity: function () { return sleep(600).then(function () { return ok(null, 'Windows Hello 验证通过（mock）') }) },
     verify_biometric_identity: function () { return sleep(600).then(function () { return ok(null, '生物识别验证通过（mock）') }) },
-    query_bind_status: function () { return ok({ bound: false }) },
+    // 真契约：data = {cmcc, telecom, unicom}，每项 {account: 掩码账号, passwordSet} 或 null
+    // ?bound=none|cmcc|telecom|unicom（绑定状态场景覆盖，缺省 telecom 已绑、其余未绑）
+    query_bind_status: function () {
+      var scenario = (function () {
+        try { var m = window.location.search.match(/bound=(\w+)/); if (m) return m[1] } catch (e) {}
+        return 'telecom'
+      })()
+      var entry = function (key) {
+        if (scenario !== key) return null
+        return { account: key === 'cmcc' ? '139****8821' : key === 'telecom' ? '189****3376' : '156****2049', passwordSet: true }
+      }
+      return ok({ cmcc: entry('cmcc'), telecom: entry('telecom'), unicom: entry('unicom') })
+    },
     // 注意：check_campus_status / check_portal_status 在 tauriApi.ts 中是 invoke<CampusStatusResult> / invoke<PortalStatusResult>
     // ——平铺形状（真实后端直接返回结构体），不能用 ok() 包裹，否则 onCampusNetwork/online 读到 undefined 被判离线
     check_campus_status: function () { return { online: true, connected: true, onCampusNetwork: true, currentSsid: null, campusMessage: '校园网在线（mock）', enableNetworkNameCheck: true, requiredNetworkName: '', campusWifi: { onCampus: true, message: '校园网 Wi-Fi 在线（mock）' }, campusWired: { onCampus: true, message: '校园网有线在线（mock）' } } },

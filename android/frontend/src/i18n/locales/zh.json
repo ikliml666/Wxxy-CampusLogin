@@ -695,7 +695,17 @@
     "binding": "绑定中...",
     "bindSuccess": "绑定成功！",
     "bindFailed": "绑定失败",
-    "bindSkipHint": "已绑定过运营商账号？直接点击\"下一步\"跳过"
+    "bindSkipHint": "已绑定过运营商账号？直接点击\"下一步\"跳过",
+    "stepOf": "第 {{n}} 步，共 {{total}} 步",
+    "bindStatusTitle": "账号绑定检测",
+    "bindStatusRetry": "重新检测",
+    "bindStatusChecking": "正在检测该账号的运营商绑定情况…",
+    "bindStatusBound": "已绑定",
+    "bindStatusUnbound": "未绑定",
+    "bindStatusBoundDesc": "该账号已绑定此运营商，可直接进入下一步",
+    "bindStatusUnboundDesc": "该账号尚未绑定此运营商，需在下方填写并绑定",
+    "bindStatusNeedAccount": "请先在\"账号信息\"步骤填写学号与密码，才能检测绑定状态",
+    "bindStatusError": "绑定状态检测失败"
   },
   "updatePrompt": {
     "title": "发现新版本 v{{version}}",
