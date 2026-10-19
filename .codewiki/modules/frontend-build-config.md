@@ -27,14 +27,14 @@ tags: [frontend, build, vite, tailwind, tauri, mock, config]
 
 #### `vite.config.ts` (Standard Config)
 标准生产/开发配置，定义入口、别名、分包策略。
-- **行 27-31**: `server.watch.ignored` - 忽略 IDE 临时目录 `**/.*.tmpdir/**`，防止 Windows 下 `fs.watch` EBUSY 错误导致 Vite 闪退。
-- **行 38-53**: `build.rollupOptions.output.manualChunks` - 手动拆分 vendor chunks 以优化缓存：
+- **行 20-23**: `server.watch.ignored` - 忽略 IDE 临时目录 `**/.*.tmpdir/**`，防止 Windows 下 `fs.watch` EBUSY 错误导致 Vite 闪退。
+- **行 35-40**: `build.rollupOptions.output.manualChunks` - 手动拆分 vendor chunks 以优化缓存：
   - `vendor-react`: 包含 `react/` 和 `react-dom/`。
   - `vendor-motion`: 包含 `framer-motion/`。
   - `vendor-gsap`: 包含 `gsap/`。
   - `vendor-radix`: 包含 `@radix-ui/`。
-- **行 44**: `build.sourcemap: false` - 生产构建不生成 Source Map。
-- **行 46**: `build.target: 'es2020'` - 编译目标为 ES2020。
+- **行 28**: `build.sourcemap: false` - 生产构建不生成 Source Map。
+- **行 31**: `build.target: 'es2020'` - 编译目标为 ES2020。
 
 #### `vite.mock.config.ts` (Mock Test Config)
 专为浏览器本地测试设计的覆盖配置，不修改 git 跟踪文件。

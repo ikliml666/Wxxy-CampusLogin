@@ -146,20 +146,7 @@ tags:
 *   **自动滚动** (`RightPanel.tsx:127-138`)：
     *   监听 scroll 位置，若距底部 <40px 则保持自动滚动到底部。
 
-### 7. 桌面端标题栏 (`android/frontend/src/components/layout/TitleBar.tsx`)
-
-**职责**：桌面端标题栏，包含窗口控制、应用信息、设置入口。
-
-*   **窗口控制** (`TitleBar.tsx:73-90`)：
-    *   `showWindowControls` 为 true 时启用拖拽 (`getCurrentWindow().startDragging()`) 和双击最大化。
-    *   双击去抖 300ms。
-*   **功能按钮** (`TitleBar.tsx:144-231`)：
-    *   光暗切换、语言切换、通知开关、主题、赞助、关于。
-    *   通知开关有 spin-in 动画 key 重置。
-*   **版本显示** (`TitleBar.tsx:110-141`)：
-    *   若有更新，显示版本号并带红点提示，点击跳转 About。
-
-### 8. 移动端仪表盘 (`android/frontend/src/components/mobile/MobileDashboard.tsx`)
+### 7. 移动端仪表盘 (`android/frontend/src/components/mobile/MobileDashboard.tsx`)
 
 **职责**：移动端首页总览，复用桌面 `DashboardPanel` 并通过 `extraCards` 注入移动专属卡片。
 
@@ -170,7 +157,7 @@ tags:
     *   将上述两张卡定义为 `ExtraCardDef`，传入 `DashboardPanel`。
     *   排除 `quickActions` 卡片 (移动端独立悬浮)。
 
-### 9. 移动端“更多”聚合页 (`android/frontend/src/components/mobile/MobileMore.tsx`)
+### 8. 移动端“更多”聚合页 (`android/frontend/src/components/mobile/MobileMore.tsx`)
 
 **职责**：“更多”聚合页，通过 Chips 切换子面板 (Settings/Speedtest/Log/Monitor)。
 
@@ -178,113 +165,6 @@ tags:
     *   根据 `qualityEnabled` 过滤 Monitor tab。
     *   若 `subRaw` 为 monitor 但 quality 关闭，派生降级为 settings。
     *   渲染对应的 `SettingsPanel`, `SpeedTestPanel`, `LogPanel`, `MonitorPanel`。
-
-### 10. 移动端快捷操作 (`android/frontend/src/components/mobile/MobileQuickActions.tsx`)
-
-**职责**：首页悬浮快捷登录/注销胶囊。
-
-*   **视觉** (`MobileQuickActions.tsx:34-83`)：
-    *   绝对定位，位于底栏上方 100px。
-    *   注销按钮：磨砂 tonal 玻璃风格 (`color-mix` + `backdrop-filter`)。
-    *   登录按钮：实心主色胶囊。
-    *   两者视觉重量一致 (阴影相同)。
-*   **逻辑** (`MobileQuickActions.tsx:24-32`)：
-    *   先 `api.bindToWifi()`，再 `doLogin()`。
-
-### 11. 通用动画卡片 (`android/frontend/src/components/ui/animated-card.tsx`)
-
-**职责**：通用动画卡片组件，提供 3D Tilt 效果和入场动画。
-
-*   **Tilt 实现** (`animated-card.tsx:43-103`)：
-    *   启用 `tiltEnabled` 时，监听 `mousemove`，计算光标相对中心偏移，驱动 `rotateX/Y`。
-    *   使用 `gsap.quickTo` 和 RAF 节流。
-    *   `mouseleave` 时复位，并使用 `delayedCall` 延迟清除 `willChange`。
-    *   **内存泄漏防护**：cleanup 时 cancel RAF、kill tween、断开 ResizeObserver。
-*   **入场动画** (`animated-card.tsx:110-151`)：
-    *   非 `noEnterAnimation` 且未禁用动效时，添加 `card-enter` class (CSS 动画)。
-    *   支持 `staggerIndex` 错开入场。
-
-### 12. 平板端新手引导 (`android/frontend/src/settings/OnboardingWizard.tsx`)
-
-**职责与关键实现**：
-*   **核心逻辑**：平板/桌面端的新手指引向导，以 **Dialog (对话框)** 形态呈现。
-*   **Props 接口**：`OnboardingWizardProps` 包含 `open`, `onClose`, `onUpdateConfig`, `onLogin`, `isLoggingIn` [36-42]。
-*   **流程控制**：完全复用 `useOnboardingFlow` hook [119]，自身不维护步骤状态，仅负责 UI 渲染。
-*   **UI 结构**：
-    *   **容器**：使用 `Dialog` + `DialogContent`，尺寸响应式收敛为 `w-[min(600px,92vw)] h-[min(720px,86vh)]`，圆角 28px，深色背景 [129-131]。
-    *   **卡片动画**：使用 `framer-motion` 的 `AnimatePresence` 和自定义 `cardVariants` 实现卡片堆叠进出场效果。前进时旧卡左滑出并微旋，新卡从右侧弹性落位 [56-73]。
-    *   **装饰层**：静态堆叠的绝对定位 div 营造卡片厚度感 [142-151]。
-    *   **步骤内容**：
-        *   **Step 0 (欢迎)**：吉祥物、标题、安全提示、语言切换按钮 [170-191]。
-        *   **Step 1 (账号信息)**：用户名、密码（含显隐切换）、可选运营商选择。输入框有实时校验反馈 [193-257]。
-        *   **Step 2 (绑定运营商)**：
-            *   显示登录凭据统一提示 [264-267]。
-            *   运营商选择下拉框（排除默认运营商）[270-279]。
-            *   **绑定状态面板**：进入步骤自动查询三个运营商状态。支持手动刷新。选中运营商后放大聚焦，显示绑定/未绑定状态及描述 [283-346]。
-            *   手机号、短信验证码/密码输入 [349-371]。
-            *   绑定结果反馈（错误/成功）及提交按钮 [372-394]。
-        *   **Step 3 (完成)**：展示摘要信息（用户名、密码掩码、运营商），提供登录按钮或登录成功状态 [400-436]。
-    *   **导航栏**：底部固定区域，包含上一步/下一步箭头（圆形触控目标）、页码指示器、跳过按钮、最后一步的登录按钮 [453-504]。
-    *   **关闭确认**：独立的 `Dialog` 用于处理中途跳过的二次确认 [507-528]。
-*   **常量与映射**：
-    *   `STEP_TITLE_KEYS`: 步骤标题翻译键 [44]。
-    *   `OPERATOR_VALUE_BY_KEY`: 查询返回的 key (`telecom`/`unicom`/`cmcc`) 到 ISP 值 (`@telecom`...) 的反向映射 [48-52]。
-    *   `STEP_ICONS`: 各步骤图标组件数组 [75]。
-
-**文件间调用关系与数据流**：
-*   **依赖**：
-    *   `useOnboardingFlow`：提供所有状态（`step`, `username`, `password`, `operator`, `bindOperatorValue`, `phone`, `smsPassword`, `bindState`, `bindStatuses`, `language` 等）和动作（`advance`, `goNext`, `handleBind`, `handleSkip`, `handleLoginAndFinish` 等）[29-34, 119]。
-    *   `ISP_OPTIONS` (from `@/settings/constants`)：运营商列表 [22]。
-    *   `APP_NAME` (from `@/shared/ui-constants`) [23]。
-    *   `MascotFigure` (from `@/shared/MascotFigure`) [24]。
-*   **数据流**：
-    *   用户交互（输入、点击）→ 触发 `useOnboardingFlow` 中的 setter/action → 状态更新 → React 重新渲染 UI。
-    *   `onUpdateConfig` 回调由 `useOnboardingFlow` 内部在适当时机（如配置变更）调用，将部分配置传递给父组件。
-    *   `onLogin` 回调在最后一步触发，执行实际登录逻辑。
-
-**错误处理、边界条件与非显然行为**：
-*   **视口溢出防护**：Dialog 尺寸使用 `min()` 函数确保在小屏平板上不溢出，同时留出状态栏余量 [127-131]。
-*   **指针事件拦截**：`DialogContent` 设置 `onPointerDownOutside={(e) => e.preventDefault()}` 防止点击遮罩意外关闭 [131]。
-*   **运营商状态聚焦**：当用户在下拉框中选择特定运营商时，状态面板会高亮对应项，并展开详细文字说明（绑定/未绑定描述），提升可读性 [309-340]。
-*   **密码安全**：密码输入框支持显隐切换，且使用 `autoComplete="current-password"` [221-222]。
-*   **跳过确认**：非通过关闭按钮退出时，会弹出二次确认 Dialog，防止误操作 [507-528]。
-
-### 13. 移动端新手引导 (`android/frontend/src/settings/OnboardingWizardMobile.tsx`)
-
-**职责与关键实现**：
-*   **核心逻辑**：手机端的新手指引向导，以 **全屏模态 (Full-screen Modal)** 形态呈现。
-*   **设计差异理由**：手机窄屏下 Dialog 会挤压内容且与手势导航冲突。全屏模式提供独立滚动内容区 + 固定底部操作区，适配拇指操作 [1-14]。
-*   **Props 接口**：`OnboardingWizardMobileProps` 同 `OnboardingWizardProps` [48-54]。
-*   **UI 结构**：
-    *   **容器**：`fixed inset-0 z-50 flex flex-col` 全屏铺满，深色背景 [142]。
-    *   **顶部 Header**：跳过按钮 + 段式进度轨 (`StepTrack`) + 步序文本。预留 safe-area 顶部 [152-169]。
-    *   **内容区 Main**：`flex-1 min-h-0 overflow-y-auto` 独立滚动区域。内部包含装饰堆叠层和当前步骤卡片 [172-191]。
-    *   **卡片动画**：复用相似的 `cardVariants`，但参数微调以适应全屏布局（如 `enter` x 偏移 48px，无 rotate）[64-68]。
-    *   **步骤内容**：逻辑与平板端几乎一致，但针对移动端优化：
-        *   字体大小、间距、触控目标尺寸（输入框/按钮高度 48px/h-12）[135-136, 234-243, 250-260, 274-283, 385-395, 401-408, 423-435]。
-        *   移除了 `autoFocus`，避免进入账号步骤时键盘遮挡表单 [11]。
-        *   吉祥物的 `size` 属性调整为 `md` [202, 444]。
-        *   进度轨改为横向段式条 (`StepTrack`)，节省空间 [73-95]。
-    *   **底部 Footer**：固定底部，包含导航箭头、页码、跳过按钮、最后一步登录按钮。预留 safe-area 底部 [494-536]。
-    *   **跳过确认**：使用 `framer-motion` 的 `m.div` 实现的全屏半透明遮罩 + 居中卡片，替代 Dialog 组件，避免尺寸与安全区错位问题 [539-582]。
-*   **常量与映射**：
-    *   `ONBOARDING_STEP_COUNT`: 总步骤数 [40]。
-    *   `OPERATOR_VALUE_BY_KEY`: 同平板端 [57-61]。
-    *   `STEP_ICONS`: 同平板端 [70]。
-
-**文件间调用关系与数据流**：
-*   **依赖**：
-    *   `useOnboardingFlow`：提供全部状态和动作 [39-45, 131]。
-    *   `ISP_OPTIONS`, `APP_NAME`, `MascotFigure`, `cn` 等同平板端。
-*   **数据流**：与平板端相同，共享同一套状态管理逻辑。
-
-**错误处理、边界条件与非显然行为**：
-*   **Safe Area 适配**：Header 和 Footer 使用 `calc(env(safe-area-inset-top/bottom) + ...)` 精确避让刘海屏和手势条 [154, 496]。
-*   **触控优化**：所有可点击元素（箭头、按钮、语言切换）高度至少 48px，符合移动端触控最小目标建议 [98-121, 135-136]。
-*   **滚动隔离**：内容区独立滚动，底部操作区固定，确保导航始终可用 [172]。
-*   **空状态处理**：若 `open` 为 false，直接返回 null，避免不必要的渲染 [133]。
-*   **输入过滤**：手机号输入限制为非数字字符替换为空，最大长度 11 [391]。
-*   **样式类复用**：定义 `inputClass` 和 `actionButtonClass` 常量，统一管理移动端特定的高度和样式 [135-136]。
 
 ## Architecture
 

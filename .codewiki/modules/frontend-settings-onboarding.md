@@ -18,7 +18,7 @@ tags: [settings, onboarding, theme, ui, android]
 ## Overview
 该模块负责应用设置面板（Settings Panel）、首次使用引导向导（Onboarding Wizard）及主题配置对话框（Theme Dialog）。核心目标是为安卓端提供跨设备（手机/平板）一致的引导体验，同时管理应用的全局配置、网络质量检测参数、安全验证开关及电池保活策略。
 
-模块通过 `useOnboardingFlow` Hook 抽离了向导的状态机逻辑，确保手机端全屏向导与平板端对话框向导共享同一套业务逻辑。设置面板采用响应式网格布局，适配不同屏幕尺寸，并针对 Android 平台提供了特定的保活与安全功能。
+模块通过 `useOnboardingFlow` Hook 抽离了向导的状态机逻辑，确保手机端全屏向导与平板端对话框向导共享同一套业务逻辑。设置面板采用响应式布局，适配不同屏幕尺寸，并针对 Android 平台提供了特定的保活与安全功能。
 
 ## Key Components
 

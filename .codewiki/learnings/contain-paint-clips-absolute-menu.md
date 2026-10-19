@@ -49,12 +49,12 @@ tags: [教训, 前端, css, contain, portal, 定位]
 ### CSS 样式 (src/index.css)
 
 **关键类**:
-- `.animated-card-interactive` (第 514-521 行):
+- `.animated-card-interactive` (第 489-510 行):
     - 定义了卡片的交互过渡效果 (`transition`)。
-    - **关键点**: 设置了 `contain: layout style paint` (第 520 行)。这是导致子元素被裁剪的根本原因。
-    - 包含 `isolation: isolate` (第 519 行)，创建新的堆叠上下文。
-- `.card-enter` (第 607-610 行): 定义卡片入场动画，支持 `--stagger-i` 变量实现交错延迟。
-- `.dark .animated-card-interactive:hover` (第 533-535 行): 暗色模式下的悬停边框颜色调整。
+    - **关键点**: 设置了 `contain: layout style paint` (第 495 行)。这是导致子元素被裁剪的根本原因。
+    - 包含 `isolation: isolate` (第 494 行)，创建新的堆叠上下文。
+- `.card-enter` (第 582-585 行): 定义卡片入场动画，支持 `--stagger-i` 变量实现交错延迟。
+- `.dark .animated-card-interactive:hover` (第 508-510 行): 暗色模式下的悬停边框颜色调整。
 
 ## Architecture
 
@@ -106,7 +106,7 @@ tags: [教训, 前端, css, contain, portal, 定位]
 
 1.  **Containment Clipping**:
     *   **现象**: 当 `AnimatedCard` 内部包含绝对定位的元素（如下拉菜单、Tooltip）时，这些元素会被卡片边界裁剪，无法完整显示。
-    *   **根因**: CSS 属性 `contain: paint` (在 `.animated-card-interactive` 中定义，index.css 第 520 行) 创建了内容 containment，限制了后代元素的绘制区域。此外，`isolation: isolate` 也创建了新的堆叠上下文，进一步限制了视觉溢出。
+    *   **根因**: CSS 属性 `contain: paint` (在 `.animated-card-interactive` 中定义，index.css 第 495 行) 创建了内容 containment，限制了后代元素的绘制区域。此外，`isolation: isolate` 也创建了新的堆叠上下文，进一步限制了视觉溢出。
     *   **现状**: `AnimatedCard` 组件本身并未内置 Portal 机制。任何需要超出边界的浮层组件必须在父级或自身内部使用 `createPortal` 将内容渲染到 `document.body`。
 
 2.  **Memory Leaks in Cleanup**:
@@ -115,7 +115,7 @@ tags: [教训, 前端, css, contain, portal, 定位]
 
 3.  **Reduced Motion Support**:
     *   **检测**: 使用模块级 `matchMedia` 查询 `prefers-reduced-motion` (animated-card.tsx 第 27-29 行)。
-    *   **行为**: 如果用户偏好减少运动，`showEntryAnim` 设为 false，且 GSAP tilt 效果被禁用 (通过 `tiltEnabled` 判断)。CSS 中也通过 `@media (prefers-reduced-motion: reduce)` 禁用了相关动画 (index.css 第 827-860 行)。
+    *   **行为**: 如果用户偏好减少运动，`showEntryAnim` 设为 false，且 GSAP tilt 效果被禁用 (通过 `tiltEnabled` 判断)。CSS 中也通过 `@media (prefers-reduced-motion: reduce)` 禁用了相关动画 (index.css 第 802-835 行)。
 
 ## Connections
 
