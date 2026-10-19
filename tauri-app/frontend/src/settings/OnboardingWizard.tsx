@@ -378,8 +378,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setShowCloseConfirm(true) }}>
       <DialogPrimitive.Portal>
-        {/* 外壳与遮罩全部透明：屏上只应看到卡片本身 */}
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-transparent" />
+        {/* 遮罩：灰调压暗背后界面，把注意力收到卡堆上（卡本身不用描边线） */}
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-950/25 backdrop-blur-[2px] dark:bg-black/60" />
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
           <DialogPrimitive.Content
             aria-describedby={undefined}
@@ -409,12 +409,15 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                 // inert 才是「整棵子树不可交互/不可聚焦」的正确语义
                 inert={!isTop || isExiting}
                 className={cn(
-                  'absolute left-1/2 top-1/2 flex h-[500px] w-[86%] flex-col rounded-[2rem] bg-card p-7',
-                  'border border-border/60',
-                  'shadow-[0_5px_10px_0_rgba(0,0,0,0.18),0_15px_20px_0_rgba(0,0,0,0.10)]',
+                  'absolute left-1/2 top-1/2 flex h-[500px] w-[86%] flex-col rounded-[2rem] p-7',
+                  // 项目统一卡面：靠柔光阴影 + 顶部高光区分层次，不用描边线
+                  'onboarding-deck-card',
                   isTop ? 'pointer-events-auto' : 'pointer-events-none',
                 )}
                 style={{
+                  // 背景与圆角走内联：全局 `.bg-card` 规则带 !important，会把圆角压回 16px
+                  background: 'hsl(var(--card))',
+                  borderRadius: '2rem',
                   transform: isExiting ? EXIT_UP_TRANSFORM : deckTransform(layer.y, layer.scale),
                   transformOrigin: 'center center',
                   zIndex: isExiting ? 11 : layer.z,

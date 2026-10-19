@@ -175,13 +175,13 @@ export function OnboardingWizardMobile({
               把绑定步长表单裁掉），所以这里只做方向一致的上下两档缩放，不抢布局。 */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-2 -top-2 bottom-2 rounded-[26px] border border-border bg-card opacity-45"
-            style={{ transform: 'scale(0.96)', transformOrigin: 'top center' }}
+            className="pointer-events-none absolute inset-x-2 -top-2 bottom-2 rounded-[26px] opacity-45"
+            style={{ background: 'hsl(var(--card))', transform: 'scale(0.96)', transformOrigin: 'top center' }}
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-1 -top-1 bottom-1 rounded-[26px] border border-border bg-card opacity-70"
-            style={{ transform: 'scale(0.98)', transformOrigin: 'top center' }}
+            className="pointer-events-none absolute inset-x-1 -top-1 bottom-1 rounded-[26px] opacity-70"
+            style={{ background: 'hsl(var(--card))', transform: 'scale(0.98)', transformOrigin: 'top center' }}
           />
 
           <AnimatePresence mode="wait" custom={f.direction.current}>
@@ -193,7 +193,8 @@ export function OnboardingWizardMobile({
               animate="center"
               exit="exit"
               transition={{ type: 'spring', stiffness: 260, damping: 28, mass: 0.9 }}
-              className="relative rounded-[26px] border border-border bg-card px-5 pt-5 pb-5 shadow-[0_8px_32px_rgba(0,0,0,0.16)]"
+              className="onboarding-deck-card relative px-5 pt-5 pb-5"
+              style={{ background: 'hsl(var(--card))', borderRadius: 26 }}
             >
               {/* 分类标签胶囊 */}
               <span className="mb-3 inline-flex w-fit items-center rounded-full bg-primary/15 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-primary">

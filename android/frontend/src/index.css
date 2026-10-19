@@ -301,6 +301,53 @@
     );
   }
 
+  /* 新手引导卡堆的卡面：与 glass-dock / app-outer-square 同一套语汇——
+     只用柔光阴影 + 顶部亮线区分层次，不要描边线（深色主题下单独加深） */
+  .onboarding-deck-card {
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 8px 24px -8px rgba(15, 23, 42, 0.12),
+      0 28px 56px -20px rgba(15, 23, 42, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
+
+  .onboarding-deck-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 12%;
+    right: 12%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.9) 25%,
+      rgba(255, 255, 255, 0.95) 50%,
+      rgba(255, 255, 255, 0.9) 75%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  .dark .onboarding-deck-card {
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.35),
+      0 10px 30px -10px rgba(0, 0, 0, 0.6),
+      0 32px 64px -24px rgba(0, 0, 0, 0.7),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .dark .onboarding-deck-card::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.10) 25%,
+      rgba(255, 255, 255, 0.14) 50%,
+      rgba(255, 255, 255, 0.10) 75%,
+      transparent 100%
+    );
+  }
+
   /* 质量页检测间隔输入框：隐藏 number spinner 上下按钮（浏览器原生箭头与卡面语言不符，数值靠键入） */
   .interval-input::-webkit-inner-spin-button,
   .interval-input::-webkit-outer-spin-button {
