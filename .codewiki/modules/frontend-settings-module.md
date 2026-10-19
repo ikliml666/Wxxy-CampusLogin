@@ -6,12 +6,7 @@ source_files:
   - android/frontend/src/settings/index.ts
   - android/frontend/src/settings/KeepAliveSettingsCard.tsx
   - android/frontend/src/settings/OnboardingWizard.tsx
-  - android/frontend/src/settings/OnboardingWizardMobile.tsx
-  - android/frontend/src/settings/SettingsPanel.tsx
   - android/frontend/src/settings/ThemeDialog.tsx
-  - android/frontend/src/settings/types.ts
-  - android/frontend/src/settings/useOnboardingFlow.ts
-  - android/frontend/src/settings/useSettings.ts
 tags: [settings, onboarding, theme, keep-alive, configuration]
 ---
 
@@ -23,31 +18,19 @@ tags: [settings, onboarding, theme, keep-alive, configuration]
 
 ## Key Components
 
-### Constants & Types (`constants.ts`, `types.ts`)
+### Constants & Types (`constants.ts`)
 
 **常量定义**:
 *   `DEFAULT_CONFIG: Config` (5| L5-L58): 完整的默认配置对象，作为配置的“单一事实来源”。
-    *   **网络/连接**: `portalUrl: 'http://10.1.99.100'`, `fixedGateway: '10.2.127.254'`, `campusGateway: '10.2.127.254'`, `requiredNetworkName: 'i-wxxy'` (41| L41-L43, 45| L45)。
-    *   **保活/后台**: `backgroundCheckInterval: 60000` (60s), `backgroundCheckIdleInterval: 300000` (5min), `latencyTestInterval: 600000` (10min) (26| L26, 28| L28, 35| L35)。注释明确指出这些值与后端对齐，且自 2026-09-09 起对齐后端稳态周期降功耗，自 2026-09-20 起优化质量测试间隔。
-    *   **时间策略**: `campusCheckStartMinutes: 460` (07:40), `campusCheckEndMinutes: 1380` (23:00, 旧默认0已迁移), `scheduledLoginMinutes: 1440` (禁用哨兵逻辑，0为真实00:00) (47| L47, 49| L49, 51| L51)。
+    *   **网络/连接**: `portalUrl: 'http://10.1.99.100'`, `fixedGateway: '10.2.127.254'`, `requiredNetworkName: 'i-wxxy'` (41| L41-L43)。
+    *   **保活/后台**: `backgroundCheckInterval: 60000` (60s), `backgroundCheckIdleInterval: 300000` (5min) (26| L26, 28| L28)。注释明确指出这些值与后端对齐，且自 2026-09-09 起对齐后端稳态周期降功耗。
+    *   **时间策略**: `campusCheckStartMinutes: 460` (07:40), `campusCheckEndMinutes: 1380` (23:00, 旧默认0已迁移) (47| L47, 49| L49)。
     *   **Schema版本**: `configSchemaVersion: 7` (57| L57)，用于配置迁移版本控制。
 *   `ISP_OPTIONS` (60| L60-L65): 运营商选项数组。包含 `__default__` (无锡学院)、`@telecom`、`@unicom`、`@cmcc`。
 *   `operatorLabelKey(suffix)` (72| L72-L75): 工具函数，将运营商后缀映射为 i18n key。处理空字符串到 `__default__` 的转换，返回 `undefined` 表示离线/未知。
 *   `THEME_OPTIONS` (77| L77-L85): 主题选项，包含 `default`, `vibrant`, `forest`, `midnight`, `ocean`, `cherry`, `custom` 及其对应的色值。
 *   `VALID_THEMES` (87| L87): 有效主题 ID 数组。
 *   `DEFAULT_PANEL_OPTIONS` (89| L89-L92): 基于 `NAV_ITEMS` 生成的默认面板选项。
-
-**类型定义**:
-*   `AccountItem` (types.ts 4| L4-L13): 账号列表项，含 `id` (文件名 stem), `displayName`, `user` (学号), `operator`, `passwordSaved`。
-*   `Config` (types.ts 15| L15-L80): 完整配置类型。
-    *   **安全类**: `selfHelloEnabled` (默认 true), `selfReverifyEachAction` (默认 false), `allow2dFaceVerify` (默认 false) (19| L19-L23)。
-    *   **网络/运营商类**: `enableNightOperatorSwitch`, `nightOperatorRestore`, `outboundDisabledAdapters` (JSON string, 安卓端部分字段仅为同构存储不消费) (26| L26-L35)。
-    *   **自动化类**: `autoLoginOnStart`, `enableBootAutostart`, `backgroundCheckInterval`, `autoLoginOnPreparation` (41| L41-L48)。
-    *   **UI/主题类**: `themeMode`, `customThemeColor`, `defaultPanel`。
-    *   **检测类**: `enableNetworkQuality`, `skipTtfbInLatency`, `skipContentInLatency`, `campusCheckStartMinutes` (默认 460=07:40), `campusCheckEndMinutes` (默认 1380=23:00) (67| L67-L71)。
-    *   **定时类**: `scheduledLoginMinutes`, `scheduledLogoutMinutes`。
-    *   **其他**: `updateSource` ('mirror'|'github'), `logRetentionDays` (65| L65, 76| L76)。
-*   `InitData` (types.ts 87| L87-L102): 初始化数据接口，合并了原分散命令的数据，包含 `accounts`, `backgroundStatus`, `logRetentionDays`, `debugMode` 等。
 
 ### Hooks (`useSettings.ts`, `useOnboardingFlow.ts`)
 
