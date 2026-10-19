@@ -91,8 +91,12 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
         if let Some(window) = app_h.get_webview_window("main") {
             // 后台倒计时自动收起：标记为用户意图隐藏并立即挂起渲染，
             // 否则 30s 后 hide() 只停合成、动画与定时器仍在空转
-            crate::app::window::mark_hidden_by_design(true);
-            crate::app::window::set_main_webview_suspended(&app_h, true);
+            // app::window 是 desktop-only 模块（托盘/挂起语义），mobile 端直接跳过
+            #[cfg(desktop)]
+            {
+                crate::app::window::mark_hidden_by_design(true);
+                crate::app::window::set_main_webview_suspended(&app_h, true);
+            }
             let _ = window.hide();
             crate::log_info!("campus_exit", "已最小化到托盘");
         }
