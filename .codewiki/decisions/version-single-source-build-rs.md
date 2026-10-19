@@ -15,14 +15,14 @@ tags: [决策, 版本号, 构建, 发布]
 ## Key Components
 
 ### tauri-app/src-tauri/tauri.conf.json
-- **Line 2**: `"version": "2.4.1"` — 版本号定义处，所有桌面端构建的版本号均源自此字符串。这是版本管理的唯一入口。
+- **Line 3**: `"version": "2.4.1"` — 版本号定义处，所有桌面端构建的版本号均源自此字符串。这是版本管理的唯一入口。
 
 ### tauri-app/src-tauri/build.rs
-- **Line 1–39**: 整个文件作为 Tauri 构建脚本。
+- **Line 1–38**: 整个文件作为 Tauri 构建脚本。
     - **Line 1–2**: `use std::fs; use std::path::Path;` — 引入标准库用于文件读取和路径处理。
-    - **Line 4–39**: `fn main()` — 构建脚本的主入口函数。
+    - **Line 4–38**: `fn main()` — 构建脚本的主入口函数。
         - **Line 6**: `tauri_build::build();` — 调用 Tauri 原生构建逻辑，生成 IPC 代码、读取配置等基础工作。
-        - **Line 8–15**: 注释说明设计目的：`tauri.conf.json` 是版本号唯一权威源，后端 Rust 代码通过 `env!("APP_VERSION")` 引用，避免硬编码。Cargo.toml 保留 version 字段以符合 cargo 强制要求，需与 tauri.conf.json 保持一致。
+        - **Line 8–15**: 注释说明设计目的：`tauri.conf.json` 是版本号唯一权威源，后端 Rust 代码通过 `env!("APP_VERSION")` 引用，避免硬编码。Cargo.toml 保留 version 字段以符合 cargo 强制要求，需与 tauri.conf.json 保持一致（cargo build 不一致会警告）。
         - **Line 17–19**: `let conf_path = Path::new("tauri.conf.json");` 及存在性检查。如果文件不存在则 panic。
         - **Line 20**: `let content = fs::read_to_string(conf_path).expect("Failed to read tauri.conf.json");` — 读取配置文件内容。
         - **Line 21–32**: JSON 解析逻辑。手动遍历文件行，查找以 `"version"` 开头的行，提取冒号后的值，去除引号和逗号。这是获取版本号的核心算法，不依赖外部 JSON 库以保持轻量。
@@ -33,7 +33,7 @@ tags: [决策, 版本号, 构建, 发布]
 
 ### android/src-tauri/Cargo.toml
 - **Line 3**: `version = "2.4.1"` — 安卓端 Cargo crate 的独立版本号声明。虽然当前与桌面端保持一致，但在 Cargo 体系中它是独立的元数据源。
-- **Line 38**: `campus-login = { path = "../../tauri-app/src-tauri" }` — 安卓端依赖桌面端的协议核心库（作为 path 依赖），确保网络协议层代码复用。这意味着安卓端可以直接引用桌面端定义的常量（包括可能通过 build.rs 注入的环境变量，如果桌面端 crate 暴露了这些常量的话，但通常是通过各自构建流程）。
+- **Line 31**: `campus-login = { path = "../../tauri-app/src-tauri" }` — 安卓端依赖桌面端的协议核心库（作为 path 依赖），确保网络协议层代码复用。这意味着安卓端可以直接引用桌面端定义的常量（包括可能通过 build.rs 注入的环境变量，如果桌面端 crate 暴露了这些常量的话，但通常是通过各自构建流程）。
 
 ## Architecture
 

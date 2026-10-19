@@ -21,7 +21,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 
 本模块是双端应用共享的运行时基座：`state/` 提供配置（ArcSwap + CAS）、网络快照、退出状态三组原子状态与任务互斥锁；`logger.rs` 提供异步落盘的日志通道；`events.rs` 是唯一的事件发射出口（18 个事件）；`task_manager.rs` 统一托管周期性后台任务的取消与等待；`lifecycle.rs` 实现"非校园网自动退出 / 登录后自动退出"两条倒计时状态机与统一退出流程；`notification.rs` 是系统通知的唯一出口。
 
-模块声明于 `tauri-app/src-tauri/src/infra/mod.rs:1-8`，并按 `tauri-app/src-tauri/src/lib.rs:5` 中的 `pub mod infra;` 编入跨平台协议核心 crate（lib 名 `campus_login_lib`，见 `tauri-app/src-tauri/Cargo.toml:8-10`）。安卓端经 path 依赖可见本模块，但实际只用到 `logger`（证据：`android/src-tauri/src/lib.rs:48`、`android/src-tauri/src/system_cmds.rs:33,41,48,53,58,63`），`AppState` 在安卓端完全没有被引用（安卓有自己的 `android/src-tauri/src/android_state.rs`、`config_state.rs`）。
+模块声明于 `tauri-app/src-tauri/src/infra/mod.rs:2-8`，并按 `tauri-app/src-tauri/src/lib.rs:5` 中的 `pub mod infra;` 编入跨平台协议核心 crate（lib 名 `campus_login_lib`，见 `tauri-app/src-tauri/Cargo.toml:8-10`）。安卓端经 path 依赖可见本模块，但实际只用到 `logger`（证据：`android/src-tauri/src/lib.rs:48`、`android/src-tauri/src/system_cmds.rs:33,41,48,53,58,63`），`AppState` 在安卓端完全没有被引用（安卓有自己的 `android/src-tauri/src/android_state.rs`、`config_state.rs`）。
 
 ## Key Components
 
@@ -60,17 +60,17 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `state/mod.rs:77` | pub fn | `sanitize_account_id(user: &str) -> String` | 自动建号的 id 生成（R2）：字符集与 `validate_account_name` 一致，非法字符替换 `_`、按字符截断 32（宽松替换版，任何输入有确定输出不报错） |
 | `state/mod.rs:91-97` | pub struct | `TaskFlags` | 5 个任务互斥锁的聚合 |
 | `state/mod.rs:125-139` | pub struct | `UpdateStats` | 更新/通知/心跳/恢复/自动启用的 8 个原子统计字段 |
-| `state/mod.rs:120-124` | impl | `Default for UpdateStats` | 委托 `new` |
-| `state/mod.rs:127` | pub fn | `UpdateStats::new() -> Self` | 全部置 0/false |
-| `state/mod.rs:142-149` | pub struct | `AppState` | 全局状态根，Tauri 托管对象 |
-| `state/mod.rs:151-155` | impl | `Default for AppState` | 委托 `new` |
-| `state/mod.rs:158` | pub fn | `AppState::new() -> Self` | 装配全部子状态；`app/startup.rs:50` 的 `.manage(AppState::new())` 是唯一生产构造点 |
-| `state/mod.rs:176-270` | `#[cfg(test)]` mod | `tests` | 5 个 TaskLock 测试 + 2 个账号名校验测试 + `sanitize_account_id` 规则锁 |
-| `state/mod.rs:272-279` | pub struct | `CommandResult` | 通用命令返回（`Serialize`，字段 `skip_serializing_if = "Option::is_none"`） |
-| `state/mod.rs:281/284/288` | pub fn | `CommandResult::ok()` / `ok_msg(&str)` / `err(&str)` | 三个构造器 |
-| `state/mod.rs:295-301` | pub struct | `AccountItem` | 账号列表条目（`{id, displayName}`，R3；display_name 持久层已兜底非空） |
-| `state/mod.rs:303-313` | pub struct | `AccountResult` | 账号操作返回（`#[serde(rename_all = "camelCase")]`，新增 `display_name` 携带 rename 结果） |
-| `state/mod.rs:316/319/321` | pub fn | `AccountResult::ok(Config)` / `ok_with_account(String, Config)` / `err(&str)` | 三个构造器 |
+| `state/mod.rs:141-145` | impl | `Default for UpdateStats` | 委托 `new` |
+| `state/mod.rs:147` | pub fn | `UpdateStats::new() -> Self` | 全部置 0/false |
+| `state/mod.rs:162-170` | pub struct | `AppState` | 全局状态根，Tauri 托管对象 |
+| `state/mod.rs:172-176` | impl | `Default for AppState` | 委托 `new` |
+| `state/mod.rs:178` | pub fn | `AppState::new() -> Self` | 装配全部子状态；`app/startup.rs:50` 的 `.manage(AppState::new())` 是唯一生产构造点 |
+| `state/mod.rs:198-267` | `#[cfg(test)]` mod | `tests` | 5 个 TaskLock 测试 + 2 个账号名校验测试 + `sanitize_account_id` 规则锁 |
+| `state/mod.rs:269-276` | pub struct | `CommandResult` | 通用命令返回（`Serialize`，字段 `skip_serializing_if = "Option::is_none"`） |
+| `state/mod.rs:278/281/285` | pub fn | `CommandResult::ok()` / `ok_msg(&str)` / `err(&str)` | 三个构造器 |
+| `state/mod.rs:292-305` | pub struct | `AccountItem` | 账号列表条目（`{id, displayName}`，R3；display_name 持久层已兜底非空） |
+| `state/mod.rs:307-319` | pub struct | `AccountResult` | 账号操作返回（`#[serde(rename_all = "camelCase")]`，新增 `display_name` 携带 rename 结果） |
+| `state/mod.rs:321/324/328` | pub fn | `AccountResult::ok(Config)` / `ok_with_account(String, Config)` / `err(&str)` | 三个构造器 |
 
 ### infra/state/store.rs
 
@@ -96,7 +96,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `state/network.rs:71` | pub fn | `load(&self) -> Arc<NetworkSnapshot>` | 取一致快照 |
 | `state/network.rs:76-90` | pub fn | `update<F: FnMut(&mut NetworkSnapshot)>(&self, f)` | CAS 循环写 |
 | `state/network.rs:96-111` | pub fn | `update_with_result<T: Clone, F>(&self, f) -> T` | CAS 写并返回闭包结果（"读-改-判定"场景，避免 TOCTOU） |
-| `state/network.rs:114-137` | `#[cfg(test)]` mod | `tests` | 默认快照与原子更新测试 |
+| `state/network.rs:116-137` | `#[cfg(test)]` mod | `tests` | 默认快照与原子更新测试 |
 
 ### infra/state/exit.rs
 
@@ -118,44 +118,42 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `logger.rs:12` | 私有 const | `MAX_LOG_FILES: usize = 5` | 轮转时按 mtime 保留最新 5 个 |
 | `logger.rs:13` | 私有 const | `FLUSH_INTERVAL_MS: u64 = 2000` | worker `recv_timeout` 与批量落盘间隔 |
 | `logger.rs:14` | 私有 const | `CHANNEL_CAPACITY: usize = 1024` | `drain_channel` 单次排空上限 |
-| `logger.rs:16` | 私有 static | `LOG_RETENTION_DAYS: AtomicU32 = 7` | 进程级保留天数 |
-| `logger.rs:18` | pub fn | `set_log_retention_days(days: u32)` | 写保留天数（0 = 永久保留） |
-| `logger.rs:22` | pub fn | `get_log_retention_days() -> u32` | 读保留天数 |
-| `logger.rs:26-32` | pub enum | `LogLevel { Debug, Info, Warn, Error }` | `PartialOrd/Ord` 派生用于阈值比较 |
-| `logger.rs:34-43` | 私有 impl | `LogLevel::as_str(&self) -> &'static str` | 日志行中的级别文本 |
-| `logger.rs:45-49` | 私有 enum | `LogMessage` | 通道消息：`Entry` / `Flush` / `Shutdown` |
-| `logger.rs:51-56` | 私有 struct | `LoggerState` | worker 线程私有状态 |
-| `logger.rs:59` | 私有 static | `LOGGER_SENDER: ArcSwap<Option<Sender<LogMessage>>>` | 全局发送端（`None` = 未初始化/已关闭） |
-| `logger.rs:60` | 私有 static | `CLEAR_LOGS_MUTEX: Mutex<()>` | `clear_logs` 互斥 |
-| `logger.rs:61` | 私有 static | `LOGGER_THREAD: Mutex<Option<JoinHandle<()>>>` | worker 线程句柄 |
-| `logger.rs:62` | 私有 static | `MIN_LOG_LEVEL: ArcSwap<LogLevel> = Info` | 全局最低级别 |
-| `logger.rs:65` | pub fn | `init_logger(log_dir: PathBuf) -> Result<(), String>` | 建目录、开当天文件、起 `logger-worker` 线程；重复调用会先给旧 sender 发 `Shutdown` 并 join 旧线程（`logger.rs:85-113`） |
-| `logger.rs:118` | 私有 fn | `logger_worker(state, receiver)` | 消费循环：超时分支做小时级清理（`logger.rs:142-148`），随后 `drain_channel` + 条件落盘（`logger.rs:151-161`） |
-| `logger.rs:121` | 私有 const | `CLEANUP_INTERVAL = 3600s` | worker 内清理间隔 |
-| `logger.rs:124` | 私有 const | `BATCH_FLUSH_THRESHOLD = 32` | 批量落盘条数阈值（BE-C-01） |
-| `logger.rs:125` | 私有 const | `FLUSH_INTERVAL = 2000ms` | 距上次落盘时间阈值 |
-| `logger.rs:165` | 私有 fn | `drain_channel(receiver, buffer)` | `try_recv` 排空到 buffer（`Shutdown` 丢弃） |
-| `logger.rs:183` | 私有 fn | `flush_messages(state, buffer)` | 先 `rotate_if_needed`，写 `Entry`、`Flush` 回 ack，最后 `flush()` |
-| `logger.rs:214` | 私有 fn | `rotate_if_needed(state)` | 跨天换文件；超 5MB 改名 `app-<YYYYMMDDHHMMSS>.log`（失败则原地截断，`logger.rs:239-243`） |
-| `logger.rs:258` | 私有 fn | `cleanup_old_logs(log_dir: &PathBuf)` | 轮转后按 mtime 保留最新 5 个 `.log` |
-| `logger.rs:278` | 私有 fn | `cleanup_old_logs_by_time(log_dir: &Path, retention_days: u32)` | 按保留天数删文件；`retention_days == 0` 直接返回 |
-| `logger.rs:304` | pub fn | `log(level, module, message)` | 级别过滤 → 组行 → 发通道；send 失败时 Warn 以上直接 `eprint!`（`logger.rs:315-324`） |
-| `logger.rs:327` | pub fn | `set_log_level(level: LogLevel)` | 改全局最低级别 |
-| `logger.rs:331` | pub fn | `get_log_level() -> LogLevel` | 读全局最低级别 |
-| `logger.rs:335-340` | `#[tauri::command]` pub fn | `set_debug_mode(enabled: bool) -> Result<bool, String>` | Debug/Info 切换；注册于 `app/startup.rs:118` |
-| `logger.rs:342-345` | `#[tauri::command]` pub fn | `get_debug_mode() -> Result<bool, String>` | 查询是否 Debug 级；注册于 `app/startup.rs:119` |
-| `logger.rs:347-352` | `#[macro_export]` macro | `log_debug!($module, $($arg)*)` | 展开为 `log(LogLevel::Debug, ...)` |
-| `logger.rs:354-359` | `#[macro_export]` macro | `log_info!` | 同上，Info |
-| `logger.rs:361-366` | `#[macro_export]` macro | `log_warn!` | 同上，Warn |
-| `logger.rs:368-373` | `#[macro_export]` macro | `log_error!` | 同上，Error |
-| `logger.rs:375-384` | pub fn（`#[cfg(target_os = "android")]`） | `get_log_dir(&AppHandle) -> PathBuf` | 安卓落在 `app_data_dir()/logs`（APK 安装目录只读） |
-| `logger.rs:386-397` | pub fn（`#[cfg(not(target_os = "android"))]`） | `get_log_dir(&AppHandle) -> PathBuf` | 桌面落在 `current_exe()` 同级 `logs/` |
-| `logger.rs:399` | pub fn | `read_recent_logs(&AppHandle, lines: usize) -> Result<String, String>` | 从当天文件尾部按 8KB×2ⁿ 窗口倒读，取尾 N 行（BE-C-01） |
-| `logger.rs:420` | 私有 const | `BASE_WINDOW: u64 = 8192` | 倒读初始窗口 |
-| `logger.rs:443` | pub fn | `flush()` | 发 `Flush` 并等 ack，超时 5s |
-| `logger.rs:453` | pub fn | `flush_quick()` | panic hook 专用，ack 超时 500ms |
-| `logger.rs:462` | pub fn | `shutdown()` | swap 掉 sender、发 `Shutdown`、join 线程（500ms 超时） |
-| `logger.rs:479` | pub fn | `clear_logs(&AppHandle) -> Result<(), String>` | 先删日志目录内全部文件，再换新 sender + 新线程（顺序注释见 `logger.rs:482`） |
+| `logger.rs:17` | 私有 const | `LOG_CHANNEL_CAPACITY: usize = 8192` | 审计 A17：日志通道改为有界，容量 8192 条 |
+| `logger.rs:20-21` | 私有 const | `DROP_REPORT_INTERVAL`, `DROP_REPORT_THRESHOLD` | 审计 A17：丢弃计数周期汇总阈值 |
+| `logger.rs:22` | 私有 static | `LOG_DROPPED: AtomicU64` | 审计 A17：发送端丢弃计数 |
+| `logger.rs:24` | 私有 static | `LOG_RETENTION_DAYS: AtomicU32 = 7` | 进程级保留天数 |
+| `logger.rs:27` | 私有 static | `LOG_DIR: OnceLock<PathBuf>` | init_logger 记录的实际日志目录，供 set_log_retention_days 应用即清理用 |
+| `logger.rs:29` | pub fn | `set_log_retention_days(days: u32)` | 写保留天数（0 = 永久保留），立即清理一次 |
+| `logger.rs:39` | pub fn | `get_log_retention_days() -> u32` | 读保留天数 |
+| `logger.rs:43-49` | pub enum | `LogLevel { Debug, Info, Warn, Error }` | `PartialOrd/Ord` 派生用于阈值比较 |
+| `logger.rs:51-60` | 私有 impl | `LogLevel::as_str(&self) -> &'static str` | 日志行中的级别文本 |
+| `logger.rs:62-66` | 私有 enum | `LogMessage` | 通道消息：`Entry` / `Flush` / `Shutdown` |
+| `logger.rs:68-73` | 私有 struct | `LoggerState` | worker 线程私有状态 |
+| `logger.rs:75-80` | 私有 static | `LOGGER_SENDER`, `CLEAR_LOGS_MUTEX`, `LOGGER_THREAD`, `MIN_LOG_LEVEL` | 全局发送端、清理互斥、worker 线程句柄、全局最低级别 |
+| `logger.rs:82` | pub fn | `init_logger(log_dir: PathBuf) -> Result<(), String>` | 建目录、开当天文件、起 `logger-worker` 线程；重复调用会先给旧 sender 发 `Shutdown` 并 join 旧线程（`logger.rs:104-110`） |
+| `logger.rs:137` | 私有 fn | `logger_worker(state, receiver)` | 消费循环：超时分支做小时级清理（`logger.rs:164-168`），随后 `drain_channel` + 条件落盘（`logger.rs:172-201`） |
+| `logger.rs:142` | 私有 const | `CLEANUP_INTERVAL = 3600s` | worker 内清理间隔 |
+| `logger.rs:145` | 私有 const | `BATCH_FLUSH_THRESHOLD = 32` | 批量落盘条数阈值（BE-C-01） |
+| `logger.rs:146` | 私有 const | `FLUSH_INTERVAL = 2000ms` | 距上次落盘时间阈值 |
+| `logger.rs:205` | 私有 fn | `drain_channel(receiver, buffer)` | `try_recv` 排空到 buffer（`Shutdown` 丢弃） |
+| `logger.rs:223` | 私有 fn | `flush_messages(state, buffer)` | 先 `rotate_if_needed`，写 `Entry`、`Flush` 回 ack，最后 `flush()` |
+| `logger.rs:254` | 私有 fn | `rotate_if_needed(state)` | 跨天换文件；超 5MB 改名 `app-<YYYYMMDDHHMMSS>.log`（失败则原地截断，`logger.rs:279-283`） |
+| `logger.rs:298` | 私有 fn | `cleanup_old_logs(log_dir: &PathBuf)` | 轮转后按 mtime 保留最新 5 个 `.log` |
+| `logger.rs:318` | 私有 fn | `cleanup_old_logs_by_time(log_dir: &Path, retention_days: u32)` | 按保留天数删文件；`retention_days == 0` 直接返回 |
+| `logger.rs:344` | pub fn | `log(level, module, message)` | 级别过滤 → 组行 → 发通道；send 失败时 Warn 以上直接 `eprint!`（`logger.rs:356-365`） |
+| `logger.rs:372` | pub fn | `set_log_level(level: LogLevel)` | 改全局最低级别 |
+| `logger.rs:376` | pub fn | `get_log_level() -> LogLevel` | 读全局最低级别 |
+| `logger.rs:380-385` | `#[tauri::command]` pub fn | `set_debug_mode(enabled: bool) -> Result<bool, String>` | Debug/Info 切换；注册于 `app/startup.rs:118` |
+| `logger.rs:389-391` | pub fn | `get_debug_mode() -> Result<bool, String>` | 查询是否 Debug 级；注册于 `app/startup.rs:119` |
+| `logger.rs:393-419` | `#[macro_export]` macros | `log_debug!`, `log_info!`, `log_warn!`, `log_error!` | 展开为 `log(LogLevel::..., ...)` |
+| `logger.rs:421-430` | pub fn（`#[cfg(target_os = "android")]`） | `get_log_dir(&AppHandle) -> PathBuf` | 安卓落在 `app_data_dir()/logs`（APK 安装目录只读） |
+| `logger.rs:432-443` | pub fn（`#[cfg(not(target_os = "android"))]`） | `get_log_dir(&AppHandle) -> PathBuf` | 桌面落在 `current_exe()` 同级 `logs/` |
+| `logger.rs:445` | pub fn | `read_recent_logs(&AppHandle, lines: usize) -> Result<String, String>` | 从当天文件尾部按 8KB×2ⁿ 窗口倒读，取尾 N 行（BE-C-01） |
+| `logger.rs:489` | pub fn | `flush()` | 发 `Flush` 并等 ack，超时 5s |
+| `logger.rs:501` | pub fn | `flush_quick()` | panic hook 专用，ack 超时 500ms |
+| `logger.rs:511` | pub fn | `shutdown()` | swap 掉 sender、发 `Shutdown`、join 线程（500ms 超时） |
+| `logger.rs:531` | pub fn | `is_app_log_file(name: &str) -> bool` | 判断文件名是否为本应用日志文件（app- 前缀 + .log 后缀） |
+| `logger.rs:535` | pub fn | `clear_logs(&AppHandle) -> Result<(), String>` | 先删日志目录内全部文件，再换新 sender + 新线程（顺序注释见 `logger.rs:538`） |
 
 ### infra/events.rs
 
@@ -166,22 +164,22 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `events.rs:17-19` | 私有 fn | `emit<S: Serialize + Clone>(&self, &str, S) -> Result<(), String>` | 唯一底层发射，错误转 `String` |
 | `events.rs:22` | pub fn | `emit_login_log(&self, message: &str, log_type: &str)` | 事件 `login-log` |
 | `events.rs:30` | pub fn | `emit_background_check_result<S>(&self, payload: S)` | 事件 `background-check-result` |
-| `events.rs:35` | pub fn | `emit_scheduled_action_skipped(&self, kind: &str)` | 事件 `scheduled-action-skipped`（审计 A7） |
-| `events.rs:39` | pub fn | `emit_mac_reset_cycle(&self)` | 事件 `mac-reset-cycle`（审计 A16） |
-| `events.rs:44` | pub fn | `emit_auto_login_result(&self, success: bool, message: &str, skipped: bool)` | 事件 `auto-login-result` |
+| `events.rs:36` | pub fn | `emit_scheduled_action_skipped(&self, kind: &str)` | 事件 `scheduled-action-skipped`（审计 A7） |
+| `events.rs:41` | pub fn | `emit_mac_reset_cycle(&self)` | 事件 `mac-reset-cycle`（审计 A16） |
+| `events.rs:46` | pub fn | `emit_auto_login_result(&self, success: bool, message: &str, skipped: bool)` | 事件 `auto-login-result` |
 | `events.rs:53` | pub fn | `emit_network_quality_result<S>(&self, payload: S)` | 事件 `network-quality-result` |
-| `events.rs:58` | pub fn | `emit_update_available(&self, has_update, latest_version, release_notes)` | 事件 `update-available` |
-| `events.rs:67` | pub fn | `emit_update_notification_click(&self)` | 事件 `update-notification-click`（`platform/toast.rs` 的 WinRT Activated 回调调用） |
+| `events.rs:60` | pub fn | `emit_update_available(&self, has_update, latest_version, release_notes)` | 事件 `update-available` |
+| `events.rs:69` | pub fn | `emit_update_notification_click(&self)` | 事件 `update-notification-click`（`platform/toast.rs` 的 WinRT Activated 回调调用） |
 | `events.rs:72` | pub fn | `emit_adapter_details_changed<S>(&self, details: S)` | 事件 `adapter-details-changed` |
-| `events.rs:77` | pub fn | `emit_adapter_disabled_warning(&self, name: &str, message: &str)` | 事件 `adapter-disabled-warning` |
-| `events.rs:90` | pub fn | `emit_campus_exit_countdown(&self, minimize_delay: u64, exit_delay: u64)` | 事件 `campus-exit-countdown` |
-| `events.rs:98` | pub fn | `emit_campus_exit_cancelled(&self)` | 事件 `campus-exit-cancelled` |
-| `events.rs:103` | pub fn | `emit_auto_exit_countdown(&self, delay: u64, shortcut: &str)` | 事件 `auto-exit-countdown` |
-| `events.rs:111` | pub fn | `emit_auto_exit_cancelled(&self)` | 事件 `auto-exit-cancelled` |
+| `events.rs:79` | pub fn | `emit_adapter_disabled_warning(&self, name: &str, message: &str)` | 事件 `adapter-disabled-warning` |
+| `events.rs:87` | pub fn | `emit_campus_exit_countdown(&self, minimize_delay: u64, exit_delay: u64)` | 事件 `campus-exit-countdown` |
+| `events.rs:95` | pub fn | `emit_campus_exit_cancelled(&self)` | 事件 `campus-exit-cancelled` |
+| `events.rs:100` | pub fn | `emit_auto_exit_countdown(&self, delay: u64, shortcut: &str)` | 事件 `auto-exit-countdown` |
+| `events.rs:108` | pub fn | `emit_auto_exit_cancelled(&self)` | 事件 `auto-exit-cancelled` |
 | `events.rs:116` | pub fn | `emit_config_changed<S>(&self, payload: S)` | 事件 `config-changed` |
 | `events.rs:121` | pub fn | `emit_adapters_changed<S>(&self, adapters: S)` | 事件 `adapters-changed` |
 | `events.rs:126` | pub fn | `emit_update_download_progress<S>(&self, payload: S)` | 事件 `update-download-progress` |
-| `events.rs:131-144` | `#[cfg(test)]` mod | `tests` | 仅一个 `size_of` 编译期断言（`events.rs:140-143`），无行为测试 |
+| `events.rs:129-141` | `#[cfg(test)]` mod | `tests` | 仅一个 `size_of` 编译期断言（`events.rs:139-140`），无行为测试 |
 
 ### infra/task_manager.rs
 
@@ -191,13 +189,13 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `task_manager.rs:14-17` | pub struct（`#[derive(Clone)]`） | `BackgroundTaskManager` | 名称 → 句柄表 |
 | `task_manager.rs:19-23` | impl | `Default` | 委托 `new` |
 | `task_manager.rs:26` | pub fn | `new() -> Self` | 空表 |
-| `task_manager.rs:33` | pub fn | `spawn<F, Fut>(&self, name: &str, build_future: F) -> Result<(), String>` | 同名已在跑则返回 `Err("任务 {name} 已在运行")`；任务结束/被取消后自动摘除 |
+| `task_manager.rs:41` | pub fn | `spawn<F, Fut>(&self, name: &str, build_future: F) -> Result<(), String>` | 同名已在跑则返回 `Err("任务 {name} 已在运行")`；任务结束/被取消后自动摘除 |
 | `task_manager.rs:67` | pub fn | `cancel(&self, name: &str) -> bool` | 摘除并 `cancel()` 令牌 |
-| `task_manager.rs:81` | pub fn | `detach(&self, name: &str) -> bool` | 只摘除不取消、不等待（任务自身即将 `shutdown_and_exit` 时防死锁） |
+| `task_manager.rs:79` | pub fn | `detach(&self, name: &str) -> bool` | 只摘除不取消、不等待（任务自身即将 `shutdown_and_exit` 时防死锁） |
 | `task_manager.rs:86` | pub async fn | `shutdown(&self)` | 排空表 → 全部 `cancel()` → 全部 `await` |
 | `task_manager.rs:101` | pub fn | `is_running(&self, name: &str) -> bool` | 查询 |
 | `task_manager.rs:106` | pub fn | `cancel_token(&self, name: &str) -> Option<Arc<CancellationToken>>` | 取令牌 |
-| `task_manager.rs:111-147` | `#[cfg(test)]` mod | `tests` | 重复 spawn 拒绝 / cancel 摘除 / shutdown 等待 |
+| `task_manager.rs:112-147` | `#[cfg(test)]` mod | `tests` | 重复 spawn 拒绝 / cancel 摘除 / shutdown 等待 |
 
 ### infra/lifecycle.rs
 
@@ -207,14 +205,14 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `lifecycle.rs:13` | 私有 const | `CAMPUS_EXIT_DELAY_MS: u64 = 60000` | 非校园网：60s 后退出 |
 | `lifecycle.rs:17-19` | 私有 fn | `is_within_campus_exit_window(now_minutes, start, end) -> bool` | 当日分钟数判窗；`end <= start` 退化为只受 start 限制 |
 | `lifecycle.rs:23` | pub fn | `start_campus_exit(&AppHandle, &AppState)` | 校园网验证不通过时启动倒计时（受 `campus_exit_on_fail` 与时间窗双重门控） |
-| `lifecycle.rs:138` | pub fn | `cancel_campus_exit(&AppHandle, &AppState)` | 静默取消（不发通知/事件），由 `monitor/background_check.rs:63,136` 调用 |
-| `lifecycle.rs:157` | pub fn | `cancel_campus_exit_with_notification(&AppHandle, &AppState)` | 带系统通知 + `campus-exit-cancelled` 事件的取消 |
-| `lifecycle.rs:183` | pub fn | `start_auto_exit(&AppHandle, &AppState)` | 登录成功后 20s 自动退出倒计时；用户已取消过则跳过（`lifecycle.rs:185-188`） |
-| `lifecycle.rs:266` | pub fn | `cancel_auto_exit_inner(&AppHandle, &AppState) -> Result<CommandResult, String>` | 取消自动退出（无 deadline 时返回 `ok_msg("无需取消")`） |
-| `lifecycle.rs:294-302` | 私有 fn（`#[cfg(desktop)]`） | `try_unregister_cancel_exit_shortcut(&AppHandle, bool)` | 条件注销全局快捷键 |
-| `lifecycle.rs:305-306` | 私有 fn（`#[cfg(not(desktop))]`） | `try_unregister_cancel_exit_shortcut(_, _)` | 空实现，保持调用点不变 |
-| `lifecycle.rs:311` | pub async fn | `shutdown_and_exit(&AppHandle, &AppState)` | 置 `is_quitting` → 10s 上限等待 `task_manager.shutdown()` → `app_handle.exit(0)` |
-| `lifecycle.rs:322-344` | `#[cfg(test)]` mod | `tests` | 时间窗判定：默认 8:00–23:00 与 `end<=start` 退化两种 |
+| `lifecycle.rs:146` | pub fn | `cancel_campus_exit(&AppHandle, &AppState)` | 静默取消（不发通知/事件），由 `monitor/background_check.rs:63,136` 调用 |
+| `lifecycle.rs:165` | pub fn | `cancel_campus_exit_with_notification(&AppHandle, &AppState)` | 带系统通知 + `campus-exit-cancelled` 事件的取消 |
+| `lifecycle.rs:191` | pub fn | `start_auto_exit(&AppHandle, &AppState)` | 登录成功后 20s 自动退出倒计时；用户已取消过则跳过（`lifecycle.rs:193-196`） |
+| `lifecycle.rs:274` | pub fn | `cancel_auto_exit_inner(&AppHandle, &AppState) -> Result<CommandResult, String>` | 取消自动退出（无 deadline 时返回 `ok_msg("无需取消")`） |
+| `lifecycle.rs:301-310` | 私有 fn（`#[cfg(desktop)]`） | `try_unregister_cancel_exit_shortcut(&AppHandle, bool)` | 条件注销全局快捷键 |
+| `lifecycle.rs:313-314` | 私有 fn（`#[cfg(not(desktop))]`） | `try_unregister_cancel_exit_shortcut(_, _)` | 空实现，保持调用点不变 |
+| `lifecycle.rs:319` | pub async fn | `shutdown_and_exit(&AppHandle, &AppState)` | 置 `is_quitting` → 10s 上限等待 `task_manager.shutdown()` → `app_handle.exit(0)` |
+| `lifecycle.rs:331-352` | `#[cfg(test)]` mod | `tests` | 时间窗判定：默认 8:00–23:00 与 `end<=start` 退化两种 |
 
 ### infra/notification.rs
 
@@ -228,8 +226,8 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | --- | --- | --- | --- |
 | `command_context.rs:10-13` | pub struct | `CommandContext<'a>` | 命令层 AppHandle + AppState 打包 |
 | `command_context.rs:16` | pub fn | `CommandContext::new(&AppHandle, &AppState)` | 显式构造 |
-| `command_context.rs:22` | pub fn | `CommandContext::from_app(&AppHandle)` | 内部 `app.state::<AppState>()` 后取 `inner()` |
-| `command_context.rs:30-33` | impl | `Deref for CommandContext<'a>`（`Target = AppState`） | `ctx.config` 等价 `ctx.state.config` |
+| `command_context.rs:24` | pub fn | `CommandContext::from_app(&AppHandle)` | 内部 `app.state::<AppState>()` 后取 `inner()` |
+| `command_context.rs:29-32` | impl | `Deref for CommandContext<'a>`（`Target = AppState`） | `ctx.config` 等价 `ctx.state.config` |
 | `command_context.rs:38-41` | pub trait | `AppHandleExt` | 定义 `notify_config_changed` / `notify_update_download_progress` |
 | `command_context.rs:43-51` | impl | `AppHandleExt for AppHandle` | 两个方法均委托 `EventBus` |
 
@@ -292,19 +290,19 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 ### 日志链路
 
 ```text
-log_info!/log_warn!/... (logger.rs:347-373)
-  → logger::log(level, module, message) (logger.rs:304)  —— MIN_LOG_LEVEL 过滤 (logger.rs:305)
-  → LOGGER_SENDER.send(LogMessage::Entry) (logger.rs:315)
+log_info!/log_warn!/... (logger.rs:393-419)
+  → logger::log(level, module, message) (logger.rs:344)  —— MIN_LOG_LEVEL 过滤 (logger.rs:345)
+  → LOGGER_SENDER.send(LogMessage::Entry) (logger.rs:352)
   → mpsc channel（容量有界 8192，try_send 失败丢弃并计数，Warn 以上 eprint 兜底）
-  → logger-worker 线程 logger_worker (logger.rs:118)
-      recv_timeout(2s) → push buffer → drain_channel(:151)
-      → 条件落盘 flush_messages(:158-161)：含 Flush 消息 / ≥32 条 / 距上次 ≥2s
-      → rotate_if_needed(:188)：跨天换文件 / 超 5MB 轮转 + cleanup_old_logs(:237)
-      → BufWriter.write_all + flush (logger.rs:194,203)
-  超时分支每 3600s 调 cleanup_old_logs_by_time(:145)
+  → logger-worker 线程 logger_worker (logger.rs:137)
+      recv_timeout(2s) → push buffer → drain_channel(:172)
+      → 条件落盘 flush_messages(:196-201)：含 Flush 消息 / ≥32 条 / 距上次 ≥2s
+      → rotate_if_needed(:228)：跨天换文件 / 超 5MB 轮转 + cleanup_old_logs(:277)
+      → BufWriter.write_all + flush (logger.rs:234,243)
+  超时分支每 3600s 调 cleanup_old_logs_by_time(:164)
 ```
 
-收尾链路：`main.rs:65-66` `flush()` → `shutdown()`（`logger.rs:443,462`）；panic 走 `main.rs:20-24` 的 hook → `flush_quick()`（`logger.rs:453`）。前端读日志经 `read_recent_logs`（`logger.rs:399`），清日志经 `clear_logs`（`logger.rs:479`）。
+收尾链路：`main.rs:65-66` `flush()` → `shutdown()`（`logger.rs:489,511`）；panic 走 `main.rs:20-24` 的 hook → `flush_quick()`（`logger.rs:501`）。前端读日志经 `read_recent_logs`（`logger.rs:445`），清日志经 `clear_logs`（`logger.rs:535`）。
 
 ### 事件总线（全部 18 个事件）
 
@@ -318,7 +316,7 @@ log_info!/log_warn!/... (logger.rs:347-373)
 | `mac-reset-cycle` | `{}` | `events.rs:39-41` | `tauriApi.ts:161` |
 | `auto-login-result` | `success`, `message`, `skipped` | `events.rs:44-50` | `tauriApi.ts:154` |
 | `network-quality-result` | 由调用方传入（`NetworkQuality`） | `events.rs:53-55` | `tauriApi.ts:173` |
-| `update-available` | `hasUpdate`, `latestVersion`, `releaseNotes` | `events.rs:58-64` | `tauriApi.ts:215` |
+| `update-available` | `hasUpdate`, `latestVersion`, `releaseNotes` | `events.rs:62-68` | `tauriApi.ts:215` |
 | `update-notification-click` | `{}` | `events.rs:67-69`（`platform/toast.rs` 调用） | `tauriApi.ts:216` |
 | `adapter-details-changed` | 由调用方传入（`AdapterDetail[]`） | `events.rs:72-74` | `tauriApi.ts:156` |
 | `disabled-adapters-changed` | 由调用方传入（禁用适配器列表） | `events.rs:77-79` | `tauriApi.ts:157` |
@@ -336,25 +334,25 @@ log_info!/log_warn!/... (logger.rs:347-373)
 自动退出（登录成功后）：
 
 ```text
-auth/monitor 调用 start_auto_exit (lifecycle.rs:183)
-  → auto_exit_cancelled 为真则 return (:185)
-  → 锁 auto_exit_deadline：Some 则 return；None 则置 now+20s (:189-198)
-  → emit auto-exit-countdown (:204) + 系统通知 (:208)
-  → 注册 Ctrl+Shift+C (:210-218)
-  → task_manager.spawn("auto_exit", ...) (:228)
-        sleep(deadline-now) / cancel 二选一 (:237-240)
-        → 二次校验 deadline 是否到期 (:242-251)
-        → 仅在 campus_exit 未启动时注销快捷键 (:253-254)
-        → detach("auto_exit") (:256) —— 防止 shutdown 等自己
-        → shutdown_and_exit (:257)
-  → spawn 失败则回滚 deadline (:261)
+auth/monitor 调用 start_auto_exit (lifecycle.rs:191)
+  → auto_exit_cancelled 为真则 return (:193)
+  → 锁 auto_exit_deadline：Some 则 return；None 则置 now+20s (:197-206)
+  → emit auto-exit-countdown (:212) + 系统通知 (:216)
+  → 注册 Ctrl+Shift+C (:219-226)
+  → task_manager.spawn("auto_exit", ...) (:236)
+        sleep(deadline-now) / cancel 二选一 (:245-248)
+        → 二次校验 deadline 是否到期 (:250-259)
+        → 仅在 campus_exit 未启动时注销快捷键 (:261-262)
+        → detach("auto_exit") (:264) —— 防止 shutdown 等自己
+        → shutdown_and_exit (:265)
+  → spawn 失败则回滚 deadline (:269)
 ```
 
-取消：`commands/system.rs:95` / `app/shortcut.rs:29` → `cancel_auto_exit_inner`（`lifecycle.rs:266`）→ 清 deadline、置 `auto_exit_cancelled`、`cancel("auto_exit")`、注销快捷键、通知 + `auto-exit-cancelled`。
+取消：`commands/system.rs:95` / `app/shortcut.rs:29` → `cancel_auto_exit_inner`（`lifecycle.rs:274`）→ 清 deadline、置 `auto_exit_cancelled`、`cancel("auto_exit")`、注销快捷键、通知 + `auto-exit-cancelled`。
 
 非校园网退出：`monitor/background_check.rs:129`、`monitor/auto_auth.rs:326` → `start_campus_exit`（`lifecycle.rs:23`）→ 配置门控（`:25`）→ 时间窗门控（`:32`）→ `campus_exit_started` CAS（`:51`）→ 写 deadline（`:54`）→ 事件 + 通知 + 注册快捷键 → `spawn("campus_exit")`（`:78`）→ 30s 后 `window.hide()`（`:91-94`）→ 再 30s → deadline 终校验（`:104-113`）→ `detach` + `shutdown_and_exit`。
 
-统一退出：`lifecycle.rs:311-320` `shutdown_and_exit` → `is_quitting=true` → `tokio::time::timeout(10s, task_manager.shutdown())` → `app_handle.exit(0)`。
+统一退出：`lifecycle.rs:319-328` `shutdown_and_exit` → `is_quitting=true` → `tokio::time::timeout(10s, task_manager.shutdown())` → `app_handle.exit(0)`。
 
 ### 通知链路
 
@@ -387,26 +385,26 @@ emit_notification(app, title, body, mascot) (notification.rs:16)
 - [[desktop-network-quality]]：`TaskFlags::is_quality_checking` 与 `network-quality-result` 事件。
 - [[desktop-account-selfservice]]：`AccountResult`、`validate_account_name` 服务于账号与自助服务命令。
 - [[desktop-commands]]：`CommandContext`、`CommandResult`、`AppHandleExt` 是命令层通用设施。
-- [[desktop-platform]]：`notification.rs:46` 依赖 `platform::toast`；`logger.rs:375-397` 与平台目录策略相关。
+- [[desktop-platform]]：`notification.rs:46` 依赖 `platform::toast`；`logger.rs:421-443` 与平台目录策略相关。
 - [[android-backend]]：安卓端仅复用 `infra::logger`（`android/src-tauri/src/lib.rs:48`、`system_cmds.rs:33-63`），不使用 `AppState` / `EventBus` / `BackgroundTaskManager`。
 - [[desktop-frontend-hooks]]：事件消费点 `tauriApi.ts:153-216` 与 `useEventListeners.ts`。
 
 ## Known Issues
 
-1. **日志按天清理可能长期不执行**：`cleanup_old_logs_by_time` 只在 `logger_worker` 的 `recv_timeout` **超时分支**被检查（`logger.rs:142-148`）。日志持续写入（间隔 < 2s）时该分支永不进入，`CLEANUP_INTERVAL`（`logger.rs:121`）形同虚设，只能靠 5MB 轮转路径的 `cleanup_old_logs`（`logger.rs:237`）做文件数控制。
-2. **`clear_logs` 会删除日志目录下的全部文件**，不筛选扩展名（`logger.rs:485-489` 对 `read_dir` 的每个 entry 都 `remove_file`）；只有当轮转/清理路径才按 `extension() == "log"` 过滤（`logger.rs:262-264`）。
-3. **`clear_logs` 新建的 `LoggerState` 的 `current_date` 是空串、`current_writer` 是 `None`**（`logger.rs:498-499`），首次写入依赖 `rotate_if_needed` 在 `today != ""` 时创建文件（`logger.rs:216-224`）；这中间的 `write_all` 分支不会执行，但与注释声明的删除顺序（`logger.rs:482`）耦合，改动时需一并考虑。
-4. **`LOG_RETENTION_DAYS` 是进程级 static**（`logger.rs:16`），不属于 `AppState`，多实例/测试并发时共享；`set_log_retention_days` 无同步，写入可见性仅靠 `Relaxed`（`logger.rs:19`）。
-5. **保留天数超过 `SystemTime` 可表示范围时跳过清理**（`logger.rs:282-290`），`retention_days == 0` 表示永久保留（`logger.rs:279-281`）。
+1. **日志按天清理可能长期不执行**：`cleanup_old_logs_by_time` 只在 `logger_worker` 的 `recv_timeout` **超时分支**被检查（`logger.rs:164-168`）。日志持续写入（间隔 < 2s）时该分支永不进入，`CLEANUP_INTERVAL`（`logger.rs:142`）形同虚设，只能靠 5MB 轮转路径的 `cleanup_old_logs`（`logger.rs:277`）做文件数控制。
+2. **`clear_logs` 会删除日志目录下的全部文件**，不筛选扩展名（`logger.rs:541-547` 对 `read_dir` 的每个 entry 都 `remove_file`）；只有当轮转/清理路径才按 `extension() == "log"` 过滤（`logger.rs:302-304`）。
+3. **`clear_logs` 新建的 `LoggerState` 的 `current_date` 是空串、`current_writer` 是 `None`**（`logger.rs:554-559`），首次写入依赖 `rotate_if_needed` 在 `today != ""` 时创建文件（`logger.rs:256-267`）；这中间的 `write_all` 分支不会执行，但与注释声明的删除顺序（`logger.rs:234`）耦合，改动时需一并考虑。
+4. **`LOG_RETENTION_DAYS` 是进程级 static**（`logger.rs:24`），不属于 `AppState`，多实例/测试并发时共享；`set_log_retention_days` 无同步，写入可见性仅靠 `Relaxed`（`logger.rs:30`）。
+5. **保留天数超过 `SystemTime` 可表示范围时跳过清理**（`logger.rs:326-330`），`retention_days == 0` 表示永久保留（`logger.rs:319-321`）。
 6. **`TaskLock` 无 owner、不可重入**（`state/mod.rs:35-41`）：`try_acquire` 返回 `None` 只表示"忙"，调用方必须自己决定提示还是静默（`app/tray.rs:60-68` 做了提示，`monitor/quality_scheduler.rs:23` 为静默跳过）。`force_release` 仅在 `#[cfg(test)]` 下存在（`state/mod.rs:48-51`）。
 7. **`start_campus_exit` 的 CAS 与 `set_deadline` 之间存在窗口**（`lifecycle.rs:51-54`）：注释自述若在该窗口内发生取消，会出现"一次取消无效"；这是用极小概率的失效窗口换取"避免确定性永久卡死"的历史修复取舍。
 8. **`spawn("campus_exit")` 失败时的回滚依赖显式语句**（`lifecycle.rs:130-133`）：若后续新增提前 return 分支而漏写回滚，`campus_exit_started` 会永久为 `true` 并让后续调用全部短路（注释已标注为"历史缺陷"）。
-9. **`cancel_campus_exit` 与 `cancel_campus_exit_with_notification` 行为不一致**（`lifecycle.rs:138` vs `:157`）：前者不发通知/事件，后者发。调用方必须按需要选择，误用会导致前端倒计时界面不消失。
-10. **快捷键注销依赖 `GuardedMutexGuard` 的临界区**（`lifecycle.rs:121-123`、`150-152`、`172-174`）：`is_none()` 检查与 `unregister` 必须同锁，若把 `guard` 提前 drop 会重新引入 TOCTOU（注释已明确）。
-11. **`block_on_sync` 在异步上下文中会 panic/死锁**（`async_util.rs:36-38` 注释）：`Ok` 分支走 `Handle::block_on`，调用者必须经 `spawn_blocking` 或在同步线程调用。
-12. **`block_on_sync` 的兜底 Runtime 一旦初始化即常驻**（`async_util.rs:24-32`）：`OnceLock<Runtime>` 不会关闭，进程退出时由 `Runtime` 的 Drop 收尾。
-13. **`emit_notification` 的 `mascot` 参数在非 Windows 桌面被丢弃**（`notification.rs:57-58` 的 `let _ = &mascot;`），安卓端看板娘大图改由 `monitor_loop::notify_system` 的 `large_icon` 负责（`notification.rs:44`）。
-14. **`emit_notification` 已不再向前端发事件**（`notification.rs:11-14` 注释）：应用内 toast 与日志由各业务事件负责，双通道重复是已根除的历史缺陷，不要在本函数内补 emit。
-15. **`EventBus` 无单元测试**（`events.rs:126-128` 注释）：只有 `size_of` 断言（`events.rs:131-134`），事件名/payload 契约靠人工核对，改名不会触发测试失败。
-16. **`shutdown_and_exit` 的 10s 上限可能截断后台任务**（`lifecycle.rs:315-317`）：超时后仅记 WARN 就 `exit(0)`；DHCP 子进程、长 HTTP 请求可能被留下。
-17. **`logger::flush()` 的 5s 超时静默返回**（`logger.rs:448`），日志线程卡死时调用方无法感知，`main.rs:65` 的收尾会继续往下走。
+9. **`cancel_campus_exit` 与 `cancel_campus_exit_with_notification` 行为不一致**（`lifecycle.rs:146` vs `:165`）：前者不发通知/事件，后者发。调用方必须按需要选择，误用会导致前端倒计时界面不消失。
+10. **快捷键注销依赖 `GuardedMutexGuard` 的临界区**（`lifecycle.rs:129-131`、`158-160`、`179-181`）：`is_none()` 检查与 `unregister` 必须同锁，若把 `guard` 提前 drop 会重新引入 TOCTOU（注释已明确）。
+11. **`block_on_sync` 在异步上下文中会 panic/死锁**（`async_util.rs:48-50` 注释）：`Ok` 分支走 `Handle::block_on`，调用者必须经 `spawn_blocking` 或在同步线程调用。
+12. **`block_on_sync` 的兜底 Runtime 一旦初始化即常驻**（`async_util.rs:48-53`）：`OnceLock<Runtime>` 不会关闭，进程退出时由 `Runtime` 的 Drop 收尾。
+13. **`emit_notification` 的 `mascot` 参数在非 Windows 桌面被丢弃**（`notification.rs:16-17` 的 `let _ = &mascot;`），安卓端看板娘大图改由 `monitor_loop::notify_system` 的 `large_icon` 负责（`notification.rs:44`）。
+14. **`emit_notification` 已不再向前端发事件**（`notification.rs:16-19` 注释）：应用内 toast 与日志由各业务事件负责，双通道重复是已根除的历史缺陷，不要在本函数内补 emit。
+15. **`EventBus` 无单元测试**（`events.rs:139-141` 注释）：只有 `size_of` 断言（`events.rs:139-141`），事件名/payload 契约靠人工核对，改名不会触发测试失败。
+16. **`shutdown_and_exit` 的 10s 上限可能截断后台任务**（`lifecycle.rs:323-325`）：超时后仅记 WARN 就 `exit(0)`；DHCP 子进程、长 HTTP 请求可能被留下。
+17. **`logger::flush()` 的 5s 超时静默返回**（`logger.rs:496`），日志线程卡死时调用方无法感知，`main.rs:65` 的收尾会继续往下走。
