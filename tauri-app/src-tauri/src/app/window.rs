@@ -93,7 +93,7 @@ fn apply_webview_suspended(
         // 顺序不可颠倒：IsVisible=false 是 TrySuspend 的前置条件
         unsafe { controller.SetIsVisible(false) }?;
         let controller_for_cb = controller.clone();
-        let icw2_3_for_cb = icw2_3.clone();
+        let core_for_cb = core.clone();
         let handler = webview2_com::TrySuspendCompletedHandler::create(Box::new(
             move |hr, succeeded| {
                 match (hr, succeeded) {
@@ -110,7 +110,7 @@ fn apply_webview_suspended(
                 // 托盘/二次启动），此时期望态已翻回「不挂起」，但先前的 Resume
                 // 抢先于挂起完成、对挂起态无效——必须在这里补一次恢复，否则
                 // 页面永久停在挂起态（合成器滚动可用、主线程事件全失效）。
-                compensate_resume_if_needed(&icw2_3_for_cb, &controller_for_cb);
+                compensate_resume_if_needed(&core_for_cb, &controller_for_cb);
                 Ok(())
             },
         ));
@@ -138,9 +138,18 @@ fn should_compensate_resume(desired_suspended: bool, actual_suspended: bool) -> 
 /// 补一次 Resume + 置可见（幂等：未挂起时不动作）。
 #[cfg(target_os = "windows")]
 fn compensate_resume_if_needed(
-    icw2_3: &webview2_com_sys::Microsoft::Web::WebView2::Win32::ICoreWebView2_3,
+    core_webview: &webview2_com_sys::Microsoft::Web::WebView2::Win32::ICoreWebView2,
     controller: &webview2_com_sys::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
 ) {
+    use webview2_com_sys::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_19, ICoreWebView2_3, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    };
+    use windows_core::Interface;
+
+    let Ok(icw2_3) = core_webview.cast::<ICoreWebView2_3>() else {
+        return;
+    };
     let desired = SUSPEND_DESIRED.load(Ordering::Acquire);
     let mut actual = windows_core::BOOL(0);
     if unsafe { icw2_3.IsSuspended(&mut actual) }.is_err() {
@@ -151,7 +160,26 @@ fn compensate_resume_if_needed(
         if let Err(e) = unsafe { icw2_3.Resume() } {
             crate::log_warn!("window", "补偿恢复失败: {}", e);
         }
+        // 正常恢复分支会把内存目标级别切回 NORMAL，补偿路径同样要切：
+        // 否则前台窗口带着 LOW 级别跑，渲染与动画被持续压预算
+        if let Ok(icw2_19) = core_webview.cast::<ICoreWebView2_19>() {
+            let _ = unsafe {
+                icw2_19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL.0,
+                ))
+            };
+        }
         let _ = unsafe { controller.SetIsVisible(true) };
+    }
+}
+
+/// 对主 WebView 做一次挂起态自愈：`with_webview` 闭包里「取 controller →
+/// CoreWebView2 → 判态补偿」的同一形状，show 后自检与焦点自愈两处共用。
+#[cfg(target_os = "windows")]
+fn compensate_if_still_suspended(pw: &tauri::webview::PlatformWebview) {
+    let controller = pw.controller();
+    if let Ok(core_webview) = unsafe { controller.CoreWebView2() } {
+        compensate_resume_if_needed(&core_webview, &controller);
     }
 }
 
@@ -165,7 +193,7 @@ pub fn handle_window_focus_event(window: &Window, event: &WindowEvent) {
 
     use windows_core::Interface;
     use webview2_com_sys::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2_19, ICoreWebView2_3, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+        ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
         COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
         COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
     };
@@ -188,9 +216,7 @@ pub fn handle_window_focus_event(window: &Window, event: &WindowEvent) {
                     let _ = unsafe { icw2_19.SetMemoryUsageTargetLevel(level) };
                 }
                 if heal {
-                    if let Ok(icw2_3) = core_webview.cast::<ICoreWebView2_3>() {
-                        compensate_resume_if_needed(&icw2_3, &controller);
-                    }
+                    compensate_resume_if_needed(&core_webview, &controller);
                 }
             }
         });
@@ -287,17 +313,7 @@ fn verify_resumed_after_show(app: &tauri::AppHandle) {
             if !ww.is_visible().unwrap_or(false) || ww.is_minimized().unwrap_or(false) {
                 return;
             }
-            let _ = ww.as_ref().with_webview(move |pw| {
-                use windows_core::Interface;
-                let controller = pw.controller();
-                if let Ok(core_webview) = unsafe { controller.CoreWebView2() } {
-                    if let Ok(icw2_3) =
-                        core_webview.cast::<webview2_com_sys::Microsoft::Web::WebView2::Win32::ICoreWebView2_3>()
-                    {
-                        compensate_resume_if_needed(&icw2_3, &controller);
-                    }
-                }
-            });
+            let _ = ww.as_ref().with_webview(|pw| compensate_if_still_suspended(&pw));
         }
     });
 }
