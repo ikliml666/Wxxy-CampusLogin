@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Switch } from '@/components/ui/switch'
+import { badgeVariants } from '@/components/ui/badge'
 import {
   Check, ChevronLeft, ChevronRight, X, Wifi, Cable, Shield, Zap,
   Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network, Smartphone, Link2,
@@ -63,6 +64,12 @@ const OPERATOR_KEY_BY_VALUE: Record<string, OperatorKey> = {
 }
 // 展示顺序与运营商下拉保持一致（ISP_OPTIONS 剔除学校默认项后的顺序）
 const OPERATOR_STATUS_ORDER: OperatorKey[] = ['telecom', 'unicom', 'cmcc']
+// 状态胶囊点选时反查回 ISP 值
+const OPERATOR_VALUE_BY_KEY: Record<OperatorKey, string> = {
+  telecom: '@telecom',
+  unicom: '@unicom',
+  cmcc: '@cmcc',
+}
 
 interface OperatorBindingInfo {
   account: string
@@ -85,6 +92,10 @@ const STACK_TRANSITION = 'transform .24s ease'
 const deckTransform = (y: number, scale: number) =>
   `translate(-50%, calc(-50% + ${y}px)) scale(${scale})`
 const EXIT_UP_TRANSFORM = `translate(-50%, calc(-50% + ${STACK_LAYERS[0].y - 250}px)) scale(0.85) rotate(-5deg)`
+// 前进后新顶卡的入场起点：从下方略小处浮起，再过渡到 pos0 的大卡位置
+const ENTER_FROM_TRANSFORM = `translate(-50%, calc(-50% + ${STACK_LAYERS[0].y + 70}px)) scale(${STACK_LAYERS[0].scale * 0.97})`
+// 入场过渡比出场多一段透明度渐变
+const STACK_TRANSITION_WITH_FADE = `${STACK_TRANSITION}, opacity .3s ease`
 
 const STEP_ICONS = [Sparkles, UserCircle, Link2, Network, Zap] as const
 
@@ -137,7 +148,10 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
   // 卡片堆动画状态：exitingStep 为正在飞起的当前卡
   const [exitingStep, setExitingStep] = useState<number | null>(null)
+  // 刚成为顶卡的步骤（入场动画用），30ms 后清掉让它过渡到常态
+  const [enteringStep, setEnteringStep] = useState<number | null>(null)
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 绑定运营商账号步骤（step 2）状态；凭据取自 accountInfo 步草稿/已落盘配置，
   // 不再单独收集学号与自助服务密码
@@ -232,7 +246,11 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setExitingStep(step)
       exitTimerRef.current = setTimeout(() => {
         setExitingStep(null)
+        // 同一批次先给新顶卡挂入场起点，30ms 后清除 -> transition 让它浮起到位
+        setEnteringStep(nextStep)
         setStep(nextStep)
+        if (enterTimerRef.current) clearTimeout(enterTimerRef.current)
+        enterTimerRef.current = setTimeout(() => setEnteringStep(null), 30)
       }, EXIT_UP_MS)
     } else {
       setStep(nextStep)
@@ -242,6 +260,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   useEffect(() => {
     return () => {
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+      if (enterTimerRef.current) clearTimeout(enterTimerRef.current)
     }
   }, [])
 
@@ -383,7 +402,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
           <DialogPrimitive.Content
             aria-describedby={undefined}
-            className="pointer-events-auto relative flex w-[600px] max-w-[calc(100vw-32px)] flex-col outline-none"
+            className="pointer-events-auto relative flex w-[760px] max-w-[calc(100vw-32px)] flex-col outline-none"
             onPointerDownOutside={(e) => e.preventDefault()}
           >
             <DialogPrimitive.Title className="sr-only">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</DialogPrimitive.Title>
@@ -394,12 +413,13 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
         {/* 卡片堆：只有卡片本身可见，弹窗外壳与遮罩全部透明；
             卡片以容器中心对齐（left/top 50% + translate(-50%,-50%)），
             层位只改 y 与 scale，故始终围绕同一中心向上收叠 */}
-        <div className="relative h-[560px] w-full">
+        <div className="relative h-[min(690px,calc(100vh-80px))] w-full">
           {Array.from({ length: STEP_COUNT }, (_, i) => {
             const pos = (i - step + STEP_COUNT) % STEP_COUNT
             const layer = STACK_LAYERS[Math.min(pos, STACK_LAYERS.length - 1)]
             const isTop = pos === 0
             const isExiting = exitingStep === i
+            const isEntering = enteringStep === i
             const StepIcon = STEP_ICONS[i] ?? Sparkles
             return (
               <div
@@ -409,7 +429,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                 // inert 才是「整棵子树不可交互/不可聚焦」的正确语义
                 inert={!isTop || isExiting}
                 className={cn(
-                  'absolute left-1/2 top-1/2 flex h-[500px] w-[86%] flex-col rounded-[2rem] p-7',
+                  'absolute left-1/2 top-1/2 flex h-[min(630px,calc(100vh-140px))] w-[88%] flex-col rounded-[2rem] p-8',
                   // 项目统一卡面：靠柔光阴影 + 顶部高光区分层次，不用描边线
                   'onboarding-deck-card',
                   isTop ? 'pointer-events-auto' : 'pointer-events-none',
@@ -418,10 +438,13 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                   // 背景与圆角走内联：全局 `.bg-card` 规则带 !important，会把圆角压回 16px
                   background: 'hsl(var(--card))',
                   borderRadius: '2rem',
-                  transform: isExiting ? EXIT_UP_TRANSFORM : deckTransform(layer.y, layer.scale),
+                  transform: isExiting
+                    ? EXIT_UP_TRANSFORM
+                    : isEntering ? ENTER_FROM_TRANSFORM : deckTransform(layer.y, layer.scale),
+                  opacity: isEntering ? 0.55 : 1,
                   transformOrigin: 'center center',
                   zIndex: isExiting ? 11 : layer.z,
-                  transition: STACK_TRANSITION,
+                  transition: STACK_TRANSITION_WITH_FADE,
                 }}
               >
                   {/* 分类标签胶囊 */}
@@ -523,28 +546,11 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
                     {i === 2 && (
                       <div className="space-y-4">
-                        <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.bindOperatorDesc')}</p>
-                        <div className="space-y-3">
-                          <div className="space-y-1.5">
-                            <Label className={cn('text-xs font-medium', bindOperatorValue === BIND_OPERATOR_NONE && 'text-destructive')}>{t('onboarding.bindIsp')}</Label>
-                            {/* sentinel 不能直接给 Select：radix 认为"有值"就不再显示 placeholder，会露出空白框 */}
-                            <Select
-                              value={bindOperatorValue === BIND_OPERATOR_NONE ? undefined : bindOperatorValue}
-                              onValueChange={setBindOperatorValue}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
-                                  <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {/* 绑定状态检测：进入本步自动查全部运营商，选中后聚焦该运营商 */}
-                          <div className="rounded-xl border border-border bg-muted/30 p-3">
+                        <p className="text-sm leading-snug text-muted-foreground">{t('onboarding.bindOperatorDesc')}</p>
+                        <div className="space-y-2.5">
+                          {/* 绑定状态检测：进入本步自动查全部运营商；三个运营商并排成胶囊，
+                              已绑定绿色、未绑定灰色（复用项目 Badge 的胶囊变体） */}
+                          <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
                             <div className="flex items-center justify-between">
                               <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{t('onboarding.bindStatusTitle')}</p>
                               <button
@@ -559,64 +565,68 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                             </div>
 
                             {!canQueryBindStatus ? (
-                              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
-                            ) : statusError ? (
-                              <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
-                                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                {statusError}
-                              </p>
-                            ) : statusQuerying && !bindStatuses ? (
-                              <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                {t('onboarding.bindStatusChecking')}
-                              </p>
-                            ) : bindStatuses ? (
-                              <div className="mt-2 space-y-1">
-                                {OPERATOR_STATUS_ORDER.map((key) => {
-                                  const info = bindStatuses[key]
-                                  const focused = focusedOperatorKey === key
-                                  return (
-                                    <div
-                                      key={key}
-                                      className={cn(
-                                        'rounded-lg px-2 py-1.5 transition-colors',
-                                        focused && 'bg-accent',
-                                      )}
-                                    >
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className={cn(
-                                          'text-xs',
-                                          focused ? 'font-semibold text-foreground' : 'text-muted-foreground',
-                                        )}>
-                                          {t(`settings.isp.${key}`)}
-                                          {focused && info && (
-                                            <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">{info.account}</span>
-                                          )}
-                                        </span>
-                                        <span className={cn(
-                                          'flex shrink-0 items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium',
-                                          info
-                                            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                            : 'bg-muted text-muted-foreground',
-                                        )}>
-                                          {info ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                                          {info ? t('onboarding.bindStatusBound') : t('onboarding.bindStatusUnbound')}
-                                        </span>
-                                      </div>
-                                      {/* 选中该运营商时放大提示（大字号 + 高对比色） */}
-                                      {focused && (
-                                        <p className={cn(
-                                          'mt-1.5 text-base font-semibold leading-snug',
-                                          info ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400',
-                                        )}>
-                                          {info ? t('onboarding.bindStatusBoundDesc') : t('onboarding.bindStatusUnboundDesc')}
-                                        </p>
-                                      )}
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            ) : null}
+                              <p className="text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
+                            ) : (
+                              <>
+                                {/* 检测进行中/失败时仍渲染胶囊（否则查询失败就没有选择运营商的入口，
+                                    绑定流程会被卡死），失败原因作为单独一行提示 */}
+                                {statusError && (
+                                  <p className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+                                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                    {statusError}
+                                  </p>
+                                )}
+                                {statusQuerying && !bindStatuses && !statusError && (
+                                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    {t('onboarding.bindStatusChecking')}
+                                  </p>
+                                )}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {OPERATOR_STATUS_ORDER.map((key) => {
+                                    const info = bindStatuses?.[key] ?? null
+                                    const focused = focusedOperatorKey === key
+                                    return (
+                                      <button
+                                        key={key}
+                                        type="button"
+                                        aria-pressed={focused}
+                                        // 点胶囊即选中该运营商（本步唯一的选择入口）
+                                        onClick={() => setBindOperatorValue(OPERATOR_VALUE_BY_KEY[key])}
+                                        title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
+                                        className={cn(
+                                          badgeVariants({ variant: info ? 'success' : 'ghost' }),
+                                          'gap-1 transition-all',
+                                          focused && 'ring-2 ring-primary/45',
+                                          'hover:brightness-105',
+                                        )}
+                                      >
+                                        {info ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                                        {t(`settings.isp.${key}`)}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                                {/* 选中运营商的放大提示（大字号 + 高对比色） */}
+                                {focusedOperatorKey && (
+                                  <p className={cn(
+                                    'text-base font-semibold leading-snug',
+                                    bindStatuses?.[focusedOperatorKey]
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : 'text-amber-600 dark:text-amber-400',
+                                  )}>
+                                    {bindStatuses?.[focusedOperatorKey]
+                                      ? t('onboarding.bindStatusBoundDesc')
+                                      : t('onboarding.bindStatusUnboundDesc')}
+                                    {bindStatuses?.[focusedOperatorKey] && (
+                                      <span className="ml-1.5 font-mono text-sm font-normal text-muted-foreground">
+                                        {bindStatuses[focusedOperatorKey]?.account}
+                                      </span>
+                                    )}
+                                  </p>
+                                )}
+                              </>
+                            )}
                           </div>
 
                           <div className="space-y-1.5">
@@ -815,17 +825,20 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     )}
                   </div>
 
-                  {/* 卡底：左侧头像 + 步骤说明，右侧 ← n / N → 导航。
-                      外壳已透明，导航必须留在卡内，否则会直接压在页面内容上。 */}
-                  <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  {/* 卡底三列网格：左=步骤说明，中=导航（恒居中），右=末步登录入口。
+                      用 grid 固定三列后，最后一页多出来的登录按钮只占右列，
+                      中间导航与左侧文字的位置完全不变。 */}
+                  <div className="mt-4 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-t border-border/60 pt-4">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                         <StepIcon className="h-3.5 w-3.5" />
                       </div>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="truncate text-xs text-muted-foreground">
                         {t('onboarding.stepOf', { n: i + 1, total: STEP_COUNT })}
                       </span>
                     </div>
+
+                    {/* 页码指示：箭头 + 胶囊页码，永远占据中间这一列 */}
                     <div className="flex items-center gap-2">
                       <DeckArrow
                         dir="prev"
@@ -833,7 +846,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                         label={t('onboarding.previous')}
                         onClick={goPrev}
                       />
-                      <span className="min-w-[34px] text-center text-xs tabular-nums text-muted-foreground">
+                      <span className="min-w-[46px] rounded-full bg-muted/60 px-2.5 py-1 text-center text-xs font-medium tabular-nums text-muted-foreground">
                         {i + 1} / {STEP_COUNT}
                       </span>
                       <DeckArrow
@@ -843,33 +856,35 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                         onClick={goNext}
                       />
                     </div>
-                  </div>
 
-                  {/* 最后一步的登录入口与跳过入口（同样留在卡内） */}
-                  {i === STEP_COUNT - 1 && (
-                    <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={handleSkip}
-                        className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-                      >
-                        {t('onboarding.skip')}
-                      </button>
-                      {!loginSuccess ? (
-                        <Button onClick={handleLoginAndFinish} disabled={isLoggingIn || !username} className="gap-1.5">
-                          {isLoggingIn ? (
-                            <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
+                    <div className="flex items-center justify-end gap-2">
+                      {i === STEP_COUNT - 1 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleSkip}
+                            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                          >
+                            {t('onboarding.skip')}
+                          </button>
+                          {!loginSuccess ? (
+                            <Button onClick={handleLoginAndFinish} disabled={isLoggingIn || !username} className="gap-1.5">
+                              {isLoggingIn ? (
+                                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
+                              ) : (
+                                <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
+                              )}
+                            </Button>
                           ) : (
-                            <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
+                            <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                              <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
+                            </div>
                           )}
-                        </Button>
-                      ) : (
-                        <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                          <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
-                        </div>
+                        </>
                       )}
                     </div>
-                  )}
+                  </div>
+
                 </div>
               )
             })}

@@ -36,12 +36,11 @@ import { ISP_OPTIONS } from '@/settings/constants'
 import { APP_NAME } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
 import { cn } from '@/lib/utils'
+import { badgeVariants } from '@/components/ui/badge'
 import { m, AnimatePresence } from 'framer-motion'
 import {
   useOnboardingFlow,
   ONBOARDING_STEP_COUNT,
-  BIND_OPERATOR_NONE,
-  DEFAULT_OPERATOR,
   OPERATOR_KEY_BY_VALUE,
   OPERATOR_STATUS_ORDER,
 } from './useOnboardingFlow'
@@ -299,27 +298,8 @@ export function OnboardingWizardMobile({
                       <Link2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
                       {t('onboarding.useLoginCredentials')}
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className={cn('text-xs font-medium', f.bindOperatorValue === BIND_OPERATOR_NONE && 'text-destructive')}>
-                        {t('onboarding.bindIsp')}
-                      </Label>
-                      {/* sentinel 不能直接给 Select：radix 认为"有值"就不再显示 placeholder，会露出空白框 */}
-                      <Select
-                        value={f.bindOperatorValue === BIND_OPERATOR_NONE ? undefined : f.bindOperatorValue}
-                        onValueChange={f.setBindOperatorValue}
-                      >
-                        <SelectTrigger className="h-12">
-                          <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ISP_OPTIONS.filter((o) => o.value !== DEFAULT_OPERATOR).map((o) => (
-                            <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* 绑定状态面板：进入步骤自动查全部三个运营商，选中后放大聚焦该运营商 */}
+                    {/* 绑定状态面板：进入步骤自动查全部运营商；三个运营商并排成胶囊，
+                        已绑定绿色、未绑定灰色（复用项目 Badge 的胶囊变体）。点胶囊即选中运营商。 */}
                     <div className="rounded-xl border border-border bg-muted/30 p-3">
                       <div className="mb-2 flex items-center justify-between">
                         <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -335,56 +315,68 @@ export function OnboardingWizardMobile({
                           {t('onboarding.bindStatusRetry')}
                         </button>
                       </div>
+
                       {!canQueryBindStatus ? (
                         <p className="text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
-                      ) : f.statusError ? (
-                        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
-                          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{f.statusError}
-                        </p>
-                      ) : f.statusQuerying && !f.bindStatuses ? (
-                        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />{t('onboarding.bindStatusChecking')}
-                        </p>
-                      ) : f.bindStatuses ? (
-                        <div className="space-y-1">
-                          {OPERATOR_STATUS_ORDER.map((key) => {
-                            const info = f.bindStatuses![key]
-                            const value = OPERATOR_VALUE_BY_KEY[key]
-                            const focused = focusedOperatorKey === key
-                            const labelKey = ISP_OPTIONS.find((o) => o.value === value)?.labelKey ?? value
-                            return (
-                              <div key={key} className={cn('rounded-lg px-2 py-1.5 transition-colors', focused && 'bg-accent')}>
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className={cn('text-xs', focused ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
-                                    {t(labelKey)}
-                                    {focused && info?.account && (
-                                      <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">{info.account}</span>
-                                    )}
-                                  </span>
-                                  <span className={cn(
-                                    'flex shrink-0 items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium',
-                                    info
-                                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                      : 'bg-muted text-muted-foreground',
-                                  )}>
-                                    {info ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                                    {info ? t('onboarding.bindStatusBound') : t('onboarding.bindStatusUnbound')}
-                                  </span>
-                                </div>
-                                {/* 选中该运营商时放大提示（大字号 + 高对比色） */}
-                                {focused && (
-                                  <p className={cn(
-                                    'mt-1.5 text-base font-semibold leading-snug',
-                                    info ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400',
-                                  )}>
-                                    {info ? t('onboarding.bindStatusBoundDesc') : t('onboarding.bindStatusUnboundDesc')}
-                                  </p>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      ) : null}
+                      ) : (
+                        <>
+                          {/* 检测中/失败时仍渲染胶囊：否则查询失败就没有选择运营商的入口，
+                              绑定流程会被卡死；失败原因作为单独一行提示 */}
+                          {f.statusError && (
+                            <p className="mb-1.5 flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+                              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{f.statusError}
+                            </p>
+                          )}
+                          {f.statusQuerying && !f.bindStatuses && !f.statusError && (
+                            <p className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />{t('onboarding.bindStatusChecking')}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {OPERATOR_STATUS_ORDER.map((key) => {
+                              const info = f.bindStatuses?.[key] ?? null
+                              const focused = focusedOperatorKey === key
+                              const value = OPERATOR_VALUE_BY_KEY[key]
+                              const labelKey = ISP_OPTIONS.find((o) => o.value === value)?.labelKey ?? value
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  aria-pressed={focused}
+                                  onClick={() => f.setBindOperatorValue(value)}
+                                  title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
+                                  className={cn(
+                                    badgeVariants({ variant: info ? 'success' : 'ghost' }),
+                                    'gap-1 transition-all',
+                                    focused && 'ring-2 ring-primary/45',
+                                  )}
+                                >
+                                  {info ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                                  {t(labelKey)}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          {/* 选中运营商的放大提示（大字号 + 高对比色） */}
+                          {focusedOperatorKey && (
+                            <p className={cn(
+                              'mt-2 text-base font-semibold leading-snug',
+                              f.bindStatuses?.[focusedOperatorKey]
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-amber-600 dark:text-amber-400',
+                            )}>
+                              {f.bindStatuses?.[focusedOperatorKey]
+                                ? t('onboarding.bindStatusBoundDesc')
+                                : t('onboarding.bindStatusUnboundDesc')}
+                              {f.bindStatuses?.[focusedOperatorKey]?.account && (
+                                <span className="ml-1.5 font-mono text-sm font-normal text-muted-foreground">
+                                  {f.bindStatuses[focusedOperatorKey]?.account}
+                                </span>
+                              )}
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
 
                     <div className="space-y-1.5">
