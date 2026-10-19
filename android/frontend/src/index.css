@@ -110,31 +110,6 @@
     --ring: 239 84% 61%;
   }
 
-  /* 强制暗色皮肤作用域：新手引导为固定深色堆叠卡片设计（写死 #10–#20 深色 hex），
-     浅色主题下走变量的表单元素（Input/Select 的 bg-muted 亮底、深色文字）
-     落在这张深卡上会糊成一片。做法同 .force-light-dialog：容器上重定义变量，
-     让内部走语义变量的组件无论主题都解析为暗色皮肤。 */
-  .force-dark-dialog {
-    color: hsl(var(--foreground));
-    --background: 220 15% 8%;
-    --foreground: 210 20% 96%;
-    --card: 232 30% 16%;
-    --card-foreground: 210 20% 96%;
-    --popover: 232 32% 15%;
-    --popover-foreground: 210 20% 96%;
-    --primary: 239 80% 68%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 232 22% 22%;
-    --secondary-foreground: 210 20% 96%;
-    --muted: 232 22% 24%;
-    --muted-foreground: 220 12% 66%;
-    --accent: 232 22% 26%;
-    --accent-foreground: 210 20% 96%;
-    --border: 232 20% 30%;
-    --input: 232 20% 30%;
-    --ring: 239 80% 68%;
-  }
-
   * {
     border-color: transparent;
   }

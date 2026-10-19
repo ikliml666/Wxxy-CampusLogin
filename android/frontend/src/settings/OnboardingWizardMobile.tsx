@@ -5,10 +5,12 @@
  * 手机屏宽只有 360-430dp，对话框形态在窄屏上必然挤压、且模态居中与安卓
  * 全屏手势导航不搭。本组件的差异只在"外壳"：
  * - 全屏铺满 + 内容区独立滚动 + 底部操作区固定（拇指可达），上下各留 safe-area；
- * - 深色堆叠卡片视觉与平板/桌面一致，但卡片在文档流内自适应高度（手机内容
- *   长短差异大，绝对定位会让卡片盖住溢出内容），装饰层用绝对定位垫在卡片后；
+ * - 堆叠卡视觉与平板/桌面一致，但卡片在文档流内自适应高度（手机内容长短差异大，
+ *   绝对定位等尺寸卡会让绑定步的长表单被裁掉），装饰层用绝对定位垫在卡片后；
  * - 触控目标放大到 48px（输入框/按钮/箭头），去掉 autoFocus（否则进账号步骤
  *   立刻弹键盘遮住表单）。
+ * 配色全部走语义 token（bg-card / border-border / text-foreground / text-muted-foreground
+ * / bg-primary），浅色与深色主题都跟随，不写死深色。
  * 流程逻辑（步骤、校验、绑定、登录、配置落盘）与平板端共用 useOnboardingFlow，
  * 两端不会各自漂移。
  */
@@ -25,7 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  Check, ArrowRight, ArrowLeft, Shield, Zap,
+  Check, ChevronLeft, ChevronRight, Shield, Zap,
   Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Smartphone, Link2,
   RefreshCw, Sparkles, AlertCircle,
 } from 'lucide-react'
@@ -60,6 +62,8 @@ const OPERATOR_VALUE_BY_KEY: Record<string, string> = {
   cmcc: '@cmcc',
 }
 
+const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.bindOperatorTitle', 'onboarding.setupComplete'] as const
+
 // 卡片进出场：与平板/桌面同一套方向语义（前进左出、后退右出）
 const cardVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 48 : -48, opacity: 0, scale: 0.98 }),
@@ -84,9 +88,9 @@ function StepTrack({ current }: { current: number }) {
           key={i}
           className={cn(
             'h-1 rounded-full transition-all duration-300',
-            i === current && 'w-7 bg-[#8b7dff]',
-            i < current && 'w-4 bg-[#8b7dff]/50',
-            i > current && 'w-4 bg-white/15'
+            i === current && 'w-7 bg-primary',
+            i < current && 'w-4 bg-primary/50',
+            i > current && 'w-4 bg-border'
           )}
         />
       ))}
@@ -101,7 +105,7 @@ function NavArrow({ dir, disabled, label, onClick }: {
   label: string
   onClick: () => void
 }) {
-  const Icon = dir === 'prev' ? ArrowLeft : ArrowRight
+  const Icon = dir === 'prev' ? ChevronLeft : ChevronRight
   return (
     <button
       type="button"
@@ -109,13 +113,13 @@ function NavArrow({ dir, disabled, label, onClick }: {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex h-12 w-12 items-center justify-center rounded-full border transition-all duration-200',
-        disabled
-          ? 'cursor-not-allowed border-white/[0.05] text-white/20'
-          : 'border-white/15 text-white/70 active:scale-95 active:bg-white/[0.1]'
+        'flex h-12 w-12 items-center justify-center rounded-full border-[1.5px] border-border',
+        'bg-muted/30 text-muted-foreground transition-colors duration-200',
+        'enabled:active:scale-95 enabled:active:bg-accent enabled:active:text-foreground',
+        'disabled:cursor-default disabled:opacity-30',
       )}
     >
-      <Icon className="h-5 w-5" />
+      <Icon className="h-5 w-5" strokeWidth={2.5} />
     </button>
   )
 }
@@ -139,14 +143,12 @@ export function OnboardingWizardMobile({
   const canQueryBindStatus = f.canProceedAccount
 
   return (
-    <div className="force-dark-dialog fixed inset-0 z-50 flex flex-col font-sans text-foreground">
-      {/* 顶部紫调光晕（与卡片共用同一深靛蓝底色） */}
+    <div className="fixed inset-0 z-50 flex flex-col font-sans bg-background text-foreground">
+      {/* 顶部主色光晕，给纯色底一点纵深（跟随主题主色，不写死深靛蓝） */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[#101127]"
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(120%_60%_at_50%_-10%,rgba(108,92,231,0.22),transparent_62%)]" />
-      </div>
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_60%_at_50%_-10%,hsl(var(--primary)/0.14),transparent_62%)]"
+      />
 
       {/* 顶部：跳过 + 段式进度轨 + 步序（安全区让位状态栏） */}
       <header
@@ -156,13 +158,13 @@ export function OnboardingWizardMobile({
         <button
           type="button"
           onClick={() => f.setShowCloseConfirm(true)}
-          className="text-xs px-2 py-2 -ml-2 rounded-md text-white/45 active:bg-white/[0.08] transition-colors"
+          className="text-xs px-2 py-2 -ml-2 rounded-md text-muted-foreground active:bg-accent transition-colors"
         >
           {t('onboarding.skip')}
         </button>
         <div className="flex items-center gap-2.5 min-w-0">
           <StepTrack current={f.step} />
-          <span className="text-[11px] text-white/45 tabular-nums shrink-0">
+          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
             {f.step + 1}/{ONBOARDING_STEP_COUNT}
           </span>
         </div>
@@ -174,11 +176,11 @@ export function OnboardingWizardMobile({
           {/* 静态堆叠层（纯装饰，营造下方卡片厚度）——绝对定位跟随卡片总高度 */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-2 -bottom-2 top-2 rounded-[26px] border border-white/[0.04] bg-[linear-gradient(160deg,#171934,#0f1024)] opacity-45"
+            className="pointer-events-none absolute inset-x-2 -bottom-2 top-2 rounded-[26px] border border-border bg-card opacity-45"
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-1 -bottom-1 top-1 rounded-[26px] border border-white/[0.05] bg-[linear-gradient(160deg,#1a1d3b,#111228)] opacity-70"
+            className="pointer-events-none absolute inset-x-1 -bottom-1 top-1 rounded-[26px] border border-border bg-card opacity-70"
           />
 
           <AnimatePresence mode="wait" custom={f.direction.current}>
@@ -190,32 +192,32 @@ export function OnboardingWizardMobile({
               animate="center"
               exit="exit"
               transition={{ type: 'spring', stiffness: 260, damping: 28, mass: 0.9 }}
-              className="relative rounded-[26px] border border-white/[0.08] bg-[linear-gradient(160deg,#20244c_0%,#171a35_55%,#141528_100%)] px-5 pt-5 pb-5 shadow-[0_24px_60px_-18px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.06)]"
+              className="relative rounded-[26px] border border-border bg-card px-5 pt-5 pb-5 shadow-[0_8px_32px_rgba(0,0,0,0.16)]"
             >
               {/* 分类标签胶囊 */}
-              <span className="mb-3 inline-flex w-fit items-center rounded-full bg-[#6c5ce7]/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b3a8ff]">
-                {t(['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.bindOperatorTitle', 'onboarding.setupComplete'][f.step])}
+              <span className="mb-3 inline-flex w-fit items-center rounded-full bg-primary/15 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-primary">
+                {t(STEP_TITLE_KEYS[f.step])}
               </span>
 
               {f.step === 0 && (
                 <div className="flex flex-col items-center text-center pt-1 pb-2 space-y-5">
                   <MascotFigure variant="welcome" size="md" />
                   <div className="space-y-2">
-                    <h2 className="text-[22px] font-bold leading-tight text-white">
+                    <h2 className="text-[19px] font-bold leading-tight text-foreground">
                       {t('onboarding.welcomeTitle', { appName: APP_NAME })}
                     </h2>
-                    <p className="text-sm text-white/55 leading-relaxed">
+                    <p className="text-[13px] text-muted-foreground leading-relaxed">
                       {t('onboarding.welcomeDesc')}
                     </p>
                   </div>
-                  <div className="flex items-start gap-2 text-xs text-emerald-200/90 bg-emerald-400/[0.08] border border-emerald-400/20 px-3 py-2.5 rounded-xl text-left">
-                    <Shield className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-3 py-2.5 rounded-xl text-left">
+                    <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     {t('onboarding.securityNote')}
                   </div>
                   <button
                     type="button"
                     onClick={() => f.setLanguage(f.language === 'zh' ? 'en' : 'zh')}
-                    className="flex items-center gap-1.5 text-xs text-white/45 px-3 py-2 rounded-full active:bg-white/[0.08] transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground px-3 py-2 rounded-full active:bg-accent transition-colors"
                   >
                     <Languages className="h-3.5 w-3.5" />
                     {f.language === 'zh' ? 'English' : '中文'}
@@ -225,7 +227,7 @@ export function OnboardingWizardMobile({
 
               {f.step === 1 && (
                 <div className="space-y-4">
-                  <p className="text-sm text-white/55">{t('onboarding.fillLoginInfoDesc')}</p>
+                  <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.fillLoginInfoDesc')}</p>
                   <div className="space-y-3">
                     <div className="space-y-1.5">
                       <Label htmlFor="m-username" className={cn('text-xs font-medium', !f.username.trim() && 'text-destructive')}>
@@ -240,7 +242,7 @@ export function OnboardingWizardMobile({
                         onChange={(e) => f.setUsername(e.target.value)}
                         placeholder={t('onboarding.usernamePlaceholder')}
                         icon={<UserCircle className="h-4 w-4" />}
-                        className={cn(inputClass, !f.username.trim() && 'border border-destructive/50')}
+                        className={cn(inputClass, !f.username.trim() && 'border-destructive/50')}
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -257,7 +259,7 @@ export function OnboardingWizardMobile({
                           onChange={(e) => f.setPassword(e.target.value)}
                           placeholder={t('onboarding.passwordPlaceholder')}
                           icon={<KeyRound className="h-4 w-4" />}
-                          className={cn('[&::-ms-reveal]:hidden pr-12', inputClass, !f.password.trim() && 'border border-destructive/50')}
+                          className={cn('[&::-ms-reveal]:hidden pr-12', inputClass, !f.password.trim() && 'border-destructive/50')}
                         />
                         <button
                           type="button"
@@ -288,18 +290,22 @@ export function OnboardingWizardMobile({
 
               {f.step === 2 && (
                 <div className="space-y-4">
-                  <p className="text-sm text-white/55">{t('onboarding.bindOperatorDesc')}</p>
+                  <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.bindOperatorDesc')}</p>
                   <div className="space-y-3">
                     {/* 凭据统一：绑定取登录信息（accountInfo 步草稿），不再单独收集学号/自助服务密码 */}
-                    <div className="flex items-start gap-2 text-[11px] text-white/50 bg-white/[0.03] border border-white/[0.07] px-3 py-2.5 rounded-xl text-left">
-                      <Link2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[#b3a8ff]" />
+                    <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/30 border border-border px-3 py-2.5 rounded-xl text-left">
+                      <Link2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
                       {t('onboarding.useLoginCredentials')}
                     </div>
                     <div className="space-y-1.5">
                       <Label className={cn('text-xs font-medium', f.bindOperatorValue === BIND_OPERATOR_NONE && 'text-destructive')}>
                         {t('onboarding.bindIsp')}
                       </Label>
-                      <Select value={f.bindOperatorValue} onValueChange={f.setBindOperatorValue}>
+                      {/* sentinel 不能直接给 Select：radix 认为"有值"就不再显示 placeholder，会露出空白框 */}
+                      <Select
+                        value={f.bindOperatorValue === BIND_OPERATOR_NONE ? undefined : f.bindOperatorValue}
+                        onValueChange={f.setBindOperatorValue}
+                      >
                         <SelectTrigger className="h-12">
                           <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
                         </SelectTrigger>
@@ -312,25 +318,29 @@ export function OnboardingWizardMobile({
                     </div>
 
                     {/* 绑定状态面板：进入步骤自动查全部三个运营商，选中后放大聚焦该运营商 */}
-                    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-3">
+                    <div className="rounded-xl border border-border bg-muted/30 p-3">
                       <div className="mb-2 flex items-center justify-between">
-                        <span className="text-[11px] uppercase tracking-[0.14em] text-white/40">
+                        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                           {t('onboarding.bindStatusTitle')}
                         </span>
                         <button
                           type="button"
                           onClick={() => f.setBindRefreshTick((v) => v + 1)}
                           disabled={f.statusQuerying || !canQueryBindStatus}
-                          className="flex items-center gap-1 text-[11px] text-white/45 active:text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="flex items-center gap-1 text-[11px] text-muted-foreground active:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <RefreshCw className={cn('h-3 w-3', f.statusQuerying && 'animate-spin')} />
                           {t('onboarding.bindStatusRetry')}
                         </button>
                       </div>
-                      {f.statusError ? (
-                        <p className="text-xs text-destructive">{f.statusError}</p>
+                      {!canQueryBindStatus ? (
+                        <p className="text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
+                      ) : f.statusError ? (
+                        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+                          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{f.statusError}
+                        </p>
                       ) : f.statusQuerying && !f.bindStatuses ? (
-                        <p className="flex items-center gap-2 text-xs text-white/50">
+                        <p className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />{t('onboarding.bindStatusChecking')}
                         </p>
                       ) : f.bindStatuses ? (
@@ -341,30 +351,29 @@ export function OnboardingWizardMobile({
                             const focused = focusedOperatorKey === key
                             const labelKey = ISP_OPTIONS.find((o) => o.value === value)?.labelKey ?? value
                             return (
-                              <div key={key}>
-                                <div className={cn(
-                                  'flex items-center justify-between rounded-xl px-2.5 py-2 transition-colors',
-                                  focused && 'bg-white/[0.06]'
-                                )}>
-                                  <span className={cn('flex items-center gap-2', focused ? 'text-sm font-semibold text-white' : 'text-sm text-white/65')}>
+                              <div key={key} className={cn('rounded-lg px-2 py-1.5 transition-colors', focused && 'bg-accent')}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className={cn('text-xs', focused ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
                                     {t(labelKey)}
                                     {focused && info?.account && (
-                                      <span className="text-[11px] font-normal text-white/40">{info.account}</span>
+                                      <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">{info.account}</span>
                                     )}
                                   </span>
                                   <span className={cn(
-                                    'inline-flex items-center gap-1 rounded-full font-medium',
-                                    focused ? 'px-2.5 py-1 text-xs' : 'px-2 py-0.5 text-[11px]',
-                                    info ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/[0.07] text-white/45'
+                                    'flex shrink-0 items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium',
+                                    info
+                                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                      : 'bg-muted text-muted-foreground',
                                   )}>
                                     {info ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
                                     {info ? t('onboarding.bindStatusBound') : t('onboarding.bindStatusUnbound')}
                                   </span>
                                 </div>
+                                {/* 选中该运营商时放大提示（大字号 + 高对比色） */}
                                 {focused && (
                                   <p className={cn(
-                                    'px-2.5 pb-1.5 pt-0.5 text-base font-semibold leading-snug',
-                                    info ? 'text-emerald-300' : 'text-amber-300'
+                                    'mt-1.5 text-base font-semibold leading-snug',
+                                    info ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400',
                                   )}>
                                     {info ? t('onboarding.bindStatusBoundDesc') : t('onboarding.bindStatusUnboundDesc')}
                                   </p>
@@ -373,13 +382,11 @@ export function OnboardingWizardMobile({
                             )
                           })}
                         </div>
-                      ) : (
-                        <p className="text-xs text-white/45">{t('onboarding.bindStatusNeedAccount')}</p>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="m-bind-phone" className={cn('text-xs font-medium', !/^1\d{10}$/.test(f.phone.trim()) && 'text-destructive')}>
+                      <Label htmlFor="m-bind-phone" className="text-xs font-medium">
                         {t('onboarding.bindPhone')}
                       </Label>
                       <Input
@@ -395,7 +402,7 @@ export function OnboardingWizardMobile({
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="m-bind-sms-password" className={cn('text-xs font-medium', !f.smsPassword.trim() && 'text-destructive')}>
+                      <Label htmlFor="m-bind-sms-password" className="text-xs font-medium">
                         {t('onboarding.bindSmsPassword')}
                       </Label>
                       <Input
@@ -406,18 +413,18 @@ export function OnboardingWizardMobile({
                         icon={<KeyRound className="h-4 w-4" />}
                         className={inputClass}
                       />
-                      <p className="text-[11px] text-white/40">{t('onboarding.bindSmsHint')}</p>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
                     </div>
 
                     {f.bindError && (
-                      <div className="text-xs text-destructive bg-destructive/15 rounded-xl p-3 flex items-start gap-2">
-                        <Shield className="h-3.5 w-3.5 mt-0.5 shrink-0" />{f.bindError}
-                      </div>
+                      <p className="text-xs text-destructive bg-destructive/10 rounded-xl p-3 flex items-start gap-2">
+                        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />{f.bindError}
+                      </p>
                     )}
                     {f.bindState === 'success' && (
-                      <div className="text-xs text-emerald-300 bg-emerald-400/10 rounded-xl p-3 flex items-center gap-2">
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 rounded-xl p-3 flex items-center gap-2">
                         <Check className="h-4 w-4 shrink-0" />{t('onboarding.bindSuccess')}
-                      </div>
+                      </p>
                     )}
 
                     <Button
@@ -433,7 +440,8 @@ export function OnboardingWizardMobile({
                         <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
                       )}
                     </Button>
-                    <p className="text-[11px] text-white/40 text-center">{t('onboarding.bindSkipHint')}</p>
+
+                    <p className="text-[11px] text-muted-foreground text-center">{t('onboarding.bindSkipHint')}</p>
                   </div>
                 </div>
               )}
@@ -443,32 +451,32 @@ export function OnboardingWizardMobile({
                   <div className="flex flex-col items-center text-center space-y-3">
                     <MascotFigure variant="celebrate" size="md" />
                     <div className="space-y-1">
-                      <h3 className="text-base font-semibold text-white">{t('onboarding.ready')}</h3>
-                      <p className="text-xs text-white/50">{t('onboarding.readyDesc')}</p>
+                      <h3 className="text-[15px] font-semibold text-foreground">{t('onboarding.ready')}</h3>
+                      <p className="text-xs text-muted-foreground">{t('onboarding.readyDesc')}</p>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3.5 space-y-2.5">
+                  <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-2.5">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-white/50 flex items-center gap-1.5 shrink-0">
+                      <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
                         <UserCircle className="h-3.5 w-3.5" />{t('onboarding.username')}
                       </span>
-                      <span className="font-medium truncate text-white/90">{f.username || '-'}</span>
+                      <span className="font-medium truncate text-foreground">{f.username || '-'}</span>
                     </div>
                     <Separator />
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-white/50 flex items-center gap-1.5 shrink-0">
+                      <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
                         <KeyRound className="h-3.5 w-3.5" />{t('onboarding.password')}
                       </span>
-                      <span className="font-mono text-emerald-300">
-                        {f.passwordSaved ? '••••••••' : <span className="text-white/40">-</span>}
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                        {f.passwordSaved ? '••••••••' : <span className="text-muted-foreground">-</span>}
                       </span>
                     </div>
                     <Separator />
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-white/50 flex items-center gap-1.5 shrink-0">
+                      <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
                         <Zap className="h-3.5 w-3.5" />{t('onboarding.operatorOptional')}
                       </span>
-                      <span className="font-medium truncate text-white/90">
+                      <span className="font-medium truncate text-foreground">
                         {t(ISP_OPTIONS.find((o) => o.value === f.operator)?.labelKey ?? 'onboarding.default')}
                       </span>
                     </div>
@@ -478,10 +486,10 @@ export function OnboardingWizardMobile({
 
               {/* 卡底元信息：圆形图标头像 + 步骤说明 */}
               <div className="mt-4 flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[linear-gradient(140deg,#5b8cff,#8b5cf6)] text-white">
-                  <StepIcon className="h-4 w-4" />
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <StepIcon className="h-3.5 w-3.5" />
                 </div>
-                <span className="text-xs text-white/45">
+                <span className="text-xs text-muted-foreground">
                   {t('onboarding.stepOf', { n: f.step + 1, total: ONBOARDING_STEP_COUNT })}
                 </span>
               </div>
@@ -502,7 +510,7 @@ export function OnboardingWizardMobile({
             label={t('onboarding.previous')}
             onClick={() => f.advance(f.step - 1)}
           />
-          <span className="min-w-[52px] text-center text-sm tabular-nums text-white/55">
+          <span className="min-w-[52px] text-center text-sm tabular-nums text-muted-foreground">
             {f.step + 1} / {ONBOARDING_STEP_COUNT}
           </span>
           <NavArrow
@@ -529,7 +537,7 @@ export function OnboardingWizardMobile({
         )}
 
         {f.step === ONBOARDING_STEP_COUNT - 1 && f.loginSuccess && (
-          <div className="mt-3 flex h-12 items-center justify-center gap-2 font-medium text-emerald-400">
+          <div className="mt-3 flex h-12 items-center justify-center gap-2 font-medium text-emerald-600 dark:text-emerald-400">
             <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
           </div>
         )}
@@ -552,7 +560,7 @@ export function OnboardingWizardMobile({
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.96, y: 8 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="w-full max-w-[340px] rounded-2xl border border-white/[0.08] bg-[#181a33] p-5 space-y-4"
+              className="w-full max-w-[340px] rounded-2xl border border-border bg-card p-5 space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex flex-col items-center text-center space-y-3">
@@ -560,8 +568,8 @@ export function OnboardingWizardMobile({
                   <Shield className="h-5 w-5 text-amber-500" />
                 </div>
                 <div className="space-y-1.5">
-                  <h3 className="text-base font-semibold text-white">{t('onboarding.skipSetup')}</h3>
-                  <p className="text-sm text-white/55">{t('onboarding.skipSetupDesc')}</p>
+                  <h3 className="text-base font-semibold text-foreground">{t('onboarding.skipSetup')}</h3>
+                  <p className="text-sm text-muted-foreground">{t('onboarding.skipSetupDesc')}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
