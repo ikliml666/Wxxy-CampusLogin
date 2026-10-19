@@ -27,8 +27,8 @@ tags: [性能, 省电, 渲染, rAF, 合成器, 帧率]
 该 Hook 负责驱动 GSAP 全局 ticker 的动态帧率，实现 LTPO 类似的智能降频。
 
 - **常量**:
-    - `ACTIVE_WINDOW_MS = 2000` (:13): 交互活跃窗口时长，超过此时间未检测到交互则视为静止。
-    - `PACE_POLL_MS = 250` (:17): 档位回落轮询间隔。使用 `setInterval` 而非 rAF，避免产生 pending callback。
+    - `ACTIVE_WINDOW_MS = 2000` (:16): 交互活跃窗口时长，超过此时间未检测到交互则视为静止。
+    - `PACE_POLL_MS = 250` (:18): 档位回落轮询间隔。使用 `setInterval` 而非 rAF，避免产生 pending callback。
 
 - **状态变量 (Module Scope)**:
     - `lastActiveAt`: 最后一次标记交互的时间戳。
@@ -36,14 +36,14 @@ tags: [性能, 省电, 渲染, rAF, 合成器, 帧率]
     - `appliedPace`: 已应用到 GSAP ticker 的帧率值，用于去重。
 
 - **函数**:
-    - `markInteraction(): void` (:21-24): 
+    - `markInteraction(): void` (:26-29): 
         - **用途**: 标记交互发生。更新 `lastActiveAt` 为当前时间，并立即调用 `applyPace()` 提升帧率。
         - **触发**: 由 `pointerdown`, `touchstart`, `wheel`, `keydown`, `visibilitychange` 等事件回调调用。
-    - `currentPace(): number` (:26-29): 
+    - `currentPace(): number` (:31-35): 
         - **用途**: 计算当前目标帧率。若页面隐藏返回 0；若在活跃窗口内返回 `activeFps`，否则返回 `idleFps`。
-    - `applyPace(): void` (:32-38): 
+    - `applyPace(): void` (:37-45): 
         - **用途**: 刷新 GSAP ticker 帧率。若目标 pace 与 `appliedPace` 相同则空操作。注意：`gsap.ticker.fps(60)` 表示不限帧（设备恒供帧），仅在 0 < pace < 60 时设置具体数值。
-    - `useAdaptiveFramePace(): void` (:42-66): 
+    - `useAdaptiveFramePace(): void` (:51-74): 
         - **用途**: React Hook，挂载于应用根部。
         - **逻辑**: 
             1. 初始化状态。
@@ -56,23 +56,23 @@ tags: [性能, 省电, 渲染, rAF, 合成器, 帧率]
 这两个文件内容完全一致，分别服务于 Android 和 Tauri 桌面端。负责判定渲染链（GPU/合成器）是否存活。
 
 - **常量**:
-    - `PROBE_REFRESH_MS = 4_000` (:24): 距上次探测的最小间隔。小于判定阈值一半，保证正常态永不超过阈值。
-    - `PROBE_TIMEOUT_MS = 500` (:26): 开窗兜底超时。防止第二帧回调丢失导致永久探测中。
-    - `RENDER_STALL_THRESHOLD_MS = 10_000` (:27): 停滞判定阈值。超过此时间无 rAF 时间戳更新视为停滞。
+    - `PROBE_REFRESH_MS = 4_000` (:18): 距上次探测的最小间隔。小于判定阈值一半，保证正常态永不超过阈值。
+    - `PROBE_TIMEOUT_MS = 500` (:20): 开窗兜底超时。防止第二帧回调丢失导致永久探测中。
+    - `RENDER_STALL_THRESHOLD_MS = 10_000` (:21): 停滞判定阈值。超过此时间无 rAF 时间戳更新视为停滞。
 
 - **状态变量**:
     - `lastRafTime`: 最近一次成功执行 rAF 回调的时间戳。
     - `probing`: 布尔值，标记当前是否正在进行 rAF 探测窗口。
 
 - **函数**:
-    - `startProbe(): void` (:30-40): 
+    - `startProbe(): void` (:24-34): 
         - **用途**: 开启一个 2 帧的 rAF 探测窗口。
         - **逻辑**: 
             1. 若已在探测中则直接返回。
             2. 设置 `probing = true`。
             3. 连续调用两次 `requestAnimationFrame`。第一帧记录时间戳，第二帧记录时间戳并复位 `probing = false`。
             4. 设置 500ms 定时器作为兜底，强制复位 `probing`。
-    - `isRenderLoopAlive(): boolean` (:43-46): 
+    - `isRenderLoopAlive(): boolean` (:36-39): 
         - **用途**: 导出函数，判定渲染链是否存活。
         - **逻辑**: 
             1. 若 `document.hidden` 返回 `true`（避免节流期误判）。
@@ -84,13 +84,13 @@ tags: [性能, 省电, 渲染, rAF, 合成器, 帧率]
 负责 UI 样式及动画状态管理。
 
 - **关键 CSS 规则**:
-    - `.anim-idle .animate-pulse` (:468-470): 
+    - `.anim-idle .animate-pulse` (:775-777): 
         - **用途**: 在应用进入空闲状态（`.anim-idle` 类被添加）时，暂停所有 `.animate-pulse` 动画。
         - **实现**: `animation-play-state: paused !important;`。
         - **历史背景**: 曾因为逗号选择器共享声明块的问题导致失效，现已独立成规则修复。
-    - `.anim-idle .signal-glow-active` (:478-480): 
+    - `.anim-idle .signal-glow-active` (:783-785): 
         - **用途**: 同样在 idle 状态下暂停信号光效动画。
-    - `.scrollbar-none` (:473-475): 移动端隐藏滚动条。
+    - `.scrollbar-none` (:780-781): 移动端隐藏滚动条。
 
 ## Architecture
 

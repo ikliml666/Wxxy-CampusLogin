@@ -20,15 +20,15 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
 **文件**: `android/frontend/src/i18n/index.ts`
 
 #### `init()`
-- **行号**: 9-25
-- **描述**: 初始化 `i18next` 实例。
+- **行号**: 8-26
+- **描述**: 初始化 `i18next` 实例并挂载到 React。
 - **配置细节**:
-  - 使用 `LanguageDetector` 检测用户语言，优先顺序为 `localStorage` 然后 `navigator`。
-  - 存储键名为 `app-language`。
-  - 资源包含 `zh` 和 `en` 两个语言包，分别导入自 `./locales/zh.json` 和 `./locales/en.json`。
-  - 后备语言 (`fallbackLng`) 设置为 `'zh'`。
-  - 插值转义关闭 (`escapeValue: false`)，允许在翻译字符串中使用 HTML 或特殊字符（需确保数据安全）。
-  - 尝试从 `localStorage` 获取当前语言设置，若失败则返回 `undefined`。
+  - 使用 `LanguageDetector` 检测用户语言，优先顺序为 `localStorage` 然后 `navigator`（行 19）。
+  - 存储键名为 `app-language`（行 20）。
+  - 资源包含 `zh` 和 `en` 两个语言包，分别导入自 `./locales/zh.json` 和 `./locales/en.json`（行 5-6, 13-14）。
+  - 后备语言 (`fallbackLng`) 设置为 `'zh'`（行 16）。
+  - 插值转义关闭 (`escapeValue: false`)，允许在翻译字符串中使用 HTML 或特殊字符（行 24）。
+  - 尝试从 `localStorage` 获取当前语言设置，若失败则返回 `undefined`（行 17）。
 
 **文件**: `android/frontend/src/i18n/locales/en.json`
 - **结构**: JSON 对象，嵌套结构包含以下顶级键：
@@ -61,7 +61,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
 **文件**: `android/frontend/src/lib/animations.ts`
 
 #### `createLogEntryVariants(easing: EasingConfig)`
-- **行号**: 3-16
+- **行号**: 3-17
 - **描述**: 为日志条目创建 Framer Motion 变体。
 - **参数**: `easing` - 缓动配置对象。
 - **返回值**: 包含 `initial`, `animate`, `exit` 属性的对象。
@@ -70,7 +70,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
   - `exit`: 透明度 0，向左偏移 -16px，使用 `exit` 缓动，时长 0.15s。
 
 #### `createPanelAppleVariants(easing: EasingConfig)`
-- **行号**: 24-47
+- **行号**: 22-42
 - **描述**: 创建类似 Apple 风格的侧边栏/面板转场变体。
 - **参数**: `easing` - 缓动配置对象。
 - **返回值**: 包含 `initial`, `animate`, `exit` 属性的对象，这些属性是函数，接收 `direction` (-1 | 0 | 1)。
@@ -88,7 +88,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
 **文件**: `android/frontend/src/lib/color.ts`
 
 #### `hexToHsl(hex: string)`
-- **行号**: 1-36
+- **行号**: 1-33
 - **描述**: 将 HEX 颜色代码转换为 HSL 对象。
 - **参数**: `hex` - 十六进制颜色字符串（如 `#RRGGBB` 或 `#RGB`）。
 - **返回值**: `{ h: number; s: number; l: number }`。
@@ -106,7 +106,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
 **文件**: `android/frontend/src/lib/easing-config.ts`
 
 #### Interface `EasingConfig`
-- **行号**: 3-10
+- **行号**: 3-9
 - **描述**: 定义缓动曲线的贝塞尔控制点数组 `[x1, y1, x2, y2]`。
 - **字段**:
   - `enter`: 进入动画，主用面板转场。
@@ -116,11 +116,11 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
   - `overshoot`: 弹性效果。
 
 #### Constants
-- **`EASING_60HZ`** (行 12-19): 针对 60Hz 屏幕优化的缓动配置。
-- **`EASING_120HZ`** (行 21-28): 针对 120Hz 高刷屏幕优化的缓动配置，曲线更紧凑以适配更高刷新率。
+- **`EASING_60HZ`** (行 11-17): 针对 60Hz 屏幕优化的缓动配置。
+- **`EASING_120HZ`** (行 19-25): 针对 120Hz 高刷屏幕优化的缓动配置，曲线更紧凑以适配更高刷新率。
 
 #### `getEasingConfig(refreshRate: number)`
-- **行号**: 30-32
+- **行号**: 27-29
 - **描述**: 根据屏幕刷新率返回对应的缓动配置。
 - **逻辑**: 如果 `refreshRate >= 120`，返回 `EASING_120HZ`，否则返回 `EASING_60HZ`。
 
@@ -132,7 +132,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
 - **`LatencyType`** (行 5): `'gateway' | 'external'`。
 
 #### `getLatencyLevel(latency: number)`
-- **行号**: 7-14
+- **行号**: 7-15
 - **描述**: 根据延迟毫秒数返回质量等级。
 - **阈值**:
   - `< 0`: `bad`
@@ -144,7 +144,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
   - `> 400`: `bad`
 
 #### `getLatencyColor(latency: number)`
-- **行号**: 16-22
+- **行号**: 17-23
 - **描述**: 根据延迟返回对应的 Tailwind CSS 类名对象。
 - **返回值**: `{ text: string, bg: string, borderBg: string }`。
 - **逻辑**:
@@ -153,7 +153,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
   - 如果未找到配置，返回默认 muted 颜色。
 
 #### `mergeNetworkQuality(old: NetworkQuality | null, incoming: NetworkQuality)`
-- **行号**: 24-36
+- **行号**: 25-36
 - **描述**: 合并新旧网络质量数据，处理增量推送场景。
 - **逻辑**:
   - 如果新数据质量为 `disabled`，保留旧数据（如果有）或返回新数据。
@@ -165,12 +165,12 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
 - **注释说明**: 慢网络下终态迟迟不到，采纳 `busy` 会让胶囊永远显示"检测中"，因此在此逻辑中特殊处理。
 
 #### `extractGatewayLatency(nq: NetworkQuality | null)`
-- **行号**: 38-42
+- **行号**: 38-43
 - **描述**: 提取网关延迟。
 - **逻辑**: 优先取 `nq.gatewayLatency`，其次取 `details['gateway'].latency`。如果都不可用或为负，返回 -1。
 
 #### `extractExternalLatency(nq: NetworkQuality | null)`
-- **行号**: 44-55
+- **行号**: 45-59
 - **描述**: 提取外网延迟。
 - **逻辑**:
   - 优先取 `averageExternalLatency`。
@@ -179,7 +179,7 @@ tags: [i18n, localization, animations, colors, easing, latency, utilities]
   - 如果无数据，返回 -1。
 
 #### `resolveQualityDisplay(nq: NetworkQuality | null)`
-- **行号**: 65-76
+- **行号**: 66-76
 - **描述**: 统一解析用于展示的延迟和质量等级。
 - **逻辑**:
   - 提取网关和外网延迟。

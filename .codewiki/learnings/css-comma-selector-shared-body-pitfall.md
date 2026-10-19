@@ -17,24 +17,24 @@ tags: [教训, 前端, css, 选择器]
 
 ### `android/frontend/src/index.css`
 
-- **第 1238-1240 行**: `.anim-idle .animate-pulse`
+- **第 775-777 行**: `.anim-idle .animate-pulse`
   - 用途：在用户空闲（idle）状态下暂停脉冲动画。
   - 状态：**已修复**。此前因逗号选择器列表污染导致 `animation-play-state` 失效。现独立成块。
-  
-- **第 1246-1248 行**: `.anim-idle .signal-glow-active`
+
+- **第 783-785 行**: `.anim-idle .signal-glow-active`
   - 用途：在用户空闲状态下暂停信号光效动画。
   - 状态：**保持独立**。作为独立规则存在，确保其动画状态控制不受其他选择器影响。
 
-- **第 1242-1244 行**: `.scrollbar-none`
+- **第 780-781 行**: `.scrollbar-none`
   - 用途：移动端隐藏滚动条。
   - 状态：**已恢复**。此前被误并入其他规则，现已还原为独立的工具类规则。
 
-- **第 1235-1237 行 (注释)**:
+- **第 768-774 行 (注释)**:
   - 内容：详细记录了 `.animate-spin` 不参与 idle 冻结的原因，以及 2026-09-13 修复逗号选择器陷阱的历史记录。强调了“每个选择器独立成规则，禁止再往逗号列表后插入新选择器”的原则。
 
 ### `tauri-app/frontend/src/index.css`
 
-- **第 1193-1195 行**: `.anim-idle .animate-pulse, .anim-idle .signal-glow-active`
+- **第 754-757 行**: `.anim-idle .animate-pulse, .anim-idle .signal-glow-active`
   - 用途：在用户空闲状态下暂停脉冲动画和信号光效动画。
   - 状态：**有意共享**。这两个选择器语义一致（均为 anim-idle 下的动画暂停），且声明完全相同（`animation-play-state: paused !important;`）。这是合法且推荐的写法，体现了 DRY 原则。
 

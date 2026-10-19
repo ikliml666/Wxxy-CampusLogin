@@ -17,19 +17,19 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离]
 ## Key Components
 
 ### CSS Variables (HSL)
-- **定义位置**: `index.css` 第 8-40 行 (`:root`) 及 第 43-75 行 (`.dark`)
+- **定义位置**: `index.css` 第 7-32 行 (`:root`) 及 第 42-70 行 (`.dark`)
 - **用途**: 定义语义化颜色变量，如 `--primary`, `--background`, `--foreground` 等。所有 UI 组件应引用这些变量而非硬编码颜色，以确保主题切换的一致性。
-- **注意**: `.dark` 类覆盖了上述变量。此外，还有 `.theme-vibrant`, `.theme-forest` 等修饰类进一步覆盖 `--primary` 和 `--accent` 等特定变量（第 76-91 行）。
+- **注意**: `.dark` 类覆盖了上述变量。此外，还有 `.theme-vibrant`, `.theme-forest` 等修饰类进一步覆盖 `--primary` 和 `--accent` 等特定变量（第 76-85 行）。
 
 ### Force Light Dialog Scope
-- **定义位置**: `index.css` 第 93-123 行 (`.force-light-dialog`)
+- **定义位置**: `index.css` 第 91-111 行 (`.force-light-dialog`)
 - **用途**: 强制在暗色主题下显示为亮色的对话框容器（如“关于”对话框）。
 - **实现细节**: 
     - 重新定义了 `--background`, `--foreground` 等所有相关变量为浅色值。
     - **关键修复**: 显式设置 `color: hsl(var(--foreground))`。因为 `color` 是继承属性，仅重定义变量不足以改变已继承的颜色，必须在此处重置计算后的颜色值，防止子元素继承暗色文本。
 
 ### Global Reset & Typography
-- **定义位置**: `index.css` 第 125-145 行
+- **定义位置**: `index.css` 第 138-157 行
 - **`* { border-color: transparent; }`**: 移除默认边框，配合自定义圆角和阴影使用。
 - **`html` 和 `body`**: 
     - 设置 `overflow: hidden`，防止整个页面滚动，采用内部滚动模式。
@@ -37,13 +37,13 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离]
     - 背景色使用 `var(--surface-main)`。
 
 ### Scrollbar Styling
-- **定义位置**: `index.css` 第 147-166 行
+- **定义位置**: `index.css` 第 159-183 行
 - **用途**: 全局细滚动条样式。
 - **设计决策**: 完全隐藏滚动条会导致用户无法发现内容可滚动（曾导致首页编辑列表卡片看似被截断）。因此保留 6px 半透明滚动条，与无边框设计兼容。
 - **选择器**: 针对 Webkit 浏览器 (`::-webkit-scrollbar`) 和非 Webkit 浏览器 (`scrollbar-width`) 分别处理。
 
 ### Component Layers
-- **定义位置**: `index.css` 第 169-360+ 行 (`@layer components`)
+- **定义位置**: `index.css` 第 196-749 行 (`@layer components`)
 - **`.bg-card` / `.rounded-2xl`**: 统一卡片圆角为 16px，并添加轻微阴影。
 - **`.glass-dock`**: 仿 FlClash 风格的毛玻璃底栏。使用 `backdrop-filter: blur(16px) saturate(150%)`，并通过 `::before` 和 `::after` 伪元素模拟高光反射效果。
 - **`.btn-physical` / `.btn-press` / `.soft-btn`**: 提供多种按钮交互反馈（缩放、阴影变化、径向渐变高亮）。
@@ -52,11 +52,11 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离]
 - **其他组件**: 包含 `.app-outer-square`, `.surface-*`, `.interval-input`, `.dialog-*` 动画类等。
 
 ### Utility Layers
-- **定义位置**: `index.css` 第 363-420+ 行 (`@layer utilities`)
+- **定义位置**: `index.css` 第 751-860 行 (`@layer utilities`)
 - **`.anim-idle .animate-pulse`**: 当系统处于空闲状态时，暂停脉冲动画，避免用户误以为程序卡死。
 - **`.signal-glow-active`**: 信号强度指示器的呼吸灯动画。
 - **`.list-item-interactive`**: 列表项悬停时左侧出现主色调竖线并右移。
-- **Reduced Motion**: 第 400-420 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
+- **Reduced Motion**: 第 827-860 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
 
 ## Architecture
 
