@@ -36,7 +36,7 @@ tags: [settings, onboarding, theme, ui, android]
 *   **`operatorLabelKey` (72-75)**: 工具函数，将后端返回的运营商后缀（如 `''` 或 `'@telecom'`）转换为 i18n 的 `labelKey`。空字符串 `''` 映射为 `__default__` 查找；`null/undefined` 返回 `undefined`（用于隐藏徽标）。
 *   **`THEME_OPTIONS` (77-85)**: 主题选项，包含 `id` (ThemeName), `labelKey`, `color`。包含 `custom` 主题，颜色由 `DEFAULT_CONFIG.customThemeColor` (`#6366f1`) 提供。
 *   **`VALID_THEMES` (87)**: 所有有效主题 ID 的数组，用于校验。
-*   **`DEFAULT_PANEL_OPTIONS` (89-92)**: 基于 `NAV_ITEMS` 动态生成的默认面板选项，仅提取 `id` 和 `labelKey`。
+*   **`DEFAULT_PANEL_OPTIONS` (89-92)**: 基于 `NAV_ITEMS` 动态生成的默认面板选项，仅提取 `value` 和 `labelKey`。
 
 **类型定义 (`types.ts`)**
 *   **`AccountItem` (4-13)**: 账号列表项接口。

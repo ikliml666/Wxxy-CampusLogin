@@ -17,7 +17,7 @@ tags: [settings, onboarding, theme, keep-alive, configuration]
 
 ## Overview
 
-`frontend-settings-module` 是前端应用的核心配置与用户引导模块。它负责管理应用程序的全局状态（包括网络、安全、主题、自动化策略），提供首次安装后的新手指引（Onboarding Wizard），以及处理平台特定的保活机制（Android Keep-Alive）。
+`frontend-settings-module` 是前端应用的核心配置与用户引导模块，主要面向 Android 平台（同时保留桌面/平板适配）。它负责管理应用程序的全局状态（包括网络、安全、主题、自动化策略），提供首次安装后的新手指引（Onboarding Wizard），以及处理平台特定的保活机制（Android Keep-Alive）。
 
 该模块通过 `useConfigStore` 和 `useThemeStore` 集中管理配置数据，确保 UI 组件与后端逻辑的一致性。它支持双端适配：在桌面/平板端使用对话框形态的向导，在移动端使用全屏分步向导。所有公共 API 统一由 `index.ts` 导出。
 
