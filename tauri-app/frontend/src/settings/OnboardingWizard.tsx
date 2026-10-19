@@ -13,9 +13,10 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Switch } from '@/components/ui/switch'
 import {
-  Check, ChevronLeft, ChevronRight, Wifi, Cable, Shield, Zap,
+  Check, ChevronLeft, ChevronRight, X, Wifi, Cable, Shield, Zap,
   Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network, Smartphone, Link2,
   RefreshCw, Sparkles, AlertCircle,
 } from 'lucide-react'
@@ -69,20 +70,21 @@ interface OperatorBindingInfo {
 }
 type BindStatuses = Record<OperatorKey, OperatorBindingInfo | null>
 
-// 卡片堆的层叠参数（对齐参考实现）：顶层满尺寸，每下一层下移 12px、缩小 3%、
-// 降低透明度；层数超过 5 时共用最后一层。
+// 卡片堆层位姿：当前卡最大且最靠下（scale 1.05 / +15px），越往后的卡上移并缩小，
+// 第 4 层起共用最深一档（对齐参考实现 nth-last-child 的四档取法）。
+// 所有卡都以自身中心对齐容器中心，故 transform 统一是 translate(-50%, -50% + y)。
 const STACK_LAYERS = [
-  { y: 0, scale: 1, opacity: 1, z: 10 },
-  { y: 12, scale: 0.97, opacity: 0.86, z: 9 },
-  { y: 24, scale: 0.94, opacity: 0.64, z: 8 },
-  { y: 36, scale: 0.91, opacity: 0.4, z: 7 },
-  { y: 48, scale: 0.88, opacity: 0.2, z: 6 },
+  { y: 15, scale: 1.05, z: 10 },
+  { y: 0, scale: 1, z: 9 },
+  { y: -15, scale: 0.95, z: 8 },
+  { y: -30, scale: 0.9, z: 7 },
 ] as const
-// 前进时顶卡的出场位姿（左滑出画面并微旋），与参考的 exit-left 一致
-const EXIT_TRANSFORM = 'translateX(-120%) rotate(-8deg) scale(0.9)'
-const EXIT_MS = 380
-// 回弹过渡曲线，与参考的 cubic-bezier(.34,1.56,.64,1) 一致
-const STACK_TRANSITION = 'transform .45s cubic-bezier(.34,1.56,.64,1), opacity .35s ease'
+// 出场两段：先竖直飞起并微旋（ease-in），再落回队尾（ease-out）——参考的 swap 关键帧
+const EXIT_UP_MS = 240
+const STACK_TRANSITION = 'transform .24s ease'
+const deckTransform = (y: number, scale: number) =>
+  `translate(-50%, calc(-50% + ${y}px)) scale(${scale})`
+const EXIT_UP_TRANSFORM = `translate(-50%, calc(-50% + ${STACK_LAYERS[0].y - 250}px)) scale(0.85) rotate(-5deg)`
 
 const STEP_ICONS = [Sparkles, UserCircle, Link2, Network, Zap] as const
 
@@ -133,12 +135,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   // 后端命令有验证门（Hello 开启时要求 TTL 内已验证），前端先行验证保证一次通过
   const ensureBindHello = useHelloGate()
 
-  // 卡片堆动画状态：exitingStep 为正在左滑出场的卡，instantSnap 为「归底瞬时位」
-  // （取模环让旧卡瞬间回到最底层，这一帧必须禁用过渡，否则会看到它倒着飞回来）
+  // 卡片堆动画状态：exitingStep 为正在飞起的当前卡
   const [exitingStep, setExitingStep] = useState<number | null>(null)
-  const [instantSnap, setInstantSnap] = useState(false)
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const snapRafRef = useRef<number | null>(null)
 
   // 绑定运营商账号步骤（step 2）状态；凭据取自 accountInfo 步草稿/已落盘配置，
   // 不再单独收集学号与自助服务密码
@@ -223,21 +222,18 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     }
   }, [open, step, canQueryBindStatus, bindRefreshTick, username, password, config.password, bindCredPassword, t])
 
-  // 前进：顶卡左滑出场，动画播完再切换步骤，切换那一帧禁用过渡让旧卡直接归底；
-  // 后退：直接切步骤，所有卡片按新层位平滑回弹（参考实现同样不为后退做出场动画）。
+  // 前进：顶卡先竖直飞起并微旋（swap 的 50% 关键帧），260ms 后清出场标记并切步——
+  // 同一渲染批次里它的层位变成队尾最深档，transition 让它从上方平滑落回队尾（100% 帧）。
+  // 后退：直接切步骤，卡片按新层位平滑归位（参考同样不为后退做出场动画）。
   const advance = useCallback((nextStep: number) => {
     if (nextStep === step) return
     if (nextStep > step) {
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
       setExitingStep(step)
       exitTimerRef.current = setTimeout(() => {
-        setInstantSnap(true)
         setExitingStep(null)
         setStep(nextStep)
-        snapRafRef.current = requestAnimationFrame(() => {
-          snapRafRef.current = requestAnimationFrame(() => setInstantSnap(false))
-        })
-      }, EXIT_MS)
+      }, EXIT_UP_MS)
     } else {
       setStep(nextStep)
     }
@@ -246,7 +242,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   useEffect(() => {
     return () => {
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
-      if (snapRafRef.current !== null) cancelAnimationFrame(snapRafRef.current)
     }
   }, [])
 
@@ -382,39 +377,50 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setShowCloseConfirm(true) }}>
-      <DialogContent
-        className="w-[580px] h-[min(740px,92vh)] p-0 overflow-hidden flex flex-col rounded-[28px] border border-border bg-background"
-        onPointerDownOutside={(e) => e.preventDefault()}
-      >
-        {/* 卡片堆：外层留出下方 48px 的层叠厚度，内层严格等尺寸叠放 */}
-        <div className="relative flex-1 min-h-0 px-8 pt-8 pb-14">
-          <div className="relative h-full">
-            {Array.from({ length: STEP_COUNT }, (_, i) => {
-              const pos = (i - step + STEP_COUNT) % STEP_COUNT
-              const layer = STACK_LAYERS[Math.min(pos, STACK_LAYERS.length - 1)]
-              const isTop = pos === 0
-              const isExiting = exitingStep === i
-              const StepIcon = STEP_ICONS[i] ?? Sparkles
-              return (
-                <div
-                  key={i}
-                  aria-hidden={!isTop}
-                  // 被盖住的卡仍在 DOM 里，仅靠 pointer-events-none 挡不住 Tab 聚焦，
-                  // inert 才是「整棵子树不可交互/不可聚焦」的正确语义
-                  inert={!isTop || isExiting}
-                  className={cn(
-                    'absolute inset-0 flex flex-col rounded-[22px] border border-border bg-card p-6',
-                    'shadow-[0_8px_32px_rgba(0,0,0,0.16)]',
-                    isTop ? 'pointer-events-auto' : 'pointer-events-none',
-                  )}
-                  style={{
-                    transformOrigin: 'bottom center',
-                    transform: isExiting ? EXIT_TRANSFORM : `translateY(${layer.y}px) scale(${layer.scale})`,
-                    opacity: isExiting ? 0 : layer.opacity,
-                    zIndex: isExiting ? 11 : layer.z,
-                    transition: instantSnap ? 'none' : STACK_TRANSITION,
-                  }}
-                >
+      <DialogPrimitive.Portal>
+        {/* 外壳与遮罩全部透明：屏上只应看到卡片本身 */}
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-transparent" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <DialogPrimitive.Content
+            aria-describedby={undefined}
+            className="pointer-events-auto relative flex w-[600px] max-w-[calc(100vw-32px)] flex-col outline-none"
+            onPointerDownOutside={(e) => e.preventDefault()}
+          >
+            <DialogPrimitive.Title className="sr-only">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</DialogPrimitive.Title>
+            <DialogPrimitive.Close className="absolute -right-1 -top-1 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-card/90 text-muted-foreground shadow-[0_2px_8px_rgba(0,0,0,0.18)] transition-colors hover:text-foreground">
+              <X className="h-4 w-4" />
+              <span className="sr-only">{t('common.close')}</span>
+            </DialogPrimitive.Close>
+        {/* 卡片堆：只有卡片本身可见，弹窗外壳与遮罩全部透明；
+            卡片以容器中心对齐（left/top 50% + translate(-50%,-50%)），
+            层位只改 y 与 scale，故始终围绕同一中心向上收叠 */}
+        <div className="relative h-[560px] w-full">
+          {Array.from({ length: STEP_COUNT }, (_, i) => {
+            const pos = (i - step + STEP_COUNT) % STEP_COUNT
+            const layer = STACK_LAYERS[Math.min(pos, STACK_LAYERS.length - 1)]
+            const isTop = pos === 0
+            const isExiting = exitingStep === i
+            const StepIcon = STEP_ICONS[i] ?? Sparkles
+            return (
+              <div
+                key={i}
+                aria-hidden={!isTop}
+                // 被盖住的卡仍在 DOM 里，仅靠 pointer-events-none 挡不住 Tab 聚焦，
+                // inert 才是「整棵子树不可交互/不可聚焦」的正确语义
+                inert={!isTop || isExiting}
+                className={cn(
+                  'absolute left-1/2 top-1/2 flex h-[500px] w-[86%] flex-col rounded-[2rem] bg-card p-7',
+                  'border border-border/60',
+                  'shadow-[0_5px_10px_0_rgba(0,0,0,0.18),0_15px_20px_0_rgba(0,0,0,0.10)]',
+                  isTop ? 'pointer-events-auto' : 'pointer-events-none',
+                )}
+                style={{
+                  transform: isExiting ? EXIT_UP_TRANSFORM : deckTransform(layer.y, layer.scale),
+                  transformOrigin: 'center center',
+                  zIndex: isExiting ? 11 : layer.z,
+                  transition: STACK_TRANSITION,
+                }}
+              >
                   {/* 分类标签胶囊 */}
                   <div className="self-start rounded-full bg-primary/15 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-primary">
                     {t(STEP_TITLE_KEYS[i])}
@@ -806,75 +812,68 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     )}
                   </div>
 
-                  {/* 卡底元信息：圆形图标头像 + 步骤说明 */}
-                  <div className="mt-3 flex shrink-0 items-center gap-2.5">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                      <StepIcon className="h-3.5 w-3.5" />
+                  {/* 卡底：左侧头像 + 步骤说明，右侧 ← n / N → 导航。
+                      外壳已透明，导航必须留在卡内，否则会直接压在页面内容上。 */}
+                  <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <StepIcon className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {t('onboarding.stepOf', { n: i + 1, total: STEP_COUNT })}
+                      </span>
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {t('onboarding.stepOf', { n: i + 1, total: STEP_COUNT })}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <DeckArrow
+                        dir="prev"
+                        disabled={!isTop || i === 0}
+                        label={t('onboarding.previous')}
+                        onClick={goPrev}
+                      />
+                      <span className="min-w-[34px] text-center text-xs tabular-nums text-muted-foreground">
+                        {i + 1} / {STEP_COUNT}
+                      </span>
+                      <DeckArrow
+                        dir="next"
+                        disabled={!isTop || i === STEP_COUNT - 1 || (i === 1 && !canProceedAccount)}
+                        label={t('onboarding.next')}
+                        onClick={goNext}
+                      />
+                    </div>
                   </div>
+
+                  {/* 最后一步的登录入口与跳过入口（同样留在卡内） */}
+                  {i === STEP_COUNT - 1 && (
+                    <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={handleSkip}
+                        className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                      >
+                        {t('onboarding.skip')}
+                      </button>
+                      {!loginSuccess ? (
+                        <Button onClick={handleLoginAndFinish} disabled={isLoggingIn || !username} className="gap-1.5">
+                          {isLoggingIn ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
+                          ) : (
+                            <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
+                          )}
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                          <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
           </div>
+          </DialogPrimitive.Content>
         </div>
-
-        {/* 底部导航：← n / N → */}
-        <div className="shrink-0 px-8 pb-6">
-          <div className="flex items-center justify-center gap-5">
-            <DeckArrow
-              dir="prev"
-              disabled={step === 0}
-              label={t('onboarding.previous')}
-              onClick={goPrev}
-            />
-            <span className="min-w-[40px] text-center text-sm tabular-nums text-muted-foreground">
-              {step + 1} / {STEP_COUNT}
-            </span>
-            <DeckArrow
-              dir="next"
-              disabled={step === STEP_COUNT - 1 || (step === 1 && !canProceedAccount)}
-              label={t('onboarding.next')}
-              onClick={goNext}
-            />
-          </div>
-
-          <div className="mt-4 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={handleSkip}
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {t('onboarding.skip')}
-            </button>
-            <div>
-              {step === STEP_COUNT - 1 && !loginSuccess && (
-                <Button
-                  onClick={handleLoginAndFinish}
-                  disabled={isLoggingIn || !username}
-                  className="gap-1.5"
-                >
-                  {isLoggingIn ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
-                  ) : (
-                    <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
-                  )}
-                </Button>
-              )}
-              {step === STEP_COUNT - 1 && loginSuccess && (
-                <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                  <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
-                </div>
-              )}
-              {step === 1 && !canProceedAccount && (
-                <span className="text-xs text-muted-foreground/80">{t('onboarding.pleaseComplete')}</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </DialogContent>
+      </DialogPrimitive.Portal>
 
       <Dialog open={showCloseConfirm} onOpenChange={(v) => { if (!v) setShowCloseConfirm(false) }}>
         <DialogContent className="sm:max-w-[360px]">

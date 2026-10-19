@@ -164,23 +164,24 @@ export function OnboardingWizardMobile({
         </button>
         <div className="flex items-center gap-2.5 min-w-0">
           <StepTrack current={f.step} />
-          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
-            {f.step + 1}/{ONBOARDING_STEP_COUNT}
-          </span>
         </div>
       </header>
 
       {/* 内容区：独立滚动，底部操作区不随滚动 */}
       <main className="relative flex-1 min-h-0 overflow-y-auto scrollbar-none px-5">
         <div className="relative mx-auto w-full max-w-[480px] pb-7">
-          {/* 静态堆叠层（纯装饰，营造下方卡片厚度）——绝对定位跟随卡片总高度 */}
+          {/* 静态堆叠层（纯装饰）：与桌面/平板同一套「后面的卡向上收叠并缩小」语汇。
+              手机端必须让卡片高度跟随表单自适应（绝对定位等尺寸卡会在 412px 宽屏
+              把绑定步长表单裁掉），所以这里只做方向一致的上下两档缩放，不抢布局。 */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-2 -bottom-2 top-2 rounded-[26px] border border-border bg-card opacity-45"
+            className="pointer-events-none absolute inset-x-2 -top-2 bottom-2 rounded-[26px] border border-border bg-card opacity-45"
+            style={{ transform: 'scale(0.96)', transformOrigin: 'top center' }}
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-1 -bottom-1 top-1 rounded-[26px] border border-border bg-card opacity-70"
+            className="pointer-events-none absolute inset-x-1 -top-1 bottom-1 rounded-[26px] border border-border bg-card opacity-70"
+            style={{ transform: 'scale(0.98)', transformOrigin: 'top center' }}
           />
 
           <AnimatePresence mode="wait" custom={f.direction.current}>
@@ -484,64 +485,64 @@ export function OnboardingWizardMobile({
                 </div>
               )}
 
-              {/* 卡底元信息：圆形图标头像 + 步骤说明 */}
-              <div className="mt-4 flex items-center gap-2.5">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <StepIcon className="h-3.5 w-3.5" />
+              {/* 卡底：左侧头像 + 步骤说明，右侧 ← n / N → 导航 */}
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <StepIcon className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {t('onboarding.stepOf', { n: f.step + 1, total: ONBOARDING_STEP_COUNT })}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  {t('onboarding.stepOf', { n: f.step + 1, total: ONBOARDING_STEP_COUNT })}
-                </span>
+                <div className="flex items-center gap-2">
+                  <NavArrow
+                    dir="prev"
+                    disabled={f.step === 0}
+                    label={t('onboarding.previous')}
+                    onClick={() => f.advance(f.step - 1)}
+                  />
+                  <span className="min-w-[34px] text-center text-xs tabular-nums text-muted-foreground">
+                    {f.step + 1} / {ONBOARDING_STEP_COUNT}
+                  </span>
+                  <NavArrow
+                    dir="next"
+                    disabled={f.step === ONBOARDING_STEP_COUNT - 1 || (f.step === 1 && !f.canProceedAccount)}
+                    label={t('onboarding.next')}
+                    onClick={f.goNext}
+                  />
+                </div>
               </div>
             </m.div>
           </AnimatePresence>
         </div>
       </main>
 
-      {/* 底部导航：← n / N →（固定，拇指可达，让位手势条） */}
-      <footer
-        className="relative shrink-0 px-5 pt-3"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
-      >
-        <div className="flex items-center justify-center gap-6">
-          <NavArrow
-            dir="prev"
-            disabled={f.step === 0}
-            label={t('onboarding.previous')}
-            onClick={() => f.advance(f.step - 1)}
-          />
-          <span className="min-w-[52px] text-center text-sm tabular-nums text-muted-foreground">
-            {f.step + 1} / {ONBOARDING_STEP_COUNT}
-          </span>
-          <NavArrow
-            dir="next"
-            disabled={f.step === ONBOARDING_STEP_COUNT - 1 || (f.step === 1 && !f.canProceedAccount)}
-            label={t('onboarding.next')}
-            onClick={f.goNext}
-          />
-        </div>
-
-        {/* 最后一步的登录入口（唯一需要宽按钮的动作） */}
-        {f.step === ONBOARDING_STEP_COUNT - 1 && !f.loginSuccess && (
-          <Button
-            onClick={f.handleLoginAndFinish}
-            disabled={isLoggingIn || !f.username}
-            className={cn('mt-3 w-full gap-1.5', actionButtonClass)}
-          >
-            {isLoggingIn ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
-            ) : (
-              <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
-            )}
-          </Button>
-        )}
-
-        {f.step === ONBOARDING_STEP_COUNT - 1 && f.loginSuccess && (
-          <div className="mt-3 flex h-12 items-center justify-center gap-2 font-medium text-emerald-600 dark:text-emerald-400">
-            <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
-          </div>
-        )}
-      </footer>
+      {/* 底部：仅最后一步的登录入口（导航已收进卡内，这里不再重复） */}
+      {f.step === ONBOARDING_STEP_COUNT - 1 && (
+        <footer
+          className="relative shrink-0 px-5 pt-3"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
+        >
+          {!f.loginSuccess ? (
+            <Button
+              onClick={f.handleLoginAndFinish}
+              disabled={isLoggingIn || !f.username}
+              className={cn('w-full gap-1.5', actionButtonClass)}
+            >
+              {isLoggingIn ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
+              ) : (
+                <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
+              )}
+            </Button>
+          ) : (
+            <div className="flex h-12 items-center justify-center gap-2 font-medium text-emerald-600 dark:text-emerald-400">
+              <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
+            </div>
+          )}
+        </footer>
+      )}
 
       {/* 跳过确认：全屏遮罩上的轻量卡片（不用桌面 Dialog，避免尺寸与安全区错位） */}
       <AnimatePresence>
