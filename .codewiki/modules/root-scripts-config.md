@@ -30,27 +30,39 @@ tags: [构建, 发布, 许可证, 文档, 约定]
 
 ### `.gitignore`
 定义全局 Git 忽略规则，确保敏感文件、构建产物及 IDE 配置不入库。
-- **依赖与构建**：忽略 `node_modules/`, `target/`, `dist/`, `release/`, `app-output/`, `tauri-release/` 等目录（第 2-9 行）。
-- **本地资产**：忽略 `make-release.ps1` 和 `installer-build/` 等仅本地保留的发布资产（第 11-13 行）。
+- **依赖与构建**：忽略 `node_modules/`, `target/`, `dist/`, `release/`, `output/`, `app-output/`, `app-v/`, `tauri-release/` 等目录（第 2-9 行）。
+- **本地资产**：忽略 `make-release.ps1` 和 `installer-build/`, `release-build/`, `archive/` 等仅本地保留的发布资产（第 11-13 行）。
 - **Tauri 生成物**：忽略 `tauri-app/src-tauri/gen/`（第 16 行）。
-- **环境与日志**：忽略 `.env`, `*.log`, `logs/`（第 19-21 行）。
+- **环境与日志**：忽略 `.env`, `.env.test`, `*.log`, `logs/`（第 19-21 行）。
 - **IDE 配置**：忽略 `.trae/`, `.vscode/`, `.idea/`（第 24-26 行）。
-- **临时文件**：忽略 `*.tmp`, `temp/`, `preview-shots/`, `target-tmp/`（第 29-35 行）。
-- **特定平台**：忽略 Android APK 备份、iOS 壳 crate 产物、Mock 注入脚本 `mock-tauri*.js`（第 47-54 行）。
-- **构建脚本与二进制**：忽略 `tauri-app/build.ps1`, `clean-build-cache.ps1`, `campus-helper.exe`（第 57-59 行）。
-- **内部文档**：忽略 `CODE_WIKI.md`, `ANIMATION_GUIDE.md`, `ersikDocumentstrae_projects1`, `docs/`（第 62-67 行）。
-- **Android 专属**：忽略 `.android-git-backup/`, `android/*.apk`, `android/build-apk.ps1`（第 70-74 行）。
+- **临时文件**：忽略 `*.tmp`, `*.pdb`, `temp/`, `asar_check2/`, `asar_restore/`（第 29-31 行）。
+- **会话临时产物**：忽略 `preview-shots/`, `target-tmp/`（第 35-36 行，2026-10-02 用户确认清理并忽略）。
+- **Runtime data**：忽略 `config.json`（第 39 行）。
+- **Release notes**：忽略 `RELEASE_*.md`, `v*.*.*-更新日志.md`（第 42-43 行）。
+- **Changelog**：忽略 `CHANGELOG.md`, `changelogs/`（第 46-47 行，2026-09-15 起废弃统一 CHANGELOG.md，按版本文件维护）。
+- **内部文档**：忽略 `ersikDocumentstrae_projects1`, `docs/`（第 50-51 行）。
+- **Build scripts**：忽略 `tauri-app/build.ps1`, `clean-build-cache.ps1`（第 54-55 行）。
+- **Helper binary**：忽略 `tauri-app/src-tauri/campus-helper.exe`（第 58 行）。
+- **Animation guide**：忽略 `tauri-app/frontend/ANIMATION_GUIDE.md`（第 61 行）。
+- **Code wiki**：忽略 `CODE_WIKI.md`（第 64 行）。
+- **tsbuildinfo**：忽略 `*.tsbuildinfo`（第 67 行）。
+- **Android 专属**：忽略 `.android-git-backup/`, `android/*.apk`, `android/*.apk.idsig`, `android/build-apk.ps1`（第 70-74 行）。
+- **浏览器实测用 mock**：忽略 `mock-tauri*.js`, `.zcode/`（第 77-78 行）。
+- **iOS 壳 crate 构建产物**：忽略（第 81 行注释）。
 
 ### `AGENTS.md`
-面向 AI 编码助手（ZCode 等）的项目级工作约定。
-- **Changelog 规范**：要求所有代码/配置/文档改动必须记入 `changelogs/CHANGELOG_v<版本>.md`（第 13-15 行）。默认内容存放版本号 = 当前版本 + 1。该目录在 `.gitignore` 中，仅本地留存。
-- **分支纪律**：改动全在主题分支（`feat/xxx` 等），不直接改 main。Commit 前缀需使用 `feat:` / `fix:` 等。合并由用户决定（第 18-20 行）。
-- **双端同步**：通用改进（前端 UI、文案、IPC 等）必须在同一次提交内修改桌面 (`tauri-app/`) 和安卓 (`android/`) 两端。例外：协议核心单点维护（第 23-27 行）。
-- **验证基线**：
-    - 前端：`npx tsc --noEmit --incremental`（禁止 `tsc -b`）（第 30-31 行）。
-    - 后端：`cargo test`（全绿基线 397 用例）（第 33-34 行）。
-    - 安卓端：host `cargo check` 失败，需交叉编译或出包验证（第 36-38 行）。
-- **文档同步**：新模块/决策变更需更新 `.codewiki/`，并跑 `cw index` 和 `cw meta update`（第 41-42 行）。
+面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见仓库内 `.codewiki/`；版本变更记录见 `changelogs/`。
+- **必守约定 1：Changelog 规范**：任何代码/配置/构建/文档改动，完成并验证后写入 `changelogs/CHANGELOG_v<版本>.md`（沿用既有分类：行为调整/缺陷修复/前端性能优化/架构改进 等），说清"改了什么 + 为什么 + 验证数据"。**默认内容存放的版本号 = 当前版本号 + 1**（当前版本 v2.3.7 → 新内容写 `changelogs/CHANGELOG_v2.3.8.md`；该文件即 v2.3.8 发布时的更新日志，发布后封版，新内容顺延写下一版文件）。`changelogs/` 在 `.gitignore` 中，仅本地留存、不提交；不再维护统一的 `CHANGELOG.md`（2026-09-15 起废弃），发布流程也没有快照步骤。
+- **必守约定 2：分支纪律**：改动全在主题分支（`feat/xxx`, `fix/xxx`, `perf/xxx`, `chore/xxx`），不直接改 main；commit 说明用 `feat:` / `fix:` / `perf:` / `chore:` / `docs:` 前缀；任务收尾可自行将本会话主题分支 merge 回 main（优先 `--ff-only`，遇冲突即停），但**不擅自 push、删分支**——由用户决定（2026-10-12 用户修订：合并放开，push/删分支仍禁止）。
+- **必守约定 3：通用改进双端同步**：本项目是 Windows 桌面端 + 安卓端的双端应用，安卓前端（`android/frontend`）是独立复刻代码库，**桌面改动不会自动同步到安卓**。凡通用改进——前端 UI/交互行为、文案与 i18n、图标与看板娘素材、IPC 命令面、配置字段与默认值、事件与日志类型等——必须在**同一次提交内双端各改一份**（桌面 `tauri-app/` + 安卓 `android/`），不允许只改一端留待"下次同步"；提交前用 `git diff --stat` 自检是否同时触及两端。两类例外：协议实现单点存在于桌面 crate（安卓经 Cargo path 依赖自动继承，禁止复制，见 CodeWiki 的 `decisions/protocol-core-single-source` 与 `concepts/dual-platform-sharing`）；平台专属能力（DPAPI/Keystore、托盘/前台服务等）各端自理。
+- **必守约定 4：验证以实际输出为准，不凭"应该没问题"**：
+    - 前端：`npx tsc --noEmit --incremental`（在 `tauri-app/frontend` 下；**禁止 `tsc -b`**——`tsconfig.node.json` 为 composite 项目，会 emit 出 `vite.config.js/.d.ts` 污染文件）。涉及打包产物时 `npx vite build` 确认无警告。安卓前端同法（在 `android/frontend` 下执行）。
+    - 后端：`cargo test`（在 `tauri-app/src-tauri` 下；全绿基线 397 用例（lib 396 + 集成 1，2026-09-22 实测），以 CodeWiki 的 `decisions/verification-baseline` 为准）。
+    - 安卓端：host `cargo check` / `cargo test` 在 `android/src-tauri` 基线即失败（mobile-only 插件门控）——Rust 改动只认 `cargo check --target aarch64-linux-android --all-targets`（需注入 NDK 工具链环境变量）或一键出包 `pwsh android/build-apk.ps1`（详见 CodeWiki 的 `decisions/verification-baseline` 与 `learnings/android-host-cargo-check-fails`）。
+    - 布局/交互类改动需浏览器实测：向 `tauri-app/frontend/index.html` 临时注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后必须完整还原**（git diff 必须干净）。
+- **必守约定 5：文档同步**：新模块、决策变更、踩坑记录同步进 CodeWiki（仓库内 `.codewiki/`）——修了 bug 写 `learnings/<slug>.md`、做了决策写 `decisions/<slug>.md`、并更新被改动代码影响到的文章；收尾跑 `cw index` 重建索引与 `cw meta update` 记录 commit，两者对 `.codewiki/` 的改动随代码一起提交。用户可见的行为变化同步 changelog（见第 1 条）。
+- **必守约定 6：语言**：思考、回复、commit 说明、文档一律中文；代码、命令、报错原文保持原样。
+- **项目速览**：技术栈：Tauri 2 + React 19 + TypeScript，Windows + 安卓双端同构的校园网（Dr.COM/Portal）自动登录助手。桌面端：前端根 `tauri-app/frontend`、后端根 `tauri-app/src-tauri`；安卓端根 `android/`（后端 path 依赖桌面协议核心 crate，前端为独立复刻树）。发布流程、版本号同步清单、Release 资产检查清单见 CodeWiki 的 `decisions/release-asset-integrity` 与 `decisions/version-single-source-build-rs`（版本号提交与 Release 发布必须同流程完成）。
 
 ### `android/.gitignore`
 Android 子模块特定的忽略规则。
