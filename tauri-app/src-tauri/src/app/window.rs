@@ -23,23 +23,19 @@ pub fn is_user_dismissed(window: &tauri::WebviewWindow) -> bool {
     window.is_minimized().unwrap_or(false) || is_hidden_by_design()
 }
 
-/// 期望的挂起态：`TrySuspend` 是**异步**的，其完成回调晚于调用返回，而 `Resume`
-/// 是同步的。用户「最小化后立刻唤回」时 Resume 先落地、挂起后落地，页面就停在
-/// 挂起态再无任何后续 Resume（v2.4.2 实测：连续多次最小化后按钮全失效、仅合成器
-/// 滚动可用）。完成回调据此判定是否需要即时补偿恢复。
-#[cfg(target_os = "windows")]
-static SUSPEND_DESIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// 挂起 / 恢复主 WebView2 渲染进程（最小化、隐藏到托盘、轻量化关闭共用）。
+/// 挂起 / 恢复主 WebView2（最小化、隐藏到托盘、轻量化关闭共用）。
 ///
-/// 挂起走微软官方休眠范式：先把 controller.IsVisible 置 false（TrySuspend 的硬
-/// 约束，否则返回 ERROR_INVALID_STATE），再 `TrySuspend` —— 渲染进程停派帧、
-/// 暂停脚本定时器，内存允许被 OS 回收；恢复用 `Resume` 再置可见。仅靠
-/// `SetIsVisible(false)` 只停合成、不停定时器，CSS 无限动画仍在空转。
+/// **只用 `controller.SetIsVisible`，绝不调用 `ICoreWebView2_3::TrySuspend`。**
+/// v2.4.2 曾经按微软休眠范式加上 `TrySuspend`/`Resume` —— 那是本条缺陷的根因：
+/// TrySuspend 把渲染进程整体冻结，React 并发调度器排在 `MessageChannel` 上的
+/// 调度回调随之丢失；进程恢复后 `ReactFiberRoot.pendingLanes` 仍有待办更新，
+/// 但 `callbackNode` 永远为空，React 再也不渲染。表现为输入链路、onClick、
+/// zustand store 全部正常，DOM 却一成不变 —— 正好就是用户看到的「按钮全失效、
+/// 切页无反应，只有合成器线程的滚动还能用」。
+///
+/// `SetIsVisible(false)` 让 WebView 进入隐藏态：rAF 停止、定时器降频、内存级别
+/// 可降到 LOW，但渲染进程与 React 调度器都活着，恢复后立即可用。
 pub fn set_main_webview_suspended(app: &tauri::AppHandle, suspended: bool) {
-    // 期望态先于 COM 调用写入：异步挂起回调在任何时序下都能读到最新意图
-    #[cfg(target_os = "windows")]
-    SUSPEND_DESIRED.store(suspended, Ordering::Release);
     #[cfg(target_os = "windows")]
     if let Some(ww) = app.get_webview_window("main") {
         let _ = ww.as_ref().with_webview(move |pw| {
@@ -51,15 +47,12 @@ pub fn set_main_webview_suspended(app: &tauri::AppHandle, suspended: bool) {
     let _ = (app, suspended);
 }
 
-/// 新 WebView 建立/销毁后复位挂起相关静态态：`LAST_MINIMIZED` 与 `SUSPEND_DESIRED`
-/// 都是跨窗口生命周期的进程级标志，轻量化重建窗口后若残留旧值，会让新窗口的
-/// 首个 Resized 事件被去抖吞掉（该恢复时不恢复）。
+/// 新 WebView 建立/销毁后复位挂起相关静态态：`LAST_MINIMIZED` 是跨窗口生命
+/// 周期的进程级标志，轻量化重建窗口后若残留旧值，会让新窗口的首个 Resized
+/// 事件被去抖吞掉（该恢复时不恢复）。
 pub fn reset_suspend_state_for_new_webview() {
     #[cfg(target_os = "windows")]
-    {
-        SUSPEND_DESIRED.store(false, Ordering::Release);
-        LAST_MINIMIZED.store(false, Ordering::Release);
-    }
+    LAST_MINIMIZED.store(false, Ordering::Release);
 }
 
 #[cfg(target_os = "windows")]
@@ -68,7 +61,7 @@ fn apply_webview_suspended(
     suspended: bool,
 ) -> windows_core::Result<()> {
     use webview2_com_sys::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2_19, ICoreWebView2_3, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+        ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
         COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
     };
     use windows_core::Interface;
@@ -76,7 +69,7 @@ fn apply_webview_suspended(
     let controller = pw.controller();
     let core = unsafe { controller.CoreWebView2() }?;
 
-    // 内存目标级别与挂起解耦：挂起期 LOW（尽快归还），恢复后 NORMAL
+    // 内存目标级别与可见性解耦：隐藏期 LOW（尽快归还），恢复后 NORMAL
     if let Ok(icw2_19) = core.cast::<ICoreWebView2_19>() {
         let raw = if suspended {
             COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
@@ -88,103 +81,13 @@ fn apply_webview_suspended(
         };
     }
 
-    let icw2_3 = core.cast::<ICoreWebView2_3>()?;
-    if suspended {
-        // 顺序不可颠倒：IsVisible=false 是 TrySuspend 的前置条件
-        unsafe { controller.SetIsVisible(false) }?;
-        let controller_for_cb = controller.clone();
-        let core_for_cb = core.clone();
-        let handler = webview2_com::TrySuspendCompletedHandler::create(Box::new(
-            move |hr, succeeded| {
-                match (hr, succeeded) {
-                    (Ok(()), true) => {
-                        crate::log_info!("window", "WebView2 已挂起：渲染停帧、脚本定时器暂停")
-                    }
-                    (Ok(()), false) => crate::log_warn!(
-                        "window",
-                        "WebView2 挂起请求未被接受（页面仍有脚本在执行），渲染继续"
-                    ),
-                    (Err(e), _) => crate::log_warn!("window", "WebView2 挂起失败: {}", e),
-                }
-                // 挂起是异步的：回调落地时窗口可能已被唤回（用户最小化后立即点击
-                // 托盘/二次启动），此时期望态已翻回「不挂起」，但先前的 Resume
-                // 抢先于挂起完成、对挂起态无效——必须在这里补一次恢复，否则
-                // 页面永久停在挂起态（合成器滚动可用、主线程事件全失效）。
-                compensate_resume_if_needed(&core_for_cb, &controller_for_cb);
-                Ok(())
-            },
-        ));
-        unsafe { icw2_3.TrySuspend(&handler) }?;
-    } else {
-        // Resume 失败也必须恢复可见：否则窗口可见而 WebView 冻死，且此处错误被
-        // 调用方忽略（见 set_main_webview_suspended），用户只会看到白屏
-        match unsafe { icw2_3.Resume() } {
-            Ok(()) => crate::log_info!("window", "WebView2 已恢复渲染"),
-            Err(e) => crate::log_warn!("window", "WebView2 恢复失败（继续置可见）: {}", e),
-        }
-        unsafe { controller.SetIsVisible(true) }?;
-    }
+    // 只切可见性：渲染进程保持存活，React 调度器与 MessageChannel 都不受影响。
+    // 绝不在此调用 TrySuspend —— 见 set_main_webview_suspended 的文档说明。
+    unsafe { controller.SetIsVisible(!suspended) }?;
     Ok(())
 }
 
-/// 补偿判定（纯函数，单测锁行为）：仅在「期望不挂起」却「实际仍挂起」时补
-/// 一次 Resume。其余组合都交给既有路径，避免重复触碰 COM。
-#[cfg(any(target_os = "windows", test))]
-fn should_compensate_resume(desired_suspended: bool, actual_suspended: bool) -> bool {
-    !desired_suspended && actual_suspended
-}
-
-/// 挂起完成回调里的时序补偿：期望态已翻回「不挂起」但 WebView 实际仍挂起时，
-/// 补一次 Resume + 置可见（幂等：未挂起时不动作）。
-#[cfg(target_os = "windows")]
-fn compensate_resume_if_needed(
-    core_webview: &webview2_com_sys::Microsoft::Web::WebView2::Win32::ICoreWebView2,
-    controller: &webview2_com_sys::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
-) {
-    use webview2_com_sys::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2_19, ICoreWebView2_3, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
-        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
-    };
-    use windows_core::Interface;
-
-    let Ok(icw2_3) = core_webview.cast::<ICoreWebView2_3>() else {
-        return;
-    };
-    let desired = SUSPEND_DESIRED.load(Ordering::Acquire);
-    let mut actual = windows_core::BOOL(0);
-    if unsafe { icw2_3.IsSuspended(&mut actual) }.is_err() {
-        return;
-    }
-    if should_compensate_resume(desired, actual.as_bool()) {
-        crate::log_warn!("window", "挂起回调晚于唤回落地，补一次恢复避免页面冻死");
-        if let Err(e) = unsafe { icw2_3.Resume() } {
-            crate::log_warn!("window", "补偿恢复失败: {}", e);
-        }
-        // 正常恢复分支会把内存目标级别切回 NORMAL，补偿路径同样要切：
-        // 否则前台窗口带着 LOW 级别跑，渲染与动画被持续压预算
-        if let Ok(icw2_19) = core_webview.cast::<ICoreWebView2_19>() {
-            let _ = unsafe {
-                icw2_19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(
-                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL.0,
-                ))
-            };
-        }
-        let _ = unsafe { controller.SetIsVisible(true) };
-    }
-}
-
-/// 对主 WebView 做一次挂起态自愈：`with_webview` 闭包里「取 controller →
-/// CoreWebView2 → 判态补偿」的同一形状，show 后自检与焦点自愈两处共用。
-#[cfg(target_os = "windows")]
-fn compensate_if_still_suspended(pw: &tauri::webview::PlatformWebview) {
-    let controller = pw.controller();
-    if let Ok(core_webview) = unsafe { controller.CoreWebView2() } {
-        compensate_resume_if_needed(&core_webview, &controller);
-    }
-}
-
-/// 窗口焦点变化时调整 WebView2 内存使用目标级别；窗口重新获得焦点时顺带做
-/// 一次挂起态自愈（不确定时序的兜底，见 `compensate_resume_if_needed`）。
+/// 窗口焦点变化时调整 WebView2 内存使用目标级别。
 #[cfg(target_os = "windows")]
 pub fn handle_window_focus_event(window: &Window, event: &WindowEvent) {
     let WindowEvent::Focused(focused) = event else {
@@ -204,19 +107,12 @@ pub fn handle_window_focus_event(window: &Window, event: &WindowEvent) {
         COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW.0)
     };
 
-    // 只对「用户能看见的窗口」自愈：隐藏到托盘/最小化时的焦点事件不该唤醒渲染
-    let visible = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
-    let heal = *focused && visible;
-
     if let Some(ww) = window.app_handle().get_webview_window("main") {
         let _ = ww.as_ref().with_webview(move |pw| {
             let controller = pw.controller();
             if let Ok(core_webview) = unsafe { controller.CoreWebView2() } {
                 if let Ok(icw2_19) = core_webview.cast::<ICoreWebView2_19>() {
                     let _ = unsafe { icw2_19.SetMemoryUsageTargetLevel(level) };
-                }
-                if heal {
-                    compensate_resume_if_needed(&core_webview, &controller);
                 }
             }
         });
@@ -286,40 +182,11 @@ pub fn show_and_focus_main<M: tauri::Manager<tauri::Wry>>(app: &M) {
         mark_hidden_by_design(false);
         let _ = window.unminimize();
         let _ = window.show();
-        // 恢复渲染放在 show 之后：窗口可见时 Resume 才不会被渲染进程判定为
-        // 「不可见」而忽略（挂起态下先 Resume 再 show 的旧顺序是 v2.4.2 冻屏
-        // 缺陷的帮凶）。显式 Resume 仍必要——它让解冻立刻发生，不必等首帧。
+        // show 之后再置可见，避免 WebView 在不可见窗口里恢复时被渲染进程忽略
         set_main_webview_suspended(&window.app_handle(), false);
         let _ = window.set_focus();
-        verify_resumed_after_show(&window.app_handle());
     }
 }
-
-/// show 之后的延迟自检：`TrySuspend` 异步完成回调可能晚于上面的 Resume，
-/// 把页面留在挂起态（v2.4.2 缺陷：按钮/切页全失效、仅合成器滚动可用）。
-/// 这里做两次不依赖时序的最终校验，命中即补恢复；期间用户若再次最小化，
-/// `SUSPEND_DESIRED` 已翻回挂起，补偿逻辑自动不动作。
-#[cfg(target_os = "windows")]
-fn verify_resumed_after_show(app: &tauri::AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        // 首探覆盖常规唤醒；次探覆盖 WebView2 慢启动/进程回收后重建
-        for delay_ms in [250u64, 1000] {
-            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-            let Some(ww) = app.get_webview_window("main") else {
-                return;
-            };
-            // 窗口没真正可见就不自愈：隐藏/最小化是用户意图，别把渲染抢回来
-            if !ww.is_visible().unwrap_or(false) || ww.is_minimized().unwrap_or(false) {
-                return;
-            }
-            let _ = ww.as_ref().with_webview(|pw| compensate_if_still_suspended(&pw));
-        }
-    });
-}
-
-#[cfg(not(target_os = "windows"))]
-fn verify_resumed_after_show(_app: &tauri::AppHandle) {}
 
 /// 统一入口：窗口在则显示聚焦；不在（轻量化已销毁）则重建。
 /// 托盘「显示主窗口」、托盘左键单击、single_instance 回调三处共用。
@@ -392,21 +259,14 @@ fn rebuild_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
 
 #[cfg(test)]
 mod tests {
-    use super::should_compensate_resume;
-
-    /// 挂起回调晚于唤回落地：期望不挂起、实际已挂起 → 必须补 Resume。
-    /// 这是 v2.4.2「最小化后界面按钮全失效、仅能滚动」的根因路径。
+    /// 回归护栏：`ICoreWebView2_3::TrySuspend` 冻结渲染进程会让 React 调度器
+    /// 永久死锁（`pendingLanes` 有待办、`callbackNode` 永空），表现为按钮与
+    /// 切页全失效、仅合成器滚动可用。任何再次引入都会让本用例失败。
     #[test]
-    fn compensates_only_when_wake_arrives_before_suspend_completes() {
-        assert!(should_compensate_resume(false, true));
-    }
-
-    /// 正常挂起（期望挂起 + 实际挂起）、正常恢复（期望不挂起 + 实际不挂起）、
-    /// 挂起被拒（期望挂起 + 实际不挂起）都不该重复触碰 COM。
-    #[test]
-    fn skips_compensation_in_steady_states() {
-        assert!(!should_compensate_resume(true, true));
-        assert!(!should_compensate_resume(false, false));
-        assert!(!should_compensate_resume(true, false));
+    fn never_calls_try_suspend() {
+        // 拼接构造，避免本用例自身的字面量被 include_str 匹配到
+        let needle = concat!(".Try", "Suspend(");
+        let src = include_str!("window.rs");
+        assert!(!src.contains(needle), "window.rs 不得调用 TrySuspend");
     }
 }
