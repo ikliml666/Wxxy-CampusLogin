@@ -98,6 +98,10 @@
     --glass-far: 0 10px 30px -2px rgba(15, 23, 42, 0.16);
     /* 亮色玻璃基色：微冷白，与 #f0f4f8 背景拉开明度差才看得出「浮起来」 */
     --glass-base: #ffffff;
+    /* 玻璃圆角半径。::before / ::after 的横向 mask 要按它算停靠点：
+       FlClash 的 _shineAround 用「圆角半径的倍数」定采样位置（.3r / r / 1.53r），
+       写死 18px 时 .glass-nav 的药丸形（半径≈半高）会整段错位。 */
+    --glass-r: 18px;
     /* 按压光斑的方向与强度：亮色玻璃近纯白，白光叠上去实测 Δ 只有 4（不可见），
        改成「指尖压下去的一点暗」——玻璃被按住处透光变少、读作凹陷。
        注意这两条必须定义在 :root/.dark 而不是 .glass-dock 规则里：
@@ -426,7 +430,7 @@
     box-shadow:
       var(--glass-near),
       var(--glass-far),
-      inset 0 0 0 0.9px rgba(0, 0, 0, calc(var(--glass-rim) * 0.9));
+      inset 0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69));
     position: relative;
     /* 不裁切：::before 的光环要贴到圆角外侧才自然 */
     overflow: visible;
@@ -450,6 +454,19 @@
       --glass-glow-reach 0s;
   }
 
+  /* 启动期实底（JS 侧见 lib/glass-dock.tsx 的 LIVE_FRAMES 与 backdropReady）。
+     悬浮栏的入场补间（useStartupBoost.ts:117-123）会给它打 opacity/transform
+     与 force3D，补间期间**任一祖先层的 opacity<1、transform、独立变换或
+     will-change** 都会让 Chromium 把该层当作 backdrop root：悬浮栏的
+     backdrop-filter 在 root 内采样不到页面内容，被填成黑色，54% 的半透明白膜
+     于是读出「白 54% + 黑 46%」的深灰栏——浅色模式下就是「刚渲染悬浮栏时整条
+     发黑」。滤镜挂上之后 JS 才补 .glass-live，这里先把膜钉成实底，放开时靠
+     上面已有的 --glass-tint 260ms 过渡淡入半透明。 */
+  .glass-dock:not(.glass-live),
+  .glass-nav:not(.glass-live) {
+    --glass-tint: 100%;
+  }
+
   /* ③ 内缘光·顶边（FlClash frag:426-445）。
      facing = normal.y²：顶边法线笔直朝上 → 1，进入圆角后法线转向侧边 → 掉到 0，
      所以亮线只在水平段，到圆角处收掉；左右两侧恒为 0，那条竖边不该有光。
@@ -459,47 +476,62 @@
      横向 mask 按 cos²θ 取样：圆角半径 18px 的 1/4 弧上，θ=0/30/45/60/75/90° 对应
      法线竖直分量 1/.866/.707/.5/.259/0，平方后 1/.75/.5/.25/.067/0 ——
      按弧长换算成 0/2.4/5.3/9/13.3/18px 的位置。线性渐变会被读成一条均匀的边。 */
+  /* 药丸形的半径是栏高的一半（h-14 的 56px 项 + 上下 p-1.5 共 68px → 34px），
+     全局的 18px 是给 .glass-dock 的直角圆角用的。不分开写的话，
+     横向 mask 的端点会错位到 27px（1.53×18），而药丸的弧要到 52px 才走完，
+     圆角段就会出现「亮线在弧上突然出现」的断口。 */
+  .glass-nav {
+    --glass-r: 34px;
+  }
+
   .glass-dock::before,
   .glass-nav::before {
     content: '';
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    /* 只允许纯 offset 的 inset：带 blur 的 inset 阴影会沿左右两侧一起渗出来，
-       实测侧边因此多出一条 +18 的亮线（FlClash 侧边只有 +2，等于没有）。
-       把带宽拆成两条纯线——0.67px 主体 + 1.6px 衰减——两者都只占顶边。 */
-    box-shadow:
-      inset 0 0.67px 0 rgba(255, 255, 255, var(--glass-shine)),
-      inset 0 1.6px 0 -0.1px rgba(255, 255, 255, calc(var(--glass-shine) * 0.34));
+    /* 亮环的深度剖面（frag:437-441 的连续式）：
+       w = max(inset - 0.67, 0)、band = clamp(1 - w/1.3)、tail = clamp(1 - w/4.5)、
+       shine = rim * facing * (0.83*band + 0.17*tail)，
+       其中 rimWidth 1.3 / kRimTail 4.5 / rimTail 0.17 都是 regular() 的值。
+       0.67px 以内留给暗线——shader 里暗线最后画、盖在亮环外面，
+       所以亮环从 0.67px 才起亮，读作「暗边 + 紧贴其内的亮环」两层而不是一圈描边。
+       采样点：0.67→1.00、1.0→0.78、1.5→0.44、2.0→0.12，
+       2px 之后 band 已归零、只剩 tail 那 17% 的长尾，到 5.17px 收尽。 */
+    background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0) 0.67px,
+      rgba(255, 255, 255, calc(var(--glass-shine) * 1)) 0.67px,
+      rgba(255, 255, 255, calc(var(--glass-shine) * 0.78)) 1px,
+      rgba(255, 255, 255, calc(var(--glass-shine) * 0.44)) 1.5px,
+      rgba(255, 255, 255, calc(var(--glass-shine) * 0.12)) 2px,
+      rgba(255, 255, 255, calc(var(--glass-shine) * 0.1)) 2.5px,
+      rgba(255, 255, 255, calc(var(--glass-shine) * 0.069)) 3.35px,
+      rgba(255, 255, 255, 0) 5.17px,
+      rgba(255, 255, 255, 0) 100%
+    );
     -webkit-mask: linear-gradient(
       90deg,
-      transparent 0,
-      rgba(0, 0, 0, 0.067) 4.7px,
-      rgba(0, 0, 0, 0.25) 9px,
-      rgba(0, 0, 0, 0.5) 12.7px,
-      rgba(0, 0, 0, 0.75) 15.6px,
-      #000 18px,
-      #000 calc(100% - 18px),
-      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
-      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
-      rgba(0, 0, 0, 0.25) calc(100% - 9px),
-      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
-      transparent 100%
+      rgba(0, 0, 0, 0.044) 0,
+      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.71) var(--glass-r),
+      #000 calc(var(--glass-r) * 1.53),
+      #000 calc(100% - var(--glass-r) * 1.53),
+      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
+      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.044) 100%
     );
     mask: linear-gradient(
       90deg,
-      transparent 0,
-      rgba(0, 0, 0, 0.067) 4.7px,
-      rgba(0, 0, 0, 0.25) 9px,
-      rgba(0, 0, 0, 0.5) 12.7px,
-      rgba(0, 0, 0, 0.75) 15.6px,
-      #000 18px,
-      #000 calc(100% - 18px),
-      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
-      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
-      rgba(0, 0, 0, 0.25) calc(100% - 9px),
-      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
-      transparent 100%
+      rgba(0, 0, 0, 0.044) 0,
+      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.71) var(--glass-r),
+      #000 calc(var(--glass-r) * 1.53),
+      #000 calc(100% - var(--glass-r) * 1.53),
+      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
+      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.044) 100%
     );
     pointer-events: none;
     z-index: 1;
@@ -515,38 +547,42 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    box-shadow:
-      inset 0 -0.67px 0 rgba(255, 255, 255, calc(var(--glass-shine) * 0.72)),
-      inset 0 -1.6px 0 -0.1px rgba(255, 255, 255, calc(var(--glass-shine) * 0.24));
+    /* 底边同一份剖面（facing = normal.y² 对上下对称），
+       乘 0.72 只是让下缘比顶缘弱一档：暗线在最外圈压得更多。 */
+    background-image: linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0) 0.67px,
+      rgba(255, 255, 255, calc(calc(var(--glass-shine) * 0.72) * 1)) 0.67px,
+      rgba(255, 255, 255, calc(calc(var(--glass-shine) * 0.72) * 0.78)) 1px,
+      rgba(255, 255, 255, calc(calc(var(--glass-shine) * 0.72) * 0.44)) 1.5px,
+      rgba(255, 255, 255, calc(calc(var(--glass-shine) * 0.72) * 0.12)) 2px,
+      rgba(255, 255, 255, calc(calc(var(--glass-shine) * 0.72) * 0.1)) 2.5px,
+      rgba(255, 255, 255, calc(calc(var(--glass-shine) * 0.72) * 0.069)) 3.35px,
+      rgba(255, 255, 255, 0) 5.17px,
+      rgba(255, 255, 255, 0) 100%
+    );
     -webkit-mask: linear-gradient(
       90deg,
-      transparent 0,
-      rgba(0, 0, 0, 0.067) 4.7px,
-      rgba(0, 0, 0, 0.25) 9px,
-      rgba(0, 0, 0, 0.5) 12.7px,
-      rgba(0, 0, 0, 0.75) 15.6px,
-      #000 18px,
-      #000 calc(100% - 18px),
-      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
-      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
-      rgba(0, 0, 0, 0.25) calc(100% - 9px),
-      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
-      transparent 100%
+      rgba(0, 0, 0, 0.044) 0,
+      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.71) var(--glass-r),
+      #000 calc(var(--glass-r) * 1.53),
+      #000 calc(100% - var(--glass-r) * 1.53),
+      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
+      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.044) 100%
     );
     mask: linear-gradient(
       90deg,
-      transparent 0,
-      rgba(0, 0, 0, 0.067) 4.7px,
-      rgba(0, 0, 0, 0.25) 9px,
-      rgba(0, 0, 0, 0.5) 12.7px,
-      rgba(0, 0, 0, 0.75) 15.6px,
-      #000 18px,
-      #000 calc(100% - 18px),
-      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
-      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
-      rgba(0, 0, 0, 0.25) calc(100% - 9px),
-      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
-      transparent 100%
+      rgba(0, 0, 0, 0.044) 0,
+      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.71) var(--glass-r),
+      #000 calc(var(--glass-r) * 1.53),
+      #000 calc(100% - var(--glass-r) * 1.53),
+      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
+      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.044) 100%
     );
     pointer-events: none;
     z-index: 2;

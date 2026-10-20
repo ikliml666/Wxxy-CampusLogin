@@ -64,35 +64,148 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
   },
 }
 
+/** 首次挂载要等布局稳下来多久（毫秒），以及等不到的兜底上限 */
+const SETTLE_MS = 400
+const MAX_WAIT_MS = 2500
+/** 滤镜挂上之后再等几帧才放开半透明（见 useGlassRefraction 里的注释） */
+const LIVE_FRAMES = 2
+
 /**
  * 给悬浮栏挂上折射玻璃。`level === 'off'` 或引擎不支持时不做任何事
  * （CSS 的 `data-glass="off"` 已经是真零滤镜）。
+ *
+ * 首次挂载要**等布局稳定**再挂，不能 render 完立刻挂：启动那两百毫秒里悬浮栏
+ * 宽度还在抖（实测 651 → 553 → 651，中间一路涨回），Hyalite 会按每一个中间
+ * 尺寸重建位移图。等的这段不算空窗：CSS 侧是 `var(--hyalite, blur(…) saturate(…))`，
+ * 没挂滤镜时自然落到模糊降级，观感是「先磨砂、再显现折射」。
+ *
+ * 「整条发黑」的根因是**祖先层在建合成层**，不是滤镜重建：GSAP 的入场补间
+ * 给悬浮栏本身打 `opacity: 0→1` / `y: 40→0` / `scale: 0.85→1` 并带 `force3D`
+ * （useStartupBoost.ts:117-123），补间期间祖先链上出现 `opacity < 1`、`transform`、
+ * 独立变换属性（`translate`/`scale`）或 `will-change` —— **任一**都会让 Chromium
+ * 把这一层当作 backdrop root，悬浮栏的 backdrop-filter 在 root 内采样不到页面
+ * 内容，被填成黑色；54% 的半透明白膜于是读出「白 54% + 黑 46%」的深灰条。
+ *
+ * 实测（桌面端 vite mock + CDP screencast 逐帧亮度，见 changelog）：
+ * - 只盯 `opacity` 不够。把补间里的 opacity 去掉、只留 y/scale，暗期照旧
+ *   （帧 95-124 恒 avg 137、min 47，约 400ms）——说明 `transform` 本身就足以建 root。
+ * - 补上 `transform`/独立变换/`will-change` 三项检查后暗期消失：帧亮度从 252.7
+ *   平滑走到 233.7，全程无 `dark%` 尖峰；浅色、深色两端各测一次均如此。
+ * - 稳定后再 `detach`+`attach` 一次不黑，排除「滤镜首次编译」这个假设。
+ *
+ * 所以启动期由 CSS 侧把膜钉成实底（`.glass-dock:not(.glass-live)`），并且
+ * **等整条祖先链落回「不透明 + 无变换 + 无 will-change」再挂**滤镜：挂上两帧后
+ * 才补 `.glass-live` 放开半透明（有 260ms 过渡，读作一次材质变化而不是闪一下换皮）。
  */
 export function useGlassRefraction(
   ref: RefObject<HTMLElement | null>,
   level: 'off' | 'standard' | 'ultra',
 ) {
   const attached = useRef(false)
+  // 已经熬过一次启动期的抖动：之后换档位尺寸不再变，直接挂即可
+  const settled = useRef(false)
 
   useEffect(() => {
     const el = ref.current
     const hyalite = window.Hyalite
     if (!el || !hyalite) return
 
-    if (level === 'off' || !hyalite.supported()) {
+    const remove = () => {
       if (attached.current) {
         hyalite.detach(el)
         attached.current = false
       }
-      return
     }
 
-    hyalite.attach(el, GLASS_DOCK_OPTS[level])
-    attached.current = true
+    // .glass-live 只在卸载时拆：换档位是 remove→attach 紧挨着发生的，
+    // 中途拆掉会让膜落回实底、闪两帧再淡回来。
+    const cleanup = () => {
+      remove()
+      el.classList.remove('glass-live')
+    }
+
+    if (level === 'off' || !hyalite.supported()) {
+      remove()
+      return cleanup
+    }
+
+    const attach = () => {
+      remove()
+      if (!el.isConnected) return
+      hyalite.attach(el, GLASS_DOCK_OPTS[level])
+      attached.current = true
+      settled.current = true
+      // 滤镜这一帧画完再放开透明：见上方注释，启动期是实底不是半透明。
+      let frames = LIVE_FRAMES
+      const live = () => {
+        if (frames-- > 0) requestAnimationFrame(live)
+        else el.classList.add('glass-live')
+      }
+      requestAnimationFrame(live)
+    }
+
+    if (settled.current) {
+      attach()
+      return cleanup
+    }
+
+    const startedAt = performance.now()
+    let settle = 0
+    let deadline = 0
+    let raf = 0
+    let polling = false
+    let done = false
+
+    /** 整条祖先链不透明、也不带变换时 backdrop 才采样得到页面内容 */
+    const backdropReady = () => {
+      for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+        const cs = getComputedStyle(node)
+        if (cs.opacity !== '1') return false
+        if (cs.transform !== 'none' && cs.transform !== 'matrix(1, 0, 0, 1, 0, 0)') return false
+        // GSAP 的 force3D 会改写这些独立变换属性，它们不进 transform 却同样建 backdrop root
+        if (cs.translate !== 'none' || cs.scale !== 'none' || cs.rotate !== 'none') return false
+        if (cs.willChange !== 'auto') return false
+      }
+      return true
+    }
+
+    // 逐帧等到祖先都落回不透明；超时说明遇到了预料外的常驻半透明层，
+    // 此时挂上去只会一直黑，宁可留在实底。
+    const poll = () => {
+      if (done || !el.isConnected) return
+      if (backdropReady() || performance.now() - startedAt >= MAX_WAIT_MS) {
+        done = true
+        attach()
+        return
+      }
+      raf = requestAnimationFrame(poll)
+    }
+
+    let ro: ResizeObserver | null = null
+    const finish = () => {
+      clearTimeout(settle)
+      clearTimeout(deadline)
+      ro?.disconnect()
+      if (polling) return
+      polling = true
+      poll()
+    }
+
+    ro = new ResizeObserver(() => {
+      // 尺寸还在变：把挂载往后推，最后稳定 SETTLE_MS 之后才挂
+      clearTimeout(settle)
+      settle = window.setTimeout(finish, SETTLE_MS)
+    })
+    ro.observe(el)
+    settle = window.setTimeout(finish, SETTLE_MS)
+    deadline = window.setTimeout(finish, MAX_WAIT_MS)
 
     return () => {
-      hyalite.detach(el)
-      attached.current = false
+      clearTimeout(settle)
+      clearTimeout(deadline)
+      cancelAnimationFrame(raf)
+      ro?.disconnect()
+      cleanup()
     }
   }, [ref, level])
 }
