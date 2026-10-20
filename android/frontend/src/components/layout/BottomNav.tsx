@@ -44,18 +44,10 @@ export function BottomNav({ tab, onChange }: {
       style={{ bottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
     >
       <div
-        className={cn(
-          'glass-nav pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none',
-          'border border-transparent shadow-[0_10px_36px_rgba(30,34,90,0.14),0_2px_10px_rgba(30,34,90,0.08)]',
-          'dark:shadow-[0_10px_36px_rgba(0,0,0,0.42),0_2px_10px_rgba(0,0,0,0.28)]'
-        )}
-        style={{
-          // 走 --glass-tint：off 档 tint=100% 即全实底，档位切换时底栏密度同步变化
-          background: 'color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)',
-          // 走档位变量（主题对话框三档），别写死：写死会让底栏在切换档位时纹丝不动
-          backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
-          WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
-        }}
+        // 玻璃全部交给 CSS 的 .glass-nav（与桌面 .glass-dock 同源）：底色、模糊、
+        // 分层阴影、光泽层、发丝线都在那里定义。这里再写 inline 会因优先级更高把
+        // CSS 压成死代码，档位也只剩 inline 那几条在跟随，观感与桌面 dock 不一致。
+        className="glass-nav pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent"
       >
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底 */}
         <div className="flex flex-1 min-w-0 items-center justify-around gap-2">

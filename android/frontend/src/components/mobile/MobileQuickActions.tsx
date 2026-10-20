@@ -51,13 +51,6 @@ export function MobileQuickActions() {
             'transition-all motion-reduce:transition-none',
             'active:scale-[0.97] motion-reduce:active:scale-100 disabled:opacity-50 disabled:shadow-none'
           )}
-          style={{
-            background:
-              'color-mix(in srgb, var(--primary) 12%, color-mix(in srgb, var(--surface-main) 82%, transparent))',
-            // 走档位变量（主题对话框三档），别写死：写死会让这个浮层在切换档位时纹丝不动
-            backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
-            WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
-          }}
         >
           <LogOut className="h-5 w-5" />
           {isLoggingOut ? t('auth.loggingOut') : t('auth.logout')}

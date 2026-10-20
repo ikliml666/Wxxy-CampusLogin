@@ -315,11 +315,13 @@
   }
 
   /* 磨砂 tonal 按钮(快捷注销等):玻璃基底叠主色调;暗色档显著提亮(主色占比 26%),
-     避免与暗色卡片同色调糊底——M3 暗色 tonal container 即远亮于 surface 的做法 */
+     避免与暗色卡片同色调糊底——M3 暗色 tonal container 即远亮于 surface 的做法。
+     注意 --primary 存的是 HSL 分量（239 84% 61%）不是完整颜色，color-mix 里必须
+     用 hsl(var(--primary)) 包起来，否则整条声明失效、底色变透明。 */
   .btn-tonal-glass {
     background: color-mix(
       in srgb,
-      var(--primary) 12%,
+      hsl(var(--primary)) 12%,
       color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)
     );
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
@@ -329,30 +331,40 @@
   .dark .btn-tonal-glass {
     background: color-mix(
       in srgb,
-      var(--primary) 26%,
+      hsl(var(--primary)) 26%,
       color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)
     );
   }
 
   /* ── 悬浮坞：导航 Dock 用的玻璃。档位变量与卡片共用，只是半径更大、
      模糊更强、且保留 ::before 的斜向光泽（Dock 是浮在内容上的"物体"，
-     需要比卡片更强的体积感） */
-  .glass-dock {
+     需要比卡片更强的体积感）。
+     手机底栏 .glass-nav 与桌面 .glass-dock 同源：此前 .glass-nav 在样式里
+     只有 off 档的关闭规则、没有任何基础定义，玻璃全靠组件的三行 inline，
+     桌面那套光泽层/发丝线/分层阴影一条都没跟过来，所以看起来"没有玻璃"。
+     半径留在各自类上（dock 18px 圆角、nav 药丸由 Tailwind rounded-full 定）。 */
+  .glass-dock,
+  .glass-nav {
     background: var(--glass-card);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-    border-radius: 18px;
     /* 不设 border：整圈描边在暗底上会变成一圈亮框，dock 的边界感交给阴影与
        上缘高光。 */
     box-shadow:
       var(--glass-near),
       var(--glass-far);
     position: relative;
-    contain: style;
+    /* 不裁切：::before 的光泽与 ::after 的压线要贴到圆角外侧才自然 */
     overflow: visible;
   }
 
-  .glass-dock::before {
+  .glass-dock {
+    border-radius: 18px;
+    contain: style;
+  }
+
+  .glass-dock::before,
+  .glass-nav::before {
     content: '';
     position: absolute;
     inset: 0;
@@ -371,7 +383,8 @@
     z-index: 1;
   }
 
-  .glass-dock::after {
+  .glass-dock::after,
+  .glass-nav::after {
     content: '';
     position: absolute;
     top: 0;
