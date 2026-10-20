@@ -58,9 +58,15 @@ export interface OnboardingFlowOptions {
   onUpdateConfig: (partial: Partial<Config>) => void
   onLogin: () => Promise<boolean>
   onClose: () => void
+  /**
+   * 可选：宿主接管自动跳步动画。绑定成功后的 1.2s 会自动进入完成步，
+   * 直接 setStep 会让新卡瞬间闪现——宿主传自己的带出场/入场动画的切步函数即可。
+   * 不传时保持原样（平板等无卡堆动画的场景）。
+   */
+  onAutoAdvance?: (next: number) => void
 }
 
-export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: OnboardingFlowOptions) {
+export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAutoAdvance }: OnboardingFlowOptions) {
   const { t } = useTranslation()
   const language = useConfigStore((s) => s.language)
   const setLanguage = useConfigStore((s) => s.setLanguage)
@@ -155,8 +161,12 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
         setBindRefreshTick((v) => v + 1)
         if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
         bindTimerRef.current = setTimeout(() => {
-          direction.current = 1
-          setStep(3)
+          if (onAutoAdvance) {
+            onAutoAdvance(3)
+          } else {
+            direction.current = 1
+            setStep(3)
+          }
           setBindState('idle')
         }, BIND_SUCCESS_ADVANCE_MS)
       } else {
@@ -167,7 +177,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
       setBindError(extractErrorMessage(err) || t('onboarding.bindFailed'))
       setBindState('error')
     }
-  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, t])
+  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, onAutoAdvance, t])
 
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
@@ -286,7 +296,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose }: On
     // 流程
     language, setLanguage,
     loginSuccess, showCloseConfirm, setShowCloseConfirm,
-    advance, goNext, handleSkip, handleLoginAndFinish,
+    advance, goNext, handleNext, handleSkip, handleLoginAndFinish,
   }
 }
 

@@ -135,6 +135,11 @@
       }
       return ok({ cmcc: entry('cmcc'), telecom: entry('telecom'), unicom: entry('unicom') })
     },
+    // 绑定运营商：mock 直接成功（?bindfail=1 可看失败路径）
+    bind_operator: function () {
+      try { if (window.location.search.indexOf('bindfail') >= 0) return { success: false, message: '运营商账号或密码错误（mock）', data: null } } catch (e) {}
+      return sleep(400).then(function () { return ok(null, '绑定成功（mock）') })
+    },
     check_campus_status: function () {
       return ok({
         online: true, connected: true, enableNetworkNameCheck: false, requiredNetworkName: '',

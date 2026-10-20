@@ -134,6 +134,11 @@
       }
       return ok({ cmcc: entry('cmcc'), telecom: entry('telecom'), unicom: entry('unicom') })
     },
+    // 绑定运营商：mock 直接成功（?bindfail=1 可看失败路径）
+    bind_operator: function () {
+      try { if (window.location.search.indexOf('bindfail') >= 0) return { success: false, message: '运营商账号或密码错误（mock）', data: null } } catch (e) {}
+      return sleep(400).then(function () { return ok(null, '绑定成功（mock）') })
+    },
     // 注意：check_campus_status / check_portal_status 在 tauriApi.ts 中是 invoke<CampusStatusResult> / invoke<PortalStatusResult>
     // ——平铺形状（真实后端直接返回结构体），不能用 ok() 包裹，否则 onCampusNetwork/online 读到 undefined 被判离线
     check_campus_status: function () { return { online: true, connected: true, onCampusNetwork: true, currentSsid: null, campusMessage: '校园网在线（mock）', enableNetworkNameCheck: true, requiredNetworkName: '', campusWifi: { onCampus: true, message: '校园网 Wi-Fi 在线（mock）' }, campusWired: { onCampus: true, message: '校园网有线在线（mock）' } } },

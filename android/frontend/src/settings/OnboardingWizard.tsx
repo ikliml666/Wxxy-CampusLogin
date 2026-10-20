@@ -106,9 +106,13 @@ function DeckArrow({ dir, disabled, label, onClick }: {
  */
 export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLoggingIn }: OnboardingWizardProps) {
   const { t } = useTranslation()
-  const f = useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose })
+  // 绑定成功后 hook 会自己 1.2s 后跳到完成步，直接 setStep 会跳过切步动画（新卡瞬间闪现）。
+  // deckAdvance 定义在下文（依赖本组件的步进动画状态），这里用 ref 把它交给 hook。
+  const deckAdvanceRef = useRef<(next: number) => void>(() => {})
+  const handleAutoAdvance = useCallback((next: number) => deckAdvanceRef.current(next), [])
+  const f = useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAutoAdvance: handleAutoAdvance })
   const {
-    step, advance, goNext, handleSkip, handleLoginAndFinish,
+    step, advance, handleNext, handleSkip, handleLoginAndFinish,
     username, setUsername, password, setPassword, showPassword, setShowPassword, passwordSaved,
     operator, setOperator,
     bindOperatorValue, setBindOperatorValue, phone, setPhone,
@@ -189,11 +193,15 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
     }
   }
 
+  deckAdvanceRef.current = deckAdvance
+
   const deckGoNext = () => {
-    // 账号步校验不通过时 goNext 内部不放行，但卡片不能先滑走——
-    // 这里用 canProceedAccount 提前判断，避免「滑走又弹回」
-    if (step === 1 && !canProceedAccount) return
-    goNext()
+    // 必须走 deckAdvance（带出场飞起 + 入场浮起），不能直接调 goNext——
+    // goNext 内部是 hook 的 advance（只有 setStep），会绕过全部切步动画，
+    // 导致前进与后退看起来是同一个层位过渡。
+    // 账号步校验不通过时留在原地：先 handleNext 落盘并拿到放行结果，再驱动动画。
+    if (!handleNext()) return
+    deckAdvance(step + 1)
   }
 
   const focusedOperatorKey = OPERATOR_KEY_BY_VALUE[bindOperatorValue] ?? null
@@ -529,22 +537,23 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                     )}
                   </div>
 
-                  {/* 卡底三列网格：左=步骤说明，中=导航（恒居中），右=末步登录入口。
-                      三列固定后，最后一页多出的登录按钮只占右列，导航位置不变。 */}
-                  {/* 三列网格：左图标 / 中导航 / 右末步操作。窄屏右列放不下按钮时，
-                        改为「上一行导航、下一行操作」两段式（用 flex-wrap + 宽度断点） */}
-                    <div className="mt-5 flex shrink-0 flex-wrap items-center justify-between gap-3 min-[520px]:grid min-[520px]:grid-cols-[1fr_auto_1fr]">
-                    <div className="flex min-w-0 items-center gap-2.5">
+                  {/* 卡底：宽屏三列网格（左=步骤说明 / 中=导航 / 右=末步登录入口），
+                      导航恒居中不被末步按钮挤动；窄屏（手机）放不下三列，
+                      改为「导航恒在第一行 + 末步操作在第二行」，第二行在非末步也占位，
+                      这样导航行 y 坐标在所有步骤完全一致，不会因登录按钮出现而位移。 */}
+                    <div className="mt-5 flex shrink-0 flex-col min-[520px]:grid min-[520px]:grid-cols-[1fr_auto_1fr] min-[520px]:items-center min-[520px]:gap-3">
+                    {/* 窄屏（手机）整列隐藏：只剩图标会孤零零飘在导航左侧，
+                        步骤信息已由中间页码胶囊表达 */}
+                    <div className="flex min-w-0 items-center gap-2.5 max-[520px]:hidden">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                         <StepIcon className="h-3.5 w-3.5" />
                       </div>
-                      {/* 窄屏（手机）左列放不下整句，隐藏文字只留图标；页码由中间胶囊表达 */}
-                      <span className="truncate text-xs text-muted-foreground max-[520px]:hidden">
+                      <span className="truncate text-xs text-muted-foreground">
                         {t('onboarding.stepOf', { n: i + 1, total: STEP_COUNT })}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center gap-2 min-[520px]:justify-start">
                       <DeckArrow
                         dir="prev"
                         disabled={!isTop || i === 0}
@@ -562,7 +571,9 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                       />
                     </div>
 
-                    <div className={cn('flex items-center justify-end gap-2', i === STEP_COUNT - 1 && 'max-[520px]:w-full')}>
+                    {/* 末步操作：宽屏在右侧列；窄屏独占第二行并恒定占位 h-10，
+                        非末步留空也不塌陷，导航行因此永不位移 */}
+                    <div className="flex h-10 items-center justify-end gap-2 max-[520px]:mt-1 max-[520px]:justify-center min-[520px]:h-auto">
                       {i === STEP_COUNT - 1 && (
                         <>
                           <button
