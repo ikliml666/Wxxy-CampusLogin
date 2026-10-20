@@ -31,7 +31,11 @@ import type { HyaliteOptions } from './vendor/hyalite.d.ts'
  *
  *  ultra 开 dispersion（色散，单位像素）——FlClash 的 ultra 靠更大的
  *  refraction/bevel 表达层级差，CSS 无折射能力，色散是这里唯一还能加的
- *  「物理厚度」线索；代价是滤镜走三通道叠加。 */
+ *  「物理厚度」线索；代价是滤镜走三通道叠加。
+ *
+ *  bevel 的硬约束：不能超过 border-radius（悬浮栏是 18px）。Hyalite 的倒角
+ *  从边缘往内铺开 bevel 宽，超出圆角半径的部分会绕过圆角的弧，在那一小段
+ *  叠出第二道弧——屏幕上是「边框有重影 / 和背景没对齐」。 */
 export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
   standard: {
     bevel: 18,
@@ -43,10 +47,15 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
     rim: 1.5,
     smooth: 1,
   },
+  /* ultra 的 bevel 必须 <= border-radius（双击证过：bevel 26 > radius 18 时
+     圆角处出现两道同心弧，读成「边框有重影」；把 bevel 压到 18 后变回单条）。
+     位移量级改用 thickness 补——bevel 只管弯折带宽，thickness 才是厚度，
+     thickness 从 180 提到 400、slope 到上限 4，maxDisplacement 反而从
+     49.2 升到 52.2，折射更强而不是更弱。 */
   ultra: {
-    bevel: 26,
-    thickness: 180,
-    slope: 3.2,
+    bevel: 18,
+    thickness: 400,
+    slope: 4,
     blur: 2,
     dispersion: 2,
     shade: 0.58,
