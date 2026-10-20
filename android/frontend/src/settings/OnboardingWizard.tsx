@@ -24,7 +24,7 @@ import { APP_NAME } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
 import { cn } from '@/lib/utils'
 import { badgeVariants } from '@/components/ui/badge'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   useOnboardingFlow,
   OPERATOR_KEY_BY_VALUE,
@@ -61,6 +61,8 @@ const STACK_LAYERS = [
 // 出场：先竖直飞起并微旋（swap 的 50% 帧），260ms 后清标记并切步，
 // 同一批次里它的层位变成队尾档，transition 让它从上方平滑落回队尾
 const EXIT_UP_MS = 240
+// 卡片统一高度的兜底（首帧测量出来前用它顶一下）
+const DECK_CARD_HEIGHT_FALLBACK = 'min(610px, 80vh)'
 const STACK_TRANSITION = 'transform .24s ease'
 const deckTransform = (y: number, scale: number) =>
   `translate(-50%, calc(-50% + ${y}px)) scale(${scale})`
@@ -124,6 +126,43 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // 卡片统一高度 = 各步内容自然高度里的最大值（取「内容最多的那步」为统一值）：
+  // 短内容步靠底部留白填平，切步时卡高不跳。
+  const cardRefs = useRef<Array<HTMLDivElement | null>>([])
+  const contentRefs = useRef<Array<HTMLDivElement | null>>([])
+  const [deckCardHeight, setDeckCardHeight] = useState(0)
+  const measureDeck = useCallback(() => {
+    let max = 0
+    for (let i = 0; i < STEP_COUNT; i++) {
+      const card = cardRefs.current[i]
+      const content = contentRefs.current[i]
+      const inner = content?.firstElementChild as HTMLElement | null
+      if (!card || !content || !inner) continue
+      // 内容区是 flex-1 撑满卡高的，直接量只能读到当前卡高（自我反馈，永远量不准）。
+      // 把卡高临时放开成 auto 让内容决定自然尺寸，量完立刻还原。
+      const prevHeight = card.style.height
+      card.style.height = 'auto'
+      // 读卡自身 scrollHeight 而非「内层 + 内边距」推算：窄屏换行与滚动条宽度会让两者差几像素
+      const needed = Math.max(card.scrollHeight, inner.offsetHeight)
+      card.style.height = prevHeight
+      if (needed > max) max = needed
+    }
+    if (max > 0) {
+      const next = Math.min(max, Math.max(400, window.innerHeight - 160))
+      setDeckCardHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next))
+    }
+  }, [])
+
+  // 内容规模随步骤状态变化（绑定状态面板、语言切换都会改高度），每次变化重测一次；
+  // useLayoutEffect 保证在绘制前完成，不闪一帧旧尺寸
+  useLayoutEffect(() => {
+    if (!open) return
+    measureDeck()
+    // 首帧 Portal 里的卡片 ref 可能还没挂上（量到 0），下一帧补测一次
+    const raf = requestAnimationFrame(measureDeck)
+    return () => cancelAnimationFrame(raf)
+  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, language, password])
+
   useEffect(() => {
     return () => {
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
@@ -180,7 +219,10 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
             </DialogPrimitive.Close>
         {/* 卡片堆：卡片以容器中心对齐（left/top 50% + translate(-50%,-50%)），
             层位只改 y 与 scale，故始终围绕同一中心向上收叠 */}
-        <div className="relative h-[min(660px,86vh)] w-full">
+        <div
+          className="relative w-full"
+          style={{ height: deckCardHeight ? deckCardHeight * 1.05 + 60 : 'calc(min(610px, 80vh) * 1.05 + 60px)' }}
+        >
           {Array.from({ length: STEP_COUNT }, (_, i) => {
             const pos = (i - step + STEP_COUNT) % STEP_COUNT
             const layer = STACK_LAYERS[Math.min(pos, STACK_LAYERS.length - 1)]
@@ -195,8 +237,9 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                 // 被盖住的卡仍在 DOM 里，仅靠 pointer-events-none 挡不住 Tab 聚焦，
                 // inert 才是「整棵子树不可交互/不可聚焦」的正确语义
                 inert={!isTop || isExiting}
+                ref={(el) => { cardRefs.current[i] = el }}
                 className={cn(
-                  'absolute left-1/2 top-1/2 flex h-[min(610px,80vh)] w-[88%] flex-col rounded-[2rem] p-7',
+                  'absolute left-1/2 top-1/2 flex w-[88%] flex-col rounded-[2rem] p-7',
                   // 项目统一卡面：靠柔光阴影 + 顶部高光区分层次，不用描边线
                   'onboarding-deck-card',
                   isTop ? 'pointer-events-auto' : 'pointer-events-none',
@@ -205,6 +248,8 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                   // 背景与圆角走内联：全局 `.bg-card` 规则带 !important，会把圆角压回 16px
                   background: 'hsl(var(--card))',
                   borderRadius: '2rem',
+                  // 统一卡高：所有卡取各步内容需求的最大值，切步时高度不跳
+                  height: deckCardHeight || DECK_CARD_HEIGHT_FALLBACK,
                   transform: isExiting
                     ? EXIT_UP_TRANSFORM
                     : isEntering ? ENTER_FROM_TRANSFORM : deckTransform(layer.y, layer.scale),
@@ -220,9 +265,11 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                   </div>
 
                   {/* 步骤内容（表单可能超长，卡内独立滚动） */}
-                  <div className="mt-3 flex-1 min-h-0 overflow-y-auto pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
+                  <div
+                    ref={(el) => { contentRefs.current[i] = el }}
+                    className="mt-3 flex-1 min-h-0 overflow-y-auto pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
                     {i === 0 && (
-                      <div className="flex h-full flex-col items-center justify-center space-y-4 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-4 text-center">
                         <MascotFigure variant="welcome" size="md" />
                         <div className="space-y-2">
                           <h2 className="text-[19px] font-bold leading-tight text-foreground">
@@ -484,12 +531,15 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
 
                   {/* 卡底三列网格：左=步骤说明，中=导航（恒居中），右=末步登录入口。
                       三列固定后，最后一页多出的登录按钮只占右列，导航位置不变。 */}
-                  <div className="mt-5 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
+                  {/* 三列网格：左图标 / 中导航 / 右末步操作。窄屏右列放不下按钮时，
+                        改为「上一行导航、下一行操作」两段式（用 flex-wrap + 宽度断点） */}
+                    <div className="mt-5 flex shrink-0 flex-wrap items-center justify-between gap-3 min-[520px]:grid min-[520px]:grid-cols-[1fr_auto_1fr]">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                         <StepIcon className="h-3.5 w-3.5" />
                       </div>
-                      <span className="truncate text-xs text-muted-foreground">
+                      {/* 窄屏（手机）左列放不下整句，隐藏文字只留图标；页码由中间胶囊表达 */}
+                      <span className="truncate text-xs text-muted-foreground max-[520px]:hidden">
                         {t('onboarding.stepOf', { n: i + 1, total: STEP_COUNT })}
                       </span>
                     </div>
@@ -512,7 +562,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                       />
                     </div>
 
-                    <div className="flex items-center justify-end gap-2">
+                    <div className={cn('flex items-center justify-end gap-2', i === STEP_COUNT - 1 && 'max-[520px]:w-full')}>
                       {i === STEP_COUNT - 1 && (
                         <>
                           <button

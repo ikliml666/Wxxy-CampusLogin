@@ -30,7 +30,7 @@ import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { cn, safeStorage } from '@/lib/utils'
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { extractErrorMessage } from '@/lib/utils'
 import { useHelloGate } from '@/account/selfServiceState'
@@ -87,6 +87,10 @@ const STACK_LAYERS = [
 ] as const
 // 出场两段：先竖直飞起并微旋（ease-in），再落回队尾（ease-out）——参考的 swap 关键帧
 const EXIT_UP_MS = 240
+// 所有卡统一高度（取内容最多的「绑定运营商账号」步）；内容少的步底部留白由此而来，
+// 换成测量会让卡高随内容反馈自激，短内容步高度还会来回跳
+// 卡片统一高度的兜底（首帧测量出来前用它顶一下）
+const DECK_CARD_HEIGHT_FALLBACK = 'min(630px, calc(100vh - 140px))'
 const STACK_TRANSITION = 'transform .24s ease'
 const deckTransform = (y: number, scale: number) =>
   `translate(-50%, calc(-50% + ${y}px)) scale(${scale})`
@@ -166,6 +170,44 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const [statusQuerying, setStatusQuerying] = useState(false)
   const [statusError, setStatusError] = useState('')
   const [bindRefreshTick, setBindRefreshTick] = useState(0)
+
+  // 卡片统一高度 = 各步内容自然高度里的最大值（取「内容最多的那步」为统一值）：
+  // 短内容步靠底部留白填平，切步时卡高不跳。
+  const cardRefs = useRef<Array<HTMLDivElement | null>>([])
+  const contentRefs = useRef<Array<HTMLDivElement | null>>([])
+  const [deckCardHeight, setDeckCardHeight] = useState(0)
+  const measureDeck = useCallback(() => {
+    let max = 0
+    for (let i = 0; i < STEP_COUNT; i++) {
+      const card = cardRefs.current[i]
+      const content = contentRefs.current[i]
+      const inner = content?.firstElementChild as HTMLElement | null
+      if (!card || !content || !inner) continue
+      // 内容区是 flex-1 撑满卡高的，直接量只能读到当前卡高（自我反馈，永远量不准）。
+      // 把卡高临时放开成 auto 让内容决定自然尺寸，读卡自身的 scrollHeight，量完立刻还原。
+      // 不用「内层高度 + 卡内边距」推算：窄屏换行、滚动条宽度会让两者差出几像素。
+      const prevHeight = card.style.height
+      card.style.height = 'auto'
+      const needed = Math.max(card.scrollHeight, inner.offsetHeight)
+      card.style.height = prevHeight
+      if (needed > max) max = needed
+    }
+    if (max > 0) {
+      // 视口兜底：不超过窗口可用高度，否则整堆会溢出屏幕
+      const next = Math.min(max, Math.max(420, window.innerHeight - 150))
+      setDeckCardHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next))
+    }
+  }, [])
+
+  // 内容规模随步骤状态变化（绑定状态面板、双适配器下拉都会改高度），每次变化重测一次；
+  // useLayoutEffect 保证在绘制前完成，不闪一帧旧尺寸
+  useLayoutEffect(() => {
+    if (!open) return
+    measureDeck()
+    // 首帧 Portal 里的卡片 ref 可能还没挂上（量到 0），下一帧补测一次
+    const raf = requestAnimationFrame(measureDeck)
+    return () => cancelAnimationFrame(raf)
+  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, dualAdapter, operator, language, adapters.length])
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -412,7 +454,11 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
         {/* 卡片堆：只有卡片本身可见，弹窗外壳与遮罩全部透明；
             卡片以容器中心对齐（left/top 50% + translate(-50%,-50%)），
             层位只改 y 与 scale，故始终围绕同一中心向上收叠 */}
-        <div className="relative h-[min(690px,calc(100vh-80px))] w-full">
+        <div
+          className="relative w-full"
+          // 堆容器 = 统一卡高 × 最外层放大 1.05 + 上下留白，卡高等高故整体不跳
+          style={{ height: deckCardHeight ? deckCardHeight * 1.05 + 64 : 'calc(min(630px, 100vh - 140px) * 1.05 + 64px)' }}
+        >
           {Array.from({ length: STEP_COUNT }, (_, i) => {
             const pos = (i - step + STEP_COUNT) % STEP_COUNT
             const layer = STACK_LAYERS[Math.min(pos, STACK_LAYERS.length - 1)]
@@ -427,8 +473,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                 // 被盖住的卡仍在 DOM 里，仅靠 pointer-events-none 挡不住 Tab 聚焦，
                 // inert 才是「整棵子树不可交互/不可聚焦」的正确语义
                 inert={!isTop || isExiting}
+                ref={(el) => { cardRefs.current[i] = el }}
                 className={cn(
-                  'absolute left-1/2 top-1/2 flex h-[min(630px,calc(100vh-140px))] w-[88%] flex-col rounded-[2rem] p-8',
+                  'absolute left-1/2 top-1/2 flex w-[88%] flex-col rounded-[2rem] p-8',
                   // 项目统一卡面：靠柔光阴影 + 顶部高光区分层次，不用描边线
                   'onboarding-deck-card',
                   isTop ? 'pointer-events-auto' : 'pointer-events-none',
@@ -437,6 +484,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                   // 背景与圆角走内联：全局 `.bg-card` 规则带 !important，会把圆角压回 16px
                   background: 'hsl(var(--card))',
                   borderRadius: '2rem',
+                  // 统一卡高：所有卡取各步内容需求的最大值，切步时高度不跳
+                  height: deckCardHeight || DECK_CARD_HEIGHT_FALLBACK,
                   transform: isExiting
                     ? EXIT_UP_TRANSFORM
                     : isEntering ? ENTER_FROM_TRANSFORM : deckTransform(layer.y, layer.scale),
@@ -452,9 +501,12 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                   </div>
 
                   {/* 步骤内容（表单可能超长，卡内独立滚动） */}
-                  <div className="mt-3 flex-1 min-h-0 overflow-y-auto pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
+                  <div
+                    ref={(el) => { contentRefs.current[i] = el }}
+                    className="mt-3 flex-1 min-h-0 overflow-y-auto pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent"
+                  >
                     {i === 0 && (
-                      <div className="flex h-full flex-col items-center justify-center space-y-4 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-4 text-center">
                         <MascotFigure variant="welcome" size="md" />
                         <div className="space-y-2">
                           <h2 className="text-[19px] font-bold leading-tight text-foreground">
@@ -828,7 +880,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                         <StepIcon className="h-3.5 w-3.5" />
                       </div>
-                      <span className="truncate text-xs text-muted-foreground">
+                      {/* 窄屏（手机）左列放不下整句，隐藏文字只留图标；页码由中间胶囊表达 */}
+                      <span className="truncate text-xs text-muted-foreground max-[520px]:hidden">
                         {t('onboarding.stepOf', { n: i + 1, total: STEP_COUNT })}
                       </span>
                     </div>

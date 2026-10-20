@@ -47,7 +47,7 @@ import { createPanelAppleVariants } from '@/lib/animations'
 const AboutDialog = lazy(() => import('@/auth/AboutDialogMobile').then((mod) => ({ default: mod.AboutDialogMobile })))
 const MobileQuickActions = lazy(() => import('@/components/mobile/MobileQuickActions').then((mod) => ({ default: mod.MobileQuickActions })))
 const ThemeDialog = lazy(() => import('@/settings/ThemeDialog').then((mod) => ({ default: mod.ThemeDialog })))
-const OnboardingWizardMobile = lazy(() => import('@/settings/OnboardingWizardMobile').then((mod) => ({ default: mod.OnboardingWizardMobile })))
+const OnboardingWizard = lazy(() => import('@/settings/OnboardingWizard').then((mod) => ({ default: mod.OnboardingWizard })))
 
 function AppInner() {
   useAppInit()
@@ -344,9 +344,9 @@ function AppInner() {
         onCancel={() => setConfirmDelete({ open: false, name: '', displayName: '' })}
       />
 
-      {/* 手机端新手向导：全屏覆盖（fixed inset-0 z-50），置于最外层避免被外壳布局裁剪 */}
+      {/* 新手向导：与 Windows 版同一形态的小窗 Dialog（Radix Portal 到 body，不受外壳布局裁剪） */}
       <Suspense fallback={null}>
-        <OnboardingWizardMobile
+        <OnboardingWizard
           open={onboardingOpen}
           onClose={() => setOnboardingOpen(false)}
           onUpdateConfig={updateConfig}
