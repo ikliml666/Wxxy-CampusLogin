@@ -58,11 +58,11 @@
 
 - [[learnings/android-boot-autostart-notification-only|Android 开机自启与通知保活机制]]
 - [[learnings/android-identifier-change-breaks-keystore|AndroidKeyStore 密钥按包名隔离导致改 identifier 后密码失效]]
-- [[learnings/contain-paint-clips-absolute-menu|AnimatedCard 组件：3D 倾斜、入场动画与性能优化]]
 - [[learnings/cmstplua-elevation-bind-opts3-and-vtable-slot|CMSTPLUA 静默提权从未通过——BIND_OPTS 传小与 vtable slot 错位的叠加]]
 - [[learnings/css-comma-selector-shared-body-pitfall|CSS 逗号选择器列表共享规则体陷阱与修复]]
 - [[learnings/config-missing-field-load-failure|Config 模型与持久化机制]]
 - [[learnings/disabled-adapter-status-enum-and-startup-race|DisabledAdapter.status 枚举序列化与适配器状态轮询机制]]
+- [[learnings/contain-paint-clips-absolute-menu|Glass Dock 与 AnimatedCard：玻璃拟态悬浮栏、3D 倾斜卡片与动画系统]]
 - [[learnings/input-time-wrapper-w-full|MonitorPanel 双端组件架构与布局约束]]
 - [[learnings/rtss-hook-injection-webview-crash|RTSS hook 注入导致 WebView2 白屏崩溃：根因、诊断与排除尝试的完整失败记录]]
 - [[learnings/radix-select-empty-string-value|Radix Select 哨兵值映射与空串 value 陷阱]]
