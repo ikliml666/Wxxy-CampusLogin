@@ -92,4 +92,21 @@ android/build-apk.ps1
 mock-tauri*.js
 .zcode/
 
+# 本地产物(2026-10-20 用户确认：均为本地文件，不入库)
+# 构建缓存与探针
+.tmp-esbuild/
+.probe/
+design-prototypes/
+archx_*/
+
+# 界面截图(含 android/frontend/shots/)
+shots/
+
+# 设计稿与原型
+design/
+
+# pnpm 半成品工作区文件(项目仍用 package-lock.json,这些是本地实验残留)
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
 # iOS 壳 crate 构建产物(ios/src-tauri/.cargo/config.toml 指定)
