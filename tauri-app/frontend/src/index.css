@@ -15,6 +15,24 @@
   inherits: false;
   initial-value: 39px;
 }
+/* 档位切换的可过渡量。--glass-tint 是 color-mix 里的百分比，--glass-shine /
+   --glass-rim 是多重 inset 阴影的 alpha 系数——都是「未注册即离散」的值，
+   不注册就只会硬跳。用户明确抱怨过「切换档位时没有玻璃变化」，指的就是这一下。 */
+@property --glass-tint {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 54%;
+}
+@property --glass-shine {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0.42;
+}
+@property --glass-rim {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0.35;
+}
 
 @layer base {
   :root {
@@ -93,17 +111,24 @@
     --glass-rim: 0;
   }
 
-  /* 极致：更透、更亮的光环与更深的 rim，模糊只略增
-     （FlClash 的 ultra 靠更大的 refraction/bevel 表达层级差，CSS 没有折射，
-      只能用「更薄的 tint + 更亮 shine」拉开，再把模糊小幅提到 14px 作补偿） */
+  /* 极致：把白膜减到最薄，让折射本身成为主视觉。
+     对齐 FlClash 的档位语义——standard 是「雾化」（`_standard` getter 丢掉
+     dispersion、blur 换成 hazeBlur），ultra 是「真折射 + 色散」。
+     所以两档的差别必须落在**折射量级**上，而不是把边缘光画得更重：
+     上一版 ultra 抬了 shine/rim，用户反馈是「只是边框旁边的阴影变多了」——
+     那正是把层级差误做成了描边。这里反过来：ultra 的膜更薄、光影更淡，
+     位移由 GLASS_DOCK_OPTS 的 thickness/slope 去撑。
+     注意 --glass-blur / --glass-sat 只在 Hyalite 不支持的降级路径生效
+     （.glass-dock 的 backdrop-filter 是 var(--hyalite, blur(...) saturate(...))），
+     调它们改不动 Hyalite 下的观感，别拿它们当档位差异。 */
   :root[data-glass="ultra"] {
     --glass-blur: 14px;
     --glass-sat: 2.08;
-    /* 比标准档再透一档：FlClash pill() 亮色 tint 0x93/255 = 0.576 已比 regular
-       更实，所以 ultra 的「更透」只能靠降 alpha 表达（42%），不能靠抬饱和 */
-    --glass-tint: 42%;
-    --glass-shine: 0.68;
-    --glass-rim: 0.5;
+    /* 26%：膜薄到能看清背后内容的轮廓，折射才看得见（54% 时白膜把弯折糊平了） */
+    --glass-tint: 26%;
+    /* 比标准档更淡：折射已经在边缘给出厚度，再叠亮边就成了描边 */
+    --glass-shine: 0.3;
+    --glass-rim: 0.26;
   }
 
   .dark {
@@ -153,7 +178,8 @@
   }
 
   /* 暗色档位：亮底靠暗边分隔，暗底只能靠亮边。FlClash 暗色把 rim/shine 乘 1.5
-     左右（ThemeManager 的 liquidGlassStrength），这里按档位显式给，避免被上块压平。 */
+     左右（ThemeManager 的 liquidGlassStrength），这里按档位显式给，避免被上块压平。
+     ultra 在暗色下反而收得更淡——上版给到 0.8/0.85，观感是玻璃变成一圈亮描边。 */
   :root.dark[data-glass="off"] {
     --glass-rim: 0;
     --glass-shine: 0;
@@ -163,8 +189,8 @@
     --glass-shine: 0.58;
   }
   :root.dark[data-glass="ultra"] {
-    --glass-rim: 0.8;
-    --glass-shine: 0.85;
+    --glass-rim: 0.4;
+    --glass-shine: 0.42;
   }
 
   .theme-vibrant { --primary: 270 91% 65%; --primary-foreground: 0 0% 100%; --ring: 270 91% 65%; --accent: 270 33% 94%; --accent-foreground: 270 91% 20%; }
@@ -369,10 +395,15 @@
     overflow: visible;
     /* 光斑过渡：两段时长不对称是 FlClash 的原样（_glowIn 120ms / _glowOut 360ms）。
        按下走 .is-pressed 的 120ms，松开落回这里的 360ms。
-       reach 在按下时是 0s —— 指尖换位置不该拖着上一个光斑的残余半径跑。 */
+       reach 在按下时是 0s —— 指尖换位置不该拖着上一个光斑的残余半径跑。
+       档位三项（tint/shine/rim）各 260ms：Hyalite 的位移图是整份重建、没法补间，
+       膜与光影先平滑走完，观感上就成了一次材质变化而不是闪一下换皮。 */
     transition:
       --glass-glow-alpha 360ms ease-out,
-      --glass-glow-reach 360ms ease-out;
+      --glass-glow-reach 360ms ease-out,
+      --glass-tint 260ms ease,
+      --glass-shine 260ms ease,
+      --glass-rim 260ms ease;
   }
 
   .glass-dock.is-pressed,

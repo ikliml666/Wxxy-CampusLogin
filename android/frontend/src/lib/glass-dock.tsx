@@ -19,27 +19,38 @@ import { useEffect, useRef, type RefObject } from 'react'
 import './vendor/hyalite.js'
 import type { HyaliteOptions } from './vendor/hyalite.d.ts'
 
-/** 三档玻璃在折射层上的映射。数值取自视觉对齐，不是随意取值：
- *  bevel/thickness 决定边缘弯折的带宽与深度，slope>1 才会出现 FlClash 那种液体漩涡。 */
+/** 三档玻璃在折射层上的映射。
+ *
+ *  `bevel` 是弯折的带宽（贴边多少像素内有位移），`thickness` 是等效玻璃厚度
+ *  （决定位移量级 maxDisplacement ≈ thickness×slope×0.5），`slope`>1 才出现
+ *  FlClash 那种液体漩涡式的镜像折叠。
+ *
+ *  两档必须拉开**位移量级**而不是只调透明度：只改 tint 时像素差实测只有 28
+ *  （肉眼不可辨），而把 thickness 从小改到大后 maxDisplacement 从 21 升到 46，
+ *  边缘弯折立刻成为主视觉。所以标准档克制、极致档明显过折。
+ *
+ *  ultra 开 dispersion（色散，单位像素）——FlClash 的 ultra 靠更大的
+ *  refraction/bevel 表达层级差，CSS 无折射能力，色散是这里唯一还能加的
+ *  「物理厚度」线索；代价是滤镜走三通道叠加。 */
 export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
   standard: {
-    bevel: 12,
-    thickness: 24,
-    slope: 1.6,
-    blur: 4,
+    bevel: 18,
+    thickness: 70,
+    slope: 2.0,
+    blur: 3,
     dispersion: 0,
-    shade: 0.4,
-    rim: 1.3,
+    shade: 0.45,
+    rim: 1.5,
     smooth: 1,
   },
   ultra: {
-    bevel: 16,
-    thickness: 42,
-    slope: 2.4,
-    blur: 6,
-    dispersion: 1.4,
-    shade: 0.5,
-    rim: 1.8,
+    bevel: 26,
+    thickness: 180,
+    slope: 3.2,
+    blur: 2,
+    dispersion: 2,
+    shade: 0.58,
+    rim: 2.1,
     smooth: 1,
   },
 }
