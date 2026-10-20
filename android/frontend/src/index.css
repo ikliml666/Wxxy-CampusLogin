@@ -26,7 +26,7 @@
     --warning-foreground: 0 0% 100%;
     --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
-    --border: transparent;
+    --border: 220 14% 90%;
     --input: 220 14% 90%;
     --ring: 239 84% 61%;
     --radius: 12px;
@@ -38,14 +38,14 @@
     /* ── 玻璃质感档位 ───────────────────────────────────────────────
        对齐 Apple Liquid Glass 与 FlClash 的三档思路：档位只覆盖「强度」变量，
        亮/暗基色由 :root 与 .dark 各自提供，所以档位块只需写一份，不产生 3×2 矩阵。
+       不做整圈描边：整圈等亮的 1px 线在暗底上就是一圈画框。立体感靠上缘高光
+       （--glass-sheen）+ 发丝线（--glass-hairline）+ 阴影分层，都是方向性的。
        off      不模糊、纯实底（最低开销：低端机 / 省电）
-       standard 单层雾化：blur + 轻微提饱和，无边缘光（默认档）
-       ultra    完整液体玻璃：更深模糊 + 强提饱和 + 边缘光 + 发丝线 + 顶部镜面高光 */
+       standard 单层雾化：blur + 轻微提饱和（默认档）
+       ultra    更深模糊 + 强提饱和 + 更强上缘高光与发丝线 */
     --glass-blur: 16px;
     --glass-sat: 1.6;
     --glass-tint: 72%;
-    --glass-rim: 0.28;
-    --glass-rim-size: 1px;
     --glass-hairline: 0.14;
     --glass-sheen: 0.3;
     /* 卡片基色：档位只改 tint 百分比，实际透明度由 --glass-tint 派生 */
@@ -53,7 +53,6 @@
     /* 阴影分层：贴近物体的接触影 + 远距离环境影，Apple 卡片靠这两层拉开层次 */
     --glass-near: 0 1px 2px rgba(15, 23, 42, 0.05);
     --glass-far: 0 12px 32px -12px rgba(15, 23, 42, 0.2);
-    --glass-top-light: rgba(255, 255, 255, var(--glass-sheen));
 
     background-color: #f0f4f8;
   }
@@ -63,7 +62,6 @@
     --glass-blur: 0px;
     --glass-sat: 1;
     --glass-tint: 100%;
-    --glass-rim: 0;
     --glass-hairline: 0;
     --glass-sheen: 0;
   }
@@ -72,7 +70,6 @@
     --glass-blur: 28px;
     --glass-sat: 2.05;
     --glass-tint: 58%;
-    --glass-rim: 0.5;
     --glass-hairline: 0.32;
     --glass-sheen: 0.55;
   }
@@ -105,7 +102,7 @@
     --warning-foreground: 0 0% 100%;
     --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
-    --border: transparent;
+    --border: 220 12% 22%;
     --input: 220 15% 18%;
     --ring: 239 80% 68%;
 
@@ -117,7 +114,6 @@
     --glass-card: color-mix(in srgb, #1c1f26 var(--glass-tint), transparent);
     --glass-near: 0 1px 2px rgba(0, 0, 0, 0.3);
     --glass-far: 0 12px 32px -12px rgba(0, 0, 0, 0.55);
-    --glass-top-light: rgba(255, 255, 255, calc(var(--glass-sheen) * 0.35));
 
     background-color: #0c0e12;
   }
@@ -155,7 +151,7 @@
     --muted-foreground: 220 10% 50%;
     --accent: 220 14% 94%;
     --accent-foreground: 220 15% 20%;
-    --border: transparent;
+    --border: 220 14% 90%;
     --input: 220 14% 90%;
     --ring: 239 84% 61%;
   }
@@ -229,11 +225,11 @@
     border-radius: 16px !important;
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    /* 边缘光只留「上缘一道」，不做整圈描边：整圈等亮的 1px 线在暗底上就是一圈
+       画框，玻璃的立体感来自上亮下暗的方向性，不是均质描边。 */
     box-shadow:
       var(--glass-near),
-      var(--glass-far),
-      inset 0 0 0 var(--glass-rim-size) rgba(255, 255, 255, var(--glass-rim)),
-      inset 0 1px 0 var(--glass-top-light) !important;
+      var(--glass-far) !important;
     position: relative;
   }
 
@@ -324,7 +320,7 @@
     background: color-mix(
       in srgb,
       var(--primary) 12%,
-      color-mix(in srgb, var(--surface-main) 82%, transparent)
+      color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)
     );
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
@@ -334,7 +330,7 @@
     background: color-mix(
       in srgb,
       var(--primary) 26%,
-      color-mix(in srgb, var(--surface-main) 88%, transparent)
+      color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)
     );
   }
 
@@ -345,12 +341,12 @@
     background: var(--glass-card);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-    border: 1px solid rgba(255, 255, 255, calc(var(--glass-rim) * 1.8));
     border-radius: 18px;
+    /* 不设 border：整圈描边在暗底上会变成一圈亮框，dock 的边界感交给阴影与
+       上缘高光。 */
     box-shadow:
       var(--glass-near),
-      var(--glass-far),
-      inset 0 1px 0 var(--glass-top-light);
+      var(--glass-far);
     position: relative;
     contain: style;
     overflow: visible;

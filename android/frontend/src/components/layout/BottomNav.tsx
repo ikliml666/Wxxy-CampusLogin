@@ -50,7 +50,8 @@ export function BottomNav({ tab, onChange }: {
           'dark:shadow-[0_10px_36px_rgba(0,0,0,0.42),0_2px_10px_rgba(0,0,0,0.28)]'
         )}
         style={{
-          background: 'color-mix(in srgb, var(--surface-main) 72%, transparent)',
+          // 走 --glass-tint：off 档 tint=100% 即全实底，档位切换时底栏密度同步变化
+          background: 'color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)',
           // 走档位变量（主题对话框三档），别写死：写死会让底栏在切换档位时纹丝不动
           backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
           WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',

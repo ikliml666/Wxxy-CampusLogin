@@ -206,7 +206,8 @@ function AppInner() {
       <header
         className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 z-10"
         style={{
-          background: 'color-mix(in srgb, var(--surface-main) 85%, transparent)',
+          // 走 --glass-tint：off 档 tint=100% 即全实底，档位切换时顶栏密度同步变化
+          background: 'color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)',
           // 走档位变量（主题对话框三档），别用 backdrop-blur-md：写死会让顶栏在切换档位时纹丝不动
           backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
           WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
