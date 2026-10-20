@@ -62,7 +62,7 @@ const STACK_LAYERS = [
 // 同一批次里它的层位变成队尾档，transition 让它从上方平滑落回队尾
 const EXIT_UP_MS = 240
 // 卡片统一高度的兜底（首帧测量出来前用它顶一下）
-const DECK_CARD_HEIGHT_FALLBACK = 'min(610px, 80vh)'
+const DECK_CARD_HEIGHT_FALLBACK = 'min(630px, calc(100vh - 120px))'
 const STACK_TRANSITION = 'transform .24s ease'
 const deckTransform = (y: number, scale: number) =>
   `translate(-50%, calc(-50% + ${y}px)) scale(${scale})`
@@ -152,7 +152,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
       if (needed > max) max = needed
     }
     if (max > 0) {
-      const next = Math.min(max, Math.max(400, window.innerHeight - 160))
+      const next = Math.min(max, Math.max(420, window.innerHeight - 150))
       setDeckCardHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next))
     }
   }, [])
@@ -217,7 +217,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-4">
           <DialogPrimitive.Content
             aria-describedby={undefined}
-            className="pointer-events-auto relative flex w-[min(700px,94vw)] flex-col outline-none"
+            className="pointer-events-auto relative flex w-[min(760px,94vw)] flex-col outline-none"
             onPointerDownOutside={(e) => e.preventDefault()}
           >
             <DialogPrimitive.Title className="sr-only">{t(STEP_TITLE_KEYS[step])}</DialogPrimitive.Title>
@@ -229,7 +229,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
             层位只改 y 与 scale，故始终围绕同一中心向上收叠 */}
         <div
           className="relative w-full"
-          style={{ height: deckCardHeight ? deckCardHeight * 1.05 + 60 : 'calc(min(610px, 80vh) * 1.05 + 60px)' }}
+          style={{ height: deckCardHeight ? deckCardHeight * 1.05 + 64 : 'calc(min(630px, calc(100vh - 120px)) * 1.05 + 64px)' }}
         >
           {Array.from({ length: STEP_COUNT }, (_, i) => {
             const pos = (i - step + STEP_COUNT) % STEP_COUNT
@@ -247,7 +247,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                 inert={!isTop || isExiting}
                 ref={(el) => { cardRefs.current[i] = el }}
                 className={cn(
-                  'absolute left-1/2 top-1/2 flex w-[88%] flex-col rounded-[2rem] p-7',
+                  'absolute left-1/2 top-1/2 flex w-[88%] flex-col rounded-[2rem] p-8',
                   // 项目统一卡面：靠柔光阴影 + 顶部高光区分层次，不用描边线
                   'onboarding-deck-card',
                   isTop ? 'pointer-events-auto' : 'pointer-events-none',

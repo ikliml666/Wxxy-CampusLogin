@@ -116,7 +116,7 @@ function DeckArrow({ dir, disabled, label, onClick }: {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex h-10 w-10 items-center justify-center rounded-full',
+        'flex h-11 w-11 items-center justify-center rounded-full',
         'bg-muted/60 text-muted-foreground transition-colors duration-200',
         'enabled:hover:bg-accent enabled:hover:text-foreground',
         'disabled:cursor-default disabled:opacity-30',
@@ -447,7 +447,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
             onPointerDownOutside={(e) => e.preventDefault()}
           >
             <DialogPrimitive.Title className="sr-only">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</DialogPrimitive.Title>
-            <DialogPrimitive.Close className="absolute -right-1 -top-1 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-card/90 text-muted-foreground shadow-[0_2px_8px_rgba(0,0,0,0.18)] transition-colors hover:text-foreground">
+            <DialogPrimitive.Close className="absolute -right-1 -top-1 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-card/90 text-muted-foreground shadow-[0_2px_8px_rgba(0,0,0,0.18)] transition-colors hover:text-foreground">
               <X className="h-4 w-4" />
               <span className="sr-only">{t('common.close')}</span>
             </DialogPrimitive.Close>
