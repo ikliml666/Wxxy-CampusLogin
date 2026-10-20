@@ -218,7 +218,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
         ref={navRef}
         className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
         style={{
-          transform: 'translateX(var(--dock-stretch, 0px)) scale(calc(1 + var(--dock-swell, 0) * 0.012))',
+          transform: 'translateX(var(--dock-stretch, 0px))',
           backgroundImage:
             'radial-gradient(circle var(--dock-glow-reach, 28px) at var(--dock-glow-x, 50%) var(--dock-glow-y, 50%), hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 3)) 0%, hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 1.6)) 35%, transparent 100%)',
         }}

@@ -56,7 +56,6 @@ const SPRING = {
   /** 抬起：按下去要立刻起来 */
   lift: springOfDuration(280, 0.08),
   /** 整条膨胀 */
-  swell: springOfDuration(420, 0.06),
   /** 越界拉伸回弹 */
   pull: springOfDuration(200, 0.2),
   /** 果冻形变：留回弹才有弹性 */
@@ -184,8 +183,9 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       magInner.style.transform = `scale(${mag})`
       magEl.style.opacity = lf > 0.01 ? '1' : '0'
 
-      // 整条膨胀与越界拉伸
-      nav.style.setProperty('--dock-swell', String(swell.value))
+      // 越界拉伸：只在把镜头拖出栏外时横向让开，是水平方向的退让，
+      // 不做整条缩放——缩放会把 box-shadow 一起乘，阴影跟着变大变浓，
+      // 观感是「整条栏连同阴影浮起来」，而 1.2% 的放大本身根本看不出来。
       nav.style.setProperty('--dock-stretch', `${stretch.value}px`)
 
       // 镜片盖住的那段必须从原项里挖掉，否则放大副本底下还压着原来的图标
@@ -251,7 +251,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       render()
       maybeDrop()
     })
-    const swell = new Motion(0, render)
     const stretch = new Motion(0, render)
     const jelly = new Motion(0, render)
     const glow = new Motion(0, render)
@@ -322,7 +321,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       }
 
       pressedIndex = clampIndex(positionAt(e.clientX))
-      swell.to(1, SPRING.swell)
       setGlow(e.clientX, e.clientY)
       glowSpread.jump(0)
       glow.to(1, SPRING.glowIn)
@@ -371,7 +369,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       glow.to(0, SPRING.glowOut)
       glowSpread.to(1, SPRING.glowOut)
       stretch.to(0, SPRING.pull)
-      swell.to(0, SPRING.swell)
     }
 
     const onUp = (e: PointerEvent) => {
@@ -388,7 +385,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     // 否则镜头会一直停在「抬起」态
     const onBlur = () => {
       if (pointerId !== null) finish(false)
-      swell.to(0, SPRING.swell)
     }
 
     // 外部改选中（键盘、程序化跳转）：只动镜头，不触发 onSelect
@@ -422,7 +418,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       window.removeEventListener('pointercancel', onCancel)
       window.removeEventListener('blur', onBlur)
       syncRef.current = null
-      for (const m of [lens, lift, swell, stretch, jelly, glow, glowSpread]) {
+      for (const m of [lens, lift, stretch, jelly, glow, glowSpread]) {
         m.dispose()
       }
     }

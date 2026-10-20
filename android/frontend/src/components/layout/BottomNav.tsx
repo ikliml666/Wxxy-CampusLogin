@@ -77,7 +77,7 @@ export function BottomNav({ tab, onChange }: {
         ref={navRef}
         className="glass-nav pointer-events-auto relative w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent"
         style={{
-          transform: 'translateX(var(--dock-stretch, 0px)) scale(calc(1 + var(--dock-swell, 0) * 0.012))',
+          transform: 'translateX(var(--dock-stretch, 0px))',
           backgroundImage:
             'radial-gradient(circle var(--dock-glow-reach, 28px) at var(--dock-glow-x, 50%) var(--dock-glow-y, 50%), hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 3)) 0%, hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 1.6)) 35%, transparent 100%)',
         }}
