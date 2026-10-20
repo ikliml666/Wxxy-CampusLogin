@@ -35,7 +35,7 @@ export function ThemeDialog({ open, onClose, onSetTheme, onToggleLightMode }: Th
   const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Palette className="h-5 w-5 text-primary" />
@@ -104,7 +104,9 @@ export function ThemeDialog({ open, onClose, onSetTheme, onToggleLightMode }: Th
                 )
               })}
             </div>
-            <p className="text-xs text-muted-foreground">
+            {/* 描述行预留两行高度：三档文案长短不一，不定高会在切换档位时把对话框
+                整体顶高一截——窗口跟着跳一下，比文案截断更难受。 */}
+            <p className="text-xs text-muted-foreground min-h-[2rem]">
               {t(GLASS_OPTIONS.find(o => o.value === glassLevel)?.descKey ?? 'themeDialog.glassStandardDesc')}
             </p>
           </div>
