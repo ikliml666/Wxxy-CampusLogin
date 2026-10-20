@@ -62,12 +62,25 @@ const OPERATOR_VALUE_BY_KEY: Record<string, string> = {
 
 const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.bindOperatorTitle', 'onboarding.setupComplete'] as const
 
-// 卡片进出场：与平板/桌面同一套方向语义（前进左出、后退右出）
+// 卡片进出场：与平板/桌面同一套语义——旧卡向上飞出、退到队尾，新卡从下方弹起。
+// 回弹来自 center 的欠阻尼弹簧（damping 11 / stiffness 300 / mass 0.8 → 阻尼比 0.35，
+// 过冲约 30%）：新卡从下方 88px 弹起、冲过头约 26px 再回落，这是「回弹」的实体感来源。
+// exit 用短促 easeIn 保证 240ms 内让出位置，与桌面端 EXIT_UP_MS 对齐。
+const CARD_SPRING = { type: 'spring', stiffness: 300, damping: 11, mass: 0.8 } as const
 const cardVariants = {
-  enter: (dir: number) => ({ x: dir > 0 ? 48 : -48, opacity: 0, scale: 0.98 }),
-  center: { x: 0, opacity: 1, scale: 1 },
-  exit: (dir: number) => ({ x: dir > 0 ? '-108%' : '108%', opacity: 0, scale: 0.98 }),
+  enter: (dir: number) => ({ y: dir > 0 ? 88 : -60, scale: 0.93, opacity: 0, rotate: 0 }),
+  center: { y: 0, scale: 1, opacity: 1, rotate: 0, transition: CARD_SPRING },
+  exit: (dir: number) => ({
+    y: dir > 0 ? -124 : 100,
+    scale: 0.86,
+    opacity: 0,
+    rotate: dir > 0 ? -3.5 : 3.5,
+    transition: { duration: 0.24, ease: [0.4, 0, 1, 1] as const },
+  }),
 }
+
+/** 装饰层回弹：切步时被顶卡带得轻轻上抬再落回，让「后面还有卡」有实体感 */
+const DECO_SPRING = { type: 'spring', stiffness: 300, damping: 9.5, mass: 0.7 } as const
 
 const STEP_ICONS = [Sparkles, UserCircle, Link2, Zap] as const
 
@@ -170,16 +183,25 @@ export function OnboardingWizardMobile({
         <div className="relative mx-auto w-full max-w-[480px] pb-7">
           {/* 静态堆叠层（纯装饰）：与桌面/平板同一套「后面的卡向上收叠并缩小」语汇。
               手机端必须让卡片高度跟随表单自适应（绝对定位等尺寸卡会在 412px 宽屏
-              把绑定步长表单裁掉），所以这里只做方向一致的上下两档缩放，不抢布局。 */}
-          <div
+              把绑定步长表单裁掉），所以这里只做方向一致的上下两档缩放，不抢布局。
+              每步重挂载 → 随顶卡一起被带起再回弹落定，让堆叠有实体感。 */}
+          <m.div
+            key={`deco-outer-${f.step}`}
             aria-hidden
+            initial={{ scale: 0.96, y: f.direction.current > 0 ? -12 : 12 }}
+            animate={{ scale: 0.96, y: 0 }}
+            transition={DECO_SPRING}
             className="pointer-events-none absolute inset-x-2 -top-2 bottom-2 rounded-[26px] opacity-45"
-            style={{ background: 'hsl(var(--card))', transform: 'scale(0.96)', transformOrigin: 'top center' }}
+            style={{ background: 'hsl(var(--card))', transformOrigin: 'top center' }}
           />
-          <div
+          <m.div
+            key={`deco-inner-${f.step}`}
             aria-hidden
+            initial={{ scale: 0.98, y: f.direction.current > 0 ? -7 : 7 }}
+            animate={{ scale: 0.98, y: 0 }}
+            transition={DECO_SPRING}
             className="pointer-events-none absolute inset-x-1 -top-1 bottom-1 rounded-[26px] opacity-70"
-            style={{ background: 'hsl(var(--card))', transform: 'scale(0.98)', transformOrigin: 'top center' }}
+            style={{ background: 'hsl(var(--card))', transformOrigin: 'top center' }}
           />
 
           <AnimatePresence mode="wait" custom={f.direction.current}>
@@ -190,7 +212,6 @@ export function OnboardingWizardMobile({
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ type: 'spring', stiffness: 260, damping: 28, mass: 0.9 }}
               className="onboarding-deck-card relative px-5 pt-5 pb-5"
               style={{ background: 'hsl(var(--card))', borderRadius: 26 }}
             >
