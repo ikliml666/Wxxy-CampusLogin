@@ -43,18 +43,10 @@ export function BottomNav({ tab, onChange }: {
       className="absolute inset-x-0 z-20 flex justify-center pointer-events-none px-3"
       style={{ bottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
     >
-      <div
-        className={cn(
-          'pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none',
-          'border border-transparent shadow-[0_10px_36px_rgba(30,34,90,0.14),0_2px_10px_rgba(30,34,90,0.08)]',
-          'dark:shadow-[0_10px_36px_rgba(0,0,0,0.42),0_2px_10px_rgba(0,0,0,0.28)]'
-        )}
-        style={{
-          background: 'color-mix(in srgb, var(--surface-main) 72%, transparent)',
-          backdropFilter: 'blur(24px) saturate(160%)',
-          WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-        }}
-      >
+      {/* 玻璃全交给 .glass-nav（与桌面 .glass-dock 同源）：底色、模糊、分层阴影、
+          光泽层、发丝线都在 CSS 里，且跟主题对话框的三档联动。这里再写 inline 会
+          因优先级更高把 CSS 压成死代码，切档时只剩 inline 那几条在动。 */}
+      <div className="glass-nav pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent">
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底 */}
         <div className="flex flex-1 min-w-0 items-center justify-around gap-2">
           {tabs.map(({ id, labelKey, Icon }) => {

@@ -35,13 +35,47 @@
     --surface-main: #f0f4f8;
     --surface-side: #f8fafc;
 
+    /* ── 悬浮栏玻璃：三档（关 / 标准 / 极致），只作用于 .glass-dock / .glass-nav。
+       背景保持不透明实底，不做满屏 mesh——玻璃的层次全部来自悬浮栏自身的
+       材质（底色明度差 / 上缘高光 / 发丝线 / 近影+远影），不靠背后穿模。
+       档位只改这一组变量，明暗只覆盖基色，避免 3×2 矩阵。 */
+    --glass-blur: 16px;
+    --glass-sat: 1.6;
+    --glass-tint: 82%;
+    --glass-sheen: 0.3;
+    --glass-hairline: 0.5;
+    --glass-near: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --glass-far: 0 12px 32px -10px rgba(15, 23, 42, 0.18);
+    /* 亮色玻璃基色：微冷白，与 #f0f4f8 背景拉开明度差才看得出「浮起来」 */
+    --glass-base: #ffffff;
+
     background-color: #f0f4f8;
+  }
+
+  /* 关：不模糊、全实底、无高光——真零开销（不是 blur(0px) 仍在建层） */
+  :root[data-glass="off"] {
+    --glass-blur: 0px;
+    --glass-sat: 1;
+    --glass-tint: 100%;
+    --glass-sheen: 0;
+    --glass-hairline: 0;
+  }
+
+  /* 极致：更大模糊、更强提饱和、更透、更亮的高光与发丝线 */
+  :root[data-glass="ultra"] {
+    --glass-blur: 28px;
+    --glass-sat: 2.05;
+    --glass-tint: 66%;
+    --glass-sheen: 0.55;
+    --glass-hairline: 0.7;
   }
 
   .dark {
     --background: 220 15% 8%;
     --foreground: 220 10% 90%;
-    --card: 220 15% 10%;
+    /* 比 surface-main(#0c0e12) 亮一档：暗色下卡面与背景明度差不足时，
+       阴影再重也读不出「浮起」，只会像一块脏斑 */
+    --card: 220 14% 13%;
     --card-foreground: 220 10% 90%;
     --popover: 220 15% 10%;
     --popover-foreground: 220 10% 90%;
@@ -49,7 +83,8 @@
     --primary-foreground: 0 0% 100%;
     --secondary: 220 15% 15%;
     --secondary-foreground: 220 10% 90%;
-    --muted: 220 15% 15%;
+    /* 随 --card 一起提一档，保住卡面与内嵌按钮块之间原有的 5% 明度差 */
+    --muted: 220 15% 18%;
     --muted-foreground: 220 10% 55%;
     --accent: 220 15% 15%;
     --accent-foreground: 220 10% 90%;
@@ -68,6 +103,11 @@
     --surface-top: #14161b;
     --surface-main: #0c0e12;
     --surface-side: #101216;
+
+    /* 暗色玻璃基色：比 surface-main(#0c0e12) 明显更亮，悬浮栏才「浮」得起来 */
+    --glass-base: #1c2028;
+    --glass-near: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --glass-far: 0 12px 32px -10px rgba(0, 0, 0, 0.6);
 
     background-color: #0c0e12;
   }
@@ -168,17 +208,36 @@
 }
 
 @layer components {
+  /* 卡片材质：实底 + 方向性光影。不做毛玻璃——卡片是内容承载体，
+     半透明只会让文字压在透出的内容上、可读性下降；层次交给
+      ① 近影（贴地、紧、淡）② 远影（散开、主导「浮起」感）
+      ③ 上缘 1px 高光（模拟顶光打在材质边缘）。整圈描边一律不要。 */
   .bg-card,
   [class*="rounded-2xl"].bg-white,
   .rounded-2xl.bg-white {
     border-radius: 16px !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02) !important;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.05),
+      0 10px 28px -10px rgba(15, 23, 42, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
   }
 
   .dark .bg-card,
   .dark [class*="rounded-2xl"].bg-white,
   .dark .rounded-2xl.bg-white {
-    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06) !important;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.35),
+      0 12px 32px -12px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  }
+
+  /* 显式指定暗色实底的小卡（dark:bg-muted 等）是有意为之的「凹下去」层级，
+     不该被上面那条 !important 覆盖成亮色卡面 */
+  .dark .bg-card.dark\:bg-muted {
+    background-color: hsl(var(--muted)) !important;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
   }
 
   .rounded-xl {
@@ -207,21 +266,29 @@
     border-radius: 12px !important;
   }
 
-  .glass-dock {
-    /* FlClash 式低开销毛玻璃:透明度降至 0.68 让 blur 可见,16px 模糊半径 + 提饱和
-       柔化背后内容;安卓底栏已是同款参数(blur 16 级别)保持双端一致 */
-    background: rgba(240, 243, 248, 0.68);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+  /* 悬浮栏玻璃：三档变量驱动（见 :root）。浮起来的四件事——
+     ① 与背景的明度差（亮色纯白 / 暗色 #1c2028，都明显亮于 surface-main）
+     ② 近影 + 远影（贴地一圈 + 散开的大投影）
+     ③ 上缘 1px 高光（顶光打在材质边缘）
+     ④ 斜向光泽层（::before）与顶部发丝线（::after）
+     不设整圈 border：暗底上一圈等亮的线就是画框。 */
+  .glass-dock,
+  .glass-nav {
+    background: color-mix(in srgb, var(--glass-base) var(--glass-tint), transparent);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     border-radius: 18px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+    box-shadow:
+      var(--glass-near),
+      var(--glass-far),
+      inset 0 1px 0 rgba(255, 255, 255, var(--glass-sheen));
     position: relative;
     contain: style;
     overflow: visible;
   }
 
-  .glass-dock::before {
+  .glass-dock::before,
+  .glass-nav::before {
     content: '';
     position: absolute;
     inset: 0;
@@ -234,11 +301,14 @@
       rgba(255,255,255,0.06) 75%,
       rgba(255,255,255,0.15) 100%
     );
+    /* 光泽强度跟档位走：关档归零，极致才有明显镜面 */
+    opacity: calc(var(--glass-sheen) * 1.4);
     pointer-events: none;
     z-index: 1;
   }
 
-  .glass-dock::after {
+  .glass-dock::after,
+  .glass-nav::after {
     content: '';
     position: absolute;
     top: 0;
@@ -248,41 +318,20 @@
     background: linear-gradient(
       90deg,
       transparent 0%,
-      rgba(255,255,255,0.5) 20%,
-      rgba(255,255,255,0.7) 50%,
-      rgba(255,255,255,0.5) 80%,
+      rgba(255,255,255,var(--glass-hairline)) 20%,
+      rgba(255,255,255,calc(var(--glass-hairline) * 1.5)) 50%,
+      rgba(255,255,255,var(--glass-hairline)) 80%,
       transparent 100%
     );
     pointer-events: none;
     z-index: 2;
   }
 
-  .dark .glass-dock {
-    background: rgba(14, 16, 20, 0.72);
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18), inset 0 0 20px rgba(255, 255, 255, 0.02);
-  }
-
-  .dark .glass-dock::before {
-    background: linear-gradient(
-      165deg,
-      rgba(255,255,255,0.06) 0%,
-      rgba(255,255,255,0.03) 25%,
-      transparent 50%,
-      rgba(255,255,255,0.02) 75%,
-      rgba(255,255,255,0.04) 100%
-    );
-  }
-
-  .dark .glass-dock::after {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255,255,255,0.08) 20%,
-      rgba(255,255,255,0.12) 50%,
-      rgba(255,255,255,0.08) 80%,
-      transparent 100%
-    );
+  /* 关档：真零滤镜，不是 blur(0px) 还在建合成层 */
+  :root[data-glass="off"] .glass-dock,
+  :root[data-glass="off"] .glass-nav {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 
   /* 新手引导卡堆的卡面：与 glass-dock / app-outer-square 同一套语汇——

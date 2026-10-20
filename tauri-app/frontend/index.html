@@ -17,6 +17,10 @@
           }
           var th=localStorage.getItem('campus-theme');
           if(th&&th!=='default')document.documentElement.classList.add('theme-'+th);
+          // 玻璃档位在首帧前定下，避免启动时先按默认档渲染一次再跳变
+          var gl=localStorage.getItem('campus-glass-level');
+          document.documentElement.setAttribute('data-glass',
+            gl==='off'||gl==='ultra'?gl:'standard');
         }catch(e){}
       })();
     </script>

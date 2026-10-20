@@ -889,7 +889,15 @@
     "colorScheme": "Color Scheme",
     "lightMode": "Light Mode",
     "darkMode": "Dark Mode",
-    "switchLightDark": "Switch between light and dark interface"
+    "switchLightDark": "Switch between light and dark interface",
+    "glassLevel": "Glass Material",
+    "glassLevelDesc": "Controls the frosted-glass strength of cards and panels",
+    "glassOff": "Off",
+    "glassOffDesc": "No blur, solid fill. Lowest cost, best for low-end devices and saving power.",
+    "glassStandard": "Standard",
+    "glassStandardDesc": "Single-layer haze: light blur with a slight saturation lift, balanced for performance.",
+    "glassUltra": "Ultra",
+    "glassUltraDesc": "Full liquid glass: deeper blur, stronger saturation, rim light and a top specular sheen."
   },
   "rightPanel": {
     "runtimeLog": "Runtime Log",

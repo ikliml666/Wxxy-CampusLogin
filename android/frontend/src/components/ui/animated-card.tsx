@@ -20,8 +20,6 @@ interface AnimatedCardProps extends React.HTMLAttributes<HTMLDivElement> {
   staggerIndex?: number
 }
 
-const REST_SHADOW = '0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'
-
 // 模块级缓存 MediaQueryList（与 main.tsx 用法风格一致）：matchMedia 结果同会话不变，
 // 避免每次渲染都新建 MediaQueryList 查询
 const reducedMotionQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -102,8 +100,10 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       })
     }, [])
 
+    // 走 .bg-card，别写死 bg-white / dark:bg-[#14161b]：写死等于最大那几张卡
+    // 完全绕过 index.css 的卡片材质（分层阴影 + 上缘高光），暗色下就是死板实底。
     const cardClassName = React.useMemo(
-      () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
+      () => cn('bg-card text-card-foreground rounded-2xl', className),
       [className]
     )
 
@@ -111,7 +111,7 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
 
     if (noAnimation) {
       return (
-        <div ref={ref} className={cardClassName} style={{ boxShadow: REST_SHADOW }} {...props}>
+        <div ref={ref} className={cardClassName} {...props}>
           {children}
         </div>
       )
@@ -138,7 +138,6 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
           }}
           className={cardClassName}
           style={{
-            boxShadow: REST_SHADOW,
             transformStyle: tiltEnabled ? 'preserve-3d' : undefined,
           }}
           {...props}

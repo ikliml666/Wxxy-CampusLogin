@@ -51,12 +51,6 @@ export function MobileQuickActions() {
             'transition-all motion-reduce:transition-none',
             'active:scale-[0.97] motion-reduce:active:scale-100 disabled:opacity-50 disabled:shadow-none'
           )}
-          style={{
-            background:
-              'color-mix(in srgb, var(--primary) 12%, color-mix(in srgb, var(--surface-main) 82%, transparent))',
-            backdropFilter: 'blur(20px) saturate(160%)',
-            WebkitBackdropFilter: 'blur(20px) saturate(160%)',
-          }}
         >
           <LogOut className="h-5 w-5" />
           {isLoggingOut ? t('auth.loggingOut') : t('auth.logout')}

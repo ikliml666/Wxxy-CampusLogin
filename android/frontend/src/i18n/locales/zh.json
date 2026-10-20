@@ -836,7 +836,15 @@
     "colorScheme": "配色方案",
     "lightMode": "浅色模式",
     "darkMode": "深色模式",
-    "switchLightDark": "切换明亮或深色界面背景"
+    "switchLightDark": "切换明亮或深色界面背景",
+    "glassLevel": "玻璃质感",
+    "glassLevelDesc": "控制卡片与面板的毛玻璃强度，档位越高越通透",
+    "glassOff": "关闭",
+    "glassOffDesc": "不模糊，纯色实底。最低开销，适合低配设备与省电场景。",
+    "glassStandard": "标准",
+    "glassStandardDesc": "单层雾化：轻模糊加轻微提饱和，性能与质感平衡。",
+    "glassUltra": "极致",
+    "glassUltraDesc": "完整液体玻璃：更深模糊、更强提饱和、边缘光与顶部镜面高光。"
   },
   "rightPanel": {
     "runtimeLog": "运行日志",
