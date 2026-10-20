@@ -7,11 +7,11 @@ source_files:
   - android/frontend/src/settings/KeepAliveSettingsCard.tsx
   - android/frontend/src/settings/OnboardingWizard.tsx
   - android/frontend/src/settings/OnboardingWizardMobile.tsx
-  - android/frontend/src/settings/SettingsPanel.tsx
   - android/frontend/src/settings/ThemeDialog.tsx
   - android/frontend/src/settings/types.ts
   - android/frontend/src/settings/useOnboardingFlow.ts
   - android/frontend/src/settings/useSettings.ts
+  - android/frontend/src/settings/SettingsPanel.tsx
 tags: [settings, onboarding, theme, ui, android]
 ---
 
@@ -72,24 +72,24 @@ tags: [settings, onboarding, theme, ui, android]
 *   **`OperatorBindingInfo`**: `{ account: string, passwordSet: boolean }` (40-43)。
 *   **`BindStatuses`**: `Record<OperatorKey, OperatorBindingInfo | null>` (44)。
 
-*   **`useOnboardingFlow` (46-166)**: 向导核心状态机 Hook。
+*   **`useOnboardingFlow` (63-291)**: 向导核心状态机 Hook。
     *   **输入**: `open`, `onUpdateConfig`, `onLogin`, `onClose`。
     *   **状态**:
-        *   `step` (54): 当前步骤 (0-3)。
-        *   `username`, `password`, `operator` (55-57): 登录凭据。
-        *   `bindOperatorValue`, `phone`, `smsPassword` (66-68): 绑定运营商信息。
-        *   `bindState` (69): 'idle' | 'loading' | 'success' | 'error'。
-        *   `loginSuccess` (58): 登录成功标志。
+        *   `step` (70): 当前步骤 (0-3)。
+        *   `username`, `password`, `operator` (71-73): 登录凭据。
+        *   `bindOperatorValue`, `phone`, `smsPassword` (79-81): 绑定运营商信息。
+        *   `bindState` (82): 'idle' | 'loading' | 'success' | 'error'。
+        *   `loginSuccess` (75): 登录成功标志。
     *   **方法**:
-        *   `advance(nextStep)` (85): 切换步骤并记录方向。
+        *   `advance(nextStep)` (127-130): 切换步骤并记录方向。
         *   `handleBind()` (139-170): 执行运营商绑定，调用 `tauriApiWithRetry.bindOperator`。前置验证调用 `ensureBindHello()` (142)。成功处理设置 `bindState='success'`，刷新绑定状态检测 tick (`setBindRefreshTick`)，延迟 1.2s 后进入完成步 (157-161)。
-        *   `goNext()` (207-221): 进入下一步，若为第 1 步则落盘账号信息。**关键纪律**：仅当用户输入了新密码 (`password.trim()`) 时才更新 `password` 字段，避免空字符串覆盖后端已保存的掩码密码 (215-217)。
+        *   `goNext()` (223-225): 进入下一步，若为第 1 步则落盘账号信息。**关键纪律**：仅当用户输入了新密码 (`password.trim()`) 时才更新 `password` 字段，避免空字符串覆盖后端已保存的掩码密码 (215-217)。
         *   `handleSkip()` (227-234): 跳过向导，直接写入 `campus-onboarding-done` 并关闭。
         *   `handleLoginAndFinish()` (236-266): 执行登录并结束向导。**最终校验**：再次检查账号密码有效性 (238)，修复历史缺陷。登录成功后，设置 `loginSuccess=true`，写入 `safeStorage.set('campus-onboarding-done', '1')` (257)，延迟 1.5s 后关闭向导 (258)。
     *   **派生值**:
         *   `canProceedAccount` (172): 账号步骤是否可继续。
-        *   `canBind` (90): 绑定步骤是否可提交。
-        *   `passwordSaved` (165): 密码是否已保存。
+        *   `canBind` (133): 绑定步骤是否可提交。
+        *   `passwordSaved` (269): 密码是否已保存。
     *   **绑定状态自动检测 (178-204)**: 进入绑定步骤 (step 2) 且账号有效时，自动调用 `tauriApiWithRetry.getBindStatus` (183)。结果缓存到 `bindStatuses`。支持通过 `bindRefreshTick` 手动刷新。
 
 **`useSettings` (`android/frontend/src/settings/useSettings.ts`)**
@@ -105,20 +105,20 @@ tags: [settings, onboarding, theme, ui, android]
 **`OnboardingWizard` (`android/frontend/src/settings/OnboardingWizard.tsx`)**
 
 *   **用途**: 平板/宽屏端的向导组件，以 Dialog 形式呈现。
-*   **Props** (36-42):
+*   **Props** (34-40):
     *   `open`: boolean
     *   `onClose`: () => void
-    *   `onUpdateConfig`: (partial: Partial<Config>) => void
+    *   `onUpdateConfig`: (partial: Partial<import('@/settings').Config>) => void
     *   `onLogin`: () => Promise<boolean>
     *   `isLoggingIn`: boolean
 *   **子组件**:
-    *   `NavArrow` (77-100): 导航箭头按钮。
-*   **渲染逻辑** (125-528):
+    *   `DeckArrow` (77-100): 导航箭头按钮。
+*   **渲染逻辑** (202-623):
     *   Step 0: 欢迎页，显示吉祥物和安全提示，支持语言切换 (`setLanguage`)。
     *   Step 1: 账号信息页，输入用户名、密码（支持显隐），选择运营商。必填项校验实时反馈。
     *   Step 2: 绑定运营商页，复用 Step 1 的凭据。ISP 下拉框过滤掉 `DEFAULT_OPERATOR`。绑定状态面板自动查询三个运营商绑定状态 (`bindStatuses`)。选中运营商后高亮聚焦该行 (`focusedOperatorKey`)。手机号、短信验证码输入。绑定按钮状态机：loading/success/error。
     *   Step 3: 完成页，展示摘要信息（用户名、密码掩码、运营商），提供“开始登录”按钮。
-*   **动画**: 使用 `framer-motion` 实现卡片堆叠进出场效果 (`cardVariants`, 56-72)。前进左出，后退右出。
+*   **动画**: 使用 `framer-motion` 类似的手动 transform 实现卡片堆叠进出场效果 (`STACK_LAYERS`, `deckTransform`, 55-73)。前进左出，后退右出。
 *   **导航**: 底部圆形箭头按钮，步骤指示器。
 *   **关闭确认**: `showCloseConfirm` 状态控制是否弹出“跳过设置”确认 Dialog。
 
@@ -177,7 +177,7 @@ tags: [settings, onboarding, theme, ui, android]
 **`ThemeDialog` (`android/frontend/src/settings/ThemeDialog.tsx`)**
 
 *   **用途**: 主题配置对话框。
-*   **Props** (17-21):
+*   **Props** (20-25):
     *   `open`, `onClose`, `onSetTheme`, `onToggleLightMode`。
 *   **功能**: 选择主题色块，切换亮/暗模式开关。遍历 `THEME_OPTIONS` (14, 45) 渲染网格按钮 (44-67)。选中态样式：`border-primary bg-primary/5 text-primary` (54)。明暗模式切换显示图标随模式变化：亮色 `Sparkles`，暗色 `Moon` (73)。
 

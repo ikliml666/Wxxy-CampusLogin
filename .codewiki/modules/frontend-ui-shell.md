@@ -16,7 +16,7 @@ tags: [frontend, shell, responsive, layout, react]
 
 ## Overview
 
-`frontend-ui-shell` 是 Android 前端应用的核心入口与布局层。它负责初始化全局运行时环境（主题、GSAP 动画引擎、崩溃恢复机制），并根据设备形态（手机 vs 平板）动态渲染不同的外壳（Shell）。
+`frontend-ui-shell` 是 Android Tauri 应用的核心 UI 入口与布局层。它负责初始化全局运行时环境（主题、GSAP 动画引擎、崩溃恢复机制），并根据设备形态（手机 vs 平板）动态渲染不同的外壳（Shell）。
 
 - **应用入口**：`main.tsx` 处理 React 根节点挂载、framer-motion 懒加载、GSAP 全局配置及 GPU/WebGL 崩溃恢复逻辑。
 - **路由与状态管理**：`App.tsx` 作为双壳入口，通过 `useFormFactor` 钩子判断屏幕宽度（sw600dp 语义），决定渲染 `TabletShell`（桌面 Dock 布局）还是 `AppInner`（移动端底部导航布局）。
@@ -28,71 +28,71 @@ tags: [frontend, shell, responsive, layout, react]
 
 #### `android/frontend/src/main.tsx`
 
-- **`initTheme()` (L1-L27)**: 读取 `safeStorage` 中的 `campus-light-mode` 和 `campus-theme`，操作 `document.documentElement` 的 class 属性以应用深色模式或特定主题。
-- **`setupCrashRecovery()` (L30-L98)**: 
-    - L43-L55: 监听 `visibilitychange`，当页面从后台恢复且 `#root` 为空时触发重载。
-    - L57-L63: 监听 `window.error`，捕获包含 "GPU"、"WebGL"、"SharedArrayBuffer" 的错误并触发重载。
-    - L65-L98: 心跳检测机制。每 1s 更新 `lastHeartbeatTime`（若 rAF 存活），每 2s 检查心跳间隔。若超过 10s 未更新，判定为渲染链失活（疑似 GPU 崩溃），触发重载。
-- **`ReactDOM.createRoot` (L103-L112)**: 挂载应用。在开发环境下包裹 `React.StrictMode`。使用 `LazyMotion` 和 `MotionConfig` 优化 framer-motion 性能。
+- **`initTheme()` (L27-L41)**: 读取 `safeStorage` 中的 `campus-light-mode` 和 `campus-theme`，操作 `document.documentElement` 的 class 属性以应用深色模式或特定主题。
+- **`setupCrashRecovery()` (L45-L111)**: 
+    - L59-L66: 监听 `visibilitychange`，当页面从后台恢复且 `#root` 为空时触发重载。
+    - L68-L74: 监听 `window.error`，捕获包含 "GPU"、"WebGL"、"SharedArrayBuffer" 的错误并触发重载。
+    - L76-L110: 心跳检测机制。每 1s 更新 `lastHeartbeatTime`（若 rAF 存活），每 2s 检查心跳间隔。若超过 10s 未更新，判定为渲染链失活（疑似 GPU 崩溃），触发重载。
+- **`ReactDOM.createRoot` (L119-L129)**: 挂载应用。在开发环境下包裹 `React.StrictMode`。使用 `LazyMotion` 和 `MotionConfig` 优化 framer-motion 性能。
 
 #### `android/frontend/src/App.tsx`
 
-- **`AppInner` (L33-L240)**: 移动端主视图容器。
+- **`AppInner` (L52-L359)**: 移动端主视图容器。
     - **Hooks**: `useAppInit`, `useAdaptiveFramePace`, `useTranslation`, `useFormFactor` (隐含在导出中)。
     - **State**: 
         - `tab`: 当前底栏页签 (`MobileTab`)，持久化到 `safeStorage`。
         - `navDir`: 面板切换方向 (-1, 0, 1)，用于 framer-motion 转场动画。
         - Dialog States: `aboutOpen`, `themeOpen`, `sponsorOpen`, `onboardingOpen`, `confirmDelete`。
     - **Logic**:
-        - **Tab Routing (L108-L128)**: 根据 `deferredTab` 渲染对应的面板组件 (`MobileDashboard`, `AccountPanel`, `SelfServicePanel`, `QualityPanel`, `MonitorPanel`, `MobileMore`)。
-        - **Header (L130-L186)**: 绝对定位的顶部轻 Header。包含状态指示灯、运营商 Chip、更新提醒胶囊、网络质量胶囊、以及设置/主题/关于按钮。
-        - **Main Content (L190-L210)**: 滚动区域，使用 `AnimatePresence` 和 `m.div` 配合 `panelVariants` 实现基于 `navDir` 的方向性面板切换动画。
+        - **Tab Routing (L148-L192)**: 根据 `deferredTab` 渲染对应的面板组件 (`MobileDashboard`, `AccountPanel`, `SelfServicePanel`, `QualityPanel`, `MonitorPanel`, `MobileMore`)。
+        - **Header (L199-L260)**: 绝对定位的顶部轻 Header。包含状态指示灯、运营商 Chip、更新提醒胶囊、网络质量胶囊、以及设置/主题/关于按钮。
+        - **Main Content (L269-L297)**: 滚动区域，使用 `AnimatePresence` 和 `m.div` 配合 `panelVariants` 实现基于 `navDir` 的方向性面板切换动画。
         - **Footer**: `BottomNav` 组件。
     - **Dialogs**: 渲染 `SponsorCard`, `AboutDialog`, `UpdateAvailableDialog`, `ThemeDialog`, `ConfirmDialog`, `OnboardingWizardMobile`。
-- **`App` (L243-L256)**: 顶层组件。
+- **`App` (L363-L375)**: 顶层组件。
     - 调用 `useFormFactor()` 获取设备形态。
     - 若为 `'tablet'`，渲染 `<TabletShell />`；否则渲染 `<AppInner />`。
     - 始终渲染 `FaceCaptureDialog` 和 `NotificationPermissionGate`。
-- **`NotificationPermissionGate` (L261-L287)**: 首次启动时引导通知权限。仅询问一次，标记写入 `safeStorage`。
+- **`NotificationPermissionGate` (L381-L404)**: 首次启动时引导通知权限。仅询问一次，标记写入 `safeStorage`。
 - **`EXCLUDED_CARDS` (MobileDashboard.tsx L36)**: 常量数组 `['quickActions']`，用于在移动端 Dashboard 中排除桌面版的快速操作卡片。
 
 ### Layout Shells
 
 #### `android/frontend/src/components/layout/BottomNav.tsx`
 
-- **`MobileTab` Type (L15)**: 联合类型 `'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'`。
-- **`TABS` (L17-L21)**: 默认页签配置列表。
+- **`MobileTab` Type (L14)**: 联合类型 `'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'`。
+- **`TABS` (L16-L21)**: 默认页签配置列表。
 - **`QUALITY_TAB` / `MONITOR_TAB` (L23-L24)**: 质量检测开关控制的动态页签。
-- **`useNavTabs()` (L26-L32)**: Hook。根据 `config.enableNetworkQuality` 动态插入 `quality` 或 `monitor` 到 TABS 列表中。
-- **`BottomNav` Component (L34-L96)**:
+- **`useNavTabs()` (L26-L31)**: Hook。根据 `config.enableNetworkQuality` 动态插入 `quality` 或 `monitor` 到 TABS 列表中。
+- **`BottomNav` Component (L33-L96)**:
     - 磨砂玻璃胶囊样式 (`backdrop-blur-md`)。
     - 使用 `layoutId="nav-active-pill"` 实现选中指示器的平滑滑动动画。
     - 图标尺寸 26px，标签 11px。
 
 #### `android/frontend/src/components/layout/DockNav.tsx`
 
-- **`DockItem` (L34-L116)**: Dock 单个图标项。
-    - **Magnetic Effect (L56-L85)**: 使用 GSAP `quickTo` 实现鼠标靠近时的缩放 (`scale`) 和上浮 (`y`) 效果。范围 `MAGNETIC_RANGE = 80`。
+- **`DockItem` (L42-L153)**: Dock 单个图标项。
+    - **Magnetic Effect (L76-L112)**: 使用 GSAP `quickTo` 实现鼠标靠近时的缩放 (`scale`) 和上浮 (`y`) 效果。范围 `MAGNETIC_RANGE = 80`。
     - **Active State**: 使用 `layoutId="dock-active-pill"` 实现药丸背景在图标间的平滑过渡。
-- **`ActionButton` (L119-L196)**: 登录/注销按钮。
+- **`ActionButton` (L156-L235)**: 登录/注销按钮。
     - 支持加载状态旋转动画 (`gsap.to(... rotation: 360)`)。
     - 视觉上有脉冲边框 (`loadingPulseRef`)。
-- **`DockNav` (L200-L272)**:
+- **`DockNav` (L242-L322)**:
     - 固定定位在底部中央。
     - 使用 `useMotionValue` 和 RAF 节流跟踪鼠标 X 坐标以驱动磁吸效果。
     - 过滤显示项：若 `enableNetworkQuality` 为 false，隐藏 `quality` 面板项。
 
 #### `android/frontend/src/components/layout/RightPanel.tsx`
 
-- **`RightPanel` (L45-L236)**: 右侧运行日志面板。
+- **`RightPanel` (L54-L278)**: 右侧运行日志面板。
     - **Performance Optimization (FP-4)**: 
         - `RIGHT_PANEL_ANIM_THRESHOLD = 50`: 日志超过 50 条时，前段静态渲染 (`staticLogs`)，仅最近 30 条 (`animLogs`) 使用 framer-motion 动画。
-    - **Clear Animation (L63-L116)**: 清空日志时使用 GSAP stagger 动画逐条移除，并配备 `setTimeout` 兜底防止 rAF 停滞导致死锁。
+    - **Clear Animation (L64-L125)**: 清空日志时使用 GSAP stagger 动画逐条移除，并配备 `setTimeout` 兜底防止 rAF 停滞导致死锁。
     - **Auto-scroll**: 监听 `scroll` 事件，新日志到来时自动滚动到底部。
 
 #### `android/frontend/src/components/layout/TitleBar.tsx`
 
-- **`TitleBar` (L76-L226)**: 桌面端标题栏。
+- **`TitleBar` (L52-L277)**: 桌面端标题栏。
     - 包含应用图标、版本号、更新提示、语言切换、主题切换、通知开关、窗口控制按钮（最小化/最大化/关闭）。
     - **Window Controls**: 仅在 `showWindowControls=true` 时渲染。支持拖拽 (`startDragging`) 和双击最大化。
 
@@ -100,19 +100,19 @@ tags: [frontend, shell, responsive, layout, react]
 
 #### `android/frontend/src/components/mobile/MobileDashboard.tsx`
 
-- **`MobileStatusCard` (L44-L92)**: 移动总览状态卡。显示连接状态灯、Portal 可达性、检查次数、运营商信息。
-- **`MobileMonitorCard` (L95-L133)**: 移动监控摘要卡。包含后台检测开关 (`Switch`) 和手动刷新按钮。
-- **`MobileDashboard` (L136-L163)**: 组合上述卡片，并通过 `extraCards` 注入 `DashboardPanel`。
+- **`MobileStatusCard` (L38-L96)**: 移动总览状态卡。显示连接状态灯、Portal 可达性、检查次数、运营商信息。
+- **`MobileMonitorCard` (L99-L139)**: 移动监控摘要卡。包含后台检测开关 (`Switch`) 和手动刷新按钮。
+- **`MobileDashboard` (L141-L167)**: 组合上述卡片，并通过 `extraCards` 注入 `DashboardPanel`。
 
 #### `android/frontend/src/components/mobile/MobileMore.tsx`
 
-- **`MobileMore` (L30-L82)**: "更多"聚合页。
+- **`MobileMore` (L33-L83)**: "更多"聚合页。
     - 顶部 Chips 切换子页：设置、测速、日志、监控（可选）。
     - 复用桌面版 `SettingsPanel`, `SpeedTestPanel`, `LogPanel`, `MonitorPanel`。
 
 #### `android/frontend/src/components/mobile/MobileQuickActions.tsx`
 
-- **`MobileQuickActions` (L16-L78)**: 首页悬浮快捷操作条。
+- **`MobileQuickActions` (L14-L83)**: 首页悬浮快捷操作条。
     - 包含“绑定 WLAN 并登录”和“注销”两个胶囊按钮。
     - 绝对定位在底栏上方，不随内容滚动。
 

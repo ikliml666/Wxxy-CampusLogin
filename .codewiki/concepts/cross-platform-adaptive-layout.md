@@ -1,6 +1,6 @@
 ---
-type: concept
 title: cross-platform-adaptive-layout
+type: concept
 source_files:
   - android/frontend/src/main.tsx
   - android/frontend/src/App.tsx
