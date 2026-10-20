@@ -180,7 +180,7 @@ export function OnboardingWizardMobile({
 
       {/* 内容区：独立滚动，底部操作区不随滚动 */}
       <main className="relative flex-1 min-h-0 overflow-y-auto scrollbar-none px-5">
-        <div className="relative mx-auto w-full max-w-[480px] pb-7">
+        <div className="relative mx-auto flex h-full w-full max-w-[480px] flex-col pb-6">
           {/* 静态堆叠层（纯装饰）：与桌面/平板同一套「后面的卡向上收叠并缩小」语汇。
               手机端必须让卡片高度跟随表单自适应（绝对定位等尺寸卡会在 412px 宽屏
               把绑定步长表单裁掉），所以这里只做方向一致的上下两档缩放，不抢布局。
@@ -191,7 +191,7 @@ export function OnboardingWizardMobile({
             initial={{ scale: 0.96, y: f.direction.current > 0 ? -12 : 12 }}
             animate={{ scale: 0.96, y: 0 }}
             transition={DECO_SPRING}
-            className="pointer-events-none absolute inset-x-2 -top-2 bottom-2 rounded-[26px] opacity-45"
+            className="pointer-events-none absolute inset-x-2 -top-2 bottom-[20px] rounded-[26px] opacity-45"
             style={{ background: 'hsl(var(--card))', transformOrigin: 'top center' }}
           />
           <m.div
@@ -200,7 +200,7 @@ export function OnboardingWizardMobile({
             initial={{ scale: 0.98, y: f.direction.current > 0 ? -7 : 7 }}
             animate={{ scale: 0.98, y: 0 }}
             transition={DECO_SPRING}
-            className="pointer-events-none absolute inset-x-1 -top-1 bottom-1 rounded-[26px] opacity-70"
+            className="pointer-events-none absolute inset-x-1 -top-1 bottom-[22px] rounded-[26px] opacity-70"
             style={{ background: 'hsl(var(--card))', transformOrigin: 'top center' }}
           />
 
@@ -212,13 +212,18 @@ export function OnboardingWizardMobile({
               initial="enter"
               animate="center"
               exit="exit"
-              className="onboarding-deck-card relative px-5 pt-5 pb-5"
+              className="onboarding-deck-card relative flex min-h-0 flex-1 flex-col px-5 pt-5 pb-5"
               style={{ background: 'hsl(var(--card))', borderRadius: 26 }}
             >
               {/* 分类标签胶囊 */}
-              <span className="mb-3 inline-flex w-fit items-center rounded-full bg-primary/15 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-primary">
+              <span className="mb-3 inline-flex w-fit shrink-0 items-center rounded-full bg-primary/15 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-primary">
                 {t(STEP_TITLE_KEYS[f.step])}
               </span>
+
+              {/* 内容区撑满卡片剩余高度并自行滚动 → 四步卡片同高、卡底导航始终在同一位置 */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-none">
+              {/* my-auto：内容不足时垂直居中不留大片空白，溢出时自动归零不会裁掉顶端 */}
+              <div className="my-auto">
 
               {f.step === 0 && (
                 <div className="flex flex-col items-center text-center pt-1 pb-2 space-y-5">
@@ -310,14 +315,9 @@ export function OnboardingWizardMobile({
               )}
 
               {f.step === 2 && (
-                <div className="space-y-4">
-                  <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.bindOperatorDesc')}</p>
+                <div className="space-y-3">
+                  <p className="text-sm leading-snug text-muted-foreground">{t('onboarding.bindOperatorDescMobile')}</p>
                   <div className="space-y-3">
-                    {/* 凭据统一：绑定取登录信息（accountInfo 步草稿），不再单独收集学号/自助服务密码 */}
-                    <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/50 px-3 py-2.5 rounded-xl text-left">
-                      <Link2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
-                      {t('onboarding.useLoginCredentials')}
-                    </div>
                     {/* 绑定状态面板：进入步骤自动查全部运营商；三个运营商并排成胶囊，
                         已绑定绿色、未绑定灰色（复用项目 Badge 的胶囊变体）。点胶囊即选中运营商。 */}
                     <div className="rounded-xl bg-muted/50 p-3">
@@ -496,8 +496,11 @@ export function OnboardingWizardMobile({
                 </div>
               )}
 
+              </div>
+              </div>
+
               {/* 卡底：左侧头像 + 步骤说明，右侧 ← n / N → 导航 */}
-              <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="mt-4 flex shrink-0 items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
                     <StepIcon className="h-3.5 w-3.5" />
@@ -529,13 +532,15 @@ export function OnboardingWizardMobile({
         </div>
       </main>
 
-      {/* 底部：仅最后一步的登录入口（导航已收进卡内，这里不再重复） */}
-      {f.step === ONBOARDING_STEP_COUNT - 1 && (
-        <footer
-          className="relative shrink-0 px-5 pt-3"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
-        >
-          {!f.loginSuccess ? (
+      {/* 底部：末步登录入口。footer 始终占位（非末步渲染等高占位），
+          否则末步会把内容区压矮一截，四张卡的高度就对不齐了 */}
+      <footer
+        className="relative shrink-0 px-5 pt-3"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
+      >
+        {f.step !== ONBOARDING_STEP_COUNT - 1 ? (
+          <div aria-hidden className={actionButtonClass} />
+        ) : !f.loginSuccess ? (
             <Button
               onClick={f.handleLoginAndFinish}
               disabled={isLoggingIn || !f.username}
@@ -548,12 +553,11 @@ export function OnboardingWizardMobile({
               )}
             </Button>
           ) : (
-            <div className="flex h-12 items-center justify-center gap-2 font-medium text-emerald-600 dark:text-emerald-400">
-              <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
-            </div>
-          )}
-        </footer>
-      )}
+          <div className="flex h-12 items-center justify-center gap-2 font-medium text-emerald-600 dark:text-emerald-400">
+            <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
+          </div>
+        )}
+      </footer>
 
       {/* 跳过确认：全屏遮罩上的轻量卡片（不用桌面 Dialog，避免尺寸与安全区错位） */}
       <AnimatePresence>

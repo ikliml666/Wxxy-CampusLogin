@@ -683,7 +683,7 @@
     "password": "Password",
     "bindOperatorTitle": "Bind Operator Account",
     "bindOperatorDesc": "After purchasing an ISP campus plan, you must bind your operator account (your phone number + operator account password) in the self-service system before using the campus network. Skip this step with \"Next\" if already bound.",
-    "useLoginCredentials": "Uses the student ID and login password from your Login Info (binding status queries use the same credentials)",
+    "bindOperatorDescMobile": "Bind your operator account (phone number + operator password) in the self-service system after purchasing a plan. Already bound? Just tap Next.",
     "bindIsp": "Operator",
     "bindIspPlaceholder": "Select your operator",
     "bindPhone": "Phone Number",
