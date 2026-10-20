@@ -1,7 +1,7 @@
-// 主题领域 store：负责主题名称、浅色模式、自定义主题色及 DOM 副作用
+// 主题领域 store：负责主题名称、浅色模式、自定义主题色、玻璃档位及 DOM 副作用
 import { create } from 'zustand'
-import type { ThemeName } from '@/shared'
-import { VALID_THEMES } from '@/settings/constants'
+import type { ThemeName, GlassLevel } from '@/shared'
+import { VALID_THEMES, VALID_GLASS_LEVELS } from '@/settings/constants'
 import type { Config } from '@/settings'
 import { safeStorage } from '@/lib/utils'
 import { hexToHsl } from '@/lib/color'
@@ -10,8 +10,10 @@ interface ThemeStore {
   themeName: ThemeName
   isLightMode: boolean
   customThemeColor: string
+  glassLevel: GlassLevel
   setThemeName: (name: ThemeName) => void
   setIsLightMode: (v: boolean) => void
+  setGlassLevel: (v: GlassLevel) => void
   initTheme: (cfg: Partial<Config>) => void
   setCustomThemeColor: (color: string) => void
 }
@@ -20,9 +22,14 @@ export const useThemeStore = create<ThemeStore>((set) => ({
   themeName: 'default',
   isLightMode: (() => { const lm = safeStorage.get('campus-light-mode'); return lm === '1' })(),
   customThemeColor: '#6366f1',
+  glassLevel: (() => {
+    const gl = safeStorage.get('campus-glass-level') as GlassLevel | null
+    return gl && VALID_GLASS_LEVELS.includes(gl) ? gl : 'standard'
+  })(),
 
   setThemeName: (name) => set({ themeName: name }),
   setIsLightMode: (v) => set({ isLightMode: v }),
+  setGlassLevel: (v) => set({ glassLevel: v }),
 
   initTheme: (cfg) => {
     const savedTheme = safeStorage.get('campus-theme') as ThemeName | null
@@ -49,8 +56,13 @@ export const useThemeStore = create<ThemeStore>((set) => ({
   setCustomThemeColor: (color) => set({ customThemeColor: color }),
 }))
 
-// 主题副作用：监听 isLightMode/themeName/customThemeColor 变化，切换 DOM class 与 CSS 变量
+// 主题副作用：监听 isLightMode/themeName/customThemeColor/glassLevel 变化，切换 DOM class 与 CSS 变量
 useThemeStore.subscribe((state, prev) => {
+  // 玻璃档位：只切一个 data 属性，三档强度全在 CSS 变量里派生
+  if (state.glassLevel !== prev.glassLevel) {
+    document.documentElement.setAttribute('data-glass', state.glassLevel)
+    safeStorage.set('campus-glass-level', state.glassLevel)
+  }
   if (state.isLightMode !== prev.isLightMode) {
     document.documentElement.classList.toggle('dark', !state.isLightMode)
     if (state.isLightMode) {

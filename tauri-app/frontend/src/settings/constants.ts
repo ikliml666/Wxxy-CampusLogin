@@ -1,5 +1,5 @@
 import { NAV_ITEMS } from '@/shared/ui-constants'
-import type { ThemeName } from '@/shared/ui-types'
+import type { ThemeName, GlassLevel } from '@/shared/ui-types'
 import type { Config } from '@/settings/types'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 
@@ -91,6 +91,20 @@ export const THEME_OPTIONS = [
 ] as const
 
 export const VALID_THEMES: ThemeName[] = ['default', 'vibrant', 'forest', 'midnight', 'ocean', 'cherry', 'custom']
+
+/**
+ * 玻璃质感三档：off（不模糊、最低开销）/ standard（默认，单层雾化）/ ultra（完整液体玻璃）。
+ * 参数区间参考 FlClash 的 LiquidGlassQuality（standard=整体雾化、ultra=完整折射边缘光）
+ * 与 Apple Liquid Glass 的观感拆分；具体数值是 CSS backdrop-filter 下自调的结果，
+ * 未复制上游任何源码（FlClash 为 GPL-3.0，本项目 MIT，只借鉴设计语汇）。
+ */
+export const GLASS_OPTIONS = [
+  { value: 'off' as GlassLevel, labelKey: 'themeDialog.glassOff', descKey: 'themeDialog.glassOffDesc' },
+  { value: 'standard' as GlassLevel, labelKey: 'themeDialog.glassStandard', descKey: 'themeDialog.glassStandardDesc' },
+  { value: 'ultra' as GlassLevel, labelKey: 'themeDialog.glassUltra', descKey: 'themeDialog.glassUltraDesc' },
+] as const
+
+export const VALID_GLASS_LEVELS: GlassLevel[] = ['off', 'standard', 'ultra']
 
 export const DEFAULT_PANEL_OPTIONS = NAV_ITEMS.map(item => ({
   value: item.id,

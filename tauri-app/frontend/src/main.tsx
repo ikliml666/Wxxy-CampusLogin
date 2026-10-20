@@ -1,13 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import type { ThemeName } from '@/shared'
+import type { ThemeName, GlassLevel } from '@/shared'
 import { LazyMotion, domMax, MotionConfig } from 'framer-motion'
 import { gsap } from 'gsap'
 import App from './App'
 // 按文件直接导入，避免经 barrel 静态引入懒加载面板模块（FE-A-04）
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { safeStorage } from '@/lib/utils'
-import { VALID_THEMES } from '@/settings/constants'
+import { VALID_THEMES, VALID_GLASS_LEVELS } from '@/settings/constants'
 import { isRenderLoopAlive } from '@/lib/renderLiveness'
 import './index.css'
 import './i18n'
@@ -38,6 +38,9 @@ function initTheme() {
   if (theme && VALID_THEMES.includes(theme) && theme !== 'default') {
     root.classList.add(`theme-${theme}`)
   }
+  // 玻璃档位须在首帧前落定，否则先按默认档渲染再跳一次，闪一下
+  const glass = safeStorage.get('campus-glass-level')
+  root.setAttribute('data-glass', glass && VALID_GLASS_LEVELS.includes(glass as GlassLevel) ? glass : 'standard')
 }
 
 initTheme()

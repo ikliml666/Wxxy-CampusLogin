@@ -103,7 +103,10 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
     }, [])
 
     const cardClassName = React.useMemo(
-      () => cn('bg-white text-card-foreground rounded-2xl dark:bg-[#14161b]', className),
+      // 卡面走 .bg-card（index.css 里由 --glass-* 变量驱动的玻璃材质），不再写死
+      // bg-white / dark:bg-[#14161b]：写死等于让最大的几张卡完全绕过玻璃体系，
+      // 暗色下无论选哪档都没变化（2026-10-20）。
+      () => cn('bg-card text-card-foreground rounded-2xl', className),
       [className]
     )
 
