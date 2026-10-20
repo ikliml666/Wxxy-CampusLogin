@@ -31,7 +31,7 @@ import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { usePulseAnimation } from '@/hooks/usePulseAnimation'
 import { useShallow } from 'zustand/react/shallow'
 import { useThemeStore } from '@/hooks/useThemeStore'
-import { useGlassRefraction } from '@/lib/glass-dock'
+import { useGlassRefraction, useGlassPressGlow } from '@/lib/glass-dock'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -435,6 +435,11 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const glassLevel = useThemeStore((s) => s.glassLevel)
   const navRef = useRef<HTMLElement>(null)
   useGlassRefraction(navRef, profile.tier === 'economy' ? 'off' : glassLevel)
+  // 按压光斑：纯 CSS 渐变过渡，成本可忽略。
+  // 不受 animActive（页面空闲）限制——空闲判定是为了停掉常驻循环动画，
+  // 而光斑只在真正按下时跑一次；上面若跟着空闲一起关掉，用户一停下鼠标
+  // 再点悬浮栏就完全没反馈。reduced-motion 由 CSS 侧压成瞬亮瞬灭。
+  useGlassPressGlow(navRef, glassLevel !== 'off')
 
   const rafRef = useRef<number>(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {

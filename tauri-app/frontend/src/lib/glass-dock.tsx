@@ -76,3 +76,72 @@ export function useGlassRefraction(
     }
   }, [ref, level])
 }
+
+/** 按压光斑的峰值不透明度与基础半径（与 index.css 的 --glass-glow-* 初值配套） */
+const GLOW_ALPHA = 0.34
+const GLOW_REACH = 39
+const GLOW_SPREAD = 3
+
+/**
+ * 悬浮栏按压光斑：按下处亮起，松开后扩散到 3 倍半径并淡出。
+ *
+ * 参数与 FlClash `LiquidGlassGlow`（lib/ui/liquid_glass.dart:686-696）一致：
+ * `strength: _press * 0.16`、`reach: size.height/√2 * (1 + _glowSpread*(1-_press))`、
+ * `_glowIn = 120ms` / `_glowOut = 360ms`、`_glowSpread = 3`。过渡本身全在 CSS 里
+ * （`@property` 注册过的两个自定义属性），这里只负责写位置与两端状态。
+ */
+export function useGlassPressGlow(
+  ref: RefObject<HTMLElement | null>,
+  enabled: boolean,
+) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !enabled) return
+
+    const setGlow = (x: number, y: number) => {
+      el.style.setProperty('--glass-glow-x', `${x}px`)
+      el.style.setProperty('--glass-glow-y', `${y}px`)
+    }
+
+    const press = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect()
+      setGlow(e.clientX - rect.left, e.clientY - rect.top)
+      el.classList.add('is-pressed')
+      el.style.setProperty('--glass-glow-alpha', String(GLOW_ALPHA))
+      el.style.setProperty('--glass-glow-reach', `${GLOW_REACH}px`)
+    }
+
+    // 按住拖动时光斑跟着指尖走（FlClash liquid_glass.dart:838-843 同样在
+    // PointerMoveEvent 里更新 _touch）。只在按压中更新——松手后跟着鼠标
+    // 晃会白跑重绘，而那时光斑已经在淡出。
+    const move = (e: PointerEvent) => {
+      if (!el.classList.contains('is-pressed')) return
+      const rect = el.getBoundingClientRect()
+      setGlow(e.clientX - rect.left, e.clientY - rect.top)
+    }
+
+    // 松手：先撤掉 is-pressed 让 360ms 的淡出时长生效，再把 alpha 归零、
+    // 半径放大 3 倍——半径与透明度同时走，读起来才是「散开」而不是「熄灭」。
+    const release = () => {
+      if (!el.classList.contains('is-pressed')) return
+      el.classList.remove('is-pressed')
+      el.style.setProperty('--glass-glow-alpha', '0')
+      el.style.setProperty('--glass-glow-reach', `${GLOW_REACH * GLOW_SPREAD}px`)
+    }
+
+    el.addEventListener('pointerdown', press)
+    el.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', release)
+    window.addEventListener('pointercancel', release)
+    return () => {
+      el.removeEventListener('pointerdown', press)
+      el.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', release)
+      window.removeEventListener('pointercancel', release)
+      el.classList.remove('is-pressed')
+      // 卸载时若正按着（例如窗口失焦导致 enabled 翻转），必须把 alpha 收回去，
+      // 否则光斑会永久留在玻璃上——CSS 的过渡只有在值变化时才会跑。
+      el.style.setProperty('--glass-glow-alpha', '0')
+    }
+  }, [ref, enabled])
+}

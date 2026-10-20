@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 按压光斑的可过渡自定义属性。radial-gradient 的半径与 alpha 是离散量，
+   不注册就只会瞬跳，看不到「光从指尖散开」的过程。
+   inherits: false —— 光斑只属于被按下的那块玻璃。 */
+@property --glass-glow-alpha {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+@property --glass-glow-reach {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 39px;
+}
+
 @layer base {
   :root {
     --background: 210 40% 96%;
@@ -60,6 +74,12 @@
     --glass-far: 0 12px 32px -10px rgba(15, 23, 42, 0.18);
     /* 亮色玻璃基色：微冷白，与 #f0f4f8 背景拉开明度差才看得出「浮起来」 */
     --glass-base: #ffffff;
+    /* 按压光斑的方向与强度：亮色玻璃近纯白，白光叠上去实测 Δ 只有 4（不可见），
+       改成「指尖压下去的一点暗」——玻璃被按住处透光变少、读作凹陷。
+       注意这两条必须定义在 :root/.dark 而不是 .glass-dock 规则里：
+       元素自带声明会压过继承值，暗色覆盖就永远不生效。 */
+    --glass-glow-rgb: 15 23 42;
+    --glass-glow-gain: 0.5;
 
     background-color: #f0f4f8;
   }
@@ -123,6 +143,9 @@
 
     /* 暗色玻璃基色：比 surface-main(#0c0e12) 明显更亮，悬浮栏才「浮」得起来 */
     --glass-base: #1c2028;
+    /* 暗底上按压光斑回到「提亮」——白光在深色玻璃上才拉得出 Δ */
+    --glass-glow-rgb: 255 255 255;
+    --glass-glow-gain: 1;
     --glass-near: 0 1px 2px rgba(0, 0, 0, 0.35);
     --glass-far: 0 12px 32px -10px rgba(0, 0, 0, 0.6);
 
@@ -311,7 +334,19 @@
      不做整圈 border：等亮的闭合描边会读成画框，FlClash 的环本身就是不等亮的。 */
   .glass-dock,
   .glass-nav {
-    background: color-mix(in srgb, var(--glass-base) var(--glass-tint), transparent);
+    /* ④ 按压光斑：FlClash 的 LiquidGlassGlow（lib/ui/liquid_glass.dart:686-696）。
+       shader 里它是加在 tint 上的径向项，CSS 用一层 radial-gradient 等价表达；
+       位置由 JS 写到 --glass-glow-x/y，方向与强度见 :root/.dark 里的 --glass-glow-*。 */
+    --glass-glow-x: 50%;
+    --glass-glow-y: 50%;
+    background:
+      radial-gradient(
+        circle var(--glass-glow-reach) at var(--glass-glow-x) var(--glass-glow-y),
+        rgb(var(--glass-glow-rgb) / calc(var(--glass-glow-alpha) * var(--glass-glow-gain))) 0%,
+        rgb(var(--glass-glow-rgb) / calc(var(--glass-glow-alpha) * var(--glass-glow-gain) * 0.55)) 35%,
+        transparent 100%
+      ),
+      color-mix(in srgb, var(--glass-base) var(--glass-tint), transparent);
     /* 折射优先：Hyalite 在支持 SVG 背板滤镜的引擎（Chromium / WebView2）上写入
        --hyalite: url(#…)——它内部已经做了模糊、边缘着色与位移放大，这里不能再叠
        一层 blur，否则等于在成品上二次模糊、折射细节全被糊掉。
@@ -332,6 +367,19 @@
     position: relative;
     contain: style;
     overflow: visible;
+    /* 光斑过渡：两段时长不对称是 FlClash 的原样（_glowIn 120ms / _glowOut 360ms）。
+       按下走 .is-pressed 的 120ms，松开落回这里的 360ms。
+       reach 在按下时是 0s —— 指尖换位置不该拖着上一个光斑的残余半径跑。 */
+    transition:
+      --glass-glow-alpha 360ms ease-out,
+      --glass-glow-reach 360ms ease-out;
+  }
+
+  .glass-dock.is-pressed,
+  .glass-nav.is-pressed {
+    transition:
+      --glass-glow-alpha 120ms ease-out,
+      --glass-glow-reach 0s;
   }
 
   /* ③ 角向亮度：真环（mask xor）+ 垂直渐变，上亮下暗 */
@@ -948,6 +996,12 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    /* 按压光斑：去掉扩散过程，只保留「按下去亮了一下」，
+       否则 360ms 的半径放大就是一段纯粹的位移动画。 */
+    .glass-dock,
+    .glass-nav {
+      transition: none;
+    }
     .animated-card-interactive {
       transition: none;
       will-change: auto !important;

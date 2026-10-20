@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useThemeStore } from '@/hooks/useThemeStore'
-import { useGlassRefraction } from '@/lib/glass-dock'
+import { useGlassRefraction, useGlassPressGlow } from '@/lib/glass-dock'
 import { useRef } from 'react'
 
 export type MobileTab = 'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'
@@ -43,6 +43,8 @@ export function BottomNav({ tab, onChange }: {
   const glassLevel = useThemeStore((s) => s.glassLevel)
   const navRef = useRef<HTMLDivElement>(null)
   useGlassRefraction(navRef, glassLevel)
+  // 按压光斑：与桌面 DockNav 同一套（FlClash 的 LiquidGlassGlow）
+  useGlassPressGlow(navRef, glassLevel !== 'off')
 
   return (
     <nav
