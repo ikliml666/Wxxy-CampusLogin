@@ -445,7 +445,10 @@ function AppInner() {
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
-        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
+        {/* 背景必须留空：FluidBackground（z-0 光斑 + surface-main 底色）是唯一背板，
+            main 再铺一层不透明实底会把光斑整层挡住，.bg-card / .glass-dock 的
+            backdrop-filter 就只在纯色上算模糊——参数再高也看不出玻璃（2026-10-20） */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ contain: 'layout style paint' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[880px]" : "max-w-[720px]")}>
             <div ref={setRef('title')} className="mb-6 relative z-[1]">
               {/* 标题/描述与内容同向滑入：复用 panelVariants（y:8→0 spring 进入），与内容区同款变体与时序 */}

@@ -13,7 +13,6 @@ source_files:
   - android/frontend/tsconfig.json
   - android/frontend/vite.config.ts
   - android/frontend/vite.mock.config.ts
-  - android/frontend/src/index.css
   - android/frontend/src/vite-env.d.ts
 tags: [frontend, build, vite, tailwind, tauri, mock, config]
 ---
@@ -39,32 +38,32 @@ tags: [frontend, build, vite, tailwind, tauri, mock, config]
 #### `vite.mock.config.ts` (Mock Test Config)
 专为浏览器本地测试设计的覆盖配置，不修改 git 跟踪文件。
 - **行 10-28**: `tauriMockInject` 插件 (`transformIndexHtml`)：
-  - **行 14**: 注入 `/tauri-mock.js` 到 `<head-prepend>`，优先于模块脚本执行，伪造 `window.__TAURI_INTERNALS__`。
-  - **行 18-24**: 注入内联 CSS 限制 `#root` 最大宽度为 412px 并居中，模拟手机竖屏布局。
-- **行 36**: `cacheDir` - 将 Vite 缓存移至系统临时目录 `os.tmpdir()/wxxy-vite-android`，绕过 Windows Defender 对 `node_modules/.vite` 的写入拦截。
-- **行 40**: `server.port: 5176` - 占用端口 5176，避免与标准配置冲突。
-- **行 32-33**: 注释说明 Windows 下 esbuild 二进制文件被杀软拦截的问题及环境变量修复方案。
+  - **行 16**: 注入 `/tauri-mock.js` 到 `<head-prepend>`，优先于模块脚本执行，伪造 `window.__TAURI_INTERNALS__`。
+  - **行 19-24**: 注入内联 CSS 限制 `#root` 最大宽度为 412px 并居中，模拟手机竖屏布局。
+- **行 41**: `cacheDir` - 将 Vite 缓存移至系统临时目录 `os.tmpdir()/wxxy-vite-android`，绕过 Windows Defender 对 `node_modules/.vite` 的写入拦截。
+- **行 43**: `server.port: 5176` - 占用端口 5176，避免与标准配置冲突。
+- **行 32-35**: 注释说明 Windows 下 esbuild 二进制文件被杀软拦截的问题及环境变量修复方案。
 
 #### `tailwind.config.js`
 Tailwind CSS 配置，采用 HSL 变量驱动的主题系统。
-- **行 4**: `darkMode: 'class'` - 通过 `<html class="dark">` 切换深色模式。
-- **行 8-43**: `theme.extend.colors` - 扩展颜色系统，所有语义色（primary, secondary, destructive 等）均映射到 CSS 变量（如 `var(--primary)`）。
-- **行 45-49**: `theme.extend.borderRadius` - 使用 `var(--radius)` 控制圆角大小。
-- **行 51-55**: `theme.extend.fontFamily` - 定义 sans-serif 和 monospace 字体族。
-- **行 57-98**: `theme.extend.animation` & `keyframes` - 定义自定义动画，包括 `bounceSoft`, `shimmer`, `iconHoverRotate`, `refreshSpin` 等。
-- **行 100-102**: `theme.extend.backdropBlur` - 添加 `xs: '2px'` 模糊级别。
+- **行 3**: `darkMode: 'class'` - 通过 `<html class="dark">` 切换深色模式。
+- **行 7-53**: `theme.extend.colors` - 扩展颜色系统，所有语义色（primary, secondary, destructive 等）均映射到 CSS 变量（如 `var(--primary)`）。
+- **行 54-58**: `theme.extend.borderRadius` - 使用 `var(--radius)` 控制圆角大小。
+- **行 59-62**: `theme.extend.fontFamily` - 定义 sans-serif 和 monospace 字体族。
+- **行 63-103**: `theme.extend.animation` & `keyframes` - 定义自定义动画，包括 `bounceSoft`, `shimmer`, `refreshHover`, `refreshSpin`, `iconHoverRotate`, `iconHoverWiggle`, `iconHoverFlyout` 等。
+- **行 104-106**: `theme.extend.backdropBlur` - 添加 `xs: '2px'` 模糊级别。
 
 #### `postcss.config.js`
 PostCSS 插件链，顺序为 `tailwindcss` -> `autoprefixer`。
 
 #### `tsconfig.json`
 TypeScript 编译器选项。
-- **行 2**: `target: "ES2020"`。
-- **行 4**: `module: "ESNext"`。
-- **行 6**: `skipLibCheck: true`。
-- **行 7**: `moduleResolution: "bundler"`。
-- **行 18-20**: `paths: { "@/*": ["./src/*"] }` - 配置路径别名 `@` 指向 `src` 目录。
-- **行 22**: `include: ["src"]`。
+- **行 3**: `target: "ES2020"`。
+- **行 6**: `module: "ESNext"`。
+- **行 7**: `skipLibCheck: true`。
+- **行 8**: `moduleResolution: "bundler"`。
+- **行 20-22**: `paths: { "@/*": ["./src/*"] }` - 配置路径别名 `@` 指向 `src` 目录。
+- **行 24**: `include: ["src"]`。
 
 #### `package.json`
 项目元数据与依赖。
@@ -73,9 +72,9 @@ TypeScript 编译器选项。
   - `dev`: `vite --host`。
   - `build`: `tsc --noEmit && vite build`。
   - `typecheck`: `tsc --noEmit`。
-- **行 10-28**: Dependencies: 包含 Radix UI 组件库、Tauri Plugins v2、HUMAN (AI 人脸检测)、Framer Motion、GSAP、i18next、Zustand 等。
-- **行 29-39**: DevDependencies: Vite 6, React 19, TypeScript 5, Tailwind CSS 3.4 等。
-- **行 41-43**: `allowScripts.esbuild@0.25.12: true` - 允许 esbuild 安装脚本。
+- **行 11-36**: Dependencies: 包含 Radix UI 组件库、Tauri Plugins v2、HUMAN (AI 人脸检测)、Framer Motion、GSAP、i18next、Zustand 等。
+- **行 37-47**: DevDependencies: Vite 6, React 19, TypeScript 5, Tailwind CSS 3.4 等。
+- **行 48-50**: `allowScripts.esbuild@0.25.12: true` - 允许 esbuild 安装脚本。
 
 ### 环境与环境变量
 
@@ -84,36 +83,38 @@ TypeScript 编译器选项。
 
 #### `index.html`
 HTML 入口文件，包含骨架屏（Skeleton Screen）和内联初始化脚本。
-- **行 12-20**: 内联脚本读取 `localStorage` 中的 `campus-light-mode` 和 `campus-theme`，设置 `data-light` 属性和 `theme-{name}` 类名，实现首屏主题同步。
-- **行 21-66**: 内联 CSS 定义骨架屏样式 (`sk-*` 类)，使用 CSS 变量定义深浅色背景、文字颜色及强调色。
-- **行 68-82**: DOM 结构：
+- **行 9-26**: 内联脚本读取 `localStorage` 中的 `campus-light-mode`、`campus-theme` 和 `campus-glass-level`，设置 `data-light` 属性、`theme-{name}` 类名及 `data-glass` 属性，实现首屏主题同步。
+- **行 27-87**: 内联 CSS 定义骨架屏样式 (`sk-*` 类)，使用 CSS 变量定义深浅色背景、文字颜色及强调色。
+- **行 89-103**: DOM 结构：
   - `sk-tb`: 标题栏占位。
   - `sk-sb`: 状态栏，显示脉冲动画点 `sk-dot` 和初始化文本 `sk-init-text`。
   - `sk-main`: 主区域，包含侧边栏 `sk-side`、内容区 `sk-content`（含卡片和线条占位）和日志栏 `sk-log`。
-- **行 84-92**: 内联脚本兜底语言：若 `app-language` 为 `en`，将初始化文本改为 "Initializing..."。
-- **行 94**: 模块入口 `<script type="module" src="/src/main.tsx"></script>`。
+- **行 104-115**: 内联脚本兜底语言：若 `app-language` 为 `en`，将初始化文本改为 "Initializing..."。
+- **行 116**: 模块入口 `<script type="module" src="/src/main.tsx"></script>`。
 
 ### Mock 系统 (Browser Shim)
 
 #### `public/mock-tauri.js` (Basic UI Mock)
 轻量级 Tauri API 模拟，用于基础 UI 渲染验证。
-- **行 12-18**: 初始化 `localStorage`：跳过新手引导 (`campus-onboarding-done`)，根据 URL 参数 `?theme=dark` 设置浅色/深色模式。
-- **行 20-33**: `transformCallback` - 模拟 Tauri 回调 ID 生成机制，将 JS 函数绑定到 `window._cb{id}`。
-- **行 35-66**: `mockConfig` - 默认配置对象，包含用户信息、网络检查间隔、主题模式等字段。
-- **行 68-76**: `campusStatus` & `backgroundStatus` - 静态校园网状态和后台检测状态对象。
-- **行 78-90**: `initData` - 初始化数据结构，包含配置、适配器列表、账户信息等。
-- **行 92-126**: `handlers` 对象 - 命令分发器，映射 Tauri 命令名到模拟返回值：
+- **行 10-19**: 初始化 `localStorage`：跳过新手引导 (`campus-onboarding-done`)，根据 URL 参数 `?theme=dark` 设置浅色/深色模式。
+- **行 24-36**: `transformCallback` - 模拟 Tauri 回调 ID 生成机制，将 JS 函数绑定到 `window._cb{id}`。
+- **行 38-57**: `mockConfig` - 默认配置对象，包含用户信息、网络检查间隔、主题模式等字段。
+- **行 59-64**: `campusStatus` - 静态校园网状态对象。
+- **行 66-72**: `backgroundStatus` - 后台检测状态对象。
+- **行 76-80**: `mockAccounts` - 模拟账号列表。
+- **行 82-88**: `initData` - 初始化数据结构，包含配置、适配器列表、账户信息等。
+- **行 90-153**: `handlers` 对象 - 命令分发器，映射 Tauri 命令名到模拟返回值：
   - `get_config`, `save_config`, `get_init_data`, `check_campus_status`, `do_login`, `do_logout` 等。
   - `check_portal_status`: 返回在线状态。
-- **行 128-145**: `window.__TAURI_INTERNALS__` 注入：
+- **行 155-177**: `window.__TAURI_INTERNALS__` 注入：
   - `invoke`: 路由命令到 `handlers`，处理 `plugin:event|listen/unlisten` 事件监听注册。
   - `transformCallback`: 注册回调函数。
-- **行 147-150**: `window.__TAURI_EVENT_PLUGIN_INTERNALS__` - 模拟事件注销接口。
-- **行 152-154**: `window.__mockEmitEvent` - 测试用事件发射器。
+- **行 180-184**: `window.__TAURI_EVENT_PLUGIN_INTERNALS__` - 模拟事件注销接口。
+- **行 189-195**: `window.__mockEmitEvent` - 测试用事件发射器。
 
 #### `public/mock-tauri-addon.js` (Scenario Injection)
 叠加在基础 Mock 之上的场景注入脚本，支持 URL 参数控制状态。
-- **行 8-12**: 解析 URL 参数：
+- **行 5-10**: 解析 URL 参数：
   - `op`: 运营商后缀 (默认 `@telecom`)。
   - `dual`: 是否双网卡模式 (`1`)。
   - `night`: 夜切模式 (`1`)。
@@ -121,47 +122,49 @@ HTML 入口文件，包含骨架屏（Skeleton Screen）和内联初始化脚本
   - `tab`: 自动点击指定 Dock 页签按钮。
   - `emuw`: 模拟屏幕宽度。
   - `probe`: 诊断模式，输出溢出元素信息到 `<title>`。
-- **行 14-15**: 检查 `mock-tauri.js` 是否已加载，未加载则退出。
-- **行 17-18**: 保存原始 `invoke` 方法以便调用真实逻辑（如果存在）。
-- **行 19-26**: 重写 `check_campus_status`：强制返回在线、SSID `i-wxxy` 等演示数据。
-- **行 27-32**: 重写 `get_adapters`：返回 WLAN 适配器，若 `dual=1` 则追加以太网适配器。
-- **行 33-35**: 重写 `check_portal_status`：根据 `online` 参数返回在线/离线状态。
-- **行 36-37**: 重写 `do_login`：返回成功但提示“演示模式不执行登录”。
-- **行 38-39**: 重写 `get_background_status`：调用内部 `bgStatus()` 函数。
-- **行 40-48**: 重写 `get_init_data`：调用原始 invoke，然后修改返回的 `config.operator`（夜间模式置空）和 `nightOperatorRestore`。
-- **行 50-62**: `bgStatus()` 函数：生成后台检测状态的动态数据，包含在线运营商、检查次数等。
-- **行 64-65**: 延迟 600ms 发射一次 `background-check-result` 事件。
-- **行 66-72**: 若指定 `tab` 参数，延迟 1.5s 后查找对应 `aria-label` 的按钮并触发点击。
-- **行 73-76**: 每 3s 循环发射 `background-check-result` 事件，递增 `checkCount`。
-- **行 77-82**: 若指定 `emuw` 参数，插入 CSS 强制 body 宽度，模拟窄屏布局。
-- **行 83-92**: 若 `probe=1`，2.5s 后扫描超出视口的元素，将标签名和尺寸拼接到 `<title>` 供无头浏览器诊断。
+- **行 4**: 检查 `mock-tauri.js` 是否已加载，未加载则退出。
+- **行 12**: 保存原始 `invoke` 方法以便调用真实逻辑（如果存在）。
+- **行 13-20**: 重写 `check_campus_status`：强制返回在线、SSID `i-wxxy` 等演示数据。
+- **行 21-27**: 重写 `get_adapters`：返回 WLAN 适配器，若 `dual=1` 则追加以太网适配器。
+- **行 28-30**: 重写 `check_portal_status`：根据 `online` 参数返回在线/离线状态。
+- **行 31**: 重写 `do_login`：返回成功但提示“演示模式不执行登录”。
+- **行 32**: 重写 `get_background_status`：调用内部 `bgStatus()` 函数。
+- **行 33-42**: 重写 `get_init_data`：调用原始 invoke，然后修改返回的 `config.operator`（夜间模式置空）和 `nightOperatorRestore`。
+- **行 46-56**: `bgStatus()` 函数：生成后台检测状态的动态数据，包含在线运营商、检查次数等。
+- **行 58-69**: 延迟 600ms 发射一次 `background-check-result` 事件；每 3s 循环发射该事件，递增 `checkCount`。
+- **行 60-65**: 若指定 `tab` 参数，延迟 1.5s 后查找对应 `aria-label` 的按钮并触发点击。
+- **行 71-76**: 若指定 `emuw` 参数，插入 CSS 强制 body 宽度，模拟窄屏布局。
+- **行 77-84**: 若 `probe=1`，2.5s 后扫描超出视口的元素，将标签名和尺寸拼接到 `<title>` 供无头浏览器诊断。
 
 #### `tauri-mock.js` (Full Business Logic Mock)
 完整的业务逻辑 Mock，用于自助服务面板、账单查询等功能测试。
-- **行 13-19**: 初始化 `localStorage`：跳过引导，设置默认面板为 `selfservice`。
-- **行 25-30**: `config`：模拟配置，包含掩码密码 `***` 和设备别名 `deviceAliases`。
-- **行 33-40**: `onlineList`：模拟 5 个在线会话，包含 IP、MAC、流量、时长等详细数据。
-- **行 42-44**: `loginHistory`：模拟历史登录记录数组。
-- **行 46-50**: `billRows` & `billSummary`：模拟账单明细和汇总数据。
-- **行 52-53**: `ok()` 辅助函数：封装标准成功响应 `{success, message, data}`。
-- **行 55-56**: `sleep()`：模拟异步延迟。
-- **行 58-60**: `mockAdapters`：模拟单个以太网适配器。
-- **行 64-74**: `handlers.get_init_data`：返回包含配置、适配器详情、空账户列表的初始化数据。
-- **行 75-76**: `handlers.save_config`：更新内存配置，若字段非 `***` 则替换；延迟 0ms 发射 `config-changed` 事件。
-- **行 77-78**: `handlers.query_self_dashboard`：返回 `onlineList` 和 `loginHistory`。
-- **行 79-86**: `handlers.self_offline_session`：模拟注销，过滤掉指定 `sessionId` 的会话，延时 800ms。
-- **行 87-88**: `handlers.query_self_online_log`：返回账单数据和汇总。
-- **行 90-91**: `handlers.change_self_password`：模拟改密成功，延时 800ms。
-- **行 92-93**: `handlers.verify_windows_identity` / `verify_biometric_identity`：模拟生物识别验证通过。
-- **行 94-95**: `handlers.check_campus_status` / `check_portal_status`：直接返回平铺的状态对象（非 `ok()` 包裹），确保前端能正确读取 `onCampusNetwork` 和 `online` 字段。
-- **行 96-100**: `handlers.render_heartbeat`, `get_debug_mode`, `get_logs`, `check_update` 等基础命令。
-- **行 101-104**: `handlers.start_background_check` / `stop_background_check` / `get_background_status`。
-- **行 105-110**: 窗口控制命令 (`show_window`, `minimize_window`, `close_window`, `notify_window_ready`, `cancel_auto_exit`) 和 `open_external`。
-- **行 112-142**: `invoke(cmd, args)` 分发逻辑：
+- **行 9-15**: 初始化 `localStorage`：跳过引导，设置默认面板为 `account`（可通过 URL `?panel=` 覆盖）。
+- **行 32-42**: `config`：模拟配置，包含掩码密码 `***` 和设备别名 `deviceAliases`。
+- **行 45-49**: `mockAccounts`：模拟 3 个账号。
+- **行 59-65**: `onlineList`：模拟 5 个在线会话，包含 IP、MAC、流量、时长等详细数据。
+- **行 67-70**: `loginHistory`：模拟历史登录记录数组。
+- **行 72-76**: `billRows` & `billSummary`：模拟账单明细和汇总数据。
+- **行 78**: `ok()` 辅助函数：封装标准成功响应 `{success, message, data}`。
+- **行 80**: `sleep()`：模拟异步延迟。
+- **行 82-84**: `mockAdapters`：模拟单个以太网适配器。
+- **行 87-214**: `handlers` 对象 - 命令分发器：
+  - `get_init_data`: 返回包含配置、适配器详情、空账户列表的初始化数据。
+  - `save_config`: 更新内存配置，若字段非 `***` 则替换；延迟 0ms 发射 `config-changed` 事件。
+  - `query_self_dashboard`: 返回 `onlineList` 和 `loginHistory`。
+  - `self_offline_session`: 模拟注销，过滤掉指定 `sessionId` 的会话，延时 800ms。
+  - `query_self_online_log`: 返回账单数据和汇总。
+  - `change_self_password`: 模拟改密成功，延时 800ms。
+  - `verify_windows_identity` / `verify_biometric_identity`: 模拟生物识别验证通过。
+  - `check_campus_status` / `check_portal_status`: 直接返回平铺的状态对象（非 `ok()` 包裹），确保前端能正确读取 `onCampusNetwork` 和 `online` 字段。
+  - `render_heartbeat`, `get_debug_mode`, `get_logs`, `check_update` 等基础命令。
+  - `start_background_check` / `stop_background_check` / `get_background_status`。
+  - 窗口控制命令 (`show_window`, `minimize_window`, `close_window`, `notify_window_ready`, `cancel_auto_exit`) 和 `open_external`。
+  - 账号管理命令 (`create_account`, `save_current_as_account`, `rename_account`, `switch_account`, `delete_account`)。
+- **行 216-235**: `invoke(cmd, args)` 分发逻辑：
   - 处理 `plugin:event|listen`：维护 `eventListeners` 映射表，记录事件名到回调 ID 的关联。
   - 未知命令警告并返回 null。
-- **行 144-153**: `emitEvent(event, payload)`：根据事件名遍历注册的回调 ID，从 `window['__cb_' + id]` 获取函数并执行。
-- **行 155-163**: `window.__TAURI_INTERNALS__` 注入：
+- **行 238-247**: `emitEvent(event, payload)`：根据事件名遍历注册的回调 ID，从 `window['__cb_' + id]` 获取函数并执行。
+- **行 249-257**: `window.__TAURI_INTERNALS__` 注入：
   - `invoke`: 上述分发逻辑。
   - `transformCallback`: 将回调存入 `window['__cb_' + id]` 并返回 ID。
   - `metadata`: 模拟当前窗口/Webview 标签为 'mock'。

@@ -14,6 +14,7 @@ import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useThemeStore } from '@/hooks/useThemeStore'
+import { FluidBackground } from '@/shared'
 import type { ThemeName } from '@/shared'
 import { useMonitor } from '@/monitor/useMonitor'
 import { useAccount } from '@/account/useAccount'
@@ -196,12 +197,21 @@ function AppInner() {
       className="relative flex flex-col h-full overflow-hidden font-sans bg-background text-foreground"
       style={{ background: 'var(--surface-main)' }}
     >
+      {/* 背景 mesh：顶栏与悬浮底栏的 backdrop-filter 需要背后有色彩层次才看得见，
+          纯色底上算完仍是同一个颜色（与桌面端同一处理） */}
+      <FluidBackground />
       {/* 顶部轻 header:状态色点 + 网络质量胶囊(质量开启时,关闭同步隐藏) + 主题/关于入口。
           absolute 覆盖在 main 上方——滚动内容从 header 背后穿过，backdrop-blur 才真正雾化（MD3 top app bar 惯例）。
           上/下各留 12px：与系统状态栏(通知栏)和正文卡片都保持呼吸间距 */}
       <header
-        className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 backdrop-blur-md z-10"
-        style={{ background: 'color-mix(in srgb, var(--surface-main) 85%, transparent)' }}
+        className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 z-10"
+        style={{
+          // 走 --glass-tint：off 档 tint=100% 即全实底，档位切换时顶栏密度同步变化
+          background: 'color-mix(in srgb, var(--surface-main) var(--glass-tint), transparent)',
+          // 走档位变量（主题对话框三档），别用 backdrop-blur-md：写死会让顶栏在切换档位时纹丝不动
+          backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
+          WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
+        }}
       >
         <span
           className={cn(
@@ -268,7 +278,7 @@ function AppInner() {
 
       {/* main 与 absolute header 同层：顶部内边距 = header 上间距(12px)+行高(40px)+下间距(12px)+呼吸间距(14px)，另加安全区 */}
       <main
-        className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4"
+        className="scrollbar-none flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 relative z-[1]"
         style={{
           paddingTop: 'calc(env(safe-area-inset-top) + 78px)',
           // 悬浮底栏(底缝20px+栏高68px)+安全区;首页另有快捷登录浮条(底100px、条高48px)

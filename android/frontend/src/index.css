@@ -26,7 +26,7 @@
     --warning-foreground: 0 0% 100%;
     --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
-    --border: transparent;
+    --border: 220 14% 90%;
     --input: 220 14% 90%;
     --ring: 239 84% 61%;
     --radius: 12px;
@@ -96,7 +96,7 @@
     --warning-foreground: 0 0% 100%;
     --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
-    --border: transparent;
+    --border: 220 12% 22%;
     --input: 220 15% 18%;
     --ring: 239 80% 68%;
 
@@ -145,7 +145,7 @@
     --muted-foreground: 220 10% 50%;
     --accent: 220 14% 94%;
     --accent-foreground: 220 15% 20%;
-    --border: transparent;
+    --border: 220 14% 90%;
     --input: 220 14% 90%;
     --ring: 239 84% 61%;
   }
@@ -310,7 +310,7 @@
       var(--glass-far),
       inset 0 1px 0 rgba(255, 255, 255, var(--glass-sheen));
     position: relative;
-    contain: style;
+    /* 不裁切：::before 的光泽与 ::after 的压线要贴到圆角外侧才自然 */
     overflow: visible;
   }
 
@@ -350,6 +350,7 @@
       rgba(255,255,255,var(--glass-hairline)) 80%,
       transparent 100%
     );
+    opacity: var(--glass-hairline);
     pointer-events: none;
     z-index: 2;
   }

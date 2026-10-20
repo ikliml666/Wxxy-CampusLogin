@@ -100,8 +100,9 @@ export const AnimatedCard = React.memo(React.forwardRef<HTMLDivElement, Animated
       })
     }, [])
 
-    // 走 .bg-card，别写死 bg-white / dark:bg-[#14161b]：写死等于最大那几张卡
-    // 完全绕过 index.css 的卡片材质（分层阴影 + 上缘高光），暗色下就是死板实底。
+    // 卡面走 .bg-card，不再写死 bg-white / dark:bg-[#14161b]：写死等于让最大的
+    // 几张卡完全绕过 index.css 的卡片材质（分层阴影 + 上缘高光），暗色下无论
+    // 选哪档都是一块死板实底。
     const cardClassName = React.useMemo(
       () => cn('bg-card text-card-foreground rounded-2xl', className),
       [className]
