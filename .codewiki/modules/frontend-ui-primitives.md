@@ -18,7 +18,7 @@ tags: [ui, primitives, tailwind, radix, gsap]
 ---
 
 ## Overview
-`frontend-ui-primitives` 是前端应用的基础 UI 原子组件库。该模块封装了按钮、卡片、对话框、输入框、选择器、开关等标准控件，旨在提供一致的设计语言和交互体验。底层基于 Tailwind CSS 进行样式构建，利用 `class-variance-authority` (CVA) 管理变体（variants），并集成 Radix UI  primitives 处理无头组件的状态管理与无障碍访问（A11y）。此外，部分高级组件（如 `AnimatedCard` 和 `Button`）集成了 GSAP 动画库以实现高性能的 3D 倾斜和鼠标跟随效果。
+`frontend-ui-primitives` 是前端应用的基础 UI 原子组件库。该模块封装了按钮、卡片、对话框、输入框、选择器、开关等标准控件，旨在提供一致的设计语言和交互体验。底层基于 Tailwind CSS 进行样式构建，利用 `class-variance-authority` (CVA) 管理变体（variants），并集成 Radix UI primitives 处理无头组件的状态管理与无障碍访问（A11y）。此外，部分高级组件（如 `AnimatedCard` 和 `Button`）集成了 GSAP 动画库以实现高性能的 3D 倾斜和鼠标跟随效果。
 
 ## Key Components
 
@@ -26,39 +26,39 @@ tags: [ui, primitives, tailwind, radix, gsap]
 实现带有 3D 倾斜效果和入场动画的卡片容器。
 
 - **接口**:
-  - `AnimatedCardConfig`: 定义动画参数，包括 `glowIntensity`, `hoverScale`, `stiffness`, `damping`, `mass`。
+  - `AnimatedCardConfig`: 定义动画参数，包括 `glowIntensity`, `hoverScale`, `stiffness`, `damping`, `mass`（Line 6-12）。
   - `AnimatedCardProps`: 继承自 `React.HTMLAttributes<HTMLDivElement>`，包含：
-    - `animationConfig`: 自定义动画配置。
-    - `noHover`: 禁用悬停效果。
-    - `noAnimation`: 完全禁用动画。
-    - `noEnterAnimation`: 禁用入场动画。
-    - `enableTilt`: 启用/禁用 3D 倾斜。
-    - `staggerIndex`: 交错动画索引。
+    - `animationConfig`: 自定义动画配置（Line 15）。
+    - `noHover`: 禁用悬停效果（Line 16）。
+    - `noAnimation`: 完全禁用动画（Line 17）。
+    - `noEnterAnimation`: 禁用入场动画（Line 18）。
+    - `enableTilt`: 启用/禁用 3D 倾斜（Line 19）。
+    - `staggerIndex`: 交错动画索引（Line 20）。
 
 - **导出常量**:
-  - `REST_SHADOW`: 静态阴影样式字符串 `'0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'`。
-  - `reducedMotionQuery`: 模块级缓存的 `matchMedia` 查询对象，用于检测用户是否偏好减少运动。
+  - `REST_SHADOW`: 静态阴影样式字符串 `'0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02)'`（Line 23）。
+  - `reducedMotionQuery`: 模块级缓存的 `matchMedia` 查询对象，用于检测用户是否偏好减少运动（Line 27-29）。
 
 - **函数/组件**:
-  - `AnimatedCard` (Line 26-128): 核心组件。
+  - `AnimatedCard` (Line 31-151): 核心组件。
     - 使用 `React.memo` 和 `forwardRef` 优化渲染。
-    - `useAnimationProfile()`: 获取全局动画偏好设置。
-    - `handleMouseMove` (Line 74-95): 处理鼠标移动，计算光标相对于卡片的位置，并通过 RAF 节流更新旋转角度。
-    - `handleMouseLeave` (Line 97-112): 重置旋转角度，并延迟重置 `will-change` 属性。
-    - `cardClassName` (Line 114-117): 使用 `cn` 合并基础类名。
+    - `useAnimationProfile()`: 获取全局动画偏好设置（Line 33）。
+    - `handleMouseMove` (Line 65-89): 处理鼠标移动，计算光标相对于卡片的位置，并通过 RAF 节流更新旋转角度。
+    - `handleMouseLeave` (Line 91-103): 重置旋转角度，并延迟重置 `will-change` 属性。
+    - `cardClassName` (Line 105-108): 使用 `cn` 合并基础类名。
     - 逻辑分支：若 `noAnimation` 为真，返回静态 `div`；否则返回带有 `perspective` 和事件监听器的复杂结构。
 
 ### Badge (`android/frontend/src/components/ui/badge.tsx`)
 显示状态标签或计数的小组件。
 
 - **类型**:
-  - `BadgeProps`: 继承 `React.HTMLAttributes<HTMLDivElement>` 和 `VariantProps<typeof badgeVariants>`。
+  - `BadgeProps`: 继承 `React.HTMLAttributes<HTMLDivElement>` 和 `VariantProps<typeof badgeVariants>`（Line 32-34）。
 
 - **函数**:
-  - `Badge` (Line 35-39): 渲染 `div`，应用 CVA 生成的类名。
+  - `Badge` (Line 36-40): 渲染 `div`，应用 CVA 生成的类名。
 
 - **导出常量**:
-  - `badgeVariants` (Line 6-28): CVA 配置。
+  - `badgeVariants` (Line 5-30): CVA 配置。
     - `variant`: `default`, `secondary`, `destructive`, `outline`, `success`, `warning`, `info`, `ghost`。
     - `size`: `default`, `sm`, `lg`。
 
@@ -66,18 +66,18 @@ tags: [ui, primitives, tailwind, radix, gsap]
 可点击的操作按钮，支持加载状态和鼠标跟随光效。
 
 - **类型**:
-  - `ButtonProps`: 继承 `React.ButtonHTMLAttributes<HTMLButtonElement>` 和 `VariantProps<typeof buttonVariants>`，新增 `asChild?: boolean` 和 `isLoading?: boolean`。
+  - `ButtonProps`: 继承 `React.ButtonHTMLAttributes<HTMLButtonElement>` 和 `VariantProps<typeof buttonVariants>`，新增 `asChild?: boolean` 和 `isLoading?: boolean`（Line 36-41）。
 
 - **函数**:
-  - `Button` (Line 39-128): 核心组件。
-    - 若 `asChild` 为真，使用 `@radix-ui/react-slot` 的 `Slot` 组件包裹子元素。
-    - 若 `isLoading` 为真，渲染 SVG 旋转图标。
-    - 非 `asChild` 模式下，拦截拖拽和动画相关的事件属性（Line 68-73），并将剩余属性传递给 `button`。
-    - `onMouseMove` (Line 84-110): 实现鼠标位置去抖（<3px 跳过）和 RAF 节流，动态设置 CSS 变量 `--mouse-x` 和 `--mouse-y` 以驱动背景光效。
-    - Cleanup (Line 76-79): 在卸载时取消未完成的 RAF。
+  - `Button` (Line 43-170): 核心组件。
+    - 若 `asChild` 为真，使用 `@radix-ui/react-slot` 的 `Slot` 组件包裹子元素（Line 47-84）。
+    - 若 `isLoading` 为真，渲染 SVG 旋转图标（Line 55-78, 140-163）。
+    - 非 `asChild` 模式下，拦截拖拽和动画相关的事件属性（Line 86-91），并将剩余属性传递给 `button`。
+    - `onMouseMove` (Line 110-137): 实现鼠标位置去抖（<3px 跳过）和 RAF 节流，动态设置 CSS 变量 `--mouse-x` 和 `--mouse-y` 以驱动背景光效。
+    - Cleanup (Line 99-103): 在卸载时取消未完成的 RAF。
 
 - **导出常量**:
-  - `buttonVariants` (Line 6-33): CVA 配置。
+  - `buttonVariants` (Line 6-34): CVA 配置。
     - `variant`: `default`, `destructive`, `outline`, `secondary`, `ghost`, `link`, `glass`, `soft`。
     - `size`: `default`, `sm`, `lg`, `icon`, `icon-sm`, `icon-lg`。
 
@@ -85,11 +85,11 @@ tags: [ui, primitives, tailwind, radix, gsap]
 卡片布局的结构化组件集合。
 
 - **函数**:
-  - `CardHeader` (Line 7-14): 卡片头部，flex 列布局，内边距 p-5。
-  - `CardTitle` (Line 16-23): 卡片标题，h3 标签，semibold 字体。
-  - `CardDescription` (Line 25-32): 卡片描述，text-sm muted 颜色。
-  - `CardContent` (Line 34-40): 卡片内容区，p-5 pt-0。
-  - `CardIcon` (Line 42-54): 图标容器，固定尺寸 h-10 w-10，primary 背景色半透明。
+  - `CardHeader` (Line 4-14): 卡片头部，flex 列布局，内边距 p-5。
+  - `CardTitle` (Line 16-26): 卡片标题，h3 标签，semibold 字体。
+  - `CardDescription` (Line 28-38): 卡片描述，text-sm muted 颜色。
+  - `CardContent` (Line 40-46): 卡片内容区，p-5 pt-0。
+  - `CardIcon` (Line 48-64): 图标容器，固定尺寸 h-10 w-10，primary 背景色半透明。
 
 - **导出**:
   - `CardIcon`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`。
@@ -99,16 +99,16 @@ tags: [ui, primitives, tailwind, radix, gsap]
 模态对话框组件，基于 Radix UI。
 
 - **函数/组件**:
-  - `Dialog` (Line 10): `DialogPrimitive.Root` 别名。
-  - `DialogPortal` (Line 12): `DialogPrimitive.Portal` 别名。
-  - `DialogOverlay` (Line 14-25): 遮罩层，固定定位 z-50，bg-black/60。
-  - `DialogContent` (Line 27-53): 内容容器。
+  - `Dialog` (Line 7): `DialogPrimitive.Root` 别名。
+  - `DialogPortal` (Line 9): `DialogPrimitive.Portal` 别名。
+  - `DialogOverlay` (Line 11-24): 遮罩层，固定定位 z-50，bg-black/60。
+  - `DialogContent` (Line 26-54): 内容容器。
     - 接受 `showClose?: boolean` 属性。
     - 内部包含 `DialogPortal` -> `DialogOverlay` -> 居中容器 -> `DialogPrimitive.Content`。
     - 关闭按钮使用 `lucide-react` 的 `X` 图标，并集成 i18next 翻译。
-  - `DialogHeader` (Line 55-65): 对话框头部布局。
-  - `DialogTitle` (Line 67-78): 对话框标题。
-  - `DialogDescription` (Line 80-89): 对话框描述。
+  - `DialogHeader` (Line 56-68): 对话框头部布局。
+  - `DialogTitle` (Line 70-83): 对话框标题。
+  - `DialogDescription` (Line 85-95): 对话框描述。
 
 - **导出**:
   - `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`。
@@ -126,7 +126,7 @@ tags: [ui, primitives, tailwind, radix, gsap]
     - `className?`: 额外类名。
 
 - **函数**:
-  - `EmptyState` (Line 17-33):
+  - `EmptyState` (Line 18-31):
     - 根据 `compact` 调整间距和尺寸。
     - 图标容器使用 `rounded-2xl bg-primary/10`。
     - 标题使用 `font-medium text-foreground/80`。
@@ -136,41 +136,41 @@ tags: [ui, primitives, tailwind, radix, gsap]
 带图标和错误状态的输入框。
 
 - **接口**:
-  - `InputProps`: 继承 `React.InputHTMLAttributes<HTMLInputElement>`，新增 `icon?: React.ReactNode` 和 `error?: string`。
+  - `InputProps`: 继承 `React.InputHTMLAttributes<HTMLInputElement>`，新增 `icon?: React.ReactNode` 和 `error?: string`（Line 4-8）。
 
 - **函数**:
-  - `Input` (Line 12-36):
+  - `Input` (Line 10-37):
     - 相对定位容器。
-    - 若存在 `icon`，在左侧绝对定位显示。
-    - 若存在 `error`，添加红色边框和下方错误文本提示。
+    - 若存在 `icon`，在左侧绝对定位显示（Line 14-18）。
+    - 若存在 `error`，添加红色边框和下方错误文本提示（Line 25, 31-33）。
     - 输入框本身使用 `bg-muted/40` 背景。
 
 ### Label (`android/frontend/src/components/ui/label.tsx`)
 表单标签。
 
 - **接口**:
-  - `LabelProps`: 继承 Radix Label 属性，新增 `required?: boolean`。
+  - `LabelProps`: 继承 Radix Label 属性，新增 `required?: boolean`（Line 10-13）。
 
 - **函数**:
-  - `Label` (Line 13-26):
+  - `Label` (Line 10-24):
     - 使用 `LabelPrimitive.Root`。
-    - 若 `required` 为真，在末尾追加红色 `*` 号。
+    - 若 `required` 为真，在末尾追加红色 `*` 号（Line 21）。
 
 ### Select (`android/frontend/src/components/ui/select.tsx`)
 下拉选择器。
 
 - **函数/组件**:
-  - `Select` (Line 9): Root 别名。
-  - `SelectValue` (Line 11): Value 别名。
-  - `SelectTrigger` (Line 13-34): 触发器。
+  - `Select` (Line 6): Root 别名。
+  - `SelectValue` (Line 8): Value 别名。
+  - `SelectTrigger` (Line 10-34): 触发器。
     - 支持 `icon` 属性，在左侧显示图标。
     - 右侧固定显示 `ChevronDown` 图标。
-  - `SelectContent` (Line 36-63): 内容面板。
+  - `SelectContent` (Line 36-64): 内容面板。
     - 默认 `position="popper"`。
     - 包含进入/退出动画类。
-  - `SelectItem` (Line 65-84): 单项。
+  - `SelectItem` (Line 66-88): 单项。
     - 左侧显示 `Check` 图标作为选中指示器。
-  - `SelectSeparator` (Line 86-95): 分隔线。
+  - `SelectSeparator` (Line 90-100): 分隔线。
 
 - **导出**:
   - `Select`, `SelectValue`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectSeparator`。
@@ -179,7 +179,7 @@ tags: [ui, primitives, tailwind, radix, gsap]
 分割线。
 
 - **函数**:
-  - `Separator` (Line 7-28):
+  - `Separator` (Line 5-26):
     - 基于 `SeparatorPrimitive.Root`。
     - 支持 `orientation` ('horizontal' | 'vertical')。
     - 水平方向高度 1px，垂直方向宽度 1px。
@@ -188,10 +188,10 @@ tags: [ui, primitives, tailwind, radix, gsap]
 开关控件。
 
 - **接口**:
-  - 新增 `size?: 'default' | 'sm' | 'lg'`。
+  - 新增 `size?: 'default' | 'sm' | 'lg'`（Line 7-9）。
 
 - **函数**:
-  - `Switch` (Line 7-34):
+  - `Switch` (Line 5-32):
     - 基于 `SwitchPrimitives.Root`。
     - 根据 size 调整轨道和拇指的尺寸及位移距离。
     - 状态切换动画 duration 200ms。
@@ -200,11 +200,11 @@ tags: [ui, primitives, tailwind, radix, gsap]
 工具提示。
 
 - **函数/组件**:
-  - `TooltipProvider` (Line 7): Provider 别名。
-  - `Tooltip` (Line 9): Root 别名。
-  - `TooltipTrigger` (Line 11): Trigger 别名。
-  - `TooltipPortal` (Line 13): Portal 别名。
-  - `TooltipContent` (Line 15-32): 内容层。
+  - `TooltipProvider` (Line 5): Provider 别名。
+  - `Tooltip` (Line 7): Root 别名。
+  - `TooltipTrigger` (Line 9): Trigger 别名。
+  - `TooltipPortal` (Line 11): Portal 别名。
+  - `TooltipContent` (Line 13-29): 内容层。
     - 默认 sideOffset 4。
     - 包含进入/退出动画类。
 

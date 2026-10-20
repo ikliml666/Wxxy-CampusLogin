@@ -69,7 +69,7 @@
 - [[learnings/set-ip-interface-entry-metric|SetIpInterfaceEntry 写 metric 的必踩点与字段对照]]
 - [[learnings/tailwind-space-y-margin-specificity|Tailwind 样式覆盖与全局布局约束（index.css）]]
 - [[learnings/usb-adapter-enable-pnp-vs-ndis-layers|USB 网卡启用失效——NDIS admin 层与 PnP 设备层禁用互不覆盖]]
-- [[learnings/usb-adapter-disable-reboot-triggers-driver-install|USB 网卡禁用后重启弹出「正在安装设备驱动程序」——NDIS 层禁用 vs PnP 层禁用]]
+- [[learnings/usb-adapter-disable-reboot-triggers-driver-install|USB 网卡禁用后重启弹出「正在安装设备驱动程序」——禁用必须用非持久化设备级原语]]
 - [[learnings/webview2-minimize-render-suspend|WebView2 最小化渲染挂起与内存目标管理]]
 - [[learnings/platform-com-elevation-undocumented|Windows COM 提权依赖未公开接口，失效时降级为弹 UAC]]
 - [[learnings/adapter-disabled-classification-blindspot|Windows 适配器发现与监控——四分类决策、幽灵设备修复与自动启用守护]]
