@@ -71,25 +71,25 @@ tags: [settings, onboarding, theme, ui, android]
 *   **`OperatorBindingInfo`**: `{ account: string, passwordSet: boolean }` (40-43)。
 *   **`BindStatuses`**: `Record<OperatorKey, OperatorBindingInfo | null>` (44)。
 
-*   **`useOnboardingFlow` (63-291)**: 向导核心状态机 Hook。
-    *   **输入**: `open`, `onUpdateConfig`, `onLogin`, `onClose`。
+*   **`useOnboardingFlow` (69-301)**: 向导核心状态机 Hook。
+    *   **输入**: `open`, `onUpdateConfig`, `onLogin`, `onClose`, `onAutoAdvance`。
     *   **状态**:
-        *   `step` (70): 当前步骤 (0-3)。
-        *   `username`, `password`, `operator` (71-73): 登录凭据。
-        *   `bindOperatorValue`, `phone`, `smsPassword` (79-81): 绑定运营商信息。
-        *   `bindState` (82): 'idle' | 'loading' | 'success' | 'error'。
-        *   `loginSuccess` (75): 登录成功标志。
+        *   `step` (76): 当前步骤 (0-3)。
+        *   `username`, `password`, `operator` (77-79): 登录凭据。
+        *   `bindOperatorValue`, `phone`, `smsPassword` (85-87): 绑定运营商信息。
+        *   `bindState` (88): 'idle' | 'loading' | 'success' | 'error'。
+        *   `loginSuccess` (81): 登录成功标志。
     *   **方法**:
-        *   `advance(nextStep)` (127-130): 切换步骤并记录方向。
-        *   `handleBind()` (139-170): 执行运营商绑定，调用 `tauriApiWithRetry.bindOperator`。前置验证调用 `ensureBindHello()` (142)。成功处理设置 `bindState='success'`，刷新绑定状态检测 tick (`setBindRefreshTick`)，延迟 1.2s 后进入完成步 (157-161)。
-        *   `goNext()` (223-225): 进入下一步，若为第 1 步则落盘账号信息。**关键纪律**：仅当用户输入了新密码 (`password.trim()`) 时才更新 `password` 字段，避免空字符串覆盖后端已保存的掩码密码 (215-217)。
-        *   `handleSkip()` (227-234): 跳过向导，直接写入 `campus-onboarding-done` 并关闭。
-        *   `handleLoginAndFinish()` (236-266): 执行登录并结束向导。**最终校验**：再次检查账号密码有效性 (238)，修复历史缺陷。登录成功后，设置 `loginSuccess=true`，写入 `safeStorage.set('campus-onboarding-done', '1')` (257)，延迟 1.5s 后关闭向导 (258)。
+        *   `advance(nextStep)` (133-136): 切换步骤并记录方向。
+        *   `handleBind()` (145-180): 执行运营商绑定，调用 `tauriApiWithRetry.bindOperator`。前置验证调用 `ensureBindHello()` (148)。成功处理设置 `bindState='success'`，刷新绑定状态检测 tick (`setBindRefreshTick`)，延迟 1.2s 后进入完成步 (163-171)。
+        *   `goNext()` (233-235): 进入下一步，若为第 1 步则落盘账号信息。**关键纪律**：仅当用户输入了新密码 (`password.trim()`) 时才更新 `password` 字段，避免空字符串覆盖后端已保存的掩码密码 (225-227)。
+        *   `handleSkip()` (237-244): 跳过向导，直接写入 `campus-onboarding-done` 并关闭。
+        *   `handleLoginAndFinish()` (246-276): 执行登录并结束向导。**最终校验**：再次检查账号密码有效性 (248)，修复历史缺陷。登录成功后，设置 `loginSuccess=true`，写入 `safeStorage.set('campus-onboarding-done', '1')` (267)，延迟 1.5s 后关闭向导 (268)。
     *   **派生值**:
-        *   `canProceedAccount` (172): 账号步骤是否可继续。
-        *   `canBind` (133): 绑定步骤是否可提交。
-        *   `passwordSaved` (269): 密码是否已保存。
-    *   **绑定状态自动检测 (178-204)**: 进入绑定步骤 (step 2) 且账号有效时，自动调用 `tauriApiWithRetry.getBindStatus` (183)。结果缓存到 `bindStatuses`。支持通过 `bindRefreshTick` 手动刷新。
+        *   `canProceedAccount` (182): 账号步骤是否可继续。
+        *   `canBind` (139): 绑定步骤是否可提交。
+        *   `passwordSaved` (279): 密码是否已保存。
+    *   **绑定状态自动检测 (188-214)**: 进入绑定步骤 (step 2) 且账号有效时，自动调用 `tauriApiWithRetry.getBindStatus` (193)。结果缓存到 `bindStatuses`。支持通过 `bindRefreshTick` 手动刷新。
 
 **`useSettings` (`android/frontend/src/settings/useSettings.ts`)**
 
@@ -112,7 +112,7 @@ tags: [settings, onboarding, theme, ui, android]
     *   `isLoggingIn`: boolean
 *   **子组件**:
     *   `DeckArrow` (77-100): 导航箭头按钮。
-*   **渲染逻辑** (202-623):
+*   **渲染逻辑** (210-627):
     *   Step 0: 欢迎页，显示吉祥物和安全提示，支持语言切换 (`setLanguage`)。
     *   Step 1: 账号信息页，输入用户名、密码（支持显隐），选择运营商。必填项校验实时反馈。
     *   Step 2: 绑定运营商页，复用 Step 1 的凭据。ISP 下拉框过滤掉 `DEFAULT_OPERATOR`。绑定状态面板自动查询三个运营商绑定状态 (`bindStatuses`)。选中运营商后高亮聚焦该行 (`focusedOperatorKey`)。手机号、短信验证码输入。绑定按钮状态机：loading/success/error。
@@ -248,6 +248,6 @@ tags: [settings, onboarding, theme, ui, android]
 
 ## Known Issues
 1.  **安卓自启字段映射**: 在 `useSettings.ts` L52-60 中，前端配置项 `enableBootAutostart` 直接映射到后端 API `setAutoLaunch`。注释指出后端实有字段为 `enable_boot_autostart`，但 API 调用可能依赖特定的 Tauri 命令封装。需确保 Tauri 侧命令正确解析此布尔值。
-2.  **向导状态重置**: `useOnboardingFlow` L102-118 仅在 `open` 从 false 变为 true 时重置状态。如果向导关闭后再次打开，且期间 `config` 发生了变化（如在其他设置页修改了密码），向导会重新读取最新配置。但如果用户在向导中途关闭，下次打开时应从 Step 0 重新开始，当前逻辑符合预期。
+2.  **向导状态重置**: `useOnboardingFlow` L108-124 仅在 `open` 从 false 变为 true 时重置状态。如果向导关闭后再次打开，且期间 `config` 发生了变化（如在其他设置页修改了密码），向导会重新读取最新配置。但如果用户在向导中途关闭，下次打开时应从 Step 0 重新开始，当前逻辑符合预期。
 3.  **2D 人脸模板清除**: `SettingsPanel.tsx` L289 在关闭 2D 人脸开关时调用 `clearTemplate()`。这会导致用户必须重新录入人脸才能再次开启，属于设计上的安全最小化原则，非 Bug，但需注意用户体验。
 4.  **延迟计算选项联动**: `SettingsPanel.tsx` L357-L375 在关闭 `enableNetworkQuality` 时，会联动关闭 `enableLatencyTest` 并停止测试任务。这是为了防止开关与任务分叉，逻辑正确。
