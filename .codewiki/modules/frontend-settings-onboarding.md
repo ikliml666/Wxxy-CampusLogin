@@ -16,29 +16,31 @@ tags: [settings, onboarding, theme, ui, android]
 ---
 
 ## Overview
-该模块负责应用设置面板（Settings Panel）、首次使用引导向导（Onboarding Wizard）及主题配置对话框（Theme Dialog）。核心目标是为安卓端提供跨设备（手机/平板）一致的引导体验，同时管理应用的全局配置、网络质量检测参数、安全验证开关及电池保活策略。
+本模块负责 Android 端应用的全局设置面板（`SettingsPanel`）、首次使用引导向导（`OnboardingWizard` / `OnboardingWizardMobile`）及主题配置对话框（`ThemeDialog`）。核心目标是为安卓端提供跨设备（手机/平板）一致的引导体验，同时管理应用的全局配置、网络质量检测参数、安全验证开关及电池保活策略。
 
-模块通过 `useOnboardingFlow` Hook 抽离了向导的状态机逻辑，确保手机端全屏向导与平板端对话框向导共享同一套业务逻辑。设置面板采用响应式布局，适配不同屏幕尺寸，并针对 Android 平台提供了特定的保活与安全功能。
+模块通过 `useOnboardingFlow` Hook 抽离了向导的状态机逻辑，确保手机端全屏向导与平板端对话框向导共享同一套业务逻辑。设置面板采用响应式布局，适配不同屏幕尺寸，并针对 Android 平台提供了特定的保活与安全功能。所有 UI 组件均通过 `index.ts` 统一导出。
 
 ## Key Components
 
 ### Constants & Types (`constants.ts`, `types.ts`)
 
-**常量定义 (`constants.ts`)**
+**常量定义 (`android/frontend/src/settings/constants.ts`)**
+
 *   **`DEFAULT_CONFIG: Config` (5-58)**: 默认配置对象，作为单一事实来源（Single Source of Truth），确保 UI 展示值与后端配置结构一致。
     *   `configSchemaVersion: 7` (57): 配置版本迁移标记，注释提及 v4→v5, v5→6 迁移历史。
-    *   `backgroundCheckInterval: 60000` (26) & `backgroundCheckIdleInterval: 300000` (28): 后台检测周期，与后端 `Settings::default` 对齐。
+    *   `backgroundCheckInterval: 60000` (26) & `backgroundCheckIdleInterval: 300000` (28): 后台检测周期，与后端 `Settings::default` 对齐，用于降功耗。
     *   `latencyTestInterval: 600000` (35): 延迟测试间隔 600s。
     *   `campusCheckStartMinutes: 460` (47) / `EndMinutes: 1380` (49): 校园网检查时间窗口（约 07:40 - 23:00）。
-    *   `scheduledLoginMinutes: 1440` (51): 禁用定时登录（1440 代表全天/禁用）。
-    *   `portalUrl`, `fixedGateway`, `campusGateway` (41-45): 硬编码的校园网网络参数。
+    *   `portalUrl: 'http://10.1.99.100'` (41), `fixedGateway: '10.2.127.254'` (42), `requiredNetworkName: 'i-wxxy'` (43): 硬编码的校园网网络参数。
+    *   `enableBootAutostart: false` (23): 注释说明需调用 `set_boot_autostart` 才生效。
 *   **`ISP_OPTIONS` (60-65)**: 运营商选项数组。特殊值 `__default__` 对应“无锡学院”（校园网默认线路），其余为 `@telecom`, `@unicom`, `@cmcc`。
 *   **`operatorLabelKey` (72-75)**: 工具函数，将后端返回的运营商后缀（如 `''` 或 `'@telecom'`）转换为 i18n 的 `labelKey`。空字符串 `''` 映射为 `__default__` 查找；`null/undefined` 返回 `undefined`（用于隐藏徽标）。
 *   **`THEME_OPTIONS` (77-85)**: 主题选项，包含 `id` (ThemeName), `label`, `labelKey`, `color`。包含 `custom` 主题，颜色由 `DEFAULT_CONFIG.customThemeColor` (`#6366f1`) 提供。
 *   **`VALID_THEMES` (87)**: 所有有效主题 ID 的数组，用于校验。
 *   **`DEFAULT_PANEL_OPTIONS` (89-92)**: 基于 `NAV_ITEMS` 动态生成的默认面板选项，仅提取 `value` 和 `labelKey`。
 
-**类型定义 (`types.ts`)**
+**类型定义 (`android/frontend/src/settings/types.ts`)**
+
 *   **`AccountItem` (4-13)**: 账号列表项接口。
     *   `id`: string, 文件名 stem。
     *   `displayName`: string, 可编辑显示名。
@@ -46,16 +48,18 @@ tags: [settings, onboarding, theme, ui, android]
     *   `operator?`: string, 运营商后缀。
     *   `passwordSaved?`: boolean, 是否已保存密码。
 *   **`Config` (15-80)**: 核心配置对象。
-    *   **安全相关**: `selfHelloEnabled` (默认 true), `selfReverifyEachAction` (默认 false), `allow2dFaceVerify` (默认 false)。
+    *   **安全相关**: `selfHelloEnabled` (L19), `selfReverifyEachAction` (L21), `allow2dFaceVerify` (L23)。
     *   **运营商相关**: `operator`, `enableNightOperatorSwitch`, `nightOperatorRestore`, `enableNightOutboundSwitch`, `outboundPriority`, `outboundMetricRestore`, `outboundDisabledAdapters` (JSON string), `outboundStandbyRoute` (JSON string), `nightOutboundRestore`, `dnsOptimizeAdapters`。
-    *   **自动化相关**: `autoLoginOnStart`, `enableBootAutostart`, `backgroundCheckInterval`, `backgroundCheckIdleInterval` (默认 300000ms), `autoLoginOnPreparation`, `scheduledLoginMinutes`, `scheduledLogoutMinutes`。
-    *   **网络相关**: `enableLatencyTest`, `latencyTestInterval`, `defaultPanel`, `enableNetworkQuality`, `skipTtfbInLatency`, `skipContentInLatency`, `portalUrl`, `fixedGateway`, `requiredNetworkName`, `enableNetworkNameCheck`, `campusGateway`, `updateSource` ('mirror'|'github'), `campusCheckStartMinutes` (默认 460=07:40), `campusCheckEndMinutes` (默认 1380=23:00)。
+        *   *注*: `outboundDisabledAdapters` 和 `outboundStandbyRoute` 在安卓端仅同构不消费 (L32-L35)。
+    *   **自动化相关**: `autoLoginOnStart`, `enableBootAutostart` (L43), `backgroundCheckInterval`, `backgroundCheckIdleInterval` (L47, 默认 300000ms), `autoLoginOnPreparation`, `scheduledLoginMinutes`, `scheduledLogoutMinutes`。
+    *   **网络相关**: `enableLatencyTest`, `latencyTestInterval`, `defaultPanel`, `enableNetworkQuality`, `skipTtfbInLatency` (L57), `skipContentInLatency` (L58), `portalUrl`, `fixedGateway`, `requiredNetworkName`, `enableNetworkNameCheck`, `campusGateway`, `updateSource` ('mirror'|'github'), `campusCheckStartMinutes` (默认 460=07:40), `campusCheckEndMinutes` (默认 1380=23:00)。
     *   **其他**: `themeMode` ('light'|'dark'|'system'), `customThemeColor`, `displayName` (当前激活账号显示名), `logRetentionDays`, `configSchemaVersion`。
-*   **`InitData` (87-102)**: 初始化数据接口。包含 `config`, `version`, `adapters`, `adapterDetails`, `accounts`, `activeAccount`, `backgroundStatus`, `isAutoStart`, `autoLaunch`, `notificationEnabled`, `logRetentionDays`, `debugMode`, `refreshRate?`。注释说明 `logRetentionDays` 和 `debugMode` 原为一次性命令，现并入 InitData。
+*   **`InitData` (87-103)**: 初始化数据接口。包含 `accounts`, `adapterDetails`, `logRetentionDays`, `debugMode` 等。注释说明 `logRetentionDays` 和 `debugMode` 原为一次性命令，现并入 InitData。
 
 ### Hooks (`useOnboardingFlow.ts`, `useSettings.ts`)
 
-**`useOnboardingFlow` (`useOnboardingFlow.ts`)**
+**`useOnboardingFlow` (`android/frontend/src/settings/useOnboardingFlow.ts`)**
+
 *   **导出常量**:
     *   `ONBOARDING_STEP_COUNT = 4` (26)。
     *   `BIND_OPERATOR_NONE = '__none__'` (28): 绑定步骤未选择运营商。
@@ -88,7 +92,8 @@ tags: [settings, onboarding, theme, ui, android]
         *   `passwordSaved` (165): 密码是否已保存。
     *   **绑定状态自动检测 (178-204)**: 进入绑定步骤 (step 2) 且账号有效时，自动调用 `tauriApiWithRetry.getBindStatus` (183)。结果缓存到 `bindStatuses`。支持通过 `bindRefreshTick` 手动刷新。
 
-**`useSettings` (`useSettings.ts`)**
+**`useSettings` (`android/frontend/src/settings/useSettings.ts`)**
+
 *   **`useSettings` (10-63)**: 设置相关副作用 Hook。整合 Config Store、Theme Store、Toast Store。
     *   `handleToggleLightMode` (36-42): 切换亮/暗模式。切换 `useThemeStore.isLightMode`，更新 `useConfigStore.themeMode` 为 `'light'` 或 `'dark'`，持久化到 `safeStorage` (`campus-light-mode`)。
     *   `handleToggleNotification` (44-50): 切换通知权限。反转 `enableNotification` 配置，调用 `api.setNotificationEnabled?.(next)` (47)。开启时调用 `requestNotificationPermission` (49)。
@@ -97,7 +102,8 @@ tags: [settings, onboarding, theme, ui, android]
 
 ### UI Components
 
-**`OnboardingWizard` (`OnboardingWizard.tsx`)**
+**`OnboardingWizard` (`android/frontend/src/settings/OnboardingWizard.tsx`)**
+
 *   **用途**: 平板/宽屏端的向导组件，以 Dialog 形式呈现。
 *   **Props** (36-42):
     *   `open`: boolean
@@ -116,7 +122,8 @@ tags: [settings, onboarding, theme, ui, android]
 *   **导航**: 底部圆形箭头按钮，步骤指示器。
 *   **关闭确认**: `showCloseConfirm` 状态控制是否弹出“跳过设置”确认 Dialog。
 
-**`OnboardingWizardMobile` (`OnboardingWizardMobile.tsx`)**
+**`OnboardingWizardMobile` (`android/frontend/src/settings/OnboardingWizardMobile.tsx`)**
+
 *   **用途**: 手机端的新手指引，全屏分步向导。
 *   **Props** (48-54): 同 `OnboardingWizard`。
 *   **结构**:
@@ -133,7 +140,8 @@ tags: [settings, onboarding, theme, ui, android]
     *   输入体验：移除 `autoFocus`，避免进入账号步骤时键盘遮挡表单。
 *   **逻辑复用**: 完全依赖 `useOnboardingFlow` (131)，确保双端流程一致。
 
-**`SettingsPanel` (`SettingsPanel.tsx`)**
+**`SettingsPanel` (`android/frontend/src/settings/SettingsPanel.tsx`)**
+
 *   **用途**: 主设置面板容器。负责渲染启动、自动化、保活、安全、网络五大分组设置项，处理跨平台差异（Android vs Desktop），管理局部状态弹窗（人脸风险、延迟测试选项）。
 *   **Props** (30-34):
     *   `onUpdateConfig`: (partial: Partial<Config>) => void
@@ -156,7 +164,8 @@ tags: [settings, onboarding, theme, ui, android]
 *   **开机自启联动**: `onSetAutoLaunch` (133) 直接调用父组件传入的回调，不在此处修改 store。对应后端命令为 `set_boot_autostart`，由 `useSettings` 中的 `handleSetAutoLaunch` 统一处理。
 *   **网络组与质量检测联动**: 关闭 `enableNetworkQuality` (357-L375) 时，不仅更新配置，还执行清理逻辑：若 `config.enableLatencyTest` 为真，同步关闭定时测试 (`patch.enableLatencyTest = false`) 并调用 `tauriApiWithRetry.stopLatencyTest?.()` (370)。若 `config.defaultPanel === 'quality'`，重置默认面板为空 (372)。若当前活跃面板为 `quality`，强制切换至 `dashboard` (374)。
 
-**`KeepAliveSettingsCard` (`KeepAliveSettingsCard.tsx`)**
+**`KeepAliveSettingsCard` (`android/frontend/src/settings/KeepAliveSettingsCard.tsx`)**
+
 *   **用途**: 安卓专属保活设置卡片。处理电池优化白名单状态读取、用户引导申请及厂商自定义省电页跳转。
 *   **逻辑**:
     *   首次进入弹出确认框 (`ConfirmDialog`)，写入 `campus-keepalive-prompted` 标记 (23, 43-46)。
@@ -165,7 +174,8 @@ tags: [settings, onboarding, theme, ui, android]
     *   根据 `ignoring` 状态显示不同 Badge（成功/受限）。仅在 `!ignoring` 时显示“申请”按钮。若 `hasVendorTarget` 为真，显示厂商设置跳转入口。
     *   开发环境日志：关键错误仅在 `import.meta.env.DEV` 下 `console.error`，生产环境静默 (36, 55, 69)。
 
-**`ThemeDialog` (`ThemeDialog.tsx`)**
+**`ThemeDialog` (`android/frontend/src/settings/ThemeDialog.tsx`)**
+
 *   **用途**: 主题配置对话框。
 *   **Props** (17-21):
     *   `open`, `onClose`, `onSetTheme`, `onToggleLightMode`。

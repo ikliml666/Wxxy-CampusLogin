@@ -108,8 +108,8 @@ tags: [frontend, core, entry, i18n, styling, utils, build]
 │                   App.tsx                                    │
 │  ┌───────────────────────────────────────────────────────┐   │
 │  │  useFormFactor                                         │   │
-│  │       Tablet? ──► TabletShell                          │   │
-│  │       Mobile? ──► AppInner                             │   │
+│  │       Tablet? ► TabletShell                            │   │
+│  │       Mobile? ► AppInner                               │   │
 │  └───────────────────────┬───────────────────────────────┘   │
 │                          ▼                                    │
 │  ┌───────────────────────────────────────────────────────┐   │
