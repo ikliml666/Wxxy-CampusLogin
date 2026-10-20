@@ -1,7 +1,6 @@
 import type { LogEntry } from '@/shared'
 import type { AdapterDetail, Adapter } from '@/network'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
-import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { ScrollText, CheckCircle2, AlertCircle, Info, AlertTriangle, Trash2, Wifi, Cable, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -210,10 +209,13 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
   return (
     <div
       ref={outerRef}
-      className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square"
+      className="flex flex-col w-72 shrink-0 z-10 h-full surface-side-square overflow-hidden"
       style={{ background: 'var(--surface-side)' }}
     >
-      <AnimatedCard noHover noAnimation className="relative overflow-hidden mx-2 mt-3 mb-1.5 flex flex-col flex-1 min-h-0 rounded-2xl">
+      {/* 右栏是一个连续的面，不是一组浮起来的卡片：日志区与适配器区都直接铺在
+          --surface-side 底色上，靠一条 1px 分隔线分区。再套圆角卡片会把这一栏切成
+          几枚孤岛，看起来像主区旁边随手摆了几个盒子（用户 2026-10-20 反馈）。 */}
+      <div className="relative overflow-hidden flex flex-col flex-1 min-h-0">
         <div className="flex items-center justify-between px-4 py-3 shrink-0">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <ScrollText className="h-3.5 w-3.5" />
@@ -324,11 +326,13 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
             </div>
           )}
         </div>
-      </AnimatedCard>
+      </div>
 
-      <AnimatedCard noHover noAnimation className="mx-2 mt-1.5 mb-3 rounded-2xl">
+      <div className="mx-4 border-t border-border/60" />
+
+      <div className="shrink-0">
         <div
-          className="px-4 py-3 shrink-0 select-none rounded-t-2xl"
+          className="px-4 py-3 shrink-0 select-none"
         >
           <div className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             <Cable className="h-3.5 w-3.5" />
@@ -421,7 +425,7 @@ export const RightPanel = memo(function RightPanel({ logs, onClearLogs, outerRef
             </m.div>
           )}
         </AnimatePresence>
-      </AnimatedCard>
+      </div>
 
     </div>
   )
