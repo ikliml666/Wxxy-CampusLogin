@@ -27,8 +27,8 @@
         --text-primary: #f1f5f9;
         --text-secondary: #94a3b8;
         --text-muted: #64748b;
-        --accent: #3b82f6;
-        --border: #1e293b;
+        --sk-accent: #3b82f6;
+        --sk-border: #1e293b;
         --sidebar-bg: rgba(15,23,42,0.7);
         --status-bar-bg: rgba(30,41,59,0.5);
         --content-bg: rgba(15,23,42,0.3);
@@ -51,8 +51,8 @@
         --text-primary: #0f172a;
         --text-secondary: #475569;
         --text-muted: #94a3b8;
-        --accent: #3b82f6;
-        --border: #f1f5f9;
+        --sk-accent: #3b82f6;
+        --sk-border: #f1f5f9;
         --sidebar-bg: rgba(248,250,252,0.9);
         --status-bar-bg: rgba(248,250,252,0.5);
         --content-bg: rgba(248,250,252,0.3);
@@ -72,13 +72,13 @@
       .sk { display: flex; flex-direction: column; height: 100vh; }
       .sk-tb { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 16px; background: var(--bg-secondary); }
       .sk-sb { display: flex; align-items: center; height: 32px; padding: 0 16px; background: var(--status-bar-bg); font-size: 12px; color: var(--text-secondary); }
-      .sk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: sk-pulse 1.5s ease-in-out infinite; margin-right: 6px; display: inline-block; }
+      .sk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sk-accent); animation: sk-pulse 1.5s ease-in-out infinite; margin-right: 6px; display: inline-block; }
       @keyframes sk-pulse { 0%,100%{opacity:1}50%{opacity:.4} }
       .sk-main { display: flex; flex: 1; min-height: 0; }
       .sk-side { width: 180px; background: var(--sidebar-bg); }
       .sk-content { flex: 1; padding: 20px; background: var(--content-bg); }
       .sk-card { background: var(--bg-secondary); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-      .sk-line { background: var(--border); border-radius: 4px; height: 12px; margin-bottom: 8px; }
+      .sk-line { background: var(--sk-border); border-radius: 4px; height: 12px; margin-bottom: 8px; }
       .sk-log { width: 220px; background: var(--sidebar-bg); }
     </style>
   </head>
