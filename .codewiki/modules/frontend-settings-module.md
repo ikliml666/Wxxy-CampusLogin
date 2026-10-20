@@ -113,7 +113,7 @@ tags: [settings, onboarding, theme, keep-alive, configuration]
 *   **职责**: 平板/桌面端的新手指引向导（Dialog 形态）。复用 `useOnboardingFlow` 逻辑，独立处理 UI 布局与动画。
 *   **Props**: `open`, `onClose`, `onUpdateConfig`, `onLogin`, `isLoggingIn` (36| L36-L42)。
 *   **步骤定义**: 4步 (`STEP_COUNT = 4`)。图标序列 `STEP_ICONS` [Sparkles, UserCircle, Link2, Zap] (44| L44-L45, 75| L75)。
-*   **动画系统**: 使用 `framer-motion`。卡片进出场变体 `cardVariants` 包含旋转、缩放、透明度变化 (56| L56-L72)。过渡参数 `CARD_TRANSITION` (73| L73)。
+*   **动画系统**: 使用 CSS Transitions 配合自定义变换。卡片进出场通过 `STACK_LAYERS` (55| L55-L60) 定义层级，出场向上飞起 (`EXIT_UP_TRANSFORM`)，入场从下方浮起 (`ENTER_FROM_TRANSFORM`)。
 *   **Step 0 (欢迎)**: 展示 MascotFigure，语言切换按钮 (zh/en) (170| L170-L191)。
 *   **Step 1 (账号信息)**:
     *   输入 Username/Password，支持密码显隐 (193| L193-L257)。
