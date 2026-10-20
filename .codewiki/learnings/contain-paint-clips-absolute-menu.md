@@ -55,7 +55,7 @@ tags: [教训, 前端, react, gsap, css, contain, 动画, 性能]
 - **事件处理**:
     - **`handleMouseMove` (第 65-89 行)**:
         - 同步捕获 `currentTarget` 和鼠标坐标 (`clientX`, `clientY`)，因为 React 合成事件在异步回调中可能失效。
-        - 取消之前的 RAF，注册新的 RAF 回调。
+        - 取消之前的 RAF，注册新 RAF。
         - 在 RAF 回调中：
             - 设置 `el.style.willChange = 'transform'` 以提示浏览器提升图层。
             - 从 `rectCacheRef` 读取边界矩形，若为空则调用 `getBoundingClientRect()` 并缓存。

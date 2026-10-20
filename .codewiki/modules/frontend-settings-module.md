@@ -31,6 +31,8 @@ tags: [settings, onboarding, theme, keep-alive, configuration]
 *   `THEME_OPTIONS` (77| L77-L85): 主题选项，包含 `default`, `vibrant`, `forest`, `midnight`, `ocean`, `cherry`, `custom` 及其对应的色值。
 *   `VALID_THEMES` (87| L87): 有效主题 ID 数组。
 *   `DEFAULT_PANEL_OPTIONS` (89| L89-L92): 基于 `NAV_ITEMS` 生成的默认面板选项。
+*   `GLASS_OPTIONS` (95| L95-L99): 玻璃质感三档选项：`off` (不模糊), `standard` (单层雾化), `ultra` (完整液体玻璃)。
+*   `VALID_GLASS_LEVELS` (101| L101): 有效玻璃质感级别数组。
 
 ### Hooks (`useSettings.ts`, `useOnboardingFlow.ts`)
 
