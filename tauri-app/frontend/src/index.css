@@ -33,7 +33,9 @@
 
     --surface-top: #ffffff;
     --surface-main: #f0f4f8;
-    --surface-side: #f8fafc;
+    /* 右栏纯白：比主区（#f0f4f8）更亮，边界由明度差自然成立，
+       不必再画分隔线或套卡片（2026-10-20 用户要求白色填满右侧区域） */
+    --surface-side: #ffffff;
 
     /* ── 悬浮栏玻璃：三档（关 / 标准 / 极致），只作用于 .glass-dock / .glass-nav。
        背景保持不透明实底，不做满屏 mesh——玻璃的层次全部来自悬浮栏自身的
@@ -102,7 +104,8 @@
 
     --surface-top: #14161b;
     --surface-main: #0c0e12;
-    --surface-side: #101216;
+    /* 暗色右栏同步提亮：与亮色「右栏更亮」的方向一致，只是幅度收窄 */
+    --surface-side: #16191f;
 
     /* 暗色玻璃基色：比 surface-main(#0c0e12) 明显更亮，悬浮栏才「浮」得起来 */
     --glass-base: #1c2028;
