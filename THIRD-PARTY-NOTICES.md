@@ -39,7 +39,7 @@
 - **Unicode-3.0**（34 个）：icu_collections 2.2.0, icu_collections 2.3.0, icu_locale_core 2.2.0, icu_locale_core 2.3.0, icu_normalizer 2.2.0, icu_normalizer 2.3.0, icu_normalizer_data 2.2.0, icu_normalizer_data 2.3.0, icu_properties 2.2.0, icu_properties 2.3.0, icu_properties_data 2.2.0, icu_properties_data 2.3.0, icu_provider 2.2.0, icu_provider 2.3.1, litemap 0.8.2, litemap 0.8.3, potential_utf 0.1.5, potential_utf 0.1.6, tinystr 0.8.3, tinystr 0.8.4, writeable 0.6.3, writeable 0.6.4, yoke 0.8.2, yoke 0.8.3, yoke-derive 0.8.2, zerofrom 0.1.7, zerofrom 0.1.8, zerofrom-derive 0.1.7, zerotrie 0.2.4, zerotrie 0.2.5, zerovec 0.11.6, zerovec 0.11.8, zerovec-derive 0.11.3, zerovec-derive 0.11.6
 - **Zlib**（3 个）：foldhash 0.1.5, foldhash 0.2.0, zlib-rs 0.6.7
 
-## 二、前端依赖（桌面 + 安卓，npm 生产依赖树，114 个）
+## 二、前端依赖（桌面 + 安卓，npm 生产依赖树，115 个）
 
 ### 按许可证分组
 
@@ -50,6 +50,7 @@
 - **MIT**（104 个）：@babel/runtime 7.29.7, @floating-ui/core 1.7.5, @floating-ui/core 1.8.0, @floating-ui/dom 1.7.6, @floating-ui/dom 1.8.0, @floating-ui/react-dom 2.1.8, @floating-ui/react-dom 2.1.9, @floating-ui/utils 0.2.11, @floating-ui/utils 0.2.12, @radix-ui/number 1.1.1, @radix-ui/number 1.1.3, @radix-ui/primitive 1.1.3, @radix-ui/primitive 1.1.7, @radix-ui/react-arrow 1.1.15, @radix-ui/react-arrow 1.1.7, @radix-ui/react-collection 1.1.15, @radix-ui/react-collection 1.1.7, @radix-ui/react-compose-refs 1.1.2, @radix-ui/react-compose-refs 1.1.5, @radix-ui/react-context 1.1.2, @radix-ui/react-context 1.2.2, @radix-ui/react-dialog 1.1.15, @radix-ui/react-dialog 1.1.23, @radix-ui/react-direction 1.1.1, @radix-ui/react-direction 1.1.4, @radix-ui/react-dismissable-layer 1.1.11, @radix-ui/react-dismissable-layer 1.1.19, @radix-ui/react-focus-guards 1.1.3, @radix-ui/react-focus-guards 1.1.6, @radix-ui/react-focus-scope 1.1.16, @radix-ui/react-focus-scope 1.1.7, @radix-ui/react-id 1.1.1, @radix-ui/react-id 1.1.4, @radix-ui/react-label 2.1.15, @radix-ui/react-label 2.1.8, @radix-ui/react-popper 1.2.8, @radix-ui/react-popper 1.3.7, @radix-ui/react-portal 1.1.17, @radix-ui/react-portal 1.1.9, @radix-ui/react-presence 1.1.10, @radix-ui/react-presence 1.1.5, @radix-ui/react-primitive 2.1.10, @radix-ui/react-primitive 2.1.3, @radix-ui/react-select 2.2.6, @radix-ui/react-select 2.3.7, @radix-ui/react-separator 1.1.15, @radix-ui/react-separator 1.1.8, @radix-ui/react-slot 1.2.4, @radix-ui/react-slot 1.3.3, @radix-ui/react-switch 1.2.6, @radix-ui/react-switch 1.3.7, @radix-ui/react-tooltip 1.2.16, @radix-ui/react-tooltip 1.2.8, @radix-ui/react-use-callback-ref 1.1.1, @radix-ui/react-use-callback-ref 1.1.4, @radix-ui/react-use-controllable-state 1.2.2, @radix-ui/react-use-controllable-state 1.2.6, @radix-ui/react-use-effect-event 0.0.2, @radix-ui/react-use-effect-event 0.0.5, @radix-ui/react-use-escape-keydown 1.1.1, @radix-ui/react-use-layout-effect 1.1.1, @radix-ui/react-use-layout-effect 1.1.4, @radix-ui/react-use-previous 1.1.1, @radix-ui/react-use-previous 1.1.4, @radix-ui/react-use-rect 1.1.1, @radix-ui/react-use-rect 1.1.4, @radix-ui/react-use-size 1.1.1, @radix-ui/react-use-size 1.1.4, @radix-ui/react-visually-hidden 1.2.11, @radix-ui/react-visually-hidden 1.2.3, @radix-ui/rect 1.1.1, @radix-ui/rect 1.1.3, aria-hidden 1.2.6, clsx 2.1.1, detect-node-es 1.1.0, framer-motion 12.38.0, framer-motion 12.43.0, get-nonce 1.0.1, html-parse-stringify 3.0.1, html-parse-stringify 4.0.1, i18next 26.3.1, i18next 26.4.2, i18next-browser-languagedetector 8.2.1, motion-dom 12.38.0, motion-dom 12.43.0, motion-utils 12.36.0, motion-utils 12.39.0, react 19.2.5, react 19.2.8, react-dom 19.2.5, react-dom 19.2.8, react-i18next 17.0.13, react-i18next 17.0.8, react-remove-scroll 2.7.2, react-remove-scroll-bar 2.3.8, react-style-singleton 2.2.3, scheduler 0.27.0, tailwind-merge 2.6.1, use-callback-ref 1.3.3, use-sidecar 1.1.3, use-sync-external-store 1.6.0, void-elements 3.1.0, zustand 5.0.13, zustand 5.0.15
 - **MIT**（新增 1 个）：@vladmandic/human 3.3.6（2D 人脸验证，2026-09-12 起）
 - **Standard 'no charge' license: https://gsap.com/standard-license.**（1 个）：gsap 3.15.0
+- **MIT**（源码 vendored，不计入 npm 依赖树）：hyalite 0.5.0 —— 见下方「特别条款」与「四、许可证全文 / MIT」
 
 ## 三、特别条款
 
@@ -59,6 +60,16 @@
   - **明确不启用** human 包内 `antispoof`、`liveness` 模型（来源许可不明）及任何 insightface 权重（"non-commercial research purposes only"）；该三类模型文件不应随应用分发。
   - **用途声明**：MediaPipe BlazeFace 模型卡注明 "Any form of surveillance or identity recognition is explicitly out of scope"。本应用的使用场景为**设备持有人本人自愿发起的一对一自证**（本机敏感操作确认，模板仅存本机、不上传），非监控、非身份建档，与本声明不冲突；随本应用分发即视为接受该场景限定。
 - **gsap**（前端动画库）：非 MIT、非开源，见下方「GSAP」专有条款段落；
+- **hyalite 0.5.0**（悬浮栏玻璃折射，2026-10-20 起）：**MIT**（Copyright (c) 2026 VII-Cae）。
+  - 不使用 npm 包，源码 **vendored** 在 `tauri-app/frontend/src/lib/vendor/hyalite.js` 与
+    `android/frontend/src/lib/vendor/hyalite.js`（双端同一份 809 行 `dist/hyalite.umd.js`），
+    随包附 `hyalite.LICENSE` 与本地类型声明 `hyalite.d.ts`；上游
+    https://github.com/VII-Cae/hyalite--liquid-glass 。
+  - MIT 允许在保留版权与许可声明的前提下商用、修改、再分发，与本项目 MIT 许可兼容；
+    包内版权头（`Copyright (c) 2026 VII-Cae`）未修改。
+  - 该库的设计思路（Beer–Lambert 吸收、Schlick 菲涅尔、位移图为法线贴图）与 Apple
+    Liquid Glass / FlClash `liquid_glass.dart` 的公开描述同源，但**未复制任何 FlClash 源码**
+    （FlClash 为 GPL-3.0，其代码不可进入 MIT 项目；本项目只借鉴参数区间与视觉语汇）。
 - **webpki-roots**（内置 Mozilla CA 根证书数据）：CDLA-Permissive-2.0 数据许可；
 - **ring / aws-lc-rs**（TLS 加密后端）：许可文本内含源自 OpenSSL 项目的第三方代码声明条款，随包全文见下；
 - **encoding_rs**：(Apache-2.0 OR MIT) AND BSD-3-Clause。
@@ -5188,6 +5199,38 @@ the following restrictions:
 - **不得移除或修改 GSAP 源码中的专有声明与版权头**（本应用打包产物中的 gsap 代码已保留原版权头，符合条款）；
 - 不得将 GSAP 用于构建无代码可视化动画工具等竞争产品；
 - 该许可非开源许可，条款由 Webflow 单方维护。
+
+### MIT（hyalite 0.5.0，源码 vendored）
+
+> 文本与 `tauri-app/frontend/src/lib/vendor/hyalite.LICENSE`（安卓端同文件）逐字一致。
+
+<details><summary>LICENSE</summary>
+
+```
+MIT License
+
+Copyright (c) 2026 VII-Cae (VII)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
 
 ### 未附全文的许可
 

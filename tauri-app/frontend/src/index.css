@@ -312,8 +312,13 @@
   .glass-dock,
   .glass-nav {
     background: color-mix(in srgb, var(--glass-base) var(--glass-tint), transparent);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    /* 折射优先：Hyalite 在支持 SVG 背板滤镜的引擎（Chromium / WebView2）上写入
+       --hyalite: url(#…)——它内部已经做了模糊、边缘着色与位移放大，这里不能再叠
+       一层 blur，否则等于在成品上二次模糊、折射细节全被糊掉。
+       其余引擎（WebKit 只保留 blur、Gecko 不渲染）读不到 --hyalite，自然落到
+       逗号后的纯 CSS 玻璃——所以这行既是增强路径也是降级路径。 */
+    -webkit-backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
+    backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
     border-radius: 18px;
     box-shadow:
       var(--glass-near),

@@ -30,6 +30,8 @@ import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { usePulseAnimation } from '@/hooks/usePulseAnimation'
 import { useShallow } from 'zustand/react/shallow'
+import { useThemeStore } from '@/hooks/useThemeStore'
+import { useGlassRefraction } from '@/lib/glass-dock'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -428,6 +430,12 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const profile = useAnimationProfile()
   const mouseX = useMotionValue(-1000)
 
+  // 折射玻璃：把位移图挂到 nav 上（尺寸变化才重建，滚动零成本）。
+  // economy 档连光斑都省，这里同样不挂——省一次离屏位移图构建。
+  const glassLevel = useThemeStore((s) => s.glassLevel)
+  const navRef = useRef<HTMLElement>(null)
+  useGlassRefraction(navRef, profile.tier === 'economy' ? 'off' : glassLevel)
+
   const rafRef = useRef<number>(0)
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // economy 档禁用磁吸，省 RAF + GSAP quickTo 调用
@@ -454,6 +462,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
       style={{ left: 0, width: 'calc(100vw - var(--right-panel-width, 288px))' }}
     >
       <nav
+        ref={navRef}
         className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}

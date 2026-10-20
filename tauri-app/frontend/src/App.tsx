@@ -445,7 +445,11 @@ function AppInner() {
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
-        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
+        {/* pb 对准「悬浮栏顶边到视口底」的距离（dock 高 55 + bottom-5 的 20 = 75px）：
+            滚到底时最后一条内容刚好贴在玻璃上缘、不被遮住，而滚动过程中每条内容
+            都会从玻璃背后穿过——那才是玻璃能看出折射的时机。原先 pb-28（112px）
+            会在底部留 37px 空档，滚到底时玻璃背后永远是空的。 */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-[75px] min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
           <div className={cn("mx-auto", isMaximized ? "max-w-[880px]" : "max-w-[720px]")}>
             <div ref={setRef('title')} className="mb-6 relative z-[1]">
               {/* 标题/描述与内容同向滑入：复用 panelVariants（y:8→0 spring 进入），与内容区同款变体与时序 */}

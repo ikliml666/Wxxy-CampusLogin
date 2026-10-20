@@ -10,6 +10,9 @@ import { m } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
+import { useThemeStore } from '@/hooks/useThemeStore'
+import { useGlassRefraction } from '@/lib/glass-dock'
+import { useRef } from 'react'
 
 export type MobileTab = 'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'
 
@@ -36,6 +39,10 @@ export function BottomNav({ tab, onChange }: {
 }) {
   const { t } = useTranslation()
   const tabs = useNavTabs()
+  // 与桌面 DockNav 同源：折射玻璃挂在 nav 上，位移图只在尺寸变化时重建
+  const glassLevel = useThemeStore((s) => s.glassLevel)
+  const navRef = useRef<HTMLDivElement>(null)
+  useGlassRefraction(navRef, glassLevel)
 
   return (
     <nav
@@ -46,7 +53,10 @@ export function BottomNav({ tab, onChange }: {
       {/* 玻璃全交给 .glass-nav（与桌面 .glass-dock 同源）：底色、模糊、分层阴影、
           光泽层、发丝线都在 CSS 里，且跟主题对话框的三档联动。这里再写 inline 会
           因优先级更高把 CSS 压成死代码，切档时只剩 inline 那几条在动。 */}
-      <div className="glass-nav pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent">
+      <div
+        ref={navRef}
+        className="glass-nav pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent"
+      >
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底 */}
         <div className="flex flex-1 min-w-0 items-center justify-around gap-2">
           {tabs.map(({ id, labelKey, Icon }) => {
