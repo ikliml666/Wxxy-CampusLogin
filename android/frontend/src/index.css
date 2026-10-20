@@ -413,15 +413,20 @@
     -webkit-backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
     backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
     border-radius: 18px;
+    /* 边缘只做两件事，对应 FlClash shader 里两条独立的式子：
+       ① 暗线（liquid_glass.frag:452-459）——四周均匀 0.67px，即 iOS 27 画在玻璃
+          边界之外、背面内容之上的那道线。它必须单独一层：任何同层的亮色都会在
+          混合时把它抬亮，而它本该是整块玻璃最暗的一圈。
+          shader 里它不是叠黑，而是把背景压暗到 max(c - 0.298a, 0.22c)（约 -17%）。
+          乘数 0.9 是在真实 1x 环境下扫出来的：--glass-rim 0.35 → alpha 0.315 →
+          背景 247 压到 205，绝对差 -42，与 FlClash 视频帧实测的 236→195（-41）
+          对齐。线宽不吃这个标定（0.9px 与 1.2px 在 1x 下都取整成 1px 并被抗锯齿
+          摊开），所以只有 alpha 可调——先前按 0.42 乘出来只有 -5%，边框发灰。
+       ② 内缘光（frag:426-445）——由 ::before / ::after 分别画顶边和底边，见下。 */
     box-shadow:
       var(--glass-near),
       var(--glass-far),
-      /* ① rim 暗线：玻璃与背后内容之间的接缝 */
-      inset 0 0 0 0.67px rgba(0, 0, 0, var(--glass-rim)),
-      /* ② shine 环：贴边最亮，向内两段递减 */
-      inset 0 0 1px 0.5px rgba(255, 255, 255, calc(var(--glass-shine) * 0.5)),
-      inset 0 0 2.5px 0.5px rgba(255, 255, 255, calc(var(--glass-shine) * 0.24)),
-      inset 0 0 4.5px 0.67px rgba(255, 255, 255, calc(var(--glass-shine) * 0.12));
+      inset 0 0 0 0.9px rgba(0, 0, 0, calc(var(--glass-rim) * 0.9));
     position: relative;
     /* 不裁切：::before 的光环要贴到圆角外侧才自然 */
     overflow: visible;
@@ -445,47 +450,104 @@
       --glass-glow-reach 0s;
   }
 
-  /* ③ 角向亮度：真环（mask xor）+ 垂直渐变，上亮下暗 */
+  /* ③ 内缘光·顶边（FlClash frag:426-445）。
+     facing = normal.y²：顶边法线笔直朝上 → 1，进入圆角后法线转向侧边 → 掉到 0，
+     所以亮线只在水平段，到圆角处收掉；左右两侧恒为 0，那条竖边不该有光。
+     用 inset 阴影 per-edge 定位——offset 向下、无 blur、无 spread 时只有顶边露出，
+     另三边被元素自身盖住。带宽 = FlClash 的 rimWidth 1.3px，比暗线 0.67 粗一倍，
+     读起来是折射后的内缘而不是描边。
+     横向 mask 按 cos²θ 取样：圆角半径 18px 的 1/4 弧上，θ=0/30/45/60/75/90° 对应
+     法线竖直分量 1/.866/.707/.5/.259/0，平方后 1/.75/.5/.25/.067/0 ——
+     按弧长换算成 0/2.4/5.3/9/13.3/18px 的位置。线性渐变会被读成一条均匀的边。 */
   .glass-dock::before,
   .glass-nav::before {
     content: '';
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    padding: 1.5px;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, var(--glass-shine)) 0%,
-      rgba(255, 255, 255, calc(var(--glass-shine) * 0.55)) 22%,
-      rgba(255, 255, 255, calc(var(--glass-shine) * 0.24)) 55%,
-      rgba(255, 255, 255, calc(var(--glass-shine) * 0.07)) 80%,
+    /* 只允许纯 offset 的 inset：带 blur 的 inset 阴影会沿左右两侧一起渗出来，
+       实测侧边因此多出一条 +18 的亮线（FlClash 侧边只有 +2，等于没有）。
+       把带宽拆成两条纯线——0.67px 主体 + 1.6px 衰减——两者都只占顶边。 */
+    box-shadow:
+      inset 0 0.67px 0 rgba(255, 255, 255, var(--glass-shine)),
+      inset 0 1.6px 0 -0.1px rgba(255, 255, 255, calc(var(--glass-shine) * 0.34));
+    -webkit-mask: linear-gradient(
+      90deg,
+      transparent 0,
+      rgba(0, 0, 0, 0.067) 4.7px,
+      rgba(0, 0, 0, 0.25) 9px,
+      rgba(0, 0, 0, 0.5) 12.7px,
+      rgba(0, 0, 0, 0.75) 15.6px,
+      #000 18px,
+      #000 calc(100% - 18px),
+      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
+      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
+      rgba(0, 0, 0, 0.25) calc(100% - 9px),
+      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
       transparent 100%
     );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
+    mask: linear-gradient(
+      90deg,
+      transparent 0,
+      rgba(0, 0, 0, 0.067) 4.7px,
+      rgba(0, 0, 0, 0.25) 9px,
+      rgba(0, 0, 0, 0.5) 12.7px,
+      rgba(0, 0, 0, 0.75) 15.6px,
+      #000 18px,
+      #000 calc(100% - 18px),
+      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
+      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
+      rgba(0, 0, 0, 0.25) calc(100% - 9px),
+      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
+      transparent 100%
+    );
     pointer-events: none;
     z-index: 1;
   }
 
-  /* 底部残留反光：玻璃下缘也会吃到一点环境光，但远弱于上缘（FlClash 0.03~0.07） */
+  /* ④ 内缘光·底边。facing = normal.y² 对上下是对称的：顶边 1、底边也 1，
+     没有"上亮下暗"这回事（那是 iOS 控件的行为，FlClash 的悬浮栏走的是 tab bar
+     那一套，rimFocus = 0，顶底同亮）。暗线已经把最外一圈压暗，所以底边这条
+     比顶边略收一点——真实机身里下方没有顶光那么干净。 */
   .glass-dock::after,
   .glass-nav::after {
     content: '';
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    padding: 1.5px;
-    background: linear-gradient(
-      0deg,
-      rgba(255, 255, 255, calc(var(--glass-shine) * 0.14)) 0%,
-      transparent 32%
+    box-shadow:
+      inset 0 -0.67px 0 rgba(255, 255, 255, calc(var(--glass-shine) * 0.72)),
+      inset 0 -1.6px 0 -0.1px rgba(255, 255, 255, calc(var(--glass-shine) * 0.24));
+    -webkit-mask: linear-gradient(
+      90deg,
+      transparent 0,
+      rgba(0, 0, 0, 0.067) 4.7px,
+      rgba(0, 0, 0, 0.25) 9px,
+      rgba(0, 0, 0, 0.5) 12.7px,
+      rgba(0, 0, 0, 0.75) 15.6px,
+      #000 18px,
+      #000 calc(100% - 18px),
+      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
+      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
+      rgba(0, 0, 0, 0.25) calc(100% - 9px),
+      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
+      transparent 100%
     );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
+    mask: linear-gradient(
+      90deg,
+      transparent 0,
+      rgba(0, 0, 0, 0.067) 4.7px,
+      rgba(0, 0, 0, 0.25) 9px,
+      rgba(0, 0, 0, 0.5) 12.7px,
+      rgba(0, 0, 0, 0.75) 15.6px,
+      #000 18px,
+      #000 calc(100% - 18px),
+      rgba(0, 0, 0, 0.75) calc(100% - 15.6px),
+      rgba(0, 0, 0, 0.5) calc(100% - 12.7px),
+      rgba(0, 0, 0, 0.25) calc(100% - 9px),
+      rgba(0, 0, 0, 0.067) calc(100% - 4.7px),
+      transparent 100%
+    );
     pointer-events: none;
     z-index: 2;
   }
