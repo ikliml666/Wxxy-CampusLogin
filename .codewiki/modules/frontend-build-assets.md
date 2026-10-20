@@ -46,7 +46,7 @@ tags: [frontend, build-config, mock, tauri, dependency-management]
     - DevDependencies：
         - `typescript` (^5.5.0), `vite` (^6.0.0), `@vitejs/plugin-react` (^4.3.0), `tailwindcss` (^3.4.10) 及其插件。
     - 安全配置：
-        - 第 35-37 行：`allowScripts.esbuild@0.25.12: true`，允许 esbuild 在构建过程中执行脚本。
+        - 第 48-50 行：`allowScripts.esbuild@0.25.12: true`，允许 esbuild 在构建过程中执行脚本。
 
 #### `android/frontend/pnpm-lock.yaml`
 - **职责**：pnpm 依赖锁定文件，确立前端构建环境的确定性快照。
@@ -78,17 +78,17 @@ tags: [frontend, build-config, mock, tauri, dependency-management]
 - **关键实现**：
     - **CSS 变量系统** (`<style>` 块)：
         - 深色模式默认值 (`:root`)：`--bg-primary: #0f172a`。
-        - 浅色模式覆盖值 (`html[data-light]`)：`--bg-primary: #ffffff` (第 42 行)。
-        - 重置样式：`* { margin: 0; padding: 0; box-sizing: border-box; }` (第 63 行)。
-        - 布局约束：`html, body, #root` 高度宽度 100%，`overflow: hidden` (第 64 行)。
-        - 骨架屏类名：`.sk-tb`, `.sk-sb`, `.sk-main`, `.sk-side`, `.sk-content`, `.sk-card`, `.sk-log` 等 (第 65-83 行)。
-    - **主题初始化脚本** (第 13-23 行)：
+        - 浅色模式覆盖值 (`html[data-light]`)：`--bg-primary: #ffffff` (第 49 行)。
+        - 重置样式：`* { margin: 0; padding: 0; box-sizing: border-box; }` (第 70 行)。
+        - 布局约束：`html, body, #root` 高度宽度 100%，`overflow: hidden` (第 71 行)。
+        - 骨架屏类名：`.sk-tb`, `.sk-sb`, `.sk-main`, `.sk-side`, `.sk-content`, `.sk-card`, `.sk-log` 等 (第 72-82 行)。
+    - **主题初始化脚本** (第 10-22 行)：
         - 读取 `localStorage.getItem('campus-light-mode')`，若为 `'1'` 则设置 `data-light='1'`，否则添加 `dark` class (第 16-18 行)。
         - 读取 `localStorage.getItem('campus-theme')`，若非 `'default'` 则添加 `theme-{th}` class (第 21 行)。
         - 包含 `try...catch` 防御性编程。
-    - **骨架屏文案国际化兜底** (第 88-96 行)：
-        - 检查 `localStorage.getItem('app-language')`，若为 `'en'` 则将 ID 为 `sk-init-text` 的元素文本改为 `'Initializing...'` (第 91 行)。
-    - **React 挂载** (第 98 行)：
+    - **骨架屏文案国际化兜底** (第 103-110 行)：
+        - 检查 `localStorage.getItem('app-language')`，若为 `'en'` 则将 ID 为 `sk-init-text` 的元素文本改为 `'Initializing...'` (第 107 行)。
+    - **React 挂载** (第 112 行)：
         - `<script type="module" src="/src/main.tsx"></script>`。
 
 ### Mock Scripts

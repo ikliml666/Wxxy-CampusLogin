@@ -6,7 +6,6 @@ source_files:
   - android/frontend/src/settings/index.ts
   - android/frontend/src/settings/KeepAliveSettingsCard.tsx
   - android/frontend/src/settings/OnboardingWizard.tsx
-  - android/frontend/src/settings/OnboardingWizardMobile.tsx
   - android/frontend/src/settings/ThemeDialog.tsx
   - android/frontend/src/settings/types.ts
   - android/frontend/src/settings/useOnboardingFlow.ts
