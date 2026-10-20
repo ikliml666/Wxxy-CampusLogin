@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared/ui-constants'
-import { m, useMotionValue, AnimatePresence } from 'framer-motion'
+import { m, AnimatePresence } from 'framer-motion'
 import { memo, useRef, useCallback, useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
@@ -26,12 +26,13 @@ import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { resolveAdapterNames } from '@/network/adapters'
-import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { usePulseAnimation } from '@/hooks/usePulseAnimation'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { useShallow } from 'zustand/react/shallow'
 import { useThemeStore } from '@/hooks/useThemeStore'
-import { useGlassRefraction, useGlassPressGlow } from '@/lib/glass-dock'
+import { useGlassRefraction } from '@/lib/glass-dock'
+import { useDockLens } from '@/lib/dock-lens'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -45,109 +46,36 @@ const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   Settings,
 }
 
-const MAGNETIC_RANGE = 80
-const MAX_SCALE = 1.35
-const MAX_LIFT = -14
-
-function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mouseX }: {
+function DockItem({
+  id, label, icon, isActive, onPanelChange,
+}: {
   id: PanelName
   label: string
   icon: string
   isActive: boolean
-  visibleCount: number
   onPanelChange: (id: PanelName) => void
-  mouseX: ReturnType<typeof useMotionValue<number>>
 }) {
   const Icon = ICON_MAP[icon]
-  const ref = useRef<HTMLButtonElement>(null)
-  const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
-  const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
-  const rectRef = useRef<{ center: number }>({ center: -999 })
-  const lastValRef = useRef<number>(-1000)
-
-  const setRef = useCallback((el: HTMLButtonElement | null) => {
-    (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
-  }, [])
-
-  useEffect(() => {
-    const btn = ref.current
-    if (!btn) return
-
-    scaleQuickRef.current = gsap.quickTo(btn, 'scale', { duration: 0.35, ease: 'expo.out', force3D: true })
-    liftQuickRef.current = gsap.quickTo(btn, 'y', { duration: 0.35, ease: 'expo.out', force3D: true })
-
-    return () => {
-      gsap.killTweensOf(btn)
-      scaleQuickRef.current = null
-      liftQuickRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    const btn = ref.current
-    if (!btn || !scaleQuickRef.current || !liftQuickRef.current) return
-
-    const updateRect = () => {
-      const rect = btn.getBoundingClientRect()
-      rectRef.current.center = rect.left + rect.width / 2
-    }
-    updateRect()
-    window.addEventListener('resize', updateRect)
-
-    const unsub = mouseX.on('change', (val: number) => {
-      // 阈值过滤：值变化小于2px时跳过，减少不必要的GSAP调用
-      if (Math.abs(val - lastValRef.current) < 2) return
-      lastValRef.current = val
-
-      const center = rectRef.current.center
-      const distance = Math.abs(val - center)
-
-      if (distance < MAGNETIC_RANGE) {
-        const progress = 1 - distance / MAGNETIC_RANGE
-        const scale = 1 + (MAX_SCALE - 1) * progress
-        const lift = MAX_LIFT * progress
-        scaleQuickRef.current?.(scale)
-        liftQuickRef.current?.(lift)
-      } else {
-        scaleQuickRef.current?.(1)
-        liftQuickRef.current?.(0)
-      }
-    })
-
-    return () => {
-      window.removeEventListener('resize', updateRect)
-      unsub()
-    }
-    // visibleCount 变化（如关闭"网络质量"开关过滤面板项）时按钮平移，需重算磁吸中心
-  }, [mouseX, visibleCount])
 
   return (
     <button
-      ref={setRef}
+      data-dock-item
       onClick={() => onPanelChange(id)}
       className={cn(
-        // FlClash 式页签：图标+短标签竖排常显(非激活也带标签)，按钮等宽 w-[52px]
-        // (中文标签最长 4 字 44px、英文最长 Settings 8ch ~44px)——
-        // 激活药丸(inset-0 包整项)跨项滑动时纯平移零变形
-        'relative flex w-[52px] flex-col items-center justify-center gap-0.5 py-1.5 rounded-full select-none transition-colors duration-200',
+        // 每一项等宽，镜头按项中心定位。宽 52px 是按中文标签最长 4 字（44px）
+        // 与英文 "Settings" 8ch（约 44px）取的，留一点呼吸。
+        'relative flex w-[52px] flex-col items-center justify-center gap-0.5 py-1.5 rounded-full',
+        'select-none transition-colors duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
         isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
       )}
       style={{
-        zIndex: 10,
+        // 镜头系统每帧写这个值，让内容朝光标方向轻微偏移（视差）
+        transform: 'translateX(var(--dock-lean, 0px))',
       }}
       aria-label={label}
       aria-current={isActive ? 'page' : undefined}
     >
-      {/* 激活药丸靠 layoutId 跨项共享布局：切换时从旧项位置滑向新项。
-          弹簧放慢(250/28，原 420/34)让滑动过程可感知 */}
-      {isActive && (
-        <m.div
-          layoutId="dock-active-pill"
-          transition={{ type: 'spring', stiffness: 250, damping: 28 }}
-          className="absolute inset-0 rounded-full bg-primary/10"
-        />
-      )}
       <Icon className="relative z-10 h-[18px] w-[18px] shrink-0" aria-hidden="true" />
       <span className="relative z-10 text-[11px] font-medium whitespace-nowrap leading-none">{label}</span>
     </button>
@@ -426,39 +354,31 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
     return adapters.filter(a => names.has(a.name) && a.ip)
   }, [adapters, adapter1, adapter2, dualAdapter])
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
-  const animActive = useAnimationActive()
   const profile = useAnimationProfile()
-  const mouseX = useMotionValue(-1000)
+  const reducedMotion = useReducedMotion()
 
   // 折射玻璃：把位移图挂到 nav 上（尺寸变化才重建，滚动零成本）。
-  // economy 档连光斑都省，这里同样不挂——省一次离屏位移图构建。
   const glassLevel = useThemeStore((s) => s.glassLevel)
   const navRef = useRef<HTMLElement>(null)
   useGlassRefraction(navRef, profile.tier === 'economy' ? 'off' : glassLevel)
-  // 按压光斑：纯 CSS 渐变过渡，成本可忽略。
-  // 不受 animActive（页面空闲）限制——空闲判定是为了停掉常驻循环动画，
-  // 而光斑只在真正按下时跑一次；上面若跟着空闲一起关掉，用户一停下鼠标
-  // 再点悬浮栏就完全没反馈。reduced-motion 由 CSS 侧压成瞬亮瞬灭。
-  useGlassPressGlow(navRef, glassLevel !== 'off')
 
-  const rafRef = useRef<number>(0)
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // economy 档禁用磁吸，省 RAF + GSAP quickTo 调用
-    if (!animActive || profile.tier === 'economy') return
-    // RAF-throttle: only update once per frame
-    cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(() => {
-      mouseX.set(e.clientX)
-    })
-  }, [mouseX, animActive, profile.tier])
-
-  const handleMouseLeave = useCallback(() => {
-    mouseX.set(-1000)
-  }, [mouseX])
-
-  useEffect(() => {
-    if (!animActive) mouseX.set(-1000)
-  }, [animActive, mouseX])
+  // 镜头系统：弹簧驱动的选中药丸、按下抬起、果冻形变、拖动滑选、悬停高亮。
+  // 关玻璃 / economy 档 / 系统要求减少动态时整段不接管，退回纯静态选中态。
+  const lensEnabled = glassLevel !== 'off' && profile.tier !== 'economy' && !reducedMotion
+  const activeIndex = Math.max(0, visibleItems.findIndex((item) => item.id === activePanel))
+  const onLensSelect = useCallback(
+    (index: number) => {
+      const target = visibleItems[index]
+      if (target) onPanelChange(target.id)
+    },
+    [visibleItems, onPanelChange],
+  )
+  useDockLens(navRef, {
+    count: visibleItems.length,
+    selected: activeIndex,
+    onSelect: onLensSelect,
+    enabled: lensEnabled,
+  })
 
   return (
     <div
@@ -469,9 +389,30 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
       <nav
         ref={navRef}
         className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
+        style={{
+          // 镜头系统写的三个量：整条膨胀、越界拉伸、按压光斑
+          transform: 'translateX(var(--dock-stretch, 0px)) scale(calc(1 + var(--dock-swell, 0) * 0.012))',
+          backgroundImage: 'radial-gradient(circle var(--dock-glow-reach, 28px) at var(--dock-glow-x, 50%) var(--dock-glow-y, 50%), hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 3)) 0%, hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 1.6)) 35%, transparent 100%)',
+        }}
       >
+        {/* 镜头底：位置/宽度/高度全由 useDockLens 每帧写 */}
+        <div
+          data-dock-lens
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 rounded-full"
+          style={{
+            background: 'hsl(var(--primary) / 0.12)',
+            willChange: 'transform, width, height, opacity',
+          }}
+        />
+        {/* 悬停高亮：整块药丸，不放大图标——放大交给下面的放大层 */}
+        <div
+          data-dock-hover
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-1 bottom-1 rounded-full"
+          style={{ background: 'hsl(var(--foreground))', opacity: 0, willChange: 'transform, opacity' }}
+        />
+
         {visibleItems.map(({ id, labelKey, icon }) => (
           <DockItem
             key={id}
@@ -479,11 +420,31 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
             label={t(labelKey)}
             icon={icon}
             isActive={activePanel === id}
-            visibleCount={visibleItems.length}
             onPanelChange={onPanelChange}
-            mouseX={mouseX}
           />
         ))}
+
+        {/* 放大层：一份 aria-hidden 的项副本，被 useDockLens 裁成药丸并绕镜头
+            中心放大。镜片外的部分全被 clip-path 裁掉，所以复制的这排只需和
+            上面那排完全同构。 */}
+        <div
+          data-dock-magnify
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center gap-0.5 pl-2"
+          style={{ opacity: 0, willChange: 'transform, clip-path, opacity' }}
+        >
+          {visibleItems.map(({ id, icon }) => {
+            const Icon = ICON_MAP[icon]
+            return (
+              <div key={id} className="flex w-[52px] flex-col items-center justify-center gap-0.5 py-1.5">
+                <Icon className="h-[18px] w-[18px] shrink-0" />
+                <span className="text-[11px] font-medium whitespace-nowrap leading-none">
+                  {t(NAV_ITEMS.find((n) => n.id === id)?.labelKey ?? '')}
+                </span>
+              </div>
+            )
+          })}
+        </div>
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
 

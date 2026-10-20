@@ -6,13 +6,14 @@
 // 带 motion-reduce 降级;整体轻盈——无生硬描边,悬浮感靠阴影 + 磨砂。
 
 import { LayoutDashboard, UserCircle, Globe, Signal, Activity, Ellipsis } from 'lucide-react'
-import { m } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useThemeStore } from '@/hooks/useThemeStore'
-import { useGlassRefraction, useGlassPressGlow } from '@/lib/glass-dock'
-import { useRef } from 'react'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
+import { useGlassRefraction } from '@/lib/glass-dock'
+import { useDockLens } from '@/lib/dock-lens'
+import { useCallback, useRef } from 'react'
 
 export type MobileTab = 'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'
 
@@ -43,8 +44,25 @@ export function BottomNav({ tab, onChange }: {
   const glassLevel = useThemeStore((s) => s.glassLevel)
   const navRef = useRef<HTMLDivElement>(null)
   useGlassRefraction(navRef, glassLevel)
-  // 按压光斑：与桌面 DockNav 同一套（FlClash 的 LiquidGlassGlow）
-  useGlassPressGlow(navRef, glassLevel !== 'off')
+
+  // 镜头系统（与桌面同一份内核）：弹簧驱动选中药丸、按下抬起、果冻形变、
+  // 拖动滑选、悬停高亮。手机没有 economy 档，只看玻璃档位与系统减动态。
+  const reducedMotion = useReducedMotion()
+  const lensEnabled = glassLevel !== 'off' && !reducedMotion
+  const activeIndex = Math.max(0, tabs.findIndex((it) => it.id === tab))
+  const onLensSelect = useCallback(
+    (index: number) => {
+      const target = tabs[index]
+      if (target) onChange(target.id)
+    },
+    [tabs, onChange],
+  )
+  useDockLens(navRef, {
+    count: tabs.length,
+    selected: activeIndex,
+    onSelect: onLensSelect,
+    enabled: lensEnabled,
+  })
 
   return (
     <nav
@@ -57,8 +75,31 @@ export function BottomNav({ tab, onChange }: {
           因优先级更高把 CSS 压成死代码，切档时只剩 inline 那几条在动。 */}
       <div
         ref={navRef}
-        className="glass-nav pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent"
+        className="glass-nav pointer-events-auto relative w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent"
+        style={{
+          transform: 'translateX(var(--dock-stretch, 0px)) scale(calc(1 + var(--dock-swell, 0) * 0.012))',
+          backgroundImage:
+            'radial-gradient(circle var(--dock-glow-reach, 28px) at var(--dock-glow-x, 50%) var(--dock-glow-y, 50%), hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 3)) 0%, hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 1.6)) 35%, transparent 100%)',
+        }}
       >
+        {/* 镜头底：位置/宽度/高度全由 useDockLens 每帧写 */}
+        <div
+          data-dock-lens
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 rounded-full"
+          style={{
+            background: 'hsl(var(--primary) / 0.12)',
+            willChange: 'transform, width, height, opacity',
+          }}
+        />
+        {/* 悬停高亮：触屏用不上，但平板接鼠标时与桌面同一套 */}
+        <div
+          data-dock-hover
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-1 bottom-1 rounded-full"
+          style={{ background: 'hsl(var(--foreground))', opacity: 0, willChange: 'transform, opacity' }}
+        />
+
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底 */}
         <div className="flex flex-1 min-w-0 items-center justify-around gap-2">
           {tabs.map(({ id, labelKey, Icon }) => {
@@ -66,6 +107,7 @@ export function BottomNav({ tab, onChange }: {
             return (
               <button
                 key={id}
+                data-dock-item
                 type="button"
                 onClick={() => onChange(id)}
                 aria-current={active ? 'page' : undefined}
@@ -75,15 +117,8 @@ export function BottomNav({ tab, onChange }: {
                   'relative flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
                 )}
+                style={{ transform: 'translateX(var(--dock-lean, 0px))' }}
               >
-                {/* 系统减动态时由全局 MotionConfig reducedMotion="user" 关闭位移动画，无需手动兜底 */}
-                {active && (
-                  <m.span
-                    layoutId="nav-active-pill"
-                    transition={{ type: 'spring', stiffness: 250, damping: 28 }}
-                    className="absolute inset-0 rounded-full bg-primary/[0.12] dark:bg-primary/[0.16]"
-                  />
-                )}
                 <Icon
                   className="relative z-10 h-[26px] w-[26px] shrink-0"
                   strokeWidth={active ? 2 : 1.8}
@@ -94,6 +129,22 @@ export function BottomNav({ tab, onChange }: {
               </button>
             )
           })}
+        </div>
+
+        {/* 放大层：一份 aria-hidden 的项副本，被 useDockLens 裁成药丸并绕镜头
+            中心放大；镜片外的部分全被 clip-path 裁掉。 */}
+        <div
+          data-dock-magnify
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center justify-around gap-2 p-1.5"
+          style={{ opacity: 0, willChange: 'transform, clip-path, opacity' }}
+        >
+          {tabs.map(({ id, labelKey, Icon }) => (
+            <div key={id} className="flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5">
+              <Icon className="h-[26px] w-[26px] shrink-0" />
+              <span className="whitespace-nowrap text-[11px] font-medium leading-tight">{t(labelKey)}</span>
+            </div>
+          ))}
         </div>
       </div>
     </nav>

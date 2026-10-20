@@ -13,18 +13,19 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/shared/ui-constants'
-import { m, useMotionValue } from 'framer-motion'
+import { m } from 'framer-motion'
 import { memo, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { gsap } from 'gsap'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
-import { useAnimationActive } from '@/hooks/usePageIdle'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
 import { usePulseAnimation } from '@/hooks/usePulseAnimation'
+import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { useThemeStore } from '@/hooks/useThemeStore'
-import { useGlassRefraction, useGlassPressGlow } from '@/lib/glass-dock'
+import { useGlassRefraction } from '@/lib/glass-dock'
+import { useDockLens } from '@/lib/dock-lens'
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -37,86 +38,25 @@ const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   Settings,
 }
 
-const MAGNETIC_RANGE = 80
-const MAX_SCALE = 1.35
-const MAX_LIFT = -14
-
-function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mouseX }: {
+function DockItem({ id, label, icon, isActive, ghost, onPanelChange }: {
   id: PanelName
   label: string
   icon: string
   isActive: boolean
-  visibleCount: number
-  onPanelChange: (id: PanelName) => void
-  mouseX: ReturnType<typeof useMotionValue<number>>
+  /** 放大层副本：只画内容，不参与交互，也不挂 tooltip */
+  ghost?: boolean
+  onPanelChange?: (id: PanelName) => void
 }) {
   const Icon = ICON_MAP[icon]
-  const ref = useRef<HTMLButtonElement>(null)
-  const scaleQuickRef = useRef<gsap.QuickToFunc | null>(null)
-  const liftQuickRef = useRef<gsap.QuickToFunc | null>(null)
-  const rectRef = useRef<{ center: number }>({ center: -999 })
-  const lastValRef = useRef<number>(-1000)
-
-  const setRef = useCallback((el: HTMLButtonElement | null) => {
-    (ref as React.MutableRefObject<HTMLButtonElement | null>).current = el
-  }, [])
-
-  useEffect(() => {
-    const btn = ref.current
-    if (!btn) return
-
-    scaleQuickRef.current = gsap.quickTo(btn, 'scale', { duration: 0.35, ease: 'expo.out', force3D: true })
-    liftQuickRef.current = gsap.quickTo(btn, 'y', { duration: 0.35, ease: 'expo.out', force3D: true })
-
-    return () => {
-      gsap.killTweensOf(btn)
-      scaleQuickRef.current = null
-      liftQuickRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    const btn = ref.current
-    if (!btn || !scaleQuickRef.current || !liftQuickRef.current) return
-
-    const updateRect = () => {
-      const rect = btn.getBoundingClientRect()
-      rectRef.current.center = rect.left + rect.width / 2
-    }
-    updateRect()
-    window.addEventListener('resize', updateRect)
-
-    const unsub = mouseX.on('change', (val: number) => {
-      // 阈值过滤：值变化小于2px时跳过，减少不必要的GSAP调用
-      if (Math.abs(val - lastValRef.current) < 2) return
-      lastValRef.current = val
-
-      const center = rectRef.current.center
-      const distance = Math.abs(val - center)
-
-      if (distance < MAGNETIC_RANGE) {
-        const progress = 1 - distance / MAGNETIC_RANGE
-        const scale = 1 + (MAX_SCALE - 1) * progress
-        const lift = MAX_LIFT * progress
-        scaleQuickRef.current?.(scale)
-        liftQuickRef.current?.(lift)
-      } else {
-        scaleQuickRef.current?.(1)
-        liftQuickRef.current?.(0)
-      }
-    })
-
-    return () => {
-      window.removeEventListener('resize', updateRect)
-      unsub()
-    }
-    // visibleCount 变化（如关闭"网络质量"开关过滤面板项）时按钮平移，需重算磁吸中心
-  }, [mouseX, visibleCount])
 
   return (
     <button
-      ref={setRef}
-      onClick={() => onPanelChange(id)}
+      data-dock-item={ghost ? undefined : ''}
+      onClick={ghost ? undefined : () => onPanelChange?.(id)}
+      tabIndex={ghost ? -1 : undefined}
+      aria-hidden={ghost ? true : undefined}
+      aria-label={ghost ? undefined : label}
+      aria-current={!ghost && isActive ? 'page' : undefined}
       className={cn(
         // 激活项=全圆角药丸+图标在上/文字标签在下（与安卓底栏同款），非激活项只保留图标
         'relative flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-full select-none group transition-colors duration-200',
@@ -127,29 +67,23 @@ function DockItem({ id, label, icon, isActive, visibleCount, onPanelChange, mous
       )}
       style={{
         zIndex: 10,
+        // 镜头系统每帧写这个值，让内容朝光标方向轻微偏移（视差）
+        transform: 'translateX(var(--dock-lean, 0px))',
       }}
-      aria-label={label}
     >
-      {/* 激活药丸靠 layoutId 跨项共享布局：切换时从旧项位置滑向新项（弹簧与桌面同款） */}
-      {isActive && (
-        <m.div
-          layoutId="dock-active-pill"
-          transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-          className="absolute inset-0 rounded-full bg-primary/10"
-        />
-      )}
       <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
       {/* 仅激活项显示标签（图标下方，用户要求，同安卓底栏机制） */}
       {isActive && (
         <span className="relative text-[11px] font-medium whitespace-nowrap leading-none">{label}</span>
       )}
-      {/* 视觉 tooltip：按钮已有 aria-label（与文本相同），aria-hidden 防止屏幕阅读器双读 */}
-      <span
-        aria-hidden="true"
-        className="absolute -top-9 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap pointer-events-none bg-white shadow-lg dark:bg-[#1e2028] opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-visible:opacity-100 group-focus-visible:translate-y-0 transition-all duration-100 delay-[250ms]"
-      >
-        {label}
-      </span>
+      {!ghost && (
+        <span
+          aria-hidden="true"
+          className="absolute -top-9 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap pointer-events-none bg-white shadow-lg dark:bg-[#1e2028] opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-visible:opacity-100 group-focus-visible:translate-y-0 transition-all duration-100 delay-[250ms]"
+        >
+          {label}
+        </span>
+      )}
     </button>
   )
 }
@@ -251,38 +185,30 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
   const doLogout = useAuthStore((s) => s.doLogout)
 
   const visibleItems = NAV_ITEMS.filter(item => enableNetworkQuality || item.id !== 'quality')
-  const animActive = useAnimationActive()
   const profile = useAnimationProfile()
-  const mouseX = useMotionValue(-1000)
 
   // 折射玻璃：与桌面 DockNav 同源（此栏用于平板/横屏，手机走 BottomNav）
   const glassLevel = useThemeStore((s) => s.glassLevel)
   const navRef = useRef<HTMLElement>(null)
   useGlassRefraction(navRef, profile.tier === 'economy' ? 'off' : glassLevel)
-  // 按压光斑：纯 CSS 渐变过渡，成本可忽略。
-  // 不受 animActive（页面空闲）限制——空闲判定是为了停掉常驻循环动画，
-  // 而光斑只在真正按下时跑一次；上面若跟着空闲一起关掉，用户一停下鼠标
-  // 再点悬浮栏就完全没反馈。reduced-motion 由 CSS 侧压成瞬亮瞬灭。
-  useGlassPressGlow(navRef, glassLevel !== 'off')
 
-  const rafRef = useRef<number>(0)
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    // economy 档禁用磁吸，省 RAF + GSAP quickTo 调用
-    if (!animActive || profile.tier === 'economy') return
-    // RAF-throttle: only update once per frame
-    cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(() => {
-      mouseX.set(e.clientX)
-    })
-  }, [mouseX, animActive, profile.tier])
-
-  const handleMouseLeave = useCallback(() => {
-    mouseX.set(-1000)
-  }, [mouseX])
-
-  useEffect(() => {
-    if (!animActive) mouseX.set(-1000)
-  }, [animActive, mouseX])
+  // 镜头系统：与桌面同一份内核（弹簧选中药丸、按下抬起、果冻形变、拖动滑选）。
+  const reducedMotion = useReducedMotion()
+  const lensEnabled = glassLevel !== 'off' && profile.tier !== 'economy' && !reducedMotion
+  const activeIndex = Math.max(0, visibleItems.findIndex((item) => item.id === activePanel))
+  const onLensSelect = useCallback(
+    (index: number) => {
+      const target = visibleItems[index]
+      if (target) onPanelChange(target.id)
+    },
+    [visibleItems, onPanelChange],
+  )
+  useDockLens(navRef, {
+    count: visibleItems.length,
+    selected: activeIndex,
+    onSelect: onLensSelect,
+    enabled: lensEnabled,
+  })
 
   return (
     <div
@@ -293,9 +219,30 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
       <nav
         ref={navRef}
         className="glass-dock relative flex items-center gap-0.5 pl-2 pr-1 py-1.5 pointer-events-auto"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
+        style={{
+          transform: 'translateX(var(--dock-stretch, 0px)) scale(calc(1 + var(--dock-swell, 0) * 0.012))',
+          backgroundImage:
+            'radial-gradient(circle var(--dock-glow-reach, 28px) at var(--dock-glow-x, 50%) var(--dock-glow-y, 50%), hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 3)) 0%, hsl(var(--primary) / calc(var(--dock-glow-alpha, 0) * 1.6)) 35%, transparent 100%)',
+        }}
       >
+        {/* 镜头底：位置/宽度/高度全由 useDockLens 每帧写 */}
+        <div
+          data-dock-lens
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 rounded-full"
+          style={{
+            background: 'hsl(var(--primary) / 0.12)',
+            willChange: 'transform, width, height, opacity',
+          }}
+        />
+        {/* 悬停高亮：平板接鼠标时与桌面同一套 */}
+        <div
+          data-dock-hover
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-1 bottom-1 rounded-full"
+          style={{ background: 'hsl(var(--foreground))', opacity: 0, willChange: 'transform, opacity' }}
+        />
+
         {visibleItems.map(({ id, labelKey, icon }) => (
           <DockItem
             key={id}
@@ -303,11 +250,22 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
             label={t(labelKey)}
             icon={icon}
             isActive={activePanel === id}
-            visibleCount={visibleItems.length}
             onPanelChange={onPanelChange}
-            mouseX={mouseX}
           />
         ))}
+
+        {/* 放大层：一份 aria-hidden 的项副本，被 useDockLens 裁成药丸并绕镜头
+            中心放大。镜片外的部分全被 clip-path 裁掉，所以副本只需与上面同构。 */}
+        <div
+          data-dock-magnify
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center gap-0.5 pl-2 pr-1 py-1.5"
+          style={{ opacity: 0, willChange: 'transform, clip-path, opacity' }}
+        >
+          {visibleItems.map(({ id, labelKey, icon }) => (
+            <DockItem key={id} id={id} label={t(labelKey)} icon={icon} isActive={activePanel === id} ghost />
+          ))}
+        </div>
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />
 
