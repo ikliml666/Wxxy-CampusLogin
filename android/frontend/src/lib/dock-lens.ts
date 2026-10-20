@@ -25,8 +25,6 @@ const LENS_MAGNIFY = 0.16
 const LIFT_SNAP = 0.975
 /** 镜头离目标还有这么远时先不落，单位是项（`_liftRelease`） */
 const LIFT_RELEASE = 0.04
-/** 悬停高亮峰值不透明度（`_hoverAlpha`） */
-const HOVER_ALPHA = 0.08
 /** 果冻：速度参考值与拉伸量（`_jellySpeed/_jellyStretch`） */
 const JELLY_SPEED = 3
 const JELLY_STRETCH = 0.2
@@ -57,10 +55,6 @@ const SPRING = {
   travel: springOfDuration(320, 0.12),
   /** 抬起：按下去要立刻起来 */
   lift: springOfDuration(280, 0.08),
-  /** 悬停高亮的移动 */
-  hover: springOfDuration(220, 0.04),
-  /** 淡入淡出 */
-  fade: springOfDuration(180, 0),
   /** 整条膨胀 */
   swell: springOfDuration(420, 0.06),
   /** 越界拉伸回弹 */
@@ -91,7 +85,6 @@ export interface DockLensOptions {
  * - `[data-dock-item]` 每个导航项，按屏幕顺序
  * - `[data-dock-lens]` 镜头底（药丸），位置由这里写
  * - `[data-dock-magnify]` 放大层，内部由调用方渲染一份项的副本
- * - `[data-dock-hover]` 悬停高亮
  *
  * 调用方仍负责渲染项本身、点击与无障碍；这里只接管「镜头怎么动」。
  */
@@ -108,9 +101,8 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     const lensEl = nav.querySelector<HTMLElement>('[data-dock-lens]')
     const magEl = nav.querySelector<HTMLElement>('[data-dock-magnify]')
     const magInner = nav.querySelector<HTMLElement>('[data-dock-magnify-inner]')
-    const hoverEl = nav.querySelector<HTMLElement>('[data-dock-hover]')
     const stripEl = nav.querySelector<HTMLElement>('[data-dock-strip]')
-    if (!lensEl || !magEl || !magInner || !hoverEl) return
+    if (!lensEl || !magEl || !magInner) return
 
     // ---- 测量：只在布局变化时重算，滚动与拖动都不碰 ----
     let centers: number[] = []
@@ -152,8 +144,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       centers.length > 1 ? (centers[centers.length - 1] - centers[0]) / (centers.length - 1) : 52
 
     let selected = clampIndex(optsRef.current.selected)
-    let hoverAt: number | null = null
-    let cursor: { x: number; y: number } | null = null
     let pointerId: number | null = null
     let pressX = 0
     let pressedIndex: number | null = null
@@ -193,12 +183,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       magInner.style.transformOrigin = `${cx}px ${barH / 2}px`
       magInner.style.transform = `scale(${mag})`
       magEl.style.opacity = lf > 0.01 ? '1' : '0'
-
-      // 悬停高亮：宽度取它当前所在那一项的宽度
-      const hw = widthAt(hoverX.value)
-      hoverEl.style.width = `${hw}px`
-      hoverEl.style.transform = `translate3d(${hoverX.value - hw / 2}px, 0, 0)`
-      hoverEl.style.opacity = String(HOVER_ALPHA * Math.min(1, Math.max(0, hoverShow.value)))
 
       // 整条膨胀与越界拉伸
       nav.style.setProperty('--dock-swell', String(swell.value))
@@ -270,8 +254,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     const swell = new Motion(0, render)
     const stretch = new Motion(0, render)
     const jelly = new Motion(0, render)
-    const hoverShow = new Motion(0, render)
-    const hoverX = new Motion(xAt(selected), render)
     const glow = new Motion(0, render)
     const glowSpread = new Motion(0, render)
 
@@ -304,36 +286,11 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       glowAt = { x: clientX - rect.left, y: clientY - rect.top }
     }
 
-    const showHover = () => {
-      if (cursor === null || pointerId !== null || centers.length === 0) return
-      hoverAt = positionAt(cursor.x)
-      // 高亮第一次出现就落位，别从上次的位置滑过来
-      if (hoverShow.goal === 0 && hoverShow.value === 0) hoverX.jump(xAt(hoverAt))
-      hoverShow.to(1, SPRING.fade)
-    }
-
-    const onEnter = (e: PointerEvent) => {
-      // 触摸设备会先合成一次 hover，且 touch 指针一直留着，高亮会赖着不走
-      if (e.pointerType === 'touch') return
-      cursor = { x: e.clientX, y: e.clientY }
-      showHover()
-    }
-
-    const onLeave = () => {
-      // 按住拖出栏外不算离开：指针已被捕获，后续移动继续归我们处理
-      if (pointerId !== null) return
-      cursor = null
-      hoverAt = null
-      hoverShow.to(0, SPRING.fade)
-    }
-
     const onMove = (e: PointerEvent) => {
-      if (e.pointerType !== 'touch') cursor = { x: e.clientX, y: e.clientY }
-
-      if (pointerId === null) {
-        showHover()
-        return
-      }
+      // 没按住时什么都不做：栏不跟随光标做任何位移、缩放或高亮跟随。
+      // 悬停反馈只剩纯 CSS（项自己的文字色与按钮样式），不产生位移——
+      // 位移类反馈一律由按下/拖动/选中这些离散事件驱动。
+      if (pointerId === null) return
 
       // 按住：镜头追手指、光斑跟指尖、越界则拉伸
       setGlow(e.clientX, e.clientY)
@@ -365,8 +322,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       }
 
       pressedIndex = clampIndex(positionAt(e.clientX))
-      hoverAt = null
-      hoverShow.to(0, SPRING.fade)
       swell.to(1, SPRING.swell)
       setGlow(e.clientX, e.clientY)
       glowSpread.jump(0)
@@ -416,7 +371,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       glow.to(0, SPRING.glowOut)
       glowSpread.to(1, SPRING.glowOut)
       stretch.to(0, SPRING.pull)
-      if (cursor !== null) showHover()
       swell.to(0, SPRING.swell)
     }
 
@@ -434,9 +388,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     // 否则镜头会一直停在「抬起」态
     const onBlur = () => {
       if (pointerId !== null) finish(false)
-      cursor = null
-      hoverAt = null
-      hoverShow.to(0, SPRING.fade)
       swell.to(0, SPRING.swell)
     }
 
@@ -449,13 +400,10 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     const ro = new ResizeObserver(() => {
       measure()
       lens.jump(clampIndex(selected))
-      hoverX.jump(xAt(clampIndex(selected)))
       render()
     })
     ro.observe(nav)
 
-    nav.addEventListener('pointerenter', onEnter)
-    nav.addEventListener('pointerleave', onLeave)
     nav.addEventListener('pointermove', onMove)
     nav.addEventListener('pointerdown', onDown)
     window.addEventListener('pointerup', onUp)
@@ -464,20 +412,17 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
 
     // 首帧落位，避免淡入时镜头从第 0 项滑过来
     lens.jump(clampIndex(selected))
-    hoverX.jump(xAt(clampIndex(selected)))
     render()
 
     return () => {
       ro.disconnect()
-      nav.removeEventListener('pointerenter', onEnter)
-      nav.removeEventListener('pointerleave', onLeave)
       nav.removeEventListener('pointermove', onMove)
       nav.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onCancel)
       window.removeEventListener('blur', onBlur)
       syncRef.current = null
-      for (const m of [lens, lift, swell, stretch, jelly, hoverShow, hoverX, glow, glowSpread]) {
+      for (const m of [lens, lift, swell, stretch, jelly, glow, glowSpread]) {
         m.dispose()
       }
     }

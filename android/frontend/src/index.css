@@ -645,9 +645,9 @@
     transition-duration: 0.1s;
   }
 
-  /* 玻璃栏里的按钮不吃全局的 hover 放大：栏内已经有镜片跟着指针走，
-     再让按钮自己胀出栏外就是两套 hover 语言打架，而且 1.03 的缩放会把
-     整条栏的可视高度撑高，镜片每帧读到的尺寸跟着抖。 */
+  /* 玻璃栏里的按钮不吃全局的 hover 放大：栏内镜片在按下/拖动时接管指针，
+     按钮再自己胀出栏外就是两套语言打架，而且 1.03 的缩放会把整条栏的
+     可视高度撑高，镜片读到的栏高跟着抖。 */
   .glass-dock .btn-physical:hover,
   .glass-nav .btn-physical:hover {
     transform: none;

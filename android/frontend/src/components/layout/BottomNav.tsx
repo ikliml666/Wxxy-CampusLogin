@@ -92,13 +92,6 @@ export function BottomNav({ tab, onChange }: {
             willChange: 'transform, width, height, opacity',
           }}
         />
-        {/* 悬停高亮：触屏用不上，但平板接鼠标时与桌面同一套 */}
-        <div
-          data-dock-hover
-          aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-1 bottom-1 rounded-full"
-          style={{ background: 'hsl(var(--foreground))', opacity: 0, willChange: 'transform, opacity' }}
-        />
 
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底。
             这一层同时也是 useDockLens 的挖洞目标：镜片盖住的那段要从原项里

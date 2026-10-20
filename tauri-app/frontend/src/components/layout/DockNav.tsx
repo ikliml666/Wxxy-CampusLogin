@@ -403,13 +403,6 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
             willChange: 'transform, width, height, opacity',
           }}
         />
-        {/* 悬停高亮：整块药丸，不放大图标——放大交给下面的放大层 */}
-        <div
-          data-dock-hover
-          aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-1 bottom-1 rounded-full"
-          style={{ background: 'hsl(var(--foreground))', opacity: 0, willChange: 'transform, opacity' }}
-        />
 
         {/* 项容器：useDockLens 在它身上挖一个药丸形的洞，把镜片盖住的那段
             从原项里挖掉——不然放大副本底下还压着原来的图标，两套叠着就是残影。 */}
