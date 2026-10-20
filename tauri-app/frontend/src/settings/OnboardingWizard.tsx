@@ -1,6 +1,5 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -113,9 +112,9 @@ function DeckArrow({ dir, disabled, label, onClick }: {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex h-10 w-10 items-center justify-center rounded-full border-[1.5px] border-border',
-        'bg-muted/30 text-muted-foreground transition-colors duration-200',
-        'enabled:hover:border-foreground/25 enabled:hover:bg-accent enabled:hover:text-foreground',
+        'flex h-10 w-10 items-center justify-center rounded-full',
+        'bg-muted/60 text-muted-foreground transition-colors duration-200',
+        'enabled:hover:bg-accent enabled:hover:text-foreground',
         'disabled:cursor-default disabled:opacity-30',
       )}
     >
@@ -465,7 +464,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                             {t('onboarding.welcomeDesc')}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+                        <div className="flex items-center gap-2 rounded-xl bg-emerald-500/[0.12] px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
                           <Shield className="h-3.5 w-3.5 shrink-0" />
                           {t('onboarding.securityNote')}
                         </div>
@@ -550,7 +549,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                         <div className="space-y-2.5">
                           {/* 绑定状态检测：进入本步自动查全部运营商；三个运营商并排成胶囊，
                               已绑定绿色、未绑定灰色（复用项目 Badge 的胶囊变体） */}
-                          <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                          <div className="space-y-2 rounded-xl bg-muted/50 p-3">
                             <div className="flex items-center justify-between">
                               <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{t('onboarding.bindStatusTitle')}</p>
                               <button
@@ -701,7 +700,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                           </div>
 
                           {/* 口语化说明：不熟悉电脑的用户常分不清以太网与 WLAN */}
-                          <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                          <div className="space-y-2 rounded-xl bg-muted/50 p-3">
                             <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{t('onboarding.adapterTypeHint')}</p>
                             <div className="flex items-start gap-2">
                               <Cable className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
@@ -714,7 +713,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                           </div>
 
                           {/* 启用双适配器开关 */}
-                          <div className="flex items-center justify-between rounded-xl border border-border bg-muted/30 px-3 py-2.5">
+                          <div className="flex items-center justify-between rounded-xl bg-muted/50 px-3 py-2.5">
                             <div className="flex min-w-0 items-center gap-2.5">
                               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15">
                                 <Network className="h-3.5 w-3.5 text-primary" />
@@ -773,14 +772,13 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                             <p className="text-xs text-muted-foreground">{t('onboarding.readyDesc')}</p>
                           </div>
                         </div>
-                        <div className="space-y-2.5 rounded-xl border border-border bg-muted/30 p-3.5">
+                        <div className="space-y-2.5 rounded-xl bg-muted/50 p-3.5">
                           <div className="flex items-center justify-between text-sm">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
                               <UserCircle className="h-3.5 w-3.5" />{t('onboarding.username')}
                             </span>
                             <span className="ml-2 max-w-[200px] truncate font-medium text-foreground">{username || '-'}</span>
                           </div>
-                          <Separator />
                           <div className="flex items-center justify-between text-sm">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
                               <KeyRound className="h-3.5 w-3.5" />{t('onboarding.password')}
@@ -789,7 +787,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                               {password ? '••••••••' : <span className="text-muted-foreground">-</span>}
                             </span>
                           </div>
-                          <Separator />
                           <div className="flex items-center justify-between text-sm">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
                               <Zap className="h-3.5 w-3.5" />{t('onboarding.operatorOptional')}
@@ -798,7 +795,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                               {t(ISP_OPTIONS.find(o => o.value === operator)?.labelKey ?? 'onboarding.default')}
                             </span>
                           </div>
-                          <Separator />
                           <div className="flex items-center justify-between text-sm">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
                               <Cable className="h-3.5 w-3.5" />{t('onboarding.primaryAdapter')}
@@ -809,7 +805,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                           </div>
                           {dualAdapter && (
                             <>
-                              <Separator />
                               <div className="flex items-center justify-between text-sm">
                                 <span className="flex items-center gap-1.5 text-muted-foreground">
                                   <Network className="h-3.5 w-3.5" />{t('onboarding.secondaryAdapter')}
@@ -828,7 +823,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                   {/* 卡底三列网格：左=步骤说明，中=导航（恒居中），右=末步登录入口。
                       用 grid 固定三列后，最后一页多出来的登录按钮只占右列，
                       中间导航与左侧文字的位置完全不变。 */}
-                  <div className="mt-4 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-t border-border/60 pt-4">
+                  <div className="mt-5 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                         <StepIcon className="h-3.5 w-3.5" />

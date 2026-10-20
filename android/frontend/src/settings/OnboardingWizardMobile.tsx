@@ -18,7 +18,6 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import {
   Select,
   SelectContent,
@@ -112,8 +111,8 @@ function NavArrow({ dir, disabled, label, onClick }: {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex h-12 w-12 items-center justify-center rounded-full border-[1.5px] border-border',
-        'bg-muted/30 text-muted-foreground transition-colors duration-200',
+        'flex h-12 w-12 items-center justify-center rounded-full',
+        'bg-muted/60 text-muted-foreground transition-colors duration-200',
         'enabled:active:scale-95 enabled:active:bg-accent enabled:active:text-foreground',
         'disabled:cursor-default disabled:opacity-30',
       )}
@@ -211,7 +210,7 @@ export function OnboardingWizardMobile({
                       {t('onboarding.welcomeDesc')}
                     </p>
                   </div>
-                  <div className="flex items-start gap-2 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-3 py-2.5 rounded-xl text-left">
+                  <div className="flex items-start gap-2 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-500/[0.12] px-3 py-2.5 rounded-xl text-left">
                     <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     {t('onboarding.securityNote')}
                   </div>
@@ -294,13 +293,13 @@ export function OnboardingWizardMobile({
                   <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.bindOperatorDesc')}</p>
                   <div className="space-y-3">
                     {/* 凭据统一：绑定取登录信息（accountInfo 步草稿），不再单独收集学号/自助服务密码 */}
-                    <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/30 border border-border px-3 py-2.5 rounded-xl text-left">
+                    <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/50 px-3 py-2.5 rounded-xl text-left">
                       <Link2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
                       {t('onboarding.useLoginCredentials')}
                     </div>
                     {/* 绑定状态面板：进入步骤自动查全部运营商；三个运营商并排成胶囊，
                         已绑定绿色、未绑定灰色（复用项目 Badge 的胶囊变体）。点胶囊即选中运营商。 */}
-                    <div className="rounded-xl border border-border bg-muted/30 p-3">
+                    <div className="rounded-xl bg-muted/50 p-3">
                       <div className="mb-2 flex items-center justify-between">
                         <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                           {t('onboarding.bindStatusTitle')}
@@ -449,14 +448,13 @@ export function OnboardingWizardMobile({
                       <p className="text-xs text-muted-foreground">{t('onboarding.readyDesc')}</p>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-2.5">
+                  <div className="rounded-xl bg-muted/50 p-3.5 space-y-2.5">
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
                         <UserCircle className="h-3.5 w-3.5" />{t('onboarding.username')}
                       </span>
                       <span className="font-medium truncate text-foreground">{f.username || '-'}</span>
                     </div>
-                    <Separator />
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
                         <KeyRound className="h-3.5 w-3.5" />{t('onboarding.password')}
@@ -465,7 +463,6 @@ export function OnboardingWizardMobile({
                         {f.passwordSaved ? '••••••••' : <span className="text-muted-foreground">-</span>}
                       </span>
                     </div>
-                    <Separator />
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="text-muted-foreground flex items-center gap-1.5 shrink-0">
                         <Zap className="h-3.5 w-3.5" />{t('onboarding.operatorOptional')}
@@ -554,7 +551,7 @@ export function OnboardingWizardMobile({
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.96, y: 8 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="w-full max-w-[340px] rounded-2xl border border-border bg-card p-5 space-y-4"
+              className="w-full max-w-[340px] rounded-2xl bg-card p-5 space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex flex-col items-center text-center space-y-3">
