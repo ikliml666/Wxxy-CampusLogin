@@ -42,9 +42,15 @@
        blur/sat/tint ↔ blur/saturation/tint，shine ↔ rim+rimAdded（内缘光强度），
        rim ↔ rim（外缘暗线，注意 FlClash 用的是黑色，不是白色）。
        档位只改这一组变量，明暗只覆盖基色，避免 3×2 矩阵。 */
-    --glass-blur: 16px;
-    --glass-sat: 1.6;
-    --glass-tint: 82%;
+    /* 纯 CSS 没有 shader 做折射，玻璃感只能靠「轻模糊 + 强提饱和」表达。
+       16px 会把背后内容糊成色块（等于看不见），FlClash 的 2.5 靠 shader 兜底才成立，
+       CSS 折中到 8px：既能透出内容的形状与色块，又不至于让文字穿透到读不清。 */
+    --glass-blur: 8px;
+    /* FlClash regular() 亮色 saturation 2.08（lib/ui/liquid_glass.dart:115） */
+    --glass-sat: 2.08;
+    /* FlClash regular() 亮色 tint = Color(0x8AFDFDFD)，alpha 0x8A/255 = 0.541。
+       这是「有没有透明效果」的分水岭：原先 82% 几乎实心，背后内容透不出来。 */
+    --glass-tint: 54%;
     /* 内缘光泽强度：FlClash regular() 的 rim 0.28 + rimAdded 0.38 ≈ 0.66，
        这里取中间值因为 CSS 的 inset 阴影比 shader 更容易叠过头 */
     --glass-shine: 0.42;
@@ -67,13 +73,15 @@
     --glass-rim: 0;
   }
 
-  /* 极致：更大模糊、更强提饱和、更透、更亮的光环与更深的 rim
-     （对应 FlClash 的 ultra 档：refraction/bevel 无法在 CSS 复现，
-      改用更强的 sat + 更透的 tint + 更亮的 shine 表达同一层级差） */
+  /* 极致：更透、更亮的光环与更深的 rim，模糊只略增
+     （FlClash 的 ultra 靠更大的 refraction/bevel 表达层级差，CSS 没有折射，
+      只能用「更薄的 tint + 更亮 shine」拉开，再把模糊小幅提到 14px 作补偿） */
   :root[data-glass="ultra"] {
-    --glass-blur: 28px;
-    --glass-sat: 2.05;
-    --glass-tint: 66%;
+    --glass-blur: 14px;
+    --glass-sat: 2.08;
+    /* 比标准档再透一档：FlClash pill() 亮色 tint 0x93/255 = 0.576 已比 regular
+       更实，所以 ultra 的「更透」只能靠降 alpha 表达（42%），不能靠抬饱和 */
+    --glass-tint: 42%;
     --glass-shine: 0.68;
     --glass-rim: 0.5;
   }
