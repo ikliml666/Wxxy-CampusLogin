@@ -10,6 +10,8 @@ source_files:
   - android/frontend/src/components/mobile/MobileDashboard.tsx
   - android/frontend/src/components/mobile/MobileMore.tsx
   - android/frontend/src/hooks/useFormFactor.ts
+  - android/frontend/src/settings/OnboardingWizard.tsx
+  - android/frontend/src/settings/OnboardingWizardMobile.tsx
 tags:
   - responsive-design
   - form-factor
@@ -19,7 +21,7 @@ tags:
 
 ## Overview
 
-`cross-platform-adaptive-layout` 是 Android 前端应用的核心布局策略，旨在通过统一的代码库适配不同的设备形态（手机与平板/桌面）。该概念不依赖传统的媒体查询断点硬编码，而是基于 `useFormFactor` Hook 在运行时动态判定屏幕宽度（如 sw600dp），从而在 `AppInner`（移动端视图）和 `TabletShell`（平板端外壳）之间进行切换。
+`cross-platform-adaptive-layout` 是 Android 前端应用的核心布局策略，旨在通过统一的代码库适配不同的设备形态（手机与平板）。该机制不依赖传统的媒体查询断点硬编码，而是基于 `useFormFactor` Hook 在运行时动态判定屏幕宽度（sw600dp 语义），从而在 `AppInner`（移动端视图）和 `TabletShell`（平板端外壳）之间进行切换。
 
 这一机制确保了 UI 组件（如导航栏、面板、向导对话框）能够根据当前设备形态渲染出最适合的交互范式：移动端采用底部标签栏 (`BottomNav`) 和全屏卡片流，而平板端则采用侧边 Dock 栏 (`DockNav`)、右侧面板 (`RightPanel`) 以及分屏或独立窗口模式。同时，它要求业务逻辑层（如认证、设置、监控）保持状态一致性，仅在不同形态下通过不同的容器组件进行包装和展示。
 
@@ -33,20 +35,21 @@ tags:
     *   默认 ease 设为 `expo.out`。
     *   开启 `autoSleep: 5` (空闲 5s 后休眠时间线) 和 `nullTargetWarn: false`。
     *   监听 `prefers-reduced-motion`，若匹配则强制 `duration: 0` 并关闭 lagSmoothing。
-*   **主题初始化** (`main.tsx|27-41`)：
+*   **主题初始化** (`main.tsx|27-44`)：
     *   `initTheme()`：读取 `safeStorage` 中的 `campus-light-mode` 和 `campus-theme`。
     *   逻辑：`light-mode='1'` 移除 `dark` 类并设 `data-light="1"`；否则加 `dark`。
     *   若 theme 在 `VALID_THEMES` 中且非 `default`，添加 `theme-${theme}` 类。
-*   **崩溃恢复** (`main.tsx|45-111`)：
+    *   玻璃档位：首帧前就定下，避免启动闪烁一次默认档 (`main.tsx|41-43`)。
+*   **崩溃恢复** (`main.tsx|48-114`)：
     *   `setupCrashRecovery()`：
-        *   **可见性检测** (`main.tsx|59-66`)：监听 `visibilitychange`，若变为 visible 且 root 无子节点，触发重载（上限 `MAX_CRASH_RELOADS=3`）。
-        *   **GPU/WebGL 错误** (`main.tsx|68-74`)：监听 window error，消息含 GPU/WebGL/SharedArrayBuffer 时触发重载。
-        *   **心跳机制** (`main.tsx|76-110`)：
+        *   **可见性检测** (`main.tsx|62-69`)：监听 `visibilitychange`，若变为 visible 且 root 无子节点，触发重载（上限 `MAX_CRASH_RELOADS=3`）。
+        *   **GPU/WebGL 错误** (`main.tsx|71-77`)：监听 window error，消息含 GPU/WebGL/SharedArrayBuffer 时触发重载。
+        *   **心跳机制** (`main.tsx|79-113`)：
             *   维护 `lastHeartbeatTime`。
-            *   1s 间隔更新心跳（若 `isRenderLoopAlive()` 为假则跳过）(`main.tsx|90-100`)。
-            *   2s 间隔检测 elapsed，若 >10000ms 视为 GPU 崩溃触发重载 (`main.tsx|102-110`)。
-            *   注意：`isVisible` 状态用于暂停/恢复 `gsap.globalTimeline` (`main.tsx|77-86`)。
-*   **渲染挂载** (`main.tsx|115-129`)：
+            *   1s 间隔更新心跳（若 `isRenderLoopAlive()` 为假则跳过）(`main.tsx|93-103`)。
+            *   2s 间隔检测 elapsed，若 >10000ms 视为 GPU 崩溃触发重载 (`main.tsx|105-113`)。
+            *   注意：`isVisible` 状态用于暂停/恢复 `gsap.globalTimeline` (`main.tsx|82-91`)。
+*   **渲染挂载** (`main.tsx|118-131`)：
     *   DEV 模式包裹 `React.StrictMode`，生产用 `React.Fragment`。
     *   结构：`ErrorBoundary` -> `LazyMotion(domMax, strict)` -> `MotionConfig(reducedMotion="user")` -> `<App />`。
 
@@ -54,28 +57,28 @@ tags:
 
 **职责**：双外壳路由决策（手机 vs 平板），管理移动端核心状态、UI 布局及全局弹窗。
 
-*   **外壳决策** (`App.tsx|364-368`)：
+*   **外壳决策** (`App.tsx|373-385`)：
     *   `useFormFactor()` 返回 `'tablet'` 时渲染 `<TabletShell />`，否则渲染 `<AppInner />`。
     *   共享 `<FaceCaptureDialog />` 和 `<NotificationPermissionGate />`。
-*   **AppInner 状态管理** (`App.tsx|52-117`)：
-    *   **Tab 状态** (`App.tsx|57-62`)：从 `safeStorage` 读取 `campus-mobile-tab`，白名单校验（含 `monitor`）。
-    *   **导航方向** (`App.tsx|70-77`)：`tabOrder` 数组动态生成（根据 `configEnableNetworkQuality` 决定第 4 位是 `quality` 还是 `monitor`）。计算 `navDir` (-1/0/1) 用于面板转场动画。
+*   **AppInner 状态管理** (`App.tsx|53-117`)：
+    *   **Tab 状态** (`App.tsx|58-63`)：从 `safeStorage` 读取 `campus-mobile-tab`，白名单校验（含 `monitor`）。
+    *   **导航方向** (`App.tsx|71-78`)：`tabOrder` 数组动态生成（根据 `configEnableNetworkQuality` 决定第 4 位是 `quality` 还是 `monitor`）。计算 `navDir` (-1/0/1) 用于面板转场动画。
     *   **Store 订阅**：订阅 `useConfigStore`, `useAuthStore`, `useQualityStore`, `useMonitor`, `useAccount` 等。
     *   **面板内容映射** (`App.tsx|149-193`)：`switch (deferredTab)` 渲染对应 Panel 组件。
-        *   `dashboard`: `<MobileDashboard />` + 悬浮 `<MobileQuickActions />` (`App.tsx|263-267`)。
+        *   `dashboard`: `<MobileDashboard />` + 悬浮 `<MobileQuickActions />` (`App.tsx|273-277`)。
         *   `account`: `<AccountPanel />`。
         *   `selfservice`: `<SelfServicePanel />`。
         *   `quality`: `<QualityPanel />` (条件渲染)。
         *   `monitor`: `<MonitorPanel />` (默认显示，质量开启时隐藏 tab 但此处仍保留逻辑兼容)。
         *   `more`: `<MobileMore />`。
-*   **顶部 Header** (`App.tsx|202-260`)：
-    *   绝对定位，`backdrop-blur-md`。
+*   **顶部 Header** (`App.tsx|206-270`)：
+    *   绝对定位，使用 `color-mix` 和 `backdrop-filter` 实现磨砂玻璃效果。
     *   包含状态点、运营商 Chip (`IspMark`)、更新胶囊、网络质量胶囊 (`NetworkQualityCapsule`)、设置/主题/关于按钮。
-*   **底部 Nav** (`App.tsx|299`)：渲染 `<BottomNav />`。
-*   **弹窗管理** (`App.tsx|303-356`)：
-    *   Sponsor, About, UpdateAvailable, Theme, ConfirmDelete, OnboardingWizardMobile。
+*   **底部 Nav** (`App.tsx|309`)：渲染 `<BottomNav />`。
+*   **弹窗管理** (`App.tsx|311-366`)：
+    *   Sponsor, About, UpdateAvailable, Theme, ConfirmDelete, OnboardingWizard。
     *   所有弹窗均包裹在 `Suspense` 中懒加载。
-*   **通知权限门控** (`App.tsx|381-405`)：
+*   **通知权限门控** (`App.tsx|391-415`)：
     *   `NotificationPermissionGate`：仅 Android 13+ 有效，标记 `campus-notification-prompt` 后不再询问。
 
 ### 3. 设备形态判定 Hook (`android/frontend/src/hooks/useFormFactor.ts`)
@@ -109,7 +112,7 @@ tags:
     *   `TABS` 基础列表，`QUALITY_TAB` / `MONITOR_TAB` 动态插入。
 *   **动态 Tab 获取** (`BottomNav.tsx|26-31`)：
     *   `useNavTabs()`：根据 `config.enableNetworkQuality` 决定插入 `quality` 或 `monitor`。
-*   **UI 实现** (`BottomNav.tsx|33-96`)：
+*   **UI 实现** (`BottomNav.tsx|33-91`)：
     *   磨砂玻璃胶囊容器 (`backdrop-filter: blur(24px)`)。
     *   每个 Tab 按钮等宽 `w-16`，确保 `layoutId="nav-active-pill"` 滑动纯平移。
     *   选中态使用 `m.span` 配合 `spring` 动画 (`stiffness: 250, damping: 28`)。
