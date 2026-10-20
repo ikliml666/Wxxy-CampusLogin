@@ -81,7 +81,12 @@ export function SponsorCard({ open, onClose }: SponsorCardProps) {
           />
           <div
             ref={cardRef}
-            className="w-[312px] rounded-2xl border border-border/60 bg-background/95 backdrop-blur-md shadow-2xl p-4"
+            className="w-[312px] rounded-2xl border border-border/60 bg-background/95 shadow-2xl p-4"
+            style={{
+              // 跟着玻璃档位走（off 档要真无滤镜），不要写死 backdrop-blur-md
+              backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
+              WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
+            }}
             role="dialog"
             aria-label={t('sponsor.title')}
           >

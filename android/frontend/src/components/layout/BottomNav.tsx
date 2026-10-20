@@ -45,14 +45,15 @@ export function BottomNav({ tab, onChange }: {
     >
       <div
         className={cn(
-          'pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none',
+          'glass-nav pointer-events-auto w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none',
           'border border-transparent shadow-[0_10px_36px_rgba(30,34,90,0.14),0_2px_10px_rgba(30,34,90,0.08)]',
           'dark:shadow-[0_10px_36px_rgba(0,0,0,0.42),0_2px_10px_rgba(0,0,0,0.28)]'
         )}
         style={{
           background: 'color-mix(in srgb, var(--surface-main) 72%, transparent)',
-          backdropFilter: 'blur(24px) saturate(160%)',
-          WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+          // 走档位变量（主题对话框三档），别写死：写死会让底栏在切换档位时纹丝不动
+          backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
+          WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
         }}
       >
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底 */}

@@ -204,8 +204,13 @@ function AppInner() {
           absolute 覆盖在 main 上方——滚动内容从 header 背后穿过，backdrop-blur 才真正雾化（MD3 top app bar 惯例）。
           上/下各留 12px：与系统状态栏(通知栏)和正文卡片都保持呼吸间距 */}
       <header
-        className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 backdrop-blur-md z-10"
-        style={{ background: 'color-mix(in srgb, var(--surface-main) 85%, transparent)' }}
+        className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 z-10"
+        style={{
+          background: 'color-mix(in srgb, var(--surface-main) 85%, transparent)',
+          // 走档位变量（主题对话框三档），别用 backdrop-blur-md：写死会让顶栏在切换档位时纹丝不动
+          backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
+          WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-sat))',
+        }}
       >
         <span
           className={cn(

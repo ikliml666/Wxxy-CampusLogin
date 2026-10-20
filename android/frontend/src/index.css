@@ -271,12 +271,20 @@
     display: none;
   }
 
-  /* off 档彻底摘掉滤镜：blur(0px) 仍会建合成层，低端机要的是真的零开销 */
+  /* off 档彻底摘掉滤镜：blur(0px) 仍会建合成层，低端机要的是真的零开销。
+     必须 !important —— 顶栏/底栏/快捷条的模糊走 inline style，不加会被压回去；
+     [class*="backdrop-blur"] 收掉散落的小控件；
+     [style*="backdrop-filter"] 收掉所有走档位变量的 inline 浮层
+     （它们 off 档下只是算出 blur(0px)，仍在建层）。 */
   :root[data-glass="off"] .bg-card,
   :root[data-glass="off"] .glass-dock,
-  :root[data-glass="off"] .btn-tonal-glass {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+  :root[data-glass="off"] .glass-nav,
+  :root[data-glass="off"] .btn-tonal-glass,
+  :root[data-glass="off"] header,
+  :root[data-glass="off"] [class*="backdrop-blur"],
+  :root[data-glass="off"] [style*="backdrop-filter"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 
   [class*="rounded-2xl"].bg-white,
