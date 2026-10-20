@@ -576,13 +576,6 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                     <div className="flex h-10 items-center justify-end gap-2 max-[520px]:mt-1 max-[520px]:justify-center min-[520px]:h-auto">
                       {i === STEP_COUNT - 1 && (
                         <>
-                          <button
-                            type="button"
-                            onClick={handleSkip}
-                            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-                          >
-                            {t('onboarding.skip')}
-                          </button>
                           {!loginSuccess ? (
                             <Button onClick={handleLoginAndFinish} disabled={isLoggingIn || !username} className="gap-1.5">
                               {isLoggingIn ? (
