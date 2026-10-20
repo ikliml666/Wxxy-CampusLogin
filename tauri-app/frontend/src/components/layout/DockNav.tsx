@@ -69,10 +69,6 @@ function DockItem({
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
         isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
       )}
-      style={{
-        // 镜头系统每帧写这个值，让内容朝光标方向轻微偏移（视差）
-        transform: 'translateX(var(--dock-lean, 0px))',
-      }}
       aria-label={label}
       aria-current={isActive ? 'page' : undefined}
     >
@@ -275,7 +271,9 @@ function ActionButtonWithMenu({
         onClick={handleClick}
         disabled={isLoading || isDisabled}
         animate={isLoading ? { scale: [1, 0.95, 1.02, 1] } : undefined}
-        whileHover={!isLoading ? { y: -4, scale: 1.06 } : undefined}
+        // 不再上浮放大：栏里已经有镜片跟着指针走，再让按钮自己跳出栏外
+        // 就是两套 hover 语言打架，而且 scale 会把 nav 撑高（实测 55 → 55.3），
+        // 镜片每帧读到的 barH 跟着抖。悬停反馈交给边框与文字色。
         whileTap={!isLoading ? { scale: 0.95 } : undefined}
         transition={{ duration: 0.25, ease: profile.easing.enter as [number, number, number, number] }}
         className={cn(
@@ -413,37 +411,48 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
           style={{ background: 'hsl(var(--foreground))', opacity: 0, willChange: 'transform, opacity' }}
         />
 
-        {visibleItems.map(({ id, labelKey, icon }) => (
-          <DockItem
-            key={id}
-            id={id}
-            label={t(labelKey)}
-            icon={icon}
-            isActive={activePanel === id}
-            onPanelChange={onPanelChange}
-          />
-        ))}
+        {/* 项容器：useDockLens 在它身上挖一个药丸形的洞，把镜片盖住的那段
+            从原项里挖掉——不然放大副本底下还压着原来的图标，两套叠着就是残影。 */}
+        <div data-dock-strip className="relative flex items-center gap-0.5">
+          {visibleItems.map(({ id, labelKey, icon }) => (
+            <DockItem
+              key={id}
+              id={id}
+              label={t(labelKey)}
+              icon={icon}
+              isActive={activePanel === id}
+              onPanelChange={onPanelChange}
+            />
+          ))}
+        </div>
 
-        {/* 放大层：一份 aria-hidden 的项副本，被 useDockLens 裁成药丸并绕镜头
-            中心放大。镜片外的部分全被 clip-path 裁掉，所以复制的这排只需和
-            上面那排完全同构。 */}
+        {/* 放大层：一份 aria-hidden 的项副本。外层裁成药丸，内层才缩放——
+            两者必须在两层上，写进同一个元素时镜片形状会跟着刻度一起放大。 */}
         <div
           data-dock-magnify
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 flex items-center gap-0.5 pl-2"
-          style={{ opacity: 0, willChange: 'transform, clip-path, opacity' }}
+          className="pointer-events-none absolute inset-0"
+          style={{ opacity: 0, willChange: 'clip-path, opacity' }}
         >
-          {visibleItems.map(({ id, icon }) => {
-            const Icon = ICON_MAP[icon]
-            return (
-              <div key={id} className="flex w-[52px] flex-col items-center justify-center gap-0.5 py-1.5">
-                <Icon className="h-[18px] w-[18px] shrink-0" />
-                <span className="text-[11px] font-medium whitespace-nowrap leading-none">
-                  {t(NAV_ITEMS.find((n) => n.id === id)?.labelKey ?? '')}
-                </span>
-              </div>
-            )
-          })}
+          <div
+            data-dock-magnify-inner
+            // pl-2 / pr-1 必须和 nav 的内边距一致，否则这一排副本整体偏左 8px，
+            // 放大镜里看到的就不是原位置的那一项——错位是位移出来的，不是裁错了。
+            className="flex h-full items-center gap-0.5 pl-2 pr-1"
+            style={{ willChange: 'transform' }}
+          >
+            {visibleItems.map(({ id, icon }) => {
+              const Icon = ICON_MAP[icon]
+              return (
+                <div key={id} className="flex w-[52px] flex-col items-center justify-center gap-0.5 py-1.5">
+                  <Icon className="h-[18px] w-[18px] shrink-0" />
+                  <span className="text-[11px] font-medium whitespace-nowrap leading-none">
+                    {t(NAV_ITEMS.find((n) => n.id === id)?.labelKey ?? '')}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
         </div>
 
         <div className="w-[3px] self-stretch my-1 rounded-full bg-black/5 dark:bg-white/5 mx-1" />

@@ -25,14 +25,8 @@ const LENS_MAGNIFY = 0.16
 const LIFT_SNAP = 0.975
 /** 镜头离目标还有这么远时先不落，单位是项（`_liftRelease`） */
 const LIFT_RELEASE = 0.04
-/** 悬停时镜头朝光标方向倾这么多项（`_hoverMagnet`） */
-const HOVER_MAGNET = 0.2
-/** 项内容朝光标方向偏移的比例（`_hoverParallax`） */
-const HOVER_PARALLAX = 0.5
 /** 悬停高亮峰值不透明度（`_hoverAlpha`） */
 const HOVER_ALPHA = 0.08
-/** 光标停在栏上时整条胀出的量（`_hoverSwell`） */
-const HOVER_SWELL = 0.4
 /** 果冻：速度参考值与拉伸量（`_jellySpeed/_jellyStretch`） */
 const JELLY_SPEED = 3
 const JELLY_STRETCH = 0.2
@@ -113,8 +107,10 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
 
     const lensEl = nav.querySelector<HTMLElement>('[data-dock-lens]')
     const magEl = nav.querySelector<HTMLElement>('[data-dock-magnify]')
+    const magInner = nav.querySelector<HTMLElement>('[data-dock-magnify-inner]')
     const hoverEl = nav.querySelector<HTMLElement>('[data-dock-hover]')
-    if (!lensEl || !magEl || !hoverEl) return
+    const stripEl = nav.querySelector<HTMLElement>('[data-dock-strip]')
+    if (!lensEl || !magEl || !magInner || !hoverEl) return
 
     // ---- 测量：只在布局变化时重算，滚动与拖动都不碰 ----
     let centers: number[] = []
@@ -124,7 +120,10 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     const itemsOf = () => Array.from(nav.querySelectorAll<HTMLElement>('[data-dock-item]'))
     const measure = () => {
       const items = itemsOf()
-      centers = items.map((el) => el.offsetLeft + el.offsetWidth / 2)
+      // 项装在 [data-dock-strip] 里时，offsetLeft 相对的是容器而不是栏；
+      // 不加回容器的位置，镜头会整体左移到容器原点去（少掉 nav 的左内边距）。
+      const shift = stripEl ? stripEl.offsetLeft : 0
+      centers = items.map((el) => shift + el.offsetLeft + el.offsetWidth / 2)
       widths = items.map((el) => el.offsetWidth)
       barW = nav.clientWidth
       barH = nav.clientHeight
@@ -181,15 +180,19 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       // 抬起时药丸从实心退成清透：FlClash 是 platter 淡出、玻璃片浮起
       lensEl.style.opacity = String(1 - lf * 0.72)
 
-      // 放大层：裁成镜头形状，绕镜头中心放大，镜片外全裁掉
+      // 放大层：外层只负责把镜片形状抠出来，内层才做缩放。
+      // 两者顺序不能换——clip-path 与 transform 写在同一元素上时，镜片形状
+      // 会跟着一起放大，边缘就对不上（这正是镜片边上露出错位图标的根因）。
+      // 显隐是硬开关不是渐变：镜片里同一时刻只能有一份内容，淡入淡出让
+      // 放大副本和原项各半透明地叠着，看起来就是重影。
       const mag = 1 + LENS_MAGNIFY * lf
       magEl.style.clipPath = `inset(${top}px ${Math.max(0, barW - cx - w / 2)}px ${Math.max(
         0,
         barH - top - h,
       )}px ${Math.max(0, left)}px round ${h / 2}px)`
-      magEl.style.transformOrigin = `${cx}px ${barH / 2}px`
-      magEl.style.transform = `scale(${mag})`
-      magEl.style.opacity = String(lf)
+      magInner.style.transformOrigin = `${cx}px ${barH / 2}px`
+      magInner.style.transform = `scale(${mag})`
+      magEl.style.opacity = lf > 0.01 ? '1' : '0'
 
       // 悬停高亮：宽度取它当前所在那一项的宽度
       const hw = widthAt(hoverX.value)
@@ -201,16 +204,28 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       nav.style.setProperty('--dock-swell', String(swell.value))
       nav.style.setProperty('--dock-stretch', `${stretch.value}px`)
 
-      // 项内容朝光标方向倾斜：只有离光标最近那一项明显，其余按距离归零。
-      // 系数落在「项宽比例」上（FlClash 那边是 value * size.width），所以
-      // 必须再乘回项宽才是 px——只乘系数的话峰值不到 0.1px，等于没写。
-      // 淡入沿用高亮那条曲线：两者本来就该同进同退，多一条曲线只会多一处不同步。
-      const lean = Math.min(1, Math.max(0, hoverShow.value)) * HOVER_PARALLAX
-      itemsOf().forEach((el, i) => {
-        const offset = hoverAt === null ? 0 : hoverAt - i
-        const near = Math.abs(offset) > 0.5 ? 0 : offset
-        el.style.setProperty('--dock-lean', `${near * HOVER_MAGNET * lean * el.offsetWidth}px`)
-      })
+      // 镜片盖住的那段必须从原项里挖掉，否则放大副本底下还压着原来的图标
+      // 和文字，两套错位叠着就是残影。挖的是药丸而不是方框——方框的四个角
+      // 会留在药丸圆角之外，正好把图标的边角露出来。
+      // 挖洞落在「项容器」上，一次裁掉所有项，省得逐项求交集。
+      if (stripEl) {
+        if (lf <= 0.01 || w < 2 || h < 2) {
+          if (stripEl.style.clipPath !== '') stripEl.style.clipPath = ''
+        } else {
+          const sw = stripEl.clientWidth
+          const sh = stripEl.clientHeight
+          const x0 = left - stripEl.offsetLeft
+          const y0 = top - stripEl.offsetTop
+          const x1 = x0 + w
+          const y1 = y0 + h
+          const r = h / 2
+          stripEl.style.clipPath = `path(evenodd, "M0 0 H${sw} V${sh} H0 Z M${x0 + r} ${y0} H${
+            x1 - r
+          } A${r} ${r} 0 0 1 ${x1} ${y0 + r} V${y1 - r} A${r} ${r} 0 0 1 ${x1 - r} ${y1} H${
+            x0 + r
+          } A${r} ${r} 0 0 1 ${x0} ${y1 - r} V${y0 + r} A${r} ${r} 0 0 1 ${x0 + r} ${y0} Z")`
+        }
+      }
 
       // 光斑：强度走二次曲线，松手时半径同时扩到 4 倍，读起来是「散开」不是「熄灭」
       const g = glow.value
@@ -289,23 +304,12 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       glowAt = { x: clientX - rect.left, y: clientY - rect.top }
     }
 
-    /** 镜头静止位置：悬停在本项上时朝光标倾一点，否则就是本项中心 */
-    const leanLens = () => {
-      if (pressedIndex !== null || clampIndex(lens.goal) !== selected) return
-      const rest =
-        hoverAt !== null && Math.round(hoverAt) === selected
-          ? Math.round(hoverAt) + (hoverAt - Math.round(hoverAt)) * HOVER_MAGNET
-          : selected
-      if (Math.abs(lens.goal - rest) > 0.001) lens.to(rest, SPRING.hover)
-    }
-
     const showHover = () => {
       if (cursor === null || pointerId !== null || centers.length === 0) return
       hoverAt = positionAt(cursor.x)
       // 高亮第一次出现就落位，别从上次的位置滑过来
       if (hoverShow.goal === 0 && hoverShow.value === 0) hoverX.jump(xAt(hoverAt))
       hoverShow.to(1, SPRING.fade)
-      leanLens()
     }
 
     const onEnter = (e: PointerEvent) => {
@@ -313,7 +317,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       if (e.pointerType === 'touch') return
       cursor = { x: e.clientX, y: e.clientY }
       showHover()
-      swell.to(HOVER_SWELL, SPRING.swell)
     }
 
     const onLeave = () => {
@@ -322,8 +325,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       cursor = null
       hoverAt = null
       hoverShow.to(0, SPRING.fade)
-      leanLens()
-      swell.to(0, SPRING.swell)
     }
 
     const onMove = (e: PointerEvent) => {
@@ -416,7 +417,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       glowSpread.to(1, SPRING.glowOut)
       stretch.to(0, SPRING.pull)
       if (cursor !== null) showHover()
-      swell.to(cursor === null ? 0 : HOVER_SWELL, SPRING.swell)
+      swell.to(0, SPRING.swell)
     }
 
     const onUp = (e: PointerEvent) => {

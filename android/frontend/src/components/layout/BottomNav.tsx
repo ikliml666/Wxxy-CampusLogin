@@ -100,8 +100,10 @@ export function BottomNav({ tab, onChange }: {
           style={{ background: 'hsl(var(--foreground))', opacity: 0, willChange: 'transform, opacity' }}
         />
 
-        {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底 */}
-        <div className="flex flex-1 min-w-0 items-center justify-around gap-2">
+        {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底。
+            这一层同时也是 useDockLens 的挖洞目标：镜片盖住的那段要从原项里
+            挖掉，否则放大副本底下还压着原来的图标，两套叠着就是残影。 */}
+        <div data-dock-strip className="relative flex flex-1 min-w-0 items-center justify-around gap-2">
           {tabs.map(({ id, labelKey, Icon }) => {
             const active = tab === id
             return (
@@ -117,7 +119,6 @@ export function BottomNav({ tab, onChange }: {
                   'relative flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
                 )}
-                style={{ transform: 'translateX(var(--dock-lean, 0px))' }}
               >
                 <Icon
                   className="relative z-10 h-[26px] w-[26px] shrink-0"
@@ -131,20 +132,26 @@ export function BottomNav({ tab, onChange }: {
           })}
         </div>
 
-        {/* 放大层：一份 aria-hidden 的项副本，被 useDockLens 裁成药丸并绕镜头
-            中心放大；镜片外的部分全被 clip-path 裁掉。 */}
+        {/* 放大层：一份 aria-hidden 的项副本。外层裁成药丸，内层才缩放——
+            两者必须在两层上，写进同一个元素时镜片形状会跟着刻度一起放大。 */}
         <div
           data-dock-magnify
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 flex items-center justify-around gap-2 p-1.5"
-          style={{ opacity: 0, willChange: 'transform, clip-path, opacity' }}
+          className="pointer-events-none absolute inset-0"
+          style={{ opacity: 0, willChange: 'clip-path, opacity' }}
         >
-          {tabs.map(({ id, labelKey, Icon }) => (
-            <div key={id} className="flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5">
-              <Icon className="h-[26px] w-[26px] shrink-0" />
-              <span className="whitespace-nowrap text-[11px] font-medium leading-tight">{t(labelKey)}</span>
-            </div>
-          ))}
+          <div
+            data-dock-magnify-inner
+            className="flex h-full items-center justify-around gap-2 p-1.5"
+            style={{ willChange: 'transform' }}
+          >
+            {tabs.map(({ id, labelKey, Icon }) => (
+              <div key={id} className="flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5">
+                <Icon className="h-[26px] w-[26px] shrink-0" />
+                <span className="whitespace-nowrap text-[11px] font-medium leading-tight">{t(labelKey)}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </nav>
