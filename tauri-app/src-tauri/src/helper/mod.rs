@@ -738,8 +738,14 @@ fn run_enable_adapter(name: &str, logs: &mut Vec<String>) -> HelperResult {
     }
 }
 
-/// 禁用适配器（netsh disable，夜间切换临时下线校园网卡用）。
+/// 禁用适配器（夜间切换临时下线校园网卡用）。
 /// 双校验与 [`run_enable_adapter`] 相同：适配器名字符集 + 必须存在于本机适配器列表。
+///
+/// 优先走**非持久化设备级禁用**（`CM_Disable_DevNode` 不传 `CM_DISABLE_PERSIST`）：
+/// netsh disable 的禁用态会跨重启残留，重启后物理网卡停在 PnP problem 22，
+/// USB 卡（RTL8156 等）还会因驱动不加载停在出厂 CD-ROM 模式，Windows 弹出
+/// 「正在安装设备驱动程序」且需点击才能用。只有没有 PnP 实例 ID 的虚拟卡
+/// （Wintun/TAP，不涉及驱动安装）才回退 netsh。
 #[cfg(target_os = "windows")]
 fn run_disable_adapter(name: &str, logs: &mut Vec<String>) -> HelperResult {
     if let Err(e) = crate::network::adapter_cache::validate_adapter_name(name) {
@@ -763,6 +769,36 @@ fn run_disable_adapter(name: &str, logs: &mut Vec<String>) -> HelperResult {
             details: None,
         };
     }
+
+    match crate::network::discovery::devnode::disable_adapter_nonpersistent(name) {
+        Ok(Some(instance_id)) => {
+            let message = format!("设备级禁用适配器成功（非持久化）: {name} ({instance_id})");
+            logs.push(format!("helper: {message}"));
+            return HelperResult {
+                success: true,
+                message,
+                op: "disable_adapter".to_string(),
+                logs: std::mem::take(logs),
+                details: None,
+            };
+        }
+        Ok(None) => {
+            // 虚拟卡（无 PnP 实例 ID）：不存在重启驱动安装问题，netsh 回退安全
+            logs.push(format!("helper: 无 PnP 实例 ID，回退 netsh 禁用: {name}"));
+        }
+        Err(e) => {
+            // 物理卡设备级禁用失败时不静默回退 netsh——那会重新引入跨重启残留
+            // 的缺陷，宁可报错交上层重试
+            return HelperResult {
+                success: false,
+                message: format!("设备级禁用适配器失败: {name}: {e}"),
+                op: "disable_adapter".to_string(),
+                logs: std::mem::take(logs),
+                details: None,
+            };
+        }
+    }
+
     logs.push(format!("helper: netsh 禁用适配器: {name}"));
     let output = crate::network::discovery::new_command("netsh")
         .args(["interface", "set", "interface", name, "disable"])

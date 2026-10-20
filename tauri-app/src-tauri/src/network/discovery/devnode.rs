@@ -17,8 +17,8 @@ use winreg::enums::HKEY_LOCAL_MACHINE;
 use winreg::RegKey;
 use windows::core::PCWSTR;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    CM_Get_DevNode_Status, CM_Locate_DevNodeW, CM_LOCATE_DEVNODE_PHANTOM, CM_PROB_DISABLED,
-    CM_DEVNODE_STATUS_FLAGS, CM_PROB, CR_SUCCESS, DN_HAS_PROBLEM,
+    CM_Disable_DevNode, CM_Get_DevNode_Status, CM_Locate_DevNodeW, CM_LOCATE_DEVNODE_PHANTOM,
+    CM_PROB_DISABLED, CM_DEVNODE_STATUS_FLAGS, CM_PROB, CR_SUCCESS, DN_HAS_PROBLEM,
 };
 
 /// Net 设备类 GUID：Control\Network 键按此组织，也是 GUID_DEVCLASS_NET。
@@ -31,9 +31,8 @@ const CONTROL_NETWORK_ROOT: &str = "SYSTEM\\CurrentControlSet\\Control\\Network"
 const ENABLE_VERIFY_TOTAL_MS: u64 = 3000;
 const ENABLE_VERIFY_INTERVAL_MS: u64 = 200;
 
-/// 读取设备实例的 problem code（无 problem 时返回 0）。
-/// Err 表示 devnode 不可定位或状态查询失败（含 USB 重枚举重建窗口）。
-pub(crate) fn devnode_problem(instance_id: &str) -> Result<u32, String> {
+/// 定位设备实例的 devinst（允许幽灵设备——已移除/已禁用的设备仍可定位）。
+fn locate_devinst(instance_id: &str) -> Result<u32, String> {
     let id_wide: Vec<u16> = instance_id
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -45,6 +44,13 @@ pub(crate) fn devnode_problem(instance_id: &str) -> Result<u32, String> {
     if cr != CR_SUCCESS {
         return Err(format!("CM_Locate_DevNodeW 失败: 0x{:08X}", cr.0));
     }
+    Ok(devinst)
+}
+
+/// 读取设备实例的 problem code（无 problem 时返回 0）。
+/// Err 表示 devnode 不可定位或状态查询失败（含 USB 重枚举重建窗口）。
+pub(crate) fn devnode_problem(instance_id: &str) -> Result<u32, String> {
+    let devinst = locate_devinst(instance_id)?;
     let mut status = CM_DEVNODE_STATUS_FLAGS(0);
     let mut problem = CM_PROB(0);
     let cr = unsafe { CM_Get_DevNode_Status(&mut status, &mut problem, devinst, 0) };
@@ -113,6 +119,58 @@ pub fn find_disabled_device(adapter_name: &str) -> Result<Option<String>, String
         // 不对已启动设备做设备级操作——那会触发一次不必要的重枚举
         _ => Ok(None),
     }
+}
+
+/// 设备级禁用：PnP 设备层禁用，**非持久化**（不传 `CM_DISABLE_PERSIST`）。
+///
+/// 与 [`enable_device`] 对称，用于夜间出站切换临时下线校园网卡。
+///
+/// 为什么不用 `netsh interface set interface ... disable`：netsh 的禁用会跨重启
+/// 残留（2026-10-19 23:00 netsh 禁用两张卡 → 次日 08:36 重启后双双 problem 22，
+/// 日志实证），而 USB 网卡在禁用期间驱动不加载，重启上电时 RTL8156 停在出厂
+/// CD-ROM 模式，Windows 把它当新的大容量存储设备、弹出「正在安装设备驱动程序」
+/// 提示且需点击才能用（同一序列号下 USBSTOR\CDROM 幽灵设备为证）。改用非持久化
+/// 设备级禁用后，重启时设备已是启用态，驱动正常加载并切回 NIC 模式。
+///
+/// 官方语义（`CM_Disable_DevNode`）：默认只禁用一次、重启后自动启用；Windows 10
+/// 起才需显式传 `CM_DISABLE_PERSIST` 才能跨重启。
+pub fn disable_device(instance_id: &str) -> Result<(), String> {
+    let devinst = locate_devinst(instance_id)?;
+    let cr = unsafe { CM_Disable_DevNode(devinst, 0) };
+    if cr != CR_SUCCESS {
+        return Err(format!("CM_Disable_DevNode 失败: 0x{:08X}", cr.0));
+    }
+    // 复核：不信返回值，轮询 problem 22 真正出现（USB 重枚举窗口内查询可能失败，继续等）
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ENABLE_VERIFY_TOTAL_MS);
+    loop {
+        match devnode_problem(instance_id) {
+            Ok(problem) if problem == CM_PROB_DISABLED.0 => return Ok(()),
+            _ if std::time::Instant::now() >= deadline => {
+                return Err("CM_Disable_DevNode 已调用但设备未进入 PnP 禁用态(problem 22)".to_string());
+            }
+            _ => std::thread::sleep(std::time::Duration::from_millis(ENABLE_VERIFY_INTERVAL_MS)),
+        }
+    }
+}
+
+/// 按适配器名做非持久化设备级禁用（夜间出站切换用）。
+///
+/// 返回 `Ok(Some(instance_id))` = 已走设备级禁用；`Ok(None)` = 该适配器没有
+/// PnP 实例 ID（Wintun/TAP 等虚拟卡），调用方回退 netsh——虚拟卡不涉及重启
+/// 驱动安装问题，回退安全。
+pub fn disable_adapter_nonpersistent(adapter_name: &str) -> Result<Option<String>, String> {
+    let guid = crate::network::get_adapters_force()
+        .ok()
+        .and_then(|list| list.iter().find(|a| a.name == adapter_name).map(|a| a.guid.clone()))
+        .or_else(|| find_guid_by_name(adapter_name));
+    let Some(guid) = guid else {
+        return Ok(None);
+    };
+    let Some(instance_id) = read_pnp_instance_id(&guid) else {
+        return Ok(None);
+    };
+    disable_device(&instance_id)?;
+    Ok(Some(instance_id))
 }
 
 /// 设备级启用：管理员进程内直跑 `pnputil /enable-device` + 复核；非管理员经
@@ -196,5 +254,16 @@ mod tests {
     #[test]
     fn find_disabled_device_missing_adapter_returns_none() {
         assert_eq!(find_disabled_device("__no_such_adapter__").unwrap(), None);
+    }
+
+    #[test]
+    fn disable_adapter_nonpersistent_missing_adapter_returns_none() {
+        // 不存在的适配器必须返回 Ok(None)（交给调用方回退 netsh），绝不能误伤真设备
+        assert_eq!(disable_adapter_nonpersistent("__no_such_adapter__").unwrap(), None);
+    }
+
+    #[test]
+    fn disable_device_nonexistent_instance_errors() {
+        assert!(disable_device("ROOT\\__NO_SUCH_DEVICE__\\0000").is_err());
     }
 }
