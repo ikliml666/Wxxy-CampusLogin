@@ -91,7 +91,11 @@
     /* 外缘暗线：暗色下 FlClash 用 0.75，亮色用 0.35 */
     --glass-rim: 0.35;
     --glass-near: 0 1px 2px rgba(15, 23, 42, 0.06);
-    --glass-far: 0 12px 32px -10px rgba(15, 23, 42, 0.18);
+    /* 负 spread 会把阴影左右各缩进去，651px 宽的栏阴影只剩 631px，
+       两侧被栏自身完全盖住、只从底部漏出来 —— 实测左侧阴影峰值 0.0 灰阶，
+       读作「阴影和容器没重合」。spread 收到 -2px 让三边都有阴影，
+       offset/blur 同步略收，保持向下的重心。 */
+    --glass-far: 0 10px 30px -2px rgba(15, 23, 42, 0.16);
     /* 亮色玻璃基色：微冷白，与 #f0f4f8 背景拉开明度差才看得出「浮起来」 */
     --glass-base: #ffffff;
     /* 按压光斑的方向与强度：亮色玻璃近纯白，白光叠上去实测 Δ 只有 4（不可见），
@@ -173,7 +177,7 @@
     --glass-glow-rgb: 255 255 255;
     --glass-glow-gain: 1;
     --glass-near: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --glass-far: 0 12px 32px -10px rgba(0, 0, 0, 0.6);
+    --glass-far: 0 10px 30px -2px rgba(0, 0, 0, 0.55);
 
     background-color: #0c0e12;
   }
