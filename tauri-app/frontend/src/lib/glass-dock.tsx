@@ -25,13 +25,26 @@ import type { HyaliteOptions } from './vendor/hyalite.d.ts'
  *  （决定位移量级 maxDisplacement ≈ thickness×slope×0.5），`slope`>1 才出现
  *  FlClash 那种液体漩涡式的镜像折叠。
  *
- *  两档必须拉开**位移量级**而不是只调透明度：只改 tint 时像素差实测只有 28
- *  （肉眼不可辨），而把 thickness 从小改到大后 maxDisplacement 从 21 升到 46，
- *  边缘弯折立刻成为主视觉。所以标准档克制、极致档明显过折。
+ *  **档位差只做在 `blur` 上，不要做在 thickness/slope/dispersion/shade 上。**
+ *  这是照 FlClash 的档位语义定的（lib/ui/liquid_glass.dart:386-409 的
+ *  `_standard` getter + liquid_glass_capture.dart:388-391 的 quality switch）：
+ *  FlClash 两档的 tint、rim、saturation 完全一致，唯一差别是模糊——
+ *  ultra 有 `haze: 0.72` 把 15.6px 的重模糊版按 72% 混进原图（还剩 28% 原图），
+ *  standard 则丢掉 haze、只用 hazeBlur，于是 standard 整片糊死、ultra 能看清背后。
  *
- *  ultra 开 dispersion（色散，单位像素）——FlClash 的 ultra 靠更大的
- *  refraction/bevel 表达层级差，CSS 无折射能力，色散是这里唯一还能加的
- *  「物理厚度」线索；代价是滤镜走三通道叠加。
+ *  上一版把档位差做在「折射强度」上是错的：ultra 的 thickness 400 / slope 4 /
+ *  dispersion 2 / shade 0.58 叠起来，用户读到的不是「更透」，而是
+ *  **「增强边框的阴影效果和深度」**（原话），方向完全相反。
+ *  实测（headless CDP 截图对照，tint 固定同值只改 blur）：
+ *  blur 0.5 时背后文字完全清晰，会和栏内图标文字叠在一起、读不清；
+ *  blur 3 时背后内容模糊但轮廓、大字仍透得出来（≈ FlClash 的 haze 观感）；
+ *  blur 8~16 时内容糊成色块、基本看不见。
+ *  所以 ultra 的 blur 取 3、standard 取 8（与 CSS 的 --glass-blur 同值），
+ *  两档都落在「看得见/看不见背后内容」这条可辨的分界线两侧。
+ *
+ *  dispersion 归零：色散在 CSS 侧表现为边缘的彩色描边，同样加重「边框更重」
+ *  的观感，与「ultra 应该更轻更透」相悖。
+ *  thickness/slope 只留一点点弯折（90/2.2）做玻璃质感的线索，不再当档位差用。
  *
  *  bevel 的硬约束：必须明显小于 border-radius（悬浮栏是 18px，取 12 = 2/3）。
  *  Hyalite 的倒角从边缘往内铺开 bevel 宽，内边界在圆角处是另一条弧；只要
@@ -56,24 +69,25 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
     bevel: 12,
     thickness: 70,
     slope: 2.0,
-    blur: 3,
+    // 标准档 = FlClash 的 standard（只有 hazeBlur、丢了 haze）→ 整片糊
+    blur: 8,
     dispersion: 0,
     shade: 0.45,
     rim: 0,
     edge: 0,
     smooth: 1,
   },
-  /* ultra 同样取 12（理由见上：bevel 一度是 26，圆角处两道同心弧；
-     压到 18 只是不再肉眼可见，暗线外移后又现形）。位移量级改用 thickness
-     补——bevel 只管弯折带宽，thickness 才是厚度，thickness 从 180 提到 400、
-     slope 到上限 4，maxDisplacement 反而从 49.2 升到 52.2，折射更强而非更弱。 */
+  /* 极致档 = FlClash 的 ultra（保留 28% 原图 + 72% 重模糊）。
+      CSS 侧没有 haze 通道，等价表达只能取一个折中的 blur：0.5 太清（背后文字
+      与栏内文字叠在一起读不清，等于丢掉了「玻璃」这一层），3 是实测的折中点
+      ——背后大字与色块透得出来、但被柔化，与 FlClash 的 haze 观感最接近。 */
   ultra: {
     bevel: 12,
-    thickness: 400,
-    slope: 4,
-    blur: 2,
-    dispersion: 2,
-    shade: 0.58,
+    thickness: 90,
+    slope: 2.2,
+    blur: 3,
+    dispersion: 0,
+    shade: 0.42,
     rim: 0,
     edge: 0,
     smooth: 1,

@@ -103,22 +103,25 @@
     --glass-rim: 0;
   }
 
-  /* 极致：把白膜减到最薄，让折射本身成为主视觉。
-     对齐 FlClash 的档位语义——standard 是「雾化」（`_standard` getter 丢掉
-     dispersion、blur 换成 hazeBlur），ultra 是「真折射 + 色散」。
-     所以两档的差别必须落在**折射量级**上，而不是把边缘光画得更重：
-     上一版 ultra 抬了 shine/rim，用户反馈是「只是边框旁边的阴影变多了」——
-     那正是把层级差误做成了描边。这里反过来：ultra 的膜更薄、光影更淡，
-     位移由 GLASS_DOCK_OPTS 的 thickness/slope 去撑。
-     注意 --glass-blur / --glass-sat 只在 Hyalite 不支持的降级路径生效
-     （.glass-dock 的 backdrop-filter 是 var(--hyalite, blur(...) saturate(...))），
-     调它们改不动 Hyalite 下的观感，别拿它们当档位差异。 */
+  /* 极致：背后内容透出来（FlClash 的 ultra 语义）。
+     两档的差别**只落在「透/糊」上**，这是 FlClash 的原样语义：
+     liquid_glass.dart:386-409 的 `_standard` getter 把 haze 整组丢掉，
+     liquid_glass_capture.dart:388-391 的 quality switch 是两档唯一的差异点；
+     tint / rim / saturation 两档完全一致。ultra 有 haze 0.72 把 15.6px 的
+     重模糊版按 72% 混进原图，standard 只剩 hazeBlur（整片糊死）。
+     → ultra 能看清背后文字，standard 看不清，正是用户描述的现象。
+     上一版走的是反方向：ultra 抬了 thickness/slope/dispersion/shade，
+     用户读作「增强边框的阴影效果和深度」（原话），所以这里全部收回。
+     --glass-blur 只在 Hyalite 不可用的降级路径生效（生效路径见
+     .glass-dock 的 var(--hyalite, …) 与 lib/glass-dock.tsx 的 GLASS_DOCK_OPTS），
+     但降级路径同样要服从这个语义：ultra 用 2px 而不是 14px，否则没有折射时
+     它反而比标准档更糊，档位关系又反了。 */
   :root[data-glass="ultra"] {
-    --glass-blur: 14px;
+    --glass-blur: 2px;
     --glass-sat: 2.08;
-    /* 26%：膜薄到能看清背后内容的轮廓，折射才看得见（54% 时白膜把弯折糊平了） */
-    --glass-tint: 26%;
-    /* 比标准档更淡：折射已经在边缘给出厚度，再叠亮边就成了描边 */
+    /* 24%：膜薄到能看清背后内容的轮廓（54% 时白膜把内容盖住了） */
+    --glass-tint: 24%;
+    /* 比标准档更淡：ultra 的视觉重量在「透」，不在描边 */
     --glass-shine: 0.3;
     --glass-rim: 0.26;
   }
