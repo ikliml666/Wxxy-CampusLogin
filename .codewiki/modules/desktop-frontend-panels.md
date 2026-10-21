@@ -9,10 +9,10 @@ source_files:
   - tauri-app/frontend/src/auth/index.ts
   - tauri-app/frontend/src/auth/types.ts
   - tauri-app/frontend/src/auth/useAuth.ts
-  - tauri-app/frontend/src/account/AccountPanel.helloGate.test.tsx
   - tauri-app/frontend/src/account/SelfServicePanel.tsx
   - tauri-app/frontend/src/account/DeviceAliasDialog.tsx
   - tauri-app/frontend/src/account/index.ts
+  - tauri-app/frontend/src/account/AccountPanel.helloGate.test.tsx
   - tauri-app/frontend/src/monitor/index.ts
 tags: [前端, 面板, react]
 ---
@@ -29,21 +29,21 @@ tags: [前端, 面板, react]
 
 `AppInner` 是全部装配逻辑所在；导出入口 `App` 只包三层：`ErrorBoundary` → `AnimationActiveProvider` → `AppInner`。
 
-- **启动与懒加载 loader**：`loadAboutDialog` (第 45 行)、`loadThemeDialog` (第 46 行)、`loadOnboardingWizard` (第 47 行)、`lazy(...)` 三处 (第 49-51 行)、`preloadPanels` (第 55 行)。
-- **面板元数据**：`PANEL_TITLES` (第 58-70 行)，9 个面板各带 `titleKey` / `descKey`。
-- **赞助外挂窗常量**：`SPONSOR_SHOW_DELAY_MS = 1_000` (第 73 行)、`SPONSOR_SHOW_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000` (第 74 行)。
-- **面板容器样式**（限制 `contain` 到 `layout style` 而非 `paint`，避免裁掉编辑态卡片右上角删除按钮）：`PANEL_CONTAINER_STYLE` (第 78-79 行)。
-- **侧边看板娘每日随机**：`SIDE_MASCOT_POOL` (第 82-85 行，14 项)、`pickDailySideMascots` (第 87-96 行，14×13=182 种有序组合按天序号轮转)。
-- **懒加载骨架**：`PanelSkeleton` (第 100-110 行)。
-- **壳层状态订阅与下发**：`useAppInit()` (第 113 行)；`dailySideMascots` 状态与每分钟跨天比对 (第 115-123 行)；`activePanel` (第 125 行)；`deferredPanel = useDeferredValue(activePanel)` (第 127 行)；`adapters` (第 128 行)；`accounts` / `activeAccount` (第 129-130 行)；`isLoggingIn` (第 131 行)；粒度订阅的 4 个 config 字段 `configUser` / `configEnableNetworkQuality` / `configAutoLaunch` / `configEnableNotification` (第 135-138 行)；`api` 静态导入 `tauriApiWithRetry` (第 14 行)。
-- **store action 订阅**：`updateConfig` (第 142 行)、`setActivePanel` (第 143 行)、`setUpdateAvailable` / `setLatestVersion` / `setReleaseNotes` (第 144-146 行)、响应式读 `latestVersion` / `releaseNotes` / `qualityUpdateAvailable` (第 148-150 行)、`addToast` (第 151 行)、`doLogin` (第 152 行)、`refreshQuality` (第 153 行)。
-- **五个业务 hook 解构**（面板 props 的唯一来源）：`useAuth` (第 155 行)、`useMonitor` (第 156 行)、`useNetwork` (第 157 行)、`useAccount` (第 158 行)、`useSettings` (第 159 行)。
-- **日志区 `useShallow` 订阅** `logs` / `toasts` / `removeToast` / `setLogs` (第 161-167 行)。
-- **面板切换锁与本地弹层状态**：`panelChangeLock` (第 169 行)、`aboutOpen` (第 170 行)、`themeOpen` (第 171 行)、`confirmDelete` (第 172 行)、`onboardingOpen` (第 173 行)、`sponsorOpen` (第 174 行)、`isMaximized` (第 175 行)。
-- **动画与启动**：`useAnimationProfile()` (第 177 行)；`panelVariants = createPanelAppleVariants(profile.easing)` (第 178 行)；`useStartupBoost` 的 `setRef` / `runStartupSequence` (第 179 行)。
-- **副作用**：双 rAF 启动序列 + 并行预热懒加载 chunk (第 180-188 行)；窗口 resize/maximized 监听（cleanup 里顺带 `cleanupToasts()`）(第 190-217 行)；系统通知点击开关于框 (第 219-222 行)；首次引导自动弹出 (第 224-230 行)；赞助浮层自动弹出（7 天频控 + 窗口可见性等待 + 弹出即写时间戳）(第 232-256 行)。
-- **回调**：`handleToggleMaximize` (第 258-267 行)、`handleClearLogs` (第 269-271 行)、`handlePanelChange`（60ms 重入锁 + 持久化 `campus-active-panel`）(第 273-280 行)。
-- **标题文案**：`panelInfo = PANEL_TITLES[deferredPanel] || PANEL_TITLES.dashboard` (第 282 行)。
+- **启动与懒加载 loader**：`loadAboutDialog` (第 50 行)、`loadThemeDialog` (第 51 行)、`loadOnboardingWizard` (第 52 行)、`lazy(...)` 三处 (第 54-56 行)、`preloadPanels` (第 59 行)。
+- **面板元数据**：`PANEL_TITLES` (第 64-74 行)，9 个面板各带 `titleKey` / `descKey`。
+- **赞助外挂窗常量**：`SPONSOR_SHOW_DELAY_MS = 1_000` (第 77 行)、`SPONSOR_SHOW_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000` (第 78 行)。
+- **面板容器样式**（限制 `contain` 到 `layout style` 而非 `paint`，避免裁掉编辑态卡片右上角删除按钮）：`PANEL_CONTAINER_STYLE` (第 82 行)。
+- **侧边看板娘每日随机**：`SIDE_MASCOT_POOL` (第 85-89 行，14 项)、`pickDailySideMascots` (第 91-99 行，14×13=182 种有序组合按天序号轮转)。
+- **懒加载骨架**：`PanelSkeleton` (第 102-112 行)。
+- **壳层状态订阅与下发**：`useAppInit()` (第 115 行)；`dailySideMascots` 状态与每分钟跨天比对 (第 118-128 行)；`activePanel` (第 130 行)；`deferredPanel = useDeferredValue(activePanel)` (第 133 行)；`adapters` (第 134 行)；`accounts` / `activeAccount` (第 135-136 行)；`isLoggingIn` (第 137 行)；粒度订阅的 4 个 config 字段 `configUser` / `configEnableNetworkQuality` / `configAutoLaunch` / `configEnableNotification` (第 142-147 行)；`api` 静态导入 `tauriApiWithRetry` (第 8 行)。
+- **store action 订阅**：`updateConfig` (第 155 行)、`setActivePanel` (第 156 行)、`setUpdateAvailable` / `setLatestVersion` / `setReleaseNotes` (第 157-159 行)、响应式读 `latestVersion` / `releaseNotes` / `qualityUpdateAvailable` (第 161-163 行)、`addToast` (第 164 行)、`doLogin` (第 165 行)、`refreshQuality` (第 166 行)。
+- **五个业务 hook 解构**（面板 props 的唯一来源）：`useAuth` (第 168 行)、`useMonitor` (第 169 行)、`useNetwork` (第 170 行)、`useAccount` (第 171 行)、`useSettings` (第 172 行)。
+- **日志区 `useShallow` 订阅** `logs` / `toasts` / `removeToast` / `setLogs` (第 174-181 行)。
+- **面板切换锁与本地弹层状态**：`panelChangeLock` (第 183 行)、`aboutOpen` (第 189 行)、`themeOpen` (第 190 行)、`confirmDelete` (第 191 行)、`onboardingOpen` (第 192 行)、`sponsorOpen` (第 193 行)、`isMaximized` (第 194 行)。
+- **动画与启动**：`useAnimationProfile()` (第 196 行)；`panelVariants = createPanelAppleVariants(profile.easing)` (第 197 行)；`useStartupBoost` 的 `setRef` / `runStartupSequence` (第 198 行)。
+- **副作用**：双 rAF 启动序列 + 并行预热懒加载 chunk (第 199-209 行)；窗口 resize/maximized 监听（cleanup 里顺带 `cleanupToasts()`）(第 211-235 行)；系统通知点击开关于框 (第 238-241 行)；首次引导自动弹出 (第 243-249 行)；赞助浮层自动弹出（7 天频控 + 窗口可见性等待 + 弹出即写时间戳）(第 255-277 行)。
+- **回调**：`handleToggleMaximize` (第 279-287 行)、`handleClearLogs` (第 316-318 行)、`handlePanelChange`（60ms 重入锁 + 持久化 `campus-active-panel`）(第 320-329 行)。
+- **标题文案**：`panelInfo = PANEL_TITLES[deferredPanel] || PANEL_TITLES.dashboard` (第 331 行)。
 
 **面板路由完整分支（`switch (deferredPanel)`）**
 
@@ -66,16 +66,16 @@ tags: [前端, 面板, react]
 
 ### 渲染根：main.tsx (`tauri-app/frontend/src/main.tsx`)
 
-- **gsap 全局默认**（仅 `ease` 与 ticker，不设全局 `force3D`）(第 16-17 行)；`prefers-reduced-motion` 下把 `duration` 归零并关掉 lagSmoothing (第 20-22 行)。
-- **`initTheme`** (第 26-39 行)：读 `campus-light-mode` 决定 `dark` class / `data-light`，读 `campus-theme` 并在 `VALID_THEMES` 内且非 `default` 时加 `theme-${theme}`；模块加载即调用 (第 41 行)。
-- **`setupCrashRecovery`** (第 44-106 行)：
-  - 重载计数与上限：`crashCount` / `MAX_CRASH_RELOADS = 3` (第 46-47 行)，`tryRecover` 延迟 1s 重载 (第 50-54 行)。
-  - 可见时 `#root` 无子节点视为渲染异常 (第 58-63 行)。
-  - `error` 事件里匹配 `GPU` / `WebGL` / `SharedArrayBuffer` 触发恢复 (第 66-71 行)。
-  - 心跳：1s 间隔刷新 `lastHeartbeatTime`，但 `!isRenderLoopAlive()`（rAF 停滞 >10s）时跳过心跳更新 (第 74-83 行)；2s 间隔检查 `elapsed > 10000` 触发恢复（阈值由 `FE-A-11` 从 5s 放宽）(第 86-93 行)。
-  - 可见性切换时暂停/恢复 `gsap.globalTimeline` (第 73-79 行)。
-  - 模块加载即调用 (第 96 行)。
-- **根渲染** (第 100-109 行)：DEV 包 `React.StrictMode`、生产用 `React.Fragment`；`ReactDOM.createRoot` → `ErrorBoundary` → `LazyMotion features={domMax} strict` → `MotionConfig reducedMotion="user"` → `App`。
+- **gsap 全局默认**（仅 `ease` 与 ticker，不设全局 `force3D`）(第 17-19 行)；`prefers-reduced-motion` 下把 `duration` 归零并关掉 lagSmoothing (第 21-25 行)。
+- **`initTheme`** (第 27-44 行)：读 `campus-light-mode` 决定 `dark` class / `data-light`，读 `campus-theme` 并在 `VALID_THEMES` 内且非 `default` 时加 `theme-${theme}`；模块加载即调用 (第 46 行)。
+- **`setupCrashRecovery`** (第 48-114 行)：
+  - 重载计数与上限：`crashCount` / `MAX_CRASH_RELOADS = 3` (第 49-50 行)，`tryRecover` 延迟 1s 重载 (第 52-60 行)。
+  - 可见时 `#root` 无子节点视为渲染异常 (第 62-69 行)。
+  - `error` 事件里匹配 `GPU` / `WebGL` / `SharedArrayBuffer` 触发恢复 (第 71-77 行)。
+  - 心跳：1s 间隔刷新 `lastHeartbeatTime`，但 `!isRenderLoopAlive()`（rAF 停滞 >10s）时跳过心跳更新 (第 93-103 行)；2s 间隔检查 `elapsed > 10000` 触发恢复（阈值由 `FE-A-11` 从 5s 放宽）(第 105-113 行)。
+  - 可见性切换时暂停/恢复 `gsap.globalTimeline` (第 82-91 行)。
+  - 模块加载即调用 (第 116 行)。
+- **根渲染** (第 118-132 行)：DEV 包 `React.StrictMode`、生产用 `React.Fragment`；`ReactDOM.createRoot` → `ErrorBoundary` → `LazyMotion features={domMax} strict` → `MotionConfig reducedMotion="user"` → `App`。
 
 ### auth 域
 
@@ -88,7 +88,7 @@ tags: [前端, 面板, react]
 - **行为**：`hasCachedResult` (第 89 行)；`handleCheckUpdate` (第 91-106 行，403/404 分特殊文案)；切赞助页 (第 108-110 行)；缓存注入（补 `lastCheckError: null` / `lastCheckTime: null`）(第 112-122 行)；单次自动检查 (第 124-128 行)；卸载清理监听 (第 130-134 行)；`handleDownload` (第 136-153 行，注册 `onDownloadProgress` 再下载、finally 里注销)；`ensureFullUpdateInfo` (第 155-166 行，通知缓存路径缺 `sha256Checksum` 时重查)；`handleInstall` (第 168-177 行，失败显式写入 `installError`)；`openGithub` (第 179-181 行)；`windowsAsset` (第 183-186 行，只认 `.exe` / `.msi`)；releaseNotes 逐行渲染 `renderNotesLines` (第 188-214 行，前缀判断从长到短)；兜底资产 URL `defaultAssetUrl` (第 217-219 行)；一键下载 `handleQuickDownload` (第 221-243 行，自动选非 GitHub 镜像，失败回退官方源)。
 - **视图**：左栏含图标/版本/更新泡泡、`MascotFigure`、更新渠道二选一（写 `config.updateSource`）、检查按钮四态文案（检查失败态读 `updateInfo.lastCheckError || checkError`）、赞助与仓库链接；右栏含赞助内嵌页、idle 无更新态（含 `lastCheckError` 失败原因展示与重试按钮；其余情况为已最新态）、idle 有更新态（含通知全文渲染与镜像切换浮层）、`selecting`、`downloading`、`done`、`error`、返回按钮。
 
-**useAuth.ts (`tauri-app/frontend/src/auth/useAuth.ts`)**：`useAuth` (第 8 行)，`useShallow` 合并 `useAuthStore` 与 `useConfigStore` (第 9-16 行)，`configPortalUrl` (第 18 行)，`handleOpenPortal` (第 20-24 行，缺省 `http://10.1.99.100`)，`handleOpenSelfService` (第 26-28 行，固定 `http://10.1.80.200:8080/Self/login/?302=LI`)。
+**useAuth.ts (`tauri-app/frontend/src/auth/useAuth.ts`)**：`useAuth` (第 7 行)，`useShallow` 合并 `useAuthStore` 与 `useConfigStore` (第 8-16 行)，`configPortalUrl` (第 18 行)，`handleOpenPortal` (第 20-23 行，缺省 `http://10.1.99.100`)，`handleOpenSelfService` (第 25-27 行，固定 `http://10.1.80.200:8080/Self/login/?302=LI`)。
 
 **types.ts (`tauri-app/frontend/src/auth/types.ts`)**：`PortalStatusResult` (第 1-6 行)、`CommandResult` (第 8-12 行)、`LoginResult extends CommandResult` (第 14-15 行)。
 
@@ -112,9 +112,9 @@ tags: [前端, 面板, react]
 
 **DeviceAliasDialog.tsx (`tauri-app/frontend/src/account/DeviceAliasDialog.tsx`)**
 
-- **props 接口** `DeviceAliasDialogProps` (第 16-23 行)：`open`、`mac`（原始 12 位 hex MAC）、`initialName`、`onSave`、`onCancel`。
-- **状态**：`name` (第 28 行)、`saving` (第 29 行)。
-- **行为**：打开时同步草稿；关闭时复位；提交防双击 (第 31-43 行)。
+- **props 接口** `DeviceAliasDialogProps` (第 15-23 行)：`open`、`mac`（原始 12 位 hex MAC）、`initialName`、`onSave`、`onCancel`。
+- **状态**：`name` (第 27 行)、`saving` (第 28 行)。
+- **行为**：打开时同步草稿；关闭时复位；提交防双击 (第 30-46 行)。
 
 **测试**：`AccountPanel.helloGate.test.tsx` (`tauri-app/frontend/src/account/AccountPanel.helloGate.test.tsx`) 3 个用例——首次查询即验证、通过后共用、查询通过后查看明文不再二次验证、验证失败不执行且下次仍需验证。
 
@@ -224,13 +224,13 @@ tags: [前端, 面板, react]
 
 ### 路由与外壳
 
-1. **关闭质量检测后 quality 面板渲染 `null`**：`App.tsx` (第 172 行) 在 `configEnableNetworkQuality === false` 时返回 `null`，若当前正停留在 `quality` 主区域空白。当前靠 `SettingsPanel.tsx` 联动切走（`setActivePanel('dashboard')`）兜底，但任何其他路径（如外部改配置、`config-changed` 回流）关闭该开关时仍会空白。
+1. **关闭质量检测后 quality 面板渲染 `null`**：`App.tsx` (第 384 行) 在 `configEnableNetworkQuality === false` 时返回 `null`，若当前正停留在 `quality` 主区域空白。当前靠 `SettingsPanel.tsx` 联动切走（`setActivePanel('dashboard')`）兜底，但任何其他路径（如外部改配置、`config-changed` 回流）关闭该开关时仍会空白。
 2. **`deferredPanel` 与 `activePanel` 的瞬时分歧**：主区内容与标题用 `deferredPanel`，而 `DockNav` 高亮用 `activePanel`——并发渲染延迟期间会出现「Dock 已切换、内容还是旧面板」，属预期取舍但应在排查视觉问题时先想到。
-3. **切换锁时长与动画时长硬耦合**：`App.tsx` (第 278 行) 的 60ms 锁硬编码，注释明确它只覆盖 `mode="wait"` 的退出动画 0.04s；任一侧改动都会静默失配（锁过短→快速点击穿插旧内容，过长→吞点击）。
+3. **切换锁时长与动画时长硬耦合**：`App.tsx` (第 328 行) 的 60ms 锁硬编码，注释明确它只覆盖 `mode="wait"` 的退出动画 0.04s；任一侧改动都会静默失配（锁过短→快速点击穿插旧内容，过长→吞点击）。
 4. **渲染期取 store 快照的非响应式写法（已解决）**：原 `App.tsx` 用 `useConfigStore.getState().api` 在 render 中取值——`api` 恒定故无实际缺陷，但同文件注释记录了「此前在 JSX props 里 `getState()` 取快照，非响应式」这一历史问题，本行是同类写法残留；2026-10-03 重构删除 `useConfigStore.api` 字段后，`App.tsx` 改静态导入 `tauriApiWithRetry`，该残留随之消失。
 5. **`LogPanel` 已回归静态导入但注释保留旧结论**：`App.tsx` 的注释说明 `LogPanel` 从 `lazy` 回归静态导入的原因（`React.lazy` + `Suspense` 让切换从 ~65ms 恶化到 ~366ms），而 `App.tsx` 仍是静态导入、注释称「仅低频的 LogPanel/对话框保留懒加载」——注释与实现不一致。
-6. **生产环境不启用 `StrictMode`**：`main.tsx` (第 101 行) 仅 DEV 包 `StrictMode`。因此面板里大量「StrictMode setup→cleanup→setup 恢复 mountedRef」的防御在生产不受考验，但也意味着这些 double-invoke 类问题只在 DEV 暴露。
-7. **崩溃自恢复只处理三类特征**：`main.tsx` (第 68 行) 只匹配 `GPU` / `WebGL` / `SharedArrayBuffer`；其他渲染进程错误不触发重载，只靠心跳。心跳阈值 10s 在长任务阻塞场景下是刻意放宽的权衡。
+6. **生产环境不启用 `StrictMode`**：`main.tsx` (第 118-120 行) 仅 DEV 包 `StrictMode`。因此面板里大量「StrictMode setup→cleanup→setup 恢复 mountedRef」的防御在生产不受考验，但也意味着这些 double-invoke 类问题只在 DEV 暴露。
+7. **崩溃自恢复只处理三类特征**：`main.tsx` (第 73 行) 只匹配 `GPU` / `WebGL` / `SharedArrayBuffer`；其他渲染进程错误不触发重载，只靠心跳。心跳阈值 10s 在长任务阻塞场景下是刻意放宽的权衡。
 
 ### auth 域
 

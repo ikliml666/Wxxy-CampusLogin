@@ -21,37 +21,37 @@ tags: [决策, 质量检测, 默认值, 安卓, 双端同语义]
 
 ### 后端配置结构 (`android/src-tauri/src/config_state.rs`)
 
-**`Settings` Struct (Line 48-156)**
+**`Settings` Struct (Line 28-128)**
 定义全量配置结构，关键字段如下：
-- `enable_network_quality: bool` (Line 107): 网络质量检测总开关。
-- `enable_latency_test: bool` (Line 105): 定时质量测试开关（默认 false）。
-- `skip_ttfb_in_latency: bool` (Line 108): 延迟测试中跳过 TTFB（默认 true）。
-- `skip_content_in_latency: bool` (Line 109): 延迟测试中跳过内容加载（默认 true）。
-- `config_schema_version: u32` (Line 155): 配置结构版本，当前值为 7。用于触发一次性迁移。
+- `enable_network_quality: bool` (Line 99): 网络质量检测总开关。
+- `enable_latency_test: bool` (Line 97): 定时质量测试开关（默认 false）。
+- `skip_ttfb_in_latency: bool` (Line 100): 延迟测试中跳过 TTFB（默认 true）。
+- `skip_content_in_latency: bool` (Line 101): 延迟测试中跳过内容加载（默认 true）。
+- `config_schema_version: u32` (Line 127): 配置结构版本，当前值为 7。用于触发一次性迁移。
 
-**`Default` Impl (Line 158-220)**
-- `enable_network_quality`: 默认值设为 `false` (Line 199)。注释说明 2026-09-12 起默认关闭。
-- `enable_latency_test`: 默认值设为 `false` (Line 197)。
-- `skip_ttfb_in_latency`: 默认值设为 `true` (Line 200)。
-- `skip_content_in_latency`: 默认值设为 `true` (Line 201)。
+**`Default` Impl (Line 130-200)**
+- `enable_network_quality`: 默认值设为 `false` (Line 174)。注释说明 2026-09-12 起默认关闭。
+- `enable_latency_test`: 默认值设为 `false` (Line 168)。
+- `skip_ttfb_in_latency`: 默认值设为 `true` (Line 175)。
+- `skip_content_in_latency`: 默认值设为 `true` (Line 176)。
 
-**`migrate_legacy_defaults` Function (Line 284-343)**
+**`migrate_legacy_defaults` Function (Line 342-404)**
 执行旧配置向新默认值的迁移。
-- **v2→v3 迁移 (Line 298-299)**: 如果 `config_schema_version < 3`，将 `enable_network_quality` 强制刷为 `false`。这是本决策的核心迁移逻辑。
+- **v2→v3 迁移 (Line 354-357)**: 如果 `config_schema_version < 3`，将 `enable_network_quality` 强制刷为 `false`。这是本决策的核心迁移逻辑。
 
-**`masked_for_display` Function (Line 374-381)**
+**`masked_for_display` Function (Line 411-417)**
 返回掩码后的配置 JSON，确保敏感信息不出站。
 
 ### 前端常量定义 (`android/frontend/src/settings/constants.ts`)
 
-**`DEFAULT_CONFIG` Object (Line 4-56)**
-- `enableNetworkQuality: true` (Line 33): **注意**：此处前端默认值仍为 `true`。
+**`DEFAULT_CONFIG` Object (Line 5-58)**
+- `enableNetworkQuality: true` (Line 38): **注意**：此处前端默认值仍为 `true`。
   *分析*：前端 `constants.ts` 中的 `DEFAULT_CONFIG` 主要用于初始化 Store 或提供 UI 初始态参考。实际生效的配置来自后端 IPC 加载。后端加载时会经过 `load_from` -> `migrate_legacy_defaults`，最终 `enableNetworkQuality` 会根据后端迁移结果更新到前端 Store。前端组件逻辑需兼容后端下发的真实值。
 
 ### 桌面端应用入口 (`tauri-app/frontend/src/App.tsx`)
 
-**`AppInner` Component (Line 152-430)**
-- **Quality Panel 渲染门控 (Line 318-324)**:
+**`AppInner` Component (Line 114-576)**
+- **Quality Panel 渲染门控 (Line 383-391)**:
   ```tsx
   case 'quality':
     panelContent = configEnableNetworkQuality !== false ? (
@@ -61,7 +61,7 @@ tags: [决策, 质量检测, 默认值, 安卓, 双端同语义]
   ```
   当 `configEnableNetworkQuality` 为 `false` 时，不渲染 `QualityPanel`，返回 `null`。这导致桌面端侧边栏/菜单中“网络质量”选项可能不可见或点击无内容，具体取决于导航组件的实现（通常配合过滤逻辑）。
 
-- **Config 订阅 (Line 186)**:
+- **Config 订阅 (Line 143)**:
   ```tsx
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   ```
@@ -129,7 +129,7 @@ tags: [决策, 质量检测, 默认值, 安卓, 双端同语义]
 │  config_state.rs                                            │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │ Settings::default()                                   │  │
-│  │ enable_network_quality = false (Line 199)             │  │
+│  │ enable_network_quality = false (Line 174)             │  │
 │  │ config_schema_version = 7                             │  │
 │  └───────────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────────┐  │
@@ -149,7 +149,7 @@ tags: [决策, 质量检测, 默认值, 安卓, 双端同语义]
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │ Desktop App.tsx                                       │  │
-│  │ Quality Panel: 条件渲染 (Line 318)                    │  │
+│  │ Quality Panel: 条件渲染 (Line 383)                    │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │

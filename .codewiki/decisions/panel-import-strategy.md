@@ -13,31 +13,31 @@ tags: [决策, 前端, 代码分割, 首屏, 性能优化]
 ## Key Components
 
 ### 常量与配置
-- **`PANEL_TITLES`** (L92-L103): 定义所有面板的国际化标题键 (`titleKey`) 和描述键 (`descKey`)。包含 `dashboard`, `account`, `selfservice`, `network`, `monitor`, `quality`, `speedtest`, `settings`, `log`。
-- **`SPONSOR_SHOW_DELAY_MS`** (L106): 赞助弹窗启动后弹出延迟，固定为 `1_000` ms。
-- **`SPONSOR_SHOW_INTERVAL_MS`** (L107): 赞助弹窗自动弹出的频控间隔，固定为 `7 * 24 * 60 * 60 * 1000` ms (7天)。
-- **`PANEL_CONTAINER_STYLE`** (L110-L111): 面板容器 CSS 样式对象。关键属性：`contain: 'layout style'`（防止 paint 溢出裁剪编辑模式按钮），`willChange: 'transform'`，`transform: 'translateZ(0)'`（强制 GPU 加速）。
-- **`SIDE_MASCOT_POOL`** (L114-L118): 看板娘图片池，包含 15 个字符串常量（如 `'side-wave'`, `'side-laptop'` 等）。
-- **`PanelSkeleton`** (L121-L132): 懒加载期间的骨架屏组件，使用 `animate-pulse` 动画。
+- **`PANEL_TITLES`** (64|74): 定义所有面板的国际化标题键 (`titleKey`) 和描述键 (`descKey`)。包含 `dashboard`, `account`, `selfservice`, `network`, `monitor`, `quality`, `speedtest`, `settings`, `log`。
+- **`SPONSOR_SHOW_DELAY_MS`** (77): 赞助弹窗启动后弹出延迟，固定为 `1_000` ms。
+- **`SPONSOR_SHOW_INTERVAL_MS`** (78): 赞助弹窗自动弹出的频控间隔，固定为 `7 * 24 * 60 * 60 * 1000` ms (7天)。
+- **`PANEL_CONTAINER_STYLE`** (82): 面板容器 CSS 样式对象。关键属性：`contain: 'layout style'`（防止 paint 溢出裁剪编辑模式按钮），`willChange: 'transform'`，`transform: 'translateZ(0)'`（强制 GPU 加速）。
+- **`SIDE_MASCOT_POOL`** (85|89): 看板娘图片池，包含 14 个字符串常量（如 `'side-wave'`, `'side-laptop'` 等）。
+- **`PanelSkeleton`** (102|112): 懒加载期间的骨架屏组件，使用 `animate-pulse` 动画。
 
 ### 核心 Hooks 与工具函数
-- **`pickDailySideMascots(dayKey: string)`** (L120-L130): 根据日期字符串生成当日固定的左右两侧看板娘组合。算法基于 `(Math.floor(Date.parse(dayKey) / 86_400_000) % CYCLE)` 轮转，确保连续 182 天不重样。
-- **`preloadPanels()`** (L135-L139): 启动时并行预加载所有懒加载对话框 chunk 的工具函数。调用 `Promise.allSettled` 确保即使某个 loader 失败也不阻塞其他。
+- **`pickDailySideMascots(dayKey: string)`** (91|99): 根据日期字符串生成当日固定的左右两侧看板娘组合。算法基于 `(Math.floor(Date.parse(dayKey) / 86_400_000) % CYCLE)` 轮转，确保连续 182 天不重样。
+- **`preloadPanels()`** (59|62): 启动时并行预加载所有懒加载对话框 chunk 的工具函数。调用 `Promise.allSettled` 确保即使某个 loader 失败也不阻塞其他。
 
 ### AppInner 组件内部状态与方法
-- **`activePanel`** (L143): 从 `useAdapterStore` 订阅当前激活的面板名称。
-- **`deferredPanel`** (L146): 通过 `useDeferredValue(activePanel)` 包装，实现低优先级渲染，避免快速连续切换时的挂载阻塞。
-- **`configUser/EnableNetworkQuality/AutoLaunch/EnableNotification`** (L158-L161): 粒度订阅 `useConfigStore` 中的四个特定字段，避免全局 config 变化（如文本输入）触发 App 外壳重渲染。
-- **`handlePanelChange(p: PanelName)`** (L248-L258): 面板切换处理函数。使用 `panelChangeLock` ref 和 60ms 定时器防止动画冲突，更新 `safeStorage` 记录偏好。
-- **`handleCloseWindow()`** (L223-L240): 关窗处理。调用 `flushPendingConfig()` 保存配置（最多等待 2s），然后调用 `api.closeWindow()`。**注意**：前端不再注册 `onCloseRequested`，销毁权回归 Rust。
-- **`handleToggleMaximize()`** (L210-L220): 窗口最大化切换，带错误捕获。
-- **`dailySideMascots`** (L134): 看板娘组合状态，每分钟比对日期跨天切换。
+- **`activePanel`** (130): 从 `useAdapterStore` 订阅当前激活的面板名称。
+- **`deferredPanel`** (133): 通过 `useDeferredValue(activePanel)` 包装，实现低优先级渲染，避免快速连续切换时的挂载阻塞。
+- **`configUser/EnableNetworkQuality/AutoLaunch/EnableNotification`** (142|147): 粒度订阅 `useConfigStore` 中的四个特定字段，避免全局 config 变化（如文本输入）触发 App 外壳重渲染。
+- **`handlePanelChange(p: PanelName)`** (320|329): 面板切换处理函数。使用 `panelChangeLock` ref 和 60ms 定时器防止动画冲突，更新 `safeStorage` 记录偏好。
+- **`handleCloseWindow()`** (295|314): 关窗处理。调用 `flushPendingConfig()` 保存配置（最多等待 2s），然后调用 `api.closeWindow()`。**注意**：前端不再注册 `onCloseRequested`，销毁权回归 Rust。
+- **`handleToggleMaximize()`** (279|287): 窗口最大化切换，带错误捕获。
+- **`dailySideMascots`** (118): 看板娘组合状态，每分钟比对日期跨天切换。
 
 ### 懒加载模块
-- **`loadAboutDialog`** (L76): 加载 `@/auth/AboutDialog`。
-- **`loadThemeDialog`** (L77): 加载 `@/settings/ThemeDialog`。
-- **`loadOnboardingWizard`** (L78): 加载 `@/settings/OnboardingWizard`。
-- **`AboutDialog`**, **`ThemeDialog`**, **`OnboardingWizard`** (L80-L82): 上述 loader 的 `lazy` 实例。
+- **`loadAboutDialog`** (50): 加载 `@/auth/AboutDialog`。
+- **`loadThemeDialog`** (51): 加载 `@/settings/ThemeDialog`。
+- **`loadOnboardingWizard`** (52): 加载 `@/settings/OnboardingWizard`。
+- **`AboutDialog`**, **`ThemeDialog`**, **`OnboardingWizard`** (54|56): 上述 loader 的 `lazy` 实例。
 
 ### 静态导入面板
 以下面板在 L30-L37 直接静态导入，**不使用** `React.lazy`：
@@ -59,7 +59,7 @@ tags: [决策, 前端, 代码分割, 首屏, 性能优化]
 │  │                      AppInner                           │ │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │ │
 │  │  │ TitleBar    │  │ StatusBar    │  │ RightPanel     │ │ │
-│  │  │ (L275-285)  │  │ (L288-291)   │  │ (Logs/Toasts)  │ │ │
+│  │  │ (L25|428)   │  │ (L26|443)    │  │ (Logs/Toasts)  │ │ │
 │  │  └──────┬──────┘  └──────┬───────┘  └────────┬───────┘ │ │
 │  │         │                │                    │         │ │
 │  │  ┌──────▼────────────────▼────────────────────▼───────┐ │ │
@@ -82,7 +82,7 @@ tags: [决策, 前端, 代码分割, 首屏, 性能优化]
 │  │                                                         │ │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │ │
 │  │  │ DockNav     │  │ SponsorCard  │  │ Mascot Images  │ │ │
-│  │  │ (L312-314)  │  │ (L316-317)   │  │ (L298-309)     │ │ │
+│  │  │ (L27|517)   │  │ (L23|524)    │  │ (L500|515)     │ │ │
 │  │  └─────────────┘  └──────────────┘  └────────────────┘ │ │
 │  │                                                         │ │
 │  │  ┌──────────────────────────────────────────────────┐  │ │
@@ -113,6 +113,6 @@ tags: [决策, 前端, 代码分割, 首屏, 性能优化]
 
 ## Known Issues
 
-*   **注释不一致**: `App.tsx:35` 注释称"仅低频的 LogPanel/对话框保留懒加载"，但实际实现中 `LogPanel` (L37) 已回归静态导入。注释未同步更新。
+*   **注释不一致**: `App.tsx:30` 注释称"仅低频的 LogPanel/对话框保留懒加载"，但实际实现中 `LogPanel` (L21) 已回归静态导入。注释未同步更新。
 *   **赞助弹窗频控**: 赞助弹窗自动弹出依赖 `localStorage` (`sponsor-last-shown`)，若用户清除浏览器数据或更换环境，会重新触发。手动入口不受频控影响。
 *   **关窗超时**: `handleCloseWindow` 中 `flushPendingConfig` 最多等待 2s，若保存耗时超过此时长，窗口将强制关闭，可能导致配置丢失。

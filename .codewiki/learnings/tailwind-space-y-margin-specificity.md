@@ -73,7 +73,7 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
     - **Hyalite Integration**: 第 378-379 行。使用 `var(--hyalite, blur(...) saturate(...))` 语法。如果浏览器支持 Hyalite（Chromium/WebView2），则使用 SVG 背板滤镜实现高质量折射；否则回退到标准 `backdrop-filter`。
     - **Edge Highlights**: 第 448-525 行。使用 `::before` 和 `::after` 伪元素，结合 `mask` 和线性渐变模拟内缘光（shine）和外缘暗线（rim）。
     - **Corner Radius Trap**: 第 435-461 行。`--edge-fade-x` 渐变中的 `var(--glass-r)` 必须在 `.glass-dock` 和 `.glass-nav` 上分别定义（18px vs 34px），不能放在 `:root`，否则药丸形导航栏的圆角采样会错位。
-    - **Startup Black Screen Fix**: 第 417-420 行。`.glass-dock:not(.glass-live)` 将 `--glass-tint` 设为 100%，解决启动期因祖先层变换导致的 `backdrop-filter` 采样失败问题。
+    - **Startup Black Screen Fix**: 第 417-420 行。`.glass-dock:not(.glass-live)` 强制实底，避免 `backdrop-filter` 采样失败导致的黑屏。
 - **`.btn-physical` / `.btn-press` / `.soft-btn`**: 提供多种按钮交互反馈（缩放、阴影变化、径向渐变高亮）。
 - **`.animated-card-interactive`**: 卡片悬停效果，包含边框颜色和位移过渡。
 - **`.log-entry-hover`**: 日志条目悬停时向右平移 6px，并显示左侧指示条。
