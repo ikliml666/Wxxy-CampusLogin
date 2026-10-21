@@ -18,11 +18,11 @@ tags: [教训, 前端, css, 选择器]
 
 ### `android/frontend/src/index.css`
 
-- **第 1092-1101 行 (注释)**:
+- **第 1047-1058 行 (注释)**:
   - 内容：详细记录了 `.animate-spin` 不参与 idle 冻结的原因，以及历史修复逗号选择器陷阱的记录。强调了“每个选择器独立成规则，禁止再往逗号列表后插入新选择器”的原则。
   - 背景：`.animate-spin` 是标准 loading 指示，用户 2 秒无输入后冻结 spinner 会被误读为"程序卡死"。2026-09-13 修复：`.anim-idle .animate-pulse` 曾与 `.scrollbar-none` 并进同一条规则（逗号后插入了新选择器），animation-play-state 只落在 signal-glow-active 上，animate-pulse 的 idle 冻结整条失效——后台监控运行时的雷达脉冲（MonitorPanel）与骨架脉冲在用户 2s 无输入后仍持续驱动合成器。
 
-- **第 1099-1101 行**: Idle 冻结机制 (`animate-pulse`)
+- **第 1047-1049 行**: Idle 冻结机制 (`animate-pulse`)
   - 用途：在用户空闲（idle）状态下暂停脉冲动画。
   - 状态：**已修复**。此前因逗号选择器列表污染导致 `animation-play-state` 失效。现改为每个选择器独立成规则。
   - 代码片段：
@@ -32,7 +32,7 @@ tags: [教训, 前端, css, 选择器]
     }
     ```
 
-- **第 1104-1105 行**: 滚动条隐藏
+- **第 1052-1053 行**: 滚动条隐藏
   - 用途：移动端隐藏滚动条：Chromium WebView 对 overflow 容器默认外露灰条，原生 app 惯例不显示。
   - 状态：**保持独立**。作为独立的工具类存在，不与动画控制混合。
   - 代码片段：
@@ -41,7 +41,7 @@ tags: [教训, 前端, css, 选择器]
     .scrollbar-none::-webkit-scrollbar { display: none; }
     ```
 
-- **第 1107-1109 行**: Idle 冻结机制 (`signal-glow-active`)
+- **第 1055-1057 行**: Idle 冻结机制 (`signal-glow-active`)
   - 用途：在用户空闲状态下暂停信号光效动画。
   - 状态：**已修复/独立**。确保互不干扰。
   - 代码片段：

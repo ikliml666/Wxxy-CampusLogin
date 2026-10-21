@@ -1,3 +1,5 @@
+以下是基于当前源码重写的文章。
+
 ---
 title: 安卓省电三刀定调（真机归因驱动）
 type: decision
@@ -18,7 +20,7 @@ tags: [决策, 安卓, 省电, 帧率, 后台巡检]
 
 2026-09-13：安卓省电三刀——
 
-1. **帧控改造**：帧控轮询 `rAF` 改 `setInterval(250ms)`（`useAdaptiveFramePace.ts` 的 `PACE_POLL_MS`，第 18 行定义，第 64 行落地 setInterval，活跃窗 2s 第 16 行）；`renderLiveness` 改按需短探测（双端逐行相同：2 帧 rAF 探针 + 500ms 兜底复位，`renderLiveness.ts` 第 24-34 行；4s 刷新第 18 行、10s 失活阈值第 21 行，`isRenderLoopAlive` 第 36-40 行）；修复 `.anim-idle .animate-pulse` 冻结失效（`index.css` 第 1099-1101 行，曾与 `.scrollbar-none` 并进同一逗号规则，现已每个选择器独立成规则）。修复后真机实测静置 10s **0 帧、全线程 <1%**。
+1. **帧控改造**：帧控轮询 `rAF` 改 `setInterval(250ms)`（`useAdaptiveFramePace.ts` 的 `PACE_POLL_MS`，第 18 行定义，第 64 行落地 setInterval，活跃窗 2s 第 16 行）；`renderLiveness` 改按需短探测（双端逐行相同：2 帧 rAF 探针 + 500ms 兜底复位，`renderLiveness.ts` 第 24-34 行；4s 刷新第 18 行、10s 失活阈值第 21 行，`isRenderLoopAlive` 第 36-40 行）；修复 `.anim-idle .animate-pulse` 冻结失效（`index.css` 第 1047-1049 行，曾与 `.scrollbar-none` 并进同一逗号规则，现已每个选择器独立成规则）。修复后真机实测静置 10s **0 帧、全线程 <1%**。
 2. **后台巡检分档**：`effective_interval_ms` 纯函数（`monitor_loop.rs` 第 83-90 行：亮屏 + WiFi = 基础档 60s，灭屏或蜂窝 = idle 档 300s，基础档下限 5000ms）——唤醒周期恒为基础档（timer 恒按基础档建），是否真跑整轮探针由 idle 档判定跳拍（`monitor_loop.rs` 第 602-611 行，保证亮屏/回 WiFi 后最迟一拍恢复）；分档语义有内嵌单测覆盖（`monitor_loop.rs` 第 1562-1582 行，含下限 5s 用例）。
 3. **锁改探针窗口**：`WifiLock`/`WakeLock` 改按需持有——Rust 侧 `begin_probe_window()`/`end_probe_window()`（`plugins/foreground-service/src/lib.rs` 插件命令面转发 Kotlin）+ `ProbeWindowGuard` RAII（`monitor_loop.rs` 第 554-562 行，Drop 自动 `end_probe_window`；`run_check_once` 每轮第 1302-1306 行开窗）；Kotlin 侧 `beginProbeWindow`/`endProbeWindow`（`ForegroundService.kt` 第 62,65 行）→ `acquireProbeLocks`/`releaseProbeLocks`（第 179,204 行，`PROBE_WINDOW_TIMEOUT_MS=30_000L` 第 52 行超时兜底防泄漏），nudge 按关注字段位掩码翻转去重（bit0=TRANSPORT_WIFI、bit1=TRANSPORT_CELLULAR、bit2=NET_CAPABILITY_VALIDATED，第 257-263 行）+ 5s 节流（`NUDGE_THROTTLE_MS=5000L` 第 46 行）——**常驻锁清零**（依据：vitals 2h/24h 异常线 + CDD [C-3-1] WiFi 省电条款）。
 

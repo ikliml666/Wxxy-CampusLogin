@@ -38,7 +38,6 @@
 - [[decisions/android-keepalive-fgs-architecture|安卓后台监控循环架构：FGS 保活 + Rust tokio 巡检 + 夜间切换]]
 - [[decisions/android-notification-channel-v2-migration|安卓常驻通知通道 v2：IMPORTANCE_DEFAULT + 版本化换 ID 迁移]]
 - [[decisions/android-generated-project-discipline|安卓生成工程纪律（gen/android 入库、identifier 破坏性、签名不可更换）]]
-- [[decisions/android-power-three-fixes|安卓省电三刀定调（真机归因驱动）]]
 - [[decisions/android-notification-permission-prompt|安卓通知权限主动索取链路（13+ 弹框 / 13- 与国产 ROM 跳设置页）]]
 - [[decisions/config-schedule-pure-function|定时动作判定收敛为跨平台纯函数单点共享]]
 - [[decisions/scheduled-actions-outside-silent-window|定时动作判定置于静默期与巡检分档之外]]

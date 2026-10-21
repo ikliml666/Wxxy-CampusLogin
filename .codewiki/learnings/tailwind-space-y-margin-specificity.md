@@ -13,23 +13,22 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
 本文重点记录在该文件中遇到的关键设计陷阱与实现细节：
 1. **Glassmorphism 的跨引擎降级与 Hyalite 增强**：玻璃效果不再仅依赖简单的 `backdrop-filter`，而是引入了 `@property` 注册自定义属性以实现平滑过渡，并利用 `Hyalite` 特性在支持 SVG 背板滤镜的引擎上提供高质量折射，同时在其他引擎上优雅降级。
 2. **CSS 自定义属性的作用域陷阱**：在伪元素中使用基于父元素圆角半径的动态计算时，必须将变量定义在与伪元素同级的选择器上，而非 `:root`，否则会导致圆角采样错位。
-3. **全局滚动条与溢出隐藏冲突**：`html` 和 `body` 设置了 `overflow: hidden`，但内容区域需要滚动。若未正确设置内部容器的滚动属性，会导致页面看似被截断且不可滚动。
+3. **启动期玻璃栏黑屏问题**：悬浮栏在渲染初期因祖先层变换导致 `backdrop-filter` 采样失败，需通过实底过渡解决。
+4. **全局滚动条与溢出隐藏冲突**：`html` 和 `body` 设置了 `overflow: hidden`，但内容区域需要滚动。若未正确设置内部容器的滚动属性，会导致页面看似被截断且不可滚动。
 
 ## Key Components
 
 ### @property Custom Properties (Smooth Transitions)
-- **定义位置**: `index.css` 第 8-35 行
+- **定义位置**: `index.css` 第 8-22 行
 - **用途**: 注册 CSS 自定义属性，使原本离散变化的值（如颜色混合百分比、长度、数字）能够进行平滑过渡动画。
 - **关键变量**:
-    - `--glass-glow-alpha` (第 8-12 行): 按压光斑的透明度，`inherits: false`，确保光斑只属于被按下的元素。
-    - `--glass-glow-reach` (第 13-17 行): 光斑半径，初始值 39px。
-    - `--glass-tint` (第 21-25 行): 玻璃基色透明度，影响折射可见度。
-    - `--glass-shine` (第 26-30 行): 内缘光泽强度。
-    - `--glass-rim` (第 31-35 行): 外缘暗线强度。
+    - `--glass-tint` (第 8-12 行): 玻璃基色透明度，语法为 `<percentage>`，初始值 54%。这是「有没有透明效果」的分水岭。
+    - `--glass-shine` (第 13-17 行): 内缘光泽强度，语法为 `<number>`，初始值 0.42。
+    - `--glass-rim` (第 18-22 行): 外缘暗线强度，语法为 `<number>`，初始值 0.35。
 - **注意**: 这些变量必须在 `@property` 中声明语法和初始值，否则在切换档位或状态时会出现硬跳（hard jump），无法看到“光从指尖散开”的过程。
 
 ### Theme Variables (HSL & Surface)
-- **定义位置**: `index.css` 第 37-70 行 (`:root`) 及 第 145-178 行 (`.dark`)
+- **定义位置**: `index.css` 第 25-95 行 (`:root`) 及 第 126-167 行 (`.dark`)
 - **用途**: 定义语义化颜色变量，如 `--primary`, `--background`, `--surface-main` 等。
 - **Surface 策略**:
     - `--surface-top`: 顶部栏背景（亮色 #ffffff / 暗色 #14161b）。
@@ -41,20 +40,20 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
     - `--glass-base`: 玻璃基色，亮色为白色，暗色为深灰蓝 (#1c2028)。
 
 ### Glass Modes (Off, Standard, Ultra)
-- **定义位置**: `index.css` 第 117-143 行 (`:root[data-glass="off"]`, `ultra`) 及 第 194-205 行 (`.dark` modes)
-- **Off Mode**: 第 117-123 行。完全禁用模糊和阴影，`backdrop-filter: none`，实现零开销。
-- **Ultra Mode**: 第 135-143 行。减少白膜厚度（`--glass-tint: 26%`），降低光影强度，让折射本身成为视觉主体。注意：在 Hyalite 支持的引擎上，调整 `--glass-blur` 和 `--glass-sat` 无效，因为它们被 `--hyalite` 覆盖。
-- **Dark Mode Adjustments**: 第 194-205 行。暗色下需显式提升 `--glass-rim` 和 `--glass-shine` 以避免被深色背景压平，但 Ultra 档反而要收淡，防止变成亮描边。
+- **定义位置**: `index.css` 第 97-124 行 (`:root[data-glass="off"]`, `ultra`) 及 第 172-183 行 (`.dark` modes)
+- **Off Mode**: 第 97-104 行。完全禁用模糊和阴影，`backdrop-filter: none`，实现零开销。
+- **Ultra Mode**: 第 116-124 行。减少白膜厚度（`--glass-tint: 26%`），降低光影强度，让折射本身成为视觉主体。注意：在 Hyalite 支持的引擎上，调整 `--glass-blur` 和 `--glass-sat` 无效，因为它们被 `--hyalite` 覆盖。
+- **Dark Mode Adjustments**: 第 172-183 行。暗色下需显式提升 `--glass-rim` 和 `--glass-shine` 以避免被深色背景压平，但 Ultra 档反而要收淡，防止变成亮描边。
 
 ### Force Light Dialog Scope
-- **定义位置**: `index.css` 第 222-243 行 (`.force-light-dialog`)
+- **定义位置**: `index.css` 第 200-221 行 (`.force-light-dialog`)
 - **用途**: 强制在暗色主题下显示为亮色的对话框容器（如“关于”对话框）。
 - **实现细节**: 
     - 重新定义了所有相关 CSS 变量为浅色值。
     - **关键修复**: 显式设置 `color: hsl(var(--foreground))`。因为 `color` 是继承属性，仅重定义变量不足以改变已继承的颜色，必须在此处重置计算后的颜色值，防止子元素继承暗色文本。
 
 ### Global Reset & Typography
-- **定义位置**: `index.css` 第 245-264 行
+- **定义位置**: `index.css` 第 223-242 行
 - **`* { border-color: transparent; }`**: 移除默认边框，配合自定义圆角和阴影使用。
 - **`html` 和 `body`**: 
     - 设置 `overflow: hidden`，防止整个页面滚动，采用内部滚动模式。
@@ -62,29 +61,30 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
     - 背景色使用 `var(--surface-main)`。
 
 ### Scrollbar Styling
-- **定义位置**: `index.css` 第 266-290 行
+- **定义位置**: `index.css` 第 244-268 行
 - **用途**: 全局细滚动条样式。
 - **设计决策**: 完全隐藏滚动条会导致用户无法发现内容可滚动（曾导致首页编辑列表卡片看似被截断）。因此保留 6px 半透明滚动条，与无边框设计兼容。
 - **选择器**: 针对 Webkit 浏览器 (`::-webkit-scrollbar`) 和非 Webkit 浏览器 (`scrollbar-width`) 分别处理。
 
 ### Component Layers
-- **定义位置**: `index.css` 第 302-1061 行 (`@layer components`)
+- **定义位置**: `index.css` 第 280-1010 行 (`@layer components`)
 - **`.bg-card` / `.rounded-2xl`**: 统一卡片圆角为 16px，并添加轻微阴影（近影 + 远影 + 顶部高光）。
 - **`.glass-dock` / `.glass-nav`**: 仿 FlClash 风格的毛玻璃底栏/导航栏。
-    - **Hyalite Integration**: 第 392-393 行。使用 `var(--hyalite, blur(...) saturate(...))` 语法。如果浏览器支持 Hyalite（Chromium/WebView2），则使用 SVG 背板滤镜实现高质量折射；否则回退到标准 `backdrop-filter`。
-    - **Edge Highlights**: 第 497-561 行。使用 `::before` 和 `::after` 伪元素，结合 `mask-composite` 和线性渐变模拟内缘光（shine）和外缘暗线（rim）。
-    - **Corner Radius Trap**: 第 482-495 行。`--edge-fade-x` 渐变中的 `var(--glass-r)` 必须在 `.glass-dock` 和 `.glass-nav` 上分别定义（18px vs 34px），不能放在 `:root`，否则药丸形导航栏的圆角采样会错位。
+    - **Hyalite Integration**: 第 363-364 行。使用 `var(--hyalite, blur(...) saturate(...))` 语法。如果浏览器支持 Hyalite（Chromium/WebView2），则使用 SVG 背板滤镜实现高质量折射；否则回退到标准 `backdrop-filter`。
+    - **Edge Highlights**: 第 448-510 行。使用 `::before` 和 `::after` 伪元素，结合 `mask` 和线性渐变模拟内缘光（shine）和外缘暗线（rim）。
+    - **Corner Radius Trap**: 第 420-446 行。`--edge-fade-x` 渐变中的 `var(--glass-r)` 必须在 `.glass-dock` 和 `.glass-nav` 上分别定义（18px vs 34px），不能放在 `:root`，否则药丸形导航栏的圆角采样会错位。
+    - **Startup Black Screen Fix**: 第 402-405 行。`.glass-dock:not(.glass-live)` 将 `--glass-tint` 设为 100%，解决启动期因祖先层变换导致的 `backdrop-filter` 采样失败问题。
 - **`.btn-physical` / `.btn-press` / `.soft-btn`**: 提供多种按钮交互反馈（缩放、阴影变化、径向渐变高亮）。
 - **`.animated-card-interactive`**: 卡片悬停效果，包含边框颜色和位移过渡。
 - **`.log-entry-hover`**: 日志条目悬停时向右平移 6px，并显示左侧指示条。
 - **其他组件**: 包含 `.app-outer-square`, `.surface-*`, `.interval-input`, `.dialog-*` 动画类等。
 
 ### Utility Layers
-- **定义位置**: `index.css` 第 1063-1184 行 (`@layer utilities`)
+- **定义位置**: `index.css` 第 1012-1133 行 (`@layer utilities`)
 - **`.anim-idle .animate-pulse`**: 当系统处于空闲状态时，暂停脉冲动画，避免用户误以为程序卡死。
 - **`.signal-glow-active`**: 信号强度指示器的呼吸灯动画。
 - **`.list-item-interactive`**: 列表项悬停时左侧出现主色调竖线并右移。
-- **Reduced Motion**: 第 1145-1184 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
+- **Reduced Motion**: 第 1094-1133 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
 
 ## Architecture
 
@@ -144,6 +144,7 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
    - 如果支持，使用 SVG 背板滤镜进行高质量折射。
    - 如果不支持，使用标准的 `backdrop-filter` 进行模糊和饱和处理。
    - 无论哪种路径，边缘光（shine/rim）都通过伪元素和 mask 叠加实现。
+   - 启动期：`.glass-dock:not(.glass-live)` 强制实底，避免 `backdrop-filter` 采样失败导致的黑屏。
 
 ## Connections
 
