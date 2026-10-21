@@ -21,7 +21,7 @@ tags: [教训, 适配器, 启用, 两层状态模型, netsh, PnP, USB, 历史缺
 
 *   **常量**:
     *   `ADAPTER_CACHE_TTL_SECS`: `5` (秒)，行 21。
-    *   `CACHE_REFRESH_INTERVAL_SECS`: `4` (秒)，行 272。
+    *   `CACHE_REFRESH_INTERVAL_SECS`: `4` (秒)，行 281。
     *   `FORBIDDEN`: 非法字符集 `['&', '|', ';', ...]`，行 110。
 *   **数据结构**:
     *   `AdapterCacheEntry`: `(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant)`，行 15。
@@ -45,9 +45,9 @@ tags: [教训, 适配器, 启用, 两层状态模型, netsh, PnP, USB, 历史缺
             *   管理员: 直调 `netsh interface set interface ... enable`，行 173。
             *   非管理员: 调用 `helper_spawn::spawn_elevated_helper`，经计划任务/CMSTPLUA 提权，行 191。
         *   **后置清理** (行 209-216): 清 `ADAPTER_CACHE`，刷新注册表缓存 (`refresh_class_subkey_cache`)，失效 `ShowInNetworkConnections` 缓存。
-    *   `wait_for_adapter()`: 轮询等待适配器出现。初始延迟 1s，指数退避至 5s。使用 `get_adapters_force` 强刷，行 222。
-    *   `poll_adapter_ip_quick()`: 快速 IP 续租检测。300ms 间隔，对比初始 IP 与新 IP，行 243。
-    *   `start_cache_refresh_task()`: 启动后台任务。每 4 秒 `spawn_blocking` 执行 `query_adapters_cached_inner`，失败则保留旧缓存并记录 warn，行 279。
+    *   `wait_for_adapter()`: 轮询等待适配器出现。初始延迟 1s，指数退避至 5s。使用 `get_adapters_force` 强刷，行 231。
+    *   `poll_adapter_ip_quick()`: 快速 IP 续租检测。300ms 间隔，对比初始 IP 与新 IP，行 252。
+    *   `start_cache_refresh_task()`: 启动后台任务。每 4 秒 `spawn_blocking` 执行 `query_adapters_cached_inner`，失败则保留旧缓存并记录 warn，行 288。
 
 ### `tauri-app/src-tauri/src/network/discovery/devnode.rs`
 **职责**：通过 Windows SetupAPI (`cfgmgr32.dll`) 直接操作 PnP 设备树，解决 `netsh` 无法处理的设备级禁用（Problem 22）和幽灵态问题。

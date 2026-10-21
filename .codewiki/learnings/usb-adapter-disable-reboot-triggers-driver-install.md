@@ -1,5 +1,5 @@
 ---
-title: learnings/usb-adapter-disable-reboot-triggers-driver-install.md
+title: learnings/usb-adapter-disable-reboot-triggers-driver-install
 type: learning
 source_files:
   - tauri-app/src-tauri/src/network/adapter_cache.rs
@@ -81,7 +81,7 @@ USB 网卡（Realtek RTL8156，适配器名「以太网 2」）被禁用后重�
 **关键常量与类型**：
 *   **`AdapterCacheEntry`** (15|): 元组类型 `(Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant)`，存储完整三元组数据及时间戳。
 *   **`ADAPTER_CACHE_TTL_SECS`** (21|): `5` (u64)，缓存有效期。
-*   **`CACHE_REFRESH_INTERVAL_SECS`** (272|): `4` (u64)，后台刷新间隔，略短于 TTL 以保持新鲜。
+*   **`CACHE_REFRESH_INTERVAL_SECS`** (281|): `4` (u64)，后台刷新间隔，略短于 TTL 以保持新鲜。
 *   **`ADAPTER_CACHE`** (18|): `lazy_static!` 定义的 `RwLock<Option<AdapterCacheEntry>>`，全局单例缓存。
 *   **`FORBIDDEN`** (110|): 非法字符数组 `['&', '|', ';', ...]`，用于 `validate_adapter_name`。
 
@@ -94,18 +94,18 @@ USB 网卡（Realtek RTL8156，适配器名「以太网 2」）被禁用后重�
 *   **`get_adapters_force()`** (88|-91|): 强制刷新。通过 `take()` 清空缓存 (89|) 后调用 `get_adapters_cached()`。
 *   **`get_adapter_details_cached()`** (93|-105|): 仅返回 `Vec<AdapterDetail>`。命中时仅 clone details (99|)；未命中委托 `query_adapters_cached_inner` (103|)。
 *   **`validate_adapter_name(name: &str)`** (107|-113|): 校验适配器名称非空、长度<=128且不含特殊字符。
-*   **`enable_adapter(adapter_name, allow_uac_prompt)`** (122|-220|): 启用适配器的复杂分支逻辑。
+*   **`enable_adapter(adapter_name, allow_uac_prompt)`** (122|-211|): 启用适配器的复杂分支逻辑。
     *   **设备级分流** (130|-168|): 仅在 Windows 桌面端生效。调用 `find_disabled_device` (134|)。
         *   `DeviceState::Disabled`: 调用 `enable_device` (pnputil 级别) (138|)。
         *   `DeviceState::Unlocatable` (幽灵态): 调用 `reenumerate_device` (总线重枚举) (150|)，随后可能再次尝试 `enable_device` (152|)。
-        *   两种情况均触发 `ADAPTER_CACHE.write().take()` (141|/161|) 及注册表缓存失效 (142|-143|, 162|-163|)。
+        *   两种情况均触发 `invalidate_adapter_caches()` (141|/163|)。
     *   **NDIS 层启用** (170|-206|):
         *   管理员: 直接执行 `netsh interface set interface ... enable` (173|-176|)。
         *   非管理员: 通过 `helper_spawn::spawn_elevated_helper` (191|) 提权执行。
     *   **后置清理** (208|-217|): 无论哪条路径，均清空缓存并刷新注册表缓存 (`refresh_class_subkey_cache`, `invalidate_show_in_ncpa_cache`)。
-*   **`wait_for_adapter(max_wait_ms, is_quitting)`** (222|-241|): 轮询等待适配器出现。指数退避策略：初始 delay 1000ms，每次翻倍上限 5000ms (237|)。退出时返回空 vec (228|)。超时后回退到 `get_adapters_cached()` (240|)。
-*   **`poll_adapter_ip_quick(adapter_name, timeout_ms, is_quitting)`** (243|-268|): 检测特定适配器 IP 是否变化。记录初始 IP (250|)，每 300ms (247|, BE-A-04 优化) 调用 `get_adapters_force()` 对比。IP 非空且不同则返回 true。
-*   **`start_cache_refresh_task(task_manager)`** (279|-308|): 启动后台任务。每 4 秒通过 `spawn_blocking(query_adapters_cached_inner)` (289|) 刷新缓存。处理取消令牌 (302|) 及错误日志。
+*   **`wait_for_adapter(max_wait_ms, is_quitting)`** (231|-250|): 轮询等待适配器出现。指数退避策略：初始 delay 1000ms，每次翻倍上限 5000ms (246|)。退出时返回空 vec (237|)。超时后回退到 `get_adapters_cached()` (249|)。
+*   **`poll_adapter_ip_quick(adapter_name, timeout_ms, is_quitting)`** (252|-277|): 检测特定适配器 IP 是否变化。记录初始 IP (259|)，每 300ms (256|, BE-A-04 优化) 调用 `get_adapters_force()` 对比。IP 非空且不同则返回 true。
+*   **`start_cache_refresh_task(task_manager)`** (288|-318|): 启动后台任务。每 4 秒通过 `spawn_blocking(query_adapters_cached_inner)` (298|) 刷新缓存。处理取消令牌 (311|) 及错误日志。
 
 ### 2. 夜间出站切换执行层 (`outbound_night.rs`)
 

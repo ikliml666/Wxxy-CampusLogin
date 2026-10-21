@@ -224,7 +224,7 @@ Windows「网卡被禁用」是两层独立状态（模块注释）：NDIS admin
 7. **空 GUID 曾被静默隐藏**（`registry.rs`）：空 GUID 无法做注册表匹配，现回退"可见"交由黑名单/IP 过滤兜底。
 8. **`ShowInNetworkConnections` 短 TTL 缓存**（`registry.rs`，5s）：平时按 TTL 失效，**适配器启用等可见性变更路径必须立即失效**（BE-B-04），否则短窗内返回陈旧结果——`enable_adapter` 收尾三重失效之一（`adapter_cache.rs`）。
 9. **Class subkey 缓存只显式刷新**（`registry.rs`）：构建后不过期，仅 `refresh_class_subkey_cache` 显式重建；调用点 `adapter_cache.rs`、`adapter_watch.rs`（每 15s，BE-B-01）。
-10. **客户端池 LRU 精度退化**（`client.rs`）：命中路径不刷新时间戳（避免 get_mut 写锁串行化同 key 并发），淘汰退化为按条目插入时间，TTL 语义不变。
+10. **客户端池 LRU 精度退化**（`client.rs`）：命中路径不刷新时间戳（避免 get_mut 写锁串行化同 key 并发请求），淘汰退化为按条目插入时间，TTL 语义不变。
 11. **客户端池并发误删防护**（`client.rs`）：过期清理用 `remove_if` 原子判断，防 drop(entry) 与 remove 之间另一线程 or_insert 的新客户端被无条件 remove 误删。
 12. **surge_ping 绑源在 TUN 环境系统性失败**（`subnet.rs`）：socket2 绑源 DGRAM 会使校园网卡被误判为非校园（夜间禁用名单漏卡），Windows IPv4 已改走 `IcmpSendEcho2Ex`（`platform::icmp_probe`）；v6 网关与非 Windows 仍走 surge_ping。
 13. **`"本地连接"` 是业务规则排除**（`discovery/mod.rs`）：Win11 高级网络设置中不可见故强制排除，与虚拟网卡黑名单无关；`nat/virtual/tor` 等模式串用 `\b` 词边界防误伤 Native/Toronto 等合法名。

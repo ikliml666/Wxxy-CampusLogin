@@ -88,7 +88,7 @@
 - [[learnings/android-host-cargo-check-fails|android/src-tauri 安卓端 Rust 模块基线与架构]]
 - [[learnings/build-rs-docsrs-masks-android-build-failure|build.rs 的 docsrs 特例掩盖 android 目标构建失败]]
 - [[learnings/hickory-resolver-drop-runtime-context-panic|hickory Resolver 在 runtime 上下文线程 drop 触发整进程 panic]]
-- [[learnings/usb-adapter-disable-reboot-triggers-driver-install|learnings/usb-adapter-disable-reboot-triggers-driver-install.md]]
+- [[learnings/usb-adapter-disable-reboot-triggers-driver-install|learnings/usb-adapter-disable-reboot-triggers-driver-install]]
 - [[learnings/tsc-b-emits-contaminated-files|npx tsc -b 会 emit 出 vite.config.js 等污染文件]]
 - [[learnings/nonblocking-connect-einprogress-not-wouldblock|std 不把 EINPROGRESS 映射为 WouldBlock,非阻塞 connect 判定须按 raw errno]]
 - [[learnings/tauri-android-build-report-path-missing|tauri android build 完成报告指向的 APK 文件不存在]]
