@@ -90,12 +90,15 @@
     --glass-shine: 0.42;
     /* 外缘暗线：暗色下 FlClash 用 0.75，亮色用 0.35 */
     --glass-rim: 0.35;
-    --glass-near: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --glass-near: 0 1px 4px -1px rgba(15, 23, 42, 0.05);
     /* 负 spread 会把阴影左右各缩进去，651px 宽的栏阴影只剩 631px，
        两侧被栏自身完全盖住、只从底部漏出来 —— 实测左侧阴影峰值 0.0 灰阶，
        读作「阴影和容器没重合」。spread 收到 -2px 让三边都有阴影，
-       offset/blur 同步略收，保持向下的重心。 */
-    --glass-far: 0 10px 30px -2px rgba(15, 23, 42, 0.16);
+       offset/blur 同步略收，保持向下的重心。
+       现在再收到 -4px、blur 压到 16：blur 会向形状内外各扩散约 blur/2，
+       旧值 30px 的模糊渗进玻璃内侧约 13px，经半透明膜透出一圈内缘灰，
+       浅色模式下就是「边框内侧有一层灰、和背景没对齐」的观感。 */
+    --glass-far: 0 4px 16px -4px rgba(15, 23, 42, 0.1);
     /* 亮色玻璃基色：微冷白，与 #f0f4f8 背景拉开明度差才看得出「浮起来」 */
     --glass-base: #ffffff;
     /* 玻璃圆角半径。::before / ::after 的横向 mask 要按它算停靠点：
@@ -180,8 +183,8 @@
     /* 暗底上按压光斑回到「提亮」——白光在深色玻璃上才拉得出 Δ */
     --glass-glow-rgb: 255 255 255;
     --glass-glow-gain: 1;
-    --glass-near: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --glass-far: 0 10px 30px -2px rgba(0, 0, 0, 0.55);
+    --glass-near: 0 1px 4px -1px rgba(0, 0, 0, 0.3);
+    --glass-far: 0 4px 16px -4px rgba(0, 0, 0, 0.45);
 
     background-color: #0c0e12;
   }
@@ -417,6 +420,10 @@
     -webkit-backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
     backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
     border-radius: 18px;
+    /* C：超椭圆圆角。FlClash 的形状层全是 RoundedSuperellipseBorder（连续曲率，
+       不是圆弧），CSS 侧对应 Chromium 139+ 的 corner-shape；不支持的引擎
+       忽略该属性、退回圆弧，其余布局不受影响。 */
+    corner-shape: squircle;
     /* 边缘只做两件事，对应 FlClash shader 里两条独立的式子：
        ① 暗线（liquid_glass.frag:452-459）——四周均匀 0.67px，即 iOS 27 画在玻璃
           边界之外、背面内容之上的那道线。它必须单独一层：任何同层的亮色都会在
@@ -427,10 +434,17 @@
           对齐。线宽不吃这个标定（0.9px 与 1.2px 在 1x 下都取整成 1px 并被抗锯齿
           摊开），所以只有 alpha 可调——先前按 0.42 乘出来只有 -5%，边框发灰。
        ② 内缘光（frag:426-445）——由 ::before / ::after 分别画顶边和底边，见下。 */
+    /* 暗线画在边界之外（外扩 0.67，外扩之外不再内缩）。FlClash 的 shader 原话：
+       「UIKit draws it just outside the bounds, over the backdrop, where the pane
+       cannot draw」——线盖在背板上，玻璃本身画不到那里。
+       原先的 `inset 0 0 0 0.67px` 有两个硬伤：①圆角弧上的抗锯齿只落在膜内侧，
+       线与边界之间露一条亚像素灰缝；②Chromium 的 inset box-shadow 不跟随
+       corner-shape，超椭圆圆角下会画出第二条弧。外扩写法是元素外阴影，
+       跟随 border-radius 与 corner-shape 一起变形。 */
     box-shadow:
       var(--glass-near),
       var(--glass-far),
-      inset 0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69));
+      0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69));
     position: relative;
     /* 不裁切：::before 的光环要贴到圆角外侧才自然 */
     overflow: visible;
@@ -514,6 +528,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
+    corner-shape: squircle;
     /* 亮环的深度剖面（frag:437-441 的连续式）：
        w = max(inset - 0.67, 0)、band = clamp(1 - w/1.3)、tail = clamp(1 - w/4.5)、
        shine = rim * facing * (0.83*band + 0.17*tail)，
@@ -551,6 +566,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
+    corner-shape: squircle;
     /* 底边同一份剖面（facing = normal.y² 对上下对称），
        乘 0.72 只是让下缘比顶缘弱一档：暗线在最外圈压得更多。 */
     background-image: linear-gradient(

@@ -33,12 +33,15 @@ import type { HyaliteOptions } from './vendor/hyalite.d.ts'
  *  refraction/bevel 表达层级差，CSS 无折射能力，色散是这里唯一还能加的
  *  「物理厚度」线索；代价是滤镜走三通道叠加。
  *
- *  bevel 的硬约束：不能超过 border-radius（悬浮栏是 18px）。Hyalite 的倒角
- *  从边缘往内铺开 bevel 宽，超出圆角半径的部分会绕过圆角的弧，在那一小段
- *  叠出第二道弧——屏幕上是「边框有重影 / 和背景没对齐」。 */
+ *  bevel 的硬约束：必须明显小于 border-radius（悬浮栏是 18px，取 12 = 2/3）。
+ *  Hyalite 的倒角从边缘往内铺开 bevel 宽，内边界在圆角处是另一条弧；只要
+ *  bevel 逼近 radius，这条内弧就会贴着边框出现，屏幕上读成「两道同心弧 /
+ *  边框有重影」。等于 radius（18）时也照样出现——原先排在 18 是因为当时
+ *  CSS 暗线压在膜内、双弧被半透明膜糊住看不出来；暗线挪到边界外变清晰后
+ *  就露出来了（隔离实验：只把 bevel 从 18 改到 12，双弧立刻消失）。 */
 export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
   standard: {
-    bevel: 18,
+    bevel: 12,
     thickness: 70,
     slope: 2.0,
     blur: 3,
@@ -47,13 +50,12 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
     rim: 1.5,
     smooth: 1,
   },
-  /* ultra 的 bevel 必须 <= border-radius（双击证过：bevel 26 > radius 18 时
-     圆角处出现两道同心弧，读成「边框有重影」；把 bevel 压到 18 后变回单条）。
-     位移量级改用 thickness 补——bevel 只管弯折带宽，thickness 才是厚度，
-     thickness 从 180 提到 400、slope 到上限 4，maxDisplacement 反而从
-     49.2 升到 52.2，折射更强而不是更弱。 */
+  /* ultra 同样取 12（理由见上：bevel 一度是 26，圆角处两道同心弧；
+     压到 18 只是不再肉眼可见，暗线外移后又现形）。位移量级改用 thickness
+     补——bevel 只管弯折带宽，thickness 才是厚度，thickness 从 180 提到 400、
+     slope 到上限 4，maxDisplacement 反而从 49.2 升到 52.2，折射更强而非更弱。 */
   ultra: {
-    bevel: 18,
+    bevel: 12,
     thickness: 400,
     slope: 4,
     blur: 2,
