@@ -51,7 +51,7 @@ tags: [教训, 前端, react, gsap, css, contain, 动画, 性能, glass-dock, ti
         - 断开 `ResizeObserver`。
         - 取消倾斜 RAF (`cancelAnimationFrame`)。
         - Kill `resetWillChangeTimerRef` 对应的 GSAP tween，防止卸载后执行 (第 55 行)。
-        - `gsap.killTweensOf(el, 'rotateY/X')` 终止所有进行中的旋转动画 (第 56-57 行)。
+        - `gsap.killTweensOf(el, 'rotateY')` 终止所有进行中的旋转动画 (第 56-57 行)。
         - 清空 `xQuick` 和 `yQuick` 引用。
 - **事件处理**:
     - **`handleMouseMove` (第 63-87 行)**:
@@ -77,27 +77,27 @@ tags: [教训, 前端, react, gsap, css, contain, 动画, 性能, glass-dock, ti
 ### CSS 样式架构 (src/index.css)
 
 **关键类**:
-- **`.glass-dock` / `.glass-nav`** (第 369-420 行):
-    - **玻璃材质**: 使用 `color-mix` 混合基色与透明度 (`--glass-tint`)，结合 `backdrop-filter` 实现模糊与饱和 (第 376-390 行)。
+- **`.glass-dock` / `.glass-nav`** (第 384-435 行):
+    - **玻璃材质**: 使用 `color-mix` 混合基色与透明度 (`--glass-tint`)，结合 `backdrop-filter` 实现模糊与饱和 (第 391-398 行)。
     - **光影层次**: 
-        - 外缘暗线：`inset 0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69))` (第 405 行)，模拟全反射变暗的边缘。
-        - 内缘光泽：通过 `::before` (顶边) 和 `::after` (底边) 的多层 `linear-gradient` 与 `mask` 实现 (第 459-561 行)，模拟光在玻璃厚度内的散射。
-    - **按压光斑**: 使用 `radial-gradient` 结合 `@property` 定义的 `--glass-glow-alpha` 和 `--glass-glow-reach` 实现平滑扩散动画 (第 377-382 行, 第 8-17 行)。
+        - 外缘暗线：`inset 0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69))` (第 420 行)，模拟全反射变暗的边缘。
+        - 内缘光泽：通过 `::before` (顶边) 和 `::after` (底边) 的多层 `linear-gradient` 与 `mask` 实现 (第 474-536 行)，模拟光在玻璃厚度内的散射。
+    - **按压光斑**: 使用 `radial-gradient` 结合 `@property` 定义的 `--glass-glow-alpha` 和 `--glass-glow-reach` 实现平滑扩散动画 (第 392-397 行, 第 8-17 行)。
     - **档位控制**: 
-        - `off`: 零滤镜，实底 (第 114-120 行, 第 564-568 行)。
+        - `off`: 零滤镜，实底 (第 539-543 行)。
         - `standard`: 基础模糊与饱和度 (第 80-90 行)。
-        - `ultra`: 更薄的膜、更淡的光影，强调折射感 (第 132-140 行)。
-    - **启动期处理**: `.glass-dock:not(.glass-live)` 将 `--glass-tint` 设为 100% 避免 backdrop root 导致的黑屏问题 (第 430-433 行)。
-- **`.animated-card-interactive`** (第 826-847 行):
-    - **性能隔离**: 设置 `contain: layout style paint` (第 832 行)。这告诉浏览器卡片的布局、样式和绘制不依赖于外部，也不影响外部。
-    - **堆叠上下文**: 设置 `isolation: isolate` (第 831 行)，创建新的堆叠上下文。
-    - **交互过渡**: 定义 `border-color` 和 `transform` 的过渡效果 (第 827 行)。
-    - **悬停效果**: 悬停时边框颜色变淡 (`rgba(0,0,0,0.06)`) 并轻微上移 (`translateY(-2px)`) (第 835-838 行)。
-    - **焦点可见**: 聚焦时显示 `ring` 光晕 (第 840-843 行)。
-    - **暗色模式**: 悬停边框颜色调整为白色低透明度 (第 845-847 行)。
-- **`.card-enter`** (第 919-922 行):
+        - `ultra`: 更薄的膜、更淡的光影，强调折射感 (第 147-155 行)。
+    - **启动期处理**: `.glass-dock:not(.glass-live)` 将 `--glass-tint` 设为 100% 避免 backdrop root 导致的黑屏问题 (第 445-448 行)。
+- **`.animated-card-interactive`** (第 801-822 行):
+    - **性能隔离**: 设置 `contain: layout style paint` (第 807 行)。这告诉浏览器卡片的布局、样式和绘制不依赖于外部，也不影响外部。
+    - **堆叠上下文**: 设置 `isolation: isolate` (第 806 行)，创建新的堆叠上下文。
+    - **交互过渡**: 定义 `border-color` 和 `transform` 的过渡效果 (第 802 行)。
+    - **悬停效果**: 悬停时边框颜色变淡 (`rgba(0,0,0,0.06)`) 并轻微上移 (`translateY(-2px)`) (第 810-813 行)。
+    - **焦点可见**: 聚焦时显示 `ring` 光晕 (第 815-818 行)。
+    - **暗色模式**: 悬停边框颜色调整为白色低透明度 (第 820-822 行)。
+- **`.card-enter`** (第 894-897 行):
     - 定义入场动画 `cardEnter`，结合 CSS 变量 `--stagger-i` 实现交错延迟 (`calc(var(--stagger-i, 0) * 0.05s)`)。
-- **`.dark .animated-card-interactive:hover`** (第 845-847 行): 暗色主题下的悬停边框颜色调整。
+- **`.dark .animated-card-interactive:hover`** (第 820-822 行): 暗色主题下的悬停边框颜色调整。
 
 ## Architecture
 
@@ -147,14 +147,14 @@ tags: [教训, 前端, react, gsap, css, contain, 动画, 性能, glass-dock, ti
 
 1.  **Containment Clipping**:
     - **现象**: `AnimatedCard` 内部的绝对定位元素（如下拉菜单、Tooltip）会被卡片边界裁剪，无法显示在卡片外部。
-    - **根因**: CSS 类 `.animated-card-interactive` (index.css 第 832 行) 设置了 `contain: layout style paint`，同时 `isolation: isolate` (第 831 行) 创建了新的堆叠上下文。这限制了后代元素的溢出区域。
+    - **根因**: CSS 类 `.animated-card-interactive` (index.css 第 807 行) 设置了 `contain: layout style paint`，同时 `isolation: isolate` (第 806 行) 创建了新的堆叠上下文。这限制了后代元素的溢出区域。
     - **解决方案**: 任何需要超出卡片边界的浮层组件必须使用 `createPortal` 将内容渲染到 `document.body` 或其他不受限制的容器中。
 2.  **Memory Leaks in Cleanup**:
     - **历史缺陷**: 早期版本中，`gsap.delayedCall` 和 RAF 未在 cleanup 中正确释放，导致组件卸载后仍尝试修改 DOM。
     - **修复**: 当前代码 (animated-card.tsx 第 49-60 行) 已显式 kill 所有 GSAP 对象并 cancel RAF。
 3.  **Reduced Motion Support**:
     - **检测**: 使用模块级 `matchMedia` 查询 `prefers-reduced-motion` (animated-card.tsx 第 25-27 行)。
-    - **行为**: 如果用户偏好减少运动，`showEntryAnim` 设为 false，且 GSAP tilt 效果被禁用 (通过 `tiltEnabled` 判断)。CSS 中也通过 `@media (prefers-reduced-motion: reduce)` 禁用了相关动画 (index.css 第 1139-1178 行)。
+    - **行为**: 如果用户偏好减少运动，`showEntryAnim` 设为 false，且 GSAP tilt 效果被禁用 (通过 `tiltEnabled` 判断)。CSS 中也通过 `@media (prefers-reduced-motion: reduce)` 禁用了相关动画 (index.css 第 1114-1153 行)。
 
 ## Connections
 
