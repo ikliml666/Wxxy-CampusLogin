@@ -68,7 +68,7 @@ tags: [教训, 前端, react, gsap, css, contain, 动画, 性能, glass-dock, ti
         - 注册新的 `gsap.delayedCall(0.4, ...)`，在 0.4 秒后将 `el.style.willChange` 重置为空字符串，释放浏览器优化资源 (第 96-100 行)。
 - **渲染逻辑**:
     - **`cardClassName` (第 106-109 行)**: 组合类名，默认包含 `bg-card text-card-foreground rounded-2xl`。注释强调不再写死 `bg-white` 或暗色背景，而是依赖 `index.css` 中的 `.bg-card` 材质定义 (第 103-105 行)。
-    - **`showEntryAnim` (第 111 行)**: 判断是否显示入场动画。条件：未禁用动画、未禁用入场动画、且用户未开启“减少运动”偏好 (`prefers-reduced-motion: reduce`)。
+    - **`showEntryAnim`** (第 111 行): 判断是否显示入场动画。条件：未禁用动画、未禁用入场动画、且用户未开启“减少运动”偏好 (`prefers-reduced-motion: reduce`)。
     - **无动画模式 (第 113-119 行)**: 返回简单的 `div`，应用静态阴影 `REST_SHADOW`。
     - **标准模式 (第 121-149 行)**:
         - 外层 `div`: 应用 `animated-card-interactive` 类（来自 CSS），添加 `card-enter` 类（如果显示入场动画）。设置 CSS 变量 `--stagger-i` 用于交错延迟。设置 `perspective: 800`（如果启用倾斜）以建立 3D 空间。绑定 `onMouseMove` 和 `onMouseLeave`。
@@ -88,16 +88,16 @@ tags: [教训, 前端, react, gsap, css, contain, 动画, 性能, glass-dock, ti
         - `standard`: 基础模糊与饱和度 (第 80-90 行)。
         - `ultra`: 更薄的膜、更淡的光影，强调折射感 (第 129-137 行)。
     - **启动期处理**: `.glass-dock:not(.glass-live)` 将 `--glass-tint` 设为 100% 避免 backdrop root 导致的黑屏问题 (第 415-418 行)。
-- **`.animated-card-interactive`** (第 788-809 行):
-    - **性能隔离**: 设置 `contain: layout style paint` (第 794 行)。这告诉浏览器卡片的布局、样式和绘制不依赖于外部，也不影响外部。
-    - **堆叠上下文**: 设置 `isolation: isolate` (第 793 行)，创建新的堆叠上下文。
-    - **交互过渡**: 定义 `border-color` 和 `transform` 的过渡效果 (第 789 行)。
-    - **悬停效果**: 悬停时边框颜色变淡 (`rgba(0,0,0,0.06)`) 并轻微上移 (`translateY(-2px)`) (第 797-800 行)。
-    - **焦点可见**: 聚焦时显示 `ring` 光晕 (第 802-805 行)。
-    - **暗色模式**: 悬停边框颜色调整为白色低透明度 (第 807-809 行)。
-- **`.card-enter`** (第 881-884 行):
+- **`.animated-card-interactive`** (第 810-831 行):
+    - **性能隔离**: 设置 `contain: layout style paint` (第 816 行)。这告诉浏览器卡片的布局、样式和绘制不依赖于外部，也不影响外部。
+    - **堆叠上下文**: 设置 `isolation: isolate` (第 815 行)，创建新的堆叠上下文。
+    - **交互过渡**: 定义 `border-color` 和 `transform` 的过渡效果 (第 811 行)。
+    - **悬停效果**: 悬停时边框颜色变淡 (`rgba(0,0,0,0.06)`) 并轻微上移 (`translateY(-2px)`) (第 819-822 行)。
+    - **焦点可见**: 聚焦时显示 `ring` 光晕 (第 824-827 行)。
+    - **暗色模式**: 悬停边框颜色调整为白色低透明度 (第 829-831 行)。
+- **`.card-enter`** (第 903-906 行):
     - 定义入场动画 `cardEnter`，结合 CSS 变量 `--stagger-i` 实现交错延迟 (`calc(var(--stagger-i, 0) * 0.05s)`)。
-- **`.dark .animated-card-interactive:hover`** (第 807-809 行): 暗色主题下的悬停边框颜色调整。
+- **`.dark .animated-card-interactive:hover`** (第 829-831 行): 暗色主题下的悬停边框颜色调整。
 
 ## Architecture
 
@@ -147,14 +147,14 @@ tags: [教训, 前端, react, gsap, css, contain, 动画, 性能, glass-dock, ti
 
 1.  **Containment Clipping**:
     - **现象**: `AnimatedCard` 内部的绝对定位元素（如下拉菜单、Tooltip）会被卡片边界裁剪，无法显示在卡片外部。
-    - **根因**: CSS 类 `.animated-card-interactive` (index.css 第 794 行) 设置了 `contain: layout style paint`，同时 `isolation: isolate` (第 793 行) 创建了新的堆叠上下文。这限制了后代元素的溢出区域。
+    - **根因**: CSS 类 `.animated-card-interactive` (index.css 第 816 行) 设置了 `contain: layout style paint`，同时 `isolation: isolate` (第 815 行) 创建了新的堆叠上下文。这限制了后代元素的溢出区域。
     - **解决方案**: 任何需要超出卡片边界的浮层组件必须使用 `createPortal` 将内容渲染到 `document.body` 或其他不受限制的容器中。
 2.  **Memory Leaks in Cleanup**:
     - **历史缺陷**: 早期版本中，`gsap.delayedCall` 和 RAF 未在 cleanup 中正确释放，导致组件卸载后仍尝试修改 DOM。
     - **修复**: 当前代码 (animated-card.tsx 第 49-60 行) 已显式 kill 所有 GSAP 对象并 cancel RAF。
 3.  **Reduced Motion Support**:
     - **检测**: 使用模块级 `matchMedia` 查询 `prefers-reduced-motion` (animated-card.tsx 第 25-27 行)。
-    - **行为**: 如果用户偏好减少运动，`showEntryAnim` 设为 false，且 GSAP tilt 效果被禁用 (通过 `tiltEnabled` 判断)。CSS 中也通过 `@media (prefers-reduced-motion: reduce)` 禁用了相关动画 (index.css 第 1107-1146 行)。
+    - **行为**: 如果用户偏好减少运动，`showEntryAnim` 设为 false，且 GSAP tilt 效果被禁用 (通过 `tiltEnabled` 判断)。CSS 中也通过 `@media (prefers-reduced-motion: reduce)` 禁用了相关动画 (index.css 第 1129-1168 行)。
 
 ## Connections
 
