@@ -121,8 +121,7 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
   },
 }
 
-/** 首次挂载要等布局稳下来多久（毫秒），以及等不到的兜底上限 */
-const SETTLE_MS = 400
+/** 等不到祖先链落干净的兜底上限（毫秒） */
 const MAX_WAIT_MS = 2500
 /** 滤镜挂上之后再等几帧才放开半透明（见 useGlassRefraction 里的注释） */
 const LIVE_FRAMES = 2
@@ -131,29 +130,39 @@ const LIVE_FRAMES = 2
  * 给悬浮栏挂上折射玻璃。`level === 'off'` 或引擎不支持时不做任何事
  * （CSS 的 `data-glass="off"` 已经是真零滤镜）。
  *
- * 首次挂载要**等布局稳定**再挂，不能 render 完立刻挂：启动那两百毫秒里悬浮栏
- * 宽度还在抖（实测 651 → 553 → 651，中间一路涨回），Hyalite 会按每一个中间
- * 尺寸重建位移图。等的这段不算空窗：CSS 侧是 `var(--hyalite, blur(…) saturate(…))`，
- * 没挂滤镜时自然落到模糊降级，观感是「先磨砂、再显现折射」。
+ * 挂载拆成两件事，**分开做**——这是「玻璃总要等界面加载完才生效」的修法：
  *
- * 「整条发黑」的根因是**祖先层在建合成层**，不是滤镜重建：GSAP 的入场补间
- * 给悬浮栏本身打 `opacity: 0→1` / `y: 40→0` / `scale: 0.85→1` 并带 `force3D`
+ * ① **挂滤镜**：进 effect 立刻挂，不等任何东西。
+ * ② **放开半透明**（补 `.glass-live`）：要等整条祖先链落回「不透明 + 无变换 +
+ *    无 will-change」，补丁两帧后加。
+ *
+ * 「整条发黑」的根因是**祖先层在建合成层**：GSAP 的入场补间给悬浮栏外层
+ * `opacity: 0→1` / `y: 40→0` / `scale: 0.85→1` 并带 `force3D`
  * （useStartupBoost.ts:117-123），补间期间祖先链上出现 `opacity < 1`、`transform`、
  * 独立变换属性（`translate`/`scale`）或 `will-change` —— **任一**都会让 Chromium
  * 把这一层当作 backdrop root，悬浮栏的 backdrop-filter 在 root 内采样不到页面
- * 内容，被填成黑色；54% 的半透明白膜于是读出「白 54% + 黑 46%」的深灰条。
+ * 内容，被填成黑色。所以 ② 必须等。
  *
- * 实测（vite mock + CDP screencast 逐帧亮度，见 changelog）：
- * - 只盯 `opacity` 不够。把补间里的 opacity 去掉、只留 y/scale，暗期照旧
- *   （帧 95-124 恒 avg 137、min 47，约 400ms）——说明 `transform` 本身就足以建 root。
- * - 补上 `transform`/独立变换/`will-change` 三项检查后暗期消失：帧亮度从 252.7
- *   平滑走到 233.7，全程无 `dark%` 尖峰；浅色、深色两端各测一次均如此。
- * - 稳定后再 `detach`+`attach` 一次不黑，排除「滤镜首次编译」这个假设。
+ * 但 ① **不需要等**：启动期 CSS 侧把膜钉成实底
+ * （`.glass-dock:not(.glass-live) { --glass-tint: 100% }`），实底是整片不透明色，
+ * backdrop 采到黑还是采到内容根本看不见。六组合实测（祖先干净/污染 × 无滤镜/有滤镜
+ * × 实底/半透，取膜中心灰度）：
+ *   - 实底 × 祖先污染：无滤镜 mean 54.0、有滤镜 mean 54.0 —— **逐位相同**；
+ *   - 实底 × 祖先干净：无滤镜 42.5、有滤镜 42.5 —— 同样相同；
+ *   - 只有「半透 × 祖先污染」才塌到 min 18（黑膜），即必须先满足 ② 才放开。
+ * 也就是说**实底期间挂不挂滤镜，画面完全一样**，那就不必等。
  *
- * 所以启动期由 CSS 侧把膜钉成实底（`.glass-dock:not(.glass-live)`），并且
- * **等整条祖先链落回「不透明 + 无变换 + 无 will-change」再挂**滤镜：挂上两帧后
- * 才补 `.glass-live` 放开半透明（有 260ms 过渡，读作一次材质变化而不是闪一下换皮）。
- * 等不到就**不挂**，一直留在实底——挂上去只会是一条常驻黑膜，比没有折射更糟。
+ * 历史上这里还多一个 `SETTLE_MS = 400` 的「等布局稳定」前置等待，理由是「启动时
+ * 悬浮栏宽度还在抖，实测 651 → 553 → 651」。那个观察是把 transform 算进了尺寸：
+ * `getBoundingClientRect` 会乘上 GSAP 的 `scale: 0.85→1`，而 Hyalite 用的是
+ * `ResizeObserver` 的 `contentRect`，不含 transform。逐帧实测同一次启动：
+ * `getBoundingClientRect` 变 28 次（819→1873ms 一路涨回），**`ResizeObserver` 只
+ * 触发 1 次**（812ms，639×43 的 content box，对应 651×55 的 border box）。
+ * 布局自始至终没变过，位移图只建一次，那 400ms 是纯等待——已删。
+ *
+ * 删掉之后的效果（CDP 逐帧时间线）：悬浮栏出现的同一帧滤镜就已挂好，之后只等
+ * 入场补间结束（约 780ms）放开半透明；此前是「400ms 空等 + 补间结束后才开始建图」，
+ * 总延迟约 1.14s。等不到祖先链落干净就**一直留在实底**，比常驻黑膜好。
  */
 export function useGlassRefraction(
   ref: RefObject<HTMLElement | null>,
@@ -194,30 +203,18 @@ export function useGlassRefraction(
       return cleanup
     }
 
-    const attach = () => {
-      remove()
-      if (!el.isConnected) return
-      hyalite.attach(el, GLASS_DOCK_OPTS[level])
-      attached.current = true
-      pastStartup.current = true
-      // 滤镜这一帧画完再放开透明：见上方注释，启动期是实底不是半透明。
-      let frames = LIVE_FRAMES
-      const live = () => {
-        if (frames-- > 0) liveRaf = requestAnimationFrame(live)
-        else el.classList.add('glass-live')
-      }
-      liveRaf = requestAnimationFrame(live)
-    }
+    // ① 挂滤镜：立刻挂。实底期间挂不挂滤镜画面相同（见上方注释），没有等待的理由。
+    remove()
+    if (!el.isConnected) return cleanup
+    hyalite.attach(el, GLASS_DOCK_OPTS[level])
+    attached.current = true
 
+    // ② 放开半透明：等祖先链落干净再补 .glass-live。
+    // 已经放开过（换档位）就直接放，别再等一次。
     if (pastStartup.current) {
-      attach()
+      el.classList.add('glass-live')
       return cleanup
     }
-
-    const startedAt = performance.now()
-    let ro: ResizeObserver | null = null
-    let settleTimer = 0
-    let waiting = false
 
     /**
      * 整条祖先链不透明、也不带变换时 backdrop 才采样得到页面内容。
@@ -238,44 +235,32 @@ export function useGlassRefraction(
       return true
     }
 
+    const goLive = () => {
+      pastStartup.current = true
+      // 滤镜这一帧画完再放开透明：实底淡成半透明（260ms 过渡）时图已经是成品。
+      let frames = LIVE_FRAMES
+      const live = () => {
+        if (frames-- > 0) liveRaf = requestAnimationFrame(live)
+        else el.classList.add('glass-live')
+      }
+      liveRaf = requestAnimationFrame(live)
+    }
+
+    const startedAt = performance.now()
     const poll = () => {
       if (!el.isConnected) return
       if (backdropReady()) {
-        attach()
+        goLive()
         return
       }
+      if (performance.now() - startedAt >= MAX_WAIT_MS) return // 兜底：一直留在实底
       pollRaf = requestAnimationFrame(poll)
     }
-
-    // 祖先链一直没落干净：挂上去只会常驻一条黑膜，宁可留在 CSS 的实底
-    const giveUp = () => {
-      waiting = true
-      cancelAnimationFrame(pollRaf)
-      ro?.disconnect()
-    }
-
-    const startWaiting = () => {
-      if (waiting) return
-      waiting = true
-      ro?.disconnect()
-      // 布局抖到过了总预算：直接放弃，别再从 poll 里挂上去
-      if (performance.now() - startedAt >= MAX_WAIT_MS) return
-      pollRaf = requestAnimationFrame(poll)
-    }
-
-    ro = new ResizeObserver(() => {
-      // 尺寸还在变（实测 651 → 553 → 651）：把挂载往后推，稳定 SETTLE_MS 之后才等
-      clearTimeout(settleTimer)
-      settleTimer = window.setTimeout(startWaiting, SETTLE_MS)
-    })
-    ro.observe(el)
-    settleTimer = window.setTimeout(startWaiting, SETTLE_MS)
-    const deadlineTimer = window.setTimeout(giveUp, MAX_WAIT_MS)
+    pollRaf = requestAnimationFrame(poll)
 
     return () => {
-      clearTimeout(settleTimer)
-      clearTimeout(deadlineTimer)
-      ro?.disconnect()
+      cancelAnimationFrame(liveRaf)
+      cancelAnimationFrame(pollRaf)
       cleanup()
     }
   }, [ref, level])
