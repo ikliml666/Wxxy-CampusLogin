@@ -17,19 +17,19 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
 ## Key Components
 
 ### CSS Variables (HSL)
-- **定义位置**: `index.css` 第 38-64 行 (`:root`) 及 第 157-201 行 (`.dark`)
+- **定义位置**: `index.css` 第 38-64 行 (`:root`) 及 第 143-170 行 (`.dark`)
 - **用途**: 定义语义化颜色变量，如 `--primary`, `--background`, `--foreground` 等。所有 UI 组件应引用这些变量而非硬编码颜色，以确保主题切换的一致性。
-- **注意**: `.dark` 类覆盖了上述变量。此外，还有 `.theme-vibrant`, `.theme-forest` 等修饰类进一步覆盖 `--primary` 和 `--accent` 等特定变量（第 219-228 行）。
+- **注意**: `.dark` 类覆盖了上述变量。此外，还有 `.theme-vibrant`, `.theme-forest` 等修饰类进一步覆盖 `--primary` 和 `--accent` 等特定变量（第 204-213 行）。
 
 ### Force Light Dialog Scope
-- **定义位置**: `index.css` 第 234-255 行 (`.force-light-dialog`)
+- **定义位置**: `index.css` 第 219-240 行 (`.force-light-dialog`)
 - **用途**: 强制在暗色主题下显示为亮色的对话框容器（如“关于”对话框）。
 - **实现细节**: 
     - 重新定义了 `--background`, `--foreground` 等所有相关变量为浅色值。
     - **关键修复**: 显式设置 `color: hsl(var(--foreground))`。因为 `color` 是继承属性，仅重定义变量不足以改变已继承的颜色，必须在此处重置计算后的颜色值，防止子元素继承暗色文本。
 
 ### Global Reset & Typography
-- **定义位置**: `index.css` 第 257-276 行
+- **定义位置**: `index.css` 第 246-261 行
 - **`* { border-color: transparent; }`**: 移除默认边框，配合自定义圆角和阴影使用。
 - **`html` 和 `body`**: 
     - 设置 `overflow: hidden`，防止整个页面滚动，采用内部滚动模式。
@@ -37,13 +37,13 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
     - 背景色使用 `var(--surface-main)`。
 
 ### Scrollbar Styling
-- **定义位置**: `index.css` 第 278-302 行
+- **定义位置**: `index.css` 第 263-287 行
 - **用途**: 全局细滚动条样式。
 - **设计决策**: 完全隐藏滚动条会导致用户无法发现内容可滚动（曾导致首页编辑列表卡片看似被截断）。因此保留 6px 半透明滚动条，与无边框设计兼容。
 - **选择器**: 针对 Webkit 浏览器 (`::-webkit-scrollbar`) 和非 Webkit 浏览器 (`scrollbar-width`) 分别处理。
 
 ### Component Layers
-- **定义位置**: `index.css` 第 314-1036 行 (`@layer components`)
+- **定义位置**: `index.css` 第 299-1045 行 (`@layer components`)
 - **`.bg-card` / `.rounded-2xl`**: 统一卡片圆角为 16px，并添加轻微阴影。
 - **`.glass-dock`**: 仿 FlClash 风格的毛玻璃底栏。使用 `backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))`，并通过 `::before` 和 `::after` 伪元素模拟高光反射效果。
 - **`.btn-physical` / `.btn-press` / `.soft-btn`**: 提供多种按钮交互反馈（缩放、阴影变化、径向渐变高亮）。
@@ -52,11 +52,11 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
 - **其他组件**: 包含 `.app-outer-square`, `.surface-*`, `.interval-input`, `.dialog-*` 动画类等。
 
 ### Utility Layers
-- **定义位置**: `index.css` 第 1038-1153 行 (`@layer utilities`)
+- **定义位置**: `index.css` 第 1047-1168 行 (`@layer utilities`)
 - **`.anim-idle .animate-pulse`**: 当系统处于空闲状态时，暂停脉冲动画，避免用户误以为程序卡死。
 - **`.signal-glow-active`**: 信号强度指示器的呼吸灯动画。
 - **`.list-item-interactive`**: 列表项悬停时左侧出现主色调竖线并右移。
-- **Reduced Motion**: 第 1114-1153 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
+- **Reduced Motion**: 第 1129-1168 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
 
 ## Architecture
 
