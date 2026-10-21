@@ -131,9 +131,12 @@
     --glass-sat: 2.08;
     /* 10%：膜薄到背景色块与文字轮廓直接透出来（24% 仍读作乳白盖板） */
     --glass-tint: 10%;
-    /* 比标准档更淡：ultra 的视觉重量在「透」，不在描边 */
-    --glass-shine: 0.3;
-    --glass-rim: 0.26;
+    /* shine / rim 不再覆写：极致档与标准档共用 :root 的同一组描边值。
+       2026-10-21 用户要求「极致档的边框阴影改为和标准档一样的效果」并选定
+       全部对齐（Hyalite 侧 thickness 90→70、slope 2.2→2.0、shade 0.42→0.45
+       也一并收回）。两档边缘从此由同一组参数生成，「档位只差 tint + blur」
+       这条约定才严格成立——这也是 FlClash 的原样语义（其两档 tint/rim/
+       saturation 完全一致，差别只在 haze）。 */
   }
 
   .dark {
@@ -186,13 +189,12 @@
     --glass-rim: 0;
     --glass-shine: 0;
   }
-  :root.dark[data-glass="standard"] {
+  /* 暗色下 standard 与 ultra 共用同一组描边：2026-10-21 用户要求「极致档的
+     边框阴影改为和标准档一样的效果」，两档的边缘不再有任何差异。上版 ultra
+     单独给过 0.4/0.42，观感是「玻璃变成一圈更淡的描边」，正是这次要消除的。 */
+  :root.dark:is([data-glass="standard"], [data-glass="ultra"]) {
     --glass-rim: 0.62;
     --glass-shine: 0.58;
-  }
-  :root.dark[data-glass="ultra"] {
-    --glass-rim: 0.4;
-    --glass-shine: 0.42;
   }
 
   .theme-vibrant { --primary: 270 91% 65%; --primary-foreground: 0 0% 100%; --ring: 270 91% 65%; --accent: 270 33% 94%; --accent-foreground: 270 91% 20%; }
