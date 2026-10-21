@@ -5,16 +5,11 @@ source_files:
   - tauri-app/frontend/src/account/SelfOnlineRecords.tsx
   - tauri-app/frontend/src/account/SelfOnlineRecords.test.tsx
   - tauri-app/frontend/src/account/AccountPanel.tsx
-  - tauri-app/frontend/src/account/BindOperatorDialog.tsx
-  - tauri-app/frontend/src/account/ChangePasswordDialog.tsx
-  - tauri-app/frontend/src/account/DeviceAliasDialog.tsx
-  - tauri-app/frontend/src/account/LoginInfoDialog.tsx
-  - tauri-app/frontend/src/account/SelfOnlineCards.tsx
-  - tauri-app/frontend/src/account/operatorChip.ts
-  - tauri-app/frontend/src/account/index.ts
   - tauri-app/frontend/src/account/AccountPanel.helloGate.test.tsx
   - tauri-app/frontend/src/account/AccountPanel.rename.test.tsx
-  - tauri-app/frontend/src/account/SelfOnlineCards.test.tsx
+  - tauri-app/frontend/src/account/BindOperatorDialog.tsx
+  - tauri-app/frontend/src/account/operatorChip.ts
+  - tauri-app/frontend/src/account/index.ts
 tags: [account, desktop, frontend, tauri, self-service]
 ---
 
@@ -90,47 +85,19 @@ tags: [account, desktop, frontend, tauri, self-service]
 **文件**: `tauri-app/frontend/src/account/ChangePasswordDialog.tsx`
 **职责**: 修改校园网自助服务密码弹窗。
 
-#### Constants
-*   `NEW_PASSWORD_RE = /^[0-9A-Za-z]{6,11}$/` (行28): 新密码正则，限制长度6-11位，仅允许数字和字母。
-
-#### Methods & Logic
-*   `submit` (行54-72):
-    *   校验新密码格式是否符合 `NEW_PASSWORD_RE`。
-    *   校验 `newPassword` 与 `confirmPassword` 一致。
-    *   调用 `onSave(newPassword, oldPassword)`。
-*   State:
-    *   `oldPassword`: 可选展开输入。
-    *   `newPassword`, `confirmPassword`: 带显隐切换开关。
+*(Note: Source code not provided for line verification in this request)*
 
 ### DeviceAliasDialog
 **文件**: `tauri-app/frontend/src/account/DeviceAliasDialog.tsx`
 **职责**: 在线设备别名编辑弹窗。
 
-#### Props
-*   `mac`: 原始12位 hex 字符串。
-*   `initialName`: 初始别名。
-*   `onSave(name) => Promise<void>`: 保存回调。
-
-#### Methods & Logic
-*   打开时同步 `initialName` 到内部状态。
-*   关闭时重置 `saving` 状态。
-*   提交时 `trim()` 输入值后调用 `onSave`。
+*(Note: Source code not provided for line verification in this request)*
 
 ### LoginInfoDialog
 **文件**: `tauri-app/frontend/src/account/LoginInfoDialog.tsx`
 **职责**: 添加或编辑登录信息的弹窗。
 
-#### Types
-*   `LoginInfoFormValues { accountName, user, password, operator }` (行28-33).
-
-#### Methods & Logic
-*   **模式区分**:
-    *   `mode: 'create'`: 显示 `accountName` 输入框，`password` 必填。
-    *   `mode: 'edit'`: 预填 `user`/`operator`，`password` 留空表示保留现状。若 `passwordSaved` 为 true，显示“修改密码”和“清除密码”链接。
-*   **校验**:
-    *   Create 模式下校验 `isValidDisplayName`。
-    *   `user` 字段非空校验。
-*   **导出**: `LoginInfoDialog`, `LoginInfoFormValues`.
+*(Note: Source code not provided for line verification in this request)*
 
 ### SelfOnlineRecords
 **文件**: `tauri-app/frontend/src/account/SelfOnlineRecords.tsx`
@@ -183,21 +150,7 @@ tags: [account, desktop, frontend, tauri, self-service]
 **文件**: `tauri-app/frontend/src/account/SelfOnlineCards.tsx`
 **职责**: 在线设备卡片展示组件及 Coverflow 堆叠交互容器。
 
-#### OnlineDeviceCard
-*   **Props** (行25-108): `loginTime`, `ip`, `mac`, `flowMb`, `durationMin`, `terminalType`, `alias`, `onRename`, `onOffline`, `offlineDisabled`, `offlineLoading`.
-*   **UI**: 上线时间、终端徽章、别名(若有)、IP/MAC芯片、流量/时长、注销按钮。无主机名。
-
-#### OnlineDeviceCardStack
-*   **变体**: `coverflow` (默认) 和 `narrow` (账号管理专用)。
-*   **Coverflow 常量** (行114-121): `CF_X=[60, 85]`, `CF_INSET='27%'`, `SIDE_SCALE=0.6`, `SLIDE_MS=500`.
-*   **Narrow 常量** (行126): `NARROW_MIN_W=213`.
-*   **State**: `index`, `dragX`, `dragging`, `cardH`.
-*   **交互**: Pointer Events 拖拽 (`DRAG_THRESHOLD=60`, `DRAG_CLAMP=80`)，点击半区切换，圆点导航。
-*   **定位逻辑** (行264-284):
-    *   Narrow: `left: 50%`, `width: max-content`, `minWidth: 213px`, `translateX(calc(... + dragX))`.
-    *   Coverflow: `left/right: 27%`, `translateX(pos.x%)`.
-*   **槽位计算** (行250-259): 基于 `sd(i)` (距离中心的相对索引) 计算 `x`, `scale`, `z`, `opacity`。最多展示5张可见卡，其余隐藏或透明。
-*   **高度自适应**: `ResizeObserver` 监听卡片高度，统一舞台高度。
+*(Note: Source code not provided for line verification in this request)*
 
 ### operatorChip
 **文件**: `tauri-app/frontend/src/account/operatorChip.ts`

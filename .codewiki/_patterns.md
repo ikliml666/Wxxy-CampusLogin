@@ -1,89 +1,103 @@
 ---
-title: Android Frontend & Native Bridge Patterns
-type: module
+title: 模式与约定总结 (Patterns)
+type: pattern
 source_files:
-  - android/frontend/vite.config.ts
-  - android/frontend/vite.mock.config.ts
-  - android/frontend/src/main.tsx
-  - android/frontend/src/App.tsx
-  - android/frontend/tauri-mock.js
-  - android/frontend/src/auth/index.ts
-  - android/frontend/src/account/selfServiceState.ts
-  - android/frontend/src/account/useAccount.ts
-tags: [patterns, conventions, architecture, android, tauri]
+  - android/frontend/src/auth/DashboardPanel.tsx
+  - android/frontend/src/auth/useAuth.ts
+  - android/frontend/src/monitor/LatencyTimeline.tsx
+  - android/frontend/src/monitor/useMonitor.ts
+  - android/frontend/src/settings/useOnboardingFlow.ts
+  - android/frontend/index.html
+tags:
+  - architecture
+  - coding-standards
+  - error-handling
+  - performance
+  - security
 ---
 
 ## Overview
 
-本模块涵盖 Android 端 Tauri 应用的前端构建、核心 UI 逻辑、物理动画引擎及原生后端（Rust/Kotlin）交互模式。架构核心在于将复杂的玻璃拟态视觉与悬浮导航栏效果解耦为纯 JS/DOM 驱动，通过 `dock-spring` 和 `glass-dock` 实现零 React Re-render 的高性能动画；同时利用 `config_state.rs` 和 `NetworkBindPlugin.kt` 处理 Android 特有的网络绑定、Captive Portal 规避及配置加密存储。
+本仓库遵循“双端独立复刻但逻辑同构”的架构哲学。Android 前端与桌面 Tauri 前端在代码库中完全分离，但通过共享的 Rust 后端 crate (`campus-login`) 和高度一致的 React 组件命名/结构保持业务逻辑的一致性。整体风格强调移动端性能优化（防泄漏、动画降级）、严格的状态管理（Zustand + 脏数据检测）以及基于 Tauri ACL 的安全门控。开发流程受 `AGENTS.md` 约束，要求 AI 辅助下的高纪律性提交与文档同步。
 
-## Key Components
+## Patterns
 
-### 1. Vite 构建配置 (`android/frontend/vite.config.ts`, `android/frontend/vite.mock.config.ts`)
+### 1. 响应式双壳与平台差异化适配 (Responsive Shell & Platform Abstraction)
 
-*   **`vite.config.ts`**:
-    *   `alias`: `@` -> `./src` (行 12)。
-    *   `server.port`: `5174` (行 18)。
-    *   `build.outDir`: `dist` (行 26)。
-    *   `manualChunks`: 按库拆分 vendor chunk，包括 `react`, `framer-motion`, `gsap`, `@radix-ui` (行 36-40)。
-*   **`vite.mock.config.ts`**:
-    *   `tauriMockInject` 插件: `transformIndexHtml` 注入 `/tauri-mock.js` (行 16)；CSS 约束 `#root` 宽度 412px 居中 (行 22)。
-    *   `cacheDir`: `os.tmpdir()/wxxy-vite-android` (行 41)。
-    *   `server.port`: `5176` (行 43)。
+**描述**：应用根据设备形态（手机 vs 平板/桌面）动态切换外壳布局。Android 端通过 `useFormFactor()` 区分 `AppInner` (Mobile) 和 `TabletShell`，桌面端则直接运行于标准窗口。UI 层通过条件渲染处理平台差异（如 Android 无原生导航栏需自定义 Dock/BottomNav），而逻辑层通过抽象层屏蔽底层 API 差异。
 
-### 2. 应用入口与崩溃恢复 (`android/frontend/src/main.tsx`)
+**证据**：
+*   **Android 双壳路由**：`android/frontend/src/App.tsx` 实现 `AppInner` 与 `TabletShell` 的动态切换，支持底部 Tab 导航与侧边栏多栏布局。
+*   **平台常量隔离**：`android/frontend/src/settings/useOnboardingFlow.ts` 使用 `isAndroid` 常量区分字段名（如 `enableBootAutostart` vs `autoLaunch`）。
+*   **桌面端入口一致性**：`tauri-app/frontend/index.html` 作为桌面端唯一入口，结构与 Android `index.html` 保持高度同构。
 
-*   **`initTheme`** (行 27-44): 读取 `campus-light-mode`, `campus-theme`, `campus-glass-level` 同步至 DOM。
-*   **`setupCrashRecovery`** (行 50-113):
-    *   `MAX_CRASH_RELOADS = 3` (行 50)。
-    *   `visibilitychange`: 后台暂停 GSAP，前台恢复 (行 82-91)。
-    *   心跳机制: 每 1s 更新 `lastHeartbeatTime`，需 `isRenderLoopAlive()` 检查 rAF (行 93-103)。
-    *   超时判定: 每 2s 检查心跳间隔，若 >10s 触发重载 (行 105-113)。
-    *   错误监听: 捕获 `GPU`, `WebGL`, `SharedArrayBuffer` 错误 (行 71-77)。
-    *   空 DOM 检测: visible 且 root 无子节点时触发恢复 (行 62-69)。
+### 2. 状态管理的脏数据冲突解决 (Dirty Data Conflict Resolution)
 
-### 3. 主容器与路由 (`android/frontend/src/App.tsx`)
+**描述**：在配置持久化场景中，采用 `dirtyFields` 标记本地修改，并结合 `dirtyFailureCounts` 失败计数器。当后端旧快照可能覆盖本地未落盘的新值时，优先保留本地最新状态；若连续同步失败，则放弃自动同步以避免永久脱节。这种模式防止了竞态条件下的数据丢失。
 
-*   **`useFormFactor`**: 判断 `tablet` 渲染 `TabletShell`，否则 `AppInner` (行 363-375)。
-*   **`AppInner` 状态**:
-    *   `tab`: 受控于 `safeStorage('campus-mobile-tab')`，白名单校验 (行 57-62)。
-    *   `deferredTab`: `useDeferredValue` 优化转场 (行 63)。
-    *   `tabOrder`: 第 4 位根据 `configEnableNetworkQuality` 切换 `quality`/`monitor` (行 70-76)。
-    *   `navDir`: 计算前后页签索引差决定 `AnimatePresence` 方向 (行 77, 119-127)。
-*   **UI 结构**:
-    *   `header`: 绝对定位，包含状态点、IspMark、更新胶囊等 (行 202-260)。
-    *   `main`: 滚动区域，padding 动态调整 (行 270-297)。
-    *   `AnimatePresence`: `m.div` + `panelVariants` 实现带方向动画 (行 281-295)。
-    *   `BottomNav`: 底部导航栏 (行 299)。
-*   **全局弹窗**: `ToastContainer`, `SponsorCard`, `ConfirmDialog`, `AboutDialog` 等均使用 `lazy` + `Suspense` (行 301-356)。
-*   **`NotificationPermissionGate`**: Android 13+ 引导通知权限 (行 381-404)。
+**证据**：
+*   **脏字段追踪**：`android/frontend/src/hooks/useConfigStore.ts` 实现 `dirtyFields` 机制，仅在字段变更时参与合并。
+*   **失败熔断**：同一文件中的 `mergeConfigFromBackend` 逻辑包含失败计数重置与同步放弃策略。
 
-### 4. Mock 数据与 IPC 拦截 (`android/frontend/tauri-mock.js`)
+### 3. 串行化 IO 与代际锁保护 (Serialized IO & Generation Locks)
 
-*   **初始化**: 跳过安卓首启引导，设置 `localStorage` 标记 (行 17-26)。支持 `?nomotion=1` 禁用动画 (行 9-15)。
-*   **数据结构**: `config` (行 32-42), `mockAccounts` (行 45-49), `onlineList` (行 59-75)。
-*   **命令分发器 (`handlers`)**:
-    *   `get_init_data`: 返回配置、版本 `2.4.2-mock` (行 88-97)。
-    *   `save_config`: 广播 `config-changed` 事件 (行 99-110)。
-    *   `check_campus_status` / `check_portal_status` / `render_heartbeat`: **关键非显然行为**，直接返回平铺结构体，未使用 `ok()` 包裹 (行 144-146)。
-    *   `invoke(cmd, args)`: 核心路由，维护 `eventListeners` 映射表 (行 216-235)。
-    *   `emitEvent(event, payload)`: 遍历回调执行，异常隔离 (行 239-247)。
-    *   **截图辅助**: `?dialog=create|edit|bind` 延时自动点击 (行 261-277)。
+**描述**：后端 Rust 核心通过全局异步锁强制配置读写串行化，防止并发写入导致的数据损坏。同时，监控循环与网络测试使用 `AtomicU64` 代际标记（Generation ID）而非简单的布尔标志，确保旧任务不会意外清除新任务的运行状态，解决了高并发下的生命周期竞态问题。
 
-### 5. 认证与安全门控 (`android/frontend/src/auth/index.ts`, `selfServiceState.ts`)
+**证据**：
+*   **配置串行锁**：`android/src-tauri/src/config_state.rs` 定义 `CONFIG_IO_LOCK`，所有 `get_config`/`save_config` 均受其保护。
+*   **代际标记**：`android/src-tauri/src/monitor_loop.rs` 使用 `MONITOR_GENERATION` 原子变量管理后台监控循环的生命周期。
+*   **原子文件落盘**：`lib.rs` 及相关模块采用 "Write to `.tmp` -> Rename" 模式保证配置文件原子性。
 
-*   **`auth/index.ts`**: 重导出 `DashboardPanel`, `AboutDialog`, `useAuth` (行 1-3)。
-*   **`selfServiceState.ts`**:
-    *   `BIOMETRIC_ERROR_KEY`: 错误码映射 i18n key (行 19-32)。
-    *   `VERIFY_TTL_MS = 570_000` (行 54)。
-    *   `gateFresh`: 判定 TTL 内且时钟未回拨 (行 58-62)。
-    *   `useHelloGate`: 首次调用或过期时请求 `verifyWindowsIdentity` (行 65-87)。
-    *   `useSelfServiceVerify`: 面板级验证，支持 `config.selfReverifyEachAction` 每次操作验证 (行 105-127)。
+### 4. 生物识别门控与安全隐私掩码 (Biometric Gate & Privacy Masking)
 
-### 6. 账号管理 Hook (`android/frontend/src/account/useAccount.ts`)
+**描述**：敏感操作（如运营商凭据揭示、自助服务）强制通过双层 TTL 验证门控。第一层为全局会话级验证 (`useHelloGate`)，第二层为操作级即时验证 (`useSelfServiceVerify`)。UI 层对敏感信息默认展示掩码，且存在时钟回拨防护机制以防验证永真。
 
-*   **并发去重**: `switchInFlight` Promise 引用 (行 11)。
-*   **`handleAddAccount`**: 调用 `saveCurrentAsAccount` (行 37-55)。
-*   **`handleDeleteAccount`**: 检查 `result?.activeAccount !== undefined` 更新活跃账号，修复历史缺陷 (行 57-75)。
-*   **`handleSwitchAccount`**: 改用 `!== undefined` 判断，防止空串跳过 (行 77-104)。
-*   **`handleRenameAccount`**: 仅更新显示名 (行 108-126)。
+**证据**：
+*   **双层门控**：`android/frontend/src/account/selfServiceState.ts` 定义 `useHelloGate` 和 `useSelfServiceVerify`。
+*   **时钟回拨防护**：`selfServiceState.ts` 行 58-62 显式检查系统时间倒退，防止死锁。
+*   **明文揭示强制验证**：`android/frontend/src/account/useOperatorBind.ts` 即使总开关关闭，揭示密码也需二次生物验证。
+*   **后端掩码出口**：`config_state.rs` 提供 `masked_for_display` 统一处理敏感字段序列化。
+
+### 5. 移动端高性能动画与手势隔离 (High-Performance Animation & Gesture Isolation)
+
+**描述**：针对 WebView 环境限制，采用直接 DOM Style 操作替代 React State 驱动高频交互（如 Dock 镜头效果），结合 `ResizeObserver` 和 `rAF` 循环维持 60fps+。通过 CSS `touch-action: none` 隔离滚动冲突，并实施 GSAP 实例清理与超时 Failsafe 机制，防止后台挂起导致的内存泄漏或卡死。
+
+**证据**：
+*   **DOM 直操优化**：`android/frontend/src/lib/dock-lens.ts` 绕过 React 渲染瓶颈，直接操作 DOM 样式实现果冻形变。
+*   **手势隔离**：`android/frontend/src/account/SelfOnlineStack.tsx` 设置 `touch-action: none` 配合 `ResizeObserver` 实现堆叠视图。
+*   **GSAP 超时保护**：`android/frontend/src/components/layout/RightPanel.tsx` 实施 GSAP 超时重置与 `kill()` 清理，应对 WebView 后台休眠。
+
+### 6. 错误处理的静默降级与非阻断式请求 (Silent Degradation & Non-blocking Requests)
+
+**描述**：前端在网络波动或权限缺失时采取“静默降级”策略。关键路径失败不中断主流程，非关键路径（如 WiFi SSID 获取、Dashboard 自动刷新）失败仅记录日志或忽略，避免弹出干扰性 Toast。弹窗组件吞没提交错误以保持 UI 上下文连续性，允许用户重试。
+
+**证据**：
+*   **静默刷新失败**：`android/frontend/src/account/useAccount.ts` 中 `fetchDashboard` 自动刷新失败不报 Toast。
+*   **非阻断权限**：`android/frontend/src/monitor/useMonitor.ts` 将 WiFi SSID 权限请求包裹在 try-catch 中，失败仅降级显示。
+*   **错误吞没重试**：`android/frontend/src/account/DeviceAliasDialog.tsx` 捕获提交错误并保持弹窗打开，由父组件统一提示。
+
+### 7. 首帧主题一致性与防闪烁保障 (First-Frame Theme Consistency)
+
+**描述**：为防止 React 挂载前的样式跳变（FOUC），在 HTML 入口文件中通过内联同步 IIFE 脚本，在 CSS 解析前立即写入 `data-light`、`theme` 和 `glass-level` 属性。此逻辑在 Android 和桌面端 `index.html` 中严格保持一致，确保首屏视觉瞬间稳定。
+
+**证据**：
+*   **Android 首帧脚本**：`android/frontend/index.html` 行 9-26 执行同步 IIFE 设置 CSS 变量。
+*   **桌面端首帧脚本**：`tauri-app/frontend/index.html` 行 9-26 执行相同逻辑，确保跨端视觉一致。
+*   **CSS 变量驱动**：`android/frontend/src/index.css` 依赖上述属性切换 `--glass-blur` 等变量。
+
+### 8. 数据归一化与多源融合 (Data Normalization & Multi-source Fusion)
+
+**描述**：面对异构数据源（如 Dashboard 历史数组与账单对象数组），组件层采用“多源转一态”策略，将其统一转换为标准化的内部结构（如 `SessionRow`），从而简化视图层渲染逻辑，降低维护成本。
+
+**证据**：
+*   **记录融合**：`tauri-app/frontend/src/account/SelfOnlineRecords.tsx` 将 `SelfHistoryRow` 和 `SelfLogRow` 统一映射为标准化的 `SessionRow`。
+*   **延迟归一化**：`android/frontend/src/monitor/LatencyTimeline.tsx` 实现严格的宽度归一化算法，确保百分比总和不超过 100%。
+
+### 9. Tauri ACL 与命令通道解耦 (ACL Decoupling from Command Channels)
+
+**描述**：自研插件定义了独立的权限集，但在实际调用中，前端通过应用命令通道 (`protocol_cmds.rs`) 而非插件 invoke 进行通信。这导致能力文件 (`capabilities/default.json`) 中未显式授权这些插件命令，而是依赖通配符或底层 IPC 机制。这种模式降低了耦合，但增加了 ACL 审查的认知负担，需警惕 `deny-<command>` 优先原则带来的潜在拦截风险。
+
+**证据**：
+*   **命令通道复用**：`android/src-tauri/src/protocol_cmds.rs` 集中处理登录、监控等核心业务命令。
+*   **ACL 隐式耦合**：`desktop-tauri-shell-config` 模块指出 `capabilities/default.json` 硬编码匹配 `"main"` 窗口，且自研插件权限未在 capability 中授予，依赖运行时 ACL 的宽泛配置或通配符。
+*   **生成物不可手动修改**：`tauri-gen-schemas` 模块强调 `gen/schemas/capabilities.json` 为自动生成，权限变更需修正源码或声明文件。

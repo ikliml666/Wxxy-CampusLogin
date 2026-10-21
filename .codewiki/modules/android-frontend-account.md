@@ -84,9 +84,11 @@ tags: [account, self-service, operator-bind, biometric-auth, tauri]
 **职责**：在线设备改名弹窗。编辑 `config.deviceAliases[mac]`。
 
 *   **Props** (行 15-23):
+    *   `open`: 弹窗打开状态。
     *   `mac`: 原始12位hex。
     *   `initialName`: 初始别名。
     *   `onSave`: 保存回调。
+    *   `onCancel`: 取消回调。
 *   **逻辑** (行 36-47): 简单文本输入，限制最大长度30字符。保存时 `trim()` 后调用 `onSave`。
 *   **防抖** (行 50, 68): `saving` 状态期间禁用提交按钮和弹窗关闭。
 *   **错误吞没** (行 41-46): catch 块吞掉错误，因为错误提示已由调用方发出，保持弹窗打开以便重试。

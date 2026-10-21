@@ -15,10 +15,10 @@ tags: [android, monitor, network-quality, latency, zustand, framer-motion, tauri
 
 ## Overview
 `android-frontend-monitor` 模块是 Android 前端应用中的网络监控核心子系统。它负责提供从底层状态感知到可视化展示的完整功能，包括：
-1. **全局状态栏** (`StatusBar`)：展示认证状态、运营商信息及快捷入口。
+1. **全局状态栏** (`StatusBar`)：展示认证状态、运营商信息及快捷入口。（*注：源码未提供 StatusBar.tsx 内容，描述基于架构逻辑保留*）
 2. **悬浮胶囊** (`NetworkQualityCapsule`)：实时展示网络质量摘要，支持 Hover 展开详情。
 3. **控制面板** (`MonitorPanel`)：管理后台检测开关、间隔配置及自动化策略（如定时登录）。
-4. **质量面板** (`QualityPanel`)：综合测试视图，包含延迟信号条、细分耗时时间轴及多类别 Tab 切换。
+4. **质量面板** (`QualityPanel`)：综合测试视图，包含延迟信号条、细分耗时时间轴及多类别 Tab 切换。（*注：源码未提供 QualityPanel.tsx 内容，描述基于架构逻辑保留*）
 5. **测速入口** (`SpeedTestPanel`)：提供第三方测速网站跳转。
 6. **基础组件** (`LatencyComponents`, `LatencyTimeline`)：用于渲染延迟数值和分段耗时图表。
 7. **类型定义** (`types`)：共享数据结构。
@@ -30,19 +30,7 @@ tags: [android, monitor, network-quality, latency, zustand, framer-motion, tauri
 
 #### StatusBar (`android/frontend/src/monitor/StatusBar.tsx`)
 **职责**：渲染应用底部状态栏 UI，展示认证状态、运营商信息、网络质量及快捷操作按钮。采用 `memo` 优化重渲染性能，通过细粒度订阅 Zustand store 避免无关配置变更导致的重绘。
-
-*   **导出组件**: `StatusBar` (Line 19)
-    *   **Props**: `onOpenPortal` (必选), `onOpenSelfService` (可选) (Line 14-17)。
-    *   **核心逻辑**:
-        *   **状态订阅**: 使用 `useConfigStore` 和 `useAuthStore` 的 selector 模式，仅订阅 `config.user`, `config.operator`, `nightOperatorRestore`, `enableNetworkQuality` 等具体字段 (Line 24-35)，避免全量更新。
-        *   **夜切检测**: 判断是否为夜间切换临时态 (`isNightShift`)，条件为 `configOperator === '' && nightOperatorRestore !== ''` (Line 43)。若为夜切，Tooltip 显示恢复目标运营商 (Line 44)。
-        *   **校园网状态计算**: 使用 `useMemo` 计算 `displayText` 和 `campusTooltip`。当处于离线状态且有校园网数据时，显示适配器在线/离线文案；否则显示通用状态文本 (Line 51-65)。
-        *   **样式配置**: 定义 `statusConfig` 对象，映射 `online/offline/loading/error/unknown` 五种状态的颜色、圆点背景色及容器背景色 (Line 67-73)。
-        *   **动画类名**: 根据 `prevStatusRef` 记录的上一个状态，动态添加 `status-offline-shake` (当前离线)、`status-enter-from-offline` (从离线恢复) 或 `status-enter` 动画类 (Line 87-95)。
-        *   **UI 渲染**:
-            *   左侧：状态指示器（带 Tooltip），在线时额外显示运营商徽标 (`IspMark`) 及完整账号信息 (Line 115-135)。
-            *   右侧：网络质量胶囊 (`NetworkQualityCapsule`) + 刷新按钮 (`RefreshButton`)，仅在 `enableNetworkQuality` 开启且存在 `refreshQuality` 函数时显示 (Line 139-159)。
-            *   最右侧：自助服务按钮 (`HeadsetIcon`) 和 Portal 跳转按钮 (`ExternalLink`)，均包裹在 Tooltip 中 (Line 161-191)。
+*(注：由于源码文件未提供，以下行号相关细节无法核对，建议后续补充源码)*
 
 #### NetworkQualityCapsule (`android/frontend/src/monitor/NetworkQualityCapsule.tsx`)
 **职责**：一个悬浮式胶囊组件，通常固定在屏幕角落，实时显示当前网络延迟概览，Hover 展开详细延迟信息。
@@ -50,8 +38,8 @@ tags: [android, monitor, network-quality, latency, zustand, framer-motion, tauri
 *   **Props**: `networkQuality` (来自 store)。
 *   **关键实现**:
     *   **延迟提取逻辑**:
-        *   `gatewayLatency`, `externalLatency`：通过 helper 函数提取。
-        *   `dnsLatency`：从 `details['dnsResolve']` 提取。
+        *   `gatewayLatency`, `externalLatency`：通过 helper 函数提取 (Line 61-62)。
+        *   `dnsLatency`：从 `details['dnsResolve']` 提取 (Line 63)。
         *   `displayLatency`：优先级 External > Gateway > DNS，任一 >=0 即显示 (Line 85-90)。
     *   **质量推断**: 若状态为 `busy` 或 `unknown` 但有延迟数据，则根据延迟值推断等级，避免胶囊一直显示“检测中” (Line 96-98)。
     *   **动画反馈**:
@@ -70,8 +58,8 @@ tags: [android, monitor, network-quality, latency, zustand, framer-motion, tauri
 *   **子组件 `MonitorSettingRow`** (Line 29-48): 通用的设置行布局，左侧图标+标签+描述，右侧控件。
 *   **组件 `MonitorPanel`** (Line 50-434):
     *   **状态订阅**:
-        *   `bgStatus`：来自 `useAuthStore`，获取后台检测运行状态、检查次数、`watcherFailed` 标志。
-        *   `config`：来自 `useConfigStore`，使用 `useShallow` 浅比较优化渲染。
+        *   `bgStatus`：来自 `useAuthStore`，获取后台检测运行状态、检查次数、`watcherFailed` 标志 (Line 52)。
+        *   `config`：来自 `useConfigStore`，使用 `useShallow` 浅比较优化渲染 (Line 55)。
     *   **输入草稿模式**:
         *   `intervalDraft`：后台检测间隔的数字输入框，使用本地状态暂存，Blur/Enter 时执行 `commitInterval` 进行 Clamp (10-600s) 并提交，避免实时输入导致的级联渲染和值回弹 (Line 59, 70-77)。
         *   `handleTriggerCheck` / `toggleBackgroundCheck`：使用 `useAsyncLock` 防止快速连点导致的并发冲突 (Line 62-68)。
@@ -88,26 +76,7 @@ tags: [android, monitor, network-quality, latency, zustand, framer-motion, tauri
 
 #### QualityPanel (`android/frontend/src/monitor/QualityPanel.tsx`)
 **职责**：综合质量测试面板，展示总体网络质量、延迟详情分类横滑 Tab、以及各项测试点的详细 Timeline。
-
-*   **数据聚合**: 使用 `resolveQualityDisplay` 解析 `networkQuality` 获取有效质量等级和延迟值。
-*   **进度轨**:
-    *   根据 `lastTestAt` 和当前时间计算已流逝秒数 `elapsedSec`。
-    *   使用 `framer-motion` 的 `animate` 驱动底部细线 `scaleX`，模拟倒计时进度 (Line 354-362)。
-*   **横滑 Tab 系统**:
-    *   **数据结构**: `DETAIL_CATEGORIES` 分为四类：Gateway/DNS, HTTP, Stream, Game (Line 39-76)。
-    *   **手势驱动**:
-        *   `useMotionValue(0)` 驱动轨道 `x` 坐标。
-        *   `ResizeObserver` 监听视口宽度变化，校正轨道位置 (Line 137-153)。
-        *   `drag="x"` 启用原生拖拽，`onDragEnd` 结合速度和位移判定落页 (Line 172-187)。
-        *   `useTransform` 联动指示条（Indicator）位置和标签高亮 (Line 190-192, 165-170)。
-    *   **点击导航**: `goTo(idx)` 立即更新高亮并使用 animate 平滑滑动 (Line 156-160)。
-*   **详情展示**:
-    *   每个 Tab 页内遍历该类别下的测试点（如 baidu, bilibili 等）。
-    *   渲染 `LatencyPair` 展示网关/外部延迟。
-    *   渲染 `LatencyTimeline` 展示细分耗时 (Line 456-465)。
-    *   **异常预警**: 若 UDP 延迟显著高于 TCP（>3倍且差值>=20ms），显示警告标识 (Line 472-474, 502-504)。
-*   **空态处理**: 无数据时显示引导式空状态卡片，而非纯 Loading (Line 255-268, 416-430)。
-*   **装饰元素**: 底部看板娘图片，低透明度装饰 (Line 537-544)。
+*(注：由于源码文件未提供，以下行号相关细节无法核对，建议后续补充源码)*
 
 #### SpeedTestPanel (`android/frontend/src/monitor/SpeedTestPanel.tsx`)
 **职责**：提供第三方测速网站的外部跳转入口列表。
@@ -127,7 +96,7 @@ tags: [android, monitor, network-quality, latency, zustand, framer-motion, tauri
 *   **组件 `SignalGlowDot`** (Line 33-73):
     *   使用 `memo` 优化。
     *   **性能优化**: 注释行 32 指出使用 CSS `@keyframes` 替代 GSAP timeline 以优化 FP-3 性能。
-    *   **动画控制**: 通过 `animActive` 和 `profile.willChangeOrbs` 决定是挂载静态样式还是动态类名 `signal-glow-active`。
+    *   **动画控制**: 通过 `animActive` 和 `profile.willChangeTransform` 决定是挂载静态样式还是动态类名 `signal-glow-active`。
 *   **组件 `SignalBars`** (Line 75-168):
     *   **Props**: `latency`, `loading`, `compact`。
     *   **状态管理**: 使用 `useRef` 记录 `prevActiveBars`，当活跃条数变化时触发 `setBarKey` 重绘，确保进入动画播放 (Line 83-88)。

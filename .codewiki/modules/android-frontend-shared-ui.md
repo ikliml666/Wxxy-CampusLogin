@@ -23,7 +23,7 @@ tags: [ui, shared, react, animation, android]
 ---
 
 ## Overview
-`android-frontend-shared-ui` 模块是 Android 前端应用的核心 UI 资产库。它封装了跨页面复用的原子组件、布局容器、数据展示逻辑以及全局常量与类型定义。该模块深度集成了 `gsap` 和 `framer-motion` 动画库，针对 Android WebView 环境（如 rAF 挂起、内存泄漏）进行了特定的性能优化和缺陷修复。同时，模块引入了二次元吉祥物（Mascot）系统以增强用户交互体验，并提供了完整的日志面板、错误边界和更新提示机制。
+`android-frontend-shared-ui` 模块是 Android 前端应用的核心 UI 资产库，封装了跨面板复用的原子组件、布局容器、数据展示逻辑以及全局常量与类型定义。该模块深度集成了 `gsap` 和 `framer-motion` 动画库，针对 Android WebView 环境（如 rAF 挂起、内存泄漏）进行了特定的性能优化和缺陷修复。同时，模块引入了二次元吉祥物（Mascot）系统以增强用户交互体验，并提供了完整的日志面板、错误边界和更新提示机制。
 
 ## Key Components
 
