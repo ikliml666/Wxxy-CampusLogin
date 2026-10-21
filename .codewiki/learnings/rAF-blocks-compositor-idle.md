@@ -84,13 +84,13 @@ tags: [性能, 省电, 渲染, rAF, 合成器, 帧率]
 负责 UI 样式及动画状态管理。
 
 - **关键 CSS 规则**:
-    - `.anim-idle .animate-pulse` (1074-1076): 
+    - `.anim-idle .animate-pulse` (1099-1101): 
         - **用途**: 在应用进入空闲状态（`.anim-idle` 类被添加）时，暂停所有 `.animate-pulse` 动画。
         - **实现**: `animation-play-state: paused !important;`。
         - **历史背景**: 曾因为逗号选择器共享声明块的问题导致失效，现已独立成规则修复。
-    - `.anim-idle .signal-glow-active` (1082-1084): 
+    - `.anim-idle .signal-glow-active` (1107-1109): 
         - **用途**: 同样在 idle 状态下暂停信号光效动画。
-    - `.scrollbar-none` (1078-1080): 移动端隐藏滚动条。
+    - `.scrollbar-none` (1104-1105): 移动端隐藏滚动条。
 
 ## Architecture
 

@@ -1,12 +1,12 @@
 ---
-title: System Architecture Overview
+title: Android Frontend Architecture
 type: architecture
 source_files:
   - android/frontend/src/main.tsx
   - android/frontend/src/App.tsx
   - android/frontend/src/index.css
   - android/frontend/src/i18n/index.ts
-tags: [architecture, overview, tauri, android, rust]
+tags: [architecture, overview, tauri, android, react, glassmorphism]
 ---
 
 ## Overview

@@ -10,26 +10,51 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
 
 `tauri-app/frontend/src/index.css` 是 Tauri 应用的前端核心样式入口。它通过 `@tailwind` 指令引入基础、组件和工具类，并定义了复杂的全局 CSS 变量系统以支持多主题（Light/Dark/Vibrant/Forest/Midnight/Ocean/Cherry）。
 
-本文重点记录在该文件中遇到的两个关键设计陷阱：
-1. **Tailwind `space-y` 的 Specificity 锁死**：容器内的子元素无法使用 `margin` 进行垂直间距控制，必须改用 `padding`。（注：源码中未直接体现此逻辑，但作为通用架构教训保留在文档背景中）
-2. **全局滚动条与溢出隐藏冲突**：`html` 和 `body` 设置了 `overflow: hidden`，但内容区域需要滚动。若未正确设置内部容器的滚动属性，会导致页面看似被截断且不可滚动。
+本文重点记录在该文件中遇到的关键设计陷阱与实现细节：
+1. **Glassmorphism 的跨引擎降级与 Hyalite 增强**：玻璃效果不再仅依赖简单的 `backdrop-filter`，而是引入了 `@property` 注册自定义属性以实现平滑过渡，并利用 `Hyalite` 特性在支持 SVG 背板滤镜的引擎上提供高质量折射，同时在其他引擎上优雅降级。
+2. **CSS 自定义属性的作用域陷阱**：在伪元素中使用基于父元素圆角半径的动态计算时，必须将变量定义在与伪元素同级的选择器上，而非 `:root`，否则会导致圆角采样错位。
+3. **全局滚动条与溢出隐藏冲突**：`html` 和 `body` 设置了 `overflow: hidden`，但内容区域需要滚动。若未正确设置内部容器的滚动属性，会导致页面看似被截断且不可滚动。
 
 ## Key Components
 
-### CSS Variables (HSL)
-- **定义位置**: `index.css` 第 38-64 行 (`:root`) 及 第 143-170 行 (`.dark`)
-- **用途**: 定义语义化颜色变量，如 `--primary`, `--background`, `--foreground` 等。所有 UI 组件应引用这些变量而非硬编码颜色，以确保主题切换的一致性。
-- **注意**: `.dark` 类覆盖了上述变量。此外，还有 `.theme-vibrant`, `.theme-forest` 等修饰类进一步覆盖 `--primary` 和 `--accent` 等特定变量（第 204-213 行）。
+### @property Custom Properties (Smooth Transitions)
+- **定义位置**: `index.css` 第 8-35 行
+- **用途**: 注册 CSS 自定义属性，使原本离散变化的值（如颜色混合百分比、长度、数字）能够进行平滑过渡动画。
+- **关键变量**:
+    - `--glass-glow-alpha` (第 8-12 行): 按压光斑的透明度，`inherits: false`，确保光斑只属于被按下的元素。
+    - `--glass-glow-reach` (第 13-17 行): 光斑半径，初始值 39px。
+    - `--glass-tint` (第 21-25 行): 玻璃基色透明度，影响折射可见度。
+    - `--glass-shine` (第 26-30 行): 内缘光泽强度。
+    - `--glass-rim` (第 31-35 行): 外缘暗线强度。
+- **注意**: 这些变量必须在 `@property` 中声明语法和初始值，否则在切换档位或状态时会出现硬跳（hard jump），无法看到“光从指尖散开”的过程。
+
+### Theme Variables (HSL & Surface)
+- **定义位置**: `index.css` 第 37-70 行 (`:root`) 及 第 145-178 行 (`.dark`)
+- **用途**: 定义语义化颜色变量，如 `--primary`, `--background`, `--surface-main` 等。
+- **Surface 策略**:
+    - `--surface-top`: 顶部栏背景（亮色 #ffffff / 暗色 #14161b）。
+    - `--surface-main`: 主内容区背景（亮色 #f0f4f8 / 暗色 #0c0e12）。
+    - `--surface-side`: 右侧栏背景（亮色 #ffffff / 暗色 #16191f）。右栏纯白设计是为了通过明度差自然形成边界，无需额外分隔线。
+- **Glass 基准变量**:
+    - `--glass-blur`: 模糊半径，默认 8px（折中值，避免过度模糊导致内容不可读）。
+    - `--glass-sat`: 饱和度，默认 2.08（模拟 iOS 玻璃质感）。
+    - `--glass-base`: 玻璃基色，亮色为白色，暗色为深灰蓝 (#1c2028)。
+
+### Glass Modes (Off, Standard, Ultra)
+- **定义位置**: `index.css` 第 117-143 行 (`:root[data-glass="off"]`, `ultra`) 及 第 194-205 行 (`.dark` modes)
+- **Off Mode**: 第 117-123 行。完全禁用模糊和阴影，`backdrop-filter: none`，实现零开销。
+- **Ultra Mode**: 第 135-143 行。减少白膜厚度（`--glass-tint: 26%`），降低光影强度，让折射本身成为视觉主体。注意：在 Hyalite 支持的引擎上，调整 `--glass-blur` 和 `--glass-sat` 无效，因为它们被 `--hyalite` 覆盖。
+- **Dark Mode Adjustments**: 第 194-205 行。暗色下需显式提升 `--glass-rim` 和 `--glass-shine` 以避免被深色背景压平，但 Ultra 档反而要收淡，防止变成亮描边。
 
 ### Force Light Dialog Scope
-- **定义位置**: `index.css` 第 219-240 行 (`.force-light-dialog`)
+- **定义位置**: `index.css` 第 222-243 行 (`.force-light-dialog`)
 - **用途**: 强制在暗色主题下显示为亮色的对话框容器（如“关于”对话框）。
 - **实现细节**: 
-    - 重新定义了 `--background`, `--foreground` 等所有相关变量为浅色值。
+    - 重新定义了所有相关 CSS 变量为浅色值。
     - **关键修复**: 显式设置 `color: hsl(var(--foreground))`。因为 `color` 是继承属性，仅重定义变量不足以改变已继承的颜色，必须在此处重置计算后的颜色值，防止子元素继承暗色文本。
 
 ### Global Reset & Typography
-- **定义位置**: `index.css` 第 246-261 行
+- **定义位置**: `index.css` 第 245-264 行
 - **`* { border-color: transparent; }`**: 移除默认边框，配合自定义圆角和阴影使用。
 - **`html` 和 `body`**: 
     - 设置 `overflow: hidden`，防止整个页面滚动，采用内部滚动模式。
@@ -37,26 +62,29 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
     - 背景色使用 `var(--surface-main)`。
 
 ### Scrollbar Styling
-- **定义位置**: `index.css` 第 263-287 行
+- **定义位置**: `index.css` 第 266-290 行
 - **用途**: 全局细滚动条样式。
 - **设计决策**: 完全隐藏滚动条会导致用户无法发现内容可滚动（曾导致首页编辑列表卡片看似被截断）。因此保留 6px 半透明滚动条，与无边框设计兼容。
 - **选择器**: 针对 Webkit 浏览器 (`::-webkit-scrollbar`) 和非 Webkit 浏览器 (`scrollbar-width`) 分别处理。
 
 ### Component Layers
-- **定义位置**: `index.css` 第 299-1045 行 (`@layer components`)
-- **`.bg-card` / `.rounded-2xl`**: 统一卡片圆角为 16px，并添加轻微阴影。
-- **`.glass-dock`**: 仿 FlClash 风格的毛玻璃底栏。使用 `backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))`，并通过 `::before` 和 `::after` 伪元素模拟高光反射效果。
+- **定义位置**: `index.css` 第 302-1061 行 (`@layer components`)
+- **`.bg-card` / `.rounded-2xl`**: 统一卡片圆角为 16px，并添加轻微阴影（近影 + 远影 + 顶部高光）。
+- **`.glass-dock` / `.glass-nav`**: 仿 FlClash 风格的毛玻璃底栏/导航栏。
+    - **Hyalite Integration**: 第 392-393 行。使用 `var(--hyalite, blur(...) saturate(...))` 语法。如果浏览器支持 Hyalite（Chromium/WebView2），则使用 SVG 背板滤镜实现高质量折射；否则回退到标准 `backdrop-filter`。
+    - **Edge Highlights**: 第 497-561 行。使用 `::before` 和 `::after` 伪元素，结合 `mask-composite` 和线性渐变模拟内缘光（shine）和外缘暗线（rim）。
+    - **Corner Radius Trap**: 第 482-495 行。`--edge-fade-x` 渐变中的 `var(--glass-r)` 必须在 `.glass-dock` 和 `.glass-nav` 上分别定义（18px vs 34px），不能放在 `:root`，否则药丸形导航栏的圆角采样会错位。
 - **`.btn-physical` / `.btn-press` / `.soft-btn`**: 提供多种按钮交互反馈（缩放、阴影变化、径向渐变高亮）。
 - **`.animated-card-interactive`**: 卡片悬停效果，包含边框颜色和位移过渡。
 - **`.log-entry-hover`**: 日志条目悬停时向右平移 6px，并显示左侧指示条。
 - **其他组件**: 包含 `.app-outer-square`, `.surface-*`, `.interval-input`, `.dialog-*` 动画类等。
 
 ### Utility Layers
-- **定义位置**: `index.css` 第 1047-1168 行 (`@layer utilities`)
+- **定义位置**: `index.css` 第 1063-1184 行 (`@layer utilities`)
 - **`.anim-idle .animate-pulse`**: 当系统处于空闲状态时，暂停脉冲动画，避免用户误以为程序卡死。
 - **`.signal-glow-active`**: 信号强度指示器的呼吸灯动画。
 - **`.list-item-interactive`**: 列表项悬停时左侧出现主色调竖线并右移。
-- **Reduced Motion**: 第 1129-1168 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
+- **Reduced Motion**: 第 1145-1184 行，尊重用户 `prefers-reduced-motion` 偏好，禁用大部分动画。
 
 ## Architecture
 
@@ -76,8 +104,10 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
 │  @layer components                                          │
 │  ├─ .bg-card, .rounded-*                                    │
 │  │   └─ Global radius/shadow overrides                      │
-│  ├─ .glass-dock                                             │
-│  │   └─ Blur + saturation + pseudo-element highlights       │
+│  ├─ .glass-dock / .glass-nav                                │
+│  │   ├─ backdrop-filter (Hyalite or fallback)               │
+│  │   ├─ pseudo-elements (::before/::after) for edge lights  │
+│  │   └─ transition on @property vars                        │
 │  ├─ .btn-*, .animated-card-*                                │
 │  │   └─ Interactive states (hover, active, scale)           │
 │  ├─ .dialog-*, .card-enter                                  │
@@ -108,6 +138,12 @@ tags: [教训, 前端, css, tailwind, 布局, 样式隔离, glassmorphism, anima
    - `body` 禁止滚动 (`overflow: hidden`)。
    - 内部内容容器（如 `.surface-main-square`）需自行处理滚动逻辑（通常由 JS 框架或内部布局决定），或通过 CSS 设置 `overflow-y: auto`。
    - 滚动条样式通过 `*` 选择器全局应用，确保视觉一致性。
+
+4. **Glass Effect Rendering**:
+   - 浏览器检查是否支持 Hyalite。
+   - 如果支持，使用 SVG 背板滤镜进行高质量折射。
+   - 如果不支持，使用标准的 `backdrop-filter` 进行模糊和饱和处理。
+   - 无论哪种路径，边缘光（shine/rim）都通过伪元素和 mask 叠加实现。
 
 ## Connections
 
