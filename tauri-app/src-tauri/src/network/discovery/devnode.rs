@@ -42,6 +42,15 @@ const USB_VERIFY_TOTAL_MS: u64 = 15000;
 /// 比单设备启用慢得多，给足 15 秒。
 const REENUMERATE_VERIFY_TOTAL_MS: u64 = 15000;
 
+/// 提权通道超时：必须覆盖 worker 侧的复核窗口（USB 15s）+ 提权触发开销。
+/// `spawn_elevated_helper` 的通道降级链在失败后会以同一 timeout 重走一次
+/// （task_proxy → raw），实际总耗时上限可达 2×timeout，因此不能贴着复核窗口取值。
+const ELEVATED_HELPER_TIMEOUT_SECS: u64 = 60;
+
+/// PnP problem code：设备被禁用（`CM_PROB_DISABLED`，即 problem 22）。
+/// 供本模块与 helper worker 共用，避免裸写 `22` 与 `CM_PROB_DISABLED.0` 两种写法。
+pub(crate) const PROBLEM_DISABLED: u32 = CM_PROB_DISABLED.0;
+
 /// 按总线选复核窗口：USB 设备重枚举慢一个数量级。
 pub(crate) fn verify_window_ms(instance_id: &str) -> u64 {
     if instance_id.to_ascii_uppercase().starts_with("USB\\") {
@@ -127,6 +136,10 @@ pub enum DeviceState {
 
 /// 检测适配器的 PnP 设备级状态。
 ///
+/// 函数名沿用历史（`find_disabled_device`），但它实际返回的是**分流判定**，
+/// 而非「是否禁用」——`Unlocatable` 分支表示设备压根不可定位，此时既不能
+/// 当成「未禁用」回退 netsh，也不能当成普通禁用走 pnputil。
+///
 /// 返回 `Ok(None)` 表示确定不是设备级问题（设备已正常启动，或该卡没有 PnP 实例 ID
 /// 的虚拟卡），调用方维持 netsh 原路径。
 ///
@@ -149,7 +162,7 @@ pub fn find_disabled_device(adapter_name: &str) -> Result<Option<DeviceState>, S
     };
 
     match devnode_problem(&instance_id) {
-        Ok(problem) if problem == CM_PROB_DISABLED.0 => Ok(Some(DeviceState::Disabled(instance_id))),
+        Ok(problem) if problem == PROBLEM_DISABLED => Ok(Some(DeviceState::Disabled(instance_id))),
         // 已正常启动：netsh 覆盖 NDIS admin 层即可，不对已启动设备做设备级操作
         // ——那会触发一次不必要的重枚举（USB 重扫会短暂中断同 hub 的所有设备）
         Ok(_) => Ok(None),
@@ -179,10 +192,12 @@ pub fn disable_device(instance_id: &str) -> Result<(), String> {
         return Err(format!("CM_Disable_DevNode 失败: 0x{:08X}", cr.0));
     }
     // 复核：不信返回值，轮询 problem 22 真正出现（USB 重枚举窗口内查询可能失败，继续等）
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ENABLE_VERIFY_TOTAL_MS);
+    // 窗口按总线选：USB 设备禁用同样等价物理拔插，3 秒必然误判。
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(verify_window_ms(instance_id));
     loop {
         match devnode_problem(instance_id) {
-            Ok(problem) if problem == CM_PROB_DISABLED.0 => return Ok(()),
+            Ok(problem) if problem == PROBLEM_DISABLED => return Ok(()),
             _ if std::time::Instant::now() >= deadline => {
                 return Err("CM_Disable_DevNode 已调用但设备未进入 PnP 禁用态(problem 22)".to_string());
             }
@@ -223,7 +238,7 @@ pub fn enable_device(instance_id: &str, allow_uac_prompt: bool) -> Result<(), St
             "enable_device",
             &[instance_id],
             &result_name,
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(ELEVATED_HELPER_TIMEOUT_SECS),
             allow_uac_prompt,
         )?;
         if !v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
@@ -257,7 +272,7 @@ pub fn enable_device(instance_id: &str, allow_uac_prompt: bool) -> Result<(), St
         std::time::Instant::now() + std::time::Duration::from_millis(verify_window_ms(instance_id));
     loop {
         match devnode_problem(instance_id) {
-            Ok(problem) if problem != CM_PROB_DISABLED.0 => return Ok(()),
+            Ok(problem) if problem != PROBLEM_DISABLED => return Ok(()),
             _ if std::time::Instant::now() >= deadline => {
                 return Err("pnputil 已执行但设备仍处于 PnP 禁用态(problem 22)".to_string());
             }
@@ -275,8 +290,10 @@ pub fn enable_device(instance_id: &str, allow_uac_prompt: bool) -> Result<(), St
 /// 此时 pnputil /enable-device 无从下手、netsh 找不到接口行，只有重扫总线才能
 /// 把设备重新枚举出来。用户当时的「解法」正是在设备管理器里点「扫描检测硬件改动」。
 ///
-/// 重枚举作用在**父设备**（USB hub）上，因此先取父 devinst；父不可得时退回
-/// 本实例（对已消失的实例会失败，交由调用方报错）。
+/// 重枚举作用在**父设备**（USB hub）上，因此必须先取到父 devinst。
+/// 取不到父时**直接报错**，绝不退回对本实例重枚举：官方语义（`CM_Reenumerate_DevNode`
+/// 文档）是「枚举指定设备节点及其子节点」，对叶子设备自身调用不会枚举它自己，
+/// 只会静默 CR_SUCCESS 却什么也没做——那正是「修复等于没修」的假成功。
 ///
 /// 只传 `CM_REENUMERATE_SYNCHRONOUS`，绝不传 `CM_REENUMERATE_RETRY_INSTALLATION`
 /// ——官方警告后者可能弹出驱动安装提示。
@@ -289,8 +306,8 @@ pub fn reenumerate_device(instance_id: &str, allow_uac_prompt: bool) -> Result<(
             "reenumerate_device",
             &[instance_id],
             &result_name,
-            // 15s 重枚举复核 + 通道触发开销；与 enable_device 的 30s 留出余量
-            std::time::Duration::from_secs(60),
+            // 与 enable_device 同源：15s 重枚举复核 + 通道触发开销，通道降级可能重走一次
+            std::time::Duration::from_secs(ELEVATED_HELPER_TIMEOUT_SECS),
             allow_uac_prompt,
         )?;
         if !v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
@@ -309,11 +326,13 @@ pub fn reenumerate_device(instance_id: &str, allow_uac_prompt: bool) -> Result<(
 /// 重枚举执行体（管理员/SYSTEM 上下文内直接调用，不再走提权链）。
 pub(crate) fn reenumerate_device_raw(instance_id: &str) -> Result<(), String> {
     let devinst = locate_devinst(instance_id)?;
-    let mut parent = devinst;
+    let mut parent = 0u32;
     let cr = unsafe { CM_Get_Parent(&mut parent, devinst, 0) };
     if cr != CR_SUCCESS {
-        // 父设备取不到（例如实例本身已是根节点）：对自身重枚举
-        parent = devinst;
+        return Err(format!(
+            "CM_Get_Parent 失败，无法定位设备所在总线: 0x{:08X}",
+            cr.0
+        ));
     }
     let cr = unsafe { CM_Reenumerate_DevNode(parent, CM_REENUMERATE_SYNCHRONOUS) };
     if cr != CR_SUCCESS {
@@ -333,6 +352,30 @@ pub(crate) fn reenumerate_device_raw(instance_id: &str) -> Result<(), String> {
             return Err("已触发总线重枚举，但设备实例仍未重新出现".to_string());
         }
         std::thread::sleep(std::time::Duration::from_millis(ENABLE_VERIFY_INTERVAL_MS));
+    }
+}
+
+/// 重枚举之后对设备状态的判定：决定是直接完成、补一次设备级启用，还是上报失败。
+///
+/// 抽成独立函数的原因：`enable_adapter` 整体依赖真实适配器与 Win32，无法单测，
+/// 而这里正是 2026-10-21 假成功缺陷的落点——旧实现只处理 `Disabled` 分支，
+/// `Unlocatable` / 设备彻底消失时静默返回成功，调用方看到 Ok 就不再重试。
+///
+/// 返回值：
+/// - `Ok(None)`：设备已回来且已启用，完成；
+/// - `Ok(Some(instance_id))`：设备回来了但仍处于 problem 22，需补 pnputil 启用；
+/// - `Err(msg)`：设备仍不可定位（重枚举没把它拉回来），必须上报失败而非假成功。
+#[cfg(target_os = "windows")]
+pub(crate) fn classify_post_reenumerate(
+    adapter_name: &str,
+    state: Option<DeviceState>,
+) -> Result<Option<String>, String> {
+    match state {
+        Some(DeviceState::Disabled(instance_id)) => Ok(Some(instance_id)),
+        Some(DeviceState::Unlocatable(instance_id)) => Err(format!(
+            "已触发总线重枚举，但设备实例仍不可定位（设备可能已物理断开）: {adapter_name} ({instance_id})"
+        )),
+        None => Ok(None),
     }
 }
 
@@ -383,12 +426,57 @@ mod tests {
         assert_eq!(verify_window_ms("USB\\VID_0BDA&PID_8156\\4013000001"), USB_VERIFY_TOTAL_MS);
         assert_eq!(verify_window_ms("usb\\vid_0bda&pid_8156\\4013000001"), USB_VERIFY_TOTAL_MS);
         assert_eq!(verify_window_ms("PCI\\VEN_10EC&DEV_8168\\0000"), ENABLE_VERIFY_TOTAL_MS);
+        // USB 窗口必须盖得住普通窗口，否则「USB 给更长窗口」这层设计等于没做
         assert!(USB_VERIFY_TOTAL_MS > ENABLE_VERIFY_TOTAL_MS);
+        assert!(REENUMERATE_VERIFY_TOTAL_MS >= USB_VERIFY_TOTAL_MS);
+    }
+
+    #[test]
+    fn elevated_helper_timeout_covers_verify_window() {
+        // 提权通道超时是外层预算：必须盖住 worker 复核窗口，且因通道降级会重走
+        // 一次（task_proxy → raw），实际上限可达 2×timeout——不能贴着窗口取值。
+        // 这条断言锁住的是「外层预算 ≥ 复核窗口」这个真实约束，而不是常量自比。
+        let timeout_ms = ELEVATED_HELPER_TIMEOUT_SECS * 1000;
+        assert!(timeout_ms >= USB_VERIFY_TOTAL_MS);
+        assert!(timeout_ms >= REENUMERATE_VERIFY_TOTAL_MS);
+        assert!(timeout_ms / 2 >= USB_VERIFY_TOTAL_MS, "通道降级重走一次后仍须盖住 USB 复核窗口");
+    }
+
+    #[test]
+    fn problem_disabled_constant_matches_win32() {
+        assert_eq!(PROBLEM_DISABLED, CM_PROB_DISABLED.0);
+        assert_eq!(PROBLEM_DISABLED, 22);
     }
 
     #[test]
     fn reenumerate_nonexistent_instance_errors() {
         // 幽灵态重枚举的前提是实例可定位；虚构 ID 必须先失败而非静默成功
         assert!(reenumerate_device_raw("ROOT\\__NO_SUCH_DEVICE__\\0000").is_err());
+    }
+
+    #[test]
+    fn post_reenumerate_still_unlocatable_is_error() {
+        // 2026-10-21 假成功缺陷回归锁：重枚举后设备仍不可定位时必须报错，
+        // 绝不能静默 Ok——调用方看到 Ok 就不再重试，网卡会整夜不恢复。
+        let state = Some(DeviceState::Unlocatable("USB\\VID_0BDA&PID_8156\\4013000001".into()));
+        let result = classify_post_reenumerate("以太网 2", state);
+        assert!(result.is_err(), "重枚举后仍不可定位必须返回 Err");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("以太网 2"));
+        assert!(msg.contains("4013000001"));
+    }
+
+    #[test]
+    fn post_reenumerate_disabled_returns_instance_id() {
+        // 设备回来了但禁用态被保留：需补一次设备级启用
+        let state = Some(DeviceState::Disabled("USB\\VID_0BDA&PID_8156\\4013000001".into()));
+        let result = classify_post_reenumerate("以太网 2", state).unwrap();
+        assert_eq!(result.as_deref(), Some("USB\\VID_0BDA&PID_8156\\4013000001"));
+    }
+
+    #[test]
+    fn post_reenumerate_healthy_completes() {
+        // 设备已回来且已启用（或虚拟卡无 PnP 实例 ID）：直接完成
+        assert_eq!(classify_post_reenumerate("以太网 2", None).unwrap(), None);
     }
 }

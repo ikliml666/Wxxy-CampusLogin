@@ -956,19 +956,30 @@ fn valid_instance_id(instance_id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '\\' | '&' | '.' | '_' | '-' | '*'))
 }
 
+/// 设备实例 ID 白名单校验失败的统一结果。
+/// 设备级启用与总线重枚举两个 worker 共用，避免逐字重复的四字段构造。
+#[cfg(target_os = "windows")]
+fn invalid_instance_id_result(
+    instance_id: &str,
+    op: &str,
+    logs: &mut Vec<String>,
+) -> HelperResult {
+    HelperResult {
+        success: false,
+        message: format!("设备实例 ID 非法: {instance_id:?}"),
+        op: op.to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    }
+}
+
 /// PnP 设备级启用（pnputil /enable-device），worker 内完成 problem 22 解除复核。
 /// 双校验：设备实例 ID 字符集白名单（防 pnputil 开关注入，如 /remove-device）+
 /// CM_Locate_DevNodeW(PHANTOM) 存在性复核。
 #[cfg(target_os = "windows")]
 fn run_enable_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult {
     if !valid_instance_id(instance_id) {
-        return HelperResult {
-            success: false,
-            message: format!("设备实例 ID 非法: {instance_id:?}"),
-            op: "enable_device".to_string(),
-            logs: std::mem::take(logs),
-            details: None,
-        };
+        return invalid_instance_id_result(instance_id, "enable_device", logs);
     }
     if crate::network::discovery::devnode::devnode_problem(instance_id).is_err() {
         return HelperResult {
@@ -1000,7 +1011,7 @@ fn run_enable_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult 
         );
     loop {
         match crate::network::discovery::devnode::devnode_problem(instance_id) {
-            Ok(problem) if problem != 22 => {
+            Ok(problem) if problem != crate::network::discovery::devnode::PROBLEM_DISABLED => {
                 logs.push("helper: 设备级启用复核通过（已脱离 problem 22）".to_string());
                 return HelperResult {
                     success: true,
@@ -1029,13 +1040,7 @@ fn run_enable_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult 
 #[cfg(target_os = "windows")]
 fn run_reenumerate_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult {
     if !valid_instance_id(instance_id) {
-        return HelperResult {
-            success: false,
-            message: format!("设备实例 ID 非法: {instance_id:?}"),
-            op: "reenumerate_device".to_string(),
-            logs: std::mem::take(logs),
-            details: None,
-        };
+        return invalid_instance_id_result(instance_id, "reenumerate_device", logs);
     }
     logs.push(format!("helper: 总线重枚举: {instance_id}"));
     match crate::network::discovery::devnode::reenumerate_device_raw(instance_id) {

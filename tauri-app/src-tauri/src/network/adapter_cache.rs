@@ -129,7 +129,8 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
     #[cfg(target_os = "windows")]
     {
         use crate::network::discovery::devnode::{
-            enable_device, find_disabled_device, reenumerate_device, DeviceState,
+            classify_post_reenumerate, enable_device, find_disabled_device, reenumerate_device,
+            DeviceState,
         };
         match find_disabled_device(adapter_name)? {
             // 设备管理器式禁用：直接 pnputil 设备级启用
@@ -137,10 +138,7 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
                 crate::log_info!("adapter", "适配器处于设备级禁用(PnP problem 22)，走 pnputil 启用: {} ({})", adapter_name, instance_id);
                 enable_device(&instance_id, allow_uac_prompt)?;
                 crate::log_info!("adapter", "设备级启用复核通过: {}", adapter_name);
-                // 与 netsh 路径一致：变更后失效两层缓存
-                ADAPTER_CACHE.write().take();
-                crate::network::discovery::registry::refresh_class_subkey_cache();
-                crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
+                invalidate_adapter_caches();
                 return Ok(());
             }
             // 设备实例不可定位（USB 端口复位后的幽灵态）：此时 pnputil 无从下手、
@@ -148,19 +146,21 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
             Some(DeviceState::Unlocatable(instance_id)) => {
                 crate::log_info!("adapter", "设备实例不可定位(USB 幽灵态)，触发总线重枚举: {} ({})", adapter_name, instance_id);
                 reenumerate_device(&instance_id, allow_uac_prompt)?;
-                // 设备回来后禁用态可能被保留：补一次设备级启用
-                if let Some(DeviceState::Disabled(id)) = find_disabled_device(adapter_name)? {
-                    crate::log_info!("adapter", "重枚举后设备仍处禁用态，走 pnputil 启用: {}", adapter_name);
-                    enable_device(&id, allow_uac_prompt)?;
+                // 重枚举后必须复核设备真的回来了且真的启用了。判定逻辑在
+                // classify_post_reenumerate（含假成功缺陷的回归测试）。
+                match classify_post_reenumerate(adapter_name, find_disabled_device(adapter_name)?)? {
+                    Some(id) => {
+                        crate::log_info!("adapter", "重枚举后设备仍处禁用态，走 pnputil 启用: {}", adapter_name);
+                        enable_device(&id, allow_uac_prompt)?;
+                    }
+                    None => {}
                 }
                 // 设备级恢复即完成，不再落 netsh：此时接口行可能仍在重建，worker 的
                 // 「必须存在于本机适配器列表」校验会误报「未找到本机适配器」。
                 // NDIS admin 层在 PnP 恢复后默认为启用（netsh disable 走的是另一条
                 // 分支：那时 PnP problem 为 0，根本不会进到这里）。
                 crate::log_info!("adapter", "设备实例已恢复: {}", adapter_name);
-                ADAPTER_CACHE.write().take();
-                crate::network::discovery::registry::refresh_class_subkey_cache();
-                crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
+                invalidate_adapter_caches();
                 return Ok(());
             }
             None => {}
@@ -192,6 +192,7 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
             "enable_adapter",
             &[adapter_name],
             &result_name,
+            // netsh 路径无复核窗口，30s 覆盖提权触发 + worker 执行足够
             std::time::Duration::from_secs(30),
             allow_uac_prompt,
         )?;
@@ -205,7 +206,17 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
         crate::log_info!("adapter", "提权启用适配器成功: {}", adapter_name);
     }
 
-    // 启用后强制清缓存，让下次查询拿到最新状态
+    invalidate_adapter_caches();
+    Ok(())
+}
+
+/// 适配器可见性变更后的统一缓存失效：适配器列表缓存 + 注册表两层缓存。
+///
+/// 启用路径的三条分支（设备级启用、总线重枚举、netsh）都要做同一件事，
+/// 旧实现三处逐字重复，漏改一处就会留下陈旧缓存。
+#[cfg(desktop)]
+fn invalidate_adapter_caches() {
+    // 让下次查询拿到最新状态
     ADAPTER_CACHE.write().take();
     // 同步刷新注册表缓存，避免 is_admin_disabled_via_registry 返回过时结果
     #[cfg(target_os = "windows")]
@@ -215,8 +226,6 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
     #[cfg(target_os = "windows")]
     crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
     crate::log_info!("adapter", "已清空适配器缓存");
-
-    Ok(())
 }
 
 pub fn wait_for_adapter(max_wait_ms: u64, is_quitting: &std::sync::atomic::AtomicBool) -> Result<Vec<Adapter>, String> {

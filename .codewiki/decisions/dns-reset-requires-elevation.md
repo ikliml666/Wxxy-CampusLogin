@@ -4,6 +4,7 @@ type: decision
 source_files:
   - tauri-app/src-tauri/src/commands/network_cmd.rs
   - tauri-app/src-tauri/src/platform/helper_spawn.rs
+  - tauri-app/src-tauri/src/helper/mod.rs
 tags: [决策, DNS, 提权, helper, 可逆性]
 ---
 
