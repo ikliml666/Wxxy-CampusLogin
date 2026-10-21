@@ -1,107 +1,157 @@
 ---
-title: patterns
+title: Repository Patterns and Conventions
 type: pattern
 source_files:
-- android/frontend/src/account/selfServiceState.ts
-- android/frontend/src/account/useAccount.ts
-- android/frontend/src/account/DeviceAliasDialog.tsx
-- android/frontend/src/monitor/MonitorPanel.tsx
-- android/frontend/src/monitor/useMonitor.ts
-- android/frontend/src/hooks/tauriApi.ts
-- android/frontend/src/hooks/useConfigStore.ts
-- android/frontend/src/hooks/useInitialDataLoad.ts
-- android/frontend/.env
-- android/frontend/public/mock-tauri-addon.js
-- android/frontend/public/mock-tauri.js
-- android/frontend/tauri-mock.js
-- android/src-tauri/src/config_state.rs
-- android/src-tauri/src/monitor_loop.rs
-- android/src-tauri/src/campus_detect.rs
-- tauri-app/src-tauri/src/monitor/scheduled.rs
-- android/frontend/src/lib/renderLiveness.ts
-- android/frontend/src/lib/latency.ts
-- android/frontend/src/lib/utils.ts
-tags: [patterns, architecture, conventions, error-handling, testing]
+  - android/frontend/vite.config.ts
+  - android/frontend/vite.mock.config.ts
+  - android/frontend/src/main.tsx
+  - android/frontend/src/App.tsx
+  - android/frontend/src/index.css
+  - android/frontend/tauri-mock.js
+  - android/frontend/src/auth/index.ts
+  - android/frontend/src/account/selfServiceState.ts
+  - android/frontend/src/account/useAccount.ts
+  - android/frontend/src/settings/constants.ts
+  - android/frontend/src/hooks/tauriApi.ts
+  - android/frontend/src/hooks/useConfigStore.ts
+  - android/frontend/src/hooks/useThemeStore.ts
+  - android/frontend/src/lib/dock-lens.ts
+  - android/frontend/src/lib/dock-spring.ts
+  - android/frontend/src/lib/glass-dock.tsx
+  - android/frontend/src/lib/utils.ts
+  - android/frontend/src/monitor/useMonitor.ts
+  - android/frontend/src/monitor/LatencyComponents.tsx
+  - android/src-tauri/src/config_state.rs
+  - android/src-tauri/src/identity_gate.rs
+  - android/src-tauri/src/campus_detect.rs
+  - android/src-tauri/gen/android/app/build.gradle.kts
+  - android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt
+  - make-release.ps1
+  - AGENTS.md
+tags:
+  - patterns
+  - conventions
+  - architecture
+  - android
+  - tauri
 ---
 
 ## Overview
 
-本文档总结了 Wxxy-CampusLogin 仓库中反复出现的架构模式、开发约定与风险点。这些模式贯穿 Android/Tauri 前端、Rust 后端及测试基础设施，旨在确保系统在复杂网络环境、低端设备及多平台（桌面/移动端）下的稳定性、一致性与可维护性。核心关注领域包括：状态管理的原子性与竞态防护、Mock 分层测试策略、错误处理的局部化与降级机制，以及针对特定平台（Android Windows）的兼容性适配。
+本仓库采用 **Tauri + React (Vite)** 架构，支持 Windows (桌面) 与 Android 双端。代码库呈现出高度一致的模块职责划分、状态管理范式及跨平台适配策略。以下总结了在构建流程、目录结构、错误处理、状态管理及原生交互方面反复出现的模式。
 
 ## Patterns
 
-### 1. 配置持久化优先与脏字段保护模式
+### 1. 构建与发布自动化 (Build & Release Automation)
 
-在涉及用户配置变更的场景中，系统严格遵循“先落盘，后执行”或“带脏标记防覆盖”的策略，以防止因后端服务中断或竞态条件导致用户配置丢失。
+**描述**: 项目通过 PowerShell 脚本实现标准化的构建、清理与发布流程，强制要求产物校验（SHA256）和缓存清理。Android 端构建环境存在隔离性，需通过特定 Gradle 任务或脚本触发交叉编译。
 
-*   **前置保存机制**：在 `android/frontend/src/monitor/MonitorPanel.tsx` 和 `useMonitor.ts` 中，调用原生 API（如启动后台检测）前，强制先执行 `saveConfigDirect`。这确保了即使后续步骤失败或应用崩溃，用户的间隔秒数等配置已安全存储，修复了“先 start 后存”可能导致的竞态缺陷。
-*   **脏字段保护 (Dirty Fields)**：`android/frontend/src/hooks/useConfigStore.ts` 实现了 500ms 防抖保存，并通过 `dirtyFields` 机制防止后端旧快照覆盖本地未确认的值。当连续保存失败 3 次时，放弃脏标记以强制重新同步，解决了高并发写入下的数据一致性风险。
-*   **空值语义显式化**：在 `android/frontend/src/account/selfServiceState.ts` 中，针对后端“空密码即保留旧密码”的特殊语义，前端必须通过显式标志位 (`saveConfigDirect(..., true)`) 才能执行清除操作，避免了因默认行为导致的安全隐患。
+*   **证据**:
+    *   `make-release.ps1`: 作为主构建入口，执行 Tauri 前端构建、产物定位及 SHA256 校验 (`target-release-build.log`)。
+    *   `clean-build-cache.ps1`: 负责清理 `target/`, `dist/` 及 WebView2 缓存，保留 Local Storage 以维持登录状态。
+    *   `android/src-tauri/gen/android/app/build.gradle.kts`: Gradle 构建配置，包含 Rust 插件调用逻辑。
+    *   `AGENTS.md`: 定义了开发者/AI Agent 的 Commit 前缀及 Changelog 同步纪律。
 
-### 2. Mock 分层架构与场景注入模式
+### 2. 目录结构与模块导出约定 (Directory Structure & Index Exports)
 
-为了在无真实后端或特定测试场景下独立运行前端，系统采用了分层 Mock 架构，通过 URL 参数动态注入测试场景，实现开发与测试环境的解耦。
+**描述**: 遵循“按功能域拆分组件/Hook”的目录结构，每个功能模块（如 `account`, `settings`, `monitor`）均提供统一的 `index.ts` 入口文件，集中导出公共接口。这降低了上游耦合，便于 Tree-shaking。
 
-*   **三层 Mock 结构**：
-    1.  **基础 Shim**：`android/frontend/public/mock-tauri.js` 挂载 `window.__TAURI_INTERNALS__.invoke` 以分发命令和处理事件监听，提供最小可用接口。
-    2.  **场景增强层**：`android/frontend/public/mock-tauri-addon.js` 劫持 `invoke`，根据 URL 参数（如 `op`, `night`, `online`）覆盖特定命令（如 `check_campus_status`）的行为，支持夜切态、双网卡等特定场景模拟。
-    3.  **生产级 Mock**：`android/frontend/tauri-mock.js` 提供更贴近生产的 Mock 数据，支持动态账号切换、异步延迟模拟及截图辅助功能（如 `?nomotion=1` 禁用动画）。
-*   **数据结构防御性约定**：在 `tauri-mock.js` 中，明确规定 `check_campus_status` 和 `check_portal_status` 严禁使用 `ok()` 包裹返回平铺结构体，否则会导致前端解析 `undefined`。这是关键的防御性编程约定，需在文档中明确。
+*   **证据**:
+    *   `android/frontend/src/auth/index.ts`: 统一导出 `DashboardPanel`, `AboutDialog`, `useAuth` 等。
+    *   `android/frontend/src/account/index.ts`: 统一导出 `AccountPanel`, `ChangePasswordDialog`, `useAccount`。
+    *   `android/frontend/src/settings/index.ts`: 统一导出 `SettingsPanel`, `ThemeDialog`, `OnboardingWizard`。
+    *   `android/frontend/src/monitor/index.ts`: 导出监控相关组件与 Hook。
 
-### 3. 原子性写入与代际竞态防护模式
+### 3. 原子性数据持久化模式 (Atomic Data Persistence)
 
-在后端 Rust 层，系统通过文件 I/O 策略和内存原子变量来保证数据完整性和状态机的一致性，特别是在处理高频轮询和登录流程时。
+**描述**: Rust 后端在处理配置和历史记录时，严格采用“写入临时文件 + rename”的策略。这是防止进程崩溃导致 JSON 文件损坏的核心机制，确保了数据的一致性。
 
-*   **原子性文件写入**：`android/src-tauri/src/config_state.rs` 及其他命令模块采用“写临时文件 + rename”策略进行所有文件 I/O 操作。这防止了在写入中断（如断电、Crash）时导致配置文件损坏，确保读取到的始终是完整数据。
-*   **代际 (Generation) 锁**：`android/src-tauri/src/monitor_loop.rs` 和 `quality_cmds.rs` 使用 `AtomicU64` Generation 变量来防止后台循环启动/停止时的状态污染。每次状态变更递增代际号，确保旧线程不会覆盖新线程的状态。
-*   **串行化登录锁**：`LOGIN_ATTEMPT_LOCK` 用于串行化登录操作，防止并发请求导致的协议冲突或重复计费。
+*   **证据**:
+    *   `android/src-tauri/src/config_state.rs`: 配置文件保存逻辑中，先写入 `.tmp` 文件，成功后再重命名为正式文件名。
+    *   `android/src-tauri/src/login_history.rs` / `quality_history.rs`: 历史记录追加同样遵循此原子写入模式。
 
-### 4. 局部错误捕获与降级可用设计
+### 4. 防御性竞态与异步安全处理 (Defensive Concurrency & Async Safety)
 
-系统倾向于在局部组件层面捕获异常并维持 UI 可用性，而非直接抛出全局错误，以减少全局错误边界的压力并提升用户体验。
+**描述**: 前端 Hooks 广泛使用双重锁机制（挂载检查 + 业务状态锁）来防止组件卸载后的无效 setState 或并发 API 调用。后端则通过 Mutex 保护共享 IO 资源。
 
-*   **弹窗内重试模式**：`android/frontend/src/account/DeviceAliasDialog.tsx` 主动捕获 API 调用异常，保持弹窗打开状态供用户重试，而不是直接关闭或显示全局错误。这种模式增加了局部状态管理的复杂度，但避免了用户操作流程的中断。
-*   **权限与资源降级**：在 `android/frontend/src/monitor/MonitorPanel.tsx` 中，Wi-Fi SSID 权限获取失败仅打印警告不阻断流程；后端 Watcher 崩溃时通过前端标记提示重启，保证前台基础功能可用。
-*   **存储容错回退**：`android/frontend/src/lib/utils.ts` 中的 `safeStorage` 在 `localStorage` 异常（如配额满）时回退到内存 Map，确保极端环境下应用不 Crash，仅损失持久化能力。
+*   **证据**:
+    *   `android/frontend/src/monitor/useMonitor.ts`: 使用 `mountedRef` 和 `busyRef` 双重锁，防止组件卸载后执行 setState。
+    *   `android/frontend/src/account/useAccount.ts`: 使用 `switchInFlight` Promise 机制合并重复请求；Dialog 保存期间禁用交互防竞态。
+    *   `android/src-tauri/src/config_state.rs`: 使用全局 `tokio::sync::Mutex<()>` (`CONFIG_IO_LOCK`) 保护配置读写。
+    *   `android/frontend/src/hooks/useAuthStore.ts`: 使用串行锁 `_checkOnlineLockFlag` 保证并发安全。
 
-### 5. 生物识别门控与 TTL 缓存策略
+### 5. 零 Re-render 高性能动画模式 (Zero Re-render Animation)
 
-在处理敏感操作（如查看明文密码、自助服务验证）时，系统采用基于时间戳 (TTL) 的缓存验证机制，并结合平台特定安全特性。
+**描述**: 针对复杂的视觉特效（如悬浮栏镜头效果），直接操作 DOM Style 和 CSS 变量，结合自定义物理弹簧内核，避免触发 React 渲染周期，显著降低主线程负担。
 
-*   **TTL 验证与余量预留**：`android/frontend/src/account/selfServiceState.ts` 实现了带有 TTL (570s) 的缓存验证机制，并预留了 30s 余量以避免前后端死锁。关键操作强制使用 `ignoreToggle: true` 绕过用户配置开关，确保安全底线。
-*   **Windows Hello 集成**：`android/frontend/src/hooks/tauriApi.ts` 通过 `verifyWindowsIdentity` 桥接 Tauri 命令，实现生物识别门控。后端 `identity_gate.rs` 基于 TTL 和时间戳防回拨保护，防止重放攻击。
+*   **证据**:
+    *   `android/frontend/src/lib/dock-lens.ts`: 核心 Hook，实现镜头效果、果冻形变及零 React re-render 动画。
+    *   `android/frontend/src/lib/dock-spring.ts`: 定义 `Motion` 类，提供标量物理弹簧仿真内核。
+    *   `android/frontend/src/lib/glass-dock.tsx`: 封装 Hyalite 库，解决 Chromium 合成层黑屏问题。
 
-### 6. 自适应帧率与渲染存活探测
+### 6. 生物识别安全门控与 TTL 机制 (Biometric Security Gate & TTL)
 
-为平衡低端设备的功耗与 UI 流畅度，系统引入了动态帧率控制和非侵入式的渲染存活检测机制。
+**描述**: 敏感操作（如踢下线、查状态、解密密码）前强制进行身份验证。系统采用 TTL (Time-To-Live) 机制控制验证频率，并包含时钟回拨防护，防止因系统时间异常导致的安全绕过或死锁。
 
-*   **智能帧率控制**：`android/frontend/src/hooks/useAdaptiveFramePace.ts` 结合用户交互、页面可见性及空闲检测，动态调整 GSAP ticker 帧率（0/30/60），避免常驻 requestAnimationFrame (rAF) 导致的功耗问题。
-*   **按需探测存活**：`android/frontend/src/lib/renderLiveness.ts` 采用每 4s 开启 2 帧 rAF 窗口的探测模式，而非常驻监听，以平衡低功耗与崩溃检测灵敏度。需配合 `document.hidden` 节流处理以避免误判。
+*   **证据**:
+    *   `android/frontend/src/account/selfServiceState.ts`: 实现 TTL 机制，包含 `elapsed >= 0` 时钟回拨防护和 `ignoreToggle` 强制验证逻辑。
+    *   `android/src-tauri/src/identity_gate.rs`: Rust 后端实现生物识别 TTL 校验（10分钟有效期）。
+    *   `android/frontend/src/settings/SettingsPanel.tsx`: 敏感操作前强制调用 `ensureBindHello`。
 
-### 7. 网络质量状态合并与边界处理
+### 7. 配置脏标记与回退策略 (Dirty Flag & Fallback Strategy)
 
-在前端网络监控模块中，系统设计了专门的逻辑来处理后端增量推送数据的容错和边界条件，防止 UI 停滞在中间状态。
+**描述**: 配置 Store 引入 `dirtyFields` 和重试计数器。当保存失败时，累计重试次数，达到阈值后放弃脏标记以防止 UI 与后端永久脱节，并在应用关闭前兜底保存。
 
-*   **Busy 状态合并**：`android/frontend/src/lib/latency.ts` 中的 `mergeNetworkQuality` 专门处理 `busy` 状态的边界条件，防止在慢网络下 UI 长期停滞在“检测中”状态。它通过比较新旧数据的时间戳和质量等级，智能决定是更新还是保留当前状态。
-*   **延迟可视化降级**：`android/frontend/src/monitor/LatencyTimeline.tsx` 将总延迟拆解为 DNS/TCP/TLS 等阶段，并在 UDP/TCP 异常差值时触发黄色警告，增强可观测性。胶囊组件通过反推延迟等级避免“busy/unknown”状态下的假死显示。
+*   **证据**:
+    *   `android/frontend/src/hooks/useConfigStore.ts`: `updateConfig` 和 `saveConfigDirect` 实现脏字段追踪；`flushPendingConfig` 用于关闭前的兜底保存。
 
-### 8. 双端同构调度与巨型函数风险
+### 8. Chromium Backdrop Filter 黑屏规避 (Chromium Backdrop Filter Black Screen Mitigation)
 
-桌面端 (`scheduled.rs`) 与安卓端 (`monitor_loop.rs`) 在调度逻辑上高度重复，存在维护成本高和栈溢出风险。
+**描述**: 在 Chromium 内核下，`backdrop-filter` 在合成层构建期间可能导致黑屏。解决方案是主动检测祖先链变换状态，延迟挂载特效组件，并设置超时降级机制。
 
-*   **逻辑重复**：`tauri-app/src-tauri/src/monitor/scheduled.rs` 和 `android/src-tauri/src/monitor_loop.rs` 包含大量相似的出站切换和网络探测逻辑。建议提取公共编排层以减少维护成本。
-*   **栈溢出预防**：`apply_outbound_switch` 等函数过长（>200行），且安卓端存在局部大数组压栈导致 Panic 的风险。需遵循“栈溢出预防”约定，禁止在栈上分配 ≥4KB 的大数组，必要时改用堆分配或分块处理。
+*   **证据**:
+    *   `android/frontend/src/lib/glass-dock.tsx`: 主动检测 `backdropReady` 状态，延迟挂载 Hyalite，设计超时降级避免常驻黑膜。
 
-### 9. React 受控组件注入与 Headless 测试时序
+### 9. 平台差异化硬编码与适配 (Platform-Specific Hardcoding)
 
-在 E2E 测试中，系统采用特定的注入模式绕过 React 状态管理限制，并处理 Headless 环境下的渲染时序问题。
+**描述**: 为了快速适配 Android 特有需求，代码中存在多处基于 `isAndroid` 常量的渲染分支硬编码，以及针对 Android 后端字段名差异的特殊处理。这增加了多平台维护成本。
 
-*   **受控组件注入**：`modules/design-prototypes/alias-dialog-test.mjs` 和 `chpwd-test.mjs` 采用 `Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set` 配合 `dispatchEvent`，绕过 React 状态管理限制，实现 Headless 测试中的表单交互。
-*   **固定延时兜底**：`modules/design-prototypes/cdp-shot.mjs` 指出 `useDeferredValue` 在 Headless 模式下易因虚拟时间预算导致渲染跳过。因此，测试脚本需使用固定长延时 (`sleep 6.5s`) 而非网络空闲检测，以确保截图或断言时的 DOM 状态稳定。
+*   **证据**:
+    *   `android/frontend/src/settings/SettingsPanel.tsx`: 使用 `isAndroid` 常量控制 `KeepAliveSettingsCard` 渲染。
+    *   `android/frontend/src/hooks/useSettings.ts`: 针对安卓后端字段名差异（`enableBootAutostart` vs `autoLaunch`）做特殊处理。
+    *   `android/frontend/src/hooks/tauriApi.ts`: `desktopOnly` 函数拒绝桌面专属功能（如 DHCP）。
 
-### 10. 构建确定性与依赖锁定
+### 10. Mock 数据一致性风险 (Mock Data Consistency Risk)
 
-为确保 CI/CD 环境的一致性，系统通过严格的依赖锁定机制管理构建过程。
+**描述**: 开发环境的 Mock 体系旨在模拟 Tauri 后端行为，但部分 Mock 函数未使用标准包装器，返回平铺结构体，若前端直读逻辑不匹配会导致属性为 `undefined`。
 
-*   **PNPM 工作区锁定**：`android/frontend/pnpm-lock.yaml` 和 `pnpm-workspace.yaml` 严格锁定依赖版本，特别是 React 19 和 esbuild 多平台二进制文件。这确保了不同开发者机器和 CI 环境下的构建结果一致。
-*   **跨平台构建警惕**：需警惕跨平台构建时的架构支持问题，特别是在使用 esbuild 等工具时，确保目标平台的二进制文件正确生成。
+*   **证据**:
+    *   `android/frontend/tauri-mock.js`: `check_campus_status` 和 `check_portal_status` 未使用标准 `ok()` 包装，返回平铺结构体。
+
+### 11. WebView 缓存清理边界 (WebView Cache Cleanup Boundary)
+
+**描述**: 构建清理脚本刻意保留 `Local Storage` 和 `Session Storage` 以维持登录状态，但清除其他缓存可能影响复杂页面状态。这是一个需要权衡的性能优化点。
+
+*   **证据**:
+    *   `clean-build-cache.ps1`: 清理脚本逻辑中明确区分了需保留的存储区域和需清除的缓存区域。
+
+### 12. 网络质量增量合并策略 (Network Quality Incremental Merge)
+
+**描述**: 针对后台推送的网络质量数据，采取保留旧 quality 等级的合并逻辑，防止在慢网络或 `busy` 状态下 UI 状态频繁震荡。
+
+*   **证据**:
+    *   `android/frontend/src/lib/latency.ts`: `mergeNetworkQuality` 函数处理增量推送，保留旧等级防止 UI 震荡。
+
+### 13. 权限配置陷阱 (Permission Configuration Trap)
+
+**描述**: Tauri 的 `capabilities.json` 仅绑定默认权限集，若未显式添加自定义插件权限，前端调用将直接被拦截。这是 Android 端特有的高风险配置项。
+
+*   **证据**:
+    *   `android/src-tauri/gen/android/app/build.gradle.kts` / `capabilities.json`: 指出 `campus-keystore`, `campus-monitor-service` 等插件权限未在默认能力集中，需手动配置。
+
+### 14. 输入草稿模式 (Input Draft Mode)
+
+**描述**: 关键数值输入（如检测间隔）采用本地暂存 + Blur/Enter 提交机制，并配合 Clamp 限制，防止无效值写入 Store 或引起 UI 闪烁。
+
+*   **证据**:
+    *   `android/frontend/src/monitor/LatencyComponents.tsx`: 关键数值输入采用本地暂存 + Blur/Enter 提交机制。
