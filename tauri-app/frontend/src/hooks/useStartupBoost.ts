@@ -38,9 +38,12 @@ export function useStartupBoost() {
 
   const warmUpGpuLayers = useCallback(() => {
     if (!profile.startupBoost) return
-    const elements = TRANSFORM_KEYS.map(k => refs.current[k]).filter(Boolean) as HTMLElement[]
-    elements.forEach(el => {
-      el.style.willChange = 'transform, opacity'
+    TRANSFORM_KEYS.forEach(k => {
+      const el = refs.current[k]
+      if (!el) return
+      // ponytail: dockNav 是悬浮栏的祖先，给它 will-change: opacity 会让它建 backdrop root，
+      // 玻璃膜当场变黑（实测膜中心灰度 219 → 35）。dockNav 只预热 transform。
+      el.style.willChange = k === 'dockNav' ? 'transform' : 'transform, opacity'
     })
   }, [profile.startupBoost])
 
@@ -115,9 +118,12 @@ export function useStartupBoost() {
     }
 
     if (r.dockNav) {
+      // 悬浮栏进场只做位移与缩放，不做 opacity：它自己的「玻璃就绪后才出现」已由
+      // .glass-live 的 opacity 过渡接管（见 lib/glass-dock.tsx），这里再叠一层 opacity
+      // 会让祖先链在补间期间 opacity < 1 → backdrop root → 玻璃膜发黑。
       tl.fromTo(r.dockNav,
-        { opacity: 0, y: 40, scale: 0.85 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.2)', force3D: true },
+        { y: 40, scale: 0.85 },
+        { y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.2)', force3D: true },
         0.45
       )
     }

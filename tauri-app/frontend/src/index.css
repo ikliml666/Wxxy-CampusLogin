@@ -835,11 +835,19 @@
   }
 
   @keyframes windowReveal {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
 
-  .animate-window-reveal {
+  .window-reveal-veil {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    pointer-events: none;
+    background: var(--surface-main);
+    /* 基础值必须是 0：reduced-motion 下 animation:none 会让动画填充失效，
+       opacity 回落到这里，若是 1 则整页被永久遮住。有动画时 keyframes 覆盖它。 */
+    opacity: 0;
     animation: windowReveal 0.3s ease-out both !important;
   }
 
@@ -1150,7 +1158,7 @@
     .dialog-content-enter,
     .dialog-content-exit,
     .refresh-shake,
-    .animate-window-reveal,
+    .window-reveal-veil,
     .signal-glow-active,
     .animate-pulse,
     .animate-spin {

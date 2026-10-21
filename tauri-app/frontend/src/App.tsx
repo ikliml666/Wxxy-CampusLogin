@@ -419,7 +419,9 @@ function AppInner() {
   }
 
   return (
-    <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square animate-window-reveal", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
+    <div className={cn("flex flex-col h-screen w-screen overflow-hidden font-sans bg-background text-foreground min-w-[800px] relative app-outer-square", isMaximized && 'app-maximized')} style={{ background: 'var(--surface-main)' }}>
+      <div aria-hidden="true" className="window-reveal-veil" />
+
       <FluidBackground />
 
       <div ref={setRef('titleBar')} className="relative z-[1]" style={{ contain: 'layout style paint' }}>
