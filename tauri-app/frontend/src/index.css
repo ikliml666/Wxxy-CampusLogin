@@ -2,19 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 按压光斑的可过渡自定义属性。radial-gradient 的半径与 alpha 是离散量，
-   不注册就只会瞬跳，看不到「光从指尖散开」的过程。
-   inherits: false —— 光斑只属于被按下的那块玻璃。 */
-@property --glass-glow-alpha {
-  syntax: '<number>';
-  inherits: false;
-  initial-value: 0;
-}
-@property --glass-glow-reach {
-  syntax: '<length>';
-  inherits: false;
-  initial-value: 39px;
-}
 /* 档位切换的可过渡量。--glass-tint 是 color-mix 里的百分比，--glass-shine /
    --glass-rim 是多重 inset 阴影的 alpha 系数——都是「未注册即离散」的值，
    不注册就只会硬跳。用户明确抱怨过「切换档位时没有玻璃变化」，指的就是这一下。 */
@@ -103,12 +90,6 @@
        FlClash 的 _shineAround 用「圆角半径的倍数」定采样位置（.3r / r / 1.53r），
        写死 18px 时 .glass-nav 的药丸形（半径≈半高）会整段错位。 */
     --glass-r: 18px;
-    /* 按压光斑的方向与强度：亮色玻璃近纯白，白光叠上去实测 Δ 只有 4（不可见），
-       改成「指尖压下去的一点暗」——玻璃被按住处透光变少、读作凹陷。
-       注意这两条必须定义在 :root/.dark 而不是 .glass-dock 规则里：
-       元素自带声明会压过继承值，暗色覆盖就永远不生效。 */
-    --glass-glow-rgb: 15 23 42;
-    --glass-glow-gain: 0.5;
 
     background-color: #f0f4f8;
   }
@@ -179,9 +160,6 @@
 
     /* 暗色玻璃基色：比 surface-main(#0c0e12) 明显更亮，悬浮栏才「浮」得起来 */
     --glass-base: #1c2028;
-    /* 暗底上按压光斑回到「提亮」——白光在深色玻璃上才拉得出 Δ */
-    --glass-glow-rgb: 255 255 255;
-    --glass-glow-gain: 1;
     --glass-near: 0 1px 4px -1px rgba(0, 0, 0, 0.3);
     --glass-far: 0 4px 16px -4px rgba(0, 0, 0, 0.45);
 
@@ -371,19 +349,12 @@
      不做整圈 border：等亮的闭合描边会读成画框，FlClash 的环本身就是不等亮的。 */
   .glass-dock,
   .glass-nav {
-    /* ④ 按压光斑：FlClash 的 LiquidGlassGlow（lib/ui/liquid_glass.dart:686-696）。
-       shader 里它是加在 tint 上的径向项，CSS 用一层 radial-gradient 等价表达；
-       位置由 JS 写到 --glass-glow-x/y，方向与强度见 :root/.dark 里的 --glass-glow-*。 */
-    --glass-glow-x: 50%;
-    --glass-glow-y: 50%;
-    background:
-      radial-gradient(
-        circle var(--glass-glow-reach) at var(--glass-glow-x) var(--glass-glow-y),
-        rgb(var(--glass-glow-rgb) / calc(var(--glass-glow-alpha) * var(--glass-glow-gain))) 0%,
-        rgb(var(--glass-glow-rgb) / calc(var(--glass-glow-alpha) * var(--glass-glow-gain) * 0.55)) 35%,
-        transparent 100%
-      ),
-      color-mix(in srgb, var(--glass-base) var(--glass-tint), transparent);
+    /* 基膜：唯一的一层底色。按压光斑由调用方的内联 `background-image`
+       （--dock-glow-*，见 lib/dock-lens.ts）叠在它上面——image 与 color 互不覆盖，
+       所以这里只写 background-color，不再用 background 简写。
+       用简写会顺手把 background-image 重置成 none，内联那层还在但语义上
+       变成"简写管 image、内联也管 image"，两边谁赢取决于优先级，读起来是迷雾。 */
+    background-color: color-mix(in srgb, var(--glass-base) var(--glass-tint), transparent);
     /* 折射优先：Hyalite 在支持 SVG 背板滤镜的引擎（Chromium / WebView2）上写入
        --hyalite: url(#…)——它内部已经做了模糊、边缘着色与位移放大，这里不能再叠
        一层 blur，否则等于在成品上二次模糊、折射细节全被糊掉。
@@ -392,27 +363,19 @@
     -webkit-backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
     backdrop-filter: var(--hyalite, blur(var(--glass-blur)) saturate(var(--glass-sat)));
     border-radius: 18px;
-    /* C：超椭圆圆角。FlClash 的形状层全是 RoundedSuperellipseBorder（连续曲率，
-       不是圆弧），CSS 侧对应 Chromium 139+ 的 corner-shape；不支持的引擎
-       忽略该属性、退回圆弧，其余布局不受影响。 */
-    corner-shape: squircle;
-    /* 边缘只做两件事，对应 FlClash shader 里两条独立的式子：
-       ① 暗线（liquid_glass.frag:452-459）——四周均匀 0.67px，即 iOS 27 画在玻璃
-          边界之外、背面内容之上的那道线。它必须单独一层：任何同层的亮色都会在
-          混合时把它抬亮，而它本该是整块玻璃最暗的一圈。
-          shader 里它不是叠黑，而是把背景压暗到 max(c - 0.298a, 0.22c)（约 -17%）。
-          乘数 0.9 是在真实 1x 环境下扫出来的：--glass-rim 0.35 → alpha 0.315 →
-          背景 247 压到 205，绝对差 -42，与 FlClash 视频帧实测的 236→195（-41）
-          对齐。线宽不吃这个标定（0.9px 与 1.2px 在 1x 下都取整成 1px 并被抗锯齿
-          摊开），所以只有 alpha 可调——先前按 0.42 乘出来只有 -5%，边框发灰。
-       ② 内缘光（frag:426-445）——由 ::before / ::after 分别画顶边和底边，见下。 */
-    /* 暗线画在边界之外（外扩 0.67，外扩之外不再内缩）。FlClash 的 shader 原话：
-       「UIKit draws it just outside the bounds, over the backdrop, where the pane
-       cannot draw」——线盖在背板上，玻璃本身画不到那里。
-       原先的 `inset 0 0 0 0.67px` 有两个硬伤：①圆角弧上的抗锯齿只落在膜内侧，
-       线与边界之间露一条亚像素灰缝；②Chromium 的 inset box-shadow 不跟随
-       corner-shape，超椭圆圆角下会画出第二条弧。外扩写法是元素外阴影，
-       跟随 border-radius 与 corner-shape 一起变形。 */
+    /* 边缘只有两层，且各管一件事——这是重构后的硬约定，不要再往上加：
+       ① 暗线：元素外阴影 0 0 0 0.67px（不 inset）。FlClash 的 shader 原话是
+          「UIKit draws it just outside the bounds, over the backdrop, where the
+          pane cannot draw」——线盖在背板上、玻璃画不到那里。inset 写法有两个
+          硬伤：圆角弧上抗锯齿只落在膜内侧，线与边界间露亚像素灰缝。
+          shader 里它不是叠黑，而是把背景压到 max(c - 0.298a, 0.22c)（约 -17%）。
+          乘数 0.69 在真实 1x 环境下扫过：--glass-rim 0.35 → alpha 0.2415 →
+          背景 247 压到约 205。线宽不吃这个标定（0.9/1.2px 在 1x 下都取整成
+          1px 并被抗锯齿摊开），所以只有 alpha 可调。
+       ② 内缘光 :::before / ::after 分画顶边与底边，见下（--glass-shine 控制）。
+       历史包袱说明：Hyalite 滤镜自带 rim / edge 两道自己的边缘光，与 ② 叠在同
+       一圈上，8x 截图里读作"玻璃外多了一层白框"。GLASS_DOCK_OPTS 已把
+       rim/edge 钉成 0（lib/glass-dock.tsx），边缘光唯一来源就是 ②。 */
     box-shadow:
       var(--glass-near),
       var(--glass-far),
@@ -420,14 +383,9 @@
     position: relative;
     contain: style;
     overflow: visible;
-    /* 光斑过渡：两段时长不对称是 FlClash 的原样（_glowIn 120ms / _glowOut 360ms）。
-       按下走 .is-pressed 的 120ms，松开落回这里的 360ms。
-       reach 在按下时是 0s —— 指尖换位置不该拖着上一个光斑的残余半径跑。
-       档位三项（tint/shine/rim）各 260ms：Hyalite 的位移图是整份重建、没法补间，
+    /* 档位三项（tint/shine/rim）各 260ms：Hyalite 的位移图是整份重建、没法补间，
        膜与光影先平滑走完，观感上就成了一次材质变化而不是闪一下换皮。 */
     transition:
-      --glass-glow-alpha 360ms ease-out,
-      --glass-glow-reach 360ms ease-out,
       --glass-tint 260ms ease,
       --glass-shine 260ms ease,
       --glass-rim 260ms ease;
@@ -444,13 +402,6 @@
   .glass-dock:not(.glass-live),
   .glass-nav:not(.glass-live) {
     --glass-tint: 100%;
-  }
-
-  .glass-dock.is-pressed,
-  .glass-nav.is-pressed {
-    transition:
-      --glass-glow-alpha 120ms ease-out,
-      --glass-glow-reach 0s;
   }
 
   /* ③ 内缘光·顶边（FlClash frag:426-445）。
@@ -500,7 +451,6 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    corner-shape: squircle;
     /* 亮环的深度剖面（frag:437-441 的连续式）：
        w = max(inset - 0.67, 0)、band = clamp(1 - w/1.3)、tail = clamp(1 - w/4.5)、
        shine = rim * facing * (0.83*band + 0.17*tail)，
@@ -538,7 +488,6 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    corner-shape: squircle;
     /* 底边同一份剖面（facing = normal.y² 对上下对称），
        乘 0.72 只是让下缘比顶缘弱一档：暗线在最外圈压得更多。 */
     background-image: linear-gradient(

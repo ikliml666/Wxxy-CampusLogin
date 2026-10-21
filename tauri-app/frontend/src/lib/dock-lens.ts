@@ -37,7 +37,6 @@ const JELLY_ASPECT = 1.4
 const GLOW_PEAK = 0.06
 const GLOW_REACH = 28
 const GLOW_GROWTH = 3
-const GLOW_WASH = 0.7
 /** 拖出边界后的橡皮筋硬度上限（`_overdrag`） */
 const OVERDRAG = 0.35
 /** 越界拉伸上限，按栏高的比例（`_pullLimit = 7/32`） */
@@ -220,7 +219,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
         '--dock-glow-reach',
         `${GLOW_REACH * (1 + GLOW_GROWTH * glowSpread.value)}px`,
       )
-      nav.style.setProperty('--dock-glow-wash', String(GLOW_WASH * g))
     }
 
     // 果冻：驱动量就是镜头自己的速度，所以在镜头每帧回调里算
