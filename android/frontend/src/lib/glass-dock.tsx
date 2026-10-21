@@ -81,7 +81,9 @@ const LIVE_FRAMES = 2
  *
  * 「整条发黑」的根因是**祖先层在建合成层**，不是滤镜重建：GSAP 的入场补间
  * 给悬浮栏本身打 `opacity: 0→1` / `y: 40→0` / `scale: 0.85→1` 并带 `force3D`
- * （useStartupBoost.ts:117-123），补间期间祖先链上出现 `opacity < 1`、`transform`、
+ * （桌面端 hooks/useStartupBoost.ts:117-123；安卓端没有这套入场序列，backdropReady
+ * 通常第一帧就通过，保留它只为与桌面端一致的布局稳定等待），补间期间祖先链上
+ * 出现 `opacity < 1`、`transform`、
  * 独立变换属性（`translate`/`scale`）或 `will-change` —— **任一**都会让 Chromium
  * 把这一层当作 backdrop root，悬浮栏的 backdrop-filter 在 root 内采样不到页面
  * 内容，被填成黑色；54% 的半透明白膜于是读出「白 54% + 黑 46%」的深灰条。

@@ -100,21 +100,6 @@
        FlClash 的 _shineAround 用「圆角半径的倍数」定采样位置（.3r / r / 1.53r），
        写死 18px 时 .glass-nav 的药丸形（半径≈半高）会整段错位。 */
     --glass-r: 18px;
-    /* 内缘光两条伪元素共用的横向 cos²θ 衰减（::before / ::after 各要写
-       -webkit-mask + mask 两份，四段渐变逐字相同）。这里只写一份：
-       自定义属性是 token 流，里面的 var(--glass-r) 在**取用点**才求值，
-       所以 .glass-nav 的 34px 半径照样生效。 */
-    --edge-fade-x: linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.044) 0,
-      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.71) var(--glass-r),
-      #000 calc(var(--glass-r) * 1.53),
-      #000 calc(100% - var(--glass-r) * 1.53),
-      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
-      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.044) 100%
-    );
     /* 按压光斑的方向与强度：亮色玻璃近纯白，白光叠上去实测 Δ 只有 4（不可见），
        改成「指尖压下去的一点暗」——玻璃被按住处透光变少、读作凹陷。
        注意这两条必须定义在 :root/.dark 而不是 .glass-dock 规则里：
@@ -469,6 +454,30 @@
      圆角段就会出现「亮线在弧上突然出现」的断口。 */
   .glass-nav {
     --glass-r: 34px;
+  }
+
+  /* 内缘光两条伪元素共用的横向 cos²θ 衰减。::before / ::after 各要写
+     -webkit-mask + mask 两份，四段渐变逐字相同，所以这里只写一份。
+
+     必须定义在 .glass-dock / .glass-nav 上，**不能放 :root**：自定义属性里的
+     var() 是在声明它的那个元素上替换完、再作为继承值往下传的，放 :root 就等于
+     把 var(--glass-r) 固化成 18px，下面 .glass-nav 的 34px 影响不到它——实测
+     ::before 的 computed mask 会停在 5.4/18/27.54px（0.3r/r/1.53r 都按 18 算），
+     药丸的亮线会在弧上突然出现。放到这两个元素上后 r 在各自上下文里求值：
+     圆角矩形取 18px、药丸取 34px，仍然只有一份定义。 */
+  .glass-dock,
+  .glass-nav {
+    --edge-fade-x: linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.044) 0,
+      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.71) var(--glass-r),
+      #000 calc(var(--glass-r) * 1.53),
+      #000 calc(100% - var(--glass-r) * 1.53),
+      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
+      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.044) 100%
+    );
   }
 
   .glass-dock::before,
@@ -1038,7 +1047,13 @@
 @layer utilities {
   /* .animate-spin 不参与 idle 冻结：它是标准 loading 指示，用户 2 秒无输入后
      冻结 spinner 会被误读为"程序卡死"（2026-09-04） */
-  .anim-idle .animate-pulse,
+  /* 两条规则各写一份声明块，不并进逗号列表：安卓端曾因往逗号列表尾部插入
+     新选择器、结果改了归属导致 animate-pulse 的 idle 冻结整条失效
+     （见 .codewiki/learnings/css-comma-selector-shared-body-pitfall.md）。 */
+  .anim-idle .animate-pulse {
+    animation-play-state: paused !important;
+  }
+
   .anim-idle .signal-glow-active {
     animation-play-state: paused !important;
   }
