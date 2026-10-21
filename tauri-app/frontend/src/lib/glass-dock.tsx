@@ -130,11 +130,13 @@ const LIVE_FRAMES = 2
  * 给悬浮栏挂上折射玻璃。`level === 'off'` 或引擎不支持时不做任何事
  * （CSS 的 `data-glass="off"` 已经是真零滤镜）。
  *
- * 挂载拆成两件事，**分开做**——这是「玻璃总要等界面加载完才生效」的修法：
+ * 挂载拆成三件事：
  *
  * ① **挂滤镜**：进 effect 立刻挂，不等任何东西。
  * ② **放开半透明**（补 `.glass-live`）：要等整条祖先链落回「不透明 + 无变换 +
  *    无 will-change」，补丁两帧后加。
+ * ③ **让它出现**：`.glass-live` 之前 CSS 把整条压成 `opacity: 0`，所以悬浮栏
+ *    在玻璃就绪的同一刻才淡入——不是先露一条白膜、过一会儿再变成玻璃。
  *
  * 「整条发黑」的根因是**祖先层在建合成层**：GSAP 的入场补间给悬浮栏外层
  * `opacity: 0→1` / `y: 40→0` / `scale: 0.85→1` 并带 `force3D`
@@ -143,14 +145,13 @@ const LIVE_FRAMES = 2
  * 把这一层当作 backdrop root，悬浮栏的 backdrop-filter 在 root 内采样不到页面
  * 内容，被填成黑色。所以 ② 必须等。
  *
- * 但 ① **不需要等**：启动期 CSS 侧把膜钉成实底
- * （`.glass-dock:not(.glass-live) { --glass-tint: 100% }`），实底是整片不透明色，
- * backdrop 采到黑还是采到内容根本看不见。六组合实测（祖先干净/污染 × 无滤镜/有滤镜
- * × 实底/半透，取膜中心灰度）：
+ * 但 ① **不需要等**：等待期整条不可见（`opacity: 0`，见下方 ③），而且即便要让
+ * 它露面，实底期间挂不挂滤镜画面也完全一样。六组合实测（祖先干净/污染 × 无滤镜/
+ * 有滤镜 × 实底/半透，取膜中心灰度）：
  *   - 实底 × 祖先污染：无滤镜 mean 54.0、有滤镜 mean 54.0 —— **逐位相同**；
  *   - 实底 × 祖先干净：无滤镜 42.5、有滤镜 42.5 —— 同样相同；
  *   - 只有「半透 × 祖先污染」才塌到 min 18（黑膜），即必须先满足 ② 才放开。
- * 也就是说**实底期间挂不挂滤镜，画面完全一样**，那就不必等。
+ * 也就是说挂滤镜这一步没有等的理由。
  *
  * 历史上这里还多一个 `SETTLE_MS = 400` 的「等布局稳定」前置等待，理由是「启动时
  * 悬浮栏宽度还在抖，实测 651 → 553 → 651」。那个观察是把 transform 算进了尺寸：
@@ -160,9 +161,8 @@ const LIVE_FRAMES = 2
  * 触发 1 次**（812ms，639×43 的 content box，对应 651×55 的 border box）。
  * 布局自始至终没变过，位移图只建一次，那 400ms 是纯等待——已删。
  *
- * 删掉之后的效果（CDP 逐帧时间线）：悬浮栏出现的同一帧滤镜就已挂好，之后只等
- * 入场补间结束（约 780ms）放开半透明；此前是「400ms 空等 + 补间结束后才开始建图」，
- * 总延迟约 1.14s。等不到祖先链落干净就**一直留在实底**，比常驻黑膜好。
+ * 等不到祖先链落干净时的兜底：加 `.glass-ready` 让它以**实底**出现（导航栏不能
+ * 整个缺席），半透仍然只由 `.glass-live` 放开，所以兜底路径也不会露黑膜。
  */
 export function useGlassRefraction(
   ref: RefObject<HTMLElement | null>,
@@ -196,14 +196,18 @@ export function useGlassRefraction(
       cancelAnimationFrame(pollRaf)
       remove()
       el.classList.remove('glass-live')
+      el.classList.remove('glass-ready')
     }
 
     if (level === 'off' || !hyalite.supported()) {
       remove()
+      // 没有玻璃可等，立刻可见：off 档的 CSS 本就不藏它，这条是防「引擎不支持时
+      // data-glass 仍是 standard/ultra」把悬浮栏永久藏住。
+      el.classList.add('glass-ready')
       return cleanup
     }
 
-    // ① 挂滤镜：立刻挂。实底期间挂不挂滤镜画面相同（见上方注释），没有等待的理由。
+    // ① 挂滤镜：立刻挂。此时整条不可见、且挂不挂画面相同，没有等待的理由。
     remove()
     if (!el.isConnected) return cleanup
     hyalite.attach(el, GLASS_DOCK_OPTS[level])
@@ -253,7 +257,14 @@ export function useGlassRefraction(
         goLive()
         return
       }
-      if (performance.now() - startedAt >= MAX_WAIT_MS) return // 兜底：一直留在实底
+      // 兜底：等不到祖先链落干净就先让悬浮栏可见（加 .glass-ready → CSS 钉回实底），
+      // 不要因为等不到就整条不给——导航栏消失比一条白膜严重得多。半透仍然只由
+      // goLive 放开，所以这条路径不会露黑膜。
+      if (performance.now() - startedAt >= MAX_WAIT_MS) {
+        pastStartup.current = true
+        el.classList.add('glass-ready')
+        return
+      }
       pollRaf = requestAnimationFrame(poll)
     }
     pollRaf = requestAnimationFrame(poll)

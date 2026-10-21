@@ -430,20 +430,40 @@
     transition:
       --glass-tint 260ms ease,
       --glass-shine 260ms ease,
-      --glass-rim 260ms ease;
+      --glass-rim 260ms ease,
+      opacity 240ms ease-out;
   }
 
-  /* 启动期实底（JS 侧见 lib/glass-dock.tsx 的 LIVE_FRAMES 与 backdropReady）。
+  /* 启动期**整条不可见**（JS 侧见 lib/glass-dock.tsx 的 .glass-live / .glass-ready）。
      悬浮栏的入场补间（useStartupBoost.ts:117-123）会给它打 opacity/transform
      与 force3D，补间期间**任一祖先层的 opacity<1、transform、独立变换或
      will-change** 都会让 Chromium 把该层当作 backdrop root：悬浮栏的
      backdrop-filter 在 root 内采样不到页面内容，被填成黑色，54% 的半透明白膜
      于是读出「白 54% + 黑 46%」的深灰栏——浅色模式下就是「刚渲染悬浮栏时整条
-     发黑」。滤镜挂上之后 JS 才补 .glass-live，这里先把膜钉成实底，放开时靠
-     上面已有的 --glass-tint 260ms 过渡淡入半透明。 */
-  .glass-dock:not(.glass-live),
-  .glass-nav:not(.glass-live) {
+     发黑」。
+
+     以前这里是把膜钉成实底（--glass-tint 100%）顶着，代价是先露出一条白膜、
+     约 780ms 后才淡成玻璃——看起来就是「玻璃要等界面加载完才生效」。改成整条
+     opacity: 0：玻璃就绪（.glass-live）之前悬浮栏根本不出现，就绪那一帧直接就是
+     成品玻璃，只走 240ms 的 opacity 淡入。
+     off 档与引擎不支持走 .glass-ready 分支，照旧立即可见，不会被这条藏住。 */
+
+  /* 兜底路径的实底保护：等不到祖先链落干净时（MAX_WAIT_MS 超时）加 .glass-ready
+     让它以实底出现——导航栏不能整个缺席。祖先污染时半透会发黑，所以这条路径
+     必须钉回实底；正常路径（不可见 → .glass-live）不需要，见下一条。 */
+  .glass-dock.glass-ready:not(.glass-live),
+  .glass-nav.glass-ready:not(.glass-live) {
     --glass-tint: 100%;
+  }
+
+  /* 正常等待期整条不可见，所以不必用实底顶着：膜的色调（ultra 10% / standard 54%）
+     在不可见时就已经是终态，.glass-live 一加，第一帧呈现的就是成品玻璃，只走
+     opacity 淡入（240ms），不会出现「先白膜、再慢慢变透」的两段式。 */
+  :root:not([data-glass="off"]) .glass-dock:not(.glass-live):not(.glass-ready),
+  :root:not([data-glass="off"]) .glass-nav:not(.glass-live):not(.glass-ready) {
+    opacity: 0;
+    /* 不可见期间不该吃点击 */
+    pointer-events: none;
   }
 
   /* ③ 内缘光·顶边（FlClash frag:426-445）。
