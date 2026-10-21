@@ -127,15 +127,44 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
     // 不启用。命中时改走 pnputil 设备级启用（含 problem 22 解除复核），
     // 未命中维持下方 netsh 原路径（NDIS admin 层，对已启动设备零重枚举）。
     #[cfg(target_os = "windows")]
-    if let Some(instance_id) = crate::network::discovery::devnode::find_disabled_device(adapter_name)? {
-        crate::log_info!("adapter", "适配器处于设备级禁用(PnP problem 22)，走 pnputil 启用: {} ({})", adapter_name, instance_id);
-        crate::network::discovery::devnode::enable_device(&instance_id, allow_uac_prompt)?;
-        crate::log_info!("adapter", "设备级启用复核通过: {}", adapter_name);
-        // 与 netsh 路径一致：变更后失效两层缓存
-        ADAPTER_CACHE.write().take();
-        crate::network::discovery::registry::refresh_class_subkey_cache();
-        crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
-        return Ok(());
+    {
+        use crate::network::discovery::devnode::{
+            enable_device, find_disabled_device, reenumerate_device, DeviceState,
+        };
+        match find_disabled_device(adapter_name)? {
+            // 设备管理器式禁用：直接 pnputil 设备级启用
+            Some(DeviceState::Disabled(instance_id)) => {
+                crate::log_info!("adapter", "适配器处于设备级禁用(PnP problem 22)，走 pnputil 启用: {} ({})", adapter_name, instance_id);
+                enable_device(&instance_id, allow_uac_prompt)?;
+                crate::log_info!("adapter", "设备级启用复核通过: {}", adapter_name);
+                // 与 netsh 路径一致：变更后失效两层缓存
+                ADAPTER_CACHE.write().take();
+                crate::network::discovery::registry::refresh_class_subkey_cache();
+                crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
+                return Ok(());
+            }
+            // 设备实例不可定位（USB 端口复位后的幽灵态）：此时 pnputil 无从下手、
+            // netsh 找不到接口行，只有重扫总线能把设备拉回来
+            Some(DeviceState::Unlocatable(instance_id)) => {
+                crate::log_info!("adapter", "设备实例不可定位(USB 幽灵态)，触发总线重枚举: {} ({})", adapter_name, instance_id);
+                reenumerate_device(&instance_id, allow_uac_prompt)?;
+                // 设备回来后禁用态可能被保留：补一次设备级启用
+                if let Some(DeviceState::Disabled(id)) = find_disabled_device(adapter_name)? {
+                    crate::log_info!("adapter", "重枚举后设备仍处禁用态，走 pnputil 启用: {}", adapter_name);
+                    enable_device(&id, allow_uac_prompt)?;
+                }
+                // 设备级恢复即完成，不再落 netsh：此时接口行可能仍在重建，worker 的
+                // 「必须存在于本机适配器列表」校验会误报「未找到本机适配器」。
+                // NDIS admin 层在 PnP 恢复后默认为启用（netsh disable 走的是另一条
+                // 分支：那时 PnP problem 为 0，根本不会进到这里）。
+                crate::log_info!("adapter", "设备实例已恢复: {}", adapter_name);
+                ADAPTER_CACHE.write().take();
+                crate::network::discovery::registry::refresh_class_subkey_cache();
+                crate::network::discovery::registry::invalidate_show_in_ncpa_cache();
+                return Ok(());
+            }
+            None => {}
+        }
     }
 
     if crate::platform::elevation::is_admin() {

@@ -137,6 +137,11 @@ pub enum HelperOp {
     /// PnP 设备级启用（pnputil /enable-device，含 problem 22 解除复核）
     #[cfg(target_os = "windows")]
     EnableDevice { instance_id: String },
+    /// 设备所在总线重枚举（CM_Reenumerate_DevNode，等价「扫描检测硬件改动」）。
+    /// USB 网卡禁用后端口复位会让设备实例在 PnP 树里消失（幽灵态），
+    /// 此时 pnputil /enable-device 与 netsh 都无从下手，必须先重扫总线拉回设备
+    #[cfg(target_os = "windows")]
+    ReenumerateDevice { instance_id: String },
     /// 设置接口跃点（出站切换）：`rows` 为 "{guid}:{family}:{automatic}:{metric}"
     /// 编码条目（family 2=IPv4/23=IPv6；automatic 1=恢复自动跃点、0=静态 metric）。
     /// 对 guid 匹配到的接口逐条 SetIpInterfaceEntry（SitePrefixLength 置 0 防
@@ -203,6 +208,14 @@ fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
                 .ok_or_else(|| "helper enable_device 缺少设备实例ID".to_string())?
                 .clone();
             HelperOp::EnableDevice { instance_id }
+        }
+        #[cfg(target_os = "windows")]
+        "reenumerate_device" => {
+            let instance_id = positional
+                .first()
+                .ok_or_else(|| "helper reenumerate_device 缺少设备实例ID".to_string())?
+                .clone();
+            HelperOp::ReenumerateDevice { instance_id }
         }
         #[cfg(target_os = "windows")]
         "disable_adapter" => {
@@ -272,6 +285,8 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
         HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::ReenumerateDevice { instance_id } => run_reenumerate_device(instance_id, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
         #[cfg(target_os = "windows")]
@@ -389,6 +404,8 @@ fn process_request(path: &std::path::Path) -> i32 {
                 HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::ReenumerateDevice { instance_id } => run_reenumerate_device(instance_id, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
                 #[cfg(target_os = "windows")]
@@ -926,20 +943,25 @@ fn run_route_delete(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
     }
 }
 
+/// 设备实例 ID 字符集白名单：形如 USB\VID_0BDA&PID_8156\4013000001——
+/// 拒绝 '/'（pnputil 开关前缀）、空格与控制字符；禁止以 '-' 开头。
+/// 设备级启用与总线重枚举共用。
+#[cfg(target_os = "windows")]
+fn valid_instance_id(instance_id: &str) -> bool {
+    !instance_id.is_empty()
+        && instance_id.len() <= 200
+        && !instance_id.starts_with('-')
+        && instance_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '\\' | '&' | '.' | '_' | '-' | '*'))
+}
+
 /// PnP 设备级启用（pnputil /enable-device），worker 内完成 problem 22 解除复核。
 /// 双校验：设备实例 ID 字符集白名单（防 pnputil 开关注入，如 /remove-device）+
 /// CM_Locate_DevNodeW(PHANTOM) 存在性复核。
 #[cfg(target_os = "windows")]
 fn run_enable_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult {
-    // 字符集白名单：设备实例 ID 形如 USB\VID_0BDA&PID_8156\4013000001——
-    // 拒绝 '/'（pnputil 开关前缀）、空格与控制字符；禁止以 '-' 开头
-    let valid = !instance_id.is_empty()
-        && instance_id.len() <= 200
-        && !instance_id.starts_with('-')
-        && instance_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '\\' | '&' | '.' | '_' | '-' | '*'));
-    if !valid {
+    if !valid_instance_id(instance_id) {
         return HelperResult {
             success: false,
             message: format!("设备实例 ID 非法: {instance_id:?}"),
@@ -970,8 +992,12 @@ fn run_enable_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult 
             details: None,
         };
     }
-    // 复核：不信 pnputil 返回值，轮询 problem 22 真正解除（3s 上限，与主进程同参数）
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(3000);
+    // 复核：不信 pnputil 返回值，轮询 problem 22 真正解除
+    //（窗口与主进程同源：USB 设备等价物理拔插，3s 必然误判）
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_millis(
+            crate::network::discovery::devnode::verify_window_ms(instance_id),
+        );
     loop {
         match crate::network::discovery::devnode::devnode_problem(instance_id) {
             Ok(problem) if problem != 22 => {
@@ -995,6 +1021,38 @@ fn run_enable_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult 
             }
             _ => std::thread::sleep(std::time::Duration::from_millis(200)),
         }
+    }
+}
+
+/// 设备所在总线重枚举（提权通道版）：SYSTEM worker 内调用
+/// `CM_Reenumerate_DevNode(SYNCHRONOUS)`，把停在幽灵态的 USB 设备重新枚举出来。
+#[cfg(target_os = "windows")]
+fn run_reenumerate_device(instance_id: &str, logs: &mut Vec<String>) -> HelperResult {
+    if !valid_instance_id(instance_id) {
+        return HelperResult {
+            success: false,
+            message: format!("设备实例 ID 非法: {instance_id:?}"),
+            op: "reenumerate_device".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        };
+    }
+    logs.push(format!("helper: 总线重枚举: {instance_id}"));
+    match crate::network::discovery::devnode::reenumerate_device_raw(instance_id) {
+        Ok(()) => HelperResult {
+            success: true,
+            message: format!("总线重枚举完成，设备实例已恢复: {instance_id}"),
+            op: "reenumerate_device".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        },
+        Err(e) => HelperResult {
+            success: false,
+            message: format!("总线重枚举失败: {e}"),
+            op: "reenumerate_device".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        },
     }
 }
 
@@ -1220,6 +1278,31 @@ mod tests {
                 instance_id: "USB\\VID_0BDA&PID_8156\\4013000001".to_string()
             }
         );
+    }
+
+    #[test]
+    fn build_op_reenumerate_device() {
+        let op = build_op_from_args(
+            "reenumerate_device",
+            &["USB\\VID_0BDA&PID_8156\\4013000001".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            op,
+            HelperOp::ReenumerateDevice {
+                instance_id: "USB\\VID_0BDA&PID_8156\\4013000001".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn instance_id_whitelist_rejects_injection() {
+        // 防 pnputil 开关注入：'/' 与空格一律拒绝
+        assert!(valid_instance_id("USB\\VID_0BDA&PID_8156\\4013000001"));
+        assert!(!valid_instance_id("USB\\X/remove-device"));
+        assert!(!valid_instance_id("USB\\X 4013000001"));
+        assert!(!valid_instance_id("--remove-device"));
+        assert!(!valid_instance_id(""));
     }
 
     #[test]
