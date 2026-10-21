@@ -96,6 +96,7 @@ const LIVE_FRAMES = 2
  * 所以启动期由 CSS 侧把膜钉成实底（`.glass-dock:not(.glass-live)`），并且
  * **等整条祖先链落回「不透明 + 无变换 + 无 will-change」再挂**滤镜：挂上两帧后
  * 才补 `.glass-live` 放开半透明（有 260ms 过渡，读作一次材质变化而不是闪一下换皮）。
+ * 等不到就**不挂**，一直留在实底——挂上去只会是一条常驻黑膜，比没有折射更糟。
  */
 export function useGlassRefraction(
   ref: RefObject<HTMLElement | null>,
@@ -103,12 +104,17 @@ export function useGlassRefraction(
 ) {
   const attached = useRef(false)
   // 已经熬过一次启动期的抖动：之后换档位尺寸不再变，直接挂即可
-  const settled = useRef(false)
+  const pastStartup = useRef(false)
 
   useEffect(() => {
     const el = ref.current
     const hyalite = window.Hyalite
     if (!el || !hyalite) return
+
+    // 两条 rAF 链的句柄都留到 effect 顶层声明：off 档与不支持的分支会提前 return，
+    // 若在下面才声明，cleanup 里访问会落到暂时性死区。
+    let liveRaf = 0
+    let pollRaf = 0
 
     const remove = () => {
       if (attached.current) {
@@ -120,6 +126,8 @@ export function useGlassRefraction(
     // .glass-live 只在卸载时拆：换档位是 remove→attach 紧挨着发生的，
     // 中途拆掉会让膜落回实底、闪两帧再淡回来。
     const cleanup = () => {
+      cancelAnimationFrame(liveRaf)
+      cancelAnimationFrame(pollRaf)
       remove()
       el.classList.remove('glass-live')
     }
@@ -134,34 +142,38 @@ export function useGlassRefraction(
       if (!el.isConnected) return
       hyalite.attach(el, GLASS_DOCK_OPTS[level])
       attached.current = true
-      settled.current = true
+      pastStartup.current = true
       // 滤镜这一帧画完再放开透明：见上方注释，启动期是实底不是半透明。
       let frames = LIVE_FRAMES
       const live = () => {
-        if (frames-- > 0) requestAnimationFrame(live)
+        if (frames-- > 0) liveRaf = requestAnimationFrame(live)
         else el.classList.add('glass-live')
       }
-      requestAnimationFrame(live)
+      liveRaf = requestAnimationFrame(live)
     }
 
-    if (settled.current) {
+    if (pastStartup.current) {
       attach()
       return cleanup
     }
 
     const startedAt = performance.now()
-    let settle = 0
-    let deadline = 0
-    let raf = 0
-    let polling = false
-    let done = false
+    let ro: ResizeObserver | null = null
+    let settleTimer = 0
+    let waiting = false
 
-    /** 整条祖先链不透明、也不带变换时 backdrop 才采样得到页面内容 */
+    /**
+     * 整条祖先链不透明、也不带变换时 backdrop 才采样得到页面内容。
+     *
+     * 从**父元素**起查而不是自身：元素自己的 transform 只让它内部建 root，
+     * 而 backdrop root 是祖先层。悬浮栏自身常驻 `translateX(--dock-stretch)`，
+     * 把它算进去就永远等不到就绪（`--dock-stretch` 一非零就拖到超时）。
+     */
     const backdropReady = () => {
-      for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+      for (let node = el.parentElement; node; node = node.parentElement) {
         const cs = getComputedStyle(node)
         if (cs.opacity !== '1') return false
-        if (cs.transform !== 'none' && cs.transform !== 'matrix(1, 0, 0, 1, 0, 0)') return false
+        if (cs.transform !== 'none') return false
         // GSAP 的 force3D 会改写这些独立变换属性，它们不进 transform 却同样建 backdrop root
         if (cs.translate !== 'none' || cs.scale !== 'none' || cs.rotate !== 'none') return false
         if (cs.willChange !== 'auto') return false
@@ -169,41 +181,43 @@ export function useGlassRefraction(
       return true
     }
 
-    // 逐帧等到祖先都落回不透明；超时说明遇到了预料外的常驻半透明层，
-    // 此时挂上去只会一直黑，宁可留在实底。
     const poll = () => {
-      if (done || !el.isConnected) return
-      if (backdropReady() || performance.now() - startedAt >= MAX_WAIT_MS) {
-        done = true
+      if (!el.isConnected) return
+      if (backdropReady()) {
         attach()
         return
       }
-      raf = requestAnimationFrame(poll)
+      pollRaf = requestAnimationFrame(poll)
     }
 
-    let ro: ResizeObserver | null = null
-    const finish = () => {
-      clearTimeout(settle)
-      clearTimeout(deadline)
+    // 祖先链一直没落干净：挂上去只会常驻一条黑膜，宁可留在 CSS 的实底
+    const giveUp = () => {
+      waiting = true
+      cancelAnimationFrame(pollRaf)
       ro?.disconnect()
-      if (polling) return
-      polling = true
-      poll()
+    }
+
+    const startWaiting = () => {
+      if (waiting) return
+      waiting = true
+      ro?.disconnect()
+      // 布局抖到过了总预算：直接放弃，别再从 poll 里挂上去
+      if (performance.now() - startedAt >= MAX_WAIT_MS) return
+      pollRaf = requestAnimationFrame(poll)
     }
 
     ro = new ResizeObserver(() => {
-      // 尺寸还在变：把挂载往后推，最后稳定 SETTLE_MS 之后才挂
-      clearTimeout(settle)
-      settle = window.setTimeout(finish, SETTLE_MS)
+      // 尺寸还在变（实测 651 → 553 → 651）：把挂载往后推，稳定 SETTLE_MS 之后才等
+      clearTimeout(settleTimer)
+      settleTimer = window.setTimeout(startWaiting, SETTLE_MS)
     })
     ro.observe(el)
-    settle = window.setTimeout(finish, SETTLE_MS)
-    deadline = window.setTimeout(finish, MAX_WAIT_MS)
+    settleTimer = window.setTimeout(startWaiting, SETTLE_MS)
+    const deadlineTimer = window.setTimeout(giveUp, MAX_WAIT_MS)
 
     return () => {
-      clearTimeout(settle)
-      clearTimeout(deadline)
-      cancelAnimationFrame(raf)
+      clearTimeout(settleTimer)
+      clearTimeout(deadlineTimer)
       ro?.disconnect()
       cleanup()
     }

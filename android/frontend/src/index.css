@@ -102,6 +102,21 @@
        FlClash 的 _shineAround 用「圆角半径的倍数」定采样位置（.3r / r / 1.53r），
        写死 18px 时 .glass-nav 的药丸形（半径≈半高）会整段错位。 */
     --glass-r: 18px;
+    /* 内缘光两条伪元素共用的横向 cos²θ 衰减（::before / ::after 各要写
+       -webkit-mask + mask 两份，四段渐变逐字相同）。这里只写一份：
+       自定义属性是 token 流，里面的 var(--glass-r) 在**取用点**才求值，
+       所以 .glass-nav 的 34px 半径照样生效。 */
+    --edge-fade-x: linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.044) 0,
+      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.71) var(--glass-r),
+      #000 calc(var(--glass-r) * 1.53),
+      #000 calc(100% - var(--glass-r) * 1.53),
+      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
+      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
+      rgba(0, 0, 0, 0.044) 100%
+    );
     /* 按压光斑的方向与强度：亮色玻璃近纯白，白光叠上去实测 Δ 只有 4（不可见），
        改成「指尖压下去的一点暗」——玻璃被按住处透光变少、读作凹陷。
        注意这两条必须定义在 :root/.dark 而不是 .glass-dock 规则里：
@@ -511,28 +526,8 @@
       rgba(255, 255, 255, 0) 5.17px,
       rgba(255, 255, 255, 0) 100%
     );
-    -webkit-mask: linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.044) 0,
-      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.71) var(--glass-r),
-      #000 calc(var(--glass-r) * 1.53),
-      #000 calc(100% - var(--glass-r) * 1.53),
-      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
-      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.044) 100%
-    );
-    mask: linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.044) 0,
-      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.71) var(--glass-r),
-      #000 calc(var(--glass-r) * 1.53),
-      #000 calc(100% - var(--glass-r) * 1.53),
-      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
-      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.044) 100%
-    );
+    -webkit-mask: var(--edge-fade-x);
+    mask: var(--edge-fade-x);
     pointer-events: none;
     z-index: 1;
   }
@@ -562,28 +557,8 @@
       rgba(255, 255, 255, 0) 5.17px,
       rgba(255, 255, 255, 0) 100%
     );
-    -webkit-mask: linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.044) 0,
-      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.71) var(--glass-r),
-      #000 calc(var(--glass-r) * 1.53),
-      #000 calc(100% - var(--glass-r) * 1.53),
-      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
-      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.044) 100%
-    );
-    mask: linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.044) 0,
-      rgba(0, 0, 0, 0.56) calc(var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.71) var(--glass-r),
-      #000 calc(var(--glass-r) * 1.53),
-      #000 calc(100% - var(--glass-r) * 1.53),
-      rgba(0, 0, 0, 0.71) calc(100% - var(--glass-r)),
-      rgba(0, 0, 0, 0.56) calc(100% - var(--glass-r) * 0.3),
-      rgba(0, 0, 0, 0.044) 100%
-    );
+    -webkit-mask: var(--edge-fade-x);
+    mask: var(--edge-fade-x);
     pointer-events: none;
     z-index: 2;
   }
