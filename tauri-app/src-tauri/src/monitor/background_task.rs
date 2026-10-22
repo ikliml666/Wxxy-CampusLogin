@@ -157,7 +157,9 @@ pub fn spawn_background_check_after_outbound_restore(app_handle: &AppHandle) {
             waited_ms
         })
         .await
-        .unwrap_or(0);
+        // join 失败（阻塞线程池异常）按「等满上限」处理：宁可记一条 warn 让排障
+        // 有据可查，也不要谎报「IP 已就绪（等待 0ms）」掩盖探测根本没跑过。
+        .unwrap_or(POST_RESTORE_IP_WAIT_MAX_MS);
 
         if waited >= POST_RESTORE_IP_WAIT_MAX_MS {
             crate::log_warn!(

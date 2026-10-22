@@ -12,6 +12,20 @@ use super::portal_check::{PortalCheckResult, check_adapter_portal};
 use crate::auth::failure_tracker::handle_portal_request_failure;
 use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, BackgroundCheckResult};
 
+/// 巡检是否应把「已登录过」标记复位（会话失效判定，纯函数便于单测）。
+///
+/// 三个条件缺一不可：
+/// - `reachable`：Portal 服务可达，才有依据确认「当前确实未在线」；探测失败/
+///   适配器无 IP 时 reachable=false，保持标记不动，避免瞬时抖动把刚建立的会话判死。
+/// - `!any_online`：主副适配器都不在线（any_online 语义见调用点）。
+/// - `has_logged_online`：此前确实登录过，才谈得上「复位」。
+///
+/// 历史缺陷：该标记只在登录成功时置位、永不复位，整夜休眠唤醒后自动登录被
+/// 永久门控拦截，用户只能手动点登录（2026-10-22 修复）。
+pub(crate) fn should_reset_logged_online(reachable: bool, any_online: bool, has_logged_online: bool) -> bool {
+    reachable && !any_online && has_logged_online
+}
+
 pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) {
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
         return;
@@ -317,7 +331,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 覆盖不到「网络名没变、只是会话超时或网卡被禁用后重启」的整夜休眠场景。
     // 必须在 try_auto_login_on_preparation 之前重置：本次巡检就能真正登录，
     // 不必再等下一拍（否则还原后补检钩子触发的那一拍仍会被旧标记挡回）。
-    if reachable && !any_online && state.network.load().has_logged_online {
+    if should_reset_logged_online(reachable, any_online, state.network.load().has_logged_online) {
         state.network.update(|s| s.has_logged_online = false);
         crate::log_info!(
             "background",
@@ -391,4 +405,35 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
     }).await.unwrap_or_else(|e| {
         crate::log_error!("background", "后台检测异常: {}", e);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_reset_logged_online;
+
+    /// 在线时不重置：任何一张卡在线都说明会话有效
+    #[test]
+    fn no_reset_while_online() {
+        assert!(!should_reset_logged_online(true, true, true));
+        // 即使标记是 false，在线也不该「重置」（保持 false 即可，判定同样为否）
+        assert!(!should_reset_logged_online(true, true, false));
+    }
+
+    /// 服务不可达时不重置：探测失败不能当作会话失效
+    #[test]
+    fn no_reset_when_unreachable() {
+        assert!(!should_reset_logged_online(false, false, true));
+    }
+
+    /// 未登录过时无需重置：避免无谓写状态与日志噪音
+    #[test]
+    fn no_reset_when_never_logged_in() {
+        assert!(!should_reset_logged_online(true, false, false));
+    }
+
+    /// 整夜休眠场景：可达 + 都不在线 + 曾登录 → 必须复位，允许自动登录介入
+    #[test]
+    fn reset_when_reachable_offline_and_logged_before() {
+        assert!(should_reset_logged_online(true, false, true));
+    }
 }
