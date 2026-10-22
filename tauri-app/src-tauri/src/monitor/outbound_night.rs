@@ -1102,6 +1102,12 @@ fn finish_outbound_restore(app_handle: &AppHandle) -> bool {
     // 还原成功即解除「立即切换」当日保持（hold 在还原窗内本就冻结自动还原，
     // 此处覆盖手动还原路径与跨日自动还原路径，双保险归零）
     clear_outbound_manual_hold(app_handle);
+    // 切换态已清（巡检不再被「出站切换态」闸门跳过）、校园网卡已启用：立刻补一次
+    // 巡检，让自动登录在还原后第一时间评估。否则要等一整个巡检周期——轻量化下
+    // 300s，正是「整夜休眠后到点不自动登录、只能手动点」的缺口（见
+    // background_task::spawn_background_check_after_outbound_restore 的实证注释）。
+    // 所有还原路径（自动/手动/启动对账）都汇到此处，钩子只挂一次。
+    crate::monitor::background_task::spawn_background_check_after_outbound_restore(app_handle);
     true
 }
 
