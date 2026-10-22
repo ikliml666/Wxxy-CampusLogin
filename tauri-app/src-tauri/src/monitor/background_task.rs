@@ -92,3 +92,106 @@ pub fn spawn_background_check_once(app_handle: &AppHandle) {
         }
     }
 }
+
+/// 夜间出站还原后「立即补检」的等待参数。
+///
+/// 还原刚把校园网卡从设备级禁用（PnP problem 22）里启用，Windows 还要几秒
+/// 到几十秒才拿到 DHCP 地址。此刻立刻巡检必然读到「配置的适配器均无 IP」
+/// 而空转，随后又要等一整个巡检周期才重试——轻量化下该周期下限 300s
+/// （app/lightweight::effective_background_interval_ms），用户实测表现就是
+/// 「到点不自动登录，只能手动点」。
+///
+/// 2026-10-22 实证：08:11:20 夜间出站还原完成（校园网卡此后才重新启用），
+/// 至 08:12:17 用户手动登录之间没有任何 [background]/[auto_login]/[login]
+/// 日志；轻量化下限 300s 意味着下一拍巡检最早落在 08:16。还原动作本身不带
+/// 「还原后立即评估」的钩子，只能等周期巡检，这是缺口所在。
+const POST_RESTORE_IP_WAIT_MAX_MS: u64 = 45_000;
+const POST_RESTORE_IP_POLL_MS: u64 = 3_000;
+
+/// 补检等待是否还应继续（纯函数，便于单测边界）。
+///
+/// 已等待时长严格小于上限才继续轮询；达到上限即收尾——不再多睡一轮，
+/// 避免超时后仍空等一个轮询间隔才发起巡检。
+fn post_restore_wait_should_continue(waited_ms: u64, max_ms: u64) -> bool {
+    waited_ms < max_ms
+}
+
+/// 主/副适配器是否至少有一张已拿到 IP（还原是否已「网络就绪」）。
+///
+/// 用 force 版本枚举：cached 带 TTL 缓存，网卡刚启用时会返回启用前的旧快照
+/// （无 IP），轮询因此永远等不到就绪。
+fn post_restore_adapters_have_ip(app_handle: &AppHandle) -> bool {
+    let s = app_handle.state::<AppState>();
+    let config = s.config.load_full();
+    let adapters = match crate::network::get_adapters_force() {
+        Ok(a) if !a.is_empty() => a,
+        _ => return false,
+    };
+    let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
+    let (a1, a2) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
+    a1.is_some() || a2.is_some()
+}
+
+/// 夜间出站还原成功后的补检入口：等适配器 IP 就绪（最长
+/// POST_RESTORE_IP_WAIT_MAX_MS）后发起一次一次性后台巡检，让自动登录
+/// 在还原后第一时间评估，而不是被巡检周期拖到几分钟后。
+///
+/// 阻塞枚举送阻塞线程池（get_adapters_force 是同步网络枚举）；巡检本身走
+/// spawn_background_check_once（task_manager 注册、可被统一取消），
+/// 与周期巡检的并发由 run_background_check 内部的 is_checking 信号量兜住。
+///
+/// 未读到 IP 也照发巡检：让巡检自己给出「配置的适配器均无 IP」的结论并走
+/// 周期重试，比静默不发更好排障（本次故障就缺这条线索）。
+pub fn spawn_background_check_after_outbound_restore(app_handle: &AppHandle) {
+    let app_h = app_handle.clone();
+    let probe_h = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let waited = tauri::async_runtime::spawn_blocking(move || {
+            let mut waited_ms: u64 = 0;
+            while post_restore_wait_should_continue(waited_ms, POST_RESTORE_IP_WAIT_MAX_MS)
+                && !post_restore_adapters_have_ip(&probe_h)
+            {
+                std::thread::sleep(Duration::from_millis(POST_RESTORE_IP_POLL_MS));
+                waited_ms = waited_ms.saturating_add(POST_RESTORE_IP_POLL_MS);
+            }
+            waited_ms
+        })
+        .await
+        .unwrap_or(0);
+
+        if waited >= POST_RESTORE_IP_WAIT_MAX_MS {
+            crate::log_warn!(
+                "background",
+                "夜间出站还原后补检: 等待 {}ms 仍未读到适配器 IP，仍发起巡检（下一巡检周期会继续重试）",
+                waited
+            );
+        } else {
+            crate::log_info!(
+                "background",
+                "夜间出站还原后补检: 适配器 IP 已就绪（等待 {}ms），发起巡检",
+                waited
+            );
+        }
+        spawn_background_check_once(&app_h);
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::post_restore_wait_should_continue;
+
+    /// 等待上限语义：达到上限即收尾，不多睡一轮空等
+    #[test]
+    fn post_restore_wait_stops_at_cap() {
+        assert!(post_restore_wait_should_continue(0, 45_000));
+        assert!(post_restore_wait_should_continue(42_000, 45_000));
+        assert!(!post_restore_wait_should_continue(45_000, 45_000));
+        assert!(!post_restore_wait_should_continue(90_000, 45_000));
+    }
+
+    /// 上限为 0 表示不等待：首轮就不进循环，直接发起巡检
+    #[test]
+    fn post_restore_wait_zero_budget_never_waits() {
+        assert!(!post_restore_wait_should_continue(0, 0));
+    }
+}

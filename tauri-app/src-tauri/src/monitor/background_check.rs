@@ -308,6 +308,22 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 每个巡检周期都误报"在线→离线"通知。
     // 修复：状态变更检测统一用 any_online（任一适配器在线即在线）。
     let any_online = online || secondary_online == Some(true);
+    // 会话失效判定（本轮修复）：服务可达但主副卡都判定为未在线，说明此前建立的
+    // 登录会话已失效（整夜休眠唤醒后网卡重连未登录、校园网卡被夜间出站切换禁用后
+    // 又被启用、Portal 掉线）。此时必须重置 has_logged_online，否则下方
+    // try_auto_login_on_preparation 的「已登录过」门控会把自动登录永久拦住——
+    // 用户看到的就是「到点不自动登录，只能手动点」。
+    // 本文件 :101 的重置只覆盖校园网检测失败（SSID/网络名变化）这一种失效，
+    // 覆盖不到「网络名没变、只是会话超时或网卡被禁用后重启」的整夜休眠场景。
+    // 必须在 try_auto_login_on_preparation 之前重置：本次巡检就能真正登录，
+    // 不必再等下一拍（否则还原后补检钩子触发的那一拍仍会被旧标记挡回）。
+    if reachable && !any_online && state.network.load().has_logged_online {
+        state.network.update(|s| s.has_logged_online = false);
+        crate::log_info!(
+            "background",
+            "巡检判定未在线（服务可达），已重置登录标记，允许自动登录重新介入"
+        );
+    }
     handle_status_change(
         prev_online, any_online, reachable, login_available,
         &adapter1_name, &message,
