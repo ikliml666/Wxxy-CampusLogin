@@ -21,6 +21,10 @@ const SLIDE_MS = 500
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 // 竖排封面流缩放：露出边 0.75（水平封面流用 0.6；竖排只露约 38px 边条，缩放过小字太小，取偏大值保证可读）
 const V_SIDE_SCALE = 0.75
+// 竖排卡宽 = 舞台 88%（左右各缩进 6%）：竖排只靠上下露出边区分当前卡与邻卡，左右不必为侧卡让位。
+// 旧值 inset-x-[18%]（卡宽仅 64%）在手机竖屏把卡压到半个屏宽，卡内 IP/MAC 与「流量+时长+注销」
+// 挤成一团（用户真机反馈的「宽度不够、排版不对」）。
+const V_CARD_INSET = 'inset-x-[6%]'
 // 水平堆叠（桌面/平板）：封面流轮播——中间卡完整清晰，两侧相邻/次邻缩小压暗（不旋转）；
 // 卡宽收窄为舞台 46%（左右各留 27%），相邻/次邻卡外推至 60%/85% 卡宽、缩至 0.6/0.45，
 // 让侧卡内容露出卡外填满整行（与桌面 SelfOnlineCards.tsx OnlineDeviceCardStack 同构同参数）；
@@ -149,7 +153,11 @@ export function OnlineDeviceStack({ cards, focusIndex }: OnlineDeviceStackProps)
     <div>
       <div
         ref={stageRef}
-        className="relative select-none"
+        // 舞台宽度必须撑满父容器：槽位宽度用 V_CARD_INSET（百分比 inset-x）定位，
+        // 舞台若被 shrink-to-fit 收窄（父 flex 行里没有 w-full），百分比相对的是收窄后的
+        // 舞台，卡片被挤到半边之外，上下切换时露出卡与当前卡左右错位。
+        // overflow-x-clip：拖拽/过渡期间卡片不被裁到视口外撑出横向滚动条
+        className="relative w-full select-none overflow-x-clip"
         style={{
           height: cardH != null ? cardH + (count > 1 ? PEEK_TOP + peekBottom : 0) : 220,
           touchAction: 'none',
@@ -193,7 +201,7 @@ export function OnlineDeviceStack({ cards, focusIndex }: OnlineDeviceStackProps)
           return (
             <div
               key={i}
-              className="absolute top-0 origin-top rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] inset-x-[18%] ring-1 ring-black/5 dark:ring-white/10"
+              className={`absolute top-0 origin-top rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] ${V_CARD_INSET} ring-1 ring-black/5 dark:ring-white/10`}
               style={style}
               aria-hidden={r !== 0}
             >
@@ -295,24 +303,26 @@ export function OnlineDeviceStackCard({
         </div>
       </div>
       <div className="mt-2.5 flex items-end justify-between gap-2">
-        <div className="flex gap-4">
-          <div>
-            <p className="text-[10px] text-muted-foreground">{t('account.colUseFlow')}</p>
-            <p className="font-mono text-xs font-medium text-foreground">
+        {/* 左列允许收缩（min-w-0）：流量值（如 81449.169M）在账号窄卡上会顶宽，
+            不许收缩就把右侧「注销」挤出卡片；值本身保持单行、按需向两端让位 */}
+        <div className="flex min-w-0 gap-4">
+          <div className="min-w-0">
+            <p className="text-[10px] whitespace-nowrap text-muted-foreground">{t('account.colUseFlow')}</p>
+            <p className="font-mono text-xs font-medium whitespace-nowrap text-foreground">
               {flowMb}
               <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">M</span>
             </p>
           </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground">{t('account.colUseTime')}</p>
-            <p className="font-mono text-xs font-medium text-foreground">{durationMin}</p>
+          <div className="min-w-0">
+            <p className="text-[10px] whitespace-nowrap text-muted-foreground">{t('account.colUseTime')}</p>
+            <p className="font-mono text-xs font-medium whitespace-nowrap text-foreground">{durationMin}</p>
           </div>
         </div>
         {onOffline && (
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="h-7 shrink-0 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
             disabled={offlineDisabled}
             onClick={onOffline}
           >

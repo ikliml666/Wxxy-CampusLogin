@@ -85,6 +85,16 @@ export const AccountPanel = memo(function AccountPanel({
     setBindCredOverride(cred)
   }, [])
 
+  // 激活账号卡的密码状态就地更新：save_config / clearPassword 只落主配置，
+  // 账号档案要等 saveCurrentAsAccount 才回写，这段窗口里卡片读的是档案旧密文
+  // （清了密码仍显示「密码已保存」）。先把本页内存里的激活卡改成真实结果，
+  // 档案回写后 list_accounts 再对齐。
+  const applyActiveCardPasswordSaved = useCallback((saved: boolean) => {
+    const store = useConfigStore.getState()
+    const accs: AccountItem[] = store.accounts
+    store.setAccounts(accs.map(a => (a.id === activeAccount ? { ...a, passwordSaved: saved } : a)))
+  }, [activeAccount])
+
   // 清除已保存密码：后端空密码语义是"保留旧密码"，必须走显式 clearPassword 标志。
   // 失败不再静默假成功（saveConfigDirect 现在上抛）：失败 toast 且不显示"已清除"
   const handleClearPassword = useCallback(async () => {
@@ -96,8 +106,13 @@ export const AccountPanel = memo(function AccountPanel({
       return
     }
     store.syncPasswordSaved(false)
+    applyActiveCardPasswordSaved(false)
+    // 清空密码后 store 里 config.password 仍是旧值、且 password 字段处于 dirty；
+    // 不复位标记，后续 config-changed 回传（空/MASK）会被跳过，passwordSaved
+    // 与卡片、自助服务凭据判断随之脱节。复位后由后端回传裁决。
+    store.clearDirtyFields()
     addToast(t('account.passwordCleared'), 'success')
-  }, [addToast, t])
+  }, [addToast, t, applyActiveCardPasswordSaved])
 
   // busy 态防重复提交：切换进行中忽略再次点击（对照 DashboardPanel switchingAccount 模式）
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null)
@@ -186,7 +201,9 @@ export const AccountPanel = memo(function AccountPanel({
         return false
       }
     }
-    // 编辑态：先保存主配置（现有登录信息保存路径），成功后回写激活账号档案
+    // 编辑态：先保存主配置（现有登录信息保存路径），成功后回写激活账号档案。
+    // 填了新密码就立即把 store 的「密码已保存」与激活卡状态置真：否则档案回写
+    // 完成前的窗口里卡片仍显示「密码未保存」，看起来像没存进去。
     const store = useConfigStore.getState()
     const partial: Partial<Config> = { user: values.user, operator: values.operator }
     if (values.password) partial.password = values.password
@@ -197,6 +214,7 @@ export const AccountPanel = memo(function AccountPanel({
       addToast(t('account.saveFailed'), 'error', extractErrorMessage(e))
       return false
     }
+    if (values.password) applyActiveCardPasswordSaved(true)
     try {
       const result = await tauriApiWithRetry.saveCurrentAsAccount(activeAccount)
       if (!mountedRef.current) return false
@@ -213,7 +231,7 @@ export const AccountPanel = memo(function AccountPanel({
     await refreshAccounts()
     if (mountedRef.current) setLoginInfoOpen(false)
     return true
-  }, [loginInfoMode, activeAccount, addToast, refreshAccounts, t])
+  }, [loginInfoMode, activeAccount, addToast, refreshAccounts, t, applyActiveCardPasswordSaved])
 
   // 绑定运营商状态机（绑定/查询/揭示/改密逻辑在 useOperatorBind.ts，此处只渲染）：
   // 凭据默认取登录信息（config.user + 已保存密码），弹窗B"手动填写"分段经

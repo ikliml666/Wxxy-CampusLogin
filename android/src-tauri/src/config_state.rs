@@ -262,6 +262,19 @@ pub async fn load_file(path: &Path, bridge: &CryptoBridge) -> Result<Settings, S
     Ok(s)
 }
 
+/// 账号卡"密码是否已保存"判据(账号档案清单展示字段)。
+/// 必须落在 disk 形态的密文位上：`save_file` 落盘时刻意把外露
+/// `Settings.password` 清空、只留 `passwordCipher`（见 EncodedSettings），
+/// 照档案 JSON 的 `settings.password` 判空会永远得到"未保存"。
+/// 读取/解析失败返回 false（与清单展示字段兜底口径一致）。
+pub fn password_saved_at(path: &Path) -> bool {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<EncodedSettings>(&raw).ok())
+        .map(|e| !e.password_cipher.trim().is_empty())
+        .unwrap_or(false)
+}
+
 pub async fn save_file(path: &Path, bridge: &CryptoBridge, s: &Settings) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -787,6 +800,28 @@ mod tests {
         let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
         assert!(!raw.contains("passwordCipher") || raw.contains("\"passwordCipher\": \"\""),
             "空密码不得产生密文: {raw}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 账号卡"密码是否已保存"判据：必须落在 disk 形态（密文位）上，不能看外露
+    /// Settings.password —— 落盘时它被刻意清空（EncodedSettings 只留密文），
+    /// 照档案 JSON 的 settings.password 判空会永远得到"未保存"（用户真机反馈）。
+    #[tokio::test]
+    async fn 密码已保存判据_落盘后仍为已保存() {
+        let dir = tmp_dir("savedpwdjudge");
+        let bridge = fake_bridge();
+        save_to(&dir, &bridge, &sample_settings()).await.unwrap();
+        let path = dir.join(CONFIG_FILE);
+        assert!(password_saved_at(&path), "带密码落盘后判据必须为已保存");
+        // 外露字段确实为空（说明判据不能取它）
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(v["settings"]["password"], "", "外露 password 应恒空");
+
+        let mut empty = sample_settings();
+        empty.password.clear();
+        save_to(&dir, &bridge, &empty).await.unwrap();
+        assert!(!password_saved_at(&path), "空密码落盘后判据必须为未保存");
         std::fs::remove_dir_all(&dir).ok();
     }
 }
