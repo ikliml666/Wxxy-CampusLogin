@@ -19,367 +19,301 @@ tags: [Android, Tauri, Zustand, Hooks, State Management, Animation, Network Qual
 
 ## Overview
 
-本模块 `android-frontend-hooks-stores` 是 Android 前端应用的核心状态管理与基础设施层。它基于 **Zustand** 构建 Store，并通过 React Hooks 暴露状态与副作用。主要职责包括：
+本模块 `android-frontend-hooks-stores` 覆盖安卓前端状态管理与基础设施层，对应目录 `android/frontend/src/hooks/` 下的 12 个文件。它以 **Zustand** 按领域拆分 store（认证、配置、网络质量、主题、面板导航），以 `tauriApi.ts` 统一定义与 Rust 后端通信的 IPC 契约，并以一组 React Hooks 提供应用初始化编排、异步互斥锁、GSAP 自适应帧率、动画配置档案与系统「减少动态效果」适配。
 
-1.  **Tauri API 封装与适配**：定义前端与 Rust 后端通信的契约，处理安卓端对桌面专属功能的降级（如 DHCP、DNS DoH），并封装生物识别验证逻辑。
-2.  **领域状态管理**：涵盖认证 (`useAuthStore`)、配置 (`useConfigStore`)、网络质量 (`useQualityStore`)、主题 (`useThemeStore`)、日志 Toast (`useLogToastStore`) 及面板导航 (`useAdapterStore`)。
-3.  **应用生命周期编排**：通过 `useAppInit` 组合初始化数据加载、事件监听、心跳检测与全局快捷键。
-4.  **性能与动画优化**：提供自适应帧率控制 (`useAdaptiveFramePace`)、设备性能分级 (`useDeviceProfile`)、减少动态效果支持 (`useReducedMotion`) 以及基于 GSAP 的呼吸/脉冲/光晕动画 Hook。
+按职责分为四层：
 
-所有状态变更均通过 Zustand Store 驱动，关键副作用（如 DOM Class 同步、本地存储持久化）在 Store 内部或专用 Hook 中处理，确保 UI 与底层状态的一致性。
+1. **Tauri API 封装与适配**（`tauriApi.ts`）：定义全部 IPC 方法签名，对安卓端不存在的桌面专属能力（适配器/DHCP/DNS/窗口/托盘/心跳）统一显式拒绝或空监听，封装生物识别验证门、外部链接打开白名单与仅针对 `saveConfig` 的指数退避重试。
+2. **领域状态管理**：`useAuthStore`（登录/注销/在线检测）、`useConfigStore`（配置去抖保存/脏标记/密码状态）、`useQualityStore`（网络质量/DNS/版本更新）、`useThemeStore`（主题与 DOM 副作用）、`useAdapterStore`（面板导航，网卡数据链已在安卓端删除）。
+3. **应用生命周期编排**（`useAppInit.ts`）：组合事件监听、初始数据加载、心跳与全局快捷键四个子 hook；`useAppStore.ts` 仅保留兼容性 re-export。
+4. **性能与动画**：`useAdaptiveFramePace`（gsap ticker 动态帧率）、`useAnimationProfile`（恒最高档动画参数）、`useReducedMotion`（系统减少动态效果偏好）；另有通用工具 `useAsyncLock`。
+
+跨 store 协作通过 `useXxxStore.getState()` 直接读取完成（如 `useAuthStore` 读写 `useConfigStore`/`useQualityStore`/`useLogToastStore`），关键副作用（DOM class/CSS 变量同步、localStorage 持久化）集中在 `useThemeStore` 的全局 `subscribe` 与各 store 的模块级变量中。
 
 ## Key Components
 
-### 1. Tauri API 封装 (`tauriApi.ts`)
+### 1. Tauri API 封装（`android/frontend/src/hooks/tauriApi.ts`）
 
-负责定义 IPC 契约并提供安全调用机制。
+#### 类型与接口
 
-*   **类型与接口**
-    *   `TauriApi` (行 48-141)：定义所有 IPC 方法签名，包括配置、网络、账号、系统设置及事件监听。
-    *   `AvoidBadWifiStatus` (行 143-152)：安卓端“避免坏 WiFi”系统设置读写状态结构。
-    *   `RestoreWrittenSettingsResult` (行 154-157)：恢复写入设置的结果结构。
+| 名称 | 行号 | 字段 / 用途 |
+| --- | --- | --- |
+| `ConnectionCampusStatus` | `tauriApi.ts:20-24` | `onCampus: boolean`、`name: string \| null`、`message: string`（校园网单链路状态） |
+| `BatteryOptimizationInfo` | `tauriApi.ts:26-30` | `ignoring: boolean`、`brand: string`、`hasVendorTarget: boolean`（电池优化白名单状态） |
+| `VendorSettingsResult` | `tauriApi.ts:32-36` | `path: 'vendor' \| 'vendor_action' \| 'app_details' \| 'settings' \| 'none'`、`target: string`、`tried: string[]`（厂商省电设置页跳转结果） |
+| `CampusStatusResult` | `tauriApi.ts:38-46` | `onCampusNetwork`、`currentSsid`、`campusMessage`、`enableNetworkNameCheck`、`requiredNetworkName`、`campusWifi: ConnectionCampusStatus \| null`、`campusWired: ConnectionCampusStatus \| null` |
+| `TauriApi` | `tauriApi.ts:48-141` | 全部 IPC 方法签名（下文分组列出） |
+| `AvoidBadWifiStatus` | `tauriApi.ts:143-152` | `granted`（WRITE_SECURE_SETTINGS 是否经 adb 授权）、`avoidBadWifi`（当前值，-1 = 读不到）、`pendingRestoreAvoid`、`pendingRestoreCaptive`（插件快照待还原标记） |
+| `RestoreWrittenSettingsResult` | `tauriApi.ts:154-157` | `restored: Record<string, boolean>`、`reason?: string` |
 
-*   **核心函数**
-    *   `desktopOnly<T>` (行 14-15)：用于安卓端拒绝桌面专属功能，直接 Reject Promise。
-    *   `noopListener` (行 18)：返回空函数，用于安卓端不支持的事件监听器占位。
-    *   `createEventListener<T>` (行 159-188)：通用事件监听工厂，处理 Tauri `listen` 的异步性与取消订阅，防止内存泄漏。
-    *   `withRetry<T>` (行 338-354)：指数退避重试机制，默认最大重试 2 次，基础延迟 500ms，仅对包含 'timeout'/'network'/'fetch'/'connection' 关键字的错误重试。
-    *   `tauriApiWithRetry` (行 356-362)：基于 `tauriApi` 的扩展对象，仅对 `saveConfig` 启用重试机制。
-    *   `verifyWindowsIdentity` (行 207-244)：生物识别验证门。优先检查 `shouldUseFaceFallback()`，若开启且系统生物识别不可用，则调用 `useFaceDialogStore.openFaceDialog` 进行 2D 人脸验证；否则回退至标准 `biometricAuthenticate`。无论成功失败，均通过内部 `report` 函数统一上报后端 `verify_biometric_identity`。
-    *   `openExternal` (行 276-287)：外部链接打开。包含协议白名单校验（http/https）、长度限制（2048）及 URL 解析校验，失败时返回 `false`。
-    *   `getAutoLaunch` / `setAutoLaunch` (行 288-289)：实际调用后端的 `get_boot_autostart` 和 `set_boot_autostart`，表明安卓端使用引导自启。
+`TauriApi` 接口（`tauriApi.ts:48-141`）方法按端语义分组（行号为该成员在接口中的声明位置）：
 
-### 2. 领域 Stores (Zustand)
+- 配置：`getConfig` (49)、`saveConfig` (50)、`exportConfig`/`importConfig`/`exportDiagnostics` (52-54，桌面专属)。
+- 网络适配器（桌面遗留）：`getAdapters` (55)、`enableAdapter` (56)、`getAdapterDetails` (57)、`bindToWifi` (58)、`checkPortalStatus` (59)。
+- 校园网与认证：`checkCampusStatus` (60)、`requestWifiSsidPermission` (61)、`doLogin` (62)、`doLogout` (63)、`bindOperator` (64)、`getBindStatus` (65)、`verifyWindowsIdentity` (66)、`revealOperatorCredential` (67)、`querySelfDashboard` (68)、`selfOfflineSession` (69)、`querySelfOnlineLog` (70)、`changeSelfPassword` (71)。
+- 窗口（桌面专属）：`minimizeWindow` (72)、`closeWindow` (73)、`showWindow` (115)、`renderHeartbeat` (132)、`notifyWindowReady` (134)。
+- 事件监听：`onBackgroundCheckResult` (74)、`onAutoLoginResult` (75)、`onAdaptersChanged` (76)、`onAdapterDetailsChanged` (77)、`onAdapterDisabledWarning` (78)、`onLoginLog` (79)、`onNetworkQualityResult` (97)、`onAutoExitCountdown` (110)、`onAutoExitCancelled` (111)、`onCampusExitCountdown` (112)、`onCampusExitCancelled` (113)、`onConfigChanged` (114)、`onDownloadProgress` (125)、`onUpdateAvailable` (126)、`onUpdateUnverified` (127-128)。
+- 账号档案：`listAccounts` (80)、`createAccount` (82)、`switchAccount` (83)、`saveCurrentAsAccount` (84)、`deleteAccount` (85)、`renameAccount` (87)、`getActiveAccount` (88)。
+- 后台检测：`startBackgroundCheck` (89)、`stopBackgroundCheck` (90)、`triggerBackgroundCheck` (91)、`getBackgroundStatus` (92)。
+- DHCP（桌面专属）：`dhcpRenewAll` (93)、`dhcpReleaseRenew` (94)、`dhcpReleaseRenewAdapter` (95)。
+- 网络质量：`checkNetworkQuality` (96)、`startLatencyTest` (98)、`stopLatencyTest` (99)。
+- 系统设置：`openExternal` (100)、`getAutoLaunch` (101)、`setAutoLaunch` (102)、`getNotificationEnabled` (103)、`setNotificationEnabled` (104)、`getBatteryOptimizationInfo` (105)、`requestIgnoreBatteryOptimizations` (106)、`openVendorBatterySettings` (107)、`openNotificationSettings` (108)、`cancelAutoExit` (109)、`getLogs` (116)、`clearLogs` (117)、`getDebugMode` (118)、`setDebugMode` (119)、`getLogRetentionDays` (135)、`setLogRetentionDays` (136)、`getAvoidBadWifiStatus` (138)、`restoreWrittenSettings` (140)。
+- 初始化与更新：`getInitData` (120)、`checkUpdate` (121)、`downloadUpdate` (122)、`installUpdate` (123)、`getMirrorUrls` (124)、`checkDnsDohStatus` (129)、`setupDnsDoh` (130)、`resetDns` (131)。
 
-#### `useAuthStore.ts`
-*   **职责**：认证领域状态管理，处理登录/注销流程、在线状态检测及后台状态维护。
-*   **状态字段**：
-    *   `isLoggingIn` / `isLoggingOut`：锁状态，防止重复操作。
-    *   `status`：当前在线状态文本与 UI 状态码 (`online`/`offline`/`loading`/`error`)。
-    *   `bgStatus`：后台检测结果，包含 `serverAvailable`, `online`, `campusWifi` 等。
-*   **关键方法**：
-    *   `doLogin` (行 106-164)：登录流程。包含配置保存、带超时包装的 `api.doLogin`、登录后的质量探测节流（60s 内不重复全量探测），以及登录失败时的即时状态复查。
-    *   `doLogout` (行 166-194)：注销流程。带超时包装的 `api.doLogout`，成功后执行 `checkOnline` 确认离线状态。
-    *   `checkOnline` (行 196-243)：核心状态同步。串行锁 `_checkOnlineLockFlag` 保证并发安全。先检测校园网状态（若不在校园网且需检查则拦截），再查询 Portal 状态。使用 `setStatusStable` 避免无数据变化时的重渲染。
-    *   `detectCampusNetwork` (行 29-35) & `buildCampusBgStatusPatch` (行 38-49)：处理校园网检测数据的获取与补丁构建。
-    *   `queryPortalStatus` (行 56-65)：查询 Portal 状态，安卓端传空 IP 让后端回退。
-    *   `withTimeout` (行 69-78)：Promise race 超时控制，防止登录/注销按钮永久禁用。
-    *   `setStatusStable` (行 82-86)：引用稳定性优化，仅在 text/state 变化时更新 Zustand 状态。
+#### 实现层符号
 
-#### `useConfigStore.ts`
-*   **职责**：配置领域状态管理，处理配置的本地缓存、去抖保存、脏标记管理及密码状态同步。
-*   **状态字段**：
-    *   `config`：当前配置对象。
-    *   `configLoaded`：初始化信号，依赖此字段判断是否可执行后续启动逻辑。
-    *   `dirtyFields` (行 20)：本地修改未确认字段的集合。
-    *   `dirtyFailureCounts` (行 25)：连续失败计数，用于解决后端旧快照覆盖本地新值的问题。
-*   **关键方法**：
-    *   `updateConfig` (行 56-88)：合并配置，标记 dirty fields，触发 500ms 去抖保存定时器。
-    *   `mergeConfigFromBackend` (行 103-110)：处理后端 `config-changed` 事件，跳过 dirty fields，防止回滚。
-    *   `saveConfigDirect` (行 119-167)：直接保存配置。处理 `saveConfigInFlight` 跟踪，防止关闭窗口时丢失待保存数据。包含密码保存状态的同步逻辑及 dirty 字段失败阈值重置（`DIRTY_FAILURE_LIMIT = 3`）。
-    *   `flushPendingConfig` (行 186-215)：强制冲刷待保存配置，用于关闭页面或后台化场景。支持等待 in-flight 保存完成。
-    *   `hasPendingConfig` (行 179-184)：判断是否有待保存数据（pending 或 in-flight）。
+- `desktopOnly<T>(name)`（`tauriApi.ts:15-16`）：安卓端对桌面专属命令的直接拒绝——`Promise.reject(new Error("桌面专属功能,安卓端不可用: <name>"))`，不发起 invoke。
+- `noopListener`（`tauriApi.ts:18`）：返回 no-op 清理函数的空监听器，订阅处零改动且永不触发。
+- `createEventListener<T>(eventName)`（`tauriApi.ts:161-190`）：通用事件监听工厂。内部用 `cancelled` 标志与 `unlisten` 槽位处理「listen 尚未完成就卸载」的竞态：回调在 `cancelled` 时丢弃 payload（行 165-166）；清理函数若 `unlisten` 已就绪立即解绑，否则等 `listenPromise` 完成后补解绑（行 177-186）；listen 失败仅在 DEV 打印（行 172-175）。
+- `tauriApi` 对象（`tauriApi.ts:190-324`）：按 `TauriApi` 契约实现的 invoke/监听绑定。要点：
+  - 桌面专属降级（返回 `desktopOnly`）：`exportConfig`(193)、`importConfig`(194)、`exportDiagnostics`(195)、`getAdapters`(196)、`enableAdapter`(197)、`getAdapterDetails`(198)、`minimizeWindow`(250)、`closeWindow`(251)、`dhcpRenewAll`(269)、`dhcpReleaseRenew`(270)、`dhcpReleaseRenewAdapter`(271)、`cancelAutoExit`(296)、`showWindow`(302)、`checkDnsDohStatus`(315)、`setupDnsDoh`(316)、`resetDns`(317)、`renderHeartbeat`(318)、`notifyWindowReady`(319)。
+  - 桌面专属空监听（`noopListener`）：`onAdaptersChanged`(254)、`onAdapterDetailsChanged`(255)、`onAdapterDisabledWarning`(256)、`onAutoExitCountdown`(297)、`onAutoExitCancelled`(298)、`onCampusExitCountdown`(299)、`onCampusExitCancelled`(300)。
+  - 真实事件绑定（`createEventListener` + Tauri 事件名）：`background-check-result`(252)、`auto-login-result`(253)、`login-log`(257)、`network-quality-result`(273)、`config-changed`(301)、`update-download-progress`(312)、`update-available`(313)、`update-unverified`(314)。
+  - 安卓专属命令：`bindToWifi`(199)、`checkCampusStatus`(201)、`requestWifiSsidPermission`(202)、`getBatteryOptimizationInfo`(292)、`requestIgnoreBatteryOptimizations`(293)、`openVendorBatterySettings`(294)、`openNotificationSettings`(295)、`getAvoidBadWifiStatus`(322)、`restoreWrittenSettings`(323)、`getLogRetentionDays`(320)、`setLogRetentionDays`(321)。
+  - `verifyWindowsIdentity`（`tauriApi.ts:207-244`）：生物识别验证门统一出口。内部 `report(success, method)`（行 211-217）把真实结果 invoke 到后端 `verify_biometric_identity`，invoke 异常也归一化为 `{ success: false, message }` 而非抛 IPC 故障。链路顺序：`shouldUseFaceFallback()` 开启且系统生物识别不可用（国产平板 2D 人脸 Class 1 不可达 BiometricPrompt）时走应用内 2D 人脸验证 `useFaceDialogStore.getState().openFaceDialog('verify')`（行 221-235，比对失败/取消一律上报 `face2d` 失败；status 查询异常落回系统链路）；否则 `biometricAuthenticate(params.consentMessage, { allowDeviceCredential: true })`（行 239），取消/失败上报 `biometric` 失败（行 240-243）。
+  - `openExternal`（`tauriApi.ts:276-287`）：外部链接打开。校验 http/https 前缀（行 277）、长度 ≤2048（行 278）、`new URL` 解析（行 279），任一失败返回 `false`；通过 `openerOpenUrl` 打开（行 282），异常返回 `false`。
+  - `getAutoLaunch`/`setAutoLaunch`（`tauriApi.ts:288-289`）：实际调用 `get_boot_autostart`/`set_boot_autostart`，安卓端使用引导自启；`setAutoLaunch` 把 void 结果包装为 `{ success: true }`。
+  - `onUpdateUnverified`（`tauriApi.ts:314`）：更新源 API 不可用时放行下载（无法校验完整性）的警示事件监听。
+- `isRetryableError(e)`（`tauriApi.ts:326-336`）：错误字符串或 `Error.message` 小写化后包含 `timeout`/`network`/`fetch`/`connection` 才可重试。
+- `withRetry<T>(fn, maxRetries = 2, baseDelay = 500)`（`tauriApi.ts:338-354`）：指数退避重试，延迟 `baseDelay * 2^attempt + random*200`（行 347）；不可重试错误立即抛出。
+- `tauriApiWithRetry`（`tauriApi.ts:356-362`）：对外暴露的 API 实例——展开 `tauriApi` 后仅覆盖 `saveConfig` 启用重试（行 361）。注释（行 358-360）说明只保留这一个的原因：保存是一次性关键操作、无其他兜底；`checkPortalStatus` 由 checkOnline 高频调用且后台检测循环周期性重试、`checkNetworkQuality` 有后端 latency loop 事件流兜底，包重试会放大高频流量。
 
-#### `useQualityStore.ts`
-*   **职责**：管理网络质量探测状态、DNS DoH 状态、版本更新信息及 UI 弹窗控制。核心难点在于解决“手动刷新”与“后台循环/登录后探测”之间的竞态条件，防止重复全量检测（历史缺陷 P2-F5）。
-*   **关键导出与常量**：
-    *   `export function getLastQualityResultTime(): number` (行 18)：暴露全局变量 `lastQualityResultTime`，供外部判断是否需要跳过手动刷新。
-    *   `export const useQualityStore` (行 43)：Zustand Store 实例。
-    *   `let _qualityLockFlag = false` (行 11)：同步锁标志，防止并发执行 `refreshQuality`。
-    *   `let lastQualityResultTime = 0` (行 16)：记录最近一次质量结果到达时间戳，用于节流逻辑。
-*   **状态字段** (行 22-32)：
-    *   `networkQuality`: 当前网络质量对象或 null。
-    *   `dnsDohStatus`, `dnsChecking`: DNS 相关状态。
-    *   `updateAvailable`, `latestVersion`, `releaseNotes`, `updatePromptOpen`: 版本更新相关状态。
-    *   `isRefreshingQuality`: 标识是否正在刷新中。
-    *   `refreshRate`: 刷新频率配置。
-*   **关键方法实现**：
-    *   `refreshQuality` (行 54-74)：
-        *   检查 `_qualityLockFlag` 和 `config.enableNetworkQuality`，若为假则直接返回 (行 56-57)。
-        *   设置锁并开启加载态 (行 58-59)。
-        *   调用 `api.checkNetworkQuality?.()` (行 61)。
-        *   若获取到数据 `q`，调用 `get().setNetworkQuality((old) => mergeNetworkQuality(old, q))` (行 64)，确保合并旧数据并更新时间戳。
-        *   异常处理仅在 DEV 模式下打印错误 (行 66-68)。
-        *   `finally` 块中通过 `setTimeout(..., 500)` (行 69-72) 延迟解锁和重置加载态，避免频繁触发。
-    *   `setNetworkQuality` (行 78-82)：
-        *   支持函数式更新。
-        *   **关键逻辑**：当新值 `next !== null` 时，强制更新 `lastQualityResultTime = Date.now()` (行 80)。这确保了无论是后台事件还是手动刷新，只要收到有效结果，都会重置节流窗口。
-    *   其他 Setters (行 83-88)：简单的 Zustand `set` 操作，包括 `setDnsDohStatus`, `setDnsChecking`, `setUpdateAvailable`, `setLatestVersion`, `setReleaseNotes`, `setUpdatePromptOpen`。
+### 2. 领域 Stores（Zustand）
 
-#### `useThemeStore.ts`
-*   **职责**：管理主题名称、浅色模式、自定义颜色、玻璃特效档位。负责将状态同步到 DOM Class 和 CSS 变量，并持久化到存储。
-*   **关键导入与常量**：
-    *   `VALID_THEMES`, `VALID_GLASS_LEVELS` (行 4)：来自 `@/settings/constants` 的白名单。
-    *   `hexToHsl` (行 7)：颜色转换工具。
-    *   `safeStorage` (行 6)：安全存储封装。
-*   **状态字段** (行 9-13)：
-    *   `themeName`: 主题名称，默认 `'default'` (行 22)。
-    *   `isLightMode`: 浅色模式开关，初始值从 `safeStorage.get('campus-light-mode') === '1'` 读取 (行 23)。
-    *   `customThemeColor`: 自定义颜色，默认 `'#6366f1'` (行 24)。
-    *   `glassLevel`: 玻璃档位，初始值从存储读取并校验是否在 `VALID_GLASS_LEVELS` 中，否则回退 `'standard'` (行 25-28)。
-*   **关键方法实现**：
-    *   `initTheme(cfg)` (行 34-54)：
-        *   恢复保存的主题名 (行 35-36)。
-        *   处理浅色模式逻辑：
-            *   优先读取存储 (`campus-light-mode`) 为 `'1'` 或 `'0'` (行 37-41)。
-            *   若无存储记录，根据传入 `cfg.themeMode` 决定：`light` -> true, `dark` -> false, `system` -> 匹配 `window.matchMedia('(prefers-color-scheme: light)').matches` (行 42-51)。
-            *   在确定最终值后，写回存储 (行 44, 47, 51)。
-        *   应用自定义颜色 (行 53)。
-    *   `setCustomThemeColor` (行 56)：简单 setter。
-*   **全局副作用订阅** (行 60-97)：
-    *   使用 `useThemeStore.subscribe` 监听状态变化并同步 DOM。
-    *   **Glass Level 同步** (行 62-65)：变更时设置 `document.documentElement.setAttribute('data-glass', ...)` 并持久化存储。
-    *   **Light Mode 同步** (行 66-73)：变更时 toggle `.dark` class，并根据 `isLightMode` 添加/移除 `data-light="1"` attribute。
-    *   **Theme Name & Color 同步** (行 74-97)：
-        *   先移除所有预设主题 class (`theme-vibrant`, `theme-forest` 等) (行 76-77)。
-        *   若为 `custom` 主题 (行 78)：
-            *   添加 `.theme-custom` (行 79)。
-            *   转换 hex 为 HSL (行 81)。
-            *   **关键修复**：使用 `root.style.setProperty` 覆盖 CSS 变量 (`--primary`, `--ring`, `--accent`, `--accent-foreground`)，避免历史缺陷中 `cssText +=` 导致的 inline style 无界增长 (行 84-87)。
-            *   注意 `--accent` 和 `--accent-foreground` 的亮度计算依赖于 `state.isLightMode` (行 86-87)。
-        *   若非 `custom` (行 88)：
-            *   移除自定义 CSS 变量 (行 89-92)。
-            *   若主题非 `default`，添加对应的 `theme-${name}` class (行 93-95)。
+#### `useAuthStore.ts` — 认证领域
 
-#### `useAdapterStore.ts`
-*   **职责**：面板导航状态管理。安卓端网卡数据链已废弃，此 Store 仅保留 `activePanel` 状态供导航组件使用。
-*   **关键实现**：
-    *   `useAdapterStore` (行 11-14)：Zustand store，默认面板为 `'dashboard'`，提供 `setActivePanel` 方法。
+职责：登录/注销流程、在线状态检测、后台状态维护。
 
-#### `useLogToastStore.ts`
-*   **职责**：日志与 Toast 通知的状态管理。
-*   **关键限制**：
-    *   `MAX_LOG_ENTRIES`：日志条目上限。
-    *   `MAX_TOASTS = 4`：Toast 队列上限，溢出时淘汰最旧者。
-*   **关键逻辑**：
-    *   `addLog`：支持相同消息的时间戳更新与计数累加。
-    *   `addToast` / `addToastWithAction`：支持标题去重。非前台时 `addToast` 静默丢弃（`addToastWithAction` 例外，因含操作入口）。
-    *   `cleanupToasts`：清理所有定时器。
+- 模块级状态：
+  - `_checkOnlineLockFlag`（`useAuthStore.ts:16`）：checkOnline 串行锁。
+  - `QUALITY_MANUAL_THROTTLE_MS = 60_000`（`useAuthStore.ts:21`）：登录后手动质量探测节流阈值，与后端 `run_quality_check` 的 60s 全局节流对齐（历史缺陷 P2-F5，注释行 18-20）。
+- 辅助函数（状态更新统一由 `checkOnline` 处理）：
+  - `detectCampusNetwork()`（`useAuthStore.ts:29-35`）：调用 `api.checkCampusStatus()`，失败返回 `null`。
+  - `buildCampusBgStatusPatch(bgStatus, campusStatus)`（`useAuthStore.ts:38-49`）：纯函数，构造 `onCampusNetwork`/`campusWifi`/`campusWired`/`enableNetworkNameCheck`/`requiredNetworkName` 的 `Partial<BackgroundStatus>` 补丁。
+  - `queryPortalStatus(adapterIp)`（`useAuthStore.ts:56-65`）：查询 Portal 在线状态，失败返回 `{ ok: false }`。注释（行 51-55）记载关键约定：安卓无 adapters 概念（列表恒空、`getAdapters` 必 reject），`adapterIp` 恒传空串，后端 `check_portal_status` 对空 IP 回退缓存源 IP/默认路由；此前 checkOnline 走「解析失败判无网络」路径，是状态点恒被打灰（真机反馈：不手动登录不变绿、过一会又变灰）的直接根因。
+  - `withTimeout<T>(promise, ms, timeoutMsg)`（`useAuthStore.ts:69-78`）：登录/注销 invoke 的超时包装，`Promise.race` 超时 reject；`finally` 清理输家定时器（行 77），避免悬挂 60s 定时器。历史缺陷 P2-34：后端阻塞时防止 `isLoggingIn/isLoggingOut` 永久为 true、按钮永久禁用（注释行 67-68）。
+  - `setStatusStable(next)`（`useAuthStore.ts:82-86`）：引用稳定性优化——`text`/`state` 均未变化时不写状态，避免 StatusBar 等按引用订阅的组件无效重渲染（注释行 80-81）。
+- `AuthStore` 接口（`useAuthStore.ts:88-98`）：`isLoggingIn`、`isLoggingOut`、`status: { text: string; state: StatusState }`、`bgStatus: BackgroundStatus`、`doLogin(): Promise<boolean>`、`doLogout(): Promise<void>`、`checkOnline(cfg?)`、`setStatus(s)`、`setBgStatus(s | fn)`。
+- store 初始状态（`useAuthStore.ts:101-104`）：`status` 初始 `{ text: '正在检测...', state: 'loading' }`；`bgStatus` 初始 `{ isRunning: false, checkCount: 0, serverAvailable: false, online: false, onlineOperator: null, currentSsid: null }`。
+- `doLogin()`（`useAuthStore.ts:106-164`）：
+  1. 防重入：`isLoggingIn || isLoggingOut || !config` 直接返回 `false`（行 107-109）。
+  2. 置 `isLoggingIn`、状态 loading，写日志与 toast（行 111-114）。
+  3. 先 `saveConfigDirect(loginConfig)` 持久化当前配置，失败仅记 warning 日志并继续用已有配置登录（行 117-121）。
+  4. `withTimeout(api.doLogin(), 60000, ...)` 执行登录（行 125）；成功/失败分别更新 `status`（online/offline）并写日志与 toast（行 126-135）。
+  5. 登录后质量探测节流（行 136-148）：`config.enableNetworkQuality !== false` 且 `Date.now() - getLastQualityResultTime() > QUALITY_MANUAL_THROTTLE_MS`（行 141）才发起 `checkNetworkQuality`，结果经 `mergeNetworkQuality` 合并进 `useQualityStore`；失败记 warning 日志。注释（行 137-140）记载：后端 60s 节流只作用于循环路径，手动命令不受限，故前端自行节流。
+  6. 登录成功**跳过立即 `checkOnline`**（登录结果已是权威判定）；仅失败时复查确认状态（行 159-160）。注释（行 156-158）记载历史缺陷：登录成功立即复查会在 Portal 会话未传播时返回 offline，把「登录成功」覆盖为「未登录」造成状态闪烁。
+  7. 复位 `isLoggingIn` 并返回 `success`（行 162-163）。
+- `doLogout()`（`useAuthStore.ts:166-194`）：防重入（行 167-168）→ loading + 日志/toast（行 170-172）→ `withTimeout(api.doLogout(), 60000, ...)`（行 175）→ 成功/失败/异常三分支更新状态与日志/toast（行 176-190）→ 无条件 `checkOnline` 确认离线（行 192）→ 复位 `isLoggingOut`（行 193）。
+- `checkOnline(cfg?)`（`useAuthStore.ts:196-243`）：核心状态同步，全程持 `_checkOnlineLockFlag` 串行锁（行 197-198；`finally` 释放，行 241）。
+  1. campus 检测（行 204-222）：`enableNetworkNameCheck` 开启时 `detectCampusNetwork()`；不在校园网 → 记 warning 日志（仅当先前状态非 offline，行 206-210）、写 `bgStatus` 补丁、`setStatusStable` 为 offline 并 return；campusStatus 可用时也合并补丁（行 217-221）。
+  2. Portal 查询（行 224-235）：`queryPortalStatus('')`（空 IP，见上文约定）；`!ok` → offline；portal 有值 → 状态变化时记录 `portal.message` 日志（行 231-233）、`setStatusStable` 为 online/offline（行 234）。
+  3. 锁释放策略：注释（行 237-240）记载历史缺陷——用 `setTimeout(500)` 释放锁时，若实际执行超 500ms 锁已提前释放、并发调用产生冗余 invoke；现改为 promise settle 时立即释放，锁持有时间与执行时间一致，串行下任意时刻至多一个执行体、无需 epoch 校验。
+- setters：`setStatus`（行 245）、`setBgStatus`（行 246，支持函数式更新）。
 
-### 3. 应用初始化与生命周期 Hooks
+#### `useConfigStore.ts` — 配置领域
 
-#### `useAppInit.ts`
-*   **职责**：应用初始化编排器，组合加载初始数据、事件监听、心跳检测和全局快捷键。
-*   **关键实现**：
-    *   `useAppInit` (行 6-11)：顺序调用 `useEventListeners`, `useInitialDataLoad`, `useHeartbeat`, `useGlobalShortcut`。
+职责：配置对象、去抖保存、脏标记管理、密码保存状态、账号列表、语言设置。
 
-#### `useInitialDataLoad.ts`
-*   **职责**：应用启动时的初始数据加载与状态初始化。
-*   **关键流程**：
-    *   调用 `api.getInitData` 获取初始配置、背景状态、账号列表等。
-    *   初始化 `useConfigStore` (配置、密码状态)、`useThemeStore` (主题)、`useAdapterStore` (默认面板)、`useAuthStore` (后台状态、在线状态)。
-    *   若 `initData.backgroundStatus.online` 为 true，直接设置在线状态，避免竞态导致的状态灰显。
-    *   最终设置 `configLoaded: true` 信号。
-    *   失败时降级为默认配置并记录错误日志。
+- 模块级状态（保存管线）：
+  - `saveConfigTimer`（`useConfigStore.ts:14`）：500ms 去抖定时器。
+  - `saveConfigPending`（`useConfigStore.ts:15`）：待保存的配置增量。
+  - `saveConfigInFlight`（`useConfigStore.ts:17`）：正在发送的保存 Promise，关窗前需等待以免数据丢失。
+  - `dirtyFields: Set<string>`（`useConfigStore.ts:20`）：本地已修改但尚未被后端确认的字段，`config-changed` 回传时跳过，避免后端旧快照覆盖本地新值。
+  - `DIRTY_FAILURE_LIMIT = 3`（`useConfigStore.ts:24`）与 `dirtyFailureCounts: Map`（行 25）：连续失败计数字段，超阈值后放弃脏标记允许后端回传重新同步（历史缺陷：保存持续失败时 dirty 字段被永久跳过、UI 与后端脱节，注释行 21-23）。
+- `ConfigStore` 接口（`useConfigStore.ts:27-46`）：`config`、`configLoaded`、`passwordSaved`、`accounts: AccountItem[]`、`activeAccount`、`language`、`updateConfig`、`updateConfigLocal`、`mergeConfigFromBackend`、`clearDirtyFields`、`syncPasswordSaved`、`saveConfigDirect`、`setAccounts`、`setActiveAccount`、`setLanguage`。`configLoaded` 语义：初始配置是否已从后端加载完成（成功或降级都置 true），依赖 config 的启动逻辑应等此信号（注释行 29-32）。
+- store 初始状态（`useConfigStore.ts:49-54`）：`config: DEFAULT_CONFIG`、`configLoaded: false`、`passwordSaved: false`、`accounts: []`、`activeAccount: ''`、`language: safeStorage.get('app-language') || 'zh'`。
+- `updateConfig(partial)`（`useConfigStore.ts:56-88`）：
+  1. 合并 config 并写状态（行 58-59）。
+  2. 标记 dirty 字段并重置其失败计数（行 62-65；重新编辑视为新一轮保存）。
+  3. 合并 `saveConfigPending`：密码 MASK 保护——pending 已持有真实密码、本次只传 MASK 时保留真实密码（行 66-75）。
+  4. 重置去抖定时器，500ms 后调用 `saveConfigDirect(pending)`，失败 DEV 打印 + error toast（行 76-86）。
+  5. `partial.customThemeColor` 联动 `useThemeStore.setCustomThemeColor`（行 87）。
+- `updateConfigLocal(partial)`（`useConfigStore.ts:90-99`）：仅本地合并 + dirty 标记 + 主题联动，**不**触发后端保存。
+- `mergeConfigFromBackend`（`useConfigStore.ts:103-119`）：处理后端 `config-changed` 回传——遍历字段时跳过 `dirtyFields.has(k)` 的项（行 108）；密码字段另有「已保存」口径同步：MASK = 后端确有密码、空 = 后端确实没有（行 110-118）。注释（行 111-113）记载：复位密码的 dirty 标记会把密码钉死在本地，使清除密码后事件回传的空密码被跳过、`passwordSaved` 永久残留 true。
+- `clearDirtyFields()`（`useConfigStore.ts:121-124`）：清空脏标记与失败计数。
+- `syncPasswordSaved(saved)`（`useConfigStore.ts:126`）：密码保存状态写入口。
+- `saveConfigDirect(cfg, clearPassword?)`（`useConfigStore.ts:128-176`）：直接保存（不经去抖）。
+  1. 合并全量配置后发起 `api.saveConfig`（行 129-132，此走 `tauriApiWithRetry` 即带重试）。
+  2. 成功：清除本次字段的 dirty 标记与失败计数（行 134-137）；`cfg.password` 非空时 `syncPasswordSaved(true)`（行 140-142，注释行 138-139：修复会话内保存密码后 `passwordSaved` 从不置 true、密码框显示空白）。
+  3. 失败：记 error 日志（行 144-145）；本次带密码则 `syncPasswordSaved(false)`（行 148-150，注释：后端没存进去，残留 true 会使下次启动跳过密码恢复）；失败计数递增、达 `DIRTY_FAILURE_LIMIT` 的字段放弃脏标记并记 warning（行 152-162）；**失败上抛**，调用方各自走失败分支，不能静默吞掉让 UI 假成功（行 163-165）。
+  4. in-flight 跟踪：`saveConfigInFlight = promise`（行 168）；`finally` 中**仅清自己的引用**——并发保存时后写者已覆盖该引用，无条件清空会让 `hasPendingConfig` 漏报、关窗跳过等待丢数据（行 171-175）。
+- `setAccounts`（行 178）、`setActiveAccount`（行 179）、`setLanguage`（行 181-185，写 `safeStorage` 并 `i18next.changeLanguage`）。
+- `hasPendingConfig()`（`useConfigStore.ts:188-193`）：`saveConfigPending !== null || saveConfigInFlight !== null`（行 192）。注释（行 189-191）记载历史缺陷：仅检查 pending 时，debounce 已触发、保存 in-flight 的情况下返回 false，关窗直接跳过 flush 分支、in-flight 保存随进程丢弃。
+- `flushPendingConfig()`（`useConfigStore.ts:195-224`）：关窗/后台化兜底冲刷。
+  1. 清去抖定时器（行 196-199）。
+  2. 有 pending 时：剔除 MASK 密码（行 205-207）、合并全量配置（行 209，MASK 原样发给后端由其识别并保留原密码）、发出保存并**纳入返回值**（行 214-217；注释行 210-213 记载历史缺陷：本次新发出的保存不经 in-flight 跟踪、返回旧引用，仅 debounce 待存时调用方拿到 null 直接关窗丢数据）。保存失败 catch 后 resolve（关窗不因保存失败中断）但留诊断日志。
+  3. 返回 `flushed ?? current`，两者并存时 `Promise.allSettled([flushed, current])`（行 219-223）。
 
-#### `useEventListeners.ts`
-*   **职责**：集中注册所有来自后端的 Tauri 事件监听器，并处理应用生命周期相关的副作用（如关闭前保存配置）。
-*   **关键监听器**：
-    *   `onBackgroundCheckResult` (行 82-114)：更新 `bgStatus` 和 `status`，包含低频去重逻辑。
-    *   `onAutoLoginResult` (行 117-128)：自动登录结果处理，成功提示，失败记录日志并触发 `checkOnline`。
-    *   `onLoginLog` (行 134-140)：登录日志记录。
-    *   `onAutoExitCountdown` / `onCampusExitCountdown` (行 142-196)：自动退出倒计时处理，显示带“取消”操作的 Toast。
-    *   `onNetworkQualityResult` (行 198-204)：网络质量更新，触发“质量差”告警 Toast。
-    *   `onUpdateAvailable` (行 206-218)：新版本发现，更新 Quality Store 并记录日志。
-    *   `onConfigChanged` (行 220-241)：配置变更同步，调用 `mergeConfigFromBackend`，并同步激活账号和账号列表。
-    *   `onUpdateUnverified` (行 244-255)：更新源不可用警示。
-*   **生命周期处理**：
-    *   `getCurrentWindow().onCloseRequested` (行 41-66)：关闭前检查 `hasPendingConfig`，若有则 `await flushPendingConfig()` (限时 2s)，防止数据丢失。
-    *   `visibilitychange` / `pagehide` (行 76-80)：安卓进程杀除兜底，后台化时冲刷配置。
+#### `useQualityStore.ts` — 网络质量领域
 
-#### `useHeartbeat.ts`
-*   **职责**：渲染链心跳检测。
-*   **关键实现**：
-    *   每 5s 调用 `api.renderHeartbeat`。若 `document.hidden` 或渲染链失活 (`isRenderLoopAlive` 为 false) 则跳过，允许后端检测到心跳丢失并重载 WebView。
+职责：网络质量、DNS DoH、版本更新状态。核心机制是「手动刷新 / 后台循环事件 / 登录后探测」多来源间的节流与去重（历史缺陷 P2-F5）。
 
-#### `useGlobalShortcut.ts`
-*   **职责**：全局快捷键监听。
-*   **关键实现**：
-    *   `Ctrl+Shift+C`：触发 `api.cancelAutoExit`。忽略可编辑元素（Input/Textarea）以防止误触。
+- 模块级状态：
+  - `_qualityLockFlag`（`useQualityStore.ts:11`）：`refreshQuality` 同步锁。
+  - `lastQualityResultTime`（`useQualityStore.ts:16`）：最近一次质量结果到达时间戳（0 = 从未收到）。任意来源（循环事件/手动刷新/登录后探测）都算新鲜结果，用于登录后手动探测的节流判断（注释行 13-15）。
+  - `getLastQualityResultTime(): number`（`useQualityStore.ts:18-20`）：对外暴露该时间戳的读取函数。
+- `QualityStore` 接口（`useQualityStore.ts:22-41`）：`networkQuality: NetworkQuality | null`、`dnsDohStatus: DnsDohStatus | null`、`dnsChecking: boolean`、`isRefreshingQuality: boolean`、`updateAvailable: boolean`、`latestVersion: string`、`releaseNotes: string`、`updatePromptOpen: boolean`（发现新版本弹窗可见性，注释行 30）、`refreshRate: number`、`refreshQuality(): Promise<void>`、`setNetworkQuality(q | fn)`、`setDnsDohStatus`、`setDnsChecking`、`setUpdateAvailable`、`setLatestVersion`、`setReleaseNotes`、`setUpdatePromptOpen`。
+- store 初始状态（`useQualityStore.ts:44-52`）：全部空/false/0（`refreshRate: 0` 表示未获得设备刷新率）。
+- `refreshQuality()`（`useQualityStore.ts:54-74`）：
+  1. 从 `useConfigStore.getState()` 读配置；`_qualityLockFlag` 已锁或 `config.enableNetworkQuality === false` 直接返回（行 55-57）。
+  2. 加锁 + 置 `isRefreshingQuality`（行 58-59）。
+  3. `await api.checkNetworkQuality?.()`（行 61）；有结果时统一走 `get().setNetworkQuality((old) => mergeNetworkQuality(old, q))`（行 63-64），保证 `lastQualityResultTime` 覆盖手动刷新来源。
+  4. 异常仅 DEV 打印（行 66-67）。
+  5. `finally` 中 `setTimeout(..., 500)` 延迟解锁与复位加载态（行 68-72），防止高频触发。
+- `setNetworkQuality(q | fn)`（`useQualityStore.ts:78-82`）：支持函数式更新；**关键逻辑**：`next !== null` 时强制 `lastQualityResultTime = Date.now()`（行 80）——无论来源，收到有效结果即重置节流窗口。
+- 其余 setters（行 83-88）：`setDnsDohStatus`/`setDnsChecking`/`setUpdateAvailable`/`setLatestVersion`/`setReleaseNotes`/`setUpdatePromptOpen`，均为简单 `set`。
 
-### 4. 性能、动画与设备 Profile Hooks
+#### `useThemeStore.ts` — 主题领域
 
-#### `useAdaptiveFramePace.ts`
-*   **职责**：智能帧率控制，基于交互状态动态调整 GSAP ticker 帧率，平衡性能与流畅度。
-*   **关键常量**：
-    *   `ACTIVE_WINDOW_MS = 2000` (行 16)：交互活跃窗口时长。
-    *   `PACE_POLL_MS = 250` (行 18)：静止回落轮询间隔。
-*   **关键实现**：
-    *   `markInteraction` (行 26-29)：标记交互发生，推高活跃窗口并立即应用帧率。
-    *   `useAdaptiveFramePace` (行 51-74)：挂载于应用根部。监听指针/触摸/键盘事件，使用 `setInterval` 轮询判断是否进入空闲态，从而切换 `idleFps` (30) 和 `activeFps` (60)。页面隐藏时帧率归零。
+职责：主题名称、浅色模式、自定义主题色、玻璃档位，以及 DOM class/CSS 变量的同步副作用。
 
-#### `useAnimationProfile.ts`
-*   **职责**：提供统一的动画配置档案。安卓端已移除多档位判定，恒定为最高档。
-*   **关键实现**：
-    *   `HIGH_PROFILE` (行 31-49)：硬编码的最高性能配置，包含弹簧刚度、阻尼、是否启用 GPU 合成等。
-    *   `useAnimationProfile` (行 51-57)：根据 `useQualityStore` 中的刷新率动态生成 `easing` 配置，但 `tier` 始终为 `'high'`。
+- `ThemeStore` 接口（`useThemeStore.ts:9-19`）：`themeName: ThemeName`、`isLightMode: boolean`、`customThemeColor: string`、`glassLevel: GlassLevel`、`setThemeName`、`setIsLightMode`、`setGlassLevel`、`initTheme(cfg: Partial<Config>)`、`setCustomThemeColor`。
+- store 初始状态（`useThemeStore.ts:21-28`）：
+  - `themeName: 'default'`（行 22）。
+  - `isLightMode`：惰性初始化，读 `safeStorage.get('campus-light-mode') === '1'`（行 23）。
+  - `customThemeColor: '#6366f1'`（行 24）。
+  - `glassLevel`：读 `campus-glass-level` 并校验在 `VALID_GLASS_LEVELS` 中，否则回退 `'standard'`（行 25-28）。
+- setters：`setThemeName`/`setIsLightMode`/`setGlassLevel`（行 30-32）、`setCustomThemeColor`（行 56）。
+- `initTheme(cfg)`（`useThemeStore.ts:34-54`）：启动时从后端配置 + 本地存储恢复主题。
+  1. `campus-theme` 存储值合法则恢复 `themeName`（行 35-36）。
+  2. 浅色模式决策链（行 37-52）：存储 `'1'` → true（行 38-39）；存储 `'0'` → false（行 40-41）；无存储时按 `cfg.themeMode`——`'light'` → true 并写回 `'1'`（行 42-44）、`'dark'` → false 并写回 `'0'`（行 45-47）、`'system'` → `window.matchMedia('(prefers-color-scheme: light)').matches` 并写回（行 48-51）。
+  3. `cfg.customThemeColor` 存在则应用（行 53）。
+- 全局副作用订阅 `useThemeStore.subscribe((state, prev) => ...)`（`useThemeStore.ts:60-97`）：监听状态变化直接操作 DOM。
+  - glassLevel（行 62-65）：设 `document.documentElement` 的 `data-glass` 属性并持久化 `campus-glass-level`；三档强度全在 CSS 变量里派生，只切一个 data 属性（注释行 61）。
+  - isLightMode（行 66-73）：toggle `.dark` class（`!isLightMode` 时加），并按浅色模式增删 `data-light="1"` 属性。
+  - themeName/customThemeColor/isLightMode（行 74-97）：先移除全部主题 class `theme-vibrant/theme-forest/theme-midnight/theme-ocean/theme-cherry/theme-custom`（行 76-77）。custom 分支（行 78-87）：加 `.theme-custom`，`hexToHsl` 转换后用 `root.style.setProperty` 覆盖 `--primary`/`--ring`/`--accent`/`--accent-foreground`（行 84-87；`--accent` 的饱和度封顶 33、亮度按浅色模式取 94/17，`--accent-foreground` 亮度取 20/85）。**历史缺陷修复**（注释行 82-83）：此前 `cssText +=` 累积声明，多次切换主题后 inline style 无界增长，改用 `setProperty` 覆盖同名变量。非 custom 分支（行 88-96）：移除这四个 CSS 变量（行 89-92），非 default 主题加 `theme-${name}` class（行 93-95）。
 
-#### `useDeviceProfile.ts`
-*   **职责**：设备性能分级 Profile。安卓端已折叠为恒旗舰档。
-*   **关键实现**：
-    *   `useDeviceProfile` (行 25-27)：直接返回 `HIGH_PROFILE`，包含 `idleFps: 30`, `activeFps: 60`。
+#### `useAdapterStore.ts` — 面板导航
 
-#### `useReducedMotion.ts`
-*   **职责**：监听系统“减少动态效果”偏好，供 JS 动画逻辑参考。弥补 CSS `@media` 无法控制 JS 逐帧动画的不足。
-*   **关键实现**：
-    *   `const QUERY = '(prefers-reduced-motion: reduce)'` (行 3)：查询字符串常量。
-    *   `export function useReducedMotion(): boolean` (行 12)：React Hook。
-    *   **初始化** (行 13-15)：使用惰性初始化 `useState(() => ...)`，在服务端渲染安全地检查 `window.matchMedia(QUERY).matches`。
-    *   **副作用监听** (行 17-27)：
-        *   创建 `mq` 对象 (行 18)。
-        *   定义 `onChange` 回调更新状态 (行 19)。
-        *   **兼容性处理** (行 21-26)：优先使用标准的 `addEventListener('change', ...)` 和 `removeEventListener`；若不支持（旧 WebView），降级使用 `addListener` 和 `removeListener`。
-        *   清理函数正确移除对应的事件监听器。
+- 文件头注释（`useAdapterStore.ts:1-2`）：安卓端网卡数据链已删除（adapters 列表恒空、面板不渲染网卡卡），仅保留激活面板状态供 DockNav/TabletShell/SettingsPanel 导航用。
+- `AdapterStore` 接口（行 6-9）：`activePanel: PanelName`、`setActivePanel`。
+- store（行 11-14）：`activePanel` 默认 `'dashboard'`。
 
-#### `usePageIdle.ts`
-*   **职责**：页面空闲状态检测与动画活跃性上下文提供。
-*   **关键实现**：
-    *   `usePageIdle` (行 3-49)：基于 `lastActiveRef` 和 500ms 轮询判定 2s 空闲。更新 body class `anim-idle`。
-    *   `usePageVisible` / `useWindowFocused`：分别监听可见性和焦点。
-    *   `AnimationActiveProvider` (行 85-93)：Context Provider，聚合 `isVisible && isFocused && !isIdle` 作为全局动画活跃性标志，避免大量重复监听器注册。
-    *   `useAnimationActive` (行 95-97)：消费 Context。
+### 3. 应用初始化编排（`useAppInit.ts` / `useAppStore.ts`）
 
-#### 动画 Hooks
-*   **`useGlowAnimation.ts`**：呼吸光晕动画 Hook，基于 GSAP。创建 yoyo 循环的 scale 和 opacity 动画。受 `useAnimationActive` 控制暂停/恢复。
-*   **`useBreatheAnimation.ts`**：通用呼吸动画 Hook，支持透明度、缩放、旋转的多属性混合动画。GSAP tween 配置，受 `useAnimationActive` 控制。
-*   **`usePulseAnimation.ts`**：脉冲/心跳动画 Hook，支持三种预设类型 (`heartbeat`, `statusPulse`, `loadingPulse`)。GSAP Timeline 构建，受 `useAnimationActive` 控制。
+- `useAppInit()`（`useAppInit.ts:6-11`）：应用根部一次性组合四个子 hook——`useEventListeners()`（后端事件监听与关窗前冲刷配置）、`useInitialDataLoad()`（初始配置/背景状态/账号列表加载）、`useHeartbeat()`（渲染链心跳）、`useGlobalShortcut()`。这四个子 hook 源码不在本模块的 12 个源文件清单内，细节见 hooks 目录对应文件。
+- `useAppStore.ts`（`useAppStore.ts:1-3`）：`useAppStore` 已拆分为领域 store，此文件仅 re-export `useAppInit` 与 `hasPendingConfig`/`flushPendingConfig` 以兼容旧引用，无业务逻辑。
 
-### 5. 表单因子与其他 Tools
+### 4. 性能与动画 Hooks
 
-#### `useFormFactor.ts`
-*   **职责**：设备形态（手机/平板）与方向判定。
-*   **关键实现**：
-    *   `useFormFactor` (行 38-40)：基于 `Math.min(innerWidth, innerHeight) >= 600` 判定平板。
-    *   `useOrientation` (行 43-45)：基于宽高比判定横竖屏。
-    *   `useViewportMeasure` (行 24-36)：通用视口度量 Hook，监听 `resize` 和 `orientationchange`。
+#### `useAdaptiveFramePace.ts` — gsap ticker 动态帧率
 
-#### `useAsyncLock.ts`
-*   **职责**：React Hook，提供防抖/互斥锁机制，防止异步函数被快速重复点击触发。
-*   **关键实现**：
-    *   `useAsyncLock<T>` (行 3-26)：接收异步函数 `fn` 和冷却时间 `cooldownMs`。返回 `[isRunning, execute]`。
-    *   使用 `lockRef` 和 `mountedRef` 处理 React StrictMode 下的双重调用问题，确保锁正确释放。
+- 设计注释（`useAdaptiveFramePace.ts:1-10`）：gsap 全局 ticker 是移动版所有常驻氛围动画（glow/呼吸）的单一驱动源，对 `gsap.ticker.fps()` 一处限帧即全量生效。**2026-09-13 功耗修复**（真机 25060RK16C 实测：前台静置 10s 渲染 2438 帧、RenderThread 40~44%）：原实现常驻 rAF 递归轮询 pace，页面永远存在 pending rAF 回调，Chromium 视其为「持续动画」按刷新率满帧派发 BeginFrame、合成器永不休眠；改为 ①档位回落后 setInterval 轮询（不产生 rAF）、②交互起始由事件回调即时提帧（零感知延迟），轮询只负责松手后的静止回落。
+- 常量：`ACTIVE_WINDOW_MS = 2000`（行 16）、`PACE_POLL_MS = 250`（行 18，回落最迟延迟一拍 ≤250ms）。
+- 模块级状态（行 20-23）：`lastActiveAt`、`idleFps = 30`、`activeFps = 60`、`appliedPace = -1`。
+- `markInteraction()`（行 26-29）：更新 `lastActiveAt` 并立即 `applyPace()`；供面板切换等程序性交互标记。
+- `currentPace()`（行 31-35）：`document.hidden` → 0（rAF 停转、ticker 自然暂停）；活跃窗口内 → `activeFps`；否则 `idleFps`。
+- `applyPace()`（行 38-45）：档位未变则空操作；`gsap.ticker.fps(pace > 0 && pace < 60 ? pace : 60)`（行 44）。注释（行 42-43）：静止档氛围 tween 已被 usePageIdle 暂停、gsap ticker 由 autoSleep（main.tsx:18）停摆；60 表示不限帧（设备恒按旗舰档供帧，v2.4.0 起无档位）。
+- `useAdaptiveFramePace()`（行 51-74）：在应用根部挂载一次。读 `useDeviceProfile()` 的 `idleFps`/`activeFps`（行 52-56）；`useEffect` 内监听 `pointerdown/touchstart/wheel/keydown`（passive + capture，行 60-61）、`visibilitychange`（行 65）与 `setInterval(applyPace, PACE_POLL_MS)`（行 64）；清理时移除监听、清定时器并恢复 `gsap.ticker.fps(60)`（行 67-73）。依赖数组 `[profile.idleFps, profile.activeFps]`（行 74）。交互动画（framer-motion/CSS transition）不受影响，天然在活跃窗口内（注释行 48-50）。
 
-#### `useAppStore.ts`
-*   **职责**：兼容性导出文件，仅 re-export `useAppInit` 及相关配置工具函数，无业务逻辑。
+#### `useAnimationProfile.ts` — 动画配置档案
+
+- `AnimationTier` 类型（行 6）：`'high' | 'standard' | 'economy'`。
+- `AnimationProfile` 接口（行 8-26）字段：`tier`、`willChangeOrbs`、`magneticOffset`、`magneticDuration`、`numberDuration`、`springStiffness`、`springDamping`、`powerPreference`、`prefersCssAnimation`、`enableGpuCompositing`、`enablePageSlide`、`enableTilt`、`enableBackdropBlur`、`startupBoost`、`startupStaggerDelay`、`easing: EasingConfig`、`refreshRate`。
+- 注释（行 28-30）：**v2.4.0 删除 standard/economy 分档及 prefers-reduced-motion / GPU 判定链**——档位省下的 GPU 开销换来体验不一致，不值；`tier` 字段与接口形状原样保留，消费方零改动；`refreshRate` 仍驱动 easing 曲线与节流数值。
+- `HIGH_PROFILE` 常量（行 31-49）：恒最高档硬编码值——`tier: 'high'`、`willChangeOrbs: true`、`magneticOffset: 5`、`magneticDuration: 0.4`、`numberDuration: 600`、`springStiffness: 400`、`springDamping: 18`、`powerPreference: 'high-performance'`、`prefersCssAnimation: false`、`enableGpuCompositing: true`、`enablePageSlide: true`、`enableTilt: true`、`enableBackdropBlur: true`、`startupBoost: true`、`startupStaggerDelay: 0.05`、`easing: getEasingConfig(60)`、`refreshRate: 60`。
+- `useAnimationProfile()`（行 51-57）：从 `useQualityStore` 读 `refreshRate`（行 52）；`effectiveRefreshRate = refreshRate > 0 ? refreshRate : 120`（行 54）；`useMemo` 返回 `{ ...HIGH_PROFILE, easing: getEasingConfig(effectiveRefreshRate), refreshRate: effectiveRefreshRate }`（行 55），依赖 `[refreshRate]`。`tier` 始终 `'high'`。
+
+#### `useReducedMotion.ts` — 减少动态效果
+
+- `QUERY = '(prefers-reduced-motion: reduce)'`（`useReducedMotion.ts:3`）。
+- JSDoc（行 5-11）：与 CSS 的 `@media (prefers-reduced-motion: reduce)` 互补——CSS 查询管得住纯 CSS 过渡，管不住 JS 每帧写样式的动画（悬浮栏镜头系统就是这类），两处都要判。
+- `useReducedMotion(): boolean`（行 12-30）：`useState` 惰性初始化（行 13-15，`typeof window !== 'undefined'` 守卫）；`useEffect` 中创建 `matchMedia` 监听 `change`（行 17-27），**兼容性处理**（行 20-26）：优先标准 `addEventListener('change')`，旧 WebView 只支持 `addListener` 时加兜底；清理函数对应移除监听。
+
+### 5. 通用工具（`useAsyncLock.ts`）
+
+- `useAsyncLock<T extends (...args: any[]) => Promise<any>>(fn, cooldownMs = 1500): [boolean, T]`（`useAsyncLock.ts:3-27`）：防重复触发的异步互斥锁 hook，返回 `[isRunning, execute]`。
+  - `lockRef` 互斥、`mountedRef` 存活标记、`fnRef` 始终指向最新 fn（行 8-11）。
+  - **StrictMode 修复**（行 12-17 注释）：setup→cleanup→setup 二次 setup 时恢复 `mountedRef = true`，否则 cleanup 置 false 后 `setTimeout` 内的锁释放被跳过、按钮永久转圈。
+  - `execute`（行 18-25）：`lockRef.current` 已锁直接返回；执行完后在 `finally` 里 `setTimeout(cooldownMs)` 冷却，期满且组件仍挂载才释放锁与 `isRunning`（行 22-23）。
 
 ## Architecture
 
-本模块采用分层架构，以 Zustand Store 为核心状态源，Hooks 作为状态与副作用的桥梁，Tauri API 作为底层通信通道。
-
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Frontend Layer                               │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐ │
-│  │ useAppInit  │──│useEventList- │──│ useHeartbeat │──│Shortcuts │ │
-│  └──────┬──────┘  └──────┬───────┘  └──────┬───────┘  └──────────┘ │
-│         │                │                 │                        │
-│         ▼                ▼                 ▼                        │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐               │
-│  │ InitialData │  │ Backend Events│  │ Render Loop  │               │
-│  │ Load        │  │ (Config, Auth│  │ Heartbeat    │               │
-│  └──────┬──────┘  │ ,Quality...)  │  └──────────────┘               │
-│         │         └──────┬───────┘                                 │
-│         │                │                                         │
-│         ▼                ▼                                         │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                     Zustand Stores                           │  │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │  │
-│  │  │ Config   │ │  Auth    │ │ Quality  │ │   Theme      │   │  │
-│  │  │ Store    │ │  Store   │ │  Store   │ │   Store      │   │  │
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │  │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │  │
-│  │  │ Adapter  │ │  Log     │ │ App Init │ │  Page Idle   │   │  │
-│  │  │  Store   │ │  Toast   │ │  Store   │ │  Context     │   │  │
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                   Side Effects & DOM Sync                    │  │
-│  │  • Theme DOM Class/CSS Var Sync (useThemeStore.subscribe)    │  │
-│  │  • SafeStorage Persistence                                   │  │
-│  │  • GSAP Animation Control (useAnimationActive)               │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                      Tauri API Bridge                                │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  tauriApi.ts                                                 │   │
-│  │  • Desktop-only Rejection (desktopOnly)                      │   │
-│  │  • Retry Logic (withRetry)                                   │   │
-│  │  • Event Listener Factory (createEventListener)              │   │
-│  │  • Biometric Verification Gate (verifyWindowsIdentity)       │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                      Rust Backend                            │   │
-│  │  • Config Save/Load                                          │   │
-│  │  • Network Quality Check                                     │   │
-│  │  • Auth Portal/Campus                                        │   │
-│  │  • System Settings                                           │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│             React 组件层（DockNav/TabletShell/SettingsPanel…）   │
+│        订阅 store 状态 / 调用 action（useXxxStore()）            │
+└───────────────────────────┬────────────────────────────────────┘
+                            ▼
+┌────────────────────────────────────────────────────────────────┐
+│                  Zustand 领域 Stores（hooks/）                  │
+│  useConfigStore ←→ useAuthStore ←→ useQualityStore(getState 协作)│
+│  useThemeStore(subscribe→DOM 副作用)   useAdapterStore(面板导航)  │
+└───────────────────────────┬────────────────────────────────────┘
+                            ▼
+┌────────────────────────────────────────────────────────────────┐
+│        hooks/tauriApi.ts — tauriApiWithRetry (tauriApi.ts:356) │
+│  invoke 封装 · desktopOnly/noopListener 降级 · createEventListener│
+│  verifyWindowsIdentity · openExternal · withRetry(仅 saveConfig) │
+└───────────────────────────┬────────────────────────────────────┘
+                            ▼
+┌────────────────────────────────────────────────────────────────┐
+│           Rust 后端（Tauri commands + events 双向通道）           │
+└────────────────────────────────────────────────────────────────┘
 ```
+
+分层要点：
+
+- **组件层只与 store 交互**，不直接 invoke；跨 store 协作（如 `doLogin` 读写 `useConfigStore`/`useQualityStore`）通过 `getState()` 在 store 层完成，不引入 React 上下文。
+- **tauriApi.ts 是唯一的 IPC 出口**：所有命令调用与事件订阅都经过它，安卓端能力差异（桌面专属拒绝、空监听）在这一层集中收口，上层零感知。
+- **副作用收口**：DOM 同步集中在 `useThemeStore` 的模块级 `subscribe`（`useThemeStore.ts:60-97`）；保存兜底集中在 `useConfigStore` 的模块级函数（`flushPendingConfig`/`hasPendingConfig`）；帧率副作用集中在 `useAdaptiveFramePace` 的模块级状态。
 
 ## Data Flow
 
-### 1. 初始化链路
-1.  `useAppInit` 调用 `useInitialDataLoad`。
-2.  `useInitialDataLoad` 调用 `api.getInitData` 获取初始配置、背景状态、账号列表等。
-3.  初始化各 Store：
-    *   `useConfigStore`：加载配置、密码状态。
-    *   `useThemeStore`：加载主题、浅色模式、玻璃档位。
-    *   `useAdapterStore`：设置默认面板 `'dashboard'`。
-    *   `useAuthStore`：加载后台状态、在线状态。若 `initData.backgroundStatus.online` 为 true，直接设置在线状态。
-4.  设置 `configLoaded: true` 信号。
-5.  `useAppInit` 调用 `useEventListeners`，注册后端事件监听器。
-6.  `useAppInit` 调用 `useHeartbeat`，启动心跳检测。
-7.  `useAppInit` 调用 `useGlobalShortcut`，注册全局快捷键。
+### 1. IPC 调用链路
 
-### 2. 配置保存链路
-1.  UI 组件调用 `useConfigStore.updateConfig`。
-2.  `updateConfig` 合并配置，标记 `dirtyFields`，触发 500ms 去抖保存定时器。
-3.  定时器到期后调用 `useConfigStore.saveConfigDirect`。
-4.  `saveConfigDirect` 调用 `api.saveConfig` (带重试机制)。
-5.  若保存失败，增加 `dirtyFailureCounts`。达到 `DIRTY_FAILURE_LIMIT` (3次) 后放弃该字段的脏标记，允许后端回传的旧值覆盖。
-6.  **兜底保存**：
-    *   `useEventListeners` 中的 `onCloseRequested` (行 41-66) 或 `visibilitychange`/`pagehide` (行 76-80) 触发。
-    *   检查 `hasPendingConfig`，若有则调用 `flushPendingConfig` (限时 2s) 强制保存。
+1. 组件 → store action → `tauriApiWithRetry.xxx` → `invoke(命令名, 参数)`。
+2. 仅 `saveConfig` 带 `withRetry` 指数退避重试（`tauriApi.ts:361`，最多 2 次、500ms 基础延迟、仅 timeout/network/fetch/connection 类错误）。
+3. 后端事件 → `createEventListener` 工厂（`tauriApi.ts:159-188`）→ 回调进 store。
 
-### 3. 认证与状态链路
-1.  用户点击登录 -> `useAuthStore.doLogin`。
-2.  `doLogin` 调用 `api.doLogin` (带超时保护)。
-3.  登录成功 -> 更新 `status` 和 `bgStatus`，并可能触发 `api.checkNetworkQuality` (节流 60s)。
-4.  登录失败 -> 即时状态复查。
-5.  **后端推送**：
-    *   `background-check-result` -> `useEventListeners` 捕获 -> 更新 `useAuthStore.setBgStatus` 和 `useAuthStore.setStatus`。
-    *   `config-changed` -> `useEventListeners` 捕获 -> `useConfigStore.mergeConfigFromBackend` -> 更新 `useConfigStore.config` 和 `activeAccount`。
-    *   `onNetworkQualityResult` -> 更新 `useQualityStore`，若质量差则触发 Toast 告警。
-    *   `onUpdateAvailable` -> 更新 `useQualityStore` 版本信息。
+### 2. 配置保存链路（含关窗兜底）
 
-### 4. 动画与性能链路
-1.  `usePageIdle` 监听交互事件，更新 `lastActiveAt`，判定页面空闲状态 (2s 无交互)。
-2.  `usePageIdle` 提供 `AnimationActiveContext`，聚合 `isVisible && isFocused && !isIdle`。
-3.  所有动画 Hooks (`useGlowAnimation`, `useBreatheAnimation`, `usePulseAnimation`) 消费此 Context，决定是否暂停/恢复 GSAP 动画。
-4.  `useAdaptiveFramePace` 监听交互事件，动态调整 GSAP ticker 帧率 (空闲 30fps，活跃 60fps)。
-5.  `useDeviceProfile` 和 `useAnimationProfile` 提供静态的性能参数 (`HIGH_PROFILE`)，供 UI 渲染决策参考。
+1. UI 调用 `useConfigStore.updateConfig`：合并 config → 标记 `dirtyFields` → 合并 `saveConfigPending`（密码 MASK 保护）→ 重置 500ms 去抖定时器（`useConfigStore.ts:56-88`）。
+2. 定时器到期 → `saveConfigDirect` → `api.saveConfig`（带重试）→ 成功清 dirty 字段并同步 `passwordSaved`；失败上抛、计数、超 3 次放弃脏标记（`useConfigStore.ts:128-176`）。
+3. 后端 `config-changed` 回传 → `mergeConfigFromBackend`：跳过 dirty 字段，防旧快照回滚（`useConfigStore.ts:103-119`）。
+4. 关窗/后台化兜底：`hasPendingConfig()`（pending 或 in-flight 任一）→ `flushPendingConfig()` 清定时器、剔除 MASK 密码、立即保存并等待全部 settle（`useConfigStore.ts:188-224`）。
+
+### 3. 认证与在线状态链路
+
+1. 登录：`doLogin` 防重入 → 先 `saveConfigDirect` 持久化配置 → `withTimeout(api.doLogin(), 60s)` → 成功置 online（**不再立即复查**，`useAuthStore.ts:117-118`）→ 质量探测按 60s 节流（`useAuthStore.ts:117-129`）；失败才 `checkOnline` 复查。
+2. 注销：`doLogout` 同款超时包装，结束后无条件 `checkOnline`（`useAuthStore.ts:192`）。
+3. 状态同步：`checkOnline` 持串行锁（`useAuthStore.ts:197-198`）→ campus 检测（不在校园网即拦截）→ `queryPortalStatus('')`（空 IP，后端回退缓存源 IP/默认路由，`useAuthStore.ts:56-60`）→ `setStatusStable` 引用稳定更新。
+4. 后端推送：`background-check-result`/`auto-login-result`/`login-log` 事件经 `tauriApi.ts:252-257` 的监听进入 `useAuthStore`（监听侧逻辑在 `useEventListeners`，不在本模块源码清单内）。
+
+### 4. 网络质量节流链路
+
+1. 任意来源获得质量结果（后台循环事件 `network-quality-result`、手动 `refreshQuality`、登录后探测）→ 一律经 `useQualityStore.setNetworkQuality` 写入 → `next !== null` 时 `lastQualityResultTime = Date.now()`（`useQualityStore.ts:78-82`）。
+2. 手动 `refreshQuality`：锁 + `enableNetworkQuality` 开关 + 500ms 解锁缓冲（`useQualityStore.ts:54-74`）。
+3. 登录后探测：距上次结果不足 60s 则跳过（`useAuthStore.ts:141`），避免与后端 latency loop/后台巡检重复全量检测（P2-F5）。
+4. `refreshRate`（设备刷新率）由其他链路写入本 store，供 `useAnimationProfile` 消费。
+
+### 5. 动画与帧率链路
+
+1. 交互事件（pointerdown/touchstart/wheel/keydown/visibilitychange）→ `markInteraction` 推高 2s 活跃窗口并立即提帧（`useAdaptiveFramePace.ts:26-29`）。
+2. 250ms setInterval 轮询负责松手后的静止回落：hidden → 0，静止 → `idleFps(30)`，活跃 → `activeFps(60)`（`useAdaptiveFramePace.ts:21-35`）。
+3. `useDeviceProfile`（不在本模块清单）提供档位；`useAnimationProfile` 以 `refreshRate`（未获得时回退 120）生成 easing，其余参数恒 `HIGH_PROFILE`（`useAnimationProfile.ts:51-57`）。
+4. 主题变化 → `useThemeStore.subscribe` 同步 DOM class 与 CSS 变量（`useThemeStore.ts:60-97`），动画外观随之切换。
 
 ## Connections
 
-*   [[android-frontend-ui]]：UI 组件消费各 Store 状态，触发 Actions。
-*   [[android-backend-ipc]]：Tauri API 对接的后端服务，处理配置、认证、网络质量等业务逻辑。
-*   [[android-settings]]：主题、配置等设置的持久化存储与常量定义。
-*   [[android-gsap-animation]]：GSAP 动画库的使用与性能优化策略。
+- [[android-frontend-ui]]：UI 组件（DockNav/TabletShell/SettingsPanel 等）消费各 store 状态并触发 action。
+- [[android-backend-ipc]]：`tauriApi.ts` 对接的 Rust 后端命令与事件面。
+- [[android-settings]]：`VALID_THEMES`/`VALID_GLASS_LEVELS`/`DEFAULT_CONFIG`/`Config` 类型等设置常量与类型来源。
+- [[android-gsap-animation]]：gsap ticker 帧率控制与氛围动画（usePageIdle/useGlowAnimation 等）的配合。
 
 ## Known Issues
 
-1.  **CSS 内存泄漏修复 (历史)**：`useThemeStore` 的全局订阅中，明确指出了历史缺陷：之前使用 `cssText +=` 导致 inline style 累积。现改为 `style.setProperty` 覆盖同名变量，并在切换回非自定义主题时使用 `style.removeProperty` 清理 (行 84-92)。这是防止 DOM 节点 style 属性无限增长的必要措施。
-2.  **竞态与节流 (P2-F5)**：`useQualityStore` 中的 `lastQualityResultTime` 机制是关键。任何来源（后台 loop、手动 refresh、登录后探测）获得的有效结果都会更新时间戳。`refreshQuality` 虽有自己的 `_qualityLockFlag` 防止单次执行重叠，但更高层的逻辑应利用 `getLastQualityResultTime()` 判断是否需要发起本次请求，从而避免与后台巡检重复。`refreshQuality` 完成后有 500ms 的 `setTimeout` 缓冲期才解锁 (行 69-72)，这是一种防御性编程，防止高频点击导致的瞬间多次请求。
-3.  **WebView 兼容性**：`useReducedMotion` 显式处理了 `matchMedia` 在不同 WebView 版本中的 API 差异（`addEventListener` vs `addListener`），确保在老旧环境下的可用性 (行 21-26)。
-4.  **桌面专属功能的安卓降级**：`tauriApi.ts` 中大量方法（如 `exportConfig`, `getAdapters`, `dhcpRenewAll` 等）被替换为 `desktopOnly`，直接 Reject Promise。这确保了安卓端代码不会意外调用桌面特有 API 导致崩溃，同时也意味着后端对应命令在安卓端不会被执行。
-5.  **生物识别验证门的回退逻辑**：`verifyWindowsIdentity` 实现了复杂的回退策略：如果 `shouldUseFaceFallback` 为真且系统 Biometric 不可用，则尝试应用内 2D 人脸验证；若人脸验证也失败或异常，则回退到系统 BiometricPrompt。所有结果均统一上报后端，确保后端视角的一致性。
-6.  **配置保存的脏标记与失败重试**：`useConfigStore` 引入了 `dirtyFields` 和 `dirtyFailureCounts`。当保存失败时，脏标记不会立即清除，而是累计失败次数。达到 `DIRTY_FAILURE_LIMIT` (3次) 后放弃该字段的脏标记，允许后端回传的旧值覆盖，防止 UI 与后端永久脱节。
-7.  **初始化竞态处理**：`useInitialDataLoad` 和 `useEventListeners` 都使用了 `mountedRef` 来防止 React StrictMode 下二次 setup 导致的异步回调执行在已卸载组件上，或者处理 cleanup/setup 时序问题。
+1. **CSS 变量累积泄漏（已修复）**：`useThemeStore` 全局订阅中 custom 主题曾用 `cssText +=` 累积声明，多次切换主题后 inline style 无界增长；现用 `style.setProperty` 覆盖同名变量、切回预设主题时 `removeProperty` 清理（`useThemeStore.ts:21-31`）。
+2. **质量重复探测节流（P2-F5）**：登录后曾无条件手动全量探测，与后端 latency loop/后台巡检重复（后端 60s 节流只作用于循环路径）。现以 `lastQualityResultTime` 为任意来源统一时间戳 + `QUALITY_MANUAL_THROTTLE_MS = 60_000` 节流（`useQualityStore.ts:16-23`、`useAuthStore.ts:18-21`、`useAuthStore.ts:136-148`）。
+3. **登录成功后的状态闪烁（已修复）**：登录成功立即 `checkOnline` 会在 Portal 会话未传播时返回 offline，把「登录成功」覆盖为「未登录」；现登录成功跳过立即复查、仅失败时复查（`useAuthStore.ts:156-161`）。
+4. **登录/注销永久挂起（P2-34）**：后端阻塞（Portal HTTP 挂起等）曾使 `isLoggingIn/isLoggingOut` 永久为 true；现 `withTimeout` 60s 超时并在 settle 后清理定时器（`useAuthStore.ts:69-80`）。
+5. **checkOnline 锁提前释放（已修复）**：曾用 `setTimeout(500)` 释放锁，执行超 500ms 时并发调用产生冗余 invoke；现 promise settle 时立即释放，锁持有时间与执行时间一致（`useAuthStore.ts:236-241`）。
+6. **安卓端 Portal 状态恒灰（根因已修）**：checkOnline 曾走「解析失败判无网络」路径；现安卓无 adapters 概念，`adapterIp` 恒传空串、后端对空 IP 回退缓存源 IP/默认路由（`useAuthStore.ts:51-55`、`useAuthStore.ts:224-225`）。
+7. **脏字段永久脱节（已修复）**：保存持续失败时 `dirtyFields` 曾被 `mergeConfigFromBackend` 永久跳过；现引入 `DIRTY_FAILURE_LIMIT = 3` 连续失败计数，超阈值放弃脏标记允许后端回传重新同步（`useConfigStore.ts:21-25`、`useConfigStore.ts:20-31`）。
+8. **passwordSaved 残留（已修复）**：会话内保存密码后 `passwordSaved` 从不置 true、密码框显示空白；复位密码的 dirty 标记曾使清除密码后事件回传的空密码被跳过、状态永久残留 true。现保存成功/失败双向同步（`useConfigStore.ts:138-150`），后端回传密码字段同步口径（`useConfigStore.ts:110-118`）。
+9. **关窗丢保存（已修复，两处）**：`hasPendingConfig` 曾只查 pending、漏掉 in-flight 保存（`useConfigStore.ts:188-193`）；`flushPendingConfig` 曾返回旧引用、新发出的一次保存随窗口销毁丢失（`useConfigStore.ts:188-195`）。另 `saveConfigInFlight` 必须仅清自己的引用，否则并发保存时 `hasPendingConfig` 漏报（`useConfigStore.ts:188-192`）。
+10. **帧率轮询功耗（2026-09-13 修复）**：常驻 rAF 递归轮询使 Chromium 满帧派发 BeginFrame（真机 25060RK16C 静置 10s 渲染 2438 帧、RenderThread 40~44%）；改 setInterval 轮询 + 事件回调即时提帧（`useAdaptiveFramePace.ts:1-10`）。
+11. **StrictMode 锁死（已修复）**：`useAsyncLock` 的 cleanup 置 `mountedRef=false` 后二次 setup 若不恢复，冷却 setTimeout 内锁永不释放、按钮永久转圈（`useAsyncLock.ts:3-8`）。
+12. **旧 WebView matchMedia API 差异**：`useReducedMotion` 对 `addEventListener` 不可用时兜底 `addListener`（`useReducedMotion.ts:20-26`）。
+13. **桌面专属 API 的安卓降级**：`tauriApi.ts` 对 18 个桌面专属命令统一 `desktopOnly` 直接拒绝（清单见 Key Components），对 7 个桌面专属事件用 `noopListener` 空监听（`tauriApi.ts:14-19`）；上层代码零改动且不会误调崩溃。
+14. **生物识别验证门统一上报**：`verifyWindowsIdentity` 无论系统 BiometricPrompt 还是应用内 2D 人脸回退，真实结果一律上报后端 `verify_biometric_identity`，取消/失败/基础设施异常都归一化为 `{ success: false }` 返回值而非 IPC 故障（`tauriApi.ts:207-244`）。

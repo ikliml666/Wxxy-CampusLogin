@@ -10,7 +10,7 @@ tags: [决策, 巡检, 监控, 有意为之, 自动登录, 会话失效]
 
 ## 背景
 
-`run_background_check_blocking`（`tauri-app/src-tauri/src/monitor/background_check.rs:29-395`）每拍依次做：取适配器 → 出站切换态/静默期判定 → 校园网验证 → Portal 检测 → 会话状态判定 → 自动登录 → 断线重连 → 状态落盘与事件上报。
+`run_background_check_blocking`（`tauri-app/src-tauri/src/monitor/background_check.rs:29-395`）每拍依次做：取适配器（:43-52）→ 出站切换态/静默期判定（:64-71, :72-101）→ 校园网验证（:72-101 内分支或 :97-101 的 `check_campus_network`）→ Portal 检测（:170-204）→ 会话状态判定（:263-317）→ 自动登录（:380）→ 断线重连（:382-392）→ 状态落盘与事件上报（:341-346, :357-378, :390-392）。
 
 这条链路里有多处"看似该做却没做"的行为，容易被后来者当缺陷"修掉"。本文档以当前代码为准，记录这些**主动跳过**的逻辑及其设计理由；末尾另记一条**相邻的非跳过决策**（会话失效时重置登录标记），它和"跳过"只共享同一个症状面——"到点不自动登录"——但根因与修法完全不同，不要混为一谈。
 
@@ -20,11 +20,11 @@ tags: [决策, 巡检, 监控, 有意为之, 自动登录, 会话失效]
 
 1. **校园网名称检查关闭时只做网关 + portal 主机可达探测**
 
-   `tauri-app/src-tauri/src/monitor/campus_check.rs:48-74`：当 `config.enable_network_name_check` 为 `false` 时，不执行 SSID / 有线 Profile 匹配，仅通过 `check_gateway_reachable` 探测 `campus_gateway` 与 `portal_probe_host(&config.portal_url)` 的连通性，`on_campus = gateway_ok || portal_ok`（`campus_check.rs:71`）。portal 腿是与网关互相独立的校园证据：网关禁 ping 时 portal 仍可能在线；`portal_probe_host` 返回空串（`portal_url` 无私网 IPv4 主机）时该腿恒为否（`campus_check.rs:52, 111-112`）。此分支构造的 `CampusCheckResult` 中 `wifi`、`wired`、`current_ssid` 全为 `None`（`campus_check.rs:68-74`）。
+   `tauri-app/src-tauri/src/monitor/campus_check.rs:48-75`：当 `config.enable_network_name_check` 为 `false` 时，不执行 SSID / 有线 Profile 匹配，仅通过 `check_gateway_reachable` 探测 `campus_gateway` 与 `portal_probe_host(&config.portal_url)` 的连通性，`on_campus = gateway_ok || portal_ok`（`campus_check.rs:71`）。portal 腿是与网关互相独立的校园证据：网关禁 ping 时 portal 仍可能在线；`portal_probe_host` 返回空串（`portal_url` 无私网 IPv4 主机）时该腿恒为否（`campus_check.rs:52, 111-112`）。此分支构造的 `CampusCheckResult` 中 `wifi`、`wired`、`current_ssid` 全为 `None`（`campus_check.rs:68-74`）。
 
 2. **校园网检测静默期内跳过验证并强制 `on_campus=true`**
 
-   `tauri-app/src-tauri/src/monitor/background_check.rs:72-97`：当 `is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes)` 返回 `true` 时，跳过校园网环境验证，调用 `cancel_campus_exit`（`background_check.rs:89`），并构造 `on_campus: true` 的结果与「校园网检测静默期（…），跳过验证」文案（`background_check.rs:72-78`）。静默期判定本体在 `campus_check.rs:306-314`：`start == 0` 表示禁用门控；`end <= start` 退化为仅受开始时间限制（防止误设导致整天静默）。
+   `tauri-app/src-tauri/src/monitor/background_check.rs:72-101`：当 `is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes)` 返回 `true` 时，跳过校园网环境验证，调用 `cancel_campus_exit`（`background_check.rs:89`），并构造 `on_campus: true` 的结果与「校园网检测静默期（…），跳过验证」文案（`background_check.rs:72-78`）。静默期判定本体在 `campus_check.rs:306-314`：`start == 0` 表示禁用门控；`end <= start` 退化为仅受开始时间限制（防止误设导致整天静默）。
 
    *理由*：静默期跳过的是**探测**，不是状态面的保鲜。否则上一拍遗留的「在线」常驻通知会在非检测时段一直展示到次日。桌面端在静默期仍继续走完整 Portal 探测流程（仅跳过 campus 验证），而安卓侧整拍短路（见第 7、8 条）。
 
@@ -40,13 +40,13 @@ tags: [决策, 巡检, 监控, 有意为之, 自动登录, 会话失效]
 
 5. **"自动检测"模式不参与自动启用**
 
-   `tauri-app/src-tauri/src/monitor/adapter_watch.rs:166-171`（注释）与 `configured_disabled_adapters`（`tauri-app/src-tauri/src/network/adapter.rs`，该函数已过滤空串与 `AUTO_DETECT_ADAPTER` 哨兵）："自动检测"模式下没有用户手选的具体适配器，自动启用对它无意义，不参与。
+   `tauri-app/src-tauri/src/monitor/adapter_watch.rs:166-171`（注释）与 `configured_disabled_adapters`（该函数在 `tauri-app/src-tauri/src/network/adapter.rs` 中已过滤空串与 `AUTO_DETECT_ADAPTER` 哨兵）："自动检测"模式下没有用户手选的具体适配器，自动启用对它无意义，不参与。
 
 6. **自动启用首次尝试静默提权不弹 UAC**
 
-   `tauri-app/src-tauri/src/monitor/adapter_watch.rs:229-233`：首次尝试保持静默（`allow_uac = false`），兼容 CMSTPLUA 静默提权可用的环境零打扰；失败计数 ≥1 后才允许弹 UAC 降级（`allow_uac = stats.auto_enable_failure_count.load(..) > 0`）。
+   `tauri-app/src-tauri/src/monitor/adapter_watch.rs:229-233`：首次尝试保持静默（`allow_uac = false`），兼容 CMSTPLUA 静默提权可用的环境零打扰；失败计数 ≥1 后才允许弹 UAC 降级（`allow_uac = stats.auto_enable_failure_count.load(..) > 0`，`adapter_watch.rs:233`）。
 
-   *理由*：CMSTPLUA 已被系统封堵的环境（0x80080017「未将类配置为支持提升的激活」）下静默提权不可得，UAC 是唯一恢复通道。频率由退避阶梯限制：`auto_enable_backoff_ms`（`adapter_watch.rs:287-296`）0 次→立即可试、1→60s、2→120s、≥3→300s 封顶，尝试时间戳先写后执行（`adapter_watch.rs:226-228`）。
+   *理由*：CMSTPLUA 已被系统封堵的环境（0x80080017「未将类配置为支持提升的激活」）下静默提权不可得，UAC 是唯一恢复通道。频率由退避阶梯限制：`auto_enable_backoff_ms`（`adapter_watch.rs:289-296`）0 次→立即可试、1→60s、2→120s、≥3→300s 封顶，尝试时间戳先写后执行（`adapter_watch.rs:226-228`）。
 
    *额外过滤*：
 
@@ -65,7 +65,7 @@ tags: [决策, 巡检, 监控, 有意为之, 自动登录, 会话失效]
 
 9. **出站切换态下整拍跳过巡检**
 
-   `tauri-app/src-tauri/src/monitor/background_check.rs:64-73`：`outbound_restore_active(&config.outbound_metric_restore, &config.outbound_disabled_adapters, &config.outbound_standby_route)` 三份快照任一非空即打印「出站切换态，跳过本轮巡检」并直接 `return`，不等校园网检测、不 Portal 探测。下一拍（30s）自然恢复。
+   `tauri-app/src-tauri/src/monitor/background_check.rs:64-71`：`outbound_restore_active(&config.outbound_metric_restore, &config.outbound_disabled_adapters, &config.outbound_standby_route)` 三份快照任一非空即打印「出站切换态，跳过本轮巡检」并直接 `return`，不等校园网检测、不 Portal 探测。下一拍（30s）自然恢复。
 
    *理由*：切换态下出站走热点，Portal 探测注定失败，会累计触发 MAC 重置提权、并回放整夜告警；详见 [[night-outbound-switch]] 的六期/七期语义与 `adapter_watch.rs` 的同源守护窗（第 6 条）。
 
@@ -74,8 +74,8 @@ tags: [决策, 巡检, 监控, 有意为之, 自动登录, 会话失效]
 这一条**不是跳过**，而是本轮补记的反向动作——新增了一个重置点，用来修「整夜休眠 / 夜间出站切换后到点不自动登录」。
 
 - **症状**：用户合盖过夜或夜间出站切换把校园网卡禁用再启用后，到检测时段不再自动登录，只能手动点。
-- **根因**：`tauri-app/src-tauri/src/monitor/auto_auth.rs:40-44` 在 `try_auto_login_on_preparation` 开头读快照，`if snap.has_logged_online { return; }`（`auto_auth.rs:42-44`）——该标记一旦置位就永久拦住自动登录。而此前它只被三种事件改写：校园网检测失败（`background_check.rs:108-116`，仅覆盖 SSID / 网络名变化这一种失效）、注销、登录成功（`auto_auth.rs:89-93` 登录成功置位；`auto_auth.rs:182-187` 重连成功置位）。夜间出站切换禁用校园网卡把会话中断时，**没有任何代码路径复位它**，于是自动登录被"已登录过"这个陈旧事实长期挡住。
-- **决策**：在 `try_auto_login_on_preparation` 调用（`background_check.rs:380`）**之前**新增会话失效判定（`background_check.rs:325-340`）：
+- **根因**：`tauri-app/src-tauri/src/monitor/auto_auth.rs` 中 `try_auto_login_on_preparation` 开头读快照，`if snap.has_logged_online { return; }`——该标记一旦置位就永久拦住自动登录。而此前它只被三种事件改写：校园网检测失败（`background_check.rs:108-116`，仅覆盖 SSID / 网络名变化这一种失效）、注销、登录成功。夜间出站切换禁用校园网卡把会话中断时，**没有任何代码路径复位它**，于是自动登录被"已登录过"这个陈旧事实长期挡住。
+- **决策**：在 `try_auto_login_on_preparation` 调用（`background_check.rs:380`）**之前**新增会话失效判定（`background_check.rs:324-340`）：
 
   ```rust
   let any_online = online || secondary_online == Some(true);
@@ -85,7 +85,7 @@ tags: [决策, 巡检, 监控, 有意为之, 自动登录, 会话失效]
   }
   ```
 
-  判据本身抽成了纯函数 `should_reset_logged_online(reachable, any_online, has_logged_online) -> bool`（`background_check.rs:25`，实现即 `reachable && !any_online && has_logged_online`），便于单测锁定边界；`mod tests`（`background_check.rs:410-439`）用四条用例覆盖：在线不重置、不可达不重置、从未登录不重置、可达+均未在线+曾登录则重置。
+  判据本身抽成了纯函数 `should_reset_logged_online(reachable, any_online, has_logged_online) -> bool`（`background_check.rs:25-27`，实现即 `reachable && !any_online && has_logged_online`），便于单测锁定边界；`mod tests`（`background_check.rs:410-439`）用四条用例覆盖：在线不重置、不可达不重置、从未登录不重置、可达+均未在线+曾登录则重置。
 
   判据是"服务可达 + 主副卡都未在线 + 标记还被置着"：服务可达说明不是探测失败的假阴性，主副都未在线说明此前建立的登录会话确实已失效（整夜休眠唤醒后网卡重连未登录、校园网卡被夜间切换禁用后又启用、Portal 掉线）。
 - **为什么必须在 `try_auto_login_on_preparation` 之前**：同一拍就要能真正登录。若放在其后，还原后补检钩子触发的那一拍仍会被旧标记挡回，用户还要多等一拍（甚至多等一个间隔）。
@@ -118,7 +118,7 @@ tags: [决策, 巡检, 监控, 有意为之, 自动登录, 会话失效]
 
 - **跳过语义不变**：第 1-9 条行为与判定条件本轮全部保留，未放宽任何一条。
 - **重置只在服务可达时生效**：`reachable && !any_online && has_logged_online`（`background_check.rs:334`）三个条件同时成立才复位标记，探测失败路径不会造成抖动误重置。
-- **重置在两处判据上各有分工**：`background_check.rs:108-116` 的复位负责"校园网检测失败"（SSID / 网络名变化）；`background_check.rs:334-340` 负责"网络名没变、只是会话超时或网卡被禁用后重启"。两者不可互相替代。
+- **重置在两处判据上各有分工**：`background_check.rs:108-116` 的复位负责"校园网检测失败"（SSID / 网络名变化）；`background_check.rs:324-340` 负责"网络名没变、只是会话超时或网卡被禁用后重启"。两者不可互相替代。
 - **静默期语义两端不同**：桌面构造 `on_campus: true` 并继续走完整 Portal 探测，安卓整拍 `return` 不探测；非在校时段的**在线状态本身**两端都保持上一拍、新鲜度不可比。但 2026-09-13 起安卓的**通知面**不再继承陈旧在线——静默期进入即把常驻通知重建为「已暂停检测(非检测时段)」，用户看到的不是过期状态。
 - **状态变更检测用 `any_online`**：`handle_status_change` 的入参在 `background_check.rs:319-324` 已修正为"主或副任一在线即在线"，否则双适配器"主断副通"时每个周期都误报"在线→离线"。
 

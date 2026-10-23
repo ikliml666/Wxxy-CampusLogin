@@ -23,335 +23,199 @@ tags: [Tauri, IPC, Plugin, Android, Architecture]
 
 ## Overview
 
-`tauri-plugin-architecture` 定义了 Campus Login Assistant Android 应用的核心交互架构。该架构基于 Tauri v2 插件系统，采用“Rust 桥接 + Kotlin 原生实现”的双轨模式，通过 IPC (Inter-Process Communication) 命令面暴露功能。其核心职责是将复杂的 Android 系统级操作（如 Wi-Fi 绑定、前台保活、生物识别密钥存储）封装为标准化的异步 API，并通过前端的 `tauriApi` 统一入口进行调用，同时处理网络不稳定下的重试逻辑与安全门控。
+`tauri-plugin-architecture` 定义了 Campus Login Assistant Android 应用的核心交互架构。该架构基于 Tauri v2 插件系统，采用“Rust 桥接 + Kotlin 原生实现”的双轨模式，通过 IPC 命令面暴露功能。其核心职责是将复杂的 Android 系统级操作（如 Wi-Fi 绑定、前台保活、生物识别密钥存储）封装为标准化的异步 API，并通过前端的 `tauriApi` 统一入口进行调用，同时处理网络不稳定下的重试逻辑与安全门控。
 
 ## Key Components
 
 ### Frontend Hooks & Store (`android/frontend/src/hooks/tauriApi.ts`)
+
 构建安卓端 Tauri IPC 适配层。将 Rust 后端命令映射为前端调用，并处理桌面端专属功能在安卓端的降级。提供带重试机制的 API 包装。
 
-*   **核心常量与类型**：
-    *   `desktopOnly<T>(name: string)` (L14-L15): 返回 `Promise.reject` 的辅助函数，用于标记安卓不支持的功能。
-    *   `noopListener` (L18): 返回空函数的辅助函数，用于安卓端无对应事件的监听器。
-    *   `TauriApi` 接口 (L48-L141): 定义所有可用的 IPC 方法签名。包含配置、网络、认证、账号、监控、更新等模块。
-    *   `AvoidBadWifiStatus` / `RestoreWrittenSettingsResult` (L143-L157): 安卓特有的系统设置读写状态结构。
-    *   `ALI_DNS` / `RECOMMENDED_DNS`: 推荐 DNS IP 集合（逻辑关联 `useDnsSetup`）。
+- **核心常量与类型**：
+  - `desktopOnly<T>(name: string)` (tauriApi.ts:15-16): 返回 `Promise.reject(new Error('桌面专属功能,安卓端不可用: '+name))` 的辅助函数，用于标记安卓不支持的功能。
+  - `noopListener` (tauriApi.ts:18): 返回空函数 `() => {}` 的辅助函数，用于安卓端无对应事件的监听器。
+  - 类型 `ConnectionCampusStatus` (tauriApi.ts:20-24)、`BatteryOptimizationInfo` (tauriApi.ts:26-30)、`VendorSettingsResult` (tauriApi.ts:32-36)、`CampusStatusResult` (tauriApi.ts:38-46)、`AvoidBadWifiStatus` (tauriApi.ts:143-152)、`RestoreWrittenSettingsResult` (tauriApi.ts:154-157)。
+  - `TauriApi` 接口 (tauriApi.ts:48-141): 定义所有可用的 IPC 方法签名。包含配置、网络、认证、账号、监控、更新等模块。
+  - `ALI_DNS` / `RECOMMENDED_DNS`: 推荐 DNS IP 集合（逻辑关联 `useDnsSetup`）。
 
-*   **关键实现细节**：
-    *   **事件监听封装 `createEventListener`** (L159-L188):
-        *   解决 Tauri `listen` 异步注册问题。返回清理函数，支持在 `listen` Promise 完成前取消订阅（通过 `cancelled` 标志和 `.then` 链式清理）。
-        *   错误处理：DEV 模式下打印失败日志，但不阻断主流程。
-    *   **生物识别验证门 `verifyWindowsIdentity`** (L207-L244):
-        *   **双链路回退逻辑**：优先检查 `shouldUseFaceFallback()`。若开启且系统生物识别不可用（国产平板 Class 1 限制），则调用 `useFaceDialogStore.openFaceDialog` 进行 2D 人脸验证。
-        *   **统一上报**：无论成功（`biometric` 或 `face2d`）还是失败，均通过 `invoke('verify_biometric_identity', { success, method })` 上报后端，失败时归一化为 `{success: false}` 而非抛出异常。
-        *   **异常隔离**：`biometricCheckStatus` 查询异常不阻断主流程，直接落回系统 BiometricPrompt 链路。
-    *   **外部链接打开 `openExternal`** (L276-L287):
-        *   严格校验 URL 协议（仅 http/https）、长度（<2048）及格式。
-        *   调用 `@tauri-apps/plugin-opener`。
-    *   **重试机制 `withRetry` & `tauriApiWithRetry`** (L326-L362):
-        *   `isRetryableError`: 识别包含 'timeout', 'network', 'fetch', 'connection' 的错误。
-        *   `withRetry`: 指数退避重试（基础延迟 500ms，最大 2 次重试）。
-        *   **差异化重试策略**：仅 `saveConfig` 启用重试（一次性关键操作）。`checkPortalStatus` 和 `checkNetworkQuality` 因高频调用，由业务层自行兜底，避免放大流量。
+- **关键实现细节**：
+  - **事件监听封装 `createEventListener`** (tauriApi.ts:159-188): 解决 Tauri `listen` 异步注册问题，返回清理函数支持在 `listen` Promise 完成前取消订阅（通过 `cancelled` 标志和 `.then` 链式清理，tauriApi.ts:165, 177-186）。DEV 模式下打印失败日志但不阻断主流程 (tauriApi.ts:173)。
+  - **生物识别验证门 `verifyWindowsIdentity`** (tauriApi.ts:207-244): 优先检查 `shouldUseFaceFallback()` (tauriApi.ts:221)，若开启且系统生物识别不可用则调用应用内人脸 `openFaceDialog('verify')` (tauriApi.ts:225) 上报 `face2d`，否则 `biometricAuthenticate` (tauriApi.ts:239) 上报 `biometric`；失败时归一化为 `{success:false, message}` 而非抛出异常 (tauriApi.ts:211-217, 240-243)；`biometricCheckStatus` 查询异常不阻断主流程落回系统链路 (tauriApi.ts:225-227)。
+  - **外部链接打开 `openExternal`** (tauriApi.ts:276-287): 严格校验 URL 协议（仅 http/https，tauriApi.ts:277）、长度（≤2048，tauriApi.ts:278）及格式，调用 `@tauri-apps/plugin-opener` 返回 boolean。
+  - **重试机制 `withRetry` & `tauriApiWithRetry`** (tauriApi.ts:326-362): `isRetryableError` 识别包含 'timeout', 'network', 'fetch', 'connection' 的错误 (tauriApi.ts:326-336)；`withRetry` 指数退避重试（基础 500ms，最大 2 次，tauriApi.ts:338-354）；**差异化重试策略**：仅 `saveConfig` 启用重试 (tauriApi.ts:361)，`checkPortalStatus`/`checkNetworkQuality` 因高频调用由业务层自行兜底。
+  - **对象 `tauriApi: TauriApi`** (tauriApi.ts:14-148): 封装所有命令。`getConfig`(191)/`saveConfig`(192)；`exportConfig`/`importConfig`/`exportDiagnostics` 走 `desktopOnly`(193-195)；`getAdapters`/`enableAdapter`/`getAdapterDetails` 走 `desktopOnly`(196-198)；`bindToWifi`(199)/`checkPortalStatus`(200)/`checkCampusStatus`(201)/`requestWifiSsidPermission`(202)；`doLogin`(203)/`doLogout`(204)/`bindOperator`(205)/`getBindStatus`(206)；`revealOperatorCredential`(245)/`querySelfDashboard`(246)/`selfOfflineSession`(247)/`querySelfOnlineLog`(248)/`changeSelfPassword`(249)；`minimizeWindow`/`closeWindow`/`showWindow` 走 `desktopOnly`(250-251,302)；事件监听 `onBackgroundCheckResult`(252) 等用 `createEventListener`，`onAdaptersChanged`(254) 等用 `noopListener`；`listAccounts`(258) 等账号命令；`dhcpRenewAll` 等走 `desktopOnly`(269-271)；`checkNetworkQuality`(272)/`startLatencyTest`(274)；`getAutoLaunch`→`get_boot_autostart`(288)，`setAutoLaunch`→包装 `{success:true}`(289)；`getBatteryOptimizationInfo`(292) 等保活相关；`cancelAutoExit` 走 `desktopOnly`(296)；`getLogs`(303) 等调试；`checkUpdate`(308) 等更新；`checkDnsDohStatus` 等走 `desktopOnly`(315-319)；`getAvoidBadWifiStatus`(322)/`restoreWrittenSettings`(323)。
 
 ### Network Module (`android/frontend/src/network/useDnsSetup.ts`)
-DNS DoH 检测与优化的一键操作 Hook。
 
-*   **关键常量**：
-    *   `ALI_DNS`, `TENCENT_DNS`, `RECOMMENDED_DNS` (L11-L13): 定义推荐的公共 DNS IP 集合，用于判定“是否推荐 DNS”及“DoH 是否可用”。
-*   **关键状态与方法**：
-    *   `handleCheckDns` (L37-L59):
-        *   调用 `ipc.checkDnsDohStatus()`。
-        *   **逻辑判断**：检查是否有适配器使用推荐 DNS (`hasRecommendedDns`) 以及推荐 DNS 是否开启了 DoH (`dohNotEnabled`)。
-        *   **Toast 反馈**：未使用推荐 DNS 提示 warning；使用了但未开 DoH 提示 warning。
-    *   `handleSetupDnsDoh` (L61-L85):
-        *   调用 `ipc.setupDnsDoh(dnsFamily)`。
-        *   **刷新机制**：成功后立即重新调用 `checkDnsDohStatus` 以刷新 UI 状态（独立 try-catch，防止失败覆盖成功 Toast）。
-        *   **挂载保护**：全程使用 `mountedRef` 防止组件卸载后 setState。
+DNS DoH 检测与优化的一键操作 Hook。纯逻辑层（UI 由 NetworkPanel 渲染），无恢复自动获取、无适配器门槛、busy 锁仅 `dohEnabling`。
+
+- **关键常量**：
+  - `ALI_DNS` (useDnsSetup.ts:11，Set: '223.5.5.5','223.6.6.6','2400:3200::1','2400:3200:baba::1')；`TENCENT_DNS`(12)；`RECOMMENDED_DNS`(13，两者并集)；类型 `DnsFamily = 'both'|'ipv4'|'ipv6'`(15)。
+- **关键状态与方法** (`useDnsSetup()` useDnsSetup.ts:22-87)：
+  - `ipc = tauriApiWithRetry`(24)；`mountedRef` 处理 StrictMode(25,30-35)。
+  - state：`dohEnabling`(26)，`dnsFamily` 默认 `'both'`(28)。
+  - `handleCheckDns` (useDnsSetup.ts:37-59): 调 `ipc.checkDnsDohStatus()`(40) → `setDnsDohStatus`；判定 `hasRecommendedDns`(43) 和 `dohNotEnabled`(44-46)；warning toast(48-50)；catch 置 null(54)。
+  - `handleSetupDnsDoh` (useDnsSetup.ts:61-85): 调 `ipc.setupDnsDoh(dnsFamily)`(64)；成功 toast + 独立 try-catch 刷新状态(69-75)；失败/异常 toast(77,81)；finally 按 mountedRef 复位(83)。
 
 ### Auth & Dashboard (`android/frontend/src/auth/DashboardPanel.tsx`)
-校园网总览面板组件。支持卡片化布局、自定义卡片注入、拖拽排序、编辑模式。
 
-*   **核心数据结构**：
-    *   `CardDef` / `ExtraCardDef`: 定义内置卡与宿主注入卡的接口。`ExtraCardDef` 包含 `render` 函数用于动态渲染内容。
-    *   `ALL_CARDS`: 内置卡片列表（quickActions, accountManage, selfOnline, selfLog, networkQuality）。
-    *   `DEFAULT_LAYOUT`: 默认卡片顺序。
-    *   `EXTRA_REMOVED_KEY`: 本地存储 Key，记录被用户显式删除的自定义卡片 ID（黑名单机制，防止迁移复活）。
+校园网总览面板组件。支持卡片化布局、自定义卡片注入、拖拽排序、编辑模式；移动端空态合并。
 
-*   **关键子组件与 Hooks**：
-    *   **`QuickActionsCard`**: DHCP 续租 (`onDhcpRenew`) 和释放重获 (`onDhcpReleaseRenew`)。使用 `useAsyncLock` 防止重复点击。
-    *   **`AccountManageCard`**: 账号切换。使用 `OnlineDeviceStack` 堆叠展示账号卡片。切换时使用 `switchTimerRef` 延迟清除 loading 状态以配合 StrictMode。
-    *   **`NetworkQualityCard`**: 显示网关/外网延迟。使用 `resolveQualityDisplay` 解析质量等级。
-    *   **`SelfOnlineCard` / `SelfLogCard`**:
-        *   **隐私掩码**：共用 `useSelfCardReveal` Hook。需通过 `useHelloGate` (生物识别/密码验证) 才能查看明文信息（IP/MAC/时间）。
-        *   **数据获取**：共用 `useSelfCardFetch` Hook。自动根据账号变化触发查询，支持手动刷新。
-        *   **轮询**：`SelfOnlineCard` 在凭据齐备时启动 60s 轮询 (`setInterval`) 以自动下线过期设备。
-        *   **别名管理**：`SelfOnlineCard` 内嵌设备别名修改功能，直接写入 `config.deviceAliases`。
-    *   **`EditableCardItem`**:
-        *   **自研长按拖拽**：不使用 framer-motion drag（WebView 兼容性问题）。
-        *   **交互逻辑**：长按 350ms (`LONG_PRESS_MS`) 激活 -> 跟随手指移动 (`dragDy`) -> 越过阈值触发 `onSwap` -> 振动反馈。
-        *   **滚动冲突处理**：激活前移动 >10px 取消；激活后 `preventDefault` 阻止浏览器滚动。
-    *   **`DashboardPanel`** (主组件):
-        *   **布局持久化**：`loadLayout` / `saveLayout` 使用 `safeStorage`。
-        *   **合并空态**：移动端无自助凭据时，`selfOnline` 和 `selfLog` 合并为 `SelfServiceMergedEmptyCard`。
-        *   **编辑模式**：允许添加/删除/排序卡片。删除自定义卡片时加入黑名单。
+- **核心数据结构**：
+  - 类型：`BuiltinCardId`(DashboardPanel.tsx:43), `CardId`(45), `CardDef`(47-51), `ExtraCardDef`(54-61), `DashboardPanelProps`(102-117，含 `accounts`, `activeAccount`, `onDhcpRenew`, `excludeCards`, `mergeSelfServiceEmpty`, `extraCards` 等)。
+  - `ALL_CARDS`(63-69), `DEFAULT_LAYOUT`(71), `EXTRA_REMOVED_KEY`='campus-dashboard-extra-removed'(91)。
+  - `loadLayout(valid, defaults)`(73-82) 从 `safeStorage` 读 `campus-dashboard-layout` 校验返回；`saveLayout(cards)`(84-86)；`loadRemovedExtras()`(93-100) 读删除黑名单。
+- **关键子组件与 Hooks** (均 memo)：
+  - `QuickActionsCard`(119-191)：`useAsyncLock` 包装 `onDhcpRenew`(136,5000ms) 和 `onDhcpReleaseRenew`(140,0ms)；网络差光晕(134,146)。
+  - `AccountManageCard`(193-297)：`handleSwitchAccount`(210-217) 用 `switchTimerRef`(215) 和 `mountedRef`(203)；渲染 `OnlineDeviceStack`(235)。
+  - `NetworkQualityCard`(299-339)：`resolveQualityDisplay`(303) + `QUALITY_CONFIG`(305)；`LatencyPair`(332)。
+  - `useSelfCardReveal()`(344-356)：调 `useHelloGate()`(347)；`hasCred = config.user && passwordSaved`(348)。
+  - `useSelfCardFetch<T>(fetcher, account)`(360-401)：`fetchLockRef`(367) 防重入，`fetchedForRef`(368) 按 account 查一次；错误 toast(386)。
+  - `SelfOnlineCard`(418-592)：`fetchOnline` 调 `querySelfDashboard`(448) 返回 `onlineList: SelfOnlineItem[]`；60s 轮询 `refetch`(457-461)；`handleOffline` 调 `selfOfflineSession`(468)；`handleSaveAlias` 调 `saveConfigDirect`(439) 失败 throw(442)；掩码渲染(509-511)。`ConfirmDialog`(578), `DeviceAliasDialog`(583)。接口 `SelfOnlineItem`(406-416)。
+  - `SelfLogCard`(599-677)：`SELF_LOG_LIMIT=5`(597)；`fetchLog` 调 `querySelfOnlineLog`(606) 取今日日志截断(610)。接口 `SelfLogRow`(596)。
+  - `SelfServiceMergedEmptyCard`(681-701)：合并空态。
+  - `renderCard(id, props, ...)`(703-726)：按 id 分发。
+  - `EditableCardItem`(737-831)：编辑拖拽。`LONG_PRESS_MS=350`(735)；长按激活(770-777)；`handlePointerMove` 越过半高阈值 `onSwap`(794-798)；`navigator.vibrate`(773,798)；卡内 `pointer-events-none`(822)。
+- **主组件 `DashboardPanel`** (memo, DashboardPanel.tsx:833-1005)：
+  - `allDefs`(836) 合并 extra；`cards` 初始化含迁移补 start 位 extra 卡(839-856) 且避黑名单(850)；`editing`(857)。
+  - 订阅 `bgStatus`(858), `networkQuality`(859), `config`(863), `passwordSaved`(864)。
+  - `mergeSelfEmpty`(866) = `props.mergeSelfServiceEmpty && !hasCred`。
+  - `handleAddCard`(870) 清黑名单(874)；`handleRemoveCard`(878) 记黑名单(882)。
+  - `availableCards`(887) 排除 `excludeCards` 和 `enableNetworkQuality===false`(891-892)；`visibleCards`(897) 类似过滤。
+  - `handleSwapCard`(907) 仅可见卡交换，隐藏卡留尾。
 
 ### Auth Hook (`android/frontend/src/auth/useAuth.ts`)
-认证相关的 UI 辅助 Hook。
 
-*   **关键方法**：
-    *   `handleOpenPortal` (L20-L23): 打开门户登录页（默认 `http://10.1.99.100`，可配置）。
-    *   `handleOpenSelfService` (L25-L27): 硬编码打开自助服务页面 (`http://10.1.80.200:8080/Self/login/?302=LI`)。
+认证相关的 UI 辅助 Hook，聚合 `useAuthStore` 状态/动作，提供打开 Portal / 自助服务页回调。
+
+- **关键方法** `useAuth()` (useAuth.ts:7-34)：
+  - `authStore` 浅比较选 `isLoggingIn`, `isLoggingOut`, `status`, `doLogin`, `doLogout`, `checkOnline`(8-15)。
+  - `configPortalUrl` 来自 `useConfigStore`(18)。
+  - `handleOpenPortal`(20-23): 默认 `http://10.1.99.100`(21)，调 `api.openExternal`。
+  - `handleOpenSelfService`(25-27): 打开 `http://10.1.80.200:8080/Self/login/?302=LI`。
 
 ### Account Stack (`android/frontend/src/account/SelfOnlineStack.tsx`)
-提供设备在线状态的可视化堆叠组件，分为手机端竖排（`OnlineDeviceStack`）和平板/桌面端横排（`OnlineDeviceStackH`），以及单张卡片内容渲染（`OnlineDeviceStackCard`）。核心交互为“整副牌连续滚动”，所有卡片常挂载，通过 `transform` 切换位置。
 
-*   **常量与配置**：
-    *   `PEEK_TOP = 44`, `PEEK_BOTTOM = 44`：竖排露出边高度。
-    *   `DRAG_THRESHOLD = 60`：拖拽翻页阈值。
-    *   `DRAG_MIN = -110`, `DRAG_MAX = 70`：竖排拖拽行程上限。
-    *   `V_SIDE_SCALE = 0.75`：竖排侧卡缩放比例。
-    *   `CF_X = [60, 85]`：横排相邻/次邻偏移百分比。
-    *   `SIDE_SCALE = 0.6`, `SIDE_SCALE_2 = 0.45`：横排侧卡缩放。
-    *   `NARROW_MIN_W = 213`：窄模式最小宽度。
-    *   `SLIDE_MS = 500`, `EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'`：动画参数。
+提供设备在线状态的可视化堆叠组件，分为手机端竖排（`OnlineDeviceStack`）和平板横排（`OnlineDeviceStackH`），以及单张卡片内容渲染（`OnlineDeviceStackCard`）。核心交互为“整副牌连续滚动”，所有卡片常挂载，通过 `transform` 切换位置。
 
-*   **`OnlineDeviceStack` (竖排)**：
-    *   **Props**：`cards: React.ReactNode[]`, `variant?: 'coverflow' | 'narrow'`, `focusIndex?: number`。
-    *   **状态管理**：`index` (当前页), `dragY` (拖拽位移), `dragging` (是否拖拽中), `cardH` (舞台高度)。
-    *   **关键逻辑**：
-        *   `useEffect` 监听 `count` 变化，防止列表变短时 `index` 越界 (`Math.min(i, count-1)`)。
-        *   `useEffect` 监听 `focusIndex`，外部触发时直接设 `index`。
-        *   **量高逻辑**：使用 `ResizeObserver` 或 fallback 一次性查询 `stage.querySelectorAll` 计算最大高度，确保舞台不跳变。
-        *   **手势处理**：`onPointerDown/Move/Up/Cancel`。`suppressClick` 防止拖拽后误触点击。
-        *   **点击分区**：以中线划分，上半屏点击翻上一张，下半屏翻下一张。
-        *   **姿势计算 (`rel`)**：基于 `index` 计算相对位置 `r`。
-            *   `r=0`: 当前卡，`top=PEEK_TOP`, `scale=1`, `z=30`, `opacity=1`。
-            *   `r=1`: 下一张，从顶部露出，`top=0`, `scale=V_SIDE_SCALE`, `opacity=0.5`。
-            *   `r=count-1`: 上一张，从底部露出，`bottomTop` 动态计算对齐底边。
-            *   更深的卡透明隐藏 (`opacity=0`)，仅 `count > 3/4` 时挂载。
-        *   **拖拽样式**：当前卡拖拽时 `transition: none`，应用 `calc()` 合并初始位与拖拽值。
-
-*   **`OnlineDeviceStackCard`**：
-    *   **Props**：`loginTime`, `ip`, `mac`, `flowMb`, `durationMin`, `terminalType`, `alias?`, `onRename?`, `offlineDisabled`, `offlineLoading`, `onOffline?`。
-    *   **UI结构**：头部（时间、别名标签、终端类型标签、编辑按钮）、中部（IP/MAC 垂直芯片）、底部（流量/时长统计、注销按钮）。
-    *   **细节**：深色模式反色处理 (`dark:bg-muted dark:ring-white/[0.06]`)；别名截断显示；注销按钮带加载态。
-
-*   **`OnlineDeviceStackH` (横排)**：
-    *   **Props**：同竖排，但默认 `variant='coverflow'`。
-    *   **差异**：
-        *   拖拽方向为 X 轴 (`dragX`)，阈值 `DRAG_CLAMP = 80`。
-        *   **姿势表 (`sd`)**：
-            *   `s=0`: 中央，`x=0`, `scale=1`, `z=30`。
-            *   `s=1`/`s=count-1`: 相邻，`x=±CF_X[0]`, `scale=0.6`, `opacity=0.7`。
-            *   `s=2`/`s=count-2`: 次邻，`x=±CF_X[1]`, `scale=0.45`, `opacity=0.45`。
-            *   `count >= 6` 时，`s=3`/`s=count-3` 透明隐藏。
-        *   **定位差异**：`coverflow` 使用 `left/right` 百分比留白；`narrow` 使用 `left: 50%` + `translateX(-50% + offset)` 居中，最小宽 `NARROW_MIN_W`。
-        *   **CSS Hack**：横排居中需将 `-50%` 与百分比偏移合并进 `calc()`，否则浏览器会丢弃裸求和。
+- **导出与接口**：
+  - `OnlineDeviceStackProps`(43)：含 `cards: React.ReactNode[]`、`variant?: 'coverflow' | 'narrow'`、`focusIndex?: number`。
+  - `OnlineDeviceStack`(50)：竖排堆叠主组件。
+  - `OnlineDeviceStackCardProps`(233) 与 `OnlineDeviceStackCard`(250)：含 `loginTime/ip/mac/flowMb/durationMin/terminalType/alias/onRename/offlineDisabled/offlineLoading/onOffline`。
+  - `OnlineDeviceStackH`(342)：横排堆叠。
+- **常量与默认值**：
+  - 竖排：`PEEK_TOP=44`(14)、`PEEK_BOTTOM=44`(15)、`DRAG_THRESHOLD=60`(16)、`DRAG_MIN=-110`/`DRAG_MAX=70`(18-19)、`SLIDE_MS=500`(20)、`EASE='cubic-bezier(0.22, 1, 0.36, 1)'`(21)、`V_SIDE_SCALE=0.75`(23)、`V_CARD_INSET='inset-x-[6%]'`(27)。
+  - 横排：`CF_X=[60,85]`(32)、`CF_INSET='27%'`(33)、`SIDE_SCALE=0.6`/`SIDE_SCALE_2=0.45`(34-35)、`DRAG_CLAMP=80`(36)、`NARROW_MIN_W=213`(41)。
+- **关键实现**：所有槽位常挂载靠 `transform`/`opacity` 过渡(95-97, 378)；`rel`/`sd` 算相对位置(94, 377)，`go` 取模换页(98-102, 379-383)；用 `ResizeObserver` 量最大自然高度防跳变(74-89, 359-374)，jsdom 无 RO 退化一次性量高；单卡 `count<2` 禁拖禁点(105, 140, 386, 421)；横排 `narrow` 用 `left:50%`+`minWidth:213` 居中(469-471)，`translateX` 合并 `-50%` 必须 `calc()` 包裹(473-485)；卡面 `p-3` 同构桌面端(267)。
 
 ### Self Service State (`android/frontend/src/account/selfServiceState.ts`)
-管理生物识别验证门（Hello Gate）和自助服务会话门（Session Gate），控制敏感操作的权限校验。
 
-*   **`biometricFailMessage(err, t)`**：
-    *   根据错误对象中的 `code` 字段映射到 i18n key。
-    *   映射表 `BIOMETRIC_ERROR_KEY` 包含：`userCancel`, `systemCancel`, `biometryNotEnrolled`, `noDeviceCredential`, `faceTimeout`, `faceChallenge` 等。
-    *   未知错误回退 `extractErrorMessage` 或默认文案。
+管理生物识别验证门（Hello Gate）和自助服务会话门（Session Gate），控制敏感操作的权限校验，与后端 TTL 对齐防死锁。
 
-*   **`useHelloGate(options?)`**：
-    *   **用途**：绑定运营商等操作前的验证门。
-    *   **逻辑**：
-        *   检查 `gateFresh(helloGateVerifiedAt)`：若 TTL 内且时钟未回拨，直接放行。
-        *   检查总开关 `helloEnabled()`：若关闭则放行（除非 `ignoreToggle=true`）。
-        *   调用 `tauriApiWithRetry.verifyWindowsIdentity`。成功则更新 `helloGateVerifiedAt = Date.now()`。
-        *   失败则 Toast 提示并返回 `false`。
-    *   **TTL**：`VERIFY_TTL_MS = 570_000` (570s)，对齐后端 600s 留余量。
-    *   **时钟回拨保护**：`elapsed >= 0` 确保不因系统时间调整导致永真。
-
-*   **`useSelfServiceVerify()`**：
-    *   **用途**：自助服务面板内的操作验证。
-    *   **逻辑**：
-        *   独立于 Hello Gate，使用 `selfSessionVerifiedAt`。
-        *   支持配置项 `config.selfReverifyEachAction`：若为 `true`，每次操作都强制验证；否则沿用 TTL 缓存。
-        *   同样受 `helloEnabled()` 总开关控制。
-    *   **`resetSelfSessionGate()`**：手动重置会话门（用于面板卸载时）。
+- **`helloEnabled()`** (selfServiceState.ts:10)：`config.selfHelloEnabled !== false` 视为开启。
+- **`BIOMETRIC_ERROR_KEY`** (selfServiceState.ts:19-32)：错误码到 i18n key 映射（含 faceService 业务码 faceTimeout 等）。
+- **`biometricFailMessage(err, t)`** (selfServiceState.ts:34-38)：按 `err.code` 翻译，未知回退 `extractErrorMessage`。
+- **`VERIFY_TTL_MS=570_000`** (selfServiceState.ts:58，对齐后端 `IDENTITY_VERIFY_TTL_SECS=600s` 留 30s 余量)；**`gateFresh`** (selfServiceState.ts:58-62) 查 TTL 且防时钟回拨（`elapsed >= 0`）；模块级 `helloGateVerifiedAt`(63)。
+- **`useHelloGate(options?)`** (selfServiceState.ts:65-87)：绑定/明文门，`ignoreToggle:true` 无视总开关强验(50-53, 71)。
+- **`selfSessionVerifiedAt`**(97)；**`resetSelfSessionGate()`**(100-102) 面板卸载重置；**`useSelfServiceVerify()`**(105-127) 受 `selfReverifyEachAction` 控制每次验证。
 
 ### Settings Panel (`android/frontend/src/settings/SettingsPanel.tsx`)
-设置面板 UI，包含启动、自动化、安全、网络质量等模块。安卓端差异化渲染（如保活设置、无退出应用选项）。
 
-*   **结构**：两列布局 (`md:grid-cols-2`)，左侧启动/自动化/保活，右侧安全/网络。
-*   **关键功能块**：
-    *   **新手指引**：置顶卡片，引导用户进入 Onboarding。
-    *   **启动与通知**：自动启动 (`autoLaunch`)、开机自动登录 (`autoLoginOnStart`)、通知开关 (`enableNotification`)。通知开启时请求权限。
-    *   **自动化**：准备就绪自动登录 (`autoLoginOnPreparation`)、夜间运营商切换 (`enableNightOperatorSwitch`)。
-    *   **保活设置**：仅在 Android 下渲染 (`KeepAliveSettingsCard`)。
-    *   **安全设置**：
-        *   **关闭保护需验证**：`selfHelloEnabled` 和 `selfReverifyEachAction` 从 True 切 False 时，调用 `handleSecurityDisable`，该函数内部先调 `verifyWindowsIdentity`，成功才执行 `apply(true)`。
-        *   **2D 人脸**：开启时需确认风险弹窗 (`ConfirmDialog`)；关闭时清除模板 (`clearTemplate()`)。已录入时显示录入/重录按钮。
-    *   **网络质量**：
-        *   开关 `enableNetworkQuality`。关闭时联动清理：停止延迟测试 (`stopLatencyTest`)、重置 `defaultPanel` 避免空白、切换 `activePanel` 到 dashboard。
-        *   **延迟计算选项**：弹窗 (`latencyModalOpen`)，包含跳过 TTFB (`skipTtfbInLatency`) 和跳过内容传输 (`skipContentInLatency`) 的开关及解释说明。
-    *   **背景看板娘**：底部低透明度装饰图。
+设置面板 UI，包含启动、自动化、安全、网络质量、保活等模块。安卓端差异化渲染（如保活设置、无退出应用选项）。
+
+- **导出**：`SettingsPanelProps`(31-35，含 `onUpdateConfig`/`onSetAutoLaunch`/`onShowOnboarding`)；`SettingsPanel`(memo, 37-452)。
+- **常量**：`isAndroid = import.meta.env.VITE_PLATFORM === 'android'`(29)。
+- **关键实现**：自订阅 `config` 用 `useShallow`(45) 防级联重渲染；`handleSecurityDisable`(56-70) 关安全开关前强弹 Hello，失败受控回弹；复用 `biometricFailMessage`(15, 68)；2D 人脸开启弹 `ConfirmDialog` 风险确认(321-330)，关闭调 `clearTemplate()` 数据最小化(289)；关闭质量检测联动停 `stopLatencyTest` 并若 `defaultPanel==='quality'` 改空切 dashboard 防空白(357-375)；安卓专属 `KeepAliveSettingsCard`(26, 217-223)；两列布局 md 起 grid(109)。
 
 ### Onboarding Flow (`android/frontend/src/settings/useOnboardingFlow.ts`)
-新手指引向导的状态机 Hook，统一安卓手机全屏向导和平板 Dialog 向导的逻辑。
 
-*   **状态机**：4 步 (`ONBOARDING_STEP_COUNT = 4`)：欢迎 -> 账号 -> 绑定运营商 -> 完成。
-*   **关键 State**：
-    *   `step`, `direction` (滑动方向)。
-    *   账号信息：`username`, `password`, `operator`。
-    *   绑定信息：`bindOperatorValue`, `phone`, `smsPassword`, `bindState` (`idle/loading/success/error`)。
-    *   辅助：`showCloseConfirm`, `loginSuccess`。
-*   **核心逻辑**：
-    *   **初始化**：`open` 变为 `true` 时重置状态，读取 `config` 填充表单。
-    *   **绑定验证**：`canBind` 检查用户名、密码（或掩码）、运营商、手机号格式、短信密码非空。
-    *   **绑定操作**：`handleBind` 先调 `ensureBindHello` (Hello Gate)，成功后进入 `success` 状态，延迟 1.2s 进入下一步。
-    *   **账号保存**：`handleNext` 在步骤 1 落盘 `user`, `operator`, `password` (仅当输入了新密码时)。
-    *   **完成登录**：`handleLoginAndFinish` 最终校验账号，落盘配置，调用 `onLogin()`。成功则延迟 1.5s 标记 `campus-onboarding-done` 并关闭向导。
-    *   **哨兵值**：`BIND_OPERATOR_NONE = '__none__'`, `DEFAULT_OPERATOR = '__default__'`。
+新手指引 4 步状态机（欢迎→账号→绑定→完成），抽 hook 供手机/平板复用，修复完成步不重校验历史缺陷。
+
+- **导出常量**：`ONBOARDING_STEP_COUNT=4`(26)、`BIND_OPERATOR_NONE='__none__'`(28)、`DEFAULT_OPERATOR='__default__'`(30)、`BIND_SUCCESS_ADVANCE_MS=1200`/`LOGIN_SUCCESS_ADVANCE_MS=1500`(32-34)、`OPERATOR_KEY_BY_VALUE`(47-51)、`OPERATOR_STATUS_ORDER`(53)。
+- **类型**：`BindState`(36)、`OperatorKey`/`OperatorBindingInfo`/`BindStatuses`(39-44)、`OnboardingFlowOptions`(55-67，含 `onAutoAdvance` 宿主动画接管)、`OnboardingFlow`(303)。
+- **关键实现**：无适配器步骤（安卓后端丢弃 adapter 参数，8-9）；凭据复用账号步草稿，密码掩码 `PASSWORD_MASK` 留空回退已存(78, 186, 248, 279)；`useHelloGate` 用于绑定步(101, 148)；`handleBind`(145-180) 调 `bindOperator`，成功 `setBindRefreshTick` 触发重查(161)；`getBindStatus` 在 step===2 且账号合法自动查(188-214) 无 Hello 门；`handleLoginAndFinish`(246-276) 完成步重校验账号密码必填。
 
 ### Keystore Plugin (`android/plugins/keystore/...`)
-Android KeyStore AES-GCM 加解密插件，用于密码等敏感数据落盘加密。
 
-*   **Kotlin (`KeystorePlugin`)**：
-    *   **Key 管理**：`getOrCreateKey()` 使用 `KeyGenParameterSpec` 生成 256-bit AES Key，Alias `"campus_login_master"`。
-    *   **Commands**：
-        *   `encrypt(text)`: 返回 Base64(`IV + Ciphertext`)。
-        *   `decrypt(data)`: 解析 Base64，提取 IV (前12字节) 和解密。
-    *   **异常处理**：捕获异常并 Log，返回 JSObject 错误。
+Android KeyStore AES-GCM 加解密插件，用于密码等敏感数据落盘加密（同构桌面 DPAPI）。
 
-*   **Rust (`lib.rs`)**：
-    *   **Struct**: `CampusKeystore<R>`。
-    *   **Methods**: `encrypt(&str) -> Result<String>`, `decrypt(&str) -> Result<String>`。
-    *   **Integration**: 通过 `run_mobile_plugin` 调用 Kotlin 插件。提供 `CampusKeystoreExt` trait 方便在 Tauri App 中获取实例。
+- **Kotlin (`KeystorePlugin.kt`)**：
+  - `EncryptArgs`(20-23)、`DecryptArgs`(25-28)、`KeystorePlugin`(30-89)。
+  - 常量 `KEY_ALIAS="campus_login_master"`(34)、`IV_LEN=12`(35)、`TAG="CampusKeystore"`(36)。
+  - `getOrCreateKey()`(39-54) 创建/复用 AES-256 GCM 无填充密钥；`@Command encrypt`(56-71) 输出 `base64(iv+ct)`；`@Command decrypt`(73-89) 要求 `raw.size > IV_LEN`(78)，用 `GCMParameterSpec(128, raw, 0, IV_LEN)` 解密。错误 catch Exception 打 Log 并 `invoke.reject` 中文(67-70, 85-88)。
+- **Rust (`lib.rs`)**：
+  - `#![cfg(mobile)]`，`PLUGIN_IDENTIFIER="com.campuslogin.plugin.keystore"`(12)。
+  - `EncryptResult`/`DecryptResult`(14-22)、`CampusKeystore<R>`(24) 含 `encrypt`(30-33)/`decrypt`(36-39)、`CampusKeystoreExt` trait(42-50)、`init`(52-60) 注册 `KeystorePlugin`(56) 并 `app.manage` 状态(57)；`run_mobile_plugin` 传 `text`/`data` 字段。
 
 ### Monitor Service Plugin (`android/plugins/foreground-service/...`)
-前台服务保活、探针窗口锁管理、电池优化/自启设置跳转、APK 安装。
 
-*   **Kotlin (`MonitorServicePlugin`)**：
-    *   **前台服务控制**：
-        *   `startMonitor(title)`: 启动 `ForegroundService`，处理 `IllegalStateException` (部分 ROM 限制)。
-        *   `stopMonitor()`: 发送 Action 让服务自杀。
-        *   `updateNotification(text)`: 直接通过 `NotificationManager` 更新通知，与服务侧协议一致。
-    *   **探针窗口**：`beginProbeWindow` / `endProbeWindow` 静态调用 `ForegroundService` 方法，持有 WifiLock/WakeLock 期间禁止 WiFi 省电。
-    *   **电源状态**：`getPowerState` 返回 `screenOn` 和 `wifiConnected`，供 Rust 巡检分档。
-    *   **厂商适配**：
-        *   `vendorTargets`: 映射品牌 (Xiaomi, Huawei, OPPO, vivo, Samsung 等) 到具体的自启/省电页面 ComponentName。
-        *   `openVendorBatterySettings`: 降级链：厂商专用页 -> 应用详情页 -> 通用设置。返回 `path` 和 `tried` 列表供前端提示。
-        *   `openNotificationSettings`: 降级链：API 26+ Action -> 旧版 Action -> 应用详情 -> 通用设置。
-    *   **电池优化**：`getBatteryOptimizationInfo` 返回是否忽略优化、品牌、是否有专用页。`requestIgnoreBatteryOptimizations` 弹出系统确认框。
-    *   **APK 安装**：`installApk`：从 `filesDir/update/` 取文件名，构建 FileProvider URI，启动系统安装器。防路径逃逸。
-    *   **开机自启**：`setBootAutostart` / `isBootAutostartEnabled`：操作 `BootReceiver` 组件启用状态及 SharedPreferences。
-    *   **`BootReceiver`**：接收 `BOOT_COMPLETED`，若开启自启则尝试启动 FGS 和 MainActivity (best-effort)。
+前台服务保活（常驻通知 + 锁）、APK 安装、探针窗口锁、电源状态、电池优化与厂商自启页跳转、通知设置页跳转、开机自启开关等；同文件顶层类 `BootReceiver` 处理开机广播。
 
-*   **Rust (`lib.rs`)**：
-    *   **Struct**: `CampusMonitorService<R>`。
-    *   **Methods**:
-        *   `start_monitor`, `stop_monitor`, `update_notification`.
-        *   `begin_probe_window`, `end_probe_window`.
-        *   `get_power_state` -> `(bool, bool)`.
-        *   `set_boot_autostart`, `is_boot_autostart_enabled`.
-        *   `install_apk`.
-        *   `get_battery_optimization_info`, `request_ignore_battery_optimizations`.
-        *   `open_vendor_battery_settings`, `open_notification_settings`.
-    *   **Integration**: 注册 `com.campuslogin.plugin.monitorservice.MonitorServicePlugin`。
+- **Kotlin (`MonitorServicePlugin.kt`)**：
+  - `TAG = "CampusMonitorService"`(27)；`@InvokeArg` 可空安全数据类 `StartArgs`(31-34)、`TextArgs`(36-39)、`BoolArgs`(41-44)；`MonitorServicePlugin(activity)`(47)。
+  - `startMonitor`(50-76)：title 空则 `reject`(53-57)；`startForegroundService`/`startService`(63-67)；catch `IllegalStateException` 后 reject(68-72)；成功返 `{started:true}`。
+  - `stopMonitor`(79-86)：发 `ACTION_STOP` 的 Intent 让服务自杀。
+  - `updateNotification`(89-104)：`NotificationManager` 调 `ForegroundService.buildNotification` 以 `NOTIFICATION_ID` notify(97-102)。
+  - `installApk`(110-137)：拼 `activity.filesDir/update/` 防路径逃逸(119-120)；`FileProvider.getUriForFile` authority=`${packageName}.fileprovider` 起安装器(125-132)。
+  - `beginProbeWindow`/`endProbeWindow`(143-152) 直调 `ForegroundService` 静态方法。
+  - `getPowerState`(161-167)：返 `{screenOn, wifiConnected}`；私有 `isWifiConnected`(170-178)。
+  - `vendorTargets`(189-230)；`buildVendorIntent`(234-238)；`startSafely`(240-245)。
+  - `getBatteryOptimizationInfo`(252-261)；`requestIgnoreBatteryOptimizations`(270-277)；`openVendorBatterySettings`(285-338) 降级链；`openNotificationSettings`(349-379) 降级链。
+  - `setBootAutostart`(382-398) 启停 `BootReceiver` 组件 + SharedPreferences；`isBootAutostartEnabled`(401-408)。
+  - `BootReceiver : BroadcastReceiver()`(416-442)：`onReceive`(417-441) 非 `ACTION_BOOT_COMPLETED` 或 prefs 假则 return；try/catch 启 FGS(425-433) 拉 `MainActivity`(434-440)。
+- **Rust (`lib.rs`)**：
+  - `PLUGIN_IDENTIFIER="com.campuslogin.plugin.monitorservice"`(12)。
+  - `#[derive(Deserialize)] struct BoolResult`(14-17)、`PowerStateResult`(19-25)。
+  - `CampusMonitorService<R>(PluginHandle<R>)`(27)；`start_monitor`(33-35)、`stop_monitor`(37-39)、`update_notification`(42-44)、`begin_probe_window`(47-49)、`end_probe_window`(52-54)、`get_power_state`(58-61)、`set_boot_autostart`(64-66)、`is_boot_autostart_enabled`(68-71)、`install_apk`(75-77)、`get_battery_optimization_info`(80-82)、`request_ignore_battery_optimizations`(85-87)、`open_vendor_battery_settings`(90-92)、`open_notification_settings`(95-97)。
+  - `CampusMonitorServiceExt`(100-102)；`init`(110-118) `Builder::new("campus-monitor-service")` 注册 `MonitorServicePlugin`(114) 并 `app.manage`(117)。
 
 ### Network Bind Plugin (`android/plugins/network-bind/...`)
-Android 原生网络绑定插件，核心解决校园网 Captive Portal（认证前无网）下的进程级流量劫持问题。提供 WiFi 绑定、SSID 读取、系统设置读写及 WiFi 状态监听能力。
 
-*   **Kotlin (`NetworkBindPlugin`)**：
-    *   **`bindToWifi(invoke: Invoke)`**:
-        *   **逻辑**：先遍历 `allNetworks` 筛选 WiFi。优先选择带 `NET_CAPABILITY_INTERNET` 的网络；若为 Captive Portal（无 INTERNET），退而求其次选任意 WiFi。
-        *   **直绑**：调用 `manager.bindProcessToNetwork(picked.first)`。成功则返回 `{bound: true, path: "allNetworks"}`。
-        *   **回退**：若直绑失败（含 VPN 活跃导致 `false`），构造 `NetworkRequest`（显式 `.removeCapability(NET_CAPABILITY_INTERNET)` 以防 AOSP 拒绝），通过 `requestNetwork` 等待连接。
-        *   **竞态保护**：使用 `AtomicBoolean` 确保单次调用只 resolve 一次。记录 `lastBoundNetwork` 避免重复清池。
-        *   **返回值**：`{bound, path, reason}`。path 区分 `allNetworks` / `requestNetwork` / `already_bound`。
-    *   **`unbind(invoke: Invoke)`**:
-        *   调用 `bindProcessToNetwork(null)` 恢复默认路由，注销回调。
-    *   **`acceptWifiNetwork(invoke: Invoke)`**:
-        *   **目的**：静默接受无互联网能力的 WiFi（免用户点击“仍然连接”）。
-        *   **路径 1**：探测 Hidden API `setAcceptUnvalidated` 是否可用（反射检查方法存在性）。
-        *   **路径 2**：若网络已 `VALIDATED`，直接返回 `accepted=true`。
-        *   **路径 3**：尝试反射调用 `ConnectivityManager.setAcceptUnvalidated(network, true, true)`。成功则 `path="hidden_api"`。
-        *   **路径 4**：失败则写 `Settings.Global`（`captive_portal_mode=0`, `network_avoid_bad_wifi=0`），需 `WRITE_SECURE_SETTINGS` 权限。
-        *   **快照机制**：写入前通过 `snapshotGlobalKey` 记录原值到 `SharedPreferences`（key: `prev_*`），用于后续还原。
-    *   **`startWifiWatcher` / `stopWifiWatcher`**:
-        *   注册 `NetworkCallback` 监听 WiFi `available`/`lost` 及 `capabilitiesChanged`。
-        *   仅在 `NET_CAPABILITY_VALIDATED` 状态翻转时触发 `trigger("wifiChanged", ...)`，避免高频信号变化噪音。
-    *   **`getWifiSsid(invoke: Invoke)`**:
-        *   API 33+ 依赖 `NEARBY_WIFI_DEVICES` 权限（不弹框，仅查状态）；API <33 恒返回 `granted=false`。
-        *   底层通过 `WifiManager.connectionInfo?.ssid` 读取，去除两侧引号。
-    *   **`reportWifiUnusable(invoke: Invoke)`**:
-        *   调用 `manager.reportNetworkConnectivity(wifi, false)` 触发系统重检，促使系统可能切换至蜂窝。
-    *   **内部辅助**：
-        *   `describe(caps)`：生成能力摘要字符串如 `net+val+cp`。
-        *   `hasVpn(manager)`：检测是否有 VPN Transport，解释直绑失败原因。
-        *   `ensureAvoidBadWifi` / `restoreAvoidBadWifi` / `restoreWrittenSettings`：程序化控制 `network_avoid_bad_wifi` 开关及还原系统设置，配合 `guardPrefs` 进行快照管理。
+Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的进程级流量劫持问题。提供 WiFi 绑定、SSID 读取、系统设置读写及 WiFi 状态监听。
 
-*   **Rust (`lib.rs`)**：
-    *   **`CampusNetworkBind<R>` 结构体**：持有 `PluginHandle<R>`。
-    *   **`bind_to_wifi(&self)`**：调用 Kotlin `bindToWifi`，返回 `serde_json::Value`。
-    *   **`accept_wifi_network(&self)`**：调用 Kotlin `acceptWifiNetwork`。
-    *   **`start_wifi_watcher` / `stop_wifi_watcher`**：
-        *   注册 Listener Channel (`registerListener`) 并启动 Watcher。
-        *   停止时先移除 Listener，再调用 Kotlin `stopWifiWatcher`。
-    *   **`get_wifi_ssid` / `request_wifi_ssid_permission` / `report_wifi_unusable`**：
-        *   均为 JNI 阻塞调用，文档注释强调调用方须走 `spawn_blocking`。
-    *   **`ensure_avoid_bad_wifi` / `restore_avoid_bad_wifi` / `restore_written_settings` / `get_secure_settings_status`**：
-        *   对应 Kotlin 的设置读写与状态查询命令。
-    *   **`init<R>()`**：
-        *   注册 Android 插件 ID `com.campuslogin.plugin.networkbind` 映射到 `NetworkBindPlugin`。
+- **Kotlin (`NetworkBindPlugin.kt`)**：
+  - `@TauriPlugin(permissions=[Permission(strings=[Manifest.permission.NEARBY_WIFI_DEVICES], alias="wifiSsid")])`(48-55)；`NetworkBindPlugin(activity)`(56)；`heldCallback`(59)、`lastBoundNetwork`(63)、`cm` getter(65-66)、`watcherCallback`(488)、`lastValidated`(491)、`guardPrefs`(309-311)、`KEY_AVOID_BAD_WIFI`(314)、`KEY_CAPTIVE_PORTAL_MODE`(315)、`PREF_PREFIX`(316)、`REQUEST_TIMEOUT_MS=3000`(659)、`WIFI_SSID_PERMISSION_ALIAS="wifiSsid"`(662)。
+  - `bindToWifi`(69-165)：`AtomicBoolean done` 单次 resolve 保护(71-81)；直绑成功返 `allNetworks`/`already_bound`(98-103)；无 WiFi 返 `no_wifi_network`(109-112)；回退 `requestNetwork`(125-128)。
+  - `unbind`(168-175)；`acceptWifiNetwork`(192-238)：`canReachSetAcceptUnvalidated`(198,241-251) 无副作用；`trySetAcceptUnvalidated`(254-268)；`applyNetworkSettingsCompat`(284-298) 写 Global；`snapshotGlobalKey`(322-331)；`hasWriteSecureSettings`(334-336)；`hasPendingRestore`(339-341)；`restoreGlobalKey`(347-358)；`ensureAvoidBadWifi`(366-402)；`restoreAvoidBadWifi`(409-421)；`restoreWrittenSettings`(429-446)；`getSecureSettingsStatus`(454-468)；`describe`(472-476)；`hasVpn`(479-485)；`emitWifiEvent`(494-498)；`startWifiWatcher`(506-541) VALIDATED 翻转发 `wifiChanged`；`stopWifiWatcher`(544-554)；`getWifiSsid`(569-577) API33+ 查授权；`reportWifiUnusable`(586-618)；`requestWifiSsidPermission`(627-636)；`wifiSsidPermissionCallback`(639-642)；`readSsid`(646-655) 去引号归一空串。
+- **Rust (`lib.rs`)**：
+  - `PLUGIN_IDENTIFIER="com.campuslogin.plugin.networkbind"`(11)；`CampusNetworkBind<R>(PluginHandle<R>)`(13)。
+  - `bind_to_wifi`(19-21)、`accept_wifi_network`(26-28)、`start_wifi_watcher`(32-43) 先 `registerListener` 建 Channel、`stop_wifi_watcher`(47-54) 先 `removeListener`、`get_wifi_ssid`(59-61)、`request_wifi_ssid_permission`(65-67)、`report_wifi_unusable`(73-75)、`ensure_avoid_bad_wifi`(82-84)、`restore_avoid_bad_wifi`(89-91)、`restore_written_settings`(96-98)、`get_secure_settings_status`(104-106)；注释强调 JNI 阻塞调用须 `spawn_blocking`。
+  - `CampusNetworkBindExt`(110-112)；`init`(121-129) `Builder::new("campus-network-bind")` 注册 `NetworkBindPlugin`(125) 并 `app.manage`(127)。
 
 ### Config State (`android/src-tauri/src/config_state.rs`)
-安卓端配置持久化、加密存储、版本迁移及 IO 锁管理。结构与桌面端 `Config` 对齐。
 
-*   **`Settings` 结构体**：
-    *   包含账号密码、夜间切换开关、巡检间隔、SSID 名单等所有业务配置。
-    *   默认值定义在 `impl Default`，注意 `background_check_interval` 默认 60s，`latency_test_interval` 默认 600s。
-*   **`CryptoBridge`**：
-    *   抽象加密接口。移动端调用 `tauri_plugin_campus_keystore` (AndroidKeyStore AES-GCM)；Host 测试环境注入假加密。
-*   **`load_file` / `save_file`**：
-    *   **加密落盘**：密码字段单独提取为 `password_cipher`，明文置空后序列化。
-    *   **原子写入**：使用带 PID 的临时文件 `.json.<pid>.tmp`，写完 rename，防止崩溃残留覆盖。
-    *   **解密容错**：解密失败时密码置空，其他字段正常加载。
-*   **`migrate_legacy_defaults`**：
-    *   基于 `config_schema_version` (当前 7) 执行一次性迁移。
-    *   v0→v1: 后台检测 15s→60s。
-    *   v2: 自动化登录/验证默认开启。
-    *   v3: 质量检测默认关闭。
-    *   v4: 补闲时巡检间隔 300s。
-    *   v5: 检测终点默认 23:00。
-    *   v6: 质量测试间隔 60s→600s。
-    *   v7: 夜切默认开启，定时动作禁用哨兵 1440。
-    *   **幂等性**：仅当值等于旧默认值或特定迁移条件满足时才修改，用户手动修改的值不被覆盖。
-*   **`save_config`**：
-    *   全程持有 `CONFIG_IO_LOCK` (`tokio::sync::Mutex`)，防止与账号切换命令并发冲突。
-    *   合并密码字段：若前端传掩码 `***` 或空串，保留旧密码；否则更新。
-    *   保存后广播 `config-changed` 事件。
-*   **`masked_for_display`**：出站唯一出口，将非空密码替换为 `***`。
-*   **`resolve_password_field`**：处理密码回退逻辑。
+安卓端配置持久化、加密存储、版本迁移及 IO 锁管理。结构对齐桌面端 `Config` 可适用子集（camelCase IPC 契约）。
+
+- **常量与锁**：
+  - `PASSWORD_MASK="***"`(10)、`CONFIG_FILE="config.json"`(11)、`CONFIG_IO_LOCK: tokio::sync::Mutex<()>`(17-19)、`config_io_lock()`(22-24)。
+- **`struct Settings`** (config_state.rs:26-128, `#[serde(rename_all = "camelCase", default)]`)：字段全量含 user, password, self_hello_enabled, self_reverify_each_action, allow_2d_face_verify(36), operator, enable_night_operator_switch, night_operator_restore, enable_night_outbound_switch, outbound_priority, outbound_metric_restore, outbound_disabled_adapters, outbound_standby_route, night_outbound_restore, dns_optimize_adapters, device_aliases(71-72), auto_login_on_start, enable_background_check, background_check_interval, background_check_idle_interval, auto_login_on_preparation, max_disconnect_reconnect, auto_login_cooldown_secs, theme_mode, enable_notification, custom_theme_color, default_panel, display_name, active_account, enable_boot_autostart, enable_latency_test, latency_test_interval, enable_network_quality, skip_ttfb_in_latency, skip_content_in_latency, portal_url, fixed_gateway, required_network_name, enable_network_name_check, campus_gateway, campus_check_start_minutes, campus_check_end_minutes, scheduled_login_minutes, scheduled_logout_minutes, update_source, log_retention_days, config_schema_version。
+- **`impl Default for Settings`** (config_state.rs:130-200)：self_hello_enabled=true(135)、enable_night_operator_switch=false(141)、background_check_interval=60_000(155)、background_check_idle_interval=300_000(157)、max_disconnect_reconnect=3(159)、portal_url="http://10.1.99.100"(177)、fixed_gateway/campus_gateway="10.2.127.254"(178,183)、required_network_name="i-wxxy、iwxxy-2、iwxxy-3"(181)、campus_check_start_minutes=460(185)、campus_check_end_minutes=1380(188)、scheduled_login_minutes/scheduled_logout_minutes=1440(192-193)、update_source="mirror"(194)、log_retention_days=7(195)、config_schema_version=7(197)、enable_network_quality=false(174)、latency_test_interval=600_000(170)。
+- **`struct CryptoBridge`** (config_state.rs:213-217, Clone)：含 `encrypt`/`decrypt` 的 `Arc<dyn Fn>`；`from_app`(209-240) mobile 走 `tauri_plugin_campus_keystore`(213)，非 mobile 返回 Err(235-236)。
+- **`struct EncodedSettings`** (config_state.rs:243-248, 私有)：`settings: Settings` + `password_cipher: String`(293)。
+- **核心 IO 函数**：
+  - `load_file`(250-263)：无文件返回默认(253)，json 损坏报错(256)，密文非空才解密失败置空不报错(259-261)。
+  - `password_saved_at`(270-276)：查 `EncodedSettings.password_cipher` 非空判据(266-269)。
+  - `save_file`(278-308)：空密码不写密文(284-291)，加密失败返回 Err 绝不落明文(289)；带 pid 唯一 tmp 文件写再 rename(300-306)。
+  - `cleanup_stale_config_tmp`(313-324)；`load_from`(326-336) 调 `load_file` + `migrate_legacy_defaults` + 旧单值 "i-wxxy" 扩三值(332-334)；`migrate_legacy_defaults`(355-417) v0→v1(357-359), v<3(360-374), v<4(375-383), v<5(384-392), v<6(393-401), v<7(402-416)；`save_to`(419-421)；`masked_for_display`(424-430)；`emit_config_changed`(436-439)；`resolve_password_field`(442-451)。
+- **Tauri 命令与缓存**：
+  - `#[tauri::command] get_config`(453-466)；`save_config`(468-499) 持 `CONFIG_IO_LOCK`(477)，调 `auto_create_account_for_current`(494)，`emit_config_changed`(497)；`current_settings`(503-520, `#[allow(dead_code)]`)。
+  - 测试辅助(522-827)：`fake_bridge`、`sample_settings` 等覆盖加密落盘无明文、迁移等。
 
 ### Campus Detect (`android/src-tauri/src/campus_detect.rs`)
-安卓侧校园网连通性探针。替代桌面的 ICMP Ping，改用 TCP 连接探测 Portal 和网关，并结合 SSID 判定。
 
-*   **`pick_campus_source_ip`**：
-    *   枚举网卡，排除蜂窝 (`rmnet*`, `ccmni*`)、Link-local、Loopback。
-    *   优先选 `wlan0`，其次选其他合法 IPv4。
-*   **`portal_reachable`**：
-    *   调用 `campus_login_lib::network::bound_socket::tcp_connect_bounded` 进行 TCP 连接测试（超时 3s）。
-*   **`probe_campus`**：
-    *   **短路判断**：若无非蜂窝 IPv4 (`source.is_none()`)，直接返回 `wifi_off=true`。
-    *   **子网判定**：复用桌面纯函数 `is_same_subnet_18`。
-    *   **TCP 探测**：
-        *   若在子网内：并行探测 Portal TCP。
-        *   若不在子网内：并行探测 Portal TCP 和 Gateway TCP。
-    *   **结果**：`on_campus = subnet || gateway_ok || portal_ok`。
-*   **`probe_campus_with_ssid`**：
-    *   包装 `probe_campus`。若开启 `enable_network_name_check`，异步获取 SSID 并匹配。
-    *   名称命中则强制 `on_campus=true`，跳过 TCP 探测优化。
-*   **`check_campus_status`**：
-    *   Tauri Command。先调用 `protocol_cmds::ensure_wifi_bound` 确保绑定。
-    *   返回 JSON：`onCampusNetwork`, `currentSsid`, `campusMessage` (WiFi未连接/已连接/未连接), `sourceIp` 等。
-*   **`ssid_matches`**：
-    *   大小写不敏感匹配。特殊处理默认名 `i-wxxy` 兼容历史同源 `iwxxy-2/3`。
+安卓侧校园网探针：本机 IPv4 枚举 + /18 子网判定（复用桌面纯函数）+ Portal TCP 可达 + WiFi SSID 判定。ICMP 原始 socket 被 SELinux 禁止，网关可达改用 Portal TCP 可达表达。
+
+- **常量**：`PORTAL_PORT=80`(9)、`TCP_TIMEOUT=Duration::from_secs(3)`(10)。
+- **源 IP 与可达性**：
+  - `pick_campus_source_ip`(15-37)：排除蜂窝 `rmnet*`/`ccmni*`(16-17) 等。
+  - `portal_reachable`(44-53) 走 `tcp_connect_bounded`(48)。
+  - `struct CampusProbe`(56-63)：source, portal_ok, on_campus, wifi_off。
+  - `probe_campus`(65-125)：枚举网卡(66-79)，pick source(80)；wifi_off 短路(85-93)；`is_same_subnet_18`(96)；`portal_host_of`(99)；三层判定(109-116)，`on_campus`(117)。
+- **文案与解析**：
+  - `campus_status_message`(129-137)；`portal_host_of`(140-149)；`ssid_matches`(153-157) 默认名特判同源。
+- **SSID 与命令**：
+  - `current_wifi_ssid`(163-178) 经 `tauri_plugin_campus_network_bind`；`probe_campus_with_ssid`(185-200)；`cache_source_ip`(203-210)；`#[tauri::command] check_campus_status`(216-238) 调 `ensure_wifi_bound`(221) 返 JSON；`#[tauri::command] request_wifi_ssid_permission`(244-249)。
+  - 测试(251-321)。
 
 ## Architecture
 
@@ -404,29 +268,34 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal（认证
 
 数据与控制流在模块间按以下路径流动：
 
-1.  **初始化与桥接建立**：
-    *   应用启动时，`frontend-hooks-store` 中的 `useAppInit` 加载初始配置。
-    *   Rust 后端 (`rust-backend-core`) 注册 Commands，Kotlin 插件 (`rust-plugins-*`) 通过 JNI 暴露原生方法。
-    *   前端通过 `tauriApi` 建立与后端的 IPC 通道。
+1. **初始化与桥接建立**：
+   - 应用启动时，前端 Store 加载初始配置。
+   - Rust 后端注册 Commands，Kotlin 插件通过 JNI 暴露原生方法。
+   - 前端通过 `tauriApi` 建立与后端的 IPC 通道，其中 `KeystorePlugin.kt` 与 `lib.rs` 配套：Rust `init` 注册 Kotlin 侧 `KeystorePlugin`，前端经 Tauri bridge 调 `encrypt`/`decrypt`。
 
-2.  **UI 触发与指令转发**：
-    *   用户在 `DashboardPanel` (frontend-auth-module) 或 `SettingsPanel` (frontend-settings-module) 执行操作。
-    *   控制流进入 `useAuth()` 或相关 Settings Hooks，调用 `tauriApi.invoke()`。
-    *   若操作涉及网络质量或 DNS 配置，`frontend-network-module` 的 `useDnsSetup()` 介入，强制使用 `tauriApiWithRetry` 封装调用，以应对网络抖动。
+2. **UI 触发与指令转发**：
+   - 用户在 `DashboardPanel` 或 `SettingsPanel` 执行操作，控制流进入 `useAuth()` 或相关 Hooks，调用 `tauriApi.invoke()`。
+   - `save_config` 入参 `config: Settings` + `clear_password: Option<bool>` (config_state.rs:468) → 合并后 `save_to` 落盘 `EncodedSettings`（`password_cipher` 密文）(config_state.rs:419) → 广播 `config-changed` 事件 payload `{config: masked Value}` (config_state.rs:436)。
+   - 网络质量/DNS 配置由 `useDnsSetup()` 介入，强制使用 `tauriApiWithRetry` 封装调用。
 
-3.  **原生执行与安全门控**：
-    *   **普通操作**：IPC 消息直达 `rust-backend-core` 或对应 Plugin 的 Rust Wrapper。
-        *   例如：Wi-Fi 绑定请求由 `rust-plugins-network-bind` 接收，转发至 Kotlin 的 `NetworkBindPlugin.kt` 执行 JNI 调用。
-        *   例如：保活服务启动由 `rust-plugins-foreground-service` 的 `MonitorServicePlugin` 处理，管理 WakeLock。
-    *   **敏感操作**：
-        *   **密钥访问**：涉及密码读写时，流程指向 `rust-plugins-keystore`。Rust 层调用 Kotlin 的 `KeystorePlugin.kt`，利用 `AndroidKeyStore` 进行 AES-GCM 加解密，明文不落地。
-        *   **生物识别门控**：在 `frontend-account-module` 中，`SelfOnlineStack` 或账户切换前，先调用 `useHelloGate`。若未通过 Hello 验证，则拦截 IPC 请求，防止敏感数据泄露。
+3. **原生执行与安全门控**：
+   - **普通操作**：IPC 消息直达 Rust Wrapper。例如 Wi-Fi 绑定由 `CampusNetworkBind` 接收，转发至 Kotlin `NetworkBindPlugin.kt`；保活服务由 `CampusMonitorService` 处理。
+   - **敏感操作**：涉及密码读写时，流程指向 `CampusKeystore`，Rust 层调用 Kotlin `KeystorePlugin.kt` 利用 `AndroidKeyStore` 进行 AES-GCM 加解密，明文不落地。
+   - **生物识别门控**：在 `selfServiceState.ts` 中，`useHelloGate` 用于绑定/明文门；若未通过验证则拦截 IPC 请求。
+   - **校园网探测**：`check_campus_status` (campus_detect.rs:216) 先调用 `ensure_wifi_bound` 绑 WiFi，取 `config_state::current_settings` 获取 `Settings` 以读 `campus_gateway`/`portal_url` 等，调 `probe_campus_with_ssid` 后 cache_source_ip，返回 `serde_json::Value` 含探测结果与 SSID。
 
-4.  **结果返回与状态同步**：
-    *   原生层执行完成后，通过 Tauri Event Listener 或 Command Response 将结果返回前端。
-    *   `frontend-hooks-store` 中的 Store (如 `useAuthStore`, `useQualityStore`) 接收事件并更新状态。
-    *   UI 组件（如 `StatusBar`, `NetworkQualityCapsule`）响应 Store 变化，重新渲染可视化界面。
+4. **事件反向流与状态同步**：
+   - `NetworkBindPlugin` 的 WiFi 变化经 `trigger("wifiChanged")` 发事件，Rust 侧 `start_wifi_watcher` 先 `registerListener` 建 Channel 接收 `{"event":...}` 负载，形成反向事件流；`stop_wifi_watcher` 经 `removeListener`+`stopWifiWatcher` 注销。
+   - 原生层执行完成后，通过 Tauri Event Listener 或 Command Response 将结果返回前端 Store（如 `useAuthStore`, `useQualityStore`）并更新 UI。
 
 ## Connections
 
 - [[concepts/tauri-plugin-architecture]]
+
+## Known Issues
+
+- **配置与加密边界** (config_state.rs)：无配置文件不报错返默认(253)；密文损坏/密钥变更密码置空而非配置不可用(259-261)；加密失败返回 Err 且绝不落明文(289)；`password_saved_at` 必须查密文位，外露 `settings.password` 落盘恒空(266-269)；迁移幂等：仅旧默认值被刷，用户显式改过的值保留(357-359)；新装 `config_schema_version=7` 不触发迁移(197)；非 mobile 构建 `CryptoBridge` 加解密均返 Err(235-236)，保证 host 测试需注入假桥；`enable_night_operator_switch` 默认 false(141) 但 v7 迁移刷存量 true(402-405)。
+- **校园网探测边界** (campus_detect.rs)：ICMP 被 SELinux 禁，以 Portal TCP 可达替代 ping(1-3)；蜂窝接口绝不入选 source IP(16-17)；WiFi 未连接（无非蜂窝 IPv4）短路返回 "WiFi 未连接" 不再空转 2×3s 探测(82-93)；`portal_host_of` 解析失败回退原串(140-149)；`current_wifi_ssid` 未授权/API<33/未连 WiFi 返 None(159-162)。
+- **前台服务与权限边界** (MonitorServicePlugin.kt)：`@InvokeArg` 字段全可空，命令内显式判空 `reject` 避免炸插件线程(29-30)；catch `IllegalStateException` 兼容低版本(68)；`stopMonitor` 用 `startService(ACTION_STOP)` 让服务自身退出避免竞态(82)；`installApk` 仅取文件名拼 `filesDir/update/` 拒绝目录穿越(120)；厂商页跳转故意不用 `resolveActivity` 预探测，直接 `startActivity` catch `ActivityNotFoundException`(185-187)；`BootReceiver` 开机瞬间启 FGS 失败只记日志不炸广播接收器(431)。
+- **网络绑定陷阱** (NetworkBindPlugin.kt)：`bindToWifi` 不能仅用 `NET_CAPABILITY_INTERNET` 筛 WiFi（captive portal 会被漏掉，29-33）；`requestNetwork` 不能带 INTERNET 能力否则被 WifiNetworkFactory 拒绝(34-37)；`AtomicBoolean done` 防 `onAvailable`/`onUnavailable` 多次触发重复 resolve(73-81)；`lastBoundNetwork` 同网络重绑返 `already_bound` 使 Rust 侧跳过清空连接池(62-63)；`applyNetworkSettingsCompat` 直接试写 Global 不再预检 `canWrite`（此前误判，273-278）；普通签名无 `WRITE_SECURE_SETTINGS` 恒失败(368)；`startWifiWatcher` 的 `onCapabilitiesChanged` 只在 `VALIDATED` 翻转时上报(526-531)；SSID 读取 API33+ 用 `NEARBY_WIFI_DEVICES`（免定位），低版本因不引入定位权限恒 `granted=false`(562-563)；`getWifiSsid` 绝不弹框(560-561)，权限请求须前端显式触发(623-624)。
+- **前端状态与交互边界**：堆叠卡 `count===0` 返 null(91, 376)，`count===2` 无底露卡 `peekBottom=0`(93)；拖拽冲突容器 `touch-action:none` 防 WebView 滚动冲突(163, 440)；`gateFresh` 拒时钟回拨防前端永真后端拒死锁(selfServiceState.ts:58-65)；引导密码纪律掩码态留空后端回退已存，仅新密码非空才写 `password`(useOnboardingFlow.ts:224-227)；`mergeSelfEmpty` 仅无凭据且移动端时合并 selfOnline/selfLog 为空态卡(DashboardPanel.tsx:866,969-976)。

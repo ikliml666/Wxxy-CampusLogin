@@ -58,7 +58,6 @@
 - [[decisions/system-notification-mascot-avatar|系统通知携带看板娘头像（2026-09-12 起）]]
 - [[decisions/verification-baseline|统一验证基线（测试与类型检查命令）]]
 - [[decisions/quality-detail-key-contract|网络质量检测后端实现与前端展示架构]]
-- [[decisions/network-quality-default-off|网络质量检测默认关闭（schema v3）及多端 UI 适配]]
 - [[decisions/night-operator-switch|自动切换运营商（原晚间断网自动切换）]]
 - [[decisions/query-bind-status-no-gate-by-design|自助服务查询命令的"无验证门 + 密码逐个回退"是有意设计]]
 - [[decisions/windows-hello-only-identity|身份验证仅用 Windows Hello，删除 CredUI/SSPI 回退]]
