@@ -103,10 +103,19 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   mergeConfigFromBackend: (incoming) => {
     const { config } = get()
     const merged = { ...config }
+    let passwordFromBackend: string | null = null
     for (const [k, v] of Object.entries(incoming)) {
-      if (!dirtyFields.has(k)) merged[k as keyof Config] = v as never
+      if (dirtyFields.has(k)) continue
+      merged[k as keyof Config] = v as never
+      // 密码「已保存」口径同步：MASK = 后端确有密码；空 = 后端确实没有。
+      // 复位密码的 dirty 标记会把密码钉死在本地，使清除密码后事件回传的
+      // 空密码被跳过、passwordSaved 永久残留 true（与卡片/自助服务判断脱离）。
+      if (k === 'password' && typeof v === 'string') passwordFromBackend = v
     }
     set({ config: merged })
+    if (passwordFromBackend !== null) {
+      set({ passwordSaved: passwordFromBackend === PASSWORD_MASK })
+    }
   },
 
   clearDirtyFields: () => {

@@ -101,9 +101,13 @@ pub fn accounts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("accounts"))
 }
 
-/// 从账号文件 JSON 读展示字段(不解密:user/operator 非敏感,password 只判非空,
+/// 从账号文件 JSON 读展示字段(不解密:user/operator 非敏感,password 只判密文位非空,
 /// 列举路径无需走 Keystore)。返回 (display_name, user, operator, password_saved)。
 /// 读取失败返回 Err 由调用方 log_warn 后兜底。
+///
+/// password_saved 必须走 `config_state::password_saved_at`(disk 形态的 passwordCipher),
+/// 不能取 `settings.password`:落盘时该外露字段被刻意清空,取它会让每张卡都显示
+/// "密码未保存"(用户真机反馈,见 config_state 同名判据注释)。
 fn read_account_card_info(path: &std::path::Path) -> Result<(String, String, String, bool), String> {
     let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
@@ -112,7 +116,7 @@ fn read_account_card_info(path: &std::path::Path) -> Result<(String, String, Str
         s["displayName"].as_str().unwrap_or("").to_string(),
         s["user"].as_str().unwrap_or("").to_string(),
         s["operator"].as_str().unwrap_or("").to_string(),
-        s["password"].as_str().map(|p| !p.is_empty()).unwrap_or(false),
+        config_state::password_saved_at(path),
     ))
 }
 
