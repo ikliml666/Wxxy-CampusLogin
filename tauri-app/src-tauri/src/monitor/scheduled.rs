@@ -17,8 +17,9 @@
 //!   托盘快速登录/掉线重连同一把锁，抢不到即本拍跳过，下一拍「过点补触发」兜底）；
 //! - 标记独立：当日触发标记存 `state.scheduled`（ScheduledFired），不与 auto_auth 的
 //!   冷却时间/重连计数/has_logged_online 共享，互不干扰；
-//! - 单次语义：到点即置当日标记（无论动作成败），当日不重试——避免凭据错误或
-//!   非校园网环境下每拍重发请求刷日志/通知；失败由登录日志暴露。
+//! - 单次语义（2026-10-24 修订）：到点置当日标记，但登录失败时按拍间隔有限
+//!   补试（SCHEDULED_LOGIN_MAX_RETRIES 次）后才放弃当日额度——原"失败也当日
+//!   不重试"会让登录时段刚开的瞬时拒绝直接吞掉当日登录；注销仍是单次语义。
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -285,7 +286,11 @@ fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: 
                 return;
             }
         };
-        // 审计 A7：当日额度标记在抢锁成功之后置位——被互斥跳过的拍不白耗额度
+        // 审计 A7：当日额度标记在抢锁成功之后置位——被互斥跳过的拍不白耗额度。
+        // 失败补试：登录失败且当日补试（SCHEDULED_LOGIN_MAX_RETRIES）未用尽时
+        // 回退额度标记（login_day 复位），下一拍"过点补触发"再试；成功或补试用尽
+        // 才保留当日标记。修复：原"到点即置标记（无论成败），当日不重试"——
+        // 登录时段刚开的服务端瞬时拒绝会让当日直接放弃，到可登录时段也无人再试。
         if let Some(day) = login_quota_day {
             s.scheduled.login_day.store(day, Ordering::Release);
         }
@@ -296,10 +301,36 @@ fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: 
             if result.success { "success" } else { "error" },
         );
         if result.success {
+            if login_quota_day.is_some() {
+                s.scheduled.reset_login_retry();
+            }
             crate::auth::service::post_login_handler(&app_h, &s);
+        } else if let Some(day) = login_quota_day {
+            let retries = s.scheduled.bump_login_retry(day);
+            if retries >= SCHEDULED_LOGIN_MAX_RETRIES {
+                // 补试用尽：保留当日标记（其上方已置位），当日停止重试
+                s.scheduled.reset_login_retry();
+                crate::log_warn!(
+                    "scheduled",
+                    "定时登录失败且补试用尽({}次)，当日停止重试",
+                    SCHEDULED_LOGIN_MAX_RETRIES
+                );
+            } else {
+                // 回退当日额度标记，下一拍过点补触发再试
+                s.scheduled.login_day.store(i32::MIN, Ordering::Release);
+                crate::log_info!(
+                    "scheduled",
+                    "定时登录失败，当日补试 [{}/{}]，下一拍重试",
+                    retries, SCHEDULED_LOGIN_MAX_RETRIES
+                );
+            }
         }
     });
 }
+
+/// 定时登录当日失败补试上限：到点登录失败（如登录时段刚开服务端仍拒绝）后，
+/// 按 30s 拍间隔有限补试，而非一次失败即当日放弃
+const SCHEDULED_LOGIN_MAX_RETRIES: u32 = 3;
 
 /// 晚间断网切换动作：改内存配置 → 落盘（复用 save_config_to_disk_encrypted，
 /// 含 config-changed 事件与托盘刷新）→ 触发登录（复用定时登录的登录路径）。
@@ -590,5 +621,39 @@ mod tests {
     fn format_minutes_补零() {
         assert_eq!(format_minutes(460), "07:40");
         assert_eq!(format_minutes(1439), "23:59");
+    }
+
+    /// 定时登录失败补试：计数累加、手动清零、跨天自动归零
+    #[test]
+    fn 定时登录补试计数_累加清零跨天归零() {
+        let state = AppState::new();
+        assert_eq!(state.scheduled.bump_login_retry(TODAY), 1);
+        assert_eq!(state.scheduled.bump_login_retry(TODAY), 2);
+        assert_eq!(state.scheduled.bump_login_retry(TODAY), 3);
+        // 成功/放弃路径清零后重新计数
+        state.scheduled.reset_login_retry();
+        assert_eq!(state.scheduled.bump_login_retry(TODAY), 1);
+        // 跨天自动归零：新的一天补试额度重新开始
+        assert_eq!(state.scheduled.bump_login_retry(TODAY + 1), 1);
+    }
+
+    /// 补试语义端到端（纯函数层模拟）：失败时 login_day 被回退 → 过点补触发
+    /// 仍可 fire；补试用尽（>= SCHEDULED_LOGIN_MAX_RETRIES）后当日不再触发
+    #[test]
+    fn 定时登录失败回退额度_补试用尽后当日停止() {
+        let state = AppState::new();
+        state.config.update(|c| {
+            c.scheduled_login_minutes = 7 * 60 + 40;
+        });
+        // 第一次失败：补试 1/3，回退 login_day → 下一拍仍可 fire
+        state.scheduled.login_day.store(TODAY, AOrd::Release);
+        state.scheduled.login_day.store(i32::MIN, AOrd::Release);
+        assert!(evaluate_scheduled(&state, 505, TODAY, false).0, "额度回退后过点补触发必须放行");
+        // 三次补试用尽：login_day 保留 TODAY → 当日不再触发
+        state.scheduled.bump_login_retry(TODAY);
+        state.scheduled.bump_login_retry(TODAY);
+        assert_eq!(state.scheduled.bump_login_retry(TODAY), 3);
+        state.scheduled.login_day.store(TODAY, AOrd::Release);
+        assert!(!evaluate_scheduled(&state, 600, TODAY, false).0, "补试用尽后当日不得再触发");
     }
 }

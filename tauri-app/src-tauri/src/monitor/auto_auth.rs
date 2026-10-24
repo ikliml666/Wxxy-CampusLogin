@@ -13,10 +13,44 @@ use crate::infra::lifecycle::{start_auto_exit, start_campus_exit};
 
 const RECONNECT_REMINDER_INTERVAL: u32 = 10;
 
-/// 准备自动登录连续失败上限：达到后本会话停止自动登录。
-/// 历史缺陷：自动登录无限重试，错误凭据下每 ~60s 重试一次且每 5 次认证失败
+/// 准备自动登录连续失败上限：达到后退避降频（见 [`prep_login_backoff_secs`]）。
+/// 历史缺陷一：自动登录无限重试，错误凭据下每 ~60s 重试一次且每 5 次认证失败
 /// 触发全适配器 DHCP 释放续租（断网），应用无人值守时周期性断网持续一整夜。
+/// 历史缺陷二（本次修复）：达上限后"本会话永久停止自动登录"——在可登录
+/// 时间段之外多次登录失败把计数拉满后，到了可登录时间段依旧不再尝试，
+/// 只有手动登录成功/注销才能复位。现为指数退避降频、有界且不放弃。
 const PREP_LOGIN_MAX_FAILURES: u32 = 5;
+
+/// 失败退避封顶（秒）：错误凭据下降频到最长 30 分钟一次，兼顾防刷与"时间窗到达后必然重试"
+const PREP_LOGIN_BACKOFF_CAP_SECS: u64 = 1800;
+
+/// 断线重连尝试是否放行（纯函数便于单测）：
+/// 未达上限照常；达到上限后每 [`RECONNECT_REMINDER_INTERVAL`] 个周期再放行一次
+/// （降频重试而非进入"只提醒、永不重连"终态），重连成功后计数复位。
+pub fn reconnect_attempt_allowed(reconnect_count: u32, max_reconnect: u32) -> bool {
+    reconnect_count <= max_reconnect
+        || (reconnect_count - max_reconnect) % RECONNECT_REMINDER_INTERVAL == 0
+}
+
+/// 准备自动登录的重试冷却时长（纯函数便于单测）：
+/// 失败次数未达上限时用普通冷却；达到上限后按超出次数指数翻倍，封顶
+/// [`PREP_LOGIN_BACKOFF_CAP_SECS`]——保证登录时间窗到达后最多等一个退避周期必然重试。
+pub fn prep_login_backoff_secs(failures: u32, base_cooldown_secs: u64) -> u64 {
+    if failures < PREP_LOGIN_MAX_FAILURES {
+        return base_cooldown_secs;
+    }
+    // 恰达上限即开始翻倍：excess=1 → 2×base，之后每多失败一次翻一倍
+    let excess = (failures - PREP_LOGIN_MAX_FAILURES + 1).min(11);
+    base_cooldown_secs
+        .saturating_mul(1u64 << excess)
+        .min(PREP_LOGIN_BACKOFF_CAP_SECS)
+        .max(base_cooldown_secs)
+}
+
+/// 冷却是否已就绪（纯函数便于单测）：距上次尝试的耗时达到当前退避冷却即可重试
+pub fn prep_login_cooldown_ready(failures: u32, elapsed_secs: u64, base_cooldown_secs: u64) -> bool {
+    elapsed_secs >= prep_login_backoff_secs(failures, base_cooldown_secs)
+}
 
 /// 断线重连是否应向上报告"已重连成功"。
 ///
@@ -43,15 +77,15 @@ pub fn try_auto_login_on_preparation(
         return;
     }
 
-    // 连续失败达上限：本会话停止自动登录，避免错误凭据下无限重试 +
-    // 周期性 DHCP 断网。用户手动登录成功后重置。
+    // 连续失败达上限：不再永久停止，改为指数退避降频（prep_login_backoff_secs），
+    // 保证可登录时间窗到达后最多等一个退避周期必然重试；成功/注销仍会复位计数。
     if snap.prep_login_failures >= PREP_LOGIN_MAX_FAILURES {
-        crate::log_warn!(
+        crate::log_debug!(
             "auto_login",
-            "准备自动登录连续失败 {} 次，本会话停止自动登录，请手动登录或检查账号密码",
-            snap.prep_login_failures
+            "准备自动登录连续失败 {} 次，进入退避重试（冷却{}秒）",
+            snap.prep_login_failures,
+            prep_login_backoff_secs(snap.prep_login_failures, config.auto_login_cooldown_secs)
         );
-        return;
     }
 
     let protected_until = snap.logout_protected_until;
@@ -60,9 +94,16 @@ pub fn try_auto_login_on_preparation(
         return;
     }
 
+    // 冷却按当前失败计数退避（上限内=普通冷却，达上限=指数退避封顶 30 分钟）
+    let failures = snap.prep_login_failures;
     let last_attempt = snap.last_auto_login_attempt;
-    if last_attempt.elapsed().as_secs() < config.auto_login_cooldown_secs {
-        crate::log_debug!("auto_login", "自动登录冷却中（{}秒内不重复），跳过", config.auto_login_cooldown_secs);
+    if !prep_login_cooldown_ready(failures, last_attempt.elapsed().as_secs(), config.auto_login_cooldown_secs) {
+        crate::log_debug!(
+            "auto_login",
+            "自动登录冷却中（{}秒内不重复，失败计数={}），跳过",
+            prep_login_backoff_secs(failures, config.auto_login_cooldown_secs),
+            failures
+        );
         return;
     }
 
@@ -147,13 +188,14 @@ pub fn try_disconnect_reconnect(
         }
     };
 
-    // 读-增-取值在单次 CAS 内完成：并发下通知文案计数与实际自增一致
-    // （对齐 failure_tracker.rs 的 update_with_result 模式）
+    // 历史缺陷：读-增-取值非原子（对齐 failure_tracker.rs 的 update_with_result 模式）
     let reconnect_count = state.network.update_with_result(|s| {
         s.disconnect_reconnect_count += 1;
         s.disconnect_reconnect_count
     });
-    let within_limit = reconnect_count <= config.max_disconnect_reconnect;
+    // 上限内照常重连；超限后每 RECONNECT_REMINDER_INTERVAL 个周期再放行一次
+    // （修复：原"超限即只提醒、永不重连"的终态会让断线后到可登录时段也无法恢复）
+    let within_limit = reconnect_attempt_allowed(reconnect_count, config.max_disconnect_reconnect);
     let mut reconnect_success = false;
 
     if within_limit {
@@ -488,5 +530,54 @@ mod tests {
     fn reconnect_success_over_limit_reports_false() {
         // 超过重连次数上限：即使登录成功也不再上报（停止自动重连）
         assert!(!reconnect_should_report(true, false));
+    }
+
+    /// 上限内每次都放行重连
+    #[test]
+    fn reconnect_allowed_within_limit() {
+        assert!(reconnect_attempt_allowed(0, 3));
+        assert!(reconnect_attempt_allowed(3, 3));
+    }
+
+    /// 超限后不再每拍放行（防刷），但每 REMINDER_INTERVAL 周期放行一次（不放弃）
+    #[test]
+    fn reconnect_allowed_periodically_after_limit() {
+        assert!(!reconnect_attempt_allowed(4, 3));
+        assert!(!reconnect_attempt_allowed(9, 3));
+        assert!(reconnect_attempt_allowed(13, 3), "超限后每10个周期应放行一次重连");
+        assert!(reconnect_attempt_allowed(23, 3));
+    }
+
+    /// 失败未达上限：冷却即普通冷却，时间窗到达后按原节奏重试
+    #[test]
+    fn prep_login_backoff_below_limit_uses_base_cooldown() {
+        assert_eq!(prep_login_backoff_secs(0, 60), 60);
+        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES - 1, 60), 60);
+    }
+
+    /// 达上限后指数退避：60 → 120 → 240 ……，有界且必然到期（时间窗到达后必然重试）
+    #[test]
+    fn prep_login_backoff_grows_exponentially_after_limit() {
+        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES, 60), 120);
+        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 1, 60), 240);
+        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 2, 60), 480);
+    }
+
+    /// 退避封顶 30 分钟：失败再多也不超过 PREP_LOGIN_BACKOFF_CAP_SECS
+    #[test]
+    fn prep_login_backoff_capped() {
+        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 10, 60), 1800);
+        assert_eq!(prep_login_backoff_secs(1000, 60), 1800);
+    }
+
+    /// 修复核心断言：失败拉满后冷却期满（elapsed ≥ 退避时长）必须放行重试——
+    /// 原"达上限永久停止"导致时间窗到达后依旧不登录
+    #[test]
+    fn prep_login_ready_after_backoff_elapsed_even_at_limit() {
+        let failures = 8; // 远超上限
+        assert!(!prep_login_cooldown_ready(failures, 60, 60));
+        let backoff = prep_login_backoff_secs(failures, 60);
+        assert!(prep_login_cooldown_ready(failures, backoff, 60), "退避期满必须放行重试");
+        assert!(prep_login_cooldown_ready(failures, backoff + 1, 60));
     }
 }

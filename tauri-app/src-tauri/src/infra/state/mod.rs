@@ -101,6 +101,12 @@ pub struct TaskFlags {
 pub struct ScheduledFired {
     pub login_day: AtomicI32,
     pub logout_day: AtomicI32,
+    /// 定时登录失败补试：补试归属日（num_days_from_ce）与当日已补试次数。
+    /// 定时登录失败不立即消耗当日额度（login_day 不置位），按拍间隔有限补试
+    /// （见 monitor::scheduled 的 SCHEDULED_LOGIN_MAX_RETRIES），避免登录时段
+    /// 刚开的瞬时失败导致当日直接放弃。成功/补试用尽/跨天自动复位。
+    pub login_retry_day: AtomicI32,
+    pub login_retry_count: AtomicU32,
 }
 
 impl Default for ScheduledFired {
@@ -114,7 +120,23 @@ impl ScheduledFired {
         Self {
             login_day: AtomicI32::new(i32::MIN),
             logout_day: AtomicI32::new(i32::MIN),
+            login_retry_day: AtomicI32::new(i32::MIN),
+            login_retry_count: AtomicU32::new(0),
         }
+    }
+
+    /// 记录一次当日定时登录补试并返回当日累计次数（跨天自动归零后计数）
+    pub fn bump_login_retry(&self, day: i32) -> u32 {
+        if self.login_retry_day.load(Ordering::Acquire) != day {
+            self.login_retry_day.store(day, Ordering::Release);
+            self.login_retry_count.store(0, Ordering::Release);
+        }
+        self.login_retry_count.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    /// 清零补试计数（定时登录最终成功/放弃时调用）
+    pub fn reset_login_retry(&self) {
+        self.login_retry_count.store(0, Ordering::Release);
     }
 }
 
