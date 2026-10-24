@@ -4,138 +4,125 @@ type: decision
 source_files:
   - tauri-app/src-tauri/src/helper/mod.rs
 tags: [决策, DNS, 提权, helper, 可逆性]
----
 
 ## Overview
 
-本模块定义了 `reset_dns`（重置 DNS 为自动获取）功能的完整实现架构。核心决策在于：**DNS 重置操作必须具备与 DNS 设置（`setup_dns_doh`）完全一致的提权路径**，严禁在非管理员权限下直接内联调用底层 API。
+本模块（`tauri-app/src-tauri/src/helper/mod.rs`）定义了提权辅助子进程的核心逻辑，其中包含 DNS 重置（`HelperOp::ClearDns`）功能的完整实现架构。核心决策在于：**DNS 重置操作必须具备与 DNS 设置（`HelperOp::Dns`）完全一致的提权路径**，严禁在非管理员权限下直接内联调用底层 API。
 
-该架构通过 `helper_spawn` 模块调度高权限 Helper 进程，利用“结果文件协议”异步获取执行状态。这种设计确保了无论用户是以普通身份还是管理员身份启动应用，`reset_dns` 都能通过 UAC 或 COM 静默提权机制成功执行，从而满足“设置/撤销能力对等”的产品原则。
+该架构通过 `helper` 模块调度高权限 Helper 进程，支持两种执行形态（见文件头注释 1-13）：
+1. **命令行模式 (`--helper`)**：主进程经 UAC/CMSTPLUA 提权后启动管理员副本，执行单次操作并写入结果文件。
+2. **计划任务 Worker 模式 (`--helper-task`)**：以 SYSTEM 身份运行的后台代理（`run_helper_task` 350-373），轮询请求目录执行任务，无需 UAC。
+
+两种形态共用 `build_op_from_args` 构造 `HelperOp`，并通过“固定目录结果文件协议”异步获取执行状态（`resolve_result_path` 88-100、`write_result_file` 1235-1245）。无论用户以普通还是管理员身份启动应用，`clear_dns` 都能通过提权机制成功执行，满足“设置/撤销能力对等”的产品原则。
 
 ## Key Components
 
 ### `tauri-app/src-tauri/src/helper/mod.rs`
 
-提权辅助子进程的核心逻辑。统一处理两种执行形态：
-1. **命令行模式 (`--helper`)**：主进程经 UAC 提权后启动管理员副本，执行单次操作并写入结果。
-2. **计划任务 Worker 模式 (`--helper-task`)**：以 SYSTEM 身份运行的后台代理，轮询请求目录执行任务，无需 UAC。
+提权辅助子进程的核心逻辑。统一处理两种执行形态，并严格约束 SYSTEM 写路径（审计 A11/P0-2）。
 
-**关键实现细节**：
+**路径安全与固定根目录**：
+- `validate_programdata_path` (19-28)：校验 ProgramData 候选路径合法性（绝对、非相对、含盘符/根），防止路径劫持。
+- `proxy_base_dir` (31-50)：优先 `SHGetKnownFolderPath(FOLDERID_ProgramData)`（55-72 `known_folder_programdata`），失败回退 `PROGRAMDATA` 环境变量或硬编码 `C:\ProgramData`，拼接 `CampusLogin`。
+- `helper_results_dir` (75-77)：返回 `{ProgramData}/CampusLogin/results` 固定结果目录。
+- `helper_requests_dir` (80-82)：返回 `{ProgramData}/CampusLogin/requests` 请求目录。
+- `resolve_result_path` (88-100)：**核心安全函数**。仅接受纯文件名（拒绝 `/`、`\`、`..`、`.` 开头、长度>128、非 ASCII 字母数字及 `-_.` 字符），确保 SYSTEM worker 只能写入固定结果目录，杜绝任意路径写原语。
 
-*   **路径安全与固定根目录 (审计 A11/P0-2)**：
-    *   `proxy_base_dir()` (31-50|)：优先通过 `SHGetKnownFolderPath(FOLDERID_ProgramData)` 获取 ProgramData（避免环境变量劫持），失败回退至 `PROGRAMDATA` 环境变量，再失败硬编码 `C:\ProgramData`。所有路径均经 `validate_programdata_path` 校验 (19-28|)。
-    *   `helper_results_dir()` (75-77|) & `helper_requests_dir()` (80-82|)：分别返回 `{ProgramData}/CampusLogin/results` 和 `requests` 子目录。
-    *   `resolve_result_path()` (88-100|)：**核心安全函数**。仅接受纯文件名（拒绝 `/`, `\`, `..`, `.`, 长度>128, 非ASCII字母数字/`-_`字符），确保 SYSTEM worker 只能写入固定结果目录，防止任意路径写原语。
+**数据模型**：
+- `HelperResult` (102-112)：序列化结构体，全部字段：
+  - `success: bool` — 操作是否成功
+  - `message: String` — 汇总文案
+  - `op: String` — 操作名
+  - `logs: Vec<String>` — 诊断日志（`#[serde(skip_serializing_if = "Vec::is_empty")]`，空时跳过序列化）
+  - `details: Option<serde_json::Value>` — 操作明细（如 DNS 重置的 `restored`/`failed`），`None` 时跳过序列化
+- `HelperOp` 枚举 (115-164)：定义所有支持的操作（部分受 `#[cfg(target_os = "windows")]` 保护）：
+  - `Dns { targets: Vec<String>, family: String }` (119) — 设置 DNS+DoH
+  - `ClearDns { targets: Vec<String> }` (122) — **恢复 DNS 自动获取（DNS 重置）**
+  - `Mac { guid: String, mac_no_dash: String }` (124)
+  - `EnableAdapter { name: String }` (127)
+  - `DisableAdapter { name: String }` (130)
+  - `RouteDelete { rows: Vec<String> }` (136) — 精确删除兜底路由（已废弃 `route_add`）
+  - `EnableDevice { instance_id: String }` (139)
+  - `ReenumerateDevice { instance_id: String }` (144)
+  - `SetMetric { rows: Vec<String> }` (150)
+  - `RegisterTaskProxy` (153)
+  - `RegisterBootTask { config_b64: String }` (158)
+  - `RemoveBootTask` (161)
+  - `SelfCheck` (163)
+- `TaskRequest` (336-343)：计划任务 Worker 使用的 JSON 结构，字段：`op: String`、`args: Vec<String>`（默认空）、`result: String`（纯文件名）。
 
-*   **数据模型**：
-    *   `HelperResult` (102-112|)：序列化结构体，包含 `success`, `message`, `op`, `logs` (空时跳过), `details` (Option<serde_json::Value>)。
-    *   `HelperOp` 枚举 (116-156|)：定义所有支持的操作，包括 `Dns`, `ClearDns`, `Mac`, `EnableAdapter`, `DisableAdapter`, `RouteDelete`, `EnableDevice`, `ReenumerateDevice`, `SetMetric`, `RegisterTaskProxy`, `SelfCheck`。注意部分操作受 `#[cfg(target_os = "windows")]` 保护。
-    *   `TaskRequest` (314-321|)：计划任务 Worker 使用的 JSON 结构，包含 `op`, `args`, `result`。
+**参数解析与分发**：
+- `build_op_from_args` (169-256)：通用构造器，扫描位置参数与 `--family` 开关，将字符串 op 转为 `HelperOp`；严格校验必填参数（如 `mac` 需要 guid+mac_no_dash，`register_boot_task` 需要 config_b64）。
+- `parse_helper_args` (260-289)：解析 `--helper <op> [args...] --result <文件名>`，命中返回 `Some((HelperOp, Option<String>))`，未命中返回 `None`。
+- `run_helper` (292-331)：命令行模式入口。匹配 `HelperOp` 调用具体执行函数，生成 `HelperResult`，经 `resolve_result_path` 校验后 `write_result_file`，返回进程退出码。
+- `run_helper_task` (350-373)：Worker 主循环。扫描 `requests` 目录取最旧请求（`oldest_request` 376-392），处理完空扫两轮兜住竞态，无请求则退出。
+- `oldest_request` (376-392)：按修改时间排序取 `req-*.json` 中最旧者。
+- `process_request` (396-461)：单请求处理。**读入内存后立即删请求文件** (406) 防重复执行/篡改；解析 JSON → `build_op_from_args` → 执行 → 写结果。
 
-*   **参数解析与分发**：
-    *   `parse_helper_args()` (242-271|)：解析 `--helper <op> [args...] --result <file>`。提取位置参数和 `--family` 开关，委托给 `build_op_from_args`。
-    *   `build_op_from_args()` (161-238|)：通用构造器，将字符串 op 名和参数数组转换为 `HelperOp` 枚举实例。严格校验必填参数（如 mac 需要 guid 和 mac_no_dash）。
-    *   `run_helper()` (274-309|)：命令行模式入口。匹配 `HelperOp` 调用具体执行函数，生成 `HelperResult`，并通过 `write_result_file` 原子写入结果。
+**具体操作执行函数（含 DNS 重置）**：
+- `run_dns` (463-482)：调用 `crate::network::dns_setup::setup_dns_doh_admin`，透传 `details`。
+- `run_clear_dns` (487-542)：**DNS 重置核心**。逐适配器 GUID 调用 `crate::platform::dns_config::clear_adapter_dns_via_api` (515)；成功/失败明细写入 `details.restored`/`failed` (539)；三态汇总文案（全成功/部分失败/全失败）；非 Windows 直接返回失败 (488-498)。
+- `run_mac` (544-604)：校验 MAC 12 位十六进制，调 `apply_mac_change_via_registry` 后立刻 `remove_mac_from_registry` 清除持久伪装值。
+- `decode_set_metric_row` (610-640)：严格解码 `"guid:family:automatic:metric"` 条目。
+- `run_set_metric` (646-727)：夜间出站切换，调 Win32 `SetIpInterfaceEntry`，强制 `SitePrefixLength=0`，逐条执行。
+- `run_enable_adapter` (732-782) & `run_disable_adapter` (793-873)：双校验适配器名+本机存在；禁用优先非持久化设备级禁用 (`disable_adapter_nonpersistent`) 避免跨重启 Problem 22。
+- `decode_route_row` (879-898)：严格解码 `"dest|mask|gateway|metric|if_index"`。
+- `run_route_delete` (908-970)：调 `delete_route_exact` 四元组精确删除，避免误删 DHCP 路由。
+- `valid_instance_id` (976-983) & `invalid_instance_id_result` (988-1000)：设备实例 ID 白名单防注入。
+- `run_enable_device` (1006-1062)：pnputil 启用后轮询复核脱离 Problem 22。
+- `run_reenumerate_device` (1067-1088)：总线重枚举恢复幽灵态 USB。
+- `run_register_task` (1092-1110)：注册计划任务代理。
+- `run_register_boot_task` (1118-1199)：写核心配置+收紧 ACL+注册 BOOT 任务。
+- `run_remove_boot_task` (1203-1231)：幂等移除开机任务及配置。
+- `write_result_file` (1235-1245)：原子写（先 `.tmp` 再 rename），确保结果目录存在。
 
-*   **计划任务 Worker 逻辑**：
-    *   `run_helper_task()` (328-351|)：Worker 主循环。扫描 `requests` 目录，按修改时间取最旧请求 (`oldest_request`)。处理完一个请求后空扫两轮（兜住竞态），无请求则退出。
-    *   `process_request()` (374-435|)：单请求处理流程。**读入内存后立即删除请求文件** (384|)，防止重复执行或篡改。解析 JSON，构建 Op，执行并写入结果。
-
-*   **具体操作执行函数 (Windows)**：
-    *   `run_dns()` (437-456|)：调用 `crate::network::dns_setup::setup_dns_doh_admin`，透传 `details`。
-    *   `run_clear_dns()` (461-516|)：逐适配器调用 `clear_adapter_dns_via_api`。汇总成功/失败明细至 `details.restored/failed`。非 Windows 平台直接返回失败。
-    *   `run_mac()` (518-578|)：严格校验 MAC 格式 (12位十六进制)。查找适配器，调用 `apply_mac_change_via_registry` 设置伪装 MAC，并立即调用 `remove_mac_from_registry` 清除持久化值（防止重启后残留）。
-    *   `run_set_metric()` (620-701|)：夜间出站切换。解码 `"guid:family:automatic:metric"` 条目。使用 Win32 `SetIpInterfaceEntry`，强制 `SitePrefixLength=0` 防错。逐条执行，任一条失败即整体失败。
-    *   `run_enable_adapter()` (706-756|) & `run_disable_adapter()` (767-847|)：
-        *   **双校验**：适配器名字符集合法 + 必须存在于本机适配器列表 (`get_adapters_force`)。
-        *   **禁用策略优化**：`run_disable_adapter` 优先尝试非持久化设备级禁用 (`disable_adapter_nonpersistent`)，避免 netsh disable 导致的跨重启 Problem 22 和 USB 卡驱动安装弹窗。若无可 PnP ID 的虚拟卡则回退 netsh。
-    *   `run_route_delete()` (882-944|)：精确删除路由。解码 `"dest|mask|gateway|metric|if_index"`。调用 `delete_route_exact`，确保四元组完全匹配才删除，避免误删 DHCP 默认路由。
-    *   `run_enable_device()` (980-1036|)：PnP 设备启用。校验 Instance ID 白名单 (防注入)。调用 `pnputil /enable-device` 后，**轮询复核** `devnode_problem` 直到脱离 Problem 22 状态，不信任 pnputil 返回值。
-    *   `run_reenumerate_device()` (1041-1062|)：总线重枚举，恢复幽灵态 USB 设备。
-    *   `run_register_task()` (1066-1084|)：注册计划任务代理。
-
-*   **辅助与安全函数**：
-    *   `decode_set_metric_row()` (584-614|) & `decode_route_row()` (853-872|)：严格的字段解析与类型校验。
-    *   `valid_instance_id()` (950-957|)：设备实例 ID 白名单，拒绝 `/`, 空格, 控制字符, 以 `-` 开头。
-    *   `write_result_file()` (1088-1098|)：原子写入（先写 `.tmp` 再 rename）。
-
-*   **测试用例** (1100-1431|)：覆盖了路径校验、参数解析、Op 构造、MAC 校验、set_metric/route 解码、Instance ID 白名单、JSON roundtrip 等场景。
+**测试模块** (1247-1579)：覆盖路径校验、参数解析、Op 构造、MAC/set_metric/route 解码、实例 ID 白名单、JSON roundtrip 等。
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Main Process (Tauri)                         │
-│                                                                     │
-│  ┌──────────────────────┐      ┌──────────────────────────────┐     │
-│  │ network_cmd.rs       │      │ platform/helper_spawn.rs     │     │
-│  │                      │      │                              │     │
-│  │ reset_dns() [383|]   │─────►│ spawn_elevated_helper() [51|]│     │
-│  │                      │      │                              │     │
-│  │ 1. Filter Adapters   │      │ Channel 1: Task Proxy        │     │
-│  │ 2. Check Admin?      │      │    ├─ proxy_usable()         │     │
-│  │    └─ Yes: Direct    │      │    ├─ run_via_task()         │     │
-│  │    └─ No: Elevate    │      │    └─ Fail → Invalidate Cache│     │
-│  └──────────────────────┘      │                              │     │
-│                                │ Channel 2: Raw Spawn         │     │
-│                                │    ├─ COM Silent (CMSTPLUA)  │     │
-│                                │    ├─ UAC Prompt (ShellExec) │     │
-│                                │    └─ Poll Result File       │     │
-│                                └──────────────┬───────────────┘     │
-│                                       ▲             │               │
-│                                       │             ▼               │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │              Shared Directory (ProgramData/results/)         │  │
-│  │                                                              │  │
-│  │  r-<pid>-<ts>.json                                           │  │
-│  │  (JSON: { success, message, details... })                    │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                       ▲                             │
-│                                       │ Read & Parse                │
-│  ┌────────────────────────────────────┴──────────────────────────┐  │
-│  │                        Helper Subprocess                       │  │
-│  │                                                                │  │
-│  │  parse_helper_args() [242|]                                    │  │
-│  │       │                                                        │  │
-│  │       ▼                                                        │  │
-│  │  run_helper(ClearDns) [274|]                                   │  │
-│  │       │                                                        │  │
-│  │       ▼                                                        │  │
-│  │  run_clear_dns() [461|]                                        │  │
-│  │       │                                                        │  │
-│  │       ▼                                                        │  │
-│  │  clear_adapter_dns_via_api()                                   │  │
-│  │       │                                                        │  │
-│  │       ▼                                                        │  │
-│  │  write_result_file() [1088|]                                   │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ Main Process (Tauri)                                            │
+│ 构造 `--helper clear_dns <targets> --result <file>`             │
+│ 或写入 TaskRequest JSON 到 helper_requests_dir (80-82)         │
+└───────────────────────────────────┬─────────────────────────────┘
+                                    │ 提权启动 / SYSTEM worker 拉起
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Helper Subprocess (--helper / --helper-task)                    │
+│                                                                 │
+│ parse_helper_args (260-289) / process_request (396-461)        │
+│        │                                                        │
+│        ▼                                                        │
+│ build_op_from_args (169-256) → HelperOp::ClearDns {targets}    │
+│        │                                                        │
+│        ▼                                                        │
+│ run_helper (292-331) / run_helper_task (350-373)               │
+│        │                                                        │
+│        ▼                                                        │
+│ run_clear_dns (487-542)                                        │
+│        │ 逐 GUID 调 clear_adapter_dns_via_api (515)             │
+│        ▼                                                        │
+│ write_result_file (1235-1245)                                  │
+└───────────────────────────────────┬─────────────────────────────┘
+                                    │ 原子写入
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Fixed Directory: helper_results_dir (75-77)                     │
+│ 经 resolve_result_path (88-100) 收口到纯文件名                  │
+│ 主进程轮询读取 JSON 结果                                        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
-1.  **请求发起**：用户在 UI 触发 DNS 重置，前端调用 `network_cmd.rs::reset_dns` (383|)。
-2.  **权限判断与预处理**：
-    *   命令层校验目标适配器列表，排除黑名单 (398-404|)。
-    *   若当前进程已是管理员，直接调用 `dns_config::clear_adapter_dns_via_api` (419|) 并汇总结果。
-    *   若非管理员，进入提权流程。
-3.  **提权调度 (`helper_spawn`)**：
-    *   调用 `spawn_elevated_helper` (51|)，传入操作 `clear_dns` 和目标适配器参数。
-    *   **优先级 1：计划任务代理**。尝试通过已注册的 Windows 计划任务以 SYSTEM 身份执行。若失败或不可用，清除缓存并降级。
-    *   **优先级 2：直接提权**。
-        *   首先尝试 COM 静默提权 (`shell_exec_elevated`) (120-124|)。若用户取消 UAC 或 COM 失败且不允许弹窗，直接报错。
-        *   若允许弹窗，调用 `run_elevated` 弹出标准 UAC 窗口 (125|)。
-    *   **参数构建**：构建命令行 `--helper clear_dns ... --result "r-<pid>-<ts>.json"` (105-117|)。
-4.  **Helper 执行**：
-    *   新的 Helper 进程启动，解析参数 `parse_helper_args` (242|)。
-    *   识别 `ClearDns` 操作，调用 `run_clear_dns` (461|)。
-    *   在 Helper 的管理员上下文中，遍历 GUID 调用 `clear_adapter_dns_via_api` (461|)。
-    *   将执行结果（成功/失败明细）序列化为 JSON。
-5.  **结果回传**：
-    *   Helper 通过 `write_result_file` (1088|) 原子写入结果文件到固定目录。
-    *   主进程在 `spawn_elevated_raw` (128-142|) 中轮询读取该文件。
-    *   读取成功后，通过 `read_helper_result` (31|) 解析 JSON，清理临时文件，并将结果返回给 `network_cmd`。
-6.  **反馈用户**：`network_cmd` 根据解析出的 `success` 和 `message` 向用户展示重置结果 (452-464|)。
+1. **请求发起**：主进程构造 DNS 重置请求。命令行形态：`--helper clear_dns {GUID1} {GUID2} --result r-<id>.json`（`parse_helper_args` 260-289 解析）；计划任务形态：写入 `{"op":"clear_dns","args":["{GUID}"],"result":"r.json"}` 到 `helper_requests_dir`（`TaskRequest` 336-343）。
+2. **Helper 启动与解析**：
+   - `--helper` 模式：提权副本启动，`parse_helper_args` 提取 op 与参数，调 `build_op_from_args` 生成 `HelperOp::ClearDns { targets }` (122)。
+   - `--helper-task` 模式：`run_helper_task` 取最旧请求，`process_request` 读入并删除请求文件后同样构造 Op。
+3. **权限上下文执行**：`run_helper` (292-331) 或 `process_request` 内部分发至 `run_clear_dns` (487-542)。该函数在管理员/SYSTEM 上下文中运行，枚举适配器 (`get_adapters_force` 505)，逐 GUID 调用 `crate::platform::dns_config::clear_adapter_dns_via_api` (515)。
+4. **结果汇总**：`run_clear_dns` 将成功名填入 `restored`、失败明细填入 `failed`，生成 `HelperResult` (534-540)，`details` 携带上述数组。
+5. **结果回传**：`write_result_file` (1235-1245) 经 `resolve_result_path` (88-100) 校验纯文件名后，原子写入 `helper_results_dir` (75-77) 下。主进程读取该 JSON，解析 `success`/`message`/`details` 反馈用户。
 
 ## Connections
 

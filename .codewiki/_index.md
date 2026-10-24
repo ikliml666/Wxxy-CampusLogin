@@ -28,7 +28,6 @@
 ## Decision
 
 - [[decisions/panel-import-strategy|App.tsx 面板加载策略与组件架构]]
-- [[decisions/dns-reset-requires-elevation|DNS 重置必须走提权路径，确保设置/撤销能力对等]]
 - [[decisions/ipc-command-name-alignment|IPC 命令面两端同名对齐]]
 - [[decisions/portal-port-semantics|Portal 端口语义与协议交互决策]]
 - [[decisions/release-asset-integrity|Release 资产完整性（安装包与 .sha256 同传、镜像 URL 原样拼接）]]
@@ -78,7 +77,6 @@
 - [[learnings/input-time-wrapper-w-full|MonitorPanel 双端组件架构与布局约束]]
 - [[learnings/rtss-hook-injection-webview-crash|RTSS hook 注入导致 WebView2 白屏崩溃：根因、诊断与排除尝试的完整失败记录]]
 - [[learnings/radix-select-empty-string-value|Radix Select 哨兵值映射与空串 value 陷阱]]
-- [[learnings/set-ip-interface-entry-metric|SetIpInterfaceEntry 写 metric 的必踩点与字段对照]]
 - [[learnings/usb-adapter-enable-pnp-vs-ndis-layers|USB 网卡启用失效——NDIS admin 层与 PnP 设备层禁用互不覆盖]]
 - [[learnings/webview2-minimize-render-suspend|WebView2 最小化渲染挂起与内存目标管理]]
 - [[learnings/platform-com-elevation-undocumented|Windows COM 提权依赖未公开接口，失效时降级为弹 UAC]]
