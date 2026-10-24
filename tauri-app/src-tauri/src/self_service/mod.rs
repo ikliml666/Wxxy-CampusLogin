@@ -279,7 +279,7 @@ pub async fn change_password(
     new_password: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<String, String> {
-    let client = login_session(account, password, local_addr).await?;
+    let client = login_session_with_retry(account, password, local_addr).await?;
 
     // 改密页取 csrftoken（302 = 登录会话失效）
     let page_resp = client
@@ -406,6 +406,50 @@ async fn login_session(
     Ok(client)
 }
 
+/// 传输层可重试症状判定：仅网络/读取类错误（连接中途断开、chunked 截断、
+/// reqwest 解码失败、发送/超时）值得重试；业务失败（如"账号或密码错误！"、
+/// "登录会话失效"）重试无意义，原样返回。
+/// 标记串与 login_session 及各入口 map_err 的文案保持同步。
+fn is_retryable_transport_error(err: &str) -> bool {
+    const MARKERS: [&str; 5] = [
+        "读取失败",                     // read_bounded_body_async：登录页/绑定页响应体读取失败
+        "无法连接",                     // 建连/发送阶段失败
+        "error decoding response body", // reqwest 传输层解码失败的原始串
+        "error sending request",        // reqwest 0.12 发送失败原始串
+        "请求失败",                     // 各 send().map_err 的传输层包装文案
+    ];
+    MARKERS.iter().any(|m| err.contains(m))
+}
+
+/// login_session 的整体重试包装：校园网自助服务服务器（10.1.80.200:8080）偶发
+/// 连接中途断开/chunked 截断，reqwest 表现为 "error decoding response body"，
+/// 一次失败即返回会让整次查询不可用。每次尝试经 login_session 重建全新 Client
+/// （cookie 会话可能已被半开连接污染，不可复用）；仅传输层症状重试，最多
+/// 尝试 3 次，间隔 1s。重试日志带原始错误全文（self_service 错误不含凭据）。
+async fn login_session_with_retry(
+    account: &str,
+    password: &str,
+    local_addr: Option<IpAddr>,
+) -> Result<reqwest::Client, String> {
+    const MAX_ATTEMPTS: usize = 3;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match login_session(account, password, local_addr).await {
+            Ok(client) => return Ok(client),
+            Err(e) => {
+                if attempt == MAX_ATTEMPTS || !is_retryable_transport_error(&e) {
+                    return Err(e);
+                }
+                crate::log_warn!(
+                    "self",
+                    "登录自助服务会话失败（第 {attempt}/{MAX_ATTEMPTS} 次，原始错误：{e}），1s 后重建客户端重试"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
+    }
+    unreachable!("循环必经 return 退出")
+}
+
 /// 登录自助服务系统并返回绑定表单页 HTML（绑定/查询共用前 4 步）。
 /// 返回 (会话客户端, 绑定页 HTML)——客户端须保持 cookie 会话供后续请求使用。
 async fn login_and_fetch_bind_page(
@@ -413,7 +457,7 @@ async fn login_and_fetch_bind_page(
     password: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<(reqwest::Client, String), String> {
-    let client = login_session(account, password, local_addr).await?;
+    let client = login_session_with_retry(account, password, local_addr).await?;
 
     // 4. 绑定表单页 HTML（302 = 登录会话失效）
     let op_resp = client
@@ -458,7 +502,7 @@ pub async fn query_dashboard(
     password: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<(serde_json::Value, serde_json::Value), String> {
-    let client = login_session(account, password, local_addr).await?;
+    let client = login_session_with_retry(account, password, local_addr).await?;
     let online = fetch_dashboard_json(&client, "getOnlineList", "在线信息").await?;
     let history = fetch_dashboard_json(&client, "getLoginHistory", "上网记录").await?;
     Ok((online, history))
@@ -474,7 +518,7 @@ pub async fn query_online_log(
     end_time: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<serde_json::Value, String> {
-    let client = login_session(account, password, local_addr).await?;
+    let client = login_session_with_retry(account, password, local_addr).await?;
     let resp = client
         .get(format!("{}/bill/getUserOnlineLog", SELF_BASE_URL))
         .query(&[
@@ -511,7 +555,7 @@ pub async fn offline_session(
     session_id: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<(), String> {
-    let client = login_session(account, password, local_addr).await?;
+    let client = login_session_with_retry(account, password, local_addr).await?;
     let resp = client
         .get(format!("{}/dashboard/tooffline", SELF_BASE_URL))
         .query(&[("sessionid", session_id)])
@@ -635,6 +679,32 @@ mod tests {
         assert_eq!(operator_fld_pair("@unicom"), Some((5, 6)));
         assert_eq!(operator_fld_pair("@unknown"), None);
         assert_eq!(operator_fld_pair(""), None);
+    }
+
+    #[test]
+    fn transport_error_retry_classification() {
+        // 传输层症状：可重试（实测报错链路的原文样本）
+        for err in [
+            "登录页响应体读取失败: error decoding response body",
+            "无法连接自助服务系统: error sending request",
+            "无法连接自助服务系统（预热验证码）: operation timed out",
+            "登录请求失败: connection closed before message completed",
+            "绑定页响应体读取失败: connection reset by peer",
+        ] {
+            assert!(is_retryable_transport_error(err), "应判定可重试：{err}");
+        }
+        // 业务失败：不重试
+        for err in [
+            "账号或密码错误！",
+            "登录失败，请检查学号与自助服务密码",
+            "登录会话失效，请重试",
+            "自助服务登录页解析失败（checkcode 缺失）",
+            "验证码错误！",
+            "旧密码错误！",
+            "绑定失败：服务端未返回结果，请稍后重试",
+        ] {
+            assert!(!is_retryable_transport_error(err), "不应重试：{err}");
+        }
     }
 
     #[test]
