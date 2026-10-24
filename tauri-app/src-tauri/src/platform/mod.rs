@@ -18,6 +18,9 @@ pub mod helper_spawn;
 // 计划任务提权代理（SYSTEM 主体哑任务 + 请求文件协议）：提权通道的首选层
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod task_proxy;
+// 未登录 Windows 的系统级自动登录（无头核心）：配置供给 + 计划任务开关
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod core_autostart;
 #[cfg(desktop)]
 pub mod identity;
 // 接口跃点读写（夜间出站切换）：全量 Win32 IpHelper，仅 Windows

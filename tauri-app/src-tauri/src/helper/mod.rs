@@ -151,6 +151,14 @@ pub enum HelperOp {
     /// 注册计划任务提权代理（仅计划任务 worker 内执行，本身处于提权上下文）
     #[cfg(target_os = "windows")]
     RegisterTaskProxy,
+    /// 注册无头核心开机任务：`config_b64` 为 CoreConfig JSON 的 base64
+    /// （worker 写 %ProgramData%\CampusLoginCore\core-config.json + 收紧 ACL +
+    /// 注册 BOOT 触发的 SYSTEM 计划任务，见 platform/core_autostart.rs）
+    #[cfg(target_os = "windows")]
+    RegisterBootTask { config_b64: String },
+    /// 移除无头核心开机任务（删任务 + 删配置文件，幂等）
+    #[cfg(target_os = "windows")]
+    RemoveBootTask,
     /// 通道自检（写结果即通过，供代理注册后验证全链路）
     SelfCheck,
 }
@@ -231,6 +239,16 @@ fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
         "set_metric" => HelperOp::SetMetric { rows: positional },
         #[cfg(target_os = "windows")]
         "register_task" => HelperOp::RegisterTaskProxy,
+        #[cfg(target_os = "windows")]
+        "register_boot_task" => {
+            let config_b64 = positional
+                .first()
+                .ok_or_else(|| "helper register_boot_task 缺少核心配置参数".to_string())?
+                .clone();
+            HelperOp::RegisterBootTask { config_b64 }
+        }
+        #[cfg(target_os = "windows")]
+        "remove_boot_task" => HelperOp::RemoveBootTask,
         "selfcheck" => HelperOp::SelfCheck,
         other => return Err(format!("未知 helper 操作: {other}")),
     };
@@ -291,6 +309,10 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
         HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RegisterBootTask { config_b64 } => run_register_boot_task(config_b64, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RemoveBootTask => run_remove_boot_task(&mut logs),
         HelperOp::SelfCheck => HelperResult {
             success: true,
             message: "selfcheck ok".to_string(),
@@ -410,6 +432,10 @@ fn process_request(path: &std::path::Path) -> i32 {
                 HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::RegisterBootTask { config_b64 } => run_register_boot_task(config_b64, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::RemoveBootTask => run_remove_boot_task(&mut logs),
                 HelperOp::SelfCheck => HelperResult {
                     success: true,
                     message: "selfcheck ok".to_string(),
@@ -1080,6 +1106,127 @@ fn run_register_task(logs: &mut Vec<String>) -> HelperResult {
             logs: std::mem::take(logs),
             details: None,
         },
+    }
+}
+
+/// 注册无头核心开机任务（worker 以 SYSTEM/管理员身份运行）：
+/// 反解并校验核心配置 → 写配置文件并收紧 ACL（SYSTEM+Administrators 专有，
+/// 移除继承）→ 校验 core exe 存在 → 注册 BOOT 触发的 SYSTEM 计划任务。
+/// 配置含密码机器作用域密文，ACL 是访问控制边界（保密边界如实告知：
+/// 本机管理员可解密机器作用域 DPAPI 密文）。
+#[cfg(target_os = "windows")]
+fn run_register_boot_task(config_b64: &str, logs: &mut Vec<String>) -> HelperResult {
+    use crate::platform::core_autostart;
+
+    let fail = |message: String, logs: &mut Vec<String>| HelperResult {
+        success: false,
+        message,
+        op: "register_boot_task".to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    };
+
+    let core_cfg = match core_autostart::decode_core_config_arg(config_b64) {
+        Ok(c) => c,
+        Err(e) => return fail(e, logs),
+    };
+    if core_cfg.user.trim().is_empty() || core_cfg.password_enc.is_empty() {
+        return fail("核心配置缺少账号或密码密文".to_string(), logs);
+    }
+
+    let dir = core_autostart::core_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return fail(format!("创建核心配置目录失败: {} - {e}", dir.display()), logs);
+    }
+
+    // 原子写：tmp 同目录 rename，避免 core 读到半截配置
+    let config_path = core_autostart::core_config_path();
+    let tmp = dir.join("core-config.json.tmp");
+    let body = match serde_json::to_string_pretty(&core_cfg) {
+        Ok(s) => s,
+        Err(e) => return fail(format!("序列化核心配置失败: {e}"), logs),
+    };
+    if let Err(e) = std::fs::write(&tmp, body.as_bytes()) {
+        return fail(format!("写核心配置临时文件失败: {e}"), logs);
+    }
+    if let Err(e) = std::fs::rename(&tmp, &config_path) {
+        return fail(format!("核心配置落盘失败: {e}"), logs);
+    }
+    logs.push(format!("helper: 核心配置已写入 {}", config_path.display()));
+
+    // 收紧 ACL：去继承，仅 SYSTEM 与 Administrators 完全控制（目录与文件都设，
+    // 目录带 (OI)(CI) 让后续 core.log 继承同一收口）
+    let acl_output = crate::network::discovery::new_command("icacls")
+        .arg(dir.as_os_str())
+        .args(["/inheritance:r", "/grant:r", "SYSTEM:(OI)(CI)F", "/grant:r", "Administrators:(OI)(CI)F"])
+        .output();
+    match acl_output {
+        Ok(o) if o.status.success() => logs.push("helper: 核心目录 ACL 已收紧（SYSTEM+Administrators）".to_string()),
+        Ok(o) => {
+            let detail = crate::platform::console_output::decode_console_bytes(&o.stderr);
+            // ACL 失败即整体失败：配置含密码密文，不能留在默认继承权限下
+            return fail(format!("收紧核心目录 ACL 失败: {}", detail.trim()), logs);
+        }
+        Err(e) => return fail(format!("icacls 执行失败: {e}"), logs),
+    }
+
+    let core_exe = match core_autostart::core_exe_path() {
+        Ok(p) => p,
+        Err(e) => return fail(e, logs),
+    };
+    if !core_exe.is_file() {
+        return fail(format!("无头核心不存在: {}（须与主程序同目录发布）", core_exe.display()), logs);
+    }
+
+    logs.push(format!("helper: 注册无头核心开机任务（BOOT 触发）: {}", core_exe.display()));
+    match crate::platform::task_proxy::register_boot_task_via_com(&core_exe) {
+        Ok(()) => {
+            logs.push("helper: 无头核心开机任务注册成功".to_string());
+            HelperResult {
+                success: true,
+                message: "系统级自动登录已开启（开机即执行，无需登录Windows）".to_string(),
+                op: "register_boot_task".to_string(),
+                logs: std::mem::take(logs),
+                details: None,
+            }
+        }
+        Err(e) => {
+            // 任务注册失败时删除已写入的配置，不留凭据孤儿文件
+            let _ = std::fs::remove_file(&config_path);
+            fail(format!("注册无头核心任务失败: {e}"), logs)
+        }
+    }
+}
+
+/// 移除无头核心开机任务：删计划任务 + 删配置文件（密码密文一并清除）。幂等。
+#[cfg(target_os = "windows")]
+fn run_remove_boot_task(logs: &mut Vec<String>) -> HelperResult {
+    use crate::platform::core_autostart;
+
+    let fail = |message: String, logs: &mut Vec<String>| HelperResult {
+        success: false,
+        message,
+        op: "remove_boot_task".to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    };
+    logs.push("helper: 移除无头核心开机任务".to_string());
+    if let Err(e) = crate::platform::task_proxy::remove_boot_task_via_com() {
+        return fail(e, logs);
+    }
+    // 任务已删，配置文件删除失败仅告警（无任务则密文不再被消费）
+    let config_path = core_autostart::core_config_path();
+    match std::fs::remove_file(&config_path) {
+        Ok(()) => logs.push(format!("helper: 核心配置已删除: {}", config_path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => logs.push(format!("helper: 删除核心配置失败: {e}（任务已移除，密文不再生效）")),
+    }
+    HelperResult {
+        success: true,
+        message: "系统级自动登录已关闭".to_string(),
+        op: "remove_boot_task".to_string(),
+        logs: std::mem::take(logs),
+        details: None,
     }
 }
 

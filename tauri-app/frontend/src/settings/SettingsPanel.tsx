@@ -71,6 +71,35 @@ export const SettingsPanel = memo(function SettingsPanel({
   const [importPath, setImportPath] = useState('')
   const [latencyModalOpen, setLatencyModalOpen] = useState(false)
 
+  // ===== 系统级自动登录（未登录 Windows 时由 SYSTEM 计划任务跑无头核心，桌面专属）=====
+  const [coreAutostart, setCoreAutostart] = useState(false)
+  const [coreAutostartBusy, setCoreAutostartBusy] = useState(false)
+  useEffect(() => {
+    let alive = true
+    tauriApiWithRetry.getCoreAutostart().then(v => { if (alive) setCoreAutostart(v === true) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
+  const handleSetCoreAutostart = async (enabled: boolean) => {
+    if (coreAutostartBusy) return
+    const addToast = useLogToastStore.getState().addToast
+    setCoreAutostartBusy(true)
+    try {
+      const result = await tauriApiWithRetry.setCoreAutostart(enabled)
+      if (result.success) {
+        setCoreAutostart(enabled)
+        addToast(t('settings.coreAutostartSetDone'), 'success')
+      } else {
+        addToast(result.message || t('settings.coreAutostartFailed'), 'error')
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('设置系统级自动登录失败:', err)
+      addToast(extractErrorMessage(err) || t('settings.coreAutostartFailed'), 'error')
+    } finally {
+      setCoreAutostartBusy(false)
+    }
+  }
+
   const handleExportConfig = async () => {
     if (isExportingConfig) return
     const addToast = useLogToastStore.getState().addToast
@@ -187,6 +216,18 @@ export const SettingsPanel = memo(function SettingsPanel({
                 id="auto-launch"
                 checked={autoLaunch}
                 onCheckedChange={checked => onSetAutoLaunch(checked)}
+              />
+            </SettingRow>
+            <SettingRow
+              htmlFor="core-autostart"
+              label={t('settings.coreAutostart')}
+              description={t('settings.coreAutostartDesc')}
+            >
+              <Switch
+                id="core-autostart"
+                checked={coreAutostart}
+                disabled={coreAutostartBusy}
+                onCheckedChange={checked => handleSetCoreAutostart(checked)}
               />
             </SettingRow>
             <SettingRow

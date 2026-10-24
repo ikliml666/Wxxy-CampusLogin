@@ -9,6 +9,12 @@ edition = "2021"
 name = "campus_login_lib"
 crate-type = ["cdylib", "rlib"]
 
+# 无头登录核心：由 SYSTEM 计划任务在开机（未登录 Windows）时拉起，
+# 复用 lib 的协议/探测/DPAPI 纯函数，不依赖 tauri 运行时
+[[bin]]
+name = "campus-login-core"
+path = "src/bin/campus-login-core.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

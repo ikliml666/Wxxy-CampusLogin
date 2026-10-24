@@ -100,6 +100,8 @@ pub fn run(core_count: usize) {
             crate::commands::background::trigger_background_check,
             crate::commands::background::get_background_status,
             crate::commands::system::set_auto_launch,
+            crate::commands::system::set_core_autostart,
+            crate::commands::system::get_core_autostart,
             crate::commands::system::set_notification_enabled,
             crate::commands::system::cancel_auto_exit,
             crate::commands::system::minimize_window,

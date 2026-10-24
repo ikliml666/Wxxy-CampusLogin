@@ -146,6 +146,56 @@ mod dpapi {
         )
     }
 
+    /// 机器作用域 DPAPI 标志（CRYPTPROTECT_LOCAL_MACHINE = 0x0400）：
+    /// 加密后的密文任何本地用户/系统服务（含 SYSTEM 计划任务）均可解密。
+    /// 仅用于无头核心配置（密码供给 SYSTEM 进程）；用户作用域密文 SYSTEM 解不开。
+    const CRYPTPROTECT_LOCAL_MACHINE: u32 = 0x0400;
+
+    /// 机器作用域加密：CRYPTPROTECT_LOCAL_MACHINE + 同款 entropy。
+    /// 密文仅要求"本机"这一层防护（文件 ACL 已限制到 SYSTEM+Administrators）。
+    pub fn encrypt_machine(plaintext: &[u8]) -> Result<Vec<u8>, String> {
+        call_dpapi(
+            plaintext,
+            |input, output| unsafe {
+                let mut entropy = entropy_blob();
+                CryptProtectData(
+                    input,
+                    ptr::null(),
+                    &mut entropy,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    CRYPTPROTECT_LOCAL_MACHINE,
+                    output,
+                )
+            },
+            "DPAPI机器作用域加密失败",
+            "DPAPI机器作用域加密返回空数据",
+        )
+    }
+
+    /// 机器作用域解密：CryptUnprotectData 按密文自带的 scope 信息还原，
+    /// 无需（也无可传的）LOCAL_MACHINE 标志。
+    #[allow(dead_code)] // 供无头核心 bin 使用，主 bin 不引用
+    pub fn decrypt_machine(data: &[u8]) -> Result<Vec<u8>, String> {
+        call_dpapi(
+            data,
+            |input, output| unsafe {
+                let mut entropy = entropy_blob();
+                CryptUnprotectData(
+                    input,
+                    ptr::null_mut(),
+                    &mut entropy,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    0,
+                    output,
+                )
+            },
+            "DPAPI机器作用域解密失败",
+            "DPAPI机器作用域解密返回空数据",
+        )
+    }
+
     /// 仅测试用：无 entropy 的旧格式加密，模拟升级前存量密文（审计 A10 回退路径验证）。
     #[cfg(test)]
     pub fn encrypt_legacy_no_entropy(plaintext: &[u8]) -> Result<Vec<u8>, String> {
@@ -192,6 +242,37 @@ pub fn encrypt(_plaintext: &str) -> Result<String, String> {
     Err("加密存储仅桌面端支持".to_string())
 }
 
+/// 机器作用域加密（Windows）：供无头核心配置——SYSTEM 计划任务进程解密用户侧
+/// 写入的密码密文（用户作用域密文 SYSTEM 解不开，必须换机器作用域）。
+#[cfg(target_os = "windows")]
+pub fn encrypt_machine(plaintext: &str) -> Result<String, String> {
+    let bytes = plaintext.as_bytes();
+    let encrypted = dpapi::encrypt_machine(bytes)?;
+    Ok(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        &encrypted,
+    ))
+}
+
+#[cfg(target_os = "windows")]
+#[allow(dead_code)] // 供无头核心 bin 使用，主 bin 不引用
+pub fn decrypt_machine(encrypted_base64: &str) -> Result<String, String> {
+    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encrypted_base64)
+        .map_err(|e| format!("Base64解码失败: {e}"))?;
+    let decrypted = dpapi::decrypt_machine(&data)?;
+    String::from_utf8(decrypted).map_err(|e| format!("UTF8转换失败: {e}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn encrypt_machine(_plaintext: &str) -> Result<String, String> {
+    Err("加密存储仅桌面端支持".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn decrypt_machine(_encrypted_base64: &str) -> Result<String, String> {
+    Err("加密存储仅桌面端支持".to_string())
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn decrypt(_encrypted_base64: &str) -> Result<String, String> {
     Err("加密存储仅桌面端支持".to_string())
@@ -218,6 +299,15 @@ mod tests {
         let legacy_ciphertext = dpapi_encrypt_no_entropy(plain.as_bytes()).unwrap();
         let enc = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &legacy_ciphertext);
         assert_eq!(decrypt(&enc).unwrap(), plain);
+    }
+
+    /// 机器作用域 DPAPI 加解密往返（无头核心配置密码供给路径）。
+    #[test]
+    fn dpapi_machine_scope_roundtrip() {
+        let plain = "headless-p@ss-核心";
+        let enc = encrypt_machine(plain).unwrap();
+        assert_ne!(enc, plain);
+        assert_eq!(decrypt_machine(&enc).unwrap(), plain);
     }
 
     /// 直接调用 CryptProtectData（无 entropy）生成旧格式密文。

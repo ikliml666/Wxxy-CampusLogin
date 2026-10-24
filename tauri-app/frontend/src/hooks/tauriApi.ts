@@ -5,7 +5,7 @@ import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
 import type { Adapter, AdapterDetail, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
-import type { Config, InitData, AutoLaunchResult, AccountItem } from '@/settings'
+import type { Config, InitData, AutoLaunchResult, CoreAutostartResult, AccountItem } from '@/settings'
 import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult } from '@/shared'
 
 interface ConnectionCampusStatus {
@@ -84,6 +84,8 @@ interface TauriApi {
   stopLatencyTest: () => Promise<CommandResult>
   openExternal: (url: string) => Promise<boolean>
   setAutoLaunch: (enabled: boolean) => Promise<AutoLaunchResult>
+  getCoreAutostart: () => Promise<boolean>
+  setCoreAutostart: (enabled: boolean) => Promise<CoreAutostartResult>
   setNotificationEnabled: (enabled: boolean) => Promise<boolean>
   cancelAutoExit: () => Promise<CommandResult>
   onAutoExitCountdown: (cb: (data: AutoExitCountdownData) => void) => () => void
@@ -217,6 +219,8 @@ const tauriApi: TauriApi = {
     }
   },
   setAutoLaunch: (enabled) => invoke<AutoLaunchResult>('set_auto_launch', { enabled }),
+  getCoreAutostart: () => invoke<boolean>('get_core_autostart'),
+  setCoreAutostart: (enabled) => invoke<CoreAutostartResult>('set_core_autostart', { enabled }),
   setNotificationEnabled: (enabled) => invoke<boolean>('set_notification_enabled', { enabled }),
   cancelAutoExit: () => invoke<CommandResult>('cancel_auto_exit'),
   onAutoExitCountdown: createEventListener<AutoExitCountdownData>('auto-exit-countdown'),

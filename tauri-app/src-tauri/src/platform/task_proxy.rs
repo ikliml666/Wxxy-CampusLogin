@@ -22,9 +22,10 @@ use windows::core::{BSTR, GUID, Interface, VARIANT};
 use windows::Win32::Foundation::VARIANT_BOOL;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::TaskScheduler::{
-    IActionCollection, IExecAction, ITaskDefinition, ITaskFolder, IRegisteredTask, ITaskService,
-    ITaskSettings, TASK_ACTION_EXEC, TASK_CREATE_OR_UPDATE, TASK_INSTANCES_IGNORE_NEW,
-    TASK_LOGON_SERVICE_ACCOUNT, TASK_RUNLEVEL_HIGHEST,
+    IActionCollection, IBootTrigger, IExecAction, ITaskDefinition, ITaskFolder, IRegisteredTask,
+    ITaskService, ITaskSettings, ITriggerCollection, TASK_ACTION_EXEC, TASK_CREATE_OR_UPDATE,
+    TASK_INSTANCES_IGNORE_NEW, TASK_LOGON_SERVICE_ACCOUNT, TASK_RUNLEVEL_HIGHEST,
+    TASK_TRIGGER_BOOT,
 };
 /// 计划任务名（根文件夹下，无层级）。
 pub const TASK_NAME: &str = "CampusLoginPowerOps";
@@ -380,6 +381,110 @@ pub fn register_task_via_com() -> Result<(), String> {
 /// COM 初始化作用域：构造时 CoInitializeEx(APARTMENTTHREADED)，Drop 时配对释放。
 struct ComScope {
     initialized: bool,
+}
+
+/// 注册无头核心的开机计划任务（SYSTEM 主体 + BOOT 触发 + Highest）。
+///
+/// 与哑代理任务的区别：这是真正干活的任务——开机（不必等用户登录）即拉起
+/// `core_exe`（主程序同目录的 campus-login-core.exe）。BOOT 触发后延迟 30s
+/// 启动，让网络栈先行就绪（core 内部仍有适配器等待循环兜底）；SDDL 沿用
+/// 哑任务同款（BU 仅触发权，改/删须管理员）。
+pub fn register_boot_task_via_com(core_exe: &std::path::Path) -> Result<(), String> {
+    let _com = ComScope::new();
+    unsafe {
+        let svc: ITaskService = CoCreateInstance(&CLSID_TASK_SCHEDULER, None, CLSCTX_INPROC_SERVER)
+            .map_err(|e| format!("创建 TaskScheduler COM 实例失败: {e}"))?;
+        svc.Connect(&VARIANT::default(), &VARIANT::default(), &VARIANT::default(), &VARIANT::default())
+            .map_err(|e| format!("连接任务计划服务失败: {e}"))?;
+
+        let def: ITaskDefinition = svc.NewTask(0).map_err(|e| format!("NewTask 失败: {e}"))?;
+        let principal = def.Principal().map_err(|e| format!("读取 Principal 失败: {e}"))?;
+        principal
+            .SetUserId(&BSTR::from("S-1-5-18"))
+            .map_err(|e| format!("设置任务主体失败: {e}"))?;
+        principal
+            .SetLogonType(TASK_LOGON_SERVICE_ACCOUNT)
+            .map_err(|e| format!("设置 LogonType 失败: {e}"))?;
+        principal
+            .SetRunLevel(TASK_RUNLEVEL_HIGHEST)
+            .map_err(|e| format!("设置 RunLevel 失败: {e}"))?;
+
+        // BOOT 触发器：系统启动即触发（无需任何用户登录），延迟 30s 等网络栈
+        let triggers: ITriggerCollection =
+            def.Triggers().map_err(|e| format!("读取 Triggers 失败: {e}"))?;
+        let trigger = triggers
+            .Create(TASK_TRIGGER_BOOT)
+            .map_err(|e| format!("创建 BOOT 触发器失败: {e}"))?;
+        let boot: IBootTrigger = trigger.cast().map_err(|e| format!("触发器类型转换失败: {e}"))?;
+        boot.SetDelay(&BSTR::from("PT30S"))
+            .map_err(|e| format!("设置启动延迟失败: {e}"))?;
+
+        let settings: ITaskSettings = def.Settings().map_err(|e| format!("读取 Settings 失败: {e}"))?;
+        settings
+            .SetAllowDemandStart(VARIANT_BOOL(1))
+            .map_err(|e| format!("设置 AllowDemandStart 失败: {e}"))?;
+        settings
+            .SetStopIfGoingOnBatteries(VARIANT_BOOL(0))
+            .map_err(|e| format!("设置 StopIfGoingOnBatteries 失败: {e}"))?;
+        settings
+            .SetDisallowStartIfOnBatteries(VARIANT_BOOL(0))
+            .map_err(|e| format!("设置 DisallowStartIfOnBatteries 失败: {e}"))?;
+        // core 自带 10 分钟总时长上限 + 每轮间隔；此处时间限制作强制兜底
+        settings
+            .SetExecutionTimeLimit(&BSTR::from("PT15M"))
+            .map_err(|e| format!("设置 ExecutionTimeLimit 失败: {e}"))?;
+        settings
+            .SetMultipleInstances(TASK_INSTANCES_IGNORE_NEW)
+            .map_err(|e| format!("设置 MultipleInstances 失败: {e}"))?;
+        settings
+            .SetStartWhenAvailable(VARIANT_BOOL(1))
+            .map_err(|e| format!("设置 StartWhenAvailable 失败: {e}"))?;
+
+        let actions: IActionCollection = def.Actions().map_err(|e| format!("读取 Actions 失败: {e}"))?;
+        actions.Clear().map_err(|e| format!("清空动作失败: {e}"))?;
+        let action = actions
+            .Create(TASK_ACTION_EXEC)
+            .map_err(|e| format!("创建 ExecAction 失败: {e}"))?;
+        let exec: IExecAction = action.cast().map_err(|e| format!("动作类型转换失败: {e}"))?;
+        exec.SetPath(&BSTR::from(core_exe.to_string_lossy().as_ref()))
+            .map_err(|e| format!("设置动作路径失败: {e}"))?;
+
+        let folder: ITaskFolder = svc
+            .GetFolder(&BSTR::from("\\"))
+            .map_err(|e| format!("打开任务根文件夹失败: {e}"))?;
+        folder
+            .RegisterTaskDefinition(
+                &BSTR::from(crate::platform::core_autostart::CORE_TASK_NAME),
+                &def,
+                TASK_CREATE_OR_UPDATE.0,
+                &VARIANT::default(),
+                &VARIANT::default(),
+                TASK_LOGON_SERVICE_ACCOUNT,
+                &VARIANT::from(TASK_SDDL),
+            )
+            .map_err(|e| format!("注册无头核心任务失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 删除无头核心的开机计划任务（任务不存在视为成功——幂等关闭）。
+pub fn remove_boot_task_via_com() -> Result<(), String> {
+    let _com = ComScope::new();
+    unsafe {
+        let svc: ITaskService = CoCreateInstance(&CLSID_TASK_SCHEDULER, None, CLSCTX_INPROC_SERVER)
+            .map_err(|e| format!("创建 TaskScheduler COM 实例失败: {e}"))?;
+        svc.Connect(&VARIANT::default(), &VARIANT::default(), &VARIANT::default(), &VARIANT::default())
+            .map_err(|e| format!("连接任务计划服务失败: {e}"))?;
+        let folder: ITaskFolder = svc
+            .GetFolder(&BSTR::from("\\"))
+            .map_err(|e| format!("打开任务根文件夹失败: {e}"))?;
+        match folder.DeleteTask(&BSTR::from(crate::platform::core_autostart::CORE_TASK_NAME), 0) {
+            Ok(()) => Ok(()),
+            // 0x80070002 = ERROR_FILE_NOT_FOUND（任务本就不在）
+            Err(e) if e.code().0 == 0x80070002u32 as i32 => Ok(()),
+            Err(e) => Err(format!("删除无头核心任务失败: {e}")),
+        }
+    }
 }
 
 #[cfg(test)]

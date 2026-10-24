@@ -98,6 +98,12 @@ export interface AutoLaunchResult {
   message?: string
 }
 
+/** set_core_autostart 返回体（开启=注册 SYSTEM 计划任务 + 写机器级加密配置） */
+export interface CoreAutostartResult {
+  success: boolean
+  message?: string
+}
+
 export interface InitData {
   config: Partial<Config>
   version: string
@@ -108,6 +114,8 @@ export interface InitData {
   backgroundStatus: import('@/monitor').BackgroundStatus
   isAutoStart: boolean
   autoLaunch: boolean
+  /** 系统级（未登录 Windows）自动登录是否已开启：SYSTEM 计划任务存在即 true */
+  coreAutostart?: boolean
   notificationEnabled: boolean
   /** 原一次性 get_log_retention_days 命令并入此处：logger 运行期真实值 */
   logRetentionDays: number
