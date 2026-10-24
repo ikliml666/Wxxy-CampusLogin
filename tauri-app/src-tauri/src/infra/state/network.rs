@@ -25,6 +25,9 @@ pub struct NetworkSnapshot {
     /// 准备自动登录连续失败次数（会话内计数，登录成功/重置后清零）。
     /// 达到上限后本会话停止自动登录，避免错误凭据下无限重试 + 周期性 DHCP 断网。
     pub prep_login_failures: u32,
+    /// 上一检测周期的 login_available；false→true 上升沿表示门户重新可达（新的登录机会），
+    /// 用于复位 prep_login_failures 退避。
+    pub last_login_available: bool,
 }
 
 impl Default for NetworkSnapshot {
@@ -47,6 +50,7 @@ impl Default for NetworkSnapshot {
             a1_auth_failure_count: 0,
             a2_auth_failure_count: 0,
             prep_login_failures: 0,
+            last_login_available: true,
         }
     }
 }

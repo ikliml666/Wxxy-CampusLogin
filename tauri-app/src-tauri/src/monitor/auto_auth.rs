@@ -52,6 +52,35 @@ pub fn prep_login_cooldown_ready(failures: u32, elapsed_secs: u64, base_cooldown
     elapsed_secs >= prep_login_backoff_secs(failures, base_cooldown_secs)
 }
 
+/// 登录失败消息是否为"可登录时间段未到"类拒绝（纯函数便于单测）。
+///
+/// 门户检测的 `login_available` 只表示"未在线即可尝试"，不是时段信号——
+/// 时间窗外检测仍报可登录，登录必然被服务端拒绝。这类失败重试无害且
+/// 窗口打开后应立即恢复，因此不参与指数退避（见失败处理分支）。
+pub fn is_time_window_refusal(msg: &str) -> bool {
+    let m = msg.trim();
+    if m.is_empty() {
+        return false;
+    }
+    const CN_KEYWORDS: [&str; 6] = ["时间段", "时段", "时间范围", "服务时间", "时间未到", "不在允许"];
+    if CN_KEYWORDS.iter().any(|k| m.contains(k)) {
+        return true;
+    }
+    let lower = m.to_lowercase();
+    lower.contains("time range") || lower.contains("not allowed") && lower.contains("time")
+}
+
+/// 失败后准备自动登录计数的更新（纯函数便于单测）：
+/// 时间窗拒绝不累加（保持基础冷却轻探测，窗口打开后下一个检测周期即可登录），
+/// 其余失败正常累加进入退避。
+pub fn prep_failures_after_failure(failures: u32, failure_msg: &str) -> u32 {
+    if is_time_window_refusal(failure_msg) {
+        failures
+    } else {
+        failures.saturating_add(1)
+    }
+}
+
 /// 断线重连是否应向上报告"已重连成功"。
 ///
 /// 只有登录成功且未超过重连次数上限时才返回 true，调用方据此
@@ -67,6 +96,24 @@ pub fn try_auto_login_on_preparation(
     online: bool,
     config: &crate::config::model::Config,
 ) {
+    // 先同步 login_available 沿检测（须在早退之前：反向沿也要记录，
+    // 否则离线期间标志滞留 true，门户恢复时的上升沿无从识别）。
+    // 上升沿（门户重新可达）视为新的登录机会，复位失败计数退出退避。
+    {
+        let prev = state.network.load();
+        if prev.last_login_available != login_available {
+            if login_available && prev.prep_login_failures > 0 {
+                crate::log_info!("auto_login", "门户检测恢复可用（login_available 上升沿），复位准备自动登录失败计数 {}", prev.prep_login_failures);
+                state.network.update(|s| {
+                    s.last_login_available = login_available;
+                    s.prep_login_failures = 0;
+                });
+            } else {
+                state.network.update(|s| s.last_login_available = login_available);
+            }
+        }
+    }
+
     if !login_available || online || !config.auto_login_on_preparation {
         return;
     }
@@ -136,11 +183,17 @@ pub fn try_auto_login_on_preparation(
                 emit_notification(app_handle, "自动登录成功", &login_result.message.unwrap_or_default(), "mascot-celebrate");
             }
         } else {
-            // 登录失败（含认证失败）：累加准备自动登录失败计数，
-            // 达上限后本会话停止重试（见函数开头判断）
-            state.network.update(|s| s.prep_login_failures = s.prep_login_failures.saturating_add(1));
-            let failures = state.network.load().prep_login_failures;
-            crate::log_info!("auto_login", "准备自动登录失败 [{}/{}]", failures, PREP_LOGIN_MAX_FAILURES);
+            // 登录失败（含认证失败）：累加准备自动登录失败计数进入退避。
+            // 例外："可登录时间段未到"类拒绝不计入——这类失败注定发生且窗口打开后
+            // 立即应恢复，保持基础冷却轻探测即可，避免退避把窗口开启时刻拖后 30 分钟。
+            let failure_msg = login_result.message.clone().unwrap_or_default();
+            if is_time_window_refusal(&failure_msg) {
+                crate::log_info!("auto_login", "准备自动登录被拒（可登录时间段未到），不计入退避: {}", failure_msg);
+            } else {
+                state.network.update(|s| s.prep_login_failures = prep_failures_after_failure(s.prep_login_failures, &failure_msg));
+                let failures = state.network.load().prep_login_failures;
+                crate::log_info!("auto_login", "准备自动登录失败 [{}/{}]", failures, PREP_LOGIN_MAX_FAILURES);
+            }
         }
     } else {
         crate::log_debug!("auto_login", "自动登录跳过：已有登录任务在进行");
@@ -518,6 +571,31 @@ mod tests {
     fn reconnect_success_within_limit_reports_true() {
         // 重连成功且未超限 → 必须返回 true，调用方才不会用旧 Portal 快照覆盖在线状态
         assert!(reconnect_should_report(true, true));
+    }
+
+    #[test]
+    fn time_window_refusal_classification() {
+        // 中文时段拒绝文案 → 识别为时间窗拒绝
+        assert!(is_time_window_refusal("当前不在可登录时间段内"));
+        assert!(is_time_window_refusal("不在允许的登录时段"));
+        assert!(is_time_window_refusal("登录时间未到，请稍后再试"));
+        assert!(is_time_window_refusal("超出服务时间范围"));
+        // 认证/凭据/传输类失败 → 不是时间窗拒绝
+        assert!(!is_time_window_refusal("认证失败：密码错误"));
+        assert!(!is_time_window_refusal("AC认证失败"));
+        assert!(!is_time_window_refusal("登录请求失败: connection reset"));
+        assert!(!is_time_window_refusal("账号已过期"));
+        assert!(!is_time_window_refusal(""));
+    }
+
+    #[test]
+    fn time_window_refusal_does_not_grow_backoff() {
+        // 时间窗拒绝不累加计数 → 冷却保持基础值，窗口打开后下一个检测周期即可重试
+        assert_eq!(prep_failures_after_failure(0, "当前不在可登录时间段内"), 0);
+        assert_eq!(prep_failures_after_failure(5, "不在允许的登录时段"), 5);
+        // 其他失败正常累加进入退避
+        assert_eq!(prep_failures_after_failure(0, "认证失败：密码错误"), 1);
+        assert_eq!(prep_failures_after_failure(9, "登录请求失败: timeout"), 10);
     }
 
     #[test]
