@@ -244,6 +244,8 @@
     "vpnTestOk": "VPN connection is working",
     "vpnTestFail": "VPN connection test failed",
     "vpnToggleFailed": "Failed to save the setting",
+    "vpnVerifying": "Verifying…",
+    "vpnVerifyFailed": "Credential verification failed. Check the account and password",
     "vpnSaveButton": "Save",
     "vpnCancelButton": "Cancel",
     "selfLogTitle": "Internet Logs",

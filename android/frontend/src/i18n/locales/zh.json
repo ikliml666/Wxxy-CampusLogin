@@ -244,6 +244,8 @@
     "vpnTestOk": "VPN 连接正常",
     "vpnTestFail": "VPN 连接测试失败",
     "vpnToggleFailed": "设置保存失败",
+    "vpnVerifying": "验证中…",
+    "vpnVerifyFailed": "凭据校验未通过，请检查账号密码",
     "vpnSaveButton": "保存",
     "vpnCancelButton": "取消",
     "selfLogTitle": "上网记录",

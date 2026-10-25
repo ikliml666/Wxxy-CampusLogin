@@ -91,6 +91,7 @@ pub fn run() {
             vpn_cmds::vpn_clear_credential,
             vpn_cmds::set_self_service_via_vpn,
             vpn_cmds::vpn_test_connection,
+            vpn_cmds::vpn_verify_credential,
             account_cmds::list_accounts,
             account_cmds::switch_account,
             account_cmds::rename_account,

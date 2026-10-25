@@ -198,6 +198,24 @@ pub async fn set_self_service_via_vpn(
     Ok(CommandResult::ok_msg(if enabled { "已开启校外经 WebVPN 访问" } else { "已关闭校外经 WebVPN 访问" }))
 }
 
+/// 校验待保存的凭据：用弹窗里输入的账号密码走完整链路（CAS → WebVPN 网关 → 探活），
+/// **不落盘**——通过后由前端再调 vpn_save_credential 保存，避免把错误密码存进配置。
+/// 成功时会话入缓存（与 vpn_test_connection 一致，随后的业务请求可复用）。
+#[tauri::command]
+pub async fn vpn_verify_credential(account: String, password: String) -> Result<CommandResult, String> {
+    let account = account.trim().to_string();
+    if account.is_empty() {
+        return Ok(CommandResult::err("请输入学号"));
+    }
+    if password.is_empty() {
+        return Ok(CommandResult::err("请输入统一身份认证密码"));
+    }
+    match run_full_chain(&account, &password).await {
+        Ok(steps) => Ok(CommandResult::ok_msg(&steps)),
+        Err(e) => Ok(CommandResult::err(&e)),
+    }
+}
+
 /// 连接测试：保存的凭据走完整链路（CAS 登录 → WebVPN 网关登录 → 探活），
 /// message 带分步中文结果；成功后会话入缓存供后续业务直接复用。
 #[tauri::command]

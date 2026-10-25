@@ -58,6 +58,8 @@ interface TauriApi {
   setSelfServiceViaVpn: (enabled: boolean) => Promise<CommandResult>
   /** 测试 VPN 到自助服务系统的连通性 */
   vpnTestConnection: () => Promise<CommandResult>
+  /** 保存前校验弹窗里输入的凭据（不落盘）：完整链路通过才允许保存 */
+  vpnVerifyCredential: (params: { account: string; password: string }) => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -186,6 +188,7 @@ const tauriApi: TauriApi = {
   vpnClearCredential: () => invoke<CommandResult>('vpn_clear_credential'),
   setSelfServiceViaVpn: (enabled) => invoke<CommandResult>('set_self_service_via_vpn', { enabled }),
   vpnTestConnection: () => invoke<CommandResult>('vpn_test_connection'),
+  vpnVerifyCredential: (params) => invoke<CommandResult>('vpn_verify_credential', { ...params }),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),

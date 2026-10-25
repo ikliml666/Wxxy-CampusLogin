@@ -227,7 +227,7 @@ export function SelfServicePanel() {
     void refreshVpnStatus()
   }, [refreshVpnStatus])
 
-  // 连通性测试：结果 toast（后端 message 优先，i18n 文案兜底）；保存成功后也会自动调用
+  // 连通性测试：结果 toast（后端 message 优先，i18n 文案兜底）
   const handleVpnTest = useCallback(async () => {
     try {
       const result = await tauriApiWithRetry.vpnTestConnection()
@@ -239,7 +239,8 @@ export function SelfServicePanel() {
     }
   }, [addToast, t])
 
-  // 保存 VPN 凭据：成功后关弹窗、刷新按钮态，并自动测试连通性（结果 toast）
+  // 保存 VPN 凭据：凭据在弹窗内已通过完整链路校验（vpn_verify_credential，不落盘），
+  // 这里只负责落盘——成功后关弹窗并刷新按钮态，不再重复测连通性（校验阶段已确认可用）。
   const handleVpnSave = useCallback(async (account: string, password: string) => {
     const result = await tauriApiWithRetry.vpnSaveCredential({ account, password })
     if (!mountedRef.current) return
@@ -250,8 +251,7 @@ export function SelfServicePanel() {
     addToast(t('account.vpnSavedOk'), 'success')
     setVpnCredOpen(false)
     void refreshVpnStatus()
-    void handleVpnTest()
-  }, [addToast, t, refreshVpnStatus, handleVpnTest])
+  }, [addToast, t, refreshVpnStatus])
 
   // 经 VPN 访问自助服务开关：即时保存；失败 toast 并回滚开关（viaVpn 回写触发弹窗草稿同步）
   const handleVpnToggle = useCallback(async (enabled: boolean) => {

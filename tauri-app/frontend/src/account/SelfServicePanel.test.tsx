@@ -10,6 +10,7 @@ const verifyWindowsIdentity = vi.fn()
 const vpnCredentialStatus = vi.fn()
 const vpnSaveCredential = vi.fn()
 const vpnTestConnection = vi.fn()
+const vpnVerifyCredential = vi.fn()
 const setSelfServiceViaVpn = vi.fn()
 const vpnClearCredential = vi.fn()
 vi.mock('@/hooks/tauriApi', () => ({
@@ -20,6 +21,7 @@ vi.mock('@/hooks/tauriApi', () => ({
     vpnCredentialStatus: (...args: unknown[]) => vpnCredentialStatus(...args),
     vpnSaveCredential: (...args: unknown[]) => vpnSaveCredential(...args),
     vpnTestConnection: (...args: unknown[]) => vpnTestConnection(...args),
+    vpnVerifyCredential: (...args: unknown[]) => vpnVerifyCredential(...args),
     setSelfServiceViaVpn: (...args: unknown[]) => setSelfServiceViaVpn(...args),
     vpnClearCredential: (...args: unknown[]) => vpnClearCredential(...args),
   },
@@ -65,6 +67,7 @@ beforeEach(() => {
   vpnCredentialStatus.mockReset()
   vpnSaveCredential.mockReset()
   vpnTestConnection.mockReset()
+  vpnVerifyCredential.mockReset()
   setSelfServiceViaVpn.mockReset()
   vpnClearCredential.mockReset()
   // 面板挂载即查一次 VPN 凭据状态：默认未保存（按钮走凭据弹窗分支）
@@ -275,12 +278,12 @@ describe('SelfServicePanel', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('true')
   })
 
-  it('凭据弹窗保存成功后自动测试连通性，保存与测试结果均 toast', async () => {
+  it('凭据弹窗先校验后保存：校验通过才写凭据，且不再重复测连通性', async () => {
     const { useLogToastStore } = await import('@/hooks/useLogToastStore')
     useLogToastStore.getState().cleanupToasts()
     storeState.config.user = '24380002'
+    vpnVerifyCredential.mockResolvedValue({ success: true, message: '① CAS 成功' })
     vpnSaveCredential.mockResolvedValue({ success: true, message: '' })
-    vpnTestConnection.mockResolvedValue({ success: true, message: '连接正常' })
     const { container } = render(<SelfServicePanel />)
     await act(async () => { await Promise.resolve() })
     const vpnBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.vpnConnectButton'))!
@@ -292,14 +295,44 @@ describe('SelfServicePanel', () => {
       fireEvent.click(saveBtn)
       await Promise.resolve()
     })
+    // 校验先用弹窗内的未保存凭据跑一次
+    await waitFor(() => {
+      expect(vpnVerifyCredential).toHaveBeenCalledWith({ account: '24380002', password: 'secret1' })
+    })
+    // 校验通过后才落盘
     await waitFor(() => {
       expect(vpnSaveCredential).toHaveBeenCalledWith({ account: '24380002', password: 'secret1' })
     })
-    await waitFor(() => {
-      expect(vpnTestConnection).toHaveBeenCalledTimes(1)
-    })
+    // 校验阶段已确认链路可用，保存后不再重复测连通性
+    expect(vpnTestConnection).not.toHaveBeenCalled()
     const titles = useLogToastStore.getState().toasts.map((toast) => toast.title)
     expect(titles.some((x) => x.includes('account.vpnSavedOk'))).toBe(true)
-    expect(titles.some((x) => x.includes('连接正常'))).toBe(true)
   })
+
+  it('凭据校验失败时不保存，错误留在弹窗内且凭据不入库', async () => {
+    storeState.config.user = '24380002'
+    vpnVerifyCredential.mockResolvedValue({ success: false, message: '① CAS 统一身份认证失败: 账号或密码错误' })
+    const { container } = render(<SelfServicePanel />)
+    await act(async () => { await Promise.resolve() })
+    const vpnBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.vpnConnectButton'))!
+    await act(async () => { fireEvent.click(vpnBtn) })
+    const pwd = screen.getByLabelText('account.vpnPasswordLabel') as HTMLInputElement
+    await act(async () => { fireEvent.change(pwd, { target: { value: 'wrong-pass' } }) })
+    const saveBtn = screen.getByText('account.vpnSaveButton')
+    await act(async () => {
+      fireEvent.click(saveBtn)
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(vpnVerifyCredential).toHaveBeenCalledWith({ account: '24380002', password: 'wrong-pass' })
+    })
+    // 关键断言：校验没过绝不落盘
+    expect(vpnSaveCredential).not.toHaveBeenCalled()
+    // 弹窗保持打开，错误就地展示（后端 message 原样透出）
+    expect(screen.getByText('account.vpnDialogTitle')).toBeTruthy()
+    expect(screen.getByText(/账号或密码错误/)).toBeTruthy()
+    // 输入内容不被清空，用户可直接改完重试
+    expect((screen.getByLabelText('account.vpnPasswordLabel') as HTMLInputElement).value).toBe('wrong-pass')
+  })
+
 })

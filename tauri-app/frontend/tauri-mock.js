@@ -122,6 +122,35 @@
     // 改密成功后真后端会强制下线（服务端语义）；mock 仅延时回成功消息
     change_self_password: function () { return sleep(800).then(function () { return ok(null, '密码修改成功') }) },
     verify_windows_identity: function () { return sleep(600).then(function () { return ok(null, 'Windows Hello 验证通过（mock）') }) },
+    // ---- WebVPN 凭据（真契约见 commands/vpn.rs）----
+    // ?vpnsaved=1 视为已保存凭据（缺省未保存 → VPN 按钮走「填充凭据」弹窗分支）
+    vpn_credential_status: function () {
+      var saved = false
+      try { saved = window.location.search.indexOf('vpnsaved=1') >= 0 } catch (e) {}
+      return ok({
+        saved: saved,
+        accountMasked: saved ? '2438****02' : '',
+        viaVpn: saved,
+      })
+    },
+    // ?vpnfail=1 让保存前校验失败（验证失败弹窗不关闭的实测场景）
+    vpn_verify_credential: function (args) {
+      var shouldFail = false
+      try { shouldFail = window.location.search.indexOf('vpnfail=1') >= 0 } catch (e) {}
+      if (shouldFail) {
+        return sleep(1200).then(function () {
+          return { success: false, message: '① CAS 统一身份认证失败: 账号或密码错误（mock）', data: null }
+        })
+      }
+      var acc = (args && args.account) || ''
+      return sleep(1200).then(function () {
+        return ok(null, '① CAS 统一身份认证成功；② WebVPN 网关登录成功；③ 网关会话有效（账号 ' + acc + '）')
+      })
+    },
+    vpn_save_credential: function () { return sleep(500).then(function () { return ok(null, 'VPN 凭据已保存（mock）') }) },
+    vpn_clear_credential: function () { return sleep(400).then(function () { return ok(null, '已清除 VPN 凭据（mock）') }) },
+    set_self_service_via_vpn: function () { return ok(null, '已切换（mock）') },
+    vpn_test_connection: function () { return sleep(900).then(function () { return ok(null, '① CAS 统一身份认证成功；② WebVPN 网关登录成功；③ 网关会话有效（mock）') }) },
     // 真契约：data = {cmcc, telecom, unicom}，每项 {account: 掩码账号, passwordSet} 或 null
     // ?bound=none|cmcc|telecom|unicom（绑定状态场景覆盖，缺省 telecom 已绑、其余未绑）
     query_bind_status: function () {
