@@ -14,8 +14,8 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 本文档记录了 Tauri (wry) 应用在 Windows 平台上，针对 WebView2 引擎在窗口最小化、隐藏到托盘及轻量化关闭场景下导致的 CPU/GPU 空转与高内存占用的根因分析及解决方案。核心问题在于 wry 库未自动处理窗口最小化时的 `SetIsVisible` 调用，导致 Chromium 渲染进程持续工作。同时引入了基于 `ICoreWebView2_19` 接口的内存使用目标级别（Memory Usage Target Level）动态调整机制，以配合焦点变化与挂起状态进一步优化资源使用。
 
 关键修复点包括：
-1. **弃用 `TrySuspend`**：彻底移除 `ICoreWebView2_3::TrySuspend` 调用（见 `window.rs` L28-L37 文档注释与 L58-L88 实现）。该 API 会冻结渲染进程，导致 React 并发调度器回调丢失，恢复后页面永久停止渲染（按钮失效、切页无反应），仅合成器线程的滚动可用。
-2. **可见性挂起替代**：改用 `controller.SetIsVisible(false)` 实现挂起。此方法让 WebView 进入隐藏态，停止 rAF 和定时器降频，但保持渲染进程与 React 调度器存活，恢复后立即可用。
+1. **弃用 `TrySuspend`**：彻底移除 `ICoreWebView2_3::TrySuspend` 调用（见 `window.rs` L26-L37 文档注释与 L58-L88 实现）。该 API 会冻结渲染进程，导致 React 并发调度器回调丢失，恢复后页面永久停止渲染（按钮失效、切页无反应），仅合成器线程的滚动可用。
+2. **可见性挂起替代**：改用 `controller.SetIsVisible(false)` 实现挂起（L86）。此方法让 WebView 进入隐藏态，停止 rAF 和定时器降频，但保持渲染进程与 React 调度器存活，恢复后立即可用。
 3. **状态标记与去抖**：引入 `HIDDEN_BY_DESIGN`（L8）区分用户意图隐藏与应用逻辑隐藏；引入 `LAST_MINIMIZED`（L128-L129）对高频 Resized 事件进行去抖，避免重复触碰 COM。
 4. **轻量化重建状态复位**：在窗口轻量化销毁后重建时，必须重置进程级挂起标志（L53-L56），避免旧状态污染新窗口。
 
@@ -45,7 +45,7 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 - **用途**: 挂起 / 恢复主 WebView2（最小化、隐藏到托盘、轻量化关闭共用）。
 - **实现细节**:
     - Windows 平台（L39-L45）：获取 "main" 窗口，通过 `with_webview` 调用 `apply_webview_suspended` 执行 COM 逻辑。
-    - **绝不调用 `TrySuspend`**：仅使用 `SetIsVisible` 控制可见性，确保 React 调度器不被冻结（见 L28-L37 注释）。
+    - **绝不调用 `TrySuspend`**：仅使用 `SetIsVisible` 控制可见性，确保 React 调度器不被冻结（见 L26-L37 注释）。
     - 非 Windows 平台空实现（L46-L47）：`#[cfg(not(target_os = "windows"))] let _ = (app, suspended);`
 
 #### `reset_suspend_state_for_new_webview()`
@@ -169,8 +169,17 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
     - 若非托盘且非轻量化（L40-L41）：设置 `state.exit.is_quitting.store(true, Ordering::Release)` 然后 `window.close()` 真退出。
 
 #### `notify_window_ready(window: tauri::Window)`
-- **位置**: L386-L390 (`#[tauri::command]` 于 L386, `pub fn` 于 L387)
-- **用途**: 前端就绪信号（轻量化重建窗口的 ready 门用；首次启动路径由 window_safety 兜底不受影响）。幂等：多次调用只多记一条信号，等待方取走即清。内部调用 `crate::app::lightweight::signal_window_ready(window.label())`（L388）。
+- **位置**: L387-L392 (`#[tauri::command]` 于 L388, `pub fn` 于 L389)
+- **用途**: 前端就绪信号（轻量化重建窗口的 ready 门用；首次启动路径由 window_safety 兜底不受影响）。幂等：多次调用只多记一条信号，等待方取走即清。内部调用 `crate::app::lightweight::signal_window_ready(window.label())`（L390）。
+
+### `tauri-app/src-tauri/src/commands/config_cmd.rs`
+
+#### `show_window(app_handle: AppHandle)`
+- **位置**: L208-L224 (`#[tauri::command]` 于 L208, `pub fn` 于 L209)
+- **用途**: 启动期自动显示路径（前端 getInitData 完成即调，v2.4.2 修复①）的最小化保护：用户在启动后短时间内最小化窗口时，不把窗口弹回前台。
+- **逻辑**:
+    - 若 main 窗口存在且 `crate::app::window::is_user_dismissed(&window)` 返回 true（L214-L220），直接返回 Ok(())，不弹回前台。
+    - 否则调用 `crate::app::window::show_or_rebuild_main(&app_handle)`（L222）显示或重建主窗口。
 
 ## Architecture
 
@@ -200,10 +209,11 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 
 ## Data Flow
 
-1. **用户操作**：用户点击最小化按钮、隐藏到托盘或关闭按钮（触发 `system.rs` 命令 L7-L42），或系统窗口事件（触发 `startup.rs` 的 `on_window_event` L53-L65 转发）。
+1. **用户操作**：用户点击最小化按钮、隐藏到托盘或关闭按钮（触发 `system.rs` 命令 L7-L42），或系统窗口事件（触发 `startup.rs` 的 `on_window_event` L53-L65 转发），或前端启动完成后调 `show_window`（`config_cmd.rs` L208-L224）。
 2. **路由**：
    - 事件路径：`startup.rs` 捕获 `Resized`/`Focused`，转发给 `window.rs` 的 `handle_window_resized_event` (L139-L159) / `handle_window_focus_event` (L92-L120)。
    - 命令路径：`system.rs` 的 `minimize_window` (L7-L21) / `close_window` (L23-L42) 直接调用 `window.rs` 的 `set_main_webview_suspended` (L38-L48)。
+   - 前端自动显示路径：`config_cmd.rs` 的 `show_window` 调 `window::show_or_rebuild_main` (L222)。
 3. **去重与判断**：
    - `handle_window_resized_event` 读取 `window.is_minimized()` (L145)，与 `LAST_MINIMIZED` (L128-L129) 比较；若未翻转则返回 (L153-L155)。
    - 隐藏到托盘的窗口不归尺寸事件管：`!minimized && is_hidden_by_design()` 时直接返回 (L149-L151)，避免虚事件污染去抖状态。
@@ -222,6 +232,6 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 ## Known Issues
 
 - **v2.4.2 强拉缺陷（已规避）**：启动兜底显示线程与前端 `show_window` 命令若未区分「该显示却没显示」与「用户就是要它不可见」，会将隐藏到托盘/静默启动的窗口强拉回前台。现由 `HIDDEN_BY_DESIGN` (L8-L16) 与 `is_hidden_by_design()` 在 `setup_app` (L222-L223) 及 `show_and_focus_main` (L182) 中严谨控制。
-- **v2.4.2 TrySuspend 冻结缺陷（已规避）**：曾使用 `ICoreWebView2_3::TrySuspend` 按微软休眠范式挂起，导致渲染进程冻结、React 并发调度器 `MessageChannel` 回调丢失、`pendingLanes` 待办但 `callbackNode` 空，页面永久停止渲染（按钮失效、切页无反应）。现严格只用 `SetIsVisible` (L28-L37, L86)，并加单元测试 `never_calls_try_suspend` (L265-L271) 护栏。
+- **v2.4.2 TrySuspend 冻结缺陷（已规避）**：曾使用 `ICoreWebView2_3::TrySuspend` 按微软休眠范式挂起，导致渲染进程冻结、React 并发调度器 `MessageChannel` 回调丢失、`pendingLanes` 待办但 `callbackNode` 空，页面永久停止渲染（按钮失效、切页无反应）。现严格只用 `SetIsVisible` (L26-L37, L86)，并加单元测试 `never_calls_try_suspend` (L265-L271) 护栏。
 - **wry 0.55.1 可见性通知缺失（已缓解）**：wry 仅在显式 `hide()`/`show()` 时调 `controller.SetIsVisible`，窗口最小化不触发通知，WebView2 默认不做原生遮挡检测，导致最小化后 rAF/CSS/合成器空转。v2.4.1 引入 `.glass-dock` 的 `backdrop-filter` 后每帧成本陡增显性化。现由 `handle_window_resized_event` 主动同步 (L131-L138)。
 - **tauri issue #9307 白窗口（已规避）**：轻量化重建若误用 `WindowBuilder` 会得到无 webview 的白窗口，必须用 `WebviewWindowBuilder::from_config` (L206-L219) 从配置重建。

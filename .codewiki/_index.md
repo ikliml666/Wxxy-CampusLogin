@@ -60,7 +60,6 @@
 - [[decisions/night-operator-switch|自动切换运营商（原晚间断网自动切换）]]
 - [[decisions/query-bind-status-no-gate-by-design|自助服务查询命令的"无验证门 + 密码逐个回退"是有意设计]]
 - [[decisions/windows-hello-only-identity|身份验证仅用 Windows Hello，删除 CredUI/SSPI 回退]]
-- [[decisions/adapter-account-binding|适配器-账号绑定（凭据副本方案）]]
 - [[decisions/adapter-operation-scope|适配器操作范围与解析规则]]
 - [[decisions/single-notification-channel|通知单通道（系统通知与应用内提示分离）]]
 - [[decisions/deferred-panel-transition|面板转场动画与并发渲染策略]]

@@ -22,18 +22,18 @@ source_files:
 
 安全体系围绕三条主线展开，桌面（Tauri + Windows DPAPI）与安卓（Tauri + AndroidKeyStore AES-GCM）双端同构：
 
-1. **凭据出站唯一出口**：任何把配置发往前端/事件的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，`config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:319-323`），所有前端读取路径（`get_config` 命令 `commands/config_cmd.rs:226-228`、广播 `config/persist.rs:296-304`）均经此出口。
-2. **落盘加密**：密码写入磁盘前必经加密——桌面 DPAPI（用户作用域 + additional entropy，`account/crypto.rs:42,88-106,222-229`），安卓 AndroidKeyStore AES-GCM（`plugins/keystore/src/lib.rs:28-40` 的 `CampusKeystore`）。"非空即加密，不排除掩码占位符"（`config/persist.rs:306-318`，注释 308-314 明确用户真实密码恰为 `***` 也须加密）。
+1. **凭据出站唯一出口**：任何把配置发往前端/事件的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，`config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:326-330`），所有前端读取路径（`get_config` 命令 `commands/config_cmd.rs:226-229`、广播 `config/persist.rs:296-320` 中 `notify_config_changed` 包裹 `{config: emit_cfg}` 于行301-302）均经此出口。
+2. **落盘加密**：密码写入磁盘前必经加密——桌面 DPAPI（用户作用域 + additional entropy，`account/crypto.rs:42,88-106,221-229`），安卓 AndroidKeyStore AES-GCM（`plugins/keystore/src/lib.rs:28-40` 的 `CampusKeystore`）。"非空即加密，不排除掩码占位符"（`config/persist.rs:322-334`，注释 324-328 明确用户真实密码恰为 `***` 也须加密）。
 3. **后端验证门**：敏感自助操作前要求本机身份验证，安卓端 TTL 600 秒、时间戳只存后端内存（`android/src-tauri/src/identity_gate.rs:6-33`，时钟回拨视为过期）。桌面端 `platform/identity.rs` 未在本文源码范围内，此处不展开。
 
-配套机制：登录/质量历史记录不含密码字段且损坏自动备份（`config/persist.rs:174-226,241-288`）；导入配置时切换态快照保留本机值以防系统残留（`commands/config_cmd.rs:177-181`）；账号档案读写加解密往返（`config/persist.rs:76-112`）；原子写防断电损坏（`config/persist.rs:13-44`）。
+配套机制：登录/质量历史记录不含密码字段且损坏自动备份（`config/persist.rs:174-226,237-288`）；导入配置时切换态快照保留本机值以防系统残留（`commands/config_cmd.rs:177-182`）；账号档案读写加解密往返（`config/persist.rs:76-112`）；原子写防断电损坏（`config/persist.rs:13-44`）。
 
 ### 术语与不变量
 
 | 术语 | 含义 | 不变量 |
 | --- | --- | --- |
-| `PASSWORD_MASK` | 出站掩码占位符 `"***"` | 用户真实密码恰为 `***` 时不得排除加密（`persist.rs:308-314`） |
-| `masked_for_display` | 敏感信息出站唯一出口 | 空→空（未设置语义），非空→`***`（`model.rs:319-323`） |
+| `PASSWORD_MASK` | 出站掩码占位符 `"***"` | 用户真实密码恰为 `***` 时不得排除加密（`persist.rs:324-328`） |
+| `masked_for_display` | 敏感信息出站唯一出口 | 空→空（未设置语义），非空→`***`（`model.rs:326-330`） |
 | `IDENTITY_VERIFY_TTL_SECS` | 验证门有效期 600s | 时间戳 0=从未验证；时钟回拨视为过期（`identity_gate.rs:8,23-33`） |
 | `atomic_write` | 临时文件+rename 原子写 | 断电/崩溃不残留半成品配置（`persist.rs:13-44`） |
 | `DPAPI_ENTROPY` | DPAPI 附加熵 | 机器+用户作用域叠加，拷出密文无法直接解（`crypto.rs:42`） |
@@ -42,7 +42,7 @@ source_files:
 
 ### 1. Config 模型 (`tauri-app/src-tauri/src/config/model.rs`)
 
-核心结构体 `Config` (行 10-176)，容器级 `#[serde(default)]` (行 9) 保证旧版本缺字段不整体失败。关键常量：
+核心结构体 `Config` (行 10-182)，容器级 `#[serde(default)]` (行 9) 保证旧版本缺字段不整体失败。关键常量：
 
 *   `PASSWORD_MASK: &str = "***"` (行 3)
 *   `AUTO_DETECT_ADAPTER: &str = "自动检测"` (行 4)
@@ -50,78 +50,79 @@ source_files:
 全部字段（serde rename 见源码注释）：
 
 *   `user`: String (行 11)
-*   `password`: String (行 13) — 出站掩码、落盘加密
-*   `self_hello_enabled`: bool (行 18, rename `selfHelloEnabled`, default true) — Windows Hello 验证开关；关闭后查看运营商密码仍强制验证（行 14-16 注释）
+*   `password`: String (行 13, `#[serde(default)]`) — 出站掩码、落盘加密
+*   `self_hello_enabled`: bool (行 18, rename `selfHelloEnabled`, default `default_true` 行 210) — Windows Hello 验证开关；关闭后查看运营商密码仍强制验证（行 14-16 注释）
 *   `self_reverify_each_action`: bool (行 21, rename `selfReverifyEachAction`, default false) — 每次操作二次验证（无消费方，见 Known Issues）
 *   `operator`: String (行 22)
-*   `adapter1`: String (行 23, default `自动检测`)
+*   `adapter1`: String (行 23, default `自动检测` 见 Default 行 252)
 *   `adapter2`: String (行 24)
 *   `adapter1_account`: String (行 28, rename `adapter1Account`) — 设备级配置，切账号不覆盖（行 25-26）
 *   `adapter2_account`: String (行 31, rename `adapter2Account`)
 *   `dual_adapter`: bool (行 33, rename `dualAdapter`)
-*   `auto_login_on_start`: bool (行 35, rename `autoLoginOnStart`)
-*   `auto_exit_after_login`: bool (行 37, rename `autoExitAfterLogin`, default false 行 254)
-*   `minimize_to_tray`: bool (行 39, rename `minimizeToTray`)
-*   `lightweight_mode`: bool (行 43, rename `lightweightMode`, default true)
-*   `hidden_start`: bool (行 45, rename `hiddenStart`)
-*   `auto_launch`: bool (行 47, rename `autoLaunch`, default true)
-*   `enable_background_check`: bool (行 49, rename `enableBackgroundCheck`, default true)
-*   `background_check_interval`: u64 (行 51, rename `backgroundCheckInterval`, default 60000 行 261)
-*   `auto_login_on_preparation`: bool (行 53, rename `autoLoginOnPreparation`, default true)
-*   `enable_night_operator_switch`: bool (行 57, rename `enableNightOperatorSwitch`, default false 行 265)
-*   `night_operator_restore`: String (行 60, rename `nightOperatorRestore`)
-*   `enable_night_outbound_switch`: bool (行 64, rename `enableNightOutboundSwitch`, default false)
-*   `outbound_priority`: Vec<String> (行 70, rename `outboundPriority`)
-*   `outbound_metric_restore`: String (行 75, rename `outboundMetricRestore`) — 切换态快照，导入保留本机值
-*   `outbound_disabled_adapters`: String (行 81, rename `outboundDisabledAdapters`)
-*   `outbound_standby_route`: String (行 86, rename `outboundStandbyRoute`)
-*   `outbound_manual_hold_day`: i32 (行 93, rename `outboundManualHoldDay`)
-*   `night_outbound_restore`: String (行 97, rename `nightOutboundRestore`) — 安卓切换态标记
-*   `dns_optimize_adapters`: Vec<String> (行 102, rename `dnsOptimizeAdapters`)
-*   `device_aliases`: HashMap<String, String> (行 107, rename `deviceAliases`)
-*   `auto_exit_on_online`: bool (行 109, rename `autoExitOnOnline`, default false 行 277)
-*   `theme_mode`: String (行 111, rename `themeMode`, default "dark")
-*   `enable_notification`: bool (行 113, rename `enableNotification`, default true)
-*   `active_account`: String (行 115, rename `activeAccount`)
-*   `display_name`: String (行 119, rename `displayName`) — 账号显示名，空兜底 id
-*   `enable_latency_test`: bool (行 121, rename `enableLatencyTest`, default true)
-*   `latency_test_interval`: u64 (行 123, rename `latencyTestInterval`, default 600000 行 284)
-*   `custom_theme_color`: String (行 125, rename `customThemeColor`, default "#6366f1")
-*   `default_panel`: String (行 127, rename `defaultPanel`)
-*   `enable_network_quality`: bool (行 129, rename `enableNetworkQuality`, default true)
-*   `skip_ttfb_in_latency`: bool (行 131, rename `skipTtfbInLatency`, default true)
-*   `skip_content_in_latency`: bool (行 133, rename `skipContentInLatency`, default true)
-*   `portal_url`: String (行 135, rename `portalUrl`, default `http://10.1.99.100`)
-*   `fixed_gateway`: String (行 137, rename `fixedGateway`, default `10.2.127.254`)
-*   `required_network_name`: String (行 139, rename `requiredNetworkName`, deserialize_with 非空回退默认)
-*   `enable_network_name_check`: bool (行 141, rename `enableNetworkNameCheck`, default true)
-*   `campus_gateway`: String (行 143, rename `campusGateway`, default `10.2.127.254`)
-*   `update_source`: String (行 146, rename `updateSource`, default "mirror")
-*   `campus_exit_on_fail`: bool (行 148, rename `campusExitOnFail`, default true)
-*   `campus_exit_start_minutes`: u16 (行 151, rename `campusExitStartMinutes`, default 480)
-*   `campus_exit_end_minutes`: u16 (行 154, rename `campusExitEndMinutes`, default 1380)
-*   `campus_check_start_minutes`: u16 (行 157, rename `campusCheckStartMinutes`, alias `campusCheckStartHour`, default 460)
-*   `campus_check_end_minutes`: u16 (行 159, rename `campusCheckEndMinutes`, default 1380)
-*   `scheduled_login_minutes`: u16 (行 162, rename `scheduledLoginMinutes`, default 1440)
-*   `scheduled_logout_minutes`: u16 (行 165, rename `scheduledLogoutMinutes`, default 1440)
-*   `log_retention_days`: u32 (行 167, rename `logRetentionDays`, default 7)
-*   `max_disconnect_reconnect`: u32 (行 169, rename `maxDisconnectReconnect`, default 3)
-*   `auto_login_cooldown_secs`: u64 (行 171, rename `autoLoginCooldownSecs`, default 60)
-*   `skip_sha256_when_missing`: bool (行 173, rename `skipSha256WhenMissing`, default false)
-*   `config_version`: u32 (行 175, rename `configVersion`, default 5)
+*   `auto_login_on_start`: bool (行 35, rename `autoLoginOnStart`, default true 行 257)
+*   `auto_exit_after_login`: bool (行 37, rename `autoExitAfterLogin`, default false 行 260)
+*   `minimize_to_tray`: bool (行 39, rename `minimizeToTray`, default false 行 261)
+*   `lightweight_mode`: bool (行 43, rename `lightweightMode`, default true 行 262)
+*   `hidden_start`: bool (行 45, rename `hiddenStart`, default false 行 263)
+*   `auto_launch`: bool (行 47, rename `autoLaunch`, default true 行 264)
+*   `enable_background_check`: bool (行 49, rename `enableBackgroundCheck`, default true 行 265)
+*   `background_check_interval`: u64 (行 51, rename `backgroundCheckInterval`, default 60000 行 267)
+*   `auto_login_on_preparation`: bool (行 53, rename `autoLoginOnPreparation`, default true 行 268)
+*   `enable_night_operator_switch`: bool (行 57, rename `enableNightOperatorSwitch`, default false 行 271)
+*   `night_operator_restore`: String (行 60, rename `nightOperatorRestore`, default 空 行 272)
+*   `enable_night_outbound_switch`: bool (行 64, rename `enableNightOutboundSwitch`, default false 行 273)
+*   `outbound_priority`: Vec<String> (行 70, rename `outboundPriority`, default 空 行 274)
+*   `outbound_metric_restore`: String (行 75, rename `outboundMetricRestore`, default 空 行 275) — 切换态快照，导入保留本机值
+*   `outbound_disabled_adapters`: String (行 81, rename `outboundDisabledAdapters`, default 空 行 276)
+*   `outbound_standby_route`: String (行 86, rename `outboundStandbyRoute`, default 空 行 277)
+*   `outbound_manual_hold_day`: i32 (行 93, rename `outboundManualHoldDay`, default 0 行 278)
+*   `outbound_pending_switch`: String (行 99, rename `outboundPendingSwitch`, default 空 行 279) — 待切换状态快照，导入保留本机值
+*   `night_outbound_restore`: String (行 103, rename `nightOutboundRestore`, default 空 行 282) — 安卓切换态标记
+*   `dns_optimize_adapters`: Vec<String> (行 108, rename `dnsOptimizeAdapters`, default 空 行 280)
+*   `device_aliases`: HashMap<String, String> (行 113, rename `deviceAliases`, default 空 行 281)
+*   `auto_exit_on_online`: bool (行 115, rename `autoExitOnOnline`, default false 行 284)
+*   `theme_mode`: String (行 117, rename `themeMode`, default "dark" 行 285)
+*   `enable_notification`: bool (行 119, rename `enableNotification`, default true 行 286)
+*   `active_account`: String (行 121, rename `activeAccount`, default 空 行 287)
+*   `display_name`: String (行 125, rename `displayName`, default 空 行 288) — 账号显示名，空兜底 id
+*   `enable_latency_test`: bool (行 127, rename `enableLatencyTest`, default true 行 289)
+*   `latency_test_interval`: u64 (行 129, rename `latencyTestInterval`, default 600000 行 291)
+*   `custom_theme_color`: String (行 131, rename `customThemeColor`, default "#6366f1" 行 292)
+*   `default_panel`: String (行 133, rename `defaultPanel`, default 空 行 293)
+*   `enable_network_quality`: bool (行 135, rename `enableNetworkQuality`, default true 行 294)
+*   `skip_ttfb_in_latency`: bool (行 137, rename `skipTtfbInLatency`, default true 行 295)
+*   `skip_content_in_latency`: bool (行 139, rename `skipContentInLatency`, default true 行 296)
+*   `portal_url`: String (行 141, rename `portalUrl`, default `http://10.1.99.100` 行 297)
+*   `fixed_gateway`: String (行 143, rename `fixedGateway`, default `10.2.127.254` 行 298)
+*   `required_network_name`: String (行 145, rename `requiredNetworkName`, deserialize_with 非空回退默认 行 299)
+*   `enable_network_name_check`: bool (行 147, rename `enableNetworkNameCheck`, default true 行 300)
+*   `campus_gateway`: String (行 149, rename `campusGateway`, default `10.2.127.254` 行 301)
+*   `update_source`: String (行 152, rename `updateSource`, default "mirror" 行 302)
+*   `campus_exit_on_fail`: bool (行 154, rename `campusExitOnFail`, default true 行 303)
+*   `campus_exit_start_minutes`: u16 (行 157, rename `campusExitStartMinutes`, default 480 行 304)
+*   `campus_exit_end_minutes`: u16 (行 160, rename `campusExitEndMinutes`, default 1380 行 305)
+*   `campus_check_start_minutes`: u16 (行 162, rename `campusCheckStartMinutes`, alias `campusCheckStartHour`, default 460 行 306)
+*   `campus_check_end_minutes`: u16 (行 165, rename `campusCheckEndMinutes`, default 1380 行 307)
+*   `scheduled_login_minutes`: u16 (行 168, rename `scheduledLoginMinutes`, default 1440 行 310)
+*   `scheduled_logout_minutes`: u16 (行 171, rename `scheduledLogoutMinutes`, default 1440 行 311)
+*   `log_retention_days`: u32 (行 173, rename `logRetentionDays`, default 7 行 312)
+*   `max_disconnect_reconnect`: u32 (行 175, rename `maxDisconnectReconnect`, default 3 行 313)
+*   `auto_login_cooldown_secs`: u64 (行 177, rename `autoLoginCooldownSecs`, default 60 行 314)
+*   `skip_sha256_when_missing`: bool (行 179, rename `skipSha256WhenMissing`, default false 行 315)
+*   `config_version`: u32 (行 181, rename `configVersion`, default 5 行 317)
 
 关键方法：
 
-*   `Config::masked_for_display(&self) -> Config` (行 319-323): 返回密码被掩码的新 Config。唯一出站出口，空值保留。
-*   `Config::mask_in_place(&mut self)` (行 325-329): 就地掩码非空 password 为 `PASSWORD_MASK`。`pub` 可被绕过（见 Known Issues）。
+*   `Config::masked_for_display(&self) -> Config` (行 326-330): 返回密码被掩码的新 Config。唯一出站出口，空值保留。
+*   `Config::mask_in_place(&mut self)` (行 332-336): 就地掩码非空 password 为 `PASSWORD_MASK`。`pub` 可被绕过（见 Known Issues）。
 
 辅助函数与 Default：
 
-*   `deserialize_non_empty_or` (行 178-188), `deserialize_campus_gateway` (行 190-195), `deserialize_required_network_name` (行 197-202) — 空串回退默认
-*   `default_true` (行 204), `default_campus_check_start_minutes` (行 206), `default_campus_check_end_minutes` (行 210), `default_campus_exit_start_minutes` (行 212), `default_campus_exit_end_minutes` (行 214), `default_fixed_gateway` (行 216), `default_log_retention_days` (行 220), `default_max_disconnect_reconnect` (行 222), `default_auto_login_cooldown_secs` (行 224), `default_portal_url` (行 226), `default_required_network_name` (行 230), `default_campus_gateway` (行 234)
-*   `impl Default for Config` (行 238-313)
+*   `deserialize_non_empty_or` (行 184-194), `deserialize_campus_gateway` (行 196-201), `deserialize_required_network_name` (行 203-208) — 空串回退默认
+*   `default_true` (行 210), `default_campus_check_start_minutes` (行 212), `default_campus_check_end_minutes` (行 216), `default_campus_exit_start_minutes` (行 218), `default_campus_exit_end_minutes` (行 220), `default_fixed_gateway` (行 222), `default_log_retention_days` (行 226), `default_max_disconnect_reconnect` (行 228), `default_auto_login_cooldown_secs` (行 230), `default_portal_url` (行 232), `default_required_network_name` (行 236), `default_campus_gateway` (行 240)
+*   `impl Default for Config` (行 244-320)
 
-测试（行 332-397）：`default_reconnect_and_cooldown_config` (行 337), `serde_missing_reconnect_field_uses_default` (行 344), `serde_custom_reconnect_config` (行 356), `serde_account_fields_json_names_and_defaults` (行 368) 锁定 serde 契约。
+测试（行 339-403）：`default_reconnect_and_cooldown_config` (行 343), `serde_missing_reconnect_field_uses_default` (行 350), `serde_custom_reconnect_config` (行 362), `serde_account_fields_json_names_and_defaults` (行 374) 锁定 serde 契约。
 
 ### 2. 持久化层 (`tauri-app/src-tauri/src/config/persist.rs`)
 
@@ -142,10 +143,10 @@ source_files:
 *   `get_quality_history_path` (行 231-233)
 *   `append_quality_history(...)` (行 237-239) — 委托 `append_quality_history_to`
 *   `append_quality_history_to(data_dir: &Path, result: &...)` (行 241-288) — 头插，延迟 <0 落盘 null，上限 100
-*   `save_config_and_broadcast(app_handle: &AppHandle, config: &Config)` (行 296-304) — 调 `save_config_to_disk_encrypted` 后掩码发射 `config-changed` 事件（`notify_config_changed` 包裹 `{config: emit_cfg}`）
-*   `save_config_to_disk_encrypted(data_dir: &Path, config: &Config)` (行 306-318) — 非空密码一律 `crypto::encrypt`（不排除 MASK），`atomic_write` 落盘
+*   `save_config_and_broadcast(app_handle: &AppHandle, config: &Config)` (行 296-320) — 调 `save_config_to_disk_encrypted` 后掩码发射 `config-changed` 事件（`notify_config_changed` 包裹 `{config: emit_cfg}` 行 301-302），并后台刷新无头核心凭据
+*   `save_config_to_disk_encrypted(data_dir: &Path, config: &Config)` (行 322-334) — 非空密码一律 `crypto::encrypt`（不排除 MASK），`atomic_write` 落盘
 
-测试（行 320-483）：`literal_star_password_is_encrypted_on_disk` (行 332), `empty_password_stays_empty` (行 350), `quality_history_head_insert_and_shape` (行 376), `quality_history_caps_at_100` (行 393), `quality_history_corrupt_backup_and_reset` (行 407), `list_account_items_missing_dir_is_empty` (行 423), `list_account_items_fallback_and_filter` (行 432), `account_config_roundtrip_encrypts_password` (行 463, Windows) 锁定加密契约。
+测试（行 336-499）：`literal_star_password_is_encrypted_on_disk` (行 347), `empty_password_stays_empty` (行 365), `quality_history_head_insert_and_shape` (行 391), `quality_history_caps_at_100` (行 408), `quality_history_corrupt_backup_and_reset` (行 422), `list_account_items_missing_dir_is_empty` (行 438), `list_account_items_fallback_and_filter` (行 447), `account_config_roundtrip_encrypts_password` (行 477, Windows) 锁定加密契约。
 
 ### 3. 命令层 (`tauri-app/src-tauri/src/commands/config_cmd.rs`)
 
@@ -157,12 +158,12 @@ source_files:
 *   `build_config_export_payload(current: &Config, include_password: bool) -> Result<serde_json::Value, String>` (行 73-94) — 掩码态或 DPAPI 加密态（`passwordEncrypted` 标志），绝不写明文
 *   `restore_imported_password_field(imported: &mut String, encrypted: bool, current: &str) -> Result<(), String>` (行 102-112) — 空/MASK 保留当前值，密文 decrypt，失败报错
 *   `export_config(...)` (行 117-137) — 阻塞 IO 移入 `spawn_blocking`，原子写 `<data_dir>/exports/config-<时间戳>.json`
-*   `import_config(...)` (行 144-205) — 大小防呆 1MB，解析 wrapper/裸 Config，密码还原先于校验，切换态四字段+安卓标记保留本机值（行 177-181），落盘同 `save_config` 路径
-*   `show_window(app_handle: AppHandle)` (行 207-223) — 用户最小化保护
-*   `get_config(state: State<'_, AppState>) -> Result<Config, String>` (行 226-228) — 返回 `masked_for_display()`
-*   `save_config(...)` (行 233-285) — 校验，密码三态（clear/空或MASK保留当前/新值），同步 `update_portal_url` 与 `set_log_retention_days`，先落盘再更新内存，R2 自动建号
+*   `import_config(...)` (行 144-206) — 大小防呆 1MB，解析 wrapper/裸 Config，密码还原先于校验，切换态四字段+安卓标记保留本机值（行 177-182），落盘同 `save_config` 路径
+*   `show_window(app_handle: AppHandle)` (行 208-224) — 用户最小化保护
+*   `get_config(state: State<'_, AppState>) -> Result<Config, String>` (行 226-229) — 返回 `masked_for_display()`
+*   `save_config(...)` (行 234-286) — 校验，密码三态（clear/空或MASK保留当前/新值），同步 `update_portal_url` 与 `set_log_retention_days`，先落盘再更新内存，R2 自动建号
 
-测试（行 287-364）：`masked_for_display_masks_password` (行 297), `export_payload_never_contains_plaintext_password` (行 315, Windows), `import_password_restore_semantics` (行 341, Windows)。
+测试（行 288-365）：`masked_for_display_masks_password` (行 297), `export_payload_never_contains_plaintext_password` (行 314, Windows), `import_password_restore_semantics` (行 341, Windows)。
 
 ### 4. 桌面加密 (`tauri-app/src-tauri/src/account/crypto.rs`)
 
@@ -179,12 +180,12 @@ Windows DPAPI 模块 `dpapi` (行 1-219)：
 
 跨平台 pub 封装：
 
-*   `encrypt(plaintext: &str) -> Result<String, String>` (Windows 行 222-229, 非 Windows 行 241-243 返回 Err)
+*   `encrypt(plaintext: &str) -> Result<String, String>` (Windows 行 221-229, 非 Windows 行 241-243 返回 Err)
 *   `decrypt(encrypted_base64: &str) -> Result<String, String>` (Windows 行 232-237, 非 Windows 行 277-279 返回 Err)
 *   `encrypt_machine(plaintext: &str)` (Windows 行 248-255, 非 Windows 行 267-269 Err)
 *   `decrypt_machine(encrypted_base64: &str)` (Windows 行 259-264, 非 Windows 行 272-274 Err)
 
-测试（行 281-318, Windows）：`dpapi_roundtrip_with_entropy` (行 287), `dpapi_decrypt_falls_back_to_legacy_no_entropy` (行 296), `dpapi_machine_scope_roundtrip` (行 306)。
+测试（行 281-317, Windows）：`dpapi_roundtrip_with_entropy` (行 287), `dpapi_decrypt_falls_back_to_legacy_no_entropy` (行 296), `dpapi_machine_scope_roundtrip` (行 306)。
 
 ### 5. 安卓身份验证门 (`android/src-tauri/src/identity_gate.rs`)
 
@@ -239,25 +240,25 @@ Windows DPAPI 模块 `dpapi` (行 1-219)：
 
 ### 桌面保存流
 
-1. 前端调用 `save_config` (`commands/config_cmd.rs:233-285`)。
-2. `validate_config` 校验（行 240）。
-3. 密码三态：clear_password 置空；空或 MASK 保留当前（`state.config.load()` 行 254）；否则新值。
-4. 同步全局 `update_portal_url` (行 260) 与 `set_log_retention_days` (行 263)。
-5. `spawn_blocking` 调 `save_config_to_disk_encrypted` (行 270) → `persist::save_config_and_broadcast` (`persist.rs:296-304`) → `save_config_to_disk_encrypted` (`persist.rs:306-318`) 加密非空密码 → `atomic_write` (`persist.rs:13-44`)。
-6. 更新内存 `state.config.store` (`config_cmd.rs:273`)。
-7. R2 自动建号 `auto_create_account_for_current` (行 280)。
+1. 前端调用 `save_config` (`commands/config_cmd.rs:234-286`)。
+2. `validate_config` 校验（行 241）。
+3. 密码三态：clear_password 置空；空或 MASK 保留当前（`state.config.load()` 行 255）；否则新值。
+4. 同步全局 `update_portal_url` (行 261) 与 `set_log_retention_days` (行 264)。
+5. `spawn_blocking` 调 `save_config_to_disk_encrypted` (行 271) → `persist::save_config_and_broadcast` (`persist.rs:296-320`) → `save_config_to_disk_encrypted` (`persist.rs:322-334`) 加密非空密码 → `atomic_write` (`persist.rs:13-44`)。
+6. 更新内存 `state.config.store` (`config_cmd.rs:274`)。
+7. R2 自动建号 `auto_create_account_for_current` (行 281)。
 
 ### 桌面导入导出流
 
 * **导出** (`export_config` 行 117-137)：`build_config_export_payload` (行 73-94) 掩码态或 DPAPI 加密态（`passwordEncrypted` 标志），写入 `<data_dir>/exports/`。
-* **导入** (`import_config` 行 144-205)：大小防呆 1MB，解析 wrapper/裸 Config，密码还原 `restore_imported_password_field` (行 172)，切换态保留本机值 (行 177-181)，校验后同保存路径落盘。
+* **导入** (`import_config` 行 144-206)：大小防呆 1MB，解析 wrapper/裸 Config，密码还原 `restore_imported_password_field` (行 172)，切换态保留本机值 (行 177-182)，校验后同保存路径落盘。
 
 ### 安卓保存流（基于提供插件接口）
 
 1. 前端调用保存命令（未提供命令层，仅插件）。
 2. 密码经 `CampusKeystore::encrypt` (`keystore/src/lib.rs:30-33`) 调 Android Keystore AES-GCM 加密为 base64(iv+ciphertext)。
 3. 密文落盘（具体持久化未提供）。
-4. 出站配置经 `masked_for_display` 同构逻辑掩码（桌面侧 `model.rs:319-323`；安卓侧约定同构但未提供源码）。
+4. 出站配置经 `masked_for_display` 同构逻辑掩码（桌面侧 `model.rs:326-330`；安卓侧约定同构但未提供源码）。
 
 ### 验证门时序（安卓）
 
@@ -277,8 +278,8 @@ Windows DPAPI 模块 `dpapi` (行 1-219)：
 ## Known Issues
 
 1. ~~桌面账号档案独立自助密码字段明文落盘~~（已消解）：`save_account_config` (`persist.rs:101-112`) 统一加密 `password` 字段，历史双端不一致不复存在。
-2. **`self_reverify_each_action` 无后端消费方**：仅字段定义（`model.rs:20-21`）、Default false（`model.rs:244`）；提供源码中 `config_cmd.rs`/`persist.rs` 均未引用，任何"每次操作重新验证"策略未实现。
+2. **`self_reverify_each_action` 无后端消费方**：仅字段定义（`model.rs:20-21`）、Default false（`model.rs:250`）；提供源码中 `config_cmd.rs`/`persist.rs` 均未引用，任何"每次操作重新验证"策略未实现。
 3. **安卓验证门信任前端**：`note_identity_verified` (`identity_gate.rs:18-20`) 被调用即写时间戳，提供源码未含校验 BiometricPrompt 真实结果的后端逻辑；前端伪造调用即可解锁 TTL 窗口（桌面走系统 API 相对可信但未提供源码）。
-4. **掩码出口类型收敛不对称**：桌面 `masked_for_display` 返回同构 `Config` (`model.rs:319-323`)，但 `mask_in_place` 为 `pub` (`model.rs:325-329`) 可直接调用绕过封装；注释 (`model.rs:316-318`) 强调所有前端路径必须经由 `masked_for_display`，漏调即泄露。安卓侧未提供 `config_state.rs` 无法确认。
-5. **非 Windows 加密函数全为 Err 占位**：`crypto.rs:241-243, 267-269, 272-274, 277-279` 直接返回 `"加密存储仅桌面端支持"`，安卓走独立 keystore 插件（`keystore/src/lib.rs`），双端加密实现不共享代码路径，维护需双边同步。
-6. **导入切换态保留逻辑硬编码**：`config_cmd.rs:177-181` 将五个切换态字段强制覆盖为本机值，若未来新增切换态字段易遗漏（当前靠注释 k2.8 审计提示）。
+4. **掩码出口类型收敛不对称**：桌面 `masked_for_display` 返回同构 `Config` (`model.rs:326-330`)，但 `mask_in_place` 为 `pub` (`model.rs:332-336`) 可直接调用绕过封装；注释 (`model.rs:322-324`) 强调所有前端路径必须经由 `masked_for_display`，漏调即泄露。安卓侧未提供 `config_state.rs` 无法确认。
+5. **非 Windows 加密函数全为 Err 占位**：`crypto.rs:241-243,267-269,272-274,277-279` 直接返回 `"加密存储仅桌面端支持"`，安卓走独立 keystore 插件（`keystore/src/lib.rs`），双端加密实现不共享代码路径，维护需双边同步。
+6. **导入切换态保留逻辑硬编码**：`config_cmd.rs:181-186` 将六个切换态字段（含 `outbound_pending_switch` 与 `night_outbound_restore`）强制覆盖为本机值，若未来新增切换态字段易遗漏（当前靠注释 k2.8 审计提示）。

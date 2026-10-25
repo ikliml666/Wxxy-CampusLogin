@@ -3,6 +3,7 @@ title: 后台巡检：连通性检测、自动登录/断线重连与网络质量
 type: module
 source_files:
   - tauri-app/src-tauri/src/monitor/mod.rs
+  - tauri-app/src-tauri/src/monitor/dynamic_interval.rs
   - tauri-app/src-tauri/src/monitor/watcher.rs
   - tauri-app/src-tauri/src/monitor/background_task.rs
   - tauri-app/src-tauri/src/monitor/background_check.rs
@@ -21,13 +22,13 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ## Overview
 
-本模块是桌面端的后台巡检中枢。`monitor/mod.rs:1-13` 声明子模块：`watcher`(1)、`auto_auth`(2)、`latency`(3)、`adapter_watch`(4)、`campus_check`(5)、`outbound_switch`(6)、`portal_check`(7)、`quality_scheduler`(8)、`background_emit`(9)、`background_check`(10)、`background_task`(11)、`outbound_night`(12)、`scheduled`(13)；`background_task` 模块在 `mod.rs:11` 逐行列出，且由 `watcher.rs:10` 的 `pub use super::background_task::start_background_check_inner;` 引用并提供独立源文件 `background_task.rs`。启动期由 `watcher::run_startup_tasks`（`watcher.rs:4`）统一编排后台巡检、质量测试、自动登录与定时动作循环。核心巡检逻辑在 `background_check` 中独占连通性/Portal/重连，质量检测由 `latency`+`quality_scheduler` 独立循环负责，定时登录/注销与夜间出站切换编排在 `scheduled` 中 30s 循环，底层动作层 `outbound_switch` 与 `outbound_night` 提供候选卡选择、快照序列化与提权执行。模块整体在桌面端编译，非 Windows 平台对部分提权/路由能力做 stub 或空实现（如 `outbound_switch.rs:139-141`、`outbound_night.rs:1-6`）。
+本模块是桌面端的后台巡检中枢。`monitor/mod.rs:1-14` 声明子模块：`watcher`(1)、`auto_auth`(2)、`latency`(3)、`adapter_watch`(4)、`campus_check`(5)、`outbound_switch`(6)、`portal_check`(7)、`quality_scheduler`(8)、`background_emit`(9)、`background_check`(10)、`background_task`(11)、`outbound_night`(12)、`scheduled`(13)、`dynamic_interval`(14)；`background_task` 模块在 `mod.rs:11` 逐行列出，且由 `watcher.rs:10` 的 `pub use super::background_task::start_background_check_inner;` 引用并提供独立源文件 `background_task.rs`。启动期由 `watcher::run_startup_tasks`（`watcher.rs:4`）统一编排后台巡检、质量测试、自动登录与定时动作循环。核心巡检逻辑在 `background_check` 中独占连通性/Portal/重连，质量检测由 `latency`+`quality_scheduler` 独立循环负责，定时登录/注销与夜间出站切换编排在 `scheduled` 中 30s 循环，底层动作层 `outbound_switch` 与 `outbound_night` 提供候选卡选择、快照序列化与提权执行。模块整体在桌面端编译，非 Windows 平台对部分提权/路由能力做 stub 或空实现（如 `outbound_switch.rs:321-323` 的 `standby_route_cleanup` 非 Windows 返回 `AlreadyGone`、`outbound_night.rs:1-7` 的 `enable_campus_adapter` 非桌面 stub）。
 
 ## Key Components
 
 ### 模块索引与启动编排（`monitor/mod.rs`、`monitor/watcher.rs`）
 
-- `monitor/mod.rs:1-13` 声明子模块（见 Overview 列表）。
+- `monitor/mod.rs:1-14` 声明子模块（见 Overview 列表，含 `dynamic_interval` 于行14）。
 - `pub use super::background_task::start_background_check_inner;` — `monitor/watcher.rs:10`。
 - `pub use super::campus_check::check_campus_network;` — `monitor/watcher.rs:13`。
 - `pub use super::background_emit::{adapter_status_entry, adapter_disabled_entry, adapter_disconnected_entry};` — `monitor/watcher.rs:14`。
@@ -41,37 +42,37 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ### 巡检任务生命周期（`monitor/background_task.rs`）
 
-- `pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String>` — `background_task.rs:7-64`：置 `enable_background_check=true`，间隔 `<10000` 提至 `15000`（`background_task.rs:10-13`）；spawn `background_check` 任务首启直检，循环动态读 `effective_background_interval_ms`（轻量化下限300s）作间隔（`background_task.rs:61-85`，其中 `:34-37` 读取）；落盘 `save_config_and_broadcast`（`background_task.rs:61`）。
-- `pub fn spawn_background_check_once(app_handle: &AppHandle)` — `background_task.rs:74-94`：spawn `background_check_once` 调 `run_background_check`（`background_task.rs:79`），同名已跑复用 cancel_token 补跑（`background_task.rs:82-93`）。
-- 常量 `POST_RESTORE_IP_WAIT_MAX_MS: u64 = 45_000`（`background_task.rs:108`）、`POST_RESTORE_IP_POLL_MS: u64 = 3_000`（`background_task.rs:109`）。
-- `fn post_restore_wait_should_continue(waited_ms: u64, max_ms: u64) -> bool` — `background_task.rs:115-117` 纯函数，`waited_ms < max_ms`。
-- `fn post_restore_adapters_have_ip(app_handle: &AppHandle) -> bool` — `background_task.rs:123-133` 用 `get_adapters_force` 枚举主副适配器是否拿到 IP。
-- `pub fn spawn_background_check_after_outbound_restore(app_handle: &AppHandle)` — `background_task.rs:145-179`：阻塞线程池轮询等 IP 就绪（最长上限），结束后调 `spawn_background_check_once`（`background_task.rs:177`）；join 失败按等满上限处理。
-- 测试：`post_restore_wait_stops_at_cap`（`background_task.rs:189-194`）、`post_restore_wait_zero_budget_never_waits`（`background_task.rs:189-191`）。
+- `pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String>` — `background_task.rs:7-68`：置 `enable_background_check=true`，间隔 `<10000` 提至 `15000`（`background_task.rs:10-13`）；spawn `background_check` 任务首启直检，循环动态读 `effective_background_interval_ms`（轻量化下限300s）作间隔（`background_task.rs:16-59`，其中 `:31-42` 读取）；落盘 `save_config_and_broadcast`（`background_task.rs:63`）。
+- `pub fn spawn_background_check_once(app_handle: &AppHandle)` — `background_task.rs:78-98`：spawn `background_check_once` 调 `run_background_check`（`background_task.rs:80`），同名已跑复用 cancel_token 补跑（`background_task.rs:86-97`）。
+- 常量 `POST_RESTORE_IP_WAIT_MAX_MS: u64 = 45_000`（`background_task.rs:112`）、`POST_RESTORE_IP_POLL_MS: u64 = 3_000`（`background_task.rs:113`）。
+- `fn post_restore_wait_should_continue(waited_ms: u64, max_ms: u64) -> bool` — `background_task.rs:119-121` 纯函数，`waited_ms < max_ms`。
+- `fn post_restore_adapters_have_ip(app_handle: &AppHandle) -> bool` — `background_task.rs:127-137` 用 `get_adapters_force` 枚举主副适配器是否拿到 IP。
+- `pub fn spawn_background_check_after_outbound_restore(app_handle: &AppHandle)` — `background_task.rs:149-183`：阻塞线程池轮询等 IP 就绪（最长上限），结束后调 `spawn_background_check_once`（`background_task.rs:181`）；join 失败按等满上限处理。
+- 测试：`post_restore_wait_stops_at_cap`（`background_task.rs:191-196`）、`post_restore_wait_zero_budget_never_waits`（`background_task.rs:200-202`）。
 
 ### 巡检主体与 Portal 检测（`monitor/background_check.rs`、`monitor/portal_check.rs`）
 
 - `pub(crate) fn should_reset_logged_online(reachable: bool, any_online: bool, has_logged_online: bool) -> bool` — `background_check.rs:25-27` 纯函数，`reachable && !any_online && has_logged_online`。
-- `pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &CancellationToken)` — `background_check.rs:34-400`：退出/取消即返（`:30-32`）；`is_checking.try_acquire()` 并发跳过（`:33-35`）；适配器取 `get_adapters_cached` 空则降级 `get_adapters_force`（`:43-52`）；出站切换态 `outbound_restore_active` 跳过本轮（`:64-71`）；校园网静默期 `is_campus_check_silent` 跳过验证但置 `on_campus=true`（`:72-101`）；失败触发 `start_campus_exit`/`cancel_campus_exit`（`:89,157,164`）；双适配器并行 Portal 检测用 `Handle::current().block_on`+`spawn_blocking`+`tokio::join!`（`:177-189`）；Portal 请求失败调 `handle_portal_request_failure` 累加计数（`:213-234`）；成功重置失败计数（`:243-261`）；`should_reset_logged_online` 判定重置 `has_logged_online`（`:334-340`）；调 `handle_status_change`（`:341-346`）与 `emit_background_check_result` 使用 `BackgroundCheckResult` 结构（`:357-378`）；调 `try_auto_login_on_preparation`（`:380`）与 `try_disconnect_reconnect`（`:382-386`）；仅未重连时 `update_network_state`（`:390-392`）。
-- `pub async fn run_background_check(app_handle: &AppHandle, cancel_token: Arc<CancellationToken>)` — `background_check.rs:400-408`：`spawn_blocking` 调 blocking 版，异常记日志。
-- 测试：`no_reset_while_online`（`:416-420`）、`no_reset_when_unreachable`（`:424-426`）、`no_reset_when_never_logged_in`（`:430-432`）、`reset_when_reachable_offline_and_logged_before`（`:436-438`）。
+- `pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &CancellationToken) -> CheckOutcome` — `background_check.rs:33-435`：退出/取消即返（`:30-32`）；`is_checking.try_acquire()` 并发跳过（`:33-35`）；适配器取 `get_adapters_cached` 空则降级 `get_adapters_force`（`:43-52`）；出站切换态 `outbound_restore_active` 跳过本轮（`:63-70`）；校园网静默期 `is_campus_check_silent` 跳过验证但置 `on_campus=true`（`:71-100`）；失败触发 `start_campus_exit`/`cancel_campus_exit`（`:88,156,163`）；双适配器并行 Portal 检测用 `Handle::current().block_on`+`spawn_blocking`+`tokio::join!`（`:176-188`）；Portal 请求失败调 `handle_portal_request_failure` 累加计数（`:216-253`）；成功重置失败计数（`:262-281`）；`should_reset_logged_online` 判定重置 `has_logged_online`（`:354-360`）；调 `handle_status_change`（`:361-366`）与 `emit_background_check_result` 使用 `BackgroundCheckResult` 结构（`:377-398`）；调 `try_auto_login_on_preparation`（`:400`）与 `try_disconnect_reconnect`（`:402-406`）；仅未重连时 `update_network_state`（`:410-412`）；`OnlineButPortalUnreachable` 结局联动 `trigger_fast_quality_check`（`:425-427,436-505`）。
+- `pub async fn run_background_check(app_handle: &AppHandle, cancel_token: Arc<CancellationToken>) -> CheckOutcome` — `background_check.rs:510-519`：`spawn_blocking` 调 blocking 版，异常记日志。
+- 测试：`no_reset_while_online`（`:527-531`）、`no_reset_when_unreachable`（`:535-537`）、`no_reset_when_never_logged_in`（`:541-543`）、`reset_when_reachable_offline_and_logged_before`（`:547-549`）。
 - `pub(super) enum PortalCheckResult` — `portal_check.rs:6-19`：变体 `Success{online:bool, message:String, reachable:bool, login_available:bool, uid:Option<String>}`（`:7-14`）、`Error{is_request_failed:bool}`（`:15-17`）、`NotFound`（`:18`）。
 - `impl PortalCheckResult` — `portal_check.rs:21-57`：方法 `online()`（`:22-27`）、`message()`（`:29-35`）、`reachable()`（`:37-42`）、`login_available()`（`:44-49`）、`uid()`（`:51-56`）。
 - `pub(super) fn check_adapter_portal(adapter: &Adapter, app_handle: &AppHandle) -> PortalCheckResult` — `portal_check.rs:59-93`：调 `check_portal_full`，`error_kind=="request_failed"` 返回 `Error{is_request_failed:true}` 并 emit 日志（`:65-72`）；异常返回 `Error{is_request_failed:false}`（`:83-91`）。
 
 ### 自动登录与断线重连（`monitor/auto_auth.rs`）
 
-- 常量 `RECONNECT_REMINDER_INTERVAL: u32 = 10`（`auto_auth.rs:14`）、`PREP_LOGIN_MAX_FAILURES: u32 = 5`（`auto_auth.rs:22`）、`PREP_LOGIN_BACKOFF_CAP_SECS: u64 = 300`（`auto_auth.rs:28`）。
-- `pub fn reconnect_attempt_allowed(reconnect_count: u32, max_reconnect: u32) -> bool` — `auto_auth.rs:33-36`：`reconnect_count <= max_reconnect || (reconnect_count - max_reconnect) % RECONNECT_REMINDER_INTERVAL == 0`。
-- `pub fn prep_login_backoff_secs(failures: u32, base_cooldown_secs: u64) -> u64` — `auto_auth.rs:41-51`：未达上限返 base，达上限指数翻倍封顶。
-- `pub fn prep_login_cooldown_ready(failures: u32, elapsed_secs: u64, base_cooldown_secs: u64) -> bool` — `auto_auth.rs:54-56`：`elapsed_secs >= prep_login_backoff_secs(...)`。
-- `pub fn is_time_window_refusal(msg: &str) -> bool` — `auto_auth.rs:63-74`：识别“时间段/时段/时间范围/服务时间/时间未到/不在允许”等中文关键词及英文 time range。
-- `pub fn prep_failures_after_failure(failures: u32, failure_msg: &str) -> u32` — `auto_auth.rs:79-85`：时间窗拒绝不累加，其余失败累加。
-- `pub fn reconnect_should_report(login_success: bool, within_limit: bool) -> bool` — `auto_auth.rs:91-93` 返回 `login_success && within_limit`。
-- `pub fn try_auto_login_on_preparation(app_handle, state, login_available: bool, online: bool, config: &Config)` — `auto_auth.rs:95-204`：门控 `!login_available||online||!auto_login_on_preparation`（`:120-121`）；`has_logged_online` 跳过（`:126-128`）；连续失败 `prep_login_failures>=PREP_LOGIN_MAX_FAILURES` 退避（`:132-139`）；注销保护期/冷却期检查（`:141-158`）；`is_logging_in.try_acquire()` 后 `full_login`（`:161-164`）；成功置 `has_logged_online=true` 且失败计数清零（`:180-184`）。
-- `pub fn try_disconnect_reconnect(app_handle, state, online: bool, secondary_online: Option<bool>, a1: Option<&Adapter>, adapter1_name: &str, adapter2_name: &str, reachable: bool, login_available: bool, config: &Config) -> bool` — `auto_auth.rs:207-316`：非 `any_adapter_online` 等条件返 false（`:223-225`）；获登录锁后 `disconnect_reconnect_count` 自增（`:248-251`）；超限释放锁并通知（`:294-307`）；返回 `reconnect_should_report`（`:315`）。
-- `pub fn run_auto_login_on_start(app_handle: &AppHandle)` — `auto_auth.rs:318-567`：`auto_login_on_start` 门控（`:322-324`）；`--autostart` 决定延迟 5000/1500ms（`:326-327`）；自启时适配器未就绪重试3次（`:364-378`）；校园网静默/检测逻辑（`:385-436`）；双适配器并行 Portal 检测（`:448-464`）；已在线跳过（`:479-504`）；`full_login` 执行（`:519-530`）；成功可 `start_auto_exit`（`:558-561`）。
-- 测试：`reconnect_success_within_limit_reports_true`（`:574-577`）、`time_window_refusal_classification`（`:580-592`）、`time_window_refusal_does_not_grow_backoff`（`:595-602`）、`reconnect_failure_never_reports_true`（`:605-608`）、`reconnect_success_over_limit_reports_false`（`:611-614`）、`reconnect_allowed_within_limit`（`:618-621`）、`reconnect_allowed_periodically_after_limit`（`:625-630`）、`prep_login_backoff_below_limit_uses_base_cooldown`（`:634-637`）、`prep_login_backoff_grows_exponentially_after_limit`（`:641-645`）、`prep_login_backoff_capped`（`:650-653`）、`prep_login_ready_after_backoff_elapsed_even_at_limit`（`:658-664`）。
+- 常量 `RECONNECT_REMINDER_INTERVAL: u32 = 10`（`auto_auth.rs:13`）、`PREP_LOGIN_MAX_FAILURES: u32 = 5`（`auto_auth.rs:21`）、`PREP_LOGIN_BACKOFF_CAP_SECS: u64 = 300`（`auto_auth.rs:27`）。
+- `pub fn reconnect_attempt_allowed(reconnect_count: u32, max_reconnect: u32) -> bool` — `auto_auth.rs:32-35`：`reconnect_count <= max_reconnect || (reconnect_count - max_reconnect) % RECONNECT_REMINDER_INTERVAL == 0`。
+- `pub fn prep_login_backoff_secs(failures: u32, base_cooldown_secs: u64) -> u64` — `auto_auth.rs:40-50`：未达上限返 base，达上限指数翻倍封顶。
+- `pub fn prep_login_cooldown_ready(failures: u32, elapsed_secs: u64, base_cooldown_secs: u64) -> bool` — `auto_auth.rs:53-55`：`elapsed_secs >= prep_login_backoff_secs(...)`。
+- `pub fn is_time_window_refusal(msg: &str) -> bool` — `auto_auth.rs:62-73`：识别“时间段/时段/时间范围/服务时间/时间未到/不在允许”等中文关键词及英文 time range。
+- `pub fn prep_failures_after_failure(failures: u32, failure_msg: &str) -> u32` — `auto_auth.rs:78-84`：时间窗拒绝不累加，其余失败累加。
+- `pub fn reconnect_should_report(login_success: bool, within_limit: bool) -> bool` — `auto_auth.rs:90-92` 返回 `login_success && within_limit`。
+- `pub fn try_auto_login_on_preparation(app_handle, state, login_available: bool, online: bool, config: &Config)` — `auto_auth.rs:94-203`：门控 `!login_available||online||!auto_login_on_preparation`（`:119-121`）；`has_logged_online` 跳过（`:125-127`）；连续失败 `prep_login_failures>=PREP_LOGIN_MAX_FAILURES` 退避（`:131-138`）；注销保护期/冷却期检查（`:140-157`）；`is_logging_in.try_acquire()` 后 `full_login`（`:160-163`）；成功置 `has_logged_online=true` 且失败计数清零（`:179-183`）。
+- `pub fn try_disconnect_reconnect(app_handle, state, online: bool, secondary_online: Option<bool>, a1: Option<&Adapter>, adapter1_name: &str, adapter2_name: &str, reachable: bool, login_available: bool, config: &Config) -> bool` — `auto_auth.rs:206-315`：非 `any_adapter_online` 等条件返 false（`:221-224`）；获登录锁后 `disconnect_reconnect_count` 自增（`:247-250`）；超限释放锁并通知（`:293-307`）；返回 `reconnect_should_report`（`:314`）。
+- `pub fn run_auto_login_on_start(app_handle: &AppHandle)` — `auto_auth.rs:317-566`：`auto_login_on_start` 门控（`:321-323`）；`--autostart` 决定延迟 5000/1500ms（`:325-326`）；自启时适配器未就绪重试3次（`:363-378`）；校园网静默/检测逻辑（`:384-435`）；双适配器并行 Portal 检测（`:450-463`）；已在线跳过（`:478-503`）；`full_login` 执行（`:518-529`）；成功可 `start_auto_exit`（`:557-560`）。
+- 测试：`reconnect_success_within_limit_reports_true`（`:573-576`）、`time_window_refusal_classification`（`:579-591`）、`time_window_refusal_does_not_grow_backoff`（`:594-601`）、`reconnect_failure_never_reports_true`（`:604-607`）、`reconnect_success_over_limit_reports_false`（`:610-613`）、`reconnect_allowed_within_limit`（`:617-620`）、`reconnect_allowed_periodically_after_limit`（`:624-629`）、`prep_login_backoff_below_limit_uses_base_cooldown`（`:633-636`）、`prep_login_backoff_grows_exponentially_after_limit`（`:640-644`）、`prep_login_backoff_capped`（`:649-652`）、`prep_login_ready_after_backoff_elapsed_even_at_limit`（`:657-663`）。
 
 ### 延迟与质量调度（`monitor/latency.rs`、`monitor/quality_scheduler.rs`）
 
@@ -85,7 +86,7 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 - 测试：`degraded_to_bad_level_triggers_pending_bad`（`:167-170`）、`recovery_from_bad_level_triggers_good`（`:173-176`）、`same_level_or_unknown_last_never_notifies`（`:179-183`）、`middle_levels_crossing_never_notifies`（`:186-192`）、`notification_disabled_never_classifies`（`:195-198`）。
 - 常量 `SPIKE_CONFIRM_COUNT: usize = 2`（`quality_scheduler.rs:12`）、`SPIKE_CONFIRM_INTERVAL_SECS: u64 = 15`（`quality_scheduler.rs:13`）。
 - `async fn perform_quality_check(app_handle, adapter_name: &str, adapter_ip: &str, lightweight: bool) -> Option<serde_json::Value>` — `quality_scheduler.rs:25-51`：`is_quality_checking.try_acquire()` 互斥（`:25`），调 `check_network_quality_async`（`:29`），落盘历史与 emit 结果。
-- `pub(super) async fn run_quality_check(app_handle, adapter_name: &str, adapter_ip: &str, cancel: Option<&CancellationToken>)` — `quality_scheduler.rs:56-121`：首次检测后 `classify_quality_change` 若 `Some("bad")` 触发复核：15s 间隔轻量化再测2次（`:70-103`），全确认才 `notify_quality_change("bad")`（`:104-105`）；其余 kind 直接通知并记录（`:111-116`）。
+- `pub(super) async fn run_quality_check(app_handle, adapter_name: &str, adapter_ip: &str, cancel: Option<&CancellationToken>)` — `quality_scheduler.rs:56-122`：首次检测后 `classify_quality_change` 若 `Some("bad")` 触发复核：15s 间隔轻量化再测2次（`:73-105`），全确认才 `notify_quality_change("bad")`（`:107-109`）；其余 kind 直接通知并记录（`:114-119`）。
 
 ### 校园网检测与结果发射（`monitor/campus_check.rs`、`monitor/background_emit.rs`）
 
@@ -106,25 +107,25 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 ### 定时动作与夜间出站编排（`monitor/scheduled.rs`、`monitor/outbound_switch.rs`、`monitor/outbound_night.rs`）
 
-- 常量 `SCHEDULED_TICK_MS: u64 = 30_000`（`scheduled.rs:42`）、`NIGHT_VERIFY_WAIT_SECS: u64 = 15`（`scheduled.rs:46`）、`NIGHT_VERIFY_RETRY_SECS: u64 = 5`（`scheduled.rs:47`）、`NIGHT_VERIFY_ATTEMPTS: u32 = 3`（`scheduled.rs:48`）、`NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15`（`scheduled.rs:49`）、`SCHEDULED_LOGIN_MAX_RETRIES: u32 = 3`（`scheduled.rs:333`）。
-- `pub async fn run_scheduled_action_loop` — `scheduled.rs:164-298`：启动前 `reconcile_outbound_on_startup`（来自 super::outbound_night，`:59`）与 `reconcile_scheduled_logout_on_startup`（`:61`）；循环内 tokio::select 等 tick/cancel（`:63-70`）；`is_quitting` 判断退出（`:75-77`）；算 now_minutes/today_day/config_snapshot；用拍前 `outbound_switch_active`（`:88`）门控 `evaluate_scheduled`（`:89-92`）得 (fire_login,fire_logout) 调 `run_scheduled_login`/`run_scheduled_logout`；再算 restore_active 调 `evaluate_outbound_action`（`:107-119`）匹配 `NightOutboundAction` 三分支经 `run_outbound_blocking` 执行 `apply_outbound_switch`/`apply_outbound_restore` 或 replay/watchdog（`:120-161`）；拍后取 `outbound_active`（`:164`）门控 `evaluate_night_switch_gated`（`:168-181`）得 night_action 调 `apply_night_switch_action`（`:182-184`）。
-- `fn is_quitting` — `scheduled.rs:190-192` 抽离避免跨 await 持 State 守卫。
-- `fn reconcile_scheduled_logout_on_startup` — `scheduled.rs:202-217` 冷启动若 now_minutes>=scheduled_logout_minutes 置 logout_day 消耗额度不执行。
-- `fn evaluate_scheduled` — `scheduled.rs:226-237` 装配 AppState 调共享纯函数 `evaluate_scheduled_actions`。
-- `fn mark_scheduled_day_fired` — `scheduled.rs:243-251`（`#[cfg_attr(not(test), allow(dead_code))]`）置 login_day/logout_day。
-- `fn format_minutes` — `scheduled.rs:253-255` 补零格式化 mm:ss。
-- `fn run_scheduled_login` — `scheduled.rs:260-267` 调 `spawn_login_action` 传 Some(today_day)。
-- `fn spawn_login_action` — `scheduled.rs:273-329`：抢 `tasks.is_logging_in` 锁（`:279`），抢到后若 login_quota_day 有值置额度（`:294-296`），调 `auth::service::full_login`（`:297`）与 `post_login_handler`（`:307`），emit 日志；失败补试逻辑（`:308-327`）。
-- `fn apply_night_switch_action` — `scheduled.rs:353-380`：改内存 config（SwitchToCampus 将原 operator 存 night_operator_restore 并置空串=无锡学院，Restore 反之）（`:343-352`），调 `save_config_and_broadcast` 落盘（`:353`）失败则不 store 返回；成功 store 后调 `spawn_login_action`（None 额度）并 spawn `verify_night_switch`（`:364`）。
-- `fn run_scheduled_logout` — `scheduled.rs:372-376` spawn_blocking 调 `perform_logout`。
-- `fn perform_logout` — `scheduled.rs:383-417`：抢 `tasks.is_logging_out` 锁（`:386`），成功后置 logout_day 额度（`:395-397`），调 `full_logout`（`:398`）；成功则取消自动退出、重置 failure_tracker、启动 60s 注销保护期（`:405-416`）。
-- `async fn verify_night_switch` — `scheduled.rs:452-489`：等 15s，`night_verify_config` 检查 operator 仍匹配否则跳过（`:425,437`）；`night_switch_verify_round` 重试 3 次间隔 5s（`:428,444`）；不符则注销重登再验（`:435-442`），最终不符发告警日志+`emit_notification`（`:449-458`）。
-- `fn night_verify_config` — `scheduled.rs:464-468` operator != expected_operator 返 None 跳过验证。
-- `async fn night_switch_verify_round` — `scheduled.rs:474-492` 用 `create_safe_http_client` 做 NIGHT_VERIFY_ATTEMPTS 轮。
-- `async fn night_switch_check_once` — `scheduled.rs:493-517` 构造 chkstatus URL（经 `portal_origin`），parse_chkstatus+uid_matches 核对。
-- `pub(crate) fn portal_origin` — `scheduled.rs:521-531` 取 portal_url 的 origin，空值回退 default_portal_url。
-- `fn expected_operator_display` — `scheduled.rs:534-540` 空串显“无锡学院”。
-- 测试模块（`scheduled.rs:542-658`）：`禁用目标_不触发_不置标记`（`:549-557`）、`到点触发_置当日标记`（`:560-579`）、`跨天重置_次日再触发`（`:582-589`）、`切换态_跳过定时登录且不消耗当日标记_注销照常`（`:592-618`）、`format_minutes_补零`（`:621-624`）、`定时登录补试计数_累加清零跨天归零`（`:628-638`）、`定时登录失败回退额度_补试用尽后当日停止`（`:643-658`）。
+- 常量 `SCHEDULED_TICK_MS: u64 = 30_000`（`scheduled.rs:42`）、`NIGHT_VERIFY_WAIT_SECS: u64 = 15`（`scheduled.rs:46`）、`NIGHT_VERIFY_RETRY_SECS: u64 = 5`（`scheduled.rs:47`）、`NIGHT_VERIFY_ATTEMPTS: u32 = 3`（`scheduled.rs:48`）、`NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15`（`scheduled.rs:49`）、`SCHEDULED_LOGIN_MAX_RETRIES: u32 = 20`（`scheduled.rs:342`）。
+- `pub async fn run_scheduled_action_loop` — `scheduled.rs:172-314`：启动前 `reconcile_outbound_on_startup`（来自 super::outbound_night，`:59`）与 `reconcile_scheduled_logout_on_startup`（`:61`）；循环内 tokio::select 等 tick/cancel（`:63-70`）；`is_quitting` 判断退出（`:75-77`）；算 now_minutes/today_day/config_snapshot；用拍前 `outbound_switch_active`（`:88`）门控 `evaluate_scheduled`（`:89-92`）得 (fire_login,fire_logout) 调 `run_scheduled_login`/`run_scheduled_logout`；再算 restore_active 调 `evaluate_outbound_action`（`:107-119`）匹配 `NightOutboundAction` 三分支经 `run_outbound_blocking` 执行 `apply_outbound_switch`/`apply_outbound_restore` 或 replay/watchdog（`:120-169`）；拍后取 `outbound_active`（`:172`）门控 `evaluate_night_switch_gated`（`:176-189`）得 night_action 调 `apply_night_switch_action`（`:190-192`）。
+- `fn is_quitting` — `scheduled.rs:198-200` 抽离避免跨 await 持 State 守卫。
+- `fn reconcile_scheduled_logout_on_startup` — `scheduled.rs:210-225` 冷启动若 now_minutes>=scheduled_logout_minutes 置 logout_day 消耗额度不执行。
+- `fn evaluate_scheduled` — `scheduled.rs:234-245` 装配 AppState 调共享纯函数 `evaluate_scheduled_actions`。
+- `fn mark_scheduled_day_fired` — `scheduled.rs:252-259`（`#[cfg_attr(not(test), allow(dead_code))]`）置 login_day/logout_day。
+- `fn format_minutes` — `scheduled.rs:261-263` 补零格式化 mm:ss。
+- `fn run_scheduled_login` — `scheduled.rs:268-275` 调 `spawn_login_action` 传 Some(today_day)。
+- `fn spawn_login_action` — `scheduled.rs:281-337`：抢 `tasks.is_logging_in` 锁（`:287`），抢到后若 login_quota_day 有值置额度（`:302-304`），调 `auth::service::full_login`（`:305`）与 `post_login_handler`（`:315`），emit 日志；失败补试逻辑（`:316-335`）。
+- `fn apply_night_switch_action` — `scheduled.rs:362-389`：改内存 config（SwitchToCampus 将原 operator 存 night_operator_restore 并置空串=无锡学院，Restore 反之）（`:350-361`），调 `save_config_and_broadcast` 落盘（`:362`）失败则不 store 返回；成功 store 后调 `spawn_login_action`（None 额度）并 spawn `verify_night_switch`（`:369`）。
+- `fn run_scheduled_logout` — `scheduled.rs:381-385` spawn_blocking 调 `perform_logout`。
+- `fn perform_logout` — `scheduled.rs:392-426`：抢 `tasks.is_logging_out` 锁（`:395`），成功后置 logout_day 额度（`:404-406`），调 `full_logout`（`:407`）；成功则取消自动退出、重置 failure_tracker、启动 60s 注销保护期（`:414-425`）。
+- `async fn verify_night_switch` — `scheduled.rs:461-498`：等 15s，`night_verify_config` 检查 operator 仍匹配否则跳过（`:434,437`）；`night_switch_verify_round` 重试 3 次间隔 5s（`:437,452`）；不符则注销重登再验（`:449-451`），最终不符发告警日志+`emit_notification`（`:458-467`）。
+- `fn night_verify_config` — `scheduled.rs:473-477` operator != expected_operator 返 None 跳过验证。
+- `async fn night_switch_verify_round` — `scheduled.rs:483-501` 用 `create_safe_http_client` 做 NIGHT_VERIFY_ATTEMPTS 轮。
+- `async fn night_switch_check_once` — `scheduled.rs:502-526` 构造 chkstatus URL（经 `portal_origin`），parse_chkstatus+uid_matches 核对。
+- `pub(crate) fn portal_origin` — `scheduled.rs:530-540` 取 portal_url 的 origin，空值回退 default_portal_url。
+- `fn expected_operator_display` — `scheduled.rs:543-549` 空串显“无锡学院”。
+- 测试模块（`scheduled.rs:551-672`）：`禁用目标_不触发_不置标记`（`:558-566`）、`到点触发_置当日标记`（`:569-588`）、`跨天重置_次日再触发`（`:591-598`）、`切换态_跳过定时登录且不消耗当日标记_注销照常`（`:601-627`）、`format_minutes_补零`（`:630-633`）、`定时登录补试计数_累加清零跨天归零`（`:637-650`）、`定时登录失败回退额度_补试用尽后当日停止`（`:655-671`）。
 
 - `pub fn is_campus_adapter(ip, gateway, campus_gateway, portal_host, gateway_probe: Fn(&str,&str)->bool) -> bool` — `outbound_switch.rs:17-39`：IP 空否（`:24`）；同 /18 真；否则绑源探校园网关或 portal 两发去抖任一可达即真（`:35-38`）。
 - `pub fn portal_probe_host(portal_url) -> String` — `outbound_switch.rs:44-56` 从 portal_url 提取私网 IPv4 主机，域名/公网/空返空串。
@@ -135,18 +136,30 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 - `pub struct DisabledRow` — `outbound_switch.rs:142-145` 含字段 `guid:String`/`name:String`，记录本功能亲手禁用卡。
 - `pub fn disabled_adapters_json` — `outbound_switch.rs:148-150` 序列化禁用名单，兜底 `"[]"`。
 - `pub fn parse_disabled_adapters` — `outbound_switch.rs:156-161` 空串->空名单 Ok，非法 JSON->Err。
-- `pub struct StandbyRoute` — `outbound_switch.rs:168-176` 含字段 `dest:String`/`mask:String`/`gateway:String`/`metric:u32`/`if_index:u32`，历史兜底默认路由快照。
-- `pub fn parse_standby_route` — `outbound_switch.rs:179-181` 空/非法->None。
-- `pub enum StandbyCleanup` — `outbound_switch.rs:186-196` 变体 `AlreadyGone`/`ForeignRowKept`/`LastDefaultPath`/`Safe`。
-- `pub fn standby_cleanup_decision` — `outbound_switch.rs:203-220` 纯函数，按 same_key_metrics/standby_metric/rows_outside_exact 判。
-- `pub fn standby_route_cleanup` — `outbound_switch.rs:224-264 (windows) / :268-270 (not windows)`：非 windows 返 AlreadyGone（`:268-270`）。
-- `pub(crate) fn unsafe_to_disable` (cfg windows) — `outbound_switch.rs:278-280` 实例 ID 读不到返 true 保守跳过。
-- `pub fn select_campus_to_disable(priority, details, campus_gateway, portal_host, exclude_guid, gateway_probe, bus_guard) -> Vec<DisabledRow>` — `outbound_switch.rs:285-318` 过滤目标卡/无 IP/非校园/guard 命中，同名去重。
-- 测试模块（`outbound_switch.rs:346-691`）：`campus_adapter_by_subnet`(`:345-349`)、`campus_adapter_off_subnet_probe_reachable`(`:351-355`)、`campus_adapter_off_subnet_probe_unreachable`(`:357-361`)、`campus_adapter_empty_ip_is_false`(`:363-366`)、`campus_adapter_empty_gateway_skips_probe`(`:368-372`)、`candidate_skips_campus_and_ipless_and_out_of_list`(`:374-389`)、`candidate_probe_reachable_means_campus_skipped`(`:391-396`)、`candidate_priority_name_absent_from_details_skips`(`:398-406`)、`candidate_empty_priority_returns_none`(`:408-414`)、`effective_priority_non_empty_passthrough`(`:416-425`)、`effective_priority_empty_defaults_wireless_first`(`:427-439`)、`effective_priority_empty_multiple_wireless_keep_discovery_order`(`:441-453`)、`effective_priority_empty_no_adapters_is_empty`(`:455-459`)、`candidate_skips_gatewayless_and_dead_gateway_cards`(`:461-478`)、`campus_probe_single_loss_still_counts_as_campus`(`:480-489`)、`snapshot_json_round_trip_with_guid`(`:491-504`)、`snapshot_json_empty_rows`(`:506-510`)、`disabled_adapters_json_round_trip`(`:512-524`)、`standby_route_snapshot_parses_legacy_config_json`(`:526-544`)、`select_campus_to_disable_filters_everything_non_campus`(`:546-574`)、`select_campus_to_disable_probe_reachable_counts_and_dedups`(`:576-592`)、`select_campus_to_disable_unknown_bus_is_skipped`(`:594-608`)、`campus_adapter_portal_probe_reachable`(`:610-622`)、`campus_adapter_portal_unreachable_stays_non_campus`(`:624-635`)、`campus_adapter_portal_probe_single_loss_still_counts`(`:637-654`)、`campus_adapter_empty_gateway_portal_reachable`(`:656-660`)、`portal_probe_host_extracts_private_ipv4`(`:662-671`)、`standby_cleanup_never_deletes_foreign_or_last_default_route`(`:673-691`)。
+- `pub const PENDING_TAG_WAIT_LOGIN: &str` — `outbound_switch.rs:164`。
+- `pub struct PendingSwitchRow` — `outbound_switch.rs:171-176` 含字段 `target:String`/`tag:String`/`day:i32`。
+- `pub fn pending_switch_json` — `outbound_switch.rs:179-186` 序列化待切换状态，兜底空串。
+- `pub fn parse_pending_switch` — `outbound_switch.rs:190-195` 空/非法->None。
+- `pub fn monitored_adapter_online` — `outbound_switch.rs:200-214` 按名匹配返回监测在线结论 Option<bool>。
+- `pub struct StandbyRoute` — `outbound_switch.rs:222-229` 含字段 `dest:String`/`mask:String`/`gateway:String`/`metric:u32`/`if_index:u32`，历史兜底默认路由快照。
+- `pub fn parse_standby_route` — `outbound_switch.rs:232-234` 空/非法->None。
+- `pub enum StandbyCleanup` — `outbound_switch.rs:239-249` 变体 `AlreadyGone`/`ForeignRowKept`/`LastDefaultPath`/`Safe`。
+- `pub fn standby_cleanup_decision` — `outbound_switch.rs:256-273` 纯函数，按 same_key_metrics/standby_metric/rows_outside_exact 判。
+- `pub fn standby_route_cleanup` — `outbound_switch.rs:277-317 (windows) / :321-323 (not windows)`：非 windows 返 AlreadyGone（`:321-323`）。
+- `pub(crate) fn unsafe_to_disable` (cfg windows) — `outbound_switch.rs:331-333` 实例 ID 读不到返 true 保守跳过。
+- `pub fn select_campus_to_disable(priority, details, campus_gateway, portal_host, exclude_guid, gateway_probe, bus_guard) -> Vec<DisabledRow>` — `outbound_switch.rs:338-371` 过滤目标卡/无 IP/非校园/guard 命中，同名去重。
+- 测试模块（`outbound_switch.rs:399-786`）：`campus_adapter_by_subnet`(`:399-402`)、`campus_adapter_off_subnet_probe_reachable`(`:405-408`)、`campus_adapter_off_subnet_probe_unreachable`(`:411-414`)、`campus_adapter_empty_ip_is_false`(`:417-419`)、`campus_adapter_empty_gateway_skips_probe`(`:422-425`)、`candidate_skips_campus_and_ipless_and_out_of_list`(`:428-442`)、`candidate_probe_reachable_means_campus_skipped`(`:445-449`)、`candidate_priority_name_absent_from_details_skips`(`:452-459`)、`candidate_empty_priority_returns_none`(`:462-467`)、`effective_priority_non_empty_passthrough`(`:470-478`)、`effective_priority_empty_defaults_wireless_first`(`:481-492`)、`effective_priority_empty_multiple_wireless_keep_discovery_order`(`:495-506`)、`effective_priority_empty_no_adapters_is_empty`(`:509-512`)、`candidate_skips_gatewayless_and_dead_gateway_cards`(`:515-531`)、`campus_probe_single_loss_still_counts_as_campus`(`:534-542`)、`snapshot_json_round_trip_with_guid`(`:545-557`)、`snapshot_json_empty_rows`(`:560-563`)、`disabled_adapters_json_round_trip`(`:566-577`)、`pending_switch_json_round_trip`(`:580-604`)、`monitored_adapter_online_matches_by_name`(`:607-619`)、`standby_route_snapshot_parses_legacy_config_json`(`:622-639`)、`select_campus_to_disable_filters_everything_non_campus`(`:642-669`)、`select_campus_to_disable_probe_reachable_counts_and_dedups`(`:672-687`)、`select_campus_to_disable_unknown_bus_is_skipped`(`:690-703`)、`campus_adapter_portal_probe_reachable`(`:706-717`)、`campus_adapter_portal_unreachable_stays_non_campus`(`:720-730`)、`campus_adapter_portal_probe_single_loss_still_counts`(`:733-749`)、`campus_adapter_empty_gateway_portal_reachable`(`:752-755`)、`portal_probe_host_extracts_private_ipv4`(`:758-766`)、`standby_cleanup_never_deletes_foreign_or_last_default_route`(`:769-785`)。
 
-- `outbound_night.rs` 常量与辅助：`OUTBOUND_HELPER_TIMEOUT_SECS: u64 = 30`(`:20`)、`OUTBOUND_BACKOFF_START_MS: u64 = 60_000`(`:24`)、`OUTBOUND_BACKOFF_MAX_MS: u64 = 300_000`(`:25`)、`OUTBOUND_RESTORE_ALERT_FAILS: u32 = 3`(`:30`)、`OUTBOUND_RESTORE_ALERT_REMIND_EVERY: u32 = 20`(`:32`)、`OUTBOUND_RESTORE_GIVE_UP_FAILS: u32 = 40`(`:36`)。
-- `fn outbound_restore_alert_due(count: u32) -> bool` — `:39-42`；`fn notify_outbound_issue_once_per_day` — `:46-52`；静态原子变量退避记账 — `:55-70`；`static OUTBOUND_ACTION_BUSY` — `:76`；`struct OutboundActionGuard` RAII 锁 — `:79-94`；`pub(super) async fn run_outbound_blocking` — `:98-110`；`pub(super) fn outbound_switch_active` — `:114-121`；`fn in_outbound_restore_window` — `:125-127`；`fn outbound_backoff_ms` — `:137-144`；`fn backoff_gate` — `:148-153`；`fn switch_gate_open`/`restore_gate_open` — `:155-169`；`fn mark_outbound_failure`/`clear_outbound_failure` — `:172-181`；`fn outbound_allow_uac` — `:184-186`；`fn note_channel_failure`/`clear_outbound_channel_failure` — `:189-198`；`pub(super) fn needs_replay` — `:203-205`；`struct OutboundSnapshotRow` — `:209-215`；`fn parse_outbound_snapshot` — `:218-223`；`struct HelperFailure` — `:226-233`；`fn run_helper_op` — `:239-265`；`fn enable_campus_adapter` (cfg desktop `:276-287` / not desktop `:291-296`)；`fn write_outbound_metric` — `:304-365`；`pub(super) fn apply_outbound_switch` — `:391-583`；`pub(super) fn replay_outbound_switch` — `:600-688`；`pub(super) fn watchdog_re_disable_campus` — `:697-762`；`pub(super) fn apply_outbound_restore` — `:776-1089`；`fn finish_outbound_restore` — `:1096-1112`；`fn clear_outbound_snapshot` — `:1116-1134`；`fn set_outbound_manual_hold`/`clear_outbound_manual_hold` — `:1140-1156`；`pub(crate) fn manual_outbound_switch` — `:1162-1180`；`pub(crate) fn manual_outbound_restore` — `:1184-1197`；`pub(super) fn reconcile_outbound_on_startup` — `:1204-1262`。
-- 测试（`outbound_night.rs:1264-1373`）：`还原失败告警_首达阈值触发_此后周期重复`(`:1268-1281`)、`重放闸_仅切换态且留有失败历史时才补齐`(`:1283-1294`)、`退避窗_起步六十秒_每失败翻倍封顶三百秒`(`:1296-1304`)、`退避闸_无失败历史恒放行`(`:1306-1312`)、`退避闸_首败六十秒内压制_六十秒后放行`(`:1314-1319`)、`退避闸_第二败退避翻倍`(`:1321-1326`)、`退避闸_封顶后三百秒内压制_三百秒后放行`(`:1328-1335`)、`退避闸_时钟回拨按压制处理`(`:1337-1340`)、`快照解析_空串为空表_非法json报错`(`:1342-1353`)、`单飞闸_同一时刻只放一个出站动作_释放后可再取`(`:1357-1370`)。
+- `outbound_night.rs` 常量与辅助：`OUTBOUND_HELPER_TIMEOUT_SECS: u64 = 30`(`:20`)、`OUTBOUND_BACKOFF_START_MS: u64 = 60_000`(`:25`)、`OUTBOUND_BACKOFF_MAX_MS: u64 = 300_000`(`:26`)、`OUTBOUND_RESTORE_ALERT_FAILS: u32 = 3`(`:31`)、`OUTBOUND_RESTORE_ALERT_REMIND_EVERY: u32 = 20`(`:33`)、`OUTBOUND_RESTORE_GIVE_UP_FAILS: u32 = 40`(`:37`)。
+- `fn outbound_restore_alert_due(count: u32) -> bool` — `:40-43`；`fn notify_outbound_issue_once_per_day` — `:47-53`；静态原子变量退避记账 — `:56-71`；`static OUTBOUND_ACTION_BUSY` — `:77`；`struct OutboundActionGuard` RAII 锁 — `:80-95`；`pub(super) async fn run_outbound_blocking` — `:99-111`；`pub(super) fn outbound_switch_active` — `:115-122`；`fn in_outbound_restore_window` — `:126-128`；`fn outbound_backoff_ms` — `:138-145`；`fn backoff_gate` — `:149-154`；`fn switch_gate_open`/`restore_gate_open` — `:156-170`；`fn mark_outbound_failure`/`clear_outbound_failure` — `:173-182`；`fn outbound_allow_uac` — `:185-187`；`fn note_channel_failure`/`clear_outbound_channel_failure` — `:190-199`；`pub(super) fn needs_replay` — `:204-206`；`struct OutboundSnapshotRow` — `:211-216`；`fn parse_outbound_snapshot` — `:219-224`；`struct HelperFailure` — `:227-234`；`fn run_helper_op` — `:240-266`；`fn enable_campus_adapter` (cfg desktop `:276-288` / not desktop `:292-297`)；`fn write_outbound_metric` — `:305-366`；`fn target_adapter_logged_in` — `:399-430`；`fn persist_config_update` — `:436-442`；`fn set_pending_switch` — `:447-455`；`pub(super) fn drive_pending_switch` — `:462-484`；`pub(super) fn apply_outbound_switch` — `:486-701`；`pub(super) fn replay_outbound_switch` — `:718-806`；`pub(super) fn watchdog_re_disable_campus` — `:815-880`；`pub(super) fn apply_outbound_restore` — `:894-1207`；`fn finish_outbound_restore` — `:1214-1230`；`fn clear_outbound_snapshot` — `:1234-1254`；`fn set_outbound_manual_hold`/`clear_outbound_manual_hold` — `:1260-1273`；`pub(crate) fn manual_outbound_switch` — `:1279-1308`；`pub(crate) fn manual_outbound_restore` — `:1312-1331`；`pub(super) fn reconcile_outbound_on_startup` — `:1338-1396`。
+- 测试（`outbound_night.rs:1398-1508`）：`还原失败告警_首达阈值触发_此后周期重复`(`:1402-1415`)、`重放闸_仅切换态且留有失败历史时才补齐`(`:1418-1428`)、`退避窗_起步六十秒_每失败翻倍封顶三百秒`(`:1431-1438`)、`退避闸_无失败历史恒放行`(`:1441-1446`)、`退避闸_首败六十秒内压制_六十秒后放行`(`:1449-1453`)、`退避闸_第二败退避翻倍`(`:1456-1460`)、`退避闸_封顶后三百秒内压制_三百秒后放行`(`:1463-1469`)、`退避闸_时钟回拨按压制处理`(`:1472-1474`)、`快照解析_空串为空表_非法json报错`(`:1477-1487`)、`单飞闸_同一时刻只放一个出站动作_释放后可再取`(`:1491-1504`)。
+
+### 适配器监控（`monitor/adapter_watch.rs`）
+
+- 常量 `ADAPTER_WATCH_INTERVAL: u64 = 15000`（`adapter_watch.rs:9`）、`CLASS_SUBKEY_REFRESH_ROUNDS: u32 = 4`（`adapter_watch.rs:15`）。
+- `pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String>` — `adapter_watch.rs:17-285`：15s 循环检测适配器集合/IP 变化与禁用状态变化，首轮强制推送（`adapter_watch.rs:26-32`）；60s 刷新 class subkey 缓存（`:57-62`）；读缓存适配器（`:68`）；变更时 emit 事件（`:91-100`）；适配器恢复时触发一次性巡检 `spawn_background_check_once`（`:115`）；配置的卡被禁用发警告（`:128-163`）；夜间出站切换守护窗内跳过自动启用（`:184-212`）；手选适配器被禁用时自动启用（`:234-266`）。
+- `fn auto_enable_backoff_ms(failure_count: u32) -> u64` — `adapter_watch.rs:289-296`：0→0,1→60s,2→120s,≥3→300s。
+- 测试：`auto_enable_backoff_ladder`（`:302-310`）。
 
 ## Architecture
 
@@ -160,20 +173,20 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 ┌──────────────────────────────┐ ┌──────────────────────────────┐
 │ background_task.rs:7         │ │ latency.rs:78                │
 │ start_background_check_inner │ │ spawn_latency_test_loop      │
-│ → background_check.rs:29      │ │ → quality_scheduler.rs:53    │
+│ → background_check.rs:29      │ │ → quality_scheduler.rs:56    │
 │ run_background_check_blocking│ │ run_quality_check            │
 └──────────┬───────────────────┘ └──────────────────────────────┘
            │ calls
            ▼
 ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│ portal_check.rs:59│ │ auto_auth.rs:95  │ │ scheduled.rs:52  │
+│ portal_check.rs:59│ │ auto_auth.rs:94  │ │ scheduled.rs:52  │
 │ check_adapter_    │ │ try_auto_login_  │ │ run_scheduled_   │
 │ portal           │ │ on_preparation   │ │ action_loop      │
 └──────────────────┘ └──────────────────┘ └────────┬─────────┘
                                                    │ uses
                                                    ▼
                                          ┌──────────────────────┐
-                                         │ outbound_night.rs:391│
+                                         │ outbound_night.rs:486│
                                          │ apply_outbound_*     │
                                          │ + outbound_switch.rs│
                                          │ is_campus_adapter   │
@@ -183,27 +196,27 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 ## Data Flow
 
 ### 启动挂载
-- `watcher.rs:16` `run_startup_tasks` 依据配置 spawn：`startup_bg_check`（`watcher.rs:16` → `background_task.rs:7`）、`startup_latency`（`watcher.rs:16` → `latency.rs:144`）、`startup_quality_once`（`watcher.rs:16` → `latency.rs:144`）、`startup_auto_login`（`watcher.rs:16` → `auto_auth.rs:318`）、`scheduled_actions`（`watcher.rs:16` → `scheduled.rs:52`）。
+- `watcher.rs:16` `run_startup_tasks` 依据配置 spawn：`startup_bg_check`（`watcher.rs:16` → `background_task.rs:7`）、`startup_latency`（`watcher.rs:16` → `latency.rs:144`）、`startup_quality_once`（`watcher.rs:16` → `latency.rs:144`）、`startup_auto_login`（`watcher.rs:16` → `auto_auth.rs:317`）、`scheduled_actions`（`watcher.rs:16` → `scheduled.rs:52`）。
 
 ### 单轮巡检主链
-- `background_task.rs:29-53` 循环调用 `background_check::run_background_check`（`background_check.rs:400` → `:29`）。
-- `background_check.rs:34` `is_checking.try_acquire()` 互斥；`:43-52` 适配器 cached/force；`:64-71` `outbound_restore_active` 跳过；`:72-101` 静默期跳验证置 `on_campus=true`；`:177-189` 双适配器并行 `portal_check::check_adapter_portal`（`:59`）；`:213-234` 失败计数；`:380` `auto_auth::try_auto_login_on_preparation`；`:382-386` `auto_auth::try_disconnect_reconnect`；`:390-392` 未重连时 `update_network_state`（经 `background_emit.rs:166`）。
-- `should_reset_logged_online`（`background_check.rs:25`, `:334-340`）修复休眠会话失效。
+- `background_task.rs:30-57` 循环调用 `background_check::run_background_check`（`background_check.rs:510` → `:29`）。
+- `background_check.rs:33` `is_checking.try_acquire()` 互斥；`:43-52` 适配器 cached/force；`:63-70` `outbound_restore_active` 跳过；`:71-100` 静默期跳验证置 `on_campus=true`；`:176-188` 双适配器并行 `portal_check::check_adapter_portal`（`:59`）；`:216-253` 失败计数；`:400` `auto_auth::try_auto_login_on_preparation`；`:402-406` `auto_auth::try_disconnect_reconnect`；`:410-412` 未重连时 `update_network_state`（经 `background_emit.rs:166`）。
+- `should_reset_logged_online`（`background_check.rs:25`, `:354-360`）修复休眠会话失效。
 
 ### 质量链
-- `latency.rs:78` `spawn_latency_test_loop` 就绪等待后调 `quality_scheduler.rs:47` `run_quality_check`；`:70-103` bad 复核 2×15s；`perform_quality_check`（`:19-45`）调 `check_network_quality_async` 落盘 emit。
+- `latency.rs:78` `spawn_latency_test_loop` 就绪等待后调 `quality_scheduler.rs:56` `run_quality_check`；`:73-105` bad 复核 2×15s；`perform_quality_check`（`:19-45`）调 `check_network_quality_async` 落盘 emit。
 
 ### 定时动作循环
-- `scheduled.rs:52` 30s 循环：`:89-92` 定时登录/注销；`:107-161` 出站切换编排调 `super::outbound_night` 动作（底层 `outbound_switch.rs` 选择）；`:164-184` 运营商夜切 `apply_night_switch_action` 改配置并 `verify_night_switch`（`:423`）。
+- `scheduled.rs:52` 30s 循环：`:89-92` 定时登录/注销；`:107-169` 出站切换编排调 `super::outbound_night` 动作（底层 `outbound_switch.rs` 选择）；`:172-192` 运营商夜切 `apply_night_switch_action` 改配置并 `verify_night_switch`（`:432`）。
 
 ### 夜间出站还原补检
-- `background_task.rs:147` `spawn_background_check_after_outbound_restore` 阻塞轮询等 IP 就绪（最长45s）后 `spawn_background_check_once`（`:177`）；该钩子由 `outbound_night.rs:1110` `finish_outbound_restore` 在还原收尾时统一调用。
+- `background_task.rs:149` `spawn_background_check_after_outbound_restore` 阻塞轮询等 IP 就绪（最长45s）后 `spawn_background_check_once`（`:181`）；该钩子由 `outbound_night.rs:1228` `finish_outbound_restore` 在还原收尾时统一调用。
 
 ## Connections
 
-- [[desktop-auth]]：`auto_auth.rs:164`（内部 `full_login` 调用）、`scheduled.rs:297` 同；`portal_check.rs:59` 调 `auth::portal::check_portal_full`；`background_check.rs:213` 调 `handle_portal_request_failure`（阈值见 failure_tracker）。
+- [[desktop-auth]]：`auto_auth.rs:163`（内部 `full_login` 调用）、`scheduled.rs:305` 同；`portal_check.rs:59` 调 `auth::portal::check_portal_full`；`background_check.rs:216` 调 `handle_portal_request_failure`（阈值见 failure_tracker）。
 - [[desktop-network-quality]]：`quality_scheduler.rs:29` 调 `check_network_quality_async` 并发 `emit_network_quality_result`。
-- [[desktop-config]]：依赖 `config::persist::save_config_and_broadcast`（`background_task.rs:59`、`scheduled.rs:353`、`outbound_night.rs:504`）、共享纯函数 `evaluate_scheduled_actions`/`evaluate_outbound_action`/`evaluate_night_switch_gated`（`scheduled.rs:226` 等）。
+- [[desktop-config]]：依赖 `config::persist::save_config_and_broadcast`（`background_task.rs:63`、`scheduled.rs:362`、`outbound_night.rs:622`）、共享纯函数 `evaluate_scheduled_actions`/`evaluate_outbound_action`/`evaluate_night_switch_gated`（`scheduled.rs:234` 等）。
 - [[desktop-infra]]：`infra::events::EventBus` 与 `infra::notification::emit_notification`（`scheduled.rs` 使用）、`CancellationToken` 跨任务传递。
 - [[night-outbound-switch]]：`scheduled.rs` 与 `outbound_switch.rs`/`outbound_night.rs` 为桌面动作层，`outbound_night` 提供 `apply_outbound_switch`/`apply_outbound_restore` 等（`scheduled.rs:34-38` 引用）。
 - [[desktop-network-core]]：`background_check.rs:43` 调 `get_adapters_cached`/`get_adapters_force`，`outbound_switch.rs:11` 用 `crate::network::discovery::Adapter`。
@@ -212,19 +225,20 @@ tags: [monitor, background-check, auto-login, reconnect, campus-network, portal,
 
 基于观察，无未解决缺陷报告；以下为已处理的边界条件与非显然行为（均已在代码中实现对应逻辑）：
 
-1. **并发互斥**：`background_check.rs:34` `is_checking.try_acquire()` 安全跳过叠加轮次；`quality_scheduler.rs:25` `is_quality_checking`；`auto_auth.rs:161,239` `is_logging_in` 锁。
-2. **适配器获取降级**：cached 空降级 force（`background_check.rs:43-52`）；夜间补检特意用 force 避旧缓存（`background_task.rs:123`）。
-3. **出站切换态跳过**：`outbound_restore_active` 真时整轮巡检跳过（`background_check.rs:65-72`）。
-4. **校园网静默**：静默期跳过验证但强制 `on_campus=true`（`background_check.rs:72-101`）；`auto_auth` 开机自启同理（`auto_auth.rs:389-393` 静默置 true）。
-5. **登录标记复位（关键修复）**：`should_reset_logged_online`（`background_check.rs:25,334-340`）复位 `has_logged_online`，解决整夜休眠后自动登录被永久门控。
-6. **自动登录防无限重试**：`PREP_LOGIN_MAX_FAILURES=5`（`auto_auth.rs:207`）；`try_disconnect_reconnect` 超限停止（`auto_auth.rs:207` 门控、`auto_auth.rs:207` 通知）。
-7. **重连状态覆盖修复**：`try_disconnect_reconnect` 返回真实 `reconnect_should_report`（`auto_auth.rs:315`），调用方依此跳过旧 Portal 快照覆盖（`background_check.rs:390`）。
-8. **Portal 请求失败容错**：`Error{is_request_failed:true}` 累计阈值（`background_check.rs:209-234`），成功重置（`background_check.rs:243-261`）。
-9. **夜间出站还原补检缺口**：新增 `spawn_background_check_after_outbound_restore`（`background_task.rs:147-181`）最长等45s轮询IP。
+1. **并发互斥**：`background_check.rs:33` `is_checking.try_acquire()` 安全跳过叠加轮次；`quality_scheduler.rs:25` `is_quality_checking`；`auto_auth.rs:160,238` `is_logging_in` 锁。
+2. **适配器获取降级**：cached 空降级 force（`background_check.rs:43-52`）；夜间补检特意用 force 避旧缓存（`background_task.rs:127-137`）。
+3. **出站切换态跳过**：`outbound_restore_active` 真时整轮巡检跳过（`background_check.rs:63-70`）。
+4. **校园网静默**：静默期跳过验证但强制 `on_campus=true`（`background_check.rs:71-100`）；`auto_auth` 开机自启同理（`auto_auth.rs:388-393` 静默置 true）。
+5. **登录标记复位（关键修复）**：`should_reset_logged_online`（`background_check.rs:25,354-360`）复位 `has_logged_online`，解决整夜休眠后自动登录被永久门控。
+6. **自动登录防无限重试**：`PREP_LOGIN_MAX_FAILURES=5`（`auto_auth.rs:206`）；`try_disconnect_reconnect` 超限停止（`auto_auth.rs:206` 门控、`auto_auth.rs:206-220` 通知）。
+7. **重连状态覆盖修复**：`try_disconnect_reconnect` 返回真实 `reconnect_should_report`（`auto_auth.rs:314`），调用方依此跳过旧 Portal 快照覆盖（`background_check.rs:410`）。
+8. **Portal 请求失败容错**：`Error{is_request_failed:true}` 累计阈值（`background_check.rs:208-253`），成功重置（`background_check.rs:262-281`）。
+9. **夜间出站还原补检缺口**：新增 `spawn_background_check_after_outbound_restore`（`background_task.rs:149-183`）最长等45s轮询IP。
 10. **延迟测试动态间隔**：轻量化下限1800s，吞首 tick（`latency.rs:78-139`）。
-11. **质量抖动复核**：poor/bad 需15s×2次轻量化复核全达标才通知（`quality_scheduler.rs:70-105`）；中间档互转不通知（`latency.rs:18-38` 函数逻辑，测试 `:186-192`）。
+11. **质量抖动复核**：poor/bad 需15s×2次轻量化复核全达标才通知（`quality_scheduler.rs:73-109`）；中间档互转不通知（`latency.rs:18-38` 函数逻辑，测试 `:186-192`）。
 12. **就绪等待**：`wait_for_adapter_ready` 每2s等IP与在线（`latency.rs:58-76`）。
-13. **任务注册失败处理**：watcher 各 spawn 失败仅 `log_warn`（`watcher.rs:29,41,50,58,67`）；`spawn_background_check_once` 复用令牌补跑（`background_task.rs:82-93`）。
-14. **双适配器并行实现**：`run_background_check_blocking` 在 spawn_blocking 内用 `Handle::current().block_on`+`join!`（`background_check.rs:177-189`）。
-15. **出站与运营商夜切互斥**：`scheduled.rs:88` 拍前出站门控登录，`scheduled.rs:164` 拍后切换态门控夜切。
-16. **历史路由清理**：`outbound_switch.rs:203-220` 不再创建 StandbyRoute，仅解析历史并安全决策（2026-10-18 事故后）。
+13. **任务注册失败处理**：watcher 各 spawn 失败仅 `log_warn`（`watcher.rs:29,41,50,58,67`）；`spawn_background_check_once` 复用令牌补跑（`background_task.rs:86-97`）。
+14. **双适配器并行实现**：`run_background_check_blocking` 在 spawn_blocking 内用 `Handle::current().block_on`+`join!`（`background_check.rs:176-188`）。
+15. **出站与运营商夜切互斥**：`scheduled.rs:88` 拍前出站门控登录，`scheduled.rs:172` 拍后切换态门控夜切。
+16. **历史路由清理**：`outbound_switch.rs:256-273` 不再创建 StandbyRoute，仅解析历史并安全决策（2026-10-18 事故后）。
+17. **适配器监控与自动启用**：`adapter_watch.rs:17-285` 检测禁用并自动启用，夜间守护窗跳过（`adapter_watch.rs:184-212`）。
