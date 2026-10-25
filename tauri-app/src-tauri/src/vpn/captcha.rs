@@ -44,7 +44,8 @@ pub struct TemplateFile {
     pub templates: Vec<TemplateEntry>,
 }
 
-/// 编译期内嵌的模板集（由 `tests/captcha_solve.rs::build_templates` 生成）。
+/// 编译期内嵌的模板集（生成器在原项目 Wxxy-CampusHub 的
+/// `crates/campus-auth/tests/captcha_solve.rs::build_templates`，本文件模板 JSON 与其逐字节一致）。
 pub struct KaptchaTemplates {
     file: TemplateFile,
 }
@@ -55,6 +56,15 @@ impl KaptchaTemplates {
             file: serde_json::from_str(include_str!("../../templates/kaptcha-templates.json"))
                 .expect("templates/kaptcha-templates.json 为构建脚本产物，格式应恒合法"),
         }
+    }
+
+    /// 从 JSON 字符串构造（集成测试 captcha_solve.rs 使用；运行时用 [`load`]）。
+    #[allow(dead_code)] // 仅集成测试锚定，bin 目标不使用
+    pub fn from_json_str(json: &str) -> Result<Self, super::error::CasAuthError> {
+        Ok(Self {
+            file: serde_json::from_str(json)
+                .map_err(|e| super::error::CasAuthError::Parse(format!("模板 JSON 解析失败: {e}")))?,
+        })
     }
 
     pub fn templates(&self) -> &[TemplateEntry] {

@@ -70,6 +70,9 @@ pub enum CasLoginError {
     WrongUserOrPwd,
     /// CODEFALSE：验证码校验未通过（2026-10-25 起服务端强制验证码）
     WrongCaptcha,
+    /// 连续 N 张验证码均低于识别阈值，未发起登录请求（对齐 Hub auth.rs
+    /// should_retry 语义之外的「识别穷尽」分支，由上层提示稍后重试）。
+    CaptchaUnsolvable(usize),
     /// USERLOCK：账号锁定
     UserLocked,
     /// TWOVERIFY：需要二次验证（携带服务端 data 原文，含可能的错误次数提示）
@@ -124,6 +127,37 @@ impl CasClient {
             }
         }
         None
+    }
+
+    /// 解验证码并登录；识别穷尽或答案被服务端拒绝（CODEFALSE）时换一张重试，
+    /// `max_attempts` 为整体轮数上限（对齐 Hub auth.rs should_retry 语义：
+    /// WrongCaptcha 是可重试错误——换一张再提，而非直接失败）。
+    /// 返回 [`CasLoginError::CaptchaUnsolvable`] 表示从未发起登录（纯识别层失败）；
+    /// 重试穷尽仍 CODEFALSE 时返回最后一轮的 [`CasLoginError::WrongCaptcha`]。
+    pub async fn login_with_captcha(
+        &self,
+        username: &str,
+        password_rsa_hex: &str,
+        templates: &KaptchaTemplates,
+        max_attempts: usize,
+    ) -> Result<CasLoginOk, CasLoginError> {
+        let mut last = CasLoginError::CaptchaUnsolvable(max_attempts);
+        for _ in 0..max_attempts {
+            let Some((captcha_uid, captcha_code)) = self.solved_captcha(templates, 3).await else {
+                return Err(CasLoginError::CaptchaUnsolvable(max_attempts));
+            };
+            match self
+                .login(username, password_rsa_hex, &captcha_uid, &captcha_code)
+                .await
+            {
+                Err(CasLoginError::WrongCaptcha) => {
+                    last = CasLoginError::WrongCaptcha;
+                    continue;
+                }
+                other => return other,
+            }
+        }
+        Err(last)
     }
 
     /// POST {CAS_BASE}/v1/tickets：CAS 账密登录。
@@ -252,10 +286,6 @@ fn form_encode(s: &str) -> String {
     out
 }
 
-/// 解析 /v1/tickets 响应（纯函数供离线单测）。
-///
-/// 成功：顶层 `{tgt, ticket}`（REPORT.md 三节实测形态；兼容 data 包裹与 data 为纯字符串）。
-/// 失败：`{"meta":...,"data":{"code":"..."}}` → [`map_error_code`]。
 /// 验证码模板单例（约 330KB JSON，进程内一次解析）。
 static TEMPLATES: std::sync::OnceLock<KaptchaTemplates> = std::sync::OnceLock::new();
 pub fn kaptcha_templates() -> &'static KaptchaTemplates {
@@ -272,6 +302,10 @@ pub fn parse_kaptcha(body: &str) -> Result<CaptchaInfo, CasAuthError> {
     })
 }
 
+/// 解析 /v1/tickets 响应（纯函数供离线单测）。
+///
+/// 成功：顶层 `{tgt, ticket}`（REPORT.md 三节实测形态；兼容 data 包裹与 data 为纯字符串）。
+/// 失败：`{"meta":...,"data":{"code":"..."}}` → [`map_error_code`]。
 pub fn parse_login_response(body: &str) -> Result<CasLoginOk, CasLoginError> {
     let v: serde_json::Value = serde_json::from_str(body)
         .map_err(|e| CasLoginError::Unknown(format!("响应非 JSON: {e}")))?;

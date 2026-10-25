@@ -17,6 +17,7 @@ pub fn map_cas_login_error(e: crate::vpn::cas::CasLoginError) -> String {
     match e {
         crate::vpn::cas::CasLoginError::WrongUserOrPwd => "CAS 登录失败：账号或密码错误（请检查保存的 VPN 凭据）".to_string(),
         crate::vpn::cas::CasLoginError::WrongCaptcha => "CAS 登录失败：验证码校验未通过（识别答案被服务端拒绝，请重试）".to_string(),
+        crate::vpn::cas::CasLoginError::CaptchaUnsolvable(n) => format!("CAS 验证码自动识别失败（连续 {n} 张未识别，请稍后重试）"),
         crate::vpn::cas::CasLoginError::UserLocked => "CAS 登录失败：账号已被锁定".to_string(),
         crate::vpn::cas::CasLoginError::NeedTwoVerify(raw) => format!("CAS 登录失败：需要二次验证（{raw}）"),
         crate::vpn::cas::CasLoginError::Unknown(raw) => format!("CAS 登录失败：{raw}"),

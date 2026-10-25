@@ -57,11 +57,8 @@ pub fn store(session: WebVpnSession) {
 pub async fn login_new_session(account: &str, password: &str) -> Result<WebVpnSession, String> {
     let cas = CasClient::new().map_err(|e| format!("CAS 客户端创建失败: {e}"))?;
     let pwd_hex = rsa_encrypt_hex(password).map_err(|e| format!("密码加密失败: {e}"))?;
-    let Some((captcha_uid, captcha_code)) = cas.solved_captcha(kaptcha_templates(), 3).await else {
-        return Err("CAS 验证码自动识别失败（连续 3 张未识别，请稍后重试）".to_string());
-    };
     let ok = cas
-        .login(account, &pwd_hex, &captcha_uid, &captcha_code)
+        .login_with_captcha(account, &pwd_hex, kaptcha_templates(), 3)
         .await
         .map_err(map_cas_login_error)?;
     WebVpnSession::login(&cas, &ok.tgt).await.map_err(map_webvpn_error)
