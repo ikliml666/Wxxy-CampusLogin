@@ -24,6 +24,7 @@ export const DEFAULT_CONFIG: Config = {
   enableNightOperatorSwitch: false,
   nightOperatorRestore: '',
   enableNightOutboundSwitch: false,
+  nightRestoreMinutes: 0,
   outboundPriority: [],
   outboundMetricRestore: '',
   outboundDisabledAdapters: '',

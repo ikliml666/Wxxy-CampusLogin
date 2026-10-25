@@ -181,15 +181,17 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                     // 重启 replay 亦覆盖。还原交给恢复窗的 scheduled.rs；
                     // 白天照旧，保留「意外禁用→恢复登录」。
                     let now = chrono::Local::now();
-                    let guard_window = crate::config::outbound_switch::is_night_outbound_guard_window(
-                        c.enable_night_outbound_switch,
-                        now.weekday().num_days_from_sunday(),
-                        now.hour() * 60 + now.minute(),
-                    ) && crate::config::outbound_switch::outbound_restore_active(
-                        &c.outbound_metric_restore,
-                        &c.outbound_disabled_adapters,
-                        &c.outbound_standby_route,
-                    );
+                    let guard_window =
+                        crate::config::outbound_switch::is_night_outbound_guard_window_with_restore(
+                            c.enable_night_outbound_switch,
+                            now.weekday().num_days_from_sunday(),
+                            now.hour() * 60 + now.minute(),
+                            crate::config::night_switch::restore_start_minutes(c.night_restore_minutes),
+                        ) && crate::config::outbound_switch::outbound_restore_active(
+                            &c.outbound_metric_restore,
+                            &c.outbound_disabled_adapters,
+                            &c.outbound_standby_route,
+                        );
                     let candidates = crate::network::adapter::configured_disabled_adapters(&c, &disabled);
                     if guard_window && !candidates.is_empty() {
                         crate::log_debug!(

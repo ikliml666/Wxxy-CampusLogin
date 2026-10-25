@@ -27,6 +27,8 @@ export interface Config {
   /** 夜间切换前的原运营商:切至无锡学院时暂存,恢复时取回后清空 */
   nightOperatorRestore: string
   enableNightOutboundSwitch: boolean
+  /** 夜间切换的恢复时刻（当日分钟数，如 450=07:30）：恢复窗自此刻开启还原出站与运营商。0=未自定义，回落默认 07:30 */
+  nightRestoreMinutes: number
   outboundPriority: string[]
   outboundMetricRestore: string
   /** 桌面夜间切换禁用名单（DisabledRow JSON）；安卓端无禁用动作，仅字段集同构 */

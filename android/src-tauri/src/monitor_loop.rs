@@ -36,6 +36,16 @@ static MONITOR_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// (仅覆盖"判在线→should_attempt_login→run_login→计数"段,探测 IO 不持锁)
 static LOGIN_ATTEMPT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// 夜间出站还原后「无视校园网检测静默期」的一次性放行标记(桌面
+/// `background_check::request_check_after_outbound_restore` 同义)。
+///
+/// 背景:还原时刻自 2026-10-26 起可配置(`nightRestoreMinutes`,默认 07:30),
+/// 而静默期起点是另一项设置(`campusCheckStartMinutes`,默认 07:40)。还原点早于
+/// 静默期起点时(如还原 07:10),还原后的判定/自动登录会因静默期整拍跳过,
+/// 用户早上开机会看到「已还原但未登录」直到 07:40。还原是本应用主动制造的
+/// 状态迁移,其后续检无条件跑一轮;消费即清,不影响静默期其余语义。
+static FORCE_CHECK_AFTER_RESTORE: AtomicBool = AtomicBool::new(false);
+
 #[derive(Default)]
 #[allow(dead_code)] // Task 4 循环体接线
 pub struct MonitorState {
@@ -859,7 +869,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     // 纯函数天然防重(非空不再 Switch、空不再 Restore),落盘即收敛,落盘失败状态未变
     // 则下一拍重试整段。
     use campus_login_lib::config::outbound_switch::NightOutboundAction;
-    use campus_login_lib::config::scheduled_tick::evaluate_outbound_action;
+    use campus_login_lib::config::scheduled_tick::evaluate_outbound_action_with_restore;
     let mut outbound_active = !settings.night_outbound_restore.is_empty();
     let outbound_action = {
         let now = chrono::Local::now();
@@ -867,14 +877,16 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         let today_day = now.date_naive().num_days_from_ce() as i32;
         // 判定走共享编排函数（双端单点）：关闭兜底（切换态残留按 Restore 立即
         // 还原并清标记——缺这条兜底时残留标记没有出口，巡检会永久跳过）在函数内；
-        // hold 参数安卓恒传 0（「立即切换」当日保持是桌面独有输入）
-        evaluate_outbound_action(
+        // hold 参数安卓恒传 0（「立即切换」当日保持是桌面独有输入）；
+        // 恢复时刻与桌面共用 nightRestoreMinutes（0/越界归一化为默认 07:30）
+        evaluate_outbound_action_with_restore(
             settings.enable_night_outbound_switch,
             now.weekday().num_days_from_sunday(),
             now_minutes,
             outbound_active,
             0,
             today_day,
+            campus_login_lib::config::night_switch::restore_start_minutes(settings.night_restore_minutes),
         )
     };
     match outbound_action {
@@ -911,6 +923,9 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                     // 切换态收尾:若切换侧程序化写过 avoid_bad_wifi,按插件快照还原原值
                     // (原值=1 时快照不存在,幂等无动作)
                     restore_avoid_bad_wifi(app).await;
+                    // 还原时刻可配置后可能早于静默期起点:放行下一轮巡检,让校园网判定
+                    // 与在线状态立刻刷新,不等静默期结束(桌面 request_check_after_…同义)
+                    FORCE_CHECK_AFTER_RESTORE.store(true, Ordering::Release);
                     emit_login_log(app, "夜间出站切换: 已恢复校园网登录", "success");
                 }
             } else {
@@ -955,13 +970,14 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         let now = chrono::Local::now();
         let weekday = now.weekday().num_days_from_sunday();
         let now_minutes = now.hour() * 60 + now.minute();
-        let action = campus_login_lib::config::scheduled_tick::evaluate_night_switch_gated(
+        let action = campus_login_lib::config::scheduled_tick::evaluate_night_switch_gated_with_restore(
             settings.enable_night_operator_switch,
             weekday,
             now_minutes,
             &settings.operator,
             &settings.night_operator_restore,
             outbound_active,
+            campus_login_lib::config::night_switch::restore_start_minutes(settings.night_restore_minutes),
         );
         match action {
             campus_login_lib::config::night_switch::NightSwitchAction::SwitchToCampus => {
@@ -1375,7 +1391,12 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     // (当日分钟数,0=禁用)或晚于结束时间(0/<=开始时间=不限制,与桌面
     // is_campus_check_silent 同退化规则)整拍跳过,避免非在校时段反复探测与误报
     // 掉线通知;在线状态保持上一拍记忆,不构成误判
-    if settings.campus_check_start_minutes > 0 {
+    //
+    // 例外(2026-10-26):夜间出站还原刚结束的一轮无条件放行(FORCE_CHECK_AFTER_RESTORE,
+    // 桌面 background_check 同款)。还原时刻可配置后可能早于静默期起点(还原 07:10 /
+    // 静默期 07:40),不放行就等于让用户干等到 07:40 才恢复登录。标记消费即清。
+    let forced_after_restore = FORCE_CHECK_AFTER_RESTORE.swap(false, Ordering::AcqRel);
+    if settings.campus_check_start_minutes > 0 && !forced_after_restore {
         let now = chrono::Local::now();
         let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
         let end = settings.campus_check_end_minutes;

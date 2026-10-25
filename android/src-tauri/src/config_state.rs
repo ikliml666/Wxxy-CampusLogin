@@ -45,6 +45,10 @@ pub struct Settings {
     /// Config 同口径。安卓端由 monitor_loop 消费判定逻辑:到点注销校园网并触发
     /// 系统 WiFi 重检(等系统把默认网络切蜂窝),晨间登录当前账号后清标记还原
     pub enable_night_outbound_switch: bool,
+    /// 夜间切换的恢复时刻(当日分钟数,如 450 = 07:30):恢复窗自此刻开启,把夜间
+    /// 切出的出站/运营商还原。0 或越界(≥ 1380 即 23:00 切点)回落默认 07:30,
+    /// 见共享 crate 的 config::night_switch::restore_start_minutes。与桌面同字段
+    pub night_restore_minutes: u32,
     /// 出站网卡优先级(友好名有序列表,首项=夜间出站目标);空=未排序,列表外网卡
     /// 不参与夜间切换。安卓端不消费此字段
     pub outbound_priority: Vec<String>,
@@ -149,6 +153,8 @@ impl Default for Settings {
             enable_night_operator_switch: false,
             night_operator_restore: String::new(),
             enable_night_outbound_switch: false,
+            // 0 = 未自定义,回落默认 07:30
+            night_restore_minutes: 0,
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),

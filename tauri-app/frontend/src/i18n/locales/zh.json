@@ -371,7 +371,9 @@
     "dnsResetFailed": "恢复自动获取失败",
     "dhcpRenewFailed": "DHCP 续租失败",
     "nightOutboundSwitch": "夜间出站切换",
-    "nightOutboundSwitchDesc": "周日至周四 23:00、周五六 23:30 自动切换出站并临时禁用校园网卡，次日 7:30 还原",
+    "nightOutboundSwitchDesc": "周日至周四 23:00、周五六 23:30 自动切换出站并临时禁用校园网卡，次日 {{time}} 还原",
+    "nightRestoreTime": "还原时刻",
+    "nightRestoreTimeDesc": "次日恢复校园网出站并重新登录的时刻（默认 07:30）",
     "outboundBadge": "夜间出站目标",
     "outboundDragHint": "拖动条目调整夜间出站优先级，排最前的非校园网网卡优先",
     "outboundAdminHint": "切换动作将通过计划任务静默完成，需要管理员权限",
@@ -383,10 +385,7 @@
     "outboundRestoreNow": "还原出站",
     "outboundRestoreNowSuccess": "已还原网络设置",
     "outboundRestoreNowFailed": "还原未完成",
-    "outboundRestoring": "还原中...",
-    "outboundPendingSwitch": "待切换: {{target}}（等待登录确认）",
-    "outboundPendingWaitLogin": "待切换: {{target}}（等待该网卡登录校园网）",
-    "outboundPendingSwitchTip": "目标网卡尚未登录校园网，切换已挂起；监测确认该网卡登录后将自动完成切换"
+    "outboundRestoring": "还原中..."
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",

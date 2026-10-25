@@ -160,13 +160,12 @@ pub fn parse_disabled_adapters(json: &str) -> Result<Vec<DisabledRow>, String> {
     serde_json::from_str(json.trim()).map_err(|e| format!("禁用名单快照损坏: {e}"))
 }
 
-/// 待切换状态标签：目标网卡尚未登录校园网，切换挂起等待登录确认。
-pub const PENDING_TAG_WAIT_LOGIN: &str = "waiting-login";
-
-/// 待切换状态行（登录闸挂起记录：目标网卡名 + 挂起原因标签 + 记录日）。
-/// `day` = 记录当天的 `num_days_from_ce`，跨日即失效（切换窗口只属当晚，
-/// 次日残留由排程驱动清理，防徽标常驻）。旧版本行缺 day → 反序列化为 0，
-/// 视同已过期，同样走清理后重判。
+/// 待切换状态行（历史遗留：旧登录闸的挂起记录结构）。
+///
+/// 2026-10-26 起夜间切换不再挂起（登录闸方向错误，见
+/// `.codewiki/learnings/night-outbound-login-gate-deadlock`），本结构只为**解析旧版本
+/// 落盘的残留**而保留——`drive_pending_switch` 每拍把残留行清空，前端徽标随之消失。
+/// 不再提供序列化入口：本版本不会产生新的挂起记录。
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PendingSwitchRow {
     pub target: String,
@@ -175,71 +174,12 @@ pub struct PendingSwitchRow {
     pub day: i32,
 }
 
-/// 序列化待切换状态为 JSON。纯数据结构序列化不会失败，兜底返回空串（= 无挂起）。
-pub fn pending_switch_json(target: &str, tag: &str, day: i32) -> String {
-    serde_json::to_string(&PendingSwitchRow {
-        target: target.to_string(),
-        tag: tag.to_string(),
-        day,
-    })
-    .unwrap_or_default()
-}
-
-/// 解析待切换状态（空串/非法 JSON → `None`）。挂起态只影响切换时序，解析失败
-/// 视同无挂起即可——下一拍重判会重新写入覆盖，无需像禁用名单那样把损坏当错误。
+/// 解析待切换状态（空串/非法 JSON → `None`）。仅用于识别历史版本残留。
 pub fn parse_pending_switch(json: &str) -> Option<PendingSwitchRow> {
     if json.trim().is_empty() {
         return None;
     }
     serde_json::from_str(json.trim()).ok()
-}
-
-/// 登录闸匹配（纯函数）：目标卡是主/副监测卡时返回监测模块的在线结论
-/// （`last_a1_online`/`last_a2_online`，即"等待监测模块返回已登录消息"），
-/// 非监测卡返回 `None`，由调用方用监测同款原语绑源直查 Portal 兜底。
-pub fn monitored_adapter_online(
-    target: &str,
-    a1_name: &str,
-    a2_name: &str,
-    a1_online: bool,
-    a2_online: bool,
-) -> Option<bool> {
-    if !a1_name.is_empty() && target == a1_name {
-        return Some(a1_online);
-    }
-    if !a2_name.is_empty() && target == a2_name {
-        return Some(a2_online);
-    }
-    None
-}
-
-/// 登录闸三态判定（纯函数，双端共享语义）：目标卡此刻**是否允许**切为出站。
-///
-/// 参数语义：
-/// - `monitored_online`：`monitored_adapter_online` 的结论（非监测卡为 `None`）；
-/// - `portal`：`check_portal_full` 的探测结果，`None` 表示探测根本发不起来
-///   （无 IP / 绑源客户端构造失败）——与「不可达」同语义。
-///
-/// 判据（2026-10-25 修正，见 `.codewiki/learnings/night-outbound-login-gate-deadlock`）：
-/// 1. 监测模块已判在线 → 放行；
-/// 2. Portal 在线 → 放行；
-/// 3. Portal **不可达** → 放行。候选筛选用的 `is_campus_adapter` 判「非校园网」
-///    的前提就是校园网关与 portal 主机都不可达——手机热点这类不经营校园认证的
-///    出口若还被要求「Portal 在线」，两个判据互斥、条件恒假，切换整夜不执行；
-/// 4. Portal 可达但未登录 → **拦截**（切过去就是断网，这才是本闸该拦的场景）；
-/// 5. 探测发不起来 → 放行（同上，视为不经营校园认证）。
-pub fn login_gate_allow(
-    monitored_online: Option<bool>,
-    portal: Option<&crate::auth::portal::PortalStatus>,
-) -> bool {
-    if monitored_online == Some(true) {
-        return true;
-    }
-    match portal {
-        Some(s) if s.online => true,
-        Some(s) => !s.reachable,
-        None => true,
-    }
 }
 
 /// 历史兜底默认路由快照（v2.4.1 及更早版本切换时写入的 runtime 路由）。
@@ -605,22 +545,15 @@ mod tests {
         assert_eq!(disabled_adapters_json(&[]), "[]");
     }
 
+    /// 历史残留行仍可解析（清理逻辑依赖它识别旧版本的 waiting-login 记录）。
+    /// 本版本不再产生新的挂起行，故只保留解析侧用例。
     #[test]
-    fn pending_switch_json_round_trip() {
-        let json = pending_switch_json("WLAN", PENDING_TAG_WAIT_LOGIN, 739_000);
-        assert_eq!(
-            parse_pending_switch(&json),
-            Some(PendingSwitchRow {
-                target: "WLAN".to_string(),
-                tag: "waiting-login".to_string(),
-                day: 739_000,
-            })
-        );
-        // 空串/纯空白 → 无挂起；非法 JSON → 同样视同无挂起（下拍重写覆盖）
+    fn pending_switch_parses_legacy_rows() {
+        // 空串/纯空白 → 无挂起；非法 JSON → 同样视同无挂起（交给清理逻辑直接清空）
         assert_eq!(parse_pending_switch(""), None);
         assert_eq!(parse_pending_switch("   "), None);
         assert_eq!(parse_pending_switch("not json"), None);
-        // 旧版本行（无 day 字段）→ day 反序列化为 0，补驱动按跨日失效清理后重判
+        // 旧版本行（无 day 字段）→ day 反序列化为 0；跨日字段两种形态都能读出
         let legacy = r#"{"target":"WLAN","tag":"waiting-login"}"#;
         assert_eq!(
             parse_pending_switch(legacy),
@@ -630,49 +563,8 @@ mod tests {
                 day: 0,
             })
         );
-    }
-
-    /// 登录闸三态：这是 2026-10-25 整夜不切换缺陷的回归用例——旧实现要求
-    /// 「必须 online」，热点这类不可达出口恒被拦，条件永假。
-    #[test]
-    fn 登录闸_不可达即放行且可达未登录才拦截() {
-        use login_gate_allow as gate;
-        let status = |reachable: bool, online: bool| crate::auth::portal::PortalStatus {
-            reachable,
-            login_available: !online,
-            online,
-            message: String::new(),
-            uid: None,
-            error_kind: None,
-        };
-        // ① 监测模块已判在线：不看探测，直接放行
-        assert!(gate(Some(true), None));
-        // ② Portal 在线：放行
-        assert!(gate(None, Some(&status(true, true))));
-        // ③ Portal 可达但未登录：拦截（切过去就断网）
-        assert!(!gate(None, Some(&status(true, false))));
-        assert!(!gate(Some(false), Some(&status(true, false))));
-        // ④ Portal 不可达：放行——手机热点(10.146.34.246)整夜挂起即卡在这里
-        assert!(gate(None, Some(&status(false, false))));
-        assert!(gate(Some(false), Some(&status(false, false))));
-        // ⑤ 探测发不起来：与不可达同语义放行
-        assert!(gate(None, None));
-        assert!(gate(Some(false), None));
-    }
-
-    #[test]
-    fn monitored_adapter_online_matches_by_name() {
-        use monitored_adapter_online as f;
-        // 主卡：直接返回监测结论，无论真假
-        assert_eq!(f("WLAN", "WLAN", "eth1", true, false), Some(true));
-        assert_eq!(f("WLAN", "WLAN", "eth1", false, true), Some(false));
-        // 副卡：返回副卡监测结论
-        assert_eq!(f("eth1", "WLAN", "eth1", false, true), Some(true));
-        // 非监测卡 → None（调用方绑源直查 Portal 兜底）
-        assert_eq!(f("eth2", "WLAN", "eth1", true, true), None);
-        // 名字为空不参与匹配（适配器名缺失时不能把任意目标当成监测卡）
-        assert_eq!(f("", "", "", true, true), None);
-        assert_eq!(f("WLAN", "", "", true, true), None);
+        let dated = r#"{"target":"WLAN","tag":"waiting-login","day":739000}"#;
+        assert_eq!(parse_pending_switch(dated).map(|r| r.day), Some(739_000));
     }
 
     #[test]

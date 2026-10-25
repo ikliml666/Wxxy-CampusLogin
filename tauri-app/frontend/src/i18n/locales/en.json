@@ -371,7 +371,9 @@
     "dnsResetFailed": "Failed to Restore Auto DNS",
     "dhcpRenewFailed": "DHCP renew failed",
     "nightOutboundSwitch": "Night Outbound Switch",
-    "nightOutboundSwitchDesc": "Switches outbound and temporarily disables campus adapters at 23:00 Sun-Thu, 23:30 Fri/Sat; restores from 7:30 next morning",
+    "nightOutboundSwitchDesc": "Switches outbound and temporarily disables campus adapters at 23:00 Sun-Thu, 23:30 Fri/Sat; restores from {{time}} next morning",
+    "nightRestoreTime": "Restore Time",
+    "nightRestoreTimeDesc": "When campus outbound is restored and re-logged-in the next morning (default 07:30)",
     "outboundBadge": "Night Outbound Target",
     "outboundDragHint": "Drag entries to set night-switch priority; the topmost non-campus adapter wins",
     "outboundAdminHint": "Switching runs silently via the scheduled task, which needs administrator rights",
@@ -383,10 +385,7 @@
     "outboundRestoreNow": "Restore Outbound",
     "outboundRestoreNowSuccess": "Network settings restored",
     "outboundRestoreNowFailed": "Restore incomplete",
-    "outboundRestoring": "Restoring...",
-    "outboundPendingSwitch": "Pending switch: {{target}} (waiting for login)",
-    "outboundPendingWaitLogin": "Pending switch: {{target}} (waiting for campus login)",
-    "outboundPendingSwitchTip": "The target adapter is not logged into the campus network yet; the switch is on hold and will complete automatically once login is confirmed"
+    "outboundRestoring": "Restoring..."
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",

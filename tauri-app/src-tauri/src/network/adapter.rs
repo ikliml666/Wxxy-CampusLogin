@@ -269,6 +269,7 @@ mod tests {
             enable_night_operator_switch: false,
             night_operator_restore: String::new(),
             enable_night_outbound_switch: false,
+            night_restore_minutes: 0,
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),

@@ -26,6 +26,23 @@ pub(crate) fn should_reset_logged_online(reachable: bool, any_online: bool, has_
     reachable && !any_online && has_logged_online
 }
 
+/// 「夜间出站还原后」一次性放行标记（见 `request_check_after_outbound_restore`）。
+///
+/// 背景：还原窗口起点自 2026-10-26 起可配置（`nightRestoreMinutes`，默认 07:30），
+/// 而校园网检测静默期起点是另一项设置（`campusCheckStartMinutes`，默认 07:40）。
+/// 用户把还原时刻调到 07:40 之前（例如 07:10）时，还原完成后的补检仍落在静默期内
+/// 会被整体跳过，于是校园网卡虽已启用、IP 已就绪，Portal 登录却要等到 07:40 才判、
+/// 才登——用户 07:10 打开电脑就是断网态（2026-10-26 用户点名「还原后登录判定要生效」）。
+/// 还原是本应用主动制造的状态迁移，其后续检应当无条件跑一轮；用一次性标记实现，
+/// 消费即清，不影响静默期的其余语义（不刷退避、不改状态节奏）。
+static FORCE_CHECK_AFTER_RESTORE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// 请求下一轮巡检无视校园网静默期（由出站还原收尾调用，一次性生效）。
+pub(crate) fn request_check_after_outbound_restore() {
+    FORCE_CHECK_AFTER_RESTORE.store(true, Ordering::Release);
+}
+
 pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) -> CheckOutcome {
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
         return CheckOutcome::Skipped;
@@ -73,6 +90,8 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         config.campus_check_start_minutes,
         config.campus_check_end_minutes,
     );
+    // 还原后补检放行（一次性）：标记消费即清，只对紧接着的这一轮生效
+    let forced = FORCE_CHECK_AFTER_RESTORE.swap(false, Ordering::AcqRel);
     // 校园网检测静默期（检测时段外）：整体跳过本轮巡检。
     //
     // 历史缺陷（2026-10-25 修复）：静默期原本只跳过「校园网环境验证」，Portal 登录
@@ -84,7 +103,11 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 保留动作：清 on_campus_network（不误报在线）、取消可能残留的最小化+退出流程
     // （静默期本就不判定、不退出），然后按 Skipped 交还节奏控制——不累计退避、
     // 不更新 online 状态，避免静默期把「已登录」刷成离线并触发状态变更通知。
-    if campus_silent {
+    //
+    // 例外（2026-10-26）：夜间出站还原刚结束的一轮无条件放行（forced）。还原把校园网
+    // 卡从设备级禁用里启用、DHCP 已就绪，此刻不判定就等于让用户等静默期结束才恢复
+    // 登录——恢复时刻可配置后这条路径更容易被踩到（还原 07:10 / 静默期 07:40）。
+    if campus_silent && !forced {
         cancel_campus_exit(app_handle, state);
         state.network.update(|s| {
             s.current_ssid = None;
@@ -92,6 +115,12 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         });
         crate::log_debug!("background", "校园网检测静默期，跳过本轮巡检（Portal 检测/自动登录/断连重连均不执行）");
         return CheckOutcome::Skipped;
+    }
+    if campus_silent && forced {
+        crate::log_info!(
+            "background",
+            "夜间出站还原后补检：本轮无视校园网检测静默期（还原时刻早于静默期起点）"
+        );
     }
     // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围
     let op_adapters = crate::network::filter_operation_adapters(&adapters, &adapter1_name, &adapter2_name);

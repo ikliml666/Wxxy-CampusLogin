@@ -6,10 +6,21 @@
 //! （`night_operator_restore` 非空 + `operator` 为空 = 当前处于无锡学院切换态），
 //! 因此无需当日去重标记，天然幂等——重复调用不会重复写配置。
 
-/// 恢复窗口起点 07:30（含）
-pub(crate) const RESTORE_START_MINUTES: u32 = 450;
+/// 恢复窗口起点默认值 07:30（含）。2026-10-26 起可经 `nightRestoreMinutes`
+/// 配置覆盖（用户实测需求：校园网恢复时刻因作息/宿管而异，硬编码常量无法适配）。
+pub const DEFAULT_RESTORE_START_MINUTES: u32 = 450;
 /// 恢复窗口终点 23:00（不含，恰为最早的切换时刻，两窗口无缝衔接）
 pub(crate) const RESTORE_END_MINUTES: u32 = 1380;
+
+/// 生效的恢复窗口起点：配置值 0（未设置/旧配置）回落默认 07:30。
+/// 越界值（≥ 终点）同样回落——恢复窗起点必须早于切换时刻，否则窗口为空、
+/// 永远不会还原，属配置错误而非用户意图。
+pub fn restore_start_minutes(configured: u32) -> u32 {
+    if configured == 0 || configured >= RESTORE_END_MINUTES {
+        return DEFAULT_RESTORE_START_MINUTES;
+    }
+    configured
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NightSwitchAction {
@@ -55,12 +66,33 @@ pub fn evaluate_night_switch(
     current_operator: &str,
     restore_operator: &str,
 ) -> NightSwitchAction {
+    evaluate_night_switch_with_restore(
+        enabled,
+        weekday,
+        now_minutes,
+        current_operator,
+        restore_operator,
+        DEFAULT_RESTORE_START_MINUTES,
+    )
+}
+
+/// 带自定义恢复起点的判定（`restore_start` 由 [`restore_start_minutes`] 归一化后传入）。
+/// 除恢复窗起点外语义与 [`evaluate_night_switch`] 完全一致——拆成两个函数是为了
+/// 保住原签名（数十处调用/测试不必传第五个参数）。
+pub fn evaluate_night_switch_with_restore(
+    enabled: bool,
+    weekday: u32,
+    now_minutes: u32,
+    current_operator: &str,
+    restore_operator: &str,
+    restore_start: u32,
+) -> NightSwitchAction {
     if !enabled {
         return NightSwitchAction::None;
     }
     if !restore_operator.is_empty()
         && current_operator.is_empty()
-        && (RESTORE_START_MINUTES..RESTORE_END_MINUTES).contains(&now_minutes)
+        && (restore_start..RESTORE_END_MINUTES).contains(&now_minutes)
     {
         return NightSwitchAction::Restore;
     }
@@ -111,10 +143,45 @@ pub fn uid_matches(uid: &str, user: &str, expected_operator: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{evaluate_night_switch, parse_chkstatus, uid_matches, NightSwitchAction};
+    use super::{
+        evaluate_night_switch, evaluate_night_switch_with_restore, parse_chkstatus, restore_start_minutes,
+        uid_matches, NightSwitchAction, DEFAULT_RESTORE_START_MINUTES,
+    };
     use NightSwitchAction::*;
 
     const TELECOM: &str = "@telecom";
+
+    // ===== restore_start_minutes 归一化 =====
+
+    #[test]
+    fn 恢复起点_未设置与越界回落默认0730() {
+        // 0 = 旧配置未自定义 → 默认
+        assert_eq!(restore_start_minutes(0), DEFAULT_RESTORE_START_MINUTES);
+        // 恰为切点 1380(23:00) 会让恢复窗为空，属配置错误 → 默认
+        assert_eq!(restore_start_minutes(1380), DEFAULT_RESTORE_START_MINUTES);
+        assert_eq!(restore_start_minutes(1500), DEFAULT_RESTORE_START_MINUTES);
+        // 合法自定义值原样透传
+        assert_eq!(restore_start_minutes(400), 400);
+        assert_eq!(restore_start_minutes(1379), 1379);
+        assert_eq!(restore_start_minutes(1), 1);
+    }
+
+    #[test]
+    fn 恢复起点_自定义时段生效() {
+        // 06:00 恢复：05:59 仍在切换期（Restore 不触发、按凌晨补切语义为 Switch
+        // 但此处切换态成立故 None），06:00 起才还原
+        assert_eq!(
+            evaluate_night_switch_with_restore(true, 3, 359, "", TELECOM, 360),
+            None
+        );
+        assert_eq!(
+            evaluate_night_switch_with_restore(true, 3, 360, "", TELECOM, 360),
+            Restore
+        );
+        // 默认 07:30 时 06:00 尚未进恢复窗
+        assert_eq!(evaluate_night_switch(true, 3, 360, "", TELECOM), None);
+        assert_eq!(evaluate_night_switch(true, 3, 450, "", TELECOM), Restore);
+    }
 
     fn eval(enabled: bool, weekday: u32, now: u32, current: &str, restore: &str) -> NightSwitchAction {
         evaluate_night_switch(enabled, weekday, now, current, restore)

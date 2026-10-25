@@ -62,6 +62,12 @@ pub struct Config {
     /// 修改系统路由属侵入性动作）；判定逻辑见 config::outbound_switch
     #[serde(rename = "enableNightOutboundSwitch", default)]
     pub enable_night_outbound_switch: bool,
+    /// 夜间切换的恢复时刻（当日分钟数，如 450 = 07:30）：恢复窗自此刻开启，
+    /// 把夜间切出的出站/运营商还原。0 或越界（≥ 1380 即 23:00 切点）回落默认
+    /// 07:30，见 config::night_switch::restore_start_minutes。2026-10-26 起可配置，
+    /// 因校园网恢复时刻因作息而异，硬编码 07:30 无法适配。安卓端消费此字段
+    #[serde(rename = "nightRestoreMinutes", default)]
+    pub night_restore_minutes: u32,
     /// 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，
     /// 默认「无线卡优先、有线卡随后」（见 monitor::outbound_switch::
     /// effective_outbound_priority），即未排序时夜间出站目标默认 WLAN/无线出口。
@@ -91,10 +97,11 @@ pub struct Config {
     /// 安卓端不消费此字段
     #[serde(rename = "outboundManualHoldDay", default)]
     pub outbound_manual_hold_day: i32,
-    /// 待切换状态：`{target, tag}` JSON（tag 标签如 "waiting-login"）。非空 = 目标
-    /// 网卡尚未登录校园网、切换被挂起；监测确认目标卡在线后由排程循环自动完成
-    /// 切换，切换成功/还原时清空。与切换态快照同属本机状态，导入配置时保留本机值。
-    /// 安卓端不消费此字段
+    /// 待切换状态残留：`{target, tag, day}` JSON。2026-10-26 前登录闸在「目标卡可达
+    /// Portal 但未登录」时挂起切换并写入此行；该闸方向错误已移除（夜间切换目的正是
+    /// 切离已断的校园网），本版本不再产生新值，仅由排程循环每拍清空历史残留——
+    /// 前端徽标依赖它，留着会一直显示过期状态。与切换态快照同属本机状态，导入配置时
+    /// 保留本机值。安卓端不消费此字段
     #[serde(rename = "outboundPendingSwitch", default)]
     pub outbound_pending_switch: String,
     /// 安卓切换态标记：值恒 "logged_out"（纯标记，不暂存账号名）。非空 = 安卓处于
@@ -282,6 +289,8 @@ impl Default for Config {
             enable_night_operator_switch: false,
             night_operator_restore: String::new(),
             enable_night_outbound_switch: false,
+            // 0 = 未自定义，回落默认 07:30（见 config::night_switch::restore_start_minutes）
+            night_restore_minutes: 0,
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),

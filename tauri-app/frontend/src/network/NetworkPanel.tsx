@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, RotateCcw, UserRound } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
+import { SettingRow } from '@/components/ui/setting-row'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, useMemo, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -46,15 +48,10 @@ function formatSpeed(bps?: number): string {
   return `${Math.round(bps / 1e3)} Kbps`
 }
 
-/** 解析待切换状态 JSON（{target, tag}）；空/非法 → null（无挂起） */
-function parsePendingSwitch(json: string | undefined): { target: string; tag: string } | null {
-  if (!json) return null
-  try {
-    const row = JSON.parse(json) as { target?: string; tag?: string }
-    return row.target ? { target: row.target, tag: row.tag ?? '' } : null
-  } catch {
-    return null
-  }
+/** 恢复时刻显示：分钟数 → "HH:MM"；0/越界（后端同口径回落默认 07:30）按默认显示 */
+function formatRestoreTime(minutes: number | undefined): string {
+  const m = minutes && minutes > 0 && minutes < 1380 ? minutes : 450
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
 /** 长按触发拖拽的时长（ms）；行体按下后移出死区即取消，防止滚动/点击误触发 */
@@ -443,28 +440,37 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 />
               </div>
             </div>
-            {/* 功能描述移到标题行下方整行显示（沿 DNS 卡先例）。挂起徽标放在
-                CardDescription(<p>) 之外的同级 div——Badge 渲染为 div，嵌进
-                p 是非法 DOM 会被浏览器自动闭合错位 */}
-            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
-            {(() => {
-              const pending = parsePendingSwitch(config.outboundPendingSwitch)
-              if (!pending) return null
-              return (
-                <div className="mt-1.5">
-                  <Badge
-                    variant="outline"
-                    className="h-5 gap-1 border-amber-500/40 bg-amber-500/10 text-amber-600 text-[11px] font-medium"
-                    title={t('network.outboundPendingSwitchTip')}
-                  >
-                    <AlertTriangle className="h-3 w-3" />
-                    {pending.tag === 'waiting-login'
-                      ? t('network.outboundPendingWaitLogin', { target: pending.target })
-                      : t('network.outboundPendingSwitch', { target: pending.target })}
-                  </Badge>
-                </div>
-              )
-            })()}
+            {/* 恢复时刻可配置（2026-10-26 新增）：校园网恢复时刻因作息而异，
+                硬编码 07:30 会让「到点仍不还原/还原太晚」都无解；开关关闭时置灰 */}
+            <SettingRow
+              htmlFor="night-restore-time"
+              className="mt-3"
+              icon={<MoonStar className="h-3.5 w-3.5 text-primary" />}
+              label={t('network.nightRestoreTime')}
+              description={t('network.nightRestoreTimeDesc')}
+            >
+              <Input
+                id="night-restore-time"
+                type="time"
+                value={formatRestoreTime(config.nightRestoreMinutes)}
+                disabled={!config.enableNightOutboundSwitch}
+                onChange={e => {
+                  const [h, min] = e.target.value.split(':').map(Number)
+                  if (!isNaN(h) && !isNaN(min)) {
+                    // 早于 05:00 视为误触（凌晨补切窗口），钳到 05:00；后端另有归一化兜底
+                    onUpdateConfig({ nightRestoreMinutes: Math.min(1379, Math.max(300, h * 60 + min)) })
+                  }
+                }}
+                className="w-24 h-7 text-sm font-mono"
+              />
+            </SettingRow>
+            {/* 功能描述移到标题行下方整行显示（沿 DNS 卡先例）。
+                2026-10-26 起不再有「待切换」挂起态（登录闸已随方向修正移除，
+                夜间切换只做外网可达诊断、不再等待登录），故此处曾有的挂起徽标
+                随之删除；历史版本残留的 outboundPendingSwitch 字段由后端每拍清理 */}
+            <CardDescription className="mt-2">
+              {t('network.nightOutboundSwitchDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {adapters.length === 0 ? (

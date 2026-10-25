@@ -4,7 +4,7 @@
 //! Switch/Restore 决策，"切到哪张卡（桌面）"与"注销+重检（安卓）"由各端
 //! 调用方实现。切换态由配置自身承载（restore 快照/标记非空），幂等无需去重标记。
 
-use super::night_switch::{switch_time_for, RESTORE_END_MINUTES, RESTORE_START_MINUTES};
+use super::night_switch::{switch_time_for, RESTORE_END_MINUTES};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NightOutboundAction {
@@ -16,25 +16,43 @@ pub enum NightOutboundAction {
     Restore,
 }
 
-/// 夜间出站切换判定（纯函数）：
+/// 夜间出站切换判定（纯函数，恢复起点用默认 07:30——保留原签名供既有调用/测试）：
 /// - `!enabled` → None；
-/// - `restore_active`（切换态）且 now ∈ [450, 1380) → Restore；
-/// - `!restore_active` 且 now < 450（凌晨）→ Switch（补切：机器在切点前后
+/// - `restore_active`（切换态）且 now ∈ [恢复起点, 1380) → Restore；
+/// - `!restore_active` 且 now < 恢复起点（凌晨）→ Switch（补切：机器在切点前后
 ///   睡眠/关机错过切换时，凌晨视为前一晚切换窗口的尾部——此时校园线路已断、
-///   热点可用；07:30 恢复窗自会收敛，切在 06:29 也在 1 分钟后还原，无害）；
+///   热点可用；恢复窗自会收敛）；
 /// - `!restore_active` 且当日有切换时刻且 now >= 时刻（过点补触发）→ Switch；
 /// - 其余（白天、切换态夜间保持）→ None。
 pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, restore_active: bool) -> NightOutboundAction {
+    evaluate_night_outbound_with_restore(
+        enabled,
+        weekday,
+        now_minutes,
+        restore_active,
+        super::night_switch::DEFAULT_RESTORE_START_MINUTES,
+    )
+}
+
+/// 带自定义恢复起点的判定。`restore_start` 须已由
+/// [`super::night_switch::restore_start_minutes`] 归一化（0/越界 → 默认 07:30）。
+pub fn evaluate_night_outbound_with_restore(
+    enabled: bool,
+    weekday: u32,
+    now_minutes: u32,
+    restore_active: bool,
+    restore_start: u32,
+) -> NightOutboundAction {
     if !enabled {
         return NightOutboundAction::None;
     }
     if restore_active {
-        if (RESTORE_START_MINUTES..RESTORE_END_MINUTES).contains(&now_minutes) {
+        if (restore_start..RESTORE_END_MINUTES).contains(&now_minutes) {
             return NightOutboundAction::Restore;
         }
         return NightOutboundAction::None;
     }
-    if now_minutes < RESTORE_START_MINUTES {
+    if now_minutes < restore_start {
         return NightOutboundAction::Switch;
     }
     match switch_time_for(weekday) {
@@ -51,10 +69,26 @@ pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, re
 /// 恢复窗的 scheduled.rs。凌晨分支（now < 07:30）覆盖前一晚切换时刻
 /// （23:00/23:30）之后的全部时段，跨日天然成立。
 pub fn is_night_outbound_guard_window(enabled: bool, weekday: u32, now_minutes: u32) -> bool {
+    is_night_outbound_guard_window_with_restore(
+        enabled,
+        weekday,
+        now_minutes,
+        super::night_switch::DEFAULT_RESTORE_START_MINUTES,
+    )
+}
+
+/// 带自定义恢复起点的守护窗口判定：窗口止于 `restore_start`（恢复窗一开，
+/// 巡检即可正常自动启用，无需再让位于夜切）。
+pub fn is_night_outbound_guard_window_with_restore(
+    enabled: bool,
+    weekday: u32,
+    now_minutes: u32,
+    restore_start: u32,
+) -> bool {
     if !enabled {
         return false;
     }
-    if now_minutes < RESTORE_START_MINUTES {
+    if now_minutes < restore_start {
         return true;
     }
     switch_time_for(weekday).is_some_and(|t| now_minutes >= t)
@@ -91,6 +125,32 @@ mod tests {
         // 功能关闭一律不守护
         assert!(!is_night_outbound_guard_window(false, 0, 1380));
         assert!(!is_night_outbound_guard_window(false, 0, 10));
+    }
+
+    // 自定义恢复起点的守护窗口：窗口止于恢复起点
+    #[test]
+    fn guard_window_respects_custom_restore_start() {
+        // 恢复起点 06:00（360）：359 仍守护、360 出窗
+        assert!(is_night_outbound_guard_window_with_restore(true, 0, 359, 360));
+        assert!(!is_night_outbound_guard_window_with_restore(true, 0, 360, 360));
+        // 默认起点 450 下 360 仍在窗内
+        assert!(is_night_outbound_guard_window_with_restore(true, 0, 360, 450));
+    }
+
+    // 自定义恢复起点驱动 Restore 判定
+    #[test]
+    fn restore_window_follows_custom_start() {
+        // 默认 07:30 前不还原；自定义 06:00 后即还原
+        assert_eq!(evaluate_night_outbound(true, 0, 400, true), NightOutboundAction::None);
+        assert_eq!(
+            evaluate_night_outbound_with_restore(true, 0, 400, true, 360),
+            NightOutboundAction::Restore
+        );
+        // 自定义起点下凌晨仍保持切换态（400 属恢复窗内才还原，359 不还原）
+        assert_eq!(
+            evaluate_night_outbound_with_restore(true, 0, 359, true, 360),
+            NightOutboundAction::None
+        );
     }
 
     // 时间表：与运营商夜切共用（0..=4→1380，5|6→1410）

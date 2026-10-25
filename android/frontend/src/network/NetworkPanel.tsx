@@ -4,6 +4,7 @@ import { Switch } from '@/components/ui/switch'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check, Network } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { SegmentTabs } from '@/shared/SegmentTabs'
@@ -20,6 +21,12 @@ import { DnsAdapterCard } from './DnsAdapterCard'
 
 interface NetworkPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
+}
+
+/** 恢复时刻显示：分钟数 → "HH:MM"；0/越界（后端同口径回落默认 07:30）按默认显示 */
+function formatRestoreTime(minutes: number | undefined): string {
+  const m = minutes && minutes > 0 && minutes < 1380 ? minutes : 450
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
 export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: NetworkPanelProps) {
@@ -125,7 +132,33 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 className="shrink-0"
               />
             </div>
-            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
+            <CardDescription className="mt-2">
+              {t('network.nightOutboundSwitchDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
+            </CardDescription>
+            {/* 恢复时刻可配置（2026-10-26 新增，与桌面同字段）：校园网恢复时刻因
+                作息而异，硬编码 07:30 无法适配；开关关闭时置灰 */}
+            <div className="flex items-center justify-between gap-3 mt-3">
+              <div className="min-w-0">
+                <Label htmlFor="night-restore-time" className="text-sm font-medium">
+                  {t('network.nightRestoreTime')}
+                </Label>
+                <p className="text-xs text-muted-foreground leading-snug mt-0.5">{t('network.nightRestoreTimeDesc')}</p>
+              </div>
+              <Input
+                id="night-restore-time"
+                type="time"
+                value={formatRestoreTime(config.nightRestoreMinutes)}
+                disabled={!config.enableNightOutboundSwitch}
+                onChange={e => {
+                  const [h, min] = e.target.value.split(':').map(Number)
+                  if (!isNaN(h) && !isNaN(min)) {
+                    // 早于 05:00 视为误触（凌晨补切窗口），钳到 05:00；后端另有归一化兜底
+                    onUpdateConfig({ nightRestoreMinutes: Math.min(1379, Math.max(300, h * 60 + min)) })
+                  }
+                }}
+                className="w-24 h-7 text-sm font-mono shrink-0"
+              />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="p-3.5 rounded-xl bg-muted/30 space-y-2">

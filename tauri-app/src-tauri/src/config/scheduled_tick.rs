@@ -16,8 +16,8 @@
 //! 状态源差异同样由调用方收口：切换态 `bool` 由调用方从各自的承载推导（桌面内存
 //! 快照三字段 / 安卓 `night_outbound_restore` 配置标记），本模块不感知存储形态。
 
-use super::night_switch::{evaluate_night_switch, NightSwitchAction};
-use super::outbound_switch::{evaluate_night_outbound, NightOutboundAction};
+use super::night_switch::{evaluate_night_switch_with_restore, NightSwitchAction};
+use super::outbound_switch::{evaluate_night_outbound_with_restore, NightOutboundAction};
 use super::schedule::should_fire_scheduled_action;
 
 /// 定时动作判定（双端单点）：命中返回 (应登录, 应注销)，不置任何标记——
@@ -58,13 +58,42 @@ pub fn evaluate_outbound_action(
     outbound_manual_hold_day: i32,
     today_day: i32,
 ) -> NightOutboundAction {
+    evaluate_outbound_action_with_restore(
+        enable_night_outbound_switch,
+        weekday_sunday,
+        now_minutes,
+        outbound_restore_active,
+        outbound_manual_hold_day,
+        today_day,
+        super::night_switch::DEFAULT_RESTORE_START_MINUTES,
+    )
+}
+
+/// 带自定义恢复起点的出站动作判定（`restore_start` 由
+/// [`super::night_switch::restore_start_minutes`] 归一化后传入）：语义与
+/// [`evaluate_outbound_action`] 完全一致，仅恢复窗起点可变。
+#[allow(clippy::too_many_arguments)] // 透传纯判定所需入参，拆结构体只为少一两个参数不值
+pub fn evaluate_outbound_action_with_restore(
+    enable_night_outbound_switch: bool,
+    weekday_sunday: u32,
+    now_minutes: u32,
+    outbound_restore_active: bool,
+    outbound_manual_hold_day: i32,
+    today_day: i32,
+    restore_start: u32,
+) -> NightOutboundAction {
     // 清理分支优先，不受 hold 冻结：此时 evaluate 的 !enabled 短路恒产 None，
     // 直接改判 Restore 与原 match 守卫语义等价
     if outbound_restore_active && !enable_night_outbound_switch {
         return NightOutboundAction::Restore;
     }
-    let evaluated =
-        evaluate_night_outbound(enable_night_outbound_switch, weekday_sunday, now_minutes, outbound_restore_active);
+    let evaluated = evaluate_night_outbound_with_restore(
+        enable_night_outbound_switch,
+        weekday_sunday,
+        now_minutes,
+        outbound_restore_active,
+        restore_start,
+    );
     // hold=0 表示无保持（num_days_from_ce 恒 >0，测试传 0 即无保持）
     if outbound_manual_hold_day != 0 && outbound_manual_hold_day == today_day {
         return NightOutboundAction::None;
@@ -83,15 +112,39 @@ pub fn evaluate_night_switch_gated(
     restore_operator: &str,
     outbound_active: bool,
 ) -> NightSwitchAction {
-    if outbound_active {
-        return NightSwitchAction::None;
-    }
-    evaluate_night_switch(
+    evaluate_night_switch_gated_with_restore(
         enable_night_operator_switch,
         weekday_sunday,
         now_minutes,
         current_operator,
         restore_operator,
+        outbound_active,
+        super::night_switch::DEFAULT_RESTORE_START_MINUTES,
+    )
+}
+
+/// 带自定义恢复起点的运营商夜切判定：还原窗起点与出站还原共用同一配置
+/// （`nightRestoreMinutes`），保证「运营商切回校园」与「出站还原」同时发生。
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate_night_switch_gated_with_restore(
+    enable_night_operator_switch: bool,
+    weekday_sunday: u32,
+    now_minutes: u32,
+    current_operator: &str,
+    restore_operator: &str,
+    outbound_active: bool,
+    restore_start: u32,
+) -> NightSwitchAction {
+    if outbound_active {
+        return NightSwitchAction::None;
+    }
+    evaluate_night_switch_with_restore(
+        enable_night_operator_switch,
+        weekday_sunday,
+        now_minutes,
+        current_operator,
+        restore_operator,
+        restore_start,
     )
 }
 

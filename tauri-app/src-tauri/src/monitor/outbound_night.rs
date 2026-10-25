@@ -5,14 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use chrono::{Datelike, Timelike};
 use tauri::{AppHandle, Manager};
-use crate::config::night_switch::{RESTORE_END_MINUTES, RESTORE_START_MINUTES};
+use crate::config::night_switch::{restore_start_minutes, RESTORE_END_MINUTES};
 use crate::config::outbound_switch::outbound_restore_active;
 use crate::infra::state::AppState;
 use crate::monitor::outbound_switch::{
     disabled_adapters_json, effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
-    parse_standby_route, pending_switch_json, portal_probe_host, select_campus_to_disable,
-    select_outbound_candidate, snapshot_json, standby_route_cleanup, PENDING_TAG_WAIT_LOGIN,
-    StandbyCleanup,
+    parse_standby_route, portal_probe_host, select_campus_to_disable,
+    select_outbound_candidate, snapshot_json, standby_route_cleanup, StandbyCleanup,
 };
 use crate::network::Adapter;
 use crate::platform::metric::MetricRow;
@@ -63,13 +62,14 @@ static OUTBOUND_RESTORE_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 任一次 helper 成功即清零（通道可用）
 static OUTBOUND_CHANNEL_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 每天至多一次的提醒通知去重标记（num_days_from_ce；i32::MIN = 从未提醒）：
-/// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径/登录闸挂起五类「不阻塞
-/// 流程但该让用户知道」的问题各占一枚
+/// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径/目标卡外网探测无响应
+/// 五类「不阻塞流程但该让用户知道」的问题各占一枚
 static OUTBOUND_NO_CANDIDATE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_EMPTY_DISABLE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_METRIC_SNAPSHOT_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_LAST_PATH_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
-static OUTBOUND_PENDING_LOGIN_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
+/// 外网探测无响应提醒日（探测不阻断切换，仅告知用户该出口可能被拦 ICMP）
+static OUTBOUND_PROBE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 
 /// 出站动作单飞闸：切换与还原互斥。手动入口（命令线程）与 30s 调度拍（后台线程）
 /// 可能同时进 `apply_outbound_*`；若还原拿着"切换前"读到的快照收尾，会把刚写入的
@@ -122,10 +122,12 @@ pub(super) fn outbound_switch_active(app_handle: &AppHandle) -> bool {
     )
 }
 
-/// 恢复窗口 [07:30, 23:00)：窗内是"清晨还原期"，窗外是"夜间切换期"
-/// （时间表常量由 config::night_switch 承载，双端同源）
-fn in_outbound_restore_window(now_minutes: u32) -> bool {
-    (RESTORE_START_MINUTES..RESTORE_END_MINUTES).contains(&now_minutes)
+/// 恢复窗口 [恢复起点, 23:00)：窗内是"清晨还原期"，窗外是"夜间切换期"。
+/// 恢复起点自 2026-10-26 起可配置（`nightRestoreMinutes`，默认 07:30）。
+/// 时间表常量由 config::night_switch 承载，双端同源。
+pub(super) fn in_outbound_restore_window(config: &crate::config::Config, now_minutes: u32) -> bool {
+    let start = restore_start_minutes(config.night_restore_minutes);
+    (start..RESTORE_END_MINUTES).contains(&now_minutes)
 }
 
 fn now_epoch_ms() -> u64 {
@@ -391,78 +393,29 @@ fn write_outbound_metric(
 /// - 切换完成后路由级验证（GetBestRoute）：到校园网关的最优路由仍指向校园卡
 ///   ifIndex 则判失败走重放；空禁用名单（误判漏禁）单独每天告警一次。
 ///
-/// 目标网卡是否允许切换（登录闸判定，**三态语义**）。
+/// 夜间切换目标卡的外网可达探测目标（阿里公共 DNS，纯 ICMP 目标，不涉任何凭据）。
 ///
-/// 判据取 Portal 探测结果 `PortalStatus` 本身，而不是「必须 online」：
-/// - `online = true` → 放行（真正已登录）；
-/// - `reachable = true && online = false` → 挂起等登录（这才是本闸该拦的场景：
-///   目标卡确实是校园网卡但尚未认证，切过去就是断网）；
-/// - `!reachable`（探测失败/该卡无 IP）→ **放行**：候选筛选用的同一个绑源探测
-///   （`is_campus_adapter`）判定「非校园网」的充要条件之一就是校园网关与 portal
-///   主机都不可达；不经营校园认证的出口若还被要求「Portal 在线」，两个判据逻辑
-///   互斥、条件恒假。2026-10-25 手机热点 WLAN(10.146.34.246) 整夜挂起
-///   「待切换: WLAN（等待该网卡登录校园网）」、切换从未执行即此恒假条件所致。
+/// 只作诊断信号：见 [`probe_target_internet`] 的"不阻断"说明。
+pub(super) const OUTBOUND_PROBE_HOST: &str = "223.5.5.5";
+
+/// 夜间切换目标卡的**外网可达探测**（2026-10-26 取代登录闸）。
 ///
-/// 监测卡（主/副）优先采信监测模块在线结论以避免每拍重复探测：已在线直接放行；
-/// 判未在线时仍补一次绑源直查，区分「不可达」与「可达未登录」。
-fn target_adapter_logged_in(
-    app_handle: &AppHandle,
-    config: &crate::config::Config,
-    target_name: &str,
-) -> bool {
-    let adapters = match crate::network::get_adapters_cached() {
-        Ok(a) => a,
-        Err(e) => {
-            crate::log_debug!("outbound", "登录闸: 适配器查询失败({e})，视同未登录");
-            return false;
-        }
-    };
-    let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, config);
-    let snap = app_handle.state::<AppState>().network.load();
-    let monitored = crate::monitor::outbound_switch::monitored_adapter_online(
-        target_name,
-        &a1_name,
-        &a2_name,
-        snap.last_a1_online,
-        snap.last_a2_online,
-    );
-    if monitored == Some(true) {
-        return true;
-    }
-    // 需要区分「可达未登录」与「不可达」时才探测：监测结论已明确未在线也要探一次，
-    // 否则热点这类不可达出口会被误判成「等登录」而挂起整夜
-    let Some(adapter) = adapters.iter().find(|a| a.name == target_name) else {
-        return false; // 候选来自本列表，理论上不会走到；防御性挂起
-    };
-    if adapter.ip.is_empty() {
+/// 语义修正的背景：登录闸把「目标卡必须在校园 Portal 在线」当成切换前提，方向正好
+/// 相反——校园网 23:00 断网，此刻要做的事恰恰是切到**不经营校园认证**的出口
+/// （手机热点、其他宽带）。要求热点登录校园 Portal，这个条件永假，切换整夜不执行
+/// （2026-10-25 现场：WLAN 热点整夜挂起「待切换: 等待该网卡登录校园网」）。
+/// 登录判定只属于**早上还原后**那一侧（见 `finish_outbound_restore`）。
+///
+/// 探测用绑源 ICMP 直打公网地址，走 `check_gateway_reachable_from`（Windows 上即
+/// IcmpSendEcho2Ex，绑源可靠）。**结果不作为切换闸门**：
+/// - 候选筛选已保证目标卡 IP/网关齐备且判为非校园网（自身网关可达已实证）；
+/// - 运营商拦 ICMP 到公网是常态，把探测失败当阻断条件会重演"恒假条件整夜不切"。
+/// 因此只在不可达时记一次日志 + 每日一次提醒，切换照做。
+fn probe_target_internet(target: &Adapter) -> bool {
+    if target.ip.is_empty() {
         return false;
     }
-    let portal = crate::auth::portal::check_portal_full(&adapter.ip, Some(&adapter.name)).ok();
-    let allow = crate::monitor::outbound_switch::login_gate_allow(monitored, portal.as_ref());
-    match (allow, portal.as_ref()) {
-        (true, Some(s)) if s.online => {
-            crate::log_info!("outbound", "登录闸: 目标卡 {} 已在校园 Portal 在线，放行切换", target_name);
-        }
-        (true, _) => {
-            crate::log_info!(
-                "outbound",
-                "登录闸: 目标卡 {} 不可访问校园 Portal（与候选筛选判定同源，视同不经营校园认证），放行切换",
-                target_name
-            );
-        }
-        (false, Some(s)) => {
-            crate::log_warn!(
-                "outbound",
-                "登录闸: 目标卡 {} Portal 可达但未登录（{}），挂起等登录",
-                target_name,
-                s.message
-            );
-        }
-        (false, None) => {
-            crate::log_warn!("outbound", "登录闸: 目标卡 {} 无法确认登录态，挂起等登录", target_name);
-        }
-    }
-    allow
+    crate::network::subnet::check_gateway_reachable_from(OUTBOUND_PROBE_HOST, Some(&target.ip))
 }
 
 /// 改单份本机状态配置并落盘+广播+store（排程 30s 一拍，逐拍重写同值既写盘又
@@ -490,11 +443,13 @@ fn set_pending_switch(app_handle: &AppHandle, pending: &str) {
     persist_config_update(app_handle, fresh);
 }
 
-/// 待切换补驱动入口（排程 None 拍调用，须在 spawn_blocking 线程内）：封装挂起态
-/// 的全部生命周期判定——
-/// ① 功能已关闭 → 清残留（含徽标），用户关功能即退出挂起；
-/// ② 记录日非今日 → 清残留（挂起只属当晚切换窗口，跨日失效）；
-/// ③ 其余情况重跑登录闸：已登录则切换完成（apply 内清挂起态），未登录幂等刷新。
+/// 待切换状态的**清理入口**（排程 None 拍调用，须在 spawn_blocking 线程内）。
+///
+/// 2026-10-26 起夜间切换不再产生挂起：旧版登录闸在「目标卡可达 Portal 但未登录」时
+/// 写入 `waiting-login` 挂起行等监测确认，而校园网 23:00 已断、热点永不可能登录，
+/// 于是整夜挂起、切换从不执行（现场事故）。改用外网可达诊断信号后不再有条件能挂起，
+/// 故本函数只剩兼容职责——把历史版本留下的残留行清掉（前端徽标依赖它，留着会一直
+/// 显示过期状态）。功能关闭与跨日两条路径语义不变，均为"清残留"。
 pub(super) fn drive_pending_switch(
     app_handle: &AppHandle,
     config: &crate::config::Config,
@@ -502,21 +457,13 @@ pub(super) fn drive_pending_switch(
     if config.outbound_pending_switch.is_empty() {
         return Ok(());
     }
-    if !config.enable_night_outbound_switch {
-        crate::log_debug!("outbound", "待切换补驱动: 功能已关闭，清理残留待切换状态");
-        set_pending_switch(app_handle, "");
-        return Ok(());
-    }
-    let today = chrono::Local::now().date_naive().num_days_from_ce();
-    let expired = crate::monitor::outbound_switch::parse_pending_switch(&config.outbound_pending_switch)
-        .map(|row| row.day != today)
-        .unwrap_or(true); // 持久化行损坏：视同过期，清掉让下一拍重判重写
-    if expired {
-        crate::log_debug!("outbound", "待切换补驱动: 待切换状态已跨日失效，清理");
-        set_pending_switch(app_handle, "");
-        return Ok(());
-    }
-    apply_outbound_switch(app_handle, config)
+    crate::log_debug!(
+        "outbound",
+        "清理历史遗留的待切换状态: {}（本版本夜间切换不再挂起）",
+        config.outbound_pending_switch
+    );
+    set_pending_switch(app_handle, "");
+    Ok(())
 }
 
 pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
@@ -575,39 +522,35 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
         crate::log_warn!("outbound", "夜间出站切换: 目标卡 {} 无 GUID，无法设置跃点", target.name);
         return Err(format!("目标网卡 {} 缺少 GUID，无法设置跃点", target.name));
     }
-    // 登录闸：目标网卡必须已在校园 Portal 在线才允许切换——否则把出站切到一张
-    // 未登录（甚至无法登录）的卡，整机会断网直到还原窗口。主/副卡以监测模块
-    // 的在线结论为准（last_a1_online/last_a2_online），其余卡用监测同款原语
-    // 绑源直查 Portal。未登录不记失败、不进退避：仅内容变化时落盘待切换状态
-    // （防 30s 一拍重复写盘/广播），排程循环每拍重判，监测报告在线后自动切换
-    if !target_adapter_logged_in(app_handle, config, &target.name) {
-        let today = chrono::Local::now().date_naive().num_days_from_ce();
-        set_pending_switch(
-            app_handle,
-            &pending_switch_json(&target.name, PENDING_TAG_WAIT_LOGIN, today),
+    // 外网可达探测：只作诊断信号，**不阻断**切换（判定理由见 probe_target_internet）。
+    // 旧实现在此处挂一道「目标卡必须已在校园 Portal 在线」的登录闸，语义方向相反
+    // （夜间切换的目的正是切离已断的校园网），热点出口恒不满足 → 整夜不切。
+    if probe_target_internet(&target) {
+        crate::log_info!(
+            "outbound",
+            "夜间出站切换: 目标卡 {} 绑源探测 {} 外网可达，开始切换",
+            target.name,
+            OUTBOUND_PROBE_HOST
         );
+    } else {
         crate::log_warn!(
             "outbound",
-            "夜间出站切换: 目标卡 {} 尚未登录校园网，本拍不切换（已记录待切换状态，登录确认后自动切换）",
-            target.name
+            "夜间出站切换: 目标卡 {} 绑源探测 {} 无响应（运营商拦 ICMP 属常见现象），仍按候选结论继续切换",
+            target.name,
+            OUTBOUND_PROBE_HOST
         );
-        // 挂起是整夜静默失效的高危形态：徽标只在前端可见，用户不看面板就完全无感
-        // （2026-10-25 手机热点整夜挂起即此）。每天提醒一次，不刷通知
         notify_outbound_issue_once_per_day(
             app_handle,
-            &OUTBOUND_PENDING_LOGIN_WARN_DAY,
-            "夜间出站切换未执行",
+            &OUTBOUND_PROBE_WARN_DAY,
+            "夜间出站切换",
             &format!(
-                "目标网卡 {} 可访问校园 Portal 但尚未登录，出站切换已挂起等待登录；登录确认后会自动继续",
+                "目标网卡 {} 的外网探测未响应（可能拦截了 ICMP），切换已照常执行；若实际上网异常请检查该出口",
                 target.name
             ),
         );
-        return Err(format!(
-            "目标网卡 {} 尚未登录校园网，已记录待切换状态，登录确认后自动切换",
-            target.name
-        ));
     }
-    // 目标卡已在线：清掉残留的待切换状态（若有），随后的切换落盘会一并覆盖
+    // 清掉历史版本遗留的待切换状态（旧登录闸写入的 waiting-login 行）：本版本不再
+    // 产生挂起，残留只会让前端一直显示过期徽标，随后的切换落盘也会一并覆盖。
     set_pending_switch(app_handle, "");
     // 只处理 IPv4+IPv6 两族（helper 的 set_metric 只认 2/23）
     let rows: Vec<MetricRow> = match crate::platform::metric::read_interface_metrics(&target.guid) {
@@ -875,10 +818,11 @@ pub(super) fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate:
         return Ok(());
     }
     let now = chrono::Local::now();
-    if !crate::config::outbound_switch::is_night_outbound_guard_window(
+    if !crate::config::outbound_switch::is_night_outbound_guard_window_with_restore(
         config.enable_night_outbound_switch,
         now.weekday().num_days_from_sunday(),
         now.hour() * 60 + now.minute(),
+        restore_start_minutes(config.night_restore_minutes),
     ) || !switch_gate_open()
     {
         return Ok(());
@@ -1272,6 +1216,11 @@ fn finish_outbound_restore(app_handle: &AppHandle) -> bool {
     // 300s，正是「整夜休眠后到点不自动登录、只能手动点」的缺口（见
     // background_task::spawn_background_check_after_outbound_restore 的实证注释）。
     // 所有还原路径（自动/手动/启动对账）都汇到此处，钩子只挂一次。
+    //
+    // 2026-10-26：还原时刻可配置后，还原点可能早于校园网检测静默期起点
+    // （默认还原 07:30 / 静默期 07:40），补检会被静默期整体跳过、登录判定不生效。
+    // 还原是本应用主动制造的状态迁移，先立一次性放行标记再发起补检。
+    crate::monitor::background_check::request_check_after_outbound_restore();
     crate::monitor::background_task::spawn_background_check_after_outbound_restore(app_handle);
     true
 }
@@ -1336,18 +1285,10 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     set_outbound_manual_hold(app_handle, today);
     if let Err(reason) = apply_outbound_switch(app_handle, &config) {
-        // 登录闸挂起（apply 已写入待切换状态）不是失败：保留 hold 让补驱动接管，
-        // 否则守卫窗内的自动 Switch 拍会与补驱动两条路径并存重复判定。
-        // 其余失败（无候选/退避等）按原语义清 hold 恢复当日自动切换。
-        let suspended = !app_handle
-            .state::<AppState>()
-            .config
-            .load_full()
-            .outbound_pending_switch
-            .is_empty();
-        if !suspended {
-            clear_outbound_manual_hold(app_handle);
-        }
+        // 切换失败（无候选/退避等）按原语义清 hold，恢复当日自动切换。
+        // 2026-10-26 前还有「登录闸挂起不算失败、保留 hold 让补驱动接管」的分支；
+        // 挂起机制已随登录闸一起移除，失败即失败。
+        clear_outbound_manual_hold(app_handle);
         Err(reason)
     } else {
         Ok(())
@@ -1359,12 +1300,6 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
 pub(crate) fn manual_outbound_restore(app_handle: &AppHandle) -> Result<(), String> {
     let config = app_handle.state::<AppState>().config.load_full();
     if !outbound_switch_active(app_handle) {
-        // 挂起态（仅待切换状态非空、三份快照全空）也允许「立即还原」退出：
-        // 用户显式放弃等待，清掉徽标并终止补驱动
-        if !config.outbound_pending_switch.is_empty() {
-            set_pending_switch(app_handle, "");
-            return Ok(());
-        }
         return Err("当前未处于出站切换状态".to_string());
     }
     // hold 必须先清：否则还原失败后，还原窗内的自动重试会被 hold 一并冻结
@@ -1396,7 +1331,7 @@ pub(super) fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
     }
     let now = chrono::Local::now();
     let now_minutes = now.hour() * 60 + now.minute();
-    if !config.enable_night_outbound_switch || in_outbound_restore_window(now_minutes) {
+    if !config.enable_night_outbound_switch || in_outbound_restore_window(&config, now_minutes) {
         crate::log_info!("outbound", "启动对账: 残留切换态处于恢复期，立即还原");
         let _ = apply_outbound_restore(app_handle, &config);
         return;

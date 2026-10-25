@@ -28,7 +28,9 @@ use chrono::Datelike;
 use tauri::{AppHandle, Manager};
 use crate::config::night_switch::{parse_chkstatus, uid_matches, NightSwitchAction};
 use crate::config::outbound_switch::{outbound_restore_active, NightOutboundAction};
-use crate::config::scheduled_tick::{evaluate_night_switch_gated, evaluate_outbound_action, evaluate_scheduled_actions};
+use crate::config::scheduled_tick::{
+    evaluate_night_switch_gated_with_restore, evaluate_outbound_action_with_restore, evaluate_scheduled_actions,
+};
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use super::outbound_night::{
@@ -109,13 +111,15 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             &config_snapshot.outbound_disabled_adapters,
             &config_snapshot.outbound_standby_route,
         );
-        match evaluate_outbound_action(
+        match evaluate_outbound_action_with_restore(
             config_snapshot.enable_night_outbound_switch,
             now.weekday().num_days_from_sunday(),
             now_minutes as u32,
             restore_active,
             config_snapshot.outbound_manual_hold_day,
             today_day,
+            // 恢复时刻可配置（默认 07:30）：归一化 0/越界 → 默认
+            crate::config::night_switch::restore_start_minutes(config_snapshot.night_restore_minutes),
         ) {
             NightOutboundAction::Switch => {
                 let switched = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), apply_outbound_switch)
@@ -151,11 +155,9 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                     })
                     .await;
                 }
-                // 待切换补驱动：手动「立即切换」被登录闸挂起后 hold 保留、当日
-                // 自动 Switch 冻结，守卫窗外也没有 Switch 拍——由这里每拍走
-                // drive_pending_switch 重判（功能关闭/跨日失效即清理，监测确认
-                // 目标卡登录后自动完成切换；仍未登录则 apply 幂等地刷新待切换
-                // 状态）。切换态成立时挂起态已随切换成功清空
+                // 待切换残留清理：旧版本登录闸写入的 waiting-login 行（2026-10-26 起
+                // 本版本不再产生挂起）。残留会让前端徽标常驻，故每拍清一次；清空后
+                // 该字段恒为空，本分支不再进入。切换态成立时同理已随切换成功清空
                 if !config_snapshot.outbound_pending_switch.is_empty() && !restore_active {
                     let _ = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), drive_pending_switch).await;
                 }
@@ -178,13 +180,14 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             // 出站动作可能刚改写切换态，判定用重读的新鲜配置；门控用**拍后**
             // 切换态（出站动作执行后重取，见 :149 注释）
             let config = s.config.load_full();
-            evaluate_night_switch_gated(
+            evaluate_night_switch_gated_with_restore(
                 config.enable_night_operator_switch,
                 now.weekday().num_days_from_sunday(),
                 now_minutes as u32,
                 &config.operator,
                 &config.night_operator_restore,
                 outbound_active,
+                crate::config::night_switch::restore_start_minutes(config.night_restore_minutes),
             )
         };
         if night_action != NightSwitchAction::None {
