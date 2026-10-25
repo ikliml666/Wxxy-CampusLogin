@@ -115,6 +115,17 @@ function setupCrashRecovery() {
 
 setupCrashRecovery()
 
+// 安卓内存压力钩子：MainActivity.onTrimMemory 经 evaluateJavascript 调用（level 为
+// 系统 TRIM 常量）。RUNNING_LOW(10) 起释放人脸引擎——最大常驻缓存（TFJS 模型权重），
+// 弹窗关闭本就会释放，此处作为系统压力下的兜底；动态 import 保证未用过人脸功能时
+// 不把 faceService chunk 拉进首屏（FE-A-04）。
+;(window as unknown as { __onTrimMemory?: (level: number) => void }).__onTrimMemory = (level: number) => {
+  if (level < 10) return
+  import('./face/faceService')
+    .then((m) => m.releaseFaceEngine())
+    .catch(() => { /* best-effort：释放失败不重试 */ })
+}
+
 const AppWrapper = import.meta.env.DEV
   ? React.StrictMode
   : React.Fragment
