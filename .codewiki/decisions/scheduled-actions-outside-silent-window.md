@@ -11,17 +11,21 @@ tags: [决策, 定时动作, 静默期, 双端, 调度]
 
 新增「每日定时登录 / 定时注销」时，最自然的落点是复用既有每拍巡检循环（桌面 `run_check_once`、安卓 `monitor_tick_loop` 内的 `run_check_once`）。但既有巡检有两道"省电/省流"闸门：
 
-1. **校园网检测静默期**（`campus_check_start_minutes` / `campus_check_end_minutes`）：时段外整拍跳过校园网验证。
+1. **校园网检测静默期**（`campus_check_start_minutes` / `campus_check_end_minutes`）：时段外整拍跳过校园网验证。该判定现由共享面纯函数 `config::schedule::is_campus_check_silent` 承载（`tauri-app/src-tauri/src/config/schedule.rs:41-49`，于 2026-10-26 从桌面 `monitor::campus_check` 下沉到共享面，见 `schedule.rs:38-40`）。
 2. **安卓巡检分档**（`effective_interval_ms`）：亮屏+WiFi 才用基础间隔，否则取 `idle_ms.max(base)`；跳拍判定在 `monitor_tick_loop`。
+
+静默期判定虽下沉至共享模块，但作为巡检闸门的本质未变；定时动作判定不调用该函数，故依然独立。
 
 ## 决策
 
 定时动作的判定**独立于上述两道闸门**：
 
-- **桌面**用独立循环 `monitor::scheduled::run_scheduled_action_loop`（`tauri-app/src-tauri/src/monitor/scheduled.rs:116`），30s 一拍（`SCHEDULED_TICK_MS = 30_000`，`scheduled.rs:49`），随 `run_startup_tasks` 无条件 spawn（`watcher.rs:54-55`）——注释明确不受 `enable_background_check` 开关管（`watcher.rs:51-52`），"定时动作与巡检是两个功能"。
-- **安卓**把 `run_scheduled_actions` 放在 `monitor_tick_loop` 每拍**第一位**执行，先于间隔热更新、分档跳拍与 `run_check_once` 内的静默期闸门；`run_check_once` 入口注释明示 `run_scheduled_actions` 不经过其出站切换态整轮跳过闸。
-- 两端判定共用同一纯函数 `config::schedule::should_fire_scheduled_action`（`tauri-app/src-tauri/src/config/schedule.rs:18`），模块注释声明本模块在 `lib.rs` 无 cfg 门控、跨平台共用同一实现与同一组测试（`schedule.rs:3-4`）。
-- 该循环**同时承载夜间出站切换编排**（桌面 `run_scheduled_action_loop` 内的出站 Switch/Restore 与运营商夜切，`scheduled.rs:213-215` 注释引用本文；安卓 `run_scheduled_actions` 内的夜出站切换与 `evaluate_night_switch`）——两者同取位、同「独立于静默期闸门」原则。
+- **桌面**用独立循环 `monitor::scheduled::run_scheduled_action_loop`，由 `run_startup_tasks` 无条件 spawn（`tauri-app/src-tauri/src/monitor/watcher.rs:16-20`），其前方注释明确不受 `enable_background_check` 开关管（`watcher.rs:64-66`），"定时动作与巡检是两个功能"。循环内部逐拍读配置，判定由共享纯函数完成。
+- **安卓**与桌面共用同一判定实现：模块 `config::schedule` 在跨平台可见面（`lib.rs` 无 cfg 门控），桌面 `monitor::scheduled` 与安卓 `monitor_loop` 共用同一实现与同一组测试（`tauri-app/src-tauri/src/config/schedule.rs:4-5`）。因此安卓侧同样将定时动作判定置于静默期与分档跳拍之外，语义单点一致。
+- 两端判定共用同一纯函数 `config::schedule::should_fire_scheduled_action`（`tauri-app/src-tauri/src/config/schedule.rs:22-30`），其文档注释声明跨平台共用、禁用哨兵与过点补触发语义。
+- 静默期函数 `is_campus_check_silent`（`schedule.rs:41-49`）虽同在本模块，但定时动作判定函数不调用它，二者解耦。
+
+（旧文提及定时动作循环"同时承载夜间出站切换编排"，因相关文件 `scheduled.rs` 未在本轮提供源码，该细节暂不重写，以当前提供源码为准仅确认独立循环与判定纯函数。）
 
 ## 理由
 
@@ -30,17 +34,20 @@ tags: [决策, 定时动作, 静默期, 双端, 调度]
 - 静默期命中 → 整拍 return，定时注销当天静默失效，用户看不到任何反馈
 - 灭屏跳拍 → 拍点间隔从基础值拉长到闲时档级，虽有过点补触发兜底，但失效窗口被放大
 
-定时动作是**用户显式配置的一次性时点行为**，与"省电省流"目标不冲突（判定本身是纯内存计算，不产生网络请求——只有命中时才走一次登录/注销；安卓侧还有双禁用早退：两目标均 `>= 1440` 时免读时钟直接 return）。因此它不应被巡检的节流闸门约束。
+定时动作是**用户显式配置的一次性时点行为**，与"省电省流"目标不冲突（判定本身是纯内存计算，不产生网络请求——只有命中时才走一次登录/注销）。因此它不应被巡检的节流闸门约束。共享纯函数 `should_fire_scheduled_action` 的判定成本极低，且禁用哨兵 `target_minutes >= SCHEDULED_DISABLED_MINUTES`（1440）时直接返回 false（`schedule.rs:23-25`），无任何副作用。
 
 ## 影响与约束
 
-- **判定纯函数与禁用哨兵**：`should_fire_scheduled_action(now_minutes, target_minutes, last_fired_day, today_day)`（`schedule.rs:18`）：`target_minutes >= 1440` 禁用哨兵永不触发（`schedule.rs:19-21`；2026-09-20 起 0 表示真实的 00:00 时刻、禁用改用哨兵 1440，存量 0 由双端 schema 迁移一次性刷为 1440，`schedule.rs:7-8`）；`now < target` 不触发；否则 `last_fired_day != today_day` 即触发。跨天重置靠日期序号天然实现。
-- **过点补触发**是配套设计：`now_minutes >= target_minutes` 即触发（而非等值比较），因为循环拍间隔、系统休眠都可能错过精确分钟；等值比较会让功能整天静默失效。见 `[[config-schedule-pure-function]]` 的纯函数注释。
-- **当日去重**靠日期序号标记（`num_days_from_ce`，0=从未触发）：命中即置标记，避免凭据错误/非校园网环境下每拍重发请求。桌面为 `state.scheduled.login_day/logout_day`，由 `evaluate_and_mark`（`scheduled.rs:1376-1396`）统一判定并落标记；安卓为 `MONITOR.scheduled_login_day/scheduled_logout_day`，置标记逻辑在 `monitor_tick_loop` 对应位置。
-- **与夜间出站切换的门控关系**：桌面 `gated_night_action`（`scheduled.rs:1403-1417`）——`fire_login = !outbound_active && should_fire_scheduled_action(...)`，`fire_logout` 不受切换态影响；切换态下跳过定时登录且**不置当日标记、不消耗当日额度**（`evaluate_and_mark`，测试 `scheduled.rs:1722`）。安卓同构：定时登录要求 `!outbound_active`，定时注销照常；夜出站切换与运营商夜切在 `run_scheduled_actions` 内先于双禁用早退执行。
-- **与既有自动登录/断线重连/自动退出的隔离**：判定只依赖配置目标值 + 自身当日标记，不读写冷却（`last_auto_login_attempt`）、重连计数、`has_logged_online`。动作互斥：桌面登录抢 `tasks.is_logging_in`、注销抢 `tasks.is_logging_out`（`spawn_login_action` `scheduled.rs:1435-1459` 的 `:1441`、`perform_logout` `scheduled.rs:1505-1534` 的 `:1508`），抢不到则本拍跳过、下拍过点补触发兜底；安卓定时登录复用 `auto_login_on_start` 全编排（`monitor_loop.rs:921`，凭据检查/强制绑 WiFi/校园网探测，注释 `:739`）、定时注销复用 `protocol_cmds::do_logout`（`:941`）。
-- **定时注销成功后必须对齐全量注销后处理**，否则会被"可登录即自动登录"立刻登回，形成拉锯：桌面 `perform_logout` 成功后置 `exit.auto_exit_cancelled = true`（`scheduled.rs:1523`）、取消自动退出 deadline、`failure_tracker::reset_all`、`network.update{has_logged_online=false, disconnect_reconnect_count=0, last_auto_login_attempt=now, logout_protected_until=now+60s}`（`:1523-1532`，即 60s 注销保护期）；安卓 `do_logout` 同样含两步注销 / login_history 落账 / 60s 保护期语义（`monitor_loop.rs:741` 注释）。
-- **测试同文件**（无独立测试文件）：`schedule.rs:28-74` 6 例（禁用哨兵/00:00 即触发/未到点/到点触发/同日去重/跨天重置）；`scheduled.rs:1660-1905`（禁用目标不触发 `:1682`、到点触发置标记 `:1692`、跨天重置 `:1712`、切换态不消耗当日标记 `:1722`、`gated_night_action` 门控 `:1749`、退避/重放/快照/hold 纯函数 `:1768-1904`）；`monitor_loop.rs:1487-1607`（通知状态码、`should_attempt_login`、分档 3 例等）。
+- **判定纯函数与禁用哨兵**：`pub const SCHEDULED_DISABLED_MINUTES: u16 = 1440;`（`schedule.rs:20`）。`pub fn should_fire_scheduled_action(now_minutes: u16, target_minutes: u16, last_fired_day: i32, today_day: i32) -> bool`（`schedule.rs:22-30`）：
+  - `target_minutes >= SCHEDULED_DISABLED_MINUTES` 禁用哨兵永不触发（`schedule.rs:23-25`；2026-09-20 起 0 表示真实的 00:00 时刻、禁用改用哨兵 1440，存量 0 由双端 schema 迁移一次性刷为 1440，`schedule.rs:7-8,18-19`）；
+  - `now_minutes < target_minutes` 未到点不触发（`schedule.rs:26-28`）；
+  - 已到点（`now_minutes >= target_minutes`，含过点补触发）且 `last_fired_day != today_day` 即触发（`schedule.rs:29`，跨天重置靠日期序号天然实现，`schedule.rs:13-14`）。
+- **过点补触发**是配套设计：`now_minutes >= target_minutes` 即触发（而非等值比较），因为循环拍间隔、系统休眠都可能错过精确分钟；等值比较会让功能整天静默失效（`schedule.rs:16-17`）。
+- **当日去重**靠日期序号标记：`last_fired_day == today_day` 表示当日已执行过，不重复触发（`schedule.rs:10-11,29`）。调用方（桌面 `monitor::scheduled` / 安卓 `monitor_loop`）需在触发后写入 `last_fired_day`，本模块不负责存储。
+- **静默期门控无关**：`pub fn is_campus_check_silent(now_minutes: u16, start: u16, end: u16) -> bool`（`schedule.rs:41-49`）负责巡检静默期判定，其规则为 `start == 0` 禁用门控（`schedule.rs:42-44`）、`end <= start` 退化为单边（`schedule.rs:45-48` 及注释 `schedule.rs:34-36`）、`end > start` 为双边窗口（`schedule.rs:48`）。该函数与 `should_fire_scheduled_action` 并列，定时动作不调用它，故不受静默期影响。
+- **桌面启动编排**：`pub fn run_startup_tasks(app_handle: &AppHandle)`（`watcher.rs:16`）在启动阶段注册跟踪任务：后台检测（`watcher.rs:21-31`）、启动即测一次（`watcher.rs:36-43`）、定时测试循环（`watcher.rs:45-55`）、启动自动登录（`watcher.rs:57-62`）、以及独立的 `scheduled_actions` 循环（`watcher.rs:67-71`）。定时动作循环与 `enable_background_check` 开关无关，仅依赖自身配置目标值；注释提及"两目标均 0=禁用时零开销"应与 `schedule.rs` 中 0 为真实 00:00 且禁用用 1440 的迁移语义对照理解——判定逻辑以 `should_fire_scheduled_action` 为准。
+- **测试同文件**：`schedule.rs:51-126` 包含 `mod tests`，覆盖 `is_campus_check_silent`（起点0禁用 `schedule.rs:59-65`、单边语义 `schedule.rs:67-75`、双边窗口 `schedule.rs:77-84`）与 `should_fire_scheduled_action`（禁用哨兵1440 `schedule.rs:86-91`、目标00点0分即触发 `schedule.rs:93-99`、未到点不触发 `schedule.rs:101-105`、到点当日未执行触发 `schedule.rs:107-113`、同日已执行不重复 `schedule.rs:115-119`、跨天重置 `schedule.rs:121-125`）。
+- **双端单点**：模块注释明确无 cfg 门控、桌面与安卓共用实现与测试（`schedule.rs:3-4`）；静默期函数亦从桌面巡检、安卓巡检、安卓开机自启、无头 core 四处重复下沉为单点（`schedule.rs:38-40`）。
 
 ## Connections
 

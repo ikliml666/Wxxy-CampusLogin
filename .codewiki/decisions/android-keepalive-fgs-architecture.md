@@ -49,19 +49,19 @@ Tauri v2 官方明确不支持后台任务，移动端必须另起炉灶。巡�
 - **`get_battery_optimization_info(app)`** (行 20-41): 返回 `BatteryOptimizationInfo`；`#[cfg(not(mobile))]` 分支 (行 36-40) 返回 `Err("电池优化白名单仅安卓端可用")`。
 - **`request_ignore_battery_optimizations(app)`** (行 46-61): 一次性申请白名单，返回 `opened` 布尔；非 mobile 端 (行 56-60) 返回 Err。
 - **`open_vendor_battery_settings(app)`** (行 65-81): 跳厂商页，返回 `{path, target, tried}`；非 mobile 端 (行 76-80) 返回 Err。
-- **`open_notification_settings(app)`** (行 87-101): 跳通知设置页，返回 `opened`；非 mobile 端 (行 97-101) 返回 Err。
+- **`open_notification_settings(app)`** (行 87-102): 跳通知设置页，返回 `opened`；非 mobile 端 (行 97-101) 返回 Err。
 
 ### 3. 监控循环核心 (Monitor Loop)
 **文件**: `android/src-tauri/src/monitor_loop.rs`
 
 **全局状态与常量**:
 - **`MONITOR`** (行 15-17): `lazy_static` 持有 `MonitorState::default()`。
-- **`MonitorState`** (行 49-79, 结构体定义前于行 50-51 标注 `#[allow(dead_code)] // Task 4 循环体接线`): 字段含 `running` (行 52), `check_count` (行 53), `consecutive_failures` (行 54), `reconnect_count` (行 56), `last_login_attempt_ms` (行 57), `was_online` (行 58), `last_result` (行 59, `Mutex<Option<serde_json::Value>>`), `desired_interval_ms` (行 62), `idle_interval_ms` (行 64), `logout_protected_until_ms` (行 66), `wifi_event_ms` (行 68), `notified_online` (行 72, `AtomicU8` 状态码), `scheduled_login_day` (行 76), `scheduled_logout_day` (行 78)。
-- **`OUTBOUND_RESTORE_FAIL_COUNT`** (行 21), **`OUTBOUND_RESTORE_MAX_FAILS`** (行 23, 值 3)。
-- **`OUTBOUND_SWITCH_FAIL_COUNT`** (行 26), **`OUTBOUND_SWITCH_MAX_FAILS`** (行 28, 值 3)。
-- **`MONITOR_GENERATION`** (行 32): 代际 token 防 stop→start 竞速。
-- **`LOGIN_ATTEMPT_LOCK`** (行 37): tokio `Mutex` 串行化登录 attempt 段。
-- **`FORCE_CHECK_AFTER_RESTORE`** (行 47): 还原后无视静默期的一次性放行标记。
+- **`MonitorState`** (行 49-79, 结构体定义前于行 50-51 标注 `#[allow(dead_code)] // Task 4 循环体接线`): 字段含 `running` (行 52, `AtomicBool`), `check_count` (行 53, `AtomicU64`), `consecutive_failures` (行 54, `AtomicU32`), `reconnect_count` (行 56, `AtomicU32`, 本次在线周期内自动重连次数), `last_login_attempt_ms` (行 57, `AtomicU64`), `was_online` (行 58, `AtomicBool`), `last_result` (行 59, `Mutex<Option<serde_json::Value>>`), `desired_interval_ms` (行 62, `AtomicU64`, 运行中循环目标检测间隔), `idle_interval_ms` (行 64, `AtomicU64`, 闲时巡检间隔), `logout_protected_until_ms` (行 66, `AtomicU64`, 注销保护期截止), `wifi_event_ms` (行 68, `AtomicU64`, 最近 WiFi 变化事件 epoch), `notified_online` (行 72, `AtomicU8`, 常驻通知已展示状态 0=未展示 1=在线 2=未连接 3=非检测时段 4=WiFi未连接), `scheduled_login_day` (行 76, `AtomicI32`, 定时登录当日已触发标记), `scheduled_logout_day` (行 78, `AtomicI32`, 定时注销当日已触发标记)。
+- **`OUTBOUND_RESTORE_FAIL_COUNT`** (行 21, `AtomicU32`), **`OUTBOUND_RESTORE_MAX_FAILS`** (行 23, 常量 3)。
+- **`OUTBOUND_SWITCH_FAIL_COUNT`** (行 26, `AtomicU32`), **`OUTBOUND_SWITCH_MAX_FAILS`** (行 28, 常量 3)。
+- **`MONITOR_GENERATION`** (行 32, `AtomicU64`): 代际 token 防 stop→start 竞速。
+- **`LOGIN_ATTEMPT_LOCK`** (行 37, `tokio::sync::Mutex<()>`): 串行化登录 attempt 段。
+- **`FORCE_CHECK_AFTER_RESTORE`** (行 47, `AtomicBool`): 还原后无视静默期的一次性放行标记。
 - **`WIFI_EVENT_DELAY_MS`** (行 84, 2500), **`WIFI_LOST_EVENT_DELAY_MS`** (行 89, 0), **`WIFI_EVENT_DEBOUNCE_MS`** (行 92, 1000)。
 - **`WIFI_WATCHER_CHANNEL_ID`** (行 285), **`WIFI_WATCHER_ACTIVE`** (行 287): 均 `#[cfg(mobile)]`。
 
@@ -75,9 +75,9 @@ Tauri v2 官方明确不支持后台任务，移动端必须另起炉灶。巡�
 - `emit_login_log(app, message, log_type)` (行 176-180)
 - `notify_system(app, enabled, title, body, mascot)` (行 185-202)
 - `with_vpn_hint(body)` (行 208-214)
-- `portal_origin(portal_url)` (行 1233-1245)
-- `expected_operator_display(expected_operator)` (行 1248-1254)
-- `notify_state(online, wifi_off)` (行 1614-1622, 返回 (u8, &str): 1=在线, 2=未连接, 4=WiFi未连接；3=非检测时段为 `notified_online` 状态码，不由此函数返回)
+- `portal_origin(portal_url)` (行 1237-1249)
+- `expected_operator_display(expected_operator)` (行 1252-1258)
+- `notify_state(online, wifi_off)` (行 1619-1627, 返回 (u8, &str): 1=在线, 2=未连接, 4=WiFi未连接；3=非检测时段为 `notified_online` 状态码，不由此函数返回)
 
 **命令/入口**:
 - `start_background_check(app)` (行 217-266): 幂等启动，刷间隔→起 FGS→置 running→重置通知→`#[cfg(mobile)]` 起 WiFi watcher→spawn `monitor_tick_loop`。
@@ -90,38 +90,38 @@ Tauri v2 官方明确不支持后台任务，移动端必须另起炉灶。巡�
 - `get_notification_enabled(app)` / `set_notification_enabled(app, enabled)` (行 436-438 / 441-456)
 
 **启动与自动登录**:
-- `run_startup_tasks(app)` (行 468-539): 并行 spawn 后台检测/质量首测/自动登录，500ms 就绪窗口。
+- `run_startup_tasks(app)` (行 468-539): 并行 spawn 后台检测/质量首测/自动登录，500ms 就绪窗口，应用日志保留天数与 `avoid_bad_wifi` 快照兜底。
 - `probe_with_retry(app, settings)` (行 545-563): 首探测失败 3s 后重试。
 - `emit_auto_login_result(app, success, message)` (行 569-575)
-- `auto_login_on_start(app, settings)` (行 579-637): 静默期闸→绑 WiFi→探测→登录→置 `was_online`。
+- `auto_login_on_start(app, settings)` (行 579-640): 静默期闸→绑 WiFi→探测→登录→置 `was_online`。
 
 **循环体与调度**:
-- `ProbeWindowGuard` (行 642-650, `#[cfg(mobile)]`): Drop 释放探针窗口锁。
-- `power_state(app)` (行 656-661 mobile / 664-666 not-mobile 返回 `(true, true)`)
-- `monitor_tick_loop(app, interval_ms, gen)` (行 668-727): tokio 循环，代际校验→`run_scheduled_actions`→间隔热更新→分档→`run_check_once`。
-- `outbound_switch_active(app)` (行 731-736)
-- `latest_settings(app, fallback)` (行 741-748)
-- `logout_for_outbound_switch(app)` (行 756-781)
-- `switch_logout_unconfirmed(app, reason)` (行 786-803)
-- `portal_probe_on_little_cores(ip)` (行 809-846): 绑小核短命线程探测，捕获 panic。
-- `run_scheduled_actions(app)` (行 860-1068): 夜间出站切换/运营商夜切/定时登录注销。
-- `persist_settings(app, s)` (行 1073-1096)
-- `night_switch_login(app, settings)` (行 1102-1128)
-- `trigger_wifi_recheck(app)` (行 1134-1155)
-- `ensure_avoid_bad_wifi(app)` (行 1160-1196)
-- `restore_avoid_bad_wifi(app)` (行 1199-1223, `pub(crate)`)
+- `ProbeWindowGuard` (行 644-653, `#[cfg(mobile)]`): Drop 释放探针窗口锁。
+- `power_state(app)` (行 658-664 mobile / 666-669 not-mobile 返回 `(true, true)`)
+- `monitor_tick_loop(app, interval_ms, gen)` (行 671-730): tokio 循环，代际校验→`run_scheduled_actions`→间隔热更新→分档→`run_check_once`。
+- `outbound_switch_active(app)` (行 734-739)
+- `latest_settings(app, fallback)` (行 744-751)
+- `logout_for_outbound_switch(app)` (行 759-784)
+- `switch_logout_unconfirmed(app, reason)` (行 789-806)
+- `portal_probe_on_little_cores(ip)` (行 812-849): 绑小核短命线程探测，捕获 panic。
+- `run_scheduled_actions(app)` (行 863-1072): 夜间出站切换/运营商夜切/定时登录注销。
+- `persist_settings(app, s)` (行 1077-1100)
+- `night_switch_login(app, settings)` (行 1106-1132)
+- `trigger_wifi_recheck(app)` (行 1138-1159)
+- `ensure_avoid_bad_wifi(app)` (行 1164-1200, `pub(crate)`)
+- `restore_avoid_bad_wifi(app)` (行 1203-1227, `pub(crate)`)
 
 **夜切验证**:
-- 常量 `NIGHT_VERIFY_WAIT_SECS` (行 1227), `NIGHT_VERIFY_RETRY_SECS` (行 1228), `NIGHT_VERIFY_ATTEMPTS` (行 1229), `NIGHT_VERIFY_HTTP_TIMEOUT_SECS` (行 1230)
-- `verify_night_switch(app, expected_operator)` (行 1260-1314)
-- `night_switch_verify_round(settings, expected_operator)` (行 1318-1335)
-- `night_switch_check_once(client, portal_url, user, expected_operator)` (行 1338-1367)
+- 常量 `NIGHT_VERIFY_WAIT_SECS` (行 1231), `NIGHT_VERIFY_RETRY_SECS` (行 1232), `NIGHT_VERIFY_ATTEMPTS` (行 1233), `NIGHT_VERIFY_HTTP_TIMEOUT_SECS` (行 1234)
+- `verify_night_switch(app, expected_operator)` (行 1264-1318)
+- `night_switch_verify_round(settings, expected_operator)` (行 1322-1339)
+- `night_switch_check_once(client, portal_url, user, expected_operator)` (行 1342-1371)
 
 **单次检测**:
-- `run_check_once(app)` (行 1370-1610): 出站切换态闸→静默期闸(`FORCE_CHECK_AFTER_RESTORE` 例外)→探针窗口→绑 WiFi→`probe_campus_with_ssid`→Portal 短路/探测→三态护栏→状态机→自动登录(注销保护期+熔断+`LOGIN_ATTEMPT_LOCK`)→emit `background-check-result`→常驻通知翻转更新。
+- `run_check_once(app)` (行 1374-1615): 出站切换态闸→静默期闸(`FORCE_CHECK_AFTER_RESTORE` 例外)→探针窗口→绑 WiFi→`probe_campus_with_ssid`→Portal 短路/探测→三态护栏→状态机→自动登录(注销保护期+熔断+`LOGIN_ATTEMPT_LOCK`)→emit `background-check-result`→常驻通知翻转更新。
 
-**测试模块** (`#[cfg(test)] mod tests`, 行 1624-1746):
-覆盖 `notify_state` (行 1632), `should_attempt_login` (行 1641-1673), `wifi_event_is_burst_start` (行 1676), `effective_interval_ms` (行 1693-1713), `portal_origin` (行 1716), `expected_operator_display` (行 1727), `status_value` (行 1733) 等纯函数。
+**测试模块** (`#[cfg(test)] mod tests`, 行 1629-1751):
+覆盖 `notify_state` (行 1637-1643), `should_attempt_login` (行 1646-1678), `wifi_event_is_burst_start` (行 1681-1695), `effective_interval_ms` (行 1697-1718), `portal_origin` (行 1721-1729), `expected_operator_display` (行 1732-1735), `status_value` (行 1738-1750) 等纯函数。
 
 ## 架构流程
 
@@ -156,20 +156,20 @@ Tauri v2 官方明确不支持后台任务，移动端必须另起炉灶。巡�
 ## 数据流
 
 1. **启动恢复**: `run_startup_tasks` (`monitor_loop.rs:468-539`) 并行 spawn 后台检测、质量首测、自动登录；启动即应用日志保留天数与 `avoid_bad_wifi` 快照兜底。
-2. **巡检循环**: `monitor_tick_loop` (`monitor_loop.rs:668-727`) 每 tick 先跑 `run_scheduled_actions` (`monitor_loop.rs:860-1068`)，再分档间隔后调 `run_check_once` (`monitor_loop.rs:1370-1610`)。
+2. **巡检循环**: `monitor_tick_loop` (`monitor_loop.rs:671-730`) 每 tick 先跑 `run_scheduled_actions` (`monitor_loop.rs:863-1072`)，再分档间隔后调 `run_check_once` (`monitor_loop.rs:1374-1615`)。
 3. **WiFi 事件**: `handle_wifi_event` (`monitor_loop.rs:335-373`) 经 `wifi_event_is_burst_start` (行 97-99) 去抖，lost 零延迟/available 延迟 2500ms (行 89 / 84) 后触发 `run_check_once`。
-4. **定时与切换**: `run_scheduled_actions` (行 860-1068) 复用共享纯函数 `evaluate_outbound_action_with_restore` (行 882) / `evaluate_night_switch_gated_with_restore` (行 973) / `evaluate_scheduled_actions` (行 1024) 决策，落盘标记经 `persist_settings` (`monitor_loop.rs:976-999`)。
+4. **定时与切换**: `run_scheduled_actions` (行 863-1072) 复用共享纯函数 `evaluate_outbound_action_with_restore` (行 885) / `evaluate_night_switch_gated_with_restore` (行 976) / `evaluate_scheduled_actions` (行 1028) 决策，落盘标记经 `persist_settings` (`monitor_loop.rs:1077-1100`)。
 5. **通知**: 常驻通知由 `notified_online` (行 72) 状态码翻转驱动 (`update_notification` via `lib.rs:42-44`)；系统通知由 `notify_system` (`monitor_loop.rs:185-202`) 在掉线/失败等关键事件触发；应用内 toast 经 `auto-login-result` 事件 (`emit_auto_login_result` 行 569-575)。
 
 ## 影响与约束
 
-- **代际防竞速**: `MONITOR_GENERATION` (`monitor_loop.rs:32`) 确保旧循环退出时不会误清新一轮 `running` 标志 (`monitor_loop.rs:695`, `724-726`)。
-- **登录互斥**: `LOGIN_ATTEMPT_LOCK` (`monitor_loop.rs:37`) 覆盖 tick/WiFi/手动三条入口的记账→登录→计数段 (`monitor_loop.rs:1519`)。
-- **省电策略**: `effective_interval_ms` (行 106-113) 分档（亮屏 WiFi 基础间隔，否则闲时间隔）；`notified_online` 仅翻转时 notify (行 1604)；探针窗口 `ProbeWindowGuard` (行 642-650) 按需持锁；`portal_probe_on_little_cores` (行 809-846) 绑小核。
-- **熔断与保护**: `consecutive_failures` 达 5 暂停自动重登 (`monitor_loop.rs:1503`, `1545`, `1552`); `logout_protected_until_ms` 手动注销后 60s 内不重登 (`monitor_loop.rs:1502`)。
+- **代际防竞速**: `MONITOR_GENERATION` (`monitor_loop.rs:32`) 确保旧循环退出时不会误清新一轮 `running` 标志 (`monitor_loop.rs:698`, `727-729`)。
+- **登录互斥**: `LOGIN_ATTEMPT_LOCK` (`monitor_loop.rs:37`) 覆盖 tick/WiFi/手动三条入口的记账→登录→计数段 (`monitor_loop.rs:1524`)。
+- **省电策略**: `effective_interval_ms` (行 106-113) 分档（亮屏 WiFi 基础间隔，否则闲时间隔）；`notified_online` 仅翻转时 notify (行 1609)；探针窗口 `ProbeWindowGuard` (行 644-653) 按需持锁；`portal_probe_on_little_cores` (行 812-849) 绑小核。
+- **熔断与保护**: `consecutive_failures` 达 5 暂停自动重登 (`monitor_loop.rs:1508`, `1550`, `1557`); `logout_protected_until_ms` 手动注销后 60s 内不重登 (`monitor_loop.rs:1507`)。
 - **三态护栏**: `run_check_once` 中仅 `error_kind.is_none()` 才翻转 `online` (`monitor_loop.rs:1482-1486`)，Unknown/Failed 保持 `was_online` 记忆。
-- **平台限制**: `#[cfg(mobile)]` 标注的 `start_wifi_watcher` (行 292), `handle_wifi_event` (行 335), `ProbeWindowGuard` (行 642), `power_state` mobile 版 (行 656) 等不在桌面编译；`battery_cmds.rs` 非 mobile 分支 (行 36-40 等) 直接返回 Err；前台服务插件整体由 `#![cfg(mobile)]` (`foreground-service/src/lib.rs:1`) 限定。
-- **出站切换态**: `night_outbound_restore` 标记非空时 `run_check_once` 整轮跳过 (`monitor_loop.rs:1385-1388`)，但 `run_scheduled_actions` 照常执行还原判定 (`monitor_loop.rs:860-1068` 中 `NightOutboundAction::Restore` 分支)。
+- **平台限制**: `#[cfg(mobile)]` 标注的 `start_wifi_watcher` (行 292), `handle_wifi_event` (行 335), `ProbeWindowGuard` (行 644), `power_state` mobile 版 (行 658) 等不在桌面编译；`battery_cmds.rs` 非 mobile 分支 (行 36-40 等) 直接返回 Err；前台服务插件整体由 `#![cfg(mobile)]` (`foreground-service/src/lib.rs:1`) 限定。
+- **出站切换态**: `night_outbound_restore` 标记非空时 `run_check_once` 整轮跳过 (`monitor_loop.rs:1389-1392`)，但 `run_scheduled_actions` 照常执行还原判定 (`monitor_loop.rs:863-1072` 中 `NightOutboundAction::Restore` 分支)。
 
 ## Connections
 
