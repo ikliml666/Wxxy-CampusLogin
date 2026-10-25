@@ -4,7 +4,7 @@
 //!
 //! - [`crypto`]：AES-128-CFB128 host 加密/解密（网关包装 URL 的核心算子）；
 //! - [`wrap`]：校内 URL → WebVPN 网关包装 URL（含幂等与端口形态）；
-//! - [`cas`]：CAS 统一身份认证（账密登录拿 TGT、TGT 换 ST）；
+//! - [`cas`]：CAS 统一身份认证（kaptcha 自动解题、账密登录拿 TGT、TGT 换 ST）；
 //! - [`session`]：WebVPN 会话（CAS TGT 静默登录 / 探活 / 业务 client 句柄）；
 //! - [`route`]：网络归属 → 直连/包装 决策表（自助服务校外自动回退的路由核心）。
 //!
@@ -25,6 +25,7 @@
 //! - 输入 host 已是网关域时幂等原样返回（见 [`wrap::wrap_url`]）。
 
 pub mod cache;
+pub mod captcha;
 pub mod cas;
 pub mod crypto;
 pub mod error;

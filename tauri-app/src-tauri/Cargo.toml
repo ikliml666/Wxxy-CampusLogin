@@ -58,6 +58,8 @@ hex = "0.4"
 thiserror = "2"
 # CAS 登录密码 textbook RSA（Shapiro RSA.js 系无 padding）
 num-bigint-dig = "0.8"
+# kaptcha 算术验证码 PNG 解码（识别器 src/vpn/captcha.rs，模板 templates/）
+image = { version = "0.25", default-features = false, features = ["png"] }
 num-traits = "0.2"
 
 # 安卓 SO_BINDTODEVICE 物理网卡旁路(bound_socket.rs;cfg(target_os = "android") 门控,桌面不编译)。

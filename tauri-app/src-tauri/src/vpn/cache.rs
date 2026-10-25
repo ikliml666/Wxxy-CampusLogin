@@ -3,7 +3,7 @@
 //! false 或凭据/总开关变更）用保存凭据静默重登一次。密码仅内存传递，任何日志
 //! 不得出现明文凭据。
 
-use super::cas::CasClient;
+use super::cas::{kaptcha_templates, CasClient};
 use super::error::{map_cas_login_error, map_webvpn_error};
 use super::rsa::rsa_encrypt_hex;
 use super::session::WebVpnSession;
@@ -25,9 +25,9 @@ pub fn reset() {
     *VPN_SESSION.write() = None;
 }
 
-/// 取有效会话：缓存命中且探活通过直接复用；否则静默重登一次（CAS 登录 →
-/// TGT 换 ST → 网关 302 链，无验证码无交互）。`account`/`password` 为 CAS
-/// 明文凭据，由调用方从加密存储解出，仅内存传递。
+/// 取有效会话：缓存命中且探活通过直接复用；否则静默重登一次（kaptcha 自动
+/// 解题 → CAS 登录 → TGT 换 ST → 网关 302 链，无人工交互）。`account`/`password`
+/// 为 CAS 明文凭据，由调用方从加密存储解出，仅内存传递。
 pub async fn ensure_alive(account: &str, password: &str) -> Result<Arc<WebVpnSession>, String> {
     if let Some(session) = cached() {
         if session.is_alive().await {
@@ -57,7 +57,13 @@ pub fn store(session: WebVpnSession) {
 pub async fn login_new_session(account: &str, password: &str) -> Result<WebVpnSession, String> {
     let cas = CasClient::new().map_err(|e| format!("CAS 客户端创建失败: {e}"))?;
     let pwd_hex = rsa_encrypt_hex(password).map_err(|e| format!("密码加密失败: {e}"))?;
-    let ok = cas.login(account, &pwd_hex).await.map_err(map_cas_login_error)?;
+    let Some((captcha_uid, captcha_code)) = cas.solved_captcha(kaptcha_templates(), 3).await else {
+        return Err("CAS 验证码自动识别失败（连续 3 张未识别，请稍后重试）".to_string());
+    };
+    let ok = cas
+        .login(account, &pwd_hex, &captcha_uid, &captcha_code)
+        .await
+        .map_err(map_cas_login_error)?;
     WebVpnSession::login(&cas, &ok.tgt).await.map_err(map_webvpn_error)
 }
 

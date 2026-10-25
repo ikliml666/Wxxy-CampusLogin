@@ -1,19 +1,22 @@
-//! CAS 统一身份认证客户端（最小集）：账密登录拿 TGT + TGT 换 ST。
+//! CAS 统一身份认证客户端（最小集）：kaptcha 自动解题 → 账密登录拿 TGT → TGT 换 ST。
 //!
 //! 移植自 Wxxy-CampusHub crates/campus-auth/src/cas.rs（2026-10-25），按本校
-//! 「自助服务经 WebVPN 访问」需求裁剪：本校 CAS 实测无验证码，kaptcha 相关
-//! （CaptchaInfo/parse_kaptcha）与门户探测（portal_probe/portal_*）、头像上传、
-//! csrf_token 全部裁掉；`sso_ticket` 抽自同仓库 crates/campus-auth/src/jwglxt.rs
+//! 「自助服务经 WebVPN 访问」需求裁剪：门户探测（portal_probe/portal_*）、
+//! 头像上传、csrf_token 裁掉；`sso_ticket` 抽自同仓库 crates/campus-auth/src/jwglxt.rs
 //! 的 `impl CasClient`（TGT 换任意 service 的 ST，WebVPN 登录要用）。
+//! 2026-10-25 实测服务端已强制校验验证码（空 id/code 登录恒 CODEFALSE），
+//! 补回 kaptcha 流程与自动识别器（[`super::captcha`]）。
 //!
 //! 协议事实全部来自 Wxxy-CampusHub docs/cas-recon/REPORT.md（实测打通）：
 //! - 无 Cookie 依赖即可完成 CAS 登录；成功响应顶层即 `{tgt, ticket}`
 //! - `POST /v1/tickets`：x-www-form-urlencoded，头 `token` = RSA("lyasp"+毫秒)
 //! - 错误码全集 16 个，映射见 [`map_error_code`]
 
+use super::captcha::{solve, KaptchaTemplates};
 use super::error::CasAuthError;
 use super::jar::RecordingJar;
 use super::rsa::cas_token_header;
+use base64::Engine as _;
 use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,12 +47,28 @@ pub struct CasLoginOk {
     pub ticket: String,
 }
 
+/// 验证码信息（`GET {CAS_BASE}/kaptcha` 响应）。
+#[derive(Debug, Clone)]
+pub struct CaptchaInfo {
+    pub uid: String,
+    /// `data:image/png;base64,…`（算术题面，[`super::captcha::solve`] 自动解题）
+    pub content: String,
+}
+
+#[derive(serde::Deserialize)]
+struct KaptchaResp {
+    #[serde(rename = "kaptchaType")]
+    _kaptcha_type: String,
+    uid: String,
+    content: String,
+}
+
 /// CAS 登录失败（错误码全集与映射以 REPORT.md 为准）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CasLoginError {
     /// NOUSER：账号或密码错误
     WrongUserOrPwd,
-    /// CODEFALSE：验证码错误（本校实测无验证码，保留映射以兼容服务端风控）
+    /// CODEFALSE：验证码校验未通过（2026-10-25 起服务端强制验证码）
     WrongCaptcha,
     /// USERLOCK：账号锁定
     UserLocked,
@@ -71,22 +90,67 @@ impl CasClient {
         Ok(Self { http })
     }
 
+    /// GET {CAS_BASE}/kaptcha → {kaptchaType, uid, content}。
+    pub async fn kaptcha(&self) -> Result<CaptchaInfo, CasAuthError> {
+        let body = self
+            .http
+            .get(format!("{CAS_BASE}/kaptcha"))
+            .send()
+            .await?
+            .text()
+            .await?;
+        parse_kaptcha(&body)
+    }
+
+    /// 取验证码并自动解题，最多 `max_attempts` 张（识别不达阈值换一张，绝不硬猜
+    /// ——错答案会消耗 CAS 连续错误计数）。全部失败 → None，由调用方决定报错语义。
+    pub async fn solved_captcha(
+        &self,
+        templates: &KaptchaTemplates,
+        max_attempts: usize,
+    ) -> Option<(String, String)> {
+        for _ in 0..max_attempts {
+            let Ok(info) = self.kaptcha().await else {
+                continue;
+            };
+            let Some(png_b64) = info.content.strip_prefix("data:image/png;base64,") else {
+                continue;
+            };
+            let Ok(png) = base64::engine::general_purpose::STANDARD.decode(png_b64) else {
+                continue;
+            };
+            if let Some(answer) = solve(&png, templates) {
+                return Some((info.uid, answer));
+            }
+        }
+        None
+    }
+
     /// POST {CAS_BASE}/v1/tickets：CAS 账密登录。
     ///
     /// `password_rsa_hex` 为 [`super::rsa::rsa_encrypt_hex`] 的密文；头 `token` =
     /// [`cas_token_header`]（毫秒时间戳在方法内取当前时刻）。
-    /// 本校实测无验证码：body 的 id/code 字段传空串（服务端不校验）。
+    /// `captcha_uid`/`captcha_code` 来自 [`Self::solved_captcha`]（2026-10-25 起
+    /// 服务端强制校验验证码，空值恒 CODEFALSE）。
     pub async fn login(
         &self,
         username: &str,
         password_rsa_hex: &str,
+        captcha_uid: &str,
+        captcha_code: &str,
     ) -> Result<CasLoginOk, CasLoginError> {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| CasLoginError::Network(e.to_string()))?
             .as_millis() as u64;
         let token = cas_token_header(now_ms).map_err(|e| CasLoginError::Network(e.to_string()))?;
-        let body = build_login_body(username, password_rsa_hex, PORTAL_SERVICE, "", "");
+        let body = build_login_body(
+            username,
+            password_rsa_hex,
+            PORTAL_SERVICE,
+            captcha_uid,
+            captcha_code,
+        );
         let text = self
             .http
             .post(format!("{CAS_BASE}/v1/tickets"))
@@ -192,6 +256,22 @@ fn form_encode(s: &str) -> String {
 ///
 /// 成功：顶层 `{tgt, ticket}`（REPORT.md 三节实测形态；兼容 data 包裹与 data 为纯字符串）。
 /// 失败：`{"meta":...,"data":{"code":"..."}}` → [`map_error_code`]。
+/// 验证码模板单例（约 330KB JSON，进程内一次解析）。
+static TEMPLATES: std::sync::OnceLock<KaptchaTemplates> = std::sync::OnceLock::new();
+pub fn kaptcha_templates() -> &'static KaptchaTemplates {
+    TEMPLATES.get_or_init(KaptchaTemplates::load)
+}
+
+/// 解析 kaptcha 响应（纯函数供离线单测）。
+pub fn parse_kaptcha(body: &str) -> Result<CaptchaInfo, CasAuthError> {
+    let resp: KaptchaResp = serde_json::from_str(body)
+        .map_err(|e| CasAuthError::Parse(format!("kaptcha 响应解析失败: {e}")))?;
+    Ok(CaptchaInfo {
+        uid: resp.uid,
+        content: resp.content,
+    })
+}
+
 pub fn parse_login_response(body: &str) -> Result<CasLoginOk, CasLoginError> {
     let v: serde_json::Value = serde_json::from_str(body)
         .map_err(|e| CasLoginError::Unknown(format!("响应非 JSON: {e}")))?;

@@ -272,8 +272,13 @@ async fn run_full_chain(account: &str, password: &str) -> Result<String, String>
         CasClient::new().map_err(|e| format!("① CAS 客户端创建失败: {}", map_cas_auth_error(e)))?;
     let pwd_hex = campus_login_lib::vpn::rsa::rsa_encrypt_hex(password)
         .map_err(|e| format!("① 密码加密失败: {e}"))?;
+    let Some((captcha_uid, captcha_code)) =
+        cas.solved_captcha(campus_login_lib::vpn::cas::kaptcha_templates(), 3).await
+    else {
+        return Err("① CAS 统一身份认证失败: 验证码自动识别失败（连续 3 张未识别，请稍后重试）".to_string());
+    };
     let ok = cas
-        .login(account, &pwd_hex)
+        .login(account, &pwd_hex, &captcha_uid, &captcha_code)
         .await
         .map_err(|e| format!("① CAS 统一身份认证失败: {}", map_cas_login_error(e)))?;
     let session = WebVpnSession::login(&cas, &ok.tgt)
